@@ -23,6 +23,7 @@
 #include "../renderer_adapter/draw_replace_hook.h"
 #include "record_io.h"   // lane 126: SceneTables (the arena of the record)
 #include "ui_ours_core.h"
+#include "quads2d_rig.h"   // S103 P3b: rig::g_on in Claims
 #include "ui_quads.h"   // lane 148
 
 namespace rdr_scene {
@@ -50,7 +51,8 @@ class UiOurs final : public rdr_adapter::DrawReplaceHook, private UiTextureProvi
 
   // ---- DrawReplaceHook ----
   const char* Name() const override { return "ui"; }
-  bool Claims(const rdr_adapter::DrawOrigin& origin) const override { return core_.Claims(origin) || (options_.quads && origin.op == 19 && origin.call_site == kUiQuadRectSite); }   // lane 148: the rectangles (no picture) when the quads are ours
+  bool Claims(const rdr_adapter::DrawOrigin& origin) const override { return core_.Claims(origin) || (options_.quads && origin.op == 19 && (origin.call_site == kUiQuadRectSite || (rdr_scene::q2d::rig::g_on && origin.call_site == kUiQuadRectStripSite))); }   // lane 148: the rectangles (no picture) when the quads are ours
+  bool NeedsFragmentBlock() const override;   // S103 I2: only the offline row rig (--quads-2d-rows) reads the stream's pixel constants (the hue-shifted sprite's c2)
   bool FrameReady(const rdr_adapter::LoadedFrame& frame) override;
   bool Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& out, rdr_adapter::KeepWhy& why) override;
 

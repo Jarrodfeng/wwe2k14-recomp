@@ -11,7 +11,8 @@
 //       "[wwe2k14][load] enq us=T frame=F tid=H reader=0x.. path=P lr=0x.. lr2=0x.."
 //       "[wwe2k14][load] done us=T frame=F tid=H reader=0x.. size=N cb_us=D"   (cb_us = time spent in ReadEndProcess)
 //   us = host microseconds since the first probe line. lr = the enqueue's guest caller, lr2 = its caller.
-// Cost when off: one setting read per call.
+// Cost when off: one setting read per call. (S103: the loader stall watch in the sub_82C37070 hook and the newest-file
+// record in the sub_82C37E48 hook run with the switch off too; see their comments.)
 
 #pragma once
 
@@ -25,11 +26,16 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "decode_probe.h"  // Ticks, TicksPerMs, HostTid, GuestPtr
+#include "flight_recorder.h"  // FlightDump (loader stall dump, S103)
 #include "frame_stats.h"
+#include "load_stall.h"
 #include "load_turbo.h"  // g_load_turbo_ingame_window (fast loader scope, Session 15)
+#include "scene_live/safe_guest_pages.h"   // BH3-2: PlausibleGuestPtr
 
 REXCVAR_DEFINE_BOOL(wwe2k14_load_probe, false, "wwe2k14",
                     "Log every pac load request (sub_82C37E48) and its completion (sub_82C37C08) with host time, frame "
@@ -80,53 +86,100 @@ struct StepTrack {
   uint64_t since_frame = 0;
 };
 inline StepTrack g_step;  // only the CGameWorkerThread steps (under the loader lock)
+inline StallWatch g_stall;  // same thread as g_step
+inline LastPath g_last_path;  // newest enqueued path (the stall line names it); lock-free, always kept (S103)
+inline StallOnce g_stall_once;
 inline std::atomic<uint32_t> g_worker_tid{0};  // host tid of the thread that steps the state machine
 
+inline bool SafeRead32(uint32_t guest, uint32_t* out);   // defined below
+// BH3-2: runs after every worker step (stall watch): table-checked reads, and a request pointer that is low / MMIO / unaligned is not followed.
 inline uint32_t ReqState(uint8_t* base, uint32_t* req) {
-  *req = Be32(GuestPtr(base, 0x839400A4u));
-  return *req ? Be32(GuestPtr(base, *req + 104)) : 0;
+  (void)base;
+  *req = 0;
+  uint32_t r = 0, st = 0;
+  if (!SafeRead32(0x839400A4u, &r) || !wwe2k14::safe_pages::PlausibleGuestPtr(r, 104)) return 0;
+  *req = r;
+  return SafeRead32(r + 104, &st) ? st : 0;
 }
 
 }  // namespace wwe2k14::load_probe
 
 REX_HOOK_RAW(sub_82C37070) {
-  if (!REXCVAR_GET(wwe2k14_load_probe)) {
-    __imp__sub_82C37070(ctx, base);
-    return;
-  }
   using namespace wwe2k14::load_probe;
   __imp__sub_82C37070(ctx, base);
-  StepTrack& s = g_step;
-  g_worker_tid.store(HostTid(), std::memory_order_relaxed);
   uint32_t req = 0;
   const uint32_t state = ReqState(base, &req);
-  ++s.steps;
-  if (req != s.req || state != s.state) {
-    const int64_t us = Us();
-    const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
-    REXLOG_INFO("[wwe2k14][load] state us={} frame={} req=0x{:08X} {} -> req=0x{:08X} {} (prev lasted {} us, {} "
-                "frames, {} steps)",
-                us, frame, s.req, s.state, req, state, us - s.since_us, frame - s.since_frame, s.steps);
-    s.req = req;
-    s.state = state;
-    s.steps = 0;
-    s.since_us = us;
-    s.since_frame = frame;
+  if (REXCVAR_GET(wwe2k14_load_probe)) {
+    StepTrack& s = g_step;
+    g_worker_tid.store(HostTid(), std::memory_order_relaxed);
+    ++s.steps;
+    if (req != s.req || state != s.state) {
+      const int64_t us = Us();
+      const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+      REXLOG_INFO("[wwe2k14][load] state us={} frame={} req=0x{:08X} {} -> req=0x{:08X} {} (prev lasted {} us, {} "
+                  "frames, {} steps)",
+                  us, frame, s.req, s.state, req, state, us - s.since_us, frame - s.since_frame, s.steps);
+      s.req = req;
+      s.state = state;
+      s.steps = 0;
+      s.since_us = us;
+      s.since_frame = frame;
+    }
+  }
+  // S103, ALWAYS ON (players too; no switch): a request stuck in state 9 > 5 s = its read-end callback never returned (MVL.md).
+  // Cost per worker step (one per ~2 ms): two guest loads, one clock read, a few compares; no lock, no allocation, no
+  // behaviour change. On fire (once per stall): a WARN naming the request and the last file; the first stall of a run also
+  // dumps every thread's stacks to logs\flight_NNN.txt (works without --wwe2k14_flight_recorder) on a helper thread.
+  const int64_t now = Us();
+  if (g_stall.Update(req, state, now, 5'000'000, wwe2k14::g_guest_frame.load(std::memory_order_relaxed))) {
+    const std::string newest = g_last_path.Get();
+    // The stuck request's own file name: the step copies up to 15 chars from request+50 with sub_82C35118 (q decomp
+    // sub_82C37070: r4 = [0x839400A4]+50 at +1B8, +81C, +898) before it opens the file; read once, here, on the fire.
+    LastPath own;
+    {   // BH3-6: the name bytes at req+50..65 through five checked aligned word reads (SafeRead32 refuses unaligned: the words at +48..+64 hold them)
+      uint8_t nm[20] = {};
+      for (uint32_t k = 0; k < 5; ++k) {
+        uint32_t w = 0;
+        if (!SafeRead32(req + 48 + 4 * k, &w)) break;
+        nm[4 * k] = uint8_t(w >> 24), nm[4 * k + 1] = uint8_t(w >> 16), nm[4 * k + 2] = uint8_t(w >> 8), nm[4 * k + 3] = uint8_t(w);
+      }
+      own.Set(nm + 2);
+    }
+    const std::string own_name = own.Get();
+    const double secs = double(g_stall.HeldUs(now)) / 1e6;
+    REXLOG_WARN("[wwe2k14][load] STALL: req 0x{:08X} (file {}) state 9 for {:.1f} s, newest queued file {} (please send "
+                "this log)",
+                req, own_name, secs, newest);
+    if (g_stall_once.TakeDump()) {
+      try {  // an exception must never escape a guest hook
+        const std::string detail = fmt::format("pac request 0x{:08X} (file {}) in state 9 for {:.1f} s, newest queued file {}",
+                                               req, own_name, secs, newest);
+        // samples -1 = guest thread stacks only: no host thread is suspended on a healthy game.
+        std::thread([detail] {
+          wwe2k14::NameThread(L"load_stall_dump");
+          wwe2k14::FlightDump("loader stall", detail, nullptr, -1);
+        }).detach();
+      } catch (...) {
+      }
+    }
   }
 }
 
 REX_HOOK_RAW(sub_82C37E48) {
+  using namespace wwe2k14::load_probe;
   if (!REXCVAR_GET(wwe2k14_load_probe)) {
+    const uint32_t reader_off = ctx.r3.u32 + 20;
     __imp__sub_82C37E48(ctx, base);
+    g_last_path.Set(GuestPtr(base, reader_off));  // S103: always kept, lock-free (the stall WARN names it)
     return;
   }
-  using namespace wwe2k14::load_probe;
   const uint32_t reader = ctx.r3.u32;
   const uint32_t lr = uint32_t(ctx.lr);
   const uint32_t lr2 = Lr2(ctx, base);
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   const int64_t us = Us();
   __imp__sub_82C37E48(ctx, base);
+  g_last_path.Set(GuestPtr(base, reader + 20));
   REXLOG_INFO("[wwe2k14][load] enq us={} frame={} tid={} reader=0x{:08X} path={} lr=0x{:08X} lr2=0x{:08X}", us, frame,
               HostTid(), reader, Path(base, reader), lr, lr2);
 }

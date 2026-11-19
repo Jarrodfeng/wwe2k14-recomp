@@ -101,8 +101,8 @@ def main():
     check(rc != 0, 'an arm named A2 (the base repeat name) is refused')
 
     # 4. job line
-    good = 'g|Only=ab;AbScene=frames_bryan;AbRounds=3;AbWarmup=true;ArmFlags=A:a=1,b=2|g2:c=3|g3:d=4'
-    bad = ['g|Only=ab;ArmFlags=g2:z|g3:w', 'g|Only=ab;ArmFlags=A:x|A:y', 'g|Only=frames_bryan;ArmFlags=A:x|g2:y', 'g|Only=ab;ArmFlags=A:x|g2:y;ArmBFlags=q', 'g|Only=ab;ArmFlags=A:x']
+    good = 'g|Only=ab;Base=none;AbScene=frames_bryan;AbRounds=3;AbWarmup=true;ArmFlags=A:a=1,b=2|g2:c=3|g3:d=4'
+    bad = ['g|Only=ab;Base=none;ArmFlags=g2:z|g3:w', 'g|Only=ab;Base=none;ArmFlags=A:x|A:y', 'g|Only=frames_bryan;Base=none;ArmFlags=A:x|g2:y', 'g|Only=ab;Base=none;ArmFlags=A:x|g2:y;ArmBFlags=q', 'g|Only=ab;Base=none;ArmFlags=A:x']
     tmp = Path(tempfile.mkdtemp(prefix='m5_jobs_'))
     rc, out = pwsh(ROOT / 'tools/surface/s0_5_jobs.ps1', '-Out', tmp / 'o', '-CheckOnly', '-Jobs', good)
     check(rc == 0 and 'job lines ok' in out, 'job line with ArmFlags passes the runner validation')

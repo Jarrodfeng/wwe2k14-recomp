@@ -1,5 +1,7 @@
 # The renderer arc, part 2: back to 60 on the Surface, and the game stops drawing
 
+**CLOSED 2026-11-15 12:1x (Session 102, main session Opus 5.5).** Outcome: v0.3.3 released (PC full, Android pre-release) with the kept levers as the player default (bundle 3, `src\bundle3.h`); Surface, sustained, player defaults: Bryan's entrance 37.7 -> 45.8 fps (+21 %), Brock's 40.7 -> 51.3 (+26 %), the match holds 60. **The goal (Bryan at 60) was not reached** (~46 sustained). Most lanes made the record -> read -> replay pipeline cheaper (memos, lite paths, frame skips) instead of removing it; the "game stops drawing" half of this plan never became a lane (LESSONS: "a plan built for many parallel lanes drifts into band-aids"). Part 3 (`RENDERER_ARC_PT3.md`) makes that structural cut its spine. Record: `SESSION102_SUMMARY.md`, `docs\renderer\BUDGET_LEDGER.csv`, `docs\DECISIONS.md` (2026-11-14 / 15).
+
 Written 2026-11-13 22:50-23:54 by the planning session (Fable 5.2) from an interview with Jarrod and twelve read-only readers, for
 the main session (Opus 5.5) to run as Session 102.
 **Scope:** speed on weak hardware and the rest of the ownership the arc promised: our renderer draws whole passes itself and the

@@ -143,6 +143,7 @@
   },
   {
    "name": "s102_r18_b2.game_syntax",
+   "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"],
    "cmd": [
     "py",
     "-I",

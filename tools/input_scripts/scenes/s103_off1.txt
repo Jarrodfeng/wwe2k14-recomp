@@ -1,0 +1,28 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true
+# intent: scene 2
+# S103 landing 2: first run of the stream-free exe (out\build\win-amd64-release-off, preset win-amd64-release-off). Same timeline and screenshots as s103_ab_*.txt, so its sheet sits beside the A/B pair.
+# 2026-11-17 15:4x: entrance shots anchored to game events (Brock tron 343.bik2 +200, entrance step 5 +60, step 15), Jarrod: keep shots across entrances and match; match shots stay 300 / 900 / 1800 frames after the clock starts (past the fade).
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+log scene=entrances
+wait_file 343.bik2 1800
+wait_frames 200
+screenshot ab_ent1
+wait_state entrance_step_0 >=5 3600 2
+wait_frames 60
+screenshot ab_ent2
+wait_state entrance_step_0 >=15 3600 2
+screenshot ab_ent3
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 300
+screenshot ab_match1
+wait_frames 600
+screenshot ab_match2
+wait_frames 900
+screenshot ab_match3
+log bench: done
+quit

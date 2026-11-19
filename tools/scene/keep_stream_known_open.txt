@@ -1,0 +1,5 @@
+# S103 P9F: units of the OFF build that still reach a stream header, named on purpose (tools\scene\keep_stream_lint.py prints each one as KNOWN OPEN on every pass; a unit that is
+# NOT listed and reaches the stream FAILS; a listed unit that no longer reaches it FAILS too, so this list can only shrink). Format: `unit | why`.
+# This is the COMPILE_OUT_LIST.md B4b split (B4a, ui_ours_core, was split by PN1 into the kept ui_file_index and the stream-only UiCore): the class is an in-place replacer (subclass of rdr_adapter::DrawReplaceHook, the stream's seam, draw_replace_hook.h ->
+# capture_reader.h) that also hold something the 2D layer keeps. Not mechanical (the class derives from the seam; the kept part has to move to a new seam-free file first), so not done here.
+src/renderer_scene/movie_ours.cpp | B4b: MovieOurs derives from rdr_adapter::DrawReplaceHook (draw_replace_hook.h) and reads capture_reader.h; the movie picture the 2D layer keeps must be split out first

@@ -1,0 +1,8 @@
+{
+ "owner": "S103 lane P4F (review F3): a cvar whose description says DEV ONLY must only be read inside an expression that tests IsDevBuild() (tools/scene/dev_cvar_lint.py). 0 game runs. The planted twin (--selftest) must flag an unguarded read; the scan must find no violation in src/.",
+ "note": "found and fixed in P4F: wwe2k14_rdr_movie_planes and wwe2k14_rdr_2d_record (tap Active() read the cvar alone), wwe2k14_rdr_screen_bind (release build applied the override), wwe2k14_rdr_scene_census (release build logged), wwe2k14_rdr_format_caps_mask (reader.h tested the WWE2K14_VERSION macro, undefined there: kDevBuild was always true). Two allowlisted reads (live.cpp) are in the script with their reasons.",
+ "checks": [
+  {"name": "s103_P4F.dev_cvar_selftest", "cmd": ["py", "-I", "tools/scene/dev_cvar_lint.py", "--selftest"], "timeout_s": 60, "affects": ["tools/scene/dev_cvar_lint.py"]},
+  {"name": "s103_P4F.dev_cvar_scan", "cmd": ["py", "-I", "tools/scene/dev_cvar_lint.py", "--root", "."], "timeout_s": 120, "affects": ["tools/scene/dev_cvar_lint.py", "src/*"]}
+ ]
+}

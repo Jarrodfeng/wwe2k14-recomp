@@ -1,0 +1,82 @@
+{
+ "owner": "S103 lane TW (landing 2, docs/renderer/P7_DESIGN.md \"Tween: what the host needs\"; Jarrod 2026-11-17: the stream-free build may ship without DLSS but the decoupled 120 Hz frame blend MUST work): the scene host's tween. rdr::FrameBuilder::TagBlend + src/renderer_scene/own_blend.h (an OWN draw carries a blend key and the vertex shader's interpolable ranges, so rdr::TickBlender works unchanged on the host's Frame), the two own draw sites of front_end.cpp (every scene model / wrestler / arena piece, and the instanced crowd), SceneHost (the previous tick's Frame kept on the host thread; the halfway frame then the tick's own DisplayOnly), host_core.h (TweenGate, CameraJumped, Mailbox/HostCore::Pending, the tween counters), tools/scene/host_rig.{cpp,py} (--tween), tools/renderer/host_core_unit.cpp (TweenArm, plants 11-14).",
+ "claim": {
+  "scene": "none",
+  "side": "structure (the 120 Hz blend of the stream-free build)",
+  "ms": [
+   0,
+   0
+  ],
+  "basis": "no saving claimed: the tween is the decoupled 120 setting made to work without the command stream; the host does it only when the launcher's frame rate is above 60."
+ },
+ "note": "0 game runs, 0 Surface runs. rig = out/tools/host_rig.exe --tween on two capture records with motion (a04_entrance 60 / 64, brock_losswin 120 / 160) through the SAME SceneHost: no stream reference exists offline (the host draws our own scene, the stream's tween blends the game's draws), so the halfway frame is judged against the rig's own expectation: every keyed draw found in both ticks has each blend range = (previous + this) / 2 to 1e-6 and every byte outside the ranges = this tick's; >= 90 % of the keyed draws pair; some constants really move; the halfway PICTURE is closer to each tick's picture than they are to each other; this tick's FINAL picture equals the same host without the tween (max diff within the gate tolerance); a --cut record is not blended into. Planted twins (each must FAIL): alpha0 (weight 0), swap (own picture presented first), no_forget (the previous tick survives a camera cut). unit = host_core_unit (gate conditions, camera cut test, Pending) is the P7 H1 lane's unit check and carries the new arm and plants 11-14. REVIEW FIXES (Opus review of lane TW): F1 own key = hash of the object id TEXT (SceneFrame::names set by BuildFrame; rig --reintern re-points every id at a fresh copy of its text at tick-dependent offsets: the same draws pair; twin rawid = the raw Object::id key, must be caught in >= 1 capture); F2 InstancedDraw::no_blend on the card bake (census: card-bake draws tagged = 0; twin bakepair); F4 the map-lookup ranges (PlaneInv, Shadow*, Rim*, TexProj*, ViewLight*) are dropped from the own blend set by field name through the fxt table (rig --f4 over all 1223 vertex variants: 0 lookup fields in the set, 512 are marked blendable by the shader build so the check is not blind; twin lookup); F5 the cut thresholds are DLSS's (15 degrees / 200 units) plus a 10 % fov / projection scale change (host_core_unit); F8 own keys carry the top bit (rdr::kOwnBlendKeyBit; the binder clears it), the occurrence counter is a FlatU64Map, the pushed block size is the drawer's own. lint = tools/scene/own_blend_lint.py (SetBlendTags only under src/renderer_host, every Draw site tagged or on tools/scene/own_blend_sites.txt with a reason, no raw record id near TagOwnBlend, cvars an OFF-only unit reads are defined in a unit the OFF build compiles; its selftest plants the bad snippets). F9 (not built): the host does not copy the 30 fps decoupling (reader.h 2722-2728).",
+ "checks": [
+  {
+   "name": "s103_TW.build_rig",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_host_rig.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_TW.rig",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/host_rig.py",
+    "--root",
+    ".",
+    "--tween-only"
+   ],
+   "timeout_s": 1800,
+   "gpu_procs": 2,
+   "needs": [
+    "out/captures/a04_entrance",
+    "out/captures/brock_losswin",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/renderer_host/*",
+    "src/renderer_scene/*",
+    "src/renderer/*",
+    "tools/scene/host_rig.cpp",
+    "tools/scene/host_rig.py",
+    "tools/scene/host_rig_camera.h"
+   ]
+  },
+  {
+   "name": "s103_TW.lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/own_blend_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "src/**",
+    "tools/scene/own_blend_lint.py",
+    "tools/scene/own_blend_sites.txt",
+    "tools/scene/keep_stream_off_sources.txt",
+    "tools/scene/keep_stream_headers.txt"
+   ]
+  },
+  {
+   "name": "s103_TW.lint_selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/own_blend_lint.py",
+    "--selftest"
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "tools/scene/own_blend_lint.py"
+   ]
+  }
+ ]
+}

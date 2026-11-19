@@ -1,0 +1,11 @@
+{
+ "owner": "S103 lane P2 (landing 1: our record-drawn frame's post): the rig draws the post the live mirror draws (frame_rig.cpp builds PostParams from the record's post row); post_from_record takes the tap tables from the game's logical picture (720 high) not the drawn size (the far crowd stayed sharp at render scale 2); feature_diff reads the post pass line of the whole panel. 0 game runs, 0 Surface runs.",
+ "note": "run27's case frame 500. post_p2_check: DoF + grade ran, planted dof_off twin caught, crowd blur ratio equal at 1280x720 and 2560x1440, known bug (taps from the drawn size) re-found. No shaders added (no spv_current / game_syntax need).",
+ "checks": [
+  {"name": "s103_P2.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_P2.check", "cmd": ["py", "-I", "tools/scene/post_p2_check.py", "--root", "."], "timeout_s": 900,
+   "needs": ["out/s103/run27_case.zip", "game_data/extracted"],
+   "affects": ["tools/scene/post_p2_check.py", "tools/scene/feature_diff.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/post_from_record.cpp"]},
+  {"name": "s103_P2.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

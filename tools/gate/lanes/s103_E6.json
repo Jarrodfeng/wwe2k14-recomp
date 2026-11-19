@@ -1,0 +1,24 @@
+{
+ "owner": "S103 lane E6: the arena UV-scroll speeds are read. jboy.h reads the material record's g_fScrollU/V/U2/V2/U3/V3/U4/V4 scalars into assets::Material::scroll (+ scroll_have); front_end.cpp Resolve hands UVScroll0 = (U,V,U2,V2) and UVScroll1 = (U3,V3,U4,V4) to the shader (absent = 0, counted); tools/assets/uvscroll_check.cpp (loads arena 4 from the player's own files, lists the speeds, at least one non-zero) and tools/assets/uvscroll_vs_stream.py (the real bar: the stream's VS c203 / c204 on arena 4's UVScroll draws equal the loader's pairs); docs/formats/uvscroll_params.md",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. Reads the player's game files (read-only) and the stored capture out/d3caster/z7147 (arena 4, Lesnar / Bryan, 5 distinct stream pairs, 102 draws). Plants: no_read (loader fields ignored), swap_u_v and drop_layer (wrong slot / wrong layer in the loader's pairs): each exits 0 only when the check caught it.",
+ "checks": [
+  {"name": "s103_E6.build_check", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_uvscroll_check.ps1"], "timeout_s": 600,
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "tools/assets/uvscroll_check.cpp"]},
+  {"name": "s103_E6.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_scene/front_end.cpp", "src/assets/jboy.h", "src/assets/asset_model.h"]},
+  {"name": "s103_E6.speeds_read", "cmd": ["out/tools/uvscroll_check.exe", "--game", "game_data/extracted", "--arena", "4", "--list", "out/s103/E6/arena4.txt"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "tools/assets/uvscroll_check.cpp"]},
+  {"name": "s103_E6.plant_no_read", "cmd": ["out/tools/uvscroll_check.exe", "--game", "game_data/extracted", "--arena", "4", "--plant", "no_read"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["tools/assets/uvscroll_check.cpp"]},
+  {"name": "s103_E6.stream_equal", "cmd": ["py", "-I", "tools/assets/uvscroll_vs_stream.py", "out/d3caster/z7147/capture", "--speeds", "out/s103/E6/arena4.txt"], "timeout_s": 300,
+   "needs": ["out/d3caster/z7147/capture"], "affects": ["src/assets/jboy.h", "tools/assets/uvscroll_vs_stream.py"]},
+  {"name": "s103_E6.plant_swap_u_v", "cmd": ["py", "-I", "tools/assets/uvscroll_vs_stream.py", "out/d3caster/z7147/capture", "--speeds", "out/s103/E6/arena4.txt", "--plant", "swap_u_v"], "timeout_s": 300,
+   "needs": ["out/d3caster/z7147/capture"], "affects": ["tools/assets/uvscroll_vs_stream.py"]},
+  {"name": "s103_E6.plant_drop_layer", "cmd": ["py", "-I", "tools/assets/uvscroll_vs_stream.py", "out/d3caster/z7147/capture", "--speeds", "out/s103/E6/arena4.txt", "--plant", "drop_layer"], "timeout_s": 300,
+   "needs": ["out/d3caster/z7147/capture"], "affects": ["tools/assets/uvscroll_vs_stream.py"]},
+  {"name": "s103_E6.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h"]}
+ ]
+}

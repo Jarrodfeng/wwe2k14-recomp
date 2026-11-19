@@ -75,7 +75,7 @@ struct Choice {
   bool depth_of_field = true;  // false: no depth-of-field blur (gpu_depth_of_field)
   int crowd_density = 100;     // 0..100 in steps of 10 (gpu_scene_crowd_density)
   // Settings parity (Session 100, Jarrod 2026-11-11 08:1x; launcher only; the new renderer reads them, reader.h):
-  bool film_grain = true;      // S3: false = the 30 Years mode's old-film pass drawn clean (--wwe2k14_film_grain=false)
+  bool film_grain = true;      // S3 / S103 VTG2 VINTAGE LOOK: false = the retro arenas' sepia, darkening, grain and dark edges all off (--wwe2k14_film_grain=false; key name kept)
   bool vsync = true;           // S13: V-SYNC, how pictures reach the screen (--wwe2k14_vsync=false); never the game's pace
   // Session 93 (Jarrod: the low-end tier is chosen automatically from the GPU class, with a launcher override):
   // quality_tier is the player's setting (0 AUTO, 1 LOW, 2 STANDARD; the launcher's QUALITY row); `low` is the RESOLVED

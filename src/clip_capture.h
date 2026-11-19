@@ -65,6 +65,7 @@
 #endif
 
 #include "thread_name.h"  // S102 H1
+#include "shown_frame.h"  // S103 lane SHOT: CaptureShownFrame
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -452,9 +453,6 @@ class Clip {
 #ifdef _WIN32
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 #endif
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
     for (;;) {
       Frame f;
       {
@@ -470,7 +468,7 @@ class Clip {
       rex::ui::RawImage image;
       image.data = std::move(f.data);
       const auto c0 = Clock::now();
-      f.ok = presenter && presenter->CaptureGuestOutput(image) && image.width && image.height;
+      f.ok = wwe2k14::CaptureShownFrame(image) && image.width && image.height;
       const double ms = MsSince(c0);
       if (f.ok) {
         f.w = image.width, f.h = image.height;
@@ -646,11 +644,8 @@ class Clip {
     // ~0.3 s in run 378) overlaps the first captures. Until its first frame is written, the backlog cap is raised
     // (startup_cap_, up to ~640 MB of frames) so those first frames are kept rather than dropped.
     {
-      auto* runtime = REX_KERNEL_STATE()->emulator();
-      auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-      auto* presenter = graphics ? graphics->presenter() : nullptr;
       rex::ui::RawImage probe;
-      if (presenter && presenter->CaptureGuestOutput(probe) && probe.width && probe.height) {
+      if (wwe2k14::CaptureShownFrame(probe) && probe.width && probe.height) {
         uint32_t pw = probe.width, ph = probe.height;
         if (divisor_ > 1) pw = (pw / divisor_) & ~1u, ph = (ph / divisor_) & ~1u;
         {

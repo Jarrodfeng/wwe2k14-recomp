@@ -48,6 +48,14 @@
 #include "load_probe.h"     // --wwe2k14_load_probe (Session 12, default off)
 #include "scenario.h"       // --wwe2k14_scenario_observe (Session 9 Goal 1 step 1, default off)
 #include "cinecam.h"        // --wwe2k14_cinecam_* (Session 13, M6 CineCam, default off)
+#include "keep_stream.h"     // S103 P9: WWE2K14_KEEP_STREAM
+#include "shown_frame.h"    // S103 lane SHOT: g_shown_frame_owner
+#if !WWE2K14_STREAM()
+#include "renderer_adapter/start_failure_show.h"   // S103: ShowStartFailure + its two switches: DEFINED here, once (host_start.cpp only declares them)
+#include "renderer_host/host_start.h"   // S103 P7 H1: the scene host (our own present; started only in this build)
+#endif
+#include "renderer_game/owner_globals.h"     // S103 P9: the app's owner-mode globals (window, folders), kept in every build
+#include "renderer_game/removed_switches.h"  // S103 P9: the stream's switches as constants when the stream is left out
 #include "crowd_cards.h"    // --wwe2k14_crowd_card_distance (Session 100, default 1 = the game's own)
 #include "crowd_wide.h"     // lane 176: --wwe2k14_crowd_fill_wide (auto = the stands crowd's screen test follows the displayed aspect; config/crowd_wide_hooks.toml)
 #include "flow_probe.h"     // --wwe2k14_flow_probe (Session 14, Rumble diagnosis, default off)
@@ -57,15 +65,32 @@
 #include "tron_shim.h"
 #include "lighting_mod.h"  // --wwe2k14_mods_lighting (Session 98 step 13: arena / entrance light colours from <mods>\lighting, default off)
 #include "scene_live/arena_hooks.h"  // S101 lane28: the arena's evaluated light sets for the live scene record (post-hook on sub_827F8730; free unless a scene sink is attached)
+#include "scene_live/stage_look_probe_hook.h"  // S103 L2: dev probe of the entrance rig objects (off: --wwe2k14_stage_look_probe=N)
 #include "renderer_scene/skeleton_want.h"  // lane 207
+#include "scene_live/guest_model_contrib.h"  // S103 CW-2
 #include "scene_live/wrestler_contrib.h"  // S101 lane 1: RegisterWrestlers (lane 29's class), wired in OnPostSetup
 #include "scene_live/arena_world_contrib.h"  // lane 130: RegisterArenaWorlds (the arena's object worlds + stage clock), wired in OnPostSetup
+#include "scene_live/stage_fx_glue.h"  // S103 C2: wwe2k14::scene_stagefx_glue::Register (the stage's live writers: moving slot worlds, screen rows), wired in OnPostSetup
+#include "scene_live/movie_planes_tap.h"  // S103 P4: the movie planes from guest memory (Active(), the store); the flush call is in d3d_textures.h
+#include "scene_live/picture_hooks.h"  // S103 PN3: the texture handle birth / death hooks of the stream-free picture source (--wwe2k14_rdr_picture_source, dev only, default off)
+#include "scene_live/screen_planes_glue.h"  // S103 M: wwe2k14::scene_screens_glue::Register (the stage screens' live pictures), wired in OnPostSetup
+#include "scene_live/weapon_glue.h"  // S103 PW-1: scene_weapons_glue::Register (the weapon manager's slots), wired in OnPostSetup
+#include "scene_live/inputs_glue.h"  // S103 A: RegisterInputs (the scene's run-time inputs read outside the walks: post settings S, model alpha), wired in OnPostSetup
+#include "scene_live/quads2d_contrib.h"  // S103 L2a: the 2D rows' contributor (registered in OnPostSetup)
+#include "scene_live/particle_glue.h"  // S103 F2: the particle source (route 2): the node address + the latch read, registered in OnPostSetup
 #include "scene_live/sphere_contrib.h"  // lane 242: RegisterSpheres (H3, the wrestlers' sphere occluders; the caster record's switches), wired in OnPostSetup
 #include "scene_live/caster_contrib.h"  // lane 202: RegisterCasters (the caster passes' per-entry record, Caster D3 E0-E2; verify / census arm only), wired in OnPostSetup
 #include "scene_live/ring_rows_contrib.h"  // lane 194: RegisterRingRows (the ring's per-call node rows, Ring D3 R2; verify / census arm only), wired in OnPostSetup
+#include "renderer_scene/weapon_plan.h"       // S103 CGF: rdr_scene::weapons::g_stage_family (the stage structures' drawn family)
+#include "scene_live/weapon_rows_contrib.h"  // S103 PW-2: RegisterWeaponRows (the weapons' per-call rows), wired in OnPostSetup
 #include "scene_live/light_state_contrib.h"  // S101 lane 109: RegisterLightStates (the per-draw light state, LS1), wired in OnPostSetup
+#include "renderer_game/scene_frame.h"  // S103 A8: scene_frame::Ours for the wrestler light synthesis
 #include "scene_live/plane_contrib.h"  // lane 139: RegisterPlane (the plane shadow chain's constants), wired in OnPostSetup
 #include "scene_live/circle_contrib.h"  // lane 136: RegisterCircles (the circle blob shadows' constants), wired in OnPostSetup
+#include "scene_live/liquid_contrib.h"  // S103 SWF: RegisterLiquid (the wrestlers' liquid maps: sweat / blood items at the sweat node's entry), wired in OnPostSetup
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the guestmodel / weapons pattern)
+                    "S103 SWF (src/renderer_scene/liquid_switch.h, docs/systems/liquid_map.md): the wrestlers' sweat / blood liquid map is recorded at the sweat node's entry (the game's own items) and our renderer paints it and the skin reads it. "
+                    "Off by default in a build with the command stream (the stream draws its own); the stream-free build records it always (its own drawer needs it), whatever this says. Needs --wwe2k14_scene_records. Page-checked readers only");
 #include "logo_import.h"    // --wwe2k14_logo_import (Session 18, logo importer v0, default off)
 #include "audio_capture.h"  // --wwe2k14_audio_capture (Session 18, sound for re-shoots, default off)
 #include "precompile.h"     // --wwe2k14_precompile (Session 70: the launcher's precompile, default off)
@@ -92,6 +117,7 @@
 #include "caw_live.h"        // S101 lane 118: !caw (the Create a Superstar editor's drawn state, read from the frame's text runs; live channel, off until used)
 #include "wm30_step.h"       // S101 lane 121: !wm30 step K (the match script driven into a step; the faithful 30 Years moment)
 #include "situation_director.h"  // S101 lane 161: !director passive / momentum / stock (the situation director's first verbs; live channel + input script, default off)
+#include "wm30_boot.h"       // S103 lane WMB: --wwe2k14_wm30_direct (a 30 Years match with no 30 Years menus; owner-update tick, default off)
 #include "wm30_fire.h"       // S101 lane 108: !wm30 fire BANK (a 30 Years scene fired through the game's own Lua call 1003; live channel, default off)
 #include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
@@ -113,14 +139,23 @@
 #include "diag.h"        // Session 95: --wwe2k14_diag, the diagnostic run (also reached through input_script.h)
 #include "native_skin.h"   // Session 64: the game's CPU vertex-skinning loop sub_82508738 natively (S66: every platform, via native_fn.h)
 #include "nf/all.h"        // Session 66 (F2): the native function factory's functions (off until verified)
+#include "gsf_tint_hook.h"  // S103 FXF: the 'gGsf' moment-tint index for the post row (VINTAGE LOOK off keeps a moment tint, drops only the arena sepia)
+#include "vintage_look.h"// S103 VTG2: the retro arenas' darkening / grain / vignette follow the VINTAGE LOOK setting (PlayerQuality::film_grain)
 #include "crowd_skin_report.h"  // Session 100 strip-360 E3: the crowd's 1-bone / 4-influence skinning report their output to the reader
 #include "vb_unlock_report.h"   // Session 100 strip-360 E3: the game's vertex-buffer unlock reports the buffer to the reader
 #include "shader_list.h"  // Session 61: --wwe2k14_shader_list (the shipped shader list into the shader storage)
+#if WWE2K14_STREAM()
 #include "renderer_adapter/overlay_drawer.h"  // Session 100 settings parity S11
+#else
+#include "renderer_host/overlay_off.h"  // S103 AIM: the stream-free build's ImGui drawer (into the scene host's mailbox)
+#include "renderer/player/png.h"        // S103 AIM: rdr::WritePng (the picture savers)
+#endif
 #include "renderer_adapter/rdr_switches.h"  // S102 SW1: the overlay paint request reads wwe2k14_rdr_swap_once
 #include "frame_stats.h"  // S102 SW1: g_guest_frame
 #include "bundle3.h"  // S102 bundle 3: the measured-and-kept renderer levers as player defaults
+#if WWE2K14_STREAM()
 #include "renderer_adapter/d3_latch_hook.h"  // lane 301: g_d3_latch_hook
+#endif
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
@@ -151,6 +186,28 @@ REXCVAR_DEFINE_BOOL(wwe2k14_s23_defaults, true, "wwe2k14",
 // kernel_timestamp_tick_ms, present_ui_idle_wait_ms, wwe2k14_low_power_spin_us / _sleep_us, wwe2k14_load_turbo_vblank_hz).
 REXCVAR_DEFINE_BOOL(wwe2k14_scene_light_states, false, "wwe2k14",
                     "Session 101 lane 109: the per-draw light state (the render camera record R read at every model call) and the arena worlds (the palette matrix of every model call + the stage clock, lane 130) join the scene records. Needs --wwe2k14_scene_records. Off by default: it costs about 0.5 us per model call and nothing reads the tables live yet; the milestone capture turns it on");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_guestmodel, false, "wwe2k14",   // S103 LNT
+                    "S103 CW-2 (the guest model reader, the CAW bodies): reads the game's finished geometry for a model no record can name. Needs --wwe2k14_scene_records. Off by default in a build with the command stream "
+                    "(the stream draws those models itself: the reader would only cost time every frame); the stream-free build reads it always (its own drawer needs it), whatever this says. Page-checked readers only (never on a non-4 KB page kernel).");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_weapons, false, "wwe2k14",   // S103 PW
+                    "S103 PW (the weapons' rows): the weapon manager's slots (record section 59) and the per-call weapon rows (60 / 61) join the scene records. Needs --wwe2k14_scene_records. "
+                    "Off by default in a build with the command stream (it already draws the weapons: the readers would only cost time every frame); the stream-free build reads them always "
+                    "(its own drawer needs them), whatever this says. PW-2's per-call rows are never on Android (SafeCopy is not fault-safe there).");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_structs, true, "wwe2k14",   // S103 CGF review 1
+                    "S103 CGF: the match structures (steel cage, Hell in a Cell, Elimination Chamber, Inferno ring) are recorded from the game's holder and drawn by the stream-free build. On by default (without them the structures are missing). "
+                    "Off = no holder read and no structure rows (a diagnostic switch).");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gm_sets, true, "wwe2k14",   // S103 GBR
+                    "S103 GBR (docs\\research\\s103\\GMS.md): the Create-a-Story backstage set / Elimination Chamber extras (GMSK set objects of gm.pac) and the blood splats on the mat are recorded at the model-draw hook and drawn by the stream-free build. "
+                    "On by default (without them the story set is a bare room and blood never shows). Off = no set-object membership read and no splat read (a diagnostic switch).");
+REXCVAR_DEFINE_STRING(wwe2k14_rdr_stage_struct_family, "own", "wwe2k14",   // S103 CGF
+                      "S103 CGF (docs\\research\\s103\\CAGE.md): which of the stage structures' two submit families the drawer draws, never both: own = the category-26 own submit (slot 13, alpha [model+252]; the default), "
+                      "slot32 = the category-36 explicit-palette submit (alpha = the call's f1). The steel cage's two draw nodes submit the same models; which one reaches the colour picture is read in the step check (the census line "
+                      "'stage type ...'). A structure with only one family (the chamber, the Inferno) draws that one whatever this says.");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_fixed_props, false, "wwe2k14",   // S103 LDR
+                    "S103 LDR (docs\\research\\s103\\COV10_match_objects.md C1): draw the arena loader's FIXED copies of the ring steps (always variant 32) AND the commentary desk even when the record has weapon rows, as before (both come back; with the rows the old double desk and doubled steps). Off by default: a record with weapon rows "
+                    "the weapon manager's own rows draw the steps (the arena's own colour, 29 / 32 / 35) and the desk, once each, where the game puts them. A diagnostic switch (the two drawn together = the old double desk).");
+REXCVAR_DEFINE_BOOL(wwe2k14_scene_arena_clock_dev, false, "wwe2k14",   // S103 RCL
+                    "S103 RCL (DEV ONLY): the arena worlds contributor also writes the kAwClock row (frame - the MotionSetup origin). That clock is the hypothesis Check J1 disproved (c186 is never frame - origin; the real clock is the part clock, kScPartClocks): only the d3 proof compare (the clock_origin plant) reads it. Needs --wwe2k14_scene_light_states. Off by default and never fed to a picture");
 REXCVAR_DEFINE_BOOL(wwe2k14_scene_circles, false, "wwe2k14",   // lane 136
                     "Session 101 lane 136: the circle blob shadows' constants (c0 ShadowParam, ViewProj, the 21 body points) and their disc mesh join the scene records, read at the game's own upload (sub_82812E90). "
                     "Needs --wwe2k14_scene_records. Also switched on by --wwe2k14_rdr_circles_ours. Off by default: three compares per constant upload, a few reads on the four a frame that match");
@@ -325,6 +382,8 @@ class Wwe2k14App : public rex::ReXApp {
     if (REXCVAR_GET(wwe2k14_s102_bundle3) && REXCVAR_GET(wwe2k14_s101_promotions)) {
       int levers = 0, fixes = 0;
       wwe2k14::bundle3::Apply(levers, fixes);
+      if (!wwe2k14::bundle3::g_missing.empty()) REXLOG_ERROR("[wwe2k14] S103 SLV2: bundle 3 lever(s) the registry does not know, so NOT set: {} (a cvar the build must define is missing: tools\\bundle3\\lint.py)", wwe2k14::bundle3::g_missing);
+      if (wwe2k14::bundle3::g_stream_only_absent) REXLOG_INFO("[wwe2k14] bundle 3: {} stream-only levers absent from this build (the command stream is left out; expected)", wwe2k14::bundle3::g_stream_only_absent);
 #if defined(__ANDROID__)
       constexpr const char* kPlatform = "phone list: the PC list, every lever compiled for arm64";
 #else
@@ -343,6 +402,14 @@ class Wwe2k14App : public rex::ReXApp {
       skips_auto::SetArmedByK3(armed > 0);   // review F1: the gate then answers false whenever the switch is off, so a mid-session switch-off turns the armed skips off
       REXLOG_INFO("[wwe2k14] K3 skips_auto on: {} D3 skips armed (caster map / rim / plane, ring, arena, crowd member); the controller turns them on and off by the render thread's headroom", armed);
     }
+#if !WWE2K14_STREAM()
+    // S103 P9 (COMPILE_OUT_LIST.md section 4, R1): a build without the command stream has one renderer: mode 2 (ours), owner mode on. Pinned here after every settings source
+    // (launcher file, command line) had its say: there is no mode 0 / 1 to fall back to, and a frame we cannot draw repeats our last picture (counted), never the game's walk.
+    REXCVAR_SET(wwe2k14_rdr_scene, 2);
+    REXCVAR_SET(wwe2k14_rdr_owner, true);
+    REXCVAR_SET(wwe2k14_scene_records, true);   // the scene's live record is read only with this on (F2); pinned again after the launcher's settings below
+    REXLOG_INFO("[wwe2k14] built with WWE2K14_KEEP_STREAM=OFF: the scene host is the renderer (present host: 3D + 2D rows; pictures from the picture source, movie planes from the plane flush, scissor pending). A runnable build (KEEP_STREAM_RUN): the host starts in OnPreLaunchModule, and a start that fails shows the player's message and exits on the PC, and on a phone writes the exit request that asks the launcher to come back (host_start.cpp).");
+#endif
     // Session 100 stage B (docs\renderer\LIVE_ADAPTER.md): the new renderer owns the window; the SDK keeps its command processor.
     if (REXCVAR_GET(wwe2k14_rdr_owner)) {
       config.present_detached = true;
@@ -381,17 +448,22 @@ class Wwe2k14App : public rex::ReXApp {
           REXLOG_INFO("[owner][vblank] vblank_ours on: no SDK VSync thread; the 'Owner timing' thread dispatches the guest vblank (60 Hz vsync on, 1 kHz / --gpu_vblank_unthrottled_hz vsync off)");
         }
       }
+#if WWE2K14_STREAM()  // S103 P9: the reader and the live mirror exist only with the stream
       REXCVAR_SET(wwe2k14_rdr_capture, true);
       REXCVAR_SET(wwe2k14_rdr_live, true);
+#endif
     } else if (REXCVAR_GET(wwe2k14_owner_vblank_ours)) {
       REXLOG_WARN("[owner][vblank] --wwe2k14_owner_vblank_ours ignored: owner mode (--wwe2k14_rdr_owner) is off; the SDK's VSync thread keeps ticking the vblank");
     }
+#if WWE2K14_STREAM()  // S103 P9 (A19)
     wwe2k14::rdr_reader::InstallProvenanceAtStart();  // S101 lane17: the writer hook, only when provenance is wanted (before the game starts: frame-0 reads)
+#endif
     // The old renderer's crowd shortcuts take fans out of the game's draw calls (each group's first member recorded, the rest and the far
     // stands' cards queued to the SDK's command processor, src\scene_crowd.h): the adapter reader never sees them, and the new renderer's
     // upper stands came out empty (S100 run 6855 against v0.3.1). Off whenever the reader runs, before the launcher's settings (those only
     // fill switches still at default).
-    if (REXCVAR_GET(wwe2k14_rdr_capture) && !REXCVAR_GET(wwe2k14_rdr_debug_keep_crowd_shortcut)) {
+    // OFF: with no stream there is no reader to hide from, so the shortcuts are always off (true), same as the owner path of a build with the stream (wwe2k14_rdr_capture is true there); the debug keep-switch does not exist (false).
+    if ((!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_capture)) && !REXCVAR_GET(wwe2k14_rdr_debug_keep_crowd_shortcut)) {
       rex::cvar::SetFlagByName("wwe2k14_scene_crowd", "0");
       rex::cvar::SetFlagByName("wwe2k14_scene_crowd_cards", "false");
     }
@@ -408,6 +480,12 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::reshoot::PreSetup();  // sets --wwe2k14_replay_play etc. first (no-op unless --wwe2k14_reshoot)
     wwe2k14::director::PreSetup();  // Session 17: scenario / seed / replay mode from a director script (if any)
     wwe2k14::replay::g_replay.PreSetup();
+#if !WWE2K14_STREAM()
+    // S103 P9 (F4): pinned AGAIN after the launcher's settings file, the reshoot / director scripts and a replay's recorded settings had their say (the pin at the top ran before them).
+    REXCVAR_SET(wwe2k14_rdr_scene, 2);
+    REXCVAR_SET(wwe2k14_rdr_owner, true);
+    REXCVAR_SET(wwe2k14_scene_records, true);
+#endif
     if (config.gpu_plugin.empty()) config.gpu_plugin = "xenos";
 
     // Load the GPU plugin here (the SDK would do the same right after this hook)
@@ -841,6 +919,19 @@ class Wwe2k14App : public rex::ReXApp {
 #ifdef WWE2K14_VERSION
     REXLOG_INFO("[wwe2k14] version {}", WWE2K14_VERSION);  // Session 25: VERSION (CMakeLists.txt)
 #endif
+#ifdef _WIN32
+    {   // S103 QX4 review 5: the exe's own file time in every run log (q runlog says which build a run used; the exe on disk may be a later build)
+      wchar_t exe_path[MAX_PATH] = {};
+      WIN32_FILE_ATTRIBUTE_DATA exe_attr = {};
+      if (GetModuleFileNameW(nullptr, exe_path, MAX_PATH) != 0 && GetFileAttributesExW(exe_path, GetFileExInfoStandard, &exe_attr)) {
+        SYSTEMTIME exe_utc = {}, exe_local = {};
+        if (FileTimeToSystemTime(&exe_attr.ftLastWriteTime, &exe_utc) && SystemTimeToTzSpecificLocalTime(nullptr, &exe_utc, &exe_local)) {
+          REXLOG_INFO("[wwe2k14] exe built (file time, local): {:04d}-{:02d}-{:02d} {:02d}:{:02d}", exe_local.wYear, exe_local.wMonth, exe_local.wDay, exe_local.wHour,
+                      exe_local.wMinute);
+        }
+      }
+    }
+#endif
   }
 
   // Record the effective settings in every run's log.
@@ -868,11 +959,39 @@ class Wwe2k14App : public rex::ReXApp {
       // the WM30 jump never armed in owner mode, run 6894).
       if (!imgui_drawer()) InstallWithoutDrawer();
       // Photo mode saves through the new renderer (no SDK presenter in owner mode).
+#if WWE2K14_STREAM()  // S103 P9 (A21): the picture savers go through the stream's LiveSink; the replacement (our presented image) is landing 2's P7 and is NOT built: with the stream left out no saver is set (photo mode and the bug button's picture report "no picture", not a blank one)
       wwe2k14::photo::g_owner_save = [](const std::filesystem::path& path) { return wwe2k14::rdr_reader::g_live.SavePicture(path); };
       case_hook::SetPictureSaver([](const std::filesystem::path& path) { return wwe2k14::rdr_reader::g_live.SavePicture(path); });  // S101 lane 11: the bug button's picture.png (PNG)
+#endif
+#if !WWE2K14_STREAM()
+      {   // S103 AIM (review fix 5): in the stream-free build the pictures of photo mode, the bug button (picture.png) and a run exit are the host's last presented picture (g_shown_frame_owner, host_start.cpp), written as a PNG here
+        static const auto save_shown = [](const std::filesystem::path& path) -> bool {
+          rex::ui::RawImage image;
+          if (!wwe2k14::g_shown_frame_owner || !wwe2k14::g_shown_frame_owner(image) || image.data.size() < size_t(image.width) * image.height * 4) return false;
+          std::error_code ec;
+          if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
+          return rdr::WritePng(path, image.data.data(), uint32_t(image.width), uint32_t(image.height));
+        };
+        wwe2k14::photo::g_owner_save = save_shown;
+        case_hook::SetPictureSaver(save_shown);
+        case_hook::SetLastPictureSaver(save_shown);
+      }
+#endif
       rdr_case::g_drain_log = [] { rex::DrainLogging(500); };  // lane 302 (review N1): the case worker reads the log file
+#if WWE2K14_STREAM()  // S103 P9 (A21)
       case_hook::SetExitFlusher([] { wwe2k14::rdr_reader::g_live.FlushFinalCensus(500); rex::FlushLogging(); });  // S101 lane 216: every class's final census line, before the exit zip reads the log
       case_hook::SetLastPictureSaver([](const std::filesystem::path& path) { return wwe2k14::rdr_reader::g_live.SaveLastPicture(path); });  // S101 lane 19: a run exit's picture
+      wwe2k14::g_shown_frame_owner = [](rex::ui::RawImage& image) {   // S103 lane SHOT: the screenshot command / photo mode / clips take the last presented picture (src\shown_frame.h)
+        std::vector<uint8_t> rgba;
+        uint32_t w = 0, h = 0;
+        if (!wwe2k14::rdr_reader::g_live.CaptureShown(rgba, w, h)) return false;
+        wwe2k14::FillRawImage(image, rgba.data(), w, h);
+        return true;
+      };
+#else
+      case_hook::SetExitFlusher([] { rex::FlushLogging(); });  // the exit zip reads the log: flush it (the stream's per-class final census line is not written)
+#endif
+#if WWE2K14_STREAM()  // S103 P9: the names counters are the reader's
       // S101 lane 19: the case zip's names block = the [rdr][names] counters (the census logs the same ones), sampled once per frame and summed over the window.
       rdr_case::info::SetNamesProbe([]() {
         namespace rr = wwe2k14::rdr_reader;
@@ -884,6 +1003,8 @@ class Wwe2k14App : public rex::ReXApp {
         for (uint8_t i = 0; i < uint8_t(rr::cap::Provenance::Count); ++i) s.texture_binds += rr::g_prov.by_kind[i];
         return s;
       });
+#endif
+#if WWE2K14_STREAM()  // S103 P9 (A22): the overlay is drawn through the stream's LiveSink (P7 replaces it)
       if (imgui_drawer() && wwe2k14::rdr_overlay::g_drawer) {
         wwe2k14::rdr_reader::g_on_present = [this] {
           // S102 SW1 (wwe2k14_rdr_swap_once bit 4, PerFrame, read at every present): no request while no dialog is open and no overlay list is on the screen.
@@ -892,6 +1013,14 @@ class Wwe2k14App : public rex::ReXApp {
                                             imgui_drawer(), skip_idle);
         };
       }
+#else
+      // S103 AIM: the stream-free build's paint request, once per game present from the host's poster (host_start.cpp PostTick). skip_idle: no request while no dialog is open and no list is on the screen.
+      if (imgui_drawer() && wwe2k14::rdr_overlay_off::g_drawer) {
+        wwe2k14::scene_host::g_on_present = [this] {
+          wwe2k14::rdr_overlay_off::RequestPaint([this](std::function<void()> f) { app_context().CallInUIThread(std::move(f)); }, window(), imgui_drawer());
+        };
+      }
+#endif
     }
     // The old path keeps answering the game's fences and flips but draws nothing (SDK gpu_no_draw). Here, not in OnPreSetup: the GPU
     // plugin that defines the switch is loaded after OnPreSetup. Left alone if set on the command line.
@@ -918,56 +1047,100 @@ class Wwe2k14App : public rex::ReXApp {
     // (live_scene.h: "Registration happens once, at startup, before Enabled() can become true"). Only when scene records are asked
     // for: with --wwe2k14_scene_records off (the default, and refused by timed / speed runs) nothing registers and every class hook
     // returns at its first check.
+    // S103 P4F (review F2): the guest movie planes arm from the SAME predicate the flush copy runs on (Active(): +dev build and --wwe2k14_rdr_movie_planes), whether or not scene records are on.
+    if (wwe2k14::movie_planes_tap::Active()) {
+      rdr_scene::live::movieplanes::g_guest_planes.store(true, std::memory_order_relaxed);   // MovieOurs takes its planes from the store the plane flush fills
+      REXLOG_INFO("[wwe2k14][movie] guest movie planes armed (--wwe2k14_rdr_movie_planes, dev build): the plane flush copies every display set; MovieOurs draws our uploads");
+    }
     if (REXCVAR_GET(wwe2k14_scene_records)) {
       wwe2k14::scene_live::InstallArena(game_data_root());  // C3: the slot provider + the arena contributor (lane 28)
       rdr_scene::live::RegisterWrestlers();                  // C4: node palettes from the skeleton updates (lane 29)
+#if defined(__ANDROID__)   // guestmodel and the PW-2 rows stay off on a non-4 KB page kernel (a conservative extra; the other page-checked readers still run there, with one WARN: check-then-copy, no fault recovery)
+      const bool page_checked_readers = wwe2k14::wrestlers::HostPagesOk();
+      REXLOG_INFO("[scene][live] page-checked readers (guestmodel CAW bodies, PW-2 weapon rows): {} (host page size {})", page_checked_readers ? "registered" : "NOT registered: the host page size is not 4096 (conservative; no fault recovery for check-then-copy reads)", rex::memory::page_size());
+#else
+      const bool page_checked_readers = true;
+#endif
+      if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_guestmodel)) {   // S103 LNT: the same switch pattern as the weapons (a false-default switch in the stream build; register_switch_lint); S103 CW-2: the stream-free build reads the game's finished geometry for a model no record can name (the CAW body); the wrestler class sizes the skeletons, a declared link makes a model nameable
+        rdr_scene::live::guestmodel::g_want = [](uint32_t m) { return rdr_scene::live::Wrestlers().WantCount(m) != 0; };
+        rdr_scene::live::guestmodel::g_is_named = [](uint32_t m) { return rdr_scene::live::Wrestlers().RecordCanName(m); };   // S103 CW-2b: the emitter's own three sources (CW2_review bug 1)
+        rdr_scene::live::guestmodel::Register();   // off Windows the reads are page-checked (wrestler_hook.h)
+      } }
+      wwe2k14::scene_inputs_glue::Register();                // S103 A: the scene's run-time inputs (post settings, model alpha) read at the latch, outside the walks (after the wrestlers: it reads their kept set)
+      // OFF: true (our drawer needs the rows); ON: --wwe2k14_rdr_weapons, default false (the stream draws weapons itself; the readers cost every frame). Not in the promotions list on purpose.
+      if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_weapons)) wwe2k14::scene_weapons_glue::Register();   // S103 PW-1: the weapon manager's slots (kScWeaponSlots, 59) read at the latch
+      wwe2k14::scene_particle_glue::Register(game_data_root().string());   // S103 F5 (the namer's root); S103 F2: the particles read at the latch from the live node (after the inputs: same reader; registers its contributor)
+      wwe2k14::q2d_tap::RegisterContributor();               // S103 L2a (LANDING2_PLAN.md P1): the 2D rows + holes into record j at the latch (only with --wwe2k14_rdr_2d_record on)
       rdr_scene::g_skeleton_want_hooks.want = [](uint32_t m, uint32_t n) { rdr_scene::live::Wrestlers().WantSkeleton(m, n); };   // lane 207: own-skeleton pieces (hair, pads) the scene core joined
       rdr_scene::g_skeleton_want_hooks.unwant = [](uint32_t m) { rdr_scene::live::Wrestlers().UnwantSkeleton(m); };
+      rdr_scene::live::wlatch::g_ours_fn = [](uint64_t f) { return scene_frame::Ours(f); };   // S103 A8: the wrestler light state is synthesized only on OURS frames (and only behind wlatch::g_on)
       if (REXCVAR_GET(wwe2k14_scene_light_states)) rdr_scene::live::lights::RegisterLightStates();  // S101 lane 109 (LS1): R at every model call -> kScLightStates / kScLightRefs (own switch: F2)
-      if (REXCVAR_GET(wwe2k14_scene_circles) || REXCVAR_GET(wwe2k14_rdr_circles_ours)) rdr_scene::live::circles::RegisterCircles();
-      if (REXCVAR_GET(wwe2k14_scene_plane) || REXCVAR_GET(wwe2k14_rdr_plane_shadow_ours)) rdr_scene::live::plane::RegisterPlane();  // lane 139 (SH3 slice 2): the plane chain constants -> kScPlaneFrames / kScPlaneDraws
-      if (REXCVAR_GET(wwe2k14_scene_light_states)) rdr_scene::live::arenaworld::RegisterArenaWorlds();  // lane 130: the arena's object worlds + the stage clock -> kScArenaWorlds (rides the light-state switch: Check J1)
+      // OFF: true (the shipped promotions turn the circles class on; the in-place replacer is gone, the scene class is not)
+      if (REXCVAR_GET(wwe2k14_scene_circles) || !WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_circles_ours)) rdr_scene::live::circles::RegisterCircles();
+      // OFF: true (same as the circles)
+      if (REXCVAR_GET(wwe2k14_scene_plane) || !WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_plane_shadow_ours)) rdr_scene::live::plane::RegisterPlane();  // lane 139 (SH3 slice 2): the plane chain constants -> kScPlaneFrames / kScPlaneDraws
+      if (REXCVAR_GET(wwe2k14_scene_light_states)) { rdr_scene::live::arenaworld::Worlds().emit_clock = wwe2k14::IsDevBuild() && REXCVAR_GET(wwe2k14_scene_arena_clock_dev);   /* S103: DEV ONLY (dev_cvar_lint) */ rdr_scene::live::arenaworld::RegisterArenaWorlds(); }  // lane 130: the arena's object worlds + the stage clock -> kScArenaWorlds (rides the light-state switch: Check J1)
+      // PW-2 copies guest memory at the call: page-checked off Windows (wrestler_hook.h GuestRangeReadable), so it runs on the phone too
+      // OFF: true (as the slots above); ON: --wwe2k14_rdr_weapons (default false)
+      // S103 SMF (BUG2 8): the tracker switches and the stage family are set BEFORE RegisterWeaponRows() makes the hooks live (plain values read on game threads)
+      rdr_scene::live::weaponrows::Rows().tracker.stage_enabled = REXCVAR_GET(wwe2k14_rdr_stage_structs);   // S103 CGF review 1
+      rdr_scene::live::weaponrows::Rows().tracker.gm_enabled = rdr_scene::live::weaponrows::Rows().tracker.blood_enabled = REXCVAR_GET(wwe2k14_rdr_gm_sets);   // S103 GBR
+      rdr_scene::weapons::g_stage_family =REXCVAR_GET(wwe2k14_rdr_stage_struct_family) == "slot32" ? rdr_scene::weapons::kStageFamilySlot32 : rdr_scene::weapons::kStageFamilyOwn;   // S103 CGF: the stage structures' drawn submit family (own | slot32)
+      if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_weapons)) { rdr_scene::live::weaponrows::RegisterWeaponRows(); rdr_scene::weapons::g_force_arena_fixed_props = REXCVAR_GET(wwe2k14_rdr_arena_fixed_props); } }  // S103 LDR: per record the rows draw the steps / desk; the switch forces the old fixed copies  // S103 PW-2: the weapons' per-call rows -> kScWeaponCalls / kScWeaponNodes (read only)
+      wwe2k14::scene_stagefx_glue::Register();               // S103 C2: the stage's live writers (moving slot worlds, screen rows), read at the latch; AFTER the arena contributor (its Targets / Movies) and the arena worlds (the cross-check reads them)
+      if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_liquid_map)) rdr_scene::live::liquid::RegisterLiquid(); }   // S103 SWF: the wrestlers' liquid maps (--wwe2k14_rdr_liquid_map, default on): the sweat node's items recorded at its entry (liquid_glue.h); the record's rows feed the host's map pass (live_map_sweat.cpp)
+      wwe2k14::scene_screens_glue::Register();               // S103 M: the stage screens' live PlaneSource / ScreenSource (copies at the movie flush; the built-in key -> channel table, STAGE_LIVE_WRITERS.md 2b; --wwe2k14_rdr_screen_bind is a dev override)
 #if defined(__ANDROID__)
       // Lane 202 review SF1: the ring / caster D3 readers copy guest memory with SafeCopy, a plain memcpy off Windows: a stale pointer
       // would crash the game. Not on the phone until SafeCopy is fault-safe there.
+      // OFF: false (the D3 skips are a stream feature, off by default; no warning to give)
       if (REXCVAR_GET(wwe2k14_rdr_ring_d3) || REXCVAR_GET(wwe2k14_rdr_caster_d3) || REXCVAR_GET(wwe2k14_rdr_wrestlers_d3))
         REXLOG_WARN("[scene][live] --wwe2k14_rdr_ring_d3 / --wwe2k14_rdr_caster_d3 / --wwe2k14_rdr_wrestlers_d3: not on Android until SafeCopy is fault-safe: off");
       if (false) {
 #else
+      // OFF: false (the ring D3 skip / record arm is a stream feature, default off); the log lines below read the removed _live switches as false for the same reason
       if (REXCVAR_GET(wwe2k14_rdr_ring_d3) && REXCVAR_GET(wwe2k14_scene_light_states)) {  // lane 194 (Ring D3 R2): inert; the record only, no skip is built (ring_rows_core.h kRingSkipBuilt)
 #endif
         rdr_scene::live::ringrows::RegisterRingRows();
+        // OFF: false for the _live / _live_verify reads below (the ring D3 skip does not exist)
         REXLOG_INFO("[scene][live] ring_rows registered (Ring D3 record arm: the ring's node rows are recorded; the skip is a separate switch, --wwe2k14_rdr_ring_d3_live (lane 246, 16.9): [rdr][d3][ring] lines say whether it is on{})", REXCVAR_GET(wwe2k14_rdr_ring_d3_live) ? (REXCVAR_GET(wwe2k14_rdr_ring_d3_live_verify) ? ", verify arm: never skipped" : "") : "; --wwe2k14_rdr_ring_d3_live not set: nothing is skipped");
-      } else if (REXCVAR_GET(wwe2k14_rdr_ring_d3)) {
+      } else if (REXCVAR_GET(wwe2k14_rdr_ring_d3)) {   // OFF: false
         REXLOG_WARN("[scene][live] --wwe2k14_rdr_ring_d3 needs --wwe2k14_scene_records and --wwe2k14_scene_light_states: off");
       }
 #if defined(__ANDROID__)
       if (false) {
 #else
+      // OFF: false (the caster / wrestlers D3 records are stream features, default off)
       if ((REXCVAR_GET(wwe2k14_rdr_caster_d3) || REXCVAR_GET(wwe2k14_rdr_wrestlers_d3)) && REXCVAR_GET(wwe2k14_scene_light_states)) {
 #endif  // lane 202 (Caster D3 E0-E2): inert; the record only, no skip is built (caster_core.h kCasterSkipBuilt). Lane 227 (Wrestlers D3 H2): the wrestlers' cut reads the SAME records (the map entries' light camera, the rim entry's depth range), so its switch registers them too
         rdr_scene::live::casters::RegisterCasters();
+        scene_inputs::RequireBit(scene_inputs::kInSphereOcc);   // S103 A: the sphere input exists only where the sphere hook is registered (an input that cannot be stamped would keep Ours off)
         rdr_scene::live::spheres::RegisterSpheres();   // lane 242 (H3): the wrestlers' sphere occluders, recorded at the exit of sub_826DF8E0 (read only; the same switches, never Android)
+        // OFF: false (the D3 records / skips are not in a build without the stream; this registration branch is not taken)
         if (REXCVAR_GET(wwe2k14_rdr_caster_d3))
           REXLOG_INFO("[scene][live] casters registered (Caster D3: the caster pass entries are recorded; the skip itself (lane 228, 17.12) is decided in the render thread's start-up: [rdr][d3][casters] lines say whether it is on{})", REXCVAR_GET(wwe2k14_rdr_caster_d3_verify) ? ", verify arm: never skipped" : "");
+        // OFF: false (as above)
         if (REXCVAR_GET(wwe2k14_rdr_wrestlers_d3))
           REXLOG_INFO("[scene][live] wrestlers D3 registered (the colour calls' light states, the caster pass entries (light camera, rim depth) and the sphere occluder rows are recorded for the wrestlers' cut; the skip itself (lane 245, 18.9) is decided in the render thread's start-up: [rdr][d3][wrestlers] lines say whether it is on{})", REXCVAR_GET(wwe2k14_rdr_wrestlers_d3_verify) ? ", verify arm: never skipped" : "");
-      } else if (REXCVAR_GET(wwe2k14_rdr_caster_d3) || REXCVAR_GET(wwe2k14_rdr_wrestlers_d3)) {
+      } else if (REXCVAR_GET(wwe2k14_rdr_caster_d3) || REXCVAR_GET(wwe2k14_rdr_wrestlers_d3)) {   // OFF: false
         REXLOG_WARN("[scene][live] --wwe2k14_rdr_caster_d3 / --wwe2k14_rdr_wrestlers_d3 need --wwe2k14_scene_records and --wwe2k14_scene_light_states: off");
       }
       wwe2k14::crowd_live::RegisterCrowd();                  // C2: members, type palettes, cards (lane 27; its arena from the C3 hook)
-      if (REXCVAR_GET(wwe2k14_rdr_crowd_ours)) {             // S101 lane 35: the crowd's first promotion needs the LOD 0 palette of every used type, and the game folder for the bodies
+      // OFF: true (the crowd is ours in a build without the stream, as with the shipped promotions: pose objects on, the game folder set; the floor people observed like the promotions' crowd_floor)
+      if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_crowd_ours)) {             // S101 lane 35: the crowd's first promotion needs the LOD 0 palette of every used type, and the game folder for the bodies
         rdr_scene::live::crowd::The().SetPoseObjects(true);
-        wwe2k14::crowd_live::g_floor_observe.store(REXCVAR_GET(wwe2k14_rdr_crowd_floor), std::memory_order_relaxed);  // S101 lane 82: the floor people's op 21 is observed only for the floor switch
+        wwe2k14::crowd_live::g_floor_observe.store(!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_crowd_floor), std::memory_order_relaxed);   // OFF: true  // S101 lane 82: the floor people's op 21 is observed only for the floor switch
         wwe2k14::rdr_reader::g_crowd_game_root = game_data_root().string();
       }
-      if (REXCVAR_GET(wwe2k14_rdr_arena_ours) || REXCVAR_GET(wwe2k14_rdr_wrestlers_ours))  // S101 lane 41: the in-place hooks read the game folder too (the arena's meshes)
+      // OFF: true (the arena and wrestlers are ours; the game folder is always set)
+      if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_arena_ours) || REXCVAR_GET(wwe2k14_rdr_wrestlers_ours))  // S101 lane 41: the in-place hooks read the game folder too (the arena's meshes)
         wwe2k14::rdr_reader::g_crowd_game_root = game_data_root().string();
       REXLOG_INFO("[scene][live] classes registered: arena, wrestlers, crowd{} (scene records on)", REXCVAR_GET(wwe2k14_scene_light_states) ? ", lights, arena_worlds" : "");
     }
     // S101 Check H2 (run 7075 / 7076): every promoted class reads the player's game folder, not only the record-fed ones: the UI needs no scene
     // records, and the ring / flashes must not depend on the arena switch being on too. The root is only a path; a hook that is off never reads it.
-    if (REXCVAR_GET(wwe2k14_rdr_crowd_ours) || REXCVAR_GET(wwe2k14_rdr_arena_ours) || REXCVAR_GET(wwe2k14_rdr_wrestlers_ours) || REXCVAR_GET(wwe2k14_rdr_caw_ours) /* lane 153 */ ||
+    // OFF: true (every class is ours: the game folder is always set)
+    if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_crowd_ours) || REXCVAR_GET(wwe2k14_rdr_arena_ours) || REXCVAR_GET(wwe2k14_rdr_wrestlers_ours) || REXCVAR_GET(wwe2k14_rdr_caw_ours) /* lane 153 */ ||
         REXCVAR_GET(wwe2k14_rdr_ring_ours) || REXCVAR_GET(wwe2k14_rdr_flash_ours) || REXCVAR_GET(wwe2k14_rdr_props_ours) || REXCVAR_GET(wwe2k14_rdr_shadow_casters_ours) || REXCVAR_GET(wwe2k14_rdr_screens_ours) || REXCVAR_GET(wwe2k14_rdr_rim_ours) /* lane 124 */ || REXCVAR_GET(wwe2k14_rdr_crowd_props_ours) /* lane 133 */ || REXCVAR_GET(wwe2k14_rdr_circles_ours) /* lane 136 */ || REXCVAR_GET(wwe2k14_rdr_plane_shadow_ours) /* lane 139 */ || REXCVAR_GET(wwe2k14_rdr_ui_ours) || REXCVAR_GET(wwe2k14_rdr_ui_text_ours))  // S101 lane 84: props; lane 89
       wwe2k14::rdr_reader::g_crowd_game_root = game_data_root().string();
     wwe2k14::diag::Init();  // Session 95: the diagnostic run (no-op unless --wwe2k14_diag): its folder, cvars.txt, the watchdog
@@ -1083,6 +1256,9 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::display_mode::Restore("shutdown");  // Session 95: guest exit / setup failure paths
     wwe2k14::StopThreadPlacement();
     wwe2k14::StopPowerThrottle();
+#if !WWE2K14_STREAM()
+    wwe2k14::scene_host::StopForGame();   // S103 P7 H1
+#endif
     wwe2k14::inspector::Shutdown();  // no-op unless --wwe2k14_inspector
     wwe2k14::cinecam::Shutdown();    // no-op unless --wwe2k14_cinecam
     wwe2k14::check::Shutdown();      // Session 29: no-op outside harness runs
@@ -1096,11 +1272,27 @@ class Wwe2k14App : public rex::ReXApp {
   // for it (src\renderer_adapter\overlay_drawer.h). Otherwise none: the SDK presenter's own drawer.
   std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override {
     if (!REXCVAR_GET(wwe2k14_rdr_owner)) return nullptr;
+#if WWE2K14_STREAM()
     auto drawer = std::make_unique<wwe2k14::rdr_overlay::Drawer>(wwe2k14::rdr_reader::g_live);
     wwe2k14::rdr_overlay::g_drawer = drawer.get();
     REXLOG_INFO("[rdr][overlay] the new renderer draws the app's dialogs");
     return drawer;
+#else
+    // S103 AIM: no command stream: the drawer records into the scene host's static mailbox (src\renderer_host\overlay_off.h), which the host drains onto the renderer before each presented frame.
+    auto drawer = std::make_unique<wwe2k14::rdr_overlay_off::Drawer>();
+    wwe2k14::rdr_overlay_off::g_drawer = drawer.get();
+    REXLOG_INFO("[rdr][overlay] the scene host draws the app's dialogs");
+    return drawer;
+#endif
   }
+
+#if !WWE2K14_STREAM()
+  // S103 AIM (review fix 1): our achievement toast (the SDK's, same look and queue) so the paint request can tell "only the toast is open, and it is idle" from "a dialog is open".
+  std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog() override {
+    if (!imgui_drawer() || !immediate_drawer() || !runtime()) return nullptr;
+    return std::make_unique<wwe2k14::rdr_overlay_off::OffToast>(imgui_drawer(), immediate_drawer(), runtime());
+  }
+#endif
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     ApplyWindowIcon();  // Session 17: game_logo.png, embedded by the build (no-op without it)
@@ -1133,7 +1325,9 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::mouse_menu::Install(window());  // Session 67 (the cvar is checked per event: live switchable)
     wwe2k14::wm30::Install();   // Session 34; no-op unless --wwe2k14_wm30
     wwe2k14::bookmark::Install(harness);  // Session 29: F11 = "that, just now" bundle (Session 58: players too)
+#if WWE2K14_STREAM()  // S103 P9 (A24)
     wwe2k14::g_d3_latch_hook = &wwe2k14::bookmark::TakeD3Latch;   // lane 301: a D3 latch takes a case zip at the moment (renderer_adapter/d3_latch_hook.h)
+#endif
     wwe2k14::screen_text::Enable(harness);  // Session 30: text the game fetched, for scripts / live / bookmarks
   }
 
@@ -1146,7 +1340,9 @@ class Wwe2k14App : public rex::ReXApp {
     // Session 61: the shader list's shaders and pipelines into the storage the SDK loads right after this.
     wwe2k14::shader_list::Import(runtime()->cache_root());
     wwe2k14::rdr_reader::g_caw_cache_root = (runtime()->cache_root() / "caw").string();   // lane 153: the CAW edit-part index cache lives beside the shader caches
+    wwe2k14::rdr_reader::g_ui_index_root = (runtime()->cache_root() / "ui_index").string();   // S103 PN4F (B4): the picture file index's hash cache (stream-free host)
     wwe2k14::rdr_reader::g_pipeline_store_root = (runtime()->cache_root() / "renderer_pipelines").string();   // lane 276 (used only with --wwe2k14_rdr_pipeline_store)
+    // OFF: the switch reads as an empty folder: no pipeline store (the stream's pipeline cache test hook is gone)
     if (!REXCVAR_GET(wwe2k14_rdr_pipeline_store_dir).empty()) wwe2k14::rdr_reader::g_pipeline_store_root = REXCVAR_GET(wwe2k14_rdr_pipeline_store_dir);   // tests: a folder that survives run_list's per-run mirror
     // Session 80 (HD 520 arc): with NATIVE's truth frames the emulated path draws nothing, so its stored pipelines are
     // not made at boot (the Surface's UHD 620: 406 stored ones at 2.6 s each, ~3 minutes before the first frame; none
@@ -1163,6 +1359,18 @@ class Wwe2k14App : public rex::ReXApp {
       if (truth && rex::cvar::GetFlagSource("vulkan_stored_pipelines_at_boot") == rex::cvar::Source::kDefault)
         rex::cvar::SetFlagByName("vulkan_stored_pipelines_at_boot", "false");
     }
+#if !WWE2K14_STREAM()
+    // S103 P7 H1 (review B1 / B5): no stream, so the scene host is the renderer: it owns the swapchain on the game window (known since OnPostSetup) and is the poster of every present. Started LAST here: the
+    // contributors have registered (OnPostSetup), the pipeline store folder is set (above), and the guest has not run a frame yet (the keeper must be attached before the first present).
+    wwe2k14::scene_host::g_start_failure_sink = [](const std::string& reason, const std::string& card) {
+      wwe2k14::blackbox::Note("FAILED: the new renderer could not start: %s", reason.c_str());
+      wwe2k14::rdr_reader::ShowStartFailure(reason, card);
+    };
+    if (REXCVAR_GET(wwe2k14_rdr_owner) && wwe2k14::rdr_reader::g_owner_window && !wwe2k14::scene_host::StartForGame())
+      REXLOG_ERROR("[host] no renderer: this build has no other way to show a picture");
+    else if (REXCVAR_GET(wwe2k14_rdr_owner) && !wwe2k14::rdr_reader::g_owner_window)
+      wwe2k14::scene_host::StartFailedNoWindow();   // no native window: the failure path with its reason (never a silent black screen)
+#endif
   }
 
  private:

@@ -7,7 +7,7 @@
   {"name": "wide.fullview", "cmd": ["py", "-I", "tools/renderer/fullview_gate.py"], "timeout_s": 1800,
    "needs": ["out/renderer/release/rplay.exe", "out/captures/brock_s15_300/images.bin"]},
   {"name": "wide.hudrect", "cmd": ["py", "-I", "tools/renderer/hudrect_gate.py"], "timeout_s": 1800,
-   "needs": ["out/renderer/release/rplay.exe", "out/captures/s100_heenan_build/images.bin", "out/cases/fview_unpack_20261112-185530/capture/images.bin", "out/captures/s100_wm30_300/images.bin", "out/captures/s100cards/images.bin"]},
+   "needs": ["out/renderer/release/rplay.exe", "out/captures/s100_heenan_build/images.bin", "out/captures/s100_wm30_300/images.bin", "out/captures/s100cards/images.bin"]},
   {"name": "wide.jitter", "cmd": ["py", "-I", "tools/renderer/jitter_gate.py"], "timeout_s": 1800,
    "note": "lane 185: the DLSS jitter window (src/renderer_adapter/jitter_rule.h); pass --base-rplay for the no-jitter byte-parity lines. The legacy window (--jitter-legacy) is the plant for the shift lines, --jitter-marker-late for the HUD line.",
    "needs": ["out/renderer/release/rplay.exe", "out/cases/case_20261111_174607_799_0_pc_run_exit/capture/images.bin", "out/captures/brock_s15_300/images.bin", "out/captures/s100_s89k_a/images.bin"]}

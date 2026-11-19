@@ -26,6 +26,8 @@ REVIEWED = [
     ('rdr_2d_yuv.frag', r'vec2 plane_uv\(int p\) \{ return clamp\(in_uv \* fc\.plane\[p\]\.xy, fc\.plane\[p\]\.zw, fc\.plane\[p\]\.xy - fc\.plane\[p\]\.zw\); \}', 'p is 0..2 at the three call sites (plane_uv(0 / 1 / 2))'),
     ('rdr_uiquad.vert', r'vec3 position = vc\.Pos\[corner\]\.xyz;', 'corner comes from gl_VertexIndex of the 4-vertex quad; Pos and Uv are vec4[4]'),
     ('rdr_uiquad.vert', r'out_uv = vc\.Uv\[corner\]\.xy;', 'same'),
+    ('rdr_uiquad_proj.vert', r'vec4 q = vec4\(vc\.Pos\[corner\]\.xyz, 1\.0\);', 'corner is 0..3 (list_of / strip_of of gl_VertexIndex 0..5); Pos is vec4[4]'),
+    ('rdr_uiquad_proj.vert', r'out_uv = vc\.Uv\[corner\]\.xy;', 'same'),
     ('fx_skin.glsl', r'tint = mix\(vec3\(1\.0\), vc\.IdMapCol\.xyz, vc\.IdMapLvLst\[idSlot >> 2\]\[idSlot & 3\]\);', 'idSlot = packed & 7, so >> 2 is 0..1; IdMapLvLst[2]'),
     ('fx_skin.glsl', r'wrinkleLevel = vc\.WklLvLst\[wrinkleSlot >> 2\]\[wrinkleSlot & 3\];', 'wrinkleSlot is forced to <= 5 two lines above; >> 2 is 0..1; WklLvLst[2]'),
     ('yBlur.frag', r'sum \+= s\.rgb \* fc\.SampleWeights\[i \+ 1\]\.xyz;', 'the hole-fill loop is i < 12 and its block declares SampleWeights[13]'),

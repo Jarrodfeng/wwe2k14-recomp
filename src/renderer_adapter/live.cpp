@@ -16,12 +16,14 @@
 #include <thread>
 #include <unordered_map>
 #include <rex/logging.h>  // S101 lane 216: RegisterQuitFlush
+#include <rex/cvar.h>     // S103 lane S: the scene switch (FRAME_CONTRACT.md 2)
 #include <unordered_set>
 
 #include "../renderer/frame_builder.h"
 #include "../renderer/player/png.h"
 #include "../renderer/problem.h"
 #include "../renderer_scene/props_budget.h"  // S102 T17
+#include "../scene_live/sign_file_keys.h"  // S103 CSF: the one switch of the sign / hand file pictures
 #include "../renderer/outside.h"  // S102 G5: rdr::g_gpu_outside / g_upload_batch
 #include "../renderer/copy_batch.h"  // S102 G12: rdr::g_copy_batch
 #include "../renderer/render_lean.h"  // S102 RT1: rdr::g_render_lean / g_lean_hooks
@@ -33,6 +35,7 @@
 #include "../renderer/overlay.h"  // lane 256: rdr::g_presented
 #include "../renderer/renderer.h"
 #include "binder.h"
+#include "stage_mirror.h"  // S103 T7: the stage mirror (role table, frame list)
 #include "photo_save.h"  // lane 201: photo mode's save (retry, named failures, the shown shape)
 #include "../renderer/frame_blend.h"
 #include "capture_reader.h"
@@ -45,8 +48,67 @@
 #include "../renderer/output_switches.h"  // S102 G2: g_low_tier
 #include "skips_auto.h"  // S102 K3: the D3 skips on while our render thread keeps up
 #include "stage_split.h"  // S102 R21-B: the two-stage render thread (rdr_record), docs\renderer\STAGE_SPLIT.md
+#include "census_flush.h"  // S102 CEN1
 #include "rdr_switches.h"  // S102 S0-4: the per-frame switch table (pure; rplay keeps the LiveOptions values until the game refreshes it)
 #include "snapshot_keeper.h"  // lane 215: the scene-record keeper (ForPart)
+#include "../renderer_game/scene_frame.h"         // S103 lane S: the scene switch's decision (scene_frame::g_mode_cvar)
+#include "../renderer_game/scene_skip_core.h"     // S103 CLK2: scene_skip::StreamHookLine (the per-hook stream census line)
+#include "../renderer_game/fallback_census.h"   // S103 L2b: the fallback census (one [scene][2d] line per 600 frames; LANDING2_PLAN section 3)
+#include "../renderer_scene/live_scene_draw.h"    // S103 lane S: mirror mode's drawer
+#include "scene_mailbox.h"   // S103 G2: the consumer-side latest-wins pop (SCENE_PACING.md 3a / 3c)
+#include "../scene_live/presence_rules.h"   // S103 S2: the presence switches
+#include "../scene_live/input_changes.h"    // S103 S2: the changes census switch
+#include "../dev_build.h"      // S103 L33F: IsDevBuild() (this TU does not get the WWE2K14_VERSION define)
+#include "../scene_live/hold_switch.h"      // S103 L1C: --wwe2k14_rdr_scene_hold
+#include "../scene_live/scene_start_switches.h"   // S103 HN B1: the presence switches + hold in one helper (the stream-free start uses it too)
+#include "../start_settings.h"   // S103 SPB: ApplyStartSettings, PlayerQuality
+#include "../renderer_scene/quads2d_draw.h"   // S103 L2a: the 2D rows drawn over our frame (Check, Append, Register)
+
+// S103 lane S (docs\renderer\FRAME_CONTRACT.md 2): the scene switch. 0 off (today), 1 mirror (the game draws; on every Nth frame the present's
+// own scene record is ALSO drawn alone by our record -> frame path and both pictures are written: live_scene_game_f<N>.png and
+// live_scene_ours_f<N>.png in the picture folder), 2 ours (landing 1). Read per frame at submit (the swap thread) and carried with the frame.
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_scene, 0, "wwe2k14",
+                     "S103: the 3D scene drawn by our renderer from the scene record. 0 off, 1 mirror (dev: our picture written beside the game's every "
+                     "wwe2k14_rdr_scene_sheet_every frames), 2 ours (frames not ready fall back whole to the game's own renderer)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_force_inputs, false, "wwe2k14",
+                    "S103 DEV ONLY (ignored by a release build): mode 2 decides OURS without waiting for every scene input (the end-to-end integration test "
+                    "while lanes still build inputs; the frame is drawn with whatever the record carries)");
+// S103 L2a (docs\renderer\LANDING2_PLAN.md P1): the 2D layer from OUR rows on an OURS frame. Needs --wwe2k14_rdr_2d_record (the taps + the contributor, quads2d_tap.h / quads2d_contrib.h).
+REXCVAR_DECLARE(bool, wwe2k14_rdr_2d_record);
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_2d_ours, false, "wwe2k14",
+                    "S103 L2a DEV ONLY (ignored by a release build; needs --wwe2k14_rdr_2d_record and --wwe2k14_rdr_scene=2): on an OURS frame whose 2D is whole (no hole, every row drawable, rows == the "
+                    "stream's row-site draws) the 2D is drawn from our rows over our frame and the stream's row-site draws are left out; any other frame keeps the stream's 2D whole");
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_scene_sheet_every, 300, "wwe2k14",
+                     "S103: mirror mode writes the game's and our picture every N guest frames (0 = never)");
+// S103 S2 (docs/renderer/S103_FABLE_REVIEW_2.md Q1): the forced mode-2 proof and the presence holds. All default off.
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_scene_sentinel, 0, "wwe2k14",
+                     "S103 S2 DEV ONLY (ignored by a release build): in mode 2, every Nth hook frame walks on purpose (a planned hold) so every latch == walk census "
+                     "runs after N - 1 frames without a walk; mirror pictures are written on the sentinel frames (one per sheet_every / N sentinels). 0 = off");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_changes, false, "wwe2k14",
+                    "S103 S2: the changes census per scene input (frames its record value changed on OURS vs walked frames), in the [scene][changes] line");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_particles_by_presence, true, "wwe2k14",
+                    "S103 S2: bit 11 (particles) is stamped per frame when the frame holds no unproven particle item (an unnamed texture, an unproven blend code, "
+                    "another class), instead of being held for every frame by kStampParticles");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_crowd_by_presence, true, "wwe2k14",
+                    "S103 S2: bit 10 (crowd) is stamped per frame when the crowd is otherwise whole and no sign holder, foam hand or sign picture is shown, "
+                    "instead of being held for every frame by kCrowdOursWhole");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_crowd_screen_trust, false, "wwe2k14",
+                    "S103 C1: a sign holder that only our port of the game's singles screen test (sub_8276E2C0) hides stops holding bit 10. Default off (fail closed) until a run's census shows "
+                    "'screen_check eq N screen_diff 0'");
+REXCVAR_DEFINE_STRING(wwe2k14_rdr_scene_hold, "", "wwe2k14",
+                      "S103 L1C: re-hold landing-1 inputs at run time (no rebuild): a comma list of input bits or names (4 light_states, 7 caster_entries, 10 crowd_snapshot, 11 particles, 17 stage_clock). "
+                      "A held input is never stamped, so a frame that needs it stays the game's. Default empty = nothing held");
+REXCVAR_DEFINE_STRING(wwe2k14_rdr_scene_unrequire, "", "wwe2k14",
+                      "S103 L33F DEV ONLY (ignored by a release build): drop named inputs from the scene's required mask (same list as wwe2k14_rdr_scene_hold: bits or names), so mode 2 can draw OURS while "
+                      "they are not stamped and one run shows the next blocker; every other input stays required. Default empty = every input required");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_light_old_hold, false, "wwe2k14",
+                    "S103 LH DEV ONLY (ignored by a release build): the old light-entry rule, where a default-set arena slot model's walk-learned entry is never re-dated and so ages, planning a refresh walk (a held frame) every 1200 "
+                    "hook frames. Default off: an entry equal to the computed one is refreshed at every latch and plans no hold");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_flat, false, "wwe2k14",
+                    "S103 L2d DEV ONLY (ignored by a release build): a FLAT frame (no stage, no 3D object, no scene hook: menus, select, title, boot, load) may be OURS when its 2D rows, movie planes and "
+                    "particles are whole (scene_kind.h FlatVerdict). Default off: no flat frame is ever OURS");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_caw, true, "wwe2k14",
+                    "S103 CW1: the CAW kind (the editor, game sequence 76) drops crowd / ring rows / plane constants from the required mask (inputs_core.h kCawDrop). Default on. DEV knock-out for an A/B: --wwe2k14_rdr_scene_caw=false in a +dev build; a release build always has it on. In the stream build nothing publishes the CAW kind, so it changes no decision");
 #include "image_info_table.h"  // S101 lane 47: the live image-info supplier
 #include "image_content_feed.h"  // S101 lane 66: the live image-content supplier (the UI)
 #include "origin_intern.h"  // S101 lane 89: origin::g_labels_wanted
@@ -153,6 +215,12 @@ struct Message {
   bool d3_chain = true;                // S102 K3 rework: the D3 chains run for this frame (decided at SUBMIT: skips_auto::ChainWanted); false = the armed-off frame (no record add, no Begin / End, no latch takes)
   std::shared_ptr<const rdr_scene::SceneTables> d3_record;  // lane 152 (review B1): THIS present's own record (stamps = the hook's frames up to guest_frame - 1): stream frame j needs stamp j-1, which lives in record j, not j-1 (the crowd's pairing)
   std::shared_ptr<const rdr_scene::SceneTables> record;  // S101 lane 35: the scene record the crowd is drawn from (the PREVIOUS snapshot: pairing offset +1)
+  // S103 lane S: the scene switch as read at submit, and (mirror sheet frames / ours) the present's OWN record j (SnapshotKeeper::ForD3)
+  int scene_mode = 0;
+  bool scene_sheet = false;
+  bool stage_mirror = false;        // S103 T7: this frame is dumped by role (--wwe2k14_dump_targets); false = nothing below runs
+  uint64_t stage_mirror_want = 0;   // S103 T7: the listed frame this dump answers (the frame used is guest_frame)
+  std::shared_ptr<const rdr_scene::SceneTables> scene_record;
 };
 
 // S101 lane 35 / lane 215: SnapshotKeeper (the owner's scene sink) lives in snapshot_keeper.h.
@@ -184,6 +252,8 @@ struct LiveSink::Impl {
   std::condition_variable mail_cv;
   std::condition_variable room_cv;  // a frame left the queue
   std::deque<Message> mail;
+  std::deque<Message> run_q;            // S103 G2: render thread only: the popped run, dropped messages first, the newest last
+  rdr_adapter::MailStats mail_stats;    // S103 G2: render thread only
   bool stopping = false;
   // S101 lane 216: the end-of-run census flush. quit_req: asked (the SDK quit flush before the hard exit, or the black box's exit zip); quit_ack: the render
   // thread printed every class's final census line since the last frame it handled (cleared by the next frame, so a later request waits again).
@@ -191,6 +261,8 @@ struct LiveSink::Impl {
   bool quit_registered = false;
   std::thread thread;
   // S101 lane 302: WaitForRoom's give-up state (guarded by mail_mu; written by the game's swap thread only).
+  bool run_forced = false;   // S103 G2: render thread only: the run being handled dropped messages (its newest gets waiting = 0)
+  bool paced = false;   // S103 G2 (mail_mu): WaitForRoom has been called: a checks run (--pace_game); every message is then a Barrier
   bool pace_off = false;
   int pace_timeouts = 0;
   uint32_t pace_give_ups = 0;
@@ -239,6 +311,27 @@ struct LiveSink::Impl {
   bool overlay_changed = false;
   std::vector<OverlayTexture> overlay_textures;
   std::filesystem::path last_picture_path;  // S101 lane 19: write the last presented picture here now (mail_mu)
+  // S103 lane SHOT (src\shown_frame.h; review F1 / F3 / F4): the last presented picture as pixels, on request only, WITHOUT a drain: the render thread queues ONE Renderer::QueueReadback of the presented image
+  // (8-bit pictures only) that rides the next RenderFrame, PollAsync hands the finished copy to every caller whose request sequence it covers; the curve + RGBA8 copy run on the CALLER's thread.
+  // With no frame coming (the 100 ms idle poll) the one synchronous read serves it.
+  struct ShotAnswer {
+    uint64_t covers = 0;
+    bool ok = false;
+    std::vector<uint8_t> rgba;
+    uint32_t w = 0, h = 0;
+    std::vector<uint8_t> curve;   // the display table as it was when the copy was queued (empty: identity)
+  };
+  std::mutex shot_mu;
+  std::condition_variable shot_cv;
+  std::atomic<bool> shot_pending{false};     // a request not yet queued, or a copy in flight (the one flag the render thread loads)
+  uint64_t shot_req = 0, shot_covered = 0;   // shot_mu
+  int shot_waiters = 0;
+  bool shot_stop = false;
+  std::shared_ptr<const ShotAnswer> shot_ans;
+  bool shot_inflight = false;                // render thread
+  uint64_t shot_tag = 0, shot_inflight_covers = 0;
+  std::vector<uint8_t> shot_inflight_curve;
+  bool shot_warned = false;
   std::filesystem::path photo_path;  // photo mode: the next shown picture goes here (overlay_mu); kept until written (lane 201: retried, then named)
   uint32_t photo_tries = 0;          // lane 201: failed attempts of the request in photo_path (render thread; reset by SavePicture under overlay_mu)
   void ApplyOverlay() {  // render thread
@@ -268,6 +361,17 @@ struct LiveSink::Impl {
 
   std::unique_ptr<rdr::Renderer> renderer;
   std::unique_ptr<SnapshotKeeper> keeper;  // S101 lane 35 (null unless options.crowd_ours)
+  std::unique_ptr<rdr_scene::LiveSceneDraw> scene_draw;  // S103 lane S: made on the render thread at its first use; destroyed in Stop after the GPU is idle
+  // S103 lane S: the scene fields of a message, at submit (the swap thread): the switch read once per guest frame and carried with it
+  void NoteScene(Message& m, uint64_t guest_frame) {
+    m.scene_mode = REXCVAR_GET(wwe2k14_rdr_scene);
+    const int every = REXCVAR_GET(wwe2k14_rdr_scene_sheet_every);
+    // render-clock: dev - every Nth frame posts a contact-sheet scene capture
+    m.scene_sheet = m.scene_mode == 1 && every > 0 && guest_frame % uint64_t(every) == 0;
+    if (m.scene_mode == 2 && scene_frame::SentinelSheet(scene_frame::HookFrameOf(guest_frame), every)) m.scene_sheet = true;   // S103 S2: a sentinel (walked) frame's mirror pair
+    if (!options.dump_targets_frames.empty()) StageMirrorNote(m, guest_frame);   // S103 T7 (empty list = off): a listed frame (mode 2: the first sentinel walk at or after it) is a sheet frame
+    if (keeper && (m.scene_sheet || m.scene_mode == 2)) m.scene_record = keeper->ForD3(guest_frame);   // (ForD3 does not move the keeper's cursor)
+  }
   std::vector<uint8_t> shown_curve;  // render thread: the table the present applies (empty: identity), also applied to written pictures
 
   void Log(const char* line) const {
@@ -452,6 +556,7 @@ struct LiveSink::Impl {
           if (now == printed_at) return;
           printed_at = now;
           impl.Log((std::string("[rdr][end] end of run (") + why + "): the lines below are each class's final census, same shape as a window line").c_str());
+          census_flush::Raise("run", 0, +[](const char* l) { rdr::Log("%s", l); });   // S102 CEN1: the run-end marker (census sites that see another frame print too)
           binder.FlushCensus();
           if (reports) reports();
           if (impl.renderer) impl.renderer->FlushPipelineStore();  // lane 276: the process hard-exits, ~Renderer never runs: the pipeline list / cache are saved here (repeatable)
@@ -460,7 +565,15 @@ struct LiveSink::Impl {
       }
       ~FinalCensus() { Run("stop"); }
     };
-    FinalCensus final_census{*this, binder, [&] { replace_report.Print(); crowd_report.Print(); post_report.Print(); d3_report.Print(); }};
+    FinalCensus final_census{*this, binder, [&] {
+      replace_report.Print(); crowd_report.Print(); post_report.Print(); d3_report.Print();
+      // S103 NRBF (review F4): the scene lines LiveSink::Stop prints are lost on the hard exit; every one of them is here too (lint: nrbf_census_lint.py)
+      if (scene_draw) { Log(scene_draw->Census().c_str()); Log(scene_draw->ReadyCensusLine(true).c_str()); }
+      Log(scene_frame::CensusLine().c_str());
+      Log(scene_frame::missing_hist::MissingLine().c_str());
+      Log(scene_kind::CensusLine().c_str());
+      if (fc_handled) Log(fallback_census::g_census.FinalLine(fc_handled).c_str());
+    }};
     rdr::FrameBuilder builder;
     LiveSource source;
     LoadedTexture content_scratch;  // S101 lane 66
@@ -505,12 +618,13 @@ struct LiveSink::Impl {
       replace_report.PublishCost();  // S101 lane 83
       Message message;
       size_t waiting = 0;
+      bool forced_skip = false;   // S103 G2: a message dropped from a run: skipped whatever the guards say
       bool have_message = false;
       std::filesystem::path now_path;  // S101 lane 19: a request for the last presented picture, served without a new frame
       {
         std::unique_lock lock(mail_mu);
         // (lane 216: a timed wait, so a quit request from another thread is seen even while no frame comes)
-        mail_cv.wait_for(lock, std::chrono::milliseconds(100), [&] { return stopping || !mail.empty() || !last_picture_path.empty() || quit_req.load(std::memory_order_acquire); });
+        mail_cv.wait_for(lock, std::chrono::milliseconds(100), [&] { return stopping || !mail.empty() || !run_q.empty() /* S103 G2 */ || !last_picture_path.empty() || shot_pending.load(std::memory_order_acquire) || quit_req.load(std::memory_order_acquire); });
         now_path.swap(last_picture_path);
         if (quit_req.exchange(false, std::memory_order_acq_rel)) {
           lock.unlock();
@@ -520,14 +634,29 @@ struct LiveSink::Impl {
           quit_ack.store(true, std::memory_order_release);
           lock.lock();
         }
-        if (mail.empty() && now_path.empty()) {
+        if (mail.empty() && run_q.empty() && now_path.empty() && !shot_pending.load(std::memory_order_acquire)) {
           if (stopping) return;  // stopping, nothing left
           continue;
         }
-        if (!mail.empty()) {
-          message = std::move(mail.front());
-          mail.pop_front();
-          waiting = mail.size();
+        if (!run_q.empty()) {   // S103 G2: the rest of the run popped last time: dropped messages, then the newest
+          message = std::move(run_q.front());
+          run_q.pop_front();
+          forced_skip = !run_q.empty();             // every message of the run but the last is dropped
+          waiting = (forced_skip || run_forced) ? 0 : mail.size();   // S103 G2 (review 3): the newest of a run that dropped messages is never queue-skipped by newcomers: waiting = 0, the next take handles them
+          have_message = true;
+        } else if (!mail.empty()) {
+          rdr_adapter::MailRun<Message> run;
+          rdr_adapter::TakeRun(mail, [&](const Message& m) {   // S103 G2: with the scene switch not 2 (or paced) every message is a Barrier: one at a time, as today
+            if (m.scene_mode != 2 || m.read || !m.picture.empty() || paced) return rdr_adapter::MailKind::Barrier;
+            return m.scene_sheet ? rdr_adapter::MailKind::Last : rdr_adapter::MailKind::Plain;
+          }, run, &mail_stats);
+          for (Message& d : run.dropped) run_q.push_back(std::move(d));
+          run_q.push_back(std::move(run.newest));
+          message = std::move(run_q.front());
+          run_q.pop_front();
+          forced_skip = !run_q.empty();
+          run_forced = forced_skip;   // (the run dropped something: its newest gets waiting = 0)
+          waiting = forced_skip ? 0 : mail.size();
           have_message = true;
         }
       }
@@ -540,6 +669,16 @@ struct LiveSink::Impl {
         Log(binder.last_present().source.image == rdr::kNoImage ? "[rdr][live] WARN last picture not written: nothing presented yet"
                                                                : "[rdr][live] WARN last picture not written: the presented image is not readable");
     }
+      if (shot_pending.load(std::memory_order_acquire)) {   // S103 lane SHOT: a frame follows -> the copy rides it (no drain); no frame -> the picture shown is read now (the one drain)
+        if (have_message) {
+          QueueShot(binder);
+        } else {
+          PollAsync();
+          stage.Drain();  // (hazard 10: the picture is read from the renderer)
+          ServeShotSync(binder);
+          if (shot_inflight) std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (the copy lands within a few ms; no spin)
+        }
+      }
       if (!have_message) continue;  // only the picture request
       room_cv.notify_all();  // (a paced game waits for room: WaitForRoom)
       // A named picture is reported done however this frame ends (a route's quit waits for it).
@@ -663,9 +802,9 @@ struct LiveSink::Impl {
         si.on = rdr_sw::BoolSeen(rdr_sw::kStageSplit, false, message.guest_frame);
         si.tween = options.tween;
         si.dlss = options.dlss_mode >= 0;
-        si.picture = !message.picture.empty() || WantPng(message.guest_frame, drawn.load(std::memory_order_relaxed) + 1);
+        si.picture = !message.picture.empty() || message.scene_sheet || WantPng(message.guest_frame, drawn.load(std::memory_order_relaxed) + 1);   // S103 lane S: a mirror sheet frame reads the picture back
         { std::lock_guard lock(overlay_mu); si.photo = !photo_path.empty(); }
-        si.readback = !async_tags.empty() || AsyncDue(frame, message.guest_frame, message.seq);
+        si.readback = !async_tags.empty() || !stage_tags.empty() || StagePageDue(message.guest_frame) || message.stage_mirror || AsyncDue(frame, message.guest_frame, message.seq);   // S103 L12: a stage page dump is read by the frame that queues it (never split)
         si.read_part = message.read != nullptr;
         si.ko = rdr_sw::BoolSeen(rdr_sw::kKoDrawNone, false, message.guest_frame);
         const int decision = ss::Decide(si);
@@ -703,6 +842,7 @@ struct LiveSink::Impl {
       if (!split_frame) PollAsync();  // lane 232: read-back copies whose frame's fence has signalled (never waits). S102 R21-B: a split frame has none in flight (else it is not split)
       if (message.read) {  // a frame's first part, split at a copy the game reads back (DrawAndRead): drawn, kept, read, never shown
         ReadRequest& request = *message.read;
+        // render-clock: perf - stamps a bind request for its latency counters
         request.taken = std::chrono::steady_clock::now();
         BindStats stats;
         builder.Begin(message.guest_frame);
@@ -712,6 +852,7 @@ struct LiveSink::Impl {
         rdr::Frame part = builder.Finish();
         part.keep_contents = true;
         renderer->RenderFrame(part);
+        // render-clock: perf - stamps a bind request for its latency counters
         request.drawn = std::chrono::steady_clock::now();
         draws += stats.draws;
         bound += stats.bound;
@@ -724,6 +865,7 @@ struct LiveSink::Impl {
         std::vector<uint8_t> rgba;
         uint32_t width = 0, height = 0;
         const bool ok = ref.image != rdr::kNoImage && renderer->ReadImage(ref, rgba, width, height);
+        // render-clock: perf - stamps a bind request for its latency counters
         request.read = std::chrono::steady_clock::now();
         {
           std::lock_guard lock(request.mu);
@@ -769,6 +911,7 @@ struct LiveSink::Impl {
       // S100 (strip-360 A1): a frame is skipped when newer frames wait (latest wins), never so long that nothing reaches the screen.
       const auto shown_at = last_present.load(std::memory_order_relaxed);  // S102 R21-B: the record stage may write it
       const bool starved = options.window && shown_at != std::chrono::steady_clock::time_point{} &&
+                           // render-clock: ctl - 100 ms since the last present forces a draw (liveness of our own loop)
                            std::chrono::steady_clock::now() - shown_at > std::chrono::milliseconds(100);
       // Settings parity S9 (Jarrod 08:1x: "120fps absolutely stays as long as a decouplement is there properly, same for 30fps"): the 30
       // fps mode keeps the game's 60 updates and draws a frame once draw_vblanks vblanks of presents have passed; the frames between are
@@ -776,7 +919,9 @@ struct LiveSink::Impl {
       bool rate_skip = false;
       if (options.draw_vblanks > 1 && message.picture.empty()) {
         vblank_debt += std::max<uint32_t>(1, frame.header.present_interval);
-        if (vblank_debt < options.draw_vblanks) {
+        if (forced_skip) {   // S103 G2 (review 2): a dropped message adds its interval and decides nothing (saturated: the newest of the run then always draws)
+          vblank_debt = std::min<uint32_t>(vblank_debt, options.draw_vblanks);
+        } else if (vblank_debt < options.draw_vblanks) {
           rate_skip = true;
         } else {
           vblank_debt = 0;
@@ -809,6 +954,7 @@ struct LiveSink::Impl {
       rdr::g_combine_lite.store(rdr::ClampCombineLite(int(rdr_sw::IntSeen(rdr_sw::kCombineLite, rdr::g_combine_lite.load(std::memory_order_relaxed), message.guest_frame))), std::memory_order_relaxed);   // S102 R18-B2: the combine's lite level, per frame
       rdr::g_gpu_small.store(rdr::ClampGpuSmall(int(rdr_sw::IntSeen(rdr_sw::kGpuSmall, rdr::g_gpu_small.load(std::memory_order_relaxed), message.guest_frame))), std::memory_order_relaxed);   // S102 R24-E: the small GPU passes' mask, per frame
       copy_alias::g_direct = copy_alias::ClampDirect(rdr_sw::BoolSeen(rdr_sw::kCopyDirect, copy_alias::g_direct > 0, message.guest_frame) ? 1 : 0);   // S102 C5: the direct switch, per frame
+      rdr_scene::live::crowd::g_sign_file_pictures.store(rdr_sw::BoolSeen(rdr_sw::kSignFilePictures, rdr_scene::live::crowd::g_sign_file_pictures.load(std::memory_order_relaxed), message.guest_frame), std::memory_order_relaxed);   // S103 CSF: the reader and the applier follow this one switch
       g_crowd_fast = rdr_sw::BoolSeen(rdr_sw::kCrowdFast, g_crowd_fast, message.guest_frame);   // S102 R21-C: the crowd rank work done once and flat, per frame
       // S102 G2 (review F4): the output levers, read per guest frame from the S0-4 table (still LOW only), carried on the frame: the render thread never reads the cvar
       const bool g2_low = rdr::g_low_tier.load(std::memory_order_relaxed);
@@ -818,10 +964,11 @@ struct LiveSink::Impl {
       const bool lasting_draw_on = rdr_sw::BoolSeen(rdr_sw::kLastingDraw, false, message.guest_frame);   // S102 T3 F3: read every frame (a window with no overload still logs `[switch] seen`)
       const int64_t lasting_draw_pct = rdr_sw::IntSeen(rdr_sw::kLastingDrawPct, 50, message.guest_frame);
       const bool nogroup_now = rdr_sw::BoolSeen(rdr_sw::kLastingNoGroup, false, message.guest_frame);   // S102 K2 (R16 piece C): no model-part group rule on a lasting bind; read every frame
-      const bool skip_wanted = (waiting >= max_queued_now || rate_skip) && message.picture.empty() && !starved;  // a named picture is always drawn
+      const bool skip_wanted = forced_skip || ((waiting >= max_queued_now || rate_skip) && message.picture.empty() && !message.scene_sheet /* S103 lane S */ && !starved);   // S103 G2 (A2, A5): a dropped message skips, whatever the guard says; a named picture is always drawn
       lasting_draw::Verdict lasting_verdict;
       bool lasting_drawn_now = false;  // S102 T3 (a): decided below, once the lasting bind's size is known
       if (skip_wanted) {
+        if (message.stage_mirror) Log(("[rdr][stage_mirror] listed frame " + std::to_string(message.stage_mirror_want) + " not drawn: guest frame " + std::to_string(message.guest_frame) + " was skipped (forced skip); the dump is lost").c_str());   // S103 T7 F5
         // S100: a skipped frame still does the work that lasts beyond it (copies into textures and the passes they need: an attire's
         // build and pack during a load, when most frames are skipped; Heenan's jacket came out black without it, run 6911). Strip-360 A1:
         // only that: a copy into the same image and rectangle in each of the last kPerFrameStreak frames handled is per-frame work (shadow
@@ -879,7 +1026,7 @@ struct LiveSink::Impl {
         }
         {   // S102 T3 (a): more than pct % of the draws kept by the lasting bind: the bind costs most of a drawn frame and shows nothing, so draw and show the frame
           lasting_draw::Inputs in;
-          in.on = lasting_draw_on;
+          in.on = lasting_draw_on && !forced_skip;   // S103 G2 (review 1): a dropped message is never drawn instead; Resolve then owes its per-frame copies
           in.pct = lasting_draw_pct;
           in.waiting = uint32_t(waiting);
           in.max_queued = max_queued_now;
@@ -896,6 +1043,7 @@ struct LiveSink::Impl {
           lasting_drawn_kept += prune.kept_draws;
         } else {
         ++skipped;
+        if (message.scene_mode == 2) scene_frame::NoteStream(message.guest_frame, false, /*render_skipped=*/true);   // S103 CLK2 (review H2): the render side dropped the whole frame: counted apart (render_skipped); run 38 never reached SceneOurs for most streams ([scene][kind] saw 119 match frames of ~15000)
         streaks.CommitOwed();   // S102 K2 (review F4): the copies this frame left out are owed only now that it really is skipped (a T3 draw-instead frame owes nothing)
         if (lasting_verdict.owe_missed) for (const rdr::CopyOp& c : left_out_copies) {
           ++per_frame_copies_left;
@@ -934,6 +1082,7 @@ struct LiveSink::Impl {
           binder.frame_part_open = false;
           binder.persist_only_bind = false;
           if (!split_frame) QueueAsync(frame, binder, message.guest_frame, message.seq);  // lane 232: a demanded picture is read after this frame too (its lasting copies are in it). R21-B: a split frame queues none (AsyncDue said so)
+          if (!split_frame) QueueStagePage(frame, binder, message.guest_frame);   // S103 L12 (dev, empty list = off)
           frame.ops = all_ops;
           if (split_frame) {   // S102 R21-B: handed over, recorded on rdr_record (ko frames are never split)
             ss::Packet p = render_globals;
@@ -972,12 +1121,21 @@ struct LiveSink::Impl {
             owed = false;
             streaks.ClearMissed();
           }
+          // render-clock: dev - test-only spin that slows the bind thread on purpose
           if (test_bind_spin_us) for (const auto spin_to = std::chrono::steady_clock::now() + std::chrono::microseconds(test_bind_spin_us); std::chrono::steady_clock::now() < spin_to;) {}  // S102 S0-3 test hook
+          if (message.scene_mode == 2 && message.guest_frame != fc_last) fc_last = message.guest_frame, ++fc_handled;   // S103 L2b: the mode-2 frames handled, counted at the dispatch (a split frame's second message is the same frame)
+          if (message.scene_mode == 2 && message.scene_record) SceneOurs(binder, source, frame, fb, message);   // S103 lane S (FRAME_CONTRACT.md 1, 5, 6): ours first, then the remnant over it
+          else if (message.scene_mode == 2) fallback_census::NoRecord(message.guest_frame), CensusTick(), scene_frame::NoteStream(message.guest_frame, false);   // S103 L2b: a mode-2 frame with no scene record is counted too (S103 CLK2: and in the stream census)
           binder.Bind(frame, source, fb, stats);
+          if (scene_stream_note.pending) {   // S103 CLK2 (review M1): our frame counts as drawn only when the binder placed it
+            scene_frame::NoteStream(scene_stream_note.frame, scene_stream_note.drawn && binder.scene_bind_state() == 1);
+            scene_stream_note.pending = false;
+          }
           frame.ops = all_ops;
         }
         const rdr::Frame built = fb.Finish();   // (on a split frame only read for its present count; the stage finishes its slot again at Submit)
         if (!split_frame) QueueAsync(frame, binder, message.guest_frame, message.seq);  // lane 232: a watched picture this frame copies into is read back by this frame's own command buffer
+        if (!split_frame) QueueStagePage(frame, binder, message.guest_frame);   // S103 L12 (dev, empty list = off)
         const auto t_record = std::chrono::steady_clock::now();
         if (split_frame) {   // S102 R21-B: handed over; rdr_record applies the overlay, records, submits, presents and notes the present (STAGE_SPLIT.md section 1)
           ss::Packet p = render_globals;
@@ -998,6 +1156,7 @@ struct LiveSink::Impl {
           renderer->RenderFrame(built, rdr::RenderMode::NoPasses);
         } else if (options.tween && tween.valid() && built.presents.count && (waiting == 0 || !message.picture.empty())) {
           uint32_t matched = 0;
+          // render-clock: present - the halfway picture between two game ticks, a function of the tick pair
           renderer->RenderFrame(tween.Blend(built, 0.5f, matched));
           if (!message.picture.empty()) WritePicture(binder, message.picture + "_half");
           renderer->RenderFrame(built, rdr::RenderMode::DisplayOnly);
@@ -1008,6 +1167,7 @@ struct LiveSink::Impl {
           // tick's: no motion of their own on a draw's first tick).
           rdr::Frame with_prev = built;
           uint32_t matched = 0;
+          // render-clock: present - the previous-tick motion constants, a function of the tick pair
           with_prev.prev_constants = motion_ticks.valid() ? motion_ticks.Blend(built, 0.0f, matched).constants : built.constants;
           renderer->RenderFrame(with_prev);
           motion_ticks.Keep(built);
@@ -1047,6 +1207,8 @@ struct LiveSink::Impl {
           }
         }
         else if (WantPng(message.guest_frame, count)) WritePicture(binder, std::to_string(message.guest_frame));
+        if (!split_frame && message.stage_mirror) StageMirror(frame, binder, message);   // S103 T7 (empty list = off): the game's in-between targets; ours is dumped by the sheet below
+        if (message.scene_sheet && message.scene_record && built.presents.count && !split_frame) MirrorSheet(binder, message);   // S103 lane S: mirror mode
       }
       {  // S102 K3 (skips_auto.h): this thread's own headroom decides whether the five D3 skips are active; read every frame, the answer is latched at the next guest frame boundary (frame_stats.h)
         if (rdr_sw::BoolSeen(rdr_sw::kSkipsAuto, false, message.guest_frame)) {
@@ -1058,7 +1220,7 @@ struct LiveSink::Impl {
             note.busy_ns = std::max<uint64_t>(note.busy_ns, rc - stage_cpu_seen);
             stage_cpu_seen = rc;
           }
-          note.skipped = skip_wanted && waiting >= max_queued_now && !lasting_drawn_now ? 1u : 0u;   // review F4: only a queue skip (the 30 fps mode's rate skips are not "behind")
+          note.skipped = skip_wanted && (forced_skip || waiting >= max_queued_now) && !lasting_drawn_now ? 1u : 0u;   // review F4: only a queue skip (the 30 fps mode's rate skips are not "behind")
           note.starved = (!skip_wanted || lasting_drawn_now) && starved && waiting >= max_queued_now ? 1u : 0u;   // the 100 ms guard forced this draw (as starved_draws counts)
           note.waiting = uint32_t(waiting);
           note.chain_frame = d3_chain_now;
@@ -1087,6 +1249,21 @@ struct LiveSink::Impl {
         }
       }
       for (uint32_t id : message.released) binder.ReleaseImage(id);
+      const auto lever_census = [&] {   // S102 CEN1: the small levers' census lines, one body for the 600-drawn window and the flip phase end
+        if (rdr::g_combine_lite.load(std::memory_order_relaxed) > 0) {   // S102 R18-B2: the lever's census (relaxed counters bumped once per combine draw; the line is built here)
+          char lite_line[200];
+          rdr::CombineLiteCensusLine(drawn, lite_line, sizeof(lite_line));
+          Log(lite_line);
+        }
+        if (rdr::g_gpu_small.load(std::memory_order_relaxed) > 0) {   // S102 R24-E: the lever's census (relaxed counters bumped once per post record; the line is built here)
+          char small_line[420];
+          rdr::GpuSmallCensusLine(drawn, small_line, sizeof(small_line));
+          Log(small_line);
+        }
+        if (skips_was_on || skips_ctl.census().off_to_on || skips_ctl.census().on_to_off) Log(skips_auto::Line(skips_ctl.census(), skips_was_on, skips_force).c_str());   // S102 K3: the census line (every 600 drawn frames while the switch is on or ever flipped)
+      };
+      static census_flush::Site live_flush;   // S102 CEN1: a flip phase end (any PerFrame switch's new seen value, census_flush.h) prints the small levers' lines now
+      if (census_flush::Due(live_flush) && !(drawn % 600 == 0 && drawn && drawn != last_logged)) lever_census();
       if (drawn % 600 == 0 && drawn && drawn != last_logged) {  // once per 600 drawn (skipped frames leave `drawn` where it was)
         if (options.tween) {
           char tween_line[160];
@@ -1121,16 +1298,7 @@ struct LiveSink::Impl {
           live_line += "; live_geometry_missing " + std::to_string(missing);
         }
         Log(live_line.c_str());
-        if (rdr::g_combine_lite.load(std::memory_order_relaxed) > 0) {   // S102 R18-B2: the lever's census (relaxed counters bumped once per combine draw; the line is built here, every 600 frames)
-          char lite_line[200];
-          rdr::CombineLiteCensusLine(drawn, lite_line, sizeof(lite_line));
-          Log(lite_line);
-        }
-        if (rdr::g_gpu_small.load(std::memory_order_relaxed) > 0) {   // S102 R24-E: the lever's census (relaxed counters bumped once per post record; the line is built here, every 600 frames)
-          char small_line[420];
-          rdr::GpuSmallCensusLine(drawn, small_line, sizeof(small_line));
-          Log(small_line);
-        }
+        lever_census();   // combine_lite, gpu_small, skips_auto (S102 CEN1: also at every flip phase end, below)
         char line[640];
         // S100 speed: this thread's time over the window, per frame handled (parse + contents), per frame drawn (bind, record), per
         // skipped frame whose lasting work ran.
@@ -1210,8 +1378,14 @@ struct LiveSink::Impl {
           Log(sl);
         }
         if (d3::AnyD3Chain()) Log(d3t::Line().c_str());   // S102 K3 rework (step 1): the render thread's D3 bookkeeping per handled frame, by chain and phase
-        if (skips_was_on || skips_ctl.census().off_to_on || skips_ctl.census().on_to_off) Log(skips_auto::Line(skips_ctl.census(), skips_was_on, skips_force).c_str());   // S102 K3: the census line (every 600 drawn frames while the switch is on or ever flipped)
         if (stage.started()) Log(stage.Line().c_str());   // S102 R21-B: [rdr][stage] (every 600 drawn frames once the stage has run; built here only)
+        if (mail_stats.dropped) {   // S103 G2 (only once something was dropped: silent with the switch off, where barrier stops would count a plain backlog) (SCENE_PACING.md 3c (9)): the consumer's latest-wins pop, cumulative; shown rate = takes per second
+          char ml[160];
+          std::snprintf(ml, sizeof(ml), "[rdr][mail] takes %llu dropped %llu max_run_dropped %llu barrier_stops %llu",
+                        static_cast<unsigned long long>(mail_stats.takes), static_cast<unsigned long long>(mail_stats.dropped),
+                        static_cast<unsigned long long>(mail_stats.max_run_dropped), static_cast<unsigned long long>(mail_stats.barrier_stops));
+          Log(ml);
+        }
         window = Window{};
       }
     }
@@ -1286,11 +1460,174 @@ struct LiveSink::Impl {
     }
     return false;
   }
+  // S103 L12 (--wwe2k14_dump_stage_page, dev diagnosis, default empty = off): the stage light-map page the arena samples at vertex slot 16, read at the end of the first drawn frame at or after each
+  // listed guest frame (Renderer::QueueReadback: the image's own contents, as RGBA8). The page is the image most draws of the frame bind at texture slot 16. Off: stage_pending is empty and
+  // every function below returns at once (no lock, no walk, no renderer call).
+  struct StagePageTag {
+    uint64_t want = 0, frame = 0;
+    uint32_t guest_image = 0, draws = 0;
+  };
+  std::vector<uint64_t> stage_pending;   // ascending; a frame is taken off when its dump is queued
+  bool stage_init = false;
+  std::unordered_map<uint64_t, StagePageTag> stage_tags;
+  bool StagePageDue(uint64_t guest_frame) {
+    if (!stage_init) {
+      stage_init = true;
+      stage_pending = options.stage_page_frames;
+      std::sort(stage_pending.begin(), stage_pending.end());
+    }
+    return !stage_pending.empty() && guest_frame >= stage_pending.front();
+  }
+  void QueueStagePage(const LoadedFrame& frame, Binder& binder, uint64_t guest_frame) {
+    if (!StagePageDue(guest_frame)) return;
+    std::unordered_map<uint32_t, uint32_t> users;
+    for (uint32_t d = 0; d < frame.draws.count; ++d) {
+      const Draw& draw = frame.draws[d];
+      for (uint32_t t = 0; t < draw.texture_count; ++t) {
+        const uint32_t ti = draw.texture_first + t;
+        if (ti >= frame.texture_slots.count) break;
+        const TextureSlot& ts = frame.texture_slots[ti];
+        if (ts.slot == 16 && ts.image) ++users[ts.image];
+      }
+    }
+    uint32_t best = 0, best_n = 0;
+    for (const auto& u : users)
+      if (u.second > best_n || (u.second == best_n && u.first < best)) best = u.first, best_n = u.second;
+    const uint64_t want = stage_pending.front();
+    if (!best) {
+      if (guest_frame > want + 600) {
+        Log(("[rdr][stage_page] frame " + std::to_string(want) + ": no draw binds vertex slot 16 up to frame " + std::to_string(guest_frame) + ", given up").c_str());
+        stage_pending.erase(stage_pending.begin());
+      }
+      return;
+    }
+    rdr::ImageRef ref;
+    ref.image = binder.Mapped(best);
+    const uint64_t tag = ++async_tag;
+    if (ref.image == rdr::kNoImage || !renderer->QueueReadback(ref, tag)) {
+      Log(("[rdr][stage_page] frame " + std::to_string(want) + ": image " + std::to_string(best) + " is not readable here, retrying next drawn frame").c_str());
+      if (guest_frame > want + 600) stage_pending.erase(stage_pending.begin());
+      return;
+    }
+    stage_tags[tag] = {want, guest_frame, best, best_n};
+    stage_pending.erase(stage_pending.begin());
+  }
+  void WriteStagePage(const StagePageTag& t, const rdr::Renderer::ReadbackResult& r) {
+    std::error_code ec;
+    std::filesystem::create_directories(options.stage_page_dir, ec);
+    const std::string stem = "stage_page_f" + std::to_string(t.frame);
+    const std::filesystem::path png = options.stage_page_dir / (stem + ".png");
+    const std::filesystem::path raw = options.stage_page_dir / (stem + ".rgba8");
+    bool ok = FinishPng(nullptr, png, r.rgba, r.width, r.height);
+    if (FILE* f = rdr::PngOpen(raw)) {  // raw bytes: width, height (u32 LE x2) then RGBA8 rows; the readback's own format conversion, 8 bits a channel
+      const uint32_t wh[2] = {r.width, r.height};
+      ok = std::fwrite(wh, sizeof(wh), 1, f) == 1 && std::fwrite(r.rgba.data(), 1, r.rgba.size(), f) == r.rgba.size() && ok;
+      std::fclose(f);
+    } else {
+      ok = false;
+    }
+    char line[320];
+    std::snprintf(line, sizeof(line), "[rdr][stage_page] wanted %llu, read after guest frame %llu: image %u (%u draws bind it at slot 16) %ux%u -> %s (%s)",
+                  static_cast<unsigned long long>(t.want), static_cast<unsigned long long>(t.frame), t.guest_image, t.draws, r.width, r.height, png.string().c_str(), ok ? "written" : "WRITE FAILED");
+    Log(line);
+  }
+  // S103 T7 (--wwe2k14_dump_targets, dev diagnosis, default empty = off; stage_mirror.h): at each LISTED guest frame (exactly that frame, so the scene record and the game's targets are the same frame) the frame's
+  // ops are walked once (stage_mirror::CollectTargets: the role of every colour target a draw wrote, by technique), each role's images are read back at the end of the frame (Renderer::ReadImage: waits on
+  // the GPU, dev only) and written to options.dump_targets_dir as game_<role>.<n>_f<frame>.rgba8 + .png; the stage page (the image most draws bind at texture slot 16, as L12) and the present's source
+  // follow. manifest_game_f<frame>.txt lists role / n / game image / draws / size / technique. OUR maps by role come from the same frame's mirror sheet (LiveSceneDraw::SetMapDump, set in MirrorSheet).
+  // Off: the list is empty, StageMirrorNote is never called and no message carries stage_mirror (no lock, no walk, no renderer call).
+  // The swap thread (NoteScene) decides, once per guest frame: the next listed frame is answered by the first frame at or after it that is allowed to be dumped. Mode 1 / 0: any frame. Mode 2:
+  // only a SENTINEL walk (scene_frame::IsSentinel of the hook frame): the other frames carry no game draws. The frame used is the message's guest_frame (the manifest names both).
+  // Only the swap thread touches the pending list. A due frame is a sheet frame (a mirror pair; mode 0 has no record, so the game side only).
+  std::vector<uint64_t> mirror_pending;
+  bool mirror_init = false;
+  void StageMirrorNote(Message& m, uint64_t guest_frame) {
+    if (!mirror_init) {
+      mirror_init = true;
+      mirror_pending = options.dump_targets_frames;
+      std::sort(mirror_pending.begin(), mirror_pending.end());
+    }
+    if (mirror_pending.empty() || guest_frame < mirror_pending.front()) return;
+    if (m.scene_mode == 2 && !scene_frame::IsSentinel(scene_frame::HookFrameOf(guest_frame))) return;
+    m.stage_mirror = true;
+    m.stage_mirror_want = mirror_pending.front();
+    mirror_pending.erase(mirror_pending.begin());
+    if (m.scene_mode == 1 || m.scene_mode == 2) m.scene_sheet = true;
+  }
+  void StageMirror(const LoadedFrame& frame, Binder& binder, const Message& message) {
+    std::vector<rdr_adapter::stage_mirror::Found> found;
+    uint32_t dropped = 0;
+    rdr_adapter::stage_mirror::CollectTargets(frame, found, dropped);
+    {  // the stage light-map page: the image most draws bind at texture slot 16 (L12's rule, kept here so one flag reads it)
+      std::unordered_map<uint32_t, uint32_t> users;
+      for (uint32_t d = 0; d < frame.draws.count; ++d) {
+        const Draw& draw = frame.draws[d];
+        for (uint32_t t = 0; t < draw.texture_count; ++t) {
+          const uint32_t ti = draw.texture_first + t;
+          if (ti >= frame.texture_slots.count) break;
+          const TextureSlot& ts = frame.texture_slots[ti];
+          if (ts.slot == 16 && ts.image) ++users[ts.image];
+        }
+      }
+      uint32_t best = 0, best_n = 0;
+      for (const auto& u : users)
+        if (u.second > best_n || (u.second == best_n && u.first < best)) best = u.first, best_n = u.second;
+      if (best) {
+        rdr_adapter::stage_mirror::Found f;
+        f.role = "stage_page", f.index = 0, f.guest_image = best, f.draws = best_n, f.technique = "texture slot 16", f.last_writer = "-";
+        found.push_back(std::move(f));
+      }
+    }
+    const rdr::ImageRef present = binder.last_present().source;   // the whole ref (image, mip, layer): a renderer image, not a guest id
+    std::error_code ec;
+    std::filesystem::create_directories(options.dump_targets_dir, ec);
+    const std::string tag = "f" + std::to_string(message.guest_frame);
+    std::string manifest = "# game targets by role, end of guest frame " + std::to_string(message.guest_frame) + " (listed frame " + std::to_string(message.stage_mirror_want) + ", scene mode " + std::to_string(message.scene_mode) +
+                           "); columns: game, role, n, game image, draws, size, technique, last written by, status\n"
+                           "# dropped past " + std::to_string(rdr_adapter::stage_mirror::kMaxPerRole) + " images of a role: " + std::to_string(dropped) + "\n";
+    auto emit = [&](const std::string& role, uint32_t index, uint32_t guest_image, uint32_t draws, const std::string& technique, const std::string& last_writer, rdr::ImageRef ref) {
+      std::vector<uint8_t> px;
+      uint32_t w = 0, h = 0;
+      char line[360];
+      if (ref.image == rdr::kNoImage || !renderer->ReadImage(ref, px, w, h) || !w || !h) {
+        std::snprintf(line, sizeof line, "game\t%s\t%u\t%u\t%u\t0x0\t%s\t%s\tNOT READABLE\n", role.c_str(), index, guest_image, draws, technique.c_str(), last_writer.c_str());
+        manifest += line;
+        return;
+      }
+      const std::string stem = rdr_adapter::stage_mirror::FileStem("game", role, index, message.guest_frame);
+      const std::filesystem::path base = options.dump_targets_dir / stem;
+      std::filesystem::path raw = base, png = base;
+      raw += ".rgba8";
+      png += ".png";
+      const bool ok = rdr_adapter::stage_mirror::WriteRaw(raw, px, w, h) && FinishPng(nullptr, png, px, w, h);
+      std::snprintf(line, sizeof line, "game\t%s\t%u\t%u\t%u\t%ux%u\t%s\t%s\t%s\n", role.c_str(), index, guest_image, draws, w, h, technique.c_str(), last_writer.c_str(), ok ? "written" : "WRITE FAILED");
+      manifest += line;
+    };
+    for (const rdr_adapter::stage_mirror::Found& f : found) {
+      rdr::ImageRef ref;
+      ref.image = binder.Mapped(f.guest_image);
+      emit(f.role, f.index, f.guest_image, f.draws, f.technique, f.last_writer, ref);
+    }
+    emit("present", 0, 0, 0, "last present's source", "-", present);
+    rdr_adapter::stage_mirror::WriteText(options.dump_targets_dir / ("manifest_game_" + tag + ".txt"), manifest);
+    char sum[256];
+    std::snprintf(sum, sizeof sum, "[rdr][stage_mirror] guest frame %llu: %zu roles read, manifest %s", static_cast<unsigned long long>(message.guest_frame), found.size() + 1, (options.dump_targets_dir / ("manifest_game_" + tag + ".txt")).string().c_str());
+    Log(sum);
+  }
   void PollAsync() {
     const auto t0 = std::chrono::steady_clock::now();  // SF-1: always polls (PollReadbacks returns at once when nothing is in flight or cancelled)
     async_done.clear();
     renderer->PollReadbacks(async_done);
     for (rdr::Renderer::ReadbackResult& r : async_done) {
+      if (shot_inflight && r.tag == shot_tag) { FinishShot(r); continue; }   // S103 lane SHOT
+      if (!stage_tags.empty()) {   // S103 L12: a stage page dump's result (off: stage_tags is empty)
+        const auto st = stage_tags.find(r.tag);
+        if (st != stage_tags.end()) {
+          if (!r.cancelled) WriteStagePage(st->second, r);
+          stage_tags.erase(st);
+          continue;
+        }
+      }
       const auto it = async_tags.find(r.tag);
       if (it == async_tags.end()) continue;
       if (r.cancelled) {
@@ -1384,8 +1721,12 @@ struct LiveSink::Impl {
   std::vector<uint8_t> lasting_seed;
   std::vector<Op> lasting_ops, dropped_ops;
   uint64_t run_end_peeks = 0, run_end_kept = 0, run_end_rate_skips = 0, run_end_no_next = 0;   // S102 K2 round 2: the run-end recovery's census (render thread only)
-  // The destination images of the copies of the NEXT queued message (a queue skip means waiting >= max_queued, so it exists); false = nothing queued. The tables are copied / bound outside the lock.
+  // The destination images of the copies of the NEXT queued message (handling order: the popped run first, then `mail`; a queue skip, a rate skip with a backlog or a dropped message has one if anything is queued); false = nothing queued. The tables are copied / bound outside the lock.
   bool PeekNextCopies(std::vector<rdr::CopyOp>& out) {   // round 3 F3: the copy table only, copied under the lock (a few KB), nothing parsed, no frame copied
+    if (!run_q.empty()) {   // S103 G2: the next message in handling order is the run's (render thread: no lock)
+      if (run_q.front().data) { out = run_q.front().data->copies; return true; }
+      return CaptureReader::ReadCopies(run_q.front().frame, out);
+    }
     std::lock_guard<std::mutex> lock(mail_mu);
     if (mail.empty()) return false;
     if (mail.front().data) {
@@ -1400,6 +1741,7 @@ struct LiveSink::Impl {
   void NotePresent() {
     if (rdr::DeviceLost()) return;  // S102 D1 (review F2): no frame counts as presented after a lost device, on every path (sync and R21-B split): the csv's `presented` read ~60 fps while the GPU drew nothing
     auto& events = rex::perf::frame_events::Get();
+    // render-clock: ctl - wall-clock pacing of our own present loop, never a picture value
     const auto now = std::chrono::steady_clock::now();
     const auto before = last_present.load(std::memory_order_relaxed);
     double gap = -1;  // S101 lane 19: -1 = the first picture, no gap to report
@@ -1428,6 +1770,7 @@ struct LiveSink::Impl {
     uint64_t parse = 0, bind = 0, record = 0, kept = 0;  // ns
     uint64_t skip_frames = 0, skip_ns = 0;   // S102 K1: frames handled and not drawn (and the ns they took, whole)
     uint64_t obj_passes = 0, obj_kept = 0, obj_dropped = 0, lasting_targets = 0, blind = 0;   // S102 K2: of the lasting binds: passes holding an engine-object draw, how many the bind kept / left out although another was kept, binds with no object pass
+    // render-clock: ctl - wall-clock pacing of our own present loop, never a picture value
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
   };
   Window window;
@@ -1447,6 +1790,295 @@ struct LiveSink::Impl {
   uint64_t bank_mark_bytes = 0, bank_mark_resolved = 0, bank_mark_frames = 0;   // S102 T1: the totals at the last [rdr][time] banks line
   static uint64_t Ns(std::chrono::steady_clock::time_point since) {
     return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - since).count());
+  }
+
+  // S103 lane S (FRAME_CONTRACT.md 1, 3, 5, 6): mode 2 on the render thread, before the frame's bind. The decision for frame j travels in record j
+  // (kScOwnedPasses). Stamped OURS: record j is drawn into this frame's builder by our graph and the frame image (the source of the copy the present
+  // reads) is aliased to our picture for the whole bind, so the remnant (text, movies) lands on top of it. Not ours: the cache is warmed so the
+  // loader fetches what the scene needs and READY is learned. A frame stamped OURS that our graph cannot draw is a hole: counted, a hold starts.
+  // v0 limits (logged in the census, to fix before landing 1): no post (frame.post null), a hole shows the remnant over a stale frame image (REMNANT_SEAM H3).
+  // S103 L2a (docs\renderer\LANDING2_PLAN.md P1; dev only, --wwe2k14_rdr_2d_ours with --wwe2k14_rdr_2d_record): record j's 2D rows drawn into `out` after our post. A frame is 2D-WHOLE only when
+  // the contributor took it with no hole, every row passes the drawer's own check (q2d::Check: blend from the state fill, pictures), the stream frame carries origins and the pure scan (q2d::ScanStream: every row-site draw on the frame image, no kept op between them,
+  // their number = the rows, row i's blend = the i-th draw's) passes. Then the binder leaves the stream's row-site draws out and appends our rows at the first of them (SetSkip2DRows with an insert). Any other frame keeps the stream's 2D whole (counted by its
+  // first reason). Pictures / movie planes: no live resolver yet (P3 / P4), so a sprite, glyph or movie row is refused 'picture' / 'planes' and its frame keeps the stream's 2D.
+  bool q2d_on = false;
+  bool q2d_registered = false;
+  rdr_scene::q2d::Programs q2d_programs;
+  struct Q2DCensus {
+    uint64_t frames = 0, whole = 0, rows_drawn = 0, not_taken = 0, holes = 0, refused = 0, no_origins = 0;
+    uint64_t cross_pairs = 0, cross_target = 0, cross_size = 0, cross_scissor = 0;   // S103 SC review: the dev cross-check of row i against the i-th stream row-site draw (target class / size, scissor ∩ viewport)
+    uint64_t scan_by[uint8_t(rdr_scene::q2d::PairWhy::Num)] = {};   // S103 L2a review: the pre-bind stream scan's refusals (stream_target / interleaved / count / blend_pair)
+    uint64_t refused_by[uint8_t(rdr_scene::q2d::Refuse::Count)] = {};
+  } q2d_census;
+  // S103 L2dF (LANDING2_PLAN 5 (a)): the 2D drawer's decision split in two. Check2D is the pure half: it reads the record, the stream frame and the drawer's own check and changes NOTHING (no census note, no binder call);
+  // Apply2D is the only place that calls SetSkip2DRows(true, ...). The 3D OURS path (Draw2DOurs) calls Check2D then Apply2D as before; a FLAT frame calls Apply2D only after scene_kind::FlatVerdict said Ours.
+  struct Check2DResult {
+    scene_kind::TwoD twod = scene_kind::TwoD::NotTaken;
+    uint32_t refused_other = 0, movie_rows = 0, movie_planes_missing = 0;
+    rdr_scene::q2d::PairWhy scan = rdr_scene::q2d::PairWhy::None;   // the stream scan's refusal (twod == ScanRefused / CountDiffers)
+    rdr_scene::q2d::Report report;                                  // the drawer's own per-row check (twod == Refused only when refused_total() > 0)
+    rdr_scene::q2d::CrossCheck cross;                               // S103 SC review: dev only (wwe2k14::IsDevBuild), counted on the census line
+    const char* first_reason = nullptr;                             // the first refused row's reason name (census), or "blend" with blend_code set
+    int blend_code = -1;                                            // >= 0: the first refused row is a blend the drawer has no program for (its state code)
+    bool Whole() const { return twod == scene_kind::TwoD::Whole; }
+  };
+  rdr_scene::q2d::Context MakeCtx2D(uint32_t w, uint32_t h) const {
+    rdr_scene::q2d::Context ctx;
+    ctx.width = w, ctx.height = h;
+    ctx.plane = [](const rdr_scene::Quad2D&, int) { return rdr::TextureSlot{}; };   // (P4: the planes from guest memory)
+    ctx.picture = [](const rdr_scene::Quad2D&) { return rdr::TextureSlot{}; };       // (P1 picture path 2 / P3: no live picture resolver yet)
+    return ctx;
+  }
+  // `frame_id` = the stream's frame image (FindFrameImage). `jframe` = the record's frame (kept for the caller's census notes; this function notes nothing).
+  Check2DResult Check2D(const Binder&, const LoadedFrame& frame, const rdr_scene::SceneTables& rec, uint32_t w, uint32_t h, uint32_t frame_id, [[maybe_unused]] uint64_t jframe) const {
+    namespace q = rdr_scene::q2d;
+    Check2DResult r;
+    if (rec.quad2d_holes == rdr_scene::kQuad2DNotTaken) return r.twod = scene_kind::TwoD::NotTaken, r;
+    for (const rdr_scene::Quad2D& row : rec.quads2d)
+      if (row.kind == rdr_scene::kQkYuvAlpha || row.kind == rdr_scene::kQkYuv) ++r.movie_rows;
+    if (rec.quad2d_holes) return r.twod = scene_kind::TwoD::Holes, r;   // (the census has the hole's site from the tap)
+    if (!Binder::HasOrigins(frame)) return r.twod = scene_kind::TwoD::NoOrigins, r;
+    // F1 / F2 / pairing: the stream's ops as the pure scan reads them; our rows go in at the first row-site draw, so the scan refuses what that would reorder or mis-target.
+    std::vector<q::StreamOp> ops;
+    Binder::ListStreamOps(frame, ops);
+    const q::PairScan scan = q::ScanStream(ops.data(), ops.size(), frame_id, rec.quads2d.data(), rec.quads2d.size());
+    if (scan.why != q::PairWhy::None) {
+      r.scan = scan.why;
+      r.first_reason = q::PairWhyName(scan.why);
+      r.twod = scan.why == q::PairWhy::Count ? scene_kind::TwoD::CountDiffers : scene_kind::TwoD::ScanRefused;
+      return r;
+    }
+    if (wwe2k14::IsDevBuild()) {   // S103 SC review: the dev cross-check, at the row-site draws of the stream path
+      uint32_t fw = 0, fh = 0;
+      fw = w, fh = h;
+      r.cross = q::CrossCheckStream(ops.data(), ops.size(), frame_id, fw, fh, rec.quads2d.data(), rec.quads2d.size());
+    }
+    const q::Context ctx = MakeCtx2D(w, h);
+    r.report = q::Check(ctx, rec.quads2d.data(), rec.quads2d.size());
+    if (!r.report.refused_total()) return r.twod = scene_kind::TwoD::Whole, r;
+    r.twod = scene_kind::TwoD::Refused;
+    r.movie_planes_missing = r.report.refused[uint8_t(q::Refuse::Planes)];
+    r.refused_other = r.report.refused_total() - r.movie_planes_missing;
+    for (const rdr_scene::Quad2D& row : rec.quads2d) {   // the census names the FIRST refused row's reason (a blend the drawer has no program for: its state code)
+      const q::Report one = q::Check(ctx, &row, 1);
+      if (!one.refused_total()) continue;
+      if (one.refused[uint8_t(q::Refuse::Blend)]) r.first_reason = "blend", r.blend_code = int(row.state & 15u);
+      else
+        for (uint8_t i = 1; i < uint8_t(q::Refuse::Count); ++i)
+          if (one.refused[i]) { r.first_reason = q::RefuseName(q::Refuse(i)); break; }
+      break;
+    }
+    return r;
+  }
+  // The ONLY SetSkip2DRows(true, ...) in this file (lint: tools\scene\stamp_copy_lint.py). Callers: Draw2DOurs after an Ours 3D frame's Whole check, SceneOurs after a flat frame's Ours verdict. `out` = the colour target our rows go to;
+  // kNoImage = the stream's own current targets at the first skipped row-site draw (a flat frame: ScanStream proved every row-site draw targets the frame image, so nothing is aliased).
+  void Apply2D(Binder& binder, const rdr_scene::SceneTables& rec, rdr::ImageId out, uint32_t w, uint32_t h) {
+    if (rec.quads2d.empty()) return binder.SetSkip2DRows(true);
+    if (!q2d_registered) q2d_programs = rdr_scene::q2d::Register(*renderer, true), q2d_registered = true;
+    const rdr_scene::q2d::Context ctx = MakeCtx2D(w, h);
+    // The rows are appended by the binder at the stream's first row-site draw (review F1), not here before the bind: everything the stream draws before it is under our rows, everything after over them.
+    binder.SetSkip2DRows(true, [this, ctx, &rec, out](rdr::FrameBuilder& b) {
+      if (out != rdr::kNoImage) {
+        rdr::TargetsOp t{};
+        t.color[0].image = out;
+        t.color_count = 1;
+        b.SetTargets(t);
+      }
+      q2d_census.rows_drawn += rdr_scene::q2d::Append(b, q2d_programs, ctx, rec.quads2d.data(), rec.quads2d.size()).drawn;
+    });
+  }
+  // The 3D OURS path: counters and the first-reason census notes, then Apply2D on a 2D-whole frame. The census line printed here is [scene][2d-draw] (L2a's own counters), never the census's [scene][2d].
+  void Draw2DOurs(Binder& binder, const LoadedFrame& frame, const rdr_scene::SceneTables& rec, rdr::FrameBuilder&, rdr::ImageId out, uint32_t w, uint32_t h, uint32_t frame_id, uint64_t jframe) {
+    if (!q2d_on) return;
+    namespace q = rdr_scene::q2d;
+    Q2DCensus& c = q2d_census;
+    ++c.frames;
+    const Check2DResult r = Check2D(binder, frame, rec, w, h, frame_id, jframe);
+    c.cross_pairs += r.cross.pairs, c.cross_target += r.cross.target_mismatch, c.cross_size += r.cross.size_mismatch, c.cross_scissor += r.cross.scissor_mismatch;
+    switch (r.twod) {
+      case scene_kind::TwoD::NotTaken: ++c.not_taken, fallback_census::NoteRefused(jframe, "not_taken"); break;
+      case scene_kind::TwoD::Holes: fallback_census::NoteRows(rec.quads2d.size()), ++c.holes; break;
+      case scene_kind::TwoD::NoOrigins: fallback_census::NoteRows(rec.quads2d.size()), ++c.no_origins, fallback_census::NoteRefused(jframe, "no_origins"); break;
+      case scene_kind::TwoD::CountDiffers:
+      case scene_kind::TwoD::ScanRefused: fallback_census::NoteRows(rec.quads2d.size()), ++c.scan_by[uint8_t(r.scan)], fallback_census::NoteRefused(jframe, q::PairWhyName(r.scan)); break;
+      case scene_kind::TwoD::Refused:
+        fallback_census::NoteRows(rec.quads2d.size()), ++c.refused;
+        for (uint8_t i = 0; i < uint8_t(q::Refuse::Count); ++i) c.refused_by[i] += r.report.refused[i];
+        if (r.blend_code >= 0) fallback_census::NoteBlendCode(jframe, uint32_t(r.blend_code));
+        else if (r.first_reason) fallback_census::NoteRefused(jframe, r.first_reason);
+        break;
+      case scene_kind::TwoD::Whole: fallback_census::NoteRows(rec.quads2d.size()); break;
+    }
+    if (r.Whole()) {
+      ++c.whole;
+      Apply2D(binder, rec, out, w, h);
+    } else binder.SetSkip2DRows(false);
+    if (c.frames % 600 == 0) {
+      std::string by;
+      for (uint8_t i = 1; i < uint8_t(q::Refuse::Count); ++i)
+        if (c.refused_by[i]) by += std::string(by.empty() ? "" : ", ") + q::RefuseName(q::Refuse(i)) + " " + std::to_string((unsigned long long)c.refused_by[i]);
+      char l[900];
+      std::snprintf(l, sizeof l, "[scene][2d-draw] ours frames %llu, 2d-whole %llu (rows drawn %llu, stream row draws left out %llu); stream 2D kept: not taken %llu, holes %llu, no origins %llu, scan refused (stream_target %llu, interleaved %llu, count %llu, blend_pair %llu), row refused %llu (%s); cross-check vs the stream (dev): pairs %llu, target class mismatch %llu, target size mismatch %llu, scissor mismatch %llu",
+                    (unsigned long long)c.frames, (unsigned long long)c.whole, (unsigned long long)c.rows_drawn, (unsigned long long)binder.skip_2d_draws(), (unsigned long long)c.not_taken,
+                    (unsigned long long)c.holes, (unsigned long long)c.no_origins, (unsigned long long)c.scan_by[uint8_t(q::PairWhy::Target)], (unsigned long long)c.scan_by[uint8_t(q::PairWhy::Interleaved)],
+                    (unsigned long long)c.scan_by[uint8_t(q::PairWhy::Count)], (unsigned long long)c.scan_by[uint8_t(q::PairWhy::Blend)], (unsigned long long)c.refused, by.empty() ? "-" : by.c_str(), (unsigned long long)c.cross_pairs, (unsigned long long)c.cross_target, (unsigned long long)c.cross_size, (unsigned long long)c.cross_scissor);
+      Log(l);
+    }
+  }
+  uint64_t scene_kind_calls = 0;   // S103 L2dF: every SceneOurs call (the [scene][kind] cadence)
+  uint64_t scene_ours_frames = 0, scene_walk_frames = 0, scene_holes = 0, scene_repeats = 0, scene_stale_inputs = 0;
+  // S103 CLK2 (review M1 / H2): SceneOurs says what it did for the stream; the dispatch resolves it AFTER binder.Bind, when the binder has placed (or not found) our frame.
+  struct StreamNote { uint64_t frame = 0; bool drawn = false; bool pending = false; } scene_stream_note;
+  // The last OURS picture (the live drawer's sticky targets, FrontEnd::OwnTargets): repeated on a missed OURS frame.
+  rdr::ImageId scene_last_out = rdr::kNoImage, scene_last_depth = rdr::kNoImage;
+  uint32_t scene_last_w = 0, scene_last_h = 0;
+  std::string scene_first_hole;
+  uint64_t fc_handled = 0, fc_last = ~0ull;   // S103 L2b: the mode-2 frames this thread handled (the census compares it with the frames it closed)
+  void CensusTick() {   // S103 L2b: the [scene][2d] line, every 600 closed frames
+    for (std::string l = fallback_census::g_census.TakeLine(fc_handled - 1); !l.empty(); l = fallback_census::g_census.TakeLine(fc_handled - 1)) { Log(l.c_str()); const std::string ac = rdr_scene::q2d::AddressCensusLine(); if (!ac.empty()) Log(ac.c_str()); }   /* S103 RFX: the address-mode census follows each window line */   // (a scene change can have queued a window line before the full one)
+  }
+  void SceneOurs(Binder& binder, const LiveSource& source, const LoadedFrame& frame, rdr::FrameBuilder& fb, const Message& m) {
+    const rdr_scene::SceneTables& rec = *m.scene_record;
+    static census_flush::Site kind_flush;   // S102 CEN1: a flip phase end prints the census now
+    const bool kind_flush_due = census_flush::Due(kind_flush);
+    if (++scene_kind_calls % 600 == 0 || kind_flush_due) {
+      Log(scene_kind::CensusLine().c_str());   // S103 L2dF: the per-kind census (L2d), every 600 SceneOurs calls of any outcome (it was only inside the OURS block before)
+      if (scene_draw) Log(scene_draw->ReadyCensusLine(true).c_str());   // S103 NR: which term held READY, same cadence
+      if (scene_draw && rdr::g_gpu_stamps.load(std::memory_order_relaxed)) Log(scene_draw->TexUpLine().c_str());   // S103 UP: stamped runs only
+    }
+    fallback_census::BeginFrame(m.guest_frame), CensusTick();   // S103 L2b: opens this frame in the census (closes the previous)
+    if (!scene_draw) scene_draw = std::make_unique<rdr_scene::LiveSceneDraw>(*renderer);
+    if (options.crowd_game_root) scene_draw->SetGameRoot(options.crowd_game_root());
+    scene_draw->AdoptLoaded();
+    scene_draw->ReleaseRetiredLive(m.guest_frame);   // S103 L31A
+    const uint32_t frame_id = Binder::FindFrameImage(frame);
+    uint32_t w = 0, h = 0;
+    for (const ImageRecord& r : source.records)
+      if (r.id == frame_id) { w = r.width, h = r.height; break; }
+    std::vector<rdr_own::OwnedPassStamp> stamps;
+    stamps.reserve(rec.owned_passes.size());
+    uint8_t kind = 0;   // S103 L2d: the scene kind the decision used (the Scene3D stamp's pad; 0 = match = every registered input, as before)
+    for (const rdr_scene::OwnedStamp& s : rec.owned_passes) {
+      rdr_own::OwnedPassStamp st;
+      st.pass = s.pass, st.decision = s.decision, st.why_not = s.why_not, st.pad = s.pad, st.inputs_mask = s.inputs_mask, st.guest_frame = s.guest_frame;   // every field (L2dF: pad was dropped; lint stamp_copy_lint.py)
+      stamps.push_back(st);
+      if (s.pass == uint8_t(rdr_own::Pass::Scene3D)) kind = scene_kind::KindOfPad(s.pad);   // S103 WB: bit 7 is the scene-walk bit, not part of the kind
+    }
+    const bool ours = scene_frame::DrawOurs(stamps.data(), stamps.size(), m.guest_frame);
+    const uint32_t scene_req = scene_kind::RequiredFor(scene_kind::Kind(kind), rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed));
+    const auto note_scene = [&] { fallback_census::NoteScene(m.guest_frame, fallback_census::SceneKey(stamps.data(), stamps.size(), m.guest_frame, scene_req)); };   // S103 L2b: the hook side reason
+    if (!w || !h) {   // no frame image found (a menu with no present copy): nothing to draw into
+      scene_stream_note = {m.guest_frame, false, true};   // S103 CLK2: nothing drawn
+      if (!ours) note_scene();
+      if (ours) { fallback_census::NoteRender(m.guest_frame, "no_frame_image"); ++scene_holes; if (scene_first_hole.empty()) scene_first_hole = "no frame image"; if (scene_frame::Miss(m.guest_frame)) Log("[scene][frame] ERROR latched off: no frame image"); }
+      return;
+    }
+    if (!ours) {
+      scene_stream_note = {m.guest_frame, false, true};   // S103 CLK2: the stream census (a walked record draws nothing of ours)
+      ++scene_walk_frames;
+      scene_draw->Warm(rec, w, h);
+      scene_frame::SetReady(scene_draw->Ready());
+      // S103 L2dF (LANDING2_PLAN 5 (a)): a FLAT frame (no stage, no 3D object, no Scene3D stamp: menus, select, title, load) has its own owner. Its verdict needs the 2D layer's check (dev --wwe2k14_rdr_2d_ours + _record) and
+      // whole particles: an EMPTY pass (no node call / the node's own early-out) is whole (S103 MP A); menu particle groups are recorded with the node's screen camera and held (MP B: no flat particle drawer yet, blend code 0 [L], textures [U]). Fails closed.
+      scene_kind::FlatFacts f;
+      scene_draw->FlatFacts3D(rec, f);
+      if (scene_kind::IsFlatFrame(f)) {
+        static_assert(rdr_scene::kPiEmptyPass == 256 && rdr_scene::kPiInfoMask == (8u | 256u), "scene_kind::PartsOf hard-codes the info bits (kPiPivot | kPiEmptyPass): keep it in step with particle_tables.h");   // S103 MPBF 10
+        f.particles = scene_kind::PartsOf(rec.particles.EmptyPass(), uint32_t(rec.particles.batches.size()), rec.particles.status.empty() ? 0u : rec.particles.status[0].reasons, !rec.particles.screen.empty());   // S103 MP: an empty pass is whole; screen-camera batches are Held (the flat particle drawer is not built); anything else not recorded
+        if (q2d_on) {
+          const Check2DResult c2 = Check2D(binder, frame, rec, w, h, frame_id, m.guest_frame);
+          f.twod = c2.twod, f.refused_other = c2.refused_other, f.movie_rows = c2.movie_rows, f.movie_planes_missing = c2.movie_planes_missing;
+        }
+        const scene_kind::FlatWhy flat_why = scene_kind::FlatVerdict(f);
+        scene_kind::NoteFlat(flat_why);
+        if (scene_kind::Apply2DAllowed(flat_why)) Apply2D(binder, rec, rdr::kNoImage, w, h);   // only after an Ours verdict: a menu whose 2D is left out of the stream but not drawn by us would lose its UI
+        else fallback_census::NoteScene(m.guest_frame, std::string("flat_") + scene_kind::FlatWhyName(flat_why));
+      } else note_scene();
+      return;
+    }
+    rdr::ImageId out = rdr::kNoImage, out_depth = rdr::kNoImage;
+    std::string why;
+    bool loading = false;   // S103 L31A
+    // S103 S (docs\renderer\OURS_INPUT_AUDIT.md item 7): the decision proved every required input was captured one frame EARLIER; this record's
+    // own stamps (one snapshot at the end of its latch, live_scene SetStampFill) must show each required input captured for this record's hook
+    // frame or later, or the record repeats older data (a reader that failed this frame): a miss, never an OURS picture. Skipped with the DEV
+    // force-inputs switch, like the decision's own check.
+    bool fresh = true;
+    if (!scene_frame::g_force_inputs.load(std::memory_order_relaxed)) {
+      const uint64_t hook = scene_frame::HookFrameOf(m.guest_frame);
+      uint32_t ok = 0;
+      for (const rdr_scene::InputStampRow& r : rec.input_stamps)
+        if (r.bit < 32 && r.frame >= hook) ok |= 1u << r.bit;
+      const uint32_t stale = scene_kind::StaleBits(kind, rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed), ok);   // the kind's mask (L2d; unit-tested: l2d_unit [freshness])
+      if (stale) {
+        fresh = false;
+        int b = 0;
+        while (!((stale >> b) & 1u)) ++b;
+        why = "record inputs not fresh for hook frame " + std::to_string((unsigned long long)hook) + " (first: bit " + std::to_string(b) + ")";
+        ++scene_stale_inputs;
+      }
+    }
+    if (fresh && scene_draw->DrawLive(rec, fb, w, h, /*post=*/nullptr, out, why, &out_depth, &loading) && out != rdr::kNoImage) {
+      ++scene_ours_frames;
+      scene_stream_note = {m.guest_frame, true, true};   // S103 CLK2: DrawLive drew this record (counted drawn only once the binder placed it: the dispatch, after Bind)
+      Draw2DOurs(binder, frame, rec, fb, out, w, h, frame_id, m.guest_frame);   // S103 L2a: decides before the bind; our rows are appended by the binder at the stream's first row-site draw (dev switch; off = one bool test)
+      binder.SetSceneFrame(out, out_depth);
+      scene_last_out = out, scene_last_depth = out_depth, scene_last_w = w, scene_last_h = h;
+    } else {
+      scene_stream_note = {m.guest_frame, false, true};   // S103 CLK2: an OURS record DrawLive did not draw
+      ++scene_holes;
+      // FRAME_CONTRACT 3 / scene_frame.h: a missed OURS frame repeats the last presented picture. The game skipped its walks, so image 8 holds the
+      // last WALKED frame (T review B3). Every DrawLive failure before "draw:" returns before recording, so our target still holds the last OURS
+      // picture: alias it again (same size only: a resize makes new targets). After a failed Record the target may be partly drawn: not reused.
+      if (scene_last_out != rdr::kNoImage && scene_last_w == w && scene_last_h == h && why.rfind("draw:", 0) != 0) {
+        binder.SetSceneFrame(scene_last_out, scene_last_depth);
+        ++scene_repeats;
+      }
+      fallback_census::NoteRenderWhy(m.guest_frame, why, loading);   // S103 L2b
+      if (scene_first_hole.empty()) scene_first_hole = why;
+      if (scene_frame::Miss(m.guest_frame, loading)) Log(("[scene][frame] ERROR latched off: " + why).c_str());   // S103 L31A: a resource still loading is a hole, not a strike (loading_latch episodes in a window still latch)
+      if (scene_frame::TakeLoadingWarn()) Log(("[scene][frame] WARN: loading misses keep coming (last: " + why + ")").c_str());
+    }
+    scene_frame::SetReady(scene_draw->Ready());
+    static census_flush::Site render_flush;   // S102 CEN1: a flip phase end prints the census now
+    const bool render_flush_due = census_flush::Due(render_flush);
+    if ((scene_ours_frames + scene_walk_frames + scene_holes) % 600 == 0 || render_flush_due) {
+      char l[420];
+      std::snprintf(l, sizeof l, "[scene][render] ours %llu, walked %llu, holes %llu (repeated our last %llu; record inputs stale %llu; first: %s), frame image unfound %llu; %s",
+                    (unsigned long long)scene_ours_frames, (unsigned long long)scene_walk_frames, (unsigned long long)scene_holes,
+                    (unsigned long long)scene_repeats, (unsigned long long)scene_stale_inputs,
+                    scene_first_hole.empty() ? "-" : scene_first_hole.c_str(), (unsigned long long)binder.scene_frame_unfound(), scene_frame::CensusLine().c_str());
+      Log(l);
+      Log(scene_frame::missing_hist::MissingLine().c_str());   // S103 X1: the set of missing input bits per frame, this window
+      Log(::scene_skip::StreamHookLine().c_str());   // S103 CLK2: the per-hook stream census
+    }
+  }
+
+  // S103 lane S (FRAME_CONTRACT.md 2, mirror): the game's picture of this frame (read back with the display curve, as the game shows it) and
+  // the present's own scene record drawn ALONE by our record -> frame path at the same size: two PNGs in the picture folder, one log line.
+  // Waits on the GPU (dev comparison only, once per sheet frame).
+  void MirrorSheet(Binder& binder, const Message& message) {
+    const rdr::ImageRef ref = binder.last_present().source;
+    if (ref.image == rdr::kNoImage) return;
+    std::vector<uint8_t> pixels;
+    uint32_t width = 0, height = 0;
+    if (!renderer->ReadImage(ref, pixels, width, height) || !width || !height) { Log("[scene][mirror] the game's picture could not be read back"); return; }
+    if (shown_curve.size() == 1024)
+      for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+        for (uint32_t c = 0; c < 3; ++c) pixels[i + c] = shown_curve[4 * pixels[i + c] + c];
+    std::error_code ec;
+    std::filesystem::create_directories(options.png_folder, ec);
+    const std::string n = std::to_string(message.guest_frame);
+    QueuePicture(options.png_folder / ("live_scene_game_f" + n + ".png"), std::move(pixels), width, height);
+    if (!scene_draw) scene_draw = std::make_unique<rdr_scene::LiveSceneDraw>(*renderer);
+    if (options.crowd_game_root) scene_draw->SetGameRoot(options.crowd_game_root());
+    std::string report;
+    if (message.stage_mirror) scene_draw->SetMapDump(options.dump_targets_dir, message.guest_frame);   // S103 T7 (empty list = off): our maps by role, same frame
+    scene_draw->DrawToPng(*message.scene_record, width, height, shown_curve, options.png_folder / ("live_scene_ours_f" + n + ".png"), report);
+    Log(report.c_str());
+    // S103 main: the drawer's census (maps made / chained, shadow / plane / rim bound, key light) with every mirror picture: it printed only at Stop,
+    // which a run's exit never reached, so no mirror run ever showed whether the wrestler shadow / rim passes ran live.
+    Log(("[scene][mirror] f" + n + " " + scene_draw->Census()).c_str());
   }
 
   void WritePicture(Binder& binder, const std::string& label) {
@@ -1640,6 +2272,61 @@ struct LiveSink::Impl {
     return FinishPng(part_file, path, pixels, width, height) ? photo::Result::Ok : photo::Result::WriteFailed;
   }
 
+  // S103 lane SHOT. Render thread. PublishShot answers every request up to `covers`.
+  void PublishShot(uint64_t covers, bool ok, std::vector<uint8_t>&& rgba, uint32_t w, uint32_t h, std::vector<uint8_t>&& curve) {
+    auto ans = std::make_shared<ShotAnswer>();
+    ans->covers = covers, ans->ok = ok, ans->rgba = std::move(rgba), ans->w = w, ans->h = h, ans->curve = std::move(curve);
+    std::lock_guard lock(shot_mu);
+    shot_ans = ans;
+    if (shot_covered < covers) shot_covered = covers;
+    shot_pending.store(shot_req > shot_covered || shot_inflight, std::memory_order_release);
+    shot_cv.notify_all();
+  }
+  // The picture shown is the last present's source image; only an 8-bit one reads back as shown (review F3: 16F is scaled by its own peak, RGB10A2 is refused). Anything else is answered "no", with one log line.
+  bool ShotSource(Binder& binder, rdr::ImageRef& ref) {
+    ref = binder.last_present().source;
+    if (ref.image == rdr::kNoImage) return false;
+    if (!renderer->ImageIs8Bit(ref.image)) {
+      if (!shot_warned) shot_warned = true, Log("[rdr][live] WARN screenshot / clip capture: the presented image is not 8 bits a channel, no picture is taken");
+      return false;
+    }
+    return true;
+  }
+  void QueueShot(Binder& binder) {
+    if (shot_inflight) return;
+    uint64_t covers = 0;
+    {
+      std::lock_guard lock(shot_mu);
+      if (shot_req <= shot_covered) return;
+      covers = shot_req;
+    }
+    rdr::ImageRef ref;
+    shot_tag = (uint64_t(1) << 62) + (++shot_tag_n);
+    if (!ShotSource(binder, ref) || !renderer->QueueReadback(ref, shot_tag)) { PublishShot(covers, false, {}, 0, 0, {}); return; }
+    shot_inflight = true, shot_inflight_covers = covers, shot_inflight_curve = shown_curve;
+    std::lock_guard lock(shot_mu);
+    shot_covered = std::max(shot_covered, covers);
+  }
+  void FinishShot(rdr::Renderer::ReadbackResult& r) {
+    shot_inflight = false;
+    PublishShot(shot_inflight_covers, !r.cancelled && r.width && r.height, std::move(r.rgba), r.width, r.height, std::move(shot_inflight_curve));
+  }
+  void ServeShotSync(Binder& binder) {
+    if (shot_inflight) return;
+    uint64_t covers = 0;
+    {
+      std::lock_guard lock(shot_mu);
+      if (shot_req <= shot_covered) return;
+      covers = shot_req;
+    }
+    std::vector<uint8_t> pixels;
+    uint32_t w = 0, h = 0;
+    rdr::ImageRef ref;
+    const bool ok = ShotSource(binder, ref) && renderer->ReadImage(ref, pixels, w, h) && w && h && pixels.size() >= size_t(w) * h * 4;
+    PublishShot(covers, ok, std::move(pixels), w, h, std::vector<uint8_t>(shown_curve));
+  }
+  uint64_t shot_tag_n = 0;
+
   std::string Report() const {
     char line[640];
     std::snprintf(line, sizeof(line), "frames drawn %llu, skipped %llu (lasting work run in %llu; per-frame copies left to the drawn frame %llu; drawn by the 100 ms guard %llu); draws %llu, bound %llu, missing a shader %llu; pictures %llu; read-back parts %llu",
@@ -1690,12 +2377,14 @@ bool LiveSink::Start(const LiveOptions& options, std::string& error) {
   thin::g_pins.Reset();  // lane 122 (review 8): a new session starts with no pins (generation 0)
   impl_->options = options;
   // S101 lane 19: the renderer's own "[rdr] device / swapchain / display timing" lines also feed the case zip's device block (no second query).
+  // START-ONLY(ON): the stream sink's own log hook (the stream-free host tees through host_start.cpp HostLog)
   g_inner_log = options.log;
   impl_->options.log = &LogTee;
   rdr::SetLogSink(&LogTee);
   rdr_case::info::SetRender(uint32_t(std::ceil(1280.0f * options.render_scale)), uint32_t(std::ceil(720.0f * options.render_scale)), options.render_scale);
   rdr::RendererOptions ro;
   ro.validation = options.validation;
+  // START-ONLY(ON): dev test mask (lane 200); its cvar exists only in the stream build
   ro.format_caps_mask = options.format_caps_mask;  // lane 200
   ro.bc_decode = options.bc_decode;                // S102 U1
   ro.gpu_name = options.gpu_name;                  // S102 U1 (R9 finding 3)
@@ -1710,23 +2399,28 @@ bool LiveSink::Start(const LiveOptions& options, std::string& error) {
   ro.present_noclear = options.present_noclear;  // S102 G1 lever 2
   ro.exclusive_fullscreen = options.exclusive_fullscreen;  // S102 G2b
   ro.robust_buffers = options.robust_buffers;  // S102 D1
+  // START-ONLY(ON): the pre-light cubes' compute pipelines are the stream binder's (its consumers are binder-only: SP2 M8)
   ro.light_cube_compute = options.prelight_compute;  // S102 L1b review F2
+  // START-ONLY(ON): layered pre-light is the stream binder's (consumers binder-only)
   ro.multiview = options.prelight_layered;  // S102 C1 review F2
   ro.present_hz = options.present_hz;  // S100 phone 120 fix 2
   ro.gpu_timestamps = options.gpu_timestamps;  // lane 269
   ro.counts = options.counts;  // S102 M1
   ro.pipeline_store_dir = options.pipeline_store_dir, ro.pipeline_prebuild_slice_us = options.pipeline_prebuild_slice_us;  // lane 276
+  // START-ONLY(ON): DLSS / DLAA is not in the stream-free build (start_settings.cpp RefuseSetting says so in the log)
   ro.dlss_mode = options.dlss_mode, ro.streamline_dir = options.streamline_dir;  // settings parity S10b
   g_dlss = options.dlss_mode >= 0, g_dlss_phases = options.dlss_phases;
   g_velocity_legacy = options.dlss_jitter_legacy;  // lane 185
-  g_crowd_density = options.crowd_density, g_shadows = options.shadows, g_depth_of_field = options.depth_of_field;  // S6 / S7 / S8
-  g_crowd_rank.enabled = options.density_track;  // S101 lane 234
-  g_shadow_half = options.shadow_half;  // S12
-  g_film_grain = options.film_grain;  // settings parity S3 (read by the binder on the render thread, set before it starts)
+  // S103 SPB: the player's quality (crowd density / shadows / depth of field / film grain / shadow half rate, S6 / S7 / S8 / S12 / S3) is ONE PlayerQuality, filled by ApplyStartSettings() (start_settings.cpp) and
+  // read through the binder's references (binder.h g_crowd_density ...) and by the stream-free scene draw. The rank tracker's switch follows it (S101 lane 234).
+  const wwe2k14::start::Applied& applied = wwe2k14::start::ApplyStartSettings();   // before the binder's first frame (StartLive already called it: idempotent)
+  // START-ONLY(ON): the stream binder's tracker object; the stream-free LiveCrowd owns its own tracker and reads the same PlayerQuality::density_track (live_crowd.cpp)
+  g_crowd_rank.enabled = applied.quality.density_track;
   g_crowd_ours = options.crowd_ours;  // S101 lane 35
   g_post_ours = options.post_ours;    // S101 lane PO
   g_arena_ours = options.arena_ours, g_wrestlers_ours = options.wrestlers_ours;  // S101 lane 41
   g_caw_ours = options.caw_ours;  // lane 153
+  // START-ONLY(ON): the Create a Superstar replacer's counts-index cache (the stream's caw_ours)
   g_caw_cache_root = options.caw_cache_root;
   g_ring_ours = options.ring_ours;  // S101 ring contract
   d3::g_arena_d3 = options.arena_d3 && options.arena_thin && !g_dlss;  // lane 138 (D3): needs the arena's thin draws; the guest hook's switch (d3::g_hook_on) is set with it
@@ -1750,6 +2444,7 @@ bool LiveSink::Start(const LiveOptions& options, std::string& error) {
   rdr_scene::g_ui_quads = options.ui_quads;  // S101 lane 148: read by MakeUiOurs when the render thread builds the hook
   g_movie_ours = options.movie_ours;  // S101 lane 131
   g_ui_text_ours = options.ui_text_ours;  // S101 lane 89 (UT)
+  // START-ONLY(ON): run-string labels for the stream's ui_text hook; the stream-free host does not read run strings (SP2 M11)
   origin::g_labels_wanted.store(options.ui_text_ours || wwe2k14::caw::g_on.load(std::memory_order_relaxed), std::memory_order_relaxed);  // S101 lane 118 review: never false over a `!caw on`; S101 lane 89: the run strings the text hook lays out are read only while labels are on
   g_flash_ours = options.flash_ours;  // S101 flash contract
   g_props_ours = options.props_ours;  // S101 lane 84
@@ -1762,6 +2457,7 @@ bool LiveSink::Start(const LiveOptions& options, std::string& error) {
   g_small_passes_ours = options.small_passes_ours;  // lane 135
   g_rim_chain_ours = options.rim_chain_ours;  // lane 151
   g_particles_ours = options.particles_ours;  // S101 lane 67
+  // START-ONLY(ON): the stream's resolve-copy aliasing
   copy_alias::g_mode = options.copy_alias, copy_alias::g_classes = options.copy_alias_classes;  // S101 lane 190
   g_shadows_ours = options.shadows_ours, g_shadow_map_size = options.shadow_map_size, g_shadow_plane_percent = options.shadow_plane_percent, g_shadow_render_scale = options.render_scale;  // S101 lane 123
   impl_->renderer = rdr::Renderer::Create(ro, error);
@@ -1793,11 +2489,60 @@ bool LiveSink::Start(const LiveOptions& options, std::string& error) {
   if (options.ui_ours) impl_->Log("[rdr][ui] the menus' and HUD's pictures are bound from our own uploads (switch on)");
   if (options.ui_quads) impl_->Log("[rdr][ui] the sprites and flat rectangles are drawn with our own quad and 2D program (switch on, lane 148)");   // S101 lane 148
   if (options.ui_text_ours) impl_->Log("[rdr][ui_text] the game's text is laid out by us, each glyph quad checked against the game's (switch on); the run-string labels are ON for the whole session for it (origin::g_labels_wanted)");  // S101 lane 89
-  if (options.crowd_ours || options.arena_ours || options.wrestlers_ours || options.ring_ours || options.flash_ours || options.props_ours || options.shadow_casters_ours || options.screens_ours || options.rim_ours || options.crowd_props_ours || options.circles_ours || options.plane_shadow_ours /* lane 139 */) {  /* lane 136: circles_ours */  /* lane 133 */  // lane 124: rim_ours  // S101 lane 115: screens  // S101 lane 99: shadow casters  // S101 lane 84: props; S101 lane 35 / 41: records to the render thread
+  // S103 L1C review (kept): the hold mask is in place BEFORE any sink or the mode pointer exists, so a held bit can never stamp once in that window. S103 SPB: ApplyStartSettings() (above, before the renderer is
+  // made) stores the presence switches and THEN the hold in one helper, so the window is closed there.
+  // START-ONLY(ON): the stream's own keeper sink (the in-place replacers and the mirror need the records); the stream-free host attaches its keeper in host_start.cpp StartForGame
+  if (options.crowd_ours || options.arena_ours || options.wrestlers_ours || options.ring_ours || options.flash_ours || options.props_ours || options.shadow_casters_ours || options.screens_ours || options.rim_ours || options.crowd_props_ours || options.circles_ours || options.plane_shadow_ours /* lane 139 */ || REXCVAR_GET(wwe2k14_rdr_scene) != 0 /* S103 lane S: mirror / ours need the records */) {  /* lane 136: circles_ours */  /* lane 133 */  // lane 124: rim_ours  // S101 lane 115: screens  // S101 lane 99: shadow casters  // S101 lane 84: props; S101 lane 35 / 41: records to the render thread
     impl_->keeper = std::make_unique<SnapshotKeeper>();
     rdr_scene::live::AddSink(impl_->keeper.get());
     if (options.crowd_ours) impl_->Log(options.crowd_cards ? "[rdr][crowd] the crowd is drawn by us from the scene record (record j-1 for frame j); the stream's block draws are dropped, and the far cards too: one instanced draw per person type with the game's own pictures (any card ours cannot account for stays the game's)"
                                    : "[rdr][crowd] the crowd is drawn by us from the scene record (record j-1 for frame j); the stream's block draws are dropped (the far cards stay the stream's)");
+  }
+  {   // S103 lane S: the dev-only input override (a release build, no "+dev" in its version, never sets it)
+    // S103 SPB: every scene-input store of this block moved into ApplyStartSettings() (start_settings.cpp), which both start paths call; this block only reports what it applied. The dev bool is asked of
+    // dev_build.cpp (S103 L33F review F1: this file never had the version define) ONCE there and read from `applied`.
+    const bool dev = applied.dev;
+    if (applied.force_inputs) impl_->Log("[scene][frame] DEV: inputs not required for OURS (--wwe2k14_rdr_scene_force_inputs)");
+    // S103 L2a: the 2D from our rows (dev only: `dev` = wwe2k14::IsDevBuild(), dev_build.cpp)
+    // START-ONLY(ON): the 2D taps are pinned on in the stream-free build (quads2d_tap.h `#if !WWE2K14_STREAM() const int v = 1`); this is the stream's own 2D-from-rows switch
+    impl_->q2d_on = dev && REXCVAR_GET(wwe2k14_rdr_2d_ours) && REXCVAR_GET(wwe2k14_rdr_2d_record);
+    if (impl_->q2d_on) impl_->Log("[scene][2d] DEV: on a 2D-whole OURS frame the 2D is drawn from our rows (--wwe2k14_rdr_2d_ours); census line [scene][2d] every 600 OURS frames");
+    else if (REXCVAR_GET(wwe2k14_rdr_2d_ours)) impl_->Log(dev ? "[scene][2d] --wwe2k14_rdr_2d_ours ignored: it needs --wwe2k14_rdr_2d_record" : "[scene][2d] --wwe2k14_rdr_2d_ours ignored: a release build");
+    // S103 S2: the sentinel walked frames (dev only, like the override), the changes census and the two presence holds
+    {   // S103 L1C: the presence switches, then the run-time hold (a held bit 10 / 11 turns its presence rule off): applied by ApplyStartSettings (S103 HN B1: scene_start_switches.h), reported here
+      const std::string& bad = applied.hold_bad;
+      const std::string& hold_list = applied.hold_list;
+      const uint32_t hold = applied.hold_mask;
+      char l[320];
+      std::snprintf(l, sizeof l, "[scene][frame] L1C: hold mask 0x%X (--wwe2k14_rdr_scene_hold=\"%s\"%s%s), light_states %s, caster_entries %s%s, crowd %s, particles %s, stage_clock %s", hold, hold_list.c_str(), bad.empty() ? "" : ", unknown tokens: ", bad.c_str(),
+                    scene_inputs::Held(scene_inputs::kInLightStates) ? "HELD" : "on", scene_inputs::Held(scene_inputs::kInCasterEntries) ? "HELD" : "on", (!scene_inputs::Held(scene_inputs::kInCasterEntries) && scene_inputs::Held(scene_inputs::kInLightStates)) ? " (HELD via 4: its synthesis is off)" : "", scene_inputs::Held(scene_inputs::kInCrowdSnapshot) ? "HELD" : "on",
+                    scene_inputs::Held(scene_inputs::kInParticles) ? "HELD" : "on", scene_inputs::Held(scene_inputs::kInStageClock) ? "HELD" : "on");
+      impl_->Log(l);
+    }
+    {   // S103 L33F: the dev-only un-require (after the hold, same parser; applied by ApplyStartSettings). A release build ignores it (dev false: mask 0, logged only when set)
+      const std::string& bad = applied.unrequire_bad;
+      const std::string& list = applied.unrequire_list;
+      if (!list.empty()) {
+        char l[320];
+        std::snprintf(l, sizeof l, "[scene][frame] L33F: %s unrequire mask 0x%X (--wwe2k14_rdr_scene_unrequire=\"%s\"%s%s), inputs req now 0x%08x", dev ? "DEV:" : "IGNORED (release build):", applied.unrequire_applied, list.c_str(), bad.empty() ? "" : ", unknown tokens: ", bad.c_str(),
+                      rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed));   // lint:required-ok (a log of the registered mask)
+        impl_->Log(l);
+      }
+    }
+    // S103 LH: the old light-entry rule (dev only; a release build always refreshes)
+    if (!applied.refresh_default) REXLOG_INFO("[scene][light] DEV: old hold rule (--wwe2k14_rdr_light_old_hold): default-slot light entries age and plan refresh walks");
+    // S103 L2d: the flat frame kind (dev only, like the un-require; a release build ignores it)
+    if (REXCVAR_GET(wwe2k14_rdr_scene_flat))
+      impl_->Log(dev ? "[scene][kind] L2d: DEV: flat frames (no stage, no 3D) may be OURS when 2D + movie + particles are whole (--wwe2k14_rdr_scene_flat) (wired: SceneOurs decides flat frames; menu particles are not recorded yet, so they stay the game's)"
+                     : "[scene][kind] L2d: --wwe2k14_rdr_scene_flat IGNORED (release build)");
+    if (scene_frame::g_sentinel_every.load(std::memory_order_relaxed) || rdr_scene::live::inputchanges::g_on.load(std::memory_order_relaxed) ||
+        rdr_scene::live::presence::g_particles.load(std::memory_order_relaxed) || rdr_scene::live::presence::g_crowd.load(std::memory_order_relaxed)) {
+      char l[256];
+      std::snprintf(l, sizeof l, "[scene][frame] S2: sentinel every %u, changes census %s, particles by presence %s, crowd by presence %s",
+                    scene_frame::g_sentinel_every.load(std::memory_order_relaxed), rdr_scene::live::inputchanges::g_on.load(std::memory_order_relaxed) ? "on" : "off",
+                    rdr_scene::live::presence::g_particles.load(std::memory_order_relaxed) ? "on" : "off", rdr_scene::live::presence::g_crowd.load(std::memory_order_relaxed) ? "on" : "off");
+      impl_->Log(l);
+    }
   }
   impl_->stopping = false;
   {
@@ -1830,9 +2575,23 @@ void LiveSink::Stop() {
     impl_->stopping = true;
   }
   impl_->mail_cv.notify_all();
+  {   // S103 lane SHOT (review F6): no caller waits for a render thread that is going
+    std::lock_guard lock(impl_->shot_mu);
+    impl_->shot_stop = true;
+    impl_->shot_cv.notify_all();
+  }
   if (impl_->thread.joinable()) impl_->thread.join();
   impl_->StopPictureWriter();  // lane 302: the queued pictures are written before the sink goes
   impl_->renderer->WaitIdle();
+  if (impl_->scene_draw) {  // S103 lane S: the mirror drawer's census, and its images freed before the renderer goes
+    impl_->Log(impl_->scene_draw->Census().c_str());
+    impl_->Log(impl_->scene_draw->ReadyCensusLine(true).c_str());   // S103 NR: the last (partial) window
+    impl_->scene_draw.reset();
+  }
+  impl_->Log(scene_frame::CensusLine().c_str());
+  impl_->Log(scene_frame::missing_hist::MissingLine().c_str());   // S103 X1: the last (partial) window
+  impl_->Log(scene_kind::CensusLine().c_str());   // S103 L2dF: the per-kind census, last (partial) window
+  if (impl_->fc_handled) impl_->Log(fallback_census::g_census.FinalLine(impl_->fc_handled).c_str());   // S103 L2b: the exit line of the fallback census
   if (impl_->keeper) {  // S101 lane 35
     rdr_scene::live::RemoveSink(impl_->keeper.get());
     char crowd_line[400];
@@ -1844,6 +2603,7 @@ void LiveSink::Stop() {
   impl_->Log(stop_line.c_str());
   impl_->renderer.reset();
   impl_->active = false;
+  wwe2k14::start::RearmStartSettings();   // S103 SPB review L3: a start after this stop (a capture, a second StartLive) reads the flags again
 }
 
 bool LiveSink::active() const { return impl_->active; }
@@ -1915,14 +2675,45 @@ bool LiveSink::SaveLastPicture(const std::filesystem::path& path) {
   return true;
 }
 
+// S103 lane SHOT: the last presented picture as RGBA8 pixels, read back by the render thread on request only (src\shown_frame.h). Any thread; false = not running / nothing presented / timed out.
+bool LiveSink::CaptureShown(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, uint32_t timeout_ms) {
+  if (!impl_->active) return false;
+  std::shared_ptr<const Impl::ShotAnswer> ans;
+  {
+    std::unique_lock lock(impl_->shot_mu);
+    if (impl_->shot_stop) return false;
+    const uint64_t mine = ++impl_->shot_req;   // F4: only an answer that covers this sequence is this caller's
+    impl_->shot_pending.store(true, std::memory_order_release);
+    ++impl_->shot_waiters;
+    lock.unlock();
+    { std::lock_guard m(impl_->mail_mu); }   // (the render thread sleeps on mail_cv, up to 100 ms: wake it; mail_mu is taken so the wake cannot be lost)
+    impl_->mail_cv.notify_all();
+    lock.lock();
+    const bool got = impl_->shot_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return impl_->shot_stop || (impl_->shot_ans && impl_->shot_ans->covers >= mine); });
+    --impl_->shot_waiters;
+    if (got && !impl_->shot_stop) ans = impl_->shot_ans;
+    if (impl_->shot_waiters == 0) impl_->shot_ans.reset();
+  }
+  if (!ans || !ans->ok || ans->rgba.size() < size_t(ans->w) * ans->h * 4) return false;
+  rgba = ans->rgba;
+  width = ans->w, height = ans->h;
+  if (ans->curve.size() == 1024) {   // the curve on the caller's thread
+    for (size_t i = 0; i + 3 < rgba.size(); i += 4)
+      for (uint32_t c = 0; c < 3; ++c) rgba[i + c] = ans->curve[4 * rgba[i + c] + c];
+  }
+  return true;
+}
+
 // S101 lane 216: asks the render thread for every class's final census line and waits (at most `timeout_ms`) until it is printed. Any thread; never blocks longer than that.
 bool LiveSink::FlushFinalCensus(uint32_t timeout_ms) {
   if (!impl_->active) return false;
   impl_->quit_ack.store(false, std::memory_order_release);  // (SF1: cleared here, not by the render thread)
   impl_->quit_req.store(true, std::memory_order_release);
   impl_->mail_cv.notify_all();
+  // render-clock-begin: ctl - shutdown wait deadline for the quit acknowledgement
   const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   while (!impl_->quit_ack.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  // render-clock-end
   return impl_->quit_ack.load(std::memory_order_acquire);
 }
 
@@ -1948,6 +2739,7 @@ void LiveSink::SetDisplayCurve(const uint8_t* rgba256) { impl_->display_curve.as
 void LiveSink::WaitForRoom(size_t max_waiting, uint32_t timeout_ms) {
   constexpr int kPaceGiveUp = 3;
   std::unique_lock lock(impl_->mail_mu);
+  impl_->paced = true;   // S103 G2
   if (impl_->pace_off) {
     if (impl_->mail.size() >= max_waiting && !impl_->stopping) {  // still behind: no waiting
       ++impl_->pace_skipped_frames;
@@ -1994,6 +2786,7 @@ void LiveSink::SubmitFrame(std::vector<uint8_t>&& frame, uint64_t guest_frame, c
   message.display_curve.swap(impl_->display_curve);
   message.d3_chain = skips_auto::ChainFor(guest_frame);   // S102 K3 rework (review F2: + any frame that carries a marker)
   if (impl_->keeper) message.d3_record = d3::AnyD3Chain() && message.d3_chain ? impl_->keeper->ForD3(guest_frame) : nullptr;   // lane 152 (B1): taken BEFORE ForSubmit (it does not move `cur`)
+  impl_->NoteScene(message, guest_frame);   // S103 lane S: the present's own record, taken before ForSubmit (lane 152's order)
   if (impl_->keeper) message.record = impl_->keeper->ForSubmit(guest_frame);  // S101 lane 35
   {
     std::lock_guard lock(impl_->mail_mu);
@@ -2020,6 +2813,7 @@ void LiveSink::SubmitFrameData(std::shared_ptr<handoff::FrameData> frame, uint64
   message.display_curve.swap(impl_->display_curve);
   message.d3_chain = skips_auto::ChainFor(guest_frame);   // S102 K3 rework (review F2: + any frame that carries a marker)
   if (impl_->keeper) message.d3_record = d3::AnyD3Chain() && message.d3_chain ? impl_->keeper->ForD3(guest_frame) : nullptr;
+  impl_->NoteScene(message, guest_frame);   // S103 lane S
   if (impl_->keeper) message.record = impl_->keeper->ForSubmit(guest_frame);
   {
     std::lock_guard lock(impl_->mail_mu);
@@ -2041,6 +2835,7 @@ bool LiveSink::DrawAndRead(std::vector<uint8_t>&& frame, uint64_t guest_frame, u
   message.frame = std::move(frame);
   message.guest_frame = guest_frame;
   message.read = request;
+  message.scene_mode = REXCVAR_GET(wwe2k14_rdr_scene);   // S103 L2b (review F8): the part carries the frame's mode as every other message does (the part itself is not a census frame: the second part is)
   message.d3_chain = skips_auto::ChainFor(guest_frame);   // S102 K3 review F6: a read-back part is a Message too (its default was "chains on")
   if (impl_->keeper) message.record = impl_->keeper->ForPart(guest_frame);   // lane 215: the first part's draws need the record the second part will get (circles / plane were blind for the whole frame)
   if (impl_->images_pending) {  // the part may name a new image; releases and the display table wait for the frame's end

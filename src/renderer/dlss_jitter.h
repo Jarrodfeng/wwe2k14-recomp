@@ -17,6 +17,7 @@ inline float Halton(uint32_t index, uint32_t base) {
 }
 
 inline void DlssJitter(uint64_t guest_frame, uint32_t phases, float out[2]) {
+  // render-clock: present - sub-pixel jitter has no game value; it must change every frame and never feeds a world value
   const uint32_t i = uint32_t(guest_frame % (phases ? phases : 8)) + 1;  // Halton from 1 (0 is the corner)
   out[0] = Halton(i, 2) - 0.5f;
   out[1] = Halton(i, 3) - 0.5f;

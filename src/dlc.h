@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "dlc_catalog.h"
+#include "dlc_overlays.h"  // S103 DLW
 #include "gfx_settings.h"
 #include "replay.h"  // g_dlc_offered: a recording keeps the packs it was made with
 #include "superstars.h"  // Session 98: the Superstar Importer's pack (<mods>\superstars\pack6), one more pack when switched on
@@ -277,6 +278,20 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
                 p.DisplayName(), StatusName(p.status), p.files_listed, Mb(p.bytes), what);
   }
   g_on = !g_offered.empty();
+  {  // S103 DLW: the live scene loader reads the same packs the game was offered (extracted folders; a package is counted and left out)
+    std::vector<wwe2k14::dlc_overlays::Item> ov;
+    size_t pkgs = 0;
+    // DESCENDING pack-id order: the game lets the HIGHEST pack id win for a path in several packs (docs\formats\catalog_dlc.md "The rule the game applies" item 3 [C]); the reader takes the first overlay that has a file.
+    for (auto it = g_offered.rbegin(); it != g_offered.rend(); ++it) {
+      const Offered& o = *it;
+      char sfx[16];
+      std::snprintf(sfx, sizeof sfx, "_dlc%02d", o.pack->pack_id);   // a pack names its files the disc's name + "_dlcPP" (dlc_files.h SuffixOf)
+      pkgs += o.pack->package;
+      ov.push_back({o.pack->root, sfx, o.pack->folder.rfind(kSuperstarsFolder, 0) == 0 ? "mod" : "dlc", o.pack->pack_id, o.pack->package});   // folders AND STFS packages (the phone's DLC is packages)
+    }
+    REXLOG_INFO("[wwe2k14][dlc] live loader overlays: {} pack(s) ({} of them STFS packages, read in place), highest pack id first", ov.size(), pkgs);
+    wwe2k14::dlc_overlays::Publish(std::move(ov));
+  }
   for (const Offered& o : g_offered)  // for replays: a recording keeps them (src/replay.h)
     replay::g_dlc_offered += (replay::g_dlc_offered.empty() ? "" : ",") + std::to_string(o.pack->pack_id);
   REXLOG_INFO("[wwe2k14][dlc] DLC folder {}: {} pack(s) found, {} offered to the game", PathUtf8(g_dir),

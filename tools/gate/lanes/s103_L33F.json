@@ -1,0 +1,17 @@
+{
+ "owner": "S103 lane L33F (bit 4 steady arena-slot entries kept; bit 3 latch read accepted on a derived mismatch with walk evidence; dev-only --wwe2k14_rdr_scene_unrequire; review F1: the dev-only guard asked of src/dev_build.cpp, the one TU besides main.cpp with WWE2K14_VERSION). 0 game runs, 0 Surface runs.",
+ "note": "version_lint: no game TU outside main.cpp / dev_build.cpp reads WWE2K14_VERSION (it is undefined there: live.cpp's dev-only switches were honoured by release builds). release_check (it also compiles and links src/dev_build.cpp: the main build's compile database has no entry for that new file until the next configure, so game_syntax cannot list it): the CMakeLists version block configured in script mode with WWE2K14_RELEASE ON / OFF, and dev_build.cpp built with those strings, the release / playtest / +dev strings and no define: IsDevBuild() false / true as it must be (no define = not dev). selftest: a planted header is caught and the release twin (no define = dev) fails.",
+ "checks": [
+  {"name": "s103_L33F.version_lint", "cmd": ["py", "-I", "tools/gate/version_define_lint.py", "--root", "."], "timeout_s": 120,
+   "affects": ["src/*", "CMakeLists.txt", "tools/gate/version_define_lint.py"]},
+  {"name": "s103_L33F.release_check", "cmd": ["py", "-I", "tools/gate/version_define_lint.py", "--release-check", "--root", "."], "timeout_s": 300,
+   "affects": ["src/dev_build.*", "CMakeLists.txt", "VERSION", "tools/gate/version_define_lint.py"]},
+  {"name": "s103_L33F.version_lint_selftest", "cmd": ["py", "-I", "tools/gate/version_define_lint.py", "--selftest", "--root", "."], "timeout_s": 300,
+   "affects": ["src/dev_build.*", "tools/gate/version_define_lint.py"]},
+  {"name": "s103_L33F.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/light_index_core.h", "src/scene_live/hold_switch.h", "src/scene_live/wrestler_contrib.*", "src/renderer_game/scene_frame.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_L33F.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/build_stamp.cpp,src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/*"]}
+ ]
+}

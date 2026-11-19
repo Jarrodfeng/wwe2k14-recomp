@@ -8,7 +8,7 @@
   {"name": "s102_l1.spv_lint", "cmd": ["py", "-I", "tools/l1/spv_lint.py", "--root", "."], "timeout_s": 300},
   {"name": "s102_l1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py"], "timeout_s": 300},
   {"name": "s102_l1.win_macro_lint", "cmd": ["py", "-I", "tools/gate/win_macro_lint.py", "--root", "."], "timeout_s": 300},
-  {"name": "s102_l1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"]},
+  {"name": "s102_l1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
   {"name": "s102_l1.proof", "cmd": ["py", "-I", "tools/l1/l1_check.py", "--root", ".", "--only", "census,wiring,replay,pics,counts,plants"], "timeout_s": 7200, "exes": ["out/renderer/dev/fview.exe", "out/renderer/dev/rplay.exe"], "needs": ["out/lane86/bryan/capture", "out/lane86/brock/capture"]}
  ]
 }

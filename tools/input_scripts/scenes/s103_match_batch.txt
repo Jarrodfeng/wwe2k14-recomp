@@ -1,0 +1,28 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=1 --wwe2k14_rdr_ring_d3=1 --wwe2k14_scene_records=true --wwe2k14_rdr_scene_census=true --wwe2k14_rdr_scene_sheet_every=600 --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true
+# (run 7275: without rdr_owner / s101_promotions named, run_list.ps1:202 adds --wwe2k14_s101_promotions=false = the old renderer, no mirror at all)
+# Session 103 run 24 (game exe, mode 1 = mirror): the batched MATCH run that settles the held bits before landing 1.
+# Both wrestlers CPU (participants 343 = Lesnar, 324 = Bryan, no PAD: s101_owner_match_long.txt's match) so bodies hit the ropes with no input.
+# Reads (census + records + mirror sheets every 600 frames):
+#  - C5: ring_compare for cover / turnbuckle / skirt while the ropes move; the skirt rule's count vs the game's (bit 6, kStampRingRows).
+#  - D6: crowd_latch census "singles ... rows R, refused F", pictures_unread, props mirror diff (kCrowdOursWhole); the holders on the sheet.
+#  - E5: section 50 part clocks vs the stream's c186 (tools\skip\arena_world_records.py on the case) (bit 17).
+# Marks: 1 match_clock, 2 roster, 3 +1200, 4 +2400 end. on_fail quit.
+on_fail quit
+log bench: start scene s103_match_batch
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+# (run 7274: roster_ready only fires with --wwe2k14_rdr_owner=true, which mode 1 does not set: a fixed wait instead)
+wait_frames 900
+mark 2 roster
+wait_frames 1200
+log scene=match_mid
+mark 3 mid
+wait_frames 1200
+log scene=end (match clock +2400)
+mark 4 end
+log bench: done
+quit

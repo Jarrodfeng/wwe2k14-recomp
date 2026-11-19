@@ -1,0 +1,15 @@
+{
+ "owner": "S103 lane DLW (COV2 GAP 2 / 9, docs/research/s103/COV2_wrestlers.md; docs/systems/dlc.md \"fixed by DLW\"): the stream-free build's live loader reads the DLC and imported-superstars packs the game was offered (src/dlc.h -> src/dlc_overlays.h -> src/renderer_scene/wrestler_src.h -> GameFilesSource), and a named wrestler model that failed to load falls back to the GuestModel rows instead of a hole (src/renderer_scene/named_load_fail.h, WrestlerContributor::RecordCanName / the emitter). 0 game runs; the contributor side is s103_W1.emit_selftest (DLW block, planted twins).",
+ "checks": [
+  {"name": "s103_DLW.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_dlw_unit.ps1"], "timeout_s": 600,
+   "affects": ["tools/scene/dlw_unit.cpp", "tools/scene/build_dlw_unit.ps1", "src/dlc_overlays.h", "src/dlc_catalog.h", "src/renderer_scene/wrestler_src.h", "src/renderer_scene/named_load_fail.h", "src/launcher/disc_image.h", "src/assets/asset_load.h"]},
+  {"name": "s103_DLW.selftest", "cmd": ["out/tools/dlw_unit.exe", "selftest"], "timeout_s": 120, "tier": "cheap",
+   "affects": ["tools/scene/dlw_unit.cpp", "src/dlc_overlays.h", "src/renderer_scene/wrestler_src.h", "src/renderer_scene/named_load_fail.h", "src/launcher/disc_image.h"]},
+  {"name": "s103_DLW.real", "cmd": ["out/tools/dlw_unit.exe", "real", "--game", "game_data/extracted", "--dlc", "game_data/dlc"], "timeout_s": 300, "tier": "cheap",
+   "needs": ["game_data/extracted", "game_data/dlc"], "cache": false,
+   "affects": ["tools/scene/dlw_unit.cpp", "src/dlc_overlays.h", "src/renderer_scene/wrestler_src.h", "src/launcher/disc_image.h", "src/assets/asset_load.h"]},
+  {"name": "s103_DLW.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_assets.cpp,src/renderer_scene/record_frame.cpp,src/scene_live/wrestler_contrib.cpp,src/main.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/dlc.h", "src/dlc_overlays.h", "src/renderer_scene/wrestler_src.h", "src/renderer_scene/named_load_fail.h", "src/renderer_scene/live_assets.cpp", "src/renderer_scene/record_frame.*", "src/scene_live/wrestler_contrib.*"]}
+ ]
+}

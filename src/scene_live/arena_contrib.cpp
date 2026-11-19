@@ -1,5 +1,6 @@
 // The arena contributor (Session 101, lane 28). See arena_contrib.h. Host code only: no game memory, no SDK.
 #include "arena_contrib.h"
+#include "../assets/car_sel.h"   // S103 CAR fix
 
 #include <algorithm>
 #include <array>
@@ -10,6 +11,7 @@
 #include <string>
 
 #include "../renderer_scene/record_io.h"
+#include "slot_light_token.h"  // S103 B4X F1 / F3
 #include "tail_latch.h"  // S102 U1
 
 namespace rdr_scene::live::arena {
@@ -20,7 +22,16 @@ ArenaSnapshot g_snap;
 uint64_t g_seq = 0;        // bumped by every publish
 bool g_have_slots = false;
 int32_t g_slots_arena = -1;
+std::string g_slots_sel;   // S103 CAR fix (blocker c): the created-arena selection key the published slot table was built for ("" for every other arena)
+// The key of the selection this thread / process names for a created arena `arena_id` (the loader worker runs under a thread selection); "" for any other arena, "<none>" while a created arena has no selection yet.
+std::string SelKeyFor(int32_t arena_id) {
+  if (!assets::car::IsCustomId(arena_id)) return std::string();
+  const assets::car::Sel s = assets::car::Current();
+  return s.valid && s.arena == arena_id ? s.Key() : std::string("<none>");
+}
 Totals g_totals;
+SlotRecordReadFn g_slot_reader = nullptr;   // S103 V1
+std::atomic<bool> g_ignore_shown{false};    // S103 V1 unit plant
 
 // S101 lane 264: what the "unknown" fields of the [scene][live] line are made of, per census window (Emit adds on the writer thread, Census reads and resets).
 struct Window {
@@ -40,12 +51,25 @@ Mat4 Diag(float x, float y, float z) {
 
 bool Finite3(const float* v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); }
 
+// S103 V1: the game hides this slot (R17 [C]); false when the bits were not read.
+bool SlotHidden(const ArenaSnapshot& s, uint16_t slot) { return !g_ignore_shown.load(std::memory_order_relaxed) && slot < s.hidden.size() && s.hidden[slot] != 0; }
+
 class ArenaContributor final : public Contributor {
  public:
   const char* Name() const override { return "arena"; }
   void Emit(const FrameInfo&, SceneTables& t, Counters& c) override;
   bool Latch(const FrameInfo& f) override {   // S102 U1 (tail_latch.h): Emit's snapshot copy, while the game threads are parked
+    // S103 V1 (R17): the game's own 'shown' bit of every stage slot, read BEFORE the lock (the reader takes the stage contributor's lock, which takes g_lock through the arena id).
+    std::vector<uint8_t> hidden;
+    if (SlotRecordReadFn rd = g_slot_reader) {
+      uint8_t rec[kStageSlotRecords * kStageSlotRecordSize];
+      if (rd(rec, sizeof rec)) {
+        hidden.resize(kStageSlotRecords);
+        for (uint32_t k = 0; k < kStageSlotRecords; ++k) hidden[k] = SlotShown(rec + k * kStageSlotRecordSize) ? 0 : 1;
+      }   // unreadable = empty = nothing hidden (the old behaviour)
+    }
     std::lock_guard<std::mutex> lk(g_lock);
+    g_snap.hidden = std::move(hidden);
     latch_snap_ = g_snap;
     latch_seq_ = g_seq;
     latch_.Set(f.guest_frame);
@@ -170,6 +194,7 @@ void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
       std::memcpy(l.dir_or_pos, ls.dir[k], sizeof l.dir_or_pos);
       std::memcpy(l.color, ls.col[k], sizeof l.color);
       l.range = (ls.has_fall && k < 4) ? ls.fall[k] : kUnknownRange;  // review F1: unknown is -1, never 0 (0 is a real falloff)
+      if (ls.has_follow && k < 4) l.pad = uint16_t(kLightPadFollowKnown | (ls.follow[k] ? kLightPadFollowOn : 0));   // S103 RL F2: the game's own camera-attached word of this light
       t.lights.push_back(l);
     }
     for (int a = 0; a < 2; ++a) {
@@ -190,6 +215,7 @@ void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
   }
   for (const SlotSnap& sl : s.slots) {
     bool vis_unknown = false;
+    const bool game_hides = SlotHidden(s, sl.slot);   // S103 V1: the game's predicate says no light install and no draw (S103 SCF: the applier reads the art slots 301-304 as always present and masks them per frame: arena_apply.h ReadArenaRecord)
     if (sl.when) {
       if (s.look == Look::Unknown) {
         vis_unknown = true;  // review F2: which look is live is unknown: the slot is listed but NOT visible, marked "arena.visibility_unknown", counted
@@ -252,7 +278,7 @@ void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
       t.objects.push_back(o);
       ++c.objects, ++tot.objects;
     };
-    const uint32_t vis = vis_unknown ? 0u : uint32_t(kObjVisible);
+    const uint32_t vis = vis_unknown || game_hides ? 0u : uint32_t(kObjVisible);
     add(S(sf ? &sf->base : nullptr, [&]() { return id_text(""); }), vis, IdentityMat4());
     if (sl.mirror & 1) {
       PooledField* r_pf = sf ? &sf->r : nullptr;
@@ -360,12 +386,21 @@ std::vector<SlotSnap> ParseSlotText(std::string_view txt) {
         if (j < line.size() && line[j] == ')') s.motion = mn;
       }
     }
-    const size_t lp = line.find("l(", i);
-    if (lp == std::string::npos) continue;
-    int ln = 0;
-    size_t j = lp + 2;
-    while (j < line.size() && line[j] >= '0' && line[j] <= '9') ln = std::min(ln * 10 + (line[j++] - '0'), 1000000);
-    if (j < line.size() && line[j] == ')') s.light_set = uint32_t(ln);
+    {   // S103 B4X F1: the light token, parsed like the game's slot parser (slot_light_token.h): l(N) understood, le( / lg( unread, the last token wins
+      std::string tok;
+      SlotLightText lt;
+      lt.set = s.light_set, lt.explicit_l = s.explicit_l, lt.unread = s.l_unread;
+      for (size_t c = i; c <= line.size(); ++c) {
+        const char ch = c < line.size() ? line[c] : ' ';
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == ';') {
+          ApplyLightToken(tok, lt);
+          tok.clear();
+        } else {
+          tok.push_back(ch);
+        }
+      }
+      s.light_set = lt.set, s.explicit_l = lt.explicit_l, s.l_unread = lt.unread;
+    }
   }
   std::sort(out.begin(), out.end(), [](const SlotSnap& a, const SlotSnap& b) { return a.slot < b.slot; });
   return out;
@@ -376,6 +411,7 @@ void PublishAll(const ArenaSnapshot& s) {
   g_snap = s;
   g_have_slots = !s.slots.empty();
   g_slots_arena = s.arena_id;
+  g_slots_sel = SelKeyFor(s.arena_id);
   ++g_seq;
 }
 
@@ -384,8 +420,10 @@ void PublishSets(int32_t arena_id, float brightness, std::vector<SetSnap>&& sets
   if (arena_id >= 0 && g_slots_arena >= 0 && arena_id != g_slots_arena) {  // another arena: the static part belongs to the old one (review F4: an unknown id (-1) keeps it)
     g_snap.slots.clear();
     g_snap.screens.clear();
+    g_snap.hidden.clear();
     g_have_slots = false;
     g_slots_arena = -1;
+    g_slots_sel.clear();
   }
   g_snap.arena_id = arena_id;
   g_snap.brightness = brightness;
@@ -403,6 +441,7 @@ void PublishSlots(int32_t arena_id, Look look, std::vector<SlotSnap>&& slots, st
   g_snap.screens = std::move(screens);
   g_have_slots = true;
   g_slots_arena = arena_id;
+  g_slots_sel = SelKeyFor(arena_id);
   ++g_seq;
 }
 
@@ -413,10 +452,61 @@ void PublishLook(Look look) {
 
 bool NeedsSlots(int32_t arena_id) {
   std::lock_guard<std::mutex> lk(g_lock);
-  return !(g_have_slots && g_slots_arena == arena_id);
+  return !(g_have_slots && g_slots_arena == arena_id && g_slots_sel == SelKeyFor(arena_id));   // S103 CAR fix (blocker c): a created arena's table is also keyed by its part selection
 }
 
 Contributor* Instance() { return &g_instance; }
+void SetSlotRecordReader(SlotRecordReadFn fn) { g_slot_reader = fn; }
+void PlantIgnoreShown(bool on) { g_ignore_shown.store(on); }
+
+// S103 C2: the slots of the published arena whose text row names a stage motion m(N) (the moving pieces); empty until the slot table is published.
+void MovingSlots(std::vector<uint16_t>& out) {   // fills the caller's vector (no allocation once it has the capacity)
+  std::lock_guard<std::mutex> lk(g_lock);
+  out.clear();
+  for (const SlotSnap& s : g_snap.slots)
+    if (s.motion >= 0) out.push_back(s.slot);
+}
+bool EmittedSlots(std::vector<uint16_t>& out) {   // S103 A5
+  std::lock_guard<std::mutex> lk(g_lock);
+  out.clear();
+  if (!g_have_slots) return false;
+  for (const SlotSnap& sl : g_snap.slots) {
+    if (SlotHidden(g_snap, sl.slot)) continue;   // S103 V1: the game hides it (no light install, no draw): bit 4 does not ask
+    if (sl.when && g_snap.look == Look::Match && (sl.when & 1) && !(sl.when & 2)) continue;
+    if (sl.when && g_snap.look == Look::Entrance && (sl.when & 2) && !(sl.when & 1)) continue;
+    out.push_back(sl.slot);
+  }
+  std::sort(out.begin(), out.end());
+  return true;
+}
+uint32_t SlotLightSet(uint16_t slot, int32_t stage_arena, bool* is_explicit) {   // S103 A7
+  std::lock_guard<std::mutex> lk(g_lock);
+  if (is_explicit) *is_explicit = false;
+  if (!g_have_slots || stage_arena < 0 || g_slots_arena != stage_arena) return kNone;   // a table of another arena (or an unknown stage arena) is never used
+  SlotLightText row;
+  bool have_row = false;
+  for (const SlotSnap& sl : g_snap.slots)
+    if (sl.slot == slot) row.set = sl.light_set, row.explicit_l = sl.explicit_l, row.unread = sl.l_unread, have_row = true;
+  return SlotSetOf(have_row ? &row : nullptr, slot, is_explicit);   // slot_light_token.h: F1 an le( / lg( row is unread (kNone); a row without l(N) and (F3) a slot < 399 with no row = the loader default 100, not explicit
+}
+int PublishedLookCode() {
+  std::lock_guard<std::mutex> lk(g_lock);
+  return g_snap.look == Look::Match ? 1 : g_snap.look == Look::Entrance ? 2 : 0;
+}
+bool ScreenShown(uint16_t key) {   // S103 M (B2): the same visibility rule Emit applies to the slot objects (events-only hidden in the match look, game-only hidden in the entrance look)
+  std::lock_guard<std::mutex> lk(g_lock);
+  for (const SlotSnap& sl : g_snap.slots) {
+    if (sl.slot != key) continue;
+    if (sl.when && g_snap.look == Look::Match && (sl.when & 1) && !(sl.when & 2)) return false;
+    if (sl.when && g_snap.look == Look::Entrance && (sl.when & 2) && !(sl.when & 1)) return false;
+    return true;
+  }
+  return false;   // not in the arena's slot table: nothing to show
+}
+int32_t PublishedArena() {   // S103 C2: the arena id the light hook last published (-1 = unknown)
+  std::lock_guard<std::mutex> lk(g_lock);
+  return g_snap.arena_id;
+}
 
 Totals GetTotals() {
   std::lock_guard<std::mutex> lk(g_lock);

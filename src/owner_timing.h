@@ -28,6 +28,7 @@
 #endif
 
 #include <atomic>
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include <bit>
 #include <chrono>
 #include <condition_variable>
@@ -54,7 +55,10 @@
 #include "owner_timing_core.h"
 #include "guest_gpu_only.h"
 #include "load_turbo.h"  // S102 H2: g_load_turbo_ingame_window
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()  // S103 P9 (A18)
 #include "renderer_adapter/reader.h"
+#endif
 #include "renderer_adapter/swap_tail2.h"  // S102 R25-A
 
 REXCVAR_DEFINE_BOOL(wwe2k14_owner_timing, true, "wwe2k14",
@@ -313,6 +317,10 @@ inline owner_core::Core<GuestEnv> g_core;
 // waits the thread keeps its own duties: every wake runs Turn (the vblanks that fell due, then the gate), so a long wait (a backlog of texture reads at a load) is not a
 // stall of the game's vblank (Turn also runs before every item, so dispatching here is the same order).
 inline void JoinForItem(const Item& it, GuestEnv& env) {
+#if !WWE2K14_STREAM()  // S103 P9 (A18): no reader workers, no ticket (JoinReader's Mark is 0): nothing to wait for
+  (void)it; (void)env;
+  return;
+#else
   if (!it.join) return;
   namespace st = wwe2k14::swap_tail2;
   const auto t0 = std::chrono::steady_clock::now();
@@ -329,6 +337,7 @@ inline void JoinForItem(const Item& it, GuestEnv& env) {
     st::g_census.timing_wait_ns.fetch_add(ns, std::memory_order_relaxed);
     st::NoteMax(st::g_census.timing_wait_max_ns, ns);
   }
+#endif
 }
 
 inline int Loop() {
@@ -392,7 +401,8 @@ inline int Loop() {
         core.Process(env, it);
       }
     }
-    if (std::chrono::steady_clock::now() - last_log > std::chrono::seconds(10)) {
+    static census_flush::Site cf_owner;   // S102 CEN1: a flip phase end prints the [owner] census lines (swap_tail2, vblank, ring) now
+    if (census_flush::Due(cf_owner) || std::chrono::steady_clock::now() - last_log > std::chrono::seconds(10)) {
       const auto now_log = std::chrono::steady_clock::now();
       const double window_ms = std::chrono::duration<double, std::milli>(now_log - last_log).count();
       last_log = now_log;
@@ -463,7 +473,9 @@ inline void Push(const Item& it) {
 inline void JoinReader() {
   // Only that the reader's workers have finished reading guest memory (texture jobs read it; geometry jobs read copies made at the draw):
   // their own wait, not the reader's lock (a library call made under it would deadlock); the results are committed at the frame's join.
+#if WWE2K14_STREAM()  // S103 P9 (A18)
   rdr_reader::g_workers.WaitAll();
+#endif
 }
 
 // S102 R25-A (wwe2k14_rdr_swap_tail2 bit 1, docs\renderer\SWAP_TAIL.md section 9): the same guarantee, paid where the guest can first see it. The hook (the game's swap thread) takes a
@@ -476,7 +488,11 @@ inline uint64_t JoinReaderTicket() {
     st::g_census.hooks_waited_all.fetch_add(1, std::memory_order_relaxed);
     return 0;
   }
+#if WWE2K14_STREAM()  // S103 P9 (A18)
   const uint64_t t = rdr_reader::g_workers.Mark();
+#else
+  const uint64_t t = 0;  // no reader workers: nothing to wait for (an empty ticket)
+#endif
   (t ? st::g_census.tickets : st::g_census.tickets_empty).fetch_add(1, std::memory_order_relaxed);
   return t;
 }
@@ -499,7 +515,9 @@ inline void FellBack() {
   g_t.c.fallbacks.fetch_add(1, std::memory_order_relaxed);
   // S102 R25-A (review 4): the SDK's processor will write the fence words of this segment itself (not through our item): every ticket already on the queue must be settled first, or the
   // timing thread could still be waiting for fence k's jobs while the processor has written fence k + 2 and the guest has seen it.
+#if WWE2K14_STREAM()  // S103 P9 (A18)
   rdr_reader::g_workers.WaitAll();
+#endif
   NeedsProcessor("an unusual call (tiling wrapper / recording / predication / original depth)");
   g_t.ring_needed.store(true, std::memory_order_release);
 }

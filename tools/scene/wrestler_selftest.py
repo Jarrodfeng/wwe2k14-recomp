@@ -125,7 +125,7 @@ def main():
                 if os.path.exists(lpng):
                     os.remove(lpng)
                 rc, text = run_draw([draw, live, '--game', game, '--out', lpng, '--size', args.size], {'WWE_RDR_VALIDATION': '1'})
-                good = rc == 0 and os.path.exists(lpng) and 'objects drawn' in text and 'asset unknown' in text
+                good = rc == 0 and os.path.exists(lpng) and 'objects drawn' in text and ('asset pac 0' in text or 'asset unknown' in text)
                 print(('PASS' if good else 'FAIL') + f'  {tag} Emit\'s own live record is drawn by rsc_draw (unknown-asset objects skipped): exit {rc}')
                 if not good:
                     fails.append(f'{tag}: live record')

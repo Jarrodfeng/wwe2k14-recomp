@@ -1,0 +1,6 @@
+{
+  "claim": {"scene": "none", "side": "none (log-only loader stall detector, always on; no work moves)", "ms": [0, 0]},
+  "checks": [
+    {"name": "s103_STALL.unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/load_stall_test.ps1"], "timeout_s": 180}
+  ]
+}

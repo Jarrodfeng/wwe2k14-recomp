@@ -123,7 +123,7 @@ def main():
         (lv, 'if (d3_chain_now && message.d3_record) {', 'live.cpp: records are added only for a chain frame'),
         (lv, 'if (!lasting && d3_chain_now) binder.D3FrameSkipped(frame);', 'live.cpp: a skipped frame with the chains off takes no packets'),
         (lv, 'd3t::Line()', 'live.cpp logs the [rdr][d3_time] census line'),
-        (lv, 'skip_wanted && waiting >= max_queued_now && !lasting_drawn_now ? 1u : 0u', 'live.cpp (F4): only a queue skip counts as skipped, never a rate skip'),
+        (lv, 'skip_wanted && (forced_skip || waiting >= max_queued_now) && !lasting_drawn_now ? 1u : 0u', 'live.cpp (F4 + S103 G2 ee682c724): only a queue skip or a message dropped from a run (forced_skip, behind on purpose) counts as skipped, never a rate skip'),
         (lv, 'note.busy_ns = skips_cpu.TakeNs();', 'live.cpp (F2): busy is the thread CPU time, not the wall time through the present'),
         (lv, 'rdr_sw::kSkipsAutoForce', 'live.cpp (F3a): the test-only force switch is read per frame'),
         (lv, 'skips_ctl.SceneChanged();', 'live.cpp (F5): a new announced arena is a scene change'),

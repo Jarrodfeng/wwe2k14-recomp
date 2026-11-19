@@ -1,0 +1,23 @@
+{
+ "owner": "S103 lane SG (signs / foam hands from Q2 + V2): the foam-hand mesh 40999 + h of its type (static_SetUpHandSignBoard sub_8250B1E8 replicated at the latch, guarded by the loader's own count [M+0x198D0]; src/scene_live/crowd_latch_reader.h HandTypeMap / HandAttireIdx, crowd_contrib.*), props back-face culled as the stream (src/renderer_scene/live_crowd.cpp ResolveProp; fault props_two_sided; the picture proof is tools/scene/d4_check.py: culling oracle + planted props_cull_front), kinds renamed sign / hand (scene_record.h, crowd_prop_rows.h), frozen-bone census (bone_changed per frame kind); SGF review fixes: hand map merged from the entry half, Scoped, frozen per manager generation (HandMapCache), tools/crowd/snapshot_fields_lint.py; tools/crowd/crowd_prop_keys.py, crowd_prop_cull_check.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "keys: every arena pac's audience set holds 40000, 40001, 41000-41018 (hand meshes), 42000-42018 (hand pictures) and none holds 40999 (so an h > 19 hand is skipped). pictures: the capture's foam-hand image 413 IS pac entry 42016 (= 42000 + 17 - 1, mesh 41016: h 17) and the 12 sign images with content ARE pac/audience.pac PACH 0 entry 0 children (keys CCCNN), bytes equal. cull: the stream's sign / hand / stands draws are cull back + front face clockwise, ours the same. The unit's hand-map twins (hand_map_ignored, hand_attire_ignored) run inside s103_D5.snapshot.",
+ "checks": [
+  {"name": "s103_SG.keys", "cmd": ["py", "-I", "tools/crowd/crowd_prop_keys.py", "-q"], "timeout_s": 600, "needs": ["game_data/extracted"], "cache": false,
+   "affects": ["tools/crowd/crowd_prop_keys.py"]},
+  {"name": "s103_SG.keys_plant_missing", "cmd": ["pwsh", "-NoProfile", "-Command", "py -I tools/crowd/crowd_prop_keys.py -q --plant missing_key; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 600, "needs": ["game_data/extracted"], "cache": false,
+   "affects": ["tools/crowd/crowd_prop_keys.py"]},
+  {"name": "s103_SG.pictures", "cmd": ["py", "-I", "tools/crowd/crowd_prop_keys.py", "-q", "--arena", "0", "--pac", "pac/audience.pac", "--capture", "out/captures/brock_losswin",
+     "--image", "1157", "--image", "1158", "--image", "1159", "--image", "1161", "--image", "1162", "--image", "1163", "--image", "1165", "--image", "1166", "--image", "1167", "--image", "1169", "--image", "1170", "--image", "1171", "--image", "413"],
+   "timeout_s": 900, "needs": ["game_data/extracted", "out/captures/brock_losswin"], "cache": false,
+   "affects": ["tools/crowd/crowd_prop_keys.py"]},
+  {"name": "s103_SG.cull", "cmd": ["py", "-I", "tools/crowd/crowd_prop_cull_check.py"], "timeout_s": 600, "needs": ["out/captures/brock_losswin"],
+   "affects": ["tools/crowd/crowd_prop_cull_check.py", "src/renderer_scene/live_crowd.cpp", "src/renderer_scene/front_end.cpp"]},
+  {"name": "s103_SG.snapshot_fields", "cmd": ["py", "-I", "tools/crowd/snapshot_fields_lint.py"], "timeout_s": 120,
+   "affects": ["tools/crowd/snapshot_fields_lint.py", "src/scene_live/crowd_contrib.h", "src/scene_live/crowd_contrib.cpp", "src/scene_live/crowd_latch_reader.h"]},
+  {"name": "s103_SG.snapshot_fields_plant_merge", "cmd": ["pwsh", "-NoProfile", "-Command", "py -I tools/crowd/snapshot_fields_lint.py -q --plant drop_merge; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 120,
+   "affects": ["tools/crowd/snapshot_fields_lint.py", "src/scene_live/crowd_contrib.h", "src/scene_live/crowd_contrib.cpp", "src/scene_live/crowd_latch_reader.h"]},
+  {"name": "s103_SG.snapshot_fields_plant_clear", "cmd": ["pwsh", "-NoProfile", "-Command", "py -I tools/crowd/snapshot_fields_lint.py -q --plant drop_clear; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 120,
+   "affects": ["tools/crowd/snapshot_fields_lint.py", "src/scene_live/crowd_contrib.h", "src/scene_live/crowd_contrib.cpp", "src/scene_live/crowd_latch_reader.h"]}
+ ]
+}

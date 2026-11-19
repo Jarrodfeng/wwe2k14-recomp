@@ -40,7 +40,7 @@ New-Item -ItemType Directory -Force $nv | Out-Null
 $flags = "--game_data_root=$R\game_data\extracted --wwe2k14_settings_file=$settings --wwe2k14_use_launcher_settings=true " +
          "--wwe2k14_shader_list=$R\db\shaders\shader_list.txt --wwe2k14_launch=@quick --wwe2k14_quick_type=0 " +
          '--wwe2k14_launch_participants=343,324 --gpu_session_stats_frames=60 ' +
-         '--gpu_native_truth_debug_pipeline_delay_ms=40 --vulkan_pipeline_debug_delay_ms=40'
+         '--gpu_native_truth_debug_pipeline_delay_ms=40 --vulkan_pipeline_debug_delay_ms=40 --wwe2k14_rdr_pipeline_delay_ms=40'
 if ($Extra) { $flags += " $Extra" }
 $old = $env:__GL_SHADER_DISK_CACHE_PATH
 $env:__GL_SHADER_DISK_CACHE_PATH = $nv

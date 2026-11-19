@@ -7,6 +7,10 @@ Rule: bundle levers == base_flags.txt entries minus EXCLUDED (each with a reason
 (a reason each); an entry of base_flags.txt that is also a fix is fine (the bench then measures the player config). Values must be equal.
 Every cvar must be defined in src (REXCVAR_DEFINE_*), so a typo cannot silently set nothing, and each lever must be a PerFrame table switch or in START_TIME_OK.
 Prints both lists (the player bundle and the bench @BASE) so the equality is read, not assumed.
+
+S103 SLV2: WWE2K14_BUNDLE3_OFF_LEVERS (src/bundle3.h) names the levers the STREAM-FREE build reads. Each must be a bundle lever AND its cvar must be defined in a unit the stream-free exe compiles
+(not a unit of tools/scene/keep_stream_sources.txt, not a header of keep_stream_headers.txt, and outside any `#if WWE2K14_STREAM()` region): the SLV review found two levers in the bundle for weeks with
+no such cvar in the stream-free build, so the bundle set nothing there. Apply() also reports such a name at run time (bundle3::g_missing, an ERROR line), so it cannot be silent either way.
 """
 import re
 import sys
@@ -66,7 +70,45 @@ def parse_header(text):
     return levers, fixes
 
 
-def check(base_text, header_text, src_text, table_text):
+def off_visible_defines(files):
+    """Names of the cvars defined (REXCVAR_DEFINE_*) where the stream-free build sees them: `files` = [(text, stream_only_file)]. A stream-only file contributes nothing; in the others a define inside
+    `#if WWE2K14_STREAM()` (before its #else) or `#if !WWE2K14_STREAM()`'s #else branch is ON-only and skipped. Any other #if / #ifdef is transparent."""
+    found = set()
+    for text, stream_only in files:
+        if stream_only:
+            continue
+        stack = []   # per open #if: 'on' = the ON-only branch, 'off' = the OFF-only branch, 'any' = not a stream test
+        for ln in text.splitlines():
+            t = ln.strip()
+            m = re.match(r'#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)', t)
+            if m:
+                d, rest = m.group(1), m.group(2).strip()
+                if d in ('if', 'ifdef', 'ifndef'):
+                    stack.append('on' if (d == 'if' and rest == 'WWE2K14_STREAM()') else 'off' if (d == 'if' and rest == '!WWE2K14_STREAM()') else 'any')
+                elif d == 'else' and stack:
+                    stack[-1] = {'on': 'off', 'off': 'on'}.get(stack[-1], 'any')
+                elif d == 'elif' and stack:
+                    stack[-1] = 'any'
+                elif d == 'endif' and stack:
+                    stack.pop()
+                continue
+            if 'on' in stack:
+                continue
+            for name in re.findall(r'REXCVAR_DEFINE_[A-Z0-9_]+\(\s*(\w+)\s*,', t):
+                found.add(name)
+    return found
+
+
+def off_stored(start_text):
+    """S103 CHS (review fix 4): the cvars start_settings.cpp READS (REXCVAR_GET) inside its stream-free START-ONLY block(s) (`// START-ONLY-BEGIN(OFF)` ... `// START-ONLY-END`): the ones whose value reaches the
+    renderer in the stream-free build. A cvar that is only DEFINED there (or defined and never stored) sets nothing: the bundle's value is read by nobody (C5: stencil_dead was a bundle lever, defined in reader.h only)."""
+    got = set()
+    for blk in re.findall(r'//\s*START-ONLY-BEGIN\(OFF\).*?//\s*START-ONLY-END', start_text, flags=re.S):
+        got |= set(re.findall(r'REXCVAR_GET\(\s*(\w+)\s*\)', blk))
+    return got
+
+
+def check(base_text, header_text, src_text, table_text, off_defined=None, start_text=None):
     problems = []
     base = parse_base(base_text)
     levers, fixes = parse_header(header_text)
@@ -94,17 +136,46 @@ def check(base_text, header_text, src_text, table_text):
             problems.append('cvar %s is not defined anywhere in src (typo? it would set nothing)' % k)
         elif k not in START_TIME_OK and not re.search(r'X\(\w+,\s*"%s"\s*,\s*PerFrame' % re.escape(k), table_text):
             problems.append('%s is not a PerFrame switch of rdr_switches.h and not in START_TIME_OK (a start-only read before OnPreSetup would miss it)' % k)
+    if off_defined is not None:
+        m = re.search(r'#define\s+WWE2K14_BUNDLE3_OFF_LEVERS\(X\)\s*\\\n((?:.*\\\n)*.*)', header_text)
+        off_levers = re.findall(r'X\("([^"]+)"\)', m.group(1).split('\n\n')[0].split('\n//')[0]) if m else []
+        if not m:
+            problems.append('bundle3.h: the macro WWE2K14_BUNDLE3_OFF_LEVERS is missing')
+        start_defs = off_visible_defines([(start_text, False)]) - set(re.findall(r'REXCVAR_GET\(\s*(\w+)\s*\)', start_text)) if start_text is not None else set()   # defined in start_settings.cpp's stream-free copies and never stored by its start
+        for k in sorted((set(levers) | set(fixes)) & start_defs - set(off_levers)):   # S103 SMF (review A1): such a bundle lever is turned ON in the stream-free build by bundle3::Apply, which never ran there
+            problems.append('%s is a bundle lever defined in a unit the stream-free build compiles but is not in WWE2K14_BUNDLE3_OFF_LEVERS: Apply() would switch it on there (never run stream-free). Remove the define (a reader that wants it must tolerate the flag being absent), or list it as an OFF lever after proving it stream-free' % k)
+        for k in off_levers:
+            if k not in levers:
+                problems.append('WWE2K14_BUNDLE3_OFF_LEVERS names %s which is not a bundle lever' % k)
+            if k not in off_defined:
+                problems.append('%s is listed as read by the stream-free build but no cvar of that name is defined in a unit the stream-free build compiles (define it in start_settings.cpp under #if !WWE2K14_STREAM(), as combine_lite / skip_blank_plane are)' % k)
+            if start_text is not None and k not in off_stored(start_text):
+                problems.append('%s is a WWE2K14_BUNDLE3_OFF_LEVERS name but start_settings.cpp never REXCVAR_GET-stores it inside its START-ONLY-BEGIN(OFF) block: the bundle sets a cvar nothing reads (S103 CHS C5 / SLV2 class)' % k)
     return problems, base, levers, fixes
 
 
 def load(root):
     r = Path(root)
     src = []
+    off_files = []
+    def listed(name):
+        f = r / 'tools/scene' / name
+        return {ln.strip().replace('\\', '/') for ln in f.read_text(encoding='utf-8').splitlines() if ln.strip() and not ln.strip().startswith('#')} if f.exists() else set()
+    only_units, only_headers = listed('keep_stream_sources.txt'), listed('keep_stream_headers.txt')
     for p in (r / 'src').rglob('*'):
-        if p.suffix in ('.h', '.cpp'):
-            src.append(p.read_text(encoding='utf-8', errors='replace'))
+        if p.suffix in ('.h', '.cpp', '.inc'):
+            text = p.read_text(encoding='utf-8', errors='replace')
+            rel = p.relative_to(r).as_posix()
+            if p.suffix in ('.h', '.cpp'):
+                src.append(text)
+            off_files.append((text, rel in only_units or rel[len('src/'):] in only_headers))
+    load.off_defined = off_visible_defines(off_files)
     return ((r / 'tools/surface/base_flags.txt').read_text(encoding='utf-8'), (r / 'src/bundle3.h').read_text(encoding='utf-8'),
             '\n'.join(src), (r / 'src/renderer_adapter/rdr_switches.h').read_text(encoding='utf-8'))
+
+
+def start_text_of(root):
+    return (Path(root) / 'src/start_settings.cpp').read_text(encoding='utf-8')
 
 
 def main():
@@ -112,7 +183,8 @@ def main():
     if '--root' in sys.argv:
         root = sys.argv[sys.argv.index('--root') + 1]
     base_t, head_t, src_t, tab_t = load(root)
-    problems, base, levers, fixes = check(base_t, head_t, src_t, tab_t)
+    start_t = start_text_of(root)
+    problems, base, levers, fixes = check(base_t, head_t, src_t, tab_t, load.off_defined, start_t)
     print('player bundle 3 (src/bundle3.h): %d levers, %d fixes' % (len(levers), len(fixes)))
     for k, v in levers.items():
         print('  bundle %s=%s' % (k, v))
@@ -135,14 +207,36 @@ def main():
             'value changed in the bundle': (base_t, head_t.replace('X("wwe2k14_rdr_swap_once", "7")', 'X("wwe2k14_rdr_swap_once", "3")', 1)),
             'typo cvar in the bundle': (base_t + '\nwwe2k14_rdr_no_such_lever=true\n', head_t.replace('X("wwe2k14_rdr_lazy_banks", "true")', 'X("wwe2k14_rdr_no_such_lever", "true")\\\n  X("wwe2k14_rdr_lazy_banks", "true")', 1)),
         }
+        plants['OFF lever with no cvar in the stream-free build (reader.h only)'] = (base_t, head_t.replace('X("wwe2k14_rdr_skip_blank_plane")', 'X("wwe2k14_rdr_skip_blank_plane") \\\n  X("wwe2k14_rdr_lazy_banks")', 1))
+        plants['OFF lever that is not a bundle lever'] = (base_t, head_t.replace('X("wwe2k14_rdr_skip_blank_plane")', 'X("wwe2k14_rdr_skip_blank_plane") \\\n  X("wwe2k14_rdr_not_a_lever")', 1))
+        # S103 CHS: the lever is DEFINED in the stream-free build but never stored by its start (the shape C5's bug had once the define existed), and the exact pre-CHS state: listed as an OFF lever with no define and no store
+        stored_gone = re.sub(r'.*REXCVAR_GET\(wwe2k14_rdr_stencil_dead\).*\n', '', start_t)
+        plants_start = {'OFF lever defined but never stored by the start (store line removed)': stored_gone,
+                        'OFF lever neither defined nor stored (start_settings.cpp as it was before CHS C5)': start_t.replace('REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stencil_dead', 'REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stencil_dead_x').replace('REXCVAR_GET(wwe2k14_rdr_stencil_dead)', 'REXCVAR_GET(wwe2k14_rdr_stencil_dead_x)')}
+        for name, st in plants_start.items():
+            if st == start_t:
+                print('PLANT DID NOT APPLY: %s' % name)
+                bad_start = True
+            else:
+                pr, *_ = check(base_t, head_t, src_t, tab_t, load.off_defined, st)
+                print('plant %-42s -> %s' % (name, 'caught (%d)' % len(pr) if pr else 'NOT CAUGHT'))
+                bad_start = not pr
+            if bad_start:
+                return 1
         bad = 0
+        # S103 SMF (review A1) twin: a bundle lever (swap_once) defined where the stream-free build sees it, and not an OFF lever: the shape of the SMF define that would have switched it on stream-free
+        pr, *_ = check(base_t, head_t, src_t, tab_t, load.off_defined, start_t + '\n#if !WWE2K14_STREAM()\nREXCVAR_DEFINE_INT32(wwe2k14_rdr_swap_once, 0, "wwe2k14", "x");\n#endif\n')
+        hit = any('swap_once is a bundle lever defined in a unit the stream-free' in x or 'wwe2k14_rdr_swap_once is a bundle lever defined' in x for x in pr)
+        print('plant %-42s -> %s' % ('bundle lever defined stream-free, not OFF', 'caught' if hit else 'NOT CAUGHT'))
+        if not hit:
+            bad += 1
         for name, (b, h) in plants.items():
             if b == base_t and h == head_t:
                 print('PLANT DID NOT APPLY: %s' % name)
                 bad += 1
                 continue
             try:
-                pr, *_ = check(b, h, src_t, tab_t)
+                pr, *_ = check(b, h, src_t, tab_t, load.off_defined, start_t)
             except SystemExit as e:
                 pr = [str(e)]
             print('plant %-42s -> %s' % (name, 'caught (%d)' % len(pr) if pr else 'NOT CAUGHT'))

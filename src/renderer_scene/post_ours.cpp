@@ -1,5 +1,6 @@
 // Session 101, lane PO: our own post chain in the game's frame. See post_ours.h.
 #include "post_ours.h"
+#include "../keep_stream.h"  // S103 GT: WWE2K14_STREAM()
 
 #include <cstdio>
 #include <cstring>
@@ -57,6 +58,9 @@ rdr::ImageId PostOurs::FixedImage(uint32_t w, uint32_t h) {
     d.format = rdr::Format::RGBA8;
     d.usage = rdr::kUsageTarget | rdr::kUsageSampled;
     fixed_ = renderer_.CreateImage(d);
+#if !WWE2K14_STREAM()
+    if (fixed_ != rdr::kNoImage) renderer_.SetImageClass(fixed_, rdr::kGpuPost);   // S103 GT (stream-free build only: see front_end.cpp)
+#endif
     fixed_w_ = w, fixed_h_ = h;
   }
   return fixed_;

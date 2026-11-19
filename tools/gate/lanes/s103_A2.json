@@ -1,0 +1,15 @@
+{
+ "owner": "S103 lane A2 (the remaining inputs: W1 palette at the latch, W2 light objects, the plan for the rest): src/scene_live/inputs_*.h, wrestler_contrib.h/.cpp (pre-latch pointer), record id 32 (scene_record.h, record_io.*), docs/renderer/INPUTS_A2.md. 0 game runs, 0 Surface runs.",
+ "note": "check 1 = tools/scene/inputs_check.py: builds tools/scene/inputs_unit.cpp and runs it (56 checks: lane A's stamping / post settings / camera / contributor / record round trip plus A2's palette reader and latch hook, the light objects and selection words, the record id 32 round trip and the mode gate) then its 16 planted twins (each must exit 1 and fail its named check) and the wiring lints. Check 2 = the game translation units still compile (main.cpp, live.cpp, wrestler_contrib.cpp). Check 3 = lint_seen. The live proof is the main session's mirror run (INPUTS_A2.md T7).",
+ "checks": [
+  {"name": "s103_a2.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/post_settings.h", "src/scene_live/wrestler_contrib.*", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.*", "src/renderer_game/scene_frame.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_a2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/wwe2k14_app.h", "src/scene_live/*", "src/renderer_scene/*"]},
+  {"name": "s103_a2.swap_once_size", "cmd": ["py", "-I", "tools/swap/swap_once_check.py", "--root", ".", "--no-records"], "timeout_s": 900,
+   "affects": ["src/renderer_scene/record_io.*", "src/renderer_scene/scene_record.h", "tools/swap/swap_once_test.cpp"],
+   "needs": ["generated/default"]
+   },
+  {"name": "s103_a2.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 300, "affects": ["src/*"]}
+ ]
+}

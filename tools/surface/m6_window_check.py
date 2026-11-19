@@ -136,7 +136,7 @@ def main():
         ok, why = parse_ps1(root / 'tools' / 'surface' / f)
         check(ok, '%s parses (%s)' % (f, why))
     tmp = Path(tempfile.mkdtemp(prefix='m6_'))
-    rc, out = pwsh(root / 'tools/surface/s0_5_jobs.ps1', '-Out', tmp / 'o', '-CheckOnly', '-Jobs', 'h|Only=ab;AbScene=frames_bryan_heavy;AbRounds=2;AbWarmup=true;ArmFlags=A:a=1|b:b=2')
+    rc, out = pwsh(root / 'tools/surface/s0_5_jobs.ps1', '-Out', tmp / 'o', '-CheckOnly', '-Jobs', 'h|Only=ab;Base=none;AbScene=frames_bryan_heavy;AbRounds=2;AbWarmup=true;ArmFlags=A:a=1|b:b=2')
     check(rc == 0 and 'job lines ok' in out, 's0_5_jobs.ps1 -CheckOnly accepts an AbScene=frames_bryan_heavy job line')
     check("frames_bryan_heavy" in (root / 'tools/surface/ab_line.py').read_text(encoding='utf-8'), 'ab_line.py --scene lists frames_bryan_heavy')
 

@@ -1,0 +1,11 @@
+{
+ "owner": "S103 lane QD (Jarrod: 'indexes and caching ... tokens and time saved'): `q decomp FUNC`, a compact mechanical view of one game function (tools/q/qdecomp.py, hooks in tools/q/q.py, docs/agents/q_decomp.md). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. decomp_selftest.py: A) synthetic listings in a TEMP folder (invented instruction sequences, no game code): if-skip, if/else, do-while, lis+addi / lis+lwz folding, spill and prologue saves, call args and results, vtable call, switch, rlwinm decode, image float decode, cache hit / rebuild on a changed source hash; B) tools/q/decomp_fixture.json: four real functions whose field offsets / call targets / constants / one float were checked by hand against the listing (our annotations only); a machine without the generated code or the q index SKIPs B; C) planted twins (a wrong offset, width, base, call target, argument, constant and float) must be REJECTED by the same checks. Exit 1 = a check failed, 2 = a planted twin was not caught.",
+ "checks": [
+  {"name": "qd_decomp.selftest", "cmd": ["py", "-I", "tools/q/decomp_selftest.py"], "timeout_s": 600,
+   "affects": ["tools/q/qdecomp.py", "tools/q/decomp_selftest.py", "tools/q/decomp_fixture.json", "tools/q/q.py"],
+   "needs": ["generated/default"]
+   }
+ ]
+}

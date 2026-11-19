@@ -61,6 +61,10 @@ inline bool GuestWordReadableHost(const void* host) {
 
 // May a probe read the aligned guest word at `guest` (host pointer `host`) without faulting?
 inline bool GuestWordReadable(uint32_t guest, const void* host) {
+#ifndef _WIN32
+  (void)host;
+  return GuestWordReadableFast(guest);   // BH3-3: off Windows the host view has no check (a plain pointer test): always the guest table, whatever the debug switches say
+#else
   if (!REXCVAR_GET(wwe2k14_fast_guest_reads)) return GuestWordReadableHost(host);
   const bool fast = GuestWordReadableFast(guest);
   if (!REXCVAR_GET(wwe2k14_fast_guest_reads_verify)) return fast;
@@ -77,6 +81,7 @@ inline bool GuestWordReadable(uint32_t guest, const void* host) {
     REXLOG_INFO("[wwe2k14][guest_read] verify: {} checks, {} mismatches", n, g_fast_read_mismatches.load());
   }
   return slow;
+#endif
 }
 
 }  // namespace wwe2k14

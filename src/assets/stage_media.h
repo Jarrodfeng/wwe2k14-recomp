@@ -43,6 +43,7 @@ struct Settings {
   int tron = 100;   // which titantron feeds the big screen / banner ring
   bool off = false; // {"cmd":"stage","media":false}: untextured as before
   std::string keys; // A/B: the stage leaf keys to draw, "802,804,805,807,809" (empty = the default set, StageKeys())
+  bool all_keys = false;  // S103 M: the LIVE arena model loads every screen key 800-809 (the game exe never sets `wrestler`, so it used to get only the match set 801 / 800 / 805 / 806 / 808 and the entrance screens 802 / 804 / 807 / 809 were missing); the live applier picks the set per look
   // A/B overrides, {"cmd":"stage","map":{"ppv_header&wall":"1280x814:MOVL_M005@0,MOVN_M005@282"}}: sampler name -> spec
   // "[WxH:]layer[@y][,layer[@y]...]", layer = "tron" (the sheet), "tron_big" (rows 0-223) or an evtmov file stem (GROUP_Mnnn:
   // its _end.png else .png; "..._first" forces the first picture), drawn over black at row y.
@@ -58,6 +59,8 @@ namespace fs = std::filesystem;
 // The stage leaves of bg05 drawn for the stage: entrance look = the SS set 802 (wall), 804 (big screen, v 0-0.699 = the picture rows
 // of the tron sheet; 803 is the same quad over the WHOLE sheet, strips included), 805, 807, 809; match look = the PPV set 801, 800
 // (video quad: a live camera feed, drawn dark), 805, 806, 808. Settings::keys overrides it (A/B).
+// S103 SCF [C, docs\research\s103\SCM.md]: these fixed sets are the VIEWER's / offline rule. In a live match the game decides per screen: every stage slot and every screen key has a show bit (bit 0x80 of byte +9 of its
+// 12-byte stage record) and each match turns screen / art PAIRS on or off (801 / 802 <-> slot 301, 808 / 809 <-> 302, 805 <-> 303, 806 / 807 <-> 304; 800 always shown). The live applier follows the bits (stage_show.h).
 inline std::vector<uint32_t> StageKeys() {
   std::vector<uint32_t> k;
   const std::string& s = Cfg().keys;
@@ -69,6 +72,7 @@ inline std::vector<uint32_t> StageKeys() {
     p = c + 1;
   }
   // Defaults (S97 A/B vs the game's entrance draw list, swap 6728: the SS set matches the picture; 22453 = the PPV set + the video quad 800):
+  if (k.empty() && Cfg().all_keys) k = {800, 801, 802, 803, 804, 805, 806, 807, 808, 809};
   if (k.empty()) k = Cfg().wrestler >= 0 ? std::vector<uint32_t>{802, 804, 805, 807, 809} : std::vector<uint32_t>{801, 800, 805, 806, 808};
   return k;
 }

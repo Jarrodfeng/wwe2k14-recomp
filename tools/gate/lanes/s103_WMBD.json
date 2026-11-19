@@ -1,0 +1,63 @@
+{
+ "owner": "lane WMB-direct (S103; the lane name s103_WMB is taken by the arena-texture borrow lane): --wwe2k14_wm30_direct, the menu-free 30 Years start (src/wm30_boot.h tick in the owner update, src/wm30_boot_guard.h order of steps, cvar default off). The order guard COMPILED and driven by a recording stand-in (13 scenarios, 17 planted twins: exit before ready, exit action 2 / 4, selection before the ready wait, heap 8 for S, abort without destroy, ...), text pins on the real calls and the wiring (owner update only, never the VdSwap hook, var 215 never written, cvar default false, the menu drive stands down) with 14 twins, and listing pins of every link of the chain. 0 game runs. Claims: docs/agents/s103/WMD.md, WMD_ADV.md (C1-C7).",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "KIND: selftest. The listing check reads the main checkout's generated/ (never printed) and fails loudly when it is missing.",
+ "checks": [
+  {
+   "name": "s103_WMBD.selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/wm30/boot_selftest.py"
+   ],
+   "timeout_s": 600,
+   "needs": [],
+   "affects": [
+    "src/wm30_boot.h",
+    "src/wm30_boot_guard.h",
+    "src/wm30_jump.h",
+    "src/scenario.h",
+    "src/kernel_overrides.h",
+    "tools/wm30/boot_selftest.py",
+    "tools/wm30/boot_test.cpp"
+   ]
+  },
+  {
+   "name": "s103_WMBD.listing",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/wm30/boot_selftest.py",
+    "--listing"
+   ],
+   "timeout_s": 300,
+   "needs": [
+    "generated/default/wwe2k14_recomp.117.cpp",
+    "generated/default/wwe2k14_recomp.118.cpp",
+    "generated/default/wwe2k14_recomp.122.cpp",
+    "generated/default/wwe2k14_recomp.158.cpp",
+    "generated/default/wwe2k14_recomp.192.cpp",
+    "generated/default/wwe2k14_recomp.194.cpp",
+    "generated/default/wwe2k14_recomp.249.cpp",
+    "generated/default/wwe2k14_recomp.25.cpp",
+    "generated/default/wwe2k14_recomp.264.cpp",
+    "generated/default/wwe2k14_recomp.266.cpp",
+    "generated/default/wwe2k14_recomp.305.cpp",
+    "generated/default/wwe2k14_recomp.338.cpp",
+    "generated/default/wwe2k14_recomp.36.cpp",
+    "generated/default/wwe2k14_recomp.39.cpp",
+    "generated/default/wwe2k14_recomp.54.cpp",
+    "generated/default/wwe2k14_recomp.89.cpp",
+    "generated/default/wwe2k14_recomp.59.cpp",
+    "generated/default/wwe2k14_recomp.313.cpp"
+   ]
+  }
+ ]
+}

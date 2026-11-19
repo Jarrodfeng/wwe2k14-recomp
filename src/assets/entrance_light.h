@@ -31,6 +31,7 @@
 
 #include "asset_model.h"
 #include "dlc_files.h"
+#include "entrance_slot_rule.h"
 #include "motion.h"
 #include "pac.h"
 
@@ -303,21 +304,7 @@ inline void RigFromAct(const motion::Act& act, Rig& rig) {
   rig.ok = !rig.m.empty();
 }
 
-// Slot of the rig that the game remaps the arena light-set `id` to (-1: not remapped).
-inline int SlotForSet(int id) {
-  if (id == 10) return 0;
-  // Session 98 (arena fix): set 502 (the lights-off placeholder of the truss lamps / glow sheets, `a z l(502)` slots) is NOT remapped:
-  // in every entrance frame of probe run 6816 (8341-12241) its draws keep c0-c3 = 0, c181 = c182 = 0.615 (the key's own values) [C].
-  if (id == 502) return -1;
-  if (id == 50 || (id >= 100 && id < 600 && id / 100 != 4)) return 1;
-  if (id == 20 || id == 21) return 2;
-  if (id == 30 || id == 31 || id == 32) return 3;
-  if (id == 14) return 4;
-  if (id == 11) return 5;
-  if (id == 12) return 6;
-  if (id == 13) return 7;
-  return -1;
-}
+// SlotForSet (the entrance remap rule) lives in entrance_slot_rule.h (S103 L: one copy, includable without the loaders).
 
 namespace detail {
 inline bool Rgb(const motion::Motion& mo, double t, float out[3]) {

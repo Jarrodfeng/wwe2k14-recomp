@@ -1,0 +1,18 @@
+{
+ "owner": "S103 lane A8 (landing 1: the wrestlers' light object computed at the latch, bits 4 / 7): src/renderer_scene/wrestler_light_latch.h (pure: Store, Apply, census, replay), src/scene_live/wrestler_light_latch.h (the latch read + switch wlatch::g_on, default false), inputs_contrib.h (OnLatch + census), light_state_contrib.h (OnEmit), tools/scene/a8_proof.cpp, a8_check.py; docs/renderer/INPUTS_A8.md. 0 game runs, 0 Surface runs.",
+ "note": "a8_check = the module's unit with 6 planted twins + the replay over run 27 / 28 / 29's scene records (wrestler_light latch==walk, differ 0 on changed frames and on all frames; the synthesis equals the walk; twins stale / early / wrong_slot fail on the records). game_syntax compiles src/main.cpp and live.cpp (every header the lane edits).",
+ "checks": [
+  {"name": "s103_A8.latch_walk", "cmd": ["py", "-I", "tools/scene/a8_check.py", "--root", "."], "timeout_s": 600,
+   "needs": ["out/s103/run27_case.zip", "out/s103/run28_case.zip", "out/s103/run29_case.zip"],
+   "affects": ["src/renderer_scene/wrestler_light_latch.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.*", "tools/scene/a8_proof.cpp", "tools/scene/a8_check.py"]},
+  {"name": "s103_A8.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/light_*.h", "src/scene_live/wrestler_light_latch.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_A8.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py"], "timeout_s": 300, "needs": ["generated/default"]},
+  {"name": "s103_A8.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_A8.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_scene/*", "src/scene_live/*"]},
+  {"name": "s103_A8.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/wrestler_light_latch.h"]}
+ ]
+}

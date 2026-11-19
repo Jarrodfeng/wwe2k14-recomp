@@ -4,6 +4,10 @@
 #include "stable_table.h"  // S102 R21-B: programs / layouts never move under Render
 #include "stage_plants.h"  // S102 R21-B: test plants (rplay only)
 #include "present_clear.h"  // S102 G1
+#include "../renderer_adapter/census_flush.h"  // S102 CEN1: a flip phase end prints every lever's census now
+namespace {
+static census_flush::Site g_cf_half, g_cf_fetch, g_cf_lean, g_cf_barrier, g_cf_overdraw, g_cf_frag, g_cf_outside;  // S102 CEN1: one per census line below
+}
 
 #include <algorithm>
 #include <atomic>
@@ -13,6 +17,7 @@
 #include <cstring>
 #include <deque>
 #include <map>
+#include <set>
 #include "colour_cuts.h"  // S102 G10
 #include "arena_fragments.h"  // S102 R18-B3
 #include "half_trans.h"  // S102 C4
@@ -220,6 +225,8 @@ struct BufferEntry {
   Allocation memory;
   size_t bytes = 0;
   bool live = false;
+  bool host = false;        // S103 PF2: made by CreateHostBuffer (the host writes it in place)
+  uint64_t last_read = 0;   // S103 PF2: (host buffers) the newest Render serial whose draws name this buffer, + 1; 0 = never (atomic_ref: Render writes, the front end reads)
 };
 
 // Ids are stable, entries never move, and readers need no lock.
@@ -271,6 +278,7 @@ struct BufferUpload {
   Allocation memory;
   VkBuffer dest;
   VkDeviceSize offset, bytes;
+  uint8_t producer = 0;   // S103 PVR: who asked (rdr::BufferProducer), for the [rdr][gpu][uploads] line's per-producer copy count
 };
 
 struct Retired {
@@ -333,7 +341,13 @@ struct FrameSlot {
   std::vector<uint32_t> ts_pass;   // S102 G11 (frame trace only): a pass step's number in the frame's plan (0xFFFFFFFF = not a pass)
   uint64_t ts_serial = 0;          // S102 G11 (frame trace only): the frame's serial
   bool ts_trace = false;           // S102 G11 (F9): this frame's per-pass numbers are kept (the trace file was open when it began)
+  uint32_t ts_up_mid = 0;                   // S103 PVR: the stamp between ApplyUploads' image part and its buffer part (0 = none; written only in the stamp-per-step mode and only when both parts exist): ts_up - 1 is then this stamp
   uint32_t ts_up = 0;                       // S102 G5: the stamp after ApplyUploads' commands (0 = none this frame; needs the outside meter and the stamps)
+  uint32_t ts_mark = 0;           // S103 GT round 3: rdr::g_gpu_mark_seq when this frame was recorded (the route window it belongs to)
+  uint64_t ts_up_bytes = 0;       // S103 GT round 3: the bytes this frame uploaded (for the route window's steady / loading split)
+  uint32_t ts_w_pre = 0, ts_w_closes = 0, ts_w_post = 0;   // S103 GT review: stamps written by kind (the identity ts_count == 2 + pre + closes + post + tail is checked at the end of the frame)
+  uint32_t ts_steps_rec = 0, ts_steps_closed = 0;   // S103 GT: steps the frame recorded / steps a stamp of their own closed (stamp-per-step mode only; equal = every pass is bracketed)
+  bool ts_census = false;                           // S103 GT: this frame ran in the stamp-per-step mode (the two counts above mean something)
   uint64_t out_wall_ns = 0;                 // S102 G5: the meter's wall time from the submit call to the fence's signal for this slot's last frame (0 = not measured)
   VkCommandBuffer plant_cmd = VK_NULL_HANDLE;  // S102 G5 plant 6: this slot's extra buffer (from its pool, reset with it)
   std::vector<Retired> retired;
@@ -454,8 +468,34 @@ struct Renderer::Impl {
     double blit_ms = 0;                            // S102 G2: the cap's blit (inside the 'output' sum)
     uint64_t frames = 0, no_pass = 0, no_present = 0, overflow = 0, stamps = 0;
     uint64_t cls_passes[kGpuClassCount] = {};      // pass steps recorded by class (the role mapping's own count)
+    uint64_t steps_rec = 0, steps_closed = 0, census_frames = 0;   // S103 GT: the bracket check (stamp-per-step frames only)
+    uint64_t ident_frames = 0, ident_bad = 0;      // S103 GT review: stamped frames / frames whose stamp count broke ts_count == 2 + pre + closes + post + tail (independent of the GPU)
   };
   RoleSums role_window, role_run;
+  // S103 GT (the stream-free build's per-frame upload view): a frame that uploaded more than kLoadingBytes is a LOADING frame (a burst: new pictures / geometry arriving), the rest are STEADY.
+  // The GPU span of ApplyUploads' commands (the stamp pair around it, needs the stamps on) is kept with them. Window = since the last [rdr][gpu] line, run = the whole run.
+  static constexpr uint64_t kLoadingBytes = 1ull << 20;
+  struct UpSums {
+    uint64_t steady_frames = 0, steady_bytes = 0, load_frames = 0, load_bytes = 0, max_bytes = 0;
+    uint64_t image_uploads = 0, buffer_uploads = 0, barriers = 0, up_frames = 0, batched_frames = 0, max_barriers = 0, max_images = 0;   // S103 UPL: the census of WHAT the bytes and the fixed cost are (image copies, buffer copies, barriers recorded by ApplyUploads, frames that uploaded anything)
+    double gpu_ns = 0;
+    uint64_t gpu_frames = 0;
+    uint64_t prod_copies[3] = {0, 0, 0};   // S103 PVR: buffer copies by producer (other / posed model vertices / cloth + CPU-skinned), over the frames that uploaded
+    double mid_img_ns = 0, mid_buf_ns = 0;   // S103 PVR: the span split at the mid stamp (image part, buffer part) over mid_frames (stamp-per-step mode only)
+    uint64_t mid_frames = 0;
+    uint64_t ring_peak = 0;   // S103 PVR: the biggest frame ring use (constants + geometry + previous constants, bytes) of the window
+    uint64_t ring_ns = 0, ring_bytes = 0;   // S103 PF2: the host's memcpy of the frame's constants + geometry + previous constants into the mapped ring (out_ring_ns, ring_used_cur), summed over the window's frames
+  };
+  UpSums up_window, up_run;
+  // S103 GT round 3: the route window. One per mark (rdr::GpuWindowMark): the frames RECORDED between two marks, summed as they are collected, logged as `[rdr][gpu][window] NAME:` when the first frame of the next window arrives.
+  struct MarkWin {
+    uint32_t seq = 0;
+    double cls_ns[kGpuClassCount] = {};
+    double gap_ns = 0, work_ns = 0, bracket_ns = 0, up_gpu_ns = 0;   // bracket = what the csv gpu_ms sums: [0] .. tail of every frame
+    uint64_t frames = 0, steady = 0, loading = 0, steady_bytes = 0, loading_bytes = 0, up_frames = 0;
+  };
+  MarkWin mark_win;
+  void FlushMarkWindow(const char* suffix);
   struct CensusRow { double ms = 0; uint64_t steps = 0; };  // S102 G6: the census's rows, keyed (class << 40 | kind << 32 | image), the whole run
   std::map<uint64_t, CensusRow> census_run;
   CensusRow census_copy_src[kGpuClassCount];  // S102 G6: copies (class copies) by the GPU class of the copy's source image
@@ -464,10 +504,10 @@ struct Renderer::Impl {
   uint64_t pass_table_frames = 0;
   // S102 R24-F: the group table. Key: the pass step (class, kind, occurrence on its image, image: as pass_table) + group << 56 + the stencil_dead arm in bit 63.
   struct GroupAcc { std::vector<float> us; uint64_t draws = 0; };
-  struct GroupPassAcc { double us = 0; uint64_t frames = 0, draws = 0, issued = 0, mixed = 0, segs = 0, stamps = 0; };
+  struct GroupPassAcc { double us = 0, direct_us = 0; uint64_t frames = 0, draws = 0, issued = 0, mixed = 0, segs = 0, stamps = 0; };
   std::map<uint64_t, GroupAcc> group_table;
   std::map<uint64_t, GroupPassAcc> group_pass;   // the same key without the group
-  uint64_t group_frames = 0, group_not_ready = 0, group_chain_broken = 0, group_cover_bad = 0, group_overflow_frames = 0, group_stamps_total = 0;
+  uint64_t group_frames = 0, group_not_ready = 0, group_chain_broken = 0, group_cover_bad = 0, group_overflow_frames = 0, group_stamps_total = 0, group_sum_bad = 0;   // S103 GSTP: group_sum_bad = frames whose groups did not add up to the pass's own span
   void CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint32_t count, uint64_t mask, double frame_ns);
   uint64_t pass_table_frames_arm[2] = {0, 0};   // S102 R24-C review F4: frames per arm (stencil_dead off / on): the table key has the arm in bit 63, so an in-run flip is two columns, not an average
   uint32_t CensusImageW(uint32_t id) { return id && id < images.high_water() ? images[id].width : 0; }  // S102 G6
@@ -529,8 +569,10 @@ struct Renderer::Impl {
   ImageId dummy_volume = kNoImage;
   VkSampler dummy_sampler = VK_NULL_HANDLE;
   bool filterable[uint32_t(Format::Count)] = {};
+  uint32_t pipeline_delay_ms = 0;  // RendererOptions::pipeline_delay_ms (test only)
   uint32_t bc_mode = 1;       // S102 U1: RendererOptions::bc_decode (0 off, 1 auto: only where the device cannot sample BC, 2 force)
   std::atomic<uint64_t> bc_decoded_levels{0}, bc_images{0}, bc_decoded_bytes{0};
+  std::atomic<uint64_t> frames_dropped{0};  // S103 CB1: Renderer::FramesDropped
   std::atomic<size_t> render_thread{0};  // S102 U1: hash of the thread that calls Render (WaitForStagingRoom must never wait on it: only its own DrainRetired frees staging)
   uint64_t max_staged = kMaxStagedBytes;  // dev tests may shrink it (RendererOptions::staging_cap_mb)
   bool staging_wait_plant = false;        // dev only: the pre-fix behaviour (the render thread waits too), the planted fault of the stall test  // S102 U1: counters for the verdict / log
@@ -544,6 +586,7 @@ struct Renderer::Impl {
   bool caps_summary_dirty = false;
   void CapsSummary() {
     caps_summary_dirty = false;
+    // render-clock: perf - log throttle stamp for the format caps summary line
     caps_summary_at = std::chrono::steady_clock::now();
     Log("[rdr] format caps summary: linear->nearest slots %llu, blits->nearest %llu, blend off %llu, vertex unsupported %llu; illegal (fallbacks off) linear %llu, blend %llu",
         static_cast<unsigned long long>(cap_stats.linear_to_nearest), static_cast<unsigned long long>(cap_stats.blits_to_nearest), static_cast<unsigned long long>(cap_stats.blend_disabled),
@@ -552,6 +595,7 @@ struct Renderer::Impl {
   // Review SF1: a counter changed. The summary is written the first time and then at most every 10 s (a phone or a bug-button zip rarely reaches Shutdown).
   void CapsChanged() {
     caps_summary_dirty = true;
+    // render-clock: perf - log throttle: the caps summary prints at most every 10 s
     if (caps_summary_at == std::chrono::steady_clock::time_point{} || std::chrono::steady_clock::now() - caps_summary_at >= std::chrono::seconds(10)) CapsSummary();
   }
   bool FirstTime(uint64_t kind, uint64_t a, uint64_t b) { return caps_logged.insert((kind << 56) ^ (a << 24) ^ b).second; }
@@ -786,10 +830,15 @@ struct Renderer::Impl {
   void ApplyUploads(VkCommandBuffer cmd, FrameSlot& slot);
   // S102 G5 (docs\renderer\GPU_OUTSIDE.md): the points outside our command buffers. out_window prints every 600 frames (meter on), out_run is the whole run (rplay's line).
   OutsideSums out_window, out_run;
+  std::atomic<uint32_t> host_buffers{0};      // S103 PF2: host buffers made (Render scans the draws for them only when there are any)
+  std::atomic<uint64_t> direct_overruns{0};   // S103 PF2: frames rendered later than their Record promised
   uint64_t out_collect_ns = 0, out_ring_ns = 0, out_end_ns = 0, out_begin_ns = 0, out_pipe_ns = 0, out_pipe_n = 0;  // this Render's own timers (the rest come from g_render_times' deltas)
   uint64_t out_flushes = 0;                                                                      // FlushBarriers calls that recorded a barrier, whole run
-  uint32_t out_uploads = 0, out_scaled = 0, out_up_barriers = 0, out_up_explicit = 0;                                   // this Render's ApplyUploads: uploads, scaled ones (temp image + blit), barriers recorded
+  uint32_t out_uploads = 0, out_up_images = 0, out_scaled = 0, out_up_barriers = 0, out_up_explicit = 0;                                   // this Render's ApplyUploads: uploads, scaled ones (temp image + blit), barriers recorded
   uint64_t out_up_bytes = 0;
+  uint64_t ring_used_cur = 0;   // S103 PVR: this Render's ring use (constants + geometry + previous constants)
+  uint32_t out_up_by_producer[3] = {0, 0, 0};   // S103 PVR: this Render's buffer copies by producer (0 other, 1 posed model vertices, 2 cloth / CPU-skinned pieces)
+  uint64_t up_tot_frames = 0, up_tot_images = 0, up_tot_buffers = 0, up_tot_barriers = 0, up_tot_bytes = 0, up_tot_by_producer[3] = {0, 0, 0};   // S103 UPL (+ PVR by producer): cumulative (LastUploadStats; always counted: a few adds a frame)
   bool out_batched = false;
   void AddOutside(const OutsideSums& frame);
 
@@ -864,6 +913,7 @@ bool Renderer::Impl::Init(const RendererOptions& opts, std::string& error) {
   VkDevice dev = device.device();
   caps_fallback = !(opts.format_caps_mask & kCapFallbacksOff);
   bc_mode = opts.bc_decode;
+  pipeline_delay_ms = opts.pipeline_delay_ms;
 #ifdef RDR_DEV
   if (opts.staging_cap_mb) max_staged = uint64_t(opts.staging_cap_mb) << 20;  // S102 U1 (dev tests)
   staging_wait_plant = opts.staging_wait_plant;
@@ -1211,11 +1261,21 @@ void Renderer::SetOverlayImage(uint32_t id, ImageId image) {  // S102 R21-B (rev
   im.overlay_textures[id] = image;
 }
 
+void Renderer::RemoveOverlayTexture(uint32_t id) {   // S103 AIM: id 0 (the plain white) is never freed
+  Impl& im = *impl_;
+  if (!id) return;
+  if (const auto it = im.overlay_textures.find(id); it != im.overlay_textures.end()) DestroyImage(it->second), im.overlay_textures.erase(it);
+}
+
 void Renderer::SetOverlay(std::shared_ptr<const OverlayList> list) { impl_->overlay = std::move(list); }
 ImageId Renderer::dlss_output() const { return impl_->dlss_count ? impl_->dlss_out : kNoImage; }
 bool Renderer::dlss_in_last_present() const { return impl_->dlss_count && impl_->dlss_had_history; }
 bool Renderer::ColourTargetable(Format format) const { return impl_->device.FormatHas(ToVk(format, impl_->device.caps()), VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT); }   // S102 C1
 bool Renderer::compute_supported() const { return impl_->device.caps().compute && impl_->lc_state == 1 && !g_force_no_compute.load(std::memory_order_relaxed); }   // review F2: true only once the pipelines exist   // S102 L1b
+Renderer::RawVk Renderer::RawVulkan() const {   // S103 PS1 (tools only): see renderer.h
+  const Device& d = impl_->device;
+  return RawVk{d.instance(), d.physical(), d.device(), d.queue(), d.queue_family()};
+}
 bool Renderer::StorageTargetable(Format format) const {   // S102 L1b: the format a compute shader can write AND the readers sample: only 8-bit RGBA (storage support is core for it; BGRA is optional and declined)
   return format == Format::RGBA8 && impl_->device.FormatHas(ToVk(format, impl_->device.caps()), VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 }
@@ -1640,6 +1700,7 @@ void Renderer::Impl::MarkClose(VkCommandBuffer cmd, uint32_t slot_index) {
 // switched to "nothing presented" (rdr::g_device_lost: the swapchain accepts no present, frames_*.csv device_lost = 1), and the breadcrumbs. Once a run.
 // `simulated`: rplay's selftest (the device is fine; the GPU is held at a planted wait).
 void Renderer::Impl::OnDeviceLost(const char* where, int result, bool simulated) {
+  frames_dropped.fetch_add(1, std::memory_order_relaxed);  // S103 CB1: whatever this frame recorded is gone
   if (lost_serial) return;
   lost_serial = serial + 1;
   g_device_lost.store(serial + 1, std::memory_order_relaxed);
@@ -1791,12 +1852,12 @@ BufferId Renderer::CreateBuffer(size_t bytes, const void* initial) {
   return BufferId(id);
 }
 
-void Renderer::UpdateBuffer(BufferId buffer, size_t offset, const void* data, size_t bytes) {
+void Renderer::UpdateBuffer(BufferId buffer, size_t offset, const void* data, size_t bytes, uint8_t producer) {
   Impl& im = *impl_;
   im.WaitForStagingRoom();
   BufferEntry& entry = im.buffers[buffer];
   VkDevice dev = im.device.device();
-  BufferUpload upload{VK_NULL_HANDLE, {}, entry.buffer, offset, bytes};
+  BufferUpload upload{VK_NULL_HANDLE, {}, entry.buffer, offset, bytes, producer};
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   info.size = bytes;
   info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -1814,6 +1875,64 @@ void Renderer::UpdateBuffer(BufferId buffer, size_t offset, const void* data, si
   std::lock_guard<std::mutex> lock(im.upload_mutex);
   im.buffer_uploads.push_back(upload);
 }
+
+BufferId Renderer::CreateHostBuffer(size_t bytes, uint8_t** mapped) {   // S103 PF2
+  Impl& im = *impl_;
+  if (mapped) *mapped = nullptr;
+  const uint32_t id = im.buffers.Add();
+  if (!id) {
+    Problem("buffer_table_full", "more than %u buffers", kChunkSize * kMaxChunks);
+    return kNoBuffer;
+  }
+  BufferEntry& entry = im.buffers[id];
+  VkDevice dev = im.device.device();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = bytes;
+  info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (vkCreateBuffer(dev, &info, nullptr, &entry.buffer) != VK_SUCCESS) {   // S103 PF2 (review): a failed create is kNoBuffer (the caller's pcopy_failed route), never a bind of a null buffer
+    Problem("buffer_create_failed", "%zu bytes (host-visible)", bytes);
+    entry.buffer = VK_NULL_HANDLE;
+    im.buffers.Remove(id);
+    return kNoBuffer;
+  }
+  VkMemoryRequirements needs{};
+  vkGetBufferMemoryRequirements(dev, entry.buffer, &needs);
+  const bool unified = im.device.caps().unified_memory;
+  const VkMemoryPropertyFlags visible = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  const bool got = im.allocator.Alloc(needs, unified ? (visible | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) : visible, unified ? 0 : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true, entry.memory);
+  if (!got || !entry.memory.mapped) {
+    if (got) im.allocator.Free(entry.memory);
+    Problem("buffer_memory_failed", "%zu bytes (host-visible)", bytes);
+    vkDestroyBuffer(dev, entry.buffer, nullptr);
+    entry.buffer = VK_NULL_HANDLE;
+    im.buffers.Remove(id);
+    return kNoBuffer;
+  }
+  vkBindBufferMemory(dev, entry.buffer, entry.memory.memory, entry.memory.offset);
+  entry.bytes = bytes;
+  entry.live = true;
+  entry.host = true, entry.last_read = 0;
+  im.host_buffers.fetch_add(1, std::memory_order_relaxed);
+  if (static std::atomic<bool> logged{false}; !logged.exchange(true)) {   // once: the memory type the posed copies got (the next Surface log shows whether it is cached or write-combined)
+    const VkMemoryPropertyFlags f = im.device.memory().memoryTypes[entry.memory.type].propertyFlags;
+    Log("[rdr] host-visible vertex buffers (posed copies): memory type %d flags 0x%x:%s%s%s%s%s (unified device %d)", entry.memory.type, unsigned(f), (f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? " DEVICE_LOCAL" : "", (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ? " HOST_VISIBLE" : "",
+        (f & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? " HOST_COHERENT" : "", (f & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? " HOST_CACHED" : " (write-combined: not cached)", "", int(unified));
+  }
+  if (mapped) *mapped = static_cast<uint8_t*>(entry.memory.mapped);
+  return BufferId(id);
+}
+
+bool Renderer::HostBufferIdle(BufferId buffer) const {
+  const BufferEntry& e = impl_->buffers[buffer];
+  if (!e.host) return true;
+  const uint64_t lr = std::atomic_ref<uint64_t>(const_cast<uint64_t&>(e.last_read)).load(std::memory_order_relaxed);
+  return lr == 0 || lr - 1 + impl_->slots.size() < RenderSerial();   // a Render s waits for frame s - slots before it records: frames with index + slots < serial are finished
+}
+uint64_t Renderer::DirectOverruns() const { return impl_->direct_overruns.load(std::memory_order_relaxed); }
+
+bool Renderer::UnifiedMemory() const { return impl_->device.caps().unified_memory; }
+uint32_t Renderer::FramesInFlight() const { return uint32_t(impl_->slots.size()); }
+uint64_t Renderer::RenderSerial() const { return std::atomic_ref<uint64_t>(impl_->serial).load(std::memory_order_relaxed); }
 
 void Renderer::DestroyBuffer(BufferId buffer) {
   Impl& im = *impl_;
@@ -2010,32 +2129,51 @@ void Renderer::Impl::ApplyUploads(VkCommandBuffer cmd, FrameSlot& slot) {
   // S102 G5 (--wwe2k14_rdr_upload_batch): the uploads in three groups: every layout change to copy-destination in ONE barrier, the copies, every change back in ONE barrier (the
   // default is two barriers per upload). Never when one frame uploads the same subresource twice (the second copy must wait for the first), nor for a single upload.
   out_uploads = uint32_t(image_work.size() + buffer_work.size());
-  bool batch = want_batch && image_work.size() > 1;
-  if (batch) {
+  out_up_images = uint32_t(image_work.size());   // S103 UPL
+  // S103 UPL (review item 7): the batch is cut at the first upload of a subresource that an earlier upload of the same segment already wrote (the second copy must wait for the first), instead of dropping the batch for
+  // the whole frame: each segment is batched on its own (3 groups: changes to copy-destination, copies, changes back). Plant 2 (tests only) keeps one segment through the duplicate.
+  std::vector<std::pair<size_t, size_t>> segs;
+  {
+    size_t begin = 0;
+    bool split = false;
     std::unordered_set<uint64_t> seen;
-    bool duplicate = false;
-    for (const ImageUpload& upload : image_work) {
-      const ImageEntry& entry = images[upload.image];
-      if (!entry.live) continue;
-      if (!seen.insert((uint64_t(upload.image) << 32) | (upload.mip * entry.layers + upload.layer)).second) duplicate = true;
+    if (want_batch && image_work.size() > 1) {
+      for (size_t i = 0; i < image_work.size(); ++i) {
+        const ImageEntry& entry = images[image_work[i].image];
+        if (!entry.live) continue;
+        const uint64_t key = (uint64_t(image_work[i].image) << 32) | (image_work[i].mip * entry.layers + image_work[i].layer);
+        if (seen.insert(key).second || batch_plant == 2) continue;
+        segs.push_back({begin, i});
+        begin = i, seen.clear(), seen.insert(key);
+        if (!split) {
+          split = true;
+          rdr::g_upload_dup_fallbacks.fetch_add(1, std::memory_order_relaxed);
+          static int logged = 0;
+          if (logged++ < 8) Log("[rdr][uploads] batch cut at a duplicate subresource: image %u (%ux%u, format %d) mip %u layer %u, upload %zu of %zu in this frame; each segment is batched on its own", unsigned(image_work[i].image),
+                                unsigned(entry.desc.width), unsigned(entry.desc.height), int(entry.desc.format), unsigned(image_work[i].mip), unsigned(image_work[i].layer), i, image_work.size());
+        }
+      }
     }
-    if (duplicate) {
-      rdr::g_upload_dup_fallbacks.fetch_add(1, std::memory_order_relaxed);
-      if (batch_plant != 2) batch = false;  // (plant 2: the fallback is OFF: the second copy has no barrier between it and the first)
-    }
+    segs.push_back({begin, image_work.size()});
   }
-  out_batched = batch;
+  out_batched = false;
+  for (const auto& sg : segs) out_batched = out_batched || (want_batch && sg.second - sg.first > 1);
   if (want_batch && image_work.size() > 1) rdr::g_upload_multi_frames.fetch_add(1, std::memory_order_relaxed);
-  if (batch) rdr::g_upload_batched_frames.fetch_add(1, std::memory_order_relaxed);
+  if (out_batched) rdr::g_upload_batched_frames.fetch_add(1, std::memory_order_relaxed);
+  for (const auto& sg : segs) {
+  const size_t seg_begin = sg.first, seg_end = sg.second;
+  const bool batch = want_batch && seg_end - seg_begin > 1;
   if (batch) {
-    for (const ImageUpload& upload : image_work) {
+    for (size_t ui = seg_begin; ui < seg_end; ++ui) {
+      const ImageUpload& upload = image_work[ui];
       ImageEntry& entry = images[upload.image];
       if (!entry.live) continue;
       Transition(entry, upload.mip * entry.layers + upload.layer, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, true);
     }
     FlushBarriers(cmd);
   }
-  for (const ImageUpload& upload : image_work) {
+  for (size_t ui = seg_begin; ui < seg_end; ++ui) {
+    const ImageUpload& upload = image_work[ui];
     ImageEntry& entry = images[upload.image];
     if (!upload.injected) {
       out_up_bytes += upload.bytes;
@@ -2123,7 +2261,8 @@ void Renderer::Impl::ApplyUploads(VkCommandBuffer cmd, FrameSlot& slot) {
     }
   }
   if (batch) {
-    for (const ImageUpload& upload : image_work) {
+    for (size_t ui = seg_begin; ui < seg_end; ++ui) {
+      const ImageUpload& upload = image_work[ui];
       ImageEntry& entry = images[upload.image];
       if (!entry.live) continue;
       Transition(entry, upload.mip * entry.layers + upload.layer, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, false);
@@ -2131,7 +2270,19 @@ void Renderer::Impl::ApplyUploads(VkCommandBuffer cmd, FrameSlot& slot) {
     if (batch_plant == 1) barriers.clear(), barrier_src = barrier_dst = 0;  // plant 1: the last flush is dropped (the recorded state says shader-read, the image stays in copy-destination)
     else FlushBarriers(cmd);
   }
+  }
   if (!buffer_work.empty()) {
+    // S103 PVR (docs/research/s103/UPF.md section 5): a stamp between the image part and the buffer part, so the [rdr][gpu][uploads] line reads them apart. Only in the stamp-per-step mode
+    // (g_gpu_pass_stamps); counted as a post stamp (ts_w_post) so the identity of the stamps written still holds; the post stamp that follows ApplyUploads closes the buffer part.
+    if (slot.ts_detail && rdr::g_gpu_pass_stamps.load(std::memory_order_relaxed) && !image_work.empty() && slot.ts_w_pre > 0 && slot.ts_count + 3 < slot.ts_cap) {
+      vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.timestamps, slot.ts_count);
+      slot.ts_up_mid = slot.ts_count++;
+      ++slot.ts_w_post;
+      slot.ts_class.push_back(kGpuOther);
+      slot.ts_image.push_back(0), slot.ts_kind.push_back(7), slot.ts_src.push_back(255);
+      if (slot.ts_trace) slot.ts_pass.push_back(0xFFFFFFFFu);
+      ++slot.ts_need;
+    }
     VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     before.srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
     before.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -2141,6 +2292,7 @@ void Renderer::Impl::ApplyUploads(VkCommandBuffer cmd, FrameSlot& slot) {
       VkBufferCopy region{0, upload.offset, upload.bytes};
       vkCmdCopyBuffer(cmd, upload.staging, upload.dest, 1, &region);
       CountCopy();  // S102 M1
+      ++out_up_by_producer[std::min<uint8_t>(upload.producer, 2)];   // S103 PVR
       if (options.counts) counts_cur.upload_bytes += upload.bytes;
       Retired retired;
       retired.buffer = upload.staging;
@@ -2393,6 +2545,7 @@ VkPipeline Renderer::Impl::BuildPipeline(const DrawState& state, uint32_t pass_c
   info.renderPass = class_passes[pass_class];
   VkPipeline pipeline = VK_NULL_HANDLE;
   const auto create_start = std::chrono::steady_clock::now();   // lane 271: the line below says what each build cost (a scene start builds ~70 of them in a row)
+  if (pipeline_delay_ms) std::this_thread::sleep_for(std::chrono::milliseconds(pipeline_delay_ms));   // test only (the release entrance check's slow-compile simulation), counted in the build time below
   if (vkCreateGraphicsPipelines(device.device(), pipeline_cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
     if (building_prebuilt) Log("[rdr][pipestore] a listed pipeline was refused by the driver: program %s, class %u (dropped from the list)", program.name ? program.name : "?", pass_class);
     else Problem("pipeline_failed", "program %s, layout %u", program.name ? program.name : "?", unsigned(state.vertex_layout));
@@ -2455,6 +2608,7 @@ void Renderer::Impl::StoreInit(const RendererOptions& opts, std::vector<uint8_t>
   store_slice_us = opts.pipeline_prebuild_slice_us;
   store_caps_mask = opts.format_caps_mask;
   store_save_interval_ms = opts.pipeline_save_interval_ms;
+  // render-clock: ctl - save-interval stamp for the shader store file, no picture value
   store_saved_at = std::chrono::steady_clock::now();
   uint32_t list_session = 0;
   std::vector<uint8_t> file;
@@ -2749,6 +2903,7 @@ void Renderer::Impl::StoreMaybeSave() {
   if (!store_on) return;
   if (!store_worker_busy.load(std::memory_order_acquire)) StoreJoin();  // (a finished worker is joined here, never waited for)
   if (!store_list_dirty && !store_cache_dirty && !store_redo_list.load() && !store_redo_cache.load()) return;
+  // render-clock: ctl - save-interval gate for the shader store file, no picture value
   if (std::chrono::steady_clock::now() - store_saved_at < std::chrono::milliseconds(store_save_interval_ms)) return;
   if (store_stats.prebuilt + store_stats.on_demand == 0 && !store_list_dirty) return;
   StoreSave(false);
@@ -3647,7 +3802,7 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
       pass_key.store[0] = VK_ATTACHMENT_STORE_OP_STORE;
       pass_key.store[kMaxColorTargets] = VK_ATTACHMENT_STORE_OP_STORE;
     }
-    if (half_n % 600 == 0)  // S102 C4: the live census line: a Surface "no gain" is told apart from "took 0 frames"
+    if (census_flush::Due(g_cf_half) || half_n % 600 == 0)  // S102 C4: the live census line: a Surface "no gain" is told apart from "took 0 frames"
       Log("[rdr][half_transparents] colour passes seen %llu, taken %llu, declined %llu (no tail of 4 or more %llu, target %llu), draws halved %llu; draws refused by reason: colour targets %llu, not additive %llu, alpha changes %llu, depth state %llu, stencil %llu, shader %llu",
           static_cast<unsigned long long>(half_n), static_cast<unsigned long long>(half_trans::g_passes_taken.load()), static_cast<unsigned long long>(half_trans::g_declined_short.load() + half_trans::g_declined_target.load()),
           static_cast<unsigned long long>(half_trans::g_declined_short.load()), static_cast<unsigned long long>(half_trans::g_declined_target.load()), static_cast<unsigned long long>(half_trans::g_draws_halved.load()),
@@ -4813,7 +4968,7 @@ bool Renderer::Impl::RecordPresent(VkCommandBuffer cmd, const PresentOp& present
     using namespace rdr;
     const auto count = [](PresentFetchSlot s) { g_present_fetch_count[s].fetch_add(1, std::memory_order_relaxed); };
     const uint64_t frames = g_present_fetch_count[kPcFrames].fetch_add(1, std::memory_order_relaxed) + 1;
-    if (frames % 600 == 0) {  // the census line, every 600 frames while the switch is on (strings are made here only)
+    if (census_flush::Due(g_cf_fetch) || frames % 600 == 0) {  // the census line, every 600 frames while the switch is on (strings are made here only)
       const auto get = [](PresentFetchSlot s) { return static_cast<unsigned long long>(g_present_fetch_count[s].load(std::memory_order_relaxed)); };
       Log("[rdr][present_fetch] frames %llu, taken %llu, declined %llu (by reason: fit %llu, sgsr/dlss %llu, cap %llu)", static_cast<unsigned long long>(frames), get(kPcTaken), get(kPcDeclFit) + get(kPcDeclSgsrDlss) + get(kPcDeclCap),
           get(kPcDeclFit), get(kPcDeclSgsrDlss), get(kPcDeclCap));
@@ -5183,7 +5338,8 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   const uint64_t render_t0 = t;  // S102 S0-3
   const RenderTimes rt0 = rt;    // S102 G5: this Render's own share of the cumulative timers (the 600-frame log resets rt at its end)
   out_collect_ns = out_ring_ns = out_end_ns = out_begin_ns = out_pipe_ns = out_pipe_n = 0;
-  out_uploads = out_scaled = out_up_barriers = 0, out_up_bytes = 0, out_batched = false;
+  out_uploads = out_up_images = out_scaled = out_up_barriers = 0, out_up_bytes = 0, out_batched = false;
+  out_up_by_producer[0] = out_up_by_producer[1] = out_up_by_producer[2] = 0;   // S103 PVR
   uint64_t fence_wait_ns = 0;
   auto lap = [&](uint64_t& acc) {
     const uint64_t now = RenderNow();
@@ -5212,7 +5368,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   lap(rt.destroys);
   vkResetCommandPool(dev, slot.pool, 0);
   vkResetDescriptorPool(dev, slot.descriptors, 0);
-  if (serial % 600 == 0 && (rdr::g_render_lean.load(std::memory_order_relaxed) | rdr::g_lean_hooks.load(std::memory_order_relaxed))) LeanCensus();   // S102 RT1
+  if ((census_flush::Due(g_cf_lean) || serial % 600 == 0) && (rdr::g_render_lean.load(std::memory_order_relaxed) | rdr::g_lean_hooks.load(std::memory_order_relaxed))) LeanCensus();   // S102 RT1
   lap(rt.pools);
   {  // S102 G5: reading the finished frame's stamps is a driver call too
     const uint64_t collect_t0 = RenderNow();
@@ -5227,6 +5383,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
     uint32_t cap = slot.ts_cap;
     if (want_stamps && cap < 192) cap = 192;
     if (slot.ts_need > cap) cap = (slot.ts_need + slot.ts_need / 4 + 63) & ~63u;
+    if (options.gpu_stamp_plant == 9 && want_stamps) cap = 6;   // S103 GT test plant 9: a pool too small for the frame's steps: stamps are dropped, the bracket check must report it
     if (cap != slot.ts_cap) {
       vkDestroyQueryPool(dev, slot.timestamps, nullptr);
       slot.timestamps = VK_NULL_HANDLE;
@@ -5262,14 +5419,29 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   if (prev_offset + frame.prev_constants.count + kConstantRange + kOverlayRange + kDlssConstants > kRingSection) {
     Problem("frame_ring_full", "constants %u, geometry %u bytes", frame.constants.count, frame.geometry.count);
     if (options.counts) counts_cur.dropped = 1;  // S102 M1
+    frames_dropped.fetch_add(1, std::memory_order_relaxed);  // S103 CB1
     return;
   }
+  ring_used_cur = uint64_t(frame.constants.count) + frame.geometry.count + frame.prev_constants.count;   // S103 PVR
   if (options.counts) counts_cur.ring_constants = frame.constants.count, counts_cur.ring_geometry = frame.geometry.count, counts_cur.ring_prev = frame.prev_constants.count;  // S102 M1
   const uint64_t ring_t0 = RenderNow();  // S102 G5
   if (frame.constants.count) std::memcpy(ring_memory.mapped + ring_base, frame.constants.data, frame.constants.count);
   if (frame.geometry.count) std::memcpy(ring_memory.mapped + ring_base + geometry_offset, frame.geometry.data, frame.geometry.count);
   if (frame.prev_constants.count) std::memcpy(ring_memory.mapped + prev_constants_base, frame.prev_constants.data, frame.prev_constants.count);
   out_ring_ns = RenderNow() - ring_t0;
+  if (host_buffers.load(std::memory_order_relaxed)) {   // S103 PF2: the real reader record of the host-visible vertex copies: this Render reads every one its draws name (HostBufferIdle)
+    for (uint32_t d = 0; d < frame.draws.count; ++d)
+      for (int b = 0; b < 2; ++b) {
+        const BufferId id = frame.draws[d].vertex[b].buffer;
+        if (id == kNoBuffer || id == kFrameGeometry) continue;
+        BufferEntry& e = buffers[id];
+        if (e.host) std::atomic_ref<uint64_t>(e.last_read).store(serial + 1, std::memory_order_relaxed);
+      }
+  }
+  if (frame.direct_record && serial + 1 > frame.direct_record + (kRendersPerRecord - 1)) {   // recorded at s = direct_record - 1, may be rendered at s .. s + kRendersPerRecord - 1
+    direct_overruns.fetch_add(1, std::memory_order_relaxed);
+    Problem("posed_direct_overrun", "a frame recorded at Render serial %llu is rendered at %llu (more than %u renders per record): the posed vertex copies it reads may be rewritten", static_cast<unsigned long long>(frame.direct_record - 1), static_cast<unsigned long long>(serial), unsigned(kRendersPerRecord));
+  }
 
   frame_sets.assign(frame.texture_sets.count, VK_NULL_HANDLE);
   state_pipelines.assign(frame.states.count, {VK_NULL_HANDLE, 0});
@@ -5284,7 +5456,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   if (frame_barrier_mode > 0) {
     if (crumbs::g_frame_barrier_plant.load(std::memory_order_relaxed) != 1) RecordFrameBarrier(slot.cmd, "top");
     const uint64_t n = crumbs::g_frame_barrier_frames.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (n % 600 == 0)
+    if (census_flush::Due(g_cf_barrier) || n % 600 == 0)
       Log("[rdr][frame_top_barrier] mode %d, frames %llu, barriers %llu (one at the top of every frame%s)", frame_barrier_mode, static_cast<unsigned long long>(n),
           static_cast<unsigned long long>(crumbs::g_frame_barrier_count.load(std::memory_order_relaxed)), frame_barrier_mode >= 2 ? ", one before the present" : "");
   }
@@ -5351,12 +5523,18 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   lap(rt.retire);
   // S102 G5 (review F4): with the meter on a stamp goes JUST BEFORE ApplyUploads and one just after, so the uploads' span is the commands between them (not measured from [1], the colour-output stamp,
   // which would also hold anything the GPU does between the top of the buffer and the first upload). Both are class `other`: without the meter the uploads span falls in the FIRST RUN of steps (its class); with it, the span is split out into `other` (the roles then differ by that amount).
-  slot.ts_up = 0;
-  const bool meter_stamps = slot.ts_detail && rdr::g_gpu_outside.load(std::memory_order_relaxed);
+  slot.ts_up = 0, slot.ts_up_mid = 0;
+  slot.ts_mark = rdr::g_gpu_mark_seq.load(std::memory_order_acquire);
+  slot.ts_steps_rec = slot.ts_steps_closed = slot.ts_w_pre = slot.ts_w_closes = slot.ts_w_post = 0, slot.ts_census = false;   // S103 GT
+  // S103 GT: the pair of stamps around ApplyUploads (their GPU span: the upload line of [rdr][gpu][uploads]) is also written in the stamp-per-step mode (--wwe2k14_rdr_gpu_pass_stamps), not only with the outside meter (which waits on fences)
+  // S103 GT review: written whenever the frame is stamped (ts_detail), not only with the meter / pass stamps: the Surface bench sets gpu_stamps alone, and without the pair the uploads' GPU time was billed to the frame's first role.
+  // A deliberate baseline change for every stamped run (both builds). The pair has its own kind (6, "uploads") so the tail row (kind 3, #0) keeps one meaning.
+  const bool meter_stamps = slot.ts_detail;
   if (meter_stamps && slot.ts_count + 2 < slot.ts_cap) {
     vkCmdWriteTimestamp(slot.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.timestamps, slot.ts_count++);
+    ++slot.ts_w_pre;
     slot.ts_class.push_back(kGpuOther);
-    slot.ts_image.push_back(0), slot.ts_kind.push_back(3), slot.ts_src.push_back(255);  // S102 G11 (item 11): G5's meter stamps keep the per-stamp vectors the same length as ts_class (the census and the trace read them together)
+    slot.ts_image.push_back(0), slot.ts_kind.push_back(6), slot.ts_src.push_back(255);  // S102 G11 (item 11): G5's meter stamps keep the per-stamp vectors the same length as ts_class (the census and the trace read them together)
     if (slot.ts_trace) slot.ts_pass.push_back(0xFFFFFFFFu);
     ++slot.ts_need;
   }
@@ -5365,8 +5543,9 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   if (meter_stamps && out_uploads && slot.ts_count + 1 < slot.ts_cap && slot.ts_count > 2) {  // S102 G5: the uploads' own span on the GPU
     vkCmdWriteTimestamp(slot.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.timestamps, slot.ts_count);
     slot.ts_up = slot.ts_count++;
+    ++slot.ts_w_post;
     slot.ts_class.push_back(kGpuOther);
-    slot.ts_image.push_back(0), slot.ts_kind.push_back(3), slot.ts_src.push_back(255);  // S102 G11 (item 11): G5's meter stamps keep the per-stamp vectors the same length as ts_class (the census and the trace read them together)
+    slot.ts_image.push_back(0), slot.ts_kind.push_back(6), slot.ts_src.push_back(255);  // S102 G11 (item 11): G5's meter stamps keep the per-stamp vectors the same length as ts_class (the census and the trace read them together)
     if (slot.ts_trace) slot.ts_pass.push_back(0xFFFFFFFFu);
     ++slot.ts_need;
   }
@@ -5385,7 +5564,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   present_fetch_ = frame.present_fetch;  // S102 R24-A
   if (frame.arena_overdraw) {  // S102 C4: the live census line (a Surface "no gain" is told apart from "took 0 frames"): every 600 frames while the switch is on
     const uint64_t n = ++colour_cuts::g_overdraw_frames;
-    if (n % 600 == 0)
+    if (census_flush::Due(g_cf_overdraw) || n % 600 == 0)
       Log("[rdr][arena_overdraw] frames %llu, colour passes taken %llu, declined %llu (depth clear %llu, nothing eligible %llu, mixed direction %llu, stencil %llu), draws pre-drawn %llu, texture-alpha proof admitted %llu refused %llu, texture scans %llu images %.2f MB %.2f ms",
           static_cast<unsigned long long>(n), static_cast<unsigned long long>(colour_cuts::g_frames_taken.load()),
           static_cast<unsigned long long>(colour_cuts::g_declined_clear.load() + colour_cuts::g_declined_none.load() + colour_cuts::g_declined_direction.load() + colour_cuts::g_declined_stencil.load()),
@@ -5397,7 +5576,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   arena_fragments_ = frame.arena_fragments;  // S102 R18-B3
   if (arena_fragments_) {  // the live census line (a Surface "no gain" is told apart from "took 0 frames"): every 600 frames while a bit is on
     const uint64_t n = ++arena_fragments::g_frames;
-    if (n % 600 == 0)
+    if (census_flush::Due(g_cf_frag) || n % 600 == 0)
       Log("[rdr][arena_fragments] mask %u, frames %llu, colour passes taken %llu, draws blend-off %llu (%.1f a frame), draws widened %llu, declined %llu states (by reason: not a plain alpha blend %llu, other target blended %llu, float target %llu), exact proofs %llu inexact %llu",
           arena_fragments_, static_cast<unsigned long long>(n), static_cast<unsigned long long>(arena_fragments::g_passes_taken.load()), static_cast<unsigned long long>(arena_fragments::g_blend_off.load()),
           double(arena_fragments::g_blend_off.load()) / double(n),
@@ -5428,16 +5607,27 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   uint32_t run_image = 0;
   uint8_t run_kind = 3, run_src = 255;
   uint32_t run_pass = 0xFFFFFFFFu;  // S102 G11
-  auto close_run = [&](uint8_t cls, bool plant_stamp = false) {
+  auto close_run = [&](uint8_t cls, bool plant_stamp = false) -> bool {   // S103 GT review: true when the stamp was written (false = the pool overflowed and the stamp was dropped)
     ++slot.ts_need;
     if (slot.ts_count + 1 < slot.ts_cap) {  // (the last query is the tail's)
       vkCmdWriteTimestamp(slot.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.timestamps, slot.ts_count++);
+      ++slot.ts_w_closes;
       slot.ts_class.push_back(cls);
       slot.ts_image.push_back(plant_stamp ? 0 : run_image), slot.ts_kind.push_back(plant_stamp ? 4 : run_kind), slot.ts_src.push_back(plant_stamp ? 255 : run_src);
       if (slot.ts_trace) slot.ts_pass.push_back(plant_stamp ? 0xFFFFFFFFu : run_pass);  // S102 G11 (F9): only while the frame trace is open  // S102 G6 (kind 4 = a test plant's stamp)
     } else {
       ++role_window.overflow, ++role_run.overflow;  // (the pool grows before this slot's next frame)
+      return false;
     }
+    return true;
+  };
+  // S103 GT: a stamp that closes a STEP (the stamp-per-step mode counts them against the steps recorded: every pass bracketed = equal). Test plant 8 leaves the 2nd closing stamp of each frame out: that step's
+  // time falls into the next step's span, the chain still adds up, and only the count (steps closed < steps recorded) shows it.
+  slot.ts_census = census;
+  uint32_t plant8_closes = 0;
+  auto close_step = [&](uint8_t cls) {
+    if (options.gpu_stamp_plant == 8 && census && ++plant8_closes == 2) return;
+    if (close_run(cls) && census) ++slot.ts_steps_closed;   // counted only when the stamp was really written
   };
   auto class_of = [&](ImageId image) -> uint8_t { return image != kNoImage && image < images.high_water() ? std::atomic_ref<uint8_t>(images[image].gpu_class).load(std::memory_order_relaxed) : uint8_t(kGpuOther); };  // S102 R21-B (hazard 3)
   const bool copy_batch_on = rdr::g_copy_batch.load(std::memory_order_relaxed);  // S102 G12: read every frame
@@ -5464,6 +5654,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
       if (lost_serial && !lost_simulated) records = false;  // S102 D1 (review F5): no acquire / present on a lost device (the acquire blocked 0.5-1.9 s on the Surface)
     }
     if (!records) continue;
+    if (slot.ts_detail) ++slot.ts_steps_rec;   // S103 GT: the bracket check counts every recorded step
     if (slot.ts_detail) {
       uint32_t step_image = 0;  // S102 G6 (review: only while stamping): what the census names the step by
       uint8_t step_src = 255;
@@ -5477,7 +5668,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
         step_image = frame.dispatches[step.index].cube[0];   // S102 L1b
       }
       const uint8_t step_kind = step.kind == StepKind::Pass ? 0 : step.kind == StepKind::Copy ? 1 : step.kind == StepKind::Dispatch ? 5 : 2;   // (5 = a dispatch, S102 L1b)
-      if (run_open && (step_class != run_class || census)) close_run(run_class);  // S102 G6: the census closes a run after every step
+      if (run_open && (step_class != run_class || census)) close_step(run_class);  // S102 G6: the census closes a run after every step
       run_class = step_class, run_open = true, run_image = step_image, run_kind = step_kind, run_src = step_src;
       run_pass = step.kind == StepKind::Pass ? step.index : 0xFFFFFFFFu;  // S102 G11
     }
@@ -5597,20 +5788,26 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
       presenting = RecordPresent(slot.cmd, frame.presents[step.index], slot, ring_base, image_index);
       slot.ts_presented = presenting;
       if (presenting && present_capped_) {  // S102 G2 (b), review F5: a stamp before and after the blit, so its ms shows apart (it is part of 'output' too)
-        if (slot.ts_detail) close_run(kGpuOutput), run_open = false;
+        if (slot.ts_detail) close_step(kGpuOutput), run_open = false;
         swapchain.RecordCapBlit(slot.cmd, image_index);
         if (slot.ts_detail) close_run(kBlitTag);
       }
     }
     if (slot.ts_detail && (options.gpu_stamp_plant == 3 || options.gpu_stamp_plant == 4) && !planted) {  // test plants, once a frame after the first step: 3 an empty pass (plane role), 4 a slow one (rim role)
       planted = true;
-      close_run(run_class);
+      close_step(run_class);   // (a real step's closing stamp: counted as one)
       run_open = false;
       if (options.gpu_stamp_plant == 4) RecordStampPlant(slot.cmd);
       close_run(options.gpu_stamp_plant == 4 ? kGpuRim : kGpuPlane, true);  // (labelled as a plant in the census)
     }
   }
-  if (slot.ts_detail && run_open) close_run(run_class);
+  if (slot.ts_detail && run_open) close_step(run_class);
+  if (options.gpu_stamp_plant == 10 && slot.ts_detail && slot.ts_count + 1 < slot.ts_cap) {   // S103 GT test plant 10: a stamp written outside every counted site: the stamp-count identity must break
+    vkCmdWriteTimestamp(slot.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.timestamps, slot.ts_count++);
+    slot.ts_class.push_back(kGpuOther), slot.ts_image.push_back(0), slot.ts_kind.push_back(4), slot.ts_src.push_back(255);
+    if (slot.ts_trace) slot.ts_pass.push_back(0xFFFFFFFFu);
+    ++slot.ts_need;
+  }
   RecordReadbacks(slot.cmd);  // lane 232: after every step, so the copy sees this frame's result
   if (options.gpu_stamp_plant == 5 && slot.timestamps) RecordStampPlant(slot.cmd);  // S102 S0-3 plant 5: a slow copy loop at the END of the frame: the NEXT frame's start gap must rise with no window
   if (slot.timestamps) {  // S101 lane22, lane 269; S102 S0-3: the tail stamp is the last query ([1] when not detailed); a render with no pass is no sample
@@ -5621,6 +5818,13 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
       slot.ts_image.push_back(0), slot.ts_kind.push_back(3), slot.ts_src.push_back(255);  // S102 G6
       if (slot.ts_trace) slot.ts_pass.push_back(0xFFFFFFFFu);  // S102 G11 (F9)
       ++slot.ts_need;
+    }
+    if (slot.ts_detail) {   // S103 GT review: the stamps written must be exactly [0] + [1] + the upload pair + every closing stamp + the tail (a stamp written outside the counted sites breaks it); no GPU involved
+      const bool ok = tail == 2 + slot.ts_w_pre + slot.ts_w_closes + slot.ts_w_post;
+      for (RoleSums* sums : {&role_window, &role_run}) {
+        ++sums->ident_frames, sums->ident_bad += ok ? 0 : 1;
+        if (slot.ts_census) sums->steps_rec += slot.ts_steps_rec, sums->steps_closed += slot.ts_steps_closed, ++sums->census_frames;
+      }
     }
     slot.ts_count = tail + 1;
     slot.ts_need += 2;  // [0] and [1]
@@ -5677,15 +5881,18 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   } else if (const VkResult submitted = vkQueueSubmit(device.queue(), 1, &submit, slot.fence); submitted != VK_SUCCESS) {
     if (submitted == VK_ERROR_DEVICE_LOST) OnDeviceLost("vkQueueSubmit", int(submitted), false);  // S102 D1 (before the Problem, review F4)
     Problem("frame_submit_failed", "VkResult %d", int(submitted));  // S102 U1 (R9)
+    frames_dropped.fetch_add(1, std::memory_order_relaxed);  // S103 CB1
   } else if (crumb) {
     crumb->submitted = true;
   }
   if (selftest_stalled) {  // S102 D1 (rplay --crumbs-selftest): wait until the marker words say the GPU reached the stalled step, run the lost-device handler as if lost, release the GPU
     const uint32_t* words = reinterpret_cast<const uint32_t*>(marker_memory.mapped) + size_t(slot_index) * crumbs::kMarkerWords;
     const uint32_t want = crumbs::MarkValue(serial);
+    // render-clock-begin: dev - the stall self-test waits on a marker, never a picture value
     const auto t0 = std::chrono::steady_clock::now();  // the marker before the stalled one has its END written once everything before the stall finished
     while (selftest_marker >= 2 && selftest_marker <= crumbs::kMaxMarker && words[crumbs::EndWord(selftest_marker - 1u)] != want && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(3))
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // render-clock-end
     std::this_thread::sleep_for(std::chrono::milliseconds(30));  // the front end is at the wait: nothing after it may be written
     if (!g_problem_nonfatal.load(std::memory_order_relaxed)) vkSetEvent(dev, selftest_event);  // --crumbs-fatal: the process stops at the Problem: release the GPU first (never leave it waiting)
     OnDeviceLost("selftest", int(VK_ERROR_DEVICE_LOST), true);
@@ -5799,6 +6006,20 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
     f.ns[kOutSubmit] = sub(rt.submit, rt0.submit);
     f.ns[kOutAcquire] = acquire_ns_frame;
     f.ns[kOutPresent] = present_call_ns;
+    slot.ts_up_bytes = out_up_bytes;
+    if (out_uploads) ++up_tot_frames, up_tot_images += out_up_images, up_tot_buffers += out_uploads - out_up_images, up_tot_barriers += out_up_barriers, up_tot_bytes += out_up_bytes, up_tot_by_producer[0] += out_up_by_producer[0], up_tot_by_producer[1] += out_up_by_producer[1], up_tot_by_producer[2] += out_up_by_producer[2];   // S103 UPL (+ PVR)
+    if (slot.ts_detail) for (UpSums* u : {&up_window, &up_run}) {   // S103 GT: steady vs loading frames (stamped runs only: nothing is counted for a player)
+      u->max_bytes = std::max<uint64_t>(u->max_bytes, out_up_bytes);
+      u->ring_peak = std::max<uint64_t>(u->ring_peak, ring_used_cur);   // S103 PVR
+      u->ring_ns += out_ring_ns, u->ring_bytes += ring_used_cur;   // S103 PF2
+      if (out_uploads) {   // S103 UPL: calls and barriers of the frames that uploaded (a frame with no upload records none)
+        for (int pk = 0; pk < 3; ++pk) u->prod_copies[pk] += out_up_by_producer[pk];   // S103 PVR
+        ++u->up_frames, u->image_uploads += out_up_images, u->buffer_uploads += out_uploads - out_up_images, u->barriers += out_up_barriers, u->batched_frames += out_batched ? 1 : 0;
+        u->max_barriers = std::max<uint64_t>(u->max_barriers, out_up_barriers), u->max_images = std::max<uint64_t>(u->max_images, out_up_images);
+      }
+      if (out_up_bytes > kLoadingBytes) ++u->load_frames, u->load_bytes += out_up_bytes;
+      else ++u->steady_frames, u->steady_bytes += out_up_bytes;
+    }
     f.uploads = out_uploads, f.scaled_uploads = out_scaled, f.upload_bytes = out_up_bytes, f.upload_barriers = out_up_barriers, f.pipelines_built = out_pipe_n;
     f.upload_batched_frames = out_batched ? 1 : 0;
     AddOutside(f);
@@ -5845,12 +6066,14 @@ void Renderer::Impl::AddOutside(const OutsideSums& f) {
     sums->uploads += f.uploads, sums->scaled_uploads += f.scaled_uploads, sums->upload_bytes += f.upload_bytes, sums->upload_barriers += f.upload_barriers;
     sums->pipelines_built += f.pipelines_built, sums->upload_batched_frames += f.upload_batched_frames;
   }
-  if (out_window.frames >= 600) {
+  if (out_window.frames >= 600 || (census_flush::Due(g_cf_outside) && out_window.frames)) {
     if (rdr::g_gpu_outside.load(std::memory_order_relaxed)) Log("%s", OutsideLine("[rdr][outside] window:", out_window).c_str());
     out_window = OutsideSums{};
   }
 }
 const OutsideSums& Renderer::OutsideRun() const { return impl_->out_run; }  // S102 G5
+uint64_t Renderer::FramesDropped() const { return impl_->frames_dropped.load(std::memory_order_relaxed); }  // S103 CB1
+void Renderer::NoteFrameDropped() { impl_->frames_dropped.fetch_add(1, std::memory_order_relaxed); }
 
 void Renderer::Impl::MakeStampPool(FrameSlot& slot, uint32_t cap) {  // S102 S0-3
   VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
@@ -5973,7 +6196,25 @@ void Renderer::Impl::CollectGpuTime(FrameSlot& slot) {
       return;
     }
     const double work_ns = ns - gap_ns;
-    for (RoleSums* sums : {&role_window, &role_run}) {
+    static uint64_t plant12_n = 0;
+    const bool plant12_skip = options.gpu_stamp_plant == 12 && (++plant12_n & 1);   // S103 GT test plant 12: every other frame is left out of the role sums (the csv's GPU time still counts it): the rig's work-vs-csv check must fail
+    if (slot.ts_mark != mark_win.seq) {   // S103 GT round 3: the first frame of a new route window: the finished one is logged
+      FlushMarkWindow("");
+      mark_win = MarkWin{};
+      mark_win.seq = slot.ts_mark;
+    }
+    if (!plant12_skip) {
+      MarkWin& w = mark_win;
+      for (int c = 0; c < kGpuClassCount; ++c) w.cls_ns[c] += cls_ns[c];
+      w.gap_ns += gap_ns, w.work_ns += work_ns, w.bracket_ns += ns, ++w.frames;
+      if (slot.ts_up_bytes > kLoadingBytes) ++w.loading, w.loading_bytes += slot.ts_up_bytes;
+      else ++w.steady, w.steady_bytes += slot.ts_up_bytes;
+      if (slot.ts_up && slot.ts_up <= last) {
+        const double u = span(slot.ts_up - 1 - (slot.ts_up_mid ? 1u : 0u), slot.ts_up);   // S103 PVR
+        if (u < ns) w.up_gpu_ns += u, ++w.up_frames;
+      }
+    }
+    if (!plant12_skip) for (RoleSums* sums : {&role_window, &role_run}) {
       for (int c = 0; c < kGpuClassCount; ++c) sums->cls_ms[c] += cls_ns[c] / 1e6;
       sums->blit_ms += blit_ns / 1e6;  // S102 G2
       sums->gap_ms += gap_ns / 1e6, sums->work_ms += work_ns / 1e6, sums->total_ms += ns / 1e6;
@@ -5991,9 +6232,15 @@ void Renderer::Impl::CollectGpuTime(FrameSlot& slot) {
     work_samples.push_back(float(work_ns / 1e6));
     gap_samples.push_back(float(gap_ns / 1e6));
     if (slot.ts_up && slot.ts_up <= last) {  // S102 G5: the uploads' own span (the stamp after ApplyUploads minus the one before it)
-      const double up_ns = span(slot.ts_up - 1, slot.ts_up);
+      const uint32_t up_pre = slot.ts_up - 1 - (slot.ts_up_mid ? 1u : 0u);   // S103 PVR: the mid stamp sits between the pair
+      const double up_ns = span(up_pre, slot.ts_up);
+      if (up_ns < ns && slot.ts_up_mid) {
+        const double img_ns = span(up_pre, slot.ts_up_mid), buf_ns = span(slot.ts_up_mid, slot.ts_up);
+        for (UpSums* u : {&up_window, &up_run}) u->mid_img_ns += img_ns, u->mid_buf_ns += buf_ns, ++u->mid_frames;
+      }
       if (up_ns < ns) {
         for (OutsideSums* o : {&out_window, &out_run}) o->upload_gpu_ns += uint64_t(up_ns), ++o->upload_gpu_samples;
+        for (UpSums* u : {&up_window, &up_run}) u->gpu_ns += up_ns, ++u->gpu_frames;   // S103 GT
       }
     }
     rdr::g_gpu_work_ns_total.fetch_add(uint64_t(work_ns), std::memory_order_relaxed);
@@ -6031,7 +6278,7 @@ void Renderer::Impl::CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint3
     ++group_chain_broken;
     return;
   }
-  struct Row { uint64_t key; rdr::PassGroups g; const FrameSlot::GsPass* p; };
+  struct Row { uint64_t key; rdr::PassGroups g; const FrameSlot::GsPass* p; double direct_ns; };   // S103 GSTP: direct_ns = ticks[end] - ticks[begin] of the pass, read straight from the stamps
   std::vector<Row> rows;
   std::map<uint64_t, uint32_t> seen;
   bool ok = true;
@@ -6042,7 +6289,7 @@ void Renderer::Impl::CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint3
     if (it == by_end.end()) continue;
     const FrameSlot::GsPass& p = *it->second;
     const rdr::ChainResult chain = rdr::CheckChain(slot.gs_segs.data() + p.first_seg, p.segs, p.begin_stamp, p.end_stamp, frame_ns, span);
-    Row row{base | (uint64_t(occ) << 32) | (slot.sd_arm ? (1ull << 63) : 0), {}, &p};
+    Row row{base | (uint64_t(occ) << 32) | (slot.sd_arm ? (1ull << 63) : 0), {}, &p, span(p.begin_stamp, p.end_stamp)};
     for (uint32_t s = 0; s < p.segs; ++s) {
       const rdr::GroupSeg& seg = slot.gs_segs[p.first_seg + s];
       rdr::Aggregate(seg, span(seg.begin, seg.end), row.g);
@@ -6050,6 +6297,11 @@ void Renderer::Impl::CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint3
     const uint32_t held = row.g.total_draws;
     if (chain.broken) ++group_chain_broken, ok = false;
     if (held != p.issued) ++group_cover_bad, ok = false;
+    {   // S103 GSTP (review fix 2): the groups' sum is ADDED UP from the segments' spans, the pass's own span is read straight from its two end stamps: independent readings of one pass, equal to rounding (a segment the chain lost, a stamp out of order or a wrapped span shows here)
+      double sum = 0;
+      for (uint8_t g = 0; g < rdr::kGrpCount; ++g) sum += row.g.ns[g];
+      if (std::fabs(sum - row.direct_ns) > 2.0 * ts_period) ++group_sum_bad, ok = false;
+    }
     rows.push_back(row);
   }
   if (!ok) return;
@@ -6057,6 +6309,7 @@ void Renderer::Impl::CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint3
     GroupPassAcc& pa = group_pass[row.key];
     double pass_ns = 0;
     for (uint8_t g = 0; g < rdr::kGrpCount; ++g) pass_ns += row.g.ns[g];
+    pa.direct_us += row.direct_ns / 1e3;   // S103 GSTP
     pa.us += pass_ns / 1e3, ++pa.frames, pa.draws += row.g.total_draws, pa.issued += row.p->issued, pa.mixed += row.g.mixed_draws, pa.segs += row.p->segs, pa.stamps += row.p->segs - 1;
     for (uint8_t g = 0; g < rdr::kGrpCount; ++g) {
       if (!row.g.draws[g] && !(row.g.ns[g] > 0)) continue;
@@ -6070,7 +6323,30 @@ void Renderer::Impl::CollectGroups(FrameSlot& slot, const uint64_t* ticks, uint3
   if (slot.gs_overflow) ++group_overflow_frames;
 }
 
+void Renderer::Impl::FlushMarkWindow(const char* suffix) {   // S103 GT round 3
+  const MarkWin& w = mark_win;
+  if (!w.seq || !w.frames) return;
+  std::string name;
+  {
+    std::lock_guard<std::mutex> lock(rdr::g_gpu_mark_mu);
+    if (w.seq <= rdr::g_gpu_mark_names.size()) name = rdr::g_gpu_mark_names[w.seq - 1];
+  }
+  const double f = double(w.frames) * 1e6;   // ns -> ms a frame
+  const double up = w.up_gpu_ns / f;   // ms a frame: the upload span summed over the frames that had one, spread over ALL the window's frames
+  double other_net = w.cls_ns[kGpuOther] / f - up;
+  if (other_net < 0) other_net = 0;
+  const double stamped = w.work_ns + w.gap_ns;
+  Log("[rdr][gpu][window] %s%s: GPU frames %llu; by role, mean ms a frame: colour %.3f, shadow %.3f, rim %.3f, plane %.3f, cards %.3f, post %.3f, output %.3f, ui %.3f, frame %.3f, copies %.3f, prelight %.3f, feedback %.3f, "
+      "other %.3f, uploads %.3f = work %.3f; start gap [0]-[1] %.3f; bracket %.3f (the csv gpu_ms basis: [0] to the tail stamp of every frame); unstamped %.3f (bracket - work - gap); "
+      "uploads steady (<= %llu KB) frames %llu = %.3f MB/frame, loading frames %llu = %.3f MB/frame",
+      name.c_str(), suffix, static_cast<unsigned long long>(w.frames), w.cls_ns[kGpuColor] / f, w.cls_ns[kGpuShadow] / f, w.cls_ns[kGpuRim] / f, w.cls_ns[kGpuPlane] / f, w.cls_ns[kGpuCards] / f, w.cls_ns[kGpuPost] / f,
+      w.cls_ns[kGpuOutput] / f, w.cls_ns[kGpuUi] / f, w.cls_ns[kGpuFrame] / f, w.cls_ns[kGpuCopies] / f, w.cls_ns[kGpuPrelight] / f, w.cls_ns[kGpuFeedback] / f, other_net, up, w.work_ns / f, w.gap_ns / f, w.bracket_ns / f,
+      (w.bracket_ns - stamped) / f, static_cast<unsigned long long>(kLoadingBytes >> 10), static_cast<unsigned long long>(w.steady), w.steady ? double(w.steady_bytes) / 1048576.0 / double(w.steady) : 0.0,
+      static_cast<unsigned long long>(w.loading), w.loading ? double(w.loading_bytes) / 1048576.0 / double(w.loading) : 0.0);
+}
+
 void Renderer::Impl::LogGpuWindow(const char* why) {
+  if (!std::strcmp(why, "last window") || !std::strcmp(why, "summary")) FlushMarkWindow(" (open at exit)");   // S103 GT round 3: the window that was still open
   if (gpu_samples.empty() && !gpu_bad && !gpu_not_ready && !role_window.no_pass) return;
   std::vector<float> v = gpu_samples;
   std::sort(v.begin(), v.end());
@@ -6099,8 +6375,36 @@ void Renderer::Impl::LogGpuWindow(const char* why) {
         double(r.cls_passes[kGpuPost]) / f, double(r.cls_passes[kGpuOutput]) / f, double(r.cls_passes[kGpuUi]) / f, double(r.cls_passes[kGpuFrame]) / f, double(r.cls_passes[kGpuCopies]) / f, double(r.cls_passes[kGpuPrelight]) / f,
         double(r.cls_passes[kGpuFeedback]) / f, double(r.cls_passes[kGpuOther]) / f, r.blit_ms / f);
   }
+  if (rdr::g_gpu_stamps.load(std::memory_order_relaxed)) {   // S103 GT: the upload view (steady vs loading frames), the same window as the lines above; the format is read by tools\surface\bench_line.py --roles (stamped runs only)
+    const UpSums& u = up_window;
+    const uint64_t n = u.steady_frames + u.load_frames;
+    if (n) {
+      const double mb = 1.0 / 1048576.0;
+      Log("[rdr][gpu][uploads] %s: frames %llu; steady (<= %llu KB uploaded) frames %llu = %.3f MB/frame; loading (> %llu KB) frames %llu = %.3f MB/frame (%.1f %% of the frames, %.1f %% of the bytes); all frames %.3f MB/frame; biggest frame %.2f MB; "
+          "GPU ms of the uploads' commands %.3f a frame over %llu frames with the stamps (a copy is its own role: see 'copies' above); "
+          "calls (S103 UPL): %llu frames uploaded (%.1f %%), a frame that uploaded: %.2f image copies (biggest %llu), %.2f buffer copies, %.2f barriers (biggest %llu), batched in %.1f %% of them (frames with 2+ image copies %llu, of them left unbatched by a duplicate subresource %llu); a frame (all): %.2f image copies, %.2f barriers; upload batch switch %s; "
+          "S103 PVR: buffer copies a frame that uploaded by producer: posed models %.2f, cloth / CPU-skinned %.2f, other %.2f; span split at the mid stamp (stamp-per-step mode only): image part %.3f ms, buffer part %.3f ms over %llu frames; peak frame ring use (constants + geometry + previous constants) %.2f MB of %.2f MB; S103 PF2: the host's ring memcpy %.3f ms a frame (mean %.2f MB a frame)",
+          why, static_cast<unsigned long long>(n), static_cast<unsigned long long>(kLoadingBytes >> 10), static_cast<unsigned long long>(u.steady_frames), u.steady_frames ? double(u.steady_bytes) * mb / double(u.steady_frames) : 0.0,
+          static_cast<unsigned long long>(kLoadingBytes >> 10), static_cast<unsigned long long>(u.load_frames), u.load_frames ? double(u.load_bytes) * mb / double(u.load_frames) : 0.0,
+          100.0 * double(u.load_frames) / double(n), (u.steady_bytes + u.load_bytes) ? 100.0 * double(u.load_bytes) / double(u.steady_bytes + u.load_bytes) : 0.0,
+          double(u.steady_bytes + u.load_bytes) * mb / double(n), double(u.max_bytes) * mb, u.gpu_frames ? u.gpu_ns / 1e6 / double(u.gpu_frames) : 0.0, static_cast<unsigned long long>(u.gpu_frames),
+          static_cast<unsigned long long>(u.up_frames), 100.0 * double(u.up_frames) / double(n), u.up_frames ? double(u.image_uploads) / double(u.up_frames) : 0.0, static_cast<unsigned long long>(u.max_images),
+          u.up_frames ? double(u.buffer_uploads) / double(u.up_frames) : 0.0, u.up_frames ? double(u.barriers) / double(u.up_frames) : 0.0, static_cast<unsigned long long>(u.max_barriers),
+          u.up_frames ? 100.0 * double(u.batched_frames) / double(u.up_frames) : 0.0, static_cast<unsigned long long>(rdr::g_upload_multi_frames.load(std::memory_order_relaxed)), static_cast<unsigned long long>(rdr::g_upload_dup_fallbacks.load(std::memory_order_relaxed)), double(u.image_uploads) / double(n), double(u.barriers) / double(n), rdr::g_upload_batch.load(std::memory_order_relaxed) ? "ON" : "off",
+          u.up_frames ? double(u.prod_copies[1]) / double(u.up_frames) : 0.0, u.up_frames ? double(u.prod_copies[2]) / double(u.up_frames) : 0.0, u.up_frames ? double(u.prod_copies[0]) / double(u.up_frames) : 0.0,
+          u.mid_frames ? u.mid_img_ns / 1e6 / double(u.mid_frames) : 0.0, u.mid_frames ? u.mid_buf_ns / 1e6 / double(u.mid_frames) : 0.0, static_cast<unsigned long long>(u.mid_frames),
+          double(u.ring_peak) * mb, double(kRingSection - kOverlayRange - kConstantRange - kDlssConstants) * mb, double(u.ring_ns) / 1e6 / double(n), double(u.ring_bytes) * mb / double(n));
+    }
+    up_window = UpSums{};
+  }
+  if (role_window.ident_frames) {   // S103 GT: the bracket line: in the stamp-per-step frames every recorded step is closed by a stamp that was written, and in every stamped frame the stamp count is exactly [0] + [1] + uploads pair + closes + tail
+    const RoleSums& r = role_window;
+    Log("[rdr][gpu][bracket] %s: %llu stamped frames, stamp count identity broken in %llu; %llu stamp-per-step frames, steps recorded %llu, steps closed by a written stamp %llu (%s), stamp pool overflows %llu",
+        why, static_cast<unsigned long long>(r.ident_frames), static_cast<unsigned long long>(r.ident_bad), static_cast<unsigned long long>(r.census_frames), static_cast<unsigned long long>(r.steps_rec),
+        static_cast<unsigned long long>(r.steps_closed), r.steps_rec == r.steps_closed && !r.ident_bad ? "all bracketed" : "UNBRACKETED", static_cast<unsigned long long>(r.overflow));
+  }
   if (!pass_table.empty() && pass_table_frames) {  // S102 R24-B: one row per step (role, kind, occurrence on that image, image, size, format): mean and p90 GPU us over the frames that had the step
-    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant", "dispatch"};
+    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant", "dispatch", "uploads", "uploads_img"};   // S103 GT: 6 = the pair of stamps around ApplyUploads, 7 (S103 PVR) = the mid stamp between its image part and its buffer part
     struct Row { uint64_t key; double mean, p90, sum; size_t n; };
     std::vector<Row> rows;
     double table_sum = 0;
@@ -6118,27 +6422,36 @@ void Renderer::Impl::LogGpuWindow(const char* why) {
         why, static_cast<unsigned long long>(pass_table_frames), rows.size(), table_sum / 1e3 / f);
     double rest = 0;
     size_t shown = 0;
+    std::set<uint64_t> want_rows;   // S103 R24S: a printed row's other-arm twin (same key, bit 63 flipped) prints too, under the floor or past the cap, so an in-run flip always shows both columns
+    {
+      size_t n_want = 0;
+      for (const Row& r : rows) {
+        if (n_want >= 70 || r.sum / 1e3 / f < 0.004) continue;
+        ++n_want;
+        want_rows.insert(r.key), want_rows.insert(r.key ^ (1ull << 63));
+      }
+    }
     for (const Row& r : rows) {
-      if (shown >= 70 || r.sum / 1e3 / f < 0.004) { rest += r.sum; continue; }
+      if (!want_rows.count(r.key)) { rest += r.sum; continue; }
       ++shown;
       const uint32_t img = uint32_t(r.key & 0xFFFFFFFFu);
       Log("[rdr][gpu][passes] %s %s #%u image %u %ux%u fmt %u: %.0f us mean / %.0f us p90, %zu of %llu frames, %.4f ms a frame [stencil_dead %s: %llu frames]",
-          GpuClassName(uint32_t((r.key >> 48) & 0x7FFF)), kinds[std::min<uint32_t>(uint32_t((r.key >> 40) & 0xFF), 5)], uint32_t((r.key >> 32) & 0xFF), img,
+          GpuClassName(uint32_t((r.key >> 48) & 0x7FFF)), kinds[std::min<uint32_t>(uint32_t((r.key >> 40) & 0xFF), 7)], uint32_t((r.key >> 32) & 0xFF), img,
           uint32_t(CensusImageW(img)), uint32_t(CensusImageH(img)), uint32_t(CensusImageFmt(img)), r.mean, r.p90, r.n, static_cast<unsigned long long>(pass_table_frames), r.sum / 1e3 / fa[r.key >> 63], (r.key >> 63) ? "ON" : "OFF", static_cast<unsigned long long>(pass_table_frames_arm[r.key >> 63]));
     }
     if (rest > 0) Log("[rdr][gpu][passes] the %zu smaller steps together: %.4f ms a frame", rows.size() - shown, rest / 1e3 / f);
     pass_table.clear(), pass_table_frames = 0, pass_table_frames_arm[0] = pass_table_frames_arm[1] = 0;
   }
-  if (group_frames || group_not_ready || group_chain_broken || group_cover_bad) {   // S102 R24-F: the group table: per instrumented pass and group, mean / p90 GPU us over the frames that had the group
-    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant", "dispatch"};
+  if (group_frames || group_not_ready || group_chain_broken || group_cover_bad || group_sum_bad) {   // S102 R24-F: the group table: per instrumented pass and group, mean / p90 GPU us over the frames that had the group
+    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant", "dispatch", "uploads", "uploads_img"};
     const double f = double(std::max<uint64_t>(1, group_frames));
     uint64_t pass_draws = 0, held_draws = 0;
     for (const auto& [pk, pa] : group_pass) pass_draws += pa.issued, held_draws += pa.draws;
     Log("[rdr][gpu][groups] %s: group GPU table over %llu frames (a stamp at each change of draw group inside the colour / frame passes, min run %d draws; a stamp inside a pass drains it, read as a ranking, not as the shipped cost); %.1f group stamps a frame;"
-        " frames dropped: group results not ready %llu, chain broken %llu, coverage short %llu; frames that ran out of stamps %llu; draws held by the segments %llu of %llu the passes issued (%.2f %%)",
+        " frames dropped: group results not ready %llu, chain broken %llu, coverage short %llu; frames that ran out of stamps %llu; draws held by the segments %llu of %llu the passes issued (%.2f %%); frames where the groups did not add up to the pass's own stamp span %llu",
         why, static_cast<unsigned long long>(group_frames), std::max(1, rdr::g_gpu_group_stamps.load(std::memory_order_relaxed)), double(group_stamps_total) / f,
         static_cast<unsigned long long>(group_not_ready), static_cast<unsigned long long>(group_chain_broken), static_cast<unsigned long long>(group_cover_bad), static_cast<unsigned long long>(group_overflow_frames),
-        static_cast<unsigned long long>(held_draws), static_cast<unsigned long long>(pass_draws), pass_draws ? 100.0 * double(held_draws) / double(pass_draws) : 0.0);
+        static_cast<unsigned long long>(held_draws), static_cast<unsigned long long>(pass_draws), pass_draws ? 100.0 * double(held_draws) / double(pass_draws) : 0.0, static_cast<unsigned long long>(group_sum_bad));
     struct GRow { uint64_t key, pkey; double mean, p90, sum; size_t n; uint64_t draws; };
     std::vector<GRow> grows;
     for (auto& [key, a] : group_table) {
@@ -6154,9 +6467,9 @@ void Renderer::Impl::LogGpuWindow(const char* why) {
     for (const auto& [pk, pa] : passes_sorted) {
       const uint32_t img = uint32_t(pk & 0xFFFFFFFFu);
       const double pf = double(std::max<uint64_t>(1, pa.frames));
-      Log("[rdr][gpu][groups] %s %s #%u image %u %ux%u fmt %u [stencil_dead %s]: pass %.4f ms a frame over %llu frames, %.1f draws a frame (segments hold %.1f), %.1f segments a frame, %.2f %% of its draws sit in a segment labelled with another group",
-          GpuClassName(uint32_t((pk >> 48) & 0x7FFF)), kinds[std::min<uint32_t>(uint32_t((pk >> 40) & 0xFF), 5)], uint32_t((pk >> 32) & 0xFF), img,
-          uint32_t(CensusImageW(img)), uint32_t(CensusImageH(img)), uint32_t(CensusImageFmt(img)), (pk >> 63) ? "ON" : "OFF", pa.us / 1e3 / pf, static_cast<unsigned long long>(pa.frames),
+      Log("[rdr][gpu][groups] %s %s #%u image %u %ux%u fmt %u [stencil_dead %s]: pass %.4f ms a frame (its own stamp span %.4f ms) over %llu frames, %.1f draws a frame (segments hold %.1f), %.1f segments a frame, %.2f %% of its draws sit in a segment labelled with another group",
+          GpuClassName(uint32_t((pk >> 48) & 0x7FFF)), kinds[std::min<uint32_t>(uint32_t((pk >> 40) & 0xFF), 7)], uint32_t((pk >> 32) & 0xFF), img,
+          uint32_t(CensusImageW(img)), uint32_t(CensusImageH(img)), uint32_t(CensusImageFmt(img)), (pk >> 63) ? "ON" : "OFF", pa.us / 1e3 / pf, pa.direct_us / 1e3 / pf, static_cast<unsigned long long>(pa.frames),
           double(pa.issued) / pf, double(pa.draws) / pf, double(pa.segs) / pf, pa.draws ? 100.0 * double(pa.mixed) / double(pa.draws) : 0.0);
       for (const GRow& r : grows) {
         if (r.pkey != pk) continue;
@@ -6165,16 +6478,16 @@ void Renderer::Impl::LogGpuWindow(const char* why) {
       }
     }
     group_table.clear(), group_pass.clear();
-    group_frames = group_not_ready = group_chain_broken = group_cover_bad = group_overflow_frames = group_stamps_total = 0;
+    group_frames = group_not_ready = group_chain_broken = group_cover_bad = group_overflow_frames = group_stamps_total = group_sum_bad = 0;
   }
   if (!std::strcmp(why, "summary") && !census_run.empty() && census_frames) {  // S102 G6: the census, ranked by ms a frame (kind: pass / copy / present / tail)
     std::vector<std::pair<uint64_t, CensusRow>> rows(census_run.begin(), census_run.end());
     std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second.ms > b.second.ms; });
-    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant"};
+    static const char* const kinds[] = {"pass", "copy", "present", "tail", "plant", "dispatch", "uploads", "uploads_img"};
     for (const auto& r : rows) {
       const double f = double(census_frames);
       Log("[rdr][gpu][census] class %s kind %s image %u (%ux%u fmt %u): %.4f ms a frame, %.2f steps a frame",
-          GpuClassName(uint32_t(r.first >> 40)), kinds[std::min<uint32_t>(uint32_t((r.first >> 32) & 0xFF), 4)], uint32_t(r.first & 0xFFFFFFFFu),
+          GpuClassName(uint32_t(r.first >> 40)), kinds[std::min<uint32_t>(uint32_t((r.first >> 32) & 0xFF), 7)], uint32_t(r.first & 0xFFFFFFFFu),
           uint32_t(CensusImageW(uint32_t(r.first & 0xFFFFFFFFu))), uint32_t(CensusImageH(uint32_t(r.first & 0xFFFFFFFFu))), uint32_t(CensusImageFmt(uint32_t(r.first & 0xFFFFFFFFu))),
           r.second.ms / f, double(r.second.steps) / f);
     }
@@ -6196,6 +6509,7 @@ void Renderer::SetImageClass(ImageId image, uint8_t gpu_class) {  // S102 S0-3
   // stage waits for the frame that sealed it (ApplyUploads), never lands under a frame being recorded. Seal 0 (one thread): applied at the next Render, as before.
   Impl& im = *impl_;
   if (image == kNoImage || image >= im.images.high_water()) return;
+  if (im.options.gpu_stamp_plant == 11) return;   // S103 GT test plant 11: no image is named (every pass is `other`): the role checks must fail
   std::lock_guard<std::mutex> lock(im.upload_mutex);
   im.class_changes.emplace_back(image, gpu_class < kGpuClassCount ? gpu_class : uint8_t(kGpuOther));
 }
@@ -6212,10 +6526,39 @@ Renderer::GpuRoleTotals Renderer::GpuRoles() const {  // S102 S0-3
   out.total_ms = r.frames ? r.total_ms / double(r.frames) : 0.0;
   out.frames = r.frames, out.no_pass = r.no_pass, out.no_present = r.no_present, out.overflow = r.overflow;
   out.stamps_a_frame = r.frames ? double(r.stamps) / double(r.frames) : 0.0;
+  out.census_frames = r.census_frames, out.steps_recorded = r.steps_rec, out.steps_closed = r.steps_closed;   // S103 GT
+  out.ident_frames = r.ident_frames, out.ident_bad = r.ident_bad;
   return out;
+}
+uint32_t Renderer::UnnamedColourTargets(std::vector<std::string>* what) const {   // S103 GT round 3
+  uint32_t n = 0;
+  Impl& im = *impl_;
+  for (uint32_t id = 1; id < im.images.high_water(); ++id) {
+    const ImageEntry& e = im.images[id];
+    if (!e.live || e.depth || !(e.desc.usage & kUsageTarget) || e.gpu_class != kGpuOther) continue;
+    ++n;
+    if (what) what->push_back(std::to_string(id) + " " + std::to_string(e.width) + "x" + std::to_string(e.height) + " fmt " + std::to_string(unsigned(e.desc.format)));
+  }
+  return n;
+}
+Renderer::UploadTotals Renderer::UploadRun() const {   // S103 GT
+  const Impl::UpSums& u = impl_->up_run;
+  UploadTotals t;
+  t.steady_frames = u.steady_frames, t.steady_bytes = u.steady_bytes, t.loading_frames = u.load_frames, t.loading_bytes = u.load_bytes, t.max_bytes = u.max_bytes;
+  t.frames_with_span = u.gpu_frames, t.gpu_ms_sum = u.gpu_ns / 1e6;
+  return t;
 }
 
 const FrameCounts& Renderer::LastFrameCounts() const { return impl_->counts_cur; }  // S102 M1
+uint32_t Renderer::RingRoom() const { return uint32_t(kRingSection - kOverlayRange - kConstantRange - kDlssConstants - 1024); }   // S103 PVR (the frame_ring_full test in Render adds the section alignments: 1 KB of slack)
+Renderer::UploadStats Renderer::LastUploadStats() const {   // S103 UPL
+  const Impl& im = *impl_;
+  UploadStats s;
+  s.images = im.out_up_images, s.buffers = im.out_uploads - im.out_up_images, s.barriers = im.out_up_barriers, s.bytes = im.out_up_bytes, s.batched = im.out_batched;
+  for (int pk = 0; pk < 3; ++pk) s.by_producer[pk] = im.out_up_by_producer[pk], s.total_by_producer[pk] = im.up_tot_by_producer[pk];   // S103 PVR
+  s.total_frames = im.up_tot_frames, s.total_images = im.up_tot_images, s.total_buffers = im.up_tot_buffers, s.total_barriers = im.up_tot_barriers, s.total_bytes = im.up_tot_bytes;
+  return s;
+}
 void Renderer::SetCountsPlant(int pass) { impl_->counts_plant = pass; }
 
 uint64_t Renderer::LastGpuNs() {  // S101 lane22
@@ -6272,6 +6615,12 @@ static void ConvertReadback(Format format, uint32_t texel, const uint8_t* mapped
 
 // Colour surfaces come back as RGBA8 for looking at. A float surface is scaled so its largest value is white.
 bool Renderer::ReadPresent(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height) { return impl_->swapchain.ReadLast(rgba, width, height); }
+
+bool Renderer::ImageIs8Bit(ImageId image) const {
+  if (image == kNoImage) return false;
+  const ImageEntry& entry = impl_->images[image];
+  return entry.live && entry.desc.samples == 1 && (entry.desc.format == Format::RGBA8 || entry.desc.format == Format::BGRA8);
+}
 
 bool Renderer::ReadImage(ImageRef image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height) {
   Impl& im = *impl_;

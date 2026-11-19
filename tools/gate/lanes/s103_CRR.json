@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane CRR: a created arena (ids 200-249) draws its ring from the game's fixed alt keys (docs/research/s103/CRK.md): src/renderer_scene/ring_keys.h (KeyOf / group / need / rank), asset_load.h (load lists, PlaceRing alt branch), ring_low_keys.h (alt low -> high pairs), rf_c_core.cpp (Part::Ring range, per-key ring pieces), rf_ring.cpp, ring_rows_core.h (kClassTable G+68..+112) + ring_rows_hook.h (pad2 key), ring_recompute_core.h / _contrib.h (8 alt posts, covers un-bailed): tools/scene/crr_unit.cpp + crr_check.py. 0 game runs, 0 Surface runs. Rope colour (G+128 records) is NOT built: whether a created-arena match writes them is [U] (CRK section 6).",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "crr_unit (no game files) checks the pure key rules against the CRK table, the 25-entry class table, our 8 alt post rows and the whole-ring verdict; s103_CRR.real loads CAEN 0 / CASD 0 / CARL 0 + CARG 0 of the player's own pac\\car files and bg04 and checks the bug (old keys {952, 980}), the 21 alt keys, node counts against the bg04 twins, the corner / post placement table. Planted twins (each must fail its named check): skirt_swap, post_loop1_corner0 (pure), corner3_cover_1071, logo_as_cover (real files).",
+ "affects": ["src/renderer_scene/ring_keys.h", "src/renderer_scene/rf_ring.cpp", "src/renderer_scene/rf_c_core.cpp", "src/assets/asset_load.h", "src/assets/ring_low_keys.h", "src/assets/view/renderer.cpp", "src/scene_live/ring_rows_core.h", "src/scene_live/ring_rows_hook.h", "src/scene_live/ring_recompute_core.h", "src/scene_live/ring_recompute_contrib.h", "src/renderer_adapter/d3_arena.h", "tools/scene/crr_unit.cpp", "tools/scene/crr_check.py"],
+ "checks": [
+  {"name": "s103_CRR.unit", "cmd": ["py", "-I", "tools/scene/crr_check.py", "--root", ".", "--no-game"], "timeout_s": 900, "tier": "cheap"},
+  {"name": "s103_CRR.real", "cmd": ["py", "-I", "tools/scene/crr_check.py", "--root", "."], "timeout_s": 900, "needs": ["game_data/extracted"], "tier": "cheap"}
+ ]
+}

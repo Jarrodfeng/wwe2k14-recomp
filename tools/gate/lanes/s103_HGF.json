@@ -1,0 +1,16 @@
+{
+ "owner": "S103 lane HGF: the spring-hair root-gap census per window (gap_big, measured after corr^-1), the rate-limited `hair gap BIG` log line (rf_wrestlers.cpp), the identity-rows guard (a piece whose rows are all still the bind palette is absent for that latch: hair_rows_unposed) and the same-latch guard (hair rows attach only to the body palette of their own latch: hair_rows_frame_skew). docs/agents/s103/HGP.md. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "wrestler_emit selftest carries the HGF checks and their planted twins (kFaultDrawUnposed, kFaultHairAnyFrame); the census window reset and the gap_big count are checked on bone_tag_rows.h directly.",
+ "checks": [
+  {"name": "s103_HGF.build_emit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_wrestler.ps1"], "timeout_s": 900, "tier": "cheap",
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/slot_piece.h", "src/scene_live/piece_link.h", "src/renderer_scene/bone_tag_rows.h", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_HGF.emit_selftest", "cmd": ["out/tools/wrestler_emit.exe", "selftest"], "timeout_s": 300, "tier": "cheap",
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/slot_piece.h", "src/scene_live/piece_link.h", "src/renderer_scene/bone_tag_rows.h", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_HGF.inputs_unit", "cmd": ["py", "-I", "tools/scene/inputs_check.py"], "timeout_s": 900, "tier": "cheap",
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/piece_link.h", "src/scene_live/slot_piece.h", "src/scene_live/wrestler_contrib.*", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_HGF.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp,src/renderer_scene/rf_wrestlers.cpp,src/renderer_adapter/live.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/wrestler_hook.h", "src/scene_live/inputs_*.h", "src/scene_live/piece_link.h", "src/scene_live/slot_piece.h", "src/renderer_scene/rf_wrestlers.*", "src/renderer_scene/bone_tag_rows.h"]}
+ ]
+}

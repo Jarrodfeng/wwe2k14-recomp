@@ -1,0 +1,12 @@
+{
+ "owner": "S103 lane X1 (landing 1: every input reader must read the right guest addresses): tools/analysis/address_lint.py, over every 0x82/0x83 address constant and named structure offset (kXxxOff / Offset / Stride) in src/scene_live, src/renderer_scene, src/renderer_adapter. 0 game runs, 0 Surface runs.",
+ "note": "check 1 = the lint recomputes each constant from the generated listing of the function its comment cites (lis/addi sign-extended, lis|ori OR, displacements, effective addresses on a known base, a constant plus a displacement) and FAILS on any mismatch (a value the cited function does not give while it gives a near miss: the same low half under another high half, an ori immediate without its lis half, off by 65536); not-found and no-source entries are a count, not a failure. Check 2 = the proof: the parent of C6's fix (d8dc878c^) must give C6's misreads (kCvDescOff, the two 0x8376 globals). Check 3 = a scene_live translation unit still compiles.",
+ "checks": [
+  {"name": "s103_x1.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."], "timeout_s": 600, "needs": ["generated/default"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*", "src/renderer_adapter/*", "tools/analysis/address_lint.py", "tools/analysis/address_lint_ok.txt"]},
+  {"name": "s103_x1.selftest", "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", ".", "--selftest"], "timeout_s": 300, "needs": ["generated/default"],
+   "affects": ["tools/analysis/address_lint.py"]},
+  {"name": "s103_x1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/wwe2k14_app.h", "src/scene_live/*", "src/renderer_scene/*"]}
+ ]
+}

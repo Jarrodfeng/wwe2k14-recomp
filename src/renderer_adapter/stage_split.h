@@ -239,6 +239,7 @@ class RecordStage {
       renderer_.SetRenderThread();  // review F1: before the hooks (after a one-thread frame the bind thread was the render thread)
       if (before_) before_(s.frame, s.packet);
       if (s.packet.record_spin_us)
+        // render-clock: dev - test-only record spin that slows the stage split on purpose
         for (const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(s.packet.record_spin_us); std::chrono::steady_clock::now() < until;) {}
       renderer_.RenderFrame(s.frame, s.packet.mode);
       s.packet.record_ms = double(Ns(t1)) / 1e6;

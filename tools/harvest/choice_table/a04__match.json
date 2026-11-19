@@ -1,0 +1,4425 @@
+{
+ "arena": 4,
+ "classes": [
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX"
+     ],
+     "n": 5411,
+     "ps": "yAudience_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudience_lit_lm_vertex_vertex",
+     "vstreams": [
+      31,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    }
+   ],
+   "class": "crowd",
+   "draws": 5411,
+   "look": "match",
+   "technique": ""
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX"
+     ],
+     "n": 27744,
+     "ps": "yAudience_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudience_lit_lm_vertex_vertex",
+     "vstreams": [
+      31,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    }
+   ],
+   "class": "crowd",
+   "draws": 27744,
+   "look": "match",
+   "technique": "T_Audience"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX"
+     ],
+     "n": 118,
+     "ps": "yAudience_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudience_lit_lm_vertex_vertex",
+     "vstreams": [
+      31,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    }
+   ],
+   "class": "crowd",
+   "draws": 118,
+   "look": "match",
+   "technique": "T_Audience_LightMap"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX",
+      "FX_SKINNED"
+     ],
+     "n": 217,
+     "ps": "yAudDefault_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudDefault_skinned_lit_lm_vertex_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX",
+      "FX_SKINNED"
+     ],
+     "n": 2360,
+     "ps": "yAudDefault_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudDefault_skinned_lit_lm_vertex_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "off",
+     "defines": [],
+     "n": 118,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE/ADD a:SRC_ALPHA/ONE/ADD",
+     "defines": [],
+     "n": 236,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [],
+     "n": 118,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_SPEC",
+      "FX_SPECULAR",
+      "FX_VERTEX_LM"
+     ],
+     "n": 118,
+     "ps": "yBG_Default_specular_alpha_spec_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBG_Default_specular_vertex_lm_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_VERTEX_LM"
+     ],
+     "n": 1180,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBG_Default_vertex_lm_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SPEC_MAP"
+     ],
+     "n": 4130,
+     "ps": "yProp_BumpMap_spec_map_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map",
+      "5": "map"
+     },
+     "vs": "yProp_BumpMap_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC_FADE"
+     ],
+     "n": 2832,
+     "ps": "yProp_BumpMap_alpha_gloss_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_spec_fade_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_NORMAL_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC_FADE"
+     ],
+     "n": 236,
+     "ps": "yProp_BumpMap_normal_gloss_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_spec_fade_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_REFLECT",
+      "FX_REFLECT_MAP",
+      "FX_SKINNED"
+     ],
+     "n": 708,
+     "ps": "yProp_BumpMap_alpha_gloss_reflect_reflect_map_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map",
+      "8": "map",
+      "9": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [],
+     "n": 118,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 944,
+     "ps": "yProp_Default_spec_alpha_gloss_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 1534,
+     "ps": "yProp_Default_spec_alpha_gloss_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 2714,
+     "ps": "yProp_Default_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 354,
+     "ps": "yProp_Default_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 118,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 2596,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SCREEN_SHADOW",
+      "FX_SKINNED"
+     ],
+     "n": 118,
+     "ps": "yProp_PSM_screen_shadow_fragment",
+     "slots": {
+      "0": "map",
+      "12": "map",
+      "6": "map"
+     },
+     "vs": "yProp_PSM_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "model_part",
+   "draws": 20749,
+   "look": "match",
+   "technique": ""
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_COPY_PREV"
+     ],
+     "n": 30,
+     "ps": "yLiquidMap_copy_prev_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yLiquidMap_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_LOCAL_AREA",
+      "FX_SWEAT"
+     ],
+     "n": 10,
+     "ps": "yLiquidMap_sweat_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map"
+     },
+     "vs": "yLiquidMap_local_area_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "other",
+   "draws": 40,
+   "look": "match",
+   "technique": "T_Paste"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "BOX4"
+     ],
+     "n": 118,
+     "ps": "yDownScale_box4_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yDownScale_quad_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "post",
+   "draws": 118,
+   "look": "match",
+   "technique": ""
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "DOF"
+     ],
+     "n": 118,
+     "ps": "yDownScale_dof_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map"
+     },
+     "vs": "yDownScale_quad_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "post",
+   "draws": 118,
+   "look": "match",
+   "technique": "T_DownScale2x2_DOF"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_CORNER_UV",
+      "FX_DOF",
+      "FX_FOG"
+     ],
+     "n": 118,
+     "ps": "yGlareEtc_dof_fog_fragment",
+     "slots": {
+      "0": "map",
+      "2": "map",
+      "3": "map",
+      "6": "map"
+     },
+     "vs": "yGlareEtc_corner_uv_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "post",
+   "draws": 118,
+   "look": "match",
+   "technique": "T_Final"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_HOLE_FILL"
+     ],
+     "n": 118,
+     "ps": "yBlur_hole_fill_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "post",
+   "draws": 118,
+   "look": "match",
+   "technique": "T_GaussianBlur"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_FLAG_ANY"
+     ],
+     "n": 942,
+     "ps": "yBlur_flag_any_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 942,
+   "look": "match",
+   "technique": ""
+  },
+  {
+   "choices": [
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [],
+     "n": 590,
+     "ps": "yCircleShadow_base_fragment",
+     "slots": {},
+     "vs": "yCircleShadow_base_vertex",
+     "vstreams": [
+      6,
+      36,
+      57
+     ],
+     "vtex": [],
+     "wmask": 12
+    }
+   ],
+   "class": "shadow",
+   "draws": 590,
+   "look": "match",
+   "technique": "T_CircleShadow"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "GEQUAL 0.501961",
+     "blend": "off",
+     "defines": [
+      "FX_FLAG_ANY"
+     ],
+     "n": 236,
+     "ps": "yBlur_flag_any_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 236,
+   "look": "match",
+   "technique": "T_EffectMask_DownScale"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_PLANE_X",
+      "FX_SHADOW_BLUR"
+     ],
+     "n": 118,
+     "ps": "yBlur_shadow_blur_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_plane_x_vertex",
+     "vstreams": [
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_PLANE_Z",
+      "FX_SHADOW_BLUR"
+     ],
+     "n": 118,
+     "ps": "yBlur_shadow_blur_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_plane_z_vertex",
+     "vstreams": [
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 236,
+   "look": "match",
+   "technique": "T_PlaneShadowBlur"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 2832,
+     "ps": "yPlaneShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yPlaneShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 2832,
+     "ps": "yPlaneShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yPlaneShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 5664,
+   "look": "match",
+   "technique": "T_PlaneShadowMap"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 5192,
+     "ps": "yShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 5192,
+     "ps": "yShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 10384,
+   "look": "match",
+   "technique": "T_ShadowMap"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_MIN_PAIR"
+     ],
+     "n": 118,
+     "ps": "yBlur_min_pair_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_MIN_RGBA"
+     ],
+     "n": 118,
+     "ps": "yBlur_min_rgba_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_T2"
+     ],
+     "n": 118,
+     "ps": "yBlur_t2_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    }
+   ],
+   "class": "shadow",
+   "draws": 354,
+   "look": "match",
+   "technique": "T_ShadowMapBlur"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "ALWAYS 0",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_TINT"
+     ],
+     "n": 236,
+     "ps": "ySprite_tinted_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "ySprite_tint_constant_vertex",
+     "vstreams": [
+      37,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "sprite",
+   "draws": 236,
+   "look": "match",
+   "technique": "T_Sprite"
+  },
+  {
+   "choices": [
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX",
+      "FX_SKINNED"
+     ],
+     "n": 1,
+     "ps": "yAudDefault_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudDefault_skinned_lit_lm_vertex_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX",
+      "FX_SKINNED"
+     ],
+     "n": 20,
+     "ps": "yAudDefault_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudDefault_skinned_lit_lm_vertex_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_LIT",
+      "FX_LM_VERTEX"
+     ],
+     "n": 294,
+     "ps": "yAudience_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yAudience_lit_lm_vertex_vertex",
+     "vstreams": [
+      31,
+      57
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "off",
+     "defines": [],
+     "n": 1,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE/ADD a:SRC_ALPHA/ONE/ADD",
+     "defines": [],
+     "n": 2,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [],
+     "n": 378,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_SPEC",
+      "FX_SHADOW",
+      "FX_SPECULAR"
+     ],
+     "n": 572,
+     "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+     "slots": {
+      "0": "map",
+      "12": "map"
+     },
+     "vs": "yBG_Default_shadow_specular_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SHADOW"
+     ],
+     "n": 238,
+     "ps": "yBG_Default_shadow_fragment",
+     "slots": {
+      "0": "map",
+      "12": "map"
+     },
+     "vs": "yBG_Default_shadow_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_SPEC",
+      "FX_SPECULAR",
+      "FX_SPEC_FADE"
+     ],
+     "n": 238,
+     "ps": "yBG_Default_specular_alpha_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_specular_spec_fade_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_SPEC",
+      "FX_SPECULAR"
+     ],
+     "n": 238,
+     "ps": "yBG_Default_specular_alpha_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_Default_specular_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_SPEC",
+      "FX_SPECULAR",
+      "FX_VERTEX_LM"
+     ],
+     "n": 1,
+     "ps": "yBG_Default_specular_alpha_spec_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBG_Default_specular_vertex_lm_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_VERTEX_LM"
+     ],
+     "n": 605,
+     "ps": "yBG_Default_base_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBG_Default_vertex_lm_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_NO_LM"
+     ],
+     "n": 238,
+     "ps": "yBG_UVScroll_no_lm_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBG_UVScroll_no_lm_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.501961",
+     "blend": "off",
+     "defines": [
+      "FX_FLAG_ANY"
+     ],
+     "n": 2,
+     "ps": "yBlur_flag_any_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_FLAG_ANY"
+     ],
+     "n": 8,
+     "ps": "yBlur_flag_any_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_HOLE_FILL"
+     ],
+     "n": 1,
+     "ps": "yBlur_hole_fill_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_base_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_MIN_PAIR"
+     ],
+     "n": 1,
+     "ps": "yBlur_min_pair_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_MIN_RGBA"
+     ],
+     "n": 1,
+     "ps": "yBlur_min_rgba_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_MASKED",
+      "FX_T2"
+     ],
+     "n": 1,
+     "ps": "yBlur_t2_fragment",
+     "slots": {
+      "0": "map",
+      "16": "map"
+     },
+     "vs": "yBlur_masked_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [
+      16
+     ],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_PLANE_X",
+      "FX_SHADOW_BLUR"
+     ],
+     "n": 1,
+     "ps": "yBlur_shadow_blur_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_plane_x_vertex",
+     "vstreams": [
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_PLANE_Z",
+      "FX_SHADOW_BLUR"
+     ],
+     "n": 1,
+     "ps": "yBlur_shadow_blur_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yBlur_plane_z_vertex",
+     "vstreams": [
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.501961",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 476,
+     "ps": "yCh_Aniso_trans_base_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "13": "map",
+      "15": "map",
+      "8": "map",
+      "9": "map"
+     },
+     "vs": "yCh_Aniso_trans_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_CUBE_SPECULAR",
+      "FX_ENV_LIGHT",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_VIEW_NORMAL"
+     ],
+     "n": 238,
+     "ps": "yCh_Reflect_cube_specular_shadow_env_light_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "10": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "15": "map",
+      "6": "map"
+     },
+     "vs": "yCh_Reflect_skinned_shadow_view_normal_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BLOOD",
+      "FX_BLOOD_BUMP",
+      "FX_CUBE_SPECULAR",
+      "FX_SHADOW",
+      "FX_SKINNED"
+     ],
+     "n": 3213,
+     "ps": "yCh_gear_cube_specular_shadow_blood_blood_bump_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "3": "map",
+      "6": "map"
+     },
+     "vs": "yCh_gear_skinned_shadow_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BLOOD",
+      "FX_BLOOD_BUMP",
+      "FX_CUBE_SPECULAR",
+      "FX_SHADOW",
+      "FX_SKINNED"
+     ],
+     "n": 476,
+     "ps": "yCh_gear_cube_specular_shadow_blood_blood_bump_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "3": "map",
+      "6": "map"
+     },
+     "vs": "yCh_gear_skinned_shadow_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BLOOD",
+      "FX_BLOOD_TINT",
+      "FX_BSS",
+      "FX_CUBE_SPECULAR",
+      "FX_ID_MAP",
+      "FX_MUSCLE",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_SPHERE_OCC",
+      "FX_SWEAT"
+     ],
+     "n": 1309,
+     "ps": "yCh_skin_flex_muscle_cube_specular_shadow_bss_blood_tint_sweat_blood_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "2": "map",
+      "4": "map",
+      "6": "map"
+     },
+     "vs": "yCh_skin_flex_skinned_shadow_sphere_occ_id_map_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BLOOD",
+      "FX_BLOOD_TINT",
+      "FX_BSS",
+      "FX_CUBE_SPECULAR",
+      "FX_ID_MAP",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_SPHERE_OCC",
+      "FX_SWEAT"
+     ],
+     "n": 952,
+     "ps": "yCh_skin_cube_specular_shadow_bss_blood_tint_sweat_blood_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "4": "map",
+      "6": "map"
+     },
+     "vs": "yCh_skin_skinned_shadow_sphere_occ_id_map_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BSS",
+      "FX_CUBE_SPECULAR",
+      "FX_ID_MAP",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_SPHERE_OCC",
+      "FX_SWEAT"
+     ],
+     "n": 238,
+     "ps": "yCh_skin_cube_specular_shadow_bss_sweat_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "4": "map",
+      "6": "map"
+     },
+     "vs": "yCh_skin_skinned_shadow_sphere_occ_id_map_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_BLOOD",
+      "FX_BLOOD_TINT",
+      "FX_BSS",
+      "FX_CUBE_SPECULAR",
+      "FX_ID_MAP",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_SPHERE_OCC",
+      "FX_SWEAT",
+      "FX_WRINKLES",
+      "FX_WRINKLE_LEVEL"
+     ],
+     "n": 952,
+     "ps": "yCh_skin_cube_specular_shadow_wrinkles_bss_blood_tint_sweat_blood_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "14": "map",
+      "15": "map",
+      "4": "map",
+      "5": "map",
+      "6": "map"
+     },
+     "vs": "yCh_skin_skinned_shadow_sphere_occ_id_map_wrinkle_level_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_CUBE_SPECULAR",
+      "FX_SHADOW",
+      "FX_SKINNED",
+      "FX_SPHERE_OCC"
+     ],
+     "n": 238,
+     "ps": "yCh_skin_cube_specular_shadow_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "12": "map",
+      "13": "map",
+      "15": "map"
+     },
+     "vs": "yCh_skin_skinned_shadow_sphere_occ_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED",
+      "FX_VIEW_NORMAL"
+     ],
+     "n": 238,
+     "ps": "yCh_trans_base_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "13": "map",
+      "15": "map"
+     },
+     "vs": "yCh_trans_skinned_view_normal_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.501961",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED",
+      "FX_VIEW_NORMAL"
+     ],
+     "n": 238,
+     "ps": "yCh_trans_base_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "13": "map",
+      "15": "map"
+     },
+     "vs": "yCh_trans_skinned_view_normal_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_CUBE_SPECULAR",
+      "FX_SKINNED",
+      "FX_VIEW_NORMAL"
+     ],
+     "n": 714,
+     "ps": "yCh_trans_cube_specular_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "13": "map",
+      "15": "map"
+     },
+     "vs": "yCh_trans_skinned_view_normal_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.501961",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_CUBE_SPECULAR",
+      "FX_SKINNED",
+      "FX_VIEW_NORMAL"
+     ],
+     "n": 238,
+     "ps": "yCh_trans_cube_specular_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map",
+      "11": "map",
+      "13": "map",
+      "15": "map"
+     },
+     "vs": "yCh_trans_skinned_view_normal_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [],
+     "n": 5,
+     "ps": "yCircleShadow_base_fragment",
+     "slots": {},
+     "vs": "yCircleShadow_base_vertex",
+     "vstreams": [
+      6,
+      36,
+      57
+     ],
+     "vtex": [],
+     "wmask": 12
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "BOX4"
+     ],
+     "n": 1,
+     "ps": "yDownScale_box4_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yDownScale_quad_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "DOF"
+     ],
+     "n": 1,
+     "ps": "yDownScale_dof_fragment",
+     "slots": {
+      "0": "map",
+      "1": "map"
+     },
+     "vs": "yDownScale_quad_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_CORNER_UV",
+      "FX_DOF",
+      "FX_FOG"
+     ],
+     "n": 1,
+     "ps": "yGlareEtc_dof_fog_fragment",
+     "slots": {
+      "0": "map",
+      "2": "map",
+      "3": "map",
+      "6": "map"
+     },
+     "vs": "yGlareEtc_corner_uv_vertex",
+     "vstreams": [
+      37,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 24,
+     "ps": "yPlaneShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yPlaneShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 24,
+     "ps": "yPlaneShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yPlaneShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SPEC_MAP"
+     ],
+     "n": 35,
+     "ps": "yProp_BumpMap_spec_map_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map",
+      "5": "map"
+     },
+     "vs": "yProp_BumpMap_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC_FADE"
+     ],
+     "n": 24,
+     "ps": "yProp_BumpMap_alpha_gloss_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_spec_fade_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_NORMAL_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC_FADE"
+     ],
+     "n": 2,
+     "ps": "yProp_BumpMap_normal_gloss_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_spec_fade_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_REFLECT",
+      "FX_REFLECT_MAP",
+      "FX_SKINNED"
+     ],
+     "n": 6,
+     "ps": "yProp_BumpMap_alpha_gloss_reflect_reflect_map_fragment",
+     "slots": {
+      "0": "map",
+      "4": "map",
+      "8": "map",
+      "9": "map"
+     },
+     "vs": "yProp_BumpMap_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [],
+     "n": 1,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_base_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 8,
+     "ps": "yProp_Default_spec_alpha_gloss_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_ALPHA_GLOSS",
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 965,
+     "ps": "yProp_Default_spec_alpha_gloss_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 23,
+     "ps": "yProp_Default_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED",
+      "FX_SPEC"
+     ],
+     "n": 3,
+     "ps": "yProp_Default_spec_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_spec_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 1,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 974,
+     "ps": "yProp_Default_base_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "yProp_Default_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "GEQUAL 0.00392157",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_SCREEN_SHADOW",
+      "FX_SKINNED"
+     ],
+     "n": 1,
+     "ps": "yProp_PSM_screen_shadow_fragment",
+     "slots": {
+      "0": "map",
+      "12": "map",
+      "6": "map"
+     },
+     "vs": "yProp_PSM_skinned_vertex",
+     "vstreams": [
+      6,
+      17,
+      31,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 1190,
+     "ps": "yRimLightMap_base_fragment",
+     "slots": {},
+     "vs": "yRimLightMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 7378,
+     "ps": "yRimLightMap_base_fragment",
+     "slots": {},
+     "vs": "yRimLightMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 758,
+     "ps": "yShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "off",
+     "blend": "off",
+     "defines": [
+      "FX_SKINNED"
+     ],
+     "n": 5280,
+     "ps": "yShadowMap_base_fragment",
+     "slots": {},
+     "vs": "yShadowMap_skinned_vertex",
+     "vstreams": [
+      6,
+      38,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    },
+    {
+     "alpha": "ALWAYS 0",
+     "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+     "defines": [
+      "FX_TINT"
+     ],
+     "n": 2,
+     "ps": "ySprite_tinted_fragment",
+     "slots": {
+      "0": "map"
+     },
+     "vs": "ySprite_tint_constant_vertex",
+     "vstreams": [
+      37,
+      57
+     ],
+     "vtex": [],
+     "wmask": 15
+    }
+   ],
+   "class": "unnamed",
+   "draws": 29069,
+   "look": "match",
+   "technique": ""
+  }
+ ],
+ "format": 1,
+ "looks": {
+  "match": {
+   "captures": [
+    "a04_match"
+   ],
+   "frames": 119
+  }
+ },
+ "meshes": [
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#4",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 4,
+   "tex": "stand_ground0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#7",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 7,
+   "tex": "stand_ground0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#11",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 11,
+   "tex": "stand_ground0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#15",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [],
+       "n": 20,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 20
+    }
+   },
+   "mesh": 0,
+   "slot": 15,
+   "tex": "stand_ground0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#18",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 18,
+   "tex": "stand_chair0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#18",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 18,
+   "tex": "stand_chair1"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#26",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 24,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 24
+    }
+   },
+   "mesh": 0,
+   "slot": 26,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#26",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 24,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 24
+    }
+   },
+   "mesh": 1,
+   "slot": 26,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#27",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 27,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#28",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 28,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#28",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 28,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#29",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 29,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#30",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 24,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 24
+    }
+   },
+   "mesh": 0,
+   "slot": 30,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#30",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SHADOW",
+        "FX_SPECULAR"
+       ],
+       "n": 24,
+       "ps": "yBG_Default_shadow_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 24
+    }
+   },
+   "mesh": 1,
+   "slot": 30,
+   "tex": "ar_dm"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#35",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SPECULAR",
+        "FX_SPEC_FADE"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_specular_spec_fade_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 35,
+   "tex": "ar_fence_b"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#35",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SPECULAR",
+        "FX_SPEC_FADE"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_specular_spec_fade_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 35,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#35",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 35,
+   "tex": "ar_fence2"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#43",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 43,
+   "tex": "ar_fen_wwe"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#43",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 43,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#44",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 44,
+   "tex": "ar_fen_sdw"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#47",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SPECULAR"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_specular_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 47,
+   "tex": "ji_chair"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 102,
+   "tex": "msg_stair"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 102,
+   "tex": "msg_seat0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 102,
+   "tex": "msg_wall0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 3,
+   "slot": 102,
+   "tex": "msg_stair"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 4,
+   "slot": 102,
+   "tex": "stand_ground0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 5,
+   "slot": 102,
+   "tex": "msg_wall0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#102",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 6,
+   "slot": 102,
+   "tex": "msg_stair"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#115",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 115,
+   "tex": "msg_door1"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#115",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 115,
+   "tex": "msg_name0"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#115",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 115,
+   "tex": "msg_wall3"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#129",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [],
+       "n": 119,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 129,
+   "tex": "msg_name1"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#144",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_SPEC",
+        "FX_SPECULAR",
+        "FX_VERTEX_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_specular_alpha_spec_fragment",
+       "slots": {
+        "0": "map",
+        "16": "map"
+       },
+       "vs": "yBG_Default_specular_vertex_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [
+        16
+       ],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 144,
+   "tex": "msg_fence2"
+  },
+  {
+   "effect": "yBG_UVScroll",
+   "file": "bg04.pac#209",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_NO_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_UVScroll_no_lm_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_UVScroll_no_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 209,
+   "tex": "otl_titan01ref2"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#209",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SHADOW"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 209,
+   "tex": "otl_glow"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#210",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SHADOW"
+       ],
+       "n": 119,
+       "ps": "yBG_Default_shadow_fragment",
+       "slots": {
+        "0": "map",
+        "12": "map"
+       },
+       "vs": "yBG_Default_shadow_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 210,
+   "tex": "otl_titan01ref1"
+  },
+  {
+   "effect": "yBG_UVScroll",
+   "file": "bg04.pac#287",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_NO_LM"
+       ],
+       "n": 119,
+       "ps": "yBG_UVScroll_no_lm_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_UVScroll_no_lm_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 287,
+   "tex": "banner01"
+  },
+  {
+   "effect": "yBG_Default",
+   "file": "bg04.pac#288",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE/ADD a:SRC_ALPHA/ONE/ADD",
+       "defines": [],
+       "n": 238,
+       "ps": "yBG_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yBG_Default_base_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 238
+    }
+   },
+   "mesh": 0,
+   "slot": 288,
+   "tex": "banner_lig01"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#390",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 390,
+   "tex": "ar_fence_b"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#390",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 390,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#390",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 390,
+   "tex": "ar_fence2"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#391",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 391,
+   "tex": "ar_fence_b"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#391",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 391,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#391",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 391,
+   "tex": "ar_fence2"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#392",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 392,
+   "tex": "ar_fence_b"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#392",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 392,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#392",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 392,
+   "tex": "ar_fence2"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#393",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 393,
+   "tex": "ar_fence_b"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#393",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_ALPHA_GLOSS",
+        "FX_SKINNED",
+        "FX_SPEC"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_spec_alpha_gloss_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_spec_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 1,
+   "slot": 393,
+   "tex": "ar_fence"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#393",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 2,
+   "slot": 393,
+   "tex": "ar_fence2"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#394",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 394,
+   "tex": "ar_fen_wwe"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#395",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 395,
+   "tex": "ar_fen_wwe"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#396",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 396,
+   "tex": "ar_fen_wwe"
+  },
+  {
+   "effect": "yProp_Default",
+   "file": "bg04.pac#397",
+   "looks": {
+    "match": {
+     "ambiguous": 0,
+     "choices": [
+      {
+       "alpha": "GEQUAL 0.00392157",
+       "blend": "on SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD a:SRC_ALPHA/ONE_MINUS_SRC_ALPHA/ADD",
+       "defines": [
+        "FX_SKINNED"
+       ],
+       "n": 119,
+       "ps": "yProp_Default_base_fragment",
+       "slots": {
+        "0": "map"
+       },
+       "vs": "yProp_Default_skinned_vertex",
+       "vstreams": [
+        6,
+        17,
+        31,
+        38
+       ],
+       "vtex": [],
+       "wmask": 15
+      }
+     ],
+     "draws": 119
+    }
+   },
+   "mesh": 0,
+   "slot": 397,
+   "tex": "ar_fen_wwe"
+  }
+ ],
+ "scene": "a04",
+ "unjoined": {
+  "match": {
+   "model_part/stage-site": 16520
+  }
+ }
+}

@@ -120,7 +120,7 @@ def main():
     bad_file('fault_truncated.rsc', first[:len(first) // 2], 'truncated')
     bad_file('fault_empty.rsc', b'', 'truncated')
     ver = bytearray(first)
-    ver[4:8] = struct.pack('<I', 2)
+    ver[4:8] = struct.pack('<I', 77)  # S103 R: neither 1 nor 2 (S102 T19 made version 2 valid)
     bad_file('fault_version.rsc', bytes(ver), 'version')
     # wrong element_size: the Object section's directory entry (id 4)
     count = struct.unpack_from('<I', first, 8)[0]

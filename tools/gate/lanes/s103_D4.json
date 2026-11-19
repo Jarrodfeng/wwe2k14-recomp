@@ -1,0 +1,24 @@
+{
+ "owner": "S103 lane D4: the crowd's signs / foam hands (kScCrowdProps, id 46) and single standing people (kScCrowdSingles, id 47) as record rows + appliers: src/renderer_scene/scene_record.h (rows), record_io.* (tables), crowd_prop_rows.h (the writer API lane D3's readers call), live_crowd.* (LiveCrowd draws props instanced with the audience material and singles as members), rf_crowd.cpp (class table), assets/crowd_body.* (GameRoot); tools/scene/d4_unit.cpp, d4_check.py, frame_rig.cpp (--props / --single / --single-like). 0 game runs, headless.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "needs the brock_losswin capture (scene records + stream) and the game files (main checkout). Unit: the rows through the writer API and the record file (round trip, refusals, id order, expanded copy), with three plants (world_transposed, no_serialize, accept_nan). d4_check: the stream's prop draws (mesh, rotation, scale) are appended through the writer API, RELOCATED above stands people (every stream prop draw of this capture is behind or outside the camera: measured), drawn alone through the class table (LiveCrowd), and compared with an independent Python projection of the player's own audience-set meshes (IoU 0.93-0.94 on frames 20 / 110 / 200); a mesh key the set lacks is a counted hole with its reason; a moved clone of a stands person is drawn as a SINGLE row within 6 px of its projected body centre; planted twins props_transposed / props_wrong_key / singles_identity / the oracle's own transposed read each fail their bar.",
+ "checks": [
+  {"name": "s103_D4.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_D4.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_d4_unit.ps1"], "timeout_s": 300},
+  {"name": "s103_D4.unit", "cmd": ["out/tools/d4_unit.exe"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/crowd_prop_rows.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.cpp", "tools/scene/d4_unit.cpp"]},
+  {"name": "s103_D4.unit_plant_transposed", "cmd": ["pwsh", "-NoProfile", "-Command", "out/tools/d4_unit.exe --plant world_transposed; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/crowd_prop_rows.h", "tools/scene/d4_unit.cpp"]},
+  {"name": "s103_D4.unit_plant_no_serialize", "cmd": ["pwsh", "-NoProfile", "-Command", "out/tools/d4_unit.exe --plant no_serialize; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/record_io.cpp", "tools/scene/d4_unit.cpp"]},
+  {"name": "s103_D4.unit_plant_accept_nan", "cmd": ["pwsh", "-NoProfile", "-Command", "out/tools/d4_unit.exe --plant accept_nan; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/crowd_prop_rows.h", "tools/scene/d4_unit.cpp"]},
+  {"name": "s103_D4.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120,
+   "affects": ["src/renderer_scene/record_io.h", "src/renderer_scene/record_io.cpp", "src/case/case_scene.cpp"]},
+  {"name": "s103_D4.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_crowd.cpp,src/renderer_scene/rf_crowd.cpp,src/renderer_scene/record_io.cpp,src/assets/crowd_body.cpp,src/case/case_scene.cpp"], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_scene/live_crowd.h", "src/renderer_scene/crowd_prop_rows.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.h"]},
+  {"name": "s103_D4.proof", "cmd": ["py", "-I", "tools/scene/d4_check.py"], "timeout_s": 900, "needs": ["out/captures/brock_losswin", "game_data/extracted"],
+   "programs": [{"path": "out/tools/frame_rig.exe", "sources": ["src/renderer_scene/live_crowd.*", "src/renderer_scene/rf_crowd.*", "src/renderer_scene/crowd_prop_rows.h", "src/renderer_scene/record_io.*", "src/renderer_scene/scene_record.h", "src/assets/crowd_body.*", "src/assets/crowd_prop_game_space.*", "src/renderer/**", "tools/scene/frame_rig.cpp"]}]}
+ ]
+}

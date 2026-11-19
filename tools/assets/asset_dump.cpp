@@ -125,6 +125,7 @@ int main(int argc, char** argv) {
     else if (a == "--attire") attire = std::atoi(next().c_str());
     else if (a == "--arena") arena = std::atoi(next().c_str());
     else if (a == "--all") all = true;
+    else if (a == "--plant-borrow-empty") assets::load_detail::BorrowEmptyTablePlant() = true;  // S103 WMB: the donor table treated as empty (the borrowed-texture warnings come back)
     else if (a == "--json") json = next();
     else if (a == "--materials") materials = true;
     else if (a == "--entry") entry_key = std::atoi(next().c_str());  // Session 97: with --arena N and --entry-out FILE: one decoded top-level pac entry to a file (analysis only, under out\)
@@ -238,7 +239,7 @@ int main(int argc, char** argv) {
     }
     for (size_t k = 0; k < m.materials.size(); ++k) {
       const assets::Material& mt = m.materials[k];
-      std::printf("%3zu %-18s diffuse %-22s normal %-22s mask %-18s lightmap %s\n", k, mt.shader.c_str(), nm(mt.diffuse).c_str(), nm(mt.normal).c_str(), nm(mt.mask).c_str(), nm(mt.lightmap).c_str());
+      std::printf("%3zu %-18s diffuse %-22s normal %-22s mask %-18s lightmap %s  fur %g difamb %g\n", k, mt.shader.c_str(), nm(mt.diffuse).c_str(), nm(mt.normal).c_str(), nm(mt.mask).c_str(), nm(mt.lightmap).c_str(), double(mt.fur_level), double(mt.dif_amb_level));
     }
     return 0;
   }

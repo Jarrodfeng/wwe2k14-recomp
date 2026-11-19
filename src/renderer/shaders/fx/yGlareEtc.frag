@@ -27,6 +27,9 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
 #ifdef FX_TONEMAP
   vec4 MiddleGray;
 #endif
+#ifdef FX_VDEPTH
+  vec4 VDepthK;        // S103 SLV2: x q, y nq, z 9.92 (the viewer depth folded into the depth fetch, see gameDepth)
+#endif
 #endif
 } fc;
 #endif
@@ -34,6 +37,16 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
 layout(set = 1, binding = 0) uniform sampler2D textures[16];
 layout(location = 0) in vec4 inUv;
 layout(location = 0) out vec4 outColor;
+
+// S103 SLV2 (FX_VDEPTH, the `_vd` twins): the viewer-depth -> game-depth conversion folded into the sampling. The scene's own depth (an ordinary 0..1 depth) is bound raw and converted HERE, with EXACTLY the
+// expression of rdr_post_depth.frag (two divisions, two max; no multiply-add can form): w = nq / max(q - d, 1e-7); game depth = 9.92 / max(w, 1e-3). VDepthK = (q, nq, 9.92). A nearest fetch then convert is
+// the same float as convert then fetch (post_pass.cpp uses these twins only where every depth sample is nearest and the depth image is the conversion target's size).
+#ifdef FX_VDEPTH
+float gameDepth(float d) {
+  float w = fc.VDepthK.y / max(fc.VDepthK.x - d, 1e-7);
+  return fc.VDepthK.z / max(w, 1e-3);
+}
+#endif
 
 #ifndef FX_ADAPT
 #ifdef FX_LITE_FXAA
@@ -97,7 +110,11 @@ void main() {
   vec2 uv = inUv.xy;
   vec3 color = smoothEdges(uv, inUv.zw);
 #if defined(FX_DOF) || defined(FX_FOG)
+#ifdef FX_VDEPTH
+  float depth = gameDepth(texture(textures[3], uv).x);
+#else
   float depth = texture(textures[3], uv).x;
+#endif
 #endif
 #ifdef FX_DOF
 #ifdef FX_LITE

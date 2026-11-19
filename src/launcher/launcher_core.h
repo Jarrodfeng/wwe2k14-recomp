@@ -1157,6 +1157,9 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   } else if (s.wm30 >= 0) {
     // Session 34: the game drives its menus to the 30 Years match (src\wm30_jump.h); no scenario at the same time.
     f.push_back("--wwe2k14_wm30=" + std::to_string(s.wm30));
+    // Session 103 (Jarrod, 2026-11-19: "the launchers play this match should be the route"): the menu-free start
+    // (src\wm30_boot.h, run 052), no 30 Years menus in between.
+    f.push_back("--wwe2k14_wm30_direct=true");
   } else if (!s.scenario.empty()) {
     f.push_back("--wwe2k14_launch=" + s.scenario);
     if (s.arena_override) f.push_back("--wwe2k14_launch_arena=" + std::to_string(s.arena));

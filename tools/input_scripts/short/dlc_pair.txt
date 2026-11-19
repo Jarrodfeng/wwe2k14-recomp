@@ -1,3 +1,6 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=377,324 --wwe2k14_dlc=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_scene=2
+# intent: owner on, scene 2, flag --wwe2k14_dlc=true
+# Speed: fast-forward (no realtime line; waits are by file / state). S103 RTE (COV.md row 5): the flags moved into this header, id 377 (Kevin Nash nWo) v 324. Pass the DLC folder with -Extra "--wwe2k14_dlc_dir=<game_data\dlc>" (default: dlc next to the game folder).
 # Session 32 (DLC, plan item 4): one DLC wrestler in a Quick Match. Use with --wwe2k14_launch=@quick
 # --wwe2k14_quick_type=0 --wwe2k14_launch_participants=ID,324 (Daniel Bryan) --wwe2k14_dlc=true --wwe2k14_dlc_dir=DIR.
 # For the DLC ids the six-pack route (dlc_six.txt) could not finish: an entrance START does not skip at some steps

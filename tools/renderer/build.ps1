@@ -19,6 +19,10 @@ if (-not $NoShaders) {
 }
 
 $clang = 'C:\Program Files\LLVM\bin\clang++.exe'
+# S103 GX: compiles go through the shared sccache (PREPROCESSOR mode, repo-relative paths; tools\cxx_cache.ps1, as tools\fview\build.ps1). WWE_NO_CCACHE=1 = plain clang++.
+. (Join-Path $repo 'tools\env.ps1') | Out-Null
+. (Join-Path $repo 'tools\cxx_cache.ps1')
+$ccExe = if ($cxxCacheOn) { $cxx0 } else { $clang }; $ccArgs = @(if ($cxxCacheOn) { $cxxRest })
 $sdk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name | Select-Object -Last 1).FullName
 $flags = @('-std=c++20', '-Wall', '-Wextra', '-Wno-unused-parameter', '-Werror=switch', '-Wno-missing-field-initializers', '-g', "-I$sdk\Include", '-D_CRT_SECURE_NO_WARNINGS', '-MMD')
 if ($Surface) { $flags += @('-fms-runtime-lib=static') }   # S102 M2
@@ -51,11 +55,13 @@ $sources | ForEach-Object -ThrottleLimit 12 -Parallel {
     $list = $list.Substring($list.IndexOf(': ') + 2)
     foreach ($item in ($list -split '(?<!\\)\s+')) {
       $path = $item -replace '\\ ', ' '
+      if ($path -and -not [IO.Path]::IsPathRooted($path)) { $path = Join-Path $using:repo $path }   # S103 GX: -MMD of a relative compile lists relative paths
       if ($path -and (Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).LastWriteTimeUtc -gt $objectTime) { $stale = $true; break }
     }
   }
   if ($stale) {
-    $text = & $using:clang @using:flags -c $source -o $object 2>&1
+    $rel = $source.Substring($using:repo.Length + 1); $relObj = $object.Substring($using:repo.Length + 1)   # sources and objects named relative to the repo (cwd = repo root)
+    $text = & $using:ccExe @using:ccArgs @using:flags -c $rel -o $relObj 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
 }
@@ -67,7 +73,9 @@ $missingObjects = @($objectFiles | Where-Object { -not (Test-Path $_) })
 if ($missingObjects.Count) { throw "missing objects: $($missingObjects -join ', ')" }
 # S101 lane 163: no object is newer than the exe -> nothing to link. Relinking an unchanged tree failed with 'permission denied' whenever another
 # process (a gate lane, a viewer) had the exe open.
-if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-Host "up to date $exe"; exit 0 }
+if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra @((Join-Path $repo 'tools\fview\session_deps.txt')); Write-Host "up to date $exe"; exit 0 }
+Show-CxxCache
 & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -ld3d11 -ldxgi -ldwmapi -lole32 -luuid -lshell32 -o $exe
 if ($LASTEXITCODE -ne 0) { throw 'link failed' }
+Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra @((Join-Path $repo 'tools\fview\session_deps.txt'))   # S103 DIB: <exe>.deps.txt = what this exe was built from (tools\gate\deps.py)
 Write-Host "built $exe"

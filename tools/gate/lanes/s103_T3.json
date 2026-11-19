@@ -1,0 +1,18 @@
+{
+ "owner": "S103 lane T3 (Fable review 2, Q4): tools/scene/rig_parity.py = the rig-vs-live parity gate: the offline rig (frame_rig.exe) drawing record j at the live picture's size with the live path's settings must equal the run's own live_scene_ours_j, per region (crowd, arena, ring, wrestlers, whole). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Runs 28 / 29 (mirror runs; each case keeps the last 291 records, so one live picture each: guest frame 15000). Live settings in the rig: the display curve (S100 five points: the case carries none), the record's post row, the body scales TOLD (the case carries no latch; slot 0 1.0125 and slot 1 0.9275 are fitted by rig_parity --fit-scales on run 28 [U that they equal the game's latch]), the maps / particle hooks. Run 29 passes every region on the tight bar (stands ratio 1.015, wrestlers 0.987). Run 28's wrestlers are judged on the wide bar (--wrestlers-wide): its live picture predates the wrestler lighting the current rig draws (build difference, named). The proof (the 1.4x re-found): the bare rig (no curve, no post, no body scale, no hooks) must FAIL in the stands (crowd ratio 1.42 against live), the token 'PARITY crowd'.",
+ "checks": [
+  {"name": "s103_T3.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_T3.run28_live_settings", "cmd": ["py", "-I", "tools/scene/rig_parity.py", "--case", "out/s103/run28_case.zip", "--live", "out/s103/run28_live", "--frames", "15000", "--wrestlers-wide", "--scales", "actor:slot:0=1.0125,actor:slot:1=0.9275,actor:slot:6=1.0,actor:slot:7=1.0,actor:slot:8=1.0"], "timeout_s": 900,
+   "needs": ["out/s103/run28_case.zip", "out/s103/run28_live/live_scene_ours_f15000.png", "game_data/extracted"],
+   "affects": ["tools/scene/rig_parity.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/*"]},
+  {"name": "s103_T3.run29_live_settings", "cmd": ["py", "-I", "tools/scene/rig_parity.py", "--case", "out/s103/run29_case.zip", "--live", "out/s103/run29_live", "--frames", "15000", "--scales", "actor:slot:0=1.0125,actor:slot:1=0.9275,actor:slot:6=1.0,actor:slot:7=1.0,actor:slot:8=1.0"], "timeout_s": 900,
+   "needs": ["out/s103/run29_case.zip", "out/s103/run29_live/live_scene_ours_f15000.png", "game_data/extracted"],
+   "affects": ["tools/scene/rig_parity.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/*"]},
+  {"name": "s103_T3.refind_stands_1_4x", "cmd": ["py", "-I", "tools/scene/rig_parity.py", "--case", "out/s103/run28_case.zip", "--live", "out/s103/run28_live", "--frames", "15000", "--variant", "bare", "--quick", "--expect-fail", "PARITY crowd"], "timeout_s": 900,
+   "needs": ["out/s103/run28_case.zip", "out/s103/run28_live/live_scene_ours_f15000.png", "game_data/extracted"],
+   "affects": ["tools/scene/rig_parity.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/*"]},
+  {"name": "s103_T3.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

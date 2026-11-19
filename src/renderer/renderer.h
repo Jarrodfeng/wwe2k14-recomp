@@ -55,6 +55,8 @@ struct RendererOptions {
   // RGBA8 / R8 / RG8 and decoded on the CPU at upload (bc_decode.h). 0 = off (the old refusal by name), 1 = auto (only where the device lacks BC: nothing changes
   // on a device that has it), 2 = force (the offline proof on a PC).
   uint32_t bc_decode = 1;
+  // 2026-11-18 (release entrance check): test-only. Every vkCreateGraphicsPipelines in BuildPipeline sleeps this many ms first (a slow driver compile simulated); 0 = off.
+  uint32_t pipeline_delay_ms = 0;
   // S102 U1 (dev builds only, tests): staging_cap_mb shrinks the 256 MB staged-bytes cap; staging_wait_plant brings back the pre-fix wait on the render thread (the planted fault).
   uint32_t staging_cap_mb = 0;
   bool staging_wait_plant = false;
@@ -85,8 +87,19 @@ class Renderer {
   void DestroyImage(ImageId image);
 
   BufferId CreateBuffer(size_t bytes, const void* initial);
-  void UpdateBuffer(BufferId buffer, size_t offset, const void* data, size_t bytes);
+  // S103 PVR: `producer` only labels the copy in the [rdr][gpu][uploads] line (0 other, 1 posed model vertices, 2 cloth / CPU-skinned pieces; rdr::BufferProducer).
+  void UpdateBuffer(BufferId buffer, size_t offset, const void* data, size_t bytes, uint8_t producer = 0);
   void DestroyBuffer(BufferId buffer);
+  // S103 PF2 (docs\research\s103\RCP.md fix F2): a vertex / index buffer the HOST writes in place (no staging, no vkCmdCopyBuffer): host-visible + coherent memory, mapped for the buffer's whole life (`*mapped`).
+  // On a unified-memory device it is device-local too (UnifiedMemory()); elsewhere (a discrete card: only a test asks) device-local is preferred. The caller writes only bytes no frame in flight reads
+  // (RenderSerial / FramesInFlight say which frames may still); the writes become visible to the GPU at the next submit (coherent). kNoBuffer (nothing mapped) when the memory cannot be had.
+  BufferId CreateHostBuffer(size_t bytes, uint8_t** mapped);
+  // S103 PF2: true when no Render that may still be on the GPU has read this host buffer (the renderer's OWN record: Render stamps every host buffer a frame's draws name with that frame's serial). Any thread.
+  bool HostBufferIdle(BufferId buffer) const;
+  uint64_t DirectOverruns() const;   // S103 PF2: frames rendered later than their Record promised (Frame::direct_record, kRendersPerRecord); 0 in a healthy run
+  bool UnifiedMemory() const;        // S103 PF2: device-local memory is host-visible (an integrated GPU, a phone): the posed vertices are written in place
+  uint32_t FramesInFlight() const;   // S103 PF2: the frame slots (a frame that began Render at serial s has waited for every frame <= s - this)
+  uint64_t RenderSerial() const;     // S103 PF2: Renders begun so far (the index the NEXT Render will have). Frames with index < RenderSerial() - FramesInFlight() are finished on the GPU. Any thread.
 
   uint16_t AddProgram(const ProgramDesc& desc);
   uint16_t AddVertexLayout(const VertexLayoutDesc& desc);
@@ -106,6 +119,8 @@ class Renderer {
   // upload is sealed with that frame) makes and uploads the image; SetOverlayImage (the thread that renders) puts it under the id (the old one is destroyed).
   ImageId MakeOverlayTexture(uint32_t width, uint32_t height, const uint8_t* rgba);
   void SetOverlayImage(uint32_t id, ImageId image);
+  // S103 AIM: the ImGui texture of this id is gone (the stream-free host's mailbox): its image is destroyed (DestroyImage: after the frames in flight) and the id leaves the map. Render thread.
+  void RemoveOverlayTexture(uint32_t id);
 
   // 256 RGBA8 entries: the display curve the final draw applies by value. The default is the identity.
   void SetDisplayCurve(const uint8_t* rgba256);
@@ -124,12 +139,21 @@ class Renderer {
   bool ColourTargetable(Format format) const;
   // S102 L1b (light_cubes.h): the frame's queue can run a compute dispatch (false under rdr::g_force_no_compute), and the format can be written by a compute shader AND sampled (8-bit RGBA only).
   bool compute_supported() const;
+  // S103 PS1 (offline tools only; the game never calls it): the raw Vulkan handles (dispatchable, so plain pointers), for a tool that runs a compute pass of its own on the renderer's device and
+  // queue while the renderer is idle (call WaitIdle first): frame_rig's picture compare, tools\scene\rig_metrics_gpu.h. No state is read or changed.
+  struct RawVk { void* instance = nullptr; void* physical = nullptr; void* device = nullptr; void* queue = nullptr; uint32_t queue_family = 0; };
+  RawVk RawVulkan() const;
   bool StorageTargetable(Format format) const;
   // S101 lane22: the GPU time of the last rendered frame's command buffer in ns (top to bottom of pipe), waiting for it if need be; 0 when
   // gpu_timestamps is off, the queue has no valid timestamp bits, or no frame was rendered.
   uint64_t LastGpuNs();
   // S102 M1: the counts of the last rendered frame (counts.h); empty (frame 0, no passes) when RendererOptions::counts is off or no frame was rendered. Render thread.
   const FrameCounts& LastFrameCounts() const;
+  // S103 UPL: what the last rendered frame's ApplyUploads recorded (always counted, no switch): image copies, buffer copies, barriers, the bytes of the image copies, and whether the batch (g_upload_batch) took effect. Render thread / after the frame.
+  struct UploadStats { uint32_t images = 0, buffers = 0, barriers = 0; uint64_t bytes = 0; bool batched = false; uint64_t total_frames = 0, total_images = 0, total_buffers = 0, total_barriers = 0, total_bytes = 0; /* since start, frames that uploaded */ uint32_t by_producer[3] = {0, 0, 0}; uint64_t total_by_producer[3] = {0, 0, 0}; /* S103 PVR: buffer copies by producer (rdr::BufferProducer): this frame / since start */ };
+  UploadStats LastUploadStats() const;
+  // S103 PVR: the bytes of one frame-ring section a frame may fill with constants + geometry + the previous tick's constants (the section minus the overlay / DLSS / constant tails and an alignment slack): a frame over it is DROPPED (frame_ring_full). A producer with a budget asks before it pushes.
+  uint32_t RingRoom() const;
   // S102 M1 test plant (rplay --counts-plant PASS): one extra draw is recorded (a repeat of the pass's last draw) in render pass number PASS of every frame, so the budget check has a fault to catch. -1 = off.
   void SetCountsPlant(int pass);
   // Lane 269: logs the GPU time window so far (median / p95 / max); the renderer logs one every 600 frames and at shutdown by itself.
@@ -147,15 +171,33 @@ class Renderer {
     double acquire_ms = 0, present_call_ms = 0;     // per Render, over the whole run
     uint64_t frames = 0, no_pass = 0, no_present = 0, overflow = 0;
     double stamps_a_frame = 0;
+    // S103 GT (stamp-per-step frames only, --wwe2k14_rdr_gpu_pass_stamps): the bracket check. steps_recorded / steps_closed = the steps the frames recorded / the steps a stamp of their own closed (equal = every
+    // steps closed by a WRITTEN stamp (a dropped one does not count); ident_frames / ident_bad = stamped frames / frames whose stamp count broke 2 + uploads pair + closes + tail (CPU side, independent of the GPU numbers).
+    uint64_t census_frames = 0, steps_recorded = 0, steps_closed = 0;
+    uint64_t ident_frames = 0, ident_bad = 0;
   };
   GpuRoleTotals GpuRoles() const;
+  // S103 GT: the whole run's upload view: frames that uploaded <= 1 MB (steady) and > 1 MB (loading), their bytes, and the GPU span of the uploads' commands (needs the stamps on; frames_with_span frames).
+  struct UploadTotals {
+    uint64_t steady_frames = 0, steady_bytes = 0, loading_frames = 0, loading_bytes = 0, max_bytes = 0, frames_with_span = 0;
+    double gpu_ms_sum = 0;   // over frames_with_span
+  };
+  UploadTotals UploadRun() const;
+  // S103 GT round 3: the live COLOUR target images that no role names (gpu_class other): a pass drawn into one is billed to `other`. Test / rig use (after the frames; call with the host idle). Returns the count; `what` gets "id WxH fmt" each.
+  uint32_t UnnamedColourTargets(std::vector<std::string>* what) const;
   // S102 G5 (docs\renderer\GPU_OUTSIDE.md): the whole run's sums of the points outside our command buffers (outside.h); the CPU side always counts, the GPU side needs rdr::g_gpu_outside.
   const OutsideSums& OutsideRun() const;
+  // S103 CB1: frames that were recorded but never reached the GPU: Render's early return (ring full), a failed submit, a lost device, and a frame the host built and then did not hand over (NoteFrameDropped, scene_host.cpp).
+  // A stage hook that keeps GPU state across frames (the crowd card atlas) distrusts what it recorded when this moves.
+  uint64_t FramesDropped() const;
+  void NoteFrameDropped();
 
   // Blocks until the GPU is idle, then copies mip 0 / layer 0 to tightly packed RGBA8. Test and screenshot use only.
   bool ReadImage(ImageRef image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);
   // S102 G2 (rplay --present-size, test use): the last picture the present drew into the offscreen output, as RGBA8. False with a window or before any present.
   bool ReadPresent(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);
+  // S103 SHOT (review F3): true when the image is live, single-sampled and 8 bits a channel (RGBA8 / BGRA8): the only formats whose read-back is the picture as shown (16F is scaled by its own peak, RGB10A2 is refused).
+  bool ImageIs8Bit(ImageId image) const;
   // Lane 232 (3d a2): the read-back without a drain. QueueReadback asks for a level to be copied (persistent host-visible staging, recorded into the command buffer of the NEXT RenderFrame, after
   // all its steps); false: not readable / already queued or in flight. PollReadbacks (render thread, never waits) appends each copy whose frame's fence has signalled, as RGBA8 like ReadImage.
   struct ReadbackResult {

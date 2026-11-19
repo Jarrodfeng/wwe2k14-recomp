@@ -407,7 +407,10 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
     f.push_back("--wwe2k14_music_mix_into_game=true");
     if (c.music_themes) f.push_back("--wwe2k14_entrance_music=true");
   }
-  if (c.wm30 >= 0) f.push_back("--wwe2k14_wm30=" + std::to_string(c.wm30));
+  if (c.wm30 >= 0) {
+    f.push_back("--wwe2k14_wm30=" + std::to_string(c.wm30));
+    f.push_back("--wwe2k14_wm30_direct=true");  // Session 103 (Jarrod): the menu-free start is the launcher's route (src\wm30_boot.h)
+  }
   // Session 72: a custom Vulkan driver (src\android_driver.h; GameActivity adds the library folder).
   // Part 8: an imported one from its own folder (the hooks stay in the library folder).
   if (!c.driver_dir.empty() && !c.driver_library.empty()) {

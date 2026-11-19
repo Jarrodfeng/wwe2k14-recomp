@@ -1,0 +1,17 @@
+{
+ "owner": "S103 lane B1 (the game's sampler state in the owned draw): src/renderer_scene/sampler_table.h (new: the sampler block parser, the wrapper code tables sub_82C23D78 / sub_82C23FE0, kAnisoFollowsSetting), front_end.cpp (TableSampler at the scene / crowd / vertex-LM sampler sites), live_assets.cpp (the table built from pac\\_startup.pac), live_particles.cpp (the sprite address byte), start_settings.cpp + gfx_menu.h (the texture-filtering level), tools/shaders/effect_table.py (sampler_block / sampler_table), tools/scene/sampler_compare.py + sampler_table_dump.cpp. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "(1) the C++ parser (sampler_table.h) and the code tables on a small exe: its table over the player's effect leaves equals effect_table.py's, the planted stage-12 twin differs; (2) sampler_compare: the table against every draw's bound SamplerDesc over 15 kept captures (3 frames each): U / V / W / mag / min / mip; planted twins yCh_skin stage 5 flipped and the stage-12 point mip dropped must be CAUGHT. The report (matches, the mismatch set = descriptor +28 data and stale state) is the proof, printed, not asserted beyond the twins.",
+ "checks": [
+  {"name": "s103_B1.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_b1_unit.ps1"], "timeout_s": 600,
+   "affects": ["src/renderer_scene/sampler_table.h", "src/renderer_scene/read_rule.h", "tools/scene/sampler_table_dump.cpp"]},
+  {"name": "s103_B1.compare", "cmd": ["py", "-I", "tools/scene/sampler_compare.py", "--root", ".", "--selftest", "--cpp", "out/tools/sampler_table_dump.exe"], "timeout_s": 900,
+   "needs": ["out/captures/a04_entrance", "out/captures/a04_match", "out/captures/brock_losswin", "game_data/extracted"],
+   "affects": ["src/renderer_scene/sampler_table.h", "tools/shaders/effect_table.py", "tools/scene/sampler_compare.py", "tools/scene/sampler_table_dump.cpp"]},
+  {"name": "s103_B1.aniso_lint", "cmd": ["py", "-I", "tools/gate/aniso_lint.py", "--root", ".", "--selftest"], "timeout_s": 120,
+   "affects": ["src/renderer_scene/*", "tools/gate/aniso_lint.py"]},
+  {"name": "s103_B1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_scene/*", "src/start_settings.cpp", "src/gfx_menu.h"]}
+ ]
+}

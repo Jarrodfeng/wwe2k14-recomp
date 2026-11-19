@@ -25,14 +25,18 @@
 #include <rex/system/xmemory.h>
 
 #include "crowd_contrib.h"
+#include "crowd_mgr_reader.h"  // S103 D8: mgr::kRingIndex
 #include "crowd_floor.h"  // S101 lane 82: the seated floor people's op-21 decode (pure; unit-tested by tools/scene/crowd_make --contract)
+#include "inputs_core.h"  // S103 D3: required input bit 10 (kInCrowdSnapshot), stamped by the crowd contributor
 #include "crowd_skip_core.h"  // S101 lane 50: t_draws (the P2b decider), reset in the sub_82519508 hook below
 #include "bake_skip_hook.h"  // lane 155: the card bake's invisible cut (the pass hook sub_827FD698; the observers are called below and in scene_crowd.h)
 #include "card_thin_hook.h"  // lane 175: the far cards thin record (observers called below and in scene_crowd.h)
+#include "scene_skip_nodes.h"  // S103 H: the scene decision and the crowd entry's kept registration
 #include "member_thin_hook.h"  // lane 272: the stands / floor members thin record (observers called below and in scene_crowd.h)
 
 REX_EXTERN(__imp__sub_82509CB8);
 REX_EXTERN(__imp__sub_82519508);
+REX_EXTERN(__imp__sub_8276E2C0);   // S103 C1 review fix 2: the singles' screen test (observed, never changed)
 
 namespace wwe2k14::crowd_live {
 
@@ -77,6 +81,17 @@ inline uint32_t Be32(uint8_t* base, uint32_t address) {
 }
 inline float BeF(uint8_t* base, uint32_t address) { return std::bit_cast<float>(Be32(base, address)); }
 
+// S103 C1 (R15): the camera the singles' screen test sub_8276E2C0 uses: sub_82BA7748 (0x8276E2FC / 0x8276E30C) = the word at 0x83929A40 + 4 * the calling thread's slot ([[r13] + 1048] + 32, 0 without a block;
+// listing 0x82BA7748-0x82BA7774, r3 not read). Asked HERE, on the draw thread, at the crowd entry (the same thread and call the game's singles draw runs in); the game's own call, ctx restored.
+inline uint32_t EntryCamera(PPCContext& ctx, uint8_t* base) {
+  const PPCContext saved = ctx;
+  ctx.r3.u64 = Be32(base, 0x83929A68u);   // (as sub_8276E2C0 passes it: 0x8276E2EC)
+  sub_82BA7748(ctx, base);
+  const uint32_t cam = ctx.r3.u32;
+  ctx = saved;
+  return cam;
+}
+
 // S101 lane 82: guest memory for crowd_floor.h's pure decode.
 struct FloorMem {
   uint8_t* base;
@@ -101,7 +116,10 @@ inline void OnOp21(PPCContext& ctx, uint8_t* base) {
   if (wwe2k14::card_thin::ObserverKnockOut()) return;   // S102 OBS1 TEST ONLY (wwe2k14_rdr_record_skip bit 0x100)
   if (!IsCrowdOp21(lr)) return;
   if (lr == rdr_scene::live::crowd::kFloorOp21Return) {  // (before the r4 / r6 test: a wrong r4 / r6 is FloorReject::Regs, counted live)  // S101 lane 82: a seated floor person (sub_8276EAA0): decoded by crowd_floor.h, recorded as a member (or counted rejected)
-    if (!g_floor_observe.load(std::memory_order_relaxed)) return;
+    if (!g_floor_observe.load(std::memory_order_relaxed)) {
+      rdr_scene::live::crowd::The().NoteUnobserved();   // S103 D3b F1: on screen, not read: the snapshot is not whole
+      return;
+    }
     rdr_scene::live::crowd::MemberObs o;
     FloorMem mem{base};
     const rdr_scene::live::crowd::FloorReject why = rdr_scene::live::crowd::DecodeFloorMember(ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r26.u32, ctx.r29.u32, ctx.r31.u32, mem, o);
@@ -122,6 +140,12 @@ inline void OnOp21(PPCContext& ctx, uint8_t* base) {
   }
   if (ctx.r4.u32 != 76 || ctx.r6.u32 != 3) return;
   if (lr != kBlockOp21Return && lr != kCardOp21Return) {  // the populations not modelled: seen, counted unknown, not recorded
+    for (uint32_t site = 0; site < 4; ++site)
+      if (lr == kOtherOp21Return[site]) {   // S103 D3c: the sign / foam hand worlds, kept for the latch reader's mirror compare (NOT recorded)
+        float c[12];
+        for (uint32_t k = 0; k < 12; ++k) c[k] = BeF(base, ctx.r5.u32 + 4 * k);
+        rdr_scene::live::crowd::The().NoteProp(site, c);
+      }
     rdr_scene::live::crowd::The().NoteUnmodelled();
     return;
   }
@@ -211,6 +235,10 @@ inline void OnPalettes(uint8_t* base, uint32_t manager) {
 // Registration of the contributor: the ONE startup call (before the writer's sinks can attach). Until it runs, every hook returns at once.
 inline void RegisterCrowd() {
   rdr_scene::live::Register(&rdr_scene::live::crowd::The());
+  // S103 D3: required input bit 10 is stamped by the crowd contributor (crowd_contrib.cpp TakeInputs) for a hook frame whose snapshot is whole; Mode Off judges and stamps nothing.
+  rdr_scene::live::crowd::The().SetStampSink({[]() { return scene_frame::CurrentMode() != scene_frame::Mode::Off; },
+                                              [](uint64_t hook_frame) { scene_inputs::Capture(scene_inputs::kInCrowdSnapshot, hook_frame); },
+                                              []() { return wwe2k14::card_thin::ObserverKnockOut(); }});   // review F5
   g_registered.store(true, std::memory_order_relaxed);
 }
 
@@ -223,7 +251,29 @@ REX_HOOK_RAW(sub_82509CB8) {
   if (wwe2k14::crowd_live::Active()) wwe2k14::crowd_live::OnPalettes(base, manager);
 }
 
+// S103 C1 review fix 2: the game's own verdict of the singles' screen test, for the walked-frame cross-check with the reader's port (crowd_contrib.cpp CompareScreenLocked). Observes only: the original runs
+// unchanged and its r3 is passed back. Called only from sub_8276E7B0 at 0x8276E9A0 (q callers); r27 there = the node-list object (mr r27,r3 at 0x8276E7C4; sub_8276E2C0 saves only r31).
+REX_HOOK_RAW(sub_8276E2C0) {
+  const uint32_t lr = uint32_t(ctx.lr), object = ctx.r27.u32;
+  __imp__sub_8276E2C0(ctx, base);
+  if (lr == 0x8276E9A4u && wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteScreenVerdict(object, ctx.r3.u32 != 0);
+}
+
 REX_HOOK_RAW(sub_82519508) {
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::Crowd)) {
+    // S103 H: the frame is OURS: no crowd draw, no member / palette snapshot of the walk (lane D's inputs move to the manager); the manager's callback registration stays. SCENE_SKIPS.md row 3
+    const uint32_t node = ctx.r3.u32;
+    bool classify_done = false;
+    if (wwe2k14::scene_skip_nodes::CrowdKeepRegistration(ctx, base, &classify_done)) {
+      if (wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteEntryRing(wwe2k14::crowd_live::Be32(base, rdr_scene::live::crowd::mgr::kRingIndex)), rdr_scene::live::crowd::The().NoteOursSkip(node, classify_done);   // (S103 D8: the table ring as the entry saw it)   // S103 D3b: the entry passed its own gates and was skipped; the latch reads the manager's lists for this frame (crowd_latch_reader.h)
+      if (wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteEntryCamera(wwe2k14::crowd_live::EntryCamera(ctx, base)), rdr_scene::live::crowd::The().EntryRead();   // S103 D9: the snapshot as the entry sees it (the update side runs on before the latch)   // S103 C1: the singles' screen test camera
+      wwe2k14::bake_skip::OnCrowdDraw();  // the ledger observer that marks "a crowd draw began" keeps counting
+      return;
+    }
+    ::scene_skip::NotSkipped(::scene_skip::Hook::Crowd);   // the entry's own early out held: the original does nothing either; counted as walked
+  }
+  if (wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteCrowdNode(ctx.r3.u32), rdr_scene::live::crowd::The().NoteEntryRing(wwe2k14::crowd_live::Be32(base, rdr_scene::live::crowd::mgr::kRingIndex));   // (S103 D8: the table ring as the entry saw it)   // S103 D3b: the node object, for the latch reader's gate [node+556]
+  if (wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteEntryCamera(wwe2k14::crowd_live::EntryCamera(ctx, base)), rdr_scene::live::crowd::The().EntryRead();   // S103 D9   // S103 C1: the singles' screen test camera
   wwe2k14::bake_skip::OnCrowdDraw();  // lane 155
   wwe2k14::card_thin::OnCrowdDraw();  // lane 175
   if (wwe2k14::member_thin::OnCrowdDrawBegin() != wwe2k14::member_thin::Mode::Off) {  // lane 272 (S102 T13: the per-frame switch is read in Begin, once per run; the guest manager only when observed): a new crowd draw run (the stands / floor members); the ring the draw reads is the palette set the eligibility test uses

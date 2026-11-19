@@ -1,0 +1,67 @@
+{
+ "owner": "S103 lane RBC (stream-free GPU read-backs, docs/research/s103/RBK.md): src/renderer_game/readback_ours.h (the OFF lock body: a site table by lock return address, the readback_unserved{lr} census, R1 replay-clip thumbnail and R2 Create an Arena screenshot written from the presented picture, switch wwe2k14_rdr_readbacks) + src/renderer_game/readback_tile.h (the tiled guest writer from the fetch dwords; a new port, the stream build's WriteCopyBack stays in reader.h) + the OFF branch of the lock hook in src/d3d_textures.h. tools/readback/rbc_unit.cpp + rbc_check.py. 0 game runs, 0 Surface runs.",
+ "claim": {
+  "scene": "replay clip thumbnail, Create an Arena save; stream-free build",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ],
+  "basis": "a correctness piece: the game's GPU-to-CPU read-backs get our picture instead of unwritten memory; the lock of R1 blocks ~100 ms (the stream path's old stall), not measured here."
+ },
+ "note": "KIND: correctness + unit. unit: the tiled writer round-trips 8888 at 128x128 and 1280x720 (tiled, linear, endian 2, identity and BGRA fetch swizzles), asserts the first texel's memory bytes and the hand-checked tiled offsets independently of the inverse, the box scale, the site table (served / unserved / composed / unknown lr); four planted twins (wrong swap, endian skipped, tiled ignored, nearest scale) each exit 1. wiring: text lints of the lock hook, the include gate, the switch, WriteCopyBack not moved, every lock return of RBK.md in the table.",
+ "checks": [
+  {
+   "name": "s103_RBC.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/readback/rbc_check.py",
+    "--part",
+    "unit",
+    "--root",
+    "."
+   ],
+   "timeout_s": 600,
+   "affects": [
+    "src/renderer_game/readback_tile.h",
+    "src/renderer_game/readback_ours.h",
+    "src/renderer_game/thumb_scope.h",
+    "src/renderer_adapter/thumb_defer_core.h",
+    "src/renderer_host/scene_rules.h",
+    "src/scene_live/safe_guest_pages.h",
+    "src/guest_view.h",
+    "tools/readback/rbc_unit.cpp",
+    "tools/readback/rbc_check.py"
+   ]
+  },
+  {
+   "name": "s103_RBC.wiring",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/readback/rbc_check.py",
+    "--part",
+    "wiring",
+    "--root",
+    "."
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "src/d3d_textures.h",
+    "src/renderer_game/readback_ours.h",
+    "src/renderer_game/thumb_scope_hook.h",
+    "src/renderer_game/thumb_defer_off.h",
+    "src/renderer_host/scene_host.cpp",
+    "src/renderer_host/scene_host.h",
+    "src/renderer_host/host_start.cpp",
+    "src/half2_hooks.h",
+    "src/shown_frame.h",
+    "src/scene_live/quads2d_tap.h",
+    "src/renderer_scene/quads2d_core.h",
+    "src/renderer_adapter/reader.h",
+    "tools/readback/rbc_check.py"
+   ]
+  }
+ ]
+}

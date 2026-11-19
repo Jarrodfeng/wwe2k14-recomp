@@ -1,0 +1,20 @@
+{
+ "owner": "S103 lane W2: wrestlers drawn from the scene record take the body scale the game's vertices carry (src/renderer_scene/body_scale.h, rf_wrestlers.cpp, wrestler_core.h; tools/wrestler/w2_skin_path_check.cpp). 0 game runs.",
+ "checks": [
+  {"name": "s103_W2.build_tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/wrestler/build_w2_check.ps1"], "timeout_s": 900, "affects": ["tools/wrestler/w2_*", "tools/wrestler/build_w2_check.ps1", "src/renderer_scene/body_scale.h", "src/renderer_scene/char_effects.*", "src/renderer_scene/record_io.*"]},
+  {"name": "s103_W2.front_end_vs_stream", "cmd": ["out/tools/w2_skin_path_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10", "--pair", "0"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h", "src/renderer_scene/char_effects.*", "src/renderer_scene/rf_wrestlers.*"]},
+  {"name": "s103_W2.twin_old_behaviour_no_body_scale", "cmd": ["out/tools/w2_skin_path_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10", "--pair", "0", "--no-body-scale", "--expect-fail"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h"]},
+  {"name": "s103_W2.w3_scale_from_the_record_latch", "cmd": ["out/tools/w2_skin_path_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10", "--pair", "0", "--scale-source-latch"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h", "src/renderer_scene/rf_wrestlers.*", "src/scene_live/wrestler_hook.h"]},
+  {"name": "s103_W2.w3_twin_latch_of_the_wrong_slot", "cmd": ["out/tools/w2_skin_path_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10", "--pair", "0", "--latch-wrong-slot", "--expect-fail"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h"]},
+  {"name": "s103_W2.hole_and_census", "cmd": ["out/tools/w2_skin_path_check.exe", "--hole-selftest"], "timeout_s": 120, "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h", "src/renderer_scene/rf_wrestlers.*"]},
+  {"name": "s103_W2.hole_twin_unknown_scale_drawn", "cmd": ["out/tools/w2_skin_path_check.exe", "--expect-fail", "--hole-twin"], "timeout_s": 120, "affects": ["tools/wrestler/w2_*", "src/renderer_scene/body_scale.h"]},
+  {"name": "s103_W2.rig_draws_wrestlers", "cmd": ["py", "-I", "tools/scene/l6_check.py"], "timeout_s": 900, "needs": ["out/captures/brock_losswin"], "affects": ["tools/scene/frame_rig.*", "tools/wrestler/w2_*", "src/renderer_scene/body_scale.h", "src/renderer_scene/rf_wrestlers.*"]},
+  {"name": "s103_W2.rig_plant_no_body_scale_is_a_hole", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/W2/plant", "--no-body-scale", "--expect-fail", "wrestlers 110"], "timeout_s": 900, "needs": ["out/captures/brock_losswin"], "affects": ["tools/scene/frame_rig.*", "src/renderer_scene/rf_wrestlers.*", "src/renderer_scene/body_scale.h"]},
+  {"name": "s103_W2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/wrestler_ours.cpp,src/renderer_scene/rf_wrestlers.cpp,src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_scene/*", "src/scene_live/*"]}
+ ]
+}

@@ -1,7 +1,7 @@
 // See ui_text_fonts.h. Session 101, lane 89 (UT).
 #include "ui_text_fonts.h"
 
-// stb_image is compiled INTO this translation unit, static (no stbi_* symbol leaves it), exactly like ui_ours_core.cpp / crowd_body.cpp: pac.h needs stbi_zlib_decode_buffer, and the
+// stb_image is compiled INTO this translation unit, static (no stbi_* symbol leaves it), exactly like ui_file_index.cpp / crowd_body.cpp: pac.h needs stbi_zlib_decode_buffer, and the
 // game exe and the phone library must not export stbi_*.
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION

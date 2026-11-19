@@ -5,6 +5,7 @@ param([switch]$Clean)
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 . (Join-Path $repo 'tools\env.ps1') | Out-Null
+. (Join-Path $repo 'tools\cxx_cache.ps1')   # S103 H1: the shared compile cache (WWE_NO_CCACHE=1 = off)
 $outDir = Join-Path $repo 'out\tools'
 $obj = Join-Path $outDir 'rsc_obj'
 if ($Clean -and (Test-Path $obj)) { Remove-Item -Recurse -Force -Confirm:$false $obj }
@@ -20,25 +21,30 @@ $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-
 $v = Join-Path $repo 'src\assets\view'
 $srcs = @((Join-Path $PSScriptRoot 'rsc_draw.cpp'), (Join-Path $v 'loader_seam_game.cpp'), (Join-Path $repo 'src\renderer_scene\record_io.cpp'),
           (Join-Path $repo 'src\renderer_scene\front_end.cpp'), (Join-Path $repo 'src\renderer_scene\char_effects.cpp'), (Join-Path $repo 'src\renderer_scene\shader_reload.cpp'), (Join-Path $repo 'src\renderer_scene\post_pass.cpp'),  # S101 lane24: front_end.cpp calls ShaderReload; lane 34: and the post pass
+          (Join-Path $repo 'src\renderer_scene\record_frame.cpp'), (Join-Path $repo 'src\renderer_scene\record_frame_classes.cpp'), (Join-Path $repo 'src\renderer_scene\rf_arena.cpp'), (Join-Path $repo 'src\renderer_scene\rf_crowd.cpp'), (Join-Path $repo 'src\renderer_scene\live_crowd.cpp'), (Join-Path $repo 'src\renderer_scene\rf_models.cpp'),  # S103 R: the shared record -> frame library
+          (Join-Path $repo 'src\renderer_scene\rf_wrestlers.cpp'), (Join-Path $repo 'src\renderer_scene\rf_c_core.cpp'), (Join-Path $repo 'src\renderer_scene\rf_arena_live.cpp'), (Join-Path $repo 'src\renderer_scene\rf_ring.cpp'), (Join-Path $repo 'src\renderer_scene\rf_props.cpp'), (Join-Path $repo 'src\renderer_scene\rf_screens.cpp'), (Join-Path $repo 'src\renderer_scene\live_flashes.cpp'),  # S103 S: the class table names lane B's and lane C's appliers
+          (Join-Path $repo 'src\renderer_scene\draw_lists.cpp'),  # S103 G: the kept draw lists (FrontEnd::SetDrawLists)
           (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'),
-          (Join-Path $repo 'src\assets\crowd_body.cpp'), (Join-Path $repo 'src\scene_live\crowd_contrib.cpp'), (Join-Path $PSScriptRoot 'crowd_make.cpp'))  # S101 lane27: the crowd contributor + its offline driver
+          (Join-Path $repo 'src\assets\crowd_body.cpp'), (Join-Path $repo 'src\assets\crowd_prop_game_space.cpp'), (Join-Path $repo 'src\scene_live\crowd_contrib.cpp'), (Join-Path $PSScriptRoot 'crowd_make.cpp'))  # S101 lane27: the crowd contributor + its offline driver
 $srcs += @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cpp' | Where-Object { $_.FullName -notmatch '\\player\\' -and $_.Name -notlike '*_test.cpp' } | Select-Object -ExpandProperty FullName)  # S102: tests carry their own main (surface_lifecycle_test.cpp), as in the fview / rplay builds
-$newestHdr = (Get-ChildItem (Join-Path $repo 'src') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
+$newestHdr = (Get-ChildItem (Join-Path $repo 'src'), (Join-Path $repo 'tools/scene') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
 $repoLen = $repo.Path.Length + 1
+$incRel = ConvertTo-CxxRel $inc   # S103 H1: repo-relative paths (the same text in every worktree)
 $fails = $srcs | ForEach-Object -ThrottleLimit 16 -Parallel {
   $name = ($_.Substring($using:repoLen) -replace '[\\/:]', '_') + '.o'
   $o = Join-Path $using:obj $name
   if ((Test-Path $o) -and (Get-Item $o).LastWriteTimeUtc -gt (Get-Item $_).LastWriteTimeUtc -and (Get-Item $o).LastWriteTimeUtc -gt $using:newestHdr) { return }
-  $log = & clang++ -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:inc $_ -o $o 2>&1
+  $log = & $using:cxx0 @using:cxxRest -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:incRel ($_.Substring($using:repoLen)) -o ($o.Substring($using:repoLen)) 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") }
 }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $bad | ForEach-Object { Write-Host $_ }
+Show-CxxCache
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }
 
 # rsc_dump: the record file code only
 $dump = Join-Path $obj 'tools_scene_rsc_dump.cpp.o'
-& clang++ -O1 -g -std=c++20 -c @defs (Join-Path $PSScriptRoot 'rsc_dump.cpp') -o $dump
+& $cxx0 @cxxRest -O1 -g -std=c++20 -c @defs 'tools\scene\rsc_dump.cpp' -o ($dump.Substring($repoLen))
 if ($LASTEXITCODE -ne 0) { throw 'rsc_dump compile failed' }
 $rio = Join-Path $obj 'src_renderer_scene_record_io.cpp.o'
 & clang++ -fuse-ld=lld -g $dump $rio -o (Join-Path $outDir 'rsc_dump.exe')
@@ -52,7 +58,7 @@ if ($LASTEXITCODE -ne 0) { throw 'rsc_draw link failed' }
 Write-Host "built $(Join-Path $outDir 'rsc_draw.exe')"
 
 # S101 lane27: crowd_make (the crowd contributor's offline driver): no renderer, no front end
-$cm = @($srcs | Where-Object { $_ -notmatch '[\\/](rsc_draw|front_end|char_effects|post_pass)\.cpp$' -and $_ -notmatch '[\\/]src[\\/]renderer[\\/]' } | ForEach-Object { Join-Path $obj (($_.Substring($repoLen) -replace '[\\/:]', '_') + '.o') })
+$cm = @($srcs | Where-Object { $_ -notmatch '[\\/](rsc_draw|front_end|char_effects|post_pass|record_frame|record_frame_classes|rf_arena|rf_crowd|live_crowd|rf_models|rf_wrestlers|rf_c_core|rf_arena_live|rf_ring|rf_props|rf_screens|live_flashes|draw_lists|shader_reload)\.cpp$' -and $_ -notmatch '[\\/]src[\\/]renderer[\\/]' } | ForEach-Object { Join-Path $obj (($_.Substring($repoLen) -replace '[\\/:]', '_') + '.o') })
 & clang++ -fuse-ld=lld -g @cm -o (Join-Path $outDir 'crowd_make.exe') @libs
 if ($LASTEXITCODE -ne 0) { throw 'crowd_make link failed' }
 Write-Host "built $(Join-Path $outDir 'crowd_make.exe')"

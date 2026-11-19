@@ -79,6 +79,13 @@ const char* SectionName(uint32_t id) {
     case kScCircleMesh: return "CircleMesh";  // lane 136
     case kScPlaneFrames: return "PlaneFrame";  // lane 139
     case kScPlaneDraws: return "PlaneDraw";  // lane 139
+    case kScPlaneEyes: return "PlaneEyes";  // S103 E5
+    case kScPartClocks: return "PartClock";  // S103 E5
+    case kScPropsLight: return "PropsLight";  // S103 KS1
+    case kScBoneTags: return "BoneTag";       // S103 W2B
+    case kScLiquidMaps: return "LiquidMapRow";  // S103 SWF
+    case kScLiquidItems: return "LiquidItemRow";
+    case kScLiquidPictures: return "CrowdPictureRow";
     case kScArenaWorlds: return "ArenaWorld";  // S101 lane 130
     case kScRingRows: return "RingRows";  // lane 194
     case kScRingNodes: return "RingNodeRows";  // lane 194
@@ -88,8 +95,31 @@ const char* SectionName(uint32_t id) {
     case kScCasterExtras: return "CasterExtra";  // lane 221
     case kScCasterMats: return "CasterMat";  // lane 226
     case kScSphereOcc: return "SphereOcc";   // lane 242
+    case kScPostParams: return "PostParams";   // S103 A
+    case kScModelRuntime: return "ModelRuntime";   // S103 A
+    case kScInputStamps: return "InputStamp";   // S103 A
+    case kScLightObjects: return "LightObject";   // S103 A2
+    case kScParamOverrides: return "ParamOverride";   // S103 A2
     case kScCrowdRuns: return "CrowdRun";  // S102 T19
     case kScCrowdMembers: return "CrowdMember";  // S102 T19
+    case kScModelLights: return "ModelLightRow";  // S103 C
+    case kScStageFx: return "StageFxRow";  // S103 C
+    case kScStageLook: return "StageLookRow";  // S103 L
+    case kScCrowdProps: return "CrowdPropRow";  // S103 D4
+    case kScCrowdPictures: return "CrowdPictureRow";  // S103 D6
+    case kScCrowdSingles: return "CrowdSingleRow";  // S103 D4
+    case kScOwnedPasses: return "OwnedPass";  // S103 lane S
+    case kScParticleBatches: return "ParticleBatch";  // S103 F
+    case kScParticleStatus: return "ParticleStatus";  // S103 F2
+    case kScParticleScreen: return "ParticleScreen";  // S103 MP
+    case kScParticles: return "Particle";  // S103 F
+    case kScQuads2D: return "Quad2D";  // S103 I1
+    case weapons::kScWeaponSlots: return "WeaponSlot";  // S103 PW-1
+    case weapons::kScWeaponCalls: return "WeaponCall";  // S103 PW-2
+    case weapons::kScWeaponNodes: return "WeaponNodeRows";  // S103 PW-2
+    case kScGuestModelParts: return "GuestModelPart";  // S103 CW-2
+    case kScGuestModelBlobs: return "GuestModelBlob";  // S103 CW-2
+    case kScGuestModelTextures: return "GuestModelTexture";  // S103 CW-2b
     default: return "unknown";
   }
 }
@@ -106,6 +136,7 @@ SceneTables::SceneTables() {
 // S102 SW1: a fresh table's state with the allocations kept. Mirrors the member list of record_io.h in declaration order.
 void SceneTables::Recycle() {
   if (rdr::g_lean_plant.load(std::memory_order_relaxed) != 6) arena_memo.v.store(-2, std::memory_order_relaxed);   // S102 RT1 review: a refilled table is a new record (plant 6, tools only: the reset is left out)
+  arena_memo.ResetLights();   // S103 CPU1: the light rows' key belongs to the last record
   header = SceneHeader{};
   has_camera = false;
   camera = Camera{};
@@ -116,10 +147,16 @@ void SceneTables::Recycle() {
   engine_objects.clear(), light_states.clear(), light_refs.clear();
   plane_errors = 0, circle_errors = 0;
   circle_shadows.clear(), circle_mesh.clear(), plane_frames.clear(), plane_draws.clear();
+  plane_eyes.clear(), part_clocks.clear();  // S103 E5
+  props_light.clear();  // S103 KS1
+  bone_tags.clear();    // S103 W2B
+  liquid_maps.clear(), liquid_items.clear(), liquid_pictures.clear(), liquid_errors = 0;   // S103 SWF
   arena_world_errors = 0;
+  clock_errors = 0;   // S103 E5
   arena_worlds.clear();
   ring_errors = 0;
   ring_rows.clear(), ring_nodes.clear();
+  weapon_calls.clear(), weapon_nodes.clear(), weapon_call_errors = 0;   // S103 PW-2
   caster_errors = 0;
   caster_calls.clear(), caster_mats.clear(), caster_states.clear(), caster_extras.clear();
 #ifdef RDR_SWAP_PLANTS
@@ -129,7 +166,17 @@ void SceneTables::Recycle() {
   sphere_errors = 0;
 #endif
   sphere_occ.clear();
+  inputs_errors = 0;   // S103 A
+  post_params.clear(), model_runtime.clear(), input_stamps.clear(), light_objects.clear();   // S103 A2: light_objects
+  light_errors = 0;   // S103 A2
+  param_overrides.clear(), param_errors = 0;
   crowd_runs.clear(), crowd_members.clear();
+  c_errors = 0, model_lights.clear(), stage_fx.clear(), stage_look.clear(), crowd_props.clear(), crowd_singles.clear(), crowd_pictures.clear();  // S103 C, S103 L, S103 D4, S103 D6
+  owned_passes.clear();  // S103 lane S
+  particles.Clear();  // S103 F
+  guest_models.Clear();  // S103 CW-2
+  quads2d.clear(), quad2d_errors = 0, quad2d_holes = kQuad2DNotTaken;  // S103 I1; S103 L2a
+  weapon_slots.clear();  // S103 PW-1
   if (!string_index_.empty()) string_index_.clear();
 #ifdef RDR_SWAP_PLANTS
   if (g_recycle_plant == 3) return;
@@ -205,13 +252,14 @@ static void ForEachStringField(SceneTables& t, F&& f) {   // every name field of
   for (Target& g : t.targets) f(g.name);
   for (Sprite& s : t.sprites) f(s.widget);
   for (Text& x : t.texts) f(x.utf8), f(x.widget);
+  for (CrowdSingleRow& g : t.crowd_singles) f(g.id);   // S103 D4
 }
 
 std::vector<uint32_t> SceneTables::StringFields() const {
   SceneTables copy_of_fields_only;   // (the visitor takes a mutable table: only the field vectors are copied)
   copy_of_fields_only.header = header;
   copy_of_fields_only.assets = assets, copy_of_fields_only.objects = objects, copy_of_fields_only.params = params, copy_of_fields_only.targets = targets;
-  copy_of_fields_only.sprites = sprites, copy_of_fields_only.texts = texts;
+  copy_of_fields_only.sprites = sprites, copy_of_fields_only.texts = texts, copy_of_fields_only.crowd_singles = crowd_singles;   // S103 D4
   std::vector<uint32_t> out;
   ForEachStringField(copy_of_fields_only, [&](uint32_t& f) { out.push_back(f); });
   return out;
@@ -394,11 +442,45 @@ std::vector<uint8_t> SerializeRecord(const SceneTables& seeded_or_not) {
   if (!t.caster_extras.empty()) secs.push_back(Sec(kScCasterExtras, t.caster_extras));  // lane 221
   if (!t.caster_mats.empty()) secs.push_back(Sec(kScCasterMats, t.caster_mats));  // lane 226
   if (!t.sphere_occ.empty()) secs.push_back(Sec(kScSphereOcc, t.sphere_occ));  // lane 242
+  if (!t.owned_passes.empty()) secs.push_back(Sec(kScOwnedPasses, t.owned_passes));  // S103 lane S: id 28 (sections are written in id order: before T19's 40 / 41)
+  if (!t.post_params.empty()) secs.push_back(Sec(kScPostParams, t.post_params));  // S103 A (29)
+  if (!t.model_runtime.empty()) secs.push_back(Sec(kScModelRuntime, t.model_runtime));  // S103 A (30)
+  if (!t.input_stamps.empty()) secs.push_back(Sec(kScInputStamps, t.input_stamps));  // S103 A (31)
+  if (!t.light_objects.empty()) secs.push_back(Sec(kScLightObjects, t.light_objects));  // S103 A2 (32)
+  if (!t.param_overrides.empty()) secs.push_back(Sec(kScParamOverrides, t.param_overrides));  // S103 A2 (33)
+  if (!t.model_lights.empty()) secs.push_back(Sec(kScModelLights, t.model_lights));  // S103 C (38)
+  if (!t.stage_fx.empty()) secs.push_back(Sec(kScStageFx, t.stage_fx));  // S103 C (39)
   const bool has_runs = !t.crowd_runs.empty();  // S102 T19: only a record with markers is version 2; every other record is written exactly as before
   if (has_runs) {
     secs.push_back(Sec(kScCrowdRuns, t.crowd_runs));
     secs.push_back(Sec(kScCrowdMembers, t.crowd_members));
   }
+  if (!t.stage_look.empty()) secs.push_back(Sec(kScStageLook, t.stage_look));  // S103 L (45; id order: after 40 / 41, before 50)
+  if (!t.crowd_props.empty()) secs.push_back(Sec(kScCrowdProps, t.crowd_props));  // S103 D4 (46)
+  if (!t.crowd_singles.empty()) secs.push_back(Sec(kScCrowdSingles, t.crowd_singles));  // S103 D4 (47)
+  if (!t.crowd_pictures.empty()) secs.push_back(Sec(kScCrowdPictures, t.crowd_pictures));  // S103 D6 (48)
+  if (!t.plane_eyes.empty()) secs.push_back(Sec(kScPlaneEyes, t.plane_eyes));  // S103 E5 (49; id order: after 47, before the particles' 54)
+  if (!t.part_clocks.empty()) secs.push_back(Sec(kScPartClocks, t.part_clocks));  // S103 E5 (50)
+  if (!t.liquid_maps.empty()) {   // S103 SWF (51-53): written together or not at all
+    secs.push_back(Sec(kScLiquidMaps, t.liquid_maps));
+    secs.push_back(Sec(kScLiquidItems, t.liquid_items));
+    secs.push_back(Sec(kScLiquidPictures, t.liquid_pictures));
+  }
+  if (!t.particles.batches.empty()) {  // S103 F: the particle tables (ids 50 / 51, after 40 / 41: id order); a record without them is written as before
+    secs.push_back(Sec(kScParticleBatches, t.particles.batches));
+    secs.push_back(Sec(kScParticles, t.particles.particles));
+  }
+  if (!t.particles.status.empty()) secs.push_back(Sec(kScParticleStatus, t.particles.status));  // S103 F2 (id 56, after 54 / 55: id order)
+  if (!t.particles.screen.empty()) secs.push_back(Sec(kScParticleScreen, t.particles.screen));  // S103 MP (id 57)
+  if (!t.quads2d.empty()) secs.push_back(Sec(kScQuads2D, t.quads2d));  // S103 I1 (58; id order: after 56)
+  if (!t.weapon_slots.empty()) secs.push_back(Sec(weapons::kScWeaponSlots, t.weapon_slots));  // S103 PW-1 (59; id order: after 58; no section = no weapons recorded)
+  if (!t.weapon_calls.empty()) secs.push_back(Sec(weapons::kScWeaponCalls, t.weapon_calls));  // S103 PW-2 (60; 59 = PW-1's slots)
+  if (!t.weapon_nodes.empty()) secs.push_back(Sec(weapons::kScWeaponNodes, t.weapon_nodes));  // S103 PW-2 (61)
+  if (!t.guest_models.parts.empty()) secs.push_back(Sec(kScGuestModelParts, t.guest_models.parts));  // S103 CW-2 (62; 59-61 are the weapon rows)
+  if (!t.guest_models.blobs.empty()) secs.push_back(Sec(kScGuestModelBlobs, t.guest_models.blobs));  // S103 CW-2 (63)
+  if (!t.guest_models.textures.empty()) secs.push_back(Sec(kScGuestModelTextures, t.guest_models.textures));  // S103 CW-2b (64)
+  if (!t.props_light.empty()) secs.push_back(Sec(kScPropsLight, t.props_light));  // S103 KS1 (65)
+  if (!t.bone_tags.empty()) secs.push_back(Sec(kScBoneTags, t.bone_tags));  // S103 W2B (66; an additive section: a record without it is byte-identical to before, so no header version change: the draw side fails closed on a missing tag)
 
   SceneHeader h = t.header;
   h.magic = kSceneMagic;
@@ -501,6 +583,43 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         ok = true;
         break;
       }
+      case kScPlaneEyes: {  // S103 E5: a bad eye section drops that section only (counted in plane_errors)
+        std::string werr;
+        if (!Load(size, data, e, out.plane_eyes, werr)) out.plane_eyes.clear(), ++out.plane_errors;
+        ok = true;
+        break;
+      }
+      case kScPropsLight: {  // S103 KS1: a bad section drops itself only (a non-finite row or an unknown layout is dropped after the loop)
+        std::string werr;
+        if (!Load(size, data, e, out.props_light, werr)) out.props_light.clear();
+        ok = true;
+        break;
+      }
+      case kScBoneTags: {  // S103 W2B: a bad section (element size, unknown layout, not sorted by bone) drops itself only: the models with piece nodes then find no tags = holes
+        std::string werr;
+        std::vector<BoneTag> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (size_t bi = 0; good && bi < tmp.size(); ++bi) good = tmp[bi].layout == kBoneTagLayout && (bi == 0 || tmp[bi - 1].bone < tmp[bi].bone);
+        if (good) out.bone_tags = std::move(tmp);
+        ok = true;
+        break;
+      }
+      case kScPartClocks: {  // S103 E5: a bad clock section drops that section only (counted in clock_errors)
+        std::string werr;
+        if (!Load(size, data, e, out.part_clocks, werr)) out.part_clocks.clear(), ++out.clock_errors;
+        ok = true;
+        break;
+      }
+      case kScLiquidMaps: case kScLiquidItems: case kScLiquidPictures: {   // S103 SWF: a bad section drops the three together (checked after the loop, LiquidTablesProblem)
+        std::string werr;
+        bool good = true;
+        if (e.id == kScLiquidMaps) good = Load(size, data, e, out.liquid_maps, werr);
+        else if (e.id == kScLiquidItems) good = Load(size, data, e, out.liquid_items, werr);
+        else good = Load(size, data, e, out.liquid_pictures, werr);
+        if (!good) out.liquid_maps.clear(), out.liquid_items.clear(), out.liquid_pictures.clear(), ++out.liquid_errors;
+        ok = true;
+        break;
+      }
       case kScPlaneDraws: {
         std::string werr;
         if (!Load(size, data, e, out.plane_draws, werr)) out.plane_draws.clear(), ++out.plane_errors;
@@ -516,6 +635,18 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
       case kScRingNodes: {
         std::string werr;
         if (!Load(size, data, e, out.ring_nodes, werr)) out.ring_nodes.clear(), ++out.ring_errors;
+        ok = true;
+        break;
+      }
+      case weapons::kScWeaponCalls: {  // S103 PW-2: a bad weapon section drops the weapon call tables only (counted), never the whole record
+        std::string werr;
+        if (!Load(size, data, e, out.weapon_calls, werr)) out.weapon_calls.clear(), ++out.weapon_call_errors;
+        ok = true;
+        break;
+      }
+      case weapons::kScWeaponNodes: {
+        std::string werr;
+        if (!Load(size, data, e, out.weapon_nodes, werr)) out.weapon_nodes.clear(), ++out.weapon_call_errors;
         ok = true;
         break;
       }
@@ -550,6 +681,46 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         ok = true;
         break;
       }
+      case kScPostParams: case kScModelRuntime: case kScInputStamps: {  // S103 A: a layout / size this reader does not know drops the input tables only (counted), never the record
+        // BHF4 (BH4): a bad POST row drops only post_params (a version-1 728-byte row, written before FXF grew it to 760, is read with fx[] zeroed); the model / stamp tables are judged on their own.
+        std::string werr;
+        bool good = true;
+        if (e.id == kScPostParams) {
+          constexpr uint32_t kPostRowV1 = uint32_t(sizeof(PostParamsRow)) - sizeof(PostParamsRow::fx);
+          if (e.element_size == kPostRowV1) {
+            if (e.offset > size || e.count > (size - e.offset) / kPostRowV1) good = false;
+            else {
+              out.post_params.assign(size_t(e.count), PostParamsRow{});
+              for (size_t i = 0; i < size_t(e.count); ++i) std::memcpy(&out.post_params[i], data + e.offset + i * kPostRowV1, kPostRowV1);
+            }
+          } else good = Load(size, data, e, out.post_params, werr);
+          bool post_bad = !good || out.post_params.size() > 1;
+          for (const auto& r : out.post_params) post_bad = post_bad || r.layout != kPostParamsLayout;
+          if (post_bad) out.post_params.clear(), ++out.inputs_errors;
+        } else if (e.id == kScModelRuntime) {
+          good = Load(size, data, e, out.model_runtime, werr);
+          for (const auto& r : out.model_runtime) good = good && r.layout == kModelRuntimeLayout;
+          if (!good) out.model_runtime.clear(), ++out.inputs_errors;
+        } else {
+          good = Load(size, data, e, out.input_stamps, werr);
+          for (const auto& r : out.input_stamps) good = good && r.bit < 32;
+          if (!good) out.input_stamps.clear(), ++out.inputs_errors;
+        }
+        ok = true;
+        break;
+      }
+      case kScLightObjects: {   // S103 A2: its own error path (light_errors): a bad light row never clears lane A's post / runtime / stamp tables
+        std::string werr;
+        if (!Load(size, data, e, out.light_objects, werr) || !LightObjectsProblem(out).empty()) out.light_objects.clear(), ++out.light_errors;
+        ok = true;
+        break;
+      }
+      case kScParamOverrides: {   // S103 A2: its own error path (param_errors)
+        std::string werr;
+        if (!Load(size, data, e, out.param_overrides, werr) || !ParamOverridesProblem(out).empty()) out.param_overrides.clear(), ++out.param_errors;
+        ok = true;
+        break;
+      }
       case kScCasterExtras: {  // lane 221
         std::string werr;
         if (!Load(size, data, e, out.caster_extras, werr)) out.caster_extras.clear(), ++out.caster_errors;
@@ -558,6 +729,44 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
       }
       case kScCrowdRuns: if (h.version >= kSceneVersionRuns) ok = Load(size, data, e, out.crowd_runs, error); break;   // S102 T19 (a version 1 record cannot carry them)
       case kScCrowdMembers: if (h.version >= kSceneVersionRuns) ok = Load(size, data, e, out.crowd_members, error); break;
+      case kScOwnedPasses: ok = Load(size, data, e, out.owned_passes, error); break;   // S103 lane S
+      case kScParticleBatches: { std::string werr; if (!Load(size, data, e, out.particles.batches, werr)) out.particles.batches.clear(); ok = true; break; }  // S103 F: a bad particle section drops the particles only
+      case kScParticleScreen: { std::string werr; if (!Load(size, data, e, out.particles.screen, werr) || out.particles.screen.size() > 1) out.particles.screen.clear(); ok = true; break; }  // S103 MP
+      case kScParticleStatus: { std::string werr; if (!Load(size, data, e, out.particles.status, werr) || out.particles.status.size() > 1) out.particles.status.clear(); ok = true; break; }  // S103 F2
+      case kScQuads2D: {  // S103 I1: a bad 2D section drops THIS section only (counted in quad2d_errors), never the record
+        std::string werr;
+        std::vector<Quad2D> tmp;
+        if (e.element_size == kQuad2DLayout4Bytes && e.offset <= size && e.count <= (size - e.offset) / kQuad2DLayout4Bytes) {   // S103 RFX: a layout-4 capture (320 bytes a row, no address): read as 'address unknown' = the old clamp (an old capture keeps drawing as before)
+          tmp.resize(size_t(e.count));
+          for (size_t i = 0; i < tmp.size(); ++i) {
+            const uint8_t* p = data + e.offset + i * kQuad2DLayout4Bytes;
+            Quad2D& q = tmp[i];
+            std::memcpy(&q, p, kQuad2DLayout4Bytes - 4);   // everything up to scissor_on: the same offsets in layout 5
+            std::memcpy(&q.scissor_on, p + kQuad2DLayout4Bytes - 4, 4);
+            if (q.version == 4) q.version = kQuad2DLayout;
+            q.address = 0xFFFFFFFFu, q.have &= ~uint32_t(kQhAddress);
+          }
+          out.quad2d_errors += Quads2DKeepGood(tmp);
+          if (Quads2DProblem(tmp).empty()) out.quads2d = std::move(tmp);
+          else ++out.quad2d_errors;
+        } else if (Load(size, data, e, tmp, werr)) {   // a bad ROW is refused alone (counted per row); rows out of order drop the section (the call order is the whole point)
+          out.quad2d_errors += Quads2DKeepGood(tmp);
+          if (Quads2DProblem(tmp).empty()) out.quads2d = std::move(tmp);
+          else ++out.quad2d_errors;
+        } else ++out.quad2d_errors;
+        ok = true;
+        break;
+      }
+      case weapons::kScWeaponSlots: {  // S103 PW-1: a wrong element size / truncation drops THIS section only (= no weapons recorded), never the record
+        std::string werr;
+        if (!Load(size, data, e, out.weapon_slots, werr)) out.weapon_slots.clear();
+        ok = true;
+        break;
+      }
+      case kScParticles: { std::string werr; if (!Load(size, data, e, out.particles.particles, werr)) out.particles.particles.clear(); ok = true; break; }
+      case kScGuestModelParts: { std::string werr; if (!Load(size, data, e, out.guest_models.parts, werr)) out.guest_models.parts.clear(), ++out.guest_models.errors; ok = true; break; }   // S103 CW-2: a bad section drops the guest-model tables only (row checks below)
+      case kScGuestModelBlobs: { std::string werr; if (!Load(size, data, e, out.guest_models.blobs, werr)) out.guest_models.blobs.clear(), ++out.guest_models.errors; ok = true; break; }
+      case kScGuestModelTextures: { std::string werr; if (!Load(size, data, e, out.guest_models.textures, werr)) out.guest_models.textures.clear(), ++out.guest_models.errors; ok = true; break; }   // S103 CW-2b
       case kScArenaWorlds: {  // S101 lane 130: a layout / kind this reader does not know drops THIS section only (counted), never the whole record
         std::string werr;
         std::vector<ArenaWorld> tmp;
@@ -565,6 +774,78 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         for (const ArenaWorld& w : tmp) good = good && w.layout == 1 && (w.kind == kAwObject || w.kind == kAwClock);
         if (good) out.arena_worlds = std::move(tmp);
         else ++out.arena_world_errors;
+        ok = true;
+        break;
+      }
+      case kScModelLights: {  // S103 C: an unknown layout / kind drops THIS section only (counted), never the record
+        std::string werr;
+        std::vector<ModelLightRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const ModelLightRow& r : tmp) good = good && r.layout == kModelLightsLayout && r.kind <= kMlMesh;
+        if (good) out.model_lights = std::move(tmp);
+        else ++out.c_errors;
+        ok = true;
+        break;
+      }
+      case kScStageFx: {  // S103 C
+        std::string werr;
+        std::vector<StageFxRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const StageFxRow& r : tmp) good = good && r.layout == kStageFxLayout && r.kind >= kFxScreen && r.kind <= kFxCar;
+        if (good) out.stage_fx = std::move(tmp);
+        else ++out.c_errors;
+        ok = true;
+        break;
+      }
+      case kScStageLook: {  // S103 L
+        std::string werr;
+        std::vector<StageLookRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const StageLookRow& r : tmp) good = good && r.layout == kStageLookLayout;
+        // S103 D1 review: tolerant of row kinds this build does not know (a table that only grows): skip and count them, keep the rest.
+        size_t unknown = 0;
+        if (good) {
+          std::vector<StageLookRow> known;
+          known.reserve(tmp.size());
+          for (const StageLookRow& r : tmp) {
+            if (r.kind >= kSlEntrance && r.kind <= kSlLast) known.push_back(r);
+            else ++unknown;
+          }
+          tmp.swap(known);
+          out.c_errors += static_cast<uint32_t>(unknown);
+        }
+        if (good) out.stage_look = std::move(tmp);
+        else ++out.c_errors;
+        ok = true;
+        break;
+      }
+      case kScCrowdProps: {  // S103 D4: an unknown layout / kind drops THIS section only (counted), never the record
+        std::string werr;
+        std::vector<CrowdPropRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const CrowdPropRow& r : tmp) good = good && r.layout == kCrowdPropLayout && r.kind >= kCpSign && r.kind <= kCpHand;
+        if (good) out.crowd_props = std::move(tmp);
+        else ++out.c_errors;
+        ok = true;
+        break;
+      }
+      case kScCrowdPictures: {  // S103 D6: a bad layout / size drops THIS section only
+        std::string werr;
+        std::vector<CrowdPictureRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const CrowdPictureRow& r : tmp) good = good && CrowdPictureValid(r);
+        if (good) out.crowd_pictures = std::move(tmp);
+        else ++out.c_errors;
+        ok = true;
+        break;
+      }
+      case kScCrowdSingles: {  // S103 D4
+        std::string werr;
+        std::vector<CrowdSingleRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (const CrowdSingleRow& r : tmp) good = good && r.layout == kCrowdSingleLayout && r.kind == 1;
+        if (good) out.crowd_singles = std::move(tmp);
+        else ++out.c_errors;
         ok = true;
         break;
       }
@@ -586,9 +867,46 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
     SceneTables plain = ExpandCrowdRuns(out);
     out = std::move(plain);
   }
+  {  // S103 F: a malformed particle table (or a texture index past the assets) is dropped as a whole (never half drawn)
+    bool bad = !out.particles.Valid();
+    for (const ParticleBatch& pb : out.particles.batches) bad = bad || (pb.texture != kNoParticleTexture && (pb.texture >= out.assets.size() || out.assets[pb.texture].kind != uint8_t(AssetKind::Texture)));
+    if (bad) {
+      out.particles.Clear();
+      ParticleStatus ps;
+      ps.reasons = kPiMalformed;
+      out.particles.status.push_back(ps);  // never half drawn, and the render side is told
+    }
+  }
+  {  // S103 CW-2: one bad guest-model row drops THESE tables only (never half drawn, never the record); old records have none
+    bool bad = false;
+    for (const GuestModelPart& r : out.guest_models.parts) bad = bad || *GuestModelRowProblem(r, out.guest_models.blobs.size());
+    for (const GuestModelTexture& r : out.guest_models.textures) bad = bad || *GuestModelTextureProblem(r, out.guest_models.blobs.size());   // S103 CW-2b
+    if (bad) {
+      const uint32_t errs = out.guest_models.errors + 1;
+      out.guest_models.Clear();
+      out.guest_models.errors = errs;
+    }
+  }
   if (const std::string cp = CircleTablesProblem(out); !cp.empty()) out.circle_shadows.clear(), out.circle_mesh.clear(), ++out.circle_errors;  // lane 136: only the circle tables go
   if (const std::string pp = PlaneTablesProblem(out); !pp.empty()) out.plane_frames.clear(), out.plane_draws.clear(), ++out.plane_errors;  // lane 139: only the plane tables go
+  for (const PropsLight& pl : out.props_light) {   // S103 KS1: only the props light goes (an unknown layout version or a non-finite value)
+    bool fin = true;
+    for (int i = 0; i < 12; ++i) fin = fin && std::isfinite(pl.prm[i / 4][i % 4]);
+    if (pl.version != kPropsLightLayout || !fin) {
+      out.props_light.clear();
+      break;
+    }
+  }
+  {   // S103 E5: only the eye / clock sections go
+    bool eb = false, cb = false;
+    if (!EyeClockTablesProblem(out, &eb, &cb).empty()) {
+      if (eb) out.plane_eyes.clear(), ++out.plane_errors;
+      if (cb) out.part_clocks.clear(), ++out.clock_errors;
+    }
+  }
+  if (const std::string lp = LiquidTablesProblem(out); !lp.empty()) out.liquid_maps.clear(), out.liquid_items.clear(), out.liquid_pictures.clear(), ++out.liquid_errors;   // S103 SWF: only the liquid tables go
   if (const std::string rp = RingTablesProblem(out); !rp.empty()) out.ring_rows.clear(), out.ring_nodes.clear(), ++out.ring_errors;  // lane 194: only the ring tables go
+  if (const std::string wp = WeaponCallTablesProblem(out); !wp.empty()) out.weapon_calls.clear(), out.weapon_nodes.clear(), ++out.weapon_call_errors;  // S103 PW-2: only the weapon call tables go
   if (const std::string cp2 = CasterTablesProblem(out); !cp2.empty()) out.caster_calls.clear(), out.caster_states.clear(), out.caster_nodes.clear(), out.caster_extras.clear(), out.caster_mats.clear(), ++out.caster_errors;  // lane 202: only the caster tables go
   // The indices must point inside the tables (a record that draws from a bad index would draw garbage, silently).
   const auto bad_str = [&](uint32_t f) { return f > out.strings.size(); };
@@ -706,11 +1024,23 @@ static void CopyOtherTables(const SceneTables& t, SceneTables& o) {
   o.circle_mesh.assign(t.circle_mesh.begin(), t.circle_mesh.end());
   o.plane_frames.assign(t.plane_frames.begin(), t.plane_frames.end());
   o.plane_draws.assign(t.plane_draws.begin(), t.plane_draws.end());
+  o.plane_eyes.assign(t.plane_eyes.begin(), t.plane_eyes.end());  // S103 E5
+  o.part_clocks.assign(t.part_clocks.begin(), t.part_clocks.end());  // S103 E5
+  o.props_light.assign(t.props_light.begin(), t.props_light.end());  // S103 KS1
+  o.bone_tags.assign(t.bone_tags.begin(), t.bone_tags.end());  // S103 W2B
+  o.liquid_maps.assign(t.liquid_maps.begin(), t.liquid_maps.end());  // S103 SWF
+  o.liquid_items.assign(t.liquid_items.begin(), t.liquid_items.end());
+  o.liquid_pictures.assign(t.liquid_pictures.begin(), t.liquid_pictures.end());
+  o.liquid_errors = t.liquid_errors;
   o.arena_world_errors = t.arena_world_errors;
+  o.clock_errors = t.clock_errors;  // S103 E5
   o.arena_worlds.assign(t.arena_worlds.begin(), t.arena_worlds.end());
   o.ring_errors = t.ring_errors;
   o.ring_rows.assign(t.ring_rows.begin(), t.ring_rows.end());
   o.ring_nodes.assign(t.ring_nodes.begin(), t.ring_nodes.end());
+  o.weapon_call_errors = t.weapon_call_errors;   // S103 PW-2
+  o.weapon_calls.assign(t.weapon_calls.begin(), t.weapon_calls.end());
+  o.weapon_nodes.assign(t.weapon_nodes.begin(), t.weapon_nodes.end());
   o.caster_errors = t.caster_errors;
   o.caster_calls.assign(t.caster_calls.begin(), t.caster_calls.end());
   o.caster_nodes.assign(t.caster_nodes.begin(), t.caster_nodes.end());
@@ -719,13 +1049,36 @@ static void CopyOtherTables(const SceneTables& t, SceneTables& o) {
   o.caster_extras.assign(t.caster_extras.begin(), t.caster_extras.end());
   o.sphere_errors = t.sphere_errors;
   o.sphere_occ.assign(t.sphere_occ.begin(), t.sphere_occ.end());
+  o.owned_passes.assign(t.owned_passes.begin(), t.owned_passes.end());  // S103 lane S: the frame's decisions travel with the expanded copy
+  o.inputs_errors = t.inputs_errors;   // S103 A
+  o.post_params.assign(t.post_params.begin(), t.post_params.end());
+  o.model_runtime.assign(t.model_runtime.begin(), t.model_runtime.end());
+  o.input_stamps.assign(t.input_stamps.begin(), t.input_stamps.end());
+  o.light_objects.assign(t.light_objects.begin(), t.light_objects.end());   // S103 A2
+  o.light_errors = t.light_errors;
+  o.param_overrides.assign(t.param_overrides.begin(), t.param_overrides.end());   // S103 A2
+  o.param_errors = t.param_errors;
   o.crowd_runs.clear();
   o.crowd_members.clear();
+  o.c_errors = t.c_errors;  // S103 C
+  o.model_lights.assign(t.model_lights.begin(), t.model_lights.end());
+  o.stage_fx.assign(t.stage_fx.begin(), t.stage_fx.end());
+  o.stage_look.assign(t.stage_look.begin(), t.stage_look.end());  // S103 L
+  o.crowd_props.assign(t.crowd_props.begin(), t.crowd_props.end());  // S103 D4
+  o.crowd_singles.assign(t.crowd_singles.begin(), t.crowd_singles.end());
+  o.crowd_pictures.assign(t.crowd_pictures.begin(), t.crowd_pictures.end());  // S103 D6
+  o.particles = t.particles;  // S103 F
+  o.guest_models = t.guest_models;  // S103 CW-2
+  o.quads2d.assign(t.quads2d.begin(), t.quads2d.end());  // S103 I1
+  o.weapon_slots.assign(t.weapon_slots.begin(), t.weapon_slots.end());  // S103 PW-1
+  o.quad2d_errors = t.quad2d_errors;
+  o.quad2d_holes = t.quad2d_holes;  // S103 L2a
 }
 
 // The expansion into a table the caller owns (a reused one keeps its capacity). `o` ends equal to ExpandCrowdRuns(t) (its string index is the flat one).
 static void ExpandInto(const SceneTables& t, SceneTables& o) {
   o.arena_memo.v.store(-2, std::memory_order_relaxed);   // S102 RT1 review: `o` is refilled in place (thread-local reuse): its memo belongs to the last record
+  o.arena_memo.ResetLights();                            // S103 CPU1: and so does the light rows' key
   CopyOtherTables(t, o);
   // S102 T11b (R20 review F1): a seeded source's blob starts with the pool. The expansion keeps only the strings its fields name (no file carries the pool, no per-frame re-hash of it in the render thread's
   // reused table). The plain objects' ids are remapped with the rest (they are copied into `o` and compacted together), then taken from there.
@@ -880,6 +1233,7 @@ static void DropUnreferencedStrings(SceneTables& t, bool compacted) {
   for (const Sprite& sp : t.sprites) note(sp.widget);
   for (const Text& tx : t.texts) note(tx.utf8), note(tx.widget);
   for (const Target& tg : t.targets) note(tg.name);
+  for (const CrowdSingleRow& sg : t.crowd_singles) note(sg.id);   // S103 D4
   std::vector<uint8_t> starts(n + 1, 0), keep(n + 1, 0);   // a segment starts at 0 or after a NUL
   for (size_t i = 0; i < n; ++i) starts[i] = (i == 0 || t.strings[i - 1] == '\0');
   for (uint32_t f : fields) {

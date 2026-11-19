@@ -51,7 +51,7 @@ def plant(text, old, new):
     return out
 
 
-def wiring_ok(sc, dev, ren, rd, tab):
+def wiring_ok(sc, dev, ren, rd, tab, ss):
     """All wiring facts as one predicate so a planted copy is judged by the same code."""
     f = []
     gate = re.search(r'if \(excl_\.ChainStructs\(\)\) \{(.*?)\n  \}\n#endif', sc, re.S)
@@ -80,7 +80,9 @@ def wiring_ok(sc, dev, ren, rd, tab):
     f.append(('swapchain is configured before Create', re.search(r'swapchain\.ConfigureExclusive\(opts\.exclusive_fullscreen && windowed\);[^\n]*\n\s*if \(windowed && !swapchain\.Create', ren) is not None))
     f.append(('table: StartOnly, default 0', 'X(ExclusiveFullscreen, "wwe2k14_rdr_exclusive_fullscreen", StartOnly, 0)' in tab))
     f.append(('cvar defined, default off', 'REXCVAR_DEFINE_BOOL(wwe2k14_rdr_exclusive_fullscreen, false' in rd))
-    f.append(('reader sets the option from the cvar on Windows only', re.search(r'#if defined\(_WIN32\)\n\s*options\.exclusive_fullscreen = REXCVAR_GET\(wwe2k14_rdr_exclusive_fullscreen\);', rd) is not None))
+    # S103 SPB: the cvar is read once, on Windows only, by ApplyStartSettings (start_settings.cpp); the stream reader copies it
+    f.append(('start settings read the option from the cvar on Windows only', re.search(r'#if defined\(_WIN32\)\n\s*a\.exclusive_fullscreen = REXCVAR_GET\(wwe2k14_rdr_exclusive_fullscreen\);', ss) is not None))
+    f.append(('reader copies it into the options', 'options.exclusive_fullscreen = applied.exclusive_fullscreen;' in rd))
     return f
 
 
@@ -112,7 +114,8 @@ def main():
     ren = read(root, 'src/renderer/renderer.cpp')
     rd = read(root, 'src/renderer_adapter/reader.h')
     tab = read(root, 'src/renderer_adapter/rdr_switches.h')
-    for name, ok in wiring_ok(sc, dev, ren, rd, tab):
+    ss = read(root, 'src/start_settings.cpp')   # S103 SPB: ApplyStartSettings reads the cvar
+    for name, ok in wiring_ok(sc, dev, ren, rd, tab, ss):
         line(ok, 'wiring: ' + name)
     twins = [
         ('Present forgets stale_ after a loss', 'sc', plant(sc, 'one line on the transition, never a crash\n    stale_ = true;\n', 'one line on the transition, never a crash\n')),
@@ -126,7 +129,7 @@ def main():
     for name, which, tmp in twins:
         args = {'sc': sc, 'dev': dev}
         args[which] = tmp
-        bad = [n for n, ok in wiring_ok(args['sc'], args['dev'], ren, rd, tab) if not ok]
+        bad = [n for n, ok in wiring_ok(args['sc'], args['dev'], ren, rd, tab, ss) if not ok]
         line(bool(bad), 'wiring planted (%s): caught by "%s"' % (name, bad[0] if bad else 'nothing'))
     print('g2b_check:', 'FAILED %d' % fails if fails else 'ok')
     return 1 if fails else 0

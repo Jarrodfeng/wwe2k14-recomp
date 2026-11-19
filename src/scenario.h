@@ -80,6 +80,8 @@ namespace wwe2k14::scenario {
 // S101 lane 32: the scene director's per-frame tick (src/scene_director.h fills this at start-up; null when that header is not built in).
 // Called from the owner update hook at the end of this file, on the game thread.
 inline void (*g_director_tick)(PPCContext&, uint8_t*) = nullptr;
+// S103 lane WMB: the menu-free 30 Years start's tick (src/wm30_boot.h fills this at start-up; null when that header is not built in). Same call site.
+inline void (*g_wm30_boot_tick)(PPCContext&, uint8_t*) = nullptr;
 
 constexpr uint32_t kMatchDescPtr = 0x836F2D88;  // word: M
 constexpr uint32_t kSettings = 0x8376AAF4;      // G (static)
@@ -1717,4 +1719,6 @@ REX_HOOK_RAW(sub_82C302A0) {
   wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);
   wwe2k14::freeze::RunnerLeave(base);
+  // S103 lane WMB: --wwe2k14_wm30_direct (the menu-free 30 Years start). AFTER the original update: a press handled this frame is already in 0x83929434 when the idle tests run.
+  if (wwe2k14::scenario::g_wm30_boot_tick) wwe2k14::scenario::g_wm30_boot_tick(ctx, base);
 }

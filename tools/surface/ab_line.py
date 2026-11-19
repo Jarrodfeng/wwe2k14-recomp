@@ -10,13 +10,56 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import wer_report   # S102 TS1
-LINE = re.compile(r'\w+ \[frames [^\]]+\]: shown ([\d.]+) fps, 1% low ([\d.]+)(?: \(worst-gap-per-row [\d.]+\))? \| gpu ([\d.-]+) render ([\d.]+) swap ([\d.]+)')   # S102 main 08:5x: R25-C2's worst-gap text broke this match
+LINE = re.compile(r'\w+ \[frames [^\]]+\]: shown ([\d.]+) fps, 1% low ([\d.]+)(?: \(worst-gap-per-row [\d.]+\))? \| gpu ([\d.-]+) render ([\d.]+|not measured) swap ([\d.]+)')   # S102 main 08:5x: R25-C2's worst-gap text broke this match
 SPLIT = re.compile(r'^split \[[^\]]*\]: (.*) ms \(mean / mean of the (\d+) 1%-low frames\)', re.M)
 SPLIT_CELL = re.compile(r'(\w+) (-|[\d.-]+)/(-|[\d.-]+)')
 HEAT = re.compile(r'heat \[([^\]]*)\][^|]*?pkg ([\d.]+) W')
 THERMAL = re.compile(r'thermal (SUSTAINED|BURST|MIXED|COOL|NONE)')   # S102 B1: burst_rules.py's state, first window of the line
 
 POWER_W = 1.5
+
+# S103 GT (--roles): bench_line.py --roles prints `roles [bryan frames A..B]: colour 3.64 ... = work 13.4 ms a frame (...) | uploads steady 0.02 MB/frame (n frames), loading 14.1 MB/frame (...)` per window
+# (the per-role GPU split from the run log of EITHER build; the stream-free build logs it since S103 GT). Per arm the line is echoed; with both sides it gets one A-vs-B table per role.
+ROLES = re.compile(r'^roles \[[^\]]*\]: (.*?) = work ([\d.]+) ms a frame(?: \([^)]*\))?(?: \| uploads steady ([\d.]+) MB/frame \((\d+) frames\), loading ([\d.]+) MB/frame \((\d+) frames)?', re.M)
+ROLE_CELL2 = re.compile(r'(\w+) (-?[\d.]+)')
+
+
+def parse_roles(out):
+    """-> {'roles': {name: ms}, 'work': ms, 'steady_mb', 'loading_mb', 'loading_frames', 'steady_frames'} of the FIRST roles line, or None (not measured)."""
+    m = ROLES.search(out)
+    if not m:
+        return None
+    d = {'roles': {k: float(v) for k, v in ROLE_CELL2.findall(m.group(1))}, 'work': float(m.group(2))}
+    if m.group(3) is not None:
+        d.update(steady_mb=float(m.group(3)), steady_frames=int(m.group(4)), loading_mb=float(m.group(5)), loading_frames=int(m.group(6)))
+    return d
+
+
+def roles_table(sides):
+    """sides: {'A': [roles dict], 'B': [roles dict]} -> prints a side-by-side table per role (mean over the arms of each side) when both sides have stamps."""
+    have = {s: [r for r in rs if r] for s, rs in sides.items()}
+    if not have.get('A') or not have.get('B'):
+        print('roles: %s' % ', '.join('%s %s' % (s, ('%d arms with stamps of %d' % (len(have.get(s, [])), len(sides.get(s, []))))) for s in 'AB'))
+        return
+    names = [k for k in ('colour', 'shadow', 'rim', 'plane', 'cards', 'post', 'output', 'ui', 'frame', 'copies', 'prelight', 'feedback', 'other', 'uploads')
+             if any(k in r['roles'] for s in 'AB' for r in have[s])]
+    mean = lambda s, f: sum(f(r) for r in have[s]) / len(have[s])
+    print('roles (GPU ms a frame, mean of %d A / %d B arms; NOT power-matched: read the pairs above for that)   %-9s %8s %8s %8s' % (len(have['A']), len(have['B']), 'role', 'A', 'B', 'B - A'))
+    for k in names + ['work']:
+        f = (lambda r, k=k: r['work']) if k == 'work' else (lambda r, k=k: r['roles'].get(k, 0.0))
+        a_, b_ = mean('A', f), mean('B', f)
+        print('roles %36s %8.2f %8.2f %+8.2f' % (k, a_, b_, b_ - a_))
+    up = {s: [r for r in have[s] if 'steady_mb' in r] for s in 'AB'}
+    if up['A'] and up['B']:
+        for lab, key in (('uploads steady MB/frame', 'steady_mb'), ('uploads loading MB/frame', 'loading_mb')):
+            a_, b_ = mean_of(up['A'], key), mean_of(up['B'], key)
+            print('roles %36s %8.3f %8.3f %+8.3f' % (lab, a_, b_, b_ - a_))
+    else:
+        print('roles uploads: not measured on both sides')
+
+
+def mean_of(rs, key):
+    return sum(r[key] for r in rs) / len(rs)
 
 
 def read_arm(arm, tdir, a):
@@ -31,7 +74,7 @@ def read_arm(arm, tdir, a):
     m, h = LINE.search(out), HEAT.search(out)
     if not m:
         return None, float('nan'), '?', None, (out + proc.stderr).strip()[-300:]
-    vals = [float(x) if x != '-' else float('nan') for x in m.groups()]
+    vals = [float(x) if x not in ('-', 'not measured') else float('nan') for x in m.groups()]
     cells = None
     if a.split:
         sm = SPLIT.search(out)
@@ -56,6 +99,8 @@ def run_order(parent, arms):
 def multi(a, arms):
     """Several B arms (ab_<round>_<arm>): each B arm's run is paired with the nearest A run in time inside its own round; a pair whose package
     power differs by more than POWER_W is left out; per arm the power-matched B - A (and the split B - A with --split), then one table of all arms."""
+    if a.roles:
+        print('roles: multi-arm not supported (use a plain A / B job, or bench_line.py --roles per arm folder)')
     runs = {}   # (parent, round, arm name) -> dict
     parents = {}
     for p in arms:
@@ -135,6 +180,7 @@ def main():
     ap.add_argument('folder')
     ap.add_argument('--scene', default='frames_bryan', choices=('frames_bryan', 'frames_brock', 'frames_match', 'frames_bryan_heavy'))   # S102 M6
     ap.add_argument('--split', action='store_true')
+    ap.add_argument('--roles', action='store_true', help='S103 GT: per arm the per-role GPU split + upload view (bench_line.py --roles), then one A-vs-B table per role when both sides logged stamps')
     ap.add_argument('--flip', action='store_true', help='S102 M7: the folder is an AbFlip job (ab_<n>_A + ab_<n>_B = a complementary pair): read each round with flip_line.py --pair')
     a = ap.parse_args()
     if a.flip:
@@ -166,6 +212,7 @@ def main():
     side = {'A': [], 'B': []}
     by_round = {}   # S102 main (21:30): round n -> {'A': (vals, pkg W), 'B': ...}; each round's A and B ran next to each other (A B B A ...)
     split_side = {'A': [], 'B': []}   # S102 H3: per arm {column: (mean, tail mean)}
+    role_side = {'A': [], 'B': []}    # S103 GT: per arm parse_roles()
     with tempfile.TemporaryDirectory(prefix='ab_line_') as tmp:
         for arm in arms:
             t = Path(tmp) / arm.name
@@ -173,12 +220,18 @@ def main():
             for f in arm.parent.iterdir():
                 if f.is_file() and re.search(r'power|counters', f.name):
                     shutil.copy2(f, t)
-            out = subprocess.run([sys.executable, '-I', str(HERE / 'bench_line.py'), str(t)] + (['--split'] if a.split else []), capture_output=True, text=True).stdout
+            out = subprocess.run([sys.executable, '-I', str(HERE / 'bench_line.py'), str(t)] + (['--split'] if a.split else []) + (['--roles'] if a.roles else []), capture_output=True, text=True).stdout
             m, h = LINE.search(out), HEAT.search(out)
+            if a.roles:
+                for ln in out.splitlines():
+                    if ln.startswith('roles ['):
+                        print('        ' + ln)
             if not m:
                 print('%s: no line (bench_line said: %s)' % (arm.name, out.strip()[:200]))
                 continue
-            vals = [float(x) if x != '-' else float('nan') for x in m.groups()]
+            if a.roles:
+                role_side[arm.name[-1]].append(parse_roles(out))   # only an arm whose line was read (review: a skipped arm must not enter the table)
+            vals = [float(x) if x not in ('-', 'not measured') else float('nan') for x in m.groups()]
             side[arm.name[-1]].append(vals)
             rm = re.match(r'ab_(\d+)_([AB])$', arm.name)
             if rm:
@@ -218,6 +271,8 @@ def main():
             print('power-matched B - A (%d of %d pairs): shown %+5.1f  1%% low %+5.1f  gpu %+5.1f  render %+5.1f  swap %+5.1f' % (len(matched), len(pairs), *d))
         else:
             print('POWER-CONFOUNDED: %d of %d pairs matched within %.1f W: no verdict from this job' % (len(matched), len(pairs), POWER_W))
+    if a.roles:
+        roles_table(role_side)
     if a.split:
         means = {}
         for sd in 'AB':

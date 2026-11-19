@@ -62,6 +62,10 @@ struct LiveOptions {
   std::filesystem::path png_folder;       // where the mirror's pictures go
   std::vector<uint64_t> png_frames;       // guest frames to write
   uint32_t png_every = 0;                 // also every Nth drawn frame; 0 off
+  std::vector<uint64_t> stage_page_frames;  // S103 L12 (--wwe2k14_dump_stage_page): guest frames at which the image bound at vertex slot 16 (the stage light-map page) is read back and written; empty = off (nothing runs)
+  std::filesystem::path stage_page_dir;     // S103 L12: where those dumps go (out\s103\stage_page)
+  std::vector<uint64_t> dump_targets_frames;  // S103 T7 (--wwe2k14_dump_targets): guest frames at which every in-between target is read back by role (the stage mirror, stage_mirror.h); empty = off (nothing runs)
+  std::filesystem::path dump_targets_dir;     // S103 T7: where those dumps go (out\s103\stage_mirror)
   uint32_t max_queued = 4;                // frames waiting beyond this are applied (images, contents) but not drawn, and counted
   void* window_instance = nullptr;        // stage B (owner): the game window (Windows: HINSTANCE + HWND; Android: ANativeWindow* in window)
   void* window = nullptr;                 // null: headless (the mirror)
@@ -73,7 +77,6 @@ struct LiveOptions {
   bool perframe_by_image = true;          // lane 307: a copy into an image written every frame with overlapping rectangles is per-frame work (lasting_prune.h)
   bool catch_up_state = true;             // strip-360 A1b: the drawn frame repeats the state steps the skipped frames before it left out
   bool vsync = true;                      // S100: owner mode follows the SDK's vsync switch (the launcher's V-SYNC): FIFO, else mailbox / immediate
-  bool film_grain = true;                 // settings parity S3: false = the 30 Years old-film pass drawn clean (binder.h g_film_grain)
   float shown_wide = 1.0f, shown_tall = 1.0f;  // lane 201: the screen-shape factors the present stretches back (reader.h g_wide); photo mode saves the stretched picture
   bool present_fill = false;              // settings parity S5: the present stretches to the window (the reader squeezes the scene)
   bool present_sgsr = false;              // settings parity S10a: the phone's SGSR UPSCALING (--present_effect=sgsr) in our present
@@ -93,11 +96,8 @@ struct LiveOptions {
   uint32_t present_hz = 0;                // S100 phone 120 fix 2: the presents spaced at this rate (renderer.h RendererOptions::present_hz)
   uint32_t draw_vblanks = 0;              // settings parity S9 (the decoupled 30): a frame is drawn once this many vblanks of presents have
                                           // passed (2: 60-a-second presents every other one, the game's stock 30 each one); 0 / 1 every frame
-  int crowd_density = 100;                // settings parity S6 / S7 / S8 (binder.h): CROWD DENSITY, SHADOWS, DEPTH OF FIELD
-  bool shadows = true;
-  bool density_track = true;              // S101 lane 234 (crowd_rank.h): the density rank follows a member that moves
-  bool depth_of_field = true;
-  bool shadow_half = false;               // settings parity S12: the shadow maps every other frame (binder.h g_shadow_half)
+  // (S103 SPB review L7: crowd_density / shadows / depth_of_field / shadow_half / film_grain are PlayerQuality (start_settings.h), read by the binder; not LiveOptions fields)
+  bool density_track = true;             // S101 lane 234 (crowd_rank.h): the density rank follows a member that moves
   bool low_tier = false;                  // S102 lane G3: the resolved tier is LOW (low_levers.h IsLow): the map turns (map_turns.h) apply only then
   bool crowd_cards_thin_probe = false;    // lane 175 (SF2): census of the thin record's stamp offset (cvar >= 1)
   bool crowd_cards_thin = false;          // lane 175: with crowd_cards, a frame whose stream holds only the first card of each type loop is drawn from the record (card_thin_core.h)
@@ -213,6 +213,8 @@ class LiveSink {
   // S101 lane 19: writes the LAST presented picture to `path` (PNG) on the render thread without waiting for another frame (a run's exit presents none).
   // False when the sink is not running. The file appears under its final name only when complete.
   bool SaveLastPicture(const std::filesystem::path& path);
+  // S103 lane SHOT (src\shown_frame.h): the last presented picture as RGBA8 pixels (through the display table), read back by the render thread on request only. Any thread; waits at most `timeout_ms`.
+  bool CaptureShown(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, uint32_t timeout_ms = 2000);
   // S101 lane 216: every class's final census line, printed now on the render thread (the process hard-exits, so a scene shorter than one 600-frame window never
   // printed its line). Waits at most `timeout_ms`; true when printed. Idempotent: a second call with no frame handled in between prints nothing new.
   bool FlushFinalCensus(uint32_t timeout_ms);

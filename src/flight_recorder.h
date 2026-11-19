@@ -674,6 +674,7 @@ inline std::string FlightThreadDescription(DWORD id) {
 // Every thread of the process except the caller, `samples` stacks each, `gap_ms` apart.
 inline std::vector<FlightHostThread> FlightSampleThreads(int samples, int gap_ms) {
   std::vector<FlightHostThread> threads;
+  if (samples < 0) return threads;  // S103: -1 = guest thread stacks only, no host thread is suspended
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
   if (snapshot == INVALID_HANDLE_VALUE) return threads;
   THREADENTRY32 entry{sizeof(entry)};
@@ -873,7 +874,8 @@ inline std::string FlightLogsPath() {
 }
 
 // reason: "hang", "crash", "abort", "requested". detail: one line. crash_context: the faulting thread's context
-// (crash dumps), else null. samples: host stack samples per thread (0 = none).
+// (crash dumps), else null. samples: host stack samples per thread (0 is the same as 1: FlightSampleThreads uses max(1, samples); -1 = none, no
+// thread is suspended, the guest stacks only: the loader stall dump).
 inline void FlightDump(const char* reason, const std::string& detail, const void* crash_context, int samples) {
 #ifdef _WIN32
   if (t_flight_in_dump) return;  // a fault inside the dump itself

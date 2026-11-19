@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include "renderer_scene/sampler_table.h"   // S103 B1: g_aniso_override
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -508,6 +509,7 @@ inline bool CommitScreenValues() {
   if (eff.texture_filter != g_running.texture_filter) {
     rex::cvar::SetFlagByName("anisotropic_override",
                              AnisoForFilter(eff.texture_filter == 2 ? 16 : eff.texture_filter == 1 ? 8 : 0));
+    rdr_scene::sampler_table::g_aniso_override.store(FlagInt("anisotropic_override"), std::memory_order_relaxed);   // S103 B1: the scene draw's reader
     g_running.texture_filter = eff.texture_filter;
   }
   const bool dlss_running = (g_running.upscale >= 2 && g_running.upscale <= 4) || g_running.upscale >= 6;

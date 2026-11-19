@@ -14,6 +14,7 @@
 // The display-gamma curve is NOT part of this pass: the game applies it at the present (Renderer::SetDisplayCurve), the viewer's rdr backend in its shot
 // read-back (renderer_rdr.cpp). Every result line of the proof says so.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -22,8 +23,30 @@
 
 #include "../renderer/frame_builder.h"
 #include "../renderer/renderer.h"
+#include "post_cue_fx.h"   // S103 FXH
 
 namespace rdr_scene {
+
+// S103 SLV: whole-run census (relaxed, once per recorded pass, never per pixel): full-size viewer-depth -> game-depth conversion passes recorded (post_pass.cpp, the dconv_ block), and the eighth-size
+// clears the combine's no-bloom permutation (the lite lever) did not record. Printed by the stream-free host's [rdr][post_levers] line.
+inline std::atomic<uint64_t> g_post_dconv_passes{0}, g_post_bloom_clears_skipped{0};
+// S103 SLV2: the depth-convert fold (the `_vd` twins of yGlareEtc / yDownScale convert the raw scene depth where they fetch it): frames that skipped the dconv_ pass because of it (g_post_dconv_passes keeps
+// counting the passes that still ran: a linear-DoF frame, or a depth of another size). Always on in the game (rule 6: no reason to keep the pass); g_post_depth_fold = 0 is the rigs' OFF twin (post_rig --depth-fold 0),
+// g_post_depth_fold_plant = 1 the planted twin (the fold decodes with a wrong q: the picture must differ).
+inline std::atomic<uint64_t> g_post_dconv_skipped{0};
+inline std::atomic<int> g_post_depth_fold{1}, g_post_depth_fold_plant{0};
+// S103 PST: RIG-ONLY planted twin (post_rig --pst-plant step): 1 = the adapted-luminance step ignores the guest frame and runs on every Record (a twin that steps twice per guest frame when a frame is recorded twice).
+// The proof must catch it (the convergence and the repeat-identity checks). Never set by the game.
+inline std::atomic<int> g_post_lum_plant_every{0};
+// S103 PST fix: RIG-ONLY planted twin (--pst-plant pause): the paused-frames rule is not applied (a long off stretch then composes k = 30 steps: 0.70 instead of 0.0396 for the first step back).
+inline std::atomic<int> g_post_lum_plant_nopause{0};
+// S103 PST fix (FXF review 8 rule): an image the effect needs could not be made: the effect is dropped for that frame and counted here (never a failed frame). Printed on the [scene][draw] census.
+inline std::atomic<uint64_t> g_post_aa_dropped{0}, g_post_lum_dropped{0};
+// S103 FXH: the cue effects (defocus + hue, emboss, retro film). Dropped = an image the effect needs could not be made (that effect is left out for the frame, never a failed frame); passes = recorded cue passes;
+// RIG-ONLY planted twins (post_rig --fxh-plant): 1 = the retro clock ticks on every Record (twice per guest frame when it is recorded twice), 2 = the noise strips are bound in each other's slot, 3 = post_from_record
+// treats the cue words as unsupported again (the old mask), 4 = the cue passes run in the wrong order (retro before emboss before defocus). Never set by the game.
+inline std::atomic<uint64_t> g_post_cue_dropped{0}, g_post_cue_passes{0};
+inline std::atomic<int> g_post_cue_plant{0};
 
 struct PostParams {
   uint32_t width = 1280, height = 720;  // the scene's size; quarter = /4, eighth = /8 (the game's 320x180 and 160x90 at 1280x720)
@@ -38,6 +61,9 @@ struct PostParams {
   // (rdr_post_depth.frag; q = the projection's m[10], nq = -m[14]) and samples that, unfiltered.
   bool depth_from_viewer = false;
   float proj_q = 1.f, proj_nq = 1.f;
+  // S103 SLV2: the size of the depth image the caller binds (0 = unknown). The depth-convert fold (post_pass.cpp) reads the raw depth in the consumers' own shaders at the pixel they draw, so it needs the depth to be
+  // the size of the pass (width x height, the conversion target's size); front_end.cpp sets these from the scene target it made both images with. Unknown or different: the dconv_ pass runs, as before.
+  uint32_t depth_w = 0, depth_h = 0;
   // 2 hole_fill (yBlur_hole_fill): SampleOffsets[12] (c1..c12), SampleWeights[13] (c16..c28)
   float hole_offsets[12][4] = {};
   float hole_weights[13][4] = {};
@@ -57,6 +83,32 @@ struct PostParams {
   float DOFParam[4] = {}, DOFParam2[4] = {}, RGB[4] = {}, Alpha[4] = {}, ZAdj[4] = {}, BloomScale[4] = {}, StarScale[4] = {};
   // 7 film (yMonotone): g_fCb c0, g_fCr c1, g_fAlpha c2
   float film_cb[4] = {}, film_cr[4] = {}, film_alpha[4] = {};
+  // S103 FXF: yAfterImage (post effect 4, after the film): the PREVIOUS output of this step, drawn over the new one as a sprite of the display's size, scaled `ghost_scale` about `ghost_centre` (0..1 of the picture),
+  // tinted by `ghost_colour`, at `ghost_alpha` (floor(S+228 * 255) / 255), additive when `ghost_additive` (S+272 == 1). The pass keeps the history image itself (a 360 HABIT dropped: the game resolves the frame into a
+  // "yAfterImage" texture every frame). `ghost_frame` = the record's guest frame: a draw whose frame is more than kGhostGap past the last ghost draw starts a new effect (no blend, the history is refilled).
+  bool ghost = false, ghost_additive = false;
+  float ghost_centre[2] = {0.5f, 0.5f}, ghost_scale = 1.f, ghost_alpha = 0.f, ghost_colour[3] = {1.f, 1.f, 1.f};
+  uint64_t ghost_frame = 0;
+  // S103 PST (COV9_story.md 2a / 2e): TONEMAP (S+180) and NIGHT (S+184), and ANTIALIASING (S+280).
+  //   tonemap / night: the combine's yGlareEtc `tonemap` / `night` permutations, which read the ADAPTED luminance (one float) at texture 9. The pass measures the scene (log-average luma: yToneMap initial 9 taps -> 64x64,
+  //   iterative 64 -> 16 -> 4, final -> 1x1) and steps a persistent 1x1 (yGlareEtc `adapt`) ONCE PER GUEST FRAME, ElapsedTime = 1/15 per frame (follow 0.0396), idempotent per guest frame like the FXF history:
+  //   `guest_frame` = the record's frame; the same frame again re-runs the same step from the same previous value. MiddleGray c33 = 0.18 (0x82004F4C). 360 HABIT dropped: the game's 4 passes into quarter rects of one
+  //   EDRAM target + 3 resolves (docs\renderer\360_HABITS.md); ours are 4 passes of the proven shaders into four small R32F images and no copy. Night alone (S+180 off) keeps the last measured value.
+  //   aa: the edge-aware blur (yAntialiasing) over the scene colour BEFORE every other pass; aa_offsets = (1/W, 1/H) of the game's picture (never finer than one drawn texel), the `fixed` variant (threshold 0.64).
+  bool tonemap = false, night = false, aa = false;
+  float middle_gray = 0.18f;
+  uint64_t guest_frame = 0;
+  float aa_offsets[2] = {1.f / 1280.f, 1.f / 720.f};   // [C] the game always draws pass 0 of T_Antialiasing = `fixed` (threshold 0.64): the ctor sub_82C2BE68 sets [obj+44] = 0, S+284 has no writer, effect_table: p0 = yAntialiasing_fixed_fragment
+  // S103 FXH (COV9_story.md 2b / 2c / 2d): the highlight-reel cue effects, drawn AFTER the afterimage in the game's order (7 defocus + hue, 8 emboss, 9 retro film), each over the previous one's picture. All three are 0 in
+  // normal play (S+560 / +592 / +604 are set only by the cue player's sequence).
+  //   defocus: yDefocus `hue`: mix(frame, the DoF blur (q2_, which the DoF chain makes for it though S+4 is off: set dof_chain), defocus_rate), then the hue shift of defocus_ycbcr = (Y, Cb, Cr, A).
+  //   emboss:  yEmboss: the red channel's relief, the step `emboss_step` = S+596 DISPLAY pixels over the display's size, in uv units of the GAME's picture (exact, not rounded to a drawn texel: at a render scale the step stays the same fraction of the picture).
+  //   retro:   yRetroFilm: shake / flicker / grain on the luma. retro_range = g_Range (S+640..652), retro_jitter = 4 / the display's height. The three pictures are OUR OWN noise (post_cue_fx.h: the game's are [U]); the clock
+  //   (g_Time) steps once per guest frame (cue_fx::RetroAdvance, idempotent) with the game's frame rate retro_rate (dt = 1 / rate).
+  bool defocus = false, emboss = false, retro = false;
+  float defocus_rate = 0.f, defocus_ycbcr[4] = {};
+  float emboss_step[2] = {};
+  float retro_range[4] = {}, retro_jitter = 4.f / 720.f, retro_rate = 30.f;
   // S101 lane PS: the game's shapes (post_plan.h fills these from the stream's own chain; the defaults leave the pass as it was)
   bool dof_chain = false;       // run dof_down + hole_fill although the combine has no dof permutation (the bloom chain's source: the editor, the cards)
   bool bloom_variant = false;   // the combine has the bloom permutation (reads slots 7 / 8) even when the bloom / glare chain is not recorded: both images are cleared
@@ -103,7 +155,12 @@ class PostPass {
   // S101 lane PO: the combine's registry variant name for these parameters (one function for the pass and for the hook's presence check).
   static std::string CombineVariantName(const PostParams& p, bool drop_bloom = false);   // S102 R18-B2: drop_bloom = the permutation without the bloom (its images are black)
   uint32_t passes_recorded() const { return passes_; }  // draws recorded by the last Record (the proof prints it)
-  bool combined() const { return combined_; }           // S101 lane PO: the last Record drew the combine (the check behind the planted fault no_combine)
+  bool ghost_first() const { return ghost_first_; }   // S103 FXF
+  void DisarmLum() { lum_paused_ = true; }   // S103 PST: a frame with no post walk (S+180 / S+184 not set for the game): the adapted luminance does not step; the next step is ONE guest frame, not the frames in between
+  void DisarmGhost() { ghost_armed_ = false; }   // S103 FXF review 4: a frame with no post walk (S+224 = 0 for the game) ends the effect
+  // S103 PST: distinct adapt steps recorded since the pass was made (one per guest frame; a repeat of a guest frame is not one).
+  uint64_t lum_steps() const { return lum_steps_; }
+  bool combined() const { return combined_; }        // S101 lane PO: the last Record drew the combine (the check behind the planted fault no_combine)
   // The pass's own intermediate pictures after Record has rendered (the proof compares each with the game's: a per-pass breakdown).
   rdr::ImageId dof_blur() const { return q2_; }   // hole_fill: the depth of field's blurred picture (the game's image read by combine slots 2 and 6)
   rdr::ImageId bloom_image() const { return b1_; }  // combine slot 7
@@ -125,8 +182,27 @@ class PostPass {
   std::vector<rdr::ImageId> images_;
   rdr::ImageId q1_ = rdr::kNoImage, q2_ = rdr::kNoImage, b0_ = rdr::kNoImage, b1_ = rdr::kNoImage, b2_ = rdr::kNoImage, gt_ = rdr::kNoImage;
   rdr::ImageId g_[4] = {}, gsum_ = rdr::kNoImage, mid_ = rdr::kNoImage, dconv_ = rdr::kNoImage;
-  uint16_t depth_program_ = 0, depth_layout_ = 0;
-  bool depth_program_made_ = false;
+  rdr::ImageId pre_ = rdr::kNoImage, hist_[2] = {rdr::kNoImage, rdr::kNoImage};   // S103 FXF: the chain output before the ghost, and the two history images (made when the ghost first plays; zero cost while it is off)
+  uint16_t depth_program_ = 0, depth_layout_ = 0, ghost_program_ = 0, ghost_layout_ = 0;
+  bool depth_program_made_ = false, ghost_program_made_ = false, ghost_armed_ = false;
+  uint64_t ghost_last_frame_ = 0;
+  uint32_t ghost_read_ = 1, ghost_write_ = 0, ghost_k_ = 1;   // which history image this guest frame reads / writes; guest frames since the last ghost draw (the pace)
+  bool ghost_first_ = false;   // the last Record's ghost was a first frame (no blend): the planted twins / the census read it
+  // S103 PST: the luminance chain. lum_[0..2] = 64x64 / 16x16 / 4x4 R32F (the size-independent pyramid; made with the first tonemap / night frame), lum_cur_ = this frame's measured 1x1, lum_a_[2] = the adapted 1x1
+  // ping-pong (lum_latest_ = the one holding the newest step). These live as long as the pass: a render-size change does not reset the adaptation (they are not in images_).
+  rdr::ImageId lum_[3] = {rdr::kNoImage, rdr::kNoImage, rdr::kNoImage}, lum_cur_ = rdr::kNoImage, lum_a_[2] = {rdr::kNoImage, rdr::kNoImage}, aa_img_ = rdr::kNoImage;
+  rdr::ImageId lq_ = rdr::kNoImage;   // the quarter-size colour the luminance measure reads when the DoF chain did not make q1_ this frame (in images_)
+  uint32_t lum_latest_ = 0, lum_read_ = 1;   // lum_latest_ = the image this guest frame's step WRITES (= the newest adapted value), lum_read_ = the one it reads (the value before the step)
+  uint64_t lum_last_frame_ = 0, lum_steps_ = 0;
+  float lum_elapsed_ = 1.f / 15.f;   // the current guest frame's ElapsedTime (kept so a repeat of the frame steps the same way)
+  bool lum_paused_ = false, lum_made_ = false, lum_just_made_ = false, lum_armed_ = false, lum_measured_ = false;
+  bool MakeLum();
+  rdr::ImageId MakeF(uint32_t w, uint32_t h, bool in_images);
+  // S103 FXH: the cue effects. cue_[0] / cue_[1] = the two full-size ping-pong images (in images_: a size change re-makes them), noise_[0..2] = the retro film's strip 1, strip 2 and grain (ours, made once with the first
+  // retro frame, kept for the pass's life: not in images_), retro_ = the clock.
+  rdr::ImageId cue_[2] = {rdr::kNoImage, rdr::kNoImage}, noise_[3] = {rdr::kNoImage, rdr::kNoImage, rdr::kNoImage};
+  cue_fx::RetroClock retro_;
+  bool MakeNoise();
   uint32_t passes_ = 0;
   bool scaled_ = false, combined_ = false;  // S101 lane PO
 };

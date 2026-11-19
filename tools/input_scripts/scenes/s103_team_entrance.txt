@@ -1,0 +1,30 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=8 --wwe2k14_launch_arena=1 --wwe2k14_launch_participants=367,368,369,322,324,343 --wwe2k14_events=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_scene=2
+# intent: owner on, scene 2
+# Speed: fast-forward (no realtime line). Every wait is by file / state / match clock (COV.md rows 1 + 2: android_check's realtime line is only about the roster worker thread [L]). If the shots miss the entrants, rerun with -RealTime.
+# Session 103 RTE (docs\agents\s103\COV.md rows 1 + 2, "Routes for the next milestone" 1): the tag / 6-man entrance at RAW (arena 1). Type 8, six participants: The Shield trio
+# (367,368,369) v Del Rio (322, brings Ricardo), Bryan (324), Lesnar (343), entrances KEPT. Reads: census no_unique_entering_slot (several entrants at once, inputs_core.h:571-583),
+# [scene][ready] holes, the [stage_show] / slot-cycle lines (arena 1 billboards). Copied from s103_android_check.txt (entrances kept, no finisher block).
+# A shot every 450 frames while the entrances play (each entrant's walk-out and the ring arrival land in one of them), then three shots at the ring once the match clock runs.
+# Frozen userdata only (run_list mirrors it); the route writes no settings. on_fail quit.
+on_fail quit
+log bench: start scene team_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG01.PAC 900
+log scene=entrances
+mark 1 entrances
+screenshot_every 450 team_ent
+wait_state match_clock >0 72000
+screenshot_every 0
+log scene=ring (entrances over, the match clock runs)
+mark 2 match_clock
+wait_frames 300
+screenshot te_ring_0300
+wait_frames 900
+screenshot te_ring_1200
+wait_frames 900
+screenshot te_ring_2100
+mark 9 end
+log bench: done
+quit

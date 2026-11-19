@@ -36,6 +36,7 @@ struct Sub {   // a phase INSIDE an End: counted in its own slot only
 };
 struct Scope {
   Slot slot;
+  // render-clock: perf - the d3 proof scope timer feeds counters only
   std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
   explicit Scope(Slot s) : slot(s) {}
   ~Scope() {

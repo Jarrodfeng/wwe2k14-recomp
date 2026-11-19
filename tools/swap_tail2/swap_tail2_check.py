@@ -24,7 +24,7 @@ LINTS = [
     ('owner_timing.h: the three hooks take the ticket, the timing thread waits before it answers', 'src/owner_timing.h',
      ['const uint64_t join = JoinReaderTicket();\n  Item it;\n  it.join = join;\n  it.fence = true;', 'const uint64_t join = JoinReaderTicket();\n  Item it;\n  it.join = join;\n  it.flip = ctx.r6.u32 == dn::kFlipScheduler;',
       'const uint64_t join = JoinReaderTicket();\n  Item it;\n  it.join = join;\n  it.flip = true;', 'JoinForItem(it, env);', 'rdr_reader::g_workers.WaitBelowUntil(it.join, [&] {', 'g_core.Turn(env);',
-      'rdr_reader::g_workers.WaitAll();\n  NeedsProcessor(',
+      'rdr_reader::g_workers.WaitAll();\n#endif\n  NeedsProcessor(',  # S103 P9 (A18) wrapped the wait in WWE2K14_STREAM(); same call, same order
       'if (!st::On(st::kJoinLater)) {\n    JoinReader();']),
     ('reader.h: the switch is read every frame; only texture jobs take tickets; the pool is the shipped template', 'src/renderer_adapter/reader.h',
      ['rdr_sw::IntSeen(rdr_sw::kSwapTail2, 0, guest_frame)', 'struct ReaderWorkers : wwe2k14::join_ticket::Pool<ReaderJob>', 'Queue(raw, true);', 'g_workers.Queue(j, false);', 'Push(job, guest_reads);',

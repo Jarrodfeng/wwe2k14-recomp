@@ -1,0 +1,42 @@
+{
+ "owner": "S103 lane PVR (the Surface's flat 4.0 ms uploads span, UPF fix 1): the per-frame posed vertices go into the frame's geometry ring instead of a staged vkCmdCopyBuffer per mesh. src/renderer_scene/front_end.cpp/.h (UpdateModelVertices keeps the posed block, PosedRingBase / PosedRingPush, the cloth block of Record, g_posed_ring / g_plant_posed_ring / counters), src/renderer/frame_builder.h (Epoch, GeometryBytes), renderer.cpp/.h/api.h (UpdateBuffer producer label, buffer copies by producer and the mid stamp of ApplyUploads in the [rdr][gpu][uploads] line), start_settings.cpp (switch wwe2k14_rdr_posed_ring), tools/scene/pvr_unit.cpp + pvr_check.py, frame_rig.cpp (WWE_RDR_POSED_RING, pvr_render / pvr_rep lines), docs/renderer/360_HABITS.md row 11. 0 game runs, 0 Surface runs.",
+ "claim": {
+  "scene": "entrance (Bryan)",
+  "side": "GPU",
+  "ms": [2.5, 3.8],
+  "basis": "UPF.md section 2: the uploads span is ~0.36 ms + ~0.035 ms per vkCmdCopyBuffer (104 a frame in Bryan's entrance = 4.0 ms, fitted on 6 Surface runs); this removes the posed-vertex copies (and their barrier pair and staging buffers). NOT measured: the main session's one Surface flip (--wwe2k14_rdr_posed_ring=false at start) measures it. Which producer owns the 104 copies (ring pieces / weapons via UpdateModelVertices, or cloth in Record) is read from the by-producer counts of the new uploads line."
+ },
+ "note": "0 game runs, 0 Surface runs. pvr_check = out/tools/pvr_unit.exe (a synthetic re-posed model through the real FrontEnd + renderer: ring vs old, overflow, plants 1 and 2) + frame_rig.exe on a04_entrance frame 60 (ring vs old: the same picture).",
+ "checks": [
+  {
+   "name": "s103_PVR.build_rig",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"],
+   "timeout_s": 1800, "affects": ["src/renderer_scene/*", "src/scene_live/*", "src/assets/*", "src/renderer/**", "src/launcher/*", "tools/scene/build_rig.ps1", "tools/scene/build_watchdog.ps1", "tools/scene/pvr_unit.cpp", "tools/scene/frame_rig.cpp"]
+  },
+  {
+   "name": "s103_PVR.start_parity",
+   "cmd": ["py", "-I", "tools/scene/start_parity_lint.py", "--root", "."],
+   "timeout_s": 60,
+   "affects": ["src/start_settings.cpp", "src/fview/main.cpp", "src/renderer/player/rplay.cpp", "tools/scene/frame_rig.cpp", "tools/scene/start_parity_lint.py"]
+  },
+  {
+   "name": "s103_PVR.posed_vb_lint",
+   "cmd": ["py", "-I", "tools/scene/posed_vb_lint.py", "--root", "."],
+   "timeout_s": 60,
+   "affects": ["src/renderer_scene/front_end.cpp", "tools/scene/posed_vb_lint.py"]
+  },
+  {
+   "name": "s103_PVR.posed_vb_lint_selftest",
+   "cmd": ["py", "-I", "tools/scene/posed_vb_lint.py", "--selftest"],
+   "timeout_s": 60,
+   "affects": ["tools/scene/posed_vb_lint.py"]
+  },
+  {
+   "name": "s103_PVR.pvr_check",
+   "cmd": ["py", "-I", "tools/scene/pvr_check.py"],
+   "timeout_s": 1700,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted"],
+   "affects": ["src/renderer_scene/*", "src/renderer/*", "tools/scene/pvr_check.py", "tools/scene/pvr_unit.cpp", "tools/scene/up_check.py", "tools/scene/frame_rig.cpp", "tools/scene/frame_rig.py"]
+  }
+ ]
+}

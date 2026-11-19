@@ -15,6 +15,8 @@ Checks (E = error, makes the exit code 1; W = warning, printed separately, exit 
   E  an address in the code range that is not a function start (inside a function, or in no function), checked
      against the code index (tools/q) or, without one, the generated function list (*_init.cpp)
   E  the same address twice in one file; the same name twice in one file; one name used for different addresses
+  E  one address in two db files, unless it is in tools/db/cross_file_baseline.txt (the old duplicates; S103 B3c: a new one is an error,
+     fold the entry into the first file; --write-cross-baseline rewrites the baseline from the current db)
   W  name not snake_case; unknown extra fields; lower-case hex digits in an address
   W  the same address in several files under different names (review list), or with a different confidence/system
   W  a data address (outside the code range) outside the loaded image (heap or stack address?)
@@ -60,6 +62,8 @@ DEFAULT_DOCS = os.path.join(REPO, 'docs', 'systems')
 DEFAULT_INDEX = os.path.join(REPO, 'out', 'harness', 'index', 'index.db')
 DEFAULT_GEN = os.path.join(REPO, 'generated', 'default')
 DEFAULT_COVERAGE = os.path.join(REPO, 'out', 'harness', 'coverage', 'coverage.json')
+CROSS_BASELINE = os.path.join(REPO, 'tools', 'db', 'cross_file_baseline.txt')   # S103 B3c: addresses that already sat in two files
+WRITE_CROSS_BASELINE = False
 IMAGE_BASE = 0x82000000
 
 FIELDS = ('address', 'name', 'summary', 'evidence', 'confidence', 'system', 'source')
@@ -505,11 +509,19 @@ def check_duplicates(rep, entries):
         if len(addrs) > 1:
             rep.err('name_conflict', 'db', 'name %s names different addresses: %s'
                     % (name, ', '.join(h(a) for a in sorted(addrs))))
+    cross_seen = []
+    cross_old = set()
+    if os.path.exists(CROSS_BASELINE):
+        with open(CROSS_BASELINE, encoding='utf-8') as bf:
+            cross_old = {l.split('#')[0].strip() for l in bf if l.split('#')[0].strip()}
     for addr, items in sorted(by_addr.items()):
         files = sorted({rel for rel, _ in items})
         if len(files) < 2:
             continue
         names = sorted({str(e.get('name')) for _, e in items})
+        cross_seen.append(h(addr))
+        if h(addr) not in cross_old:
+            rep.err('address_in_two_files', h(addr), 'in %d files (%s): fold it into one entry (tools/db/cross_file_baseline.txt lists the old ones)' % (len(files), ', '.join(os.path.basename(f) for f in files)))
         desc = '; '.join('%s: %s (%s, %s)' % (os.path.basename(rel), e.get('name'), e.get('confidence'),
                                               e.get('system')) for rel, e in items)
         if len(names) > 1:
@@ -523,6 +535,10 @@ def check_duplicates(rep, entries):
             else:
                 rep.notes.append('shared entry %s %s in %s' % (h(addr), names[0], ', '.join(
                     os.path.basename(f) for f in files)))
+    if WRITE_CROSS_BASELINE:
+        with open(CROSS_BASELINE, 'w', encoding='utf-8', newline='\n') as bf:
+            bf.write('# addresses that sat in two db files when the check was made (S103 B3c); validate.py refuses any other. One per line.\n')
+            bf.write('\n'.join(sorted(set(cross_seen))) + '\n')
     for stem, i, e, kind, addr, rel, where in entries:
         is_key = stem in KEY_FILES or e.get('system') in KEY_SYSTEMS
         if not is_key:
@@ -708,6 +724,7 @@ def run():
     ap.add_argument('--db', default=DEFAULT_DB)
     ap.add_argument('--docs', default=DEFAULT_DOCS)
     ap.add_argument('--index', default=DEFAULT_INDEX)
+    ap.add_argument('--write-cross-baseline', action='store_true', help='rewrite tools/db/cross_file_baseline.txt from the current db')
     ap.add_argument('--no-index', action='store_true', help='use the generated function list instead of the index')
     ap.add_argument('--gen', default=DEFAULT_GEN)
     ap.add_argument('--coverage', default=DEFAULT_COVERAGE)
@@ -716,6 +733,8 @@ def run():
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--list', type=int, default=40, help='lines per error/warning kind in text mode')
     args = ap.parse_args()
+    global WRITE_CROSS_BASELINE
+    WRITE_CROSS_BASELINE = args.write_cross_baseline
     res, code = validate(args)
     if res is None:
         return code

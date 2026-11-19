@@ -4,6 +4,7 @@
 #pragma once
 #if defined(_M_X64) || defined(__x86_64__)
 #include <intrin.h>
+// render-clock: perf - the crowd phase counters read the TSC
 #define RDR_PHASE_TSC() __rdtsc()
 #else
 #include <chrono>
@@ -28,6 +29,7 @@ class PhaseClock {
     on_ = e && e[0] == '1';
     if (!on_) return;
     acc_.assign(n, 0), samples_.assign(n, {}), total_.assign(n, 0);
+    // render-clock: perf - the crowd phase counters calibrate the TSC
     wall0_ = std::chrono::steady_clock::now(), tsc0_ = RDR_PHASE_TSC();
   }
   bool on() const { return on_; }

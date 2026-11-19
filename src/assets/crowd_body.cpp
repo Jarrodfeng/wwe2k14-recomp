@@ -33,18 +33,22 @@
 namespace assets::crowd_body {
 namespace {
 launcher::GameFiles g_files;
+std::string g_init_root;   // S103 D4: Init's folder (GameRoot)
 bool g_ready = false;
 
 struct Stored {
   Model model;                 // the arena with its crowd at the stored pose (all meshes; only the crowd's are used)
   std::vector<Member> members;
 };
-std::map<int, std::unique_ptr<Stored>> g_stored;
+// S103 CAR fix 5: keyed by (arena, the created arena's selection key; "" for every other arena): a venue whose parts changed is a different stored model
+using StoredKey = std::pair<int, std::string>;
+StoredKey StoredKeyOf(int arena) { return {arena, car::IsCustomId(arena) ? car::Current().Key() : std::string()}; }
+std::map<StoredKey, std::unique_ptr<Stored>> g_stored;
 
 Stored* GetStored(int arena, std::string& err) {
   std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());  // S101 lane 40: one loader at a time (asset_load.h is not thread-safe; the crowd and the arena load on workers)
   if (!g_ready) return err = "crowd_body: no game files (Init first)", nullptr;
-  if (auto it = g_stored.find(arena); it != g_stored.end()) return it->second.get();
+  if (auto it = g_stored.find(StoredKeyOf(arena)); it != g_stored.end()) return it->second.get();
   auto s = std::make_unique<Stored>();
   const auto saved = load_detail::CrowdPose();
   load_detail::CrowdPose() = load_detail::CrowdPoseMode::kStored;
@@ -63,11 +67,20 @@ Stored* GetStored(int arena, std::string& err) {
       s->members.push_back(m);
     }
   }
-  return (g_stored[arena] = std::move(s)).get();
+  return (g_stored[StoredKeyOf(arena)] = std::move(s)).get();
 }
 }  // namespace
 
+std::string GameRoot() {   // S103 D4: the folder Init was given (the audience props load from the same pac; crowd_prop_game_space has its own GameFiles)
+  std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());
+  return g_init_root;
+}
+
 bool Init(const std::string& game_path) {
+  std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());  // S103 D2: g_stored / g_files are shared with the crowd's worker
+  // S103 D2: idempotent for the same folder: the live crowd's worker loads bodies while another thread's source may call Init again (it would clear g_stored under the worker)
+  if (g_ready && g_init_root == game_path) return true;
+  g_init_root = game_path;
   g_files.SetRoot(std::filesystem::u8path(game_path));
   g_ready = g_files.Exists("pac\\ch") || g_files.Exists("default.xex");
   g_stored.clear();
@@ -75,6 +88,7 @@ bool Init(const std::string& game_path) {
 }
 
 bool Members(int arena, std::vector<Member>& out, std::string& err) {
+  std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());  // S103 D2: the copy from s->members
   Stored* s = GetStored(arena, err);
   if (!s) return false;
   out = s->members;
@@ -82,6 +96,7 @@ bool Members(int arena, std::vector<Member>& out, std::string& err) {
 }
 
 bool LoadBody(int arena, int type, Model& out, std::string& err) {
+  std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());  // S103 D2: the copy from s->model must not race a Release (CrowdOurs' worker)
   Stored* s = GetStored(arena, err);
   if (!s) return false;
   const Model& src = s->model;
@@ -114,8 +129,9 @@ bool LoadBody(int arena, int type, Model& out, std::string& err) {
   };
   for (size_t i = 0; i < out.materials.size(); ++i) {
     Material& m = out.materials[i];
-    if (!keep_mat[i]) { m.diffuse = m.normal = m.lightmap = m.mask = m.specular = m.detail = -1; continue; }
+    if (!keep_mat[i]) { m.diffuse = m.normal = m.lightmap = m.mask = m.specular = m.detail = -1, m.layer[0] = m.layer[1] = m.layer[2] = -1; continue; }
     map_tex(m.diffuse), map_tex(m.normal), map_tex(m.lightmap), map_tex(m.mask), map_tex(m.specular), map_tex(m.detail);
+    for (int& ly : m.layer) ly = -1;   // S103 LAY: a crowd body has no UVScroll layers (they would index the unmapped texture list)
   }
   out.stage_lightmap = src.stage_lightmap;
   map_tex(out.stage_lightmap);
@@ -170,7 +186,7 @@ bool LoadBodyLodGameSpace(int arena, int lod, int type, Model& out, std::string&
 
 void Release(int arena) {
   std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());  // S101 lane 40: one loader at a time (asset_load.h is not thread-safe; the crowd and the arena load on workers)
-  g_stored.erase(arena);
+  for (auto it = g_stored.begin(); it != g_stored.end();) it = it->first.first == arena ? g_stored.erase(it) : std::next(it);   // every selection of this arena (S103 CAR fix 5)
   load_detail::TheCache() = load_detail::Cache{};  // the arena pac the loader kept open (~8 MB) goes too
 }
 

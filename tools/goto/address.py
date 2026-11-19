@@ -21,7 +21,7 @@ Forms (RENDERER_ARC.md 4A design 1; docs/systems/goto.md):
     caw:page:TITLE[/row:NAME][/open]   ... the page titled TITLE (reached by RB / LB from the learned page table), its row NAME (or #K), and A on it
     caw:row:NAME[/open]        ... a row of the page that is showing;  caw:back = B.  Each press is proved by the drawn page (tools/n2/caw_driver.py)
     universe:PAGE              a Universe page                                (parses; not reachable yet)
-    cutscene:ID                a cutscene / story scene id                    (parses; not reachable yet)
+    cutscene:ID                a cutscene / story scene id: alias of scene:ID (numeric ids; a name is not reachable)
     scene:ID                   S101 lane 38: play scene bank ID from the main menu through the stage push (`!scene stage`, then `!scene play ID`); ID is
                                checked against the bank-id table (tools/goto/scene_ids.py): an id no pac holds is an error
     scene:ID[:CHARS]@arena:N   S101 lane 72: ... into the set of arena N (a pac\bg\bgNN.pac: 0-9, 11-17, 21-23, 28-56, 66-68, 76-80); without it the stage's own arena 76 is the

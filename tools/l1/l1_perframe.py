@@ -1,4 +1,4 @@
-"""L1: per-frame histogram on a capture (find the frames the bars fail on). py -I tools\l1\l1_perframe.py CAP STEP [EXTRA...]"""
+r"""L1: per-frame histogram on a capture (find the frames the bars fail on). py -I tools\l1\l1_perframe.py CAP STEP [EXTRA...]"""
 import os
 import subprocess
 import sys

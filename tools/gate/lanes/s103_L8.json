@@ -1,0 +1,223 @@
+{
+ "owner": "S103 lane L8 (the stage light-map page of a match is the game's page pass: page 00 faded to page 01 by the page clock; switch --wwe2k14_rdr_stage_lmpage, default off): src/assets/stage_pools.h (FadeAlpha255 / FadeFrom), src/renderer_scene/rf_arena_live.cpp (UpdatePages), rf_c.h, stage_lmpage.h, reader.h + rdr_switches.h (the switch), tools/scene/l8_*.py, l8_unit.cpp. 0 game runs, 0 Surface runs. S103 FD (CF2): the fade alpha follows the game's own page clock (inputs_core.h ReadStagePageClock, the kSlPageClock row, PageAlpha255); tools/scene/fd_clock_unit.cpp; planted twins own_fade_clock / stale_cache.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "s100_match300 (an arena-4 match start, 3 frames): the stream's page textures are the arena's own fade_lightmap00 / 01 (byte equal) and our FadeFrom page at the stream's own vertex alpha (130 / 255) is within 1.0 of 255 of the game's page target (measured 0.23); today's match page (01 alone) reads 8.48 and page 00 alone 8.88 (the planted twins must FAIL). The vertex-lm class split (30 of 63 LM meshes) is a lodged lead, not checked here.",
+ "checks": [
+  {
+   "name": "s103_L8.unit_build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    ". tools/env.ps1 | Out-Null; New-Item -ItemType Directory -Force (Split-Path out/tools/l8_unit.exe) | Out-Null; clang++ -O1 -std=c++20 -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -Wno-unused-command-line-argument tools/scene/l8_unit.cpp '-Wl,/Brepro' -o out/tools/l8_unit.exe; if ($LASTEXITCODE -ne 0) { exit 1 }; clang++ -O1 -std=c++20 -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -Wno-unused-command-line-argument tools/scene/fd_clock_unit.cpp '-Wl,/Brepro' -o out/tools/fd_clock_unit.exe; if ($LASTEXITCODE -ne 0) { exit 1 }"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s103_L8.unit",
+   "cmd": [
+    "out/tools/l8_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/scene_live/inputs_core.h",
+    "src/task_group_walk.h",
+    "tools/scene/l8_unit.cpp",
+    "tools/scene/fd_clock_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_FD.clock_unit",
+   "cmd": [
+    "out/tools/fd_clock_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/scene_live/inputs_core.h",
+    "src/task_group_walk.h",
+    "tools/scene/l8_unit.cpp",
+    "tools/scene/fd_clock_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_FD.plant_own_fade_clock",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/l8_unit.exe --plant own_fade_clock; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/scene_live/inputs_core.h",
+    "src/task_group_walk.h",
+    "tools/scene/l8_unit.cpp",
+    "tools/scene/fd_clock_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_FD.plant_stale_cache",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/fd_clock_unit.exe --plant stale_cache; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/scene_live/inputs_core.h",
+    "src/task_group_walk.h",
+    "tools/scene/l8_unit.cpp",
+    "tools/scene/fd_clock_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_FDP.plant_inline_groups",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/fd_clock_unit.exe --plant inline_groups; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/scene_live/inputs_core.h",
+    "src/task_group_walk.h",
+    "tools/scene/l8_unit.cpp",
+    "tools/scene/fd_clock_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_L8.page",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/l8_check.py"
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "out/captures/s100_match300",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/assets/stage_pools.h",
+    "tools/scene/l8_check.py",
+    "tools/scene/l8_page_id.py",
+    "tools/scene/l8_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_L8.plant_old",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/l8_check.py",
+    "--plant",
+    "old",
+    "--expect-fail",
+    "PAGE PIXELS"
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "out/captures/s100_match300",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/assets/stage_pools.h",
+    "tools/scene/l8_check.py",
+    "tools/scene/l8_page_id.py",
+    "tools/scene/l8_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_L8.plant_p00",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/l8_check.py",
+    "--plant",
+    "p00",
+    "--expect-fail",
+    "PAGE PIXELS"
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "out/captures/s100_match300",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/assets/stage_pools.h",
+    "tools/scene/l8_check.py",
+    "tools/scene/l8_page_id.py",
+    "tools/scene/l8_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_L8.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1500,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/assets/stage_pools.h",
+    "src/renderer_scene/rf_arena_live.cpp",
+    "src/renderer_scene/rf_c.h",
+    "src/renderer_scene/stage_lmpage.h",
+    "src/renderer_adapter/reader.h",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/scene_live/inputs_core.h",
+    "src/scene_live/inputs_contrib.h",
+    "src/renderer_scene/scene_record.h",
+    "src/renderer_scene/stage_look.h",
+    "src/renderer_scene/record_io.cpp"
+   ]
+  },
+  {
+   "name": "s103_L8.t19_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/t19_lint.py"
+   ],
+   "timeout_s": 120
+  },
+  {
+   "name": "s103_L8.address_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/analysis/address_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "generated/default"
+   ],
+   "affects": [
+    "src/renderer_scene/*"
+   ]
+  }
+ ]
+}

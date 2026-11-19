@@ -23,6 +23,7 @@
 
 #include "../../src/renderer_adapter/own_group.h"
 #include "../../src/renderer_game/own_shadow_rim.h"
+#include "../../src/renderer_scene/arena_debounce.h"   // S103 L31A
 #include "../../src/renderer_scene/scene_record.h"   // kScOwnedPasses must be the id the enum gives it
 
 using namespace rdr_own;
@@ -114,6 +115,76 @@ int main(int argc, char** argv) {
   Check(latched && S(Pass::ShadowModule).latched.load(), "latch", "three holds inside the window latch the pass off (one ERROR line in the live hook's log)");
   MarkAll(Pass::ShadowModule, 4, 5000);
   Check(Node(Pass::ShadowModule, 5000, true).decision == uint8_t(Decision::GameWalks), "latched", "a latched pass stays with the game for the session");
+
+  // 5b. S103 L31A: a loading miss is a hole, not a strike (run 30: three misses at one entrance -> match transition latched the scene off for the session)
+  {
+    const Pass pp = Pass::Plane;   // a pass this unit does not otherwise use
+    const auto miss = [&](uint64_t frame, bool loading) {   // plant 12: the loading flag is ignored (every miss a strike); plant 13: every miss counts as loading (a real fault never strikes)
+      return ReportMiss(pp, frame, g_plant == 12 ? false : (g_plant == 13 ? true : loading));
+    };
+    S(pp).latched.store(false), S(pp).hold_until.store(0), S(pp).miss_hold_until.store(0), S(pp).holes.store(0);
+    bool l = false;
+    l |= miss(1000, true), l |= miss(1010, true), l |= miss(1020, true);   // in-flight frames of one event, all "not resident"
+    l |= miss(1061, true), l |= miss(1125, true), l |= miss(1190, true);   // and the same wait outlasting the hold: still no strike
+    Check(!l && !S(pp).latched.load(), "loading_no_latch", "six loading misses over one wait do not latch the pass off");
+    Check(TakeLoadingWarn(pp) && !TakeLoadingWarn(pp), "loading_warn_once", "4 loading episodes in the window raise ONE warning");
+    Check(S(pp).holes.load() == 6, "loading_holes", "every loading miss is still counted as a hole");
+    Check(Node(pp, 1190, true).decision == uint8_t(Decision::GameWalks), "loading_hold", "a loading miss still holds the pass (the game walks)");
+    bool r = false;
+    r |= miss(3000, false), r |= miss(3010, false), r |= miss(3020, false);   // real faults of one event inside the hold: the same event, one strike at most
+    Check(!r && !S(pp).latched.load(), "fault_same_event", "three real faults inside one hold are one event: no latch");
+    r |= miss(3100, false), r |= miss(3200, false);
+    Check(r && S(pp).latched.load(), "fault_latches", "three real faults in separate holds inside the window still latch the pass off for the session");
+  }
+
+  // 5c. S103 L31A review: a planned hold ahead of the render thread (light-refresh walk, sentinel: raise hold_until) must not swallow a real fault; hold_until only ever goes up; loading episodes are limited
+  {
+    const Pass pp = Pass::Sweat;
+    RaiseHold(S(pp), 5000);   // the record thread's planned hold, far ahead
+    const auto fault = [&](uint64_t frame) {   // plant 14: the same-event test reads hold_until (the old code)
+      if (g_plant == 14 && frame < S(pp).hold_until.load()) { S(pp).holes.fetch_add(1); return false; }
+      return ReportMiss(pp, frame, false);
+    };
+    bool r = false;
+    r |= fault(4000), r |= fault(4100), r |= fault(4200);
+    Check(r && S(pp).latched.load(), "planned_hold_no_swallow", "three real faults under a planned hold far ahead still strike and latch");
+    const Pass pq = Pass::Particles;
+    RaiseHold(S(pq), 5000);
+    if (g_plant == 16) S(pq).hold_until.store(100); else RaiseHold(S(pq), 100);
+    Check(S(pq).hold_until.load() == 5000, "hold_only_raised", "a later, smaller hold never lowers hold_until");
+    const Pass pl = Pass::CrowdNode;
+    if (g_plant == 15) g_policy.loading_latch = 1000;
+    bool lat = false;
+    for (int k = 0; k < 10; ++k) lat |= ReportMiss(pl, 10000 + 61 * uint64_t(k), true);   // ten separate waits inside one window
+    g_policy.loading_latch = Policy().loading_latch;
+    Check(lat && S(pl).latched.load(), "loading_latch", "ten loading episodes in one window latch the pass off (a wait that never ends)");
+    const Pass pm = Pass::CardBake;
+    bool lat2 = false;
+    for (int k = 0; k < 9; ++k) lat2 |= ReportMiss(pm, 20000 + 61 * uint64_t(k), true);
+    Check(!lat2 && !S(pm).latched.load(), "loading_below_latch", "nine do not");
+  }
+  // 5d. S103 L31A: the arena set's rebuild debounce (arena_debounce.h)
+  {
+    using rdr_scene::rf::c::SigDebounce;
+    const uint32_t K = g_plant == 17 ? 1u : rdr_scene::rf::c::kRebuildDebounceFrames;
+    SigDebounce d;
+    bool any = false;
+    for (uint32_t f = 0; f + 1 < K; ++f) any |= d.Step(1, 2, 100 + f, K);
+    Check(!any, "debounce_waits", "a new signature seen for K-1 consecutive frames does not rebuild");
+    Check(d.Step(1, 2, 100 + K - 1, K), "debounce_rebuilds", "the K-th consecutive frame rebuilds");
+    SigDebounce e;
+    bool flap = false;
+    for (uint32_t f = 0; f < 40; ++f) flap |= e.Step(1, (f & 1) ? 2 : 3, 200 + f, K);   // A B A B: never K in a row
+    Check(g_plant == 17 ? !flap : !flap, "debounce_flap", "a signature that flaps every frame never rebuilds");
+    SigDebounce g;
+    bool dup = false;
+    for (uint32_t k = 0; k < 20; ++k) dup |= g.Step(1, 2, 300, K);   // many appliers, one frame
+    Check(!dup || K <= 1, "debounce_same_frame", "twenty asks in one frame count once");
+    SigDebounce h;
+    for (uint32_t f = 0; f + 1 < K; ++f) h.Step(1, 2, 400 + f, K);
+    h.Step(1, 1, 400 + K - 1, K);   // the old signature is back: the count resets
+    Check(!h.Step(1, 2, 400 + K, K) || K <= 1, "debounce_resets", "going back to the built signature restarts the count");
+  }
 
   // 6. a double: a stamp Ours with the stream also holding the pass
   const uint64_t d0 = S(Pass::Rim).doubles.load();

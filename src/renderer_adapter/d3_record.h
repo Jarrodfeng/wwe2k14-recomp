@@ -367,6 +367,7 @@ class RecordIndex {
         ++bad_refs_;
         continue;
       }
+      if (t->light_states[l.state].flags & rdr_scene::kLsSynthetic) continue;   // S103 A8: a latch-made wrestler state has no shadow rows (zeroed): never a binder-record ref
       const uint64_t k = LightKey(l.frame, l.object, l.ordinal);
       refs_[k] = {ri, l.state};
       r.light_keys.push_back(k);
@@ -422,6 +423,7 @@ class RecordIndex {
       if (dedupe_r5) for (uint32_t i = 0; i < t->ring_rows.size(); ++i) last_of_r5[RingKey(t->ring_rows[i].frame, t->ring_rows[i].object, t->ring_rows[i].r5)] = i;
       for (uint32_t i = 0; i < t->ring_rows.size(); ++i) {
         const rdr_scene::RingRows& e = t->ring_rows[i];
+        if (e.flags & rdr_scene::kRrRecomputed) continue;   // S103 C3: our recomputed rope rows are not a game call: never joined to a draw
         const uint64_t k = RingKey(e.frame, e.object, e.call);
         ring_objects_.insert(e.object);
         rings_[k] = {ri, dedupe_r5 ? last_of_r5[RingKey(e.frame, e.object, e.r5)] : i};
@@ -594,7 +596,7 @@ class RecordIndex {
     for (const auto& kv : recs_) {
       const rdr_scene::SceneTables& t = *kv.second.t;
       for (const rdr_scene::RingRows& e : t.ring_rows) {
-        if (e.frame != f) continue;
+        if (e.frame != f || (e.flags & rdr_scene::kRrRecomputed)) continue;   // S103 C3: recomputed entries are not hook calls
         const auto it = rings_.find(RingKey(e.frame, e.object, e.call));
         if (it != rings_.end() && it->second.first == kv.first) ++n, objects ? (void)objects->insert(e.object) : (void)0;   // counted once: the record the join points at
       }

@@ -6,7 +6,7 @@
  ],
  "note": "unit = low_levers.h decisions + 2 planted headers; wiring = every link + removal twins; rplay = offscreen 2736x1824 with validation 2, cap / bilinear / SGSR arms and the planted cap that must be caught; bryan = the same arms on fview with the Bryan case.",
  "checks": [
-  {"name": "s102_g2.unit_wiring_rplay", "cmd": ["py", "-I", "tools/g2/g2_check.py", "--root", "."], "timeout_s": 1200},
+  {"name": "s102_g2.unit_wiring_rplay", "cmd": ["py", "-I", "tools/g2/g2_check.py", "--root", "."], "timeout_s": 1200, "needs": ["game_data/extracted"]},
   {"name": "s102_g2.bryan", "cmd": ["py", "-I", "tools/g2/g2_check.py", "--root", ".", "--bryan"], "timeout_s": 2400, "needs": [
     "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip", "game_data/extracted"]}
  ]

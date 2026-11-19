@@ -67,7 +67,8 @@
 # --window_activate_when_shown=, --window_show_behind=, --window_position=) is not added again; the others still are.
 # Printed per run: "[run_list] <script>: window ...".
 param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen', [int]$WaitSeconds = 720,
-      [switch]$NoKill, [switch]$NoTriage,
+      [switch]$NoKill, [switch]$NoTriage, [switch]$SkipRouteLint,   # H2: run even when route_lint.py refuses the flags
+      [switch]$AllowStaleExe,   # S103 H3: run an exe built before HEAD's code (also WWE_ALLOW_STALE_EXE=1)
       [string]$Exe = 'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\wwe2k14.exe',
       [switch]$Exclusive,   # Session 8: -Exclusive = timed run (perf, fps, clips): no other game may run alongside.
       [int]$Parallel = 1,   # task L1: run the list N (1..3) at a time in shared slots; 1 = one at a time (as before)
@@ -199,7 +200,7 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     if ("$ScriptExtra $Extra" -notmatch '(^|\s)--audio_mute=') { $flags += ' --audio_mute=true' }
     # S101 2026-11-13: the PC exe now starts with the Check K promotions on by default (wwe2k14_s101_promotions, branch only). A harness run that
     # names neither owner mode nor the bundle keeps the OLD defaults, so owned_check, references and old-path routes measure what they always did.
-    if ("$ScriptExtra $Extra" -notmatch '--wwe2k14_(rdr_owner|s101_promotions)=') { $flags += ' --wwe2k14_s101_promotions=false' }
+    if ("$ScriptExtra $Extra" -notmatch '--wwe2k14_(rdr_owner|s101_promotions)=') { $flags += ' --wwe2k14_s101_promotions=false'; Write-Host "[run_list] HIDDEN ADDITION: --wwe2k14_s101_promotions=false (this run names neither rdr_owner nor s101_promotions: it runs the OLD renderer defaults; name one in the route's harness flags to change that)" }
     $win =Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
     if ($win[0]) { $flags += " $($win[0])" }
     Write-Host "[run_list] $(Split-Path $s -Leaf): window $($win[1])"
@@ -228,6 +229,26 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     $stepAll = "$flags $Extra"
     if ($stepAll -match '(^|\s)--wwe2k14_step_hz=(\d+)' -and [int]$Matches[2] -gt 60 -and $stepAll -notmatch '(^|\s)--wwe2k14_pump_follow_display=') {
         $flags += ' --wwe2k14_pump_follow_display=false'
+    }
+    # H2 / L1 (S103 runs 24-26: failed runs from forgotten switches): the FINAL flag line is printed and linted (cvars exist, dev-only flags vs a release exe, the route's '# intent:' line); an ERROR refuses the run.
+    $finalFlags = "$flags $Extra"
+    Write-Host "[run_list] $(Split-Path $s -Leaf): FINAL FLAGS $finalFlags"   # always printed, lint or no lint
+    if ($SkipRouteLint -or $env:WWE_SKIP_ROUTE_LINT -eq '1') {
+        Write-Host "[run_list] $(Split-Path $s -Leaf): route lint SKIPPED ($(if ($SkipRouteLint) { '-SkipRouteLint' } else { 'WWE_SKIP_ROUTE_LINT=1' }))"
+    } elseif (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+        Write-Host "[run_list] $(Split-Path $s -Leaf): route lint SKIPPED (py not found)"
+    } else {
+        $lintJob = Start-Job -ScriptBlock { param($a) $o = & py @a 2>&1; $o; "LINT_EXIT=$LASTEXITCODE" } -ArgumentList (, @('-I', "$PSScriptRoot\route_lint.py", '--route', $s, '--final', $finalFlags, '--exe', $Exe))
+        if (Wait-Job $lintJob -Timeout 90) {
+            $lintOut = @(Receive-Job $lintJob)
+            $lintCode = if (("$($lintOut | Select-Object -Last 1)") -match '^LINT_EXIT=(-?\d+)$') { [int]$Matches[1] } else { 0 }
+            $lintOut | Where-Object { $_ -match 'ERROR|WARN' } | ForEach-Object { Write-Host "[run_list] $_" }
+            Remove-Job $lintJob -Force
+            if ($lintCode -ne 0) { return "$(Split-Path $s -Leaf) ->   ABORT: route lint failed (route_lint.py under tools/bench; -SkipRouteLint or WWE_SKIP_ROUTE_LINT=1 overrides)$Tag" }
+        } else {
+            Stop-Job $lintJob; Remove-Job $lintJob -Force
+            Write-Host "[run_list] $(Split-Path $s -Leaf): route lint TIMED OUT after 90 s: not refusing the run"
+        }
     }
     $loadStart = Get-LoadSnapshot   # lane 302: what else the PC is running when this run starts
     $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait:(-not $NoKill) -Exe $Exe -Exclusive:($Lock.Mode -eq 'Exclusive') -ExtraArgs "$flags $Extra" 2>&1
@@ -308,7 +329,7 @@ function New-RunListClaim([string]$Path, [string]$Text) {
 if ($WorkerId -gt 0) {
     $job = [IO.File]::ReadAllText((Join-Path $WorkerDir 'job.json')) | ConvertFrom-Json
     $Extra = "$($job.extra)"; $Data = "$($job.data)"; $WaitSeconds = [int]$job.wait; $Exe = "$($job.exe)"
-    $NoKill = [switch][bool]$job.nokill; $NoTriage = [switch][bool]$job.notriage
+    $NoKill = [switch][bool]$job.nokill; $NoTriage = [switch][bool]$job.notriage; $SkipRouteLint = [switch][bool]$job.skiproutelint
     $RealTime = [switch][bool]$job.realtime
     $Step30 = [switch][bool]$job.step30
     $Visible = [switch][bool]$job.visible; $Foreground = [switch][bool]$job.foreground; $Windowed = [switch][bool]$job.windowed
@@ -362,7 +383,7 @@ function Invoke-RunListParallel {
     $items = @(for ($i = 0; $i -lt $all.Count; $i++) {
         [ordered]@{ i = $i; script = "$($all[$i])"; extra = $(if ($i -lt @($ScriptExtras).Count) { "$($ScriptExtras[$i])" } else { '' }) } })
     $job = [ordered]@{ n = $n; extra = $Extra; data = $Data; wait = $WaitSeconds; nokill = [bool]$NoKill;
-        notriage = [bool]$NoTriage; exe = $Exe; parent = $PID; items = $items; realtime = [bool]$RealTime; step30 = [bool]$Step30;
+        notriage = [bool]$NoTriage; skiproutelint = [bool]$SkipRouteLint; exe = $Exe; parent = $PID; items = $items; realtime = [bool]$RealTime; step30 = [bool]$Step30;
         visible = [bool]$Visible; foreground = [bool]$Foreground; windowed = [bool]$Windowed;
         keep_shaders = $KeepShaderStorage }
     Write-RunListFile (Join-Path $dir 'job.json') ($job | ConvertTo-Json -Depth 5)
@@ -497,6 +518,18 @@ for ($i = 0; $i -lt @($Scripts).Count; $i++) {
     }
 }
 
+# S103 H3 (audit section 2: run 15 ran an exe built before the fix merged): refuse an exe built before HEAD's code. tools\bench\exe_vs_head.py reads the commit the
+# exe was built at (the stamp header beside it, confirmed inside the exe's bytes) and diffs it against HEAD over the code paths (src, config, patches, CMakeLists.txt);
+# docs / tools commits do not count. An exe it cannot date (no stamp beside it: a bisect snapshot, a copied exe) only warns; bisect exes are exempt (they are old on
+# purpose). Override: -AllowStaleExe or WWE_ALLOW_STALE_EXE=1 (the reason is printed either way).
+if (-not $WorkerDir -and $Exe -notmatch '\\bisect\\') {
+    $evh = & py -I "$PSScriptRoot\exe_vs_head.py" --exe $Exe --repo $R 2>&1 | Out-String
+    $evhCode = $LASTEXITCODE
+    if ($evhCode -eq 3) {
+        if ($AllowStaleExe -or $env:WWE_ALLOW_STALE_EXE -eq '1') { Write-Host "[run_list] stale exe ALLOWED ($(if ($AllowStaleExe) { '-AllowStaleExe' } else { 'WWE_ALLOW_STALE_EXE=1' })): $($evh.Trim())" }
+        else { "ABORT: $($evh.Trim())"; exit 2 }
+    } elseif ($evhCode -ne 0) { Write-Host "[run_list] exe age: $($evh.Trim())" }
+}
 # Fixer (review finding 5): an exe built before the per-run log number (no "run log number" string, e.g. the
 # coverage build of 10:04 or an old bisect snapshot) rescans for the newest log whenever it names a capture, CSV or
 # coverage folder, so it must not run next to other games: take the lock exclusively for it.

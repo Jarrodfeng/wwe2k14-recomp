@@ -17,8 +17,12 @@ import os
 import struct
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GAME = os.path.join(REPO, 'game_data', 'extracted')
-XXH3_DLL = os.path.join(REPO, 'out', 'tools', 'xxh3.dll')
+import sys as _sys
+_sys.path.insert(0, os.path.join(REPO, 'tools', 'shaders', 'harness'))
+import dataroot as _dataroot
+DATA = _dataroot.data_root(REPO)   # S103 T6: the main checkout when run from a worktree
+GAME = os.path.join(DATA, 'game_data', 'extracted')
+XXH3_DLL = os.path.join(DATA, 'out', 'tools', 'xxh3.dll')
 
 PS_MAGIC = 0x102A1100
 VS_MAGIC = 0x102A1101

@@ -1,0 +1,117 @@
+{
+ "owner": "S103 lane PS1 (proof speed: load once, draw many; compare on the GPU): tools/scene/frame_rig.cpp --serve / --batch, rig_metrics.h + rig_metrics.comp + rig_metrics_gpu.h, frame_rig.py RigSession + prefetch, l_check.py / lay_check.py on a session, Renderer::RawVulkan (renderer.h)",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs: frame_rig.exe + fview headless on the stored brock_losswin_rt capture. serve_equal: six arms (after / before / nohooks / another record of one arena / entrance + match of another) in every rotated order, each the first job once; planted twins (old crowd light-cache key, no ResetForJob, no wrestler CPU copies) must each be caught. spv_current: rig_metrics_spv.h is what rig_metrics.comp compiles to.",
+ "checks": [
+  {
+   "name": "s103_PS1.build_rig",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_rig.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_PS1.spv_current",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/build_rig_metrics_spv.py",
+    "--check"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/scene/rig_metrics.comp",
+    "tools/scene/rig_metrics_spv.h",
+    "tools/scene/build_rig_metrics_spv.py"
+   ]
+  },
+  {
+   "name": "s103_PS1.serve_equal",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/serve_equal_check.py"
+   ],
+   "timeout_s": 2400,
+   "needs": [
+    "out/captures/brock_losswin_rt",
+    "out/captures/a04_entrance",
+    "out/captures/a04_match",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s103_PS1.serve_equal_plant_lights_key",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/serve_equal_check.py",
+    "--plant",
+    "lights_key",
+    "--first-order",
+    "0",
+    "--orders",
+    "1"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/brock_losswin_rt",
+    "out/captures/a04_entrance",
+    "out/captures/a04_match",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s103_PS1.serve_equal_plant_no_reset",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/serve_equal_check.py",
+    "--plant",
+    "no_reset",
+    "--first-order",
+    "5",
+    "--orders",
+    "1"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/brock_losswin_rt",
+    "out/captures/a04_entrance",
+    "out/captures/a04_match",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s103_PS1.serve_equal_plant_no_keep_cpu",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/serve_equal_check.py",
+    "--plant",
+    "no_keep_cpu",
+    "--first-order",
+    "2",
+    "--orders",
+    "1"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/brock_losswin_rt",
+    "out/captures/a04_entrance",
+    "out/captures/a04_match",
+    "game_data/extracted"
+   ]
+  }
+ ]
+}

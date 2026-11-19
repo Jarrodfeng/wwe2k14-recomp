@@ -1,0 +1,20 @@
+{
+ "owner": "S103 lane L13b (the stands' brightness investigation: the per-draw experiment and the stage-page light-map class): src/assets/jboy.h + asset_model.h (Material::lm_stage_page), src/renderer_scene/front_end.cpp (MatchStreamClass, WWE_RDR_L13B_PLANT), tools/scene/l13_check.py, tools/scene/l13_vertex.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Run 28's case frame 622 (a match, arena 4): the arena yBG_Default meshes whose light-map slot names a stage page texture (27 meshes, slots 0-21 ...) are drawn by the game with yBG_Default_vertex_lm_vertex + _base_fragment (draws 385 / 393); ours must draw them so (27 of 27). The planted twin WWE_RDR_L13B_PLANT=1 (the old LM pixel pair) must FAIL with WRONG CLASS. The stands' 1.4x against the case picture is NOT moved by this (the rig equals the stream's own vertex program on the stream's inputs: l13_vertex.py; the live record-drawn frame equals the game's picture).",
+ "checks": [
+  {"name": "s103_L13.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_L13.class", "cmd": ["py", "-I", "tools/scene/l13_check.py", "--case", "out/s103/run28_case.zip"], "timeout_s": 1500,
+   "needs": ["out/s103/run28_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "tools/scene/l13_check.py"]},
+  {"name": "s103_L13.plant", "cmd": ["py", "-I", "tools/scene/l13_check.py", "--case", "out/s103/run28_case.zip", "--plant", "--expect-fail", "WRONG CLASS"], "timeout_s": 1500,
+   "needs": ["out/s103/run28_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "tools/scene/l13_check.py"]},
+  {"name": "s103_L13.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp"]},
+  {"name": "s103_L13.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_L13.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."], "timeout_s": 600, "needs": ["generated/default"],
+   "affects": ["src/renderer_scene/*"]}
+ ]
+}

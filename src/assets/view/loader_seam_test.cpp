@@ -181,6 +181,7 @@ void ViewerStageWrestlers(const std::string&, std::vector<int>& ids, std::string
 bool ViewerEntrance(int, assets::entrance::Show&, std::string& err) { return err = "the test seam has no entrances", false; }
 int ViewerChampBank(int) { return -1; }
 int ViewerPropPach(unsigned) { return -1; }
+int ViewerOrdinalOfModelKey(int, int) { return -1; }  // S103 R
 int ViewerPropPachDir(unsigned) { return -1; }
 bool ViewerPropWorn(int) { return false; }
 bool ViewerParticles(int, assets::particles::Bank&, std::string& err) { return err = "the test seam has no particles", false; }

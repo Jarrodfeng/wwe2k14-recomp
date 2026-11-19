@@ -1,0 +1,9 @@
+{
+ "owner": "S103 lane E: the Maps stage hook (src/renderer_scene/live_maps.*, live_map_shadow.cpp, live_map_circles.cpp): the wrestlers' shadow map and the circle blob shadows drawn by OUR passes from the scene record; tools/scene/maps_draw.cpp, e_check.py; docs/renderer/LIVE_MAPS.md",
+ "note": "headless, 0 game runs. Builds the scene tools and maps_draw (compile only), then e_check.py: frames 20, 100, 180 of the z7147 capture (the only capture with every section lane E reads: caster calls / states, circles), our maps beside the game's own maps (extracted with the main checkout's built fview, read-only): shadow footprint IoU >= 0.90, mean |d| <= 2, circles IoU >= 0.88, circles drawn <= the game's, validation 0; planted faults transpose_light, no_casters, scale_prm, circles_wrong_frame, circles_all_stamps each fail their picture bar. The sheet goes to <main checkout>/out/s103/E/sheet_maps.png. Needs numpy + Pillow. The wrestler models come from the player's own game files.",
+ "checks": [
+  {"name": "s103_E.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1500},
+  {"name": "s103_E.build_maps", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_maps.ps1"], "timeout_s": 600},
+  {"name": "s103_E.proof", "cmd": ["py", "-I", "tools/scene/e_check.py", "--faults"], "timeout_s": 900, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/d3caster/z7147/capture", "game_data/extracted"], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
+ ]
+}

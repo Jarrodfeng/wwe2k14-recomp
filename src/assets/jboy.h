@@ -31,6 +31,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <string>
@@ -38,19 +39,53 @@
 
 #include "asset_model.h"
 #include "dds.h"
+#include "load_plants.h"   // S103 W2B (review B): load_detail::SpringNodes
+#include "node_alias.h"   // S103 W2B
 #include "pac.h"
 
 namespace assets {
 
+// S103 CPF planted twin (the old rule: a low-alpha mask is a cut-out): dev builds only, read once.
+inline bool CPFPlantOld() {
+#ifdef RDR_DEV
+  return load_detail::CpfPlant();
+#else
+  return false;
+#endif
+}
+// S103 TQF: the evtobj / entrance prop classes whose pixel shader the game picks by the technique word (yProp_BumpMap / Default / Reflect + LM twins; the same predicate as
+// src\renderer_scene\technique_pick.h AppliesTo). `sl` = the lower-cased shader name. TqfSkipsTexelRule: for those the loader no longer decides alpha-test / cut-out from the diffuse texels (the game never reads
+// the texture to decide, docs\research\s103\PAS.md); the front end tests + blends where the picked variant shows the alpha. TqfPlant() (dev twin) restores the old texel rule.
+inline bool TqfClass(const std::string& sl) { return sl.rfind("yprop_bumpmap", 0) == 0 || sl.rfind("yprop_default", 0) == 0 || sl.rfind("yprop_reflect", 0) == 0; }
+inline bool TqfPlantOld() {
+#ifdef RDR_DEV
+  return load_detail::TqfPlant();
+#else
+  return false;
+#endif
+}
+inline bool TqfSkipsTexelRule(const std::string& sl) { return TqfClass(sl) && !TqfPlantOld() && !CPFPlantOld(); }   // (the CPF plant restores the texel rule for the class too: its cap check must still catch the old rule)
+// S103 CPF: the materials that keep the old cut-out rule (after TQF the yProp branch below serves only the planted twin; the live users are yBG_ materials): every yBG_ (arena) material (the game tests + blends every yBG_ draw, front_end.cpp B2 rule: a low-alpha card is a real blended card there) and the P1 domain
+// (plain yBG / yProp_Default, no spec / normal map: P1's own rule decides). `sl` = the lower-cased shader name.
+inline bool CPFKeepOld(const std::string& sl, const Material& mat) {
+  return sl.rfind("ybg_", 0) == 0 || (sl == "yprop_default" && mat.specular < 0 && mat.normal < 0);
+}
+
 // Session 97 (props2): true when at least 8 % of a BC2 / BC3 texture's top mip has alpha <= 32 (a cut-out, not a gloss mask).
-inline bool AlphaCutsOut(const Texture& t) {
+// S103 CPF: a texture with under 0.5 % solid texels (alpha >= 224) is a MASK (gloss / spec), never a cut-out: it has nothing solid to cut a shape from (Cena's 13904Cap: alpha 0..40, drawn at ~2 % opacity;
+// docs\research\s103\CAP.md). `keep_old_rule` = CPFKeepOld.
+inline bool AlphaCutsOut(const Texture& t, bool keep_old_rule = false) {
   const size_t blocks = size_t((std::max(t.width, 1u) + 3) / 4) * ((std::max(t.height, 1u) + 3) / 4);
   if (blocks == 0 || t.data.size() < blocks * 16) return true;  // (unknown: keep the old behaviour)
   size_t low = 0;
+  size_t solid = 0;
   for (size_t b = 0; b < blocks; ++b) {
     const uint8_t* q = &t.data[b * 16];
     if (t.format == TexFormat::kBC2) {
-      for (int i = 0; i < 16; ++i) low += (((q[i / 2] >> (4 * (i & 1))) & 15) * 17) <= 32;
+      for (int i = 0; i < 16; ++i) {
+        const unsigned v = ((q[i / 2] >> (4 * (i & 1))) & 15) * 17;
+        low += v <= 32, solid += v >= 224;
+      }
     } else {
       const unsigned a0 = q[0], a1 = q[1];
       uint64_t bits = 0;
@@ -64,13 +99,129 @@ inline bool AlphaCutsOut(const Texture& t) {
         else if (ix == 6) v = 0;
         else if (ix == 7) v = 255;
         else v = ((6 - ix) * a0 + (ix - 1) * a1) / 5;
-        low += v <= 32;
+        low += v <= 32, solid += v >= 224;
       }
     }
   }
+  if (!keep_old_rule && !CPFPlantOld() && double(solid) < 0.005 * double(blocks) * 16.0) return false;  // S103 CPF: a mask (under 0.5 % solid texels), not a cut-out
   return double(low) >= 0.08 * double(blocks) * 16.0;
 }
 
+
+// S103 B2: the share (0..1) of a texture's top-mip texels whose alpha is below 255 (0 = alpha-free: BC1 without punch-through, or an alpha channel that is all 255). BC1 counts its 1-bit
+// punch-through (colour0 <= colour1, index 3). Used for ONE decision (front_end.cpp): an arena part whose output alpha includes this texture's alpha (Variant::out_alpha 2) is tested + blended like the
+// game's arena class when the share is > 0; an alpha-free one is not (the game's test + blend is then a no-op: a 360 habit, CLAUDE.md rule 6).
+inline float AlphaClearShare(const Texture& t) {
+  const size_t px = size_t(std::max(t.width, 1u)) * std::max(t.height, 1u);
+  size_t below = 0, n = 0;
+  if (t.format == TexFormat::kBC1 || t.format == TexFormat::kBC2 || t.format == TexFormat::kBC3) {
+    const size_t blocks = size_t((std::max(t.width, 1u) + 3) / 4) * ((std::max(t.height, 1u) + 3) / 4);
+    const size_t bs = t.format == TexFormat::kBC1 ? 8 : 16;
+    if (blocks == 0 || t.data.size() < blocks * bs) return 0.f;
+    n = blocks * 16;
+    for (size_t b = 0; b < blocks; ++b) {
+      const uint8_t* q = &t.data[b * bs];
+      if (t.format == TexFormat::kBC1) {
+        const unsigned c0 = q[0] | (q[1] << 8), c1 = q[2] | (q[3] << 8);
+        if (c0 <= c1) {
+          const uint32_t idx = q[4] | (q[5] << 8) | (q[6] << 16) | (uint32_t(q[7]) << 24);
+          for (int i = 0; i < 16; ++i) below += ((idx >> (2 * i)) & 3) == 3;
+        }
+      } else if (t.format == TexFormat::kBC2) {
+        for (int i = 0; i < 16; ++i) below += ((q[i / 2] >> (4 * (i & 1))) & 15) != 15;
+      } else {
+        const unsigned a0 = q[0], a1 = q[1];
+        uint64_t bits = 0;
+        for (int i = 0; i < 6; ++i) bits |= uint64_t(q[2 + i]) << (8 * i);
+        for (int i = 0; i < 16; ++i) {
+          const unsigned ix = unsigned((bits >> (3 * i)) & 7);
+          unsigned v;
+          if (ix == 0) v = a0;
+          else if (ix == 1) v = a1;
+          else if (a0 > a1) v = ((8 - ix) * a0 + (ix - 1) * a1) / 7;
+          else if (ix == 6) v = 0;
+          else if (ix == 7) v = 255;
+          else v = ((6 - ix) * a0 + (ix - 1) * a1) / 5;
+          below += v < 255;
+        }
+      }
+    }
+  } else if (t.format == TexFormat::kB8G8R8A8 || t.format == TexFormat::kR8G8B8A8) {
+    if (t.data.size() < px * 4) return 0.f;
+    n = px;
+    for (size_t i = 0; i < px; ++i) below += t.data[i * 4 + 3] != 255;
+  } else if (t.format == TexFormat::kB4G4R4A4) {
+    if (t.data.size() < px * 2) return 0.f;
+    n = px;
+    for (size_t i = 0; i < px; ++i) below += (t.data[i * 2 + 1] >> 4) != 15;
+  }
+  return n ? float(double(below) / double(n)) : 0.f;
+}
+
+// S103 P1: two statistics of a BC2 / BC3 texture's top-mip alpha: the share of exactly-zero texels and the mean (0..1). The game draws a material whose alpha has (almost) no zeros as a
+// highlight mask (the FX_ALPHA_SPEC / FX_ALPHA_GLOSS shader, no discard); one with many zeros is a cut-out (docs\formats\arena_slot_flags.md, the arena-4 table).
+inline bool AlphaStats(const Texture& t, double& zero_share, double& mean) {
+  const size_t blocks = size_t((std::max(t.width, 1u) + 3) / 4) * ((std::max(t.height, 1u) + 3) / 4);
+  zero_share = 1.0, mean = 0.0;
+  if (blocks == 0 || t.data.size() < blocks * 16) return false;
+  size_t zero = 0;
+  double sum = 0;
+  for (size_t b = 0; b < blocks; ++b) {
+    const uint8_t* q = &t.data[b * 16];
+    if (t.format == TexFormat::kBC2) {
+      for (int i = 0; i < 16; ++i) {
+        const unsigned v = ((q[i / 2] >> (4 * (i & 1))) & 15) * 17;
+        zero += v == 0, sum += v;
+      }
+    } else {
+      const unsigned a0 = q[0], a1 = q[1];
+      uint64_t bits = 0;
+      for (int i = 0; i < 6; ++i) bits |= uint64_t(q[2 + i]) << (8 * i);
+      for (int i = 0; i < 16; ++i) {
+        const unsigned ix = unsigned((bits >> (3 * i)) & 7);
+        unsigned v;
+        if (ix == 0) v = a0;
+        else if (ix == 1) v = a1;
+        else if (a0 > a1) v = ((8 - ix) * a0 + (ix - 1) * a1) / 7;
+        else if (ix == 6) v = 0;
+        else if (ix == 7) v = 255;
+        else v = ((6 - ix) * a0 + (ix - 1) * a1) / 5;
+        zero += v == 0, sum += v;
+      }
+    }
+  }
+  const double n = double(blocks) * 16.0;
+  zero_share = double(zero) / n, mean = sum / n / 255.0;
+  return true;
+}
+
+// S103 L5 planted twin (the old behaviour: every arena material with a level > 0 takes a highlight pair): dev builds only, read once.
+inline bool L5PlantOldHighlight() {
+#ifdef RDR_DEV
+  static const bool v = std::getenv("WWE_RDR_L5_PLANT") != nullptr;
+  return v;
+#else
+  return false;
+#endif
+}
+// S103 L10 planted twin (the per-pixel-only program for every arena LM mesh: the old behaviour): dev builds only, read once.
+inline bool L10PlantPerPixel() {
+#ifdef RDR_DEV
+  static const bool v = std::getenv("WWE_RDR_L10_PLANT") != nullptr;
+  return v;
+#else
+  return false;
+#endif
+}
+// The planted twin of the P1 gate (the old 0.5 cut-out on the pad): dev builds only, read once.
+inline bool P1PlantOldAlpha() {
+#ifdef RDR_DEV
+  static const bool v = std::getenv("WWE_RDR_P1_PLANT") != nullptr;
+  return v;
+#else
+  return false;
+#endif
+}
 
 // S101 atlas: what the file DECLARES for one mesh record (effect name, every named parameter with its value, the stream strides, the
 // index block), filled for every record the loader meets - also the ones it then skips (loaded = false; the reason is in
@@ -197,17 +348,43 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     for (size_t i = 0; i < m.bones.size(); ++i) by_name[m.bones[i].name].push_back(int(i));
     std::map<std::string, int> seen;
     int appended = 0;
+    const bool wrestler_piece = load_detail::SpringNodes() && o.kind == 2 && o.key != 0 && !o.prop_slot;   // S103 W2B: a SUBM piece entry of a wrestler attire (the body is key 0)
     for (uint32_t i = 0; i < nnode; ++i) {
       const uint8_t* n = r.b + node_tab + 80ull * i;
       const std::string name = CString(n, 16);
       const int occ = seen[name]++;
-      auto it = by_name.find(name);
-      if (it != by_name.end() && occ < int(it->second.size())) {
-        node_map[i] = it->second[size_t(occ)];
-        continue;
+      if (wrestler_piece) {
+        // S103 W2B (docs\agents\s103\W2.md section 1, W2_ADV.md rows 1a / 1b / R1 / R5): the game's node map of a piece node (sub_8259E720) is -1 for a name starting `kami_b` or `spring` (6 bytes, case-sensitive, EVEN when
+        // the owner has that name: the spring-hair simulation poses the piece's own copy), else sub_82BD24C8 on the OWNER's node table only: the FIRST owner node of that name, else the alias table's `to` name
+        // (node_alias.h) looked up the same way, else -1. A -1 node is appended as its own bone with its (piece id, node index) tag; the body keeps its own copy of a shared name. Forced names are never looked up in
+        // or pushed into by_name (R5), and a piece never maps to another piece's appended bone.
+        const bool forced = name.compare(0, 6, "kami_b") == 0 || name.compare(0, 6, "spring") == 0;
+        int owner_node = -1;
+        if (!forced) {
+          const auto first_body = [&](const std::string& nm) -> int {
+            for (size_t k = 0; k < m.main_bones && k < m.bones.size(); ++k)
+              if (m.bones[k].name == nm) return int(k);
+            return -1;
+          };
+          owner_node = first_body(name);
+          if (owner_node < 0)
+            if (const char* to = NodeAliasOf(name.c_str()))
+              if (std::strcmp(to, "null") != 0) owner_node = first_body(to);
+        }
+        if (owner_node >= 0) {
+          node_map[i] = owner_node;
+          continue;
+        }
+      } else {
+        auto it = by_name.find(name);
+        if (it != by_name.end() && occ < int(it->second.size())) {
+          node_map[i] = it->second[size_t(occ)];
+          continue;
+        }
       }
       Bone bn;
       bn.name = name;
+      if (wrestler_piece) bn.piece_id = o.key, bn.piece_node = int(i), bn.piece_nodes = nnode;
       const uint32_t par = Be32(n + 48);
       bn.parent = par < i ? node_map[par] : -1;  // parents come before children (unconfirmed for every file)
       if (par != 0xFFFFFFFFu && par >= i) m.warnings.push_back("node parent index not before its child");
@@ -218,9 +395,10 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       EulerXYZToQuat(eul, bn.local_rotation);
       m.bones.push_back(bn);
       node_map[i] = int(m.bones.size()) - 1;
-      by_name[name].push_back(node_map[i]);
+      if (!wrestler_piece) by_name[name].push_back(node_map[i]);   // S103 W2B: a piece's appended bone is never an owner node (the game looks in the owner only)
       ++appended;
     }
+    if (o.kind == 2 && o.key == 0 && !o.prop_slot && m.main_bones == 0) m.main_bones = uint32_t(m.bones.size());   // S103 W2B: the body entry's own nodes; every bone after this was added by a piece
     if (appended && appended != int(nnode) && !m.meshes.empty())
       m.warnings.push_back("piece has nodes not in the main skeleton (appended as extra bones)");
     if (m.bones.size() > 65535) m.warnings.push_back("more than 65535 bones: 16-bit bone indices clamp");  // (Session 99: was 8 bits)
@@ -245,8 +423,15 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     corr.resize(nnode);
     for (uint32_t i = 0; i < nnode; ++i) {
       corr[i] = Mul(InverseRigid(pw[i]), mw[size_t(node_map[i])]);
+      bool non_identity = false;
       for (int k = 0; k < 16; ++k)
-        if (std::fabs(corr[i][k] - Identity()[k]) > 1e-3f * (k >= 12 ? 100.f : 1.f)) use_corr = true;
+        if (std::fabs(corr[i][k] - Identity()[k]) > 1e-3f * (k >= 12 ? 100.f : 1.f)) use_corr = true, non_identity = true;
+      // S103 W2B (review F): an appended piece node whose piece bind differs from the body's chain (the Rock's pads): our vertices were moved by corr, so the game's piece row P_j must be premultiplied by corr^-1
+      // (vertex_piece x P_j = vertex_ours x corr^-1 x P_j). The record's rows are the game's own; rf_wrestlers applies this to the extra's row.
+      if (non_identity && wrestler_piece) {
+        Bone& ab = m.bones[size_t(node_map[i])];
+        if (ab.piece_id == o.key && ab.piece_node == int(i)) ab.has_corr = true, ab.corr_inv = InverseRigid(corr[i]);
+      }
     }
   }
 
@@ -350,6 +535,11 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     mesh.src_kind = o.kind, mesh.src_pac = o.pac, mesh.src_key = o.key;  // Session 98 (step 16)
     mesh.src_record = int(mi), mesh.index_groups = ngroups;  // S101 lane 40: for the arena join
     for (const Group& g : groups) mesh.strip_indices += g.count;
+    if (o.arena) {   // S103 C4: the file's slot -> node map, raw (an arena model has no merged skeleton: node_map is all zeros)
+      for (uint32_t k = 0; k < npal; ++k) mesh.palette_nodes.push_back(pal[k] >= 1 && pal[k] <= nnode ? uint16_t(pal[k] - 1) : uint16_t(0xFFFF));
+      if (npal && pal[0] >= 1 && pal[0] <= nnode) mesh.rigid_node = int(pal[0] - 1);
+    }
+    //   // S103 C4: slot 0's node (the game's c76 = the matrix at r5 + 64 (palette[0] - 1), sub_82C04DF0 0x82C0A038-0x82C0A04C)
     if (nnode > 0) mesh.node = CString(r.b + node_tab, 16);
     for (uint32_t k = 0; k < npal; ++k)
       if (pal[k] >= 1 && pal[k] <= nnode) mesh.palette += (mesh.palette.empty() ? "" : ";") + CString(r.b + node_tab + 80ull * (pal[k] - 1), 16);
@@ -503,6 +693,8 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     // Material.
     Material mat;
     mat.shader = CString(r.b + rec + 0x7C, 16);
+    mat.technique = r.u32(rec + 0x90);   // S103 D1: the technique index (PLAN.md skeleton R0: sub_82C04DF0 0x82C05AF8)
+    mat.vertex_lm = o.arena && mat.shader.compare(0, 4, "yBG_") == 0 && (r.u32(rec + 0x90) & 9u) == 1u && !L10PlantPerPixel();  // S103 L10: record word +0x90 (bit 0 set, bit 3 clear) = the game's vertex-LM program (docs/formats/arena_lightmap.md "S103 L10")
     const uint32_t nparam = r.u32(rec + 0x94), plist = r.u32(rec + 0x98);
     if (nparam > 512 || !r.ok(plist, uint64_t(nparam) * 4)) {
       m.warnings.push_back("material parameter list out of range");
@@ -524,13 +716,26 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
           else if (pname == "g_mMaskPrm") slot = &mat.mask;
           else if (pname == "sampLightMapPrm" && !skin_streams) slot = &mat.lightmap;
           else if (pname == "sampSpecularPrm") slot = &mat.specular;
+          else if (pname == "sampCubeRefPrm") slot = &mat.cube;     // S103 RFL: the reflection cube (a file DDS, 6 faces: RFF.md section A)
+          else if (pname == "sampRefMapPrm") slot = &mat.refmap;    // S103 RFL: the 2D reflection-amount map (pixel slot 9 of the reflect_map / reflect_mask variants)
+          else if (pname == "sampDiffuse1Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[0];   // S103 LAY: the UVScroll layers 2..4 (SP_stage_faults.md 1)
+          else if (pname == "sampDiffuse2Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[1];
+          else if (pname == "sampDiffuse3Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[2];
           else if (pname == "g_mNoiseTilePrm" && !o.arena) slot = &mat.detail;  // Session 98 (wrestler fix 3): the gear's tiled detail
+          else if (pname == "g_mSweatPrm" && !o.arena) slot = &mat.sweat_bump;   // S103 SWF: the wet skin's bump (fetch slot 4)
+          else if (pname == "g_mNormalWklPrm" && !o.arena && g_wrk_live.load(std::memory_order_relaxed)) slot = &mat.wrinkle_normal;   // S103 WRK: the face wrinkle normal map (name-table row 0x8392AB60, register 5 [C: WRK.md 1a])
           if (pname == "sampLightMapPrm" && !skin_streams) mat.has_lm_slot = true;  // (Session 97: the LM family)
+          if (pname == "g_mSpecPowPrm" && !o.arena && ti > 0) mat.spec_pow_prm = true;   // (review F6: the game E+16 is null when [rec+20] == 0)   // S103 YCB (YCH.md section 4.7 file-side fallback of the game's E+16)
           if (!slot || ti < 0) continue;
           if (uint32_t(ti) >= ntex) {
             m.warnings.push_back("sampler index beyond the texture-name table");
             continue;
           }
+          if (slot == &mat.lightmap) {   // S103 L13b (asset_model.h Material::lm_stage_page): a stage page texture named here is the runtime page's stand-in
+            const std::string lm_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);
+            mat.lm_stage_page = lm_name == "fade_lightmap00" || lm_name == "fade_lightmap01" || lm_name == "lightmap00";
+          }
+          if (slot == &mat.cube) mat.cube_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);   // S103 RFL
           if (!o.tex) continue;
           *slot = o.tex->Get(m, CString(r.b + tex_tab + 16ull * uint32_t(ti), 16));
           if (slot == &mat.diffuse) mat.diffuse_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);
@@ -542,18 +747,41 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
                        : pname == "g_f4Ref_COL"    ? mat.ref_col
                        : pname == "g_f3SSSSinCol"  ? mat.sss_col
                        : pname == "g_f3SSSSinCol2" ? mat.sss_col2
+                       : pname == "g_f4SpeCol1"    ? mat.hair_col1   // S103 B3F: rgb only (3 floats; the w is the tile)
+                       : pname == "g_f4SpeCol2"    ? mat.hair_col2
+                       : pname == "g_f4BSSBldClr"  ? mat.bss_bld_clr   // S103 SWF
                                                    : nullptr;
+          if (dst == mat.bss_bld_clr) mat.has_wet = true;
           if (dst)
-            for (int c = 0; c < (dst == mat.ref_col ? 3 : 4); ++c) dst[c] = r.f32(po + 20 + 4ull * uint32_t(c));  // (Ref_COL's w is g_f4Ref_DOT's)
+            for (int c = 0; c < ((dst == mat.ref_col || dst == mat.hair_col1 || dst == mat.hair_col2) ? 3 : 4); ++c) dst[c] = r.f32(po + 20 + 4ull * uint32_t(c));  // (Ref_COL's w is g_f4Ref_DOT's)
           if (dst == mat.sss_col) mat.has_sss = true;
+          if (pname == "g_f4IdMapCol") {   // S103 WRK: PS c145, a whole vec4 FILE value (WRK.md 1a [C])
+            for (int c = 0; c < 4; ++c) mat.idmap_col[c] = r.f32(po + 20 + 4ull * uint32_t(c));
+            mat.has_idmap_col = true;
+          }
         } else if (kind == 0x0A && r.ok(po + 20, 4)) {  // scalar floats (g_iSpecularPow is stored as a float too)
           if (pname == "g_fSpecularLev" || pname == "g_fSpecLev") mat.spec_lev = r.f32(po + 20);
           else if (pname == "g_iSpecularPow" || pname == "g_fSpecPow") mat.spec_pow = r.f32(po + 20);
+          else if (pname == "g_fReflectAlpha") mat.reflect_alpha = r.f32(po + 20);   // S103 RFL: PS c208.x [C: RFF.md section A: the capture's c208.x equals the file's value in every Reflect draw read]
+          else if (pname == "g_fSpeLodNear") mat.spe_lod[0] = r.f32(po + 20);   // S103 D1: SpeLodParam.x (FX_SPEC_FADE) [C value match: run29 f500, the game's SpeLodParam.y 6000 = the barricade's g_fSpeLodFar]
+          else if (pname == "g_fSpeLodFar") mat.spe_lod[1] = r.f32(po + 20);    // S103 D1: SpeLodParam.y
           else if (pname == "g_fSpecLvBase") mat.spec_lv_base = r.f32(po + 20);  // Session 98 (skin fix): see asset_model.h Material
           else if (pname == "g_fSpecPwBase") mat.spec_pw_base = r.f32(po + 20);
           else if (pname == "g_f4Ref_DOT") mat.ref_col[3] = r.f32(po + 20);
           else if (pname == "g_fFairy") mat.fairy = r.f32(po + 20);
           else if (pname == "g_fFairyEdge") mat.fairy_edge = r.f32(po + 20);
+          else if (pname == "g_fPrimaryShift") mat.hair_shift[0] = r.f32(po + 20);   // S103 B3F: asset_model.h Material::hair_* / rim_atn
+          else if (pname == "g_fSecondShift") mat.hair_shift[1] = r.f32(po + 20);
+          else if (pname == "g_SpecExp1") mat.hair_exp[0] = r.f32(po + 20);
+          else if (pname == "g_SpecExp2") mat.hair_exp[1] = r.f32(po + 20);
+          else if (pname == "g_fHairTileU") mat.hair_tile[0] = r.f32(po + 20);
+          else if (pname == "g_fHairTileV") mat.hair_tile[1] = r.f32(po + 20);
+          else if (pname == "g_fFurLevel") mat.fur_level = r.f32(po + 20);        // EYA: Param1.x
+          else if (pname == "g_fDifAmbLevel") mat.dif_amb_level = r.f32(po + 20);  // EYA: Param1.z (the eyeball's ambient scale)
+          else if (pname == "g_fRimAtnDsMin") mat.rim_atn[0] = r.f32(po + 20);
+          else if (pname == "g_fRimAtnDsMax") mat.rim_atn[1] = r.f32(po + 20);
+          else if (pname == "g_fRimAtnRtMin") mat.rim_atn[2] = r.f32(po + 20);
+          else if (pname == "g_fRimAtnRtMax") mat.rim_atn[3] = r.f32(po + 20);
           // Session 98 (wrestler fix 3): the detail sets (asset_model.h Material::noise_*); stored as scalars (kind 0x0A) in ch161
           else if (pname == "g_f4NoiseTBump") mat.noise_near[0] = r.f32(po + 20);
           else if (pname == "g_f4NoiseTDiff") mat.noise_near[1] = r.f32(po + 20);
@@ -563,10 +791,33 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
           else if (pname == "g_f4NoiseTSpecF") mat.noise_far[2] = r.f32(po + 20);
           else if (pname == "g_fNoiseTNear") mat.noise_dist[0] = r.f32(po + 20);
           else if (pname == "g_fNoiseTFar") mat.noise_dist[1] = r.f32(po + 20);
+          else if (pname == "g_fSL_Scale") mat.sl_scale = r.f32(po + 20);   // S103 TQ2 (UVS.md)
+          // S103 WRK: PS c230 = (g_f4WrinkUV_x, _y, _z, _w), four scalars, name-table rows 0x8392A940..9A0 [C: WRK.md 1a]
+          else if (pname.size() == 13 && pname.rfind("g_f4WrinkUV_", 0) == 0 && pname[12] >= 'x' && pname[12] <= 'z') mat.wrink_uv[pname[12] - 'x'] = r.f32(po + 20), mat.has_wrink_uv = true;
+          else if (pname == "g_f4WrinkUV_w") mat.wrink_uv[3] = r.f32(po + 20), mat.has_wrink_uv = true;   // (a material naming only some components keeps those and the (0,0,1,1) default for the rest)
+          else if (pname == "g_f4IdMapCol") m.warnings.push_back("g_f4IdMapCol stored as a scalar (kind 0x0A), not a vec4: left at 0 (WRK review R4: ch100 stores it as kind 0x0D)");
+          else if (pname == "g_fBSSSwtMax") mat.bss_swt[0] = r.f32(po + 20), mat.has_wet = true;   // S103 SWF: asset_model.h Material::bss_swt / sweat_prm / blood_prm
+          else if (pname == "g_fBSSSwtMin") mat.bss_swt[1] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f4SweatSpeLv") mat.sweat_prm[0] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f4SweatSpePw") mat.sweat_prm[1] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f4SweatBpCnt") mat.sweat_prm[2] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f4SweatLevel") mat.sweat_prm[3] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f2BloodSpecLv") mat.blood_prm[0] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname == "g_f2BloodSpecPw") mat.blood_prm[1] = r.f32(po + 20), mat.has_wet = true;
+          else if (pname.rfind("g_fScroll", 0) == 0) {  // S103 E6: the UV-scroll speeds (asset_model.h Material::scroll)
+            const std::string rest = pname.substr(9);
+            const int layer = rest.size() == 1 ? 0 : (rest.size() == 2 && rest[1] >= '2' && rest[1] <= '4') ? rest[1] - '1' : -1;
+            const int comp = rest.empty() ? -1 : rest[0] == 'U' ? 0 : rest[0] == 'V' ? 1 : -1;
+            if (layer >= 0 && comp >= 0) mat.scroll[2 * layer + comp] = r.f32(po + 20), mat.scroll_have = true;
+          }
         }
       }
     }
     const std::string sl = Lower(mat.shader);
+    if ((o.arena || o.prop_slot) && mat.diffuse >= 0 && size_t(mat.diffuse) < m.textures.size()) mat.diffuse_alpha_clear = AlphaClearShare(m.textures[size_t(mat.diffuse)]);   // S103 B2
+    if (o.arena && TqfClass(sl)) {   // S103 TQF: any vertex colour alpha < 255 (the S0 colour word's byte 0, stored as the Vertex::color alpha byte): the game's yProp draw blends at it (Material::vertex_alpha_lt255)
+      for (const Vertex& vx : mesh.vertices) if ((vx.color >> 24) < 255u) { mat.vertex_alpha_lt255 = true; break; }
+    }
     if (sl.find("trans") != std::string::npos) mat.alpha_blend = true;
     if (o.arena && mat.diffuse >= 0 && !mat.alpha_blend) {
       const TexFormat f = m.textures[size_t(mat.diffuse)].format;  // first rule: alpha-carrying DXT -> cut-out (unconfirmed)
@@ -574,11 +825,24 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       // gloss / specular mask there (ar_dm floor mats, ar_stair, ar_rop01: alpha 60-110 everywhere), and cutting at 0.5 made the floor
       // mats and stairs vanish [C: alpha histograms of the arena 5 textures; the cut-outs (fences, truss, chairs, haze cards) have 20-86 %
       // of their pixels at alpha <= 32, the masks 0-3 %].
-      if (f == TexFormat::kBC3 || f == TexFormat::kBC2) mat.alpha_test = AlphaCutsOut(m.textures[size_t(mat.diffuse)]);
+      if (f == TexFormat::kBC3 || f == TexFormat::kBC2) {
+        const bool cuts = AlphaCutsOut(m.textures[size_t(mat.diffuse)], CPFKeepOld(sl, mat));
+        if (TqfSkipsTexelRule(sl)) mat.texel_cutout |= cuts ? 1 : 0;   // S103 TQF: the yProp_BumpMap / Default / Reflect class: the verdict is kept, not applied (the game's technique decides, front_end.cpp GameTestsAlpha)
+        else mat.alpha_test = cuts;
+      }
+      if ((f == TexFormat::kBC3 || f == TexFormat::kBC2) && (sl == "ybg_default" || sl == "yprop_default") && mat.specular < 0 && mat.normal < 0 && !P1PlantOldAlpha()) {  // S103 P1: see Material::alpha_mask
+        double zero = 1.0, mean = 0.0;
+        if (AlphaStats(m.textures[size_t(mat.diffuse)], zero, mean) && zero < 0.02 && mean >= 0.10) mat.alpha_mask = true, mat.alpha_test = false, mat.texel_cutout &= ~1;
+      }
+      // S103 L5: the game draws every other plain arena material WITHOUT the highlight (the stairs / tier walls / exit frame of arena 4 are `DefaultLM_base`, lev 0.5, DXT1); a mask material keeps its pair.
+      if ((sl == "ybg_default" || sl == "yprop_default") && mat.specular < 0 && mat.normal < 0 && !mat.alpha_mask && !L5PlantOldHighlight()) mat.no_highlight = true;
     }
     if (o.prop_slot && mat.diffuse >= 0 && !mat.alpha_blend && size_t(mat.diffuse) < m.textures.size()) {  // (Session 99, JboyOptions)
       const TexFormat f = m.textures[size_t(mat.diffuse)].format;
-      if ((f == TexFormat::kBC3 || f == TexFormat::kBC2) && AlphaCutsOut(m.textures[size_t(mat.diffuse)])) mat.alpha_blend = true;
+      if ((f == TexFormat::kBC3 || f == TexFormat::kBC2) && AlphaCutsOut(m.textures[size_t(mat.diffuse)], CPFKeepOld(sl, mat))) {  // S103 F
+        if (TqfSkipsTexelRule(sl)) mat.texel_cutout |= 2;   // S103 TQF: kept, applied by the front end only where the picked variant shows the diffuse alpha (AddModelImpl)
+        else mat.alpha_blend = true, mat.cutout_blend = 1;
+      }
     }
     if (s1_const_uv && mat.lightmap < 0 && mat.diffuse >= 0)  // (no lightmap uses S2: it is the diffuse UV; Session 97 truss)
       for (Vertex& vx : mesh.vertices) vx.uv0[0] = vx.uv1[0], vx.uv0[1] = vx.uv1[1], vx.uv1[0] = vx.uv1[1] = 0;

@@ -97,9 +97,12 @@ class Frame:
             for i, d in enumerate(defs):
                 if d['base'] == NO_BASE:
                     out[i] = full[d['full']]['d'] if d['full'] < len(full) else 0
-                else:
+                elif d['base'] < i:
                     out[i] = out[d['base']]
+                # base >= i: a zero bank, as the C++ reader (capture_reader.h Resolve), never a stray read
                 for p in range(d['patch_count']):
+                    if d['patch_first'] + p >= len(patches):
+                        break   # as the C++ reader: patches past the table are ignored
                     pt = patches[d['patch_first'] + p]
                     b = int(pt['block'])
                     out[i, 16 * b:16 * b + 16] = pt['dwords']

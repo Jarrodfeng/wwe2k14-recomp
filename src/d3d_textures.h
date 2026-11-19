@@ -23,6 +23,7 @@
 // written from it (the other writers of the fetch shadow): no id, a counted fetch fallback in the SDK.
 #pragma once
 
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include <algorithm>
 #include <bit>
 #include <array>
@@ -40,8 +41,25 @@
 
 #include "d3d_noring.h"  // d3d_layer helpers, the no-ring queue (Push / PublishPiece / Level), g_guest_frame
 #include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
 #include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
+#endif
+#if WWE2K14_STREAM()  // S103 P9 (A17): the thumbnail deferral reads the stream's read-backs; without it the game's job runs as it always did (the GPU read-back it needs is R7, landing 2 P7: NOT built)
 #include "thumb_defer.h"  // lane 232: the replay-thumbnail job hook (sub_8274FA70) and the present-time delivery
+#else
+#include "renderer_game/readback_ours.h"  // S103 RBC: the stream-free lock body (the game's GPU-to-CPU read-backs, docs\research\s103\RBK.md)
+#include "renderer_game/thumb_defer_off.h"  // S103 RBC fix: R1, the replay-clip thumbnail, deferred (never blocks a frame)
+#endif
+#if !WWE2K14_STREAM()  // S103 RBC fix: the thumbnail scope serves the stream-free 2D tap only
+#include "renderer_game/thumb_scope_hook.h"  // S103 RBC / P2D: the replay-thumbnail render scope
+#endif
+#if !WWE2K14_STREAM()  // S103 CPB: the Create a Superstar portrait (G3 untile answer, docs\research\s103\CPR.md); the stream-free build only
+#include "renderer_game/caw_portrait.h"
+#endif
+#include "scene_live/quads2d_tap.h"  // S103 I1: the 2D record's flush stamp (OnFlush)
+#include "scene_live/movie_planes_tap.h"  // S103 P4: the movie planes from guest memory at this flush (default off)
+#include "scene_live/screen_planes_hook.h"  // S103 M: the stage screens' live pictures are copied at this flush (a pointer call, free with --wwe2k14_rdr_scene = 0)
 
 REXCVAR_DEFINE_INT32(wwe2k14_d3d_textures, 0, "wwe2k14",
                      "Session 87 (D3D layer stage 4, textures): 0 = off; 1 = registry + trace logging only; 2 = the cut: texture "
@@ -513,7 +531,8 @@ inline void LogCensusIfDue(bool force) {
   Registry& r = g_reg;
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   uint64_t last = r.census_frame.load(std::memory_order_relaxed);
-  if (!force && (frame < last + 600 || !r.census_frame.compare_exchange_strong(last, frame))) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
+  if (!force && ((frame < last + 600 && !census_flush::Due(cf_site)) || !r.census_frame.compare_exchange_strong(last, frame))) return;
   Counters& c = r.c;
   auto take = [](std::atomic<uint64_t>& a) { return a.exchange(0, std::memory_order_relaxed); };
   std::string live;
@@ -568,20 +587,26 @@ inline void LogCensusIfDue(bool force) {
 REX_HOOK_RAW(sub_82CA87C0) {
   if (!Mode()) {
     __imp__sub_82CA87C0(ctx, base);
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
     if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
+#endif
     return;
   }
   const uint32_t lr = uint32_t(ctx.lr);
   const uint32_t args[8] = {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32};
   __imp__sub_82CA87C0(ctx, base);
   OnCreate(base, ctx.r3.u32, lr, args);
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureCreated(ctx, base);
+#endif
 }
 
 // 0x82CAD760 destroy resource (r3 = the resource; every kind goes through it, only registered textures are acted on): the id is retired
 // before the library waits for the GPU and frees the blocks.
 REX_HOOK_RAW(sub_82CAD760) {
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnResourceReleased(ctx, base);
+#endif
   if (Mode()) OnDestroy(base, ctx.r3.u32);
   __imp__sub_82CAD760(ctx, base);
 }
@@ -589,14 +614,20 @@ REX_HOOK_RAW(sub_82CAD760) {
 // 0x82CA7EB8 the library's texture lock (Session 100; reached by branch from LockRect 0x82CA8628 and the surface lock 0x82CA8AB0): r3 the
 // texture, r5 face / slice, r6 level. Owner mode: a picture our renderer made is read back into memory before the CPU reads it.
 REX_HOOK_RAW(sub_82CA7EB8) {
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnTextureLock(ctx, base);
+#else
+  wwe2k14::readback_ours::OnLock(ctx, base);  // S103 RBC: the site table; R1 / R2 get our presented picture, the rest are counted
+#endif
   __imp__sub_82CA7EB8(ctx, base);
 }
 
 // 0x82CA6BE0 the unlock flush (r3 = the object; tail-called by the engine wrapper's unmap 0x82BD47F0): the engine says the object's
 // memory was written. Trace: which objects, when relative to the first bind. Cut: a Changed item for a defined object.
 REX_HOOK_RAW(sub_82CA6BE0) {
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnUnlockFlush(ctx, base);
+#endif
   const int mode = Mode();
   if (!mode) {
     __imp__sub_82CA6BE0(ctx, base);
@@ -689,9 +720,14 @@ inline void PlaneFlushChanged(uint8_t* base, uint32_t set) {
 // 0x827FB540 the video display set's plane flush (once a frame on the display set; texset_flush_planes): counted; with the cut, the planes of
 // the flush are marked changed (above).
 REX_HOOK_RAW(sub_827FB540) {
+  wwe2k14::q2d_tap::OnFlush(ctx.r3.u32);   // S103 I1: the 2D record's flush stamp (default off: one relaxed load)
+#if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnPlaneFlush(ctx, base);
+#endif
   if (Mode()) g_reg.c.plane_flushes.fetch_add(1, std::memory_order_relaxed);
   const uint32_t set = ctx.r3.u32;
+  wwe2k14::movie_planes_tap::OnFlush(set);  // S103 P4: the movie planes copied from guest memory for MovieOurs (--wwe2k14_rdr_movie_planes, default off: one relaxed load)
+  wwe2k14::scene_screens::OnDisplayFlush(base, set);  // S103 M: copy the display frame for the stage screens (mode != 0 and a bound channel only)
   __imp__sub_827FB540(ctx, base);
   if (Sending()) PlaneFlushChanged(base, set);
 }

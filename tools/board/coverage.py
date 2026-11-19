@@ -361,7 +361,7 @@ def _log_index(ld):
 
 def full_log(run_dir, created, zip_log, logs_dir=None):
     r"""Lane 213: the zip's log.txt is only the window around the case (the last ~40-400 lines), so the census lines printed earlier in the run (the
-    600-frame UI / small-pass / flash / screen windows) are not in it. The whole game log is outuild\win-amd64-release\logs\wwe2k14_NNNN.log of the main
+    600-frame UI / small-pass / flash / screen windows) are not in it. The whole game log is out\build\win-amd64-release\logs\wwe2k14_NNNN.log of the main
     checkout. Candidates: the number the run folder's run.log names ("<route> -> wwe2k14_NNNN"), else (a run with no run.log) every log whose first
     timestamp is before the zip's created time and whose mtime is within 5 minutes after it. A candidate is accepted only when the zip's last lines (up to
     4) are all lines of it, so a reused number or a concurrent run never lends the wrong log; none accepted = the zip's own window. Returns (lines, name)."""

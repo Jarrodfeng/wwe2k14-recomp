@@ -80,6 +80,15 @@ address = 0x827207F0
 name = "wwe2k14_model_link"
 registers = ["r31"]
 
+# S103 ARM (docs/agents/s103/HNN.md "Open: mode 0/2 at the link vs the game composing", the exact missing evidence): sub_83418580 (the attire build's split setup, one call per mask step) at its entry
+# 0x83418580 (the function's first instruction `mflr r12`: r3 = the composite object, r4 = the step index, both untouched): P = [r3+100], desc = [r3+140]. Log only (first step, capped):
+# P+40 / P+44 / P+60 / P+64 and desc+92 / +28, to compare with the model link's read. Stream-free build, switch wwe2k14_rdr_attire_compose.
+# NEW HOOK: needs one codegen (the main session); not applied by this lane. Until then the function is defined and unreferenced.
+[[midasm_hook]]
+address = 0x83418580
+name = "wwe2k14_attire_build_step"
+registers = ["r3", "r4"]
+
 # Session 8 task 2 experiment: wait for the motion decompression worker right after posting a character to it
 # (--wwe2k14_det_inline_motion=true, default off; src/fp_probe.h). sub_823FABB8 (per-character motion component
 # update; py tools/analysis/list_function.py 0x823FABB8): 0x823FACB4 is `bl 0x823b7b90` (post the slot, r4 = owner

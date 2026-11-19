@@ -71,11 +71,13 @@ class FakeBones : public live::Contributor {
       o.flags = kObjVisible | kObjSkinned;
       o.id = t.AddString("actor:slot:" + std::to_string(k));
       o.world = IdentityMat4();
+      // render-clock: dev - the offline self-test varies its fixture by frame
       o.world.m[12] = float(f.guest_frame % 1000) + float(k);
       o.bones_first = uint32_t(t.bones.size());
       o.bones_count = 4;
       for (int b = 0; b < 4; ++b) {
         Mat4 m = IdentityMat4();
+        // render-clock: dev - the offline self-test varies its fixture by frame
         m.m[13] = float(b) + float(f.guest_frame % 7);
         t.bones.push_back(m);
       }
@@ -106,6 +108,7 @@ class FakeUnknown : public live::Contributor {
       o.asset = asset;
       o.id = t.AddString("crowd:block:3:member:" + std::to_string(k));
       o.world = IdentityMat4();
+      // render-clock: dev - the offline self-test varies its fixture by frame
       o.world.m[12] = float(f.guest_frame % 13);
       t.objects.push_back(o);
       ++c.objects;

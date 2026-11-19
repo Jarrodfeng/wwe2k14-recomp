@@ -1,0 +1,29 @@
+{
+ "owner": "S103 lane W2B: a wrestler attire's spring-hair piece nodes (kami_b*, the game's node-map word -1) are drawn from the rows the game's spring-hair simulation writes: loader (src/assets/jboy.h, node_alias.h: forced names + the alias table, Bone::piece_id / piece_node, Model::main_bones), latch reader (src/scene_live/piece_link.h, slot_piece.h, inputs_contrib.h), wrestlers contributor (wrestler_contrib.*), record section 66 (src/renderer_scene/bone_tag_rows.h, record_io.*), draw (rf_wrestlers.cpp palette plan, front_end.cpp absent-piece mesh skip); tools/scene/w2b_unit.cpp, w2b_loader.cpp, w2b_alias_table.py",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. w2b_unit: forced names appended with their (piece id, node) tag while the body keeps its copy; the Rock pad's root maps to Bip by the alias table and its l_elbow is the extra; the palette plan feeds every node from a tagged row or marks its piece ABSENT (zero row, only that piece's meshes skipped, the body always draws); count-only, partial, swapped, duplicate and untagged records; entry-29 rows counted unmodelled; record section 66 round trip. The wrestler_emit selftest carries the latch-side checks (rows read from [[model+200]+64j], mode byte, unreadable row, rest-pose twin, canonical order, switch off). w2b_loader reads the player's own pacs (NEEDS-MAIN in a worktree): Khali 166/0 = 62 extras, McIntyre 278/0 = 44, Del Rio 322/1 = 8, the Rock 100/0 = 2 (the pads' l_elbow / r_elbow). Default ON is intended (--wwe2k14_rdr_spring_hair_rows). The live proof is the milestone run's census: [scene][wrestlers] hair rows N, bodies with extras drawn N / refused N, hair_piece_skipped N, hair row scale min / max.",
+ "checks": [
+  {"name": "s103_W2B.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_w2b_unit.ps1"], "timeout_s": 600,
+   "affects": ["src/assets/jboy.h", "src/assets/node_alias.h", "src/assets/asset_model.h", "src/renderer_scene/bone_tag_rows.h", "src/renderer_scene/record_io.cpp", "src/renderer_scene/record_io.h", "tools/scene/w2b_unit.cpp", "tools/scene/build_w2b_unit.ps1"]},
+  {"name": "s103_W2B.unit", "cmd": ["out/tools/w2b_unit.exe"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/assets/jboy.h", "src/assets/node_alias.h", "src/assets/asset_model.h", "src/renderer_scene/bone_tag_rows.h", "src/renderer_scene/record_io.cpp", "src/renderer_scene/record_io.h", "tools/scene/w2b_unit.cpp"]},
+  {"name": "s103_W2B.unit_plant_refuse_body", "cmd": ["py", "-I", "tools/scene/expect_fail.py", "out/tools/w2b_unit.exe", "--plant", "refuse_body"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/bone_tag_rows.h", "tools/scene/w2b_unit.cpp"]},
+  {"name": "s103_W2B.unit_plant_old_filter", "cmd": ["py", "-I", "tools/scene/expect_fail.py", "out/tools/w2b_unit.exe", "--plant", "old_filter"], "timeout_s": 60,
+   "affects": ["src/assets/piece_keys.h", "tools/scene/w2b_unit.cpp"]},
+  {"name": "s103_W2B.build_loader", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_w2b_loader.ps1"], "timeout_s": 900,
+   "affects": ["src/assets/jboy.h", "src/assets/node_alias.h", "src/assets/asset_model.h", "src/assets/asset_load.h", "tools/scene/w2b_loader.cpp"]},
+  {"name": "s103_W2B.loader_compare_filters", "cmd": ["out/tools/w2b_loader.exe", "--game", "game_data/extracted", "--compare"], "timeout_s": 900, "needs": ["game_data/extracted"], "cache": false,
+   "affects": ["src/assets/piece_keys.h", "src/assets/asset_load.h", "tools/scene/w2b_loader.cpp"]},
+  {"name": "s103_W2B.loader_switch_off_old_merge", "cmd": ["out/tools/w2b_loader.exe", "--game", "game_data/extracted", "--old-nodes", "--expect", "109:1=155", "166:0=171", "278:0=153", "322:1=117"], "timeout_s": 300, "needs": ["game_data/extracted"], "cache": false,
+   "affects": ["src/assets/jboy.h", "src/assets/load_plants.h", "tools/scene/w2b_loader.cpp"]},
+  {"name": "s103_W2B.lint", "cmd": ["py", "-I", "tools/scene/w2b_lint.py"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/renderer_scene/wrestler_core.h", "src/scene_live/caster_core.h", "src/renderer_scene/rf_wrestlers.cpp", "src/renderer_scene/live_map_*.cpp", "tools/scene/w2b_lint.py"]},
+  {"name": "s103_W2B.lint_plant_body_count", "cmd": ["py", "-I", "tools/scene/expect_fail.py", "py", "-I", "tools/scene/w2b_lint.py", "--plant", "body_count"], "timeout_s": 60, "affects": ["tools/scene/w2b_lint.py"]},
+  {"name": "s103_W2B.lint_plant_chunk_absent", "cmd": ["py", "-I", "tools/scene/expect_fail.py", "py", "-I", "tools/scene/w2b_lint.py", "--plant", "chunk_absent"], "timeout_s": 60, "affects": ["tools/scene/w2b_lint.py"]},
+  {"name": "s103_W2B.alias_table_matches_image", "cmd": ["py", "-I", "tools/scene/w2b_alias_check.py"], "timeout_s": 120, "needs": ["out/harness/index/image.bin"], "cache": false,
+   "affects": ["src/assets/node_alias.h", "tools/scene/w2b_alias_table.py", "tools/scene/w2b_alias_check.py"]},
+  {"name": "s103_W2B.loader_game_files", "cmd": ["out/tools/w2b_loader.exe", "--game", "game_data/extracted", "--expect", "166:0=62", "278:0=44", "322:1=8", "100:0=2"], "timeout_s": 300, "needs": ["game_data/extracted"], "cache": false,
+   "affects": ["src/assets/jboy.h", "src/assets/node_alias.h", "tools/scene/w2b_loader.cpp"]}
+ ]
+}

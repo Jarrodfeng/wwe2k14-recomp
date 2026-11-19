@@ -1,5 +1,7 @@
 // Our arena drawn in place. See arena_ours.h and arena_ours_core.h. Session 101, lane 40.
 #include "../thread_name.h"  // S102 H1
+#include "../renderer_adapter/census_flush.h"  // S102 CEN1
+static census_flush::Site g_cf_arena_ours;  // S102 CEN1
 #include "arena_ours.h"
 #include "../renderer/frame_facts.h"  // S102 R21-A
 
@@ -233,7 +235,7 @@ bool ArenaOurs::FrameReady(const rdr_adapter::LoadedFrame&) {
     record = record_;
   }
   core_.ResetFrame();
-  if (++frames_seen_ % 600 == 0) {  // live: the hook's own census with the check counters and the first failing check of the window (the binder's line has only the reasons)
+  if (++frames_seen_ % 600 == 0 || census_flush::Due(g_cf_arena_ours)) {  // live: the hook's own census with the check counters and the first failing check of the window (the binder's line has only the reasons)
     const std::string fail = core_.TakeFirstFail();
     rdr::Log("%s%s%s", Report().c_str(), fail.empty() ? "" : "; first failed check since the last line: ", fail.c_str());
   }

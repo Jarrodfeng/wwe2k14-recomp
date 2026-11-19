@@ -1,0 +1,13 @@
+# harness: flags --wwe2k14_fixed_seed=1 --wwe2k14_load_probe=true --wwe2k14_file_trace=true --wwe2k14_flight_recorder=true
+# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
+# Session 103 MVL: the Moveset editor's Signature / Finishers page (players #172 #174 #177: endless loading there; docs\research\s103\MVL.md).
+# Boot -> CREATIONS -> MOVE-SET -> a superstar -> SIGNATURE / FINISHERS, then 30 s on that page. With STA merged the always-on stall
+# detector writes logs\flight_NNN.txt + a "STALL: req ... (file X) state 9" WARN if the loader sticks 5 s. Steps after MOVE-SET are
+# guesses (nav file header); a failed wait_text stops the run with the shots so far.
+on_fail quit
+log bench: start scene s103_moveset_stall
+include boot_to_menu
+wait_state menu 1 1200 30
+include creations_to_moveset_specials
+log bench: end scene s103_moveset_stall
+quit

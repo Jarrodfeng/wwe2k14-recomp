@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 lane A3: scenes\match.txt held for 3000 match frames (50 s of match clock) instead of 600, for the sweat map trace (T4: --wwe2k14_trace=0x82799648/300*r3 and watch node+92):
+# sweat amounts grow with match time, ten seconds may show almost none. Same launch as match.txt (entrances skipped by the launcher; Over the Limit BG04, Quick pace, fixed seed 1);
+# counts from the match clock running; shots at clock +300 / +1500 / +3000; quits at clock +3000. Boot + load to the clock are ~12 s of the run.
+# One command: & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\match_sweat.txt') (fast-forwarded). Marks: 1 match_clock (running), 2 end. Shots sc_match_sweat_* are local only.
+# The trace cvar is armed by the caller (run 7 armed it at the match clock with an input-script cvar line). on_fail quit.
+on_fail quit
+log bench: start scene match_sweat
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match_sweat
+mark 1 match_clock
+wait_frames 300
+screenshot sc_match_sweat_300
+wait_frames 1200
+screenshot sc_match_sweat_1500
+wait_frames 1500
+screenshot sc_match_sweat_3000
+log scene=end (match clock +3000)
+mark 2 end
+log bench: done
+quit

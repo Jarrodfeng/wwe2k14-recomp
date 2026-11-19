@@ -1,0 +1,24 @@
+{
+ "owner": "S103 lane GSP (gate speed: three local wins): tools/scene/host_rig.py runs its independent host_rig.exe arms in parallel (--serial is the old order); tools/renderer/compile_shaders.py keeps a per-shader content-hash cache (out/shaders/cache); tools/scene/keep_stream_off_link.py --syntax shares tools/gate/game_syntax.py's preprocessed-hash verdict cache",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs. Twins: host_rig parallel and forced-serial runs give byte-identical verdict text; compile_shaders --check on a temp copy of the shader tree: warm cache compiles nothing, a comment in one .frag recompiles that one shader, a code change in it recompiles it AND the check reports the committed header stale, an include edit recompiles only its includers, damaged cache entries are misses; keep_stream_off_link --syntax on a scratch unit: same text is served, an edited include header is NOT served, a broken header FAILS.",
+ "checks": [
+  {"name": "s103_GSP.host_rig_serial_twin", "cmd": ["py", "-I", "tools/scene/host_rig_serial_twin.py", "--root", "."], "timeout_s": 2400, "gpu_procs": 4,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted", "out/tools/host_rig.exe"],
+   "affects": ["tools/scene/host_rig.py", "tools/scene/host_rig_serial_twin.py"]},
+  {"name": "s103_GSP.gpu_procs_lint", "cmd": ["py", "-I", "tools/gate/gpu_procs_lint.py"], "timeout_s": 120,
+   "affects": ["tools/gate/gpu_procs_lint.py", "tools/gate/gpu_procs_baseline.txt", "tools/gate/lanes/*.json", "tools/gate/sched.py", "tools/scene/host_rig.py"]},
+  {"name": "s103_GSP.spv_cache_twin", "cmd": ["py", "-I", "tools/renderer/spv_cache_twin.py"], "timeout_s": 1800,
+   "affects": ["tools/renderer/compile_shaders.py", "tools/renderer/spv_cache_twin.py"]},
+  {"name": "s103_GSP.keep_stream_syntax_twin", "cmd": ["py", "-I", "tools/scene/keep_stream_syntax_twin.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["tools/scene/keep_stream_off_link.py", "tools/scene/keep_stream_syntax_twin.py", "tools/gate/game_syntax.py"]}
+ ]
+}

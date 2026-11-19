@@ -38,10 +38,15 @@
 #include <rex/system/xmemory.h>
 
 #include "../frame_stats.h"  // g_guest_frame
-#include "../renderer_adapter/d3_arena.h"  // d3::g_caster_d3 (the refusal below)
+#include "../keep_stream.h"  // S103 P9
+#if WWE2K14_STREAM()
+#include "../renderer_adapter/d3_arena.h"  // d3::g_caster_d3 (the refusal below); the stream's header: not in a build without it
+#endif
 #include "../renderer_adapter/own_group.h"      // Refusal()
 #include "../renderer_adapter/rdr_switches.h"
 #include "../renderer_game/own_shadow_rim.h"
+#include "trace_census_hook.h"   // S103 T: the census hooks on five more functions + Note, called by the first line of the hook below
+#include "scene_skip.h"   // S103 H: the scene decision (Ours(Hook)) is the first test of both hooks below
 
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_own_shadow_module, false, "wwe2k14",
                     "Session 102 lane P4: the shadow module (props map, maps A / B, coverage reductions, min blurs, circle blobs) owned at the draw node: when on, and the render side is ready, and every input "
@@ -69,7 +74,12 @@ inline uint32_t Rd(uint8_t* base, uint32_t a) {
 // The D3 caster skip drops the same passes at another place: refused (one line per run), the game walks. own_group::Refusal is the text the offline tools print too.
 inline bool Refused(bool shadow, bool rim) {
   static std::atomic<bool> said{false};
-  const char* why = rdr_adapter::own_group::Refusal(rdr_adapter::d3::g_caster_d3, shadow, rim);
+#if WWE2K14_STREAM()
+  const bool caster_d3 = rdr_adapter::d3::g_caster_d3;
+#else
+  constexpr bool caster_d3 = false;   // a build without the stream has no D3 caster skip: nothing to refuse
+#endif
+  const char* why = rdr_adapter::own_group::Refusal(caster_d3, shadow, rim);
   if (!why) return false;
   if (!said.exchange(true)) REXLOG_ERROR("[own] {}", why);
   return true;
@@ -107,6 +117,12 @@ inline void MaybeLog(const char* what, const rdr_own::OwnedPassStamp& st) {
 
 REX_HOOK_RAW(sub_827E9740) {
   using namespace wwe2k14::own_node;
+  wwe2k14::trace_census_hook::Note(trace_census::Site::ShadowNode, ctx, 0, 0);   // S103 T: census line (trace_census_hook.h), only while --wwe2k14_rdr_scene is not 0
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::ShadowModule)) {   // S103 H: the frame is OURS: the install pair alone (OWN_THE_PASS.md 12 item 2), no draw. The game's own off tests first (the node does nothing then)
+    const uint32_t scene_node = ctx.r3.u32;
+    if (!(Rd(base, scene_node + 22692) == 0 || Rd(base, scene_node + 284) == 2)) KeepShadowInstall(ctx, base, scene_node - 4);
+    return;
+  }
   const uint64_t guest_frame = Frame();
   if (!rdr_sw::BoolSeen(rdr_sw::kOwnShadowModule, REXCVAR_GET(wwe2k14_rdr_own_shadow_module), guest_frame)) {
     __imp__sub_827E9740(ctx, base);
@@ -134,6 +150,7 @@ REX_HOOK_RAW(sub_827E9740) {
 
 REX_HOOK_RAW(sub_827EA7B8) {
   using namespace wwe2k14::own_node;
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::RimMap)) return;   // S103 H: the frame is OURS: the rim walker writes no R word and restores the device state it touches (OWN_SHADOW_RIM.md)
   const uint64_t guest_frame = Frame();
   if (!rdr_sw::BoolSeen(rdr_sw::kOwnRimMap, REXCVAR_GET(wwe2k14_rdr_own_rim_map), guest_frame)) {
     __imp__sub_827EA7B8(ctx, base);

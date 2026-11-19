@@ -1,0 +1,7 @@
+{
+ "owner": "S103 lane G2: the frame hand-off applied in live.cpp (SCENE_PACING.md 3c: latest-wins pop, forced_skip, PeekNextCopies, [rdr][mail] census) + DrawLists in LiveSceneDraw. The game TUs compile as the game compiles them; the pacing unit proves the TakeRun the pop calls (0 game runs).",
+ "checks": [
+  {"name": "s103_G2.syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_scene_draw.cpp,src/renderer_adapter/live.cpp"], "timeout_s": 600, "affects": ["src/**", "tools/gate/game_syntax.py"], "needs": ["generated/default"]},
+  {"name": "s103_G2.unit", "cmd": ["py", "-I", "tools/scene/pacing_unit_selftest.py"], "timeout_s": 900, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
+ ]
+}

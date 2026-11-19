@@ -7,6 +7,7 @@
 
 #include <atomic>
 
+#include "inputs_contrib.h"   // S103 A
 #include "sphere_contrib.h"
 #include "wrestler_hook.h"   // ReadGuest / ReadWord
 
@@ -23,6 +24,7 @@ inline void UpdateHook(uint32_t comp, uint64_t frame) {
       comp, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t a, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, dst, n); });
   if (!rec) return;
+  if (rdr_scene::live::inputs::InputsRegistered()) scene_inputs::Capture(scene_inputs::kInSphereOcc, frame);   // S103 A: this update hook already sits outside the scene walks; it stamps the input (the hook clock: the clock the scene decision uses)
   static std::atomic<int> logged{0};
   if (logged.fetch_add(1, std::memory_order_relaxed) < 12) {
     uint32_t ch = 0, skel = 0;

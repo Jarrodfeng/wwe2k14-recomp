@@ -28,6 +28,7 @@ def main():
     ap.add_argument('--ours', choices=['v3', 'base'], required=True)
     ap.add_argument('--profdata', default='none')
     ap.add_argument('--pgo-ours', choices=['yes', 'no'], default='no')
+    ap.add_argument('--expect-stream', action='store_true', help='the folder is a stream build (default: the player build is stream-free)')
     a = ap.parse_args()
     try:
         lines = open(a.build_dir.rstrip('\\/') + '/build.ninja', encoding='utf-8', errors='replace').read().splitlines()
@@ -35,9 +36,28 @@ def main():
         print('FAIL: cannot read build.ninja:', e)
         return 1
     bad = 0
+    # 2026-11-18: the release is stream-free: the CMake cache must say KEEP_STREAM=OFF and KEEP_STREAM_RUN=ON (a stale ON cache fails here).
+    try:
+        cache = open(a.build_dir.rstrip('\\/') + '/CMakeCache.txt', encoding='utf-8', errors='replace').read()
+    except OSError as e:
+        print('FAIL: cannot read CMakeCache.txt:', e)
+        return 1
+    for var, want in (('WWE2K14_KEEP_STREAM', 'ON' if a.expect_stream else 'OFF'), ('WWE2K14_KEEP_STREAM_RUN', 'OFF' if a.expect_stream else 'ON')):
+        m = re.search(r'^' + var + r':BOOL=(\S+)', cache, re.M)
+        got = m.group(1) if m else 'unset'
+        if got != want:
+            print(f'FAIL cache: {var}={got}, the release wants {want}')
+            bad += 1
     for tag, pat, want_isa, want_prof in (('guest', GUEST_TU, a.guest, a.profdata != 'none'),
                                           ('ours', OURS_TU, a.ours, a.profdata != 'none' and a.pgo_ours == 'yes')):
         name, fl = flags_of(lines, pat)
+        if tag == 'ours':   # 2026-11-18: an OURS TU's DEFINES must carry WWE2K14_KEEP_STREAM=0 (stream-free) or =1 (--expect-stream): the define the code reads
+            want_def = '-DWWE2K14_KEEP_STREAM=' + ('1' if a.expect_stream else '0')
+            st = next(k for k, l in enumerate(lines) if l.startswith(name + ':'))   # name already starts with 'build ' (flags_of); v0.4.0 prepare: 'build build ...' never matched
+            dl = next((l for l in lines[st + 1:st + 12] if l.startswith('  DEFINES = ')), '')
+            if (' ' + want_def + ' ') not in (dl + ' '):
+                print(f'FAIL ours: {name.split("/")[-1]} DEFINES lack {want_def}')
+                bad += 1
         for f in V3:
             has = (' ' + f + ' ') in (fl + ' ')
             if has != (want_isa == 'v3'):

@@ -81,7 +81,7 @@ def known_fingerprint() -> str:
     return ''
 
 
-def check_manifest(text: str, version: str) -> list:
+def check_manifest(text: str, version: str, release: bool = False) -> list:
     fails = []
     elements = parse_manifest(text)
     manifest = next((a for e, a in elements if e == 'manifest'), {})
@@ -93,7 +93,7 @@ def check_manifest(text: str, version: str) -> list:
     if code is None or code <= LAST_HAND_SET_CODE:
         fails.append(f'versionCode {code} is not above {LAST_HAND_SET_CODE}: it would not install as an update')
     name = str_value(manifest.get('versionName', ''))
-    if name != version:
+    if name not in ((version,) if release else (version, version + '-streamfree')):   # S103 ANS: -streamfree marks a stream-free DEV test APK only; a release APK (--release) says exactly android\\VERSION
         fails.append(f'versionName is {name}, android\\VERSION says {version}')
     if int_value(application.get('hasFragileUserData', '')) in (None, 0):
         fails.append('android:hasFragileUserData is not on')
@@ -110,6 +110,19 @@ def check_manifest(text: str, version: str) -> list:
         if missing:
             fails.append(f'{activity}: configChanges lacks {"|".join(missing)}')
     return fails
+
+
+STREAM_FREE_MARK = b'the scene host is the poster'   # logged by src/renderer_host/host_start.cpp: only the stream-free build has this string
+
+
+def check_stream_free(apk: str) -> list:
+    """2026-11-18: a release APK is the stream-free build; lib/arm64-v8a/libmain.so must carry a string only that build has."""
+    with zipfile.ZipFile(apk) as z:
+        try:
+            data = z.read('lib/arm64-v8a/libmain.so')
+        except KeyError:
+            return ['lib/arm64-v8a/libmain.so is missing (cannot tell the build)']
+    return [] if STREAM_FREE_MARK in data else ['libmain.so is not the stream-free build (no "the scene host is the poster" string): a release APK is built stream-free']
 
 
 def check_libraries(apk: str) -> list:
@@ -138,6 +151,8 @@ def main() -> int:
     ap.add_argument('apk')
     ap.add_argument('--build-tools', required=True, help="the Android SDK's build-tools folder (aapt, apksigner)")
     ap.add_argument('--no-signature', action='store_true')
+    ap.add_argument('--stream-free', action='store_true', help='libmain.so must be the stream-free build (a release APK, unless built with -Stream)')
+    ap.add_argument('--release', action='store_true', help='a release APK: versionName must be exactly android\\VERSION (no -streamfree)')
     ap.add_argument('--version-file', default=str(ROOT / 'android' / 'VERSION'))
     args = ap.parse_args()
     tools = Path(args.build_tools)
@@ -147,8 +162,10 @@ def main() -> int:
         print(f'check_apk: FAIL aapt: {dump.stderr.strip()[:300]}')
         return 1
     version = Path(args.version_file).read_text(encoding='ascii').strip()
-    fails = check_manifest(dump.stdout, version)
+    fails = check_manifest(dump.stdout, version, args.release)
     fails += check_libraries(args.apk)
+    if args.stream_free:
+        fails += check_stream_free(args.apk)
     if not args.no_signature:
         fails += check_signature(args.apk, tools)
     for f in fails:

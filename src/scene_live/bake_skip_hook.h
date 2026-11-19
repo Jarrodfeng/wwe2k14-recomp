@@ -15,6 +15,7 @@
 #pragma once
 
 #include <atomic>
+#include "../renderer_adapter/census_flush.h"  // S102 CEN1
 #include <bit>
 #include <chrono>
 #include <cstdint>
@@ -29,6 +30,7 @@
 #include <rex/system/xmemory.h>
 
 #include "bake_skip_core.h"
+#include "scene_skip.h"   // S103 H: the scene decision is the first test of the pass hook
 
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_bake_skip, 0, "wwe2k14",
                      "Session 101 lane 155: the crowd card bake's invisible cut. 0 off; 1 census (decide and count what would be skipped, touch nothing); 2 skip the bake of person types whose far cards "
@@ -79,7 +81,8 @@ inline void OnCardLoop(uint32_t type) {
 inline void MaybeLog(Mode mode) {
   const Counters& c = g_ledger.counters();
   const uint64_t n = c.passes.load(std::memory_order_relaxed);
-  if (n == 0 || n % 600 != 1 || g_logged_passes.exchange(n) == n) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now (census_flush.h)
+  if (n == 0 || (!census_flush::Due(cf_site) && (n % 600 != 1 || g_logged_passes.exchange(n) == n))) return;
   const auto w = [&c](Why x) { return (unsigned long long)c.why[static_cast<unsigned>(x)].load(std::memory_order_relaxed); };
   REXLOG_INFO(
       "[rdr][crowd] bake skip ({}): passes {}, thumbnails baked {} (cards {}, warmup {}, refresh {}, anchor {}), cut {} (the game's own skips {}), unreadable {}; card loops {}, age of the picture read "
@@ -96,6 +99,7 @@ inline void MaybeLog(Mode mode) {
 
 REX_HOOK_RAW(sub_827FD698) {
   using namespace wwe2k14::bake_skip;
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::CardBake)) return;   // S103 H: the frame is OURS: no thumbnail is baked (the pictures persist; ours bakes from the record). The ledger is untouched. SCENE_SKIPS.md row 4
   const Mode mode = EffectiveMode();
   if (mode == Mode::Off) {
     __imp__sub_827FD698(ctx, base);

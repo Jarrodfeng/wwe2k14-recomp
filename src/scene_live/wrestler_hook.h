@@ -12,10 +12,14 @@
 // The equality is evidenced for slots 0 and 1 only; for slots 2..8 it is the same rule, unconfirmed.
 #pragma once
 #include <rex/logging.h>
+#include "../renderer_adapter/census_flush.h"   // S102 CEN1
+#include <rex/cvar.h>
 #include <rex/system/kernel_state.h>
+#include <rex/memory/utils.h>
 #include <rex/system/xmemory.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -32,8 +36,72 @@
 
 #include "../renderer_adapter/upd_lean.h"   // S102 U3 (bit 16)
 #include "wrestler_contrib.h"
+#include "slot_key.h"   // S103 SKY
+#include "piece_link.h"   // S103 ARM2: DescriptorOfBody (the slot manager's descriptor of the body)
+#include "../assets/attire_build.h"   // S103 ARM2: SlotOwner / the build-step latch
+#include "safe_guest_pages.h"
+#include "../frame_stats.h"   // g_guest_frame: the cache epoch
+#include "../guest_read.h"   // GuestWordReadableFast (the off-Windows page check)
+#include "../renderer_scene/body_scale.h"   // S103 W2 (census only)
+#include "../renderer_game/scene_frame.h"   // S103 S: the slot-key read only while the scene switch is on
 
 namespace wwe2k14::wrestlers {
+
+// Off Windows there is no SEH: a guest range is read only after the guest page table says every page is readable (safe_guest_pages.h; the inputs_glue.h ReadChecked pattern). On Windows the SEH in SafeCopy covers it.
+// The virtual check is trusted only on a 4 KB-page kernel (HostPagesOk). The check itself is right on a larger host page too (the SDK grants a host page the union of its guest pages' access); the hazard is the gap between check and copy: a Release that empties every guest page of a host page makes it PROT_NONE and the plain memcpy in SafeCopy takes SIGSEGV (BH3-1). A non-4 KB host still reads (refusing would stop all 3D) and logs one warning at the first check. The proper fix (a SIGSEGV recovery point around SafeCopy, ahead of blackbox's handler) is NOT built.
+inline std::atomic<uint64_t> g_page_check_calls{0}, g_page_check_pages{0}, g_page_check_hits{0}, g_page_check_refused{0};   // the phone's cost, printed with the wrestlers census (OnSkelExit)
+inline bool HostPagesOk() {
+#ifdef _WIN32
+  return true;
+#else
+  return wwe2k14::safe_pages::HostPageIs4k(rex::memory::page_size());
+#endif
+}
+inline bool GuestRangeReadable(uint32_t guest, size_t n) {
+#ifdef _WIN32
+  (void)guest; (void)n;
+  return true;
+#else
+  g_page_check_calls.fetch_add(1, std::memory_order_relaxed);
+  static const bool k4k = [] {   // BH3-1 (review): a non-4 KB host still draws (a blanket refusal would stop all 3D); one warning that the reads are check-then-copy with no fault recovery
+    const bool ok = wwe2k14::safe_pages::HostPageIs4k(rex::memory::page_size());
+    if (!ok) REXLOG_WARN("[wwe2k14][guest_read] host page size {}: guest reads are check-then-copy without fault recovery; a rare crash is possible", rex::memory::page_size());
+    return ok;
+  }();
+  (void)k4k;
+  static thread_local wwe2k14::safe_pages::PageCache<> cache;   // readable pages of this frame (this thread): no lock
+  uint64_t lookups = 0, hits = 0;
+  const auto frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+  auto raw = [](uint32_t a) { return wwe2k14::GuestWordReadableFast(a); };
+  const bool ok = wwe2k14::safe_pages::RangeReadable(guest, n, wwe2k14::safe_pages::Cached(cache, frame, lookups, hits, raw));
+  g_page_check_pages.fetch_add(lookups, std::memory_order_relaxed);
+  g_page_check_hits.fetch_add(hits, std::memory_order_relaxed);
+  if (!ok) g_page_check_refused.fetch_add(1, std::memory_order_relaxed);
+  return ok;
+#endif
+}
+// The same for PHYSICAL (GPU) memory read through TranslatePhysical: the physical heap's own table, per page, on the raw bytes the copy reads (safe_guest_pages.h PhysReadable).
+inline bool PhysRangeReadable(uint32_t addr, size_t n) {
+#ifdef _WIN32
+  (void)addr; (void)n;
+  return true;
+#else
+  g_page_check_calls.fetch_add(1, std::memory_order_relaxed);
+  auto* ph = REX_KERNEL_MEMORY()->GetPhysicalHeap();
+  static thread_local wwe2k14::safe_pages::PageCache<> cache;   // physical pages of this frame (this thread), apart from the virtual cache
+  uint64_t lookups = 0, hits = 0;
+  const auto frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+  auto raw = [ph](uint32_t p) {
+    uint32_t pr = 0;
+    return ph->QueryProtect(p, &pr) && (pr & rex::memory::kMemoryProtectRead) != 0;
+  };
+  const bool ok = ph && wwe2k14::safe_pages::PhysReadable(addr, n, wwe2k14::safe_pages::Cached(cache, frame, lookups, hits, raw));
+  g_page_check_pages.fetch_add(lookups, std::memory_order_relaxed);
+  g_page_check_hits.fetch_add(hits, std::memory_order_relaxed);
+  if (!ok) g_page_check_refused.fetch_add(1, std::memory_order_relaxed);
+  return ok;
+#endif
+}
 
 inline bool SafeCopy(void* dst, const void* src, size_t n) {
   static void* (*volatile copy)(void*, const void*, size_t) = std::memcpy;
@@ -65,15 +133,17 @@ inline rex::memory::Memory* GuestMem() {
 inline bool ReadGuest(uint32_t guest, void* dst, size_t n) {
   if (guest < 0x10000 || uint64_t(guest) + n > 0x100000000ull) return false;
   if (uint64_t(guest) + n > 0x7F000000ull && guest < 0x80000000u) return false;  // MMIO heap
+  if (wwe2k14::safe_pages::CrossesE0View(guest, n)) return false;   // BH3-5: only the start is translated
   auto* host = GuestMem()->TranslateVirtual<const uint8_t*>(guest);
-  return host && SafeCopy(dst, host, n);
+  return host && GuestRangeReadable(guest, n) && SafeCopy(dst, host, n);
 }
 // S102 U2 (R22 cut 3): compare n guest bytes in place with a host buffer: 0 equal, 1 differs, -1 unreadable (same bounds and fault rules as ReadGuest, no copy).
 inline int CompareGuest(uint32_t guest, const void* ref, size_t n) {
   if (guest < 0x10000 || uint64_t(guest) + n > 0x100000000ull) return -1;
   if (uint64_t(guest) + n > 0x7F000000ull && guest < 0x80000000u) return -1;  // MMIO heap
+  if (wwe2k14::safe_pages::CrossesE0View(guest, n)) return -1;   // BH3-5
   auto* host = GuestMem()->TranslateVirtual<const uint8_t*>(guest);
-  if (!host) return -1;
+  if (!host || !GuestRangeReadable(guest, n)) return -1;
 #ifdef _WIN32
   static int (*volatile cmp)(const void*, const void*, size_t) = std::memcmp;   // S102 U3 review: a call through a volatile pointer, so the fault is in a callee of the __try body (SafeCopy's pattern; tools\upd_lean lint)
   __try {
@@ -101,6 +171,18 @@ inline bool ReadMatrices(uint32_t guest, uint32_t count, std::vector<rdr_scene::
 
 constexpr uint32_t kSlotTable = 0x836F38D0;  // 9 character pointers (match_state.md, high)
 constexpr uint32_t kMaxNodes = 1024;
+
+// S103 SKY: name every slot body from the game's character descriptor (slot_key.h), not the participant row. Off = the old row rule (slot < 6, rows 6..39 empty).
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_key_desc, true, "wwe2k14",
+                    "Stream-free wrestlers: the slot model key comes from the game's character descriptor [[0x83924734]+864+80*[char+1220]] (right in a Royal Rumble and after a slot swap); false = the participant-row guess (slot < 6, rows 6..39 empty)");
+namespace sky_census {   // desc key vs the old row key, slots 0..5 (the first live sighting of a swap / remap / Rumble is differ / row_unusable)
+inline std::atomic<uint64_t> agree{0}, differ{0}, row_unusable{0};
+inline std::atomic<uint32_t> occupant_char[9] = {}, occupant_key[9] = {};
+inline std::atomic<uint32_t> occupant_lines{0};
+inline std::atomic<uint64_t> remap_active{0};                                   // slots seen while the slot remap is active (descriptor indexed by char+1224)
+inline std::atomic<uint64_t> ctor_agree{0}, ctor_differ{0};                      // [ch+44] vs the key used (census only, not a gate)
+inline std::atomic<uint64_t> hi_link_agree{0}, hi_link_differ{0}, hi_link_verified{0}, hi_named_by_key{0}, hi_nokey{0};   // slots 6..8 (referee, role-4 people): key vs the declared link
+}  // namespace sky_census
 
 struct CallState {
   uint32_t self = 0, count = 0;
@@ -137,11 +219,17 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
   {   // S101 lane 207: the wrestler pipeline's counters, one line per 600 guest frames (why the descriptor route links no wrestler; how many own-skeleton pieces are wanted)
     static std::atomic<uint64_t> next_log{600};
     uint64_t due = next_log.load(std::memory_order_relaxed);
-    if (guest_frame >= due && next_log.compare_exchange_strong(due, guest_frame + 600)) {
-      REXLOG_INFO("[scene][live] wrestlers frame {}: LinkBodies {} LinkKind {} {} {} {} {} {} {} {} {} {} LinkEmptyKey {} LinkNoBody {} LinkUnreadable {} LinkCountRefused {} LinkedSeenAsSkeleton {} KnownCount {} SkippedSmall {} CapRefused {} ListedFull {} Wanted {} WantedFull {} EntryPiecesByDescriptor {} EntryUnknownModel {} EntryPieces {} EntryPtrMismatch {} EntryUnreadable {} OwnSkelConsumer {} OwnSkelPtrMismatch {}",
+    static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
+    const bool cf_due = census_flush::Due(cf_site);
+    if ((guest_frame >= due || cf_due) && next_log.compare_exchange_strong(due, guest_frame + 600)) {
+      REXLOG_INFO("[scene][live] wrestlers frame {}: LinkBodies {} LinkKind {} {} {} {} {} {} {} {} {} {} LinkEmptyKey {} LinkNoBody {} LinkUnreadable {} LinkCountRefused {} LinkedSeenAsSkeleton {} KnownCount {} SkippedSmall {} CapRefused {} ListedFull {} Wanted {} WantedFull {} EntryPiecesByDescriptor {} EntryUnknownModel {} EntryPieces {} EntryPtrMismatch {} EntryUnreadable {} OwnSkelConsumer {} OwnSkelPtrMismatch {} PieceLinks {} PieceWhy [{}] RingLeftOut {} BodyLinks {} [{}]",
                   guest_frame, w.LinkBodies(), w.LinkKind(0), w.LinkKind(1), w.LinkKind(2), w.LinkKind(3), w.LinkKind(4), w.LinkKind(5), w.LinkKind(6), w.LinkKind(7), w.LinkKind(8), w.LinkKind(9),
                   w.LinkEmptyKey(), w.LinkNoBody(), w.LinkUnreadable(), w.LinkCountRefused(), w.LinkedSeenAsSkeleton(), w.KnownCount(), w.SkippedSmall(), w.CapRefused(), w.ListedFull(), w.Wanted(), w.WantedFull(),
-                  w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch());
+                  w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch(), w.PieceLinksMade(), w.PieceWhyText(), w.RingLeftOut(), w.BodyLinkCount(), w.BodyLinkText());   // S103 NRB / PZ F5
+      REXLOG_INFO("[scene][live] frame {}: slot key (desc rule {}): agree {} differ {} row_unusable {} occupant changes {} remap_active {} ctor44 agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, REXCVAR_GET(wwe2k14_rdr_slot_key_desc) ? "on" : "off", sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
+      REXLOG_INFO("[scene][live] frame {}: guest page checks (off Windows; 0 on Windows) calls {} page lookups {} of which cache hits {} (per-frame cache) refused {}", guest_frame, g_page_check_calls.load(std::memory_order_relaxed), g_page_check_pages.load(std::memory_order_relaxed), g_page_check_hits.load(std::memory_order_relaxed), g_page_check_refused.load(std::memory_order_relaxed));   // S103 PC1: the phone's cost of the page-checked readers
+      REXLOG_INFO("[scene][live] frame {}: {}", guest_frame, rdr_scene::BodyScaleTable::CensusText(rdr_scene::BodyScaleTable::Get().Census()));   // S103 W2: latch vs the stream-learned scale (census only)
+      REXLOG_INFO("{}", rdr_scene::SpringHairCensusText());   // S103 W2B: [scene][wrestlers] hair rows N, bodies with extras drawn N / refused N (tags / count / unreadable)
     }
   }
   uint32_t world_ptr = 0, inv_ptr = 0;
@@ -151,11 +239,95 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
     return;
   }
   int32_t slot = -1;
+  uint32_t slot_ch = 0;   // S103 SKY: the matched character
   for (int s = 0; s < 9 && slot < 0; ++s) {
     uint32_t ch = 0, pos = 0;
-    if (ReadWord(kSlotTable + 4 * s, ch) && ch && ReadWord(ch + 176, pos) && pos == world_ptr + 2 * 64 + 48) slot = s;
+    if (ReadWord(kSlotTable + 4 * s, ch) && ch && ReadWord(ch + 176, pos) && pos == world_ptr + 2 * 64 + 48) { slot = s; slot_ch = ch; }
   }
   w.SubmitWorld(self, slot, c.count, t_world.data(), t_inv.data(), guest_frame);
+  if (slot >= 0 && scene_frame::CurrentMode() != scene_frame::Mode::Off) {   // S103 W2: CENSUS ONLY, never used for drawing (body_scale.h): the candidate body scale of this character slot
+    // [[0x83924734] + 864 + 80 x slot] + 12: 0x83924734 = the match request context word (sub_827E4538 0x827E45A4 `lwz r30,18228(r11)` after `lis r11,-31854`), sub_827E3368 (0x827E3378-0x827E3388)
+    // = ctx + 864 + 80 x slot (slots 0-8), sub_8271ED10 0x8271ED48 `lfs f0,12(r9)` reads the float at +12 of that record (R1: rec80).
+    uint32_t ctx = 0, bits = 0;
+    const bool ok = ReadWord(0x83924734u, ctx) && ctx && ReadWord(ctx + 864 + 80 * uint32_t(slot) + 12, bits);
+    float v = 0.f;
+    std::memcpy(&v, &bits, 4);
+    rdr_scene::BodyScaleTable::Get().SetLatch(self, slot, v, ok);
+  } else if (slot < 0) {
+    rdr_scene::BodyScaleTable::Get().ClearLatch(self);   // S103 W3: not a slot wrestler now (the address may have been reused): no stale latch value
+  }
+  {  // S103 SKY (was S103 B): the slot's model key from the game's own character descriptor (slot_key.h, TMR.md section 3): [[0x83924734] + 864 + 80 x [char+1220]] + 0, slots 0..8.
+     // The participant row (entrant_slots A = [0x8376AAF0] + 148 + 56 x row, +16) is a census only: it is wrong in a Royal Rumble (rows rotate) and after a slot swap (sub_8251F290).
+     // Only while the scene switch is on (lane A review 1): off = no reads, key cleared.
+    const auto rd = [](uint32_t a, uint32_t& v) { return ReadWord(a, v); };
+    const bool scene_on = scene_frame::CurrentMode() != scene_frame::Mode::Off;
+    uint32_t key = 0;
+    if (scene_on && slot >= 0) {
+      const bool desc_rule = REXCVAR_GET(wwe2k14_rdr_slot_key_desc);
+      key = slotkey::SlotKeyOf(rd, slot, slot_ch, desc_rule);
+      {   // census: remap active, and the character constructor's own key [ch+44]
+        bool remap = false;
+        slotkey::DescIndex(rd, slot_ch, &remap);
+        if (remap) sky_census::remap_active.fetch_add(1, std::memory_order_relaxed);
+        if (key) { const uint32_t c44 = slotkey::CtorKey(rd, slot_ch); if (c44 == key) sky_census::ctor_agree.fetch_add(1, std::memory_order_relaxed); else sky_census::ctor_differ.fetch_add(1, std::memory_order_relaxed); }
+      }
+      if (slot >= 6) {   // census: slots 6..8 now get a key too; how it sits beside the declared link (read before SubmitSlotKey, which drops a link of another character)
+        const auto lk = w.BodyKeyFor(self);
+        if (!key) sky_census::hi_nokey.fetch_add(1, std::memory_order_relaxed);
+        else if (!lk.known) sky_census::hi_named_by_key.fetch_add(1, std::memory_order_relaxed);
+        else {
+          (lk.key == key ? sky_census::hi_link_agree : sky_census::hi_link_differ).fetch_add(1, std::memory_order_relaxed);
+          if (lk.verified) sky_census::hi_link_verified.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+      if (slot < 6) {   // census: the desc key against the old row rule
+        bool usable = false;
+        const uint32_t row = slotkey::RowKey(rd, slot, usable);
+        const uint32_t desc = desc_rule ? key : slotkey::DescKey(rd, slot_ch);
+        if (!usable) sky_census::row_unusable.fetch_add(1, std::memory_order_relaxed);
+        else if (row == desc) sky_census::agree.fetch_add(1, std::memory_order_relaxed);
+        else sky_census::differ.fetch_add(1, std::memory_order_relaxed);
+        if (sky_census::occupant_char[slot].load(std::memory_order_relaxed) != slot_ch || sky_census::occupant_key[slot].load(std::memory_order_relaxed) != desc) {
+          sky_census::occupant_char[slot].store(slot_ch, std::memory_order_relaxed);
+          sky_census::occupant_key[slot].store(desc, std::memory_order_relaxed);
+          if (sky_census::occupant_lines.fetch_add(1, std::memory_order_relaxed) < 64) {
+            uint32_t s1220 = 0xFFFFFFFFu;
+            ReadWord(slot_ch + 1220, s1220);
+            REXLOG_INFO("[scene][live] slot {} occupant char 0x{:08X} skel 0x{:08X} +1220 {} desc key {} row key {}{} frame {}", slot, slot_ch, self, int32_t(s1220), desc, row, usable ? "" : " (row rule unusable)", guest_frame);
+          }
+        }
+      } else if (slot_ch && sky_census::occupant_char[slot].load(std::memory_order_relaxed) != slot_ch) {
+        sky_census::occupant_char[slot].store(slot_ch, std::memory_order_relaxed);
+        if (sky_census::occupant_lines.fetch_add(1, std::memory_order_relaxed) < 64)
+          REXLOG_INFO("[scene][live] slot {} occupant char 0x{:08X} skel 0x{:08X} desc key {} frame {}", slot, slot_ch, self, key, guest_frame);
+      }
+    }
+    // S103 ARM2 F2 / HPF: the slot's own descriptor by the game's index rule (D+7, else the slot index; slotkey::SlotDescriptor: a character slot never writes desc+4, HPR.md), asked only while the build-step latch
+    // holds this key. A descriptor whose load does not build (mode 0 / 2) forgets the capture; the colours are used only for the descriptor that made them (attire_build.h SlotOwner / TagForSlot).
+    uint32_t slot_desc = 0;
+    if (key && attire_build::Latch::Instance().HasChosen(key)) {
+      slotkey::SlotDescInfo si;
+      attire_build::SlotWhy why = attire_build::SlotWhy::kNoDesc;
+      slot_desc = attire_build::SlotDescForChar(rd, slot_ch, key, attire_build::Latch::Instance(), why, &si);
+      // HPF log: one line per (slot, key, verdict) change, first 64: settles HPR's [L] (reader+96 == element D+7) and the cross-check against the old desc+4 rule.
+      static std::atomic<uint64_t> last[9];
+      static std::atomic<uint32_t> lines{0};
+      const uint64_t sig = (uint64_t(key) << 8) | (uint64_t(why) << 4) | 1u;
+      if (slot >= 0 && slot < 9 && last[slot].load(std::memory_order_relaxed) != sig && lines.fetch_add(1, std::memory_order_relaxed) < 64) {
+        last[slot].store(sig, std::memory_order_relaxed);
+        const uint32_t d = slotkey::SlotDescriptor(rd, slot_ch);
+        uint32_t c92 = 0, m44 = 0, ob = 0, ok = 0;
+        if (d) ReadWord(d + 92, c92), ReadWord(d + 44, m44);
+        const bool ob_found = scene_inputs::DescriptorOfBody([](uint32_t a, void* dst, size_t n) { return ReadGuest(a, dst, n); }, self, ob, ok);
+        char obs[48] = "none";
+        if (ob_found) std::snprintf(obs, sizeof obs, "0x%08X%s", ob, ob == d ? " (agrees)" : " (DIFFERS)");
+        const char* const names[] = {"tag", "no_desc", "key_mismatch", "mode_base"};
+        REXLOG_INFO("[attire_build] slot {} key {}: D index {}, D+7 {}, desc 0x{:08X} (+92 {}, +44 {}), DescriptorOfBody {}, verdict {}", slot, key, si.s, si.b7, d, c92, m44,
+                    obs, names[int(why)]);
+      }
+    }
+    w.SubmitSlotKey(self, key, slot_desc);
+  }
 }
 
 // sub_82BD3620 at 0x82BD362C (the existing wwe2k14_skel_shift hook; r3 = skeleton, r4 = pointer to the 3-float delta): the game adds the delta to the
@@ -173,5 +345,26 @@ inline void OnSkelShift(uint32_t self, uint32_t delta_ptr) {
 inline const bool g_own_skel_log_installed = (rdr_scene::live::Wrestlers().SetOwnSkelLog([](uint32_t model, uint32_t r5, uint32_t field, uint32_t count, bool hook_saw) {
   REXLOG_INFO("[scene][live] own-skeleton entry 0x{:08X}: r5 0x{:08X} [model+200] 0x{:08X}{} count {} update hook saw address {}", model, r5, field, field == r5 ? "" : " (differs)", count, hook_saw ? "yes" : "no");
 }), true);
+// S103 NRB: the one-time line per SUBM piece instance the latch links (piece_link.h): wanted 0 = the scene core never recorded that model as its own skeleton (a borrower, or instance+0 is not the draw object).
+inline const bool g_piece_link_log_installed = (rdr_scene::live::Wrestlers().SetPieceLinkLog([](uint32_t model, int32_t slot, uint32_t id, uint32_t owner, uint32_t wanted, scene_inputs::PieceWhy why, scene_inputs::PieceBuild build, uint32_t kind) {
+  const char* const builds[] = {"unknown", "deferred", "B1", "B2"};   // S103 PZF2 B-3: how sub_8259E720 built the model (the first B2 seen in a run is the evidence the refusal waits for)
+  REXLOG_INFO("[scene][live] piece link 0x{:08X} = slot {} piece {} (owner 0x{:08X}): recorded own skeleton {} (wanted {}), reader proof {} {} (0 = drawn by its owner's body; PieceWhy in slot_piece.h), build {}, model kind {}", model, slot, id, owner, wanted ? "yes" : "no", wanted, int(why), scene_inputs::kPieceWhyNames[size_t(why)], builds[size_t(build) < 4 ? size_t(build) : 0], kind == 0xFFFFFFFFu ? -1 : int(kind));
+}), true);
+// S103 DTP: one line per change of a piece's owner-copy flag (SUBM instance +24): copy 0 = the game took the piece (the People's Elbow ELBW object holds the pad: PEP.md), 1 = it joined its owner again
+inline const bool g_piece_detach_log_installed = (rdr_scene::live::Wrestlers().SetPieceDetachLog([](uint32_t model, int32_t slot, uint32_t id, uint32_t owner, uint32_t copy, uint64_t frame) {
+  REXLOG_INFO("[scene][live] piece detach 0x{:08X} slot {} piece {} (owner 0x{:08X}): owner copy flag now {} ({}) frame {}", model, slot, id, owner, copy, copy ? "joined its owner again" : "detached: the game poses it from its own palette", frame);
+}), true);
+// S103 PZ F5: the one-time line (first 32) when a Known record that carried a declared model link ages out: the link itself stays with the body (body_links_). Settles PZ's open [U] (why two slot-6 characters read the same [char+48]).
+inline const bool g_known_erase_log_installed = (rdr_scene::live::Wrestlers().SetKnownEraseLog([](uint32_t body, uint32_t key, uint32_t age, uint64_t since_link) {
+  REXLOG_INFO("[scene][live] known erased, link kept: body 0x{:08X} model_key {} (character {} kind {}) age {} collects, {} collects since the link", body, key, key / 100, key % 10, age, since_link);
+}), true);
 
+// S103 AUSF (AUS2 log lines 1-3): the stream-free build names a body it leaves out of the record: kind 0 stale drop, 1 latch read refused (once per run of refusals), 2 quiet hide; at most 64 lines each a run
+inline const bool g_wrestler_event_log_installed = (rdr_scene::live::Wrestlers().SetWrestlerEventLog([](int kind, uint64_t frame, uint32_t skel, int32_t slot, uint64_t a, uint64_t b, uint64_t c) {
+  static std::atomic<int> n[3];
+  if (kind < 0 || kind > 2 || n[kind].fetch_add(1, std::memory_order_relaxed) >= 64) return;
+  if (kind == 0) REXLOG_INFO("[scene][wrestlers] stale drop frame {} skel 0x{:08X} slot {} age {} last tag {} (hold allowed up to {} records; the body left the table or is older)", frame, skel, slot, a, b, c);
+  else if (kind == 1) REXLOG_INFO("[scene][wrestlers] latch read refused frame {} skel 0x{:08X} slot {} (mismatch, no walk evidence)", frame, skel, slot);
+  else REXLOG_INFO("[scene][wrestlers] quiet hide frame {} skel 0x{:08X} slot {} upd {} draw {} pose {}", frame, skel, slot, a, b, c);
+}), true);
 }  // namespace wwe2k14::wrestlers

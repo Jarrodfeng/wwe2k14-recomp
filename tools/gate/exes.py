@@ -92,6 +92,24 @@ def spec_for(entry, reg):
     return s
 
 
+def _without_docstrings(text):
+    """A python source with its docstrings (module / class / def) and # comment lines blanked: a script that names fview only in its docstring (game_syntax.py)
+    does not run it, so the gate must not build fview for it (S103 DIB; a code string that names fview still counts). A file that does not parse is left whole."""
+    import ast
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return text
+    lines = text.splitlines()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(getattr(first, 'value', None), ast.Constant) and isinstance(first.value.value, str):
+                for i in range(first.lineno - 1, (first.end_lineno or first.lineno)):
+                    lines[i] = ''
+    return re.sub(r'(?m)^\s*#.*$', '', '\n'.join(lines))
+
+
 def infer(check, root, reg):
     # The exes a check needs: its explicit "exes", else (for a --no-build check or a check calling build.ps1) the exes its script names.
     if 'exes' in check:
@@ -99,17 +117,28 @@ def infer(check, root, reg):
     cmd = check.get('cmd', [])
     # S102 main (03:40): every python check that names fview / rplay, not only --no-build ones. s102_g2.bryan ran the shared
     # out\renderer\dev\fview.exe built before G2 merged (it did not know G2's flags: every arm "validation -1"); nothing checked it.
-    text = ''
+    text, mod_text = '', ''
+    import proofkey as pk
     for a in cmd:
         p = Path(root) / a
         if a.endswith('.py') and p.is_file():
             try:
-                text += p.read_text(encoding='utf-8', errors='replace')
+                text += _without_docstrings(p.read_text(encoding='utf-8', errors='replace'))
             except OSError:
+                pass
+            # S103 DIB review bug 2: the IMPORT closure too (l_check.py runs fview through frame_rig / fview_exe; the old rule read only the command's own .py and the
+            # gate ran such checks on whatever fview.exe sat around, or main's). A module counts only when its CODE runs the tool: its exe / finder name.
+            try:
+                for f in pk.script_closure(root, str(p))[0]:
+                    if os.path.normcase(f) != os.path.normcase(str(p)):
+                        mod_text += _without_docstrings(Path(f).read_text(encoding='utf-8', errors='replace'))
+            except (OSError, ValueError):
                 pass
     found = []
     for tool in ('fview', 'rplay'):
-        if re.search(r'\b' + tool + r'(\.exe)?\b', text):
+        if re.search(r'\b' + tool + r'(\.exe)?\b', text) or re.search(r'\b' + tool + r'(?:\.exe|_exe)\b|\bfind_' + tool + r'\b|\brun_' + tool + r'\b', mod_text):
+            if tool not in text:
+                text += ' ' + tool   # (the release-folder test below reads the script's own text)
             # release only when the script names the release folder next to the tool (crowd_props_check: 'release', 'fview.exe')
             rel = re.search(r'release[' + chr(39) + chr(34) + r'/\, ]+' + tool, text)
             found.append(f'out/renderer/{"release" if rel else "dev"}/{tool}.exe')
@@ -221,8 +250,28 @@ def holders(exe):
     return out
 
 
-def ensure(root, spec, wait_s=None, poll=0.5, log=print, retry_s=15.0):
-    """-> (state, text). state: 'fresh' (not rebuilt), 'built', 'BUILD' (failed; text names the exe and the cause)."""
+def _tool_files(root, spec):
+    # what a build of this exe leaves next to it and the cache carries: the exe, its pdb, same-stem dlls
+    exe = Path(root) / spec['path']
+    out = [spec['path']]
+    for ext in ('.pdb',):
+        p = exe.with_suffix(ext)
+        if p.is_file():
+            out.append(norm(os.path.relpath(p, root)))
+    # S103 DIB: the dependency manifests the build wrote (tools\cxx_cache.ps1: <exe>.deps.txt and out\deps\<build script>.deps.txt)
+    if Path(str(exe) + '.deps.txt').is_file():
+        out.append(spec['path'] + '.deps.txt')
+        bs = [a for a in spec.get('build', []) if isinstance(a, str) and a.lower().endswith('.ps1')]
+        if bs:
+            sid = re.sub(r'[\\/]', '_', norm(bs[0]).lstrip('./')) + '.deps.txt'
+            if (Path(root) / 'out' / 'deps' / sid).is_file():
+                out.append('out/deps/' + sid)
+    return out
+
+
+def ensure(root, spec, wait_s=None, poll=0.5, log=print, retry_s=15.0, cache=None):
+    """-> (state, text). state: 'fresh' (not rebuilt), 'cached' (copied from the S103 GX tool cache), 'built', 'BUILD' (failed; text names the exe and the cause).
+    cache: a toolcache.ToolCache (content-addressed by everything the exe is built from) or None."""
     root = Path(root)
     exe = root / spec['path']
     ok, why = is_fresh(root, spec)
@@ -237,6 +286,15 @@ def ensure(root, spec, wait_s=None, poll=0.5, log=print, retry_s=15.0):
         ok, why = is_fresh(root, spec)   # a concurrent gate run may have built it while this one waited
         if ok:
             return 'fresh', f'{spec["path"]} is fresh (built by another run)'
+        ckey, cname = None, None
+        if cache is not None:
+            cname = spec['path'].replace('/', '_')
+            ckey = cache.key(spec['path'] + '|' + ' '.join(spec.get('build', [])))
+            got = cache.restore(cname, ckey)
+            if got and exe.is_file():
+                ok2, _w = is_fresh(root, spec)   # backstop: the existing staleness check must agree with the copy
+                if ok2:
+                    return 'cached', f'tool {spec["path"]}: cache hit {ckey[:8]}'
         held_deadline = time.time() + wait_s
         last_log = 0.0
         while True:
@@ -251,6 +309,11 @@ def ensure(root, spec, wait_s=None, poll=0.5, log=print, retry_s=15.0):
             if rc == 0 and exe.is_file():
                 now = time.time()
                 os.utime(exe, (now, now))   # stamp: "built from the sources as of the end of this build"
+                if cache is not None:
+                    tfiles = _tool_files(root, spec)
+                    ckey = cache.rekey(spec['path'] + '|' + ' '.join(spec.get('build', [])), tfiles)   # S103 DIB: the key from the fresh dependency manifest
+                    if cache.publish(cname, ckey, tfiles):
+                        return 'built', f'tool {spec["path"]}: built, cached {ckey[:8]} (built fresh {spec["path"]} ({why}))'
                 return 'built', f'built fresh {spec["path"]} ({why})'
             lines = [l for l in text.strip().splitlines() if l.strip()]
             last = ' | '.join(lines[-3:]) if lines else '(no output)'

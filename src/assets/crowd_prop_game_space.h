@@ -26,9 +26,19 @@ struct PropMesh {
   std::vector<uint16_t> indices;    // a triangle strip, plain order
 };
 
+// S103 FHB: a texture entry of the same range (the foam hand's print is entry 42000 + h - 1, a file image): mip 0 of its first DDS, linear DXT blocks as the file stores them (little-endian, untiled).
+struct PropPicture {
+  uint32_t key = 0;                 // the entry id inside the audience set (42016, ...)
+  uint32_t width = 0, height = 0;
+  uint32_t format = 0;              // the game's format code: 18 = DXT1 (BC1), 19 = DXT3 (BC2), 20 = DXT5 (BC3)
+  std::vector<uint8_t> bytes;       // ((width + 3) / 4) * ((height + 3) / 4) blocks
+};
+
 struct PropSet {
   int arena = -1;
   std::vector<PropMesh> meshes;     // in key order
+  std::vector<PropPicture> pictures;   // S103 FHB: the texture entries of the range, in key order
+  std::vector<PropPicture> sign_pictures;   // S103 CSF: the crowd signs' pictures from pac\audience.pac PACH 0 entry 0 (key = the entry id), the same for every arena; empty when the pac is missing (signs then keep the guest read)
   size_t Bytes() const {
     size_t n = 0;
     for (const PropMesh& m : meshes) n += m.vertices.size() + m.indices.size() * 2;
@@ -39,9 +49,14 @@ struct PropSet {
 // Pure: one JBOY entry (the whole entry, 'JBOY' tag included) -> the host vertex / index of its single mesh. False + err for anything else (more than one mesh, a stride other than
 // 28, a missing uv stream, an index past the vertices). Used by Load; its output is checked against an independent Python conversion (tools\crowd\crowd_props_join.py, byte joins on real draws), not by a C++ unit test.
 bool ConvertJboy(const uint8_t* data, size_t size, PropMesh& out, std::string& err);
+// S103 FHB, pure: one non-model entry of the range -> mip 0 of its first DDS (found in the first 4 KB: a bare DDS or a texture directory's first blob). False + err for anything else (no DDS, a format other than DXT1 / 3 / 5, a short mip).
+bool ConvertDds(const uint8_t* data, size_t size, PropPicture& out, std::string& err);
 
 bool Init(const std::string& game_path);
 // Loads every single-mesh model of keys 40000-42999 of the audience set (entry 20000 of PACH 0) of pac\bg\bgNN.pac. Serialised with every other loader (asset_load.h's LoadMutex).
 bool Load(int arena, PropSet& out, std::string& err);
+// S103 CSF (H-CS1): every sign picture of `pac\audience.pac` PACH 0 (entry 0 is a nested PACH of 525 leaves, all 64x64 DXT1, scanned 2026-11-19), read ONCE per boot and kept (about 525 x 2 KB = 1.05 MB decoded); keys in order.
+// Not through the loader's one-slot pac cache (it would evict the arena pac); the file is 1 MB. False + err when the pac is missing / unreadable (callers fall back to the guest read).
+bool LoadSignPictures(std::vector<PropPicture>& out, std::string& err);
 
 }  // namespace assets::crowd_prop_gs

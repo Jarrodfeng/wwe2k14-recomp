@@ -5,12 +5,17 @@
 #include <cmath>
 #include <cstdint>
 #include <cctype>
+#include <atomic>   // S103 L7
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <unordered_map>
 
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "fx_tables.h"
+#include "read_rule.h"        // S103 YCB: the effect table
+#include "technique_pick.h"   // S103 YCB: RowOf
+#include "../assets/load_plants.h"   // S103 LNT: EyaOldParam1Plant
 
 namespace rdr_scene {
 namespace {
@@ -93,7 +98,7 @@ bool IsClothEffect(const std::string& effect) { return effect.compare(0, 9, "yCh
 bool IsHairEffect(const std::string& effect) {
   std::string lc = effect;
   for (char& ch : lc) ch = char(std::tolower((unsigned char)ch));
-  return lc.find("aniso") != std::string::npos || lc.find("trans") != std::string::npos;
+  return technique_pick::CharClassOf(lc).hair;   // S103 YCB (review P2-2): exactly ych_trans / ych_aniso_trans (was a substring test that also took yCh_Anisotropic, cloth_trans, TransTiling)
 }
 
 CharSlot RoleOfSlot(int slot) {
@@ -103,16 +108,19 @@ CharSlot RoleOfSlot(int slot) {
     case 3: return CharSlot::NoiseTile;
     case 6: return CharSlot::Mask;
     case 10: return CharSlot::FlatBlackCube;
+    case 12: return CharSlot::ShadowMap;   // S103 L6
     case 13: return CharSlot::LightCube;
     case 15: return CharSlot::RimMap;
-    case 5: case 8: case 9: return CharSlot::FlatGrey;
+    case 5: return CharSlot::WrinkleNormal;   // S103 WRK: g_mNormalWklPrm (name-table row 0x8392AB60, register 5)
+    case 8: case 9: return CharSlot::FlatGrey;
     default: return CharSlot::FlatBlack;  // 2, 4, 7, 14: team-colour masks and logo layers
   }
 }
 
 // ---- the choice ----------------------------------------------------------------------------------------------------------------
 
-CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test) {
+namespace {
+CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool alpha_test, bool shadow, bool wet) {   // S103 L6: `shadow` = the FX_SHADOW reader (see char_effects.h); S103 SWF: `wet`
   CharChoice best;
   best.effect = effect;
   double best_score = -1e9;
@@ -124,13 +132,18 @@ CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_
     const fxt::VariantTable& ft = *T().by_index[size_t(f)];
     const std::vector<std::string> fdef = Defines(ft);
     // Options with a stand-in that does nothing: all-zero team-colour masks and logo layers (black textures), a muscle / wrinkle map at its neutral value.
-    if (!Subset(fdef, {"FX_CHANGE_COLOR", "FX_LOGO", "FX_MUSCLE", "FX_WRINKLES", "FX_ENV_LIGHT"})) continue;
+    if (wet) {   // S103 SWF: the liquid-map reader of the skin: all four wet options (BSS reads the map, the tint and the sweat / blood terms read its channels); no team-colour / logo layer (they are not real option sets with BSS)
+      if (!Subset(fdef, {"FX_MUSCLE", "FX_WRINKLES", "FX_ENV_LIGHT", "FX_SHADOW", "FX_BSS", "FX_BLOOD_TINT", "FX_SWEAT", "FX_BLOOD"})) continue;
+      if (!Has(fdef, "FX_BSS") || !Has(fdef, "FX_BLOOD_TINT") || !Has(fdef, "FX_SWEAT") || !Has(fdef, "FX_BLOOD")) continue;
+    } else if (!Subset(fdef, {"FX_CHANGE_COLOR", "FX_LOGO", "FX_MUSCLE", "FX_WRINKLES", "FX_ENV_LIGHT", "FX_SHADOW"})) continue;
+    if (Has(fdef, "FX_SHADOW") != shadow) continue;   // S103 L6: the shadow reader chooses only shadow fragments, the plain choice none
     const rdr::fx::Variant& fv = kVariants[f];
     bool slots_ok = true;
     for (uint32_t s = 0; s < fv.sampler_count; ++s) {
       const int slot = fv.samplers[s].slot, kind = fv.samplers[s].kind;
-      const bool known = slot == 0 || slot == 1 || slot == 2 || slot == 3 || slot == 4 || slot == 5 || slot == 6 || slot == 7 || slot == 8 || slot == 9 || slot == 10 || slot == 13 || slot == 14 || slot == 15;
+      const bool known = slot == 0 || slot == 1 || slot == 2 || slot == 3 || slot == 4 || slot == 5 || slot == 6 || slot == 7 || slot == 8 || slot == 9 || slot == 10 || slot == 12 || slot == 13 || slot == 14 || slot == 15;
       if (!known || (kind != 0 && !((slot == 13 || slot == 10) && kind == 1))) slots_ok = false;
+      if (slot == 12 && !shadow) slots_ok = false;
     }
     if (!slots_ok) continue;
     if (alpha_test && !fv.spirv_alpha) continue;
@@ -139,7 +152,8 @@ CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_
       if (!vn || !T().by_index[size_t(v)] || !EndsWith(vn, "_vertex") || OwnerOf(vn) != effect) continue;
       const fxt::VariantTable& vt = *T().by_index[size_t(v)];
       const std::vector<std::string> vdef = Defines(vt);
-      if (!Subset(vdef, {"FX_SKINNED", "FX_VIEW_NORMAL"}) || Has(vdef, "FX_SKINNED") != skinned) continue;
+      if (!Subset(vdef, {"FX_SKINNED", "FX_VIEW_NORMAL", "FX_SHADOW", "FX_SPHERE_OCC"}) || Has(vdef, "FX_SKINNED") != skinned) continue;   // S103 L6: + the shadow reader's vertex options
+      if (Has(vdef, "FX_SHADOW") != shadow) continue;
       any_vertex = true;
       if (kVariants[v].sampler_count) continue;
       bool inputs_ok = true;
@@ -172,6 +186,124 @@ CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_
                                  : "every variant of '" + effect + "' needs a runtime pass not fed yet (shadow map, cube reflection, blood, sweat, debug)";
   }
   return best;
+}
+}  // namespace
+
+CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet) { return ChooseCharEffectImpl(effect, skinned, alpha_test, false, wet); }
+CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet) { return ChooseCharEffectImpl(effect, skinned, alpha_test, true, wet); }
+
+// ---- S103 YCB: the table pick ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+namespace {
+// The registry variant of `effect` (owner test, not a name prefix: yCh_skin_ must not take a yCh_skin_flex_ variant) with microcode hash `h` and name suffix `suffix` ("_vertex" / "_fragment"); -1 = none.
+int OwnVariantOfHash(uint64_t h, const std::string& effect, const char* suffix) {
+  const auto* first = std::begin(rdr::fx::kHashes);
+  const auto* last = std::end(rdr::fx::kHashes);
+  const auto* it = std::lower_bound(first, last, h, [](const rdr::fx::HashEntry& e, uint64_t v) { return e.hash < v; });
+  for (; it != last && it->hash == h; ++it) {
+    const char* n = kVariants[it->variant].name;
+    if (n && T().by_index[size_t(it->variant)] && EndsWith(n, suffix) && OwnerOf(n) == effect) return int(it->variant);
+  }
+  return -1;
+}
+
+// S103 YCB (CUB.md Route A): the fragment of the same owner whose defines are the cube variant's minus FX_CUBE_SPECULAR; -1 = none.
+int CubeSibling(int f) {
+  std::vector<std::string> want = Defines(*T().by_index[size_t(f)]);
+  want.erase(std::remove(want.begin(), want.end(), std::string("FX_CUBE_SPECULAR")), want.end());
+  std::sort(want.begin(), want.end());
+  const std::string owner = OwnerOf(kVariants[f].name);
+  for (int i = 0; i < kVariantCount; ++i) {
+    const char* n = kVariants[i].name;
+    if (i == f || !n || !T().by_index[size_t(i)] || !EndsWith(n, "_fragment") || OwnerOf(n) != owner) continue;
+    std::vector<std::string> d = Defines(*T().by_index[size_t(i)]);
+    std::sort(d.begin(), d.end());
+    if (d == want) return i;
+  }
+  return -1;
+}
+
+enum class PsBind { Ok, Cube, Wrinkles, Other };
+PsBind CheckPs(int f, bool alpha_test, int pass, std::string& why) {
+  const rdr::fx::Variant& fv = kVariants[f];
+  const std::vector<std::string> fdef = Defines(*T().by_index[size_t(f)]);
+  bool cube = false, other = false;
+  for (uint32_t s = 0; s < fv.sampler_count; ++s) {
+    const int slot = fv.samplers[s].slot, kind = fv.samplers[s].kind;
+    if (slot == 11) { cube = true; continue; }   // the per-material spec-power cube (GPU-written in the game): not fed in the stream-free path
+    const bool known = (slot >= 0 && slot <= 10) || slot == 12 || slot == 13 || slot == 14 || slot == 15;
+    if (!known || (kind != 0 && !((slot == 13 || slot == 10) && kind == 1))) other = true;
+    if (slot == 12 && !(pass & 2)) other = true;   // a shadow-map reader in a pass with no shadow map
+  }
+  if (cube) return why = "reads the cube-specular slot 11", PsBind::Cube;
+  if (Has(fdef, "FX_WRINKLES") && !assets::g_wrk_live.load(std::memory_order_relaxed)) return why = "reads the wrinkle map (slot 5, source unsettled)", PsBind::Wrinkles;
+  if (other) return why = "a sampler slot the front end cannot feed", PsBind::Other;
+  if (alpha_test && !fv.spirv_alpha) return why = "no alpha-test variant", PsBind::Other;
+  return PsBind::Ok;
+}
+
+// The vertex variant `v` can be bound for a draw whose fragment is `f`: the registry tables exist, supported inputs, no vertex samplers, every fragment interpolator written, the skin flag agrees.
+bool CheckVs(int v, int f, bool skinned, std::string& why) {
+  const fxt::VariantTable& vt = *T().by_index[size_t(v)];
+  const fxt::VariantTable& ft = *T().by_index[size_t(f)];
+  const std::vector<std::string> vdef = Defines(vt);
+  if (!Subset(vdef, {"FX_SKINNED", "FX_VIEW_NORMAL", "FX_SHADOW", "FX_SPHERE_OCC", "FX_ID_MAP", "FX_WRINKLE_LEVEL"})) return why = "the vertex variant has an option this path does not feed", false;
+  if (Has(vdef, "FX_SKINNED") != skinned) return why = "the vertex variant's skin flag differs from the draw's", false;
+  if (kVariants[v].sampler_count) return why = "the vertex variant samples", false;
+  for (uint32_t k = 0; k < vt.input_count; ++k)
+    if (!SupportedCharInput(vt.inputs[k].name)) return why = "a vertex input this path does not feed", false;
+  for (uint32_t k = 0; k < ft.interp_count; ++k) {
+    bool found = false;
+    for (uint32_t j = 0; j < vt.interp_count; ++j) found = found || vt.interps[j].location == ft.interps[k].location;
+    if (!found) return why = "a fragment interpolator the vertex stage does not write", false;
+  }
+  return true;
+}
+}  // namespace
+
+CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass) {
+  CharChoice out;
+  out.effect = effect;
+  const auto table = read_rule::EffectTableNow();
+  if (!table) return out.no_table = true, out.why_not = "no effect table yet", out;
+  if (pass < 0 || pass > 11) return out.why_not = "pass outside the table's 12", out;
+  {
+    const int p = pass;
+    const read_rule::PassShaders* row = technique_pick::RowOf(*table, effect, technique, uint32_t(p));
+    // Our rigid stream needs the rigid vertex variant: the VS of row `p & ~1` (the game's rigid parts draw the skinned row, F2); the pixel shader is row `p`'s.
+    const read_rule::PassShaders* vrow = skinned ? row : technique_pick::RowOf(*table, effect, technique, uint32_t(p & ~1));
+    if (!row || !row->ps_ok || !vrow || !vrow->vs_ok) return out.why_not = "no table row for technique " + std::to_string(technique) + " pass " + std::to_string(p), out;
+    int f = OwnVariantOfHash(row->ps, effect, "_fragment");
+    const int v = OwnVariantOfHash(vrow->vs, effect, "_vertex");
+    if (f < 0 || v < 0) return out.why_not = std::string("the table's ") + (f < 0 ? "pixel" : "vertex") + " shader is not in the registry", out;
+    std::string why;
+    PsBind r = CheckPs(f, alpha_test, p, why);
+    if (r == PsBind::Cube) {
+      // S103 YCB / CUB.md Route A [C]: slot 11 is the bake of sum_i w_i max(d.B_i, 0)^P / sum_i w_i, which times DifLghMax.w (= sum w) is exactly the non-cube branch our shaders evaluate per pixel. The cube variant
+      // differs from its non-cube sibling only in View (c52-54) and slot 11, so the row binds the variant of the SAME owner with the SAME defines minus FX_CUBE_SPECULAR (the row's own vertex stage stays).
+      // A deliberate rule-6 choice (the 360 bake is dropped, 360_HABITS), counted char_cube_analytic: not a fallback.
+      const int sib = CubeSibling(f);
+      if (sib < 0) return out.why_not = "technique " + std::to_string(technique) + " pass " + std::to_string(p) + ": the cube row has no non-cube sibling in the registry", out;
+      f = sib, r = CheckPs(f, alpha_test, p, why), out.cube_analytic = true;
+    }
+    if (r != PsBind::Ok) {
+      out.cube_analytic = false;
+      out.blocked_wrinkles = r == PsBind::Wrinkles;
+      return out.why_not = "technique " + std::to_string(technique) + " pass " + std::to_string(p) + ": " + why, out;
+    }
+    if (!CheckVs(v, f, skinned, why)) return out.cube_analytic = false, out.why_not = "technique " + std::to_string(technique) + " pass " + std::to_string(p) + ": " + why, out;
+    out.vs = v, out.ps = f, out.tech_picked = true;
+    const std::vector<std::string> fdef = Defines(*T().by_index[size_t(f)]), vdef = Defines(*T().by_index[size_t(v)]);
+    out.shadow = Has(fdef, "FX_SHADOW") || Has(vdef, "FX_SHADOW");
+    for (uint32_t s = 0; s < kVariants[f].sampler_count; ++s) out.wet = out.wet || kVariants[f].samplers[s].slot == 14;
+    return out;
+  }
+}
+
+CharSlot RoleOfWetSlot(int slot) {   // S103 SWF
+  if (slot == 4) return CharSlot::SweatBump;
+  if (slot == 14) return CharSlot::LiquidMap;
+  return RoleOfSlot(slot);
 }
 
 // ---- the ambient cube ----------------------------------------------------------------------------------------------------------
@@ -343,6 +475,7 @@ bool BuildSkinChunks(const assets::Mesh& mesh, std::vector<SkinChunk>& out) {
         it = vmap.emplace(vi, uint32_t(cur->vertices.size())).first;
         cur->vertices.push_back(v);
         cur->skin.push_back(sv);
+        cur->src.push_back(uint32_t(vi));   // S103 W2
       }
       cur->indices.push_back(it->second);
     }
@@ -351,6 +484,41 @@ bool BuildSkinChunks(const assets::Mesh& mesh, std::vector<SkinChunk>& out) {
 }
 
 // ---- constants by name ---------------------------------------------------------------------------------------------------------
+
+// S103 L7: the wrestlers' key light is CAMERA-ATTACHED. The record carries it in view space (brock_losswin: (0, 0.643, -0.766) = (0, sin 40, -cos 40) in every frame); the game feeds the pixel stage
+// DifLghVec[4] / KeyLightVec = right * d.x + down * d.y + forward * d.z, the camera's axes in the game's space (down = minus the clip-y row, forward = the clip-w row).
+// [C] residual 0.0003 against the stream's KeyLightVec at brock_losswin f110 (-0.2483, 0.5777, -0.7776) and f200 (-0.4326, 0.5673, -0.7007), from that frame's own ViewProj registers (c56..c59,
+// orthonormalised). d.x is 0 in every capture seen, so the SIGN of the right axis is [U] (assumed +). Only a record's light set (LightSet::hl_view, set by rf_wrestlers.cpp) is rotated: the viewer's entrance path
+// (assets::entrance::RotateDirs) keeps its own world values. WWE_RDR_NO_KEY_ATTACH=1 (dev plant) = the old behaviour, the authored vector unrotated.
+static std::atomic<uint64_t> g_key_resolves{0}, g_key_with_x{0};
+void KeyLightCensus(uint64_t& resolves, uint64_t& with_x) { resolves = g_key_resolves.load(std::memory_order_relaxed), with_x = g_key_with_x.load(std::memory_order_relaxed); }
+
+static bool KeyLightWorld(const CharCtx& c, const float* d, float* o) {
+  static const bool off = std::getenv("WWE_RDR_NO_KEY_ATTACH") != nullptr;
+  if (off || !c.view_proj || !c.lights || !c.lights->hl_view) return false;
+  g_key_resolves.fetch_add(1, std::memory_order_relaxed);   // the census: the right-axis sign is only testable by a key with |d.x| > 1e-3
+  if (std::fabs(d[0]) > 1e-3f) g_key_with_x.fetch_add(1, std::memory_order_relaxed);
+  double col[4][3];
+  for (int k = 0; k < 4; ++k)
+    for (int j = 0; j < 3; ++j) col[k][j] = double(j == 1 ? c.mirror : 1.f) * double(c.view_proj[j * 4 + k]);   // register k xyz = column k of the row-vector view-projection, in the game's space (as the ViewProj register below)
+  const auto dot = [](const double* a, const double* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+  const auto unit = [&](double* a) {
+    const double n = std::sqrt(dot(a, a));
+    if (n > 1e-12)
+      for (int j = 0; j < 3; ++j) a[j] /= n;
+    return n > 1e-12;
+  };
+  double f[3] = {col[3][0], col[3][1], col[3][2]}, u[3], r[3];
+  if (!unit(f)) return false;
+  const double uf = dot(col[1], f);
+  for (int j = 0; j < 3; ++j) u[j] = col[1][j] - uf * f[j];
+  if (!unit(u)) return false;
+  const double rf = dot(col[0], f), ru = dot(col[0], u);
+  for (int j = 0; j < 3; ++j) r[j] = col[0][j] - rf * f[j] - ru * u[j];
+  if (!unit(r)) return false;
+  for (int j = 0; j < 3; ++j) o[j] = float(r[j] * double(d[0]) - u[j] * double(d[1]) + f[j] * double(d[2]));
+  return true;
+}
 
 bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, float* out) {
   const assets::Material& mt = *c.mat;
@@ -381,19 +549,57 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "MatDifCol") { std::memcpy(out, mt.diffuse_color, 16); return true; }
   if (name == "MdlAlpha") { set4(0, c.alpha, 0, 0, 0); return true; }
   if (name == "NormalFlip") { set4(0, 1.f, 1.f, 1.f, 0.f); return true; }  // c218 = (1, 1, 1) in the game's draws; w = 0: the normal as stored
-  if (name == "Param0") { set4(0, mt.fairy, mt.fairy_edge, 0.f, 0.f); return true; }
-  if (name == "RimLightDepth") { set4(0, 0.f, 1.f, 1.f, 0.f); return true; }
-  if (name == "RimLightParam3") { set4(0, 500.f, 2500.f, 1.f, 0.4f); return true; }  // c174 = g_fRimAtn (500, 2500, 1, 0.4)
+  // EYA plant: the EyaOldParam1Plant flag restores the zero list for Param1 (the gate lane s103_EYA proves the unit catches it).
+  if (assets::load_detail::EyaOldParam1Plant() && name == "Param1") return true;
+  if (name == "Param1") { set4(0, mt.fur_level, 0.f, mt.dif_amb_level, 0.f); return true; }   // EYA [C: sub_82BAAEE8 c247: g_fFurLevel -> x, g_fDifAmbLevel -> z]
+  // S103 SWF: a draw bound to the wet variant reads the material's own wet constants [C SWB S2-3: PS c205.zw = (g_fBSSSwtMax, g_fBSSSwtMin), c210 = (SweatSpeLv, SweatSpePw, SweatBpCnt, SweatLevel), c234.xy =
+  // (BloodSpecLv, BloodSpecPw), c246 = g_f4BSSBldClr; captured (4.0, 2.0, 0.4, 0.15) / (0.8, 100, 24, 0) / (3.0, 200, 0, 0) / (0.66, 0, 0, 1) on a00 / a04 match]; the dry draw keeps zero (byte for byte).
+  if (name == "Param0") { set4(0, mt.fairy, mt.fairy_edge, c.wet ? mt.bss_swt[0] : 0.f, c.wet ? mt.bss_swt[1] : 0.f); return true; }
+  // S103 YCB (CUB.md Route A): a table-picked draw also reads Sweat.y = g_f4SweatSpePw (the second sweat-highlight power the 360 baked into the slot-11 cube's .z): the analytic cube term and the gear's non-cube sibling read c210 (gear materials carry it).
+  // Review F3: the 360's bake replaced a lobe power of 0 by 1 per channel (c203, sub_82C1FBE0 +0x63C..+0x69C); an analytic draw (cube_analytic) feeds the same 0 -> 1 for SpecCubPrm1.y / .w and Sweat.y.
+  const auto bake_pow = [&](float v) { return (c.cube_analytic && v == 0.f) ? 1.f : v; };
+  if (c.spec_sweat && !c.wet && name == "Sweat") { set4(0, mt.sweat_prm[0], bake_pow(mt.sweat_prm[1]), mt.sweat_prm[2], mt.sweat_prm[3]); return true; }
+  if (c.wet) {
+    if (name == "Sweat") { set4(0, mt.sweat_prm[0], bake_pow(mt.sweat_prm[1]), mt.sweat_prm[2], mt.sweat_prm[3]); return true; }
+    if (name == "Blood") { set4(0, mt.blood_prm[0], mt.blood_prm[1], 0.f, 0.f); return true; }
+    if (name == "BSSBldClr") { set4(0, mt.bss_bld_clr[0], mt.bss_bld_clr[1], mt.bss_bld_clr[2], mt.bss_bld_clr[3]); return true; }
+  }
+  // S103 L6: the shadow reader's rows (the plain variants never name them). TexProjLight = MapImage::matrix (register layout): XY = c68 / c69, W = c71 (the same row as ViewLightDepth: [C] the game's
+  // wrestler draw brock_losswin f110 op 377 has TexProjLightW == ViewLightDepth bit for bit). ShadowPrm = the three rows the map was made with (MapImage::prm = CasterRows::shadow_prm: the record's on the stream route, shadow_fit.h's on the fit path).
+  if (c.shadow_matrix && c.shadow_params && c.shadow_prm) {
+    if (name == "TexProjLightXY") { std::memcpy(out, c.shadow_matrix, vec4s >= 2 ? 32 : 16); return true; }
+    if (name == "TexProjLightW" || name == "ViewLightDepth") { std::memcpy(out, c.shadow_matrix + 12, 16); return true; }
+    if (name == "ShadowPrm") {
+      for (uint32_t k = 0; k < 3; ++k) set4(k, c.shadow_prm[4 * k], c.shadow_prm[4 * k + 1], c.shadow_prm[4 * k + 2], c.shadow_prm[4 * k + 3]);   // from the record, nothing hard-coded
+      return true;
+    }
+    if (name == "SphereOccP") { set4(0, 0.f, 0.f, 0.f, 1.f), set4(1, 0.f, 0.f, 0.f, 1.f); return true; }   // neutral: strength 0 (the rows of kScSphereOcc are not joined to the record's actors yet [U])
+    if (name == "SphereOccV") { set4(0, 0.f, 1.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f); return true; }
+  }
+  // S103 L7: RimLightDepth = (near, far, (far - near) / 1000, 0): the rim pass's depth range (MapImage::params[2..3]); the z term [C] equals (far - near) / 1000 in the game's wrestler draws of
+  // brock_losswin f110 (597.354, 776.737 -> 0.1794), f200 (823.496, 986.160 -> 0.1627) and brock_tron f5 (1250.609, 1366.783 -> 0.1162). Without a rim map: the neutral (0, 1, 1, 0).
+  if (name == "RimLightDepth") {
+    if (c.rim_params) set4(0, c.rim_params[2], c.rim_params[3], (c.rim_params[3] - c.rim_params[2]) * 0.001f, 0.f);
+    else set4(0, 0.f, 1.f, 1.f, 0.f);
+    return true;
+  }
+  // S103 B3F plant: WWE_RDR_B3F_OLD_HAIR_RIM restores the old zeros / hard-coded rim values (the gate lane s103_B3F proves feature_diff finds the gap again).
+  static const bool b3f_old = std::getenv("WWE_RDR_B3F_OLD_HAIR_RIM") != nullptr;
+  if (b3f_old && (name == "HairSpeParam" || name == "SpeCol1" || name == "SpeCol2")) return true;
+  if (b3f_old && name == "RimLightParam3") { set4(0, 500.f, 2500.f, 1.f, 0.4f); return true; }
+  if (name == "RimLightParam3") { set4(0, mt.rim_atn[0], mt.rim_atn[1], mt.rim_atn[2], mt.rim_atn[3]); return true; }  // S103 B3F: c174 = (g_fRimAtnDsMin, DsMax, RtMin, RtMax) per material [C: sub_82BAAEE8 0x82BAC0C8-0x82BAC170]
   if (name == "RimLightParam") { set4(0, 1.f, 0.83f, 1.f, 0.f); return true; }       // c161 = (1, 0.83, 1)
+  float key_world[3] = {ls.hl_dir[0], ls.hl_dir[1], ls.hl_dir[2]};
+  KeyLightWorld(c, ls.hl_dir, key_world);   // S103 L7: the key light is authored in view space; the game rotates it by the camera every frame
   if (name == "KeyLightColor") { set4(0, ls.hl_col[0], ls.hl_col[1], ls.hl_col[2], 1.f); return true; }
-  if (name == "KeyLightVec") { set4(0, ls.hl_dir[0], ls.hl_dir[1], ls.hl_dir[2], 0.f); return true; }
+  if (name == "KeyLightVec") { set4(0, key_world[0], key_world[1], key_world[2], 0.f); return true; }
   if (name == "Bools") {  // four bones: bits 1, 2, 3 of the first word (the vertex stage); bit 150 (logo) stays off
     const uint32_t bits = 0xEu;
     std::memcpy(out, &bits, 4);
     return true;
   }
   if (name == "NoiseLodParam") { set4(0, mt.noise_dist[0], mt.noise_dist[1], 0.f, 0.f); return true; }
-  if (name == "Level") return true;  // the fixed mip of the colour map: 0
+  if (name == "Level") { set4(0, 0.f, 0.f, 0.f, -1.f); return true; }  // c201 = g_f4TexBis_Dif, w = -1 LOD bias of the diffuse (SKM, run 6816)
   if (name == "SkyDir") { set4(0, 0.f, 1.f, 0.f, 0.f); return true; }
   if (name == "SkyCol") { set4(0, ls.sky[0], ls.sky[1], ls.sky[2], 1.f); return true; }
   if (name == "GroundCol") { set4(0, ls.ground[0], ls.ground[1], ls.ground[2], 1.f); return true; }
@@ -407,7 +613,7 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "DifLghVec") {
     for (uint32_t k = 0; k < vec4s; ++k) {
       if (k < 4) set4(k, ls.dir[k][0], ls.dir[k][1], ls.dir[k][2], 0.f);
-      else set4(k, ls.hl_dir[0], ls.hl_dir[1], ls.hl_dir[2], 0.f);
+      else set4(k, key_world[0], key_world[1], key_world[2], 0.f);   // S103 L7: [4] = the key light, camera-attached
     }
     return true;
   }
@@ -418,18 +624,33 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "SSSSinCol2") { std::memcpy(out, mt.sss_col2, 16); return true; }
   if (name == "HdLig") { set4(0, 0.f, 1.f, 0.f, 0.f); return true; }  // the blow-out knee is 0 in the game's draws (viewer_hlsl.h)
   if (name == "Reflect") { set4(0, mt.ref_col[0], mt.ref_col[1], mt.ref_col[2], mt.ref_col[3]); return true; }
-  if (name == "SpecCubPrm1") { set4(0, mt.spec_lev, mt.spec_pow, mt.spec_lv_base, mt.spec_pw_base); return true; }
+  if (name == "SpecCubPrm1") { set4(0, mt.spec_lev, bake_pow(mt.spec_pow), mt.spec_lv_base, bake_pow(mt.spec_pw_base)); return true; }
   if (name == "SpecCubPrm3") { set4(0, 1.f, 1.f, 1.f, 0.f); return true; }
+  // S103 B3F: the hair highlight constants [C: sub_82BAAEE8 0x82BAD42C-0x82BAD5A0]: c249 = (PrimaryShift, SecondShift, SpecExp1, SpecExp2), c250 = (SpeCol1.rgb, HairTileU), c251 = (SpeCol2.rgb, HairTileV).
+  if (name == "HairSpeParam") { set4(0, mt.hair_shift[0], mt.hair_shift[1], mt.hair_exp[0], mt.hair_exp[1]); return true; }
+  if (name == "SpeCol1") { set4(0, mt.hair_col1[0], mt.hair_col1[1], mt.hair_col1[2], mt.hair_tile[0]); return true; }
+  if (name == "SpeCol2") { set4(0, mt.hair_col2[0], mt.hair_col2[1], mt.hair_col2[2], mt.hair_tile[1]); return true; }
   if (name == "NoiseTile") { set4(0, 50.f, mt.noise_near[0], mt.noise_near[1], mt.noise_near[2]); return true; }   // c206 = (50, bump, diffuse, light)
   if (name == "NoiseTileF") { set4(0, 50.f, mt.noise_far[0], mt.noise_far[1], mt.noise_far[2]); return true; }
   if (name == "View") { set4(0, 1.f, 0.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f), set4(2, 0.f, 0.f, 1.f, 0.f); return true; }  // (the reflection cube is black: the view matrix is not read)
   if (name == "MuscleParam") { set4(0, 1.f, 0.f, 0.f, 0.f); return true; }
-  if (name == "MuscleUV" || name == "WrinkUV") { set4(0, 0.f, 0.f, 1.f, 1.f); return true; }
+  if (name == "MuscleUV") { set4(0, 0.f, 0.f, 1.f, 1.f); return true; }
+  // S103 WRK (WRK.md 1a [C]): PS c230 = the material's g_f4WrinkUV_* (a file value; an all-zero rect divides by zero in the shader exactly as the game's does: the level then decides); (0,0,1,1) only when the material names none.
+  // A degenerate rectangle (z == x or w == y: the x4 face group's zeros) is fed (0,0,1,1) so the shader's 1 / (zw - xy) stays finite (review F2); with the switch off the old constant.
+  if (name == "WrinkUV") {
+    const bool live = assets::g_wrk_live.load(std::memory_order_relaxed);
+    const bool deg = mt.wrink_uv[2] == mt.wrink_uv[0] || mt.wrink_uv[3] == mt.wrink_uv[1];
+    if (live && !deg) set4(0, mt.wrink_uv[0], mt.wrink_uv[1], mt.wrink_uv[2], mt.wrink_uv[3]); else set4(0, 0.f, 0.f, 1.f, 1.f);
+    return true;
+  }
+  // S103 WRK: PS c145 = g_f4IdMapCol (a whole vec4 file value); VS c237-c238 = g_fIdMapLv0..7, c231-c232 = g_fWklLv0..5 (c232.yzw unused): the LIVE per-wrestler levels of the record (null = 0 = no tint / no wrinkle depth).
+  if (name == "IdMapCol") { if (assets::g_wrk_live.load(std::memory_order_relaxed)) set4(0, mt.idmap_col[0], mt.idmap_col[1], mt.idmap_col[2], mt.idmap_col[3]); return true; }
+  if (name == "IdMapLvLst") { if (c.idmap) set4(0, c.idmap[0], c.idmap[1], c.idmap[2], c.idmap[3]), set4(1, c.idmap[4], c.idmap[5], c.idmap[6], c.idmap[7]); return true; }
+  if (name == "WklLvLst") { if (c.wkl) set4(0, c.wkl[0], c.wkl[1], c.wkl[2], c.wkl[3]), set4(1, c.wkl[4], c.wkl[5], 0.f, 0.f); return true; }
   // Zero is the neutral value: the option that reads these is not chosen, or the file carries no value (hair highlights: unconfirmed).
   if (name == "FogColor" || name == "ChangeColor" || name == "Blood" || name == "BSSBldClr" || name == "Sweat" || name == "DebugPS0" || name == "DebugPS1" ||
-      name == "ShadowPrm" || name == "ViewLightDepth" || name == "Param1" || name == "TexProjLightXY" || name == "TexProjLightW" || name == "ConvScreen" ||
-      name == "HairSpeParam" || name == "SpeCol1" || name == "SpeCol2" || name == "SSColor" || name == "SS" || name == "SphereOccP" || name == "SphereOccV" ||
-      name == "IdMapCol" || name == "IdMapLvLst" || name == "WklLvLst")
+      name == "ShadowPrm" || name == "ViewLightDepth" || name == "TexProjLightXY" || name == "TexProjLightW" || name == "ConvScreen" ||
+      name == "SSColor" || name == "SS" || name == "SphereOccP" || name == "SphereOccV")
     return true;
   return false;
 }

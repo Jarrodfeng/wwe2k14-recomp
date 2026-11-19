@@ -186,7 +186,9 @@ def check_fetches(env):
     missing += [n + '_lite1 (must NOT exist: it would be word-for-word its base)' for n in names if not ('dof' in n or 'bloom' in n) and 'yGlareEtc_%s_lite1_fragment' % n in registry]
     line(not missing, 'registry: every lite twin of %d permutations is there (missing %s)' % (len(names), missing or 'none'))
     # the existing variants are byte-identical to the base branch: the header only grew
-    base = subprocess.run(['git', '-C', env.root, 'diff', '--numstat', open(os.path.join(HERE, 'BASE')).read().strip(), '--', 'src/renderer/shaders/spv/fx_yGlareEtc.h'], capture_output=True, text=True, timeout=60).stdout.split()
+    base = subprocess.run(['git', '-C', env.root, 'diff', '--numstat', open(os.path.join(HERE, 'BASE')).read().strip(), '--', 'src/renderer/shaders/spv/fx_yGlareEtc.h'], capture_output=True, text=True, timeout=60)
+    # an empty numstat with exit 0 = no difference at all (the base moved past the commit that added the twins): 0 added, 0 deleted
+    base = base.stdout.split() if base.stdout.strip() or base.returncode != 0 else ['0', '0']
     line(len(base) >= 2 and base[1] == '0', 'the existing yGlareEtc variants are byte-identical to the pinned base tools/r18/BASE (fx_yGlareEtc.h: %s lines added, %s deleted)' % (base[0] if base else '?', base[1] if len(base) > 1 else '?'))
     counts = {}
     for n in names:
@@ -228,7 +230,7 @@ def lint(fs):
         bad.append('live.cpp per-frame read (IntSeen with the guest frame)')
     if 'CombineLiteCensusLine(drawn' not in lv:
         bad.append('live.cpp census line every 600 frames')
-    if 'rdr::CombineLiteName(CombineVariantName(p, drop_bloom)' not in fs['src/renderer_scene/post_pass.cpp']:
+    if 'rdr::CombineLiteName(fold_combine ? vd_name(combine_base) : combine_base' not in fs['src/renderer_scene/post_pass.cpp']:
         bad.append('post_pass.cpp picks the variant through CombineLiteName')
     if 'const bool drop_bloom = lite_on && variant_bloom && !run_blur && !run_glare;' not in fs['src/renderer_scene/post_pass.cpp']:
         bad.append('post_pass.cpp drops the bloom permutation only when neither blur nor glare is recorded')
@@ -252,7 +254,7 @@ def check_wiring(env):
     line(not bad, 'wiring: every link of the switch is in the source (%s)' % (', '.join(bad) or 'all'))
     plants = [
         ('live.cpp read removed', 'src/renderer_adapter/live.cpp', 'rdr_sw::kCombineLite', 'rdr_sw::kAliasSmall'),
-        ('post_pass pick removed', 'src/renderer_scene/post_pass.cpp', 'rdr::CombineLiteName(CombineVariantName(p, drop_bloom)', 'CombineVariantName(p, drop_bloom)'),
+        ('post_pass pick removed', 'src/renderer_scene/post_pass.cpp', 'rdr::CombineLiteName(fold_combine ? vd_name(combine_base) : combine_base', 'fold_combine ? vd_name(combine_base) : combine_base'),
         ('no-bloom pick removed', 'src/renderer_scene/post_pass.cpp', 'const bool drop_bloom = lite_on &&', 'const bool drop_bloom = false &&'),
         ('implicit fetch back in the shader', 'src/renderer/shaders/fx/yGlareEtc.frag', 'textureLod(textures[2], uv, 0.0)', 'texture(textures[2], uv)'),
         ('table default 1', 'src/renderer_adapter/rdr_switches.h', 'X(CombineLite, "wwe2k14_rdr_combine_lite", PerFrame, 0)', 'X(CombineLite, "wwe2k14_rdr_combine_lite", PerFrame, 1)'),

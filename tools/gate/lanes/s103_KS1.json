@@ -1,0 +1,22 @@
+{
+ "owner": "S103 lane KS1: the props light's ShadowPrm read DIRECTLY from the shadow module's light-1 record at the latch (src/scene_live/props_light_read.h, src/renderer_scene/props_light_rows.h, record section 65 kScPropsLight), preferred by props_map_rows.h PrmFromRecord over the light-state search, behind --wwe2k14_rdr_props_map; tools/scene/ks1_unit.cpp, ks1_lint.py",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. ks1_unit: the production reader over a FIXTURE module (no capture holds the shadow module's words): rows equal a double transcription of the listing, equal the light-state path within 1e-5, PrmFromRecord prefers the row and falls back (older record, unusable row), record round trip, five plants each failing its named check. ks1_lint: the read is gated by props_map::On(), one call site, light-1 words, id 65 unique, three plants. Default ON is intended (Jarrod kept tonight's fixes on: the read rides wwe2k14_rdr_props_map, default true). The direct row is paired with the circles by ViewProj row 3 and read on the latch thread only. The live proof is the step check's census: [props_light read N ...] and props made N (holes 0).",
+ "checks": [
+  {"name": "s103_KS1.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_ks1_unit.ps1"], "timeout_s": 300},
+  {"name": "s103_KS1.unit", "cmd": ["out/tools/ks1_unit.exe"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/scene_live/props_light_read.h", "src/renderer_scene/props_light_rows.h", "src/renderer_scene/props_map_rows.h", "src/renderer_scene/record_io.cpp", "src/renderer_scene/record_io.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.lint", "cmd": ["py", "-I", "tools/scene/ks1_lint.py"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/scene_live/inputs_contrib.h", "src/scene_live/props_light_read.h", "src/renderer_scene/props_light_rows.h"]},
+  {"name": "s103_KS1.unit_plant_light2_words", "cmd": ["out/tools/ks1_unit.exe", "--plant", "light2_words"], "timeout_s": 60, "affects": ["src/scene_live/props_light_read.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.unit_plant_no_scale", "cmd": ["out/tools/ks1_unit.exe", "--plant", "no_scale"], "timeout_s": 60, "affects": ["src/renderer_scene/props_light_rows.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.unit_plant_row_swap", "cmd": ["out/tools/ks1_unit.exe", "--plant", "row_swap"], "timeout_s": 60, "affects": ["src/renderer_scene/props_light_rows.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.unit_plant_no_direct", "cmd": ["out/tools/ks1_unit.exe", "--plant", "no_direct"], "timeout_s": 60, "affects": ["src/renderer_scene/props_map_rows.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.unit_plant_no_dropped_fallback", "cmd": ["out/tools/ks1_unit.exe", "--plant", "no_dropped_fallback"], "timeout_s": 60, "affects": ["src/renderer_scene/props_map_rows.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.unit_plant_no_pairing", "cmd": ["out/tools/ks1_unit.exe", "--plant", "no_pairing"], "timeout_s": 60, "affects": ["src/renderer_scene/props_map_rows.h", "tools/scene/ks1_unit.cpp"]},
+  {"name": "s103_KS1.lint_plant_offthread", "cmd": ["py", "-I", "tools/scene/ks1_lint.py", "--plant", "offthread"], "timeout_s": 60, "affects": ["tools/scene/ks1_lint.py"]},
+  {"name": "s103_KS1.lint_plant_ungated", "cmd": ["py", "-I", "tools/scene/ks1_lint.py", "--plant", "ungated"], "timeout_s": 60, "affects": ["tools/scene/ks1_lint.py"]},
+  {"name": "s103_KS1.lint_plant_dup_id", "cmd": ["py", "-I", "tools/scene/ks1_lint.py", "--plant", "dup_id"], "timeout_s": 60, "affects": ["tools/scene/ks1_lint.py"]},
+  {"name": "s103_KS1.lint_plant_light2_offsets", "cmd": ["py", "-I", "tools/scene/ks1_lint.py", "--plant", "light2_offsets"], "timeout_s": 60, "affects": ["tools/scene/ks1_lint.py"]}
+ ]
+}

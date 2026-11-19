@@ -1,0 +1,30 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=1 --wwe2k14_rdr_ring_d3=1 --wwe2k14_scene_records=true --wwe2k14_rdr_scene_census=true --wwe2k14_rdr_scene_sheet_every=600 --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_stage_vis=true --wwe2k14_dump_stage_page=12520,13720,14020
+# intent: owner on, scene 1, promotions on
+# Session 103 run 28 (game exe, mode 1 = mirror): run 27's route (entrances + CPU v CPU match, fixed seed 1) after this afternoon's merges:
+#  wrestlers: W1 palette pairing, W2 body scale (stretched hands / face), L6 shadow reader, L7 rim + shadow chains + key light, L9 plane shadow on the mat;
+#  arena: P1 barricade mask, L5 / L10 light-map rules, V1 stage visibility (ON here, mirror only: our side drops what the game's tree drops);
+#  crowd: L4 lit, D8 latch hard / soft split; post: P2 tap widths; ring bit 6 released (skirt quadrants over the entrances' moving camera).
+# L12's stage-page dump (live.cpp): the match starts at frame ~12220 on this route (run 27: "scene=match (frame 12220)"), so 12520 = the page's fade (< +600),
+#  13720 / 14020 = the held phase (> +1200). Output out\s103\stage_page\; check: py -I tools\scene\stage_page_check.py DUMP --arena 4.
+# Read after: [scene][inputs] / crowd_latch latch_detail / body_scale latch==stream / key light census / [rdr][stage_page] / ring compare on the case
+#  (RC_CLASS skirt over the entrances) / feature_diff on the case / mirror sheets (rim, mat shadow, hands, crowd, stairs, barricade).
+# Marks: 1 entrances, 2 match_clock, 3 mid, 4 end. on_fail quit.
+on_fail quit
+log bench: start scene s103_run28
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+log scene=entrances
+mark 1 entrances
+wait_state match_clock >0 30000
+log scene=match
+mark 2 match_clock
+wait_frames 1500
+log scene=match_mid
+mark 3 mid
+wait_frames 1500
+log scene=end (match clock +3000)
+mark 4 end
+log bench: done
+quit

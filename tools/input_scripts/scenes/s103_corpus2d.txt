@@ -1,0 +1,136 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=343:0,324 --wwe2k14_launch_idle_frames=100000 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_capture=true --wwe2k14_rdr_2d_record=true --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true
+# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
+# intent: 2d_record on, rdr_capture on, no flag --wwe2k14_rdr_owner, launch lesnar_bryan
+# Session 103 lane CR: the 2D CORPUS capture run (docs\renderer\S103_AUDIT_REVIEW.md 3.3 "One capture run, early"; REMNANT_MAP section 0: only s100_heenan_build is a menu capture).
+#  Mirror off (no owner / scene switches): the game draws alone; the adapter only observes, so every window is a recording + the game's own picture. --wwe2k14_rdr_2d_record=true taps the 2D leaves
+#  (src\scene_live\quads2d_tap.h) so the rows exist for the I4 / L2-1 work. Windows: out\captures\<label> (local only, rule 1). Also a screenshot (sc_c2d_*) beside most windows.
+#  Phase 1 (no match launched): title, main menu, OPTIONS, PLAY list, ONE ON ONE list, the select screen (menu 2000). The launcher is held back by --wwe2k14_launch_idle_frames=100000 and released
+#  by `cvar wwe2k14_launch_idle_frames 60` once the route is back at the root main menu (scenario.h reads it every frame; UNCONFIRMED that the idle counter restarts cleanly after sub-menus).
+#  Phase 2 (launch): load screen, entrance (tron / lower third window, step 15 window), match with slot 0 = HUMAN on pad 0 (343:0; Lesnar), HUD window, PAUSE window.
+#  NOT in this route: the replay (needs a CPU-driven finish: the verb `finish` is only a design, the human slot cannot be made passive) = s103_corpus2d_replay.txt (a 2nd run, ~20 min).
+#  UNCONFIRMED (first run answers): that START pauses in a human-controlled match; which entrance step shows the lower third (windows at 343.bik2 + step 15 + step 15 +300 cover it); that B leaves the select
+#  screen back to the main menu without a confirm box (a box = on_fail quit with the shots so far: a finding). The pause rows' text is logged (log_text).
+# Marks: 1 title, 2 menu, 3 options, 4 play_list, 5 select, 6 load, 7 entrance, 8 match_hud, 9 pause, 10 end. on_fail quit.
+on_fail quit
+log bench: start scene s103_corpus2d
+wait_file SaveData.Dat 3600
+wait_state boot_step 3 1800 2
+log scene=title
+mark 1 title
+cvar wwe2k14_rdr_capture_label c2d_title
+cvar wwe2k14_rdr_capture_frames 60
+wait_frames 80
+press_until_state START boot_step 4 10 30
+press_until_state A boot_step >=5 10 30
+wait_file MNUIHD.PAC 1800
+wait_state menu 1 1200 30
+wait_frames 120
+log scene=main_menu
+mark 2 menu
+log_text 8
+screenshot sc_c2d_menu
+cvar wwe2k14_rdr_capture_label c2d_menu
+cvar wwe2k14_rdr_capture_frames 90
+wait_frames 110
+include menu_to_options
+wait_frames 120
+log scene=options
+mark 3 options
+log_text 8
+screenshot sc_c2d_options
+cvar wwe2k14_rdr_capture_label c2d_options
+cvar wwe2k14_rdr_capture_frames 60
+wait_frames 80
+include back_to_menu
+wait_frames 60
+include menu_to_play
+wait_frames 120
+log scene=play_list
+mark 4 play_list
+log_text 8
+screenshot sc_c2d_play
+cvar wwe2k14_rdr_capture_label c2d_play
+cvar wwe2k14_rdr_capture_frames 60
+wait_frames 80
+press_until_state A menu 7 40 30 5
+wait_frames 120
+log_text 8
+screenshot sc_c2d_oneonone
+cvar wwe2k14_rdr_capture_label c2d_oneonone
+cvar wwe2k14_rdr_capture_frames 60
+wait_frames 80
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+log scene=select
+mark 5 select
+log_text 8
+screenshot sc_c2d_select
+cvar wwe2k14_rdr_capture_label c2d_select
+cvar wwe2k14_rdr_capture_frames 90
+wait_frames 110
+press_until_state B menu 1 40 60 5
+wait_frames 120
+log bench: phase 1 done, releasing the launcher
+cvar wwe2k14_launch_idle_frames 60
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+log scene=load
+mark 6 load
+cvar wwe2k14_rdr_capture_label c2d_load
+cvar wwe2k14_rdr_capture_frames 90
+wait_frames 110
+wait_file BG04.PAC 900
+log scene=entrances
+wait_file 343.bik2 20000
+wait_frames 120
+mark 7 entrance
+log_text 8
+screenshot sc_c2d_entrance_tron
+cvar wwe2k14_rdr_capture_label c2d_entrance_tron
+cvar wwe2k14_rdr_capture_frames 120
+wait_frames 140
+wait_state entrance_step_0 >=15 30000 2
+log scene=step15
+wait_frames 30
+screenshot sc_c2d_entrance_s15
+cvar wwe2k14_rdr_capture_label c2d_entrance_s15
+cvar wwe2k14_rdr_capture_frames 120
+wait_frames 140
+wait_frames 300
+log_text 8
+screenshot sc_c2d_entrance_s15_300
+cvar wwe2k14_rdr_capture_label c2d_entrance_s15_300
+cvar wwe2k14_rdr_capture_frames 120
+wait_frames 140
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 300
+mark 8 match_hud
+log_text 8
+screenshot sc_c2d_match_hud
+cvar wwe2k14_rdr_capture_label c2d_match_hud
+cvar wwe2k14_rdr_capture_frames 120
+wait_frames 140
+wait_frames 200
+log c2d: pause
+press START 4 0
+wait_frames 60
+mark 9 pause
+log_text 8
+log_state smart_menu
+log_state menu
+log_state cursor
+screenshot sc_c2d_pause
+cvar wwe2k14_rdr_capture_label c2d_pause
+cvar wwe2k14_rdr_capture_frames 90
+wait_frames 110
+press DOWN
+wait_frames 30
+screenshot sc_c2d_pause_row
+cvar wwe2k14_rdr_capture_label c2d_pause_row
+cvar wwe2k14_rdr_capture_frames 30
+wait_frames 50
+mark 10 end
+log bench: done
+wait_frames 10
+quit

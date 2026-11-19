@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane CAR (BCA G2 + G1 piece 1): the arena cycle groups' one-slot pick (stage_slot_vis.h ReadCycleGroups / CycleSkips, merged into the WSL skip list at the latch) and the Create-an-Arena venues, ids 200-249 (src/assets/car_sel.h + car_arena.h, asset_load.h LoadCustomArena / OpenCached, the kFxCar row src/renderer_scene/car_arena_rows.h, the 200..249 slot-hide tail CustomTailSkipped, the sub_8342A8D8 pre-hook, wwe2k14_rdr_custom_arena): tools/scene/car_arena_unit.cpp + car_arena_check.py (and the cycle / tail cases of slot_vis_unit.cpp, run by s103_WSL). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "The unit merges synthetic parts (bands, texture dirs, CARL lights, joined text, a missing part) and round-trips the row against a fake guest (check s103_CAR.unit, no game files); s103_CAR.real then loads CAEN 0 / CASD 0 / CARL 0 + CARG 0 of the player's own pac\\car files through LoadCustomArena and reads the crowd / blood through OpenCached. Planted twins (each must fail its named check): missing_part, key_ignored, light_casd, and (real) old_bg_path.",
+ "affects": ["src/assets/car_sel.h", "src/assets/car_arena.h", "src/assets/asset_load.h", "src/assets/asset_model.h", "src/assets/arena_lm.h", "src/renderer_scene/car_arena_rows.h", "src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/live_assets.cpp", "src/scene_live/stage_fx_contrib.h", "src/scene_live/arena_hooks.h", "src/renderer_scene/stage_slot_vis.h", "src/renderer_adapter/rdr_switches.h", "src/renderer_adapter/reader.h", "tools/scene/car_arena_unit.cpp", "tools/scene/car_arena_check.py"],
+ "checks": [
+  {"name": "s103_CAR.unit", "cmd": ["py", "-I", "tools/scene/car_arena_check.py", "--root", ".", "--no-game"], "timeout_s": 900},
+  {"name": "s103_CAR.real", "cmd": ["py", "-I", "tools/scene/car_arena_check.py", "--root", "."], "timeout_s": 900, "needs": ["game_data/extracted"]}
+ ]
+}

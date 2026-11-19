@@ -64,7 +64,7 @@
    "timeout_s": 300
   },
   {
-   "name": "s102_l1b.device_features_lint",
+   "name": "s102_l1b.device_features_lint", "deps": "scan:src,tools",
    "cmd": [
     "py",
     "-I",
@@ -87,6 +87,7 @@
   },
   {
    "name": "s102_l1b.game_syntax",
+   "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"],
    "cmd": [
     "py",
     "-I",

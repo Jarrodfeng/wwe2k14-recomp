@@ -20,7 +20,7 @@ namespace rdr {
 // of group). rplay / fview: --gpu-group-stamps N. The frame carries the value (Frame::group_min_run); the render thread reads only that.
 inline std::atomic<int> g_gpu_group_stamps{0};
 // TEST ONLY (rplay --gpu-group-plant N): 1 = a stamp is written but its segment is not recorded (the chain breaks), 2 = a draw is left out of the segment counts (coverage < 100 %),
-// 3 = the group of the first draw after every boundary is forgotten (the segment is labelled by a group that is not its own: the purity line moves).
+// 3 = (the stream-free scene front-end only, read in FrontEnd::Record while the stamps are on; host_rig --plant group_nolabel) every model draw is labelled `other`: the colour pass has too few named groups. The renderer ignores it.
 inline std::atomic<int> g_gpu_group_plant{0};
 
 enum GroupId : uint8_t {
@@ -48,6 +48,7 @@ enum GroupId : uint8_t {
   kGrpClear,
   kGrpRim,
   kGrpOther,         // named, none of the above (or a draw an owned group / hook emitted without an origin of its own)
+  kGrpWeapon,        // S103 GSTP: a wrestler's weapon (the posed "m2 weapon" models, rf_props ApplyWeaponRows)
   kGrpIdle,          // a segment with no draw in it (the pass's clears / loads / stores and whatever the first stamp waits for)
   kGrpCount
 };
@@ -55,7 +56,7 @@ static_assert(kGrpCount <= 63, "the table key holds the group in 6 bits");
 
 inline const char* GroupName(uint32_t g) {
   static const char* const k[] = {"unnamed", "model_colour", "model_mirror", "model_other", "arena", "wrestler", "ring", "props", "crowd", "crowd_cards", "crowd_floor", "particle",
-                                  "sprite", "text", "movie", "post", "shadow", "plane_shadow", "circle_shadow", "flash", "screens", "clear", "rim", "other", "no_draws"};
+                                  "sprite", "text", "movie", "post", "shadow", "plane_shadow", "circle_shadow", "flash", "screens", "clear", "rim", "other", "weapon", "no_draws"};
   static_assert(sizeof(k) / sizeof(k[0]) == kGrpCount, "GroupName: one name per GroupId");
   return g < kGrpCount ? k[g] : "?";
 }

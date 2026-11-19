@@ -1,0 +1,13 @@
+{
+ "owner": "S103 lane B4F (the crowd binds the arena's stage page, the entrance page in an entrance): src/renderer_scene/crowd_page.h, live_crowd.cpp SetStagePage / RegPage, rf_crowd.cpp, rf_arena_live.cpp UpdatePages, front_end.cpp TextureImage, tools/scene/crowd_page_unit.cpp",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs: compile + the offline unit (crowd_page_unit.cpp, linked with the rig objects by build_rig.ps1 since it runs the real FrontEnd: out/tools/ups_page_unit.exe; a planted twin: the crowd keeps key 0) + game_syntax + t19_lint. The rig number (stands mean colour before / after) is in the lane hand-back.",
+ "checks": [
+  {"name": "s103_B4F.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_B4F.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
+  {"name": "s103_B4F.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_B4F.unit_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_B4F.unit", "cmd": ["out/tools/ups_page_unit.exe"], "timeout_s": 60, "affects": ["src/renderer_scene/crowd_page.h", "src/renderer_scene/front_end.*", "tools/scene/crowd_page_unit.cpp", "tools/scene/build_rig.ps1"]},
+  {"name": "s103_B4F.unit_plant1", "cmd": ["pwsh", "-NoProfile", "-Command", "out/tools/ups_page_unit.exe --plant 1; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"], "timeout_s": 60, "affects": ["src/renderer_scene/crowd_page.h", "src/renderer_scene/front_end.*", "tools/scene/crowd_page_unit.cpp", "tools/scene/build_rig.ps1"]}
+ ]
+}

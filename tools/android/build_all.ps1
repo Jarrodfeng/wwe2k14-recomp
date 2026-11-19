@@ -2,7 +2,7 @@
 #   pwsh -File tools\android\build_all.ps1 -Run b01 [-Install]
 # The game's precompiled headers are thrown away when the SDK install changed headers (CMake does not track the
 # installed SDK's headers: a stale PCH fails with "has been modified since the precompiled header was built").
-param([Parameter(Mandatory)][string]$Run, [switch]$Install, [string]$AllowBranch = '', [switch]$Release)  # Session 66: -AllowBranch X builds the SDK checkout on branch X too (compile checks of a session branch)
+param([Parameter(Mandatory)][string]$Run, [switch]$Install, [string]$AllowBranch = '', [switch]$Release, [switch]$StreamFree, [switch]$Stream)  # Session 66: -AllowBranch X builds the SDK checkout on branch X too (compile checks of a session branch)
 . "$PSScriptRoot\env.ps1"
 $inc = "$($AndroidDirs.SdkInstall)\include"
 $before = if (Test-Path $inc) { (Get-ChildItem $inc -Recurse -File | Measure-Object LastWriteTime -Maximum).Maximum } else { $null }
@@ -10,15 +10,22 @@ pwsh -NoProfile -File "$PSScriptRoot\build_sdk_android.ps1" -Run "$Run-sdk" -All
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $after = (Get-ChildItem $inc -Recurse -File | Measure-Object LastWriteTime -Maximum).Maximum
 if ($before -ne $after) {
-    Get-ChildItem "$($AndroidDirs.Game)\CMakeFiles" -Recurse -Filter 'cmake_pch.hxx.pch' -ErrorAction SilentlyContinue | Remove-Item
+    foreach ($gd in @($AndroidDirs.Game, "$($AndroidDirs.Game)-off")) { Get-ChildItem "$gd\CMakeFiles" -Recurse -Filter 'cmake_pch.hxx.pch' -ErrorAction SilentlyContinue | Remove-Item }
     "SDK headers changed: the game's precompiled headers will be rebuilt"
 }
-pwsh -NoProfile -File "$PSScriptRoot\build_game_android.ps1" -Run "$Run-game"
+# 2026-11-18 (Jarrod, DECISIONS last line): the player build is stream-free. -Release builds stream-free by DEFAULT (-Stream opts back into the stream build for a comparison);
+# a dev build (no -Release) stays the stream build unless -StreamFree.
+if ($Stream -and $StreamFree) { "build_all.ps1: -Stream and -StreamFree together"; exit 2 }
+$sf = ($StreamFree -or ($Release -and -not $Stream))
+$gameArgs = @(); if ($sf) { $gameArgs += '-StreamFree' }
+pwsh -NoProfile -File "$PSScriptRoot\build_game_android.ps1" -Run "$Run-game" @gameArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pwsh -NoProfile -File "$PSScriptRoot\build_launcher.ps1" -Target android  # Session 71: the launcher (liblauncher.so)
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $apkArgs = @()
 if ($Install) { $apkArgs += '-Install' }
+if ($sf) { $apkArgs += '-StreamFree' }
+if ($Stream) { $apkArgs += '-Stream' }
 if ($Release) { $apkArgs += '-Release' }  # lane 280: no debuggable flag + the SDK-pin check; a dev build (no -Release) is unchanged
 pwsh -NoProfile -File "$PSScriptRoot\build_apk.ps1" @apkArgs
 exit $LASTEXITCODE

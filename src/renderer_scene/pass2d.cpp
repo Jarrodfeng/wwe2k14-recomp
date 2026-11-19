@@ -608,7 +608,7 @@ bool Pass2d::Draw(const Pass2dScene& scene, Pass2dResources& resources, rdr::Fra
     draw.vertex[0] = {rdr::kFrameGeometry, builder->PushGeometry(item.verts.data(), uint32_t(item.verts.size() * sizeof(Vertex)))};
     draw.count = uint32_t(item.verts.size());
     draw.instances = 1;
-    builder->Draw(draw);
+    builder->Draw(draw, rdr::kGrpSprite);   // S103 GSTP
     ++report.draws;
   }
   return report.ok();

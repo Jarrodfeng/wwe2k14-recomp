@@ -1,0 +1,22 @@
+{
+ "owner": "S103 lane F5 (landing 1, bit 11): the particle pairing fix (the node is noted at the writer's frame: runs 28 / 29 taken 0), blend codes 0 / 1 from their writer + the setter's table (code 2 = SrcAlpha / One with op 4 [L]), the namer wired (src/scene_live/particle_glue.h, particle_hasher.h, src/assets/particle_sprites.h, live_assets prtcls branch) and the texture lookup in frame_hooks.cpp; docs/formats/particle_items.md F5 section",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. f5_check: blend writer, f5_unit on the player's prtcls.pac (plants tiled / endian fail), the rig on run 28 frame 500 with a labelled fixture flare (the case windows hold no game particle). kStampParticles stays false.",
+ "checks": [
+  {"name": "s103_F5.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_F5.build_f_test", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_f_test.ps1"], "timeout_s": 1800},
+  {"name": "s103_F5.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_f5_unit.ps1"], "timeout_s": 900},
+  {"name": "s103_F5.build_texreg_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_texreg_unit.ps1"], "timeout_s": 900},
+  {"name": "s103_F5.texreg_unit", "cmd": ["out/tools/texreg_unit.exe"], "timeout_s": 60, "affects": ["src/scene_live/texture_registry.h", "src/scene_live/guest_texture.h", "src/guest_view.h", "tools/scene/texreg_unit.cpp"]},
+  {"name": "s103_F5.texreg_unit_plant_view_skipped", "cmd": ["out/tools/texreg_unit.exe", "--plant", "view_skipped"], "timeout_s": 60, "affects": ["src/scene_live/texture_registry.h", "src/scene_live/guest_texture.h", "src/guest_view.h", "tools/scene/texreg_unit.cpp"]},
+  {"name": "s103_F5.stderr_census_lint", "cmd": ["py", "-I", "tools/scene/stderr_census_lint.py", "--selftest"], "timeout_s": 120, "affects": ["src/scene_live/**", "src/renderer_scene/**", "tools/scene/stderr_census_lint.py"]},
+  {"name": "s103_F5.texreg_lint", "cmd": ["py", "-I", "tools/scene/texreg_lint.py", "--root", "."], "timeout_s": 60, "affects": ["src/scene_live/**", "src/renderer_scene/**", "tools/scene/texreg_lint.py"]},
+  {"name": "s103_F5.f_test", "cmd": ["out/tools/f_test.exe"], "timeout_s": 600, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false},
+  {"name": "s103_F5.proof", "cmd": ["py", "-I", "tools/scene/f5_check.py"], "timeout_s": 1500, "needs": ["out/s103/run28_case.zip", "out/captures/c2d_menu", "game_data/extracted"], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false},
+  {"name": "s103_F5.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_F5.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 600, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false},
+  {"name": "s103_F5.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py"], "timeout_s": 300, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false, "needs": ["generated/default"]},
+  {"name": "s103_F5.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false},
+  {"name": "s103_F5.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/frame_hooks.cpp,src/renderer_scene/live_assets.cpp,src/main.cpp"], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/**", "tools/gate/game_syntax.py"]}
+ ]
+}

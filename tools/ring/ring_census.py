@@ -563,6 +563,7 @@ def census(cap, arena_id, frame_sel, plant, verbose, expect):
     skirts_total = sum(len(v) for e, v in ent_objs.items() if PIECE.get(e) == 'skirt')
     R.numbers.update(objects_per_entry={e: len(v) for e, v in sorted(ent_objs.items())}, skirt_objects=skirts_total, addresses_reused=len(obj_reused))
     R.lists['entries_with_several_objects'] = multi
+    R.lists['object_piece'] = {hex(int(obj)): PIECE.get(e, '?') for obj, e in obj_entry.items()}   # S103 FOB: object address -> ring piece (tools\arena\family_order.py reads it)
     R.check('stability', not multi and not obj_reused and skirts_total <= 4 and len(ent_objs) > 0,
             'one object per entry over the capture (entries with several: %d), skirt objects %d (at most 4), addresses that changed entry %d' % (len(multi), skirts_total, len(obj_reused)))
 

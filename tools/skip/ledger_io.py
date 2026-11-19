@@ -15,9 +15,9 @@ CLASS_NAMES = ['unnamed', 'model_part', 'crowd', 'sprite', 'text', 'movie', 'par
 class Frame:
     """One capture frame: draws (with origin), expanded constant banks on demand, strings."""
 
-    def __init__(self, path):
+    def __init__(self, path, data=None):   # S103 T4: data = the file's bytes already read (a case zip read in place)
         self.path = pathlib.Path(path)
-        b = self.b = self.path.read_bytes()
+        b = self.b = data if data is not None else self.path.read_bytes()
         magic, ver, self.cap_frame, sc, self.guest_frame, self.present_interval, self.flags = struct.unpack_from('<IIIIQII', b, 0)
         if magic != 0x52464352:
             raise ValueError('not a capture frame: %s' % path)
@@ -110,8 +110,8 @@ SC_RING_ROWS, SC_RING_NODES = 20, 21 # S101 lane 194 (Ring D3 R0): RingRows[] (4
 class Record:
     """One scene record (.rsc): objects with world / palette ranges / light set, bones (vec4 rows), params, lights, camera."""
 
-    def __init__(self, path):
-        b = self.b = pathlib.Path(path).read_bytes()
+    def __init__(self, path, data=None):   # S103 T4: data = the file's bytes already read
+        b = self.b = data if data is not None else pathlib.Path(path).read_bytes()
         magic, ver, sc, src = struct.unpack_from('<IIIB', b, 0)
         if magic != 0x4E435352:
             raise ValueError('not a scene record: %s' % path)

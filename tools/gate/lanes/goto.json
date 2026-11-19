@@ -1,1 +1,3 @@
-{"owner": "go-anywhere N1 (goto resolver)", "checks": [{"name": "goto.selftest", "cmd": ["py", "-I", "tools/goto/selftest.py"], "timeout_s": 300, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac"]}]}
+{"owner": "go-anywhere N1 (goto resolver)", "checks": [{"name": "goto.selftest", "cmd": ["py", "-I", "tools/goto/selftest.py"], "timeout_s": 300, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac"]},
+  {"name": "live.logs_selftest", "cmd": ["py", "-I", "tools/live/logs_selftest.py"], "timeout_s": 120, "needs": ["game_data/extracted/pac/evtdsc/evtdsc0.pac"]},
+  {"name": "goto.gtw2_selftest", "cmd": ["py", "-I", "tools/live/gtw2_selftest.py"], "timeout_s": 120}]}

@@ -1,0 +1,16 @@
+{
+ "owner": "S103 lane SCN (stage screens, landing 1 picture faults): (B) an idle movie-key screen (802 / 804 / 805 / 807 with no live picture) draws BLACK like the game, not white_: rf_c_core.cpp binds a 1x1 black texture to every movie-key mesh without a live texture (Plants::idle_screen_white = the old white); tools/scene/scn_check.py (frame_rig on out/captures/a04_entrance, the feature dump: no movie-key draw samples white). (A) the 805 mini-tron picture refreshes: tools/scene/screen_planes_unit.cpp section 20 (synthetic 256x128 equaliser at serial 1 then 2 through the shipped store + feed, equal to an independent convert, changed within one flush; twin stale_screen_pic), the per-key screens_live census. docs/systems/screens.md. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Idle rule decomp: docs/systems/screens.md 'Idle screens (S103 SCN)'. The rig has no live feed, so every movie-key screen is idle there.",
+ "checks": [
+  {"name": "s103_SCN.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_SCN.idle_black", "cmd": ["py", "-I", "tools/scene/scn_check.py", "--frame", "100"], "timeout_s": 1800,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted"],
+   "affects": ["src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/rf_c.h", "src/renderer_scene/front_end.cpp", "tools/scene/scn_check.py", "tools/scene/frame_rig.cpp"]},
+  {"name": "s103_SCN.plant_idle_white", "cmd": ["py", "-I", "tools/scene/scn_check.py", "--frame", "100", "--plant", "--expect-fail"], "timeout_s": 1800,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted"],
+   "affects": ["src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/rf_c.h", "tools/scene/scn_check.py", "tools/scene/frame_rig.cpp"]},
+  {"name": "s103_SCN.screen_planes", "cmd": ["py", "-I", "tools/scene/screen_planes_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/screen_planes_*.h", "tools/scene/screen_planes_unit.cpp", "tools/scene/screen_planes_check.py"]}
+ ]
+}

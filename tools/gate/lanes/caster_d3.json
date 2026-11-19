@@ -4,6 +4,6 @@
  "checks": [
   {"name": "caster_d3.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/caster/build_caster_rows.ps1"], "timeout_s": 900},
   {"name": "caster_d3.unit", "cmd": ["out/caster/caster_rows_test.exe", "--sites", "tools/caster/caster_call_sites.tsv"], "timeout_s": 300},
-  {"name": "caster_d3.selftest", "cmd": ["py", "-I", "tools/caster/caster_rows_selftest.py", "--no-build"], "timeout_s": 900}
+  {"name": "caster_d3.selftest", "cmd": ["py", "-I", "tools/caster/caster_rows_selftest.py", "--no-build"], "timeout_s": 900, "needs": ["generated/default"]}
  ]
 }

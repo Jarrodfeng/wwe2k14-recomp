@@ -70,7 +70,7 @@ def hold_exe(path):
 
 
 def gate_run(root, extra=()):
-    p = subprocess.run([PY, '-I', str(HERE / 'gate.py'), '--root', str(root), '--out', str(root / 'gate_out')] + list(extra), capture_output=True, text=True, timeout=300)
+    p = subprocess.run([PY, '-I', str(HERE / 'gate.py'), '--root', str(root), '--out', str(root / 'gate_out'), '--no-toolcache'] + list(extra), capture_output=True, text=True, timeout=300)
     return p.returncode, p.stdout + p.stderr
 
 
@@ -88,6 +88,31 @@ def main():
         os.utime(root / 'src' / 'a.cpp', (later, later))
         st, tx = gexes.ensure(root, spec, wait_s=2, poll=0.1)
         check(st == 'built' and builds(root) == 2, f'2b touched source -> rebuilt ({st})')
+
+        # 2c S103 GX: the tool cache. Twin checkout, same sources: the first builds and publishes, the second COPIES (no build); a source change misses.
+        import toolcache as gtc
+        cdir = Path(base) / 'tcache'
+        r1, sp1 = make_tree(base, 'tc1')
+        r2, sp2 = make_tree(base, 'tc2')
+        r3, sp3 = make_tree(base, 'tc3')
+        (r3 / 'src' / 'a.cpp').write_text('v1-edited')
+        for r in (r1, r2, r3):
+            (r / 'out' / 'tool.exe').unlink()
+        q = lambda *_a, **_k: None
+        st1, tx1 = gexes.ensure(r1, sp1, wait_s=2, poll=0.1, cache=gtc.ToolCache(r1, cdir, log=q))
+        st2, tx2 = gexes.ensure(r2, sp2, wait_s=2, poll=0.1, cache=gtc.ToolCache(r2, cdir, log=q))
+        check(st1 == 'built' and 'built, cached' in tx1 and st2 == 'cached' and 'cache hit' in tx2 and builds(r2) == 0 and (r2 / 'out' / 'tool.exe').read_text() == 'v1',
+              f'2c twin checkout copies the cached exe, no build ({st1}: {tx1[:60]} / {st2}: {tx2[:60]}, builds {builds(r2)})')
+        st3, tx3 = gexes.ensure(r3, sp3, wait_s=2, poll=0.1, cache=gtc.ToolCache(r3, cdir, log=q))
+        check(st3 == 'built' and builds(r3) == 1 and (r3 / 'out' / 'tool.exe').read_text() == 'v1-edited', f'2d a changed source misses and builds ({st3})')
+
+        # 2e S102 08:56 re-find (renderer_adapter missing from the source list): a header OUTSIDE the spec's source dirs changed. The mtime list cannot see it;
+        # the cache key hashes the whole src / tools tree, so a cold checkout with that change must MISS (and build), never copy the old exe.
+        r4, sp4 = make_tree(base, 'tc4')
+        (r4 / 'out' / 'tool.exe').unlink()
+        (r4 / 'tools' / 'unlisted.h').write_text('changed outside the spec sources')
+        st4, tx4 = gexes.ensure(r4, sp4, wait_s=2, poll=0.1, cache=gtc.ToolCache(r4, cdir, log=q))
+        check(st4 == 'built' and builds(r4) == 1, f'2e a change outside the spec source list still misses the cache ({st4})')
 
         # 3 held by a running process: a copy of ping.exe is the "exe", running
         root, spec = make_tree(base, 't3')

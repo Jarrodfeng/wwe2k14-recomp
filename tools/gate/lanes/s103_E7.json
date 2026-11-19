@@ -1,0 +1,24 @@
+{
+ "owner": "S103 lane E7 (landing 1): (A) the record's kScPartClocks rows (section 50) equal the stream's VS c186 on run 26's case, joined by object + part at a MEASURED offset, and the stage SLOT of a row gives the loader's UV-scroll speeds (c203 / c204) of the mesh 'slot N' / record r16: tools/skip/part_clock_join.py (plants offset0 and slot_off must fail). (B) why the match's screens were incomplete (the match plays no movie, so no screen has a row) and the idle rule that completes them: tools/skip/screens_idle_check.py (case + log) and the unit tools/scene/screen_planes_unit.cpp 'screens.idle_gate' with its twin idle_off (screen_planes_check.py). 0 game runs; reads the player's game files (read-only) and the stored case.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "kStampStageClock is NOT flipped by this lane. Case: out/s103/E7/case (run 26's case zip unpacked: out/s103/run26_case.zip). Log: out/build/win-amd64-release/logs/wwe2k14_7276.log (read-only).",
+ "checks": [
+  {"name": "s103_E7.build_uvscroll", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_uvscroll_check.ps1"], "timeout_s": 600,
+   "affects": ["tools/assets/uvscroll_check.cpp", "src/assets/jboy.h"]},
+  {"name": "s103_E7.part_clock_join", "cmd": ["py", "-I", "tools/skip/part_clock_join.py", "out/s103/E7/case/capture", "--frames", "284:666:1", "--speeds", "game:game_data/extracted"], "timeout_s": 600,
+   "needs": ["out/s103/E7/case/capture", "game_data/extracted"], "affects": ["tools/skip/part_clock_join.py", "src/scene_live/part_clock_read.h", "src/scene_live/stage_fx_contrib.h", "src/renderer_scene/part_clock_lookup.h"]},
+  {"name": "s103_E7.plant_offset0", "cmd": ["py", "-I", "tools/skip/part_clock_join.py", "out/s103/E7/case/capture", "--frames", "284:666:1", "--plant", "offset0", "--expect-fail"], "timeout_s": 600,
+   "needs": ["out/s103/E7/case/capture"], "affects": ["tools/skip/part_clock_join.py"]},
+  {"name": "s103_E7.plant_slot_off", "cmd": ["py", "-I", "tools/skip/part_clock_join.py", "out/s103/E7/case/capture", "--frames", "284:666:1", "--speeds", "game:game_data/extracted", "--plant", "slot_off", "--expect-fail"], "timeout_s": 600,
+   "needs": ["out/s103/E7/case/capture", "game_data/extracted"], "affects": ["tools/skip/part_clock_join.py"]},
+  {"name": "s103_E7.screens_idle_cause", "cmd": ["py", "-I", "tools/skip/screens_idle_check.py", "out/s103/E7/case/capture", "out/build/win-amd64-release/logs/wwe2k14_7276.log"], "timeout_s": 600,
+   "needs": ["out/s103/E7/case/capture", "out/build/win-amd64-release/logs/wwe2k14_7276.log"], "affects": ["tools/skip/screens_idle_check.py"]},
+  {"name": "s103_E7.plant_movie_any", "cmd": ["py", "-I", "tools/skip/screens_idle_check.py", "out/s103/E7/case/capture", "out/build/win-amd64-release/logs/wwe2k14_7276.log", "--plant", "movie_any", "--expect-fail"], "timeout_s": 600,
+   "needs": ["out/s103/E7/case/capture", "out/build/win-amd64-release/logs/wwe2k14_7276.log"], "affects": ["tools/skip/screens_idle_check.py"]},
+  {"name": "s103_E7.screen_planes", "cmd": ["py", "-I", "tools/scene/screen_planes_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/screen_planes_*.h", "src/scene_live/stage_fx_contrib.h", "tools/scene/screen_planes_unit.cpp", "tools/scene/screen_planes_check.py"]},
+  {"name": "s103_E7.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/main.cpp,src/scene_live/arena_contrib.cpp,src/renderer_scene/rf_screens.cpp,src/renderer_scene/rf_c_core.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/screen_planes_core.h", "src/scene_live/screen_planes_glue.h", "src/scene_live/stage_fx_contrib.h"]}
+ ]
+}

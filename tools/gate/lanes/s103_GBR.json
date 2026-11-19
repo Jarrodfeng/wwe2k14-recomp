@@ -1,0 +1,11 @@
+{
+ "owner": "S103 lane GBR (gm set objects, blood splats, the stage family hold, the event list's reset / lock-free lookup, the evtobj release's try_lock): the tracker's gm membership + blood snapshot + scene signature in src/scene_live/weapon_rows_core.h, the row bits in src/renderer_scene/weapon_rows.h, the plan's gm / blood items and HoldStageRows in weapon_plan.h, the drawer in rf_props.cpp, live_assets.cpp gm: / blood:, assets::LoadGmEntry / LoadBloodEntry / GmBankOffset / ReleaseEvtobj. 0 game runs. Evidence docs/research/s103/GMS.md, BH4_integration.md items 3-4, BH2_reuse.md G2.",
+ "claim": {"scene": "none", "side": "structure (draws the stream-free build lacked: the Create-a-Story set, the chamber's extras, blood on the mat)", "ms": [0, 0], "basis": "no saving claimed: it adds missing draws and removes a render-thread stall risk (the evtobj release) and a second per-call mutex."},
+ "note": "build = tools/weapons/build_gbr.ps1 (clang only); selftest = tools/weapons/gbr_selftest.py: the clean run passes and each planted twin (gm_all_models / gm_no_recheck / gm_ignore_pass / blood_include_dead / event_no_clear / event_no_prune / no_hold / gm_dead_alpha / release_drop_on_busy) fails exactly its named check.",
+ "checks": [
+  {"name": "s103_GBR.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/weapons/build_gbr.ps1"], "timeout_s": 900, "tier": "cheap",
+   "affects": ["tools/weapons/build_gbr.ps1", "tools/weapons/gbr_test.cpp", "src/scene_live/weapon_rows_*.h", "src/scene_live/ring_rows_core.h", "src/scene_live/arena_world.h", "src/renderer_scene/weapon_*.h", "src/renderer_scene/scene_record.h", "src/assets/asset_load.h", "src/assets/pac.h"]},
+  {"name": "s103_GBR.selftest", "cmd": ["py", "-I", "tools/weapons/gbr_selftest.py", "--root", "."], "timeout_s": 300, "tier": "cheap",
+   "affects": ["tools/weapons/gbr_*", "src/scene_live/weapon_rows_*.h", "src/scene_live/ring_rows_core.h", "src/scene_live/arena_world.h", "src/renderer_scene/weapon_*.h", "src/renderer_scene/scene_record.h", "src/assets/asset_load.h", "src/assets/pac.h"]}
+ ]
+}

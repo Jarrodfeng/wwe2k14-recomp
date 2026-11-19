@@ -1,0 +1,19 @@
+# Session 103, lane BLF (src/scene_live/weapon_rows_core.h EventProps, docs/research/s103/BELT.md "Adversary"): the event prop models of CWeaponEventSD::MakeWeapon
+# sub_8272D710 (the entrance's title belt, microphone, cap, held items, stage props). The stream-free build swallows every model draw in the raw hook on sub_82C04DF0; these two
+# hooks name the models so the hook can record them (draw_origin.h RawEntry). Both only read: no register is changed, no call skipped.
+# Addresses: generated/default/wwe2k14_recomp.223.cpp sub_8272D710 (adversary, 2026-11-19: all 1293 instructions numbered, labels checked).
+
+# MakeWeapon, the entry loop 0x8272DEAC..0x8272EA58 (counter [r1+80]; r29 = clrlwi r30,16 = k): 0x8272E02C is `bl 0x82bd4160` (allocates + constructs the CSkinModel, 912 bytes, 0 on a failed
+# allocation); 0x8272E030 is the next line (`lis r11,-31853`, not a branch target, does not touch r3). r3 = the new model (constructed, NOT initialised: an identity key only), the prop id = u32 [r1+2348]
+# (the prologue's `stw r4,2348(r1)` at 0x8272D72C, the only store to it). Runs once per present entry k, up to 10 per prop.
+[[midasm_hook]]
+address = 0x8272E030
+name = "wwe2k14_event_prop_made"
+registers = ["r1", "r3", "r29"]
+
+# The CWeapon's derived destructor sub_8272D670 (sole caller 0x8272EB64, from the scalar deleting dtor sub_8272EB48, vtable 0x82029628 slot 0): 0x8272D678 is `stwu r1,-112(r1)`, right after
+# `bl 0x82c78dfc` (__savegprlr); r3 = the CWeapon. Its models (u32 [r3 + 1228 + 4i], i = 0..9) are deleted later by the base dtor (loop 0x834224A4): still alive here.
+[[midasm_hook]]
+address = 0x8272D678
+name = "wwe2k14_event_prop_freed"
+registers = ["r3"]

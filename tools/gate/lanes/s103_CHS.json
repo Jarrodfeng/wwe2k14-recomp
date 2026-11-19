@@ -1,0 +1,13 @@
+{
+ "owner": "S103 builder CHS (docs/research/s103/GCOL.md C4 / C5 / C6): three invisible GPU cuts in the stream-free build. C5 stencil_dead is stored by the OFF start (src/start_settings.cpp, bundle3 OFF lever); C6 present_direct (src/renderer_host/scene_host.cpp RowsMayDraw / Shown / f_stale_, HostOptions::present_direct, cvar wwe2k14_rdr_present_direct default true) presents `out` itself on a frame with no 2D row; C4 is a counter only (live_map_plane.cpp mask passes / empty). 0 game runs, 0 Surface runs: a GPU and the a04_entrance capture.",
+ "claim": {"scene": "bryan entrance", "side": "GPU", "ms": [0.2, 0.6], "basis": "GCOL.md [L]: C5 0.05-0.2 ms, C6 0.2-0.4 ms; unmeasured, the Surface prices each as a start-time arm (wwe2k14_rdr_stencil_dead=false / wwe2k14_rdr_present_direct=false)."},
+ "note": "chs_c6_check.py: host_rig host mode on a04_entrance frames 20,60,100. C6 arm A (--present-direct 0) vs B (1): pictures identical (max |diff| 0) and the full-size out->F copies 6 -> 0 ([host][direct] census); plants: direct_plant 2 (the direct present shows the stale F) and skip_copy under arm A must be caught. C5: stencil_dead 0 vs 1 vs 1 + poison identical, the lever census shows absorbed clears dropped > 0; the plant (the switch never stored) leaves no census line.",
+ "checks": [
+  {"name": "s103_CHS.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_host_rig.ps1"], "timeout_s": 1800, "affects": ["src/renderer_scene/*", "src/scene_live/*", "src/assets/*", "src/renderer/**", "src/launcher/*", "tools/scene/build_host_rig.ps1", "tools/scene/build_rig.ps1", "tools/scene/host_rig.cpp"]},
+  {"name": "s103_CHS.lint", "cmd": ["py", "-I", "tools/scene/chs_lint.py", "--selftest"], "timeout_s": 120, "affects": ["src/renderer_host/scene_host.h", "src/start_settings.cpp", "tools/scene/host_rig.cpp", "tools/scene/chs_c6_check.py", "tools/scene/chs_lint.py"]},
+  {"name": "s103_CHS.bundle3_lint", "cmd": ["py", "-I", "tools/bundle3/lint.py", "--selftest"], "timeout_s": 120, "affects": ["src/bundle3.h", "src/start_settings.cpp", "tools/bundle3/lint.py"]},
+  {"name": "s103_CHS.c5c6", "cmd": ["py", "-I", "tools/scene/chs_c6_check.py", "--root", "."], "timeout_s": 1200,
+   "needs": ["out/captures/a04_entrance", "out/captures/c2d_match_hud", "out/s103/p7h2/rows_match_hud", "game_data/extracted"],
+   "affects": ["src/renderer_scene/live_scene_draw.*", "src/renderer_host/*", "src/start_settings.*", "src/bundle3.h", "src/renderer/depth_nostencil.h", "src/renderer/renderer.cpp", "src/renderer_scene/live_map_plane.cpp", "tools/scene/host_rig.cpp", "tools/scene/chs_c6_check.py"]}
+ ]
+}

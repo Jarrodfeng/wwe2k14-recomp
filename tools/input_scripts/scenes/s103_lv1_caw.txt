@@ -1,0 +1,82 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true --audio_mute=true
+# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
+# intent: owner on, scene 2
+# Session 103 lane CR: the 2D corpus, Create a Superstar (docs\renderer\S103_AUDIT_REVIEW.md 3.3; second route beside s103_corpus2d.txt). No match launched. Release +dev exe, mirror off (game draws), --wwe2k14_rdr_2d_record=true.
+#  Steps copied from nav\creations_to_new_caw.txt (Session 57, live run 3844) with a capture window at each page: CREATIONS list, the CAW editor (seq 76) after 900 frames, the template picked, the last tab
+#  OTHER (LB), ROSTER APPLICATION FORM, and the save ("Creating Custom Superstar": the render is made then = REMNANT_MAP U10's read-back window). The save goes to the per-run copy of the frozen save.
+#  Normal speed only (the editor presses wait on frame counts). UNCONFIRMED: the windows' contents; a failed wait_text stops the run (on_fail quit) with the shots so far.
+#  Windows: out\captures\c2d_caw_*. Marks: 1 menu, 2 creations, 3 editor, 4 template, 5 other_tab, 6 form, 7 saving, 8 end.
+on_fail quit
+log bench: start scene s103_corpus2d_caw
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+mark 1 menu
+include menu_to_creations
+wait_frames 120
+log scene=creations
+mark 2 creations
+log_text 8
+screenshot sc_c2d_caw_creations
+
+
+wait_frames 80
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+log scene=caw_editor
+mark 3 editor
+log_text 8
+screenshot sc_c2d_caw_editor
+
+
+wait_frames 110
+press A
+wait_frames 400
+mark 4 template
+log_text 8
+screenshot sc_c2d_caw_template
+
+
+wait_frames 110
+press LB
+wait_text MENU SCREEN POSE 300
+wait_frames 30
+mark 5 other_tab
+screenshot sc_c2d_caw_other
+
+
+wait_frames 80
+repeat 8
+press DOWN
+wait_frames 15
+end_repeat
+wait_frames 30
+press A
+wait_frames 200
+press LEFT
+wait_frames 30
+press A
+wait_text ROSTER APPLICATION FORM 900
+wait_frames 60
+mark 6 form
+screenshot sc_c2d_caw_form
+
+
+wait_frames 80
+press UP
+wait_frames 30
+press A
+wait_frames 30
+log scene=caw_saving
+mark 7 saving
+
+
+wait_frames 260
+screenshot sc_c2d_caw_saving
+wait_text QUIT TO DESKTOP 3600
+wait_frames 90
+mark 8 end
+log bench: done
+quit

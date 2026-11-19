@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane QC (Jarrod: 'Q const 184 should absolutely become a tool'): `q const N|--name NAME|--setters`, which game code writes shader constant register N and from what (tools/q/qconst.py, hook in tools/q/q.py, docs/agents/q_const.md). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. qconst_selftest.py: A) a synthetic fixture (invented code): two recorders, a ctor with two name handles, callers: the wrong-offset handle must name the other string, a literal with a stack-store formula, r4 set 15 instructions before the call (unresolved, not a literal) and 14 before (literal); B) real data: c184 -> sub_827F22C8 (vs 0x827F240C, ps 0x827F2420, 3 callers), c72 / EyePos -> the crowd upload 0x82513B40 via crowd+31200, c189 MatAmbCol and ps c200 SpecularCol (hand-checked), the setter-table check on the real code (a machine without generated/ or the q index SKIPs B); C) planted twins (wrong handle name, literal outside the window, a setter missing from the table, a table setter with no recorder, EyePos named LightMapParam, c184 at the crowd site) must be REJECTED. Exit 1 = a check failed, 2 = a planted twin was not caught.",
+ "checks": [
+  {"name": "qc_const.selftest", "cmd": ["py", "-I", "tools/q/qconst_selftest.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "out/harness/index/image.bin"],
+   "affects": ["tools/q/qconst.py", "tools/q/qconst_selftest.py", "tools/q/q.py", "tools/q/qdecomp.py", "tools/q/build_fields.py", "docs/native/d3d/A_replay_ops.md"]}
+ ]
+}

@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bench_line as bl
 import burst_rules   # S102 B1
+import census_phase   # S102 CEN1
 
 LINE_START = re.compile(r'\[ab_flip\] on at frame (\d+): period (\d+) settle (\d+) anchor (\d+) start (\d+) cycle ([A-Za-z0-9,]+) \(reference = ([A-Za-z0-9]+)\)')
 LINE_SPEC = re.compile(r'\[ab_flip\] spec (\S+)')
@@ -139,6 +140,23 @@ def read_run(step, run=None):
                 except (ValueError, TypeError, KeyError):
                     pass
     return n, lg, info, rows, power
+
+
+def print_census(step, n, info, ref, tag=''):
+    """S102 CEN1: the census lines of each phase (census_phase.py): a lever whose census never printed in its ON phase is said so."""
+    try:
+        ev = census_phase.read_events(Path(step) / f'wwe2k14_{n}.log')
+    except OSError:
+        print(tag + 'census by phase: the log cannot be read')
+        return
+    seen = {}
+    for p in sorted(info['phases']):
+        seen.setdefault(p[2], p[1])
+    if not any(k == 'marker' for k, _ in ev):
+        print(tag + 'census by phase: NO "[census] flush" MARKER in the log (a build without census_flush.h: the census lines show only every 600 frames)')
+        return
+    for line in census_phase.report(ev, sorted(seen.items()), ref):
+        print(tag + line)
 
 
 def spec_phases(spec):
@@ -473,6 +491,8 @@ def pair_main(a):
         raise Refused('the schedules are not complementary: %d frames (e.g. rel %d) are in the same phase in both runs' % (len(same), same[0]))
     print(f'PAIRED flip job: run 1 {r1["n"]} ({Path(a.step).name}) starts {s1[common[0]][0]}, run 2 {r2["n"]} ({Path(a.pair).name}) starts {s2[common[0]][0]} | anchors: run 1 frame {r1["anchor_frame"]}, run 2 frame {r2["anchor_frame"]} (paired by rel = frame - anchor) |'
           f' settle {r1["settle"]} dropped from both | {len(common)} paired frames, reference {ref}, other {on}')
+    for tag, st_, r_ in (('run 1: ', a.step, r1), ('run 2: ', a.pair, r2)):
+        print_census(st_, r_['n'], r_['info'], ref, tag)
     blocks = {}
     for f in common:
         blocks.setdefault(s1[f][1], []).append((f, s1[f][2], s2[f][2], 1 if s1[f][0] == on else 2))
@@ -612,6 +632,7 @@ def main():
         if wclock and (Path(a.step) / 'power.csv').is_file():   # S102 B1: burst-aware thermal state of the window (burst_rules.py, R28)
             th = burst_rules.classify(burst_rules.read_power(Path(a.step) / 'power.csv'), wclock[0], wclock[1])
             print('heat: ' + burst_rules.text(th) + (f'; window mean {th["perf"]:.0f} %, {th["w"]:.1f} W' if th['perf'] is not None else '') + ' (a flip compares phases inside one run: a BURST window still pairs fairly, its absolute fps is not the bar)')
+        print_census(a.step, n, info, st[6] if st else None)
         print('phase list: ' + ' '.join(f'{p["name"]}{p["no"]}[{p["rows"][0]["frame"]}..{p["rows"][-1]["frame"]}]' for p in phases))
         if problems:
             for p in problems:

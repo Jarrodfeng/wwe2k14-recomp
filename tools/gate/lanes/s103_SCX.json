@@ -1,0 +1,48 @@
+{
+ "owner": "S103 lane SCX (docs/research/s103/SCG.md): the stage screens' live grab survives gaps in drawn frames; cleared only by a scene change, another arena or a size change.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs. scx_unit (rule + census; planted twin gap_rule = the old N3 gap rule). The rig proof is s103_P7H1.",
+ "checks": [
+  {
+   "name": "s103_SCX.build_unit",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_scx_unit.ps1"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s103_SCX.unit",
+   "cmd": [
+    "out/tools/scx_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/live_screen_rule.h",
+    "tools/scene/scx_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SCX.unit_plant_gap_rule",
+   "cmd": [
+    "out/tools/scx_unit.exe",
+    "--plant",
+    "gap_rule"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/live_screen_rule.h",
+    "tools/scene/scx_unit.cpp"
+   ]
+  }
+ ]
+}

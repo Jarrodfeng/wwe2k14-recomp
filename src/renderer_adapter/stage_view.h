@@ -22,6 +22,10 @@ inline std::atomic<bool> g_playing{false};    // the director: a stage push is d
 inline bool g_force = false;                  // fview only (--stage-view): every frame counts as stamped (captures made before the stamp existed)
 inline int g_pick_fault = 0;                  // fview only (--stage-pick-fault last_by_id|first_by_id): planted twins of the target pick, 1 = the highest-id declared SceneColor, 2 = the lowest-id one
 
+inline std::atomic<bool> g_host_enabled{false};   // S103 SVO: --wwe2k14_rdr_stage_view, set only by the OFF host start (host_start.cpp). live_scene.cpp stamps kSceneStagePlaying from THIS, never from g_enabled: an ON-build game (reader.h sets g_enabled) must not carry the bit.
+// Guest thread, at record build: should the record carry kSceneStagePlaying (scene_record.h)?
+inline bool StampHostFrame() { return g_host_enabled.load(std::memory_order_relaxed) && g_playing.load(std::memory_order_relaxed); }
+
 inline void SetPlaying(bool playing) { g_playing.store(playing, std::memory_order_relaxed); }
 // Guest thread, at capture: should this frame be stamped?
 inline bool StampFrame() { return g_enabled && g_playing.load(std::memory_order_relaxed); }

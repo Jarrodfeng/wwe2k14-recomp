@@ -1,0 +1,9 @@
+{
+ "owner": "S103 lane C2: the stage's live writers (src/scene_live/stage_fx_*.h, src/renderer_scene/yuv_rgba.h, screen_feed_yuv.h, arena_contrib MovingSlots, arena_world_glue StageSetupHook line, wwe2k14_app.h registration). 0 game runs.",
+ "checks": [
+  {"name": "s103_C2.stage_fx", "cmd": ["py", "-I", "tools/scene/stage_fx_check.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/scene_live/stage_fx_*.h", "src/scene_live/arena_contrib.*", "src/scene_live/arena_world_glue.h", "src/renderer_scene/yuv_rgba.h", "src/renderer_scene/screen_feed_yuv.h", "src/renderer_scene/rf_c.h", "src/renderer_scene/rf_screens.cpp", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.*", "tools/scene/stage_fx_unit.cpp", "tools/scene/stage_fx_check.py", "tools/scene/cae_literals_lint.py", "src/scene_live/arena_id_core.h", "src/scene_live/arena_hooks.h", "src/scene_live/inputs_core.h", "src/scene_live/inputs_contrib.h"]},
+  {"name": "s103_C2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/wwe2k14_app.h", "src/scene_live/*"]}
+ ]
+}

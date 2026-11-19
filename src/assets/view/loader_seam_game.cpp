@@ -162,6 +162,7 @@ bool ViewerEntrance(int wrestler, assets::entrance::Show& out, std::string& err)
 int ViewerChampBank(int wrestler) { return g_ready ? assets::entrance::ChampBank(g_files, wrestler) : -1; }
 
 int ViewerPropPach(unsigned prop_id) { return g_ready ? assets::PropPach(g_files, prop_id) : -1; }
+int ViewerOrdinalOfModelKey(int id, int key) { return g_ready ? assets::OrdinalOfModelKey(g_files, id, key) : -1; }  // S103 R
 int ViewerPropPachDir(unsigned prop_id) {
   if (!g_ready) return -1;
   std::string err;

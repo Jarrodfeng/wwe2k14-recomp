@@ -130,6 +130,14 @@ def all_pacs():
             if f.lower().endswith('.pac'):
                 p = os.path.join(dp, f)
                 out.append((os.path.relpath(p, pacdir).replace(os.sep, '/'), p))
+    # PN5 (S103): UI_PACS_EXTRA = extra read-only roots (';' separated), e.g. game_data\dlc (the DLC packs' DLC_HD_dlcPP.pac hold roster renders).
+    # Their rel names are prefixed 'x<k>/' so they never collide with the base pacs.
+    for k, root in enumerate(r for r in os.environ.get('UI_PACS_EXTRA', '').split(';') if r):
+        for dp, dn, fn in os.walk(root):
+            for f in sorted(fn):
+                if f.lower().endswith('.pac'):
+                    p = os.path.join(dp, f)
+                    out.append(('x%d/%s' % (k, os.path.relpath(p, root).replace(os.sep, '/')), p))
     return sorted(out)
 
 

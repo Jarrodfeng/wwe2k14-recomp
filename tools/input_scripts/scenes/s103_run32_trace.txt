@@ -1,0 +1,34 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=2 --wwe2k14_rdr_scene_sentinel=30 --wwe2k14_rdr_scene_changes=true --wwe2k14_rdr_scene_particles_by_presence=true --wwe2k14_rdr_scene_crowd_by_presence=true --wwe2k14_rdr_ring_d3=1 --wwe2k14_scene_records=true --wwe2k14_rdr_scene_census=true --wwe2k14_rdr_scene_sheet_every=300 --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_stage_vis=true --wwe2k14_dump_targets=9000,11400,12520,13720,14020 --wwe2k14_trace=0x82BD35B0/3000,0x82BD2010/3000
+# Session 103 run 32 R13 TRACE VARIANT (COVERAGE BUILD ONLY: out\build\win-amd64-coverage; `--wwe2k14_trace` does not exist in the normal exe, PLAYBOOK Quick start 'Trace a function without a rebuild'). Same route and flags as s103_run32.txt plus:
+#  --wwe2k14_trace=0x82BD35B0/3000,0x82BD2010/3000 : the next 3000 calls of each (the body skin pass sub_82BD35B0 and the skeleton update sub_82BD2010), one log line each: `[wwe2k14][trace] 0x82BD35B0 #n from 0xRET r3=SKELETON ... (frame F, thread T)`
+#  and the matching `-> r3=` return lines. r3 = the skeleton / model object; the return address is the 'from' value. Read after: group the lines by r3 for ONE body skeleton (a wrestler's: the one whose r3 repeats every frame) and compare
+#  the calls per frame and their 'from' before and after mode 2 starts skipping (frame ~ match start) to see which caller stops calling (R13: the game side's pose / palette update stops in mode 2). One run, 0 re-runs.
+#  Do not run it together with the check run: the coverage exe is slower and its walks are timed differently.
+# Session 103 run 32 (S103 L1C: LANDING 1 CANDIDATE, the first honest mode-2 run): run 31's route WITHOUT --wwe2k14_rdr_scene_force_inputs. Every held input is now stamped by default
+#  (bits 4 light_states, 7 caster_entries, 10 crowd_snapshot, 11 particles, 17 stage_clock; hold_switch.h): a frame goes OURS only when ALL 18 required inputs are stamped; the rest fall back whole to the game.
+#  Needs a +dev exe for the sentinel (a release exe ignores sentinel and the override; then the run has no planned walks). Presence switches are cvar defaults now; they stay on the command line to say so.
+#  BISECT, no rebuild: add --wwe2k14_rdr_scene_hold=<bits or names> (e.g. 7,17 or particles) to the flags line: a held input is never stamped, so frames that need it stay the game's (the census line
+#  `[scene][inputs] ... [held by --wwe2k14_rdr_scene_hold: ...]` and `[scene][frame] L1C: hold mask` say it worked). Hold ALL five (4,7,10,11,17) = the pre-L1C behaviour (no OURS frame without the override).
+# Read after (same list as run 31, plus the question this run asks): [scene][render] ours O, walked W, holes H  (is O > 0 WITHOUT the override: which inputs block the rest: the census's `blocks the frame` / decision reasons);
+#  [scene][inputs] stamps per bit (4 / 7 / 10 / 11 / 17 must be > 0); wrestler_light caster_stamps / caster_unstamped (bit 7); crowd_snapshot presence stamped; [scene][particles] presence stamped; stage_clock changes ours;
+#  every latch == walk census on the sentinel frames as in run 31; sheets: mirror pairs at the sentinel frames AND the OURS frames' own pictures (the point of landing 1: mode 2 draws the player's frames).
+# Marks: 1 entrances, 2 match_clock, 3 mid, 4 end. on_fail quit.
+on_fail quit
+log bench: start scene s103_run32
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+log scene=entrances
+mark 1 entrances
+wait_state match_clock >0 30000
+log scene=match
+mark 2 match_clock
+wait_frames 1500
+log scene=match_mid
+mark 3 mid
+wait_frames 1500
+log scene=end (match clock +3000)
+mark 4 end
+log bench: done
+quit

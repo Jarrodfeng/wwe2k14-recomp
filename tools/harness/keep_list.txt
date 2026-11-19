@@ -1,0 +1,102 @@
+# The ONE keep list for out\ (S102 TIDY2, Jarrod 2026-11-15: "out should be scratch"). Committed; read by tools\harness\tidy.py.
+# Everything in out\ not held goes at the end of a session. Held: tidy_out.py's allowlist (out\build is SACRED), this list, and exact paths a gate lane
+# names (tools\gate\lanes\*.json needs / programs / exes / command arguments).
+# Format, one line each:   out/exact/path | reason | optional until YYYY-MM-DD
+#   - an EXACT path (a file, or a leaf folder): never a container (out/cases, out/captures, out/sNNN, a runs folder), never an unpack copy (fview_unpack_*)
+#   - a reason is required; an entry past its date stops holding (printed as a problem)
+#   - every held path is printed with its size on every pass; over 5 GB it says "BIG: confirm with Jarrod"
+# A KEEP file in a folder no longer protects anything: add the path here.
+
+# --- Jarrod's test-run setups: the Quick start names them as the user-data mirrors for routes (small)
+out/bench/userdata_unlocked_s91 | test user data with everything unlocked, named by the PLAYBOOK Quick start (tools\bench\run_list.ps1 routes)
+out/bench/userdata_wm30open_s101 | test user data for the WM30 open route, named by the PLAYBOOK Quick start
+out/bench/reference | tron reference CSVs: tools\bench\bench_report.py reads them (16-17 KB each, from Oct 2026)
+
+# --- check settings the owned_check runs read (tiny json files)
+out/owned_check/settings_native720.json | owned_check 720 settings file, PLAYBOOK Quick start
+out/owned_check/settings_native1440.json | owned_check 1440 settings file, SESSION101_PLAN
+
+# --- the tool exes the Quick start lists (rebuild = tools\build_tools; kept so the first run of a session does not wait for a build)
+out/tools/atlas.exe | Quick start: the atlas tool
+out/tools/loopback_rec.exe | Quick start: loopback audio recorder
+out/tools/rsc_dump.exe | Quick start: scene file dump
+out/tools/wwe2k14_assets_rdr.exe | Quick start: the asset renderer tool
+
+# --- the captures the gate corpus plays (tools\gate\corpus.py plays EVERY folder in out\captures; each is also named exactly by tools\gate\lanes\core.json)
+# (held through the lane's exact names, not repeated here)
+
+# --- Android test build Jarrod installs
+out/android/apk/wwe2k14-android-s102rc1-bundle3.apk | the newest test APK STATUS.md names (Jarrod installs it)
+out/android/apk/notes_android-v0.3.3.md | its release notes, named by STATUS.md
+out/s103/run26_case.zip | S103 run 26 (7276) mode-1 CPU v CPU match case: ring / crowd / clocks / screens lanes read it offline | 2026-11-23
+out/s103/run26_live | S103 run 26 mirror pictures (sheet source) | 2026-11-23
+out/s103/run27_case.zip | S103 run 27 (7277) mirror entrances + match case: ring_compare release, crowd latch, hands | 2026-11-23
+out/s103/run27_live | S103 run 27 mirror pictures | 2026-11-23
+out/s103/run28_case.zip | S103 run 28 (7278) mirror entrances + match after the afternoon merges: lanes' offline checks | 2026-11-23
+out/s103/run28_live | S103 run 28 mirror pictures | 2026-11-23
+out/s103/stage_page | S103 run 28 stage-page dumps (the game's page = fade_lightmap01 held, fade a = t/600) | 2026-11-23
+out/s103/run29_case.zip | S103 run 29 (7279) mirror after E8 / L14 / D9: lanes' offline checks | 2026-11-23
+out/s103/run29_live | S103 run 29 mirror pictures | 2026-11-23
+out/build/win-amd64-release/logs/wwe2k14_7285.log | S103 run 30 log (mode 2 forced, changes census) | 2026-11-23
+out/s103/stage_mirror | S103 run 30 stage dumps (T7) | 2026-11-23
+out/s103/run30 | S103 run 30 sheet | 2026-11-23
+out/captures/a00_entrance | S103 harvest arena 0 (sweep start 7281) | 2026-11-23
+out/captures/a00_match | S103 harvest arena 0 (sweep start 7281) | 2026-11-23
+out/harness/coverage | which functions ran per scenario (q fn); cannot be rebuilt without game runs; the decomp experiment's reading filter (S103_DECOMP_EXPERIMENT_REVIEW Q3.4) | 2026-12-31
+out/captures/a08_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a08_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a16_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a16_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a30_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a30_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a44_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a44_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a55_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/a55_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/d02_entrance | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/captures/d02_match | S103 decomp experiment SEALED arena capture (answer key; 8 game runs) | 2026-12-31
+out/s103/run31 | S103 run 31 sheets + live pairs | 2026-12-31
+out/s103/decomp | S103 decomp experiment claims, predictions, sealed tables | 2026-12-31
+out/captures/c2d_title | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_menu | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_options | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_play | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_oneonone | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_select | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_load | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_entrance_tron | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_entrance_s15 | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_entrance_s15_300 | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_match_hud | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_pause | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_pause_row | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_creations | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_editor | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_template | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_other | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_form | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/captures/c2d_caw_saving | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
+out/s103/run36_pics | run 36 (7303) mirror / dump pictures copied out (honest mode 2; for sheets / comparisons) | 2026-11-24
+out/gate/times.csv | the gate's per-check timing ledger since 2026-11-14 (timings only, nothing from the game): half of the S103 audit's evidence; audits rerun on it | 2026-12-31
+out/s103/run38_pairs | run 38 (7305) mirror pairs (CLK diagnosis; FH / RM probes read them) | 2026-11-24
+out/s103/run39_pairs | run 39 (7306) mirror pairs (CLK2 live check) | 2026-11-24
+out/s103/ab2_pics | A/B pair 7309 (ours every frame) / 7310 (game), landing-1 sheet | 2026-11-24
+out/s103/off1_pics | first stream-free run (wwe2k14_001, out\build\win-amd64-release-off): 2D only, 3D blocked by bit 10 | 2026-11-24
+out/s103/off3_pics | stream-free run 003 (first with 3D) | 2026-11-24
+out/s103/ab3_pics | A/B pair 7311 / 7312 | 2026-11-24
+out/s103/s5 | anchored A/B 7313/7314 + stream-free 004 (HN merged) | 2026-11-24
+out/s103/cvo | offline coverage harvest: sheet, results, inventory, the cvo host_rig copy | 2026-11-24
+out/s103/sr | landing-2 Surface run (sr_bar / sr_unc / sr_ff) | 2026-11-24
+out/s103/sg/sg_roles | SG per-role GPU stamps A vs B, Surface job (ab folders, logs, frames csv) | 2026-11-24
+out/s103/sg2/sg_roles2 | SG second Surface job: exact-window per-role GPU stamps A vs B (HEAD 307b7f9aa) | 2026-11-24
+out/s103/LV1 | LV1 live-run screenshots for the main session to send to Jarrod | 2026-11-25
+out/s103/LV2 | LV2 live-run screenshots for the main session | 2026-11-25
+out/s103/LV3 | LV3 live-run sheets/shots | 2026-11-25
+out/s103/LV4 | S103 LV4 live-run logs, verdicts and sheets (CAW + plain match) | 2026-12-01
+out/s103/LV5 | LV5 logs, shots, verdicts | 2026-11-25
+out/s103/LV6 | LV6 CAW logs, shots, sheets, scripts (S103 read-only evidence) | 2026-12-01
+out/s103/LV7 | S103 LV7 CAW editor runs 018/019 (logs, shots, sheets) | 2026-11-25
+out/s103/LV8 | LV8 CAW run logs, sheet, shots for the next CAW round | 2026-11-25
+out/android/apk/wwe2k14-android-s103-streamfree.apk | S103 stream-free test APK on Jarrod's WebDAV (ANS); he installs it | 2026-11-25
+out/captures/s100_heenan_build | S103 CMP2 / K44: Heenan attire-build capture: geometry, draw order, 2048x1024 cut are valid; its 3 RGBA4 mask textures (images 1649-1651) hold the PRE-FIX nibble order (stored by S100s uncommitted morning build), so its COLOURS are not a reference (docsesearchs103K44.md); 27 MB | 2026-12-03
+out/android/apk/notes_android-v0.4.0.md | the android-v0.4.0 release notes (draft, S103)

@@ -54,11 +54,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 import check_effect_ucode as uc
 
-H = os.path.join(REPO, 'out', 's100', 'harness')      # tidy: output  (S102 K1: a scratch workspace, 39 GB of built harness, not a gate input)
+import dataroot
+DATA = dataroot.data_root(REPO)   # S103 T6: out\ and game_data\ live in the main checkout when this runs from a worktree
+H = os.path.join(DATA, 'out', 's100', 'harness')      # tidy: output  (S102 K1: a scratch workspace, 39 GB of built harness, not a gate input)
 BIN = os.path.join(H, 'bin')
 TRANSLATE = os.path.join(BIN, 'check_effect_translate.exe')
 RUNNER = os.path.join(BIN, 'check_effect_run.exe')
-DISASM = os.path.join(REPO, 'out', 's100', 'disasm', 'ucode_disasm.exe')
+DISASM = os.path.join(DATA, 'out', 's100', 'disasm', 'ucode_disasm.exe')
 SDKBIN = None
 for d in sorted(glob.glob(r'C:\VulkanSDK\*'), reverse=True):
     if os.path.exists(os.path.join(d, 'Bin', 'glslangValidator.exe')):
@@ -81,6 +83,7 @@ def run(cmd, what):
 
 def ensure_tools():
     os.makedirs(BIN, exist_ok=True)
+    os.environ['PATH'] += r';C:\Program Files\LLVM\bin'   # S103 T6: clang++ for the runner, also from a plain shell
     if not os.path.exists(TRANSLATE):
         raise SystemExit('missing %s: run pwsh -NoProfile -File tools\\shaders\\harness\\check_effect_build_translate.ps1' % TRANSLATE)
     if not os.path.exists(RUNNER):

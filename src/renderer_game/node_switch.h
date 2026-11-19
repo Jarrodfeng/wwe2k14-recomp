@@ -23,6 +23,7 @@ enum class Pass : uint8_t {
   Post = 6,         // node [U]
   Particles = 7,    // sub_82254E30 (retire scan stays the game's)
   CrowdNode = 8,    // sub_82519508
+  Scene3D = 9,      // S103 lane S: the whole 3D scene, one decision per frame (docs\renderer\FRAME_CONTRACT.md, scene_frame.h)
   Count
 };
 inline constexpr int kPassCount = int(Pass::Count);
@@ -47,6 +48,8 @@ struct Policy {
   uint32_t hold_frames = 60;          // decisions answered GameWalks after a miss
   uint32_t strike_window_frames = 600;
   uint32_t strikes_to_latch = 3;      // holds inside the window that latch the pass off for the session
+  uint32_t loading_warn = 4;          // S103 L31A: loading episodes inside the window that raise the one WARN (TakeLoadingWarn)
+  uint32_t loading_latch = 10;        // S103 L31A: loading episodes inside the window that latch the pass off (a load that never ends / a rebuild flap)
 };
 
 // Per-pass state shared by the record thread (Decide) and the render thread (Ready / ReportMiss). Lock-free.
@@ -54,12 +57,18 @@ struct PassState {
   std::atomic<bool> ready{false};             // render side: our resources for this pass exist
   std::atomic<uint32_t> required_inputs{0};   // bit per input the pass needs (registered by the lane at start)
   std::atomic<uint64_t> input_frame[32] = {}; // the guest frame each input was last captured for
-  std::atomic<uint64_t> hold_until{0};        // GameWalks while frame < hold_until
+  std::atomic<uint64_t> hold_until{0};        // GameWalks while frame < hold_until (raised by the record side too: planned light walks, the sentinel; only ever raised: RaiseHold)
+  std::atomic<uint64_t> miss_hold_until{0};   // S103 L31A: written ONLY by ReportMiss: the "same event" test reads this, never hold_until (a planned hold ahead of a real fault must not swallow it)
+  std::atomic<uint64_t> loading_frames[16] = {};
+  std::atomic<uint32_t> loading_next{0};
+  std::atomic<bool> loading_warn_pending{false};
   std::atomic<uint64_t> strike_frames[4] = {};
   std::atomic<uint32_t> strike_next{0};
   std::atomic<bool> latched{false};
   // counters
   std::atomic<uint64_t> ours{0}, walks{0}, misses{0}, holes{0}, doubles{0};
+  // S103 S (lane A review 6): a never-stamped input must not match any frame (0 would satisfy a lag-1 input at frame 1)
+  PassState() { for (auto& f : input_frame) f.store(~0ull, std::memory_order_relaxed); }
 };
 
 inline std::array<PassState, kPassCount> g_pass;
@@ -84,23 +93,47 @@ inline uint32_t InputsMask(Pass p, uint64_t frame) {
 // --- render side
 inline void SetReady(Pass p, bool r) { S(p).ready.store(r, std::memory_order_release); }
 
+// hold_until only ever goes up (a CAS max): the record thread's planned holds and the render thread's miss holds race, and the later one must not shorten the earlier.
+inline void RaiseHold(PassState& s, uint64_t want) {
+  uint64_t cur = s.hold_until.load(std::memory_order_relaxed);
+  while (cur < want && !s.hold_until.compare_exchange_weak(cur, want, std::memory_order_acq_rel)) {}
+}
+
 // The render side drew a frame stamped Ours and could not draw the pass: the frame was drawn by neither (a hole). Puts the pass on hold;
 // enough holds inside the window latch it off. Returns true when this miss latched it.
-inline bool ReportMiss(Pass p, uint64_t frame) {
+// S103 L31A (run 30: three strikes at one entrance -> match transition latched the scene off for the session):
+//  - `loading` = the miss is the pass waiting for a resource (an arena Model the loader has not delivered yet): a hole and a hold, not a strike. Loading episodes are counted per
+//    window though: loading_warn raises one WARN (TakeLoadingWarn), loading_latch latches the pass off (a wait that never ends, a rebuild that flaps).
+//  - a miss for a frame inside the hold an earlier MISS set (miss_hold_until) belongs to that event (frames in flight when it landed): a hole, no strike, no new hold.
+// Only a real fault outside a miss hold is a strike.
+inline bool ReportMiss(Pass p, uint64_t frame, bool loading = false) {
   PassState& s = S(p);
   s.misses.fetch_add(1, std::memory_order_relaxed);
   s.holes.fetch_add(1, std::memory_order_relaxed);
-  s.hold_until.store(frame + g_policy.hold_frames, std::memory_order_release);
-  const uint32_t i = s.strike_next.fetch_add(1, std::memory_order_relaxed) % 4;
-  s.strike_frames[i].store(frame, std::memory_order_relaxed);
-  uint32_t in_window = 0;
-  for (auto& f : s.strike_frames) {
-    const uint64_t v = f.load(std::memory_order_relaxed);
-    if (v && frame >= v && frame - v <= g_policy.strike_window_frames) ++in_window;
+  if (frame < s.miss_hold_until.load(std::memory_order_acquire)) return false;   // the same event
+  const uint64_t until = frame + g_policy.hold_frames;
+  s.miss_hold_until.store(until, std::memory_order_release);
+  RaiseHold(s, until);
+  const auto count = [&](std::atomic<uint64_t>* ring, size_t n, std::atomic<uint32_t>& next) {
+    ring[next.fetch_add(1, std::memory_order_relaxed) % n].store(frame, std::memory_order_relaxed);
+    uint32_t in_window = 0;
+    for (size_t k = 0; k < n; ++k) {
+      const uint64_t v = ring[k].load(std::memory_order_relaxed);
+      if (v && frame >= v && frame - v <= g_policy.strike_window_frames) ++in_window;
+    }
+    return in_window;
+  };
+  if (loading) {   // a hole, not a strike: but a wait that keeps coming back is a fault of its own
+    const uint32_t n = count(s.loading_frames, 16, s.loading_next);
+    if (n >= g_policy.loading_warn) s.loading_warn_pending.store(true, std::memory_order_relaxed);
+    return n >= g_policy.loading_latch && !s.latched.exchange(true);
   }
+  const uint32_t in_window = count(s.strike_frames, 4, s.strike_next);
   if (in_window >= g_policy.strikes_to_latch && !s.latched.exchange(true)) return true;
   return false;
 }
+// True once per raise: the caller logs "[scene][frame] WARN: loading episodes keep coming".
+inline bool TakeLoadingWarn(Pass p) { return S(p).loading_warn_pending.exchange(false, std::memory_order_relaxed) && !S(p).latched.load(); }
 
 // The stream held the pass's draws for a frame stamped Ours (the hook did not return): a contract fault.
 inline void ReportDouble(Pass p) { S(p).doubles.fetch_add(1, std::memory_order_relaxed); }
@@ -159,6 +192,12 @@ class Board {
     for (const OwnedPassStamp& s : stamps_)
       if (s.guest_frame == frame) out.push_back(s);
     return out;
+  }
+  // S103 WB: OR bits into the pad byte of the stamp for (pass, frame) when it exists (the scene-walk bit, scene_kind.h kWalkBit). Never creates a stamp and never touches a decision.
+  void OrPad(Pass p, uint64_t frame, uint8_t bits) {
+    std::lock_guard<std::mutex> lock(m_);
+    for (OwnedPassStamp& s : stamps_)
+      if (s.pass == uint8_t(p) && s.guest_frame == frame) s.pad |= bits;
   }
   size_t Size() {
     std::lock_guard<std::mutex> lock(m_);

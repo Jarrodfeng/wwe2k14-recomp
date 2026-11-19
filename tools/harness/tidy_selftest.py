@@ -1,5 +1,9 @@
 """Selftest for tools\\harness\\tidy.py (lane 154, Session 101). 0 game runs; builds fake trees under TIDY_TEST_ROOT.
 
+S102 TIDY2: the suite below tests the OLD time-based lifecycle of out\\ (rolling 6 h / 24 h ages, KEEP files, state-doc names). That lifecycle is gone
+(out\\ is scratch: tidy_out.py); its main() is RETIRED and no gate lane runs it. This file stays only as the helper library (World, age_tree, write,
+junction, git, Results) that tidy_now_selftest.py imports. The out\\ rules are tested by tidy_out_selftest.py.
+
   py tools\\harness\\tidy_selftest.py             the plants (every case below), against the tidy next to this file
   py tools\\harness\\tidy_selftest.py --mutants   every rule removed in turn (a mutated copy of tidy.py): each must make the suite fail
   py tools\\harness\\tidy_selftest.py --refind    the 2026-11-12 case (a live session started 23 h ago, temporary output 10 h old,
@@ -979,5 +983,14 @@ def main():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def retired():
+    # S103 TDS (docs\research\s103\TDS.md, 2026-11-18): this suite tests the pre-TIDY2 time-based rules (32eba5bd5 / 146f40dd9 removed them on
+    # purpose: CLAUDE.md "out\ is scratch"); its 29 failures were all stale expectations, none a tidy regression. The live suites are
+    # tools\harness\tidy_out_selftest.py, tidy_now_selftest.py and tidy_k1_selftest.py (gate lanes s102_tidy2 / s102_k1). This file stays as
+    # the helper library tidy_now_selftest imports.
+    print('tidy_selftest: retired (TIDY2): run tidy_out_selftest / tidy_now_selftest / tidy_k1_selftest')
+    return 0
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(retired())

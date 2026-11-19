@@ -22,7 +22,7 @@
 namespace {
 
 using rdr_scene::TablesPool;
-constexpr size_t kExpectedSceneTablesSize = 1072;   // this test build (clang for Windows x64, MSVC STL, release, with the plant members of record_io.h)
+constexpr size_t kExpectedSceneTablesSize = 1872;  /* S103 W2B: +24 (bone_tags vector for record section 66; Recycle clears it: record_io.cpp; the size moved for section 66, measured by sizeof) */  /* S103 KS1: +24 (props_light vector; Recycle clears it: record_io.cpp; measured by sizeof) */  /* S103 SWF: +80 (liquid_maps, liquid_items, liquid_pictures vectors 72 + liquid_errors 4, padded; Recycle clears them: record_io.cpp; measured by sizeof) */  /* S103 CPU1: +16 (ArenaMemo gained lights_key + lights_n: the light rows' key made once per record; Recycle / ExpandInto reset it; measured by sizeof with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS) */  /* S103 CW-2b: +80 (guest_models, static_assert in guest_model_rows.h); merged with the weapons +80: sizeof(SceneTables) = 1728 with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS, computed by sizeof at the merge */  /* S103 PW-2: +56 (weapon_calls, weapon_nodes, weapon_call_errors) */  /* S103 PW-1: +24 (weapon_slots vector) */  /* S103 MP: +24 (ParticleTables::screen vector; MPBF fix 1) */  /* S103 I1: +32 (quads2d vector 24 + quad2d_errors 4, padded) */  /* S103 D6: +24 (crowd_pictures) */  /* S103 E5: +48 (plane_eyes, part_clocks) */  /* S103 D4: +48 (crowd_props, crowd_singles) */  // S103 L: 1344 (the session branch) + lane L stage_look 24 (the vector); S103 S + A + A2 + C + F (1072 + owned_passes 24 + lane A 88 + lane A2 56 + lane C 56 + lane F 48; computed at the merge)   // this test build (clang for Windows x64, MSVC STL, release, with the plant members of record_io.h) // S103 F2: +24 (ParticleTables::status vector), measured
 namespace so = rdr_scene::swap_once;
 
 // ---- 1 / 2: the writer's path ---------------------------------------------------------------------------------------------------------------
@@ -103,9 +103,16 @@ void FillEverything(SceneTables& t, StringPool* seed_from) {
   for (const char* s : {"alpha", "beta", "gamma"}) t.AddString(s);
   auto two = [](auto& v) { v.resize(2); };
   two(t.assets), two(t.objects), two(t.bones), two(t.params), two(t.lights), two(t.sprites), two(t.texts), two(t.movies), two(t.targets);
-  two(t.engine_objects), two(t.light_states), two(t.light_refs), two(t.circle_shadows), two(t.circle_mesh), two(t.plane_frames), two(t.plane_draws), two(t.arena_worlds);
-  two(t.ring_rows), two(t.ring_nodes), two(t.caster_calls), two(t.caster_nodes), two(t.caster_mats), two(t.caster_states), two(t.caster_extras), two(t.sphere_occ), two(t.crowd_runs), two(t.crowd_members);
-  t.plane_errors = t.circle_errors = t.arena_world_errors = t.ring_errors = t.caster_errors = t.sphere_errors = 5;
+  two(t.engine_objects), two(t.light_states), two(t.light_refs), two(t.circle_shadows), two(t.circle_mesh), two(t.plane_frames), two(t.plane_draws), two(t.arena_worlds), two(t.plane_eyes), two(t.props_light), two(t.bone_tags), two(t.part_clocks), two(t.liquid_maps), two(t.liquid_items), two(t.liquid_pictures);  // S103 E5; S103 SWF
+  two(t.ring_rows), two(t.ring_nodes), two(t.caster_calls), two(t.caster_nodes), two(t.caster_mats), two(t.caster_states), two(t.caster_extras), two(t.sphere_occ), two(t.crowd_runs), two(t.crowd_members), two(t.owned_passes);  // S103: owned_passes
+  t.particles.batches.resize(1), t.particles.batches[0].count = 2, t.particles.particles.resize(2), t.particles.status.resize(1), t.particles.screen.resize(1);  // S103 MP: + the screen row; S103 F / F2: the particle tables (a valid pair + the status row)
+  two(t.quads2d);  /* S103 I1: two VALID rows (a default row is refused by Quads2DProblem and would drop the section) */
+  for (size_t i = 0; i < t.quads2d.size(); ++i) t.quads2d[i].kind = rdr_scene::kQkRect, t.quads2d[i].nverts = 4, t.quads2d[i].have = rdr_scene::kQhVerts, t.quads2d[i].seq = uint32_t(i + 1);
+  two(t.weapon_slots);  // S103 PW-1
+  two(t.model_lights), two(t.stage_fx), two(t.stage_look), two(t.crowd_props), two(t.crowd_singles), two(t.crowd_pictures);  // S103 C, S103 L, S103 D4, S103 D6
+  two(t.weapon_calls), two(t.weapon_nodes), t.weapon_call_errors = 5;  // S103 PW-2
+  t.plane_errors = t.circle_errors = t.arena_world_errors = t.clock_errors = t.ring_errors = t.caster_errors = t.sphere_errors = t.c_errors = t.quad2d_errors = 5;
+  t.quad2d_holes = 5;  // S103 L2a
 }
 
 // What a fresh table is, as far as the public surface can tell. Returns what differs ("" = nothing).
@@ -115,12 +122,16 @@ std::string FreshProblem(SceneTables& t) {
   auto sz = [&](const char* n, size_t v) { if (v) p += std::string(n) + " has " + std::to_string(v) + " elements; "; };
   sz("assets", t.assets.size()), sz("objects", t.objects.size()), sz("bones", t.bones.size()), sz("params", t.params.size()), sz("lights", t.lights.size()), sz("sprites", t.sprites.size());
   sz("texts", t.texts.size()), sz("movies", t.movies.size()), sz("targets", t.targets.size()), sz("engine_objects", t.engine_objects.size()), sz("light_states", t.light_states.size());
-  sz("light_refs", t.light_refs.size()), sz("circle_shadows", t.circle_shadows.size()), sz("circle_mesh", t.circle_mesh.size()), sz("plane_frames", t.plane_frames.size());
+  sz("light_refs", t.light_refs.size()), sz("circle_shadows", t.circle_shadows.size()), sz("circle_mesh", t.circle_mesh.size()), sz("plane_frames", t.plane_frames.size()), sz("plane_eyes", t.plane_eyes.size()), sz("part_clocks", t.part_clocks.size()), sz("liquid_maps", t.liquid_maps.size()), sz("liquid_items", t.liquid_items.size()), sz("liquid_pictures", t.liquid_pictures.size());  // S103 E5; S103 SWF
   sz("plane_draws", t.plane_draws.size()), sz("arena_worlds", t.arena_worlds.size()), sz("ring_rows", t.ring_rows.size()), sz("ring_nodes", t.ring_nodes.size());
   sz("caster_calls", t.caster_calls.size()), sz("caster_nodes", t.caster_nodes.size()), sz("caster_mats", t.caster_mats.size()), sz("caster_states", t.caster_states.size());
-  sz("caster_extras", t.caster_extras.size()), sz("sphere_occ", t.sphere_occ.size()), sz("crowd_runs", t.crowd_runs.size()), sz("crowd_members", t.crowd_members.size());
+  sz("caster_extras", t.caster_extras.size()), sz("sphere_occ", t.sphere_occ.size()), sz("crowd_runs", t.crowd_runs.size()), sz("crowd_members", t.crowd_members.size()), sz("owned_passes", t.owned_passes.size()), sz("particle_batches", t.particles.batches.size()), sz("particles", t.particles.particles.size()), sz("particle_status", t.particles.status.size()), sz("particle_screen", t.particles.screen.size());  // S103: + owned_passes, particles
+  sz("model_lights", t.model_lights.size()), sz("stage_fx", t.stage_fx.size()), sz("stage_look", t.stage_look.size()), sz("crowd_props", t.crowd_props.size()), sz("crowd_singles", t.crowd_singles.size()), sz("crowd_pictures", t.crowd_pictures.size()), sz("c_errors", t.c_errors);  // S103 C, S103 L, S103 D4
+  sz("quads2d", t.quads2d.size()), sz("quad2d_errors", t.quad2d_errors), sz("weapon_slots", t.weapon_slots.size());  // S103 I1; S103 PW-1
+  sz("weapon_calls", t.weapon_calls.size()), sz("weapon_nodes", t.weapon_nodes.size()), sz("weapon_call_errors", t.weapon_call_errors);  // S103 PW-2
+  if (t.quad2d_holes != rdr_scene::kQuad2DNotTaken) p += "quad2d_holes is " + std::to_string(t.quad2d_holes) + "; ";  // S103 L2a
   sz("strings", t.strings.size());
-  sz("plane_errors", t.plane_errors), sz("circle_errors", t.circle_errors), sz("arena_world_errors", t.arena_world_errors), sz("ring_errors", t.ring_errors);
+  sz("plane_errors", t.plane_errors), sz("circle_errors", t.circle_errors), sz("arena_world_errors", t.arena_world_errors), sz("clock_errors", t.clock_errors), sz("ring_errors", t.ring_errors);
   sz("caster_errors", t.caster_errors), sz("sphere_errors", t.sphere_errors);
   if (t.has_camera) p += "has_camera; ";
   if (std::memcmp(&t.header, &fresh.header, sizeof t.header) != 0) p += "header; ";

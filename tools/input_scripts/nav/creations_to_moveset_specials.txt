@@ -1,0 +1,48 @@
+# harness: flags --wwe2k14_load_probe=true --wwe2k14_file_trace=true --wwe2k14_flight_recorder=true
+# nav: CREATIONS -> Create a Moveset -> a superstar -> the SIGNATURE / FINISHERS page. S103 (players #172 #174 #177: endless
+# loading there; docs/research/s103/MVL.md section 5). `include creations_to_moveset_specials` (it includes menu_to_creations itself).
+# Start: the CREATIONS list (menu 3), cursor 0. Normal speed preferred (the editor pages have no states in states.toml yet).
+# End:   the Signature / Finishers page on screen, or its loading screen (the stall dump + "[wwe2k14][load] stall:" line
+#        in the log name the blocked call after 5 s; the route waits 30 s there).
+# UNCERTAIN STEPS (written without a run, S103 builder; the first run fixes them, 0 verified):
+#   1. FIXED 2026-11-18 23:5x from run 005's sc_c2d_caw_creations shot: the CREATIONS list reads SUPERSTAR, SUPERSTAR THREADS,
+#      ENTRANCE, MOVE-SET, SPECIAL MOVE, STORY, ARENA, CHAMPIONSHIP -> MOVE-SET is cursor 3, its word "MOVE-SET".
+#   2. the superstar pick: guessed the first roster entry, plain A (maybe a roster filter / "NEW" first).
+#   3. the Signature / Finishers entry in the moveset editor's category list: guessed 3 DOWN + A; the wait_text strings
+#      MOVESET and SIGNATURE are guesses of the on-screen words (wait_text times out -> use wait_frames from a shot).
+include menu_to_creations
+on_fail quit
+press_until_state DOWN cursor 3 24 30 5 if_needed
+press A
+# Run 007 (2026-11-18 23:54) showed the screens: CUSTOM MOVE-SET (SUPERSTAR / DOWNLOADABLE CONTENT / CUSTOM SUPERSTAR) -> SELECT SUPERSTAR
+# (the roster, a highlighted card; its title is an image: the text reader sees only the names, so the wait reads WADE BARRETT, run 008). A press 120 frames after the menu change was dropped, so every step waits for its screen.
+wait_text CUSTOM MOVE-SET 600
+wait_frames 90
+press A
+wait_text WADE BARRETT 900
+wait_frames 90
+press A
+wait_frames 900
+screenshot ms_editor
+# Run 009 shot (009_ms_editor): <NAME> / CATEGORIES = STANDARD ACTIONS, STANDING, GROUND, CORNER, ROPE, APRON, DIVING, RUNNING, TAG TEAM,
+# SPECIAL MOVES (row 9: Signature / Finishers live here), ABILITIES, MOVE-SET TEMPLATES, DEFAULT, ACCEPT; cursor starts on row 0. The text
+# reader does not read this list (it saw "AJ LEE | SELECT | ??? | BACK"), so the rows are counted.
+repeat 9
+press DOWN
+wait_frames 20
+end_repeat
+wait_frames 30
+screenshot ms_special_row
+press A
+wait_frames 900
+screenshot ms_specials
+# Run 010 shot (010_ms_specials): <NAME> / SPECIAL MOVES = COMEBACK, WAKE-UP TAUNT, SIGNATURES (row 2), FINISHERS (row 3), CUSTOM SPECIAL
+# MOVE (grey), ROYAL RUMBLE, LADDER, CELL; cursor on row 0 (A there = "Equip the Comeback ability" dialog). Then 30 s on the page that loads.
+repeat 2
+press DOWN
+wait_frames 20
+end_repeat
+wait_frames 30
+press A
+wait_frames 1800
+screenshot ms_signature

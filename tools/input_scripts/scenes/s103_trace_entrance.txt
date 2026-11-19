@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 run 7 (coverage exe, traces armed at the tron so per-frame functions do not spend their budget at boot):
+# lane L: which of sub_827F8730 / sub_82417D98 / sub_8233B418 runs last in an entrance frame (the stage look's live writer);
+# lane A2: 0x826203E8 (light install args) and 0x82812E90 (r3-r5). brock_entrance.txt's route, quits at step 15 + 300.
+on_fail quit
+log bench: start scene s103_trace_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+cvar wwe2k14_trace 0x827F8730/60,0x82417D98/60,0x8233B418/60,0x826203E8/300*r3*r4,0x82812E90/60*r3*r4*r5
+log s103: traces armed (tron + 300)
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+cvar wwe2k14_trace 0x827F8730/60,0x82417D98/60,0x8233B418/60
+log s103: order traces re-armed (step 15)
+wait_frames 300
+log bench: done
+quit

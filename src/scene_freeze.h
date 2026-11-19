@@ -91,6 +91,7 @@
 #include <vector>
 
 #include "frame_stats.h"
+#include "task_group_walk.h"  // S103 FDP: the one task-group walk
 #include "guest_read.h"  // GuestWordReadableFast (the auto freeze's slot reads)
 #include "step_rate.h"  // LoadU32 / StoreU32, the timing block, g_in_game
 
@@ -312,26 +313,21 @@ inline void RunnerEnter(PPCContext& ctx, uint8_t* base) {
   // Single tasks of the groups that keep running.
   g_task_restore.clear();
   const uint32_t owner = ctx.r3.u32;
-  const uint32_t g0 = LoadU32(base, owner + 32), g1 = LoadU32(base, owner + 40);
-  if (g1 < g0 || g1 - g0 > 64 * 16) return;
-  for (uint32_t g = g0; g < g1; g += 16) {
-    const uint32_t b = LoadU32(base, g), e = LoadU32(base, g + 8);
-    if (e < b || e - b > 4096) continue;
-    for (uint32_t p = b; p < e; p += 4) {
-      const uint32_t t = LoadU32(base, p);
-      if (t < 0x40000000u || t >= 0xE0000000u) continue;  // -1 = empty slot
-      const uint32_t vt = LoadU32(base, t);
-      if (vt < 0x82000000u || vt >= 0x84000000u) continue;
-      const uint32_t fn = LoadU32(base, vt + 4);
-      bool skip = false;
-      for (uint32_t s : kSkipFns) skip |= fn == s;
-      if (!skip) continue;
-      const uint32_t on = LoadU32(base, t + 8);
-      if (!on) continue;
-      g_task_restore.push_back({t, on});
-      StoreU32(base, t + 8, 0);
-    }
-  }
+  // The one walk of the runner's groups (src\task_group_walk.h, shared with the scene-input reader).
+  const auto rd = [&](uint32_t a, uint32_t& v) { v = LoadU32(base, a); return true; };
+  task_walk::ForEachGroupTask(rd, owner, task_walk::kAll, [&](uint32_t t, uint32_t) {
+    const uint32_t vt = LoadU32(base, t);
+    if (vt < 0x82000000u || vt >= 0x84000000u) return false;
+    const uint32_t fn = LoadU32(base, vt + 4);
+    bool skip = false;
+    for (uint32_t s : kSkipFns) skip |= fn == s;
+    if (!skip) return false;
+    const uint32_t on = LoadU32(base, t + 8);
+    if (!on) return false;
+    g_task_restore.push_back({t, on});
+    StoreU32(base, t + 8, 0);
+    return false;
+  });
 }
 
 inline void RunnerLeave(uint8_t* base) {

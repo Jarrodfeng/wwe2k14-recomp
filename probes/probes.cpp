@@ -1,85 +1,49 @@
-// wwe2k14 - the probe plugin (Session 30, #4): edit, rebuild (pwsh -File tools\probes\build_probes.ps1) and
-// `plugin reload` in the running coverage-build game. API: probes/probe_api.h.
+// wwe2k14 - the probe plugin (Session 30, #4): edit, rebuild (pwsh -File tools\probes\build_probes.ps1) and `plugin load` / `plugin reload` in the running
+// coverage-build game. API: probes/probe_api.h.
 //
-// Current probe: Session 98, Superstar Importer diagnostic run 2 (the run-1 probe, tag imp1 -> imp2, plus: requests for
-// SSF* / EMD / IGST paths, the whole live record of id 397 at the first 16 record dumps (`rec397`), the gate table
-// read-only (our build writes it: --wwe2k14_dlc_gate_extra), and Q6 the select grid's walk sub_8282C648 logged with a
-// one-shot column steer toward the DOWNLOADED tab (`walk-in` / `walk-out` / `steer`). out\s98\importer\run2\prep.md
-// (local) has the questions. Run 1's version: git history (75475721). Earlier probes are in git history (the S67 list /
-// text probe: probes.cpp at 03a39fee; the S67 label probe: b218776). Every line starts "[wwe2k14][probe] imp2 <tag>";
-// "chain" = the guest return addresses: the caller (lr)
-// first, then the guest back-chain walk (360 convention: a non-leaf function saves its return address at -8 from its
-// caller's stack pointer; best effort), resolve with py tools\analysis\resolve_probe_chain.py LOG.
-//
-//   Q1 who builds DLC file names (CH385_DLC04.PAC has no "_dlc" literal in the image):
-//     path   sub_8281C228 = content manager slot 17, snprintf(buf, size, "dlc%d:\%s", r4 index, r7 name): every call,
-//            the name (and the 2 words before it: a catalog file record holds s16 a, s16 b at -8), result, chain
-//     req    sub_82C37E48 = pac loader request (path string at [r4]): paths containing DLC / SSFD / CHAR, chain
-//     fmt    sub_82C34EF8 = snprintf(buf, size, fmt, ...): outputs containing "dlc" (not the two known content formats)
-//     cpy    sub_82C34588 = strncpy-like (dst, size, src): outputs containing "_dlc"
-//     find   sub_8281F080 = catalog file-name binary search (r4 name): name and result
-//     parse  sub_8281F150 = catalog parser: result (0 = pack dropped)
-//   Q3 roster records [0x8376F3C0] + 204*(id-100) for ids 102 / 385 / 397 / 499 (+0 id, +2, +6 name text, +16 active,
-//     +17 pack code): `rec` at every record write (sub_827D8EF0) to those slots, `recs` dumps after the chEtc reader
-//     (sub_8342B740), after the save block A copy (sub_827D8E30) and at each roster list build.
-//   Q4 roster lists: `list` sub_82927390 (menu, lists, kind, flag) and `split` sub_82924E00: the 6 lists (count + ids)
-//     after each; `ssfd` CSuperStarReader ctor sub_8293E720 / ReadEnd sub_8293E440 (args, filled portrait slots);
-//     `avail` sub_82817598 (container, char id) -> result, each distinct (id, result) once.
-//   Q5 the pack-id gate table 0x82035E9C (5 words): `gate` at the first catalog parse (read only in run 2).
-
+// Current probe: Session 103 lane F3, "particle items II" (docs\formats\particle_items.md, "The run that settles 1-3 and 6"). Run it in Bryan's entrance on the coverage
+// build; the same run's capture (case zip) gives the stream's blend and slot-0 image per particle draw. Every line starts "[wwe2k14][probe] pf <tag>". The S103 F probe
+// ("pi" lines, run 8) is in git history.
+//   pf item   sub_82A0D0E0 (sprites) / sub_82A0DAC8 (quads) / sub_82A0E3D8 (third): r3 = the item. Per sampled frame: the first 4 calls of EACH function. Logs the
+//             class, the frame, a sequence number `seq` (calls of the three methods so far in this frame) and `rec_before` (op-19 particle recorder calls so far in this
+//             frame): the draws of this item are the particle draws number rec_before .. rec_before + n - 1 of the frame in order, which pairs it with the capture's
+//             particle draws (origin call sites 0x82A0DA58 / 0x82A0E338 / 0x82A0ED2C) of the same guest frame.
+//   pf o48 / o0   the descriptor chain: o48 = [item+48] (0x200 bytes), o0 = [o48] (0x100 bytes): blend code at o0+196, pivot halfword at o0+226.
+//   pf sel    the decoded selectors: idx = [o48+152]; blend = [o0+196]; pivot = halfword o0+226; the sampler byte at *[o48+28*idx+112]; the ZOffset int at *[o48+28*idx+108]
+//             (and the 28-byte record at o48+28*idx+112-4 .. as words).
+//   pf hdl    the two handle managers: handle ids at item+148 / item+156 and their cache words (+152 / +160), the global [0x8392E994] / [0x83929A98], the manager's
+//             [+8] / [+16], the entry at the handle's index (id, ptr), and the count (end-begin)>>3.
+//   pf tab    slot 33's table (64 bytes = 8 handles {id, cached pointer}) and the slot-33 pointer; for a quad also slot 29 (the first matrix, 64 bytes) and slot 23 (16 bytes).
+//   pf size   sprites: slot 27's first record (16 bytes: w, texture index, angle, h) and slot 25 (colour ints); quads: slot 23's first record.
+//   pf rec    sub_82C1B350 (the op-19 recorder) when the caller is 0x82A0DA5C / 0x82A0E33C / 0x82A0ED30: counted for the pairing; the first 2 per sampled frame are
+//             logged with their lr and 40 bytes of the first vertex.
+// Sampled frames: the first frame in which sub_82A0AED8 runs, and the 10th, 20th, 40th and 60th frame after it.
 #include "probe_api.h"
 
 #include <windows.h>
 
 #include <atomic>
-#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
-#include <map>
 #include <mutex>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
 
 namespace {
 
 const Wwe2k14ProbeHost* g_host = nullptr;
 
-constexpr uint32_t kPathBuilder = 0x8281C228, kRequest = 0x82C37E48, kSprintf = 0x82C34EF8, kStrncpy = 0x82C34588,
-                   kCatFind = 0x8281F080, kCatParse = 0x8281F150, kRecWrite = 0x827D8EF0, kBlockA = 0x827D8E30,
-                   kSkillEnd = 0x8342B740, kListBuild = 0x82927390, kListSplit = 0x82924E00, kSsfdCtor = 0x8293E720,
-                   kSsfdEnd = 0x8293E440, kAvail = 0x82817598, kGridWalk = 0x8282C648;
-constexpr uint32_t kFmtDlcPath = 0x82035C98, kFmtDlcRoot = 0x82035C90;  // "dlc%d:\%s", "dlc%d"
-constexpr uint32_t kRosterBase = 0x8376F3C0, kGateTable = 0x82035E9C;
-constexpr int kIds[4] = {102, 385, 397, 499};
+constexpr uint32_t kEntry = 0x82A0AED8, kItemA = 0x82A0D0E0, kItemB = 0x82A0DAC8, kItemC = 0x82A0E3D8, kRec = 0x82C1B350;
+constexpr uint32_t kMgr156 = 0x83929A98, kMgr148 = 0x8392E994;
 
 std::mutex g_mutex;
-std::atomic<int> g_lines_path{0}, g_lines_req{0}, g_lines_fmt{0}, g_lines_cpy{0}, g_lines_find{0}, g_lines_avail{0},
-    g_lines_rec{0}, g_lines_walk{0};
-std::atomic<uint32_t> g_steered{0};  // bit per player index: the one-shot column steer is done (Q6)
-struct Parked {
-  int col = 0, row = 0, budget = 0;
-  bool done = false;
-  unsigned long long until = 0;  // guest frame: parking lapses 45 frames after its last use (the list's own DOWNs
-                                 // come later)
-};
-Parked g_parked[6];  // per player: the DOWNLOADED tab cell once reached (under g_mutex)
-std::atomic<int> g_full397{0};
-std::atomic<bool> g_gate_done{false};
-std::set<std::pair<uint32_t, uint32_t>> g_avail_seen;  // (id, result)
-std::map<uint32_t, uint32_t> g_rec_callers;            // record-write caller -> count since the last dump
-
-struct Frame {
-  uint32_t addr, a, b, c, lr;
-  uint32_t player = 0, down = 0;  // run 2: the grid walk
-  int scol = 0;
-};
-thread_local std::vector<Frame> t_frames;
+uint64_t g_first_frame = 0;
+bool g_have_first = false;
+uint64_t g_last_frame = ~0ull;
+int g_seq = 0, g_rec_total = 0, g_rec_logged = 0;
+int g_per_fn[3] = {0, 0, 0};
 
 void Log(const char* fmt, ...) {
-  char buf[4096];
+  char buf[1024];
   va_list ap;
   va_start(ap, fmt);
   std::vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -92,339 +56,85 @@ uint32_t R32(uint32_t a) {
   g_host->read32(a, &v);
   return v;
 }
-uint32_t R16(uint32_t a) {
-  uint16_t v = 0;
-  g_host->read16(a, &v);
-  return v;
-}
-uint32_t R8(uint32_t a) {
-  uint8_t v = 0;
-  g_host->read8(a, &v);
-  return v;
-}
-std::string Str(uint32_t a, uint32_t cap = 160) {
-  if (!a) return "(null)";
-  char s[260] = {};
-  if (!g_host->read_string(a, s, cap < sizeof(s) ? cap : sizeof(s))) return "(unreadable)";
-  return s;
-}
-bool HasCi(const std::string& s, const char* needle) {
-  std::string u = s, n = needle;
-  for (char& c : u) c = char(std::tolower((unsigned char)c));
-  for (char& c : n) c = char(std::tolower((unsigned char)c));
-  return u.find(n) != std::string::npos;
-}
-bool Take(std::atomic<int>& counter, int cap) { return counter.fetch_add(1) < cap; }
 
-// The caller (lr) then the guest back chain from r1 (the caller's frame at function entry).
-std::string Chain(void* ctx, int depth = 14) {
-  char out[400];
-  int n = std::snprintf(out, sizeof(out), "%08X", g_host->get_lr(ctx));
-  uint32_t sp = uint32_t(g_host->get_gpr(ctx, 1));
-  for (int i = 0; i < depth && n < int(sizeof(out)) - 12; ++i) {
-    uint32_t top = 0, ret = 0;
-    if (!g_host->read32(sp, &top) || top <= sp || top - sp > 0x100000 || (top & 3)) break;
-    if (!g_host->read32(top - 8, &ret)) break;
-    n += std::snprintf(out + n, sizeof(out) - n, " %08X", ret);
-    sp = top;
-  }
-  return out;
-}
-
-unsigned long long Fr() { return (unsigned long long)g_host->frame(); }
-
-void Push(uint32_t addr, uint32_t a, uint32_t b, uint32_t c, uint32_t lr) { t_frames.push_back({addr, a, b, c, lr}); }
-bool Pop(uint32_t addr, Frame* f) {
-  for (size_t i = t_frames.size(); i-- > 0;) {
-    if (t_frames[i].addr != addr) continue;
-    *f = t_frames[i];
-    t_frames.resize(i);  // frames above it were skipped (longjmp etc.): drop them too
-    return true;
-  }
-  return false;
-}
-
-void DumpIds(const char* when, uint32_t lr) {
-  const uint32_t base = R32(kRosterBase);
-  char line[1024];
-  int n = std::snprintf(line, sizeof(line), "imp2 recs %s frame %llu lr %08X base %08X:", when, Fr(), lr, base);
-  for (int id : kIds) {
-    const uint32_t r = base + 204u * uint32_t(id - 100);
-    n += std::snprintf(line + n, sizeof(line) - n, " [%d: +0=%u +2=%u +6=%u +16=%u +17=%u]", id, R16(r), R16(r + 2),
-                       R16(r + 6), R8(r + 16), R8(r + 17));
-  }
-  std::string callers;
-  {
-    std::lock_guard lock(g_mutex);
-    for (auto& [c, k] : g_rec_callers) {
-      char b[40];
-      std::snprintf(b, sizeof(b), " %08X x%u", c, k);
-      callers += b;
-    }
-    g_rec_callers.clear();
-  }
-  Log("%s; record writes since the last dump by caller:%s", line, callers.empty() ? " none" : callers.c_str());
-  // Run 2: the mod character's whole live record (204 bytes, guest order) at the first 16 dumps.
-  if (g_full397.fetch_add(1) < 16) {
-    char hex[204 * 2 + 1] = {};
-    const uint32_t r = base + 204u * (397 - 100);
-    for (uint32_t i = 0; i < 204; ++i) std::snprintf(hex + 2 * i, 3, "%02X", R8(r + i));
-    Log("imp2 rec397 %s frame %llu @%08X: %s", when, Fr(), r, hex);
+void Words(const char* tag, uint32_t base, uint32_t bytes) {
+  for (uint32_t off = 0; off < bytes; off += 32) {
+    uint32_t w[8];
+    for (int i = 0; i < 8; ++i) w[i] = R32(base + off + 4u * uint32_t(i));
+    Log("pf %s +%04X: %08X %08X %08X %08X %08X %08X %08X %08X", tag, off, w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
   }
 }
 
-// One list of the select screen's list array: u32 count + up to 1000 u32 entries (stride 4004).
-void DumpLists(const char* tag, uint32_t arr) {
-  for (int k = 0; k < 6; ++k) {
-    const uint32_t lst = arr + 4004u * uint32_t(k), count = R32(lst);
-    if (count > 1000) {
-      Log("imp2 %s list%d @%08X count %u (not a list?)", tag, k, lst, count);
-      continue;
-    }
-    std::string ids;
-    int prev = -10, run_start = -10;
-    auto flush = [&](int last) {
-      if (run_start < 0) return;
-      char b[32];
-      if (last == run_start) std::snprintf(b, sizeof(b), " %d", run_start);
-      else std::snprintf(b, sizeof(b), " %d-%d", run_start, last);
-      ids += b;
-    };
-    std::string marked;
-    for (uint32_t i = 0; i < count; ++i) {
-      const uint32_t v = R32(lst + 4 + 4 * i);
-      if (v & 0x80000000u) {  // top-bit marker: list it apart
-        char b[24];
-        std::snprintf(b, sizeof(b), " %u*", v & 0x7FFFFFFFu);
-        marked += b;
-      }
-      const int id = int(v & 0xFFFF);
-      if (id == prev + 1) {
-        prev = id;
-        continue;
-      }
-      flush(prev);
-      run_start = prev = id;
-    }
-    flush(prev);
-    if (ids.size() > 3000) ids.resize(3000);
-    Log("imp2 %s list%d @%08X count %u frame %llu: order-runs%s%s%s", tag, k, lst, count, Fr(), ids.c_str(),
-        marked.empty() ? "" : " | top-bit:", marked.c_str());
+// True when the current frame is a sampled one; resets the per-frame counters on a frame change. Caller holds g_mutex.
+bool Sampled(uint64_t frame) {
+  if (!g_have_first) return false;
+  if (frame != g_last_frame) {
+    g_last_frame = frame;
+    g_seq = g_rec_total = g_rec_logged = 0;
+    g_per_fn[0] = g_per_fn[1] = g_per_fn[2] = 0;
   }
+  const uint64_t d = frame - g_first_frame;
+  return d == 0 || d == 10 || d == 20 || d == 40 || d == 60;
 }
 
-// Run 2: the gate table as the parser sees it at the first parse (word 0 = 00060001 once --wwe2k14_dlc_gate_extra=6
-// wrote it; read only: the run-1 write test is done).
-void GateTest() {
-  if (g_gate_done.exchange(true)) return;
-  uint32_t w[5];
-  for (int i = 0; i < 5; ++i) w[i] = R32(kGateTable + 4u * uint32_t(i));
-  Log("imp2 gate frame %llu table %08X: %08X %08X %08X %08X %08X (word 0 = 00060001 expected with the switch)", Fr(),
-      kGateTable, w[0], w[1], w[2], w[3], w[4]);
+void HandleManager(const char* which, uint32_t handle_addr, uint32_t global) {
+  const uint32_t id = R32(handle_addr), cache = R32(handle_addr + 4), mgr = R32(global);
+  const uint32_t begin = mgr ? R32(mgr + 8) : 0, end = mgr ? R32(mgr + 16) : 0;
+  const uint32_t count = uint32_t(int32_t(end - begin) >> 3), idx = id & 0xFFFF;
+  const uint32_t e0 = idx < count ? R32(begin + 8 * idx) : 0, e1 = idx < count ? R32(begin + 8 * idx + 4) : 0;
+  Log("pf hdl %s id=%08X cache=%08X global=%08X mgr=%08X begin=%08X end=%08X count=%u idx=%u entry_id=%08X entry_ptr=%08X match=%d", which, id, cache, global, mgr, begin, end, count, idx, e0, e1,
+      e0 == id && e1 != 0);
 }
-
-// Q6 (run 2): the select grid's walk sub_8282C648 (listing): r3 model, r4 player (0..5), r5 / r6 = four direction words
-// stored at +320..+332 of its frame (`std r5,320` / `std r6,328`; +320 = UP, +324 = DOWN: a start on row 5 with UP
-// goes to row 4, with DOWN to row 0, 0x8282C700-0x8282C728), r7 / r8 = &column / &row: read at entry, zeroed, the result
-// stored at the end together with the model's copy at model + 0x1B14C / 0x1B150 + 32 * player (0x8282CAEC-0x8282CB08).
-// Logged per call. Test-only steer (DOWN walks only, per player): the first DOWN result not in column 4 is moved to
-// column 4 (both copies); in column 4 a result in column 3 can only be the tab row's snap (columns 3-5 -> 3 =
-// DOWNLOADED, mouse_menu.h kTabs), so that cell is "parked" and the next 6 DOWN walks are kept on it; the route then
-// presses A to open the tab. Logged as "imp2 steer". Set kSteer false to only log.
-constexpr bool kSteer = true;
 
 void OnEnter(void* ctx, uint32_t addr) {
-  const uint32_t r3 = uint32_t(g_host->get_gpr(ctx, 3)), r4 = uint32_t(g_host->get_gpr(ctx, 4)),
-                 r5 = uint32_t(g_host->get_gpr(ctx, 5)), r6 = uint32_t(g_host->get_gpr(ctx, 6)),
-                 r7 = uint32_t(g_host->get_gpr(ctx, 7)), lr = g_host->get_lr(ctx);
-  switch (addr) {
-    case kPathBuilder:
-      if (g_lines_path.load() < 800) {
-        Push(addr, r4, r5, r7, lr);
-        Log("imp2 path-in idx %d name '%s' (@%08X, words before %08X %08X) frame %llu chain %s", int(r4),
-            Str(r7).c_str(), r7, R32(r7 - 8), R32(r7 - 4), Fr(), Chain(ctx).c_str());
-      }
-      break;
-    case kRequest: {
-      const std::string p = Str(R32(r4));
-      if ((HasCi(p, "dlc") || HasCi(p, "ssf") || HasCi(p, "char") || HasCi(p, "emd") || HasCi(p, "igst")) &&
-          Take(g_lines_req, 600))
-        Log("imp2 req '%s' reader %08X r5 %08X r6 %08X words +4 %08X +8 %08X frame %llu chain %s", p.c_str(), r3, r5,
-            r6, R32(r4 + 4), R32(r4 + 8), Fr(), Chain(ctx).c_str());
-      break;
+  const uint64_t frame = g_host->frame();
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (addr == kEntry && !g_have_first) g_have_first = true, g_first_frame = frame;
+  if (!Sampled(frame)) return;
+  const uint32_t lr = g_host->get_lr(ctx);
+  if (addr == kItemA || addr == kItemB || addr == kItemC) {
+    const int which = addr == kItemA ? 0 : addr == kItemB ? 1 : 2;
+    ++g_seq;
+    if (g_per_fn[which]++ >= 4) return;
+    const uint32_t item = uint32_t(g_host->get_gpr(ctx, 3));
+    const uint32_t base = R32(item + 68);
+    Log("pf item frame %llu fn=%08X class=%s item=%08X vtable=%08X count[+40]=%u base[+68]=%u seq=%d rec_before=%d", (unsigned long long)frame, addr,
+        which == 0 ? "sprite" : which == 1 ? "quad" : "third", item, R32(item), R32(item + 40), base, g_seq, g_rec_total);
+    const uint32_t o48 = R32(item + 48), o0 = o48 ? R32(o48) : 0;
+    if (o48) Words("o48", o48, 0x200);
+    if (o0) Words("o0", o0, 0x100);
+    const uint32_t idx = o48 ? R32(o48 + 152) : 0;
+    const uint32_t bptr = o48 ? R32(o48 + idx * 28 + 112) : 0, zptr = o48 ? R32(o48 + idx * 28 + 108) : 0;
+    const uint32_t bword = bptr ? R32(bptr & ~3u) : 0;
+    const uint32_t sbyte = (bword >> (8 * (3 - (bptr & 3u)))) & 0xFF;
+    const uint32_t pw = o0 ? R32(o0 + 224) : 0;
+    Log("pf sel idx=%u blend=%u pivot=%u sampler_ptr=%08X sampler_byte=%u z_ptr=%08X z_int=%d rec28=%08X %08X %08X %08X %08X %08X %08X", idx, o0 ? R32(o0 + 196) : 0, pw & 0xFFFF, bptr, sbyte,
+        zptr, int32_t(zptr ? R32(zptr) : 0), R32(o48 + idx * 28 + 96), R32(o48 + idx * 28 + 100), R32(o48 + idx * 28 + 104), R32(o48 + idx * 28 + 108), R32(o48 + idx * 28 + 112),
+        R32(o48 + idx * 28 + 116), R32(o48 + idx * 28 + 120));
+    HandleManager("156->160", item + 156, kMgr156);
+    HandleManager("148->152", item + 148, kMgr148);
+    const uint32_t s33 = R32(item + 4u * (base + 33)), s27 = R32(item + 4u * (base + 27)), s25 = R32(item + 4u * (base + 25)), s23 = R32(item + 4u * (base + 23)),
+                   s29 = R32(item + 4u * (base + 29));
+    Log("pf tab slot33=%08X slot27=%08X slot25=%08X slot23=%08X slot29=%08X", s33, s27, s25, s23, s29);
+    if (s33) Words("tab", s33, 64);
+    if (which == 1) {
+      if (s29) Words("quadmat", s29, 64);
+      if (s23) Words("quadprev", s23, 16);
+    } else {
+      if (s27) Words("size", s27, 32);
     }
-    case kSprintf:
-      if (r5 != kFmtDlcPath && r5 != kFmtDlcRoot && g_lines_fmt.load() < 300) Push(addr, r3, r5, 0, lr);
-      break;
-    case kStrncpy:
-      if (g_lines_cpy.load() < 200) Push(addr, r3, r5, 0, lr);
-      break;
-    case kCatFind:
-      if (g_lines_find.load() < 600) Push(addr, r3, r4, 0, lr);
-      break;
-    case kCatParse:
-      GateTest();
-      Push(addr, r3, r4, 0, lr);
-      break;
-    case kRecWrite: {
-      const int slot = int(r3);
-      {
-        std::lock_guard lock(g_mutex);
-        ++g_rec_callers[lr];
-      }
-      for (int id : kIds) {
-        if (slot != id - 100 || !Take(g_lines_rec, 200)) continue;
-        Log("imp2 rec write slot %d (id %d) from src %08X: +0=%u +2=%u +6=%u +16=%u +17=%u; old +0=%u +6=%u +16=%u "
-            "+17=%u; frame %llu chain %s",
-            slot, id, r4, R16(r4), R16(r4 + 2), R16(r4 + 6), R8(r4 + 16), R8(r4 + 17),
-            R16(R32(kRosterBase) + 204u * uint32_t(slot)), R16(R32(kRosterBase) + 204u * uint32_t(slot) + 6),
-            R8(R32(kRosterBase) + 204u * uint32_t(slot) + 16), R8(R32(kRosterBase) + 204u * uint32_t(slot) + 17), Fr(),
-            Chain(ctx, 6).c_str());
-      }
-      break;
-    }
-    case kBlockA:
-      Log("imp2 blockA copy src %08X -> base %08X frame %llu chain %s", r3, R32(kRosterBase), Fr(), Chain(ctx).c_str());
-      DumpIds("before-blockA", lr);
-      Push(addr, r3, 0, 0, lr);
-      break;
-    case kSkillEnd:
-      Log("imp2 chEtc reader end r3 %08X r4 %08X r5 %08X frame %llu chain %s", r3, r4, r5, Fr(), Chain(ctx).c_str());
-      Push(addr, r3, 0, 0, lr);
-      break;
-    case kListBuild:
-      Log("imp2 list build menu %08X lists %08X kind %u flag %u frame %llu chain %s", r3, r4, r5, r6, Fr(),
-          Chain(ctx, 6).c_str());
-      DumpIds("at-list-build", lr);
-      Push(addr, r4, r5, r6, lr);
-      break;
-    case kListSplit:
-      Push(addr, r4, r3, 0, lr);
-      break;
-    case kSsfdCtor:
-      Log("imp2 ssfd ctor this %08X r4 %u r5 %08X frame %llu chain %s", r3, r4, r5, Fr(), Chain(ctx, 6).c_str());
-      break;
-    case kSsfdEnd:
-      Log("imp2 ssfd readend this %08X r4 %08X r5 %08X r6 %08X frame %llu chain %s", r3, r4, r5, r6, Fr(),
-          Chain(ctx, 6).c_str());
-      Push(addr, r3, 0, 0, lr);
-      break;
-    case kAvail:
-      Push(addr, r3, r4, 0, lr);
-      break;
-    case kGridWalk: {
-      const uint32_t r8 = uint32_t(g_host->get_gpr(ctx, 8));
-      const uint64_t d1 = g_host->get_gpr(ctx, 5), d2 = g_host->get_gpr(ctx, 6);
-      const int col = int(R32(r7)), row = int(R32(r8));
-      if (Take(g_lines_walk, 400))
-        Log("imp2 walk-in player %u start col %d row %d dirs up %u down %u w3 %u w4 %u model %08X frame %llu lr %08X",
-            r4, col, row, uint32_t(d1 >> 32), uint32_t(d1), uint32_t(d2 >> 32), uint32_t(d2), r3, Fr(), lr);
-      Push(addr, r7, r8, r3, lr);
-      t_frames.back().player = r4, t_frames.back().down = uint32_t(d1) != 0, t_frames.back().scol = col;
-      break;
-    }
+    if (s25) Words("col", s25, 32);
+    return;
   }
-}
-
-void OnLeave(void* ctx, uint32_t addr) {
-  Frame f{};
-  if (!Pop(addr, &f)) return;
-  const uint32_t ret = uint32_t(g_host->get_gpr(ctx, 3));
-  switch (addr) {
-    case kGridWalk: {
-      int col = int(R32(f.a)), row = int(R32(f.b));
-      if (Take(g_lines_walk, 400))
-        Log("imp2 walk-out player %u -> col %d row %d (r3 %08X) frame %llu", f.player, col, row, ret, Fr());
-      if (!kSteer || f.player >= 6 || !f.down) break;
-      // The walk's own result copy (listing 0x8282CAEC-0x8282CB08): model + 0x1B14C / 0x1B150 + 32 * player.
-      const uint32_t own = f.c + 0x1B14Cu + 32u * f.player;
-      const uint32_t bit = 1u << f.player;
-      std::lock_guard lock(g_mutex);
-      if (g_parked[f.player].budget > 0 && Fr() <= g_parked[f.player].until) {  // on the tab: DOWNs stay there
-        --g_parked[f.player].budget;
-        g_parked[f.player].until = Fr() + 45;
-        g_host->write32(f.a, uint32_t(g_parked[f.player].col));
-        g_host->write32(f.b, uint32_t(g_parked[f.player].row));
-        g_host->write32(own, uint32_t(g_parked[f.player].col));
-        g_host->write32(own + 4, uint32_t(g_parked[f.player].row));
-        Log("imp2 steer player %u: kept on the tab (col %d row %d instead of %d / %d), %d more frame %llu", f.player,
-            g_parked[f.player].col, g_parked[f.player].row, col, row, g_parked[f.player].budget, Fr());
-      } else if (f.scol == 4 && col == 3 && (g_steered.load() & bit) && !g_parked[f.player].done) {
-        // In the steered column 4 the only way to column 3 is the tab row's snap (3-5 -> 3 = DOWNLOADED).
-        g_parked[f.player] = {col, row, 6, true, Fr() + 45};
-        Log("imp2 steer player %u: reached the tab row (col %d row %d): parked for the next 6 DOWN walks frame %llu",
-            f.player, col, row, Fr());
-      } else if (!(g_steered.load() & bit) && col != 4) {
-        g_steered.fetch_or(bit);
-        g_host->write32(f.a, 4);
-        g_host->write32(own, 4);
-        Log("imp2 steer player %u: DOWN result column %d -> 4 (row %d) frame %llu", f.player, col, row, Fr());
-      }
-      break;
-    }
-    case kPathBuilder:
-      if (Take(g_lines_path, 800)) Log("imp2 path-out idx %d -> '%s' frame %llu", int(f.a), Str(f.b).c_str(), Fr());
-      break;
-    case kSprintf: {
-      const std::string s = Str(f.a);
-      if (HasCi(s, "dlc") && Take(g_lines_fmt, 300))
-        Log("imp2 fmt '%s' -> '%s' frame %llu lr %08X", Str(f.b, 80).c_str(), s.c_str(), Fr(), f.lr);
-      break;
-    }
-    case kStrncpy: {
-      const std::string s = Str(f.a);
-      if (HasCi(s, "_dlc") && Take(g_lines_cpy, 200))
-        Log("imp2 cpy '%s' (src %08X) frame %llu lr %08X", s.c_str(), f.b, Fr(), f.lr);
-      break;
-    }
-    case kCatFind:
-      if (Take(g_lines_find, 600))
-        Log("imp2 find cat %08X '%s' -> %08X frame %llu lr %08X", f.a, Str(f.b).c_str(), ret, Fr(), f.lr);
-      break;
-    case kCatParse:
-      Log("imp2 parse %08X -> %u (pack id field sub+136 = %u, revision sub+138 = %u) frame %llu lr %08X", f.a, ret,
-          R16(f.a + 136), R16(f.a + 138), Fr(), f.lr);
-      break;
-    case kBlockA:
-      DumpIds("after-blockA", f.lr);
-      break;
-    case kSkillEnd:
-      DumpIds("after-chEtc-reader", f.lr);
-      break;
-    case kListBuild:
-      Log("imp2 list build done kind %u flag %u frame %llu", f.b, f.c, Fr());
-      DumpLists("list", f.a);
-      break;
-    case kListSplit:
-      DumpLists("split", f.a);
-      break;
-    case kSsfdEnd: {
-      int filled = 0;
-      std::string dlc;
-      for (uint32_t k = 0; k < 426; ++k) {
-        if (!R32(f.a + 52 + 8 * k)) continue;
-        ++filled;
-        if (k >= 277) {  // ids 377+ and the extra slots
-          char b[16];
-          std::snprintf(b, sizeof(b), " %u", k < 400 ? k + 100 : k + 9600);  // keys >= 10000: slot = key - 9600
-          dlc += b;
-        }
-      }
-      Log("imp2 ssfd readend done this %08X: %d of 426 slots filled; filled ids >= 377 (slots >= 400 shown as "
-          "their key, slot + 9600):%s frame %llu",
-          f.a, filled, dlc.empty() ? " none" : dlc.c_str(), Fr());
-      break;
-    }
-    case kAvail: {
-      bool fresh;
-      {
-        std::lock_guard lock(g_mutex);
-        fresh = g_avail_seen.insert({f.b, ret}).second;
-      }
-      if (fresh && Take(g_lines_avail, 600))
-        Log("imp2 avail container %08X id %u -> %u frame %llu lr %08X", f.a, f.b, ret, Fr(), f.lr);
-      break;
-    }
+  if (addr == kRec) {
+    if (lr != 0x82A0DA5C && lr != 0x82A0E33C && lr != 0x82A0ED30) return;
+    ++g_rec_total;
+    if (g_rec_logged++ >= 2) return;
+    const uint32_t verts = uint32_t(g_host->get_gpr(ctx, 7));
+    Log("pf rec lr=%08X n_in_frame=%d prim=%u count=%u stride=%u verts=%08X", lr, g_rec_total, uint32_t(g_host->get_gpr(ctx, 4)), uint32_t(g_host->get_gpr(ctx, 5)),
+        uint32_t(g_host->get_gpr(ctx, 6)), verts);
+    Words("rec", verts, 40);
+    return;
   }
 }
 
@@ -433,26 +143,25 @@ void OnLeave(void* ctx, uint32_t addr) {
 extern "C" {
 
 __declspec(dllexport) int wwe2k14_probe_init(const Wwe2k14ProbeHost* host) {
+  if (!host || host->version < WWE2K14_PROBE_API_VERSION) return 0;
   g_host = host;
-  if (host->version < 2) return 0;  // needs write32 (Q5)
-  Log("imp2 Session 98 importer run-2 probe loaded at frame %llu (15 functions, walk steer %s)", Fr(),
-      kSteer ? "on" : "off");
-  DumpIds("at-plugin-load", 0);
+  Log("pf loaded: sampling the first frame with a particle entry and +10 / +20 / +40 / +60 (S103 F3 particle items II)");
   return WWE2K14_PROBE_API_VERSION;
 }
 
 __declspec(dllexport) int wwe2k14_probe_functions(uint32_t* out, int cap) {
-  const uint32_t list[] = {kPathBuilder, kRequest,   kSprintf,   kStrncpy,  kCatFind,  kCatParse, kRecWrite,
-                           kBlockA,      kSkillEnd,  kListBuild, kListSplit, kSsfdCtor, kSsfdEnd,  kAvail,
-                           kGridWalk};
-  const int n = int(sizeof(list) / sizeof(list[0]));
-  if (cap < n) return 0;
-  for (int i = 0; i < n; ++i) out[i] = list[i];
+  const uint32_t fns[] = {kEntry, kItemA, kItemB, kItemC, kRec};
+  int n = 0;
+  for (uint32_t f : fns)
+    if (n < cap) out[n++] = f;
   return n;
 }
 
 __declspec(dllexport) void wwe2k14_probe_enter(void* ctx, uint32_t addr) { OnEnter(ctx, addr); }
 
-__declspec(dllexport) void wwe2k14_probe_leave(void* ctx, uint32_t addr) { OnLeave(ctx, addr); }
+__declspec(dllexport) void wwe2k14_probe_leave(void* ctx, uint32_t addr) {
+  (void)ctx;
+  (void)addr;
+}
 
 }  // extern "C"

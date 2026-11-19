@@ -12,7 +12,9 @@ from ff_check import BUNDLE, main_checkout  # noqa: E402
 
 def find_capture(main_co, frames):
     best = None
-    for d in glob.glob(os.path.join(main_co, 'out', 'cases', 'fview_unpack_*', 'capture')):
+    # S102 TIDY2: fview_unpack_* copies are scratch (the tidy never holds them): real sources first.
+    for d in (glob.glob(os.path.join(main_co, 'out', 'captures', '*')) + glob.glob(os.path.join(main_co, 'out', 'cases', 'case_*', 'capture'))
+              + glob.glob(os.path.join(main_co, 'out', 'cases', 'fview_unpack_*', 'capture'))):
         fr = os.path.join(d, 'frames')
         if os.path.isdir(fr) and os.path.isdir(os.path.join(d, 'scene')) and len(os.listdir(fr)) == frames:
             if best is None or os.path.getmtime(d) > os.path.getmtime(best):

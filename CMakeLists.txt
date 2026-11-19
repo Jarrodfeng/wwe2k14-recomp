@@ -32,6 +32,8 @@ message(STATUS "wwe2k14 version ${WWE2K14_VERSION}")
 set(WWE2K14_SOURCES
     src/main.cpp
     src/build_stamp.cpp  # S101 lane 19 review: the only file that includes the generated stamp header (a new commit recompiles just this one)
+    src/dev_build.cpp  # S103 L33F: IsDevBuild() / VersionString() for every TU (it gets the WWE2K14_VERSION define below; no other TU does)
+    src/start_settings.cpp  # S103 SPB: ApplyStartSettings, the settings both start paths apply (KEPT with and without the stream; tools/scene/start_parity_lint.py)
     # S101 lane 292 (the music picker's VIEW, docs/systems/music.md): the ImGui dialog, the owner-mode texture uploader and the Android touch hook; the cover + menu-font decoders (own STATIC stb_image like crowd_body.cpp). Same list for the phone.
     src/music_picker_ui.cpp
     src/music_picker_assets.cpp
@@ -51,8 +53,51 @@ set(WWE2K14_SOURCES
     src/renderer_scene/live_scene.cpp
     src/renderer_scene/live_sinks.cpp
     src/renderer_scene/record_io.cpp
+    # S103 lane S (docs/renderer/FRAME_CONTRACT.md): the scene front-end, the record -> frame path, its classes and the live drawer (mirror / ours,
+    # --wwe2k14_rdr_scene). live_assets.cpp holds its own STATIC stb_image like crowd_body.cpp. Same list for the phone.
+    src/renderer_scene/front_end.cpp
+    src/renderer_scene/char_effects.cpp
+    src/renderer_scene/shader_reload.cpp
+    src/renderer_scene/live_assets.cpp
+    src/renderer_scene/live_scene_draw.cpp
+    src/renderer_scene/post_from_record.cpp   # S103 P: our post from the record's post row (LiveSceneDraw::BuildPost)
+    src/renderer_scene/quads2d_draw.cpp       # S103 L2a: the 2D rows drawn over our frame on an OURS frame (live.cpp, --wwe2k14_rdr_2d_ours; dev only)
+    src/renderer_scene/quads2d_register.cpp   # S103 L2a: its programs (registered only with the switch on)
+    src/renderer_scene/record_frame.cpp
+    src/renderer_scene/record_frame_classes.cpp
+    # S103 (integration): the class appliers (R: arena / crowd / models; B: wrestlers; C: stage), lane G's kept draw lists, lane E's maps stage
+    src/renderer_scene/rf_arena.cpp
+    src/renderer_scene/rf_crowd.cpp
+    src/renderer_scene/live_crowd.cpp   # S103 D2
+    src/renderer_scene/rf_models.cpp
+    src/renderer_scene/rf_wrestlers.cpp
+    src/renderer_scene/rf_c_core.cpp
+    src/renderer_scene/rf_arena_live.cpp
+    src/renderer_scene/rf_ring.cpp
+    src/renderer_scene/rf_props.cpp
+    src/renderer_scene/rf_screens.cpp
+    src/renderer_scene/live_flashes.cpp
+    src/renderer_scene/draw_lists.cpp
+    src/renderer_scene/live_maps.cpp
+    src/renderer_scene/live_map_shadow.cpp
+    src/renderer_scene/live_map_circles.cpp
+    src/renderer_scene/live_map_props.cpp
+    src/renderer_scene/live_map_e2_input.cpp
+    src/renderer_scene/live_map_rim.cpp
+    src/renderer_scene/live_map_chain.cpp   # S103 L7
+    src/renderer_scene/live_map_plane.cpp
+    src/renderer_scene/live_map_rope.cpp
+    src/renderer_scene/live_map_rope_input.cpp
+    src/renderer_scene/live_map_prelight.cpp
+    src/renderer_scene/live_map_sweat.cpp
+    # S103 R2: the stage hooks + see order of a frame, attached the same way by the live drawer and the rig
+    src/renderer_scene/frame_hooks.cpp
     # S101 lane 27 (class C2): the crowd contributor to the scene record (docs/systems/crowd.md). Registered by RegisterCrowd() (crowd_hooks.h).
     src/scene_live/crowd_contrib.cpp
+    # S103 F: the particles from the scene record (docs/renderer/SEE_THROUGH_ORDER.md): the record writer (not registered until a game-side seam publishes snapshots) and the StageHook that draws them.
+    src/scene_live/particle_contrib.cpp
+    src/scene_live/particle_reader.cpp
+    src/renderer_scene/live_particles.cpp
     # S101 lane 35 (the crowd's first promotion, docs/renderer/CROWD_PROMOTION.md): our crowd drawn inside the game's frame from the live scene record, on --wwe2k14_rdr_crowd_ours.
     # crowd_body.cpp holds its own STATIC stb_image (no stbi_* symbol is exported: the SDK's copies must not be rebound on Android). Same list for the phone (shared library).
     src/renderer_scene/crowd_ours.cpp
@@ -68,12 +113,13 @@ set(WWE2K14_SOURCES
     src/assets/arena_game_space.cpp
     src/renderer_scene/arena_ours_core.cpp
     src/renderer_scene/arena_ours.cpp
-    # S101 lane 66 (our UI textures, docs/renderer/UI_OURS.md): the 2D draws' slot 0 from the player's menu pacs, on --wwe2k14_rdr_ui_ours. ui_ours_core.cpp holds its own STATIC stb_image like crowd_body.cpp. Same list for the phone.
+    # S101 lane 66 (our UI textures, docs/renderer/UI_OURS.md): the 2D draws' slot 0 from the player's menu pacs, on --wwe2k14_rdr_ui_ours. ui_file_index.cpp (KEPT in the OFF build, S103 PN1) holds its own STATIC stb_image like crowd_body.cpp; ui_ours_core.cpp is the stream-only half. Same list for the phone.
+    src/renderer_scene/ui_file_index.cpp
     src/renderer_scene/ui_ours_core.cpp
     src/renderer_scene/ui_ours.cpp
     # S101 lane 148 (the UI's sprite / rectangle quads drawn with our own quad and program, docs/renderer/UI_QUADS_OURS.md): reads no game file. Same list for the phone.
     src/renderer_scene/ui_quads.cpp
-    # S101 lane 89 (UT, the game's text laid out by us, docs/renderer/UI_TEXT_OURS.md): on --wwe2k14_rdr_ui_text_ours. ui_text_fonts.cpp holds its own STATIC stb_image like ui_ours_core.cpp. Same list for the phone.
+    # S101 lane 89 (UT, the game's text laid out by us, docs/renderer/UI_TEXT_OURS.md): on --wwe2k14_rdr_ui_text_ours. ui_text_fonts.cpp holds its own STATIC stb_image like ui_file_index.cpp. Same list for the phone.
     src/renderer_scene/ui_text_fonts.cpp
     src/renderer_scene/ui_text_ours.cpp
     # S101 lane 68 (the crowd flashes drawn in place, docs/renderer/PARTICLES_PROMOTION_MAP.md lane F): flash_game_space.cpp holds its own STATIC stb_image like arena_game_space.cpp. Same list for the phone.
@@ -120,6 +166,29 @@ set(WWE2K14_SOURCES
     src/renderer/streamline.cpp
 )
 
+# S103 P9 (docs/renderer/LANDING2_PLAN.md section 5, docs/renderer/COMPILE_OUT_LIST.md): WWE2K14_KEEP_STREAM keeps the command stream's reader / binder / replayer in the exe.
+# 2026-11-18 (Jarrod): the PLAYER build is stream-free, set by the release scripts (tools/release/release_configure_args.ps1 passes OFF + RUN explicitly on every configure; tools/android/build_all.ps1 -Release passes -StreamFree), NOT by this file: the CMake default stays ON so a dev build / the tools that need the stream keep working, and the scripts are the one place that makes a player build. The line below stays a comment on purpose.
+# EARLIER (S103 P9): ON in every configuration. The plan's eventual rule is the commented line below (ON unless WWE2K14_RELEASE); it is NOT
+# active: a release that cannot draw a frame without the stream must not be built until the landing-2 sweep says B = 0 (docs/renderer/LANDING2_PLAN.md section 3).
+#   if(WWE2K14_RELEASE) set(WWE2K14_KEEP_STREAM OFF CACHE BOOL "" FORCE) endif()
+# OFF is built and linked offline (tools/scene/keep_stream_off_link.py) and is never run: src/keep_stream.h is what every `#if WWE2K14_KEEP_STREAM` includes, the OFF source
+# list is tools/scene/keep_stream_sources.txt (the same file the lint and the off-link script read).
+option(WWE2K14_KEEP_STREAM "Keep the command stream (reader / binder / replayer / in-place replacers) in the game exe" ON)
+option(WWE2K14_KEEP_STREAM_LINK_TEST "Allow WWE2K14_KEEP_STREAM=OFF for an offline link test (tools/scene/keep_stream_off_link.py)" OFF)
+option(WWE2K14_KEEP_STREAM_RUN "Allow WWE2K14_KEEP_STREAM=OFF for a runnable stream-free exe (landing 2 P7 SceneHost present host landed; preset win-amd64-release-off)" OFF)
+if(NOT WWE2K14_KEEP_STREAM AND NOT WWE2K14_KEEP_STREAM_LINK_TEST AND NOT WWE2K14_KEEP_STREAM_RUN)
+    message(FATAL_ERROR "WWE2K14_KEEP_STREAM=OFF needs -DWWE2K14_KEEP_STREAM_RUN=ON (a runnable stream-free exe, SceneHost presents; preset win-amd64-release-off) or -DWWE2K14_KEEP_STREAM_LINK_TEST=ON (offline link test, never run).")
+endif()
+if(NOT WWE2K14_KEEP_STREAM)
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene/keep_stream_sources.txt" WWE2K14_STREAM_ONLY_SOURCES REGEX "^src/")
+    list(REMOVE_ITEM WWE2K14_SOURCES ${WWE2K14_STREAM_ONLY_SOURCES})
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene/keep_stream_off_sources.txt" WWE2K14_OFF_ONLY_SOURCES REGEX "^src/")
+    list(APPEND WWE2K14_SOURCES ${WWE2K14_OFF_ONLY_SOURCES})
+    message(STATUS "wwe2k14: WWE2K14_KEEP_STREAM=OFF (the stream's reader / binder / replayer are left out; SceneHost presents)")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene/keep_stream_sources.txt")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene/keep_stream_off_sources.txt")
+
 if(ANDROID)
     # Session 63 (Android port, ANDROID_PLAN.md 3.1): a shared library; SDL's Java activity loads libmain.so and calls
     # SDL_main (the SDK's windowed_app_main_sdl.cpp). Built by tools/android/build_game_android.ps1.
@@ -143,6 +212,11 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
+# S103 P9: an explicit 0 / 1 for every unit of the exe (never undefined); the generated guest code (wwe2k14_recomp) does not see it.
+target_compile_definitions(wwe2k14 PRIVATE WWE2K14_KEEP_STREAM=$<BOOL:${WWE2K14_KEEP_STREAM}>)
+if(WWE2K14_KEEP_STREAM_LINK_TEST)
+    target_compile_definitions(wwe2k14 PRIVATE WWE2K14_KEEP_STREAM_LINK_TEST=1)
+endif()
 
 # Session 95 (guest CPU power, out/s95/gcpu): compile switches for the recompiled guest code only (wwe2k14_recomp), all OFF by default.
 #   -DWWE2K14_GUEST_ISA=x86-64-v3   AVX2 + BMI/BMI2 + FMA + MOVBE + LZCNT + POPCNT (Haswell/Skylake and newer; NOTHING checks the CPU
@@ -234,6 +308,8 @@ if(ANDROID)
 endif()
 # Only main.cpp (our code): a target-wide define would rebuild all the generated code on every version change.
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
+# S103 L33F (review F1): and src/dev_build.cpp, the one place every other TU asks (src/dev_build.h; tools/gate/version_define_lint.py). Never test the macro in another .cpp: it is undefined there.
+set_property(SOURCE src/dev_build.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
 # S101 lane 19: the build stamp (git hash, dirty flag, SDK pin, APK number) for the case zip's manifest. tools/build_stamp.cmake runs on every
 # build and rewrites <build>/stamp/wwe2k14_build_stamp.h only when its text changed; only src/build_stamp.cpp sees that folder (src/build_stamp.h declares Get(); it reads it
 # with __has_include, so a build without it says "unknown" and the manifest gives the reason).

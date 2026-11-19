@@ -1,0 +1,18 @@
+# S103 P7 tween (review lint): every frame-builder Draw site of src\renderer_scene\ and whether it carries the own blend tag (rdr_scene::TagOwnBlend, own_blend.h).
+# Format: `file | tagged|untagged | number of fb.Draw / builder.Draw / b.Draw sites in the file | reason`. tools\scene\own_blend_lint.py fails when a file's site count changes (a new site must be
+# tagged or listed here with a reason), when a `tagged` file has fewer TagOwnBlend calls than tagged sites, or when an `untagged` row has no reason.
+src/renderer_scene/front_end.cpp | tagged | 2 | the scene models / wrestlers / arena pieces (1892) and the instanced crowd (2052): the two draws the tween moves
+src/renderer_scene/crowd_cards.cpp | untagged | 1 | the crowd card bake pass (card pictures into their own targets; never displayed as a moving 3D draw)
+src/renderer_scene/crowd_ours.cpp | untagged | 3 | the stream path's crowd injection (live.cpp hook); the host's crowd is live_crowd.cpp -> FrontEnd::DrawInstanced (tagged). Not reached when the stream is compiled out
+src/renderer_scene/live_map_chain.cpp | untagged | 1 | a map pass (renders into a map target at this tick's own state; the pictures that sample it do not blend its lookup matrices: review F4)
+src/renderer_scene/live_map_circles.cpp | untagged | 1 | a map pass (circle shadows)
+src/renderer_scene/live_map_plane.cpp | untagged | 3 | the plane shadow map passes (review F4: the PlaneInv lookup is dropped from the blend set so the map and its lookup stay together)
+src/renderer_scene/live_map_props.cpp | untagged | 1 | a map pass (S103 PM2: prop casters into the props map at this tick's own state)
+src/renderer_scene/live_map_prelight.cpp | untagged | 1 | a map pass (prelight)
+src/renderer_scene/live_map_rim.cpp | untagged | 1 | the rim map pass (its lookup matrices are dropped from the blend set: review F4)
+src/renderer_scene/live_map_rope.cpp | untagged | 1 | a map pass (ropes)
+src/renderer_scene/live_map_sweat.cpp | untagged | 3 | the liquid (sweat / blood) map passes (render into the liquid map target at this tick's own state; the skin samples it, nothing moving to blend)
+src/renderer_scene/live_map_shadow.cpp | untagged | 1 | the shadow map pass (its lookup matrices are dropped from the blend set: review F4)
+src/renderer_scene/live_particles.cpp | untagged | 1 | particles: positions are baked into the draw's geometry for this tick; the stream's tween does not blend them either (particle_runs.h)
+src/renderer_scene/post_pass.cpp | untagged | 3 | the post pass: screen-space quads, no moving 3D constants (the third, :605, is the ghost / afterimage full-screen triangle)
+src/renderer_scene/quads2d_draw.cpp | untagged | 1 | the 2D rows: both halfway pictures carry this tick's rows (scene_host.cpp tween comment)

@@ -46,7 +46,7 @@
 //    original's packets go out as usual and NO record is sent for that call. Mismatches are logged.
 //    The HiZ helper 0x82CBD098 that both the Clear and the Resolve core call (r4 = 0x100) stores nothing in the device but the
 //    ring pointer and writes RB_HIZCONTROL, which the SDK never reads: dropped on its plain path; its tiling path falls back
-//    (reasons hiz / res_hiz; srcd_hiz.h has the listing facts).
+//    (reasons hiz / res_hiz; src\x03d_hiz.h has the listing facts).
 // 3. The GPR split 0x82CB0F58 (r3 device, r4 flags, r5 / r6 the vertex / pixel register counts): updates the device's
 //    register image at +11048 exactly as the original (rlwimi arithmetic of the listing), runs the original's tail helper
 //    0x82CB04D0 (ORs dirty bits, restores the window scissor) and drops the three indirect-buffer packets (the 24 dummy
@@ -55,6 +55,7 @@
 //    tile and the library never calls them (listing 0x82C224A0: tile count 1 -> a plain Clear 63).
 #pragma once
 
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -72,7 +73,10 @@
 #include "d3d_hiz.h"  // the HiZ helper 0x82CBD098 (Clear and Resolve call it with r4 = 0x100)
 #include "d3d_resolve_mip.h"  // the mip / face addressing of a resolve destination (0x82CA78F8 and helpers)
 #include "d3d_layer.h"  // F1: wwe2k14::d3d_layer::{Ld32, St32, Ld64, WriteRing, g_stats}
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()  // S103 P9 (A15)
 #include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
+#endif
 
 REXCVAR_DEFINE_BOOL(wwe2k14_d3d_copy, true, "wwe2k14",
                     "Session 87 (D3D layer F2): with --wwe2k14_d3d_layer, the library's Clear (one colour target + depth + "
@@ -149,7 +153,8 @@ inline void Fallback(Reason r, const char* what) {
 inline void CensusMaybe() {
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   uint64_t last = g_census_frame.load(std::memory_order_relaxed);
-  if (frame < last + 600 || !g_census_frame.compare_exchange_strong(last, frame)) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
+  if ((frame < last + 600 && !census_flush::Due(cf_site)) || !g_census_frame.compare_exchange_strong(last, frame)) return;
   std::string fb;
   uint64_t total = 0;
   for (uint32_t r = 1; r < kReasonCount; ++r) {
@@ -609,12 +614,16 @@ inline bool GprSplit(PPCContext& ctx, uint8_t* base) {
 #include "owner_null_copy.h"  // Session 100 (strip-360 B3): owner mode's clears / resolves = their device bookkeeping only
 
 REX_HOOK_RAW(sub_82CB52B8) {
+#if WWE2K14_STREAM()  // S103 P9 (A15)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnClear(ctx, base);
+#endif
   if (wwe2k14::owner_null_copy::Clear(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Clear(ctx, base)) __imp__sub_82CB52B8(ctx, base);
 }
 REX_HOOK_RAW(sub_82CAFB88) {
+#if WWE2K14_STREAM()  // S103 P9 (A15)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnResolve(ctx, base);
+#endif
   if (wwe2k14::owner_null_copy::Resolve(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Resolve(ctx, base)) __imp__sub_82CAFB88(ctx, base);
 }

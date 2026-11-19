@@ -16,7 +16,7 @@ $sdk = (Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue | 
 $inc = @('-I', $stb, '-I', $vkh, '-I', (Join-Path $repo 'src\launcher'), '-I', (Join-Path (Split-Path $stb -Parent) 'xxHash'))   # (xxhash.h: the contract's one content hash)
 if ($sdk) { $inc += @('-I', (Join-Path $sdk.FullName 'Include')) }
 $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-D_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING', '-DRDR_DEV')
-$srcs = @((Join-Path $PSScriptRoot 'ui_ours_test.cpp'), (Join-Path $repo 'src\renderer_scene\ui_ours_core.cpp'))
+$srcs = @((Join-Path $PSScriptRoot 'ui_ours_test.cpp'), (Join-Path $repo 'src\renderer_scene\ui_ours_core.cpp'), (Join-Path $repo 'src\renderer_scene\ui_file_index.cpp'), (Join-Path $repo 'src\renderer_scene\record_io.cpp'))
 # compile-only: the GPU side of the hook (needs the renderer's headers; not linked into the test)
 $check = @((Join-Path $repo 'src\renderer_scene\ui_ours.cpp'))
 $all = $srcs + $check

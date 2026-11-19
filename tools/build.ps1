@@ -28,13 +28,25 @@
 param([string]$Run = '002', [string]$Preset = 'win-amd64-release', [string]$AllowUnpinnedSdk = '',
       [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '',
       [double]$LockWaitMinutes = 3, [double]$LockMaxMinutes = 30,
-      [switch]$Symbols, [switch]$NoSymbols, [switch]$GuestLines)
-$repo = 'C:\Users\Jarrod\wwe2k14-recomp'
+      [switch]$Symbols, [switch]$NoSymbols, [switch]$GuestLines, [string]$Root = '')
+# S103 WTG: the tree this script builds is the one it lives in (or -Root), never a hardcoded path (a worktree build used to build the MAIN tree silently).
+if (-not $Root) { $Root = Join-Path $PSScriptRoot '..' }
+if (-not (Test-Path -LiteralPath $Root -PathType Container)) { "build.ps1: -Root $Root is not a folder"; exit 2 }
+$repo = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
 . "$repo\tools\sdk_pins.ps1"
+$script:SdkPinRepo = $repo   # the pin helpers read the same tree (their default is the main checkout)
 $overrideGiven = $PSBoundParameters.ContainsKey('AllowUnpinnedSdk')
 if ($overrideGiven -and -not $AllowUnpinnedSdk.Trim()) {
     'build.ps1: -AllowUnpinnedSdk needs a reason, e.g. -AllowUnpinnedSdk "testing SDK branch s8/foo (not pinned yet)"'
     exit 2
+}
+# The tree must hold what a build needs. A builder's worktree has none of it (generated\, the configured out\build, the SDK pins): say so and stop, never fall back to another tree.
+if (-not $CheckOnly) {
+    $lack = @(@('generated\default', "out\build\$Preset\CMakeCache.txt", 'tools\sdk_pins.json') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $repo $_)) })
+    if ($lack.Count) {
+        "build.ps1: REFUSED, nothing built: $repo lacks $($lack -join ', ') (a builder worktree has no generated code, build folder or SDK pins: this is a NEEDS-MAIN step, hand it to the main session; or pass -Root to a tree that has them)"
+        exit 6
+    }
 }
 if (-not $ExeDir) { $ExeDir = Join-Path $repo "out\build\$Preset" }
 if (-not $PinFile) { $PinFile = Join-Path $repo 'tools\sdk_pins.json' }

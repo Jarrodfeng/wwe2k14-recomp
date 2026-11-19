@@ -56,8 +56,9 @@ LINKS = [
     ('lever 1 switch is read', 'src/renderer_adapter/reader.h', r'REXCVAR_GET\(wwe2k14_rdr_low_shadow_small\)'),
     ('lever 1 goes through ShadowMapSize', 'src/renderer_adapter/reader.h', r'options\.shadow_map_size\s*=\s*(?:rdr_adapter::)?low_levers::ShadowMapSize\('),
     ('lever 1 size reaches the shadow code', 'src/renderer_adapter/live.cpp', r'g_shadow_map_size\s*=\s*options\.shadow_map_size'),
-    ('lever 2 switch is read', 'src/renderer_adapter/reader.h', r'REXCVAR_GET\(wwe2k14_rdr_low_present_noclear\)'),
-    ('lever 2 goes through PresentNoClear', 'src/renderer_adapter/reader.h', r'options\.present_noclear\s*=\s*(?:rdr_adapter::)?low_levers::PresentNoClear\('),
+    ('lever 2 switch is read', 'src/start_settings.cpp', r'REXCVAR_GET\(wwe2k14_rdr_low_present_noclear\)'),   # S103 SPB: ApplyStartSettings reads it for both builds
+    ('lever 2 goes through PresentNoClear', 'src/start_settings.cpp', r'a\.present_noclear\s*=\s*(?:rdr_adapter::)?low_levers::PresentNoClear\('),
+    ('lever 2 reaches the start options from Applied', 'src/renderer_adapter/reader.h', r'options\.present_noclear\s*=\s*applied\.present_noclear'),   # S103 SPB review L6: the link the move to start_settings.cpp cut
     ('lever 2 reaches the renderer options', 'src/renderer_adapter/live.cpp', r'ro\.present_noclear\s*=\s*options\.present_noclear'),
     ('lever 2 is read where the present is recorded', 'src/renderer/renderer.cpp', r'const bool noclear\s*=\s*options\.present_noclear\s*&&'),
     ('lever 2 branches on the local, not a handle', 'src/renderer/renderer.cpp', r'if \(noclear\) \{'),
@@ -69,7 +70,7 @@ LINKS = [
     ('lever 3 goes through CopyAliasFor', 'src/renderer_adapter/reader.h', r'(?:rdr_adapter::)?low_levers::CopyAliasFor\('),
     ('lever 3 mode reaches copy_alias', 'src/renderer_adapter/live.cpp', r'copy_alias::g_mode\s*=\s*options\.copy_alias'),
     ('LOW: the direct settings-file start sets the quality note', 'src/gfx_menu.h', r'SetFlagByName\("wwe2k14_quality_note"'),
-    ('LOW is read from the resolved tier (the note)', 'src/renderer_adapter/reader.h', r'(?:rdr_adapter::)?low_levers::IsLow\(flag\)'),
+    ('LOW is read from the resolved tier (the note)', 'src/start_settings.cpp', r'(?:rdr_adapter::)?low_levers::IsLow\(flag\)'),
 ]
 
 

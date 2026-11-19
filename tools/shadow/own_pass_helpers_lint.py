@@ -19,7 +19,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 CALL = re.compile(r'builder\.(SetTargets|Copy)\(')
-MARK = re.compile(r'(helper:(IssueTargets|IssueCopy)|allow:(post|bake|d3|last_picture))')
+MARK = re.compile(r'(helper:(IssueTargets|IssueCopy)|allow:(post|bake|d3|last_picture|row2d))')
 FAILS = 0
 
 

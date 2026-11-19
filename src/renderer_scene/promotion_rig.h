@@ -132,6 +132,7 @@ class PromotionRig {
   // The crowd's bodies load on a worker: wait (up to `seconds`) for the first frame with a crowd to have them, so the replay is not a fallback one. true: ready or no crowd on.
   bool Prime(double seconds, uint32_t frame_count, std::string& message) {
     if (!crowd_) return true;
+    // render-clock: dev - the promotion rig times its own timeout, offline
     const auto start = std::chrono::steady_clock::now();
     const uint32_t limit = frame_count < 600 ? frame_count : 600;
     for (uint32_t f = 0; f < limit; ++f) {
@@ -139,6 +140,7 @@ class PromotionRig {
       crowd_->FrameReady();
       if (crowd_->arena() < 0) continue;
       while (!crowd_->FrameReady()) {
+        // render-clock: dev - the promotion rig times its own timeout, offline
         if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() > seconds) {
           message = "the crowd's bodies for arena " + std::to_string(crowd_->arena()) + " were not loaded in " + std::to_string(int(seconds)) + " s (game folder wrong?)";
           return false;

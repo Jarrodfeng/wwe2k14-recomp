@@ -29,7 +29,7 @@ def main():
     if r.returncode:
         print('FAIL: the unit test failed')
         return 1
-    for plant in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+    for plant in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17):
         p = subprocess.run([exe, str(plant)], capture_output=True, text=True)
         if p.returncode == 0:
             print('FAIL: planted twin %d was not caught' % plant)
@@ -56,6 +56,25 @@ def main():
         (do, '#include "scene_live/own_node_hook.h"', 'draw_origin.h includes the hook'),
         (core, 'RequireInput(Pass::ShadowModule, b)', 'the shadow module registers its inputs'),
     ]
+    # S103 L31A: the real classification (the arena path included) is source-linted: the unit cannot build a live arena set without game files
+    lsd, lv, ral, core2 = text('src/renderer_scene/live_scene_draw.cpp'), text('src/renderer_adapter/live.cpp'), text('src/renderer_scene/rf_arena_live.cpp'), text('src/renderer_scene/rf_c_core.cpp')
+    i_load, i_built = lsd.find('if (loading) *loading = live_cache_->misses_this_frame() > 0;'), lsd.find('why = "frame not built: "')
+    # S103 FOB (9222f11a4 review fix 1): EnsureArena owns the loading miss (rf_c_core.cpp), no longer ApplyArenaLive: the note sits before the 'not resident' return there, and ApplyArenaLive still returns !miss
+    i_note, i_ret = core2.find('if (ctx.models.misses_this_frame() == 0) ctx.models.NoteMiss();'), core2.find('return why = "arena " + std::to_string(view.arena_id) + " not resident", nullptr;')
+    if 'return !miss;' not in ral:
+        print('FAIL: ApplyArenaLive must return !miss (a not-resident arena keeps the frame the games own)'); return 1
+    need += [
+        (lsd, 'if (loading) *loading = live_cache_->misses_this_frame() > 0;', 'DrawLive classifies loading on the cache miss count'),
+        (lv, 'scene_frame::Miss(m.guest_frame, loading)', 'the strike caller passes the loading flag'),
+        (lv, 'scene_draw->ReleaseRetiredLive(m.guest_frame)', 'SceneOurs releases retired models every frame'),
+        (core2, 'st.deb.Step(st.sig_h, h, ctx.t.header.guest_frame)', 'EnsureArena debounces the signature'),
+    ]
+    if not (0 <= i_load < i_built):
+        print('FAIL: DrawLive must classify loading BEFORE the "frame not built" return'); return 1
+    if not (0 <= i_note < i_ret):
+        print('FAIL: EnsureArena must NoteMiss before returning the not-resident miss (the arena path is a loading miss)'); return 1
+    if '"not resident") != std::string::npos' in lv:
+        print('FAIL: the strike caller must not classify on the error text'); return 1
     bad = 0
     for src, needle, what in need:
         ok = needle in src

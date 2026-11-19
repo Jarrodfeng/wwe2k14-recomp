@@ -1,4 +1,4 @@
-"""Lane 234: runs out\tools\crowd_rank_test.exe (build_crowd_rank_test.ps1) clean (must pass), then each plant (no_track, no_swap; each must exit 1)."""
+r"""Lane 234: runs out\tools\crowd_rank_test.exe (build_crowd_rank_test.ps1) clean (must pass), then each plant (no_track, no_swap; each must exit 1)."""
 import subprocess
 import sys
 from pathlib import Path

@@ -89,7 +89,17 @@ def main():
     text = '\n'.join(out)
     if '--check' in sys.argv:
         with open(OUT, encoding='utf-8') as f:
-            return 0 if f.read().replace('\r\n', '\n') == text else 1  # (git may check the file out with CRLF)
+            have = f.read().replace('\r\n', '\n')  # (git may check the file out with CRLF)
+        if have == text:
+            return 0
+        # BHF4: a failing check names its reason (it used to exit 1 with no output): the first differing lines, and the variant list difference.
+        import difflib
+        names = lambda t: set(re.findall(r'\{"(\w+)", (?:kI\d+|nullptr)', t))
+        print(f'{OUT} is out of date against the shader sources under {FX} (regenerate: py -I tools\\scene\\gen_fx_tables.py)')
+        print(f'  variants: header {len(names(have))}, sources {len(names(text))}; only in sources: {sorted(names(text) - names(have))[:10]}; only in header: {sorted(names(have) - names(text))[:10]}')
+        for line in list(difflib.unified_diff(have.split('\n'), text.split('\n'), 'committed', 'regenerated', lineterm='', n=0))[:12]:
+            print('  ' + line[:200])
+        return 1
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, 'w', newline='\n', encoding='utf-8') as f:
         f.write(text)

@@ -3,10 +3,16 @@
 // No game or SDK includes. Everything under one mutex held for a whole EndFrame: contributors register at startup, sinks attach when a
 // capture arms / the case ring starts, so contention is nil, and RemoveSink returning means no EndFrame still holds the sink.
 #include "live_scene.h"
+#include "../renderer_adapter/census_flush.h"  // S102 CEN1
+static census_flush::Site g_cf_swap_once, g_cf_pool;  // S102 CEN1
 
 #include "../renderer_adapter/rdr_switches.h"   // S102 T11b: wwe2k14_rdr_scene_strings_once, read every frame (no game or SDK includes)
+#include "../renderer_adapter/stage_view.h"   // S103 SVO: StampFrame (no game or SDK includes)
+#include "../renderer_game/node_switch.h"   // S103 lane S: the frame's stamps (no game or SDK includes)
+#include "guest_model_draw.h"   // S103 CTX2: the CAW guest-model draw counters, re-printed once a census window (CAWD Q1)
+#include "../scene_live/input_changes.h"   // S103 S2: the changes census per input (pure; off unless --wwe2k14_rdr_scene_changes)
 #include "string_pool.h"
-#include "swap_once.h"     // S102 SW1: wwe2k14_rdr_swap_once (the swap thread's every-frame work done once)
+#include "swap_once.h"    // S102 SW1: wwe2k14_rdr_swap_once (the swap thread's every-frame work done once)
 #include "tables_pool.h"   // S102 SW1
 
 #include <atomic>
@@ -43,6 +49,10 @@ struct State {
   TablesPool tables_pool;           // S102 SW1: recycled record tables (swap_once bit 1); the table's last owner gives it back from any thread (its own mutex)
   uint64_t so_window_start = 0;     // S102 SW1: the guest frame the swap_once census window began at (0 = none yet)
   uint64_t so_base[8] = {};         // the swap_once counters at the window's start (the line prints the window's counts)
+  StampFillFn emit_stamp_fill = nullptr;         // S103 L1C review B1: the overlay of the Emit-stamped bits
+  StampFillFn stamp_fill = nullptr;              // S103 S (audit item 7): the input-stamp snapshot (under mu)
+  std::vector<InputStampRow> latch_stamps;       // taken at the end of the latch of `latch_stamps_frame`
+  uint64_t latch_stamps_frame = ~0ull;
 };
 
 // S102 U1: the deferred emit's thread flag and the violation counter live in live_scene.h (tail_detail, inline).
@@ -104,6 +114,20 @@ void SetLog(LogFn fn) {
   State& s = S();
   std::lock_guard lock(s.mu);
   s.log = fn;
+}
+
+void SetEmitStampFill(StampFillFn fn) {
+  State& s = S();
+  std::lock_guard lock(s.mu);
+  s.emit_stamp_fill = fn;
+}
+
+void SetStampFill(StampFillFn fn) {   // S103 S (audit item 7)
+  State& s = S();
+  std::lock_guard lock(s.mu);
+  s.stamp_fill = fn;
+  s.latch_stamps.clear();
+  s.latch_stamps_frame = ~0ull;
 }
 
 static bool BadStr(const SceneTables& t, uint32_t f) { return f > t.strings.size(); }
@@ -183,6 +207,7 @@ void EndFrame(uint64_t guest_frame) { EndFrame(guest_frame, kNoCaptureFrame); }
 
 static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame);
 static void BuildFrame(State& s, const FrameInfo& info);  // S102 U1
+static void LatchImpl(uint64_t guest_frame, uint32_t capture_frame, bool allow_defer, Latched& out);  // S103 D7
 
 // S101 lane 26 review: nothing throws into guest code. An allocation failure (the tables, the vectors) refuses the frame like any other fault.
 void EndFrame(uint64_t guest_frame, uint32_t capture_frame) {
@@ -203,18 +228,11 @@ void EndFrame(uint64_t guest_frame, uint32_t capture_frame) {
 
 static void EndFrameImpl(uint64_t guest_frame, uint32_t capture_frame) {
   if (!Enabled()) return;  // off = one relaxed load
-  State& s = S();
-  if (!s.contributor_count.load(std::memory_order_relaxed)) return;  // no class registered yet: nothing to build, no lock taken
-  std::lock_guard lock(s.mu);
-  if (s.sinks.empty() || s.contributors.empty()) return;  // no sink, or no class has anything to say yet: nothing to build
-  ++s.totals.frames;
-  ++s.frames_in_window;
-
-  FrameInfo info;
-  info.guest_frame = guest_frame;
-  info.frame_in_window = s.frames_in_window - 1;
-  info.capture_frame = capture_frame;
-  BuildFrame(s, info);  // S102 U1: the body moved into BuildFrame (unchanged), shared with LatchFrame / EmitLatched
+  // S103 D7 (run 26): with tail release off this path never latched, so no contributor's Latch ever ran. It now takes the tail's route without the deferral: every contributor's Latch, the
+  // stamp snapshot (stamp_fill), then BuildFrame, all before the present releases the update thread (reader.h OnPresent: threads parked as on the tail path). LatchImpl keeps the early-outs
+  // (no class registered, no sink) and counts the frame once.
+  Latched scratch;
+  LatchImpl(guest_frame, capture_frame, /*allow_defer=*/false, scratch);
 }
 
 // The record of one frame: every contributor's Emit in registration order, Validate, the sinks. `s.mu` is held by the caller.
@@ -227,7 +245,7 @@ static void BuildFrame(State& s, const FrameInfo& info) {
   TablesPool::Handle tables = (swap_mask & swap_once::kTables) ? s.tables_pool.Take() : TablesPool::Plain();
   if (swap_mask) {
     swap_once::g_count.frames.fetch_add(1, std::memory_order_relaxed);
-    if (s.so_window_start == 0 || guest_frame >= s.so_window_start + 600) {   // the census line, every 600 frames while the lever is on (the S102 rule)
+    if (s.so_window_start == 0 || guest_frame >= s.so_window_start + 600 || census_flush::Due(g_cf_swap_once)) {   // the census line, every 600 frames while the lever is on (the S102 rule)
       const swap_once::Counters& c = swap_once::g_count;
       const uint64_t now[8] = {c.frames.load(std::memory_order_relaxed), c.tables_reused.load(std::memory_order_relaxed), c.tables_made.load(std::memory_order_relaxed),
                                c.tables_dropped.load(std::memory_order_relaxed), c.crowd_fast.load(std::memory_order_relaxed), c.crowd_slow.load(std::memory_order_relaxed),
@@ -242,6 +260,7 @@ static void BuildFrame(State& s, const FrameInfo& info) {
         s.log(line);
       }
       for (int i = 0; i < 8; ++i) s.so_base[i] = now[i];
+      // render-clock: lookup - start of a diagnostic counting window, not game progress
       s.so_window_start = guest_frame ? guest_frame : 1;
     }
   }
@@ -252,7 +271,7 @@ static void BuildFrame(State& s, const FrameInfo& info) {
     pool.Commit();
     ++pool.stats.frames;
     if (tables->SeedStrings(pool)) ++pool.stats.seeded;
-    if (s.pool_window_start == 0 || guest_frame >= s.pool_window_start + 600) {   // the census line, every 600 frames while the lever is on (R13 / S102 rule)
+    if (s.pool_window_start == 0 || guest_frame >= s.pool_window_start + 600 || census_flush::Due(g_cf_pool)) {   // the census line, every 600 frames while the lever is on (R13 / S102 rule)
       if (s.pool_window_start != 0 && s.log) {
         const StringPool::Stats& st = pool.stats;
         char line[420];
@@ -265,11 +284,13 @@ static void BuildFrame(State& s, const FrameInfo& info) {
         s.log(line);
       }
       pool.stats = StringPool::Stats{};
+      // render-clock: lookup - start of a diagnostic counting window, not game progress
       s.pool_window_start = guest_frame ? guest_frame : 1;
     }
   }
   tables->header.source = uint8_t(Source::Live);
   tables->header.guest_frame = guest_frame;
+  tables->header.flags = (tables->header.flags & ~kSceneStagePlaying) | (rdr_adapter::stage_view::StampHostFrame() ? kSceneStagePlaying : 0u);   // S103 SVO: guest thread; the host reads the stamp, never the live flag (stage_view.h)
 
   std::vector<Counters> counters(s.contributors.size());
   bool refused = false;
@@ -293,6 +314,31 @@ static void BuildFrame(State& s, const FrameInfo& info) {
       break;
     }
   }
+  if (!refused && s.stamp_fill) {   // S103 S (audit item 7): the record's own input stamps, one snapshot after every contributor (never a contributor's mid-latch copy)
+    tables->input_stamps.clear();
+    if (s.latch_stamps_frame == guest_frame) tables->input_stamps = s.latch_stamps;   // taken at the end of this frame's latch
+    else if (!t_deferred_emit) s.stamp_fill(tables->input_stamps);                    // no latch: EndFrame runs at the latch's moment
+    // (a deferred emit without its own snapshot writes none: the render side refuses OURS for it)
+    if (s.emit_stamp_fill && !tables->input_stamps.empty()) {   // S103 L1C review B1: bits stamped at Emit (after the latch snapshot) overwrite their rows with the value as it stands now
+      std::vector<InputStampRow> ov;
+      s.emit_stamp_fill(ov);
+      for (const InputStampRow& o : ov) {
+        bool done = false;
+        for (InputStampRow& r : tables->input_stamps)
+          if (r.bit == o.bit) r = o, done = true;
+        if (!done) tables->input_stamps.push_back(o);
+      }
+    }
+  }
+  if (!refused) {   // S103 lane S (FRAME_CONTRACT.md 3): this frame's decisions (the scene switch, the node switch) travel in record j as kScOwnedPasses
+    tables->owned_passes.clear();
+    for (const rdr_own::OwnedPassStamp& st : rdr_own::g_board.Take(guest_frame >= 1 ? guest_frame - 1 : 0)) {   // the hook frame of this record (scene_frame.h HookFrameOf: record j carries hook frame j - 1's stamps)
+      OwnedStamp row;
+      row.pass = st.pass, row.decision = st.decision, row.why_not = st.why_not, row.inputs_mask = st.inputs_mask, row.guest_frame = st.guest_frame;
+      row.pad = st.pad;   // S103 L2d: the Scene3D stamp's scene kind (scene_kind.h; 0 = match)
+      tables->owned_passes.push_back(row);
+    }
+  }
   if (!refused) {
     std::string why;
     if (!Validate(*tables, why)) {
@@ -307,6 +353,7 @@ static void BuildFrame(State& s, const FrameInfo& info) {
     return;  // the frame's record is dropped; the game path is unaffected
   }
   tables->DropSeedPool();   // S102 T11b (R20 review F4): the sinks and the render thread get a table that does not point into the writer's mutable pool
+  inputchanges::The().Note(*tables);   // S103 S2: one relaxed load when off; the record's value per input against the previous record's, by the record's own Scene3D decision
   for (size_t i = 0; i < counters.size(); ++i) {
     s.window[i].sum.objects += counters[i].objects;
     s.window[i].sum.unknown += counters[i].unknown;
@@ -363,6 +410,11 @@ static void LatchImpl(uint64_t guest_frame, uint32_t capture_frame, bool allow_d
       all = false;
       s.latch.not_latchable_name = c->Name();
     }
+  }
+  if (s.stamp_fill) {   // S103 S (audit item 7): the stamps as they stand after EVERY contributor's latch, before the game threads run again
+    s.latch_stamps.clear();
+    s.stamp_fill(s.latch_stamps);
+    s.latch_stamps_frame = guest_frame;
   }
   if (all && allow_defer) {
     out.emit_deferred = true;
@@ -456,6 +508,11 @@ void CensusLog(uint64_t from, uint64_t to) {
     if (!part.empty()) line += "; " + part;
   }
   Log(s, line);
+  {   // S103 CTX2 (CAWD Q1): the CAW body's draw counters with this window's delta ("" while nothing was ever counted)
+    const std::string gd = rdr_scene::guestmodel::WindowCensusLine(from, to);
+    if (!gd.empty()) Log(s, gd);
+  }
+  if (inputchanges::g_on.load(std::memory_order_relaxed)) Log(s, inputchanges::The().Line());   // S103 S2: cumulative since start
   for (PerContributor& p : s.window) p = PerContributor{};
   s.frames_in_window = 0;
   s.window_records = s.window_refused = s.window_sink_errors = s.validate_refused = 0;

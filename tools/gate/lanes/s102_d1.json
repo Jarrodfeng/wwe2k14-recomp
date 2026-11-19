@@ -9,9 +9,9 @@
   {"name": "s102_d1.role_audit","cmd": ["py", "-I", "tools/renderer/role_audit.py", "--selftest"], "timeout_s": 60},
   {"name": "s102_d1.wiring","cmd": ["py", "-I", "tools/renderer/device_lost_wiring.py", "--root", "."], "timeout_s": 120},
   {"name": "s102_d1.frame_split", "cmd": ["py", "-I", "tools/frame_split/frame_split_check.py", "--root", "."], "timeout_s": 600},
-  {"name": "s102_d1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"]},
+  {"name": "s102_d1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
   {"name": "s102_d1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 120},
   {"name": "s102_d1.win_macro_lint", "cmd": ["py", "-I", "tools/gate/win_macro_lint.py", "--root", "."], "timeout_s": 120},
-  {"name": "s102_d1.device_features_lint", "cmd": ["py", "-I", "tools/renderer/device_features_lint.py", "--root", "."], "timeout_s": 120}
+  {"name": "s102_d1.device_features_lint", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/renderer/device_features_lint.py", "--root", "."], "timeout_s": 120}
  ]
 }

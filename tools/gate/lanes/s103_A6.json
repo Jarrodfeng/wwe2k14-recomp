@@ -1,0 +1,12 @@
+{
+ "owner": "S103 lane A6 (bits 4 / 7 from memory at the latch): src/scene_live/light_latch.h, light_latch_board.h, light_index_core.h (Find, OnLatchEntry), inputs_contrib.h (the latch's predictions and census), light_state_contrib.h (the walk-frame pairing), inputs_glue.h (SetRing), tools/scene/a6_unit.cpp, a6_check.py. 0 game runs, 0 Surface runs.",
+ "note": "check 1 = tools/scene/a6_check.py (the unit with 17 checks, 7 planted twins, the wiring lints: kLatchEntries and kStampLightStates stay false, no hook, no guest write); check 2 = tools/scene/inputs_check.py (the A3-A5 light units still pass with the new code in inputs_contrib.h); check 3 = the game translation units compile.",
+ "checks": [
+  {"name": "s103_A6.a6", "cmd": ["py", "-I", "tools/scene/a6_check.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/scene_live/light_latch*.h", "src/scene_live/light_index_core.h", "tools/scene/a6_unit.cpp", "tools/scene/a6_check.py"]},
+  {"name": "s103_A6.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/light_*.h", "tools/scene/inputs_unit.cpp"]},
+  {"name": "s103_A6.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*"]}
+ ]
+}

@@ -49,7 +49,9 @@ def main_checkout(root):
 
 def find_capture(main_co, frames):
     best = None
-    for d in glob.glob(os.path.join(main_co, 'out', 'cases', 'fview_unpack_*', 'capture')):
+    # S102 TIDY2: fview_unpack_* copies are scratch (the tidy never holds them). Real sources first: a saved capture folder or a case folder's capture.
+    for d in (glob.glob(os.path.join(main_co, 'out', 'captures', '*')) + glob.glob(os.path.join(main_co, 'out', 'cases', 'case_*', 'capture'))
+              + glob.glob(os.path.join(main_co, 'out', 'cases', 'fview_unpack_*', 'capture'))):
         fr = os.path.join(d, 'frames')
         if os.path.isdir(fr) and os.path.isdir(os.path.join(d, 'scene')) and len(os.listdir(fr)) == frames:
             if best is None or os.path.getmtime(d) > os.path.getmtime(best):
@@ -263,7 +265,7 @@ def part_wiring(root):
         ('the renderer takes the sets path only on bit 1', 'rdr::g_render_lean.load(std::memory_order_relaxed) & rdr::kLeanSets) return GetTextureSetLean' in rn, rn, 'rdr::g_render_lean.load(std::memory_order_relaxed) & rdr::kLeanSets) return GetTextureSetLean'),
         ('a destroyed image evicts its sets', 'lean_cache.EvictViews(lean_dying' in rn, rn, 'lean_cache.EvictViews(lean_dying'),
         ('staging goes back to the pool only from DrainRetired', 'staging_pool.Give(item.pool_class' in rn, rn, 'staging_pool.Give(item.pool_class'),
-        ('the census prints every 600 frames', 'serial % 600 == 0 && (rdr::g_render_lean' in rn, rn, 'serial % 600 == 0 && (rdr::g_render_lean'),
+        ('the census prints every 600 frames', 'serial % 600 == 0) && (rdr::g_render_lean' in rn, rn, 'serial % 600 == 0) && (rdr::g_render_lean'),
     ]
     for what, present, text, needle in links:
         twin = text.replace(needle, '/*cut*/', 1)

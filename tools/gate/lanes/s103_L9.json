@@ -1,0 +1,85 @@
+{
+ "owner": "S103 lane L9 (landing 1: the wrestlers' shadow on the ring mat): the plane shadow gets a reader. LiveMapsHook::RecordPlane now makes the whole chain (mask 512 -> box 256 -> blur x -> blur z, src/renderer_scene/live_map_plane.cpp), the ring mat (yProp_PSM / PSMLM) is bound to its FX_SCREEN_SHADOW variant with slot 12 = MapRole::PlaneShadow and PlaneInv = the map's matrix (src/renderer_scene/front_end.cpp), the latch tags PlaneEyes with the record frame (src/scene_live/inputs_contrib.h). tools/scene/l9_check.py; docs/renderer/LIVE_MAPS.md section Lane L9.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs: frame_rig.exe + fview headless on out/s103/run27_case.zip (unpacked once under out/l9/run27) frame 500. The plane inputs the record does not hold are TOLD to the rig from the stream (a labelled fixture); the wrestlers are drawn unscaled (frame_rig --body-scale-one, [U]). The plants (WWE_RDR_NO_PLANE_READER, WWE_RDR_PLANE_NO_CHAIN) must fail with PLANE READER. No shader is added (rdr_plane_blur is lane 159's), so no spv_current.",
+ "checks": [
+  {
+   "name": "s103_L9.build_rig",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_L9.build_rsc",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_L9.plane_reader",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py"],
+   "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/live_map_plane.cpp", "src/renderer_scene/live_maps.h", "src/renderer_scene/live_maps.cpp", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L9.plant_no_reader",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py", "--plant", "plane_no_reader"],
+   "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/live_maps.h", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L9.plant_no_chain",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py", "--plant", "plane_no_chain"],
+   "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L9.plant_mirror",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py", "--plant", "plane_mirror"],
+   "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/front_end.cpp", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L9.low_camera",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py", "--low-camera"],
+   "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L9.t19_lint",
+   "cmd": ["py", "-I", "tools/gate/t19_lint.py", "--root", "."],
+   "timeout_s": 300,
+   "affects": ["tools/scene/l9_check.py", "tools/gate/t19_lint.py"]
+  },
+  {
+   "name": "s103_L9.address_lint",
+   "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."],
+   "timeout_s": 600,
+   "needs": ["generated/default"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*", "tools/analysis/address_lint.py"]
+  },
+  {
+   "name": "s103_L9.inputs_check",
+   "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."],
+   "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_contrib.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]
+  },
+  {
+   "name": "s103_L9.game_syntax",
+   "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"],
+   "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/inputs_contrib.h", "src/scene_live/*", "src/renderer_scene/*"]
+  }
+ ]
+}

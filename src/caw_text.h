@@ -24,7 +24,10 @@
 #include <string>
 #include <vector>
 
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()  // S103 P9 (B5): ReadCawState / OnFrame read a stream frame (rdr_adapter::LoadedFrame); the editor-state reader over our own record is not built
 #include "renderer_adapter/capture_reader.h"
+#endif
 
 namespace wwe2k14::caw {
 
@@ -66,6 +69,7 @@ inline bool Flash(const State& prev, const State& cur) {
   return cur.hot >= 0 && prev.hot >= 0 && (cur.hot != prev.hot || cur.hot_r - prev.hot_r > 0.1f);
 }
 
+#if WWE2K14_STREAM()
 inline State ReadCawState(const rdr_adapter::LoadedFrame& frame, const ReadGeometry& read_geometry, const Options& opt = Options{}) {
   using namespace rdr_adapter;
   State out;
@@ -159,6 +163,7 @@ inline State ReadCawState(const rdr_adapter::LoadedFrame& frame, const ReadGeome
 }
 
 // ---- the text form: one line a state, tab separated, UTF-8. Both readers print it; the gate compares the lines. ---------------------------------
+#endif  // WWE2K14_KEEP_STREAM
 inline std::string Line(const State& s) {
   char head[160];
   std::snprintf(head, sizeof(head), "%llu\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.3f\t%d\t%d\t", (unsigned long long)s.guest, s.has_text ? 1 : 0, s.seq, s.seq76 ? 1 : 0,
@@ -226,6 +231,7 @@ inline uint64_t g_frames = 0;          // frames read since the verb went on
 constexpr size_t kRing = 512;
 
 // The live frame path calls this for each frame it parses while g_on is set (src/renderer_adapter/live.cpp, S101 lane 118).
+#if WWE2K14_STREAM()
 inline void OnFrame(const rdr_adapter::LoadedFrame& frame, const ReadGeometry& read_geometry) {
   if (g_on.load(std::memory_order_relaxed) && NowMs() - g_last_read_ms.load(std::memory_order_relaxed) > kIdleMs) {
     if (g_auto_off) g_auto_off();   // S101 lane 118 review: 30 s without a read
@@ -241,6 +247,7 @@ inline void OnFrame(const rdr_adapter::LoadedFrame& frame, const ReadGeometry& r
 }
 
 // `!caw since GF [MAX]`: the states after guest frame GF, oldest first, as one JSON array on one line (the live channel's answer is "key: value" lines).
+#endif  // WWE2K14_KEEP_STREAM
 inline std::string Since(uint64_t gf, size_t max_states) {
   std::lock_guard<std::mutex> lock(g_mu);
   std::string out = "[";

@@ -1,0 +1,14 @@
+{
+ "owner": "S103 lane H1: the shared compile cache for the tool builds (tools/cxx_cache.ps1: sccache in PREPROCESSOR mode, repo-relative paths, one shared dir outside every worktree, WWE_NO_CCACHE=1 = off). tools/gate/cxx_cache_proof.py is the proof it is safe: a second root hits, a changed header / define misses, a shadowing header misses, and every cached object equals its uncached build (code, data, relocations, symbols).",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. Direct mode (SCCACHE_DIRECT=true) is run once inside the proof and reported (INFO line); only preprocessor mode must be right.",
+ "checks": [
+  {"name": "h1_cache.cxx_cache_proof", "cmd": ["py", "-I", "tools/gate/cxx_cache_proof.py"], "timeout_s": 900,
+   "needs": ["thirdparty/rexglue-sdk-src/thirdparty/stb"],
+   "affects": ["tools/cxx_cache.ps1", "tools/cxx_cc.ps1", "tools/gate/cxx_cache_proof.py", "src/renderer_scene/record_frame.cpp"]},
+  {"name": "h1_cache.cxx_cache_conc", "cmd": ["py", "-I", "tools/gate/cxx_cache_conc.py"], "timeout_s": 1800,
+   "needs": ["thirdparty/rexglue-sdk-src/thirdparty/stb"],
+   "affects": ["tools/cxx_cache.ps1", "tools/gate/cxx_cache_conc.py", "tools/scene/build_rsc.ps1"]},
+  {"name": "h1_cache.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

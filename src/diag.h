@@ -20,6 +20,7 @@
 #pragma once
 
 #include "thread_name.h"  // S102 H1
+#include "shown_frame.h"  // S103 lane SHOT: CaptureShownFrame
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/perf/timeline.h>
@@ -250,12 +251,9 @@ inline void Shot(const std::string& name, int slot) {
   State& s = S();
   const std::filesystem::path path = s.dir / "shots" / (name + ".jpg");
   std::thread([&s, path, slot] { wwe2k14::NameThread(L"diag_save");
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
     rex::ui::RawImage image;
     uint64_t exact = 0, perceptual = 0;
-    if (presenter && presenter->CaptureGuestOutput(image) && image.width && image.height) {
+    if (wwe2k14::CaptureShownFrame(image) && image.width && image.height) {
       exact = 1469598103934665603ull;
       for (uint32_t y = 0; y < image.height; ++y)
         exact = Fnv64(image.data.data() + size_t(y) * image.stride, size_t(image.width) * 4, exact);

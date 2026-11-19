@@ -769,7 +769,7 @@ def _moment(addr, ctx):
 NOT_YET = {
     'caw': 'the atlas has the mode (mode:caw) but no node for any Create-a-Superstar category or item (game_atlas.md "Open": deep screens are not nodes yet)',
     'universe': 'the atlas has mode:universe (screen 1497) but not its pages (game_atlas.md "Open")',
-    'cutscene': 'no verb plays a cutscene / story scene by id: the Season scene banks (N0-2) need the viewer path or the Lua CallFunction 1002 / 1003 form, whose arguments are unconfirmed',
+    'cutscene': 'a cutscene NAME is not a scene id: cutscene:ID is an alias of scene:ID[:CHARS] (the stage push, numeric ids, banks 1-699 and 4000-5999); name -> id needs the scene id tables',
 }
 
 
@@ -812,6 +812,11 @@ def resolve(addr, ctx=None):
         return _match(addr, ctx)
     if addr.scheme == 'wm30':
         return _wm30(addr, ctx)
+    if addr.scheme == 'cutscene':   # GTB: an alias of scene: (the stage push plays a scene by id)
+        try:
+            return resolve(parse('scene:' + addr.body), ctx)
+        except AddressError:
+            return Plan(str(addr), 'not_reachable', NOT_YET['cutscene'])
     if addr.scheme == 'scene':
         return _scene(addr, ctx)
     if addr.scheme == 'moment':
@@ -930,11 +935,11 @@ def _moment_start(s, name, say):
     unknown = [f.text() for f in parsed if f.bare not in cvars]
     if unknown:
         raise Stopped('moment_start: flags the sources do not define (the game would ignore them): %s' % ', '.join(unknown))
-    exe = os.path.join(live.EXE_DIR, 'wwe2k14.exe')
+    exe = os.path.join(getattr(live, 'exe_dir', lambda: live.EXE_DIR)(), 'wwe2k14.exe')
     for need in ('wwe2k14_replay_until', 'wwe2k14_replay_play'):
         if not _exe_knows(exe, need):
             raise Stopped('the game exe %s does not hold the cvar %s: build it (this goto would wait for a hand-over that never comes)' % (exe, need))
-    out = live.start(name, script='idle', fast=True, extra=' '.join(flags), data=s.get('data') or '')
+    out = live.start(name, script='idle', fast=True, extra=' '.join(flags), data=s.get('data') or '', exe=exe)
     say('  ' + out)
     if not out.startswith('started'):
         _moment_quit(name)
@@ -1142,6 +1147,7 @@ def execute(plan, name='main', say=print):
     import nav
     events = None
     log_mark = 0  # run-log size when the jump was armed: expect_log reads only what came after
+    title_checked = False
     armed = False
     scene_armed = False  # S101 lane 32: a victory scene armed and not yet used
     guard = _stall_guard(name)   # S101 lane 145: the stall watchdog for every log / event wait below (docs/systems/goto.md)
@@ -1156,6 +1162,11 @@ def execute(plan, name='main', say=print):
         op = s['op']
         try:
             if op == 'nav':
+                if not title_checked:   # GTW2: the title (sequence 3) is never pressed blind
+                    title_checked = True
+                    st, _ = nav.Nav(name).read()
+                    if st.get('seq') == 3:
+                        raise Stopped('the game is on the title (sequence 3): start it with `live.py start --script menu` (idle leaves the title)')
                 for line in nav.Nav(name).go(s['target']):
                     say('  ' + line)
             elif op == 'events_mark':

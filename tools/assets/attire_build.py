@@ -6,9 +6,10 @@ without a game run, as a contact sheet for the eye and as the expected picture f
 
 Inputs (the player's own files, read-only):
   - pac\\misc01_Start.pac, archive entry p0/600: the attire colour table. u16 record count, then one 664-byte record per character: u16 id at
-    +0; four attire blocks of 132 bytes from +108; each block's 16 RGB byte triples at +4 = 4 mask steps x the colours for the mask's
-    R, G, B, A channel (the split pass's g_CompR..A; code: sub_83418580 reads them at CData[+16] + attire x 132 + 1316 + 4). A block of
-    all 0xFF is an unused attire.
+    +0; per attire slot s (0-9): flag A at +4+s, flag B at +14+s (the game builds a slot by default when both are 1), colours at +64 + 48 s =
+    16 RGB byte triples = 4 mask steps x the colours for the mask's R, G, B, A channel (the split pass's g_CompR..A). S103 CMB fix: the old
+    layout (four 132-byte blocks from +108) was the game's IN-MEMORY colour block, wrong past slot 1 (docs\\research\\s103\\CMP.md CMP2:
+    sub_822D1B10 loads +64 -> mem slot +20, 48 per slot; sub_83418580 reads the copy at block + 132 set + 1320). A slot of all 0xFF is unused.
   - pac\\ch\\chNNN.pac, first archive: entry 12 = the base texture ("color", DDS DXT1 2048x1024), entries 13-16 = the masks ("Mask1".."Mask4",
     DDS A4R4G4B4 2048x1024). Each entry is a small wrapper (name, "dds") and then a standard DDS file.
 The build (checked against Heenan's in-game atlas, runs 6906 / 6911 / capture s100_heenan_build): the atlas starts as the base; for each
@@ -32,12 +33,16 @@ sys.path.insert(0, os.path.join(REPO, 'tools', 'wm30'))
 import pac  # noqa: E402
 
 RECORD = 664
-BLOCKS_AT = 108
-BLOCK = 132
+COLOURS_AT = 64     # per slot s: +64 + 48 s (S103 CMB; the old 108 / 132 blocks were the in-memory layout)
+SLOT = 48
+SLOTS = 10
+FLAG_A_AT = 4       # +4 + s
+FLAG_B_AT = 14      # +14 + s
 
 
-def colour_table():
-    """{id: [attire 0..3: None or 16 (r, g, b) tuples]} from misc01_Start.pac p0/600."""
+def colour_table(built_only=False):
+    """{id: [slot 0..9: None or 16 (r, g, b) tuples]} from misc01_Start.pac p0/600. built_only: a slot whose flags A and B are not both 1 is
+    None (the game builds only those by default)."""
     data = pac.load(os.path.join(pac.GAME, 'pac', 'misc01_Start.pac'))
     table = None
     for name, dec in pac.entries(data):
@@ -51,12 +56,12 @@ def colour_table():
     for k in range(count):
         rec = table[2 + RECORD * k: 2 + RECORD * (k + 1)]
         cid = struct.unpack_from('<H', rec, 0)[0]
-        attires = []
-        for a in range(4):
-            blk = rec[BLOCKS_AT + BLOCK * a: BLOCKS_AT + BLOCK * (a + 1)]
-            cols = blk[4:52]
-            attires.append(None if all(c == 0xFF for c in cols) else [tuple(cols[3 * i: 3 * i + 3]) for i in range(16)])
-        out[cid] = attires
+        slots = []
+        for s in range(SLOTS):
+            cols = rec[COLOURS_AT + SLOT * s: COLOURS_AT + SLOT * (s + 1)]
+            unused = all(c == 0xFF for c in cols) or (built_only and not (rec[FLAG_A_AT + s] == 1 and rec[FLAG_B_AT + s] == 1))
+            slots.append(None if unused else [tuple(cols[3 * i: 3 * i + 3]) for i in range(16)])
+        out[cid] = slots
     return out
 
 
@@ -114,7 +119,7 @@ def decode_masks(data, width, height, masks):
     return chans
 
 
-def build(cid, colours, entries, white='keep'):
+def build(cid, colours, entries, white='paint'):
     """The finished atlas (float RGB) of one attire: the base, then each mask's step. white: what a colour of 255 does: 'keep' (the
     default) leaves the texel as it was (the channel still claims it, so later channels of that step do not paint it); 'skip-steps'
     skips only steps whose four colours are all 255 and paints single 255 colours white; 'paint' paints every 255 white (the shader
@@ -126,7 +131,10 @@ def build(cid, colours, entries, white='keep'):
         raise ValueError('base is %r, not DXT1' % pf['fourcc'])
     atlas = decode_dxt1(data, w, h)
     steps = 0
-    for k, eid in enumerate(e for e in (13, 14, 15, 16) if e in entries):
+    for eid in (13, 14, 15, 16):   # S103 CMB: k = entry - 13 (the game binds Mask1..4 by fixed index); enumerate() over the present entries shifted k when an entry was missing
+        if eid not in entries:
+            continue
+        k = eid - 13
         mw, mh, mpf, mdata = dds(entries[eid])
         if (mw, mh) != (w, h) or mpf['bits'] != 16:
             raise ValueError('mask %d is %dx%d %d-bit' % (eid, mw, mh, mpf['bits']))
@@ -150,10 +158,11 @@ def main():
     ap.add_argument('--out', default=os.path.join(REPO, 'out', 's100', 'attires'))
     ap.add_argument('--sheet', help='contact sheet path (default: OUT\\sheet.png)')
     ap.add_argument('--full', action='store_true', help='write full-size atlases (default half size)')
-    ap.add_argument('--white', choices=('keep', 'skip-steps', 'paint'), default='keep',
-                    help='a colour of 255: keep the texel (default), skip only all-255 steps, or paint white (see build(); unconfirmed)')
+    ap.add_argument('--white', choices=('keep', 'skip-steps', 'paint'), default='paint',
+                    help='a colour of 255: paint white (default since S103 CMB: the game loop has no test for 255), keep the texel, or skip only all-255 steps')
+    ap.add_argument('--built-only', action='store_true', help='only the slots the game builds by default (flags A and B both 1)')
     a = ap.parse_args()
-    table = colour_table()
+    table = colour_table(a.built_only)
     names = {e['id']: e['name'] for e in json.load(open(os.path.join(REPO, 'db', 'ids', 'characters.json'), encoding='utf-8'))['entries']}
     ids = [int(x) for x in a.ids.split(',')] if a.ids else sorted(table)
     os.makedirs(a.out, exist_ok=True)

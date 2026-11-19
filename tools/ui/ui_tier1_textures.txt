@@ -1,0 +1,4 @@
+# The first tier's texture count on the player's own files ("index N textures in <kUiTier1Count> pacs"); read by ui_ours_check.py via ui_consts.py.
+# Re-pin whenever the first tier, the pac walk or the player's files change: out\tools\ui_ours_test.exe index --game game_data\extracted
+# Pinned 2026-11-17 (PN5 review fixes): 4250 textures in 11 pacs (kUiTier1Count 11, game2dHD.pac included; EPAC roster directories read by their counts).
+4250

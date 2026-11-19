@@ -125,7 +125,7 @@ def main():
     callers = {int(m.group(1), 16) for m in re.finditer(r'^\s+sub_([0-9A-F]{8})\s', out, re.M)}
     header = re.search(r'(\d+) call sites in (\d+) functions', out)
     src = (root / 'src' / 'draw_origin.h').read_text(encoding='utf-8', errors='replace')
-    scoped = {int(m, 16) for m in re.findall(r'S101_UI_(?:TEXT_)?SCOPE\(sub_([0-9A-F]{8})\s*,', src)}
+    scoped = {int(m, 16) for m in re.findall(r'S10[13](?:_I[0-9])?_UI_(?:TEXT_)?SCOPE\(sub_([0-9A-F]{8})\s*,', src)}
     lj = json.loads((HERE / 'ui_scope_leftout.json').read_text(encoding='utf-8'))
     leftout = {int(k, 16) for k in lj['leftout']}
     nonrec = {int(k, 16) for k in lj['not_recorders']}

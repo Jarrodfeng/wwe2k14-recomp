@@ -36,6 +36,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <string>
 
 #include "app.h"
@@ -62,6 +63,7 @@
 #include "../renderer/player/png.h"
 #include "../renderer_scene/shader_reload.h"  // S101 lane24
 #include "../renderer_scene/record_io.h"  // S102 T19: g_crowd_run_roundtrip
+#include "../renderer_scene/quads2d_rig.h"  // S103 I1: --quads-2d-rows / --quads-2d-fault
 #include "../renderer_adapter/const_override.h"  // S101 lane 164
 
 using namespace fview;
@@ -69,6 +71,8 @@ using namespace fview;
 namespace {
 
 std::string g_plan_memo_census_scene;   // S102 R23-P
+std::string g_rows_dump_dir;                         // S103 P7 H2: --quads-2d-dump DIR (with --quads-2d-rows): the frame's rows (after the record's own round trip) go to DIR\rows.rsc, one section-58 record, for the scene host rig
+std::vector<rdr_scene::Quad2D> g_rows_dump;          // in draw order, the last bind's
 
 bool WriteText(const std::string& path, const std::string& text) {
   std::error_code ec;
@@ -163,7 +167,7 @@ int main(int argc, char** argv) {
     else if (arg == "--display-curve-file") rdr::g_display_curve_file = next();  // S102 R24-A: 256 x RGBA8
     else if (arg == "--overlay-plant") rdr::g_overlay_plant.store(true);  // S102 R24-A TEST ONLY
     else if (arg == "--gpu-stamps") o.gpu_stamps = true;
-    else if (arg == "--gpu-group-stamps") { rdr::g_gpu_group_stamps.store(std::clamp(std::atoi(next().c_str()), 0, 255)); o.gpu_stamps = true; }   // S102 R24-F (wwe2k14_rdr_gpu_group_stamps): the [rdr][gpu][groups] table is logged when the renderer closes
+    else if (arg == "--gpu-group-stamps") { rdr::g_gpu_group_stamps.store(std::clamp(std::atoi(next().c_str()), 0, 255)); o.gpu_stamps = true; }   // RIG-ONLY: the viewer starts no game (ApplyStartSettings stores it in the game); S102 R24-F (wwe2k14_rdr_gpu_group_stamps): the [rdr][gpu][groups] table is logged when the renderer closes
     else if (arg == "--gpu-group-plant") rdr::g_gpu_group_plant.store(std::atoi(next().c_str()));   // S102 R24-F TEST ONLY
     else if (arg == "--fb-fast") rdr::g_fb_fast = true;       // S102 T4 (wwe2k14_rdr_fb_fast)
     else if (arg == "--pack-once") rdr::g_pack_once = true;   // S102 T5 (wwe2k14_rdr_pack_once)
@@ -177,7 +181,7 @@ int main(int argc, char** argv) {
     else if (arg == "--props-budget-noimage-slot") rdr_scene::props_budget::g_force_noimage.store(std::atoi(next().c_str()));   // S102 T17 test only: the binder's slot N reads as kNoImage to the props hook
     else if (arg == "--props-budget-plant") rdr_scene::props_budget::g_plant.store(std::atoi(next().c_str()));   // S102 T17: 1 no_budget, 2 hole, 3 image_twice
     else if (arg == "--frame-times") { o.frame_times = next(); rdr_scene::props_budget::g_record.store(true); }   // S102 T17
-    else if (arg == "--upload-batch") { const std::string v = next(); rdr::g_upload_batch.store(!(v == "off" || v == "0")); }   // S102 G5 (review F8): on / 1 / off / 0; the frame's texture uploads in three groups (default off)
+    else if (arg == "--upload-batch") { const std::string v = next(); rdr::g_upload_batch.store(!(v == "off" || v == "0")); }   // RIG-ONLY: the offline tool flag; the stream-free game start stores it from the cvar (start_settings.cpp). S102 G5 (review F8): on / 1 / off / 0; the frame's texture uploads in three groups (default off)
     else if (arg == "--upload-batch-plant") rdr::g_upload_batch_plant.store(std::atoi(next().c_str()));   // S102 G5: 1 drop the last flush, 2 duplicate with no fallback, 3 the control
     else if (arg == "--members-instanced") rdr_adapter::g_members_instanced = next() != "off";   // S102 T6: the crowd's members as instanced draws (default off)
     else if (arg == "--lazy-banks") rdr_adapter::g_lazy_banks = next() != "off";   // S102 T1: constant banks resolved on use (default off)
@@ -186,7 +190,7 @@ int main(int argc, char** argv) {
     else if (arg == "--bank-plant") rdr_adapter::g_bank_plant = 1;   // S102 T1: the planted twin (a resolved bank skips its patches)
     else if (arg == "--dump-frames") o.dump_frames = next();  // lane 155
     else if (arg == "--dump-dir") o.dump_dir = next();        // lane 155
-    else if (arg == "--crowd-density") rdr_adapter::g_crowd_density = std::atoi(next().c_str());  // S101 lane CD: CROWD DENSITY (percent of the members drawn) for the density A/B
+    else if (arg == "--crowd-density") rdr_adapter::g_crowd_density = std::atoi(next().c_str());  // S101 lane CD: CROWD DENSITY (percent of the members drawn) for the density A/B  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
     else if (arg == "--crowd-fast") { const std::string v = next(); rdr_adapter::g_crowd_fast = v == "on" || v == "1"; }  // S102 R21-C (binder.h)
     else if (arg == "--crowd-fast-steps") rdr_adapter::g_crowd_fast_steps = std::atoi(next().c_str());  // S102 R21-C: 1 = the early-out, 2 = the flat rank table, 3 = both (default)
     else if (arg == "--crowd-fast-fault") rdr_adapter::g_crowd_fast_fault = next();
@@ -203,6 +207,30 @@ int main(int argc, char** argv) {
     else if (arg == "--caw-ours") o.caw_ours = true;   // lane 153
     else if (arg == "--ring-ours") o.ring_ours = true;  // S101 ring contract
     else if (arg == "--ui-ours") o.ui_ours = true;  // S101 UI contract
+    else if (arg == "--quads-2d-rows") {   // S103 I1 (REMNANT_MAP.md section 10): the T_Rect (with --ui-ours --ui-quads) and the movie quad (with --movie-ours) are drawn from Quad2D ROWS built from the stream's draw, through the record's own format
+      rdr_scene::q2d::rig::g_on = true;
+      rdr_scene::q2d::rig::g_roundtrip = [](rdr_scene::Quad2D& row, std::string& why) {
+        rdr_scene::SceneTables one, back;
+        one.quads2d.push_back(row);
+        const std::vector<uint8_t> bytes = rdr_scene::SerializeRecord(one);
+        if (!rdr_scene::ParseRecord(bytes.data(), bytes.size(), back, why)) return false;
+        if (back.quads2d.size() != 1) return why = "the 2D section was dropped (" + std::to_string(back.quad2d_errors) + " section errors)", false;
+        row = back.quads2d[0];
+        if (!g_rows_dump_dir.empty()) {   // fview binds a frame more than once: a row that repeats the FIRST row of the dump (same site, object, corners, colour) starts the next bind, and only the last bind's rows are kept
+          if (!g_rows_dump.empty()) {
+            const rdr_scene::Quad2D& first = g_rows_dump.front();
+            if (first.site == row.site && first.object == row.object && first.kind == row.kind && std::memcmp(first.verts, row.verts, sizeof(row.verts)) == 0 && std::memcmp(first.color, row.color, sizeof(row.color)) == 0) g_rows_dump.clear();
+          }
+          g_rows_dump.push_back(row);
+        }
+        return true;
+      };
+    } else if (arg == "--quads-2d-dump") {   // S103 P7 H2
+      g_rows_dump_dir = next();
+    } else if (arg == "--quads-2d-fault") {
+      std::string error;
+      if (!rdr_scene::q2d::rig::Faults::Parse(next(), rdr_scene::q2d::rig::g_faults, error)) { std::fprintf(stderr, "[fview] %s\n", error.c_str()); return 2; }
+    }
     else if (arg == "--ui-quads") rdr_scene::g_ui_quads = true;  // S101 lane 148 (needs --ui-ours; a quad plant goes through --replace-fault)
     else if (arg == "--ui-text-ours") o.ui_text_ours = true;  // S101 lane 89 (UT)
     else if (arg == "--flash-ours") o.flash_ours = true;  // S101 flash contract
@@ -377,9 +405,9 @@ int main(int argc, char** argv) {
     else if (arg == "--frame-direct") { const std::string v = next(); rdr_adapter::copy_alias::g_frame_direct = !(v == "off" || v == "0"); }   // S102 C3: the frame buffer's resolve copies (copy_alias.h)
     else if (arg == "--alias-small") rdr_adapter::copy_alias::g_small = rdr_adapter::copy_alias::ClampSmall(std::atoi(next().c_str()));  // S102 G12: the class-mask override (copy_alias.h): 0 off, 1 bake / shadow / rim / post, 2 + scene colour / other
     else if (arg == "--copy-direct") rdr_adapter::copy_alias::g_direct = rdr_adapter::copy_alias::ClampDirect(std::atoi(next().c_str()));  // S102 C5: bake / small copies removed by a direct pass (copy_alias.h)
-    else if (arg == "--combine-lite") rdr::g_combine_lite.store(rdr::ClampCombineLite(std::atoi(next().c_str())));   // S102 R18-B2: 0 off, 1 exact early-outs, 2 + the flat-pixel exit (combine_lite.h)
+    else if (arg == "--combine-lite") rdr::g_combine_lite.store(rdr::ClampCombineLite(std::atoi(next().c_str())));   // RIG-ONLY: the offline tool flag; the game start sets it from the cvar (start_settings.cpp). S102 R18-B2: 0 off, 1 exact early-outs, 2 + the flat-pixel exit (combine_lite.h)
     else if (arg == "--combine-lite-plant") rdr::g_combine_lite_plant.store(std::atoi(next().c_str()));   // S102 R18-B2: 1 DoF never fetched, 2 bloom never fetched, 3 flat threshold x10, 4 mark flat pixels magenta, 5 variant never picked
-    else if (arg == "--stencil-dead") { const std::string v = next(); rdr::g_stencil_dead.store(!(v == "off" || v == "0" || v == "false")); }   // S102 R24-C: stencil liveness (depth_nostencil.h)
+    else if (arg == "--stencil-dead") { const std::string v = next(); rdr::g_stencil_dead.store(!(v == "off" || v == "0" || v == "false")); }   // RIG-ONLY: S102 R24-C stencil liveness (depth_nostencil.h); fview does not run ApplyStartSettings
     else if (arg == "--stencil-dead-poison") rdr::g_stencil_dead_poison.store(true);   // S102 R24-C: tools only, see depth_nostencil.h
     else if (arg == "--stencil-dead-plant") rdr::g_stencil_dead_plant.store(std::atoi(next().c_str()));   // S102 R24-C: tests only, see depth_nostencil.h
     else if (arg == "--depth-census") rdr::g_depth_census_on.store(true);   // S102 R24-C: the per-depth-image stencil census (printed at the end)
@@ -416,7 +444,7 @@ int main(int argc, char** argv) {
       if (!rdr_adapter::copy_alias::ParseFault(name.c_str(), rdr_adapter::copy_alias::g_fault)) return Fail("--copy-alias-fault", "unknown fault " + name);
     }
     else if (arg == "--shadow-map-size") o.shadow_map_size = uint32_t(std::atoi(next().c_str()));
-    else if (arg == "--shadow-half") rdr_adapter::g_shadow_half = true;  // S102 G1: the LOW tier's half-rate wrestler maps (as rplay's), so the LOW combination can be replayed
+    else if (arg == "--shadow-half") rdr_adapter::g_shadow_half = true;  // S102 G1: the LOW tier's half-rate wrestler maps (as rplay's), so the LOW combination can be replayed  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
     else if (arg == "--shadow-plane-scale") o.shadow_plane_percent = uint32_t(std::atoi(next().c_str()));
     else if (arg == "--shadows-ours-fault") o.shadows_ours_fault = next();
     else if (arg == "--shadow-keying") o.shadow_keying = next();
@@ -531,12 +559,12 @@ int main(int argc, char** argv) {
   ro.present_offscreen_w = o.present_w, ro.present_offscreen_h = o.present_h;  // S102 G2
   ro.present_sgsr = o.present_effect == 1;
   rdr::g_out_cap_h.store(o.output_cap), rdr::g_out_cap_plant.store(o.output_cap_plant), rdr::g_out_bilinear.store(o.present_bilinear);
-  if (o.gpu_stamps) ro.gpu_timestamps = true, rdr::g_gpu_stamps.store(true);
+  if (o.gpu_stamps) ro.gpu_timestamps = true, rdr::g_gpu_stamps.store(true);  // RIG-ONLY: fview own --gpu-stamps flag
   Session session;
   std::string error;
   if (!session.Open(o.capture, ro, error)) return Fail("open", error);
   session.set_legacy_prefix(o.legacy_prefix);
-  if (o.stage_view || o.stage_playing) rdr_adapter::stage_view::g_enabled = true;  // S101 lane 59
+  if (o.stage_view || o.stage_playing) rdr_adapter::stage_view::g_enabled = true;  // S101 lane 59  // RIG-ONLY: the stage view (stage_view.h) is a stream-path dev tool; the stream's StartLive sets it from --wwe2k14_stage_view (reader.h), the replayer from its own --stage-view flag
   if (o.stage_view) rdr_adapter::stage_view::g_force = true;  // every frame counts as stamped (the zip was captured before the stamp existed)
   if (o.stage_playing) rdr_adapter::stage_view::SetPlaying(true);  // the director's state only: frames carry no stamp, so nothing may be replaced
   if (o.stage_pick_fault == "last_by_id") rdr_adapter::stage_view::g_pick_fault = 1;
@@ -605,6 +633,12 @@ int main(int argc, char** argv) {
           (std::strcmp(kind, "ring") == 0 && o.ring_ours) || (std::strcmp(kind, "ui") == 0 && o.ui_ours) || (std::strcmp(kind, "ui_text") == 0 && o.ui_text_ours) ||
           (std::strcmp(kind, "small_passes") == 0 && o.small_passes_ours /* lane 135 */) || (std::strcmp(kind, "rim_chain") == 0 && o.rim_chain_ours /* lane 151 */) || (std::strcmp(kind, "plane_shadow") == 0 && o.plane_shadow_ours) || (std::strcmp(kind, "flash") == 0 && o.flash_ours) || (std::strcmp(kind, "props") == 0 && o.props_ours) || (std::strcmp(kind, "shadow_casters") == 0 && o.shadow_casters_ours) || (std::strcmp(kind, "screens") == 0 && o.screens_ours) || (std::strcmp(kind, "circles") == 0 && o.circles_ours) || (std::strcmp(kind, "crowd_props") == 0 && o.crowd_props) || (std::strcmp(kind, "rim_map") == 0 && o.rim_ours) || (std::strcmp(kind, "movie") == 0 && o.movie_ours))  // lane 124: rim_map  // S101 lane 115  // S101 lane 99  // S101 lane 84
         std::printf("%s\n", session.ReplaceReport(kind).c_str());
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::Report().c_str());   // S103 I1
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::ReportSprites().c_str());   // S103 I2
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::ReportGlyphs().c_str());   // S103 I3
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::ReportP3b().c_str());   // S103 P3b
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::ReportP3c().c_str());   // S103 P3c
+    if (rdr_scene::q2d::rig::g_on) std::printf("%s\n", rdr_scene::q2d::rig::ReportSC().c_str());   // S103 SC
   };
 
   // lane 122: D1 thin draws (the reader emulated on the capture) and the one-pass picture-hash run the thin check compares between arms
@@ -828,6 +862,17 @@ int main(int argc, char** argv) {
   if (!o.judge_out.empty()) {  // S101 lane 20
     if (JudgeDump(session, &effects, o.judge_out, o.judge_pixels, error)) return Fail("--judge-out", error);
     std::printf("[fview] judge dump: %s\n", o.judge_out.c_str());
+    if (!g_rows_dump_dir.empty()) {   // S103 P7 H2: the rows the rows arm built, in seq order, as one record
+      rdr_scene::SceneTables t;
+      t.quads2d = g_rows_dump;
+      t.quad2d_holes = 0;
+      std::error_code ec;
+      std::filesystem::create_directories(g_rows_dump_dir, ec);
+      const std::vector<uint8_t> bytes = rdr_scene::SerializeRecord(t);
+      std::ofstream f((std::filesystem::path(g_rows_dump_dir) / "rows.rsc").string(), std::ios::binary);
+      f.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+      std::printf("[fview] rows dump: %zu rows -> %s\\rows.rsc\n", t.quads2d.size(), g_rows_dump_dir.c_str());
+    }
     return finish(0);
   }
 

@@ -89,6 +89,12 @@
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
         },
         {
+            "name": "win-amd64-release-off",
+            "displayName": "Windows AMD64 Release, stream-free (WWE2K14_KEEP_STREAM=OFF, S103 landing 2 checks)",
+            "inherits": "win-amd64-release",
+            "cacheVariables": { "WWE2K14_KEEP_STREAM": "OFF", "WWE2K14_KEEP_STREAM_RUN": "ON" }
+        },
+        {
             "name": "win-amd64-coverage",
             "displayName": "Windows AMD64 Release + guest function coverage (Session 8 task 6, src/coverage.h)",
             "inherits": "windows-base",
@@ -194,6 +200,7 @@
     "buildPresets": [
         { "name": "win-amd64-debug", "configurePreset": "win-amd64-debug" },
         { "name": "win-amd64-release", "configurePreset": "win-amd64-release" },
+        { "name": "win-amd64-release-off", "configurePreset": "win-amd64-release-off" },
         { "name": "win-amd64-coverage", "configurePreset": "win-amd64-coverage" },
         { "name": "win-amd64-relwithdebinfo", "configurePreset": "win-amd64-relwithdebinfo" },
         { "name": "linux-amd64-debug", "configurePreset": "linux-amd64-debug" },

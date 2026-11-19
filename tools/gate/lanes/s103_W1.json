@@ -1,0 +1,14 @@
+{
+ "owner": "S103 lane W1: the wrestlers' palette in the scene record is one frame ahead of the stream (src/scene_live/wrestler_contrib.*, tools/wrestler/w1_skin_check.cpp). 0 game runs.",
+ "checks": [
+  {"name": "s103_W1.build_tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/wrestler/build_w1_check.ps1"], "timeout_s": 900, "affects": ["tools/wrestler/w1_*", "tools/wrestler/build_w1_check.ps1", "src/renderer_scene/record_io.*"]},
+  {"name": "s103_W1.build_emit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_wrestler.ps1"], "timeout_s": 900, "affects": ["src/scene_live/wrestler_contrib.*", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_W1.emit_selftest", "cmd": ["out/tools/wrestler_emit.exe", "selftest"], "timeout_s": 300, "affects": ["src/scene_live/wrestler_contrib.*", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_W1.skin_replay", "cmd": ["out/tools/w1_skin_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w1_*", "src/scene_live/wrestler_contrib.*"]},
+  {"name": "s103_W1.skin_replay_old_pairing_twin", "cmd": ["out/tools/w1_skin_check.exe", "--capture", "out/s103/E7/case/capture", "--game", "game_data/extracted", "--frames", "290-660", "--step", "10", "--pair", "1", "--expect-fail"],
+   "timeout_s": 600, "needs": ["game_data/extracted", "out/s103/E7/case/capture"], "affects": ["tools/wrestler/w1_*"]},
+  {"name": "s103_W1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*"]}
+ ]
+}

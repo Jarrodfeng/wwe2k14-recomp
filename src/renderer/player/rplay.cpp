@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <set>
 #include <map>
 #include <string>
 #include <thread>
@@ -96,6 +97,7 @@ uint32_t g_persist_every = 0;   // S101 lane 224: --persist-only-every N: every 
 // Lane 307: --skip-every N [--skip-prune old|on|plant] [--skip-census]: every N-th frame is handled as live.cpp handles a frame it skips (persist-only bind of its lasting work, RenderMode::PersistentOnly);
 // old = every op but the per-frame copies (live.cpp before lane 307), on = lasting_prune.h's walk-back, plant = the walk-back stopped after one level (the planted fault).
 uint32_t g_skip_every = 0;
+std::set<uint32_t> g_drop_frames;   // S103 IXF: --drop-frames 0,5: frames whose draws are not bound (the capture integrity lint names the bad ones: tools\scene\capture_integrity.py)
 std::string g_skip_prune = "on";
 bool g_skip_census = false;
 bool g_skip_by_image = true;
@@ -214,6 +216,7 @@ uint32_t g_record_spin_us = 0;  // --record-spin-us N: a busy spin before each R
 std::string g_frame_hashes;     // --frame-hashes CSV: per frame, an FNV-1a hash of the image the frame presents, read after the frame (both paths)
 int g_stage_selftest = 0;       // --stage-selftest N: N synthetic frames (stage_selftest.h); with --stage-split on through the stage
 void SpinUs(uint32_t us) {
+  // render-clock: dev - the offline player busy-waits a test delay, never a picture value
   if (us) for (const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(us); std::chrono::steady_clock::now() < until;) {}
 }
 // The hash line of one rendered frame (the thread that rendered it, right after its RenderFrame).
@@ -436,6 +439,13 @@ int RunCapture(Renderer& renderer, const std::string& folder, int frames, const 
       Log("[rplay] could not read frame %u", f);
       return 3;
     }
+    std::vector<rdr_adapter::Op> drop_ops;   // S103 IXF: a frame the capture integrity lint flagged (its geometry offsets are another capture's) keeps its targets, clears, copies and image
+    if (g_drop_frames.count(f)) {            // uploads (the later frames read them) but none of its draws is bound
+      for (uint32_t i = 0; i < frame.ops.count; ++i)
+        if (frame.ops[i].kind != rdr_adapter::OpKind::Draw) drop_ops.push_back(frame.ops[i]);
+      Log("[rplay] frame %u: %u of %u ops are draws, dropped (--drop-frames)", f, frame.ops.count - uint32_t(drop_ops.size()), frame.ops.count);
+      frame.ops.data = drop_ops.data(), frame.ops.count = uint32_t(drop_ops.size());
+    }
     if (g_lt_census) {   // S102 K2 (review F4): which frames write each lasting render target (kUsageLasting + target): every frame, or only now and then?
       std::unordered_set<uint32_t> seen;
       for (uint32_t i = 0; i < frame.ops.count; ++i) {
@@ -558,7 +568,7 @@ int RunCapture(Renderer& renderer, const std::string& folder, int frames, const 
         rdr_adapter::prelight_analytic::g_fview.store(g_arms[arm].names == "1");
       } else if (g_arms[arm].mode == 7) {  // S102 R24-C: arm kind 7 = stencil_dead (NAMES "1" on, anything else off) for this frame, no draw change
         rdr::SetDrawMod(0, "");
-        rdr::g_stencil_dead.store(g_arms[arm].names == "1");
+        rdr::g_stencil_dead.store(g_arms[arm].names == "1");   // RIG-ONLY: the replay arm sets the lever itself (rplay does not run ApplyStartSettings)
       } else if (g_arms[arm].mode == 8) {  // S102 R24-E: arm kind 8 (main session: 7 was R24-C's) = the small-passes mask (NAMES is the number) for this frame, no draw change
         rdr::SetDrawMod(0, "");
         rdr::g_gpu_small.store(rdr::ClampGpuSmall(std::atoi(g_arms[arm].names.c_str())));
@@ -767,6 +777,7 @@ int RunCapture(Renderer& renderer, const std::string& folder, int frames, const 
       // S102 R21-A review F2: the halfway picture of live.cpp, as a count
       if (tween_probe.valid()) {
         uint32_t matched = 0;
+        // render-clock: dev - the offline player blends between ticks by wall clock
         tween_probe.Blend(finished, 0.5f, matched);
         tp_matched += matched, ++tp_frames;
       }
@@ -1238,6 +1249,16 @@ int main(int argc, char** argv) {
     else if (arg == "--store-plant" && i + 1 < argc) options.pipeline_store_plant = uint32_t(std::atoi(argv[++i]));
     else if (arg == "--slice-us" && i + 1 < argc) options.pipeline_prebuild_slice_us = uint32_t(std::atoi(argv[++i]));
     else if (arg == "--capture" && i + 1 < argc) capture_dir = argv[++i];
+    else if (arg == "--drop-frames" && i + 1 < argc) {  // S103 IXF: comma list of frame indices
+      const std::string list = argv[++i];
+      for (size_t at = 0; at < list.size();) {
+        size_t end = list.find(',', at);
+        if (end == std::string::npos) end = list.size();
+        if (end > at) g_drop_frames.insert(uint32_t(std::strtoul(list.substr(at, end - at).c_str(), nullptr, 10)));
+        at = end + 1;
+      }
+    }
+    else if (arg == "--problems-nonfatal") g_problem_nonfatal.store(true);  // S103 IXF: a Problem is logged and counted, a dev build does not stop on it (the planted twins)
     else if (arg == "--list-bound") list_bound = true;
     else if (arg == "--crowd-ours") promotion.crowd = true;  // S101 lane 47
     else if (arg == "--crowd-fast" && i + 1 < argc) { const std::string v = argv[++i]; rdr_adapter::g_crowd_fast = v == "on" || v == "1"; }  // S102 R21-C (binder.h)
@@ -1245,7 +1266,7 @@ int main(int argc, char** argv) {
     else if (arg == "--crowd-fast-fault" && i + 1 < argc) rdr_adapter::g_crowd_fast_fault = argv[++i];  // S102 R21-C TEST ONLY
     else if (arg == "--crowd-workers" && i + 1 < argc) rdr_adapter::g_crowd_workers = std::atoi(argv[++i]);  // S102 R21-C step 3 (members_switch.h)
     else if (arg == "--crowd-workers-fault" && i + 1 < argc) rdr_adapter::g_crowd_workers_unjoined = std::string(argv[++i]) == "unjoined";  // S102 R21-C TEST ONLY
-    else if (arg == "--crowd-density" && i + 1 < argc) rdr_adapter::g_crowd_density = std::atoi(argv[++i]);  // S102 R21-C (as fview)
+    else if (arg == "--crowd-density" && i + 1 < argc) rdr_adapter::g_crowd_density = std::atoi(argv[++i]);  // S102 R21-C (as fview)  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
     else if (arg == "--crowd-cards") promotion.crowd_cards = true;  // S101 lane CD (with --crowd-ours)
     else if (arg == "--arena-ours") promotion.arena = true;
     else if (arg == "--wrestlers-ours") promotion.wrestlers = true;
@@ -1317,9 +1338,9 @@ int main(int argc, char** argv) {
     else if (arg == "--bake-record-offset" && i + 1 < argc) promotion.bake_record_offset = std::atoi(argv[++i]);
     else if (arg == "--rim-chain-ours") promotion.rim_chain = true;  // lane 151
     else if (arg == "--game" && i + 1 < argc) promotion.game_root = argv[++i];
-    else if (arg == "--depth-of-field" && i + 1 < argc) rdr_adapter::g_depth_of_field = std::string(argv[++i]) != "off";  // S101 lane PO: the DEPTH OF FIELD setting, offline
-    else if (arg == "--film-grain" && i + 1 < argc) rdr_adapter::g_film_grain = std::string(argv[++i]) != "off";  // S101 lane PO: the FILM GRAIN setting, offline
-    else if (arg == "--shadows" && i + 1 < argc) rdr_adapter::g_shadows = std::string(argv[++i]) != "off";  // S101 lane 86: the SHADOWS setting, offline
+    else if (arg == "--depth-of-field" && i + 1 < argc) rdr_adapter::g_depth_of_field = std::string(argv[++i]) != "off";  // S101 lane PO: the DEPTH OF FIELD setting, offline  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
+    else if (arg == "--film-grain" && i + 1 < argc) rdr_adapter::g_film_grain = std::string(argv[++i]) != "off";  // S101 lane PO: the FILM GRAIN setting, offline  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
+    else if (arg == "--shadows" && i + 1 < argc) rdr_adapter::g_shadows = std::string(argv[++i]) != "off";  // S101 lane 86: the SHADOWS setting, offline  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
     else if (arg == "--shadows-ours") rdr_adapter::g_shadows_ours = true;  // S101 lane 123 (SH2)
     else if (arg == "--prelight-analytic") rdr_adapter::prelight_analytic::g_fview = true;   // S102 L1: the switch's offline fallback (prelight_analytic.h)
     else if (arg == "--prelight-analytic-fault" && i + 1 < argc) {   // S102 L1: planted twins (comma list)
@@ -1395,7 +1416,7 @@ int main(int argc, char** argv) {
     else if (arg == "--frame-direct" && i + 1 < argc) rdr_adapter::copy_alias::g_frame_direct = std::atoi(argv[++i]) != 0;   // S102 C3 (copy_alias.h)
     else if (arg == "--alias-small" && i + 1 < argc) rdr_adapter::copy_alias::g_small = rdr_adapter::copy_alias::ClampSmall(std::atoi(argv[++i]));  // S102 G12 (copy_alias.h): the class-mask override, 0 off, 1 bake / shadow / rim / post, 2 + scene colour / other
     else if (arg == "--copy-direct" && i + 1 < argc) rdr_adapter::copy_alias::g_direct = rdr_adapter::copy_alias::ClampDirect(std::atoi(argv[++i]));  // S102 C5 (copy_alias.h)
-    else if (arg == "--combine-lite" && i + 1 < argc) rdr::g_combine_lite.store(rdr::ClampCombineLite(std::atoi(argv[++i])));   // S102 R18-B2 (combine_lite.h): 0 off, 1 exact early-outs, 2 + the flat-pixel exit
+    else if (arg == "--combine-lite" && i + 1 < argc) rdr::g_combine_lite.store(rdr::ClampCombineLite(std::atoi(argv[++i])));   // RIG-ONLY: the offline tool flag; the game start sets it from the cvar (start_settings.cpp). S102 R18-B2 (combine_lite.h): 0 off, 1 exact early-outs, 2 + the flat-pixel exit
     else if (arg == "--gpu-small" && i + 1 < argc) rdr::g_gpu_small.store(rdr::ClampGpuSmall(std::atoi(argv[++i])));   // S102 R24-E (gpu_small.h): a mask, 1 = the dead quarter-size DoF chain is not recorded
     else if (arg == "--gpu-small-plant" && i + 1 < argc) rdr::g_gpu_small_plant.store(std::atoi(argv[++i]));   // S102 R24-E: tool-only planted faults
     else if (arg == "--combine-lite-plant" && i + 1 < argc) rdr::g_combine_lite_plant.store(std::atoi(argv[++i]));   // S102 R18-B2: tool-only planted faults / the mark instrument
@@ -1405,7 +1426,7 @@ int main(int argc, char** argv) {
     else if (arg == "--lean-churn" && i + 1 < argc) rdr::g_lean_churn_every.store(std::atoi(argv[++i]));   // S102 RT1: every N frames one live image's sampled view is replaced (a view change under the cache; also with the lever off)
     else if (arg == "--lean-audit" && i + 1 < argc) rdr::g_lean_audit_every.store(std::atoi(argv[++i]));   // S102 RT1: every N frames the kept sets are checked against the live views
     else if (arg == "--lean-plant" && i + 1 < argc) rdr::g_lean_plant.store(std::atoi(argv[++i]));   // S102 RT1: 1 sets not evicted, 3 staging handed back early
-    else if (arg == "--stencil-dead" && i + 1 < argc) { const std::string v = argv[++i]; rdr::g_stencil_dead.store(!(v == "off" || v == "0" || v == "false")); }  // S102 R24-C (depth_nostencil.h)
+    else if (arg == "--stencil-dead" && i + 1 < argc) { const std::string v = argv[++i]; rdr::g_stencil_dead.store(!(v == "off" || v == "0" || v == "false")); }  // RIG-ONLY: S102 R24-C (depth_nostencil.h); rplay does not run ApplyStartSettings
     else if (arg == "--stencil-dead-poison") rdr::g_stencil_dead_poison.store(true);  // S102 R24-C: tools only
     else if (arg == "--stencil-dead-plant" && i + 1 < argc) rdr::g_stencil_dead_plant.store(std::atoi(argv[++i]));  // S102 R24-C: tests only
     else if (arg == "--depth-census") rdr::g_depth_census_on.store(true);  // S102 R24-C
@@ -1458,7 +1479,7 @@ int main(int argc, char** argv) {
       for (int g = 0; g < 4; ++g) rdr_adapter::map_turns::g_on[g] = (m & (1 << g)) != 0;
     } else if (arg == "--half-drawn-clock" && i + 1 < argc) rdr_adapter::map_turns::g_half_rate_drawn_clock = std::string(argv[++i]) != "off";   // S102 G3 step 1
     else if (arg == "--skip-blank-plane") rdr_adapter::plane_blank::g_fview.store(true);  // S102 G4c: the blank plane chain left out (plane_blank.h), as fview
-    else if (arg == "--shadow-half") rdr_adapter::g_shadow_half = true;  // S101 lane 86: the QUALITY LOW half-rate maps, offline
+    else if (arg == "--shadow-half") rdr_adapter::g_shadow_half = true;  // S101 lane 86: the QUALITY LOW half-rate maps, offline  // RIG-ONLY: a tool flag of the stream replayer sets the stream binder's own PlayerQuality alias; the game start sets it in ApplyStartSettings
     else if (arg == "--shadow-keying" && i + 1 < argc) {  // S101 lane 86: hash = the old shader-hash lists (the A/B twin); rim_as_shadow = the planted fault
       const std::string mode = argv[++i];
       rdr_adapter::shadow_roles::g_hash_keying = mode == "hash";
@@ -1481,7 +1502,7 @@ int main(int argc, char** argv) {
     else if (arg == "--gpu-log" && i + 1 < argc) g_farm.gpu_log_path = argv[++i];  // lane 269
     else if (arg == "--gpu-outside" && i + 1 < argc) rdr::g_gpu_outside.store(std::atoi(argv[++i]) != 0);  // S102 G5: the outside meter (default 0, like the game); 1 = wait on each frame's fence and log [rplay][outside]
     else if (arg == "--upload-batch-plant" && i + 1 < argc) rdr::g_upload_batch_plant.store(std::atoi(argv[++i]));  // S102 G5 test plant (see outside.h)
-    else if (arg == "--upload-batch" && i + 1 < argc) rdr::g_upload_batch.store(std::atoi(argv[++i]) != 0);  // S102 G5: the uploads in three groups
+    else if (arg == "--upload-batch" && i + 1 < argc) rdr::g_upload_batch.store(std::atoi(argv[++i]) != 0);  // RIG-ONLY: the offline replayer flag; the stream-free game start stores it from the cvar (start_settings.cpp). S102 G5: the uploads in three groups
     else if (arg == "--gpu-plant" && i + 1 < argc) g_farm.gpu_plant = uint32_t(std::atoi(argv[++i]));  // 1 / 2 lane 269's; 3 / 4 / 5 S102 S0-3's (an empty pass in the plane role / a slow one in the rim role / a slow copy loop at the end of the frame)
     else if (arg == "--draw-census" && i + 1 < argc) {
       const int v = std::atoi(argv[++i]);
@@ -1513,11 +1534,11 @@ int main(int argc, char** argv) {
       const int mode = std::atoi(argv[++i]);
       rdr::SetDrawMod(mode, argv[++i]);
     }
-    else if (arg == "--gpu-pass-stamps" && i + 1 < argc) { const bool on = std::atoi(argv[++i]) != 0; rdr::g_gpu_pass_stamps.store(on); if (on) rdr::g_gpu_stamps.store(true); }  // S102 R24-B: the live per-step table ([rdr][gpu][passes]); also turns the stamps on
+    else if (arg == "--gpu-pass-stamps" && i + 1 < argc) { const bool on = std::atoi(argv[++i]) != 0; rdr::g_gpu_pass_stamps.store(on); if (on) rdr::g_gpu_stamps.store(true); }  // S102 R24-B: the live per-step table ([rdr][gpu][passes]); also turns the stamps on  // RIG-ONLY: rplay own flag
     else if (arg == "--gpu-group-stamps" && i + 1 < argc) rdr::g_gpu_group_stamps.store(std::clamp(std::atoi(argv[++i]), 0, 255));   // S102 R24-F (wwe2k14_rdr_gpu_group_stamps): N = the least draws a segment holds before a group stamp; also turns the per-step stamps on (the frame carries it)
     else if (arg == "--gpu-group-plant" && i + 1 < argc) rdr::g_gpu_group_plant.store(std::atoi(argv[++i]));   // S102 R24-F TEST ONLY: 1 = a stamp whose segment is not recorded (chain broken), 2 = a draw left out of the segment counts (coverage short)
     else if (arg == "--gpu-census" && i + 1 < argc) rdr::g_gpu_census.store(std::atoi(argv[++i]) != 0);  // S102 G6: 1 = also a stamp per step + the per-(class, image) census lines (needs --gpu-stamps 1)
-    else if (arg == "--gpu-stamps" && i + 1 < argc) rdr::g_gpu_stamps.store(std::atoi(argv[++i]) != 0);  // S102 S0-3: default 0 (like the game); 1 = the per-run stamps
+    else if (arg == "--gpu-stamps" && i + 1 < argc) rdr::g_gpu_stamps.store(std::atoi(argv[++i]) != 0);  // S102 S0-3: default 0 (like the game); 1 = the per-run stamps  // RIG-ONLY: rplay own flag
     else if (arg == "--timing" && i + 1 < argc) g_farm.timing_path = argv[++i];  // S101 lane22
     else if (arg == "--counts" && i + 1 < argc) g_farm.counts_path = argv[++i];  // S102 M1
     else if (arg == "--frame-selfblit") rdr_adapter::frame_cuts::g_fview_blit = true;     // S102 G11: the switches' fallbacks here (frame_cuts.h)

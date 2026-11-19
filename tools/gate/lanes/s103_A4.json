@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane A4 (bit 4 light_states, honest stamp): src/scene_live/light_index_core.h (Coverage, proven-persistent entries), inputs_contrib.h (the stamp condition, census), inputs_core.h (g_stamp_light_states, default false), tools/scene/inputs_unit.cpp. 0 game runs, 0 Surface runs.",
+ "note": "check 1 = tools/scene/inputs_check.py (the unit incl. the a4.light_* checks and the planted twins a4_hole_filled / a4_stale_fresh / a4_proven_unsteady); check 2 = the game translation units compile.",
+ "checks": [
+  {"name": "s103_A4.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/light_index_*.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_A4.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*"]}
+ ]
+}

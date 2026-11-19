@@ -1,0 +1,10 @@
+# The sealed captures with a bad frame 0 (the reader memo shortcut across capture Stop / Start, docs/research/s103/IX_index_overrun.md; fixed in the reader
+# by S103 IXF, recapturing needs game runs). Format: NAME FRAME BAD_REFS. capture_integrity.py --known expects exactly these.
+a30_match 0 348
+a16_match 0 240
+a09_match 0 158
+a41_match 0 126
+c2d_pause 0 26
+a04_match 0 4
+a08_match 0 4
+c2d_match_hud 0 4

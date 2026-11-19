@@ -1,0 +1,86 @@
+{
+ "owner": "S103 lane L14 (landing 1: the wrestlers' mat shadow like the game's): the plane chain's downscale is the game's yDownScale_box4 (4x4 box, was a 2x2 Copy) and the mat's lookup reads the map 1.25 texels up and left (the game's D3D half pixels: mask 0.25 + blur x 0.5 + blur z 0.5 texel of the 256) so the shadow lands where the game's does (src/renderer_scene/live_map_plane.cpp, live_maps_e2.h); feature_diff tells the rig body scale 1 so the wrestler-fed maps are reported truthfully (tools/scene/feature_diff.py). tools/scene/l14_check.py, l14_fd_check.py; docs/renderer/LIVE_MAPS.md section Lane L14.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs: frame_rig.exe on out/s103/run27_case.zip frame 500 (plane inputs TOLD from the stream, wrestlers unscaled: rig fixtures, [U]) and run28_case.zip frames 500 (feature_diff). Plants (each must fail): half_pixel (WWE_RDR_PLANE_NO_HALF_PIXEL), copy_downscale (WWE_RDR_PLANE_COPY_DOWNSCALE), no_body_scale (feature_diff --no-body-scale-one). No shader is added (the game's own yDownScale_box4 variant and our rdr_plane_blur), so no spv_current.",
+ "checks": [
+  {
+   "name": "s103_L14.build_rig",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_L14.build_rsc",
+   "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_L14.mat_shadow",
+   "cmd": ["py", "-I", "tools/scene/l14_check.py"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "src/renderer_scene/live_maps_e2.h", "tools/scene/l14_check.py"]
+  },
+  {
+   "name": "s103_L14.plant_half_pixel",
+   "cmd": ["py", "-I", "tools/scene/l14_check.py", "--plant", "half_pixel"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "tools/scene/l14_check.py"]
+  },
+  {
+   "name": "s103_L14.plant_copy_downscale",
+   "cmd": ["py", "-I", "tools/scene/l14_check.py", "--plant", "copy_downscale"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "tools/scene/l14_check.py"]
+  },
+  {
+   "name": "s103_L14.feature_diff_run28",
+   "cmd": ["py", "-I", "tools/scene/l14_fd_check.py"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run28_case.zip"],
+   "affects": ["tools/scene/feature_diff.py", "tools/scene/l14_fd_check.py", "src/renderer_scene/live_map_plane.cpp"]
+  },
+  {
+   "name": "s103_L14.plant_no_body_scale",
+   "cmd": ["py", "-I", "tools/scene/l14_fd_check.py", "--plant", "no_body_scale"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run28_case.zip"],
+   "affects": ["tools/scene/feature_diff.py", "tools/scene/l14_fd_check.py"]
+  },
+  {
+   "name": "s103_L14.l9_regression",
+   "cmd": ["py", "-I", "tools/scene/l9_check.py"],
+   "timeout_s": 1800,
+   "needs": ["out/s103/run27_case.zip", "out/renderer/dev/fview.exe"],
+   "affects": ["src/renderer_scene/live_map_plane.cpp", "tools/scene/l9_check.py"]
+  },
+  {
+   "name": "s103_L14.t19_lint",
+   "cmd": ["py", "-I", "tools/gate/t19_lint.py", "--root", "."],
+   "timeout_s": 300,
+   "affects": ["tools/scene/l14_check.py", "tools/gate/t19_lint.py"]
+  },
+  {
+   "name": "s103_L14.address_lint",
+   "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."],
+   "timeout_s": 600,
+   "needs": ["generated/default"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*", "tools/analysis/address_lint.py"]
+  },
+  {
+   "name": "s103_L14.game_syntax",
+   "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"],
+   "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/*"]
+  }
+ ]
+}

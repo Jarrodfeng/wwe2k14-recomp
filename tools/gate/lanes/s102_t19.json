@@ -36,6 +36,7 @@
  "checks": [
   {
    "name": "s102_t19.crowd_run_markers",
+   "retired": "Jarrod S103 2026-11-17: the S101-capture lanes are retired; its inputs (S101 captures / swept scratch) no longer exist",
    "cmd": [
     "py",
     "-I",
@@ -98,6 +99,7 @@
   },
   {
    "name": "s102_t19.fview_pictures",
+   "retired": "Jarrod S103 2026-11-17: the S101-capture lanes are retired; its inputs (S101 captures / swept scratch) no longer exist",
    "cmd": [
     "py",
     "-I",
@@ -142,7 +144,8 @@
     "src/renderer_scene/scene_record.h",
     "src/renderer_scene/live_scene.*",
     "src/renderer_adapter/names.h"
-   ]
+   ],
+   "needs": ["generated/default"]
   },
   {
    "name": "s102_t19.lints",

@@ -41,8 +41,13 @@ SCENES = ('match', 'brock', 'bryan')
 SCENE_TITLE = {'match': 'Match', 'brock': "Brock's entrance", 'bryan': "Bryan's entrance"}
 SIDES = ('gpu', 'render', 'swap', 'fps', 'low1')
 SIDE_TITLE = {'gpu': 'GPU ms', 'render': 'render thread ms', 'swap': 'swap thread ms', 'fps': 'shown fps', 'low1': '1% low fps'}
-UNIT = {'gpu': 'ms', 'render': 'ms', 'swap': 'ms', 'fps': 'fps', 'low1': 'fps'}
-KINDS = ('baseline', 'target', 'bench', 'measured', 'reference', 'knockout', 'stamps')   # S102 main: the last three are notes (STANDARD reference, S0-5 knock-out ceilings, GPU by role); the board's sums ignore them
+UNIT = {'gpu': 'ms', 'render': 'ms', 'swap': 'ms', 'fps': 'fps', 'low1': 'fps', 'note': '-'}
+# S103 GRF: the ledger grew sentence rows (kind note / correction / dropped / verified / parked / passed / fidelity / relabel) and counts on other sides (device, frame, update, check, bench,
+# scene `all`). The board's columns and sums read only SIDES and the kinds they name; a row outside them is checked for shape (scene, side, kind, lo <= hi) and for the unit only when its side is a board side.
+EXTRA_SIDES = ('note', 'device', 'frame', 'update', 'check', 'bench')
+LEDGER_SIDES = SIDES + EXTRA_SIDES
+LEDGER_SCENES = SCENES + ('all',)
+KINDS = ('baseline', 'target', 'bench', 'measured', 'reference', 'knockout', 'stamps', 'note', 'correction', 'dropped', 'verified', 'parked', 'passed', 'fidelity', 'relabel')   # S102 main: the last three are notes (STANDARD reference, S0-5 knock-out ceilings, GPU by role); the board's sums ignore them
 LEDGER_COLS = ['scene', 'side', 'kind', 'lane', 'lo', 'hi', 'unit', 'source', 'when', 'note']
 LAB_COLS = ['lane', 'scene', 'side', 'ms']
 STAGES = ['brief', 'started', 'handback', 'review_started', 'review_done', 'landed_track', 'landed_session']
@@ -86,13 +91,13 @@ def read_ledger(path):
             w = f'ledger {p.name} line {i}'
             if None in r or None in r.values():
                 raise BadInput(f'{w}: wrong number of fields (a comma inside a text field? use ;)')
-            if r['scene'] not in SCENES:
-                raise BadInput(f"{w}: scene {r['scene']!r} not in {SCENES}")
-            if r['side'] not in SIDES:
-                raise BadInput(f"{w}: side {r['side']!r} not in {SIDES}")
+            if r['scene'] not in LEDGER_SCENES:
+                raise BadInput(f"{w}: scene {r['scene']!r} not in {LEDGER_SCENES}")
+            if r['side'] not in LEDGER_SIDES:
+                raise BadInput(f"{w}: side {r['side']!r} not in {LEDGER_SIDES}")
             if r['kind'] not in KINDS:
                 raise BadInput(f"{w}: kind {r['kind']!r} not in {KINDS}")
-            if r['unit'] != UNIT[r['side']]:
+            if r['side'] in UNIT and r['unit'] != UNIT[r['side']]:
                 raise BadInput(f"{w}: unit {r['unit']!r} for side {r['side']} must be {UNIT[r['side']]}")
             if r['kind'] == 'measured' and not r['lane']:
                 raise BadInput(f'{w}: a measured row names its lane')
@@ -126,12 +131,16 @@ def read_claims(lanes_dir):
                 s = str(k.get('side', '')).lower()
                 k['side'] = s if s in SIDES else ('gpu' if 'gpu' in s else 'render' if 'render' in s else 'swap' if ('swap' in s or 'game' in s) else s)
                 k.setdefault('switch', k.get('lever', ''))
-            if not isinstance(k, dict) or k.get('scene') not in SCENES or k.get('side') not in SIDES:
+            # S103 GRF: a lane may name its scenes in words ("bryan and brock (the entrances ...)", "match and bryan, the D3 skips on"): one claim per scene word it names
+            scenes = [k['scene']] if isinstance(k, dict) and k.get('scene') in SCENES else \
+                [sc for sc in SCENES if isinstance(k, dict) and re.search(r'\b' + sc + r'\b', str(k.get('scene', '')).lower())]
+            if not isinstance(k, dict) or not scenes or k.get('side') not in SIDES:
                 raise BadInput(f'{w}: needs scene in {SCENES} and side in {SIDES}, got {k}')
             ms = k.get('ms')
             if not (isinstance(ms, list) and len(ms) == 2 and all(isinstance(x, (int, float)) for x in ms) and ms[0] <= ms[1]):
                 raise BadInput(f'{w}: "ms" must be [lo, hi] numbers with lo <= hi, got {ms}')
-            out.setdefault(f.stem, []).append({'scene': k['scene'], 'side': k['side'], 'lo': float(ms[0]), 'hi': float(ms[1]), 'switch': k.get('switch', '')})
+            for sc in scenes:
+                out.setdefault(f.stem, []).append({'scene': sc, 'side': k['side'], 'lo': float(ms[0]), 'hi': float(ms[1]), 'switch': k.get('switch', '')})
     return out
 
 

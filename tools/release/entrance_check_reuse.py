@@ -35,7 +35,7 @@ IRRELEVANT = (
 )
 # ...except these (prefix match wins over IRRELEVANT).
 RELEVANT = (
-    'tools/release/entrance_check.ps1', 'tools/release/make_release.ps1', 'tools/perf/s70_entrance_report.py',
+    'tools/release/entrance_check.ps1', 'tools/release/make_release.ps1', 'tools/release/release_configure_args.ps1', 'tools/perf/s70_entrance_report.py',
     'tools/input_scripts/short/s70_entrance_rt.txt', 'tools/build.ps1', 'tools/env.ps1', 'db/shaders/',
 )
 
@@ -91,6 +91,20 @@ def sdk_commit_at(rev):
     return steps[-1][1] if steps else ''
 
 
+def exe_stream_free(exe):
+    """2026-11-18: was this exe built stream-free? The CMakeCache.txt of its build folder (wwe2k14_v3.exe: the sibling build_v3 folder) says
+    WWE2K14_KEEP_STREAM:BOOL=OFF. Cannot tell = False (the pass is then never reused for a release)."""
+    d = pathlib.Path(exe).resolve().parent
+    caches = [d / 'CMakeCache.txt']
+    if pathlib.Path(exe).stem.endswith('_v3'):
+        caches.insert(0, d.parent / 'build_v3' / 'CMakeCache.txt')
+    for c in caches:
+        if c.exists():
+            m = re.search(r'^WWE2K14_KEEP_STREAM:BOOL=(\w+)', c.read_text(encoding='utf-8', errors='replace'), re.M)
+            return bool(m) and m.group(1) == 'OFF'
+    return False
+
+
 def cmd_record(a):
     head = git(R, 'rev-parse', 'HEAD').strip()
     used = launcher_files_in_game()
@@ -111,7 +125,7 @@ def cmd_record(a):
         print('entrance check record: not kept (the exe is older than the last commit that changed the game)')
         return 0
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    rec = {'commit': head, 'sdk_commit': sdk_head, 'exe': str(a.exe), 'run': a.run, 'line': a.line,
+    rec = {'commit': head, 'sdk_commit': sdk_head, 'exe': str(a.exe), 'stream_free': exe_stream_free(a.exe), 'run': a.run, 'line': a.line,
            'when': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}
     STATE.write_text(json.dumps(rec, indent=2), encoding='utf-8')
     print(f'entrance check record: kept (game {head[:7]}, SDK {sdk_head[:7]}, run {a.run})')
@@ -123,6 +137,9 @@ def cmd_check(_):
         print('run: no earlier entrance check pass recorded')
         return 1
     rec = json.loads(STATE.read_text(encoding='utf-8'))
+    if not rec.get('stream_free'):
+        print('run: the recorded pass was on a stream build (or one that cannot be told): the release is stream-free')
+        return 1
     head = git(R, 'rev-parse', 'HEAD').strip()
     if subprocess.run(['git', '-C', str(R), 'merge-base', '--is-ancestor', rec['commit'], head]).returncode:
         print(f'run: the recorded pass ({rec["commit"][:7]}) is not in this branch\'s history')

@@ -153,7 +153,7 @@ inline void StashBones(const SceneTables& t, uint64_t header_frame, BoneStash& s
     auto& slot = s.objs[used++];
     slot.first = t.engine_objects[k];
     slot.second.clear();
-    HashNodes(&t.bones[o.bones_first], std::min<uint32_t>(o.bones_count, kCasterMaxNodes), slot.second);
+    HashNodes(&t.bones[o.bones_first], std::min<uint32_t>(BodyRowCount(o.bones_first, o.bones_count, t.bone_tags.data(), t.bone_tags.size()), kCasterMaxNodes), slot.second);
   }
   s.objs.resize(used);
 }
@@ -268,7 +268,7 @@ inline void CrossCheckCalls(const SceneTables& t, size_t first_call, uint32_t ho
       const Object& o = t.objects[k];
       if (o.bones_count == 0 || uint64_t(o.bones_first) + o.bones_count > t.bones.size()) continue;
       found = true;
-      const uint32_t n = std::min<uint32_t>(o.bones_count, kCasterMaxNodes);
+      const uint32_t n = std::min<uint32_t>(BodyRowCount(o.bones_first, o.bones_count, t.bone_tags.data(), t.bone_tags.size()), kCasterMaxNodes);
       const uint32_t cn = std::min<uint32_t>(c.n_nodes, kCasterMaxNodes);
       ++((n == cn && HashPalette(&t.bones[o.bones_first], n) == c.pal_hash) ? x.pal_equal : x.pal_differ);
       break;

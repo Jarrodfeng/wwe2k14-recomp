@@ -11,7 +11,7 @@
  ],
  "note": "wiring = every link + removal twins; core = fview headless under a real display curve, the swapchain image's hash after EVERY frame equal off vs on (bryan, match, brock; default bundle), validation 0, exit 0, copied = presented; twins = a display curve that is not the identity, a 1280x720 picture into 1366x768, an overlay frame: each declines and equals the draw, and each skipped test (plants 1 / 2 / 3) takes the copy and is caught by the hash (plant 1 re-finds the S100 gamma-table fault class); valid = rplay --validation 1 and 3 with the fetch taken; counts = rplay --counts passes / copies / barriers / binds and the output role off vs on.",
  "checks": [
-  {"name": "s102_r24a.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"]},
+  {"name": "s102_r24a.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
   {"name": "s102_r24a.wiring", "cmd": ["py", "-I", "tools/r24a/r24a_check.py", "--root", ".", "--only", "wiring"], "timeout_s": 300},
   {"name": "s102_r24a.bryan", "cmd": ["py", "-I", "tools/r24a/r24a_check.py", "--root", ".", "--only", "core_bryan"], "timeout_s": 1800, "exes": ["out/renderer/dev/fview.exe"], "needs": [
     "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip", "game_data/extracted"]},

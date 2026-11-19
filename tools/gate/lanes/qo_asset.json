@@ -1,0 +1,9 @@
+{
+ "owner": "S103 lane QAS (Jarrod: 'always be building q indexes ... an index of the whole game'): `q asset`, the index of the game's FILES (tools/q/qasset.py; pac -> PACH -> entry -> model / material / texture, evtobj / bgEtc ids). 0 game runs, 0 Surface runs; the selftest builds a tiny fixture game folder in a TEMP folder.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. qasset_selftest.py writes a fixture pac set (an evtobj with SOBJ / BOBJ rows, a character pac with a nested PACH, a motion pac), indexes it and checks tex alpha stats, mat parameters, id evtobj, find, pac browsing and the not-decoded rule against the planted truth; PLANTS misses (an absent texture / id / material must answer nothing) and a planted change (a rewritten pac must refresh by itself and answer the new value). The real-tree proofs (13904Cap alpha, bgetc 3, evtobj 2038, ch139 eye material) run only when out/harness/index/asset.db exists.",
+ "checks": [
+  {"name": "qo_asset.selftest", "cmd": ["py", "-I", "tools/q/qasset_selftest.py"], "timeout_s": 600,
+   "affects": ["tools/q/qasset_selftest.py", "tools/q/qasset.py", "tools/q/q.py", "tools/wm30/pac.py", "tools/filecensus/filecensus_flags.py"]}
+ ]
+}

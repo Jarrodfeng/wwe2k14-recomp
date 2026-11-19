@@ -74,7 +74,7 @@ TRON_OFFSET = {'9447': 35.383 - 38.64}
 # The motion strip: the entrance camera (take 1) at cue 10, frames 10 apart around the 8944 screenshot (cue-local 431).
 MOTION = [381, 391, 401, 411, 421, 431]  # (431 = the 8944 bookmark; the clip freezes there, bookmark 7's clip starts ~200 frames later)
 
-OWN_LM_DEFAULT = True  # the viewer's default of nt_own_lm (renderer.h Effects)
+OWN_LM_DEFAULT = True  # the viewer's default of \x1bnt_own_lm (renderer.h Effects)
 # The look switches. Every arm starts from the defaults (RESET after each shot). rig_off = main before the integration fix.
 RESET = [{'cmd': 'look', 'skin': 'game', 'rim_light': True, 'pools': True, 'film': True, 'dof': True, 'bloom': True, 'entrance': True, 'cull': 1,
           'flashes': True, 'ent_lm': True, 'ent_lm_bg': False, 'ent_own_lm': OWN_LM_DEFAULT, 'crowd_cards': 1, 'follow_spot': True},

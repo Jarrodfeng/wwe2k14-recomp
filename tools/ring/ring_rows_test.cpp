@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
         }
       if (!found) ok = false, why += " offset " + std::to_string(s.goff) + " missing in the core;";
     }
-    Check(ok && sites.size() == 12 + 0 && kClassTableCount == 13, "table.offsets_match_listings", ok ? "13 core entries (the proxy at +32 is not a drawn call site), every listed offset names the same class" : why);
+    Check(ok && sites.size() == 12 + 0 && kClassTableCount == 25, "table.offsets_match_listings", ok ? "13 listed core entries + the 12 alt-ring slots (S103 CRR) (the proxy at +32 is not a drawn call site), every listed offset names the same class" : why);
     uint32_t d = 0;
     Check(RowsRegisterDontCare(2, 82) && !RowsRegisterDontCare(2, 81) && RowsRegisterDontCare(2, 138) && !RowsRegisterDontCare(2, 139) && !RowsRegisterDontCare(0, 100) && !RowsRegisterDontCare(21, 138) &&
               !RowsRegisterDontCare(20, 135) && RowsRegisterDontCare(20, 136) && !RowsRegisterDontCare(2, 76) && !RowsRegisterDontCare(2, 75),
@@ -274,6 +274,23 @@ int main(int argc, char** argv) {
     bool wrong_slot = !NodeCount(rw, 0x800, n, fl);
     fl = 0;
     bool unread = !NodeCount(rw, 0x1234, n, fl);
+    // S103 WC R1: the forward target may be the DATA object (slot 2 = sub_82C27620, class 0x8206C7A0): n = H ? [H+24] : 0 with H = [y+12] [C WNCC_adversary.md R1]
+    g.words[0xD00 + 8] = 0x82C27620u;   // the data class's slot 2
+    g.words[0xA00] = kVt, g.words[0xA00 + 296] = 0, g.words[0xA00 + 220] = 0xA20, g.words[0xA20] = 0xD00, g.words[0xA20 + 12] = 0xA40, g.words[0xA40 + 24] = 4;
+    g.words[0xB00] = kVt, g.words[0xB00 + 296] = 0, g.words[0xB00 + 220] = 0xB20, g.words[0xB20] = 0xD00, g.words[0xB20 + 12] = 0;   // H = 0: the game's answer is 0
+    g.words[0xC00] = kVt, g.words[0xC00 + 296] = 0, g.words[0xC00 + 220] = 0xC20, g.words[0xC20] = 0xE00, g.words[0xE00 + 8] = 0x82001234u;   // a foreign class: not counted, named
+    fl = 0;
+    bool leaf = false;
+    ForeignForward fx;
+    bool dleaf = NodeCount(rw, 0xA00, n, fl, &fx, &leaf) && n == 4 && leaf && (fl & kRrCountForwarded) && !fx.seen;
+    fl = 0;
+    bool dzero = NodeCount(rw, 0xB00, n, fl) && n == 0;
+    fl = 0;
+    ForeignForward fx2;
+    bool foreign = !NodeCount(rw, 0xC00, n, fl, &fx2) && fx2.seen && fx2.vtable == 0xE00 && fx2.fn == 0x82001234u;
+    fl = 0;
+    bool depth0_data = !NodeCount(rw, 0xA20, n, fl);   // the data object itself as a model (depth 0) is not a CSkinModel: slot 2 must be kNodeCountFn there
+    Check(dleaf && dzero && foreign && depth0_data, "hook.count_data_leaf", "WC R1: a +220 forward into the data object counts [[y+12]+24] (0 when [y+12] is 0), flagged forwarded; a foreign class stays uncounted and is named (vtable, slot 2); the data object is never a depth-0 model");
     Check(direct && minus && fwd && wrong_slot && unread, "hook.count_rules",
           "direct 21; -1 when [+296] and [+220] are 0; forwards through [+220] only when its slot 2 is the same function; another slot-2 function / unreadable = unknown");
   }

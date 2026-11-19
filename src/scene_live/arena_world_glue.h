@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "arena_world_contrib.h"
+#include "stage_fx_contrib.h"   // S103 C2: the stage object for the stage-fx writer
 #include "wrestler_hook.h"  // ReadGuest / ReadWord / ReadMatrices
 
 namespace wwe2k14::arenaworld {
@@ -30,10 +31,22 @@ inline void ModelEntryHook(uint32_t model, uint32_t palette_ptr, uint64_t frame)
 // CStage::MotionSetup exit (arena_hooks.h): the stage was set up in this guest frame. `self` = the call's r3 (the stage object). The function also runs in CAW, match setup
 // and story, so the first 16 calls are logged: J1 reads which one is the arena's.
 inline void StageSetupHook(uint64_t frame, uint32_t self) {
+  if (rdr_scene::live::stagefx::StageFxRegistered()) {
+    auto& sfx = rdr_scene::live::stagefx::StageFx();
+    rdr_scene::live::stagefx::StageFx().SetStage(self);   // (lint: stage_fx_check.py)
+    uint64_t clean = 0;   // S103 CAE (census): did a clean stage_fx take happen between G+64 changing and this stage set-up? (a take from the OLD stage would be the freed-stage hole)
+    if (rdr_scene::live::arena::ArenaIdCensusOf().NoteSetStage(sfx.CleanTakes(), clean))
+      REXLOG_INFO("[arena_id] frame {}: stage set up after a G+64 change; clean stage_fx takes in between: {}", frame, clean);
+  }   // S103 C2: the stage object (slot -> model arrays), independent of the arena-worlds switch
   if (!rdr_scene::live::arenaworld::ArenaWorldsRegistered()) return;
   static std::atomic<int> logged{0};
   if (logged.fetch_add(1, std::memory_order_relaxed) < 16) REXLOG_INFO("[arena_worlds] stage setup frame {} this 0x{:08X}", frame, self);
   rdr_scene::live::arenaworld::Worlds().tracker.OnStageSetup(frame);
+}
+
+// The game frees its stage (pre-hook on the destructor sub_824E9858, arena_hooks.h): the stage_fx contributor drops it before anything reads the freed block.
+inline void StageFreedHook(uint32_t self) {
+  if (rdr_scene::live::stagefx::StageFxRegistered()) rdr_scene::live::stagefx::StageFx().OnStageFreed(self);
 }
 
 }  // namespace wwe2k14::arenaworld

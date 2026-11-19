@@ -20,6 +20,7 @@
 // marked "S102 T18".
 #pragma once
 #include <atomic>
+#include "census_flush.h"  // S102 CEN1
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -248,10 +249,11 @@ inline Gate g_gate_gen;  // S102 SW2: the general gate (general = true, census =
 //   [rdr][particle_lite] frames N, taken T draws, runs R, declined D (first of a run F, marked M, key moved K, gap G, excluded E, slots moved S), marked but equal Q, particle_lite_miss X
 // A Surface "no gain" is told apart from "took 0 draws" by this line (S102 rule: every lever logs a live census line).
 using LogFn = void (*)(const char*);
-inline void LogCensusOf(Census& c, const std::atomic<bool>& on, const char* name, uint64_t frame, LogFn log) {  // S102 SW2: one body for both gates (name = particle_lite | draw_lite)
+inline census_flush::Site g_flush_pl, g_flush_gen;   // S102 CEN1
+inline void LogCensusOf(Census& c, const std::atomic<bool>& on, const char* name, uint64_t frame, LogFn log, census_flush::Site& flush_site) {  // S102 SW2: one body for both gates (name = particle_lite | draw_lite)
   if (on.load(std::memory_order_relaxed)) ++c.frames;
   if (!c.window_start) c.window_start = frame;
-  if (frame < c.window_start + 600) return;
+  if (frame < c.window_start + 600 && !(census_flush::Due(flush_site) && frame > c.window_start)) return;   // S102 CEN1: a flip phase end prints the census now
   c.window_start = frame;
   if (c.frames && log) {
     char line[520];
@@ -268,7 +270,7 @@ inline void LogCensusOf(Census& c, const std::atomic<bool>& on, const char* name
   c.window_start = frame;
   c.in_run = in_run;
 }
-inline void LogCensus(uint64_t frame, LogFn log) { LogCensusOf(g_census, g_on, "particle_lite", frame, log); }
-inline void LogCensusGeneral(uint64_t frame, LogFn log) { LogCensusOf(g_census_gen, g_on_gen, "draw_lite", frame, log); }
+inline void LogCensus(uint64_t frame, LogFn log) { LogCensusOf(g_census, g_on, "particle_lite", frame, log, g_flush_pl); }
+inline void LogCensusGeneral(uint64_t frame, LogFn log) { LogCensusOf(g_census_gen, g_on_gen, "draw_lite", frame, log, g_flush_gen); }
 
 }  // namespace rdr_adapter::particle_lite

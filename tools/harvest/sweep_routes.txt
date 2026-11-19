@@ -1,0 +1,103 @@
+# S103 lane J1: the HARVEST SWEEP ROUTE LIST (Fable review section 2.2; DECISIONS 2026-11-16: the sweep takes as many game starts as it needs).
+# 0 game runs were used to write this file. The main session runs the sweep; tools\harvest\make_routes.py turns this list into the route scripts (out\harvest\routes\, scratch) and prints the commands.
+#
+# What a sweep start records (the capture settings, the same for every line; "mirror off, so the game draws alone"):
+#   flags   --wwe2k14_rdr_capture=true --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+#           (NO --wwe2k14_rdr_scene, --wwe2k14_rdr_owner, --wwe2k14_s101_promotions, --wwe2k14_rdr_ring_d3, --wwe2k14_rdr_stage_vis: with those absent run_list.ps1:202 adds
+#            --wwe2k14_s101_promotions=false = the game's own renderer draws alone; the stream is recorded UNTHINNED, which is what the harvester needs: the mirror runs 26-29 carry
+#            geometry for only ~150-260 of arena 4's meshes, the unthinned captures 266-356 [C, choice_harvest.py on the kept cases]).
+#   a window  = `cvar wwe2k14_rdr_capture_label NAME` + `cvar wwe2k14_rdr_capture_frames 120` (a labelled 120-frame recording to out\captures\NAME; the route waits 140 frames).
+#             120 frames, not 16: arena meshes carry their geometry only in the frames that upload or re-use it (lane99 bryan: 90 frames gave 266 meshes; 3 frames gave 0 [C]).
+#   harvest   per window: py -I tools\harvest\choice_harvest.py out\captures\NAME:ARENA --scene SCENE --look LOOK --every 1      (offline, 0 runs; ~30 s per window)
+#
+# Line formats (fields split by " | "):
+#   arena : ID | arena | N [| extra=FLAGS] | WINDOWS | EST SECONDS | COVERS     generated entrance + match start in arena N (--wwe2k14_launch_arena=N, Brock out first, CPU v CPU, template in make_routes.py)
+#   type  : ID | type | T | ARENA | PARTICIPANTS | WINDOWS | EST SECONDS | COVERS   generated match-type start (--wwe2k14_quick_type=T, the type's own arena)
+#   wrap  : ID | wrap | SCRIPT | WINDOWS | EST SECONDS | COVERS     an EXISTING route under tools\input_scripts\, copied with the capture flags (the owner / mirror flags removed) and a window after each `mark`
+# WINDOWS = label:look pairs (arena / type lines: the window labels the generated route records; wrap lines: the look name only, the labels are NAME_markN).
+# Est seconds = boot 25 + the route's own time (entrances ~80 s, match 25 s, 140 frames per window); the sweep is untimed (fast-forwarded where the route allows, otherwise realtime).
+#
+# ---- A. every match arena, entrance + match looks: ONE START EACH (the arena is chosen at launch; no in-run switch is proven, so no chaining is claimed) --------------------------------
+# arenas 0-9, 11-17, 21-23, 28-56 = 49 (bgNN.pac that a match can load; arena 4 is the reference: its tables exist from runs 26-29 and the older unthinned captures)
+A00 | arena | 0  | a00_entrance:entrance, a00_match:match | 170 | SmackDown
+A01 | arena | 1  | a01_entrance:entrance, a01_match:match | 170 | RAW
+A02 | arena | 2  | a02_entrance:entrance, a02_match:match | 170 | NXT
+A03 | arena | 3  | a03_entrance:entrance, a03_match:match | 170 | Superstars
+A04 | arena | 4  | a04_entrance:entrance, a04_match:match | 170 | Over the Limit (the reference arena; re-harvested unthinned with the same windows as the others)
+A05 | arena | 5  | a05_entrance:entrance, a05_match:match | 170 | No Way Out
+A06 | arena | 6  | a06_entrance:entrance, a06_match:match | 170 | Money in the Bank
+A07 | arena | 7  | a07_entrance:entrance, a07_match:match | 170 | SummerSlam
+A08 | arena | 8  | a08_entrance:entrance, a08_match:match | 170 | Night of Champions
+A09 | arena | 9  | a09_entrance:entrance, a09_match:match | 170 | Hell in a Cell
+A11 | arena | 11 | a11_entrance:entrance, a11_match:match | 170 | Survivor Series
+A12 | arena | 12 | a12_entrance:entrance, a12_match:match | 170 | TLC
+A13 | arena | 13 | a13_entrance:entrance, a13_match:match | 170 | Royal Rumble
+A14 | arena | 14 | a14_entrance:entrance, a14_match:match | 170 | Elimination Chamber
+A15 | arena | 15 | a15_entrance:entrance, a15_match:match | 170 | WrestleMania 29
+A16 | arena | 16 | a16_entrance:entrance, a16_match:match | 170 | Extreme Rules
+A17 | arena | 17 | a17_entrance:entrance, a17_match:match | 170 | Main Event
+A21 | arena | 21 | a21_entrance:entrance, a21_match:match | 170 | Elimination Chamber (second copy)
+A22 | arena | 22 | a22_entrance:entrance, a22_match:match | 170 | Royal Rumble (second copy)
+A23 | arena | 23 | a23_entrance:entrance, a23_match:match | 170 | RAW (second copy)
+A28 | arena | 28 | a28_entrance:entrance, a28_match:match | 170 | WrestleMania
+A29 | arena | 29 | a29_entrance:entrance, a29_match:match | 170 | WrestleMania 2
+A30 | arena | 30 | a30_entrance:entrance, a30_match:match | 170 | WrestleMania III
+A31 | arena | 31 | a31_entrance:entrance, a31_match:match | 170 | WrestleMania IV
+A32 | arena | 32 | a32_entrance:entrance, a32_match:match | 170 | WrestleMania V
+A33 | arena | 33 | a33_entrance:entrance, a33_match:match | 170 | WrestleMania VI
+A34 | arena | 34 | a34_entrance:entrance, a34_match:match | 170 | WrestleMania VII
+A35 | arena | 35 | a35_entrance:entrance, a35_match:match | 170 | WrestleMania VIII
+A36 | arena | 36 | a36_entrance:entrance, a36_match:match | 170 | WrestleMania IX
+A37 | arena | 37 | a37_entrance:entrance, a37_match:match | 170 | WrestleMania X
+A38 | arena | 38 | a38_entrance:entrance, a38_match:match | 170 | WrestleMania XI
+A39 | arena | 39 | a39_entrance:entrance, a39_match:match | 170 | WrestleMania XII
+A40 | arena | 40 | a40_entrance:entrance, a40_match:match | 170 | WrestleMania 13
+A41 | arena | 41 | a41_entrance:entrance, a41_match:match | 170 | WrestleMania XIV
+A42 | arena | 42 | a42_entrance:entrance, a42_match:match | 170 | WrestleMania XV
+A43 | arena | 43 | a43_entrance:entrance, a43_match:match | 170 | WrestleMania 2000
+A44 | arena | 44 | a44_entrance:entrance, a44_match:match | 170 | WrestleMania X-Seven
+A45 | arena | 45 | a45_entrance:entrance, a45_match:match | 170 | WrestleMania X8
+A46 | arena | 46 | a46_entrance:entrance, a46_match:match | 170 | WrestleMania XIX
+A47 | arena | 47 | a47_entrance:entrance, a47_match:match | 170 | WrestleMania XX
+A48 | arena | 48 | a48_entrance:entrance, a48_match:match | 170 | WrestleMania 21
+A49 | arena | 49 | a49_entrance:entrance, a49_match:match | 170 | WrestleMania 22
+A50 | arena | 50 | a50_entrance:entrance, a50_match:match | 170 | WrestleMania 23
+A51 | arena | 51 | a51_entrance:entrance, a51_match:match | 170 | WrestleMania XXIV
+A52 | arena | 52 | a52_entrance:entrance, a52_match:match | 170 | WrestleMania XXV
+A53 | arena | 53 | a53_entrance:entrance, a53_match:match | 170 | WrestleMania XXVI
+A54 | arena | 54 | a54_entrance:entrance, a54_match:match | 170 | WrestleMania XXVII
+A55 | arena | 55 | a55_entrance:entrance, a55_match:match | 170 | WrestleMania XXVIII
+A56 | arena | 56 | a56_entrance:entrance, a56_match:match | 170 | WrestleMania XXX
+#
+# ---- B. match types (structure props: cage walls, hell-in-a-cell, ladders, tables, chamber, rumble crowd, inferno fire), in the type's own arena ----------------------------------------
+# One start per STRUCTURAL class (types of one class share the props; the 62-type list is db\ids\match_types.json). Participants per the type's sides (s101_roster_sixpack: 343,324,342,107,364,335).
+B14 | type | 14 | 4 | 343,324 | b14_match:match | 110 | type 14 NORMAL (the quick-match default, arena 4): the control
+B49 | type | 49 | 9 | 343,324 | b49_match:match | 110 | HELL IN A CELL, arena 9
+B60 | type | 60 | 4 | 343,324 | b60_match:match | 110 | STEEL CAGE (walls)
+B55 | type | 55 | 4 | 343,324 | b55_match:match | 110 | LADDER (a ladder and the hanging prize)
+B68 | type | 68 | 4 | 343,324 | b68_match:match | 110 | TABLE
+B72 | type | 72 | 12 | 343,324 | b72_match:match | 110 | TLC, arena 12
+B77 | type | 77 | 16 | 343,324 | b77_match:match | 110 | EXTREME RULES, arena 16
+B81 | type | 81 | 4 | 343,324 | b81_match:match | 110 | INFERNO (the fire)
+B31 | type | 31 | 4 | 343,324,342,107 | b31_match:match | 110 | FATAL 4-WAY
+B35 | type | 35 | 13 | 343,324,342,107,364,335 | b35_match:match | 110 | BATTLE ROYAL (six), Royal Rumble arena
+B20 | type | 20 | 13 | 343,324,342,107,364,335 | b20_match:match | 110 | 10-MAN (the rumble-style crowd of wrestlers)
+B54 | type | 54 | 4 | 343,324 | b54_match:match | 110 | IRON MAN (the clock HUD)
+B09 | type | 9 | 4 | 343,324,342,107 | b09_match:match | 110 | TAG TEAM (four wrestlers, tag partners at the apron)
+#
+# ---- C. modes: the existing Session 101 sweep routes, wrapped with capture windows ----------------------------------------------------------------------------------------------------
+C01 | wrap | scenes\s101_checkK_finish_logo.txt   | menus (the route's marks)                 | 150 | main menu, finish logo, the match menus, in-match HUD
+C02 | wrap | scenes\s101_sweep_caw_pages.txt      | caw (marks)                               | 180 | Create a Superstar pages: threads, entrance editor, move set, logo grid (arena 76 / 66 shell, the preview wrestler)
+C03 | wrap | scenes\s101_checkB_caw_walk.txt      | caw_walk (marks)                          | 150 | the CAW editor walk
+C04 | wrap | scenes\s101_sweep_universe.txt       | universe (marks)                          | 150 | Universe mode pages (arena 67 / 68 / 80 backstage scenes where they show)
+C05 | wrap | scenes\s101_sweep_wm30_long.txt      | wm30 (marks)                              | 220 | 30 Years of WrestleMania (the menu, the match loads: arenas 28-56 in the wm30 look)
+C06 | wrap | scenes\s101_sweep_cutscene_wm30.txt  | cutscene (marks)                          | 220 | cutscenes (the story scenes: arenas 67 / 68 / 80)
+C07 | wrap | scenes\s101_sweep_victory.txt        | victory (marks)                           | 150 | the victory scenes, the post-match celebration
+C08 | wrap | scenes\s101_sweep_match_replay.txt   | replay (marks)                            | 160 | match replays (the post-match highlights)
+C09 | wrap | scenes\s101_sweep_match_pause.txt    | pause (marks)                             | 140 | the pause menu, the photo mode
+C10 | wrap | scenes\s101_sweep_entrance_taker.txt | taker_entrance (marks)                    | 160 | a second entrance class (Undertaker: his own set, pyro, the casket / fog)
+C11 | wrap | scenes\s103_entrance_batch.txt       | entrance_batch (marks)                    | 220 | the entrance batch (the entrances' pyro / smoke look)
+#
+# ---- D. 21:9 (the ultrawide look) -------------------------------------------------------------------------------------------------------------------------------------------------------
+D01 | arena | 4 | extra=--wwe2k14_aspect=21:9 --fullscreen=false --window_width=2520 --window_height=1080 | d01_entrance:entrance_21x9, d01_match:match_21x9 | 170 | arena 4 at 21:9 (the widened camera: more of the stands, the HUD in the centre)
+D02 | arena | 30 | extra=--wwe2k14_aspect=21:9 --fullscreen=false --window_width=2520 --window_height=1080 | d02_entrance:entrance_21x9, d02_match:match_21x9 | 170 | a WrestleMania arena at 21:9

@@ -68,7 +68,7 @@ LINTS = [
     ('fp_probe.h: bit 16 is passed', 'src/fp_probe.h', ['wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2));'], []),
     ('wrestler_contrib.cpp: the in-place put declines without touching anything',
      'src/scene_live/wrestler_contrib.cpp',
-     ['if (in_place && PutConsumerInPlace(skel, frame, skin, count)) return;', 'if (pc == cur_.end() || known_.find(skel) == known_.end()) return false;',
+     ['if (in_place && PutConsumerInPlace(skel, frame, skin, count, true)) return;', 'if (pc == cur_.end() || known_.find(skel) == known_.end()) return false;',
       'Known* k = KnownFor(skel);   // the same one call Put makes', 'x.skin.assign(skin, skin + count);'],
      [('if (pc == cur_.end() || known_.find(skel) == known_.end()) return false;', 'Known* k = KnownFor(skel);   // the same one call Put makes')]),
     ('arena_world_hook.h: the frame buffers are swapped behind bit 16',

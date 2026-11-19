@@ -1,0 +1,31 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=103,343 --wwe2k14_launch_arena=56 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_scene=2
+# intent: owner on, scene 2, flag --wwe2k14_launch_arena=56
+# Speed: fast-forward (no realtime line). s101_sweep_entrance_taker's realtime line says "the entrance follows the wall clock", but every wait in it is by file / state (wait_file, entrance_step_0) or a frame count [COV.md row 4, L]. If the shots miss the coat, rerun with -RealTime.
+# Session 103 RTE (COV.md rows 1 + 4, "Routes for the next milestone" 3): the Undertaker's entrance at WrestleMania XXX (arena 56). s101_sweep_entrance_taker with arena 56 and BG56.PAC as the arena wait.
+# Reads: "pipeline built on demand ... yCh_cloth" (never bound before), particle soft / held counts (banks 410 / 411), [q2d] flash rows, the 52 beam_moya01 beams (WMB), a sheet of the coat and the beams.
+# UNCONFIRMED: that arena 56 loads BG56.PAC (the pac name = the arena id, as BG04 = 4). If the wait times out the route fails (on_fail quit) with a run_failure zip.
+# Marks: 1 tron_103, 2 step15, 3 step15 + 900, 4 end. Frozen userdata only; writes no settings.
+on_fail quit
+log bench: start scene taker_wm30
+include boot_to_menu
+wait_file INGAMELUA.PAC 7200
+log bench: match launched
+wait_file BG56.PAC 3600
+wait_file 103.bik2 7200
+log scene=tron_103
+mark 1 tron_103
+wait_frames 200
+screenshot taker_wm30_200
+wait_state entrance_step_0 >=15 7200 2
+log scene=step15 (the Undertaker's entrance step 15)
+mark 2 step15
+screenshot taker_wm30_s15
+wait_frames 900
+screenshot taker_wm30_s15_900
+mark 3 step15_900
+wait_frames 600
+log scene=end (step 15 + 1500 frames)
+mark 4 end
+log bench: done
+wait_frames 10
+quit

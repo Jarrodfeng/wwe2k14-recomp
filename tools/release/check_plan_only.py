@@ -6,7 +6,7 @@ Checks (exit 0 = all hold):
   2. -PlanOnly without -V3Exe prints no wide configure (the AVX2 exe is opt-in), and -V3Exe with -NoV3Exe is refused (exit 1).
   3. Get-ProfileStaleCount counts the out-of-date lines of a sample log (3).
 --plant X runs the same checks against a mutated COPY of the scripts and must exit 1: regex = the invalid '\\' regex is put back; stale = the stale
-count looks for the wrong text; optin = the AVX2 exe is on by default again.
+count looks for the wrong text; optin = the AVX2 exe is off by default again (the pre-2026-11-18 opt-in); streamon = the configure args pass KEEP_STREAM=ON.
 """
 import os, re, shutil, subprocess, sys, tempfile
 
@@ -32,7 +32,9 @@ if plant:
     elif plant == 'stale':
         mutate('release_configure_args.ps1', 'profile-instr-out-of-date|profile data may be out of date', 'nothing-matches-this')
     elif plant == 'optin':
-        mutate('make_release.ps1', "if ($V3Exe -and $NoV3Exe)", "if (-not $NoV3Exe) { $V3Exe = [switch]$true }\nif ($V3Exe -and $NoV3Exe)")
+        mutate('make_release.ps1', 'if (-not $NoV3Exe) { $V3Exe = [switch]$true }', '')
+    elif plant == 'streamon':
+        mutate('release_configure_args.ps1', "$a += '-DWWE2K14_KEEP_STREAM=OFF'; $a += '-DWWE2K14_KEEP_STREAM_RUN=ON'", "$a += '-DWWE2K14_KEEP_STREAM=ON'; $a += '-DWWE2K14_KEEP_STREAM_RUN=OFF'")
     else:
         print('unknown plant', plant)
         sys.exit(2)
@@ -51,21 +53,23 @@ def check(ok, what):
         bad += 1
 
 
-rc, out = pw('-PlanOnly', '-GuestProfdata', PROFILE, '-V3Exe')
+rc, out = pw('-PlanOnly', '-GuestProfdata', PROFILE)   # the AVX2 exe is in every release by default (2026-11-18)
 lines = [l for l in out.splitlines() if l.startswith('plan:')]
 check(rc == 0 and len(lines) == 3, f'plan with a profile exits 0 and prints 3 plan lines (rc {rc}, {len(lines)} lines){"" if rc == 0 else ": " + out[-200:]}')
 want = 'guest_match.profdata'
 for l in lines[1:]:
     m = re.search(r'-DWWE2K14_GUEST_PGO_USE=(\S+)', l)
     check(bool(m) and '\\' not in m.group(1) and m.group(1).endswith(want) and '/' in m.group(1), f'profile path has forward slashes only: {m.group(1) if m else "(missing)"}')
-    for sw in ('-DWWE2K14_GUEST_ISA=', '-DWWE2K14_OURS_ISA=', '-DWWE2K14_PGO_OURS=ON', '-DWWE2K14_GUEST_PGO_GEN=OFF'):
+    for sw in ('-DWWE2K14_KEEP_STREAM=OFF', '-DWWE2K14_KEEP_STREAM_RUN=ON', '-DWWE2K14_GUEST_ISA=', '-DWWE2K14_OURS_ISA=', '-DWWE2K14_PGO_OURS=ON', '-DWWE2K14_GUEST_PGO_GEN=OFF'):
         check(sw in l, f'configure line has {sw}')
 check(bool(lines) and 'clean build: yes' in lines[0], 'a profile forces a clean build')
 check(len(lines) == 3 and '-DWWE2K14_GUEST_ISA=x86-64-v3' in lines[2] and '-DWWE2K14_GUEST_ISA= ' in lines[1], 'base ISA empty, wide ISA v3')
 
 rc, out = pw('-PlanOnly')
+check(rc == 0 and 'wide configure: ' in out and 'KEEP_STREAM=OFF' in out, 'no switches: the wide (AVX2) configure is printed by default, stream-free')
+rc, out = pw('-PlanOnly', '-NoV3Exe')
 check(rc == 0 and 'wide configure: ' not in out and 'no wide configure' in out and '-DWWE2K14_GUEST_PGO_USE= ' in out and '-DWWE2K14_PGO_OURS=OFF' in out,
-      'no profile, no -V3Exe: no wide configure (opt-in) and the profile values are explicitly empty/OFF')
+      '-NoV3Exe: no wide configure (the explicit opt-out) and the profile values are explicitly empty/OFF')
 rc, out = pw('-PlanOnly', '-V3Exe', '-NoV3Exe')
 check(rc != 0, f'-V3Exe with -NoV3Exe is refused (rc {rc})')
 

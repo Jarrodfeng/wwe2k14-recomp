@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import address  # noqa: E402
 import resolve  # noqa: E402
+import golock  # noqa: E402
 
 
 def main(argv=None):
@@ -49,10 +50,17 @@ def main(argv=None):
     if a.dry_run:
         return 0
     try:
+        lock = golock.take(a.name)   # GTW2: one goto per live name
+    except golock.Held as x:
+        print('ERROR  %s' % x)
+        return 1
+    try:
         resolve.execute(plan, a.name)
     except resolve.Stopped as x:
         print(resolve.failure_report(a.name, str(x)))
         return 1
+    finally:
+        golock.release(lock)
     return 0
 
 

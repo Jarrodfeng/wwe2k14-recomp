@@ -608,7 +608,7 @@ inline Gate g_rgate;
 inline GuestTally g_rtally;
 // The class table of 16.8 precondition 6, as the hook last read it: the 13 ring model pointers of the object at [0x836F4C74] (scene_live\ring_rows_core.h kClassTable). The hook claims a call whose model is one of them for the ring
 // chain and the arena's hook never sees it; the binder filters its two `calls = runs` guards by the SAME table (IsLiveRingModel), so each guard counts each call exactly once.
-inline constexpr uint32_t kRingModelSlots = 13;
+inline constexpr uint32_t kRingModelSlots = 25;   // S103 CRR: 13 base slots + the 12 alt-ring slots G+68..+112 (kClassTable; the d3 unit checks it equals kClassTableCount)
 inline std::atomic<uint32_t> g_ring_models[kRingModelSlots] = {};
 inline bool IsLiveRingModel(uint32_t object) {
   if (!object) return false;

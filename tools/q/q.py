@@ -12,11 +12,31 @@
   db FUNC                      db/*.json entry + system + docs/systems|modules mentions (read live; FUNC may also
                                be a data address or name that has a db entry)
   fn FUNC                      one-screen summary: size, callers/callees, strings, constants, RTTI, db, coverage
+  vcall OFF [--class VT] [--all]  every virtual call site with that vtable slot byte offset (0x34 = slot 13), receiver / class where the code shows it (qx7.py)
+  nodes [CATEGORY]             the draw-node registry: sub_82C30A10 registration sites -> category -> node vtable -> slot 1 (qx7.py)
+  runlog WORDS | which --mode X  index of our run logs: exe, route, flags, census lines; which runs reached a scene / pac (qrunlog.py)
+  asm FUNC|ADDR [FROM TO] [--into FROM TO]  per-address instruction window of the generated listing, branch targets marked; --into = which branches enter a range from outside (qx6.py)
+  decomp FUNC [--fields] [--callers N]   a compact mechanical view of one function: blocks with loads / stores / calls /
+                               branches, provenance folded (tools/q/qdecomp.py; cache out/harness/index/decomp/;
+                               docs/agents/q_decomp.md)
   info                         what the index was built from, counts, staleness
   fact WORDS [--kind K]        search the knowledge library: docs/formats, docs/systems, docs/modules, db summaries /
                                evidence, SESSION summaries (lowest rank); hits = file + heading + line, the matching
                                lines, the section's addresses expanded to db names (tools/q/qfact.py; no code index)
   map ...                      the harness knowledge map (tools/q/qmap.py)
+  const N|--name NAME|--setters  which game code writes shader constant register N, and from what (tools/q/qconst.py;
+                               cache out/harness/index/qconst/; docs/agents/q_const.md)
+  vtable ADDR [--slot K]|--of FUNC  the slots of a vtable (index, word, target, db name, decomp summary); --of = which
+                               vtable slots point at FUNC (tools/q/qvtable.py)
+  field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
+                               a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.db; `q field -h`)
+  sdk def|refs|callers NAME [--part sdl3|imgui|sdk|...] | info   the ReXGlue SDK source + the SDK's SDL3 / imgui / VMA / spdlog / fmt / ... as a read-only index (tools/q/qsdk.py; builds and refreshes ITSELF on every call, 7 s cold, 0.4 s warm; each hit tagged [sdk] / [sdl3] / ...; the header says the index age)
+  asset find|pac|tex|mat|id|slot|info|update   the index of the game's FILES: every pac -> PACH (+ virtual path /STG/CAGE) -> entry -> model nodes / meshes / material
+                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.db, built
+                               from the player's own files, refreshes ITSELF; `q asset -h`)
+  ours ...                     the structural index of OUR code: def refs callers callees writes reads fn covers rows info update diff + lanes-of line lit includes includers (tools py/ps1/lane json too) + hooks text affects (qx6.py) + glsl fxreg str (qgl.py)
+                               (tools/q/qours.py; db out/harness/index/ours.db; exact, from the clang AST; `q ours -h`;
+                               `q ours --branch REF CMD` / `q ours diff REF` = the same for a lane branch, via an overlay on the main index)
 
 FUNC: sub_82CB1F50 | 0x82CB1F50 | 82cb1f50 | a mapped name (__imp__XamInputGetState, xstart) | a db name
 (gpu_wait_poll_step). An address inside a function resolves to that function (noted).
@@ -35,6 +55,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
@@ -660,7 +681,13 @@ def cmd_fn(con, a, args):
         cvals.setdefault((c['value'], c['op'].startswith('lis+')), []).append(c['op'])
     host = con.execute('SELECT rva FROM hostsyms WHERE name = ?', (f['name'],)).fetchone()
     dbe = cmd_db(con, a, args)
-    return {
+    try:   # S103 QD: fields read / written + calls, from the decomp cache (never builds, never fails fn)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qdecomp
+        decomp_lines = qdecomp.fn_summary(con, a)
+    except Exception:
+        decomp_lines = []
+    return {'decomp': decomp_lines,
         'func': f['name'], 'addr': h(a), 'size': f['size'], 'insns': f['insns'],
         'where': f'generated/default/{f["file"]}:{f["line"]}' if f['file'] else None,
         'host_rva': f'0x{host["rva"]:X}' if host else None,
@@ -708,6 +735,8 @@ def print_fn(r, args):
     if r['constants']:
         print('  constants: ' + ', '.join(f'{x["value"]}' for x in r['constants'][:L * 2])
               + (' ...' if len(r['constants']) > L * 2 else ''))
+    for line in r.get('decomp', []):
+        print(line)
     cov = r['coverage']
     if cov is None:
         print('  coverage: (no out/harness/coverage/coverage.json yet)')
@@ -741,6 +770,102 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfact
         return qfact.main(argv[1:])
+    # S103 QO: `q.py ours ...` = the structural index of OUR code (tools/q/qours.py, out/harness/index/ours.db; no game index needed).
+    if argv and argv[0] == 'ours':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qours
+        return qours.main(argv[1:])
+    # S103 QX5: `q.py sdk ...` = the read-only index of the ReXGlue SDK source (tools/q/qsdk.py, out/harness/index/sdk.db, built by `q sdk update`).
+    if argv and argv[0] == 'sdk':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qsdk
+        return qsdk.main(argv[1:])
+    # S103 QAS: `q.py asset ...` = the index of the game's FILES (pacs -> PACH -> entry -> model / material / texture; tools/q/qasset.py, out/harness/index/asset.db).
+    if argv and argv[0] == 'asset':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qasset
+        return qasset.main(argv[1:])
+    # S103 QF: `q.py field ...` = the field index (who reads / writes +N of an object; tools/q/qfield.py, out/harness/index/fields.db).
+    if argv and argv[0] == 'field':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qfield
+        return qfield.main(argv[1:])
+    # S103 QD: `q.py decomp FUNC [--callers N] [--fields]` = a compact mechanical view of one function (tools/q/qdecomp.py;
+    # cache out/harness/index/decomp/, keyed by the generated source's hash).
+    # S103: `q.py missed "QUESTION"` = log a question q could not answer (out/harness/q_missed.log). The q-first gate hook
+    # (tools/harness/q_gate_hook.py) grants 3 raw code searches for it; the log is the list of q entries to build next.
+    if argv and argv[0] == 'missed':
+        import time
+        q = ' '.join(argv[1:]).strip()
+        if not q:
+            print('usage: q.py missed "the question q could not answer"', file=sys.stderr)
+            return 2
+        p = os.path.join(REPO, 'out', 'harness', 'q_missed.log')
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'a', encoding='utf-8') as f:
+            f.write(f'{time.strftime("%Y-%m-%d %H:%M")}\t{os.path.basename(os.getcwd())}\t{q}\n')
+        print('q: logged as a q gap (out\\harness\\q_missed.log); 3 raw code searches granted')
+        return 0
+    # S103 QX3: `q.py asm FUNC|ADDR [FROM TO] [--into FROM TO]` = a per-address window of the generated listing, branch targets marked (tools/q/qx6.py).
+    if argv and argv[0] == 'asm':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qx6
+        import qdecomp
+        try:
+            return qx6.asm_main(argv[1:], connect(DB), resolve, REPO)
+        except (QError, qx6.XError, qdecomp.DecompError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    # S103 QX4: `q.py vcall OFF [--class VT]` (virtual call sites by slot offset), `q.py nodes [CAT]` (the draw-node registry) = tools/q/qx7.py;
+    # `q.py runlog WORDS|which --mode X` = the run-log index, tools/q/qrunlog.py. All three build their own table in out/harness/index on first use.
+    if argv and argv[0] in ('vcall', 'nodes', 'runlog'):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qx7
+        import qrunlog
+        try:
+            if argv[0] == 'runlog':
+                return qrunlog.main(argv[1:])
+            return qx7.main(argv, connect(DB))
+        except (QError, qx7.XError, qrunlog.RunlogError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'decomp':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qdecomp
+        try:
+            con = connect(DB)
+            return qdecomp.main(argv[1:], con, resolve)
+        except (QError, qdecomp.DecompError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    # S103 QC: `q.py const N|--name NAME|--setters` = which code writes shader constant register N (tools/q/qconst.py; cache out/harness/index/qconst/).
+    if argv and argv[0] == 'const':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qconst
+        try:
+            return qconst.main(argv[1:], connect(DB), resolve)
+        except (QError, qconst.ConstError, qconst.qdecomp.DecompError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    # S103 QV: `q.py vtable ADDR | --of FUNC` = the slots of a vtable / which slots point at a function (tools/q/qvtable.py).
+    if argv and argv[0] == 'vtable':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qvtable
+        try:
+            return qvtable.main(argv[1:], connect(DB), resolve)
+        except (QError, qvtable.VtError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
     ap = argparse.ArgumentParser(prog='q', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--json', action='store_true', help='machine-readable output')
@@ -779,7 +904,18 @@ def main(argv=None):
         m = meta(con)
         # the map changes with every relink: only warn about it where host addresses are used
         keys = ('init_cpp', 'map', 'image') if args.cmd in ('addr', 'fn', 'info') else ('init_cpp', 'image')
-        for w in staleness(m, keys):
+        st = staleness(m, keys)
+        if st and args.cmd != 'info' and os.path.abspath(args.index) == os.path.abspath(DB) and os.environ.get('WWE_Q_NO_AUTOUPDATE') != '1':
+            # S103: stale indexes were read for hours (agents saw the warning and fell back to grep). A stale index rebuilds itself
+            # (~13 s) before it answers; image.bin (needs a game run) cannot, so an `image` warning still prints.
+            print(f'q: index stale ({"; ".join(st[:-1])}); rebuilding first (~13 s) ...', file=sys.stderr, flush=True)
+            con.close()
+            subprocess.run([sys.executable, '-I', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build_index.py')],
+                           stdout=sys.stderr, stderr=sys.stderr)
+            con = connect(args.index)
+            m = meta(con)
+            st = staleness(m, keys)
+        for w in st:
             print(f'q: WARNING {w}', file=sys.stderr)
         if m.get('default_gen') is False:
             print(f'q: NOTE this index was built from {m.get("gen_dir")} (not generated/default)', file=sys.stderr)
@@ -838,4 +974,12 @@ if __name__ == '__main__':
             _stream.reconfigure(errors='replace')   # a db summary with a non-cp1252 character must not crash text output
         except (AttributeError, ValueError):
             pass
+    # QTF (S103 WTA fix 5): a hard timeout for every q call (WWE_Q_TIMEOUT s, default 120, 0 = off; `ours update` in the main checkout gets 10x).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import qtimeout
+    _secs = qtimeout.timeout_secs()
+    if sys.argv[1:3] in (['ours', 'update'], ['sdk', 'update'], ['asset', 'update']):
+        _secs *= 10
+    qtimeout.mark_owner()
+    qtimeout.start_watchdog(_secs)
     sys.exit(main())

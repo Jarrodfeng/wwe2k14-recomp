@@ -1,0 +1,5 @@
+{
+ "files": {},
+ "notes": {},
+ "what": "render_clock_lint ratchet: unmarked sites per file when the lint was introduced (S103 RCL). Only ever lowered."
+}

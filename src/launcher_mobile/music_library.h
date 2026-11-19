@@ -241,8 +241,8 @@ class Library {
     Kick();
   }
   // Everything in the staging folder (what the picker just copied there).
-  // Work that touches files (copying a song to a wrestler's theme ...) runs here too, never on the UI thread; n returns the sentence for
-  // the toast. fter (optional) is converted with the card afterwards (a cache hit for a song that is already converted).
+  // Work that touches files (copying a song to a wrestler's theme ...) runs here too, never on the UI thread; \fn returns the sentence for
+  // the toast. \after (optional) is converted with the card afterwards (a cache hit for a song that is already converted).
   void Task(std::function<Message()> fn, fs::path after = {}) {
     {
       std::lock_guard lock(sh_->m);
@@ -300,7 +300,7 @@ class Library {
   int Importing() const { return sh_->importing.load(); }
 
   // ---- the progress bar (Jarrod: a song is converted from the moment it is added, with a bar, not quietly in the background) ----
-  // One batch = everything queued since the worker was last idle ("song 2 of 5"). rac is the CURRENT song's fraction 0..1 as the
+  // One batch = everything queued since the worker was last idle ("song 2 of 5"). \frac is the CURRENT song's fraction 0..1 as the
   // importer reports it through Report() (-1 = it has not said: the bar shows the batch only).
   struct Progress {
     bool active = false;
@@ -419,7 +419,7 @@ class Library {
     fs::path path;
     bool remove_source;
     fs::path dest;
-    std::function<Message()> fn;  // kTask: runs on the worker; fter = a file to convert afterwards (its song, with the card)
+    std::function<Message()> fn;  // kTask: runs on the worker; \after = a file to convert afterwards (its song, with the card)
     fs::path after;
     bool keep = false;  // kCheck: never delete the file on a refusal (the start-up scan)
   };

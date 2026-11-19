@@ -26,6 +26,7 @@ struct ThreadCpuMeter {
     b = int64_t(__builtin_ia32_rdtsc());
 #else
     timespec ts;
+    // render-clock: perf - per-thread CPU time for the profiling counters
     a = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) == 0 ? int64_t(ts.tv_sec) * 1000000000 + ts.tv_nsec : 0;
     b = 0;
 #endif

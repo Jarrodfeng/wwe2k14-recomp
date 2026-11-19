@@ -5,6 +5,7 @@ param([switch]$Clean)
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 . (Join-Path $repo 'tools\env.ps1') | Out-Null
+. (Join-Path $repo 'tools\cxx_cache.ps1')   # S103 H1: the shared compile cache (WWE_NO_CCACHE=1 = off)
 $outDir = Join-Path $repo 'out\tools'
 $obj = Join-Path $outDir 'arena_rec_obj'
 if ($Clean -and (Test-Path $obj)) { Remove-Item -Recurse -Force -Confirm:$false $obj }
@@ -18,15 +19,17 @@ $srcs = @((Join-Path $PSScriptRoot 'arena_rec.cpp'), (Join-Path $repo 'src\scene
           (Join-Path $v 'loader_seam_game.cpp'), (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'))
 $repoLen = $repo.Path.Length + 1
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
+$incRel = ConvertTo-CxxRel $inc   # S103 H1: repo-relative paths (the same text in every worktree)
 $fails = $srcs | ForEach-Object -ThrottleLimit 8 -Parallel {
   $name = ($_.Substring($using:repoLen) -replace '[\\/:]', '_') + '.o'
   $o = Join-Path $using:obj $name
   if ((Test-Path $o) -and (Get-Item $o).LastWriteTimeUtc -gt (Get-Item $_).LastWriteTimeUtc -and (Get-Item $o).LastWriteTimeUtc -gt $using:newestHdr) { return }
-  $log = & clang++ -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:inc $_ -o $o 2>&1
+  $log = & $using:cxx0 @using:cxxRest -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:incRel ($_.Substring($using:repoLen)) -o ($o.Substring($using:repoLen)) 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") }
 }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $bad | ForEach-Object { Write-Host $_ }
+Show-CxxCache
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }
 $objs = @($srcs | ForEach-Object { Join-Path $obj (($_.Substring($repoLen) -replace '[\\/:]', '_') + '.o') })
 $libs = @('-lole32', '-luser32', '-luuid', '-lshell32', '-lshlwapi', '-lwindowscodecs', '-ladvapi32', '-lgdi32', '-lcomdlg32', '-lpropsys', '-lmfplat', '-lmfreadwrite', '-lmfuuid')

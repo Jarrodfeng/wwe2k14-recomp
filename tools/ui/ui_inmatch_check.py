@@ -24,13 +24,15 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
+sys.path.insert(0, HERE)
+import ui_consts  # noqa: E402  (PN5 review B1: the tier constants come from the header, never typed here)
 RUNS = os.path.join('out', 's101', 'runs')
 ZIPS = {   # kind -> (run folder, frames)
     'bryan': ('20261112_122700_s100_owner_bryan_entrance', (90, 150)),
     'wm30': ('20261112_131029_s100_owner_s90_wm30', (127, 300)),
     'brock': ('20261111_215201_s100_owner_s89_brock', (100, 250)),
 }
-kTier1 = 10                # kUiTier1Count (ui_ours_core.h): pacs indexed at start-up
+kTier1 = ui_consts.tier1_count()   # kUiTier1Count (src\renderer_scene\ui_file_index.h, read from the header): pacs indexed at start-up
 DEEP_ENTRY_BOUND = 2000    # review F1 cost guard: entries the second tier may index (measured: bgEtc 814 + one arena's "*lightmap*" members, 3 for bg04)
 ALLOW_UNJOINED = {'bryan': 1, 'wm30': 1, 'brock': 0}
 ALLOW_FRAME = {('wm30', 127): 3}   # frame 127 of the WM30 zip: the two 512x512 lightmap pages stay unjoined (measured; joined by frame 300) [L: the scene record has not named the arena yet there]   # draws a frame whose image no pac holds (measured, see UI_OURS.md): kept and counted

@@ -21,6 +21,7 @@ bool Allocator::CarveFrom(int block_index, const VkMemoryRequirements& needs, Al
     out.size = needs.size;
     out.mapped = block.mapped ? block.mapped + aligned : nullptr;
     out.block = block_index;
+    out.type = block.type;
     return true;
   }
   return false;

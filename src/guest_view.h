@@ -17,7 +17,11 @@ constexpr uint32_t ViewOffset(uint32_t va) { return (((va >> 20) & 0xFFFu) + 512
 // A CPU view address as the GPU address of the same byte (the low 29 bits plus the view's offset).
 constexpr uint32_t ToPhysical(uint32_t va) { return ViewOffset(va) + (va & 0x1FFFFFFFu); }
 
+// The inverse for the 0xE0000000 view, for TEST FORGES only (a header word as the game stores it): the CPU address whose GPU form is `phys` (phys >= 0x1000).
+constexpr uint32_t ToEViewCpu(uint32_t phys) { return 0xE0000000u | (phys - 0x1000u); }
+
 static_assert(ToPhysical(0xFC545000u) == 0x1C546000u, "the 0xE0000000 view is 4 KB higher");
+static_assert(ToPhysical(ToEViewCpu(0x1C546000u)) == 0x1C546000u && ToEViewCpu(0x1C546000u) == 0xFC545000u, "the forge inverse");
 static_assert(ToPhysical(0xBC546000u) == 0x1C546000u && ToPhysical(0xDC546000u) == 0x1C546000u, "the 0xA / 0xC views are not");
 
 }  // namespace wwe2k14::guest_view

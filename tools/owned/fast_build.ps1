@@ -168,6 +168,9 @@ try {
         # Read when the server starts, so a server from before this line is stopped first.
         $env:SCCACHE_DIRECT = 'false'
         & $sccache --stop-server *> $null
+        $swOwn = $env:WWE_SWEEP_OWNER; $env:WWE_SWEEP_OWNER = $null   # QTF: start the per-worktree server WITHOUT the opt-in owner variable (a shared daemon must never look like an orphan)
+        & $sccache --start-server *> $null
+        if ($swOwn) { $env:WWE_SWEEP_OWNER = $swOwn }
         if (-not $env:SCCACHE_CACHE_SIZE) { $env:SCCACHE_CACHE_SIZE = '40G' }
         $launcherOpts = @("-DCMAKE_C_COMPILER_LAUNCHER=$sccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=$sccache")
         if ((Test-Path "$bdir\CMakeCache.txt") -and -not (Select-String -LiteralPath "$bdir\CMakeCache.txt" -Pattern '^CMAKE_CXX_COMPILER_LAUNCHER:.*sccache' -Quiet)) {

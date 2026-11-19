@@ -16,16 +16,7 @@
 
 namespace rdr_adapter {
 
-class ContentHasher {
- public:
-  ContentHasher() { XXH3_64bits_reset(&state_); }
-  void Update(const uint8_t* p, size_t n) { XXH3_64bits_update(&state_, p, n); }
-  // The digest of everything fed so far (the hasher stays usable).
-  uint64_t Digest() const { return XXH3_64bits_digest(&state_); }
-
- private:
-  XXH3_state_t state_;
-};
+// (ContentHasher moved to image_content_table.h, S103 PN1: the kept file index uses it without the stream headers.)
 
 // What a content blob (textures.bin RCTX) says about its image, in the table's terms. false: the blob is not a 2D texture this feed describes (layers > 1, no mip 0,
 // a data region that does not fit): the table is not told, and the hook keeps the stream's image.

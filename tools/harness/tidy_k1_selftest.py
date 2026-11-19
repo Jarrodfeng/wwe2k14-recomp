@@ -285,7 +285,7 @@ def main():
     check('test setup: the scratchpad junction exists', os.path.isfile(os.path.join(jroot, 'deadjunc', 'scratchpad', 'old.bin')))
     T.scratchpad_pass(now, dry=False)
     check('scratchpad that is a junction: its target survives', os.path.isfile(os.path.join(tgt, 'old.bin')))
-    check('scratchpad with an active KEEP (future until): survives', os.path.isfile(os.path.join(jroot, 'deadkeep', 'scratchpad', 'old_case', 'f.bin')))
+    check('S102 TIDY2: a KEEP file (even with a future until) no longer protects a scratchpad child', not os.path.isfile(os.path.join(jroot, 'deadkeep', 'scratchpad', 'old_case', 'f.bin')))
     check('twin: an old loose file in a plain idle scratchpad goes', not os.path.exists(os.path.join(jroot, 'deadloose', 'scratchpad', 'loose.bin')))
     os.rmdir(os.path.join(jroot, 'deadjunc', 'scratchpad'))
     os.environ.pop('TIDY_TEST_SCRATCHPADS')

@@ -1,0 +1,3 @@
+# Reviewed false positives of tools\analysis\address_lint.py: path|value|reason (value as 0xHEX or decimal). Empty on purpose: S103 X1 found none.
+src/scene_live/crowd_latch_reader.h|0x8206AF90|CSkinModel vtable: an image DATA word (slots +8 / +12 = image words 0x8206AF98 / 0x8206AF9C [C]), not computed by the cited functions; S103 SNF's new comment put sub_ names within 3 lines (05:4x review)
+src/scene_live/skin_data.h|0x8206AF90|CSkinModel vtable: an image DATA word (slots +8 / +12 = image words 0x8206AF98 / 0x8206AF9C [C]), hoisted here from crowd_latch_reader.h (same waiver); not computed by the cited functions (S103 WC)

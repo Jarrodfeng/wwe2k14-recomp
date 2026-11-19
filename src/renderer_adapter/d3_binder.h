@@ -868,6 +868,7 @@ class D3Core {
       Sequence& s = old->second;
       const bool was_complete = s.complete;   // lane 301: a COMPLETE sequence is a certified version; what this frame learns must not replace it for the markers already in flight
       bool drift_learned = false;
+      // render-clock: lookup - proof streak bookkeeping of the d3 proof, our own state
       if (fno > s.last_seen + 2) s.streak_start = fno;
       s.last_seen = fno;
       bool same = s.parts.size() == fresh.size();
@@ -1037,10 +1038,12 @@ class D3Core {
       const bool is_unstable = unstable.count(it->first) != 0;
       // (S7) a mark expires when the last proof compare is older than 2 x K frames while the object is being drawn (it reappeared, or the proof clocks drifted apart). `proof_overdue` COUNTS only an object drawn without a gap for
       // that long: its proof frame never came although it was there = the hook-to-reader offset is skewed (an object that was off screen and came back is unmarked too, but is not the detector's case).
+      // render-clock: lookup - proof overdue age of the d3 proof, our own state
       const bool stale = !force_mark && s.complete && fno && s.proof_frame && fno > s.proof_frame + thin::kProofOverdue && fno <= s.last_seen + 2;   // S102 K4: 4 x K (was 2 x K: the proof frames now rotate through both parities)
       const bool overdue = stale;
       // lane 268 (17.13): an object that is not marked AND has not been drawn for 64+ frames is a STALE sequence (menus / entrance / an earlier scene; seqs_alive keeps it until a key leaves the pin set): its reason says so, so "marked 16 of 44" can be read against the objects that are actually drawn
       const std::string gone = (fno && fno > s.last_seen + 64) ? " [not drawn for 64+ frames]" : "";
+      // render-clock: lookup - proof overdue age of the d3 proof, our own state
       if (stale && fno >= s.streak_start + thin::kProofOverdue) ++c.proof_overdue;   // S102 K4
       if (overdue) {
         if (DebugOn()) std::fprintf(stderr, "[d3dbg] overdue frame %llu object %08X ordinal %u proof_frame %llu last_seen %llu streak %llu\n", (unsigned long long)fno, s.object, s.ordinal, (unsigned long long)s.proof_frame, (unsigned long long)s.last_seen, (unsigned long long)s.streak_start);
@@ -1091,7 +1094,9 @@ class D3Core {
       }
       ++it;
     }
+    // render-clock: lookup - lifetime of our own retired-entry cache
     for (auto rt = retired.begin(); rt != retired.end();) rt = (fno > rt->second.second + kRetireFrames) ? retired.erase(rt) : std::next(rt);
+    // render-clock: lookup - lifetime of our own frozen-entry cache
     for (auto fz = frozen.begin(); fz != frozen.end();) fz = (fno > fz->second.frame + kFreezeFrames) ? frozen.erase(fz) : std::next(fz);   // lane 301
     c.objects_complete = keys.size();
     if (c.marked_unsourced > c.marked_unsourced_peak) c.marked_unsourced_peak = c.marked_unsourced;
@@ -1393,6 +1398,7 @@ class D3Core {
     const Sequence& s = retired_seq ? *retired_seq : it->second;
     if (!retired_seq) {
       Sequence& sq = it->second;
+      // render-clock: lookup - proof streak bookkeeping of the d3 proof, our own state
       if (frame.header.guest_frame > sq.last_seen + 2) sq.streak_start = frame.header.guest_frame;
       sq.last_seen = frame.header.guest_frame;
     }

@@ -1,0 +1,9 @@
+{
+ "owner": "S103 lane GT (per-pass GPU stamps in the stream-free build, docs/research/s103/GT_stream_free_stamps.md) and its review fixes. src/renderer/renderer.cpp (the stamp identity, kind 6 uploads stamps, plants 8-11), src/start_settings.cpp (OFF reads gpu_stamps once), tools/scene/host_rig.{cpp,py} (--gpu-stamps + five twins), tools/surface/bench_line.py + ab_line.py (--roles), tools/lint/no_control_chars.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "none (an instrument)", "ms": [0, 0]},
+ "note": "no_control_chars: a literal control character (0x08 from a mangled \\b, 0x07 from \\a, 0x0C from \\f ...) in a tracked src/ tools/ docs/ text file fails; the selftest plants a 0x08 in a comment and must report it. roles_fixture: bench_line.py / ab_line.py --roles read made-up log lines (window rule, leak, unstamped twin).",
+ "checks": [
+  {"name": "s103_GT.no_control_chars", "cmd": ["py", "-I", "tools/lint/no_control_chars.py", "--root", ".", "--selftest"], "timeout_s": 120, "affects": ["src/**", "tools/**", "docs/**", "*.md", "*.txt"]},
+  {"name": "s103_GT.roles_fixture", "cmd": ["py", "-I", "tools/surface/bench_line_fixture_check.py", "--root", "."], "timeout_s": 300, "affects": ["tools/surface/bench_line.py", "tools/surface/ab_line.py", "tools/surface/bench_line_fixture_check.py", "tools/surface/fixtures/**"]}
+ ]
+}

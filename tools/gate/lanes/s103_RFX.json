@@ -1,0 +1,18 @@
+{
+ "owner": "S103 lane RFX (docs/agents/s103/RFX.md): the 2D layer's sprite / hue / glyph rows sample with the address mode the GAME set (the state object's +148, sub_82C23D78) instead of a forced CLAMP_TO_EDGE: the retro arenas' film-grain flipbook (uv 0..15, WRAP) tiles instead of smearing its edges. Quad2D layout 5 (+ address, kQhAddress, 324 bytes a row), ReadState / FillState (quads2d_core.h), AddressModes + the per-row sampler + the address census (quads2d_draw.cpp). Piece SVY (same lane): the no-alpha movie sprite T_SpriteYUV (site 0x82BC799C, the 30 Years season video) is a yuv row (kQkYuv, three planes, AlphaMix 0 1 1 0) instead of a hole, and PlaneImages::Get serves a frame with no alpha plane (stand-in slot 3).",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. rfx_unit: ReadState / FillState carry the +148 word, the layout-5 record round trip (a layout-4 capture is read as address unknown = clamp), the code -> address table (0 repeat, 1 mirror, 2 and 7 clamp, 4 border, 5 / 6 mixed, 3 / unknown / no bit clamp), Append's sampler for a uv 0..15 row = REPEAT with a CPU reference of the tiling; planted twins address_ignored (today's clamp = the past bug), code7_wrap, unknown_wrap each failing its NAMED check; SVY: the T_SpriteYUV site makes a yuv row (tap, blocks, record, Append), planted twin yuv_site_hole; movie_planes_unit serves a no-alpha frame (twin alpha_required).",
+ "checks": [
+  {"name": "s103_RFX.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rfx_unit.ps1"], "timeout_s": 600},
+  {"name": "s103_RFX.unit", "cmd": ["out/tools/rfx_unit.exe"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/quads2d_core.h", "src/renderer_scene/quads2d_draw.h", "src/renderer_scene/quads2d_draw.cpp", "src/renderer_scene/quads2d_plants.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.h", "src/renderer_scene/record_io.cpp", "tools/scene/rfx_unit.cpp"]},
+  {"name": "s103_RFX.unit_plant_address_ignored", "cmd": ["out/tools/rfx_unit.exe", "--plant", "address_ignored"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_draw.cpp", "tools/scene/rfx_unit.cpp"]},
+  {"name": "s103_RFX.unit_plant_code7_wrap", "cmd": ["out/tools/rfx_unit.exe", "--plant", "code7_wrap"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_draw.cpp", "tools/scene/rfx_unit.cpp"]},
+  {"name": "s103_RFX.unit_plant_unknown_wrap", "cmd": ["out/tools/rfx_unit.exe", "--plant", "unknown_wrap"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_draw.cpp", "tools/scene/rfx_unit.cpp"]},
+  {"name": "s103_RFX.unit_plant_yuv_site_hole", "cmd": ["out/tools/rfx_unit.exe", "--plant", "yuv_site_hole"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_core.h", "tools/scene/rfx_unit.cpp"]},
+  {"name": "s103_RFX.movie_planes", "cmd": ["py", "-I", "tools/movie/movie_planes_check.py", "--root", "."], "timeout_s": 900, "needs": ["out/captures/c2d_entrance_tron", "out/captures/c2d_menu"], "affects": ["src/renderer_scene/movie_ours.cpp", "src/renderer_host/scene_host.cpp", "src/scene_live/movie_planes.h", "tools/movie/movie_planes_unit.cpp", "tools/movie/movie_planes_check.py"]},
+  {"name": "s103_RFX.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/quads2d_tap.h", "src/renderer_scene/quads2d_core.h", "src/renderer_scene/scene_record.h", "src/renderer_adapter/live.cpp", "src/renderer_host/scene_host.cpp", "src/draw_origin.h", "src/scene_live/movie_planes.h", "src/renderer_game/fallback_census.h"]}
+ ]
+}

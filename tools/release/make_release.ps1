@@ -55,6 +55,8 @@ param([string]$Version = '', [switch]$Playtest, [switch]$Incremental, [switch]$S
 # Session 102 W2: profile-guided builds, see the header. (The SDK DLL profile path was removed again: docs\research\part2\W1_W2_build.md "SDK profile".)
 # Session 102 W1: the AVX2 build is OPT-IN (-V3Exe). -NoV3Exe stays accepted as a no-op alias; both together is a mistake.
 if ($V3Exe -and $NoV3Exe) { "make_release: FAILED: -V3Exe and -NoV3Exe together"; exit 1 }
+# 2026-11-18 (Jarrod: use AVX2 where the device supports it; the launcher picks wwe2k14_v3.exe, src\launcher\exe_pick.h): the AVX2 exe is part of EVERY release. -NoV3Exe opts out; -V3Exe is now the default (accepted).
+if (-not $NoV3Exe) { $V3Exe = [switch]$true }
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 Set-Location $R
@@ -70,11 +72,20 @@ if ($GuestProfdata) {
 $baseCfg = Get-ReleaseConfigureArgs -Profdata $profFull -Narrow:$GuestProfileNarrow
 $wideCfg = Get-ReleaseConfigureArgs -Wide -Profdata $profFull -Narrow:$GuestProfileNarrow
 $forceClean = [bool]$GuestProfdata
+# 2026-11-18: after each configure, read the compile flags and the CMake cache back (check_build_flags.py): the release is stream-free (OFF + RUN in the cache)
+# and the ISA / profile are what the configure args asked for. A stale cache value fails the release here, before the long build.
+function Test-ConfiguredFlags([string]$dir, [string]$isa) {
+    $a = @('-I', (Join-Path $PSScriptRoot 'check_build_flags.py'), $dir, '--guest', $isa, '--ours', $isa)
+    if ($profFull) { $a += @('--profdata', $profFull); if (-not $GuestProfileNarrow) { $a += @('--pgo-ours', 'yes') } }
+    $o = & py @a 2>&1
+    if ($LASTEXITCODE) { Fail "check_build_flags.py on $dir failed:`n$($o -join "`n")" }
+    "flags: $dir ok (stream-free cache, isa $isa)"
+}
 if ($PlanOnly) {
     "plan: clean build: $(if ($forceClean -or -not $Incremental) { 'yes' } else { 'no' })$(if ($forceClean) { ' (forced by -GuestProfdata)' })"
     "plan: base configure: cmake --preset win-amd64-release -B out\release\build -DWWE2K14_RELEASE=ON $($baseCfg -join ' ')"
     if ($V3Exe -and -not $V3Narrow) { "plan: wide configure: cmake --preset win-amd64-release -B out\release\build_v3 -DWWE2K14_RELEASE=ON $($wideCfg -join ' ')" }
-    else { "plan: no wide configure ($(if ($V3Exe) { '-V3Narrow' } else { 'the AVX2 exe is opt-in: -V3Exe' }))" }
+    else { "plan: no wide configure ($(if ($V3Exe) { '-V3Narrow' } else { '-NoV3Exe' }))" }
     exit 0
 }
 
@@ -218,8 +229,10 @@ try {
     $log = Join-Path $R "logs\release_build_$Version.log"
     cmake --preset win-amd64-release -B $build -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" @baseCfg *>&1 | Out-File $log
     if ($LASTEXITCODE) { Fail "configure failed (see $log)" }
+    Test-ConfiguredFlags $build 'base'
     cmake --build $build -j 16 *>&1 | Out-File $log -Append
     if ($LASTEXITCODE) { Fail "build failed (see $log)" }
+    $staleBase = if ($GuestProfdata) { Get-ProfileStaleCount $log } else { 0 }   # review 8: the log also holds the wide build, counted apart below
     foreach ($dll in Get-ChildItem "$env:REXSDK\bin\rex*.dll") { Copy-Item $dll.FullName (Join-Path $build $dll.Name) -Force }
     # Session 98 (Jarrod: "Obviously we'll need to add those to the PC build"): the Arena Viewer / Superstar Importer. Our own code; it reads the player's files at run time.
     pwsh -NoProfile -File "$R\tools\assets\build_viewer.ps1" *>&1 | Out-File $log -Append
@@ -240,6 +253,7 @@ try {
         cmake --preset win-amd64-release -B $buildV3 -DWWE2K14_RELEASE=ON "-DWWE2K14_VERSION_SUFFIX=$suffix" "-Drexglue_DIR=$sdkCmake" `
             @wideCfg *>&1 | Out-File $log -Append
         if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe configure failed (see $log)" }
+        Test-ConfiguredFlags $buildV3 'v3'
         cmake --build $buildV3 --target wwe2k14 -j 16 *>&1 | Out-File $log -Append
         if ($LASTEXITCODE) { Fail "wwe2k14_v3.exe build failed (see $log)" }
         Copy-Item (Join-Path $buildV3 'wwe2k14.exe') (Join-Path $build 'wwe2k14_v3.exe') -Force
@@ -247,9 +261,11 @@ try {
         Copy-Item (Join-Path $buildV3 'wwe2k14.map') (Join-Path $build 'wwe2k14_v3.map') -Force
     }
     if ($GuestProfdata) {  # review G: how much of the profile the compiler found out of date
-        $stale = Get-ProfileStaleCount $log
-        "profile: $stale translation unit(s) report an out-of-date profile (limit $MaxStaleProfileTUs)"
-        if ($stale -gt $MaxStaleProfileTUs) { Fail "the profile is stale for $stale translation units (> $MaxStaleProfileTUs): train again (tools\release\pgo_guest_train.txt)" }
+        $staleV3 = (Get-ProfileStaleCount $log) - $staleBase
+        foreach ($pair in @(@('wwe2k14.exe', $staleBase), @('wwe2k14_v3.exe', $staleV3))) {
+            "profile: $($pair[1]) translation unit(s) of $($pair[0]) report an out-of-date profile (limit $MaxStaleProfileTUs each)"
+            if ($pair[1] -gt $MaxStaleProfileTUs) { Fail "the profile is stale for $($pair[1]) translation units of $($pair[0]) (> $MaxStaleProfileTUs): train again (tools\release\pgo_guest_train.txt)" }
+        }
     }
     "build: $([int]((Get-Date) - $t0).TotalSeconds) s"
 } finally { Exit-RunLock $lock }
@@ -299,6 +315,7 @@ if ($LocalTest) {  # our route: the launcher's performance test
     $files['PERFORMANCE_TEST.txt'] = Join-Path $R 'tools\native\PERFORMANCE_TEST.txt'  # the steps for the tester
 }
 $buildOutputs = @('wwe2k14.exe', 'wwe2k14_launcher.exe', 'wwe2k14_assets.exe', 'rexruntime.dll', 'rexgpu-xenos.dll')
+# 2026-11-18: wwe2k14_v3.exe is required in the zip unless -NoV3Exe (checked again on the finished zip below, check_zip_contents.py).
 if ($V3Exe) { $files['wwe2k14_v3.exe'] = Join-Path $build 'wwe2k14_v3.exe'; $buildOutputs += 'wwe2k14_v3.exe' }
 # Third-party redistributables: published path -> source (copied unmodified; the scan compares them byte for byte).
 $crt = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT' -Directory |
@@ -365,6 +382,9 @@ foreach ($e in $entries) {
 # S102 S0-6: the game exe's pdb never ships: a second, content-based check on the finished zip (a renamed pdb is caught too).
 & py -I (Join-Path $R 'tools\release\check_zip_symbols.py') $zip
 if ($LASTEXITCODE -ne 0) { Remove-Item -Force $zip; Fail "the zip holds a symbol file (check_zip_symbols.py)" }
+$reqExes = @('wwe2k14.exe'); if ($V3Exe) { $reqExes += 'wwe2k14_v3.exe' }
+& py -I (Join-Path $R 'tools\release\check_zip_contents.py') $zip --require @reqExes
+if ($LASTEXITCODE -ne 0) { Remove-Item -Force $zip; Fail "the zip lacks a required exe (check_zip_contents.py)" }
 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
 "$sha  $name.zip" | Set-Content -LiteralPath "$zip.sha256"
 if (-not $LocalTest) {  # the release's docs (a local test leaves them alone)

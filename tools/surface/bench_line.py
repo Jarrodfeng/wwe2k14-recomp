@@ -25,6 +25,10 @@ HEAT (CLAUDE.md: a bench states settings file, tier, resolution and heat): heat_
 cpu_perf % mean, perf_limit median / min, perf_limit_flags set, package W mean (rapl_pkg is milliwatts). cpu_freq_mhz / cpu_nominal_mhz are
 fixed-rate counters on the Surface and are never printed as heat.
 --allow-no-heat prints the line anyway with 'heat NOT RECORDED (reason)' and the prefix 'NOT A BENCH NUMBER' (the offline checks use it on old folders).
+S103 GT (--roles): the per-pass GPU split of BOTH builds, from the run log's `[rdr][gpu] ... by role` lines (the renderer logs one every 600 GPU frames and at exit when --wwe2k14_rdr_gpu_stamps is on; the stream-free
+build reads that switch since S103 GT) and the `[rdr][gpu][uploads]` lines (steady vs loading frames, MB a frame). Per window one line:
+  roles [bryan frames A..B]: colour 3.64 shadow 0.31 ... other 0.83 = work 13.4 ms a frame (6000 GPU frames in 11 windows of 600) | uploads steady 0.02 MB/frame (n frames), loading 14.1 MB/frame (n frames, 3.1 % of the frames)
+The windows used are the log lines stamped inside the route's window (plus 3 s after its end: a 600-frame line is printed AFTER its frames); frame-weighted means. A log with none prints 'roles [...]: not measured (...)'.
 --ledger CSV appends one 'bench' row per scene/side to the budget ledger (docs\\renderer\\BUDGET_LEDGER.csv).
 
 S102 H3 (the swap-thread split; docs\\renderer\\FRAMES_CSV_SPLIT.md, src\\frame_split_math.h): a run with --wwe2k14_frame_split=true (bench.ps1 -FrameSplit) has seven more
@@ -50,7 +54,7 @@ import burst_rules   # S102 B1
 import wer_report   # S102 TS1
 
 RES_NAMES = {0: '720p', 1: '1440p', 2: '4K'}   # src\launcher\launcher_core.h:153 (0 720p, 1 1440p, 2 4K)
-STEPS = (('bryan', 'frames_bryan'), ('brock', 'frames_brock'), ('match', 'frames_match'), ('bryan_heavy', 'frames_bryan_heavy'))   # S102 M6: frames_bryan_heavy = tools\input_scripts\scenesryan_heavy.txt, window scene=heavy .. scene=end
+STEPS = (('bryan', 'frames_bryan'), ('brock', 'frames_brock'), ('match', 'frames_match'), ('bryan_heavy', 'frames_bryan_heavy'))   # S102 M6: frames_bryan_heavy = tools\input_scripts\scenes\bryan_heavy.txt, window scene=heavy .. scene=end
 STAMP = re.compile(r'^\[\d{4}-\d\d-\d\d (\d\d):(\d\d):(\d\d\.\d+)\]')
 MARK = re.compile(r'\[wwe2k14\]\[input\] line \d+: scene=([A-Za-z0-9_]+)\b[^\n]*?\(frame (\d+)\)\s*$')
 SET_RE = re.compile(r'settings file (\S+): upscale (\d+), resolution (\d+), frame rate (\d+), renderer (\d+)(?: -> resolution_scale=(\d+))?')
@@ -296,8 +300,8 @@ def newest_run(step_dir):
     best = None
     for p in Path(step_dir).glob('frames_*.csv'):
         m = re.fullmatch(r'frames_(\d+)\.csv', p.name)
-        if m and (best is None or int(m.group(1)) > best):
-            best = int(m.group(1))
+        if m and (best is None or int(m.group(1)) > int(best)):
+            best = m.group(1)   # S103: keep the file's own digits (the stream-free exe numbers runs 001, 002 ...: int() lost the padding)
     return best
 
 
@@ -305,7 +309,7 @@ def arm_of(flags):
     return {k: v for k, v in flags.items() if not ARM_SKIP.match(k)}
 
 
-def read_step(label, step_dir, run=None, allow_no_heat=False):
+def read_step(label, step_dir, run=None, allow_no_heat=False, roles=False):
     step_dir = Path(step_dir)
     n = run if run is not None else newest_run(step_dir)
     if n is None:
@@ -346,7 +350,7 @@ def read_step(label, step_dir, run=None, allow_no_heat=False):
             if not allow_no_heat:
                 raise
             h, th = 'heat NOT RECORDED (' + str(sys.exc_info()[1])[:160] + ')', None
-        out.append({'label': label if wl in ('match', 'step15', 'heavy') else f'{label}/{wl}', 'run': n, 'win': (f0, f1), 'n': nums, 'heat': h, 'thermal': th})
+        out.append({'label': label if wl in ('match', 'step15', 'heavy') else f'{label}/{wl}', 'run': n, 'win': (f0, f1), 'n': nums, 'heat': h, 'thermal': th, 'roles': read_roles(logp, c0, c1, nums.get('fps'), begin=(wl if wl in ('match', 'heavy', 'step15') else next((m[1] for m in lg['marks'] if m[1].startswith('tron')), None))) if roles else None})
     return {'label': label, 'run': n, 'settings': Path(st.group(1).replace('\\', '/')).name, 'tier': lg['tier'], 'res': res,
             'scale': st.group(6) or 'none', 'arm': arm_of(lg['flags']), 'windows': out, 'where': where}   # S102 main: profiles without resolution_scale (auto) print none, not a crash
 
@@ -355,16 +359,16 @@ def fmt(v, spec='{:.1f}'):
     return '-' if v is None else spec.format(v)
 
 
-def line_for(run_dir, run=None, allow_no_heat=False):
+def line_for(run_dir, run=None, allow_no_heat=False, roles=False):
     d = Path(run_dir)
     if not d.is_dir():
         raise Refused(f'{d}: not a folder')
     if list(d.glob('frames_*.csv')):
         label = next((k for k, name in STEPS if name == d.name), 'match')
-        steps = [read_step(label, d, run, allow_no_heat)]
+        steps = [read_step(label, d, run, allow_no_heat, roles)]
         name = d.parent.name
     else:
-        steps = [read_step(k, d / name, run, allow_no_heat) for k, name in STEPS if (d / name).is_dir()]
+        steps = [read_step(k, d / name, run, allow_no_heat, roles) for k, name in STEPS if (d / name).is_dir()]
         name = d.name
         if not steps:
             raise Refused(f'{d}: no frames_bryan / frames_brock / frames_match folder')
@@ -402,6 +406,116 @@ def split_line(w):
     return f"{head}: " + ' '.join(parts) + f" ms (mean / mean of the {n['split_tail_n']} 1%-low frames)"
 
 
+ROLE_RE = re.compile(r'\[rdr\]\[gpu\] (?:600 frames|summary|last window) by role, mean ms a frame over (\d+) frames: (.*?) = work ([\d.]+)')
+ROLE_CELL = re.compile(r'(\w+) (-?[\d.]+)')
+UP_RE = re.compile(r'\[rdr\]\[gpu\]\[uploads\] [^:]*: frames (\d+); steady \(<= \d+ KB uploaded\) frames (\d+) = ([\d.]+) MB/frame; loading \(> \d+ KB\) frames (\d+) = ([\d.]+) MB/frame')
+ROLE_ORDER = ('colour', 'shadow', 'rim', 'plane', 'cards', 'post', 'output', 'ui', 'frame', 'copies', 'prelight', 'feedback', 'other', 'uploads')
+# S103 GT round 3: the route-window block the renderer logs at each route mark (renderer.cpp FlushMarkWindow): exactly the frames recorded between two `scene=NAME` marks.
+WIN_RE = re.compile(r'\[rdr\]\[gpu\]\[window\] (\w+)(?: \(open at exit\))?: GPU frames (\d+); by role, mean ms a frame: (.*?) = work ([\d.]+); start gap \[0\]-\[1\] ([\d.]+); bracket ([\d.]+) \([^)]*\); '
+                    r'unstamped (-?[\d.]+) \([^)]*\); uploads steady \(<= \d+ KB\) frames (\d+) = ([\d.]+) MB/frame, loading frames (\d+) = ([\d.]+) MB/frame')
+
+
+def read_window_roles(logp, begin):
+    """S103 GT round 3: the [rdr][gpu][window] blocks from the one named `begin` up to (not including) the window named `end`, frame-weighted. -> dict (exact) or None (no such block)."""
+    blocks = []
+    with open(logp, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            m = WIN_RE.search(line)
+            if m:
+                blocks.append(m)
+    start = next((i for i, m in enumerate(blocks) if m.group(1) == begin), None)
+    if start is None:
+        return None
+    take = []
+    for m in blocks[start:]:
+        if m.group(1) == 'end':
+            break
+        take.append(m)
+    n = sum(int(m.group(2)) for m in take)
+    if not n:
+        return None
+    roles = {}
+    for m in take:
+        for k, v in ROLE_CELL.findall(m.group(3)):
+            roles[k] = roles.get(k, 0.0) + float(v) * int(m.group(2))
+    wavg = lambda g: sum(float(m.group(g)) * int(m.group(2)) for m in take) / n
+    ust, sfr, lfr = [int(m.group(8)) for m in take], [int(m.group(10)) for m in take], None
+    return {'exact': True, 'roles': {k: v / n for k, v in roles.items()}, 'work': wavg(4), 'gap': wavg(5), 'bracket': wavg(6), 'unstamped': wavg(7), 'gpu_frames': n, 'windows': len(take), 'leak_frames': 0,
+            'up': {'frames': n, 'steady_frames': sum(ust), 'steady_mb': sum(float(m.group(9)) * int(m.group(8)) for m in take) / max(1, sum(ust)),
+                   'loading_frames': sum(sfr), 'loading_mb': sum(float(m.group(11)) * int(m.group(10)) for m in take) / max(1, sum(sfr))}}
+
+
+def read_roles(logp, c0, c1, fps=None, tail=3.0, begin=None):
+    """S103 GT: the by-role and upload lines the renderer logged inside [c0, c1 + tail] (clock seconds): frame-weighted means. -> dict or None."""
+    if begin:
+        exact = read_window_roles(logp, begin)
+        if exact:
+            return exact
+    roles, work, nfr, wins = {}, 0.0, 0, 0
+    up = [0, 0, 0.0, 0, 0.0]   # frames, steady frames, steady MB (sum of per-frame means x frames), loading frames, loading MB
+    held = []   # by-role lines whose 600 frames BEGAN before the route window (t - n / fps < c0): left out, unless nothing else is left
+    leaked = 0
+    with open(logp, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            st = STAMP.match(line)
+            if not st:
+                continue
+            t = clock(*st.groups())
+            if not (c0 <= t <= c1 + tail):
+                continue
+            m = ROLE_RE.search(line)
+            if m:
+                n = int(m.group(1))
+                if fps and t - n / fps < c0:
+                    held.append((t, line))
+                    continue
+                for k, v in ROLE_CELL.findall(m.group(2)):
+                    roles[k] = roles.get(k, 0.0) + float(v) * n
+                work += float(m.group(3)) * n
+                nfr += n
+                wins += 1
+                continue
+            m = UP_RE.search(line)
+            if m:
+                up[0] += int(m.group(1)); up[1] += int(m.group(2)); up[2] += float(m.group(3)) * int(m.group(2)); up[3] += int(m.group(4)); up[4] += float(m.group(5)) * int(m.group(4))
+    if not nfr and held:   # a window shorter than one 600-frame line: use the lines that overlap it, and say how many frames came from before it
+        for t, line in held:
+            m = ROLE_RE.search(line)
+            n = int(m.group(1))
+            for k, v in ROLE_CELL.findall(m.group(2)):
+                roles[k] = roles.get(k, 0.0) + float(v) * n
+            work += float(m.group(3)) * n
+            nfr += n
+            wins += 1
+            leaked += int(max(0.0, c0 - (t - n / fps)) * fps)
+    if not nfr and not up[0]:
+        return None
+    return {'leak_frames': leaked, 'roles': {k: v / nfr for k, v in roles.items()} if nfr else {}, 'work': work / nfr if nfr else None, 'gpu_frames': nfr, 'windows': wins,
+            'up': {'frames': up[0], 'steady_frames': up[1], 'steady_mb': up[2] / up[1] if up[1] else 0.0, 'loading_frames': up[3], 'loading_mb': up[4] / up[3] if up[3] else 0.0}}
+
+
+def roles_line(w):
+    """S103 GT: 'roles [bryan frames A..B]: colour 3.64 ... = work 13.4 ms a frame (...) | uploads ...' or 'roles [...]: not measured (...)'. ab_line.py parses this line."""
+    head = f"roles [{w['label']} frames {w['win'][0]}..{w['win'][1]}]"
+    r = w.get('roles')
+    if not r or not r['roles']:
+        return f'{head}: not measured (no [rdr][gpu] by-role line in the window: run with --wwe2k14_rdr_gpu_stamps=true)'
+    cells = ' '.join(f'{k} {r["roles"][k]:.2f}' for k in ROLE_ORDER if k in r['roles'])
+    if r.get('exact'):   # the renderer's own route-window block: exactly the frames between the route marks; the bracket is the csv gpu_ms basis (no parentheses inside: ab_line parses this)
+        csv = w['n'].get('gpu')
+        diverge = csv is not None and r['bracket'] > 0 and abs(r['bracket'] - csv) > 0.10 * csv
+        s = (f"{head}: {cells} = work {fmt(r['work'], '{:.2f}')} ms a frame (exact route window of {r['gpu_frames']} GPU frames, start gap {r['gap']:.2f}, bracket {r['bracket']:.2f}, "
+             f"csv gpu_ms {fmt(csv, '{:.2f}')}, unstamped {r['unstamped']:.2f}" + (', BRACKET DIVERGES FROM THE CSV BY MORE THAN 10 %: ' + 'check the window' if diverge else '') + ')')
+    else:
+        s = f"{head}: {cells} = work {fmt(r['work'], '{:.2f}')} ms a frame (NOT window-exact: {r['gpu_frames']} GPU frames in {r['windows']} blocks of 600" + (f", about {r['leak_frames']} of them from before the route window" if r.get('leak_frames') else '') + ')'
+    u = r['up']
+    if u['frames']:
+        s += f" | uploads steady {u['steady_mb']:.3f} MB/frame ({u['steady_frames']} frames), loading {u['loading_mb']:.3f} MB/frame ({u['loading_frames']} frames, {100.0 * u['loading_frames'] / u['frames']:.1f} % of the frames)"
+    else:
+        s += ' | uploads not measured'
+    return s
+
+
 LEDGER_HEAD = ['scene', 'side', 'kind', 'lane', 'lo', 'hi', 'unit', 'source', 'when', 'note']
 
 
@@ -433,10 +547,11 @@ def main():
     ap.add_argument('--when', default='')
     ap.add_argument('--run', type=int, default=None, help='a run number instead of the newest of each step')
     ap.add_argument('--allow-no-heat', action='store_true')
+    ap.add_argument('--roles', action='store_true', help='S103 GT: also print the per-role GPU split and the upload view of each window, from the run log (either build)')
     ap.add_argument('--split', action='store_true', help='S102 H3: also print the swap-thread split (means, and means over the 1 %%-low frames) of each window')
     a = ap.parse_args()
     try:
-        line, steps, name = line_for(a.run_dir, a.run, a.allow_no_heat)
+        line, steps, name = line_for(a.run_dir, a.run, a.allow_no_heat, a.roles)
     except Refused as e:
         print(f'REFUSED: {e}', file=sys.stderr)
         return 2
@@ -446,6 +561,10 @@ def main():
         for s in steps:
             for w in s['windows']:
                 print(split_line(w))
+    if a.roles:
+        for s in steps:
+            for w in s['windows']:
+                print(roles_line(w))
     if a.ledger:
         if not a.when:
             print('REFUSED: --ledger needs --when (read the clock)', file=sys.stderr)

@@ -1,0 +1,210 @@
+{
+ "resolvers": [
+  {
+   "addr": "0x827F6A40",
+   "name": "light_set_index",
+   "kind": "id -> position",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db find_index_of_value_in_locked_word_array: takes the manager's critical section, walks the id list (mgr+116)[i] for i < [mgr+124], returns the position of r4 or -1 (S103_FABLE_REVIEW 1.1, listing 0x827F6A40-0x827F6AC0; mgr = word 0x83924778). The position is later passed to sub_827F6828 (index -> installed object) or sub_826203E8 (mode install)."
+  },
+  {
+   "addr": "0x82C31CB0",
+   "name": "component_find_by_tag",
+   "kind": "4-char tag -> component",
+   "key_regs": [
+    4
+   ],
+   "fmt": "tag",
+   "big": true,
+   "evidence": "db component_find_by_tag (high): finds a component by its 32-bit tag, walking the child chain via +20 and comparing the tag word at +4. Every `get_component_by_tag_xxx` wrapper in the db is one call site; the tag is the ASCII four-character constant."
+  },
+  {
+   "addr": "0x823BF640",
+   "name": "find_record_124_by_id_or_index",
+   "kind": "id -> record pointer",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db find_record_124_by_id_or_index (high): container r3, key r4; scans 124-byte records for a first word equal to r4, or uses r4 as a direct index when [+40] == 0."
+  },
+  {
+   "addr": "0x823AFCA8",
+   "name": "motion_bank_find",
+   "kind": "motion id -> record",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db motion_bank_find (medium): maps a motion id to banks and looks it up; sub_823D0C50 motion_exists wraps it."
+  },
+  {
+   "addr": "0x823D0C50",
+   "name": "motion_exists",
+   "kind": "motion id -> bool",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db motion_exists (medium): looks the motion id up through the bank manager in categories 0, 1, 2."
+  },
+  {
+   "addr": "0x8313C298",
+   "name": "hash_table_find_slot_by_string_key",
+   "kind": "name -> slot index",
+   "key_regs": [
+    4
+   ],
+   "fmt": "name",
+   "evidence": "db hash_table_find_slot_by_string_key_stride_12 (high): hashes the NUL-terminated key (h = 31*h + char) and probes 12-byte entries; the string-keyed hash map."
+  },
+  {
+   "addr": "0x82414168",
+   "name": "find_entry_by_string_hash_in_pointer_array",
+   "kind": "name -> entry",
+   "key_regs": [
+    5
+   ],
+   "fmt": "name",
+   "evidence": "db find_entry_by_string_hash_in_pointer_array (medium): container r3, r4 index or -1, r5 the string; hashes r5 and returns the entry address."
+  },
+  {
+   "addr": "0x827D80F0",
+   "name": "find_list_entry_object_by_name_16_chars",
+   "kind": "name -> object",
+   "key_regs": [
+    3
+   ],
+   "fmt": "name",
+   "evidence": "db find_list_entry_object_by_name_16_chars (medium): name string in r3; walks a linked list under the global 0x8376F388 comparing up to 16 chars."
+  },
+  {
+   "addr": "0x82AAFE30",
+   "name": "find_entry_in_global_ptr_table_22_by_name",
+   "kind": "name -> entry",
+   "key_regs": [
+    3
+   ],
+   "fmt": "name",
+   "evidence": "db find_entry_in_global_ptr_table_22_by_name_at_272 (high): walks the 22 pointers of the table at 0x83929798 comparing 32 bytes at entry+272 with the string in r3."
+  },
+  {
+   "addr": "0x827FDC88",
+   "name": "find_entry_index_by_name_and_fixed_key",
+   "kind": "name -> index",
+   "key_regs": [
+    4
+   ],
+   "fmt": "name",
+   "evidence": "db find_entry_index_by_name_and_fixed_key_else_minus1 (high): 48-byte entries at +16; the 16-byte name in r4 against entry+0, a fixed string against entry+16; -1 if none."
+  },
+  {
+   "addr": "0x827690A8",
+   "name": "find_leaf_node_by_name_recursive",
+   "kind": "name -> tree node",
+   "key_regs": [
+    4
+   ],
+   "fmt": "name",
+   "evidence": "db find_leaf_node_by_name_recursive (high): recursive tree search by the name in r4 (strcmp at node+16)."
+  },
+  {
+   "addr": "0x831185E8",
+   "name": "find_stride24_element_by_string_in_chain",
+   "kind": "name -> element",
+   "key_regs": [
+    4
+   ],
+   "fmt": "name",
+   "evidence": "db find_stride24_element_by_string_in_chain (high): chain head r3, string r4; 24-byte elements compared with a strcmp-like helper."
+  },
+  {
+   "addr": "0x822C3440",
+   "name": "find_108_byte_record_by_byte4_key",
+   "kind": "id -> record",
+   "key_regs": [
+    3
+   ],
+   "fmt": "id",
+   "evidence": "db find_108_byte_record_by_byte4_key_with_200_249_remap (high): array at global 0x836F2C34 (count 0x836F2C38), the first record whose byte at +4 equals the key; keys 200..249 collapse to 200. Its 25 getters (get_byte_N_of_record_by_key) are the per-field readers."
+  },
+  {
+   "addr": "0x83126260",
+   "name": "hash_map_get_u32_key_or_default",
+   "kind": "u32 key -> value",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db hash_map_get_u32_key_or_default_linear_probe (high): open-addressing map, key r4, default r5."
+  },
+  {
+   "addr": "0x8244E118",
+   "name": "find_ptr_by_field_4_in_11_slots",
+   "kind": "id -> slot pointer",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db find_ptr_by_field_4_in_11_slots (high): an inline array of 11 pointers, the slot whose pointee word +4 equals r4."
+  },
+  {
+   "addr": "0x82368718",
+   "name": "find_entry_by_s16_200_in_inline_ptr_array",
+   "kind": "id -> entry",
+   "key_regs": [
+    4
+   ],
+   "fmt": "id",
+   "evidence": "db find_entry_by_s16_200_in_inline_ptr_array (high): the first non-null entry whose s16 at +200 equals r4 (inline pointer array from r3+4, count at +260)."
+  },
+  {
+   "addr": "0x827DA788",
+   "name": "get_record_ptr_by_index_two_pools",
+   "kind": "index -> record pointer",
+   "key_regs": [
+    3
+   ],
+   "fmt": "id",
+   "evidence": "db get_record_ptr_by_index_two_pools_strides_2924_and_204 (high): record area under the global pointer 0x8376F3C0."
+  },
+  {
+   "addr": "0x82BAF4D0",
+   "name": "find_record_by_lowercased_16_byte_key",
+   "kind": "16-byte name -> handle record",
+   "key_regs": [
+    5
+   ],
+   "fmt": "name",
+   "evidence": "db find_record_by_lowercased_16_byte_key_via_handle_table (high): r5 = pointer to a 16-byte key, lowercased in a local copy; walks the r4 list of 8-byte {handle, ...} records through the handle table behind global 0x83929A98. The key is a stack buffer filled earlier (the census names the nearest string passed to a call before the lookup, marked ~ = inferred) or a BSS key at a fixed address."
+  },
+  {
+   "addr": "0x82BA9B60",
+   "name": "find_handle_in_list_by_lowercased_16byte_key",
+   "kind": "16-byte name -> handle",
+   "key_regs": [
+    5
+   ],
+   "fmt": "name",
+   "evidence": "db find_handle_in_list_by_lowercased_16byte_key (high): r4 = list of {handle, slot}, r5 = pointer to a 16-byte key; handles resolve through the table behind global 0x8392DD9C (the texture registry of INPUTS / particle_items.md)."
+  }
+ ],
+ "roles": {
+  "0x825CD8D0": "ring object init (Fable review 1.1)",
+  "0x826094A0": "ring-side object init: canvas / parts (Fable 1.1)",
+  "0x82513D78": "crowd node init (Fable 1.1)",
+  "0x825BA530": "crowd light getter, returns object+48 (Fable 1.1)",
+  "0x825A20A0": "character init, one class (Fable 1.1)",
+  "0x825A2A88": "character init, another class (Fable 1.1)",
+  "0x83420CB0": "stage-slot group node init (Fable review 2, 2.2)",
+  "0x824E8628": "stage slot-text parser: l(N) rows (vtable method; this census 3.2)",
+  "0x824E8E38": "stage slot-text init: 399 slot words (0..398) set to set 100 (this census 3.2)",
+  "0x8272C198": "arena node (A6 list: resolves l(N) by id)",
+  "0x8272D378": "arena node (A6 list)",
+  "0x8276A808": "arena node (A6 list)",
+  "0x827C7888": "arena node (A6 list)"
+ }
+}

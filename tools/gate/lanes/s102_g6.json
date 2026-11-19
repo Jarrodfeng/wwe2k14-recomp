@@ -5,7 +5,7 @@
  "checks": [
   {"name": "s102_g6.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1500},
   {"name": "s102_g6.lint", "cmd": ["py", "-I", "tools/renderer/gpu_class_lint.py", "--root", "."], "timeout_s": 600},
-  {"name": "s102_g6.names", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 900},
+  {"name": "s102_g6.names", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/names/gen_origin_table.py", "--check"], "timeout_s": 900},
   {"name": "s102_g6.proof", "cmd": ["py", "-I", "tools/renderer/gpu_other_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin"], "exes": ["out/renderer/dev/rplay.exe"]},
   {"name": "s102_g6.stamps", "cmd": ["py", "-I", "tools/renderer/gpu_stamps_check.py", "--root", "."], "timeout_s": 1800, "needs": ["out/lane86/bryan/capture"], "exes": ["out/renderer/dev/rplay.exe"]}
  ]

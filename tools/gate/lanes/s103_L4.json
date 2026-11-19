@@ -1,0 +1,22 @@
+{
+ "owner": "S103 lane L4 (the crowd is lit like the game's: the LIT vertex variant, with the record's evaluated light sets): src/renderer_scene/front_end.cpp / front_end.h (ChooseEffect FX_LIT bias, InstancedDraw::lights), live_crowd.cpp / live_crowd.h (SetLightsFn, Impl::LightsOf), rf_crowd.cpp (CrowdLights), tools/scene/l4_check.py",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs: frame_rig.exe + lm_extract. Match: the run-26 case (out/s103/E7/case/capture, arena 4). Entrance: out/captures/brock_losswin frame 110 with the stream-fitted look rows. The check asserts every crowd model is drawn with an audience LIT vertex variant (the stream's is yAudience_lit_lm_vertex_vertex) and lit with the stream's own crowd light set (col x4, sky, ground, dir 0 / 3 within 1e-3). Planted twins (must FAIL): --plant unlit (no FX_LIT bias = the old simplest-pair choice) on both, --plant file_sets (the loader sets) and --plant lit_cards (the far-card quad lit = double lighting) on the entrance. The far-card quad must be the ONE unlit model when the record lists cards.",
+ "checks": [
+  {"name": "s103_L4.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_L4.match", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/s103/E7/case/capture", "--frame", "400"], "timeout_s": 900,
+   "needs": ["out/s103/E7/case/capture", "game_data/extracted"]},
+  {"name": "s103_L4.match_plant_unlit", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/s103/E7/case/capture", "--frame", "400", "--plant", "unlit", "--expect-fail"], "timeout_s": 900,
+   "needs": ["out/s103/E7/case/capture", "game_data/extracted"]},
+  {"name": "s103_L4.entrance", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/captures/brock_losswin", "--frame", "110", "--look-from-stream"], "timeout_s": 900,
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_L4.entrance_plant_sets", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/captures/brock_losswin", "--frame", "110", "--look-from-stream", "--plant", "file_sets", "--expect-fail"], "timeout_s": 900,
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_L4.entrance_plant_lit_cards", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/captures/brock_losswin", "--frame", "110", "--look-from-stream", "--plant", "lit_cards", "--expect-fail"], "timeout_s": 900,
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_L4.entrance_plant_unlit", "cmd": ["py", "-I", "tools/scene/l4_check.py", "--capture", "out/captures/brock_losswin", "--frame", "110", "--look-from-stream", "--plant", "unlit", "--expect-fail"], "timeout_s": 900,
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_L4.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer_scene/live_crowd.cpp", "src/renderer_scene/live_crowd.h", "src/renderer_scene/rf_crowd.cpp", "src/renderer_scene/rf_c.h", "src/renderer_scene/rf_c_core.cpp"]}
+ ]
+}

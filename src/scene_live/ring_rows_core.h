@@ -7,7 +7,8 @@
 //
 //  * Ring objects. The model address of a call of sub_82C04DF0 is a ring object when it is one of the pointers of the 384-byte object at [0x836F4C74] (G): G+20 rope hi, +24 rope lo,
 //    +32 the plane-shadow proxy, +36/+40 cover hi/lo, +44 turnbuckle, +48/+52 post hi/lo, +56 canvas, +332/+336/+340/+344 the four skirts (ring.md Part A section 1, stores
-//    0x824EB6DC-0x824EBD58 of sub_824EB648) [C]. The alt ring (arena ids 200-249; G+68..+112) does not exist in any arena and is not handled.
+//    0x824EB6DC-0x824EBD58 of sub_824EB648) [C]. S103 CRR: the alt ring (arena ids 200-249; G+68..+112, CRK.md section 1) is in the table too (appended after the 13, `key` = the pac key it holds): a created arena's
+//    covers (6 models, corner x near / far) and posts (3 x near / far). Those slots are 0 in every other arena, so no model ever matches them there.
 //  * Node count. sub_82BD3AB8 (vtable 0x8206AF90 slot 2, image words) [C listing 0x82BD3AB8-0x82BD3AF0]: [this+296] != 0 -> the word at [this+300]; else [this+220] == 0 -> -1; else the same
 //    slot 2 of the object at [this+220]. The forward is followed only when that object's vtable slot 2 is the same function (read, not assumed); anything else is "count unknown".
 //  * Rows. The packer cuts VS c76..c78 of node n from the 4x4 at r5 + 64 (n - 1) and the bone slots c79.. the same way: one 64-byte matrix per node, 12 floats of rows per node
@@ -24,6 +25,7 @@
 
 #include "../renderer_scene/scene_record.h"
 #include "arena_world.h"  // RowsFromMatrix
+#include "skin_data.h"    // S103 WC R1: the +220 data object rule, shared with the crowd latch
 
 namespace rdr_scene::live::ringrows {
 
@@ -37,10 +39,15 @@ inline constexpr uint32_t kFirstRowReg = 76, kLastRowReg = 138;   // VS c76..c13
 struct ClassEntry {
   uint32_t offset;   // byte offset into G
   uint8_t cls;       // RingClass
+  uint16_t key = 0;  // S103 CRR: the alt ring's pac key a G+68..+112 slot holds (CRK.md section 1); 0 for the 13 base slots (their key is the class's: ring_keys.h)
 };
 inline constexpr ClassEntry kClassTable[] = {
     {20, kRcRopeHi}, {24, kRcRopeLo}, {32, kRcProxy}, {36, kRcCoverHi}, {40, kRcCoverLo}, {44, kRcTurnbuckle}, {48, kRcPostHi},
     {52, kRcPostLo}, {56, kRcCanvas}, {332, kRcSkirt},  {336, kRcSkirt},  {340, kRcSkirt}, {344, kRcSkirt},
+    // S103 CRR [C, CRK.md section 1, sub_824EB648 0x824EB6DC-0x824EBD58 for ids 200..249]: covers near G+68 / 72 / 76 = 1071 / 1072 / 1073 (h of sub_82740550), far G+80 / 84 / 88 = 1075 / 1076 / 1077;
+    // post loop 2 near G+92 / 96 / 100 = 1051 / 1080 / 1081, far G+104 / 108 / 112 = 1053 / 1082 / 1083.
+    {68, kRcCoverHi, 1071}, {72, kRcCoverHi, 1072}, {76, kRcCoverHi, 1073}, {80, kRcCoverLo, 1075}, {84, kRcCoverLo, 1076}, {88, kRcCoverLo, 1077},
+    {92, kRcPostHi, 1051}, {96, kRcPostHi, 1080}, {100, kRcPostHi, 1081}, {104, kRcPostLo, 1053}, {108, kRcPostLo, 1082}, {112, kRcPostLo, 1083},
 };
 inline constexpr uint32_t kClassTableCount = uint32_t(sizeof kClassTable / sizeof kClassTable[0]);
 
@@ -66,6 +73,7 @@ inline const char* GroupName(uint8_t g) {
   static const char* const k[kRgCount] = {"post", "turnbuckle", "cover", "rope", "canvas", "skirt", "other"};
   return g < kRgCount ? k[g] : "?";
 }
+inline constexpr uint32_t kExpectedAltPosts = 8;   // S103 CRR: a created arena draws its posts 2 + 6 times (CRK section 2); kExpectedCalls below is the normal ring's census
 inline constexpr uint32_t kExpectedCalls[kRgCount] = {4, 12, 12, 12, 1, 3, 0};   // [C: 16.1 and ring.md Part D, Check B / 7079 / h1 / J1 / wm30; the skirt set is 3 of 4 by camera quadrant]
 
 // The class table as read from G: pointers[i] belongs to kClassTable[i]; a pointer of 0 is "not made".
@@ -78,6 +86,13 @@ struct RingTable {
     for (uint32_t i = 0; i < kClassTableCount; ++i)
       if (ptr[i] == model) return kClassTable[i].cls;
     return kRcNone;
+  }
+  // S103 CRR: the alt ring's pac key of a model that sits in a G+68..+112 slot (0 = a base slot or not a ring model); the tracker stores it in RingRows::pad2.
+  uint16_t AltKeyOf(uint32_t model) const {
+    if (!valid || model == 0) return 0;
+    for (uint32_t i = 0; i < kClassTableCount; ++i)
+      if (ptr[i] == model) return kClassTable[i].key;
+    return 0;
   }
 };
 // Reads G and the pointers. false = G unreadable or null (no ring in this scene).
@@ -96,12 +111,31 @@ inline bool ReadRingTable(ReadWordFn read_word, RingTable& out) {
 }
 
 // sub_82BD3AB8 as the packer's reader sees it (forwards followed only when verified). n = the signed result; false = could not be read (flags bit kRrCountUnknown set by the caller).
+// S103 WC R1 (WNCC_adversary.md): at depth >= 1 the forward target may also be the DATA object (slot 2 = sub_82C27620, class 0x8206C7A0: `H = [y+12]; return H ? [H+24] : 0`, skin_data.h): that is what the game's tail call
+// returns for a [m+296] == 0 model whose [m+220] holds the data object, and the weapon draw copies exactly that many 64-byte rows. Anything else stays uncounted; its vtable and slot 2 word go to `foreign` (when given) so a live
+// run names the class. `data_leaf` (when given) is set when the count came from the data object.
+struct ForeignForward {
+  uint32_t vtable = 0, fn = 0;
+  bool seen = false;
+};
 template <class ReadWordFn>
-inline bool NodeCount(ReadWordFn read_word, uint32_t model, int32_t& n, uint32_t& flags) {
+inline bool NodeCount(ReadWordFn read_word, uint32_t model, int32_t& n, uint32_t& flags, ForeignForward* foreign = nullptr, bool* data_leaf = nullptr) {
   uint32_t obj = model;
   for (int depth = 0; depth < 4; ++depth) {
     uint32_t vt = 0, fn = 0, f296 = 0, f300 = 0, f220 = 0;
-    if (!read_word(obj, vt) || !read_word(vt + 8, fn) || fn != kNodeCountFn) return false;   // slot 2 must BE the function this rule describes
+    if (!read_word(obj, vt) || !read_word(vt + 8, fn)) return false;
+    if (depth >= 1 && fn == skin::kSkinDataCountFn) {   // the data object (class 0x8206C7A0): the game's slot 2 is sub_82C27620
+      skin::SkinGetters g;
+      if (!skin::ReadDataGetters(read_word, obj, g)) return false;
+      n = g.count;
+      flags |= kRrCountForwarded;
+      if (data_leaf) *data_leaf = true;
+      return true;
+    }
+    if (fn != kNodeCountFn) {   // slot 2 must BE a function this rule describes
+      if (depth >= 1 && foreign) foreign->vtable = vt, foreign->fn = fn, foreign->seen = true;
+      return false;
+    }
     if (!read_word(obj + 296, f296)) return false;
     if (f296 != 0) {
       if (!read_word(obj + 300, f300)) return false;

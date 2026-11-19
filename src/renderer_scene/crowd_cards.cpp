@@ -109,7 +109,7 @@ uint32_t CardsDrawer::Draw(rdr_adapter::CrowdInject& in, const cards::Plan& plan
     op.vertex[0] = {rdr::kFrameGeometry, quad_offset};
     op.vertex[1] = {rdr::kFrameGeometry, instance_offset + run.first * uint32_t(sizeof(cards::Instance))};
     op.instances = run.count;
-    builder.Draw(op);
+    builder.Draw(op, rdr::kGrpCrowdCards);   // S103 GSTP
     ++stats_.draws;
     stats_.alpha_wanted += in.alpha_test;
     stats_.alpha_twin += twin_built;

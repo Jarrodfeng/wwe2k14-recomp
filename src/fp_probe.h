@@ -42,6 +42,7 @@
 // Game-derived output (positions and distances of real frames): stays under out/harness/.
 
 #pragma once
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -52,10 +53,13 @@
 #include <rex/system/xthread.h>
 
 #include "scene_live/wrestler_hook.h"  // S101 lane29
+#include "scene_live/guest_model_contrib.h"  // S103 CW-2: the guest model reader's one call at the model entry
 #include "scene_live/model_hooks.h"   // S101 lane43
+#include "scene_live/light_index_hook.h"  // S103 A3 (bit 4): the per-node install table (called from the model-entry hooks below)
 #include "scene_live/light_state_glue.h"  // S101 lane 109: the per-draw light state (LS1), read at the model call
 #include "scene_live/arena_world_glue.h"  // lane 130: the arena's evaluated object worlds, read at the model call
 #include "scene_live/ring_rows_glue.h"  // lane 194: the ring's per-call node rows (Ring D3 R1), read at the model call (read only, default off)
+#include "scene_live/weapon_rows_glue.h"  // S103 PW-2: the weapons' per-call rows (read only), at the model call
 
 #include <algorithm>
 #include <atomic>
@@ -678,8 +682,9 @@ inline bool SkelCopy(uint32_t guest, uint32_t length, std::string& out) {
   if (length == 0) return true;
   if (guest < 0x10000 || uint64_t(guest) + length > 0x100000000ull) return false;
   if (uint64_t(guest) + length > 0x7F000000ull && guest < 0x80000000u) return false;  // MMIO heap
+  if (wwe2k14::safe_pages::CrossesE0View(guest, length)) return false;   // BH3-5
   auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<const uint8_t*>(guest);
-  if (!host) return false;
+  if (!host || !wwe2k14::wrestlers::GuestRangeReadable(guest, length)) return false;
   return SkelSafeCopy(out.data(), host, length);
 }
 
@@ -918,27 +923,51 @@ inline void WrestlerModelEntryRead(uint32_t model, uint32_t palette, uint32_t r1
       wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2));   // S102 U3: the consumer palette written in place
 }
 void wwe2k14_model_entry(PPCRegister& r3, PPCRegister& r5, PPCRegister& r13) {
+  wwe2k14::light_index_hook::OnModelHook(r3.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S103 A3 (F2 4): the per-node install table, behind its OWN flag (not only when the light states are registered)
   if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(r3.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // S101 lane 109: R at the model call (read only; registered only with --wwe2k14_scene_records)
   if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(r3.u32, r5.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // lane 130: the object's evaluated world (read only)
   if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(r3.u32, r5.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));  // lane 194: the ring's node rows at the call (read only)
   WrestlerModelEntryRead(r3.u32, r5.u32, r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
 }
 
+// S103 BLF (config\event_props_hooks.toml; docs\research\s103\BELT.md Adversary 1 / 4 / 5): the event prop models of CWeaponEventSD::MakeWeapon sub_8272D710 (the entrance's belt, mic, cap, held items, stage props), recorded so the
+// stream-free build's raw hook on sub_82C04DF0 (draw_origin.h) can name them. Read only; bodies in scene_live\weapon_rows_glue.h.
+// 0x8272E030 (right after `bl 0x82bd4160`): r3 = the new model (0 = the allocation failed), r29 = k, the entry loop counter; the prop id is the u32 at [r1 + 2348]. Runs up to 10 times per prop.
+void wwe2k14_event_prop_made(PPCRegister& r1, PPCRegister& r3, PPCRegister& r29) {
+  wwe2k14::weaponrows::EventModelMade(r1.u32, r3.u32, r29.u32);
+}
+// 0x8272D678 (CWeapon derived destructor sub_8272D670, after __savegprlr): r3 = the CWeapon (vtable 0x82029628 checked by the table), its models still alive.
+void wwe2k14_event_prop_freed(PPCRegister& r3) {
+  wwe2k14::weaponrows::EventWeaponFreed(r3.u32);
+}
+
 // lane 138 (D3): when the hook on sub_82C04DF0 skips a call, the mid-asm hook above does not run (it sits inside the function), so the D3 glue calls the same two read-only readers itself.
+#if WWE2K14_STREAM()  // S103 P9 (B3): installs into the D3 skip seam (d3_*_hook.h), the stream's
 inline const bool g_d3_entry_installed = (wwe2k14::d3hook::g_entry = [](uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {   // lane 152 (S4): the frame the decision was made in, not a re-read of the counter
+  wwe2k14::light_index_hook::OnModelHook(model, r13, frame);   // S103 A3 (F2 4)
   if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(model, r13, frame);
   if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(model, palette, frame);
   if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(model, palette, frame);   // lane 194
 }, true);
+#endif
 // lane 245: the same readers for a skipped WRESTLER colour call, plus the wrestler palette copy (the wrestler chain's bones come from it; the arena's skip does not need it).
+#if WWE2K14_STREAM()  // S103 P9 (B3): installs into the D3 skip seam (d3_*_hook.h), the stream's
 inline const bool g_d3_wentry_installed = (wwe2k14::d3hook::g_wentry = [](uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {
+  wwe2k14::light_index_hook::OnModelHook(model, r13, frame);   // S103 A3 (F2 4)
   if (rdr_scene::live::lights::LightStatesRegistered()) wwe2k14::lights::ModelEntryHook(model, r13, frame);
   if (rdr_scene::live::arenaworld::ArenaWorldsRegistered()) wwe2k14::arenaworld::ModelEntryHook(model, palette, frame);
   if (rdr_scene::live::ringrows::RingRowsRegistered()) wwe2k14::ringrows::ModelEntryHook(model, palette, frame);
   WrestlerModelEntryRead(model, palette, r13, frame);
 }, true);
+#endif
 // lane 152 (D3-F item 16): the pre-read of the call's light state, asked before the decision
+#if WWE2K14_STREAM()  // S103 P9 (B3): installs into the D3 skip seam (d3_*_hook.h), the stream's
 inline const bool g_d3_probe_installed = (wwe2k14::d3hook::g_state_probe = [](uint32_t model, uint32_t r13, uint64_t frame, uint32_t& table_states, uint32_t& ordinal) { return wwe2k14::lights::ModelEntryProbe(model, r13, frame, table_states, ordinal); }, true);
+#endif
+
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_attire_compose, true, "wwe2k14",
+                    "S103 CMB: the stream-free build composes a composite attire (30 Years legends, Heenan, Jericho a1 / a2, Hogan, CM Punk, Elizabeth, Macho Man ...: base + recolour masks with the "
+                    "colours the game chose) on the host at the load, as the game does on its GPU. Off = the plain uncoloured base (the pre-CMB look). The stream build ignores it (its pack hook supplies the atlas).");
 
 // S101 lane43: sub_82720658 (the char model reader) at 0x827207F0, just before it clears reader+100 / +96: r31 = the reader. Read only.
 void wwe2k14_model_link(PPCRegister& r31) {
@@ -946,7 +975,23 @@ void wwe2k14_model_link(PPCRegister& r31) {
   // calls per load), so it costs nothing; the link must already be known when the first record is written.
   if (!rdr_scene::live::WrestlersRegistered()) return;
   wwe2k14::wrestlers::ModelLinkRead(rdr_scene::live::Wrestlers(), r31.u32,
-                                    [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); });
+                                    [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
+                                    [](const char* line) { REXLOG_INFO("{}", line); },   // S103 CMB: the [attire_compose] census line
+                                    REXCVAR_GET(wwe2k14_rdr_attire_compose) && !WWE2K14_STREAM());   // (the stream build's S100 pack hook supplies the atlas there)
+}
+
+// S103 ARM / ARM2: sub_83418580 at its entry (the attire build's split setup, once per mask step): r3 = the composite, r4 = the step. Runs on the game thread, reads guest memory (the only host read of it),
+// and latches the colours the game is about to paint with (attire_build.h: P+44 = the colour set, [P+16] + 132 set + 1320 the 48 bytes; HNN's open question, run wwe2k14_046: the link read comes before the game set them).
+// The record side only reads the latch. Stream-free build, switch wwe2k14_rdr_attire_compose (the stream build's S100 pack hook supplies the atlas there); the use side is gated by wwe2k14_rdr_attire_remap (namedfail::HoleRule).
+void wwe2k14_attire_build_step(PPCRegister& r3, PPCRegister& r4) {
+  if (!REXCVAR_GET(wwe2k14_rdr_attire_compose) || WWE2K14_STREAM()) return;
+  const auto rw = [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); };
+  std::string line;
+  if (attire_compose::BuildStepLine(rw, r3.u32, r4.u32, line)) REXLOG_INFO("{}", line);
+  if (attire_build::Latch::Instance().OnBuildStep(rw, r3.u32, r4.u32, line) == attire_build::Step::kCaptured) {
+    REXLOG_INFO("{}", line);
+    REXLOG_INFO("{}", attire_build::CensusLine());
+  }
 }
 
 // sub_82BD3620 at 0x82BD362C (after its prologue, before `lfs f0,0(r4)`): r3 = this, r4 = the delta vector. Log only.

@@ -1,5 +1,4 @@
 # S101 lane 196 scratch probe (read-only, numbers only; quoted in docs\renderer\SKIP_GAME_WORK_MAP.md sections 17 and 18). Run from the repo root: py -I THIS CASE_FOLDER ARGS
-endererSKIP_GAME_WORK_MAP.md sections 17 / 18). Run from the repo root: py -I THIS CASE_FOLDER ARGS
 import sys, os, collections
 ROOT = os.getcwd()
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'skip'))

@@ -9,8 +9,9 @@
 // How (runs 029-033, probe plugin; the evidence is in docs/systems/wm30.md): picking a match runs the mode's start
 // state machine sub_827AA2E8, which loads the era's tables with sub_82A9DFB8(obj, era) (called from 0x827AA35C, return
 // address 0x827AA360) and then starts the era script at a moment code. Both come from the selection object
-// [[0x839295F0] + 4] + 2344: +4 era, +8 moment code. At that call this hook writes era and code of match N (read from
-// the game's own match index, kind 4 of the menu's table object [[0x839295F0] + 16]) once, and passes the era on.
+// [[0x839295F0] + 4] + 2344: +4 era, +8 moment code. S103 GTF: the jump writes era and code of match N (read from
+// the game's own match index, kind 4 of the menu's table object [[0x839295F0] + 16]) once, right after the start machine's call of the
+// getter sub_82A9D890 (return 0x827AA340), so the game's own reads feed the jumped era to both era loads (DSC tables and captions).
 // Everything after that is the game's own: the era's videos, the loading card, the objectives, the match. The game
 // steps the code by itself afterwards (10100 -> 10101), so the write happens once.
 //
@@ -39,19 +40,29 @@ REXCVAR_DEFINE_INT32(wwe2k14_wm30, -1, "wwe2k14",
                      "time a 30 Years match is picked; -1 = off. See src/wm30_jump.h");
 REXCVAR_DEFINE_BOOL(wwe2k14_wm30_auto, true, "wwe2k14",
                     "Session 34: with --wwe2k14_wm30, drive the menus from the idle main menu to the first 30 Years "
-                    "match by itself (false = pick it yourself)");
+                    "match by itself (false = pick it yourself). Ignored when --wwe2k14_wm30_direct is on");
+REXCVAR_DEFINE_BOOL(wwe2k14_wm30_direct, false, "wwe2k14",
+                    "S103 WMB: with --wwe2k14_wm30=N, start match N from the idle root main menu with NO 30 Years menus "
+                    "(no mode intro, era screen or match list): the game's own menu-free entry (exit action 3) after the "
+                    "selection of match N is written as the match list's pick writes it. No menu is driven; the getter hook "
+                    "stays as the fallback. False = today's menu drive. See src/wm30_boot.h");
 
 REX_EXTERN(__imp__sub_82A9DFB8);
+REX_EXTERN(__imp__sub_82A9E7B8);  // S103 GTF: the caption-table loader (logging hook only)
+REX_EXTERN(__imp__sub_82A9D890);  // S103 GTF: the selection-object getter (returns B+2344)
 
 namespace wwe2k14::wm30 {
 
 constexpr uint32_t kModeState = 0x839295F0;   // S: [S+4] progress object, [S+16] the menu's table object
 constexpr uint32_t kSelection = 2344;         // [S+4] + 2344: +4 era, +8 moment code
 constexpr uint32_t kStartPathRet = 0x827AA360;  // sub_827AA2E8's call of sub_82A9DFB8 (the 30 Years start)
+constexpr uint32_t kCaptionLoadRet = 0x827AA370;  // sub_827AA2E8's call of sub_82A9E7B8 (the era caption table, [S+20])
+constexpr uint32_t kCaptionEraOff = 56;           // the caption table object's era (docs/agents/s103/GTW.md)
 constexpr uint32_t kIndexKind = 4;            // the match index: 24 fields per match (0 index, 1 era, 2 code, 23 record)
 
 // S101 goto: g_boot_pending = the --wwe2k14_wm30 jump is still unused (Install sets it, the hook clears it; `!wm30 off` never touches it).
 inline std::atomic<bool> g_boot_pending{false};
+inline std::atomic<int> g_jumped_era{-1};  // S103 GTF: the era the jump wrote, until the caption-table load logs what it got
 inline std::atomic<bool> g_fire_started{false};  // S101 lane 108: the era-load hook saw a 30 Years start (src/wm30_fire.h reads it)
 inline uint64_t g_idle = 0, g_last_frame = 0;
 inline bool g_drive_started = false;
@@ -148,14 +159,15 @@ inline void Install() {
   g_boot_pending = true;
   g_wm30_frame_hook = OnFrame;
   REXLOG_INFO("[wwe2k14][wm30] jump armed: match {} the first time a 30 Years match is picked{}", n,
-              REXCVAR_GET(wwe2k14_wm30_auto) ? "; the menus are driven there once the main menu is idle" : "");
+              REXCVAR_GET(wwe2k14_wm30_direct) ? "; --wwe2k14_wm30_direct: the match starts from the idle main menu with no 30 Years menus (src/wm30_boot.h)"
+              : REXCVAR_GET(wwe2k14_wm30_auto) ? "; the menus are driven there once the main menu is idle" : "");
 }
 
 // The game's frame (VdSwap): with _auto, start the menu drive once the root main menu has been idle for 60 frames
 // (the scenario launcher's idle test: sequence 75, SmartMenu on menu 1, no exit action). The drive is an input
 // script (src/input_script.h), so it waits for any script that runs (a harness route) and gives the pad back after.
 inline void OnFrame(uint64_t frame) {
-  if (!g_boot_pending || g_drive_started || !REXCVAR_GET(wwe2k14_wm30_auto) || frame == g_last_frame) return;
+  if (!g_boot_pending || g_drive_started || !REXCVAR_GET(wwe2k14_wm30_auto) || REXCVAR_GET(wwe2k14_wm30_direct) || frame == g_last_frame) return;  // S103 WMB: direct = src/wm30_boot.h, no menu drive
   g_last_frame = frame;
   using namespace scenario;
   const uint32_t sm = U32(kSmartMenuPtr);
@@ -165,10 +177,13 @@ inline void OnFrame(uint64_t frame) {
   // Main menu item 1 = 30 YEARS OF WRESTLEMANIA (docs/systems/menus.md), then A (the first era card, then its first
   // match) until the match is picked: picking one opens the era's EVTDSC<era>.PAC (run 2553: a fixed wait dropped the
   // second A when the list was slow to come up, fast-forwarded).
+  // S103 WMP (docs/agents/s103/WMP.md): inline chains, never states.toml names - the phone (and a release zip) has no
+  // states.toml, so the named states `cursor` / `menu` failed to parse there and the drive never started.
+  // 0x8392945C>352 = states.toml [cursor], 0x8392945C>364 = [menu].
   static const char* kDrive =
-      "press_until_state DOWN cursor >=1 24 30 5 if_needed\n"
-      "press_until_state UP cursor 1 24 30 5 if_needed\n"
-      "press_until_state A menu !=1 24 30 5\n"
+      "press_until_state DOWN 0x8392945C>352 >=1 24 30 5 if_needed\n"
+      "press_until_state UP 0x8392945C>352 1 24 30 5 if_needed\n"
+      "press_until_state A 0x8392945C>364 !=1 24 30 5\n"
       "wait_frames 180\n"
       "press_until_file A EVTDSC 6 300 4\n";
   std::string error;
@@ -182,42 +197,59 @@ inline void OnFrame(uint64_t frame) {
 
 }  // namespace wwe2k14::wm30
 
-// The era load of the 30 Years start path: the jump (see the top of this file).
+// The selection read of the 30 Years start path: the jump (see the top of this file). S103 GTF: the jump is written HERE, before the
+// start machine's own `lwz r4,4(r3)` (return 0x827AA340), so the game itself feeds the jumped era to BOTH era loads: the DSC tables
+// sub_82A9DFB8([S+12]) and the caption table sub_82A9E7B8([S+20], r30 = era == 5 ? 0 : era). The earlier hook on sub_82A9DFB8 rewrote
+// r4 only after r30 had been computed from the old era, so a cross-era jump kept the picked era's captions (docs/agents/s103/GTW.md).
+// State 3's call of this getter (return 0x827AA3D0) is never touched. r3 after the call = B+2344, the selection object.
+REX_HOOK_RAW(sub_82A9D890) {
+  using namespace wwe2k14::wm30;
+  const uint32_t lr = uint32_t(ctx.lr);  // read before the call: the callee does not set it, but the filter must not depend on that
+  __imp__sub_82A9D890(ctx, base);
+  if (!IsSelectionReadSite(lr)) return;
+  const uint32_t sel = ctx.r3.u32;  // B + 2344
+  // S101 goto: the live arming (one atomic word, taken once) wins over the boot setting; either one is used at the first start.
+  const int64_t live = g_live_arm.exchange(kNotArmed);
+  const bool boot = g_boot_pending.exchange(false);
+  if (live == kNotArmed && !boot) return;
+  const int n = live != kNotArmed ? ArmMatch(live) : REXCVAR_GET(wwe2k14_wm30);
+  const int live_code = live != kNotArmed ? ArmCode(live) : 0;
+  int era = 0, code = 0, record = 0;
+  const uint32_t b = sel - kSelection;  // [S+4], the progress object: 0 when it is not built
+  if (b && Lookup(n, era, code, record)) {
+    if (live_code > 0) {  // S101 goto: moment K of match n (X01 / X02 / a raw SCEX code), only a code of this era's matches
+      if (live_code > kMaxCode || !EraHasCode(era, live_code)) {
+        REXLOG_WARN("[wwe2k14][wm30] moment code {} is not a code of any era {} match: refused, the picked match plays", live_code, era);
+        return;
+      }
+      code = live_code;
+    }
+    REXLOG_INFO("[wwe2k14][wm30] jump to match {} (era {}, moment code {}, record {}) instead of era {} code {}", n, era, code, record,
+                wwe2k14::scenario::U32(sel + 4), wwe2k14::scenario::U32(sel + 8));
+    wwe2k14::gfx_menu::Put32(sel + 4, uint32_t(era));
+    wwe2k14::gfx_menu::Put32(sel + 8, uint32_t(code));
+    g_jumped_era.store(era);
+  } else {
+    REXLOG_WARN("[wwe2k14][wm30] match {} not found in the game's match index (0-45): the picked match plays", n);
+  }
+}
+
+// S103 GTF live check (logging only): after the start machine's caption-table load, say which era the table is (once per jump).
+REX_HOOK_RAW(sub_82A9E7B8) {
+  using namespace wwe2k14::wm30;
+  const uint32_t lr = uint32_t(ctx.lr);
+  __imp__sub_82A9E7B8(ctx, base);
+  if (lr != kCaptionLoadRet) return;
+  const int wanted = g_jumped_era.exchange(-1);
+  if (wanted < 0) return;
+  const uint32_t s = wwe2k14::scenario::U32(kModeState);
+  const uint32_t cap = s ? wwe2k14::scenario::U32(s + 20) : 0;
+  REXLOG_INFO("[wwe2k14][wm30] caption table era {} (wanted {})", cap ? int(wwe2k14::scenario::U32(cap + kCaptionEraOff)) : -1, wanted);
+}
+
+// The era load of the 30 Years start path (lr 0x827AA360): only the fire verb's "a 30 Years start happened" flag (S101 lane 108).
 REX_HOOK_RAW(sub_82A9DFB8) {
   using namespace wwe2k14::wm30;
-  if (uint32_t(ctx.lr) == kStartPathRet) {
-    g_fire_started.store(true);  // S101 lane 108: a 30 Years start (armed or not): `!wm30 fire` may serve once the match is up
-    // S101 goto: the live arming (one atomic word, taken once) wins over the boot setting; either one is used at the first start.
-    const int64_t live = g_live_arm.exchange(kNotArmed);
-    const bool boot = g_boot_pending.exchange(false);
-    if (live != kNotArmed || boot) {
-      const int n = live != kNotArmed ? ArmMatch(live) : REXCVAR_GET(wwe2k14_wm30);
-      const int live_code = live != kNotArmed ? ArmCode(live) : 0;
-      int era = 0, code = 0, record = 0;
-      const uint32_t s = wwe2k14::scenario::U32(kModeState);
-      const uint32_t b = s ? wwe2k14::scenario::U32(s + 4) : 0;
-      if (b && Lookup(n, era, code, record)) {
-        bool refused = false;
-        if (live_code > 0) {  // S101 goto: moment K of match n (X01 / X02 / a raw SCEX code), only a code of this era's matches
-          if (live_code > kMaxCode || !EraHasCode(era, live_code)) {
-            REXLOG_WARN("[wwe2k14][wm30] moment code {} is not a code of any era {} match: refused, the picked match plays", live_code, era);
-            refused = true;
-          } else {
-            code = live_code;
-          }
-        }
-        if (!refused) {
-          const uint32_t sel = b + kSelection;
-          REXLOG_INFO("[wwe2k14][wm30] jump to match {} (era {}, moment code {}, record {}) instead of era {} code {}", n,
-                      era, code, record, wwe2k14::scenario::U32(sel + 4), wwe2k14::scenario::U32(sel + 8));
-          wwe2k14::gfx_menu::Put32(sel + 4, uint32_t(era));
-          wwe2k14::gfx_menu::Put32(sel + 8, uint32_t(code));
-          ctx.r4.u64 = uint64_t(era);
-        }
-      } else {
-        REXLOG_WARN("[wwe2k14][wm30] match {} not found in the game's match index (0-45): the picked match plays", n);
-      }
-    }
-  }
+  if (uint32_t(ctx.lr) == kStartPathRet) g_fire_started.store(true);  // `!wm30 fire BANK` may serve once the match is up
   __imp__sub_82A9DFB8(ctx, base);
 }

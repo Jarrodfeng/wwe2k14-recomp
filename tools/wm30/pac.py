@@ -95,12 +95,30 @@ def load(path):
         return open(path, 'rb').read()
     rel = os.path.relpath(path, GAME).replace(os.sep, '_').replace(':', '_')
     os.makedirs(CACHE, exist_ok=True)
-    out = os.path.join(CACHE, rel + '.bin')
-    if not os.path.exists(out) or os.path.getmtime(out) < os.path.getmtime(path):
+    # S103 QAS review: the cache file is keyed on the SOURCE's (size, mtime_ns) (a stamp in its name), so a replaced pac never reads a stale unpack, and it is written to a temp
+    # name and renamed (a reader never sees a half-written file; two writers race harmlessly). Older stamps and the legacy "<rel>.bin" of the same pac are removed after a rename.
+    st = os.stat(path)
+    out = os.path.join(CACHE, '%s.%d.%d.bin' % (rel, st.st_size, st.st_mtime_ns))
+    if not os.path.exists(out):
         if not os.path.exists(UNPACK):
             raise SystemExit('missing %s: run pwsh -NoProfile -File tools\\wm30\\build.ps1' % UNPACK)
-        subprocess.run([UNPACK, path, out], check=True, stdout=subprocess.DEVNULL)
-    return open(out, 'rb').read()
+        tmp = '%s.tmp%d' % (out, os.getpid())
+        try:
+            subprocess.run([UNPACK, path, tmp], check=True, stdout=subprocess.DEVNULL)
+            os.replace(tmp, out)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        prefix = rel + '.'
+        for f in os.listdir(CACHE):
+            fp = os.path.join(CACHE, f)
+            if fp != out and (f == rel + '.bin' or (f.startswith(prefix) and f.endswith('.bin') and f[len(prefix):-4].replace('.', '').isdigit())):
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
+    with open(out, 'rb') as f:
+        return f.read()
 
 
 def pach(data, base=0):

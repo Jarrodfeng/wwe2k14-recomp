@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "../assets/car_arena.h"   // S103 CAR
 #include "../assets/pac.h"
 #include "arena_contrib.h"
 
@@ -29,7 +30,7 @@ inline bool SlotsFromPac(const assets::pac::Pac& pc, std::vector<SlotSnap>& slot
     return nullptr;
   };
   std::vector<uint32_t> keys;
-  for (uint32_t k = 0; k < 400; ++k) keys.push_back(k);
+  for (uint32_t k = 0; k < 400; ++k) keys.push_back(k);   // lint:cae-ok (the stage SLOT count, not the arena-id bound)
   for (uint32_t k : {951u, 952u, 953u, 960u, 964u, 973u, 974u}) keys.push_back(k);
   for (uint32_t k = 800; k <= 809; ++k) keys.push_back(k);
   for (uint32_t k : keys) {
@@ -45,6 +46,15 @@ inline bool SlotsFromPac(const assets::pac::Pac& pc, std::vector<SlotSnap>& slot
     }
   }
   return !slots.empty() || (err = "no slots found", false);
+}
+
+// S103 CAR fix (blocker b): a created arena (200-249) has no bg pac: its slot table is the merged CASD / CAEN / CARG parts of the selection `sel` (assets\car_arena.h). The merge opens its own pacs (no shared loader cache).
+inline bool SlotsFromCustom(launcher::GameFiles& files, const assets::car::Sel& sel, std::vector<SlotSnap>& slots, std::vector<ScreenSnap>& screens, std::string& err) {
+  if (!sel.valid) return err = "created arena: no selection published", false;
+  assets::pac::Pac merged;
+  assets::car::MergeInfo mi;
+  if (!assets::car::BuildFromFiles(files, sel, merged, mi, err)) return false;
+  return SlotsFromPac(merged, slots, screens, err);
 }
 
 inline bool SlotsFromFiles(launcher::GameFiles& files, int arena, std::vector<SlotSnap>& slots, std::vector<ScreenSnap>& screens, std::string& err) {

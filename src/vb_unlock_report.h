@@ -16,8 +16,10 @@
 #include <rex/system/xmemory.h>
 
 #include "host_write.h"
+#include "scene_live/buffer_unlock_log.h"   // S103 CW-2b: the unlock ring the guest model reader asks (a read whose buffers were unlocked since is re-read)
 
 REX_EXTERN(__imp__sub_82CACE50);
+REX_EXTERN(__imp__sub_82CACF10);
 
 namespace wwe2k14::vb_unlock_report {
 
@@ -34,4 +36,15 @@ REX_HOOK_RAW(sub_82CACE50) {
   const uint32_t bytes = object ? wwe2k14::vb_unlock_report::Ld32(base, object + 28) & 0x03FFFFFCu : 0;
   __imp__sub_82CACE50(ctx, base);
   if (data && bytes) wwe2k14::host_write::NoteBy(data, bytes, wwe2k14::host_write::Writer::VertexUnlock);  // S101 A1c
+  if (data) rdr_scene::live::unlocklog::Note(data);   // S103 CW-2b: after the original ran (its bytes are final)
+}
+
+// S103 CW-2b (CW2_review bug 1): the index buffer's unlock. sub_82CACF10 (12 bytes: r4 = [r3+24], tail-calls sub_82CACA40; q decomp) is the unlock the index fill ends with (sub_82CADFB8 lock -> fill ->
+// unlock, PCW_adversary.md section 1 item 7): r3 = the buffer object, +24 = its data address (an index buffer's has no fetch-type bits). Only the guest model reader's ring is told: the reader's host-write
+// marks (host_write) are a different consumer's and are not changed by this lane.
+REX_HOOK_RAW(sub_82CACF10) {
+  const uint32_t object = ctx.r3.u32;
+  const uint32_t data = object ? wwe2k14::vb_unlock_report::Ld32(base, object + 24) & ~3u : 0;
+  __imp__sub_82CACF10(ctx, base);
+  if (data) rdr_scene::live::unlocklog::Note(data);
 }

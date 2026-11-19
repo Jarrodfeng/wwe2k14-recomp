@@ -13525,6 +13525,34 @@
           "size": 11947520
         }
       ]
+    },
+    {
+      "id": "pin-b2c661b-1118-2349",
+      "sdk_commit": "b2c661bd33fed1226820b7499b6f6ed027160e38",
+      "sdk_branch": "wwe2k14-local",
+      "patch": "patches/rexglue-sdk/full/118-session103-mnk-bare-modifiers.diff",
+      "patch_match": "given with -PinPatch",
+      "date": "2026-11-18",
+      "built": "build_sdk.ps1 -Run s103kbm, 2026-11-18T23:48:59 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s103kbm.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "S103 KBM patch 118: bare Shift / Ctrl / Alt binds",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "b61fdae4755e8678bf236cbb4cad204fc64c5c479cc6f214172769bbcad4a69f",
+          "size": 3647488
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "c59b48884a559758761e1fb70e1494b0bdf48d3cff763c34f16aee3ac279f193",
+          "size": 19508224
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "b36f94b15514111eb61b0917378db9cbcb24e80445a8ced5fa905a2f948662cc",
+          "size": 11953152
+        }
+      ]
     }
   ]
 }

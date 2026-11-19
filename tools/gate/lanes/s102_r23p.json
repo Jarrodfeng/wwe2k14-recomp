@@ -8,6 +8,6 @@
     "out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip",
     "out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip",
     "game_data/extracted"]},
-  {"name": "s102_r23p.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"]}
+  {"name": "s102_r23p.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]}
  ]
 }

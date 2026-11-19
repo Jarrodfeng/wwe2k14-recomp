@@ -84,7 +84,8 @@ inline void FlushOp21Tally() {
 inline void MaybeLogOp21() {
   if (g_ko.load(std::memory_order_relaxed)) REXLOG_WARN("[rdr][record_skip] KNOCK-OUT (test only, the picture is wrong): crowd records not made so far {}", (unsigned long long)g_op21.ko.load(std::memory_order_relaxed));
   const uint64_t n = g_op21.runs_armed.load(std::memory_order_relaxed);
-  if (n == 0 || n % 600 != 1 || g_op21_logged.exchange(n) == n) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now (census_flush.h)
+  if (n == 0 || (!census_flush::Due(cf_site) && (n % 600 != 1 || g_op21_logged.exchange(n) == n))) return;
   auto d = [](Decider::Op21 w) { return (unsigned long long)g_op21.declined[uint8_t(w)].load(std::memory_order_relaxed); };
   const unsigned long long dec = d(Decider::Op21::NotSkipMode) + d(Decider::Op21::FirstOfType) + d(Decider::Op21::ProofRun) + d(Decider::Op21::NotProven) + d(Decider::Op21::Tiled);
   REXLOG_INFO("[rdr][record_skip] crowd: frames {}, taken {}, declined {} (cut not skipping {}, first of a type {}, proof run {}, not proven {}, tiled {}), forced pairings {}, loop-exit op-21 records {}", (unsigned long long)n,
@@ -108,7 +109,8 @@ inline Mode EffectiveMode(bool cut) {   // S102 T2: called ONCE per run (OnCrowd
 
 inline void MaybeLog(Mode mode) {
   const uint64_t n = g_counters.runs.load(std::memory_order_relaxed);
-  if (n == 0 || n % 600 != 1 || g_logged_runs.exchange(n) == n) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now (census_flush.h)
+  if (n == 0 || (!census_flush::Due(cf_site) && (n % 600 != 1 || g_logged_runs.exchange(n) == n))) return;
   const Counters& c = g_counters;
   const GateCounters& g = g_gate.c;
   REXLOG_INFO(

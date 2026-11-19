@@ -109,7 +109,7 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
     gm.detail_mask = slot(mt.mask);
     memcpy(gm.noise_near, mt.noise_near, sizeof gm.noise_near); memcpy(gm.noise_far, mt.noise_far, sizeof gm.noise_far);
     memcpy(gm.noise_dist, mt.noise_dist, sizeof gm.noise_dist);
-    gm.alpha_blend = mt.alpha_blend; gm.alpha_test = mt.alpha_test; gm.additive = mt.additive; gm.cull_back = mt.cull_back;
+    gm.alpha_blend = mt.alpha_blend || (mt.texel_cutout & 2); gm.alpha_test = mt.alpha_test || (mt.texel_cutout & 1); gm.additive = mt.additive; gm.cull_back = mt.cull_back;
     gm.blend_inline = mt.blend_inline;
     g.materials.push_back(gm);
   }
@@ -150,7 +150,7 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
     gm.screen = me.part == "slot 800";
     {  // Session 98: ring pieces (slots 951-999) cast the props map
       int key = 0;
-      gm.caster = sscanf(me.part.c_str(), "slot %d", &key) == 1 && key >= 951 && key <= 999;
+      gm.caster = sscanf(me.part.c_str(), "slot %d", &key) == 1 && ((key >= 951 && key <= 999) || (key >= 1017 && key <= 1083));   // (S103 CRR: + the created arena's alt ring)
     }
     gm.light = (me.light_set >= 0 && me.light_set < (int)m.light_sets.size()) ? me.light_set : (int)g.lights.size() - 1;
     gm.material = (me.material >= 0 && me.material < (int)m.materials.size()) ? me.material : (int)g.materials.size() - 1;
@@ -178,7 +178,7 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
       pm.light_id = (me.light_set >= 0 && me.light_set < (int)m.light_sets.size()) ? m.light_sets[(size_t)me.light_set].id : -1;
       if (me.material >= 0 && me.material < (int)m.materials.size()) {
         const assets::Material& mt = m.materials[(size_t)me.material];
-        pm.shader = mt.shader; pm.diffuse_name = mt.diffuse_name; pm.additive = mt.additive; pm.blended = mt.alpha_blend || mt.alpha_test;
+        pm.shader = mt.shader; pm.diffuse_name = mt.diffuse_name; pm.additive = mt.additive; pm.blended = mt.alpha_blend || mt.alpha_test || mt.texel_cutout != 0;
         const std::pair<const char*, int> slots[] = {{"Diffuse", mt.diffuse}, {"Normal", mt.normal}, {"Lightmap", mt.lightmap}, {"Mask", mt.mask}, {"Specular", mt.specular}};
         for (auto& s : slots)
           if (s.second >= 0 && s.second < (int)g.tex_info.size()) pm.tex.push_back({s.first, s.second});
@@ -346,7 +346,7 @@ FrameCB Renderer::MakeFrameCB(const Camera& cam, int w, int h) const {
     const float fovy = ys > 1e-6f ? 2.f * std::atan(1.f / ys) * 57.2957795f : 30.f;
     const bool ent = crowd_cards_ == 2 || (crowd_cards_ == 1 && entrance_);
     fcb.amb[2] = CrowdCardDistance(eye.y, fovy, ent);
-    fcb.amb[3] = 2.125f;
+    fcb.amb[3] = 2.125f;   // S103 B3c note: = 2.5 x 0.85, the card quad gain of arenas 1 / 4 (the game: arena gain x [0x8376383C] * 0.001, card_gain.h) [L]: a per-arena value lives in the model (m.lm_gain), this frame constant has no arena in scope; viewer only, the live frame takes it from the record row.
   }
   fcb.outc[0] = 0.f; fcb.outc[1] = fcb.outc[2] = fcb.outc[3] = 0.f;  // (Session 98: the gamma curve is the post chain's last pass)
   // Session 98 (skin fix): y = the entrance variants of the wrestler shaders (four light lobes instead of the reflection cube),

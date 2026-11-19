@@ -50,7 +50,7 @@ bool Load(int arena, FlashMesh& out, std::string& err) {
   const pac::Pach& h = p->pachs[0];
   const Bytes& buf = p->bytes;
   TexSet tex;
-  for (uint32_t k : {400u, 401u, 402u})
+  for (uint32_t k : car::IsCustomId(arena) ? std::initializer_list<uint32_t>{404u, 402u} : std::initializer_list<uint32_t>{400u, 401u, 402u})   // S103 CAR fix 3: CARG's flash: its own directories
     if (const pac::Ent* e = pac::Find(h, k)) tex.AddDir(pac::Decode(buf.data() + e->off, e->size));
   const pac::Ent* e = pac::Find(h, 31000u);
   if (!e) return err = "arena " + std::to_string(arena) + ": no entry 31000 (the crowd flash)", false;

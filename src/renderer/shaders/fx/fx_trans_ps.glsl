@@ -19,7 +19,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
   vec4 DifLghMax;        // xyz scale of the light cube, w scale of the specular cube
   vec4 LightLimit;
   vec4 FogColor;
-  vec4 Level;            // w: mip level of the diffuse texture
+  vec4 Level;            // w: LOD bias of the diffuse (setTexLOD c201.w on a computed-LOD fetch; the game's g_f4TexBis_Dif)
   vec4 MatAmbCol;
   vec4 MatDifCol;
   vec4 NormalFlip;
@@ -189,7 +189,11 @@ void main() {
   float nv = dot(n, V);
   vec3 reflected = reflect(V, n);
 
-  vec4 diffuseTex = textureLod(textures[0], uv, fc.Level.w);
+#ifdef FX_REFLECT
+  vec4 diffuseTex = texture(textures[0], uv);  // yCh_Reflect listings read tf0 with plain computed LOD, no c201
+#else
+  vec4 diffuseTex = fx_texture_bias(textures[0], uv, fc.Level.w);  // computed LOD + c201.w bias (SKM)
+#endif
 #ifdef FX_LOGO
   // A logo texture (one of two, by a game switch) covers the diffuse wherever its alpha is above zero, and brings its own opacity.
   vec4 logo = fx_bool(fc.Bools, 150) ? texture(textures[7], uv) : texture(textures[4], uv);

@@ -56,7 +56,8 @@ LINKS = [
     ('frame-top barrier: live reads it every frame', 'src/renderer_adapter/live.cpp', [r'render_globals\.frame_top_barrier = int\(rdr_sw::IntSeen\(rdr_sw::kFrameTopBarrier,', r'rdr::crumbs::g_frame_top_barrier\.store\(p\.frame_top_barrier']),
     ('frame-top barrier: recorded at the top of the buffer', 'src/renderer/renderer.cpp', [r'frame_barrier_mode = crumbs::g_frame_top_barrier\.load\(std::memory_order_relaxed\);', r'RecordFrameBarrier\(slot\.cmd, "top"\)']),
     ('robust buffers (job C) reach the device', 'src/renderer/device.cpp', [r'enabled\.robustBufferAccess = options\.robust_buffers && available\.robustBufferAccess;']),
-    ('robust buffers: cvar, table and start read', 'src/renderer_adapter/reader.h', [r'options\.robust_buffers = REXCVAR_GET\(wwe2k14_rdr_robust_buffers\);', r'REXCVAR_DEFINE_BOOL\(wwe2k14_rdr_robust_buffers, false,']),
+    ('robust buffers: cvar, table and start read', 'src/renderer_adapter/reader.h', [r'options\.robust_buffers = applied\.robust_buffers;', r'REXCVAR_DEFINE_BOOL\(wwe2k14_rdr_robust_buffers, false,']),
+    ('robust buffers: the start reads the cvar into Applied', 'src/start_settings.cpp', [r'a\.robust_buffers = REXCVAR_GET\(wwe2k14_rdr_robust_buffers\);']),   # S103 SPB review L6
     ('robust buffers: live -> renderer -> device', 'src/renderer_adapter/live.cpp', [r'ro\.robust_buffers = options\.robust_buffers;']),
     ('robust buffers: renderer -> device options', 'src/renderer/renderer.cpp', [r'device_options\.robust_buffers = opts\.robust_buffers;']),
     ('robust buffers: table', 'src/renderer_adapter/rdr_switches.h', [r'X\(RobustBuffers, "wwe2k14_rdr_robust_buffers", StartOnly, 0\)']),

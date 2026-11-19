@@ -98,6 +98,7 @@ struct ThumbTimes {
   uint64_t n = 0;
   double wait_ms = 0, read_ms = 0, convert_ms = 0, rerun_ms = 0;
   bool replay = true;  // false: the job ran the normal blocking read (timeout / the writer found it deferred without a picture)
+  // render-clock: ctl - thumbnail deferral decides when OUR copy runs, never a picture value
   std::chrono::steady_clock::time_point enter = std::chrono::steady_clock::now();
 };
 inline double MsSince(std::chrono::steady_clock::time_point t0) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); }

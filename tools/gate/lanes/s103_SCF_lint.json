@@ -1,0 +1,57 @@
+{
+ "owner": "S103 lane SCF (the Opus review of lane SC): tools/scene/sc_lint.py = four source lints for the 2D scissor / target state: every recorder whose executor reaches sub_82CABC68 has a resetting tap (op 45 / 47 / 48), every `continue;` of Append has a twin in Check, the units' `layout N (M bytes` text and kQuad2DLayout / sizeof(Quad2D) asserts match scene_record.h, every q2d_tap entry called from a REX_HOOK_RAW starts with Active() / a t_scope.open test (OnOp19 is marked census-first). 0 game runs.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "KIND: tooling. --selftest = a clean tree passes and each planted twin (a tap without its reset, a recorder with no hook, an uncounted continue, a stale layout phrase, a stale kQuad2DLayout assert, an entry without the Active() test, a lost census-first marker) FAILS. The plain run is the lint on the current tree.",
+ "checks": [
+  {
+   "name": "s103_SCF_lint.selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/sc_lint.py",
+    "--root",
+    ".",
+    "--selftest"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/scene/sc_lint.py",
+    "src/draw_origin.h",
+    "src/scene_crowd.h",
+    "src/d3d_textures.h",
+    "src/scene_live/quads2d_tap.h",
+    "src/renderer_scene/quads2d_draw.cpp",
+    "src/renderer_scene/scene_record.h",
+    "tools/scene/*_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SCF_lint.tree",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/sc_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/scene/sc_lint.py",
+    "src/draw_origin.h",
+    "src/scene_crowd.h",
+    "src/d3d_textures.h",
+    "src/scene_live/quads2d_tap.h",
+    "src/renderer_scene/quads2d_draw.cpp",
+    "src/renderer_scene/scene_record.h",
+    "tools/scene/*_unit.cpp"
+   ]
+  }
+ ]
+}

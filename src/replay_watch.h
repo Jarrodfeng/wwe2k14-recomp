@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -98,7 +99,8 @@ inline thread_local bool t_native_dispatch = false;  // this replay's dispatcher
 inline void CensusTick(uint64_t guest_frame) {
   auto& c = wwe2k14::nf_replay::g_census;
   ++c.frames;
-  if (c.frames % 600 != 0) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the nf_replay census now
+  if (c.frames % 600 != 0 && !census_flush::Due(cf_site)) return;
   const uint64_t taken = c.native_calls + c.exits, declined = c.fallbacks + c.hooked_op81 + c.hooked_bookkeeping + c.hooked_dispatch_off;
   REXLOG_INFO("[rdr][nf_replay] frames {}, taken {}, declined {} (by reason: recompiled interpreter for ops 9/10/12/42/43/46/49/52-58/72/79/81/82/103 {}, "
               "op 81 through the hook {}, guard / cost counters / Android watch on {}, dispatcher switch off {}); guest frame {}, loop {}, dispatcher {}",

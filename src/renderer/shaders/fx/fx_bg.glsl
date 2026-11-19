@@ -10,7 +10,7 @@
 //   FX_NOISE         a tiled noise texture perturbs the colour
 //   FX_LEAN          (with a light map) no shadow slots between the stages: uv, light-map uv, colour
 //   FX_DEAD_SLOTS    (with FX_NO_LM) the two shadow interpolator slots exist but carry zero: a surface that is not a receiver
-//   FX_FIXED_LOD     the diffuse is read at a fixed mip level, MipmapBias.x, instead of a biased level
+//   FX_FIXED_LOD     (kept for the Reflect stages; reads the same biased diffuse as the default, MipmapBias.x = c248.x, see MIP)
 //   FX_CONV_SCREEN   (vertex) the clip position is re-centred and rescaled by ConvScreen (the car-style surfaces)
 //   FX_STATIC        fixed scenery: vertices are already in world space (no world matrix)
 //   FX_NO_BIAS       the diffuse is read without the mip bias
@@ -249,7 +249,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
 #ifndef FX_NO_LM
   vec4 LightMapParam;         // z gain
 #endif
-  vec4 MipmapBias;            // x: the diffuse is read at this fixed mip level
+  vec4 MipmapBias;            // x: LOD bias of the diffuse (setTexLOD c248.x on a computed-LOD fetch)
   vec4 DifLghCol[4];
   vec4 DifLghVec[4];
   vec4 vMin;
@@ -282,7 +282,7 @@ layout(location = BUMP_LOC_COLOR) in vec4 inColor;
 layout(location = 0) out vec4 outColor;
 
 void bg_fragment_main() {
-  vec4 diffuse = textureLod(textures[0], inUv.xy, fc.MipmapBias.x);
+  vec4 diffuse = fx_texture_bias(textures[0], inUv.xy, fc.MipmapBias.x);  // computed LOD + c248.x bias (MIP)
   vec4 normalMap = texture(textures[4], inUv.xy);
   vec3 mapped = normalMap.xyz * 2.0 - 1.0;
   // The normal map bends the (inverted) surface normal along the tangent frame.
@@ -422,7 +422,7 @@ void bg_vertex_main() {
 #ifdef FX_PLANAR_UV
   // No uv attribute: the texture is projected straight down onto the world's x-z plane.
 #ifdef FX_PLANAR_YZ
-  vec2 inUv = world.yz * vc.SL_Scale.x * 0.5 + 0.5;   // projected sideways, onto the y-z plane
+  vec2 inUv = vec2(world.y * vc.SL_Scale.y, world.z) * vc.SL_Scale.x * 0.5 + 0.5;   // projected sideways, onto the y-z plane; SL_Scale.y = -1 in the viewer's y-negated space (S103 TQ2 F3: the game's world.y)
 #else
   vec2 inUv = world.xz * vc.SL_Scale.x * 0.5 + 0.5;
 #endif
@@ -598,7 +598,7 @@ void bg_fragment_main() {
 #endif
 #endif
 #elif defined(FX_FIXED_LOD)
-  vec4 diffuse = textureLod(textures[0], inUv.xy, fc.MipmapBias.x);
+  vec4 diffuse = fx_texture_bias(textures[0], inUv.xy, fc.MipmapBias.x);  // same biased read: the listings carry setTexLOD c248.x on a computed-LOD fetch (MIP)
 #elif defined(FX_NO_BIAS)
   vec4 diffuse = texture(textures[0], inUv.xy);
 #else
@@ -626,6 +626,7 @@ void bg_fragment_main() {
   vec3 toEye = fx_normalize(inEye);
   float facing = dot(reflectNormal, toEye);
   vec3 mirrored = 2.0 * facing * reflectNormal - toEye;
+  mirrored.y *= fc.ReflectAlpha.y < 0.0 ? -1.0 : 1.0;   // S103 RFL: ReflectAlpha.y = -1 in the viewer's Y-mirrored space (the cube is the game's, +Y up): flip the lookup back
   float fresnel = 0.2 + 0.8 * pow(1.0 - max(facing, 0.0), 4.0);
   float weight = fresnel * fc.ReflectAlpha.x;
 #ifdef FX_REFLECT_MASK

@@ -225,10 +225,14 @@ def arms(cx):
     for key, mean, arm, n in rows:
         by.setdefault(key, {})[arm] = int(mean)
     both = {k: v for k, v in by.items() if 'ON' in v and 'OFF' in v}
-    line(r.returncode == 0 and len(both) >= 3, 'in-run flip (rplay arms off=7:0|on=7:1): the per-step GPU table has an ON column and an OFF column (%d steps in both)' % len(both))
-    first = next(iter(both.items()), None)
-    line(first is not None and first[1]['ON'] - first[1]['OFF'] >= 600 and all(abs(v['ON'] - v['OFF']) < 400 for k, v in list(both.items())[1:6]),
-         'plant 5 (+1 ms on the first step of every ON frame): the first step shows %s us, the next steps differ by less than 400 us (an average of both arms would have hidden it)' % (first and first[1]))
+    one_armed = {k: v for k, v in by.items() if not ('ON' in v and 'OFF' in v)}
+    line(r.returncode == 0 and len(both) >= 3, 'in-run flip (rplay arms off=7:0|on=7:1): the per-step GPU table has an ON column and an OFF column (%d steps in both, %d printed in one arm only)' % (len(both), len(one_armed)))
+    # the step with the largest ON - OFF gap (a one-armed step counts its printed arm against 0: reported, not dropped)
+    gap = lambda v: v.get('ON', 0) - v.get('OFF', 0)
+    top = max(by.items(), key=lambda kv: abs(gap(kv[1])), default=None)
+    rest_ok = top is not None and all(abs(gap(v)) < 400 for k, v in by.items() if k != top[0])
+    line(top is not None and gap(top[1]) >= 600 and rest_ok,
+         'plant 5 (+1 ms on one step of every ON frame): the largest ON - OFF step is %s %s us%s, every other step differs by less than 400 us (an average of both arms would have hidden it)' % (top and top[0], top and top[1], ' (printed in one arm only)' if top and top[0] in one_armed else ''))
 
 
 def valid3(cx):

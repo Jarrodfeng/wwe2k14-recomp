@@ -2,9 +2,14 @@ r"""Gate check (S101, arc tool 7 "the replay farm", offline form): plays every c
 checkout's rplay under validation; any capture that fails or reports validation errors fails the check, by name.
   py -I tools\gate\corpus.py [--list]
 A capture is a folder holding images.bin and frames\. Pictures go to the main checkout's out\gate\corpus\ (game imagery: local only).
+S103 IXF: frames the capture integrity lint flags (tools\scene\capture_integrity.py: a stale frame 0 whose offsets name another capture's store) have their DRAWS
+dropped (rplay --drop-frames: targets, clears, copies and image uploads stay, no draw is bound); every skipped frame is listed in the output, never silently.
 """
 import os, subprocess, sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scene'))
+import capture_integrity
 
 here = Path(__file__).resolve().parents[2]
 main = Path(os.environ.get('RDR_MAIN_CHECKOUT', here))
@@ -20,10 +25,18 @@ if not exe.exists() or not caps:
 out = main / 'out' / 'gate' / 'corpus'
 out.mkdir(parents=True, exist_ok=True)
 bad = []
+skipped = []
 for cap in caps:
-    p = subprocess.run([str(exe), '--capture', str(cap), '--validation', '1', '--out', str(out / f'{cap.name}.png')], capture_output=True,
+    drop, detail = capture_integrity.BadFrames(str(cap)) if (cap / 'geometry.bin').exists() else ([], {})
+    extra = []
+    if drop:
+        extra = ['--drop-frames', ','.join(str(f) for f in drop)]
+        skipped.append(f'{cap.name} frame(s) {",".join(str(f) for f in drop)} ({sum(d["past_end"] + d["overlap"] for d in detail.values())} bad refs)')
+    p = subprocess.run([str(exe), '--capture', str(cap), '--validation', '1', '--out', str(out / f'{cap.name}.png')] + extra, capture_output=True,
                        text=True, timeout=600)
     if p.returncode != 0:
         bad.append(f'{cap.name} (exit {p.returncode})')
-print(f'corpus: {len(caps) - len(bad)} of {len(caps)} captures replay clean under validation' + (': FAIL ' + ', '.join(bad) if bad else ''))
+if skipped:
+    print('corpus: draws NOT replayed (the capture integrity lint flagged them, tools\\scene\\capture_integrity.py): ' + '; '.join(skipped))
+print(f'corpus: {len(caps) - len(bad)} of {len(caps)} captures replay clean under validation' + (': FAIL ' + ', '.join(bad) if bad else '') + (f' ({len(skipped)} with skipped frames)' if skipped else ''))
 sys.exit(1 if bad else 0)

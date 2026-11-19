@@ -1,4 +1,4 @@
-- Weak graphics (laptops with integrated graphics such as an Intel UHD 620): v0.3.3 is much faster there than v0.3.2, but on my Surface Pro 6, once it has warmed up, the busiest entrances still run below 60 (Daniel Bryan about 46 pictures a second, Brock Lesnar about 51) while a match holds close to 60. The game's own drawing thread is now the limit there. Making weak hardware faster is still my main work. If it feels choppy on yours, please send a report with the speed shown (launcher: Report a problem).
+- Weak graphics (laptops with integrated graphics such as an Intel UHD 620): on my Surface Pro 6, v0.4.0 holds 60 pictures a second in Daniel Bryan's entrance and in a match, but those were short runs while the laptop was still at full clock speed. After a long session, when it heats up and slows down, it has not been measured yet. If it feels choppy on yours, please send a report with the speed shown (launcher: Report a problem).
 - Weak Intel graphics (seen on my Surface Pro 6, Intel UHD 620, after long sessions of back-to-back test runs): about one entrance in 10 to 20 can freeze for a second or two and then stay frozen. Windows reports a graphics-driver fault under heavy desktop compositing; I have the cause narrowed down but not fixed. Restarting the game recovers it. If it happens to you, please send a report.
 - Custom music: for now the song you pick in the Custom Playlist picker applies to every superstar who uses USER PLAYLIST, not one song per superstar, because I have not found what identifies the entering superstar yet. Choosing USER PLAYLIST sets it straight away, so closing the picker without picking still leaves the superstar on USER PLAYLIST. In the entrance editor's preview your songs sound a little quieter than the game's own (at entrances they match). A song shorter than the entrance stops when it ends; it does not loop. Songs over 20 minutes and silent or unreadable files are refused. I have not tested how the game's music volume option affects custom songs.
 - Custom music on phones: the launcher converts songs on the phone and the game plays them; I have tried it on my own phone (OPPO Find X8 Ultra) only, so a first run on another phone is a real test. If a song is silent or the game stutters when it starts, please send a report (launcher: Report a problem).
@@ -6,12 +6,13 @@
 - The Superstar Importer (new in v0.3.1) was tested in the game with one character, in his first attire, on my PC and my phone. The pack is built for up to 103 characters, but a full pack has not been played. If an imported superstar goes wrong, switch USE MY SUPERSTARS off and send a report (launcher: Report a problem).
 - The game now uses a memory feature of Windows 10 1803 or newer, tested by me only on Windows 11 build 26100. If your Windows cannot
   do it, the game shows a clear message and stops: please send a report with your Windows version.
-- The new renderer is on for everyone (PC and phone). It was tested on my PC (NVIDIA RTX 4090) and on one phone (OPPO Find X8 Ultra, Adreno 830). AMD and Intel graphics, other phones, 4K and the LOW preset with it are untested. If your graphics card shows problems (a missing or oddly coloured part, flicker, wrong shadows, a freeze), start with the extra flag `--wwe2k14_s101_promotions=false` (Settings -> Advanced -> extra flags) to get the previous way of drawing, and send a report (launcher: Report a problem, or the bug-button zip).
+- The new renderer now draws everything, with no fallback to the Xbox 360's way of drawing. It was tested on my PC (NVIDIA RTX 4090), my Surface Pro 6 (Intel UHD 620) and one phone (OPPO Find X8 Ultra, Adreno 830). AMD graphics, other Intel graphics and other phones are untested. If something is missing or looks wrong (a missing or oddly coloured part, flicker, wrong shadows, a freeze), send a report (launcher: Report a problem, or the bug-button zip).
+- DLSS, DLAA and FSR are not available with the new renderer yet: if one is chosen in UPSCALING, the game shows the plain picture (its log says so).
+- Screens wider or taller than 16:9 (ultrawide monitors, phones with a wide screen) show the 16:9 picture with bars instead of filling the screen: the new renderer does not widen its camera yet. The ultrawide fill from v0.3.2 comes back when it does.
+- Some players see an endless loading screen when entering the Moveset editor's Signatures / Finishers. I could not make it happen on my PC. Since v0.4.0 the game writes the file a stuck load was waiting on into its log: if it happens to you, please send a report (launcher: Report a problem).
 - The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
   yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
   middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).
-- The black-eyes fix for Intel graphics (new in v0.2.14) has not been tried on Intel hardware by me, and how much it
-  slows Intel laptops is not measured. Please tell me whether the eyes look right now (launcher: Report a problem).
 - New songs (new in v0.2.13) are silent in replays and re-shoots, as theme replacements are. A superstar given a new song walks out in silence if the
   song's file is gone or USE MY MUSIC is off (the editor then shows USER PLAYLIST for him); nothing breaks.
 - I saw one crash while entering the entrance editor (CREATIONS > ENTRANCE) in my tests, and it did not come back in
@@ -23,16 +24,12 @@
   is no undo: K at a key's time replaces that key. Clicking the timeline moves the camera to the shot's pose at that
   time, so choose the time first, then fly.
 - CineCam's look-at framing has not been checked on ultrawide screens.
-- 30 Years of WrestleMania: what the game does after you win a match you jumped into, and whether that marks it done in
-  your save out of order, has not been checked yet.
+- 30 Years of WrestleMania: PLAY THIS MATCH (the launchers' 30 Years page) was played to the end of a match with every cutscene and event,
+  but whether winning a match started this way marks it done in your save, out of order, has not been checked yet.
 - DLC: a package straight off a console has not been tried yet (extracted packs and packages made from them work). If
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - My own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- Superstars looking shiny or sparkly (seen on Intel Iris Xe): being looked into. Since v0.2.14 Intel graphics already
-  use the exact multiplications (the first of the flags I asked about before). If you still see it, please try the
-  extra flags `--gpu_native_fma=0 --gpu_native_ps_implicit_lod=false` (Settings -> Advanced) and tell me whether it
-  goes away.
 - A black screen at the start or at 1080p (reported on an Intel laptop): I need a log from a run where it happens
   (launcher: Report a problem).
 - The first time you meet a superstar, arena or match type the shipped pipeline list does not cover, its loading screen
@@ -52,9 +49,6 @@
 - Typing on the PC keyboard into the game's name fields was tested in the championship name; other fields use the
   same on-screen keyboard. Keyboard layouts other than US English type what their keys show, but only the characters
   the game's on-screen keyboard has.
-- The LIGHT renderer (now only an advanced flag) can crash on older Intel graphics (HD 520).
-- NATIVE on graphics cards without fragment shader interlock (older AMD drivers / graphics) and the LIGHT fallback
-  have not been tested on such a card by me yet (only on my NVIDIA card forced onto the same path).
 - Screen tearing on monitors without G-SYNC / FreeSync (most laptops): the game shows each frame the moment it is
   ready. A fix is ready but made entrances a little choppier in my tests, so it is off for now; to try it, add
   `--wwe2k14_present_mailbox=true` in Settings -> Advanced (extra flags). GitHub #79.
@@ -62,13 +56,6 @@
   timer (and anything else the game counts in frames) runs at half speed, and get-ups take longer. Use 60 if anything
   looks or sounds wrong.
 - 360p - 540p and 1080p: the speed gain on integrated graphics has not been measured by me yet (no such PC here).
-- v0.2.3's NATIVE speed-ups were checked and measured on my NVIDIA card only. If pictures look wrong on yours (shadows,
-  reflections, the crowd), please send a report (launcher: Report a problem).
-- v0.2.4's CPU gains were measured on my desktop (Ryzen 9 5950X) only; on handhelds and laptops they are expected,
-  not measured. If the crowd looks wrong in NATIVE (missing or flickering spectators), please send a report.
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.
-- v0.2.5's DLSS / DLAA / FSR on NATIVE was checked on my test routes (a match, the pause menu) on an NVIDIA card, not
-  through whole play sessions yet. If something looks wrong with an upscaler on (the HUD, ghosting on the wrestlers),
-  please send a report.
 - v0.2.5's shader list does not cover everything yet (Quick Match types, 30 Years of WrestleMania matches, some menus
   and cutscenes): those still hitch the first time, then are remembered.

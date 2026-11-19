@@ -6,7 +6,7 @@
   {"name": "s102_v1.lint", "cmd": ["py", "-I", "tools/renderer/const_index_lint.py", "--root", ".", "--gate"], "timeout_s": 120},
   {"name": "s102_v1.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1500},
   {"name": "s102_v1.bones", "cmd": ["py", "-I", "tools/renderer/bone_range_check.py", "--root", "."], "timeout_s": 3600, "needs": ["out/lane86/brock/capture", "out/lane86/bryan/capture"]},
-  {"name": "s102_v1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"]},
+  {"name": "s102_v1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
   {"name": "s102_v1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 120},
   {"name": "s102_v1.win_macro_lint", "cmd": ["py", "-I", "tools/gate/win_macro_lint.py", "--root", "."], "timeout_s": 120}
  ]

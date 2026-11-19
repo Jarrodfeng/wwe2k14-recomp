@@ -1,0 +1,19 @@
+{
+ "owner": "S103 lane PMS: the props map the shadowed floor reads (slice 1 of docs/research/s103/PMF.md): the circle blobs handed to the floor as MapRole::PropsMap with TexProjLight = bias x the circle rows and ShadowPrm from the colour-call light state, instead of the wrestlers' map B; src/renderer_scene/live_map_props.cpp, props_map_rows.h, props_map_switch.h, front_end.cpp (slot 12 of the floor); tools/scene/pms_check.py",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs: fview headless + maps_draw.exe on the main checkout's out/d3caster/z7147/capture frames 20/100/180. The floor matrix must equal the stream's floor c68-c71 within 1e-5 relative, ShadowPrm c168-c170 equal, blob IoU >= 0.88 against the game's props map, validation 0; planted props_reader_mapb (the S98 long floor shadows), props_bias_order, props_no_blobs each must fail.",
+ "checks": [
+  {"name": "s103_PMS.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_PMS.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_PMS.build_maps", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_maps.ps1"], "timeout_s": 900},
+  {"name": "s103_PMS.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_map_props.cpp,src/renderer_scene/live_map_circles.cpp,src/renderer_scene/live_maps.cpp,src/renderer_scene/front_end.cpp,src/start_settings.cpp"], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_scene/props_map_rows.h", "src/renderer_scene/props_map_switch.h", "src/renderer_scene/live_maps.h", "src/renderer_scene/stage_hook.h"]},
+  {"name": "s103_PMS.props_proof", "cmd": ["py", "-I", "tools/scene/pms_check.py", "--faults", "--out", "out/s103/PMS"], "timeout_s": 900, "tier": "cheap",
+   "needs": ["out/d3caster/z7147/capture", "out/renderer/dev/fview.exe", "game_data/extracted"],
+   "affects": ["tools/scene/pms_check.py", "tools/scene/maps_draw.cpp", "src/renderer_scene/props_map_rows.h", "src/renderer_scene/live_map_props.cpp", "src/renderer_scene/live_map_circles.cpp", "src/renderer_scene/live_maps.cpp", "src/renderer_scene/live_maps.h"]},
+  {"name": "s103_PMS.rig_proof", "cmd": ["py", "-I", "tools/scene/pms_check.py", "--rig", "--out", "out/s103/PMS"], "timeout_s": 1500, "tier": "cheap",
+   "needs": ["out/d3caster/z7147/capture", "out/renderer/dev/fview.exe", "game_data/extracted"],
+   "affects": ["tools/scene/pms_check.py", "tools/scene/rml_check.py", "tools/scene/frame_rig.cpp", "tools/scene/frame_rig.py", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer_scene/live_map_props.cpp", "src/renderer_scene/live_maps.cpp", "src/renderer_scene/props_map_rows.h"]}
+ ]
+}

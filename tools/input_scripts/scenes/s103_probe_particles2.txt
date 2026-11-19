@@ -1,0 +1,21 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=324,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 (coverage exe): lane F3's probe "particle items II" (probes\probes.cpp) through Bryan's entrance (bryan_entrance.txt's route),
+# loaded at Bryan's tron; lines "[wwe2k14][probe] pf ...". Settles the particle texture handles, blend codes, sampler byte and a quad item.
+on_fail quit
+log bench: start scene s103_probe_particles2
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 324.bik2 1800
+log scene=tron_324
+mark 1 tron_324
+plugin load
+log s103: probe loaded (tron)
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Bryan's entrance step 15)
+mark 2 step15
+wait_frames 300
+plugin unload
+log bench: done
+quit

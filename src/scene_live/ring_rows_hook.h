@@ -111,6 +111,7 @@ class Tracker {
     e.call = call;
     e.keyed = KeyedPeek(model);   // advanced only when the entry is recorded (below)
     e.r5 = palette_ptr;
+    e.pad2 = table_.AltKeyOf(model);   // S103 CRR: a created arena's G+68..+112 slot names its pac key (0 for every base slot: normal records are unchanged)
     e.first_node = uint32_t(cur_.nodes.size());
     uint32_t flags = 0, field = 0;
     if (palette_ptr != 0 && read_word(model + kPaletteOffset, field) && field != palette_ptr) flags |= kRrForeignR5;
@@ -226,7 +227,9 @@ class Tracker {
         ++stats_.late;
       }
       bool full = true;
-      for (uint32_t g = 0; g < kRgOther; ++g) full = full && cur_.group_calls[g] == kExpectedCalls[g];
+      bool alt_ring = false;   // S103 CRR: a created arena's frame holds rows of the G+68..+112 slots (pad2 = their key): its posts are 8 calls
+      for (const RingRows& r : cur_.rows) alt_ring = alt_ring || r.pad2 != 0;
+      for (uint32_t g = 0; g < kRgOther; ++g) full = full && cur_.group_calls[g] == (g == kRgPost && alt_ring ? kExpectedAltPosts : kExpectedCalls[g]);
       if (full) ++stats_.frames_full;
       std::swap(ring_[closed_count_ % kRing], cur_);   // keeps every buffer's capacity (no reallocation of ~1000 rows under the mutex each frame)
       ++closed_count_;

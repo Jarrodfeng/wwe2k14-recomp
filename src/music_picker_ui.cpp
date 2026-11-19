@@ -6,7 +6,12 @@
 #include <rex/ui/imgui_drawer.h>
 
 #include "music_picker_imgui.h"
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()
 #include "renderer_adapter/overlay_drawer.h"
+#else
+#include "renderer_host/overlay_off.h"   // S103 AIM
+#endif
 
 #if defined(__ANDROID__)
 #include <jni.h>
@@ -72,6 +77,9 @@ PickerDialog* OpenPickerDialogWithView(rex::ui::ImGuiDrawer* drawer, PickerView*
 }
 
 std::function<GpuImage(int, int, const uint8_t*)> MakeOwnerDrawerUploader() {
+#if !WWE2K14_STREAM()
+  namespace rdr_overlay = rdr_overlay_off;   // S103 AIM: the stream-free build's drawer (the scene host's mailbox) makes the cover-art and menu-font textures
+#endif
   if (!rdr_overlay::g_drawer) return {};
   return [](int w, int h, const uint8_t* rgba) -> GpuImage {
     if (!rdr_overlay::g_drawer || w <= 0 || h <= 0) return {};

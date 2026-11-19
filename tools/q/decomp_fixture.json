@@ -1,0 +1,30 @@
+{
+ "note": "S103 QD. Hand-checked expectations for four real functions: field offsets, absolute addresses (lis+addi arithmetic done by hand from the listing), call targets, constants and one decoded float. Our annotations only (no game code). `plant` = a wrong value the checker must reject (decomp_selftest.py part C).",
+ "functions": [
+  {"func": "sub_825BA448",
+   "reads": [["in_r3+112", "u32"], ["in_r3+108", "f32"], ["0x8392DC74", "f32"]],
+   "exact_writes": [["in_r3+108", "f32"]],
+   "n_call_targets": 0,
+   "text": ["return r3=in_r3"],
+   "plant": {"read_offset": "in_r3+116"}},
+  {"func": "sub_82C2FEB8",
+   "reads": [["0x83930050", "u32"], ["in_r3+32", "u32"]],
+   "writes": [["[0x83930050]+140", "u32"]],
+   "call_targets": ["0x83596FB4", "0x83596FC4"],
+   "n_call_targets": 2,
+   "plant": {"call_target": "0x83596FB5"}},
+  {"func": "sub_828426D0",
+   "reads": [["0x839294DC", "u32"], ["ret#34+88", "u32"]],
+   "exact_writes": [],
+   "call_targets": ["0x8293EAE8", "0x83424808", "0x828424F0"],
+   "n_call_targets": 3,
+   "constants": ["0x1869F"],
+   "plant": {"constant": "0x1869E"}},
+  {"func": "sub_825BAA28",
+   "reads": [["0x8201F29C", "f32"], ["0x83929A68", "u32"]],
+   "call_targets": ["0x82BC2F80", "0x82294F20", "0x82BC1928"],
+   "constants": ["0x1B4E81B5", "600"],
+   "floats": [["0x8201F29C", "0.0016666667 (1/600)"]],
+   "plant": {"float": "0.0016666668"}}
+ ]
+}

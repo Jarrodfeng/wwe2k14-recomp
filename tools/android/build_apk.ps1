@@ -14,9 +14,14 @@
 # tools\android\signing_fingerprint.txt holds the key's SHA-256: an APK signed with another key cannot update an installed game,
 # and a player's only way out is to uninstall, which deletes the saves. With a fingerprint on file a missing key is never remade.
 # The finished APK goes through tools\android\check_apk.py.
-#   -Release (lane 280): a release APK. Implies -NoDebuggable and refuses (exit 2) unless the Android SDK install (outndroid\sdk-install-arm64\sdk_commit.txt,
+#   -Release (lane 280): a release APK. Implies -NoDebuggable and refuses (exit 2) unless the Android SDK install (out\android\sdk-install-arm64\sdk_commit.txt,
 #   stamped by build_sdk_android.ps1) was built from the SDK commit of the PC pin (tools\sdk_pins.json, last entry) with no tracked edits.
-param([switch]$Install, [switch]$NoDebuggable, [switch]$BundleDrivers, [switch]$Release)
+param([switch]$Install, [switch]$NoDebuggable, [switch]$BundleDrivers, [switch]$Release, [switch]$StreamFree, [switch]$Stream)
+# 2026-11-18: the player build is stream-free: -Release implies -StreamFree unless an explicit -Stream (the stream build, for a comparison), as build_all.ps1 does.
+if ($Stream -and $StreamFree) { 'build_apk.ps1: -Stream and -StreamFree together'; exit 2 }
+if ($Release -and -not $Stream) { $StreamFree = [switch]$true }
+# S103 ANS: -StreamFree packs out\android\game-arm64-off (build_game_android.ps1 -StreamFree) into wwe2k14-android-dev-streamfree.apk,
+# versionName + '-streamfree' (dev only: with -Release the stream-free APK keeps the plain name and versionName) (same package and key: it installs over the stream APK and keeps the saves).
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Stop'
 if ($Release) {
@@ -25,7 +30,7 @@ if ($Release) {
     $pinCommit = $pins[-1].sdk_commit
     $stampFile = "$($AndroidDirs.SdkInstall)\sdk_commit.txt"
     if (-not (Test-Path $stampFile)) {
-        "build_apk.ps1 -Release: no $stampFile (the Android SDK install predates the stamp). Rebuild: pwsh -File toolsndroiduild_sdk_android.ps1 -Run NAME [-AllowBranch wwe2k14-local]; the PC pin is $($pins[-1].id) = $pinCommit"; exit 2
+        "build_apk.ps1 -Release: no $stampFile (the Android SDK install predates the stamp). Rebuild: pwsh -File tools\android\build_sdk_android.ps1 -Run NAME [-AllowBranch wwe2k14-local]; the PC pin is $($pins[-1].id) = $pinCommit"; exit 2
     }
     $stamp = @{}; Get-Content $stampFile | ForEach-Object { if ($_ -match '^(\w+)=(.*)$') { $stamp[$Matches[1]] = $Matches[2] } }
     if ($stamp['commit'] -ne $pinCommit) {
@@ -49,7 +54,10 @@ $sdl = "$deps\thirdparty\rexglue-sdk-src\thirdparty\sdl3\android-project\app\src
 $ours = "$ProjectRoot\android\java"
 $manifest = "$ProjectRoot\android\AndroidManifest.xml"
 $obj = "$AndroidOut\apk-obj"
-$apk = "$($AndroidDirs.Apk)\wwe2k14-android-dev.apk"
+$gameDir = if ($StreamFree) { "$($AndroidDirs.Game)-off" } else { $AndroidDirs.Game }
+$suffixed = $StreamFree -and -not $Release   # a -Release APK never carries the -streamfree marker (dev test APKs only)
+$relVer = (Get-Content "$ProjectRoot\android\VERSION" -TotalCount 1).Trim()
+$apk = if ($Release) { "$($AndroidDirs.Apk)\wwe2k14-$relVer.apk" } elseif ($suffixed) { "$($AndroidDirs.Apk)\wwe2k14-android-dev-streamfree.apk" } else { "$($AndroidDirs.Apk)\wwe2k14-android-dev.apk" }
 $keystore = "$env:USERPROFILE\.android\wwe2k14-debug.jks"
 $fingerprintFile = "$ProjectRoot\tools\android\signing_fingerprint.txt"
 # Session 95: the same sum as check_apk.py. 18 was the last hand-set code; a lower one fails to install as an update.
@@ -63,13 +71,13 @@ $libs = [ordered]@{
     'libc++_shared.so'   = "$Llvm\..\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so"
     'librexruntime.so'   = (In "$($AndroidDirs.SdkInstall)\lib\librexruntime.so")
     'librexgpu-xenos.so' = (In "$($AndroidDirs.SdkInstall)\lib\librexgpu-xenos.so")
-    'libmain.so'         = (In "$($AndroidDirs.Game)\libmain.so")
+    'libmain.so'         = (In "$gameDir\libmain.so")
     'liblauncher.so'     = "$AndroidOut\launcher-arm64\liblauncher.so"
     # Session 98 (Arena Viewer phone port, stage C): ViewerActivity's library, built with the launcher (build_launcher.ps1 -Target android).
     'libviewer.so'       = "$AndroidOut\launcher-arm64\libviewer.so"
     # Session 72 (Android drivers, src\android_driver.h): libadrenotools' hook libraries, built with the game.
-    'libhook_impl.so'    = (In "$($AndroidDirs.Game)\adrenotools\src\hook\libhook_impl.so")
-    'libmain_hook.so'    = (In "$($AndroidDirs.Game)\adrenotools\src\hook\libmain_hook.so")
+    'libhook_impl.so'    = (In "$gameDir\adrenotools\src\hook\libhook_impl.so")
+    'libmain_hook.so'    = (In "$gameDir\adrenotools\src\hook\libmain_hook.so")
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
 # Session 72: the custom Vulkan drivers built from source (tools\android\drivers\build_drivers.ps1); optional.
@@ -129,7 +137,7 @@ try {
 } finally { $icon.Dispose() }
 Run 'aapt2 compile' { & "$BuildTools\aapt2.exe" compile --dir "$obj\res" -o "$obj\res.zip" }
 $aaptArgs = @('link', '--manifest', $manifest, '-I', $AndroidJar, '--min-sdk-version', "$MinApi",
-              '--target-sdk-version', "$ApiLevel", '--version-code', "$versionCode", '--version-name', $versionName,
+              '--target-sdk-version', "$ApiLevel", '--version-code', "$versionCode", '--version-name', $(if ($suffixed) { "$versionName-streamfree" } else { $versionName }),
               '-A', "$obj\assets", '-R', "$obj\res.zip", '--auto-add-overlay',
               '-o', "$obj\base.apk")
 if (-not $NoDebuggable) { $aaptArgs += '--debug-mode' }
@@ -168,7 +176,7 @@ if (-not (Test-Path $keystore)) {
 Run 'apksigner' { & "$BuildTools\apksigner.bat" sign --ks $keystore --ks-pass pass:android --ks-key-alias wwe2k14-debug `
     --out $apk "$obj\aligned.apk" }
 # Session 95: the manifest's flags, the version and the key's fingerprint, read back from the APK (prints the SHA-256).
-& py "$ProjectRoot\tools\android\check_apk.py" $apk --build-tools $BuildTools
+& py "$ProjectRoot\tools\android\check_apk.py" $apk --build-tools $BuildTools $(if ($Release) { '--release' }) $(if ($Release -and -not $Stream) { '--stream-free' })
 if ($LASTEXITCODE -ne 0) { "build_apk.ps1: the APK check failed (exit $LASTEXITCODE)"; exit 1 }
 "apk: {0:N1} MB  {1}  ({2} s)" -f ((Get-Item $apk).Length / 1MB), $apk, [int]((Get-Date) - $t0).TotalSeconds
 } finally { Exit-RunLock $lock }

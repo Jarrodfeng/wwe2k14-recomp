@@ -1,0 +1,14 @@
+{
+ "owner": "S103 lane H: the game side's scene skips (src/renderer_game/scene_skip_core.h, src/scene_live/scene_skip.h + scene_skip_nodes.h, the marked first lines of the existing hooks in draw_origin.h / own_node_hook.h / crowd_hooks.h / bake_skip_hook.h). docs/renderer/SCENE_SKIPS.md. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "match", "side": "game update thread (the scene tasks' draw halves, R26:41)", "ms": [0, 0],
+           "basis": "no saving claimed by this lane: the skips are COMPILED, NOT RUN; they act only under --wwe2k14_rdr_scene=2 once lane A's inputs are stamped. The measured ceilings are R26:41 (SCENE_SKIPS.md section 3 column ms)."},
+ "note": "unit = decision wiring (13 hooks, one stamp per frame, two threads, hold, missing input, mode 0/1 never skip; six planted twins) + wiring lints; cut = the emulated cut on brock_losswin (fview --draw-drop, census; three planted twins); syntax = the game TU (main.cpp) compiled with this worktree's src first.",
+ "checks": [
+  {"name": "s103_H.unit", "cmd": ["py", "-I", "tools/renderer/scene_skip_unit.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/renderer_game/scene_skip_core.h", "src/renderer_game/scene_frame.h", "src/renderer_game/node_switch.h", "src/scene_live/scene_skip.h", "src/scene_live/scene_skip_nodes.h", "src/scene_live/own_node_hook.h", "src/scene_live/crowd_hooks.h", "src/scene_live/bake_skip_hook.h", "src/draw_origin.h", "tools/renderer/scene_skip_unit.cpp", "tools/renderer/scene_skip_unit.py"]},
+  {"name": "s103_H.syntax", "cmd": ["pwsh", "-NoProfile", "-File", "tools/harness/wt_syntax_check.ps1", "-Worktree", ".", "-Files", "main.cpp"], "timeout_s": 1200, "parallel_safe": true, "needs": ["out/build/win-amd64-release"],
+   "affects": ["src/scene_live/scene_skip.h", "src/scene_live/scene_skip_nodes.h", "src/renderer_game/scene_skip_core.h", "src/draw_origin.h", "src/scene_live/own_node_hook.h", "src/scene_live/crowd_hooks.h", "src/scene_live/bake_skip_hook.h"]},
+  {"name": "s103_H.cut", "cmd": ["py", "-I", "tools/scene/scene_skip_cut.py", "--selftest"], "timeout_s": 900, "needs": ["out/captures/brock_losswin"], "exes": ["out/renderer/dev/fview.exe"],
+   "affects": ["tools/scene/scene_skip_cut.py", "docs/renderer/SCENE_SKIPS.md"]}
+ ]
+}

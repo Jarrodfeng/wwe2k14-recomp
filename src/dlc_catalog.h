@@ -359,6 +359,22 @@ class StfsPackage {
     return nullptr;
   }
 
+  // S103 DLW: up to n bytes of the file from `off` (block by block, bounds-checked); the count read, 0 on a failure or past the end.
+  size_t ReadRange(const File& f, uint64_t off, uint8_t* dst, size_t n) {
+    if (off >= f.length) return 0;
+    n = size_t(std::min<uint64_t>(n, f.length - off));
+    size_t done = 0;
+    while (done < n) {
+      const uint64_t pos = off + done;
+      const size_t bi = size_t(pos / kBlock), in_block = size_t(pos % kBlock);
+      if (bi >= f.block_offsets.size()) return done;
+      const size_t k = std::min<size_t>(kBlock - in_block, n - done);
+      if (!ReadAt(f.block_offsets[bi] + in_block, dst + done, k)) return done;
+      done += k;
+    }
+    return done;
+  }
+
   bool Read(const File& f, std::vector<uint8_t>& out, size_t max_bytes) {
     if (f.length > max_bytes) return false;
     out.resize(f.length);

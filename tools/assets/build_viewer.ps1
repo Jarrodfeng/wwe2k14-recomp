@@ -80,6 +80,7 @@ if ($Backend -eq 'rdr') {
   $srcs += @(Join-Path $repo 'src\renderer_scene\char_effects.cpp')  # S101 lane 13: the wrestlers' effects, skin chunks, the ambient cube
   $srcs += @(Join-Path $repo 'src\renderer_scene\shader_reload.cpp')  # S101 lane24: live shader reload (dev only)
   $srcs += @(Join-Path $repo 'src\renderer_scene\post_pass.cpp')  # S101 lane 34: the post pass (depth of field, haze, bloom, glare)
+  $srcs += @(Join-Path $repo 'src\renderer_scene\draw_lists.cpp')  # S103 lane G: front_end.cpp keeps its draw lists in it
 }
 # S101 lane 14: the `record` command (scene_record_out.cpp + the record file code of src\renderer_scene); PC only (the phone build does not define it).
 $vdefs = $vdefs + '-DWWE_VIEWER_RECORD'

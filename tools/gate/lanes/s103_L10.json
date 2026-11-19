@@ -1,0 +1,24 @@
+{
+ "owner": "S103 lane L10 (the arena's vertex-LM class and the match's real light-map use): src/assets/jboy.h + asset_model.h (Material::vertex_lm, record word +0x90), src/renderer_scene/front_end.cpp + front_end.h (ChooseEffect vlm_pick, BindMaterial lm_mode, the vertex slot 16 feed, the crowd's vertex-page pair, L10PlantOld), tools/scene/l10_check.py, tools/arena/l10_rule.py + arena4_vlm.json. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Run 27's case (a match, arena 4): the game's stream draws the arena with the plain yBG_Default family (slots (0, 16) for the vertex-LM class, (0) for the rest, never slot 13); ours must draw the same classes (208 vertex-LM draws, 0 with a pixel page at frame 641) and the mesh record word +0x90 rule must match the stream table (251 / 251). The planted twin WWE_RDR_L10_PLANT=1 (the L5 per-pixel page for all) must fail l10_check. The structure ratios (post on 1.60 / 1.35 / 1.86) are reported, not moved by this lever [U].",
+ "checks": [
+  {"name": "s103_L10.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_L10.rule", "cmd": ["py", "-I", "tools/arena/l10_rule.py"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["src/assets/jboy.h", "tools/arena/l10_rule.py", "tools/arena/arena4_vlm.json"]},
+  {"name": "s103_L10.plant_rule", "cmd": ["py", "-I", "tools/arena/l10_rule.py", "--plant", "--expect-fail", "1"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["src/assets/jboy.h", "tools/arena/l10_rule.py", "tools/arena/arena4_vlm.json"]},
+  {"name": "s103_L10.draw", "cmd": ["py", "-I", "tools/scene/l10_check.py", "--case", "out/s103/run27_case.zip"], "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "tools/scene/l10_check.py"]},
+  {"name": "s103_L10.plant_old", "cmd": ["py", "-I", "tools/scene/l10_check.py", "--case", "out/s103/run27_case.zip", "--plant", "--expect-fail", "NO VERTEX-LM DRAWS"], "timeout_s": 1500,
+   "needs": ["out/s103/run27_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "tools/scene/l10_check.py"]},
+  {"name": "s103_L10.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h"]},
+  {"name": "s103_L10.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_L10.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."], "timeout_s": 600, "needs": ["generated/default"],
+   "affects": ["src/renderer_scene/*"]}
+ ]
+}

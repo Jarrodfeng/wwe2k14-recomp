@@ -1,11 +1,15 @@
 // Builds a Frame from calls. State tables are de-duplicated as they are filled. All storage is reused from frame to frame.
 #pragma once
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include "api.h"
+#include "../renderer_scene/crowd_fast.h"  // S103 P7 tween: FlatU64Map for the own blend occurrence counts
 #include "colour_cuts.h"  // S102 G10
 #include "arena_fragments.h"  // S102 R18-B3
 #include "frame_switches.h"
@@ -14,10 +18,59 @@
 
 namespace rdr {
 
+// S103 P7 tween (review F8): the top bit of a draw's 64-bit blend key says WHO keyed it: 1 = an own draw (FrameBuilder::TagBlend: the host, the scene front-end), 0 = the stream binder (BlendRanges). The two can never collide.
+constexpr uint64_t kOwnBlendKeyBit = 1ull << 63;
+
+// S103 PVR: every Begin gets a new, process-unique epoch (a frame's own geometry blob is valid only inside it): a front-end that caches a ring offset asks Epoch() before reusing it.
+inline std::atomic<uint64_t> g_fb_epoch_seq{0};
+
+// S103 PF2: the frame's geometry blob. Like std::vector<uint8_t> except growth does NOT zero the new bytes (vector::resize value-initialises: a zero fill of every posed block before the copy
+// overwrote it, ~10 MB a frame on the Surface, docs\research\s103\RCP.md section 1). Capacity is kept by clear(). Only the alignment gap in front of a block is zeroed (the blob stays deterministic).
+class GeometryBlob {
+ public:
+  GeometryBlob() = default;
+  GeometryBlob(const GeometryBlob& o) { Assign(o); }
+  GeometryBlob& operator=(const GeometryBlob& o) { if (this != &o) Assign(o); return *this; }
+  GeometryBlob(GeometryBlob&& o) noexcept : data_(std::move(o.data_)), size_(o.size_), cap_(o.cap_) { o.size_ = o.cap_ = 0; }
+  GeometryBlob& operator=(GeometryBlob&& o) noexcept { data_ = std::move(o.data_), size_ = o.size_, cap_ = o.cap_, o.size_ = o.cap_ = 0; return *this; }
+  void clear() { size_ = 0; }
+  size_t size() const { return size_; }
+  const uint8_t* data() const { return data_.get(); }
+  // Reserves `bytes` aligned to `align` (a power of two) and returns the pointer; `offset` is the block's start. The block's own bytes are UNINITIALISED: the caller fills all of them.
+  uint8_t* Reserve(uint32_t bytes, uint32_t align, uint32_t& offset) {
+    const size_t at = (size_ + align - 1) & ~size_t(align - 1);
+    const size_t end = at + bytes;
+    if (end > cap_) Grow(end);
+    if (at > size_) std::memset(data_.get() + size_, 0, at - size_);
+    size_ = end;
+    offset = uint32_t(at);
+    return data_.get() + at;
+  }
+
+ private:
+  void Grow(size_t need) {
+    size_t cap = std::max<size_t>(cap_ + cap_ / 2, need);
+    cap = (cap + 4095) & ~size_t(4095);
+    std::unique_ptr<uint8_t[]> next(new uint8_t[cap]);
+    if (size_) std::memcpy(next.get(), data_.get(), size_);
+    data_ = std::move(next), cap_ = cap;
+  }
+  void Assign(const GeometryBlob& o) {
+    size_ = 0;
+    if (o.size_ > cap_) Grow(o.size_);
+    if (o.size_) std::memcpy(data_.get(), o.data_.get(), o.size_);
+    size_ = o.size_;
+  }
+  std::unique_ptr<uint8_t[]> data_;
+  size_t size_ = 0, cap_ = 0;
+};
+
 class FrameBuilder {
  public:
   void Begin(uint64_t tick) {
     tick_ = tick;
+    direct_record_ = 0;   // S103 PF2
+    epoch_ = g_fb_epoch_seq.fetch_add(1, std::memory_order_relaxed) + 1;
     dlss_ = DlssInputs{};  // S10b
     const bool fast = g_fb_fast.load(std::memory_order_relaxed);  // S102 T4: read every frame, latched for this one
     const bool plant = fast && g_fb_fast_plant.load(std::memory_order_relaxed);  // TEST ONLY
@@ -46,6 +99,7 @@ class FrameBuilder {
     samplers_.Clear(fast, plant);
     texture_sets_.Clear(fast, plant);
     blend_ranges_.clear();
+    if (blend_tags_) blend_occ_.Reset(256);   // S103 P7 tween: the occurrence counts of own blend keys are per frame
     constants_.clear();
     geometry_.clear();
   }
@@ -55,6 +109,12 @@ class FrameBuilder {
   void Draw(const DrawOp& op) {
     Push(OpKind::Draw, draws_, op);
     if (group_min_run_) draw_groups_.push_back(group_cur_);   // S102 R24-F: the draw's group = the one set last (the binder sets it per source op, and per draw in BindDraw)
+  }
+  // S103 GSTP: a draw with its OWN group (no sticky state: an unlabelled draw can never inherit the previous draw's group). The scene front-end, crowd, particles, 2D rows, maps and post
+  // use this one (lint tools\scene\gstp_lint.py: every .Draw( in src\renderer_scene carries a group); the stream binder keeps the sticky SetGroup + Draw(op).
+  void Draw(const DrawOp& op, uint8_t group) {
+    Push(OpKind::Draw, draws_, op);
+    if (group_min_run_) draw_groups_.push_back(group);
   }
   // S102 R24-F: the group the NEXT Draw is tagged with (group_stamps.h); a no-op cost when the switch is off (one compare in Draw).
   bool GroupsOn() const { return group_min_run_ != 0; }
@@ -86,12 +146,38 @@ class FrameBuilder {
     return constants_.data() + at;
   }
   bool PackOnce() const { return pack_once_; }  // T5: latched in Begin, the same for the whole frame
-  uint32_t PushGeometry(const void* data, uint32_t bytes, uint32_t align = 4) { return Append(geometry_, data, bytes, align); }
+  uint32_t PushGeometry(const void* data, uint32_t bytes, uint32_t align = 4) {   // S103 PF2: one memcpy, no zero fill of the block
+    uint32_t offset = 0;
+    uint8_t* at = geometry_.Reserve(bytes, align, offset);
+    if (bytes) std::memcpy(at, data, bytes);
+    return offset;
+  }
+  void NoteDirectRecord(uint64_t serial_plus_1) { direct_record_ = serial_plus_1; }   // S103 PF2: a draw of this frame reads a host-visible vertex copy; the Render serial at Record, + 1
+  uint32_t GeometryBytes() const { return uint32_t(geometry_.size()); }
+  uint32_t ConstantsBytes() const { return uint32_t(constants_.size()); }   // S103 PVR: with GeometryBytes, how much of the frame ring this frame has used so far   // S103 PVR: what this frame's geometry blob holds so far (a producer with a budget asks before it pushes)
+  uint64_t Epoch() const { return epoch_; }   // S103 PVR: this Begin's process-unique id (never 0 after a Begin)
   // Returns the index for DrawOp::blend_first.
   uint32_t PushBlendRanges(const BlendRange* ranges, uint32_t count) {
     const uint32_t first = uint32_t(blend_ranges_.size());
     blend_ranges_.insert(blend_ranges_.end(), ranges, ranges + count);
     return first;
+  }
+
+  // S103 P7 (the scene host's decoupled 120 without the stream): an OWN draw (the scene front-end, the crowd, the particles) is tagged so rdr::TickBlender finds it again in the previous tick.
+  // The stream path's keys come from the binder (BlendRanges); the host has no binder, so the drawer that makes the draw gives it a base key (what it is: object id, asset, mesh, shader pair) and the
+  // ranges of its vertex constants the shader build marked interpolable (fx::ConstantRange::blend: transforms, camera, bones). The Nth draw of one base key in a frame gets occurrence N (the binder's rule).
+  // Off unless the owner switches it on (SetBlendTags): the stream path never does, so nothing here costs a frame there.
+  void SetBlendTags(bool on) { blend_tags_ = on; }
+  bool BlendTagsOn() const { return blend_tags_; }
+  void TagBlend(DrawOp& op, const BlendRange* ranges, uint32_t count, uint64_t base_key) {
+    if (!blend_tags_ || !count) return;
+    const uint32_t occurrence = blend_occ_.Bump(base_key);
+    uint64_t key = (base_key ^ occurrence) * 0x100000001b3ull;
+    key |= kOwnBlendKeyBit;   // (never 0, never a binder key)
+    op.blend_first = PushBlendRanges(ranges, count);
+    op.blend_count = uint16_t(count);
+    op.blend_key_low = uint32_t(key);
+    op.blend_key_high = uint32_t(key >> 32);
   }
 
   // Settings parity S10b: this frame's DLSS inputs (binder.h, at the present).
@@ -110,6 +196,7 @@ class FrameBuilder {
   Frame Finish() const {
     Frame frame;
     frame.tick = tick_;
+    frame.direct_record = direct_record_;   // S103 PF2
     frame.ops = MakeSpan(ops_);
     frame.targets = MakeSpan(targets_);
     frame.clears = MakeSpan(clears_);
@@ -123,7 +210,7 @@ class FrameBuilder {
     frame.texture_sets = MakeSpan(texture_sets_.items);
     frame.blend_ranges = MakeSpan(blend_ranges_);
     frame.constants = MakeSpan(constants_);
-    frame.geometry = MakeSpan(geometry_);
+    frame.geometry = Span<uint8_t>{geometry_.data(), uint32_t(geometry_.size())};
     frame.dlss = dlss_;  // S10b
     frame.out_cap_h = out_cap_h_, frame.out_bilinear = out_bilinear_;  // S102 G2
     frame.present_fetch = present_fetch_;  // S102 R24-A
@@ -289,6 +376,8 @@ class FrameBuilder {
     return uint32_t(offset);
   }
 
+  uint64_t epoch_ = 0;   // S103 PVR
+  uint64_t direct_record_ = 0;   // S103 PF2
   bool pack_once_ = false;  // S102 T5: this frame's mode (Begin)
   uint64_t tick_ = 0;
   std::vector<Op> ops_;
@@ -303,8 +392,10 @@ class FrameBuilder {
   Dedup<SamplerDesc> samplers_;
   Dedup<TextureSet> texture_sets_;
   std::vector<BlendRange> blend_ranges_;
+  rdr_scene::fast::FlatU64Map blend_occ_;   // S103 P7: TagBlend's occurrence per base key (this frame)
+  bool blend_tags_ = false;
   std::vector<uint8_t> constants_;
-  std::vector<uint8_t> geometry_;
+  GeometryBlob geometry_;   // S103 PF2: no zero fill on growth
 };
 
 }  // namespace rdr

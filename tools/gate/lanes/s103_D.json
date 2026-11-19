@@ -1,0 +1,8 @@
+{
+ "owner": "S103 lane D: the crowd from the scene record alone (landing 1): src/renderer_scene/live_crowd.* (the StageHook), FrontEnd::DrawInstanced (front_end.*, marked S103 D), tools/scene/crowd_live_rig.cpp + build_crowd_live.ps1 + crowd_live_check.py; docs/renderer/LIVE_CROWD.md. 0 game runs, headless.",
+ "note": "needs the brock_losswin capture (scene records) and the game files (main checkout). The check builds the rig first (tools/scene/build_crowd_live.ps1, shares out/tools/rsc_obj with build_rsc.ps1), then draws the crowd of frames 20 / 110 / 200 from the record alone with validation on: counts equal the record's, instanced draws <= 400, floor family counted, runs / stored pose / async loading proved, three frames in one process equal their single runs, and the planted twins (palettes dropped, card pictures black, card bake from behind, instancing collapsed, kept set ignored) fail their bars. Sheets go to out/s103/D of the main checkout. Not a game-picture equality check: pictures are judged on the sheet.",
+ "checks": [
+  {"name": "s103_D.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_crowd_live.ps1"], "timeout_s": 900},
+  {"name": "s103_D.proof", "cmd": ["py", "-I", "tools/scene/crowd_live_check.py"], "timeout_s": 600, "needs": ["out/captures/brock_losswin", "game_data/extracted"], "programs": [{"path": "out/tools/crowd_live_rig.exe", "sources": ["src/renderer_scene/live_crowd.*", "src/renderer_scene/front_end.*", "src/assets/crowd_body.*", "src/renderer/**", "tools/scene/crowd_live_rig.cpp"]}], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
+ ]
+}

@@ -21,6 +21,7 @@
  "checks": [
   {
    "name": "s102_l2.proof",
+   "retired": "Jarrod S103 2026-11-17: the S101-capture lanes are retired; its inputs (S101 captures / swept scratch) no longer exist",
    "cmd": ["py", "-I", "tools/shadow/plane_bake_check.py"],
    "timeout_s": 3600,
    "needs": ["out/lane86/bryan/capture/images.bin", "game_data/extracted"],

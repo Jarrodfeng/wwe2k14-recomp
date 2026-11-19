@@ -8,7 +8,11 @@
 // (read through the table every frame) or a start-time read that happens after OnPreSetup (prelight_compute: the compute pipelines are made at
 // renderer start). --wwe2k14_s102_bundle3=false gives v0.3.2's defaults.
 #pragma once
+#include <string>
+
 #include <rex/cvar.h>
+
+#include "keep_stream.h"   // S103 SLV2: WWE2K14_STREAM()
 
 // X("cvar name", "value")
 #define WWE2K14_BUNDLE3_LEVERS(X) \
@@ -60,19 +64,48 @@
   X("wwe2k14_rdr_member_cut", "true") \
   X("wwe2k14_rdr_record_skip", "7")
 
+// S103 SLV2 (Opus review of lane SLV: the two levers were bundle lines for weeks while the stream-free build defined no such cvar, so the bundle set nothing there, silently): the levers the STREAM-FREE build
+// itself reads (cvars defined in start_settings.cpp / another unit the stream-free exe compiles, stored once at start). Every other lever is read by the command stream's binder only (reader.h's table) and is
+// legitimately absent when the stream is left out. tools\bundle3\lint.py fails a name here that is not a bundle lever or not defined in a unit of the stream-free build; Apply() below reports a name from
+// this list (or, in the stream build, ANY name) that the cvar registry does not know, loudly (g_missing).
+#define WWE2K14_BUNDLE3_OFF_LEVERS(X) \
+  X("wwe2k14_rdr_combine_lite") \
+  X("wwe2k14_rdr_skip_blank_plane") \
+  X("wwe2k14_rdr_stencil_dead")
+
 // Correctness fixes shipped with the bundle (not measured speed levers; BUNDLE3.md lists them apart).
 #define WWE2K14_BUNDLE3_FIXES(X) \
   X("wwe2k14_rdr_run_end_keep", "true")
 
 namespace wwe2k14::bundle3 {
 
-// Sets every bundle-3 switch still at its default; returns how many were set (levers + fixes apart).
+// Names Apply() could not set because the cvar registry does not know them AND this build must (the stream build: every lever; the stream-free build: the WWE2K14_BUNDLE3_OFF_LEVERS list), comma
+// separated, and how many levers the stream-free build does not have (stream-only: expected). The caller (wwe2k14_app.h) logs the first as an ERROR, so a lever whose cvar is missing is never silent.
+inline std::string g_missing;
+inline int g_stream_only_absent = 0;
+
+inline bool IsOffLever(const char* name) {
+#define WWE2K14_B3_OFF_CMP(n) if (std::string(name) == n) return true;
+  WWE2K14_BUNDLE3_OFF_LEVERS(WWE2K14_B3_OFF_CMP)
+#undef WWE2K14_B3_OFF_CMP
+  return false;
+}
+
+// Sets every bundle-3 switch still at its default; returns how many were set (levers + fixes apart). A set that the registry refuses (an unknown name) is not counted (it used to be).
 inline void Apply(int& levers, int& fixes) {
   levers = fixes = 0;
+  g_missing.clear();
+  g_stream_only_absent = 0;
 #define WWE2K14_B3_SET(name, value, counter)                                                         \
   if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) {                              \
-    rex::cvar::SetFlagByName(name, value);                                                           \
-    ++counter;                                                                                       \
+    if (rex::cvar::SetFlagByName(name, value)) {                                                     \
+      ++counter;                                                                                     \
+    } else if (WWE2K14_STREAM() || IsOffLever(name)) {                                               \
+      g_missing += g_missing.empty() ? "" : ",";                                                     \
+      g_missing += name;                                                                             \
+    } else {                                                                                         \
+      ++g_stream_only_absent;                                                                        \
+    }                                                                                                \
   }
 #define WWE2K14_B3_LEVER(name, value) WWE2K14_B3_SET(name, value, levers)
 #define WWE2K14_B3_FIX(name, value) WWE2K14_B3_SET(name, value, fixes)

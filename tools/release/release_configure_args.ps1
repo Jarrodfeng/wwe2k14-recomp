@@ -6,8 +6,12 @@ function ConvertTo-CMakePath([string]$p) { return ($p -replace '\\', '/') }   # 
 
 # -Wide: the AVX2 exe's folder. -Profdata F (full path, may be empty), -Narrow: profile for the guest code only. -OmitExplicit: PLANTED FAULT for the
 # test (drops the explicit empty/OFF values, the way the first version did).
-function Get-ReleaseConfigureArgs([switch]$Wide, [string]$Profdata = '', [switch]$Narrow, [switch]$OmitExplicit) {
+function Get-ReleaseConfigureArgs([switch]$Wide, [string]$Profdata = '', [switch]$Narrow, [switch]$OmitExplicit, [switch]$KeepStream) {
     $a = @()
+    # 2026-11-18 (Jarrod, DECISIONS last line): the PLAYER build is stream-free (preset win-amd64-release-off). Explicit on every configure, so a folder
+    # configured with KEEP_STREAM=ON earlier is reconfigured, never reused silently. -KeepStream: PLANTED FAULT for the test (the stream build).
+    if ($KeepStream) { $a += '-DWWE2K14_KEEP_STREAM=ON'; $a += '-DWWE2K14_KEEP_STREAM_RUN=OFF' }
+    else { $a += '-DWWE2K14_KEEP_STREAM=OFF'; $a += '-DWWE2K14_KEEP_STREAM_RUN=ON' }
     $isa = if ($Wide) { 'x86-64-v3' } else { '' }
     if ($Wide -or -not $OmitExplicit) { $a += "-DWWE2K14_GUEST_ISA=$isa"; $a += "-DWWE2K14_OURS_ISA=$isa" }
     if ($Profdata) {

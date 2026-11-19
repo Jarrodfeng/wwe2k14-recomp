@@ -209,11 +209,8 @@ bool CreateDevice(HWND hwnd) {
 
 // Session 67: KEYBOARD CONTROLS' "press a key". While it waits, the window takes key presses before ImGui (so the
 // key does not also move ImGui's focus): the scan code (the key's position, what the game reads) and the modifiers.
-struct KeyCapture {
-  bool active = false, got = false;
-  WPARAM vk = 0;
-  LPARAM lp = 0;
-  bool shift = false, ctrl = false, alt = false;
+struct KeyCapture : keys::CaptureState {  // (the state machine is keyboard_binds.h: Shift alone, Shift+Up, ...)
+  bool active = false;
 };
 KeyCapture g_key_capture;
 
@@ -223,13 +220,13 @@ std::atomic<bool> g_music_busy{false}, g_close_asked{false};
 LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   if (g_key_capture.active) {
     if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && !(wp == VK_F4 && GetKeyState(VK_MENU) < 0)) {  // Alt+F4 closes
-      if (!g_key_capture.got && !keys::IsModifierKey(wp)) {
-        g_key_capture.got = true, g_key_capture.vk = wp, g_key_capture.lp = lp;
-        g_key_capture.shift = GetKeyState(VK_SHIFT) < 0, g_key_capture.ctrl = GetKeyState(VK_CONTROL) < 0;
-        g_key_capture.alt = GetKeyState(VK_MENU) < 0;
-      }
+      keys::CaptureKeyDown(g_key_capture, wp, lp, GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0,
+                           GetKeyState(VK_MENU) < 0, uint32_t(GetMessageTime()));
       return 0;
     }
+    if (msg == WM_KILLFOCUS || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE))
+      keys::CaptureFocusLost(g_key_capture);  // (Alt+Tab: the Alt must not bind, its release goes to another window)
+    if (msg == WM_KEYUP || msg == WM_SYSKEYUP) keys::CaptureKeyUp(g_key_capture, wp);  // (a modifier let go alone)
     if (msg == WM_CHAR || msg == WM_SYSCHAR) return 0;  // (key ups go on to ImGui: it saw no down, nothing sticks)
   }
   if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return true;
@@ -3267,6 +3264,13 @@ class App {
       files.emplace_back(name, text);
       const std::string number = name.substr(8, name.size() - 8 - 4);  // wwe2k14_NNN.log
       about += "- " + name + "\n" + MatchCardsText(text);
+      {  // S103: the run's stack dump (loader stall / hang / crash: logs\flight_NNN.txt), when the game wrote one
+        const std::string flight = ReadTail(paths_.logs / ("flight_" + number + ".txt"), 4u << 20);
+        if (!flight.empty()) {
+          files.emplace_back("flight_" + number + ".txt", Redact(flight));
+          about += "  stack dump: flight_" + number + ".txt\n";
+        }
+      }
       for (const auto& e : fs::directory_iterator(captures, ec)) {
         const std::string c = PathStr(e.path().filename());
         if (c.rfind(number + "_scene_", 0) == 0 && Lower(PathStr(e.path().extension())) == ".jpg") {
@@ -6061,11 +6065,11 @@ class App {
     OptionToggle("DEPTH OF FIELD", s.depth_of_field, true,
                  "The blur on the background behind the wrestlers. Off also removes it from Photo mode.");
     // Session 72's POST EFFECTS row (ORIGINAL / ENHANCED) removed in Session 100 (Jarrod 2026-11-11 08:1x: "we should simply remove those").
-    // Session 100 settings parity S3 (Jarrod 08:1x, a player's request): the 30 Years of WrestleMania mode's old-film filter (shake,
-    // flicker, grain), --wwe2k14_film_grain; the new renderer draws the scene clean when off.
-    OptionToggle("FILM GRAIN (30 YEARS)", s.film_grain, true,
-                 "The old-film look on 30 Years of WrestleMania matches: grain, flicker and a slight shake. Off shows those "
-                 "matches clean. Applies with the new renderer.");
+    // Session 100 settings parity S3 (Jarrod 08:1x, a player's request), widened in S103 VTG2 (Jarrod 2026-11-18: one toggle for all): the retro
+    // WrestleMania arenas' old-footage look (sepia + darkening + film grain + dark edges), --wwe2k14_film_grain (the key keeps its name; old files work).
+    OptionToggle("VINTAGE LOOK (RETRO ARENAS)", s.film_grain, true,
+                 "The old-footage look of the retro WrestleMania arenas (30 Years of WrestleMania and any match in those "
+                 "arenas): sepia colour, darkening, film grain and dark edges. Off shows the arena clean.");
     // Session 33: anisotropic filtering (the game always had 4x forced by the runtime; 8x / 16x sharpen floors,
     // ramps and mats seen at an angle). Changes at once from the game's own GRAPHICS screen too. Session 80 (Jarrod):
     // STANDARD is the game's own filtering, no longer the forced 4x. Session 85: after POST EFFECTS (Session 100: FILM GRAIN).
@@ -6321,6 +6325,11 @@ class App {
     SaveKeys(BindTitle(b) + " = " + keys::Display(token) + ". Saved.");
     if (!also.empty()) {
       keys_status_ = keys::Display(token) + " is also " + also + ": it presses both.", keys_status_warn_ = true;
+    } else if (const std::string warn = keys::ChordWarning(keys_, token, b, [](int i) { return BindTitle(i); });
+               !warn.empty()) {
+      // A bare Shift / Control / Alt is a button now; chords that use it keep working (the default D-pad is Shift +
+      // the arrow keys) and so do the plain binds on their keys.
+      keys_status_ = warn, keys_status_warn_ = true;
     } else if (token.size() >= 2 && token[0] == 'F' && std::isdigit(static_cast<unsigned char>(token[1]))) {
       keys_status_ += " (The game's own tools use some F-keys too: F4 opens its settings.)";
     }

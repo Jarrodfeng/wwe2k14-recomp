@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane QV (three agents asked for it): `q vtable ADDR [--slot K]` lists a vtable's slots from the game image (index, data word, target, db name, decomp --fields line) and `q vtable --of FUNC` the reverse (tools/q/qvtable.py, hook in tools/q/q.py). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. qvtable_selftest.py: A) synthetic fixture (invented in-memory index): table ends at the first non-function word, --of places the word in its run; B) real data: slot 2 of 0x8206AF90 = sub_82BD3AB8, slot 15 and slot 2 of 0x8206C7A0, --of sub_82BD3AB8 lists 0x8206AF90 slot 2 (a machine without the q index SKIPs B); C) planted wrong-slot / wrong-table twins must be REJECTED. Exit 1 = a check failed, 2 = a planted twin was not caught.",
+ "checks": [
+  {"name": "qv_vtable.selftest", "cmd": ["py", "-I", "tools/q/qvtable_selftest.py"], "timeout_s": 300,
+   "needs": ["generated/default", "out/harness/index/image.bin"],
+   "affects": ["tools/q/qvtable.py", "tools/q/qvtable_selftest.py", "tools/q/q.py", "tools/q/qdecomp.py"]}
+ ]
+}

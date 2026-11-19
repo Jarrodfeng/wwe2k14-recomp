@@ -14,6 +14,7 @@ struct Allocation {
   VkDeviceSize size = 0;
   uint8_t* mapped = nullptr;  // null unless the memory is host-visible
   int block = -1;
+  int type = -1;   // S103 PF2: the Vulkan memory type index (the host-buffer log line names its flags)
 };
 
 class Allocator {

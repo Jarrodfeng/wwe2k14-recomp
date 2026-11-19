@@ -27,6 +27,7 @@ CMakeUserPresets.json
 logs/
 *.log
 !tools/board/fixtures/**/*.log
+!tools/surface/fixtures/**/*.log
 .vs/
 .vscode/
 __pycache__/

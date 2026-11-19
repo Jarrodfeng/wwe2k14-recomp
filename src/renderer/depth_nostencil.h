@@ -22,7 +22,7 @@
 namespace rdr {
 
 // --wwe2k14_rdr_stencil_dead (default OFF, PerFrame: live.cpp stores it before Render). fview / rplay: --stencil-dead 1.
-inline std::atomic<bool> g_stencil_dead{false};
+inline std::atomic<bool> g_stencil_dead{false}; // BOTH-BUILDS: the stream build stores it per frame from its switch table (live.cpp), the stream-free build once at start (start_settings.cpp)
 // Tests only (--stencil-dead-plant N), 0 = off: 1 an absorbed stencil clear is dropped even when a draw of the pass tests stencil (a stencil clear wrongly dropped before a stencil test: the stencil
 // picture must change); 2 every depth copy takes the depth aspect only (a copy that drops a live stencil); 3 an in-pass stencil clear loses its aspect even when a later pass reads it;
 // 4 a copy that keeps both aspects does not mark its source needed (only the poison arm and the oracle see it).

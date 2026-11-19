@@ -1,0 +1,1257 @@
+[
+ {
+  "slot": 0,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 1,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 2,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 3,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 4,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 16,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 16,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 17,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 17,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 26,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 26,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 27,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 35,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 35,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 35,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 36,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 36,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 36,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 39,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 39,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 39,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 43,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 43,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 44,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 45,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 46,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 46,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 101,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 101,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 101,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 101,
+  "mesh": 3,
+  "vlm": true
+ },
+ {
+  "slot": 101,
+  "mesh": 4,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 3,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 4,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 5,
+  "vlm": true
+ },
+ {
+  "slot": 102,
+  "mesh": 6,
+  "vlm": true
+ },
+ {
+  "slot": 103,
+  "mesh": 7,
+  "vlm": true
+ },
+ {
+  "slot": 104,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 108,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 108,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 108,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 108,
+  "mesh": 3,
+  "vlm": true
+ },
+ {
+  "slot": 109,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 109,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 109,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 109,
+  "mesh": 3,
+  "vlm": true
+ },
+ {
+  "slot": 111,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 111,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 111,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 111,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 111,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 112,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 112,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 112,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 112,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 112,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 114,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 114,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 114,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 115,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 115,
+  "mesh": 1,
+  "vlm": true
+ },
+ {
+  "slot": 115,
+  "mesh": 2,
+  "vlm": true
+ },
+ {
+  "slot": 117,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 117,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 117,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 118,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 118,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 120,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 5,
+  "vlm": false
+ },
+ {
+  "slot": 122,
+  "mesh": 6,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 5,
+  "vlm": false
+ },
+ {
+  "slot": 123,
+  "mesh": 6,
+  "vlm": false
+ },
+ {
+  "slot": 124,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 125,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 125,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 125,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 126,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 126,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 126,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 127,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 128,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 128,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 129,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 130,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 131,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 133,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 133,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 134,
+  "mesh": 5,
+  "vlm": false
+ },
+ {
+  "slot": 146,
+  "mesh": 0,
+  "vlm": true
+ },
+ {
+  "slot": 164,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 200,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 201,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 202,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 203,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 203,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 205,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 5,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 6,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 7,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 8,
+  "vlm": false
+ },
+ {
+  "slot": 207,
+  "mesh": 9,
+  "vlm": false
+ },
+ {
+  "slot": 212,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 212,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 213,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 213,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 214,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 214,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 214,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 215,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 216,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 216,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 219,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 223,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 224,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 4,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 5,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 6,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 7,
+  "vlm": false
+ },
+ {
+  "slot": 225,
+  "mesh": 8,
+  "vlm": false
+ },
+ {
+  "slot": 226,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 226,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 227,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 228,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 228,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 229,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 229,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 229,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 240,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 240,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 240,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 240,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 241,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 241,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 241,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 241,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 242,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 242,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 242,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 242,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 243,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 243,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 243,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 243,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 244,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 244,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 244,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 244,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 245,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 245,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 245,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 245,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 246,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 246,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 246,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 246,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 247,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 247,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 247,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 247,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 248,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 248,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 248,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 248,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 249,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 249,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 249,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 249,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 250,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 250,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 250,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 250,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 251,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 251,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 251,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 251,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 252,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 252,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 252,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 252,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 253,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 253,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 253,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 253,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 254,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 254,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 254,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 254,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 255,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 255,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 255,
+  "mesh": 2,
+  "vlm": false
+ },
+ {
+  "slot": 255,
+  "mesh": 3,
+  "vlm": false
+ },
+ {
+  "slot": 256,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 256,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 257,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 257,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 258,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 258,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 259,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 259,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 260,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 260,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 261,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 261,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 262,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 262,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 263,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 263,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 264,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 264,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 265,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 265,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 266,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 266,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 267,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 267,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 268,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 268,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 269,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 269,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 270,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 270,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 271,
+  "mesh": 0,
+  "vlm": false
+ },
+ {
+  "slot": 271,
+  "mesh": 1,
+  "vlm": false
+ },
+ {
+  "slot": 287,
+  "mesh": 0,
+  "vlm": false
+ }
+]

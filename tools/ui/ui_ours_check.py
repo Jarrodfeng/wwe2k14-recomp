@@ -28,6 +28,11 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
+sys.path.insert(0, HERE)
+import ui_consts  # noqa: E402  (PN5 review B1: the tier constants come from the header / the pin file, never typed here)
+
+TIER1 = ui_consts.tier1_count()          # kUiTier1Count (src\renderer_scene\ui_file_index.h)
+TIER1_TEXTURES = ui_consts.pinned_textures()   # the first tier's texture count on the player's files (tools\ui\ui_tier1_textures.txt)
 RUNS = os.path.join('out', 's101', 'runs')
 ZIPS = {   # kind -> run folder (the gate's ui_join lane uses the same three zips)
     'menu': '20261111_214249_s100_owner_boot_menu_quit',
@@ -137,7 +142,7 @@ def main():
             return lines, text
 
         for kind in ('menu', 'editor', 'match'):
-            lines, text = unit(kind, step=10, extra=('--arena', '4') if kind == 'match' else ())   # lane 126: the Brock zip's arena (bg04); the unit fires the second-tier trigger itself
+            lines, text = unit(kind, step=10)   # PN5 review B2: no --arena: the unit starts the second tier like the live code (any kind, the arenas from the capture's own scene record)
             bad = [k for k, v in lines.items() if not v[0]]
             census = [l.strip() for l in text.splitlines() if 'frames ' in l and '2D draws claimed' in l]
             rep.line(not bad and len(lines) >= 6, 'unit %s zip: %d checks, failing: %s | %s' % (kind, len(lines), ', '.join(bad) or 'none', census[-1] if census else '?'))
@@ -217,13 +222,13 @@ def main():
                 c, hook = census(text)
                 ok = mx == 0 and c is not None and c[1] == 0 and c[6] == 0 and 'ERRORS' not in hook
                 pm = re.search(r'index (\d+) textures in (\d+) pacs', hook)
-                if kind != 'match':   # review F3 (lane 126): menu / editor pin the first tier exactly (3605 textures in 10 pacs) and never start the second tier
-                    ok = ok and pm is not None and int(pm.group(1)) == 3605 and int(pm.group(2)) == 10 and 'deep (bg' not in hook
+                if kind != 'match':   # review F3 (lane 126): menu / editor pin the first tier exactly (the pinned texture count in kUiTier1Count pacs) and never start the second tier
+                    ok = ok and pm is not None and int(pm.group(1)) == TIER1_TEXTURES and int(pm.group(2)) == TIER1 and 'deep (bg' not in hook
                     ok = ok and c is not None and c[2] > 0 and c[3] == 0 and c[5] == 0   # replaced > 0, kept 0, unjoined 0
                 else:   # the Brock zip starts the second tier once: bgEtc + its arena's pac (the pac count is computed from the disk), done, nothing kept
                     dm = re.search(r'deep \(bg lightmaps\) done: (\d+) pacs walked \(arena (\d+)\), 0 failed, 0 pending', hook)
-                    want = 10 + 1 + (1 if dm and os.path.isfile(os.path.join(game, 'pac', 'bg', 'bg%02d.pac' % int(dm.group(2)))) else 0)
-                    ok = ok and dm is not None and pm is not None and int(pm.group(2)) == want and int(dm.group(1)) == want - 10
+                    want = TIER1 + 1 + (1 if dm and os.path.isfile(os.path.join(game, 'pac', 'bg', 'bg%02d.pac' % int(dm.group(2)))) else 0)
+                    ok = ok and dm is not None and pm is not None and int(pm.group(2)) == want and int(dm.group(1)) == want - TIER1
                     ok = ok and c is not None and c[2] > 0 and c[3] <= 12 and c[5] <= 12   # lane 126: the census is cumulative over the replayed frames: the page sprites of the first frames (before the scene record names the arena, measured 9) stay unjoined; the final frame's draws all join (ui_inmatch_check.py reads that from the ops table)
                 rep.line(ok, 'fview %s frame %d: ours vs stream max channel diff %d (%d pixels); fallback %s, replaced %s, kept %s (unjoined %s, mismatch %s) | %s' % (
                     kind, f, mx, npx, c[1] if c else '?', c[2] if c else '?', c[3] if c else '?', c[5] if c else '?', c[6] if c else '?', hook[:210]))

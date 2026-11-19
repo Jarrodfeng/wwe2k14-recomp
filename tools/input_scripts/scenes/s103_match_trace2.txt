@@ -1,0 +1,20 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 (coverage exe), lane D5's second trace batch: who fills the sign textures (sub_82CA6BE0 callers, armed from the match load), then at the
+# match clock the resolved-texture gate's keys (sub_82294F20, budget 400), the two prop loops ran (sub_82518950 / sub_82518EB8), the holders' draw.
+on_fail quit
+log bench: start scene s103_match_trace2
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+cvar wwe2k14_trace 0x82CA6BE0/3000*r3*r4@callers
+log s103: unlock trace armed (match load)
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+cvar wwe2k14_trace 0x82294F20/400*r3*ret,0x82518950/5*r3,0x82518EB8/5*r3,0x8276E7B0/20*r3*r4,0x82BD5A98/400*r3,0x82BD2010/400*r3
+log s103: gate traces armed (match clock)
+wait_frames 300
+log scene=end (match clock +300)
+mark 2 end
+log bench: done
+quit

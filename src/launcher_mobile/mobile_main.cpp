@@ -1123,7 +1123,7 @@ class App {
           GroupTitle("EFFECTS");
           if (Toggle("Shadows", s_.shadows)) Save();
           if (Toggle("Depth of field", s_.depth_of_field)) Save();
-          if (Toggle("Film grain (30 Years)", s_.film_grain)) Save();  // Session 100 settings parity S3
+          if (Toggle("Vintage look (retro arenas)", s_.film_grain)) Save();  // S100 parity S3; S103 VTG2: sepia + darkening + grain + dark edges, one switch
           if (Slider("Crowd density", s_.crowd_density, 0, 100, "%d%%")) {
             s_.crowd_density = (std::clamp(s_.crowd_density, 0, 100) + 5) / 10 * 10;
             Save();

@@ -12,11 +12,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "../assets/asset_model.h"
+#include "../renderer_scene/crowd_fast.h"   // S103 CPU1: ParseInt
 #include "../renderer_scene/record_io.h"
 #include "arena_contrib.h"
 
@@ -30,21 +32,32 @@ struct RecordView {
   };
   std::map<int, Slot> slots;
   std::map<uint32_t, assets::LightSet> sets;  // by the game's set id
+  std::set<uint32_t> follow_known;            // S103 RL F2: set ids whose lights carry the game's own camera-attached flags (LightSet::follow below); absent = an older record: the file's flags apply
   size_t lights = 0, screens = 0;
 };
 
 // True when the asset is one of the arena contributor's slot assets ("pac\bg\bgNN.pac" + entry "slot K"); fills the arena id and the slot.
-inline bool ParseSlotAsset(const SceneTables& t, const AssetRef& a, int& arena, int& slot) {
-  if (a.kind != uint8_t(AssetKind::Model)) return false;
-  std::string pac(t.Str(a.pac));
-  std::replace(pac.begin(), pac.end(), '/', '\\');
+// S103 CPU1 (RHP.md: sscanf / atol 1.06 ms a presented frame, ParseSlotAsset 1.01): the same rule with no string copy and no sscanf. It reads exactly what the two sscanf calls read:
+// sscanf("pac\\bg\\bg%d.pac") = the 9-character prefix (a '/' counts as '\\') and then %d (the ".pac" after it is never checked: sscanf had already counted the conversion), sscanf("slot %d") = "slot", white space, %d.
+// tools\scene\cpu1_unit.cpp proves it equals the sscanf form (the corpus below and every record-shaped string).
+inline bool ParseSlotAssetStrings(std::string_view pac, std::string_view entry, int& arena, int& slot) {
+  constexpr std::string_view kPac = "pac\\bg\\bg";
+  if (pac.size() < kPac.size()) return false;
+  for (size_t i = 0; i < kPac.size(); ++i) {
+    const char c = pac[i] == '/' ? '\\' : pac[i];
+    if (c != kPac[i]) return false;
+  }
   int id = 0;
-  if (std::sscanf(pac.c_str(), "pac\\bg\\bg%d.pac", &id) != 1) return false;
-  const std::string entry(t.Str(a.entry));
+  if (!fast::ScanInt(pac, kPac.size(), id)) return false;
+  if (entry.size() < 4 || entry.compare(0, 4, "slot") != 0) return false;
   int k = 0;
-  if (std::sscanf(entry.c_str(), "slot %d", &k) != 1) return false;
+  if (!fast::ScanInt(entry, 4, k)) return false;
   arena = id, slot = k;
   return true;
+}
+inline bool ParseSlotAsset(const SceneTables& t, const AssetRef& a, int& arena, int& slot) {
+  if (a.kind != uint8_t(AssetKind::Model)) return false;
+  return ParseSlotAssetStrings(t.Str(a.pac), t.Str(a.entry), arena, slot);
 }
 
 inline bool ReadArenaRecord(const SceneTables& t, RecordView& v, std::string& err) {
@@ -60,15 +73,19 @@ inline bool ReadArenaRecord(const SceneTables& t, RecordView& v, std::string& er
     v.arena_id = arena;
     RecordView::Slot& s = v.slots[slot];
     s.set = o.light_set;
+    // S103 SCF: the art slots 301-304 flip their show bit with the match's screen / art pair (stage_show.h). Their copies always EXIST for the applier (the signature and the twin placements never change with the bit); the
+    // game's bit is a per-frame mask on the set's models (rf_c_core.cpp ApplyShowMasks). The record's visible flag (V1: no light install, no draw) is unchanged.
+    const bool art_slot = slot >= 301 && slot <= 304;
+    const auto vis = [&](const Object& ob) { return art_slot || (ob.flags & kObjVisible) != 0; };
     const std::string id(t.Str(o.id));
     if (id.size() > 2 && id.compare(id.size() - 2, 2, ":r") == 0) {
       if (!(o.flags & kObjMirrorX)) { err = "object " + id + " is a mirrored twin without kObjMirrorX"; return false; }
-      s.r = (o.flags & kObjVisible) != 0;
+      s.r = vis(o);
     } else if (id.size() > 2 && id.compare(id.size() - 2, 2, ":y") == 0) {
       if (!(o.flags & kObjTurned)) { err = "object " + id + " is a turned twin without kObjTurned"; return false; }
-      s.y = (o.flags & kObjVisible) != 0;
+      s.y = vis(o);
     } else {
-      s.base = (o.flags & kObjVisible) != 0;
+      s.base = vis(o);
     }
   }
   for (const Light& l : t.lights) {
@@ -81,6 +98,7 @@ inline bool ReadArenaRecord(const SceneTables& t, RecordView& v, std::string& er
       std::memcpy(ls.dir[l.slot], l.dir_or_pos, sizeof ls.dir[0]);
       std::memcpy(ls.col[l.slot], l.color, sizeof ls.col[0]);
       ls.fall[l.slot] = l.range;
+      if (l.pad & kLightPadFollowKnown) ls.follow[l.slot] = (l.pad & kLightPadFollowOn) != 0, v.follow_known.insert(l.set);
     } else if (l.kind == uint8_t(LightKind::Directional) && l.slot == 4) {
       std::memcpy(ls.hl_dir, l.dir_or_pos, sizeof ls.hl_dir);
       std::memcpy(ls.hl_col, l.color, sizeof ls.hl_col);
@@ -222,6 +240,8 @@ inline ArenaSnapshot SnapshotFromModel(const assets::Model& m, int arena_id, std
     std::memcpy(n.block_b, ls.ground, sizeof n.block_b);
     n.has_fall = true;
     std::memcpy(n.fall, ls.fall, sizeof n.fall);
+    n.has_follow = true;   // S103 RL F2: the files' own flags stand in for the object's words (the offline record carries them too)
+    for (int k = 0; k < 4; ++k) n.follow[k] = ls.follow[k];
     s.sets.push_back(n);
   }
   return s;

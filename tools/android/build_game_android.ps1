@@ -12,12 +12,21 @@
 # manifest or any config\*.toml (run the PC build first, which re-runs codegen). The first build compiles all the
 # generated files (tens of minutes). The unstripped libmain.so is copied to out\android\symbols (ndk-stack).
 param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12, [switch]$KeepGoing,
-      [string]$Target = 'wwe2k14', [switch]$Cache, [string]$BuildDir = '')
+      [string]$Target = 'wwe2k14', [switch]$Cache, [string]$BuildDir = '', [switch]$StreamFree)
+# S103 ANS (docs\research\s103\ANS.md): -StreamFree builds the stream-free game library (WWE2K14_KEEP_STREAM=OFF, KEEP_STREAM_RUN=ON)
+# into its own folder out\android\game-arm64-off (unless -BuildDir), so the stream APK's folder is never reconfigured.
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"
 
-$build = if ($BuildDir) { $BuildDir } else { $AndroidDirs.Game }
+$build = if ($BuildDir) { $BuildDir } elseif ($StreamFree) { "$($AndroidDirs.Game)-off" } else { $AndroidDirs.Game }
+$streamOpts = @()
+if ($StreamFree) {
+    $streamOpts = @('-DWWE2K14_KEEP_STREAM=OFF', '-DWWE2K14_KEEP_STREAM_RUN=ON')
+    $cc = "$build\CMakeCache.txt"
+    if ((Test-Path $cc) -and (-not (Select-String -LiteralPath $cc -Pattern '^WWE2K14_KEEP_STREAM:BOOL=OFF' -Quiet) -or -not (Select-String -LiteralPath $cc -Pattern '^WWE2K14_KEEP_STREAM_RUN:BOOL=ON' -Quiet))) { $Reconfigure = [switch]$true }
+    # -StreamFree keeps its own symbols in out\android\symbols-off (the stream APK's out\android\symbols is left alone)
+}
 $sccache = ''; $launcherOpts = @()
 if ($Cache) {
     $c = Get-Command sccache -ErrorAction SilentlyContinue
@@ -69,7 +78,7 @@ if ($Reconfigure -or -not (Test-Path "$build\CMakeCache.txt")) {
         "-DCMAKE_TOOLCHAIN_FILE=$NdkToolchainFile" -DANDROID_ABI=arm64-v8a "-DANDROID_PLATFORM=android-$MinApi" `
         -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" `
         "-DCMAKE_PREFIX_PATH=$($AndroidDirs.SdkInstall)" "-DCMAKE_FIND_ROOT_PATH=$($AndroidDirs.SdkInstall)" `
-        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" @launcherOpts *>&1 | Out-File $log -Append
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" @launcherOpts @streamOpts *>&1 | Out-File $log -Append
     $code = $LASTEXITCODE
     if ($code -ne 0) {
         "configure failed (exit $code), log: $log"
@@ -90,8 +99,10 @@ $so = Get-ChildItem $build -Recurse -Filter 'libmain.so' | Sort-Object LastWrite
 if ($so) {
     if ($BuildDir) { "libmain.so: {0:N1} MB  {1} (trial folder: out\android\symbols left alone)" -f ($so.Length / 1MB), $so.FullName }
     else {
-        Copy-Item $so.FullName "$($AndroidDirs.Symbols)\libmain.so" -Force
-        "libmain.so: {0:N1} MB  {1} (copy in out\android\symbols)" -f ($so.Length / 1MB), $so.FullName
+        $symDir = if ($StreamFree) { "$($AndroidDirs.Symbols)-off" } else { $AndroidDirs.Symbols }
+        New-Item -ItemType Directory -Force $symDir | Out-Null
+        Copy-Item $so.FullName "$symDir\libmain.so" -Force
+        "libmain.so: {0:N1} MB  {1} (copy in {2})" -f ($so.Length / 1MB), $so.FullName, $symDir
     }
 } else { "libmain.so: not found under $build" }
 } finally { Exit-RunLock $lock }

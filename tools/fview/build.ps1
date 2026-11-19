@@ -17,6 +17,12 @@ New-Item -ItemType Directory -Force $objects | Out-Null
 $null = Enter-ExeBuild (Join-Path $out 'fview.exe')
 
 $clang = 'C:\Program Files\LLVM\bin\clang++.exe'
+# S103 GX: compiles go through the shared sccache (PREPROCESSOR mode, repo-relative paths, tools\cxx_cache.ps1 as in H1): a fresh worktree / the main
+# checkout after a merge only recompiles the translation units whose preprocessed text changed. WWE_NO_CCACHE=1 = plain clang++ (as before).
+. (Join-Path $repo 'tools\env.ps1') | Out-Null
+. (Join-Path $repo 'tools\cxx_cache.ps1')
+$repoR = (Resolve-Path $repo).Path.TrimEnd([char]92); $repoLen = $repoR.Length + 1
+$ccExe = if ($cxxCacheOn) { $cxx0 } else { $clang }; $ccArgs = @(if ($cxxCacheOn) { $cxxRest })
 $sdk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name | Select-Object -Last 1).FullName
 $imgui = Join-Path $repo 'thirdparty\rexglue-sdk-src\thirdparty\imgui'
 if (-not (Test-Path (Join-Path $imgui 'imgui.h'))) {
@@ -44,7 +50,8 @@ $failed = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
 $jobs | ForEach-Object -ThrottleLimit 12 -Parallel {
   $source = $_.Source
   $flagList = $_.Flags
-  $object = Join-Path $using:objects (($source -replace '[\\/:]', '_') + '.o')
+  $oname = if ($source.StartsWith($using:repoR, 'OrdinalIgnoreCase')) { $source.Substring($using:repoLen) } else { $source }   # S103 GX: repo-relative object names (the absolute ones pushed the path past 260 characters in a worktree: sccache could not find the output)
+  $object = Join-Path $using:objects (($oname -replace '[\\/:]', '_') + '.o')
   $deps = [IO.Path]::ChangeExtension($object, '.d')
   $stale = -not (Test-Path $object)
   if (-not $stale -and (Test-Path $deps)) {
@@ -53,11 +60,14 @@ $jobs | ForEach-Object -ThrottleLimit 12 -Parallel {
     $list = $list.Substring($list.IndexOf(': ') + 2)
     foreach ($item in ($list -split '(?<!\\)\s+')) {
       $path = $item -replace '\\ ', ' '
+      if ($path -and -not [IO.Path]::IsPathRooted($path)) { $path = Join-Path $using:repo $path }   # S103 GX: -MMD of a relative compile lists relative paths
       if ($path -and (Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).LastWriteTimeUtc -gt $objectTime) { $stale = $true; break }
     }
   }
   if ($stale) {
-    $text = & $using:clang @flagList -c $source -o $object 2>&1
+    $rel = $source.Substring($using:repoLen); $relObj = $object.Substring($using:repoLen)   # sources of the repo are named relative to it (cwd = repo root); thirdparty stays absolute
+    if (-not $source.StartsWith($using:repoR, 'OrdinalIgnoreCase')) { $rel = $source; $relObj = $object }
+    $text = & $using:ccExe @using:ccArgs @flagList -c $rel -o $relObj 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
 }
@@ -65,15 +75,18 @@ if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($faile
 
 $exe = Join-Path $out 'fview.exe'
 # Link only the objects of the sources compiled above (a source that was renamed or removed leaves an old .o behind; it must not be linked).
-$objectFiles = @($jobs | ForEach-Object { Join-Path $objects (($_.Source -replace '[\\/:]', '_') + '.o') })
+$objectFiles = @($jobs | ForEach-Object { $oname = if ($_.Source.StartsWith($repoR, 'OrdinalIgnoreCase')) { $_.Source.Substring($repoLen) } else { $_.Source }; Join-Path $objects (($oname -replace '[\\/:]', '_') + '.o') })
 $missingObjects = @($objectFiles | Where-Object { -not (Test-Path $_) })
 if ($missingObjects.Count) { throw "missing objects: $($missingObjects -join ', ')" }
 # S101 lane 163: no object is newer than the exe -> nothing to link. Relinking an unchanged tree failed with 'permission denied' whenever another
 # process (a gate lane, a viewer) had the exe open.
-if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-Host "up to date $exe"; exit 0 }
+$depsExtra = @((Join-Path $PSScriptRoot 'session_deps.txt'), (Join-Path $repo 'tools\wrestler\atomic_build.ps1'))   # S103 DIB: the non-C++ inputs this script reads (the dependency manifest names them)
+if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra $depsExtra; Write-Host "up to date $exe"; exit 0 }
 $tmpExe = Join-Path $out ("fview.tmp$PID.exe")   # lane 239: link beside, then rename into place (a running fview.exe cannot be overwritten, only renamed)
 & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -ld3d11 -ldxgi -ldwmapi -lole32 -luuid -lshell32 -o $tmpExe
 if ($LASTEXITCODE -ne 0) { Remove-Item (Join-Path $out "fview.tmp$PID.*") -Force -ErrorAction SilentlyContinue; throw 'link failed' }
 Publish-Exe $tmpExe $exe
+Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra $depsExtra   # S103 DIB: <exe>.deps.txt = what this exe was built from (tools\gate\deps.py)
+Show-CxxCache
 Remove-Item (Join-Path $out "fview.tmp$PID.*") -Force -ErrorAction SilentlyContinue
 Write-Host "built $exe"

@@ -1,0 +1,9 @@
+{
+ "owner": "S103 lane STG (docs/research/s103/PMW.md): weapon-row calls made under the game's shadow flag A are tagged (kCallShadowPass / kCallShadowProps, src/renderer_scene/weapon_rows.h), kept out of the colour bookkeeping (src/scene_live/weapon_rows_core.h), dropped by the colour drawer's plan (src/renderer_scene/weapon_plan.h) and read at the raw hook on sub_82C04DF0 (src/draw_origin.h, ShadowKindHook in weapon_rows_glue.h; not read at all in an OURS frame). 0 game runs.",
+ "claim": {"scene": "none", "side": "structure (a guard: a walked frame no longer draws a manager weapon 3x or takes a shadow call as an event row; the oracle for the slice-2 caster list)", "ms": [0, 0], "basis": "no saving claimed."},
+ "note": "The proofs run in the PW2 and BLF lanes (weapon_rows_selftest.py: shadow.tagged_not_colour / shadow.kind_at / shadow.ours_unchanged + the planted twin shadow_as_colour; event_props_selftest.py: shadow.event_colour_kept + the same twin); this lane adds the weapon lints (the row types, the slot-table reader rule) over the changed headers.",
+ "checks": [
+  {"name": "s103_STG.lints_tree", "cmd": ["py", "-I", "tools/weapons/weapon_lints.py", "--root", "."], "timeout_s": 120, "tier": "cheap",
+   "affects": ["tools/weapons/weapon_lints.py", "src/scene_live/weapon_rows_*.h", "src/renderer_scene/weapon_rows.h", "src/renderer_scene/weapon_plan.h", "src/draw_origin.h"]}
+ ]
+}

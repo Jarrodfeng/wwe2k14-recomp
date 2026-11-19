@@ -9,14 +9,17 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 #include <vector>
 
 #include "../renderer/frame_builder.h"
+#include "../start_settings.h"  // S103 SPB: PlayerQuality (the settings both start paths apply)
 #include "../renderer/frame_facts.h"  // S102 R21-A
 #include "../renderer/colour_cuts.h"  // S102 G10
 #include "../renderer/arena_fragments.h"  // S102 R18-B3
 #include "../renderer/texture_alpha.h"  // S102 C4
 #include "pack_once.h"  // S102 T5: PackOnceInto
+#include "geo_size_guard.h"  // S103 IXF: a cached geometry buffer is never smaller than the draw's range
 #include "d3_timers.h"  // S102 K3 rework: the D3 chains' render-thread timers
 #include "../renderer/problem.h"
 #include "../renderer/renderer.h"
@@ -48,6 +51,7 @@
 #include "../scene_live/member_thin_core.h"  // lane 272: the members' thin record gate (no game or SDK includes)
 #include "draw_groups.h"  // S102 R24-F: the draw group of each draw (the group stamps inside a colour pass)
 #include "draw_replace_hook.h"  // S101 lane 41: the in-place replace seam (arena, wrestlers)
+#include "../scene_live/presence_rules.h"  // S103 PF: the census column (stream particle draws on frames the reader called whole_empty)
 #include "particle_runs.h"  // S101 lane 67: particle runs drawn as one draw (g_particles_ours, the run key and packer)
 #include "replace_seam.h"
 #include "shadow_roles.h"  // S101 lane 86: shadow casters by origin and surface role
@@ -59,11 +63,15 @@
 #include "d3_binder.h"   // lane 138: D3 skip the object, the binder side (sequences, proof, markers)
 #include "const_override.h"   // lane 164: fview's test-only constant override / draw drop (g_const_override.active is false everywhere else)
 #include "bake_hook.h"   // S102 P1: the crowd card bake owned (BakeHook, g_own_card_bake)
+#include "../renderer_scene/quads2d_core.h"   // S103 L2a: the op-19 site table (SetSkip2DRows; pure, no game or SDK includes)
 #include "own_group.h"   // S102 P4P5: the shadow module's and the rim map's draw nodes as groups (--own-shadow-module / --own-rim-map)
 #include "plane_pass.h"   // S102 P3: the plane shadow chain owned as one pass (g_own_plane, PlaneCounters)
 #include "plane_bake.h"   // S102 L2: the ring-plane shadow bake
+#include "census_flush.h"   // S102 CEN1: a flip phase end prints every lever's census now
+#include "../renderer_game/fallback_census.h"   // S103 L2b: the fallback census (remnant_extra)
 
 namespace rdr_adapter {
+inline census_flush::Site g_cf_shadows, g_cf_particle, g_cf_crowd, g_cf_post, g_cf_pb, g_cf_thin, g_cf_frame_cuts, g_cf_plan_memo, g_cf_alias, g_cf_pa, g_cf_pc, g_cf_pl, g_cf_plane_blank;  // S102 CEN1: one per census line (census_flush.h)
 
 // S101 lane 35 (the crowd's first promotion, docs\renderer\CROWD_PROMOTION.md): on, the binder hands the frame's crowd (every draw whose origin call_site is
 // the game's crowd block / card recorder) to the CrowdHook set with Binder::SetCrowdHook: at the first such draw the hook draws our crowd from the scene
@@ -81,15 +89,15 @@ inline int g_gpu_class_plant = 0;  // S102 S0-3 test plant (rplay --gpu-class-pl
 
 // Settings parity S3 (Jarrod 08:1x): FILM GRAIN (30 YEARS). Off: the 30 Years mode's old-film pass (yRetroFilm: shake, flicker, grain) is
 // drawn by its CLEAN variant, the scene as it is. Set once before the first frame (live: reader.h StartLive from --wwe2k14_film_grain).
-inline bool g_film_grain = true;
+inline bool& g_film_grain = wwe2k14::start::g_quality.film_grain;   // S103 SPB: one PlayerQuality (start_settings.h), read here and by the stream-free scene draw
 inline constexpr uint64_t kPostChainLastVs = 0xD6B8DEB0775CC47Full;  // the patched hash (Draw::vs_patched_hash)
 static_assert(kPostChainLastVs == jitter::kDefaultMarker, "lane 185: the DLSS jitter window and the binder's colour / velocity window end at the same pass");
 // Settings parity S6 / S7 / S8 (Jarrod 08:1x: "fix all of the not working ones"): CROWD DENSITY, SHADOWS, DEPTH OF FIELD, as the old path
 // did them in the SDK's command processor, here in the binder. Set once before the first frame (live: reader.h StartLive from the SDK's
 // gpu_scene_crowd_density / gpu_dynamic_shadows / gpu_depth_of_field, which the launchers set).
-inline int g_crowd_density = 100;   // percent of the crowd members drawn (100 = all)
-inline bool g_shadows = true;       // false: the dynamic shadow casters are not drawn (the maps keep their clears: lit)
-inline bool g_depth_of_field = true;  // false: the post combine drawn by its permutation without depth of field
+inline int& g_crowd_density = wwe2k14::start::g_quality.crowd_density;   // S103 SPB (PlayerQuality); percent of the crowd members drawn (100 = all)
+inline bool& g_shadows = wwe2k14::start::g_quality.shadows;       // S103 SPB (PlayerQuality); false: the dynamic shadow casters are not drawn (the maps keep their clears: lit)
+inline bool& g_depth_of_field = wwe2k14::start::g_quality.depth_of_field;  // S103 SPB (PlayerQuality); false: the post combine drawn by its permutation without depth of field
 // Photo mode's HUD hiding (the SDK's gpu_hide_hud, live: LiveSink::SetHideHud): every draw after the post chain's last pass is left out,
 // as the old path did (SDK vulkan/command_processor.cpp "hide_hud_after_pass_").
 inline std::atomic<bool> g_hide_hud{false};
@@ -97,7 +105,7 @@ inline std::atomic<bool> g_hide_hud{false};
 // binder learns the targets the casters draw into (shadow_roles::IsCaster) and, on alternate frames, leaves out every target change, clear, draw and
 // copy out of them, so the maps' textures keep the previous frame's (one frame behind: Jarrod judged the old path's the same, S95).
 // Targets the rim-light pass, its blur or the copy quad also draw into are never skipped (the SDK's ShadowChainNotShadow).
-inline bool g_shadow_half = false;
+inline bool& g_shadow_half = wwe2k14::start::g_quality.shadow_half;   // S103 SPB (PlayerQuality)
 // Settings parity S10b (DLSS): on, the binder gives each presented frame its DLSS inputs (rdr::DlssInputs): the game's ViewProj (c56-c59 of
 // the scene's draws: viewports at least 1200 guest pixels wide, before the scene's depth copy), the scene's depth target, a copy of the
 // picture made right after the post chain's last pass (before the HUD), the jitter (dlss_jitter.h, the reader moved the scene draws by it).
@@ -420,15 +428,85 @@ class Binder {
   rdr::texture_alpha::AlphaTable tex_alpha_;  // S102 C4: game image id -> the scan (texture_alpha.h; erased on a record change, a release and a content that arrives with the scan off: review F1 / F2)
   uint64_t tex_alpha_scans_ = 0;
 
+  // S103 lane S (FRAME_CONTRACT.md 6, REMNANT_SEAM.md 4): under OURS the next Bind's frame image (the source of the copy the present reads:
+  // image 8 in brock_losswin) IS our frame for the whole frame: every use (targets, copies, readers' slots) maps to `ours`. kNoImage = off.
+  // Found per frame from the ops (never a fixed id). One Bind only: Bind clears it at its end.
+  void SetSceneFrame(rdr::ImageId ours, rdr::ImageId ours_depth = rdr::kNoImage) { scene_frame_image_ = ours; scene_frame_depth_ = ours_depth; }
+  // S103 L2a (LANDING2_PLAN.md P1, dev seam behind --wwe2k14_rdr_2d_ours): the next Bind leaves out the stream's op-19 draws from the ROW sites (quads2d_core.h kOp19Sites, class Row): the caller drew this
+  // frame's 2D from our rows. One Bind only (cleared with the scene frame). Every other remnant draw (clears, copies, non-row 2D) stays.
+  // S103 L2a review F1: `insert` (when given) is called ONCE, at the first skipped row-site draw of the Bind, with the builder: it appends our rows there, so every stream draw before it lies under our rows and every
+  // one after it over them (the stream's own order; a frame with a kept draw BETWEEN row-site draws is refused before this, q2d::ScanStream). The targets the stream had are re-issued after it.
+  void SetSkip2DRows(bool on, std::function<void(rdr::FrameBuilder&)> insert = {}) { skip_2d_rows_ = on; row2d_insert_ = on ? std::move(insert) : nullptr; row2d_inserted_ = false; }
+  // S103 L2a review F2 / pairing: the frame's ops as the pure scan reads them (quads2d_core.h StreamOp): draws (op-19 site, the colour target at the draw, the blend class of the draw's fixed state) and copies, in order.
+  static void ListStreamOps(const LoadedFrame& frame, std::vector<rdr_scene::q2d::StreamOp>& out) {
+    out.clear();
+    uint32_t target = 0;
+    for (uint32_t i = 0; i < frame.ops.count; ++i) {
+      const Op& op = frame.ops[i];
+      if (op.kind == OpKind::SetTargets) {
+        const rdr::TargetsOp& t = frame.targets[op.index];
+        target = t.color_count ? t.color[0].image : 0;
+      } else if (op.kind == OpKind::Draw) {
+        rdr_scene::q2d::StreamOp o;
+        o.kind = 0;
+        if (const DrawOrigin* d = frame.OriginOf(op.index); d && d->op == 19) o.op19 = true, o.site = d->call_site;
+        o.target = target;
+        {   // S103 SC review: the stream draw's window scissor (the dev cross-check's truth)
+          const rdr::Rect& sc = frame.dynamics[frame.draws[op.index].dynamic].host.scissor;
+          o.scissor[0] = sc.x, o.scissor[1] = sc.y, o.scissor[2] = int32_t(sc.width), o.scissor[3] = int32_t(sc.height);
+        }
+        const auto& b = frame.fixeds[frame.draws[op.index].fixed].state.blend[0];
+        o.blend = rdr_scene::q2d::BlendClass(b.enable, b.src_color, b.dst_color, b.color_op);
+        out.push_back(o);
+      } else if (op.kind == OpKind::Copy) {
+        rdr_scene::q2d::StreamOp o;
+        o.kind = 1;
+        out.push_back(o);
+      }
+    }
+  }
+  uint64_t skip_2d_draws() const { return skip_2d_draws_; }
+  static bool HasOrigins(const LoadedFrame& frame) { return frame.origins.count != 0 && frame.origins.count >= frame.draws.count; }
+  uint32_t scene_frame_id() const { return scene_frame_id_; }
+  uint64_t scene_frame_unfound() const { return scene_frame_unfound_; }
+  uint8_t scene_bind_state() const { return scene_bind_state_; }   // S103 CLK2 (review M1): this Bind's scene frame: 0 = none set, 1 = placed (our picture is the frame), 2 = set but the frame image was not found
+  static uint32_t FindFrameImage(const LoadedFrame& frame) {   // the source of the last copy whose destination the frame's present reads
+    uint32_t presented = 0;
+    for (uint32_t i = frame.ops.count; i-- > 0;)
+      if (frame.ops[i].kind == OpKind::Present) { presented = frame.presents[frame.ops[i].index].source.image; break; }
+    if (!presented) return 0;
+    for (uint32_t i = frame.ops.count; i-- > 0;)
+      if (frame.ops[i].kind == OpKind::Copy && frame.copies[frame.ops[i].index].dest.image == presented) return frame.copies[frame.ops[i].index].source.image;
+    return presented;   // no copy: the present reads the frame image itself
+  }
+
   template <class Source>
   void Bind(const LoadedFrame& frame, const Source& capture, rdr::FrameBuilder& builder, BindStats& stats) {
+    scene_frame_id_ = scene_frame_image_ != rdr::kNoImage ? FindFrameImage(frame) : 0u;   // S103 lane S
+    scene_bind_state_ = scene_frame_image_ == rdr::kNoImage ? 0 : scene_frame_id_ ? 1 : 2;   // S103 CLK2 (review M1)
+    fc_remnant_noted_ = false;   // S103 L2b: the first remnant draw of this Bind is the one noted
+    if (scene_frame_image_ != rdr::kNoImage && !scene_frame_id_) ++scene_frame_unfound_, fallback_census::NoteRender(frame.header.guest_frame, "frame_image_unfound");   // S103 L2b (review F3): SetSceneFrame was set, the frame image was not found
+    alias_images_dirty_ = alias_images_dirty_ || scene_frame_image_ != rdr::kNoImage || scene_frame_was_on_;
+    scene_frame_was_on_ = scene_frame_image_ != rdr::kNoImage;
+    struct SceneFrameEnd { Binder* b; ~SceneFrameEnd() { b->scene_frame_image_ = rdr::kNoImage; b->scene_frame_depth_ = rdr::kNoImage; b->scene_frame_id_ = 0; b->skip_2d_rows_ = false; b->row2d_insert_ = nullptr; b->row2d_inserted_ = false; b->row2d_have_ = false; } } scene_frame_end{this};   // (S103 L2a: + the 2D row skip)
+    if (scene_frame_id_) {   // S103 lane S (REMNANT_SEAM.md H1, SCENE_SKIPS.md 8): with the scene walks skipped, nothing in the stream points the remnant at the frame image (the post
+      // effects issued that switch); the binder does, before the first op: our frame + our depth (the remnant never tests depth; its depth-only clear clears ours, harmlessly)
+      rdr::TargetsOp t{};
+      t.color[0].image = scene_frame_image_;
+      t.color_count = 1;
+      t.depth.image = scene_frame_depth_;
+      builder.SetTargets(t);   // helper:IssueTargets (the synthetic switch of an OURS frame)
+      if (skip_2d_rows_) row2d_targets_ = t, row2d_have_ = true;   // S103 L2a review F1: what the insert restores
+      current_target_ = current_color_ = scene_frame_id_;
+      current_depth_ = 0;
+    }
     std::vector<uint8_t> bytes;
     occurrences_.clear();
     keyed_draws_.clear();
     isolate_cleared_.clear();
     ++frame_number_;
     plan_memo::g_mask.store(uint32_t(rdr_sw::IntSeen(rdr_sw::kPlanMemo, int64_t(plan_memo::g_fallback.load(std::memory_order_relaxed)), frame.header.guest_frame)) & plan_memo::kAll, std::memory_order_relaxed);   // S102 R23-P: read every bind
-    if (plan_memo::g_mask.load(std::memory_order_relaxed) && ++plan_memo_window_ >= 600) plan_memo_window_ = 0, rdr::Log("%s", plan_memo::Line().c_str());   // S102 R23-P: the live census line
+    if (plan_memo::g_mask.load(std::memory_order_relaxed) && (++plan_memo_window_ >= 600 || census_flush::Due(g_cf_plan_memo))) plan_memo_window_ = 0, rdr::Log("%s", plan_memo::Line().c_str());   // S102 R23-P: the live census line
     g_crowd_rank.SetFast(g_crowd_fast && (g_crowd_fast_steps & 2) != 0), g_crowd_fast_fault_id = g_crowd_fast_fault == "early_keep" ? 1 : g_crowd_fast_fault == "early_first" ? 2 : g_crowd_fast_fault == "rank_radius_off" ? 3 : 0, g_crowd_rank.radius = g_crowd_fast_fault_id == 3 ? 12.0f : CrowdRankTracker::kTrackRadius;  // S102 R21-C: the flat rank table (wwe2k14_rdr_crowd_fast; a flip moves the memory across)
     g_crowd_rank.NextFrame(frame.header.guest_frame);  // S101 lane 234
     if (plane_bake::g_wobble_amp != 0.0f || plane_bake::g_wobble_c7 != 0.0f || plane_bake::g_wobble_c1 != 0.0f) PlaneBakeWobble(frame);   // S102 L2 (TEST ONLY, fview --plane-bake-wobble)
@@ -498,6 +576,7 @@ class Binder {
       rt_.census.plan_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()), ++rt_.census.plan_frames;
     }
     if (plan_memo::g_census_on.load(std::memory_order_relaxed) && !velocity_mode_ && !stats.isolate && !persist_only_bind && !frame_part_open) PlanMemoCensus(frame);   // S102 R23-P: tool only (rplay / fview --plan-memo-census)
+    stream_particle_draws_ = 0;  // S103 PF: counted below at every draw whose origin is a particle recorder site (any switch state)
     // S101 lane 67: particle runs. On: the look-ahead at each particle draw (ParticleBegin) folds the run into the first draw's bind; the folded ops are skipped below.
     static const int particle_runs_vs = VariantByName("yParticleRuns_runs_vertex");
     particles_on_ = g_particles_ours && !stats.isolate && !velocity_mode_ && particle_runs_vs >= 0;
@@ -749,6 +828,7 @@ class Binder {
           if (dlss_copy_pending_ && frame.draws[op.index].vs_patched_hash != 0x1456901233B6564Cull) CopyBeforeHud(capture, builder);
           if (frame_cuts_on_ && FrameCutsDraw(frame, op_index, capture, builder, stats)) break;   // S102 G11 (F7): after the picture-before-the-HUD copy, which a left-out draw must not skip: the self blit / the restore of the frame buffer (frame_cuts.h)
           if (stage_frame_on_ && !skipping_target_) NoteStageDraw();  // S101 lane 59
+          if (const DrawOrigin* po = frame.OriginOf(op.index); po && (po->call_site == particles::kSpriteSite || po->call_site == particles::kQuadSite || po->call_site == particles::kThirdSite)) ++stream_particle_draws_;  // S103 PF
           if (particles_on_) ParticleBegin(frame, capture, op_index, stats);  // S101 lane 67
           BindDraw(frame, frame.draws[op.index], capture, builder, bytes, stats);
           if (particles_on_ && particle_run_.active) ParticleEnd();  // S101 lane 67
@@ -771,7 +851,7 @@ class Binder {
       ff_blend_skipped_ = ff_blend_kept_ = 0;
     }
     if (replace_active_) ReplaceFrameEnd(!stats.isolate && !velocity_mode_);  // S101 lane 41
-    if (shadows_active_ && ++shadows_window_ >= 600) {  // (A3: also on frames without names, where the line says unnamed N)  // S101 lane 123: the census line, once per window of frames
+    if (shadows_active_ && (++shadows_window_ >= 600 || census_flush::Due(g_cf_shadows))) {  // (A3: also on frames without names, where the line says unnamed N)  // S101 lane 123: the census line, once per window of frames
       rdr::Log("%s", ShadowsOursReport().c_str());
       shadows_window_ = 0;
     }
@@ -797,6 +877,7 @@ class Binder {
             const DrawOrigin* o = full[k].kind == OpKind::Draw ? frame.OriginOf(full[k].index) : nullptr;
             if (o && o->object && !(*keep)[k] && (o->pass_site == thin::kSiteColour || o->pass_site == thin::kSiteMirror || d3::CasterPassOfSite(o->pass_site))) cands.push_back(k);
           }
+          // render-clock: dev - the planted candidate pick of the proof rig, never a picture value
           const uint32_t hit = cands.empty() ? full.count : cands[size_t(frame.header.guest_frame % cands.size())];
           if (hit < full.count) {
             uint32_t b = hit, e = hit + 1;
@@ -835,11 +916,12 @@ class Binder {
     }
     if (particles_on_ && particle_census_.draws != particle_draws_base_) {  // S101 lane 67: the census line, once per window of frames with particles
       ++particle_census_.frames;
-      if (++particle_window_ >= 600) {
+      if ((++particle_window_ >= 600 || census_flush::Due(g_cf_particle))) {
         LogParticleCensus();
         particle_window_ = 0;
       }
     }
+    rdr_scene::live::presence::Particles().NoteStreamFrame(stream_particle_draws_);  // S103 PF: the census column of the [scene][particles] read line
     PostFrameEnd();  // S101 lane PO: the post census window
     if (g_crowd_ours && crowd_hook_ && crowd_state_ == 0) crowd_hook_->NoCrowdFrame();  // S101 lane 35: no crowd draw in this frame (a load screen, a menu)
     // lane 272: a guest frame with NO crowd draw in any part whose member tally says the game dropped member draws: no kept run anchor reached the stream, so nothing triggered ours and the members are gone: a hole.
@@ -857,7 +939,7 @@ class Binder {
         part_drew_ = false, part_kept_ = 0, part_member_reported_ = false;
       }
     }
-    if (g_crowd_ours && crowd_hook_ && (crowd_.ours_frames + crowd_.fallback_frames + crowd_.card_frames_ours + crowd_.card_frames_fallback) && ++crowd_window_ >= 600) {  // the census line, once per window of frames
+    if (g_crowd_ours && crowd_hook_ && (crowd_.ours_frames + crowd_.fallback_frames + crowd_.card_frames_ours + crowd_.card_frames_fallback) && (++crowd_window_ >= 600 || census_flush::Due(g_cf_crowd))) {  // the census line, once per window of frames
       LogCrowdCensus();
       crowd_window_ = 0;
     }
@@ -1232,7 +1314,20 @@ class Binder {
   const shadows_ours::Plan& shadows_plan() const { return shadows_plan_; }
 
  private:
+  rdr::ImageId scene_frame_image_ = rdr::kNoImage;   // S103 lane S: SetSceneFrame
+  bool skip_2d_rows_ = false;    // S103 L2a: SetSkip2DRows (one Bind)
+  std::function<void(rdr::FrameBuilder&)> row2d_insert_;   // S103 L2a review F1: SetSkip2DRows's insert (one Bind)
+  rdr::TargetsOp row2d_targets_{};
+  bool row2d_have_ = false, row2d_inserted_ = false;
+  uint64_t skip_2d_draws_ = 0;   // S103 L2a: stream draws left out by it (total)
+  rdr::ImageId scene_frame_depth_ = rdr::kNoImage;
+  uint32_t scene_frame_id_ = 0;
+  uint64_t scene_frame_unfound_ = 0;
+  uint8_t scene_bind_state_ = 0;
+  bool fc_remnant_noted_ = false;   // S103 L2b: NoteRemnantOnce's once-per-Bind flag
+  bool scene_frame_was_on_ = false;
   rdr::ImageId Map(uint32_t id) const {
+    if (scene_frame_id_ && id == scene_frame_id_) return scene_frame_image_;   // S103 lane S: the frame image is our frame (before every other alias)
     if (alias_on_ && id < alias_.size() && alias_[id]) id = alias_[id];  // S101 lane 190: an elided copy's destination reads the source (this frame only)
     if (!ours_.empty()) {  // lane 123 (SH2): a shadow image of ours stands in for the game's (every use: targets, copies, the readers' slots, fview's reads)
       const auto found = ours_.find(id);
@@ -1270,6 +1365,7 @@ class Binder {
   struct GeometryEntry {
     rdr::BufferId buffer = rdr::kNoBuffer;
     uint64_t last_frame = 0;
+    uint32_t size = 0;  // S103 IXF: the bytes the buffer was made with
   };
 
   // Old captures (no kFrameSixteenPairsHighFirst): every 16-bit pair element (guest k_16_16[_FLOAT], k_16_16_16_16[_FLOAT]) gets its halves
@@ -1300,17 +1396,27 @@ class Binder {
     }
     GeometryEntry& entry = geometry_[offset];
     entry.last_frame = frame_number_;
+    // S103 IXF: the cache is keyed by offset only; a hit smaller than this draw's range would be drawn past its end (a30_match: validation error)
+    if (rdr_adapter::geosize::Classify(entry.buffer != rdr::kNoBuffer, entry.size, size) == rdr_adapter::geosize::Cache::kMismatch) {
+      rdr::Problem("geometry_offset_size_mismatch", "geometry at offset %llu cached with %u bytes, a draw wants %u: served from its own buffer", static_cast<unsigned long long>(offset), entry.size, size);
+      capture.ReadGeometry(offset, size, bytes);
+      if (legacy_layout) SwapSixteenPairs(*legacy_frame, *legacy_layout, bytes, size);
+      return {rdr::kFrameGeometry, builder.PushGeometry(bytes.data(), size, 16)};
+    }
     if (entry.buffer == rdr::kNoBuffer) {
       capture.ReadGeometry(offset, size, bytes);
       if (legacy_layout) SwapSixteenPairs(*legacy_frame, *legacy_layout, bytes, size);
       entry.buffer = renderer_.CreateBuffer(size, bytes.data());
+      entry.size = size;
     }
     return {entry.buffer, 0};
   }
 
   void EvictGeometry() {
+    // render-clock: lookup - every 60th frame sweeps our own geometry cache
     if (frame_number_ % 60) return;
     for (auto it = geometry_.begin(); it != geometry_.end();) {
+      // render-clock: lookup - how long we keep our own geometry copy, not game progress
       if (frame_number_ - it->second.last_frame > kGeometryKeepFrames) {
         if (it->second.buffer != rdr::kNoBuffer) renderer_.DestroyBuffer(it->second.buffer);
         it = geometry_.erase(it);
@@ -1525,6 +1631,7 @@ class Binder {
     const uint32_t occurrence = occurrences_[key]++;
     keyed_draws_.push_back({builder.DrawCount(), key});  // (cleared at the frame's end when the key is not unique)
     key = (key ^ occurrence) * 0x100000001b3ull;
+    key &= ~rdr::kOwnBlendKeyBit;   // S103 P7 tween: the top bit is the own-draw bit (FrameBuilder::TagBlend), never a stream key
     if (!key) key = 1;  // 0 means "never interpolated"
     op.blend_first = builder.PushBlendRanges(ranges, count);
     op.blend_count = uint16_t(count);
@@ -1743,6 +1850,12 @@ class Binder {
         in.map_image = [this](uint32_t id) { return Mapped(id); };
       }
       in.stream_layout = state.vertex_layout, in.stream_topology = state.topology, in.stream_index_32bit = draw.index_32bit;
+      in.image_size = [&capture](uint32_t id, uint32_t& w, uint32_t& h) {   // S103 P4F: an image's description by capture id (the movie planes' set choice)
+        const auto& records = capture.images();
+        if (!id || id > records.size() || records[id - 1].id != id) return false;
+        w = records[id - 1].width, h = records[id - 1].height;
+        return true;
+      };
       in.read_geometry = [&capture](uint64_t offset, uint32_t bytes, std::vector<uint8_t>& dest) { return capture.ReadGeometry(offset, bytes, dest); };
       in.vertex_offset = draw.vertex_offset, in.index_offset = draw.index_offset;
       in.vertex_stride = draw.layout != 0xFFFFFFFFu ? frame.layouts[draw.layout].guest_stride : 0;
@@ -1915,7 +2028,7 @@ class Binder {
   // The census line, once per window of frames the switch decided something for.
   void PostFrameEnd() {
     if (!g_post_ours || !post_hook_ || velocity_mode_) return;
-    if ((post_.ours_frames + post_.fallback_frames) && ++post_window_ >= 600) {
+    if ((post_.ours_frames + post_.fallback_frames) && (++post_window_ >= 600 || census_flush::Due(g_cf_post))) {
       rdr::Log("%s", post_hook_->Census(post_.draws_dropped, post_.copies_dropped, post_.clears_dropped, post_.targets_dropped).c_str());
       post_window_ = 0;
     }
@@ -2093,6 +2206,7 @@ class Binder {
     }
     if (post_state_ != 0) post_last_targets_ = targets;   // S101 lane PO: the last target switch the builder was given (a late injection failure re-issues it)
     if (bake_on_) bind_last_targets_ = targets, bind_have_targets_ = true;   // S102 P1: what the bake group restores (only while the switch plans a group: the default path copies nothing)
+    if (skip_2d_rows_) row2d_targets_ = targets, row2d_have_ = true;   // S103 L2a review F1: the stream's current targets (re-issued after our rows are inserted)
     builder.SetTargets(targets);   // helper:IssueTargets
     // Isolated redraws (rplay --isolate, live picture isolates): a colour target is cleared to mid-grey the first time this frame binds
     // it, so the draws left out do not show through from the previous frame (the game does not clear targets it fully covers).
@@ -2410,7 +2524,7 @@ class Binder {
       return;
     }
     ++pb_.frames;
-    if (++pb_window_ >= 600) {
+    if ((++pb_window_ >= 600 || census_flush::Due(g_cf_pb))) {
       pb_window_ = 0;
       rdr::Log("%s", plane_bake::CensusLine(pb_, pb_images_size_).c_str());
     }
@@ -3525,7 +3639,7 @@ class Binder {
     }
     const thin::ThinStore::EndResult r = thin_store_.EndFrame();
     for (thin::ThinCounters& k : thin_counters_) k.released = thin_store_.released();
-    if (++thin_window_ >= 600) {
+    if ((++thin_window_ >= 600 || census_flush::Due(g_cf_thin))) {
       thin_window_ = 0;
       LogThinCensus();
     }
@@ -3679,7 +3793,21 @@ class Binder {
       ++stats.settings_out;
       return;
     }
+    if (skip_2d_rows_ && !velocity_mode_) {   // S103 L2a (LANDING2_PLAN.md P1): a 2D-whole OURS frame: the 2D was drawn from OUR rows over our frame; the stream's op-19 draws from the row sites are left out (no double UI)
+      const DrawOrigin* o2d = frame.OriginOf(uint32_t(&draw - &frame.draws[0]));
+      if (o2d && o2d->op == 19 && rdr_scene::q2d::ClassOfSite(o2d->call_site) == rdr_scene::q2d::SiteClass::Row) {
+        if (!row2d_inserted_ && row2d_insert_) {   // S103 L2a review F1: our rows go in HERE, at the stream's first row-site draw (not before the whole bind: every kept remnant draw would then land on top of them)
+          row2d_inserted_ = true;
+          row2d_insert_(builder);
+          if (row2d_have_) builder.SetTargets(row2d_targets_);   // allow:row2d (the stream's targets, as they were)
+        }
+        ++skip_2d_draws_;
+        ++stats.settings_out;
+        return;
+      }
+    }
     if (dlss_copied_ && after_post_ && !velocity_mode_) ++kept_after_dlss_copy_;  // lane 201: drawn after DLSS's input was copied (photo mode: a 30 Years filter pass)
+    if (scene_frame_id_) { const DrawOrigin* fo = frame.OriginOf(uint32_t(&draw - &frame.draws[0])); fallback_census::NoteRemnantOnce(fc_remnant_noted_, scene_frame_id_, velocity_mode_, frame.header.guest_frame, fo ? fo->call_site : 0u); }   // S103 L2b (review F1): a stream draw that reaches the draw on an OURS frame is a remnant draw (under OURS the post chain is skipped: after_post_ is never set, so it is not tested); only the first per Bind is noted
     if (draw.vs_patched_hash == kPostChainLastVs) {
       if (g_dlss && !after_post_ && current_color_) dlss_copy_pending_ = true;  // S10b: the picture before the HUD, after this draw
       after_post_ = true;
@@ -3970,6 +4098,7 @@ class Binder {
     }
     if (test_override_from_ && ps >= 0 && !velocity_mode_ && std::strcmp(rdr::fx::kVariants[ps].name, "yBlur_flag_any_fragment") == 0 && textures.slots[0].image == Mapped(test_override_from_))
       textures.slots[0].image = Mapped(test_override_to_);  // lane 151 (TEST ONLY, fview --rim-chain-override): a flag_any draw that reads image FROM reads TO instead, in whichever session this binder belongs to
+    if (replaced && replaced->own.set && replaced->own.scissor_set) dynamic.scissor = rdr::Rect{replaced->own.scissor[0], replaced->own.scissor[1], uint32_t(std::max(replaced->own.scissor[2], 0)), uint32_t(std::max(replaced->own.scissor[3], 0))};   // S103 SC: the Quad2D row's scissor (the offline row rig)
     rdr::DrawOp op{};
     op.state = builder.State(state);
     op.dynamic = builder.Dynamic(dynamic);
@@ -4183,6 +4312,7 @@ class Binder {
   bool particles_on_ = false, particle_have_texture_ = false;
   int64_t particle_resume_op_ = -1;  // F1: ops up to here belong to a run already scanned and not merged
   uint32_t particle_idle_frames_ = 0;
+  uint32_t stream_particle_draws_ = 0;  // S103 PF
   bool particle_idle_said_ = false;
   uint64_t particle_draws_base_ = 0;
   uint32_t particle_window_ = 0;
@@ -4329,7 +4459,9 @@ class Binder {
   void PreLightAnalyticBegin(const LoadedFrame& frame, const BindStats& stats) {
     pa_on_ = false;
     pa_enabled_ = rdr_sw::BoolSeen(rdr_sw::kPrelightAnalytic, prelight_analytic::g_fview.load(std::memory_order_relaxed), frame.header.guest_frame);
+    // render-clock: dev - fview test only: the switch-off plant counts frames from its first
     if (pa_first_guest_ < 0) pa_first_guest_ = int64_t(frame.header.guest_frame);
+    // render-clock: dev - fview test only: the switch-off plant counts frames from its first
     if (prelight_analytic::g_off_from >= 0 && int64_t(frame.header.guest_frame) - pa_first_guest_ >= prelight_analytic::g_off_from) pa_enabled_ = false;   // fview test only (the switch-off plant): N frames after the first bound one
     if (!pa_enabled_ && !pa_planner_.HasMemory()) return;   // off, and no cube is left whose last bake was dropped (an off switch with a remembered cube keeps twinning its readers until the stream re-bakes it)
     prelight_analytic::Ctx ctx;
@@ -4715,6 +4847,14 @@ class Binder {
   std::vector<rdr::ImageId> alias_images_;
   bool alias_images_dirty_ = true;
   const rdr::ImageId* HookImages() {
+    if (scene_frame_id_ && scene_frame_id_ < image_ids_.size()) {   // S103 lane S: the hooks see our frame for the frame image too
+      alias_images_ = image_ids_;
+      for (const uint32_t d : alias_set_)
+        if (alias_on_ && d < alias_images_.size()) alias_images_[d] = Map(d);
+      alias_images_[scene_frame_id_] = scene_frame_image_;
+      alias_images_dirty_ = true;
+      return alias_images_.data();
+    }
     if (!alias_on_ || alias_set_.empty()) return image_ids_.data();
     if (alias_images_dirty_ || alias_images_.size() != image_ids_.size()) {
       alias_images_ = image_ids_;
@@ -4843,23 +4983,23 @@ class Binder {
     return false;
   }
   void AliasEnd() {
-    if ((copy_alias::g_mode > 0 || copy_alias::g_fullsize > 0 || copy_alias::g_small > 0 || copy_alias::g_shadow_direct || copy_alias::g_frame_direct || copy_alias::g_direct > 0) && ++alias_window_ >= 600) {
+    if ((copy_alias::g_mode > 0 || copy_alias::g_fullsize > 0 || copy_alias::g_small > 0 || copy_alias::g_shadow_direct || copy_alias::g_frame_direct || copy_alias::g_direct > 0) && (++alias_window_ >= 600 || census_flush::Due(g_cf_alias))) {
       rdr::Log("%s", copy_alias_.Report().c_str());
       alias_window_ = 0;
     }
-    if (pa_enabled_ && ++pa_window_ >= 600) {   // S102 L1 (common.md "every lever logs a live census line")
+    if (pa_enabled_ && (++pa_window_ >= 600 || census_flush::Due(g_cf_pa))) {   // S102 L1 (common.md "every lever logs a live census line")
       rdr::Log("%s", pa_planner_.Report().c_str());
       pa_window_ = 0;
     }
-    if (pc_enabled_ && ++pc_window_ >= 600) {   // S102 L1b (common.md "every lever logs a live census line"; relaxed counters, text built here only)
+    if (pc_enabled_ && (++pc_window_ >= 600 || census_flush::Due(g_cf_pc))) {   // S102 L1b (common.md "every lever logs a live census line"; relaxed counters, text built here only)
       rdr::Log("%s", pc_planner_.Report().c_str());
       pc_window_ = 0;
     }
-    if (pl_enabled_ && ++pl_window_ >= 600) {   // S102 C1 (common.md "every lever logs a live census line")
+    if (pl_enabled_ && (++pl_window_ >= 600 || census_flush::Due(g_cf_pl))) {   // S102 C1 (common.md "every lever logs a live census line")
       rdr::Log("%s", pl_planner_.Report().c_str());
       pl_window_ = 0;
     }
-    if (plane_blank_enabled_ && ++plane_blank_window_ >= 600) {   // S102 main (06:20, common.md "every lever logs a live census line"): the live game showed no G4b line
+    if (plane_blank_enabled_ && (++plane_blank_window_ >= 600 || census_flush::Due(g_cf_plane_blank))) {   // S102 main (06:20, common.md "every lever logs a live census line"): the live game showed no G4b line
       rdr::Log("%s", plane_blank_planner_.Report().c_str());
       plane_blank_window_ = 0;
     }
@@ -5205,7 +5345,7 @@ class Binder {
     const bool usable_frame = !(stats.isolate || velocity_mode_ || persist_only_bind || frame_part_open || prev_open || !frame.ops.count);
     frame_cuts_.BeginFrame(usable_frame);
     if (rt_level_ > 0) rt_.BeginFrame(usable_frame);   // S102 R18-B1
-    if (++frame_cuts_window_ >= 600) {   // the live census: what the cuts took and why they declined (every 600 frames while a switch is on)
+    if ((++frame_cuts_window_ >= 600 || census_flush::Due(g_cf_frame_cuts))) {   // the live census: what the cuts took and why they declined (every 600 frames while a switch is on)
       frame_cuts_window_ = 0;
       if (frame_cuts_blit_ || frame_cuts_restore_) rdr::Log("%s", FrameCutsReport().c_str());
       if (rt_level_ > 0) rdr::Log("%s", FrameRoundTripReport().c_str());   // S102 R18-B1

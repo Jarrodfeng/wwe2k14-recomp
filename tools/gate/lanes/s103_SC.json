@@ -1,0 +1,265 @@
+{
+ "owner": "S103 lane SC (landing 2: our 2D must clip like the game's; LANDING2_PLAN.md, P7-H2 open item 1 and the review's scope add): Quad2D layout 4 = + scissor[4] / scissor_on (kQhScissor) + viewport[4] / target_size[2] with the target class in `pass` (kQhTarget): the game scissors a menu list to its panel (clip routine sub_823C8B30: scissor enable = the state object's cache word +124 via sub_82C22E08, the rect = the op-79 record sub_82C2C4B8; the colour target = SetRenderTarget sub_82BB3978, the viewport = SetViewport sub_82BCBB68). The tap reads them (an unknown one is a hole, RowProblem refuses), the drawer clips each row to its own scissor (ScissorOf; a zero-area scissor skips the row, counted), the offline rig takes the row's scissor from the stream draw and draws with it.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs. sc_unit (88 checks, 17 planted twins incl. PFR frame_reset_skipped / save_ignored; lane SCF review fixes F1-F7: the op-45 holder, the reset recorders, Final by surface identity, ScissorOf by target + viewport, Check parity, the dev cross-check) + the i1 / i2 / i3 / l2a / p3b / p3c units re-run for layout 4 (320 bytes a row). The fview picture check (tools/scene/sc_check.py: rows arm vs the stream on the c2d_* captures, the scissor twins) is run by hand (it builds fview and reads the main checkout's out/captures). Live path (hooks on sub_82C2C4B8 / sub_82BB3978 / sub_82BCBB68 in draw_origin.h): compile-checked only (game_syntax); the viewport-after-SetRenderTarget default is [U]. Lane SCF: the live tap also hooks sub_82BB3FC0 (op 47) and sub_82BB3B08 (op 48) (compile-checked only); the dev-only cross-check (row i vs the i-th stream row-site draw) prints on the [scene][2d-draw] line.",
+ "checks": [
+  {
+   "name": "s103_SC.build_unit",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_sc_unit.ps1"
+   ],
+   "timeout_s": 600
+  },
+  {
+   "name": "s103_SC.unit",
+   "cmd": [
+    "out/tools/sc_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "src/renderer_scene/quads2d_draw.cpp",
+    "src/renderer_scene/quads2d_draw.h",
+    "src/renderer_scene/quads2d_plants.h",
+    "src/renderer_scene/quads2d_rig.h",
+    "src/renderer_scene/record_io.h",
+    "src/renderer_scene/scene_record.h",
+    "tools/scene/sc_support.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_not_filled",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_not_filled"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_enable_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_enable_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_y_flipped",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_y_flipped"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_draw.cpp",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_y_flipped_draw",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_y_flipped_draw"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_draw.cpp",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_target_not_filled",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "target_not_filled"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_target_always_frame",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "target_always_frame"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_rt_holder_direct",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "rt_holder_direct"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_reset_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "reset_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_final_by_size",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "final_by_size"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_cross_target_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "cross_target_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_seed_off",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "seed_off"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_viewport_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_viewport_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_draw.cpp",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_scissor_root_fixed",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "scissor_root_fixed"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_draw.cpp",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_check_empty_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "check_empty_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_draw.cpp",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_frame_reset_skipped",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "frame_reset_skipped"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "src/renderer_scene/quads2d_plants.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_SC.unit_plant_save_ignored",
+   "cmd": [
+    "out/tools/sc_unit.exe",
+    "--plant",
+    "save_ignored"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/quads2d_core.h",
+    "src/renderer_scene/quads2d_plants.h",
+    "tools/scene/sc_unit.cpp"
+   ]
+  }
+ ]
+}

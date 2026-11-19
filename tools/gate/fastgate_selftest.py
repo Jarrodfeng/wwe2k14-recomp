@@ -53,7 +53,7 @@ def count(root, name):
 
 
 def chk(name, cnt, secs=0.0, rc=0, **extra):
-    d = {'name': name, 'cmd': [PY, '-I', 'count.py', cnt, str(secs), str(rc)], 'timeout_s': 60}
+    d = {'name': name, 'cmd': [PY, '-I', 'count.py', cnt, str(secs), str(rc)], 'timeout_s': 60, 'writes': [f'counts_{cnt}.txt', f'span_{cnt}.txt']}   # S103 PS2: the script's output names are built at run time: declared
     d.update(extra)
     return d
 
@@ -63,8 +63,8 @@ def write_lane(root, name, checks, **top):
 
 
 def gate(root, *flags):
-    env = dict(os.environ, GATE_NO_RESTORE='1')
-    p = subprocess.run([PY, '-I', str(GATE), '--root', str(root), '--out', str(Path(root) / 'out_gate')] + list(flags), capture_output=True, text=True, env=env)
+    env = dict(os.environ, GATE_NO_RESTORE='1', GATE_VERIFY_P='0')   # S103 PS2: no random cache audit inside the counting tests (sched_selftest.py tests the audit)
+    p = subprocess.run([PY, '-I', str(GATE), '--root', str(root), '--out', str(Path(root) / 'out_gate'), '--no-toolcache', '--gpu-slots', '0'] + list(flags), capture_output=True, text=True, env=env)
     return p.returncode, p.stdout + p.stderr
 
 
@@ -84,7 +84,7 @@ def run():
         write_lane(root, 'l_a', [chk('l_a.one', 'a')], affects=['src/renderer/**'])
         write_lane(root, 'l_b', [chk('l_b.one', 'b')], affects=['src/other/**'])
         write_lane(root, 'l_c', [chk('l_c.one', 'c')])                                    # no affects: always runs, never cached
-        sh(root, 'init', '-q')
+        sh(root, 'init', '-q', '-b', 'trunk')
         sh(root, 'config', 'user.email', 't@t')
         sh(root, 'config', 'user.name', 't')
         (root / '.gitignore').write_text('out_gate/\ncounts_*.txt\nbuilds.txt\nout/\n')
@@ -153,6 +153,14 @@ def run():
         rc, out = gate(root, '--changed', 'HEAD')
         ok(count(root, 'f') == 2 and rc == 1, '5 a failing check runs again (never cached) and the gate exits 1')
         ok(count(root, 's') == 0 and 'SKIP' in out, '5b a SKIP does not run and is not a pass')
+        # 5c S103 GRF: a "retired" check is a SKIP with its reason (never a pass, never run); the same check without the key runs
+        write_lane(root, 'l_r', [dict(chk('l_r.one', 'r'), retired='tests a path that no longer ships')], affects=['src/renderer/**'])
+        rc, out = gate(root, '--changed', 'HEAD', '--no-cache')
+        ok(count(root, 'r') == 0 and 'retired: tests a path that no longer ships' in out, '5c a retired check does not run and reads SKIP with its reason')
+        write_lane(root, 'l_r', [chk('l_r.one', 'r')], affects=['src/renderer/**'])
+        gate(root, '--changed', 'HEAD', '--no-cache')
+        ok(count(root, 'r') == 1, '5d control: without "retired" the same check runs')
+        (root / 'tools' / 'gate' / 'lanes' / 'l_r.json').unlink()
         # 6 ---- parallel + times
         for n in ('f', 's'):
             (root / 'tools' / 'gate' / 'lanes' / f'l_{n}.json').unlink()
@@ -191,7 +199,7 @@ def run():
         ok(count(root, 'a') == n0 + 1, '9b ... and the lane that declares that folder runs')
         sh(root, 'reset', '-q', '--hard', 'HEAD')
         # 10 serial worker: two lanes without affects writing one file must not interleave under --jobs 4; the control (parallel_safe) does
-        (root / 'shared.py').write_text('import sys, time\nn = sys.argv[1]\nf = open("shared.txt", "a")\nf.write(n + " start\\n"); f.flush()\ntime.sleep(0.8)\n'
+        (root / 'shared.py').write_text('import sys, time\nn = sys.argv[1]\nf = open("shared.txt", "a")\nf.write(n + " start\\n"); f.flush()\ntime.sleep(2.0)\n'
                                         'f.write(n + " end\\n"); f.close()\n')
         for n in ('s1', 's2'):
             write_lane(root, n, [{'name': f'{n}.one', 'cmd': [PY, '-I', 'shared.py', n], 'timeout_s': 60}])
@@ -203,7 +211,7 @@ def run():
             write_lane(root, n, [{'name': f'{n}.one', 'cmd': [PY, '-I', 'shared.py', n], 'timeout_s': 60, 'parallel_safe': True}])
         gate(root, '--changed', 'HEAD', '--jobs', '4', '--no-cache')
         lines = (root / 'shared.txt').read_text().split('\n')[:4]
-        ok([l.split()[1] for l in lines][:2] == ['start', 'start'], f'10b control: with parallel_safe they DO overlap, so the test can see interleaving ({lines})')
+        ok([l.split()[1] for l in lines if l.strip()] != ['start', 'end', 'start', 'end'], f'10b control: with parallel_safe they DO overlap, so the test can see interleaving ({lines})')
         for n in ('s1', 's2'):
             (root / 'tools' / 'gate' / 'lanes' / f'{n}.json').unlink()
         (root / 'bld.ps1').write_text('x')
@@ -245,13 +253,20 @@ def run():
         rc, out = gate(root, '--changed', 'HEAD')
         ok(rc == 1 and 'matches no file' in out and count(root, 'e') == 0, '12b an affects glob that matches no file fails at load')
         (root / 'tools' / 'gate' / 'lanes' / 'l_e.json').unlink()
-        # 13 default BASE = merge-base with s102-arc-pt2
+        # 13 default BASE = merge-base with main
         rc, out = gate(root, '--changed')
-        ok(rc == 1 and 's102-arc-pt2' in out, '13 no BASE and no session branch: FAIL naming the branch')
-        sh(root, 'branch', 's102-arc-pt2')
+        ok(rc == 1 and 'main' in out, '13 no BASE and no session branch: FAIL naming the branch')
+        sh(root, 'branch', 'main')
         (root / 'src/other/b.cpp').write_text('v99')
         rc, out = gate(root, '--changed', '--no-cache')
-        ok('--changed ' in out and 'changed path(s)' in out and 'l_b.one' in out, f'13b default BASE is the merge-base with s102-arc-pt2 ({out.splitlines()[0][:80]})')
+        ok('--changed ' in out and 'changed path(s)' in out and 'l_b.one' in out, f'13b default BASE is the merge-base with main ({out.splitlines()[0][:80]})')
+        # 13c S103 H3: the cache is on for --only and for a full run too (it used to need --changed)
+        gate(root, '--only', 'l_b')
+        nb = count(root, 'b')
+        rc, out = gate(root, '--only', 'l_b')
+        ok(count(root, 'b') == nb and 'cache hit' in out, '13c --only: the second run is a cache hit (no --changed needed)')
+        rc, out = gate(root, '--only', 'l_b', '--no-cache')
+        ok(count(root, 'b') == nb + 1, '13d --only --no-cache still re-runs')
         # 14 the cache file is replaced atomically and merges
         cp = base / 'cache.json'
         fg.save_cache(cp, {'a': {'verdict': 'PASS'}})

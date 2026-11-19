@@ -1,0 +1,13 @@
+{
+ "owner": "S103 lane SCR (landing 1 picture fault): the movie-surface rule (vertex-alpha blend, back-face cull, self-lit) applied in the live loader, rf_c_core.cpp screens block + LightsFor skip, Plants::no_screen_rule. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "a04_entrance frame 60, the SCREENS panel with and without the rule (the plant): the floor copy under the wall must be <= 0.10 of the wall's brightness; the planted picture must fail.",
+ "checks": [
+  {"name": "s103_SCR.rule", "cmd": ["py", "-I", "tools/scene/scr_check.py", "--frame", "60"], "timeout_s": 1800,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted"],
+   "affects": ["src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/rf_c.h", "src/renderer_scene/rf_screens.cpp", "src/renderer_scene/front_end.cpp", "src/assets/stage_media.h", "tools/scene/scr_check.py", "tools/scene/frame_rig.cpp"]},
+  {"name": "s103_SCR.plant", "cmd": ["py", "-I", "tools/scene/scr_check.py", "--frame", "60", "--plant", "--expect-fail"], "timeout_s": 1800,
+   "needs": ["out/captures/a04_entrance", "game_data/extracted"],
+   "affects": ["src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/rf_c.h", "tools/scene/scr_check.py", "tools/scene/frame_rig.cpp"]}
+ ]
+}

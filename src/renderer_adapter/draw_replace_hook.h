@@ -56,6 +56,8 @@ struct ReplaceIn {
   uint32_t fs_block_bytes = 0;
   // lane 151: a capture image id (a frame texture slot's / copy's `image`) -> the renderer's image id the binder uses for it (what ReplaceOut::slots names); also only for a hook that says NeedsFragmentBlock().
   std::function<rdr::ImageId(uint32_t)> map_image;
+  // S103 P4F: the capture image RECORD (its description, not its pixels) of a capture image id: width and height. false = unknown. Always set by the binder.
+  std::function<bool(uint32_t image, uint32_t& width, uint32_t& height)> image_size;
 };
 
 // What replaces the stream draw's parts. Anything not set here is the stream draw's.
@@ -117,6 +119,10 @@ struct ReplaceOut {
     bool hook_geometry = false;
     // lane 159 (review S2): byte ranges of `vs_constants` the 120 Hz frame pump may interpolate between two game ticks (a shape that follows a bone). The binder keys such a draw like a
     // stream draw (shaders, geometry, occurrence) XOR a salt for own draws, so a draw owned this tick and the stream's the next never pair blocks of different layouts. None: never interpolated.
+    // S103 SC (landing 2: our 2D clips like the game's): the draw's scissor is THIS box (x y w h, guest pixels at 1x, the stream's dynamic-state convention) instead of the stream draw's own: the Quad2D row's scissor, so the offline row rig proves the clip
+    // the live drawer applies (quads2d_draw.cpp ScissorOf). false: the stream draw's scissor stays.
+    bool scissor_set = false;
+    int32_t scissor[4] = {};
     rdr::BlendRange blend[4] = {};
     uint32_t blend_count = 0;
   } own;

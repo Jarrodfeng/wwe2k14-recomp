@@ -1,0 +1,11 @@
+{
+ "owner": "S103 lane AUSF (docs/agents/s103/AUS2.md): in the stream-free build (no walk) a visible wrestler body is never left out of the record because its latch palette read disagrees with the update hook's: the latch read of a slot-present body is submitted (counted mismatch_submitted_nowalk), and a stale visible body still in the character table is held <= kConsumerFresh records (stale_held). Stream build unchanged. 0 game runs, 0 Surface runs.",
+ "note": "inputs = tools/scene/inputs_check.py (the l33_ausf.* checks + twins ausf_refuse = today's refusal in a no-walk build, ausf_drop = today's immediate drop; l33.mismatch_ours_no_evidence_refused is the stream-build control). game_syntax compiles wrestler_contrib.cpp and rf_wrestlers.cpp in BOTH builds (on + off).",
+ "checks": [
+  {"name": "s103_AUSF.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/wrestler_contrib.*", "src/scene_live/wrestler_hook.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_AUSF.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--build", "both", "--files", "src/scene_live/wrestler_contrib.cpp,src/renderer_scene/rf_wrestlers.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*", "src/renderer_scene/rf_wrestlers.cpp", "src/keep_stream.h"]}
+ ]
+}

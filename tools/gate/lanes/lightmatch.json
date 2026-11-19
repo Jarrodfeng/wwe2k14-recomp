@@ -3,6 +3,6 @@
  "checks": [
   {"name": "lightmatch.viewer_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1"], "timeout_s": 1800},
   {"name": "lightmatch.viewer_rdr_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_viewer.ps1", "-Backend", "rdr"], "timeout_s": 1800},
-  {"name": "lightmatch.selftest", "cmd": ["py", "-I", "tools/lightmatch/selftest.py"], "timeout_s": 1500, "needs": ["out/s101/runs", "game_data/extracted"]}
+  {"name": "lightmatch.selftest", "cmd": ["py", "-I", "tools/lightmatch/selftest.py"], "timeout_s": 1500, "needs": ["out/s101/runs/20261111_174549_s100_owner_bryan_entrance", "game_data/extracted"]}
  ]
 }

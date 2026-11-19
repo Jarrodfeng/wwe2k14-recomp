@@ -2,7 +2,7 @@
 //
 // The same rules as UiAssets::Font (ui_assets.cpp: records, kerning pair list, per-font trim) without the sheet's pixels and without the 2D pass's dependencies: ui_assets.cpp
 // is in no game / fview build list (its stb_image declarations need an external symbol) and this hook has to be in all of them, so this file carries its own STATIC stb_image
-// like ui_ours_core.cpp. A change to the .yfb rules goes in both.
+// like ui_file_index.cpp. A change to the .yfb rules goes in both.
 #pragma once
 #include <string>
 

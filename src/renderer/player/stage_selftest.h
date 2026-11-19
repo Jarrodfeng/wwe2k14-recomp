@@ -99,6 +99,7 @@ inline int StageSelfTest(Renderer& renderer, bool split, int frames) {
   }
   FrameBuilder own;
   double worst_upload_ms = 0;
+  // render-clock: dev - the offline self-test times its own wait, never a picture value
   const auto t0 = std::chrono::steady_clock::now();
   for (int fi = 0; fi < frames; ++fi) {
     const uint32_t f = uint32_t(fi);

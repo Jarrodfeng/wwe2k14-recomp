@@ -35,6 +35,7 @@ COLS = ('frame,t_seconds,frame_ms,game_cpu_ms,gpu_thread_cpu_ms,gpu_ms,draw_rows
         'present_gap_ms,rdr_submit_ms,gpu_work_ms,render_thread_ms,acquire_ms,present_call_ms,'
         'fs_reader_draw_ms,fs_reader_present_ms,fs_scene_end_ms,fs_replay_ms,fs_fence_wait_ms,fs_barrier_wait_ms,fs_rest_ms').split(',')
 SW0, SW1 = 'wwe2k14_nf_replay_loop', 'wwe2k14_nf_render_dispatch'
+SWJ = 'wwe2k14_rdr_upload_batch'   # part 5's job-line spec: a PerFrame switch that is NOT a kept lever in tools/surface/base_flags.txt (the job check refuses flipping a kept lever; S103 RLF: nf_replay_loop became kept)
 PERIOD, NPH = 150, 8
 
 
@@ -53,6 +54,7 @@ def run_test(root, tag, header_text=None):
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(os.path.join(d, 'renderer_adapter'), exist_ok=True)
     shutil.copy(os.path.join(root, 'src', 'renderer_adapter', 'rdr_switches.h'), os.path.join(d, 'renderer_adapter', 'rdr_switches.h'))
+    shutil.copy(os.path.join(root, 'src', 'renderer_adapter', 'census_flush.h'), os.path.join(d, 'renderer_adapter', 'census_flush.h'))   # rdr_switches.h includes it (S102 CEN1)
     shutil.copy(os.path.join(root, 'src', 'ab_flip_math.h'), os.path.join(d, 'ab_flip_math.h'))
     if header_text is not None:
         with open(os.path.join(d, 'ab_flip_math.h'), 'w', encoding='utf-8', newline='') as f:
@@ -430,20 +432,20 @@ def part4(root):
 
 def part5(root):
     """The job line, the bench helper, F8's SceneFlags, and the PerFrame audit."""
-    ok_spec = 'period=100/settle=15/anchor=2/off=%s=0/on=%s=1' % (SW0, SW0)
+    ok_spec = 'period=100/settle=15/anchor=2/off=%s=0/on=%s=1' % (SWJ, SWJ)
 
     def job(spec_tail, extra=''):
         return 'flip1|Only=ab;AbScene=frames_bryan_heavy;AbRounds=1;FrameSplit=true;SceneFlags=@BASE%s;AbFlip=%s' % (extra, spec_tail)
     cases = [
         (True, job(ok_spec), 'a good AbFlip job'),
-        (True, job('period=100/settle=15/anchor=2/off=%s=0/on=%s=1/order=off:on' % (SW0, SW0)), 'order with a colon (a comma cannot pass the bench)'),
+        (True, job('period=100/settle=15/anchor=2/off=%s=0/on=%s=1/order=off:on' % (SWJ, SWJ)), 'order with a colon (a comma cannot pass the bench)'),
         (False, job('period=150/anchor=2/off=wwe2k14_rdr_copy_alias=0/on=wwe2k14_rdr_copy_alias=1'), 'a start-only switch'),
         (False, job('period=150/anchor=2/off=wwe2k14_no_such=0/on=wwe2k14_no_such=1'), 'a name outside the table'),
         (False, job('period=150/anchor=2/off=wwe2k14_rdr_lazy_banks=false/on=wwe2k14_rdr_lazy_banks=true'), 'a phase that turns a kept (@BASE) lever off'),
         (False, job(ok_spec + '/first=on'), 'first= written by hand'),
-        (False, job('period=100/off=%s=0/on=%s=1' % (SW0, SW0)), 'no anchor'),
+        (False, job('period=100/off=%s=0/on=%s=1' % (SWJ, SWJ)), 'no anchor'),
         (False, job(ok_spec, ';ArmAFlags=wwe2k14_rdr_lazy_banks=true'), 'ArmAFlags beside AbFlip'),
-        (False, job('period=150/anchor=2/off=%s=0' % SW0), 'one phase only'),
+        (False, job('period=150/anchor=2/off=%s=0' % SWJ), 'one phase only'),
     ]
     for want_ok, line, what in cases:
         p = subprocess.run(['pwsh', '-NoProfile', '-File', os.path.join(root, 'tools', 'surface', 's0_5_jobs.ps1'), '-Out', os.path.join(root, 'out', 'ab_flip', 'jobs_out'), '-CheckOnly', '-Jobs', line],
@@ -494,6 +496,12 @@ def part6(root):
     for p in (a, b):
         if not os.path.isdir(p):
             raise Fail('fixture %s is missing' % p)
+    if not any(x.endswith('.log') for x in os.listdir(a)):
+        # S103 RLF: the fixtures' wwe2k14_<n>.log files are gitignored (*.log) and no checkout holds them any more; only the csvs were committed (M7).
+        # The pair reader cannot run without them, so the three fixture pair checks are SKIPPED (stated, not passed); the bench.ps1 5.1 test below needs no fixtures.
+        print('part 6: SKIPPED the real ab14 fixture pairs (knock-out, A/A, moved-flip twin): the fixtures\' .log files are gone (gitignored, never committed)')
+        part6_ps51(root)
+        return
     code, out = run_pair(a, b)
     d, ci = pickp(out, 'frame_ms')
     sf, _ = pickp(out, 'shown_fps')
@@ -517,6 +525,10 @@ def part6(root):
     if code != 2 or 'first differing entry: phase 4 flips at rel 240 in run 1 and rel 241 in run 2' not in out:
         raise Fail('a flip frame moved in one log must be refused naming the first differing entry (exit %d):\n%s' % (code, out))
     print('part 6: a flip moved one frame in one log: REFUSED, first differing entry named')
+    part6_ps51(root)
+
+
+def part6_ps51(root):
     # bench.ps1's real argument line under Windows PowerShell 5.1
     b_txt = open(os.path.join(root, 'tools', 'surface', 'bench.ps1'), encoding='utf-8', errors='replace').read()
     fn = re.search(r'function Get-AbFlipCli.*?\n}\n', b_txt, re.S)

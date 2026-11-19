@@ -6,7 +6,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'wm30'))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'shaders'))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'shaders', 'packets'))
-CACHE = os.path.join(REPO, 'out', 's100', 'harness', 'ucode')
+sys.path.insert(0, HERE)
+import dataroot
+CACHE = os.path.join(dataroot.data_root(REPO), 'out', 's100', 'harness', 'ucode')
 
 def cache_path(h):
     return os.path.join(CACHE, '%016X.bin' % h)

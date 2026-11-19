@@ -55,7 +55,8 @@
     "src/renderer_adapter/reader.h",
     "src/fp_probe.h",
     "src/scene_live/arena_world_hook.h"
-   ]
+   ],
+   "needs": ["generated/default"]
   },
   {
    "name": "s102_u3_upd.game_units_compile",

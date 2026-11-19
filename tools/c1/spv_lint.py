@@ -45,7 +45,7 @@ def compare(now, base):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=ROOT)
-    ap.add_argument('--base', default='s102-arc-pt2')
+    ap.add_argument('--base', default='21b39eb5d')   # S103 LNT3: the last commit that changed SPIR-V on purpose (TQ2 searchlight uv; before it RFL's reflect cube mirror, FXF's ghost, MIP's LOD bias daf91b9fe))
     a = ap.parse_args()
     now, base, total = {}, {}, 0
     for path in sorted(glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*.h'))):

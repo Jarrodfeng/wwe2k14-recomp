@@ -525,10 +525,17 @@ def call(tool, args):
         out = plan.lines()
         if plan.status != 'plan' or args.get('dry'):
             return [text('\n'.join(out))], plan.status == 'error'
+        import golock  # GTW2: one goto per live name
+        try:
+            lock = golock.take(name)
+        except golock.Held as x:
+            return [text('\n'.join(out) + '\nERROR  %s' % x)], True
         try:
             goto_resolve.execute(plan, name, say=out.append)
         except goto_resolve.Stopped as x:
             return [text('\n'.join(out) + '\n' + goto_resolve.failure_report(name, str(x)))], True
+        finally:
+            golock.release(lock)
         return [text('\n'.join(out))], False
     if tool == 'game_match':  # Session 91: the match builder (tools/atlas/match.py)
         sys.path.insert(0, os.path.join(live.REPO, 'tools', 'atlas'))

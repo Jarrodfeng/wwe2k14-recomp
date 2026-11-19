@@ -22,6 +22,8 @@ struct Member {
 };
 
 bool Init(const std::string& game_path);
+// S103 D4: the folder Init was given ("" before it): the live crowd's prop loader opens the same arena pac with it.
+std::string GameRoot();
 bool LoadBody(int arena, int type, Model& out, std::string& err);
 // S101 lane 35 (the crowd's first promotion, game space end to end): LoadBody with the viewer's Y mirror taken back off the vertices (FinishModel negated
 // pos / normal / tangent y): the body is in the game's file space (-Y up) like the scene record's member matrices and palettes, and drawable by the

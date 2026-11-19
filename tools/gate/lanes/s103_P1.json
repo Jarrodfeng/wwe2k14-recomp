@@ -1,0 +1,22 @@
+{
+ "owner": "S103 lane P1 (the barricade padding): Material::alpha_mask (src/assets/asset_model.h, jboy.h AlphaStats + the arena rule: a highlight-mask material is drawn with no discard), the FX_ALPHA_GLOSS score for the yProp copies (src/renderer_scene/front_end.{h,cpp}), tools/scene/pad_check.py, tools/arena/variant_table.py + variant_rule.py + arena4_variants.json (the stream table). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "The game draws the barricade padding (ar_fence / ar_fence_b, alpha 13 % on average) opaque: ps yBG_Default_specular_alpha_spec_fragment (diffuse alpha = highlight mask, not the output alpha) [C: run 26 stream op 522 and 265 arena-4 meshes of three streams]. We cut it at 0.5 and showed the crowd through. The check runs the offline rig on frame 300 of run 26's case (out/s103/run26_case.zip: frames 0-300 unpacked under out/s103/P1/gate, scratch) and tests our ARENA panel over the pixels an independent raster of the fence meshes (the stream's ViewProj, the texture alpha) says the game fills: it must follow the pad texture. The planted twin (WWE_RDR_P1_PLANT=old_alpha = the old 0.5 test) must FAIL with PAD MISSING. Game pixels are not reproducible offline (the replay leaves the arena out): the check proves the game's per-draw RULE (coverage), the colour is lane L4's.",
+ "checks": [
+  {"name": "s103_P1.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800,
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h"]},
+  {"name": "s103_P1.pad", "cmd": ["py", "-I", "tools/scene/pad_check.py", "--case", "out/s103/run26_case.zip", "--frame", "300"], "timeout_s": 900,
+   "needs": ["out/s103/run26_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "tools/scene/pad_check.py"]},
+  {"name": "s103_P1.plant_old_alpha", "cmd": ["py", "-I", "tools/scene/pad_check.py", "--case", "out/s103/run26_case.zip", "--frame", "300", "--plant", "--expect-fail", "PAD MISSING"], "timeout_s": 900,
+   "needs": ["out/s103/run26_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "tools/scene/pad_check.py"]},
+  {"name": "s103_P1.variant_rule", "cmd": ["py", "-I", "tools/arena/variant_rule.py", "tools/arena/arena4_variants.json", "--check", "final"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["src/assets/jboy.h", "tools/arena/variant_rule.py", "tools/arena/arena4_variants.json"]},
+  {"name": "s103_P1.plant_old_cutout", "cmd": ["py", "-I", "tools/arena/variant_rule.py", "tools/arena/arena4_variants.json", "--check", "old_cutout", "--expect-fail", "1"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["src/assets/jboy.h", "tools/arena/variant_rule.py", "tools/arena/arena4_variants.json"]},
+  {"name": "s103_P1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/front_end.h"]}
+ ]
+}

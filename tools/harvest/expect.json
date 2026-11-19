@@ -1,0 +1,37 @@
+{
+ "l10_vertex_lm": {
+  "matches": 361,
+  "misses": [],
+  "total": 361
+ },
+ "l5_highlight": {
+  "matches": 341,
+  "misses": [
+   "bg04 28/1 ar_dm (game mask, rule False)",
+   "bg04 30/1 ar_dm (game mask, rule False)",
+   "bg04 32/1 ar_dm (game mask, rule False)",
+   "bg04 47/0 ji_chair (game mask, rule False)"
+  ],
+  "total": 345
+ },
+ "lit_crowd": {
+  "matches": 12,
+  "misses": [
+   "unnamed/- yAudience_lm_uv_vertex + yAudience_lm_pixel_color_alpha_fragment"
+  ],
+  "total": 13
+ },
+ "p1_mask": {
+  "matches": 375,
+  "misses": [
+   "bg04 163/1 ar_tenh0 (game other, rule True)",
+   "bg04 47/0 ji_chair (game mask, rule False)"
+  ],
+  "total": 377
+ },
+ "page_rule": {
+  "matches": 273,
+  "misses": [],
+  "total": 273
+ }
+}

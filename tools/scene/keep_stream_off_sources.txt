@@ -1,0 +1,6 @@
+# S103 P9: the translation units compiled ONLY when WWE2K14_KEEP_STREAM is OFF (they define what the stream's files define when the stream is kept).
+# S103 P7 (review): the scene host (src/renderer_host) is OFF-only too, so the ON build's object list stays what it was.
+# CMakeLists.txt appends them to WWE2K14_SOURCES; tools/scene/keep_stream_off_link.py compiles them with the flags of src/dev_build.cpp.
+src/renderer_game/owner_cvars_off.cpp
+src/renderer_host/scene_host.cpp
+src/renderer_host/host_start.cpp

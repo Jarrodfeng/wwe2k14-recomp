@@ -17,6 +17,9 @@
 namespace rdr_scene {
 
 inline constexpr uint32_t kUiQuadSpriteSite = 0x82BC5688u;   // sub_82BC4890's draw call (T_Sprite) [C: UI_PROMOTION_MAP.md 1.1]
+inline constexpr uint32_t kUiQuadGlyphSite = 0x82BC3784u;    // S103 I3: sub_82BC3518's draw call (a glyph quad of a text run); taken ONLY under the offline row rig (--quads-2d-rows)
+inline constexpr uint32_t kUiQuadRectStripSite = 0x82BC484Cu;   // S103 P3b: sub_82BC4450's single flat T_Rect (a 4-vertex strip); taken ONLY under the offline row rig
+inline constexpr uint32_t kUiQuadSpriteMSite = 0x82BC8BECu;      // S103 P3b: sub_82BC8180's plain T_Sprite (technique 0x8206AA0C) (a 4-vertex strip); taken ONLY under the offline row rig
 inline constexpr uint32_t kUiQuadRectSite = 0x82BC3EE8u;     // sub_82BC3C18's draw call (T_Rect) [C: UI_PROMOTION_MAP.md 1.1]
 
 // The switch: fview / rplay --ui-quads, live --wwe2k14_rdr_ui_quads_ours (ui_quads_factory-less: read by MakeUiOurs). Default off.
@@ -43,15 +46,18 @@ class UiQuads {
   // The stream draw `in` as an own draw (out.own filled; nothing else of `out` is touched) when it is a sprite or a rectangle of the known shape. False: `why` says why, the counters say which check.
   bool Build(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& out, rdr_adapter::KeepWhy& why);
   std::string Report() const;
-  uint64_t replaced() const { return n_.sprites + n_.rects; }
+  uint64_t replaced() const { return n_.sprites + n_.rects + n_.glyphs; }
 
  private:
   UiQuadFaults faults_;
-  uint16_t program_sprite_ = 0, program_rect_ = 0, layout_ = 0;
+  uint16_t program_sprite_ = 0, program_rect_ = 0, program_sprite_hsl_ = 0, program_glyph_ = 0, layout_ = 0;
+  uint16_t program_rect_proj_ = 0, program_sprite_proj_ = 0, program_glyph_proj_ = 0;   // S103 P3c: the matrix variants (rdr_uiquad_proj.vert); made ONLY under the offline row rig
+  alignas(16) float vs_proj_[52] = {};   // S103 P3c: UnitScale, Pos[4], Uv[4], Mat[4] (the matrix-placed row's vertex block)   // (S103 I2: program_sprite_hsl_; I3: program_glyph_)
   alignas(16) float vs_[36] = {};   // UnitScale, Pos[4], Uv[4]
-  alignas(16) float fs_[8] = {};    // Color, AlphaMix
+  alignas(16) float fs_[12] = {};   // Color, AlphaMix (+ HSL for the hue-shifted sprite; S103 I2) (+ Selector for the glyph; S103 I3)
   struct Counts {
-    uint64_t decisions = 0, sprites = 0, rects = 0, variant = 0, geometry = 0, quad = 0, constants = 0, alpha_to_coverage = 0, texture = 0;
+    uint64_t proj_taken = 0, proj_refused = 0;   // S103 P3c: matrix-placed draws taken as rows / kept (a register unreadable)
+    uint64_t decisions = 0, sprites = 0, rects = 0, glyphs = 0, variant = 0, geometry = 0, quad = 0, constants = 0, alpha_to_coverage = 0, texture = 0, projection = 0;   // (S103 P3b: `projection` = draws whose c28 fUseProjMatrix is set: counted apart from `constants`, still kept)
     float last_pos[4] = {};   // x0 y0 x1 y1 of the last corners 0 and 2
   } n_;
 };

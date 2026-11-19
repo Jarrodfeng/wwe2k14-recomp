@@ -154,7 +154,7 @@ WIRING = [
     ('the reader\'s constants carry the bake\'s (PreLightK)', 'src/renderer_adapter/binder.h', ': pa_k ? PackAnalytic(rdr::fx::kVariants[pa_ps], frame.constant_banks.Ref(draw.ps_bank), bools, builder, pa_k)'),
     ('the group\'s constants come from the pre-light draw\'s own bank', 'src/renderer_adapter/binder.h', 'bank.CopyBytes(204 * 16, 3 * 16, out + 11 * 16);    // SssLobeA'),
     ('a reader without a twin keeps the bake (kind 2)', 'src/renderer_adapter/binder.h', 'return slot == prelight_analytic::kReaderSlot && pa_twin_available(ps) ? 1 : 2;'),
-    ('the live census every 600 frames', 'src/renderer_adapter/binder.h', 'pa_enabled_ && ++pa_window_ >= 600'),
+    ('the live census every 600 frames', 'src/renderer_adapter/binder.h', 'pa_enabled_ && (++pa_window_ >= 600'),
     ('the shader samples the lights, not the cube, under the define (skin)', 'src/renderer/shaders/fx/fx_skin.glsl', 'vec4 cubeLight = fx_prelight_eval(n);'),
     ('the shader samples the lights, not the cube, under the define (gear)', 'src/renderer/shaders/fx/fx_gear.glsl', 'fx_prelight_eval(n).rgb'),
     ('the shader samples the lights, not the cube, under the define (trans)', 'src/renderer/shaders/fx/fx_trans_ps.glsl', 'fx_prelight_eval(n).xyz'),
@@ -172,7 +172,7 @@ def wiring(root):
             line(False, 'wiring: cannot read %s' % rel)
             continue
         ok = needle in text
-        planted = text.replace(needle, '', 1)
+        planted = text.replace(needle, '')   # every site (L1b added a second copy of two of the links: removing one of two would leave the needle in)
         line(ok, 'wiring: %s' % what)
         line(planted != text and needle not in planted, '  twin: with that link removed the check fails (did apply: %s)' % (planted != text))
     for what, script, extra in (('own_pass_helpers_lint (no bare builder.SetTargets / builder.Copy in the new code)', os.path.join('tools', 'shadow', 'own_pass_helpers_lint.py'), ['--root', root]),

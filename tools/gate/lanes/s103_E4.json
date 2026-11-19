@@ -1,0 +1,176 @@
+{
+ "owner": "S103 lane E4: the maps still holes on OURS frames: the plane mask (rig fixture values for EyePos / PlanePos, the pass gated on a reader), A3's circle latch rows accepted with the missing-mesh hole, the light install resolver, the wrestler key light from the light objects (OFF) and the bit 7 stamp code (OFF) (src/renderer_scene/light_install.h, shadow_fit_record.h, live_map_plane.cpp, live_map_e2_input.cpp, live_maps*.cpp, src/scene_live/caster_stamp*.h); tools/scene/e4_unit.cpp, e2_check.py --const-eye, e_check.py --latch; docs/renderer/LIVE_MAPS.md section Lane E4",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs. Unit e4_unit (synthetic light rows to A2's manager layout and A3's kLoModelMap: the game's install selection rule with overrides for modes 0 / 1 only and an out-of-range remap as a hole, the WRESTLER path of sub_82620488 (mode-0 override word or the embedded object = a hole), walked light states never overridden, the bit 7 decision, the fixture values) with four plants, each failing its NAMED check (INSTALL REMAP / WRESTLER GATE / WRESTLER OVERRIDE / STAMP ALL MODELS). e2_check --maps plane --const-eye: the plane map from the rig FIXTURE values of brock_losswin's arena (EyePos is per-arena module data: not live), an EXACT check that every mask draw's PlanePos and EyePos of the middle frame are the fixture's (PLANE EYE EXACT, one arena only), the picture bar precision >= 0.60 (0.611-0.645) and the plant plane_eye_ring (0.097) failing. e_check --latch: the circle rows flagged as A3's latch rows draw the same blobs (IoU 0.93-0.95); the planted circles_no_mesh becomes a counted hole. No capture on disk carries A3's latch rows or kLoModelMap rows [U]: those parts are proved on synthetic rows and by a mirror run only. The bit 7 stamp and the stamp-flag edits of A3's inputs_core.h / inputs_contrib.h are NOT in this branch (named in LIVE_MAPS.md).",
+ "checks": [
+  {
+   "name": "s103_E4.build_rsc",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_rsc.ps1"
+   ],
+   "timeout_s": 1800
+  },
+  {
+   "name": "s103_E4.build_maps",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_maps.ps1"
+   ],
+   "timeout_s": 900
+  },
+  {
+   "name": "s103_E4.build_unit",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_e4_unit.ps1"
+   ],
+   "timeout_s": 300
+  },
+  {
+   "name": "s103_E4.unit",
+   "cmd": [
+    "out/tools/e4_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/light_install.h",
+    "src/renderer_scene/shadow_fit_record.h",
+    "src/scene_live/caster_stamp.h",
+    "tools/scene/e4_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_E4.unit_plant_remap",
+   "cmd": [
+    "out/tools/e4_unit.exe",
+    "--plant",
+    "ignore_remap"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/light_install.h",
+    "tools/scene/e4_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_E4.unit_plant_gate",
+   "cmd": [
+    "out/tools/e4_unit.exe",
+    "--plant",
+    "ignore_gate"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/light_install.h",
+    "tools/scene/e4_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_E4.unit_plant_override",
+   "cmd": [
+    "out/tools/e4_unit.exe",
+    "--plant",
+    "ignore_override"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/light_install.h",
+    "tools/scene/e4_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_E4.unit_plant_models",
+   "cmd": [
+    "out/tools/e4_unit.exe",
+    "--plant",
+    "first_model_only"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/renderer_scene/light_install.h",
+    "src/scene_live/caster_stamp.h",
+    "tools/scene/e4_unit.cpp"
+   ]
+  },
+  {
+   "name": "s103_E4.plane_const_eye",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/e2_check.py",
+    "--maps",
+    "plane",
+    "--const-eye",
+    "--faults",
+    "--out",
+    "out/s103/E4"
+   ],
+   "timeout_s": 1200,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/d3caster/z7147/capture",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s103_E4.circles_latch",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/e_check.py",
+    "--latch",
+    "--faults",
+    "--out",
+    "out/s103/E4/e_latch"
+   ],
+   "timeout_s": 1200,
+   "exes": [
+    "out/renderer/dev/fview.exe"
+   ],
+   "needs": [
+    "out/d3caster/z7147/capture",
+    "game_data/extracted"
+   ]
+  },
+  {
+   "name": "s103_E4.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    ".",
+    "--files",
+    "src/renderer_scene/live_maps.cpp,src/renderer_scene/live_map_shadow.cpp,src/renderer_scene/live_map_plane.cpp,src/renderer_scene/live_map_e2_input.cpp,src/renderer_scene/live_map_rim.cpp,src/renderer_scene/frame_hooks.cpp"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/renderer_scene/live_maps.h",
+    "src/renderer_scene/live_maps_e2.h",
+    "src/renderer_scene/light_install.h",
+    "src/scene_live/caster_stamp.h"
+   ]
+  }
+ ]
+}

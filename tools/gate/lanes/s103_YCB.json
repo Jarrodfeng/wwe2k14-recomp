@@ -1,0 +1,13 @@
+{
+ "owner": "S103 lane YCB (wrestler materials pick the game's own VS + PS): char_effects.cpp ChooseCharEffectTable takes the effect table's row for (technique word, the game's pass rule technique_pick.h CharPass: skinned model + part, model+616 mode, shadow map, g_mSpecPowPrm), a cube-specular row (pixel slot 11, not fed) takes its `pass | 8` sibling (counted char_cube_fallback), the wrinkle rows (slot 5 unsettled) and every other unbindable row keep the old min-define pick (counted); front_end.cpp BindMaterial(char_pass) + the draw: no shadow on hair, the liquid map wherever the picked variant reads slot 14. tools/assets/ych_census.cpp links the REAL char_effects.cpp over the player's chNNN pacs: S0 (mode 0) and S8 (mode 2) per (effect, technique) family, BEFORE vs AFTER; --plant = the old min-define pick claiming to be a table pick (must be caught). docs/research/s103/YCH.md. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Offline from the player's own files (read-only). The census loads 240 wrestler models: ~2.5 min per run.",
+ "checks": [
+  {"name": "s103_YCB.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_ych_census.ps1"], "timeout_s": 1800, "tier": "cheap",
+   "affects": ["src/renderer_scene/char_effects.cpp", "src/renderer_scene/char_effects.h", "src/renderer_scene/technique_pick.h", "src/renderer_scene/read_rule.h", "src/assets/jboy.h", "src/assets/asset_load.h", "src/assets/asset_model.h", "tools/assets/ych_census.cpp", "tools/assets/build_ych_census.ps1"]},
+  {"name": "s103_YCB.census", "cmd": ["out/tools/ych_census.exe", "--game", "game_data/extracted", "--ych"], "timeout_s": 900, "tier": "cheap",
+   "needs": ["game_data/extracted"], "affects": ["src/renderer_scene/char_effects.cpp", "src/renderer_scene/technique_pick.h", "src/assets/jboy.h", "tools/assets/ych_census.cpp"]},
+  {"name": "s103_YCB.plant_min_define_pick", "cmd": ["out/tools/ych_census.exe", "--game", "game_data/extracted", "--ych", "--plant"], "timeout_s": 900, "tier": "cheap",
+   "needs": ["game_data/extracted"], "affects": ["src/renderer_scene/char_effects.cpp", "src/renderer_scene/technique_pick.h", "tools/assets/ych_census.cpp"]}
+ ]
+}

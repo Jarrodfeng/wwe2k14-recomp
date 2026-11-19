@@ -580,7 +580,7 @@ void main() {
 #ifdef FX_REFLECT
   // Mirror of the room, as in the normal-mapped props below but with the vertex normal.
   vec3 viewDir = fx_normalize(inView.xyz);
-  vec3 env = texture(cubes[8], reflect(-viewDir, n)).rgb;
+  vec3 env = texture(cubes[8], reflect(-viewDir, n) * vec3(1.0, fc.ReflectAlpha.y < 0.0 ? -1.0 : 1.0, 1.0)).rgb;   // S103 RFL: the viewer's Y-mirrored space (ReflectAlpha.y = -1): flip the lookup back
   float edge = 1.0 - max(dot(n, viewDir), 0.0);
   float mirror = fc.ReflectAlpha.x * (0.2 + 0.8 * edge * edge * edge * edge);
 #ifdef FX_REFLECT_MAP
@@ -761,7 +761,7 @@ void main() {
   // Mirror of the room: the eye ray reflected off the shading normal reads a cube map. A reflection-amount map (slot 9) times ReflectAlpha
   // gives the strength, which grows toward grazing angles (0.2 head-on up to 1.0 edge-on) and takes that share away from the lit diffuse.
   vec3 viewDir = fx_normalize(inView.xyz);
-  vec3 env = texture(cubes[8], reflect(-viewDir, negN)).rgb;
+  vec3 env = texture(cubes[8], reflect(-viewDir, negN) * vec3(1.0, fc.ReflectAlpha.y < 0.0 ? -1.0 : 1.0, 1.0)).rgb;   // S103 RFL: the viewer's Y-mirrored space (ReflectAlpha.y = -1): flip the lookup back
   float edge = 1.0 - max(dot(negN, viewDir), 0.0);
   float mirror = fc.ReflectAlpha.x * (0.2 + 0.8 * edge * edge * edge * edge);
 #ifdef FX_REFLECT_MAP

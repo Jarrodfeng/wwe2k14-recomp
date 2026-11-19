@@ -1,0 +1,10 @@
+{
+ "owner": "S103 lane T1 (decompilation experiment, the bridge): tools/shaders/effect_table.py = the effect files' technique tables read from the player's own files at run time (effect, technique, pass) -> vertex / pixel shader (container, XXH3 hash, our fx.json name) + the pass's state blocks (raw words). Lodged in docs/formats/effect_techniques.md. 0 game runs, 0 Surface runs.",
+ "note": "--selftest = the table checked against the open set (arena 4's committed choice tables only; no other arena's table is read): review 1.3's seen map (yBG_Default 0 / 1 / 2 / 6 / 7 / 0xA / 0xF, yBG_UVScroll 0 / 2 / 4 / 6 = one to four layers, yProp_Default 0 / 3) read from the FILE's pass 0, every (effect, vs, ps) arena 4 drew for those three effects present in the file's table, no layout problem in any of the 133 effects; then the planted twin (technique index off by one) must fail. Reads the main checkout's game_data.",
+ "checks": [
+  {"name": "s103_T1.effect_table", "cmd": ["py", "-I", "tools/shaders/effect_table.py", "--selftest"], "timeout_s": 600,
+   "needs": ["game_data/extracted", "out/tools/xxh3.dll"],
+   "affects": ["tools/shaders/effect_table.py", "tools/shaders/shaderlib.py", "tools/harvest/choice_table/a04__match.json"]},
+  {"name": "s103_T1.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120}
+ ]
+}

@@ -30,6 +30,7 @@
 // through the same queue ("ring packets in the scene" are counted as segment dwords: 0 in tier 2c).
 #pragma once
 
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include "guest_gpu_only.h"  // lane 241 (3b)
 #include <algorithm>
 #include <array>
@@ -605,7 +606,8 @@ inline void TickTransition(PPCContext& ctx, uint8_t* base, uint32_t dev) {
 inline void CensusMaybe() {
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   uint64_t last = g_state.census_frame.load(std::memory_order_relaxed);
-  if (frame < last + 600 || !g_state.census_frame.compare_exchange_strong(last, frame)) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
+  if ((frame < last + 600 && !census_flush::Due(cf_site)) || !g_state.census_frame.compare_exchange_strong(last, frame)) return;
   if (!Level() && !g_state.n[kEnter].load(std::memory_order_relaxed)) return;
   std::string out;
   for (uint32_t c = 0; c < kCounterCount; ++c) {

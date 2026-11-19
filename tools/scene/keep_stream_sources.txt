@@ -1,0 +1,34 @@
+# S103 P9: the translation units that exist only for the command stream (reader / binder / replayer and the in-place replacers that edit the stream's draws).
+# CMakeLists.txt removes every `src/...` line below from WWE2K14_SOURCES when WWE2K14_KEEP_STREAM is OFF; tools/scene/keep_stream_off_link.py and
+# tools/scene/keep_stream_lint.py read the same file. One path per line, `#` comments. A unit that holds something the 2D layer keeps (movie_ours.cpp's picture) is NOT here yet: it needs its split first (COMPILE_OUT_LIST.md B4a / B4b) and is listed in LANDING2_PLAN.md P9's open items.
+src/renderer_adapter/capture.cpp
+src/renderer_adapter/live.cpp
+src/renderer_scene/crowd_ours.cpp
+src/renderer_scene/crowd_cards_core.cpp
+src/renderer_scene/crowd_cards.cpp
+src/renderer_scene/wrestler_ours.cpp
+src/renderer_scene/caw_ours.cpp
+src/renderer_scene/arena_ours_core.cpp
+src/renderer_scene/arena_ours.cpp
+src/renderer_scene/ui_ours.cpp
+src/renderer_scene/ui_ours_core.cpp
+src/renderer_scene/ui_quads.cpp
+src/renderer_scene/ui_text_ours.cpp
+src/renderer_scene/flash_ours.cpp
+src/renderer_scene/ring_ours_core.cpp
+src/renderer_scene/ring_ours.cpp
+src/renderer_scene/props_ours_core.cpp
+src/renderer_scene/props_ours.cpp
+src/renderer_scene/post_plan.cpp
+src/renderer_scene/post_ours_core.cpp
+src/renderer_scene/post_ours.cpp
+src/renderer_scene/screens_ours_core.cpp
+src/renderer_scene/screens_ours.cpp
+src/renderer_scene/shadow_casters_core.cpp
+src/renderer_scene/shadow_casters_ours.cpp
+src/renderer_scene/crowd_props_ours.cpp
+src/renderer_scene/rim_map_ours.cpp
+src/renderer_scene/circle_shadows_ours.cpp
+src/renderer_scene/plane_shadow_ours.cpp
+src/renderer_scene/small_passes_ours.cpp
+src/renderer_scene/rim_chain_ours.cpp

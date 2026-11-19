@@ -9,6 +9,7 @@ namespace rdr {
 
 enum ImageId : uint32_t { kNoImage = 0 };
 enum BufferId : uint32_t { kNoBuffer = 0, kFrameGeometry = 0xFFFFFFFFu };  // kFrameGeometry: the frame's own dynamic geometry blob
+enum BufferProducer : uint8_t { kBufOther = 0, kBufPosed = 1, kBufCloth = 2 };   // S103 PVR: who asked for a buffer copy (Renderer::UpdateBuffer, the uploads line)
 
 enum class Format : uint8_t {
   Undefined,
@@ -271,8 +272,13 @@ struct DlssInputs {
   float jitter[2] = {};            // render pixels (dlss_jitter.h)
 };
 
+// S103 PF2: the most Renders one recorded frame may get (the host's tween: the half-way picture, then the tick's own). A direct-path (host-visible vertex copy) frame is recorded at Render serial s and may be rendered at
+// serials s .. s + kRendersPerRecord - 1 only: the front end frees a copy on that promise (FrontEnd::PosedDirectWrite) and Render raises a Problem when it is broken (Frame::direct_record).
+constexpr uint32_t kRendersPerRecord = 2;
+
 struct Frame {
   uint64_t tick = 0;
+  uint64_t direct_record = 0;   // S103 PF2: 0 = no draw reads a host-visible vertex copy; else the Render serial the front end saw at Record, + 1
   Span<Op> ops;
   Span<TargetsOp> targets;
   Span<ClearOp> clears;

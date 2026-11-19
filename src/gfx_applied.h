@@ -74,7 +74,7 @@ struct LowLever {
   const char* where;  // the read, or why it is ignored
 };
 inline constexpr LowLever kLowLevers[] = {
-    {"gpu_shadow_half_rate", true, "renderer_adapter\\reader.h options.shadow_half"},
+    {"gpu_shadow_half_rate", true, "start_settings.cpp PlayerQuality::shadow_half (read by the binder and the scene draw)"},
     {"present_effect", true, "renderer_adapter\\reader.h options.present_sgsr"},
     // S102 G1: three levers the new renderer reads under LOW (low_levers.h; switches default off until their Surface rows; GraphicsFlags writes them when flipped).
     {"wwe2k14_rdr_low_shadow_small", true, "renderer_adapter\\reader.h low_levers::ShadowMapSize (needs wwe2k14_rdr_shadows_ours)"},

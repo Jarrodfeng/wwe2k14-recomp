@@ -1,0 +1,14 @@
+{
+ "owner": "S103 lane SKY (TMR.md, docs/research/s103/TMR.md section 3): every slot body is named from the game's character descriptor [[0x83924734]+864+80*[char+1220]] (src/scene_live/slot_key.h, wrestler_hook.h), not the participant row; the row read is census only. 0 game runs. Planted twin: the old row rule must fail the swap / Rumble / remap checks.",
+ "checks": [
+  {"name": "s103_SKY.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_sky_unit.ps1"], "timeout_s": 900,
+   "affects": ["tools/scene/sky_unit.cpp", "tools/scene/build_sky_unit.ps1", "src/scene_live/slot_key.h", "src/scene_live/wrestler_contrib.*", "src/renderer_scene/record_io.*"]},
+  {"name": "s103_SKY.unit", "cmd": ["out/tools/sky_unit.exe"], "timeout_s": 120, "tier": "cheap",
+   "affects": ["tools/scene/sky_unit.cpp", "src/scene_live/slot_key.h", "src/scene_live/wrestler_contrib.*"]},
+  {"name": "s103_SKY.planted_row_rule", "cmd": ["py", "-I", "tools/scene/sky_plant_check.py"], "timeout_s": 120, "tier": "cheap", "reads": ["out/tools/sky_unit.exe"],
+   "affects": ["tools/scene/sky_unit.cpp", "tools/scene/sky_plant_check.py", "src/scene_live/slot_key.h"]},
+  {"name": "s103_SKY.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/main.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/slot_key.h", "src/scene_live/wrestler_hook.h"]}
+ ]
+}

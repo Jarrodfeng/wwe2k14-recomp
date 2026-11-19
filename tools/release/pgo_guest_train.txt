@@ -4,7 +4,7 @@ profile is a generated artefact: it lives under out\pgo\ (gitignored by out\), i
 
 0. Build the instrumented exe (compile only, BUILD run lock; ~ a clean build, 81 s of codegen-free compile plus the generated code):
      . tools\env.ps1
-     cmake --preset win-amd64-release -B out\pgo\build_gen -DWWE2K14_RELEASE=ON -Drexglue_DIR=<rexglue_DIR of out\build\win-amd64-release\CMakeCache.txt> -DWWE2K14_GUEST_PGO_GEN=ON -DWWE2K14_PGO_OURS=ON
+     cmake --preset win-amd64-release -B out\pgo\build_gen -DWWE2K14_RELEASE=ON -Drexglue_DIR=<rexglue_DIR of out\build\win-amd64-release\CMakeCache.txt> -DWWE2K14_KEEP_STREAM=OFF -DWWE2K14_KEEP_STREAM_RUN=ON -DWWE2K14_GUEST_PGO_GEN=ON -DWWE2K14_PGO_OURS=ON
      cmake --build out\pgo\build_gen -j 16
    (stage the rex DLLs next to the exe like tools\build.ps1 does; the exe is the stock code plus -fprofile-instr-generate on the guest code AND src\*;
    tools\perf\pgo_exit_hook.cpp writes the profile every 10 s because the game ends with std::_Exit.)

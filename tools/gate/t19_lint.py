@@ -60,6 +60,10 @@ def struct_members(header_text):
         if m:
             vecs.append(m.group(1))
             continue
+        m = re.match(r'ParticleTables\s+(\w+)\s*;', code)  # S103 F: a table struct of two vectors: counted as a vector (the estimate must name it, via .Bytes())
+        if m:
+            vecs.append(m.group(1))
+            continue
         m = re.match(r'(?:uint32_t|bool|SceneHeader|Camera|std::string)\s+(\w+)\s*(?:=\s*[^;]+)?;', code)
         if m:
             other.append(m.group(1))
@@ -73,7 +77,7 @@ def estimate(root, case_text=None, header_text=None):
     a = case_text.index('const uint64_t estimate')
     b = case_text.index('case_hook::OnScene', a)
     est = case_text[a:b]
-    return [v for v in vecs if not re.search(r'\br\.%s\.size\(\)' % v, est)], len(vecs)
+    return [v for v in vecs if not re.search(r'\br\.%s\.(?:size|Bytes)\(\)' % v, est)], len(vecs)
 
 
 def expand_names(root, cpp_text=None, header_text=None):
@@ -92,9 +96,10 @@ def live_order(root, text=None):
     """Problems in the render loop's use of message.record / message.d3_record."""
     text = text or open(os.path.join(root, 'src/renderer_adapter/live.cpp'), encoding='utf-8').read()
     lines = [l.split('//')[0] for l in text.split('\n')]   # (comments do not read anything)
-    recv = next((i for i, l in enumerate(lines) if 'message = std::move(mail.front())' in l), None)
+    # S103 G2: the loop now receives through run_q (TakeRun pops a run of mail into it): the first receive line is the anchor
+    recv = next((i for i, l in enumerate(lines) if 'message = std::move(run_q.front())' in l or 'message = std::move(mail.front())' in l), None)
     if recv is None:
-        return ['the receive line (message = std::move(mail.front())) was not found: the lint input changed']
+        return ['the receive line (message = std::move(run_q.front()) / mail.front()) was not found: the lint input changed']
     end = min(len(lines), recv + 420)
     bad = []
     for name in ('record', 'd3_record'):

@@ -1,0 +1,7 @@
+[2026-01-01 10:00:00.000] [wwe2k14] synthetic fixture (our own numbers, no game data)
+[2026-01-01 10:00:00.100] settings file C:/x/settings_native720.json: upscale 0, resolution 0, frame rate 60, renderer 1 -> resolution_scale=1
+[2026-01-01 10:00:00.200] quality tier: STANDARD
+[2026-01-01 10:00:00.300] modified: wwe2k14_fixed_seed = '1' (source: command line)
+[2026-01-01 10:00:01.000] [wwe2k14][input] line 3: scene=match (frame 100)
+[2026-01-01 10:00:03.000] [wwe2k14][input] line 9: scene=end (frame 160)
+[2026-01-01 10:00:04.000] [wwe2k14] quit

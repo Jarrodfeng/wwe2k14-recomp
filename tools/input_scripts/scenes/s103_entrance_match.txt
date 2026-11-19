@@ -1,0 +1,27 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=1 --wwe2k14_rdr_ring_d3=1 --wwe2k14_scene_records=true --wwe2k14_rdr_scene_census=true --wwe2k14_rdr_scene_sheet_every=600 --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true
+# Session 103 run 27 (game exe, mode 1 = mirror): the entrances AND the CPU v CPU match on one exe, after the run-26 fixes merged:
+#  D7 (every contributor latches: crowd signs / holders), C6 (ring covers / skirts), E7 (screens idle, clocks), L4 (crowd lit), P1 (barricade padding),
+#  W1 / W1b (palette pairing, bit-3 guard with the post-update shift), A4 (light index census names the holes).
+# Read: [scene][inputs] (wrestler_palette stamps to the end, derived_mismatch ~0), crowd_latch (vs walk compared, singles / pictures),
+#  ring_recompute (skirts 3/frame, whole clean), screens (idle_no_movie in the match, complete in the entrances), lights (light_hole_first,
+#  models_without_entry), and the mirror sheets (crowd brightness, barricade, Bryan's hands / face).
+# Marks: 1 tron, 2 match_clock, 3 mid, 4 end. on_fail quit. (rdr_owner / promotions named: run_list.ps1:202 otherwise turns our renderer off.)
+on_fail quit
+log bench: start scene s103_entrance_match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+log scene=entrances
+mark 1 entrances
+wait_state match_clock >0 30000
+log scene=match
+mark 2 match_clock
+wait_frames 1500
+log scene=match_mid
+mark 3 mid
+wait_frames 1500
+log scene=end (match clock +3000)
+mark 4 end
+log bench: done
+quit

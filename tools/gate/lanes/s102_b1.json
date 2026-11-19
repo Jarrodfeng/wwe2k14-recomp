@@ -1,7 +1,7 @@
 {
   "claim": {"scene": "bryan", "side": "none (instrument)", "ms": [0, 0]},
   "checks": [
-    {"name": "s102_b1.burst_rules", "cmd": ["py", "-I", "tools/tests/burst_rules_test.py"], "timeout_s": 120},
+    {"name": "s102_b1.burst_rules", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/tests/burst_rules_test.py"], "timeout_s": 120},
     {"name": "s102_b1.jobs_check", "cmd": ["pwsh", "-NoProfile", "-File", "tools/surface/s0_5_jobs.ps1", "-Out", "out/b1/jobs", "-Jobs", "barS|Only=frames_bryan,frames_brock,frames_match;Warm=60;Repeats=3;SceneFlags=@BASE", "-CheckOnly"], "timeout_s": 120}
   ]
 }

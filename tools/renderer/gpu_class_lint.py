@@ -164,6 +164,44 @@ def unit(root, tmp):
     return True
 
 
+# S103 GT review: a source that is built in BOTH builds may call SetImageClass only under `#if !WWE2K14_STREAM()`: in the stream build a class also steers the binder's per-frame levers
+# (colour prepass, half transparents, arena blend-off), so naming an image there changes the picture / the cost. The scene-map images (shadow / rim / plane / prelight / circles) were named
+# in both builds before S103 and are the known set below; the stream-free-only files (src/renderer_host/) are exempt. Every other call under src/renderer_scene must sit in a guarded region.
+LEGACY_BOTH = {'live_maps.cpp', 'live_map_chain.cpp', 'live_map_plane.cpp', 'live_map_prelight.cpp', 'live_map_rim.cpp'}
+
+
+def unguarded_set_image_class(text):
+    """[line numbers] of SetImageClass( calls that are not inside a `#if !WWE2K14_STREAM()` region (a stack of #if / #else / #endif; `#else` of the guard flips it to stream-only)."""
+    stack = []   # one entry per open #if: 'off' (the stream-free branch), 'on' (the stream branch), or None (any other condition)
+    out = []
+    for i, ln in enumerate(text.split('\n'), 1):
+        t = ln.strip()
+        if re.match(r'#\s*if', t):
+            stack.append('off' if re.match(r'#\s*if\s+!\s*WWE2K14_STREAM\(\)', t) else 'on' if re.match(r'#\s*if\s+WWE2K14_STREAM\(\)', t) else None)
+        elif re.match(r'#\s*else', t) and stack:
+            stack[-1] = {'off': 'on', 'on': 'off'}.get(stack[-1])
+        elif re.match(r'#\s*endif', t) and stack:
+            stack.pop()
+        elif 'SetImageClass(' in ln and not t.startswith('//') and 'off' not in stack:
+            out.append(i)
+    return out
+
+
+def set_image_class_problems(root, plant=False):
+    problems = []
+    d = os.path.join(root, 'src', 'renderer_scene')
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(('.cpp', '.h')) or name in LEGACY_BOTH:
+            continue
+        with open(os.path.join(d, name), encoding='utf-8', errors='replace') as f:
+            text = f.read()
+        if plant and name == 'front_end.cpp':   # twin: the stream-free guard around the new names removed
+            text = text.replace('#if !WWE2K14_STREAM()', '#if 1')
+        for ln in unguarded_set_image_class(text):
+            problems.append('src/renderer_scene/%s:%d: SetImageClass outside #if !WWE2K14_STREAM() (a source built in both builds may name images only in the stream-free build)' % (name, ln))
+    return problems
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=os.path.normpath(os.path.join(HERE, '..', '..')))
@@ -184,6 +222,18 @@ def main():
         ok = False
     else:
         print('twin 3 (feedback dropped from a CLASSES list): caught: ' + twin[0][:100])
+    sp = set_image_class_problems(root)
+    for q in sp:
+        print('FAIL lint: ' + q)
+    ok &= not sp
+    if not sp:
+        print('ok   lint: SetImageClass in src/renderer_scene is only called under !WWE2K14_STREAM() (besides the known map files %s)' % ', '.join(sorted(LEGACY_BOTH)))
+    twin2 = set_image_class_problems(root, plant=True)
+    if not twin2:
+        print('FAIL planted twin: removing the stream-free guard in front_end.cpp was not reported')
+        ok = False
+    else:
+        print('twin 4 (guard removed in front_end.cpp): caught: ' + twin2[0][:110])
     print('RESULT ' + ('PASS' if ok else 'FAIL'))
     return 0 if ok else 1
 

@@ -27,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MAIN = os.environ.get('RDR_MAIN_CHECKOUT') or os.path.normpath(os.path.join(HERE, '..', '..'))
 # the picture bars (calibrated on arena 5, see the runs in docs\systems\arena_look.md "What is live"):
 SAME_MAX = 0.05    # mean |difference| (0..255 per channel) between the contributor draw and the viewer-record draw: the rdr draw is deterministic (measured 0.000)
+NO_CROWD = 3   # S103 GRF: rsc_draw --drop-src-kind 3: the meshes of the crowd (Mesh::src_kind 3), also inside the viewer's whole-arena model
 PLANT_MIN = 0.5    # a planted fault must move the picture by at least this much from the clean contributor draw, or fail the tile check (measured 1.4-28)
 
 
@@ -118,12 +119,12 @@ def main():
             kv.update(dict(x.split('=') for x in m.group(1).split()))
         return out_rsc, kv
 
-    def draw_pic(name, src_rsc):
+    def draw_pic(name, src_rsc, drop_kind=None, env=None):
         png = P(name + '.png')
         if os.path.exists(png):
             os.remove(png)
         for attempt in range(6):  # the GPU is shared with other tools: "Not enough graphics memory" is transient, anything else is not retried
-            rc, txt = run([draw, src_rsc, '--game', game, '--out', png, '--size', args.size], {'WWE_RDR_VALIDATION': '1'})
+            rc, txt = run([draw, src_rsc, '--game', game, '--out', png, '--size', args.size] + (['--drop-src-kind', str(drop_kind)] if drop_kind is not None else []), dict({'WWE_RDR_VALIDATION': '1'}, **(env or {})))
             if rc == 0 or 'Not enough graphics memory' not in txt:
                 break
             time.sleep(10)
@@ -166,12 +167,27 @@ def main():
     print(('PASS' if t_ok else 'FAIL') + '  tile check, contributor record drawn by rsc_draw vs the viewer vk shot: ' + '; '.join(notes))
     if not t_ok:
         fails.append('tile check')
-    base, _, _ = draw_pic('viewer_record', viewer_rsc)
+    # S103 GRF: the viewer's whole-arena record carries the crowd (lane D draws it from record rows); the contributor never does. Both sides are drawn without the crowd meshes (rsc_draw --drop-src-kind 3: the crowd is baked into the viewer's whole-arena model, not a family of its own).
+    base, _, _ = draw_pic('viewer_record', viewer_rsc, NO_CROWD)
     if base is None:
         return 1
-    d_same = mean_abs(base, clean)
+    # S103 CR (docs\research\s103\CR_c_check_ring.md Q2): since lane RL the contributor turns the camera-attached arena lights by the frame camera
+    # (MarkFollowView); the viewer's whole-arena record (one object, no lights) is drawn without the follow. Compare like with like (follow off), and
+    # check separately that the follow is still applied (it must change the contributor draw), so the RL behaviour stays covered.
+    clean_nc, _, _ = draw_pic('clean_nocrowd', clean_rsc, NO_CROWD, {'WWE_RDR_NO_ARENA_FOLLOW': '1'})
+    if clean_nc is None:
+        return 1
+    clean_follow, _, _ = draw_pic('clean_nocrowd_follow', clean_rsc, NO_CROWD)
+    if clean_follow is None:
+        return 1
+    d_follow = mean_abs(clean_follow, clean_nc)
+    f_ok = d_follow is not None and d_follow > 0.5
+    print(('PASS' if f_ok else 'FAIL') + f'  the arena light follow (lane RL) is applied: follow on vs off differ by {d_follow:.3f} (must be > 0.5; CR measured 2.036)')
+    if not f_ok:
+        fails.append('arena light follow not applied')
+    d_same = mean_abs(base, clean_nc)
     ok = d_same is not None and d_same <= SAME_MAX
-    print(('PASS' if ok else 'FAIL') + f'  the contributor loses nothing: mean |diff| to the draw of the viewer\'s own whole-arena record = {d_same:.3f} (bar <= {SAME_MAX})')
+    print(('PASS' if ok else 'FAIL') + f'  the contributor loses nothing: mean |diff| to the draw of the viewer\'s own whole-arena record = {d_same:.3f} (bar <= {SAME_MAX}; both drawn without the crowd meshes)')
     if not ok:
         fails.append('contributor differs from the viewer record')
 
@@ -226,6 +242,7 @@ def main():
         # S101 lane 264: the look the hook publishes now comes from the game's scene phase word (arena_contrib.h LookFromScenePhase)
         mrsc, mkv = build('look_word1', None, ['--live-shaped', '--from-provider', '--scene-word', '1'])
         ersc, ekv = build('look_word4', None, ['--live-shaped', '--from-provider', '--scene-word', '4'])
+        mw = ew = -1
         if mrsc and ersc:
             mw, mv_, mi = int(mkv.get('when_objects', -1)), int(mkv.get('when_visible', -1)), int(mkv.get('invisible', -1))
             ew, ev_, ei = int(ekv.get('when_objects', -1)), int(ekv.get('when_visible', -1)), int(ekv.get('invisible', -1))
@@ -236,8 +253,9 @@ def main():
         else:
             fails.append('L264 look builds')
         urc, ukv = build('look_unreadable', None, ['--live-shaped', '--from-provider', '--scene-word', '-1'])
-        ok = bool(urc) and int(ukv.get('invisible', -1)) == int(lkv.get('invisible', -2)) and int(ukv.get('vis_marked', -1)) == int(lkv.get('vis_marked', -2))
-        print(('PASS' if ok else 'FAIL') + f'  L264 plant (an unreadable scene word = the look stays Unknown) IS caught: {ukv.get("invisible") if urc else "no build"} invisible / {ukv.get("vis_marked") if urc else "-"} marked, same as the undecided record')
+        # S103 GRF: an unreadable word hides every when-flagged object, the match-when set plus the entrance-when set (what the two decided arms list), not only the undecided record's set
+        ok = bool(urc) and mw + ew > 0 and int(ukv.get('invisible', -1)) == mw + ew and int(ukv.get('vis_marked', -1)) == mw + ew
+        print(('PASS' if ok else 'FAIL') + f'  L264 plant (an unreadable scene word = the look stays Unknown) IS caught: {ukv.get("invisible") if urc else "no build"} invisible / {ukv.get("vis_marked") if urc else "-"} marked, = match-when {mw} + entrance-when {ew}')
         if not ok:
             fails.append('L264 plant not caught')
         ok = lkv.get('provider_missing') == '0' and lkv.get('provider_mismatch') == '0' and int(lkv.get('provider_extra', -1)) >= 0

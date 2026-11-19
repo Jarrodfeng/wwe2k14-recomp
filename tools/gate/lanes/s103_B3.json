@@ -1,0 +1,245 @@
+{
+ "owner": "S103 lane B3 (the stage LightMapParam c184 from the game's own arena table, docs/research/s103/T3b_lightmap_writer.md): src/assets/arena_lm.h (new: the table parser + c184 = (1 / X, 1 / Z, G * 0.01, 1) + the clamp counters), asset_load.h (ArenaLmTable: pac\\misc02_ingame.pac p0/102/5 read once from the player's own file; LoadArena sets lm_scale / lm_gain from it), asset_model.h (lm_card), front_end.cpp / .h (ApplyLmRow: a card-technique model's gain x the frame's card factor, only when > 0; SetCardFactor, card_factor_missing), scene_record.h / record_io.cpp / record_frame.cpp (row kSlCardFactor = the game's word [0x8376383C] * 0.001), scene_live/inputs_contrib.h (the latch reads the word; census), stage_look.h (the row is no route data), live_crowd.cpp (the card quad is lm_card), tools/scene/b3_unit.cpp + b3_lm_check.py. The earlier hook at 0x82513B40 is gone (it was EyePos, c72). 0 game runs, 0 Surface runs. B3c: src/renderer_scene/card_gain.h (the card gain rule as pure functions; front_end.cpp / record_frame.cpp call it), tools/scene/b3_card_unit.cpp (the C++ unit: card path, table rules, f32 gain sweep, planted twins).",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ],
+  "basis": "no saving claimed: the per-arena light-map span / gain are the game's own value (arenas 30 / 44 / 54 / 55 drew wrong with the old constants)."
+ },
+ "note": "b3_lm_check.py: the loader's own parser (b3_unit.exe over the decoded leaf p0/102/5 of the player's misc02_ingame.pac, dumped under out/) computes c184 for the 13 captured arenas a00 a01 a02 a04 a08 a09 a16 a30 a41 a44 a52 a54 a55; each must be BIT-EXACT against the vs bank register 184 of the capture's lit-LM draws, and the cards' z must equal the game's rule (word 850 x 0.001 x gain). Planted twins: the record one index off (shift), X and Z exchanged (swap), G x 0.1 (gain01): each must FAIL.",
+ "checks": [
+  {
+   "name": "s103_B3.unit_build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    ". tools/env.ps1 | Out-Null; New-Item -ItemType Directory -Force (Split-Path out/tools/b3_unit.exe) | Out-Null; clang++ -O1 -std=c++20 -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -Wno-unused-command-line-argument tools/scene/b3_unit.cpp -o out/tools/b3_unit.exe; if ($LASTEXITCODE -ne 0) { exit 1 }"
+   ],
+   "timeout_s": 300, "affects": ["tools/scene/b3_unit.cpp", "src/assets/arena_lm.h"]
+  },
+  {
+   "name": "s103_B3.proof",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/b3_lm_check.py"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/a00_match",
+    "out/captures/a01_entrance",
+    "out/captures/a02_entrance",
+    "out/captures/a04_match",
+    "out/captures/a08_match",
+    "out/captures/a09_match",
+    "out/captures/a16_match",
+    "out/captures/a30_match",
+    "out/captures/a41_match",
+    "out/captures/a44_match",
+    "out/captures/a52_match",
+    "out/captures/a54_match",
+    "out/captures/a55_match",
+    "game_data/extracted/pac/misc02_ingame.pac",
+    "out/tools/xctd_unpack.exe"
+   ],
+   "affects": [
+    "src/assets/arena_lm.h",
+    "tools/scene/b3_unit.cpp",
+    "tools/scene/b3_lm_check.py"
+   ]
+  },
+  {
+   "name": "s103_B3.lints",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/lint/b3c_lints.py"
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "src/*",
+    "tools/lint/b3c_lints.py",
+    "tools/lint/b3c_baseline.txt"
+   ]
+  },
+  {
+   "name": "s103_B3.db_validate",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "py -I tools/db/validate.py --no-index | Select-String -Pattern 'address_in_two_files' | ForEach-Object { $_; $bad = 1 }; if ($bad) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "db/*",
+    "tools/db/*"
+   ]
+  },
+  {
+   "name": "s103_B3.card_unit_build",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_b3_card_unit.ps1"
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "src/assets/arena_lm.h",
+    "src/renderer_scene/card_gain.h",
+    "tools/scene/b3_card_unit.cpp",
+    "tools/scene/build_b3_card_unit.ps1"
+   ]
+  },
+  {
+   "name": "s103_B3.card_unit",
+   "cmd": [
+    "out/tools/b3_card_unit.exe"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/arena_lm.h",
+    "src/renderer_scene/card_gain.h",
+    "tools/scene/b3_card_unit.cpp",
+    "tools/scene/build_b3_card_unit.ps1"
+   ]
+  },
+  {
+   "name": "s103_B3.card_plant_factor_all_models",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/b3_card_unit.exe --plant factor_all_models; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/arena_lm.h",
+    "src/renderer_scene/card_gain.h",
+    "tools/scene/b3_card_unit.cpp",
+    "tools/scene/build_b3_card_unit.ps1"
+   ]
+  },
+  {
+   "name": "s103_B3.card_plant_row_ignored",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/b3_card_unit.exe --plant row_ignored; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/arena_lm.h",
+    "src/renderer_scene/card_gain.h",
+    "tools/scene/b3_card_unit.cpp",
+    "tools/scene/build_b3_card_unit.ps1"
+   ]
+  },
+  {
+   "name": "s103_B3.card_plant_gain_double",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "out/tools/b3_card_unit.exe --plant gain_double; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 60,
+   "affects": [
+    "src/assets/arena_lm.h",
+    "src/renderer_scene/card_gain.h",
+    "tools/scene/b3_card_unit.cpp",
+    "tools/scene/build_b3_card_unit.ps1"
+   ]
+  },
+  {
+   "name": "s103_B3.plant_shift",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "py -I tools/scene/b3_lm_check.py --plant shift; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/a54_match",
+    "out/captures/a55_match",
+    "game_data/extracted/pac/misc02_ingame.pac",
+    "out/tools/xctd_unpack.exe"
+   ],
+   "affects": [
+    "src/assets/arena_lm.h",
+    "tools/scene/b3_unit.cpp",
+    "tools/scene/b3_lm_check.py"
+   ]
+  },
+  {
+   "name": "s103_B3.plant_swap",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "py -I tools/scene/b3_lm_check.py --plant swap a54 a55; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/a54_match",
+    "out/captures/a55_match",
+    "game_data/extracted/pac/misc02_ingame.pac",
+    "out/tools/xctd_unpack.exe"
+   ],
+   "affects": [
+    "src/assets/arena_lm.h",
+    "tools/scene/b3_unit.cpp",
+    "tools/scene/b3_lm_check.py"
+   ]
+  },
+  {
+   "name": "s103_B3.plant_gain01",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "py -I tools/scene/b3_lm_check.py --plant gain01 a54 a55; if ($LASTEXITCODE -eq 0) { exit 1 } else { exit 0 }"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "out/captures/a54_match",
+    "out/captures/a55_match",
+    "game_data/extracted/pac/misc02_ingame.pac",
+    "out/tools/xctd_unpack.exe"
+   ],
+   "affects": [
+    "src/assets/arena_lm.h",
+    "tools/scene/b3_unit.cpp",
+    "tools/scene/b3_lm_check.py"
+   ]
+  },
+  {
+   "name": "s103_B3.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1500,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/assets/*",
+    "src/wwe2k14_app.h",
+    "src/scene_live/*"
+   ]
+  }
+ ]
+}

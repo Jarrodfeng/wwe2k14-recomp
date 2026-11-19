@@ -11,12 +11,16 @@
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
 
+#include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
+#if WWE2K14_STREAM()  // S103 P9 (A16)
 #include "renderer_adapter/reader.h"
+#endif
 #include "renderer_adapter/tail_release.h"
+#include "renderer_game/frame_tick.h"   // S103 P6
 
 REX_EXTERN(__imp__sub_82C3BB38);
 REX_HOOK_RAW(sub_82C3BB38) {
   rdr_adapter::tail::The().OnRelease();   // the window closes: a latch from here on is late (counted, never deferred)
   __imp__sub_82C3BB38(ctx, base);
-  wwe2k14::rdr_reader::TailFinishAt(rdr_adapter::tail::kAtRelease);
+  wwe2k14::frame_tick::FinishTailAtRelease();   // S103 P6: the finish the latch registered (reader.h TailFinishAt today), not a reader call
 }

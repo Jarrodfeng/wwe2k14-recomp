@@ -28,6 +28,7 @@
 // Everything else is a register run read from a shadow, in the original's order.
 #pragma once
 
+#include "renderer_adapter/census_flush.h"  // S102 CEN1
 #include <array>
 #include <rex/system/xmemory.h>  // PhysicalHostOffset (Session 90: never a literal 0x1000)
 #include <cstdlib>
@@ -140,7 +141,8 @@ inline void FallbackBind(wwe2k14::d3d_bind::Fail f) {
 inline void CensusMaybe() {
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   uint64_t last = g_census_frame.load(std::memory_order_relaxed);
-  if (frame < last + 600 || !g_census_frame.compare_exchange_strong(last, frame)) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
+  if ((frame < last + 600 && !census_flush::Due(cf_site)) || !g_census_frame.compare_exchange_strong(last, frame)) return;
   Stats& s = g_stats;
   std::string fb;
   uint64_t fb_total = 0;

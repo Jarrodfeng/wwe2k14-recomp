@@ -1,0 +1,16 @@
+{
+  "claim": {"scene": "bryan", "side": "none (instrument)", "ms": [0, 0]},
+  "note": "S102 CEN1: the census flush (src/renderer_adapter/census_flush.h). A new PerFrame seen value or the run end bumps a generation and logs one '[census] flush gen G phase end: NAME=V' marker; every lever's census site prints its line right after it. unit = the generation helper + its planted twin; lint = every 600-frame census gate honours the flush (selftest = planted gate without it is flagged); phase = the flip_line.py census-by-phase reader on a synthetic log (an ON phase without a census is named NO CENSUS IN PHASE); lint_seen / stage_split_lint = the existing rules still hold; game_syntax = the PC game's main.cpp + live.cpp + the touched scene TUs compile. 0 game runs, 0 Surface runs.",
+  "checks": [
+    {"name": "s102_cen1.unit", "cmd": ["py", "-I", "tools/renderer/census_flush_unit.py"], "timeout_s": 120},
+    {"name": "s102_cen1.lint_selftest", "cmd": ["py", "-I", "tools/renderer/census_flush_lint.py", "--selftest"], "timeout_s": 60},
+    {"name": "s102_cen1.lint", "cmd": ["py", "-I", "tools/renderer/census_flush_lint.py", "--root", "."], "timeout_s": 120},
+    {"name": "s102_cen1.phase", "cmd": ["py", "-I", "tools/tests/census_phase_test.py"], "timeout_s": 60},
+    {"name": "s102_cen1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py"], "timeout_s": 120},
+    {"name": "s102_cen1.stage_split_lint", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/renderer/stage_split_lint.py", "--root", "."], "timeout_s": 300},
+    {"name": "s102_cen1.switches_unit", "cmd": ["py", "-I", "tools/bench/switches_unit.py"], "timeout_s": 300},
+    {"name": "s102_cen1.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--no-twin", "--files", "src/renderer_scene/arena_ours.cpp,src/renderer_scene/crowd_ours.cpp,src/renderer_scene/live_scene.cpp,src/scene_live/crowd_contrib.cpp"], "timeout_s": 900,
+     "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+     "affects": ["src/renderer_adapter/census_flush.h", "src/renderer_adapter/rdr_switches.h", "src/renderer_adapter/live.cpp", "src/renderer_adapter/binder.h", "src/renderer_adapter/reader.h"]}
+  ]
+}

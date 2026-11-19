@@ -7,7 +7,7 @@
   {"name": "s102_c1.build_rplay", "cmd": ["pwsh", "-NoProfile", "-File", "tools/renderer/build.ps1"], "timeout_s": 1800},
   {"name": "s102_c1.build_fview_release", "cmd": ["pwsh", "-NoProfile", "-File", "tools/fview/build.ps1", "-Release"], "timeout_s": 2400},
   {"name": "s102_c1.spv_lint", "cmd": ["py", "-I", "tools/c1/spv_lint.py", "--root", "."], "timeout_s": 300},
-  {"name": "s102_c1.device_features_lint", "cmd": ["py", "-I", "tools/renderer/device_features_lint.py", "--root", "."], "timeout_s": 120},
+  {"name": "s102_c1.device_features_lint", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/renderer/device_features_lint.py", "--root", "."], "timeout_s": 120},
   {"name": "s102_c1.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py"], "timeout_s": 300},
   {"name": "s102_c1.proof", "cmd": ["py", "-I", "tools/c1/c1_check.py", "--root", ".", "--only", "census,wiring,replay,counts,trace,plants"], "timeout_s": 5400, "exes": ["out/renderer/dev/fview.exe", "out/renderer/dev/rplay.exe", "out/renderer/release/fview.exe"], "needs": ["out/lane86/bryan/capture", "out/lane86/brock/capture", "out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture/images.bin"]},
   {"name": "s102_c1.match", "cmd": ["py", "-I", "tools/c1/c1_check.py", "--root", ".", "--only", "match"], "timeout_s": 2400, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/s101/runs/20261112_131008_s100_owner_match/case_20261112_131027_265_0_pc_run_exit.zip", "game_data/extracted"]}

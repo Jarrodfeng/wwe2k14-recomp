@@ -26,6 +26,7 @@
 #include <filesystem>
 
 #include "asset_load.h"
+#include "dds.h"
 #include "prop_host_vertex.h"
 
 namespace assets::crowd_prop_gs {
@@ -77,10 +78,67 @@ bool ConvertJboy(const uint8_t* data, size_t size, PropMesh& out, std::string& e
   return true;
 }
 
+bool ConvertDds(const uint8_t* data, size_t size, PropPicture& out, std::string& err) {
+  out = PropPicture{};
+  const size_t scan = size < 4096 ? size : 4096;
+  size_t at = scan;
+  for (size_t i = 0; i + 4 <= scan; ++i)
+    if (std::memcmp(data + i, "DDS ", 4) == 0) { at = i; break; }
+  if (at >= scan) return err = "no DDS in the entry", false;
+  assets::Texture t;
+  std::string why;
+  if (!assets::ParseDds(data + at, size - at, t, why) && t.data.empty()) return err = why, false;
+  const size_t mip0 = assets::MipBytes(t.format, t.width, t.height);
+  if (t.format != assets::TexFormat::kBC1 && t.format != assets::TexFormat::kBC2 && t.format != assets::TexFormat::kBC3) return err = "not a DXT picture", false;
+  if (!mip0 || t.data.size() < mip0) return err = "mip 0 is short", false;
+  out.width = t.width, out.height = t.height;
+  out.format = t.format == assets::TexFormat::kBC1 ? 18u : t.format == assets::TexFormat::kBC2 ? 19u : 20u;
+  out.bytes.assign(t.data.begin(), t.data.begin() + std::ptrdiff_t(mip0));
+  return true;
+}
+
 bool Init(const std::string& game_path) {
+  std::lock_guard<std::recursive_mutex> load_lock(load_detail::LoadMutex());   // S103 D4: two threads call this now (the live crowd's worker and the old hook)
+  static std::string g_init_root;
+  if (g_ready && g_init_root == game_path) return true;   // same folder: nothing to redo (as crowd_body::Init)
+  g_init_root = game_path;
   g_files.SetRoot(std::filesystem::u8path(game_path));
   g_ready = g_files.Exists("pac\\ch") || g_files.Exists("default.xex");
   return g_ready;
+}
+
+bool LoadSignPictures(std::vector<PropPicture>& out, std::string& err) {
+  using namespace load_detail;
+  std::lock_guard<std::recursive_mutex> load_lock(LoadMutex());
+  static std::vector<PropPicture> s_signs;   // once per boot
+  static std::string s_err;
+  static bool s_done = false;
+  if (!s_done) {
+    if (!g_ready) return err = "crowd_prop_game_space: no game files (Init first)", false;   // (not cached: a later call may have the root)
+    s_done = true;
+    pac::Pac p;
+    std::string e;
+    if (!pac::Open(g_files, "pac\\audience.pac", p, e)) s_err = e;
+    else {
+      Bytes nb;
+      pac::Pach np;
+      if (p.pachs.empty() || !pac::GetNested(p.bytes, p.pachs[0], 0, nb, np)) s_err = "pac\\audience.pac: PACH 0 has no entry 0 (the sign pictures)";
+      else {
+        for (const pac::Ent& en : np.ents) {
+          if (en.id == 0 || en.id >= 65000) continue;   // (a key of 65000 or more is the game's runtime texture, never a file picture)
+          const Bytes blob = pac::Decode(nb.data() + en.off, en.size);
+          PropPicture pp;
+          std::string pwhy;
+          if (ConvertDds(blob.data(), blob.size(), pp, pwhy) && pp.format == 18 && pp.width == 64 && pp.height == 64) pp.key = en.id, s_signs.push_back(std::move(pp));   // (every file sign is 64x64 DXT1; anything else stays a guest read)
+        }
+        std::sort(s_signs.begin(), s_signs.end(), [](const PropPicture& a, const PropPicture& b) { return a.key < b.key; });
+        if (s_signs.empty()) s_err = "pac\\audience.pac: no usable sign picture";
+      }
+    }
+  }
+  if (s_signs.empty()) return err = s_err.empty() ? "no sign pictures" : s_err, false;
+  out = s_signs;
+  return true;
 }
 
 bool Load(int arena, PropSet& out, std::string& err) {
@@ -97,7 +155,12 @@ bool Load(int arena, PropSet& out, std::string& err) {
   for (const pac::Ent& e : sp.ents) {
     if (e.id < kFirstKey || e.id >= kEndKey) continue;
     const Bytes blob = pac::Decode(sb.data() + e.off, e.size);
-    if (!IsJboy(blob)) continue;
+    if (!IsJboy(blob)) {   // S103 FHB: a texture entry (the foam hands' prints 42000 + h - 1) is kept as a picture
+      PropPicture pp;
+      std::string pwhy;
+      if (ConvertDds(blob.data(), blob.size(), pp, pwhy)) pp.key = e.id, out.pictures.push_back(std::move(pp));
+      continue;
+    }
     PropMesh m;
     std::string why;
     if (!ConvertJboy(blob.data(), blob.size(), m, why)) continue;   // (multi-mesh or other models in the range stay out)
@@ -105,7 +168,10 @@ bool Load(int arena, PropSet& out, std::string& err) {
     out.meshes.push_back(std::move(m));
   }
   std::sort(out.meshes.begin(), out.meshes.end(), [](const PropMesh& a, const PropMesh& b) { return a.key < b.key; });
+  std::sort(out.pictures.begin(), out.pictures.end(), [](const PropPicture& a, const PropPicture& b) { return a.key < b.key; });
   if (out.meshes.empty()) return err = "arena " + std::to_string(arena) + ": no prop meshes in the audience set", false;
+  std::string sgn;
+  if (!LoadSignPictures(out.sign_pictures, sgn)) out.sign_pictures.clear();   // (a missing audience.pac is not an arena failure: the signs keep the guest read)
   return true;
 }
 

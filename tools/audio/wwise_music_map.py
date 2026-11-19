@@ -53,7 +53,7 @@ class Graph:
         frontier = []
         for k in range(n):
             a = struct.unpack('>I', body[4 + 4 * k:8 + 4 * k])[0]
-            if a in self.objs and self.objs[a][0] == 3 and self.objs[a][1][:2] == b'':
+            if a in self.objs and self.objs[a][0] == 3 and self.objs[a][1][:2] == b'\x04\x03':
                 frontier.append(struct.unpack('>I', self.objs[a][1][2:6])[0])
         seen, found = set(frontier), set()
         for _ in range(maxdepth):

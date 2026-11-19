@@ -1,0 +1,7 @@
+# partial census fixture (counters only), cut from wwe2k14_011.log by --cut caw
+[scene][kind] caw enter #1 at frame 4804 (sequence 76, drop mask 0x640)
+[scene][kind] caw leave #1 at frame 7763
+[rdr][caw] textures: parts 12, bound 2, from override 0, missing 49 (model X)
+[scene][live] guest models calls 1186, named (not read) 0, named by the record (skipped before the planner) 0, layout reads 1186, byte reads 5 (1431 KB), reused 1181, forced 4 (missed unlock 0), unreadable parts 0, bad flags 0, no descriptor 0
+[scene][live] textures: samplers 255 bound 10 override 0 missing 245
+[scene][inputs] moved 18 of 18, post_settings 7755/f7753, camera 2/f7317, arena_models 2850/f7753 draw_camera source thread-slot: calls 14321 accepted 2410 rejected 0 (last reason 0) slot_unread 0 used 2

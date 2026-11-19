@@ -1,0 +1,8 @@
+{
+ "owner": "S103 lane D2: the crowd hook in the live frame (landing 1): src/renderer_scene/rf_crowd.{h,cpp} (LiveCrowd through the class table, Prefetch at build time), LiveCrowd::Prefetch, ModelCache::NoteMiss, Attach / Detach in LiveSceneDraw; tools/scene/d2_check.py + frame_rig.cpp (--also-record, --async-crowd, --plant-crowd). 0 game runs, headless.",
+ "note": "needs the brock_losswin capture (scene records) and the game files (main checkout). frame_rig draws the crowd class alone through BuildFrame + the class table for frames 20 / 110 / 200 (alone, then all three in one process: byte-identical), the async-bodies path (first build a miss, later whole, same picture), and three planted twins that must be caught (pose dropped, cards cleared, instances collapsed). Pictures are judged on the sheet (frame_rig.py, out/s103/D2), not by equality with the game.",
+ "checks": [
+  {"name": "s103_D2.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 900},
+  {"name": "s103_D2.proof", "cmd": ["py", "-I", "tools/scene/d2_check.py"], "timeout_s": 900, "needs": ["out/captures/brock_losswin", "game_data/extracted"], "programs": [{"path": "out/tools/frame_rig.exe", "sources": ["src/renderer_scene/rf_crowd.*", "src/renderer_scene/live_crowd.*", "src/renderer_scene/record_frame*", "src/renderer_scene/front_end.*", "src/assets/crowd_body.*", "src/renderer/**", "tools/scene/frame_rig.cpp"]}], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
+ ]
+}

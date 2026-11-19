@@ -17,8 +17,12 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <string>
 #include <vector>
+
+#include "../dlc_catalog.h"   // S103 DLW: StfsPackage (a DLC pack that is an Xbox 360 package, read in place)
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -226,10 +230,66 @@ class GameFiles {
   // (src\assets\dlc_files.h fills them; nothing else sets any, so the launcher's reads are unchanged). A pack names its files after
   // the disc's with its own suffix ("pac\ch\ch385.pac" -> "pac\ch\ch385_dlc04.pac" in the pack with id 4): a path is tried
   // literally in each folder, then with the folder's suffix before the extension. Nothing here writes to them.
-  struct Overlay {
-    fs::path root;       // the pack's folder
-    std::string suffix;  // "_dlc04"
+  // S103 DLW: a pack that is an STFS package (the phone launcher copies DLC flat as packages; a 360-drive dump gives packages too): its files are read through
+  // dlc_catalog.h's bounds-checked StfsPackage (per-file length + 4 KB block offsets). Reads are serialised (one stream per package, shared by every reader of it).
+  struct PackageSource {
+    wwe2k14::dlc::StfsPackage pkg;
+    std::mutex mu;
+    std::unordered_map<std::string, size_t> index;   // lower-case path -> pkg.files
+    bool ok = false;
+    std::string why;
+    explicit PackageSource(const fs::path& p) {
+      ok = pkg.Open(p, why);
+      if (ok)
+        for (size_t i = 0; i < pkg.files.size(); ++i)
+          if (!pkg.files[i].dir) index.emplace(Low(pkg.files[i].path), i);
+    }
+    static std::string Low(std::string x) {
+      for (char& c : x) {
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+        if (c == '/') c = '\\';
+      }
+      return x;
+    }
+    const wwe2k14::dlc::StfsPackage::File* Find(const std::string& rel) const {
+      auto it = index.find(Low(rel));
+      return it == index.end() ? nullptr : &pkg.files[it->second];
+    }
+    // Up to n bytes at `off` of the file; the count read (0 on a failure).
+    size_t ReadRange(const wwe2k14::dlc::StfsPackage::File& f, uint64_t off, uint8_t* dst, size_t n) {
+      std::lock_guard<std::mutex> l(mu);
+      return pkg.ReadRange(f, off, dst, n);
+    }
   };
+  struct Overlay {
+    fs::path root;       // the pack's folder (or the package file when `pkg` is set)
+    std::string suffix;  // "_dlc04"
+    std::string kind;    // S103 DLW: "dlc" / "mod" (the census says where a model came from); empty = unnamed
+    std::shared_ptr<PackageSource> pkg;   // S103 DLW: set = an STFS package
+  };
+  struct Hit {   // S103 DLW: where an overlay file is: a host path, or a file inside a package
+    const Overlay* o = nullptr;
+    fs::path path;
+    const wwe2k14::dlc::StfsPackage::File* f = nullptr;
+  };
+  Hit Locate(const std::string& rel) const {
+    std::error_code ec;
+    for (const Overlay& o : overlays_) {
+      if (o.pkg) {
+        if (!o.pkg->ok) continue;
+        const auto* f = o.pkg->Find(rel);
+        if (!f && !o.suffix.empty()) f = o.pkg->Find(Suffixed(rel, o.suffix));
+        if (f) return {&o, {}, f};
+        continue;
+      }
+      if (o.root.empty()) continue;
+      fs::path p = o.root / Rel(rel);
+      if (fs::is_regular_file(p, ec)) return {&o, p, nullptr};
+      if (!o.suffix.empty() && fs::is_regular_file(p = o.root / Rel(Suffixed(rel, o.suffix)), ec)) return {&o, p, nullptr};
+    }
+    return {};
+  }
+  const Overlay* OverlayOf(const std::string& rel) const { return Locate(rel).o; }
   void SetOverlays(std::vector<Overlay> o) { overlays_ = std::move(o); }
   const std::vector<Overlay>& overlays() const { return overlays_; }
   // "pac\ch\ch385.pac" + "_dlc04" -> "pac\ch\ch385_dlc04.pac" (the suffix goes before the last extension of the file name)
@@ -240,16 +300,7 @@ class GameFiles {
     return rel.substr(0, dot) + suffix + rel.substr(dot);
   }
   // The overlay file `rel` resolves to (the first folder that has it: literal, then suffixed); empty when none does.
-  fs::path OverlayPath(const std::string& rel) const {
-    std::error_code ec;
-    for (const Overlay& o : overlays_) {
-      if (o.root.empty()) continue;
-      fs::path p = o.root / Rel(rel);
-      if (fs::is_regular_file(p, ec)) return p;
-      if (!o.suffix.empty() && fs::is_regular_file(p = o.root / Rel(Suffixed(rel, o.suffix)), ec)) return p;
-    }
-    return {};
-  }
+  fs::path OverlayPath(const std::string& rel) const { return Locate(rel).path; }   // (a file inside a package has no host path: use Locate)
   bool InRoot(const std::string& rel) const {
     if (is_image()) return image_ && image_->Find(rel);
     std::error_code ec;
@@ -258,15 +309,21 @@ class GameFiles {
 
   bool Exists(const std::string& rel) const {
     if (InRoot(rel)) return true;
-    return !overlays_.empty() && !OverlayPath(rel).empty();
+    return !overlays_.empty() && Locate(rel).o != nullptr;
   }
 
   // Up to n bytes from the start; empty if missing.
   std::vector<uint8_t> ReadHead(const std::string& rel, size_t n) {
     std::vector<uint8_t> out;
     if (!overlays_.empty() && !InRoot(rel)) {
-      const fs::path p = OverlayPath(rel);
-      if (p.empty()) return out;
+      const Hit h = Locate(rel);
+      if (!h.o) return out;
+      if (h.f) {   // S103 DLW: a file inside an STFS package
+        out.resize(size_t(std::min<uint64_t>(n, h.f->length)));
+        out.resize(h.o->pkg->ReadRange(*h.f, 0, out.data(), out.size()));
+        return out;
+      }
+      const fs::path& p = h.path;
       std::ifstream f(p, std::ios::binary);
       out.resize(n);
       f.read(reinterpret_cast<char*>(out.data()), std::streamsize(n));
@@ -291,8 +348,18 @@ class GameFiles {
   bool Stream(const std::string& rel, const std::function<void(const uint8_t*, size_t)>& sink) {
     std::vector<uint8_t> buf(1 << 20);
     if (!overlays_.empty() && !InRoot(rel)) {  // Session 98: a DLC pack's file
-      const fs::path p = OverlayPath(rel);
-      if (p.empty()) return false;
+      const Hit h = Locate(rel);
+      if (!h.o) return false;
+      if (h.f) {   // S103 DLW: a file inside an STFS package, in chunks (a block loop in StfsPackage::ReadRange)
+        for (uint64_t pos = 0; pos < h.f->length;) {
+          const size_t n = size_t(std::min<uint64_t>(buf.size(), h.f->length - pos));
+          if (h.o->pkg->ReadRange(*h.f, pos, buf.data(), n) != n) return false;
+          sink(buf.data(), n);
+          pos += n;
+        }
+        return true;
+      }
+      const fs::path& p = h.path;
       std::ifstream f(p, std::ios::binary);
       if (!f) return false;
       while (f) {
@@ -328,6 +395,26 @@ class GameFiles {
     std::vector<std::string> names = ListRoot(rel_dir);
     for (const Overlay& o : overlays_) {
       std::error_code ec;
+      if (o.pkg) {   // S103 DLW: a package's files in this folder
+        std::string dir = rel_dir;
+        std::replace(dir.begin(), dir.end(), '/', '\\');
+        while (!dir.empty() && dir.back() == '\\') dir.pop_back();
+        for (const auto& pf : o.pkg->pkg.files) {
+          if (pf.dir) continue;
+          const size_t sl = pf.path.find_last_of('\\');
+          const std::string d = sl == std::string::npos ? std::string() : pf.path.substr(0, sl);
+          if (LowerAscii(d) != LowerAscii(dir)) continue;
+          std::string n = sl == std::string::npos ? pf.path : pf.path.substr(sl + 1);
+          const size_t dot = n.find_last_of('.');
+          const size_t at = dot == std::string::npos ? n.size() : dot;
+          if (!o.suffix.empty() && at >= o.suffix.size() && LowerAscii(n.substr(at - o.suffix.size(), o.suffix.size())) == LowerAscii(o.suffix))
+            n = n.substr(0, at - o.suffix.size()) + n.substr(at);
+          bool dup = false;
+          for (const std::string& x : names) dup = dup || LowerAscii(x) == LowerAscii(n);
+          if (!dup) names.push_back(n);
+        }
+        continue;
+      }
       if (o.root.empty()) continue;
       for (const auto& e : fs::directory_iterator(o.root / Rel(rel_dir), ec)) {
         std::error_code e2;

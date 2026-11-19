@@ -1,0 +1,260 @@
+{
+ "owner": "S103 lane SLV (small stream-free GPU levers, docs/research/s103/PO_post_colour.md section 5 levers 3 and 5, lever 2 analysed): src/start_settings.cpp stores rdr::g_combine_lite and rdr_scene::g_skip_blank_plane at start in the stream-free build (cvars wwe2k14_rdr_combine_lite / wwe2k14_rdr_skip_blank_plane, the same defaults as reader.h; the shipped bundle sets both), src/renderer_scene/plane_blank_rule.h + live_map_plane.cpp (the blank plane rule beside plane_nodraw), counters in post_pass.cpp / scene_host.cpp / live_maps.cpp. tools/scene/slv_unit.cpp + slv_check.py. 0 game runs, 0 Surface runs.",
+ "claim": {
+  "scene": "entrance + match, stream-free build",
+  "side": "GPU",
+  "ms": [
+   0.3,
+   1.1
+  ],
+  "basis": "[L] PO probe: combine_lite 0.3-0.6 ms and blank plane up to 0.5 ms on the Surface; invisible levers (picture diff 0), not measured here."
+ },
+ "note": "unit: the rule's cases + 3 planted twins on a mutated header copy. wiring: text lints of the two start stores, the cvar defaults, the bundle, the rule's place and the census text. post: post_rig.exe on brock_losswin frames 110 / 200, a natural row and a TEST dead-bloom row, combine_lite 0 vs 1: pictures max diff 0; the lever-off twin shows no-bloom permutation 0 / clears skipped 0. plane: frame_rig on the run27 plane fixture: the rule on at the game's own weight = picture diff 0; weight told 0 = chain skipped (blank frames, passes skipped) and the picture equals the no-plane-reader picture; the lever-off twin shows blank 0 and the plane made. SLV2: the blank plane rule is the ground square all behind the camera (not the weight), the mask is saved; the depth-convert fold (_vd twins, exact on nearest frames, dconv_ kept on linear-DoF frames); post_twin / plane_twin are the planted twins of the picture-max-diff-0 claims; tools/gate/twin_lint.py, tools/renderer/rule_register_lint.py and the bundle3 lint carry the review findings.",
+ "checks": [
+  {
+   "name": "s103_SLV.build_post_rig",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_post_rig.ps1"
+   ],
+   "timeout_s": 1800, "affects": ["src/renderer_scene/*", "src/scene_live/*", "src/assets/*", "src/renderer/**", "src/launcher/*", "tools/scene/build_post_rig.ps1", "tools/scene/build_rig.ps1", "tools/scene/post_rig.cpp"]
+  },
+  {
+   "name": "s103_SLV.build_rig",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_rig.ps1"
+   ],
+   "timeout_s": 1800, "affects": ["src/renderer_scene/*", "src/scene_live/*", "src/assets/*", "src/renderer/**", "src/launcher/*", "tools/scene/build_rig.ps1", "tools/scene/build_watchdog.ps1", "tools/scene/frame_rig.cpp"]
+  },
+  {
+   "name": "s103_SLV.build_rsc",
+   "cmd": [
+    "pwsh",
+    "-NoProfile",
+    "-File",
+    "tools/scene/build_rsc.ps1"
+   ],
+   "timeout_s": 1800, "affects": ["src/renderer_scene/*", "src/scene_live/*", "src/assets/*", "src/renderer/**", "src/launcher/*", "tools/scene/build_rsc.ps1", "tools/scene/rsc_dump.cpp"]
+  },
+  {
+   "name": "s103_SLV.unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "unit"
+   ],
+   "timeout_s": 600,
+   "affects": [
+    "src/renderer_scene/plane_blank_rule.h",
+    "tools/scene/slv_unit.cpp",
+    "tools/scene/slv_check.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.wiring",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "wiring"
+   ],
+   "timeout_s": 300,
+   "affects": [
+    "src/start_settings.cpp",
+    "src/bundle3.h",
+    "src/renderer_adapter/reader.h",
+    "src/renderer_scene/live_map_plane.cpp",
+    "src/renderer_scene/live_maps.cpp",
+    "src/renderer_scene/post_pass.cpp",
+    "src/renderer_host/scene_host.cpp",
+    "tools/scene/slv_check.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.post",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "post"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "out/captures/brock_losswin",
+    "game_data/extracted",
+    "out/renderer/dev/post_proof.exe"
+   ],
+   "affects": [
+    "src/renderer_scene/post_pass.cpp",
+    "src/renderer_scene/post_pass.h",
+    "src/renderer_scene/post_from_record.cpp",
+    "src/renderer/combine_lite.h",
+    "src/start_settings.cpp",
+    "tools/scene/post_rig.cpp",
+    "tools/scene/slv_check.py",
+    "src/renderer/shaders/fx/*.frag",
+    "src/renderer_scene/front_end.cpp",
+    "tools/renderer/compile_shaders.py"
+   ],
+   "picture_diff0": true
+  },
+  {
+   "name": "s103_SLV.post_twin",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "post_twin"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "out/captures/brock_losswin",
+    "game_data/extracted",
+    "out/renderer/dev/post_proof.exe"
+   ],
+   "affects": [
+    "src/renderer_scene/post_pass.cpp",
+    "src/renderer_scene/post_pass.h",
+    "src/renderer_scene/post_from_record.cpp",
+    "src/renderer/combine_lite.h",
+    "src/start_settings.cpp",
+    "tools/scene/post_rig.cpp",
+    "tools/scene/slv_check.py",
+    "src/renderer/shaders/fx/*.frag",
+    "src/renderer_scene/front_end.cpp",
+    "tools/renderer/compile_shaders.py"
+   ],
+   "twin_of": "s103_SLV.post"
+  },
+  {
+   "name": "s103_SLV.plane",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "plane"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "out/s103/run27_case.zip",
+    "out/renderer/dev/fview.exe",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/renderer_scene/live_map_plane.cpp",
+    "src/renderer_scene/plane_blank_rule.h",
+    "src/renderer_scene/live_maps.cpp",
+    "src/renderer_scene/live_maps_e2.h",
+    "tools/scene/frame_rig.cpp",
+    "tools/scene/slv_check.py"
+   ],
+   "picture_diff0": true
+  },
+  {
+   "name": "s103_SLV.plane_twin",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/slv_check.py",
+    "--part",
+    "plane_twin"
+   ],
+   "timeout_s": 1800,
+   "needs": [
+    "out/s103/run27_case.zip",
+    "out/renderer/dev/fview.exe",
+    "game_data/extracted"
+   ],
+   "affects": [
+    "src/renderer_scene/live_map_plane.cpp",
+    "src/renderer_scene/plane_blank_rule.h",
+    "src/renderer_scene/live_maps.cpp",
+    "src/renderer_scene/live_maps_e2.h",
+    "tools/scene/frame_rig.cpp",
+    "tools/scene/slv_check.py"
+   ],
+   "twin_of": "s103_SLV.plane"
+  },
+  {
+   "name": "s103_SLV.rule_register_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/rule_register_lint.py"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "src/**/*.h",
+    "src/renderer/shaders/fx/*.fx.json",
+    "tools/renderer/rule_register_lint.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.rule_register_lint_selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/rule_register_lint.py",
+    "--selftest"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/renderer/rule_register_lint.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.twin_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/twin_lint.py"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/gate/lanes/*.json",
+    "tools/gate/twin_lint.py",
+    "tools/scene/*.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.twin_lint_selftest",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/twin_lint.py",
+    "--selftest"
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "tools/gate/twin_lint.py"
+   ]
+  },
+  {
+   "name": "s103_SLV.plane_blank_unit",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/renderer/g4c_check.py",
+    "--only",
+    "unit"
+   ],
+   "timeout_s": 600,
+   "affects": [
+    "src/renderer_adapter/plane_blank.h",
+    "src/renderer_adapter/plane_blank_test.cpp",
+    "tools/renderer/g4c_check.py"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 (coverage exe): match.txt's route with traces armed at the match clock, for lane D5 (the crowd's sign / foam-hand holders and the
+# sign pictures): sub_8276E7B0 (the holders' draw), sub_82507018, sub_82294F20 (the resolved-texture gate), sub_82CA6BE0 callers (who fills the
+# sign textures), plus A3's match T1 (sub_826203E8). Quits at clock +600.
+on_fail quit
+log bench: start scene s103_match_trace
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=match
+mark 1 match_clock
+cvar wwe2k14_trace 0x8276E7B0/20*r3*r4^,0x82507018/20*r3*r4*ret,0x82294F20/40*r3*ret,0x82CA6BE0/400*r3@callers,0x826203E8/300*r3*r4
+log s103: traces armed (match clock)
+wait_frames 600
+log scene=end (match clock +600)
+mark 2 end
+log bench: done
+quit

@@ -1,0 +1,39 @@
+# S103 P9 (docs\renderer\COMPILE_OUT_LIST.md section B): the headers that belong to the command stream. With WWE2K14_KEEP_STREAM OFF no translation unit of the game exe may
+# include any of them, directly or through another header (tools\scene\keep_stream_lint.py reads the include closure of every unit that is compiled).
+# One path relative to src\ per line. B2 (the stream's own headers), B3 (the D3 hooks that live in scene_live), the in-place replacer seam, and live.h (the stream sink).
+renderer_adapter/reader.h
+renderer_adapter/reader_thin.h
+renderer_adapter/binder.h
+renderer_adapter/binder_ring_d3.inc
+renderer_adapter/d3_binder.h
+renderer_adapter/d3_record.h
+renderer_adapter/d3_arena.h
+renderer_adapter/d3_guest_core.h
+renderer_adapter/d3_timers.h
+renderer_adapter/d3_latch_hook.h
+renderer_adapter/thin_draw.h
+renderer_adapter/thin_store.h
+renderer_adapter/capture.h
+renderer_adapter/capture_reader.h
+renderer_adapter/copy_alias.h
+renderer_adapter/copy_direct.h
+renderer_adapter/lasting_draw.h
+renderer_adapter/lasting_prune.h
+renderer_adapter/dead_work.h
+renderer_adapter/plan_memo.h
+renderer_adapter/draw_memos.h
+renderer_adapter/slot_geo_memo.h
+renderer_adapter/particle_lite.h
+renderer_adapter/pack_once.h
+renderer_adapter/geo_forget.h
+renderer_adapter/knockouts.h
+renderer_adapter/replace_seam.h
+renderer_adapter/replace_test_hook.h
+renderer_adapter/draw_replace_hook.h
+renderer_adapter/live.h
+renderer_adapter/overlay_drawer.h
+scene_live/d3_arena_hook.h
+scene_live/d3_caster_hook.h
+scene_live/d3_ring_hook.h
+scene_live/d3_wrestler_hook.h
+thumb_defer.h

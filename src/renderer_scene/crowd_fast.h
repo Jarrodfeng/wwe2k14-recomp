@@ -43,6 +43,28 @@ inline bool ParseInt(std::string_view s, size_t at, int& out) {
   return true;
 }
 
+// S103 CPU1: sscanf("%d") / sscanf("%u") as the Windows UCRT does them, overflow included (checked against the real sscanf in tools\scene\cpu1_unit.cpp, 15 values): the digits accumulate in a 32-bit
+// unsigned that WRAPS (4294967296 -> 0, 4294987296 -> 20000, 99999999999 -> 1215752191), a '-' negates that modulo 2^32, %d reads the result as int (2147483648 -> -2147483648). ParseInt / ParseUInt above
+// SATURATE instead (the crowd injection's own rule, kept); these two are for the sites that replaced a sscanf call (arena asset names, crowd entry names, "actor:slot:N"), where a real record never
+// holds more than 5 digits, so the difference cannot show: they match UCRT anyway so the unit's corpus needs no exception. (Android's bionic sscanf may saturate: no record reaches it there either.)
+inline bool ScanUInt(std::string_view s, size_t at, uint32_t& out) {
+  size_t i = at;
+  while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+  bool neg = false;
+  if (i < s.size() && (s[i] == '+' || s[i] == '-')) neg = s[i] == '-', ++i;
+  if (i >= s.size() || s[i] < '0' || s[i] > '9') return false;
+  uint32_t v = 0;
+  for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) v = v * 10u + uint32_t(s[i] - '0');
+  out = neg ? 0u - v : v;
+  return true;
+}
+inline bool ScanInt(std::string_view s, size_t at, int& out) {
+  uint32_t v = 0;
+  if (!ScanUInt(s, at, v)) return false;
+  out = int(v);
+  return true;
+}
+
 class FlatU64Map {
  public:
   // Empties the map; sized for `expected` entries (it grows by itself when more come).
@@ -70,6 +92,20 @@ class FlatU64Map {
         return true;
       }
       if (s.key == key) return false;
+    }
+  }
+  // S103 P7 tween (review F8): the value of `key` before one is added to it (0 when new): an occurrence counter without a heap node.
+  uint32_t Bump(uint64_t key) {
+    if ((count_ + 1) * 2 > slots_.size()) Grow();
+    const size_t mask = slots_.size() - 1;
+    for (size_t i = Hash(key) & mask;; i = (i + 1) & mask) {
+      Slot& s = slots_[i];
+      if (s.gen != gen_) {
+        s = {key, 1, gen_};
+        ++count_;
+        return 0;
+      }
+      if (s.key == key) return s.value++;
     }
   }
   const uint32_t* Find(uint64_t key) const {

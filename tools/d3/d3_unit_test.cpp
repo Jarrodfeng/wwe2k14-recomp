@@ -878,7 +878,7 @@ int main(int argc, char** argv) {
     for (uint32_t k = 0; k < kNRing; ++k) pub_ok = pub_ok && IsLiveRingModel(ring_model(k));
     for (uint32_t k = 0; k < kNArena; ++k) pub_ok = pub_ok && !IsLiveRingModel(arena_object(k));
     pub_ok = pub_ok && !IsLiveRingModel(0);
-    Check(table_ok && pub_ok && kRingModelSlots == rdr_scene::live::ringrows::kClassTableCount, "ring.class_table", "the 13-pointer class table of [0x836F4C74] decides a ring model; an arena object, a null model and a skirt that is not made are not ring; the published set (the binder's filter) equals it");
+    Check(table_ok && pub_ok && kRingModelSlots == rdr_scene::live::ringrows::kClassTableCount, "ring.class_table", "the 25-pointer class table (13 base + 12 alt-ring slots) of [0x836F4C74] decides a ring model; an arena object, a null model and a skirt that is not made are not ring; the published set (the binder's filter) equals it");
 
     // the models: 0..3 path 1 (cache bit clear), 4 path 2 (a list in the slot), 5 path 3 (empty handle), 6 path 1 ([model+888] == 0), 7 path 1 but the ring-rows tracker wrote no rows, 8 path 1 but its record sits under another call, 9 path 4
     const auto setup = [&](uint32_t i) {

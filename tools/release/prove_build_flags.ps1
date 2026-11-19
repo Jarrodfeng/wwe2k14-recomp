@@ -44,9 +44,17 @@ try {
     "--- base (must pass: no v3, no profile)"; py -I $chk $base --guest base --ours base;                                 if ($LASTEXITCODE) { $rc = 1 }
     "--- wide (must pass: v3 + profile in guest AND ours)"; py -I $chk $wide --guest v3 --ours v3 --profdata $prof --pgo-ours yes; if ($LASTEXITCODE) { $rc = 1 }
     "--- narrow profile (must pass: profile in guest only)"; py -I $chk $narr --guest base --ours base --profdata $prof;   if ($LASTEXITCODE) { $rc = 1 }
+    $keep = Conf 'keepstream' (Get-ReleaseConfigureArgs -KeepStream)
+    "--- PLANTED stream: a folder configured with KEEP_STREAM=ON against the release expectation (must FAIL)"
+    py -I $chk $keep --guest base --ours base
+    if ($LASTEXITCODE -eq 0) { 'prove_build_flags: the planted stream-ON cache was NOT caught'; $rc = 1 }
     "--- PLANTED: the base folder against the wide expectations (must FAIL)"
     py -I $chk $base --guest v3 --ours v3 --profdata $prof --pgo-ours yes
     if ($LASTEXITCODE -eq 0) { 'prove_build_flags: the planted mismatch was NOT caught'; $rc = 1 }
+    # a stream-configured folder reconfigured with the release args must come back stream-free (the explicit OFF / ON values)
+    $null = Conf 'keepstream' (Get-ReleaseConfigureArgs) -Keep
+    "--- stream: the KEEP_STREAM=ON folder reconfigured with the release args (must pass: OFF + RUN)"
+    py -I $chk $keep --guest base --ours base; if ($LASTEXITCODE) { $rc = 1 }
     # review B: reconfigure the wide folder with the release's base args
     $null = Conf 'sticky' (Get-ReleaseConfigureArgs) -Keep
     "--- sticky: the wide folder reconfigured with the base release args (must pass: no v3, no profile)"

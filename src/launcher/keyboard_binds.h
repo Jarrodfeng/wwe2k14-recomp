@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -218,6 +219,11 @@ inline constexpr ScanName kScanNames[] = {
 inline std::string NameFromKeyDown(WPARAM vk, LPARAM lp) {
   if (vk == VK_PAUSE) return "Pause";
   if (vk == VK_NUMLOCK) return "NumLock";
+  // Session 103: Shift / Control / Alt are buttons too (a bare modifier bind; the SDK driver's bind_match.h). A
+  // WM_KEYDOWN carries the generic virtual key (the left / right ones are listed for a caller that has them).
+  if (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT) return "Shift";
+  if (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL) return "Control";
+  if (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU) return "Alt";
   const uint16_t scan = uint16_t((lp >> 16) & 0xFF);
   const bool ext = (lp >> 24) & 1;
   for (const ScanName& s : kScanNames)
@@ -225,9 +231,127 @@ inline std::string NameFromKeyDown(WPARAM vk, LPARAM lp) {
   return {};
 }
 
-inline bool IsModifierKey(WPARAM vk) {
-  return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_CONTROL || vk == VK_LCONTROL ||
-         vk == VK_RCONTROL || vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
+// Session 103: the KEYBOARD CONTROLS capture as a pure state machine (the window feeds it key downs / ups). A modifier
+// pressed on its own waits ("pending"): a key pressed while it is held captures as a chord ("Shift+Up": the modifier
+// flags come from the caller's GetKeyState as before), and the modifier let go with no other key between captures the
+// modifier alone ("Shift"). The Windows keys stay unbindable (ignored here, NameFromKeyDown gives "" for them).
+struct CaptureState {
+  bool got = false;
+  WPARAM vk = 0;
+  LPARAM lp = 0;
+  bool shift = false, ctrl = false, alt = false;
+  WPARAM pending = 0;  // the generic virtual key of a modifier going down first (0 = none)
+  LPARAM pending_lp = 0;
+  bool other = false;  // a non-modifier key went down since
+  // AltGr: on an AltGr layout the right Alt sends a FAKE left Control down (not extended) and then the extended Alt, with
+  // the same message time; the game's SDL drops that Control (SkipAltGrLeftControl), so the capture does too.
+  uint32_t ctrl_time = 0;
+  bool ctrl_candidate = false;  // a non-extended Control went down at ctrl_time
+  bool altgr = false;           // that Control was the fake one: it is not part of a chord's modifiers
+};
+inline WPARAM GenericModifier(WPARAM vk) {
+  if (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT) return VK_SHIFT;
+  if (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL) return VK_CONTROL;
+  if (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU) return VK_MENU;
+  return 0;
+}
+// `time` = GetMessageTime() of the key-down message.
+inline void CaptureKeyDown(CaptureState& c, WPARAM vk, LPARAM lp, bool shift, bool ctrl, bool alt, uint32_t time = 0) {
+  if (c.got || vk == VK_LWIN || vk == VK_RWIN) return;
+  const bool ext = (lp >> 24) & 1;
+  if (vk == VK_CONTROL && !ext) c.ctrl_time = time, c.ctrl_candidate = true;
+  if (vk == VK_MENU && ext && c.ctrl_candidate && time == c.ctrl_time) {  // AltGr: the Control just seen was fake
+    c.altgr = true;
+    if (c.pending == VK_CONTROL) c.pending = VK_MENU, c.pending_lp = lp;
+    else if (!c.pending) c.pending = VK_MENU, c.pending_lp = lp;
+    return;
+  }
+  if (const WPARAM m = GenericModifier(vk)) {
+    if (!c.pending) c.pending = m, c.pending_lp = lp;
+    return;
+  }
+  c.got = true, c.vk = vk, c.lp = lp, c.shift = shift, c.ctrl = ctrl && !c.altgr, c.alt = alt, c.other = true;
+}
+// Focus lost while waiting (Alt+Tab): a modifier going down before it must not bind, its release goes elsewhere.
+inline void CaptureFocusLost(CaptureState& c) {
+  if (c.got) return;
+  c.pending = 0, c.pending_lp = 0, c.other = false, c.ctrl_candidate = false, c.altgr = false;
+}
+inline void CaptureKeyUp(CaptureState& c, WPARAM vk) {
+  if (c.got || c.other || !c.pending || GenericModifier(vk) != c.pending) return;
+  c.got = true, c.vk = c.pending, c.lp = c.pending_lp, c.shift = c.ctrl = c.alt = false;
+}
+
+// A control's alternative split into its modifier prefixes and key ("Shift+Ctrl+Q" -> {Shift, Ctrl}, "Q"), the SDK's
+// spelling (TakeModifiers: Shift, Ctrl or Control, Alt).
+struct SplitAlt {
+  bool shift = false, ctrl = false, alt = false;
+  std::string key;
+};
+inline SplitAlt SplitModifiers(const std::string& a) {
+  SplitAlt s;
+  std::string rest = a;
+  while (true) {
+    const size_t plus = rest.find('+');
+    if (plus == std::string::npos || plus == 0) break;
+    const std::string head = rest.substr(0, plus);
+    if (head == "Shift") s.shift = true;
+    else if (head == "Ctrl" || head == "Control") s.ctrl = true;
+    else if (head == "Alt") s.alt = true;
+    else break;
+    rest = rest.substr(plus + 1);
+  }
+  s.key = rest;
+  return s;
+}
+
+// When `token` is a bare modifier ("Shift", "Control", "Alt"): the chords of the other controls (not `skip`) that use it
+// as one of their prefixes ("Shift+Up", "Shift+Ctrl+Q"). They keep working, and hold the modifier (now a button) too; and
+// the plain-key binds on the same key ("Up" on the right stick) fire with the modifier held as well.
+struct ChordUse {
+  int bind;                      // the control holding the chord
+  std::string alt;               // the chord as written
+  std::vector<int> plain_binds;  // controls with the chord's key as a plain alternative (no prefix)
+};
+inline std::vector<ChordUse> ChordUses(const BindFile& b, const std::string& token, int skip) {
+  std::vector<ChordUse> out;
+  if (token != "Shift" && token != "Control" && token != "Alt") return out;
+  for (int i = 0; i < kBindCount; ++i) {
+    if (i == skip) continue;
+    for (const auto& a : Split(Value(b, i))) {
+      const SplitAlt s = SplitModifiers(a);
+      if (!(token == "Shift" ? s.shift : token == "Control" ? s.ctrl : s.alt)) continue;
+      ChordUse u{i, a, {}};
+      for (int j = 0; j < kBindCount; ++j) {
+        if (j == i) continue;
+        for (const auto& pa : Split(Value(b, j)))
+          if (pa == s.key) {
+            u.plain_binds.push_back(j);
+            break;
+          }
+      }
+      out.push_back(u);
+    }
+  }
+  return out;
+}
+
+inline std::string Display(const std::string& token);  // (below)
+
+// The status line for a bare modifier just bound ("" = nothing to warn about); `title` names a control.
+inline std::string ChordWarning(const BindFile& b, const std::string& token, int skip,
+                                const std::function<std::string(int)>& title) {
+  const std::vector<ChordUse> uses = ChordUses(b, token, skip);
+  if (uses.empty()) return {};
+  std::string chords, plain;
+  for (const ChordUse& u : uses) {
+    chords += (chords.empty() ? "" : ", ") + Display(u.alt) + " (" + title(u.bind) + ")";
+    for (const int j : u.plain_binds)
+      plain += (plain.empty() ? "" : ", ") + Display(SplitModifiers(u.alt).key) + " (" + title(j) + ")";
+  }
+  std::string msg = Display(token) + " is a button now. It is also held in " + chords + ": holding it presses both.";
+  if (!plain.empty()) msg += " With it held, these also fire: " + plain + ".";
+  return msg;
 }
 
 // "Shift+" / "Ctrl+" / "Alt+" before a key name, in the SDK's spelling (mnk_input_driver.cpp TakeModifiers).

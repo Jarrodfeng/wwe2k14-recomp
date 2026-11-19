@@ -26,6 +26,16 @@ inline std::atomic<uint32_t> g_gpu_last_us{0};
 // two-timestamp bracket only. The PC cost was ~0.1 ms a frame in the Bryan replay (above the 0.05 bar). The live sink sets this from the per-frame switch table (rdr_sw::kGpuStamps);
 // rplay: --gpu-stamps 1.
 inline std::atomic<bool> g_gpu_stamps{false};
+// S103 GT round 3: ROUTE WINDOWS. The game's input script calls GpuWindowMark("step15") at each `scene=NAME` log line; the renderer stamps every frame it records with the mark number current at its
+// Render, and logs one `[rdr][gpu][window] NAME:` block per mark window when the first frame of the next window is collected (and at exit): exactly the frames between two marks, not a 600-frame block.
+inline std::atomic<uint32_t> g_gpu_mark_seq{0};
+inline std::mutex g_gpu_mark_mu;
+inline std::vector<std::string> g_gpu_mark_names;   // names[seq - 1]
+inline void GpuWindowMark(const char* name) {
+  std::lock_guard<std::mutex> lock(g_gpu_mark_mu);
+  g_gpu_mark_names.emplace_back(name ? name : "");
+  g_gpu_mark_seq.store(uint32_t(g_gpu_mark_names.size()), std::memory_order_release);
+}
 // S102 H2 piece 3 (--wwe2k14_rdr_fence_friendly, default OFF): the render thread's slot-fence wait polls and sleeps instead of one blocking vkWaitForFences (fence_wait.h). Set per frame by the live sink from the switch table.
 inline std::atomic<bool> g_fence_friendly{false};
 // S102 G6: with stamps on, ALSO close a stamped run after every step and keep each step's first target image, so the summary line lists the ms a frame per (class, kind, image): the offline

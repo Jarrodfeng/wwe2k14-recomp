@@ -1,0 +1,25 @@
+{
+ "owner": "S103 lane PN23 (landing 2, 2D pictures without the stream; docs/renderer/PICTURES_NO_STREAM.md section 8): PN2 = src/scene_live/picture_source.h (PictureSource: key lifecycle Born / Seen / Died, first-sight read through guest_texture.h + the file join on the kept UiFileIndex, the Guest copy, refusals by name, the refill guard) + guest_texture.h (k_8_8_8_8 on request, 8 MB hard read cap); PN3 = src/scene_live/picture_tap.h + picture_hooks.h (the birth sub_822951F0 / death sub_82294FD0 hooks and the op-19 first sight in quads2d_tap.h; DEV ONLY --wwe2k14_rdr_picture_source, default off) + src/renderer_scene/picture_resolver.h (the host's HostOptions::picture over the source, header-only).",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. picture_source_unit: forged guest memory (registry, wrapper, header, fetch dwords, tiled + endian-swapped bytes) built from each c2d capture's own texture blobs: every textured sprite / glyph row of menu / play / options / select / title / load / oneonone / pause / match_hud / entrance_tron is answered by the SAME index entry the stream path's UiCore joined (mismatch 0), the unjoined ones by their own bytes, a hit never reads again; synthetic: reused slot (birth counter), death + grace, render-target / movie creators refused, the refill guard (S100's stale roster render), the event sequence; 13 planted twins (death_ignored, counter_ignored, rehash_every_hit, rt_as_file, wrong_mip, no_swap, tiled_ignored, race_ignored, swizzle_ignored, unknown_8888, file_any_order, no_budget, keep_blocks) each fail their NAMED check. Review fixes (PN23F): the death is the registry slot free sub_82BAF210 (picture_death_lint: every q caller, tail calls, data words, planted hook twins), tombstones + the dead-read race, the 4-byte fetch swizzle (BGRA identity only) and creator refusal, the host trims (TrimDrawn), the resolver's per-frame load budget, the resident cap + blocks freed after upload, the stream-hash parity counter, PhysRangeOk (phys_bound_lint). picture_creators_lint: the creator table equals `q callers 0x822951F0` and each class follows its function. The hooks compile in game_syntax; picture_resolver.h compiles on its own.",
+ "checks": [
+  {"name": "s103_PN23.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_picture_source_unit.ps1"], "timeout_s": 900},
+  {"name": "s103_PN23.unit_and_plants", "cmd": ["py", "-I", "tools/scene/picture_source_check.py", "--root", "."], "timeout_s": 1800,
+   "needs": ["game_data/extracted/pac/menu", "out/captures/c2d_menu", "out/captures/c2d_play", "out/captures/c2d_options", "out/captures/c2d_select", "out/captures/c2d_title", "out/captures/c2d_load", "out/captures/c2d_oneonone", "out/captures/c2d_pause", "out/captures/c2d_match_hud", "out/captures/c2d_entrance_tron"],
+   "affects": ["src/scene_live/picture_source.h", "src/scene_live/guest_texture.h", "src/scene_live/texture_registry.h", "src/renderer_scene/ui_file_index.h", "src/renderer_scene/ui_file_index.cpp", "src/renderer_scene/ui_ours_core.h", "src/renderer_scene/ui_ours_core.cpp", "src/renderer_scene/stream_hash_tap.h",
+               "src/renderer_adapter/image_content_table.h", "tools/scene/picture_source_unit.cpp", "tools/scene/picture_source_check.py", "tools/scene/build_picture_source_unit.ps1"]},
+  {"name": "s103_PN23.creators_lint", "cmd": ["py", "-I", "tools/scene/picture_creators_lint.py", "--root", "."], "timeout_s": 300,
+   "affects": ["src/scene_live/picture_source.h", "tools/scene/picture_creators_lint.py"]},
+  {"name": "s103_PN23.death_lint", "cmd": ["py", "-I", "tools/scene/picture_death_lint.py", "--root", "."], "timeout_s": 300,
+   "affects": ["src/scene_live/picture_hooks.h", "src/scene_live/picture_tap.h", "tools/scene/picture_death_lint.py"]},
+  {"name": "s103_PN23.phys_bound_lint", "cmd": ["py", "-I", "tools/scene/phys_bound_lint.py", "--root", "."], "timeout_s": 120,
+   "affects": ["src/scene_live/*.h", "tools/scene/phys_bound_lint.py"]},
+  {"name": "s103_PN23.resolver_syntax", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/picture_resolver_syntax.ps1"], "timeout_s": 600,
+   "affects": ["src/renderer_scene/picture_resolver.h", "src/renderer_scene/stream_hash_tap.h", "src/scene_live/picture_source.h", "src/renderer_scene/ui_file_index.h", "tools/scene/picture_resolver_syntax.*"]},
+  {"name": "s103_PN23.dev_cvar_lint", "cmd": ["py", "-I", "tools/scene/dev_cvar_lint.py", "--root", "."], "timeout_s": 120,
+   "affects": ["src/scene_live/picture_tap.h", "src/scene_live/picture_hooks.h", "tools/scene/dev_cvar_lint.py"]},
+  {"name": "s103_PN23.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/picture_*.h", "src/scene_live/quads2d_tap.h", "src/scene_live/guest_texture.h", "src/scene_live/inputs_glue.h", "src/renderer_scene/stream_hash_tap.h", "src/wwe2k14_app.h"]}
+ ]
+}

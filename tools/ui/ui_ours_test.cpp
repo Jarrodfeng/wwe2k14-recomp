@@ -11,9 +11,13 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <map>
+#include <set>
 #include <string>
+#include <vector>
 
+#include "../../src/renderer_scene/record_io.h"
 #include "../../src/renderer_scene/ui_ours_core.h"
 
 using namespace rdr_scene;
@@ -30,7 +34,7 @@ struct Args {
   uint32_t step = 1;
   uint32_t copy_after = 0;
   uint32_t copy_width = 0;   // lane 126 (review F5): --copy-width W picks the most-used picture of that width as the copy destination (512 = fade_lightmap00, the arena page)
-  int arena = -1;            // lane 126: the arena of the capture (the second tier's bgNN); -1: none
+  int arena = -1;            // lane 126: --arena N overrides the arenas the capture's own scene record names (the second tier's bgNN); -1: use the record (PN5 review B2)
 };
 
 int g_fail = 0;
@@ -107,12 +111,16 @@ bool IndexPacs(const Args& a, UiFileIndex& index, uint8_t from, uint8_t to, cons
     std::string err;
     bool cached = false;
     const auto t0 = std::chrono::steady_clock::now();
-    if (!BuildPacIndex(o, pac, entries, err, &cached)) {
+    UiRosterStats rs;
+    if (!BuildPacIndex(o, pac, entries, err, &cached, &rs)) {
       std::printf("      %s: %s\n", UiPacPath(pac).c_str(), err.c_str());
       all = false;
       continue;
     }
     std::printf("      %-24s %5zu textures, %6.0f ms%s\n", UiPacPath(pac).c_str(), entries.size(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), cached ? " (cache)" : "");
+    if (rs.dirs || rs.mismatches)   // PN5 review B3 (only when the pac was walked, not read from the cache)
+      std::printf("      %-24s roster dirs %u, entries %u, bad names %u, dupes %u, count mismatches %u%s%s\n", UiPacPath(pac).c_str(), rs.dirs, rs.entries, rs.bad_names, rs.dupes, rs.mismatches, rs.note.empty() ? "" : ": ", rs.note.c_str());
+    if (rs.mismatches) all = false;
     index.AddPac(pac, std::move(entries));
   }
   Line(all && index.texture_count() > 0, label, index.Summary() + (all ? "" : "; a pac could not be read"));
@@ -191,6 +199,8 @@ int main(int argc, char** argv) {
   std::map<std::string, uint64_t> swz;
   std::map<uint32_t, bool> image_ok;   // per stream image: every check of it passed
   bool deep_done = false;              // lane 126: the second tier was indexed (the trigger fired)
+  std::vector<int> record_arenas;      // PN5 review B2: the bgNN pacs the latest scene record names
+  std::set<int> arenas_done;
   for (uint32_t f = 0; f < capture.frame_count(); ++f) {
     if (!capture.LoadFrame(f, frame)) {
       std::fprintf(stderr, "cannot read frame %u\n", f);
@@ -213,6 +223,20 @@ int main(int argc, char** argv) {
     for (const ContentRef& ref : frame.contents) latest[ref.image] = ref;
     if (f % a.step != 0 && f + 1 != capture.frame_count()) continue;
     ++frames_decided;
+    if (capture.HasSceneRecord(f)) {   // PN5 review B2: UiOurs::SetRecord's arenas from the capture's own scene record (the rule of ArenaCore::ArenaOfRecord, arena_ours_core.cpp, which cannot be linked here): assets naming bgNN, at most 4; kept across frames without a record
+      SceneTables rec;
+      std::string err;
+      if (ReadRecord(capture.SceneRecordPath(f).string(), rec, err)) {
+        std::vector<int> all;
+        for (const AssetRef& as : rec.assets) {
+          const std::string pac(rec.Str(as.pac));
+          const size_t p = pac.rfind("bg");
+          int n = 0;
+          if (p != std::string::npos && std::sscanf(pac.c_str() + p, "bg%d", &n) == 1 && n >= 0 && std::find(all.begin(), all.end(), n) == all.end() && all.size() < 4) all.push_back(n);
+        }
+        if (!all.empty()) record_arenas = all;
+      }
+    }
     core.BeginFrame();
     for (uint32_t i = 0; i < frame.draws.count; ++i) {
       const rdr_adapter::DrawOrigin* origin = frame.OriginOf(i);
@@ -235,12 +259,22 @@ int main(int argc, char** argv) {
         }
       }
       UiCore::Verdict v = core.Decide(origin->part, image, swz4, swl_view, swl_min, swl_max, provider);
-      if (!v.ours && v.why == rdr_adapter::KeepWhy::Unjoined && !deep_done && !faults.no_deep && a.kind == "match") {   // lane 126: the trigger (UiOurs::MaybeStartDeep): bgEtc and the arena's bgNN, then ask again
-        deep_done = true;
-        IndexPacs(a, index, uint8_t(kUiBgEtc), uint8_t(kUiBgEtc + 1), "tier2_etc");
-        if (a.arena >= 0) IndexPacs(a, index, uint8_t(kUiBgBase + a.arena), uint8_t(kUiBgBase + a.arena + 1), "tier2_arena");
-        core.RetractUnjoined();
-        v = core.Decide(origin->part, image, swz4, swl_view, swl_min, swl_max, provider);
+      if (!v.ours && v.why == rdr_adapter::KeepWhy::Unjoined && !faults.no_deep) {   // PN5 review B2: the trigger is UiOurs::MaybeStartDeep's, any kind: the first unjoined draw starts bgEtc, every unjoined draw asks for the record's arenas not indexed yet
+        bool indexed = false;
+        if (!deep_done) {
+          deep_done = true;
+          IndexPacs(a, index, uint8_t(kUiBgEtc), uint8_t(kUiBgEtc + 1), "tier2_etc");
+          indexed = true;
+        }
+        for (int arena : a.arena >= 0 ? std::vector<int>{a.arena} : record_arenas) {
+          if (arena < 0 || size_t(arena) > kUiMaxArena || !arenas_done.insert(arena).second) continue;
+          IndexPacs(a, index, uint8_t(kUiBgBase + arena), uint8_t(kUiBgBase + arena + 1), "tier2_arena");
+          indexed = true;
+        }
+        if (indexed) {
+          core.RetractUnjoined();
+          v = core.Decide(origin->part, image, swz4, swl_view, swl_min, swl_max, provider);
+        }
       }
       if (!v.ours) {
         rdr_adapter::ImageContent ic;
@@ -290,7 +324,7 @@ int main(int argc, char** argv) {
   std::printf("      frames %u (decided %llu), contents fed %llu, 2D draws claimed %llu, %s\n", capture.frame_count(), (unsigned long long)frames_decided, (unsigned long long)fed,
               (unsigned long long)draws_2d, core.Report(index).c_str());
   const bool menu_like = a.kind == "menu" || a.kind == "editor";
-  if (menu_like) Line(!deep_done, "tier2_idle", "menus / editor never start the second tier (their pictures all join in the first tier)");
+  if (menu_like) Line(!deep_done, "tier2_idle", std::string("menus / editor: the second tier never started (measured outcome; their pictures all join in the first tier): ") + (deep_done ? "it STARTED" : "never started"));
   if (a.copy_after) Line(copied_image != 0 && copy_violations == 0 && c.gpu > 0, "gpu_copy", "image " + Num(copied_image) + " became a GPU copy destination after frame " + Num(a.copy_after) + ": " + Num(copy_violations) + " later draws still replaced (bar 0), " + Num(c.gpu) + " kept as gpu");
   Line(draws_2d > 0, "claimed", Num(draws_2d) + " 2D draws claimed (origins present)");
   Line(c.replaced > 0 || !menu_like, "replaced", Num(c.replaced) + " draws replaced, " + Num(core.joined_keys()) + " keys known");

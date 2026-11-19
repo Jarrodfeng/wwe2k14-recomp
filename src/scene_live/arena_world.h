@@ -51,6 +51,7 @@ inline bool PlacedRows(int arena, uint32_t slot, float out[12]) {
 // clock = frame - origin on the drawing thread's frame counter (low 32 bits both, so a wrap is harmless); false when the origin is not known.
 inline bool ClockAt(uint32_t frame, uint32_t origin, bool origin_known, float& out) {
   if (!origin_known) return false;
+  // render-clock: dev - the J1-disproved clock, emitted only with --wwe2k14_scene_arena_clock_dev for the d3 proof plant
   out = float(int32_t(frame - origin));
   return true;
 }

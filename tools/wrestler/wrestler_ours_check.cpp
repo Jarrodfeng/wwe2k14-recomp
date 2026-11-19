@@ -34,6 +34,7 @@ using rdr_scene::WrestlerFaults;
 namespace wg = assets::wrestler_geom;
 
 // lane 207: the want hook the live layer gets (WrestlerContributor::WantSkeleton), collected here for --wants and --inject-own-skeletons.
+static std::map<uint32_t, int> want_entry;   // S103 NRB: wanted object -> the roster entry index the stream join gave it
 static std::map<uint32_t, uint32_t> g_wants, wants_ever;   // wants_ever: every (object, count) wanted at any point (an unwant must not hide it from --wants)
 
 int main(int argc, char** argv) {
@@ -342,10 +343,24 @@ int main(int argc, char** argv) {
       }
       if (lines) std::printf("DRAW frame %d draw %u slot %d part %u rows %u\n", f, d, dec.slot, o->part, dec.rows);
     }
+    if (show_wants)   // S103 NRB: which file entry the stream join gave each wanted object (the oracle for the descriptor piece link)
+      for (const auto& w : g_wants)
+        if (auto m = core.ModelOfObject(w.first); m && m->entry_index >= 0) want_entry[w.first] = m->entry_index;
   }
   if (show_wants || inject) {
     bool body_sized = false;
-    for (const auto& w : wants_ever) { if (show_wants) std::printf("WANT 0x%08X nodes %u\n", w.first, w.second); body_sized = body_sized || w.second >= 60; }
+    for (const auto& w : wants_ever) {
+      if (show_wants) {
+        const auto e = want_entry.find(w.first);
+        if (e != want_entry.end() && size_t(e->second) < roster.entries().size()) {
+          const auto& re = roster.entries()[size_t(e->second)];
+          std::printf("WANT 0x%08X nodes %u joined ch%03d attire %d entry %u (file nodes %u)\n", w.first, w.second, re.pac, re.attire, re.entry, re.node_count);
+        } else {
+          std::printf("WANT 0x%08X nodes %u joined -\n", w.first, w.second);
+        }
+      }
+      body_sized = body_sized || w.second >= 60;
+    }
     std::printf("WANTS distinct=%zu body_sized=%d injected_skeleton_frames=%llu%s\n", wants_ever.size(), int(body_sized), (unsigned long long)injected_skeletons, body_sized ? " FAIL (a 60+ node want)" : "");
   }
   std::printf("DECIDE calls=%llu ms_total=%.3f ms_per_ready_frame=%.4f\n", (unsigned long long)decide_calls, double(decide_ns) / 1e6, frames_ready ? double(decide_ns) / 1e6 / double(frames_ready) : 0.0);

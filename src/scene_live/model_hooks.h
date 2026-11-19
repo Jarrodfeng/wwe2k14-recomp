@@ -21,6 +21,9 @@
 #include <cstdint>
 #include <vector>
 
+#include "../assets/attire_compose.h"  // S103 CMB: the composite attire read at the link (pure)
+#include "../assets/attire_build.h"    // S103 ARM2: the build-step latch (a base link read forgets its chosen key)
+#include "piece_link.h"        // S103 PZF2 A2: GameNodeCountW (pure)
 #include "wrestler_contrib.h"  // no game or SDK includes here: the register plumbing is wwe2k14_model_entry in fp_probe.h
 
 namespace wwe2k14::wrestlers {
@@ -83,8 +86,9 @@ inline bool KnownPieceId(uint32_t id) {  // the ids Factory_SubModel counts (R1 
   return id == 30000 || id == 30001;
 }
 
+// S103 CMB: `compose` = the switch wwe2k14_rdr_attire_compose AND the stream-free build (fp_probe.h): false reads nothing of the composite attire. `log` (optional) prints the census line of the composite-attire read (attire_compose.h: composed / base / refused with its reason).
 template <class ReadWordFn>
-inline void ModelLinkRead(rdr_scene::live::WrestlerContributor& w, uint32_t reader, ReadWordFn read_word) {
+inline void ModelLinkRead(rdr_scene::live::WrestlerContributor& w, uint32_t reader, ReadWordFn read_word, void (*log)(const char*) = nullptr, bool compose = true) {
   uint32_t buf = 0, size = 0, desc = 0;
   if (!read_word(reader + 68, buf) || !read_word(reader + 72, size) || !read_word(reader + 96, desc) || desc == 0) { w.NoteLinkUnreadable(); return; }
   uint32_t key = 0, body = 0, parr = 0, n = 0;
@@ -105,7 +109,30 @@ inline void ModelLinkRead(rdr_scene::live::WrestlerContributor& w, uint32_t read
     if (!KnownPieceId(id)) w.NoteLinkBadPiece();
     pieces.push_back({model, id});
   }
-  w.SubmitModelLink(body, key, buf, size, desc, std::move(pieces));
+  // S103 CMB (CMP2 "The link", adversary checks 1): the composite attire (mode / colour set / chosen key / the 48 colour bytes the game's CPU chose) as an entry tag, stored INSIDE
+  // the body's BodyLink by SubmitModelLink, so every drop of the link drops the colours. Read only; every refusal is counted.
+  std::string composite_tag, composite_line;
+  if (compose) {   // (compose off / the stream build: no read, no count, the base as today)
+    attire_compose::Read verdict = attire_compose::Read::kUnreadable;
+    attire_compose::Link seen;
+    composite_tag = attire_compose::LinkTag(read_word, reader, composite_line, attire_compose::Fault::kNone, &verdict, &seen);
+    // S103 ARM2: a load of this chosen key that does NOT build (mode 0 / 2 at the link; Create reads the same P+40 earlier in sub_82720658) has no colours of its own: an earlier load's build-step capture is dropped.
+    if (verdict == attire_compose::Read::kBase && seen.chosen) attire_build::Latch::Instance().Forget(seen.chosen);
+  }
+  if (log && !composite_line.empty()) {   // S103 ARM: the census may carry the diagnosis line after a newline: one log line each
+    size_t at = 0;
+    while (at <= composite_line.size()) {
+      const size_t nl = composite_line.find('\n', at);
+      const std::string one = composite_line.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+      if (!one.empty()) log(one.c_str());
+      if (nl == std::string::npos) break;
+      at = nl + 1;
+    }
+  }
+  // PZF2 A2: the body's own node count, read now ([model+300], the same number the update hook reports for a live body; 0 = not readable yet: the link then adopts the first update-hook count as before)
+  uint32_t chosen_key = 0;
+  if (!read_word(desc + 92, chosen_key)) chosen_key = 0;   // S103 ARM2 F1: the chosen key (desc+92) names which attire's build-step colours this body may take
+  w.SubmitModelLink(body, key, buf, size, desc, std::move(pieces), scene_inputs::GameNodeCountW(read_word, body), std::move(composite_tag), chosen_key);
 }
 
 }  // namespace wwe2k14::wrestlers

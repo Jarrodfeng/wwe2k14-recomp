@@ -1,0 +1,19 @@
+{
+ "owner": "S103 lane B3F: Bryan's hair highlight and the per-material rim constants. jboy.h parses g_fPrimaryShift / g_fSecondShift / g_SpecExp1 / g_SpecExp2 / g_f4SpeCol1 / g_f4SpeCol2 / g_fHairTileU/V and g_fRimAtnDsMin / DsMax / RtMin / RtMax into Material (asset_model.h); char_effects.cpp writes c249 HairSpeParam, c250 SpeCol1, c251 SpeCol2 and c174 RimLightParam3 from them (sub_82BAAEE8 0x82BAD42C-0x82BAD5A0, 0x82BAC0C8-0x82BAC170); tools/scene/b3f_check.py",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs: feature_diff on run 29 frames 450,600: before 8 wrestler CONST lines (HairSpeParam.z, SpeCol1.w, SpeCol2.w, RimLightParam3.z, each in 2 frames), after 0. Plant: WWE_RDR_B3F_OLD_HAIR_RIM=1 restores the zeros and the hard-coded rim; the check must find all four again. g_fHairTileU/V default (10, 1) is [U] (CTAB default not read); g_fRimAdjSpcMas has no reader found; FX_CUBE_SPECULAR (slot 11) not done.",
+ "checks": [
+  {"name": "s103_B3F.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_B3F.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_B3F.feature_diff", "cmd": ["py", "-I", "tools/scene/b3f_check.py"], "timeout_s": 900,
+   "needs": ["out/s103/run29_case.zip", "game_data/extracted"],
+   "affects": ["src/assets/jboy.h", "src/assets/asset_model.h", "src/renderer_scene/char_effects.cpp", "tools/scene/b3f_check.py"]},
+  {"name": "s103_B3F.plant_old_hair_rim", "cmd": ["py", "-I", "tools/scene/b3f_check.py", "--plant"], "timeout_s": 900,
+   "needs": ["out/s103/run29_case.zip", "game_data/extracted"],
+   "affects": ["src/renderer_scene/char_effects.cpp", "tools/scene/b3f_check.py"]},
+  {"name": "s103_B3F.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_B3F.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/char_effects.cpp,src/renderer_scene/rf_wrestlers.cpp"], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_scene/char_effects.cpp", "src/assets/jboy.h", "src/assets/asset_model.h"]}
+ ]
+}

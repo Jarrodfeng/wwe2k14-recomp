@@ -1,0 +1,19 @@
+{
+ "owner": "S103 builder SVO (docs/agents/s103/CSC.md 'Fix sites for a builder'): goto's `scene:` stage push in the stream-free build. The game puts the Create a Story editor's full-screen red background over the scene in program mode 2; the stream build hid it with the lane-59 copy, the OFF host had nothing. live_scene.cpp BuildFrame stamps kSceneStagePlaying (scene_record.h) into SceneHeader::flags on the guest thread from stage_view::StampFrame(); the OFF host (scene_host.cpp RowsMayDraw / the two DrawRows calls / NoteStageRows) leaves the 2D rows out of a stamped record. The switch is --wwe2k14_rdr_stage_view (host_start.cpp, OFF build only, default off: a tool view, never a player look); tools/live/live.py passes it for an exe that defines it. 0 game runs.",
+ "claim": {"scene": "none", "side": "correctness (a tool path: goto coverage of Universe / WSD banks 1-699 and 4000-5999 showed only red)", "ms": [0, 0], "basis": "no saving claimed."},
+ "note": "unit = tools/scene/stage_stamp_unit.cpp (svo_check.py --unit): live::EndFrame and LatchFrame + EmitLatched with stage_view::SetPlaying / g_enabled flipped in the director's order: stamped while playing, not with the switch off, cleared next frame, taken at build time, kept by SerializeRecord / ParseRecord; twin nostamp must fail. rig = svo_check.py --rig: the real SceneHost (host_rig.exe) on c2d_match_hud + its rows on frame 60: stamped = no row drawn and the picture equals the no-rows baseline, unstamped draws them; twin stage_ignore (the host ignores the stamp) must fail. live.py selftest holds the exe_defines names apart.",
+ "checks": [
+  {"name": "s103_SVO.unit", "cmd": ["py", "-I", "tools/scene/svo_check.py", "--unit", "--root", "."], "timeout_s": 600, "tier": "cheap",
+   "affects": ["src/renderer_scene/live_scene.cpp", "src/renderer_scene/live_scene.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.*", "src/renderer_adapter/stage_view.h", "tools/scene/stage_stamp_unit.cpp", "tools/scene/svo_check.py"]},
+  {"name": "s103_SVO.live_selftest", "cmd": ["py", "-I", "tools/live/logs_selftest.py"], "timeout_s": 120, "tier": "cheap",
+   "affects": ["tools/live/live.py", "tools/live/logs_selftest.py"]},
+  {"name": "s103_SVO.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_host_rig.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_host/*", "src/renderer_scene/*", "tools/scene/host_rig.cpp", "tools/scene/build_host_rig.ps1"]},
+  {"name": "s103_SVO.rig", "cmd": ["py", "-I", "tools/scene/svo_check.py", "--rig", "--root", "."], "timeout_s": 1200,
+   "needs": ["out/captures/c2d_match_hud", "out/s103/p7h2/rows_match_hud", "game_data/extracted"],
+   "affects": ["src/renderer_host/*", "src/renderer_scene/scene_record.h", "tools/scene/host_rig.cpp", "tools/scene/svo_check.py"]},
+  {"name": "s103_SVO.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--changed", "s103-leave-the-stream", "--build", "both", "--root", "."], "timeout_s": 900,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_host/*", "src/renderer_scene/live_scene.cpp", "src/renderer_scene/scene_record.h"]}
+ ]
+}

@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "case/case_manifest.h"
+#include "dev_build.h"   // S103 L33F
 
 namespace wwe2k14::build_stamp {
 
@@ -25,17 +26,14 @@ inline void Fill(rdr_case::Manifest::Build& b) {
   b.sdk_pin = v.sdk_pin;
   if (v.apk) b.apk = v.apk;
   // The kind: release builds have no "+dev" in their version (CMakeLists.txt); the phone's builds are APKs.
-  bool dev = false;
-#ifdef WWE2K14_VERSION
-  dev = std::string_view(WWE2K14_VERSION).find("+dev") != std::string_view::npos;
-  b.version = WWE2K14_VERSION;
-#endif
+  // S103 L33F (review F1): asked of dev_build.cpp (the TU with the version define), so the answer is the same in every TU that includes this header.
+  const std::string_view ver = wwe2k14::VersionString();
+  const bool dev = wwe2k14::IsDevBuild();
+  if (!ver.empty()) b.version = std::string(ver);
 #if defined(__ANDROID__)
   b.kind = dev ? "apk-dev" : "apk";
-#elif defined(WWE2K14_VERSION)
-  b.kind = dev ? "dev" : "release";
 #else
-  b.kind = "unknown";
+  b.kind = ver.empty() ? "unknown" : dev ? "dev" : "release";
 #endif
 }
 

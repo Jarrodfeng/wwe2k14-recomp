@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,16 @@ inline bool ParseDds(const uint8_t* p, size_t n, Texture& t, std::string& why) {
   size_t want = 0;
   for (uint32_t m = 0; m < t.mips; ++m) want += MipBytes(t.format, t.width >> m, t.height >> m);
   const size_t have = n - 128;
+  // S103 RFL (RFF.md section A [C]): a cube map file (caps2 = DDSCAPS2_CUBEMAP | all six face bits = 0xFE00; the reflection cubes cube_00 / cube_01 / cube_post / cube_ref are DXT1, ONE mip):
+  // the six faces follow the header back to back in DDS order (+X -X +Y -Y +Z -Z), each with its own mip chain. A cube that does not hold all six whole chains stays a 2D face 0 (as every reader saw it before).
+  if ((rd(112) & 0xFE00u) == 0xFE00u && t.width == t.height) {
+    if (have >= want * 6) {
+      t.faces = 6;
+      t.data.assign(p + 128, p + 128 + want * 6);
+      return true;
+    }
+    why = "cube DDS holds fewer than six whole faces: read as its face 0";
+  }
   if (have < want) {
     // Fewer mips stored than the header says: keep what is whole levels (unconfirmed case, reported by the caller).
     size_t got = 0;
@@ -93,14 +104,20 @@ inline bool ParseDds(const uint8_t* p, size_t n, Texture& t, std::string& why) {
 class TexSet {
  public:
   // Adds the directory in `b`; false when it is not one.
-  bool AddDir(Bytes&& b) {
+  bool AddDir(Bytes&& b) { return AddDirImpl(std::move(b), nullptr); }
+  // S103 WMB: a donor directory: indexes ONLY the listed names (case-insensitive). The first directory still wins (a name the set already has is not replaced), so a borrowed texture never shadows the arena's own.
+  bool AddDir(Bytes&& b, const std::vector<std::string>& only) { return AddDirImpl(std::move(b), &only); }
+
+ private:
+  bool AddDirImpl(Bytes&& b, const std::vector<std::string>* only) {
     if (b.size() < 0x30) return false;
     const uint32_t count = Le32(b, 0);
     if (count == 0 || count > 4096 || 0x10 + size_t(count) * 32 > b.size()) return false;
     Dir d;
     for (uint32_t i = 0; i < count; ++i) {
       const size_t r = 0x10 + size_t(i) * 32;
-      if (std::memcmp(b.data() + r + 16, "dds", 3) != 0) return false;
+      // S103 RFL (RFF.md section A: the bgEtc steps' `cube_ref` directory, WPON entries 29..36 / 20, says "DDS\0"): the tag is read case-insensitively; one lower-case-only test refused the whole directory
+      if (std::tolower(b[r + 16]) != 'd' || std::tolower(b[r + 17]) != 'd' || std::tolower(b[r + 18]) != 's') return false;
       char nm[17] = {};
       std::memcpy(nm, b.data() + r, 16);
       const uint32_t size = Le32(b, r + 20), off = Le32(b, r + 24);
@@ -112,12 +129,24 @@ class TexSet {
     const int di = int(dirs_.size()) - 1;
     for (size_t e = 0; e < dirs_[size_t(di)].ents.size(); ++e) {
       const std::string key = Lower(dirs_[size_t(di)].ents[e].name);
-      if (!index_.count(key)) index_[key] = {di, int(e)};
+      if (only) {
+        bool listed = false;
+        for (const std::string& n : *only) listed = listed || Lower(n) == key;
+        if (!listed) continue;
+      }
+      if (!index_.count(key)) {
+        index_[key] = {di, int(e)};
+        if (only) borrowed_.insert(key);
+      }
     }
     return true;
   }
+
+ public:
   size_t size() const { return index_.size(); }
   bool Has(const std::string& name) const { return index_.count(Lower(name)) != 0; }
+  // S103 WMB: in the arena's OWN directories (a borrowed name does not count): rules that read "the arena has this texture" keep their old answer
+  bool HasOwn(const std::string& name) const { const std::string k = Lower(name); return index_.count(k) != 0 && borrowed_.count(k) == 0; }
 
   // Texture index in `m` for `name` (loaded and deduplicated on first use), or -1 with a warning in m.warnings.
   int Get(Model& m, const std::string& name) {
@@ -139,6 +168,8 @@ class TexSet {
       return map[key] = -1;
     }
     if (!why.empty()) m.warnings.push_back("texture '" + name + "': " + why);
+    if (borrowed_.count(key))   // S103 WMB: one line per model that uses a borrowed texture
+      std::fprintf(stderr, "[asset] %s: '%s' borrowed from another arena's directory 400 (not in its own dirs; the game binds nothing)\n", m.label.c_str(), name.c_str());
     t.name = e.name;
     m.textures.push_back(std::move(t));
     return map[key] = int(m.textures.size()) - 1;
@@ -168,6 +199,7 @@ class TexSet {
   };
   std::vector<Dir> dirs_;
   std::map<std::string, std::pair<int, int>> index_;
+  std::set<std::string> borrowed_;   // S103 WMB: names added by a donor AddDir(only)
   std::map<const Model*, std::map<std::string, int>> loaded_by_model_;
 };
 

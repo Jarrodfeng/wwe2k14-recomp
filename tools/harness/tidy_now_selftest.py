@@ -51,7 +51,7 @@ elif mode == 'main':
     rc = T.main()
     print('RC', rc)
 elif mode == 'lock':
-    T.lock_busy = lambda: 'slot1: busy'
+    T.lock_busy = lambda shared_ok=False: 'slot1: busy'
     T.LOCKED = cfg.get('locked', False)
     rc = T.cmd_now(False)
 elif mode == 'wants':
@@ -62,7 +62,7 @@ elif mode == 'wants':
 elif mode == 'watchbusy':
     marker = os.path.join(os.path.dirname(T.REPO), 'alert_marker.txt')
     T.TEST = False
-    T.lock_busy = lambda: 'slot1: busy'
+    T.lock_busy = lambda shared_ok=False: 'slot1: busy'
     T.alert = lambda st, txt, t: open(marker, 'w').write(txt)
     sys.argv = [sys.argv[0], '--auto', 'watch']
     rc = T.main()
@@ -140,7 +140,7 @@ def suite_now(script, base, R):
     R.check('--now --dry removes nothing', all(w.exists('.claude', 'worktrees', n) for n in names), out)
     R.check('--now --dry names the agent worktrees it would free', 'would free' in out and 'agent worktrees (4)' in out, out)
     mgd = w.wt('mg', 'merged', under=('out', 'wt')); age_tree(mgd, now - 40 * MIN)      # S1: plain worktrees stay on the low-pass age
-    mg3 = w.wt('mg3', 'merged', under=('out', 'wt')); age_tree(mg3, now - 3 * H)
+    mg3 = w.wt('mg3', 'merged', under=('out', 'wt')); age_tree(mg3, now - 7 * H)
     w.temp('cap', 1.5); write(w.p('out', 'cap', 'images.bin'), b'x'); age_tree(w.p('out', 'cap'), now - 1.5 * H)      # B2: capture folder 1.5 h old
     w.temp('plain3h', 3)
     out = run(w, script, mode='now', tracked=tracked(*names), target=1000, base=40.0)
@@ -154,7 +154,7 @@ def suite_now(script, base, R):
     R.check('S2: meta finished but transcript written later (resumed agent) kept', ex('agent-resumed'))
     R.check('S2: the same with a parent session that is not live (bulk-touched old transcript) is removed', not ex('agent-oldresumed'))
     R.check('S3: meta without finished, parent session not live, kept', ex('agent-orph'))
-    R.check('S1: plain worktree (out\\wt) idle 40 min kept, 3 h removed', w.exists('out', 'wt', 'mg', 'pad.bin') and not w.exists('out', 'wt', 'mg3'))
+    R.check('S1 (TIDY2 fix 5): a plain worktree (out\\wt) idle 40 min is kept, idle 7 h is removed', w.exists('out', 'wt', 'mg', 'pad.bin') and not w.exists('out', 'wt', 'mg3'))
     R.check('B2: capture folder 1.5 h old kept, plain 3 h folder removed', w.exists('out', 'cap', 'images.bin') and not w.exists('out', 'plain3h'), out)
     R.check('running agent (no finished flag), idle 5 h, kept', ex('agent-run5h'))
     R.check('running agent, idle 5 min, kept', ex('agent-run5m'))

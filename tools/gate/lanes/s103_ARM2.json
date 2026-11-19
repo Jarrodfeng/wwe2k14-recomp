@@ -1,0 +1,12 @@
+{
+ "owner": "S103 lane ARM2 (docs/agents/s103/HNN.md, docs/systems/attire_build.md \"ARM2\"): a composite attire's colours are read where the game uses them, at the build step (sub_83418580 entry: P+44 = the colour set, [P+16] + 132 set + 1320 = the 48 bytes), latched on the game thread (src/assets/attire_build.h) and carried to the record's entry tag (WrestlerContributor: the participant slot key by the chosen key, a linked body by desc + loaded key), so Heenan (24912 -> 24902, mode 1) composes base + masks + his colours. 0 game runs. tools/scene/arm2_unit.cpp drives: the early link read (no colours) -> the build-step hook body (steps 0..2) -> the contributor's record -> the loader's half (remap, tag parse, Compose); planted twins: link-time read, wrong slot, mode 2 folded, switch off.",
+ "checks": [
+  {"name": "s103_ARM2.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_arm2_unit.ps1"], "timeout_s": 900,
+   "affects": ["tools/scene/arm2_unit.cpp", "tools/scene/build_arm2_unit.ps1", "src/assets/attire_build.h", "src/assets/attire_compose.h", "src/assets/attire_remap.h", "src/scene_live/wrestler_contrib.*", "src/scene_live/model_hooks.h", "src/renderer_scene/named_load_fail.h"]},
+  {"name": "s103_ARM2.selftest", "cmd": ["out/tools/arm2_unit.exe", "selftest"], "timeout_s": 120, "tier": "cheap",
+   "affects": ["tools/scene/arm2_unit.cpp", "src/assets/attire_build.h", "src/assets/attire_compose.h", "src/assets/attire_remap.h", "src/scene_live/wrestler_contrib.*", "src/scene_live/model_hooks.h", "src/renderer_scene/named_load_fail.h"]},
+  {"name": "s103_ARM2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_assets.cpp,src/renderer_scene/live_scene_draw.cpp,src/scene_live/wrestler_contrib.cpp,src/main.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_scene/live_assets.cpp", "src/assets/attire_build.h", "src/assets/attire_compose.h", "src/fp_probe.h", "src/scene_live/wrestler_contrib.*", "src/scene_live/model_hooks.h", "src/scene_live/wrestler_hook.h", "src/renderer_scene/record_frame.h"]}
+ ]
+}

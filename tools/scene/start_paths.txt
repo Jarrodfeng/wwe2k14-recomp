@@ -1,0 +1,13 @@
+# S103 SPB: the start paths tools\scene\start_parity_lint.py compares (docs\research\s103\SP2_start_parity.md section 8).
+# name | file | function regexp (no "|" in it; every match is one region; the region ends at the matching brace) | builds (ON = the stream build, OFF = the stream-free build) | platform (pc, android, both)
+# A new start path is one line here; the lint fails on a function matching StartForGame|StartLive|LiveSink::Start in the start files that no row names.
+LiveSink::Start | src/renderer_adapter/live.cpp | bool LiveSink::Start | ON | both
+StartLive | src/renderer_adapter/reader.h | inline void StartLive | ON | both
+BuildOptions | src/renderer_host/host_start.cpp | HostOptions BuildOptions | OFF | both
+StartForGame | src/renderer_host/host_start.cpp | bool StartForGame | OFF | both
+ApplyStartSettings | src/start_settings.cpp | const Applied& ApplyStartSettings | ON,OFF | both
+# Files that act as rigs / tools of a start path: a store they make to a start-path target needs `// RIG-ONLY: <why>` on the line or the 1 above (rule R7).
+rig | tools/scene/*rig*.cpp
+rig | src/fview/*.cpp
+rig | src/fview/*.h
+rig | src/renderer/player/*.cpp

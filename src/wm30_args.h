@@ -31,6 +31,13 @@ inline int64_t PackArm(int n, int code) { return (int64_t(n) << 32) | int64_t(ui
 inline int ArmMatch(int64_t v) { return int(v >> 32); }
 inline int ArmCode(int64_t v) { return int(v & 0xFFFFFFFF); }
 
+// S103 GTF: the two call sites of sub_82A9D890 (the selection-object getter, returns B+2344) inside the start machine sub_827AA2E8.
+// State 1 (return 0x827AA340) reads the era with `lwz r4,4(r3)` and feeds BOTH era loads (sub_82A9DFB8 and sub_82A9E7B8); the jump writes
+// the selection there. State 3 (return 0x827AA3D0) reads the moment code later: the jump must never act there (docs/agents/s103/GTW.md).
+constexpr uint32_t kSelReadRet = 0x827AA340;        // state 1: the era read
+constexpr uint32_t kSelReadRetState3 = 0x827AA3D0;  // state 3: left alone
+inline bool IsSelectionReadSite(uint32_t lr) { return lr == kSelReadRet; }
+
 inline bool AllDigits(const std::string& s, size_t max_len) {
   if (s.empty() || s.size() > max_len) return false;
   for (char c : s) {

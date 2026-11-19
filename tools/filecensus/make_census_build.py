@@ -23,22 +23,15 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 
-TEX_OLD = ('  for (const assets::Texture& t : model.textures) {\n    std::string w;\n    const rdr::ImageId id = MakeTexture(t, w);\n'
-           '    if (id == rdr::kNoImage) warnings.push_back("texture \'" + t.name + "\': " + w);\n')
-TEX_NEW = '''  // S101 lane 21 (census build only): the planted missing texture
-  int census_drop = -1;
-  if (const char* pt = std::getenv("WWE_CENSUS_PLANT_TEX")) {
-    if (model.label == pt)
+TEX_OLD = '    if (id == rdr::kNoImage && !w.empty()) warnings.push_back("texture \'" + t.name + "\': " + w);   // (S103 RFL: a cube skipped with the switch off says nothing)\n'   # S103: re-anchored after RFL changed the line (the plant sets w, so its warning still fires)
+TEX_NEW = """    // S101 lane 21 (census build only): the planted missing texture (S103 GRF: re-anchored on the image-sharing loop; a shared image is not destroyed)
+    if (const char* pt = std::getenv("WWE_CENSUS_PLANT_TEX"); pt && model.label == pt) {
+      int census_drop = -1;
       for (const assets::Material& mt : model.materials)
         if (mt.diffuse >= 0 && size_t(mt.diffuse) < model.textures.size() && mt.diffuse != model.stage_lightmap) { census_drop = mt.diffuse; break; }
-  }
-  for (size_t census_i = 0; census_i < model.textures.size(); ++census_i) {
-    const assets::Texture& t = model.textures[census_i];
-    std::string w;
-    rdr::ImageId id = MakeTexture(t, w);
-    if (int(census_i) == census_drop) { if (id != rdr::kNoImage) renderer_.DestroyImage(id); id = rdr::kNoImage; w = "entry not found (census plant)"; }
-    if (id == rdr::kNoImage) warnings.push_back("texture '" + t.name + "': " + w);
-'''
+      if (int(&t - model.textures.data()) == census_drop) { if (id != rdr::kNoImage && !shared) renderer_.DestroyImage(id); id = rdr::kNoImage; w = "entry not found (census plant)"; }
+    }
+""" + TEX_OLD
 PL_OLD = '  for (const assets::Placement& p : model.placements) m->placements.push_back(p.transforms);\n'
 PL_NEW = '''  {  // S101 lane 21 (census build only): the ground truth line and the planted "ignores the r / y flags"
     int census_flagged = 0;
@@ -64,7 +57,7 @@ PL_NEW = '''  {  // S101 lane 21 (census build only): the ground truth line and 
   }
 '''
 # globals for the draw-list count, before AddModel
-GL_OLD = 'int FrontEnd::AddModel(const assets::Model& model, std::vector<std::string>& warnings) {\n'
+GL_OLD = 'int FrontEnd::AddModel(const assets::Model& model, std::vector<std::string>& warnings, std::unordered_map<std::string, rdr::ImageId>* shared) {\n'
 GL_NEW = '''// S101 lane 21 (census build only): which placements of which model carry the loader's "mirrored" / "turned" label, and which of them the draw list got
 // more than once in the last RenderToPixels.
 static std::map<const void*, std::set<int>> g_census_flagged;
@@ -111,6 +104,15 @@ def must_replace(text, old, new, what):
     return text.replace(old, new)
 
 
+ANCHORS = (('texture loop', TEX_OLD), ('placements loop', PL_OLD), ('AddModel head', GL_OLD), ('AddModel body start', HANG_OLD),
+           ('instances line', INST_OLD), ('RenderToPixels head', RT_OLD), ('CoverageText head', CT_OLD), ('includes', INC_OLD))
+
+
+def lint_anchors(src):
+    """S103 GRF: every front_end.cpp anchor must match exactly once; returns the list of problems (all of them, not only the first)."""
+    return ['anchor for "%s" found %d times (expected 1)' % (what, src.count(old)) for what, old in ANCHORS if src.count(old) != 1]
+
+
 def patch_front_end(src, scene_dir):
     def fix(m):  # the copy lives elsewhere, so every local include becomes absolute
         p = os.path.normpath(os.path.join(scene_dir, m.group(1)))
@@ -129,7 +131,15 @@ def patch_front_end(src, scene_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=DEFAULT_ROOT)
-    root = os.path.abspath(ap.parse_args().root)
+    ap.add_argument('--lint', action='store_true', help='only check that every anchor of front_end.cpp matches exactly once')
+    a = ap.parse_args()
+    root = os.path.abspath(a.root)
+    if a.lint:
+        probs = lint_anchors(open(os.path.join(root, 'src', 'renderer_scene', 'front_end.cpp'), encoding='utf-8').read())
+        for p_ in probs:
+            print('FAIL  ' + p_)
+        print('ok  all %d anchors match once' % len(ANCHORS) if not probs else 'FAIL  %d anchor(s) drifted: update make_census_build.py' % len(probs))
+        return 1 if probs else 0
     scene_dir = os.path.join(root, 'src', 'renderer_scene')
     build = os.path.join(root, 'out', 'filecensus', 'build')
     os.makedirs(build, exist_ok=True)

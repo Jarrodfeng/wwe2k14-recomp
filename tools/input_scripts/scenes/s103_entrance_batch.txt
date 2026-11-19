@@ -1,0 +1,21 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 run 13 (game exe, mode 1 + census): Brock's entrance with mirror sheets, for lane M (screens fed in our frame), lane L2 (the
+# stage-look probe, armed at tron+300: 12 frames, one every 20), lane F2 (particle pairing census), lane C3 (flash census).
+on_fail quit
+log bench: start scene s103_entrance_batch
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+cvar wwe2k14_stage_look_probe 12
+log s103: stage look probe armed (tron + 300)
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+wait_frames 600
+log bench: done
+quit

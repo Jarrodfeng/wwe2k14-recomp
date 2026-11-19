@@ -32,6 +32,7 @@
 #include "load_probe.h"    // CurrentSequence, SafeRead32
 #include "scenario.h"      // kMatchDescPtr
 #include "renderer_adapter/announce.h"  // S101 lane 271: g_announced_arena
+#include "renderer_game/fallback_census.h"  // S103 L2b: SceneChange (the census flushes its window under the old scene)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_session_log, true, "wwe2k14",
                     "Session 58: [scene] lines for every sequence / scene change and [match] card lines (who, where, "
@@ -128,6 +129,7 @@ inline void Change(const std::string& what, uint64_t frame) {
   const double part_s = std::chrono::duration<double>(now - s.part_time).count();
   const uint64_t frames = frame - s.part_frame;
   NoteScene(what);  // Session 73 (frame_stats.h: the CSV's scene marker)
+  { const size_t lp = what.rfind('('), rp = what.rfind(')'); fallback_census::SceneChange(lp != std::string::npos && rp != std::string::npos && rp > lp ? what.substr(lp + 1, rp - lp - 1) : what); }   // S103 L2b: the fallback census window ends with the scene (its line names it)
   REXLOG_INFO("[wwe2k14][scene] {} at frame {}, {:.1f} s after start (the part before: {} frames in {:.1f} s, {:.1f} fps)",
               what, frame, std::chrono::duration<double>(now - s.start).count(), frames, part_s,
               part_s > 0 ? double(frames) / part_s : 0.0);

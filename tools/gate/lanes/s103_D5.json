@@ -1,0 +1,16 @@
+{
+ "owner": "S103 lane D5: the sign / foam-hand latch reader replicates the game's gates (resolved-texture gate sub_82294F20, the distance test at [0x836F3940] == 1, the signs' whole-function gate, the foam hands' resource gates and loop exit) and the contributor appends the rows (crowd_prop_rows.h AppendProp) on latch-built frames, hidden rows as kCpfHidden: src/scene_live/crowd_latch_reader.h, crowd_contrib.*, crowd_snapshot_core.h (CompareProps compares the SHOWN set equal); docs/renderer/CROWD_PROPS_GATES.md; db/s103_d5_crowd_prop_gates.json. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "check 1 = tools/scene/crowd_snapshot_check.py (the D3 unit extended: every gate on its own with the listings' literals, the mirror compare of the shown set, the rows through the contributor; 19 planted twins incl. prop_distance_ignored, prop_texture_ignored, prop_exit_ignored, prop_global_ignored, rows_hidden_ignored, rows_kind_swapped). Check 2 = D4's unit still passes (the writer API is unchanged). Check 3 = the game translation unit compiles. S103 D6 (same lane, extended): the holders are rows (the pose chain: bone table + inverse bind -> skin, hand oracle in double; twin single_chain_order), the sign / foam-hand pictures are read from the guest texture objects (guest_texture.h over F4 texture_registry.h; twins picture_handle_unchecked / picture_tiled_ignored / picture_endian_ignored) and ride in kScCrowdPictures (48; d4_unit round trip); the applier (live_crowd.cpp) compiles in the rig build. kCrowdOursWhole itself is not flipped (CROWD_PROPS_GATES.md 10).",
+ "checks": [
+  {"name": "s103_D5.snapshot", "cmd": ["py", "-I", "tools/scene/crowd_snapshot_check.py", "--root", "."], "timeout_s": 600,
+   "affects": ["src/scene_live/crowd_*", "src/scene_live/inputs_core.h", "src/renderer_scene/crowd_prop_rows.h", "tools/scene/crowd_snapshot_unit.cpp", "tools/scene/crowd_snapshot_latch_part.h", "tools/scene/crowd_snapshot_check.py"]},
+  {"name": "s103_D5.build_d4_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_d4_unit.ps1"], "timeout_s": 300},
+  {"name": "s103_D5.d4_unit", "cmd": ["out/tools/d4_unit.exe"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/crowd_prop_rows.h", "src/renderer_scene/scene_record.h", "tools/scene/d4_unit.cpp"]},
+  {"name": "s103_D5.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/crowd_contrib.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/wwe2k14_app.h", "src/scene_live/*", "src/renderer_scene/*"]},
+  {"name": "s103_D5.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 900,
+   "affects": ["src/renderer_scene/live_crowd.cpp", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.*"]}
+ ]
+}

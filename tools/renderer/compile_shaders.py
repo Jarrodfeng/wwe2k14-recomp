@@ -9,7 +9,9 @@ Only out-of-date shaders are rebuilt. Vulkan 1.1 target (the floor).
   py tools\\renderer\\compile_shaders.py [--force]
 """
 import concurrent.futures
+import functools
 import glob
+import hashlib
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 SOURCE = os.path.join(ROOT, 'src', 'renderer', 'shaders')
@@ -32,16 +35,197 @@ def run(tool, *args):
         raise RuntimeError(f'{tool} failed:\n{done.stdout}{done.stderr}')
 
 
-def compile_words(path, defines):
+# S103 GSP: a per-shader content-hash cache (out\shaders\cache; env SPV_CACHE_DIR moves it; SPV_CACHE=0 turns it off). A compile result is looked up by a key over everything that decides it: the script's
+# own bytes, the glslang / spirv-opt / spirv-val versions (and the exes' size + mtime), the flags, the defines, the shader text and the content of every file it includes (transitively). Only a variant whose key
+# changed recompiles; the words are still compared with the committed headers by write_if_changed, so --check notices a stale header exactly as before. CACHE_STATS is printed at the end.
+# GSP2: the default cache folder is the MAIN checkout's (every worktree shares it: a cold run is ~270 s). That is safe only because an entry is believed only after it proves itself (see pack / unpack: key, length and sha256 over key + bytes are
+# checked on every read) and is stored only when the inputs did not change while glslang ran (cached_spv / cached_preprocess re-key after the build).
+def main_checkout():
+    env = os.environ.get('RDR_MAIN_CHECKOUT')
+    if env:
+        return env
+    try:
+        common = subprocess.run(['git', '-C', ROOT, 'rev-parse', '--path-format=absolute', '--git-common-dir'], capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        common = ''
+    return os.path.dirname(common) if common else ROOT
+
+
+CACHE_DIR = os.environ.get('SPV_CACHE_DIR') or os.path.join(main_checkout(), 'out', 'shaders', 'cache')
+CACHE_ON = os.environ.get('SPV_CACHE', '1') != '0'
+CACHE_STATS = {'hit': 0, 'miss': 0, 'pp_hit': 0, 'pp_miss': 0, 'unstored': 0, 'rejected': 0}
+STATS_LOCK = threading.Lock()   # the compiles run on 12 threads: `+= 1` on a dict value is not atomic
+ENTRY_MAGIC = b'SPVC1\n'
+_HOOK_FIRED = []
+
+
+def bump(name):
+    with STATS_LOCK:
+        CACHE_STATS[name] += 1
+
+
+def twin_hook():
+    """TEST ONLY (spv_cache_twin.py): SPV_TWIN_EDIT=<file>|<text> appends <text> to <file> once, between a shader's key and its compile: the planted "an include edited while the compile runs" race."""
+    spec = os.environ.get('SPV_TWIN_EDIT')
+    if not spec:
+        return
+    with STATS_LOCK:
+        if _HOOK_FIRED:
+            return
+        _HOOK_FIRED.append(1)
+    path, _, text = spec.partition('|')
+    with open(path, 'a', encoding='utf-8', newline='') as f:
+        f.write(text.replace('\\n', '\n'))
+INCLUDE_ANY = re.compile(r'^[ \t]*#[ \t]*include[ \t]+["<]([^">]+)[">]', re.M)
+
+
+@functools.lru_cache(maxsize=1)
+def tool_stamp():
+    parts = [hashlib.sha256(open(os.path.abspath(__file__), 'rb').read()).hexdigest()]
+    for tool in ('glslangValidator.exe', 'spirv-opt.exe', 'spirv-val.exe'):
+        exe = os.path.join(SDK, tool)
+        st = os.stat(exe)
+        done = subprocess.run([exe, '--version'], capture_output=True, text=True)
+        parts.append(f'{tool}|{st.st_size}|{int(st.st_mtime)}|{done.stdout}{done.stderr}')
+    return hashlib.sha256('\n'.join(parts).encode()).hexdigest()
+
+
+def _include_files(text, seen):
+    for name in INCLUDE_ANY.findall(text):
+        for folder in (FX, SOURCE):
+            candidate = os.path.join(folder, name)
+            if os.path.exists(candidate):
+                if candidate not in seen:
+                    with open(candidate, encoding='utf-8') as f:
+                        seen[candidate] = f.read()
+                    _include_files(seen[candidate], seen)
+                break
+
+
+def content_key(kind, text, defines, extra=''):
+    """Key of one glslang input: the tools, the kind, the flags, the defines, the text and every include it reaches (their paths and bytes)."""
+    seen = {}
+    _include_files(text, seen)
+    h = hashlib.sha256()
+    for part in (tool_stamp(), kind, extra, '\x00'.join(defines), text):
+        h.update(part.encode('utf-8'))
+        h.update(b'\x01')
+    for path in sorted(seen):
+        h.update(os.path.relpath(path, ROOT).replace('\\', '/').encode())
+        h.update(b'\x02')
+        h.update(seen[path].encode('utf-8'))
+        h.update(b'\x01')
+    return h.hexdigest()
+
+
+def pack(key, data):
+    """One cache entry: magic, length, sha256 over (key + bytes), bytes. An entry is bound to its key: a file copied from another key, a truncated or edited file, or a bare .spv dropped in is rejected on read."""
+    return ENTRY_MAGIC + struct.pack('<Q', len(data)) + hashlib.sha256(key.encode() + data).digest() + data
+
+
+def unpack(key, blob):
+    n = len(ENTRY_MAGIC) + 8 + 32
+    if len(blob) < n or not blob.startswith(ENTRY_MAGIC):
+        return None
+    (length,) = struct.unpack('<Q', blob[len(ENTRY_MAGIC):len(ENTRY_MAGIC) + 8])
+    data = blob[n:]
+    if length != len(data) or hashlib.sha256(key.encode() + data).digest() != blob[len(ENTRY_MAGIC) + 8:n]:
+        return None
+    return data
+
+
+def cache_get(key, ext):
+    if not CACHE_ON:
+        return None
+    try:
+        with open(os.path.join(CACHE_DIR, key + ext), 'rb') as f:
+            blob = f.read()
+    except OSError:
+        return None
+    data = unpack(key, blob)
+    if data is None:
+        bump('rejected')   # a damaged / foreign entry is a miss, never a result
+    return data
+
+
+def cache_put(key, ext, data):
+    if not CACHE_ON:
+        return
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = os.path.join(CACHE_DIR, f'{key}{ext}.{os.getpid()}.{threading.get_ident()}.tmp')
+        with open(tmp, 'wb') as f:
+            f.write(pack(key, data))
+        os.replace(tmp, os.path.join(CACHE_DIR, key + ext))
+    except OSError:
+        pass
+
+
+def _spv_words(data):
+    """The words of a cached SPIR-V file, or None when it is not one (a damaged cache entry is a miss, never a result)."""
+    if len(data) % 4 or len(data) < 20:
+        return None
+    words = struct.unpack(f'<{len(data) // 4}I', data)
+    return words if words[0] == 0x07230203 else None
+
+
+def cached_spv(kind, text, defines, build, reread=None):
+    """build() returns the optimised file's bytes; looked up first by content_key. After the build the key is computed again from what is on disk NOW (`reread()` gives the shader's current text; the includes are re-read by content_key):
+    the entry is stored only when the key did not change while glslang ran (an edit in between would have stored the new SPIR-V under the old key)."""
+    key = content_key(kind, text, defines)
+    got = cache_get(key, '.spv')
+    words = _spv_words(got) if got is not None else None
+    if words is not None:
+        bump('hit')
+        return words
+    bump('miss')
+    twin_hook()
+    data = build()
+    if content_key(kind, reread() if reread else text, defines) == key:
+        cache_put(key, '.spv', data)
+    else:
+        bump('unstored')
+    return struct.unpack(f'<{len(data) // 4}I', data)
+
+
+def cached_preprocess(args, defines, path, stage_flag=''):
+    """glslang -E output, cached by the source file and its includes (stored only when they did not change while glslang ran)."""
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    key = content_key('E', text, defines, extra=stage_flag)
+    got = cache_get(key, '.pp')
+    if got is not None:
+        bump('pp_hit')
+        return got.decode('utf-8')
+    bump('pp_miss')
+    twin_hook()
+    done = subprocess.run([os.path.join(SDK, 'glslangValidator.exe'), *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise RuntimeError(f'preprocess failed:\n{done.stdout}{done.stderr}')
+    with open(path, encoding='utf-8') as f:
+        now = f.read()
+    if content_key('E', now, defines, extra=stage_flag) == key:
+        cache_put(key, '.pp', done.stdout.encode('utf-8'))
+    else:
+        bump('unstored')
+    return done.stdout
+
+
+def _build_spv(src, defines):
     with tempfile.TemporaryDirectory() as tmp:
         raw = os.path.join(tmp, 'raw.spv')
         opt = os.path.join(tmp, 'opt.spv')
-        run('glslangValidator.exe', '-V', '--target-env', 'vulkan1.1', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], '-o', raw, path)
+        run('glslangValidator.exe', '-V', '--target-env', 'vulkan1.1', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], '-o', raw, src)
         run('spirv-opt.exe', '-O', '--strip-debug', '--target-env=vulkan1.1', '-o', opt, raw)
         run('spirv-val.exe', '--target-env', 'vulkan1.1', opt)
         with open(opt, 'rb') as f:
-            data = f.read()
-    return struct.unpack(f'<{len(data) // 4}I', data)
+            return f.read()
+
+
+def compile_words(path, defines):
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    return cached_spv('file' + os.path.splitext(path)[1], text, defines, lambda: _build_spv(path, defines), reread=lambda: open(path, encoding='utf-8').read())
 
 
 HEADER_INJECT = '#define main fx_user_main\n'
@@ -112,10 +296,8 @@ def active_output(path, defines):
     """The colour output 0 of a fragment shader with these options, or None (depth only). Read from the preprocessed shader: a family's include
     declares outputs for several options (S100: searching the effect's own file missed them, and alpha-tested variants of those families shipped
     without their alpha test)."""
-    done = subprocess.run([os.path.join(SDK, 'glslangValidator.exe'), '-E', '-S', 'frag', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], path], capture_output=True, text=True)
-    if done.returncode != 0:
-        raise RuntimeError(f'preprocess failed:\n{done.stdout}{done.stderr}')
-    match = re.search(r'layout\s*\(\s*location\s*=\s*0\s*\)\s*out\s+vec4\s+(\w+)\s*;', done.stdout)
+    out_text = cached_preprocess(['-E', '-S', 'frag', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], path], list(defines), path, '-S frag')
+    match = re.search(r'layout\s*\(\s*location\s*=\s*0\s*\)\s*out\s+vec4\s+(\w+)\s*;', out_text)
     return match.group(1) if match else None
 
 
@@ -213,10 +395,8 @@ def wrapped_source(path, stage, alpha_test, target_16, integer_locations=(), def
 
 def block_layout(path, defines, block):
     """std140 offsets of the constant block's members, in the order the shader declares them. Every member is vec4 or a vec4 array, or the Bools pair."""
-    done = subprocess.run([os.path.join(SDK, 'glslangValidator.exe'), '-E', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], path], capture_output=True, text=True)
-    if done.returncode != 0:
-        raise RuntimeError(f'preprocess failed:\n{done.stdout}{done.stderr}')
-    match = re.search(block + r'\s*\{(.*?)\}', done.stdout, re.S)
+    out_text = cached_preprocess(['-E', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], path], list(defines), path)
+    match = re.search(block + r'\s*\{(.*?)\}', out_text, re.S)
     offsets = {}
     size = 0
     if match:
@@ -227,19 +407,16 @@ def block_layout(path, defines, block):
     return offsets, size
 
 
-def compile_text(text, defines, stage):
+def _build_text(text, defines, stage):
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'shader.' + stage)
         with open(src, 'w', encoding='utf-8') as f:
             f.write(text)
-        raw = os.path.join(tmp, 'raw.spv')
-        opt = os.path.join(tmp, 'opt.spv')
-        run('glslangValidator.exe', '-V', '--target-env', 'vulkan1.1', '-I' + SOURCE, '-I' + FX, *[f'-D{d}' for d in defines], '-o', raw, src)
-        run('spirv-opt.exe', '-O', '--strip-debug', '--target-env=vulkan1.1', '-o', opt, raw)
-        run('spirv-val.exe', '--target-env', 'vulkan1.1', opt)
-        with open(opt, 'rb') as f:
-            data = f.read()
-    return struct.unpack(f'<{len(data) // 4}I', data)
+        return _build_spv(src, defines)
+
+
+def compile_text(text, defines, stage):
+    return cached_spv('text:' + stage, text, defines, lambda: _build_text(text, defines, stage))
 
 
 STALE = []   # S102 R18-B2: --check mode: the headers that would change (nothing is written)
@@ -301,6 +478,25 @@ LITE_EFFECT = 'yGlareEtc'
 LITE_PLANT_SET = ('dof', 'dof_fog', 'dof_bloom', 'dof_fog_bloom', 'bloom', 'fog_bloom')
 
 
+# S103 SLV2 (docs/renderer/DEAD_WORK.md, the depth-convert fold): the `_vd` twins of the two shaders that read the game's depth in the viewer's scenes (the combine yGlareEtc, slot 3, with FX_DOF or FX_FOG;
+# the DoF downsample yDownScale DOF, slot 1). FX_VDEPTH folds rdr_post_depth.frag's conversion into the depth fetch (gameDepth, the same expression): the raw 0..1 depth is bound and the converted depth image
+# (the R32F dconv_ pass) is not made. One constant range VDepthK = (q, nq, 9.92) at VD_REGISTER (no game shader of these effects reads it). No hashes (only the post pass picks them, by name). The combine's
+# `_vd` bases get the lite / plant twins too (lite_twins), named `<stem>_vd_lite1` etc., so CombineLiteName(base = `..._vd_fragment`) composes the suffixes unchanged.
+VD_EFFECTS = {'yGlareEtc': ('FX_DOF', 'FX_FOG'), 'yDownScale': ('DOF',)}
+VD_REGISTER = 40
+
+
+def vd_twins(effect, variants):
+    twins = []
+    for v in variants:
+        d = list(v.get('defines', []))
+        if 'FX_ADAPT' in d or not any(x in d for x in VD_EFFECTS.get(effect, ())):
+            continue
+        twins.append({**v, 'name': v['name'] + '_vd', 'defines': d + ['FX_VDEPTH'], 'hashes': [], 'alpha_test': False,
+                      'constants': list(v.get('constants', [])) + [{'field': 'VDepthK', 'register': VD_REGISTER, 'count': 1}]})
+    return twins
+
+
 def lite_twins(variants):
     twins = []
     for v in variants:
@@ -315,7 +511,7 @@ def lite_twins(variants):
             add('_lite1', ['FX_LITE'])
         add('_lite2', ['FX_LITE', 'FX_LITE_FXAA'])
         add('_litem', ['FX_LITE', 'FX_LITE_FXAA', 'FX_LITE_MARK'])   # the mark instrument exists for EVERY permutation (wm30's flat share read 0 with the first, smaller set)
-        if v['name'] in LITE_PLANT_SET:
+        if (v['name'][:-3] if v['name'].endswith('_vd') else v['name']) in LITE_PLANT_SET:
             if 'FX_DOF' in d:
                 add('_litep1', ['FX_LITE', 'FX_PLANT_DOF'])
             if 'FX_BLOOM' in d:
@@ -360,8 +556,11 @@ def compile_effect(json_path):
     fragment_variants = list(spec.get('fragment', []))
     if effect in ANALYTIC_EFFECTS:   # S102 L1: the analytic pre-light twins (fx_prelight.glsl), one per variant that samples the light cube at slot 13
         fragment_variants += analytic_twins(fragment_variants)
+    vd = vd_twins(effect, fragment_variants)   # S103 SLV2: the depth-convert fold twins (their lite / plant twins below)
     if effect == LITE_EFFECT:   # S102 R18-B2
-        fragment_variants += lite_twins(fragment_variants)
+        fragment_variants += lite_twins(fragment_variants) + vd + lite_twins(vd)
+    else:
+        fragment_variants += vd
     for variant in fragment_variants:
         frag = source_of(variant, '.frag')
         symbol = f'kFx_{effect}_{variant["name"]}_frag'
@@ -513,6 +712,7 @@ def main():
                 failed += 1
                 print(f'FAILED {os.path.basename(path)}\n{error}')
     write_registry(sorted(all_rows, key=lambda r: r['effect']))
+    print(f'spv cache ({CACHE_DIR if CACHE_ON else "off"}): {CACHE_STATS["hit"]} compiles reused, {CACHE_STATS["miss"]} compiled, {CACHE_STATS["pp_hit"]} preprocesses reused, {CACHE_STATS["pp_miss"]} run, {CACHE_STATS["rejected"]} damaged entries rejected, {CACHE_STATS["unstored"]} not stored (inputs changed during the build)')
     print(f'shaders: {len(plain)} plain, {len(plain_todo)} rebuilt; {len(effects)} effects compiled; {failed} failed')
     if '--check' in sys.argv:   # S102 R18-B2
         print('compile_shaders --check: ' + ('headers are current' if not STALE else 'STALE headers: ' + ', '.join(STALE)))

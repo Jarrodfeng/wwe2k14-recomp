@@ -11,6 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
+BASE = '21b39eb5d'   # S103 LNT3: the last SPIR-V change on purpose (TQ2; before: RFL, FXF, MIP daf91b9fe)
 OWN = {'rdr_light_cubes_comp.h', 'rdr_light_dirs_comp.h', 'rdr_light_dirs_comp_swap.h'}
 FAILS = 0
 DIR = 'src/renderer/shaders/spv'
@@ -29,8 +30,6 @@ def norm(text):
 def compare(now, base):
     bad = []
     for name, text in now.items():
-        if name in OWN:
-            continue
         if name not in base:
             bad.append('%s is new' % name)
         elif base[name] != text:
@@ -46,9 +45,8 @@ def main():
     ap.add_argument('--root', default=ROOT)
     ap.add_argument('--base', default=None)
     a = ap.parse_args()
-    if not a.base:   # the tip this lane branched from: the merge base with s102-arc-pt2 (the branch moves while lanes work)
-        mb = subprocess.run(['git', '-C', a.root, 'merge-base', 'HEAD', 's102-arc-pt2'], capture_output=True, text=True)
-        a.base = mb.stdout.strip() or 's102-arc-pt2'
+    if not a.base:   # pinned (as tools/r18/BASE and tools/c1/spv_lint.py): the diffuse LOD-bias commit; the lane's three compute headers are in it now, so they are compared like every other header
+        a.base = BASE
     ls = subprocess.run(['git', '-C', a.root, 'ls-tree', '--name-only', a.base, DIR + '/'], capture_output=True, text=True)
     names = [os.path.basename(n) for n in ls.stdout.split() if n.endswith('.h')]
     if ls.returncode != 0 or not names:
@@ -70,7 +68,7 @@ def main():
     say(not bad, '%d SPIR-V headers: every one but the lane\'s %d new ones is word-for-word the base\'s (%s)' % (len(now), len(OWN & set(now)), '; '.join(bad[:3]) or 'clean'))
     say(OWN <= set(now), 'the lane\'s three compute shader headers are present (%s)' % ', '.join(sorted(OWN & set(now))))
     for n in sorted(OWN & set(now)):
-        say(bool(re.search(r'inline constexpr uint32_t kSpv_\w+\[\] = \{', now[n])) and n not in base, '%s is a new header holding one SPIR-V array' % n)
+        say(bool(re.search(r'inline constexpr uint32_t kSpv_\w+\[\] = \{', now[n])) and n in names, '%s holds one SPIR-V array and is in the base (the merge base now holds the lane headers)' % n)
     sym = 'rdr_present_frag.h'
     if sym not in now:
         say(False, 'planted twin DID NOT APPLY (%s is missing)' % sym)

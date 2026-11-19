@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "skeleton_want.h"   // lane 207
+#include "body_scale.h"      // S103 W2
 #include "../assets/wrestler_geom.h"
 #include "../assets/wrestler_roster.h"
 #include "../renderer_adapter/capture_reader.h"
@@ -218,7 +219,7 @@ class WrestlerCore {
       const std::string_view id = rec_->Str(ob.id);
       if (!(id.rfind("actor:", 0) == 0 || id.rfind("skel:", 0) == 0) || ob.bones_count == 0 || ob.bones_first + ob.bones_count > rec_->bones.size()) continue;
       Skeleton s;
-      s.object = k, s.first = ob.bones_first, s.count = ob.bones_count;
+      s.object = k, s.first = ob.bones_first, s.count = rdr_scene::BodyRowCount(ob.bones_first, ob.bones_count, rec_->bone_tags.data(), rec_->bone_tags.size());   // S103 W2B (review A): the body prefix, not body + spring-hair rows (the link needs the skeleton's node count)
       s.slot = -1;
       s.id = std::string(id);
       if (id.rfind("actor:slot:", 0) == 0) s.slot = std::atoi(std::string(id.substr(11)).c_str());
@@ -762,6 +763,7 @@ class WrestlerCore {
       st.entry = st.cands[i];
       st.model = models_[st.entry].model;
       st.scale = scale;
+      BodyScaleTable::Get().Set(st.addr, scale);   // S103 W2: the scene front-end (rf_wrestlers.cpp) scales its palette by it
       ++stats_.objects_joined, ++stats_.scale_measured;
       {
         const assets::wrestler_roster::Entry& e = roster_.entries()[size_t(st.entry)];

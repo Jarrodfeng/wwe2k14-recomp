@@ -41,6 +41,8 @@
 #include "frame_stats.h"
 #include "frame_word.h"  // Session 73: g_frame_word
 #include "load_turbo.h"  // g_load_turbo_ingame_window
+#include "renderer_game/scene_kind.h"  // S103 NR: g_phase_entrance
+#include "renderer_game/scene_skip_core.h"  // S103 WB: the walk log (OFF build)
 
 REXCVAR_DEFINE_INT32(wwe2k14_step_hz, 0, "wwe2k14",
                      "Session 19 item 10 (experiment, default 0 = the game's own rate): game updates per game second. "
@@ -54,7 +56,7 @@ REXCVAR_DEFINE_BOOL(wwe2k14_step_hz_hold_loads, true, "wwe2k14",
                     "match arena is black when the end of the in-game load runs at 120 (runs 1414-1422)");
 REXCVAR_DEFINE_INT32(wwe2k14_step_hz_entrance, 0, "wwe2k14",
                      "Session 19 item 10: with wwe2k14_step_hz, use this rate instead while the entrances run (scene "
-                     "word 0x836F3940 == 4); 0 = the same as wwe2k14_step_hz. E.g. 165 in matches, 120 in entrances "
+                     "word 0x836F3940 == 4 in the in-game sequence); 0 = the same as wwe2k14_step_hz. E.g. 165 in matches, 120 in entrances "
                      "(heavy entrance shots could not hold 144 / 165, runs 1431 / 1432)");
 REXCVAR_DEFINE_BOOL(wwe2k14_replay_time_follows_step, true, "wwe2k14",
                     "Session 27.5: in replay mode (det_frames) the guest's time per frame follows the update rate (SDK "
@@ -86,7 +88,7 @@ inline std::atomic<int32_t> g_applied_hz{0};   // the step_hz value the fields w
 // frame. The step applies only in game: boot and menus keep the game's own rate (at 144 the boot's frame-counted
 // waits ran past the routes' limits, runs 1428 / 1429, and menu animations would run fast).
 inline std::atomic<bool> g_in_game{false};
-inline std::atomic<bool> g_entrances{false};  // scene word 0x836F3940 == 4 (load_turbo.h, states.toml scene_word)
+inline std::atomic<bool> g_entrances{false};  // scene word 0x836F3940 == 4 AND the in-game sequence id 9 (S103 PHS; the editor and the menu sequences write 4 as well)
 
 inline uint32_t LoadU32(uint8_t* base, uint32_t addr) {
   const uint8_t* p = decode_probe::GuestPtr(base, addr);
@@ -253,8 +255,23 @@ inline void OnFrameInner(uint8_t* base, uint64_t frame) {
   auto valid = [](uint32_t a) { return a >= 0x40000000u && a < 0xE0000000u; };
   const uint32_t p1 = LoadU32(base, 0x839400F8u);
   const uint32_t p2 = valid(p1) ? LoadU32(base, p1) : 0;
-  g_in_game.store(valid(p2) && LoadU32(base, p2 + 48) == 9, std::memory_order_relaxed);
-  g_entrances.store(LoadU32(base, 0x836F3940u) == 4, std::memory_order_relaxed);
+  const uint32_t seq_id = valid(p2) ? LoadU32(base, p2 + 48) : 0;
+  g_in_game.store(valid(p2) && seq_id == 9, std::memory_order_relaxed);
+#if !WWE2K14_STREAM()
+  {   // S103 WB: the walk log, one line per change of the scene walk (docs\research\s103\PM_post_match_menu.md 4)
+    std::string line;
+    if (scene_skip::walk_log::StepLog(scene_skip::walk_log::g_state, frame, int64_t(seq_id), line)) REXLOG_INFO("{}", line);
+  }
+  {   // S103 CW1: the CAW classifier (scene_kind.h): sequence id 76 (the editor) publishes Kind::Caw through the hysteresis; one line per entry
+    static scene_kind::Classifier classifier;
+    const uint64_t enters = classifier.enters, leaves = classifier.leaves;
+    classifier.Step(frame, seq_id);
+    if (classifier.enters != enters) REXLOG_INFO("{}", scene_kind::CawEnterLine(frame, seq_id, scene_kind::KindDrop(scene_kind::Kind::Caw), classifier.enters));
+    if (classifier.leaves != leaves) REXLOG_INFO("{}", scene_kind::CawLeaveLine(frame, seq_id, classifier.leaves));
+  }
+#endif
+  g_entrances.store(LoadU32(base, 0x836F3940u) == 4 && seq_id == 9, std::memory_order_relaxed);   // S103 PHS: 4 is the generic "not the match" word (seq 10 / 29 / 76 / 77 write it too); an entrance = 4 inside the in-game sequence 9
+  scene_kind::g_phase_entrance.store(g_entrances.load(std::memory_order_relaxed), std::memory_order_relaxed);   // S103 NR: [scene][kind] counts entrance frames as entrance
   const int32_t hz = ActiveHz();
   const int32_t applied = g_applied_hz.load(std::memory_order_relaxed);
   if (hz == applied) return;

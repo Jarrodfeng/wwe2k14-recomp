@@ -1,0 +1,16 @@
+{
+ "owner": "S103 lane SMX (probe HOL2: SM, LP, IP, CW): the plan / prefetch refuse a stage id (kStageIdBase + PACH) that arrives without the stage flag (src/renderer_scene/weapon_plan.h; no failed m2.pac load per structure run), the census stops requiring plane_constants where the game built no plane module (src/renderer_game/scene_frame.h CensusMissing), the stage light-map page row (site 0x82BC5688, 512x512 offscreen) is counted page_rows (scene_record.h IsStagePageRow, host_core.h kDropPage, scene_host.cpp), the CAW save route takes a shot in the saving window. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0], "basis": "census and one avoided failed worker load; no saving claimed."},
+ "note": "Units with planted twins: weapon_draw_unit (plan.stage_id_without_flag_refused, twin stage_id_plain) and inputs_check (census.plane_bit_dropped_only_for_no_module twin census_plane_bit, census.stage_page_row_class twin page_row_pass). The host rig build compiles scene_host.cpp.",
+ "checks": [
+  {"name": "s103_SMX.weapon_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_weapon_draw_unit.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_scene/weapon_plan.h", "tools/scene/weapon_draw_unit.cpp"]},
+  {"name": "s103_SMX.weapon_unit", "cmd": ["py", "-I", "tools/scene/weapon_draw_unit.py", "--root", "."], "timeout_s": 1800,
+   "needs": ["out/captures/a04_match", "game_data/extracted"],
+   "affects": ["src/renderer_scene/weapon_plan.h", "tools/scene/weapon_draw_unit.cpp", "tools/scene/weapon_draw_unit.py"]},
+  {"name": "s103_SMX.inputs_unit", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 1800,
+   "affects": ["src/renderer_game/scene_frame.h", "src/renderer_scene/scene_record.h", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_SMX.host_rig_build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_host_rig.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_host/scene_host.cpp", "src/renderer_host/host_core.h", "src/renderer_scene/scene_record.h"]}
+ ]
+}

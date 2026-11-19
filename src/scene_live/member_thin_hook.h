@@ -30,7 +30,11 @@
 #include "../renderer_adapter/rdr_switches.h"   // S102 T13: the per-frame switch table (no game includes)
 #include "member_thin_core.h"
 
+#include "../keep_stream.h"
+#include "../renderer_game/removed_switches.h"   // S103 P9: with the stream left out the switch is a constant false defined there
+#if WWE2K14_STREAM()
 REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_ours);   // S102 T13 review F6 (renderer_adapter/reader.h)
+#endif
 REXCVAR_DECLARE(bool, wwe2k14_scene_records);
 REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);   // the legacy queue path (scene_crowd.h): same sites, exclusive
 
@@ -61,7 +65,7 @@ inline thread_local ClassNote t_class[kSites];   // the (LOD, type) of the membe
 inline int RawMode() { return REXCVAR_GET(wwe2k14_rdr_crowd_member_thin); }
 inline bool CutRequested() { return REXCVAR_GET(wwe2k14_rdr_member_cut); }
 // S102 T13: called ONCE per crowd draw run (OnCrowdDraw). The old census cvar at 2 keeps meaning the cut (lane 295's tools and tests drive it); the new switch is the per-frame one.
-inline Mode EffectiveMode(bool cut) { return DecideRunMode(RawMode(), cut, REXCVAR_GET(wwe2k14_scene_crowd), REXCVAR_GET(wwe2k14_rdr_crowd_ours) && REXCVAR_GET(wwe2k14_scene_records)); }
+inline Mode EffectiveMode(bool cut) { return DecideRunMode(RawMode(), cut, REXCVAR_GET(wwe2k14_scene_crowd), REXCVAR_GET(wwe2k14_rdr_crowd_ours) /* OFF: false (member cut / census is a D3 skip of the stream's draws: inert) */ && REXCVAR_GET(wwe2k14_scene_records)); }
 inline bool Observing() { return t_dec.mode != Mode::Off; }   // S102 T13: the run in progress on THIS thread is observed (census or cut)
 
 // Lane 295: a refusal (the member is recorded although the cut is on) is logged ONCE per reason, with the reason (the 600-frame line counts them all).
@@ -82,7 +86,8 @@ inline void LogInertOnce() {   // S102 T13 review F6
 
 inline void MaybeLogMembers(Mode mode) {
   const uint64_t n = g_counters.runs.load(std::memory_order_relaxed);
-  if (n == 0 || n % 600 != 1 || g_logged_runs.exchange(n) == n) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now (census_flush.h)
+  if (n == 0 || (!census_flush::Due(cf_site) && (n % 600 != 1 || g_logged_runs.exchange(n) == n))) return;
   const Counters& c = g_counters;
   const ct::GateCounters& g = g_gate.c;
   const auto L = [](const std::atomic<uint64_t>& a) { return (unsigned long long)a.load(std::memory_order_relaxed); };
@@ -115,7 +120,8 @@ inline void FlushMTally() {
 }
 inline void MaybeLogMSkip() {
   const uint64_t n = g_mskip.runs.load(std::memory_order_relaxed);
-  if (n == 0 || n % 600 != 1 || g_mskip_logged.exchange(n) == n) return;
+  static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now (census_flush.h)
+  if (n == 0 || (!census_flush::Due(cf_site) && (n % 600 != 1 || g_mskip_logged.exchange(n) == n))) return;
   const auto L = [](const std::atomic<uint64_t>& a) { return (unsigned long long)a.load(std::memory_order_relaxed); };
   REXLOG_INFO("[rdr][record_skip] members: frames {}, stands: taken {}, declined {}, forced pairings {}, loop-exit op-21 records {}; floor: taken {}, declined {}, forced pairings {}, loop-exit op-21 records {}", (unsigned long long)n,
               L(g_mskip.taken[kStands]), L(g_mskip.declined[kStands]), L(g_mskip.forced[kStands]), L(g_mskip.tail[kStands]), L(g_mskip.taken[kFloor]), L(g_mskip.declined[kFloor]), L(g_mskip.forced[kFloor]), L(g_mskip.tail[kFloor]));

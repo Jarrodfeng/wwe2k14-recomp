@@ -156,6 +156,7 @@
 #pragma once
 
 #include "thread_name.h"  // S102 H1
+#include "shown_frame.h"  // S103 lane SHOT: CaptureShownFrame
 #include "pending_work.h"  // Session 100: the new renderer's named pictures in flight
 #include "music_picker_ui.h"  // lane 292: PickerIsOpen (the keystroke gate below), light: no ImGui / SDK types
 #include "music_preview_seen.h"  // lane 303: press_until_preview (two atomics, no includes)
@@ -221,6 +222,7 @@
 #include "situation_director_core.h"  // S101 lane 161: passive / momentum / stock / passive_cpu script lines (pure; the game side is src/situation_director.h)
 #include "diag.h"          // Session 95: diag_stage / diag_scene / diag_ab / diag_restore (the diagnostic run)
 #include "case/case_script_hook.h"  // S101: a route's quit takes the black box (filled by bookmark.h)
+#include "renderer/overlay.h"  // S103 GT round 3: rdr::GpuWindowMark (the route windows of the per-role GPU block)
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in public headers).
@@ -346,26 +348,29 @@ inline void SaveScreenshot(const std::string& label) {
   // Session 82: the capture on this (guest) thread in replay mode, see wwe2k14_replay_exact_shots.
   auto early = std::make_shared<rex::ui::RawImage>();
   bool early_ok = false, early_taken = false;
-  if (REXCVAR_GET(wwe2k14_replay_exact_shots) && rex::det::Enabled()) {
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
+  // S103 SHOT (review F2): the exact capture on the guest thread is the SDK presenter's guest frame; in owner mode (our renderer shows the picture, on its own thread, frames behind the guest) the picture is
+  // "the one last presented", not the guest frame of this line: the early path is for non-owner runs only, and the log says so.
+  if (REXCVAR_GET(wwe2k14_replay_exact_shots) && rex::det::Enabled() && REXCVAR_GET(wwe2k14_rdr_owner)) {
+    static std::atomic<bool> told{false};
+    if (!told.exchange(true)) REXLOG_WARN("[wwe2k14][input] wwe2k14_replay_exact_shots is not exact in owner mode: a screenshot is the picture our renderer last presented, not this guest frame's");
+  }
+  if (REXCVAR_GET(wwe2k14_replay_exact_shots) && rex::det::Enabled() && !REXCVAR_GET(wwe2k14_rdr_owner)) {
     early_taken = true;
-    early_ok = presenter && presenter->CaptureGuestOutput(*early);
+    early_ok = wwe2k14::CaptureShownFrame(*early);   // lane SHOT: owner mode takes our renderer's last presented picture
   }
   std::thread([label, early, early_ok, early_taken] { wwe2k14::NameThread(L"input_shot");
     struct InFlight {
       ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
     } in_flight;
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
     rex::ui::RawImage image;
+    uint64_t shown_frame = wwe2k14::kShownFrameUnknown;   // S103 FLAT: the guest frame of the picture the owner answered (owner mode), for the log line
     if (early_taken) {
       if (early_ok) image = std::move(*early);
-    } else if (presenter) {
-      presenter->CaptureGuestOutput(image);
+    } else {
+      wwe2k14::CaptureShownFrame(image);
+      shown_frame = wwe2k14::t_shown_guest_frame;
     }
+    const std::string shown_note = shown_frame == wwe2k14::kShownFrameUnknown ? std::string() : " guest frame " + std::to_string((unsigned long long)shown_frame);
     if (!image.width || !image.height) {
       REXLOG_WARN("[wwe2k14][input] screenshot '{}': no guest output to capture", label);
       return;
@@ -382,7 +387,7 @@ inline void SaveScreenshot(const std::string& label) {
       auto part = path;
       part += ".part";
       if (SavePngWic(part, image) && (std::filesystem::rename(part, path, ec), !ec)) {
-        REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{})", path.string(), image.width, image.height);
+        REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
       } else {
         REXLOG_WARN("[wwe2k14][input] screenshot '{}': PNG write failed ({})", label, ec ? ec.message() : "WIC");
       }
@@ -406,7 +411,7 @@ inline void SaveScreenshot(const std::string& label) {
       }
       out.write(line.data(), row);
     }
-    REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{})", path.string(), image.width, image.height);
+    REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
   }).detach();
 }
 
@@ -418,11 +423,8 @@ inline void SaveSnapshot(const std::string& label, uint32_t max_width) {
     struct InFlight {
       ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
     } in_flight;
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
     rex::ui::RawImage image;
-    if (!presenter || !presenter->CaptureGuestOutput(image) || !image.width || !image.height) return;
+    if (!wwe2k14::CaptureShownFrame(image) || !image.width || !image.height) return;
     const uint32_t f = (image.width + max_width - 1) / max_width;  // whole-number box size
     rex::ui::RawImage thumb;
     thumb.width = image.width / f, thumb.height = image.height / f, thumb.stride = thumb.width * 4;
@@ -2031,6 +2033,10 @@ class InputScript {
         case Op::kLog:
           REXLOG_INFO("[wwe2k14][input] line {}: {} (frame {})", L(step), step.text, frame_);
           last_log_ = step.text;  // Session 27: for --wwe2k14_input_result
+          if (step.text.rfind("scene=", 0) == 0) {   // S103 GT round 3: a route window mark: the renderer's per-role GPU block is cut here (renderer/overlay.h GpuWindowMark)
+            const size_t e = step.text.find_first_of(" \t", 6);
+            rdr::GpuWindowMark(step.text.substr(6, e == std::string::npos ? std::string::npos : e - 6).c_str());
+          }
           break;
         case Op::kScan: {  // Session 29 (src/mem_scan.h): runs here, on the game thread (the frame waits for it)
           std::string error;

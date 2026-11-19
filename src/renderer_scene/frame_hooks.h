@@ -1,0 +1,110 @@
+// The frame's stage hooks and see-through order, attached the SAME way by the live drawer and the offline rig (Session 103, lane R2; FRAME_CONTRACT.md 5 and 8).
+// BuildFrame makes the objects; this attaches what the front-end's generic material path cannot draw and the order it draws the see-through list in:
+//   - SeeOrder::Game (the game's see-through order, see_through_order.h);
+//   - lane E's LiveMapsHook (Stage::Maps) with its MapsInput built from THIS record each frame, SceneFrame::maps = &hook.maps();
+//   - lane F's LiveParticles (Stage::AfterBlended) with the record's particle tables (SceneFrame::particles). It skips a viewer-space frame today (live_particles.cpp):
+//     attached and counting until lane F's fix lands, then it draws with no change here.
+// The maps' casters need the CPU model of each wrestler: the live ModelCache keeps one for pac\ch\ models (rf::ModelCache::KeepWrestlerCpu, turned on here), and
+// the hook's ModelProvider reads it by front-end model id. The owner (the drawer / the rig) makes ONE FrameHooks beside its FrontEnd and ModelCache and calls
+// AttachFrameHooks after every drawing BuildFrame (never after a kBuildWarm one: no objects, nothing to draw). Render thread only. Header + frame_hooks.cpp.
+#pragma once
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <unordered_map>
+
+#include <functional>   // S103 L9
+#include <vector>
+#include "front_end.h"
+#include "live_maps.h"
+#include "live_particles.h"
+#include "record_frame.h"
+#include "see_through_order.h"
+
+namespace rdr_scene {
+
+struct FrameHooksOptions {
+  bool maps = true;
+  bool particles = true;
+  bool particles_skip_unnamed = true;   // CAWH: a batch whose texture the namer could not name draws NOTHING (counted particles_unnamed_skipped); the game always has its texture, a white quad is never right. The offline rig sets false (its fixture flare is white by design).
+  SeeOrder order = SeeOrder::Game;
+  MapsFitOptions maps_fit;     // S103 E3: force the fitted shadow camera / the key light TOLD by the rig (offline only; the live drawer leaves it default)
+  MapsFaults maps_faults;      // S103 E3: the maps' planted faults (rig only)
+  std::function<void(MapsInput&)> maps_input_patch;   // S103 L9: the offline rig tells the plane inputs the record does not carry (a fixture, never a live path); applied after BuildMapsInput
+  bool maps_input_repeatable = false;   // S103 E3: the offline rig only (FrontEnd::RenderToPixels draws a seed frame first: two Records per attach); the live drawer leaves it false
+};
+
+// S103 SCS: the game's in-scene 2D rows (Quad2D::pass == kQpSceneColour: the screen flashes, T_Rect site 0x82BC3EE8 drawn by sub_827C8130, and the lens flares, T_Sprite site 0x82BC5688 drawn by
+// sub_827D5E98; docs\research\s103\RFF.md part B) drawn in OUR scene colour at Stage::AfterBlended, after the maps and BEFORE the particles (the game's category 36 runs before the particle node's 47).
+// The hook only filters the record's rows and hands them to the owner's draw function (the host's q2d::Append lambda: no link dependency here); no SetTargets, the scene pass is open.
+// The function must draw at `ctx.width x ctx.height` (the scene target) with the scene's depth attached (quads2d_draw.h Context::scene_depth).
+// The two row sites the scene hook takes (RFF B2 [C]): 0x82BC3EE8 = the T_Rect screen flash, 0x82BC5688 = the T_Sprite lens flare element. Any other scene-colour site is NOT drawn here (it keeps the host's
+// DropPass and is counted by site in the tap's census, quads2d_tap.h), so a third thing in the scene pass shows up instead of being drawn on a guess.
+constexpr bool Scene2DSite(uint32_t site) { return site == 0x82BC3EE8u || site == 0x82BC5688u; }
+
+class LiveScene2D final : public StageHook {
+ public:
+  // (builder, stage ctx, the rows in seq order, count, the record's guest frame)
+  using DrawFn = std::function<void(rdr::FrameBuilder&, const StageCtx&, const Quad2D*, size_t, uint64_t)>;
+  explicit LiveScene2D(DrawFn draw) : draw_(std::move(draw)) {}
+  const char* Name() const override { return "scene2d"; }
+  void SetRows(const SceneTables& rec) {
+    rows_.clear();
+    guest_frame_ = uint64_t(rec.header.guest_frame);
+    if (rec.quad2d_holes == kQuad2DNotTaken) return;
+    for (const Quad2D& q : rec.quads2d)
+      if (q.pass == kQpSceneColour && Scene2DSite(q.site)) rows_.push_back(q);
+  }
+  size_t rows() const { return rows_.size(); }
+  void Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& builder) override {
+    if (stage != Stage::AfterBlended || rows_.empty() || !draw_) return;
+    draw_(builder, ctx, rows_.data(), rows_.size(), guest_frame_);
+  }
+
+ private:
+  DrawFn draw_;
+  std::vector<Quad2D> rows_;   // reused every frame
+  uint64_t guest_frame_ = 0;
+};
+
+class FrameHooks {
+ public:
+  FrameHooks(rdr::Renderer& renderer, rf::ModelCache& cache, const FrameHooksOptions& options = FrameHooksOptions());
+  const FrameHooksOptions& options() const { return options_; }
+  LiveMapsHook* maps() { return maps_.get(); }
+  LiveParticles* particles() { return particles_.get(); }
+  // S103 SCS: turns the in-scene 2D hook on (the stream-free host only; the stream build never calls it: the stream draws these rows itself). Null = off.
+  void SetScene2D(LiveScene2D::DrawFn draw) { scene2d_ = draw ? std::make_unique<LiveScene2D>(std::move(draw)) : nullptr; }
+  bool Scene2DOn() const { return scene2d_ != nullptr; }
+  ~FrameHooks();
+  const MapsInput& input() const { return input_; }
+  uint64_t frames() const { return frames_; }
+  // S103 NR (3): the maps' input hole (MapsInput::shadow_hole: a shadow map is expected, would be fitted and its key light is missing) for `rec`, WITHOUT attaching anything: the same
+  // BuildMapsInput (+ patch) AttachFrameHooks runs, into a scratch input. Warm asks it so a frame READY there is not refused by DrawLive for it. False when the maps hook is off. `why` = the key-light reason.
+  bool ShadowInputHole(const SceneTables& rec, std::string& why);
+  // "[scene][hooks] order game, frames N; <maps census>; <particles census>" (counters only; strings built here).
+  std::string CensusLine() const;
+
+ private:
+  friend void AttachFrameHooks(SceneFrame&, const SceneTables&, FrameHooks&);
+  FrameHooksOptions options_;
+  MapsInput input_;
+  MapsInput scratch_;   // S103 NR: ShadowInputHole's
+  std::unique_ptr<LiveMapsHook> maps_;
+  std::unique_ptr<LiveParticles> particles_;
+  std::unique_ptr<LiveScene2D> scene2d_;   // S103 SCS
+  uint64_t frames_ = 0;
+  // S103 F5: the record's particle Texture assets (pac\prtcls.pac, entry "pBBBB/EEE/1/Name") -> image, loaded through the cache's asset source on first sight, kept (a failure is kept too: no
+  // reload every frame). Render thread only.
+  rdr::Renderer& renderer_;
+  rf::AssetSource& source_;
+  std::unordered_map<std::string, rdr::ImageId> particle_images_;
+  uint64_t particle_loaded_ = 0, particle_failed_ = 0;
+  rdr::ImageId ParticleImage(const std::string& pac, const std::string& entry);   // render thread; never loads (see the .cpp)
+};
+
+// After rf::BuildFrame (a drawing build) of `rec` into `frame`: sets frame.see_order, pushes the hooks onto frame.stage_hooks, sets frame.maps and frame.particles.
+// `rec` must outlive the Record / RenderToPixels of `frame` (the particle tables are read from it).
+void AttachFrameHooks(SceneFrame& frame, const SceneTables& rec, FrameHooks& owned);
+
+}  // namespace rdr_scene

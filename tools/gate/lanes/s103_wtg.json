@@ -1,0 +1,20 @@
+{
+ "owner": "S103 WTG: NEEDS-MAIN gate rows (needs_main.py, gate.py --assume-main, exit 4), gate_main.py (no junctions), needs_main_owed.py, junction_lint.py, the undeclared-need lint (needs_lint.py). 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "checks": [
+  {"name": "s103_wtg.wtg_selftest", "cmd": ["py", "-I", "tools/gate/wtg_selftest.py"], "timeout_s": 300, "needs": ["generated/default"],
+   "affects": ["tools/gate/gate.py", "tools/gate/needs_main.py", "tools/gate/gate_main.py", "tools/gate/needs_main_owed.py", "tools/gate/wtg_selftest.py"]},
+  {"name": "s103_wtg.needs_lint", "cmd": ["py", "-I", "tools/gate/needs_lint.py"], "timeout_s": 600,
+   "affects": ["tools/gate/needs_lint.py", "tools/gate/needs_main.py", "tools/gate/lanes/*.json"]},
+  {"name": "s103_wtg.needs_lint_selftest", "cmd": ["py", "-I", "tools/gate/needs_lint.py", "--selftest"], "timeout_s": 300,
+   "affects": ["tools/gate/needs_lint.py", "tools/gate/needs_main.py"]},
+  {"name": "s103_wtg.junction_lint", "cmd": ["py", "-I", "tools/gate/junction_lint.py"], "timeout_s": 300,
+   "affects": ["tools/gate/junction_lint.py", "tools/**/*.py", "tools/**/*.ps1"]},
+  {"name": "s103_wtg.junction_lint_selftest", "cmd": ["py", "-I", "tools/gate/junction_lint.py", "--selftest"], "timeout_s": 120,
+   "affects": ["tools/gate/junction_lint.py"]},
+  {"name": "s103_wtg.gate_selftest", "cmd": ["py", "-I", "tools/gate/selftest.py"], "timeout_s": 600,
+   "affects": ["tools/gate/gate.py", "tools/gate/exes.py", "tools/gate/selftest.py"]},
+  {"name": "s103_wtg.gate_wait_selftest", "cmd": ["py", "-I", "tools/gate/gate_wait.py", "--selftest"], "timeout_s": 300,
+   "affects": ["tools/gate/gate_wait.py"]}
+ ]
+}

@@ -1,0 +1,5 @@
+# partial census fixture (counters only), cut from wwe2k14_009.log by --cut weapons
+[input] scene=lv1_weapons (frame 5008)
+[scene][weapons] slots 13 (ids 33 34 4 72 102 11 5 9 16 3 6 7 32)
+[rdr][weapons] drawn 0 (ids none), unknown id 0, no model 0
+[scene][weapon_rows] calls 72607 objects 56467, named but never drawn 48495 (named 104962, last frame named 13 never 6, model calls 535471, weapon calls 72607, rows 0

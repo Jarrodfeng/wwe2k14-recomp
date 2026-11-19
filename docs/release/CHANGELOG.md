@@ -1,5 +1,106 @@
 # Changelog
 
+## v0.4.0
+
+**v0.4.0: the whole game is now drawn by my own renderer, and it runs about twice as fast on a weak laptop.**
+
+This is the biggest change the project has had since the game first started on a PC. Until now, every picture still went through the
+Xbox 360's way of drawing: the game wrote out its list of graphics commands for the 360's graphics chip, and my renderer read that list back
+and replayed it, or redrew what it already understood and took the rest from the list. That middle step cost a lot of time on every frame,
+most of all on weak machines, and it tied every fix to how the 360 did things.
+
+In v0.4.0 that middle step is gone. The game no longer writes out its graphics commands at all. My renderer builds every frame straight
+from the game's own data: every wrestler and attire, the arenas, the ring and ropes, the crowd, the entrance videos and titantrons, the
+lights and shadows, particles and pyro, sweat and blood, the cages and Hell in a Cell, the menus, the HUD and the post effects. Each part
+was worked out from the game's own code, not guessed from screenshots, and checked against the game's own picture. Nothing is replayed from
+the 360 any more, so there is no fallback hiding a gap: before turning it on I went through every kind of thing the game draws and fixed
+every gap I found.
+
+To give a sense of the size: since v0.3.3 (four and a half days ago) this took more than 2,300 commits and about 180 written investigations
+of the game's code, the last part of a renderer project that started on 2026-11-11. It is also the foundation for what this project is
+really for: a camera, replays, lighting and cutscene tools that work on the game's own scene, not on a stream of 360 graphics commands.
+
+Because this update rebuilds how the whole game is drawn, there will very likely be some issues I have not found yet. If something looks
+wrong, please send it with Report a problem.
+
+### Faster
+
+- **About twice as fast on a weak laptop.** On my Surface Pro 6 (Intel UHD 620 graphics, the weak machine I test on), Daniel Bryan's
+  entrance at AUTO (LOW, 720p), v0.4.0 against the shipped v0.3.3 on the same machine, run turn about:
+  - with v-sync on (60 Hz): v0.4.0 holds **60 pictures a second** (1 % low 47), where v0.3.3 managed **48** (1 % low 33);
+  - with v-sync off: v0.4.0 draws **about 96 to 106 pictures a second**, v0.3.3 **about 49 to 57**;
+  - and it does that on about 3 W less power (about 15 W against 18 W), so the laptop runs cooler.
+  - A match holds 60 there too. These were short runs while the laptop was still at full clock speed; a long run after it has
+    heated up and slowed down is not measured yet.
+- **Half the CPU work.** Writing out the 360's command list and reading it back cost the most CPU time of anything in a frame. On the
+  Surface the work per frame went from about 109 ms of CPU time spread over 5.6 cores to 51 ms over 3.1 cores, and the game's own
+  threads from 48 ms to 25 ms. The game's logic itself can now run about 1.85 times as fast there.
+- **On a fast PC the limit is gone.** On my PC (Ryzen 9 5950X, RTX 4090) with v-sync off, Bryan's entrance runs at about 245 to 262
+  pictures a second at 720p, and about 239 to 256 at 4K: the graphics card barely notices 9 times the pixels.
+- **Phones get the same new renderer.** On my phone (OPPO Find X8 Ultra) the frame time graph is flatter than I have ever seen it.
+
+### Everything still drawn
+
+While building it, every gap between my renderer and the game's own picture was found by reading the game's code, fixed, reviewed and
+checked. None of these were problems in v0.3.3 (the 360 command list covered them there); they are listed so you know what was covered:
+
+- **Wrestlers:** spring-hair attires (119 of the 241 attires), alternate attires, combined attires (30 Years legends, Superstar Threads,
+  created superstars), Bobby Heenan's colours (his WrestleMania 2 black tux and red bow), faces and wrinkles, eyelids, sweat and blood,
+  pieces the game takes off a body (The Rock's People's Elbow pad), Royal Rumble entrants and swapped slots, DLC and mod superstars, and
+  wrestlers in the post-match replay.
+- **Entrances:** title belts, microphones, caps and other entrance props, every pyro, smoke and light sprite (before, most of Cena's
+  entrance effects were missing in test builds), the floor light pools and the follow spot, the stage screens with their videos, and the
+  finisher / signature / comeback ghost effect.
+- **Matches and arenas:** steel cage, Hell in a Cell, Elimination Chamber, the Inferno ring fire, ladders (and the ladder match's light
+  shaft), tables, chairs, steps and the announce desk, created arenas from Create an Arena, the barricade padding, the crowd's lighting,
+  arena reflections, searchlight beams, blood on the mat, and the game's own black scene clear.
+- **Arena textures the game itself lacks:** a few arenas name a texture their own file does not hold (the Xbox 360 simply drew whatever
+  texture was last used). My renderer now takes the identical texture from another arena's file instead (first case: a light beam in the
+  WrestleMania 29 and 30 arenas).
+- **Pictures the game saves:** the Create a Superstar roster portrait, the Create an Arena screenshot, the replay-clip and highlight reel
+  thumbnails, and the highlight reel's film effects (defocus, emboss, old-film grain).
+- **Menus and the HUD:** all drawn by my renderer now, and a picture shown for the first time no longer flashes black while it loads.
+
+### 30 Years of WrestleMania
+
+- **PLAY THIS MATCH goes straight to the match.** What players saw: the launcher's 30 Years page started the game and then walked through
+  the 30 Years menus to reach the match. Now it goes from the title screen through the main menu in about a second and straight into the
+  mode's own match card, intro and entrances, with no 30 Years menus in between. It works on phones too (there, the jump used to stop at the
+  30 Years menu). I played a whole match this way on my phone, to the end, with every cutscene and event.
+- **Matches started from the launcher in later eras had no captions.** Cause: a jump past the first era kept the first era's caption list,
+  so that era's on-screen captions were not drawn. Fix: the jump now fills in the game's own selection exactly as the menus would.
+- **One VINTAGE LOOK setting.** VINTAGE LOOK (RETRO ARENAS), in the launcher (was FILM GRAIN (30 YEARS)), turned off only the sepia colour.
+  Now it switches the whole old-footage look of the retro WrestleMania arenas together: sepia, darkening, film grain and dark edges. Off shows
+  the arena clean. It applies when the game starts.
+
+### Fixed on phones while testing this version
+
+These four showed up on my phone with the test builds of v0.4.0 and are fixed:
+
+- **Flicker and stretched top / left edges in the retro arenas.** Cause: the old-film grain picture is meant to repeat across the screen,
+  and my renderer stretched it instead. Fix: 2D pictures now repeat or stretch exactly as the game asks.
+- **The 30 Years season video was black.** Cause: that video is drawn by a kind of 2D picture my renderer did not handle yet. Fix: it is
+  drawn.
+- **The titantron was black in seven arenas** (WrestleMania III, VI, VIII, X-Seven, 23, XXVI and XXVII). Cause: those arenas give their
+  screens a shine, and my renderer skipped the screen in that case. Fix: a screen never takes a shine, as in the game.
+- **Wrestlers vanished for a few frames in entrances** (Stone Cold in my report). Cause: when the game's update and my copy of a wrestler's
+  pose disagreed for a moment, my renderer dropped the wrestler. Fix: it keeps the last good pose for those few frames.
+
+### Other changes
+
+- **Shift, Ctrl and Alt can be bound on their own** in Settings -> Advanced -> KEYBOARD CONTROLS (MAP KEYS). Before, they only worked as
+  part of a combination such as SHIFT + UP. AltGr, losing focus while binding, and a warning when two binds overlap are handled. PC only.
+- **Stuck loading screens now leave a note.** If a load gets stuck (some players reported an endless loading screen entering the Moveset
+  editor's Signatures / Finishers, which I could not make happen here), the game writes which file it was waiting on into its log, and
+  Report a problem includes it.
+
+### Not in this version yet
+
+- **DLSS, DLAA and FSR are not available** with the new renderer yet. If one is chosen, the game shows the plain picture and says so in its
+  log.
+- **Screens wider or taller than 16:9** (ultrawide monitors, and phones with a wide screen) show the 16:9 picture with bars at the sides,
+  not filled: the new renderer does not widen its camera yet. The ultrawide fill from v0.3.2 comes back when it does.
+
 ## v0.3.3
 
 **v0.3.3: a lot faster on weak machines and phones, and the black title screen on some phones is fixed.**

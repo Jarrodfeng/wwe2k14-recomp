@@ -35,6 +35,7 @@ bool g_ready = false;
 }  // namespace
 
 bool Init(const std::string& game_path) {
+  std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());   // S103 B2F review: Init writes g_files / g_ready while other workers Load (RingOurs, the maps hooks' rope workers)
   g_files.SetRoot(std::filesystem::u8path(game_path));
   g_ready = g_files.Exists("pac\\ch") || g_files.Exists("default.xex");
   return g_ready;
@@ -50,7 +51,8 @@ bool Load(int arena, RingArena& out, std::string& err) {
   const pac::Pach& h = p->pachs[0];
   const Bytes& buf = p->bytes;
   TexSet tex;
-  for (uint32_t k : {400u, 401u, 402u})
+  // S103 CAR fix 3: a created arena's ring is CARG's: its own directories (404 = CARG 400, 402); the other parts' names collide with it (car_arena.h)
+  for (uint32_t k : car::IsCustomId(arena) ? std::initializer_list<uint32_t>{404u, 402u} : std::initializer_list<uint32_t>{400u, 401u, 402u})
     if (const pac::Ent* e = pac::Find(h, k)) tex.AddDir(pac::Decode(buf.data() + e->off, e->size));
   Model model;   // only the materials / textures of the ring meshes are used from here; the geometry comes from the raw records
   std::map<int, int> remap;

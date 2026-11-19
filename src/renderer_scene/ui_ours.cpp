@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "quads2d_rig.h"   // S103 I2: the sprite key table of --quads-2d-rows
 #include "arena_ours_core.h"   // ArenaCore::ArenaOfRecord (lane 126: the record's arena, the one rule the arena hook uses)
 #include "../renderer/render_lean.h"   // S102 RT1
 
@@ -58,10 +59,15 @@ bool UiOurs::IndexOne(uint8_t pac, uint64_t* entry_count) {
   if (options_.faults.tier_boundary) o.names_only_from = kUiBgEtc;   // plant: the tier boundary one too low
   std::vector<UiFileEntry> entries;
   std::string err;
-  if (!BuildPacIndex(o, pac, entries, err)) {
+  UiRosterStats roster;
+  if (!BuildPacIndex(o, pac, entries, err, nullptr, &roster)) {
     std::lock_guard<std::mutex> lock(mu_);
     index_error_ += (index_error_.empty() ? "" : "; ") + err;   // (loud in the report: the pac's pictures stay unjoined)
     return false;
+  }
+  if (roster.mismatches) {   // PN5 review B3: loud, a roster directory's count and its rows disagree
+    std::lock_guard<std::mutex> lock(mu_);
+    index_error_ += (index_error_.empty() ? "" : "; ") + UiPacPath(pac) + " roster directory mismatch (" + roster.note + ")";
   }
   if (entry_count) *entry_count += entries.size();
   index_.AddPac(pac, std::move(entries));
@@ -296,7 +302,7 @@ const UiTexture* UiOurs::Texture(uint32_t entry_id, const UiFileEntry& e, uint32
 }
 
 bool UiOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& out, rdr_adapter::KeepWhy& why) {
-  if (quads_ && in.origin->call_site == kUiQuadRectSite) return quads_->Build(in, out, why);   // lane 148: a rectangle has no picture to join: the quad only
+  if (quads_ && (in.origin->call_site == kUiQuadRectSite || (rdr_scene::q2d::rig::g_on && in.origin->call_site == kUiQuadRectStripSite))) return quads_->Build(in, out, why);   // lane 148: a rectangle has no picture to join: the quad only
   uint32_t stream_image = 0;
   const uint8_t* swizzle = nullptr;
   uint32_t view_format = 0;
@@ -315,10 +321,25 @@ bool UiOurs::Replace(const rdr_adapter::ReplaceIn& in, rdr_adapter::ReplaceOut& 
     core_.RetractUnjoined();
     v = core_.Decide(in.origin->part, stream_image, swizzle, view_format, min_level, max_level, *this);
   }
-  if (quads_ && in.origin->call_site == kUiQuadSpriteSite) {   // lane 148: the sprite as an own draw (our quad and program); the picture is ours where joined, else the stream's
+  if (quads_ && (in.origin->call_site == kUiQuadSpriteSite || (rdr_scene::q2d::rig::g_on && (in.origin->call_site == kUiQuadGlyphSite || in.origin->call_site == kUiQuadSpriteMSite)))) {   // lane 148: the sprite as an own draw (our quad and program); the picture is ours where joined, else the stream's (S103 I3: the text glyph too, row rig only)
     rdr_adapter::KeepWhy quad_why = rdr_adapter::KeepWhy::NotOurs;
     if (quads_->Build(in, out, quad_why)) {   // (a refusal leaves `out` untouched: the previous behaviour follows)
-      if (v.ours) out.slots[0].set = true, out.slots[0].image = rdr::ImageId(v.texture->handle);
+      if (v.ours) {
+        rdr::ImageId image = rdr::ImageId(v.texture->handle);
+        if (rdr_scene::q2d::rig::g_on) {   // S103 I2 (REMNANT_MAP section 10): the sprite row selects its picture by KEY: the key table (what the join said for each key) answers, not the draw's own slot
+          namespace rig = rdr_scene::q2d::rig;
+          bool planted = false;
+          const bool glyph = rig::g_last_row_glyph;   // S103 I3
+          const uint32_t answer = glyph ? rig::PictureForGlyph(rig::g_last_sprite_key, uint32_t(image), planted) : rig::PictureFor(rig::g_last_sprite_key, uint32_t(image), planted);
+          image = rdr::ImageId(answer);
+          ++(glyph ? rig::g_stats.glyph_pic_file : rig::g_stats.pic_file);
+          if (planted) ++(glyph ? rig::g_stats.glyph_pic_wrong : rig::g_stats.pic_wrong);
+          else if (answer != uint32_t(v.texture->handle)) ++(glyph ? rig::g_stats.glyph_pic_state_bad : rig::g_stats.pic_state_bad);
+        }
+        out.slots[0].set = true, out.slots[0].image = image;
+      } else if (rdr_scene::q2d::rig::g_on) {
+        ++(rdr_scene::q2d::rig::g_last_row_glyph ? rdr_scene::q2d::rig::g_stats.glyph_pic_stream : rdr_scene::q2d::rig::g_stats.pic_stream);   // no join: the live drawer's source is the guest texture object (quads2d_pictures.h, unit-tested); here the draw keeps the stream's own picture
+      }
       return true;
     }
   }
@@ -333,6 +354,8 @@ std::string UiOurs::WindowDetail() const {   // lane 156
   std::lock_guard<std::mutex> lock(mu_);
   return quads_ ? quads_->Report() : std::string();
 }
+
+bool UiOurs::NeedsFragmentBlock() const { return rdr_scene::q2d::rig::g_on; }   // S103 I2
 
 std::string UiOurs::Report() const {
   std::lock_guard<std::mutex> lock(mu_);

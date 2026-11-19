@@ -26,7 +26,7 @@ TABLE = {
     'wwe2k14_rdr_caw_ours': (['src/renderer_scene/caw_ours.cpp', 'src/assets/wrestler_roster.cpp'], ['src/renderer_scene/caw_core.h'], True),  # lane 153 (N3): no scene record; reads pac/edit
     'wwe2k14_rdr_wrestlers_ours': (['src/renderer_scene/wrestler_ours.cpp', 'src/assets/wrestler_roster.cpp'], [], True),
     'wwe2k14_rdr_ring_ours': (['src/renderer_scene/ring_ours.cpp', 'src/renderer_scene/ring_ours_core.cpp', 'src/assets/ring_game_space.cpp'], [], True),
-    'wwe2k14_rdr_ui_ours': (['src/renderer_scene/ui_ours.cpp', 'src/renderer_scene/ui_ours_core.cpp'], [], True),
+    'wwe2k14_rdr_ui_ours': (['src/renderer_scene/ui_ours.cpp', 'src/renderer_scene/ui_ours_core.cpp', 'src/renderer_scene/ui_file_index.cpp'], [], True),
     'wwe2k14_rdr_ui_text_ours': (['src/renderer_scene/ui_text_ours.cpp', 'src/renderer_scene/ui_text_fonts.cpp'], [], True),
     'wwe2k14_rdr_flash_ours': (['src/renderer_scene/flash_ours.cpp', 'src/assets/flash_game_space.cpp'], [], True),
     'wwe2k14_rdr_crowd_props_ours': (['src/renderer_scene/crowd_props_ours.cpp', 'src/assets/crowd_prop_game_space.cpp'], [], True),  # lane 133

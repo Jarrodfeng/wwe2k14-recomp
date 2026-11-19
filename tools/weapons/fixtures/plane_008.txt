@@ -1,0 +1,2 @@
+# partial census fixture (counters only), cut from wwe2k14_008.log by --cut plane
+[scene][inputs] moved 18 of 18, plane_constants 0/f0 [plane_proxies rows 0, no_copy 2490, delta 0/+1/-1/other/never 0/0/0/0/7729, noted 0, dropped 0] [plane read 2490, no_module 5239, disabled 0, suppressed 0, no_camera 0, read_fail 0, holder_null 0, nonfinite_fade 0, nonfinite_camera 0, nonfinite_fit 0, offscreen_fit 0] [plane_eyes read 2490, no_module 5239, unreadable 0, none_loaded 0]

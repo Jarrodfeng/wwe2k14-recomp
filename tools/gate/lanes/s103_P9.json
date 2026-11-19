@@ -1,0 +1,148 @@
+{
+ "owner": "S103 lane P9 (landing 2 piece P9, docs/renderer/LANDING2_PLAN.md section 5, docs/renderer/COMPILE_OUT_LIST.md): the CMake option WWE2K14_KEEP_STREAM (cache BOOL, default ON in every configuration tonight; the plan's eventual rule ON unless WWE2K14_RELEASE is a commented line, NOT active), src/keep_stream.h, the OFF source lists (tools/scene/keep_stream_sources.txt, keep_stream_off_sources.txt), the stream call sites (half2_hooks.h, d3d_textures.h, d3d_layer_copy.h, owner_timing.h, tail_release_hook.h, draw_origin.h, caw_text.h, music_picker_ui.cpp, wwe2k14_app.h) behind #if WWE2K14_KEEP_STREAM, the kept owner globals / OFF cvars (renderer_game/owner_globals.h, removed_switches.h, owner_cvars_off.cpp), tools/scene/keep_stream_off_link.py (compile + link the exe with the stream left out, offline, never run) and tools/scene/keep_stream_lint.py.",
+ "claim": {
+  "scene": "none",
+  "side": "upkeep",
+  "ms": [
+   0,
+   0
+  ]
+ },
+ "note": "0 game runs, 0 Surface runs. keep_stream_lint: with WWE2K14_KEEP_STREAM=0 no unit of the exe includes any of the stream headers (clang -MM closure of every compiled unit); planted twin: a unit that includes reader.h is reported. off_syntax: every unit the OFF build compiles passes clang -fsyntax-only with -DWWE2K14_KEEP_STREAM=0. game_syntax: the ON configuration (main.cpp, live.cpp) still compiles unchanged. The full OFF compile + LINK (tools/scene/keep_stream_off_link.py --keep 0, ~4 min) is the lane's offline acceptance test and is run by hand, not in the gate. config_check (P9F, L5): cmake configure only (scratch tree of hard links, nothing built): OFF without the link-test flag fails; OFF has none of the 30 dropped objects and has owner_cvars_off.cpp; every compile line has the right define; ON's object list equals the main checkout's today. Known open (B4a / B4b): tools/scene/keep_stream_known_open.txt, named by the lint on every pass.",
+ "checks": [
+  {
+   "name": "s103_P9.keep_stream_lint",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/keep_stream_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/scene/keep_stream_*",
+    "tools/renderer/scene_skip_unit.py"
+   ]
+  },
+  {
+   "name": "s103_P9.keep_stream_lint_plant",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/keep_stream_lint.py",
+    "--root",
+    ".",
+    "--plant",
+    "reader_h"
+   ],
+   "timeout_s": 600,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/scene/keep_stream_*",
+    "tools/renderer/scene_skip_unit.py"
+   ]
+  },
+  {
+   "name": "s103_P9.off_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/keep_stream_off_link.py",
+    "--root",
+    ".",
+    "--keep",
+    "0",
+    "--syntax"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/gate/game_syntax.py",
+    "tools/scene/keep_stream_*",
+    "tools/renderer/scene_skip_unit.py"
+   ]
+  },
+  {
+   "name": "s103_P9.game_syntax",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/gate/game_syntax.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 1500,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include",
+    "out/build/win-amd64-release/build.ninja"
+   ],
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/scene/keep_stream_*",
+    "tools/renderer/scene_skip_unit.py"
+   ]
+  },
+  {
+   "name": "s103_P9.start_parity",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/start_parity_lint.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 120,
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/scene/start_parity_lint.py",
+    "tools/scene/start_paths.txt",
+    "tools/scene/keep_stream_*"
+   ]
+  },
+  {
+   "name": "s103_P9.config_check",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/scene/keep_stream_config_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "out/build/win-amd64-release/build.ninja",
+    "out/build/win-amd64-release/CMakeCache.txt"
+   ],
+   "affects": [
+    "src/**",
+    "CMakeLists.txt",
+    "tools/scene/keep_stream_*",
+    "tools/renderer/scene_skip_unit.py"
+   ]
+  }
+ ]
+}

@@ -50,9 +50,62 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXE_DIR = os.path.join(REPO, 'out', 'build', 'win-amd64-release')
 OUT = os.path.join(REPO, 'out', 'live')
-RUN_LIST = os.path.join(REPO, 'tools', 'bench', 'run_list.ps1')
+EXE_DIR_FILE = os.path.join(OUT, 'exe_dir.txt')   # GTB: written by start(): the folder of the exe the live game runs from
+RUN_LIST = os.path.join(REPO, 'tools', 'bench', 'run_list.ps1')   # (GTB's edit dropped these two; restored S103 13:1x)
 SCRIPTS = {'menu': os.path.join(REPO, 'tools', 'input_scripts', 'live', 'menu.txt'),
            'idle': os.path.join(REPO, 'tools', 'input_scripts', 'live', 'idle.txt')}
+
+
+def exe_dir():
+    """GTB: the folder of the game exe being driven (its logs/ folder holds the run logs and the event bus files).
+    WWE2K14_EXE_DIR (other callers) > the exe the last live.start was given (out/live/exe_dir.txt) > the stream build."""
+    env = os.environ.get('WWE2K14_EXE_DIR', '').strip()
+    if env:
+        return os.path.abspath(env)
+    try:
+        with open(EXE_DIR_FILE, encoding='utf-8') as f:
+            d = f.read().strip()
+        if d:
+            return d
+    except OSError:
+        pass
+    return EXE_DIR
+
+
+def logs_dir():
+    """GTB (B0): the run logs folder of the exe being driven. One place; run_log, newest_run_with_batches and
+    events.py all read it."""
+    return os.path.join(exe_dir(), 'logs')
+
+
+def exe_folder_of(exe):
+    """The build folder of a start(exe=...) value ('' = the stream build, 'coverage' = the trace build, else a path to a .exe)."""
+    if not exe:
+        return EXE_DIR
+    if exe == 'coverage':
+        return os.path.join(REPO, 'out', 'build', 'win-amd64-coverage')
+    return os.path.dirname(os.path.abspath(exe))
+
+
+def exe_defines(exe, flag):
+    """GTB (B4): True when the exe file holds the cvar's name (chunked read; the exe is big). The stream build defines
+    wwe2k14_stage_view (renderer_adapter/reader.h:271, ON build only: q ours def); the stream-free (OFF) build does not, so live.start
+    leaves the flag out there. An exe that cannot be read counts as "defines it" (the old behaviour)."""
+    path = os.path.join(exe_folder_of(exe), 'wwe2k14.exe')
+    needle = flag.encode()
+    try:
+        with open(path, 'rb') as f:
+            tail = b''
+            while True:
+                chunk = f.read(8 << 20)
+                if not chunk:
+                    return False
+                if needle in tail + chunk:
+                    return True
+                tail = chunk[-len(needle):]
+    except OSError:
+        return True
+
 
 PREFIX = re.compile(r'^\[\d{4}-\d\d-\d\d (\d\d:\d\d:\d\d)\.\d+\] \[(\w)\w*\] \[\w+\] \[t\d+\] ')
 SHOT = re.compile(r'screenshot saved: (.+?) \((\d+)x(\d+)\)')
@@ -240,8 +293,12 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
     if '--wwe2k14_settings_file=' not in extra:
         # CLAUDE.md: test runs that can reach the GRAPHICS menu never touch Jarrod's launcher settings.
         flags += ' --wwe2k14_settings_file=%s' % os.path.join(OUT, 'settings_%s.json' % name)
-    if '--wwe2k14_stage_view=' not in extra:  # S101 lane 59: the game's default is off; a live test game shows a `!scene play` scene (stage_view.h; no effect otherwise)
+    if coverage:
+        exe = 'coverage'
+    if '--wwe2k14_stage_view=' not in extra and exe_defines(exe, 'wwe2k14_stage_view'):  # S101 lane 59: the game's default is off; a live test game shows a `!scene play` scene (stage_view.h; no effect otherwise); GTB B4: only an exe that defines it (the OFF build does not)
         flags += ' --wwe2k14_stage_view=true'
+    if '--wwe2k14_rdr_stage_view=' not in extra and exe_defines(exe, 'wwe2k14_rdr_stage_view'):  # S103 SVO: the stream-free (OFF) build's twin of the stage view: the host leaves the 2D out while a `!scene play` / goto `scene:` push plays (a tool view, default off; only an exe that defines it)
+        flags += ' --wwe2k14_rdr_stage_view=true'
     if '--wwe2k14_case_dir=' not in extra:  # S101 lane 59 (Check E): an absolute case dir per live name; a relative default landed the zips under the exe's folder
         flags += ' --wwe2k14_case_dir=%s' % os.path.join(OUT, name, 'cases')
     if coverage:  # Session 30 (#6): the coverage build, recording which functions run per window (`window LABEL`)
@@ -251,6 +308,11 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
     if extra:
         flags += ' ' + extra
     q = lambda s: "'" + s.replace("'", "''") + "'"
+    try:  # GTB (B0): remember which build this game runs from, so run_log / events read ITS logs folder
+        with open(EXE_DIR_FILE, 'w', encoding='utf-8') as f:
+            f.write(exe_folder_of(exe))
+    except OSError:
+        pass
     if exe == 'coverage':  # Session 29: the trace build (--wwe2k14_trace)
         exe = os.path.join(REPO, 'out', 'build', 'win-amd64-coverage', 'wwe2k14.exe')
     win = {'visible': ' -Visible', 'windowed': ' -Visible -Windowed',  # Session 30: run_list's window
@@ -275,14 +337,36 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
                 break
             except OSError:  # the job does not allow breakaway
                 continue
+    if script == 'menu' and not launch:
+        boot_wait = max(boot_wait, 300)  # normal speed: the title presses are state-gated and take real time
+    return wait_started(name, script, launch, fast, log_path, boot_wait)
+
+
+def status_ready(fields):
+    """GTW2: True when a `!status` answer says the start script is done and the game is at the main menu (seq 75, menu 1)."""
+    states = dict(kv.split('=', 1) for kv in fields.get('states', '').split() if '=' in kv)
+    return fields.get('busy') == 'no' and states.get('seq') == '75' and states.get('menu') == '1'
+
+
+def wait_started(name, script, launch, fast, log_path, boot_wait=180, poll_s=0.5):
+    """Waits for the game just launched. With the menu script and no launch scenario it returns only at the main menu
+    (!status: busy no, seq 75, menu 1: GTS); otherwise as soon as the channel answers. Prints what it saw on timeout."""
+    at_menu = script == 'menu' and not launch
     t0 = time.time()
+    seen = 'no answer yet'
     while time.time() - t0 < boot_wait:
         try:
             fields, _ = parse(request(name, '!status', connect_wait=1.0))
-            return ('started: run %s, live channel %s, %s (%.0f s; run_list output in %s)' %
-                    (fields.get('run'), name, 'fast-forward' if fast else 'normal speed', time.time() - t0, log_path))
         except NoGame:
-            pass
+            continue
+        seen = 'busy %s, frame %s, states %s' % (fields.get('busy'), fields.get('frame'), fields.get('states'))
+        if not at_menu or status_ready(fields):
+            return ('started: run %s, live channel %s, %s%s (%.0f s; run_list output in %s)' %
+                    (fields.get('run'), name, 'fast-forward' if fast else 'normal speed',
+                     ', at the main menu' if at_menu else '', time.time() - t0, log_path))
+        time.sleep(poll_s)
+    if at_menu and seen != 'no answer yet':
+        return 'answers but not at the main menu after %d s (last: %s); see %s' % (boot_wait, seen, log_path)
     return 'no answer after %d s; see %s' % (boot_wait, log_path)
 
 
@@ -297,13 +381,23 @@ LAUNCH_FLAG = re.compile(r"\[wwe2k14\] modified: wwe2k14_launch = '([^']*)'")
 
 
 def run_log(run):
-    return os.path.join(EXE_DIR, 'logs', 'wwe2k14_%03d.log' % int(run))
+    return os.path.join(logs_dir(), 'wwe2k14_%03d.log' % int(run))
+
+
+def require_log(run):
+    """GTB: run_log(run), or an error naming the path when it is not there (never a silent wait on a wrong folder)."""
+    path = run_log(run)
+    if not os.path.exists(path):
+        raise FileNotFoundError('the run log %s does not exist (logs folder %s%s): is the game exe in a different build folder? '
+                                'pass live.py start --exe, or set WWE2K14_EXE_DIR'
+                                % (path, logs_dir(), '' if os.path.isdir(logs_dir()) else ', which is missing'))
+    return path
 
 
 def read_batches(run):
     """-> (batches {n: {'time', 'lines', 'result'}}, start script, launch scenario) from run NNN's log."""
     batches, start, launch = {}, '', ''
-    with open(run_log(run), encoding='utf-8', errors='replace') as f:
+    with open(require_log(run), encoding='utf-8', errors='replace') as f:
         for line in f:
             m = BATCH_LINE.search(line)
             if m:
@@ -324,10 +418,10 @@ def read_batches(run):
 
 
 def newest_run_with_batches():
-    logs = sorted((f for f in os.listdir(os.path.join(EXE_DIR, 'logs')) if re.match(r'wwe2k14_\d+\.log$', f)),
+    logs = sorted((f for f in os.listdir(logs_dir()) if re.match(r'wwe2k14_\d+\.log$', f)),
                   key=lambda f: int(re.findall(r'\d+', f)[-1]), reverse=True)
     for f in logs[:40]:
-        with open(os.path.join(EXE_DIR, 'logs', f), encoding='utf-8', errors='replace') as h:
+        with open(os.path.join(logs_dir(), f), encoding='utf-8', errors='replace') as h:
             if '[wwe2k14][live] batch 1> ' in h.read():
                 return int(re.findall(r'\d+', f)[-1])
     return None
@@ -360,7 +454,7 @@ def save_route(name, run=None, first=None, last=None, drop_inspect=False, keep_f
         lines += ['include boot_to_menu   # the live start (live/menu.txt): boot to the main menu', '']
     elif start and base != 'idle.txt':
         lines += ['include %s   # the live start script' % os.path.relpath(
-            os.path.normpath(os.path.join(EXE_DIR, start)), os.path.dirname(out_path)).replace('\\', '/'), '']
+            os.path.normpath(os.path.join(exe_dir(), start)), os.path.dirname(out_path)).replace('\\', '/'), '']
     kept = dropped_lines = dropped_batches = 0
     for n in sorted(batches):
         if (first is not None and n < first) or (last is not None and n > last):

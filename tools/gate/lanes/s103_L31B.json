@@ -1,0 +1,17 @@
+{
+ "owner": "S103 lane L31B: the wrestlers' latch targets from the character table (character [0x836F38D0 + 4 slot], skeleton [char + 48]) every latch, independent of the update hook's liveness; and the interim guard (mode Ours: a kept body not refreshed for this record is never emitted with an old palette; one still in the table withholds kInWrestlerPalette). src/scene_live/wrestler_contrib.*, inputs_contrib.h, inputs_glue.h, tools/scene/inputs_unit.cpp (l31b.*), tools/analysis/seq_find.py. 0 game runs, 0 Surface runs.",
+ "note": "inputs = tools/scene/inputs_check.py (the unit incl. l31b.slot_read_after_hook_quiet / palettes_read_eq_objects / stamp_and_census / stale_never_emitted / mirror_unchanged / left_table_dropped_not_withheld / piece_of_slot_body_alive; twins l31b_hook_targets (the old hook-liveness targets) and l31b_guard_off must fail). emit_selftest = the wrestlers contributor's own selftest on the changed .cpp. game_syntax compiles the game sources that include the edited headers.",
+ "checks": [
+  {"name": "s103_L31B.inputs", "cmd": ["py", "-I", "tools/scene/inputs_check.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/scene_live/inputs_*.h", "src/scene_live/wrestler_contrib.*", "tools/scene/inputs_unit.cpp", "tools/scene/inputs_check.py"]},
+  {"name": "s103_L31B.build_emit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_wrestler.ps1"], "timeout_s": 900, "affects": ["src/scene_live/wrestler_contrib.*", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_L31B.emit_selftest", "cmd": ["out/tools/wrestler_emit.exe", "selftest"], "timeout_s": 300, "affects": ["src/scene_live/wrestler_contrib.*", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s103_L31B.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py"], "timeout_s": 300, "needs": ["generated/default"]},
+  {"name": "s103_L31B.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_L31B.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_scene/*", "src/scene_live/*"]},
+  {"name": "s103_L31B.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/*"]}
+ ]
+}

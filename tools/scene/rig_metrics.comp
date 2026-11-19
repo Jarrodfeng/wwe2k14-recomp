@@ -1,0 +1,41 @@
+#version 450
+// Session 103 lane PS1: the offline rig's picture-compare pass (tools\scene\rig_metrics_gpu.h). One dispatch measures one panel against its reference picture over the pixels a mask covers:
+// the same sums rig_metrics.h's MeasureCpu takes, as integers (exact) except the "washed" test, which is per pixel in float (the CPU does it in double: a pixel on the 0.25 line may differ).
+//   res[0] n, [1] sum of |dr|+|dg|+|db|, [2..4] sum of ours r, g, b, [5..7] sum of the reference r, g, b, [8] washed pixels
+// The panel and the reference are RGBA8 words (r in the low byte), the mask one byte a pixel (4 to a word). Our own shader.
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Ours { uint ours[]; };
+layout(std430, binding = 1) readonly buffer Ref { uint ref[]; };
+layout(std430, binding = 2) readonly buffer Mask { uint mask[]; };
+layout(std430, binding = 3) buffer Out { uint res[16]; };
+layout(push_constant) uniform PC { uint px; uint use_mask; uint groups; } pc;
+shared uint part[9][256];
+
+void main() {
+  uint acc[9];
+  for (int k = 0; k < 9; ++k) acc[k] = 0u;
+  const uint stride = gl_NumWorkGroups.x * 256u;
+  for (uint i = gl_GlobalInvocationID.x; i < pc.px; i += stride) {
+    if (pc.use_mask != 0u && ((mask[i >> 2] >> ((i & 3u) * 8u)) & 255u) == 0u) continue;
+    const uint o = ours[i], g = ref[i];
+    const ivec3 oc = ivec3(int(o & 255u), int((o >> 8) & 255u), int((o >> 16) & 255u));
+    const ivec3 gc = ivec3(int(g & 255u), int((g >> 8) & 255u), int((g >> 16) & 255u));
+    const ivec3 d = abs(oc - gc);
+    acc[0] += 1u;
+    acc[1] += uint(d.x + d.y + d.z);
+    acc[2] += uint(oc.x), acc[3] += uint(oc.y), acc[4] += uint(oc.z);
+    acc[5] += uint(gc.x), acc[6] += uint(gc.y), acc[7] += uint(gc.z);
+    const float la = 0.2126 * float(oc.x) + 0.7152 * float(oc.y) + 0.0722 * float(oc.z);
+    const float lg = 0.2126 * float(gc.x) + 0.7152 * float(gc.y) + 0.0722 * float(gc.z);
+    if ((la - lg) / 255.0 > 0.25) acc[8] += 1u;
+  }
+  for (int k = 0; k < 9; ++k) part[k][gl_LocalInvocationID.x] = acc[k];
+  barrier();
+  for (uint s = 128u; s > 0u; s >>= 1) {
+    if (gl_LocalInvocationID.x < s)
+      for (int k = 0; k < 9; ++k) part[k][gl_LocalInvocationID.x] += part[k][gl_LocalInvocationID.x + s];
+    barrier();
+  }
+  if (gl_LocalInvocationID.x == 0u)
+    for (int k = 0; k < 9; ++k) atomicAdd(res[k], part[k][0]);
+}

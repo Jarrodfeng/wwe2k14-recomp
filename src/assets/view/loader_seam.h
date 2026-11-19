@@ -56,6 +56,9 @@ int ViewerChampBank(int wrestler);
 bool ViewerEntranceRig(int bank, assets::entrance::Show& io, std::string& err);
 // Session 98 (gen check 6): the evtobj.pac PACH of an entrance prop id (asset_load.h PropPach), -1 none.
 int ViewerPropPach(unsigned prop_id);
+// S103 R: the viewer attire ORDINAL of the PACH whose EMD name is `key` (character * 100 + attire * 10 + kind; asset_load.h OrdinalOfModelKey), -1 none. A record that names a model by
+// "model_key:K" (lane B) resolves it here, as GameFilesSource does.
+int ViewerOrdinalOfModelKey(int id, int key);
 // Session 98 (attire props): the same, from evtobj.pac's own directory only (asset_load.h PropDirIn: no model scan), -1 none.
 int ViewerPropPachDir(unsigned prop_id);
 // Session 98 (cap / particles): true when that prop's model is worn on the head (asset_load.h PropWorn: a node named "..hat").

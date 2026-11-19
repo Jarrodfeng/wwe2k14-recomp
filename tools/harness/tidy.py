@@ -2,6 +2,14 @@
 
 Replaces tools\\harness\\disk_cleanup.ps1. Rules and where they came from: docs\\DECISIONS.md; how sessions use it: CLAUDE.md (Safety).
 
+S102 TIDY2 (Jarrod, 2026-11-15) SUPERSEDES every rule below about ages, KEEP files, KEEP_TREES and state-doc names for out\\:
+  out\\ is SCRATCH. It is cleared at the end of a session (--auto end) and by the hourly pass when no session is live; while a session is live it is
+  left alone (only --now / the under-50-GB pass, which clear what has been idle 2 h). Held (rules in tidy_out.py): the allowlist (out\\build is SACRED:
+  Jarrod plays from it, never deleted by any pass), tools\\harness\\keep_list.txt (exact paths, reason, optional until-date), exact paths a gate lane
+  names (a container name protects nothing and is a lint error: tools\\gate\\needs_lint.py), --hold carry-overs. A KEEP file is reported as ignored.
+  Unpack copies (fview_unpack_*) are never held. Agent worktrees: finished + merged go at the next pass; unmerged are reported, never taken
+  automatically. --plan shows what session end would delete now, the held paths with sizes, and problems. Tests: tidy_out_selftest.py.
+
 WHAT IT MAY TOUCH: out\\, the SDK worktrees in thirdparty\\sdk-wt, and the Claude Code agent worktrees .claude\\worktrees\\agent-* (a
 whole worktree, or only the contents of its own out\\ scratch: LANE 294 below; never any other file there). Deletes permanently,
 never follows a junction or link.
@@ -103,6 +111,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tidy_disk      # S102 K1: strip_py, free log, duplicate captures
+import tidy_out       # S102 TIDY2: the allowlist, the keep list, containers, the sweep
 
 # TIDY_REPO: run this copy of the script against another checkout (lane 154: planning the real tree from a worktree).
 REPO = (os.environ.get('TIDY_TEST_ROOT') or os.environ.get('TIDY_REPO')
@@ -123,7 +132,12 @@ EXPIRE_H = 24       # no live session: temporary output older than this expires
 LIVE_KEEP_H = 6     # lane 154: while a session is live, temporary output older than this expires (rolling)
 LOW_LIVE_KEEP_H = 2     # the under-50-GB pass, while a session is live
 AGENT_LIVE_H = 2        # an agent worktree (or its transcript) active this recently is live
-AGENT_UNMERGED_H = 24   # an agent worktree whose HEAD is not merged into the session branch waits this long
+AGENT_UNMERGED_H = 24 * 3650   # S102 TIDY2: an unmerged agent worktree is never taken by an automatic pass (reported; the main session decides); --now passes its own hours
+AGENT_MERGED_H = 0.25   # S102 TIDY2: a finished agent whose branch is merged goes at the next pass (15 min idle guard)
+WT_IDLE_H = 6           # plain worktrees (sdk-wt, out\\wt, bisect): idle this long (and no running agent / .owner pid) before they go
+HOURLY_IDLE_H = 6       # the hourly out\\ sweep (no session live) takes only items untouched this long
+ACTIVE_IDLE_H = 0.5     # session end while an agent / Surface job / build of this session is still running: only items idle this long
+UNKNOWN_SESSION = 'unknown-sessions'
 ORPHAN_META_H = 24      # a meta without "finished" counts as running only while it (or its transcript) was written this recently
 LOW_GB = 50
 TARGET_GB = 75
@@ -132,7 +146,7 @@ NOW_TARGET_GB = 100     # --now stops once this much is free
 HARD_FLOOR_GB = 15      # --now only: below this much free, finished UNMERGED agent worktrees go at NOW_IDLE_H too
 ANY_PARENT = False      # --now: a meta without 'finished' written within ORPHAN_META_H counts as running whatever its parent session
 LOCKED = False         # this process runs inside the run-lock hold (--locked)
-LIVE_IDLE_H = 3     # a session whose transcript was written this recently is live
+LIVE_IDLE_H = 12    # a session whose transcript was written this recently is live (S102 TIDY2: was 3; a session waiting on a long Surface job is not dead)
 LIVE_MAX_H = 72     # a session left open for days protects at most this far back
 LIVE_AGENT_MAIN_H = 12     # its agents' transcripts count only if the session itself wrote within this
 CARRY_DAYS = 7
@@ -154,16 +168,11 @@ SCRATCHPAD_PASS = True       # S102 K1: the scratchpad DELETE pass; ON since Jar
 SCRATCHPAD_CHILD_H = 12     # S102 K1: a scratchpad child of a session that is not live goes when its newest file is older than this
 SCRATCHPAD_LOUD_GB = 15     # a live session's scratchpad over this is reported loudly
 
-NO_TOUCH = {'bench', 'replays', 'scenarios', 'recordings', 'harness/screenshots', 'backup', 'tidy'}
-KEEP_TREES = {
-    'build', 'tools', 'assets', 'wm30', 'pgo', 'glslang-build', 'spirv-tools-build', 'shaders', 'native', 'trons',
-    'owned_check', 'launcher_mobile', 'director', 'seeds', 'live', 'q', 'input', 'logo', 'logos', 'harness_vs',
-    'harness/index', 'harness/atlas', 'harness/labelling', 'harness/regress', 'harness/runlock', 'harness/run_list',
-    'harness/triage', 'harness/coverage', 'harness/sweep', 'harness/determinism', 'harness/watch',
-    'android/apk', 'android/apk-obj', 'android/game-arm64', 'android/launcher-arm64', 'android/sdk-build-arm64',
-    'android/sdk-install-arm64', 'android/symbols', 'android/drivers', 'android/cpu_semantics',
-    'release/build',
-}
+# S102 TIDY2: out\\ is scratch (tidy_out.py: the allowlist, the keep list, gate-named exact paths). NO_TOUCH is the Deleter's last backstop: nothing
+# below is ever deleted by any pass, --now included. out\\build is SACRED (Jarrod, 2026-11-15: "out/build which is where I play my game from").
+NO_TOUCH = {'build', 'replays', 'scenarios', 'recordings', 'harness/screenshots', 'backup', 'tidy', 'bench/userdata_frozen', 'bench/userdata_frozen.sha256',
+            'harness/runlock'}
+KEEP_TREES = {p[4:] for p, _k, _w in tidy_out.allow_patterns('') if '*' not in p and '{' not in p}
 CONTAINERS = {'harness', 'android', 'release', 'wt', 'harness/bisect', 'harness/bisect/wt', 'harness/bisect/exe', 'release/stage'}
 NOTE_EXT = {'.md', '.txt', '.json', '.toml', '.py', '.ps1'}
 THROW = [
@@ -328,6 +337,19 @@ def prune_reports(prefix, keep=30):
 
 # ---------------------------------------------------------------- what is protected
 def sessions(now):
+    """FAIL CLOSED (S102 TIDY2, Opus review): [(session id, start, last write)] of live sessions. A projects folder that is missing / unreadable / holds
+    no project folder, or any error, returns one UNKNOWN session = "something is live" (the sweep then leaves out\\ alone), never "nothing is live"."""
+    if TEST:
+        return _sessions_raw(now)
+    try:
+        if not os.path.isdir(PROJECTS) or not any(d.name.startswith(PROJECT_PREFIX) and d.is_dir() for d in os.scandir(PROJECTS)):
+            return [(UNKNOWN_SESSION, now, now)]
+        return _sessions_raw(now)
+    except Exception:
+        return [(UNKNOWN_SESSION, now, now)]
+
+
+def _sessions_raw(now):
     """[(session id, start time, last write)] of live Claude sessions on this project."""
     out = []
     if TEST:
@@ -367,36 +389,6 @@ def sessions(now):
     return sorted(out, key=lambda s: s[2], reverse=True)
 
 
-def named_paths():
-    """Repo-relative paths (depth >= 2) named in the state docs. A bare out\\s95 does not protect all of Session 95."""
-    files = [os.path.join(REPO, n) for n in REF_FILES_FIXED]
-    newest = {}
-    try:
-        for n in os.listdir(REPO):
-            m = re.fullmatch(r'SESSION(\d+)_(PLAN|SUMMARY)\.md', n)
-            if m:
-                newest.setdefault(int(m.group(1)), []).append(n)
-    except OSError:
-        pass
-    if newest:
-        files += [os.path.join(REPO, n) for n in newest[max(newest)]]
-    found = {}
-    for f in files:
-        try:
-            text = open(f, encoding='utf-8', errors='replace').read()
-        except OSError:
-            continue
-        for m in REF_RE.finditer(text):
-            k = re.sub(r'[\\/]+', '/', m.group(1)).rstrip('./').lower()
-            parts = k.split('/')
-            depth = len(parts) - (3 if k.startswith('thirdparty/') else 1)
-            if k.startswith('out/') and _doc_namespace(k[4:]):
-                continue        # lane 294 S1: a doc naming out/s101/runs (a namespace) must not hold every run under it
-            if depth >= 2 or (k.startswith('thirdparty/') and depth >= 0):
-                found.setdefault(k, os.path.basename(f))
-    return found
-
-
 FIXED_WHY = re.compile(r'jarrod|until\s+\d{4}-\d\d-\d\d', re.I)
 
 
@@ -423,32 +415,20 @@ def _namespace(rel):
 
 
 def _add_input(found, k, src):
-    star = k.endswith('*')      # lane 294 S4: a glob cut at '*' / '?' is a PREFIX key (ends with '*')
+    """S102 TIDY2: a name protects EXACTLY that path (a file, or a leaf folder), never a container, never a scratch copy; a capture marker file
+    (images.bin / manifest.json) names its capture folder. A glob cut at '*' / '?' is a PREFIX key (ends with '*')."""
+    star = k.endswith('*')
     k = re.sub(r'[\\/]+', '/', k.rstrip('*')).rstrip('./').lower()
     parts = k.split('/')
-    if len(parts) < 2 or parts[0] != 'out':
-        return
-    if star:
-        if len(parts) >= 2 and not _namespace(k[4:]):
-            found.setdefault(k + '*', src)
+    if len(parts) < 2 or parts[0] != 'out' or tidy_out.is_scratch_copy(k):
         return
     cands = [k]
-    if len(parts) >= 3 and re.search(r'\.[a-z0-9]{1,5}$', parts[-1]):
-        cands.append('/'.join(parts[:-1]))      # a file: its folder too (a capture's manifest is not the capture)
+    if not star and len(parts) >= 3 and parts[-1] in tidy_out.CAPTURE_MARKERS:
+        cands = ['/'.join(parts[:-1])]
     for c in cands:
-        if len(c.split('/')) >= 2 and not _namespace(c[4:]):
-            found.setdefault(c, src)
-
-
-def touched_within(path, days):
-    """True when the folder, or something directly in it, changed within that many days."""
-    try:
-        t = os.stat(lp(path)).st_mtime
-        for e in os.scandir(lp(path)):
-            t = max(t, e.stat(follow_symlinks=False).st_mtime)
-    except OSError:
-        return False
-    return time.time() - t < days * 86400
+        if len(c.split('/')) < 2 or _namespace(c[4:]) or tidy_out.container_reason(c, OUT):
+            continue
+        found.setdefault(c + ('*' if star else ''), src)
 
 
 def _scan_text(text, found, src):
@@ -492,7 +472,8 @@ def gate_input_split():
     for n in names:
         try:
             with open(os.path.join(d, n), encoding='utf-8') as f:
-                walk(json.load(f), 'tools/gate/lanes/' + n)
+                for x in tidy_out.lane_strings(json.load(f)):      # S102 TIDY2: only cmd / needs / exes / programs: prose in a note protects nothing
+                    walk(x, 'tools/gate/lanes/' + n)
         except (OSError, ValueError):
             continue
     troot = os.path.join(REPO, 'tools')
@@ -514,12 +495,11 @@ def gate_input_split():
 
 
 def gate_inputs():
-    """Protected inputs. A name only a tool's source mentions protects the folder while it is in use (touched within TOOL_STALE_DAYS);
-    the gate lanes' own inputs are standing and stay protected whatever their age, and so does every required_input() (capture / case /
-    run folders a check names: lane 294)."""
+    """Protected inputs (S102 TIDY2): the gate lanes' exact paths, and the capture / case / run folders a check script names. No age rule. A check
+    script's working folder (out/l123, ...) is scratch: the check makes it again."""
     found, py = gate_input_split()
     for k, v in py.items():
-        if k not in found and (required_input(k) or touched_within(os.path.join(REPO, k.replace('/', os.sep)), TOOL_STALE_DAYS)):
+        if k not in found and (required_input(k) or (not k.endswith('*') and tidy_out.is_capture_dir(os.path.join(REPO, k.replace('/', os.sep))))):
             found[k] = v
     return found
 
@@ -592,15 +572,20 @@ def main_checkout():
 
 
 def _refuse_tree(ap):
-    """At, under or ABOVE a keep-list / never-touch folder of out\\: the tidy never deletes those, so a hand-written delete must not."""
+    """At, under or ABOVE anything held (the allowlist, the keep list, gate-named paths, carry-overs, never-touch): the tidy never deletes those,
+    so a hand-written delete must not."""
     if not os.path.normcase(ap).startswith(os.path.normcase(OUT) + os.sep):
         return ''
-    r = out_rel(ap)
-    for k in sorted(KEEP_TREES | NO_TOUCH):
-        if r == k or r.startswith(k + '/'):
-            return 'at or under the keep-list / never-touch folder out\\' + k.replace('/', '\\')
-        if k.startswith(r + '/'):
-            return 'above the keep-list / never-touch folder out\\' + k.replace('/', '\\')
+    rel = 'out/' + out_rel(ap)
+    for k in sorted(NO_TOUCH):
+        if rel == 'out/' + k or rel.startswith('out/' + k + '/'):
+            return 'at or under the never-touch folder out\\' + k.replace('/', '\\')
+    h = held_index()[0]
+    w = h.why(rel)
+    if w:
+        return 'held (%s)' % w[:80]
+    if h.ancestor(rel):
+        return 'above a held path (the tidy enters it and removes only what is not held)'
     return ''
 
 
@@ -856,8 +841,9 @@ def keep_info(d):
 
 
 def keep_active(d):
-    i = keep_info(d)
-    return bool(i and i['valid'])
+    """S102 TIDY2 (Jarrod, 2026-11-15): a KEEP file no longer protects anything. It is reported ("ignored: move it to tools\\harness\\keep_list.txt
+    with a reason"); the keep list is the one place."""
+    return False
 
 
 # ---------------------------------------------------------------- the one pass over out\
@@ -944,172 +930,6 @@ def is_capture_dir(names):
     """A folder holding an unpacked capture (images.bin / manifest.json / case_*.zip): tools re-extract only when images.bin is
     missing, so it must never be half-deleted or deleted while a tool may still read it (lane 154, S3)."""
     return any(n in CAPTURE_MARKERS or (n.startswith('case_') and n.endswith('.zip')) for n in (x.lower() for x in names))
-
-
-class Scan:
-    def __init__(self, age, protect, wt_paths, strict=None, now=None):
-        self.age = age
-        self.strict = strict or age
-        self.now = now or time.time()
-        self.run_age = Age(self.now - RUN_H * HOUR)         # lane 294: runs that are not the newest of their route
-        self.cap = Age(max(self.strict.cutoff, self.now - CAPTURE_COPY_H * HOUR), self.strict.own_since)     # unpacked capture copies
-        self.run_newest = {}                                # 's101/runs' -> {names of the newest run per route}
-        self.keeps = []                                     # [path, keep_info, bytes] of every KEEP folder seen
-        self.prefixes = tuple(k[:-1] for k in protect if k.endswith('*'))     # S4: gate-named glob prefixes
-        self.protect = protect                 # repo-relative lower-case keys
-        self.wt = wt_paths                     # normcased worktree folders: opaque here
-        self.kept = collections.Counter()      # reason -> bytes
-        self.named_hits = collections.Counter()
-        self.links = 0
-        self.version = ''
-        try:
-            self.version = open(os.path.join(REPO, 'VERSION'), encoding='utf-8').read().strip().lower()
-        except OSError:
-            pass
-
-    def prot(self, key):
-        return key in self.protect or (bool(self.prefixes) and key.startswith(self.prefixes))
-
-    def policy(self, rel, parent):
-        if parent.startswith('hold') or parent == 'keep':
-            return parent
-        if rel in NO_TOUCH:
-            return 'hold:never touched'
-        if rel in KEEP_TREES:
-            return 'keep'
-        if self.version and rel == 'release/stage/wwe2k14-recomp-' + self.version:
-            return 'keep'
-        return 'temp'
-
-    def visit(self, path, rel, policy, strict=False, ao=None):
-        """-> (whole folder can go, items, bytes, files, newest, types). ao: an age that wins for this folder and everything under it."""
-        types = collections.Counter()
-        try:
-            entries = list(os.scandir(lp(path)))
-            dir_t = os.stat(lp(path)).st_mtime
-        except OSError:
-            return False, [], 0, 0, time.time(), types
-        cap_dir = is_capture_dir([e.name for e in entries])
-        in_runs = RUNS_RE.match(rel) is not None
-        if not strict and (in_runs or cap_dir):
-            strict = True       # S3: the old rule (whole live session + 24 h) for this folder and everything under it
-        age = self.strict if strict else self.age
-        if ao is None:
-            mrun = RUN_CHILD_RE.fullmatch(rel)
-            if mrun:        # lane 294: a run folder: the newest of its route keeps the old rule, every other one goes at RUN_H
-                ao = self.strict if (mrun.group(2) in self.run_newest.get(mrun.group(1), ()) or not RUN_NAME_RE.match(mrun.group(2))) else self.run_age
-            elif cap_dir and not in_runs and not _namespace(rel):
-                ao = self.cap       # lane 294: an unpacked capture copy outside a run goes at CAPTURE_COPY_H
-        if ao is not None:
-            age = ao
-        if RUNS_DIR_RE.fullmatch(rel):
-            self.run_newest[rel] = newest_run_names([e.name for e in entries if e.is_dir(follow_symlinks=False)])
-        keep_row = None
-        if any(e.name.lower() == 'keep' and e.is_file(follow_symlinks=False) for e in entries):
-            ki = keep_info(path)
-            if ki is not None:
-                keep_row = [path, ki, 0]
-                self.keeps.append(keep_row)
-                if ki['valid']:
-                    policy = 'hold:KEEP file'
-        if any(e.name == '.git' and e.is_file(follow_symlinks=False) for e in entries) and rel != '.':
-            b, f, n, _, _ = walk_tree(path)
-            self.kept['hold:unregistered git worktree'] += b
-            return False, [], b, f, n, types
-        logs = [e.name for e in entries if RUNLOG_NUM.match(e.name)]
-        top_log = max(logs, key=lambda n: int(RUNLOG_NUM.match(n).group(1))) if logs else None
-        whole = policy == 'temp'
-        # Moved or robocopied files keep their old dates, but the folder receiving them gets a new one. Busy parent
-        # folders that only hold other folders are exempt, or nothing under them would ever expire.
-        fresh = policy == 'temp' and rel not in CONTAINERS and not RUNS_DIR_RE.fullmatch(rel) and not age.expired(dir_t)     # lane 294: a runs folder gets a new date with every new run
-        items, bytes_, files, newest = [], 0, 0, 0
-        child_rows = []
-        for e in entries:
-            child = os.path.join(path, e.name)
-            crel = (rel + '/' + e.name.lower()) if rel != '.' else e.name.lower()
-            try:
-                st = e.stat(follow_symlinks=False)
-            except OSError:
-                whole = False
-                continue
-            if st.st_file_attributes & REPARSE:
-                self.links += 1
-                whole = False
-                continue
-            key = 'out/' + crel
-            if e.is_dir(follow_symlinks=False):
-                if os.path.normcase(child) in self.wt:
-                    whole = False
-                    continue
-                cp = self.policy(crel, policy)
-                if not cp.startswith('hold') and self.prot(key):
-                    cp = 'hold:named or carried'
-                    self.named_hits[crel] += 1
-                ok, sub, b, f, n, t = self.visit(child, crel, cp, strict, ao)
-                bytes_ += b
-                files += f
-                newest = max(newest, n)
-                if ok and fresh:
-                    whole = False
-                    self.kept['recent (live session or under the age limit)'] += b
-                elif ok:
-                    child_rows.append({'p': child, 'b': b, 'n': f, 't': n, 'types': dict(t), 'dir': True})
-                    types.update(t)
-                else:
-                    whole = False
-                    items += sub
-                continue
-            t = born(st)
-            bytes_ += st.st_size
-            files += 1
-            newest = max(newest, t)
-            ok, why = self.file_ok(e.name, st, t, policy, rel, top_log, key, age, cap_dir)
-            if ok and fresh:
-                ok, why = False, 'recent (live session or under the age limit)'
-            if ok:
-                ty = type_of(e.name)
-                child_rows.append({'p': child, 'b': st.st_size, 'n': 1, 't': t, 'types': {ty: st.st_size}, 'dir': False})
-                types[ty] += st.st_size
-            else:
-                whole = False
-                self.kept[why] += st.st_size
-        if keep_row is not None:
-            keep_row[2] = bytes_
-        if whole and age.expired(dir_t):
-            return True, [], bytes_, files, newest, types
-        if is_capture_dir([e.name for e in entries]):
-            # a capture folder that does not go whole keeps EVERY file in it: no one-by-one deletion of old frames next to a
-            # fresh images.bin (tools re-extract only when images.bin is missing)
-            for r in child_rows:
-                if not r['dir']:
-                    self.kept['hold:capture folder (not all of it expired)'] += r['b']
-            child_rows = [r for r in child_rows if r['dir']]
-        return False, items + child_rows, bytes_, files, newest, collections.Counter()
-
-    def file_ok(self, name, st, t, policy, rel, top_log, key, age, cap_dir=False):
-        if policy.startswith('hold'):
-            return False, policy
-        if self.prot(key):
-            return False, 'hold:named or carried'
-        if not age.expired(t):
-            return False, 'recent (live session or under the age limit)'
-        if self.version and rel == 'release' and name.lower() == 'wwe2k14-recomp-%s.zip' % self.version:
-            return False, 'hold:current release'
-        if policy == 'keep':
-            extra = next((rx for k, rx in KEEP_EXTRA.items() if rel == k or rel.startswith(k + '/')), None)
-            if (is_throw(name) and name != top_log) or (extra is not None and extra.search(name)):
-                return True, ''
-            return False, 'keep list (current builds, tools, indexes)'
-        if os.path.splitext(name)[1].lower() in NOTE_EXT and st.st_size <= NOTE_MAX and not (cap_dir and name.lower() in CAPTURE_MARKERS):     # lane 294: a capture's manifest.json is part of the capture, not a note
-            return False, 'small notes'
-        return True, ''
-
-
-def scan_out(age, protect, wts, strict=None, now=None):
-    wt_paths = {os.path.normcase(w['path']) for w in wts}
-    s = Scan(age, protect, wt_paths, strict, now)
-    ok, items, *_ = s.visit(OUT, '.', 'keep-root')
-    return s, items
 
 
 # ---------------------------------------------------------------- worktrees
@@ -1278,7 +1098,7 @@ def agent_rows():
     return [w for w in list_worktrees(REPO) if wt_allowed(w['path'])]
 
 
-def check_agent_worktree(w, now, infos, live_ids, branch, protect, carried, merged_h=AGENT_LIVE_H, unmerged_h=AGENT_UNMERGED_H):
+def check_agent_worktree(w, now, infos, live_ids, branch, protect, carried, merged_h=AGENT_MERGED_H, unmerged_h=AGENT_UNMERGED_H):
     """Agent worktree rules (lane 154): live while its agent is running (no "finished" in its meta, parent session live) or its
     transcript / meta or any file changed within AGENT_LIVE_H; one whose HEAD is not merged into the session branch waits
     AGENT_UNMERGED_H after its last activity; the rest is check_worktree. No BUILD_SETUP leniency: an uncommitted manifest or
@@ -1294,7 +1114,7 @@ def check_agent_worktree(w, now, infos, live_ids, branch, protect, carried, merg
     last, running, mine = agent_state(infos, live_ids, w['path'], now, hours)
     w['agent_ids'] = [i['id'] for i in mine]
     if w['state'] == 'kept' and w['why'] == 'recent activity':
-        w['why'] = 'active within %d h%s' % (hours, '' if merged else ' (branch not merged into %s: kept %d h)' % (branch or '?', hours))
+        w['why'] = ('active within %d h' % hours) if merged else 'active within 0 h: UNMERGED branch (%s), never taken automatically, the main session decides' % (branch or '?')
     if w['state'] in ('remove', 'report') and running:
         w['state'] = 'kept'
         w['save_ref'] = False
@@ -1306,7 +1126,7 @@ def check_agent_worktree(w, now, infos, live_ids, branch, protect, carried, merg
     return w
 
 
-def check_plain_worktree(w, age, now, protect, carried, subs, branches):
+def check_plain_worktree(w, age, now, protect, carried, subs, branches, infos=(), live_ids=()):
     """sdk-wt and out\\wt worktrees (N3): one whose HEAD is not merged into its repo's checked-out branch waits 24 h."""
     repo = w['repo']
     if repo not in branches:
@@ -1314,10 +1134,14 @@ def check_plain_worktree(w, age, now, protect, carried, subs, branches):
     merged = is_merged(repo, w.get('head'), branches[repo])
     check_worktree(w, age if merged else Age(now - AGENT_UNMERGED_H * HOUR), protect, carried, subs)
     w['merged'] = merged
+    if w['state'] in ('remove', 'report') and infos:      # fix 5: a running agent's meta names this worktree: never taken
+        _last, running, _m = agent_state(infos, live_ids, w['path'], now, WT_IDLE_H)
+        if running:
+            w.update(state='kept', save_ref=False, why='a running agent works in it (its meta has no finished flag)')
     return w
 
 
-def check_worktrees(age, protect, now=None, live_ids=None, merged_h=AGENT_LIVE_H, unmerged_h=AGENT_UNMERGED_H, agents_only=False):
+def check_worktrees(age, protect, now=None, live_ids=None, merged_h=AGENT_MERGED_H, unmerged_h=AGENT_UNMERGED_H, agents_only=False):
     """live_ids: ids of the sessions live right now (--ahead passes the real ones: a forecast assumes the session goes on)."""
     now = now or time.time()
     rows = list_worktrees(REPO) + list_worktrees(SDK)
@@ -1328,12 +1152,14 @@ def check_worktrees(age, protect, now=None, live_ids=None, merged_h=AGENT_LIVE_H
     carried = carried_keys()
     arows = agent_rows()
     infos, branch = [], ''
-    if arows:
-        infos, branch = agent_infos(), session_branch()
+    if arows or rows:
+        infos = agent_infos()
         live_ids = live_ids if live_ids is not None else {s_[0] for s_ in sessions(now)}
+    if arows:
+        branch = session_branch()
     branches = {}
     with ThreadPoolExecutor(8) as pool:
-        res = list(pool.map(lambda w: check_plain_worktree(w, age, now, protect, carried, subs, branches), rows))
+        res = list(pool.map(lambda w: check_plain_worktree(w, age, now, protect, carried, subs, branches, infos, live_ids), rows))
         res += list(pool.map(lambda w: check_agent_worktree(w, now, infos, live_ids, branch, protect, carried, merged_h, unmerged_h), arows))
     return res
 
@@ -1349,6 +1175,7 @@ class Deleter:
         self.clean_dirs = set()
         self.agent_cache = None
         self.carried = carried_keys()
+        held_index()      # S102 TIDY2: sets HELD, the last backstop (protected_zone)
 
     def err(self, p, e):
         with self.lock:
@@ -1462,7 +1289,13 @@ class Deleter:
         if not os.path.normcase(os.path.abspath(p)).startswith(os.path.normcase(OUT) + os.sep):
             return False
         r = out_rel(p)
-        return any(r == n or r.startswith(n + '/') for n in NO_TOUCH)
+        if any(r == n or r.startswith(n + '/') for n in NO_TOUCH):
+            return True
+        if r.startswith('wt/'):
+            return False       # out\wt git worktrees are the worktree pass's (finished + merged go at once; real edits are reported only)
+        if HELD is not None:       # S102 TIDY2: the last backstop, whatever the pass: a held path, or a folder that holds one, is never deleted
+            return bool(HELD.why('out/' + r)) or HELD.ancestor('out/' + r)
+        return False
 
     def file(self, row):
         p = row['p']
@@ -1756,6 +1589,7 @@ def clear_scratch(o, wt, guard_t, d, dry, skip_build, only=None):
     return freed, ([] if dry else list(d.errors))
 
 
+HELD = None      # S102 TIDY2: the HeldIndex of the running pass (Deleter.protected_zone)
 PRESSURE_FORCE = False      # S102 K1: the watch sets this when free space falls fast (reserve in under 2 h): scratch_pass treats C: as under pressure
 
 
@@ -1870,6 +1704,45 @@ def scratch_pass(now, dry=False, free=None, skip=()):
     return total, lines
 
 
+WT_INDEX_FILES = ('ours.db', 'ours.db-wal', 'ours.db-shm', 'ours.db-journal')   # ORDER MATTERS: the db goes first, its sidecars after (a journal without its db is harmless; the reverse is not)
+
+
+def worktree_index_pass(dry=False):
+    """QTF (S103 WTA fix 3 / QTF 6): a worktree's private out/harness/index/ours.db is never kept. `q ours` in a worktree always reads the MAIN checkout's
+    index now (qours.db_path ignores the private copy), so these ~200 MB files (16 of 115 worktrees had one) are pure waste and the source of the 10-minute
+    re-indexes. Each one goes through guard_paths (an agent that is running or was active recently is refused and tried again at the next pass).
+    -> (bytes freed or that would be, lines)."""
+    cands = []
+    for _w, o in scratch_dirs():
+        for n in WT_INDEX_FILES:
+            f = os.path.join(o, 'harness', 'index', n)
+            if os.path.isfile(lp(f)):
+                cands.append(f)
+    if not cands:
+        return 0, []
+    ok, lines, total = [], [], 0
+    for f, why in guard_paths(cands):
+        if why:
+            lines.append('worktree index kept (%s): %s' % (why, f))
+        else:
+            ok.append(f)
+    d = Deleter(time.time())
+    try:
+        for f in ok:
+            try:
+                sz = os.path.getsize(lp(f))
+            except OSError:
+                continue
+            if dry or d.unlink(f, sz):
+                total += sz
+                lines.append('worktree index %s: %s (%s)' % ('would go' if dry else 'deleted', f, human(sz)))
+    finally:
+        d.pool.shutdown()
+    if total and not dry:
+        history('worktree private ours.db deleted: %s' % human(total))
+    return total, lines
+
+
 def safe_scratch(now, dry=False, free=None, skip=()):
     """scratch_pass that can never stop the pass around it (a git timeout, a vanished folder)."""
     t, L = 0, []
@@ -1878,6 +1751,11 @@ def safe_scratch(now, dry=False, free=None, skip=()):
     except Exception as e:
         history('scratch pass FAILED: %r' % (e,))
         L = ['scratch pass failed: %s' % repr(e)[:100]]
+    try:
+        t3, L3 = worktree_index_pass(dry)
+        t, L = t + t3, L + L3
+    except Exception as e:
+        history('worktree index pass FAILED: %r' % (e,))
     try:
         t2, L2 = scratchpad_pass(now, dry) if SCRATCHPAD_PASS else (0, [])      # S102 K1: OFF by default
         t, L = t + t2, L + L2
@@ -1964,16 +1842,6 @@ def budget_lines():
     return L
 
 
-def keep_lines(scan):
-    """Rule 2: every KEEP folder with its size and state."""
-    if not scan.keeps:
-        return []
-    L = ['', 'KEEP folders (%d, %s):' % (len(scan.keeps), human(sum(k[2] for k in scan.keeps)))]
-    for path, ki, b in sorted(scan.keeps, key=lambda k: -k[2]):
-        L.append('  %8s  %s  [%s%s] %s' % (human(b), repo_key(path), 'HOLDS: ' if ki['valid'] else 'NO HOLD: ', ki['kind'], ki['why']))
-    return L
-
-
 # ---------------------------------------------------------------- reporting
 def human(b):
     return '%.1f GB' % (b / GB)
@@ -1983,7 +1851,7 @@ def summarize(items, wts):
     area, types = collections.Counter(), collections.Counter()
     for i in items:
         parts = out_rel(i['p']).split('/')
-        area['/'.join(parts[:2]) if parts[0] in ('harness', 'android', 'release', 's95') and len(parts) > 2 else parts[0]] += i['b']
+        area[parts[0]] += i['b']
         for k, v in i['types'].items():
             types[k] += v
     for w in wts:
@@ -2015,18 +1883,44 @@ def agent_summary(wts):
     return L
 
 
-def report_lines(scan, items, wts, age, live, named):
-    cutoff = age.cutoff
+BIG_HELD_GB = 5     # a held path over this is flagged "big: confirm with Jarrod"
+
+
+def held_sizes(sw):
+    """[(bytes, rel, why, path)] biggest first: the held roots the sweep met, sized (threaded)."""
+    def one(r):
+        rel, why, path = r
+        try:
+            if os.path.isdir(lp(path)):
+                return tidy_out.stats(path)[0], rel, why, path
+            return os.stat(lp(path)).st_size, rel, why, path
+        except OSError:
+            return 0, rel, why, path
+    with ThreadPoolExecutor(WORKERS) as pool:
+        return sorted(pool.map(one, sw.rows), key=lambda r: -r[0])
+
+
+def report_lines(sw, wts, live, problems, held):
+    items = sw.items
     area, types = summarize(items, wts)
-    total = sum(types.values())
-    L = ['tidy plan %s. Temporary output expires when older than %s (%d h)%s. Capture folders and out\\s*\\runs keep 24 h (a live session\'s start no longer widens it).' % (
-        stamp(), stamp(cutoff), EXPIRE_H,
-        ' or made since %s and older than %s (%d h, rolling)' % (stamp(age.rolling[0]), stamp(age.rolling[1]), LIVE_KEEP_H) if age.rolling else ''),
-         'live sessions: ' + (', '.join('%s (since %s)' % (s[0][:8], stamp(s[1])) for s in live) or 'none'),
+    total = sum(i['b'] for i in items)
+    L = ['tidy plan %s. out\\ is SCRATCH: at the end of a session (and when no session is live) everything in it goes except the allowlist, '
+         'tools\\harness\\keep_list.txt and gate-lane-named exact paths. No ages. While a session is live out\\ is left alone (only --now under the reserve).' % stamp(),
+         'live sessions: ' + (', '.join('%s (since %s)' % (s_[0][:8], stamp(s_[1])) for s_ in live) or 'none'),
          'C: free now: %.0f GB' % free_gb(), '',
-         'WOULD DELETE PERMANENTLY: %s' % human(total), '', 'by type:']
-    L += ['  %8s  %s' % (human(v), k) for k, v in types.most_common()]
-    L += ['', 'by folder:'] + ['  %8s  %s' % (human(v), k) for k, v in area.most_common(60)]
+         'WOULD DELETE AT SESSION END: %s (%d items)' % (human(total), len(items)), '']
+    L += ['by folder:'] + ['  %8s  %s' % (human(v), k) for k, v in area.most_common(40)]
+    hs = held_sizes(sw)
+    L += ['', 'HELD in out\\ (never deleted: %s over %d paths):' % (human(sum(r[0] for r in hs)), len(hs))]
+    for b, rel, why, _p in hs:
+        L.append('  %8s  %s  [%s]%s' % (human(b), rel, why[:110], '  BIG: confirm with Jarrod' if b > BIG_HELD_GB * GB else ''))
+    if sw.notes['keeps']:
+        L += ['', 'KEEP files found (%d): ignored, they no longer protect anything. Move the path to tools\\harness\\keep_list.txt with a reason:' % len(sw.notes['keeps'])]
+        L += ['  ' + os.path.relpath(k, REPO) for k in sw.notes['keeps'][:30]]
+    if problems:
+        L += ['', 'keep list / lint problems:'] + ['  ' + x for x in problems]
+    if sw.notes['worktrees']:
+        L += ['', 'worktree folders in out\\ left to the worktree pass: ' + ', '.join(os.path.relpath(x, OUT) for x in sw.notes['worktrees'][:10])]
     rm = [w for w in wts if w['state'] == 'remove']
     L += ['', 'worktrees removed (%d, %s). Their branches stay; commits on no branch are saved under refs/tidy/:' % (
         len(rm), human(sum(w['b'] for w in rm)))]
@@ -2034,16 +1928,15 @@ def report_lines(scan, items, wts, age, live, named):
                                    '  (commits saved to refs/tidy)' if w.get('save_ref') else '',
                                    '  (merged)' if w.get('merged') else '') for w in sorted(rm, key=lambda x: -x['b'])]
     L += [''] + agent_summary(wts)
-    for w in sorted((w for w in wts if w.get('agent') and w['state'] == 'kept' and ('transcript' in w['why'] or 'still running' in w['why'] or w['why'].startswith('active within'))), key=lambda x: os.path.basename(x['path'])):
-        L.append('    live: %s [%s] %s' % (os.path.basename(w['path']), 'merged' if w['merged'] else 'not merged', w['why']))
+    um = [w for w in wts if w.get('agent') and not w.get('merged') and w['state'] != 'gone']
+    if um:
+        L += ['  UNMERGED agent worktrees (never taken automatically; the main session decides): ' + ', '.join(
+            '%s %s' % (os.path.basename(w['path']), human(w['b'])) for w in sorted(um, key=lambda x: -x['b'])[:12])]
     other = [w for w in wts if w['state'] in ('report', 'kept')]
     L += ['', 'worktrees NOT removed (%d, %s):' % (len(other), human(sum(w['b'] for w in other)))]
     L += ['  %8s  %s  %s: %s' % (human(w['b']), repo_key(w['path']), w['state'], w['why']) for w in sorted(other, key=lambda x: -x['b'])]
-    L += ['', 'kept:'] + ['  %8s  %s' % (human(v), k.replace('hold:', '')) for k, v in scan.kept.most_common()]
-    L += keep_lines(scan)
-    L += ['', 'folders kept only because a state doc names them:'] + ['  out/%s  (%s)' % (k, named.get('out/' + k, '?')) for k in sorted(scan.named_hits)]
-    if scan.links:
-        L.append('junctions / links left alone in out: %d' % scan.links)
+    if sw.notes['links']:
+        L.append('junctions / links left alone in out: %d' % sw.notes['links'])
     L += ['', 'every item:'] + ['  %8s  %s' % (human(i['b']), os.path.relpath(i['p'], REPO)) for i in sorted(items, key=lambda x: -x['b'])[:3000]]
     return L, total
 
@@ -2067,11 +1960,61 @@ def alert(state, text, now):
 
 
 # ---------------------------------------------------------------- commands
+KEEP_LIST = os.environ.get('TIDY_TEST_KEEP') or next(
+    (c for c in (os.path.join(REPO, 'tools', 'harness', 'keep_list.txt'), os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keep_list.txt'))
+     if os.path.isfile(c)), os.path.join(REPO, 'tools', 'harness', 'keep_list.txt'))
+
+
 def protect_keys():
-    named = named_paths()
-    for k, v in gate_inputs().items():
-        named.setdefault(k, v)
+    """-> (keys, named): the gate-named exact paths (S102 TIDY2: the state docs no longer protect anything) and the --hold carry-overs."""
+    named = dict(gate_inputs())
     return set(named) | carried_keys(), named
+
+
+_held_cache = []
+
+
+def held_index(fresh=False):
+    """-> (HeldIndex, problems): the allowlist, the keep list, the gate-named exact paths, the carry-overs. Cached per process."""
+    global HELD
+    if _held_cache and not fresh:
+        return _held_cache[0]
+    entries, problems = tidy_out.load_keep_list(KEEP_LIST)
+    _, named = protect_keys()
+    version = ''
+    try:
+        version = open(os.path.join(REPO, 'VERSION'), encoding='utf-8').read().strip().lower()
+    except OSError:
+        pass
+    h = tidy_out.HeldIndex(version, entries, named, carried_keys())
+    lane_dir = os.path.join(REPO, 'tools', 'gate', 'lanes')      # a gate lane that names a container / an unpack copy is a lint error and protects nothing
+    try:
+        for n in sorted(os.listdir(lane_dir)):
+            if n.endswith('.json'):
+                try:
+                    with open(os.path.join(lane_dir, n), encoding='utf-8') as f:
+                        problems += ['lint: ' + x for x in tidy_out.lint_lane_data(json.load(f), n, OUT)]
+                except (OSError, ValueError):
+                    pass
+    except OSError:
+        pass
+    _held_cache[:] = [(h, problems)]
+    HELD = h
+    return _held_cache[0]
+
+
+class Sweep:
+    def __init__(self, items, rows, notes):
+        self.items, self.rows, self.notes = items, rows, notes
+
+
+def scan_out(wts, idle_h=None):
+    """S102 TIDY2: everything in out\\ that is not held (tidy_out.sweep). idle_h: only things idle this long (the emergency pass while a session is live)."""
+    held, _ = held_index()
+    skip = {os.path.normcase(os.path.abspath(w['path'])) for w in wts}
+    cutoff = time.time() - idle_h * HOUR if idle_h else None
+    items, rows, notes = tidy_out.sweep(OUT, held, skip, cutoff, type_of)
+    return Sweep(items, rows, notes)
 
 
 def disk_status(log=False):
@@ -2083,8 +2026,8 @@ def disk_status(log=False):
 
 
 def gate_named_fn():
-    keys = [k[4:].rstrip('*') for k in gate_inputs()]
-    return lambda path: any(repo_key(path) == 'out/' + k or repo_key(path).startswith('out/' + k + '/') for k in keys)
+    h = held_index()[0]
+    return lambda path: bool(h.why(repo_key(path)))
 
 
 def cmd_dupes():
@@ -2112,23 +2055,20 @@ def cmd_dupes():
 
 
 def cmd_plan(ahead=0.0):
-    """ahead > 0: a read-only forecast, the same plan as if it were that many hours later (what the next hours would delete)."""
+    """What the END OF A SESSION would delete now (S102 TIDY2). ahead is accepted and ignored: there are no ages any more."""
     real_now = time.time()
-    now = real_now + ahead * HOUR
     live = sessions(real_now)
-    age, strict = make_ages(now, live)     # lane 154: two intervals, not "since the oldest live session began"
-    cutoff = age.cutoff
-    protect, named = protect_keys()
-    wts = check_worktrees(age, protect, now, {s_[0] for s_ in live})
-    scan, items = scan_out(age, protect, wts, strict, now)
-    L, total = report_lines(scan, items, wts, age, live, named)
+    age = Age(real_now - WT_IDLE_H * HOUR)
+    protect, _named = protect_keys()
+    wts = check_worktrees(age, protect, real_now, {s_[0] for s_ in live})
+    held, problems = held_index()
+    sw = scan_out(wts)
+    L, total = report_lines(sw, wts, live, problems, held)
     sc_total, sc_lines = safe_scratch(real_now, True)
     L[3:3] = [disk_status()[0]] + missing_lines() + budget_lines() + (['agent worktree out\\ scratch (would clear now: %s):' % human(sc_total)] + ['  ' + x for x in sc_lines] if sc_lines else [])
     os.makedirs(TIDY, exist_ok=True)
-    name = 'plan_' + time.strftime('%Y%m%d_%H%M') + ('_ahead%g' % ahead if ahead else '')
-    if ahead:
-        L.insert(0, 'FORECAST: the same plan as if it were %g h from now, assuming the live session goes on (its running agents stay; not applicable).' % ahead)
-    save_json(name + '.json', {'made': real_now, 'ahead': ahead, 'cutoff': cutoff, 'items': items, 'worktrees': [w for w in wts if w['state'] == 'remove']})
+    name = 'plan_' + time.strftime('%Y%m%d_%H%M')
+    save_json(name + '.json', {'made': real_now, 'ahead': 0, 'items': sw.items, 'worktrees': [w for w in wts if w['state'] == 'remove']})
     with open(os.path.join(TIDY, name + '.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(L) + '\n')
     print('\n'.join(L[:L.index('every item:')]))
@@ -2173,33 +2113,88 @@ def low_order(i):
     return (LOW_ORDER.index(top) if top in LOW_ORDER else len(LOW_ORDER), -i['b'] if top == 'worktree' else i['t'])
 
 
+def surface_job_alive():
+    """A Surface runner (tools\\surface\\s0_5_jobs.ps1 keeps its pid in out\\surface_runner.lock) that is still alive."""
+    try:
+        txt = open(os.path.join(OUT, 'surface_runner.lock'), encoding='utf-8', errors='replace').read()
+        m = re.search(r'\d+', txt)
+        return bool(m) and pid_alive(int(m.group(0)))
+    except OSError:
+        return False
+
+
+def own_activity(now, live):
+    """'' or why a session end must not sweep everything: a running agent of a live session (its meta has no finished flag), or a Surface runner."""
+    try:
+        live_ids = {x[0] for x in live}
+        for i in agent_infos():
+            if i['has_meta'] and i['finished'] is not True and i['parent'] in live_ids and max(i['tr'], i['meta_t']) >= now - ORPHAN_META_H * HOUR:
+                return 'agent %s of this session is still running' % i['id']
+    except Exception as e:
+        return 'could not read the agents (%s): treated as running' % repr(e)[:60]
+    if surface_job_alive():
+        return 'a Surface runner (out\\surface_runner.lock) is alive'
+    return ''
+
+
+def out_sweep_decision(trigger, live, session_id, now=None):
+    """S102 TIDY2: -> (sweep out\\ now?, why not, idle hours or None). out\\ is cleared at the end of a session and when no session is live; never while
+    one is live. The hourly sweep takes only items untouched HOURLY_IDLE_H; session end takes only items idle ACTIVE_IDLE_H while this session's own
+    agents / a Surface job are still running."""
+    now = now or time.time()
+    if trigger == 'end':
+        me = next((x for x in live if session_id and x[0].startswith(session_id)), None) or (live[0] if len(live) == 1 and not session_id else None)
+        others = [x for x in live if me is None or x[0] != me[0]]
+        if others:
+            return False, 'another session is live (%s): out\\ left alone' % ', '.join(x[0][:8] for x in others), None
+        busy = own_activity(now, live)
+        if busy:
+            return True, '', ACTIVE_IDLE_H
+        return True, '', None
+    if trigger == 'hourly':
+        if live:
+            return False, 'a session is live: out\\ left alone', None
+        return True, '', HOURLY_IDLE_H
+    return False, 'out\\ is cleared at session end or when no session is live', None
+
+
 def cmd_auto(trigger, dry, session_id):
     if not os.path.exists(os.path.join(TIDY, 'enabled')) and not dry:
         print('tidy: automatic mode is off until the first clean-up has been approved (--apply)')
         return 0
     now = time.time()
     live = sessions(now)
-    age, strict = make_ages(now, live)     # lane 154: two intervals (S1)
+    age = Age(now - WT_IDLE_H * HOUR)      # plain worktrees: merged and finished go at the next pass
     released_before = None
     if trigger == 'end':
-        # Own files may go only when this session is known for certain and no other session is live. Otherwise the
-        # normal rule applies and the hourly pass collects them a day later.
-        me = next((s for s in live if session_id and s[0].startswith(session_id)), None) or (live[0] if len(live) == 1 and not session_id else None)
+        me = next((s_ for s_ in live if session_id and s_[0].startswith(session_id)), None) or (live[0] if len(live) == 1 and not session_id else None)
         if me and len(live) == 1:
-            age, strict = make_ages(now, live, own_since=me[1])
             released_before = me[1]
     released = carry_expire(now, released_before=released_before) if not dry else []
     if released:
         history('carry-over released: ' + ', '.join(c['path'] for c in released))
     protect, _ = protect_keys()
     wts = check_worktrees(age, protect, now)
-    scan, items = scan_out(age, protect, wts, strict)
+    do_out, why_not, idle_h = out_sweep_decision(trigger, live, session_id, now)
+    held, problems = held_index(fresh=True)
+    if do_out and problems:      # fix 4: FAIL CLOSED. A flagged gate name / bad keep line would stop holding its inputs: no sweep until it is fixed
+        do_out, why_not = False, 'LOUD: %d lint / keep-list problem(s): out\\ NOT swept until fixed (first: %s)' % (len(problems), problems[0][:140])
+        history('out\\ sweep skipped: ' + why_not)
+        if not dry:
+            st_ = load_json('state.json', {})
+            if now - st_.get('alert', {}).get('time', 0) > ALERT_EVERY_H * HOUR:
+                alert(st_, why_not[:200], now)
+                save_json('state.json', st_)
+    if do_out and idle_h and trigger == 'end':
+        print('out\\: swept only items idle %g min (%s)' % (idle_h * 60, own_activity(now, live)))
+    sw = scan_out(wts, idle_h) if do_out else Sweep([], [], {'links': 0, 'worktrees': [], 'recent': 0, 'keeps': []})
+    items = sw.items
     rm = [w for w in wts if w['state'] == 'remove']
     if dry:
-        _, types = summarize(items, wts)
-        print('tidy --dry (%s): would remove %s; files after %s stay%s' % (
-            trigger, human(sum(types.values())), stamp(age.cutoff), ', except this session\'s own' if age.own_since else ''))
-        for k, v in types.most_common():
+        total = sum(i['b'] for i in items)
+        print('tidy --dry (%s): would remove %s from out\\%s' % (trigger, human(total), '' if do_out else ' (%s)' % why_not))
+        area, _t = summarize(items, wts)
+        for k, v in area.most_common(12):
             print('  %8s  %s' % (human(v), k))
         for line in agent_summary(wts):
             print(line)
@@ -2208,10 +2203,20 @@ def cmd_auto(trigger, dry, session_id):
             print(line)
         for line in missing_lines() + budget_lines():
             print(line)
+        for x in problems:
+            print('  problem: ' + x)
         return 0
     d = Deleter(now)
     d.remove(items, rm, [w for w in wts if w['state'] == 'gone'])
     finish(trigger, d, now)
+    if not do_out:
+        print('out\\: %s' % why_not)
+    for k in sw.notes['keeps'][:10]:
+        print('KEEP file ignored (move it to tools\\harness\\keep_list.txt with a reason): ' + os.path.relpath(k, REPO))
+    for x in problems:
+        print('problem: ' + x)
+    for b, rel, why, _p in held_sizes(sw)[:12] if do_out else []:
+        print('  held %8s  %s  [%s]%s' % (human(b), rel, why[:80], '  BIG: confirm with Jarrod' if b > BIG_HELD_GB * GB else ''))
     sc_total, sc_lines = safe_scratch(now)
     for line in sc_lines:
         print(line)
@@ -2273,9 +2278,9 @@ def low_pass(live, protect):
     worktrees included, biggest first. Stops at 75 GB free. Lane 187: a finished MERGED agent worktree idle NOW_IDLE_H (30 min)
     goes too (an unmerged one still waits 24 h here; --now takes those as well: their commits are saved under refs/tidy)."""
     now = time.time()
-    age, strict = make_ages(now, live, low=True)
+    age = Age(now - WT_IDLE_H * HOUR)
     wts = check_worktrees(age, protect, now, merged_h=NOW_IDLE_H)
-    scan, items = scan_out(age, protect, wts, strict)
+    items = scan_out(wts, LOW_LIVE_KEEP_H if live else 1).items      # S102 TIDY2: below the reserve only: idle 2 h while a session is live
     rm = [w for w in wts if w['state'] == 'remove']
     for w in rm:
         items.append(wt_item(w))
@@ -2322,7 +2327,7 @@ def cmd_now(dry=False, label='now', target=None):
         return 0
     live = sessions(now)
     protect, _ = protect_keys()
-    age, strict = make_ages(now, live, low=True)     # exactly the low pass's ages (captures, runs, plain worktrees)
+    age = Age(now - WT_IDLE_H * HOUR)
     floor = free0 < HARD_FLOOR_GB
     wts = check_worktrees(age, protect, now, {s_[0] for s_ in live}, NOW_IDLE_H, NOW_IDLE_H if floor else AGENT_LIVE_H)
     rm_a = sorted((w for w in wts if w.get('agent') and w['state'] == 'remove'), key=lambda w: -w['b'])
@@ -2357,7 +2362,7 @@ def cmd_now(dry=False, label='now', target=None):
         if busy:
             stopped = 'skipped the out\\ pass: a game or build is running (%s)' % busy[:60]
         else:
-            scan, items = scan_out(age, protect, wts, strict)
+            items = scan_out(wts, LOW_LIVE_KEEP_H if live else 1).items
             for w in wts:
                 if w['state'] == 'remove' and not w.get('agent'):
                     items.append(wt_item(w))
@@ -2561,6 +2566,13 @@ def main():
         SCRATCHPAD_PASS = True
     if a.auto == 'watch':       # lane 187: free space only, no scan, no lock: exits at once while there is room
         global PRESSURE_FORCE
+        if not (a.dry or TEST):      # S103: the PC watchdog (notices and alerts only, never kills) rides the same 10-minute task
+            try:
+                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pc_watchdog.py')], capture_output=True, timeout=120, creationflags=NO_WINDOW)
+            except Exception:
+                pass
+        # QTF: tools\harness\proc_sweep.py is deliberately NOT wired here until its second Opus review passes
+        # (then: proc_sweep.sweep(kill=not (a.dry or TEST), log=history, quiet=True, worktree_busy=<agent_state check>), in a try / except).
         if not (a.dry or TEST):      # S102 K1 (R12 change 8): every watch run logs free space, enabled or not
             line, hours = disk_status(log=True)
             if hours is not None and hours < 3:

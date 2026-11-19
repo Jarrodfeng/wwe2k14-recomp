@@ -88,6 +88,14 @@ void EndFrame(uint64_t guest_frame, uint32_t capture_frame);
 // Where the census / refusal lines go (the game sets REXLOG_INFO; a test prints). Without one, nothing is logged.
 using LogFn = void (*)(const char* line);
 void SetLog(LogFn fn);
+// S103 lane S (docs\renderer\OURS_INPUT_AUDIT.md item 7): the record's kScInputStamps snapshot is taken ONCE, at the END of the latch (after every
+// contributor's Latch, game threads parked), or at the record's build when no latch ran (EndFrame: the same moment). It replaces whatever a
+// contributor wrote, so the render side can check that record j's own inputs are fresh for its hook frame. A deferred emit with no snapshot of
+// its own frame writes none (the render side then refuses OURS for it: fail safe). nullptr (the default) = the contributors' rows, as before.
+using StampFillFn = void (*)(std::vector<InputStampRow>& out);
+void SetStampFill(StampFillFn fn);
+// S103 L1C review B1: the stamps a contributor makes at EMIT (after the latch snapshot): the bits this fill names overwrite their rows in the record's input_stamps. Keep this list to the bits that CANNOT be decided at the latch (bit 14: it needs the record's own movie rows).
+void SetEmitStampFill(StampFillFn fn);
 // Writes the `[scene][live] frames A-B: ...` line (if any frame was built in the window) and starts a new window. reader.h calls it with
 // the `[rdr][names]` window.
 void CensusLog(uint64_t from, uint64_t to);

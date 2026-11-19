@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 103 run 10 (coverage exe, mode 1 not needed: traces only). Armed at Brock's tron + 300 (per-frame functions keep their budget):
+# lane M: the stage screens' model object / part (0x82BDED40), the movie channel getter's callers in the entrance (0x827F9D88), the in-memory
+#   movie opens (0x827FABA0); lane A2: T6b circle-shadow body-point index list (0x823A6450); stage flashes: the flash draw method (0x82C0F528).
+on_fail quit
+log bench: start scene s103_trace_entrance2
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+cvar wwe2k14_trace 0x827FABA0/40*r4*r5^
+log s103: movie-open trace armed (arena load)
+wait_file 343.bik2 1800
+log scene=tron_343
+mark 1 tron_343
+wait_frames 300
+cvar wwe2k14_trace 0x827FABA0/40*r4*r5^,0x82BDED40/60*r3*r4,0x827F9D88/600*r4*r5*r6@callers,0x823A6450/20*r3*r4*r5,0x82C0F528/60*r3*r4*r5^
+log s103: traces armed (tron + 300)
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15 (Brock's entrance step 15)
+mark 2 step15
+wait_frames 300
+log bench: done
+quit

@@ -1,5 +1,7 @@
 // The crowd drawn by us inside the game's frame. See crowd_ours.h and docs\renderer\CROWD_PROMOTION.md.
 #include "../thread_name.h"  // S102 H1
+#include "../renderer_adapter/census_flush.h"  // S102 CEN1
+static census_flush::Site g_cf_stamp_member, g_cf_stamp_card;  // S102 CEN1
 #include "crowd_ours.h"
 
 #include <algorithm>
@@ -688,7 +690,7 @@ uint32_t CrowdOurs::Inject(rdr_adapter::CrowdInject& in) {
       }
       stats_.member_probe_match[k] += all;
     }
-    if (stats_.member_probe_frames % 600 == 0)
+    if (stats_.member_probe_frames % 600 == 0 || census_flush::Due(g_cf_stamp_member))
       rdr::Log("[rdr][crowd] member thin stamp: offset 0 / 1 / 2 match %llu / %llu / %llu of %llu full frames", static_cast<unsigned long long>(stats_.member_probe_match[0]), static_cast<unsigned long long>(stats_.member_probe_match[1]),
                static_cast<unsigned long long>(stats_.member_probe_match[2]), static_cast<unsigned long long>(stats_.member_probe_frames));
   }
@@ -1370,7 +1372,7 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
           op.index = {body.meshes[k].index, 0};
           op.count = body.meshes[k].index_count;
           op.instances = count;
-          if (!options_.hide_ours) builder.Draw(op);
+          if (!options_.hide_ours) builder.Draw(op, rdr::kGrpCrowd);   // S103 GSTP
           ++inst_frame_draws;
           ph_.Lap(kDraw);
         }
@@ -1427,8 +1429,8 @@ uint32_t CrowdOurs::InjectBody(rdr_adapter::CrowdInject& in) {
         op.vertex[0] = {rdr::kFrameGeometry, s.geometry_offset[k]};
         op.index = {body.meshes[k].index, 0};
         op.count = body.meshes[k].index_count;
-        if (!options_.hide_ours) builder.Draw(op);
-        if (options_.fault_double_mesh && !options_.hide_ours) builder.Draw(op);
+        if (!options_.hide_ours) builder.Draw(op, rdr::kGrpCrowd);   // S103 GSTP
+        if (options_.fault_double_mesh && !options_.hide_ours) builder.Draw(op, rdr::kGrpCrowd);
         ph_.Lap(kDraw);
       }
       ++drawn;
@@ -1546,7 +1548,7 @@ uint32_t CrowdOurs::InjectCards(rdr_adapter::CrowdInject& in) {
       const uint64_t fno = in.frame->header.guest_frame;
       if (fno >= k && options_.thin_counts(fno - k, s, d, w) && s == plan.stream_cards && w == plan.record_world_sum) ++stats_.thin_probe_match[k];
     }
-    if (stats_.thin_probe_frames % 600 == 0 || stats_.thin_probe_frames == 16)   // S102 T2 F3: also at probe frame 16 (a short run) and in Report()
+    if (stats_.thin_probe_frames % 600 == 0 || stats_.thin_probe_frames == 16 || census_flush::Due(g_cf_stamp_card))   // S102 T2 F3: also at probe frame 16 (a short run) and in Report()
       rdr::Log("[rdr][crowd] card thin stamp: offset 0 / 1 / 2 match %llu / %llu / %llu of %llu full frames", static_cast<unsigned long long>(stats_.thin_probe_match[0]),
                static_cast<unsigned long long>(stats_.thin_probe_match[1]), static_cast<unsigned long long>(stats_.thin_probe_match[2]), static_cast<unsigned long long>(stats_.thin_probe_frames));
   }

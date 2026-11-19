@@ -69,8 +69,10 @@
 #include "renderer/overlay.h"  // lane 269: rdr::g_gpu_* (the new renderer's GPU timestamps)
 #include "renderer/breadcrumbs.h"  // S102 D1: rdr::DeviceLost (the device_lost column, the player's message)
 #include <thread>
+#include "thread_name.h"  // S103: the lost-device message box thread names itself
 #include "android_lifecycle.h"  // Session 95: a frame out of front is not a hitch
 #include "hang_guard.h"  // Session 95: --wwe2k14_hang_guard and its test switch
+#include "renderer_game/scene_frame.h"  // S103 H: SnapshotMode() in OnSwap (the scene mode is read once per guest frame)
 #include "perf_mem.h"    // lane 249: [perf][mem] lines
 #include "renderer_adapter/skips_auto.h"  // S102 K3: the D3 skips' frame-boundary latch (no game types)
 #include "renderer_adapter/rdr_switches_cvar.h"  // S102 S0-4: the per-frame switch table (no game types)
@@ -179,6 +181,7 @@ class FrameStats {
     const uint64_t frame = g_guest_frame.load(std::memory_order_relaxed) + 1;   // S102 K3 review F6: the number is published AFTER the switch refresh and the skips' latch below, so a recording thread that reads frame N reads N's latch
     ab_flip::AtFrame(frame);  // S102 M7: --wwe2k14_ab_flip (default off): the in-run A/B flips its switches here, so the refresh below logs them at this frame
     rdr_sw::RefreshFromCvars(frame);  // S102 S0-4: the lane switches, read once per guest frame (a change logs "[switch] frame N NAME=VALUE" once)
+    scene_frame::SnapshotMode();  // S103 H: the scene mode, once per guest frame, before the number below is published (a run-time cvar change never splits a frame)
     skips_auto::AtGuestFrame(rdr_sw::Bool(rdr_sw::kSkipsAuto), frame);  // S102 K3: the D3 skips' on / off is latched here, once per guest frame, from the render thread's decision (skips_auto.h)
     g_guest_frame.store(frame, std::memory_order_release);
     if (frame == 1) blackbox::Step("first frame: the game is running");  // Session 73
@@ -704,7 +707,7 @@ class FrameStats {
   // S102 D1: the player's message on a lost device. A box on its own thread (the game's threads keep running: sound, the log); nothing on a phone (the log line).
   static void ShowDeviceLostMessage() {
 #if defined(_WIN32)
-    std::thread([] {
+    std::thread([] { wwe2k14::NameThread(L"device_lost_box");
       MessageBoxW(nullptr,
                   L"The graphics driver stopped the game's GPU work (Vulkan device lost).\n\nThe picture will not change any more. Please close the game and start it again.\n\n"
                   L"If this keeps happening, send the game's log (logs folder) with your report.",

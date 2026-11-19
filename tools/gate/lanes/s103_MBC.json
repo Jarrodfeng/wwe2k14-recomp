@@ -1,0 +1,32 @@
+{
+ "owner": "S103 lane MBC (docs/research/s103/RMP.md 2): props (weapons, event props, structure pieces) are cast into the wrestlers' shadow map (map B) in the game's mode 0. Cast tag kObjCastsMapB (src/renderer_scene/scene_record.h, set in rf_props.cpp ApplyWeaponRows by weapons::CastsMapB, weapon_plan.h), the mode gate in live_map_shadow.cpp RecordShadow from the phase row's participant count + ring gate word (inputs_contrib.h, record_frame.cpp), the prop caster build (CasterOf prop) over ModelCache::SetPropCpu, switch wwe2k14_rdr_mapb_props.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0], "basis": "a LOOK (a held chair / ladder rung / belt / mic shadows the wrestler it touches); no saving claimed."},
+ "note": "0 game runs, 0 Surface runs. Unit: tools/weapons/mapb_test.cpp (the filter + the phase row words, plant cast_gm). Rig: frame_rig.py --maps-check --mapb-check on out/captures/brock_losswin (frames 20 / 110 / 200): NO offline record carries weapon rows (sections 59-61 are written by the live hooks), so the props are a labelled FIXTURE (frame_rig.cpp InjectMapBFixture: a box given to the front end like ApplyWeaponRows gives a weapon, tagged by the same filter, plus a gm-set box that must not cast); the footprint IoU against the box's ANALYTIC shadow >= 0.80 (measured 0.955-0.974). The footprint of the GAME's own props is not proved offline (no record holds them): the first live prop-bearing frame's census line [scene][maps][mapb] settles it. Planted faults: mapb_wrestlers_only (nothing cast: MAPB PROPS), mapb_casts_gm (MAPB GM). Mode 1 (scene word 1 + 3 participants): wrestlers only (MAPB MODE1).",
+ "checks": [
+  {"name": "s103_MBC.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/weapons/build_mapb.ps1"], "timeout_s": 300, "tier": "cheap",
+   "affects": ["tools/weapons/mapb_test.cpp", "tools/weapons/build_mapb.ps1", "src/renderer_scene/weapon_plan.h", "src/renderer_scene/weapon_rows.h", "src/renderer_scene/scene_record.h"]},
+  {"name": "s103_MBC.unit", "cmd": ["out/weapons/mapb_test.exe"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["tools/weapons/mapb_test.cpp", "src/renderer_scene/weapon_plan.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/prop_cache_sweep.h"]},
+  {"name": "s103_MBC.unit_plant_cast_gm", "cmd": ["out/weapons/mapb_test.exe", "--plant", "cast_gm"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["tools/weapons/mapb_test.cpp", "src/renderer_scene/weapon_plan.h"]},
+  {"name": "s103_MBC.unit_plant_no_sweep", "cmd": ["out/weapons/mapb_test.exe", "--plant", "no_sweep"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["tools/weapons/mapb_test.cpp", "src/renderer_scene/prop_cache_sweep.h"]},
+  {"name": "s103_MBC.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_map_shadow.cpp,src/renderer_scene/live_maps.cpp,src/renderer_scene/record_frame.cpp,src/renderer_scene/rf_props.cpp,src/renderer_scene/frame_hooks.cpp,src/start_settings.cpp"], "timeout_s": 900, "tier": "cheap",
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_scene/live_maps.h", "src/renderer_scene/record_frame.h", "src/renderer_scene/props_map_switch.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/front_end.h", "src/scene_live/inputs_contrib.h"]},
+  {"name": "s103_MBC.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_MBC.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_MBC.rig_props", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--capture", "out/captures/brock_losswin", "--frames", "20,110,200", "--out", "out/s103/MBC", "--no-sheet"], "timeout_s": 1800, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_MBC.plant_wrestlers_only", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/MBC", "--no-sheet", "--maps-fault", "mapb_wrestlers_only", "--expect-fail", "MAPB PROPS"], "timeout_s": 900, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_MBC.plant_casts_gm", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/MBC", "--no-sheet", "--maps-fault", "mapb_casts_gm", "--expect-fail", "MAPB GM"], "timeout_s": 900, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_MBC.word1_two", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--mapb-scene-word", "1", "--mapb-participants", "2", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/MBC", "--no-sheet"], "timeout_s": 900, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_MBC.plant_count_unknown", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--mapb-scene-word", "1", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/MBC", "--no-sheet", "--expect-fail", "MAPB PROPS NONE"], "timeout_s": 900, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]},
+  {"name": "s103_MBC.mode1", "cmd": ["py", "-I", "tools/scene/frame_rig.py", "--maps-check", "--mapb-check", "--mapb-expect-mode1", "--capture", "out/captures/brock_losswin", "--frames", "110", "--out", "out/s103/MBC", "--no-sheet"], "timeout_s": 900, "tier": "rig",
+   "needs": ["out/captures/brock_losswin", "game_data/extracted"]}
+ ]
+}

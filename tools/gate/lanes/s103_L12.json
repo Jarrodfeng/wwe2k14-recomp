@@ -1,0 +1,17 @@
+{
+ "owner": "S103 lane L12 (observe the game's stage light-map page in a match): src/renderer_adapter/live.cpp + live.h + reader.h (--wwe2k14_dump_stage_page), tools/scene/stage_page_check.py, tools/scene/stage_page_lint.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "A dev switch (default empty = off) that reads the image the arena draws bind at vertex slot 16 back at chosen guest frames and writes out\\s103\\stage_page\\stage_page_f<frame>.png + .rgba8. The check compares a dump with the player's fade_lightmap00 / 01 (mean ratio per channel, best scale, which page); the synthetic run proves a scaled copy of page 01 reads back its scale. The lint proves the off path.",
+ "checks": [
+  {"name": "s103_L12.synthetic", "cmd": ["py", "-I", "tools/scene/stage_page_check.py", "--synthetic"], "timeout_s": 300,
+   "needs": ["game_data/extracted"], "affects": ["tools/scene/stage_page_check.py", "tools/arena/arena_files.py"]},
+  {"name": "s103_L12.off_lint", "cmd": ["py", "-I", "tools/scene/stage_page_lint.py"], "timeout_s": 60,
+   "affects": ["src/renderer_adapter/live.cpp", "src/renderer_adapter/live.h", "src/renderer_adapter/reader.h", "tools/scene/stage_page_lint.py"]},
+  {"name": "s103_L12.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/renderer_adapter/live.cpp", "src/renderer_adapter/live.h", "src/renderer_adapter/reader.h"]},
+  {"name": "s103_L12.t19_lint", "cmd": ["py", "-I", "tools/gate/t19_lint.py"], "timeout_s": 120},
+  {"name": "s103_L12.address_lint", "cmd": ["py", "-I", "tools/analysis/address_lint.py", "--root", "."], "timeout_s": 600, "needs": ["generated/default"],
+   "affects": ["src/renderer_adapter/*"]}
+ ]
+}

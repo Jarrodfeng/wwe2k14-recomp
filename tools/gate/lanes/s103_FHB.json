@@ -1,0 +1,15 @@
+{
+ "owner": "S103 lane FHB: the foam hand binds its FILE picture (audience-set entry 42000 + h - 1, read from the player's own arena pac at run time) when the record carries no valid picture row for it (run 38: 24 of 24 mirror frames drew the neutral 1x1); the crowd census line counts every picture read by Why and every AppendPictureRows drop by reason. src/assets/crowd_prop_game_space.*, src/renderer_scene/live_crowd.* / rf_crowd.cpp, src/scene_live/crowd_contrib.*; tools/scene/fhb_check.py; docs/research/s103/FH_foam_hand.md. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "needs the brock_losswin capture (scene records + stream, foam hand = image 413 / entry 42016) and the game files (main checkout). fhb_check: the capture's stream prop draws are appended as record rows with NO picture row (a mirror frame whose read failed), drawn through LiveCrowd: bar 1 every hand row binds a file picture (neutral rows = the signs only); bar 2 the bound picture's hash equals the capture's own image 413 and the hands' pixels differ from the neutral twin; bar 3 with the picture rule on a hands-only record has 0 holes. Planted twin no_file_pictures (the pre-FHB rule) must fail bars 1 and 3. Signs keep their guest-memory picture (their file key per style is not decoded [U]).",
+ "checks": [
+  {"name": "s103_FHB.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800,
+   "affects": ["src/renderer_scene/live_crowd.*", "src/renderer_scene/rf_crowd.cpp", "src/assets/crowd_prop_game_space.*"]},
+  {"name": "s103_FHB.proof", "cmd": ["py", "-I", "tools/scene/fhb_check.py"], "timeout_s": 900, "needs": ["out/captures/brock_losswin", "game_data/extracted"],
+   "programs": [{"path": "out/tools/frame_rig.exe", "sources": ["src/renderer_scene/live_crowd.*", "src/renderer_scene/rf_crowd.*", "src/renderer_scene/crowd_prop_rows.h", "src/renderer_scene/record_io.*", "src/renderer_scene/scene_record.h", "src/assets/crowd_body.*", "src/assets/crowd_prop_game_space.*", "src/renderer/**", "tools/scene/frame_rig.cpp"]}],
+   "affects": ["tools/scene/fhb_check.py", "tools/scene/d4_check.py", "tools/scene/frame_rig.py"]},
+  {"name": "s103_FHB.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/crowd_contrib.cpp,src/renderer_scene/live_crowd.cpp,src/assets/crowd_prop_game_space.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
+   "affects": ["src/scene_live/crowd_*", "src/renderer_scene/live_crowd.h", "src/renderer_scene/scene_record.h", "src/assets/crowd_prop_game_space.*"]}
+ ]
+}

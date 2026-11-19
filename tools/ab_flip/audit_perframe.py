@@ -23,7 +23,7 @@ for ident, name in per:
         if f.endswith('rdr_switches.h'):
             continue
         for ln, l in enumerate(ls, 1):
-            if ('REXCVAR_GET(' + name + ')' in l or '"' + name + '"' in l) and 'REXCVAR_DEFINE' not in l:
+            if ('REXCVAR_GET(' + name + ')' in l or '"' + name + '"' in l) and 'REXCVAR_DEFINE' not in l and not re.search(r'rdr_sw::\w*Seen\(', l):   # S103 RLF: a BoolSeen(k..., REXCVAR_GET(x), frame) line is the per-frame read with the cvar as its fallback, not a start-time read
                 outside.append('%s:%d' % (os.path.basename(f), ln))
             if re.search(r'rdr_sw::\w*\(\s*(rdr_sw::)?k' + ident + r'\b', l):
                 table += 1

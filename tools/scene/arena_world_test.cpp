@@ -121,6 +121,7 @@ int main(int argc, char** argv) {
   auto rw = [&](uint32_t a, uint32_t& v) { return g.ReadWord(a, v); };
   auto rm = [&](uint32_t a, float* m) { return g.ReadMat(a, m); };
   WorldContributor C;
+  C.emit_clock = true;   // S103 RCL: the clock row is dev-only; this test checks it
   C.tracker.plant = plant == "placed_identity" ? Plant::PlacedIdentity : plant == "moving_static" ? Plant::MovingStatic : plant == "clock_frozen" ? Plant::ClockFrozen
                     : plant == "refuse_foreign_palette" ? Plant::RefuseForeignPalette : plant == "node1_assumed" ? Plant::Node1Assumed : plant == "origin_after_reload" ? Plant::OriginAfterReload : Plant::None;
   const bool off_by_one = plant == "stamp_off_by_one";

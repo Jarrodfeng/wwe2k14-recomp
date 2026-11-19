@@ -25,6 +25,18 @@ namespace rdr_adapter {
 // for comparison hashes the same bytes the same way (its first `mips` mips). Any other function is a bug (a check would fail closed).
 inline uint64_t ImageContentHash(const void* data, size_t bytes) { return XXH3_64bits(data, bytes); }
 
+// ContentHasher streams the SAME function as ImageContentHash (XXH3_64bits_update / digest) and can be read after any mip (moved here from image_content_feed.h, S103 PN1).
+class ContentHasher {
+ public:
+  ContentHasher() { XXH3_64bits_reset(&state_); }
+  void Update(const uint8_t* p, size_t n) { XXH3_64bits_update(&state_, p, n); }
+  // The digest of everything fed so far (the hasher stays usable).
+  uint64_t Digest() const { return XXH3_64bits_digest(&state_); }
+
+ private:
+  XXH3_state_t state_;
+};
+
 struct ImageContent {
   uint32_t width = 0, height = 0;
   uint32_t format = 0;   // an rdr::Format (the TextureBlobHeader's / ImageRecord's), so file and stream compare in the same terms

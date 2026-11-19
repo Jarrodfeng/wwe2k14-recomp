@@ -1,8 +1,8 @@
 // The arena's evaluated worlds as a live contributor to the scene record (Session 101, lane 130; docs\renderer\SCENE_RECORD.md section kScArenaWorlds).
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause. Header-only, no game or SDK includes. A Contributor named "arena_worlds", registered once at startup
 // (wwe2k14_app.h OnPostSetup, with --wwe2k14_scene_records; the model-entry hook returns at its first check until then). Emit appends every closed frame it has not
-// emitted yet, oldest first: the kAwObject entries as the hook wrote them (each stamped with the HOOK's frame, never the record's) and one kAwClock entry per frame
-// when the stage origin is known. The same guest point as the rest of the arena section: the model call on the drawing thread (the light-state tracker's point).
+// emitted yet, oldest first: the kAwObject entries as the hook wrote them (each stamped with the HOOK's frame, never the record's) and, ONLY with emit_clock (dev,
+// S103 RCL: the clock is the J1-disproved frame - origin), one kAwClock entry per frame when the stage origin is known. The same guest point as the rest of the arena section: the model call on the drawing thread (the light-state tracker's point).
 #pragma once
 #include <atomic>
 #include <string>
@@ -24,16 +24,18 @@ class WorldContributor : public Contributor {
       any = true;
       t.arena_worlds.insert(t.arena_worlds.end(), scratch_.worlds.begin(), scratch_.worlds.end());
       // (c.objects is not touched: these entries are not scene Objects; the census line below counts them)
-      ArenaWorld ck;
-      ck.kind = kAwClock;
-      ck.frame = uint32_t(scratch_.frame);
-      uint32_t origin = 0;
-      if (tracker.ClockFor(scratch_, ck.clock, origin)) {
-        ck.origin = origin;
-        t.arena_worlds.push_back(ck);
-      } else {
-        ++c.unknown;  // the stage origin is not known: no clock is written, never a guessed one
-        ++clock_unknown_;
+      if (emit_clock) {   // S103 RCL: DEV ONLY (--wwe2k14_scene_arena_clock_dev). frame - origin is a private clock Check J1 disproved; the game's own clock is the part clock (kScPartClocks)
+        ArenaWorld ck;
+        ck.kind = kAwClock;
+        ck.frame = uint32_t(scratch_.frame);
+        uint32_t origin = 0;
+        if (tracker.ClockFor(scratch_, ck.clock, origin)) {
+          ck.origin = origin;
+          t.arena_worlds.push_back(ck);
+        } else {
+          ++c.unknown;  // the stage origin is not known: no clock is written, never a guessed one
+          ++clock_unknown_;
+        }
       }
     }
     if (!any) ++c.stale;  // the hook closed no new frame since the last record
@@ -48,6 +50,7 @@ class WorldContributor : public Contributor {
            ", old_calls " + std::to_string(s.old_calls) + ", clock_unknown " + std::to_string(clock_unknown_) + "]";
   }
   Tracker tracker;
+  bool emit_clock = false;   // S103 RCL: the kAwClock row is dev-only (see Emit); the d3 proof capture and tools/scene/arena_world_test.cpp turn it on
   const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)
 
  private:

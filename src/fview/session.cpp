@@ -766,7 +766,9 @@ bool Session::ThinRun(uint32_t count, const std::string& out_dir, int swap_frame
   // do that: skip the frame that holds the only full draws and the ring is never learned, and every later lite draw of it is "not learned" (drawn by nothing). D3_SKIP_TEACH_OUT=file (a no-skip arm) writes the
   // frames a template was learned in; D3_SKIP_TEACH_IN=file (the skip arms) binds those frames instead of skipping them. Without the file the old schedule runs (that is the plant).
   std::unordered_set<uint32_t> k4_teach;
+#ifdef RDR_DEV   // the plant exists only in dev builds (thin_draw.h); the release fview has no such rule
   if (const char* pr = std::getenv("D3_PROOF_RULE")) rdr_adapter::thin::g_plant_proof_rule_old = std::strcmp(pr, "old") == 0;   // S102 K4 PLANT: the pre-K4 proof rule (dev build only)
+#endif
   std::string k4_teach_out;
   const char* k4_teach_in = std::getenv("D3_SKIP_TEACH_IN");
   if (k4_teach_in && *k4_teach_in) {

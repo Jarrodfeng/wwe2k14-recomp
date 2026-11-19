@@ -20,6 +20,7 @@
 // None of them changes a byte the reader records, except that the sampler memo, like the Dedupe it stands in front of, shares a 64-bit Hash64 collision (the descriptor is still identical): the memos only answer a question the old code answered by recomputing it.
 #pragma once
 #include <atomic>
+#include "census_flush.h"  // S102 CEN1
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -43,6 +44,7 @@ inline Census g_census;
 using LogFn = void (*)(const char*);
 // Once per guest frame at the present: counts the frames each lever was on, and every 600 frames logs one line per lever that was on in the window:
 //   [rdr][<lever>] frames N, taken T, declined D (reason a X, reason b Y)
+inline census_flush::Site g_cf_slot_geo;   // S102 CEN1
 inline void LogCensus(uint64_t frame, LogFn log) {
   Census& c = g_census;
   if (g_content_skip_on.load(std::memory_order_relaxed)) ++c.content.frames;
@@ -50,7 +52,7 @@ inline void LogCensus(uint64_t frame, LogFn log) {
   if (g_sampler_memo_on.load(std::memory_order_relaxed)) ++c.sampler.frames;
   if (g_geo_hash_once_on.load(std::memory_order_relaxed)) ++c.hash.frames;
   if (!c.window_start) c.window_start = frame;
-  if (frame < c.window_start + 600) return;
+  if (frame < c.window_start + 600 && !(census_flush::Due(g_cf_slot_geo) && frame > c.window_start)) return;   // S102 CEN1: a flip phase end closes the window now
   c.window_start = frame;
   char line[320];
   auto emit = [&](const char* name, Lever& l, const char* r0, const char* r1, const char* r2, const char* extra) {

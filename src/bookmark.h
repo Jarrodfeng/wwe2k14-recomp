@@ -26,6 +26,7 @@
 #pragma once
 
 #include "thread_name.h"  // S102 H1
+#include "shown_frame.h"  // S103 lane SHOT: CaptureShownFrame
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ui/keybinds.h>
@@ -151,11 +152,8 @@ inline void StartClipRing() {
       next += period;
       std::this_thread::sleep_until(next);
       if (std::chrono::steady_clock::now() > next + period * 4) next = std::chrono::steady_clock::now();  // fell behind
-      auto* runtime = REX_KERNEL_STATE() ? REX_KERNEL_STATE()->emulator() : nullptr;
-      auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-      auto* presenter = graphics ? graphics->presenter() : nullptr;
       rex::ui::RawImage image;
-      if (!presenter || !presenter->CaptureGuestOutput(image) || image.width < kClipW || !image.height) continue;
+      if (!wwe2k14::CaptureShownFrame(image) || image.width < kClipW || !image.height) continue;
       const uint32_t step = image.width / kClipW;  // integer box filter (2560 -> 4, 1280 -> 2)
       const uint32_t h = (image.height / step) & ~1u;
       std::vector<uint8_t> out(size_t(kClipW) * h * 3);

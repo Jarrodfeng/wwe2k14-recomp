@@ -26,6 +26,7 @@ inline constexpr int64_t kGroupReadMs = 2000;    // a skinned-ring group some ot
 inline constexpr uint32_t kGroups = 60;          // 3 LODs x 20 person types, group = lod * 20 + type (the ring family at manager word 153 + 7 g)
 
 inline int64_t NowMs() {
+  // render-clock: ctl - the wall-clock freshness gate of the crowd skip (our own progress, not the game clock)
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 

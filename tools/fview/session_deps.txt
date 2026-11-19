@@ -14,6 +14,7 @@ src\assets\wrestler_roster.cpp
 src\assets\arena_game_space.cpp
 src\renderer_scene\arena_ours_core.cpp
 src\renderer_scene\arena_ours.cpp
+src\renderer_scene\ui_file_index.cpp
 src\renderer_scene\ui_ours_core.cpp
 src\renderer_scene\ui_ours.cpp
 src\renderer_scene\ui_quads.cpp

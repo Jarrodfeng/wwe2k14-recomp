@@ -89,7 +89,7 @@ param([string]$Exe = '', [string]$GameData = '', [string]$UserData = '', [string
 # refills; it ends 10-40 s into a run) and the bar must be measured after it. Warm=SECONDS in bench_args.txt: before the first measured scene step, run the first selected scene's
 # own route as a discarded load (folders warm_1, warm_2 ... , same flags as the measured steps, never read as a number) until SECONDS of wall time have gone by: the burst is spent
 # and the measured steps start from a drawn-down credit. No new route is needed: a scene run is 40-50 s, Warm=60 is two of them. Repeats=N: every selected scene step runs N times,
-# round-robin (bryan, brock, match, bryan, ...), the first in frames_<scene>, the others in frames_<scene>_r2 ... _rN; tools\surfacear_report.py prints median and range per scene
+# round-robin (bryan, brock, match, bryan, ...), the first in frames_<scene>, the others in frames_<scene>_r2 ... _rN; tools\surface\bar_report.py prints median and range per scene
 # (and which repeats were SUSTAINED, burst_rules.py). Both are for the scene steps (frames_bryan / _brock / _match / _bryan_heavy), not ab.
 [int]$Warm = 0, [int]$Repeats = 1)
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)

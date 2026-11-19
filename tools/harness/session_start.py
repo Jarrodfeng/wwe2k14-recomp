@@ -57,6 +57,13 @@ def log_times(path):
 
 def main():
     print('== session start check, %s' % time.strftime('%Y-%m-%d %H:%M'))
+    alert_f = os.path.join(REPO, 'out', 'harness', 'watchdog', 'ALERT.txt')   # S103: pc_watchdog.py findings (delete the file to clear)
+    if os.path.exists(alert_f):
+        print('!' * 78)
+        print('!! PC WATCHDOG ALERTS (out\\harness\\watchdog\\ALERT.txt; delete it once handled):')
+        for l in open(alert_f, encoding='utf-8', errors='replace').read().splitlines()[-12:]:
+            print('!!  ' + l[:300])
+        print('!' * 78)
     # Session 95 (Jarrod: future sessions must know these): CLAUDE.md rule 7 and its Speed block, every session.
     print('RULES (CLAUDE.md rule 7): game runs at milestones only; builders and reviewers 0 game runs; one check per step,')
     print('  never re-run a pass; 2 logged diagnosis runs per question, then ask Jarrod; plan states runs, reports say used vs budget;')

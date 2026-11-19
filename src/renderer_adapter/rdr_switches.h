@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include "census_flush.h"  // S102 CEN1: a new seen value raises the census flush
 
 // X(Id, "cvar name", PerFrame|StartOnly, default as a number)
 // PerFrame: a lane reads it every frame (the Surface may flip it in one run). StartOnly: it builds pipelines / hooks / allocations at start
@@ -68,6 +69,14 @@
   X(TailRelease, "wwe2k14_rdr_tail_release", PerFrame, 0)  /* S102 U1: our present work after the barrier release (tail_release.h); decided at each present */ \
   X(CrowdIdsOnce, "wwe2k14_rdr_crowd_ids_once", PerFrame, 0)  /* S102 T11: the crowd contributor makes each member id once (cached) and reuses its vectors; same record bytes */ \
   X(SceneStringsOnce, "wwe2k14_rdr_scene_strings_once", PerFrame, 0)  /* S102 T11b: the scene record's repeated strings (crowd member ids, arena slot ids) live in one pool made once; a frame's table starts as a copy of it (string_pool.h) */ \
+  X(PagePerCaller, "wwe2k14_rdr_page_per_caller", PerFrame, 0)  /* S103 UP (+dev, TEST ONLY): the stage page is sent once per CALLER into the group's one image (the old per-model byte cost exactly); 0 = once per key change. The Surface flips it within one run */ \
+  X(StageVis, "wwe2k14_rdr_stage_vis", PerFrame, 0)  /* S103 V1: the arena draws only the stage slots whose visibility box (pac entry 50020) meets the camera's stage frustum, as the game does (stage_vis_core.h; read by the arena applier every frame) */ \
+  X(FxLog, "wwe2k14_rdr_fx_log", PerFrame, 0)  /* S103 LNT: NoteFx logs the first post-params row of each frame (was env WWE_RDR_FX_LOG; FXP.md) */ \
+  X(CuePost, "wwe2k14_rdr_cue_post", PerFrame, 1)  /* S103 FXH: the highlight-reel cue post effects (defocus + hue S+560, emboss S+592, retro film S+604) are drawn by the stream-free post pass; false = named unsupported and not drawn. The words are 0 in normal play, so nothing changes there (post_from_record.cpp) */ \
+  X(CustomArena, "wwe2k14_rdr_custom_arena", PerFrame, 1)  /* S103 CAR (BCA G1): a Create-an-Arena venue (ids 200-249) is built from the game's own part pacs (pac\car\: CASD / CAEN / CARG / CARL) and drawn; false = nothing is drawn for those ids (the old behaviour: no venue) */ \
+  X(BorrowTextures, "wwe2k14_rdr_borrow_textures", PerFrame, 1)  /* S103 WMB: an arena texture name its own pac lacks borrows the byte-identical shared texture from another arena's pac (asset_load.h kBorrowTextures); read at each arena load */ \
+  X(AttireRemap, "wwe2k14_rdr_attire_remap", PerFrame, 1)  /* S103 ARM (HNN fix 1): a composite attire the character pac has no model for (Heenan 24912 ...) loads the model the game remaps it to (pac\misc01_Start.pac p0/600); read at each wrestler load */ \
+  X(SlotLook, "wwe2k14_rdr_slot_look", PerFrame, 1)  /* S103 WSL: the arena's per-frame slot mask follows the game's look gate sub_824E7190 (w / e / g / hide ranges, stage_slot_vis.h); false = the loader's old e / g look rule only */ \
   X(CrowdRunMarkers, "wwe2k14_rdr_crowd_run_markers", PerFrame, 0)  /* S102 T19: the crowd contributor writes one marker per run of same-type stands members; our renderer expands them (record version 2) */ \
   X(OriginMemo, "wwe2k14_rdr_origin_memo", PerFrame, 0)  /* S102 T11 (cut 5): a one-entry memo in front of the draw-origin lookup (origin_intern.h), set once a frame at the present */ \
   X(SlotContentSkip, "wwe2k14_rdr_slot_content_skip", PerFrame, 0)  /* S102 T15: AddTextureSlot skips the EnsureContent call when the image was checked this record frame (slot_geo_memo.h) */ \
@@ -108,6 +117,7 @@
   X(GpuGroupStamps, "wwe2k14_rdr_gpu_group_stamps", PerFrame, 0)  /* S102 R24-F: GPU stamps at the change of draw group inside the colour / frame passes (instrument): N = the least draws a segment holds before a stamp (1 = every change); one [rdr][gpu][groups] table every 600 frames; forces the per-step stamps on (group_stamps.h) */ \
   X(GpuSmall, "wwe2k14_rdr_gpu_small", PerFrame, 0)  /* S102 R24-E: bit mask of the small GPU passes: 1 = the quarter-size DoF chain nothing reads is not recorded (gpu_small.h); 2 and 4 reserved, not built */ \
   X(CrowdFast, "wwe2k14_rdr_crowd_fast", PerFrame, 0)  /* S102 R21-C: the crowd's rank work done once and flat: a crowd-program table instead of two string compares a draw, the rank memory an open-addressing table (crowd_rank.h); same pictures, same census */ \
+  X(SignFilePictures, "wwe2k14_rdr_sign_file_pictures", PerFrame, 1)  /* S103 CSF: a crowd sign / foam hand with a FILE picture (pac\audience.pac, the arena set) is never read back from the guest texture; ON is the stream-free default (sign_file_keys.h, docs\renderer\360_HABITS.md H-CS1); 0 = the pre-CSF guest reads */ \
   X(CrowdWorkers, "wwe2k14_rdr_crowd_workers", PerFrame, 0)  /* S102 R21-C step 3: 0-2 worker threads pose and pack the crowd members' classes (crowd_workers.h); 0 = on the render thread */ \
   X(CopyDirect, "wwe2k14_rdr_copy_direct", PerFrame, 0)  /* S102 C5: bake / small copies removed by drawing the pass into the destination (copy_alias.h g_direct) */                 \
   X(LowOutputCap, "wwe2k14_rdr_low_output_cap", PerFrame, 0)  /* S102 G2 (b): read at record time under LOW, carried on the frame */           \
@@ -126,7 +136,7 @@
   X(PrelightLayered, "wwe2k14_rdr_prelight_layered", PerFrame, 0)  /* S102 C1: the pre-light strips are not made: ONE multiview pass into the cube's six layers, the 30 strip copies a frame left out (prelight_layered.h; needs small_passes_ours) */ \
   X(PlaneBake, "wwe2k14_rdr_plane_bake", PerFrame, 0)  /* S102 L2: the ring mat's rope shadow baked once into a world-plane map, composited per frame (plane_bake.h): a LOOK lever, default off */ \
   X(PlaneBakeSize, "wwe2k14_rdr_plane_bake_size", PerFrame, 1024)  /* S102 L2: the bake's edge in texels (256..2048) */ \
-  X(SkipBlankPlane, "wwe2k14_rdr_skip_blank_plane", PerFrame, 0)  /* S102 G4b: the plane shadow chain is left out when its weight is 0 (plane_blank.h) */   \
+  X(SkipBlankPlane, "wwe2k14_rdr_skip_blank_plane", PerFrame, 0)  /* S102 G4b: the plane shadow chain is left out when its ground square is all behind the camera and its weight is 0 (plane_blank.h) */   \
   /* S102 lane KO: test-only knock-outs (knockouts.h) */                                                                          \
   X(KoDrawNone, "wwe2k14_rdr_ko_draw_none", PerFrame, 0)                                                                          \
   X(KoRenderDrop, "wwe2k14_rdr_ko_render_drop", StartOnly, 0)                                                                      \
@@ -136,6 +146,7 @@
   X(CrowdOurs, "wwe2k14_rdr_crowd_ours", StartOnly, 0)                                                                                \
   X(CrowdFloor, "wwe2k14_rdr_crowd_floor", StartOnly, 0)                                                                              \
   X(CrowdCards, "wwe2k14_rdr_crowd_cards", StartOnly, 0)                                                                              \
+  X(StageLmPage, "wwe2k14_rdr_stage_lmpage", StartOnly, 0)  /* S103 L8: the match page is our own fade page (stage_lmpage.h) */ \
   X(ArenaOurs, "wwe2k14_rdr_arena_ours", StartOnly, 0)                                                                                \
   X(ArenaThin, "wwe2k14_rdr_arena_thin", StartOnly, 0)                                                                                \
   X(WrestlersOurs, "wwe2k14_rdr_wrestlers_ours", StartOnly, 0)                                                                        \
@@ -224,6 +235,7 @@ struct Table {
   std::atomic<int64_t> value[kCount];     // read by any thread
   std::atomic<uint32_t> slot_gen[kCount]; // the generation of each switch's last accepted change (0 = never changed)
   std::atomic<uint32_t> acked[kCount];    // the slot_gen a reader has already reported seeing (Seen)
+  std::atomic<int64_t> seen_value[kCount]; // S102 CEN1: the value the reader saw last (the phase that ends when a new generation is seen)
   std::atomic<LogFn> log{nullptr};        // set by the first Refresh, used by Seen on the reading thread
   // Refresh thread only:
   std::string text[kCount];               // the setting's text as last seen (for per-frame: accepted; for start-only: the start value)
@@ -237,6 +249,7 @@ struct Table {
       value[i].store(Infos()[i].def, std::memory_order_relaxed);
       slot_gen[i].store(0, std::memory_order_relaxed);
       acked[i].store(0, std::memory_order_relaxed);
+      seen_value[i].store(Infos()[i].def, std::memory_order_relaxed);
     }
   }
 };
@@ -262,11 +275,13 @@ inline void Seen(Id id, uint64_t frame) {
   const uint32_t sg = g.slot_gen[id].load(std::memory_order_acquire);
   if (g.acked[id].load(std::memory_order_relaxed) == sg) return;  // nothing new (also: never changed): a plain load on the common path (S102 T13 review nit), the exchange only when a new generation is seen
   if (g.acked[id].exchange(sg, std::memory_order_relaxed) == sg) return;
+  const int64_t ended = g.seen_value[id].exchange(Int(id), std::memory_order_relaxed);   // S102 CEN1: the value of the phase that just ended
   if (LogFn log = g.log.load(std::memory_order_relaxed)) {
     char line[256];
     std::snprintf(line, sizeof(line), "[switch] seen frame %llu gen %u %s=%lld", (unsigned long long)frame, sg, Infos()[id].name, (long long)Int(id));
     log(line);
   }
+  census_flush::Raise(Infos()[id].name, ended, g.log.load(std::memory_order_relaxed));   // S102 CEN1: after the seen line: one marker line, then every lever's census prints now (the phase that ended)
 }
 inline int64_t IntSeen(Id id, int64_t fallback, uint64_t frame) {
   if (!g.live.load(std::memory_order_acquire)) return fallback;

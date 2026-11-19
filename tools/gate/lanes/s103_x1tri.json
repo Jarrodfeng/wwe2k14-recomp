@@ -1,0 +1,14 @@
+{
+ "owner": "S103 lane X1 (run triage, tool 2 of docs/renderer/S103_AUDIT_REVIEW.md section 2): src/renderer_game/scene_frame.h missing_hist = per census window the histogram of the SET of missing required input bits per frame (one [scene][missing] line, logged beside the [scene][render] line and at exit); tools/scene/run_triage.py = per scene the OURS share, each bit's stamp rate and last stamped frame, 'frames freed if bit X (or X + Y) were stamped', holes / doubles / latch, the route intent against the real flags, the exe against HEAD; reads legacy logs. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "hist_unit: synthetic frames through the real DecideNow ({3,4}:900 {10}:300 {3,4,10}:50; windows drain; a held frame is 'other'; the planted twin counts a set under its lowest bit and is caught). triage_selftest: a synthetic log in the new format, a good set line and the twin line..",
+ "checks": [
+  {"name": "s103_x1tri.hist_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_x1_hist_unit.ps1"], "timeout_s": 300,
+   "affects": ["src/renderer_game/scene_frame.h", "src/renderer_game/node_switch.h", "tools/scene/x1_hist_unit.cpp"]},
+  {"name": "s103_x1tri.triage_selftest", "cmd": ["py", "-I", "tools/scene/run_triage.py", "--selftest"], "timeout_s": 120,
+   "affects": ["tools/scene/run_triage.py"]},
+  {"name": "s103_x1tri.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_adapter/live.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/renderer_adapter/live.cpp", "src/renderer_game/scene_frame.h"]}
+ ]
+}

@@ -4,9 +4,9 @@
  "note": "gap_max = the column's wiring read as text + bench_line on synthetic csvs, 3 planted twins; queue = the model reproduces bar4's p99 (25.56 vs 25.20), queue properties, the finding, 3 planted twins; frame_split = H3's csv layout check (the base column count changed); bench_line = the existing real-folder check.",
  "checks": [
   {"name": "s102_r25c2.gap_max", "cmd": ["py", "-I", "tools/surface/gap_max_check.py", "--root", "."], "timeout_s": 120},
-  {"name": "s102_r25c2.queue", "cmd": ["py", "-I", "tools/surface/present_queue_check.py", "--root", "."], "timeout_s": 300},
+  {"name": "s102_r25c2.queue", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/surface/present_queue_check.py", "--root", "."], "timeout_s": 300},
   {"name": "s102_r25c2.frame_split", "cmd": ["py", "-I", "tools/frame_split/frame_split_check.py", "--root", "."], "timeout_s": 600},
-  {"name": "s102_r25c2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"]},
+  {"name": "s102_r25c2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/**", "tools/gate/game_syntax.py", "tools/gate/gs_share.py"]},
   {"name": "s102_r25c2.lint_seen", "cmd": ["py", "-I", "tools/gate/lint_seen.py", "--root", "."], "timeout_s": 120},
   {"name": "s102_r25c2.win_macro_lint", "cmd": ["py", "-I", "tools/gate/win_macro_lint.py", "--root", "."], "timeout_s": 120}
  ]

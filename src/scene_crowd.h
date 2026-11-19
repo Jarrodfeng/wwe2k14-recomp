@@ -145,6 +145,7 @@ inline void wwe2k14::scene_crowd::Flush(PPCContext& ctx, uint8_t* base, uint32_t
 // The op-21 recorder: the crowd's member constants.
 REX_HOOK_RAW(sub_82BB27D8) {
   using namespace wwe2k14::scene_crowd;
+  wwe2k14::q2d_tap::OnOp21(ctx, base);   // S103 I1: read only (the 2D layer's constants c0 / c1 / c28 while a T_Rect / movie scope is open: a thread_local flag test otherwise); before every skip below. (S103 I3 review: the thread's register shadow is NOT updated here: OnOp21Regs runs only before each call of the original recorder below)
   // S101 lane27: observe the member (read only), then the hook goes on as before. This recorder is game-wide: the return address is tested first.
   if (wwe2k14::crowd_live::IsCrowdOp21(uint32_t(ctx.lr)) && wwe2k14::crowd_live::Active()) wwe2k14::crowd_live::OnOp21(ctx, base);
   // S102 UQ1 (R22 cut 6; wwe2k14_rdr_record_skip bit 1): the observer above has read the card's world, so ours has everything it will ever read from this op-21; the recorder itself is not called for a far card the card cut
@@ -165,6 +166,7 @@ REX_HOOK_RAW(sub_82BB27D8) {
   // anywhere else always ends in the original, whatever the cvar, the open run or the command processor say, so it goes there before the cvar read and the Cp() / blocked query it would make first
   // (pure reads). Same behaviour by construction (tools\upd_lean lints that the branch below keeps both sites).
   if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kCrowdHooks) && uint32_t(ctx.lr) != kOp21Return && uint32_t(ctx.lr) != kCardOp21Return) {
+    wwe2k14::q2d_tap::OnOp21Regs(ctx, base);   // S103 I3 review: the register shadow, only where the original recorder runs
     __imp__sub_82BB27D8(ctx, base);
     return;
   }
@@ -180,6 +182,7 @@ REX_HOOK_RAW(sub_82BB27D8) {
                                                              : REXCVAR_GET(wwe2k14_scene_crowd_cards));
   const bool block = lr == kOp21Return && (!r.first_valid || r.op15_return == kOp15Return);
   if ((!mode && !r.first_valid) || !(block || card) || ctx.r4.u32 != 76 || ctx.r6.u32 != 3) {
+    wwe2k14::q2d_tap::OnOp21Regs(ctx, base);   // S103 I3 review
     __imp__sub_82BB27D8(ctx, base);
     return;
   }
@@ -190,17 +193,22 @@ REX_HOOK_RAW(sub_82BB27D8) {
     r.matrix = card ? kCardMatrix : kMatrix;
     ReadMatrix(base, ctx.r5.u32, r.first);
     r.first_valid = true;
+    wwe2k14::q2d_tap::OnOp21Regs(ctx, base);   // S103 I3 review
     __imp__sub_82BB27D8(ctx, base);
     return;
   }
   if (!r.open) {  // (a second constant record before the first draw: not the pattern - recorded, the run restarts)
     ReadMatrix(base, ctx.r5.u32, r.first);
+    wwe2k14::q2d_tap::OnOp21Regs(ctx, base);   // S103 I3 review
     __imp__sub_82BB27D8(ctx, base);
     return;
   }
   ReadMatrix(base, ctx.r5.u32, r.cur);
   r.cur_valid = true;
-  if (r.mode == 2) __imp__sub_82BB27D8(ctx, base);
+  if (r.mode == 2) {
+    wwe2k14::q2d_tap::OnOp21Regs(ctx, base);   // S103 I3 review: mode 1 never calls the recorder here, so it never reaches the shadow either
+    __imp__sub_82BB27D8(ctx, base);
+  }
 }
 
 // The op-15 recorder: the crowd's member draws.
@@ -299,6 +307,8 @@ REX_HOOK_RAW(sub_82512F70) {
 // S102 UQ2 (bit 4): the floor object's draw (sub_8276EAA0; frame 480, scratch r1+272 = addi r3,r1,272 at 0x8276ECF8, matrix r1+112 = addi r5,r1,112 at 0x8276ECD8). A hook only for the loop-exit op 21 of a skipped tail.
 REX_EXTERN(__imp__sub_8276EAA0);
 REX_HOOK_RAW(sub_8276EAA0) {
+  // S103 H: the frame is OURS: the floor-seat group's draw (the seated ringside people, a task beside the crowd entry: scene_skip_cut.py REACH, review F5) is skipped; the floor members' op-21 reader inside it is lane A / D's to move
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::FloorSeats)) return;
   const uint32_t entry_r1 = ctx.r1.u32;
   wwe2k14::member_thin::OnMemberLoopEntry(wwe2k14::member_thin::kFloor);
   __imp__sub_8276EAA0(ctx, base);

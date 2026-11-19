@@ -1,0 +1,9 @@
+{
+ "owner": "S103 KBM (Jarrod 2026-11-18: players cannot use Shift, Alt or Ctrl in the keyboard controls or the mapping): SDK patch 118 (include/rex/input/mnk/bind_match.h, mnk_input_driver.cpp), src/launcher/keyboard_binds.h + launcher_main.cpp capture; docs/research/s103/KBM.md",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: offline unit, host clang, cheap tier. tools/input/kbm_bind_test.cpp takes bind_match.h out of patch 118 and runs a key-state x bind-string table: the default layout, bare Shift / Control / Alt, chords (Shift+Up with Shift bound, Ctrl+Q with Alt bound), the tap-mark case. PAST-BUG re-find: the pre-patch TokenPressed (copied verbatim as TokenPressedOld) must show bare Shift never firing and W dying while Shift is held. A sweep (16320 comparisons: every modifier subset x 20 keys x 3 second keys over the default layout and a chord layout with no bare modifier) must show new == old. Launcher side: NameFromKeyDown (Shift / Control / Alt, L and R scan codes; the Windows keys stay empty), Display, the capture state machine (Shift alone -> Shift, Shift then Up -> Shift+Up, Windows key alone -> nothing), ChordUsers (the default D-pad uses Shift as a prefix), save / load round trip of Shift,Q and Control.",
+ "checks": [
+  {"name": "s103_kbm.bind_test", "cmd": ["pwsh", "-NoProfile", "-File", "tools/input/run_kbm_bind_test.ps1"], "timeout_s": 300,
+   "affects": ["tools/input/kbm_bind_test.cpp", "tools/input/run_kbm_bind_test.ps1", "src/launcher/keyboard_binds.h", "patches/rexglue-sdk/full/118-session103-mnk-bare-modifiers.diff"]}
+ ]
+}

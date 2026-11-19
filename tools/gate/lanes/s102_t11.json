@@ -1,9 +1,93 @@
 {
  "owner": "S102 lane T11 (the crowd contributor's per-frame string and heap churn off the render-command thread): src/scene_live/crowd_contrib.cpp/.h (EmitCached, id cache, kept scratch storage), src/renderer_scene/record_io.cpp/.h (SceneTables::UseFlatStringIndex), src/renderer_adapter/origin_intern.h (a one-entry Resolve memo), switches wwe2k14_rdr_crowd_ids_once and wwe2k14_rdr_origin_memo (PerFrame, default off; rdr_switches.h, reader.h). 0 game runs, 0 Surface runs.",
- "claim": {"scene": "bryan", "side": "swap", "ms": [1.2, 2.0], "switch": "wwe2k14_rdr_crowd_ids_once", "basis": "R13 cut 1: crowd_contrib.cpp:142 + :144 + record_io.cpp:106-110 = 8.5 % of the swap thread over Bryan (1.6 ms profiled), 12.6 % in the heavy stretch (2.6 ms), 6.9 % in Brock (1.2 ms); 58 % of the heap samples. The offline test measures the contributor's Emit at about 3x fewer ns per member and about 2000 -> 5 allocations a frame (steady crowd), so the id share (snprintf + two heap strings + the map nodes + the per-frame member / palette copies and the std::map asset / palette tables) is taken, not all of the contributor's 2.08 ms; unmeasured on the Surface. Cut 5 (wwe2k14_rdr_origin_memo, one memo entry in front of the origin map: reader.h:5367 + TakeDrawOrigin + the cost lookup, 2.5 % of the thread) adds 0.1 to 0.3 ms: estimate, unmeasured."},
+ "claim": {
+  "scene": "bryan",
+  "side": "swap",
+  "ms": [
+   1.2,
+   2.0
+  ],
+  "switch": "wwe2k14_rdr_crowd_ids_once",
+  "basis": "R13 cut 1: crowd_contrib.cpp:142 + :144 + record_io.cpp:106-110 = 8.5 % of the swap thread over Bryan (1.6 ms profiled), 12.6 % in the heavy stretch (2.6 ms), 6.9 % in Brock (1.2 ms); 58 % of the heap samples. The offline test measures the contributor's Emit at about 3x fewer ns per member and about 2000 -> 5 allocations a frame (steady crowd), so the id share (snprintf + two heap strings + the map nodes + the per-frame member / palette copies and the std::map asset / palette tables) is taken, not all of the contributor's 2.08 ms; unmeasured on the Surface. Cut 5 (wwe2k14_rdr_origin_memo, one memo entry in front of the origin map: reader.h:5367 + TakeDrawOrigin + the cost lookup, 2.5 % of the thread) adds 0.1 to 0.3 ms: estimate, unmeasured."
+ },
  "note": "check 1 = tools/crowd/crowd_ids_check.py: builds tools/crowd/crowd_ids_test.cpp with -DRDR_CROWD_IDS_PLANTS and runs it: synthetic crowd over 360 frames (members added / removed, changing kind / type / LOD, unknown indices, indices past the cache, arena changes, a draw-less stretch), the serialised record bytes must be equal with the switch off and on (and flipping every frame, with and without pose objects); allocations per Emit and ns per member off vs on; planted twins (cache without the kind, without the type, the pac string kept across arenas, an origin memo blind to the check bits) all caught; the flat string index equals the node map. Check 2 = the same script --syntax: clang -fsyntax-only of main.cpp, live.cpp, crowd_contrib.cpp, record_io.cpp, crowd_ours.cpp with the main build's flags. The fview / rplay arms: lane crowd_ours (crowd_ours_check.py) reads the Brock capture through fview and links the changed record_io.cpp.",
  "checks": [
-  {"name": "s102_t11.crowd_ids_once", "cmd": ["py", "-I", "tools/crowd/crowd_ids_check.py", "--root", "."], "timeout_s": 600, "affects": ["src/renderer_scene/swap_once.h", "src/renderer_scene/tables_pool.h", "tools/crowd/crowd_ids_test.cpp", "tools/crowd/crowd_ids_check.py", "src/scene_live/crowd_contrib.*", "src/renderer_scene/record_io.*", "src/renderer_adapter/origin_intern.h", "src/renderer_adapter/rdr_switches.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/string_pool.h", "src/renderer_scene/live_scene.*", "src/renderer_adapter/names.h", "src/scene_live/tail_latch.h", "src/renderer_adapter/upd_lean.h"]},
-  {"name": "s102_t11.game_units_compile", "cmd": ["py", "-I", "tools/crowd/crowd_ids_check.py", "--root", ".", "--syntax"], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"], "affects": ["tools/crowd/crowd_ids_check.py", "src/scene_live/crowd_contrib.*", "src/renderer_scene/record_io.*", "src/renderer_adapter/origin_intern.h", "src/renderer_adapter/rdr_switches.h", "src/renderer_adapter/reader.h"]}
+  {
+   "name": "s102_t11.crowd_ids_once",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/crowd/crowd_ids_check.py",
+    "--root",
+    "."
+   ],
+   "timeout_s": 600,
+   "affects": [
+    "src/task_group_walk.h",
+    "src/renderer_scene/swap_once.h",
+    "src/renderer_scene/tables_pool.h",
+    "tools/crowd/crowd_ids_test.cpp",
+    "tools/crowd/crowd_ids_check.py",
+    "src/scene_live/crowd_contrib.*",
+    "src/renderer_scene/record_io.*",
+    "src/renderer_adapter/origin_intern.h",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/renderer_scene/scene_record.h",
+    "src/renderer_scene/bone_tag_rows.h", "src/renderer_scene/live_screen_rule.h", "src/renderer_scene/props_light_rows.h", "src/scene_live/sign_file_keys.h",
+    "src/renderer_scene/string_pool.h",
+    "src/renderer_scene/live_scene.*",
+    "src/renderer_adapter/names.h","src/assets/asset_model.h","src/renderer_scene/guest_model_draw.h","src/renderer_scene/light_state_rows.h","src/renderer_scene/stage_census.h","src/scene_live/buffer_unlock_log.h","src/scene_live/caster_core.h","src/scene_live/draw_camera_core.h","src/scene_live/guest_model_reader.h","src/scene_live/guest_model_store.h","src/scene_live/light_state_hook.h","src/scene_live/skin_data.h",
+    "src/scene_live/tail_latch.h",
+    "src/scene_live/safe_guest_pages.h",
+    "src/renderer_adapter/upd_lean.h",
+    "src/keep_stream.h",
+    "src/renderer/render_lean.h",
+    "src/renderer_adapter/census_flush.h",
+    "src/renderer_game/node_switch.h",
+    "src/renderer_game/scene_frame.h",
+    "src/renderer_game/scene_kind.h",
+    "src/renderer_scene/crowd_prop_rows.h",
+    "src/renderer_scene/particle_tables.h",
+    "src/renderer_scene/quads2d_plants.h",
+    "src/scene_live/caster_stamp_flag.h",
+    "src/scene_live/crowd_snapshot_core.h",
+    "src/scene_live/input_changes.h",
+    "src/scene_live/inputs_core.h",
+    "src/scene_live/light_stamp_flag.h",
+    "src/scene_live/post_settings.h",
+    "src/scene_live/presence_rules.h",
+    "src/scene_live/ring_stamp_flag.h",
+    "src/scene_live/stage_clock_flag.h",
+    "src/renderer_scene/guest_model_rows.h",
+    "src/renderer_scene/weapon_rows.h"
+   ],
+   "needs": ["generated/default"]
+  },
+  {
+   "name": "s102_t11.game_units_compile",
+   "cmd": [
+    "py",
+    "-I",
+    "tools/crowd/crowd_ids_check.py",
+    "--root",
+    ".",
+    "--syntax"
+   ],
+   "timeout_s": 900,
+   "needs": [
+    "generated/default",
+    "thirdparty/rexglue-sdk-vulkan/include"
+   ],
+   "affects": [
+    "tools/crowd/crowd_ids_check.py",
+    "src/scene_live/crowd_contrib.*",
+    "src/renderer_scene/record_io.*",
+    "src/renderer_adapter/origin_intern.h",
+    "src/renderer_adapter/rdr_switches.h",
+    "src/renderer_adapter/reader.h",
+    "src/renderer_scene/guest_model_rows.h",
+    "src/renderer_scene/weapon_rows.h"
+   ]
+  }
  ]
 }

@@ -40,6 +40,7 @@
 #pragma once
 
 #include "thread_name.h"  // S102 H1
+#include "shown_frame.h"  // S103 lane SHOT: CaptureShownFrame
 #include <functional>
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -197,9 +198,6 @@ inline std::function<bool(const std::filesystem::path&)> g_owner_save;
 
 inline void SavePhoto() {
   std::thread([] { wwe2k14::NameThread(L"photo_mode");
-    auto* runtime = REX_KERNEL_STATE()->emulator();
-    auto* graphics = runtime ? runtime->graphics_system() : nullptr;
-    auto* presenter = graphics ? graphics->presenter() : nullptr;
     if (g_owner_save) {  // the new renderer (owner mode; the SDK keeps an idle presenter object): its next shown picture, written by its render thread
       const auto dir = PhotoDir();
       std::error_code ec;
@@ -216,7 +214,7 @@ inline void SavePhoto() {
       return;
     }
     rex::ui::RawImage image;
-    if (!presenter || !presenter->CaptureGuestOutput(image) || !image.width || !image.height) {
+    if (!wwe2k14::CaptureShownFrame(image) || !image.width || !image.height) {
       REXLOG_WARN("[wwe2k14][photo] no picture to save");
       return;
     }

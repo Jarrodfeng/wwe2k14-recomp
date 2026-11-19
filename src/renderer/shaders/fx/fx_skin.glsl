@@ -194,7 +194,7 @@ layout(set = 0, binding = 1, std140) uniform FragmentConstants {
 #ifdef FX_PRELIGHT_ANALYTIC
   vec4 PreLightK[18];     // S102 L1: the pre-light bake's constants (fx_prelight.glsl)
 #endif
-  vec4 Level;             // w: the fixed mip level of the diffuse map
+  vec4 Level;             // w: LOD bias of the diffuse (setTexLOD c201.w on a computed-LOD fetch; the game's g_f4TexBis_Dif)
   vec4 MatAmbCol;
   vec4 MatDifCol;
   vec4 NormalFlip;
@@ -326,7 +326,7 @@ void main() {
   vec3 T = inTangent.xyz;
   vec3 B = cross(N, T);
 
-  vec3 base = textureLod(textures[0], uv, fc.Level.w).rgb;
+  vec3 base = fx_texture_bias(textures[0], uv, fc.Level.w).rgb;  // computed LOD + c201.w bias (SKM)
 #ifdef FX_LOGO
   vec4 logo = fx_bool(fc.Bools, 150) ? texture(textures[7], uv) : texture(textures[4], uv);
   base = mix(base, logo.rgb, logo.a);

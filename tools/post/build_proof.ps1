@@ -46,6 +46,6 @@ $sources | ForEach-Object -ThrottleLimit 12 -Parallel {
 if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($failed.Count) file(s) failed to compile" }
 $exe = Join-Path $out 'post_proof.exe'
 $objectFiles = @($sources | ForEach-Object { Join-Path $objects (($_ -replace '[\\/:]', '_') + '.o') })
-& $clang -fuse-ld=lld -g @objectFiles -luser32 -o $exe
+& $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -o $exe
 if ($LASTEXITCODE -ne 0) { throw 'link failed' }
 Write-Host "built $exe"

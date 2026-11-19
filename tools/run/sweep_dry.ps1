@@ -22,7 +22,7 @@ $P3 = '--wwe2k14_launch_participants=139,343,161'
 # row name = @(route, extra flags, validation (1 on / 0 off), expected board item)
 $rows = [ordered]@{
   'SW01 universe'            = @('scenes\s101_sweep_universe.txt',      "$SC --wwe2k14_settings_file=$S720", 1, 'Universe')
-  'SW02 caw pages'           = @('scenes\s101_sweep_caw_pages.txt',     "$SC --wwe2k14_rdr_caw_ours=true --wwe2k14_settings_file=$S720", 1, 'Create modes')
+  'SW02 caw pages'           = @('scenes\s101_sweep_caw_pages.txt',     "$SC --wwe2k14_settings_file=$S720", 1, 'Create modes')
   'SW03 match long PLANE'    = @('scenes\s101_owner_match_long.txt',    "$NOSC --wwe2k14_settings_file=$S720", 1, 'Exhibition matches')
   'SW04 match pause (owner)' = @('scenes\s101_sweep_match_pause.txt',   "$SC --wwe2k14_settings_file=$S720 --wwe2k14_photo_dir=$PH", 1, 'Exhibition matches')
   'SW05 type 60 steel cage'  = @('scenes\s101_sweep_match_type.txt',    "$SC --wwe2k14_settings_file=$S720 --wwe2k14_quick_type=60 $P2", 0, 'Exhibition matches')

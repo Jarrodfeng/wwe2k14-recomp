@@ -117,8 +117,9 @@ inline bool Decode(const Texture& t, std::vector<float>& out) {
 
 // The page for these pools (RGBA8, the base size). Empty pools = the base as it is. `match`: the match page (fade_lightmap01) as the
 // base instead of the entrance's (when the arena has one).
-inline void Compose(const std::vector<Pool>& pools, std::vector<uint8_t>& out, bool match = false) {
-  const Cache& c = TheCache();
+inline void Compose(const std::vector<Pool>& pools, std::vector<uint8_t>& out, bool match = false);  // (the global cache)
+// S103 L2: the same page from a CALLER-OWNED cache (the scene renderer keeps one per arena: the global one is the loader thread's)
+inline void ComposeFrom(const Cache& c, const std::vector<Pool>& pools, std::vector<uint8_t>& out, bool match = false) {
   out = match && c.match.size() == c.base.size() ? c.match : c.base;
   if (!c.ok) return;
   for (const Pool& p : pools) {
@@ -149,6 +150,37 @@ inline void Compose(const std::vector<Pool>& pools, std::vector<uint8_t>& out, b
         }
       }
   }
+}
+
+inline void Compose(const std::vector<Pool>& pools, std::vector<uint8_t>& out, bool match) { ComposeFrom(TheCache(), pools, out, match); }
+
+// S103 L8 (docs\formats\arena_lightmap.md "S103 L8"): the match's page clock. The game's page object (vtable word 0x821E95F0, sub_825BAA28 [C listing]) takes a time t (float, whole frames),
+// q = t / 600, rem = t - 600 q: q 0 draws page 00 at alpha 1, then page 01 over it with the vertex colour alpha int(255 * rem / 600) (SRC_ALPHA / 1 - SRC_ALPHA, so
+// page = 00 (1 - a) + 01 a, per channel); q 1 draws page 01 alone; q >= 2 draws nothing (the render target holds page 01). [C: s100_match300 frames 0-2: the draw pair, alpha 129 / 255 then
+// 130 / 255 on an arena-4 stream; the target's pixels = this blend, mean |d| 0.37 / 255 (tools\scene\l8_check.py)]. FadeAlpha255 = that alpha; 255 from t = 600 on.
+inline int FadeAlpha255(uint64_t t) {
+  if (t >= 600) return 255;
+  return int(float(t) * (1.f / 600.f) * 255.f);
+}
+// S103 FD (CF2): the alpha from the GAME's own page clock. The page object (task vtable slot 1 = sub_825BA448, found in task group 11) holds the clock t as a float at object+108, advanced by the
+// 60/fps tick while the word at object+112 is non-zero; the word at object+88 selects the entrance variant, where the draw (sub_825BB0E0 0x825BB21C-0x825BB25C [C listing]) passes the constant 0.0 as t.
+// sub_825BAA28 (0x825BAA50 fctiwz) truncates t to an integer first, then rem = ti - 600 * (ti / 600) and the vertex alpha rem / 600 (the same formula as FadeAlpha255). `have` = the record carried the
+// clock row (the object was found); without it the page is the settled one (255, page 01), as before. A clock that went DOWN (replay rewind, a second match: the game's t restarts from 0) just gives the
+// lower alpha: there is no state here. t < 0 or NaN reads as 0.
+inline int PageAlpha255(bool have, bool entrance_word, float t) {
+  if (!have) return 255;
+  if (entrance_word) t = 0.f;
+  if (!(t > 0.f)) return 0;
+  if (t >= 600.f) return 255;
+  return FadeAlpha255(uint64_t(t));
+}
+// The page at fade alpha a (0..255): base (00) and match (01) of the cache, same size. An arena without a match page keeps its base.
+inline void FadeFrom(const Cache& c, int a255, std::vector<uint8_t>& out) {
+  out = c.base;
+  if (c.match.size() != c.base.size() || a255 <= 0) return;
+  if (a255 >= 255) { out = c.match; return; }
+  const float a = float(a255) / 255.f;
+  for (size_t i = 0; i < out.size(); ++i) out[i] = uint8_t(float(c.match[i]) * a + float(c.base[i]) * (1.f - a) + 0.5f);
 }
 
 }  // namespace stage_pools

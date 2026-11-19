@@ -14,6 +14,7 @@ import argparse, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = 'd91221d3'
+MIP_FROM, MIP_TO = '3004d80ff', 'daf91b9fe'   # the diffuse LOD-bias change (S103 MIP)
 FAILS = []
 
 
@@ -42,7 +43,7 @@ def base_rplay(root, main_co, rev):
     if not full:
         say(False, 'base revision %s not found' % rev)
         return None
-    dest = os.path.join(root, 'out', 'renderer', 'v1_base', full[:10])
+    dest = os.path.join(root, 'out', 'renderer', 'v1_base', full[:10] + '_mip2')   # S103 MIP: the base carries the diffuse LOD change (below) but keeps the old bone lines
     exe = os.path.join(dest, 'out', 'renderer', 'dev', 'rplay.exe')
     if os.path.exists(exe):
         return exe
@@ -62,6 +63,24 @@ def base_rplay(root, main_co, rev):
         dst = os.path.join(dest, 'thirdparty', 'rexglue-sdk-src', 'thirdparty', lib)
         if os.path.isdir(src) and not os.path.isdir(dst):
             shutil.copytree(src, dst)
+    # S103 MIP (2026-11-18): the diffuse now samples at computed LOD + the register bias, as the game does (docs/research/s103/SKM.md). That moves the wrestlers' pictures in BOTH arms, so the base gets the same
+    # change on top of its OLD bone lines: the glsl diff of MIP_FROM..MIP_TO (texture reads only) applied to the base's fx sources, then the base's own compile_shaders rebuilds its headers.
+    # The planted twin (old bone lines: out-of-bounds, exit 4) is untouched by it; the check below still requires it to fail.
+    pd = sh(['git', '-C', root, 'diff', MIP_FROM, MIP_TO, '--', 'src/renderer/shaders/fx/fx_skin.glsl', 'src/renderer/shaders/fx/fx_trans_ps.glsl', 'src/renderer/shaders/fx/fx_bg.glsl'], 60)
+    if pd.returncode != 0 or not pd.stdout.strip():
+        say(False, 'the MIP diff %s..%s could not be read: %s' % (MIP_FROM, MIP_TO, pd.stderr[-200:]))
+        return None
+    pf = os.path.join(dest, 'mip.diff')
+    with open(pf, 'w', encoding='utf-8', newline='') as f:
+        f.write(pd.stdout)
+    pa = sh(['patch', '-p1', '-l', '-i', 'mip.diff'], 60, cwd=dest)   # not git apply: inside a repo it skips an ignored folder silently; not --binary: the archive's files are CRLF
+    if pa.returncode != 0:
+        say(False, 'the MIP diffuse change does not apply to the base shaders: ' + (pa.stdout + pa.stderr)[-300:])
+        return None
+    pc = sh([sys.executable, '-I', os.path.join(dest, 'tools', 'renderer', 'compile_shaders.py')], 2400, cwd=dest)
+    if pc.returncode != 0:
+        say(False, 'the base shaders did not compile: ' + (pc.stdout + pc.stderr)[-300:])
+        return None
     p = sh(['pwsh', '-NoProfile', '-File', os.path.join(dest, 'tools', 'renderer', 'build.ps1'), '-NoShaders'], 2400, cwd=dest)
     if p.returncode != 0 or not os.path.exists(exe):
         say(False, 'the base rplay did not build: ' + (p.stdout + p.stderr)[-300:])

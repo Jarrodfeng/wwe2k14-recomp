@@ -1,0 +1,16 @@
+# S103 PWI (tools\scene\register_switch_lint.py): live scene contributors registered in OnPostSetup that are NOT under a switch that defaults false and is outside the promotions lists.
+# One line per callee: `callee | reason`. These are today's registrations, baselined at the PW-1/2 review (2026-11-17): each is a class the shipped promotions (owner mode, the ours switches) need on every frame.
+# "baselined" = not audited for per-frame cost here (a burn-down item for the per-frame cost audit); a NEW reader never goes in this file without a reason a reviewer accepts: put it under a switch instead
+# (`!WWE2K14_STREAM() || REXCVAR_GET(x)`: on in the stream-free build, a switch in the stream build; see wwe2k14_rdr_weapons).
+rdr_scene::live::RegisterWrestlers | the wrestlers' node palettes: the wrestler class is a shipped promotion and every owned frame needs them
+wwe2k14::scene_inputs_glue::Register | the scene's run-time inputs (post settings, model alpha): the owned frame's required inputs; without them Ours never decides
+wwe2k14::scene_particle_glue::Register | the particle source (S103 F2): the particles class is a shipped promotion (--wwe2k14_rdr_particles_ours); baselined
+wwe2k14::q2d_tap::RegisterContributor | the 2D record: gates itself on its own Active() (dev switch in the stream build, always in the stream-free build); baselined
+rdr_scene::live::lights::RegisterLightStates | the per-draw light state: the arena / wrestler promotions need it; it rides the promoted scene_light_states switch
+rdr_scene::live::circles::RegisterCircles | `!WWE2K14_STREAM() || circles_ours`: on in the stream-free build, a shipped promotion (circles_ours) in the stream build; baselined
+rdr_scene::live::plane::RegisterPlane | `!WWE2K14_STREAM() || plane_shadow_ours`: as the circles; baselined
+rdr_scene::live::arenaworld::RegisterArenaWorlds | the arena's object worlds: the arena promotion needs them; rides the promoted scene_light_states switch
+wwe2k14::scene_stagefx_glue::Register | the stage's live writers (S103 C2): the stage class is a shipped promotion; baselined
+wwe2k14::scene_screens_glue::Register | the stage screens' pictures (S103 M): the screens class is a shipped promotion (screens_ours); baselined
+wwe2k14::crowd_live::RegisterCrowd | the crowd's members / palettes / cards: the crowd promotion (crowd_ours) needs them every frame
+wwe2k14::scene_live::InstallArena | the arena contributor + slot provider (S103 C3, lane 28): the arena class is a shipped promotion and needs it every frame; baselined (found by the PW review: the lint did not match Install*)
