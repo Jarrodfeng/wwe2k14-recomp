@@ -11,7 +11,7 @@
  "note": "0 game runs. scx_unit (rule + census; planted twin gap_rule = the old N3 gap rule). The rig proof is s103_P7H1.",
  "checks": [
   {
-   "name": "s103_SCX.build_unit",
+   "name": "s103_SCX.build_unit", "deps": "scan:src,tools",
    "cmd": [
     "pwsh",
     "-NoProfile",

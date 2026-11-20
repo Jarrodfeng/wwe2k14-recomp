@@ -82,6 +82,11 @@ def main():
     lock = run(['pwsh', '-NoProfile', '-File', os.path.join(REPO, 'tools', 'runlock.ps1'), 'status'])
     keep = [l.strip() for l in lock.splitlines() if re.match(r'\s*(mode|lock|slot\d|build\d|queue|game processes)', l)]
     print('run lock: ' + ' | '.join(k for k in keep if 'free' not in k or k.startswith(('mode', 'lock'))))
+    # 2026-11-20: the machine-wide compile queue (tools\admit; docs\agents\admit.md, admit_wiring.md). One line: installed / missing / stale,
+    # its mode (enforce since 2026-11-20 10:4x, Jarrod's decision: askers wait when memory is short; observe = it only records), its last
+    # history row. Missing = wired builds run unqueued.
+    queue = run([sys.executable, '-I', os.path.join(REPO, 'tools', 'admit', 'status.py')])
+    print('compile queue: ' + (queue.splitlines()[0][:300] if queue.strip() else 'tools\\admit\\status.py printed nothing'))
     for build in ('win-amd64-release', 'win-amd64-coverage'):
         path, num = newest_log(build)
         if not path:

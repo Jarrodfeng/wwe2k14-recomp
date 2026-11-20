@@ -25,7 +25,6 @@ press_until_state A seq 77 8 120 5
 log scene=caw_threads
 wait_frames 400
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_sweep_caw_threads
 screenshot sc_sweep_caw_threads
 mark 2 threads
 press_until_state B seq 75 40 120 5
@@ -37,7 +36,6 @@ press_until_state A seq 25 8 120 5
 log scene=caw_entrance
 wait_frames 600
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_sweep_caw_entrance
 screenshot sc_sweep_caw_entrance
 mark 3 entrance
 press_until_state B seq 75 40 120 5
@@ -49,7 +47,6 @@ press_until_state A seq 20 8 120 5
 log scene=caw_moveset
 wait_frames 600
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_sweep_caw_moveset
 screenshot sc_sweep_caw_moveset
 mark 4 moveset
 press_until_state B seq 75 40 120 5
@@ -58,10 +55,8 @@ include menu_to_creations
 include creations_to_logo_grid
 log scene=caw_logo_grid
 wait_frames 700
-cvar wwe2k14_rdr_live_picture sc_sweep_caw_logo_1
 screenshot sc_sweep_caw_logo_1
 wait_frames 800
-cvar wwe2k14_rdr_live_picture sc_sweep_caw_logo_2
 screenshot sc_sweep_caw_logo_2
 mark 5 logo_grid
 log scene=end

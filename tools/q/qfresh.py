@@ -81,10 +81,63 @@ def map_line(hs, line, end=False):
     return line + off, False
 
 
+_SHA_CACHE = {'path': None, 'rows': {}, 'dirty': False}
+
+
+def sha_cache_open(root):
+    """S105 QC: a (path -> size, mtime_ns, sha1) cache under root/out/harness: hashing ~2000 files took 0.4 s of every worktree q call. A file whose size and
+    mtime_ns are unchanged keeps its hash; anything else is re-hashed (the planted twin: a same-size edit with a new mtime must re-hash)."""
+    p = os.path.join(root, 'out', 'harness', 'qfresh_sha.json')
+    _SHA_CACHE.update(path=p, rows={}, dirty=False)
+    try:
+        import json
+        with open(p, encoding='utf-8') as f:
+            _SHA_CACHE['rows'] = json.load(f)
+    except (OSError, ValueError):
+        pass
+
+
+def sha_cache_save():
+    if not (_SHA_CACHE['dirty'] and _SHA_CACHE['path']):
+        return
+    tmp = _SHA_CACHE['path'] + f'.{os.getpid()}.tmp'
+    try:
+        import json
+        os.makedirs(os.path.dirname(_SHA_CACHE['path']), exist_ok=True)
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(_SHA_CACHE['rows'], f)
+        os.replace(tmp, _SHA_CACHE['path'])
+    except OSError:                  # the cache file is held open by another q call (Windows): the save is lost, the tmp must not stay (QC L4)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    _SHA_CACHE['dirty'] = False
+
+
+RACY_NS = 2_000_000_000
+
+
 def sha_of(path):
+    """sha1 of the file. A cached hash is trusted only when (size, mtime_ns) match AND the entry was cached >= 2 s after that mtime: a file hashed in the same
+    clock tick as its write (or a copy that kept an old mtime) is re-hashed until the entry ages out (git's racy-clean rule, QC M2)."""
     import hashlib
+    import time
+    rows = _SHA_CACHE['rows'] if _SHA_CACHE['path'] else None
+    if rows is not None:
+        st = os.stat(path)
+        e = rows.get(path)
+        try:
+            if e and e[0] == st.st_size and e[1] == st.st_mtime_ns and e[3] - e[1] >= RACY_NS:
+                return e[2]
+        except (IndexError, TypeError):
+            pass
     with open(path, 'rb') as f:
-        return hashlib.sha1(f.read()).hexdigest()
+        h = hashlib.sha1(f.read()).hexdigest()
+    if rows is not None:
+        rows[path] = [st.st_size, st.st_mtime_ns, h, time.time_ns()]
+        _SHA_CACHE['dirty'] = True
+    return h
 
 
 def classify(root, main, base_rows):
@@ -100,7 +153,7 @@ def classify(root, main, base_rows):
                 if not f.endswith(CPP):
                     continue
                 p = os.path.join(dp, f)
-                rel = os.path.relpath(p, root).replace('\\', '/')
+                rel = p[len(root):].lstrip('\\/').replace('\\', '/') if p.startswith(root) else os.path.relpath(p, root).replace('\\', '/')   # S105 QC: relpath was 0.09 s
                 seen.add(rel)
                 if rel not in base_rows:
                     new.append(rel)
@@ -136,11 +189,13 @@ def wrap(base_con, root, base_path):
     main = _main_of(root)
     base_rows = {r[0]: (r[1], r[2]) for r in base_con.execute('SELECT path, sha, size FROM files')}
     unmappable = set()
+    sha_cache_open(root)
     try:
         changed, new, removed, unmappable = classify(root, main, base_rows)
     except (OSError, subprocess.TimeoutExpired):
         changed, new, removed = [], [], []
         info['stale'].append('(file scan failed: no file list)')
+    sha_cache_save()
     info['new'], info['removed'] = new, removed
     for rel in changed:
         info['changed'].append(rel)

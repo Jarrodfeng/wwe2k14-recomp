@@ -27,8 +27,14 @@ $data = 'userdata_entrance_check'
 if (-not (Test-Path "$R\out\bench\$data\cache\shaders\shareable\545408B2.native.fsi.vk.xnps")) {
   if (Test-Path "$R\out\bench\userdata_s70_v027") {
     robocopy "$R\out\bench\userdata_s70_v027" "$R\out\bench\$data" /MIR /NFL /NDL /NJH /NJS | Out-Null
+  } elseif (Test-Path "$R\out\bench\userdata_frozen") {
+    # S105 (v0.4.1 release, 2026-11-21): the S70 upgrader store was cleared from out\ (scratch since 2026-11-15). Since S94 it was
+    # "present but unused" (above: TRUE NATIVE reads another store; the stream-free build has no SDK store at all, docs\research\s105\B3.md 1),
+    # so the frozen save alone is the same test: every pipeline compiles cold. The folder is re-made on each check (never the frozen mirror itself).
+    robocopy "$R\out\bench\userdata_frozen" "$R\out\bench\$data" /MIR /NFL /NDL /NJH /NJS | Out-Null
+    Write-Host "entrance check: no S70 upgrader store (unused since S94): the frozen save, every pipeline cold"
   } else {
-    Write-Host "entrance check: FAIL: no upgrader store in out\bench\$data (Session 70: copy of userdata_s70_v027)"
+    Write-Host "entrance check: FAIL: no out\bench\userdata_frozen to copy into out\bench\$data"
     exit 1
   }
 }

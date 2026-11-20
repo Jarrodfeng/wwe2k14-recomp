@@ -9,12 +9,14 @@
 #include <cstring>
 
 #include "../renderer/api.h"
+#include "quads2d_corner.h"
 #include "quads2d_plants.h"
 #include "scene_record.h"
 
 namespace rdr_scene::q2d {
 
-enum class Program : uint8_t { Rect, Movie, Sprite, SpriteHsl, Glyph };   // S103 I3: Glyph = rdr_uiglyph.frag (the channel-selected text glyph)
+enum class Program : uint8_t { Rect, Movie, Sprite, SpriteHsl, Glyph, RectColor };   // S105 A8: RectColor = rdr_uiquad_vcol (a colour per corner)
+// (S103 I3: Glyph = rdr_uiglyph.frag)   // S103 I3: Glyph = rdr_uiglyph.frag (the channel-selected text glyph)
 constexpr uint8_t kGlyphPrimStrip = 6, kGlyphPrimQuadList = 13;   // S103 I3: the op-19 primitive words a glyph row may carry: 6 = the Xbox 360 D3DPT_TRIANGLESTRIP (four vertices in the Z order 0 1 2 3: the stream's draw is a Vulkan strip, [C] fview census: topology 4 on every glyph draw), 13 = a quad list (the sprite's, perimeter order); any other is refused [C: sub_82BC3518 passes 6, sub_82BC4890 13]
 // The strip's four vertices in PERIMETER order (the order the vertex program's fixed triangles 0 1 2 / 0 2 3 expect): a parallelogram covers the same pixels either way.
 constexpr int kStripToPerimeter[4] = {0, 1, 3, 2};   // S103 I2: Sprite = rdr_uiquad.frag (picture times colour), SpriteHsl = rdr_uiquad_hsl.frag (the same, then the game's hue shift)
@@ -64,7 +66,7 @@ inline void PlaceByMatrix(const Quad2D& row, Blocks& out) {
 inline Refuse BlocksOf(const Quad2D& row, Blocks& out) {
   out = Blocks{};
   if (row.version != kQuad2DLayout) return Refuse::Layout;
-  if (row.kind != kQkRect && row.kind != kQkYuvAlpha && row.kind != kQkYuv && row.kind != kQkSprite && row.kind != kQkGlyph) return Refuse::Kind;
+  if (row.kind != kQkRect && row.kind != kQkYuvAlpha && row.kind != kQkYuv && row.kind != kQkSprite && row.kind != kQkGlyph && row.kind != kQkRectColor) return Refuse::Kind;
   if (row.nverts != 4 || !(row.have & kQhVerts)) return Refuse::MissingVerts;
   if ((row.have & (kQhColour | kQhProj)) != (kQhColour | kQhProj)) return Refuse::MissingConstants;
   // S103 P3c: c28 (fUseProjMatrix) != 0 places the quad by the matrix c29..c32: the matrix variant draws it, from the matrix the row carries; a matrix-placed row WITHOUT its matrix is refused (a hole), never guessed. The pixel unit constants (c0) are not read then.
@@ -81,12 +83,31 @@ inline Refuse BlocksOf(const Quad2D& row, Blocks& out) {
   if (row.kind == kQkGlyph && !(row.have & kQhChannel)) return Refuse::MissingConstants;   // S103 I3: no channel selector, no glyph
   // S103 P3c review: a matrix-placed rect / sprite row is a strip (the shader draws 0 1 2 / 2 1 3) or a quad list: any other primitive is refused, not drawn as a quad (the pixel-placed rows of the older sites keep their old rule)
   if ((row.kind == kQkGlyph || (proj && (row.kind == kQkRect || row.kind == kQkSprite))) && !Q2D_PLANT(17) && row.prim != kGlyphPrimStrip && row.prim != kGlyphPrimQuadList) return Refuse::Prim;
+  if (row.kind == kQkRectColor && row.prim != kSiteRectColorPrimWord && !Q2D_PLANT(67)) return Refuse::Prim;   // S105 A8 review F1: the leaf passes the quad list (13) and the drawer lays out a quad list: any other primitive is refused (plant vcol_prim_any: the strip is accepted too)
   const int fl = row.kind == kQkRect ? 3 : 5;
   for (int v = 0; v < 4; ++v)
     if (!Finite(row.verts[v], fl)) return Refuse::NotFinite;
   if ((!proj && !Finite(row.pos_scale, 2)) || !Finite(row.color, 4) || !std::isfinite(row.alpha_ref)) return Refuse::NotFinite;   // (pos_scale z / w are never read: the leaf uploads two floats and the payload's rest is its stack)
   if ((row.have & kQhHsl) && !Finite(row.hsl, 3)) return Refuse::NotFinite;
   if (row.kind == kQkGlyph && !Finite(row.hsl, 4)) return Refuse::NotFinite;   // (the glyph's selector: all four floats)
+  if (row.kind == kQkRectColor) {   // S105 A8: a colour per corner (the game's yRect vertex_color variant: out = vertexColour * Color); a quad list in perimeter order: the corners are taken as drawn
+    out.program = Program::RectColor;
+    float* vs = out.vs;
+    vs[0] = row.pos_scale[0], vs[1] = row.pos_scale[1], vs[2] = 0.0f, vs[3] = Q2D_PLANT(6) ? 0.0f : 0.5f;
+    for (int i = 0; i < 4; ++i) {
+      const float* vert = row.verts[i];
+      if (!CornerValid(vert[3], vert[4])) return Refuse::NotFinite;   // (the packed corner bytes: whole numbers in range)
+      vs[4 + 4 * i + 0] = vert[0], vs[4 + 4 * i + 1] = vert[1], vs[4 + 4 * i + 2] = vert[2];
+      UnpackCorner(vert[3], vert[4], vs + 20 + 4 * i);   // Col[i] = the corner's rgba, 0..1 (the same multiply the leaf made)
+      if (Q2D_PLANT(66)) vs[20 + 4 * i + 3] = 1.0f;   // (plant vcol_alpha_dropped: every corner opaque)
+    }
+    out.vs_bytes = 36 * 4;
+    std::memcpy(out.fs, row.color, 16);
+    out.fs[4] = 1.0f, out.fs[5] = 0.0f, out.fs[6] = 1.0f, out.fs[7] = 0.0f;
+    out.fs_bytes = 8 * 4;
+    if (proj) PlaceByMatrix(row, out);
+    return Refuse::None;
+  }
   if (row.kind == kQkRect) {
     out.program = Program::Rect;
     float* vs = out.vs;

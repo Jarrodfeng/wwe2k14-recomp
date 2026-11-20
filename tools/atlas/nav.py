@@ -270,8 +270,8 @@ class Nav:
         st, text, _ = self.batch(['log_state msgbox', 'log_text'])
         if st.get('msgbox') != 2:
             return False
-        # Run 5906 (screenshot): leaving a changed option page asks "Are you sure you don't want to keep these
-        # settings?" with NO preselected; NO stays on the page, YES leaves and drops the change: LEFT to YES, then A.
+        # Run 5906 (screenshot): leaving a changed option page asks the "keep these settings?" prompt (text id 51121)
+        # with NO preselected; NO stays on the page, YES leaves and drops the change: LEFT to YES, then A.
         # Only that question gets YES; any other box (QUIT TO DESKTOP, save prompts) gets its default button. The
         # question's text is not in the screen text (run 5907), so it is known by where it comes up: B on an option
         # page (screen mode 23) or a MATCH RULES page (mode 6), the screens with the keep-settings leave check.

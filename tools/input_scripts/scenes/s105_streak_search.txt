@@ -1,0 +1,86 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the 30 Years era screen has no mapped cursor state: its presses wait on frame counts)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): where is The Streak (Defeat / Defend the Streak) in the menus? SEARCH ROUTE, not a mode route: the flow table has no entry for it
+# (searched: game_atlas.json / tools\atlas\screens.json nodes + edges, docs\systems\menus.md PLAY tree, db\ids\match_types.json, wm30.md, q fact "defeat the streak" / 1501: the only
+# hits are CHANGELOG / summaries naming the mode; the atlas era screen "column of 9 cards" (run 5906) is the one place whose cards were never read as text; SPECIALTY item 2 is
+# "LOCKED" = setup:116 on the frozen save). The route opens 30 YEARS OF WRESTLEMANIA (menu 1500, sequence 31), screenshots + logs the screen text on the first card, then DOWN x8
+# (a column of 9) and RIGHT x4 (Jarrod run 5895: RIGHT / LEFT move across eras), each with a shot and the text, so the main session can read which card is the Streak. Then B back.
+# A on a card is NOT pressed (that would start a match / era).
+# UNCONFIRMED: which of DOWN / RIGHT moves the cursor; the text reader may not read the card titles (images): the shots decide.
+# Marks: 1 menu, 2 era screen, 3 after DOWN x8, 4 after RIGHT x4, 5 back, 6 end.
+on_fail continue
+log bench: start scene s105_streak_search
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_wm30
+wait_frames 300
+log scene=wm30_cards
+log_state seq
+log_text 8
+screenshot sc_s105_streak_0
+mark 2 era_screen
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d1
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d2
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d3
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d4
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d5
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d6
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d7
+press DOWN
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_d8
+mark 3 after_down8
+repeat 8
+press UP
+wait_frames 30
+end_repeat
+wait_frames 60
+press RIGHT
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_r1
+press RIGHT
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_r2
+press RIGHT
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_r3
+press RIGHT
+wait_frames 60
+log_text 8
+screenshot sc_s105_streak_r4
+mark 4 after_right4
+press_until_state B menu 1 16 150 5
+wait_state menu 1 3600 10
+mark 5 back_at_menu
+wait_frames 300
+mark 6 end
+log bench: done
+wait_frames 10
+quit

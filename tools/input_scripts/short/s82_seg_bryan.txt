@@ -1,0 +1,12 @@
+# Session 82 (diagnostic): the segment log of 2 frames of Bryan's entrance (324.bik2 +440, where s82_ent_shots takes s82e_bryan) and the shot. Run with the replay s82_lb_quick_ent, owned frame on. on_fail quit.
+on_fail quit
+log bench: start s82_seg_bryan
+wait_file 343.bik2 3600
+wait_file 324.bik2 20000
+wait_frames 436
+cvar gpu_native_segment_log 3
+wait_frames 4
+screenshot s82e_bryan
+wait_frames 6
+log bench: done
+quit

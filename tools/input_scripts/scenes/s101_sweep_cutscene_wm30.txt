@@ -23,12 +23,10 @@ log_text 8
 wait_frames 600
 log_state seq
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_sweep_cut_600
 screenshot sc_sweep_cut_600
 wait_frames 1800
 log_state seq
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_sweep_cut_2400
 screenshot sc_sweep_cut_2400
 mark 2 presentation_2400
 press_until_state A match_clock !=0 60 600 5
@@ -36,7 +34,6 @@ log scene=match
 mark 3 match_clock
 wait_frames 900
 log_state seq
-cvar wwe2k14_rdr_live_picture sc_sweep_cut_match_900
 screenshot sc_sweep_cut_match_900
 mark 4 plus900
 wait_frames 900

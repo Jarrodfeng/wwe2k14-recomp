@@ -18,9 +18,10 @@ if ($before -ne $after) {
 if ($Stream -and $StreamFree) { "build_all.ps1: -Stream and -StreamFree together"; exit 2 }
 $sf = ($StreamFree -or ($Release -and -not $Stream))
 $gameArgs = @(); if ($sf) { $gameArgs += '-StreamFree' }
-pwsh -NoProfile -File "$PSScriptRoot\build_game_android.ps1" -Run "$Run-game" @gameArgs
+$relArgs = @(); if ($Release) { $relArgs += '-Release' }   # S105 ADEV: only the game library takes -Release (WWE2K14_RELEASE=ON); the launcher build has no such flag
+pwsh -NoProfile -File "$PSScriptRoot\build_game_android.ps1" -Run "$Run-game" @gameArgs @relArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-pwsh -NoProfile -File "$PSScriptRoot\build_launcher.ps1" -Target android  # Session 71: the launcher (liblauncher.so)
+pwsh -NoProfile -File "$PSScriptRoot\build_launcher.ps1" -Target android @gameArgs  # Session 71: the launcher (liblauncher.so); S105 A1b: -StreamFree = the launcher of a stream-free game library
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $apkArgs = @()
 if ($Install) { $apkArgs += '-Install' }

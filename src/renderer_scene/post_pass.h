@@ -47,6 +47,9 @@ inline std::atomic<uint64_t> g_post_aa_dropped{0}, g_post_lum_dropped{0};
 // treats the cue words as unsupported again (the old mask), 4 = the cue passes run in the wrong order (retro before emboss before defocus). Never set by the game.
 inline std::atomic<uint64_t> g_post_cue_dropped{0}, g_post_cue_passes{0};
 inline std::atomic<int> g_post_cue_plant{0};
+// S105 A1: RIG-ONLY planted twins (post_rig --a1-plant): dconv_unscaled = the game-depth image is made at the logical size although the scene is scaled (the DoF / haze read a quarter of the depth at scale 2);
+// ghost_logical = the afterimage divides gl_FragCoord by the LOGICAL size (the old shader: the sprite lands at half / double scale). Never set by the game.
+inline std::atomic<int> g_a1_plant_dconv_unscaled{0}, g_a1_plant_ghost_logical{0};
 
 struct PostParams {
   uint32_t width = 1280, height = 720;  // the scene's size; quarter = /4, eighth = /8 (the game's 320x180 and 160x90 at 1280x720)
@@ -162,6 +165,7 @@ class PostPass {
   uint64_t lum_steps() const { return lum_steps_; }
   bool combined() const { return combined_; }        // S101 lane PO: the last Record drew the combine (the check behind the planted fault no_combine)
   // The pass's own intermediate pictures after Record has rendered (the proof compares each with the game's: a per-pass breakdown).
+  rdr::ImageId depth_convert_image() const { return dconv_; }   // S105 A1: the game-depth image (R32F): scaled with the chain, so its pass reads the whole scene depth
   rdr::ImageId dof_blur() const { return q2_; }   // hole_fill: the depth of field's blurred picture (the game's image read by combine slots 2 and 6)
   rdr::ImageId bloom_image() const { return b1_; }  // combine slot 7
   rdr::ImageId glare_image() const { return gsum_; }  // combine slot 8
@@ -172,7 +176,7 @@ class PostPass {
   uint16_t Program(int vs, int ps);
   uint16_t Layout(int vs);
   rdr::ImageId Make(uint32_t w, uint32_t h);
-  bool Ensure(uint32_t w, uint32_t h, bool scaled, std::string& error);  // S101 lane PO: + scaled
+  bool Ensure(uint32_t w, uint32_t h, bool scaled, bool viewer_depth, std::string& error);   // viewer_depth: the frame reads the depth-convert image (S105 A1 review F5: only then is it made at the real size)  // S101 lane PO: + scaled
 
   rdr::Renderer& renderer_;
   std::map<uint64_t, uint16_t> programs_;
@@ -183,6 +187,9 @@ class PostPass {
   rdr::ImageId q1_ = rdr::kNoImage, q2_ = rdr::kNoImage, b0_ = rdr::kNoImage, b1_ = rdr::kNoImage, b2_ = rdr::kNoImage, gt_ = rdr::kNoImage;
   rdr::ImageId g_[4] = {}, gsum_ = rdr::kNoImage, mid_ = rdr::kNoImage, dconv_ = rdr::kNoImage;
   rdr::ImageId pre_ = rdr::kNoImage, hist_[2] = {rdr::kNoImage, rdr::kNoImage};   // S103 FXF: the chain output before the ghost, and the two history images (made when the ghost first plays; zero cost while it is off)
+  uint32_t logged_w_ = 0, logged_h_ = 0;
+  int logged_scaled_ = -1, logged_dconv_scaled_ = -1;   // S105 A1 review F5: the last chain the [scene][targets] line printed
+  bool viewer_depth_ = false;   // S105 A1: sticky upward per size / scale: the depth-convert image has been asked for (it is made at the real size only then)
   uint16_t depth_program_ = 0, depth_layout_ = 0, ghost_program_ = 0, ghost_layout_ = 0;
   bool depth_program_made_ = false, ghost_program_made_ = false, ghost_armed_ = false;
   uint64_t ghost_last_frame_ = 0;

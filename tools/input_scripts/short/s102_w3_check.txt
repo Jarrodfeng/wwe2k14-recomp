@@ -1,0 +1,15 @@
+# Session 102 (2026-11-14): lane W3's one PC check (native render-command replay loop + dispatcher). Plays the quick entrance
+# replay s82_lb_quick_ent through Brock's tron + 600 frames and Bryan's tron + 1200, then quits. Run twice with
+# --wwe2k14_replay_play=s82_lb_quick_ent --wwe2k14_det_hash=default,objects: once with W3 off, once with
+# --wwe2k14_nf_replay_loop=true --wwe2k14_nf_render_dispatch=true; det_compare.py the two runs and read the
+# [rdr][nf_replay] census line (taken ~ all non-81 records). on_fail quit.
+on_fail quit
+log bench: start s102_w3_check
+wait_file 343.bik2 3600
+log scene=tron_343
+wait_frames 600
+wait_file 324.bik2 20000
+log scene=tron_324
+wait_frames 1200
+log bench: end s102_w3_check
+quit

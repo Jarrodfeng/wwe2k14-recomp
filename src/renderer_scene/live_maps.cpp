@@ -188,7 +188,7 @@ LiveMapsHook::~LiveMapsHook() {
   for (rdr::BufferId b : {e2_->liquid_disc_vb, e2_->liquid_disc_ib, e2_->liquid_quad_vb})
     if (b != rdr::kNoBuffer) renderer_.DestroyBuffer(b);
   if (e2_->liquid_pics) {
-    struct B { rdr::Renderer& r; uint32_t Grey() { return 0; } uint32_t Create(const CrowdPictureRow&) { return 0; } void Update(uint32_t, const CrowdPictureRow&) {} void Destroy(uint32_t id) { r.DestroyImage(rdr::ImageId(id)); } } b{renderer_};
+    struct B { rdr::Renderer& r; uint32_t Grey() { return 0; } uint32_t Create(const LiquidPictureRow&) { return 0; } void Update(uint32_t, const LiquidPictureRow&) {} void Destroy(uint32_t id) { r.DestroyImage(rdr::ImageId(id)); } } b{renderer_};
     e2_->liquid_pics->Clear(b);
   }
   if (e2_->pl_vb != rdr::kNoBuffer) renderer_.DestroyBuffer(e2_->pl_vb);

@@ -1,5 +1,6 @@
 // See live_scene_draw.h. Session 103, lane S.
 #include "live_scene_draw.h"
+#include "load_order.h"   // S105 SKB
 #include "../assets/car_sel.h"   // S103 CAR fix 7
 #include "../thread_name.h"  // S103 H1
 
@@ -63,6 +64,9 @@ void LiveSceneDraw::SetGameRoot(const std::string& root) {
 void LiveSceneDraw::EnsureFrontEnd() {
   if (fe_) return;
   fe_ = std::make_unique<FrontEnd>(renderer_);
+#if !WWE2K14_STREAM()
+  fe_->SetScaledTargets(renderer_.render_scale() != 1.0f && !g_a1_plant_host_unscaled.load(std::memory_order_relaxed));   // S105 A1: the launcher's 1440p / 4K / 360p-648p choice draws the scene at that size (the scene targets carry kUsageScaled)
+#endif
   rf::crowd::Attach(*fe_, /*async_bodies=*/true);   // S103 D2: LiveCrowd (lane D), its bodies loaded on a worker, never on the render thread
   lists_ = std::make_unique<DrawLists>();   // S103 G2 (SCENE_PACING.md 3c (10)): one per render thread
   fe_->SetDrawLists(lists_.get());
@@ -87,11 +91,12 @@ void LiveSceneDraw::LoaderLoop() {
     Job job;
     {
       std::unique_lock<std::mutex> lock(mu_);
-      cv_.wait(lock, [&] { return stop_ || (!want_.empty() && !loader_root_.empty()); });
+      cv_.wait(lock, [&] { return stop_ || (!loader_root_.empty() && PickJob(want_, bulk_ok_) != kNoJob); });   // S105 SKB2: a bulk job waits for the roster (bulk_ok_)
       if (stop_) return;
       if (loader_root_ != have_root) have_root = loader_root_, src.SetRoot(have_root);
-      job = std::move(want_.front());
-      want_.pop_front();
+      const size_t at = PickJob(want_, bulk_ok_);   // S105 SKB: gating jobs first (load_order.h)
+      job = std::move(want_[at]);
+      want_.erase(want_.begin() + std::ptrdiff_t(at));
     }
     Loaded l;
     l.m = job.m;
@@ -109,6 +114,11 @@ void LiveSceneDraw::LoaderLoop() {
   }
 }
 
+void LiveSceneDraw::SetBulkOk(bool v) {   // S105 SKB2
+  { std::lock_guard<std::mutex> lock(mu_); if (bulk_ok_ == v) return; bulk_ok_ = v; }
+  if (v) cv_.notify_all();
+}
+
 void LiveSceneDraw::QueueMisses() {
   std::vector<rf::ModelCache::Missed> missed = live_cache_->TakeMisses();
   const std::vector<int> arenas = rf::c::TakeArenaMisses();
@@ -117,12 +127,19 @@ void LiveSceneDraw::QueueMisses() {
   for (const rf::ModelCache::Missed& m : missed) roster_signal_.Ask(m.pac);
 #endif
   for (const rf::ModelCache::Missed& m : missed)   // S103 OFFT: name each asset the first time it is asked for (render thread; the loader thread never touches this)
-    NoteLoadLine(true, std::string("pac ") + m.pac + " entry " + m.entry + " variant " + std::to_string(m.variant), m.key, -1);
+    NoteLoadLine(true, std::string("pac ") + m.pac + " entry " + m.entry + " variant " + std::to_string(m.variant) + (m.gates ? " (gates)" : " (prop)"), m.key, -1);
+  if (!arenas.empty() && !prewarm_queued_) NoteLoadLine(true, std::string("pac pac\\evt\\evtobj.pac entry ") + kEvtobjPrewarmEntry + " (bulk: the entrance's block index, started at match load; S105 SKB3: ~25 ms, the pac is read by blocks)", "evtobj-prewarm", -1);
   for (int a : arenas) NoteLoadLine(true, "arena pac\\bg\\bg" + std::string(a < 10 ? "0" : "") + std::to_string(a) + ".pac", "arena " + std::to_string(a), a);
   {
     std::lock_guard<std::mutex> lock(mu_);
     for (rf::ModelCache::Missed& m : missed) want_.push_back(Job{std::move(m), -1});
     for (int a : arenas) want_.push_back(Job{rf::ModelCache::Missed{}, a});
+    if (!arenas.empty() && !prewarm_queued_) {   // S105 SKB fix F3: a match / arena is loading: the entrance's 160 MB evtobj.pac unpack starts now, as the LAST job (bulk), so the first event prop's ask (a gating miss) finds it open: the ~1.7 s no longer lands inside the entrance
+      rf::ModelCache::Missed pw;
+      pw.pac = "pac\\evt\\evtobj.pac", pw.entry = kEvtobjPrewarmEntry, pw.key = "evtobj-prewarm", pw.stored = true, pw.gates = false, pw.bulk = true;
+      prewarm_queued_ = true;
+      want_.push_back(Job{std::move(pw), -1});
+    }
   }
   cv_.notify_all();
 }
@@ -157,6 +174,11 @@ void LiveSceneDraw::AdoptLoaded() {
     done.swap(done_);
   }
   for (Loaded& l : done) {
+    if (l.arena < 0 && l.m.bulk && l.m.entry == kEvtobjPrewarmEntry) {   // S105 SKB fix F3: the prewarm opened the pac in the loader; nothing to store. A failure is not re-asked until the next arena load.
+      prewarm_queued_ = false;
+      NoteLoadLine(false, std::string(l.ok ? "ok " : "FAILED ") + "pac " + l.m.pac + " entry " + l.m.entry + " (the entrance's unpack)", l.m.key, -1);
+      continue;
+    }
 #if !WWE2K14_STREAM()
     if (l.arena < 0) roster_signal_.Done(l.m.pac, l.ok);   // RRS; S103 DLF: a failed body counts as drawn only when the guest rows built a model (Poll below)
 #endif
@@ -410,6 +432,7 @@ bool LiveSceneDraw::DrawLive(const SceneTables& rec, rdr::FrameBuilder& fb, uint
     LiveScreenFacts lf;
     lf.arena_changed = ep != arena_epoch_seen_;
     arena_epoch_seen_ = ep;
+    if (lf.arena_changed) { live_cache_->SetSceneDrawn(false); SetBulkOk(false); }   // S105 SKB fix F3: a new scene: its event / structure props gate READY again until its first frame is drawn
     if (const LiveScreenWhy w = LiveScreenInvalidation(lf); w != LiveScreenWhy::None) fe_->InvalidateLiveScreen(w);
   }
   NoteStage(rec, built, reports);   // S103 L2d
@@ -472,6 +495,8 @@ bool LiveSceneDraw::DrawLive(const SceneTables& rec, rdr::FrameBuilder& fb, uint
   }
   NoteTerms(true, terms, reports, error, skipped);
   last_drawn_gf_ = rec.header.guest_frame, have_drawn_gf_ = true;   // (diagnostics only; no longer a live-screen rule)
+  live_cache_->SetSceneDrawn(true); SetBulkOk(true);   // S105 SKB2: the roster is in: the evtobj prewarm may start now
+   // S105 SKB fix F3: the scene has shown its first OURS frame: event / structure props no longer gate READY (a mid-match ask pops in)
   out = post ? fe_->post_output() : t.color;
   if (out_depth) *out_depth = t.depth;
   for (const rf::ClassReport& r : reports) drawn_ += r.drawn, skipped_ += r.skipped;
@@ -511,7 +536,8 @@ bool LiveSceneDraw::DrawToPng(const SceneTables& rec, uint32_t w, uint32_t h, co
   }
   AttachFrameHooks(frame, rec, *mirror_hooks_);   // S103 R2: the same hooks + see order as the live frame
   std::vector<uint8_t> rgba;
-  if (!fe_->RenderToPixels(frame, rgba, error)) {
+  uint32_t pw = 0, ph = 0;   // S105 A1: a scaled scene reads back at its real size
+  if (!fe_->RenderToPixels(frame, rgba, error, &pw, &ph)) {
     report = "[scene][mirror] draw failed: " + error;
     ++failed_;
     return false;
@@ -523,7 +549,7 @@ bool LiveSceneDraw::DrawToPng(const SceneTables& rec, uint32_t w, uint32_t h, co
       for (uint32_t c = 0; c < 3; ++c) rgba[i + c] = curve[4 * rgba[i + c] + c];
   std::error_code ec;
   std::filesystem::create_directories(png.parent_path(), ec);
-  if (!rdr::WritePng(png, rgba.data(), w, h)) {  // (WritePngFile closes the file)
+  if (!rdr::WritePng(png, rgba.data(), pw, ph)) {  // (WritePngFile closes the file)
     report = "[scene][mirror] cannot write " + png.string();
     ++failed_;
     return false;

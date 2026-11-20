@@ -3,7 +3,7 @@
  "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
  "note": "0 game runs, 0 Surface runs. rfx_unit: ReadState / FillState carry the +148 word, the layout-5 record round trip (a layout-4 capture is read as address unknown = clamp), the code -> address table (0 repeat, 1 mirror, 2 and 7 clamp, 4 border, 5 / 6 mixed, 3 / unknown / no bit clamp), Append's sampler for a uv 0..15 row = REPEAT with a CPU reference of the tiling; planted twins address_ignored (today's clamp = the past bug), code7_wrap, unknown_wrap each failing its NAMED check; SVY: the T_SpriteYUV site makes a yuv row (tap, blocks, record, Append), planted twin yuv_site_hole; movie_planes_unit serves a no-alpha frame (twin alpha_required).",
  "checks": [
-  {"name": "s103_RFX.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rfx_unit.ps1"], "timeout_s": 600},
+  {"name": "s103_RFX.build_unit", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rfx_unit.ps1"], "timeout_s": 600},
   {"name": "s103_RFX.unit", "cmd": ["out/tools/rfx_unit.exe"], "timeout_s": 60,
    "affects": ["src/renderer_scene/quads2d_core.h", "src/renderer_scene/quads2d_draw.h", "src/renderer_scene/quads2d_draw.cpp", "src/renderer_scene/quads2d_plants.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.h", "src/renderer_scene/record_io.cpp", "tools/scene/rfx_unit.cpp"]},
   {"name": "s103_RFX.unit_plant_address_ignored", "cmd": ["out/tools/rfx_unit.exe", "--plant", "address_ignored"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_draw.cpp", "tools/scene/rfx_unit.cpp"]},

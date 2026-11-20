@@ -134,6 +134,19 @@ def q(root, *a, env=None):
     return r.stdout + r.stderr, r.stdout, time.time() - t
 
 
+def qraw(root, *a, env=None):
+    """a q command that is not under `ours` (show, py); the checkout under test is the --root of show, and the cwd-independent default of the others"""
+    t = time.time()
+    extra = ['--root', root] if a[0] == 'show' else (['--root', root] if a[0] == 'py' else [])
+    args = list(a)
+    if a[0] == 'show':
+        args = list(a) + extra
+    elif a[0] == 'py':
+        args = list(a) + extra
+    r = subprocess.run([sys.executable, '-I', Q] + args, capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(ENV, **(env or {})), timeout=120)
+    return r.stdout + r.stderr, r.stdout, time.time() - t
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix='qx_selftest_')
     try:
@@ -169,6 +182,42 @@ def main():
         check('#include "a.h"  -> src/a.h' in so and 'cstdio' in so and 'system' in so, 'QX4 includes resolves repo includes and marks system ones', out)
         out, so, _ = q(main_root, 'includers', 'a.h')
         check('src/a.cpp:1' in so and 'src/b.h:2' in so, 'QX4 includers lists every direct includer', out)
+        # ---- S105 QB: `line` falls back to text matching for a line built by concatenation; `q show FILE:N-M`; `q py` = ours --tools
+        write(main_root, 'src/qb_cat.cpp', '#include <string>\nstatic const char* kQbMsg =\n    "Scheduler is wedged: " "queue " "stalled for";\nvoid QbEmit(int n) { Log(kQbMsg, n); }\n')
+        out, so, _ = q(main_root, 'line', 'Scheduler is wedged: queue 7 stalled for 3 frames')
+        check('src/qb_cat.cpp:3' in so and 'built by concatenation' in so, 'QB line: a line held in a constant / split literals (no printf call holds it) falls back to a text match of its pieces', out)
+        out, so, _ = q(main_root, 'line', '[qb][cat] nothing like this anywhere zzqq')
+        check('src/qb_cat.cpp' not in so and 'built by concatenation' not in so, 'QB line: a line nobody prints does not invent a fallback hit (planted twin)', out)
+        out, so, _ = qraw(main_root, 'show', 'src/a.cpp:2-3')
+        check(so.count('\n') == 4 and '== src/a.cpp:2-3' in so and '-- root:' in so, 'QB show FILE:N-M prints exactly the numbered range, and names the root when it is not the q.py\'s own checkout', out)
+        out, so, _ = qraw(main_root, 'show', 'src/a.cpp:0-2')
+        check('== src/a.cpp:1-2' in so and '\n0 ' not in so and not any(l.startswith('0 ') for l in so.split('\n')), 'QB show: FILE:0-N starts at line 1, never prints a "line 0"', out)
+        out, so, _ = qraw(main_root, 'show', 'a.h:1-2')
+        out2, so2, _ = qraw(main_root, 'show', 'xa.h:1-2')
+        check('== src/a.h:1-2' in so and 'no such file' in out2, 'QB show: a basename matches whole path components (xa.h is not a.h)', out2)
+        write(main_root, 'out/qb_scratch.txt', 'a scratch line\n')
+        out, so, _ = qraw(main_root, 'show', 'out/qb_scratch.txt:1')
+        check('a scratch line' in so, 'QB show: out\\ text is allowed (policy: logs / scratch reads are 18 % of raw reads)', out)
+        write(main_root, 'tools/qb_uni.py', '# café → arrow œ\nx = 1\n')
+        r_ = subprocess.run([sys.executable, '-I', Q, 'show', 'tools/qb_uni.py:1-2', '--root', main_root], capture_output=True, env=dict(ENV, PYTHONIOENCODING='ascii'), timeout=120)
+        check(r_.returncode == 0 and b'x = 1' in r_.stdout, 'QB show: a legacy console encoding does not crash on non-ASCII text (errors=replace)', (r_.stderr or b'').decode('utf-8', 'replace'))
+        for bad in ('generated/x.cpp', './generated/x.cpp', 'src/../generated/x.cpp', 'Generated/x.cpp', 'GAME_DATA/extracted/x.bin', os.path.join(main_root, 'generated', 'x.cpp'), os.path.join(main_root, 'Game_Data', 'x')):
+            out, so, _ = qraw(main_root, 'show', bad + ':1-3')
+            check('never read through q show' in out and 'q.py decomp' in out and not so.strip().startswith('=='), f'QB show: {bad} is refused (every spelling) and points at q decomp', out)
+        out, so, _ = qraw(main_root, 'show', 'a.cpp:2+-1', 'p.py:1')
+        check('== src/a.cpp:1-3' in so and '== tools/p.py:1-' in so, 'QB show: a unique basename, FILE:N+-C, FILE:N (context), two files in one call', out)
+        out, so, _ = qraw(main_root, 'show', 'src/a.cpp:9999-10001')
+        check('beyond the end' in so and 'not clamped' in so, 'QB show: a range past the end of the file is said, not clamped (planted twin)', out)
+        # review 8: fallback candidates only inside a string literal; comments, .txt / .json and fixtures are not printers; a pair is WEAK unless a second needle backs it
+        write(main_root, 'src/qb_cmt.cpp', '// Zorkflib quibblex is only mentioned in a comment\nvoid QbCmt() {}\n')
+        write(main_root, 'src/qb_notes.txt', 'Zorkflib quibblex in a txt file\n')
+        out, so, _ = q(main_root, 'line', 'Zorkflib quibblex 5 nargle')
+        check('qb_cmt.cpp' not in out and 'qb_notes.txt' not in out and 'UNCONFIRMED' not in out, 'QB line: a comment / .txt mention is not a candidate (planted twin)', out)
+        write(main_root, 'src/qb_str.cpp', 'const char* kQbPair = "Zorkflib quibblex";\n')
+        out, so, _ = q(main_root, 'line', 'Zorkflib quibblex 5 nargle')
+        check('src/qb_str.cpp:1' in so and 'UNCONFIRMED' in so and 'WEAK' in so, 'QB line: a pair inside a string literal is listed as UNCONFIRMED and WEAK', out)
+        out, so, _ = qraw(main_root, 'py', 'def', 'Gate.conn')
+        check('attr' in so and 'tools/p.py:' in so, 'QB py def NAME = the tools python index (self-attribute shown)', out)
         # ---- QX1 worktree freshness
         subprocess.run(['git', '-C', main_root, 'worktree', 'add', '-q', '-b', 'wt', wt], check=True, capture_output=True)
         write(wt, 'src/a.cpp', '// one\n// two\n// three\n' + A_CPP + 'int QxAdded() { return 7; }\n')
@@ -638,7 +687,9 @@ def qsd_main():
         check('0 files changed since' in so, 'QSD ... and the call after that re-reads nothing', out)
         # 3 PLANT: a stale file while another writer holds the lock: the answer must say STALE, loudly
         write(root, sdlc, SDL_FN + 'static void PlantedLaterFn(void) {}\nstatic void PlantedLockedFn(void) {}\n')
-        lk = os.path.join(root, 'out', 'harness', 'index', 'sdk.db.lock')
+        sys.path.insert(0, HERE)
+        import qsdk
+        lk = qsdk.db_path(root) + '.lock'      # S105 D: the schema is in the file name
         with open(lk, 'w') as f:
             f.write('999999')
         env = dict(ENV, WWE_QSDK_LOCK_WAIT='1')
@@ -664,7 +715,10 @@ def qsd_main():
         sdk = qx5.sdk_root(here)
         real = os.path.join(sdk, 'thirdparty', 'sdl3') if sdk else ''
     if os.path.isdir(real):
-        r = subprocess.run([sys.executable, '-I', Q, 'sdk', 'def', 'SkipAltGrLeftControl'], capture_output=True, text=True, encoding='utf-8', errors='replace', env=ENV, timeout=300)
+        real_tmp = tempfile.mkdtemp(prefix='qx_real_sdk_')      # S105 D (F-3): a TEMP index for the real tree, never the shared one
+        r = subprocess.run([sys.executable, '-I', Q, 'sdk', 'def', 'SkipAltGrLeftControl'], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                           env=dict(ENV, WWE_QSDK_DB=os.path.join(real_tmp, 'sdk.real.db')), timeout=300)
+        shutil.rmtree(real_tmp, ignore_errors=True)
         if 'SDL_windowsevents.c' not in r.stdout:
             print('FAIL  QSD the real-tree AltGr question: q sdk def SkipAltGrLeftControl did not hit SDL_windowsevents.c\n' + r.stdout + r.stderr)
             return 1

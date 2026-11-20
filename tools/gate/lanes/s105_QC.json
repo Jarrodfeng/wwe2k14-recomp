@@ -1,0 +1,9 @@
+{
+ "owner": "S105 lane QC (harness: q speed + small answers instead of whole-file reads). 0 game runs, 0 Surface runs. QA_q_payoff measured q at 2.4 s median per call against 0.4 s for a raw read, and whole-file C++ / note / tool-source reads at 140 M carried tokens.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. qbody_selftest.py: `q ours body / outline / enclosing` (spans, brace scan fallback with a brace in a string, a prototype and an if-block as planted non-functions, a line outside every function is not attributed to one, a missing function raises), the qfresh sha cache (a same-size edit with a new mtime must re-hash), `q py body` (python + ps1 brace match, a variable has no body), `q note` (fence-aware headings, --verdict / --sites / --section, an unknown heading and a survey note without a sites section are refused).",
+ "checks": [
+  {"name": "s105_QC.qbody_selftest", "cmd": ["py", "-I", "tools/q/qbody_selftest.py"], "timeout_s": 300,
+   "affects": ["tools/q/qbody.py", "tools/q/qnote.py", "tools/q/qbody_selftest.py", "tools/q/qfresh.py", "tools/q/qtools.py", "tools/q/qours.py", "tools/q/q.py"]}
+ ]
+}

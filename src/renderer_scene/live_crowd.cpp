@@ -572,7 +572,7 @@ struct LiveCrowd::Impl {
       const int mat = clean.meshes[0].material;
       if (mat >= 0 && size_t(mat) < q.materials.size()) {
         q.materials[size_t(mat)].alpha_test = true;
-        q.materials[size_t(mat)].cull_back = false;
+        q.materials[size_t(mat)].cull_back = false, q.materials[size_t(mat)].cull_from_record = false;   // S105 C3: the crowd keeps its own rule
         assets::Mesh qm;
         qm.material = mat, qm.part = "card", qm.light_set = clean.meshes[0].light_set;
         const float px[4] = {+82.f, -82.f, +82.f, -82.f}, py[4] = {0.f, 0.f, -250.f, -250.f}, pu[4] = {1.f, 0.f, 1.f, 0.f}, pv[4] = {1.f, 1.f, 0.f, 0.f};
@@ -756,7 +756,7 @@ struct LiveCrowd::Impl {
     // S103 SG: back faces CULLED, as the game: the crowd entry sets cull on once for the sign loop, the hand loop, the node loop and the stands (sub_82519508 0x82519680 -> sub_82C24128: state id 56 = 2 / 6
     // by the current mode [state+116]); the stream records cull BACK, front face CLOCKWISE on every prop and stands block draw [C: brock_losswin, tools\crowd\crowd_prop_cull_check.py], which is DrawInstanced's
     // state for a cull_back material (front_end.cpp: cull 2, front_face 1), with the strip's alternate winding kept (PropMeshes above). The fault props_two_sided keeps the pre-SG rule (test only).
-    if (tmpl_material >= 0 && size_t(tmpl_material) < m.materials.size()) m.materials[size_t(tmpl_material)].cull_back = !options.fault_props_two_sided;
+    if (tmpl_material >= 0 && size_t(tmpl_material) < m.materials.size()) m.materials[size_t(tmpl_material)].cull_back = !options.fault_props_two_sided, m.materials[size_t(tmpl_material)].cull_from_record = false;   // S105 C3: the crowd keeps its own rule
     assets::Mesh me = *src;
     me.material = tmpl_material, me.light_set = tmpl_light_set;
     if (options.fault_props_cull_front)   // S103 SGF planted: the winding reversed (test only)

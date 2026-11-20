@@ -92,17 +92,24 @@ bool LiveParticles::EnsureSoftPrograms() {
   return soft_ready_ = true;
 }
 
+// S105 A1: true when the scene depth the copy reads carries kUsageScaled (the stream-free host's scaled scene): the copy's destination must be the same size class.
+bool LiveParticles::SceneDepthScaled(const StageCtx& ctx) const {
+  uint32_t w = 0, h = 0;
+  bool scaled = false;
+  return renderer_.ImageExtent(ctx.depth, w, h, scaled) && scaled;
+}
+
 // The sampled copy of the scene depth (same size, Depth format). Re-made when the frame size changes (DestroyImage is deferred past the frames in flight).
-bool LiveParticles::EnsureSoftDepth(uint32_t w, uint32_t h) {
-  if (soft_depth_ != rdr::kNoImage && soft_w_ == w && soft_h_ == h) return true;
+bool LiveParticles::EnsureSoftDepth(uint32_t w, uint32_t h, bool scaled) {
+  if (soft_depth_ != rdr::kNoImage && soft_w_ == w && soft_h_ == h && soft_scaled_ == scaled) return true;
   if (soft_depth_ != rdr::kNoImage) renderer_.DestroyImage(soft_depth_), soft_depth_ = rdr::kNoImage;
   rdr::ImageDesc d;
   d.width = uint16_t(w);
   d.height = uint16_t(h);
   d.format = rdr::Format::Depth;
-  d.usage = rdr::kUsageTarget | rdr::kUsageSampled;
+  d.usage = uint8_t(rdr::kUsageTarget | rdr::kUsageSampled | (scaled ? rdr::kUsageScaled : 0));   // S105 A1: same size class as the scene depth it is copied from
   soft_depth_ = renderer_.CreateImage(d);
-  soft_w_ = w, soft_h_ = h;
+  soft_w_ = w, soft_h_ = h, soft_scaled_ = scaled;
   return soft_depth_ != rdr::kNoImage;
 }
 
@@ -158,7 +165,7 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
       for (int i = 0; i < 4; ++i) c3[i] = vp[i * 4 + 3];
     }
   }
-  const bool soft_possible = g_soft_particles.load(std::memory_order_relaxed) && soft_basis && ctx.depth != rdr::kNoImage && HasSoft(&pt) && EnsureSoftPrograms() && EnsureSoftDepth(ctx.width, ctx.height);
+  const bool soft_possible = g_soft_particles.load(std::memory_order_relaxed) && soft_basis && ctx.depth != rdr::kNoImage && HasSoft(&pt) && EnsureSoftPrograms() && EnsureSoftDepth(ctx.width, ctx.height, SceneDepthScaled(ctx));
   bool depth_copied = false;
 
   bool any = false;

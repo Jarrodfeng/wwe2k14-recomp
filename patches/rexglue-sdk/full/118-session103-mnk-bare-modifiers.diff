@@ -1,9 +1,10 @@
-# ReXGlue SDK changes for WWE 2K14 (session103-mnk-bare-modifiers): on top of 117 (98851b18) on wwe2k14-local
-# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits:
-#  S103 KBM: a modifier (Shift / Control / Alt) bound as a bare token in any keybind_* is a button (fires on its own, no longer picks the chord, a chord using it still needs it held); no bare modifier bound = the old exact-modifier rule; the pure match helpers moved to include/rex/input/mnk/bind_match.h (host test: tools/input/kbm_bind_test.cpp)
+# ReXGlue SDK changes for WWE 2K14 (session103-mnk-bare-modifiers): 98851b186b7d..b2c661bd33fe on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  b2c661bd S103 KBM: bare Shift / Control / Alt binds (bind_match.h exact-modifier rule with bare-modifier mask; L/R modifier slot held while either side is down)
+
 diff --git a/include/rex/input/mnk/bind_match.h b/include/rex/input/mnk/bind_match.h
 new file mode 100644
-index 000000000..b2c334d4b
+index 0000000000000000000000000000000000000000..b2c334d4b4b250a6cb7686e7f61639444eda6cc4
 --- /dev/null
 +++ b/include/rex/input/mnk/bind_match.h
 @@ -0,0 +1,152 @@
@@ -160,7 +161,7 @@ index 000000000..b2c334d4b
 +
 +}  // namespace rex::input::mnk
 diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
-index 078c6a664..3ec293f32 100644
+index 078c6a6640757be0c14f66e4b812dfb2e9b1b7c4..3ec293f32bff2942047a64379710a5aa7e7dce11 100644
 --- a/src/input/mnk/mnk_input_driver.cpp
 +++ b/src/input/mnk/mnk_input_driver.cpp
 @@ -8,6 +8,7 @@

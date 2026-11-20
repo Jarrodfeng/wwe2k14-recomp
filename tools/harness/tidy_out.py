@@ -29,6 +29,8 @@ ALLOW = [
     ('release/build', 'rebuild', 'the release (PGO) build tree, a long rebuild: tools\\release\\release.ps1 / pgo_build.ps1'),
     ('android/sdk-install-arm64', 'rebuild', 'Android SDK install tree, a long rebuild: the Android game build links against it'),
     ('glslang-build', 'rebuild', 'glslang build, a long rebuild: tools\\perf\\gen_spirv_header.py, tools\\native\\compute_test'),
+    # Jarrod, 2026-11-19 23:0x ("Yeah preserve out tools"): every tool / unit / rig exe the lanes and probes use (~217 files, ~2.9 GB; 176 built in S103).
+    ('tools', 'rebuild', 'out\\tools: every unit / rig / check exe the gate lanes and probes run (Jarrod 2026-11-19: "preserve out tools"); lanes still name exact exes'),
     # Needed for the run tools to run at all.
     ('bench/userdata_frozen', 'tool', 'the frozen test user data mirror every test run copies: tools\\bench\\run_list.ps1 (CLAUDE.md Safety)'),
     ('bench/userdata_frozen.sha256', 'tool', 'its checksum: tools\\bench\\run_list.ps1'),
@@ -40,6 +42,8 @@ ALLOW = [
     ('pgo', 'noregen', 'PGO profiles (guest_match.profdata, ...): need profiling runs; tools\\release\\pgo_build.ps1, gate lane s102_w'),
     ('android/game-arm64', 'rebuild', 'Android game build tree, a long rebuild: tools\\android\\build_game_android.ps1 (the newest apk is in keep_list.txt)'),
     ('android/game-arm64-off', 'rebuild', 'Android stream-free (player build) game tree, a long rebuild: tools\\android\\build_game_android.ps1 -StreamFree'),
+    ('android/symbols-release', 'noregen', 'unstripped libmain.so of the shipped release APK (ndk-stack of a player crash): build_game_android.ps1 -Release'),
+    ('android/symbols-off-release', 'noregen', 'unstripped libmain.so of the shipped stream-free release APK (ndk-stack of a player crash): build_game_android.ps1 -StreamFree -Release'),
     ('android/symbols-off', 'rebuild', 'unstripped libmain.so of the stream-free Android build (ndk-stack): build_game_android.ps1 -StreamFree'),
     ('android/launcher-arm64', 'rebuild', 'Android launcher build tree, a long rebuild: tools\\android\\build_launcher.ps1'),
     ('wt', 'tool', 'out\\wt git worktrees: handled by the worktree pass (merged and finished go at once; real edits are reported only)'),

@@ -16,7 +16,7 @@ $inc = @('-I', $stb, '-I', $vkh, '-I', (Join-Path $repo 'src\launcher'))
 if ($sdk) { $inc += @('-I', (Join-Path $sdk.FullName 'Include')) }
 $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-D_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING', '-DRDR_DEV')
 $new = @('tools\scene\maps_draw.cpp', 'src\renderer_scene\live_maps.cpp', 'src\renderer_scene\live_map_shadow.cpp', 'src\renderer_scene\live_map_circles.cpp', 'src\renderer_scene\live_map_props.cpp',
-          'src\renderer_scene\live_map_e2_input.cpp', 'src\renderer_scene\live_map_rim.cpp', 'src\renderer_scene\live_map_chain.cpp','src\renderer_scene\live_map_plane.cpp', 'src\renderer_scene\live_map_rope.cpp', 'src\renderer_scene\live_map_rope_input.cpp', 'src\assets\ring_game_space.cpp', 'src\renderer_scene\live_map_prelight.cpp', 'src\renderer_scene\live_map_sweat.cpp')   # S103 E2
+          'src\renderer_scene\live_map_e2_input.cpp', 'src\renderer_scene\live_map_rim.cpp', 'src\renderer_scene\live_map_chain.cpp','src\renderer_scene\live_map_plane.cpp', 'src\renderer_scene\live_map_rope.cpp', 'src\renderer_scene\live_map_rope_input.cpp', 'src\assets\ring_game_space.cpp', 'src\renderer_scene\live_map_prelight.cpp', 'src\renderer_scene\live_map_sweat.cpp')   # S103 E2   (S105 SPV: the effects' words, fx_spv_data.cpp, come with build_rsc.ps1's objects, which are linked above)
 $repoLen = $repo.Path.Length + 1
 $incRel = ConvertTo-CxxRel $inc   # S103 H1
 foreach ($rel in $new) {

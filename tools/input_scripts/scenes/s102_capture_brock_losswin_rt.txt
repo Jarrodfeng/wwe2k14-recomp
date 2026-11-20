@@ -1,0 +1,23 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_d3d_owned=true --wwe2k14_rdr_capture=true --wwe2k14_scene_records=true
+# S102 (2026-11-15 05:1x, lane D1): capture Brock's entrance across the window where the Surface loses the Vulkan device (guest frames
+# ~3350-3420 = tron + ~720-800 on the Surface runs, at the second-group ENTRANCE02 / GM / PRTCLS loads and load_wait off) so rplay can run
+# sync validation + GPU-assisted validation on exactly those frames (DEVICE_LOST.md section 8). Capture: out\captures\brock_losswin (local only, rule 1).
+# 2026-11-15 05:3x RT version (run with run_list -RealTime): the first capture ran fast-forwarded and covered tron+1.8-3.0 s only (D1 round 3);
+# in real time tron+600..920 = ~10-15 s after the tron, across the second-group ENTRANCE02 / GM / PRTCLS loads. Diagnosis run 2 of 2 for "what is in the loss window".
+on_fail quit
+log bench: start scene s102_capture_brock_losswin_rt
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_file 343.bik2 20000
+log scene=tron_343
+mark 1 tron_343
+wait_frames 600
+cvar wwe2k14_rdr_capture_budget_mb 12000
+cvar wwe2k14_rdr_capture_label brock_losswin_rt
+cvar wwe2k14_rdr_capture_frames 320
+wait_frames 340
+log bench: done
+mark 3 end
+quit

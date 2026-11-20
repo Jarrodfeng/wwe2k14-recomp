@@ -54,6 +54,7 @@
 #include "frame_stats.h"  // CurrentLogNumber
 #include "step_rate.h"    // g_in_game, g_entrances
 #include "load_turbo.h"   // g_load_turbo_ingame_window
+#include "sequence_name.h"  // S105 E: session_log::SequenceName (a load is named by its sequence)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_perf_report, false, "wwe2k14",
                     "Session 20: when the window closes, write logs/perf_report_NNN.txt (hardware, settings, frame "
@@ -75,7 +76,8 @@ struct State {
   std::atomic<int> scene{kMenu};
   double gpu_busy_sum[kSceneCount] = {};  // percent, summed over samples
   uint32_t gpu_samples[kSceneCount] = {};
-  std::vector<std::pair<std::string, double>> loads;  // (window, ms)
+  struct Load { std::string window; double ms; uint32_t seq; };  // S105 E: + the sequence the window started in
+  std::vector<Load> loads;
   std::atomic<bool> sampler_stop{false};
   std::thread sampler;
   bool written = false;
@@ -90,10 +92,10 @@ inline bool Enabled() {
 }
 
 // load_turbo.h, when an in-game window ends.
-inline void OnLoadWindow(const std::string& window, double ms) {
+inline void OnLoadWindow(const std::string& window, double ms, uint32_t seq) {
   if (!Enabled()) return;
   std::lock_guard<std::mutex> lock(S().mutex);
-  S().loads.emplace_back(window, ms);
+  S().loads.push_back({window, ms, seq});
 }
 
 #ifdef _WIN32
@@ -357,9 +359,16 @@ inline void Write() {
 #endif
   std::fprintf(f, "\nLoads (in-game load windows)\n");
   if (s.loads.empty()) std::fprintf(f, "  (none)\n");
-  for (const auto& [w, ms] : s.loads) {
-    std::fprintf(f, "  %-7s %7.0f ms%s\n", w.c_str(), ms,
-                 w == "ingame" ? "  (pre-entrance load)" : (w == "match" ? "  (match load)" : ""));
+  for (const auto& l : s.loads) {
+    // S105 E: named by its sequence. The "match" window also opens when M3.PAC is read in an editor (a player's report called four 2-4 ms Create a Title / Finisher
+    // loads "match load"): only sequence 9 (CGameMainSequence) is a match; 0 = the sequence was unreadable (the old names).
+    char what[160] = "";
+    if (l.seq == 9 || l.seq == 0) {
+      std::snprintf(what, sizeof what, "%s", l.window == "ingame" ? "  (pre-entrance load)" : (l.window == "match" ? "  (match load)" : ""));
+    } else {
+      std::snprintf(what, sizeof what, "  (a load in sequence %u, %s; not a match)", l.seq, session_log::SequenceName(l.seq));
+    }
+    std::fprintf(f, "  %-7s %7.0f ms%s\n", l.window.c_str(), l.ms, what);
   }
   std::fprintf(f, "\nTotal: %llu frames in %.1f s\n", static_cast<unsigned long long>(total_frames), total_ms / 1000.0);
   std::fclose(f);

@@ -109,8 +109,8 @@ int main(int argc, char** argv) {
         Check(b.type == 0 && (b.state & kLiStateNotDrawn) == 0x40000000u, "DECODE", "item 1: blood, bit 30 set (not drawn) state 0x%08X", b.state);
         Check(a.picture == kWrap && (a.flags & kLiHasSource), "TEXTURE CLASS", "item 0's picture key = the wrapper 0x%08X (vtable checked)", a.picture);
       }
-      Check(fb.pictures.size() == 1 && CrowdPictureValid(fb.pictures[0]) && fb.pictures[0].width == 64 && fb.pictures[0].nbytes == 2048, "DECODE", "one BC1 64x64 picture of 2048 bytes (%zu rows)", fb.pictures.size());
-      if (!fb.pictures.empty()) Check(fb.pictures[0].bytes[0] == 0 && fb.pictures[0].bytes[8] == 1 && fb.pictures[0].bytes[128] == 16, "DECODE", "the blocks come out row-major from the untiled memory (blocks 0, 1 and the second row's first)");
+      Check(fb.pictures.size() == 1 && LiquidPictureValid(*fb.pictures[0]) && fb.pictures[0]->width == 64 && fb.pictures[0]->nbytes == 2048, "DECODE", "one BC1 64x64 picture of 2048 bytes (%zu rows)", fb.pictures.size());
+      if (!fb.pictures.empty()) Check(fb.pictures[0]->bytes[0] == 0 && fb.pictures[0]->bytes[8] == 1 && fb.pictures[0]->bytes[128] == 16, "DECODE", "the blocks come out row-major from the untiled memory (blocks 0, 1 and the second row's first)");
       Check(r.frame == 77, "FRAME STAMP", "the row carries the hook frame 77 (got %u)", r.frame);
     }
     // a texture whose object is not the wrapper class: no picture, counted, never a guess
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
         t.liquid_items.insert(t.liquid_items.end(), m.items.begin(), m.items.end());
         t.liquid_maps.push_back(m.row);
       }
-    t.liquid_pictures = fb.pictures;
+    for (const auto& pp : fb.pictures) t.liquid_pictures.push_back(*pp);
     const std::vector<uint8_t> bytes = SerializeRecord(t);
     SceneTables back;
     std::string err;
@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
     // ---- [E2 INPUT] BuildE2Input carries the rows, their items and only the pictures they name ----
     E2Input in;
     BuildE2Input(t, E2Faults(), in);
-    Check(in.liquid.size() == 1 && in.liquid[0].items.size() == 2 && in.liquid_pictures.size() == 1 && in.liquid_pictures[0].key == kWrap && in.sweat_missing.n == 0, "E2 INPUT", "BuildE2Input: %zu map, %zu items, %zu picture, nothing missing", in.liquid.size(), in.liquid.empty() ? size_t(0) : in.liquid[0].items.size(), in.liquid_pictures.size());
+    Check(in.liquid.size() == 1 && in.liquid[0].items.size() == 2 && in.liquid_pictures.size() == 1 && in.liquid_pictures[0]->key == kWrap && in.sweat_missing.n == 0, "E2 INPUT", "BuildE2Input: %zu map, %zu items, %zu picture, nothing missing", in.liquid.size(), in.liquid.empty() ? size_t(0) : in.liquid[0].items.size(), in.liquid_pictures.size());
     E2Input dry_in;
     BuildE2Input(dry, E2Faults(), dry_in);
     Check(dry_in.liquid.empty() && dry_in.sweat_missing.n == 0, "E2 INPUT", "a dry record is not a missing input");
@@ -219,6 +219,96 @@ int main(int argc, char** argv) {
     const bool right = EngineObjectOf(object_engine, 1) == 0xA0A0u && EngineObjectOf(object_engine, 2) == 0xB0B0u && EngineObjectOf(object_engine, 0) == 0;
     const bool dense_wrong = EngineObjectOf(object_engine, dense_a) != 0xA0A0u && EngineObjectOf(object_engine, dense_b) != 0xB0B0u;
     Check(right && dense_wrong && (plant != "join_dense"), "JOIN", "the engine object is found by the frame index (right %d), the dense index would join the wrong body or none (%d)", int(right), int(dense_wrong));
+  }
+
+  // ---- [BLOOD SIZE] S105 A12: the blood decals' real sizes (chCommon.pac PACH 0 entry 10: 64x128 = 4 KB .. 256x256 = 32 KB, DXT1) are read, kept, and round-trip through section 53 ----
+  {
+    lq::Tracker tr;
+    if (plant == "old_cap") tr.plant = lq::Plant::OldPictureCap;
+    BuildWorld(false, false, false);
+    g_pix.assign(0x20000, 0);
+    constexpr uint32_t kWrapB = 0x40051000u, kHdrB = 0x40061000u, kWrapC = 0x40052000u, kHdrC = 0x40062000u;
+    constexpr uint32_t kOffB = 0x1000u, kOffC = 0x8000u;   // untiled DXT1: B 64x128 (16 x 32 blocks, pitch 64 texels), C 256x256 (64 x 64 blocks, pitch 256 texels); bases are 4 KB aligned
+    // rows are padded to 32 blocks (360 habit H-CS2): B's 16 blocks sit in a 256-byte stride, C's 64 blocks fill a 512-byte stride; the expected payload is the rows without padding
+    std::vector<uint8_t> want_b, want_c;
+    for (uint32_t y = 0; y < 32; ++y)
+      for (uint32_t x = 0; x < 128; ++x) g_pix[kOffB + y * 256 + x] = uint8_t(y * 31 + x * 7 + 1), want_b.push_back(g_pix[kOffB + y * 256 + x]);
+    for (uint32_t y = 0; y < 64; ++y)
+      for (uint32_t x = 0; x < 512; ++x) g_pix[kOffC + y * 512 + x] = uint8_t(y * 13 + x * 5 + 3), want_c.push_back(g_pix[kOffC + y * 512 + x]);
+    const auto put_tex = [](uint32_t wrap, uint32_t hdr, uint32_t off, uint32_t w, uint32_t h) {
+      e5::PutWord(wrap, lq::kWrapperVtableA), e5::PutWord(wrap + 80, hdr);
+      e5::PutWord(hdr + 28, (w / 32u) << 22), e5::PutWord(hdr + 32, (kPixBase + off) | 18u), e5::PutWord(hdr + 36, (w - 1) | ((h - 1) << 13));
+      e5::PutWord(hdr + 40, 0), e5::PutWord(hdr + 44, 0), e5::PutWord(hdr + 48, 1u << 9);
+    };
+    put_tex(kWrapB, kHdrB, kOffB, 64, 128);
+    put_tex(kWrapC, kHdrC, kOffC, 256, 256);
+    PutItem(kItemA, kItemB, 0, 0x80000000u, kWrapB, 0, 0.30f, 0.40f, 0.38f, 0.52f);   // two live blood items (type 0)
+    PutItem(kItemB, 0, 0, 0x80000000u, kWrapC, 0, 0.60f, 0.60f, 0.70f, 0.70f);
+    reader(tr, kMap, 90);
+    tr.CloseBefore(91);
+    lq::FrameBuffer fb;
+    const bool got = tr.TakeNext(fb);
+    const lq::Stats st = tr.GetStats();
+    const bool two = got && fb.pictures.size() == 2 && fb.maps.size() == 1 && fb.maps[0].items.size() == 2 && fb.maps[0].items[0].picture == kWrapB && fb.maps[0].items[1].picture == kWrapC;
+    Check(two && st.tex_size == 0 && st.tex_fail == 0, "BLOOD SIZE", "a 64x128 and a 256x256 DXT1 blood item both get a picture (pictures %zu, tex_size %llu tex_fail %llu)", got ? fb.pictures.size() : size_t(0), (unsigned long long)st.tex_size, (unsigned long long)st.tex_fail);
+    if (two) {
+      const LiquidPictureRow& pb = *fb.pictures[0];
+      const LiquidPictureRow& pc = *fb.pictures[1];
+      Check(pb.width == 64 && pb.height == 128 && pb.nbytes == 4096 && LiquidPictureValid(pb) && std::memcmp(pb.bytes, want_b.data(), 4096) == 0 &&
+                pc.width == 256 && pc.height == 256 && pc.nbytes == 32768 && LiquidPictureValid(pc) && std::memcmp(pc.bytes, want_c.data(), 32768) == 0,
+            "BLOOD SIZE", "the blocks come out whole: %ux%u %u bytes and %ux%u %u bytes", pb.width, pb.height, pb.nbytes, pc.width, pc.height, pc.nbytes);
+      SceneTables t;
+      for (lq::MapEntry& m : fb.maps) {
+        m.row.item_first = uint32_t(t.liquid_items.size());
+        t.liquid_items.insert(t.liquid_items.end(), m.items.begin(), m.items.end());
+        t.liquid_maps.push_back(m.row);
+      }
+      for (const auto& pp : fb.pictures) t.liquid_pictures.push_back(*pp);
+      const std::vector<uint8_t> bytes = SerializeRecord(t);
+      SceneTables back;
+      std::string err;
+      const bool ok = ParseRecord(bytes.data(), bytes.size(), back, err);
+      Check(ok && back.liquid_pictures.size() == 2 && back.liquid_pictures[1].hash[0] == pc.hash[0] && back.liquid_pictures[1].hash[1] == pc.hash[1] && (pc.hash[0] | pc.hash[1]) != 0, "BLOOD SIZE", "the picture's hash (made once at the read) survives the record");
+    Check(ok && back.liquid_errors == 0 && back.liquid_pictures.size() == 2 && back.liquid_pictures[1].nbytes == 32768 && std::memcmp(back.liquid_pictures[1].bytes, pc.bytes, 32768) == 0, "BLOOD SIZE",
+            "section 53 carries the 32 KB picture through a record round trip (errors %u: %s)", back.liquid_errors, err.c_str());
+    } else {
+      Check(false, "BLOOD SIZE", "the blood pictures were refused (tex_size %llu)", (unsigned long long)st.tex_size);
+    }
+  }
+
+  // ---- [BLOOD OVERSIZE / TILED] S105 A12 review F4: a 512x256 DXT1 item (64 KB) is refused for its size alone (tex_size 1, tex_fail 0); a TILED 256x256 blood texture reads whole ----
+  {
+    lq::Tracker tr;
+    if (plant == "old_cap") tr.plant = lq::Plant::OldPictureCap;
+    BuildWorld(false, false, false);
+    g_pix.assign(0x40000, 0);
+    constexpr uint32_t kWrapB = 0x40051000u, kHdrB = 0x40061000u, kWrapC = 0x40052000u, kHdrC = 0x40062000u;
+    constexpr uint32_t kOffB = 0x1000u, kOffC = 0x20000u;
+    const auto put_tex = [](uint32_t wrap, uint32_t hdr, uint32_t off, uint32_t w, uint32_t h, bool tiled) {
+      e5::PutWord(wrap, lq::kWrapperVtableA), e5::PutWord(wrap + 80, hdr);
+      e5::PutWord(hdr + 28, (tiled ? 0x80000000u : 0u) | ((w / 32u) << 22)), e5::PutWord(hdr + 32, (kPixBase + off) | 18u), e5::PutWord(hdr + 36, (w - 1) | ((h - 1) << 13));
+      e5::PutWord(hdr + 40, 0), e5::PutWord(hdr + 44, 0), e5::PutWord(hdr + 48, 1u << 9);
+    };
+    put_tex(kWrapB, kHdrB, kOffB, 512, 256, false);   // 128 x 64 blocks x 8 = 65536 B: over the 32 KB row
+    put_tex(kWrapC, kHdrC, kOffC, 256, 256, true);
+    std::vector<uint8_t> want;
+    for (uint32_t y = 0; y < 64; ++y)
+      for (uint32_t x = 0; x < 64; ++x)
+        for (uint32_t b = 0; b < 8; ++b) {
+          const uint8_t v = uint8_t(y * 5 + x * 3 + b + 1);
+          g_pix[kOffC + live::guest_tex::TiledOffset2D(int32_t(x), int32_t(y), 64, 3) + b] = v;
+          want.push_back(v);
+        }
+    PutItem(kItemA, kItemB, 0, 0x80000000u, kWrapB, 0, 0.30f, 0.40f, 0.38f, 0.52f);
+    PutItem(kItemB, 0, 0, 0x80000000u, kWrapC, 0, 0.60f, 0.60f, 0.70f, 0.70f);
+    reader(tr, kMap, 95);
+    tr.CloseBefore(96);
+    lq::FrameBuffer fb;
+    const bool got = tr.TakeNext(fb);
+    const lq::Stats st = tr.GetStats();
+    Check(got && st.tex_size == 1 && st.tex_fail == 0, "BLOOD OVERSIZE", "a 512x256 DXT1 item is counted tex_size once, never tex_fail (tex_size %llu tex_fail %llu)", (unsigned long long)st.tex_size, (unsigned long long)st.tex_fail);
+    Check(got && fb.pictures.size() == 1 && fb.pictures[0]->width == 256 && fb.pictures[0]->nbytes == 32768 && std::memcmp(fb.pictures[0]->bytes, want.data(), 32768) == 0, "BLOOD TILED",
+          "a tiled 256x256 DXT1 blood texture reads whole (pictures %zu)", got ? fb.pictures.size() : size_t(0));
   }
 
   if (!plant.empty()) {

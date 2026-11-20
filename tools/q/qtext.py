@@ -275,7 +275,81 @@ def cmd_line(root, q, encl):
                 parsers.append({'file': rel, 'line': ln, 'how': 'regex matches the line' if matched else ('names it (regex)' if kind == 'regex' or qtools.RX_LIKE.search(pat) else 'names it (string)'),
                                 'text': pat[:130]})
     parsers.sort(key=lambda r: (r['how'] != 'regex matches the line', r['file'], r['line']))
-    return {'query': q, 'tag': tag, 'words': words, 'sites': sites, 'parsers': parsers}
+    fallback = None
+    if not sites:
+        fallback = line_fallback(root, q, tag, words, encl)      # S105 QB: a line built by concatenation / a format with %s holes has no single printf literal: text match
+    return {'query': q, 'tag': tag, 'words': words, 'sites': sites, 'parsers': parsers, 'fallback': fallback}
+
+
+def line_fallback(root, q, tag, words, encl):
+    """S105 QB: `line` found no printf site (the line is built by concatenation / held in a constant / split literals): the literal pieces still hold the words.
+    ONE walk of src / tools / probes tests every needle (the key words, each pair of words, the tag, the longest single words); a hit counts only INSIDE A STRING
+    LITERAL (a comment or a docstring-free code line is not a printer), .txt / .json / fixtures are skipped. The first needle (in that order) with a hit wins.
+    -> {'needle', 'n', 'hits', 'weak', 'why'} or None. Always UNCONFIRMED: a candidate list, never an answer."""
+    rest = TAG.sub('', q, count=1)
+    ws = [w.strip(',:.()') for w in rest.split()]
+    ws = [w for w in ws if re.fullmatch(r"[A-Za-z][A-Za-z_'-]*", w)]
+    needles = []                                  # (needle, kind) in priority order
+    if words:
+        needles.append((words, 'words'))
+    needles += [(' '.join(ws[i:i + 2]), 'pair') for i in range(len(ws) - 1) if len(ws[i]) >= 4 and len(ws[i + 1]) >= 4]
+    if tag:
+        needles.append((tag, 'tag'))
+    needles += [(w, 'single') for w in sorted(set(ws), key=len, reverse=True) if len(w) >= 8][:4]
+    seen, nl = set(), []
+    for nd, kind in needles:
+        if nd and nd not in seen and len(nd) >= 8:
+            seen.add(nd)
+            nl.append((nd, kind))
+    if not nl:
+        return None
+    hits = {nd: [] for nd, _ in nl}
+    for fp in walk(root, TEXT):
+        rel = rel_of(root, fp)
+        if rel.endswith(('.txt', '.json')) or '/fixtures/' in rel or '/fixture/' in rel:
+            continue
+        try:
+            with open(fp, encoding='utf-8', errors='replace') as f:
+                text = f.read()
+        except OSError:
+            continue
+        cand = [(nd, kind) for nd, kind in nl if (nd.replace(' ', '') if kind == 'tag' else nd) in (re.sub(r'\s+', '', text) if kind == 'tag' else text)]
+        if not cand:
+            continue
+        for i, ln in enumerate(text.split(chr(10)), 1):
+            for nd, kind in cand:
+                at = ln.find(nd) if kind != 'tag' else ln.find(nd.split(']')[0] + ']')
+                if at < 0:
+                    continue
+                if not in_string(ln, at):
+                    continue
+                hits[nd].append({'file': rel, 'line': i, 'text': ln.strip()[:150], 'func': encl(rel, i) if rel.endswith(CPP) else ''})
+    for nd, kind in nl:
+        hs = hits[nd]
+        if not hs:
+            continue
+        two = kind == 'pair' or (kind == 'words' and nd.count(' ') < 2)       # a 2-word run is no more specific than a pair
+        weak = kind == 'single' or two
+        if two:      # a pair is believed when another needle of the line hits the same file within 3 lines
+            others = [h2 for nd2, k2 in nl if nd2 not in nd and nd not in nd2 for h2 in hits[nd2]]
+            if any(o['file'] == h['file'] and abs(o['line'] - h['line']) <= 3 for h in hs for o in others):
+                weak = False
+        return {'needle': nd, 'kind': kind, 'n': len(hs), 'hits': hs[:12], 'weak': weak}
+    return None
+
+
+def in_string(ln, at):
+    """is column `at` inside a "..." literal of this line (an odd number of unescaped double quotes before it)"""
+    n, i = 0, 0
+    while i < at:
+        c = ln[i]
+        if c == chr(92):
+            i += 2
+            continue
+        if c == '"':
+            n += 1
+        i += 1
+    return n % 2 == 1
 
 
 def print_line(r, args):
@@ -283,6 +357,14 @@ def print_line(r, args):
     print(f'  printed by ({len(r["sites"])}):')
     for s in r['sites'][:args.limit]:
         print(f'    {s["file"]}:{s["line"]}  in {s["func"] or "?"}{"   (whole line matches)" if s.get("exact") else ("" if s["tag_near"] else "   (tag not in the format)")}   "{s["fmt"][:110]}"')
+    fb = r.get('fallback')
+    if fb:
+        why = {'words': 'the key words', 'pair': 'two words of the line', 'tag': 'the tag only', 'single': 'ONE word of the line'}[fb['kind']]
+        print(f'  UNCONFIRMED candidates (no single printf literal holds the line; built by concatenation / a constant?): text of {fb["needle"]!r} ({why}) inside a string literal'
+              + (' (WEAK: likely not the writer; it may be outside src / tools, e.g. the SDK: q sdk refs)' if fb['weak'] else '')
+              + f', {fb["n"]} lines (`q ours lit` shows all):')
+        for h in fb['hits'][:args.limit]:
+            print(f'    {h["file"]}:{h["line"]}  {h["text"][:100]}' + (f'   [in {h["func"]}]' if h.get('func') else ''))
     print(f'  parsed / named by tools ({len(r["parsers"])}):')
     for s in r['parsers'][:args.limit]:
         print(f'    {s["file"]}:{s["line"]}  {s["how"]}   {s["text"][:100]}')

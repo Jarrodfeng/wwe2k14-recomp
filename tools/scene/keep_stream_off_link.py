@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'gate'))
 import game_syntax   # S103 GSP: --syntax shares game_syntax's preprocessed-hash cache (syntax_check / load_cache / save_cache)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'admit'))
+import admit_py as _admit   # CQW: the machine-wide compile queue for the unit pool (nothing runs at import)
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 BUILD_DIR = os.path.join('out', 'build', 'win-amd64-release')
@@ -224,7 +226,7 @@ def main():
     cache_file = game_syntax.load_cache(main_dir) if a.syntax else None
     bad = 0
     ours = []
-    with ThreadPoolExecutor(max_workers=a.j) as ex:
+    with _admit.hold('cc.game_src', a.j, timeout_s=300) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: game src units (a.j = the want and the fall-open value)
         for rel, rc, text, of in ex.map(one, jobs):
             if rc:
                 bad += 1

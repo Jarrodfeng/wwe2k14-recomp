@@ -1,7 +1,12 @@
 // S103 landing 2, piece P7 H1: the scene host (scene_host.h). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 // Section / line references in the comments are to docs\renderer\P7_DESIGN.md and the stream path's live.cpp SceneOurs, whose rules the host keeps without the stream.
 #include "scene_host.h"
+#include "wide_frame.h"   // S105 A2
+#include "row_fate.h"   // S105 A4B: Fate / FateOf (moved out of this file)
 #include "../renderer_game/caw_portrait_core.h"   // S103 CPB
+#include "pipeline_catalog.h"   // S105 B3
+#include "store_progress.h"     // S105 B3
+#include "../renderer/shaders/spv/fx_registry.h"   // S105 B3: kVariants
 
 #include <algorithm>
 #include <chrono>
@@ -16,6 +21,7 @@
 #include "../renderer_game/fallback_census.h"
 #include "../renderer_game/scene_frame.h"
 #include "../renderer_game/scene_kind.h"
+#include "../renderer_scene/cam_gate.h"   // S105 A3
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
 #include "../renderer_scene/yuv_rgba.h"   // S103 CPU1: YuvPathName (the [host][cpu] census field)
 #include "../renderer_scene/post_pass.h"   // S103 SLV: g_post_dconv_passes
@@ -44,20 +50,44 @@ bool SceneHost::Start(const HostOptions& options, std::string& error) {
   if (opts_.log) rdr::SetLogSink(opts_.log);
   renderer_ = rdr::Renderer::Create(opts_.renderer, error);
   if (!renderer_) return false;
+  {   // S105 B3: the shader catalog (the stream build's Binder did this; the stream-free host never did: every stored pipeline stayed "unresolved" and the first match frames built them cold)
+    const size_t n = RegisterFxCatalogFrom(*renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants));
+    store_progress::g_progress.store_expected.store(renderer_->pipeline_store_active(), std::memory_order_relaxed);
+    Log("[host][pipestore] catalog registered: " + std::to_string(n) + " shaders" + (opts_.precompile_mode ? "; precompile mode: the store builds everything at once" : ""));
+  }
   draw_ = std::make_unique<rdr_scene::LiveSceneDraw>(*renderer_);
   // S103 SCS: the in-scene 2D rows (screen flashes, lens flares: kQpSceneColour) are drawn inside the scene pass by the scene hook (frame_hooks.h LiveScene2D), onto the scene colour with its depth: the same
   // q2d::Append the F rows use, the same picture resolver, depth from each row's own state (quads2d_draw.h Context::scene_depth). The report is kept for DrawRows (counted there, by guest frame).
-  if (opts_.scene2d) draw_->SetScene2D([this](rdr::FrameBuilder& fb, const rdr_scene::StageCtx& sc, const rdr_scene::Quad2D* rows, size_t n, uint64_t guest_frame) {
+  if (opts_.scene2d) draw_->SetScene2D([this](rdr::FrameBuilder& fb, const rdr_scene::StageCtx& sc, const rdr_scene::Quad2D* rows, size_t n, uint64_t guest_frame, uint8_t phase) {
     namespace q = rdr_scene::q2d;
     if (!q2d_registered_) q2d_programs_ = q::Register(*renderer_, true), q2d_registered_ = true;
     q::Context ctx;
     ctx.width = sc.width, ctx.height = sc.height;
+    if (shape_w_ && shape_h_ && (shape_w_ != game_w_ || shape_h_ != game_h_) && game_w_ && game_h_) {   // S105 A2: the scene is wider / taller than the game's frame (play on another screen shape): these rows stay the game's centred box; a full-view flash takes the whole scene
+      const wwe2k14::scene_host::wide_frame::IRect bx = wwe2k14::scene_host::wide_frame::SceneBoxOf(sc.width, sc.height, game_w_, game_h_, shape_w_, shape_h_);
+      ctx.width = bx.w, ctx.height = bx.h;
+      ctx.origin_x = bx.x, ctx.origin_y = bx.y;
+      ctx.target_w = sc.width, ctx.target_h = sc.height;
+    }
     ctx.scene_depth = true;
     const auto resolver = seam_.picture ? seam_.picture : opts_.picture;
-    if (resolver) ctx.picture = resolver;
+    if (resolver) ctx.picture = TrackPictures(resolver);   // S105 A4 F8
     if (seam_.scissor) ctx.scissor = seam_.scissor;
-    scene2d_rep_ = q::Append(fb, q2d_programs_, ctx, rows, n);
-    scene2d_frame_ = guest_frame, scene2d_rows_ = n;
+    const q::Report rep = q::Append(fb, q2d_programs_, ctx, rows, n);
+    // S105 A4B: with pre-3D rows the hook draws twice (BeforeOpaque = kPhaseEarly, then AfterBlended = kPhaseLate): the frame's report is the sum, the first refused row an index into the early + late rows together
+    // (early rows come first in seq: category order), so scene_idx still maps. A kPhaseOnly / kPhaseEarly call starts a new report as before.
+    if (phase == rdr_scene::LiveScene2D::kPhaseLate && scene2d_frame_ == guest_frame) {
+      const int64_t early_n = int64_t(scene2d_rows_);
+      scene2d_rep_.drawn += rep.drawn, scene2d_rep_.scissor_empty += rep.scissor_empty;
+      for (unsigned i = 0; i < unsigned(q::Refuse::Count); ++i) scene2d_rep_.refused[i] += rep.refused[i];
+      if (scene2d_rep_.first_refused < 0 && rep.first_refused >= 0) scene2d_rep_.first_refused = rep.first_refused + early_n, scene2d_rep_.first_why = rep.first_why;
+      scene2d_rows_ += n;
+    } else {
+      scene2d_rep_ = rep;
+      scene2d_frame_ = guest_frame, scene2d_rows_ = n;
+    }
+    if (phase == rdr_scene::LiveScene2D::kPhaseEarly) scene2d_early_ = rep.drawn;   // S105 A4B (review F4): the pre-3D rows the hook drew (CAF's black quad); counted in `scene2d_early` where the report is consumed (a faulted draw drops it)
+    else if (phase != rdr_scene::LiveScene2D::kPhaseLate) scene2d_early_ = 0;
   });
   plane_images_ = std::make_unique<rdr_scene::live::movieplanes::PlaneImages<PlaneSink>>(PlaneSink{renderer_.get()});
   // The planes of a movie row: ServeGuest over the P4 store (the plane flush's copies from guest memory). The stream-slot requirement of ServeGuest ("the stream has the slot") has no meaning here:
@@ -132,6 +162,7 @@ void SceneHost::LogFinal() {
   if (renderer_) renderer_->FlushPipelineStore();
   if (opts_.contributor_census) opts_.contributor_census(census_from_, core_.counters().frames);   // S103 LVF: the last window of every contributor census (prints only when frames came since the last one)
   Log(CensusLine(core_.counters()));
+  if (const std::string kl = rdr_scene::live::movieplanes::KeyCensusLine(); !kl.empty()) Log(kl);   // N2: the plane-key census
   Log(SourceLine(core_.counters()));   // PBS
   LogDirect();   // S103 CHS C6
   if (const std::string sl = StrikeLine(); !sl.empty()) Log(sl);   // S103 LVF
@@ -158,6 +189,7 @@ void SceneHost::PollQuit() {
     PollShot();
     ServeShotSync();
   }
+  if (renderer_) store_progress::ServeFlush(store_progress::g_progress, [&] { renderer_->FlushPipelineStore(); });   // S105 B3 F1
   if (!quit_req_.exchange(false, std::memory_order_acq_rel)) return;
   LogFinal();
   quit_ack_.store(true, std::memory_order_release);
@@ -324,6 +356,14 @@ void SceneHost::FinishScene(bool ok, std::vector<uint8_t>&& rgba, uint32_t w, ui
     scene_active_.store(!scene_waiting_.empty(), std::memory_order_relaxed);
   }
   ok = ok && w && h && rgba.size() >= size_t(w) * h * 4;
+  if (ok && game_w_ && game_h_) {   // S105 A2: the guest's read-back textures (replay thumbs, the arena shot, the reel) are the game's 16:9: a picture made wider / taller for the screen's shape gives its centred 16:9 box (the screenshot QueueShot keeps the whole picture)
+    const wide_frame::Box box = wide_frame::BoxOf(w, h, game_w_, game_h_);
+    if (box.w != w || box.h != h) {
+      uint32_t cw = 0, ch = 0;
+      rgba = wide_frame::CropBox(rgba.data(), w, h, 4, game_w_, game_h_, &cw, &ch);
+      w = cw, h = ch;
+    }
+  }
   for (size_t i = 0; i < cbs.size(); ++i) {   // every waiting caller gets the picture (the last one takes the bytes)
     if (i + 1 == cbs.size()) cbs[i](ok, std::move(rgba), w, h, frame);
     else {
@@ -445,7 +485,7 @@ rdr::TextureSlot SceneHost::PlaneOf(const rdr_scene::Quad2D& row, int slot, uint
   if (seam_.plane) return seam_.plane(row, slot);
   rdr::TextureSlot t{};
   rdr_scene::live::movieplanes::GuestSlot gs;
-  if (!planes_ || !planes_->Slot(row.seq, row.plane_set, row.flush_seq, (row.have & rdr_scene::kQhFlush) != 0, j, slot, gs)) return t;   // image kNoImage: the row is refused `planes`
+  if (!planes_ || !planes_->Slot(row.seq, row.plane_set, row.flush_seq, (row.have & rdr_scene::kQhFlush) != 0, j, slot, gs, PlaneKeyOf(row))) return t;   // image kNoImage: the row is refused `planes`
   if (!rdr_scene::live::movieplanes::SetMatchesKind(row.kind != rdr_scene::kQkYuv, gs.stand_in)) return t;   // S103 SVY (+ review): an Alpha draw over a no-alpha set, or a no-alpha draw over an alpha set, is a mismatch: refused `planes` (the row's plane_set is only the last flush of ANY movie)
   t.image = rdr::ImageId(gs.image);
   t.view_format = rdr::Format::Undefined;   // the image's own (R8)
@@ -453,33 +493,16 @@ rdr::TextureSlot SceneHost::PlaneOf(const rdr_scene::Quad2D& row, int slot, uint
   return t;
 }
 
-namespace {
-// What the host does with one row (R8): drawn, or dropped for the pass it is not over the final image in, or for a pass the tap does not know.
-enum class Fate : uint8_t { Draw, DropPass, DropPassUnknown, InScene, PageRow };   // PageRow (S103 SMX): a stage light-map page row (IsStagePageRow): counted `page_rows`, never a dropped frame   // InScene (S103 SCS): a scene-colour row the scene hook draws inside the scene pass, never on F
-bool Near(float v, float want) { return std::isfinite(v) && std::fabs(v - want) <= 0.015f * want; }
-}  // namespace
-
-// Pass (review (c)): no tap sets Quad2D::pass yet, so every row reads Unknown. Dropping them all would drop the whole layer, and drawing them all draws the rows that are not over the final image (the in-scene
-// sprites before the post chain, the offscreen pages) onto F on a guess. A row of the final 2D layer is pixel-placed with PosScale (2 / w, 2 / h) of the game's screen (rdr_uiquad.vert: UnitScale), so an Unknown
-// row is drawn only when it says so; the rig draws them all (HostOptions::draw_unknown_pass). A row the tap marks as scene colour / offscreen / other is dropped `pass` (P5 / U4).
-static Fate FateOf(const rdr_scene::Quad2D& r, bool draw_unknown, uint32_t w, uint32_t h, bool scene_hook, bool page_ctx) {
-  if (r.pass == rdr_scene::kQpFinal) return Fate::Draw;
-  if (r.pass == rdr_scene::kQpSceneColour && scene_hook && rdr_scene::Scene2DSite(r.site)) return Fate::InScene;   // S103 SCS: not drawn on F (the scene hook has them), counted in DrawRows from the hook's own report
-  if (rdr_scene::IsStagePageRow(r, rdr_scene::stage_lmpage::On(), page_ctx)) return Fate::PageRow;
-  if (r.pass != rdr_scene::kQpUnknown) return Fate::DropPass;
-  if (draw_unknown) return Fate::Draw;
-  const bool pixel_placed = (r.have & rdr_scene::kQhPosScale) && r.use_proj == 0.0f && w && h && Near(r.pos_scale[0], 2.0f / float(w)) && Near(r.pos_scale[1], 2.0f / float(h));
-  return pixel_placed ? Fate::Draw : Fate::DropPassUnknown;
-}
+// S105 A4B: Fate / Near / FateOf (what the host does with one row, R8) moved to row_fate.h so a unit drives them; the rule is the same plus the scene_on_f line.
 
 // The 2D rows of record j onto F. The same pure pieces the stream path's 2D uses (quads2d_draw.h Check / Append: BlocksOf, the programs of Register); no binder, no stream scan, no row-site
 // interleaving. A row is drawn or dropped alone, for one reason (R8): a pass the host does not draw over F, hidden HUD, or the drawer's own refusal (picture, planes, blend ...). The tap's holes are draws
 // that never became a row: counted apart (rows_dropped[kDropHole]), and they make the frame a 2D-dropped one.
 // S103 CHS C6: true when DrawRows below would record a pass on F. The same Fate rule, no side effect. An empty record, an untaken tap and photo mode record nothing.
-bool SceneHost::RowsMayDraw(const Rec& rec, uint32_t w, uint32_t h, bool hidden) const {
+bool SceneHost::RowsMayDraw(const Rec& rec, uint32_t w, uint32_t h, bool hidden, bool scene_on_f) const {
   if (rec.quad2d_holes == rdr_scene::kQuad2DNotTaken || hidden || rec.quads2d.empty() || StageDrops(rec)) return false;   // S103 SVO: a stamped stage-push record draws no row
   for (const rdr_scene::Quad2D& row : rec.quads2d)
-    if (FateOf(row, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), false) == Fate::Draw) return true;
+    if (FateOf(row, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), false, scene_on_f) == Fate::Draw) return true;
   return false;
 }
 
@@ -491,11 +514,11 @@ void SceneHost::NoteStageRows(const Rec& rec, uint64_t j) {
   ++stage_frames_;
   size_t scene_rows = 0;   // the in-scene rows the scene hook drew are part of the 3D picture, not 2D left out: counted from its report like the hidden-HUD branch of DrawRows
   for (const rdr_scene::Quad2D& r : rec.quads2d)
-    if (FateOf(r, opts_.draw_unknown_pass, out_w_, out_h_, draw_->Scene2DOn(), false) == Fate::InScene) ++scene_rows;
+    if (FateOf(r, opts_.draw_unknown_pass, game_w_, game_h_, draw_->Scene2DOn(), false) == Fate::InScene) ++scene_rows;   // (S105 A2: the rows' pixel space is the game's)
   if (scene_rows && scene2d_frame_ == uint64_t(rec.header.guest_frame) && scene2d_rows_ == scene_rows) {
     namespace q = rdr_scene::q2d;
     Counters& c = core_.counters();
-    c.rows_drawn += scene2d_rep_.drawn;
+    c.rows_drawn += scene2d_rep_.drawn, c.scene2d_early += scene2d_early_, scene2d_early_ = 0;
     for (unsigned i = 1; i < unsigned(q::Refuse::Count); ++i) c.rows_dropped[i] += scene2d_rep_.refused[i];
     scene2d_frame_ = uint64_t(-1);
   }
@@ -505,7 +528,7 @@ void SceneHost::NoteStageRows(const Rec& rec, uint64_t j) {
 // S103 CHS C6: the image that holds what is on screen now.
 rdr::ImageId SceneHost::Shown() const { return (f_stale_ && out_ok_ && last_out_ != rdr::kNoImage && seam_.direct_plant != 3) ? last_out_ : f_; }
 
-void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint32_t w, uint32_t h, bool hidden, bool forbid_f) {
+void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint32_t w, uint32_t h, bool hidden, bool forbid_f, bool scene_on_f) {
   namespace q = rdr_scene::q2d;
   Counters& c = core_.counters();
   const size_t n = rec.quads2d.size();
@@ -530,7 +553,7 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
     for (const rdr_scene::Quad2D& r : rec.quads2d)
       if (FateOf(r, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), false) == Fate::InScene) ++scene_rows;
     if (scene_rows && scene2d_frame_ == uint64_t(rec.header.guest_frame) && scene2d_rows_ == scene_rows) {
-      c.rows_drawn += scene2d_rep_.drawn;
+      c.rows_drawn += scene2d_rep_.drawn, c.scene2d_early += scene2d_early_, scene2d_early_ = 0;
       for (unsigned i = 1; i < unsigned(q::Refuse::Count); ++i) c.rows_dropped[i] += scene2d_rep_.refused[i];
       scene2d_frame_ = uint64_t(-1);
       c.rows_dropped[kDropHidden] += n - scene_rows;
@@ -544,9 +567,15 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
   if (!q2d_registered_) q2d_programs_ = q::Register(*renderer_, true), q2d_registered_ = true;
   q::Context ctx;
   ctx.width = w, ctx.height = h;
+  if (w == game_w_ && h == game_h_ && game_w_ && game_h_ && (out_w_ != game_w_ || out_h_ != game_h_)) {   // S105 A2: the game's box inside the wider / taller F; a full-view row takes the whole F (quads2d_draw.h Context)
+    ctx.origin_x = box_x_, ctx.origin_y = box_y_;
+    ctx.target_w = out_w_, ctx.target_h = out_h_;
+  }
   ctx.plane = [this, j](const rdr_scene::Quad2D& row, int slot) { return PlaneOf(row, slot, j); };
   const auto resolver = seam_.picture ? seam_.picture : opts_.picture;
-  if (resolver) ctx.picture = resolver;   // null: the drawer refuses `picture`
+  if (resolver) ctx.picture = TrackPictures(resolver);   // null: the drawer refuses `picture`   // S105 A4 F8: wrapped to remember the first row it refuses
+  rows_now_ = rec.quads2d.data(), n_now_ = n;   // S105 A4 F6: the record's rows, for ScenePicture's "a Final row before it" test (cleared at the end of DrawRows by RowsScope)
+  struct RowsScope { SceneHost* h; ~RowsScope() { h->rows_now_ = nullptr, h->n_now_ = 0; } } rows_scope{this};
   if (seam_.scissor) ctx.scissor = seam_.scissor;
   rdr::TargetsOp t{};
   t.color[0].image = f_;
@@ -587,8 +616,11 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
         Log(b);
       }
     }
-    const Fate fate = FateOf(row, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), page_ctx);
-    if (fate == Fate::Draw) continue;
+    const Fate fate = FateOf(row, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), page_ctx, scene_on_f);
+    if (fate == Fate::Draw) {
+      if (scene_on_f && row.pass == rdr_scene::kQpSceneColour) ++c.scene_rows_on_f;   // S105 A4B
+      continue;
+    }
     flush(i);
     run = i + 1;
     if (fate == Fate::PageRow) {   // S103 SMX (IP): the page pass's row (our own page is composed by the arena): counted by its own reason, the frame stays 2D-whole
@@ -609,9 +641,10 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
     }
   }
   flush(n);
+  std::stable_partition(scene_idx.begin(), scene_idx.end(), [&](size_t i) { return rdr_scene::LiveScene2D::IsEarly(rec.quads2d[i]); });   // S105 A4B (review F3): the hook's own order, early rows first, so first_refused indexes the same list
   if (in_scene) {   // S103 SCS: the in-scene rows, by the scene hook's report for THIS record (its guest frame). No report for it (the frame was not drawn by DrawLive) = dropped `pass` as before.
     if (scene2d_frame_ == uint64_t(rec.header.guest_frame) && scene2d_rows_ == in_scene) {
-      c.rows_drawn += scene2d_rep_.drawn;
+      c.rows_drawn += scene2d_rep_.drawn, c.scene2d_early += scene2d_early_, scene2d_early_ = 0;
       for (unsigned i = 1; i < unsigned(q::Refuse::Count); ++i) c.rows_dropped[i] += scene2d_rep_.refused[i];
       const uint64_t lost = in_scene - scene2d_rep_.drawn - scene2d_rep_.refused_total();   // a zero-area scissor: skipped by the drawer (counted there), kept here as `pass`
       if (lost) c.rows_dropped[kDropPass] += lost;
@@ -624,7 +657,7 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
     } else {
       c.rows_dropped[kDropPass] += in_scene;
       dropped_any = true;
-      if (first_kind == FirstKind::None) first_kind = FirstKind::Pass, first_idx = 0, first_pass_why = "pass_scene_colour";
+      if (first_kind == FirstKind::None) first_kind = FirstKind::Pass, first_idx = scene_idx.empty() ? 0 : scene_idx.front(), first_pass_why = "pass_scene_colour";
     }
     scene2d_frame_ = uint64_t(-1);   // consumed
   }
@@ -642,6 +675,28 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
       break;
     case FirstKind::None: break;
   }
+  // S105 A4 piece 3: log-only. The first dropped row, and (F8) the first row the picture resolver refused, each named once per mode entry per (site, why): site / pass / kind / target / rect / blend / index, with any
+  // full-screen opaque row before it (refused_row_note.h).
+  refused_gate_.Frame(first_kind != FirstKind::None || first_pic_set_);
+  if (first_kind != FirstKind::None && first_idx < n) {
+    const char* why = first_kind == FirstKind::Refused ? q::RefuseName(first_refuse) : first_kind == FirstKind::PassUnknown ? "pass_unknown" : first_pass_why;
+    if (refused_gate_.Note(rec.quads2d[first_idx].site, why)) Log(refused_row::Line(rec.quads2d.data(), n, first_idx, why, j));
+  }
+  if (first_pic_set_) {
+    for (size_t i = 0; i < n; ++i)
+      if (rec.quads2d[i].seq == first_pic_seq_) {
+        if (refused_gate_.Note(rec.quads2d[i].site, "picture")) Log(refused_row::Line(rec.quads2d.data(), n, i, "picture", j));
+        break;
+      }
+  }
+}
+
+std::function<rdr::TextureSlot(const rdr_scene::Quad2D&)> SceneHost::TrackPictures(std::function<rdr::TextureSlot(const rdr_scene::Quad2D&)> r) {
+  return [this, r = std::move(r)](const rdr_scene::Quad2D& row) {
+    const rdr::TextureSlot s = r(row);
+    if (s.image == rdr::kNoImage && !first_pic_set_) first_pic_set_ = true, first_pic_seq_ = row.seq;
+    return s;
+  };
 }
 
 // S103 CPB (CPR.md H1). A request stays pending while its assets load (asked again each frame, at most caw_portrait::kWaitTicks tries per request id: RetryGate); every other failure answers at once.
@@ -709,11 +764,19 @@ void SceneHost::Handle(Msg& m) {
   f.have_record = bool(m.record);
   f.no_picture = m.no_picture;
   f.size_known = m.width && m.height && m.width <= 16384 && m.height <= 16384;
-  f.width = m.width, f.height = m.height;
+  // S105 A2: during play (m.fill_now) on a screen of another shape the scene and F take the screen's shape (wide_frame.h): the camera shows more at the sides (or above and below), the 2D rows stay the game's
+  // 1280x720 in a centred box (game_w_ / game_h_ and box_x_ / box_y_ below), a full-view fade takes the whole frame. At 16:9 / in menus the shape is the game's size: nothing changes.
+  {
+    const wide_frame::FrameShape shape = wide_frame::Shape(m.width, m.height, opts_.wide, opts_.tall, m.fill_now, seam_.wide_box_origin);
+    f.width = shape.w, f.height = shape.h;
+    game_w_ = shape.game_w, game_h_ = shape.game_h, box_x_ = shape.box_x, box_y_ = shape.box_y, shape_w_ = shape.w, shape_h_ = shape.h;
+  }
   rdr::FrameBuilder& fb = builder_;
   // The per-frame output switches the stream path sets here (live.cpp 1054-1057: SetOutput / SetPresentFetch / SetColourCuts) are not read yet: the builder keeps what its Begin took from the
   // process-wide atomics (the defaults). Logged once at start (host_start.cpp), listed in BuildOptions.
   fb.Begin(j);
+  first_pic_set_ = false;   // S105 A4 F8: the first row the picture resolver refuses in this handled frame (in-scene rows included)
+  scene_serve_ = false;   // S105 A4: DrawLive below runs the in-scene 2D rows (same resolver) while `out` is the target being drawn: no scene-copy row may be served `last_out_` there (dropped `picture`, as before)
   fb.SetBlendTags(opts_.tween_wanted);   // the tween: the own draws carry blend keys (rdr_scene::TagOwnBlend)
   rdr::ImageId out = rdr::kNoImage;
   uint8_t scene_kind_now = 0;            // the Scene3D stamp's kind of this tick (the tween's scene-change test)
@@ -724,14 +787,24 @@ void SceneHost::Handle(Msg& m) {
     std::vector<rdr_own::OwnedPassStamp> stamps;
     stamps.reserve(rec.owned_passes.size());
     uint8_t kind = 0;   // the scene kind the decision used (the Scene3D stamp's pad)
+    bool walked_now = false;   // S105 A4: a model-class hook asked in this record's hook frame (the Scene3D stamp's walk bit, scene_kind.h kWalkBit)
     for (const rdr_scene::OwnedStamp& s : rec.owned_passes) {
       rdr_own::OwnedPassStamp st;
       st.pass = s.pass, st.decision = s.decision, st.why_not = s.why_not, st.pad = s.pad, st.inputs_mask = s.inputs_mask, st.guest_frame = s.guest_frame;   // every field (lint stamp_copy_lint.py)
       stamps.push_back(st);
       if (s.pass == uint8_t(rdr_own::Pass::Scene3D)) kind = scene_kind::KindOfPad(s.pad);   // S103 WB: bit 7 is the scene-walk bit, not part of the kind
+      if (s.pass == uint8_t(rdr_own::Pass::Scene3D)) walked_now = walked_now || scene_kind::WalkOfPad(s.pad);   // S105 A4
     }
     scene_kind_now = kind;
     bool ours = scene_frame::DrawOurs(stamps.data(), stamps.size(), j);
+    bool demoted = false;   // S105 A4: OURS by READY alone, but no walk for kRecords records: taken as not ours, flat (below)
+#if !WWE2K14_STREAM()
+    // S105 A4 (docs\research\s105\A4.md 5): READY alone makes a frame OURS here, and a sticky stage (arena 23 after Create a Finisher) keeps it READY in the menus after it; the game's 3D walk simply stops
+    // (no model / crowd / ring ask, walk bit 0). Such a frame is not ours: it goes to the flat branch below (Warm, FlatFacts3D -> ApplyWalk -> flat -> black + rows), never to hold3d / black_no_3d.
+    // F2: only after WalkGate::kRecords consecutive records with no walk bit (one record missing its bit mid-match stays OURS). F1: the demoted frame's stamp is dropped as 3D evidence below (DropStampWhenDemoted).
+    const bool no_walk_run = walk_gate_.Demote(walked_now, seam_.force_ours);
+    if (ours && no_walk_run) ours = false, demoted = true, ++core_.counters().ours_no_walk;
+#endif
     const uint64_t hook_now = scene_frame::HookFrameOf(j);
     uint32_t never_fed = 0;       // S103 HN (OFF): required inputs never stamped since the scene began
     bool built_this = false;      // a Warm / DrawLive build ran for this record (its stage verdict is this frame's)
@@ -778,7 +851,19 @@ void SceneHost::Handle(Msg& m) {
       }
     }
     if (seam_.force_ours) ours = true;
-    if (ours && never_fed) {   // S103 HN: no draw; the build still runs so the loader gets the misses and READY is learned
+    if (!seam_.cam_ignore) {   // S105 A3: the record's camera-gate facts (cam_gate.h); the rig's planted twin leaves them unread
+      f.no_scene_camera = rdr_scene::NoShownCamera(rec.header.flags);
+      f.cam_unanimated = rdr_scene::CamUnanimated(rec.header.flags);
+      f.cam_anim_pending = rdr_scene::CamAnimPending(rec.header.flags);
+    }
+    const CamVerdict cam_v = CamGate(st_, f);   // the same rule Decide applies (host_core.h)
+    if (ours && cam_v.black) {   // S105 A3: the game draws no scene yet (no shown camera / the entrance load window): no 3D draw; the build still runs so the loader gets the misses and READY is learned
+      f.ours = true;
+      f.draw = DrawResult::Miss;
+      why = cam_v.shown0 ? "the game shows no scene camera" : cam_v.sticky ? "the motion camera is not animated yet (held after the shown-camera gap)" : "the entrance load window (motion camera not animated)";
+      draw_->Warm(rec, f.width, f.height);
+      built_this = built_this_frame = true;
+    } else if (ours && never_fed) {   // S103 HN: no draw; the build still runs so the loader gets the misses and READY is learned
       f.ours = true;
       f.draw = DrawResult::Miss;
       f.never_fed = never_fed;
@@ -812,6 +897,7 @@ void SceneHost::Handle(Msg& m) {
       built_this = built_this_frame = true;
       scene_kind::FlatFacts ff;
       draw_->FlatFacts3D(rec, ff);
+      scene_kind::DropStampWhenDemoted(ff, demoted);   // S105 A4 F1: a demoted frame's OURS stamp is not 3D evidence (else IsFlatFrame stays false: Hold3D / black_no_3d, the same counter)
       f.flat = scene_kind::IsFlatFrame(ff);
       why = f.flat ? "flat frame" : "the game walked";
       if (!f.flat) fallback_census::NoteScene(j, fallback_census::SceneKey(stamps.data(), stamps.size(), j, scene_req));   // the hook side reason (a flat frame is the host's own: nothing to note)
@@ -844,11 +930,12 @@ void SceneHost::Handle(Msg& m) {
   if (plan.remake_f) MakeF(plan.width, plan.height), f_stale_ = false, out_ok_ = false;   // (a new F: what the plan below puts in it is the picture)
   if (plan.present && f_ != rdr::kNoImage) {
     const rdr::Rect full{0, 0, out_w_, out_h_};
+    scene_serve_ = false;   // S105 A4: the scene-copy sprite row is served `last_out_` only on a frame that presents a 3D picture (set in the switch below)
     const bool hidden = hide_hud_.load(std::memory_order_relaxed);   // read once: RowsMayDraw and DrawRows must agree
-    if (m.record && plan.source != Source::HoldF && seam_.rows_first) { if (StageDrops(*m.record)) NoteStageRows(*m.record, j); else DrawRows(fb, *m.record, j, out_w_, out_h_, hidden, false); }   // planted fault: the rows go under the copy
+    if (m.record && plan.source != Source::HoldF && seam_.rows_first) { if (StageDrops(*m.record)) NoteStageRows(*m.record, j); else DrawRows(fb, *m.record, j, seam_.wide_pass_f_size ? out_w_ : game_w_, seam_.wide_pass_f_size ? out_h_ : game_h_, hidden, false, SceneRowsOnF(plan.reason)); }   // planted fault: the rows go under the copy   // S105 A4B: scene_on_f on a flat frame
     // S103 CHS C6: the 3D picture is presented from `out` itself when no row needs F. Not with the tween (it blends F), not at a render scale (F is scaled), not under a planted row order.
     const bool direct_ok = opts_.present_direct && !*DirectWhyNot(opts_) && !seam_.rows_first;
-    const bool rows_f = m.record && plan.source != Source::HoldF && !seam_.rows_never && RowsMayDraw(*m.record, out_w_, out_h_, hidden);
+    const bool rows_f = m.record && plan.source != Source::HoldF && !seam_.rows_never && RowsMayDraw(*m.record, seam_.wide_pass_f_size ? out_w_ : game_w_, seam_.wide_pass_f_size ? out_h_ : game_h_, hidden, SceneRowsOnF(plan.reason));   // S105 A4B: the flat-frame flag, as DrawRows gets it   // S105 A2: the rows' pixel space is the game's 1280x720, not F's (FateOf's pixel-placed test)
     rdr::ImageId present_src = f_;
     bool forbid_f = false;
     switch (plan.source) {
@@ -856,6 +943,7 @@ void SceneHost::Handle(Msg& m) {
       case Source::Hold3D: {
         const rdr::ImageId src = plan.source == Source::Draw3D ? out : last_out_;
         if (plan.source == Source::Draw3D) last_out_ = out, out_ok_ = true, last_out_frame_ = j;   // (F1: the frame `out` was drawn for)
+        scene_serve_ = src != rdr::kNoImage && (plan.source == Source::Draw3D || out_ok_);   // S105 A4: a current 3D picture (a Hold3D one only while `out` still holds it)
         if (direct_ok && src != rdr::kNoImage && (!rows_f || seam_.direct_plant == 1)) {
           present_src = seam_.direct_plant == 2 ? f_ : src, forbid_f = true, f_stale_ = true;   // no copy: F keeps whatever it held; Shown() says where the picture is
           ++direct_presents_;
@@ -886,7 +974,7 @@ void SceneHost::Handle(Msg& m) {
         break;
     }
     // H2: the record's 2D rows onto F, after the copy (seq order). A frame that repeats F as it was (HoldF) keeps its old 2D: no step, nothing counted.
-    if (m.record && plan.source != Source::HoldF && !seam_.rows_never && !seam_.rows_first) { if (StageDrops(*m.record)) NoteStageRows(*m.record, j); else DrawRows(fb, *m.record, j, out_w_, out_h_, hidden, forbid_f); }   // S103 SVO: a stage push: the editor background rows are left out
+    if (m.record && plan.source != Source::HoldF && !seam_.rows_never && !seam_.rows_first) { if (StageDrops(*m.record)) NoteStageRows(*m.record, j); else DrawRows(fb, *m.record, j, seam_.wide_pass_f_size ? out_w_ : game_w_, seam_.wide_pass_f_size ? out_h_ : game_h_, hidden, forbid_f, SceneRowsOnF(plan.reason)); }   // S105 A4B: scene_on_f on a flat frame   // S103 SVO: a stage push: the editor background rows are left out
     rdr::PresentOp present;
     present.source.image = present_src;
     present.source_rect = full;
@@ -900,6 +988,8 @@ void SceneHost::Handle(Msg& m) {
     };   // lane SHOT: the copy is recorded after all the steps of the frame rendered next
     {   // S103 CPU1: the render / submit of this presented frame (the [host][cpu] census); the scope ends before ++c.presented
     rdr_scene::StageTimer render_timer(rdr_scene::StageCensusRef().render_ns, rdr_scene::StageCensusRef().render_n);
+    // S105 B3: no pipeline-store slice while a 3D scene is the frame's source (a cold build is 25-117 ms on Intel: the freeze at the first match frames); the precompile boot builds them all.
+    renderer_->SetPipelinePrebuildAllowed(store_progress::PrebuildAllowed(opts_.precompile_mode, m.record != nullptr, plan.source == Source::Black));
     if (!opts_.tween_wanted) {
       shot_before();
       renderer_->RenderFrame(built);
@@ -952,6 +1042,13 @@ void SceneHost::Handle(Msg& m) {
       if (drawn3d) tween_cam_ = cam, tween_kind_ = scene_kind_now, tween_w_ = out_w_, tween_h_ = out_h_;
     }
     }   // (S103 CPU1: end of the render timer's scope)
+    if (store_progress::g_progress.store_expected.load(std::memory_order_relaxed)) {   // S105 B3: what the store has left, for the precompile (swap thread)
+      const rdr::Renderer::PipelineStoreCounts sc = renderer_->published_store_counts();
+      store_progress::g_progress.total.store(uint32_t(sc.total), std::memory_order_relaxed), store_progress::g_progress.made.store(uint32_t(sc.made), std::memory_order_relaxed);
+      store_progress::g_progress.left.store(uint32_t(sc.left_resolvable), std::memory_order_relaxed), store_progress::g_progress.unresolved.store(uint32_t(sc.unresolved), std::memory_order_relaxed);
+      store_progress::g_progress.published.store(sc.valid, std::memory_order_release);
+      store_progress::ServeFlush(store_progress::g_progress, [&] { renderer_->FlushPipelineStore(); });
+    }
     static_assert(uint8_t(Source::Black) == 3 && sizeof(c.by_source) / sizeof(c.by_source[0]) == 4, "by_source holds one slot per Source");
     ++c.presented, ++c.by_source[uint8_t(plan.source)];   // PBS: presents by Source
     if (opts_.on_present) opts_.on_present();
@@ -968,6 +1065,7 @@ void SceneHost::Handle(Msg& m) {
     else if (now_ms - last_early_census_ms_ >= 5000) {
       last_early_census_ms_ = now_ms;
       Log(CensusLine(c));
+      if (const std::string kl = rdr_scene::live::movieplanes::KeyCensusLine(); !kl.empty()) Log(kl);   // N2
       Log(SourceLine(c));
     }
   }
@@ -987,6 +1085,7 @@ void SceneHost::Handle(Msg& m) {
     census_from_ = c.frames;
     last_census_ = c.frames;
     Log(CensusLine(c));
+    if (const std::string kl = rdr_scene::live::movieplanes::KeyCensusLine(); !kl.empty()) Log(kl);   // N2
     if (const std::string sl = StrikeLine(); !sl.empty()) Log(sl);   // S103 LVF: the per-reason strike counts (cumulative)
     Log(draw_->Census());   // S103 MSF: the same text as the exit line, every 600 frames
     {   // S103 CPU1 (RHP.md): the record build's CPU cost per presented frame over this window, so a Surface log shows it with no profiler

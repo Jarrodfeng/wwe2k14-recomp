@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-PLANTS = ['death_ignored', 'counter_ignored', 'rehash_every_hit', 'rt_as_file', 'wrong_mip', 'no_swap', 'tiled_ignored', 'race_ignored', 'swizzle_ignored', 'unknown_8888', 'file_any_order', 'no_budget', 'keep_blocks', 'no_bridge', 'bridge_cap']
+PLANTS = ['death_ignored', 'counter_ignored', 'rehash_every_hit', 'rt_as_file', 'wrong_mip', 'no_swap', 'tiled_ignored', 'race_ignored', 'swizzle_ignored', 'unknown_8888', 'file_any_order', 'no_budget', 'keep_blocks', 'no_bridge', 'bridge_cap', 'scene_copy_old']
 
 
 def main_checkout(here):

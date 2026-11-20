@@ -309,6 +309,31 @@ int main(int argc, char** argv) {
     sk::g_flat.store(false);
   }
 
+  // ---- S105 A4: an OURS-by-READY frame whose Scene3D stamp has no walk bit is not ours (the menu after Create a Finisher keeps a sticky stage / READY)
+  {
+    // entry: scene_kind::WalkGate::Demote and DropStampWhenDemoted (the two calls scene_host.cpp's Handle makes, in that order, after DrawOurs; the pad is the stamp's, read with WalkOfPad as the host does). The end to end Decide is host_core_unit's A4 case.
+    const uint8_t menu_pad = uint8_t(sk::Kind::Match);                          // the menu after the mode: a stamp, kind bits only, no walk bit
+    const uint8_t walk_pad = uint8_t(uint8_t(sk::Kind::Match) | sk::kWalkBit);  // a model-class hook asked this frame
+    sk::WalkGate g;
+    CHECK("a4.ours_no_walk", !g.Demote(sk::WalkOfPad(menu_pad), false) && !g.Demote(sk::WalkOfPad(menu_pad), false));   // F2: the first two no-walk records stay OURS
+    CHECK("a4.ours_no_walk", g.Demote(sk::WalkOfPad(menu_pad), false) && g.Demote(sk::WalkOfPad(menu_pad), false));     // the third (and every later) is demoted
+    CHECK("a4.ours_no_walk", !g.Demote(sk::WalkOfPad(walk_pad), false) && !g.Demote(sk::WalkOfPad(menu_pad), false));   // a walk resets the run: one missing bit in a match is not a menu
+    sk::WalkGate h;
+    for (int i = 0; i < 10; ++i) h.Demote(false, false);
+    CHECK("a4.ours_no_walk", !h.Demote(false, true));                                                                   // the rig's force_ours seam is never demoted
+    // the demoted frame's stamp is dropped as 3D evidence: a sticky stage + an OURS stamp + no walk is FLAT, the same record with a walk is not
+    sk::FlatFacts f = WholeFlat();
+    f.has_stage = true, f.objects3d = 251;
+    f.scene3d_stamp = sk::StampMakes3D(uint8_t(rdr_own::Decision::Ours), uint8_t(rdr_own::WhyNot::None));
+    sk::FlatFacts walked = f;
+    sk::ApplyWalk(false, f);
+    sk::DropStampWhenDemoted(f, true);
+    CHECK("a4.ours_no_walk", sk::IsFlatFrame(f));
+    sk::ApplyWalk(true, walked);
+    sk::DropStampWhenDemoted(walked, false);
+    CHECK("a4.ours_no_walk", !sk::IsFlatFrame(walked));
+  }
+
   // ---- the hysteresis helper
   {
     sk::Hysteresis h;

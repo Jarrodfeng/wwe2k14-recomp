@@ -3,7 +3,7 @@
  "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
  "note": "0 game runs, 0 Surface runs. Every check is compile-only or a text lint with planted twins. The GBR plant first_write_clears is in the s103_GBR selftest.",
  "checks": [
-  {"name": "s103_SMF.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_guest_route_unit.ps1"], "timeout_s": 600, "tier": "cheap"},
+  {"name": "s103_SMF.build_unit", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_guest_route_unit.ps1"], "timeout_s": 600, "tier": "cheap"},
   {"name": "s103_SMF.unit", "cmd": ["out/tools/guest_route_unit.exe"], "timeout_s": 60, "tier": "cheap",
    "affects": ["src/renderer_scene/guest_piece_fade.h", "src/renderer_scene/piece_alpha.h", "tools/scene/guest_route_unit.cpp"]},
   {"name": "s103_SMF.unit_plant_no_alpha", "cmd": ["out/tools/guest_route_unit.exe", "--plant", "no_alpha", "--expect-fail"], "timeout_s": 60, "tier": "cheap",

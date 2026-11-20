@@ -66,6 +66,11 @@ int main(int argc, char** argv) {
   Expect("dark picture after a quit says nothing", LastRun(tmp / "m2", 34), "", true);
   Put(tmp / "m" / "logs" / "startup.txt", played + "  80.0  HANG: paint thread, no present for 60 s\n  90.0  CRASH: SIGSEGV (bad memory access), code 1, fault address 0x0, at libmain.so+0x10 (thread 5).\n");
   Expect("a crash after a HANG is the crash", LastRun(tmp / "m", 34), "crashed");
+  // S105 A9 (src\device_lost_message.h): the game's "GPU LOST: " line, then the exit request (a quit marker follows); the twin has no such line and says nothing.
+  Put(tmp / "n" / "logs" / "startup.txt", played + "  60.0  GPU LOST: the graphics driver stopped (Vulkan device lost) at guest frame 118220\n  61.0  quit to the launcher\n");
+  Expect("GPU LOST says the driver stopped", LastRun(tmp / "n", 34), "graphics driver stopped. Please restart the game");
+  Put(tmp / "o" / "logs" / "startup.txt", played + "  61.0  quit to the launcher\n");
+  Expect("twin: no GPU LOST line, nothing", LastRun(tmp / "o", 34), "", true);
   std::printf(g_fail ? "FAILED %d\n" : "all passed\n", g_fail);
   return g_fail ? 1 : 0;
 }

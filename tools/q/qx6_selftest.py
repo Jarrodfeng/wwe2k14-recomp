@@ -215,6 +215,132 @@ def main():
         subprocess.run(['git', '-C', root, 'add', '-A'], check=True)
         r = qx6.cmd_affects(root, 'SRC/Fx/A.H')
         check(r['file'] == 'src/fx/a.h' and 'fx.one' in [a['check'] for a in r['selected']], 'affects: a wrong-case path is mapped to the git spelling', r)
+        # ---- QAF: cached == uncached; a cold table answers in bounded time, says so, and a warm-up (warm_deps) makes the next answer the full one; a busy index never waits
+        import shutil
+        import time
+        os.environ['WWE_Q_NO_WARM'] = '1'
+
+        def lane_key(r):
+            return json.dumps({k: r[k] for k in ('file', 'total_checks', 'selected', 'always', 'named')}, sort_keys=True, default=str)
+
+        write(root, 'tools/gate/lanes/fx_exact.json', json.dumps({'checks': [{'name': 'fe.script_only', 'cmd': ['py', 'tools/y.py']}]}))
+        write(root, 'tools/gate/lanes/fx_maybe.json', json.dumps({'checks': [{'name': 'fm.has_affects', 'cmd': ['py', 'tools/y.py'], 'affects': ['src/never/*.h']}]}))   # selected for tools/y.py ONLY through its derived deps
+        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
+        cold_full =qx6.cmd_affects(root, 'src/other/o.h')                 # no table yet: derives every check (a fixture: milliseconds)
+        warm_full = qx6.cmd_affects(root, 'src/other/o.h')                 # the saved table
+        check(lane_key(cold_full) == lane_key(warm_full) and not cold_full['note'], 'affects QAF: the cached and the uncached derived-deps answers are the same set of lanes', [cold_full, warm_full])
+        many = qx6.cmd_affects(root, ['src/other/o.h', 'src/fx/a.h'])     # several files in one call: the same answers as one call each
+        check([lane_key(x) for x in many] == [lane_key(warm_full), lane_key(qx6.cmd_affects(root, 'src/fx/a.h'))], 'affects QAF: several files in one call answer exactly as one call each', many)
+        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
+        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
+        try:
+            planted = qx6.cmd_affects(root, 'src/other/o.h')               # PLANTED cold table: a zero derive budget derives nothing
+        finally:
+            del os.environ['WWE_Q_AFFECTS_BUDGET']
+        check('not computed yet' in planted['note'] and planted['always'] > cold_full['always'], 'affects QAF: a cold table over its budget counts the underived checks as always-run AND says so (never silently)', [planted, cold_full])
+        check(cold_full['partial'] is False and planted['partial'] is True and planted['not_derived'] > 0, 'affects QAF: a complete answer says partial false, an over-budget one partial true with the count (JSON fields)', [cold_full, planted])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            qx6.print_affects(planted)
+            qx6.print_affects(cold_full)
+        lines = buf.getvalue().split('\n')
+        check(lines[0].startswith('PARTIAL: ') and str(planted['not_derived']) in lines[0] and any(l.startswith('the gate selects') for l in lines[1:2]) and not any(l.startswith('PARTIAL') for l in lines[2:]),
+              'affects QAF: a partial answer starts with PARTIAL (and the count) on its FIRST line; a complete one does not', lines[:3])
+        # a check WITH `affects` that only its derived deps select, left underived: listed as maybe and COUNTED (a lane is never dropped)
+        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
+        full_y = qx6.cmd_affects(root, 'tools/y.py')
+        check('fm.has_affects' in [a['check'] for a in full_y['selected'] if 'derived deps' in a['why']], 'affects QAF: (setup) fm.has_affects is selected for tools/y.py through its derived deps when they are known', full_y)
+        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
+        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
+        try:
+            maybe_y = qx6.cmd_affects(root, 'tools/y.py')
+        finally:
+            del os.environ['WWE_Q_AFFECTS_BUDGET']
+        check(any(a['check'] == 'fm.has_affects' and a['why'].startswith('maybe') for a in maybe_y['selected']) and maybe_y['maybe'] >= 1,
+              'affects QAF: a check with `affects` left underived is listed "maybe (deps not derived yet)" and counted among the selected (the planted "not selected" answer fails this row)', maybe_y)
+        # a manifest-based (tier A) entry whose stamp is old is NOT reused over the budget; a manifest-free one is; an entry saved before the flag existed is not
+        gd = qx6._gate_mod('deps')
+        tb = gd.Table(root, root, cache_path=os.path.join(root, 'out', 'gate', 'deps.json'), log=lambda m: None)
+        chk = {'name': 'fe.script_only', 'cmd': ['py', 'tools/y.py']}
+        tb.get(chk)
+        ent = tb.cache['fe.script_only']
+        ent['mstamp'] = 'an older manifest stamp'
+        tb.quick, tb.derive_budget_s = True, 0.0
+        tb.get(chk)
+        check(tb.stale_used == 1 and ent['d']['manifest'] is False, 'affects QAF: a manifest-free entry with an old stamp is reused over the budget (counted)', ent['d'])
+        for label, mutate in (('a tier-A / manifest entry', lambda d: d.update(manifest=True)), ('an entry saved before the flag existed', lambda d: d.pop('manifest'))):
+            tb._stale.clear(), tb._skipped.clear()
+            mutate(ent['d'])
+            d2 = tb.get(chk)
+            check(tb.underived('fe.script_only') and tb.stale_used == 0 and 'not derived' in d2['notes'][0], f'affects QAF: {label} with an old stamp is NOT reused over the budget (counted not derived)', d2)
+        tb.close()
+        # the signature of an entry (every saved shard is keyed by it): a later edit that changes it must fail here, loudly. Digests taken from the ORIGINAL pathlib implementation.
+        class Ix:
+            def sha(self, r):
+                return {'f.h': 'abc123'}.get(r)
+        gold = [(({'cmd': ['py', 'a.py']}, [], None, [], []), 'd0fe53b0f059ae6252b10b05f9021d021b698f57906a0b3cf256f907f25fd62b'),
+                (({'cmd': ['py', 'b.py', '--x'], 'deps': 'scan:src'}, ['nope/a.h', 'nope/b.h'], None, ['x/y', 'z'], []), 'a6b420d17dbc19225a5b15ac61d29e0b94330b15d17595ea48eb0e33ab0655b4'),
+                (({'cmd': ['tools/t.exe'], 'uncacheable': 'why'}, ['q.h'], Ix(), ['lit'], ['f.h', 'missing.h']), '18ce2ad0ef628a4d68da8fc8342b38afcec6c726c22537f4bb5d05ae399000ea')]
+        got = [gd._sig(a[0], 'R:/golden/root', a[1], a[2], a[3], a[4]) for a, _ in gold]
+        check(got == [g for _, g in gold], 'affects QAF: _sig gives the fixed golden digests on three invented inputs (a changed signature invalidates every saved table: fail loudly)', got)
+        lk0 = qx6._warm_lock(root) + '.atomic'
+        check(qx6._take_lock(lk0) and not qx6._take_lock(lk0), 'affects QAF: the one-per-checkout lock is an exclusive create: the second taker is refused at once', None)
+        os.unlink(lk0)
+        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
+        check(qx6.warm_deps(root) >= 1 and not os.path.exists(qx6._warm_lock(root)),'affects QAF: the warm-up derives every check, saves the table and releases its lock', None)
+        after = qx6.cmd_affects(root, 'src/other/o.h')
+        check(lane_key(after) == lane_key(cold_full) and not after['note'], 'affects QAF: after the warm-up the answer is the full one again (the same set of lanes, no note)', after)
+        # a build elsewhere rewrote a manifest: every entry's stamp is older, its FILES are unchanged. Over the budget the older answer is used (counted, said), never "unknown"
+        write(root, 'out/deps/zz_other_build.deps.txt', '# wwe2k14-deps v1\ntools/y.py\n')
+        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
+        try:
+            older = qx6.cmd_affects(root, 'src/other/o.h')
+        finally:
+            del os.environ['WWE_Q_AFFECTS_BUDGET']
+        check(lane_key(older) == lane_key(cold_full) and 'before the latest build manifests' in older['note'] and 'not computed yet' not in older['note'],
+              'affects QAF: entries older than the latest build manifests (files unchanged) answer within the budget: the same lanes, and the note says so', older)
+        # ... but a file the entry was derived from CHANGED: that entry is not used (unknown, said), whatever the budget
+        write(root, 'tools/y.py', 'print(3)\n')
+        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
+        try:
+            changed = qx6.cmd_affects(root, 'src/other/o.h')
+        finally:
+            del os.environ['WWE_Q_AFFECTS_BUDGET']
+        check('not computed yet' in changed['note'] and changed['always'] > cold_full['always'], 'affects QAF: an entry whose derived-from file changed is NOT used over the budget (counted unknown, said)', changed)
+        write(root, 'tools/y.py', 'print(2)\n')
+        os.unlink(os.path.join(root, 'out', 'deps', 'zz_other_build.deps.txt'))
+        # a warm-up already running (fresh lock) is not started twice; a stale lock is taken over
+        lk = qx6._warm_lock(root)
+        os.makedirs(os.path.dirname(lk), exist_ok=True)
+        open(lk, 'w').close()
+        check(qx6._warm_running(lk) and qx6.warm_deps(root) == 0, 'affects QAF: a fresh warm-up lock = one warm-up per checkout', None)
+        os.utime(lk, (time.time() - 4000, time.time() - 4000))
+        check(not qx6._warm_running(lk), 'affects QAF: a stale warm-up lock (> 25 min) is not honoured', None)
+        os.unlink(lk)
+        # the index: a writer holding ours.db must not make the reader wait; it answers from ours.db.good and says so
+        idir = os.path.join(root, 'out', 'harness', 'index')
+        os.makedirs(idir, exist_ok=True)
+        dbp = os.path.join(idir, 'ours.db')
+        w = sqlite3.connect(dbp, isolation_level=None)
+        w.executescript('CREATE TABLE files(path TEXT, sha TEXT, size INTEGER); CREATE TABLE tus(id INTEGER, file TEXT, errors INTEGER); CREATE TABLE incs(tu INTEGER, file TEXT);')
+        shutil.copyfile(dbp, dbp + '.good')
+        idx, why = qx6.affects_index(root, root)
+        check(idx is not None and idx.path.name == 'ours.db' and not why, 'affects QAF: an idle index is read as itself', (idx, why))
+        idx.close()
+        w.execute('BEGIN EXCLUSIVE')
+        os.environ['WWE_Q_DB_WAIT'] = '0.2'
+        t0 = time.time()
+        try:
+            idx, why = qx6.affects_index(root, root)
+        finally:
+            del os.environ['WWE_Q_DB_WAIT']
+        dt = time.time() - t0
+        w.execute('ROLLBACK')
+        w.close()
+        check(idx is not None and idx.path.name == 'ours.db.good' and 'busy' in why and dt < 3.0, f'affects QAF: a busy ours.db is not waited on ({dt:.2f} s): the answer reads ours.db.good and says so', (idx, why))
+        idx.close()
+        for fn in ('ours.db', 'ours.db.good'):
+            os.unlink(os.path.join(idir, fn))
         # ---- hooks, review fixes
         r = qx6.cmd_hooks(root, 'sub_82008888', main=root)
         check(not r['src'], 'hooks: a hook inside a COMMENT is not a hook', r)

@@ -87,7 +87,8 @@ class LiveParticles final : public StageHook {
  private:
   bool EnsurePrograms();
   bool EnsureSoftPrograms();
-  bool EnsureSoftDepth(uint32_t w, uint32_t h);
+  bool EnsureSoftDepth(uint32_t w, uint32_t h, bool scaled);
+  bool SceneDepthScaled(const StageCtx& ctx) const;   // S105 A1
   rdr::Renderer& renderer_;
   TextureLookup texture_of_;
   ParticleFaults faults_;
@@ -99,6 +100,7 @@ class LiveParticles final : public StageHook {
   bool soft_ready_ = false, soft_failed_ = false;
   rdr::ImageId soft_depth_ = rdr::kNoImage;   // the scene depth's copy the soft batches sample
   uint32_t soft_w_ = 0, soft_h_ = 0;
+  bool soft_scaled_ = false;   // S105 A1: the soft depth follows the scene depth's kUsageScaled (a scaled -> unscaled depth copy is unsupported)
   LiveParticlesStats stats_;
   std::vector<ParticleDrawVertex> verts_;  // reused every frame (no per-frame allocation)
 };

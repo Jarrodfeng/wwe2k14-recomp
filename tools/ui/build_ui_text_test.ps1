@@ -19,13 +19,13 @@ $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-
 $srcs = @((Join-Path $PSScriptRoot 'ui_text_test.cpp'), (Join-Path $repo 'src\renderer_scene\ui_text_ours.cpp'), (Join-Path $repo 'src\renderer_scene\ui_text_fonts.cpp'))
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
 $repoLen = $repo.Path.Length + 1
-$fails = $srcs | ForEach-Object -ThrottleLimit 8 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $fails = $srcs | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 8) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $name = ($_.Substring($using:repoLen) -replace '[\\/:]', '_') + '.o'
   $o = Join-Path $using:obj $name
   if ((Test-Path $o) -and (Get-Item $o).LastWriteTimeUtc -gt (Get-Item $_).LastWriteTimeUtc -and (Get-Item $o).LastWriteTimeUtc -gt $using:newestHdr) { return }
   $log = & clang++ -O2 -g -std=c++20 -Wall -Wextra -Wno-unused-parameter -c @using:defs -Wno-unused-command-line-argument @using:inc $_ -o $o 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") } elseif ($log) { Write-Host ($log -join "`n") }
-}
+} } finally { Release-BuildParallel }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $bad | ForEach-Object { Write-Host $_ }
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }

@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "../../src/renderer_scene/guest_model_draw.h"
+#include "../../src/renderer_scene/logo_bool.h"        // S105 A5c
+#include "../../src/renderer_scene/piece_row_rule.h"   // S105 A5b
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/scene_live/guest_model_emit.h"
 #include "../../src/scene_live/guest_model_reader.h"
@@ -587,6 +589,58 @@ static void CheckTextures() {
 }
 
 // ---- CTF (S103, docs\research\s103\CTEX.md sites 1-5): the game's lower-case effect / parameter names, the printed refusal reasons, the retry of a late texture ------------------------------------------------
+// S105 A5b: the created superstar's eyelid layer (guest part 11, yCh_trans) must be built BLENDED (the file loader's `*trans*` rule), a skin / anisotropic part must not; and a guest part never answers the front
+// end's per-piece row lookup (its src_key is a part index, not a piece id). entry: guestmodel::BuildModel (production order: forged guest memory -> ReadModel -> AppendModelRows -> record bytes -> ParseRecord -> Absorb -> BuildModel)
+// then the front end's rule on the built meshes (MeshAnswersPieceRow, called by front_end.cpp's EYF lookup). Planted twins: draw plant 12 (42) = the old no-blend rule, plant 13 (43) = every src_kind 2 mesh answers.
+static void CheckBlend() {
+  live::guest_model::ByteStore::Process().Clear();
+  TexWorld w;
+  const uint32_t hNormal = w.AddTexture(0, 0x1C100000u, 21);
+  // the 7th part is a trans part with NO normal picture (review F1: its opacity would be the stand-in's: stays opaque, counted)
+  const char* const effects[] = {"ych_trans", "ych_aniso_trans", "ych_skin", "ych_anisotropic", "ych_transtiling", "ych_cloth_trans", "ych_trans"};
+  ModelSpec spec;
+  spec.tex_keys = {hNormal};
+  for (const char* e : effects) {
+    PartSpec p;
+    p.F = 0x0C | 0x10 | 0x40 | 0x100;
+    p.vcount = 4, p.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p.n0 = 4, p.n1 = 4, p.palette = {20, 30, 40, 50}, p.effect = e;
+    Vtx vx;
+    vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+    for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p.F, vx); p.host_dwords.insert(p.host_dwords.end(), d.begin(), d.end()); }
+    if (spec.parts.size() < 6) p.samplers = {{"g_mNormalFxPrm", 0, 15}};
+    spec.parts.push_back(p);
+  }
+  spec.two_ranges = true;
+  const uint32_t model = BuildModel(w.m, spec);
+  gm::ModelRead r = gm::ReadModel(w.m, model);
+  gm::TexResolver blend_res;
+  blend_res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10);
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  SceneTables back;
+  std::string err;
+  guestmodel::Store blend_store;
+  assets::Model bmdl;
+  guestmodel::BuildStats bbs;
+  bool built = false;
+  if (ParseRecord(bytes.data(), bytes.size(), back, err)) blend_store.Absorb(back), built = guestmodel::BuildModel(back, blend_store, model, bmdl, bbs);
+  if (!built || bmdl.meshes.size() != 7) { Check(false, "CBL: the forged 6-part model did not build"); return; }
+  const auto blends = [&](size_t i) { return bmdl.materials[bmdl.meshes[i].material].alpha_blend; };
+  Check(blends(0) && blends(1) && !blends(2) && !blends(3) && blends(4) && blends(5) && !blends(6) && bbs.blended == 4 && bbs.blended_no_normal == 1 && bbs.effect_fallback == 0,
+        "CBL: yCh_trans / yCh_Aniso_trans / yCh_TransTiling / yCh_cloth_trans parts build blended (like the file loader's `*trans*` rule), yCh_skin and yCh_Anisotropic do not, and a trans part with no normal picture stays opaque and is counted (blended " + std::to_string(bbs.blended) + ")");
+  // the front end's piece-row lookup (front_end.cpp EYF): a guest part carries src_kind 2 + src_key = the part index; no piece row may match it, a stock mesh of the same kind still does
+  bool any_guest = false, shape = true;
+  for (size_t i = 0; i < bmdl.meshes.size(); ++i) {
+    const assets::Mesh& me = bmdl.meshes[i];
+    shape = shape && me.src_kind == 2 && me.src_key == int(i) && me.src_pac == "guest";
+    any_guest = any_guest || rdr_scene::MeshAnswersPieceRow(me.src_kind, me.src_pac);
+  }
+  Check(shape && !any_guest && rdr_scene::MeshAnswersPieceRow(2, "ch100.pac") && !rdr_scene::MeshAnswersPieceRow(1, "ch100.pac"),
+        "CBL: a guest part (src_kind 2, src_key = part index 0..5, so piece id 1 could collide with part 1) never answers the piece-row lookup; a stock piece mesh still does");
+}
+
 static void CheckCtf() {
   live::guest_model::ByteStore::Process().Clear();
   // P1 case: the game's names are lower case in memory ("ych_gear", "sampdiffuseprm"); the part must get the gear pipeline and a Diffuse slot
@@ -1044,6 +1098,196 @@ static void CheckCawd() {
   }
 }
 
+// entry: rdr_scene::live::guest_model::ReadModel (the writer's order: ReadModel -> TexResolver::Resolve -> AppendModelRows) and guestmodel::BuildModel (the consumer); the dirty table is entered by NoteFlush, as the sub_82CA6BE0 hook calls it (lint L12 keeps that call in the hook)
+// ---- S105 A5c: the CAW logo pictures + the flush rule (docs/research/s105/A5c.md; entry: gm::ReadModel -> TexResolver::Resolve -> AppendModelRows -> guestmodel::BuildModel, the writer / consumer order of the live run) ----
+// A forged CAW model: [m+324] = the callback sub_822E6CC8, [m+328] = the editor object E, [E+2608] = the composer, [composer+100] = the buffer index, [composer+116+4*buf] = the logo set, [set+4] = two 8-byte keys.
+struct LogoWorld {
+  TexWorld w;
+  std::vector<uint8_t> pat7, pat4;
+  uint32_t id7 = 0, id4 = 0, idD = 0, E = 0, comp = 0, model = 0;
+  uint32_t hdr7 = 0;
+  static constexpr uint32_t kBgra = 0xC14u;
+  explicit LogoWorld(bool callback, uint32_t buf = 0, int32_t diffuse_t = 0, bool with_logo_keys = true) {
+    w.phys.b.assign(0x200000, 0);
+    Born(true, kCreatorLoader, 0x82BAA6C0u);
+    id7 = Add8888(w, Phys::kBase, 256, 256, 0, kBgra, false, 31, pat7);
+    id4 = Add8888(w, Phys::kBase + 0x40000u, 256, 256, 0, kBgra, false, 47, pat4);
+    idD = w.AddTexture(0, Phys::kBase + 0x80000u, 9);
+    hdr7 = w.header_of[id7 & 63];
+    PartSpec p0;
+    p0.vcount = 4, p0.host_dwords = Dwords(4, 8, 1), p0.idx = {0, 1, 2, 3}, p0.n0 = 4, p0.palette = {1, 2};
+    p0.effect = "ych_skin";
+    p0.samplers = {{"g_mDiffusePrm", diffuse_t, 15}};
+    ModelSpec spec;
+    spec.parts = {p0};
+    spec.tex_keys = {idD, idD};
+    model = BuildModel(w.m, spec);
+    E = w.m.alloc(4096), comp = w.m.alloc(256);
+    const uint32_t set0 = w.m.alloc(16), set1 = w.m.alloc(16), arr0 = w.m.alloc(32), arr1 = w.m.alloc(32);
+    w.m.put32(arr0, with_logo_keys ? id7 : 0), w.m.put32(arr0 + 4, 0x11), w.m.put32(arr0 + 8, with_logo_keys ? id4 : 0), w.m.put32(arr0 + 12, 0x22);
+    w.m.put32(arr1, 0), w.m.put32(arr1 + 4, 0), w.m.put32(arr1 + 8, 0), w.m.put32(arr1 + 12, 0);   // the other buffer's set: empty keys
+    w.m.put32(set0 + 4, arr0), w.m.put32(set1 + 4, arr1);
+    w.m.put32(comp + 100, buf), w.m.put32(comp + 116, set0), w.m.put32(comp + 120, set1), w.m.put32(comp + 124, set0);   // (+124: what an unbounded buf = 2 would read)
+    w.m.put32(E + 2608, comp);
+    w.m.put32(model + 324, callback ? gm::kLogoCb : 0u), w.m.put32(model + 328, E);
+  }
+  gm::ModelRead Read() { return gm::ReadModel(w.m, model); }
+  const auto Phys_() const { return [this](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }; }
+  // resolve until nothing is deferred (an 8888 picture is one full read a call)
+  void Settle(gm::TexResolver& res, gm::ModelRead& r, uint64_t frame) {
+    res.born_of = &UnitBorn;
+    for (int i = 0; i < 8; ++i) {
+      res.Resolve(w.m, Phys_(), r, frame);
+      if (!r.tex_incomplete) break;
+    }
+  }
+};
+static const std::vector<uint8_t>* PicOf(const gm::ModelRead& r, uint64_t hash) {
+  for (const gm::TexRead& t : r.textures)
+    if (t.hash == hash && t.bytes) return t.bytes.get();
+  return nullptr;
+}
+
+static void CheckLogo() {
+  live::guest_model::ByteStore::Process().Clear();
+  Born(true, kCreatorLoader, 0x82BAA6C0u);
+  live::guest_tex_dirty::Seq();
+  // (a) a forged CAW model WITH the callback: both logo keys are read, resolved to the two 1024-class (here 256) linear BGRA pictures, carried by the rows, and built onto the material at slots 7 (entry 0) / 4 (entry 1)
+  {
+    LogoWorld lw(true);
+    gm::ModelRead r = lw.Read();
+    Check(r.parts_ok == 1 && r.logo.has && r.logo.key[0] == lw.id7 && r.logo.key[1] == lw.id4 && r.logo.key1[0] == 0x11 && r.logo.key1[1] == 0x22, "A5c (a): the model-level logo words are read ([m+324] = the callback): both keys, entry 0 then entry 1");
+    gm::TexResolver res;
+    lw.Settle(res, r, 100);
+    const std::vector<uint8_t>* b7 = PicOf(r, r.logo_hash[0]);
+    const std::vector<uint8_t>* b4 = PicOf(r, r.logo_hash[1]);
+    Check(r.logo_state[0] == kGtBound && r.logo_state[1] == kGtBound && r.logo_hash[0] && r.logo_hash[1] && r.logo_hash[0] != r.logo_hash[1] && b7 && b4 && *b7 == lw.pat7 && *b4 == lw.pat4 && res.stats().logo_bound >= 2 && res.stats().logo_missing == 0,
+          "A5c (a): both logo keys are resolved through the 8888 path (byte-identical pictures), counted logo_bound (per resolver call that answered it)");
+    GuestModelTables g;
+    gm::BlobSender bs;
+    const uint32_t added = gm::AppendModelRows(r, g, bs, 100);
+    const bool rows_ok = added == 1 && g.parts.size() == 1 && g.parts[0].logo7_tex && g.parts[0].logo4_tex && g.parts[0].logo7_tex <= g.textures.size() && g.parts[0].logo4_tex <= g.textures.size() &&
+                         g.textures[g.parts[0].logo7_tex - 1].hash == r.logo_hash[0] && g.textures[g.parts[0].logo4_tex - 1].hash == r.logo_hash[1] && (g.parts[0].flags & kGmDiffuseT0);
+    Check(rows_ok, "A5c (a): the part row carries the logo pictures' texture-row indices (+1) and kGmDiffuseT0");
+    SceneTables t;
+    t.guest_models = g;
+    guestmodel::Store logo_store;
+    logo_store.Absorb(t);
+    assets::Model lmdl;
+    guestmodel::BuildStats st;
+    const bool built = guestmodel::BuildModel(t, logo_store, lw.model, lmdl, st);
+    bool mat_ok = built && lmdl.meshes.size() == 1 && lmdl.meshes[0].material >= 0;
+    if (mat_ok) {
+      const assets::Material& mt = lmdl.materials[size_t(lmdl.meshes[0].material)];
+      mat_ok = mt.logo7 >= 0 && mt.logo4 >= 0 && mt.logo7 != mt.logo4 && mt.diffuse_t0 && lmdl.textures[size_t(mt.logo7)].data == lw.pat7 && lmdl.textures[size_t(mt.logo4)].data == lw.pat4 &&
+               lmdl.textures[size_t(mt.logo7)].format == assets::TexFormat::kB8G8R8A8;
+    }
+    Check(mat_ok && st.logo_parts == 2 && st.logo_missing == 0, "A5c (a): the consumer builds the logo pictures into the material: logo7 = entry 0's bytes, logo4 = entry 1's bytes, as 8888");
+    // the census / log lines the game check reads
+    Check(guestmodel::CensusLine().find("parts with a logo picture") != std::string::npos, "A5c: the guest draw census line names the logo parts");
+  }
+  // (b) a model WITHOUT the callback binds black as today: no logo words, rows without logo indices, a material without logo pictures; a twin word (cb = 0 but the callback-shaped arguments are present) must not leak
+  {
+    LogoWorld lw(false);
+    gm::ModelRead r = lw.Read();
+    gm::TexResolver res;
+    lw.Settle(res, r, 100);
+    GuestModelTables g;
+    gm::BlobSender bs;
+    gm::AppendModelRows(r, g, bs, 100);
+    SceneTables t;
+    t.guest_models = g;
+    guestmodel::Store logo_store;
+    logo_store.Absorb(t);
+    assets::Model lmdl;
+    guestmodel::BuildStats st;
+    const bool built = guestmodel::BuildModel(t, logo_store, lw.model, lmdl, st);
+    const bool black = built && !r.logo.has && r.logo_state[0] == kGtMissing && r.logo_state[1] == kGtMissing && g.parts.size() == 1 && !g.parts[0].logo7_tex && !g.parts[0].logo4_tex &&
+                       lmdl.materials[size_t(lmdl.meshes[0].material)].logo7 < 0 && lmdl.materials[size_t(lmdl.meshes[0].material)].logo4 < 0 && st.logo_parts == 0;
+    Check(black, "A5c (b): a model whose [m+324] is not the logo callback reads no logo words and binds black (no logo pictures on the material)");
+    LogoWorld b2(true, 2);   // buf 2: past the two sets
+    gm::ModelRead rb = b2.Read();
+    Check(!rb.logo.has, "A5c (b): a composer buffer index >= 2 is refused (not followed)");
+    LogoWorld z(true, 0, 0, false);   // both keys 0
+    gm::ModelRead rz = z.Read();
+    Check(!rz.logo.has, "A5c (b): a logo set whose keys are 0 is refused");
+  }
+  // (c) bool 150 follows kGmDiffuseT0: the part's diffuse sampler is texture index 0 -> the flag -> the material -> bit 22 of Bools word 4 (Bools[1].x); index 1 -> no flag, the bit stays off
+  {
+    for (int t_idx = 0; t_idx < 2; ++t_idx) {
+      LogoWorld lw(true, 0, t_idx);
+      gm::ModelRead r = lw.Read();
+      gm::TexResolver res;
+      lw.Settle(res, r, 100);
+      GuestModelTables g;
+      gm::BlobSender bs;
+      gm::AppendModelRows(r, g, bs, 100);
+      SceneTables t;
+      t.guest_models = g;
+      guestmodel::Store logo_store;
+      logo_store.Absorb(t);
+      assets::Model lmdl;
+      guestmodel::BuildStats st;
+      const bool built = guestmodel::BuildModel(t, logo_store, lw.model, lmdl, st);
+      const bool flag = g.parts.size() == 1 && (g.parts[0].flags & kGmDiffuseT0) != 0;
+      const bool mat_flag = built && lmdl.materials[size_t(lmdl.meshes[0].material)].diffuse_t0;
+      float bools[8] = {};
+      const uint32_t base_bits = 0xEu;
+      std::memcpy(bools, &base_bits, 4);
+      SetLogoBool(bools, 2, mat_flag);
+      uint32_t w0, w4;
+      std::memcpy(&w0, bools, 4), std::memcpy(&w4, bools + 4, 4);
+      const bool bit150 = (w4 & (1u << 22)) != 0;
+      Check(flag == (t_idx == 0) && mat_flag == (t_idx == 0) && bit150 == (t_idx == 0) && w0 == 0xEu && (w4 & ~(1u << 22)) == 0,
+            std::string("A5c (c): bit 150 of Bools = the part's kGmDiffuseT0 (diffuse sampler texture index ") + std::to_string(t_idx) + "): the vertex bits 1-3 stay, no other bit moves");
+    }
+  }
+  // (d) a dirty (flushed) texture is refreshed at once, for the logo's 8888 picture (a small edit the 64-texel guard misses) AND a BC picture (never re-read before): the game's unlock flush marks the header
+  {
+    LogoWorld lw(true);
+    gm::ModelRead r = lw.Read();
+    gm::TexResolver res;
+    lw.Settle(res, r, 100);
+    if (r.parts_ok != 1 || r.tex_hash.empty() || r.tex_hash[0].empty()) { Check(false, "A5c (d): the forged CAW part did not read"); return; }
+    const uint64_t h7 = r.logo_hash[0], hD = r.tex_hash[0][0];
+    // an edit of ONE texel the sampled guard cannot see (the guard's texels are fixed: x = (37 i + 11 (i >> 3)) % w, y = (61 i + 7 (i / 4)) % h)
+    uint32_t ex = 0, ey = 0;
+    for (uint32_t cand = 1; cand < 200; ++cand) {
+      bool hit = false;
+      for (uint32_t i = 0; i < 64; ++i)
+        if ((i * 37u + (i >> 3) * 11u) % 256u == cand && (i * 61u + 7u * (i / 4u)) % 256u == cand + 1) hit = true;
+      if (!hit) { ex = cand, ey = cand + 1; break; }
+    }
+    lw.w.phys.b[size_t(ey * 256 + ex) * 4] ^= 0x5A;
+    lw.w.phys.b[0x80000] ^= 0xA5;   // the BC diffuse's first block
+    const auto frame_run = [&](uint64_t f) { gm::ModelRead probe = r; gm::TexOut o; const bool ch = res.ResolveTo(lw.w.m, lw.Phys_(), probe, o, f); return std::make_pair(ch, o); };
+    const auto before = frame_run(110);   // no flush yet, inside the 61-frame period: the held pictures stand
+    Check(!before.first && before.second.logo_hash[0] == h7 && before.second.tex_hash[0][0] == hD, "A5c (d): without a flush the held pictures stand (inside the refresh period)");
+    uint64_t seen = live::guest_tex_dirty::Seq(), checked = 100;
+    const bool due_before = gm::TexCallStep(r, false, false, checked, 111, &seen);
+    live::guest_tex_dirty::NoteFlush(lw.hdr7);                             // the composer's copy ends in sub_82CA6BE0(texture)
+    live::guest_tex_dirty::NoteFlush(lw.w.header_of[lw.idD & 63]);         // the match composer's DXT pack
+    const bool due_after = gm::TexCallStep(r, false, false, checked, 112, &seen);
+    Check(!due_before && due_after, "A5c (d): a flush of a watched picture makes the resolver due at once (TexCallStep), and only once per flush batch");
+    gm::TexOut o;
+    const bool changed = res.ResolveTo(lw.w.m, lw.Phys_(), r, o, 112);
+    gm::ModelRead probe = r;
+    gm::ApplyTex(probe, std::move(o));
+    const std::vector<uint8_t>* nb = PicOf(probe, probe.logo_hash[0]);
+    Check(changed && probe.logo_hash[0] != h7 && nb && (*nb)[size_t(ey * 256 + ex) * 4] == uint8_t(lw.pat7[size_t(ey * 256 + ex) * 4] ^ 0x5A) && res.stats().dirty_rereads >= 1,
+          "A5c (d): the flushed 8888 logo is re-read at once (a one-texel edit the guard cannot see), the new bytes are carried");
+    Check(probe.tex_hash[0][0] != hD && res.stats().dirty_rereads >= 2, "A5c (d): a flushed BC picture (the match composer's DXT pack) is re-read at once too (it never was)");
+    const bool again = gm::TexCallStep(probe, false, false, checked, 113, &seen);
+    Check(!again, "A5c (d): the read stored the flush generation: no new flush, no new run");
+    // the rebuilt model key changes (a new picture = a new model)
+    GuestModelTables g1, g2;
+    gm::BlobSender b1, b2;
+    gm::AppendModelRows(r, g1, b1, 112);
+    gm::AppendModelRows(probe, g2, b2, 112);
+    Check(g1.parts.size() == 1 && g2.parts.size() == 1 && g1.parts[0].model_hash != g2.parts[0].model_hash, "A5c (d): the new logo picture is a new model key (the consumer rebuilds)");
+  }
+}
+
 static gm::ModelRead BodyWithTextures(TexWorld& w, uint32_t& model_out) {
   const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21), hC = w.AddTexture(1, 0x1C110000u, 77);
   PartSpec p0;
@@ -1244,6 +1488,15 @@ int main(int argc, char** argv) {
   if (plant >= 1 && plant <= 14) gm::g_gm_plant = plant;
   if (plant >= 21 && plant <= 30) guestmodel::g_draw_plant = plant - 20;   // 30 (draw plant 10, CAWS P3): every decoded node + 200   // 29 (draw plant 9, CTX2): the actors_drawn increment is left out
   if (plant == 41) guestmodel::g_draw_plant = 11;                           // 41 (draw plant 11, CAWH): the file-space -> viewer-space mirror is skipped
+  if (plant == 42) guestmodel::g_draw_plant = 12;                           // 42 (draw plant 12, S105 A5b): no guest part blends (the old rule)
+  if (plant == 44) guestmodel::g_draw_plant = 13;                           // 44 (draw plant 13, S105 A5b review F1): a trans part blends even with no normal picture
+  if (plant == 43) rdr_scene::g_piece_row_plant = 1;                        // 43 (S105 A5b): every src_kind 2 mesh answers the piece-row lookup, guest parts included
+  if (plant == 51 || plant == 52 || plant == 53 || plant == 54) gm::g_gm_logo_plant = plant - 50;   // S105 A5c: 51 the callback word is not checked, 52 buf unbounded, 53 key 0 accepted, 54 kGmDiffuseT0 never set
+  if (plant == 55) gm::g_gm_tex_plant = 36;                                  // S105 A5c: a flushed picture is not refreshed at once
+  if (plant == 56) gm::g_gm_tex_plant = 37;                                  // S105 A5c: the logo keys are not resolved
+  if (plant == 57) guestmodel::g_draw_plant = 14;                            // S105 A5c: the logo pictures are not put on the material
+  if (plant == 58) g_logo_bool_plant = 1;                                    // S105 A5c: bit 150 never set
+  if (plant == 59) g_logo_bool_plant = 2;                                    // S105 A5c: bit 150 always set
   if (plant >= 31 && plant <= 35) gm::g_gm_tex_plant = plant;               // 34 (CTX2): allow_8888 off; 35: the 8888 in-place refresh off (frozen pictures)
   CheckForged();
   CheckVariants();
@@ -1251,7 +1504,9 @@ int main(int argc, char** argv) {
   CheckPlanner();
   CheckTextures();
   CheckCtf();
+  CheckBlend();
   CheckCawd();
+  CheckLogo();
   CheckRecordAndConsumer();
   CheckSpace();
   std::printf("%s: %d failure(s)%s\n", g_fail ? "FAILED" : "all checks passed", g_fail, plant ? " (planted)" : "");

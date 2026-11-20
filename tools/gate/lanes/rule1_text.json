@@ -1,0 +1,7 @@
+{
+ "owner": "S105 lane R1L (2026-11-20): CLAUDE.md hard rule 1 for TEXT: no line of the game's own text (string.pac / evtdata CSDT, >= 5 words or >= 24 chars) in a published tracked file. The set is built from the player's files, cached under out/harness/index, never committed. Cheap: selftest plants a caption + a string line built from the player's data, then the whole tracked tree.",
+ "checks": [
+  {"name": "rule1_text.selftest", "cmd": ["py", "-I", "tools/harness/game_text_lint.py", "--selftest"], "timeout_s": 600, "needs": ["game_data/extracted"]},
+  {"name": "rule1_text.tree", "cmd": ["py", "-I", "tools/harness/game_text_lint.py", "--all"], "timeout_s": 600, "needs": ["game_data/extracted"]}
+ ]
+}

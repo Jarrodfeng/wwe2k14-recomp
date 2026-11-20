@@ -3,7 +3,7 @@
  "claim": {"scene": "none", "side": "structure (a precondition of the stream-free build)", "ms": [0, 0], "basis": "no saving claimed: the dialogs come back in the stream-free build; the paint request is skipped while no dialog is open."},
  "note": "overlay_check.py runs host_rig --mode overlay: the REAL SceneHost presents black ticks; an OverlayList left in the static mailbox (a red quad, a quad textured with a 2x2 green image) must be on the presented picture, and gone after SetList(nullptr); the texture's release reaches the renderer; with no dialog open 50 of 50 paint requests are skipped (the census's `overlay requests: skipped`), a pushed toast is a request, two toasts queue. The planted fault (--plant overlay_never: the mailbox never emptied, the toast never idle) must FAIL.",
  "checks": [
-  {"name": "s103_AIM.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_host_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_AIM.build_rig", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_host_rig.ps1"], "timeout_s": 1800},
   {"name": "s103_AIM.overlay", "cmd": ["py", "-I", "tools/scene/overlay_check.py"], "timeout_s": 600, "gpu_procs": 2,
    "affects": ["src/renderer_host/*", "src/renderer/*", "tools/scene/host_rig.cpp", "tools/scene/overlay_check.py"]}
  ]

@@ -270,7 +270,7 @@ def main(argv=None):
         if a.plant_pass is not None and not any(('(index %d,' % a.plant_pass) in r for r in rises):
             print('FAIL the planted fault in pass %d was caught but the pass was not named' % a.plant_pass)
             return 1
-        print('PASS the planted fault was caught and named pass %s' % a.plant_pass)
+        print('PLANTED-OK: the planted fault was caught and named pass %s' % a.plant_pass)   # S105 E
         return 0
     return 1 if rises else 0
 

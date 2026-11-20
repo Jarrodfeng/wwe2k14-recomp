@@ -33,5 +33,6 @@ wait_frames 5
 cvar wwe2k14_cinecam_timeline_cmd time 2;key;length 2;time 0;preview start
 wait_frames 150
 screenshot smoke_match
+log smoke: PASS
 log smoke: done
 quit

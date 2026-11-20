@@ -38,6 +38,7 @@
 #include <thread>
 
 #include "input_script.h"      // g_request_quit
+#include "renderer_host/store_progress.h"   // S105 B3: the stream-free store's counts and the owner-mode done rule (no renderer includes)
 #include "kernel_overrides.h"  // g_vdswap_hook
 
 REXCVAR_DEFINE_STRING(wwe2k14_precompile, "", "wwe2k14",
@@ -61,6 +62,7 @@ inline std::string g_last;
 // Session 93 (M6 step 2): the translation store's variants done of those queued (the SDK status line's ", m6 D of T"); the
 // phone launcher shows them as "Preparing shaders D / T".
 inline uint32_t g_m6_done = 0, g_m6_total = 0;
+inline uint32_t g_store_unresolved = 0;   // S105 B3: stored pipelines of the stream-free host's store still waiting for a program at the end (logged with "prepared N of M")
 
 inline void Write(const std::string& state, uint32_t made, uint32_t total, uint32_t waiting, uint32_t optimised = 0) {
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
@@ -113,11 +115,24 @@ inline void OnSwap(uint64_t frame) {
   bool have = Parse(rex::cvar::GetFlagByName("gpu_native_precompile_status"), made, total, waiting, done, optimised);
   // (Without the native renderer there is nothing to make after the boot's own: done once the game draws. With it -
   // gpu_native not 0, the SDK's own rule - the SDK's status decides, also when the renderer turned itself off.)
-  if (rex::cvar::GetFlagByName("gpu_native") == "0" && frame >= 120) done = true, have = true;
+  // (S105 B3: not in owner mode: there the stream-free host's store decides, below; gpu_native is 0 there too and this line ended the boot at frame 120.)
+  const bool owner = rex::cvar::GetFlagByName("wwe2k14_rdr_owner") == "true";
+  if (!owner && rex::cvar::GetFlagByName("gpu_native") == "0" && frame >= 120) done = true, have = true;
   // Session 100: in owner mode the new renderer draws and the old one gets no work (strip-360 B6 skips its submits), so the old path's
   // stored pipelines never progress: the precompile never ended (Jarrod's phone test, 2026-11-11: "shader pipeline build forever,
   // requiring you to manually quit"). Nothing of the old path to make: done once the game draws, as without the native renderer.
-  if (rex::cvar::GetFlagByName("wwe2k14_rdr_owner") == "true" && frame >= 120) done = true, have = true;
+  // S105 B3: that rule called the boot done at frame 120 with "0 of 0" while the player's stored list (the NEW renderer's pipelines) was still unbuilt: the first match frames then
+  // built them cold (371-518 ms freezes on the Surface). Now the stream-free host's own store decides: done at frame >= 120 once it has nothing left it can try (made / total from its counts).
+  if (owner) {
+    namespace sp = wwe2k14::scene_host::store_progress;
+    const bool pub = sp::g_progress.published.load(std::memory_order_acquire);   // F3: published first (acquire), then the counts it covers
+    const uint32_t left = sp::g_progress.left.load(std::memory_order_relaxed);
+    if (sp::OwnerPrecompileDone(frame, sp::g_progress.store_expected.load(std::memory_order_relaxed), pub, left)) done = true, have = true;
+    if (pub) {
+      made = sp::g_progress.made.load(std::memory_order_relaxed), total = sp::g_progress.total.load(std::memory_order_relaxed), waiting = left;
+      g_store_unresolved = sp::g_progress.unresolved.load(std::memory_order_relaxed), have = true;
+    }
+  }
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
   const bool timeout = secs > REXCVAR_GET(wwe2k14_precompile_timeout_s);
   if (!done && !timeout) {
@@ -125,10 +140,14 @@ inline void OnSwap(uint64_t frame) {
     return;
   }
   g_done = true;
+  // F1: in owner mode the host saves the store BEFORE "done" is written (the phone's activity ends the process within 300 ms of it). The host serves the request from its poll.
+  if (owner && !wwe2k14::scene_host::store_progress::RequestFlushAndWait(wwe2k14::scene_host::store_progress::g_progress, 3000))
+    REXLOG_INFO("[wwe2k14][precompile] the store flush was not acknowledged within 3 s");
   Write(done ? "done" : "timeout", made, total, waiting, optimised);
   REXLOG_INFO("[wwe2k14][precompile] {}: {} of {} stored pipelines made, {} waiting, {} shaders optimised and stored, "
               "{:.1f} s (frame {}); quitting",
               done ? "done" : "TIMEOUT", made, total, waiting, optimised, secs, frame);
+  if (owner) REXLOG_INFO("[wwe2k14][precompile] prepared {} of {} stored pipelines of the new renderer ({} still waiting for a program)", made, total, g_store_unresolved);   // S105 B3
 #ifndef __ANDROID__
   if (g_request_quit) g_request_quit();
 #else

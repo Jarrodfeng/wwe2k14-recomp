@@ -15,6 +15,7 @@
 
 #include "guest_model_reader.h"
 #include "guest_texture.h"
+#include "guest_tex_dirty.h"   // S105 A5c: the unlock flush marks a read picture dirty
 #include "../renderer_scene/guest_model_rows.h"
 
 namespace rdr_scene::live::guest_model {
@@ -33,6 +34,7 @@ struct WordMem {
 
 // CTF: test only. 31 = a sampler with key 0 is not counted as its own reason (the old blind spot); 32 = no re-ask of a retryable miss (TexDue); 33 = tex_checked re-set on every call (TexCallStep).
 // CTX2: 34 = the 8888 shape is not allowed (allow_8888 off: the CAW model's linear BGRA pictures are refused as format again).
+// S105 A5c: 36 = a flushed (dirty) picture is not refreshed at once (the 61-frame guard only); 37 = the model's logo keys are not resolved.
 inline int g_gm_tex_plant = 0;
 // why[] slot for "the sampler has no key at all" (key word 0 == 0); 0..8 are guest_tex::Why.
 inline constexpr uint32_t kWhyNoKey = 9;
@@ -57,6 +59,7 @@ struct TexStats {
   uint64_t samplers = 0, bound = 0, from_override = 0, missing = 0, override_refused = 0, byte_reads = 0, cache_hits = 0, deferred = 0, refreshed_changed = 0, retry_calls = 0;
   uint64_t engine_default_cube = 0;   // CTX2: samplers whose texture object is a cube (fetch dimension 3, CAWD kind 1): the engine's default stands, not a missing picture
   uint64_t tex8888 = 0, tex8888_by_creator[4] = {};   // CTX2: k_8_8_8_8 pictures read (first sight of an identity), by creator (kCreator*)
+  uint64_t logo_bound = 0, logo_missing = 0, dirty_rereads = 0, dirty_deferred = 0, unwatched = 0;   // S105 A5c: logo pictures bound / not read; pictures re-read at once on the game's unlock flush; a flushed one the byte budget put off; headers the dirty table had no room to watch
   uint64_t tex8888_guard_same = 0, tex8888_rereads = 0;   // CTX2: refresh checks that found the sampled bytes unchanged / re-read the whole picture after the guard changed
   uint64_t why[16] = {};   // guest_tex::Why of a refused picture; [kWhyNoKey] = key 0. Counts ATTEMPTS (an override refusal and a key refusal of one sampler are two)
 };
@@ -85,10 +88,13 @@ struct TexOut {
   bool tex_incomplete = false, tex_retry = false, tex_8888 = false;
   uint8_t n_refused = 0;
   RefusedProbe refused[kMaxRefusedProbes];
+  uint64_t logo_hash[2] = {};   // S105 A5c: the model's two logo pictures (ModelRead::logo)
+  uint8_t logo_state[2] = {};
 };
 inline void ApplyTex(ModelRead& mr, TexOut&& o) {
   mr.tex_hash = std::move(o.tex_hash), mr.tex_state = std::move(o.tex_state), mr.textures = std::move(o.textures);
   mr.tex_incomplete = o.tex_incomplete, mr.tex_retry = o.tex_retry, mr.tex_8888 = o.tex_8888, mr.n_refused = o.n_refused;
+  for (int i = 0; i < 2; ++i) mr.logo_hash[i] = o.logo_hash[i], mr.logo_state[i] = o.logo_state[i];   // S105 A5c
   for (uint32_t i = 0; i < kMaxRefusedProbes; ++i) mr.refused[i] = o.refused[i];
 }
 // A hash of the refusal set (which sampler, which reason, which handle): the log prints the refused lines only when it changes (CTF review 6).
@@ -112,6 +118,7 @@ class TexResolver {
     o.textures.clear();
     o.tex_incomplete = false, o.tex_retry = false, o.tex_8888 = false, o.n_refused = 0;
     o.tex_hash.resize(mr.p.size()), o.tex_state.resize(mr.p.size());
+    for (int i = 0; i < 2; ++i) o.logo_hash[i] = 0, o.logo_state[i] = uint8_t(kGtMissing);
     uint32_t reads = 0;
     reads8888_ = 0;
     for (size_t pi = 0; pi < mr.p.size(); ++pi) {
@@ -160,8 +167,23 @@ class TexResolver {
         if (retry && !deferred) o.tex_retry = true;
       }
     }
+    if (mr.logo.has && g_gm_tex_plant != 37) {   // S105 A5c (A5c.md item 3): the logo pictures, after the part samplers: the same `One` (override_src false, the 8888 path: a loader-born linear BGRA picture), a late composed one retried
+      for (int li = 0; li < 2; ++li) {
+        if (li == 1 && !o.logo_hash[0]) break;   // review F4 [C 0x822E6CC8 +50]: the game binds slot 4 only inside the `if` of slot 7's resolve
+        const uint32_t key = mr.logo.key[li];
+        if (!key) continue;
+        bool deferred = false;
+        last_why_ = 0;
+        const uint64_t h = One(wm, phys, key, false, frame, reads, max_reads, o, deferred);
+        if (h) o.logo_hash[li] = h, o.logo_state[li] = uint8_t(kGtBound);
+        if (deferred) o.tex_incomplete = true;
+        else if (!h && WhyRetryable(last_why_)) o.tex_retry = true;
+        if (!quiet_ && !deferred) ++(h ? st_.logo_bound : st_.logo_missing);
+      }
+    }
     if (cache_.size() > kMaxEntries) Trim(frame);
-    const bool changed = o.tex_hash != mr.tex_hash || o.tex_state != mr.tex_state || o.tex_retry != mr.tex_retry || o.tex_incomplete != mr.tex_incomplete || o.tex_8888 != mr.tex_8888 || RefusedSig(o.n_refused, o.refused) != RefusedSig(mr.n_refused, mr.refused);
+    const bool changed = o.logo_hash[0] != mr.logo_hash[0] || o.logo_hash[1] != mr.logo_hash[1] || o.logo_state[0] != mr.logo_state[0] || o.logo_state[1] != mr.logo_state[1] ||
+                         o.tex_hash != mr.tex_hash || o.tex_state != mr.tex_state || o.tex_retry != mr.tex_retry || o.tex_incomplete != mr.tex_incomplete || o.tex_8888 != mr.tex_8888 || RefusedSig(o.n_refused, o.refused) != RefusedSig(mr.n_refused, mr.refused);
     if (changed && !mr.tex_hash.empty()) ++st_.refreshed_changed;
     return changed;
   }
@@ -222,6 +244,7 @@ class TexResolver {
     std::shared_ptr<const std::vector<uint8_t>> bytes;
     uint64_t last_read = 0, last_use = 0;
     uint8_t why = 0;   // guest_tex::Why of the last read (0 = ok)
+    uint32_t header = 0, flush_gen = 0;   // S105 A5c review F5-F7: the texture header read and its guest_tex_dirty::Gen taken just before the last good read
   };
   template <class M, class P>
   uint64_t One(const WordMem<M>& wm, P& phys, uint32_t handle, bool override_src, uint64_t frame, uint32_t& reads, uint32_t max_reads, TexOut& o, bool& deferred) {
@@ -260,7 +283,11 @@ class TexResolver {
     id = Hash64(r.fetch, sizeof r.fetch, id);
     Entry& e = cache_[id];
     bool refresh_due = (override_src || is8888) && e.hash && frame >= e.last_read + kOverrideRefreshFrames;
-    if (refresh_due && is8888) {   // review 2: the 8888 page may be rewritten in place by the editor: a cheap sampled guard first, the whole picture only when it changed
+    // S105 A5c (A5c.md item 4): the game says when a picture changed: the unlock flush 0x82CA6BE0 of its header (guest_tex_dirty.h). A flushed identity is due at once, whatever its format (the match composer's BC pictures
+    // were never re-read before), and the sampled guard is skipped for it; the guard stays the fallback for a header the dirty table could not watch.
+    const bool dirty = e.hash && r.header && g_gm_tex_plant != 36 && guest_tex_dirty::Gen(r.header) != e.flush_gen;   // review F6: per entry, so two handles of one header both see a flush
+    if (dirty) refresh_due = true;
+    if (refresh_due && is8888 && !dirty) {   // review 2: the 8888 page may be rewritten in place by the editor: a cheap sampled guard first, the whole picture only when it changed
       const auto pg = [&](uint32_t a, uint32_t n, uint8_t* d) { return phys(a, n, d); };
       const uint64_t g = SampleGuard(sh, pg);
       if (g && g == e.sample) e.last_read = frame, refresh_due = false, ++st_.tex8888_guard_same;
@@ -270,10 +297,17 @@ class TexResolver {
       if (reads >= max_reads || (is8888 && reads8888_ >= 1)) {   // an 8888 picture is up to 4 MB: one full read a call
         deferred = true;
         ++st_.deferred;
+        if (dirty) ++st_.dirty_deferred;   // (the dirty mark stays set: the next call reads it)
         return e.hash;   // an older read of the same identity stays valid until refreshed
       }
       ++reads, ++st_.byte_reads;
       if (is8888) ++reads8888_;
+      uint32_t gen_before = 0;
+      if (r.header) {
+        if (dirty) ++st_.dirty_rereads;
+        if (!guest_tex_dirty::Watch(r.header)) ++st_.unwatched;
+        gen_before = guest_tex_dirty::Gen(r.header);   // taken BEFORE the read: a flush that lands during it is seen next call; a failed read never stores it (review F7)
+      }
       std::vector<uint8_t> blocks;
       const auto p2 = [&](uint32_t a, uint32_t n, uint8_t* d) { return phys(a, n, d); };
       const guest_tex::Why rw = guest_tex::ReadMip0(sh, p2, blocks, kGmMaxTexBytes);
@@ -286,6 +320,7 @@ class TexResolver {
         return 0;
       }
       const uint64_t h = Hash64(blocks.data(), blocks.size(), HashU32(sh.width * 65536u + sh.height, HashU32(sh.game_format, 0x7E57)));
+      e.header = r.header, e.flush_gen = gen_before;
       e.hash = h, e.width = sh.width, e.height = sh.height, e.format = sh.game_format;
       if (is8888) e.sample = SampleGuard(sh, p2);   // the guard of the bytes just read (the next refresh compares against it)
       e.bytes = std::make_shared<const std::vector<uint8_t>>(std::move(blocks));
@@ -340,8 +375,15 @@ class TexResolver {
   }
   void Trim(uint64_t frame) {
     for (auto it = cache_.begin(); it != cache_.end();) {
-      if (frame > it->second.last_use && frame - it->second.last_use > 600) it = cache_.erase(it);
-      else ++it;
+      if (frame > it->second.last_use && frame - it->second.last_use > 600) {
+        const uint32_t hd = it->second.header;
+        it = cache_.erase(it);
+        if (hd) {   // review F5: free the dirty-table slot unless another entry still reads this header
+          bool held = false;
+          for (const auto& kv : cache_) held = held || kv.second.header == hd;
+          if (!held) guest_tex_dirty::Unwatch(hd);
+        }
+      } else ++it;
     }
   }
   std::unordered_map<uint64_t, Entry> cache_;
@@ -359,9 +401,13 @@ inline bool TexDue(const ModelRead& rd, bool has_override, uint64_t tex_checked,
 }
 // The contributor's ONE per-call decision (CTF review 3; the unit calls the same function): does the resolver run for this call (a fresh read, or due), and the model's `tex_checked` after it.
 // `tex_checked` moves only when the resolver ran (g_gm_tex_plant 33 = the fault: it is re-set every call, so the 61-frame period never comes due for a model drawn each frame).
-inline bool TexCallStep(const ModelRead& rd, bool has_override, bool fresh, uint64_t& tex_checked, uint64_t frame) {
-  const bool run = fresh || TexDue(rd, has_override, tex_checked, frame);
+// S105 A5c: `dirty_seen` (the model's last-seen guest_tex_dirty::Seq) makes a flush of ANY watched picture since the model's last run due at once (one extra run per model per flush batch; null = the old rule).
+inline bool TexCallStep(const ModelRead& rd, bool has_override, bool fresh, uint64_t& tex_checked, uint64_t frame, uint64_t* dirty_seen = nullptr) {
+  const uint64_t seq = guest_tex_dirty::Seq();
+  const bool flushed = dirty_seen && g_gm_tex_plant != 36 && seq != *dirty_seen;
+  const bool run = fresh || flushed || TexDue(rd, has_override, tex_checked, frame);
   if (run || g_gm_tex_plant == 33) tex_checked = frame;
+  if (run && dirty_seen) *dirty_seen = seq;
   return run;
 }
 

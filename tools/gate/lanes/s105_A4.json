@@ -1,0 +1,13 @@
+{
+ "owner": "S105 builder A4 (docs/research/s105/A4.md): (1) an OURS-by-READY frame with no walk bit goes flat (scene_kind.h OursStaysWithWalk, scene_host.cpp; l2d_check plant 10); (2) the game's scene-colour copy site 0x82BB07C4 is Creator::SceneCopy and the resolver serves the host's own 3D picture (picture_source.h, picture_resolver.h, host_start.cpp cvar wwe2k14_rdr_scene_copy_sprite); (3) a log-only note of the first refused 2D row per mode entry (refused_row_note.h). 0 game runs, 0 Surface runs.",
+ "note": "Piece 1 is proved by s103_L2d.unit (twin 10 a4.ours_no_walk). Piece 2 by picture_source_check (SCENECOPY + plant scene_copy_old) and picture_creators_lint. Piece 3 by refused_row_note_check (three planted twins). game_syntax: the changed host and resolver units compile in both game builds.",
+ "checks": [
+  {"name": "s105_A4.refused_row_note", "tier": "cheap", "gpu": false, "cmd": ["py", "-I", "tools/scene/refused_row_note_check.py", "--root", "."], "timeout_s": 300,
+   "affects": ["src/renderer_host/refused_row_note.h", "src/renderer_scene/scene_record.h", "tools/scene/refused_row_note_unit.cpp", "tools/scene/refused_row_note_check.py"]},
+  {"name": "s105_A4.creators_lint", "tier": "cheap", "gpu": false, "cmd": ["py", "-I", "tools/scene/picture_creators_lint.py", "--root", "."], "timeout_s": 300,
+   "affects": ["src/scene_live/picture_source.h", "tools/scene/picture_creators_lint.py"]},
+  {"name": "s105_A4.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--changed", "s105", "--build", "both", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/*"]}
+ ]
+}

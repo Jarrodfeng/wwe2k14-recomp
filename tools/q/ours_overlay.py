@@ -38,6 +38,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_ours as bo  # noqa: E402
+import admit_py as _admit  # noqa: E402   CQW: the compile queue (build_ours put tools\admit on sys.path; nothing runs at import)
 
 SCHEMA = 4
 ID_OFFSET = 1 << 24
@@ -354,7 +355,7 @@ def build_overlay(path, *, main_root, base_db, vfs, overrides, blobs, changed, a
         results = [ovl_worker(j) for j in work]
     elif work:
         log(f'overlay: parsing with {jobs} workers')
-        with multiprocessing.Pool(min(jobs, len(work))) as pool:
+        with _admit.hold('q.parse_worker', min(jobs, len(work)), timeout_s=20) as nj, multiprocessing.Pool(nj) as pool:   # CQW: the compile queue; interactive: waits at most 20 s (the want = the fall-open value)
             results = list(pool.imap_unordered(ovl_worker, work))
     res = dict(results)
     retry = [j for j in work if 'error' in res[j[0]]]

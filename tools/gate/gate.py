@@ -570,7 +570,7 @@ def main():
         elif bad:
             verdict, tail = 'BUILD', bad[0] + ' (check not run)'
         elif stale:
-            verdict, tail = 'FAIL', stale[0] + ' (check not run)'
+            verdict, tail = 'BLOCKED', stale[0] + ' (check not run)'   # S105 E: could not run is BLOCKED, never FAIL (the change is not wrong)
         else:
             # take what the check needs: a GPU slot first (always first: a holder of path locks never waits for a slot, so no cycle), then its paths. The proof
             # cache's key is computed UNDER the path locks (S103 PS2 review F4): a check that rebuilds an exe or rewrites a folder this one reads has finished
@@ -804,7 +804,10 @@ def main():
                 tmo = max(1, min(tmo, int(deadline_at - time.time()) + 1))   # a running check ends at the deadline (to the next whole second): nothing starts after it
             c['_tmo'] = tmo
             c['_clamped'] = tmo < nat
-            p = run_tree(_resolve_cmd(c['cmd'], root), root, tmo, env)
+            try:
+                p = run_tree(_resolve_cmd(c['cmd'], root), root, tmo, env)
+            except FileNotFoundError as e:   # S105 E review 3: only the START of the program is BLOCKED; a later FileNotFoundError (below) stays a FAIL
+                return 'BLOCKED', f'cannot start: {e}'
             verdict = 'PASS' if p.returncode == 0 else 'FAIL'
             out = (p.stdout + p.stderr).strip().splitlines()
             tail = out[-1] if out else '(no output)'
@@ -845,7 +848,7 @@ def main():
             else:
                 verdict, tail = 'FAIL', f"timeout after {c.get('_tmo', c.get('timeout_s', 300))} s"
         except FileNotFoundError as e:
-            verdict, tail = 'FAIL', f'cannot start: {e}'
+            verdict, tail = 'FAIL', f'FileNotFoundError after the check ran: {e}'   # S105 E review 3: not a start failure (run_tree's own is BLOCKED above)
         return verdict, tail
 
     def run_lane(lane_checks):
@@ -903,7 +906,8 @@ def main():
             dirty[k] = cache[k]
     results = [r for lr in lane_results for r in lr]
     nnotrun = sum(r['verdict'] == 'NOT RUN' for r in results)
-    failed = sum(r['verdict'] in ('FAIL', 'BUILD', 'NOT RUN') for r in results)   # S103 GST: a check the deadline kept from running is not a pass
+    nblocked = sum(r['verdict'] == 'BLOCKED' for r in results)   # S105 E: could not run (a stale / missing program, a program that would not start)
+    failed = sum(r['verdict'] in ('FAIL', 'BUILD', 'NOT RUN', 'BLOCKED') for r in results)   # S103 GST: a check the deadline kept from running is not a pass
     nmain_rows = [r for r in results if r['verdict'] == 'NEEDS-MAIN']
     wall = time.time() - t_gate
     if use_cache:
@@ -922,6 +926,7 @@ def main():
     nbuild = sum(r['verdict'] == 'BUILD' for r in results)
     print(f"gate: {len(results) - failed} of {len(results)} pass or skip, {failed} fail"
           + (f" ({nbuild} of them BUILD: a tool exe did not build, not a verdict on the code)" if nbuild else '')
+          + (f" ({nblocked} of them BLOCKED: the check could not run, not a verdict on the code)" if nblocked else '')
           + (f" ({nnotrun} of them NOT RUN: the --deadline of {args.deadline:.0f} s passed; run those again, the finished rows are cached)" if nnotrun else '')
           + (f", {len(nmain_rows)} needs-main" if nmain_rows else '') + f", {wall:.1f} s wall" + (f", rig skipped: {len(tier_skipped)}" if args.tier != 'all' else '')
           + (f", omitted-affected: {len(omitted)}" if omitted is not None else ', omitted-affected: ?' if omit_err else ''))
@@ -938,6 +943,8 @@ def main():
         except OSError as e:
             print(f'[gate] could not write the needs-main record: {e}')
     if failed:
+        if nblocked and failed == nblocked:
+            return 3   # S105 E: the only non-pass rows are BLOCKED (could not run): gate_wait keeps the code, never a plain 1 = FAIL
         return 5 if nnotrun and failed == nnotrun else 1   # 5 = the only non-pass rows are NOT RUN (the --deadline): gate_wait maps it to 2 (timed out), never to a clean fail or pass
     return 4 if nmain_rows else 0   # 4 = green with needs-main (S103 WTG): ran rows pass, the listed rows are OWED, never a clean 0
 

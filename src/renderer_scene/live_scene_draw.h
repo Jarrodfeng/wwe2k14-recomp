@@ -131,6 +131,9 @@ class LiveSceneDraw {
   std::string loader_root_;
   struct Job { rf::ModelCache::Missed m; int arena = -1; };   // arena >= 0: lane C's whole-arena load (rf_c.h), else a cache miss
   std::deque<Job> want_;
+  bool bulk_ok_ = false;   // S105 SKB2: guarded by mu_: the scene's roster is in (first OURS frame drawn); bulk jobs (the evtobj prewarm) start only then
+  void SetBulkOk(bool v);
+  bool prewarm_queued_ = false;   // S105 SKB fix F3: an evtobj.pac prewarm job is queued or running (render thread only)
   struct Loaded { rf::ModelCache::Missed m; int arena = -1; assets::Model model; bool ok = false; std::string error; std::string car_key; };
   void QueueMisses();          // the live cache's misses and lane C's arena misses -> the loader
   std::vector<std::pair<uint64_t, int>> retired_held_;   // S103 L31A: (guest frame retired, model): released two frames later

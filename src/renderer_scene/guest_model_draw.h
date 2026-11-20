@@ -34,6 +34,7 @@ namespace rdr_scene::guestmodel {
 // Test only: 1 = the 10:11:11 fields are read x-high (the wrong end); 2 = partial weights are dropped (only a 4-pair vertex gets 1 - sum: the CW-2 fault); 3 = a part's second range is dropped (strip stats only: the
 // reader's plant 5 is the live fault); 4 = the uv halves are exchanged (u low, v high: the CW-2 fault); 5 = the palette slot is used as the node (the CW-2 fault); 6 = the vertex is decoded from the STRIDE (CW-2's
 // LayoutOfStride: F ignored); 7 = an unknown F bit is accepted (no refusal); 11 = the file-space -> viewer-space mirror of the built vertices is skipped (CAWH: the strands).
+// S105 A5c: 14 = the logo pictures are not put on the material (the old black layers).
 inline int g_draw_plant = 0;
 
 inline float HalfToFloat(uint16_t h) {
@@ -242,8 +243,11 @@ class Store {
 
 struct BuildStats {
   uint32_t parts = 0, parts_in_record = 0, hole_bytes = 0, hole_layout = 0, hole_parts = 0, extra_streams = 0, effect_fallback = 0, bad_triangles = 0, degenerate = 0, bad_slots = 0, bad_nodes = 0, unskinned = 0;
+  uint32_t blended_no_normal = 0;   // S105 A5b F1: trans parts left opaque because their normal picture is not bound
+  uint32_t blended = 0;    // S105 A5b: parts built with alpha_blend (an effect whose name holds "trans": yCh_trans eyelid layer, yCh_Aniso_trans hair ...)
   uint32_t max_node = 0;   // S103 CAWS: (highest node any vertex uses) + 1, over all parts; compared with the actor's palette size (NoteActorPalette)
   uint32_t tex_bound = 0, tex_missing = 0, tex_override = 0, no_diffuse = 0, tex_default_cube = 0;
+  uint32_t logo_parts = 0, logo_missing = 0, diffuse_t0 = 0;   // S105 A5c: parts that carry a logo picture / whose logo row could not be built (a hole in the record or the store) / with the game's bool 150
   uint64_t vertices = 0, triangles = 0;
   std::string part_palettes;   // S103 CAWS (CAWG row 6): per part "p<i>: <palette size>, nodes <palette[slot]-1 ...>" (<= 8 listed), so a run says whether the values are skeleton nodes (up to ~130) or a piece's own small table (<= ~20)
   std::string why;   // empty = whole
@@ -275,6 +279,16 @@ inline assets::TexFormat TexFormatOf(uint32_t game_format) {
 }
 // CAWD debug plant (WWE_RDR_GUEST_FLAT=1, read once by rf_wrestlers.cpp): a part with no diffuse picture is given a flat bright magenta material colour, so "drawn black" and "not drawn" can be told apart in one shot.
 // (BuildModel's `flat_diffuseless` parameter: the caller reads the switch once; no global is written per call.)
+
+// S105 A5b: the file loader's blend rule (jboy.h: `*trans*` effect -> alpha_blend), applied to a guest part's material. The game blends every yCh_trans mesh (normal-map w x tint = the
+// layer's opacity, arena_look.md item 12); built opaque, the created superstar's eyelid layer (guest part 11) showed as solid dark rims. Case-insensitive, on the pipeline's own name.
+// g_draw_plant 12 = the old rule (no part blends).
+inline bool EffectBlends(const std::string& shader) {
+  if (g_draw_plant == 12) return false;
+  std::string l = shader;
+  for (char& c : l) c = char(AsciiLower(c));
+  return l.find("trans") != std::string::npos;
+}
 
 // Builds the CPU model of the guest model at `model` from the record's rows + the store's bytes. False (stats.why says why) = a hole: never half a body.
 inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, assets::Model& out, BuildStats& st, bool flat_diffuseless = false) {
@@ -363,6 +377,37 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
         default: break;
       }
     }
+    // S105 A5c (A5c.md items 2 / 3): the model's logo pictures (the row indices the writer put in logo7_tex / logo4_tex) go on the material, and the game's bool-150 rule (the diffuse sampler's table index is 0) rides with it.
+    if (r->flags & kGmDiffuseT0) mat.diffuse_t0 = true, ++st.diffuse_t0, mkey += "|T0";
+    if (g_draw_plant != 14)
+      for (int li = 0; li < 2; ++li) {
+        const uint32_t rowi = li == 0 ? r->logo7_tex : r->logo4_tex;
+        if (!rowi) continue;
+        const GuestModelTexture* tr = rowi <= t.guest_models.textures.size() ? &t.guest_models.textures[rowi - 1] : nullptr;
+        const Store::Bytes tb = tr ? store.Tex(tr->hash) : nullptr;
+        if (!tr || !tb || tb->size() != tr->nbytes) { ++st.logo_missing; continue; }
+        int ti;
+        const auto f = tex_of.find(tr->hash);
+        if (f != tex_of.end()) ti = f->second;
+        else {
+          assets::Texture tex;
+          tex.name = "guest " + std::to_string(tr->hash);
+          tex.format = TexFormatOf(tr->format), tex.width = tr->width, tex.height = tr->height, tex.mips = 1;
+          tex.data.assign(tb->begin(), tb->end());
+          ti = int(out.textures.size());
+          out.textures.push_back(std::move(tex));
+          tex_of[tr->hash] = ti;
+        }
+        (li == 0 ? mat.logo7 : mat.logo4) = ti;
+        mkey += "|L" + std::to_string(li == 0 ? 7 : 4) + ":" + std::to_string(ti);
+        ++st.logo_parts;
+      }
+    // S105 A5b (review F1): the layer's opacity IS the normal map's w (fx_trans_ps.glsl): with no normal picture bound the stand-in is opaque (grey_: the old dark rims) or half transparent (neutral_normal_: a garment
+    // showing the body), so a trans part blends only when its normal texture is bound; one without is counted (blended_no_normal) and keeps the old opaque build. The material key holds the normal slot: no dedup change.
+    if (EffectBlends(shader)) {
+      if (mat.normal >= 0 || g_draw_plant == 13) mat.alpha_blend = true, ++st.blended;   // (plant 13 = the first rule: blend with no normal picture)
+      else ++st.blended_no_normal;
+    }
     if (!have_diffuse) {
       ++st.no_diffuse;
       if (flat_diffuseless) {   // CAWD debug plant: flat bright magenta (whether the yCh shader multiplies MatDifCol with its white stand-in is read off the shot)
@@ -402,6 +447,8 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
 // is read at the END of a window, never at print time of the first model build (the old one-shot line printed `actors drawn 0` before any actor was drawn).
 struct DrawCounters {
   std::atomic<uint64_t> models_built{0}, models_holes{0}, actors_drawn{0}, tex_bound{0}, tex_override{0}, tex_missing{0}, no_diffuse{0}, extra_streams{0}, bad_nodes{0}, effect_fallback{0};
+  std::atomic<uint64_t> logo_parts{0}, logo_missing{0};                    // S105 A5c: guest parts built with a logo picture / whose logo row was a hole
+  std::atomic<uint64_t> blended{0}, blended_no_normal{0};                  // S105 A5b: guest parts built with alpha_blend (a "trans" effect)
   std::atomic<uint64_t> bad_slots{0}, unskinned{0};  // S103 CAWS (CAWG row 5): vertices with an absent slot (255 -> bone 0) / with no skin at all, summed at model build
   std::atomic<uint64_t> nodes_ge_palette{0};         // S103 CAWS (CAWG rows 3-4): actor draws whose model uses a node >= the actor's palette size (the front end draws those with an identity matrix)
   std::atomic<uint64_t> actors_skipped_palette{0};   // a guest-model actor refused: palette size != the model's nodes (rf_wrestlers.cpp skip)
@@ -427,7 +474,7 @@ inline void NoteActorDrawn(uint64_t guest_frame) {
 // A plain copy of the totals (for deltas).
 struct DrawTotals {
   uint64_t models_built = 0, models_holes = 0, actors_drawn = 0, tex_bound = 0, tex_override = 0, tex_missing = 0, no_diffuse = 0, extra_streams = 0, bad_nodes = 0, effect_fallback = 0, actors_skipped_palette = 0, skel_holes = 0, bad_slots = 0, unskinned = 0, nodes_ge_palette = 0,
-           engine_default_cube = 0, last_draw_frame = 0;
+           engine_default_cube = 0, last_draw_frame = 0, blended = 0, blended_no_normal = 0, logo_parts = 0, logo_missing = 0;   // (S105 A5c: the last two)
   // (skel_holes is NOT here: it counts every wrestler's own-skeleton piece holes, stock ones too; it must not start the CAW lines in a match)
   bool Any() const { return models_built || models_holes || actors_drawn || actors_skipped_palette || tex_bound || tex_missing; }
 };
@@ -436,14 +483,14 @@ inline DrawTotals Totals() {
   DrawTotals t;
   t.models_built = c.models_built, t.models_holes = c.models_holes, t.actors_drawn = c.actors_drawn, t.tex_bound = c.tex_bound, t.tex_override = c.tex_override, t.tex_missing = c.tex_missing, t.no_diffuse = c.no_diffuse,
   t.extra_streams = c.extra_streams, t.bad_nodes = c.bad_nodes, t.effect_fallback = c.effect_fallback, t.actors_skipped_palette = c.actors_skipped_palette, t.skel_holes = c.skel_holes, t.engine_default_cube = c.engine_default_cube,
-  t.last_draw_frame = c.last_draw_frame, t.bad_slots = c.bad_slots, t.unskinned = c.unskinned, t.nodes_ge_palette = c.nodes_ge_palette;
+  t.last_draw_frame = c.last_draw_frame, t.bad_slots = c.bad_slots, t.unskinned = c.unskinned, t.nodes_ge_palette = c.nodes_ge_palette, t.blended = c.blended, t.blended_no_normal = c.blended_no_normal, t.logo_parts = c.logo_parts, t.logo_missing = c.logo_missing;
   return t;
 }
 inline std::string CensusLine(const DrawTotals& c) {
   return "[rdr][caw] guest draw: models built " + std::to_string(c.models_built) + ", holes " + std::to_string(c.models_holes) + ", actors drawn from them " + std::to_string(c.actors_drawn) + " (last at frame " + std::to_string(c.last_draw_frame) +
          ", skipped: palette mismatch " + std::to_string(c.actors_skipped_palette) + ", own-skeleton piece holes of ALL wrestlers " + std::to_string(c.skel_holes) + "), textures bound " + std::to_string(c.tex_bound) + " from override " + std::to_string(c.tex_override) +
-         " missing " + std::to_string(c.tex_missing) + " engine_default_cube " + std::to_string(c.engine_default_cube) + " (parts without a diffuse " + std::to_string(c.no_diffuse) + "), effect fallbacks " + std::to_string(c.effect_fallback) +
-         ", bad palette nodes " + std::to_string(c.bad_nodes) + ", bad slots " + std::to_string(c.bad_slots) + ", unskinned vertices " + std::to_string(c.unskinned) + ", actor draws with a node >= the palette " + std::to_string(c.nodes_ge_palette) + ", parts with extra streams (HOLE) " + std::to_string(c.extra_streams);
+         " missing " + std::to_string(c.tex_missing) + " engine_default_cube " + std::to_string(c.engine_default_cube) + " (parts without a diffuse " + std::to_string(c.no_diffuse) + "), effect fallbacks " + std::to_string(c.effect_fallback) + ", blended parts " + std::to_string(c.blended) + " (trans parts left opaque for a missing normal picture " + std::to_string(c.blended_no_normal) + ")" +
+         ", bad palette nodes " + std::to_string(c.bad_nodes) + ", bad slots " + std::to_string(c.bad_slots) + ", unskinned vertices " + std::to_string(c.unskinned) + ", actor draws with a node >= the palette " + std::to_string(c.nodes_ge_palette) + ", parts with extra streams (HOLE) " + std::to_string(c.extra_streams) + ", parts with a logo picture " + std::to_string(c.logo_parts) + " (logo rows missing " + std::to_string(c.logo_missing) + ")";
 }
 inline std::string CensusLine() { return CensusLine(Totals()); }
 // The periodic line (the `[scene][live] frames N-M` owner calls it once a window): this window's DELTAS first, then the totals. "" while nothing was ever counted (no CAW editor in the run). `prev` moves to now.

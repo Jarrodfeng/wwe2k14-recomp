@@ -20,9 +20,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
-ROW_SITES = {0x82BC3784, 0x82BC3EE8, 0x82BC484C, 0x82BC5688, 0x82BC8BEC, 0x82BC7E50, 0x82BC799C}
+ROW_SITES = {0x82BC3784, 0x82BC3EE8, 0x82BC484C, 0x82BC5688, 0x82BC8BEC, 0x82BC7E50, 0x82BC799C, 0x82BC4404}   # S105 A8: + T_RectColor
 # the 2D leaf sites that make no row (quads2d_core.h kOp19Sites, SiteClass::Leaf2D): a frame with one of their draws is not 2D-whole whatever the rows do
-LEAF_SITES = {0x82BC32B8, 0x82BC3758, 0x82BC4404, 0x82BC47C8, 0x82BC5408, 0x82BC6748, 0x82BC69D0, 0x82BC6E78, 0x82BC6EFC, 0x82BC7208, 0x82BC723C, 0x82BC8B68}
+LEAF_SITES = {0x82BC32B8, 0x82BC3758, 0x82BC47C8, 0x82BC5408, 0x82BC6748, 0x82BC69D0, 0x82BC6E78, 0x82BC6EFC, 0x82BC7208, 0x82BC723C, 0x82BC8B68}
 OUR_FATES = ('ui_quads_ours', 'movie_ours')
 # (capture, frames)
 CAPS = {

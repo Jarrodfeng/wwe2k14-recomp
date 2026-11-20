@@ -110,7 +110,9 @@ inline std::atomic<bool>& g_load_turbo_active_flag() {
 }
 // Session 20 (perf_report.h): called when an in-game window ("ingame" = pre-entrance load, "match") ends, with its
 // length in ms; null = nobody listens.
-inline void (*g_load_window_done)(const std::string& window, double ms) = nullptr;
+// S105 E: + the sequence id the window started in (last_seq_, 0 = unknown): the "match" window also starts when M3.PAC opens outside a match (the Create a Title / Finisher /
+// Entrance editors), and the perf report named those editor loads "match load".
+inline void (*g_load_window_done)(const std::string& window, double ms, uint32_t seq) = nullptr;
 
 // Session 15 (A1): true while an in-game window ("ingame" or "match") is open, whether or not vsync had to be turned
 // off; the fast loader's scope "turbo" (load_probe.h) runs only then.
@@ -137,6 +139,7 @@ class LoadTurbo {
     const uint32_t seq = seq_ok ? v : 0;
     if (InGameWindows() && seq_ok && seq == 9 && last_seq_ != 9 && window_.empty()) {
       Start("ingame", frame);
+      window_seq_ = seq;   // S105 E: last_seq_ is only updated below
     }
     if (seq_ok) last_seq_ = seq;
     if (seq_ok) g_in_game_sequence.store(seq == 9, std::memory_order_relaxed);  // Session 73 (keep-warm)
@@ -146,6 +149,7 @@ class LoadTurbo {
     const bool scene_ok = Read(0x836F3940u, &scene);
     if (InGameWindows() && scene_ok && scene == 1 && last_scene_ == 4 && window_.empty() && seq_ok && seq == 9) {
       Start("match", frame);
+      window_seq_ = seq;   // S105 E: this start needs seq == 9
       match_by_scene_ = true;
       m3_seen_ = false;
     }
@@ -242,6 +246,7 @@ class LoadTurbo {
   }
   void Start(const char* name, uint64_t frame) {
     window_ = name;
+    window_seq_ = last_seq_;   // S105 E: the sequence the window started in
     start_frame_ = frame;
     start_time_ = std::chrono::steady_clock::now();
     hold_only_ = (window_ == "ingame" || window_ == "match") && HoldOnly();
@@ -296,7 +301,7 @@ class LoadTurbo {
     const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time_).count();
     REXLOG_INFO("[wwe2k14][turbo] {} off at frame {} ({}; {} frames, {:.0f} ms)", window_, frame, reason,
                 frame - start_frame_, ms);
-    if (g_load_window_done && (window_ == "ingame" || window_ == "match")) g_load_window_done(window_, ms);
+    if (g_load_window_done && (window_ == "ingame" || window_ == "match")) g_load_window_done(window_, ms, window_seq_);
     // Session 73: the CSV's scene marker (frame_stats.h) - the moment the player sees the scene.
     NoteScene(window_ == "ingame" ? "entrance start" : window_ == "match" ? "match start" : window_ + " screen");
     window_.clear();
@@ -313,6 +318,7 @@ class LoadTurbo {
   bool skip_draws_set_ = false;  // this window set gpu_skip_frame_draws
   std::string restore_rate_;  // gpu_vblank_unthrottled_hz before a wwe2k14_load_turbo_vblank_hz window ("" = none)
   uint32_t last_seq_ = 0, last_scene_ = 0;
+  uint32_t window_seq_ = 0;   // S105 E: last_seq_ when the open window started
   bool match_by_scene_ = false, m3_seen_ = false;
   uint64_t first_save_frame_ = 0;
 };

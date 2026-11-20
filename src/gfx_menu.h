@@ -38,6 +38,7 @@
 #include "gfx_settings.h"
 #include "gpu_pick.h"      // Session 37: the chosen card (no FSR on integrated graphics)
 #include "input_script.h"  // g_request_quit (the clean quit)
+#include "keep_stream.h"   // S105 A1b: WWE2K14_STREAM() (the stream-free build offers no upscaler and ignores --wwe2k14_renderer)
 #include "music_slots.h"   // Session 75: names of the new songs in the MUSIC list
 
 namespace wwe2k14::gfx_menu {
@@ -57,7 +58,8 @@ constexpr bool IsDevBuild() {
 // launcher reads it from its Extra flags and builds that renderer's flags; the settings file's path here applies it).
 REXCVAR_DEFINE_STRING(wwe2k14_renderer, "", "wwe2k14",
                       "Session 61 (advanced, troubleshooting): native (the default), light or accurate. Through the "
-                      "launcher: Settings -> Advanced -> Extra flags");
+                      "launcher: Settings -> Advanced -> Extra flags. S105: only in the stream build; the stream-free "
+                      "player build pins the renderer and ignores it");
 REXCVAR_DEFINE_BOOL(wwe2k14_gfx_menu, true, "wwe2k14",
                     "Session 28: a GRAPHICS entry after GAMEPLAY in the main menu's OPTIONS list (a settings screen "
                     "in the game's own style). Default on (Jarrod, 2026-10-18); =false leaves the list stock. See "
@@ -66,10 +68,18 @@ REXCVAR_DEFINE_BOOL(wwe2k14_quit_item, true, "wwe2k14",
                     "Session 28: a QUIT TO DESKTOP item at the end of the main menu's list (asks first, then closes the "
                     "game the way Alt+F4 does). Default on (Jarrod, 2026-10-18); =false leaves the list stock. See "
                     "src/gfx_menu.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_use_launcher_settings, !wwe2k14::gfx_menu::IsDevBuild(), "wwe2k14",
+// S105 ADEV: Android has no settings file (the phone launcher passes its choices as flags), so the default is off there even in a release
+// (a release APK is !IsDevBuild(); an args.txt run would otherwise read a file that does not exist).
+#ifdef __ANDROID__
+#define WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT false
+#else
+#define WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT (!wwe2k14::gfx_menu::IsDevBuild())
+#endif
+REXCVAR_DEFINE_BOOL(wwe2k14_use_launcher_settings, WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT, "wwe2k14",
                     "Session 28: at start, apply the graphics settings in the launcher's settings.json (upscaling, "
-                    "resolution, frame rate) to settings the command line left alone. Default: on in a release, off in "
-                    "a +dev build (test runs would pick up the player's own file)");
+                    "resolution, frame rate) to settings the command line left alone. Default: on in a PC release, off in "
+                    "a +dev build (test runs would pick up the player's own file) and off on Android (no settings file: the "
+                    "phone launcher passes its choices as flags)");
 REXCVAR_DEFINE_STRING(wwe2k14_settings_file, "", "wwe2k14",
                       "Session 28: the settings file the GRAPHICS menu and --wwe2k14_use_launcher_settings read and "
                       "write; empty = %APPDATA%\\wwe2k14-launcher\\settings.json (the launcher's)");
@@ -250,6 +260,16 @@ inline std::string g_dlss_dir;       // the runtime folder (found at start)
 
 inline bool g_force_scale_one = false;
 
+// S105 A1b: the advanced renderer flag (--wwe2k14_renderer=light|accurate) as a renderer id, -1 = none. The stream-free player build pins the
+// renderer (LIGHT / ACCURATE are SDK paths that do not run there), so it ignores the flag; the stream build reads it.
+inline int AdvancedRendererFlag() {
+#if WWE2K14_STREAM()
+  return gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer));
+#else
+  return -1;
+#endif
+}
+
 // Before the presets (OnPreSetup): apply the settings file to the settings the command line left at default.
 inline void ApplyLauncherSettings() {
   if (!REXCVAR_GET(wwe2k14_use_launcher_settings)) return;
@@ -281,7 +301,7 @@ inline void ApplyLauncherSettings() {
 #endif
     std::string why;
     // S102 S0-1: the tier resolution moved to gfx_applied.h (the bench's dry run and the launcher use the same function).
-    gfxs::ResolveLow(c, phone, integrated, gpu_name, gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer)), &why);
+    gfxs::ResolveLow(c, phone, integrated, gpu_name, AdvancedRendererFlag(), &why);
     tier_why = why;
     // S102 G1: the direct settings-file start has no launcher to write the note: set it from the resolved tier so the new renderer's LOW levers (low_levers.h IsLow) read
     // the same answer as under a launcher. A note the command line / launcher already gave is kept.
@@ -294,8 +314,12 @@ inline void ApplyLauncherSettings() {
     }
   }
   // Session 61: the renderer from the advanced flag only (the file's is always NATIVE now).
-  if (const int r = gfxs::RendererFromFlags("--wwe2k14_renderer=" + REXCVAR_GET(wwe2k14_renderer)); r >= 0)
+  if (const int r = AdvancedRendererFlag(); r >= 0)
     c.renderer = r;
+#if !WWE2K14_STREAM()
+  // S105 A1b: no DLSS / DLAA / FSR in the stream-free build (start_settings.cpp refuses them): a settings file that still holds one starts without it.
+  c.upscale = 0;
+#endif
   const std::string dir = gfxs::StreamlineDir(rex::cvar::GetFlagByName("wwe2k14_dlaa_dir"), c.dlss_dir);
   if (gfxs::IsFsr(c.upscale) && !gfxs::HasFsrRuntime()) {  // Session 33
     REXLOG_WARN("[wwe2k14][gfxmenu] settings ask for FSR ({}) but amd_fidelityfx_vk.dll is not next to the game: "
@@ -384,8 +408,8 @@ inline void CaptureRunning() {
               r.upscale, r.resolution, r.frame_rate, g_dlss_dir, g_streamline_running ? "loaded" : "not loaded");
   // The RTX / runtime question once now (DXGI takes a moment), not the first time the GRAPHICS screen opens.
   if (REXCVAR_GET(wwe2k14_gfx_menu))
-    REXLOG_INFO("[wwe2k14][gfxmenu] upscaling offered in the menu: NVIDIA {}, FSR {}", DlssPossible() ? "yes" : "no",
-                gfxs::HasFsrRuntime() ? "yes" : "no (amd_fidelityfx_vk.dll missing)");
+    REXLOG_INFO("[wwe2k14][gfxmenu] upscaling offered in the menu: NVIDIA {}, FSR {}", (WWE2K14_STREAM() && DlssPossible()) ? "yes" : "no",
+                !WWE2K14_STREAM() ? "no (the stream-free build has no upscaler)" : gfxs::HasFsrRuntime() ? "yes" : "no (amd_fidelityfx_vk.dll missing)");   // S105 A1b
 }
 
 // DLAA / DLSS can be offered: an RTX card and the NVIDIA runtime (the one this run loaded, or one found next to the
@@ -453,7 +477,7 @@ inline void LoadScreenValues() {
     if (p.refresh_hz) c.refresh_hz = f.refresh_hz;
     if (p.texture_filter) c.texture_filter = f.texture_filter;
   }
-  const bool dlss = DlssPossible(), fsr = FsrOffered();
+  const bool dlss = WWE2K14_STREAM() && DlssPossible(), fsr = WWE2K14_STREAM() && FsrOffered();  // S105 A1b: the stream-free build offers no upscaler (the row shows OFF only)
   BuildUpscaleOrder(dlss, fsr);
   if ((!dlss && gfxs::IsNvidia(c.upscale)) || (!fsr && gfxs::IsFsr(c.upscale))) c.upscale = 0;
   const bool native = NativeRunning() && c.upscale == 0;  // Session 54 (as the launcher: no upscaler)
@@ -539,8 +563,8 @@ inline uint32_t CallGuestAddr(PPCContext& ctx, uint8_t* base, uint32_t addr, uin
 }
 
 // The game's own message box: the SmartMenu's message manager ([0x839294BC], vtable slot 27) takes an event
-// {type, text id, ...} (initialised by sub_8291F5D8); the same call the stock screen makes for "Are you sure you
-// don't want to keep these settings?" (type 2 = YES / NO). Run 2085: the box asks the text manager for its message.
+// {type, text id, ...} (initialised by sub_8291F5D8); the same call the stock screen makes for the option-page "keep these settings?" prompt (text id 51121
+// ) (type 2 = YES / NO). Run 2085: the box asks the text manager for its message.
 constexpr uint32_t kMessageManagerPtr = 0x839294BC;
 inline uint32_t g_event_buf = 0;
 inline bool PostMessageBox(PPCContext& ctx, uint8_t* base, uint32_t type, uint32_t text_id, uint32_t arg28 = 0) {

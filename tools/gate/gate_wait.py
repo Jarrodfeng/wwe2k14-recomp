@@ -7,7 +7,7 @@ on a gate log, each wait a model turn at full context).
 
 Runs tools\\gate\\gate.py in the foreground (all arguments pass through; --no-cache is refused: builders never pass it), writes the full output to --log (default
 out\\gate\\wait_<time>.log under the main checkout) and prints only what a builder needs: every row that is not PASS (full text), the cache-hit count, the final
-`gate:` line and the log path. Exit code = the gate's (0 all PASS / SKIP, 1 any FAIL / BUILD, 2 timed out: the gate is killed, 4 green with needs-main rows OWED: tools\\gate\\needs_main.py). A hard timeout (default 1800 s)
+`gate:` line and the log path. Exit code = the gate's (0 all PASS / SKIP, 1 any FAIL / BUILD, 3 BLOCKED (a check could not run: not a FAIL), 2 timed out: the gate is killed, 4 green with needs-main rows OWED: tools\\gate\\needs_main.py). A hard timeout (default 1800 s)
 means it can never hold a lock for hours."""
 import argparse
 import os
@@ -22,10 +22,10 @@ ROOT = HERE.parents[1]
 
 
 def summarise(lines, logpath):
-    rows = [ln for ln in lines if re.match(r'^(PASS|FAIL|SKIP|BUILD|NEEDS-MAIN|NOT RUN)\s', ln)]
+    rows = [ln for ln in lines if re.match(r'^(PASS|FAIL|SKIP|BUILD|BLOCKED|NEEDS-MAIN|NOT RUN)\s', ln)]
     hits = sum('cache hit' in ln for ln in rows)
     for ln in lines:
-        if re.match(r'^(FAIL|BUILD|SKIP|NEEDS-MAIN|NOT RUN)\b', ln) or ln.startswith('[gate]') and ('BUILD FAILED' in ln or 'stale' in ln or '--only leaves out' in ln):
+        if re.match(r'^(FAIL|BUILD|BLOCKED|SKIP|NEEDS-MAIN|NOT RUN)\b', ln) or ln.startswith('[gate]') and ('BUILD FAILED' in ln or 'stale' in ln or '--only leaves out' in ln):
             print(ln)
     print(f'[gate_wait] {len(rows)} check rows, {hits} cache hits; full log: {logpath}')
     nm = next((ln for ln in lines[::-1] if ln.startswith('needs-main:')), '')
@@ -38,6 +38,10 @@ def summarise(lines, logpath):
                 print(f'[gate_wait] needs-main {n}: not run here, not failed, OWED (exit code 4 = green with needs-main); hand this list back, the main session runs them: py -I tools\\gate\\gate_main.py --rev <commit> --only <rows>')
             if not re.search(r' 0 fail', ln):
                 mf, mn = re.search(r', (\d+) fail', ln), re.search(r'\((\d+) of them NOT RUN', ln)
+                mb = re.search(r'\((\d+) of them BLOCKED', ln)   # S105 E: could not run = its own word and exit code 3
+                if mf and mb and mf.group(1) == mb.group(1):
+                    print(f'[gate_wait] BLOCKED: {mb.group(1)} check(s) could not run (not a verdict on the code: read the BLOCKED rows, fix what is missing, run again)')
+                    return 3
                 if mf and mn and mf.group(1) == mn.group(1):   # S103 GST review 10: the only non-pass rows are NOT RUN (the --deadline): the gate ran out of time, nothing failed: 2 = timed out
                     print(f'[gate_wait] timed out: {mn.group(1)} check(s) NOT RUN (the --deadline passed); nothing failed; run the same command again, the finished rows are cached')
                     return 2
@@ -143,7 +147,7 @@ def main():
     rc = summarise(text.splitlines(), logpath)
     if p.returncode == 5:   # the gate's own code for "only NOT RUN rows" (S103 GST review 10)
         return 2
-    return p.returncode or rc
+    return p.returncode or rc   # 0 pass, 1 FAIL, 2 timed out, 3 BLOCKED (could not run), 4 green with needs-main
 
 
 if __name__ == '__main__':

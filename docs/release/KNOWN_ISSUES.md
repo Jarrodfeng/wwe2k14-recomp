@@ -7,9 +7,8 @@
 - The game now uses a memory feature of Windows 10 1803 or newer, tested by me only on Windows 11 build 26100. If your Windows cannot
   do it, the game shows a clear message and stops: please send a report with your Windows version.
 - The new renderer now draws everything, with no fallback to the Xbox 360's way of drawing. It was tested on my PC (NVIDIA RTX 4090), my Surface Pro 6 (Intel UHD 620) and one phone (OPPO Find X8 Ultra, Adreno 830). AMD graphics, other Intel graphics and other phones are untested. If something is missing or looks wrong (a missing or oddly coloured part, flicker, wrong shadows, a freeze), send a report (launcher: Report a problem, or the bug-button zip).
-- DLSS, DLAA and FSR are not available with the new renderer yet: if one is chosen in UPSCALING, the game shows the plain picture (its log says so).
-- Screens wider or taller than 16:9 (ultrawide monitors, phones with a wide screen) show the 16:9 picture with bars instead of filling the screen: the new renderer does not widen its camera yet. The ultrawide fill from v0.3.2 comes back when it does.
-- Some players see an endless loading screen when entering the Moveset editor's Signatures / Finishers. I could not make it happen on my PC. Since v0.4.0 the game writes the file a stuck load was waiting on into its log: if it happens to you, please send a report (launcher: Report a problem).
+- DLSS, DLAA and FSR are not available with the new renderer yet. In v0.4.1 the UPSCALING choice and the screen shape choice are gone from the launcher (they did nothing with the new renderer); they come back when they work again.
+- Screens wider or taller than 16:9 (ultrawide monitors, phones with a wide screen, 16:10 and 4:3): v0.4.1 fills more of the picture (crowd, stage, shadows, post effects), with the HUD kept as a centred 16:9 and the menus at 16:9 with bars. Checked at 21:9, 32:9 and 16:10 on my PC, not on a real ultrawide monitor: if something pops in or out near the screen edge, please send a report (launcher: Report a problem).
 - The keyboard as its own player (new in v0.2.14) was tested with a simulated second controller, not by two people
   yet. With four controllers the keyboard shares player 1 again. Not tried yet: a controller switching off in the
   middle of a match (with no controller left, the keyboard becomes player 1 until the controller is back).
@@ -30,8 +29,8 @@
   one doesn't show up, please send a report (launcher: Report a problem lists your packs, never their files).
 - Discord status needs an application id (Settings -> Game) until the project has its own.
 - My own menu items in the game (QUIT TO DESKTOP, GRAPHICS, PHOTO MODE) stay in English in every language.
-- A black screen at the start or at 1080p (reported on an Intel laptop): I need a log from a run where it happens
-  (launcher: Report a problem).
+- A black screen at the start or at 1080p (reported on an Intel laptop): v0.4.1 shows a message when the graphics driver stops.
+  A black screen without one: please send a report (launcher: Report a problem).
 - The first time you meet a superstar, arena or match type the shipped pipeline list does not cover, its loading screen
   can pause while the graphics driver prepares it (longest on integrated graphics); after that it is remembered, and
   the next "Preparing shaders" includes it.
@@ -59,3 +58,11 @@
 - CineCam's setup panel (F8 outside a match) and the automatic entrance freeze are new and lightly tested.
 - v0.2.5's shader list does not cover everything yet (Quick Match types, 30 Years of WrestleMania matches, some menus
   and cutscenes): those still hitch the first time, then are remembered.
+- After an update that changes how the game draws (v0.4.1 changes wrestlers, the ring and props), the first play of a mode can hitch once while the graphics driver builds its pipelines; "Preparing shaders" now covers most of them (91 of 94 in my test, 6 left on the second play), and it does not come back.
+- Entrances: after the wrestlers load, about 0.4 s of black remains before the entrance starts.
+- Sign boards in the arena show the arena's own picture, not the crowd-sign picture the game swaps in (next update).
+- 30 Years of WrestleMania captions show only when the game's own caption option is on in your save. The flicker reported on a phone does not happen on my PC; the phone is unconfirmed.
+- Blood: draws in my test (turn BLOOD on in the game's options); not played through a whole match.
+- Created superstars: custom logos were checked in the editor only. Superstar Threads were tried with one test colour set. Hogan's ring attires were not seen.
+- Title belts: the champion's nameplate is read and drawn (checked in the log); I have not yet seen the name up close.
+- Phones: the heat fix and the release-build change were not yet tried on a phone, and the message when the graphics driver stops has not been seen on a phone.

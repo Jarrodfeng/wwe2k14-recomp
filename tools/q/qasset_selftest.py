@@ -6,7 +6,7 @@ with a g_fDifAmbLevel parameter and a texture directory with a DXT5 and a BGRA8 
 Checks: the build counts; `tex` alpha stats equal the planted truth; `mat` shows the parameter and the sampler; `id evtobj` finds the planted row and INVENTS nothing for an
 absent id; `find` reaches a parameter name; `pac` shows the nested entry path; a raw pac is not decoded; then PLANT A CHANGE (the DXT5 texture rewritten with another alpha):
 the next query must refresh by itself and answer the NEW value (the old one must be gone).
-Real tree (skipped when out\\harness\\index\\asset.db is absent): `tex 13904Cap` DXT5 512x512 alpha max 40; `id bgetc 3` /STG/CELL with 17 models; `id evtobj 2038` PACH 4;
+Real tree (skipped when out\\harness\\index\\asset.s<SCHEMA>.db is absent): `tex 13904Cap` DXT5 512x512 alpha max 40; `id bgetc 3` /STG/CELL with 17 models; `id evtobj 2038` PACH 4;
 `mat yCh_Reflect ch139` shows g_fDifAmbLevel 1.
 Run:  py -I tools/q/qasset_selftest.py
 """
@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 
+# entry: db_name (the index file the q asset sub-command opens; the rest runs through q.py as a subprocess)
 HERE = os.path.dirname(os.path.abspath(__file__))
 Q = os.path.join(HERE, 'q.py')
 
@@ -41,8 +42,9 @@ def name16(s):
     return s.encode().ljust(16, b'\0')
 
 
-def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nmesh=1):
-    """a minimal JBOY: 1 mesh (3 vertices), the nodes, 2 texture names, params g_fDifAmbLevel 1.0 and sampDiffusePrm -> texture 0"""
+def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nmesh=1, words=None, tech=0x1):
+    """a minimal JBOY: 1 mesh (3 vertices), the nodes, 2 texture names, params g_fDifAmbLevel 1.0 and sampDiffusePrm -> texture 0. words = the cull word of each mesh (record +0x8C; the
+    shifted layout +0x88; default 0x4 = two-sided), tech = the technique word (+0x90; shifted +0x8C)"""
     nn = len(nodes)
     stride = 0xB4 if variant == 'shifted' else 0xB8          # the shifted layout's record is 4 bytes shorter
     mtab, ntab = 0x40, 0x40 + stride * nmesh
@@ -62,10 +64,14 @@ def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nm
         body[rec:rec + 4] = be(3)
         if variant == 'std':
             body[rec + 0x7C:rec + 0x8C] = name16(effect)
+            body[rec + 0x8C:rec + 0x90] = be(words[mi] if words else 0x4)
+            body[rec + 0x90:rec + 0x94] = be(tech)
             body[rec + 0x94:rec + 0x98] = be(npar)
             body[rec + 0x98:rec + 0x9C] = be(plist)
         elif variant == 'shifted':          # every field from the effect on sits 4 bytes earlier (bgEtc /STG3/WPO2)
             body[rec + 0x78:rec + 0x88] = name16(effect)
+            body[rec + 0x88:rec + 0x8C] = be(words[mi] if words else 0x4)
+            body[rec + 0x8C:rec + 0x90] = be(tech)
             body[rec + 0x90:rec + 0x94] = be(npar)
             body[rec + 0x94:rec + 0x98] = be(plist)
         else:                               # garbage: fits neither layout
@@ -177,13 +183,18 @@ def write_fixture(game, dxt_a0=40):
     inner = pach([(5, jboy('yCh_Reflect', nodes=('Bip', 'l_mabuta'))), (10, tex)])
     with open(os.path.join(pac_dir, 'ch', 'ch900.pac'), 'wb') as f:
         f.write(epac([pach([(0, inner)])], [('EMD', '0000')]))
-    inner2 = pach([(5, jboy('yShift', variant='shifted', nmesh=2)), (6, jboy('yBadRec', variant='garbage')), (10, tex)])
+    inner2 = pach([(5, jboy('yShift', variant='shifted', nmesh=2, words=[0x6, 0x4], tech=0x82C05A80)), (6, jboy('yBadRec', variant='garbage')), (10, tex)])
     with open(os.path.join(pac_dir, 'ch', 'ch901.pac'), 'wb') as f:
         f.write(epac([pach([(0, inner2)])], [('EMD', 'LONGNAME')], wide=True))
     with open(os.path.join(pac_dir, 'zz_epk.pac'), 'wb') as f:
         f.write(epac([pach([(0, jboy('yEpk'))])], [('EMD', '0000')], magic=b'EPK8'))
     with open(os.path.join(pac_dir, 'evt', 'Entrance99.pac'), 'wb') as f:
         f.write(epac([b'EVPX' + bytes(300), b'EVZ0' + bytes(200)], [('EVP', '0000'), ('EVZ', '0000')]))
+    os.makedirs(os.path.join(pac_dir, 'bg'), exist_ok=True)
+    bgtex = texdir([('BgTex', dds(b'DXT1', 4, 4, bytes([0, 0, 1, 0, 0xFF, 0xFF, 0, 0])))])
+    bg = pach([(0, jboy('yBG_Fix', nmesh=2, words=[0x6, 0x4], tech=0x82C05A80)), (1, jboy('yBG_Fix', words=[0x116])), (500, jboy('yBG_Fix', words=[0x6])), (400, bgtex)])
+    with open(os.path.join(pac_dir, 'bg', 'bg90.pac'), 'wb') as f:
+        f.write(epac([bg], [('STG', '0000')]))
     w1000 = pach([(29, pach([(0, jboy('yWeapon29', nodes=('root', 'blade'))), (10, tex)]))])
     with open(os.path.join(pac_dir, 'm2.pac'), 'wb') as f:
         f.write(epac([pach([(1000, w1000)])], [('MOT', 'WEAP')]))
@@ -207,9 +218,9 @@ def main():
         env = {'WWE_QASSET_GAME': game, 'WWE_QASSET_DB': os.path.join(tmp, 'asset.db'), 'WWE_QASSET_BUDGET': '120'}
         write_fixture(game)
         rc, out = run(['info'], env)
-        check(rc == 0 and 'pacs: 7' in out, 'the first query builds the fixture index by itself (7 pacs)', out)
+        check(rc == 0 and 'pacs: 8' in out, 'the first query builds the fixture index by itself (8 pacs)', out)
         check('built just now' in out, 'the header says built just now', out)
-        check('model: 8' in out and 'texture: 11' in out, 'counts: 8 models, 11 textures (evtobj 3 / 5, ch900 1 / 2, ch901 2 / 2, zz_epk 1, m2 1 / 2)', out)
+        check('model: 11' in out and 'texture: 12' in out, 'counts: 11 models, 12 textures (evtobj 3 / 5, ch900 1 / 2, ch901 2 / 2, zz_epk 1, m2 1 / 2, bg90 3 / 1)', out)
         rc, out = run(['tex', 'FixCap'], env)
         check('DXT5 8x8' in out and 'alpha max 40' in out and 'share 0 50.0%' in out, 'tex FixCap: DXT5 8x8, alpha max 40, share 0 = 50 % (planted: 2 of 4 blocks index 1 = a1 = 0)', out)
         check('mean 20.0' in out, 'tex FixCap: mean 20.0 (planted)', out)
@@ -263,6 +274,7 @@ def main():
         check('m2.pac PACH 0 /MOT/WEAP key 1000/29' in out and 'READ BY our loader' in out, 'id weapon 29 finds m2.pac key 1000/29 and says our loader reads it', out)
         rc, out = run(['id', 'weapon', '30'], env)
         check('0 hit(s)' in out, 'PLANTED MISS: an absent weapon id answers no hit', out)
+        cull_proofs(game, env, tmp)
         # locks: a dead writer's lock is taken over at once; a live writer's lock is respected (STALE after the wait), then released
         p = os.path.join(game, 'extracted', 'pac', 'ch', 'ch900.pac')
         st = os.stat(p)
@@ -298,16 +310,112 @@ def main():
     return 0
 
 
+def jout(out):
+    """the JSON object of a `--json` answer (build / header lines may precede it)"""
+    import json
+    return json.JSONDecoder().raw_decode(out[out.index('{'):])[0]
+
+
+def cull_proofs(game, env, tmp):
+    """S103 QAC: the cull word (+0x8C, bit 0x2 = one-sided) and the technique word (+0x90) of every mesh record, `asset cull`, and the schema bump. Fixture bg90.pac: key 0 = 2 meshes (words
+    0x6, 0x4), key 1 = 1 mesh (0x116), key 500 = 1 mesh (0x6, NOT a stage slot); ch901's yShift = the shifted layout (words at +0x88, 0x6 / 0x4)."""
+    import sqlite3
+    rc, out = run(['pac', 'bg90', '0', '0'], env)
+    check('cull 0x6 (one-sided), technique 0x82C05A80' in out and 'cull 0x4 (two-sided), technique 0x82C05A80' in out, 'pac bg90 0 0: a mesh with word 0x6 is one-sided, 0x4 two-sided, both with the technique word', out)
+    rc, out = run(['pac', 'bg90', '0', '1'], env)
+    check('cull 0x116 (one-sided)' in out, 'pac bg90 0 1: word 0x116 is one-sided (bit 0x2 set)', out)
+    rc, out = run(['pac', 'ch901', '0', '0/5'], env)
+    check('cull 0x6 (one-sided), technique 0x82C05A80' in out and 'cull 0x4 (two-sided)' in out, 'the shifted layout reads its words 4 bytes earlier (ch901 yShift: 0x6 one-sided, 0x4 two-sided)', out)
+    rc, out = run(['cull', '--json'], env)
+    rows = {x['label']: x for x in jout(out)['rows']}
+    bg = rows.get('bg arena pacs (bgNN)', {})
+    check(bg.get('meshes') == 4 and bg.get('one_sided') == 3 and bg.get('two_sided') == 1 and bg.get('words') == {'0x6': 2, '0x4': 1, '0x116': 1}, 'asset cull: the bg family row = 4 meshes, 3 one-sided, 1 two-sided, words 0x6 x2 / 0x4 / 0x116', out)
+    st = rows.get('bg arena pacs (bgNN): stage slots (keys 0..399)', {})
+    ot = rows.get('bg arena pacs (bgNN): other keys', {})
+    check((st.get('meshes'), st.get('one_sided'), st.get('two_sided')) == (3, 2, 1) and (ot.get('meshes'), ot.get('one_sided'), ot.get('two_sided')) == (1, 1, 0), 'asset cull: the arena row splits stage slots (keys 0..399: 3 meshes, 2 set, 1 clear) from other keys (key 500: 1 mesh, set)', out)
+    fam = [x for k, x in rows.items() if 'stage slots' not in k and not k.endswith(': other keys')]
+    rc, info = run(['info'], env)
+    nmat = int(info.split('material: ')[1].split()[0])
+    check(sum(x['meshes'] for x in fam) == nmat and all(x['one_sided'] + x['two_sided'] == x['meshes'] for x in fam), 'asset cull: the family rows add up to every mesh row of the index (%d) and set + clear = meshes in each' % nmat, out)
+    rc, out = run(['cull', 'bg90', '--set', '--list', '--json'], env)
+    j = jout(out)
+    check(j['lines']['total'] == 3 and all(x['word'] & 2 for x in j['lines']['rows']) and rc == 0, 'asset cull bg90 --set --list: exactly the 3 one-sided meshes', out)
+    rc, out = run(['cull', 'bg90', '--clear', '--list', '--json'], env)
+    j = jout(out)
+    check(j['lines']['total'] == 1 and j['lines']['rows'][0]['word'] == 4, 'asset cull bg90 --clear --list: exactly the 1 two-sided mesh (word 0x4)', out)
+    rc, out = run(['cull', 'bg90'], env)
+    check('PACH 0 /STG/0000' in out and 'stage slots (keys 0..399)' in out, 'asset cull bg90: one row per PACH, plus the stage-slot split for an arena pac', out)
+    rc, out = run(['cull', 'bg90', '0', '0'], env)
+    check('mesh 0 yBG_Fix  cull 0x6 (one-sided)' in out and 'mesh 1 yBG_Fix  cull 0x4 (two-sided)' in out, 'asset cull bg90 0 0: one line per mesh with its word', out)
+    rc, out = run(['cull', '--set', '--clear'], env)
+    check('select nothing' in out, 'PLANTED MISS: --set with --clear selects nothing and says so', out)
+    # the schema in the file name: a q never opens, wipes or rebuilds a file of another schema
+    import hashlib
+    old = os.path.join(tmp, 'old_schema.db')
+    c = sqlite3.connect(old)
+    c.executescript("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); INSERT INTO meta VALUES('schema','3'); INSERT INTO meta VALUES('built_ts','1');")
+    c.commit()
+    c.close()
+
+    def sha(f):
+        return hashlib.sha256(open(f, 'rb').read()).hexdigest()
+
+    h0 = sha(old)
+    e2 = dict(env, WWE_QASSET_DB=old)
+    rc, out = run(['cull'], dict(e2, WWE_QASSET_NOREFRESH='1'))
+    check(rc != 0 and 'schema 3' in out and 'never opens, wipes or rebuilds' in out and sha(old) == h0, 'a schema-3 file named as the index, refresh off: refused with a message, file byte-identical', out)
+    rc, out = run(['cull'], e2)
+    check(rc != 0 and 'never opens, wipes or rebuilds' in out and sha(old) == h0 and not os.path.exists(old + '.lock'), 'a schema-3 file, refresh on: refused, NOT rebuilt, file byte-identical', out)
+    rc, out = run(['update'], e2)
+    check(rc != 0 and sha(old) == h0, '`update` on a schema-3 file: refused, file byte-identical', out)
+    rc, out = run(['update', '--full'], e2)
+    check(rc != 0 and sha(old) == h0, '`update --full` on a schema-3 file: refused, file byte-identical', out)
+    # the default name: <main>\out\harness\index\asset.s4.db; the old asset.db beside it is left alone (and named in the header)
+    idx = os.path.join(tmp, 'out', 'harness', 'index')
+    os.makedirs(idx, exist_ok=True)
+    shutil.copyfile(old, os.path.join(idx, 'asset.db'))
+    h1 = sha(os.path.join(idx, 'asset.db'))
+    e3 = {k: v for k, v in env.items() if k != 'WWE_QASSET_DB'}
+    rc, out = run(['cull', '--json'], e3)
+    rows = {x['label']: x for x in jout(out)['rows']}
+    sys.path.insert(0, HERE)
+    import qasset
+    new = os.path.join(idx, qasset.db_name())
+    check(rc == 0 and qasset.db_name() == 'asset.s%d.db' % qasset.SCHEMA and os.path.exists(new), 'default path: the index is built as %s beside the old file' % qasset.db_name(), out)
+    check(sha(os.path.join(idx, 'asset.db')) == h1, 'the schema-3 asset.db was left byte-identical by a schema-%d q call' % qasset.SCHEMA, out)
+    check(('writing ' + new) in out and rows.get('bg arena pacs (bgNN)', {}).get('meshes') == 4, 'the rebuild printed which file it writes, and answered (bg row 4 meshes)', out)
+    check('asset.db' in jout(out)['index'] and 'left alone' in jout(out)['index'], 'the header names the older index file it left alone', out)
+    c = sqlite3.connect(new)
+    sv = c.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0]
+    nn = c.execute('SELECT COUNT(*) FROM material WHERE cull_word IS NULL').fetchone()[0]
+    c.close()
+    check(sv == str(qasset.SCHEMA) and nn == 0, 'the new db is schema %d and no mesh row lacks its cull word' % qasset.SCHEMA)
+    rc, out = run(['cull'], e3)
+    check('TOTAL' in out and 'bg arena pacs (bgNN)' in out, 'asset cull prints the family table with a TOTAL row', out)
+
+
 def real_proofs():
     here = os.path.dirname(os.path.dirname(HERE))
-    cands = [os.path.join(here, 'out', 'harness', 'index', 'asset.db'),
-             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(here))), 'out', 'harness', 'index', 'asset.db')]
+    sys.path.insert(0, HERE)
+    import qasset
+    cands = [os.path.join(here, 'out', 'harness', 'index', qasset.db_name()),
+             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(here))), 'out', 'harness', 'index', qasset.db_name())]
     db = next((c for c in cands if os.path.exists(c)), None)
     if not db:
         print('SKIP  real-tree proofs: no out\\harness\\index\\asset.db (run: py tools\\q\\q.py asset update)')
         return
-    env = {'WWE_QASSET_NOREFRESH': '1'}
+    env = {'WWE_QASSET_NOREFRESH': '1', 'WWE_QASSET_DB': db}      # the db this check looked at (a worktree's own, or the main checkout's)
     real_dir_proof()
+    import sqlite3
+    c0 = sqlite3.connect('file:%s?mode=ro' % db, uri=True)
+    try:
+        sv = c0.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0]
+    except sqlite3.Error:
+        sv = None
+    c0.close()
+    if sv != str(qasset.SCHEMA):
+        print('SKIP  real-tree proofs: the real index is schema %s, this q writes %d (the first q asset call after the merge rebuilds it)' % (sv, qasset.SCHEMA))
+        return
     rc, out = run(['info'], env)
     if 'pacs: ' not in out or 'ch139' not in run(['pac', 'ch139'], env)[1]:
         print('SKIP  real-tree proofs: the real index does not hold the full game yet')
@@ -322,14 +430,18 @@ def real_proofs():
     check('g_fDifAmbLevel 1' in out, 'REAL mat yCh_Reflect ch139: g_fDifAmbLevel 1 (EYA)', out)
     rc, out = run(['id', 'weapon', '29'], env)
     check('m2.pac PACH 0 /MOT/WEAP key 1000/29' in out and 'READ BY our loader' in out, 'REAL id weapon 29: m2.pac key 1000/29 (read by LoadM2Weapon) and the bgEtc sets', out)
-    import sqlite3
     c = sqlite3.connect('file:%s?mode=ro' % db, uri=True)
+    st = c.execute("SELECT SUM((cull_word & 2) != 0), SUM((cull_word & 2) = 0) FROM material JOIN entry ON material.entry_id = entry.id JOIN pach ON entry.pach_id = pach.id JOIN pacs ON pach.pac_id = pacs.id "
+                   "WHERE pacs.path GLOB 'pac/bg/bg[0-9]*.pac' AND entry.depth = 0 AND entry.eid BETWEEN 0 AND 399").fetchone()
+    check(tuple(st) == (11377, 7064), 'REAL cull: all arena bg pacs, stage slots (keys 0..399): bit 0x2 set 11,377, clear 7,064 (CUL_ADV.md section G; got %s)' % (st,))
     n = c.execute("SELECT COUNT(*) FROM texture WHERE fmt='DXT1' AND a_max IS NOT NULL").fetchone()[0]
     check(n > 100, 'REAL DXT1 textures carry measured 1-bit alpha (%d rows)' % n)
     n = c.execute("SELECT COUNT(*) FROM material WHERE effect LIKE '?%' OR effect = ''").fetchone()[0]
     check(n == 0, 'REAL: no placeholder material rows ("?bad mesh record") remain (%d)' % n)
     n = c.execute("SELECT COUNT(*) FROM pach JOIN pacs ON pach.pac_id=pacs.id WHERE pacs.path LIKE '%Entrance00.pac' AND pach.nent > 0").fetchone()[0]
     check(n > 100, 'REAL Entrance00.pac: its EVP / EVZ directory entries are rows (%d), not "0 PACH, empty"' % n)
+    sh = c.execute("SELECT cull_word, COUNT(*) FROM material JOIN entry ON material.entry_id = entry.id WHERE entry.note LIKE '%shifted layout%' GROUP BY cull_word").fetchall()
+    check(len(sh) > 0 and sum(n for w, n in sh) > 50 and all(w & 4 for w, n in sh) and {w for w, n in sh} <= {4, 6}, 'REAL shifted layout: the word at +0x88 has bit 0x4 set on every mesh and is 4 / 6 only, like the standard cull word (%s)' % (sh,))
     n = c.execute("SELECT COUNT(*) FROM entry WHERE note LIKE '%shifted layout%'").fetchone()[0]
     check(n > 20, 'REAL: the shifted bgEtc mesh records are decoded (%d entries carry the shifted-layout note)' % n)
 

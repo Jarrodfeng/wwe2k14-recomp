@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-TWINS = {'tex_key': 'draw.diffuse_picture_equal', 'transpose': 'draw.positions_equal_arena_steps', 'merge': 'draw.two_instances_two_items', 'stage_id_plain': 'plan.stage_id_without_flag_refused'}
+TWINS = {'tex_key': 'draw.diffuse_picture_equal', 'transpose': 'draw.positions_equal_arena_steps', 'merge': 'draw.two_instances_two_items', 'stage_id_plain': 'plan.stage_id_without_flag_refused', 'm2_reopen': 'loader.m2_open_once'}
 
 
 def main_checkout(here):

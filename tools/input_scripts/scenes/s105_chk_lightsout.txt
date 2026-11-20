@@ -1,0 +1,30 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_arena=46 --wwe2k14_launch_participants=103:0,125 --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# S105 SLO: the finisher scene's arena dim ([[0x83924778]+452]: 1.0 = 0x3F800000 = 1065353216) goes down and comes back; shots of OUR picture.
+on_fail continue
+log bench: start scene s105_slo_taker_dim
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state seq 9 3600 30
+wait_state match_clock >0 36000
+log scene=slo_match
+log_state 0x83924778>452
+screenshot slo_lit_before
+# S105 SLO3 / LO: a finisher does not dim; the dim is the corner-special scene. Fire it with the dev verb (the attacker passive first: the scene ends when his act changes).
+wait_frames 300
+log_state 0x83924778>452
+passive 0 on
+lightsout 0
+wait_state 0x83924778>452 <1065353216 600 1
+log scene=slo_dim
+wait_frames 75
+log_state 0x83924778>452
+screenshot slo_dark
+wait_state 0x83924778>452 1065353216 1800 2
+log scene=slo_lights_back
+wait_frames 120
+log_state 0x83924778>452
+screenshot slo_lit_after
+wait_frames 900
+screenshot slo_lit_later
+log bench: done
+quit

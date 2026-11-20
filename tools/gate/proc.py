@@ -35,11 +35,35 @@ DAEMONS = {'sccache', 'adb'}
 
 
 class Result:
-    def __init__(self, args, returncode, stdout, stderr, timed_out):
+    """peak_job_commit / peak_process_commit: bytes (JOBOBJECT_EXTENDED_LIMIT_INFORMATION PeakJobMemoryUsed / PeakProcessMemoryUsed, i.e. the
+    peak COMMIT charge of the whole job / of its largest single process), read just before the job is ended; None when no job (off Windows, a
+    nested-job failure) or the query failed. CQM 2026-11-20: the measurement admit's reservations rest on."""
+    def __init__(self, args, returncode, stdout, stderr, timed_out, peak_job_commit=None, peak_process_commit=None):
         self.args, self.returncode, self.stdout, self.stderr, self.timed_out = args, returncode, stdout, stderr, timed_out
+        self.peak_job_commit, self.peak_process_commit = peak_job_commit, peak_process_commit
+        # CQM F1: the Store pwsh 7.7 starts its native children OUTSIDE the job it runs in, so for a PowerShell command the job's peak is only
+        # PowerShell's own (a near-zero number that is not the command's memory). peak_exact False says so; None = no peak was read.
+        self.peak_exact = None if peak_job_commit is None else not _is_powershell(args)
 
     def __repr__(self):
         return f'Result(rc={self.returncode}, timed_out={self.timed_out})'
+
+    def mem_line(self):
+        g = lambda b: 'n/a' if b is None else '%.3f GB' % (b / 2**30)
+        if self.peak_exact is False:
+            return (f'peak commit not exact (PowerShell starts its children outside the job): the job saw {g(self.peak_job_commit)}, '
+                    'measure with tools\\memory\\measure_peak.py')
+        return f'peak job commit {g(self.peak_job_commit)}, largest process commit {g(self.peak_process_commit)}'
+
+
+def _is_powershell(args):
+    """the command's program is pwsh / powershell (first list item, or the first token of a string command)"""
+    try:
+        first = args[0] if isinstance(args, (list, tuple)) else (str(args).strip().split('"')[1] if str(args).strip().startswith('"')
+                                                                 else str(args).strip().split()[0])
+        return os.path.basename(str(first)).lower().removesuffix('.exe') in ('pwsh', 'powershell')
+    except Exception:
+        return False
 
 
 if os.name == 'nt':
@@ -137,6 +161,28 @@ if os.name == 'nt':
             except Exception:
                 pass
 
+    def _job_peaks(job):
+        """(PeakJobMemoryUsed, PeakProcessMemoryUsed) in bytes, or (None, None) if the query fails; never raises"""
+        try:
+            info = _EXT()
+            if _k32.QueryInformationJobObject(job, _JOB_EXT_INFO, ctypes.byref(info), ctypes.sizeof(info), None):
+                return int(info.PeakJobMemoryUsed), int(info.PeakProcessMemoryUsed)
+        except Exception:
+            pass
+        return None, None
+
+    _k32.GetCurrentProcess.restype = wintypes.HANDLE
+    _k32.DuplicateHandle.argtypes = [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD,
+                                     wintypes.BOOL, wintypes.DWORD]
+
+    def _dup(h):
+        """a second handle to the same kernel object (DUPLICATE_SAME_ACCESS), owned by the caller; None on failure"""
+        out = wintypes.HANDLE()
+        me = _k32.GetCurrentProcess()
+        if _k32.DuplicateHandle(me, h, me, ctypes.byref(out), 0, False, 2):
+            return out.value
+        return None
+
     def _make_job():
         h = _k32.CreateJobObjectW(None, None)
         if not h:
@@ -156,6 +202,15 @@ if os.name == 'nt':
             return bool(_k32.AssignProcessToJobObject(job, ph))
         finally:
             _k32.CloseHandle(ph)
+
+
+def close_handle(h):
+    """close a handle run() handed to on_start (Windows); a no-op for None / off Windows"""
+    if h and os.name == 'nt':
+        try:
+            _k32.CloseHandle(h)
+        except Exception:
+            pass
 
 
 def _owned_env(env):
@@ -180,10 +235,30 @@ def _pump(stream, sink):
         pass
 
 
-def run(cmd, timeout, cwd=None, env=None, capture=True, text=True, input=None, shell=False, check=False, keep=DAEMONS):
-    """run cmd (list or str) with a hard `timeout` (seconds, required); the whole process tree dies on expiry or when this process dies."""
+def run(cmd, timeout, cwd=None, env=None, capture=True, text=True, input=None, shell=False, check=False, keep=DAEMONS, mem=False,
+        on_start=None):
+    """run cmd (list or str) with a hard `timeout` (seconds, required); the whole process tree dies on expiry or when this process dies.
+    The Result carries the job's peak commit (peak_job_commit / peak_process_commit, bytes; peak_exact False for a PowerShell command, whose
+    children run outside the job). mem=True also prints Result.mem_line() to stderr.
+    on_start(job, popen): called once the child runs and its output pumps have started, e.g. to start a sampler. `job` is a DUPLICATED handle to
+    the job (or None): the callback owns it, may use it after run() returns, and must close it with proc.close_handle(job) (if on_start raises,
+    run() closes it). Holding it does not keep the job's processes alive: run() kills them explicitly. on_start must return quickly (start a
+    thread): the timeout clock (p.wait) only starts after it returns. Its exceptions are ignored; the child still runs to its end or timeout.
+    A compile through a running sccache server runs in THAT server's tree, outside this job: measure with the cache off (WWE_NO_CCACHE=1)."""
     if timeout is None or timeout <= 0:
         raise ValueError('proc.run needs a positive timeout (seconds)')
+    peaks = [None, None]
+
+    def read_peaks(j):
+        """high-water marks: keep the larger of what was read before and now; a failed read never erases a good one"""
+        if os.name != 'nt' or j is None:
+            return
+        new = _job_peaks(j)
+        peaks[:] = [o if n is None else (n if o is None else max(o, n)) for o, n in zip(peaks, new)]
+
+    def end_job(j):
+        read_peaks(j)
+        _end_job_once(j, keep)
     kw = dict(cwd=cwd, env=_owned_env(env), shell=shell)
     if capture:
         kw.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -225,15 +300,22 @@ def run(cmd, timeout, cwd=None, env=None, capture=True, text=True, input=None, s
                 except (OSError, ValueError):
                     pass
             threading.Thread(target=feed, daemon=True).start()
+        if on_start is not None:                                 # after the pumps: a full pipe never blocks the child while the callback runs
+            jd = _dup(job) if (os.name == 'nt' and job is not None) else None
+            try:
+                on_start(jd, p)
+            except Exception:
+                close_handle(jd)
         timed_out = False
         try:
             p.wait(timeout=timeout)
             deadline = time.time() + PIPE_GRACE_S                # a daemon holding a pipe open must not hold us: ~5 s, then stop reading
         except subprocess.TimeoutExpired:
             timed_out = True
+            read_peaks(job)                                      # before kill_tree: the peak is a high-water mark, read it while the job is whole
             kill_tree(p)
             if job is not None:
-                _end_job_once(job, keep)
+                end_job(job)
                 job = None
             try:
                 p.wait(timeout=10)
@@ -244,16 +326,19 @@ def run(cmd, timeout, cwd=None, env=None, capture=True, text=True, input=None, s
             t.join(max(0.0, deadline - time.time()))
     finally:
         if job is not None:
-            _end_job_once(job, keep)      # always: nothing the child left behind survives the call (named daemons excepted)
+            end_job(job)                  # always: nothing the child left behind survives the call (named daemons excepted)
     rc = TIMEOUT_RC if timed_out else p.returncode
 
     def fin(chunks):
         b = b''.join(chunks)
         return b.decode('utf-8', 'replace').replace('\r\n', '\n') if text else b
     out, err = (fin(outb), fin(errb)) if capture else (None, None)
+    res = Result(cmd, rc, out, err, timed_out, peaks[0], peaks[1])
+    if mem:
+        sys.stderr.write('proc.run: %s\n' % res.mem_line())
     if check and rc != 0:
         raise subprocess.CalledProcessError(rc, cmd, out, err)
-    return Result(cmd, rc, out, err, timed_out)
+    return res
 
 
 def _end_job_once(job, keep):
@@ -337,8 +422,66 @@ def selftest():
         if 'QTFP6' in ' '.join(_cl(p)):
             p.kill()
     assert r4.stdout.strip() == 'hello' and dt4 < PIPE_GRACE_S + 8, (r4, dt4)
+    # item 7 (CQM): the job's peak commit is returned; a child that commits 256 MB (VirtualAlloc MEM_COMMIT, never touched: no physical RAM)
+    memline = 'peak commit: not on this OS'
+    if os.name == 'nt':
+        mb = 256
+        r5 = run([sys.executable, '-c', 'import ctypes;k=ctypes.windll.kernel32;k.VirtualAlloc.restype=ctypes.c_void_p;'
+                  f'k.VirtualAlloc.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_ulong,ctypes.c_ulong];a=k.VirtualAlloc(None,{mb}<<20,0x3000,4);'
+                  'print(1 if a else 0)'], timeout=60)
+        assert r5.returncode == 0 and r5.stdout.strip() == '1', r5
+        got = (r5.peak_job_commit or 0) / 2**20
+        assert mb <= got < mb + 128, f'peak job commit {got:.0f} MB for a {mb} MB commit'
+        assert r5.peak_process_commit is not None and r5.peak_process_commit <= r5.peak_job_commit
+        assert ok.peak_job_commit is not None and ok.peak_job_commit < 128 << 20, ok.peak_job_commit
+        memline = f'peak job commit {got:.0f} MB for a {mb} MB commit (a plain print: {ok.peak_job_commit / 2**20:.0f} MB)'
+        commit_child = ('import ctypes,time;k=ctypes.windll.kernel32;k.VirtualAlloc.restype=ctypes.c_void_p;'
+                        'k.VirtualAlloc.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_ulong,ctypes.c_ulong];'
+                        f'a=k.VirtualAlloc(None,{mb}<<20,0x3000,4);print(1 if a else 0,flush=True);time.sleep(300)')
+        # item 8a (CQM review 1): the TIMEOUT path keeps the peak, and a failing second read never erases the first one
+        orig_peaks = _job_peaks
+        calls = []
+
+        def flaky(j):
+            calls.append(1)
+            return orig_peaks(j) if len(calls) == 1 else (None, None)
+        globals()['_job_peaks'] = flaky
+        try:
+            r6 = run([sys.executable, '-c', commit_child], timeout=5)
+        finally:
+            globals()['_job_peaks'] = orig_peaks
+        got6 = (r6.peak_job_commit or 0) / 2**20
+        assert r6.timed_out and len(calls) >= 2 and mb <= got6 < mb + 128, (r6, calls, got6)
+        # item 8b (review 2, 6): on_start that RAISES: the child still runs, is killed at the timeout and waited; the handle run() made is closed
+        held = {}
+
+        def bad(job, popen):
+            held['pid'] = popen.pid
+            raise RuntimeError('planted on_start failure')
+        t7 = time.time()
+        r7 = run([sys.executable, '-c', 'import time; time.sleep(300)'], timeout=4, on_start=bad)
+        assert r7.timed_out and r7.returncode == TIMEOUT_RC and time.time() - t7 < 30, r7
+        time.sleep(0.5)
+        assert not psutil.pid_exists(held['pid']), 'on_start raised: the child survived the timeout'
+        # item 8c (review 2): the duplicated job handle outlives run(): the peaks read through it after run() returned equal the Result's,
+        # the job's processes are dead even though the handle is still open, then the owner closes it
+        box = {}
+        r8 = run([sys.executable, '-c', commit_child], timeout=5, on_start=lambda job, popen: box.update(job=job, pid=popen.pid))
+        assert box.get('job'), 'on_start got no job handle'
+        after = _job_peaks(box['job'])
+        time.sleep(0.5)
+        alive = psutil.pid_exists(box['pid'])
+        close_handle(box['job'])
+        assert after[0] == r8.peak_job_commit and after[0] >= mb << 20, (after, r8.peak_job_commit)
+        assert not alive, 'the child outlived run() while the duplicated handle was open'
+        # item 8d: a PowerShell command's peak is marked not exact (its children run outside the job)
+        assert Result(['pwsh', '-c', 'x'], 0, '', '', False, 1, 1).peak_exact is False
+        assert 'not exact' in Result('"C:\\x\\powershell.exe" -c x', 0, '', '', False, 1, 1).mem_line()
+        assert Result([sys.executable], 0, '', '', False, 1, 1).peak_exact is True
+        memline += (f'; timeout path kept {got6:.0f} MB through a failed second read; a raising on_start still timed out and killed the child; '
+                    f'the duplicated handle read {after[0] / 2**20:.0f} MB after run() returned; PowerShell peaks marked not exact')
     print(f'proc selftest OK: parent + grandchild (pid {gpid}) dead {dt:.1f} s after start (timeout 6 s); normal runs pass; works without psutil; '
-          f'cleanup failure falls back to TerminateJobObject; a pipe-holding daemon released run() after {dt4:.1f} s')
+          f'cleanup failure falls back to TerminateJobObject; a pipe-holding daemon released run() after {dt4:.1f} s; {memline}')
     return 0
 
 

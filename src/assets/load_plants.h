@@ -64,5 +64,19 @@ inline bool& EyaOldParam1Plant() {
   static bool v = false;
   return v;
 }
+// S105 C2L planted twins (tools\scene\wgd2_rig only, --plant c2l_no_texdiffuse / c2l_no_prop_uv / c2l_no_noise; the game exe never sets them): each puts one class back to the old loader behaviour.
+// TexDiffusePlant: `texDiffuse` (effect yDefault) is not read (the sign boards 40-45 / 79 draw white). PropUvPlant: yProp_UVScroll layers 1-3 not read. NoisePlant: sampNoisePrm + the Noise floats not read.
+inline bool& C2lTexDiffusePlant() {
+  static bool v = false;
+  return v;
+}
+inline bool& C2lPropUvPlant() {
+  static bool v = false;
+  return v;
+}
+inline bool& C2lNoisePlant() {
+  static bool v = false;
+  return v;
+}
 }  // namespace load_detail
 }  // namespace assets

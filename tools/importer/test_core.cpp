@@ -429,10 +429,69 @@ static void FitCases(const std::string& game, const std::string& dlc, const std:
   }
 }
 
+// S105 IMP: pack.json keeps the retired slots (--retire-cases --mods OUT_DIR; no game files). The manifest is written and read the way the UI
+// and both launchers do (LoadPack -> remove -> SavePack); the file text is checked by hand too, so a SavePack that forgot the list is caught.
+static void RetireCases(const std::string& mods) {
+  // entry: importer::SavePack (WriteManifest) / importer::LoadPack / importer::RetiredSlots
+  std::printf("retired slots (pack.json):\n");
+  const fs::path root = fs::u8path(mods) / "superstars";
+  std::error_code ec;
+  fs::remove_all(root, ec);
+  auto star = [](int slot) {
+    importer::Superstar s;
+    s.slot = slot, s.name = "T" + std::to_string(slot);
+    return s;
+  };
+  auto text = [&] { return TextOf(root / "pack.json"); };
+  std::string e;
+  importer::PackState st;
+  for (int s : {397, 398, 399}) st.stars.push_back(star(s));
+  // (S105 IMP M1: only a slot a BUILD held retires; the build writes superstars.txt with a `star SLOT music N` line per character)
+  auto built = [&](std::initializer_list<int> slots) {
+    std::string t = "pack 6\n";
+    for (int s : slots) t += "star " + std::to_string(s) + " music 150\n";
+    std::ofstream(root / "superstars.txt", std::ios::binary | std::ios::trunc) << t;
+  };
+  Say(importer::SavePack(mods, st, e) && importer::RetiredSlots(mods).empty() && text().find("\"retired\": []") != std::string::npos,
+      "three imports saved: nothing retired");
+  importer::PackState back;  // a launcher's REMOVE: LoadPack, drop one, SavePack
+  Say(importer::LoadPack(mods, back, e) && back.stars.size() == 3 && back.retired.empty(), "LoadPack: 3 imports, retired empty");
+  {  // an unbuilt removal: nothing was ever built, so no save can hold the slot
+    importer::PackState nb = back;
+    nb.stars.erase(nb.stars.begin() + 1);
+    Say(importer::SavePack(mods, nb, e) && importer::RetiredSlots(mods).empty(), "an unbuilt removal of 398 is not retired");
+    Say(importer::SavePack(mods, back, e), "pack.json back to 3 imports");
+  }
+  built({397, 398, 399});  // the three were built
+  back.stars.erase(back.stars.begin() + 1);  // 398 removed
+  Say(importer::SavePack(mods, back, e), "SavePack after REMOVE of 398");
+  Say(importer::RetiredSlots(mods) == std::vector<int>{398} && text().find("\"retired\": [398]") != std::string::npos,
+      "398 is retired in pack.json (read by RetiredSlots and in the file text)");
+  importer::PackState again;
+  Say(importer::LoadPack(mods, again, e) && again.retired == std::vector<int>{398} && again.stars.size() == 2, "LoadPack gives retired [398]");
+  again.stars.push_back(star(400));  // a new import (the UI hands out 400, not 398)
+  Say(importer::SavePack(mods, again, e) && importer::RetiredSlots(mods) == std::vector<int>{398}, "adding 400 keeps 398 retired");
+  built({397, 399, 400});  // 400 was built too
+  importer::PackState fresh = again;  // a caller that kept no retired list (an older launcher's PackState): the disk's list is not lost
+  fresh.retired.clear();
+  fresh.stars.pop_back();  // 400 removed too
+  Say(importer::SavePack(mods, fresh, e) && importer::RetiredSlots(mods) == std::vector<int>{398, 400}, "a caller with an empty list loses nothing; 400 retired too");
+  fresh.stars.push_back(star(398));  // last resort: a retired slot handed out again leaves the list
+  Say(importer::SavePack(mods, fresh, e) && importer::RetiredSlots(mods) == std::vector<int>{400}, "398 held again leaves the list");
+  {  // T1: a pack.json from an older importer (no "retired" key) reads as an empty list and saves with one
+    fs::remove(root / "superstars.txt", ec);  // (nothing built: no seed)
+    std::ofstream(root / "pack.json", std::ios::binary | std::ios::trunc) << "{\"version\": 1, \"enabled\": true, \"needs_build\": false, \"pack_id\": 6, \"stars\": []}\n";
+    importer::PackState old;
+    Say(importer::LoadPack(mods, old, e) && old.retired.empty() && importer::RetiredSlots(mods).empty(), "a pack.json without the retired key reads as empty");
+    Say(importer::SavePack(mods, old, e) && text().find("\"retired\": []") != std::string::npos, "...and is saved with the key");
+  }
+  fs::remove_all(root, ec);
+}
+
 int main(int argc, char** argv) {
   std::string game, dlc, mods, source, name = "Mr. Kennedy", short_name = "KENNEDY", stfs_dir;
   int slot = 397, base = 100, ent = -1, count = 1;
-  bool self_only = false, render = false, fit = false;
+  bool self_only = false, render = false, fit = false, retire = false;
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -451,6 +510,12 @@ int main(int argc, char** argv) {
     else if (a == "--count") count = std::max(1, std::atoi(next().c_str()));
     else if (a == "--fit-cases") fit = true;     // Session 101 (lane 199)
     else if (a == "--stfs-dir") stfs_dir = next();  //   the package case (see FitCases)
+    else if (a == "--retire-cases") retire = true;  // S105 IMP (no game files)
+  }
+  if (retire) {
+    RetireCases(mods);
+    std::printf("failures: %d\n", g_fail);
+    return g_fail;
   }
   SelfTest(dlc);
   if (self_only) return g_fail;

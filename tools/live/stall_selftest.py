@@ -43,18 +43,18 @@ POLICY = [
     ('Press START', 3, 'press', 'START'),
     ('PRESS START', 3, 'press', 'START'),
     ('??? | OK', 9, 'press', 'A'),
-    ('Win the match in under 6 minutes | Continue', 9, 'press', 'A'),
+    ('Beat the clock in a stage | Continue', 9, 'press', 'A'),
     # stops
     ('Overwrite existing save? | OK', 9, 'stop', ''),
     ('Saving... Do not turn off | OK', 75, 'stop', ''),
     ('Delete this profile? | Yes | No', 75, 'stop', ''),
-    ('Are you sure you want to quit? OK', 9, 'stop', ''),
+    ('Quit the match now? OK', 9, 'stop', ''),
     ('Storage device removed | OK', 75, 'stop', ''),
     ('Exit match | OK', 9, 'stop', ''),
     ('Create a Wrestler | OK', 75, 'stop', ''),       # unknown body segment
     ('??? OK', 75, 'stop', ''),                        # glyph box outside a match: could be a save notice
     ('??? OK', None, 'stop', ''),
-    ('Win the match in under 6 minutes | Continue', 75, 'stop', ''),
+    ('Beat the clock in a stage | Continue', 75, 'stop', ''),
     ('PAUSE | Resume Match | Quit Match', 9, 'stop', ''),
     ('', 9, 'stop', ''),
     ('Accept | Cancel', 9, 'stop', ''),

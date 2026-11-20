@@ -528,7 +528,52 @@ def print_fn(r, args):
         print(f'  {m["qname"]} calls: ' + ', '.join(c['name'] for c in m['calls'][:30]))
 
 
-DISPATCH = {'def': (cmd_def, print_def), 'refs': (cmd_refs, print_refs), 'callers': (cmd_callers, print_refs), 'callees': (cmd_callees, print_callees),
+def _ps1_end(lines, start):
+    """the last line of a ps1 `function X { ... }` starting at line `start` (brace matching; strings / comments not parsed: a stray brace in a string can mis-end it)"""
+    d, seen = 0, False
+    for i in range(start - 1, len(lines)):
+        t = re.sub(r"'[^'\n]*'|\"[^\"\n]*\"|#.*", '', lines[i])
+        d += t.count('{') - t.count('}')
+        seen = seen or '{' in t
+        if seen and d <= 0:
+            return i + 1
+    return start
+
+
+def cmd_body(idx, name, args, root):
+    """S105 QC: the function / class text of our python / ps1 tools (the def row's span); every match up to 3, capped at 400 lines each."""
+    d = cmd_def(idx, name, args, root)
+    if not d:
+        return None
+    out = []
+    for m in d['matches']:
+        if m['kind'] not in ('function', 'method', 'class'):
+            continue
+        try:
+            with open(os.path.join(root, m['file']), encoding='utf-8', errors='replace') as f:
+                ls = f.read().split('\n')
+        except OSError:
+            continue
+        a, b = m['line'], m['endline']
+        if m['file'].endswith('.ps1') and (not b or b == a):
+            b = _ps1_end(ls, a)
+        out.append({'qname': m['qname'], 'kind': m['kind'], 'file': m['file'], 'line': a, 'endline': b, 'lines': [(n, ls[n - 1]) for n in range(a, min(b, len(ls), a + 399) + 1)],
+                    'more': max(0, b - a + 1 - 400)})
+    return {'symbol': name, 'bodies': out[:3], 'extra': max(0, len(out) - 3)} if out else None
+
+
+def print_body(r, args):
+    for m in r['bodies']:
+        print(f'== {m["kind"]} {m["qname"]}  {m["file"]}:{m["line"]}-{m["endline"]}')
+        for n, t in m['lines']:
+            print(f'{n}\t{t}')
+        if m['more']:
+            print(f'... ({m["more"]} more lines; q show {m["file"]}:{m["line"] + 400}-{m["endline"]})')
+    if r['extra']:
+        print(f'... {r["extra"]} more matches (q py def NAME)')
+
+
+DISPATCH = {'body': (cmd_body, print_body), 'def': (cmd_def, print_def),'refs': (cmd_refs, print_refs), 'callers': (cmd_callers, print_refs), 'callees': (cmd_callees, print_callees),
             'fn': (cmd_fn, print_fn), 'writes': (lambda i, n, a, r: cmd_refs(i, n, a, r, kinds=('write',)), print_refs),
             'reads': (lambda i, n, a, r: cmd_refs(i, n, a, r, kinds=('read', 'call')), print_refs)}
 

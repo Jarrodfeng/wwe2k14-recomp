@@ -1,0 +1,72 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the Universe pages have no mapped states; their A presses wait on frame counts, fast-forwarded menus drop presses)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): a WWE Universe cutscene beyond the first page. EXPLORATORY: nothing past the first page was ever mapped (atlas node mode:universe
+# "inner pages not mapped"; goto.md: universe: is parse-only). The route enters UNIVERSE (nav menu_to_universe, menu 1497, screen_mode 15), then presses A five times, 400 frames
+# apart, and after each press logs menu / seq / screen_mode / msgbox / the screen text and takes a shot. If a YES / NO box is up the next A answers it (the box opens on NO). It
+# writes only the per-run copy of the frozen save. A cutscene, if the pages lead to one, shows in the later shots (seq changes to 9 / 11 / the text changes); the log lines say where it went.
+# A cutscene may not be left by B, so the route does not back out: it ends at the wall-clock end below and quit closes the game.
+# Marks: 1 menu, 2 universe first page, 3..7 after A 1..5, 8 end.
+on_fail continue
+log bench: start scene s105_universe_pages
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_universe
+wait_frames 300
+log scene=universe_page0
+log_state seq
+log_text 8
+screenshot sc_s105_uni_0
+mark 2 first_page
+press A
+wait_frames 400
+log scene=universe_a1
+log_state menu
+log_state seq
+log_state screen_mode
+log_state msgbox
+log_text 8
+screenshot sc_s105_uni_1
+mark 3 a1
+press A
+wait_frames 400
+log scene=universe_a2
+log_state menu
+log_state seq
+log_state screen_mode
+log_state msgbox
+log_text 8
+screenshot sc_s105_uni_2
+mark 4 a2
+press A
+wait_frames 400
+log scene=universe_a3
+log_state menu
+log_state seq
+log_state screen_mode
+log_state msgbox
+log_text 8
+screenshot sc_s105_uni_3
+mark 5 a3
+press A
+wait_frames 400
+log scene=universe_a4
+log_state seq
+log_state msgbox
+log_text 8
+screenshot sc_s105_uni_4
+mark 6 a4
+press A
+wait_frames 400
+log scene=universe_a5
+log_state seq
+log_state msgbox
+log_text 8
+screenshot sc_s105_uni_5
+mark 7 a5
+log scene=end
+mark 8 end
+log bench: done
+wait_frames 10
+quit

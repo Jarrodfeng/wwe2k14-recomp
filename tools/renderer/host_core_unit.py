@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: 'oldest_wins', 5: 'curve_lost', 6: 'hold_without_last3d', 7: 'take_after_stop', 8: 'idle_never', 9: 'repeat_ignores_holds', 10: 'no_row_cache', 11: 'tween_ignores_waiting', 12: 'tween_ignores_cut', 13: 'tween_ignores_cold', 14: 'tween_ignores_scene_change', 15: 'draw_unfed', 16: 'menu_hook_is_3d', 17: 'any_stamp_is_3d', 18: 'rate_draws_all', 19: 'rate_debt_unpaid', 20: 'rate_carry_lost', 21: 'rate_debt_unbounded', 22: 'rate_contentless_pays', 23: 'feed_counts_calls'}
+PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: 'oldest_wins', 5: 'curve_lost', 6: 'hold_without_last3d', 7: 'take_after_stop', 8: 'idle_never', 9: 'repeat_ignores_holds', 10: 'no_row_cache', 11: 'tween_ignores_waiting', 12: 'tween_ignores_cut', 13: 'tween_ignores_cold', 14: 'tween_ignores_scene_change', 15: 'draw_unfed', 16: 'menu_hook_is_3d', 17: 'any_stamp_is_3d', 18: 'rate_draws_all', 19: 'rate_debt_unpaid', 20: 'rate_carry_lost', 21: 'rate_debt_unbounded', 22: 'rate_contentless_pays', 23: 'feed_counts_calls', 24: 'repeat_raw_key', 25: 'key_wiring_dropped', 26: 'no_cam_ignored', 27: 'unanimated_phase_only', 28: 'overrides_unread', 29: 'no_sticky_hold', 30: 'shown0_ignores_seen3d', 31: 'a4_stamp_kept', 32: 'a4_no_k_guard', 33: 'hold_cap_30', 34: 'hold_ignores_bit3', 35: 'scene_on_f_hold'}
 
 
 def read(root, rel):
@@ -111,7 +111,7 @@ def lints(texts):
     kinds = re.search(r'enum class Kind[^{]*\{([^}]*)\}', fc)
     names = [x.strip().split('=')[0].strip() for x in kinds.group(1).split(',')] if kinds else []
     pu = names.index('PassUnknown') if 'PassUnknown' in names else -1
-    draws_unknown = 'kQpUnknown' in sc
+    draws_unknown = 'kQpUnknown' in sc or 'kQpUnknown' in strip_comments(texts['src/renderer_host/row_fate.h'])   # S105 A4B: FateOf moved to row_fate.h
     need(pu >= 0 and pu < len(wired) and (wired[pu] == 'true' or not draws_unknown), 'fallback_census.h: kWired[PassUnknown] is true while the host draws pass-Unknown rows (%s)' % (wired[pu] if 0 <= pu < len(wired) else '?'))
     need('NotePassUnknown(' in sc, 'scene_host.cpp notes pass_unknown rows in the census (NotePassUnknown)')
     need(re.search(r'draw_unknown_pass\s*=\s*false', texts['src/renderer_host/scene_host.h']) is not None and 'draw_unknown_pass' not in strip_comments(texts['src/renderer_host/host_start.cpp']),

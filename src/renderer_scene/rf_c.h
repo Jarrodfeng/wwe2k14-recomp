@@ -56,6 +56,7 @@ struct Plants {
   bool no_arena_follow = false;      // S103 RL: the camera-attached arena lights are not turned (follow_view stays false): the old fault, the stored direction unturned. Set by the rig from its env; the game exe never sets it
   bool no_screen_rule = false;     // S103 SCR: the movie-surface rule (vertex-alpha blend, back-face cull, self-lit) is not applied by the loader: the old ghost floor copy. Set by the rig from WWE_RDR_PLANT_NO_SCREEN_RULE
   bool idle_screen_white = false; // S103 SCN: an idle movie-key screen (no live picture) keeps the file's missing diffuse = the front end's white (the old fault; the game draws black). Set by the rig from WWE_RDR_PLANT_IDLE_SCREEN_WHITE
+  bool screen_highlight_kept = false;  // WGS: planted twin of the TRN4 fix: the movie keys 800-809 keep the file's highlight (the specular variant that drew the big screen black on arenas 30/33/35/44/50/53/54). Set by the rig from WWE_RDR_PLANT_SCREEN_HIGHLIGHT
   bool stale_movie_kept = false;  // S103 HN: a shown screen with no row this frame keeps its last live picture (the old fault: the previous entrant's / match's frozen tron frame). Rig only
   bool ring_no_pose = false;      // S103 C4: the ring pieces are given no rows (every node keeps its stored place: the posed path with an identity palette)
   bool ring_old_rank = false;     // S103 FOB: planted twin of D3: the ring pieces draw in the record's order (the old order), not the game's posts, turnbuckles, covers, ropes

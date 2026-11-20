@@ -31,6 +31,7 @@
 #include "jboy.h"
 #include "piece_keys.h"   // S103 W2B / ENT
 #include "pac.h"
+#include "xctd_ranged.h"   // S105 SKB3: the disc evtobj.pac read by blocks (load_detail::EvtRanged)
 #include "stage_key.h"
 #include "stage_media.h"
 #include "stage_pools.h"
@@ -204,6 +205,31 @@ inline int ModelKeyIn(const pac::Pac& p, int viewer_attire) {
   }
   return -1;
 }
+// S105 A7: the viewer attire ORDINAL of the model PACH that ANY directory row names `key` (every alias row answers, not only the first row of each
+// PACH): the importer writes one row per attire of the base, all at the mod PACH's sector (importer_core.cpp), and the game loads that PACH by the
+// row's name [C: A7.md]. -1 when no row has that name or the row's sector holds no model PACH.
+inline int OrdinalOfModelKeyIn(const pac::Pac& p, int key) {
+  const Bytes& b = p.bytes;
+  if (key < 0 || b.size() < 0x4000 || std::memcmp(b.data() + 0x800, "EMD ", 4) != 0) return -1;
+  for (size_t o = 0x80C; o + 16 <= 0x4000; o += 16) {
+    char nm[9] = {0};
+    std::memcpy(nm, b.data() + o, 8);
+    bool digits = true;
+    for (int i = 0; i < 8; ++i) digits = digits && nm[i] >= '0' && nm[i] <= '9';
+    if (!digits) break;
+    if (std::atoi(nm) != key) continue;
+    const size_t base = 0x4000 + size_t(Le32(b, o + 8)) * 0x800;
+    int idx = 0;
+    for (const pac::Pach& h : p.pachs) {
+      if (h.base == base) {   // S105 A7 review 6: a row at a PACH with no model goes on to the next row of that name
+        if (pac::Find(h, 0)) return idx;
+        break;
+      }
+      if (pac::Find(h, 0)) ++idx;
+    }
+  }
+  return -1;
+}
 }  // namespace load_detail
 
 inline int ModelKey(launcher::GameFiles& files, int id, int viewer_attire) {
@@ -229,10 +255,9 @@ inline int AttireCount(launcher::GameFiles& files, int id) {
 // S103 B: the viewer attire ORDINAL (the n-th model PACH, what LoadWrestler takes) of the PACH whose EMD name is `key` (character * 100 + game attire * 10 + kind: the
 // inverse of ModelKey). -1 when the pac holds no PACH of that name. A record that names a model by the game's key resolves it here, never by "variant = the attire digit".
 inline int OrdinalOfModelKey(launcher::GameFiles& files, int id, int key) {
-  const int n = AttireCount(files, id);
-  for (int i = 0; i < n; ++i)
-    if (ModelKey(files, id, i) == key) return i;
-  return -1;
+  std::string err;   // S105 A7: by row name, so the alias rows of an imported superstar (000397<n>2, one PACH) answer
+  const pac::Pac* p = load_detail::OpenCached(files, load_detail::WrestlerRel(id), err);
+  return p ? load_detail::OrdinalOfModelKeyIn(*p, key) : -1;
 }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
@@ -246,6 +271,13 @@ namespace load_detail {
 inline std::vector<Bytes>& CommonTexDirs() {
   static std::vector<Bytes> d;
   return d;
+}
+// S105 A7: the entries of a model PACH that are texture directories: 10..19 and 39. The game's Factory_Texture (sub_8271FEB8) reads 10, 11, 39, 12 [C: A7.md];
+// ours keeps its wider 10..19 and adds 39 (the game's order is not copied: the first directory still wins a name, and no stock pac has an entry 39).
+inline bool IsTexDirEntry(uint32_t id) { return (id >= 10 && id <= 19) || id == 39; }
+inline void AddTexDirs(TexSet& tex, const Bytes& buf, const pac::Pach& hh) {
+  for (const pac::Ent& e : hh.ents)
+    if (IsTexDirEntry(e.id) && e.size >= 0x30) tex.AddDir(pac::Decode(buf.data() + e.off, e.size));
 }
 inline void LoadCommonTexDirs(launcher::GameFiles& files) {
   static bool tried = false;
@@ -277,7 +309,36 @@ inline bool LoadWrestler(launcher::GameFiles& files, int id, int attire, Model& 
 namespace load_detail {
 // Session 98 (DLC): a DLC pack's evtobj_dlcPP.pac (small: 37 KB - 2.7 MB), kept apart from OpenCached's one slot so a DLC prop never
 // evicts the disc's 160 MB evtobj.pac. Read once per file; nullptr when the file is missing or unreadable.
+// S105 SKB3 (docs\research\s105\SKB3.md): the disc evtobj.pac read BY BLOCKS, the way the game's own read job does (the whole 181 MB unpack cost ~1.1 s on the one loader thread and delayed the entrant's props): the XCTD block index (ranged
+// reads, ~21 ms), the EPAC directory (block 0), and one slice per asked PACH (its own bytes, decoded from the 2-4 blocks that hold it). `rows` = every directory id row's (byte start, byte size) sorted by start: a PACH's ordinal (our
+// pac::Pac::pachs index) is the rank of its start [C 529 / 529]. Not ok (any read / decode surprise, or a pac that is not XCTD) = the caller takes the whole-file path (OpenDlcProps), as before this lane.
+struct EvtRanged {
+  bool tried = false, ok = false;
+  launcher::GameFiles::RangeReader rr;
+  wwe2k14::xctd_ranged::Index ix;
+  Bytes header;                                   // the EPAC directory: the first 0x4000 unpacked bytes
+  std::vector<std::pair<size_t, size_t>> rows;
+  std::map<int, pac::Pac> slices;                 // ordinal -> a Pac whose bytes are that PACH alone (pachs[0]; every offset relative to it)
+  int slice_decodes = 0;
+  double index_ms = 0;
+  // S105 SKB3 fix round: the first failure's reason (a later ask returns it, never the generic one), the ordinals whose slice failed (later asks go straight to the whole open: no re-decode), and which GameFiles / root opened this
+  // (a different one re-opens: the reader holds that GameFiles' file / image).
+  std::string why;
+  std::set<int> slice_failed;
+  const void* files_id = nullptr;
+  std::string root;
+};
+// S105 SKB3 fix L1 / L5: one line of the evtobj.pac ranged state's own log (the fallbacks must be visible). The live game points it at rdr::Log "[wwe2k14][weapon_rows]" (live_assets.cpp SetRoot); tools print to stderr.
+inline std::function<void(const std::string&)>& EvtLogHook() {
+  static std::function<void(const std::string&)> h;
+  return h;
+}
+inline void EvtLine(const std::string& s) {
+  if (EvtLogHook()) EvtLogHook()(s);
+  else std::fprintf(stderr, "[weapon_rows] %s\n", s.c_str());
+}
 struct DlcPropState {
+  EvtRanged evt;   // S105 SKB3
   std::map<std::string, pac::Pac> cache;
   std::map<std::string, std::string> failed;
   bool releasable = false;   // S103 BLF: set by the live game's loader only (live_assets.cpp): the viewer never sets it, so ReleaseEvtobj never frees under the viewer
@@ -295,6 +356,71 @@ inline const pac::Pac* OpenDlcProps(launcher::GameFiles& files, const std::strin
   if (!pac::Open(files, rel, p, err)) return st.failed[rel] = err, nullptr;
   return &(st.cache[rel] = std::move(p));
 }
+// S105 SKB3: every 4-digit-id row of an EPAC directory (rows from +0x80C: char[4] name, LE32 start in 2 KB sectors from 0x4000, LE32 size in 256-byte units; a non-id row opens a section, an all-zero row ends it) as (byte start, byte size),
+// sorted by start, one per start (the larger size when two rows share a start). A PACH's ordinal = the rank of its start here [C: 529 of 529 on the disc evtobj.pac, docs\formats\evtobj_pac.md S105 SKB3].
+inline std::vector<std::pair<size_t, size_t>> EvtDirRows(const Bytes& b) {
+  std::vector<std::pair<size_t, size_t>> rows;
+  if (b.size() < 0x4000) return rows;
+  for (size_t o = 0x80C; o + 12 <= 0x4000; o += 12) {
+    const uint8_t* r = b.data() + o;
+    const uint32_t st = Le32(b, o + 4), sz = Le32(b, o + 8);
+    if (!(std::isdigit(r[0]) && std::isdigit(r[1]) && std::isdigit(r[2]) && std::isdigit(r[3]))) {
+      if (r[0] == 0 && st == 0) break;
+      continue;
+    }
+    rows.push_back({0x4000 + size_t(st) * 0x800, size_t(sz) * 256});
+  }
+  std::sort(rows.begin(), rows.end());
+  std::vector<std::pair<size_t, size_t>> u;
+  for (const auto& r : rows) {
+    if (!u.empty() && u.back().first == r.first) u.back().second = std::max(u.back().second, r.second);
+    else u.push_back(r);
+  }
+  return u;
+}
+// S105 SKB3: the ranged evtobj state, opened once (the block index + the directory: ~25 ms); nullptr = take the whole-file path (not XCTD / a read or decode surprise / the pac is missing). A failure is remembered (no retry loop).
+inline EvtRanged* OpenEvtRanged(launcher::GameFiles& files, std::string& err) {
+  EvtRanged& s = DlcProps().evt;
+  const std::string root_now = files.root().string();
+  if ((s.ok || s.tried) && (s.files_id != static_cast<const void*>(&files) || s.root != root_now)) s = EvtRanged();   // S105 SKB3 fix L2: another GameFiles / root: the old reader is dropped and re-taken
+  if (s.ok) return &s;
+  if (s.tried) return err = s.why.empty() ? "evtobj.pac ranged reader unavailable" : s.why, nullptr;
+  s.tried = true;
+  s.files_id = &files, s.root = root_now;
+  const auto t0 = std::chrono::steady_clock::now();
+  std::string e;
+  auto fail = [&](const std::string& why) -> EvtRanged* { err = "evtobj.pac ranged: " + why; s.why = err; EvtLine("evtobj.pac ranged unavailable (" + err + "): whole-file path"); s.rr = {}, s.ix = {}, s.header.clear(), s.rows.clear(); return nullptr; };
+  if (!files.OpenRange("pac\\evt\\evtobj.pac", s.rr)) return fail("cannot open");
+  if (!wwe2k14::xctd_ranged::BuildIndex(s.rr.read, s.rr.size, s.ix, e)) return fail(e);
+  if (!wwe2k14::xctd_ranged::DecodeRange(s.rr.read, s.ix, 0, 0x4000, s.header, e)) return fail(e);
+  if (std::memcmp(s.header.data(), "EPAC", 4) != 0) return fail("no EPAC header");
+  s.rows = EvtDirRows(s.header);
+  if (s.rows.empty()) return fail("empty directory");
+  s.index_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  s.ok = true;
+  return &s;
+}
+// S105 SKB3: PACH `ordinal` of the disc evtobj.pac as its own Pac (bytes = that PACH only, pachs[0], offsets relative to it), decoded from the blocks that hold it; cached until ReleaseEvtobj. nullptr = take the whole-file path.
+inline const pac::Pac* OpenEvtSlice(launcher::GameFiles& files, int ordinal, std::string& err) {
+  EvtRanged* s = OpenEvtRanged(files, err);
+  if (!s) return nullptr;
+  if (auto it = s->slices.find(ordinal); it != s->slices.end()) return &it->second;
+  if (s->slice_failed.count(ordinal)) return err = "evtobj.pac ranged: PACH " + std::to_string(ordinal) + " failed before (whole-file path)", nullptr;   // S105 SKB3 fix L1: not decoded again
+  struct Mark { EvtRanged* s; int o; bool ok = false; ~Mark() { if (!ok) s->slice_failed.insert(o); } } mark{s, ordinal};
+  if (ordinal < 0 || size_t(ordinal) >= s->rows.size()) return err = "evtobj.pac ranged: no PACH " + std::to_string(ordinal), nullptr;
+  const size_t start = s->rows[size_t(ordinal)].first;
+  if (start >= s->ix.out_total) return err = "evtobj.pac ranged: PACH start past the pac", nullptr;
+  const size_t len = std::min<size_t>(s->rows[size_t(ordinal)].second, size_t(s->ix.out_total) - start);
+  pac::Pac p;
+  std::string e;
+  if (!wwe2k14::xctd_ranged::DecodeRange(s->rr.read, s->ix, start, len, p.bytes, e)) return err = "evtobj.pac ranged: " + e, nullptr;
+  pac::Pach h;
+  if (!pac::ParsePach(p.bytes, 0, p.bytes.size(), h)) return err = "evtobj.pac ranged: PACH " + std::to_string(ordinal) + " does not parse", nullptr;
+  p.pachs.push_back(std::move(h));
+  ++s->slice_decodes;
+  mark.ok = true;
+  return &(s->slices[ordinal] = std::move(p));
+}
 // S103 BLF (decision 2026-11-19): the live game frees the disc evtobj.pac's unpack (~160 MB) when its last event prop model is retired (the entrance is over); the next entrance prop reopens it. Holds the loader lock, so it never
 // frees under a load in flight; does nothing unless the live loader marked the slot releasable (the viewer shares OpenPropFile and keeps its pac). Returns true when a pac was closed.
 // S103 GBR (BH4 item 4): called on the render thread; the loader's lock can be held for seconds by a worker: try_lock, and `busy` = true when it could not be taken (the caller retries next frame). Never blocks.
@@ -304,7 +430,8 @@ inline bool ReleaseEvtobj(bool* busy = nullptr) {
   if (!lk.owns_lock()) return false;
   DlcPropState& st = DlcProps();
   if (!st.releasable) return false;
-  const bool had = st.cache.erase("pac\\evt\\evtobj.pac") != 0;
+  bool had = st.cache.erase("pac\\evt\\evtobj.pac") != 0;
+  if (st.evt.ok || st.evt.tried) { had = had || st.evt.ok; st.evt = EvtRanged(); }   // S105 SKB3: the ranged state (index, directory, slices, the open file) goes too; the next entrance prop re-indexes (~21 ms)
   if (had) ++st.releases;
   return had;
 }
@@ -358,16 +485,26 @@ inline bool LoadPropEntry(launcher::GameFiles& files, int pach, uint32_t k, Mode
   m = {};
   if (pach < 0) return err = "prop PACH must be >= 0", false;
   if (k > 9) return err = "prop entry above 9", false;
-  const pac::Pac* p = OpenPropFile(files, pach, err);
+  const int ord = dlc_files::PropIndex(pach);   // S105 SKB3: the PACH's ordinal in its pac (messages); `at` = its index in `p` (0 for a ranged slice)
+  int at = ord;
+  const pac::Pac* p = nullptr;
+  if (pach < dlc_files::kPropPackStride) {   // the disc evtobj.pac: only the blocks this PACH lives in (OpenEvtSlice); the whole-file path stays the fallback
+    std::string slice_err;
+    if ((p = OpenEvtSlice(files, ord, slice_err))) at = 0;
+    else {   // S105 SKB3 fix L1: the cost this lane removed (1.1 s / 181 MB) must never come back unseen: one line per ordinal
+      static std::set<int> told;
+      if (told.insert(ord).second) load_detail::EvtLine("evtobj.pac PACH " + std::to_string(ord) + ": slice unavailable (" + slice_err + "): whole-file path");
+    }
+  }
+  if (!p) p = OpenPropFile(files, pach, err);
   if (!p) return false;
-  const int at = dlc_files::PropIndex(pach);
   const std::string name = BaseName(dlc_files::PropFile(pach));
-  if (size_t(at) >= p->pachs.size()) return err = name + " has no PACH " + std::to_string(at), false;
+  if (size_t(at) >= p->pachs.size()) return err = name + " has no PACH " + std::to_string(ord), false;
   const pac::Pach& h = p->pachs[size_t(at)];
   const pac::Ent* e = pac::Find(h, k);
-  if (!e) return err = name + " PACH " + std::to_string(at) + " has no entry " + std::to_string(k), false;
+  if (!e) return err = name + " PACH " + std::to_string(ord) + " has no entry " + std::to_string(k), false;
   const Bytes blob = pac::Decode(p->bytes.data() + e->off, e->size);
-  if (!IsJboy(blob)) return err = name + " PACH " + std::to_string(at) + " entry " + std::to_string(k) + " is not a JBOY", false;
+  if (!IsJboy(blob)) return err = name + " PACH " + std::to_string(ord) + " entry " + std::to_string(k) + " is not a JBOY", false;
   TexSet tex;
   for (const pac::Ent& t : h.ents)
     if (((t.id >= 10 && t.id <= 19) || t.id == 20) && t.size >= 0x30) tex.AddDir(pac::Decode(p->bytes.data() + t.off, t.size));   // S103 RFL: + entry 20, the PACH's second texture directory (the reflection cubes: cube_ref / cube_01 ...; census: every named cube of a prop is found there; the m2 weapons read 10 + 20 the same way, LoadM2Weapon)
@@ -390,15 +527,19 @@ inline bool LoadPropEntry(launcher::GameFiles& files, int pach, uint32_t k, Mode
 // NO placement: the call's node rows pose it (src\renderer_scene\weapon_draw_core.h). Id 14 (the belts) is nested one level deeper under a sub-key the game takes from [0x836F2D88] [L]: refused here, counted by the drawer.
 // `model_entry` = which leaf entry is the model: 0 = the weapon's main model, 1 / 2 = its SECONDARY models k = 0 / 1 (the game's keys 1 / 2 of the weapon's PACH, sub_8258FF90 loop k < 2 [C]; the k -> key k+1 order [L]; m2 p0 has them for id 89 only);
 // a secondary shares the leaf's textures (key 10 [L]). Textures: key 10 and key 20 (a second texture directory in ids 29-37, read with key 10 by MakeSkinModel sub_8258E270 [C]; same directory layout as key 10, 12464 bytes [C census]).
-// `tex_first` = the first texture entry read (10 = the game's); the offline unit plants 11 to prove the key matters. Opens m2.pac (31 MB) itself, per call: the callers cache the model by id, so each id is read once.
+// `tex_first` = the first texture entry read (10 = the game's); the offline unit plants 11 to prove the key matters. m2.pac (31 MB) is opened once per program (OpenM2, S105 SKB; the callers hold LoadMutex).
+namespace load_detail {
+inline const pac::Pac* OpenM2(launcher::GameFiles& files, std::string& err);   // defined below, beside OpenProps
+}
 inline bool LoadM2Weapon(launcher::GameFiles& files, int id, Model& m, std::string& err, uint32_t tex_first = 10, uint32_t model_entry = 0, int belt_sub = -1) {   // S103 LDR: belt_sub = id 14's sub-key (the title's belt; the game falls back to 0 for a key the pac lacks)
   using namespace load_detail;
   m = {};
   if (model_entry > 2) return err = "m2 weapon: model entry above 2", false;
   if (id < 0) return err = "m2 weapon: negative id", false;
   if (id == 14 && belt_sub < 0) return err = "m2 weapon 14 (the belts) is nested one level deeper under the title's sub-key: no sub-key given, not loaded", false;
-  pac::Pac p;
-  if (!pac::Open(files, "pac\\m2.pac", p, err)) return false;
+  const pac::Pac* pp = OpenM2(files, err);   // S105 SKB: opened once (the 31 MB read was repeated per id: 555-582 ms for 14 ids)
+  if (!pp) return false;
+  const pac::Pac& p = *pp;
   Bytes b1, nb;
   pac::Pach p1, np;
   // S103 LDR (COV10 C2; docs\formats\props_coverage.md section 2): the game picks the weapon set by the match's rule type (sub_8258CBB0): the normal set (m2 p0 = bgEtc /STG/WPON) or the backstage-brawl set (m2 p1 = /STG/WPBS). Ids 17, 51-58, 61,
@@ -606,6 +747,10 @@ inline int PropPach(launcher::GameFiles& files, uint32_t prop_id) {
   if (auto it = cache.find({packs, prop_id}); it != cache.end()) return it->second;
   std::string err;
   int found = -1;
+  {   // S105 SKB3 fix L5: a prop with no disc directory row takes the whole 181 MB open for the node rule: say so once per id
+    static std::set<uint32_t> told;
+    if (told.insert(prop_id).second) load_detail::EvtLine("evtobj.pac whole open for prop id " + std::to_string(prop_id) + " (no directory row)");
+  }
   if (const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err)) found = PropPachIn(p, prop_id);   // (S103 BLF review 3: the evtobj slot)
   for (size_t k = 0; found < 0 && k < packs.size(); ++k) {
     if (packs[k] <= 0 || packs[k] >= 21000) continue;  // (the PACH number must fit an int)
@@ -627,18 +772,17 @@ inline int PropPach(launcher::GameFiles& files, uint32_t prop_id) {
 // run 6824's s0_ring capture draws PACH 181's mesh (first vertex position byte-identical, 755 vertices, 1985 strip indices) on Cena's
 // head]. Returns the PACH index in `p`, -1 when the pac has no such directory record (DLC pacs without a header: the node rule below).
 // (attire props, review) `bobj_only`: only the "BOBJ" section (sub_8230B4C0's precheck sub_82310000 -> sub_825AE680 "/BOBJ/%04d").
-inline int PropDirIn(const pac::Pac* p, uint32_t prop_id, bool bobj_only = false, bool require_entry0 = true, bool sobj_only = false) {
-  if (!p || prop_id > 9999 || p->bytes.size() < 0x4000) return -1;
-  const Bytes& b = p->bytes;
-  if (std::memcmp(b.data(), "EPAC", 4) != 0 && std::memcmp(b.data(), "EPK8", 4) != 0) return -1;
+// S105 SKB3: the directory half of PropDirIn, on the 16 KB header alone (the ranged evtobj path has no whole pac): the byte start (0x4000 + start x 0x800) of the first row of `prop_id` in the asked section(s); false = no such row / no EPAC header.
+inline bool PropDirStart(const Bytes& b, uint32_t prop_id, bool bobj_only, bool sobj_only, size_t& at_out) {
+  if (prop_id > 9999 || b.size() < 0x4000) return false;
+  if (std::memcmp(b.data(), "EPAC", 4) != 0 && std::memcmp(b.data(), "EPK8", 4) != 0) return false;
   char want[8];
   std::snprintf(want, sizeof want, "%04u", unsigned(prop_id));
   auto is_id = [](const uint8_t* s) { return std::isdigit(s[0]) && std::isdigit(s[1]) && std::isdigit(s[2]) && std::isdigit(s[3]); };
-  // (the first section's name sits at +0x800; "LIST" is its first record, not a section)
   for (const char* section : {"SOBJ", "BOBJ"}) {
     if (bobj_only && std::strcmp(section, "BOBJ") != 0) continue;
     if (sobj_only && std::strcmp(section, "SOBJ") != 0) continue;
-    std::string cur(reinterpret_cast<const char*>(b.data() + 0x800), 4);
+    std::string cur(reinterpret_cast<const char*>(b.data() + 0x800), 4);   // (the first section's name sits at +0x800; "LIST" is its first record, not a section)
     for (size_t o = 0x80C; o + 12 <= 0x4000; o += 12) {
       const uint8_t* r = b.data() + o;
       const uint32_t st = Le32(b, o + 4);
@@ -648,12 +792,17 @@ inline int PropDirIn(const pac::Pac* p, uint32_t prop_id, bool bobj_only = false
         continue;
       }
       if (cur != section || std::memcmp(r, want, 4) != 0) continue;
-      const size_t at = 0x4000 + size_t(st) * 0x800;
-      for (size_t i = 0; i < p->pachs.size(); ++i)
-        if (p->pachs[i].base == at) return (!require_entry0 || pac::Find(p->pachs[i], 0)) ? int(i) : -1;  // (review: 2717's model is entry 5 only: skipped)
-      return -1;
+      at_out = 0x4000 + size_t(st) * 0x800;
+      return true;
     }
   }
+  return false;
+}
+inline int PropDirIn(const pac::Pac* p, uint32_t prop_id, bool bobj_only = false, bool require_entry0 = true, bool sobj_only = false) {
+  size_t at = 0;
+  if (!p || !PropDirStart(p->bytes, prop_id, bobj_only, sobj_only, at)) return -1;   // S105 SKB3: the row walk is PropDirStart (same rows, same order); the PACH lookup stays here
+  for (size_t i = 0; i < p->pachs.size(); ++i)
+    if (p->pachs[i].base == at) return (!require_entry0 || pac::Find(p->pachs[i], 0)) ? int(i) : -1;  // (review: 2717's model is entry 5 only: skipped)
   return -1;
 }
 // The PACH of `p` named `prop_id` in its directory (PropDirIn), else the one whose model has a node "<id>" / "<id>_..", -1 none (p may be
@@ -688,7 +837,18 @@ inline int PropPachEvt(launcher::GameFiles& files, uint32_t prop_id, int* other 
   using namespace load_detail;
   if (other) *other = -1;
   std::string err;
-  if (const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err)) {
+  if (EvtRanged* r = OpenEvtRanged(files, err)) {   // S105 SKB3: the disc pac's directory from the ranged header (block 0): the ordinal = the rank of the row's start; no whole-pac open. A prop with no row falls to PropPach as before (its node rule needs the whole pac).
+    auto ordinal_of = [&](bool bobj_only, bool sobj_only) -> int {
+      size_t at = 0;
+      if (!PropDirStart(r->header, prop_id, bobj_only, sobj_only, at)) return -1;
+      const auto it = std::lower_bound(r->rows.begin(), r->rows.end(), std::make_pair(at, size_t(0)));
+      return it != r->rows.end() && it->first == at ? int(it - r->rows.begin()) : -1;
+    };
+    const int s = ordinal_of(false, true), b = ordinal_of(true, false);
+    if (s >= 0 && b >= 0 && s != b && other) *other = b;
+    if (s >= 0) return s;
+    if (b >= 0) return b;
+  } else if (const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err)) {
     const int s = PropDirIn(p, prop_id, false, false, true), b = PropDirIn(p, prop_id, true, false);
     if (s >= 0 && b >= 0 && s != b && other) *other = b;
     if (s >= 0) return s;
@@ -848,10 +1008,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
 
   // Texture directories: this attire's first, then attire 0's as a fallback (unconfirmed that attires share textures).
   TexSet tex;
-  auto add_dirs = [&](const pac::Pach& hh) {
-    for (const pac::Ent& e : hh.ents)
-      if ((e.id >= 10 && e.id <= 19) && e.size >= 0x30) tex.AddDir(pac::Decode(buf.data() + e.off, e.size));
-  };
+  auto add_dirs = [&](const pac::Pach& hh) { AddTexDirs(tex, buf, hh); };   // S105 A7: 10..19 and 39
   add_dirs(*h);
   if (h != &p->pachs[0]) {
     for (const pac::Pach& c : p->pachs)
@@ -989,6 +1146,22 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
 // arena's pac): PACH 9, nested entry 29 / 32 / 35 (three texture variants of the same 181 / 32 / 20 vertex meshes; 30 / 33 / 36 and
 // 31 / 34 / 37 are larger sets of the same family) [C counts and bounds]. Which variant an arena uses is not found (the probe has
 // no textures): [U] we take entry 29 for every arena. Opens bgEtc once per program (its own cache, so the arena pac stays valid).
+// S105 SKB: pac\m2.pac opened once per program (same shape as OpenProps; the caller holds LoadMutex, the tools are single-threaded). Only a success is kept: a failure (no root yet) retries on the next call.
+// S105 SKB fix F1: M2Opens counts the successful opens (the unit requires exactly 1); M2ForgetForTest makes the next call reopen (the m2_reopen twin).
+inline int& M2Opens() { static int n = 0; return n; }
+inline bool& M2IsOpen() { static bool open = false; return open; }
+inline void M2ForgetForTest() { M2IsOpen() = false; }
+inline const pac::Pac* OpenM2(launcher::GameFiles& files, std::string& err) {
+  static pac::Pac m2;
+  if (!M2IsOpen()) {
+    pac::Pac t;
+    if (!pac::Open(files, "pac\\m2.pac", t, err)) return nullptr;
+    m2 = std::move(t);
+    M2IsOpen() = true;
+    ++M2Opens();
+  }
+  return &m2;
+}
 inline const pac::Pac* OpenProps(launcher::GameFiles& files) {
   static pac::Pac props;
   static int state = 0;  // 0 = not tried, 1 = open, 2 = failed
@@ -1729,6 +1902,16 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
           mt.additive = mt.additive || (bit->second & 1);
           mt.alpha_test = false;
         }
+    // S105 SZW: the slot's game state, from its record byte 8 (SlotRecordToken: `a` 0x40, `s` 0x20, `z` 0x08). An `s` / `a` slot writes depth unless `z` and is alpha-tested; a `z`-only slot draws opaque-group,
+    // blended, tested, with no depth write (FrontEnd::Record applies it behind wwe2k14_rdr_stage_zwrite). Stage slots 0..399 only (the movie keys 800-809 are marked by rf_c_core.cpp).
+    if (key <= 399)
+      if (const auto rit = slot_rec.find(int(key)); rit != slot_rec.end()) {
+        const uint8_t b8 = rit->second.b8;
+        const uint8_t zw = uint8_t(((b8 & 0x60) ? 1 : 0) | ((b8 & 0x08) ? 2 : 0));
+        if (zw)
+          for (size_t k = first_mesh; k < m.meshes.size(); ++k)
+            if (m.meshes[k].material >= 0) m.materials[size_t(m.meshes[k].material)].stage_zw = zw;
+      }
     // Session 97: `r` / `y` slots are drawn once as stored and once mirrored (x -> -x) / turned 180 degrees about Y.
     // Before this, half of every symmetric arena (stands, walls) was missing.
     if (auto mit = slot_mirror.find(int(key)); mit != slot_mirror.end() && first_mesh < m.meshes.size()) {

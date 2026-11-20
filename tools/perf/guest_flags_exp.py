@@ -11,7 +11,10 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections import Counter
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'admit'))
+import admit_py as _admit  # noqa: E402   CQW: the machine-wide compile queue for the variant pool (nothing runs at import)
 
 R = r'C:\Users\Jarrod\wwe2k14-recomp'
 EXP = os.path.join(R, 'out', 's95', 'gcpu', 'exp')
@@ -117,7 +120,7 @@ def main():
     tus = a.tus.split(',')
     names = a.variants.split(',')
     res = {n: {} for n in names}
-    with cf.ThreadPoolExecutor(a.jobs) as ex:
+    with _admit.hold('cc.generated', a.jobs, timeout_s=300) as nj, cf.ThreadPoolExecutor(nj) as ex:   # CQW: generated-code units (a.jobs = the want and the fall-open value)
         for name, tu, per, err in ex.map(lambda p: compile_one(*p), [(t, n) for n in names for t in tus]):
             if per is None:
                 print(f'FAIL {name} tu{tu}: {err}')

@@ -14,7 +14,7 @@ to what the build compiles is one of: an edit to a file of the old closure (key 
 a new file that shadows or is picked up by a source-list directory walk (a name appears: key changes); a changed build script / flag (the script and
 its helpers are in the closure). A header that only a different flag set reaches is the open case (documented in the lane's handback).
 """
-import hashlib, os, re, sys, threading
+import hashlib, os, re, sys, threading, time
 from pathlib import Path
 
 HEAD = '# wwe2k14-deps v1'
@@ -291,16 +291,18 @@ def _sha1_file(p):
 class Index:
     """A read-only view of the `q ours` index (out\\harness\\index\\ours.db: TUs, include edges, file shas)."""
 
-    def __init__(self, path):
+    def __init__(self, path, timeout=None):
         self.path = Path(path)
         self._db = None
         self.stamp = ''
         self._tu = {}
         self._sha = {}
+        self.timeout = timeout   # QAF: a reader that must not wait on a writer (q ours affects) passes a short one; None = sqlite's default 5 s
         self._open()
 
     def _open(self):
-        self._db = sqlite3.connect(f'file:{self.path.as_posix()}?mode=ro', uri=True, check_same_thread=False)
+        kw = {} if self.timeout is None else {'timeout': self.timeout}
+        self._db = sqlite3.connect(f'file:{self.path.as_posix()}?mode=ro', uri=True, check_same_thread=False, **kw)
         self.stamp = f'{self.path.stat().st_mtime_ns}'   # informational only: no cache key uses it (DPC)
         self._tu, self._sha = {}, {}
 
@@ -547,7 +549,7 @@ def derive(check, root, main, idx=None):
     # does the check WRITE anything (a producer other checks may read)? Then a skip could starve a consumer, so it never skips on derived deps alone.
     writes = any(WRITES_RE.search(_code(t, k)) for _r, k, t in all_text) or any(a in ('-o', '--out', '--output') or a.startswith('--out') for a in cmd)
     return {'tier': tier, 'exact': exact and tier in ('A', 'B'), 'files': sorted(files), 'dirs': sorted(dirs), 'idx_files': sorted(idx_files), 'notes': notes,
-            'closure': sorted(set(closure)), 'writes': writes, 'scan_dirs': scan_dirs, 'lits': sorted(lits),
+            'closure': sorted(set(closure)), 'writes': writes, 'scan_dirs': scan_dirs, 'lits': sorted(lits), 'manifest': manifest_used,   # QAF: files came (in part) from a build manifest: such an entry is not reused once the manifests moved on
             'uncacheable': check['uncacheable'] if isinstance(check.get('uncacheable'), str) and check['uncacheable'].strip() else ''}
 
 
@@ -589,18 +591,35 @@ def deps_hit(derived, changed):
     return None
 
 
-def _sig(check, root, derived_closure, idx, lits=(), idx_files=()):
+def _sig(check, root, derived_closure, idx, lits=(), idx_files=(), memo=None):
     """DPC: an entry follows the CONTENT of the files it was derived from. The index contributes the sha of each closure file it describes (`idx_files`), not
-    ours.db's mtime: an index rebuild that changed none of those files keeps every entry warm (the old mtime key made each rebuild a cold start for every root)."""
+    ours.db's mtime: an index rebuild that changed none of those files keeps every entry warm (the old mtime key made each rebuild a cold start for every root).
+    QAF: plain os.path calls instead of pathlib (57k stats through Path took 2.4 s of a warm `q ours affects`); the digest is byte-for-byte the same, so every
+    saved entry stays valid. memo = a dict a SHORT-LIVED reader (q) shares across checks: each file is statted / hashed once per process, not once per check."""
     import hashlib as _h
     d = _h.sha256()
     d.update(DERIVE_VERSION.encode())
     d.update(str(root).encode())   # S103 DIB review bug 10: an entry is for one checkout
     d.update(repr((check.get('cmd'), check.get('deps'), check.get('uncacheable'))).encode())
+    rs = str(root)
     for rel in derived_closure:
-        d.update(rel.encode() + b'\0' + _hash_file(Path(root) / rel).encode())
+        p = os.path.join(rs, rel)
+        if memo is None:
+            h = _hash_file(p)
+        else:
+            h = memo.get(('h', p))
+            if h is None:
+                h = memo[('h', p)] = _hash_file(p)
+        d.update(rel.encode() + b'\0' + h.encode())
     for lit in lits:   # which of the literals the derivation looked up exist now: a file that appears or goes changes the derived set
-        d.update(lit.encode() + (b'\0Y' if (Path(root) / lit).exists() else b'\0N'))
+        p = os.path.join(rs, lit)   # (QAF: os.path.exists('a.txt/') is False where Path('a.txt/').exists() was True for a FILE: such a lit costs one recompute, nothing else)
+        if memo is None:
+            ex = os.path.exists(p)
+        else:
+            ex = memo.get(('e', p))
+            if ex is None:
+                ex = memo[('e', p)] = os.path.exists(p)
+        d.update(lit.encode() + (b'\0Y' if ex else b'\0N'))
     if idx is None:
         d.update(b'no-index')
     else:
@@ -644,9 +663,18 @@ class Table:
     and a signature of the files its derivation read, the existence of the literals it looked up, the manifests' CONTENT and the sha of its index closure files; a
     stale entry is recomputed, never used."""
 
-    def __init__(self, root, main, cache_path=None, log=print):
+    def __init__(self, root, main, cache_path=None, log=print, idx=None):
         self.root, self.main = Path(root), Path(main) if main else Path(root)
-        self.idx = open_index(self.root, self.main)
+        self.idx = idx if idx is not None else open_index(self.root, self.main)   # QAF: idx = a reader's own (snapshot / short-timeout) view
+        # QAF (q ours affects): quick = a short-lived reader: the files of one process are statted / hashed once, not once per check;
+        # derive_budget_s = stop deriving after this many seconds of derive() work: a cold table (every new checkout starts empty, ~100 s) answers
+        # in bounded time with the checks it has not derived yet counted as tier D (deps unknown); `skipped` says how many.
+        self.quick = False
+        self.derive_budget_s = None
+        self.derive_spent = 0.0
+        self._skipped = set()   # names, so several files asked in one call count a check once
+        self._stale = set()     # names answered from an entry whose build-manifest stamp is older (files unchanged), over the budget
+        self._qmemo = {}
         self.base = Path(cache_path) if cache_path else self.main / 'out' / 'gate' / 'deps.json'
         self._rk = hashlib.sha1(str(self.root).encode()).hexdigest()[:10]
         self.path = self.base.with_name(f'{self.base.stem}.{self._rk}{self.base.suffix}')   # this checkout's shard
@@ -671,6 +699,20 @@ class Table:
     def close(self):
         if self.idx is not None:
             self.idx.close()
+
+    def underived(self, name):
+        """QAF: True when the budget left this check without a derived set (get() answered a tier-D stub)"""
+        return name in self._skipped
+
+    @property
+    def stale_used(self):
+        """QAF: how many checks were answered from an entry older than the latest build manifests (each counted once)"""
+        return len(self._stale)
+
+    @property
+    def skipped(self):
+        """QAF: how many checks the derive budget left underived (each counted once)"""
+        return len(self._skipped)
 
     def refresh(self):
         """Forget the manifest stamp (a build in this gate rewrote manifests): the next get() re-reads it."""
@@ -697,18 +739,32 @@ class Table:
         mstamp = self._mf.get('s')
         if mstamp is None:
             mstamp = self._mf['s'] = self._manifest_stamp()
-        if ent and ent.get('mstamp') == mstamp and ent.get('sig') == _sig(check, self.root, ent['d'].get('closure', []), self.idx, ent['d'].get('lits', []), ent['d'].get('idx_files', [])):
+        memo = self._qmemo if self.quick else None
+        sig_ok = bool(ent) and ent.get('sig') == _sig(check, self.root, ent['d'].get('closure', []), self.idx, ent['d'].get('lits', []), ent['d'].get('idx_files', []), memo)
+        if sig_ok and ent.get('mstamp') == mstamp:
             self.hits += 1
             return ent['d']
+        if self.derive_budget_s is not None and self.derive_spent >= self.derive_budget_s:
+            # QAF: over the budget. The signature covers the script files a check runs, NOT its build manifests, so an entry whose file list came from a manifest
+            # (`manifest` true; a tier A entry, or a C / D one that read one) is never reused once the stamp moved on: a source that gained an #include is a new file in it.
+            # An entry without the flag (saved before it existed) is treated as one that used a manifest. Only a manifest-free entry (tier B and the like) is reused, counted.
+            if sig_ok and ent['d'].get('manifest') is False:
+                self._stale.add(name)
+                return ent['d']
+            self._skipped.add(name)   # QAF: over the budget: not derived, not stored; the caller reports `skipped`
+            return {'tier': 'D', 'exact': False, 'files': [], 'dirs': [], 'idx_files': [], 'notes': ['deps not derived yet (derive budget)'], 'closure': []}
         self.misses += 1
+        t0 = time.monotonic()
         try:
             d = derive(check, self.root, self.main, self.idx)
         except Exception as e:   # an odd check is tier D, never a crash of the gate
             # DPC F1: a failed derivation is returned, never stored (a transient error must not stay in the table as the check's answer)
             return {'tier': 'D', 'exact': False, 'files': [], 'dirs': [], 'idx_files': [], 'notes': [f'derivation failed: {type(e).__name__}: {e}'], 'closure': []}
+        finally:
+            self.derive_spent += time.monotonic() - t0
         if _is_game_syntax(check):
             return d   # DPC F2: a game_syntax derivation is a few SQL queries on the index: never cached (its key would have to follow the index's include edges)
-        ent = {'sig': _sig(check, self.root, d.get('closure', []), self.idx, d.get('lits', []), d.get('idx_files', [])), 'mstamp': mstamp, 'd': d}
+        ent = {'sig': _sig(check, self.root, d.get('closure', []), self.idx, d.get('lits', []), d.get('idx_files', []), memo), 'mstamp': mstamp, 'd': d}
         self.cache[name] = self.new[name] = ent
         self.dirty = True
         return d

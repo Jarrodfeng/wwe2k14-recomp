@@ -1,0 +1,13 @@
+{
+ "owner": "WGD (2026-11-20): the whole-game choice diff (tools/harvest/choice_ours.py, choice_diff.py, choice_sheet.py): every arena mesh, the game's rule against our real draw (the d2 line of WWE_RDR_FEATURE_DUMP in front_end.cpp), mismatches by class. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "unit = the joiner on invented fixture rows (cheap). rig = arenas 4 and 44, both looks, through arena_rec + frame_rig with the dump on; fails if any screen class appears (the TRN4 fix: the movie keys judged against yMovieDefault). docs/agents/choice_diff.md.",
+ "checks": [
+  {"name": "wgd_diff.unit", "cmd": ["py", "-I", "tools/harvest/choice_diff_unit.py"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/harvest/choice_diff.py", "tools/harvest/choice_diff_unit.py", "tools/harvest/choice_ours.py"]},
+  {"name": "wgd_diff.rig", "cmd": ["py", "-I", "tools/harvest/choice_diff.py", "--run-ours", "--arenas", "4,44", "--ours", "out/gate/wgd_diff/ours", "--out-dir", "out/gate/wgd_diff", "--fail-on", "screen "], "timeout_s": 900, "tier": "rig",
+   "needs": ["game_data/extracted"],
+   "affects": ["tools/harvest/choice_diff.py", "tools/harvest/choice_ours.py", "tools/harvest/choice_predict.py", "tools/arena/arena_files.py", "tools/scene/arena_rec.cpp", "tools/scene/frame_rig.cpp",
+               "src/renderer_scene/front_end.cpp", "src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/feature_dump.h"]}
+ ]
+}

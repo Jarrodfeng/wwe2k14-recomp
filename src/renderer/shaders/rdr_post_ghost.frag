@@ -15,7 +15,8 @@ layout(location = 1) out vec4 out_history;   // the same picture into the histor
 
 void main() {
   vec4 dst = texelFetch(picture, ivec2(gl_FragCoord.xy), 0);
-  vec2 p = gl_FragCoord.xy / fc.c.xy;
+  // S105 A1: the DRAWN size (gl_FragCoord is in drawn pixels; a scaled scene is 2x the logical fc.c at 1440p). fc.c.z = 1 is the rig-only planted old divide (by the logical size).
+  vec2 p = gl_FragCoord.xy / (fc.c.z > 0.5 ? fc.c.xy : vec2(textureSize(picture, 0)));
   vec2 u = (p - fc.a.xy) / max(fc.a.z, 1e-4) + 0.5;
   bool inside = all(greaterThanEqual(u, vec2(0.0))) && all(lessThanEqual(u, vec2(1.0)));
   vec3 src = texture(history, u).rgb * fc.b.xyz;

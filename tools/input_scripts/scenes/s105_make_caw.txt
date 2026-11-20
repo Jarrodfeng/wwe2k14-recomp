@@ -1,0 +1,222 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
+# intent: owner on
+# Editor map read from runs 073 / 075 / 082 / 083 / 091 / 094 (sheets): after the template pick (A) the HEAD tab (rows FACES TEMPLATES SKIN HAIR FACE ...) is up; B at the editor top EXITS to the main menu (never B there).
+# HAIR (row 3): A -> SUPERSTAR / DIVA list -> A on SUPERSTAR -> carousel "1/86" -> DOWN x56 = 57/86 (dreadlocks) -> A -> options page (COLOR, ETC / LENGTH / ACCEPT) -> DOWN x2 + A = ACCEPT -> the HEAD list.
+# CLOTHING (RB x2) > UPPER BODY (DOWN x2, A) > BODY ACCESSORIES (DOWN x3, A) -> carousel "1/38" -> A -> options (COLOR, ETC / PATTERN / ACCEPT) -> DOWN x2 + A -> back on the UPPER BODY page; again for item 5 (4 DOWN).
+# Presses 40-60 frames apart: at 20 the editor lagged and dropped presses (run 075).
+on_fail quit
+log bench: start scene s105_make_caw
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+mark 1 menu
+include menu_to_creations
+wait_frames 120
+mark 2 creations
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+press A
+wait_frames 500
+log scene=caw_landing
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 250
+log scene=hair_cat
+log_text 8
+screenshot sc_s105_mk_hair_cat
+press A
+wait_frames 300
+log scene=hair_car
+log_text 8
+screenshot sc_s105_mk_hair_car
+repeat 56
+press DOWN
+wait_frames 25
+end_repeat
+wait_frames 60
+log scene=hair57
+log_text 8
+screenshot sc_s105_mk_hair57
+press A
+wait_frames 250
+log scene=hair_opts
+log_text 8
+screenshot sc_s105_mk_hair_opts
+repeat 2
+press DOWN
+wait_frames 60
+end_repeat
+press A
+wait_frames 250
+log scene=hair_accept_row
+log_text 8
+screenshot sc_s105_mk_hair_accept_row
+wait_frames 120
+wait_frames 60
+mark 3 hair
+press RB
+wait_frames 150
+press RB
+wait_frames 150
+wait_frames 120
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 250
+log scene=upper_open
+log_text 8
+screenshot sc_s105_mk_upper_open
+wait_frames 120
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+log scene=acc_open
+log_text 8
+screenshot sc_s105_mk_acc_open
+press A
+wait_frames 250
+log scene=acc1_opts
+log_text 8
+screenshot sc_s105_mk_acc1_opts
+repeat 2
+press DOWN
+wait_frames 60
+end_repeat
+press A
+wait_frames 250
+log scene=acc1_done
+log_text 8
+screenshot sc_s105_mk_acc1_done
+wait_frames 120
+mark 4 acc1
+press UP
+wait_frames 60
+press UP
+wait_frames 60
+press A
+wait_frames 300
+log scene=tops_open
+log_text 8
+screenshot sc_s105_x8_tops_open
+press A
+wait_frames 250
+log scene=tops_a1
+log_text 8
+screenshot sc_s105_x8_tops_a1
+press A
+wait_frames 250
+log scene=tops_a2
+log_text 8
+screenshot sc_s105_x8_tops_a2
+mark 5 tops
+press DOWN
+wait_frames 70
+press A
+wait_frames 250
+log scene=logos_page
+log_text 8
+screenshot sc_s105_mk_logos_page
+press DOWN
+wait_frames 70
+press DOWN
+wait_frames 70
+press DOWN
+wait_frames 70
+press DOWN
+wait_frames 70
+press A
+wait_frames 300
+log scene=cld_open
+log_text 8
+screenshot sc_s105_mk_cld_open
+press L_DOWN 8 20
+wait_frames 90
+press A
+wait_frames 200
+log scene=cld_notice
+log_text 8
+screenshot sc_s105_mk_cld_notice
+press LEFT
+wait_frames 60
+press A
+wait_frames 300
+log scene=cld_placement
+log_text 8
+screenshot sc_s105_mk_cld_placement
+press A
+wait_frames 250
+log scene=logo_on
+log_text 8
+screenshot sc_s105_mk_logo_on
+press B
+wait_frames 250
+log scene=tops_opts_back
+log_text 8
+screenshot sc_s105_mk_tops_opts_back
+repeat 3
+press DOWN
+wait_frames 60
+end_repeat
+log scene=tops_accept_row
+log_text 8
+screenshot sc_s105_mk_tops_accept_row
+press A
+wait_frames 250
+log scene=tops_done
+log_text 8
+screenshot sc_s105_mk_tops_done
+mark 6 logo
+press B
+wait_frames 250
+log scene=clothing_list
+log_text 8
+screenshot sc_s105_mk_clothing_list
+press RB
+wait_frames 250
+log scene=other_tab
+log_text 8
+screenshot sc_s105_mk_other_tab
+wait_text MENU SCREEN POSE 300
+wait_frames 30
+repeat 8
+press DOWN
+wait_frames 60
+end_repeat
+wait_frames 30
+log scene=accept_row
+log_text 8
+screenshot sc_s105_mk_accept_row
+press A
+wait_frames 250
+press LEFT
+wait_frames 60
+press A
+wait_text ROSTER APPLICATION FORM 900
+wait_frames 60
+press UP
+wait_frames 30
+press A
+wait_text QUIT TO DESKTOP 3600
+wait_frames 90
+log scene=caw_saved
+screenshot sc_s105_mk_saved
+mark 7 saved
+wait_frames 600
+log bench: done
+mark 8 end
+quit

@@ -297,6 +297,11 @@ static void ForgeCamera(Forge& f) {
 // origin is inside the box (|px|, |py| ~ 1e-2, radius 120 * 1e-4), w = 1. The constants are the image's (K 120, y offset -120, one 1, near 0, lo -1). [0x83929A68] made non-zero when the fixture has none
 // (a dummy object whose +256 is 0: the floor test then hides nothing, as without it).
 constexpr uint32_t kSingleCam = 0x9F400000u, kSingleCamDummy = 0x9F500000u;
+static void SetScreenScale(float sx, float sy) {   // S105 A2: the crowd switch's 1 / k, 1 / t as start_settings.cpp sets them
+  uint32_t bx, by;
+  std::memcpy(&bx, &sx, 4), std::memcpy(&by, &sy, 4);
+  crowd::latch::g_screen_sx_bits.store(bx), crowd::latch::g_screen_sy_bits.store(by);
+}
 static void ForgeSingleCamera(Forge& f) {
   if (!f.u32(crowd::latch::kSingleCamGate)) f.U(crowd::latch::kSingleCamGate, kSingleCamDummy);
   for (int i = 0; i < 4; ++i)
@@ -466,6 +471,23 @@ static void LatchTests(crowd::Contributor& c, int p) {
         std::vector<uint32_t> idx;
         for (const auto& m : gc.members) if (m.floor) idx.push_back(m.index);
         Check(idx.size() == 3 && idx[0] == 0 && idx[1] == 2 && idx[2] == 3, "latch.floor_screen", "n " + std::to_string(idx.size()));
+        {   // S105 A2: on a frame widened by k = 1.333 the floor seats' screen test is widened by 1 / k too (g_screen_sx_bits): a seat at clip x 1.0 (past the game's 0.9 box) is shown, a seat at 1.4 still hidden; the scale off (16:9, `off`) = today
+          Forge wcam = cam;
+          wcam.F(kFloorPos + 16 * 0, 1.0e6f);   // seat 0: x 1e6, w = z = 100, Pj[0][0] 1e-4: px = 1.0 (hi 0.9: hidden by the game's own box)
+          auto count_seat0 = [&](float sx) {
+            SetScreenScale(sx, 1.f);
+            crowd::LatchSnapshot gw;
+            gw.node = fm::N;
+            crowd::latch::ReadSnapshot(wcam, gw);
+            SetScreenScale(1.f, 1.f);
+            for (const auto& m : gw.members) if (m.floor && m.index == 0) return true;
+            return false;
+          };
+          const bool off_shown = count_seat0(1.f), wide_shown = count_seat0(0.75f);
+          Check(!off_shown && wide_shown, "latch.floor_screen_wide", std::string("scale off: ") + (off_shown ? "shown" : "hidden") + ", 1/k 0.75: " + (wide_shown ? "shown" : "hidden"));
+          wcam.F(kFloorPos + 16 * 0, 1.4e6f);   // px = 1.4 x 0.75 = 1.05: still hidden
+          Check(!count_seat0(0.75f), "latch.floor_screen_wide_edge");
+        }
         // the near cut alone: seat 5 only
         Forge cam2 = cam;
         cam2.F(kFloorPos + 16 * 4 + 0, 1.f);      // seat 4 back inside the box
@@ -862,6 +884,16 @@ static void LatchTests(crowd::Contributor& c, int p) {
         sky.F(kSkMat + 52, 120.f + 9950.f);   // py + ry = 0.995 + 0.012 > 1: hidden
         bool edge_out = rd_full(sky).singles.at(0).hidden == crowd::kShScreen;
         Check(edge_in && edge_out, "latch.single_screen_top", std::to_string(edge_in) + "/" + std::to_string(edge_out));
+        {   // S105 A2: the singles' screen test widened by 1 / k on a frame widened by k = 1.333 (g_screen_sx_bits): a holder at clip x 1.2 (past the game's box) is shown, the scale off = the game's test (hidden)
+          Forge skw = sk;
+          skw.F(kSkMat + 48, 1.2e4f);   // px = 1.2, r = 0.012 (w = 1): px - r > one: hidden by the game's own box
+          SetScreenScale(1.f, 1.f);
+          const bool off_hidden = rd_full(skw).singles.at(0).hidden == crowd::kShScreen;
+          SetScreenScale(0.75f, 1.f);
+          const bool wide_shown = rd_full(skw).singles.at(0).hidden == 0;
+          SetScreenScale(1.f, 1.f);
+          Check(off_hidden && wide_shown, "latch.single_screen_wide", std::string("scale off hidden ") + (off_hidden ? "1" : "0") + ", 1/k shown " + (wide_shown ? "1" : "0"));
+        }
         {   // S103 C1 review fix 1: a NaN DRAWS (blt / bgt not taken, `ble` at 0x8276E404 = bf gt taken on unordered)
           Forge skq = sk;
           skq.U(kSkMat + 52, 0x7FC00000u);   // y = quiet NaN

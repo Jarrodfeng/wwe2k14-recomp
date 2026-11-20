@@ -541,7 +541,7 @@ static int SelfTest() {
       Check(info.pieces.size() == 3 && w.OwnerOfPiece(0x70000999) == 0, "the walk follows desc+16 (4 entries, one null hole skipped): the entry beyond the count is not read");
       {  // PZF2 A2: the body's own node count is read at the build ([model+300], vtable 0x8206AF90, [model+296] != 0) and seeds the link: an unseen link whose address is reused by another object is dropped
         auto g2 = g;
-        g2[kBody + 0] = scene_inputs::kModelVtable, g2[kBody + 296] = 1, g2[kBody + 300] = 109;
+        g2[kBody + 0] = scene_inputs::kModelVtable, g2[scene_inputs::kModelVtable + 8] = scene_inputs::kCountGetter, g2[kBody + 296] = 1, g2[kBody + 300] = 109;
         auto r2 = [&](uint32_t a2, uint32_t& v) { auto it = g2.find(a2); if (it == g2.end()) return false; v = it->second; return true; };
         WrestlerContributor wa;
         wwe2k14::wrestlers::ModelLinkRead(wa, kReader, r2);
@@ -926,6 +926,31 @@ static int SelfTest() {
     Check(scene_inputs::ReadCharacterPieces(rd, ch, got, counts) && got.size() == 3 && got[0].model == 0x70001000 && got[0].id == 10000 && got[1].model == 0x70002000 && got[1].id == 20002 &&
               got[2].model == 0x70003000, "NRB: the SUBM chain gives (model, id) per instance, a model-less instance skipped");
     Check(got.size() == 3 && got[0].why == PieceWhy::Ok && got[1].why == PieceWhy::Unmapped && got[2].why == PieceWhy::Special, "NRBF: proof: a complete map is Ok; a -1 node is Unmapped (a hole); a special-id instance is Special (a hole)");
+    {  // entry: scene_inputs::ReadCharacterPieces, directly with a forged guest memory + count source (its production caller InputsContributor::ReadSlotSkeletons needs the whole latch / character table, which the other NRB checks of this unit also skip)
+       // S105 A5a: the reader's copy probe (production caller: ReadCharacterPieces at the latch): inst +8 / +20 / +24 and the LAST mapped node pair, whatever the proof says; the proof's own verdict is unchanged
+      Check(scene_inputs::ReadCharacterPieces(rd, ch, got, counts) && got.size() == 3 && got[0].probe.drawn == 0 && got[0].probe.special == 0 && got[0].probe.copy == 1, "A5a: the probe carries inst +20 (0 = the game does not draw it), +8 and +24 as read");
+      put(arr + 20, 1);
+      Check(scene_inputs::ReadCharacterPieces(rd, ch, got, counts) && got[0].why == PieceWhy::Ok && got[0].probe.drawn == 1 && got[0].probe.piece_node == 6 && got[0].probe.owner_node == 6,
+            "A5a: a 7-node piece with a full map probes its LAST mapped node (piece node 6, owner node 6); inst +20 == 1 = drawn");
+      Check(got[1].why == PieceWhy::Unmapped && got[1].probe.piece_node == 10 && got[1].probe.owner_node == 10 && got[2].why == PieceWhy::Special && got[2].probe.special == 0x40600000u,
+            "A5a: a piece with a -1 node is still Unmapped (verdict unchanged) and still probes its last mapped node (10); a special-id instance carries its +8 word");
+      Check(scene_inputs::ReadCharacterPieces(rd, ch, got, nullptr) && got[0].why == PieceWhy::NoCount && got[0].probe.piece_node == ~0u && got[0].probe.drawn == 0xFFFFFFFFu, "A5a: NoCount reads nothing: the probe stays unread (0xFFFFFFFF / ~0), and the own-rows rule refuses unread");
+      {  // the count source the glue passes (WrestlerContributor::PieceNodeCount): the update hook's count when the wanted table (a stream-only table) has none: a CAW piece is then proven / probed, not NoCount
+        static WrestlerContributor* cw;
+        WrestlerContributor wc;
+        cw = &wc;
+        wc.SubmitSkin(0x70001000, -1, 7, Pose(7, 0.1f).data(), 5);   // the update hook sized the piece (7 nodes); nothing is in the wanted table (no WantSkeleton ran), and the game's own count word is unreadable here (a CAW piece)
+        const scene_inputs::PieceCountFn hook = [](uint32_t m) -> uint32_t { return cw->WantCount(m); };
+        Check(scene_inputs::ReadCharacterPieces(rd, ch, got, nullptr, nullptr, 0, 0, false, hook) && got[0].why == PieceWhy::Ok && got[0].probe.piece_node == 6 && got[0].nodes == 7, "A5a: with neither a wanted nor a game count, the update hook's count sizes the CAW piece: it reads its map / probe");
+        Check(scene_inputs::ReadCharacterPieces(rd, ch, got, nullptr) && got[0].why == PieceWhy::NoCount && got[0].probe.piece_node == ~0u, "A5a planted twin (no hook count: the old source): NoCount, the probe stays unread (the check above fails it)");
+        // review F1: a STOCK piece (the game's own count word is 7) whose update-hook Known holds ANOTHER skeleton's count (9, a reused address) must stay Ok: the hook count is never a second opinion
+        put(0x70001000 + 0, scene_inputs::kModelVtable), put(scene_inputs::kModelVtable + 8, scene_inputs::kCountGetter), put(0x70001000 + 296, 1), put(0x70001000 + 300, 7);
+        wc.SubmitSkin(0x70001000, -1, 9, Pose(9, 0.1f).data(), 6);
+        Check(scene_inputs::ReadCharacterPieces(rd, ch, got, nullptr, nullptr, 0, 0, false, hook) && got[0].why == PieceWhy::Ok && got[0].nodes == 7, "A5a F1: a stock piece (game count 7) beside a stale Known count 9 stays Ok (the hook count is used only when neither the wanted table nor the game knows the model)");
+        Check(scene_inputs::ReadCharacterPieces(rd, ch, got, hook) && got[0].why == PieceWhy::CountMismatch, "A5a F1 planted twin (the hook count wired as the wanted count: the old glue): the stock piece becomes CountMismatch (a hole): the check above fails it");
+        put(0x70001000 + 0, 0), put(0x70001000 + 296, 0), put(0x70001000 + 300, 0);
+      }
+    }
     {  // S103 W2B (W2_ADV R4 / 3b): with the switch on, a -1 node no longer makes the piece Unmapped: its finished row [[model+200] + 64 * j] is read at the latch; mode byte inst+37 must be 1; an unreadable row = MapUnreadable (never a rest-pose row)
       const uint32_t pal = 0x40900000;
       put(0x70002000 + 200, pal), put(arr + 96 + 36, 0x00010000u);
@@ -1035,12 +1060,25 @@ static int SelfTest() {
       const scene_inputs::PieceCountFn none = [](uint32_t) -> uint32_t { return 0u; };
       auto why_c = [&](scene_inputs::PieceCountFn cf) { return scene_inputs::ReadCharacterPieces(rd, ch, got, cf, nullptr, 0, 0) && !got.empty() ? got[0].why : PieceWhy::kCount; };
       Check(why_c(none) == PieceWhy::NoCount, "PZ F3: wanted 0 and no game count readable: NoCount");
-      put(0x70001000 + 0, scene_inputs::kModelVtable), put(0x70001000 + 296, 1), put(0x70001000 + 300, 7);
+      put(0x70001000 + 0, scene_inputs::kModelVtable), put(scene_inputs::kModelVtable + 8, scene_inputs::kCountGetter), put(0x70001000 + 296, 1), put(0x70001000 + 300, 7);
       Check(why_c(none) == PieceWhy::Ok, "PZ F3: wanted 0 + the game's count 7: proven at the first latch (map of 7 nodes complete)");
       put(0x70001000 + 0, 0x8206AF94);
       Check(why_c(none) == PieceWhy::NoCount, "PZ F3 planted twin: a wrong vtable word gives no game count: NoCount");
       put(0x70001000 + 0, scene_inputs::kModelVtable), put(0x70001000 + 296, 0);
-      Check(why_c(none) == PieceWhy::NoCount, "PZ F3: [model + 296] == 0 (the delegate case) is not followed: NoCount");
+      Check(why_c(none) == PieceWhy::NoCount, "PZ F3 / S105 CAWP: [model + 296] == 0 and no delegate object at [model + 220]: NoCount");
+      {  // S105 CAWP: the game's delegate branch (sub_82BD3AB8: [m+296] == 0 -> D = [m+220]; D's slot 2 = sub_82C27620 -> [[D+12]+24]); the dog tag of a created superstar (run 115: 'reader proof 1 no_count')
+        put(0x70001000 + 220, 0x70009000), put(0x70009000, 0x8206C7A0), put(0x8206C7A0 + 8, scene_inputs::kDataCountGetter), put(0x70009000 + 12, 0x7000A000), put(0x7000A000 + 24, 7);
+        Check(why_c(none) == PieceWhy::Ok, "S105 CAWP: the delegate count (D vtable 0x8206C7A0 slot 2 = sub_82C27620, [[D+12]+24] = 7) sizes the piece: proven at the first latch");
+        // planted twin (the old single-vtable rule, no delegate branch = the delegate word never read): count 0, so the check above fails it
+        Check(scene_inputs::GameNodeCountW([&](uint32_t a, uint32_t& v) { if (a == 0x70001000 + 220) return false; auto it = mem.find(a); if (it == mem.end()) return false; v = it->second; return true; }, 0x70001000) == 0,
+              "S105 CAWP planted twin (the old rule: [m+296] == 0 is not followed): count 0");
+        Check(scene_inputs::GameNodeCountW([&](uint32_t a, uint32_t& v) { auto it = mem.find(a); if (it == mem.end()) return false; v = it->second; return true; }, 0x70001000) == 7, "S105 CAWP: GameNodeCountW itself gives the delegate count 7");
+        put(0x8206C7A0 + 8, 0x82C27624);
+        Check(why_c(none) == PieceWhy::NoCount, "S105 CAWP: a delegate whose slot 2 is another function is not followed: NoCount (fail closed)");
+        put(0x8206C7A0 + 8, scene_inputs::kDataCountGetter), put(0x70009000 + 12, 0);
+        Check(why_c(none) == PieceWhy::NoCount, "S105 CAWP: sub_82C27620 with [D+12] == 0 returns 0: NoCount");
+        put(0x70001000 + 220, 0);
+      }
       put(0x70001000 + 296, 1), put(0x70001000 + 300, 9);
       Check(why_c(counts) == PieceWhy::CountMismatch, "PZ F3: wanted 7 and the game's count 9 differ: CountMismatch");
       put(0x70001000 + 300, 7);
@@ -1048,6 +1086,143 @@ static int SelfTest() {
       put(0x70001000 + 0, 0), put(0x70001000 + 296, 0), put(0x70001000 + 300, 0);
     }
 
+    {  // S105 CAWP (docs/research/s105/CAWP.md): a SUBM-linked piece the update hook went quiet for is a latch target EVERY latch while its owner is in a slot: fresh, never stale, never pruned; dropped when its owner leaves
+      struct Res { bool in_targets_each = true, fresh_end = false, drawn_by_owner_end = false, absent_after_leave = false; uint64_t stale = 0; };
+      auto drive200 = [&](uint32_t faults) {
+        Res r;
+        WrestlerContributor w{};
+        w.SetFaultsForTest(faults);
+        w.SubmitSkin(0x1000, 0, kN, pa.data(), 5);   // the body: the update hook reports it once (then quiet: a slot target regardless)
+        w.SubmitSkin(0x70001000, -1, 7, Pose(7, 0.1f).data(), 5);   // the hair: reported once, then quiet (match, run 115): only the link can keep it
+        WrestlerContributor::SlotTable tbl{};
+        tbl.skels.push_back({0x1000, 0});
+        tbl.state[0] = WrestlerContributor::kSlotOccupied;
+        scene_inputs::CharPiece cp;
+        cp.model = 0x70001000, cp.id = 10000, cp.slot = 0, cp.why = PieceWhy::Ok, cp.nodes = 7, cp.copy = 1;
+        tbl.pieces.push_back(cp);
+        SceneTables t;
+        for (uint64_t h = 6; h < 6 + 200; ++h) {
+          std::vector<WrestlerContributor::PaletteTarget> targets;
+          uint32_t miss = 0;
+          w.SubmitSkin(0x1000, 0, kN, pa.data(), h);   // the body keeps being reported (a match); only the hair is quiet
+          w.LatchTargets(h, &tbl, targets, miss);
+          bool piece_in = false;
+          for (const auto& x : targets) {
+            if (x.skel == 0x70001000) piece_in = x.count == 7;
+            w.SubmitLatchConsumer(x.skel, x.count, Pose(x.count, 0.2f + 0.001f * float(h)).data(), h);
+          }
+          if (h > 6 + 8) r.in_targets_each = r.in_targets_each && piece_in;   // past the update hook's fresh window
+          Counters c;
+          t = EmitAt(w, c, h);
+          r.stale += c.stale;
+        }
+        const Object* po = nullptr;
+        for (const Object& o : t.objects) if (t.Str(o.id) == "skel:70001000") po = &o;
+        r.fresh_end = po && po->bones_count == 7;
+        r.drawn_by_owner_end = po && (po->flags & kObjDrawnByOwner);
+        WrestlerContributor::SlotTable empty;   // the owner leaves the character table: the piece is no latch target any more
+        std::vector<WrestlerContributor::PaletteTarget> targets2;
+        uint32_t miss2 = 0;
+        w.LatchTargets(300, &empty, targets2, miss2);
+        r.absent_after_leave = true;
+        for (const auto& x : targets2) if (x.skel == 0x70001000) r.absent_after_leave = false;
+        return r;
+      };
+      const Res good = drive200(0);
+      Check(good.in_targets_each && good.fresh_end && good.drawn_by_owner_end && good.stale == 0, "S105 CAWP: a linked piece the update hook went quiet for is a target at every latch for 200 latches: fresh (no stale record), still drawn by its owner");
+      Check(good.absent_after_leave, "S105 CAWP: when its owner leaves the character table the piece is no latch target any more");
+      {  // the guest model reader's want (wwe2k14_app.h g_want): a current piece link with a count is read although the update hook never sized it (the dog tag, 10032)
+        WrestlerContributor w;
+        WrestlerContributor::SlotTable tbl;
+        tbl.skels.push_back({0x1000, 0});
+        tbl.state[0] = WrestlerContributor::kSlotOccupied;
+        w.SubmitSkin(0x1000, 0, kN, pa.data(), 5);
+        scene_inputs::CharPiece cp, cp0;
+        cp.model = 0xA90F0B30, cp.id = 10032, cp.slot = 0, cp.why = PieceWhy::Ok, cp.nodes = 5, cp.copy = 1;
+        cp0.model = 0xA90F0B40, cp0.id = 10033, cp0.slot = 0, cp0.why = PieceWhy::NoCount;   // no count: not wanted
+        tbl.pieces.push_back(cp), tbl.pieces.push_back(cp0);
+        std::vector<WrestlerContributor::PaletteTarget> targets;
+        uint32_t miss = 0;
+        w.LatchTargets(6, &tbl, targets, miss);
+        Check(w.WantCount(0xA90F0B30) == 0 && w.GuestModelWanted(0xA90F0B30) && !w.GuestModelWanted(0xA90F0B40) && w.PieceLinkCount(0xA90F0B30) == 5, "S105 CAWP: a current piece link with a count is wanted by the guest model reader (update hook never sized it); a link with no count, and a stranger, are not");
+        WrestlerContributor w2;
+        w2.SetFaultsForTest(WrestlerContributor::kFaultReaderIgnoresLinks);
+        w2.SubmitSkin(0x1000, 0, kN, pa.data(), 5);
+        w2.LatchTargets(6, &tbl, targets, miss);
+        Check(!w2.GuestModelWanted(0xA90F0B30), "S105 CAWP planted twin (kFaultReaderIgnoresLinks = the old reader want): the dog tag is skipped (the check above fails it)");
+        tbl.skels.clear();   // the owner left the table: the link is gone with it (the table's links are replaced whole every latch)
+        w.LatchTargets(7, &tbl, targets, miss);
+        Check(w.PieceLinkCount(0xA90F0B30) == 0 && !w.GuestModelWanted(0xA90F0B30), "S105 CAWP: a piece whose owner left the table is no longer wanted by the guest model reader");
+      }
+      {  // S105 CAWP fix round (review F1 / F2 / F3) and CAWE (the editor's hair): what the latch pushes, with planted twins
+        struct Pc { uint32_t model; PieceWhy why; uint32_t drawn; };
+        auto targets_of = [&](uint32_t faults, bool named_owner, const std::vector<Pc>& pcs, bool off_latch, bool* offlatch_accepted = nullptr) {
+          WrestlerContributor w;
+          w.SetFaultsForTest(faults);
+          w.SubmitSkin(0x1000, 0, kN, pa.data(), 5);
+          if (named_owner) w.SubmitSlotKey(0x1000, 34302);
+          WrestlerContributor::SlotTable tbl;
+          tbl.skels.push_back({0x1000, 0});
+          tbl.state[0] = WrestlerContributor::kSlotOccupied;
+          for (const Pc& p : pcs) {
+            scene_inputs::CharPiece cp;
+            cp.model = p.model, cp.id = 10000 + (p.model & 0xFF), cp.slot = 0, cp.why = p.why, cp.nodes = 7, cp.copy = 1, cp.probe.drawn = p.drawn;
+            tbl.pieces.push_back(cp);
+          }
+          std::vector<WrestlerContributor::PaletteTarget> targets;
+          uint32_t miss = 0;
+          w.LatchTargets(6, &tbl, targets, miss);
+          std::set<uint32_t> got;
+          for (const auto& x : targets) got.insert(x.skel);
+          if (offlatch_accepted) {   // F3: the latch read of a piece target made off the latch thread
+            WrestlerContributor::SetOffLatchThread(off_latch);
+            const int r = w.SubmitLatchConsumer(pcs.empty() ? 0 : pcs[0].model, 7, Pose(7, 0.2f).data(), 6);
+            WrestlerContributor::SetOffLatchThread(false);
+            *offlatch_accepted = r == WrestlerContributor::kSubmitted;
+          }
+          return got;
+        };
+        const uint32_t kHid = 0x70002000, kStock = 0x70002100, kOk = 0x70002200, kNoCopy = 0x70002300;
+        // F1: a piece the game hides (inst +20 == 0) is never a target
+        const auto f1 = targets_of(0, false, {{kHid, PieceWhy::Ok, 0}, {kOk, PieceWhy::Ok, 1}}, false);
+        Check(!f1.count(kHid) && f1.count(kOk), "S105 CAWP F1: a piece the game hides (probe.drawn 0) is not a latch target; a drawn one is");
+        Check(targets_of(WrestlerContributor::kFaultPushEverything, false, {{kHid, PieceWhy::Ok, 0}}, false).count(kHid), "S105 CAWP F1 planted twin (kFaultPushEverything = the old push): the hidden piece IS pushed (the check above fails it)");
+        // F2: a not-Ok stock piece of a NAMED owner is no target (no permanent hole); Ok and NoCopy pieces are
+        const auto f2 = targets_of(0, true, {{kStock, PieceWhy::KindUnproven, 1}, {kOk, PieceWhy::Ok, 1}, {kNoCopy, PieceWhy::NoCopy, 1}}, false);
+        Check(!f2.count(kStock) && f2.count(kOk) && f2.count(kNoCopy), "S105 CAWP F2: a not-Ok piece of a named owner is not pushed (it would be a permanent hole); an Ok piece and a NoCopy piece are");
+        Check(targets_of(WrestlerContributor::kFaultPushEverything, true, {{kStock, PieceWhy::KindUnproven, 1}}, false).count(kStock), "S105 CAWP F2 planted twin (kFaultPushEverything): the not-Ok named-owner piece IS pushed (the check above fails it)");
+        // CAWE: the editor's hair (unnamed owner in slot 0, reader proof WrongDesc, own-rows route) is still pushed
+        Check(targets_of(0, false, {{kStock, PieceWhy::WrongDesc, 1}}, false).count(kStock), "S105 CAWE: the character editor's hair (WrongDesc, unnamed slot-0 owner) is a latch target: the F1 / F2 filters keep it");
+        // F3: a piece target read off the latch thread is refused; on the latch thread it is accepted
+        bool acc_off = true, acc_on = false, acc_twin = false;
+        targets_of(0, false, {{kOk, PieceWhy::Ok, 1}}, true, &acc_off);
+        targets_of(0, false, {{kOk, PieceWhy::Ok, 1}}, false, &acc_on);
+        targets_of(WrestlerContributor::kFaultHoldOffLatch, false, {{kOk, PieceWhy::Ok, 1}}, true, &acc_twin);
+        Check(!acc_off && acc_on, "S105 CAWP F3: an off-latch piece read (the game running: torn rows) is refused; the latch thread's is accepted");
+        Check(acc_twin, "S105 CAWP F3 planted twin (kFaultHoldOffLatch = accept an off-latch read): the torn piece IS submitted (the check above fails it)");
+        // F4 / F5: the reader wants only what the emitter cannot draw from the owner's model; an over-cap count stores 0
+        {
+          WrestlerContributor w;
+          w.SubmitSkin(0x1000, 0, kN, pa.data(), 5);
+          w.SubmitSlotKey(0x1000, 34302);
+          WrestlerContributor::SlotTable tbl;
+          tbl.skels.push_back({0x1000, 0});
+          tbl.state[0] = WrestlerContributor::kSlotOccupied;
+          scene_inputs::CharPiece a, b, c;
+          a.model = kOk, a.id = 10001, a.slot = 0, a.why = PieceWhy::Ok, a.nodes = 7, a.copy = 1;
+          b.model = kStock, b.id = 10002, b.slot = 0, b.why = PieceWhy::KindUnproven, b.nodes = 7, b.copy = 1;
+          c.model = kHid, c.id = 10003, c.slot = 0, c.why = PieceWhy::NoCount, c.nodes = 5000, c.copy = 1;
+          tbl.pieces.push_back(a), tbl.pieces.push_back(b), tbl.pieces.push_back(c);
+          std::vector<WrestlerContributor::PaletteTarget> tg;
+          uint32_t miss = 0;
+          w.LatchTargets(6, &tbl, tg, miss);
+          Check(!w.GuestModelWanted(kOk) && w.GuestModelWanted(kStock), "S105 CAWP F4: an Ok piece of a named owner is not read by the guest model reader (it draws from the owner's model); a not-Ok one is");
+          Check(w.PieceLinkCount(kHid) == 0 && !w.GuestModelWanted(kHid), "S105 CAWP F5: a count over the cap (5000 > 1024) is stored as 0 and never wanted");
+        }
+      }
+      const Res old = drive200(WrestlerContributor::kFaultHookOnlyPieces);
+      Check(!old.in_targets_each && old.stale > 0, "S105 CAWP planted twin (kFaultHookOnlyPieces = the old hook-only latch): the piece stops being a target, goes stale and is pruned (the check above fails it)");
+    }
     // (2) the contributor: the body (slot 0, model_key 34302) and two own-skeleton pieces fed by the palette hook; the latch's table links them with the reader's proof
     auto run = [&](scene_inputs::PieceWhy why_a, scene_inputs::PieceWhy why_b, uint32_t drawn_owner_skel, SceneTables& t, WrestlerContributor& w, std::vector<uint32_t> ring = {}) {
       w.SubmitSkin(drawn_owner_skel, 0, kN, pa.data(), 7);
@@ -1310,6 +1485,215 @@ static int SelfTest() {
       SceneTables tts = EmitAt(wt, c3, 9);
       const Object* qa_ = find(tts, "skel:70001000");
       Check(!(qa_ && (qa_->flags & kObjDetachedPiece)), "DTP fix planted twin (the flag needs a fresh palette: the old rule) loses the flag once the palette is stale, so the pad returns to the arm: the checks above fail it");
+    }
+    {  // S105 A5a (docs\research\s105\A5a_ADV.md): a CAW's own-skeleton piece (hair / necklace / braces) of a GUEST-ROW owner. PRODUCTION ORDER, as the game runs it: the update hook's exit palettes (SubmitSkin, derived,
+       // NOT what the draw reads) -> the latch (LatchTargets: links + the copy probe, then each target's [skel+200] read submitted through SubmitLatchConsumer) -> Collect + EmitItems (Emit). entry: SubmitLatchConsumer / EmitItems.
+      using scene_inputs::OwnRowsWhy;
+#if WWE2K14_STREAM()
+      static int a5a_mode = 2;   // mode Ours: the update hook keeps the derived heads the latch's mismatch rule compares with (Put: `CurrentMode() != Off`); the stream-free build is pinned to Ours
+      scene_frame::g_mode_cvar.store(&a5a_mode);
+#endif
+      constexpr uint32_t kOwner = 0x1000, kPiece = 0x70001000;
+      static std::map<uint32_t, uint32_t> a5mem;
+      static std::set<uint32_t> a5bad;
+      static WrestlerContributor* a5w;
+      constexpr uint64_t kHook = 20;
+      struct Mut {
+        uint32_t copy = 1, drawn = 1;
+        bool break_rows = false, owner_old_tag = false, off_latch = false, stream = false;
+        bool behind = false;     // review F5: the piece's copy ran BEFORE the owner's own update of the pass: it holds the owner's PREVIOUS latch row
+        float shift = 0.f;       // review F5: sub_82BD3620 shifted the owner by this (x) after the copy
+        float trans_off = 0.f;   // review F5: the piece's translation is off by this much beyond any recorded shift
+      };
+      std::vector<Mat4> own_rows = Pose(kN, 0.5f), own_prev = Pose(kN, 0.4f), derived_piece = Pose(7, 0.3f);
+      auto drive = [&](uint32_t faults, const Mut& m, WrestlerContributor& w, std::vector<Mat4>* latch_piece_out = nullptr) {
+        std::vector<Mat4> piece_rows = Pose(7, 0.9f);
+        const Mat4& src_row = m.behind ? own_prev[9] : own_rows[9];
+        std::memcpy(piece_rows[6].m, src_row.m, sizeof(float) * 12);       // sub_8259D230: the owner's row 9 copied into the piece's row 6 (rotation)
+        piece_rows[6].m[12] = src_row.m[12] - m.shift + m.trans_off;       // (the owner's translation was shifted after the copy: the piece keeps the unshifted one)
+        piece_rows[6].m[13] = src_row.m[13], piece_rows[6].m[14] = src_row.m[14];
+        if (m.break_rows) piece_rows[6].m[0] += 0.25f;                      // a bind / unposed / other-frame palette: not the owner's rotation
+        if (latch_piece_out) *latch_piece_out = piece_rows;
+        w.SetNoWalk(!m.stream);
+        w.SetFaultsForTest(faults);
+        w.SubmitSkin(kOwner, 0, kN, own_rows.data(), kHook);                // the owner's update exit: equals the latch read (no mismatch for the owner)
+        w.SubmitSkin(kPiece, -1, 7, derived_piece.data(), kHook);           // the piece's update exit: the game rewrites +200 AFTER it, so the latch read differs (the refusal's cause)
+        if (m.shift != 0.f) w.ApplyDelta(kOwner, m.shift, 0.f, 0.f);        // sub_82BD3620 (the wwe2k14_skel_shift hook)
+        // (review F8 b) the piece is READ the way the latch reads it: ReadCharacterPieces over a forged SUBM chain, the count from the update hook only because neither the wanted table nor the game's own count knows the model
+        a5mem.clear(), a5bad.clear();
+        const uint32_t ach = 0x41000000, anode = 0x41100000, acomp = 0x41200000, aarr = 0x41300000, amap = 0x41400000;
+        a5mem[ach + 1152 + 20] = anode, a5mem[anode + 4] = scene_inputs::kSubmTag, a5mem[anode + 24] = acomp, a5mem[acomp + 72] = aarr, a5mem[acomp + 80] = aarr + 48;
+        a5mem[aarr + 0] = kPiece, a5mem[aarr + 16] = 10000u << 16, a5mem[aarr + 12] = amap, a5mem[aarr + 20] = m.drawn, a5mem[aarr + 24] = m.copy == 0xFFFFFFFFu ? 1u : m.copy;
+        if (m.copy == 0xFFFFFFFFu) a5bad.insert(aarr + 24);
+        for (uint32_t i = 0; i < 7; ++i) a5mem[amap + 4 * i] = i == 6 ? 9u : i;   // the last mapped node: piece row 6 = owner row 9
+        a5w = &w;
+        static const scene_inputs::ReadFn a5rd = [](uint32_t a, void* dst, size_t n) -> bool {
+          for (size_t k = 0; k < n; k += 4) {
+            if (a5bad.count(a + uint32_t(k))) return false;
+            auto it = a5mem.find(a + uint32_t(k));
+            const uint32_t v = it == a5mem.end() ? 0u : it->second, be = (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24);
+            std::memcpy(static_cast<uint8_t*>(dst) + k, &be, 4);
+          }
+          return true;
+        };
+        static const scene_inputs::PieceCountFn a5hook = [](uint32_t mm) -> uint32_t { return a5w->WantCount(mm); };
+        // one latch: LatchTargets (links + probe), then InputsContributor::LatchPalettes' read + SubmitLatchConsumer of each target
+        const auto latch = [&](uint64_t hook, const Mat4* owner_pal, const Mat4* piece_pal, uint64_t owner_hook) {
+          WrestlerContributor::SlotTable st;
+          st.skels.push_back({kOwner, 0});
+          st.state[0] = WrestlerContributor::kSlotOccupied;
+          std::vector<scene_inputs::CharPiece> a5got;
+          scene_inputs::ReadCharacterPieces(a5rd, ach, a5got, nullptr, nullptr, 0, 0, false, a5hook);
+          for (auto& gp : a5got) gp.slot = 0, st.pieces.push_back(gp);
+          std::vector<WrestlerContributor::PaletteTarget> tg;
+          uint32_t missing = 0;
+          w.LatchTargets(hook, &st, tg, missing);
+          for (const auto& t : tg) {
+            const bool is_piece = t.skel == kPiece;
+            if (is_piece && m.off_latch) WrestlerContributor::SetOffLatchThread(true);
+            w.SubmitLatchConsumer(t.skel, t.count, is_piece ? piece_pal : owner_pal, is_piece ? hook : owner_hook);
+            WrestlerContributor::SetOffLatchThread(false);
+          }
+        };
+        if (m.behind) {   // the PREVIOUS latch (hook kHook - 1) read the owner's previous palette and is collected by its own record: the owner's Kept then holds it as `prev_skin`
+          latch(kHook - 1, own_prev.data(), piece_rows.data(), kHook - 1);
+          Counters c0;
+          (void)EmitAt(w, c0, kHook);
+        }
+        latch(kHook, own_rows.data(), piece_rows.data(), (m.owner_old_tag) ? kHook - 1 : kHook);
+        Counters c;
+        return EmitAt(w, c, kHook + WrestlerContributor::kPaletteLead);
+      };
+      const auto own_flag = [&](const SceneTables& t) { const Object* o = find(t, "skel:70001000"); return o && (o->flags & kObjOwnRowsPiece) != 0; };
+      std::vector<Mat4> latch_piece;
+      SceneTables t_ok;
+      WrestlerContributor w_ok;
+      t_ok = drive(0, Mut{}, w_ok, &latch_piece);
+      {
+        const Object* po = find(t_ok, "skel:70001000");
+        Check(po && own_flag(t_ok) && !(po->flags & (kObjVisible | kObjDrawnByOwner | kObjDetachedPiece)) && po->pad == 10000 && po->layer == 1, "A5a: the piece of a guest-row owner is written invisible with kObjOwnRowsPiece, its piece id (pad) and owner slot + 1 (layer), never drawn-by-owner / detached");
+        Check(po && po->bones_count == 7 && PaletteIs(t_ok, size_t(po - t_ok.objects.data()), latch_piece) && !PaletteIs(t_ok, size_t(po - t_ok.objects.data()), derived_piece),
+              "A5a: its palette is the LATCH read of [piece+200] (the game's copy + spring), not the update-exit one");
+        Check(w_ok.PieceLatchSubmitted() == 1 && w_ok.OwnRowsCount(OwnRowsWhy::Ok) == 1, "A5a: the latch accepted the piece's read (piece_latch_submitted 1) and the copy proof passed (own_rows ok 1)");
+        Check(w_ok.OwnRowsText().find("ok 1") != std::string::npos && w_ok.PieceWhyText().find("own_rows [ok 1") != std::string::npos, "A5a: the 600-frame wrestlers line carries the own_rows counts");
+      }
+      {  // the stream build takes the same latch acceptance (the game is parked at the latch in both builds)
+        Mut m;
+        m.stream = true;
+        WrestlerContributor w;
+        Check(own_flag(drive(0, m, w)), "A5a: the stream build (walk present) writes the same flagged piece");
+      }
+      {  // review F5: the owner's copy may run BEFORE the owner's own update of the pass (the piece holds the owner's previous latch row), and the game shifts the owner after the copy (sub_82BD3620)
+        Mut mb;
+        mb.behind = true;
+        WrestlerContributor wb;
+        Check(own_flag(drive(0, mb, wb)), "A5a F5: a piece one copy behind (it holds the owner's PREVIOUS latch row) is accepted (a moving frame no longer refuses the hair)");
+        WrestlerContributor wb2;
+        Check(!own_flag(drive(WrestlerContributor::kFaultNoPrevRows, mb, wb2)), "A5a F5 planted twin (this latch's owner row only: the first rule): the one-behind piece is refused and the hair goes missing (the check above fails it)");
+        Mut ms;
+        ms.shift = 2.f;
+        WrestlerContributor wsft;
+        Check(own_flag(drive(0, ms, wsft)), "A5a F5: the owner's recorded shift (ApplyDelta after the copy) is allowed in the translation compare");
+        Mut mt;
+        mt.trans_off = 5.f;
+        WrestlerContributor wt;
+        const SceneTables tt = drive(0, mt, wt);
+        Check(!own_flag(tt) && wt.OwnRowsCount(OwnRowsWhy::RowsDiffer) == 1, "A5a F5: a translation off by more than the recorded shift (a palette one frame of root motion away) is NOT accepted");
+        WrestlerContributor wt2;
+        Check(own_flag(drive(WrestlerContributor::kFaultRotationOnly, mt, wt2)), "A5a F5 planted twin (rotation only: the first rule): the off-translation piece IS accepted (the check above fails it)");
+      }
+      {  // the unsafe directions, each refused and counted (the piece stays the plain hole it was: no flag)
+        Mut m;
+        m.copy = 0;
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        const Object* cz = find(t, "skel:70001000");
+        Check(!own_flag(t) && cz && (cz->flags & kObjDetachedPiece) && w.PieceDetached() == 1, "A5a: a copy word of 0 (read by the reader: NoCopy) is not this rule's: it is DTP's detached piece (the People's Elbow route), never an owner-row piece");
+      }
+      {
+        Mut m;
+        m.copy = 0xFFFFFFFFu;   // the probe could not read the copy word: never guessed
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        Check(!own_flag(t) && w.OwnRowsCount(OwnRowsWhy::ProbeUnread) == 1, "A5a: an unread probe (the copy word unreadable) is refused, never guessed");
+      }
+      {
+        Mut m;
+        m.break_rows = true;
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        Check(!own_flag(t) && w.OwnRowsCount(OwnRowsWhy::RowsDiffer) == 1, "A5a: a piece whose mapped row is not the owner's row of the same latch (an unposed / bind / other-frame palette) is NOT accepted");
+      }
+      {
+        Mut m;
+        m.owner_old_tag = true;
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        Check(!own_flag(t) && w.OwnRowsCount(OwnRowsWhy::TagDiffers) == 1, "A5a: a piece and an owner of different latches (a previous latch's body palette beside this latch's piece) are NOT paired");
+      }
+      {  // entry: scene_inputs::JudgeOwnRows, called directly: the owner's NAME comes from the update hook's slot key (SubmitSlotKey, hook code this unit does not run), so an end-to-end named owner cannot be driven here
+        scene_inputs::OwnRowsCase oc;
+        oc.probe.drawn = 1, oc.probe.special = 0, oc.probe.copy = 1, oc.probe.piece_node = 3, oc.probe.owner_node = 5;
+        oc.owner_found = oc.owner_skel_matches = oc.piece_consumer = oc.owner_consumer = true;
+        oc.owner_named = true;
+        std::vector<Mat4> orows = Pose(kN, 0.5f), prows = Pose(7, 0.9f);
+        std::memcpy(prows[3].m, orows[5].m, sizeof(float) * 16);
+        oc.owner_rows = orows[0].m, oc.owner_count = orows.size(), oc.piece_rows = prows[0].m, oc.piece_count = prows.size();
+        Check(scene_inputs::JudgeOwnRows(oc) == OwnRowsWhy::OwnerNamed, "A5a: a piece of a NAMED (stock) owner is not this rule's (the merged-body route draws it), proof or not");
+        oc.owner_named = false;
+        Check(scene_inputs::JudgeOwnRows(oc) == OwnRowsWhy::Ok, "A5a: the same pair with an unnamed owner and a good proof passes");
+        oc.owner_found = false;
+        Check(scene_inputs::JudgeOwnRows(oc) == OwnRowsWhy::NoOwnerItem, "A5a: an owner that is not an item of this record gives no route");
+      }
+      {
+        Mut m;
+        m.drawn = 0;
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        Check(find(t, "skel:70001000") == nullptr && w.OwnRowsCount(OwnRowsWhy::Hidden) == 1, "A5a: inst +20 == 0 (the game's SUBM loop skips it) writes NO object: not a hole, not drawn");
+      }
+      {
+        Mut m;
+        m.off_latch = true;
+        WrestlerContributor w;
+        const SceneTables t = drive(0, m, w);
+        Check(!own_flag(t) && w.PieceLatchSubmitted() == 0, "A5a: the off-latch fallback's read (game threads running) is never accepted for a piece: the latch thread only");
+      }
+      // planted twins in the UNSAFE direction: the old rule's hole must come back / the unsafe piece must be accepted, so the checks above fail them
+      {
+        WrestlerContributor w;
+        const SceneTables t = drive(WrestlerContributor::kFaultNoPieceLatch, Mut{}, w);
+        const Object* po = find(t, "skel:70001000");
+        Check(!own_flag(t) && po && po->bones_count == 7 && PaletteIs(t, size_t(po - t.objects.data()), derived_piece) && w.PieceLatchSubmitted() == 0 && w.OwnRowsCount(OwnRowsWhy::NotConsumer) == 1,
+              "A5a planted twin (kFaultNoPieceLatch = the old refusal): the piece keeps its update-exit palette, is not flagged, and the hole reappears (the first checks above fail it)");
+      }
+      {
+        Mut m;
+        m.copy = 0xFFFFFFFFu;
+        WrestlerContributor w;
+        Check(!own_flag(drive(0, m, w)), "A5a: an unreadable copy word is not accepted (counted probe_unread)");
+        Mut m2;
+        m2.break_rows = true;
+        WrestlerContributor w2;
+        Check(own_flag(drive(WrestlerContributor::kFaultNoCopyProof, m2, w2)), "A5a planted twin (no proof): an unposed / other-frame piece IS flagged (the RowsDiffer check above fails it)");
+        Mut m3;
+        m3.owner_old_tag = true;
+        WrestlerContributor w3;
+        Check(own_flag(drive(WrestlerContributor::kFaultNoCopyProof, m3, w3)), "A5a planted twin (no proof): a piece of another latch than its owner IS flagged (the TagDiffers check above fails it)");
+        Mut m4;
+        m4.drawn = 0;
+        WrestlerContributor w4;
+        Check(find(drive(WrestlerContributor::kFaultNoCopyProof, m4, w4), "skel:70001000") != nullptr, "A5a planted twin (no proof): a piece the game hides gets an object (the Hidden check above fails it)");
+      }
+      {
+        Mut m;
+        m.off_latch = true;
+        WrestlerContributor w;
+        Check(own_flag(drive(WrestlerContributor::kFaultHoldOffLatch, m, w)), "A5a planted twin (kFaultHoldOffLatch = accept an off-latch read): the piece IS flagged (the off-latch check above fails it)");
+      }
+#if WWE2K14_STREAM()
+      scene_frame::g_mode_cvar.store(nullptr);   // back to the unit's default (Off)
+#endif
     }
     {  // the piece object is gone (pruned): the latch's link proof alone keeps the flag: a link-only invisible object, no bones
       SceneTables t;

@@ -1,0 +1,66 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): EXPLORATORY. Shows what each Create a Superstar tab holds, to find the HAIR, BODY ACCESSORIES and LOGO rows that s105_make_caw.txt needs.
+# Same chain as nav\creations_to_new_caw.txt up to the template pick (CREATIONS -> SUPERSTAR -> NEW -> seq 76 -> A = the SUPERSTAR template), then: a shot + the screen text on the page
+# the editor lands on, then RB x4 (one page per tab dot, order dot 0..3, docs\systems\caw_driver.md; the dots wrap or stop: the shots show it) with a shot + text each, and the same for
+# LB x4 back. Nothing is changed and nothing is saved: the route leaves with B (a "quit without saving?" box may appear; the run quits instead of answering it).
+# UNCONFIRMED: every page title except OTHER (tab dot 3: EDIT RING ATTIRE ... MENU SCREEN POSE ... ACCEPT) and CLOTHING (dot 2: TEMPLATES, HEADWEAR, UPPER BODY, LOWER BODY).
+# Marks: 1 menu, 2 editor, 3..6 tabs by RB, 7 end.
+on_fail continue
+log bench: start scene s105_caw_explore
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+mark 1 menu
+include menu_to_creations
+wait_frames 120
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+log scene=caw_editor
+log_state seq
+log_text 8
+screenshot sc_s105_cawx_editor
+mark 2 editor
+press A
+wait_frames 400
+log scene=caw_template_picked
+log_text 8
+screenshot sc_s105_cawx_landing
+press RB
+wait_frames 120
+log scene=caw_rb1
+log_text 8
+screenshot sc_s105_cawx_rb1
+mark 3 rb1
+press RB
+wait_frames 120
+log scene=caw_rb2
+log_text 8
+screenshot sc_s105_cawx_rb2
+mark 4 rb2
+press RB
+wait_frames 120
+log scene=caw_rb3
+log_text 8
+screenshot sc_s105_cawx_rb3
+mark 5 rb3
+press RB
+wait_frames 120
+log scene=caw_rb4
+log_text 8
+screenshot sc_s105_cawx_rb4
+mark 6 rb4
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+log scene=caw_first_subpage
+log_text 8
+screenshot sc_s105_cawx_sub
+mark 7 end
+log bench: done
+wait_frames 10
+quit

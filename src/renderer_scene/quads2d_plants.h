@@ -61,6 +61,9 @@ inline int g_plant = 0;
 // 54 save_ignored        the op-46 save table is neither written nor consulted (an op-45 restore reads the guest's empty / stale holder: the null-holder hole)                            -> [SC SAVE]   (sc_unit; PFR)
 // 52 seed_off            SeedTargetIfUnseen does nothing (a thread that never ran op 45 / 47 keeps an unknown target: every boot / title / menu row is a hole)   -> [SC SEED]   (sc_unit; PBS)
 // 60 scene_z_ignored    Append with Context::scene_depth takes no depth state from the row (test / write off, z not flipped)                                          -> [SCS DEPTH]
+// 65 rectcolor_leaf_hole  T_RectColor (0x82BC4404) is a Leaf2D hole again (the old table: the 30 Years narration caption's dark box never draws)  -> [A8 SITE] / [A8 TAP]   (a8_unit; the S105 A8 past-bug re-find)
+// 66 vcol_alpha_dropped   BlocksOf makes every corner of a T_RectColor row opaque (the 30 / 180 alpha gradient is lost)  -> [A8 BLOCKS]
+// 67 vcol_prim_any      BlocksOf / Quad2DRowProblem accept a T_RectColor row whatever its primitive (the strip too: laid out as a quad list)  -> [A8 PRIM]   (a8_unit; S105 A8 review F1)
 // 64 yuv_site_hole      the no-alpha movie sprite site 0x82BC799C is a Leaf2D hole again (the 30 Years season video draws black)  -> [SVY ROW]   (rfx_unit; the S103 SVY past-bug re-find)
 // 61 address_ignored    AddressModes ignores the row's address code (today's forced clamp: the film-grain flipbook smears)  -> [RFX TILE]   (rfx_unit; the S103 RFX past-bug re-find)
 // 62 code7_wrap         AddressModes does not remap the game's code 7 to clamp (7 tiles)  -> [RFX CODE7]

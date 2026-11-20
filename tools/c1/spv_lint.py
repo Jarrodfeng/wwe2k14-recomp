@@ -13,7 +13,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 OWN = {'kFx_yPreLight_base_layered_vert', 'kFx_yPreLight_base_layered_swap_vert'}
-ARRAY = re.compile(r'inline constexpr uint32_t (kFx_\w+)\[\] = \{(.*?)\};', re.S)
+ARRAY = re.compile(r'(?:inline constexpr|extern const) uint32_t (kFx_\w+)\[\d*\] = \{(.*?)\};', re.S)   # S105 SPV: both forms
 FAILS = 0
 
 
@@ -48,7 +48,7 @@ def main():
     ap.add_argument('--base', default='21b39eb5d')   # S103 LNT3: the last commit that changed SPIR-V on purpose (TQ2 searchlight uv; before it RFL's reflect cube mirror, FXF's ghost, MIP's LOD bias daf91b9fe))
     a = ap.parse_args()
     now, base, total = {}, {}, 0
-    for path in sorted(glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*.h'))):
+    for path in sorted(glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*.h')) + glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*_data.inc'))):  # S105 SPV: the words are in fx_<effect>_data.inc now (the .h only declares)
         rel = 'src/renderer/shaders/spv/' + os.path.basename(path)
         if os.path.basename(path) == 'fx_registry.h':
             continue

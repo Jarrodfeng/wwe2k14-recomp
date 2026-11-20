@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 
 #ifdef _WIN32
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
@@ -82,6 +83,37 @@ inline bool GuestWordReadable(uint32_t guest, const void* host) {
   }
   return slow;
 #endif
+}
+
+// S105 A6W2 (review findings 2): two more guards for the COLD readers (the loader watch's thread, the flight dump's stack walk). Not used on
+// per-frame paths: the commit query scans the region under the heap mutex.
+// (a) COMMITTED: GuestWordReadableFast checks only the page's current_protect, and BaseHeap::Decommit keeps it (xmemory.cpp), so a decommitted
+//     page reads as "readable" there. This asks for the page's allocation state too.
+inline bool GuestWordCommitted(uint32_t guest) {
+  auto* heap = REX_KERNEL_MEMORY()->LookupHeap(guest);
+  if (!heap) return false;
+  rex::memory::HeapAllocationInfo info{};
+  if (!heap->QueryRegionInfo(guest & ~0xFFFu, &info)) return false;
+  return (info.state & rex::memory::kMemoryAllocationCommit) != 0 && (info.protect & rex::memory::kMemoryProtectRead) != 0;
+}
+// (b) LAST LINE: the check-then-read race (a guard page or a decommit between the table check and the load). Windows: the load runs under
+//     __try/__except (the frame_hash.h SafeCopy pattern: a call through a volatile pointer, clang's synchronous SEH catches faults in the
+//     callee); a fault returns false. Off Windows (Android) there is NO SEH: the guest table check is the only guard, so the race stays open there.
+inline bool GuestLoadBe32Guarded(const void* host, uint32_t* out) {
+  static void* (*volatile copy)(void*, const void*, size_t) = std::memcpy;
+  uint8_t b[4] = {};
+#ifdef _WIN32
+  __try {
+    copy(b, host, 4);
+  } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION || GetExceptionCode() == EXCEPTION_GUARD_PAGE ? EXCEPTION_EXECUTE_HANDLER
+                                                                                                           : EXCEPTION_CONTINUE_SEARCH) {
+    return false;
+  }
+#else
+  copy(b, host, 4);
+#endif
+  *out = (uint32_t(b[0]) << 24) | (uint32_t(b[1]) << 16) | (uint32_t(b[2]) << 8) | uint32_t(b[3]);
+  return true;
 }
 
 }  // namespace wwe2k14

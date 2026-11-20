@@ -22,6 +22,7 @@ namespace rdr_scene::q2d {
 // The ids of the programs and the empty vertex layout (made once, with Register).
 struct Programs {
   uint16_t rect = 0, movie = 0, layout = 0;
+  uint16_t rect_color = 0, rect_color_proj = 0;   // S105 A8: the vertex-colour rectangle (rdr_uiquad_vcol.frag with rdr_uiquad_vcol.vert / rdr_uiquad_vcol_proj.vert): T_RectColor rows
   uint16_t rect_proj = 0, sprite_proj = 0, glyph_proj = 0;   // S103 P3c: the matrix variants (rdr_uiquad_proj.vert with the flat / picture / glyph fragment programs): the rows placed by their c29..c32 matrix
   uint16_t sprite = 0, sprite_hsl = 0, glyph = 0;   // S103 I3: glyph = rdr_uiglyph (the channel-selected text glyph; the vertex program is the sprite's)
   //   // S103 I2: rdr_uiquad (picture times colour), rdr_uiquad_hsl (+ the game's hue shift)
@@ -32,8 +33,12 @@ Programs Register(rdr::Renderer& renderer, bool switch_on = false);
 // The size of the target the rows are drawn into (pixels) and where the picture of a movie plane comes from.
 struct Context {
   uint32_t width = 0, height = 0;
+  // S105 A2 (ultrawide / tall screens): the rows' own pixel space is width x height (the game's 1280x720 box, scaled to the target), drawn with the viewport at (origin_x, origin_y) inside a target of
+  // target_w x target_h pixels (0 = the rows' own size: today's behaviour, origin 0). A full-view flat row (a fade / flash / tint: wide_frame.h FullViewRow) gets the whole target. Scissors are offset by the origin.
+  int32_t origin_x = 0, origin_y = 0;
+  uint32_t target_w = 0, target_h = 0;
   // S103 SCS: the rows are drawn INSIDE the scene pass (the in-scene flashes / lens flares, RFF part B), onto a colour target that has our scene depth attached. Each row then takes the game's own depth state
-  // (row.state: z enable 16 -> depth test, z write 32 -> depth write; the compare is our forward LEQUAL, the game's GEQUAL on its reversed depth), and a depth-tested row's clip z is flipped to our forward depth
+  // (row.state: z enable 16 -> depth test, z write 32 -> depth write; the compare is our forward LEQUAL, the game's GEQUAL on its reversed depth), and a depth-tested row's clip z is flipped to our forward depth (a z-written row with the test off writes no depth on Vulkan: S105 A4B review F1; CAF's black rect works because it is drawn early, before the 3D)
   // (z' = w - z: the game's depth is the mirror 1 - z of ours, pass_state.h; the lens flare's z is the game's own projected depth, sub_827D5E98 +10C..+1A8 [L: the exact near / far equality is unconfirmed]).
   // Off (the default): the final-image F has no depth, every row's depth test stays off (as before).
   bool scene_depth = false;

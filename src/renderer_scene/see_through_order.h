@@ -47,6 +47,9 @@ struct SeeKey {
   bool character = false;  // the material is a character effect (yCh_*)
   uint8_t cutout = 0;      // Material::cutout_blend: 2 = an a / s slot blend (stays far to near)
   float dist2 = 0;         // squared distance of the mesh centre to the eye
+  // S105 SZW (docs/research/harness/SZW_contract.md, ZW1): the game's order inside its `s` and `a` groups for a cutout == 2 item: -1 = none (far to near, the rule before); else the position in the game's list =
+  // (light-set run, first seen first) * 1024 + stage slot, so the group draws in ascending slot number inside light-set runs (sub_825B9F10 + sub_825B9970), never by distance. Filled by FrontEnd::Record only behind wwe2k14_rdr_stage_zwrite.
+  int32_t order = -1;
 };
 
 inline int SeeRank(const SeeKey& k) { return k.blend == 2 ? 2 : (k.character ? 1 : 0); }
@@ -57,6 +60,7 @@ inline bool SeeThroughBefore(SeeOrder mode, const SeeKey& a, const SeeKey& b) {
     if (ra != rb) return ra < rb;
     const bool sa = a.cutout == 2, sb = b.cutout == 2;
     if (sa != sb) return sb;          // the loader's slot blends after the game's own pieces of the rank
+    if (sa && a.order >= 0 && b.order >= 0) return a.order < b.order;   // S105 SZW: the game's own list order (slot ascending inside light-set runs), not by distance
     return sa && a.dist2 > b.dist2;   // ... far to near among themselves; everything else keeps the record order
   }
   return a.dist2 > b.dist2;

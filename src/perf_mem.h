@@ -40,11 +40,13 @@
 
 #include "blackbox.h"  // g_t0
 #include "perf_sys.h"  // lane 302: the [perf][sys] line shares this thread
+#include "thread_cpu.h"  // S105 A10: the [perf][threads] line shares this thread
 
 #if defined(_WIN32)
 #include "platform/compat.h"  // <windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
+#include "thread_cpu_win.h"  // S105 A10
 #else
 #include <dirent.h>
 #include <unistd.h>
@@ -57,6 +59,8 @@ REXCVAR_DEFINE_BOOL(wwe2k14_perf_mem, true, "wwe2k14",
                     "memory of this process, threads, GPU threads), plus a [perf][boot] line (src/perf_mem.h)");
 REXCVAR_DEFINE_BOOL(wwe2k14_perf_heat, true, "wwe2k14",
                     "S102 S0-2: the [perf][sys] line carries perf_pct / perf_limit / limit_flags / pkg_w (Windows PDH counters, one read per window); off = no PDH call");
+REXCVAR_DEFINE_BOOL(wwe2k14_perf_threads, true, "wwe2k14",
+                    "S105 A10: a [perf][threads] line every wwe2k14_perf_mem_seconds: the busiest threads of this process (name#tid, % of one core, wakes per second), SPINNING in the phone report (src/thread_cpu.h)");
 REXCVAR_DEFINE_INT32(wwe2k14_perf_mem_seconds, 10, "wwe2k14", "Lane 249: seconds between [perf][mem] lines")
     .range(1, 600);
 
@@ -300,6 +304,11 @@ inline void Emit(bool exit_line) {
       if (!have_log) sys.log_write_ms = sys.log_call_ms = -1, sys.log_dropped = -1;
       REXLOG_INFO("{}", perf_sys::Format(sys, Now(), exit_line));
     }
+  }
+  if (REXCVAR_GET(wwe2k14_perf_threads)) {  // S105 A10: one reading per thread per window; the first call only takes the baseline
+    static thread_cpu::Meter meter;  // only the perf_mem thread (and its exit flush, after it stops) calls Emit
+    thread_cpu::Window w;
+    if (thread_cpu::StepNow(meter, Now(), w)) REXLOG_INFO("[wwe2k14][perf][threads] {}", thread_cpu::Format(w));
   }
 }
 

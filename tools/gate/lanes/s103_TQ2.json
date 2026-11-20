@@ -16,7 +16,7 @@
   {"name": "s103_TQ2.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_tq2_unit.ps1"], "timeout_s": 1800, "tier": "cheap",
    "affects": ["src/renderer_scene/*", "src/renderer/**", "src/assets/*", "src/launcher/*", "tools/scene/tq2_unit.cpp", "tools/scene/build_tq2_unit.ps1"]},
   {"name": "s103_TQ2.yz_unit", "cmd": ["out/tools/tq2_unit.exe"], "timeout_s": 600, "tier": "cheap",
-   "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer/shaders/fx/fx_bg.glsl", "src/renderer/shaders/spv/fx_yBG_UVScroll.h", "tools/scene/tq2_unit.cpp"]},
+   "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer/shaders/fx/fx_bg.glsl", "src/renderer/shaders/spv/fx_yBG_UVScroll.h", "src/renderer/shaders/spv/fx_yBG_UVScroll_data.inc", "tools/scene/tq2_unit.cpp"]},
   {"name": "s103_TQ2.plant_noflip", "cmd": ["out/tools/tq2_unit.exe", "--plant", "noflip", "--expect-fail"], "timeout_s": 600, "tier": "cheap",
    "affects": ["src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer/shaders/fx/fx_bg.glsl", "tools/scene/tq2_unit.cpp"]},
   {"name": "s103_TQ2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500, "tier": "cheap",

@@ -134,6 +134,20 @@ inline bool RopeIsLow(const RopeView& v, uint32_t h, uint32_t r, const LodParams
   return ang < t.angle || (t.pi - t.angle) < ang;
 }
 
+// S105 C4 (docs\research\s105\C4.md point 2 [C listing]): the game's POST and COVER LOD is a pure distance test. Posts sub_82740350, covers sub_827403E8: the point (post -313, -120, -313 from 0x82003784 / 0x82003778;
+// cover -288, -196, -288 from 0x82003774 / 0x8201E43C) turned by the call's corner (sub_824D6D10, r4 = the corner / angle index) is tested by sub_8273FF58: LOW (far) when T[0] < |eye - point|, strict, with eye = the
+// view's +592 (the same RopeView the rope rule reads). No view = near (HIGH). T[0] = 3000.0 = [0x82012B14], stored at X+0x1F314 / X+0x1F320 by sub_825CD8D0 (sub_8273FF20): ours READS [0x82012B14] at the latch
+// (kLodDistAddr; never hard-coded). The game takes the low model only when its slot ([G+40] cover, [G+52] post) is non-zero, else the high one.
+inline constexpr uint32_t kLodDistAddr = 0x82012B14u;
+inline constexpr float kPostLodPoint[3] = {-313.0f, -120.0f, -313.0f}, kCoverLodPoint[3] = {-288.0f, -196.0f, -288.0f};
+inline bool CornerIsLow(const RopeView& v, int32_t corner, const float point[3], float dist) {
+  if (!v.has) return false;   // sub_82BA7748 returned 0: near
+  float p[3] = {point[0], point[1], point[2]};
+  TurnQuarter(corner, p[0], p[2]);
+  const float d[3] = {v.eye[0] - p[0], v.eye[1] - p[1], v.eye[2] - p[2]};
+  return dist < Len3(d);   // fcmpu T[0] < len: NaN is unordered -> near
+}
+
 // ring_lod game/ours (S103 RLB review 1): our rope classes of record j against the game's own rope rows stamped j, which arrive in record j + 1 (the callback reads the frame one ahead: Take's clock comment).
 // The game's `call` is a per-model ordinal (960 and 980 count apart), so it cannot pair ropes in a mixed frame: pair by (r5, rank within r5 in record order); ours are written side by side, height 0..2.
 // `game` = the game's rope rows (no kRrRecomputed) of the record, `ours` = our rope rows of the record before. Offline (tools\scene\ring_compare.cpp); the live contributor sees neither.
@@ -176,6 +190,7 @@ struct RingCensus {
   // S103 C4: covers, posts, skirts and the whole-ring verdict (bit 6)
   uint64_t cv_rows = 0, cv_bad = 0, cv_unreadable = 0, cv_gate = 0, cv_table_mode = 0, cv_alt_ring = 0, cv_hidden = 0, cv_lod_both = 0, cv_rids = 0, post_rows = 0, post_unreadable = 0, post_lod_both = 0, post_alt_ring = 0, skirt_rows = 0, skirt_unreadable = 0, skirt_vis_unreadable = 0, skirt_vis_none = 0;
   uint64_t whole_clean = 0, whole_unclean = 0, unclean_rope = 0, unclean_tb = 0, unclean_cover = 0, unclean_post = 0, unclean_skirt = 0, unclean_override = 0;
+  uint64_t cv_low = 0, post_low = 0, lod_dist_unreadable = 0, cv_lo_unreadable = 0, post_lo_unreadable = 0;   // (S105 C4 fix F4: cv_lo / post_lo_unreadable = a named low model that could not be read: the high one stands in)   // S105 C4: the low cover / post rows chosen by the distance test; the threshold read failed (the high model stands in, counted)
   uint64_t lod_lo = 0, lod_hi = 0, lod_nocam = 0;   // S103 RLB: our rope LOD class counts (the game/ours compare is offline: PairLod, tools\\scene\\ring_compare.cpp)
   uint64_t delta[9] = {};   // noted hook frame - the latched hook frame: -3..+3 in 0..6, other 7, never noted 8 (the clock question of run 13)
 };
@@ -403,7 +418,15 @@ struct CvInputs {
   bool alt = false;   // S103 CRR fix: a created arena (id 200..249): sub_825CE668 0x825CE848-0x825CE89C replaces the angle and the record side per call corner r25 (kAltCoverAngle / kAltCoverSide)
   float ovr_vec[kCvCorners][3] = {};
   float ang_base = 0.f, ang_step = 0.f, pi = 0.f, neg_pi = 0.f, two_pi = 0.f;
+  float lod_dist = 0.f;   // S105 C4: T[0] read from [kLodDistAddr] (the far test of CornerIsLow)
+  bool lod_ok = false;
 };
+// S105 C4: which model corner `r25` poses: 1 (the low cover) when the game's far test says so AND the low model is there ([G + 40] != 0, read into models[1]).
+// [C review F3, sub_825CE668 0x825CE7B8-0x825CE7C0] a created arena LODs too: its corner 3 calls the same sub_827403E8 (r4 = 3; [G+36] / [G+40] = 1070 / 1074), so it takes the same test. Its corners 0-2 go through
+// sub_82740550 (r4 = r5 = corner), which is not read: they keep the high model (a [C] divergence, invisible at 3000 units).
+inline uint32_t CoverModelIndex(const CvInputs& cv, const RopeView& view, uint32_t r25) {
+  return ((!cv.alt || r25 == 3) && cv.lod_ok && cv.models[1].model && CornerIsLow(view, int32_t(r25), kCoverLodPoint, cv.lod_dist)) ? 1u : 0u;
+}
 
 // sub_82C32DE0's own angle wrap (0x82C32DFC-0x82C32E48), single precision.
 inline float WrapAngle32DE0(float a, float pi, float neg_pi, float two_pi) {
@@ -498,7 +521,17 @@ struct PostInputs {
   bool alt = false;               // S103 CRR: a created arena (id 200..249): 8 calls, angle indices ringkeys::kAltPostAngle (CRK section 2), every post model has the same 3-node skeleton [C files, CRK K2]
   ModelPal models[kPostModels];   // palette / inverse bind are not needed (the rotation is the whole row); n only
   float step = 0.f, pi = 0.f, neg_pi = 0.f, two_pi = 0.f;
+  float lod_dist = 0.f;   // S105 C4: T[0] read from [kLodDistAddr]
+  bool lod_ok = false;
 };
+// S105 C4: the post at angle index `i` (the corner the game passes in r4) poses the low model when far and [G + 52] != 0.
+// [C review F3, sub_825CCFE0 0x825CD064-0x825CD078] a created arena LODs too: its loop-1 posts (our calls 0 and 1, r4 = angle 1 / 2 from the stack table) call the same sub_82740350 ([G+48] / [G+52] = 1050 / 1052) and take the same test with that r4.
+// Its loop-2 posts (calls 2..7) go through sub_82740480, which is not read: they keep the high model (a [C] divergence, invisible at 3000 units).
+inline uint32_t PostModelIndex(const PostInputs& po, const RopeView& view, uint32_t i) {
+  if (po.alt && i >= 2) return 0u;
+  const int32_t corner = po.alt ? ::rdr_scene::rf::c::ringkeys::kAltPostAngle[i & 7u] : int32_t(i);
+  return (po.lod_ok && po.models[1].model && CornerIsLow(view, corner, kPostLodPoint, po.lod_dist)) ? 1u : 0u;
+}
 // The posts one frame carries: 4 (i = angle index 0..3) or, in a created arena, 8 (call i -> angle index kAltPostAngle[i]: loop 1 corners {1, 2}; loop 2 h 0 {0, -1}, h 1 {1, 2}, h 2 {0, -1}; [L] the exact float chain after 0x825CD3A0).
 inline uint32_t PostCalls(const PostInputs& in) { return in.alt ? ::rdr_scene::rf::c::ringkeys::kAltPostCalls : kPostCorners; }
 inline void PostNodes(const PostInputs& in, uint32_t i, uint32_t n, std::vector<float>& nodes) {

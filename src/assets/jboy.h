@@ -695,6 +695,15 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     mat.shader = CString(r.b + rec + 0x7C, 16);
     mat.technique = r.u32(rec + 0x90);   // S103 D1: the technique index (PLAN.md skeleton R0: sub_82C04DF0 0x82C05AF8)
     mat.vertex_lm = o.arena && mat.shader.compare(0, 4, "yBG_") == 0 && (r.u32(rec + 0x90) & 9u) == 1u && !L10PlantPerPixel();  // S103 L10: record word +0x90 (bit 0 set, bit 3 clear) = the game's vertex-LM program (docs/formats/arena_lightmap.md "S103 L10")
+    // SCU (docs/research/harness/SCU_contract.md, CUL_ADV.md A / E [C]): the game's model draw sub_82C04DF0 reads record word +0x8C (BE u32) in its cull block
+    // 0x82C0A880-0x82C0A914: bit 0x2 set = ONE sub-pass, cull on with the entry winding (2 for a normal camera = cull back, front clockwise); clear (model word t = 0 for every
+    // stage model) = one sub-pass, cull off. The word is the file's (no writer in the model code). Only the stage slots 0..399 of an arena load (kind 1) take it here: the crowd,
+    // props, weapons, the ring keys, the screens 800-809 (their own rule, rf_c_core.cpp) and characters keep their own cull (not audited for this bit: CUL U4).
+    mat.cull_word = r.u32(rec + 0x8C);
+    // S105 C3 (docs/research/s105/C3.md): the same block serves EVERY family (stage, ring, props, weapons, structures, entrance props, gm objects, characters / attires): bit set = back faces culled, for every JBOY mesh.
+    // The `r` copy's winding swap stays with the stage slots (stage_slot). The screens (rf_c_core.cpp), the crowd (live_crowd.cpp) and the flash sprite (rf_c_core.cpp) set their own rule after the load.
+    mat.stage_slot = o.arena && o.kind == 1 && o.key >= 0 && o.key < 400;
+    mat.cull_from_record = (mat.cull_word & 0x2u) != 0, mat.cull_back = mat.cull_from_record;
     const uint32_t nparam = r.u32(rec + 0x94), plist = r.u32(rec + 0x98);
     if (nparam > 512 || !r.ok(plist, uint64_t(nparam) * 4)) {
       m.warnings.push_back("material parameter list out of range");
@@ -711,16 +720,18 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
           const int32_t ti = int32_t(r.u32(po + 20));
           int* slot = nullptr;
           // (Session 96: both name sets everywhere - the arena's skinned models may use either)
-          if (pname == "g_mDiffusePrm" || pname == "sampDiffusePrm") slot = &mat.diffuse;
+          const bool uv_layers = mat.shader.rfind("yBG_UVScroll", 0) == 0 || (mat.shader.rfind("yProp_UVScrol", 0) == 0 && !load_detail::C2lPropUvPlant());   // S105 C2L: yProp_UVScroll (+ the LM spelling) takes the layers too (C2L.md 3c [C])
+          if (pname == "g_mDiffusePrm" || pname == "sampDiffusePrm" || (pname == "texDiffuse" && mat.shader == "yDefault" && !load_detail::C2lTexDiffusePlant())) slot = &mat.diffuse;   // S105 C2L: yDefault's own diffuse name (sign boards 40-45, 79; C2L.md 3a [C])
           else if (pname == "g_mNormalFxPrm" || pname == "sampNormalPrm") slot = &mat.normal;
           else if (pname == "g_mMaskPrm") slot = &mat.mask;
           else if (pname == "sampLightMapPrm" && !skin_streams) slot = &mat.lightmap;
           else if (pname == "sampSpecularPrm") slot = &mat.specular;
           else if (pname == "sampCubeRefPrm") slot = &mat.cube;     // S103 RFL: the reflection cube (a file DDS, 6 faces: RFF.md section A)
           else if (pname == "sampRefMapPrm") slot = &mat.refmap;    // S103 RFL: the 2D reflection-amount map (pixel slot 9 of the reflect_map / reflect_mask variants)
-          else if (pname == "sampDiffuse1Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[0];   // S103 LAY: the UVScroll layers 2..4 (SP_stage_faults.md 1)
-          else if (pname == "sampDiffuse2Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[1];
-          else if (pname == "sampDiffuse3Prm" && mat.shader.rfind("yBG_UVScroll", 0) == 0) slot = &mat.layer[2];
+          else if (pname == "sampDiffuse1Prm" && uv_layers) slot = &mat.layer[0];   // S103 LAY: the UVScroll layers 2..4 (SP_stage_faults.md 1)
+          else if (pname == "sampDiffuse2Prm" && uv_layers) slot = &mat.layer[1];
+          else if (pname == "sampDiffuse3Prm" && uv_layers) slot = &mat.layer[2];
+          else if (pname == "sampNoisePrm" && !load_detail::C2lNoisePlant()) slot = &mat.noise;   // S105 C2L: the yProp_PSM grain picture (fetch slot 6; the ring mat + evtobj stage mats; C2L.md 3b [C])
           else if (pname == "g_mNoiseTilePrm" && !o.arena) slot = &mat.detail;  // Session 98 (wrestler fix 3): the gear's tiled detail
           else if (pname == "g_mSweatPrm" && !o.arena) slot = &mat.sweat_bump;   // S103 SWF: the wet skin's bump (fetch slot 4)
           else if (pname == "g_mNormalWklPrm" && !o.arena && g_wrk_live.load(std::memory_order_relaxed)) slot = &mat.wrinkle_normal;   // S103 WRK: the face wrinkle normal map (name-table row 0x8392AB60, register 5 [C: WRK.md 1a])
@@ -737,6 +748,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
           }
           if (slot == &mat.cube) mat.cube_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);   // S103 RFL
           if (!o.tex) continue;
+          if (slot == &mat.noise && CString(r.b + tex_tab + 16ull * uint32_t(ti), 16).empty()) continue;   // S105 C2LA F5: an empty sampNoisePrm name is no texture (no warning)
           *slot = o.tex->Get(m, CString(r.b + tex_tab + 16ull * uint32_t(ti), 16));
           if (slot == &mat.diffuse) mat.diffuse_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);
         } else if (kind == 0x0D && r.ok(po + 20, 16)) {
@@ -760,7 +772,11 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
             mat.has_idmap_col = true;
           }
         } else if (kind == 0x0A && r.ok(po + 20, 4)) {  // scalar floats (g_iSpecularPow is stored as a float too)
-          if (pname == "g_fSpecularLev" || pname == "g_fSpecLev") mat.spec_lev = r.f32(po + 20);
+          if (load_detail::C2lNoisePlant() && (pname == "g_fNoiseLvl" || pname == "g_iNoiseTileX" || pname == "g_iNoiseTileY")) {}   // the twin drops only the three noise values
+          else if (pname == "g_fNoiseLvl") mat.noise_lvl = r.f32(po + 20);   // S105 C2L: c207.z (the game's name entry, asset_model.h Material::noise)
+          else if (pname == "g_iNoiseTileX") mat.noise_tile[0] = r.f32(po + 20);   // c207.x
+          else if (pname == "g_iNoiseTileY") mat.noise_tile[1] = r.f32(po + 20);   // c207.y
+          else if (pname == "g_fSpecularLev" || pname == "g_fSpecLev") mat.spec_lev = r.f32(po + 20);
           else if (pname == "g_iSpecularPow" || pname == "g_fSpecPow") mat.spec_pow = r.f32(po + 20);
           else if (pname == "g_fReflectAlpha") mat.reflect_alpha = r.f32(po + 20);   // S103 RFL: PS c208.x [C: RFF.md section A: the capture's c208.x equals the file's value in every Reflect draw read]
           else if (pname == "g_fSpeLodNear") mat.spe_lod[0] = r.f32(po + 20);   // S103 D1: SpeLodParam.x (FX_SPEC_FADE) [C value match: run29 f500, the game's SpeLodParam.y 6000 = the barricade's g_fSpeLodFar]

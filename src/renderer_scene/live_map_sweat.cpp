@@ -56,14 +56,16 @@ bool Overlap(const IRect& a, const IRect& b) { return a.x0 < b.x1 && b.x0 < a.x1
 struct PicBackend {
   rdr::Renderer& r;
   uint32_t Grey() { return 0; }   // (an item whose picture has no valid row is skipped by the caller: never a stand-in colour)
-  uint32_t Create(const CrowdPictureRow& row) {
+  template <class Row>
+  uint32_t Create(const Row& row) {
     rdr::ImageDesc d;
     d.width = row.width, d.height = row.height, d.mips = 1;
     d.usage = rdr::kUsageSampled;
     d.format = row.format == kCpfBc2 ? rdr::Format::BC2 : row.format == kCpfBc3 ? rdr::Format::BC3 : rdr::Format::BC1;
     return uint32_t(r.CreateImage(d));
   }
-  void Update(uint32_t id, const CrowdPictureRow& row) { r.UpdateImage(rdr::ImageId(id), 0, 0, row.bytes, row.nbytes); }
+  template <class Row>
+  void Update(uint32_t id, const Row& row) { r.UpdateImage(rdr::ImageId(id), 0, 0, row.bytes, row.nbytes); }
   void Destroy(uint32_t id) { r.DestroyImage(rdr::ImageId(id)); }
 };
 

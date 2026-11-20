@@ -20,6 +20,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import stream_cvars   # S105 H: the stream-only cvar list, read from the code
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 FLAG_RX = re.compile(r'(?<![\w-])--([A-Za-z][\w.]*)(?:=(\S*))?')
 DEF_RX = re.compile(r'REXCVAR_DEFINE_[A-Z0-9_]+\(\s*(\w+)\s*,\s*([^,]*?)\s*,')
@@ -210,6 +212,23 @@ def lint_route(path, root, final=None, exe=None, extra=''):
             warns.append(msg + f'; the exe {exe} is not under this checkout and does not hold the name either (a branch-only cvar of a worktree exe would)')
         else:
             errs.append(msg)
+    # S105 H: a route run on the STREAM-FREE exe (-Exe ...release-off...) must not set a stream-only cvar: that exe refuses it ("cvar ... was not set")
+    # and the route aborts at the line (sweep runs 045 / 047 / 048 / 052 printed PASS and never ran their mode). The list comes from the code (stream_cvars.py).
+    if exe and (stream_cvars.is_stream_free_exe(exe) or is_release(exe)):   # the OFF build folder, or a shipped player exe (always stream-free)
+        try:
+            only = stream_cvars.stream_only_cvars(root)
+        except Exception as ex:   # a broken q module must never stop a run: say so and skip this check
+            only = {}
+            warns.append(f'stream-only cvar check skipped ({type(ex).__name__}: {ex})')
+        seen_sf = set()
+        for n_ in stream_cvars.route_cvar_names_deep(path):   # `cvar` lines, included routes too: the exe REFUSES them and the route stops
+            if n_ in only and n_ not in seen_sf:
+                seen_sf.add(n_)
+                errs.append(f'stream-only cvar "{n_}" ({only[n_]}) set by a `cvar` line on the stream-free exe ({exe}): the exe refuses it and the route stops at that line')
+        for n_ in flags:   # a command-line flag is NOT refused (the SDK stashes unknown options): the switch is silently dropped
+            if n_ in only and n_ not in seen_sf:
+                seen_sf.add(n_)
+                warns.append(f'--{n_} is a stream-only cvar ({only[n_]}): the stream-free exe ignores it silently, the run does not have it')
     if is_release(exe):
         for name in flags:
             if any(re.search(p, name) for p in DEV_ERROR):
@@ -244,14 +263,15 @@ def routes(root):
                 yield os.path.join(d, f)
 
 
-def lint_all(root, verbose=False):
+def lint_all(root, verbose=False, exe=None):
+    """exe: a stream-free exe path (--stream-free) also checks every route's cvar lines against the stream-only list."""
     nerr = nwarn = n = 0
     for p in routes(root):
         text = open(p, encoding='utf-8', errors='replace').read()
-        if not header_flags(text) and intent(text) is None:
+        if not header_flags(text) and intent(text) is None and not (exe and stream_cvars.route_cvar_names_deep(p)):
             continue   # a plain route: nothing of ours to check
         n += 1
-        errs, warns, final, hidden = lint_route(p, root)
+        errs, warns, final, hidden = lint_route(p, root, exe=exe)
         rel = os.path.relpath(p, root)
         for e in errs:
             print(f'ERROR {rel}: {e}')
@@ -324,6 +344,35 @@ def selftest(root):
     good = bool(e4[0]) and 'explicitly' in e4[0][0]
     print(f"  {'ok  ' if good else 'FAIL'} intent never reads source defaults: {e4[0][:1]}")
     ok &= good
+    # S105 H: a stream-only cvar on the stream-free exe (re-finds sweep runs 045 / 047 / 048 / 052: `cvar wwe2k14_rdr_live_picture`)
+    off_exe = r'C:\x\out\build\win-amd64-release-off\wwe2k14.exe'
+    on_exe = r'C:\x\out\build\win-amd64-release\wwe2k14.exe'
+    live = w('live.txt', '# harness: flags --wwe2k14_launch=x --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true\n# intent: owner on\ncvar wwe2k14_rdr_live_picture sheet\nquit\n')
+    expect('stream-only cvar line on the stream-free exe (planted)', live, True, exe=off_exe)
+    expect('the same route on the stream (ON) exe', live, False, exe=on_exe)
+    hdr = '# harness: flags --wwe2k14_launch=x --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true'
+    # review F4: a command-line flag is dropped silently by the exe (not refused): WARN only
+    e5 = lint_route(w('liveflag.txt', hdr + ' --wwe2k14_rdr_live_picture=sheet\n# intent: owner on\n'), root, exe=off_exe)
+    good = (not e5[0]) and any('live_picture' in x for x in e5[1])
+    print(f"  {'ok  ' if good else 'FAIL'} stream-only --flag on the stream-free exe: WARN only {e5[1][:1]}")
+    ok &= good
+    expect('stream-only cvar line on a shipped player exe (planted, F5)', live, True, exe=r'C:\x\out\release\build\wwe2k14.exe')
+    expect('stream-only cvar line on an OFF folder other than release-off (planted, F5 backslash regex)', live, True, exe=r'C:\x\out\build\win-amd64-debug-off\wwe2k14.exe')
+    os.makedirs(os.path.join(d, 'nav'), exist_ok=True)
+    w(os.path.join('nav', 'sub_live.txt'), 'cvar wwe2k14_rdr_live_picture sheet\n')
+    expect('stream-only cvar in an included route (planted, F5)', w('inc.txt', hdr + '\n# intent: owner on\ninclude nav/sub_live\nquit\n'), True, exe=off_exe)
+    # review: a broken stream_cvars scan (qx5 import) must never block a run
+    real_scan = stream_cvars.stream_only_cvars
+
+    def broken(_root):
+        raise ImportError('planted qx5 failure')
+    stream_cvars.stream_only_cvars = broken
+    e6 = lint_route(live, root, exe=off_exe)
+    stream_cvars.stream_only_cvars = real_scan
+    good = (not e6[0]) and any('skipped' in x for x in e6[1])
+    print(f"  {'ok  ' if good else 'FAIL'} a broken stream_cvars scan never blocks a run: WARN {e6[1][:1]}")
+    ok &= good
+    expect('a cvar both builds define, on the stream-free exe', w('both.txt', '# harness: flags --wwe2k14_launch=x --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true\n# intent: owner on\ncvar wwe2k14_rdr_owner true\nquit\n'), False, exe=off_exe)
     expect('bad intent term', w('badint.txt', f'# harness: flags {base}\n# intent: glorp\n'), True)
     print('selftest ' + ('PASSED' if ok else 'FAILED'))
     return ok
@@ -345,7 +394,8 @@ def main():
         for e in errs:
             print('[route_lint] ERROR ' + e)
         sys.exit(1 if errs else 0)
-    sys.exit(1 if lint_all(ROOT, '--verbose' in a) else 0)
+    # S105 H: --stream-free lints every route as if run on the stream-free exe (lists the routes that carry a stream-only cvar)
+    sys.exit(1 if lint_all(ROOT, '--verbose' in a, exe=(r'out\build\win-amd64-release-off\wwe2k14.exe' if '--stream-free' in a else None)) else 0)
 
 
 if __name__ == '__main__':

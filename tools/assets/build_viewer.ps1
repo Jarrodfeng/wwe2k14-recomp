@@ -89,13 +89,13 @@ $srcs += @(Join-Path $repo 'src\renderer_scene\record_io.cpp')
 function ObjName($p) { $n = [IO.Path]::GetFileNameWithoutExtension($p); if ($p -like '*\src\renderer_scene\*') { "scene_$n" } elseif ($p -like '*\src\renderer\*') { "rdr_$n" } else { $n } }
 $vobj = Join-Path $outDir $(if ($Backend -eq 'rdr') { 'viewer_obj_rdr' } else { 'viewer_obj' })
 New-Item -ItemType Directory -Force $vobj | Out-Null
-$fails = $srcs | ForEach-Object -ThrottleLimit 16 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $fails = $srcs | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 16) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $n = [IO.Path]::GetFileNameWithoutExtension($_)
   if ($_ -like '*\src\renderer_scene\*') { $n = "scene_$n" } elseif ($_ -like '*\src\renderer\*') { $n = "rdr_$n" }
   $o = Join-Path $using:vobj ($n + '.o')
   $log = & clang++ -O2 -std=c++20 -c @using:vdefs -Wno-unused-command-line-argument @using:inc @using:Extra $_ -o $o 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") } elseif ($log) { ($log | Where-Object { $_ -match 'warning' }) -join "`n" }
-}
+} } finally { Release-BuildParallel }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $fails | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }

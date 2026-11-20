@@ -30,7 +30,7 @@
    ]
   },
   {
-   "name": "s103_WMBD.listing",
+   "name": "s103_WMBD.listing", "deps": "scan:src,tools",
    "cmd": [
     "py",
     "-I",

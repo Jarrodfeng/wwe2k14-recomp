@@ -109,7 +109,7 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
     gm.detail_mask = slot(mt.mask);
     memcpy(gm.noise_near, mt.noise_near, sizeof gm.noise_near); memcpy(gm.noise_far, mt.noise_far, sizeof gm.noise_far);
     memcpy(gm.noise_dist, mt.noise_dist, sizeof gm.noise_dist);
-    gm.alpha_blend = mt.alpha_blend || (mt.texel_cutout & 2); gm.alpha_test = mt.alpha_test || (mt.texel_cutout & 1); gm.additive = mt.additive; gm.cull_back = mt.cull_back;
+    gm.alpha_blend = mt.alpha_blend || (mt.texel_cutout & 2); gm.alpha_test = mt.alpha_test || (mt.texel_cutout & 1); gm.additive = mt.additive; gm.cull_back = mt.cull_back && !mt.cull_from_record;   // SCU: the viewer leaves the stage record's cull bit off (two-sided as before): it draws a placement's copies in ONE instanced draw, so the `r` copy's winding swap cannot be per copy here
     gm.blend_inline = mt.blend_inline;
     g.materials.push_back(gm);
   }

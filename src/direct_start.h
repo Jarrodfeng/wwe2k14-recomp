@@ -84,6 +84,9 @@ inline bool HandOffToLauncher() {
 // above the exe). Logging is not set up yet, so nothing here logs; OnPreSetup's "[wwe2k14] game_data_root" line shows
 // the result.
 inline void Configure(rex::PathConfig& paths) {
+#ifdef __ANDROID__
+  return;  // S105 ADEV: the phone always gets a game root from its launcher (mobile_settings.h); no desktop hand-off or settings-file path, release or dev
+#endif
   if (gfx_menu::IsDevBuild() || !paths.game_data_root.empty()) return;
   if (REXCVAR_GET(wwe2k14_direct_handoff) && NoGameFlags() && HandOffToLauncher()) ExitProcess(0);
   // 2. The launcher's settings file.

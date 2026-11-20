@@ -39,7 +39,22 @@ inline uint64_t TexSignature(const ModelRead& m) {
     for (uint64_t v : m.tex_hash[i]) h = Hash64(&v, 8, h);
     for (uint8_t v : m.tex_state[i]) h = HashU32(v, h);
   }
+  for (int i = 0; i < 2; ++i) h = Hash64(&m.logo_hash[i], 8, h), h = HashU32(m.logo_state[i], h);   // S105 A5c: a new logo picture is a new model key
   return h;
+}
+// S105 A5c: the sampler is the part's diffuse picture (SlotOfParam's names, any ASCII case: the game's own names are lower case in memory).
+inline bool IsDiffuseName(const char* n) {
+  const char* want[2] = {"g_mdiffuseprm", "sampdiffuseprm"};
+  for (const char* w : want) {
+    bool eq = true;
+    for (uint32_t i = 0; i < kNameBytes && eq; ++i) {
+      const char c = (n[i] >= 'A' && n[i] <= 'Z') ? char(n[i] + 32) : n[i];
+      if (c != w[i]) eq = false;
+      if (!w[i]) break;
+    }
+    if (eq) return true;
+  }
+  return false;
 }
 
 // Appends the rows of `m` (every readable part) and its pictures to `g`. Returns the number of part rows added.
@@ -54,6 +69,13 @@ inline uint32_t AppendModelRows(const ModelRead& m, GuestModelTables& g, BlobSen
     row.off = blobs.Send(g, tx.hash, tx.bytes->data(), tx.bytes->size(), frame);
     g.textures.push_back(row);
   }
+  // S105 A5c: the logo pictures' row indices in THIS record's texture table (1 + index, 0 = none): the consumer binds them at fetch slots 7 / 4 of every part of the model
+  uint32_t logo_tex[2] = {0, 0};
+  for (int i = 0; i < 2; ++i)
+    if (m.logo_state[i] == kGtBound && m.logo_hash[i]) {
+      const int ix = g.IndexOfTexture(m.logo_hash[i]);
+      if (ix >= 0) logo_tex[i] = uint32_t(ix) + 1;
+    }
   for (size_t pi = 0; pi < m.p.size(); ++pi) {
     const PartRead& p = m.p[pi];
     if (!p.Ok() || !p.vtx) continue;
@@ -63,6 +85,9 @@ inline uint32_t AppendModelRows(const ModelRead& m, GuestModelTables& g, BlobSen
     row.vtx_hash = p.vtx_hash, row.idx_hash = p.idx_hash, row.vertex_count = p.vertex_count, row.stride = p.stride;
     row.index_count = p.n0 + p.n1, row.n0 = p.n0, row.n1 = p.n1;
     row.flags = (p.n1 ? kGmN1 : 0u) | ((p.flags & kPartExtraStreams) ? kGmExtraStreams : 0u);
+    for (const SamplerRead& s : p.samplers)
+      if (s.t == 0 && IsDiffuseName(s.name) && g_gm_logo_plant != 4) row.flags |= kGmDiffuseT0;   // S105 A5c: the game's bool 150 rule (the diffuse sampler's texture index is 0). [L name = register 0] the game tests the TECHNIQUE binding's fetch register == 0 (0x82C096CC-0x82C0971C); for the yCh family register 0 is the diffuse sampler (RoleOfSlot case 0), so the name test is equal here (review F3)
+    row.logo7_tex = logo_tex[0], row.logo4_tex = logo_tex[1];
     row.vflags = p.vflags, row.node_count = p.node_count;
     for (uint32_t k = 0; k < p.node_count && k < kGmMaxNodes; ++k) row.nodes[k] = p.nodes[k];
     std::memcpy(row.effect, p.effect, kGmNameBytes);

@@ -31,6 +31,7 @@ struct CharChoice {
   // tech_picked = the pair is the game's own table row for (technique, pass), cube_analytic = the row's pixel variant reads the cube-specular slot 11 (the 360's bake) and the pair binds the variant with the same defines minus FX_CUBE_SPECULAR (CUB.md Route A: the term is evaluated per pixel; a LOOK computed, the bake dropped),
   // blocked_wrinkles = the row needs the wrinkle map and the WRK switch is off, so nothing was picked (the caller takes the old no-table pick, counted).
   bool shadow = false, wet = false, tech_picked = false, cube_analytic = false, blocked_wrinkles = false;
+  bool logo_table = false;   // S105 A5c fix F1: the row was taken from the editor's table (edit.pac p7/0)
   bool no_table = false;   // S103 YCB (review F4): no effect table existed when the pick ran (the caller rebuilds the bind once one does); one snapshot, no second read
   bool Ok() const { return vs >= 0 && ps >= 0; }
 };
@@ -38,16 +39,18 @@ struct CharChoice {
 // (technique_pick.h CharPass makes the pass). A cube-specular row (pixel slot 11) binds its non-cube twin (same defines minus FX_CUBE_SPECULAR, the row's own vertex stage; counted: cube_analytic, a deliberate choice, not a fallback); every other
 // reason leaves the result !Ok with why_not set, and the caller keeps the old min-define pick (ChooseCharEffect*), counted. The vertex stage accepts FX_ID_MAP / FX_WRINKLE_LEVEL (their constants stay the neutral zero:
 // IdMapLvLst / WklLvLst = the wrestler's live levels (S103 WRK: CharCtx::idmap / wkl, null = 0 = no tint / no wrinkle depth)); a row with FX_WRINKLES binds slot 5 = the material's wrinkles_n (S103 WRK; blocked only with the switch off).
-CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass);
+// S105 A5c fix F1: `logo` = the material carries a CAW logo (Material::logo7 / logo4 >= 0): the row comes from the editor's table (read_rule::LogoEffectTableNow, edit.pac p7/0), the game's own editor rows, which are all logo variants.
+// No editor table or no such effect in it: the startup table's row (nothing is drawn for the logo, as before). CharChoice::logo_table says which table was used.
+CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo = false);
 // The simplest vertex + fragment pair of `effect` that reads only textures the front-end can supply (the ones below), has every fragment
 // interpolator written by the vertex stage, and uses none of the options that need a runtime pass the files do not carry (shadow map,
 // cube reflections, blood, sweat, debug). `skinned`: the FX_SKINNED vertex variant, else the rigid one.
 // S103 SWF: `wet` = the liquid-map reader: only yCh_skin / yCh_skin_flex, only a fragment that has FX_BSS + FX_BLOOD_TINT + FX_SWEAT + FX_BLOOD (reads the wrestler's liquid map at slot 14, the sweat bump at slot 4;
 // the constants c205.zw / c210 / c234 / c246 from the material), simplest such pair. With no map nothing about a draw changes: the caller asks for `wet` only when it has a map for the wrestler.
-CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet = false);
+CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet = false, bool logo = false);   // S105 A5c: logo = the material carries a CAW logo: an FX_LOGO fragment is preferred
 // S103 L6: the same with the shadow-map reader on (FX_SHADOW fragment + FX_SHADOW / FX_SPHERE_OCC vertex): only fragments that HAVE FX_SHADOW are considered. Used when a frame's
 // maps hold a shadow map (frame.maps, MapRole::ShadowMap, not raw); the plain choice above stays the fallback.
-CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet = false);
+CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet = false, bool logo = false);
 
 // What a fragment sampler slot of a character effect holds.
 enum class CharSlot : uint8_t {
@@ -58,7 +61,9 @@ enum class CharSlot : uint8_t {
   LightCube,    // 13: the ambient cube of the four lights (built by BuildAmbientCube)
   WrinkleNormal,  // 5: the face wrinkle normal map `wrinkles_n` (g_mNormalWklPrm, WRK) of a table-picked bind; the NEUTRAL NORMAL when the material has none (counted; wrk_join.h WrinkleSlotPick), the old flat grey with the switch off
   RimMap,       // 15: the screen-space rim map (a runtime pass; the live map clears to (1,0,1,1) off-body (S103 B1F); the black stand-in = no rim)
-  FlatBlack,    // team-colour masks (2, 4, 7, 14), logo layers: all zero = the option does nothing
+  FlatBlack,    // team-colour masks (2, 14): all zero = the option does nothing
+  Logo7,        // S105 A5c, 7: the CAW logo picture (Material::logo7); black when the material has none
+  Logo4,        // S105 A5c, 4: the CAW logo2 picture (Material::logo4); black when the material has none
   FlatGrey,     // wrinkle map (5), hair noise (8, 9): the neutral value
   FlatBlackCube,  // 10: the reflection cube of yCh_Reflect (the stage's environment: not fed; black = no reflection layer)
   ShadowMap,    // S103 L6, 12: the wrestlers' shadow map (lane E's MapRole::ShadowMap); a shadow-variant fragment only

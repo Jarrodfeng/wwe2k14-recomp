@@ -93,11 +93,24 @@ def bstr(m):
 
 def _main_checkout(root):
     """The main checkout of a git worktree (via the shared .git dir), or None."""
-    import subprocess
+    if root in _MAIN_CACHE:       # S105 QC: one git subprocess per root per process (db_path, is_worktree and the refresh each asked: ~40 ms each)
+        return _MAIN_CACHE[root]
     try:
-        common = subprocess.run(['git', '-C', root, 'rev-parse', '--git-common-dir'], capture_output=True, text=True, timeout=10).stdout.strip()
-    except Exception:
+        _MAIN_CACHE[root] = _main_checkout_uncached(root)
+    except Exception:             # a transient git failure is answered None this time only, never remembered (QC L5)
         return None
+    return _MAIN_CACHE[root]
+
+
+_MAIN_CACHE = {}
+
+
+def _main_checkout_uncached(root):
+    import subprocess
+    r = subprocess.run(['git', '-C', root, 'rev-parse', '--git-common-dir'], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise OSError('git rev-parse failed')
+    common = r.stdout.strip()
     if not common:
         return None
     common = os.path.abspath(os.path.join(root, common))
@@ -206,8 +219,6 @@ def open_ro(path):
     of a finished refresh holds the write lock while it copies the whole 220 MB db; a reader that meets it answers from `<db>.good`, the copy build_ours keeps of the
     last swapped-in index, and says so. Only when there is no such copy does it wait longer (20 s, and it says so). After the probe query the connection gets a
     60 s busy timeout (a swap that starts mid-command must not fail the command), and LAST_OPENED names the file that was opened."""
-    sys.path.insert(0, HERE)
-    import build_ours
     global LAST_OPENED
     last = None
     busy = False
@@ -243,6 +254,8 @@ def open_ro(path):
                 continue
             if not healed:
                 healed = True
+                sys.path.insert(0, HERE)      # S105 QC: build_ours (psutil, multiprocessing: ~70 ms) is imported only when a heal is needed
+                import build_ours
                 if build_ours.heal_db(path, wait=wait):
                     continue
             break
@@ -574,7 +587,17 @@ def print_fn(r, args):
 
 # ---- covers
 
+_LANES_CACHE = {}
+
+
 def load_lanes(root):
+    """the lane json files, read once per q process (BPK 2026-11-20: covers called this once per unit: ~440 files re-read each time, 2 s a file)"""
+    if root not in _LANES_CACHE:
+        _LANES_CACHE[root] = _load_lanes(root)
+    return _LANES_CACHE[root]
+
+
+def _load_lanes(root):
     lanes = []
     for p in sorted(glob.glob(os.path.join(root, 'tools', 'gate', 'lanes', '*.json'))):
         try:
@@ -729,7 +752,7 @@ SPAWN_CODE = (
     "import json, subprocess, sys\n"
     "d = json.loads(sys.argv[1])\n"
     "lf = open(d['log'], 'ab')\n"
-    "base = 0x08000000 | 0x00000200 | 0x00004000   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | BELOW_NORMAL_PRIORITY_CLASS\n"
+    "base = 0x08000000 | 0x00000200 | (0x00000040 if d.get('idle') else 0x00004000)   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | IDLE (beside untimed runs) or BELOW_NORMAL priority\n"
     "for fl in ((base | 0x01000000, base) if sys.platform == 'win32' else (0,)):   # 0x01000000 = CREATE_BREAKAWAY_FROM_JOB (tools/live/live.py does the same)\n"
     "    try:\n"
     "        kw = {'creationflags': fl} if sys.platform == 'win32' else {'start_new_session': True}\n"
@@ -747,18 +770,29 @@ def free_ram_gb():
     return build_ours._free_ram_gb()
 
 
-def run_lock_held():
-    """the project run lock (tools/harness/runlock.py: exclusive lock.json or a live shared slot): a game run is going, do not start a 6-process parse"""
+def run_lock_state():
+    """S105 QIX: 'free' | 'shared' | 'exclusive'. 'shared' = only UNTIMED game runs hold slot<N>.json (tools/harness/runlock.py: shared=True, "ordinary,
+    untimed game runs"; the fast-forward correctness runs): the refresh may run beside them at idle priority. 'exclusive' = lock.json (builds, timed runs,
+    regress, bisect) or a BUILD slot (build<N>.json): the refresh waits, a timed run must not share the CPU and a build owns it. Unreadable = 'free'."""
     try:
         sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'harness'))
         import runlock
-        recs = [runlock.read_lock()] + list(runlock.read_slots().values())
-        return any(r and runlock._owner_alive(r) for r in recs)
+        live = lambda recs: any(r and runlock._owner_alive(r) for r in recs)
+        if live([runlock.read_lock()] + list(runlock.read_build_slots().values())):
+            return 'exclusive'
+        return 'shared' if live(list(runlock.read_slots().values())) else 'free'
     except Exception:    # noqa: BLE001 - an unreadable lock must never stop a query
-        return False
+        return 'free'
 
 
-def bg_refresh(root, final, cmd=None, throttle_s=90):
+def run_lock_held():
+    return run_lock_state() != 'free'
+
+
+STALE_SHARED_MIN = 20   # beside untimed runs only a refresh worth its CPU starts: this many stale files
+
+
+def bg_refresh(root, final, cmd=None, throttle_s=90, stale_n=None):
     """QGL: start ONE detached background incremental refresh unless one runs, just started, backed off, or the PC is busy. -> (state, one line for the reader).
     state: 'started' | 'running' (the build lock is held) | 'recent' (started < throttle_s ago) | 'backoff' (a run timed out < 1 h ago: the marker
     <db>.bgbackoff) | 'deferred' (the run lock is held or free RAM < 12 GB: nothing is spawned) | 'failed'.
@@ -783,9 +817,14 @@ def bg_refresh(root, final, cmd=None, throttle_s=90):
         pass
     if cmd is None:
         free = free_ram_gb()
-        if run_lock_held() or (free is not None and free < MIN_FREE_GB):
-            return 'deferred', ('No background refresh now: ' + ('a game run holds the run lock' if run_lock_held() else f'free RAM is {free:.0f} GB (< {MIN_FREE_GB:g})')
+        lock = run_lock_state()
+        if lock == 'shared' and stale_n is not None and stale_n < STALE_SHARED_MIN:
+            return 'deferred', (f'No background refresh now: untimed game runs hold the run lock and only {stale_n} files are stale (< {STALE_SHARED_MIN}); '
+                                'it starts on a later query.')
+        if lock == 'exclusive' or (free is not None and free < MIN_FREE_GB):
+            return 'deferred', ('No background refresh now: ' + ('a timed run / build holds the run lock' if lock == 'exclusive' else f'free RAM is {free:.0f} GB (< {MIN_FREE_GB:g})')
                                 + '; it starts on a later query when the PC is quiet.')
+        shared = lock == 'shared'
     probe = build_ours.BuildLock(final, wait_s=0)
     try:
         got = probe.acquire()
@@ -794,10 +833,11 @@ def bg_refresh(root, final, cmd=None, throttle_s=90):
     if not got:
         return 'running', 'A refresh holds the build lock (it is running); its result becomes the index.'
     probe.release()
-    argv = cmd or [sys.executable, os.path.join(HERE, 'build_ours.py'), '--bg', '-j', str(min(6, build_ours._default_jobs())), '--root', root]
+    shared = locals().get('shared', False)
+    argv = cmd or [sys.executable, os.path.join(HERE, 'build_ours.py'), '--bg', '-j', str(min(2 if shared else 6, build_ours._default_jobs())), '--root', root]
     env = {k: v for k, v in os.environ.items() if k != 'WWE_SWEEP_OWNER'}
     env['WWE_Q_TIMEOUT'] = '0'
-    spec = json.dumps({'argv': argv, 'log': log, 'cwd': root})
+    spec = json.dumps({'argv': argv, 'log': log, 'cwd': root, 'idle': shared})
     try:
         r = subprocess.run([sys.executable, '-I', '-c', SPAWN_CODE, spec], env=env, timeout=30, capture_output=True,
                            creationflags=(0x08000000 if os.name == 'nt' else 0))
@@ -863,7 +903,18 @@ def text_cmd_x6(args):
             r = qx6.cmd_text(args.root, [w for w in re.split(r'\s+', args.arg.strip()) if w], limit_files=args.limit, allhits=args.all)
             pr = lambda r, a: qx6.print_text(r)
         else:
-            r, pr = qx6.cmd_affects(args.root, args.arg), lambda r, a: qx6.print_affects(r)
+            files = getattr(args, 'files', None)
+            if files and len(files) > 1:     # QAF: several files in one call (the table is opened once): one answer each, a blank line between
+                rs = qx6.cmd_affects(args.root, files)
+                if args.json:
+                    print(json.dumps(rs, indent=1, default=str))
+                else:
+                    for i, one in enumerate(rs):
+                        if i:
+                            print()
+                        qx6.print_affects(one)
+                return 0
+            r, pr = qx6.cmd_affects(args.root, files[0] if files else args.arg), lambda r, a: qx6.print_affects(r)
     except qx6.XError as e:
         raise QOError(str(e))
     if args.json:
@@ -980,8 +1031,11 @@ def main(argv=None, root=ROOT, db=None):
         if n in ('writes', 'reads'):
             p.add_argument('--via', type=int, nargs='?', const=2, default=0, metavar='N',
                            help='also show who calls the writing / reading functions, N levels up (default 2), with the builds of each caller')
-    for n in ('lanes-of', 'line', 'lit', 'includes', 'includers', 'cvar', 'affects', 'glsl', 'str'):
+    for n in ('lanes-of', 'line', 'lit', 'includes', 'includers', 'cvar', 'glsl', 'str'):
         p = sub.add_parser(n, parents=[common]); p.add_argument('arg')
+    for n, lim in (('body', 400), ('outline', 300), ('enclosing', 30)):     # S105 QC (tools/q/qbody.py): small answers that replace whole-file reads
+        p = sub.add_parser(n, parents=[common]); p.add_argument('arg'); p.set_defaults(limit=lim)
+    p = sub.add_parser('affects', parents=[common]); p.add_argument('arg', nargs='+')   # QAF: one or several files (the answer of each, the table opened once)
     p = sub.add_parser('census', parents=[common]); p.add_argument('arg', nargs='+')
     p.add_argument('--in', dest='in_path', default=None, help='census: keep only writers whose file path contains this')
     p.add_argument('--run', default=None, help='census: also print the field\'s values per window from this run log (number or path)')
@@ -992,6 +1046,8 @@ def main(argv=None, root=ROOT, db=None):
     p = sub.add_parser('diff', parents=[common]); p.add_argument('arg', nargs='?', default='')
     sub.add_parser('info', parents=[common])
     args = ap.parse_args(argv)
+    if args.cmd == 'affects':
+        args.files = list(args.arg)
     if isinstance(getattr(args, 'arg', None), list):
         args.arg = ' '.join(args.arg)
     if isinstance(getattr(args, 'arg', None), str) and args.arg.startswith('$') and args.cmd in ('def', 'refs', 'callers', 'callees', 'writes', 'reads', 'fn', 'rows'):
@@ -1066,7 +1122,7 @@ def main(argv=None, root=ROOT, db=None):
                     # the build lock for up to 72 s and then give up ("refresh timed out on the index lock"), while the swap blocked every other reader.
                     # Now: answer at once from the index there is ("stale by N files"), and make sure ONE detached background refresh is running.
                     n = len(st['changed']) + len(st['added']) + len(st['removed'])
-                    state, why = bg_refresh(args.root, db_path(args.root))
+                    state, why = bg_refresh(args.root, db_path(args.root), stale_n=n)
                     print(f'q ours: index is stale by {n} files ({len(st["units"])} units; e.g. {", ".join((st["changed"] + st["added"] + st["removed"])[:3])}); '
                           f'answering from it now. {why}', file=sys.stderr)
                     w = None
@@ -1088,6 +1144,35 @@ def main(argv=None, root=ROOT, db=None):
         import qtools
         if args.cmd == 'info':
             r, pr = cmd_info(con, args, args.root), print_info
+        elif args.cmd in ('body', 'outline', 'enclosing'):
+            import qbody
+            try:
+                if args.cmd == 'body':
+                    got = qtools.answer('body', args.arg, args, args.root) if (getattr(args, 'tools', False) or qtools.looks_scripty(args.root, args.arg, 'body')) else None
+                    if got:
+                        got[1](got[0], args)
+                        return 0
+                    try:
+                        lines = qbody.cmd_body(con, args.root, args.arg, args.limit, find_syms, fresh_info)
+                    except qbody.BodyError:
+                        got = qtools.answer('body', args.arg, args, args.root)    # not C++: a python / ps1 function of the tools
+                        if not got:
+                            raise
+                        got[1](got[0], args)
+                        return 0
+                elif args.cmd == 'outline':
+                    lines = qbody.cmd_outline(con, args.root, args.arg, args.limit, fresh_info)
+                else:
+                    lines = qbody.cmd_enclosing(con, args.root, args.arg, fresh_info)
+            except qbody.BodyError as e:
+                raise QOError(str(e))
+            if fresh_info and fresh_info.get('approx'):
+                print(f'q ours: ~approx: {fresh_info["approx"]} row lines sit in a region this branch rewrote and their name was not found there (lines are the region start)', file=sys.stderr)
+            if args.json:
+                print(json.dumps({'cmd': args.cmd, 'lines': lines}, indent=1))
+            else:
+                print('\n'.join(lines))
+            return 0
         elif args.cmd == 'lanes-of':
             rel = qtools.find_file(args.root, args.arg)
             if not rel or isinstance(rel, list):

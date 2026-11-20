@@ -111,7 +111,7 @@ def main():
     clang = next((c for c in ['C:/Program Files/LLVM/bin/clang++.exe', 'clang++'] if os.path.isfile(c) or c == 'clang++'), 'clang++')
     os.makedirs(os.path.join(root, 'out', 'tools'), exist_ok=True)
     selftest = os.path.join(root, 'out', 'tools', 'replace_seam_selftest.exe')
-    rc, text = run([clang, '-O1', '-std=c++20', '-Wall', '-Wextra', '-o', selftest, os.path.join(root, 'tools', 'replace', 'seam_selftest.cpp')], 600)
+    rc, text = run([clang, '-O1', '-std=c++20', '-Wall', '-Wextra', '-o', selftest, os.path.join(root, 'tools', 'replace', 'seam_selftest.cpp'), os.path.join(root, 'src', 'renderer', 'shaders', 'spv', 'fx_spv_data.cpp')], 600)
     if rc:
         print(text[-2000:])
         verdict(False, 'row override unit test: build failed (exit %d)' % rc)

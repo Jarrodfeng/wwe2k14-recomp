@@ -17,8 +17,9 @@ import subprocess
 import sys
 
 ACK_DATA_WORDS = {0x821D6EB0}   # a function-pointer word at the birth (an indirect caller): creator Unknown by construction (see 3 above)
-GPU = {'sub_825BB398', 'sub_827E8CC8', 'sub_827EA4F0', 'sub_828135A0', 'sub_827506A0', 'sub_82BC39E0', 'sub_82BCB9B8'}
+GPU = {'sub_825BB398', 'sub_827E8CC8', 'sub_827EA4F0', 'sub_828135A0', 'sub_827506A0', 'sub_82BC39E0', 'sub_82BCB9B8', 'sub_82C2AB90'}
 MOVIE = {'sub_827FBB10'}
+SCENE_COPY_SITES = {0x82BB07C4: 'sub_82BB0660'}   # S105 A4 (docs\research\s105\A4.md): the game's scene-colour copy, [0x8392B948]+4, the FIRST texture sub_82BB0660 makes; its five siblings (quarter size / depth) stay Unknown
 LOADER = {'sub_82BAA6F8', 'sub_82BAA568', 'sub_82BA9D68', 'sub_82BA9EF8', 'sub_82BAA048', 'sub_82BAA958', 'sub_82BA9CB8', 'sub_82BAA158', 'sub_82B124A0'}
 
 
@@ -83,12 +84,12 @@ def main():
         print('FAIL: kCreators site 0x%08X is not a call site of sub_822951F0 in q callers' % s)
         bad += 1
     for s, fn in sorted(sites.items()):
-        want = 'Gpu' if fn in GPU else 'Movie' if fn in MOVIE else 'Loader' if fn in LOADER else 'Unknown'
+        want = 'Gpu' if fn in GPU else 'Movie' if fn in MOVIE else 'Loader' if fn in LOADER else 'SceneCopy' if s in SCENE_COPY_SITES and fn == SCENE_COPY_SITES[s] else 'Unknown'
         if s in table and table[s] != want:
             print('FAIL: site 0x%08X in %s is %s, its function says %s' % (s, fn, table[s], want))
             bad += 1
-    print('%s: picture_creators_lint: %d call sites (q callers), %d table rows; Gpu %d, Movie %d, Loader %d, Unknown %d' % ('FAIL' if bad else 'PASS', len(sites), len(table),
-          sum(v == 'Gpu' for v in table.values()), sum(v == 'Movie' for v in table.values()), sum(v == 'Loader' for v in table.values()), sum(v == 'Unknown' for v in table.values())))
+    print('%s: picture_creators_lint: %d call sites (q callers), %d table rows; Gpu %d, Movie %d, Loader %d, SceneCopy %d, Unknown %d' % ('FAIL' if bad else 'PASS', len(sites), len(table),
+          sum(v == 'Gpu' for v in table.values()), sum(v == 'Movie' for v in table.values()), sum(v == 'Loader' for v in table.values()), sum(v == 'SceneCopy' for v in table.values()), sum(v == 'Unknown' for v in table.values())))
     return 1 if bad else 0
 
 

@@ -27,10 +27,10 @@ class LiquidContributor : public Contributor {
         t.liquid_maps.push_back(m.row);
         ++maps_emitted_, items_emitted_ += m.items.size();
       }
-      for (const CrowdPictureRow& p : scratch_.pictures) {
+      for (const auto& p : scratch_.pictures) {
         bool have = false;
-        for (const CrowdPictureRow& q : t.liquid_pictures) have = have || q.key == p.key;
-        if (!have) t.liquid_pictures.push_back(p);
+        for (const LiquidPictureRow& q : t.liquid_pictures) have = have || q.key == p->key;
+        if (!have) t.liquid_pictures.push_back(*p);   // the record's one copy (it is self-contained)
       }
     }
   }
@@ -38,7 +38,7 @@ class LiquidContributor : public Contributor {
     const Stats s = tracker.GetStats();
     out += "[liquid calls " + std::to_string(s.calls) + ", recorded " + std::to_string(s.recorded) + ", replaced " + std::to_string(s.replaced) + ", early_out " + std::to_string(s.early_out) + " (disabled " + std::to_string(s.disabled) +
            "), unreadable " + std::to_string(s.unreadable) + ", items " + std::to_string(s.items) + " (undrawn " + std::to_string(s.items_undrawn) + ", overflow " + std::to_string(s.items_overflow) + "), clears " + std::to_string(s.clears) +
-           ", pictures read " + std::to_string(s.pictures_read) + " hit " + std::to_string(s.picture_hits) + ", tex_class " + std::to_string(s.tex_class) + " tex_null " + std::to_string(s.tex_null) + " tex_fail " + std::to_string(s.tex_fail) +
+           ", pictures read " + std::to_string(s.pictures_read) + " hit " + std::to_string(s.picture_hits) + ", tex_class " + std::to_string(s.tex_class) + " tex_null " + std::to_string(s.tex_null) + " tex_fail " + std::to_string(s.tex_fail) + " tex_size " + std::to_string(s.tex_size) +
            ", no_object " + std::to_string(s.no_object) + ", late " + std::to_string(s.late) + ", overflow " + std::to_string(s.overflow) + ", frames " + std::to_string(s.frames) + ", emitted frames " + std::to_string(frames_emitted_) +
            " maps " + std::to_string(maps_emitted_) + " items " + std::to_string(items_emitted_) + "]";
   }

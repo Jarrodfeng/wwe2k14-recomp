@@ -1,0 +1,11 @@
+{"owner": "lane HBK (2026-11-20, fix round): the builder hand-back check, tools/handback/check.py (inventory docs/agents/handback_checks.md). Cheap tier only: the selftest (planted slips in scratch git repos with stub lints, the FALSE-PASS table, no compile) and the diff-only re-finds of real S103 slips (CPB2 deletes, SCS OFF-only cvar, TRF2 stale-base revert, ARM2 unit) in one temporary worktree under out/hbk_refind that the script removes (tools/handback/tree.py guards every checkout); the compile re-finds (RGP, ENV) are run by hand: py -I tools/handback/refind.py. 0 game runs.",
+ "claim": {"scene": "none", "side": "none (harness: a builder's pre-hand-back check; no game work moves)", "ms": [0, 0]},
+ "checks": [
+  {"name": "hbk_check.selftest", "cmd": ["py", "-I", "tools/handback/check_selftest.py"], "timeout_s": 300, "needs": [], "tier": "cheap", "gpu": false,
+   "affects": ["tools/handback/check.py", "tools/handback/cvar_pp.py", "tools/handback/tree.py", "tools/handback/check_selftest.py", "tools/lint/no_control_chars.py", "tools/gate/game_syntax.py"]},
+  {"name": "hbk_check.refind_diff", "cmd": ["py", "-I", "tools/handback/refind.py", "--diff-only"], "timeout_s": 900, "needs": [], "tier": "cheap", "gpu": false,
+   "affects": ["tools/handback/check.py", "tools/handback/cvar_pp.py", "tools/handback/tree.py", "tools/handback/refind.py", "tools/lint/no_control_chars.py", "tools/gate/game_syntax.py", "tools/gate/build_list_lint.py",
+               "tools/scene/dev_cvar_lint.py", "tools/scene/getenv_lint.py", "tools/renderer/rule_register_lint.py", "tools/scene/switch_defined_lint.py", "tools/scene/start_parity_lint.py",
+               "tools/renderer/census_flush_lint.py", "tools/scene/census_reach_lint.py", "tools/scene/off_census_lint.py", "tools/scene/nrbf_hole_lint.py", "tools/scene/fallback_census_binder_lint.py"]}
+ ]
+}

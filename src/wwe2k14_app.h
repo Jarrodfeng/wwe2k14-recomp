@@ -46,6 +46,7 @@
 #include "lz4_probe.h"      // --wwe2k14_lz4_probe (Session 15 extension E1, default off)
 #include "lzx_probe.h"      // --wwe2k14_native_lzx (default on) / _verify / _lzx_probe / _corpus (Session 12)
 #include "load_probe.h"     // --wwe2k14_load_probe (Session 12, default off)
+#include "loader_cache_skip.h"  // S105 A6S: skip the loader RAM-cache copy (--wwe2k14_loader_cache_copy, test only)
 #include "scenario.h"       // --wwe2k14_scenario_observe (Session 9 Goal 1 step 1, default off)
 #include "cinecam.h"        // --wwe2k14_cinecam_* (Session 13, M6 CineCam, default off)
 #include "keep_stream.h"     // S103 P9: WWE2K14_KEEP_STREAM
@@ -99,6 +100,7 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 #include "motion_fix.h"     // --wwe2k14_fix_secondary_motion (Session 27.5: Cena's title at 60 fps, default off)
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
 #include "dlc.h"            // --wwe2k14_dlc: the player's DLC packs (Session 32, default off)
+#include "superstars_save.h"  // S105 IMP: pack 6's bit cleared in the save's DLC mask before the game's own pass (imports reach an old save)
 #include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
 #include "display_mode.h"      // --wwe2k14_display_720p (Session 95, default off): 1280x720 desktop while playing
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
@@ -1062,7 +1064,7 @@ class Wwe2k14App : public rex::ReXApp {
       const bool page_checked_readers = true;
 #endif
       if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_guestmodel)) {   // S103 LNT: the same switch pattern as the weapons (a false-default switch in the stream build; register_switch_lint); S103 CW-2: the stream-free build reads the game's finished geometry for a model no record can name (the CAW body); the wrestler class sizes the skeletons, a declared link makes a model nameable
-        rdr_scene::live::guestmodel::g_want = [](uint32_t m) { return rdr_scene::live::Wrestlers().WantCount(m) != 0; };
+        rdr_scene::live::guestmodel::g_want = [](uint32_t m) { return rdr_scene::live::Wrestlers().GuestModelWanted(m); };   // S105 CAWP: a current piece link with a count is read too (the dog tag: the update hook never sizes it)
         rdr_scene::live::guestmodel::g_is_named = [](uint32_t m) { return rdr_scene::live::Wrestlers().RecordCanName(m); };   // S103 CW-2b: the emitter's own three sources (CW2_review bug 1)
         rdr_scene::live::guestmodel::Register();   // off Windows the reads are page-checked (wrestler_hook.h)
       } }
@@ -1176,6 +1178,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::StartThreadPlacement();  // logs the CPU topology; watcher only with --wwe2k14_thread_placement
     wwe2k14::StartPowerThrottle();    // Session 95: EcoQoS / core packing, nothing unless asked (power_throttle.h)
     wwe2k14::StartFlightRecorder();   // no-op unless --wwe2k14_flight_recorder (Session 8 task 11)
+    wwe2k14::load_probe::StartLoadWatch();  // S105 A6W: the always-on loader watch thread (--wwe2k14_load_watch_seconds, 0 = off)
 
     // Input scripts can end the run the same way Alt+F4 does.
     wwe2k14::g_request_quit = [this] {
@@ -1254,6 +1257,7 @@ class Wwe2k14App : public rex::ReXApp {
   void OnShutdown() override {
     wwe2k14::owner_timing::RequestStop();  // lane 260: no more vblanks dispatched from our clock into the tearing-down runtime
     wwe2k14::display_mode::Restore("shutdown");  // Session 95: guest exit / setup failure paths
+    wwe2k14::load_probe::g_load_watch_stop.store(true, std::memory_order_relaxed);  // S105 A6W: the loader watch thread stops touching the guest
     wwe2k14::StopThreadPlacement();
     wwe2k14::StopPowerThrottle();
 #if !WWE2K14_STREAM()

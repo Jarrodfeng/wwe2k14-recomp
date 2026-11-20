@@ -43,6 +43,7 @@
 #include "frame_delta.h"   // S103 A3 (F3)
 #include "tail_latch.h"  // S102 U1
 #include "slot_piece.h"  // S103 NRBF: scene_inputs::CharPiece / PieceWhy, the one shared piece type
+#include "own_rows_rule.h"  // S105 A5a: JudgeOwnRows (the copy proof of a CAW own-skeleton piece)
 #include "lock_stats.h"  // BHF1: WantCount lock cost counters
 
 namespace rdr_scene::live {
@@ -78,10 +79,15 @@ class WrestlerContributor final : public Contributor {
   void SubmitConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t frame = 0, bool in_place = false);
   // Node count the hook must copy for this model object: the largest count sub_82BD30E8 saw for it, 0 = never seen (then no copy is made).
   uint32_t WantCount(uint32_t skel);
+  // S105 CAWP: the node count of a model that is a CURRENT SUBM piece link (the last latch that read the character table), 0 = not a link / no count. The guest model reader asks it for a piece the update hook never sized (a created superstar's dog tag).
+  uint32_t PieceLinkCount(uint32_t model);
+  bool GuestModelWanted(uint32_t model);   // S105 CAWP: the guest model reader's want: sized by the update hook (WantCount) OR a current piece link with a count (PieceLinkCount)
   // S103 CW-2b (CW2_review bug 1): true when the record the emitter writes for this skeleton NAMES its model (Link::known): the declared link of the Known record, a body link the latch's descriptor check
   // verified (or the planted fault's), or a participant slot key; the emitter's own three sources (wrestler_contrib.cpp Collect), asked on the hook thread. False for a skeleton nobody knows too
   // (the caller has already sized it with WantCount). A model the record cannot name is the guest model reader's (guest_model_contrib.h).
   bool RecordCanName(uint32_t skel);
+  bool RecordCanNameL(uint32_t skel);   // S105 CAWP fix: mutex_ held by the caller
+  // (S105 A5a F9: for an own-skeleton piece the count is the wanted count, else the game's own, else the update hook's max_count (CAW pieces: the stream-free build has no wanted table).)
   // S103 A2 (review fixes 1-4): the latch reader's view of this class. One short lock.
   //  * LatchTargets: every skeleton the latch should read the palette of = the union of the pending (cur_) and kept (last_) skeletons whose update hook is ALIVE (Known::upd_frame within kConsumerFresh of
   //    `hook_frame`: a wrestler who left stops being updated, so the latch stops feeding it and it ages out after kPruneAfter). Count = the update hook's max_count, or for an own-skeleton piece (lane 209: the
@@ -418,6 +424,13 @@ class WrestlerContributor final : public Contributor {
   uint64_t PieceByOwner() const { return piece_why_[0].load(std::memory_order_relaxed); }
   uint64_t PieceWhyCount(scene_inputs::PieceWhy w) const { return piece_why_[size_t(w)].load(std::memory_order_relaxed); }
   std::string PieceWhyText() const;   // "ok N no_count N ..." (the 600-frame wrestlers line)
+  // S105 A5a: the own-rows route (a linked own-skeleton piece of a guest-row owner, drawn from its own latch-read palette). Test twins: 524288 = the latch accepts no piece read (the old refusal: the piece keeps its derived palette),
+  // 1048576 = no copy proof in EmitItems (the old rule's hole reappears as a WRONG pose: any guest-owner piece with a link is drawn from whatever palette it has). The latch's acceptance is `piece_latch_submitted`.
+  static constexpr uint32_t kFaultNoPieceLatch = 524288, kFaultNoCopyProof = 1048576, kFaultNoPrevRows = 2097152, kFaultRotationOnly = 4194304;   // S105 A5a F5 twins: the owner's previous palette is not offered / the translation is not compared (the first rule)
+    static constexpr uint32_t kFaultHookOnlyPieces = 8388608, kFaultReaderIgnoresLinks = 16777216, kFaultPushEverything = 33554432;   // S105 CAWP twin: the old rule, a linked piece is a latch target only while the update hook reports it
+    uint64_t PieceLatchSubmitted() const { return piece_latch_submitted_.load(std::memory_order_relaxed); }
+  uint64_t OwnRowsCount(scene_inputs::OwnRowsWhy w) const { return own_rows_[size_t(w)].load(std::memory_order_relaxed); }
+  std::string OwnRowsText() const;   // "ok N hidden_by_game N ..." + piece_latch_submitted (the 600-frame wrestlers line)
   void SetOwnSkelLog(OwnSkelLogFn f) { own_skel_log_.store(f, std::memory_order_relaxed); }
   void LogOwnSkel(uint32_t model, uint32_t r5, uint32_t field, uint32_t count) {
     if (OwnSkelLogFn f = own_skel_log_.load(std::memory_order_relaxed)) f(model, r5, field, count, WantedHookSaw(model));
@@ -490,6 +503,10 @@ class WrestlerContributor final : public Contributor {
     bool consumer = false;
     std::vector<Mat4> skin;
     uint32_t age = 0;                          // Emits since it was last refreshed
+    // S105 A5a F5: the palette this one replaced (the owner's PREVIOUS latch read: a piece's owner-row copy may run before the owner's own update of the pass, so it holds one copy behind) and the shifts (sub_82BD3620) recorded for each
+    std::vector<Mat4> prev_skin;
+    bool prev_consumer = false;
+    float shift[3] = {0, 0, 0}, prev_shift[3] = {0, 0, 0};
   };
   static constexpr size_t kMaxPending = 4;
   // bound on distinct skeletons held (hooks cannot grow memory without limit). Lane 206 (review S1): 96, since listed piece skeletons (hair, caps: up to ~15 a body) are recorded now; the last
@@ -513,6 +530,7 @@ class WrestlerContributor final : public Contributor {
     bool seen_as_skeleton = false;
     bool has_consumer = false;   // a consumer palette arrived: derived palettes are bookkeeping only while it is fresh (kConsumerFresh frames)
     uint64_t consumer_frame = 0;
+    float shift[3] = {0, 0, 0};   // S105 A5a F5: the sum of the ApplyDelta shifts since the last derived update (the game adds them to +200 after the piece copy)
     bool mismatch_walk_ok = false;   // S103 L33F review F3: the last derived mismatch WITH a walk copy had that copy equal to the latch read (set) / different (cleared): the evidence an OURS-frame mismatch submit needs
     // S103 A3 (audit item 2, F3): nodes 0..58 of the last THREE derived palettes the update hook reported, each with its tag (the guard matches the latch's [skel+200] read against each and censuses the
     // matching delta: the update hook's frame tag and the latch's differ by a clock the census must settle)
@@ -566,7 +584,7 @@ class WrestlerContributor final : public Contributor {
   std::atomic<uint64_t> own_skel_consumer_{0}, own_skel_ptr_mismatch_{0};
   std::atomic<OwnSkelLogFn> own_skel_log_{nullptr};
   // S103 NRB: the SUBM piece links of the last LatchTargets(slots) (model -> owner slot, piece id, owner skeleton); under mutex_. Replaced whole every latch that reads the table.
-  struct PieceLink { int32_t slot = -1; uint32_t id = 0, owner = 0; scene_inputs::PieceWhy why = scene_inputs::PieceWhy::NoCount; scene_inputs::PieceBuild build = scene_inputs::PieceBuild::Unknown; uint32_t kind = 0xFFFFFFFFu; };
+  struct PieceLink { int32_t slot = -1; uint32_t id = 0, owner = 0; scene_inputs::PieceWhy why = scene_inputs::PieceWhy::NoCount; scene_inputs::PieceBuild build = scene_inputs::PieceBuild::Unknown; uint32_t kind = 0xFFFFFFFFu; scene_inputs::OwnRowsProbe probe; uint32_t count = 0; };   // S105 A5a: probe = the latch's read of the copy words + one mapped node pair; S105 CAWP: count = the node count the reader sized the piece with (CharPiece::nodes, 0 = none)
   std::unordered_map<uint32_t, PieceLink> piece_links_;
   // S103 W2B (bone_tag_rows.h, docs\agents\s103\W2.md): the spring-hair rows of the pieces the reader proved Ok, per OWNER skeleton, in canonical order (piece id ascending, then node); under mutex_, replaced whole by every LatchTargets(slots).
   struct ExtraRow { uint32_t piece_id = 0, node = 0, piece_nodes = 0; Mat4 m = {}; };
@@ -579,6 +597,9 @@ class WrestlerContributor final : public Contributor {
   std::atomic<PieceLinkLogFn> piece_link_log_{nullptr};
   std::atomic<PieceDetachLogFn> piece_detach_log_{nullptr};   // S103 DTP
   std::atomic<uint64_t> piece_detached_{0};                   // S103 DTP
+  std::atomic<uint64_t> piece_offlatch_refused_{0};   // S105 CAWP F3
+  std::atomic<uint64_t> piece_latch_submitted_{0};            // S105 A5a: a SUBM-linked piece's latch read accepted without the derived-head evidence (its owner is slot-present at this latch)
+  std::atomic<uint64_t> own_rows_[size_t(scene_inputs::OwnRowsWhy::kCount)] = {};   // S105 A5a: per emit, how each candidate own-skeleton piece of a guest-row owner came out (index 0 = Ok = written as kObjOwnRowsPiece)
   std::atomic<KnownEraseLogFn> known_erase_log_{nullptr};
   std::atomic<WrestlerEventLogFn> wrestler_event_log_{nullptr};
   static inline thread_local bool t_off_latch_ = false;   // S103 AUSF review 1
@@ -633,7 +654,7 @@ class WrestlerContributor final : public Contributor {
   std::atomic<uint64_t> quiet_unseen_{0}, slot_gone_{0};   // S103 L31B review C / D
   std::atomic<uint64_t> stale_dropped_{0}, slot_targets_{0}, slot_no_count_{0}, slot_hook_quiet_{0}, slot_join_agree_{0}, slot_join_differ_{0}, slot_join_unmatched_{0};   // S103 L31B
   // ---- S102 U1: the latch (docs\renderer\SWAP_TAIL.md). Collect = Emit's two locked blocks, unchanged; the formatting reads only the items. ----
-  struct EmitItem { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; bool stale = false; int32_t piece_slot = -1; uint32_t piece_owner = 0; scene_inputs::PieceWhy piece_why = scene_inputs::PieceWhy::NoCount; uint32_t piece_id = 0; bool link_only = false; std::vector<ExtraRow> extra; };   // S103 W2B: extra = the owner body's spring-hair rows of this latch (canonical order), appended after its palette by EmitItems   // S103 DTP fix: link_only = no palette of its own (the piece object is gone or stale): written from the latch's link proof alone   // S103 NRB: stale / the SUBM link (S103 NRBF: the owner skeleton the link was read from + the reader's proof)
+  struct EmitItem { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; bool stale = false; int32_t piece_slot = -1; uint32_t piece_owner = 0; scene_inputs::PieceWhy piece_why = scene_inputs::PieceWhy::NoCount; uint32_t piece_id = 0; bool link_only = false; std::vector<ExtraRow> extra; uint64_t tag = 0; scene_inputs::OwnRowsProbe probe; std::vector<Mat4> prev_skin; bool prev_consumer = false; float shift[3] = {0, 0, 0}, prev_shift[3] = {0, 0, 0}; };   // S105 A5a F5: the owner's previous palette + the recorded shifts   // S105 A5a: tag = the Kept palette's frame tag (hook + kPaletteLead for a latch read: the own-rows rule pairs a piece and its owner only when both are of the SAME latch); probe = the link's copy probe   // S103 W2B: extra = the owner body's spring-hair rows of this latch (canonical order), appended after its palette by EmitItems   // S103 DTP fix: link_only = no palette of its own (the piece object is gone or stale): written from the latch's link proof alone   // S103 NRB: stale / the SUBM link (S103 NRBF: the owner skeleton the link was read from + the reader's proof)
   void Collect(const FrameInfo& f, std::vector<EmitItem>& items, Counters& c);
   void EmitItems(const FrameInfo& f, SceneTables& t, Counters& c, std::vector<EmitItem>& items, uint32_t light);
   LatchMark latch_;

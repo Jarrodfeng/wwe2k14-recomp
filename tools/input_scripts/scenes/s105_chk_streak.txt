@@ -1,0 +1,33 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the 30 Years era screen has no mapped cursor state: its presses wait on frame counts)
+# intent: owner on
+# S105 lane R2 (T5 route 4): 30 YEARS OF WRESTLEMANIA (menu 1500, seq 31) -> RIGHT x5 to THE STREAK card -> A -> sequence 36 CStreakMeunSequence; shots of the card and the menu, text logged.
+# UNCONFIRMED: where B leads from seq 36 (the route does not back out; quit closes the game).
+on_fail continue
+log bench: start scene s105_chk_streak
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_wm30
+wait_frames 420
+log_state seq
+repeat 5
+press RIGHT
+wait_frames 60
+end_repeat
+wait_text SELECT 120 optional
+log_text 8
+screenshot chk_streak_card
+press_until_state A seq 36 3 300 5
+log scene=streak_menu
+wait_frames 300
+screenshot chk_streak_box
+press A
+wait_frames 120
+log_state seq
+log_text 8
+screenshot chk_streak_menu_1
+wait_frames 300
+screenshot chk_streak_menu_2
+log bench: done
+wait_frames 10
+quit

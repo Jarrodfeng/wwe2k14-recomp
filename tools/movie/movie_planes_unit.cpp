@@ -22,6 +22,7 @@
 //   alpha_required    PlaneImages refuses a frame with no alpha plane (the S103 SVY bug: the season video drew black) -> "upload.no_alpha_served"
 //   kind_guard_off    the served set's alpha-ness is not checked against the draw kind -> "upload.kind_guard"
 //   unbounded         PlaneImages keeps every set forever                                         -> "upload.bounded"
+//   key_ignored       (N2) the row's plane key is ignored: every row carries the last flush's set -> "select.key"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -115,6 +116,11 @@ static void BuildSet(const SetSpec& s) {
       if (present) g_guest.Alloc(PlanePtr(s, b, k), size_t(Pitch(s, k)) * DH(s, k));
     }
 }
+// N2: the 2 x 4 plane handle keys of a set (word 0 of each pair at set + 64 b + 8 k).
+static void PutKeys(const SetSpec& s, uint32_t k0) {
+  for (uint32_t b = 0; b < 2; ++b)
+    for (uint32_t k = 0; k < 4; ++k) g_guest.Put(s.set + 64 * b + 8 * k, k0 + 0x10 * b + k), g_guest.Put(s.set + 64 * b + 8 * k + 4, 0x70000000u + k0);
+}
 // What the decoder writes: data plane k (0 Y, 1 cR, 2 cB, 3 A) rows from `src[k]` (packed), the pitch padding a marker that must never be copied; then the display index.
 static void Decode(const SetSpec& s, uint32_t buf, const std::vector<uint8_t> src[4]) {
   g_guest.Put(s.set + 148, buf);
@@ -168,6 +174,7 @@ static void ApplyPlants(mp::MovieStore& st) {
   st.plants.no_ambiguity_guard = Plant("no_ambiguity_guard");
   st.plants.no_age_limit = Plant("no_age_limit");
   st.plants.leak_stream = Plant("leak_stream");
+  st.plants.key_ignored = Plant("key_ignored");
 }
 
 // ---- part 1: the synthetic fixture ------------------------------------------------------------------------------------------------
@@ -246,6 +253,46 @@ static void Synthetic() {
   auto a_by_set = st.Find(by_set);
   Check(a_by_set && a_by_set->set == A.set && a_by_set->w == 64, "select.set", "the set hint picks its own set although another set flushed later");
 
+  {   // N2: the 30 Years menu: three movies flush every frame in slot order, so every row is stamped with the LAST flush's set. A row picks its set by its own plane key.
+    mp::MovieStore s3;
+    ApplyPlants(s3);
+    g_guest.Clear();
+    const SetSpec S0{0x40420000, 32, 16, 2, 0, true}, S1{0x40421000, 64, 16, 2, 0, false}, S2{0x40422000, 64, 16, 2, 0, false};   // s0 = 0502 (alpha), s1 / s2 = 0500 / 0501 (no alpha)
+    BuildSet(S0), BuildSet(S1), BuildSet(S2);
+    PutKeys(S0, 0x1000), PutKeys(S1, 0x2000), PutKeys(S2, 0x3000);
+    std::vector<uint8_t> g0[4], g1[4], g2[4];
+    Pattern(S0, 11, g0), Pattern(S1, 12, g1), Pattern(S2, 13, g2);
+    Decode(S0, 0, g0), Decode(S1, 0, g1), Decode(S2, 0, g2);
+    s3.OnFlush(&ReadThunk, S0.set, 200), s3.OnFlush(&ReadThunk, S1.set, 200), s3.OnFlush(&ReadThunk, S2.set, 200);
+    mp::DrawHint h0{S2.set, 0, 0, 0, 0x1000}, h1{S2.set, 0, 0, 0, 0x2000}, h2{S2.set, 0, 0, 0, 0x3000};   // every row's hint = the last flush's set
+    auto r0 = s3.Find(mp::MakeQuery(h0, 200)), r1 = s3.Find(mp::MakeQuery(h1, 200)), r2 = s3.Find(mp::MakeQuery(h2, 200));
+    mp::DrawHint hm{S2.set, 0, 0, 0, 0x9999};   // a key no set holds: today's rule (the hint), counted
+    auto rm = s3.Find(mp::MakeQuery(hm, 200));
+    const bool alpha_ok = r0 && r0->set == S0.set && r0->has_alpha;   // the alpha row is served the alpha set: SetMatchesKind would pass it
+    Check(alpha_ok && r1 && r1->set == S1.set && r2 && r2->set == S2.set && Same(r1->y, g1[0]) && Same(r2->y, g2[0]), "select.key", "three rows, one hint (the last flush's set): each served its own set by its plane key; the alpha row from the alpha set");
+    Check(rm && rm->set == S2.set && s3.census().key_miss == 1 && s3.census().key_hit == 3 && s3.census().key_hint_differs == 2, "select.key_fallback", "a key no set holds falls back to the hint and is counted (key_hit " + N(s3.census().key_hit) + ", key_miss " + N(s3.census().key_miss) + ", differs " + N(s3.census().key_hint_differs) + ")");
+    const bool refused = r0 && !mp::SetMatchesKind(true, !r0->has_alpha);
+    Check(!refused, "select.key_alpha_row_not_refused", "the alpha row over its own set passes the kind guard (the old hint refused it)");
+    {   // N2 F6: a row with no hint that finds its set by key is not "the hint was wrong"
+      const uint64_t d0 = s3.census().key_hint_differs;
+      auto nh = s3.Find(mp::MakeQuery(mp::DrawHint{0, 0, 0, 0, 0x2000}, 200));
+      Check(nh && nh->set == S1.set && s3.census().key_hint_differs == d0, "select.key_no_hint_not_differs", "no hint + key: served by key, key_hint_differs unchanged");
+      Check(s3.SetOfKey(0x2010) == S1.set && s3.SetOfKey(0x1003) == S0.set && s3.SetOfKey(0x9999) == 0 && s3.SetOfKey(0) == 0, "select.set_of_key", "either buffer's key names its set (SetOfKey), an unknown key and 0 name none");
+    }
+    {   // N2 F5: only the buffers the set has (count at +128): a one-buffer set's second key words are stale memory
+      const SetSpec S3{0x40423000, 32, 16, 1, 0, false};
+      BuildSet(S3);
+      PutKeys(S3, 0x4000);
+      std::vector<uint8_t> g3[4];
+      Pattern(S3, 14, g3);
+      Decode(S3, 0, g3);
+      s3.OnFlush(&ReadThunk, S3.set, 200);
+      const uint64_t m0 = s3.census().key_miss;
+      auto stale = s3.Find(mp::MakeQuery(mp::DrawHint{S2.set, 0, 0, 0, 0x4010}, 200));   // buffer 1's key of a 1-buffer set
+      Check(s3.census().key_miss == m0 + 1 && s3.SetOfKey(0x4000) == S3.set && s3.SetOfKey(0x4010) == 0, "select.key_buffers_by_count", "a one-buffer set holds only buffer 0's keys (the stale words are not read)");
+      (void)stale;
+    }
+  }
   // 4. the upload.
   std::vector<FakeSink::Img> imgs;
   uint32_t updates = 0;

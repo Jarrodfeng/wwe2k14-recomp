@@ -31,6 +31,8 @@ import zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.append(os.path.join(os.path.dirname(HERE), 'admit'))
+import admit_py as _admit  # noqa: E402   CQW: the machine-wide compile queue for the parse pool (nothing runs at import)
 
 B_ON, B_OFF, B_TOOL, B_OTHER = 1, 2, 4, 8
 BUILD_NAMES = {B_ON: 'ON', B_OFF: 'OFF', B_TOOL: 'tool', B_OTHER: 'other'}
@@ -543,7 +545,7 @@ def _main(argv, state):
     done = 0
     if todo:
         order = sorted(todo, key=lambda t: -os.path.getsize(os.path.join(root, t[2])))   # big units first
-        with multiprocessing.Pool(a.j) as pool:
+        with _admit.hold('q.parse_worker', a.j, timeout_s=300) as nj, multiprocessing.Pool(nj) as pool:   # CQW: the machine-wide compile queue (a.j = the want and the fall-open value)
             for key, r in pool.imap_unordered(worker, [(t[0], t[1], t[2], t[3]) for t in order]):
                 done += 1
                 t = next(x for x in todo if x[0] == key)

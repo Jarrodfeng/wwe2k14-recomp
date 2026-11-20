@@ -17,7 +17,7 @@ r"""q runlog: an index of OUR run logs (S103 lane QX4): which exe, which route, 
         what is indexed (and how many logs are gone from disk but still known); `update` forces the scan now (every other call does it itself).
 
 Logs read: logs\wwe2k14_NNN.log, out\build\*\logs\wwe2k14_NNN.log, out\release\build\logs (the folder next to the exe it ran). The exe is the wwe2k14.exe in the log
-folder's parent (path + its modified time = the build time; `gone` when it is not there any more). The index (out\harness\index\runlog.db) is incremental: a stat
+folder's parent (path + its modified time = the build time; `gone` when it is not there any more). The index (out\harness\index\runlog.s<VERSION>.db; a new version starts from the older file's rows of vanished logs, read only) is incremental: a stat
 walk (size / mtime) then only the new / changed logs are parsed (<= 4 workers, below-normal priority); a log that is deleted afterwards (the tidy clears out\ at
 session end) KEEPS its rows, marked `log gone`. Game-derived text: stays in out\ (gitignored). No game run is needed or started.
 """
@@ -35,8 +35,82 @@ sys.path.insert(0, HERE)
 
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 IDX = os.path.join(REPO, 'out', 'harness', 'index')
-RDB = os.path.join(IDX, 'runlog.db')
-VERSION = 7
+VERSION = 7      # S105 D (F1): also in the FILE NAME (runlog.s7.db, db_name()): a q of another version never opens, wipes or rebuilds this file
+
+
+def db_name():
+    """the index file's name carries the version (runlog.s7.db): a q of another version uses ANOTHER file and never opens, wipes or rebuilds this one (the design of qasset.db_name)"""
+    return 'runlog.s%d.db' % VERSION
+
+
+def rdb_path():
+    r"""out\harness\index\runlog.s<VERSION>.db; WWE_QRUNLOG_DB=<file> = another file (how a builder / a test works without touching the shared index)"""
+    return os.environ.get('WWE_QRUNLOG_DB') or os.path.join(IDX, db_name())
+
+
+def other_index_files(path=None):
+    """index files of OTHER names beside ours (the old runlog.db, runlog.s6.db ...): never written by this q, named so the tidy / a person can clear them"""
+    path = path or rdb_path()
+    me = os.path.basename(path)
+    try:
+        return sorted(f for f in os.listdir(os.path.dirname(path)) if re.match(r'^runlog(\.s\d+)?\.db$', f) and f != me)
+    except OSError:
+        return []
+
+
+def _file_version(fp):
+    try:
+        c = sqlite3.connect(f'file:{fp}?mode=ro', uri=True)
+        try:
+            r = c.execute("SELECT value FROM meta WHERE key='version'").fetchone()
+            return int(r[0]) if r else None
+        finally:
+            c.close()
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+def _carry_over(path):
+    r"""a NEW index file starts from the newest index file of an older (or the same) version beside it, read-only (sqlite backup of a mode=ro connection): the rows of logs that are GONE
+    from disk (the tidy clears out\) exist nowhere else, a re-parse cannot bring them back. The other file is never written; update() then migrates the copy as before."""
+    d = os.path.dirname(path)
+    best = None
+    for f in other_index_files(path):
+        fp = os.path.join(d, f)
+        v = _file_version(fp)
+        if v is None or v > VERSION:
+            continue
+        mt = os.path.getmtime(fp)
+        if best is None or mt > best[0]:
+            best = (mt, fp, v)
+    if best is None:
+        return
+    tmp = f'{path}.{os.getpid()}.tmp'
+    try:
+        src = sqlite3.connect(f'file:{best[1]}?mode=ro', uri=True)
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        if os.path.exists(path):
+            os.remove(tmp)      # another q made the new file meanwhile: keep theirs
+        else:
+            os.replace(tmp, path)
+            print(f'q runlog: new index {os.path.basename(path)}: started from {os.path.basename(best[1])} (version {best[2]}, read only; it is left alone): the rows of logs gone from disk are kept', file=sys.stderr)
+    except (sqlite3.Error, OSError) as e:
+        if os.path.exists(path):      # lost the race to another first caller: theirs stands, nothing to report
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return
+        print(f'q runlog: could not start from {best[1]} ({e}); the new index is built from the logs still on disk', file=sys.stderr)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 MAX_PER_TAG = 500
 
 PREFIX_RE = re.compile(r'^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\] \[\w+\] \[[\w ]+\] (?:\[t\d+\] )?')
@@ -150,7 +224,7 @@ def exe_of(logpath):
 
 
 def _connect(path=None):
-    path = path or RDB
+    path = path or rdb_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     con = sqlite3.connect(path, timeout=120, isolation_level=None)       # autocommit: transactions are explicit (BEGIN IMMEDIATE)
     con.row_factory = sqlite3.Row
@@ -206,6 +280,10 @@ def _migrate(con, full):
 
 def update(path=None, full=False, quiet=True, logs=None):
     from concurrent.futures import ProcessPoolExecutor
+    default = path is None
+    path = path or rdb_path()
+    if default and not os.path.exists(path):
+        _carry_over(path)
     con = _connect(path)
     con.execute('PRAGMA journal_mode=WAL')
     con.execute('PRAGMA busy_timeout=120000')

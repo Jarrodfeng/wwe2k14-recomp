@@ -19,6 +19,11 @@
   decomp FUNC [--fields] [--callers N]   a compact mechanical view of one function: blocks with loads / stores / calls /
                                branches, provenance folded (tools/q/qdecomp.py; cache out/harness/index/decomp/;
                                docs/agents/q_decomp.md)
+  switch FUNC                  every jump-table switch of FUNC: case -> target, the li constants / stores of constants / calls in each case (`decomp FUNC --cases` = the same; qgx.py)
+  text ID [--lang N] [--all]   text id -> string from the game's string tables (string.pac; qgx.py)
+  csdt [ERA [KEY]] [--find K]  evtdata.pac /CSDT caption tables: key, start / end frame, text (qgx.py)
+  field OFF --stores           `field OFF --writes` + indexed stores (stbx / sthx / stwx ...) + memcpy writers (qstores.py)
+  ours includes F --included-by | --transitive | --closure   the include graph of our src (qgx.py)
   info                         what the index was built from, counts, staleness
   fact WORDS [--kind K]        search the knowledge library: docs/formats, docs/systems, docs/modules, db summaries /
                                evidence, SESSION summaries (lowest rank); hits = file + heading + line, the matching
@@ -29,11 +34,16 @@
   vtable ADDR [--slot K]|--of FUNC  the slots of a vtable (index, word, target, db name, decomp summary); --of = which
                                vtable slots point at FUNC (tools/q/qvtable.py)
   field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
-                               a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.db; `q field -h`)
+                               a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.s<SCHEMA>.db; `q field -h`)
   sdk def|refs|callers NAME [--part sdl3|imgui|sdk|...] | info   the ReXGlue SDK source + the SDK's SDL3 / imgui / VMA / spdlog / fmt / ... as a read-only index (tools/q/qsdk.py; builds and refreshes ITSELF on every call, 7 s cold, 0.4 s warm; each hit tagged [sdk] / [sdl3] / ...; the header says the index age)
   asset find|pac|tex|mat|id|slot|info|update   the index of the game's FILES: every pac -> PACH (+ virtual path /STG/CAGE) -> entry -> model nodes / meshes / material
-                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.db, built
+                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.s4.db, built
                                from the player's own files, refreshes ITSELF; `q asset -h`)
+  show FILE:N-M [...]         exact numbered lines of one of our files (FILE:N, FILE:N+-C, FILE:A-B,C-D; a unique basename works; tools/q/qshow.py)
+  note [NAME] [--verdict|--sites|--section HEADING]   one section of a docs/research|systems|formats note, not the file (tools/q/qnote.py)
+  ours body FUNC | outline FILE | enclosing FILE:LINE   a function's lines | a file's functions / types / fields (no bodies) | the function holding a line (tools/q/qbody.py)
+  py body NAME                 the text of a python / ps1 tool function (def span)
+  py def|refs|callers|callees|writes|reads|fn NAME   our python / ps1 tools first: `ours ... --tools` (tools/q/qtools.py: ast-based, this checkout's own files)
   ours ...                     the structural index of OUR code: def refs callers callees writes reads fn covers rows info update diff + lanes-of line lit includes includers (tools py/ps1/lane json too) + hooks text affects (qx6.py) + glsl fxreg str (qgl.py)
                                (tools/q/qours.py; db out/harness/index/ours.db; exact, from the clang AST; `q ours -h`;
                                `q ours --branch REF CMD` / `q ours diff REF` = the same for a lane branch, via an overlay on the main index)
@@ -761,6 +771,22 @@ def cmd_info(con, args, m):
 def main(argv=None):
     # Session 89: `q.py map ...` = the harness knowledge map (tools\q\qmap.py; no index needed).
     argv = sys.argv[1:] if argv is None else argv
+    # S105 QG: `switch` / `text` / `csdt` / `decomp --cases` / `field OFF --stores` / `ours includes F --included-by|--transitive` = tools/q/qgx.py + qstores.py
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    # lazy: a broken qgx.py must not break every other q command (L4)
+    if argv and (argv[0] in ('switch', 'text', 'csdt') or (argv[0] in ('decomp', 'field', 'ours') and any(a in argv for a in ('--cases', '--stores', '--included-by', '--transitive', '--closure')))):
+        import qgx
+        if qgx.wants(argv):
+            return qgx.dispatch(argv, connect, DB, resolve)
+    # S105 QM: `q.py menu ...` = menu pages / rows / state words for route lanes (tools/q/qmenu.py; out/harness/index/menu.json)
+    if argv and argv[0] == 'menu':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qmenu
+        try:
+            sys.stdout.reconfigure(errors='replace')
+        except Exception:
+            pass
+        return qmenu.main(argv[1:])
     if argv and argv[0] == 'map':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qmap
@@ -775,17 +801,41 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qours
         return qours.main(argv[1:])
-    # S103 QX5: `q.py sdk ...` = the read-only index of the ReXGlue SDK source (tools/q/qsdk.py, out/harness/index/sdk.db, built by `q sdk update`).
+    # S105 QB: `q.py show FILE:N-M` = exact lines of one of our files (tools/q/qshow.py); `q.py py def|refs|callers|callees|writes|reads|fn NAME` = `ours --tools`
+    # (our python / ps1 index first, tools/q/qtools.py).
+    if argv and argv[0] == 'show':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qshow
+        return qshow.main(argv[1:])
+    if argv and argv[0] == 'note':     # S105 QC: one section of a research note / system page (tools/q/qnote.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qnote
+        return qnote.main(argv[1:])
+    if argv and argv[0] == 'py':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qours
+        import contextlib
+        import io
+        eb, ob = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(eb), contextlib.redirect_stdout(ob):
+            rc = qours.main(argv[1:] + ['--tools'])
+        err, outt = eb.getvalue(), ob.getvalue()
+        sys.stderr.write(err)
+        sys.stdout.write(outt)
+        if rc == 0 and not re.search(r'\.(py|ps1):\d', outt) and len(argv) > 2 and argv[1] in ('def', 'refs', 'callers', 'callees', 'writes', 'reads', 'fn'):
+            print('q py: (C++ index: no python / ps1 symbol of that name)', file=sys.stderr)
+        return rc
+    # S103 QX5: `q.py sdk ...` = the read-only index of the ReXGlue SDK source (tools/q/qsdk.py, out/harness/index/sdk.s<SCHEMA>.db, built by `q sdk update`).
     if argv and argv[0] == 'sdk':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qsdk
         return qsdk.main(argv[1:])
-    # S103 QAS: `q.py asset ...` = the index of the game's FILES (pacs -> PACH -> entry -> model / material / texture; tools/q/qasset.py, out/harness/index/asset.db).
+    # S103 QAS: `q.py asset ...` = the index of the game's FILES (pacs -> PACH -> entry -> model / material / texture; tools/q/qasset.py, out/harness/index/asset.s4.db).
     if argv and argv[0] == 'asset':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qasset
         return qasset.main(argv[1:])
-    # S103 QF: `q.py field ...` = the field index (who reads / writes +N of an object; tools/q/qfield.py, out/harness/index/fields.db).
+    # S103 QF: `q.py field ...` = the field index (who reads / writes +N of an object; tools/q/qfield.py, out/harness/index/fields.s<SCHEMA>.db).
     if argv and argv[0] == 'field':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfield

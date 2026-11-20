@@ -1,0 +1,45 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): the saved highlight reel. Fast-forward: presses wait for menu states.
+# Path: main menu -> MY WWE (item 5, menu 6) -> item 4 REPLAY (screen code 1515). The atlas edge list:6 -> screen:1515 is marked REFUSED (crawl run 5893: target -1, A did
+# nothing on the frozen save): the entry is probably greyed because the save holds no saved replay. This route presses A on it anyway and reads what happens
+# (menu / seq / screen text + two shots). On a save that holds a saved replay (made in a match's replay screen, "Spectacular.rps" flow) it should open the viewer.
+# UNCONFIRMED: everything after the A. The post-match replay itself is covered by s103_android_check.txt, not here.
+# Marks: 1 menu, 2 my wwe list, 3 replay row, 4 after A, 5 back, 6 end.
+on_fail quit
+log bench: start scene s105_replay_reel
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+press_until_state DOWN cursor >=5 24 30 5 if_needed
+press_until_state UP cursor 5 24 30 5 if_needed
+press_until_state A menu 6 8 120 5
+mark 2 my_wwe_list
+press_until_state DOWN cursor >=4 12 30 5 if_needed
+press_until_state UP cursor 4 12 30 5 if_needed
+log scene=replay_row
+log_state target
+log_text 8
+screenshot sc_s105_replay_row
+mark 3 replay_row
+press A
+wait_frames 300
+log scene=after_replay_press
+log_state menu
+log_state seq
+log_state screen_mode
+log_state target
+log_state msgbox
+log_text 8
+screenshot sc_s105_replay_after
+mark 4 after_a
+wait_frames 300
+screenshot sc_s105_replay_after2
+press_until_state B menu 1 16 120 5
+wait_state menu 1 3600 10
+mark 5 back_at_menu
+wait_frames 120
+mark 6 end
+log bench: done
+wait_frames 10
+quit

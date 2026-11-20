@@ -21,13 +21,11 @@ log_state msgbox
 log_text 8
 mark 2 universe_up
 wait_frames 300
-cvar wwe2k14_rdr_live_picture sc_universe_1
 screenshot sc_universe_1
 wait_frames 700
 mark 3 window1
 log_state msgbox
 log_text 8
-cvar wwe2k14_rdr_live_picture sc_universe_2
 screenshot sc_universe_2
 wait_frames 600
 mark 4 window2

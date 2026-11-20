@@ -621,6 +621,8 @@ def main():
         rc = do_check(tables)
         if a.expect_fail:
             print('expect-fail: the check %s' % ('failed as planned' if rc else 'PASSED (the twin was NOT caught)'))
+            if rc:
+                print('PLANTED-OK: the planted twin made the resolver census check fail, as it must')   # S105 E
             return 0 if rc else 1
         return rc
     if a.site:

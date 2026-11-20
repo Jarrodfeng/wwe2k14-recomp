@@ -97,6 +97,7 @@ inline void Register() {
       },
       [](uint32_t skel, uint32_t n, const rdr_scene::Mat4* skin, uint64_t f) { return rdr_scene::live::Wrestlers().SubmitLatchConsumer(skel, n, skin, f); });
   c.SetPieceNodeCount([](uint32_t m) { return rdr_scene::live::Wrestlers().WantedCount(m); });   // S103 NRBF: lane 209's wanted count (an own skeleton has no update-hook count): the node-map proof reads exactly the recorded node count
+  c.SetPieceHookCount([](uint32_t m) { return rdr_scene::live::Wrestlers().WantCount(m); });   // S105 A5a F1: the update hook's count, asked only for a model neither the wanted table nor the game's own count knows (a CAW piece). Latch thread, mutex_ not held in ReadSlotSkeletons
   c.SetPieceBodyDesc([](uint32_t skel) {   // S103 PZ F2: the owner body's declared link ([char + 48] = desc + 4 = the body model, the identity the contributor counts as LinkedSeenAsSkeleton)
     const auto info = rdr_scene::live::Wrestlers().BodyKeyFor(skel);   // PZF2 B-4: desc + key only (no piece-vector copy under the mutex)
     scene_inputs::BodyDesc d;

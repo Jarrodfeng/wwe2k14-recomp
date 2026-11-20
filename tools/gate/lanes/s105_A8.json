@@ -1,0 +1,16 @@
+{
+ "owner": "S105 lane A8 (docs/research/s105/A8.md, A8_build.md): T_RectColor (sub_82BC3F30, op-19 site 0x82BC4404; the 30 Years narration caption's dark box) is a 2D row of kind kQkRectColor (a quad list of 4 vertices, stride 28 = x y z + r g b a, corner colours packed exactly in verts[v][3..4]) drawn by the vertex-colour programs (rdr_uiquad_vcol*). A colour that is not a whole byte, another primitive or stride, or no open scope is a counted hole. The [host] census line names the glyph refusals (glyph_stale, glyph_no_shadow) and bad_corner.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. a8_unit: the site, the tap in production order, the blocks (pixel and matrix placed), the record row check, 2 planted twins (the old Leaf2D classification, the dropped alpha). l2a / p3b / i1 / i2 / i3 / p3c units re-run with the site table moved to the game-correct values (rows 8, 2D leaves 11). The GPU draw of the new programs is unseen: no stored capture holds a T_RectColor draw.",
+ "checks": [
+  {"name": "s105_A8.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_a8_unit.ps1"], "timeout_s": 600},
+  {"name": "s105_A8.unit", "cmd": ["out/tools/a8_unit.exe"], "timeout_s": 60,
+   "affects": ["src/renderer_scene/quads2d_core.h", "src/renderer_scene/quads2d_blocks.h", "src/renderer_scene/quads2d_corner.h", "src/renderer_scene/quads2d_plants.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/record_io.h", "tools/scene/a8_unit.cpp"]},
+  {"name": "s105_A8.unit_plant_rectcolor_leaf_hole", "cmd": ["out/tools/a8_unit.exe", "--plant", "rectcolor_leaf_hole"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_core.h", "tools/scene/a8_unit.cpp"]},
+  {"name": "s105_A8.unit_plant_vcol_alpha_dropped", "cmd": ["out/tools/a8_unit.exe", "--plant", "vcol_alpha_dropped"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_blocks.h", "tools/scene/a8_unit.cpp"]},
+  {"name": "s105_A8.unit_plant_vcol_prim_any", "cmd": ["out/tools/a8_unit.exe", "--plant", "vcol_prim_any"], "timeout_s": 60, "affects": ["src/renderer_scene/quads2d_blocks.h", "src/renderer_scene/record_io.h", "tools/scene/a8_unit.cpp"]},
+  {"name": "s105_A8.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/draw_origin.h", "src/renderer_scene/quads2d_core.h", "src/renderer_scene/quads2d_blocks.h", "src/renderer_scene/quads2d_draw.cpp", "src/renderer_scene/quads2d_register.cpp", "src/scene_live/quads2d_tap.h", "src/scene_live/quads2d_contrib.h"]}
+ ]
+}

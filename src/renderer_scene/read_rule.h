@@ -200,5 +200,10 @@ inline std::mutex& TableMutex() { static std::mutex mu; return mu; }
 inline std::shared_ptr<const EffectTable>& TableSlot() { static std::shared_ptr<const EffectTable> t; return t; }
 inline void PublishEffectTable(std::shared_ptr<const EffectTable> t) { std::lock_guard<std::mutex> l(TableMutex()); TableSlot() = std::move(t); }
 inline std::shared_ptr<const EffectTable> EffectTableNow() { std::lock_guard<std::mutex> l(TableMutex()); return TableSlot(); }
+// S105 A5c fix F1: the CAW editor's own effect table (pac\edit\edit.pac, leaf p7/0 [C, review_A5c F1: every yCh fragment in it is a logo variant; the game draws the editor from it]). A material that carries a CAW logo takes its
+// pass row from this table (char_effects.cpp ChooseCharEffectTable); null = not built (the startup table's row stays).
+inline std::shared_ptr<const EffectTable>& LogoTableSlot() { static std::shared_ptr<const EffectTable> t; return t; }
+inline void PublishLogoEffectTable(std::shared_ptr<const EffectTable> t) { std::lock_guard<std::mutex> l(TableMutex()); LogoTableSlot() = std::move(t); }
+inline std::shared_ptr<const EffectTable> LogoEffectTableNow() { std::lock_guard<std::mutex> l(TableMutex()); return LogoTableSlot(); }
 
 }  // namespace rdr_scene::read_rule

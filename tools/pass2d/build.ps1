@@ -30,7 +30,7 @@ $sources += @(Get-ChildItem (Join-Path $repo 'src\renderer_scene') -Filter '*.cp
 $sources += (Join-Path $repo 'tools\pass2d\pass2d_test.cpp')
 $sources += (Join-Path $repo 'tools\pass2d\gaps_test.cpp')  # S101 lane 23: a second program (the gap tests); each exe links the library objects and its own main
 $failed = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-$sources | ForEach-Object -ThrottleLimit 12 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $sources | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 12) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $source = $_
   $object = Join-Path $using:objects (($source.Substring($using:repo.Length + 1) -replace '[\\/:]', '_') + '.o')
   $deps = [IO.Path]::ChangeExtension($object, '.d')
@@ -48,7 +48,7 @@ $sources | ForEach-Object -ThrottleLimit 12 -Parallel {
     $text = & $using:clang @using:flags -c $source -o $object 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
-}
+} } finally { Release-BuildParallel }
 if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($failed.Count) file(s) failed to compile" }
 
 New-Item -ItemType Directory -Force (Join-Path $repo 'out\tools') | Out-Null

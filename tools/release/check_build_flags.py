@@ -76,6 +76,19 @@ def main():
             print(f'FAIL {tag}: is instrumented (-fprofile-instr-generate) in a use/release build')
             bad += 1
         print(f'{"ok  " if not bad else "    "}{tag}: {name.split("/")[-1]}  isa={want_isa} profile={"yes" if want_prof else "no"}')
+    # S105 A1b: the launcher is its own target; its stream-free define (src/stream_free_target.h) decides which settings it hides.
+    lname = next((l.split(':')[0] for l in lines if re.match(r'build CMakeFiles/wwe2k14_launcher\.dir/src/launcher/launcher_main\.cpp\.obj:', l)), None)
+    if lname is None:
+        print('NOTE launcher: launcher_main.cpp.obj is not in build.ninja (the launcher is not built here)')
+    else:
+        want_def = '-DWWE2K14_KEEP_STREAM=' + ('1' if a.expect_stream else '0')
+        st = next(k for k, l in enumerate(lines) if l.startswith(lname + ':'))
+        dl = next((l for l in lines[st + 1:st + 12] if l.startswith('  DEFINES = ')), '')
+        if (' ' + want_def + ' ') not in (dl + ' '):
+            print(f'FAIL launcher: launcher_main.cpp DEFINES lack {want_def} (it would show settings the player build cannot do)')
+            bad += 1
+        else:
+            print(f'ok  launcher: launcher_main.cpp carries {want_def}')
     print('check_build_flags:', 'PASS' if not bad else f'FAIL ({bad})')
     return 1 if bad else 0
 

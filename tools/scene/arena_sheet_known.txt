@@ -1,0 +1,10 @@
+# tools\scene\arena_sheet_known.txt: the OPEN findings of the arena sheet's screen check (docs\agents\arena_sheet.md "The known list"). Our own text.
+# A list of OPEN findings: it must shrink to zero. Strict mode (--both / --strict) passes a piece listed here only while its verdict is the same AND the listed view still has that verdict with its number
+# inside the band AND every other view of the piece is judged as usual (a new non-PASS view fails). A changed piece (PASS included: then remove it) fails, an unlisted finding fails, and BLACK / PASS-BACK /
+# NO PIXELS are never listed. A row without a view / band (the old six-field format) is refused. Regenerate: arena_sheet.py --both --write-known (band = measured +/- 0.15).
+# Owners: DIM -> docs\research\harness\DIM1.md[L]; PARTIAL -> docs\research\harness\PAR1.md; UNCLEAR (opaque) -> unowned; a row keeps the owner written here.
+# Written 2026-11-20 07:29: DIM 2. S105 SZW: both rows (a54 808 / 809 piece 21, DIM) are gone: site 18 (the alpha test on blended screen pieces) turned them FAINT; the list is empty.
+# NOT listable (strict failures until fixed): none
+# grows: WGS6 round 2: the rows now pin a view and a band; a54 808 / 809 piece 21 x+ stays listed under SZW site 18
+# arena key piece verdict class owner view metric lo hi
+# S105 SZW review fix: a54 808 / 809 piece 21 x+ is NOT fixed, only not judged: with SZW site 18 the view is HIDDEN (76.3 % of it covered by earlier nearer pieces of the key; would have been TOO FAINT) and the piece's judged views are FAINT. HIDDEN cannot be listed (not a verdict); whether the x+ sliver shows from a real game camera stays unsettled (A54.md). No rows.

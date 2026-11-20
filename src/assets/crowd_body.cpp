@@ -129,8 +129,8 @@ bool LoadBody(int arena, int type, Model& out, std::string& err) {
   };
   for (size_t i = 0; i < out.materials.size(); ++i) {
     Material& m = out.materials[i];
-    if (!keep_mat[i]) { m.diffuse = m.normal = m.lightmap = m.mask = m.specular = m.detail = -1, m.layer[0] = m.layer[1] = m.layer[2] = -1; continue; }
-    map_tex(m.diffuse), map_tex(m.normal), map_tex(m.lightmap), map_tex(m.mask), map_tex(m.specular), map_tex(m.detail);
+    if (!keep_mat[i]) { m.diffuse = m.normal = m.lightmap = m.mask = m.specular = m.detail = m.noise = -1, m.layer[0] = m.layer[1] = m.layer[2] = -1; continue; }
+    map_tex(m.diffuse), map_tex(m.normal), map_tex(m.lightmap), map_tex(m.mask), map_tex(m.specular), map_tex(m.detail), map_tex(m.noise);
     for (int& ly : m.layer) ly = -1;   // S103 LAY: a crowd body has no UVScroll layers (they would index the unmapped texture list)
   }
   out.stage_lightmap = src.stage_lightmap;

@@ -20,13 +20,13 @@ $srcs = @((Join-Path $PSScriptRoot 'crowd_pair.cpp'), (Join-Path $v 'loader_seam
           (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'), (Join-Path $repo 'src\assets\crowd_body.cpp'))
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
 $repoLen = $repo.Path.Length + 1
-$fails = $srcs | ForEach-Object -ThrottleLimit 8 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $fails = $srcs | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 8) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $name = ($_.Substring($using:repoLen) -replace '[\\/:]', '_') + '.o'
   $o = Join-Path $using:obj $name
   if ((Test-Path $o) -and (Get-Item $o).LastWriteTimeUtc -gt (Get-Item $_).LastWriteTimeUtc -and (Get-Item $o).LastWriteTimeUtc -gt $using:newestHdr) { return }
   $log = & clang++ -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:inc $_ -o $o 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") }
-}
+} } finally { Release-BuildParallel }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $bad | ForEach-Object { Write-Host $_ }
 if ($bad.Count) { throw "clang++ failed on $($bad.Count) file(s)" }

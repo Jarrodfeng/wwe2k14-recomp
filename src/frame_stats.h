@@ -75,6 +75,7 @@
 #include "renderer_game/scene_frame.h"  // S103 H: SnapshotMode() in OnSwap (the scene mode is read once per guest frame)
 #include "perf_mem.h"    // lane 249: [perf][mem] lines
 #include "renderer_adapter/skips_auto.h"  // S102 K3: the D3 skips' frame-boundary latch (no game types)
+#include "device_lost_message.h"  // S105 A9
 #include "renderer_adapter/rdr_switches_cvar.h"  // S102 S0-4: the per-frame switch table (no game types)
 #include "ab_flip.h"  // S102 M7: --wwe2k14_ab_flip, the in-run A/B flip schedule
 #include "frame_split.h"  // S102 H3: --wwe2k14_frame_split (the swap thread's per-frame split, columns at the end of the csv)
@@ -315,7 +316,7 @@ class FrameStats {
       device_lost_seen_ = true;
       REXLOG_ERROR("[wwe2k14][frames] DEVICE LOST at guest frame {} (t={:.1f} s): the GPU stopped drawing; frames from here are not presented (frames csv device_lost = 1)", frame, t);
       REXLOG_ERROR("{} (at the device loss: video memory use against DXGI's budget)", wwe2k14::perf_mem::Format(wwe2k14::perf_mem::Take(), t, frame, false));  // S102 D1 review: the residency hypothesis
-      if (rdr::crumbs::g_message.load(std::memory_order_relaxed)) ShowDeviceLostMessage();
+      TellPlayerDeviceLost(frame);  // S105 A9: the switch is read from the rdr_sw table (both builds); before, only the stream build ever set rdr::crumbs::g_message
     }
     const uint64_t presents = events.presents.load(std::memory_order_acquire);
     const uint32_t presented = uint32_t(presents - last_presents_);
@@ -705,14 +706,28 @@ class FrameStats {
   bool split_backwards_logged_ = false;
   bool device_lost_seen_ = false;  // S102 D1
   // S102 D1: the player's message on a lost device. A box on its own thread (the game's threads keep running: sound, the log); nothing on a phone (the log line).
-  static void ShowDeviceLostMessage() {
+  // S105 A9 (docs/research/s105/A9.md): called once at the first frame after the loss. The switch wwe2k14_rdr_device_lost_message (default on) comes from rdr_sw, which exists in both builds.
+  // PC: a box on its own thread (the render thread never waits on it, the game's threads run on). Phone: a black-box line + an exit request; the launcher's LastRun shows the toast.
+  static void TellPlayerDeviceLost(uint64_t frame) {
+    const bool on = device_lost_message::ShouldShow(rdr_sw::Bool(rdr_sw::kDeviceLostMessage));
+#if defined(__ANDROID__)
+    REXLOG_ERROR("{}", device_lost_message::LogLine(on, true));
+    if (on) {
+      blackbox::Note("%s", device_lost_message::BlackboxLine(frame).c_str());
+      rex::FlushLogging();  // (review F4) the process is killed ~400 ms after the request: the [rdr][DEVICE_LOST] lines go out first (hang_guard.h does the same)
+      android_lifecycle::WriteExitRequest("the graphics driver stopped");
+    }
+#else
+    (void)frame;
+    REXLOG_ERROR("{}", device_lost_message::LogLine(on, false));
 #if defined(_WIN32)
-    std::thread([] { wwe2k14::NameThread(L"device_lost_box");
-      MessageBoxW(nullptr,
-                  L"The graphics driver stopped the game's GPU work (Vulkan device lost).\n\nThe picture will not change any more. Please close the game and start it again.\n\n"
-                  L"If this keeps happening, send the game's log (logs folder) with your report.",
-                  L"WWE 2K14", MB_ICONERROR | MB_OK | MB_TOPMOST | MB_SETFOREGROUND);
-    }).detach();
+    if (on) {
+      std::thread([] { wwe2k14::NameThread(L"device_lost_box");
+        const std::string text = device_lost_message::kTextPc;  // ASCII: widened one to one
+        MessageBoxW(nullptr, std::wstring(text.begin(), text.end()).c_str(), L"WWE 2K14", MB_ICONERROR | MB_OK | MB_TOPMOST | MB_SETFOREGROUND);
+      }).detach();
+    }
+#endif
 #endif
   }
   std::mutex mutex_;

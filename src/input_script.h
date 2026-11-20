@@ -131,6 +131,8 @@
 //                                 built; roster_failed), up to TIMEOUT frames (default 1800), then a script failure (on_fail), or with
 //                                 'optional' a warning; roster_ready also fails at once when the roster build failed. src/render_signal.h;
 //                                 the event bus (when on) also logs it as kind render
+//   bleed SLOT LEVEL              (S105 T1, DEV builds only) the situation director verb: the blood option on, then wrestler SLOT bleeds at LEVEL 1-3 (like passive / momentum / stock, queued and
+//                                 retried until the bell and the blood pool exist; src/situation_director.h)
 //   assert_state NAME VALUE       check NAME against VALUE now (one read, no frames); a mismatch or an unreadable
 //                                 state is a script failure (on_fail) with the same screenshot as wait_state
 //   log_state NAME                log NAME's current value (never fails)
@@ -220,6 +222,7 @@
 #include "check_prompt.h"  // Session 29: `check TEXT` (on-screen question, F1 / F2 / F5)
 #include "mem_scan.h"      // Session 29: scan_* (live memory scanner)
 #include "situation_director_core.h"  // S101 lane 161: passive / momentum / stock / passive_cpu script lines (pure; the game side is src/situation_director.h)
+#include "dev_build.h"  // S105 T1 F6: IsDevBuild (bleed is refused at parse time in a player build)
 #include "diag.h"          // Session 95: diag_stage / diag_scene / diag_ab / diag_restore (the diagnostic run)
 #include "case/case_script_hook.h"  // S101: a route's quit takes the black box (filled by bookmark.h)
 #include "renderer/overlay.h"  // S103 GT round 3: rdr::GpuWindowMark (the route windows of the per-role GPU block)
@@ -1312,11 +1315,13 @@ class InputScript {
         ok = bool(words >> step.text) && (step.text == "quit" || step.text == "continue");
       } else if (cmd == "quit") {
         step.op = Op::kQuit;
-      } else if (situation::IsVerb(cmd)) {  // S101 lane 161: `passive 1 on`, `passive all off`, `momentum 2 100`, `stock 0 3`, `passive_cpu on` (the text is checked here, served by the owner tick)
+      } else if (situation::IsVerb(cmd)) {  // S101 lane 161: `passive 1 on`, `passive all off`, `momentum 2 100`, `stock 0 3`, `passive_cpu on`, `bleed 0 3` (dev builds; the text is checked here, served by the owner tick)
         step.op = Op::kDirector;
         step.text = cmd + " " + RestOfLine(words);
         situation::Cmd checked;
-        const std::string error = situation::Parse(step.text, checked);
+        std::string error = situation::Parse(step.text, checked);
+        if (error.empty() && checked.verb == situation::Verb::Bleed && !wwe2k14::IsDevBuild()) error = "refused: bleed is a dev-build verb";  // S105 T1 F6: same message as the run-time refusal
+        if (error.empty() && checked.verb == situation::Verb::LightsOut && !wwe2k14::IsDevBuild()) error = "refused: lightsout is a dev-build verb";  // S105 SLO3
         ok = error.empty();
         if (!ok) why = error;
       } else if (cmd == "watch_zero") {

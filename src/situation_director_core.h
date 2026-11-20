@@ -36,8 +36,24 @@ constexpr uint32_t kMeterOff = 76;            // data+76 = the momentum float (s
 constexpr uint32_t kStockOff = 1928;          // char+1928 = the finisher stock count
 constexpr uint32_t kSeqInGame = 9;
 constexpr int kMaxStock = 9;
+// S105 T1: bleed (docs/research/s105/T1_blood.md; every number from its listings)
+constexpr uint32_t kBleedListOff = 3736;      // char+3736 = the liquid component list (sub_825A0F28 `lwz r3,3736(r3)`; NOT kListOff 3728)
+constexpr uint32_t kCbdcTag = 0x43424443;     // 'CBDC' (0x825A0F4C)
+constexpr uint32_t kLiquidOff = 24;           // [comp+24] = X, the liquid object (sub_825C19B0 0x825C19C0)
+constexpr uint32_t kLiquidMapOff = 36;        // [X+36] = its map; 0 = the pool is not built (sub_825C19B0 returns without an item)
+constexpr uint32_t kBleedLevelOff = 1392;     // char+1392 = the bleed level the setter stores
+constexpr uint32_t kBledOff = 1398;           // char+1398 = "has bled" byte (0x826CDB24)
+constexpr uint32_t kG = 0x8376AAF4;           // match settings
+constexpr uint32_t kBloodSwitchOff = 15229;   // G+15229 = the blood option byte (0x825A1F44 `lbz r11,15229(r3)`)
+// S105 SLO3 lightsout (docs/research/s105/SLO3.md point 6; the factory sub_82662720 at 0x82662770-0x82662784, its caller sub_8274BEC0 0x8274BF90-0x8274BFDC)
+constexpr uint32_t kTargetOff = 2672;          // char+2672 = the attacker's current target (sub_8274BEC0 `lwz r5,2672(r3)` -> sub_82662980 r5 -> factory r5 -> ctor r5)
+constexpr uint32_t kSceneRoot = 0x837631CC;    // [[0x837631CC]] must be non-zero (sub_82662980 +18 / +1C / +24 test it; the factory's r3)
+constexpr uint32_t kLightMgrPtr = 0x83924778;  // [0x83924778] = the light manager; mgr+452 = the arena brightness float (1.0 = 0x3F800000 = no dim)
+constexpr uint32_t kBrightOff = 452;
+constexpr uint32_t kBrightOne = 0x3F800000;
+constexpr uint64_t kDimSceneSize = 136;        // sub_82250050(136) (0x8266278C)
 
-enum class Verb { None, Passive, Momentum, Stock, PassiveCpu };
+enum class Verb { None, Passive, Momentum, Stock, PassiveCpu, Bleed, LightsOut };
 
 struct Cmd {
   Verb verb = Verb::None;
@@ -61,7 +77,7 @@ inline std::vector<std::string> Words(const std::string& s) {
   return w;
 }
 
-inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu"; }
+inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu" || first == "bleed" || first == "lightsout"; }
 
 inline bool DigitsOnly(const std::string& s, size_t max_len) {
   if (s.empty() || s.size() > max_len) return false;
@@ -75,7 +91,7 @@ inline bool DigitsOnly(const std::string& s, size_t max_len) {
 // (`passive 1 on`).
 inline std::string Parse(const std::string& text, Cmd& out) {
   out = Cmd{};
-  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off (SLOT 0-8, PCT 0-100, N 0-9)";
+  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off | bleed SLOT LEVEL (dev builds; LEVEL 1-3) | lightsout SLOT (dev builds) (SLOT 0-8, PCT 0-100, N 0-9)";
   const std::vector<std::string> w = Words(text);
   if (w.empty() || !IsVerb(w[0])) return "error: " + usage;
   auto slot_of = [&](const std::string& t) {
@@ -100,7 +116,18 @@ inline std::string Parse(const std::string& text, Cmd& out) {
     if (!onoff(w[2])) return "error: '" + w[2] + "' is not on or off; " + usage;
     return "";
   }
+  if (w[0] == "lightsout") {  // S105 SLO3: two words
+    out.verb = Verb::LightsOut;
+    if (w.size() != 2 || !slot_of(w[1])) return "error: lightsout needs a slot; " + usage;
+    return "";
+  }
   if (w.size() != 3 || !slot_of(w[1])) return "error: " + usage;
+  if (w[0] == "bleed") {  // S105 T1
+    out.verb = Verb::Bleed;
+    if (!DigitsOnly(w[2], 1) || w[2][0] < '1' || w[2][0] > '3') return "error: bleed level '" + w[2] + "' is not 1-3; " + usage;
+    out.value = w[2][0] - '0';
+    return "";
+  }
   if (w[0] == "momentum") {
     out.verb = Verb::Momentum;
     if (!DigitsOnly(w[2], 3) || std::stoi(w[2]) > 100) return "error: momentum percent '" + w[2] + "' is not 0-100; " + usage;
@@ -152,6 +179,9 @@ enum class Fn {
   SetMeter,       // sub_825F1F10(data, f1 = fraction): the momentum setter
   AddStock,       // sub_825F4510(data)
   RemoveStock,    // sub_825F1DF0(data)
+  SetBleed,       // S105 T1: sub_825A1F28(char, part = r4, level - 1 = r5): the bleed level setter
+  Alloc,          // S105 SLO3: sub_82250050(size) -> object or 0
+  DimSceneCtor,   // S105 SLO3: sub_8275DF98(obj, attacker, target) -> obj: the arena-dim scene
 };
 
 // What the director remembers: per slot, the original COM word of a wrestler it made passive (so `off` gives back exactly that).
@@ -185,7 +215,8 @@ inline std::string Hex(uint32_t v) {
 }
 
 // E (the environment) provides: uint32_t U32(a); float F32(a); bool Ok(ptr) (a plausible guest pointer); uint32_t Call(Fn, r3, r4, double f1);
-// Gate GetGate(); std::string Clock(); void Log(const std::string&).
+// Gate GetGate(); std::string Clock(); void Log(const std::string&); S105 T1: uint8_t U8(a); void Put8(a, v); void Put32(a, v) (big-endian guest store, S105 LO2); bool Dev() (IsDevBuild).
+// uint32_t Call3(Fn, r3, r4, r5) for the three-register call (SetBleed).
 
 // The slot's character, or the refusal. "" = ok.
 template <class E>
@@ -320,6 +351,91 @@ std::string Stock(E& e, int slot, int target) {
   return "ok: slot " + std::to_string(slot) + " finisher stock is " + std::to_string(now);
 }
 
+// S105 T1 `bleed SLOT LEVEL` (dev only; docs/research/s105/T1_blood.md section 4): what the game's own callers do. The blood option byte first (every route
+// runs with it 0, and the setter forces the level to -1 while it is 0: 0x825A1F44 / 0x825A1F50), then char+1398 = 1 (the first-bleed store, 0x826CDB24), then
+// sub_825A1F28(char, 0, level - 1) (0x826CDC54 passes byte-16, 0x82320378 passes [char+1392]-1). Read-back char+1392 == level.
+template <class E>
+std::string Bleed(E& e, int slot, int level) {
+  const std::string tag = "bleed slot " + std::to_string(slot) + " level " + std::to_string(level);
+  uint32_t ch = 0;
+  std::string r = SlotChar(e, slot, ch);
+  if (!r.empty()) {
+    e.Log("director: " + tag + ": refused (" + r + ") clock " + e.Clock());
+    return r;
+  }
+  const uint32_t list = e.U32(ch + kBleedListOff);
+  const uint32_t comp = e.Ok(list) ? e.Call(Fn::FindComponent, list, kCbdcTag, 0.0) : 0;
+  const uint32_t x = e.Ok(comp) ? e.U32(comp + kLiquidOff) : 0;
+  if (!e.Ok(x) || e.U32(x + kLiquidMapOff) == 0) {  // the liquid pool is built at match load; without it the setter makes no item
+    e.Log("director: " + tag + ": busy clock " + e.Clock());
+    return "busy: slot " + std::to_string(slot) + " has no blood pool yet (char+3736 'CBDC' -> +24 -> +36 is 0)";
+  }
+  const int have = int(e.U8(ch + kBleedLevelOff));  // F3: the setter never clears a higher set (sub_825C19B0 clears only for n == 0); the game only raises the level, so lowering is refused
+  if (have > level) {
+    e.Log("director: " + tag + ": refused, already at " + std::to_string(have) + " clock " + e.Clock());
+    return "refused: slot " + std::to_string(slot) + " already bleeds at " + std::to_string(have) + " (the setter cannot lower the level)";
+  }
+  if (e.U8(kG + kBloodSwitchOff) == 0) {  // the option first: with it 0 the setter forces the level to -1
+    e.Put8(kG + kBloodSwitchOff, 1);
+    e.Log("director: " + tag + ": the blood option (G+15229) was 0, turned it on");
+  }
+  e.Put8(ch + kBledOff, 1);
+  e.Call3(Fn::SetBleed, ch, 0, uint64_t(int64_t(level - 1)));
+  const int now = int(e.U8(ch + kBleedLevelOff));
+  if (now != level) {
+    e.Log("director: " + tag + ": readback " + std::to_string(now) + " clock " + e.Clock());
+    return "failed: " + tag + " readback " + std::to_string(now) + " (char+1392 is not the level asked)";
+  }
+  // F4: 0x825A0FB8 stores char+1392 BEFORE the item setter runs, so only the stored level is proven here, not that a face decal / liquid item went live
+  e.Log("director: " + tag + ": ok (only the stored level char+1392 is proven; items live is not read) clock " + e.Clock());
+  return "ok: " + tag;
+}
+
+// S105 SLO3 `lightsout SLOT` (dev only; docs/research/s105/SLO3.md point 6): builds the game's own arena-dim scene exactly as the factory does
+// (0x8266278C sub_82250050(136), 0x82662798 sub_8275DF98(obj, attacker = r4, target = r5)). The target is the attacker's own current target, char+2672
+// (what sub_8274BEC0 hands sub_82662980 and the factory). The scene ends itself when the attacker's act changes: make him passive first.
+constexpr uint32_t kDimTrigA = 84, kDimTrigB = 80;  // S105 LO2: scene obj fields the ctor fills from the attacker's act
+template <class E>
+std::string LightsOut(E& e, int slot) {
+  const std::string tag = "lightsout slot " + std::to_string(slot);
+  uint32_t ch = 0;
+  std::string r = SlotChar(e, slot, ch);
+  if (!r.empty()) {
+    e.Log("director: " + tag + ": refused (" + r + ") clock " + e.Clock());
+    return r;
+  }
+  const uint32_t tgt = e.U32(ch + kTargetOff);
+  if (!e.Ok(tgt)) {
+    e.Log("director: " + tag + ": refused (no target) clock " + e.Clock());
+    return "refused: slot " + std::to_string(slot) + " has no current target (char+2672 is empty)";
+  }
+  if (!e.Ok(e.U32(e.U32(kSceneRoot)))) {  // [[0x837631CC]]: two loads (sub_82662980 +18 / +1C)
+    e.Log("director: " + tag + ": refused (no scene root) clock " + e.Clock());
+    return "refused: the scene root [[0x837631CC]] is empty (no match scene)";
+  }
+  const uint32_t mgr = e.U32(kLightMgrPtr);
+  if (!e.Ok(mgr)) {
+    e.Log("director: " + tag + ": refused (no light manager) clock " + e.Clock());
+    return "refused: no light manager ([0x83924778] is empty)";
+  }
+  if (e.U32(mgr + kBrightOff) != kBrightOne) {  // a dim (the corner scene or a move-effect fade) already holds the arena brightness
+    e.Log("director: " + tag + ": busy clock " + e.Clock());
+    return "busy: the arena brightness is not 1.0 (a dim scene already runs)";
+  }
+  const uint32_t obj = e.Call(Fn::Alloc, kDimSceneSize, 0, 0.0);
+  if (!e.Ok(obj)) {
+    e.Log("director: " + tag + ": failed (alloc) clock " + e.Clock());
+    return "failed: " + tag + " (sub_82250050(136) returned 0)";
+  }
+  e.Call3(Fn::DimSceneCtor, obj, ch, tgt);
+  // S105 LO2 (SLO3, run 127 [C]): the scene waits for a frame in the attacker's current act (sub_8275E220 0x8275E34C-0x8275E44C; ctor fills
+  // obj+80 / +84 / +88); a passive idle act has none, so it never left phase 0. Zero the trigger frame so phase 0 fires on the next step.
+  e.Put32(obj + kDimTrigB, 0);
+  e.Put32(obj + kDimTrigA, 0);
+  e.Log("director: " + tag + ": ok (scene " + std::to_string(obj) + ", attacker " + std::to_string(ch) + ", target " + std::to_string(tgt) + ") clock " + e.Clock());
+  return "ok: " + tag;
+}
+
 // The one entry: every verb, with the match guard. `passive_cpu` only sets the latch (no match needed). "ok..." / "failed..." / "refused..." / "busy...".
 template <class E>
 std::string Run(E& e, State& st, const Cmd& c) {
@@ -327,6 +443,14 @@ std::string Run(E& e, State& st, const Cmd& c) {
     st.passive_cpu = c.on;
     e.Log(std::string("director: passive_cpu ") + (c.on ? "on" : "off") + " (every CPU-driven wrestler is made passive once the bell has gone, once per match) clock " + e.Clock());
     return std::string("ok: passive_cpu ") + (c.on ? "on" : "off");
+  }
+  if (c.verb == Verb::Bleed && !e.Dev()) {  // S105 T1: a player build never runs it (before the match gate: not even a busy answer)
+    e.Log("director: bleed: refused, a dev-build verb clock " + e.Clock());
+    return "refused: bleed is a dev-build verb";
+  }
+  if (c.verb == Verb::LightsOut && !e.Dev()) {  // S105 SLO3: dev only, before the match gate
+    e.Log("director: lightsout: refused, a dev-build verb clock " + e.Clock());
+    return "refused: lightsout is a dev-build verb";
   }
   const Gate g = e.GetGate();
   const bool restore = c.verb == Verb::Passive && !c.on;  // S5: giving a wrestler back needs a match program, not an undecided, scene-free match (the results flow needs him active)
@@ -339,6 +463,8 @@ std::string Run(E& e, State& st, const Cmd& c) {
     case Verb::Passive: return c.all ? PassiveAll(e, st, c.on) : PassiveOne(e, st, c.slot, c.on);
     case Verb::Momentum: return Momentum(e, c.slot, c.value);
     case Verb::Stock: return Stock(e, c.slot, c.value);
+    case Verb::Bleed: return Bleed(e, c.slot, c.value);
+    case Verb::LightsOut: return LightsOut(e, c.slot);
     default: return "refused: no verb";
   }
 }

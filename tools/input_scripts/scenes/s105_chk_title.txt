@@ -1,0 +1,41 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S105 lane R2 (A4 check, T5 route 2): CREATIONS item 7 CHAMPIONSHIP (menu 1506, 2D list) -> A on row 0 -> popup -> A -> sequence 29 (the 3D belt editor), ~10 s; back.
+# UNCONFIRMED: the popup's default item, the way back from seq 29.
+on_fail quit
+log bench: start scene s105_chk_title
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor >=7 12 30 5 if_needed
+press_until_state UP cursor 7 12 30 5 if_needed
+press_until_state A menu 1506 8 120 5
+wait_frames 120
+screenshot chk_title_list
+press A
+wait_frames 90
+log_text 8
+log_state msgbox
+screenshot chk_title_popup
+press_until_state A seq 29 3 150 5 if_needed
+log scene=title_editor
+wait_frames 300
+screenshot chk_title_editor_1
+wait_frames 300
+screenshot chk_title_editor_2
+press B
+wait_frames 60
+log_state msgbox
+log_text 8
+screenshot chk_title_back
+wait_state msgbox 2 90 2 optional
+press_until_state LEFT msgbox_button 0 4 30 5 if_needed
+press_until_state A seq 75 6 120 5 if_needed
+press_until_state B menu 1 12 90 5
+wait_state menu 1 3600 10
+log scene=back_at_menu
+wait_frames 600
+screenshot chk_title_menu
+log bench: done
+wait_frames 10
+quit

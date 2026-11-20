@@ -1,0 +1,53 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the select grid has no mapped cursor state past the tab row; its presses wait on frame counts)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): Bobby Lashley (397) in attire 1 / 2. EXPLORATORY SELECT-SCREEN ROUTE. No flag picks an attire: --wwe2k14_launch_participants takes
+# ID[:PAD] only (src\scenario.h:623, the setter's attire argument r7 is fixed 0), so attire 1 / 2 can only come from the real select screen (A7 note: "needs a menu route through PLAY").
+# Run line (main session): -Extra "--wwe2k14_mods_dir=out\s105\c1\mods --wwe2k14_dlc_dir=game_data\dlc" with a COPY of game_data\mods at out\s105\c1\mods (the game writes game_status.txt there).
+# Path (game flow as in short\dlc_select_shot.txt, state driven): PLAY (menu 2) -> ONE ON ONE (menu 7) -> NORMAL (setup screen, menu 2000) -> A on the slot opens the portrait grid -> DOWN x4 =
+# the tab row -> A = the DOWNLOADED tab (Jarrod's path, 2026-10-19; imported / mod superstars are expected there [L], never seen). Then shots, and two candidate attire presses (Y, then X) with
+# a shot after each: the select screen's attire button is NOT documented anywhere (searched: menus.md, match_setup.md, chetc_roster_record.md, A7.md, q fact "select screen attire").
+# The route stops there (no match is started); what the shots show tells the next route which cursor moves / which button picks attire 1 and 2.
+# Marks: 1 menu, 2 select screen, 3 downloaded tab, 4 after Y, 5 after X, 6 end.
+log bench: start scene s105_lashley_select
+include boot_to_menu
+on_fail continue   # S105 N4: after the boot, so a slow boot fails the run instead of idling
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+log scene=select_screen
+log_text 8
+screenshot sc_s105_lash_grid
+mark 2 select_screen
+press A
+wait_frames 120
+repeat 4
+press DOWN
+wait_frames 40
+end_repeat
+wait_frames 60
+press A
+wait_frames 300
+log scene=downloaded_tab
+log_text 8
+screenshot sc_s105_lash_downloaded
+mark 3 downloaded_tab
+press Y
+wait_frames 120
+log scene=after_y
+log_text 8
+screenshot sc_s105_lash_y
+mark 4 after_y
+press X
+wait_frames 120
+log scene=after_x
+log_text 8
+screenshot sc_s105_lash_x
+mark 5 after_x
+mark 6 end
+log bench: done
+wait_frames 10
+quit

@@ -46,7 +46,7 @@ def main():
     tests = (
         ('plane_sort', ['tools/render_lean/plane_sort_test.cpp'], [], 'plant4'),
         ('note_flat', ['tools/render_lean/note_flat_test.cpp'], [], 'plant'),
-        ('arena_memo', ['tools/render_lean/arena_memo_test.cpp', 'src/renderer_scene/ring_ours_core.cpp', 'src/renderer_scene/arena_ours_core.cpp', 'src/renderer_scene/record_io.cpp'],
+        ('arena_memo', ['tools/render_lean/arena_memo_test.cpp', 'src/renderer_scene/ring_ours_core.cpp', 'src/renderer_scene/arena_ours_core.cpp', 'src/renderer_scene/record_io.cpp', 'src/renderer/shaders/spv/fx_spv_data.cpp'],
          ['-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-I', os.path.join(main_co, 'src', 'assets')], 'plant2'),   # (the include path reaches the main checkout's thirdparty stb through ..\..)
     )
     for name, sources, flags, plant in tests:

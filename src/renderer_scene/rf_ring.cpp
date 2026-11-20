@@ -122,10 +122,16 @@ bool RingRun(BuildCtx& ctx, int run) {
   }
   std::vector<const RingRows*> use;
   uint32_t have[5] = {};
+  // S105 C4: ours emit ONE model per cover / post by the game's own distance test (ring_recompute_core.h CornerIsLow), so a recomputed low row is drawn. Only a record that still holds BOTH LODs of the same call
+  // (made before this) draws the high one: its low row is skipped when a recomputed high row of the same class and call is there.
+  std::vector<uint64_t> hi_calls;
+  for (const RingRows& e : t.ring_rows)
+    if ((e.flags & kRrRecomputed) && (e.klass == kRcCoverHi || e.klass == kRcPostHi)) hi_calls.push_back((uint64_t(e.klass) << 32) | e.call);
   for (const RingRows& e : t.ring_rows) {
     const int g = GroupOf(e);
     if (g < 0 || bool(e.flags & kRrRecomputed) != ours_g[g]) continue;
-    if (ours_g[g] && (e.klass == kRcCoverLo || e.klass == kRcPostLo)) continue;   // S103 C5: one model per cover / post: ours stand the high one in (the LOD test is [U]); an older record with both LODs draws the high one only
+    if (ours_g[g] && (e.klass == kRcCoverLo || e.klass == kRcPostLo) &&
+        std::find(hi_calls.begin(), hi_calls.end(), (uint64_t(e.klass == kRcCoverLo ? kRcCoverHi : kRcPostHi) << 32) | e.call) != hi_calls.end()) continue;
     if (e.n_nodes == 0 || size_t(e.first_node) + e.n_nodes > t.ring_nodes.size()) continue;
     const int key = Resolve(*as, KeyOf(e, ours_g[g], alt));
     const auto it = as->ring_piece.find(key);

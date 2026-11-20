@@ -35,7 +35,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import syntax_store as _store   # S105 CC: per-key result files shared by every worktree
 import proc as _proc   # QTF: every child runs under a Windows Job Object + hard timeout (a 10-hour hang happened with none)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'admit'))
+import admit_py as _admit   # CQW: the machine-wide compile queue (nothing runs at import)
 
 T_GIT, T_NINJA = 60, 300
 T_PP = int(os.environ.get('GAME_SYNTAX_PP_TIMEOUT', '300'))
@@ -123,12 +126,12 @@ def flags_for(lines, main, tu_rel):
     raise RuntimeError('the main build has no compile command for %s: only units it compiles can be checked' % tu_rel)
 
 
-def compile_unit(root, main, flags, unit_path, label, cache_fail=False):
+def tree_args(root, main, flags):
+    """The main build's flags for one unit, pointed at the tree `root`: its own roots first, the main checkout's after (generated code, thirdparty, ../thirdparty relative includes).
+    Only the roots the unit's own flags name: the launcher target has no -I<repo root>, and adding one made <version> (via nlohmann/json.hpp) resolve to a stray repo-root file
+    "version" (S103 23:4x). Shared with tools/handback/cvar_pp.py (LNK: the cvar judge preprocesses with exactly these command lines)."""
     wt = os.path.abspath(root).replace('\\', '/')
     m = main.replace('\\', '/')
-    # the tree's own roots first; the main checkout's after (generated code, thirdparty, ../thirdparty relative includes)
-    # Only the roots the unit's own flags name: the launcher target has no -I<repo root>, and adding one made <version> (via
-    # nlohmann/json.hpp) resolve to a stray repo-root file "version" (S103 23:4x).
     had = set()
     kept = []
     for f in flags:
@@ -138,9 +141,48 @@ def compile_unit(root, main, flags, unit_path, label, cache_fail=False):
             continue
         kept.append(f)
     order = [s for s in ('', '/src') if s in had]
-    inc = ['-I' + wt + s for s in order] + ['-I' + m + s for s in order]
-    rc, text, key, hit = syntax_check(kept + inc, unit_path, roots=((wt, '<ROOT>'), (m, '<MAIN>')), cache_fail=cache_fail)
+    return kept + ['-I' + wt + s for s in order] + ['-I' + m + s for s in order]
+
+
+def with_pch(root, unit, flags):
+    """main.cpp gets the tree's own pch_main.h first (the build's PCH pair is dropped from the flags by flags_for; the G12 macro-order class: the PCH's headers come before main.cpp's
+    own). Shared with tools/handback/cvar_pp.py."""
+    if unit == 'src/main.cpp':
+        return flags + ['-include', os.path.abspath(os.path.join(root, 'src', 'pch_main.h')).replace('\\', '/')]
+    return flags
+
+
+def _roots(root, main):
+    return ((os.path.abspath(root).replace('\\', '/'), '<ROOT>'), (main.replace('\\', '/'), '<MAIN>'))
+
+
+def compile_unit(root, main, flags, unit_path, label, cache_fail=False):
+    rc, text, key, hit = syntax_check(tree_args(root, main, flags), unit_path, roots=_roots(root, main), cache_fail=cache_fail)
     return label, rc, text, key, hit
+
+
+def run_jobs(jobs, root, main, workers=None):
+    """[(label, flags, unit_path)] -> [(label, rc, text, key, hit)] in order. S105 CC: phase 1 looks every unit up in the store (a preprocess each, no compile-queue admission, at most 4 at once);
+    only the misses go through the admitted parse pool, held only when there is one: a pool of all hits never waits for the queue."""
+    res = [None] * len(jobs)
+    args = [tree_args(root, main, j[1]) for j in jobs]
+    roots = _roots(root, main)
+    if jobs:
+        with ThreadPoolExecutor(max_workers=min(4, len(jobs))) as ex:
+            looked = list(ex.map(lambda i: syntax_lookup(args[i], jobs[i][2], roots), range(len(jobs))))
+    else:
+        looked = []
+    todo = []
+    for i, (key, hit) in enumerate(looked):
+        if hit is not None:
+            res[i] = (jobs[i][0],) + hit
+        else:
+            todo.append(i)
+    if todo:
+        with _admit.hold('syntax.worker', workers or _syntax_workers(), timeout_s=120) as nw, ThreadPoolExecutor(max_workers=nw) as ex:
+            for i, r in zip(todo, ex.map(lambda i: syntax_run(args[i], jobs[i][2], roots, looked[i][0]), todo)):
+                res[i] = (jobs[i][0],) + r
+    return res
 
 
 def norm_args(args, roots):
@@ -155,74 +197,89 @@ def norm_args(args, roots):
     return out
 
 
+KEY_SALT = 'syntax-v2:-w'   # S105 CC: the parse now runs with -w (not -Wno-everything, which also hid clang's default-error diagnostics such as -Wc++11-narrowing): old stored passes must not be served
+FAIL_RX = re.compile(r':\d+:\d+: (?:fatal )?error:')
+CRASH_RX = re.compile(r'PLEASE submit a bug report|Stack dump|LLVM ERROR|out of memory|bad_alloc|Assertion|Segmentation|frontend command failed|error in backend|timed out')
+
+
+def storable(rc, text):
+    """A pass, or a failure that is a real source diagnostic: exit 1 with a `file:L:C: error:` line and no crash / OOM / timeout marker (a killed or crashed clang says nothing about the source)."""
+    if rc == 0:
+        return True
+    return rc == 1 and bool(FAIL_RX.search(text or '')) and not CRASH_RX.search(text or '')
+
+
 def pp_key(args, unit_path, roots):
-    """Key of one unit: hash of `clang -E -P` of it with the full flag list + the placeholder-normalised flags + the clang. None when the preprocess fails."""
-    pp = _proc.run([CLANG] + args + ['-E', '-P', '-Wno-everything', unit_path], timeout=T_PP, text=False)
-    if pp.returncode != 0 or os.environ.get('GAME_SYNTAX_NO_CACHE'):
+    """Key of one unit: hash of `clang -E -P` of it with the full flag list + the placeholder-normalised flags + the clang + KEY_SALT. None when the preprocess fails or the cache is off.
+    S105 CC measured one unit (src/start_settings.cpp, stream build): preprocess 0.35 s (-fdirectives-only 0.26 s, -M deps 0.50 s) vs the parse 3.2 s, so keying on the preprocessed text
+    is the cheaper safe key (a -MD header-hash scheme costs the same preprocess plus re-hashing the headers); the preprocess is the only unconditional cost of a hit."""
+    if os.environ.get('GAME_SYNTAX_NO_CACHE'):
+        return None
+    pp = _proc.run([CLANG] + args + ['-E', '-P', '-w', unit_path], timeout=T_PP, text=False)
+    if pp.returncode != 0:
         return None
     d = hashlib.sha256(pp.stdout)
-    d.update(('\0'.join(norm_args(args, roots)) + '\0' + CLANG_ID).encode())
+    d.update(('\0'.join(norm_args(args, roots)) + '\0' + CLANG_ID + '\0' + KEY_SALT).encode())
     return d.hexdigest()
 
 
-def syntax_check(args, unit_path, roots=(), cache_fail=False):
-    """clang -fsyntax-only of one unit with the full flag list `args`, served by the preprocessed-text cache. Returns (rc, text, key, hit). The verdict is STORED here (PP_CACHE[key]; the caller calls
-    save_cache): a pass always, a failure only when cache_fail (the planted twin). Shared with tools/scene/keep_stream_off_link.py --syntax (S103 GSP: one cache, one rule).
-    S103 H3 (audit 1.3 item 5): the object cache cannot serve -fsyntax-only, so key the result on the hash of `clang -E -P` of the same unit with the same
-    flags (the key sccache's preprocessor mode uses): identical preprocessed text + identical flags + the same clang = the same verdict. A hit skips the
-    parse (the expensive part); the preprocess always runs, so an edited header can never hit. Only an exit-0 preprocess is keyed.
-    GSP2 review bug 6: the preprocess and the parse are two reads of the tree; a header fixed in between would store a PASS under the broken text's key. After the parse the unit is preprocessed AGAIN
-    and the verdict is stored only when that key equals the first (a changed key = not stored, counted in NOT_STORED). The flags' tree paths are placeholders in the key (roots), so worktrees share hits.
-    Not in the key: the contents of a response file named in the flags (`@$DYNDEP_MODULE_MAP_FILE`; theoretical, noted)."""
+def _clean(args):
+    """-Wno-everything in a caller's flags (keep_stream_off_link --syntax) would hide the default errors again; the parse runs with -w instead."""
+    return [a for a in args if a != '-Wno-everything']
+
+
+def syntax_lookup(args, unit_path, roots=()):
+    """(key, result): result = (rc, text, key, True) when the store holds the unit's verdict, else None. A cached failure's text names the bypass."""
+    args = _clean(args)
     key = pp_key(args, unit_path, roots)
     if key is not None:
-        c = PP_CACHE.get(key)
+        c = _store.get(key)
         if c is not None:
-            return c, "error: pp-cache hit (cached %s verdict: same preprocessed text and flags as an earlier run)" % ("failure" if c else "pass"), key, True
-    r = _proc.run([CLANG] + args + ['-fsyntax-only', '-Wno-everything', unit_path], timeout=T_UNIT)
+            STATS['hit'] += 1
+            rc, text = c
+            return key, (rc, (('pp-cache: cached failure replayed (same preprocessed text and flags as an earlier run; bypass: --no-cache or GAME_SYNTAX_NO_CACHE=1)\n' + text) if rc else 'pp-cache hit (cached pass)'), key, True)
+    return key, None
+
+
+def syntax_run(args, unit_path, roots, key):
+    """The parse of a unit the store did not hold: (rc, text, key, False). Stores the verdict (storable() only, and only when the unit preprocesses to the same key again)."""
+    STATS['miss'] += 1
+    args = _clean(args)
+    r = _proc.run([CLANG] + args + ['-fsyntax-only', '-w', unit_path], timeout=T_UNIT)
     if r.timed_out:
         r.stderr = (r.stderr or '') + '\nerror: game_syntax: clang timed out after %d s on %s (process tree killed)' % (T_UNIT, unit_path)
-    if key is not None and not r.timed_out and (r.returncode == 0 or cache_fail):
+    text = r.stdout + r.stderr
+    if key is not None and not r.timed_out and storable(r.returncode, text):
         if pp_key(args, unit_path, roots) == key:
-            PP_CACHE[key] = r.returncode
+            _store.put(key, r.returncode, text)
         else:
             NOT_STORED.append(unit_path)
-    return r.returncode, (r.stdout + r.stderr), key, False
+    return r.returncode, text, key, False
+
+
+def syntax_check(args, unit_path, roots=(), cache_fail=False):
+    """clang -fsyntax-only of one unit with the full flag list `args`, served by the preprocessed-text store (tools\\gate\\syntax_store.py). Returns (rc, text, key, hit).
+    A pass AND a source failure are stored (S105 CC; `cache_fail` is kept for old callers and ignored), each the moment its unit ends; a hit replays the verdict and the diagnostics
+    (a cached failure is a failure with its text, never a pass). A crash, an OOM or a timeout is never stored. Shared with tools/scene/keep_stream_off_link.py --syntax.
+    S103 H3: the key is the hash of `clang -E -P` of the same unit with the same flags + the clang: identical preprocessed text + identical flags + the same clang = the same verdict.
+    The preprocess always runs, so an edited header can never hit. Only an exit-0 preprocess is keyed.
+    GSP2 review bug 6: the preprocess and the parse are two reads of the tree; after the parse the unit is preprocessed AGAIN and the verdict is stored only when that key equals the
+    first (a changed key = not stored, counted in NOT_STORED). The flags' tree paths are placeholders in the key (roots), so worktrees share hits.
+    Not in the key: the contents of a response file named in the flags (`@$DYNDEP_MODULE_MAP_FILE`; theoretical, noted)."""
+    key, hit = syntax_lookup(args, unit_path, roots)
+    if hit is not None:
+        return hit
+    return syntax_run(args, unit_path, roots, key)
 
 
 def load_cache(main_dir):
-    """Reads <main>/out/game_syntax/pp_cache.json into PP_CACHE; returns the file path."""
-    cache_file = os.path.join(main_dir, 'out', 'game_syntax', 'pp_cache.json')
-    try:
-        PP_CACHE.update(json.load(open(cache_file)))
-    except Exception:
-        pass
-    return cache_file
+    """Kept for callers: the store is per-key files under %USERPROFILE%\\.cache\\wwe2k14-syntax now (not main\\out); returns the store folder."""
+    return _store.store_dir()
 
 
 def save_cache(cache_file):
-    """Merge PP_CACHE into the file (write a temp, os.replace). A concurrent reader (Windows) can make the replace fail for a moment: retried before giving up."""
-    old = {}
-    try:
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        tmp = cache_file + '.%d.tmp' % os.getpid()
-        try:
-            old = json.load(open(cache_file))
-        except Exception:
-            pass
-        old.update(PP_CACHE)
-        json.dump(old, open(tmp, 'w'))
-        last = None
-        for _ in range(25):
-            try:
-                os.replace(tmp, cache_file)
-                return
-            except OSError as e:
-                last = e
-                time.sleep(0.2)
-        raise last
-    except OSError as e:
-        print('note: pp cache not saved (%s)' % e)
+    """Kept for callers: entries are written as each unit ends; this only trims the store to its size cap."""
+    _store.prune()
 
 
 def _clang_id():
@@ -235,7 +292,7 @@ def _clang_id():
 
 CLANG_ID = _clang_id()
 NOT_STORED = []   # units whose verdict was not stored because the tree changed between the first preprocess and the parse (bug 6)
-PP_CACHE = {}   # preprocess hash -> compile exit code (0 for a real unit; nonzero for the planted twin); file: <main>/out/game_syntax/pp_cache.json
+STATS = {'hit': 0, 'miss': 0}   # this process's store hits / parses (S105 CC)
 
 
 def git_lines(root, *args):
@@ -358,6 +415,28 @@ def _read(p):
         return None
 
 
+def cmake_content_unchanged_since(main_dir, t):
+    """S105 E: True when main's CMakeLists.txt holds the same CONTENT it had when build.ninja was written at time t (a touched / re-checked-out file has a newer mtime and the same bytes:
+    that was a false NEEDS-MAIN alarm). Stamp = the checkout the ninja was configured from: the newest `git reflog HEAD` entry made at or before t (whole seconds); the working file must equal that
+    commit's. (Not `git log -1 -- file`: it skips merge commits, so a branch change committed before the configure and merged after it read "unchanged".) No reflog entry that old, or any git
+    error = False (the alarm stays)."""
+    def g(*a):
+        r = subprocess.run(['git', '-C', main_dir] + list(a), capture_output=True, text=True)
+        return r.returncode, r.stdout
+    try:
+        rc, out = g('reflog', 'show', '--date=unix', '--format=%H %gd', 'HEAD')
+        if rc:
+            return False
+        for ln in out.splitlines():   # newest first
+            m = re.match(r'^([0-9a-f]{40}) HEAD@\{(\d+)\}$', ln.strip())
+            if m and int(m.group(2)) <= int(t):
+                rc, _ = g('diff', '--quiet', m.group(1), '--', 'CMakeLists.txt')
+                return rc == 0
+        return False
+    except (OSError, ValueError):
+        return False
+
+
 def cmake_state(root, main_dir, builds):
     """Why the main checkout's configured builds may not describe this tree: its CMakeLists.txt / CMakePresets.json differ, or a build.ninja is older than main's CMakeLists.txt."""
     why = []
@@ -367,7 +446,7 @@ def cmake_state(root, main_dir, builds):
     cm = os.path.join(main_dir, 'CMakeLists.txt')
     for b in builds:
         ninja = os.path.join(main_dir, BUILD_DIRS[b], 'build.ninja')
-        if os.path.isfile(cm) and os.path.isfile(ninja) and os.path.getmtime(ninja) < os.path.getmtime(cm):
+        if os.path.isfile(cm) and os.path.isfile(ninja) and os.path.getmtime(ninja) < os.path.getmtime(cm) and not cmake_content_unchanged_since(main_dir, os.path.getmtime(ninja)):
             why.append('%s build.ninja is older than CMakeLists.txt (reconfigure)' % b)
     return why
 
@@ -415,9 +494,7 @@ def run_changed(a, root, main_dir):
             if not u.startswith(('src/launcher/', 'src/importer/', 'src/audio_import/audio_import.cpp')) and (want not in fl or other in fl):
                 print('FAIL: the %s build\'s flags for %s do not carry %s (or carry %s): the wrong build was read' % (b, u, want, other))
                 return 1
-            if u == 'src/main.cpp':
-                # the build's PCH pair is dropped from the flags; main.cpp gets the tree's own pch_main.h first instead (the G12 macro-order class: the PCH's headers come before main.cpp's own)
-                fl = fl + ['-include', os.path.abspath(os.path.join(root, 'src', 'pch_main.h')).replace('\\', '/')]
+            fl = with_pch(root, u, fl)
             jobs.append(('%s [%s]' % (u, b), fl, os.path.join(root, u)))
     # a unit NO requested build compiles: if the tree's CMakeLists.txt names it, borrow src/start_settings.cpp's flags (all units but main.cpp / build_stamp.cpp share them) and
     # compile it in every requested build; one the CMake file does not name is tool-only (fview, viewers): left to its own lane, listed below
@@ -440,10 +517,10 @@ def run_changed(a, root, main_dir):
     if jobs:
         # S103 2026-11-19 11:38: free RAM hit 0.0 GB with several game_syntax runs (main session + builders) of 8 clang parses each at once.
         # Size the pool by FREE RAM like q's build_ours (2.5 GB a parse, 6 GB left over), at most 8, at least 1.
-        with ThreadPoolExecutor(max_workers=_syntax_workers()) as ex:
-            res = list(ex.map(lambda j: compile_unit(root, main_dir, j[1], j[2], j[0]), jobs))
+        # CQW: and by the machine-wide compile queue (tools\admit\admit_py.py; the formula above stays as the want and the fall-open value), held until the pool ends.
+        res = run_jobs(jobs, root, main_dir)   # S105 CC: store lookups first (no queue), the admitted pool only for the misses
         for label, rc, text, key, hit in res:
-            print('%s %s%s' % ('ok  ' if rc == 0 else 'FAIL', label, ' (cached)' if hit and rc == 0 else ''))
+            print('%s %s%s' % ('ok  ' if rc == 0 else 'FAIL', label, ' (cached)' if hit and rc == 0 else (' (cached failure)' if hit else '')))
             if rc:
                 bad += 1
                 print(text[:2000])
@@ -457,7 +534,7 @@ def run_changed(a, root, main_dir):
         return 0
     if why:
         print('PASS (units) but NEEDS-MAIN: %s: the main checkout\'s configured builds do not describe this tree; the main session re-runs this after the merge on the reconfigured build' % '; '.join(why))
-        print('%d unit-builds (%s), %.0f s' % (len(jobs), '+'.join(builds), dt))
+        print('%d unit-builds (%s), %.0f s (store: %d hits, %d parsed)' % (len(jobs), '+'.join(builds), dt, STATS['hit'], STATS['miss']))
         return 4
     if own_main and a.changed == 'auto':
         hd = git_lines(root, 'rev-parse', 'HEAD')
@@ -467,7 +544,7 @@ def run_changed(a, root, main_dir):
                 open(last_pass_file(main_dir, root), 'w').write(hd[0] + '\n')
             except OSError as e:
                 print('note: last-pass sha not saved (%s)' % e)
-    print('PASS: %d unit-builds (%s), %.0f s' % (len(jobs), '+'.join(builds), dt))
+    print('PASS: %d unit-builds (%s), %.0f s (store: %d hits, %d parsed)' % (len(jobs), '+'.join(builds), dt, STATS['hit'], STATS['miss']))
     return 0
 
 
@@ -478,7 +555,10 @@ def main():
     ap.add_argument('--root', default='.')
     ap.add_argument('--files', default='')
     ap.add_argument('--no-twin', action='store_true')
+    ap.add_argument('--no-cache', action='store_true', help='neither read nor write the result store: every unit is parsed')
     a = ap.parse_args()
+    if a.no_cache:
+        os.environ['GAME_SYNTAX_NO_CACHE'] = '1'
     root = os.path.abspath(a.root)
     if not os.path.isfile(CLANG):
         print('FAIL: %s not found' % CLANG)
@@ -521,7 +601,7 @@ def main():
         twin = os.path.join(d, 'plant_small.cpp')
         open(twin, 'w').write('#include "%s/src/main.cpp"\nstruct PlantSmall { int small; };   // planted: `small` is a macro of the Windows RPC headers main.cpp pulls in\n' % root.replace('\\', '/'))
         jobs.append(('planted twin (a member named small after main.cpp)', flags['src/main.cpp'], twin, True))
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with _admit.hold('syntax.worker', 4, timeout_s=120) as nw, ThreadPoolExecutor(max_workers=nw) as ex:   # CQW: the fixed-list path's pool (4 = the want and the fall-open value)
         res = list(ex.map(lambda j: (compile_unit(root, main_dir, j[1], j[2], j[0], cache_fail=j[3]), j[3]), jobs))
     bad = bad_units
     hits = sum(1 for (r, _t) in res if r[4])

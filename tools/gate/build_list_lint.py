@@ -145,6 +145,8 @@ def check_list(ix, label, files):
     bad = []
     fset = set(files)
     for f in files:
+        fset |= {h for h in ix.headers(f) if h.endswith('.cpp')}   # a unit that #includes another .cpp (the census builds #include front_end.cpp / char_effects.cpp) builds it too
+    for f in files:
         for n in sorted(ix.calls(f)):
             where = ix.defs.get(n)
             if not where or len(where) != 1:

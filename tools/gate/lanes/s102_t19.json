@@ -143,7 +143,9 @@
     "src/renderer_adapter/rdr_switches.h",
     "src/renderer_scene/scene_record.h",
     "src/renderer_scene/live_scene.*",
-    "src/renderer_adapter/names.h"
+    "src/renderer_adapter/names.h",
+    "src/renderer_adapter/stage_view.h",
+    "src/renderer_scene/plane_game_gate.h"
    ],
    "needs": ["generated/default"]
   },

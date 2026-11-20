@@ -34,6 +34,8 @@ namespace wwe2k14::scene_host {
 // 8 = the idle poll never runs (the quit flush's flag is never seen); 9 = the R9 repeat ignores PlaneImages::Holds (host_planes.h: a pruned set's destroyed images are shown); 10 = the movie row cache is never used (host_planes.h);
 // 11 = the tween gate ignores a newer tick waiting; 12 = the tween gate ignores a camera cut; 13 = the tween gate ignores "no previous tick"; 14 = the tween gate ignores a scene change (tools\renderer\host_core_unit.cpp);
 // 21 = the debt of content-less ticks is unbounded; 22 = a content-less tick pays the debt; 23 = SceneFeed::Note counts calls, not guest frames; 18 = the 30 fps mode draws every tick; 19 = the vblank debt is never paid; 20 = a dropped tick's vblanks are lost (VblankDebt, tools\renderer\host_core_unit.cpp);
+// 26 = S105 A3 no_cam_ignored: Decide ignores the camera-gate verdict (the old rule: an OURS frame with no shown camera draws the 3D); 27 / 28 = cam_gate.h plants (the load window looks at the phase only / the override cameras are not read);
+// 29 = no sticky hold; 30 = shown0 ignores seen3d (renumbered from 24-28 at the S105 merge: N2 owns 24 / 25);
 // 15 = draw_unfed: SceneFeed::Note holds nothing (the old ONF rule: a required input never stamped in this scene is drawn anyway, counted only).
 inline int g_plant = 0;
 #define HOST_PLANT(n) (::wwe2k14::scene_host::g_plant == (n))
@@ -47,6 +49,7 @@ struct HostMsg {
   uint64_t guest_frame = 0;
   uint32_t present_interval = 0;
   uint32_t width = 0, height = 0;      // the present texture's size (0 = unknown)
+  bool fill_now = false;               // S105 A2: the in-game sequence (ultrawide.h FillNow) when the poster ran: the scene / F take the screen's shape (wide_frame.h)
   bool no_picture = false;             // the present's r4 was null
   uint32_t carried_vblanks = 0;        // the vblanks of the ticks the mailbox dropped in favour of this one (VblankDebt counts them: the 30 fps pacing sees every vblank, drawn or not)
   bool curve_changed = false;          // the display table changed since the last message that was handled or dropped
@@ -72,6 +75,9 @@ struct Counters {
   // S103 HN (OFF only): never_fed_frames = OURS frames held (Hold3D / black) because a REQUIRED record input had never been stamped since the scene began; never_fed_bit[b] = those frames per bit;
   // never_fed_gaveup = scenes where the hold ran out (SceneFeed::kMaxHold) and the frame was drawn anyway (an input that does not exist in this scene).
   uint64_t never_fed_frames = 0, never_fed_gaveup = 0, never_fed_skipped_unstamped = 0;   // _skipped_unstamped: frames where a structural bit was left out of the rule because nothing had stamped it anywhere this session
+  uint64_t scene_copy_not_final = 0, scene_copy_redundant = 0;   // S105 A4 F6: scene-copy sprite rows not served (a non-Final pass / a redundant opaque full-screen row with no Final row before it)
+  uint64_t scene2d_early = 0, scene_rows_on_f = 0;   // S105 A4B: scene-colour rows the hook drew BEFORE the 3D (CAF's black quad, kQhPre3DCat) / scene-colour rows drawn on F in seq order on a flat (TwoDOnly) frame (Create a Title's belt)
+  uint64_t ours_no_walk = 0;   // S105 A4 (OFF): OURS-by-READY frames whose Scene3D stamp had no walk bit: sent to the flat branch (a sticky stage after a mode)
   uint64_t never_fed_bit[32] = {};
   // S103 P7 H2: the 2D layer. rows_seen = the rows of every record a 2D step ran on; rows_drawn + RowsNotDrawn() = rows_seen (a row is drawn or dropped for ONE reason, never guessed);
   // rows_dropped[kDropHole] counts the tap's holes (rows that were never recorded), apart from the rows. A frame that repeats F as it was (HoldF) runs no 2D step: its rows are neither seen nor dropped.
@@ -82,7 +88,8 @@ struct Counters {
   // tween_draws = draws whose constants were mixed (TickBlender's matched count, summed); tween_waiting = a halfway picture dropped because a newer tick was already waiting; tween_cut = dropped for a camera cut /
   // scene change / size change (the previous tick forgotten); tween_cold = no previous tick to blend from.
   uint64_t tweens = 0, tween_draws = 0, tween_waiting = 0, tween_cut = 0, tween_cold = 0;
-  uint64_t rate_skipped = 0;      // S103 (30 fps): ticks the host did not draw because the launcher's 30 fps mode draws one picture per two vblanks (VblankDebt)
+  uint64_t no_scene_camera_frames = 0, cam_sticky_frames = 0, cam_unanimated_frames = 0;   // S105 A3: OURS frames shown black because the record said the game shows no scene camera (shown0) / is in the entrance load window (unanimated)
+  uint64_t rate_skipped = 0;   // S103 (30 fps): ticks the host did not draw because the launcher's 30 fps mode draws one picture per two vblanks (VblankDebt)
   uint64_t rows_dropped[kDrop2DCount] = {};
   uint64_t RowsNotDrawn() const {
     uint64_t n = 0;
@@ -250,7 +257,9 @@ inline const char* SourceName(Source s) {
   static const char* const n[] = {"draw3d", "hold3d", "holdF", "black"};
   return n[uint8_t(s)];
 }
-enum class Reason : uint8_t { Ours = 0, TwoDOnly, NotOurs3D, Miss, MissLoading, DrawFault, NoRecord, NoPicture, NoSize, Resize, NoLast3D, NeverFed };
+enum class Reason : uint8_t { Ours = 0, TwoDOnly, NotOurs3D, Miss, MissLoading, DrawFault, NoRecord, NoPicture, NoSize, Resize, NoLast3D, NeverFed, NoSceneCamera };
+// S105 A4B: the frame the game drew NO 3D for (Decide R2: flat): its scene-colour rows are the whole scene colour and are drawn on F in seq order. Not a Hold3D / black_no_3d frame (a held picture may already hold the row).
+inline bool SceneRowsOnF(Reason r) { return r == Reason::TwoDOnly || (HOST_PLANT(35) && r == Reason::NotOurs3D); }   // plant 35 scene_on_f_hold: a Hold3D frame draws its scene rows on F too
 
 struct Facts {
   bool have_record = false;
@@ -260,6 +269,9 @@ struct Facts {
   bool flat = false;               // not ours, and a flat frame (no stage, no 3D object, no Scene3D stamp): a 2D frame (R2)
   DrawResult draw = DrawResult::NotTried;
   bool loading = false;            // the miss was a resource still loading
+  bool no_scene_camera = false;    // S105 A3: the record says the game shows no scene camera (cam_gate.h NoShownCamera): the game draws no scene on such a frame, so an OURS frame is black under its rows
+  bool cam_anim_pending = false;   // S105 A3: the record says sequence 9, a valid motion camera, anim == 0 (cam_gate.h CamAnimPending): the sticky hold's condition
+  bool cam_unanimated = false;     // S105 A3 (bit 2):the entrance load window (cam_gate.h CamUnanimated): the game draws no scene yet either
   uint32_t never_fed = 0;          // S103 HN (OFF): the REQUIRED record inputs never stamped since this scene began (SceneFeed::Note): an OURS frame with any is not drawn (R5 with its own reason)
   uint32_t width = 0, height = 0;
 };
@@ -269,8 +281,27 @@ struct State {
   bool f_is_3d = false;        // F holds one of our 3D pictures (not a black 2D frame)
   uint32_t f_w = 0, f_h = 0;
   bool last3d_valid = false;   // `out` holds a complete 3D picture at f_w x f_h
+  bool cam_hold = false;       // S105 A3: the "shown 0" black ran and no 3D has been drawn since (CamGate's sticky hold)
+  uint32_t cam_hold_n = 0;     // S105 A3: handled frames the sticky hold has held (bounded by kCamHoldMax)
   bool seen3d = false;         // S103 OFFT: a 3D picture of ours was drawn since the last flat frame / first frame (a black with no last picture is then MID-MATCH, not the first frame / after a load)
 };
+// S105 A3 (docs\research\s105\A3.md, review_A3.md): is an OURS frame black because the game draws no scene yet? One rule for Handle (skip the 3D draw) and Decide (the picture).
+//   shown0    : the record says no shown camera, and no 3D picture has been drawn in this scene (!seen3d: the first load window; the word also reads 0 between entrances and at a match opening, where the game draws);
+//   sticky    : shown0 ended (a camera is shown) but the motion camera is still not animated (cam_anim_pending): the black is held for at most kCamHoldMax handled frames since shown0 last fired;
+//   unanimated: the load window the record carries (phase 4, sequence 9, not animated), whatever the scene history.
+// S105 A3H (docs\research\s105\A3C.md Verdict 4): the hold ends on the game's own signal: the first non-black OURS frame, any non-OURS frame, or bit 3 (the load window, which the gate then blacks itself).
+// kCamHoldMax is only the safety cap for a match with NO entrance (idle camera, anim 0 forever, which no word ends). What bounds that state: the hold starts only from shown0, which needs !seen3d (the first
+// load window of a scene), and the cap is ~3.5x the longest measured shown-set -> phase-4 gap (35 handled frames, A3C runs 085 / 086; 15 in run 027): at most 120 black frames per hold. No code word gives a tighter bound [U].
+inline constexpr uint32_t kCamHoldMax = 120;
+struct CamVerdict { bool black = false, shown0 = false, sticky = false, unanimated = false; };
+inline CamVerdict CamGate(const State& st, const Facts& f) {
+  CamVerdict v;
+  v.shown0 = f.no_scene_camera && (!st.seen3d || HOST_PLANT(30));   // plant 30: the scene history is ignored (the word reads 0 between entrances and at a match opening)
+  v.sticky = !HOST_PLANT(29) && !v.shown0 && (!f.cam_unanimated || HOST_PLANT(34)) && st.cam_hold && f.cam_anim_pending && st.cam_hold_n < (HOST_PLANT(33) ? 30u : kCamHoldMax);   // plant 33: the old 30-frame cap; 34: the hold ignores bit 3
+  v.unanimated = f.cam_unanimated;
+  v.black = v.shown0 || v.sticky || v.unanimated;
+  return v;
+}
 struct Plan {
   Source source = Source::HoldF;
   Reason reason = Reason::Ours;
@@ -327,6 +358,20 @@ inline Plan Decide(State& st, const Facts& f, Counters& c) {
     if (st.seen3d) ++c.black_mid_match;   // S103 OFFT: a 3D picture was drawn earlier in this scene and there is none to hold now
     black(Reason::NoLast3D);
   };
+  if (!f.ours) st.cam_hold = false;   // S105 A3: the sticky hold belongs to a run of OURS frames
+  else {
+    const CamVerdict v = CamGate(st, f);
+    if (v.black && !HOST_PLANT(26)) {   // S105 A3: the game shows no camera / the load window: it draws no scene (post chain + load-screen sprites only): black under the rows. No strike; the scene feed is left as it is
+      if (v.shown0) ++c.no_scene_camera_frames, st.cam_hold = true, st.cam_hold_n = 0;   // each reason counted apart (a frame with two counts in both)
+      if (v.sticky) ++c.cam_sticky_frames, ++st.cam_hold_n;
+      if (v.unanimated && !v.sticky) ++c.cam_unanimated_frames, st.cam_hold = false;   // S105 A3H: bit 3 takes over from the hold (the gate blacks through it itself)
+      black(Reason::NoSceneCamera);
+      st.last3d_valid = false;   // `out` holds an older scene's picture: it must not come back as a hold
+      st.seen3d = false;         // review 6: the black is not "mid-match": no 3D picture of this scene is shown any more, so a later miss is a first frame, not black_mid_match
+      return p;
+    }
+    st.cam_hold = false;
+  }
   if (f.ours) {
     switch (f.draw) {
       case DrawResult::Ok:
@@ -427,7 +472,7 @@ inline TweenVerdict TweenGate(const TweenFacts& t) {
 }
 
 inline const char* ReasonName(Reason r) {
-  static const char* const n[] = {"ours", "2d_only", "not_ours", "miss", "miss_loading", "draw_fault", "no_record", "no_picture", "no_size", "resize", "no_last3d", "never_fed"};
+  static const char* const n[] = {"ours", "2d_only", "not_ours", "miss", "miss_loading", "draw_fault", "no_record", "no_picture", "no_size", "resize", "no_last3d", "never_fed", "no_scene_camera"};
   return n[uint8_t(r)];
 }
 
@@ -493,7 +538,11 @@ inline std::string CensusLine(const Counters& c) {
       if (c.never_fed_bit[i]) s += std::string(any ? " " : "") + "bit " + std::to_string(i) + ":" + std::to_string((unsigned long long)c.never_fed_bit[i]), any = true;
     s += "] gave_up " + std::to_string((unsigned long long)c.never_fed_gaveup);
   }
+  if (c.no_scene_camera_frames || c.cam_sticky_frames || c.cam_unanimated_frames) s += ", shown0 " + std::to_string((unsigned long long)c.no_scene_camera_frames) + ", sticky " + std::to_string((unsigned long long)c.cam_sticky_frames) + ", unanimated " + std::to_string((unsigned long long)c.cam_unanimated_frames);   // S105 A3: only when it happened
   if (c.rate_skipped) s += ", rate_skipped " + std::to_string((unsigned long long)c.rate_skipped);   // S103: the 30 fps pacing's ticks not drawn (only when it ran)
+  if (c.ours_no_walk) s += ", ours_no_walk " + std::to_string((unsigned long long)c.ours_no_walk);   // S105 A4: READY frames with no walk, sent to the flat branch
+  if (c.scene_copy_not_final || c.scene_copy_redundant) s += ", scene_copy_skipped not_final " + std::to_string((unsigned long long)c.scene_copy_not_final) + " redundant " + std::to_string((unsigned long long)c.scene_copy_redundant);
+  if (c.scene2d_early || c.scene_rows_on_f) s += ", scene2d_early " + std::to_string((unsigned long long)c.scene2d_early) + ", scene_rows_on_f " + std::to_string((unsigned long long)c.scene_rows_on_f);   // S105 A4B: only when it happened
   if (c.never_fed_skipped_unstamped) s += ", never_fed_skipped_unstamped " + std::to_string((unsigned long long)c.never_fed_skipped_unstamped);
   return s;
 }

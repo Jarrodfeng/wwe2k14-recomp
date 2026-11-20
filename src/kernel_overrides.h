@@ -27,6 +27,7 @@
 #include "bookmark.h"  // Session 29: the "that, just now" key (frame-time ring always on, the key in harness runs)
 #include "sampling_profiler.h"
 #include "file_trace.h"  // --wwe2k14_file_trace (Session 8 task 7, default off)
+#include "load_watch.h"  // S105 A6W: the loader watch counters
 #include "native_mem_probe.h"  // Session 100 strip-360 D2: the game's free-memory probes by binary search (--wwe2k14_native_mem_probe)
 #include "guest_peek.h"  // --wwe2k14_peek (Session 8 task 7 menu/UI, default off)
 #include "frame_hash.h"  // --wwe2k14_det_hash (Session 8 task 8b, default off)
@@ -198,6 +199,7 @@ inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIB
                         uint32_t disposition, uint32_t access, uint32_t result, mapped_u32 handle_out) {
   const std::string path = GuestObjectPath(attrs);
   g_frame_file_opens.fetch_add(1, std::memory_order_relaxed);  // Session 73 (frame_stats.h)
+  load_probe::NoteOpen(path.data(), path.size(), result, handle_out ? uint32_t(*handle_out) : 0);  // S105 A6W: PAC opens only, before the log switch below
   if (result == 0) g_input_script.OnFileOpened(path);  // wait_file sync points / recording comments
   if (result == 0) bookmark::NoteFileOpen(g_guest_frame);  // Session 29: no automatic bookmark right after a load
   if (result == 0) g_load_turbo.OnFileOpened(path);    // no-op unless --wwe2k14_load_turbo*

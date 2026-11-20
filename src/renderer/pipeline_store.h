@@ -7,6 +7,7 @@
 //
 // This file is pure data and file handling (no Vulkan calls): the format, the checks that refuse a file, the atomic write. renderer.cpp uses it.
 #pragma once
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -253,30 +254,50 @@ inline unsigned ProcessId() {
 #endif
 }
 // Temp file + rename: a crash while writing leaves the old file, never half a new one.
-inline bool WriteFileAtomic(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
+// S105 B3: `why` (on failure) names the step that failed and the OS error: "create the folder" / "open the temp file" / "write the temp file" / "close the temp file" / "rename the temp file", then the error.
+inline bool WriteFileAtomicWhy(const std::filesystem::path& path, const std::vector<uint8_t>& bytes, std::string& why) {
+  why.clear();
   std::error_code ec;
   std::filesystem::create_directories(path.parent_path(), ec);
+  const std::error_code dir_ec = ec;   // (not fatal by itself: the open below says whether the folder is usable)
   std::filesystem::path tmp = path;
   tmp += ".tmp" + std::to_string(unsigned(ProcessId()));  // (two processes sharing the folder never write the same temp file)
   std::FILE* f = nullptr;
+  errno = 0;
 #if defined(_WIN32)
   f = _wfopen(tmp.c_str(), L"wb");
 #else
   f = std::fopen(tmp.string().c_str(), "wb");
 #endif
-  if (!f) return false;
+  if (!f) {
+    const int e = errno;
+    why = "open the temp file: errno " + std::to_string(e) + " (" + std::strerror(e) + ")";
+    if (dir_ec) why += "; create the folder: " + dir_ec.message();
+    return false;
+  }
+  errno = 0;
   const bool ok = bytes.empty() || std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+  const int write_errno = errno;
+  errno = 0;
   const bool closed = std::fclose(f) == 0;
+  const int close_errno = errno;
   if (!ok || !closed) {
+    why = std::string(ok ? "close" : "write") + " the temp file: errno " + std::to_string(ok ? close_errno : write_errno) + " (" + std::strerror(ok ? close_errno : write_errno) + ")";
     std::filesystem::remove(tmp, ec);
     return false;
   }
   std::filesystem::rename(tmp, path, ec);
   if (ec) {
+    why = "rename the temp file over " + path.filename().string() + ": " + ec.message() + " (code " + std::to_string(ec.value()) + ")";
     std::filesystem::remove(tmp, ec);
     return false;
   }
   return true;
+}
+
+inline bool WriteFileAtomic(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
+  std::string why;
+  return WriteFileAtomicWhy(path, bytes, why);
 }
 
 // ---- the list ----

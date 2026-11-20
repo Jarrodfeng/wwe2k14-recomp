@@ -3,7 +3,7 @@
  "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
  "note": "0 game runs, 0 Surface runs: eyes_unit.exe reads two entrance-era records of case_20261117_112821 (RDR_MAIN_CHECKOUT). The plant is the bug (every piece at alpha 1) and must be caught.",
  "checks": [
-  {"name": "s103_EYF.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_eyes_unit.ps1"], "timeout_s": 600, "tier": "cheap"},
+  {"name": "s103_EYF.build_unit", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_eyes_unit.ps1"], "timeout_s": 600, "tier": "cheap"},
   {"name": "s103_EYF.unit", "cmd": ["out/tools/eyes_unit.exe", "out/s103/cvo/zipx/case_20261117_112821_567_0_pc_run_exit/scene/frame_000316.rsc", "out/s103/cvo/zipx/case_20261117_112821_567_0_pc_run_exit/scene/frame_000619.rsc", "--quiet"], "timeout_s": 60, "tier": "cheap",
    "needs": ["out/s103/cvo/zipx/case_20261117_112821_567_0_pc_run_exit/scene/frame_000316.rsc", "out/s103/cvo/zipx/case_20261117_112821_567_0_pc_run_exit/scene/frame_000619.rsc"],
    "affects": ["src/renderer_scene/piece_alpha.h", "tools/scene/eyes_unit.cpp"]},

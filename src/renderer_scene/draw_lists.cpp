@@ -42,7 +42,7 @@ const NameMask kTable[] = {
     {"ShadowPrm", kStLight}, {"ViewLightDepth", kStLight}, {"TexProjLightXY", kStLight}, {"TexProjLightW", kStLight},   // S103 L6: the shadow reader's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
     {"Param1", kStMaterial}, {"ConvScreen", 0}, {"HairSpeParam", kStMaterial}, {"SpeCol1", kStMaterial},
     {"SpeCol2", kStMaterial}, {"SSColor", 0}, {"SS", 0}, {"SphereOccP", 0}, {"SphereOccV", 0}, {"IdMapCol", kStMaterial}, {"IdMapLvLst", kStMaterial}, {"WklLvLst", kStMaterial},
-    {"ReflectAlpha", kStMaterial /* S103 RFL: the draw's own g_fReflectAlpha (reflect_alpha per material) */}, {"Noise", 0}, {"NoiseParam", 0}, {"PlaneInv", kStLight /* S103 L9: the ring mat reads the plane map; hashed into the light stamp */}, {"TexProjLight", kStLight}, {"ViewLight", kStLight}, {"SpeLodParam", kStMaterial},   // S103 D1: the stage FX_SHADOW receiver's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
+    {"ReflectAlpha", kStMaterial /* S103 RFL: the draw's own g_fReflectAlpha (reflect_alpha per material) */}, {"Noise", kStMaterial}, {"NoiseParam", kStMaterial}, {"PlaneInv", kStLight /* S103 L9: the ring mat reads the plane map; hashed into the light stamp */}, {"TexProjLight", kStLight}, {"ViewLight", kStLight}, {"SpeLodParam", kStMaterial},   // S103 D1: the stage FX_SHADOW receiver's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
 };
 }  // namespace
 

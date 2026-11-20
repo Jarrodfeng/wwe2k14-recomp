@@ -13,6 +13,8 @@ Reads source text only (0 game runs, no device, no build). For every `wwe2k14_rd
 --plant NAME proves the check can fail: it applies one planted fault in memory and exits 0 only if the check then FAILS.
   drop-source    removes src/renderer_scene/arena_ours.cpp from the parsed source list
   drop-switch    removes wwe2k14_rdr_ring_ours from the parsed game-root condition
+  extra-remove   adds a second list(REMOVE_ITEM WWE2K14_SOURCES ...) to the parsed CMakeLists
+  drop-host      removes scene_host.cpp from the stream-free build's appended list
   drop-devflags  pretends android_dev_flags.h does not accept the rdr family
 Exit 0 = pass (or, with --plant, the planted fault was caught); 1 = problems (printed).
 """
@@ -54,6 +56,11 @@ TABLE = {
     'wwe2k14_rdr_particles_ours': (['src/renderer_adapter/live.cpp'], ['src/renderer_adapter/particle_runs.h'], False),
 }
 # What every promotion's scene feed needs (the record writer's sources) is checked once.
+# Dev-only switches (S105 PPR): read in live.cpp, not reader.h; live.cpp itself says "ignored: a release build", so a release phone never reads it.
+DEV_ONLY = {  # cvar -> (sources, file that reads the switch)
+    'wwe2k14_rdr_2d_ours': (['src/renderer_adapter/live.cpp', 'src/renderer_scene/quads2d_draw.cpp'], 'src/renderer_adapter/live.cpp'),
+}
+COMMON_SOURCES_STREAM_FREE = ['src/renderer_scene/live_scene.cpp', 'src/renderer_scene/record_io.cpp', 'src/renderer_scene/live_sinks.cpp']  # live.cpp is stream-only (the host replaces it)
 COMMON_SOURCES = ['src/renderer_adapter/live.cpp', 'src/renderer_scene/live_scene.cpp', 'src/renderer_scene/record_io.cpp', 'src/renderer_scene/live_sinks.cpp']
 
 
@@ -80,8 +87,31 @@ def run(root, plant=''):
     # 2a. the ANDROID branch builds the same list, nothing removed
     if not re.search(r'if\(ANDROID\).*?add_library\(wwe2k14 SHARED \$\{WWE2K14_SOURCES\}\)', cm, re.S):
         problems.append('CMakeLists.txt: the ANDROID branch does not build ${WWE2K14_SOURCES} as the shared library')
-    if re.search(r'list\(\s*REMOVE_ITEM\s+WWE2K14_SOURCES', cm):
-        problems.append('CMakeLists.txt: list(REMOVE_ITEM WWE2K14_SOURCES ...) drops sources from a build')
+    if plant == 'extra-remove':
+        cm += '\nif(ANDROID)\n  list(REMOVE_ITEM WWE2K14_SOURCES src/renderer_scene/arena_ours.cpp)\nendif()\n'
+    # The ONE allowed REMOVE_ITEM: the stream-free build (the player build, tools/android/build_all.ps1 -Release) drops keep_stream_sources.txt's units and
+    # appends keep_stream_off_sources.txt's (the scene host presents instead; the promotions run in the host, not as per-switch stream replacers).
+    allowed = r'if\(NOT WWE2K14_KEEP_STREAM\)\s*\n\s*file\(STRINGS[^\n]*WWE2K14_STREAM_ONLY_SOURCES[^\n]*\n\s*list\(REMOVE_ITEM WWE2K14_SOURCES \$\{WWE2K14_STREAM_ONLY_SOURCES\}\)'
+    n_remove = len(re.findall(r'list\(\s*REMOVE_ITEM\s+WWE2K14_SOURCES', cm))
+    n_ok = len(re.findall(allowed, cm))
+    if n_remove != n_ok:
+        problems.append("CMakeLists.txt: list(REMOVE_ITEM WWE2K14_SOURCES ...) drops sources from a build other than the stream-free build's keep_stream_sources.txt")
+    if n_ok:
+        stream_free_removed = [l.strip() for l in read(root, 'tools/scene/keep_stream_sources.txt').splitlines() if l.strip().startswith('src/')]
+        off = [l.strip() for l in read(root, 'tools/scene/keep_stream_off_sources.txt').splitlines() if l.strip().startswith('src/')]
+        if plant == 'drop-host':
+            off = [s for s in off if s != 'src/renderer_host/scene_host.cpp']
+        if 'src/renderer_host/scene_host.cpp' not in off or 'list(APPEND WWE2K14_SOURCES ${WWE2K14_OFF_ONLY_SOURCES})' not in cm:
+            problems.append('stream-free build: the scene host (src/renderer_host/scene_host.cpp) is not appended, so the phone would present nothing')
+        for s in stream_free_removed + off:
+            if not (root / s).is_file():
+                problems.append(f'stream-free build: {s} is listed in keep_stream_*sources.txt but does not exist')
+        for s in stream_free_removed:
+            if s not in sources:
+                problems.append(f'stream-free build: {s} is removed but is not in WWE2K14_SOURCES (stale list)')
+        for s in COMMON_SOURCES_STREAM_FREE:
+            if s in stream_free_removed:
+                problems.append(f'stream-free build: {s} is needed by the phone in both builds but keep_stream_sources.txt removes it')
     # 1. every cvar defined is in the table
     defined = set()
     for p in (root / 'src').rglob('*'):
@@ -89,9 +119,9 @@ def run(root, plant=''):
             defined.update(re.findall(r'REXCVAR_DEFINE_BOOL\(\s*(wwe2k14_rdr_\w+_ours)\b', p.read_text(encoding='utf-8', errors='replace')))
     if not defined:
         problems.append('no `wwe2k14_rdr_*_ours` cvar found under src\\ (the check cannot read its input)')
-    for c in sorted(defined - set(TABLE)):
+    for c in sorted(defined - set(TABLE) - set(DEV_ONLY)):
         problems.append(f'{c}: defined for the PC but not in this check\'s TABLE (add its sources, then it is checked for the phone)')
-    for c in sorted(set(TABLE) - defined):
+    for c in sorted((set(TABLE) | set(DEV_ONLY)) - defined):
         problems.append(f'{c}: in the TABLE but no longer defined (remove it from the table)')
     reader = read(root, 'src/renderer_adapter/reader.h')
     app = read(root, 'src/wwe2k14_app.h')
@@ -114,6 +144,14 @@ def run(root, plant=''):
             problems.append(f'{c}: reader.h never reads the switch into the live options (REXCVAR_GET)')
         if needs_root and c not in root_cond:
             problems.append(f'{c}: not in wwe2k14_app.h\'s game-root condition (the promotion would not find the player\'s files)')
+    for c in sorted(defined & set(DEV_ONLY)):
+        srcs, reader_file = DEV_ONLY[c]
+        for s in srcs:
+            if s not in sources:
+                problems.append(f'{c}: {s} is not in CMakeLists.txt WWE2K14_SOURCES')
+        rt = read(root, reader_file)
+        if not re.search(r'REXCVAR_GET\(\s*' + c + r'\s*\)', rt) or 'ignored: a release build' not in rt:
+            problems.append(f'{c}: {reader_file} must read the switch and ignore it on a release build (dev-only)')
     for s in COMMON_SOURCES:
         if s not in sources:
             problems.append(f'scene feed: {s} is not in WWE2K14_SOURCES')

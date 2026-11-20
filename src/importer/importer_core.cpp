@@ -24,6 +24,7 @@
 #include "bc3.h"
 #include "pack_fit.h"  // Session 101: the game's DLC view + the "does the pack fit" rule (shared with src\dlc.h and the launchers)
 #include "pack_io.h"
+#include "slot_retire.h"  // S105 IMP: retired slots (a new import never inherits a save's old row)
 #include "png.h"
 
 namespace importer {
@@ -756,9 +757,11 @@ void UiRenders(const Superstar& s, bool sd, Renders& r, std::array<bool, 3>& hav
   }
 }
 
-std::string ManifestJson(const PackState& st, int pack_id, bool needs_build) {
+std::string ManifestJson(const PackState& st, int pack_id, bool needs_build, const std::vector<int>& retired) {
   std::string j = "{\n  \"version\": 1,\n  \"enabled\": " + std::string(st.enabled ? "true" : "false") + ",\n  \"needs_build\": " +
-                  (needs_build ? "true" : "false") + ",\n  \"pack_id\": " + std::to_string(pack_id) + ",\n  \"stars\": [";
+                  (needs_build ? "true" : "false") + ",\n  \"pack_id\": " + std::to_string(pack_id) + ",\n  \"retired\": [";
+  for (size_t i = 0; i < retired.size(); ++i) j += (i ? ", " : "") + std::to_string(retired[i]);  // S105 IMP
+  j += "],\n  \"stars\": [";
   for (size_t i = 0; i < st.stars.size(); ++i) {
     const Superstar& s = st.stars[i];
     j += std::string(i ? "," : "") + "\n    {\"slot\": " + std::to_string(s.slot) + ", \"name\": \"" + Esc(s.name) + "\", \"short_name\": \"" +
@@ -776,7 +779,31 @@ const char* const kRenderTag[3] = {"A", "B", "C"};
 fs::path RenderFile(const fs::path& root, int slot, int k) { return root / "renders" / (std::to_string(slot) + "_" + kRenderTag[k] + ".png"); }
 
 // pack.json + renders\<slot>_A/B/C.png (PNG, our own writer); renders of characters no longer in the list are removed.
-bool WriteManifest(const fs::path& root, const PackState& st, int pack_id, bool needs_build, std::string& err) {
+// S105 IMP: the manifest on disk: its retired list and the slots its characters hold (a missing / damaged one = empty).
+static void ReadManifestSlots(const fs::path& root, std::vector<int>& retired, std::vector<int>& slots) {
+  Bytes b;
+  if (!ReadAll(root / "pack.json", b, 16 << 20)) return;
+  const std::string text(b.begin(), b.end());
+  Json j;
+  JsonParser p{text};
+  if (!p.Val(j) || j.t != Json::kObj) return;
+  if (const Json* a = j.Get("retired"); a && a->t == Json::kArr)
+    for (const Json& x : a->a)
+      if (x.t == Json::kNum) retired.push_back(int(x.n));
+  if (const Json* a = j.Get("stars"); a && a->t == Json::kArr)
+    for (const Json& x : a->a) slots.push_back(x.Int("slot", -1));
+}
+
+// S105 IMP review M1: the slots of the last BUILT pack (the `star SLOT music N` lines of superstars.txt): only those can be in a save.
+static std::vector<int> BuiltSlots(const fs::path& root) {
+  std::vector<int> v;
+  for (const auto& kv : wwe2k14::superstars_fit::ReadBuilt(root / "superstars.txt").music) v.push_back(kv.first);
+  return v;
+}
+
+// `built`: the built slots read BEFORE a build deleted / replaced superstars.txt (null = read it now).
+bool WriteManifest(const fs::path& root, const PackState& st, int pack_id, bool needs_build, std::string& err,
+                   const std::vector<int>* built = nullptr) {
   std::error_code ec;
   fs::create_directories(root / "renders", ec);
   std::set<std::string> keep;
@@ -790,7 +817,17 @@ bool WriteManifest(const fs::path& root, const PackState& st, int pack_id, bool 
     }
   for (const auto& e : fs::directory_iterator(root / "renders", ec))
     if (!keep.count(Lower(PathU8(e.path().filename())))) fs::remove(e.path(), ec);
-  if (!WriteText(root / "pack.json.part", ManifestJson(st, pack_id, needs_build))) return err = "could not write pack.json", false;
+  // S105 IMP: a slot the previous manifest held and this list no longer does is retired for good (slot_retire.h)
+  std::vector<int> retired = st.retired, old_slots, new_slots;
+  {
+    std::vector<int> disk_retired;
+    ReadManifestSlots(root, disk_retired, old_slots);
+    retired.insert(retired.end(), disk_retired.begin(), disk_retired.end());
+    for (const Superstar& s : st.stars) new_slots.push_back(s.slot);
+    // (M1: retire a slot only if a build held it; built slots missing from pack.json seed the list once)
+    retired = importer::slots::MergeRetired(retired, built ? *built : BuiltSlots(root), new_slots);
+  }
+  if (!WriteText(root / "pack.json.part", ManifestJson(st, pack_id, needs_build, retired))) return err = "could not write pack.json", false;
   fs::rename(root / "pack.json.part", root / "pack.json", ec);
   if (ec) {
     fs::remove(root / "pack.json", ec);
@@ -994,6 +1031,9 @@ static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::strin
       }
       out.stars.push_back(std::move(s));
     }
+  if (const Json* a = j.Get("retired"); a && a->t == Json::kArr)  // S105 IMP
+    for (const Json& x : a->a)
+      if (x.t == Json::kNum) out.retired.push_back(int(x.n));
   out.needs_build = j.Bool("needs_build", false) ||
                     (!out.stars.empty() && !fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec));
   return true;
@@ -1111,6 +1151,7 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
         ", our pack id " + std::to_string(b.pack_id) + " revision " + std::to_string(revision));
 
   // ---- check the characters
+  const std::vector<int> built_before = BuiltSlots(root);  // S105 IMP M1: before the empty path deletes superstars.txt / the rename replaces it
   if (st.stars.empty()) {
     // Session 101 (lane 199): the last one was removed - the old pack (still holding him) comes out of the game; before, the build
     // refused an empty list and the removed characters stayed in the game.
@@ -1118,7 +1159,7 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     fs::remove(root / "superstars.txt", e2);
     fs::remove_all(root / "pack6", e2);
     if (e2) return err = "the old pack could not be removed (close the game first): " + e2.message(), false;
-    if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err)) return false;
+    if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err, &built_before)) return false;
     fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), e2);
     b.Log("no characters: the pack is removed (the game's own roster only)");
     return true;
@@ -1151,7 +1192,12 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     }
   }
   if (st.stars.size() > size_t(kMaxStars)) return err = "more than " + std::to_string(kMaxStars) + " characters", false;
-  const std::vector<int> free = FreeSlots(game_in, dlc_dir);
+  std::vector<int> free = FreeSlots(game_in, dlc_dir);
+  {  // S105 IMP: a character that has to move never takes a retired slot while a never-used one is free (a save's old row there)
+    std::vector<int> retired = st.retired, old_slots;
+    ReadManifestSlots(root, retired, old_slots);
+    free = importer::slots::NeverUsedFirst(free, retired, built_before);
+  }
   const std::set<int> pack_used = UsedByPacks(dlc_dir);
   {
     // Session 101 (lane 199; review S5): a slot one of the player's packs now uses (a pack added since the last build), one used
@@ -1612,7 +1658,7 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     }
   }
   fs::remove_all(old, ec);
-  if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err)) return err = "the pack is built but " + err, false;
+  if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err, &built_before)) return err = "the pack is built but " + err, false;
   fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), ec);  // (Session 101: the game's old verdict is about the old pack)
   for (const std::string& w : b.warnings) b.Log("warning: " + w);
   b.Prog(1.f, "done");
@@ -1651,6 +1697,21 @@ bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err
   } catch (const std::exception& e) {
     return err = std::string("could not save the pack list: ") + e.what(), false;
   }
+}
+std::vector<int> BuiltPackSlots(const std::string& mods_dir) {  // S105 IMP review M1
+  try {
+    if (!mods_dir.empty()) return BuiltSlots(U8Path(mods_dir) / "superstars");
+  } catch (...) {
+  }
+  return {};
+}
+std::vector<int> RetiredSlots(const std::string& mods_dir) {  // S105 IMP
+  std::vector<int> r, s;
+  try {
+    if (!mods_dir.empty()) ReadManifestSlots(U8Path(mods_dir) / "superstars", r, s);
+  } catch (...) {
+  }
+  return r;
 }
 std::vector<int> FreeSlots(const launcher::GameFiles& game, const std::string& dlc_dir) {
   try {

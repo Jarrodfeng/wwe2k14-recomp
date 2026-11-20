@@ -1,0 +1,6 @@
+{
+ "owner": "fixture: an invented lane naming the invented widget unit",
+ "checks": [
+  {"name": "fake_widget.unit", "cmd": ["out/tools/widget_unit.exe"], "affects": ["tools/fake/widget_unit.cpp"]}
+ ]
+}

@@ -67,6 +67,9 @@ struct FxChoice {
 // Picks the vertex + fragment variants of an effect for a material: the simplest pair whose interpolators match and whose textures and
 // vertex inputs the front-end can supply. effect is the material class name as the file stores it ("yBG_Default", "yProp_BumpMap").
 FxChoice ChooseEffect(const std::string& effect, const MaterialWants& wants);
+// S105 C4: planted twin (the unit sets it): the pairing before the FX_SPECULAR guard, a vertex / fragment pair that disagrees on FX_SPECULAR is let through. Never set in the game.
+bool& WideGuardPlant();   // S105 C4 fix: test-only twin (the FX_SPECULAR guard without `renamed > 0`)
+bool& LoosePairPlant();
 // S103 L5: a stage-slot mesh (part "slot N") of a MATCH the game reads the stage light-map page for (see arena_slot_flags.md "S103 L5"): not a translucent (`a` / `s`) slot, an EntranceLmClass
 // effect, not a movie surface. The ring's slots (>= 951) are excluded: the arena-4 table has none above 397 and no stream shows the ring's choice [U]. One rule for the front-end draw and for
 // the SubModel page hand-over (rf_c_core.cpp), so a sub-model with no own-LM mesh still gets the page.
@@ -208,6 +211,22 @@ inline bool g_plant_page_per_model = false;
 inline bool g_plant_page_no_rejoin = false;
 // RIG ONLY fallback of the real switch wwe2k14_rdr_page_per_caller (rdr_switches.h, PerFrame, +dev): the rig has no cvars; frame_rig.cpp sets this from its env. The game reads the switch.
 inline bool g_rig_page_per_caller = false;
+// SCU (docs\research\harness\SCU_contract.md; LOOK: the picture follows the game): a stage mesh whose record word +0x8C has bit 0x2 is drawn with back faces culled, its `r` copy with the
+// front face swapped (FrontEnd::Record). The game reads the switch wwe2k14_rdr_stage_cull (rdr_switches.h, PerFrame, default on); this is its fallback before the switch table's first refresh
+// and in the offline tools (frame_rig sets it from WWE_RDR_STAGE_CULL=0). false = the stage meshes two-sided (the draw before SCU); screens / crowd keep their own cull.
+inline std::atomic<bool> g_stage_cull{true};
+// SCU planted twin (TEST ONLY; frame_rig from WWE_RDR_PLANT_STAGE_CULL_NO_FLIP, tools\scene\stage_cull_proof.py): the cull is on but the `r` copy keeps the clockwise front (no winding swap): the mirrored half shows its inside.
+inline std::atomic<bool> g_plant_stage_cull_no_flip{false};
+// S105 C3 (docs\research\s105\C3.md; LOOK): every model family follows the record cull bit like the stage (the switch wwe2k14_rdr_family_cull, rdr_switches.h, PerFrame, default on); this is its fallback before the table's
+// first refresh and in the offline tools (frame_rig: WWE_RDR_FAMILY_CULL=0 is the "off" arm = the draw before). The planted twin (TEST ONLY, WWE_RDR_PLANT_FAMILY_CULL_FLIP): the non-stage families take the swapped front face (a wrong winding).
+inline std::atomic<bool> g_family_cull{true};
+inline std::atomic<bool> g_plant_family_cull_flip{false};
+// S105 SZW (docs\research\harness\SZW_contract.md; LOOK: the picture follows the game): the see-through stage slots (`s` / `a`) write depth unless `z`, every stage draw is alpha-tested GEQUAL 1/255 (a draw whose pixel
+// variant has no alpha twin writes NO depth, counted), a `z`-only slot draws blended with no depth write, the `s` / `a` groups draw in the game's slot order. The game reads the switch wwe2k14_rdr_stage_zwrite
+// (rdr_switches.h, PerFrame, default on); this is its fallback before the switch table's first refresh and in the offline tools (frame_rig: WWE_RDR_STAGE_ZWRITE=0 is the "off" arm = the draw before).
+inline std::atomic<bool> g_stage_zwrite{true};
+// S105 SZW planted twin (TEST ONLY; frame_rig from WWE_RDR_PLANT_SZW_NO_TEST, tools\scene\stage_zwrite_proof.py): the depth write lands but the alpha test is NOT forced: a see-through piece cuts its rectangle out of what draws after it.
+inline std::atomic<bool> g_plant_szw_no_test{false};
 // S103 RFL (docs\research\s103\RFF.md section A; LOOK: the picture follows the game): the Reflect effects (yBG_Reflect, yProp_Reflect) sample the model's own file cube (sampCubeRefPrm: cube_00 / cube_01 / cube_post / cube_ref,
 // DXT1, six faces) at pixel slot 8, scaled by the material's g_fReflectAlpha (PS c208.x); the reflect_add / reflect_mask / reflect_map variants take the 2D amount map at slot 9. ON by default in both builds (the
 // start-time switch wwe2k14_rdr_reflections in the stream-free build; the rigs' WWE_RDR_REFLECTIONS=0 is the "before" arm). false = the black cube + ReflectAlpha 0 stand-in of S101 lane 15, exactly.
@@ -230,6 +249,10 @@ inline std::atomic<bool> g_screen_share{true};   // BOTH-BUILDS: invisible and O
 // one static model per ring key, each instance an object with its node rows in the frame's bones) instead of CPU-posed per instance (PoseMesh + UpdateModelVertices + a posed copy / upload per piece). ON by default in the stream-free build (OFF in the stream build, which has no switch); the
 // start-time switch wwe2k14_rdr_ring_gpu_skin (start_settings.cpp) stores it; false = the CPU path (the A/B arm). The rigs store it themselves (WWE_RDR_RING_GPU_SKIN=0).
 inline std::atomic<bool> g_ring_gpu_skin{!WWE2K14_STREAM()};
+// S105 A1 review F3: RIG-ONLY planted twin (host_rig --a1-plant unscaled): the stream-free host leaves the scene targets unscaled at a render scale != 1 (the bug: the resolution choice did nothing). Never set by the game.
+inline std::atomic<int> g_a1_plant_host_unscaled{0};
+// S105 A1 review F2: RIG-ONLY planted failure (post_rig --a1-plant alloc): the scaled scene depth "could not be made" (the 4K memory failure): the targets must fall back to unscaled ones, logged once. Never set by the game.
+inline std::atomic<int> g_a1_plant_scaled_alloc_fail{0};
 // S103 PVR (docs/research/s103/UPF.md fix 1; 360 HABIT row 11 in docs/renderer/360_HABITS.md): the per-frame POSED vertices (re-posed ring pieces and posed weapons: ModelCache::PosedModel; CPU-skinned / cloth
 // pieces: Record's cloth block; never the crowd, which already uses the ring) go into the frame's geometry ring (FrameBuilder::PushGeometry, drawn as {kFrameGeometry, offset}) instead of a staging buffer +
 // vkCmdCopyBuffer + barrier pair per mesh. A model that stays at rest for more than the frames in flight is written into its own buffer once and drawn from it. STREAM-FREE BUILD ONLY: the default is
@@ -354,7 +377,18 @@ class FrontEnd {
   // Draws the frame into an internal RGBA8 colour image (and depth) of frame.width x frame.height and reads it back as RGBA8.
   bool RenderNoWait(const SceneFrame& frame, uint32_t renders, std::string& error);   // S103 PF2, RIG ONLY: Record + Finish + `renders` x RenderFrame, no WaitIdle, no read-back (the host's tween shape: 2 Renders per Record)
   bool RecordAndDiscard(const SceneFrame& frame, bool note_dropped, std::string& error);   // S103 CB1, RIG ONLY (front_end.cpp)
-  bool RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error);
+  // S105 A1: out_w / out_h given = the read-back's real size (frame size x the render scale when the targets are scaled); null = the frame's size is required (the old contract).
+  bool RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error, uint32_t* out_w = nullptr, uint32_t* out_h = nullptr);
+  // S105 A1: the scene targets (colour, depth, the grab, the post output) carry kUsageScaled: drawn at the player's resolution (the renderer's render_scale), not at the logical 1280x720.
+  // Default off (the stream build's binder owns its own scaling; the offline rigs opt in per job); the stream-free host turns it on when render_scale != 1 (live_scene_draw.cpp EnsureFrontEnd).
+  // Changing it remakes the targets at the next frame.
+  void SetScaledTargets(bool on) { scaled_targets_ = on; }
+  bool scaled_targets() const { return scaled_targets_; }
+  // S105 A1: the real created sizes of the scene targets (log line / tests): false when the image is not made.
+  bool TargetExtent(rdr::ImageId image, uint32_t& w, uint32_t& h, bool& scaled) const { return renderer_.ImageExtent(image, w, h, scaled); }
+  const PostPass* post_pass_for_test() const { return post_pass_.get(); }   // S105 A1 (tests): the chain's images
+  rdr::ImageId scene_colour_image() const { return color_; }
+  rdr::ImageId scene_depth_image() const { return depth_; }
   // S103 lane S (FRAME_CONTRACT.md 8): records the frame into the CALLER's builder and targets (the live render thread's frame). Never begins,
   // finishes, waits or reads back. With frame.post set, the post output is post_output() (at the targets' size). RenderToPixels = Begin +
   // Record into the front-end's own images + Finish + wait + read back, so every offline tool is unchanged.
@@ -365,6 +399,13 @@ class FrontEnd {
     if (live_valid_) NoteLiveScreenInvalid(why);
     live_valid_ = false;
   }
+  // WGS PAR1, TEST ONLY (frame_rig.cpp: a served job drops the grab like a one-shot process starts without one; the game never calls these): forget the grab without a census count
+  void DropGrabForTest() { live_valid_ = false; }
+  void PrimeGrabForTest(const uint8_t* rgba, uint32_t w, uint32_t h);   // a known picture sampled through the grab's own binding; null = cleared (front_end.cpp)
+  // SCU (TEST ONLY: frame_rig --depth-out, tools\scene\stage_cull_proof.py): keep the scene depth stored (not transient) from the next frame on, and read the last frame's depth back
+  // (4 raw bytes a texel, the device's depth format: D32F or X8_D24). Never called by the game.
+  void KeepDepthForTest() { want_depth_stored_ = true; }
+  bool ReadDepthForTest(std::vector<uint8_t>& raw, uint32_t& w, uint32_t& h);
   // S103 lane S: the front-end's own scene images at w x h for a live Record() (made once per size; the GPU is waited for only when the size
   // or the post choice changes). `post` = the frame will run the post pass (a sampled depth and the post output are made).
   LiveTargets OwnTargets(uint32_t w, uint32_t h, bool post, bool keep_depth = false);   // keep_depth (S103 PRT fix 2): the frame copies the scene depth (soft particles): the depth image must be stored, not transient. Sticky upward once; never makes the post output
@@ -451,6 +492,16 @@ class FrontEnd {
   int layer_fallbacks_ = 0;   // S103 LAY: multi-layer picks that fell back to one layer (printed)
   uint32_t reflect_cubes_ = 0;                    // S103 RFL: cube textures (file DDS, 6 faces) uploaded as cube images
   std::string reflect_cube_names_;                // S103 RFL: their names + sizes (the first distinct ones)
+  // S105 SZW census (one Record, stage-slot draws by the game's rule; the line `[scene][szw]`): game = draws the game's rule gives a depth write (an `s` / `a` slot without `z`, a blended screen piece), ours = of the
+  // draws of any `s` / `a` / `z` / screen-piece mesh, the ones whose final state writes depth, nodisc = of those, the ones with NO discard (must be 0 with the switch on), notwin = game draws whose pixel variant has no alpha twin
+  // (they keep depth write off), notwin_names = those variants. Reset at the start of a Record, logged when the numbers change.
+  struct SzwCensus {
+    uint32_t game = 0, ours = 0, nodisc = 0, notwin = 0, order_items = 0;
+    std::set<std::string> notwin_names;
+    bool operator==(const SzwCensus& o) const { return game == o.game && ours == o.ours && nodisc == o.nodisc && notwin == o.notwin && order_items == o.order_items; }
+  };
+  SzwCensus szw_, szw_logged_;
+  int szw_lines_ = 0;
   uint32_t reflect_binds_ = 0, reflect_no_cube_ = 0, reflect_fallbacks_ = 0;   // S103 RFL: reflective materials bound to the file cube / bound with no cube to feed (black, alpha 0) / whose game variant could not be bound (counted fallback)
   uint64_t reflect_draws_ = 0;                    // S103 RFL: draws that sampled a real file cube with ReflectAlpha fed
   int bgrefl_picked_ = 0, bgrefl_fallbacks_ = 0;   // S103 RFL: yBG_Reflect / ReflectLM materials bound by the technique table / by the counted fallback (apart from TQF's yProp counters)
@@ -462,6 +513,9 @@ class FrontEnd {
   std::unique_ptr<PostPass> post_pass_;                // S101 lane 34 (made on first use; destroyed with the front-end, before the renderer)
   rdr::ImageId post_out_ = rdr::kNoImage;              // S101 lane 34: the post pass's output at the scene's size
   bool depth_sampled_ = false, want_depth_sampled_ = false;  // S101 lane 34
+  uint32_t logged_target_w_ = 0, logged_target_h_ = 0;
+  int logged_target_scaled_ = -1;   // S105 A1 review F5: the last size / flag the [scene][targets] line printed
+  bool scaled_targets_ = false, targets_scaled_ = false;     // S105 A1: the setting / what the current scene targets were made with
   bool depth_stored_ = false, want_depth_stored_ = false;    // S103 PRT fix 2: a non-transient depth for the soft-particle depth copy (no post output made for it)
   rdr::ImageId white_ = rdr::kNoImage, grey_ = rdr::kNoImage, color_ = rdr::kNoImage, depth_ = rdr::kNoImage;
   rdr::ImageId black_ = rdr::kNoImage, neutral_normal_ = rdr::kNoImage, black_cube_ = rdr::kNoImage;  // S101 lane 13: all-zero layers / rim map; a normal map with no bump and half gloss
@@ -474,6 +528,8 @@ class FrontEnd {
   // live_screen_ is that copy at the target's size, live_valid_ says a frame has been copied into it, in_seed_ marks the extra frame that seeds it (a still shows the screen's picture).
   rdr::ImageId live_screen_ = rdr::kNoImage;
   bool live_valid_ = false, in_seed_ = false;
+  rdr::ImageId grab_prime_ = rdr::kNoImage;   // WGS PAR1 (TEST ONLY): PrimeGrabForTest's picture
+  uint32_t grab_prime_w_ = 0, grab_prime_h_ = 0;
   uint64_t texture_updates_ = 0;  // S101 lane 15
   uint64_t tex_bytes_[size_t(TexTag::Count)] = {}, tex_count_[size_t(TexTag::Count)] = {};   // S103 UP
   uint64_t page_skip_key_ = 0, page_skip_hash_ = 0;

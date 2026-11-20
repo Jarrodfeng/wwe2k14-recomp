@@ -1,0 +1,38 @@
+# Rule 1 text lint allow list: `path-glob | id-or-* | reason` (the reason is mandatory). Ids are shown as <pac>:<entry>:<text id>.
+# Only short menu / mode / match-type / championship / wrestler-name LABELS belong here (<= 7 words, <= 38 characters): ids we may name
+# (CLAUDE.md hard rule 1, S105 R1L). Never a caption, narration or prompt sentence: remove those from the file instead.
+* | string.pac:0000:19922 | championship name (label)
+* | string.pac:0000:20769 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:21208 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:21210 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:21274 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:21275 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:27452 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:35015 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0000:925 | championship name (label)
+* | string.pac:0004:2004 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0006:2008 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0500:6750 | Create-a-Wrestler menu label used as a route target
+* | string.pac:0902:31110 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:0902:31111 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40705 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40706 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40707 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40708 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40742 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40743 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40753 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40754 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40770 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:40771 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:41003 | mode / event name used as a menu route target
+* | string.pac:5000:60377 | wrestler name (roster id table)
+* | string.pac:5000:60378 | wrestler name (roster id table)
+* | string.pac:5000:60379 | wrestler name (roster id table)
+* | string.pac:5000:60381 | wrestler name (roster id table)
+* | string.pac:5000:60382 | wrestler name (roster id table)
+* | string.pac:5000:60383 | wrestler name (roster id table)
+* | string.pac:5000:72239 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:72614 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5000:73320 | match-type / menu label (name used by id tables, the launcher and routes)
+* | string.pac:5006:41373 | mode / event name used as a menu route target

@@ -63,7 +63,7 @@ def main():
         a.base = open(os.path.join(HERE, 'BASE')).read().strip()
     spv_lint.OWN = OwnRe()
     now, base = {}, {}
-    for path in sorted(glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*.h'))):
+    for path in sorted(glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*.h')) + glob.glob(os.path.join(a.root, 'src', 'renderer', 'shaders', 'spv', 'fx_*_data.inc'))):  # S105 SPV: the words are in fx_<effect>_data.inc now (the .h only declares)
         rel = 'src/renderer/shaders/spv/' + os.path.basename(path)
         if os.path.basename(path) == 'fx_registry.h':
             continue

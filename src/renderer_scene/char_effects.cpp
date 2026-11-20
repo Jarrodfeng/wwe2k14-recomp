@@ -15,6 +15,7 @@
 #include "fx_tables.h"
 #include "read_rule.h"        // S103 YCB: the effect table
 #include "technique_pick.h"   // S103 YCB: RowOf
+#include "logo_bool.h"        // S105 A5c: bit 150
 #include "../assets/load_plants.h"   // S103 LNT: EyaOldParam1Plant
 
 namespace rdr_scene {
@@ -113,14 +114,16 @@ CharSlot RoleOfSlot(int slot) {
     case 15: return CharSlot::RimMap;
     case 5: return CharSlot::WrinkleNormal;   // S103 WRK: g_mNormalWklPrm (name-table row 0x8392AB60, register 5)
     case 8: case 9: return CharSlot::FlatGrey;
-    default: return CharSlot::FlatBlack;  // 2, 4, 7, 14: team-colour masks and logo layers
+    case 4: return CharSlot::Logo4;   // S105 A5c
+    case 7: return CharSlot::Logo7;
+    default: return CharSlot::FlatBlack;  // 2, 14: team-colour masks
   }
 }
 
 // ---- the choice ----------------------------------------------------------------------------------------------------------------
 
 namespace {
-CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool alpha_test, bool shadow, bool wet) {   // S103 L6: `shadow` = the FX_SHADOW reader (see char_effects.h); S103 SWF: `wet`
+CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool alpha_test, bool shadow, bool wet, bool logo) {   // S103 L6: `shadow` = the FX_SHADOW reader (see char_effects.h); S103 SWF: `wet`
   CharChoice best;
   best.effect = effect;
   double best_score = -1e9;
@@ -171,7 +174,7 @@ CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool al
         match = found;
       }
       if (!match) continue;
-      const double score = -2.0 * renamed - 1.0 * double(fdef.size()) - 0.1 * double(vdef.size());
+      const double score = -2.0 * renamed - 1.0 * double(fdef.size()) - 0.1 * double(vdef.size()) + (logo && !wet && Has(fdef, "FX_LOGO") ? 8.0 : 0.0);   // S105 A5c: a material with a CAW logo takes an FX_LOGO fragment (never with the wet reader: FX_LOGO is not a real set with FX_BSS)
       if (score > best_score) {
         best_score = score;
         best.vs = v;
@@ -189,8 +192,8 @@ CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool al
 }
 }  // namespace
 
-CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet) { return ChooseCharEffectImpl(effect, skinned, alpha_test, false, wet); }
-CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet) { return ChooseCharEffectImpl(effect, skinned, alpha_test, true, wet); }
+CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet, bool logo) { return ChooseCharEffectImpl(effect, skinned, alpha_test, false, wet, logo); }
+CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet, bool logo) { return ChooseCharEffectImpl(effect, skinned, alpha_test, true, wet, logo); }
 
 // ---- S103 YCB: the table pick ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -261,11 +264,15 @@ bool CheckVs(int v, int f, bool skinned, std::string& why) {
 }
 }  // namespace
 
-CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass) {
+CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo) {
   CharChoice out;
   out.effect = effect;
-  const auto table = read_rule::EffectTableNow();
+  auto table = read_rule::EffectTableNow();
   if (!table) return out.no_table = true, out.why_not = "no effect table yet", out;
+  if (logo) {   // S105 A5c fix F1: a logo material draws from the editor's table (edit.pac p7/0), as the game's editor does
+    const auto lt = read_rule::LogoEffectTableNow();
+    if (lt && lt->count(read_rule::Lower(effect))) table = lt, out.logo_table = true;
+  }
   if (pass < 0 || pass > 11) return out.why_not = "pass outside the table's 12", out;
   {
     const int p = pass;
@@ -596,6 +603,7 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "Bools") {  // four bones: bits 1, 2, 3 of the first word (the vertex stage); bit 150 (logo) stays off
     const uint32_t bits = 0xEu;
     std::memcpy(out, &bits, 4);
+    SetLogoBool(out, vec4s, mt.diffuse_t0);   // S105 A5c: bit 150 for a part whose diffuse sampler is texture index 0 (the game's rule, logo_bool.h)
     return true;
   }
   if (name == "NoiseLodParam") { set4(0, mt.noise_dist[0], mt.noise_dist[1], 0.f, 0.f); return true; }

@@ -1,0 +1,68 @@
+# S105 A1b: the setting -> switch map the lint (settings_reader_lint.py) judges. One row per control (SETTING (surface)).
+#   SETTING | surface pc|phone|menu | switch,switch (a * covers every produced name matching it) | status | ui: KEY:LABEL;KEY:LABEL | why
+# status: live | partly:<switches acknowledged dead> | hidden (hidden in the stream-free build: each ui label must sit behind kStreamFreeTarget /
+#         WWE2K14_STREAM()) | pending:<row> (dead, another row fixes it) | known:<why> (dead, left, in KNOWN_ISSUES) | invisible (always passed, no control)
+# ui keys: pc = src\launcher\launcher_main.cpp, phone = src\launcher_mobile\mobile_main.cpp, menu = src\gfx_menu.h, core = src\launcher\launcher_core.h (a code line, not a control)
+# REFUSAL | label | file | switches: a RefuseSetting("label") call that says the stream-free build cannot do the switches (rule R3).
+# Source of every verdict: docs\research\s105\A1b.md (table), re-derived by the lint from `q ours cvar` on every run.
+REFUSAL | DLSS / DLAA | src/start_settings.cpp | wwe2k14_dlaa,wwe2k14_dlss,wwe2k14_dlss_mode,wwe2k14_dlaa_dir,gpu_dlaa,gpu_dlaa_jitter
+REFUSAL | FSR | src/start_settings.cpp | wwe2k14_fsr,wwe2k14_fsr_mode
+# FORWARD | from | to | file: the setting's switch is only read by the file that turns it into `to` (the verdict is `to`'s; the file must name both).
+FORWARD | wwe2k14_texture_filter | anisotropic_override | src/gfx_menu.h
+# READER | switch | file: a file the lint would take for a reporter that is the real reader of the switch.
+READER | wwe2k14_perf_report | src/perf_report.h
+#
+GRAPHICS CARD (PC) | pc | wwe2k14_gpu | live | | host_start.cpp ro.gpu_name
+DISPLAY (PC) | pc | fullscreen | live | | SDK window creation (runs)
+ASPECT (PC) | pc | wwe2k14_aspect | live | | host_start.cpp BuildOptions (o.wide / o.tall; start_settings.cpp Applied::wide / tall)
+QUALITY (PC) | pc | wwe2k14_quality_note,present_effect,gpu_shadow_half_rate,gpu_native_owned_shadow_half,gpu_native_owned_shadow_skip,gpu_native_owned_ring_half,gpu_native_crowd_pose_half,gpu_native_owned_strip_half,gpu_native_half_phase | partly:gpu_native_owned_shadow_half,gpu_native_owned_shadow_skip,gpu_native_owned_ring_half,gpu_native_owned_strip_half,gpu_native_half_phase | | the SGSR present and the map-chain cut are live; the five SDK half-rate levers have SDK-only readers (no player-visible loss); the lint over-counts a reader that only logs (limit: a necessary condition)
+RESOLUTION (PC) | pc | resolution_scale,wwe2k14_preset_1440p60,wwe2k14_preset_4k60,gpu_native_truth_draw_height | live | | read (host_start.cpp); the scene targets ignore it until row A1 (the lint is a necessary condition only)
+FRAME RATE (PC) | pc | wwe2k14_entrance_60fps,wwe2k14_step_hz,wwe2k14_step_hz_entrance,wwe2k14_step_vblank,vulkan_allow_present_mode_immediate,gpu_vblank_precise_timer_spin_us,vulkan_texture_load_direct_unscaled,gpu_d3d_decouple,gpu_d3d_decouple_word | partly:vulkan_allow_present_mode_immediate | | the step rate is live; the SDK present-mode / vblank-spin / texture-load flags have SDK-only readers and are invisible (the lint counts the preset log lines of wwe2k14_app.h as readers: it over-counts)
+V-SYNC (PC) | pc | wwe2k14_vsync | live | | host_start.cpp ro.vsync
+UPSCALING (PC) | pc | wwe2k14_dlaa,wwe2k14_dlss,wwe2k14_dlss_mode,wwe2k14_dlaa_dir,wwe2k14_fsr,wwe2k14_fsr_mode | hidden | pc:UPSCALING | the scene host has no DLSS / DLAA / FSR path (start_settings.cpp RefuseSetting)
+SHADOWS (PC) | pc | gpu_dynamic_shadows | live | | start_settings.cpp
+CROWD DENSITY (PC) | pc | gpu_scene_crowd_density | live | | start_settings.cpp
+DEPTH OF FIELD (PC) | pc | gpu_depth_of_field | live | | start_settings.cpp
+VINTAGE LOOK (PC) | pc | wwe2k14_film_grain | live | | start_settings.cpp
+TEXTURE FILTERING (PC) | pc | wwe2k14_texture_filter | live | | gfx_menu.h -> anisotropic_override -> sampler_table.h
+ORIGINAL LOOK (PC) | pc | wwe2k14_force_no_msaa | live | | 720p + 30 fps entrances (the note no longer claims MSAA)
+720P DISPLAY (PC) | pc | wwe2k14_display_720p | live | | display_mode.h
+TRUE NATIVE (PC) | pc | wwe2k14_d3d_owned | live | | hidden setting (S101)
+RENDERER FLAG (PC) | pc | wwe2k14_light_renderer | hidden! | core:RendererFromFlags(s.extra);menucode:RendererFromFlags("--wwe2k14_renderer=" | the stream-free build pins the renderer; the advanced flag is ignored there
+KEYBOARD CONTROLS (PC) | pc | mnk_mode,wwe2k14_keyboard_own_player | live | | SDK input (runs)
+LANGUAGE (PC) | pc | user_language | live | | SDK kernel (runs)
+DLC (PC) | pc | wwe2k14_dlc,wwe2k14_dlc_dir,wwe2k14_dlc_off | live | | dlc.h
+MODS (PC) | pc | wwe2k14_mods,wwe2k14_mods_dir,wwe2k14_entrance_music,wwe2k14_mods_lighting,wwe2k14_mods_superstars | live | | mods.h
+CINECAM (PC) | pc | wwe2k14_cinecam | live | | cinecam.h
+PHOTO MODE (PC) | pc | wwe2k14_photo_mode | live | | photo_mode.h
+RUN-INS (PC) | pc | wwe2k14_runin | live | | runin.h
+DISCORD (PC) | pc | wwe2k14_discord,wwe2k14_discord_app_id | live | | discord_status.h
+PERFORMANCE REPORT (PC) | pc | wwe2k14_perf_report | live | | perf_report.h
+PREPARE SHADERS (PC) | pc | wwe2k14_precompile | live | | precompile.h (S105 B3: owner mode builds the stream-free store's own list, "prepared N of M")
+GAME FOLDERS (PC) | pc | game_data_root,user_data_root,wwe2k14_scenario_dir,wwe2k14_use_launcher_settings | live | | SDK kernel / our settings
+PLAY A MATCH (PC) | pc | wwe2k14_launch,wwe2k14_launch_arena,wwe2k14_launch_participants,wwe2k14_launch_skip_entrances,wwe2k14_quick_type,wwe2k14_wm30,wwe2k14_wm30_direct | live | | scenario.h, wm30_boot.h
+PRESETS (PC) | pc | wwe2k14_replay_dlc_box,wwe2k14_replay_mode,wwe2k14_replay_play,wwe2k14_replay_record,wwe2k14_fixed_seed,wwe2k14_director | live | | replay.h, director.h
+ALWAYS PASSED RENDERER FLAGS (PC) | pc | gpu_native,gpu_native_*,gpu_fast_clear,gpu_scene_crowd_cull,gpu_scene_crowd_thin,readback_resolve_batch,vulkan_device_local_*,vulkan_merge_adjacent_barriers,vulkan_texture_*,vulkan_uniform_pool_device_local,wwe2k14_scene_crowd,audio_mute,vulkan_spirv_optimize_collect | invisible | | NativeRendererFlags: ~55 SDK flags the stream-free build ignores; not settings
+UPSCALING (menu) | menu | gpu_dlaa,gpu_dlaa_jitter | hidden | menucode:WWE2K14_STREAM() && DlssPossible() | the in-game GRAPHICS row offers OFF only (BuildUpscaleOrder gets false, false); a file that holds an upscaler starts without it
+TEXTURE FILTERING (menu) | menu | anisotropic_override | live | | sampler_table.h AnisoWanted
+#
+GAME FOLDER (phone) | phone | game_data_root,wwe2k14_use_launcher_settings | live | | SDK kernel
+QUALITY (phone) | phone | wwe2k14_quality_note | live | | low_levers.h
+RESOLUTION (phone) | phone | resolution_scale,gpu_native_truth_draw_height | live | | host_start.cpp (the scene ignores it until row A1)
+SGSR UPSCALING (phone) | phone | present_effect | live | | host_start.cpp ro.present_sgsr
+SHADOWS (phone) | phone | gpu_dynamic_shadows,gpu_shadow_half_rate | live | | start_settings.cpp
+CROWD DENSITY (phone) | phone | gpu_scene_crowd_density | live | | start_settings.cpp
+DEPTH OF FIELD (phone) | phone | gpu_depth_of_field | live | | start_settings.cpp
+VINTAGE LOOK (phone) | phone | wwe2k14_film_grain | live | | start_settings.cpp
+TRUE NATIVE (phone) | phone | wwe2k14_d3d_owned | live | | hidden setting
+FRAME RATE (phone) | phone | wwe2k14_entrance_60fps,wwe2k14_step_hz,wwe2k14_step_hz_entrance,wwe2k14_step_vblank,vulkan_allow_present_mode_immediate,vulkan_texture_load_direct_unscaled | partly:vulkan_allow_present_mode_immediate | | the rate is live; the SDK present-mode flag is invisible
+TEXTURE FILTERING (phone) | phone | wwe2k14_texture_filter | live | | gfx_menu.h forward
+SCREEN SHAPE (phone) | phone | wwe2k14_aspect | live | | host_start.cpp BuildOptions (o.wide / o.tall; start_settings.cpp Applied::wide / tall)
+LANGUAGE (phone) | phone | user_language | live | | SDK kernel
+PERFORMANCE OVERLAY (phone) | phone | wwe2k14_perf_overlay | live | | perf_overlay.h
+DLC (phone) | phone | wwe2k14_dlc,wwe2k14_dlc_dir,wwe2k14_dlc_off | live | | dlc.h
+MODS AND MUSIC (phone) | phone | wwe2k14_mods,wwe2k14_mods_dir,wwe2k14_mods_superstars,wwe2k14_music_mix_into_game,wwe2k14_entrance_music | live | | mods.h, music_player_app.h
+PLAY THIS MATCH (phone) | phone | wwe2k14_wm30,wwe2k14_wm30_direct | live | | wm30_boot.h
+GRAPHICS DRIVER (phone) | phone | wwe2k14_android_driver,wwe2k14_android_driver_dir,wwe2k14_android_driver_trial,wwe2k14_boot_trial | live | | android_driver.h, ladder boot trial
+PHONE DEFAULTS (phone) | phone | vulkan_texture_transcode,wwe2k14_android_thermal,wwe2k14_phys_alloc_fast_fail,wwe2k14_gpu_keep_warm,wwe2k14_readback_char_window_by_load | partly:vulkan_texture_transcode | | always passed, not settings; vulkan_texture_transcode has SDK-only readers (invisible)
+SAFE MODE step 1 (phone) | phone | gpu_plain_mode,gpu_native_pipeline_workers | known:SAFE MODE step 1 sets two SDK-only switches; step 2 (shadows off, crowd 30, 30 fps) is live | | the rung changes nothing in the stream-free build (one stream-free phone log at rung 1 settles it)

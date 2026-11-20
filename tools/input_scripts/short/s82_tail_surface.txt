@@ -1,0 +1,18 @@
+# Session 82 (diagnostic, for the Surface): the pass log over 8 windows of 64 consecutive match frames, normal speed (vsync on),
+# owned frame on - per-piece GPU time for 512 match frames in a row, read with tools\native\piece_spikes.py (which pieces spike)
+# and owned_pieces.py. Run with --wwe2k14_replay_play=s82_lb_quick_ent --gpu_native_owned_frame=true --vulkan_gpu_timestamps=true
+# --gpu_native_gpu_timers=true (not fast-forwarded: no --vsync=false), the native settings file, -Front on the Surface. on_fail quit.
+on_fail quit
+log bench: start s82_tail_surface
+wait_file 343.bik2 3600
+wait_file 324.bik2 20000
+wait_file M3.PAC 30000
+log scene=match
+wait_frames 400
+repeat 8
+log passlog: tail
+cvar gpu_native_truth_pass_log 64
+wait_frames 140
+end_repeat
+log bench: done
+quit

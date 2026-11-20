@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 
@@ -21,7 +22,8 @@
 #include "assets/load_plants.h"                        // S103 W2B: assets::load_detail::SpringNodes
 #include "renderer_scene/rf_wrestlers.h"          // S103 ENV: rf::Plants
 #include "renderer_scene/record_io.h"                  // (SceneTables, before the scene_live headers that name it)
-#include "renderer/depth_nostencil.h"                // S103 CHS C5: rdr::g_stencil_dead (stored here in the stream-free build)
+#include "renderer/breadcrumbs.h"                    // S105 A9: rdr::crumbs::g_test_lost_at (the +dev plant)
+#include "renderer/depth_nostencil.h"               // S103 CHS C5: rdr::g_stencil_dead (stored here in the stream-free build)
 #include "renderer/combine_lite.h"                   // S103 SLV: rdr::g_combine_lite (stored here in the stream-free build)
 #include "renderer/output_switches.h"                 // rdr::g_low_tier
 #include "renderer/group_stamps.h"                    // S103 GSTP: rdr::g_gpu_group_stamps
@@ -32,6 +34,8 @@
 #include "renderer_game/scene_kind.h"                 // scene_kind::g_flat / g_caw_enabled
 #include "renderer_scene/live_particles.h"            // S103 PRT: rdr_scene::g_soft_particles
 #include "scene_live/hold_switch.h"
+#include "scene_live/crowd_latch_reader.h"       // S105 A2: g_screen_sx_bits / g_screen_sy_bits (pure)
+#include "crowd_wide_core.h"                       // S105 A2: FromSwitch (pure)
 #include "scene_live/light_stamp_flag.h"
 #include "scene_live/page_skip_core.h"                 // S103 EPS: wwe2k14::pageskip::g_on (stored here in the stream-free build)
 #include "scene_live/scene_start_switches.h"
@@ -45,8 +49,12 @@
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_soft_particles, true, "wwe2k14",
                     "S103 PRT: soft particles (the game's GMEV type-11 switch): a batch drawn soft fades by the gap to our scene depth (one depth copy a frame that has one). Off = soft batches are drawn hard, no copy. Read once at start");
 
+// S105 A9: +dev only (IsDevBuild guards the store below): from this renderer frame serial the renderer behaves as a lost device (the real path: no submit, no present), to see the player's message. -1 = off. Defined once, here, both builds.
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_test_device_lost, -1, "wwe2k14", "S105 A9 DEV ONLY (ignored by a release build): the renderer treats its device as lost from this frame serial (-1 = off), so the player's message and the no-hang guard can be checked on a healthy device");
+
 #if !WWE2K14_STREAM()
 // ---- a build without the stream: the settings live.cpp / reader.h define for the stream build (launchers and routes pass them on the command line: they must exist) ----
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_device_lost_message, true, "wwe2k14", "S105 A9: when the graphics driver drops the game's GPU device, tell the player (a box on the PC, the launcher's toast on a phone). Default on (copy of reader.h's switch; read every frame through the rdr_sw table)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_force_inputs, false, "wwe2k14",
                     "S103 DEV ONLY (ignored by a release build): decide OURS without waiting for every scene input (copy of live.cpp's switch)");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_scene_sentinel, 0, "wwe2k14",
@@ -104,6 +112,9 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_cue_post, true, "wwe2k14", "S103 FXH: the highli
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_vis, false, "wwe2k14", "S103 V1: the arena draws only the stage slots whose visibility box meets the camera's stage frustum. false = every slot the look rule keeps (copy of reader.h's switch; read every frame)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_attire_remap, true, "wwe2k14", "S103 ARM: a composite attire the character pac has no model of loads the model the game remaps it to (pac\\misc01_Start.pac p0/600). false = the old load: the named key, then the kind-2 model; a miss goes to the guest rows (copy of reader.h's switch; read at each wrestler load)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_borrow_textures, true, "wwe2k14", "S103 WMB: an arena texture name its own pac lacks borrows the byte-identical shared texture from another arena's pac. false = it stays missing (copy of reader.h's switch; read at each arena load)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_cull, true, "wwe2k14", "SCU: an arena stage mesh whose record word +0x8C has bit 0x2 is drawn one-sided and its mirrored `r` copy with the winding swapped, as the game. false = every stage mesh two-sided (copy of reader.h's switch; read every frame)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_family_cull, true, "wwe2k14", "S105 C3: every model family (ring, props, weapons, structures, entrance props, gm objects, characters, the ladder light) is drawn one-sided where its mesh record bit 0x2 is set, as the game. false = those families two-sided, the character two-pass on the hair names (copy of reader.h's switch; read every frame)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_zwrite, true, "wwe2k14", "S105 SZW: the see-through stage slots write depth unless `z`, every stage draw is alpha-tested (no twin = no depth write), a `z`-only slot draws blended with no depth write, the `s` / `a` groups draw in the game's slot order. false = the draw before (copy of reader.h's switch; read every frame)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_look, true, "wwe2k14", "S103 WSL: the arena's per-frame slot mask follows the game's look gate sub_824E7190. false = the loader's old e / g look rule only (copy of reader.h's switch; read every frame)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_custom_arena, true, "wwe2k14", "S103 CAR: a Create-an-Arena venue (ids 200-249) is built from the game's part pacs and drawn. false = nothing is drawn for those ids (copy of reader.h's switch; read every frame)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_page_per_caller, false, "wwe2k14", "S103 UP (+dev, TEST ONLY): the stage light-map page is sent once per CALLER (the old byte cost). false = once per key change (copy of reader.h's switch; read every frame)");
@@ -119,10 +130,10 @@ REXCVAR_DECLARE(std::string, wwe2k14_rdr_scene_hold);
 REXCVAR_DECLARE(std::string, wwe2k14_rdr_scene_unrequire);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_light_old_hold);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_scene_flat);
-REXCVAR_DECLARE(int32_t, wwe2k14_rdr_hide_stage_slot);
-REXCVAR_DECLARE(bool, wwe2k14_rdr_guest_flat);
-REXCVAR_DECLARE(bool, wwe2k14_rdr_detached_pieces);
-REXCVAR_DECLARE(bool, wwe2k14_rdr_spring_hair_rows);   // S103 W2B
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_hide_stage_slot);   // LNK: defined in reader.h for the stream build
+REXCVAR_DECLARE(bool, wwe2k14_rdr_guest_flat);   // LNK: defined in reader.h for the stream build
+REXCVAR_DECLARE(bool, wwe2k14_rdr_detached_pieces);   // LNK: defined in reader.h for the stream build
+REXCVAR_DECLARE(bool, wwe2k14_rdr_spring_hair_rows);   // S103 W2B; LNK: defined in reader.h for the stream build
 REXCVAR_DECLARE(bool, wwe2k14_rdr_scene_caw);
 REXCVAR_DECLARE(bool, wwe2k14_film_grain);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_gpu_timestamps);
@@ -281,6 +292,15 @@ const Applied& ApplyStartSettings() {
   if (!(a.wide > 1.001f && a.wide < 8.0f)) a.wide = 1;
   if (!(a.tall > 1.001f && a.tall < 8.0f)) a.tall = 1;
   a.present_fill = a.wide > 1.001f || a.tall > 1.001f;
+  {   // S105 A2: our two ports of the game's 16:9 screen tests (crowd_latch_reader.h) widen like the S101 hooks do (the same switch: --wwe2k14_crowd_fill_wide=auto|off)
+    const wwe2k14::crowd_wide::Scale cs = wwe2k14::crowd_wide::FromSwitch(FlagText("wwe2k14_crowd_fill_wide"), a.wide, a.tall);
+    uint32_t bx, by;
+    std::memcpy(&bx, &cs.x, 4), std::memcpy(&by, &cs.y, 4);
+    rdr_scene::live::crowd::latch::g_screen_sx_bits.store(bx, std::memory_order_relaxed), rdr_scene::live::crowd::latch::g_screen_sy_bits.store(by, std::memory_order_relaxed);
+#if WWE2K14_STREAM()
+    rdr_scene::live::crowd::latch::g_single_screen_scaled.store(false, std::memory_order_relaxed);   // the stream build's walked frames cull the singles with the game's own 16:9 test (no wide hook): the port must agree (crowd F2)
+#endif
+  }
 
   // ---- what this build cannot do (SP2 M7 / M10; P7_DESIGN.md 3.6): one line each, never silent ----
 #if !WWE2K14_STREAM()
@@ -311,6 +331,7 @@ const Applied& ApplyStartSettings() {
   REXLOG_INFO("[start] stamps: gpu_stamps {} pass_stamps {} group_stamps {} (read once here; the stream build reads them per frame)", a.gpu_stamps, a.gpu_pass_stamps, rdr::g_gpu_group_stamps.load(std::memory_order_relaxed));
   REXLOG_INFO("[start] levers: combine_lite {} skip_blank_plane {} stencil_dead {} present_direct requested {} (active: the [start] present_direct line; read once here; the stream build reads them per frame)", rdr::g_combine_lite.load(), rdr_scene::g_skip_blank_plane.load(), rdr::g_stencil_dead.load(), a.present_direct);
 #endif
+  if (a.dev) rdr::crumbs::g_test_lost_at.store(REXCVAR_GET(wwe2k14_rdr_test_device_lost), std::memory_order_relaxed);  // S105 A9: the plant (a release build ignores it)
   a.done = true;
   return g_applied;
 }

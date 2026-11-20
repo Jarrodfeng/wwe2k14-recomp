@@ -143,7 +143,7 @@ def run_arms(env, specs, jobs):
 
 # ---- fetches ---------------------------------------------------------------------------------------------------------------------------------------------------------
 def spirv_words(header_text, symbol):
-    m = re.search(r'kFx_%s\[\] = \{(.*?)\};' % re.escape(symbol), header_text, re.S)
+    m = re.search(r'kFx_%s\[\d*\] = \{(.*?)\};' % re.escape(symbol), header_text, re.S)   # S105 SPV: header_text is the effect's _data.inc
     if not m:
         return None
     return [int(x, 16) for x in re.findall(r'0x[0-9a-fA-F]+', m.group(1))]
@@ -178,7 +178,7 @@ def fetch_model(has_dof, has_fog, has_lum, has_bloom, level, flat, dof_weight, b
 
 
 def check_fetches(env):
-    header = open(os.path.join(env.root, 'src', 'renderer', 'shaders', 'spv', 'fx_yGlareEtc.h'), encoding='utf-8', errors='replace').read()
+    header = open(os.path.join(env.root, 'src', 'renderer', 'shaders', 'spv', 'fx_yGlareEtc_data.inc'), encoding='utf-8', errors='replace').read()   # S105 SPV: the words moved out of fx_yGlareEtc.h
     registry = open(os.path.join(env.root, 'src', 'renderer', 'shaders', 'spv', 'fx_registry.h'), encoding='utf-8', errors='replace').read()
     names = ['dof', 'fog', 'dof_fog', 'bloom', 'dof_bloom', 'fog_bloom', 'dof_fog_bloom', 'dof_fog_night_tonemap_bloom', 'night', 'tonemap']
     missing = [n + s for n in names for s in ('_lite2',) if 'yGlareEtc_%s%s_fragment' % (n, s) not in registry]
@@ -186,10 +186,14 @@ def check_fetches(env):
     missing += [n + '_lite1 (must NOT exist: it would be word-for-word its base)' for n in names if not ('dof' in n or 'bloom' in n) and 'yGlareEtc_%s_lite1_fragment' % n in registry]
     line(not missing, 'registry: every lite twin of %d permutations is there (missing %s)' % (len(names), missing or 'none'))
     # the existing variants are byte-identical to the base branch: the header only grew
-    base = subprocess.run(['git', '-C', env.root, 'diff', '--numstat', open(os.path.join(HERE, 'BASE')).read().strip(), '--', 'src/renderer/shaders/spv/fx_yGlareEtc.h'], capture_output=True, text=True, timeout=60)
-    # an empty numstat with exit 0 = no difference at all (the base moved past the commit that added the twins): 0 added, 0 deleted
-    base = base.stdout.split() if base.stdout.strip() or base.returncode != 0 else ['0', '0']
-    line(len(base) >= 2 and base[1] == '0', 'the existing yGlareEtc variants are byte-identical to the pinned base tools/r18/BASE (fx_yGlareEtc.h: %s lines added, %s deleted)' % (base[0] if base else '?', base[1] if len(base) > 1 else '?'))
+    # S105 SPV: compare the words (the pinned base has them in fx_yGlareEtc.h, now they are in fx_yGlareEtc_data.inc): every array the base has must be word for word the same now
+    pinned = open(os.path.join(HERE, 'BASE')).read().strip()
+    shown = subprocess.run(['git', '-C', env.root, 'show', pinned + ':src/renderer/shaders/spv/fx_yGlareEtc.h'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60).stdout
+    rx = re.compile(r'kFx_(\w+)\[\d*\] = \{(.*?)\};', re.S)
+    was = {m.group(1): re.sub(r'\s+', '', m.group(2)) for m in rx.finditer(shown.replace('\r\n', '\n'))}
+    now_words = {m.group(1): re.sub(r'\s+', '', m.group(2)) for m in rx.finditer(header.replace('\r\n', '\n'))}
+    changed = [k for k, v in was.items() if now_words.get(k) != v]
+    line(bool(was) and not changed, 'the existing yGlareEtc variants are byte-identical to the pinned base tools/r18/BASE (%d arrays compared, changed or missing: %s)' % (len(was), changed[:3] or 'none'))
     counts = {}
     for n in names:
         for suffix in ('', '_lite1', '_lite2'):

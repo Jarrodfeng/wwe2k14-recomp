@@ -179,8 +179,18 @@ def arena_ids():
     return ids
 
 
-def load_arena(arena_id, with_positions=True):
-    key = (arena_id, with_positions)
+SCREEN_KEYS = range(800, 810)   # the movie keys (docs\systems\screens.md)
+RING_KEYS = range(951, 983)     # the ring keys (WGD1 section 4: 951-974, 980-982)
+
+
+def model_key(eid, extra_keys=False):
+    """S103 WGD: a pac entry this reader parses as a model: the stage slots 0..399 always; with extra_keys also the screen keys 800-809 and the ring keys 951-982."""
+    return 0 <= eid < 400 or (extra_keys and (eid in SCREEN_KEYS or eid in RING_KEYS))
+
+
+def load_arena(arena_id, with_positions=True, extra_keys=False):
+    """extra_keys (S103 WGD, tools\\harvest\\choice_diff.py): also parse the screen and ring keys into a.slots (the predictor keeps the default, 0..399)."""
+    key = (arena_id, with_positions, extra_keys)
     if key in _CACHE:
         return _CACHE[key]
     path = os.path.join(pac.GAME, 'pac', 'bg', 'bg%02d.pac' % arena_id)
@@ -199,7 +209,7 @@ def load_arena(arena_id, with_positions=True):
         raw.setdefault(eid, b)
     a.ents = set(raw)
     for eid in sorted(raw):
-        if 0 <= eid < 400:
+        if model_key(eid, extra_keys):
             dec = pac.decode(raw[eid])
             if dec[:4] == b'JBOY':
                 a.slots[eid] = parse_jboy(eid, dec, with_positions)

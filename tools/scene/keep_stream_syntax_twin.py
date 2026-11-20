@@ -9,8 +9,8 @@ A scratch unit out\gsp_twin\scratch.cpp includes out\gsp_twin\scratch.h; keep_st
   3. the HEADER edited (a new declaration): the unit is NOT served (0 of 1), rc 0: the edit reached the preprocessed text;
   4. the header made broken (#error): NOT served and the check FAILS (a stale pass can never hide it);
   5. the header restored to step 1's text: served again (1 of 1);
-  6. (GSP2 review bug 6) a header that preprocesses but does not compile: FAILS, and is not served on a second run;
-  7. the header FIXED between the first preprocess and the parse (planted): the PASS is not stored under the broken text's key, and the broken text still FAILS afterwards;
+  6. (GSP2 review bug 6; S105 CC) a header that preprocesses but does not compile: FAILS, and the second run REPLAYS the failure from the store (served, still rc != 0, diagnostics kept);
+  7. (moved to syntax_store_selftest.py row 10) the header FIXED between the first preprocess and the parse is not stored under the broken text's key;
   8. the flags' tree paths are placeholders (a worktree inside the main checkout, either slash style).
 Exit 0 = all hold. Needs the main checkout's configured release build (the same as keep_stream_off_link.py)."""
 import argparse
@@ -18,8 +18,11 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# S105 CC F1: the verdict store is per-key files under %USERPROFILE%\.cache; this twin uses a scratch one (set before game_syntax is imported here or in the children it starts)
+os.environ['GAME_SYNTAX_CACHE_DIR'] = tempfile.mkdtemp(prefix='gsp_twin_store_')
 
 
 def main():
@@ -69,42 +72,15 @@ def main():
     rc, hit, n, txt = run()
     expect('compile_error_fails', rc != 0 and hit == 0, 'rc %d, served %d of %d (must fail, not served)' % (rc, hit, n))
     rc, hit, n, txt = run()
-    expect('compile_error_not_served_again', rc != 0 and hit == 0, 'rc %d, served %d of %d (a second run must still fail, never be served)' % (rc, hit, n))
+    expect('compile_error_replayed_as_failure', rc != 0 and hit == 1 and 'kScratch' in txt, 'rc %d, served %d of %d (a second run must replay the FAILURE with its diagnostics, never a pass)' % (rc, hit, n))
     open(hdr, 'w').write(stamp + base)
-    # step 7: the tree changes between the preprocess and the parse (planted: the header is FIXED right after the first -E): the PASS must not be stored under the broken text's key
+    # step 7 (the second-preprocess race guard) moved to tools\gate\syntax_store_selftest.py row 10 (S105 CC F1): it exercises game_syntax's own store directly
     sys.path.insert(0, os.path.join(root, 'tools', 'gate'))
     import game_syntax as gs
-    rd = os.path.join(d, 'race')
-    os.makedirs(rd, exist_ok=True)
-    rh, rc_cpp = os.path.join(rd, 'race.h'), os.path.join(rd, 'race.cpp')
-    open(rc_cpp, 'w').write('#include "race.h"\nint race_main() { return kRace; }\n')
-    broken_text = 'constexpr int kRace = "x";   // %d\n' % time.time_ns()
-    open(rh, 'w').write(broken_text)
-    flags = ['-std=c++20']
-    k_bad = gs.pp_key(flags, rc_cpp, ())
-    real_run = gs._proc.run
-    fired = []
-
-    def racing(cmd, *args, **kw):
-        r = real_run(cmd, *args, **kw)
-        if '-E' in cmd and not fired:
-            fired.append(1)
-            open(rh, 'w').write('constexpr int kRace = 1;\n')   # fixed right after the first preprocess read the broken text
-        return r
-    gs._proc.run = racing
-    gs.PP_CACHE.clear()
-    del gs.NOT_STORED[:]
-    try:
-        rc2, text2, key2, hit2 = gs.syntax_check(flags, rc_cpp, ())
-    finally:
-        gs._proc.run = real_run
-    expect('race_not_stored', rc2 == 0 and k_bad is not None and key2 != gs.pp_key(flags, rc_cpp, ()) and key2 not in gs.PP_CACHE and len(gs.NOT_STORED) == 1,
-           'parse after the fix rc %d, stored under the broken text key: %s, not-stored count %d (want 0 stored, 1 not stored)' % (rc2, key2 in gs.PP_CACHE, len(gs.NOT_STORED)))
-    open(rh, 'w').write(broken_text)
-    rc3, text3, key3, hit3 = gs.syntax_check(flags, rc_cpp, ())
-    expect('race_broken_text_fails', rc3 != 0 and not hit3, 'rc %d, served %s (the broken text must fail, not be served the raced PASS)' % (rc3, hit3))
     got = gs.norm_args(['-IC:/a/wt/src', '-I' + 'C:/a', '-IC:\\a\\wt'], (('C:/a', '<MAIN>'), ('C:/a/wt', '<ROOT>')))
     expect('path_placeholders', got == ['-I<ROOT>/src', '-I<MAIN>', '-I<ROOT>'], 'flags with the tree paths: %s (a worktree inside the main checkout, either slash style, must read the same in every worktree)' % got)
+    import shutil
+    shutil.rmtree(os.environ['GAME_SYNTAX_CACHE_DIR'], ignore_errors=True)
     print('keep_stream syntax cache twin: %d failed' % len(bad))
     return 1 if bad else 0
 

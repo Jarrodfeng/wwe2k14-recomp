@@ -50,6 +50,7 @@ class PictureResolver {
   static constexpr double kLoadMsPerFrame = 6.0;
   struct Stats {
     uint64_t asked = 0, file = 0, guest = 0, missing = 0, load_failed = 0, upload_failed = 0, uploads_file = 0, uploads_guest = 0, released = 0;
+    uint64_t scene_copy = 0;   // S105 A4: rows of the game's scene-colour copy answered with the host's own 3D picture (not a refusal)
     uint64_t pending = 0, loads = 0, max_loads_frame = 0;   // pending = rows dropped while their picture was not ready (queued on the worker or over the upload budget); max_loads_frame = most uploads in one frame
     uint64_t pending_frames = 0, last_pending_frame = 0, fallback_rows = 0, bridge_rows = 0, failed_retries = 0;   // pending_frames = records that dropped at least one row `pending`; fallback_rows = rows drawn from the guest image while a rejoined file loads
     double load_ms = 0, max_load_ms = 0, max_frame_load_ms = 0;   // load_ms / max_load_ms = the worker's pac reads; max_frame_load_ms = the most host-thread upload time in one frame
@@ -64,6 +65,8 @@ class PictureResolver {
   ~PictureResolver();
   // Names the worker thread (called on it before its first job); set before the first Resolve.
   void SetWorkerStart(std::function<void()> fn) { worker_start_ = std::move(fn); }
+  // S105 A4: the host's own 3D picture of the frame being drawn (kNoImage = none this frame). Set once by the host, before the first Resolve; null = the old answer (the scene-copy row is dropped `picture`).
+  void SetScenePicture(std::function<rdr::ImageId(const Quad2D&)> fn) { scene_picture_ = std::move(fn); }
   // The picture of a row (`tex_key[0]`): an empty slot (image == rdr::kNoImage) = the row is dropped `picture`.
   rdr::TextureSlot Resolve(const Quad2D& row);
   // Once per handled frame, AFTER its rows are drawn; `frame` = the guest frame of the record just drawn. Trims the source (A5: the host trims, TrimDrawn), releases the images of keys the source dropped and the
@@ -126,6 +129,7 @@ class PictureResolver {
   Stats stats_;
   uint64_t refusals_reported_ = 0;
   std::function<void()> worker_start_;
+  std::function<rdr::ImageId(const Quad2D&)> scene_picture_;   // S105 A4 (SetScenePicture)
   mutable std::mutex mu_;              // the queue, the done list, the flags below
   std::condition_variable cv_;
   std::deque<uint32_t> queue_;
@@ -334,6 +338,13 @@ inline rdr::TextureSlot PictureResolver::Resolve(const Quad2D& row) {
       if (slot.image != rdr::kNoImage) ++stats_.guest;
       break;
     default:
+      if (a.why == live::picsrc::Why::SceneCopy && scene_picture_) {   // S105 A4: the game's scene-colour copy drawn back as a 2D sprite: the host's own 3D picture of this frame (no copy, no guest read); none = dropped `picture` as before (never a stale image)
+        slot.image = scene_picture_(row);
+        if (slot.image != rdr::kNoImage) {
+          ++stats_.scene_copy;
+          break;
+        }
+      }
       if (!stats_.first_refused_key) {
         stats_.first_refused_key = key, stats_.first_refused_why = a.why;
         stats_.first_refused_born = source_.BirthOf(key, stats_.first_refused_creator, stats_.first_refused_site);
@@ -393,13 +404,13 @@ inline void PictureResolver::EndFrame(uint64_t frame) {
 }
 
 inline std::string PictureResolver::Report() const {
-  char line[900];
+  char line[1000];
   std::snprintf(line, sizeof line,
-                "pictures: asked %llu, file %llu, guest %llu, missing %llu, refused gpu %llu movie %llu, load failed %llu (retried %llu), upload failed %llu, uploads file %llu guest %llu, released %llu, "
+                "pictures: asked %llu, file %llu, guest %llu, missing %llu, refused gpu %llu movie %llu, load failed %llu (retried %llu), upload failed %llu, uploads file %llu guest %llu, released %llu, scene_copy %llu, "
                 "pending(rows) %llu in %llu records (last at frame %llu), guest fallback rows %llu, bridge rows %llu, file reads %llu on the worker (%.2f ms total, max %.2f ms one), uploads max %llu in a frame, %.2f ms worst frame",
                 (unsigned long long)stats_.asked, (unsigned long long)stats_.file, (unsigned long long)stats_.guest, (unsigned long long)stats_.missing, (unsigned long long)stats_.refused[uint8_t(live::picsrc::Why::Gpu)],
                 (unsigned long long)stats_.refused[uint8_t(live::picsrc::Why::Movie)], (unsigned long long)stats_.load_failed, (unsigned long long)stats_.failed_retries, (unsigned long long)stats_.upload_failed,
-                (unsigned long long)stats_.uploads_file, (unsigned long long)stats_.uploads_guest, (unsigned long long)stats_.released, (unsigned long long)stats_.pending, (unsigned long long)stats_.pending_frames,
+                (unsigned long long)stats_.uploads_file, (unsigned long long)stats_.uploads_guest, (unsigned long long)stats_.released, (unsigned long long)stats_.scene_copy, (unsigned long long)stats_.pending, (unsigned long long)stats_.pending_frames,
                 (unsigned long long)stats_.last_pending_frame, (unsigned long long)stats_.fallback_rows, (unsigned long long)stats_.bridge_rows, (unsigned long long)stats_.loads, stats_.load_ms, stats_.max_load_ms, (unsigned long long)stats_.max_loads_frame,
                 stats_.max_frame_load_ms);
   return line;
@@ -417,7 +428,7 @@ inline std::string PictureResolver::RefusalReport() {
     const live::picsrc::Creator c = stats_.first_refused_creator;
     const uint32_t site = stats_.first_refused_site;
     const bool born = stats_.first_refused_born;
-    static const char* const kCreatorName[] = {"unknown", "loader", "movie", "gpu"};
+    static const char* const kCreatorName[] = {"unknown", "loader", "movie", "gpu", "scene_copy"};
     char b[160];
     std::snprintf(b, sizeof b, "; first refused key 0x%08X (%s): %s, birth site %s0x%08X", stats_.first_refused_key, live::picsrc::WhyName(stats_.first_refused_why), kCreatorName[uint8_t(c)], born ? "" : "(never seen born) ", site);
     out += b;

@@ -520,7 +520,9 @@ def make_engine(con, root=None, window=WINDOW, raw=False):
         f = con.execute('SELECT * FROM funcs WHERE addr = ?', (addr,)).fetchone()
         return qdecomp.read_listing(os.path.join(qdecomp.GEN, f['file']), f['line'], f['name'], f['addr'])[0]
 
-    return Engine(con, lambda a: qdecomp.decompile(con, a), writers, strings, insns, window, raw), (fcon is not None)
+    eng = Engine(con, lambda a: qdecomp.decompile(con, a), writers, strings, insns, window, raw)
+    eng.fcon = fcon      # S105 D (F-2): closed by get_scan after the scan: an open reader makes a field-index rebuilder's swap fail on Windows
+    return eng, (fcon is not None)
 
 
 def get_scan(con, a):
@@ -541,8 +543,12 @@ def get_scan(con, a):
     problems = check_setters(found)
     setters = {t: v[0] for t, v in found.items() if t in KINDS}
     hits = eng.scan(setters)
+    if getattr(eng, 'fcon', None) is not None:
+        eng.fcon.close()
     d = {'version': VERSION, 'key': key, 'setters': {str(t): {**v, 'tag': t} for t, v in setters.items()},
          'problems': problems, 'hits': hits, 'secs': round(time.time() - t0, 2), 'cached': False, 'have_fields': have_fields}
+    if not have_fields:      # S105 D (F-4): a scan made without the field index (name handles unresolved) must not be cached under the same key: the next call, with the index built, would be served it
+        return d
     try:
         os.makedirs(cache_dir(), exist_ok=True)
         for old in os.listdir(cache_dir()):
@@ -704,7 +710,7 @@ def run_query(con, a):
     print(f'not decided: {nu} of {len(d["hits"])} call sites have an unresolved register (they may write this one too)'
           + ('' if a.unresolved else '; --unresolved lists them'))
     if not d['have_fields']:
-        print('note: no field index (out/harness/index/fields.db): name handles could not be resolved')
+        print('note: no field index (out/harness/index/fields.s<SCHEMA>.db; any `q field` call builds it): name handles could not be resolved')
     if a.unresolved:
         for h in sorted(unres, key=lambda x: x['site'])[:200]:
             print(f'  {hx(h["site"])} {h["func_name"]} {fmt_stage(h)}: {h["reg"]["why"]}' + (f' [{h["reg"]["raw"]}]' if h['reg'].get('raw') else ''))

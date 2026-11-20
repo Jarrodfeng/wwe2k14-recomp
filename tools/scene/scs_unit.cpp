@@ -5,7 +5,9 @@
 //   [SCS DEPTH]  a lens flare row (T_Sprite, matrix-placed, additive, z test on, z write off) takes the game's depth state: test on, write off, our forward LEQUAL, the game's reversed z flipped (system z scale -1, offset w);
 //                Append WITHOUT Context::scene_depth (the final-image path) keeps every depth test off (the F rows are unchanged)
 // Planted twin (RDR_Q2D_PLANTS, --plant scene_z_ignored): the depth state / flip is not taken -> [SCS DEPTH] must fail. The old FateOf drop is the text lint scs_lint.py's twin (scene_host.cpp is not unit-testable here).
-// Usage: out\tools\scs_unit.exe [--plant scene_z_ignored]
+// S105 A4B adds [SCS EARLY] (the pre-3D split at BeforeOpaque / AfterBlended), [WALK] (the main walk's begin / end and the kQhPre3DCat mark), [SCS FLAT] (the flat-frame scene rows on F), each with a planted twin.
+// entry: rdr_scene::LiveScene2D::Record (the stage hook the live frame calls), rdr_scene::walkcat::Walk::Begin / End / Mark (what the sub_82C3B200 / sub_82C3B218 hooks and the op-19 recorder call), rdr_scene::q2d::Append (the in-scene lambda's draw), wwe2k14::scene_host::FateOf (DrawRows' per-row decision). The helpers Flash / Lens / Final / SetRows only build the planted rows the entries are fed: production rows come from the tap (src\caw_text.h is a different Flash).
+// Usage: out\tools\scs_unit.exe [--plant scene_z_ignored | scene_dropped_on_flat | walk_bit_never_set | walk_end_ignored]
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -17,6 +19,8 @@
 #include "../../src/renderer_scene/quads2d_draw.h"
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/renderer_scene/frame_hooks.h"
+#include "../../src/renderer_scene/walk_cat.h"   // S105 A4B
+#include "../../src/renderer_host/row_fate.h"   // S105 A4B: FateOf (the flat-frame rule)
 
 using namespace rdr_scene;
 
@@ -87,8 +91,9 @@ static void HookChecks() {
   uint64_t seen_frame = 0;
   std::vector<uint32_t> seqs;
   std::vector<uint8_t> passes;
-  LiveScene2D hook([&](rdr::FrameBuilder&, const StageCtx&, const Quad2D* rows, size_t n, uint64_t gf) {
-    ++calls, seen_frame = gf;
+  uint8_t last_phase = 99;
+  LiveScene2D hook([&](rdr::FrameBuilder&, const StageCtx&, const Quad2D* rows, size_t n, uint64_t gf, uint8_t phase) {
+    ++calls, seen_frame = gf, last_phase = phase;
     for (size_t i = 0; i < n; ++i) seqs.push_back(rows[i].seq), passes.push_back(rows[i].pass);
   });
   hook.SetRows(t);
@@ -99,7 +104,7 @@ static void HookChecks() {
   hook.Record(Stage::BeforePost, ctx, fb);
   Check(calls == 0, "SCS HOOK", "the hook records nothing at any stage but AfterBlended");
   hook.Record(Stage::AfterBlended, ctx, fb);
-  Check(calls == 1 && seen_frame == 77 && seqs.size() == 2 && seqs[0] == 2 && seqs[1] == 3 && passes[0] == kQpSceneColour && passes[1] == kQpSceneColour, "SCS HOOK",
+  Check(calls == 1 && last_phase == LiveScene2D::kPhaseOnly && seen_frame == 77 && seqs.size() == 2 && seqs[0] == 2 && seqs[1] == 3 && passes[0] == kQpSceneColour && passes[1] == kQpSceneColour, "SCS HOOK",
         "one call at AfterBlended with exactly the scene-colour rows (the flash, the lens) in seq order, the record's guest frame; the final / offscreen rows are not its");
   SceneTables nt = t;
   nt.quad2d_holes = kQuad2DNotTaken;
@@ -115,6 +120,70 @@ static void HookChecks() {
     hook.SetRows(ot);
     Check(hook.rows() == 2 && Scene2DSite(0x82BC3EE8u) && Scene2DSite(0x82BC5688u) && !Scene2DSite(0x82BC4444u), "SCS HOOK", "only the rect site 0x82BC3EE8 and the sprite site 0x82BC5688 are taken; a scene-colour row of another site is not");
   }
+  {   // S105 A4B: a row the tap marked kQhPre3DCat (CAF's category-3 black quad) is drawn at BeforeOpaque, BEFORE the 3D; the late rows still at AfterBlended; the report continues across the two calls
+    Quad2D early = Flash(1);
+    early.have |= kQhPre3DCat;
+    SceneTables et;
+    et.header.guest_frame = 88;
+    et.quad2d_holes = 0;
+    et.quads2d = {early, Flash(2), Lens(3)};
+    std::vector<std::pair<Stage, size_t>> order;   // (the stage it was drawn at, rows)
+    std::vector<uint8_t> phases;
+    std::vector<uint32_t> eseq;
+    Stage cur = Stage::Maps;
+    LiveScene2D eh([&](rdr::FrameBuilder&, const StageCtx&, const Quad2D* rows, size_t n, uint64_t, uint8_t phase) {
+      order.push_back({cur, n}), phases.push_back(phase);
+      for (size_t i = 0; i < n; ++i) eseq.push_back(rows[i].seq);
+    });
+    eh.SetRows(et);
+    rdr::FrameBuilder efb;
+    StageCtx ectx;
+    for (Stage st : {Stage::Maps, Stage::BeforeOpaque, Stage::AfterBlended, Stage::BeforePost}) cur = st, eh.Record(st, ectx, efb);
+    Check(order.size() == 2 && order[0].first == Stage::BeforeOpaque && order[0].second == 1 && order[1].first == Stage::AfterBlended && order[1].second == 2 && eseq.size() == 3 && eseq[0] == 1 && eseq[1] == 2 && eseq[2] == 3, "SCS EARLY",
+          "a category-3 row (kQhPre3DCat) is drawn at BeforeOpaque, before the 3D; the category-13+ rows (flash, lens) after it at AfterBlended, each group in seq order");
+    Check(phases.size() == 2 && phases[0] == LiveScene2D::kPhaseEarly && phases[1] == LiveScene2D::kPhaseLate && eh.rows() == 3 && eh.early_rows() == 1, "SCS EARLY", "the two calls say kPhaseEarly then kPhaseLate (the owner's report goes on); rows() counts both, early_rows() the early one");
+    SceneTables ot = et;   // a frame with only early rows: one call, no late
+    ot.quads2d = {early};
+    eh.SetRows(ot);
+    order.clear(), phases.clear();
+    for (Stage st : {Stage::BeforeOpaque, Stage::AfterBlended}) cur = st, eh.Record(st, ectx, efb);
+    Check(order.size() == 1 && order[0].first == Stage::BeforeOpaque && phases[0] == LiveScene2D::kPhaseEarly, "SCS EARLY", "a record with only an early row draws once, at BeforeOpaque");
+  }
+}
+
+// S105 A4B (entry: walkcat::Walk::Begin / End, walkcat::Mark: the hooks sub_82C3B200 / sub_82C3B218 and the op-19 recorder call exactly these, in this order): the pre-3D mark follows the MAIN walk's category.
+static void WalkChecks() {
+  using namespace walkcat;
+  Walk w;
+  Quad2D rect = Flash(1);
+  w.Begin(3);   // sub_82C3B200 (cat 3: CAF's black quad)
+  Quad2D a = rect;
+  Mark(a, w);
+  Check((a.have & kQhPre3DCat) != 0, "WALK", "begin(3) then a scene-colour row: the row gets kQhPre3DCat");
+  w.End();   // sub_82C3B218
+  Quad2D b = rect;
+  Mark(b, w);
+  Check((b.have & kQhPre3DCat) == 0, "WALK", "after end the category is reset: a later scene-colour row gets no bit");
+  w.Begin(36);   // the flashes and lens flares
+  Quad2D c = rect;
+  Mark(c, w);
+  Check((c.have & kQhPre3DCat) == 0, "WALK", "begin(36) (after the wrestlers): no bit");
+  w.End();
+  w.Begin(13);
+  Quad2D d = rect;
+  Mark(d, w);
+  Check((d.have & kQhPre3DCat) == 0, "WALK", "begin(13), the first wrestler category: no bit");
+  w.End();
+  w.Begin(2);
+  Quad2D f = Final(1);
+  Mark(f, w);
+  Check((f.have & kQhPre3DCat) == 0, "WALK", "a Final-pass row is never marked, whatever the category");
+  w.End();
+  w.Begin(36);   // a node's own sub-walk (sub_82C2F960, e.g. the rim map's category 3) is NOT hooked: with the main category 36 open it stays unmarked (a hook on the sub-walker would have set the bit)
+  Quad2D g = rect;
+  Mark(g, w);
+  Check((g.have & kQhPre3DCat) == 0, "WALK", "a sub-walk inside category 36 gives no bit (only the main walk's begin / end set the category)");
+  w.End();
 }
 
 static void DepthChecks() {
@@ -169,12 +238,32 @@ static void DepthChecks() {
   }
 }
 
+// S105 A4B (entry: wwe2k14::scene_host::FateOf, what DrawRows asks per row with scene_on_f = SceneRowsOnF(plan.reason)): a flat frame draws its scene-colour rows on F, in seq order; any other frame keeps them InScene / dropped.
+static void FlatChecks() {
+  namespace sh = wwe2k14::scene_host;
+  const Quad2D a = Lens(1), b = Flash(2), fin = Final(3);
+  Quad2D other = Flash(4);
+  other.site = 0x82BC4444u;   // another scene-colour site: never the hook's
+  Check(sh::FateOf(a, false, 1280, 720, true, false, true) == sh::Fate::Draw && sh::FateOf(b, false, 1280, 720, true, false, true) == sh::Fate::Draw, "SCS FLAT", "scene_on_f (a flat frame): the two scene-colour rows (belt sprite, rect) are drawn on F, even with the scene hook on");
+  Check(sh::FateOf(fin, false, 1280, 720, true, false, true) == sh::Fate::Draw, "SCS FLAT", "a Final row is drawn as always");
+  Check(sh::FateOf(a, false, 1280, 720, true, false, false) == sh::Fate::InScene && sh::FateOf(b, false, 1280, 720, true, false, false) == sh::Fate::InScene, "SCS FLAT", "not a flat frame (Hold3D, a drawn 3D frame): the scene-colour rows stay the scene hook's (InScene), never drawn on F");
+  Check(sh::FateOf(a, false, 1280, 720, false, false, false) == sh::Fate::DropPass, "SCS FLAT", "no scene hook and not flat: the old `pass` drop stands");
+  Check(sh::FateOf(other, false, 1280, 720, true, false, true) == sh::Fate::DropPass, "SCS FLAT", "a scene-colour row of another site is never drawn on F (a third thing in the scene pass shows up as a drop)");
+  const Quad2D rows[] = {Final(1), Lens(2), Flash(3), other, Final(5)};   // seq order: the Draw rows of one record form runs in record order (DrawRows flushes a run at the first non-Draw row)
+  std::string fates;
+  for (const Quad2D& r : rows) fates += sh::FateOf(r, false, 1280, 720, true, false, true) == sh::Fate::Draw ? 'D' : 'x';
+  Check(fates == "DDDxD", "SCS FLAT", "a flat record's rows: Final, belt, rect drawn in one run in seq order, the unknown scene site dropped, the last Final row drawn: " + fates);
+}
+
 int main(int argc, char** argv) {
   std::string plant;
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant = argv[++i];
 #ifdef RDR_Q2D_PLANTS
   if (plant == "scene_z_ignored") q2d::g_plant = 60;
+  else if (plant == "scene_dropped_on_flat") q2d::g_plant = 71;     // S105 A4B: [SCS FLAT]
+  else if (plant == "walk_bit_never_set") q2d::g_plant = 72;        // S105 A4B: [WALK]
+  else if (plant == "walk_end_ignored") q2d::g_plant = 73;          // S105 A4B: [WALK]
   else if (!plant.empty()) {
     std::fprintf(stderr, "unknown plant %s\n", plant.c_str());
     return 2;
@@ -187,9 +276,12 @@ int main(int argc, char** argv) {
 #endif
   HookChecks();
   DepthChecks();
+  WalkChecks();
+  FlatChecks();
   if (!plant.empty()) {
-    const bool caught = g_failed.find("[SCS DEPTH]") != std::string::npos;
-    std::printf("%s planted %s: %s (failed: %s)\n", caught ? "PASS" : "FAIL", plant.c_str(), caught ? "caught by its named check [SCS DEPTH]" : "its named check [SCS DEPTH] did not fail", g_failed.c_str());
+    const char* tag = plant == "scene_dropped_on_flat" ? "[SCS FLAT]" : (plant == "walk_bit_never_set" || plant == "walk_end_ignored") ? "[WALK]" : "[SCS DEPTH]";   // S105 A4B: each plant's own named check
+    const bool caught = g_failed.find(tag) != std::string::npos;
+    std::printf("%s planted %s: %s (failed: %s)\n", caught ? "PASS" : "FAIL", plant.c_str(), caught ? "caught by its named check" : "its named check did not fail", g_failed.c_str());
     return caught ? 0 : 1;
   }
   std::printf("%s: scs_unit: %d checks, %d failed\n", g_failures ? "FAIL" : "PASS", g_checks, g_failures);

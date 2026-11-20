@@ -18,6 +18,7 @@ inline constexpr uint32_t kSceneVersion = 1;
 // S103 SVO: SceneHeader::flags bit 0. The record was made on the guest thread while goto's `scene:` stage push was playing (stage_view::g_playing, stamped only when the OFF host switch --wwe2k14_rdr_stage_view is on: stage_view::g_host_enabled, never the stream build's g_enabled). The OFF host
 // then leaves the 2D rows out of the picture: the game puts the Create a Story editor's full-screen red background over the scene in program mode 2 (docs\agents\s103\CSC.md). The host reads this stamp, never the live flag.
 inline constexpr uint32_t kSceneStagePlaying = 1u;
+// S105 A3: SceneHeader::flags bits 1 / 2 = the game shows a scene camera (cam_gate.h: kCamGateRead / kCamGateShown). Append-only: an older record has both 0 (= not read = drawn as before).
 // S102 T19: a record that carries crowd run markers (kScCrowdRuns / kScCrowdMembers) is written as version 2; a record without them is still version 1, byte for byte
 // as before. A reader accepts both (ParseRecord expands the markers into the plain member objects at once; docs\formats\scene_record_crowd_runs.md).
 inline constexpr uint32_t kSceneVersionRuns = 2;
@@ -176,6 +177,43 @@ inline bool CrowdPictureValid(const CrowdPictureRow& r) {
   return r.nbytes <= kCrowdPictureBytes && r.nbytes == ((uint32_t(r.width) + 3) / 4) * ((uint32_t(r.height) + 3) / 4) * bpb;
 }
 
+// S105 A12: the liquid items' pictures (section 53) get their OWN row, sized for the biggest blood decal (256x256 DXT1 = 32 KB; the blood textures of chCommon.pac PACH 0 entry 10 are 64x128 .. 256x256, 4-32 KB). The crowd's row
+// (CrowdPictureRow, section 48) and every crowd reader stay as they were: the 4096-byte cap is the foam hand's, never a limit of the 360.
+inline constexpr uint8_t kLiquidPictureLayout = 1;
+inline constexpr uint32_t kLiquidPictureBytes = 32768;   // 256x256 DXT1
+struct LiquidPictureRow {
+  uint32_t key = 0;          // the texture key word (LiquidItemRow::picture = the item's wrapper address)
+  uint16_t width = 0, height = 0;
+  uint32_t format = 0;       // CrowdPictureFormat
+  uint32_t nbytes = 0;       // bytes used of \bytes: ((width + 3) / 4) * ((height + 3) / 4) * (8 or 16)
+  uint8_t layout = kLiquidPictureLayout, pad[3] = {};
+  uint32_t hash[2] = {};     // PictureHashOf (width, height, format, bytes): made ONCE when the hook reads the texture; the picture cache compares it instead of hashing 32 KB a frame (review F3)
+  uint8_t bytes[kLiquidPictureBytes] = {};
+};
+static_assert(sizeof(LiquidPictureRow) == 32796, "LiquidPictureRow is a flat POD table");
+inline uint64_t PictureHashOf(uint16_t width, uint16_t height, uint32_t format, const uint8_t* bytes, size_t n) {   // FNV-1a over the header words and the blocks (the cache's own rule)
+  uint64_t h = 1469598103934665603ull;
+  const auto mix = [&](const uint8_t* p, size_t k) { for (size_t i = 0; i < k; ++i) h = (h ^ p[i]) * 1099511628211ull; };
+  const uint32_t head[3] = {width, height, format};
+  mix(reinterpret_cast<const uint8_t*>(head), sizeof head), mix(bytes, n);
+  return h;
+}
+inline void LiquidPictureSeal(LiquidPictureRow& r) {   // sets hash[] from the row's own fields
+  const uint64_t h = PictureHashOf(r.width, r.height, r.format, r.bytes, r.nbytes);
+  r.hash[0] = uint32_t(h), r.hash[1] = uint32_t(h >> 32);
+}
+inline bool LiquidPictureValid(const LiquidPictureRow& r) {
+  if (r.layout != kLiquidPictureLayout || !r.width || !r.height || r.width > 4096 || r.height > 4096) return false;
+  if (r.format != kCpfBc1 && r.format != kCpfBc2 && r.format != kCpfBc3) return false;
+  const uint32_t bpb = r.format == kCpfBc1 ? 8u : 16u;
+  return r.nbytes <= kLiquidPictureBytes && r.nbytes == ((uint32_t(r.width) + 3) / 4) * ((uint32_t(r.height) + 3) / 4) * bpb;
+}
+// One name for the picture cache (crowd_picture_cache.h): each row type is valid by its own rule.
+inline bool PictureValid(const CrowdPictureRow& r) { return CrowdPictureValid(r); }
+inline bool PictureValid(const LiquidPictureRow& r) { return LiquidPictureValid(r); }
+inline uint64_t PictureHash(const CrowdPictureRow& r) { return PictureHashOf(r.width, r.height, r.format, r.bytes, r.nbytes); }
+inline uint64_t PictureHash(const LiquidPictureRow& r) { return uint64_t(r.hash[0]) | (uint64_t(r.hash[1]) << 32); }   // sealed at the read (LiquidPictureSeal), never recomputed per frame
+
 // Space: world units and axes of the GAME (the matrices the engine gives its draws); a source in another space converts once, at the
 // source (the viewer's "Y up, +Z toward the stage" space is converted by its backend; the conversion is lodged in SCENE_RECORD.md).
 // Matrices: 16 floats, the layout of assets::Matrix (row vectors, p' = p * M, translation in [12..14]).
@@ -282,6 +320,9 @@ enum ObjectFlags : uint32_t {
   kObjCastsMapB = 256,   // S103 MBC (RMP.md 2): a weapon / event prop / structure piece the game casts into the wrestlers' shadow map (map B) in mode 0 (PMC section 4's filter, set by rf_props.cpp ApplyWeaponRows); never set on wrestlers (they cast by their own meshes)
   kObjMapBEvent = 512, kObjMapBStage = 1024, kObjMapBUnsure = 2048, kObjMapBPiece43 = 4096,   // S103 MBC: the caster's family, for the census only (with kObjCastsMapB): event prop / structure piece / ids 59 68 71 96 (category unknown: cast and counted); neither of the first two = a manager weapon
   kObjCastsProps = 8192, // S103 PM2 (PMC.md): a weapon / event prop / structure piece the game casts into the PROPS map (the floor's shadow map; weapons::CastsPropsMap): set by rf_props.cpp ApplyWeaponRows; the family bits above ride along
+  kObjOwnRowsPiece = 16384, // S105 A5a: a linked own-skeleton piece of a GUEST-ROW owner (a created superstar's hair / necklace / braces): invisible, carries pad (piece id) / layer (owner slot + 1) like kObjDetachedPiece, and its palette is its OWN latch read
+                         // ([model+200]: the game copied the owner's rows into it, proved per record by the contributor's copy proof, own_rows_rule.h). rf_wrestlers draws it from its own guest rows and lights it with the OWNER's state.
+                         // NEVER part of the EYF pre-pass mask (kObjDrawnByOwner | kObjDetachedPiece): a row keyed by this piece id on a guest owner would match guest part N (src_key = part index).
   kObjDrawnByOwner = 32, // S103 NRBF: an invisible own-skeleton piece (hair, caps, glasses) that its OWNER body model draws (the game copies the owner's rows into it by name): not a hole, no model of its own.
                          // S103 PZF2 (EB): such an object also carries the piece's id in Object::pad (u16) and its owner's character slot + 1 in Object::layer; 0 in either = unknown (an older record): the draw side
                          // treats that as a hole. rf_wrestlers counts it drawn-by-owner only when the owner's resident model has a mesh of that piece id.
@@ -476,7 +517,7 @@ static_assert(sizeof(PartClock) == 32, "PartClock is a flat POD table");
 // map object). Three optional sections, written together or not at all:
 //  51 kScLiquidMaps     = LiquidMapRow[]    one per map (character) that had a live item or a pending clear request this hook frame, the LAST call of the frame wins
 //  52 kScLiquidItems    = LiquidItemRow[]   the live items of those maps (at most 16 each: the pool's cap), a map's items are the rows [item_first, item_first + item_count)
-//  53 kScLiquidPictures = CrowdPictureRow[] the items' source textures (64x64 DXT1 in every capture), one row per distinct key; LiquidItemRow::picture = the row's `key`, 0 = none
+//  53 kScLiquidPictures = LiquidPictureRow[] the items' source textures (sweat 64x64 DXT1; blood 64x128 .. 256x256 DXT1, S105 A12: its own 32 KB row, not the crowd's 4 KB one), one row per distinct key; LiquidItemRow::picture = the row's `key`, 0 = none
 // A reader that does not know them skips them (older readers) and a record without them draws every skin dry (never a failure). A bad layout / a non-finite number drops the three together (liquid_errors).
 inline constexpr uint32_t kScLiquidMaps = 51, kScLiquidItems = 52, kScLiquidPictures = 53;
 inline constexpr uint32_t kLiquidLayout = 1;
@@ -528,7 +569,7 @@ inline constexpr uint32_t kScQuads2D = 58;
 inline constexpr uint32_t kQuad2DLayout = 5;   // S103 RFX: 5 = + address (324 bytes a row): the game's pixel sampler 0 address code. Layout 4 history:   // S103 I2: 2 = + hsl[4] (212 bytes a row); layout 1 never ran live. S103 P3c: 3 = + proj[16] (276 bytes a row): the matrix-placed rows' c29..c32. S103 SC: 4 = + scissor[4] + scissor_on at the end (320 bytes a row, with the viewport and target size): the clip the game drew the row with (the menu lists clip to their panels); an older layout is refused whole (a row is never read with a guessed scissor)
 inline constexpr uint32_t kQuad2DLayout4Bytes = 320;   // S103 RFX: the size of a layout-4 row (no address); ParseRecord reads it as 'address unknown'
 inline constexpr uint32_t kQuad2DNotTaken = 0xFFFFFFFFu;   // S103 L2a: SceneTables::quad2d_holes when no live 2D contributor took the frame
-enum Quad2DKind : uint8_t { kQkNone = 0, kQkRect = 1, kQkSprite = 2, kQkGlyph = 3, kQkRectGrad = 4, kQkYuv = 5, kQkYuvAlpha = 6, kQkCount };
+enum Quad2DKind : uint8_t { kQkNone = 0, kQkRect = 1, kQkSprite = 2, kQkGlyph = 3, kQkRectGrad = 4, kQkYuv = 5, kQkYuvAlpha = 6, kQkRectColor = 7 /* S105 A8: T_RectColor (sub_82BC3F30, site 0x82BC4404): a rect with a colour per corner; verts[v][3] = the corner's r | g << 8 | b << 16 (0..255 each, an exact float), verts[v][4] = its a (0..255) */, kQkCount };
 enum Quad2DPass : uint8_t { kQpUnknown = 0, kQpFinal = 1, kQpSceneColour = 2, kQpOffscreen = 3, kQpOther = 4, kQpCount };
 enum Quad2DBlend : uint8_t { kQbUnknown = 0, kQbOff = 1, kQbAlpha = 2 /* SrcAlpha / InvSrcAlpha */, kQbAdd = 3 /* SrcAlpha / One */, kQbOther = 4, kQbCount };
 enum Quad2DHave : uint32_t {
@@ -539,6 +580,7 @@ enum Quad2DHave : uint32_t {
   kQhMatrix = 8192 /* S103 P3c: the object's 4x4 matrix c29..c32 (proj[16]) was uploaded (op 21, r4 = 29, 4 registers) and is valid for this row: with c28 (use_proj) != 0 the row is MATRIX-PLACED */,
   kQhScissor = 16384 /* S103 SC (layout 4): the scissor state of the draw was read (scissor_on / scissor[]). Without it the row is a HOLE (fail closed: an unknown scissor is never drawn as unclipped; Quad2DRowProblem refuses it) */,
   kQhAddress = 32768 /* S103 RFX (layout 5): the pixel sampler 0 address code was read (address); without it the row clamps (the old rule) */,
+  kQhPre3DCat = 65536 /* S105 A4B: a scene-colour row recorded at a frame-walk category below 13 (the first wrestler category): the game draws it BEFORE its 3D (CAF's black quad, category 3); drawn at BeforeOpaque. Not in kQhEverything; old captures read 0 */,
   kQhEverything = 65535,   // (kQhTarget = 128 is also set by a layout-4 row: the target class, viewport and size were read)
 };
 struct Quad2D {

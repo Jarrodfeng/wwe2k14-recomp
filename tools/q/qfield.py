@@ -16,7 +16,7 @@ Roots: aN = argument N at entry, g:ADDR = pointer loaded from the global word AD
 r:SITE = the return value of the call at SITE, K = absolute address, u = base the fold could not name.
 Types come from the vptr a constructor stores at +0 (see build_fields.py): a function that is a vtable slot has a0 of that
 type; a constructor call types its argument and its return. `how` = vptr | slot | ctor_call | ctor_ret | global.
-The index (out/harness/index/fields.db, ~1 GB-class cache, rebuilt on first use after generated/ or image.bin change) is
+The index (out/harness/index/fields.s<SCHEMA>.db, ~1 GB-class cache, rebuilt on first use after generated/ or image.bin change) is
 read-only here. Not modelled: indexed accesses (lwzx...), types passed to callees, subobject vptrs at non-zero offsets.
 A hit is a lead to confirm in the listing (tools/analysis/list_function.py), never a proof by itself (CLAUDE.md rule 4).
 """
@@ -26,6 +26,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -61,19 +62,26 @@ def open_db(a, quiet=False):
     db = a.db or db
     if not getattr(a, 'no_rebuild', False):
         sig = bf.signature(gen, image)
-        cur = None
-        if os.path.exists(db):
+        forced = getattr(a, 'rebuild', False)
+        waited = False
+        t_wait = 0.0
+        while forced or bf.current_signature(db) != sig:
+            say = None if quiet else 'q field: building the field index (generated/ or image changed, or no index yet) ...'
             try:
-                c = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
-                r = c.execute("select v from meta where k='signature'").fetchone()
-                cur = r[0] if r else None
-                c.close()
-            except sqlite3.Error:
-                cur = None
-        if getattr(a, 'rebuild', False) or cur != sig:
-            if not quiet:
-                print('q field: building the field index (generated/ or image changed, or no index yet) ...', file=sys.stderr)
-            bf.build(gen, image, db)
+                bf.build(gen, image, db, quiet=quiet, say=say, if_stale=not forced)      # S105 D (F2): one rebuilder at a time (db.lock); the others wait or answer from the old file
+                break
+            except bf.Busy as e:
+                if os.path.exists(db):
+                    print(f'q field: answering from the old index: another process (pid {e.holder}) is rebuilding the field index (lock {db}.lock)', file=sys.stderr)
+                    break
+                if not waited:
+                    print(f'q field: no index yet and another process (pid {e.holder}) is building it: waiting for it', file=sys.stderr)
+                    waited = True
+                    t_wait = time.time()
+                if time.time() - t_wait > float(os.environ.get('WWE_QFIELD_WAIT', '90')):      # S105 D (F-1): never wait past an agent's tool timeout
+                    raise FieldError(f'pid {e.holder} is still building the field index ({db}): try again in a minute')
+                forced = False
+                time.sleep(0.5)
     if not os.path.exists(db):
         raise FieldError(f'no field index at {db}: py tools\\q\\build_fields.py')
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
@@ -310,6 +318,7 @@ def cmd_info(con, a, out):
     for t in ('rows', 'roots', 'vtables', 'slots', 'ctors', 'objtype'):
         out[t] = con.execute(f'select count(*) from {t}').fetchone()[0]
     out['db'] = bf.default_paths(a.root, a.gen)[2] if not a.db else a.db
+    out['other_index_files'] = bf.other_index_files(out['db'])      # S105 D: other-schema files beside ours, never opened or rebuilt by this q
     return out
 
 
@@ -330,12 +339,17 @@ def main(argv=None):
     ap.add_argument('--root'); ap.add_argument('--gen'); ap.add_argument('--image'); ap.add_argument('--db')
     ap.add_argument('--no-rebuild', dest='no_rebuild', action='store_true')
     a = ap.parse_args(argv)
+    con = None
     try:
         if a.arg is None:
             ap.error('give OFF, fn FUNC, type T, info or build')
         if a.arg == 'build':
             gen, image, db = bf.default_paths(a.root, a.gen)
-            bf.build(gen, a.image or image, a.db or db)
+            try:
+                bf.build(gen, a.image or image, a.db or db)
+            except bf.Busy as e:
+                print(f'q field: another process (pid {e.holder}) is rebuilding {a.db or db}: not building in parallel', file=sys.stderr)
+                return 3
             return 0
         con = open_db(a)
         out = {}
@@ -359,6 +373,9 @@ def main(argv=None):
         else:
             print(f'q field: {e}', file=sys.stderr)
         return 2
+    finally:
+        if con is not None:
+            con.close()      # S105 D: an open reader makes a rebuilder's replace of the file fail on Windows
 
 
 if __name__ == '__main__':

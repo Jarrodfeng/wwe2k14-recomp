@@ -14,6 +14,7 @@
 #include "../scene_live/page_skip_core.h"   // S103 EPS: the arena's page-less flag
 #include "arena_debounce.h"   // S103 L31A
 #include "rf_c.h"
+#include "sub_model_remap.h"   // S105 C2LA F1
 #include "stage_census.h"   // S103 CPU1
 #include "ring_pose.h"
 #include "../assets/stage_pools.h"  // S103 L
@@ -126,8 +127,7 @@ assets::Model SubModel(const assets::Model& full, const std::vector<size_t>& pic
       if (it == mat_of.end()) {
         assets::Material mt = full.materials[size_t(m.material)];
         wants_lm = wants_lm || mt.has_lm_slot || (rdr_scene::ArenaMatchLm(m.part, mt) && !L5PlantSubModel());  // S103 L5: the match's page for a sub-model with no own-LM mesh
-        mt.diffuse = tex(mt.diffuse), mt.normal = tex(mt.normal), mt.lightmap = tex(mt.lightmap), mt.mask = tex(mt.mask), mt.specular = tex(mt.specular), mt.detail = tex(mt.detail);
-        for (int& ly : mt.layer) ly = tex(ly);   // S103 LAY: the UVScroll layer textures follow the same remap
+        RemapMaterialTextures(mt, tex);   // S105 C2LA F1 (sub_model_remap.h): every texture field, the ring mat's noise picture included
         out.materials.push_back(mt);
         it = mat_of.emplace(m.material, int(out.materials.size()) - 1).first;
       }
@@ -487,15 +487,17 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
     // S103 TRN4 (docs/agents/s103/TRN4.md, rig A/B on arena 44): the game draws keys 800-809 with yMovieDefault, never yBG_Default with a
     // highlight; 22 screen-key meshes (arenas 30/33/35/44/50/53/54) carry g_fSpecularLev 0.5 and the loader's L5 rule (jboy.h:838) skips them
     // (no file texture), so the specular variant drew the big screen black. Every movie key: no highlight, outside the flat-set branch.
-    if (movie_key) mt.no_highlight = true;
+    if (movie_key && !g_plants.screen_highlight_kept) mt.no_highlight = true;   // WGS: the planted twin (Plants::screen_highlight_kept) keeps the file's highlight
     if (movie_key && flat_set >= 0) {
       // SCR review F1: self-lit only where a live movie texture is bound (the game's yMovieDefault draws: SkyCol = GroundCol = 1, DifLghCol 0, [C] a04_entrance f60 ops 575 / 577);
       // an idle screen (no sized row, or dropped by E7's DropIdleScreens) keeps the record's slot set, as run 26 judged right by eye. Cull and vertex-alpha blend belong to the geometry: all movie keys.
       if (it != screen_tex.end()) me.light_set = flat_set;
       mt.has_lm_slot = false;
       mt.cull_back = true;
+      if (!mt.stage_slot) mt.cull_from_record = false;   // S105 C3: the screens keep their own rule whatever wwe2k14_rdr_family_cull says
       for (const assets::Vertex& v : me.vertices)
         if (((v.color >> 24) & 0xFFu) < 0xFFu) mt.blend_inline = true;
+      if (mt.blend_inline) mt.stage_zw |= 4;   // S105 SZW (A54): a blended screen piece writes depth below the game's GEQUAL 1/255 test: FrontEnd::Record tests it behind wwe2k14_rdr_stage_zwrite
     }
     full.materials.push_back(mt);
     me.material = int(full.materials.size()) - 1;
@@ -542,7 +544,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
     assets::Model sub = SubModel(full, pick, std::string("arena ") + std::to_string(view.arena_id) + " " + kName[pi]);
     if (pi == size_t(Part::Flash)) {  // (the front-end leaves the "crowd flash" name to the viewer's own pass: ours is drawn as sprites, blended SrcAlpha + One: crowd_flash.md)
       for (assets::Mesh& me : sub.meshes) me.part = "flash 31000";
-      for (assets::Material& mt : sub.materials) mt.alpha_blend = true, mt.additive = true;
+      for (assets::Material& mt : sub.materials) mt.alpha_blend = true, mt.additive = true, mt.cull_back = false, mt.cull_from_record = false;   // S105 C3: our sprite stays two-sided (its winding is our matrix's, live_particles.cpp:193)
       for (const assets::Mesh& me : sub.meshes)
         for (const assets::Vertex& v : me.vertices) radius = std::max(radius, std::max(std::fabs(v.pos[0]), std::max(std::fabs(v.pos[1]), std::fabs(v.pos[2]))));
     }

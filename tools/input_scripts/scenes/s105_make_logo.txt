@@ -1,0 +1,54 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_logo_import_file=C:\Users\Jarrod\wwe2k14-recomp\out\s105\routes\R3\s105_test_logo.png
+# harness: realtime (the editor presses wait on frame counts)
+# intent: owner on
+# S105 R3: STEP A of the TEST CAW mirror: a logo (our own 256x256 test PNG) into 00PaintTool.pt slot 3 through the game's own Create-a-Logo, so the CAW's CUSTOM LOGO DATA picker has a logo.
+# Adapted from short\logo_import_check.txt (S25, run 1731-1738: PASS): CREATIONS -> LOGO grid -> RIGHT x2 = slot 3 -> A -> SELECT CANVAS SIZE (cursor 128x128, DOWN = 256x256) -> A = editor ->
+# `cvar wwe2k14_logo_import true` -> LT tools panel -> left stick down x3 = ACCEPT -> A = the game saves 00PaintTool.pt. Ends ~10 s later. Check: save_logos.py diff.
+on_fail continue
+log bench: start scene s105_make_logo
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+include menu_to_creations
+wait_frames 120
+repeat 8
+press DOWN
+wait_frames 40
+end_repeat
+screenshot sc_s105_logo_row
+press A
+wait_frames 900
+log scene=logo_grid
+log_text 8
+screenshot sc_s105_logo_grid
+press RIGHT
+wait_frames 40
+press RIGHT
+wait_frames 60
+press A
+wait_frames 120
+press DOWN
+wait_frames 60
+screenshot sc_s105_logo_size256
+press A
+wait_frames 200
+screenshot sc_s105_logo_editor
+cvar wwe2k14_logo_import true
+wait_frames 60
+press LT 10
+wait_frames 60
+press L_DOWN 8 20
+press L_DOWN 8 20
+press L_DOWN 8 20
+wait_frames 30
+screenshot sc_s105_logo_on_accept
+press A
+wait_file savedata.dat 1800
+log scene=logo_saved
+cvar wwe2k14_logo_import false
+wait_frames 500
+screenshot sc_s105_logo_grid_after
+log bench: done
+mark 4 end
+wait_frames 30
+quit

@@ -88,12 +88,54 @@ class RigScreenFeed : public rf::c::ScreenFeed {
   // that many converted pictures looked up by content id, a hit hands back the cached buffer (YuvScreenFeed's shape; with more distinct pictures than entries a later conversion recycles an earlier hit).
   // `distinct` = the id (and the pixels) include the screen key; else every screen shows the same picture of a serial.
   size_t cache_n = 0;
+  // WGS (docs\agents\arena_sheet.md): WWE_RDR_RIG_SCREEN_FEED=pattern: a TEST PATTERN per key (one saturated colour per key, a grid in a darker shade of it, the key number drawn in a still darker
+  // shade): every pixel has the key's hue, so tools\scene\arena_sheet.py can find each screen in the drawn frame by colour. The colours are PatternColour's (arena_sheet.py PATTERN keeps the same table).
+  bool pattern = false;
+  // WGS DIM1 (docs\research\harness\DIM1.md): WWE_RDR_RIG_SCREEN_FEED=flat, or the per-job flag --flat-feed: one SOLID colour per key (no grid, no digits): arena_sheet.py judges a screen's
+  // brightness on this picture against the key colour x the interpolated vertex colour (the pattern's 0.35 digits and 0.6 grid made a piece that shows mostly digits read dim)
+  bool flat = false;
+  static void PatternColour(uint32_t key, uint8_t rgb[3]) {
+    static const uint8_t kCol[10][3] = {{255, 0, 0}, {0, 255, 0}, {0, 64, 255}, {255, 255, 0}, {255, 0, 255}, {0, 255, 255}, {255, 128, 0}, {128, 0, 255}, {0, 255, 128}, {255, 0, 128}};
+    const uint8_t* c = kCol[(key >= 800 && key <= 809) ? key - 800 : 0];
+    rgb[0] = c[0], rgb[1] = c[1], rgb[2] = c[2];
+  }
+  // WGS6 round 2: the FLAT feed's colour per key (arena_sheet.py FLAT keeps the same table; the unit checks they are equal). Pastels with ALL THREE channels at 100 or more, distinct per key, every largest channel 255, and
+  // |R - B| >= 70 on every key: the flat render is where the vertex colour's per-channel tint is read, and a key colour with no blue (800, 801, 803, 806: the pattern's) cannot show a blue-channel tint
+  // and a red / blue swap changes nothing where R = B = 0. The pattern feed keeps its saturated colours (the picture Jarrod reads).
+  static void FlatColour(uint32_t key, uint8_t rgb[3]) {
+    static const uint8_t kFlat[10][3] = {{255, 170, 150}, {200, 255, 130}, {150, 185, 255}, {255, 235, 140}, {255, 140, 170}, {140, 255, 235}, {255, 205, 120}, {170, 150, 255}, {130, 255, 200}, {255, 105, 175}};
+    const uint8_t* c = kFlat[(key >= 800 && key <= 809) ? key - 800 : 0];
+    rgb[0] = c[0], rgb[1] = c[1], rgb[2] = c[2];
+  }
+  static void DrawPattern(uint32_t key, uint32_t w, uint32_t h, uint8_t* buf, bool flat_only = false) {
+    // a 3x5 digit font, one row per digit, 3 bits per row (bit 2 = left)
+    static const uint8_t kFont[10][5] = {{7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7}, {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7}};
+    uint8_t c[3];
+    if (flat_only) FlatColour(key, c);   // WGS6 round 2: the flat feed has its own pastel colours (FlatColour)
+    else PatternColour(key, c);
+    const uint32_t cell = std::max<uint32_t>(1, std::min(w / 16, h / 7));   // three digits of 3 cells + 2 gaps fill about 11 of 16 columns
+    const uint32_t tw = cell * 11, th = cell * 5, x0 = (w > tw ? (w - tw) / 2 : 0), y0 = (h > th ? (h - th) / 2 : 0);
+    const uint32_t gstep = std::max<uint32_t>(8, std::min(w, h) / 4), gw = std::max<uint32_t>(1, gstep / 16);
+    char digits[4];
+    std::snprintf(digits, sizeof digits, "%03u", key % 1000);
+    for (uint32_t y = 0; y < h; ++y)
+      for (uint32_t x = 0; x < w; ++x) {
+        float s = 1.f;
+        if (!flat_only && (x % gstep < gw || y % gstep < gw)) s = 0.6f;   // the grid
+        if (!flat_only && x >= x0 && y >= y0 && x < x0 + tw && y < y0 + th) {
+          const uint32_t cx = (x - x0) / cell, cy = (y - y0) / cell, d = cx / 4, col = cx % 4;
+          if (d < 3 && col < 3 && (kFont[digits[d] - '0'][cy] >> (2 - col) & 1u)) s = 0.35f;   // the key number
+        }
+        uint8_t* p = &buf[(size_t(y) * w + x) * 4];
+        p[0] = uint8_t(c[0] * s), p[1] = uint8_t(c[1] * s), p[2] = uint8_t(c[2] * s), p[3] = 255;
+      }
+  }
   bool Picture(uint32_t key, uint32_t seq, uint32_t& w, uint32_t& h, const uint8_t*& rgba, uint64_t& content_id) override {
     const auto it = size_.find(key);
     if (it == size_.end()) return false;
     w = it->second.first, h = it->second.second;
-    const uint32_t k = distinct ? key : 0;
-    const uint64_t id = (uint64_t(k) << 32) | seq;
+    const uint32_t k = (distinct || pattern || flat) ? key : 0;
+    const uint64_t id = (uint64_t(k) << 32) | seq | (flat ? (1ull << 63) : 0ull);   // the flat picture is other pixels than the pattern: its own content id
     content_id = id;
     Entry* e = nullptr;
     if (cache_n) {
@@ -106,6 +148,11 @@ class RigScreenFeed : public rf::c::ScreenFeed {
     }
     e->valid = true, e->id = id, e->w = w, e->h = h;
     e->buf.resize(size_t(w) * h * 4);
+    if (pattern || flat) {
+      DrawPattern(key, w, h, e->buf.data(), flat);
+      rgba = e->buf.data();
+      return true;
+    }
     for (uint32_t y = 0; y < h; ++y)
       for (uint32_t x = 0; x < w; ++x) {
         uint8_t* p = &e->buf[(size_t(y) * w + x) * 4];
@@ -131,6 +178,12 @@ static void RigInjectScreenRows(SceneTables& t) {
   ++rig_screen_serial;
   const bool stagger = std::getenv("WWE_RDR_RIG_SCREEN_STAGGER") != nullptr, drop = std::getenv("WWE_RDR_RIG_SCREEN_DROP") != nullptr;
   uint32_t idx = 0;
+  const char* feed = std::getenv("WWE_RDR_RIG_SCREEN_FEED");
+  if (feed && std::string(feed) == "pattern") {   // WGS round 2: the test pattern feeds 803 too (the screen check judges every key with a mesh; without a row a shown 803 is the idle black)
+    StageFxRow r;
+    r.kind = kFxScreen, r.slot = 803, r.movie = 0, r.seq = rig_screen_serial, r.w = 256, r.h = 128, r.flags = 0x4000u;
+    t.stage_fx.push_back(r);
+  }
   for (uint16_t key : {800, 801, 802, 804, 805, 806, 807, 808, 809}) {
     const uint32_t i = idx++;
     uint32_t seq = rig_screen_serial;
@@ -151,8 +204,8 @@ static void RigInjectScreenRows(SceneTables& t) {
 //   map W H LEVELS FLAGS          LiquidMapRow (flags: 2 = clear first, 8 = dim)
 //   item TYPE PASS lx0 ly0 lx1 ly1 wx0 wy0 wx1 wy1     one item: LocalArea (c205), WorldParam (c206); the dirty rect is WorldParam x (W, H) snapped OUT to 32 as the game's is
 // Rows are repeated into every frame the rig draws (the hook's per-hook-frame check applies each once).
-static void RigBlobBc1(CrowdPictureRow& row) {
-  row = CrowdPictureRow{};
+static void RigBlobBc1(LiquidPictureRow& row) {
+  row = LiquidPictureRow{};
   row.key = 1, row.width = 64, row.height = 64, row.format = kCpfBc1, row.nbytes = 16 * 16 * 8;
   const auto level = [](int x, int y) {   // 0..3 over the 4x4 block grid: white centre, black rim, a soft falloff
     const float dx = (float(x) + 0.5f) / 64.f - 0.5f, dy = (float(y) + 0.5f) / 64.f - 0.5f;
@@ -220,7 +273,7 @@ static bool RigInjectLiquid(SceneTables& t, const std::string& path, std::string
   row.object = object, row.map = 0xC0DE0001u, row.item_first = uint32_t(t.liquid_items.size()), row.item_count = uint32_t(items.size());
   t.liquid_items.insert(t.liquid_items.end(), items.begin(), items.end());
   t.liquid_maps.push_back(row);
-  CrowdPictureRow pic;
+  LiquidPictureRow pic;
   RigBlobBc1(pic);
   t.liquid_pictures.clear();
   t.liquid_pictures.push_back(pic);
@@ -435,6 +488,7 @@ namespace {
 struct Shared {
   bool serve = false;
   bool built = false;
+  float built_scale = 1.f;   // S105 A1 review F8: the render scale the renderer of this process was made with (a serve process keeps it: a job with another --scale is refused)
   std::string game;
   bool use_offline = false, fo_textures = true, fo_one_layer = false;
   GameFilesSource source;
@@ -509,17 +563,23 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   std::vector<std::string> links, piece_links;
   bool piece_plant_hide = false;   // S103 NRB
   std::vector<StageLookRow> look_rows;  // S103 L
+  bool flat_feed = false;               // WGS DIM1: --flat-feed
+  uint32_t prime_grab_key = 0;          // WGS PAR1: --prime-grab KEY
+  std::string depth_out;                // SCU: --depth-out FILE (the whole / mask panel's scene depth, raw)
+  StageShow show_told;                  // WGS: --show KEYS (screen keys 800-809 and art slots 301-304 shown; TOLD, written as the kFxShow rows a live writer would write)
   bool props_in_place = false, skip_in_place = false;   // S103 SG2: --props-in-place flags every --props row kCpfInPlace; --skip-in-place is the live drawer's rule (rf::crowd::SetSkipInPlace)
   uint32_t prop_picture_key = 0;        // S103 FHB: --prop-picture KEY: every --props row names this picture key (a guest handle)
   std::string picture_row_spec;         // S103 FHB: --picture-row KEY,W,H,FMT,FILE: a record CrowdPictureRow whose blocks are FILE's bytes
   std::string props_file;               // S103 D4: --props FILE ("P kind key variant c0..c11" a line): rows appended through crowd_rows::AppendProp
   bool move_source = false;
   std::vector<float> single_like;   // S103 D4: --single-like dx,dy,dz: a clone of the first posed stands person of the record (its body, palette and world), moved by (dx,dy,dz), as a SINGLE row
+  float a1_scale = 1.f;   // S105 A1
   std::vector<std::string> single_specs;   // S103 D4: --single ARENA,TYPE,c0..c11: a single person with the type's palette (act 0, frame 0)
   if (sh.serve) stage_look::PlantsRef() = stage_look::Plants();   // S103 PS1: every switch a job can set starts from its default (the one-shot process starts that way)
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--record" && i + 1 < argc) rec = argv[++i];
+    else if (a == "--scale" && i + 1 < argc) a1_scale = std::strtof(argv[++i], nullptr);   // S105 A1: the renderer's render scale; the scene targets are drawn at S x the logical size
     else if (a == "--game" && i + 1 < argc) game = argv[++i];
     else if (a == "--prefix" && i + 1 < argc) prefix = argv[++i];
     else if (a == "--size" && i + 1 < argc) { if (std::sscanf(argv[++i], "%ux%u", &w, &h) != 2) { std::fprintf(stderr, "bad --size\n"); return 1; } }
@@ -540,6 +600,20 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     else if (a == "--single-like" && i + 1 < argc) single_like = ParseFloats(argv[++i]);
     else if (a == "--move-source") move_source = true;   // S103 D4: with --single-like: move the source person itself instead of adding a single row (the check compares the two masks)
     else if (a == "--look-entrance") { StageLookRow r; r.kind = kSlEntrance, r.flags = kSlfEntrance | kSlfEntrancePage; look_rows.push_back(r); }
+    else if (a == "--flat-feed") flat_feed = true;
+    else if (a == "--depth-out" && i + 1 < argc) depth_out = argv[++i];   // SCU (TEST ONLY): write the panel's scene depth (FrontEnd::ReadDepthForTest)
+    else if (a == "--prime-grab" && i + 1 < argc) prime_grab_key = uint32_t(std::strtoul(argv[++i], nullptr, 0));   // WGS PAR1 (TEST ONLY): the frame grab = this key's test picture   // WGS DIM1: this job's screens show the flat feed (one solid colour per key), in a WWE_RDR_RIG_SCREEN_FEED=pattern process
+    else if (a == "--show" && i + 1 < argc) {   // WGS: --show 800,801,805,303 (keys 800-809, art slots 301-304; "none" = nothing shown): the show bits TOLD, as kFxShow rows (ShowToRows)
+      show_told.known = true;
+      const std::string v = argv[++i];
+      if (v != "none")
+        for (float f : ParseFloats(v.c_str())) {
+          const int k = int(f);
+          if (k >= 800 && k <= 809) show_told.keys = uint16_t(show_told.keys | 1u << (k - 800));
+          else if (k >= int(kFirstArtSlot) && k < int(kFirstArtSlot + kArtSlots)) show_told.art = uint8_t(show_told.art | 1u << (k - int(kFirstArtSlot)));
+          else { std::fprintf(stderr, "bad --show %s: keys 800-809, art slots 301-304\n", v.c_str()); return 1; }
+        }
+    }
     else if (a == "--look-rig" && i + 2 < argc) {
       StageLookRow r;
       r.kind = kSlRigSlot, r.rig_slot = uint16_t(std::atoi(argv[++i]));
@@ -652,6 +726,10 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   if (body_scale_one)   // S103 L9
     for (uint32_t addr : t.engine_objects) BodyScaleTable::Get().Set(addr, 1.0f);
   t.stage_look.insert(t.stage_look.end(), look_rows.begin(), look_rows.end());  // S103 L
+  if (show_told.known) {   // WGS: the told show bits replace any the record carries (two sets of rows would OR together)
+    t.stage_fx.erase(std::remove_if(t.stage_fx.begin(), t.stage_fx.end(), [](const StageFxRow& r) { return r.kind == kFxShow; }), t.stage_fx.end());
+    ShowToRows(show_told, t.stage_fx);
+  }
   if (!wrk_told.empty()) {   // S103 WRK: a FIXTURE of the rig (never a live path): the level rows the latch would have read, as model-wide rows of every body's engine object
     static const char* const kNames[14] = {"g_fWklLv0", "g_fWklLv1", "g_fWklLv2", "g_fWklLv3", "g_fWklLv4", "g_fWklLv5", "g_fIdMapLv0", "g_fIdMapLv1", "g_fIdMapLv2", "g_fIdMapLv3", "g_fIdMapLv4", "g_fIdMapLv5", "g_fIdMapLv6", "g_fIdMapLv7"};
     for (uint32_t addr : t.engine_objects) {
@@ -790,6 +868,10 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   }
   std::string report = rows_report;
   char line[512];
+  if (show_told.known) {   // WGS
+    std::snprintf(line, sizeof line, "show TOLD keys 0x%03x art 0x%x (kFxShow rows from --show, not from the record)\n", unsigned(show_told.keys), unsigned(show_told.art));
+    report += line;
+  }
   int links_filled = 0, links_kept = 0;
   for (const std::string& l : links) {
     int filled = 0, kept = 0;
@@ -829,25 +911,45 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   const bool plane_off = std::getenv("WWE_RDR_PLANE_GAME_OFF") != nullptr;                 // S103 RML (RIG-ONLY): the game built no plane module in this capture (wm30: 3 wrestlers; the live path writes the flag from the latch, inputs_contrib.h)
   rdr_scene::g_plane_game_no_module.store(plane_off, std::memory_order_relaxed);
   const bool b2_plants = fo.plant_old_alpha_ref || fo.plant_cutout_noblend || fo.plant_untested_alpha || fo.plant_mat_plain_when_no_module || fo.plant_mat_reads_mapb || fo.plant_vs_prm_ps_rows || fo.plant_light_stamp_no_mat || plane_off;   // S103: B2 / RML plants change the front end: never served
-  const bool reusable = !b2_plants && !plant_leak && !async_crowd && plant_crowd.empty() && !skip_in_place && !probe && lists_n <= 0 && also_rec.empty() && rearena < 0;
+  const bool reusable = !b2_plants && !std::getenv("WWE_RDR_STAGE_CULL_FLIP") && !plant_leak && !async_crowd && plant_crowd.empty() && !skip_in_place && !probe && lists_n <= 0 && also_rec.empty() && rearena < 0;
   if (sh.serve && !reusable) { std::fprintf(stderr, "frame_rig: SERVE REFUSED: this job needs a fresh process (async crowd / crowd plant / skip-in-place / particle probe / lists / also-record / plant-leak): run it alone\n"); return 5; }
   if (sh.serve && sh.built && (sh.game != game || sh.use_offline != use_offline || sh.fo_textures != fo.textures || sh.fo_one_layer != fo.plant_one_layer)) {
     std::fprintf(stderr, "frame_rig: SERVE REFUSED: the front-end options of this job (game root / --assets / textures / one-layer plant) differ from the ones this process was made with: run it in another process\n");
     return 5;
   }
+  if (sh.built && a1_scale != sh.built_scale) { std::fprintf(stderr, "frame_rig: FAIL --scale %g: this process' renderer was made with --scale %g (the scale is fixed when the renderer is made: start another process)\n", double(a1_scale), double(sh.built_scale)); return 1; }
   if (!sh.built) {
     sh.game = game, sh.use_offline = use_offline, sh.fo_textures = fo.textures, sh.fo_one_layer = fo.plant_one_layer;
     if (!sh.source.SetRoot(game)) { std::fprintf(stderr, "frame_rig: FAIL no game files under %s\n", game.c_str()); return 3; }
     if (use_offline) { ViewerInit(game); assets::crowd_body::Init(game); }
     rdr::RendererOptions ro;
     if (const char* v = std::getenv("WWE_RDR_VALIDATION")) ro.validation = std::atoi(v);
+    ro.render_scale = a1_scale;   // S105 A1
     sh.renderer = rdr::Renderer::Create(ro, err);
     if (!sh.renderer) { std::fprintf(stderr, "frame_rig: FAIL renderer: %s\n", err.c_str()); return 3; }
-    sh.built = true;
+    sh.built = true, sh.built_scale = a1_scale;
   }
   auto& renderer = sh.renderer;
   rf::crowd::SetFaultForTest(plant_crowd.c_str());   // S103 D2 (before the crowd is made)
+  {   // SCU (tools\scene\stage_cull_proof.py): RIG-ONLY stand-ins of the switch wwe2k14_rdr_stage_cull (=0: the stage meshes two-sided, the "off" arm) and its planted twin (the `r` copy without the winding swap). Set per job (a served job resets them)
+    const char* sc = std::getenv("WWE_RDR_STAGE_CULL");
+    rdr_scene::g_stage_cull.store(!(sc && std::string(sc) == "0"), std::memory_order_relaxed);
+    rdr_scene::g_plant_stage_cull_no_flip.store(std::getenv("WWE_RDR_PLANT_STAGE_CULL_NO_FLIP") != nullptr, std::memory_order_relaxed);
+  }
+  {   // S105 C3 (tools\scene\family_cull_proof.py): RIG-ONLY stand-ins of the switch wwe2k14_rdr_family_cull (=0: the non-stage families two-sided, the "off" arm) and its planted twin (the non-stage families with a swapped front face)
+    const char* fc = std::getenv("WWE_RDR_FAMILY_CULL");
+    rdr_scene::g_family_cull.store(!(fc && std::string(fc) == "0"), std::memory_order_relaxed);
+    rdr_scene::g_plant_family_cull_flip.store(std::getenv("WWE_RDR_PLANT_FAMILY_CULL_FLIP") != nullptr, std::memory_order_relaxed);
+  }
+  {   // S105 SZW (tools\scene\stage_zwrite_proof.py): RIG-ONLY stand-ins of the switch wwe2k14_rdr_stage_zwrite (=0: no depth write for `s` / `a`, no forced test, far to near: the "off" arm = today's draw) and its planted twin (the depth write with NO forced alpha test)
+    const char* sz = std::getenv("WWE_RDR_STAGE_ZWRITE");
+    rdr_scene::g_stage_zwrite.store(!(sz && std::string(sz) == "0"), std::memory_order_relaxed);
+    rdr_scene::g_plant_szw_no_test.store(std::getenv("WWE_RDR_PLANT_SZW_NO_TEST") != nullptr, std::memory_order_relaxed);
+  }
+  const bool stage_cull_flip = std::getenv("WWE_RDR_STAGE_CULL_FLIP") != nullptr;   // SCU (RIG-ONLY): every --repeat frame flips the switch's stand-in (with the kept draw lists on)
   if (std::getenv("WWE_RDR_PLANT_NO_SCREEN_RULE")) rf::c::PlantsRef().no_screen_rule = true;   // S103 SCR planted twin: the loader applies no movie-surface rule (scr_check.py --plant)
+  if (std::getenv("WWE_RDR_PLANT_SCREEN_HIGHLIGHT")) rf::c::PlantsRef().screen_highlight_kept = true;   // WGS planted twin of TRN4: the movie keys keep the file's highlight (arena_sheet.py --plant highlight)
+  if (const char* tp = std::getenv("WWE_RDR_TABLE_PICK_ALL"); tp && std::string(tp) == "0") rdr_scene::g_table_pick_all.store(false);   // RIG-ONLY (WGS for lane WGD): =0 = the TQ2 switch off (front_end.h g_table_pick_all; the "before" arm); anything else keeps the default. The game start stores it from the cvar wwe2k14_rdr_table_pick_all (start_settings.cpp)
   if (std::getenv("WWE_RDR_PLANT_STALE_MOVIE_KEPT")) rf::c::PlantsRef().stale_movie_kept = true;   // S103 HN planted twin: a shown screen with no row keeps its last picture
   if (std::getenv("WWE_RDR_PLANT_IDLE_SCREEN_WHITE")) rf::c::PlantsRef().idle_screen_white = true;   // S103 SCN planted twin: an idle movie-key screen binds white_ (scn_check.py --plant)
   if (const char* e = std::getenv("WWE_RDR_HIDE_STAGE_SLOT")) g_hide_stage_slot = *e ? std::atoi(e) : -1;   // S103 ENV: CAWB dev plant, now rdr_scene::g_hide_stage_slot (front_end.h) (was a getenv in front_end.cpp)
@@ -859,6 +961,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   {
     if (!sh.fe) {   // the front-end and the model cache: made by the first job (the one-shot's only job), kept by a serve process
       sh.fe = std::make_unique<FrontEnd>(*renderer, fo);
+      sh.fe->SetScaledTargets(a1_scale != 1.f);   // S105 A1: the stream-free host does the same from render_scale
       rf::c::SetOfflineLoad(true);  // lane C's arena seam: an offline tool waits for the arena and loads it on this thread (live_scene_draw's mirror path does the same)
       sh.offline_source = std::make_unique<offline::Assets>();  // --assets offline: tools\scene\offline_assets.h (the viewer's loader seam: the pictures must equal GameFilesSource's)
       rf::AssetSource& chosen = use_offline ? static_cast<rf::AssetSource&>(*sh.offline_source) : static_cast<rf::AssetSource&>(sh.source);
@@ -890,6 +993,8 @@ static int RunJob(int argc, char** argv, Shared& sh) {
       static RigScreenFeed rig_feed;
       if (const char* sf = std::getenv("WWE_RDR_RIG_SCREEN_FEED")) {   // "same" = every screen shows the same picture of a serial (one movie on all of them); "distinct" = a picture per screen key
         rig_feed.distinct = std::string(sf) == "distinct";
+        rig_feed.pattern = std::string(sf) == "pattern";   // WGS: the test pattern per key (arena_sheet.py)
+        rig_feed.flat = std::string(sf) == "flat" || flat_feed;   // WGS DIM1: one solid colour per key (env, or this job's --flat-feed over a pattern process: a serve process keeps one env)
         if (const char* cn = std::getenv("WWE_RDR_RIG_FEED_CACHE")) rig_feed.cache_n = size_t(std::atoi(cn));   // 0 = one buffer for every call
         rf::c::SetScreenFeed(&rig_feed);
       }
@@ -900,6 +1005,16 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     rdr_scene::sampler_table::g_plant_old_samplers = std::getenv("WWE_RDR_PLANT_OLD_SAMPLERS") != nullptr;   // S103 B1: the old sampler rules + fixed 8x (the rig sets it, the game reads no env)
     if (sh.serve && !std::getenv("WWE_RIG_PLANT_NO_RESET")) rf::c::ResetForJob();   // S103 PS1 F1: the arena's unions / debounce are per job (a fresh process starts empty); the built set stays when the job's signature matches
     FrontEnd& fe = *sh.fe;
+    // WGS PAR1: a served job equals a one-shot: the frame grab (key 800's picture) never carries over from an earlier job (a kept grab nested the earlier jobs' frames in the quad).
+    // --prime-grab KEY (TEST ONLY): the grab is KEY's pattern (or flat, with --flat-feed) picture, sampled through the grab's own binding, no seed frame
+    fe.DropGrabForTest();
+    if (prime_grab_key) {
+      std::vector<uint8_t> pic(size_t(256) * 128 * 4);
+      RigScreenFeed::DrawPattern(prime_grab_key, 256, 128, pic.data(), flat_feed);
+      fe.PrimeGrabForTest(pic.data(), 256, 128);
+    } else {
+      fe.PrimeGrabForTest(nullptr, 0, 0);
+    }
     fe.SetMatProbe(true);   // S103 RML (rig only): the ring mat's resolved constant blocks, printed below (rml_check.py)
     rf::ModelCache& cache = *sh.cache;
     const uint64_t uploads_base = cache.uploads();   // S103 PS1: "models made" is counted per job (a serve process keeps the cache between jobs)
@@ -1027,7 +1142,11 @@ static int RunJob(int argc, char** argv, Shared& sh) {
         } else if (stream_vp.size() == 16) report += "viewproj_compare: not run (the camera is the borrowed ViewProj, not a record camera)\n";
       }
       fe.ResetCoverage();
+      if (!depth_out.empty()) fe.KeepDepthForTest();   // SCU: the scene depth stored, read back below (TEST ONLY)
+      static DrawLists flip_lists;   // SCU --flip-check: the kept draw lists on, as the live path has them, so a list kept from the frame before the flip is exercised
+      if (stage_cull_flip && lists_n <= 0) fe.SetDrawLists(&flip_lists);
       std::vector<uint8_t> rgba;
+      uint32_t rw_ = w, rh_ = h;   // S105 A1: the read-back's real size (the logical size x the render scale)
       if (lists_n > 0) {
         // lane G's lists check (SCENE_PACING.md 4): the frame drawn N times through the kept draw lists, each repeat with the time, the camera, a light colour and one object's alpha moved
         // a little, and each time once more WITHOUT the lists: the two pictures must be byte equal. The picture written is the last lists draw.
@@ -1082,7 +1201,28 @@ static int RunJob(int argc, char** argv, Shared& sh) {
         std::fputs(line, stderr);
         report += line;
         if (rc != 0) break;
-      } else if (!fe.RenderToPixels(f, rgba, err)) { std::fprintf(stderr, "frame_rig: FAIL draw %s: %s\n", r.name.c_str(), err.c_str()); rc = 3; break; }
+      } else if (!fe.RenderToPixels(f, rgba, err, &rw_, &rh_)) { std::fprintf(stderr, "frame_rig: FAIL draw %s: %s\n", r.name.c_str(), err.c_str()); rc = 3; break; }
+      if (a1_scale != 1.f && (r.name == "whole" || have_mask)) {   // S105 A1: the sizes of the scene targets and of every live image with its kUsageScaled flag (a1_check.py reads these lines)
+        uint32_t cw = 0, ch = 0, dw = 0, dh = 0;
+        bool cs = false, ds = false;
+        fe.TargetExtent(fe.scene_colour_image(), cw, ch, cs), fe.TargetExtent(fe.scene_depth_image(), dw, dh, ds);
+        std::snprintf(line, sizeof line, "a1-sizes: scale %.4f logical %ux%u picture %ux%u colour %ux%u scaled %d depth %ux%u scaled %d\n", a1_scale, w, h, rw_, rh_, cw, ch, int(cs), dw, dh, int(ds));
+        report += line;
+        for (const rdr::Renderer::LiveImageInfo& li : renderer->LiveImageInfos()) {
+          std::snprintf(line, sizeof line, "a1-image: id %u %ux%u format %u scaled %d\n", li.id, li.width, li.height, li.format, int(li.scaled));
+          report += line;
+        }
+      }
+      if (!depth_out.empty() && (r.name == "whole" || have_mask)) {   // SCU (stage_cull_proof.py): the panel's scene depth, raw 4 bytes a texel, rows top to bottom as the picture
+        std::vector<uint8_t> raw;
+        uint32_t dw = 0, dh = 0;
+        if (!fe.ReadDepthForTest(raw, dw, dh) || dw != w || dh != h) { std::fprintf(stderr, "frame_rig: FAIL --depth-out: the scene depth could not be read back\n"); rc = 3; break; }
+        FILE* df = std::fopen(depth_out.c_str(), "wb");
+        if (!df || std::fwrite(raw.data(), 1, raw.size(), df) != raw.size()) { if (df) std::fclose(df); std::fprintf(stderr, "frame_rig: FAIL cannot write %s\n", depth_out.c_str()); rc = 3; break; }
+        std::fclose(df);
+        std::snprintf(line, sizeof line, "depth_out %s %ux%u bytes %zu\n", depth_out.c_str(), dw, dh, raw.size());
+        report += line;
+      }
       if (r.name == "whole" || have_mask) {   // S103 UPL: what the renders of this panel recorded in ApplyUploads (calls, barriers, bytes), and the screen counters (up_check.py reads both lines)
         const rdr::Renderer::UploadStats us = renderer->LastUploadStats();
         std::snprintf(line, sizeof line, "up_render %s frames %llu images %llu buffers %llu barriers %llu bytes %llu batched %d\n", r.name.c_str(), (unsigned long long)(us.total_frames - up_rf0), (unsigned long long)(us.total_images - up_ri0),
@@ -1097,7 +1237,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
         report += line;
       }
       const bool family_panel = per_family && !have_mask && r.name != "whole";
-      if (!(no_family_png && family_panel) && !scene_png::WritePngRgb(prefix + "_" + r.name + ".png", rgba, w, h)) { std::fprintf(stderr, "frame_rig: FAIL cannot write\n"); rc = 3; break; }
+      if (!(no_family_png && family_panel) && !scene_png::WritePngRgb(prefix + "_" + r.name + ".png", rgba, rw_, rh_)) { std::fprintf(stderr, "frame_rig: FAIL cannot write\n"); rc = 3; break; }
       if (!metric_refs.empty() || !cov_store_key.empty()) panel_store[r.name] = rgba;   // S103 PS1: kept for the metrics below (the repeat builds overwrite rgba)
       // covered pixels: not the clear colour (an empty panel says so)
       const uint8_t cr = uint8_t(std::lround(f.clear[0] * 255)), cg = uint8_t(std::lround(f.clear[1] * 255)), cb = uint8_t(std::lround(f.clear[2] * 255));
@@ -1204,6 +1344,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
         // the live path builds the same record every frame: no frame may add a model (VRAM) once the first has been built
         const uint64_t first = cache.uploads() - uploads_base;
         for (int k = 1; k < repeat; ++k) {
+          if (stage_cull_flip) rdr_scene::g_stage_cull.store(!rdr_scene::g_stage_cull.load(std::memory_order_relaxed), std::memory_order_relaxed);   // SCU: the switch flipped between two frames of one process (stage_cull_proof.py --flip-check)
           if (plant_leak) { assets::Model tiny; tiny.label = "leak"; cache.Put("leak#" + std::to_string(k), tiny); }  // the planted fault: a model per frame
           SceneFrame f2;
           std::vector<rf::ClassReport> r2;

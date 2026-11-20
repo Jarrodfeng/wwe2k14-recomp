@@ -12,7 +12,7 @@
 # manifest or any config\*.toml (run the PC build first, which re-runs codegen). The first build compiles all the
 # generated files (tens of minutes). The unstripped libmain.so is copied to out\android\symbols (ndk-stack).
 param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12, [switch]$KeepGoing,
-      [string]$Target = 'wwe2k14', [switch]$Cache, [string]$BuildDir = '', [switch]$StreamFree)
+      [string]$Target = 'wwe2k14', [switch]$Cache, [string]$BuildDir = '', [switch]$StreamFree, [switch]$Release)
 # S103 ANS (docs\research\s103\ANS.md): -StreamFree builds the stream-free game library (WWE2K14_KEEP_STREAM=OFF, KEEP_STREAM_RUN=ON)
 # into its own folder out\android\game-arm64-off (unless -BuildDir), so the stream APK's folder is never reconfigured.
 . "$PSScriptRoot\env.ps1"
@@ -27,6 +27,11 @@ if ($StreamFree) {
     if ((Test-Path $cc) -and (-not (Select-String -LiteralPath $cc -Pattern '^WWE2K14_KEEP_STREAM:BOOL=OFF' -Quiet) -or -not (Select-String -LiteralPath $cc -Pattern '^WWE2K14_KEEP_STREAM_RUN:BOOL=ON' -Quiet))) { $Reconfigure = [switch]$true }
     # -StreamFree keeps its own symbols in out\android\symbols-off (the stream APK's out\android\symbols is left alone)
 }
+# S105 ADEV: -Release = the player build, WWE2K14_RELEASE=ON (no "+dev" in the version line, IsDevBuild() false). Release and dev share
+# game-arm64 / game-arm64-off, so the cache is checked in BOTH directions and a mismatch forces a reconfigure.
+$relVal = if ($Release) { 'ON' } else { 'OFF' }
+$ccRel = "$build\CMakeCache.txt"
+if ((Test-Path $ccRel) -and -not (Select-String -LiteralPath $ccRel -Pattern "^WWE2K14_RELEASE:BOOL=$relVal" -Quiet)) { $Reconfigure = [switch]$true }
 $sccache = ''; $launcherOpts = @()
 if ($Cache) {
     $c = Get-Command sccache -ErrorAction SilentlyContinue
@@ -78,7 +83,7 @@ if ($Reconfigure -or -not (Test-Path "$build\CMakeCache.txt")) {
         "-DCMAKE_TOOLCHAIN_FILE=$NdkToolchainFile" -DANDROID_ABI=arm64-v8a "-DANDROID_PLATFORM=android-$MinApi" `
         -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" `
         "-DCMAKE_PREFIX_PATH=$($AndroidDirs.SdkInstall)" "-DCMAKE_FIND_ROOT_PATH=$($AndroidDirs.SdkInstall)" `
-        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" @launcherOpts @streamOpts *>&1 | Out-File $log -Append
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF "-DWWE2K14_PC_REXGLUE=$pcRexglue" "-DWWE2K14_RELEASE=$relVal" @launcherOpts @streamOpts *>&1 | Out-File $log -Append
     $code = $LASTEXITCODE
     if ($code -ne 0) {
         "configure failed (exit $code), log: $log"
@@ -101,8 +106,11 @@ if ($so) {
     else {
         $symDir = if ($StreamFree) { "$($AndroidDirs.Symbols)-off" } else { $AndroidDirs.Symbols }
         New-Item -ItemType Directory -Force $symDir | Out-Null
-        Copy-Item $so.FullName "$symDir\libmain.so" -Force
-        "libmain.so: {0:N1} MB  {1} (copy in {2})" -f ($so.Length / 1MB), $so.FullName, $symDir
+        # R2 (review_ADEV): a release keeps its symbols apart (the next dev build overwrites libmain.so here; ndk-stack of a player crash needs the release one)
+        $symDest = if ($Release) { "$symDir-release" } else { $symDir }
+        New-Item -ItemType Directory -Force $symDest | Out-Null
+        Copy-Item $so.FullName "$symDest\libmain.so" -Force
+        "libmain.so: {0:N1} MB  {1} (copy in {2})" -f ($so.Length / 1MB), $so.FullName, $symDest
     }
 } else { "libmain.so: not found under $build" }
 } finally { Exit-RunLock $lock }

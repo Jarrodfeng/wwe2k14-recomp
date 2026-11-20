@@ -1,0 +1,27 @@
+# harness: flags --wwe2k14_wm30=18 --wwe2k14_wm30_direct --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S105 lane R2 (A8 check, docs\research\s105\T2_wm30_caption.md recipe run 2): 30 Years match 18 (era 2, run 052's direct route), A on READY, then a shot every 30 frames for 2400 frames from the
+# first entrance: the entrance announcement k0 carries 5 captions over frames 0-1820 [C T2]. For match 1 change --wwe2k14_wm30=1 (4 captions over 0-2004); the fallback is goto wm30:3@moment:1090.
+# UNCONFIRMED: that the caption box draws on the player build (the A8 fault says it may not): the shots decide.
+on_fail quit
+log bench: start scene s105_chk_caption
+include boot_to_menu
+wait_file EVTDSC 1200
+# S105 T2b (docs/research/s105/T2b.md): READY is armed by the end of the match load, not by the card appearing; one A once the listener is live
+wait_state 0x83924744>80>0 0x820353E0 6000 2
+wait_state 0x83924744>4 3 9000 2
+wait_state 0x83924744>80>352 2 120 2
+wait_state 0x836F3AA4 <=0 600 1
+press_until_state A 0x83924744>80>16 !=2 4 30 6 unreadable
+log scene=card_ready
+screenshot_every 30 chk_caption
+on_fail continue
+wait_state 0x83924744>4 0 3000 2 optional
+log scene=card_freed
+wait_state 0x839297C8>380 >=2 3000 2 optional
+log scene=voice_stream_playing
+wait_frames 4800
+screenshot_every 0
+log bench: done
+wait_frames 10
+quit

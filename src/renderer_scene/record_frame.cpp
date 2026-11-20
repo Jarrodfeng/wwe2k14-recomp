@@ -2,6 +2,7 @@
 // (tools\scene\frame_rig, rsc_draw) and, with lane S's loader, the live record on the render thread (every frame: nothing here may cost a per-frame
 // allocation storm, a stderr line, a GPU upload of something already uploaded, or a deep copy of the record).
 #include "record_frame.h"
+#include "../renderer_host/wide_frame.h"   // S105 A2: TallScale (pure)
 
 #include <algorithm>
 #include <cstdio>
@@ -108,7 +109,7 @@ int ModelCache::GetNamed(const std::string& key, std::string_view pac, std::stri
   if (fl != failed_.end()) { say("load failed: " + fl->second); return -1; }
   if (!load_on_miss_) {
     ++misses_;
-    if (pending_.insert(key).second) missed_.push_back({std::string(pac), std::string(entry), variant, key, false});
+    if (pending_.insert(key).second) missed_.push_back({.pac = std::string(pac), .entry = std::string(entry), .variant = variant, .key = key, .stored = false, .gates = true});  // S105 SKB3: designated (the positional init put count_miss into bulk)
     say("not resident");
     return -1;
   }
@@ -177,7 +178,7 @@ const assets::Model* ModelCache::StoredKeyed(const std::string& key, std::string
   if (fl != failed_.end()) { say("load failed: " + fl->second); return nullptr; }
   if (!load_on_miss_) {
     if (count_miss) ++misses_;
-    if (pending_.insert(key).second) missed_.push_back({std::string(pac), std::string(entry), variant, key, true});
+    if (pending_.insert(key).second) missed_.push_back({.pac = std::string(pac), .entry = std::string(entry), .variant = variant, .key = key, .stored = true, .gates = count_miss});  // S105 SKB3
     say("not resident");
     return nullptr;
   }
@@ -383,7 +384,8 @@ bool BuildFrame(const SceneTables& t, ModelCache& models, uint32_t families, uin
     // a NEGATIVE y scale for a proper-rotation view; OFFLINE_RIG.md]. The shown camera's own near / far fields are not read: the record leaves them 0.
     const float aspect = height ? float(width) / float(height) : 16.f / 9.f;
     const float n = t.camera.near_z > 0.f ? t.camera.near_z : 10.f, f = t.camera.far_z > n ? t.camera.far_z : 300000.f;
-    const float ys = 1.f / std::tan(t.camera.fov_y_deg * 3.14159265f / 360.f), xs = ys / aspect;
+    // S105 A2: Hor+ keeps the game's vertical FOV (aspect >= 16:9: the factor is 1, byte-identical); a TALLER target keeps the game's horizontal view and shows more above and below (Vert+, wide_frame.h TallScale).
+    const float ys = (1.f / std::tan(t.camera.fov_y_deg * 3.14159265f / 360.f)) * wwe2k14::scene_host::wide_frame::TallScale(aspect), xs = ys / aspect;
     Mat4 p{};
     p.m[0] = xs, p.m[5] = -ys, p.m[10] = f / (f - n), p.m[11] = 1.f, p.m[14] = -n * f / (f - n), p.m[15] = 0.f;
     out.camera.proj = p;

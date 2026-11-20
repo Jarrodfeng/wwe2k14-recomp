@@ -350,6 +350,7 @@ inline std::string LastRun(const fs::path& files, int sdk_level = -1) {
     if (fatal.size() > 300) fatal.resize(300);
   }
   std::string line, last_step, crash, low_memory, gpu_fatal, hang, black, dark;
+  bool gpu_lost = false;  // S105 A9 (src\device_lost_message.h: the game's "GPU LOST: " black-box line, then the exit request that brought the launcher back)
   bool quit = false, running = false;
   while (std::getline(box, line)) {
     if (const size_t at = line.find("step: "); at != std::string::npos) last_step = line.substr(at + 6);
@@ -367,6 +368,7 @@ inline std::string LastRun(const fs::path& files, int sdk_level = -1) {
       black = line.substr(at2 + 7);
     }
     if (line.find("BLACK over") != std::string::npos) black.clear();
+    if (line.find("GPU LOST: ") != std::string::npos) gpu_lost = true;
   }
   const std::string froze = !hang.empty() ? "The last game run froze: " + hang + "."
                             : !black.empty() ? "The picture went black in the last game run: " + black + "."
@@ -387,6 +389,8 @@ inline std::string LastRun(const fs::path& files, int sdk_level = -1) {
     }
   }
   if (!gpu_fatal.empty()) return "The last game run ended because this phone's GPU lacks " + gpu_fatal + ".";
+  // S105 A9: the graphics driver dropped the GPU device (the game then asked for the launcher). Same words as src\device_lost_message.h kTextPhone (device_lost_wiring.py compares them).
+  if (gpu_lost) return "The graphics driver stopped. Please restart the game. If this keeps happening, send a report from the launcher.";
   if (quit) return froze;  // (a blind quit from a frozen or black game is still a frozen or black game)
   if (!fatal.empty()) {
     return "The last game run stopped on a fatal error" +

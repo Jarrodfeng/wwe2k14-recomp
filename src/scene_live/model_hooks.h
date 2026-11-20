@@ -119,6 +119,12 @@ inline void ModelLinkRead(rdr_scene::live::WrestlerContributor& w, uint32_t read
     // S103 ARM2: a load of this chosen key that does NOT build (mode 0 / 2 at the link; Create reads the same P+40 earlier in sub_82720658) has no colours of its own: an earlier load's build-step capture is dropped.
     if (verdict == attire_compose::Read::kBase && seen.chosen) attire_build::Latch::Instance().Forget(seen.chosen);
   }
+  uint32_t chosen_key = 0;
+  if (!read_word(desc + 92, chosen_key)) chosen_key = 0;   // S103 ARM2 F1: the chosen key (desc+92) names which attire's build-step colours this body may take
+  if (compose && chosen_key != 0 && attire_build::IsCreatedKey(chosen_key) && !composite_tag.empty()) {   // S105 A5d review F1: a created superstar (key < 10000, no pac) is never tagged, on this route too: a tagged failed load would be a hole
+    composite_tag.clear();   // dropped at its source (BuildTagOfLink falls back to this tag when the latch has none)
+    attire_build::Count().caw_refused.fetch_add(1, std::memory_order_relaxed);
+  }
   if (log && !composite_line.empty()) {   // S103 ARM: the census may carry the diagnosis line after a newline: one log line each
     size_t at = 0;
     while (at <= composite_line.size()) {
@@ -130,8 +136,6 @@ inline void ModelLinkRead(rdr_scene::live::WrestlerContributor& w, uint32_t read
     }
   }
   // PZF2 A2: the body's own node count, read now ([model+300], the same number the update hook reports for a live body; 0 = not readable yet: the link then adopts the first update-hook count as before)
-  uint32_t chosen_key = 0;
-  if (!read_word(desc + 92, chosen_key)) chosen_key = 0;   // S103 ARM2 F1: the chosen key (desc+92) names which attire's build-step colours this body may take
   w.SubmitModelLink(body, key, buf, size, desc, std::move(pieces), scene_inputs::GameNodeCountW(read_word, body), std::move(composite_tag), chosen_key);
 }
 

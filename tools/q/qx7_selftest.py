@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sqlite3
 import struct
 import sys
@@ -29,6 +30,7 @@ import qx7  # noqa: E402
 VT = 0x82100000
 F1, F2, F3, F4, F5, F6, F7 = 0x82001000, 0x82002000, 0x82003000, 0x82004000, 0x82005000, 0x82006000, 0x82007000
 F8, F9, F10, F11 = 0x82008000, 0x82009000, 0x8200A000, 0x8200B000
+F12, F13, F14, F15, F16 = 0x8200C000, 0x8200D000, 0x8200E000, 0x8200F000, 0x82010000
 HELPER = 0x82C78DF4
 
 
@@ -65,6 +67,12 @@ def listing():
     s += raw('sub_82009000', ['mr r31,r3', 'cmpwi cr6,r4,0', 'beq cr6,0x82009010', 'mr r31,r5', 'loc_82009010:', 'lwz r11,0(r31)', 'lwz r10,52(r11)', 'mtctr r10', 'bctrl ', 'blr'])
     s += raw('sub_8200A000', ['mr r31,r3', 'loc_8200A004:', 'lwz r11,0(r31)', 'lwz r10,52(r11)', 'mtctr r10', 'bctrl ', 'lwz r31,4(r31)', 'cmpwi cr6,r31,0', 'bne cr6,0x8200A004', 'blr'])
     s += fn('sub_8200B000', ['lwz r11,0(r4)', 'lwz r10,52(r11)', 'mtctr r10', 'bctrl ', 'blr'])
+    # QAF: the builder F7 (category = its argument r5) has three callers: two literals and a PLANTED non-literal (`mr r5,r4`); F13's only caller passes a register
+    s += fn('sub_8200C000', ['li r5,22', 'bl 0x82007000', 'blr'])
+    s += fn('sub_8200D000', ['li r5,30', 'bl 0x82007000', 'blr'])
+    s += fn('sub_8200E000', ['mr r5,r4', 'bl 0x82007000', 'blr'])
+    s += fn('sub_8200F000', ['mr r31,r3', 'addi r3,r31,8', 'mr r4,r6', 'li r5,1', 'bl 0x82c30a10', 'blr'])                                    # category = argument r6
+    s += fn('sub_82010000', ['mr r6,r4', 'bl 0x8200f000', 'blr'])                                                                              # its only caller: not a literal
     return s
 
 
@@ -79,15 +87,21 @@ def build_fixture(tmp):
     with open(imgp, 'wb') as f:
         f.write(bytes(img))
     os.environ['WWE_Q_IMAGE'] = imgp
+    os.environ['WWE_Q_GEN'] = gen        # QAF: caller_values reads the callers' listings from the fixture, not generated\
     con = sqlite3.connect(os.path.join(tmp, 'index.db'))
     con.row_factory = sqlite3.Row
-    con.executescript('''CREATE TABLE funcs(addr INTEGER PRIMARY KEY, name TEXT);
+    con.executescript('''CREATE TABLE funcs(addr INTEGER PRIMARY KEY, name TEXT, file TEXT, line INTEGER);
+        CREATE TABLE edges(src INTEGER, dst INTEGER, target INTEGER, site INTEGER, kind TEXT);
         CREATE TABLE rtti_class(td INTEGER PRIMARY KEY, mangled TEXT, name TEXT);
         CREATE TABLE rtti_vtable(vt INTEGER PRIMARY KEY, col INTEGER, td INTEGER, nslots INTEGER);
         CREATE TABLE rtti_slot(vt INTEGER, idx INTEGER, func INTEGER);''')
-    for a in (F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11):
-        con.execute('INSERT INTO funcs VALUES (?,?)', (a, f'sub_{a:08X}'))
-    con.execute("INSERT INTO funcs VALUES (?,?)", (HELPER, '__savegprlr_29'))
+    lines = listing().split('\n')
+    for a in (F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16):
+        ln = next((i + 1 for i, l in enumerate(lines) if l.startswith(f'DEFINE_REX_FUNC(sub_{a:08X})')), 0)
+        con.execute('INSERT INTO funcs VALUES (?,?,?,?)', (a, f'sub_{a:08X}', 'wwe2k14_recomp.0.cpp', ln))
+    con.execute("INSERT INTO funcs VALUES (?,?,?,?)", (HELPER, '__savegprlr_29', None, None))
+    for src, dst in ((F12, F7), (F13, F7), (F14, F7), (F16, F15)):      # each caller's `bl` is its second instruction
+        con.execute('INSERT INTO edges VALUES (?,?,?,?,?)', (src, dst, dst, src + 4, 'call'))
     con.execute("INSERT INTO rtti_class VALUES (1, '.?AVModel@Fixture@@', 'Fixture::Model')")
     con.execute('INSERT INTO rtti_vtable VALUES (?,?,?,?)', (VT, 0, 1, 3))
     con.executemany('INSERT INTO rtti_slot VALUES (?,?,?)', [(VT, 0, F1), (VT, 1, F2), (VT, 2, F8)])
@@ -140,7 +154,22 @@ def test_vcall(tmp):
           'nodes 36: category, the vtable constant stored at +16 of the object, class and slot 1 (the node is r31+16)', rn)
     ra = jrun(qx7.nodes_main, con, '--db', dbp, '--json')
     un = [x for x in ra['nodes'] if x['category'] is None]
-    check(len(ra['nodes']) == 2 and len(un) == 1 and un[0]['vtable'] is None and un[0]['category_source'], 'nodes: a category in a register is listed as unresolved (source named), its vtable `?`, nothing guessed', ra)
+    check(len(ra['nodes']) == 3 and len(un) == 2 and all(x['category_source'] for x in un), 'nodes: a category in a register is listed as unresolved (source named), nothing guessed', ra)
+    # QAF: one level of argument passing: the builder's category is the literals its callers pass
+    b = {x['func']: x for x in ra['nodes'] if x['category'] is None}
+    mixed = b['sub_82007000']
+    check(mixed['category_from_callers'] == [22, 30] and mixed['category_callers_nonliteral'] == ['sub_8200E000']
+          and mixed['category_text'] == '22|30|? (from callers; non-literal from: sub_8200E000)',
+          'nodes QAF: a category that is an ARGUMENT shows the literals its callers pass (22, 30) and names the planted non-literal caller; it is never a guessed single value', mixed)
+    only = b['sub_8200F000']
+    check(only['category_from_callers'] is None and only['category_text'] == '? (argument r6; callers: sub_82010000)',
+          'nodes QAF: callers that pass no literal give `? (argument rN; callers: ...)`, not a number', only)
+    check([x['func'] for x in jrun(qx7.nodes_main, con, '22', '--db', dbp, '--json')['nodes']] == ['sub_82007000'], 'nodes QAF: `nodes 22` includes the builder whose callers pass 22', None)
+    check(not any(x['func'] in ('sub_82007000', 'sub_8200F000') for x in jrun(qx7.nodes_main, con, '36', '--db', dbp, '--json')['nodes']), 'nodes QAF: `nodes 36` does not include a builder whose callers never pass 36', None)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        qx7.nodes_main(['--db', dbp], con)
+    check('22|30|? (from callers; non-literal from: sub_8200E000)' in buf.getvalue(), 'nodes QAF: the printed line carries it', buf.getvalue())
     # warm open does not rebuild (same file untouched)
     m1 = os.path.getmtime(dbp)
     qx7.open_vdb(dbp)
@@ -270,11 +299,31 @@ def test_refs(tmp):
     check(qx6.is_addr_arg('0x836F38D0') and not qx6.is_addr_arg('kFoo') and not qx6.is_addr_arg('0x12'), '  an address argument is told from a name', '')
 
 
+def test_map_entry():
+    """QAF item 3: the hand entry for 'which shader files draw the arena screens (keys 800-809)': found FIRST by both questions an agent asked, and none of its anchors stale"""
+    import subprocess
+    q = os.path.join(HERE, 'q.py')
+    env = dict(os.environ)
+    env.pop('WWE_Q_GEN', None)
+
+    def qq(*a):
+        return subprocess.run([sys.executable, '-I', q] + list(a), capture_output=True, text=True, timeout=120, env=env).stdout
+    for words in (('screen', 'shader'), ('screens', '800', 'shader')):
+        o = qq('map', *words)
+        first = next((l for l in o.splitlines() if l.startswith('[')), '')
+        check('which shader files draw the arena screens' in first, f'map {" ".join(words)}: the screens / shader entry is the FIRST answer', o[:600])
+    o = qq('map', 'screens', '800', 'shader')
+    check('yBG_Default.frag' in o and 'yMovieDefault.frag' in o and 'rf_c_core.cpp' in o, 'map screens 800 shader: names the scene shader, the game-draw shader and the loop', o[:900])
+    c = qq('map', '--check')
+    check('which shader files draw the arena screens' not in c, 'map --check: no stale anchor on the screens entry', c)
+
+
 def real_tree():
     if not (os.path.isdir(qx7.GEN) and os.path.exists(os.path.join(qx7.IDX, 'index.db')) and os.path.exists(qx7.IMAGE)):
         print('SKIP  real tree (generated\\ or the index is absent)')
         return
     os.environ.pop('WWE_Q_IMAGE', None)
+    os.environ.pop('WWE_Q_GEN', None)
     import subprocess
     q = os.path.join(HERE, 'q.py')
 
@@ -293,6 +342,10 @@ def real_tree():
     check('sub_826FA0B8' in o, 'REAL nodes 26: the node whose slot 1 is sub_826FA0B8', o)
     o = qq('nodes', '36')
     check('sub_827C7BD8' in o and '0x82032E64' in o, 'REAL nodes 36: includes sub_827C7BD8 (vtable 0x82032E64)', o)
+    o = qq('nodes')
+    check(re.search(r'cat 22\|30\|35\|36 \(from callers\)\s+0x[0-9A-F]+\s+sub_825B96D8', o) is not None,
+          'REAL nodes QAF: the stage builder sub_825B96D8 shows its five groups\' categories 22|30|35|36 (its callers pass them; it was `cat ?`)', o)
+    check(re.search(r'cat\s+33\s+0x[0-9A-F]+\s+sub_825ABB98.*slot1 sub_825ABC20', o) is not None, 'REAL nodes QAF: the wrestlers\' translucent node (slot 1 sub_825ABC20) is category 33', o)
     o = qq('ours', 'refs', '0x836F38D0')
     check('kCharSlotTable' in o and 'kSlotTable' in o, 'REAL q ours refs 0x836F38D0: kCharSlotTable / kSlotTable found', o[:500])
 
@@ -300,16 +353,20 @@ def real_tree():
 def main():
     import shutil
     tmp = tempfile.mkdtemp(prefix='qx7_selftest_')
+    os.environ['WWE_QVCALL_DB'] = os.path.join(tmp, 'real_vcall.db')      # S105 D (F-3): the real-tree proofs build a TEMP table, never the shared index of any checkout
     try:
         test_vcall(tmp)
         test_runlog(tmp)
         test_refs(tmp)
+        test_map_entry()
         real_tree()
     except Fail as e:
         print(f'FAIL  {e}')
         return 1
     finally:
+        os.environ.pop('WWE_QVCALL_DB', None)
         os.environ.pop('WWE_Q_IMAGE', None)
+        os.environ.pop('WWE_Q_GEN', None)
         shutil.rmtree(tmp, ignore_errors=True)
     print('ALL PASS')
     return 0

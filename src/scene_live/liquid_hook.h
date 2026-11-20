@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -47,13 +48,14 @@ enum class Plant : uint32_t {
   FirstCall,        // a second call of the same map in a frame does not replace the first                       -> unit [last call wins]
   NoVtableCheck,    // the source texture object is not checked for the wrapper class                           -> unit [texture class]
   StaleFrame,       // the row is stamped with the previous hook frame                                           -> unit [frame stamp]
+  OldPictureCap,    // the liquid picture read keeps the crowd's 4096-byte cap (S105 A12)                          -> unit [blood size]
   NoEnableCheck,    // the enable word and the empty-list early out are ignored                                  -> unit [early outs]
 };
 
 struct Stats {
   uint64_t calls = 0, recorded = 0, replaced = 0, early_out = 0, disabled = 0, unreadable = 0, late = 0, overflow = 0, frames = 0;
   uint64_t items = 0, items_undrawn = 0, items_overflow = 0, clears = 0;
-  uint64_t pictures_read = 0, picture_hits = 0, tex_class = 0, tex_null = 0, tex_fail = 0, no_object = 0;
+  uint64_t pictures_read = 0, picture_hits = 0, tex_class = 0, tex_null = 0, tex_fail = 0, tex_size = 0, no_object = 0;   // S105 A12: tex_size = a picture refused for its size alone (counted apart from tex_fail)
 };
 
 struct MapEntry {
@@ -64,7 +66,7 @@ struct FrameBuffer {
   uint64_t frame = 0;
   bool valid = false;
   std::vector<MapEntry> maps;
-  std::vector<CrowdPictureRow> pictures;   // distinct source textures of this hook frame (key = the wrapper address)
+  std::vector<std::shared_ptr<const LiquidPictureRow>> pictures;   // (shared with the hook's cache: one copy of the 32 KB row, S105 A12 F2) distinct source textures of this hook frame (key = the wrapper address)
   void Clear() { frame = 0, valid = false, maps.clear(), pictures.clear(); }
 };
 
@@ -72,8 +74,8 @@ enum class Decode : uint8_t { Ok, EarlyOut, Unreadable };
 
 // One source texture, read once and kept (a texture the game builds at character load never changes): key = (wrapper, fetch words 1 and 2).
 struct CachedPicture {
-  bool ok = false;
-  CrowdPictureRow row;
+  bool ok = false, size = false;   // size: refused by the size cap alone (S105 A12)
+  std::shared_ptr<const LiquidPictureRow> row;
 };
 
 inline uint32_t BE32(const uint8_t* p) { return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; }
@@ -94,7 +96,7 @@ class Tracker {
   template <class ReadWordFn, class ReadBytesFn, class ReadPhysFn>
   uint32_t OnNode(uint32_t map, uint64_t frame, ReadWordFn read_word, ReadBytesFn read_bytes, ReadPhysFn read_phys) {   // 0 = nothing recorded; bit 0 = a row recorded; bit 1 = the row carried the clear request (the glue consumes only then)
     MapEntry e;
-    std::vector<CrowdPictureRow> pics;   // pictures this call needs (copied into the frame's list under the lock)
+    std::vector<std::shared_ptr<const LiquidPictureRow>> pics;   // pictures this call (pointers into the cache) needs (copied into the frame's list under the lock)
     Stats local;
     const Decode d = DecodeMap(map, uint32_t(frame), read_word, read_bytes, read_phys, e, pics, local);
     std::lock_guard<std::mutex> lk(mu_);
@@ -146,7 +148,7 @@ class Tracker {
 
  private:
   template <class ReadWordFn, class ReadBytesFn, class ReadPhysFn>
-  Decode DecodeMap(uint32_t map, uint32_t frame, ReadWordFn read_word, ReadBytesFn read_bytes, ReadPhysFn read_phys, MapEntry& e, std::vector<CrowdPictureRow>& pics, Stats& st) {
+  Decode DecodeMap(uint32_t map, uint32_t frame, ReadWordFn read_word, ReadBytesFn read_bytes, ReadPhysFn read_phys, MapEntry& e, std::vector<std::shared_ptr<const LiquidPictureRow>>& pics, Stats& st) {
     e = MapEntry{};
     uint32_t enable = 0, head = 0, clear = 0, alt = 0, live = 0, w = 0, h = 0, levels = 0, ch = 0;
     if (!read_word(map + kMapEnable, enable) || !read_word(map + kMapLiveHead, head) || !read_word(map + kMapClear, clear)) return Decode::Unreadable;
@@ -200,7 +202,7 @@ class Tracker {
 
   // wrapper -> (vtable check) -> header = first non-null of +80 / +88 / +84 -> six fetch dwords -> BC block bytes. Returns the picture key (the wrapper address) or 0.
   template <class ReadWordFn, class ReadPhysFn>
-  uint32_t ReadPicture(uint32_t wrapper, ReadWordFn read_word, ReadPhysFn read_phys, std::vector<CrowdPictureRow>& pics, Stats& st) {
+  uint32_t ReadPicture(uint32_t wrapper, ReadWordFn read_word, ReadPhysFn read_phys, std::vector<std::shared_ptr<const LiquidPictureRow>>& pics, Stats& st) {
     uint32_t vt = 0, header = 0;
     if (!read_word(wrapper, vt)) return ++st.tex_fail, 0;
     if (plant != Plant::NoVtableCheck && vt != kWrapperVtableA && vt != kWrapperVtableB) return ++st.tex_class, 0;
@@ -219,7 +221,7 @@ class Tracker {
       const auto it = cache_.find(ck);
       if (it != cache_.end()) {
         ++st.picture_hits;
-        if (!it->second.ok) return ++st.tex_fail, 0;
+        if (!it->second.ok) return ++(it->second.size ? st.tex_size : st.tex_fail), 0;
         pics.push_back(it->second.row);
         return wrapper;
       }
@@ -227,10 +229,20 @@ class Tracker {
     CachedPicture cp;
     guest_tex::Shape s;
     std::vector<uint8_t> blocks;
-    if (guest_tex::ShapeOfFetch(f, s) == guest_tex::Why::Ok && guest_tex::ReadMip0(s, read_phys, blocks, kCrowdPictureBytes) == guest_tex::Why::Ok && blocks.size() <= kCrowdPictureBytes) {
-      cp.row.key = wrapper, cp.row.width = uint16_t(s.width), cp.row.height = uint16_t(s.height), cp.row.format = s.game_format, cp.row.nbytes = uint32_t(blocks.size());
-      std::memcpy(cp.row.bytes, blocks.data(), blocks.size());
-      cp.ok = CrowdPictureValid(cp.row);
+    // S105 A12: the cap is the liquid row's (256x256 DXT1: the blood decals are 4-32 KB); it was the crowd's 4096 bytes, which refused every blood texture but the chest ones.
+    const uint32_t cap = plant == Plant::OldPictureCap ? kCrowdPictureBytes : kLiquidPictureBytes;
+    if (guest_tex::ShapeOfFetch(f, s) == guest_tex::Why::Ok) {
+      const guest_tex::Why rw = guest_tex::ReadMip0(s, read_phys, blocks, cap);
+      if (rw == guest_tex::Why::Ok && blocks.size() <= cap) {
+        auto row = std::make_shared<LiquidPictureRow>();
+        row->key = wrapper, row->width = uint16_t(s.width), row->height = uint16_t(s.height), row->format = s.game_format, row->nbytes = uint32_t(blocks.size());
+        std::memcpy(row->bytes, blocks.data(), blocks.size());
+        LiquidPictureSeal(*row);   // the hash, once (review F3)
+        cp.ok = LiquidPictureValid(*row);
+        cp.row = std::move(row);
+      } else {
+        cp.size = rw == guest_tex::Why::Size;
+      }
     }
     ++st.pictures_read;
     {
@@ -238,21 +250,21 @@ class Tracker {
       if (cache_.size() >= kCacheMax) cache_.clear();   // bounded: a match has a handful of textures; a flush only costs a re-read
       cache_[ck] = cp;
     }
-    if (!cp.ok) return ++st.tex_fail, 0;
+    if (!cp.ok) return ++(cp.size ? st.tex_size : st.tex_fail), 0;
     pics.push_back(cp.row);
     return wrapper;
   }
 
-  void MergePictures(const std::vector<CrowdPictureRow>& pics) {   // mu_ held
-    for (const CrowdPictureRow& p : pics) {
+  void MergePictures(const std::vector<std::shared_ptr<const LiquidPictureRow>>& pics) {   // mu_ held
+    for (const auto& p : pics) {
       bool have = false;
-      for (const CrowdPictureRow& q : cur_.pictures) have = have || q.key == p.key;
+      for (const auto& q : cur_.pictures) have = have || q->key == p->key;
       if (!have && cur_.pictures.size() < kMaxPictures) cur_.pictures.push_back(p);
     }
   }
   void AddLocal(const Stats& l) {   // mu_ held
     stats_.items += l.items, stats_.items_undrawn += l.items_undrawn, stats_.items_overflow += l.items_overflow, stats_.clears += l.clears, stats_.disabled += l.disabled;
-    stats_.pictures_read += l.pictures_read, stats_.picture_hits += l.picture_hits, stats_.tex_class += l.tex_class, stats_.tex_null += l.tex_null, stats_.tex_fail += l.tex_fail, stats_.no_object += l.no_object;
+    stats_.pictures_read += l.pictures_read, stats_.picture_hits += l.picture_hits, stats_.tex_class += l.tex_class, stats_.tex_null += l.tex_null, stats_.tex_fail += l.tex_fail, stats_.tex_size += l.tex_size, stats_.no_object += l.no_object;
   }
   bool Advance(uint64_t frame) {   // false for a call of an already closed frame; mu_ held
     if (!cur_.valid) {

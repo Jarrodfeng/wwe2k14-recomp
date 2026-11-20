@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../launcher/disc_image.h"  // launcher::GameFiles
+#include "slot_retire.h"  // S105 IMP: importer::slots::NeverUsedFirst / MergeRetired
 
 namespace importer {
 
@@ -55,6 +56,9 @@ inline constexpr int kMaxStars = 103;  // the mod pack's slot cap (397..499)
 
 struct PackState {
   std::vector<Superstar> stars;
+  // S105 IMP: slots an import held once and no longer holds (pack.json "retired"): a save may still hold his old row there, so a
+  // new import is given a never-used slot first (src\importer\slot_retire.h). Kept by SavePack / BuildPack; read by LoadPack.
+  std::vector<int> retired;
   bool enabled = true;       // kept in pack.json for the UI only: the game's one switch is the launcher's USE MY SUPERSTARS
   bool needs_build = false;  // the list changed since the last BuildPack (SavePack keeps the flag; BuildPack clears it)
 };
@@ -62,6 +66,10 @@ struct PackState {
 // Reads <mods>\superstars\pack.json (+ the portraits in renders\). A missing manifest = an empty state, true. needs_build is
 // also set when there are characters but no built pack.
 bool LoadPack(const std::string& mods_dir, PackState& out, std::string& err);
+// S105 IMP: the retired slots on disk now (pack.json), for a UI that just saved; empty when there is no manifest.
+std::vector<int> RetiredSlots(const std::string& mods_dir);
+// S105 IMP review M1: the slots of the last BUILT pack (superstars.txt); only a slot in this list is retired when it is removed.
+std::vector<int> BuiltPackSlots(const std::string& mods_dir);
 // Writes pack.json + renders\ WITHOUT building (the list as the UI has it: REMOVE, an edit not built yet).
 bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err);
 // The DLC the game gets, as everywhere below (Session 101): dlc_dir = the player's DLC folder, "" when USE MY DLC is off; dlc_off = the

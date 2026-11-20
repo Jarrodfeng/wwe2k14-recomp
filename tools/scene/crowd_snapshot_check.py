@@ -57,6 +57,7 @@ PLANTS = {
     'single_forward_any_class': 'latch.single_forward_foreign',   # S103 C1 (R15; run 32: 0x7964668E / 0x79646642 fault pairs)
     'single_data_count_skips_block': 'latch.single_data_object',   # S103 SN (run 34: 52396 shown holders `forward`)
     'single_screen_ignored': 'latch.single_screen_box',
+    'screen_scale_ignored': 'latch.single_screen_wide',   # S105 A2: the screen tests' widening scale (also latch.floor_screen_wide)
     'single_lod_as_type': 'latch.single_lod_map',
     'floor_lod_group_ignored': 'latch.floor_lod_group',
     'unread_hole_as_other': 'latch.unread_by_hole',

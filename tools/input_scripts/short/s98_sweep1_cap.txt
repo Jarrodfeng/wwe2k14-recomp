@@ -1,0 +1,129 @@
+# Session 98 FULL-SWEEP capture (LESSONS: one run per kind of content). 6-man tag, SmackDown (arena 0, raised stage):
+# John Cena, Alberto Del Rio, The Rock vs Randy Orton, Daniel Bryan, Kane; seed 1. Per entrant slot k (0-5): RenderDoc +
+# probe (2 frames) + a distinct screenshot at stage (cue 5 +400), ramp (cue 10 +300), ring (cue 20 +122); a probe + shot at
+# ring-in (cue 15 +300); then 2 match moments. Waits time out and continue (on_fail continue) if an entrant has no such cue.
+on_fail continue
+wait_state entrance_step_0 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s0_stage
+screenshot sw_s0_stage
+wait_state entrance_step_0 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s0_ramp
+screenshot sw_s0_ramp
+wait_state entrance_step_0 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s0_ringin
+wait_state entrance_step_0 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s0_ring
+screenshot sw_s0_ring
+wait_state entrance_step_1 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s1_stage
+screenshot sw_s1_stage
+wait_state entrance_step_1 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s1_ramp
+screenshot sw_s1_ramp
+wait_state entrance_step_1 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s1_ringin
+wait_state entrance_step_1 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s1_ring
+screenshot sw_s1_ring
+wait_state entrance_step_2 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s2_stage
+screenshot sw_s2_stage
+wait_state entrance_step_2 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s2_ramp
+screenshot sw_s2_ramp
+wait_state entrance_step_2 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s2_ringin
+wait_state entrance_step_2 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s2_ring
+screenshot sw_s2_ring
+wait_state entrance_step_3 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s3_stage
+screenshot sw_s3_stage
+wait_state entrance_step_3 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s3_ramp
+screenshot sw_s3_ramp
+wait_state entrance_step_3 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s3_ringin
+wait_state entrance_step_3 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s3_ring
+screenshot sw_s3_ring
+wait_state entrance_step_4 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s4_stage
+screenshot sw_s4_stage
+wait_state entrance_step_4 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s4_ramp
+screenshot sw_s4_ramp
+wait_state entrance_step_4 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s4_ringin
+wait_state entrance_step_4 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s4_ring
+screenshot sw_s4_ring
+wait_state entrance_step_5 5 9000
+wait_frames 400
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s5_stage
+screenshot sw_s5_stage
+wait_state entrance_step_5 10 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s5_ramp
+screenshot sw_s5_ramp
+wait_state entrance_step_5 15 9000
+wait_frames 300
+cvar gpu_debug_draw_probe_frames 2
+screenshot sw_s5_ringin
+wait_state entrance_step_5 20 9000
+wait_frames 122
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\s5_ring
+screenshot sw_s5_ring
+wait_frames 2400
+wait_frames 600
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\match_a
+screenshot sw_match_a
+wait_frames 900
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\sweep1\match_b
+screenshot sw_match_b
+wait_frames 60

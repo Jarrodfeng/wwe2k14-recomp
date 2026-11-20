@@ -20,6 +20,8 @@ PLANTS = {
     # S103 C6: the two address misreads of run 26 (lis 1 | ori; lis -31889 = 0x836F)
     'cv_desc_low': 'ring.cv_values', 'skirt_glob_wrong': 'ring.skirt_visible',
     # S103 RLB: the rope LOD rule (RLD.md): the 500 distance, the 20 degree angle
+    # S105 C4: the post / cover far test reads [0x82012B14] (3000): a guest value of 1e9 means nothing is far, so the far-test check must fail
+    'lod_dist': 'ring.lod_far_test',
     'lod_dist50': 'ring.lod_distance', 'lod_no_angle': 'ring.lod_angle', 'lod_nan_low': 'ring.lod_nan', 'lod_pair_call': 'ring.lod_pairs',
 }
 

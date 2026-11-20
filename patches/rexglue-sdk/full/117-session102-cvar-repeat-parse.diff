@@ -1,8 +1,9 @@
-# ReXGlue SDK changes for WWE 2K14 (session102-cvar-repeat-parse): 1903e00d..98851b18 on wwe2k14-local
-# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits:
-#  98851b1 S102 cvar-parse: repeated string switch takes the last value (CLI11 Throw policy dropped every later cvar); parse error logged in FinalizeInit
+# ReXGlue SDK changes for WWE 2K14 (session102-cvar-repeat-parse): 1903e00da44e..98851b186b7d on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  98851b18 S102 cvar-parse: repeated string switch takes the last value (CLI11 Throw policy dropped every later cvar); parse error logged in FinalizeInit
+
 diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
-index 965dd10f..7fe5f80b 100644
+index 965dd10f001c342f5bfc6ef625ee5f925665ff72..7fe5f80b2114929f765d8a99e5c0c5b3ec7235f3 100644
 --- a/src/core/cvar.cpp
 +++ b/src/core/cvar.cpp
 @@ -37,6 +37,8 @@ std::mutex g_mutex;
@@ -51,7 +52,7 @@ index 965dd10f..7fe5f80b 100644
      (void)values;
      REXLOG_WARN("Config: unknown cvar '{}'", name);
 diff --git a/tests/unit/core/cvar_test.cpp b/tests/unit/core/cvar_test.cpp
-index 03a12cb3..98680fd7 100644
+index 03a12cb3336ff4efd0a48210b42e3102cd3fe540..98680fd7d707245fe4c1d7083d87dec292555c48 100644
 --- a/tests/unit/core/cvar_test.cpp
 +++ b/tests/unit/core/cvar_test.cpp
 @@ -752,3 +752,24 @@ TEST_CASE("cvar InvokeCommand dispatches commands", "[cvar]") {

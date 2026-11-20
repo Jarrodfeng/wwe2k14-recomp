@@ -57,6 +57,9 @@
 #pragma once
 
 #include "thread_name.h"  // S102 H1
+#include "guest_read.h"  // S105 A6W2: GuestWordReadable
+#include "guest_stack_walk.h"  // S105 A6W2: WalkGuestStack
+#include "load_watch.h"  // S105 A6W2: g_load_watch_stop (the walk stops at teardown)
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -838,6 +841,7 @@ inline std::vector<FlightGuestThread> FlightGuestThreads() {
   if (!kernel || !kernel->object_table()) return out;
   auto* memory = REX_KERNEL_MEMORY();
   for (auto& thread : kernel->object_table()->GetObjectsByType<rex::system::XThread>()) {
+    if (load_probe::g_load_watch_stop.load(std::memory_order_relaxed)) break;  // S105 A6W2: teardown (a late helper must not walk a gone guest)
     if (!thread || !thread->is_guest_thread()) continue;
     FlightGuestThread g;
     g.guest_tid = thread->thread_id();
@@ -847,18 +851,22 @@ inline std::vector<FlightGuestThread> FlightGuestThreads() {
     const PPCContext* c = ts ? ts->context() : nullptr;
     if (c && thread->pcr_ptr()) {
       auto* pcr = memory->TranslateVirtual<rex::system::X_KPCR*>(thread->pcr_ptr());
+      if (!GuestWordReadable(thread->pcr_ptr() & ~3u, pcr)) {  // S105 A6W2: the KPCR page itself is checked
+        g.stack = "(KPCR unreadable)";
+        out.push_back(std::move(g));
+        continue;
+      }
       const uint32_t stack_high = pcr->stack_base_ptr, stack_low = pcr->stack_end_ptr;
       g.stack = fmt::format("lr={}  r1={:08X} (stack {:08X}-{:08X})", g_flight_names.Guest(uint32_t(c->lr)),
                             c->r1.u32, stack_low, stack_high);
-      uint32_t sp = c->r1.u32;
-      for (int depth = 0; depth < 24; ++depth) {
-        if (sp < stack_low || sp + 4 > stack_high) break;
-        const uint32_t caller_sp = rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual(sp));
-        if (caller_sp <= sp || caller_sp > stack_high || caller_sp - 8 < stack_low) break;
-        g.stack += fmt::format("\n      <- {}", g_flight_names.Guest(rex::memory::load_and_swap<uint32_t>(
-                                                    memory->TranslateVirtual(caller_sp - 8))));
-        sp = caller_sp;
-      }
+      // S105 A6W2: every guest word read is table-checked (PC run 064 crashed here on an unmapped stack page); a bad pointer ends the walk.
+      auto read = [&](uint32_t a, uint32_t* v) {
+        if ((a & 3) != 0 || a < 0x1000) return false;
+        const void* host = memory->TranslateVirtual(a);
+        if (!host || !GuestWordReadable(a, host) || !GuestWordCommitted(a)) return false;
+        return GuestLoadBe32Guarded(host, v);  // the load under __try on Windows; off Windows the table check is the only guard
+      };
+      g.stack += FormatGuestWalk(c->r1.u32, stack_low, stack_high, 24, read, [](uint32_t a) { return g_flight_names.Guest(a); });
     }
     out.push_back(std::move(g));
   }

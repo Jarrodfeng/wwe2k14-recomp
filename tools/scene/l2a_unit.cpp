@@ -120,8 +120,8 @@ static void SiteTable() {
   }
   Check(q2d::kOp19SiteCount == 36 && fns.size() == 18 && ascending && found, "SITE TABLE", "36 sites in 18 functions, ascending, each found by SiteOf");
   Check(classified, "SITE TABLE", "every site classifies to its table class (none unclassified)");
-  Check(rows == 7 && leaf == 12 && part == 3 && unk == 14 && row_kinds, "SITE TABLE",
-        "rows 7 (= KindOfSite's kinds; S103 P3b: + 0x82BC484C, 0x82BC8BEC; S103 SVY: + 0x82BC799C), 2D leaves not recorded 12, particles 3, [U] 14: got " + std::to_string(rows) + " / " + std::to_string(leaf) + " / " + std::to_string(part) + " / " + std::to_string(unk));
+  Check(rows == 8 && leaf == 11 && part == 3 && unk == 14 && row_kinds, "SITE TABLE",
+        "rows 8 (= KindOfSite's kinds; S103 P3b: + 0x82BC484C, 0x82BC8BEC; S103 SVY: + 0x82BC799C; S105 A8: + 0x82BC4404), 2D leaves not recorded 11, particles 3, [U] 14: got " + std::to_string(rows) + " / " + std::to_string(leaf) + " / " + std::to_string(part) + " / " + std::to_string(unk));
   bool scope_kinds = true;   // S103 P3c review F2: the scope kind each Row site's leaf opens: its own kind, except 0x82BC8BEC (sub_82BC8180: the glyph-kind scope)
   for (size_t i = 0; i < q2d::kOp19SiteCount; ++i) {
     const q2d::Op19Site& s = q2d::kOp19Sites[i];
@@ -136,7 +136,7 @@ static void SiteTable() {
   q2d::Counters c;
   q2d::Scope s;
   const auto unscoped = [&](uint32_t site) { q2d::OnOp19(s, m, store, 7, site, 13, 4, 20, 0x40002000u, c); };
-  unscoped(0x82BC4404u);   // T_RectColor (a 2D leaf this record does not make rows of)
+  unscoped(0x82BC4404u);   // T_RectColor (S105 A8: a Row site now: with no scope open it is a hole like every Row site, review F3)
   unscoped(0x82756E98u);   // sub_827568E0 [U]
   unscoped(0x82A0DA58u);   // particles: lane F's
   unscoped(0x82BC3EE8u);   // a row site with no scope: a hole too (review F3: it makes no row)

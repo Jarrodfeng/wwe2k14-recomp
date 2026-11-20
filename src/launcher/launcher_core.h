@@ -41,9 +41,11 @@
 #include "disc_image.h"
 #include "../gfx_settings.h"  // Session 28: the graphics settings mapping the game shares
 #include "../dlc_catalog.h"   // Session 32: DLC packs (finding them, reading their catalogs), shared with the game
+#include "../stream_free_target.h"  // S105 A1b: kStreamFreeTarget
 
 namespace launcher {
 
+using wwe2k14::kStreamFreeTarget;  // S105 A1b
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -1204,7 +1206,8 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   // DLSS / DLAA (Jarrod, Sessions 25 and 28: not a player choice).
   {
     wwe2k14::gfxs::Choice c;
-    c.upscale = s.upscale, c.resolution = s.resolution, c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
+    c.upscale = kStreamFreeTarget ? 0 : s.upscale;  // S105 A1b: the stream-free build has no DLSS / DLAA / FSR path (start_settings.cpp refuses it); the control is hidden, a saved choice is not sent
+    c.resolution = s.resolution; c.frame_rate = s.frame_rate, c.refresh_hz = s.refresh_hz;
     c.draw_height = s.draw_height;  // Session 54
     c.original_look = s.original_look;
     c.texture_filter = s.texture_filter;  // Session 33
@@ -1215,7 +1218,8 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     c.display_720p = s.display_720p;      // Session 95
     c.renderer = s.renderer;              // Session 37 (Session 61: NATIVE, or the performance test's own run)
     // Session 61: the advanced flag --wwe2k14_renderer=light|accurate in Extra flags picks the renderer's flags.
-    if (const int r = wwe2k14::gfxs::RendererFromFlags(s.extra); r >= 0) c.renderer = r;
+    // S105 A1b: not in the stream-free build (it pins the renderer; LIGHT / ACCURATE are SDK paths that do not run there).
+    if (!kStreamFreeTarget) if (const int r = wwe2k14::gfxs::RendererFromFlags(s.extra); r >= 0) c.renderer = r;
     // Session 93: the quality tier (AUTO -> LOW on integrated graphics). The note for the game's log has no spaces or
     // quotes (the harness mode quotes the whole flag list: LOW_auto_integrated); the game prints it readable. The original
     // look and the LIGHT / ACCURATE renderers do nothing with LOW: then the note says STANDARD.

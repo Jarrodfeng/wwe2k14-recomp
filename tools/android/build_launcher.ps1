@@ -5,7 +5,10 @@
 # into it from the SDK source tree (the first build takes a minute or two).
 #   pwsh -File tools\android\build_launcher.ps1 -Target pc
 #   pwsh -File tools\android\build_launcher.ps1 -Target android [-Reconfigure]
-param([ValidateSet('pc', 'android')][string]$Target = 'pc', [switch]$Reconfigure, [int]$Jobs = 16)
+#   -StreamFree (S105 A1b): the launcher of a stream-free game (WWE2K14_KEEP_STREAM=OFF, src\stream_free_target.h): no PREPARE SHADERS precompile,
+#   no DLSS / FSR, the advanced renderer flag ignored. build_all.ps1 passes it with the game library's -StreamFree (a -Release implies both). A change of
+#   this switch reconfigures by itself (the same build tree).
+param([ValidateSet('pc', 'android')][string]$Target = 'pc', [switch]$Reconfigure, [int]$Jobs = 16, [switch]$StreamFree)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $src = "$root\src\launcher_mobile"
@@ -31,8 +34,11 @@ $lock = Enter-RunLock -Name "build_launcher.ps1 $Target"
 try {
     $t0 = Get-Date
     "== launcher build $Target, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $(git -C $root log --oneline -1)" | Out-File $log
-    if ($Reconfigure -or -not (Test-Path "$build\CMakeCache.txt")) {
-        & $cmake -S $src -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release @cfg *>&1 | Out-File $log -Append
+    $streamVal = if ($StreamFree) { 'OFF' } else { 'ON' }
+    $cacheFile = "$build\CMakeCache.txt"
+    $cacheWrong = (Test-Path $cacheFile) -and -not (Select-String -LiteralPath $cacheFile -Pattern "^WWE2K14_KEEP_STREAM:BOOL=$streamVal" -Quiet)
+    if ($Reconfigure -or $cacheWrong -or -not (Test-Path $cacheFile)) {
+        & $cmake -S $src -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DWWE2K14_KEEP_STREAM=$streamVal" @cfg *>&1 | Out-File $log -Append
         if ($LASTEXITCODE -ne 0) {
             "configure failed (exit $LASTEXITCODE), log: $log"
             Get-Content $log | Select-String 'CMake Error|error' -Context 0, 3 | Select-Object -First 15 | ForEach-Object { $_.ToString() }

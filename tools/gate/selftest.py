@@ -1,3 +1,4 @@
+# entry: cmake_state
 # Selftest for the gate's exe handling (Session 101 lane 163). py -I tools\gate\selftest.py
 # Plants, all in a temp tree with a fake exe and a fake build script (the real build outputs are never touched, no game, no window):
 #   1 stale exe is rebuilt once         2 fresh exe is not rebuilt          3 exe held by a running process -> named BUILD failure (pid + command line)
@@ -5,7 +6,7 @@
 #   6 nested build / link error printed by a check -> BUILD; an ordinary failing check stays FAIL
 #   7 past-bug re-find (movie_ours, 2026-11-12): a --no-build style check on an exe older than the source FAILs under the old gate (--no-exes) and
 #     PASSes under the new one, which rebuilds first.
-import json, os, shutil, subprocess, sys, tempfile, threading, time
+import json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -192,10 +193,100 @@ def main():
         new_line = [l for l in out_new.splitlines() if 'movie.proof' in l or l.startswith('[gate]')]
         check(rc_old == 1 and old_line and old_line[0].startswith('FAIL'), f'7a old behaviour: check FAILs on the stale exe ({old_line[:1]})')
         check(rc_new == 0 and any('built fresh out/tool.exe' in l for l in new_line) and any(l.startswith('PASS') for l in new_line), f'7b new behaviour: rebuilt first, check PASSes ({new_line})')
+        s105_rows(base)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print('selftest: ' + ('PASS' if not FAILS else 'FAIL (%d)' % len(FAILS)))
     return 1 if FAILS else 0
+
+
+def s105_rows(base):
+    """S105 E rows. entry: game_syntax.cmake_content_unchanged_since / cmake_state (row 8), gate.py main verdict + exit code, gate_wait.summarise (row 9)."""
+    import game_syntax as gs
+    env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+    git = lambda d, *a: subprocess.run(['git', '-C', str(d)] + list(a), env=env, capture_output=True, text=True)
+    # 8 NEEDS-MAIN stamp: content, not mtime (entry: game_syntax.cmake_state, the function --changed calls)
+    main = Path(base) / 'gs_main'
+    (main / 'out' / 'b').mkdir(parents=True)
+    (main / 'CMakeLists.txt').write_text('project(x)\n')
+    (main / 'CMakePresets.json').write_text('{}')
+    git(main, 'init', '-q')
+    git(main, 'add', '-A')
+    subprocess.run(['git', '-C', str(main), 'commit', '-q', '-m', 'one'], env=dict(env, GIT_COMMITTER_DATE='2020-01-01T00:00:00'), capture_output=True)   # committer time = what %ct reads: older than the ninja
+    ninja = main / 'out' / 'b' / 'build.ninja'
+    ninja.write_text('n')
+    gs.BUILD_DIRS['on'] = 'out/b'
+    t_old = time.time()
+    os.utime(ninja, (t_old, t_old))
+    time.sleep(2.2)   # the reflog has one-second resolution: later steps must land in a later second
+    new = time.time() + 5
+    os.utime(main / 'CMakeLists.txt', (new, new))   # touched: newer mtime, same bytes
+    check(gs.cmake_state(str(main), str(main), ['on']) == [], '8a PLANTED twin: CMakeLists.txt mtime newer than build.ninja, content unchanged = no NEEDS-MAIN reason')
+    (main / 'CMakeLists.txt').write_text('project(x)\nadd_subdirectory(y)\n')   # content changed (uncommitted)
+    r = gs.cmake_state(str(main), str(main), ['on'])
+    check(any('build.ninja is older' in x for x in r), f'8b content changed after the ninja was written = NEEDS-MAIN reason kept ({r})')
+    git(main, 'add', '-A')
+    git(main, 'commit', '-q', '-m', 'two')   # committed now: its commit time is newer than the ninja
+    r = gs.cmake_state(str(main), str(main), ['on'])
+    check(any('build.ninja is older' in x for x in r), f'8c content changed and committed after the ninja was written = NEEDS-MAIN reason kept ({r})')
+    # 8d review 1 (the unsafe direction): CMakeLists.txt changed on a BRANCH (commit time T1), build.ninja written at T2 > T1 from a checkout WITHOUT that change, the branch merged
+    # at T3 > T2 (`git log -1 -- file` skips the merge and reports T1 < T2: "unchanged"): the alarm must stay.
+    m2 = Path(base) / 'gs_main2'
+    (m2 / 'out' / 'b').mkdir(parents=True)
+    (m2 / 'CMakeLists.txt').write_text('project(x)\n')
+    git(m2, 'init', '-q')
+    git(m2, 'add', '-A')
+    git(m2, 'commit', '-q', '-m', 'one')
+    git(m2, 'checkout', '-q', '-b', 'side')
+    (m2 / 'CMakeLists.txt').write_text('project(x)\nadd_subdirectory(y)\n')
+    git(m2, 'commit', '-q', '-am', 'side change')
+    git(m2, 'checkout', '-q', '-')
+    ninja2 = m2 / 'out' / 'b' / 'build.ninja'
+    ninja2.write_text('n')
+    t_n = time.time()
+    os.utime(ninja2, (t_n, t_n))
+    time.sleep(2.2)
+    git(m2, 'merge', '-q', '--no-ff', '-m', 'merge side', 'side')
+    later = time.time() + 5
+    os.utime(m2 / 'CMakeLists.txt', (later, later))
+    r = gs.cmake_state(str(m2), str(m2), ['on'])
+    check(any('build.ninja is older' in x for x in r), f'8d PLANTED: CMakeLists changed on a branch, merged AFTER build.ninja was written = NEEDS-MAIN reason kept ({r})')
+    # 9 BLOCKED verdict: a check whose program cannot start is BLOCKED (own word, exit 3), a real failure stays FAIL (exit 1)
+    root = Path(base) / 'blk'
+    (root / 'tools' / 'gate' / 'lanes').mkdir(parents=True)
+    (root / 'ok.py').write_text('print("PASS")')
+    (root / 'bad.py').write_text('print("FAIL wrong"); raise SystemExit(1)')
+    lane = {'checks': [{'name': 'b.nostart', 'cmd': ['no_such_program_s105e.exe'], 'timeout_s': 60, 'tier': 'cheap', 'gpu': False},
+                       {'name': 'b.ok', 'cmd': [PY, '-I', 'ok.py'], 'timeout_s': 60, 'tier': 'cheap', 'gpu': False}]}
+    (root / 'tools' / 'gate' / 'lanes' / 'b.json').write_text(json.dumps(lane))
+    rc, out = gate_run(root)
+    rows = {l.split()[2]: l.split()[0] for l in out.splitlines() if l.split()[:1] and l.split()[0] in ('PASS', 'FAIL', 'BLOCKED', 'BUILD')}
+    check(rc == 3 and rows.get('b.nostart') == 'BLOCKED' and 'of them BLOCKED' in out, f'9a a program that cannot start = BLOCKED row, summary names it, gate exit 3 ({rc}, {rows})')
+    lane['checks'].append({'name': 'b.real', 'cmd': [PY, '-I', 'bad.py'], 'timeout_s': 60, 'tier': 'cheap', 'gpu': False})
+    (root / 'tools' / 'gate' / 'lanes' / 'b.json').write_text(json.dumps(lane))
+    rc, out = gate_run(root)
+    check(rc == 1 and re.search(r'^FAIL\s+\S+\s+b\.real', out, re.M), f'9b a real failure beside a BLOCKED row is still FAIL, exit 1 ({rc})')
+    # gate_wait: BLOCKED-only gate = 3, never 1; with a FAIL = 1
+    d = Path(base) / 'gw'
+    d.mkdir()
+    log = d / 'g.log'
+    wait = [PY, '-I', str(HERE / 'gate_wait.py'), '--attach', str(log), '--timeout', '20']
+    log.write_text('PASS  l  a  1.0 s  x\nBLOCKED  l  b  0.0 s  cannot start\ngate: 1 of 2 pass or skip, 1 fail (1 of them BLOCKED: the check could not run, not a verdict on the code), 1.0 s wall\n')
+    p = subprocess.run(wait, capture_output=True, text=True)
+    check(p.returncode == 3 and 'BLOCKED  l  b' in p.stdout, f'9c gate_wait on a BLOCKED-only gate exits 3 and prints the BLOCKED row ({p.returncode})')
+    log.write_text('BLOCKED  l  b  0.0 s  x\nFAIL  l  c  1.0 s  boom\ngate: 0 of 2 pass or skip, 2 fail (1 of them BLOCKED: x), 1.0 s wall\n')
+    p = subprocess.run(wait, capture_output=True, text=True)
+    check(p.returncode == 1, f'9d gate_wait: a FAIL beside a BLOCKED row exits 1 ({p.returncode})')
+    # 10 item 7: a twin that was caught ends on PLANTED-OK, never on an inner FAIL line; one that was NOT caught fails and does not say PLANTED-OK (entry: tools/release/expect_fail.py main)
+    ef = str(HERE.parent / 'release' / 'expect_fail.py')
+    p = subprocess.run([PY, '-I', ef, PY, '-c', 'print("FAIL inner: the planted fault"); raise SystemExit(1)'], capture_output=True, text=True)
+    last = (p.stdout.strip().splitlines() or [''])[-1]
+    check(p.returncode == 0 and last.startswith('PLANTED-OK:'), f'10a a caught twin (inner prints FAIL, exits 1): wrapper exit 0, LAST line PLANTED-OK ({p.returncode}: {last[:70]})')
+    p = subprocess.run([PY, '-I', ef, PY, '-c', 'print("PASS inner")'], capture_output=True, text=True)
+    check(p.returncode == 1 and 'PLANTED-OK' not in p.stdout, f'10b a twin that was NOT caught (inner exits 0): wrapper exit 1, no PLANTED-OK ({p.returncode})')
+    p = subprocess.run([PY, '-I', ef, PY, '-c', 'raise RuntimeError("x")'], capture_output=True, text=True)
+    check(p.returncode == 1 and 'PLANTED-OK' not in p.stdout, f'10c a twin that CRASHED (traceback, exit 1) is not a caught fault: wrapper exit 1, no PLANTED-OK ({p.returncode})')
+    print('PLANTED-OK: touched-not-changed CMakeLists is not NEEDS-MAIN; changed content still is; a could-not-run check is BLOCKED (exit 3), never FAIL; a real FAIL stays exit 1')
 
 
 def ctypes_void(h):

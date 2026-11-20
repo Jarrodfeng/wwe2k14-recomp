@@ -135,12 +135,16 @@ def main():
         bad = [r for r in use if bool(r[4] & {'mask', 'specular'}) != HIGHLIGHT[a.check](r[2]) and (r[0], r[1]) not in known]
         print('check %s: %d of %d yBG / yProp_Default meshes match (%d wrong, %d named exceptions)%s' % (a.check, len(use) - len(bad), len(use), len(bad), len(known), ''.join(chr(10) + '   WRONG %d/%d %s lev %.2f game %s' % (r[0], r[1], r[2]['tex'], r[2]['lev'], ','.join(sorted(r[4]))) for r in bad[:8])))
         if a.expect_fail:
+            if bad:
+                print('PLANTED-OK: the planted rule %s was caught (%d meshes it gets wrong)' % (a.check, len(bad)))   # S105 E
             sys.exit(0 if bad else 1)
         sys.exit(1 if bad or not use else 0)
     if a.check:
         bad = [r for r in rows if ('mask' in r[4]) != RULES[a.check](r[2])]
         print('check %s: %d of %d meshes match (%d wrong)%s' % (a.check, len(rows) - len(bad), len(rows), len(bad), ''.join(chr(10) + '   WRONG %d/%d %s' % (r[0], r[1], r[2]['tex']) for r in bad[:8])))
         if a.expect_fail:
+            if bad:
+                print('PLANTED-OK: the planted rule %s was caught (%d meshes it gets wrong)' % (a.check, len(bad)))   # S105 E
             sys.exit(0 if bad else 1)
         sys.exit(1 if bad or not rows else 0)
     if a.list:

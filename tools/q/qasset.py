@@ -2,8 +2,8 @@
 
 Probes kept writing scratch pac readers (a texture's alpha histogram, a bgEtc group, the evtobj / bgEtc ids). This indexes every pac of the player's own game
 files ONCE, read-only, with our existing readers (tools\\wm30\\pac.py: XCTD / BPE / ZLIB / PACH walk; tools\\arena\\arena_files.py: the JBOY mesh + material
-parameter reader and the stage-slot flag text), into out\\harness\\index\\asset.db (names, ids, counts and alpha statistics ONLY; never a byte of game data, never
-committed; the player's machine builds it from the player's files, like sdk.db / index.db). It is built and refreshed by itself on use (a stat walk of the
+parameter reader and the stage-slot flag text), into out\\harness\\index\\asset.s<SCHEMA>.db (the schema is in the file name: a q of another schema never touches this file; names, ids, counts and alpha statistics ONLY; never a byte of game data, never
+committed; the player's machine builds it from the player's files, like sdk.s<SCHEMA>.db / index.db). It is built and refreshed by itself on use (a stat walk of the
 pacs; only changed pacs are re-read); `q asset update` forces it.
 
     py tools/q/q.py asset find WORDS...            names across all levels: pac paths, PACH virtual paths (/STG/CAGE), model node names, material effects /
@@ -18,8 +18,12 @@ pacs; only changed pacs are re-read); `q asset update` forces it.
     py tools/q/q.py asset id evtobj|bgetc|weapon N an id -> its PACH and entries (evtobj SOBJ / BOBJ / SPMT ids; bgEtc PACH number; stage weapon key N in
                                                    bgEtc WPON / WPBS / WPO2)
     py tools/q/q.py asset slot ARENA [N]           the arena slot flags of bgNN.pac (the 50001 text)
+    py tools/q/q.py asset cull [PATH [PACH [ENTRY]]] [--list] [--set|--clear]  the mesh record's cull word (+0x8C, bit 0x2 = the game draws the mesh one-sided) and technique word (+0x90):
+                                                   no PATH = one row per pac family (meshes, bit set / clear, the word values); PATH (a pac) = per PACH, PACH = per entry,
+                                                   ENTRY = per mesh; arena bg pacs also split stage slots (keys 0..399) from other keys; --list one line per mesh
     py tools/q/q.py asset info                     age, counts, pacs that could not be read
     py tools/q/q.py asset update [-j N] [--full]   force a refresh
+A builder / tester points q at its OWN index file with WWE_QASSET_DB=<a file under your worktree's out\\> (never the shared one); a rebuild prints which file it writes.
 Every answer's first line says how old the index is and how many pacs were re-read just now. At most 4 workers (fewer when free RAM is low), one pac per worker at a
 time. In a worktree the game files and the db are the MAIN checkout's.
 """
@@ -37,7 +41,7 @@ sys.path.insert(0, HERE)
 for _d in ('wm30', 'arena', 'filecensus'):
     sys.path.insert(0, os.path.join(ROOT, 'tools', _d))
 
-SCHEMA = 3
+SCHEMA = 4      # 4 (S103 QAC): material rows carry cull_word / technique_word / pal0 (the mesh record's +0x8C / +0x90 words and the first bone-palette node index)
 MAX_JOBS = 4
 # pacs whose entries are listed (PACH / key / size) but not decoded: motion / sound / movie data and parameter tables (m3), no models or textures (measured: decoding them is
 # >40 % of the cold build for nothing a probe asks). Their entries show as kind 'raw'. m2.pac IS decoded: it holds the weapon models (p0 key 1000 / id, LoadM2Weapon).
@@ -59,11 +63,27 @@ def main_root():
     return os.path.dirname(game_dir())
 
 
+def db_name():
+    """the index file's name carries the schema (asset.s4.db): a q of another schema uses ANOTHER file and never opens, wipes or rebuilds this one (S103 QAC: a schema-3 q and a schema-4 q
+    wiped each other's db, silently, ~6 min each time). The next SCHEMA bump gets a new name by itself."""
+    return 'asset.s%d.db' % SCHEMA
+
+
 def db_path():
-    r"""out\harness\index\asset.db of the checkout that holds the game (WWE_QASSET_DB = another file: the selftest's)"""
+    r"""out\harness\index\asset.s<SCHEMA>.db of the checkout that holds the game. WWE_QASSET_DB=<file> = another file: how a builder / the selftest tests without touching the shared index"""
     if os.environ.get('WWE_QASSET_DB'):
         return os.environ['WWE_QASSET_DB']
-    return os.path.join(main_root(), 'out', 'harness', 'index', 'asset.db')
+    return os.path.join(main_root(), 'out', 'harness', 'index', db_name())
+
+
+def other_index_files():
+    """index files of OTHER names beside ours (asset.db = schema 3, asset.s3.db once s5 exists ...): left alone by q, named in the header so the tidy / a person can clear them"""
+    d = os.path.dirname(db_path())
+    me = os.path.basename(db_path())
+    try:
+        return sorted(f for f in os.listdir(d) if re.match(r'^asset(\.s\d+)?\.db$', f) and f != me)
+    except OSError:
+        return []
 
 
 # ------------------------------------------------------------------------------------------------------------------------------- reading (worker side)
@@ -226,7 +246,15 @@ def parse_mesh_rec(body, texs, rec, shift):
             params[pname] = [round(x, 6) for x in struct.unpack_from('>4f', body, po + 20)]
         elif tw == 0x0A:
             params[pname] = [round(struct.unpack_from('>f', body, po + 20)[0], 6)]
-    return n, eff, params, samp
+    # S103 QAC: the cull word (record +0x8C; bit 0x2 = the game draws the mesh one-sided, docs\research\harness\CUL_ADV.md section E) and the technique word (+0x90): the game's record is the
+    # 16-byte effect name (+0x7C), the cull word at name + 16, the technique word at name + 20, nothing between. In the shifted layout THIS reader finds the name at +0x78 (the effects parse as
+    # yBG_Default ...), so by the same relative rule the words are at +0x88 / +0x8C [C by position]. Our loader (src\assets\jboy.h:446 / 695 / 696) reads only the standard 0xB8 layout (name at
+    # +0x7C, words +0x8C / +0x90) and has no shifted layout, so it cannot confirm it; the data agrees: every shifted mesh has bit 0x4 set in the word at +0x88 (values 4 / 6, like the
+    # standard cull word: CUL_ADV.md section G, bit 0x4 always set), while +0x8C holds 0 / 1 / 3 / 4 (selftest: the REAL shifted cull words). pal0 = the first bone-palette node index
+    # (+0x0C, count at +0x08), -1 when the palette is empty.
+    cull, tech = be32(body, rec + 0x8C - shift), be32(body, rec + 0x90 - shift)
+    pal0 = struct.unpack_from('>i', body, rec + 0x0C)[0] if be32(body, rec + 0x08) else -1
+    return n, eff, params, samp, cull, tech, pal0
 
 
 def parse_model(dec):
@@ -339,8 +367,8 @@ def _walk(res, k, epath, eid, raw, depth, raw_only):
         try:
             m = parse_model(dec)
             res['model'].append((k, epath, m['nnode'], m['nmesh'], m['nvert'], m['ntex'], ' '.join(m['nodes']), ' '.join(m['textures'])))
-            for mesh, verts, eff, params, samp in m['mats']:
-                res['mat'].append((k, epath, mesh, verts, eff, json.dumps(params, sort_keys=True), json.dumps(samp, sort_keys=True)))
+            for mesh, verts, eff, params, samp, cull, tech, pal0 in m['mats']:
+                res['mat'].append((k, epath, mesh, verts, eff, json.dumps(params, sort_keys=True), json.dumps(samp, sort_keys=True), cull, tech, pal0))
             if m['bad']:
                 res['errs'] += 1
                 note = 'SUSPECT: %d of %d mesh records read as neither layout (vertex count unknown)' % (m['bad'], m['nmesh'])
@@ -391,7 +419,8 @@ CREATE TABLE pacs(id INTEGER PRIMARY KEY, path TEXT UNIQUE, size INTEGER, mtime_
 CREATE TABLE pach(id INTEGER PRIMARY KEY, pac_id INTEGER, idx INTEGER, off INTEGER, nent INTEGER, vpath TEXT, arc_tag TEXT, arc_name TEXT);
 CREATE TABLE entry(id INTEGER PRIMARY KEY, pach_id INTEGER, path TEXT, eid INTEGER, depth INTEGER, kind TEXT, tag TEXT, size INTEGER, note TEXT);
 CREATE TABLE model(entry_id INTEGER PRIMARY KEY, nnode INTEGER, nmesh INTEGER, nvert INTEGER, ntex INTEGER, nodes TEXT, textures TEXT);
-CREATE TABLE material(id INTEGER PRIMARY KEY, entry_id INTEGER, mesh INTEGER, verts INTEGER, effect TEXT, effect_lc TEXT, params TEXT, samplers TEXT);
+CREATE TABLE material(id INTEGER PRIMARY KEY, entry_id INTEGER, mesh INTEGER, verts INTEGER, effect TEXT, effect_lc TEXT, params TEXT, samplers TEXT,
+                     cull_word INTEGER, technique_word INTEGER, pal0 INTEGER);
 CREATE TABLE texture(id INTEGER PRIMARY KEY, entry_id INTEGER, name TEXT, name_lc TEXT, fmt TEXT, w INTEGER, h INTEGER, mips INTEGER, bytes INTEGER,
                      a_max INTEGER, a_zero REAL, a_ge224 REAL, a_mean REAL, note TEXT);
 CREATE TABLE flags(pac_id INTEGER, slot INTEGER, tokens TEXT);
@@ -540,11 +569,30 @@ def _insert(con, rel, st, res, err):
         emap[(k, epath)] = c.lastrowid
     con.executemany('INSERT INTO model(entry_id,nnode,nmesh,nvert,ntex,nodes,textures) VALUES(?,?,?,?,?,?,?)',
                     [(emap[(k, ep)], a, b, c_, d, e, f) for k, ep, a, b, c_, d, e, f in res['model']])
-    con.executemany('INSERT INTO material(entry_id,mesh,verts,effect,effect_lc,params,samplers) VALUES(?,?,?,?,?,?,?)',
-                    [(emap[(k, ep)], m, v, eff, eff.lower(), p, s) for k, ep, m, v, eff, p, s in res['mat']])
+    con.executemany('INSERT INTO material(entry_id,mesh,verts,effect,effect_lc,params,samplers,cull_word,technique_word,pal0) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                    [(emap[(k, ep)], m, v, eff, eff.lower(), p, s, cw, tw, p0) for k, ep, m, v, eff, p, s, cw, tw, p0 in res['mat']])
     con.executemany('INSERT INTO texture(entry_id,name,name_lc,fmt,w,h,mips,bytes,a_max,a_zero,a_ge224,a_mean,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
                     [(emap[(k, ep)],) + tuple(t) for k, ep, *t in res['tex']])
     con.executemany('INSERT INTO flags(pac_id,slot,tokens) VALUES(?,?,?)', [(pid, s, t) for k, s, t in res['flags']])
+
+
+def file_schema(path):
+    """the schema of an index file: its meta row as a string; None when there is no file or it is no index (unreadable / no meta)"""
+    if not os.path.exists(path):
+        return None
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+        try:
+            return str(c.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0])
+        finally:
+            c.close()
+    except (sqlite3.Error, TypeError):
+        return None
+
+
+def foreign_text(path, sv):
+    return ('q asset: %s is an index of schema %s, this q writes schema %d: q never opens, wipes or rebuilds a file of another schema '
+            '(the default file name carries the schema; WWE_QASSET_DB=<file under your out\\> points a test elsewhere; delete the file yourself if it is yours)' % (path, sv, SCHEMA))
 
 
 def build(jobs=None, full=False, only=None, budget_s=None, out=sys.stderr, lock=None, redo=False):
@@ -553,12 +601,12 @@ def build(jobs=None, full=False, only=None, budget_s=None, out=sys.stderr, lock=
     path = db_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     now = scan()
+    sv = file_schema(path)
+    if sv is not None and sv != str(SCHEMA):
+        raise SystemExit(foreign_text(path, sv))       # never wipe or rebuild a file of another schema
+    have = sv == str(SCHEMA)
+    print('q asset: writing %s (schema %d%s)' % (path, SCHEMA, ', new file' if not os.path.exists(path) else ', full rebuild' if full else ''), file=out)
     con = sqlite3.connect(path)
-    have = False
-    try:
-        have = con.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0] == str(SCHEMA)
-    except sqlite3.Error:
-        have = False
     if not have or full:
         con.close()
         for s in ('', '-journal', '-wal', '-shm'):
@@ -631,15 +679,16 @@ def ensure_fresh():
     now = scan()
     if not now:
         return 'fresh', 0, 0, 0.0
-    have = os.path.exists(path)
     old = None
-    if have:
+    sv = file_schema(path)
+    if sv is not None and sv != str(SCHEMA):
+        return 'FOREIGN', 0, 0, 0.0           # S103 QAC: a file of another schema is never refreshed, wiped or read
+    if sv is not None:
         try:
             c0 = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
-            if c0.execute("SELECT value FROM meta WHERE key='schema'").fetchone()[0] == str(SCHEMA):
-                old = {r[0]: (r[1], r[2]) for r in c0.execute('SELECT path,size,mtime_ns FROM pacs')}
+            old = {r[0]: (r[1], r[2]) for r in c0.execute('SELECT path,size,mtime_ns FROM pacs')}
             c0.close()
-        except (sqlite3.Error, TypeError):
+        except sqlite3.Error:
             old = None
     stale = [r for r, (fp, sz, mt) in now.items() if (old or {}).get(r) != (sz, mt)] + [r for r in (old or {}) if r not in now]
     if old is not None and not stale:
@@ -682,6 +731,9 @@ def connect():
     else:
         state, nchg, left, secs = ensure_fresh()
     p = db_path()
+    sv0 = file_schema(p)
+    if sv0 is not None and sv0 != str(SCHEMA):
+        raise SystemExit(foreign_text(p, sv0))
     if not os.path.exists(p):
         raise SystemExit('q asset: no index and no game files were found (game_data\\extracted\\pac in this checkout or the main one)')
     con = sqlite3.connect('file:%s?mode=ro' % p, uri=True)
@@ -702,7 +754,9 @@ def connect():
         what = 'WARNING PARTIAL: %d pacs still to read after the %d s budget; answers miss them: run  py tools/q/q.py asset update' % (left, query_budget())
     else:
         what = '%s just now: %d pacs re-read in %.1f s' % (state, nchg, secs)
-    HEADER = '[asset index built %s (%s ago), %d pacs; %s]' % (m.get('built', '?'), age, npacs, what)
+    oth = other_index_files()
+    note = 'other index file(s) beside this one are left alone (older schema; q never touches them, the tidy clears out\\): %s' % ', '.join(oth) if oth else ''
+    HEADER = '[asset index built %s (%s ago), %d pacs; %s%s]' % (m.get('built', '?'), age, npacs, what, '; NOTE ' + note if note else '')
     return con
 
 
@@ -849,7 +903,8 @@ def cmd_pac(con, args):
                             m = con.execute('SELECT * FROM model WHERE entry_id=?', (e['id'],)).fetchone()
                             dd['nodes'] = m['nodes'].split(' ')
                             dd['textures'] = m['textures'].split(' ') if m['textures'] else []
-                            dd['materials'] = [dict(mesh=r['mesh'], verts=r['verts'], effect=r['effect'], params=json.loads(r['params']), samplers=json.loads(r['samplers']))
+                            dd['materials'] = [dict(mesh=r['mesh'], verts=r['verts'], effect=r['effect'], params=json.loads(r['params']), samplers=json.loads(r['samplers']),
+                                                    cull_word=r['cull_word'], technique_word=r['technique_word'], pal0=r['pal0'])
                                                for r in con.execute('SELECT * FROM material WHERE entry_id=? ORDER BY mesh', (e['id'],))]
                         elif e['kind'] == 'texdir':
                             dd['textures'] = [dict(r) for r in con.execute('SELECT name,fmt,w,h,mips,bytes,a_max,a_zero,a_ge224,a_mean,note FROM texture WHERE entry_id=? ORDER BY id', (e['id'],))]
@@ -863,10 +918,21 @@ def cmd_pac(con, args):
     return out
 
 
-def fmt_mat(m):
+def fmt_mat(m, words=''):
     ps = ['%s %s' % (k, ' '.join('%g' % x for x in v)) for k, v in m['params'].items()]
     ss = ['%s -> %s' % (k, v or '(none)') for k, v in m['samplers'].items()]
-    return '%s [%d verts]  params: %s  samplers: %s' % (m['effect'], m['verts'], '; '.join(ps) or '-', '; '.join(ss) or '-')
+    return '%s [%d verts]%s  params: %s  samplers: %s' % (m['effect'], m['verts'], '  ' + words if words else '', '; '.join(ps) or '-', '; '.join(ss) or '-')
+
+
+def cull_text(w):
+    """the cull word as `cull 0x6 (one-sided)`: bit 0x2 set = the game draws the mesh one-sided (cull back faces), clear = two-sided (CUL_ADV.md section E)"""
+    if w is None:
+        return 'cull ? (not in the index)'
+    return 'cull 0x%X (%s)' % (w, 'one-sided' if w & 2 else 'two-sided')
+
+
+def words_text(cull, tech):
+    return '%s, technique 0x%X' % (cull_text(cull), tech) if tech is not None else cull_text(cull)
 
 
 def print_pac(r, a):
@@ -893,7 +959,7 @@ def print_pac(r, a):
                     print('      nodes (%d): %s%s' % (len(dd['nodes']), ' '.join(dd['nodes'][:60]), ' ...' if len(dd['nodes']) > 60 else ''))
                     print('      texture names: %s' % (' '.join(dd['textures']) or '-'))
                     for m in dd['materials'][:L]:
-                        print('      mesh %d: %s' % (m['mesh'], fmt_mat(m)))
+                        print('      mesh %d: %s' % (m['mesh'], fmt_mat(m, words_text(m['cull_word'], m['technique_word']))))
                 for t in dd.get('textures', [])[:L] if 'nodes' not in dd else []:
                     print('      %s' % fmt_tex(t))
                 for c in dd.get('children', [])[:L]:
@@ -1040,6 +1106,203 @@ def print_slot(r, a):
         print('  slot %-4d %s' % (f['slot'], f['tokens']))
 
 
+# ------------------------------------------------------------------------------------------------------------------------------- cull (S103 QAC)
+
+CULL_BIT = 2          # the game's test on the mesh record's +0x8C word: bit 0x2 = one-sided (CUL_ADV.md section E)
+STAGE_KEYS = 'entry.depth = 0 AND entry.eid BETWEEN 0 AND 399'      # an arena bg pac's stage slots: arena_files.model_key (keys 0..399)
+ARENA_PAC = re.compile(r'^pac/bg/bg\d+\.pac$', re.I)
+
+
+def family(rel):
+    """the file family of a pac (its folder / kind): a stable label for the `asset cull` table"""
+    low = rel.lower()
+    parts = rel.split('/')
+    stem = os.path.basename(rel)[:-4]
+    if parts[0] == 'dlc':
+        return 'dlc (' + ('/'.join(parts[1:-1]) or 'root') + ')'
+    if ARENA_PAC.match(low):
+        return 'bg arena pacs (bgNN)'
+    if low == 'pac/bg/bgetc.pac':
+        return 'bgEtc (stage structures: cage, cell, ladder rig ...)'
+    if low.startswith('pac/evt/evtobj'):
+        return 'evt objects (evtobj*)'
+    if low == 'pac/m2.pac':
+        return 'weapons (m2)'
+    if re.match(r'^pac/ch/ch\d+\.pac$', low):
+        return 'characters (chNNN)'
+    if len(parts) > 2:
+        return '/'.join(parts[:-1])
+    return 'pac root: ' + stem
+
+
+def words_summary(words):
+    """{word: n} -> `0x6:11331 0x4:6797` (largest first)"""
+    return ' '.join('0x%X:%d' % (w, n) for w, n in sorted(words.items(), key=lambda x: (-x[1], x[0]))) or '-'
+
+
+class Tally:
+    def __init__(self):
+        self.pacs = set()
+        self.words = {}
+        self.nullw = 0
+
+    def add(self, pid, w, n):
+        self.pacs.add(pid)
+        if w is None:
+            self.nullw += n
+        else:
+            self.words[w] = self.words.get(w, 0) + n
+
+    def row(self, label):
+        s = sum(n for w, n in self.words.items() if w & CULL_BIT)
+        t = sum(self.words.values())
+        return dict(label=label, pacs=len(self.pacs), meshes=t + self.nullw, one_sided=s, two_sided=t - s, no_word=self.nullw, words={'0x%X' % w: n for w, n in self.words.items()})
+
+
+MESH_FROM = ('FROM material JOIN entry ON material.entry_id = entry.id JOIN pach ON entry.pach_id = pach.id JOIN pacs ON pach.pac_id = pacs.id '
+             'LEFT JOIN model ON model.entry_id = entry.id')
+
+
+def cull_filter(a):
+    """--set / --clear: only the meshes whose bit is set / clear"""
+    if a.set and a.clear:
+        return None
+    if a.set:
+        return ' AND (material.cull_word & %d) != 0' % CULL_BIT
+    if a.clear:
+        return ' AND (material.cull_word & %d) = 0' % CULL_BIT
+    return ''
+
+
+def cmd_cull(con, args, a):
+    flt = cull_filter(a)
+    if flt is None:
+        return {'error': '--set and --clear together select nothing'}
+    nnull = con.execute('SELECT COUNT(*) FROM material WHERE cull_word IS NULL').fetchone()[0]
+    out = dict(rows=[], lines=[], level='family', no_word_rows=nnull, filter='set' if a.set else 'clear' if a.clear else '')
+    if not args:
+        fam = {}
+        tot = Tally()
+        sql = ('SELECT pacs.path AS pac, pacs.id AS pid, CASE WHEN %s THEN 1 ELSE 0 END AS stage, material.cull_word AS w, COUNT(*) AS n %s WHERE 1=1%s '
+               'GROUP BY pacs.id, stage, material.cull_word' % (STAGE_KEYS, MESH_FROM, flt))
+        for r in con.execute(sql):
+            f = family(r['pac'])
+            fam.setdefault(f, Tally()).add(r['pid'], r['w'], r['n'])
+            tot.add(r['pid'], r['w'], r['n'])
+            if ARENA_PAC.match(r['pac'].lower()):
+                fam.setdefault(f + (': stage slots (keys 0..399)' if r['stage'] else ': other keys'), Tally()).add(r['pid'], r['w'], r['n'])
+        for f in sorted(fam):
+            out['rows'].append(fam[f].row(f))
+        out['total'] = tot.row('TOTAL (all families)')
+        if a.list:
+            out['lines'] = cull_lines(con, '', [], flt, a)
+        return out
+    prs = pac_rows(con, args[0])
+    if not prs:
+        return {'error': 'no pac matches "%s"' % args[0]}
+    if len(args) > 1 and len(prs) > 1:
+        return {'error': 'several pacs match "%s": %s' % (args[0], ', '.join(r['path'] for r in prs[:12]))}
+    ids = [p['id'] for p in prs]
+    scope = ' AND pacs.id IN (%s)' % ','.join('?' * len(ids))
+    sargs = list(ids)
+    if len(args) == 1:
+        # one row per pac when several match, else one row per PACH (arena pacs also split stage slots from the other keys)
+        if len(prs) > 1:
+            out['level'] = 'pac'
+            key, lab = 'pacs.id', lambda r: r['pac']
+        else:
+            out['level'] = 'PACH'
+            key, lab = 'pach.id', lambda r: 'PACH %d %s' % (r['pidx'], r['vpath'] or '-')
+        sql = ('SELECT pacs.path AS pac, pacs.id AS pid, pach.idx AS pidx, pach.vpath AS vpath, material.cull_word AS w, COUNT(*) AS n %s WHERE 1=1%s%s GROUP BY %s, material.cull_word ORDER BY pacs.path, pach.idx'
+               % (MESH_FROM, scope, flt, key))
+        tl = {}
+        tot = Tally()
+        for r in con.execute(sql, sargs):
+            tl.setdefault(lab(r), Tally()).add(r['pid'], r['w'], r['n'])
+            tot.add(r['pid'], r['w'], r['n'])
+        out['total'] = tot.row('TOTAL')
+        for k, t in tl.items():
+            out['rows'].append(t.row(k))
+        if len(prs) == 1 and ARENA_PAC.match(prs[0]['path'].lower()):
+            sp = {}
+            for r in con.execute('SELECT CASE WHEN %s THEN 1 ELSE 0 END AS stage, material.cull_word AS w, COUNT(*) AS n %s WHERE 1=1%s%s GROUP BY stage, material.cull_word' % (STAGE_KEYS, MESH_FROM, scope, flt), sargs):
+                sp.setdefault('stage slots (keys 0..399)' if r['stage'] else 'other keys', Tally()).add(prs[0]['id'], r['w'], r['n'])
+            for k, t in sp.items():
+                out['rows'].append(t.row(prs[0]['path'] + ': ' + k))
+        if a.list:
+            out['lines'] = cull_lines(con, scope, sargs, flt, a)
+        return out
+    phs = pach_rows(con, prs[0]['id'], args[1])
+    if not phs:
+        return {'error': 'no PACH "%s" in %s' % (args[1], prs[0]['path'])}
+    scope += ' AND pach.id IN (%s)' % ','.join('?' * len(phs))
+    sargs += [ph['id'] for ph in phs]
+    if len(args) == 2 and not a.list:
+        out['level'] = 'entry'
+        tl = {}
+        tot = Tally()
+        for r in con.execute('SELECT pacs.id AS pid, pach.idx AS pidx, entry.path AS epath, entry.eid AS eid, entry.depth AS depth, material.cull_word AS w, COUNT(*) AS n %s WHERE 1=1%s%s GROUP BY entry.id, material.cull_word ORDER BY pach.idx, entry.id' % (MESH_FROM, scope, flt), sargs):
+            tl.setdefault('PACH %d entry %s' % (r['pidx'], r['epath']), Tally()).add(r['pid'], r['w'], r['n'])
+            tot.add(r['pid'], r['w'], r['n'])
+        out['total'] = tot.row('TOTAL')
+        for k, t in tl.items():
+            out['rows'].append(t.row(k))
+        return out
+    if len(args) > 2:
+        scope += ' AND (entry.path = ? OR entry.path LIKE ?' + (' OR entry.eid = ? AND entry.depth = 0' if args[2].isdigit() else '') + ')'
+        sargs += [args[2], '%/' + args[2]] + ([int(args[2])] if args[2].isdigit() else [])
+    out['level'] = 'mesh'
+    out['lines'] = cull_lines(con, scope, sargs, flt, a, everything=len(args) > 2)
+    return out
+
+
+def cull_lines(con, scope, sargs, flt, a, everything=False):
+    """one dict per mesh: pac, PACH, entry, node (the first bone-palette node: unconfirmed as 'the mesh's node'), mesh index, effect, cull word, technique word"""
+    sql = ('SELECT pacs.path AS pac, pach.idx AS pidx, pach.vpath AS vpath, entry.path AS epath, material.mesh AS mesh, material.effect AS effect, material.cull_word AS w, material.technique_word AS tw, '
+           'material.pal0 AS pal0, model.nodes AS nodes %s WHERE 1=1%s%s ORDER BY pacs.path, pach.idx, entry.id, material.mesh' % (MESH_FROM, scope, flt))
+    lim = None if everything else a.limit
+    rows = []
+    cur = con.execute(sql, sargs)
+    total = 0
+    for r in cur:
+        total += 1
+        if lim is not None and len(rows) >= lim:
+            continue
+        pal0 = r['pal0']
+        nodes = (r['nodes'] or '').split(' ')
+        node = '-' if pal0 is None or pal0 < 0 else (nodes[pal0] if pal0 < len(nodes) and nodes[pal0] else '#%d' % pal0)
+        rows.append(dict(pac=r['pac'], pach='%d%s' % (r['pidx'], ' ' + r['vpath'] if r['vpath'] else ''), entry=r['epath'], node=node, mesh=r['mesh'], effect=r['effect'], word=r['w'], technique=r['tw']))
+    return dict(rows=rows, total=total)
+
+
+def print_cull(r, a):
+    if 'error' in r:
+        print('asset cull: ' + r['error'])
+        return
+    sel = ' (only meshes with the bit %s)' % r['filter'] if r['filter'] else ''
+    if r['rows'] or not r['lines']:
+        print('asset cull by %s%s: one-sided = bit 0x%X of the mesh record word (+0x8C) set  %s' % (r['level'], sel, CULL_BIT, HEADER))
+        w = max([len(x['label']) for x in r['rows']] + [5])
+        print('  %-*s %5s %8s %8s %8s  %s' % (w, 'group', 'pacs', 'meshes', 'bit set', 'bit clear', 'word values (count)'))
+        for x in r['rows'][:a.limit * 8]:
+            print('  %-*s %5d %8d %8d %8d  %s' % (w, x['label'], x['pacs'], x['meshes'], x['one_sided'], x['two_sided'], ' '.join('%s:%d' % kv for kv in sorted(x['words'].items(), key=lambda kv: (-kv[1], kv[0]))) or '-'))
+        if len(r['rows']) > a.limit * 8:
+            print('  ... %d more rows (--limit)' % (len(r['rows']) - a.limit * 8))
+        x = r.get('total')
+        if x and len(r['rows']) > 1:
+            print('  %s' % ('-' * (w + 40)))
+            print('  %-*s %5d %8d %8d %8d  %s' % (w, x['label'], x['pacs'], x['meshes'], x['one_sided'], x['two_sided'], ' '.join('%s:%d' % kv for kv in sorted(x['words'].items(), key=lambda kv: (-kv[1], kv[0])))))
+        if r['no_word_rows']:
+            print('  WARNING: %d mesh rows have no cull word (index of an older schema?): py tools/q/q.py asset update --full' % r['no_word_rows'])
+    if r['lines']:
+        ls = r['lines']
+        print('asset cull --list: %d mesh(es)%s  (pac, PACH, entry, palette node, mesh, effect, word)' % (ls['total'], sel))
+        for x in ls['rows']:
+            print('  %s PACH %s entry %s node %s mesh %d %s  %s' % (x['pac'], x['pach'], x['entry'], x['node'], x['mesh'], x['effect'], words_text(x['word'], x['technique'])))
+        if ls['total'] > len(ls['rows']):
+            print('  ... %d more (--limit)' % (ls['total'] - len(ls['rows'])))
+
+
 def cmd_info(con):
     m = dict(con.execute('SELECT key, value FROM meta').fetchall())
     for tb in ('pacs', 'pach', 'entry', 'model', 'material', 'texture', 'flags'):
@@ -1057,13 +1320,16 @@ def cmd_info(con):
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog='q asset', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('cmd', choices=['update', 'find', 'pac', 'tex', 'mat', 'id', 'slot', 'info'])
+    ap.add_argument('cmd', choices=['update', 'find', 'pac', 'tex', 'mat', 'id', 'slot', 'cull', 'info'])
     ap.add_argument('args', nargs='*')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--limit', type=int, default=25)
     ap.add_argument('--like', action='store_true', help='tex / mat: a substring instead of the exact name')
     ap.add_argument('--pac', action='append', default=[], help='mat: only this pac (stem or path); repeatable')
     ap.add_argument('--full', action='store_true')
+    ap.add_argument('--list', action='store_true', help='cull: one line per mesh (limited by --limit)')
+    ap.add_argument('--set', action='store_true', help='cull: only meshes with the one-sided bit (0x2) set')
+    ap.add_argument('--clear', action='store_true', help='cull: only meshes with the one-sided bit clear (two-sided)')
     ap.add_argument('--redo', action='store_true', help='update FRAG --redo: re-read the pacs matching FRAG even when unchanged')
     ap.add_argument('-j', type=int, default=MAX_JOBS)
     a = ap.parse_args(argv)
@@ -1088,13 +1354,15 @@ def main(argv):
         m = cmd_info(con)
         print(json.dumps(m, indent=1) if a.json else '\n'.join('%s: %s' % (k, v) for k, v in m.items()))
         return 0
-    if not a.args:
+    if not a.args and a.cmd != 'cull':
         print('q asset %s: give an argument (q asset -h)' % a.cmd, file=sys.stderr)
         return 2
     if a.cmd == 'find':
         r, pr = cmd_find(con, a.args, a.limit), print_find
     elif a.cmd == 'pac':
         r, pr = cmd_pac(con, a.args), print_pac
+    elif a.cmd == 'cull':
+        r, pr = cmd_cull(con, a.args, a), print_cull
     elif a.cmd == 'tex':
         r, pr = cmd_tex(con, a.args[0], a.like), print_tex
     elif a.cmd == 'mat':

@@ -13553,6 +13553,34 @@
           "size": 11953152
         }
       ]
+    },
+    {
+      "id": "pin-c00feaf-1120-1910",
+      "sdk_commit": "c00feaf400f857435b078e88e83a062b30dd81d5",
+      "sdk_branch": "wwe2k14-local",
+      "patch": "119-session105-android-poll-sentinel.diff",
+      "patch_match": "named by the main session: export_series.py --check PASS (upstream f5337cd + 118 diffs = wwe2k14-local c00feaf4, S105 A10); the auto-detect looked at the old 00NN series",
+      "date": "2026-11-20",
+      "built": "build_sdk.ps1 -Run s6, 2026-11-20T19:10:43 (log C:\\Users\\Jarrod\\wwe2k14-recomp\\logs\\sdk_build_s6.log)",
+      "verified": "SDK tree clean at pin time (submodule working-tree noise ignored)",
+      "note": "S105 A10: patch 119 SDL poll sentinel off on Android",
+      "files": [
+        {
+          "name": "rexglue.exe",
+          "sha256": "e284e25fc6fd8a146acb7d39f6c7d5030a3cd6a71aae19dcd1f42d8a936f65e6",
+          "size": 3647488
+        },
+        {
+          "name": "rexgpu-xenos.dll",
+          "sha256": "60dc38c62a0c1090a15375a90f5fd2f765b340fca647bd9afb6af859a3149049",
+          "size": 19508224
+        },
+        {
+          "name": "rexruntime.dll",
+          "sha256": "3c849c3c6c5e08e65b70c27165e3a632e8cf361e7ebb69089ef87c893e21717a",
+          "size": 11953152
+        }
+      ]
     }
   ]
 }

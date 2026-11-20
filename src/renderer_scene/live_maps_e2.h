@@ -105,7 +105,7 @@ struct E2Input {
   std::vector<PreLightSlotInput> prelight_slots;
   // S103 SWF: the sweat / blood liquid maps (kScLiquidMaps / Items / Pictures, written by src\scene_live\liquid_*.h at the sweat node's entry). Empty = a dry record (nothing live, or an older record): not a missing input.
   std::vector<LiquidMapIn> liquid;
-  std::vector<CrowdPictureRow> liquid_pictures;   // only the pictures an item of `liquid` names
+  std::vector<const LiquidPictureRow*> liquid_pictures;   // only the pictures an item of `liquid` names: POINTERS into the record's kScLiquidPictures rows (the record outlives the frame; no 32 KB copies)
   NameList prelight_missing, sweat_missing;
 };
 void BuildE2Input(const SceneTables& t, const E2Faults& faults, E2Input& out);

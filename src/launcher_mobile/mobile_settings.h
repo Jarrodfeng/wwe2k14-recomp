@@ -21,8 +21,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include "../stream_free_target.h"  // S105 A1b: kStreamFreeTarget
+
 namespace mlauncher {
 
+using wwe2k14::kStreamFreeTarget;  // S105 A1b
 namespace fs = std::filesystem;
 
 // The phone's resolutions (gfx_settings.h kResolutions, the ones a phone can carry): the copies' size (`resolution`:

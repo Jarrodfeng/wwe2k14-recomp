@@ -246,17 +246,45 @@ def test_build_extras(d):
     check('0x08000000' in code and '0x00000200' in code and '0x00004000' in code and '0x00000008' not in code and 'base | 0x01000000, base' in code,
           'review 3: CREATE_NO_WINDOW | NEW_PROCESS_GROUP | BELOW_NORMAL, breakaway first then the plain flags, no DETACHED_PROCESS')
     # 4: deferred when the run lock is held or RAM is low (no spawn)
-    real = (qours.run_lock_held, qours.free_ram_gb)
+    real = (qours.run_lock_state, qours.free_ram_gb)
     try:
-        qours.run_lock_held = lambda: True
+        qours.run_lock_state = lambda: 'exclusive'
         st, why = qours.bg_refresh(d, db)
-        check(st == 'deferred' and 'run lock' in why, 'review 4: a held run lock defers the refresh (nothing spawned)', why)
-        qours.run_lock_held, qours.free_ram_gb = (lambda: False), (lambda: 4.0)
+        check(st == 'deferred' and 'run lock' in why, 'review 4: an exclusive (timed / build) run lock defers the refresh (nothing spawned)', why)
+        qours.run_lock_state, qours.free_ram_gb = (lambda: 'free'), (lambda: 4.0)
         st, why = qours.bg_refresh(d, db)
         check(st == 'deferred' and 'free RAM' in why, 'review 4: free RAM under 12 GB defers the refresh', why)
     finally:
-        qours.run_lock_held, qours.free_ram_gb = real
+        # S105 QIX: untimed (shared-slot) runs do not block a big stale set; they do block a small one; spawn is idle priority + -j 2
+        qours.run_lock_state, qours.free_ram_gb = (lambda: 'shared'), (lambda: 30.0)
+        st, why = qours.bg_refresh(d, db, stale_n=5)
+        check(st == 'deferred' and 'untimed' in why, 'QIX: shared slots + 5 stale files defers', why)
+        qours.run_lock_state, qours.free_ram_gb = real
     check(not os.path.exists(db + '.bgstamp'), 'a deferred refresh left no stamp (nothing was spawned)')
+    # S105 QIX: run_lock_state against real record files (a temp lock dir, a live holder = this process): slot = shared, lock.json / build slot = exclusive
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'harness'))
+    import runlock
+    old_dir, old_json = runlock.LOCK_DIR, runlock.LOCK_JSON
+    td = tempfile.mkdtemp()
+    try:
+        runlock.LOCK_DIR, runlock.LOCK_JSON = td, os.path.join(td, 'lock.json')
+        check(qours.run_lock_state() == 'free', 'QIX: no records = free')
+        ticks = runlock._proc_start_ticks(os.getpid())
+        rec = json.dumps({'token': 't', 'pid': os.getpid(), 'pid_start': ticks, 'name': 'selftest'})
+        with open(os.path.join(td, 'slot1.json'), 'w') as f:
+            f.write(rec)
+        check(qours.run_lock_state() == 'shared', 'QIX: a live untimed (slot) holder = shared: refresh allowed beside it', qours.run_lock_state())
+        with open(os.path.join(td, 'build1.json'), 'w') as f:
+            f.write(rec)
+        check(qours.run_lock_state() == 'exclusive', 'QIX: a live build slot = exclusive: refresh waits')
+        os.remove(os.path.join(td, 'build1.json'))
+        with open(os.path.join(td, 'lock.json'), 'w') as f:
+            f.write(rec)
+        check(qours.run_lock_state() == 'exclusive', 'QIX: lock.json (timed run / build) = exclusive: refresh waits')
+    finally:
+        runlock.LOCK_DIR, runlock.LOCK_JSON = old_dir, old_json
+        shutil.rmtree(td, ignore_errors=True)
     # 5: back-off marker honoured and reported
     with open(db + '.bgbackoff', 'w') as f:
         f.write('x')

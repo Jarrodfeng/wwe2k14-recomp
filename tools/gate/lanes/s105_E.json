@@ -1,0 +1,16 @@
+{
+ "owner": "S105 lane E (gate noise, docs/research/s105/E_contract.md): game_syntax NEEDS-MAIN by content not mtime, the gate's BLOCKED verdict (could not run, exit 3), the red checks of main (T6 / t11 / t19 / dib / sw2 / T2d), planted twins that end on PLANTED-OK, the perf report names a load by its sequence. TOOL lane: 0 game runs, 0 Surface runs.",
+ "note": "selftest = tools/gate/selftest.py (rows 8-10: touched-not-changed CMakeLists, BLOCKED row + exit 3 through gate.py and gate_wait.py, PLANTED-OK last line of expect_fail.py), plus the fastgate selftest (stale program = BLOCKED, exit 3) and gate_wait's own. Retired: none. sw2 now reads out/captures/c2d_entrance_tron for its text-draw capture (the Bryan case zip is gone).",
+ "affects": ["tools/gate/*.py", "tools/release/expect_fail.py", "src/load_turbo.h", "src/perf_report.h", "src/sequence_name.h", "src/session_log.h"],
+ "checks": [
+  {"name": "s105_E.selftest", "cmd": ["py", "-I", "tools/gate/selftest.py"], "timeout_s": 600, "tier": "cheap", "gpu": false,
+   "affects": ["tools/gate/*.py", "tools/release/expect_fail.py"]},
+  {"name": "s105_E.gate_wait_selftest", "cmd": ["py", "-I", "tools/gate/gate_wait.py", "--selftest"], "timeout_s": 300, "tier": "cheap", "gpu": false,
+   "affects": ["tools/gate/gate_wait.py", "tools/gate/gate.py"]},
+  {"name": "s105_E.fastgate_selftest", "cmd": ["py", "-I", "tools/gate/fastgate_selftest.py"], "timeout_s": 600, "tier": "cheap", "gpu": false,
+   "affects": ["tools/gate/*.py"]},
+  {"name": "s105_E.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "tier": "cheap", "gpu": false,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/load_turbo.h", "src/perf_report.h", "src/sequence_name.h", "src/session_log.h"]}
+ ]
+}

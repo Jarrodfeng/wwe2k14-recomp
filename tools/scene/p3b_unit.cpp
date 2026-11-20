@@ -100,8 +100,8 @@ static void Sites() {
   Check(q2d::ClassOfSite(0x82BC484Cu) == SiteClass::Row && q2d::KindOfSite(0x82BC484Cu) == kQkRect && q2d::ClassOfSite(0x82BC8BECu) == SiteClass::Row && q2d::KindOfSite(0x82BC8BECu) == kQkSprite, "P3B SITES",
         "0x82BC484C is a rect Row site, 0x82BC8BEC a sprite Row site");
   bool leaves = true;
-  for (uint32_t s : {0x82BC47C8u, 0x82BC8B68u, 0x82BC4404u, 0x82BC32B8u, 0x82BC5408u, 0x82BC3758u}) leaves = leaves && q2d::ClassOfSite(s) == SiteClass::Leaf2D && q2d::KindOfSite(s) == kQkNone;
-  Check(leaves, "P3B SITES", "the band loops (0x82BC47C8, 0x82BC8B68), T_RectColor (0x82BC4404), the textured rect (0x82BC32B8) and the other leaf paths stay 2D leaves that make no row");
+  for (uint32_t s : {0x82BC47C8u, 0x82BC8B68u, 0x82BC32B8u, 0x82BC5408u, 0x82BC3758u}) leaves = leaves && q2d::ClassOfSite(s) == SiteClass::Leaf2D && q2d::KindOfSite(s) == kQkNone;
+  Check(leaves, "P3B SITES", "the band loops (0x82BC47C8, 0x82BC8B68), the textured rect (0x82BC32B8) and the other leaf paths stay 2D leaves that make no row (S105 A8: T_RectColor 0x82BC4404 is a Row site now, a8_unit)");
 }
 
 static void MSite() {

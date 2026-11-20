@@ -23,6 +23,7 @@ EXCLUDED = {
     'wwe2k14_case': 'bench fidelity: =false keeps the +dev kit from running the bug button ring; players are already off (default false)',
     'wwe2k14_display_720p': 'the graphics settings decide the output size (launcher / in-game menu), not a bundle',
     'wwe2k14_display_720p_mode': 'the graphics settings decide the output size, not a bundle',
+    'wwe2k14_rdr_device_lost_message': 'bench fidelity: =false keeps an unattended test run from opening the S105 A9 device-lost box (players get the box: default true); not a speed lever',
 }
 # Correctness fixes shipped with the bundle that are not measured speed levers.
 FIXES_OK = {

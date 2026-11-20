@@ -25,7 +25,7 @@ BUTTONS = [
 # J3 box did.
 CARDS = [
     ('glyph_body', r'[?\s.!*]*\?[?\s.!*]*', 'a message body drawn from glyph codes (no readable word); a match box only.', True),
-    # [U] the exact text of the 30 Years objective card is index-table text ("Win the match in under 6 minutes"): matched by
+    # [U] the exact text of the 30 Years objective card is index-table text (text id 18306): matched by
     # shape and unconfirmed. It is only a card: text, no choice on it.
     ('objective_card', r'(?:historical\s+)?objectives?\b.*|(?:win|finish|complete|perform|hit|land|keep)\b.*',
      '[U] the 30 Years objective card: text only, no choice on it.', True),

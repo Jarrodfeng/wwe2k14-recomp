@@ -155,6 +155,7 @@ STEPS = [
     ('session101-async-log', '1903e00da44e4416dd8f280cb7329eab15e78af1'),  # rex::AsyncSink: the log file written on a thread, critical drains, DrainLogging / TakeLogWriteStats (lane 302)
     ('session102-cvar-repeat-parse', '98851b186b7de78ee8ecfe1ef126da90ff5d689b'),  # a repeated string switch takes the last value (CLI11 TakeLast) + a FinalizeInit log (S102; pin 98851b1)
     ('session103-mnk-bare-modifiers', 'b2c661bd33fed1226820b7499b6f6ed027160e38'),  # S103 KBM: bare Shift / Control / Alt binds (bind_match.h exact-modifier rule; pin b2c661b)
+    ('session105-android-poll-sentinel', 'c00feaf400f857435b078e88e83a062b30dd81d5'),  # S105 A10: Android SDL_HINT_POLL_SENTINEL=0 in the UI context (SDL #16713 busy-wait; pin = the commit once built)
 ]
 # Numbers that belong to no step on wwe2k14-local (kept numbering stable): 104 = S99 scaled-readback-rumble, parked
 # (patches\rexglue-sdk\parked\), it was never merged. 109 / 110 (Session 101, lane 46) stay on their own branch until merged.

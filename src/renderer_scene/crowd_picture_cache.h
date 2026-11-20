@@ -4,6 +4,8 @@
 #pragma once
 #include <cstdint>
 #include <map>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "scene_record.h"
@@ -17,8 +19,8 @@ class PictureCache {
   void BeginFrame() {
     if (plant != 1) now_.clear();
   }
-  template <class B>
-  uint32_t For(uint32_t key, const std::vector<CrowdPictureRow>& rows, B& b) {
+  template <class E, class B>
+  uint32_t For(uint32_t key, const std::vector<E>& rows, B& b) {   // S105 A12: Row = CrowdPictureRow or LiquidPictureRow (PictureValid, scene_record.h)
     if (const auto it = now_.find(key); it != now_.end()) return it->second;
     return now_[key] = Make(key, rows, b);
   }
@@ -41,16 +43,18 @@ class PictureCache {
 
  private:
   struct Img { uint32_t id = 0; uint64_t hash = 0; };
-  template <class B>
-  uint32_t Make(uint32_t key, const std::vector<CrowdPictureRow>& rows, B& b) {
-    const CrowdPictureRow* row = nullptr;
-    for (const CrowdPictureRow& r : rows)
-      if (r.key == key && CrowdPictureValid(r)) { row = &r; break; }
+  template <class R> static const R& Deref(const R& r) { return r; }
+  template <class R> static const R& Deref(const R* p) { return *p; }   // a list of pointers into the record (S105 A12: E2Input holds no copies of the 32 KB rows)
+  template <class E, class B>
+  uint32_t Make(uint32_t key, const std::vector<E>& rows, B& b) {
+    using Row = std::decay_t<decltype(Deref(std::declval<const E&>()))>;
+    const Row* row = nullptr;
+    for (const E& e : rows) {
+      const Row& r = Deref(e);
+      if (r.key == key && PictureValid(r)) { row = &r; break; }
+    }
     if (!row) return b.Grey();
-    uint64_t h = 1469598103934665603ull;
-    const auto mix = [&](const uint8_t* p, size_t n) { for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 1099511628211ull; };
-    const uint32_t head[3] = {row->width, row->height, row->format};
-    mix(reinterpret_cast<const uint8_t*>(head), sizeof head), mix(row->bytes, row->nbytes);
+    const uint64_t h = PictureHash(*row);   // a liquid row carries it (sealed once at the read); a crowd row is hashed here as before
     Img& im = images_[key];
     if (im.id && im.hash == h) return im.id;
     if (im.id) b.Destroy(im.id), im.id = 0, ++remade;

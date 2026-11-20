@@ -45,6 +45,9 @@ using skin::kSkinForwardOff;
 
 inline constexpr uint32_t kOffExtra = 232, kOffTexCount = 256, kOffTexKeys = 260, kOffVB = 336, kOffAltOn = 348, kOffAltMask = 352, kOffIB = 344, kOffStride = 360, kOffPartCount = 372, kOffN0 = 376, kOffN1 = 380,
                           kOffRangeTwo = 548, kOffDesc = 824, kOffOverride = 832, kOvArray = 1132, kOvCount = 1136;
+// S105 A5c (docs\research\s105\A5c.md items 1-2 [C]): the CAW model's logo callback. sub_822E6DE8 stores the callback sub_822E6CC8 at [model+324] and the editor object E at [model+328]; the model draw sub_82C04DF0 calls it at
+// 0x82C09810; it reads composer = [E+2608], buf = [composer+100], set = [composer+116+4*buf], arr = [set+4] and binds the picture of arr+0 at fetch slot 7 and of arr+8 at slot 4 (each entry: word 0 = the registry handle, word 1).
+inline constexpr uint32_t kOffLogoCb = 324, kOffLogoArg = 328, kEditComposer = 2608, kCompBuf = 100, kCompLogoSet = 116, kLogoCb = 0x822E6CC8u, kLogoSetArr = 4, kLogoEntry = 8;
 inline constexpr uint32_t kDescStride = 184, kDescVertices = 0, kDescPalCount = 8, kDescPal = 12, kDescExtraIndex = 96, kDescEffect = 124, kDescParamCount = 148, kDescParams = 152;
 inline constexpr uint32_t kMaxParts = 64, kMaxVertices = 1u << 20, kMaxStride = 256, kMaxVertexBytes = 32u << 20, kMaxIndices = 1u << 20, kMaxNodes = 20, kMaxParams = 64, kMaxSamplers = 6, kMaxOverrides = 64, kNameBytes = 16, kOvDump = 12;
 inline constexpr uint32_t kParamSampler = 15;
@@ -54,6 +57,8 @@ inline constexpr uint32_t kParamSampler = 15;
 //   4 the strip's restart is not handled (StripsToList: 0xFFFF is a vertex)   5 n1 ignored (the second range dropped)   6 a cache by guest address (AddressCachedReader::Read returns the last result of an address)
 //   7 no endian swap of the vertex dwords   8 the index is read little-endian   9 the palette is not read (every slot is its own node)   10 F is not read (a stride-only decode: Why::Ok whatever F says)
 //   11 the override block is never matched (the model's own key always wins)   12 the Planner ignores the unlock log (a changed buffer is not re-read)   13 the Planner reads a named model too (the filter)
+// S105 A5c, test only: 1 = the callback word is not checked (any model's [m+328] is followed); 2 = the composer's buffer index is not bounded (buf >= 2 is read); 3 = a logo key whose word 0 is 0 is accepted.
+inline int g_gm_logo_plant = 0;
 inline int g_gm_plant = 0;   // 14 (WC R3): the [m+824] == 0 path is not taken (a model whose descriptors live in the data object is NoDesc again)
 
 enum class Why : uint8_t { Ok = 0, NoModel, NoDesc, NoParts, Unreadable, BadSize, BadIndexBuffer, AltStream, BadFlags, Count };
@@ -156,6 +161,12 @@ struct PartRead {
   bool Ok() const { return why == Why::Ok; }
 };
 
+// S105 A5c: the two logo pictures of a CAW model (index 0 = entry 0 "logo", bound at fetch slot 7; index 1 = entry 1 "logo2", slot 4). `has` = the model's [m+324] is the callback and the words read.
+struct LogoRead {
+  bool has = false;
+  uint32_t key[2] = {}, key1[2] = {};   // the registry handle (word 0) and word 1 of each entry
+};
+
 struct TexRead {   // one distinct picture some part names (filled by the contributor's resolver: guest_model_tex.h)
   uint64_t hash = 0;
   uint32_t width = 0, height = 0, format = 0;
@@ -192,6 +203,9 @@ struct ModelRead {
   bool tex_retry = false;                  // CTF: a sampler was refused for a reason a LATER call can cure (no handle yet, header / pixel memory not there yet): TexDue asks again about every kOverrideRefreshFrames
   uint8_t n_refused = 0;                   // CTF: the first kMaxRefusedProbes refused samplers' words (fixed array: no allocation)
   RefusedProbe refused[kMaxRefusedProbes];
+  LogoRead logo;                           // S105 A5c: the model-level logo set (layout pass; its words are in layout_key)
+  uint64_t logo_hash[2] = {};              // S105 A5c: the resolver's picture hash of each logo (0 = none); the pictures themselves are in `textures`
+  uint8_t logo_state[2] = {};              // S105 A5c: kGtMissing / kGtBound
   bool tex_incomplete = false;             // some sampler has a key the resolver has not answered yet (deferred by its per-call budget): the next call asks again
 };
 
@@ -386,6 +400,17 @@ inline ModelRead ReadModelLayout(const M& m, uint32_t model) {
   if (parts == 0 || parts > kMaxParts) return out.why = Why::NoParts, out;
   if (!rd.Word(model + kOffRangeTwo, range_two) || !rd.Word(model + kOffExtra, extra)) return out.why = Why::Unreadable, out;
   rd.Word(model + kOffTexCount, tex_count), rd.Word(model + kOffTexKeys, tex_keys);   // (a model without a texture table has no pictures: not an error)
+  {   // S105 A5c: the logo callback of a CAW model (item 1 hook check: [m+324] == the callback, buf < 2, readable words, key word 0 != 0, the game binds slot 4 only inside slot 7's resolve, sub_822E6CC8 +50: review F4)
+    uint32_t cb = 0, arg = 0, comp = 0, buf = 0, set = 0, arr = 0;
+    if (rd.Word(model + kOffLogoCb, cb) && (cb == kLogoCb || g_gm_logo_plant == 1) && rd.Word(model + kOffLogoArg, arg) && arg && rd.Word(arg + kEditComposer, comp) && comp && rd.Word(comp + kCompBuf, buf) &&
+        (buf < 2 || g_gm_logo_plant == 2) && rd.Word(comp + kCompLogoSet + 4 * buf, set) && set && rd.Word(set + kLogoSetArr, arr) && arr) {
+      uint32_t k[2], k1[2];
+      if (rd.Word(arr, k[0]) && rd.Word(arr + 4, k1[0]) && rd.Word(arr + kLogoEntry, k[1]) && rd.Word(arr + kLogoEntry + 4, k1[1]) && (k[0] != 0 || g_gm_logo_plant == 3)) {
+        out.logo.has = true;
+        for (int i = 0; i < 2; ++i) out.logo.key[i] = k[i], out.logo.key1[i] = k1[i];
+      }
+    }
+  }
   if (rd.Word(model + kOffOverride, ov) && ov) {
     rd.Word(ov + kOvArray, ov_entries), rd.Word(ov + kOvCount, ov_count);
     if (ov_count > kMaxOverrides) ov_entries = 0, ov_count = 0;
@@ -487,6 +512,7 @@ class Planner {
     uint32_t calls_since = 0;
     uint64_t last_call = 0;
     uint64_t tex_checked = 0;     // the frame the resolver last ran for this model (the contributor's override refresh)
+    uint64_t dirty_seen = 0;      // S105 A5c: guest_tex_dirty::Seq() at the resolver's last run for this model
   };
   // Returns the model's current read (shared with the state; null = nothing to hand over). `fresh` = the byte pass ran this call.
   template <class M>

@@ -86,6 +86,7 @@ static void BuildPieces() {
   const uint32_t X = kX;
   g_guest.Put(0x8376AB34u, 0);   // the arena id word (sub_827D7578 + 64): not the alt ring
   g_guest.Put(0x8201D4D0u, Plant("cv_ang_base") ? 0x3FC90FDBu : 0x4096CBE4u);   // 3 pi/2
+  g_guest.PutF(0x82012B14u, Plant("lod_dist") ? 1.0e9f : 3000.f);   // S105 C4: the post / cover far test's T[0] (sub_825CD8D0 stores it from here); the plant moves it: the far-test check must then fail
   g_guest.Put(0x82000ADCu, 0x3FC90FDBu);   // pi/2
   g_guest.Put(0x82118560u, 0x40490FDBu);   // pi
   g_guest.Put(0x82000A94u, 0xC0490FDBu);   // -pi
@@ -611,6 +612,52 @@ int main(int argc, char** argv) {
     const rr::RingCensus s2 = con2.Stats();
     Check(lo == 0 && hi_cov == 11 && hi_post == 4 && s2.cv_lod_both >= 1 && s2.post_lod_both >= 1 && s2.cv_unreadable == 0 && s2.post_unreadable == 0, "ring.lod_single",
           "low " + std::to_string(lo) + " covers " + std::to_string(hi_cov) + " posts " + std::to_string(hi_post) + " cv_unreadable " + std::to_string(s2.cv_unreadable));
+    // (c2) S105 C4: the game's post / cover LOD (sub_82740350 / sub_827403E8 -> sub_8273FF58): LOW when the eye is more than T[0] = [0x82012B14] (3000) from the corner point turned by the corner. The same guest (a low cover and
+    // a low post present), the eye at (0, -196, 2800): corners 0 and 3 (z = -288 / -313 after the turn) are 3101 / 3128 away = low; corners 1 and 2 are 2528 / 2487 = high. No view = every corner high (above).
+    {
+      rr::RingRecomputeContributor con3;
+      con3.SetReader(ReadThunk);
+      rr::RopeView vw;
+      vw.has = true, vw.eye[0] = 0.f, vw.eye[1] = -196.f, vw.eye[2] = 2800.f, vw.fwd[2] = -1.f;
+      con3.NoteRing(kX, 703, &vw);
+      FrameInfo f3;
+      f3.guest_frame = 703;
+      con3.Latch(f3);
+      SceneTables t3;
+      Counters c3x;
+      con3.Emit(f3, t3, c3x);
+      uint32_t cov_lo = 0, cov_hi = 0, post_lo = 0, post_hi = 0;
+      bool corner_ok = true;
+      for (const RingRows& r : t3.ring_rows) {
+        const bool is_cov = r.klass == kRcCoverHi || r.klass == kRcCoverLo, is_post = r.klass == kRcPostHi || r.klass == kRcPostLo;
+        if (!is_cov && !is_post) continue;
+        const bool low = r.klass == kRcCoverLo || r.klass == kRcPostLo;
+        const uint32_t corner = is_cov ? r.call / 3 : r.call;
+        const bool want_low = corner == 0 || corner == 3;
+        corner_ok = corner_ok && (low == want_low);
+        (is_cov ? (low ? cov_lo : cov_hi) : (low ? post_lo : post_hi)) += 1;
+      }
+      const rr::RingCensus s3 = con3.Stats();
+      // 11 cover rows as above (12 less the hidden one); low = corners 0 / 3, high = corners 1 / 2; never both models of one corner (the sum is unchanged)
+      Check(corner_ok && cov_lo + cov_hi == 11 && cov_lo >= 3 && cov_hi >= 3 && post_lo == 2 && post_hi == 2 && s3.cv_low == cov_lo && s3.post_low == 2 && s3.lod_dist_unreadable == 0, "ring.lod_far_test",
+            "cover lo/hi " + std::to_string(cov_lo) + "/" + std::to_string(cov_hi) + " post lo/hi " + std::to_string(post_lo) + "/" + std::to_string(post_hi) + " corner_ok " + std::to_string(corner_ok));
+      // the threshold is the game's word, not a literal: a different value at 0x82012B14 moves the split (1e9 = nothing is far)
+      g_guest.PutF(0x82012B14u, 1.0e9f);
+      rr::RingRecomputeContributor con4;
+      con4.SetReader(ReadThunk);
+      con4.NoteRing(kX, 704, &vw);
+      FrameInfo f4;
+      f4.guest_frame = 704;
+      con4.Latch(f4);
+      SceneTables t4;
+      Counters c4x;
+      con4.Emit(f4, t4, c4x);
+      uint32_t lo4 = 0;
+      for (const RingRows& r : t4.ring_rows)
+        if (r.klass == kRcCoverLo || r.klass == kRcPostLo) ++lo4;
+      Check(lo4 == 0, "ring.lod_threshold_read", "low rows with T = 1e9: " + std::to_string(lo4));
+      g_guest.PutF(0x82012B14u, 3000.f);
+    }
     // (d) an absent model is not a failure: no low cover and a hidden skirt count nothing; a skirt that IS visible and unreadable counts once
     Check(s2.skirt_unreadable == 0 && st.cv_unreadable == 0, "ring.absent_not_counted", "skirt_unreadable " + std::to_string(s2.skirt_unreadable) + " cv_unreadable " + std::to_string(st.cv_unreadable));
     BuildGuest(false);

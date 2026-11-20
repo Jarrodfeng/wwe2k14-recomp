@@ -1,0 +1,23 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=55 --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true
+# intent: scene 2
+# S105 lane R2 (A11 / C3 check route): a ladder match (match type 55, docs\research\s105\C3.md) with the briefcase light above the ring; Lesnar 343 v Bryan 324.
+# Timeline from s103_off1.txt without the tron / entrance step waits (the ladder match's entrance behaviour is unconfirmed): waits for the match clock, then shots every 300 frames.
+# UNCONFIRMED until run: that the match clock starts for type 55 and that the light is in frame at the broadcast camera (the briefcase hangs above the ring centre).
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+log scene=entrances
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 300
+screenshot chk_ladder_1
+wait_frames 300
+screenshot chk_ladder_2
+wait_frames 300
+screenshot chk_ladder_3
+wait_frames 600
+screenshot chk_ladder_4
+log bench: done
+wait_frames 10
+quit

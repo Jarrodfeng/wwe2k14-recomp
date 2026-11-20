@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "gfx_settings.h"
+#include "keep_stream.h"  // S105 A1b: WWE2K14_STREAM() (which readers this build compiles)
 
 namespace wwe2k14::gfxs {
 
@@ -68,39 +69,43 @@ inline std::string FreshJson(const Choice& c) {
 
 // LOW's levers and whether the new renderer reads each one (R2 / R1 pages of part 2; the grep that decides it is the lane's gate check).
 // A lever "asked but ignored" is a flag the settings ask for that nothing in src\renderer*, src\renderer_adapter, src\scene_live reads.
+// S105 A1b: read_by_new_renderer = the STREAM build's new renderer (reader.h / live.cpp); read_stream_free = the stream-free player build, whose readers are
+// start_settings.cpp / host_start.cpp (reader.h and live.cpp are not compiled there). The `where` text names the stream build's reader. The lint
+// tools\launcher\settings_reader_lint.py judges the launcher's switches by the same facts (`q ours cvar`).
 struct LowLever {
   const char* flag;
   bool read_by_new_renderer;
+  bool read_stream_free;
   const char* where;  // the read, or why it is ignored
 };
 inline constexpr LowLever kLowLevers[] = {
-    {"gpu_shadow_half_rate", true, "start_settings.cpp PlayerQuality::shadow_half (read by the binder and the scene draw)"},
-    {"present_effect", true, "renderer_adapter\\reader.h options.present_sgsr"},
+    {"gpu_shadow_half_rate", true, true, "start_settings.cpp PlayerQuality::shadow_half (read by the binder and the scene draw)"},
+    {"present_effect", true, true, "renderer_adapter\\reader.h options.present_sgsr"},
     // S102 G1: three levers the new renderer reads under LOW (low_levers.h; switches default off until their Surface rows; GraphicsFlags writes them when flipped).
-    {"wwe2k14_rdr_low_shadow_small", true, "renderer_adapter\\reader.h low_levers::ShadowMapSize (needs wwe2k14_rdr_shadows_ours)"},
-    {"wwe2k14_rdr_low_present_noclear", true, "renderer_adapter\\reader.h options.present_noclear -> renderer.cpp RecordPresent"},
-    {"wwe2k14_rdr_low_no_fullsize_copies", true, "renderer_adapter\\reader.h low_levers::CopyAliasFor (copy_alias mode 2, classes 1|2|8)"},
+    {"wwe2k14_rdr_low_shadow_small", true, false, "renderer_adapter\\reader.h low_levers::ShadowMapSize (needs wwe2k14_rdr_shadows_ours)"},
+    {"wwe2k14_rdr_low_present_noclear", true, true, "renderer_adapter\\reader.h options.present_noclear -> renderer.cpp RecordPresent"},
+    {"wwe2k14_rdr_low_no_fullsize_copies", true, false, "renderer_adapter\\reader.h low_levers::CopyAliasFor (copy_alias mode 2, classes 1|2|8)"},
     // S102 G3 (map_turns.h): the offscreen maps take turns, one PerFrame switch each (rdr_switches.h), read by live.cpp every frame and effective under LOW only; nothing in GraphicsFlags writes them yet (default off until a Surface row).
-    {"wwe2k14_rdr_turn_wrestler", true, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
-    {"wwe2k14_rdr_turn_rim", true, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
-    {"wwe2k14_rdr_turn_props", true, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
-    {"wwe2k14_rdr_half_rate_drawn_clock", true, "renderer_adapter\\live.cpp map_turns::g_half_rate_drawn_clock (per frame) -> binder.h shadow_skip_frame_"},
+    {"wwe2k14_rdr_turn_wrestler", true, false, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
+    {"wwe2k14_rdr_turn_rim", true, false, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
+    {"wwe2k14_rdr_turn_props", true, false, "renderer_adapter\\live.cpp map_turns::g_on (per frame, LOW only) -> binder.h TurnsBegin"},
+    {"wwe2k14_rdr_half_rate_drawn_clock", true, false, "renderer_adapter\\live.cpp map_turns::g_half_rate_drawn_clock (per frame) -> binder.h shadow_skip_frame_"},
     // S102 G2: the output pass's two levers (PerFrame; output_switches.h).
-    {"wwe2k14_rdr_low_output_cap", true, "renderer_adapter\\reader.h rdr_switches.h LowOutputCap (PerFrame) -> live.cpp low_levers::OutputCapHeight -> Frame::out_cap_h -> renderer.cpp RecordPresent / swapchain.cpp ApplyOutputCap"},
-    {"wwe2k14_rdr_low_present_bilinear", true, "renderer_adapter\\reader.h rdr_switches.h LowPresentBilinear (PerFrame) -> live.cpp low_levers::PresentBilinear -> Frame::out_bilinear -> renderer.cpp RecordPresent"},
-    {"wwe2k14_rdr_present_fetch", true, "renderer_adapter\\reader.h rdr_switches.h PresentFetch (PerFrame) -> live.cpp -> FrameBuilder::SetPresentFetch -> Frame::present_fetch -> renderer.cpp TryPresentFetch / swapchain.cpp RecordPictureCopy"},
+    {"wwe2k14_rdr_low_output_cap", true, false, "renderer_adapter\\reader.h rdr_switches.h LowOutputCap (PerFrame) -> live.cpp low_levers::OutputCapHeight -> Frame::out_cap_h -> renderer.cpp RecordPresent / swapchain.cpp ApplyOutputCap"},
+    {"wwe2k14_rdr_low_present_bilinear", true, false, "renderer_adapter\\reader.h rdr_switches.h LowPresentBilinear (PerFrame) -> live.cpp low_levers::PresentBilinear -> Frame::out_bilinear -> renderer.cpp RecordPresent"},
+    {"wwe2k14_rdr_present_fetch", true, false, "renderer_adapter\\reader.h rdr_switches.h PresentFetch (PerFrame) -> live.cpp -> FrameBuilder::SetPresentFetch -> Frame::present_fetch -> renderer.cpp TryPresentFetch / swapchain.cpp RecordPictureCopy"},
     // S102 C4: the arena overdraw (no look change) and the half-size transparents (a look lever, LOW only).
-    {"wwe2k14_rdr_arena_fragments", true, "renderer_adapter\\reader.h rdr_switches.h ArenaFragments (PerFrame bit mask) -> live.cpp -> FrameBuilder::SetArenaFragments -> binder.h AlphaOpaque (exact proof) -> DrawOp::kDrawOpBlendOff -> renderer.cpp RecordPass (arena_fragments.h)"},
-    {"wwe2k14_rdr_arena_overdraw", true, "renderer_adapter\\reader.h rdr_switches.h ArenaOverdraw (PerFrame) -> live.cpp -> FrameBuilder::SetArenaOverdraw -> binder.h AlphaOpaque (texture_alpha.h) -> renderer.cpp RecordPass (the G10 prepass)"},
-    {"wwe2k14_rdr_low_half_transparents", true, "renderer_adapter\\reader.h rdr_switches.h LowHalfTransparents (PerFrame) -> live.cpp -> Frame::half_transparents -> renderer.cpp RecordPass (half_trans.h)"},
+    {"wwe2k14_rdr_arena_fragments", true, false, "renderer_adapter\\reader.h rdr_switches.h ArenaFragments (PerFrame bit mask) -> live.cpp -> FrameBuilder::SetArenaFragments -> binder.h AlphaOpaque (exact proof) -> DrawOp::kDrawOpBlendOff -> renderer.cpp RecordPass (arena_fragments.h)"},
+    {"wwe2k14_rdr_arena_overdraw", true, false, "renderer_adapter\\reader.h rdr_switches.h ArenaOverdraw (PerFrame) -> live.cpp -> FrameBuilder::SetArenaOverdraw -> binder.h AlphaOpaque (texture_alpha.h) -> renderer.cpp RecordPass (the G10 prepass)"},
+    {"wwe2k14_rdr_low_half_transparents", true, false, "renderer_adapter\\reader.h rdr_switches.h LowHalfTransparents (PerFrame) -> live.cpp -> Frame::half_transparents -> renderer.cpp RecordPass (half_trans.h)"},
     // S102 G10: the scene colour pass's cuts (PerFrame bit mask; colour_cuts.h).
-    {"wwe2k14_rdr_low_colour_cuts", true, "renderer_adapter\\reader.h rdr_switches.h LowColourCuts (PerFrame) -> live.cpp low_levers::ColourCuts -> Frame::colour_cuts -> renderer.cpp RecordPass (depth prepass)"},
-    {"gpu_native_owned_shadow_half", false, "read by the SDK (the old native path), not by src\\renderer*; the new renderer's map size is wwe2k14_rdr_shadow_map_size"},
-    {"gpu_native_owned_shadow_skip", false, "no read in the new renderer"},
-    {"gpu_native_owned_ring_half", false, "no read in the new renderer"},
-    {"gpu_native_crowd_pose_half", false, "no read in the new renderer"},
-    {"gpu_native_owned_strip_half", false, "no read in the new renderer"},
-    {"gpu_native_half_phase", false, "no read in the new renderer"},
+    {"wwe2k14_rdr_low_colour_cuts", true, false, "renderer_adapter\\reader.h rdr_switches.h LowColourCuts (PerFrame) -> live.cpp low_levers::ColourCuts -> Frame::colour_cuts -> renderer.cpp RecordPass (depth prepass)"},
+    {"gpu_native_owned_shadow_half", false, false, "read by the SDK (the old native path), not by src\\renderer*; the new renderer's map size is wwe2k14_rdr_shadow_map_size"},
+    {"gpu_native_owned_shadow_skip", false, false, "no read in the new renderer"},
+    {"gpu_native_owned_ring_half", false, false, "no read in the new renderer"},
+    {"gpu_native_crowd_pose_half", false, false, "no read in the new renderer"},
+    {"gpu_native_owned_strip_half", false, false, "no read in the new renderer"},
+    {"gpu_native_half_phase", false, false, "no read in the new renderer"},
 };
 
 // The internal (drawn) size of a settings choice: resolution_scale 1 / 2 / 3 = 1280x720 / 2560x1440 / 3840x2160; a NATIVE draw height
@@ -123,7 +128,7 @@ inline std::string AppliedLine(const Choice& c, const std::vector<std::pair<std:
     for (const auto& [name, value] : flags) {
       if (name != l.flag) continue;
       std::string item = std::string(l.flag) + (name == "present_effect" ? "=" + value : std::string());
-      std::string& list = l.read_by_new_renderer ? on : ignored;
+      std::string& list = (WWE2K14_STREAM() ? l.read_by_new_renderer : l.read_stream_free) ? on : ignored;  // S105 A1b: per build
       list += (list.empty() ? "" : ", ") + item;
     }
   }

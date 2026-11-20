@@ -47,7 +47,7 @@ $jobs += $fview | ForEach-Object { [pscustomobject]@{ Source = $_; Flags = $flag
 $jobs += $imguiSources | ForEach-Object { [pscustomobject]@{ Source = $_; Flags = $imguiFlags } }
 
 $failed = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-$jobs | ForEach-Object -ThrottleLimit 12 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $jobs | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 12) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $source = $_.Source
   $flagList = $_.Flags
   $oname = if ($source.StartsWith($using:repoR, 'OrdinalIgnoreCase')) { $source.Substring($using:repoLen) } else { $source }   # S103 GX: repo-relative object names (the absolute ones pushed the path past 260 characters in a worktree: sccache could not find the output)
@@ -70,7 +70,7 @@ $jobs | ForEach-Object -ThrottleLimit 12 -Parallel {
     $text = & $using:ccExe @using:ccArgs @flagList -c $rel -o $relObj 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
-}
+} } finally { Release-BuildParallel }
 if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($failed.Count) file(s) failed to compile" }
 
 $exe = Join-Path $out 'fview.exe'

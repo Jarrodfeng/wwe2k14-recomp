@@ -87,7 +87,7 @@ def parse_gate_text(text):
         m = re.match(r'^(SKIP|NEEDS-MAIN)\s+\S+\s+(\S+)\s+(.*)$', ln)
         if m:
             unrun[m.group(2)] = '%s: %s' % (m.group(1), m.group(3)[:160])
-        m = re.match(r'^(FAIL|BUILD|NOT RUN)\s+\S+\s+(\S+)', ln)   # S103 GST review 10: a NOT RUN row (the --deadline) is not a pass either
+        m = re.match(r'^(FAIL|BUILD|BLOCKED|NOT RUN)\s+\S+\s+(\S+)', ln)   # S103 GST review 10: a NOT RUN row (the --deadline) is not a pass either
         if m:
             bad[m.group(2)] = m.group(1)
     return unrun, bad

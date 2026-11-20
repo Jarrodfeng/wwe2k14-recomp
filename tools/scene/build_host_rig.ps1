@@ -36,13 +36,13 @@ $srcs += @(Get-ChildItem (Join-Path $repo 'src\renderer') -Recurse -Filter '*.cp
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src'), (Join-Path $repo 'tools/scene') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum
 $repoLen = $repo.Path.Length + 1
 $incRel = ConvertTo-CxxRel $inc   # S103 H1: repo-relative paths (the same text in every worktree)
-$fails = $srcs | ForEach-Object -ThrottleLimit 16 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $fails = $srcs | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 16) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $name = ($_.Substring($using:repoLen) -replace '[\\/:]', '_') + '.o'
   $o = Join-Path $using:obj $name
   if ((Test-Path $o) -and (Get-Item $o).LastWriteTimeUtc -gt (Get-Item $_).LastWriteTimeUtc -and (Get-Item $o).LastWriteTimeUtc -gt $using:newestHdr) { return }
   $log = & $using:cxx0 @using:cxxRest -O1 -g -std=c++20 -c @using:defs -Wno-unused-command-line-argument @using:incRel ($_.Substring($using:repoLen)) -o ($o.Substring($using:repoLen)) 2>&1
   if ($LASTEXITCODE -ne 0) { "FAILED $_`n" + ($log -join "`n") }
-}
+} } finally { Release-BuildParallel }
 $bad = @($fails | Where-Object { $_ -match '^FAILED' })
 $bad | ForEach-Object { Write-Host $_ }
 Show-CxxCache

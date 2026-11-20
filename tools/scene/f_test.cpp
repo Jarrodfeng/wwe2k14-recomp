@@ -124,6 +124,19 @@ void TestOrder(bool fault_distance) {
   std::vector<Cu> cu = {{0, 5, 2}, {1, 9, 0}, {2, 20, 2}, {3, 1, 0}};
   SortSeeThrough(SeeOrder::Game, cu, [](const Cu& c) { SeeKey k; k.dist2 = c.dist2, k.cutout = c.cutout; return k; });
   Check(cu[0].id == 1 && cu[1].id == 3 && cu[2].id == 2 && cu[3].id == 0, "order: slot blends (cutout 2) stay far to near, after the game's own pieces");
+  // S105 SZW (SZW_contract.md site 12; ZW1): with an order key (wwe2k14_rdr_stage_zwrite) the slot blends draw in the game's list order = ascending slot number inside light-set runs, never by distance.
+  // key = run * 1024 + slot: slots 45, 120, 130 are one run (set A), slot 46 the next run (set B), slot 214 the last (set C): 45, 120, 130, 46, 214 whatever the distances. A piece of the game's own at the same rank stays first.
+  struct So { int id; float dist2; uint8_t cutout; int32_t order; };
+  std::vector<So> so = {{0, 900, 2, 2 * 1024 + 214}, {1, 100, 2, 0 * 1024 + 120}, {2, 4, 0, -1}, {3, 400, 2, 1 * 1024 + 46}, {4, 9, 2, 0 * 1024 + 45}, {5, 2500, 2, 0 * 1024 + 130}};
+  SortSeeThrough(fault_distance ? SeeOrder::Distance : SeeOrder::Game, so, [](const So& c) { SeeKey k; k.dist2 = c.dist2, k.cutout = c.cutout, k.order = c.order; return k; });
+  std::vector<int> so_ids;
+  for (const So& c : so) so_ids.push_back(c.id);
+  Check(so_ids == std::vector<int>({2, 4, 1, 5, 3, 0}), "order: slot blends with an order key draw in the game's list order (slot ascending inside light-set runs), not far to near");
+  std::vector<So> so2 = {{0, 1, 2, 2 * 1024 + 214}, {1, 9, 2, 0 * 1024 + 120}, {2, 4, 0, -1}, {3, 4, 2, 1 * 1024 + 46}, {4, 99, 2, 0 * 1024 + 45}, {5, 25, 2, 0 * 1024 + 130}};   // the camera moved: the same order
+  SortSeeThrough(fault_distance ? SeeOrder::Distance : SeeOrder::Game, so2, [](const So& c) { SeeKey k; k.dist2 = c.dist2, k.cutout = c.cutout, k.order = c.order; return k; });
+  std::vector<int> so2_ids;
+  for (const So& c : so2) so2_ids.push_back(c.id);
+  Check(so2_ids == std::vector<int>({2, 4, 1, 5, 3, 0}), "order: the game's slot order does not move with the camera");
 }
 
 // ---- 2. the record ----------------------------------------------------------------------------------------------------------------

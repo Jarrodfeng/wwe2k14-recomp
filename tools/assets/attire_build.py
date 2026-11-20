@@ -123,9 +123,8 @@ def build(cid, colours, entries, white='paint'):
     """The finished atlas (float RGB) of one attire: the base, then each mask's step. white: what a colour of 255 does: 'keep' (the
     default) leaves the texel as it was (the channel still claims it, so later channels of that step do not paint it); 'skip-steps'
     skips only steps whose four colours are all 255 and paints single 255 colours white; 'paint' paints every 255 white (the shader
-    with the colour as a constant). Unconfirmed which the game does: no test for 255 in the build's functions; Heenan's 255 colours touch
-    no texel, so his in-game atlas does not tell; Jarrod (2026-11-10): Undertaker's and Stone Cold's attires are black, and painting gave
-    them large white garments ('keep' gives them black)."""
+    with the colour as a constant). 'paint' is the game's rule [C S105 A5dW]; the Undertaker / Stone Cold white garments
+    (Jarrod, 2026-11-10) came from building attires the game never builds by default (flags 0) with the old table layout."""
     w, h, pf, data = dds(entries[12])
     if pf['fourcc'] != b'DXT1':
         raise ValueError('base is %r, not DXT1' % pf['fourcc'])

@@ -1,0 +1,13 @@
+{
+ "owner": "S105 lane A2 (docs/research/s105/A2.md): the stream-free build fills ultrawide / tall screens during play. src/renderer_host/wide_frame.h (the frame shape: the scene / F size, the centred 1280x720 2D box, the tall rule of rf::BuildFrame, the full-view row test, the box crop), ultrawide_state.h (the in-play verdict), host_start.cpp (the refusal removed, the factors and the verdict passed to the host), scene_host.* (the shape, the game's size to the 2D drawing, the read-back crop), quads2d_draw.* (viewport origin / whole-target full-view rows), record_frame.cpp (the tall rule), crowd_latch_reader.h (the two screen-test ports widened by the crowd switch's scale), front_end.cpp (the big screen's grab = the centred box), settings_map.txt rows ASPECT / SCREEN SHAPE live. 0 game runs.",
+ "claim": {"scene": "none", "side": "correctness (the picture fills a screen that is not 16:9 in play)", "ms": [0, 0], "basis": "no saving claimed"},
+ "note": "0 game runs, 0 Surface runs. Cheap checks only: the size / box / tall-rule / full-view / crop unit and its four planted twins (wiring lints for the removed refusal and the game's size to the 2D drawing), the crowd screen-test unit (the widened floor / single tests and the scale-ignored twin), the settings lint (ASPECT / SCREEN SHAPE live, the REFUSAL row gone).",
+ "checks": [
+  {"name": "s105_A2.wide_frame_unit", "cmd": ["py", "-I", "tools/renderer/wide_frame_unit.py", "--root", "."], "timeout_s": 900,
+   "affects": ["src/renderer_host/*", "src/renderer_scene/quads2d_draw.*", "src/renderer_scene/record_frame.cpp", "src/scene_live/crowd_latch_reader.h", "src/start_settings.cpp", "src/ultrawide_state.h", "tools/renderer/wide_frame_unit.*"]},
+  {"name": "s105_A2.crowd_screen_unit", "cmd": ["py", "-I", "tools/scene/crowd_snapshot_check.py", "--root", "."], "timeout_s": 1800,
+   "affects": ["src/scene_live/crowd_latch_reader.h", "src/start_settings.cpp", "tools/scene/crowd_snapshot_*"]},
+  {"name": "s105_A2.settings_lint", "cmd": ["py", "-I", "tools/launcher/settings_reader_lint.py"], "timeout_s": 600,
+   "affects": ["tools/launcher/settings_map.txt", "tools/launcher/settings_reader_lint.py", "src/renderer_host/host_start.cpp", "src/start_settings.cpp"]}
+ ]
+}

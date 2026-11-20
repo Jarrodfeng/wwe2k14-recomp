@@ -14,7 +14,7 @@ r"""qx7: two whole-game indexes over the generated listing (S103 lane QX4): virt
         source), the node's vtable (the constant stored at +0 of the node in the enclosing function), the class name, and slot 1 (vtable + 4: the node's draw
         method, read from the game image; --slot N for another slot). CATEGORY filters.
 
-Built by a scan of every generated .cpp (350 files, <= 4 workers at below-normal priority, RAM-capped) into out\harness\index\vcall.db (game-derived: stays in
+Built by a scan of every generated .cpp (350 files, <= 4 workers at below-normal priority, RAM-capped) into out\harness\index\vcall.s<VERSION>.db (WWE_QVCALL_DB=FILE = another file; files of other versions beside it are left alone) (game-derived: stays in
 out\). It is automatic: a missing or stale table (codegen fingerprint / version) is rebuilt by the next call; a warm call is one stat + one query.
 Limits: the receiver is tracked by a forward flow over the function's own branches (paths met at labels: a def survives a join only when every path agrees; a call kills the volatile registers except a save / restore helper, which kills r0 r11 r12; r3 at the call must be the receiver or a flag is printed); a vtable load separated from the call by a
 call is not seen as `via vtable`; a node whose vtable is set by a base constructor in another function shows `?` (stated per row).
@@ -35,11 +35,31 @@ sys.path.insert(0, HERE)
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 IDX = os.path.join(REPO, 'out', 'harness', 'index')
 GEN = os.path.join(REPO, 'generated', 'default')
-VDB = os.path.join(IDX, 'vcall.db')
 IMAGE = os.path.join(IDX, 'image.bin')
 IMAGE_BASE = 0x82000000
 NODE_REG = 0x82C30A10
-VERSION = 2
+VERSION = 2      # S105 D (F1): also in the FILE NAME (vcall.s2.db, db_name()): a q of another version never opens, wipes or rebuilds this file
+
+
+def db_name():
+    """the table's file name carries the version (vcall.s2.db): a q of another version uses ANOTHER file and never opens, wipes or rebuilds this one (the design of qasset.db_name)"""
+    return 'vcall.s%d.db' % VERSION
+
+
+def vdb_path():
+    r"""out\harness\index\vcall.s<VERSION>.db; WWE_QVCALL_DB=<file> = another file (how a builder / a test works without touching the shared index)"""
+    return os.environ.get('WWE_QVCALL_DB') or os.path.join(IDX, db_name())
+
+
+def other_index_files(path=None):
+    """files of OTHER names beside ours (the old vcall.db, vcall.s1.db ...): left alone by q, named so the tidy / a person can clear them"""
+    path = path or vdb_path()
+    d = os.path.dirname(path)
+    me = os.path.basename(path)
+    try:
+        return sorted(f for f in os.listdir(d) if re.match(r'^vcall(\.s\d+)?\.db$', f) and f != me)
+    except OSError:
+        return []
 
 INS_RE = re.compile(r'^\t// ([A-Za-z][\w.+\-]*) ?(.*?)\s*$')
 LABEL_RE = re.compile(r'^loc_([0-9A-F]{8}):')
@@ -325,6 +345,34 @@ def _vt_ok(a):
     return w is not None and w in _W['funcs']
 
 
+def _read_body(lines, i, fa):
+    """the instructions of the function whose DEFINE_REX_FUNC line is lines[i]: -> ([[addr, mnemonic, operands, switch cases or None], ...], index of its closing `}`)"""
+    n = len(lines)
+    j = i + 1
+    insns = []
+    addr = fa
+    last_bctr = None
+    while j < n and lines[j] != '}':
+        l = lines[j]
+        lm = LABEL_RE.match(l)
+        if lm:
+            addr = int(lm.group(1), 16)
+            last_bctr = None
+        else:
+            im = INS_RE.match(l)
+            if im:
+                ins = [addr, im.group(1), im.group(2), None]
+                insns.append(ins)
+                last_bctr = ins if ins[1] == 'bctr' else None
+                addr += 4
+            elif last_bctr is not None:
+                g = GOTO_RE.search(l)
+                if g:
+                    last_bctr[3] = (last_bctr[3] or []) + [int(g.group(1), 16)]
+        j += 1
+    return insns, j
+
+
 def scan_file(path):
     """-> (vcall rows, node rows) of one generated .cpp"""
     with open(path, encoding='utf-8', errors='replace') as f:
@@ -341,28 +389,7 @@ def scan_file(path):
             i += 1
             continue
         fa = int(m.group(1), 16)
-        j = i + 1
-        insns = []
-        addr = fa
-        last_bctr = None
-        while j < n and lines[j] != '}':
-            l = lines[j]
-            lm = LABEL_RE.match(l)
-            if lm:
-                addr = int(lm.group(1), 16)
-                last_bctr = None
-            else:
-                im = INS_RE.match(l)
-                if im:
-                    ins = [addr, im.group(1), im.group(2), None]
-                    insns.append(ins)
-                    last_bctr = ins if ins[1] == 'bctr' else None
-                    addr += 4
-                elif last_bctr is not None:
-                    g = GOTO_RE.search(l)
-                    if g:
-                        last_bctr[3] = (last_bctr[3] or []) + [int(g.group(1), 16)]
-            j += 1
+        insns, j = _read_body(lines, i, fa)
         i = j + 1
         if any(x[1] in ('bctrl', 'bctr') or (x[1] == 'bl' and x[2].lower() == '0x82c30a10') for x in insns):
             _scan_func(fa, insns, vrows, nrows)
@@ -447,9 +474,9 @@ def _index_con():
 
 
 def build(path=None, gen=None, jobs=None, quiet=False, files=None, index_con=None):
-    """scan every generated recomp .cpp into vcall.db (atomic: temp file, then replace)"""
+    """scan every generated recomp .cpp into vcall.s<VERSION>.db (atomic: temp file, then replace)"""
     from concurrent.futures import ProcessPoolExecutor
-    path = path or VDB
+    path = path or vdb_path()
     gen = gen or GEN
     t0 = time.time()
     con = index_con or _index_con()
@@ -478,28 +505,38 @@ def build(path=None, gen=None, jobs=None, quiet=False, files=None, index_con=Non
                                                        ('seconds', f'{time.time() - t0:.1f}'), ('jobs', str(jobs)), ('files', str(len(files)))])
     out.commit()
     out.close()
-    for attempt in range(8):      # a reader holding the old file open (Windows) refuses the replace for a moment
+    delay, waited = 0.25, 0.0      # a reader holding the old file open (Windows) refuses the replace: back off ~30 s, then give up quietly (S105 D, F-2)
+    while True:
         try:
             os.replace(tmp, path)
             break
         except PermissionError:
-            if attempt == 7:
-                raise
-            time.sleep(0.5)
+            if waited >= 30:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                print(f'q: a reader holds {path}: the new table was not swapped in, answering from the old one', file=sys.stderr)
+                return path
+            time.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 4.0)
     if not quiet:
-        print(f'q: built {path}: {nv} virtual-call rows, {nn} node registrations, {len(files)} files, {jobs} workers, {time.time() - t0:.1f} s', file=sys.stderr)
+        other = other_index_files(path)      # S105 D: files of other versions beside ours are left alone, named here
+        print(f'q: built {path}: {nv} virtual-call rows, {nn} node registrations, {len(files)} files, {jobs} workers, {time.time() - t0:.1f} s'
+              + (f' (older index files left alone: {", ".join(other)})' if other else ''), file=sys.stderr)
     return path
 
 
 def open_vdb(path=None):
-    path = path or VDB
+    path = path or vdb_path()
     stale = True
     if os.path.exists(path):
         try:
             c = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
             meta = dict(c.execute('SELECT key, value FROM meta').fetchall())
             c.close()
-            stale = meta.get('version') != str(VERSION) or (path == VDB and meta.get('fingerprint') != _fingerprint() and os.path.isdir(GEN))
+            stale = meta.get('version') != str(VERSION) or (path == vdb_path() and meta.get('fingerprint') != _fingerprint() and os.path.isdir(GEN))
         except sqlite3.Error:
             stale = True
     if stale:
@@ -617,6 +654,83 @@ def vcall_main(argv, con=None):
     return 0
 
 
+ARG_RE = re.compile(r'^arg (r\d+)$')
+CALLER_CAP = 60      # callers parsed per registration (a base constructor with hundreds of callers is capped, said in the row)
+
+
+def caller_values(icon, func, reg, gen=None, cap=CALLER_CAP):
+    """QAF: one level of argument passing. A registration whose category is the ARGUMENT `reg` of its enclosing function `func` (a builder that passes the category on
+    to sub_82C30A10): the value every caller puts in `reg` at its `bl func`, from the same forward flow the scan uses, run on each caller only.
+    -> {'lits': [(value, caller name, site)] in caller order, 'other': [(caller name, what the register holds / `tail call`)], 'n': callers, 'shown': parsed} or None
+    when the call edges / the listing are not readable (an index without edges, no generated\\)."""
+    gen = gen or os.environ.get('WWE_Q_GEN') or GEN
+    try:
+        rows = icon.execute("SELECT e.src, e.site, e.kind, f.name, f.file, f.line FROM edges e JOIN funcs f ON f.addr = e.src WHERE e.dst = ? AND e.kind IN ('call', 'tail') "
+                            "GROUP BY e.src, e.site ORDER BY e.src, e.site", (func,)).fetchall()
+        helpers = frozenset(r[0] for r in icon.execute("SELECT addr FROM funcs WHERE name GLOB '__save*' OR name GLOB '__rest*'"))
+    except sqlite3.Error:
+        return None
+    lits, other, files, bodies = [], [], {}, {}
+    srcs = []
+    for r in rows:
+        if r[0] not in srcs:
+            srcs.append(r[0])
+    keep = set(srcs[:cap])
+    for src, site, kind, name, file, line in rows:
+        if src not in keep:
+            continue
+        if kind == 'tail':
+            other.append((name or f'sub_{src:08X}', 'tail call'))
+            continue
+        if src not in bodies:
+            path = os.path.join(gen, file or '')
+            if path not in files:
+                try:
+                    with open(path, encoding='utf-8', errors='replace') as f:
+                        files[path] = f.read().split('\n')
+                except OSError:
+                    files[path] = None
+            lines = files[path]
+            vals = None
+            if lines is not None:
+                want = f'DEFINE_REX_FUNC(sub_{src:08X})'
+                i = max(0, (line or 1) - 1)
+                if i >= len(lines) or not lines[i].startswith(want):
+                    i = next((k for k, l in enumerate(lines) if l.startswith(want)), None)
+                if i is not None:
+                    insns, _ = _read_body(lines, i, src)
+                    vals = {}
+
+                    def hit(kind_, a, info, tr, vals=vals):
+                        if kind_ == 'call' and info[0] == func:
+                            vals[a] = info[1].get(reg)
+                    run_function(insns, lambda a: False, helpers, hit)
+            bodies[src] = vals
+        v = (bodies[src] or {}).get(site)
+        who = name or f'sub_{src:08X}'
+        if v is None:
+            other.append((who, 'not read'))
+        elif v[0] == 'li':
+            lits.append((v[1], who, site))
+        else:
+            other.append((who, describe(v)))
+    return {'lits': lits, 'other': other, 'n': len(srcs), 'shown': len(keep)}
+
+
+def category_text(cv, reg):
+    """the `cat` column for a registration whose category came from callers (cv = caller_values)"""
+    vals = sorted({v for v, _, _ in cv['lits']})
+    cap = f'; the first {cv["shown"]} of {cv["n"]} callers' if cv['n'] > cv['shown'] else ''
+    if vals and not cv['other']:
+        return '|'.join(str(v) for v in vals) + f' (from callers{cap})'
+    who = ', '.join(sorted({w for w, _ in cv['other']}))
+    if not cv['n']:
+        return f'? (arg {reg}; no callers in the call edges)'
+    if vals:
+        return '|'.join(str(v) for v in vals) + f'|? (from callers; non-literal from: {who}{cap})'
+    return f'? (argument {reg}; callers: {who}{cap})'
+
+
 def nodes_main(argv, con=None):
     ap = argparse.ArgumentParser(prog='q nodes')
     ap.add_argument('category', nargs='?', default=None)
@@ -631,28 +745,41 @@ def nodes_main(argv, con=None):
     cnames, _ = _vt_classes(icon)
     img = Img()
     q, pr = 'SELECT * FROM nodes', ()
+    want = None
     if a.category is not None:
-        q, pr = q + ' WHERE cat = ?', (parse_num(a.category),)
+        want = parse_num(a.category)
+        q, pr = q + ' WHERE cat = ? OR cat = -1', (want,)      # -1 = an unresolved site: kept when its callers' literals (QAF) contain the category
     res = []
     for r in v.execute(q + ' ORDER BY cat, site', pr).fetchall():
         vt = r['vt']
         s1 = img.word(vt + 4 * a.slot) if vt else None
         if s1 is not None and icon.execute('SELECT 1 FROM funcs WHERE addr = ?', (s1,)).fetchone() is None:
             s1 = None      # past the end of that table: not a function
+        ctext, clits, cother = None, None, None
+        m = ARG_RE.match(r['cat_src'] or '') if r['cat'] < 0 else None
+        if m:      # QAF: the category is an argument of the builder: the literals its callers pass (one level)
+            cv = caller_values(icon, r['func'], m.group(1))
+            if cv is not None:
+                ctext = category_text(cv, m.group(1))
+                clits = sorted({x[0] for x in cv['lits']}) or None
+                cother = sorted({x[0] for x in cv['other']}) or None
+        if want is not None and r['cat'] != want and want not in (clits or []):
+            continue
         res.append({'category': r['cat'] if r['cat'] >= 0 else None, 'category_source': r['cat_src'] or None, 'site': hx(r['site']), 'func': f"sub_{r['func']:08X}",
                     'func_name': names.get(r['func'], ''), 'node': r['node'], 'vtable': hx(vt) if vt else None, 'class': cnames.get(vt) if vt else None,
-                    'slot1': f'sub_{s1:08X}' if s1 else None, 'slot1_name': names.get(s1, '') if s1 else ''})
+                    'slot1': f'sub_{s1:08X}' if s1 else None, 'slot1_name': names.get(s1, '') if s1 else '',
+                    'category_from_callers': clits, 'category_callers_nonliteral': cother, 'category_text': ctext})
     if a.json:
         print(json.dumps({'count': len(res), 'nodes': res}, indent=1))
         return 0
     print(f'q nodes{" " + a.category if a.category else ""}: {len(res)} registration(s) of sub_82C30A10 (node, category, on)')
     for x in res[:a.limit]:
-        cat = x['category'] if x['category'] is not None else f"? ({x['category_source']})"
+        cat = x['category'] if x['category'] is not None else (x['category_text'] or f"? ({x['category_source']})")
         print(f"  cat {str(cat):>10}  {x['site']}  {x['func']:13s} {x['func_name'][:26]:26s} node {x['node'][:22]:22s} vt {x['vtable'] or '?':10s} slot{a.slot} {x['slot1'] or '?':13s} {x['slot1_name'][:28]}"
               + (f"  [{x['class']}]" if x['class'] else ''))
     if len(res) > a.limit:
         print(f'  ... {len(res) - a.limit} more (--limit N)')
-    print("  (category = the `li r4,N` before the call; vtable = the constant stored at +0 of the node in the SAME function, `?` = a base constructor in another function sets it; slotN = the image word at vtable+4*N, N = --slot, default 1)")
+    print("  (category = the `li r4,N` before the call; when it is an ARGUMENT of the builder, the literals its callers pass (one level: `22|30 (from callers)`), else `?` and who calls; vtable = the constant stored at +0 of the node in the SAME function, `?` = a base constructor in another function sets it; slotN = the image word at vtable+4*N, N = --slot, default 1)")
     return 0
 
 

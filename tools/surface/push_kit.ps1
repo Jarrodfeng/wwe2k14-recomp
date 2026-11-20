@@ -46,6 +46,9 @@ $groups = [ordered]@{
                        # (Session 89: the per-scene routes and the nav snippet they include, flat beside the others.)
                        @('bryan_entrance.txt', 'bryan_heavy.txt', 'brock_entrance.txt', 'match.txt' | ForEach-Object { Join-Path $R "tools\input_scripts\scenes\$_" }) +
                        @(Join-Path $R 'tools\input_scripts\nav\boot_to_menu.txt') +
+                       # (S105 SRJ: Only=route jobs: the Move-set stall route and the nav snippets it includes, flat as the others.)
+                       @('s103_moveset_stall.txt' | ForEach-Object { Join-Path $R "tools\input_scripts\scenes\$_" }) +
+                       @('menu_to_creations.txt', 'creations_to_moveset_specials.txt' | ForEach-Object { Join-Path $R "tools\input_scripts\nav\$_" }) +
                        # (review: the scene routes use wait_state / press_until_state, and the game finds states.toml
                        # beside the script - src\game_state.h FindStatesFile.)
                        @(Join-Path $R 'tools\input_scripts\states.toml')

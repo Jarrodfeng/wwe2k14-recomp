@@ -3,6 +3,8 @@
   {"name": "phone_promotions.check", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py"], "timeout_s": 60},
   {"name": "phone_promotions.plant_source", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-source"], "timeout_s": 60},
   {"name": "phone_promotions.plant_switch", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-switch"], "timeout_s": 60},
+  {"name": "phone_promotions.plant_extra_remove", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "extra-remove"], "timeout_s": 60},
+  {"name": "phone_promotions.plant_host", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-host"], "timeout_s": 60},
   {"name": "phone_promotions.plant_devflags", "cmd": ["py", "-I", "tools/android/check_phone_promotions.py", "--plant", "drop-devflags"], "timeout_s": 60}
  ]
 }

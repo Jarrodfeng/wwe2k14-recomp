@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
   else if (plant == "hand_map_ignored") lp = 28;   // S103 SG: every hand draws 41016 (the pre-SG rule)
   else if (plant == "hand_attire_ignored") lp = 29;   // S103 SG: sub_82506E30 not replicated (idx 0 always)
   else if (plant == "single_data_count_skips_block") lp = 30;   // S103 SN: the data object's count read at [y+24] (no +12 indirection)
+  else if (plant == "screen_scale_ignored") lp = 31;   // S105 A2: the screen tests ignore the widening scale (the 16:9 ports)
   else if (plant == "screen_hidden_absent") crowd::g_presence_plant = 4;
   else if (plant == "picture_handle_unchecked") rdr_scene::live::guest_tex::g_tex_plant = 1;
   else if (plant == "picture_tiled_ignored") rdr_scene::live::guest_tex::g_tex_plant = 2;

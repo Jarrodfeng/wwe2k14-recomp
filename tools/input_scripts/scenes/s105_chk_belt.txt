@@ -1,0 +1,39 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true
+# harness: realtime (the builder's roster is built in wall time; entrances play)
+# intent: scene 2
+# S105 PLATE step check (2026-11-21, fixed by probe PLATE2): Alberto Del Rio (322) holds title 1 in the frozen save; his waist act is belt 5009 = evtobj
+# PACH 459, which carries key 30 (the plate canvas) and an entry-4 plate mesh. (Cena's WWE title 2004 / 3004 / 5004 has NO plate in the game's files:
+# run 185 bound nothing, correctly.) Built by the game's own MATCH BUILDER (as s101_roster_fatal4.txt) so the entrances play; Del Rio enters first.
+# Read: a `prop 5009 ... plate bound` line with a 256x128 plate, the census line with bound >= 1, no "NO plate" line; shots across his walk.
+on_fail quit
+log bench: start scene chk_belt
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=322:-1,324:-1;arena=5;pace=1
+cvar wwe2k14_match_go 105
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_frames 400
+screenshot belt_ent1
+wait_state entrance_step_0 >=5 3600 2
+wait_frames 60
+screenshot belt_ent2
+wait_frames 240
+screenshot belt_ent3
+wait_frames 240
+screenshot belt_ent4
+wait_frames 240
+screenshot belt_ent5
+wait_state entrance_step_0 >=15 3600 2
+screenshot belt_ent6
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 300
+screenshot belt_match1
+log belt: PASS
+quit

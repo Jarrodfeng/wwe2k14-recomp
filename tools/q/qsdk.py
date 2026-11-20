@@ -53,13 +53,26 @@ MACRO_LIKE = re.compile(r'[A-Z][A-Z0-9_]{2,}')
 
 
 def db_path(root, sdk_arg=None):
-    """the default SDK (thirdparty/rexglue-sdk-src) is out/harness/index/sdk.db; --sdk PATH (a thirdparty/sdk-wt/<name> tree) has its own sdk-<name>.db"""
-    name = 'sdk.db' if not sdk_arg else 'sdk-' + re.sub(r'[^\w.-]', '_', os.path.basename(os.path.normpath(sdk_arg))) + '.db'
+    """the default SDK (thirdparty/rexglue-sdk-src) is out/harness/index/sdk.s<SCHEMA>.db; --sdk PATH (a thirdparty/sdk-wt/<name> tree) has its own sdk-<name>.s<SCHEMA>.db.
+    S105 D (F1): the schema is in the FILE NAME: a q of another schema uses ANOTHER file and never opens, wipes or rebuilds this one (the design of qasset.db_name)."""
+    if os.environ.get('WWE_QSDK_DB'):      # S105 D (F-3): another file (how a builder / a gate lane works without touching the shared index)
+        return os.environ['WWE_QSDK_DB']
+    name = ('sdk' if not sdk_arg else 'sdk-' + re.sub(r'[^\w.-]', '_', os.path.basename(os.path.normpath(sdk_arg)))) + '.s%d.db' % SCHEMA
     if not sdk_arg and not os.path.isdir(os.path.join(root, 'thirdparty', 'rexglue-sdk-src')):
         sdk = qx5.sdk_root(root)           # a worktree: the SDK tree is the main checkout's, so its index lives there too
         if sdk:
             root = os.path.dirname(os.path.dirname(sdk))
     return os.path.join(root, 'out', 'harness', 'index', name)
+
+
+def other_index_files(path):
+    """index files of OTHER schemas of the same SDK beside ours (the old sdk.db, sdk.s5.db ...): left alone by q, named in the header so the tidy / a person can clear them"""
+    me = os.path.basename(path)
+    base = re.sub(r'\.s\d+\.db$', '', me)
+    try:
+        return sorted(f for f in os.listdir(os.path.dirname(path)) if re.match(r'^' + re.escape(base) + r'(\.s\d+)?\.db$', f) and f != me)
+    except OSError:
+        return []
 
 
 def part_of(rel):
@@ -665,6 +678,9 @@ def main(argv):
             parts[part_of(f)] = parts.get(part_of(f), 0) + 1
         m['parts'] = ', '.join(f'{k} {v}' for k, v in sorted(parts.items()))
         m['status'] = HEADER
+        other = other_index_files(db_path(args.root, args.sdk))      # S105 D: named here only, not in every answer's header
+        if other:
+            m['other_index_files'] = ', '.join(other) + ' (other schemas, left alone)'
         import json
         print(json.dumps(m, indent=1) if args.json else '\n'.join(f'{k}: {v}' for k, v in m.items()))
         return 0

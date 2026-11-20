@@ -50,6 +50,17 @@ static_assert(sizeof kPieceWhyNames / sizeof kPieceWhyNames[0] == size_t(PieceWh
 // How the game built the instance's model (sub_8259E720), as ProveBuildPath read it: the one-time `piece link` line prints it (PZF2 B-3).
 enum class PieceBuild : uint8_t { Unknown = 0, Deferred = 1, B1 = 2, B2 = 3 };
 
+// S105 A5a (docs\research\s105\A5a_ADV.md sites 1-2): what the latch read of the instance says about whether the game has COPIED the owner's rows into this piece (a CAW hair / necklace: an own-skeleton
+// piece of a guest-row body, drawn from its own palette [model+200]). All 0xFFFFFFFF / ~0 = not read. The contributor never trusts a piece's palette without the copy proof (EmitItems: the
+// piece's latch row `piece_node` must equal the owner's latch row `owner_node` of the SAME latch).
+struct OwnRowsProbe {
+  uint32_t drawn = 0xFFFFFFFFu;     // inst +20: 0 = the SUBM draw loop skips the instance (the game does not draw it: no object, not a hole; DTP's ELBW sets only this)
+  uint32_t special = 0xFFFFFFFFu;   // inst +8: must be 0 (the special-id path builds another object)
+  uint32_t copy = 0xFFFFFFFFu;      // inst +24: the owner-copy word, must be != 0 (sub_8259D230 runs)
+  uint32_t piece_node = ~0u;        // the LAST node j of the instance whose map word is not -1 (a deep node: the root's rotation is often identity, which would prove nothing) ...
+  uint32_t owner_node = ~0u;        // ... and its map word k: sub_8259D230 copies the owner's row k into the piece's row j verbatim
+};
+
 struct CharPiece {
   uint32_t model = 0, id = 0;
   int32_t slot = -1;
@@ -64,6 +75,7 @@ struct CharPiece {
   uint32_t nodes = 0;      // S103 W2B (review G): the piece model's node count the proof used (the scene core's or the game's own): carried into the BoneTag
   bool rows_unposed = false;   // S103 HGF: the piece was proven and its rows were read, but every one still equalled the bind palette (identity: the game had not run its first spring / SUBM update): the rows are dropped (the piece is absent this latch), why stays Ok
   bool rows_bad = false;   // the piece was proven and has -1 nodes but their rows could not be read: why == MapUnreadable (census only)
+  OwnRowsProbe probe;      // S105 A5a: the copy words + one mapped node pair (last member: the aggregate initialisers {model, id, slot, why} stay valid)
 };
 
 }  // namespace scene_inputs

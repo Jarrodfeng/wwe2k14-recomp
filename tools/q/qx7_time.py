@@ -1,5 +1,5 @@
-"""qx7_time: cold / warm wall time of the QX4 verbs. Cold = the table is built by the call into a TEMP db (--db): the real out\\harness\\index\\vcall.db / runlog.db are never
-deleted (runlog.db keeps the rows of logs the tidy removed). py -I tools/q/qx7_time.py"""
+"""qx7_time: cold / warm wall time of the QX4 verbs. Cold = the table is built by the call into a TEMP db (--db): the real out\\harness\\index\\vcall.s<VERSION>.db / runlog.s<VERSION>.db are never
+deleted (the runlog index keeps the rows of logs the tidy removed). py -I tools/q/qx7_time.py"""
 import os
 import subprocess
 import sys

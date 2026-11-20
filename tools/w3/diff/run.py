@@ -17,6 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.dirname(HERE))
 import game_tu_check as gtc  # noqa: E402  (flags from the main checkout's build.ninja)
+sys.path.append(os.path.join(ROOT, 'tools', 'admit'))
+import admit_py as _admit  # noqa: E402   CQW: the machine-wide compile queue for the variant builds (nothing runs at import)
 
 MAIN = gtc.MAIN
 GEN = os.path.join(MAIN, 'generated', 'default')
@@ -70,7 +72,7 @@ def main():
         return 2
     plants = [] if a.no_plants else [int(x) for x in a.plants.split(',') if x]
     jobs = [(0, '')] + [(k, '_p%d' % k) for k in plants]
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with _admit.hold('cc.game_src', 4, timeout_s=300) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: builds with the game's flags (4 = the want and the fall-open value)
         built = list(ex.map(lambda j: (j, *build(*j)), jobs))
     for (j, exe, p) in built:
         if p.returncode:

@@ -1,3 +1,4 @@
+// entry: RawHookEntry
 // weapon_rows_test: the offline proof of lane PW-2 (Session 103; contract src\renderer_scene\weapon_rows.h, docs\research\s103\PW_adversary.md). 0 game runs, no SDK, no game memory.
 //   weapon_rows_test [--plant NAME] [--capture DIR] [--object 0xAA141900]
 // It runs the SHIPPED code: the tracker (src\scene_live\weapon_rows_core.h) against a fake guest memory laid out through the contract's offsets (manager singleton, slot table, main /
@@ -387,17 +388,17 @@ int main(int argc, char** argv) {
     bool run0 = true, run1 = true, runw = true, run_not_ours = false;
     {
       Slot13Scope s13(kChair);
-      run0 = RawHookEntry(r.C.tracker, true, /*ours=*/true, kChair, kChairBuf, 800, rd, rm, &c0);
+      run0 = RawHookEntry(r.C.tracker, true, /*ours=*/true, kChair, kChairBuf, 800, rd, rm, &c0, 1.0f, 0, nullptr, nullptr, 0, nullptr);
       r.g.WriteNodes(kChairBuf, 3, 62);
-      run1 = RawHookEntry(r.C.tracker, true, true, kChair, kChairBuf, 800, rd, rm, &c1);   // the second chair, the same shared buffer rewritten
+      run1 = RawHookEntry(r.C.tracker, true, true, kChair, kChairBuf, 800, rd, rm, &c1, 1.0f, 0, nullptr, nullptr, 0, nullptr);   // the second chair, the same shared buffer rewritten
     }
     r.g.WriteNodes(kWrBuf, 5, 63);
-    { Slot13Scope s13(kWrestler); runw = RawHookEntry(r.C.tracker, true, true, kWrestler, kWrBuf, 800, rd, rm, &cw); }   // a wrestler's own submit: not a weapon
+    { Slot13Scope s13(kWrestler); runw = RawHookEntry(r.C.tracker, true, true, kWrestler, kWrBuf, 800, rd, rm, &cw, 1.0f, 0, nullptr, nullptr, 0, nullptr); }   // a wrestler's own submit: not a weapon
     {
       Slot13Scope s13(kChair);
       r.g.WriteNodes(kChairBuf, 3, 64);
       CallResult c2;
-      run_not_ours = RawHookEntry(r.C.tracker, true, /*ours=*/false, kChair, kChairBuf, 801, rd, rm, &c2);   // a walked (not OURS) frame: the original runs, the rows are taken the same
+      run_not_ours = RawHookEntry(r.C.tracker, true, /*ours=*/false, kChair, kChairBuf, 801, rd, rm, &c2, 1.0f, 0, nullptr, nullptr, 0, nullptr);   // a walked (not OURS) frame: the original runs, the rows are taken the same
       (void)c2;
     }
     r.C.tracker.CloseBefore(900);
@@ -414,7 +415,7 @@ int main(int argc, char** argv) {
     q.g.WriteNodes(kChairBuf, 3, 1);
     CallResult cu;
     bool run_u = true;
-    { Slot13Scope s13(kChair); run_u = RawHookEntry(q.C.tracker, false, true, kChair, kChairBuf, 810, [&](uint32_t a, uint32_t& v) { return q.g.ReadWord(a, v); }, [&](uint32_t a, uint32_t n, std::vector<Mat4>& o) { return q.g.ReadMats(a, n, o); }, &cu); }
+    { Slot13Scope s13(kChair); run_u = RawHookEntry(q.C.tracker, false, true, kChair, kChairBuf, 810, [&](uint32_t a, uint32_t& v) { return q.g.ReadWord(a, v); }, [&](uint32_t a, uint32_t n, std::vector<Mat4>& o) { return q.g.ReadMats(a, n, o); }, &cu, 1.0f, 0, nullptr, nullptr, 0, nullptr); }
     Check(!run_u && !cu.weapon && q.C.tracker.GetStats().calls == 0, "hook.ours_mode_unregistered", "not registered: no tracker work at all, the original is still skipped under OURS");
   }
 
@@ -478,7 +479,7 @@ int main(int argc, char** argv) {
     const auto ord = [&](uint32_t a, uint32_t& v2) { return o.g.ReadWord(a, v2); };
     const auto orm = [&](uint32_t a, uint32_t n, std::vector<Mat4>& out) { return o.g.ReadMats(a, n, out); };
     CallResult oc;
-    { Slot13Scope s13(kChair); RawHookEntry(o.C.tracker, true, /*ours=*/true, kChair, kChairBuf, 910, ord, orm, &oc, 1.0f, 0, nullptr, nullptr, /*shadow=*/0); }
+    { Slot13Scope s13(kChair); RawHookEntry(o.C.tracker, true, /*ours=*/true, kChair, kChairBuf, 910, ord, orm, &oc, 1.0f, 0, nullptr, nullptr, /*shadow=*/0, /*plate_phys=*/nullptr); }
     o.C.tracker.CloseBefore(911);
     FrameBuffer ofb;
     o.C.tracker.TakeNext(ofb);

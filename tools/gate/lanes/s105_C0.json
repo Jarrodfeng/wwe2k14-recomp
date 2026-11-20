@@ -1,0 +1,9 @@
+{
+ "owner": "S105 lane C0 (docs/research/s105/C0_contract.md): tools/report/triage.py, the report reader (a player's zip / log -> modes and the not-drawn counters per mode -> FINDINGS). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "none (an instrument)", "ms": [0, 0]},
+ "note": "triage_selftest: planted twins per class of the pattern table (fault planted -> finding in the right mode; fault removed -> none; format changed -> UNPARSED, never 0), the cumulative-counter delta, the file-open gap in three directions, unreadable inputs exit 2. The two real-zip re-finds read gitignored player data and stay out of the lane (hand-back).",
+ "affects": ["tools/report/**"],
+ "checks": [
+  {"name": "s105_C0.triage_selftest", "cmd": ["py", "-I", "tools/report/triage_selftest.py"], "timeout_s": 120, "tier": "cheap", "gpu": false, "affects": ["tools/report/**"]}
+ ]
+}

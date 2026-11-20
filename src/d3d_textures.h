@@ -57,6 +57,7 @@
 #if !WWE2K14_STREAM()  // S103 CPB: the Create a Superstar portrait (G3 untile answer, docs\research\s103\CPR.md); the stream-free build only
 #include "renderer_game/caw_portrait.h"
 #endif
+#include "scene_live/guest_tex_dirty.h"  // S105 A5c: the unlock flush marks a watched guest-model picture dirty
 #include "scene_live/quads2d_tap.h"  // S103 I1: the 2D record's flush stamp (OnFlush)
 #include "scene_live/movie_planes_tap.h"  // S103 P4: the movie planes from guest memory at this flush (default off)
 #include "scene_live/screen_planes_hook.h"  // S103 M: the stage screens' live pictures are copied at this flush (a pointer call, free with --wwe2k14_rdr_scene = 0)
@@ -625,6 +626,7 @@ REX_HOOK_RAW(sub_82CA7EB8) {
 // 0x82CA6BE0 the unlock flush (r3 = the object; tail-called by the engine wrapper's unmap 0x82BD47F0): the engine says the object's
 // memory was written. Trace: which objects, when relative to the first bind. Cut: a Changed item for a defined object.
 REX_HOOK_RAW(sub_82CA6BE0) {
+  rdr_scene::live::guest_tex_dirty::NoteFlush(ctx.r3.u32);   // S105 A5c: both builds, before any mode return; a table probe for an unwatched object (the CAW composer copies 0x822F838C / the match composer 0x822F85DC flush here)
 #if WWE2K14_STREAM()  // S103 P9 (A9 / A10 / A11 / A12 / A13)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnUnlockFlush(ctx, base);
 #endif

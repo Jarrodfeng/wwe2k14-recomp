@@ -13,11 +13,13 @@
 #pragma once
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
 #include <vector>
 
+#include "quads2d_corner.h"   // S105 A8: PackCorner (a T_RectColor corner colour -> the row)
 #include "quads2d_plants.h"
 #include "../renderer_game/fallback_census.h"   // S103 L2b: a 2D hole is a fallback reason (PendHole)
 #include "scene_record.h"
@@ -33,6 +35,8 @@ inline constexpr uint32_t kSiteGlyphM = 0x82BC8BECu;     // S103 I3: sub_82BC818
 inline constexpr uint32_t kGlyphKeyOffset = 416;         // S103 I3: both glyph leaves read the sheet's handle at object + 416 (word 0 = the key)   [C: listing sub_82BC3518 0x82BC3528 addi r29,r3,416; draw_origin.h S101_UI_TEXT_SCOPE(.., 416)]
 inline constexpr uint32_t kSelectorReg = 4;              // S103 I3: the vertex constant XfmChannelSelector (ySprite.fx.json channel_select: register 4, count 1); the leaf uploads it only when the text object's word at +444 is set (0x82BC3618-0x82BC3664), so a row takes the REGISTER'S last value (Shadow)
 inline constexpr uint32_t kSiteRectGrad = 0x82BC484Cu;   // S103 I3 review: sub_82BC4450's single draw call (the name is historical). S103 P3b: with the leaf's vertex format 1 (xyz, stride 12) and the technique T_Rect it is a FLAT RECTANGLE drawn as a 4-vertex strip: a kQkRect row (c2d_menu / options / play / select: 102 draws, all T_Rect yDebugPrimitive); any other shape (the vertex-colour or gradation formats have another stride) is a hole   [C: listing sub_82BC4450 0x82BC4538-0x82BC4568 (technique), 0x82BC46A8-0x82BC46D0 (format 1 | 2 | 8 -> vertex size), 0x82BC4848-0x82BC484C (prim 6, count r21); census 2026-11-17]
+inline constexpr uint32_t kSiteRectColor = 0x82BC4404u;  // S105 A8: sub_82BC3F30's draw call (T_RectColor: the 30 Years narration caption's dark box and every other vertex-colour rect): a quad list (prim 13, 4 vertices, stride 28 = x y z + r g b a floats = the object's corner colours / 255; vertex order = the perimeter), c0 / c1 / c28 / c29..c32 uploaded by the leaf before it   [C: listing sub_82BC3F30 0x82BC4404 bl sub_82C1B350, r4 13, r5 4, r6 28; docs\research\s105\A8.md "Leaf format"]
+inline constexpr uint32_t kSiteRectColorPrim = kSiteRectColorPrimWord;
 inline constexpr uint32_t kSpriteKeyOffset = 400;        // S103 I2: the sprite object's texture handle, word 0 = the key   [C: draw_origin.h S101_UI_SCOPE(sub_82BC4890, 400), UI_OURS.md]
 inline constexpr uint32_t kHslReg = 2, kVariantReg = 3;  // S103 I2: pixel-constant registers the leaf uploads through the op-28 recorder sub_82BB1CF8 (r4 = first register, r5 = payload, r6 = count): c2 x 1 = the hue-shift triple (0x82BC4B08), c3 x 8 = blur / gradation offsets (0x82BC4C8C, 0x82BC4E30)   [C: listing]
 inline constexpr uint32_t kMoviePlaneOffsets[4] = {400, 408, 416, 424};   // the four plane handles in the sprite object (word 0 = the key)   [C: draw_origin.h, REMNANT_MAP 2.1]
@@ -45,7 +49,8 @@ inline uint8_t ScopeKindOfSite(uint32_t site);
 // The kind a draw SITE makes (0 = a site this piece does not record: counted, never guessed).
 inline uint8_t KindOfSite(uint32_t site) {
   if (Q2D_PLANT(64) && site == kSiteMovieYuv) return uint8_t(kQkNone);
-  return site == kSiteRect || site == kSiteRectGrad ? uint8_t(kQkRect) : site == kSiteMovie ? uint8_t(kQkYuvAlpha) : site == kSiteMovieYuv ? uint8_t(kQkYuv) : site == kSiteSprite || site == kSiteGlyphM ? uint8_t(kQkSprite) : site == kSiteGlyph ? uint8_t(kQkGlyph) : uint8_t(kQkNone);   // (S103 P3b: 0x82BC484C is a rect, 0x82BC8BEC a sprite row; the latter is drawn inside the GLYPH scope of sub_82BC8180: OnOp19 pairs them)
+  if (Q2D_PLANT(65) && site == kSiteRectColor) return uint8_t(kQkNone);   // (plant rectcolor_leaf_hole: T_RectColor is a 2D leaf this record does not make rows of, the old table)
+  return site == kSiteRect || site == kSiteRectGrad ? uint8_t(kQkRect) : site == kSiteMovie ? uint8_t(kQkYuvAlpha) : site == kSiteMovieYuv ? uint8_t(kQkYuv) : site == kSiteSprite || site == kSiteGlyphM ? uint8_t(kQkSprite) : site == kSiteGlyph ? uint8_t(kQkGlyph) : site == kSiteRectColor ? uint8_t(kQkRectColor) : uint8_t(kQkNone);   // (S105 A8: 0x82BC4404 is a vertex-colour rect;  S103 P3b: 0x82BC484C is a rect, 0x82BC8BEC a sprite row; the latter is drawn inside the GLYPH scope of sub_82BC8180: OnOp19 pairs them)
 }
 // S103 L2a (LANDING2_PLAN.md P0): EVERY call site of the op-19 recorder sub_82C1B350 as data: 36 sites in 18 functions [C: `q callers 82C1B350`, 2026-11-17; tools\scene\op19_sites_lint.py checks
 // this table equals that list]. Row = a site this record makes rows of; Leaf2D = a 2D leaf's draw this record does NOT make rows of (a frame that has one is not 2D-whole: a hole); Particle = lane F's
@@ -65,7 +70,7 @@ inline constexpr Op19Site kOp19Sites[] = {   // ascending by site (ClassOfSite s
     {0x82BC32B8u, 0x82BC3098u, SiteClass::Leaf2D, kQkNone},                                                       // textured rect / line (in_ring)
     {0x82BC3758u, 0x82BC3518u, SiteClass::Leaf2D, kQkNone}, {0x82BC3784u, 0x82BC3518u, SiteClass::Row, kQkGlyph},   // glyph: per-part loop / the glyph quad
     {0x82BC3EE8u, 0x82BC3C18u, SiteClass::Row, kQkRect},                                                          // T_Rect
-    {0x82BC4404u, 0x82BC3F30u, SiteClass::Leaf2D, kQkNone},                                                       // T_RectColor
+    {0x82BC4404u, 0x82BC3F30u, SiteClass::Row, kQkRectColor},                                                     // T_RectColor (S105 A8: a row: the corner colours ride in verts[v][3..4])
     {0x82BC47C8u, 0x82BC4450u, SiteClass::Leaf2D, kQkNone}, {0x82BC484Cu, 0x82BC4450u, SiteClass::Row, kQkRect},   // gradation band loop (a hole) / the single flat T_Rect strip (P3b: a row)
     {0x82BC5408u, 0x82BC4890u, SiteClass::Leaf2D, kQkNone}, {0x82BC5688u, 0x82BC4890u, SiteClass::Row, kQkSprite},  // sprite: the r4 13 path / T_Sprite
     {0x82BC6748u, 0x82BC59D0u, SiteClass::Leaf2D, kQkNone}, {0x82BC69D0u, 0x82BC59D0u, SiteClass::Leaf2D, kQkNone},   // T_SpriteC*
@@ -89,6 +94,7 @@ inline const Op19Site* SiteOf(uint32_t site) {
   return lo < kOp19SiteCount && kOp19Sites[lo].site == site ? &kOp19Sites[lo] : nullptr;
 }
 inline SiteClass ClassOfSite(uint32_t site) {
+  if (Q2D_PLANT(65) && site == kSiteRectColor) return SiteClass::Leaf2D;   // (plant rectcolor_leaf_hole: the old classification, every vertex-colour rect draw is a hole)
   if (Q2D_PLANT(64) && site == kSiteMovieYuv) return SiteClass::Leaf2D;   // (plant yuv_site_hole: the S103 SVY bug, the no-alpha movie sprite is a hole)
   if (Q2D_PLANT(24)) return SiteClass::None;   // (plant site_unclassified)
   const Op19Site* s = SiteOf(site);
@@ -183,8 +189,8 @@ inline uint8_t StateByte(const StateWords& s) {
   return uint8_t(code | (s.z_enable ? 16 : 0) | (s.z_write ? 32 : 0) | (s.blend_enable ? 64 : 0) | (s.alpha_test ? 128 : 0));
 }
 
-inline uint32_t StrideOfKind(uint8_t kind) { return kind == kQkRect ? 12u : (kind == kQkYuvAlpha || kind == kQkYuv || kind == kQkSprite || kind == kQkGlyph) ? 20u : 0u; }
-inline uint32_t FloatsOfKind(uint8_t kind) { return StrideOfKind(kind) / 4u; }
+inline uint32_t StrideOfKind(uint8_t kind) { return kind == kQkRect ? 12u : kind == kQkRectColor ? 28u : (kind == kQkYuvAlpha || kind == kQkYuv || kind == kQkSprite || kind == kQkGlyph) ? 20u : 0u; }
+inline uint32_t FloatsOfKind(uint8_t kind) { return kind == kQkRectColor ? 3u : StrideOfKind(kind) / 4u; }   // S105 A8: the position part; a vertex-colour rect's colour floats are packed into verts[v][3..4] (PackCorner)
 
 inline float F32FromBe(uint32_t be) {
   float f;
@@ -214,6 +220,7 @@ struct Counters {
   // outside its table (the row stays 'blend unknown'); z_on = rows drawn with ZENABLE set (our drawer has no depth: [U] whether that matters, the first live census says); code[c] = rows by blend code
   // (15 = outside); hole_unscoped = draws from a hole site (IsHoleSite) with no scope open; unknown_site = those from a [U] function.
   std::atomic<uint64_t> state_rows{0}, state_unreadable{0}, blend_outside{0}, func_outside{0}, ref_outside{0}, z_on{0}, hole_unscoped{0}, unknown_site{0};
+  std::atomic<uint64_t> bad_corner{0};   // S105 A8: a T_RectColor draw whose corner colour is not a whole 0..255 byte (not the game's integer colour / 255): a hole, never a guess
   std::atomic<uint64_t> m_variant{0};   // S103 P3b: draws from 0x82BC8BEC with a selector / hue / offsets upload in the scope (holes)
   std::atomic<uint64_t> tg_frame{0}, tg_offscreen{0}, tg_unknown{0}, tg_seeded{0}, tg_seed_failed{0}, tg_frame_seeded{0};   // S103 SC: rows by target class (frame 1280x720 / offscreen / unknown = holes)
   std::atomic<uint64_t> sc_rows{0}, sc_off{0}, sc_unknown{0}, sc_rects{0}, sc_rect_unreadable{0}, rt_holder_null{0}, sc_resets{0};   // S103 SC: rows with the scissor on / off, rows whose scissor stayed unknown (holes), op-79 rects taken, op-79 records unreadable
@@ -729,7 +736,8 @@ void OnOp19(Scope& s, const Mem& m, Store& store, uint32_t frame, uint32_t site,
   if (kind == kQkNone || s.kind != ScopeKindOfSite(site) || (m_site && kind != kQkSprite)) return (site == kSiteGlyphM ? ++c.glyph_m_site : 0), ++c.ignored_site, store.NoteHole(frame, site), void();
   if (m_site && (s.m_c4 || s.m_hsl || s.m_variant)) return ++c.glyph_m_site, ++c.m_variant, ++c.ignored_site, store.NoteHole(frame, site), void();   // a channel-selected, hue-shifted or blurred variant: another program, no capture shows it
   if (nverts != 4 || stride != StrideOfKind(kind) || (m_site && prim != 6)) return ++c.bad_shape, store.NoteHole(frame, site), void();   // (the M strip is prim 6: stream topology 4, not indexed)
-  uint32_t w[4 * 5];
+  if (kind == kQkRectColor && prim != kSiteRectColorPrim) return ++c.bad_shape, store.NoteHole(frame, site), void();   // S105 A8: the leaf passes a quad list (13); any other primitive is not what the drawer lays out
+  uint32_t w[4 * 7];
   if (!m.ReadWords(src, w, nverts * stride / 4)) return ++c.unreadable, store.NoteHole(frame, site), void();
   if (s.drawn) ++c.second_quad, Finish(s, store, frame, c);   // a scope that draws twice: the first quad is complete (it already holds the constants it saw before its own vertices)
   Quad2D q;
@@ -743,6 +751,12 @@ void OnOp19(Scope& s, const Mem& m, Store& store, uint32_t frame, uint32_t site,
   const uint32_t fl = FloatsOfKind(kind);
   for (uint32_t v = 0; v < nverts; ++v)
     for (uint32_t i = 0; i < fl; ++i) q.verts[v][i] = F32FromBe(w[v * (stride / 4) + i]);
+  if (kind == kQkRectColor) {   // S105 A8: the four corner colours (floats 3..6 of each vertex) become the packed bytes; a colour that is not a whole byte is a hole
+    for (uint32_t v = 0; v < nverts; ++v) {
+      const float rgba[4] = {F32FromBe(w[v * 7 + 3]), F32FromBe(w[v * 7 + 4]), F32FromBe(w[v * 7 + 5]), F32FromBe(w[v * 7 + 6])};
+      if (!PackCorner(rgba, q.verts[v][3], q.verts[v][4])) return ++c.bad_corner, store.NoteHole(frame, site), void();
+    }
+  }
   if (Q2D_PLANT(2)) std::swap(q.verts[1], q.verts[2]);
   q.have |= kQhVerts;
   if (!Q2D_PLANT(10)) {   // the constants seen so far belong to THIS quad (plant tap_late_colour: they are taken when the scope closes, the old behaviour)

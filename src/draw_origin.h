@@ -418,7 +418,7 @@ S103_I3_UI_TEXT_SCOPE(sub_82BC8180, 416)  // sprite variants (T_Sprite*M / C / R
 S101_UI_SCOPE(sub_82BC3098, 400)  // textured rectangle / line; no direct callers (vtable only; ran in in_ring coverage only)
 S103_I3_UI_TEXT_SCOPE(sub_82BC3518, 416)  // textured rectangle variant = the glyph quad of a text run (S103 I3: also the 2D record's glyph scope)
 S103_I1_UI_SCOPE(sub_82BC3C18, 0, rdr_scene::kQkRect)    // T_Rect (S103 I1: also the 2D record's scope)
-S101_UI_SCOPE(sub_82BC3F30, 0)    // T_RectColor
+S103_I1_UI_SCOPE(sub_82BC3F30, 0, rdr_scene::kQkRectColor)    // T_RectColor (S105 A8: also the 2D record's scope: its single draw at 0x82BC4404 is a vertex-colour rect row, the 30 Years narration caption's dark box; docs/research/s105/A8.md)
 S103_I1_UI_SCOPE(sub_82BC4450, 0, rdr_scene::kQkRect)    // T_Rect / T_RectColor / T_RectRGradation (S103 P3b: also the 2D record's rect scope: only its single draw at 0x82BC484C with vertex format 1 (stride 12) is a row; the colour / gradation formats have another stride, the band loop's site 0x82BC47C8 is a hole)
 S103_I1_UI_SCOPE(sub_82BC75B0, 400, rdr_scene::kQkYuv)  // T_SpriteYUV: plane handles at +400 / +408 / +416 (+424 is its technique); S103 SVY: also the 2D record's scope (the no-alpha movie sprite of the season videos)
 S103_I1_UI_SCOPE(sub_82BC7A10, 400, rdr_scene::kQkYuvAlpha)  // T_SpriteYUVAlpha: first plane handle at +400 (Y), then +408 / +416 / +424 (S103 I1: also the 2D record's scope)
@@ -517,6 +517,17 @@ REX_HOOK_RAW(sub_82BB6FC8) {
 REX_HOOK_RAW(sub_82BB7078) {
   wwe2k14::q2d_tap::OnSceneEnd(ctx, base);
   __imp__sub_82BB7078(ctx, base);
+}
+// S105 A4B (docs\research\s105\A4B_ADV.md item 5): the MAIN frame walk sub_82C2FA10 calls sub_82C3B200 (r3 = [0x8394011C], r4 = the category, r5 = the walk key) before each category and sub_82C3B218 after it
+// (reached on every path, one call site each). The tap marks scene-colour rows recorded below the first wrestler category (they draw before the 3D). The begin's return (r3) is left alone.
+// NOT sub_82C2F960 (the sub-walker: its categories are sub-walk ids). Runs in the stream-free build: the walk is the game's own.
+REX_HOOK_RAW(sub_82C3B200) {
+  wwe2k14::q2d_tap::OnWalkBegin(ctx.r4.u32);
+  __imp__sub_82C3B200(ctx, base);
+}
+REX_HOOK_RAW(sub_82C3B218) {
+  __imp__sub_82C3B218(ctx, base);
+  wwe2k14::q2d_tap::OnWalkEnd();
 }
 REX_HOOK_RAW(sub_82BCBB68) {
   wwe2k14::q2d_tap::OnSetViewport(ctx, base);

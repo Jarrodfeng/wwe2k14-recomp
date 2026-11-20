@@ -309,6 +309,7 @@ inline std::string Apply(Model& m, int arena) {
       // run 6818: events 8025-8097 = keys 802 / 804 / 805 / 807 / 809, CullMode Back). Drawn two-sided, the twisted pillars (802 / 809,
       // slats with gaps) showed their inner faces through the gaps (the pink pillar with red gaps).
       mt.cull_back = true;
+      if (!mt.stage_slot) mt.cull_from_record = false;  // S105 C3 (F3): the off arm of wwe2k14_rdr_family_cull must not turn a non-stage screen two-sided
       // Session 98 (spot / beard pass): the stored vertex colour IS used: the movie vertex shader (3834DE73) writes interpolator 6 =
       // (lights x c190 + sky / ground x c189, alpha c189.w x c190.w x c185.x) x the vertex colour, and the pixel shader (B5853824)
       // multiplies the video's rgb by it and outputs its alpha; the draws blend SrcAlpha / InvSrcAlpha. [C: post-VS of capture rp_stage

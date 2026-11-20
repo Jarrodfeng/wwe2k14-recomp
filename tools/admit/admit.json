@@ -1,0 +1,25 @@
+{
+  "_note": "admit config (tools\\admit\\admit.cpp, docs\\agents\\admit.md). Reservations are MEASURED peaks + a margin from docs\\research\\harness\\CQM.md (2026-11-20, one job at a time, cache off), held against BOTH available physical and remaining commit (CQM F6: commit ~= working set for clang). link.game_exe is still a GUESS. max_slots are caps chosen by lane CQA, not measurements. GB = 2^30 bytes.",
+  "mode": "enforce",
+  "_mode": "observe (CQA review 4): decide once, log what enforce would have done (history would_grant / would_reason), admit at once with the full want; nothing waits or is narrowed. enforce = wait for memory. WWE_ADMIT_MODE overrides.",
+  "floor_phys_gb": 4.0,
+  "floor_commit_gb": 4.0,
+  "_floor_source": "CQM.md proposal reserve_gb 4 / 4",
+  "pending_window_s": 60,
+  "timeout_s": 900,
+  "starve_s": 30,
+  "_starve_source": "CQA review decision: a waiter older than 30 s goes before younger ones",
+  "default_kind": "cc.tool",
+  "kinds": {
+    "cc.game_main":   {"reserve_phys_gb": 6.5,  "reserve_commit_gb": 6.5,  "max_slots": 4,  "_source": "CQM U1a: src\\main.cpp game build 5.505 / 5.502 GB commit, 5.37 GB WS; +1 GB (it includes every app header)"},
+    "cc.game_src":    {"reserve_phys_gb": 3.0,  "reserve_commit_gb": 3.0,  "max_slots": 16, "_source": "CQM U1a: the largest other src unit, renderer_adapter\\live.cpp, 2.606 GB; +15 %"},
+    "cc.generated":   {"reserve_phys_gb": 1.0,  "reserve_commit_gb": 1.0,  "max_slots": 32, "_source": "CQM U1b: wwe2k14_register.cpp 0.664 GB, the largest recomp unit 0.244 GB; +50 %"},
+    "cc.sdk":         {"reserve_phys_gb": 2.0,  "reserve_commit_gb": 2.0,  "max_slots": 32, "_source": "CQM U2: command_processor.cpp 1.489 GB (slowest SDK unit); +35 % (two SDK units measured)"},
+    "cc.tool":        {"reserve_phys_gb": 2.0,  "reserve_commit_gb": 2.0,  "max_slots": 32, "_source": "CQM U1a rig line: front_end.cpp -O1 -g 1.742 GB, the rig's largest process; +15 %"},
+    "syntax.worker":  {"reserve_phys_gb": 4.0,  "reserve_commit_gb": 4.0,  "max_slots": 8,  "_source": "CQM U5: game_syntax worker on src\\main.cpp 3.422 GB (on) / 3.176 (off); +17 %"},
+    "cvar.pp":        {"reserve_phys_gb": 0.5,  "reserve_commit_gb": 0.5,  "max_slots": 16, "_source": "LNK round 3 (2026-11-20, one job at a time): tools\\handback\\cvar_pp.py job = a worker python (peak WS 201 MB / commit 195 MB, live.cpp ON) + its clang -E -fdirectives-only child (peak WS 176 MB / commit 92 MB, main.cpp ON); 0.38 GB, +30 %"},
+    "q.parse_worker": {"reserve_phys_gb": 3.0,  "reserve_commit_gb": 3.0,  "max_slots": 16, "_source": "CQM U3: q ours parse of live.cpp 2.423 GB; +24 % (a worker serves many units)"},
+    "build.rig_j16":  {"reserve_phys_gb": 20.0, "reserve_commit_gb": 20.0, "max_slots": 2,  "covers": ["cc.*", "link.*"], "_source": "CQM U4: a whole build_rig at -ThrottleLimit 16 >= 17.12 GB commit / >= 17.24 GB phys (sampled lower bounds); +15 %; fallback only: better admitted per process as cc.tool"},
+    "link.game_exe":  {"reserve_phys_gb": 6.0,  "reserve_commit_gb": 8.0,  "max_slots": 2,  "_source": "GUESS: unmeasured (CQM U6: the game link was not run); replace from the first history.tsv row of a real link. max_slots 2 (CQA review 3): two 8 GB links fit; memory, not a count, is the limit"}
+  }
+}

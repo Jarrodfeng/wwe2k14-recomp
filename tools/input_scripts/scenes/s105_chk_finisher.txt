@@ -1,0 +1,50 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S105 lane R2 (A4 check, from docs\research\s105\T5_menu_scenes.md route 1): CREATIONS -> SPECIAL MOVE -> NEW -> FRONT GRAPPLE -> sequence 26 (3D preview, both wrestlers), ~10 s;
+# then A, A (slot 1 picker, pick a move) and ~10 s of the move; back out; ~10 s on the main menu. Fast-forward: every press waits on a state.
+# UNCONFIRMED: whether the picker previews a move, the quit box after a move was added.
+on_fail quit
+log bench: start scene s105_chk_finisher
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor >=4 12 30 5 if_needed
+press_until_state UP cursor 4 12 30 5 if_needed
+press_until_state A menu 15 8 120 5
+press_until_state UP cursor 0 6 30 5 if_needed
+press_until_state A menu 28 8 120 5
+press_until_state UP cursor 0 6 30 5 if_needed
+press_until_state A seq 26 8 120 5
+wait_state 0x839400F8>0>72 10 1800 2
+log scene=finisher_page
+wait_frames 120
+screenshot chk_finisher_3d_1
+wait_frames 480
+screenshot chk_finisher_3d_2
+press A
+wait_frames 120
+log_text 8
+screenshot chk_finisher_picker
+press A
+wait_frames 300
+log_state 0x839400F8>0>72
+log_text 8
+screenshot chk_finisher_move_1
+wait_frames 300
+screenshot chk_finisher_move_2
+press B
+wait_frames 60
+log_state msgbox
+log_text 8
+screenshot chk_finisher_back
+wait_state msgbox 2 90 2 optional
+press_until_state LEFT msgbox_button 0 4 30 5 if_needed
+press_until_state A seq 75 6 120 5 if_needed
+press_until_state B menu 1 12 90 5
+wait_state menu 1 3600 10
+log scene=back_at_menu
+wait_frames 600
+screenshot chk_finisher_menu
+log bench: done
+wait_frames 10
+quit

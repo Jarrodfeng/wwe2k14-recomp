@@ -1,5 +1,6 @@
 // The scene front-end: scene record tables -> renderer frames. See front_end.h and docs\renderer\SCENE_FRONTEND.md.
 #include "front_end.h"
+#include "../renderer_host/wide_frame.h"   // S105 A2: Box / BoxOf (pure)
 #include "bone_tag_rows.h"   // S103 W2B: g_spring_census
 #include "card_gain.h"  // S103 B3c
 #include "liquid_join.h"   // S103 SWF
@@ -8,6 +9,7 @@
 #include "live_particles.h"   // S103 PRT: HasSoft
 #include "model_group.h"  // S103 GSTP: GroupOfLabel (the fallback group of a model nobody named)
 #include "card_atlas_rule.h"  // S103 CB1
+#include "family_cull.h"  // S105 C3: the one cull rule for every model family
 #include "../keep_stream.h"  // S103 GT: WWE2K14_STREAM()
 
 #include <algorithm>
@@ -35,6 +37,7 @@
 #include "sampler_table.h"  // S103 B1: the game's sampler state per (effect, stage)
 #include "technique_pick.h"  // S103 TQF: the pixel variant of a yProp draw from the technique word
 #include "part_clock_lookup.h"   // S103 E5
+#include "piece_row_rule.h"   // S105 A5b: MeshAnswersPieceRow
 #include "shader_reload.h"  // S101 lane24
 
 namespace rdr_scene {
@@ -124,10 +127,10 @@ bool Unsupported(const fxt::VariantTable& t, bool allow_skinned = false, int all
                                          "FX_PICKUP", "FX_CAA", "FX_CC_MASK", "FX_SKINNED", "FX_VELOCITY", "VELOCITY", "FX_VERTEX_LM", "FX_SPEC_FADE",
                                          "FX_PLANAR_UV", "FX_PLANAR_YZ", "FX_LAYER2", "FX_LAYER3", "FX_LAYER4", "FX_UV2", "FX_UV3", "FX_UV4",
                                          "FX_LM_VERTEX", "FX_FRAME", "FX_EYE"};
-  const int have_layers = HasDefine(t, "FX_LAYER4") ? 4 : HasDefine(t, "FX_LAYER3") ? 3 : HasDefine(t, "FX_LAYER2") ? 2 : 1;   // S103 LAY: a UVScroll variant draws exactly as many layers as the material's technique word says (the loader fills Material::layer[])
+  const int have_layers = HasDefine(t, "FX_LAYER4") || HasDefine(t, "FX_UV4") ? 4 : HasDefine(t, "FX_LAYER3") || HasDefine(t, "FX_UV3") ? 3 : HasDefine(t, "FX_LAYER2") || HasDefine(t, "FX_UV2") ? 2 : 1;   // S105 C2L: yProp_UVScroll spells its layer count FX_UV2 / 3 / 4   // S103 LAY: a UVScroll variant draws exactly as many layers as the material's technique word says (the loader fills Material::layer[])
   if (have_layers != layers) return true;
   for (const char* d : kBlocked)
-    if (std::strncmp(d, "FX_LAYER", 8) != 0 && HasDefine(t, d) && !(allow_skinned && std::strcmp(d, "FX_SKINNED") == 0) && !(allow_reflect && std::strcmp(d, "FX_REFLECT") == 0) && !(allow_reflect >= 2 && (std::strcmp(d, "FX_REFLECT_ADD") == 0 || std::strcmp(d, "FX_REFLECT_MASK") == 0 || std::strcmp(d, "FX_REFLECT_MAP") == 0)) && !(allow_screen && std::strcmp(d, "FX_SCREEN_SHADOW") == 0) && !(allow_light && (std::strcmp(d, "FX_LIGHT_SHADOW") == 0 || std::strcmp(d, "FX_SHADOW_LIGHT") == 0)) &&
+    if (std::strncmp(d, "FX_LAYER", 8) != 0 && std::strncmp(d, "FX_UV", 5) != 0 && HasDefine(t, d) && !(allow_skinned && std::strcmp(d, "FX_SKINNED") == 0) && !(allow_reflect && std::strcmp(d, "FX_REFLECT") == 0) && !(allow_reflect >= 2 && (std::strcmp(d, "FX_REFLECT_ADD") == 0 || std::strcmp(d, "FX_REFLECT_MASK") == 0 || std::strcmp(d, "FX_REFLECT_MAP") == 0)) && !(allow_screen && std::strcmp(d, "FX_SCREEN_SHADOW") == 0) && !(allow_light && (std::strcmp(d, "FX_LIGHT_SHADOW") == 0 || std::strcmp(d, "FX_SHADOW_LIGHT") == 0)) &&
         !(allow_vlm && (std::strcmp(d, "FX_VERTEX_LM") == 0 || std::strcmp(d, "FX_LM_VERTEX") == 0)) && !(allow_planar && (std::strcmp(d, "FX_PLANAR_UV") == 0 || std::strcmp(d, "FX_PLANAR_YZ") == 0))) return true;  // S101 lane 15 / S103 L9 / S103 L10
   return false;
 }
@@ -136,8 +139,16 @@ bool Unsupported(const fxt::VariantTable& t, bool allow_skinned = false, int all
 // says so, capped by the layer textures the file really names (Material::layer, consecutive from layer 1). Every other class: 1.
 template <class TexFn>
 int UvLayers(const assets::Material& m, const TexFn& tex, bool plant_one_layer) {
-  // Only yBG_UVScroll / yBG_UVScrollLM techniques 0..7 are UVScroll_1..4 (+LM) by index (effect_table.py --list); yProp_UVScroll* use T0..T3 = 1..4 by index with FX_UVn variants, and
-  // yBG SearchLight T8..T11 are planar-uv one-pair techniques: all of those stay at 1 layer here.
+  // Only yBG_UVScroll / yBG_UVScrollLM techniques 0..7 are UVScroll_1..4 (+LM) by index (effect_table.py --list); yProp_UVScroll T0..T3 are handled below (S105 C2L), and
+  // yBG SearchLight T8..T11 are planar-uv one-pair techniques: those stay at 1 layer here.
+  // S105 C2L (C2L.md 3c [C]): yProp_UVScroll T0..T3 = UVScroll_1..4 BY INDEX (effect_table.py --effect yProp_UVScroll: the technique word is the index, no vertex-LM bit): the layers of the file, capped by the layer textures present.
+  if (m.shader.rfind("yProp_UVScrol", 0) == 0) {
+    if (plant_one_layer || m.technique > 3u) return 1;
+    const int want = int(m.technique) + 1;
+    int n = 1;
+    while (n < want && tex(m.layer[n - 1]) != rdr::kNoImage) ++n;
+    return n;
+  }
   if (m.shader.rfind("yBG_UVScroll", 0) != 0 || m.technique > 11u) return 1;
   if (plant_one_layer) return 1;
   if (m.technique >= 8u) return (g_table_pick_all.load(std::memory_order_relaxed) && tex(m.layer[0]) != rdr::kNoImage) ? 2 : 1;   // S103 TQ2 (UVS.md): SearchLight_XZ / _YZ (+LM) T8..T11: the table's pair is the two-layer one (no_lm_layer2 pixel), capped by the layer texture present   // S103 LAY planted twin: the old one-layer draw (FrontEndOptions::plant_one_layer)
@@ -257,6 +268,15 @@ int FragmentOfHash(uint64_t h, const std::string& cand) {
 
 // ---- ChooseEffect -------------------------------------------------------------------------------------------------------------
 
+bool& LoosePairPlant() {   // S105 C4 (header)
+  static bool v = false;
+  return v;
+}
+bool& WideGuardPlant() {   // S105 C4 fix (header): the FX_SPECULAR guard without `renamed > 0` (the review's F1 regression), the twin of choice_pair_unit
+  static bool v = false;
+  return v;
+}
+
 FxChoice ChooseEffect(const std::string& effect, const MaterialWants& w) {
   FxChoice best;
   best.effect = effect;
@@ -362,6 +382,10 @@ FxChoice ChooseEffect(const std::string& effect, const MaterialWants& w) {
         // Only the audience effects have an FX_LIT variant, so this changes no other class; ours reads the page per pixel (`lit_lm_uv`) instead of per vertex (a vertex texture is not fed here).
         // The far-card quad (w.unlit) goes the other way: the game draws cards with yAudience_lm_uv + lm_pixel_color_alpha (CROWD_CARDS_PROMOTION_MAP.md) and its picture is baked lit already.
         if (HasDefine(vt, "FX_LIT") && !g_plant_old_choice) score += (w.unlit && !g_plant_lit_cards) ? -5.0 : 5.0;
+        // S105 C4: in fx_bg FX_SPECULAR changes the vertex stage's interpolator layout (normal at 1, eye at 2, colour moves to 3 / 5 / 6: fx_bg.glsl), so a pair must agree on it. The location-only match above let a renamed slot through:
+        // yBG_Default_specular_vertex + yBG_Default_base_fragment read the normal as the colour and wrote no alpha (docs\research\s105\C4.md point 3). A pair that disagrees is not a pair; no other pair = the loud fallback below (`why`).
+        // `renamed > 0` is the point (review F1): yDefault's layout is the same with or without FX_SPECULAR (its vertex stage never carries it), so a yDefault pair with no renamed slot keeps its pick (32 of 4,864 picks changed without it).
+  if (!LoosePairPlant() && (renamed > 0 || WideGuardPlant()) && HasDefine(ft, "FX_SPECULAR") != HasDefine(vt, "FX_SPECULAR")) { cand_why = "no vertex / fragment pair of '" + cand + "' agrees on FX_SPECULAR (the interpolator layout differs)"; continue; }
         const bool has_spec = HasDefine(ft, "FX_SPECULAR") || HasDefine(ft, "FX_SPEC") || HasDefine(vt, "FX_SPECULAR") || HasDefine(vt, "FX_SPEC");
         score += has_spec ? (w.spec ? 4 : -4) : (w.spec ? -1 : 0);
         if (HasDefine(ft, "FX_SPEC_MAP") && w.specmap) score += 2;
@@ -451,6 +475,9 @@ struct FrontEnd::Bound {
   rdr::ImageId slot_image[rdr::kMaxTextures] = {};
   uint8_t slot_clamp[rdr::kMaxTextures] = {};
   bool alpha_test = false;
+  mutable uint16_t zw_plain = 0;                          // S105 SZW (TEST ONLY plant): the pair's program WITHOUT the alpha twin
+  mutable uint16_t zw_program = 0;                        // S105 SZW: the alpha-twin program of the bound pair (the discard the game's GEQUAL 1/255 stage test needs); only set for a stage-slot / screen-piece material (Material::stage_zw) whose pixel variant HAS a twin
+  bool zw_twin = false;                           // S105 SZW: zw_program is valid (no twin = the draw cannot discard = it writes no depth under wwe2k14_rdr_stage_zwrite)
   bool no_table = false;                          // S103 TQF: a technique-class material bound while no effect table existed (the sampler scoring + texel verdict): BindMaterial rebuilds it once the table is there
   bool cube_real = false;                         // S103 RFL: slot 8 holds the model's own file cube and the material has a g_fReflectAlpha > 0: Resolve feeds ReflectAlpha (else 0 = the black stand-in's do-nothing value)
   bool vtx_lm = false;                           // S103 L10: the vertex variant reads the page at vertex slot 16 (slot_image[16])
@@ -501,6 +528,7 @@ struct FrontEnd::ModelData {
     int slot_no = -1;                 // S103 E5: the stage slot of an arena mesh ("slot N"), -1 = not one
     int src_record = -1;              // S103 E5: the mesh record's index in its JBOY = the game's draw part (assets::Mesh::src_record)
     std::string node, src_pac;        // S103 CAWS: the source mesh's first node name / pac (assets::Mesh::node / src_pac), for the [scene][blended] line
+    bool answers_piece_row = false;   // S105 A5b F4: MeshAnswersPieceRow(src_kind, src_pac), decided once at AddModelImpl (the Record loop runs per mesh per frame)
     int src_kind = 0, src_key = -1;   // S103 PZF2 (EB): the source mesh's pac entry kind / key (assets::Mesh::src_kind / src_key): kind 2 + key = a wrestler's piece id (0 body, 10000+ hair ...)
     bool uv_scroll = false;           // S103 E5: its material's shader is an UV-scroll class (reads VS c186 Time)
     bool lid_layer = false;           // S103 EYF: a wrestler's eyelid / lash layer (piece 20000-39999, a `trans` effect, a `mabuta` palette), the viewer's rule (view\renderer.cpp lid_layer)
@@ -592,6 +620,7 @@ FrontEnd::~FrontEnd() {
   post_pass_.reset();  // S101 lane 34 (its images go first)
   for (rdr::ImageId id : {white_, grey_, color_, depth_, black_, neutral_normal_, black_cube_, post_out_})
     if (id != rdr::kNoImage) renderer_.DestroyImage(id);
+  if (grab_prime_ != rdr::kNoImage) renderer_.DestroyImage(grab_prime_), grab_prime_ = rdr::kNoImage;   // WGS PAR1: the TEST-ONLY primed grab (teardown)
   for (auto& kv : cubes_)
     if (kv.second.image != rdr::kNoImage) renderer_.DestroyImage(kv.second.image);
 }
@@ -1126,7 +1155,8 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
         int sn = -1;
         if (std::sscanf(me.part.c_str(), "slot %d", &sn) == 1 && sn >= 0) mm.slot_no = sn;
         mm.src_record = me.src_record;
-        mm.src_kind = me.src_kind, mm.src_key = me.src_key, mm.node = me.node, mm.src_pac = me.src_pac;   // S103 PZF2
+        mm.src_kind = me.src_kind, mm.src_key = me.src_key, mm.node = me.node, mm.src_pac = me.src_pac;
+        mm.answers_piece_row = MeshAnswersPieceRow(me.src_kind, me.src_pac);   // S103 PZF2
         mm.lid_layer = me.src_kind == 2 && me.src_key >= 20000 && me.src_key < 40000 && material >= 0 && size_t(material) < m->materials.size() &&
                        m->materials[size_t(material)].shader.find("trans") != std::string::npos && me.palette.find("mabuta") != std::string::npos;   // S103 EYF
         mm.uv_scroll = material >= 0 && size_t(material) < m->materials.size() && m->materials[size_t(material)].shader.find("UVScrol") != std::string::npos;   // S103 RCL: "UVScrol" (not "UVScroll"): the game names one of the four Time-reading shaders yProp_UVScrolLM (src/renderer/shaders/fx/*.fx.json with a "Time" field: yBG_UVScroll, yBG_UVScrollLM, yProp_UVScroll, yProp_UVScrolLM)
@@ -1175,6 +1205,13 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
 }
 
 // ---- binding a material to an effect -----------------------------------------------------------------------------------------
+
+// S105 SZW: does the pixel variant have an alpha twin that ProgramFor would use (the same test as its `twin`)? The discard of the game's stage alpha test needs one.
+static bool VariantHasTwin(int ps) {
+  if (ps < 0 || !kVariants[ps].spirv_alpha) return false;
+  const ShaderReload* reload = ShaderReload::Get();
+  return !(reload && reload->DropsTwin(ps));
+}
 
 uint16_t FrontEnd::ProgramFor(int vs, int ps, bool alpha) {
   const uint64_t key = uint64_t(uint32_t(vs)) << 32 | uint64_t(uint32_t(ps + 1)) << 1 | uint64_t(alpha);
@@ -1322,7 +1359,7 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
     // min-define pick (counted), with the pass's own shadow bit and no wet reader (the call sites no longer ask for wet on this path).
     CharChoice cc;
     if (char_pass >= 0 && g_char_table_pick.load(std::memory_order_relaxed)) {
-      cc = ChooseCharEffectTable(mat.shader, skinned, mat.alpha_test, mat.technique, char_pass);
+      cc = ChooseCharEffectTable(mat.shader, skinned, mat.alpha_test, mat.technique, char_pass, mat.logo7 >= 0 || mat.logo4 >= 0);   // S105 A5c fix F1: a logo material takes the editor table's row
       if (cc.no_table) b->no_table = true;   // rebuilt once the table exists (BindMaterial's char cache check); one table snapshot, taken inside the pick (review F4)
       else if (cc.Ok()) {
         ++char_table_picked_, b->char_table = true, b->cube_analytic = cc.cube_analytic;
@@ -1340,7 +1377,7 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
       }
       shadow = cc.shadow, wet = cc.wet;
     } else {
-      cc = shadow ? ChooseCharEffectShadow(mat.shader, skinned, mat.alpha_test, wet) : ChooseCharEffect(mat.shader, skinned, mat.alpha_test, wet);   // S103 L6; S103 SWF: wet
+      cc = shadow ? ChooseCharEffectShadow(mat.shader, skinned, mat.alpha_test, wet, mat.logo7 >= 0 || mat.logo4 >= 0) : ChooseCharEffect(mat.shader, skinned, mat.alpha_test, wet, mat.logo7 >= 0 || mat.logo4 >= 0);   // S105 A5c: + logo   // S103 L6; S103 SWF: wet
     }
     b->shadow = shadow && cc.Ok();
     b->wet = wet && cc.Ok();
@@ -1380,6 +1417,8 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
           case CharSlot::RimMap: image = black_, b->cube_slot[slotn] = 2; break;
           case CharSlot::FlatGrey: image = grey_; break;
           case CharSlot::FlatBlack: image = black_; break;
+          case CharSlot::Logo7: image = tex(mat.logo7) != rdr::kNoImage ? tex(mat.logo7) : black_; break;   // S105 A5c: the CAW logo (fetch slot 7), black = the layer does nothing
+          case CharSlot::Logo4: image = tex(mat.logo4) != rdr::kNoImage ? tex(mat.logo4) : black_; break;   // S105 A5c: logo2 (slot 4)
           case CharSlot::FlatBlackCube: image = black_cube_; b->cube_slot[slotn] = 3; break;
           case CharSlot::ShadowMap: image = white_, b->cube_slot[slotn] = 4; break;   // S103 L6: the frame's shadow map, set at the draw
         }
@@ -1463,6 +1502,7 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
         if (kVariants[b->choice.ps].samplers[s].slot == 8) cov.bound_to += (b->choice.tech_picked && w.cube && mat.reflect_alpha > 0.f) ? " [reflection: the file cube, g_fReflectAlpha]" : " [reflection: stand-in, ReflectAlpha 0]";  // S101 lane 15 / S103 RFL
     }
     b->program = ProgramFor(b->choice.vs, b->choice.ps, b->alpha_test);
+    if (mat.stage_zw && VariantHasTwin(b->choice.ps)) b->zw_twin = true;   // S105 SZW
     b->layout = LayoutFor(b->choice.vs);
     const rdr::fx::Variant& fv = kVariants[b->choice.ps];
     for (uint32_t s = 0; s < fv.sampler_count; ++s) {
@@ -1473,7 +1513,7 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
       else if (slotn == 4) image = neutral_normal ? neutral_normal_ : tex(mat.normal);
       else if (slotn == 5) image = (tex(mat.specular) == rdr::kNoImage && b->choice.tech_picked) ? black_ : tex(mat.specular);   // S103 TQF: a table-picked spec-map variant with no spec sampler: black = no highlight ([U]: what the game binds)
       else if (slotn >= 1 && slotn <= 3) image = tex(mat.layer[slotn - 1]);   // S103 LAY
-      else if (slotn == 6) image = grey_;
+      else if (slotn == 6) image = tex(mat.noise) != rdr::kNoImage ? tex(mat.noise) : grey_;   // S105 C2L: sampNoisePrm = the file's grain picture (yProp_PSM, ring mat); none = grey
       else if (slotn == 8) {   // S101 lane 15: the reflection cube: black = no reflection layer. S103 RFL: the game's pick (the table's variant) is fed the model's own file cube + g_fReflectAlpha (Bound::cube_real -> Resolve ReflectAlpha)
         const rdr::ImageId fc = b->choice.tech_picked ? cube_of(mat.cube) : rdr::kNoImage;
         image = fc != rdr::kNoImage ? fc : black_cube_, b->cube_slot[slotn] = 3;
@@ -1676,7 +1716,11 @@ bool Resolve(const std::string& name, uint32_t vec4s, const Ctx& c, float* out, 
   }
   if (name == "SpeLodParam") { out[0] = mt.spe_lod[0], out[1] = mt.spe_lod[1] > mt.spe_lod[0] ? mt.spe_lod[1] : 1e30f; return true; }   // S103 D1: FX_SPEC_FADE (the read rule picks it: barricade technique 15): the material's g_fSpeLodNear / Far [C: run29 f500 game y = 6000 = the file's far]; none / a bad range = no fade ([U] default), never 0 / 0
   if (name == "ReflectAlpha") { out[0] = c.reflect_alpha; out[1] = c.mirror; return true; }   // .y = -1 in the viewer's Y-mirrored space (fx_bg / fx_prop flip the cube lookup)   // S103 RFL: g_fReflectAlpha [C: RFF.md section A, c208.x of every Reflect draw read] when the file cube is bound, else 0
-  if (name == "Noise" || name == "NoiseParam" || name == "ShadowPrm" || name == "CameraViewProj" || name == "PlaneInv" ||
+  if (name == "Noise" || name == "NoiseParam") {   // S105 C2L (C2L.md 3b [C]: the game's name entries pack g_iNoiseTileX / g_iNoiseTileY / g_fNoiseLvl into c207.xyz): PS `Noise` and VS `NoiseParam` read (tile x, tile y, level); a material that names none stays zero
+    if (vec4s >= 1) out[0] = mt.noise_tile[0], out[1] = mt.noise_tile[1], out[2] = mt.noise_lvl;
+    return true;
+  }
+  if (name == "ShadowPrm" || name == "CameraViewProj" || name == "PlaneInv" ||
       name == "TexProjLight" || name == "ViewLight" || name == "ConvScreen" || name == "SpeLodParam" || name == "ChangeColor")
     return true;  // zero: the option that reads them is not chosen, or the value is the neutral one
   return false;
@@ -1742,6 +1786,7 @@ const FrontEnd::Bound* FrontEnd::BindRule(ModelData& m, int material, bool skinn
   b->shadow = reads_shadow;
   b->plane = reads_plane;
   b->program = ProgramFor(vs, ps, b->alpha_test);
+  if (mat.stage_zw && VariantHasTwin(ps)) b->zw_twin = true;   // S105 SZW
   b->layout = LayoutFor(vs);
   const bool neutral_normal = tex(mat.normal) == rdr::kNoImage && neutral_normal_ != rdr::kNoImage;
   for (uint32_t s = 0; s < fv.sampler_count; ++s) {
@@ -1752,7 +1797,7 @@ const FrontEnd::Bound* FrontEnd::BindRule(ModelData& m, int material, bool skinn
     else if (slotn == 4) image = neutral_normal ? neutral_normal_ : tex(mat.normal);
     else if (slotn == 5) image = tex(mat.specular);
     else if (slotn >= 1 && slotn <= 3) image = tex(mat.layer[slotn - 1]);   // S103 LAY
-    else if (slotn == 6) image = grey_;
+    else if (slotn == 6) image = tex(mat.noise) != rdr::kNoImage ? tex(mat.noise) : grey_;   // S105 C2L: sampNoisePrm = the file's grain picture (yProp_PSM, ring mat); none = grey
     else if (slotn == 8) {   // S103 RFL: the model's own file cube (the pair is the game's: the read rule's table row), else the black stand-in
       const int ci = mat.cube;
       const bool real = g_reflections.load(std::memory_order_relaxed) && !options_.plant_cube_unbound && ci >= 0 && size_t(ci) < m.images.size() && size_t(ci) < m.img_info.size() && m.img_info[size_t(ci)].faces == 6 && m.images[size_t(ci)] != rdr::kNoImage;
@@ -1852,8 +1897,38 @@ const FrontEnd::CubeEntry& FrontEnd::CubeFor(const assets::LightSet& ls) {
   return cubes_.emplace(key, e).first->second;
 }
 
+// WGS PAR1 (TEST ONLY: tools\scene\frame_rig.cpp --prime-grab for tools\scene\arena_sheet.py; the game never calls it): key 800 (and an idle movie key) samples this picture through the
+// grab's own binding instead of the copy of the previous frame, and RenderToPixels draws no seed frame. A null picture clears it (the live copy again).
+void FrontEnd::PrimeGrabForTest(const uint8_t* rgba, uint32_t w, uint32_t h) {
+  if (grab_prime_ != rdr::kNoImage && (!rgba || w != grab_prime_w_ || h != grab_prime_h_)) renderer_.DestroyImage(grab_prime_), grab_prime_ = rdr::kNoImage;
+  if (!rgba || !w || !h) return;
+  if (grab_prime_ == rdr::kNoImage) {
+    rdr::ImageDesc d;
+    d.width = uint16_t(w), d.height = uint16_t(h);
+    d.format = rdr::Format::RGBA8;
+    d.usage = rdr::kUsageSampled;
+    grab_prime_ = renderer_.CreateImage(d);
+    grab_prime_w_ = w, grab_prime_h_ = h;
+  }
+  if (grab_prime_ != rdr::kNoImage) renderer_.UpdateImage(grab_prime_, 0, 0, rgba, size_t(w) * h * 4);
+}
+
+bool FrontEnd::ReadDepthForTest(std::vector<uint8_t>& raw, uint32_t& w, uint32_t& h) {   // SCU (TEST ONLY, front_end.h)
+  if (depth_ == rdr::kNoImage || !depth_stored_) return false;   // a transient depth is not stored by its pass: nothing to read
+  rdr::ImageRef ref;
+  ref.image = depth_;
+  return renderer_.ReadImage(ref, raw, w, h);
+}
+
+namespace {
+// S105 A2: the big screen's grab is the game's own 16:9 view = the centred box of a scene made wider (Hor+) or taller (Vert+) than 16:9 (wide_frame.h BoxOf); the whole target at 16:9.
+using BigScreenBox = wwe2k14::scene_host::wide_frame::Box;
+BigScreenBox BigScreenBoxOf(uint32_t w, uint32_t h) { return wwe2k14::scene_host::wide_frame::BoxOf(w, h); }
+}  // namespace
+
 void FrontEnd::EnsureTargets(uint32_t w, uint32_t h, bool wait_idle) {
-  if (color_ != rdr::kNoImage && target_w_ == w && target_h_ == h && depth_sampled_ == want_depth_sampled_ && depth_stored_ == want_depth_stored_) return;  // S101 lane 34: a sampled (non-transient) depth when the post pass reads it
+  // S105 A1 review F2: every target must be there (a colour made and a depth / post output that failed was never retried: every frame "Record without targets")
+  if (color_ != rdr::kNoImage && depth_ != rdr::kNoImage && (!depth_sampled_ || post_out_ != rdr::kNoImage) && target_w_ == w && target_h_ == h && depth_sampled_ == want_depth_sampled_ && depth_stored_ == want_depth_stored_ && targets_scaled_ == scaled_targets_) return;  // S101 lane 34: a sampled (non-transient) depth when the post pass reads it
   if (wait_idle) renderer_.WaitIdle();   // S103 P: not on the live path: DestroyImage below is deferred (renderer.cpp kDestroyDelayFrames = 12 frames past the last submit that could use the image), nothing of THIS frame has recorded a use yet
   depth_sampled_ = want_depth_sampled_, depth_stored_ = want_depth_stored_;
   if (color_ != rdr::kNoImage) renderer_.DestroyImage(color_);
@@ -1861,18 +1936,38 @@ void FrontEnd::EnsureTargets(uint32_t w, uint32_t h, bool wait_idle) {
   if (post_out_ != rdr::kNoImage) renderer_.DestroyImage(post_out_), post_out_ = rdr::kNoImage;
   if (live_screen_ != rdr::kNoImage) renderer_.DestroyImage(live_screen_), live_screen_ = rdr::kNoImage;  // S101 lane 257
   { LiveScreenFacts lf; lf.size_changed = true; InvalidateLiveScreen(LiveScreenInvalidation(lf)); }   // S103 SCX: the grab's size changed (the one invalidation that is not a scene change)
-  rdr::ImageDesc c;
-  c.width = uint16_t(w);
-  c.height = uint16_t(h);
-  c.format = rdr::Format::RGBA8;
-  c.usage = rdr::kUsageTarget | rdr::kUsageSampled;
-  color_ = renderer_.CreateImage(c);
-  live_screen_ = renderer_.CreateImage(c);  // S101 lane 257: the big screen's copy of the last frame
-  rdr::ImageDesc d = c;
-  d.format = rdr::Format::Depth;
-  d.usage = (depth_sampled_ || depth_stored_) ? uint8_t(rdr::kUsageTarget | rdr::kUsageSampled) : uint8_t(rdr::kUsageTarget | rdr::kUsageTransient);
-  depth_ = renderer_.CreateImage(d);
-  if (depth_sampled_) post_out_ = renderer_.CreateImage(c);  // S101 lane 34: the post pass's output (the scene colour's description)
+  targets_scaled_ = scaled_targets_;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    rdr::ImageDesc c;
+    c.width = uint16_t(w);
+    c.height = uint16_t(h);
+    c.format = rdr::Format::RGBA8;
+    const uint8_t scaled_bit = targets_scaled_ ? uint8_t(rdr::kUsageScaled) : uint8_t(0);   // S105 A1: colour + depth + the grab + the post output are screen images: drawn at the player's size (a pass is the smallest of its targets, so colour and depth must agree)
+    c.usage = uint8_t(rdr::kUsageTarget | rdr::kUsageSampled | scaled_bit);
+    color_ = renderer_.CreateImage(c);
+    {   // S101 lane 257: the big screen's copy of the last frame. S105 A2: the game's own 16:9 grab, the centred box of a wider / taller scene (the whole target at 16:9)
+      const BigScreenBox bx = BigScreenBoxOf(w, h);
+      rdr::ImageDesc sd = c;
+      sd.width = uint16_t(bx.w), sd.height = uint16_t(bx.h);
+      live_screen_ = renderer_.CreateImage(sd);
+    }
+    rdr::ImageDesc d = c;
+    d.format = rdr::Format::Depth;
+    d.usage = uint8_t(((depth_sampled_ || depth_stored_) ? uint8_t(rdr::kUsageTarget | rdr::kUsageSampled) : uint8_t(rdr::kUsageTarget | rdr::kUsageTransient)) | scaled_bit);
+    depth_ = renderer_.CreateImage(d);
+    if (targets_scaled_ && g_a1_plant_scaled_alloc_fail.load(std::memory_order_relaxed) && depth_ != rdr::kNoImage) renderer_.DestroyImage(depth_), depth_ = rdr::kNoImage;   // RIG-ONLY planted failure (F2)
+    if (depth_sampled_) post_out_ = renderer_.CreateImage(c);  // S101 lane 34: the post pass's output (the scene colour's description)
+    const bool ok = color_ != rdr::kNoImage && depth_ != rdr::kNoImage && live_screen_ != rdr::kNoImage && (!depth_sampled_ || post_out_ != rdr::kNoImage);
+    if (ok || !targets_scaled_ || attempt == 1) break;
+    // S105 A1 review F2: a scaled target could not be made (4K memory): log once and fall back to unscaled targets (the picture is then the 720p one blitted up, as before the fix), never a black 3D for the run
+    static bool logged_fallback = false;
+    if (!logged_fallback) logged_fallback = true, rdr::Log("[scene][targets] could not make the scaled scene targets at logical %ux%u (colour %d, depth %d, grab %d, post output %d): falling back to unscaled targets", w, h, int(color_ != rdr::kNoImage), int(depth_ != rdr::kNoImage), int(live_screen_ != rdr::kNoImage), int(!depth_sampled_ || post_out_ != rdr::kNoImage));
+    if (color_ != rdr::kNoImage) renderer_.DestroyImage(color_), color_ = rdr::kNoImage;
+    if (depth_ != rdr::kNoImage) renderer_.DestroyImage(depth_), depth_ = rdr::kNoImage;
+    if (post_out_ != rdr::kNoImage) renderer_.DestroyImage(post_out_), post_out_ = rdr::kNoImage;
+    if (live_screen_ != rdr::kNoImage) renderer_.DestroyImage(live_screen_), live_screen_ = rdr::kNoImage;
+    targets_scaled_ = false;
+  }
   // S103 GT: the GPU role of each scene image (the per-pass stamps' table; the stream-free host has no capture records to name them from): the scene colour + depth = colour, the post output = post, the big screen's copy = copies
   // (only in the stream-free build: in the stream build a class also steers the binder's per-frame levers, and its capture images are named from the records)
 #if !WWE2K14_STREAM()
@@ -1882,6 +1977,15 @@ void FrontEnd::EnsureTargets(uint32_t w, uint32_t h, bool wait_idle) {
   if (live_screen_ != rdr::kNoImage) renderer_.SetImageClass(live_screen_, rdr::kGpuCopies);
 #endif
   target_w_ = w, target_h_ = h;
+  {   // S105 A1: the REAL created sizes, once per (re)make: a check reads them (a scaled scene at 1440p prints 2560x1440 for colour and depth; an ignored choice prints 1280x720 with scaled=0)
+    uint32_t cw = 0, ch = 0, dw = 0, dh = 0;
+    bool cs = false, ds = false;
+    renderer_.ImageExtent(color_, cw, ch, cs), renderer_.ImageExtent(depth_, dw, dh, ds);
+    if (logged_target_w_ != w || logged_target_h_ != h || logged_target_scaled_ != int(cs)) {   // S105 A1 review F5: only a new size / flag (the stream's shared pass alternates sizes)
+      logged_target_w_ = w, logged_target_h_ = h, logged_target_scaled_ = int(cs);
+      rdr::Log("[scene][targets] logical %ux%u: colour %ux%u scaled=%d, depth %ux%u scaled=%d (the post chain's depth image and the soft-particle depth log theirs when made)", w, h, cw, ch, int(cs), dw, dh, int(ds));
+    }
+  }
 }
 
 // S103 lane S: see front_end.h.
@@ -1915,7 +2019,7 @@ void FrontEnd::ReloadPrograms(const std::vector<int>& changed) {
     }
 }
 
-bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error) {
+bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error, uint32_t* out_w, uint32_t* out_h) {
   if (ShaderReload* reload = ShaderReload::Get())  // S101 lane24: adopts a finished reload before the frame is built
     if (std::vector<int> changed; reload->Poll(&changed)) ReloadPrograms(changed);
   if (frame.width == 0 || frame.height == 0 || frame.width > 16384 || frame.height > 16384) { error = "rdr: bad frame size"; return false; }
@@ -1928,12 +2032,13 @@ bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgb
       have_screen = have_screen || models_[obj.asset]->idle_screens != 0;   // S103 SCF: the one pre-post scene copy also feeds every shown idle movie-key slot
       for (const ModelData::Mesh& me : models_[obj.asset]->meshes) have_screen = have_screen || me.part == "slot 800";
     }
-  if (have_screen && !in_seed_) {
+  if (have_screen && !in_seed_ && grab_prime_ == rdr::kNoImage) {   // WGS PAR1: a primed grab (TEST ONLY) needs no seed frame (the seed would be what the grab shows otherwise)
     in_seed_ = true;
     SceneFrame seed = frame;
     seed.post = nullptr;
     std::vector<uint8_t> ignored;
-    const bool ok = RenderToPixels(seed, ignored, error);
+    uint32_t seed_w = 0, seed_h = 0;
+    const bool ok = RenderToPixels(seed, ignored, error, &seed_w, &seed_h);
     in_seed_ = false;
     if (!ok) return false;
   }
@@ -1951,7 +2056,9 @@ bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgb
   uint32_t w = 0, h = 0;
   rdr::ImageRef ref;
   ref.image = frame.post ? post_out_ : color_;
-  if (!renderer_.ReadImage(ref, rgba, w, h) || w != frame.width || h != frame.height) { error = "rdr: could not read the frame back"; return false; }
+  if (!renderer_.ReadImage(ref, rgba, w, h)) { error = "rdr: could not read the frame back"; return false; }
+  if (out_w && out_h) *out_w = w, *out_h = h;   // S105 A1: a scaled scene reads back at its real size
+  else if (w != frame.width || h != frame.height) { error = "rdr: could not read the frame back"; return false; }
   return true;
 }
 
@@ -2060,6 +2167,9 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     uint8_t cutout = 0;            // S103 F: Material::cutout_blend
     uint8_t pass = 0;              // hair / translucent: 1 = back faces culled, 2 = front faces culled (the viewer draws such a mesh twice)
     uint16_t inst = 0;             // S103 G: the placement instance (the kept draw lists' key)
+    uint8_t zw = 0;                // S105 SZW: Material::stage_zw (bit 1 `s` / `a` slot, 2 `z`, 4 blended screen piece), always set (the census), applied only with wwe2k14_rdr_stage_zwrite
+    int32_t order = -1;            // S105 SZW: the game's list position inside its `s` / `a` group (see_through_order.h SeeKey::order); -1 = none
+    bool mirrored = false;         // SCU: a copy of a placement whose 3x3 determinant is negative = the arena's `r` copy (the only such placement our loader makes, YCP / CUL_ADV D); never `[0] < 0` (true for a turn too)
   };
   struct ObjInfo {                 // per drawn object: its palette (skeleton node -> viewer-space matrix, world included) and light set
     assets::Matrix world;
@@ -2091,6 +2201,17 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
   unsigned hidden_meshes = 0;   // S103 CAWS: how many mesh copies the plant removed this frame (the [scene][hide] line says whether it matched anything)
   bool crowd_hook = false;  // S103 lane D: a crowd stage hook draws every Crowd-class object of the record itself
   for (const StageHook* h : frame.stage_hooks) crowd_hook = crowd_hook || (h && std::strcmp(h->Name(), "crowd") == 0);
+  // SCU: the stage record's cull (wwe2k14_rdr_stage_cull, per frame through the switch table; before the first refresh / in a tool: g_stage_cull, the rig's env) and its test-only plant
+  const bool stage_cull_on = rdr_sw::BoolSeen(rdr_sw::kStageCull, g_stage_cull.load(std::memory_order_relaxed), frame.names ? frame.names->header.guest_frame : 0);   // (Seen: the "[switch] seen" line an in-run A/B verdict cuts at)
+  const bool plant_no_flip = g_plant_stage_cull_no_flip.load(std::memory_order_relaxed);
+  // S105 C3: wwe2k14_rdr_family_cull (every other model family's record cull; the character two-pass keys on the bit) and its test-only plant (the winding swapped on those families)
+  const bool family_cull_on = rdr_sw::BoolSeen(rdr_sw::kFamilyCull, g_family_cull.load(std::memory_order_relaxed), frame.names ? frame.names->header.guest_frame : 0);
+  const bool plant_family_flip = g_plant_family_cull_flip.load(std::memory_order_relaxed);
+  // S105 SZW: wwe2k14_rdr_stage_zwrite (per frame through the switch table; before its first refresh / in a tool: g_stage_zwrite, the rig's env) and its test-only plant (a depth write with no forced alpha test)
+  const bool zw_on = rdr_sw::BoolSeen(rdr_sw::kStageZwrite, g_stage_zwrite.load(std::memory_order_relaxed), frame.names ? frame.names->header.guest_frame : 0);
+  const bool plant_zw_no_test = g_plant_szw_no_test.load(std::memory_order_relaxed);
+  szw_ = SzwCensus{};
+  std::set<std::pair<const void*, bool>> d2_seen;   // S103 WGD (dev, WWE_RDR_FEATURE_DUMP): the (mesh, mirrored copy) pairs this Record already wrote a "d2" line for (SCU: an `r` mesh writes its base and its mirrored copy; empty without the dump)
   for (const Object& obj : frame.objects) {
     const uint32_t obj_no = uint32_t(&obj - frame.objects.data());   // S103 EYF: the index SceneFrame::piece_alphas names
     if (!(obj.flags & kObjVisible)) continue;
@@ -2114,7 +2235,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       // S103 EYF: the game fades each own-skeleton piece with ITS model's alpha (VS c185.x = [model+252]; 0 in an entrance for the eyelid / lash layer 20002): the record's piece row for this owner + piece id.
       // A lid-layer mesh with no row (its piece has no object of its own: a palette borrowed from the body) is not drawn: the viewer's rule (view\renderer.cpp lid_layer), a stand-in [L].
       float piece_alpha = 1.f;
-      if (me.src_kind == 2) {
+      if (me.answers_piece_row) {   // S105 A5b (MeshAnswersPieceRow, decided at AddModelImpl): a guest part (src_key = part index) never answers a piece row
         bool have_row = false;
         for (const SceneFrame::PieceAlpha& pa : frame.piece_alphas)
           if (pa.object == obj_no && int(pa.piece) == me.src_key) { piece_alpha = pa.alpha, have_row = true; break; }
@@ -2133,6 +2254,16 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         cov.effect = me.material >= 0 ? m.materials[size_t(me.material)].shader : "(no material)";
         if (cov.reason.empty()) cov.reason = "skinned piece of a class that is not a yCh_* effect: skinning is wired for the characters' effects only";
         ++cov.meshes_unbound;
+        if (FILE* f = fdump::File(); f && !in_seed_) {   // S103 WGD (dev): the "d2" line of a chunk that is never drawn (tools\harvest\choice_ours.py; the drawn ones are written in emit below; never the seed frame's Record)
+          const bool ph1 = frame.phase_word >= 0 ? frame.phase_word == 1 : !frame.entrance;   // (the same rule as phase1 below)
+          if (d2_seen.insert({&me, false}).second) {
+            const std::string js = "{\"k\":\"d2\",\"part\":\"" + fdump::Esc(me.part) + "\",\"slot\":" + std::to_string(me.slot_no) + ",\"mesh\":" + std::to_string(me.src_record) + ",\"key\":" + std::to_string(me.src_key) +
+                                   ",\"src_pac\":\"" + fdump::Esc(me.src_pac) + "\",\"arena\":" + std::to_string(m.arena_id) + ",\"shader\":\"" + fdump::Esc(cov.effect) + "\",\"vs\":\"\",\"ps\":\"\",\"path\":\"skinned_unwired\",\"phase1\":" + (ph1 ? "1" : "0") +
+                                   ",\"ent\":" + (frame.entrance ? "1" : "0") + ",\"grp\":" + std::to_string(int(m.group)) + "}\n";
+            std::fwrite(js.data(), 1, js.size(), f);
+            std::fflush(f);
+          }
+        }
         continue;
       }
       const assets::Material* mt = me.material >= 0 ? &m.materials[size_t(me.material)] : nullptr;
@@ -2140,10 +2271,10 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       const size_t instances = me.placement >= 0 ? m.placements[size_t(me.placement)].size() : 1;
       if (sorted) {   // S103 CAWS (CAWG row 12): one capped line per blended mesh, so the white panels are NAMED (part, stage slot key, first node name, effect, picture, blend)
         static std::mutex bmu;
-        static std::set<const void*> bseen;
+        static std::set<std::string> bseen;   // S105 A5b F3: keyed on (model label, part, shader), not the mesh pointer: an editor slider drag rebuilds the model and used the 24 lines up
         static int blines = 0;
         std::lock_guard<std::mutex> lk(bmu);
-        if (blines < 24 && bseen.insert(&me).second) {
+        if (blines < 24 && bseen.insert(m.label + "|" + me.part + "|" + mt->shader).second) {
           ++blines;
           const int di = mt->diffuse;
           const bool have_pic = di >= 0 && size_t(di) < m.img_info.size() && size_t(di) < m.images.size();
@@ -2160,11 +2291,21 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         it.model = &m;
         it.mesh = &me;
         it.world = me.placement >= 0 ? assets::Mul(m.placements[size_t(me.placement)][k], ow) : ow;
+        if (me.placement >= 0) {   // SCU: the placement's own determinant (not it.world's: a non-arena object with a mirrored world is drawn by the game with no winding swap, CUL_ADV D correction 1)
+          const float* p = m.placements[size_t(me.placement)][k].data();
+          it.mirrored = p[0] * (p[5] * p[10] - p[6] * p[9]) - p[1] * (p[4] * p[10] - p[6] * p[8]) + p[2] * (p[4] * p[9] - p[5] * p[8]) < 0.f;
+        }
         const bool force_blend = (obj.flags & kObjForceBlend) != 0 && !sorted && mt;   // S103 CGF: an opaque mesh of a slot-32 stage structure is blended by the object's alpha (MdlAlpha); depth write stays the material's (opaque: on)
         it.blend = !mt ? 0 : sorted ? (mt->additive ? 2 : 1) : (mt->blend_inline || force_blend) ? 1 : 0;
         it.depth_write = !sorted || (see_order == SeeOrder::Game && mt && mt->cutout_blend == 1);  // S103 F: a prop cut-out drawn as blended keeps its depth write in Game order
+        it.zw = mt ? mt->stage_zw : uint8_t(0);
+        bool zw_blended = false;
+        if (zw_on && (it.zw & 3) && !force_blend) {   // S105 SZW (SZW_contract.md rule 3: depth write, alpha test and order land together): an `s` / `a` slot writes depth unless `z`; a `z`-only slot is blended, drawn in the opaque list, with no depth write
+          if (it.zw & 1) { if (sorted) it.depth_write = !(it.zw & 2); }
+          else it.blend = it.blend ? it.blend : uint8_t(1), it.depth_write = false, zw_blended = true;   // z only: into the BLENDED list at rank 0 (ahead of the `s` items): the game's bodies (categories 13-21) draw before group 0 (22), so a wrestler behind such a piece must not paint over it (review B2 item 6); the cutout_blend == 1 edge too
+        }
         it.cutout = mt ? mt->cutout_blend : 0;
-        it.sorted = sorted || force_blend;
+        it.sorted = sorted || force_blend || zw_blended;
         it.alpha = obj.tint[3] * piece_alpha;   // S103 EYF
         it.light_override = -1;
         it.ml = model_sets[obj.asset];
@@ -2175,7 +2316,10 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         const float cy = me.center[0] * it.world[1] + me.center[1] * it.world[5] + me.center[2] * it.world[9] + it.world[13] - eye[1];
         const float cz = me.center[0] * it.world[2] + me.center[1] * it.world[6] + me.center[2] * it.world[10] + it.world[14] - eye[2];
         it.dist2 = cx * cx + cy * cy + cz * cz;
-        if (sorted && mt && IsCharEffect(mt->shader) && IsHairEffect(mt->shader)) {  // the game draws such a mesh twice (renderer.cpp BuildSceneList)
+        // S105 C3 (C3.md, sub_82C04DF0 0x82C0A8BC-0x82C0A8DC): the game's t = 1 rule is "a translucent character mesh whose record bit 0x2 is CLEAR is drawn twice (front, back)"; a bit-set one is one cull-back draw. Under
+        // wwe2k14_rdr_family_cull off: the hair effect names, whatever the bit (the draw before). U1 (which meshes the translucent node draws) is open, so the effect test stays IsHairEffect.
+        const bool two_pass = mt && IsCharEffect(mt->shader) && family_cull::CharTwoPass(sorted, IsHairEffect(mt->shader), mt->cull_word, family_cull_on);
+        if (two_pass) {  // the game draws such a mesh twice (renderer.cpp BuildSceneList)
           it.pass = 1;
           blended.push_back(it);
           it.pass = 2;
@@ -2193,9 +2337,27 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
   }
   {  // S103 F: the see-through order (see_through_order.h): the frame's rule, or WWE_RDR_ORDER for the offline tools; Distance = the line this replaced
     const bool game_order = see_order == SeeOrder::Game;
+    if (zw_on && game_order) {   // S105 SZW (ZW1 [C code + capture]): the game's `s` group (and `a` group) list = every slot ascending, drawn in runs by light set, the set seen first first (sub_825B9F10 + sub_825B9970); inside a slot the record order stays
+      for (const uint8_t group_blend : {uint8_t(1), uint8_t(2)}) {
+        std::vector<size_t> idx;
+        for (size_t bi = 0; bi < blended.size(); ++bi)
+          if (blended[bi].cutout == 2 && blended[bi].blend == group_blend) idx.push_back(bi);
+        std::stable_sort(idx.begin(), idx.end(), [&](size_t x, size_t y) { return blended[x].mesh->slot_no < blended[y].mesh->slot_no; });
+        std::vector<std::pair<int, int>> run_of;   // light-set id -> run number, first seen first
+        for (const size_t bi : idx) {
+          Item& bit = blended[bi];
+          const int ls = bit.mesh->light_set >= 0 && size_t(bit.mesh->light_set) < bit.model->light_sets.size() ? bit.model->light_sets[size_t(bit.mesh->light_set)].id : -1000000;
+          int run = -1;
+          for (const auto& pr : run_of) if (pr.first == ls) { run = pr.second; break; }
+          if (run < 0) run = int(run_of.size()), run_of.push_back({ls, run});
+          bit.order = run * 1024 + std::max(0, std::min(bit.mesh->slot_no, 1023));
+          ++szw_.order_items;
+        }
+      }
+    }
     SortSeeThrough(see_order, blended, [game_order](const Item& i) {
       SeeKey k;
-      k.blend = i.blend, k.dist2 = i.dist2, k.cutout = i.cutout;
+      k.blend = i.blend, k.dist2 = i.dist2, k.cutout = i.cutout, k.order = i.order;
       if (game_order) k.character = i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);  // (only Game mode reads it: Distance = today)
       return k;
     });
@@ -2490,8 +2652,55 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       if (wet_bound) ++wet_bound_; else if (shadow_map) ++wet_lost_shadow_; else ++wet_no_variant_;
     }
     const Bound& b = char_b ? *char_b : wet_bound ? *wet_bound : rule_bound ? *rule_bound : (shadow_bound && shadow_bound->shadow) ? *shadow_bound : (plane_bound && plane_bound->plane) ? *plane_bound : (light_bound && light_bound->props_reader) ? *light_bound : BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode);
+    // S105 SZW (docs/research/harness/SZW_contract.md): the game alpha-tests every stage draw (GEQUAL 1/255), so a stage draw that writes depth MUST discard (rule 2: never a depth write without a discard): the bound pair's alpha twin
+    // is used for it, and a pair with no twin keeps depth write OFF (counted, K of the census line). A `z`-only slot is tested too (it writes no depth). zw_item = the rule applies to this draw (switch on, an `s` / `a` / `z` slot or a blended screen piece).
+    const bool zw_item = zw_on && it.zw != 0 && !is_char;
+    if (zw_item && b.zw_twin && !b.debug && !b.zw_program) {   // S105 SZW (review 2b): the twin programs are made when the switch is first seen on, not at bind
+      b.zw_program = ProgramFor(b.choice.vs, b.choice.ps, true);
+      if (plant_zw_no_test) b.zw_plain = ProgramFor(b.choice.vs, b.choice.ps, false);
+    }
+    if (zw_item && b.zw_twin && !b.debug && plant_zw_no_test && !b.zw_plain) b.zw_plain = ProgramFor(b.choice.vs, b.choice.ps, false);
+    const bool zw_test = zw_item && !plant_zw_no_test && (it.depth_write || (it.zw & 3) == 2);   // (an `s z` / `a z` draw writes no depth: blended alpha ~0 there is invisible, no test needed)
+    const bool zw_discard = zw_test && !b.debug && b.zw_twin;                                      // the draw really discards (the alpha twin is bound)
+    const bool plant_strip = zw_item && plant_zw_no_test && !b.debug && b.zw_twin && (it.depth_write || (it.zw & 3) == 2);   // the plant strips the test of EVERY stage draw that writes depth (the unsafe direction)
+    const bool at_on = !plant_strip && (b.alpha_test || zw_discard);                                                  // the draw's alpha test as the state / dynamic / dump see it
     const rdr::ImageId liquid_image = (wet_bound || (char_b && liquid)) ? liquid->image : rdr::kNoImage;
-    if (b.debug && (!options_.debug_unbound || debug_vs_ < 0)) { ++coverage_[me.material >= 0 ? m.materials[size_t(me.material)].shader : "(no material)"].meshes_unbound; return; }
+    // S103 WGD (dev, WWE_RDR_FEATURE_DUMP; docs\agents\choice_diff.md): ONE "d2" line per mesh and look = what this chunk REALLY drew with, read where the draw is final (the pick
+    // order of the line above, the blend / alpha test / depth write / cull of the draw state below): tools\harvest\choice_ours.py joins it with the game's rule. Read-only: changes no draw.
+    // One line per mesh per Record (d2_seen); none from the seed frame's Record (in_seed_: RenderToPixels' extra no-post frame, before the frame the tool reads).
+    // The alpha inputs (vertex / pixel out_alpha, the vertex-colour fetch, MdlAlpha, MatAmbCol.w / MatDifCol.w, the texture's alpha share) let the tool prove the output alpha 1.
+    const auto d2 = [&](const rdr::DrawState* st, const rdr::DynamicState* dy, const rdr::fx::Variant* vvp, const rdr::fx::Variant* fvp, const std::vector<std::pair<int, rdr::SamplerDesc>>* samp) {
+      FILE* f = fdump::File();
+      if (!f || in_seed_) return;
+      if (!d2_seen.insert({&me, it.mirrored}).second) return;
+      const int out_alpha = fvp ? int(fvp->out_alpha) : -1;
+      std::string sj = ",\"samp\":{";   // per sampler slot as bound: address u / v / w, mag / min filter, mip mode (rdr::SamplerDesc numbers)
+      for (size_t i = 0; samp && i < samp->size(); ++i) {
+        const rdr::SamplerDesc& s = (*samp)[i].second;
+        sj += (i ? ",\"" : "\"") + std::to_string((*samp)[i].first) + "\":[" + std::to_string(int(s.address_u)) + "," + std::to_string(int(s.address_v)) + "," + std::to_string(int(s.address_w)) + "," +
+              std::to_string(int(s.mag_filter)) + "," + std::to_string(int(s.min_filter)) + "," + std::to_string(int(s.mip_mode)) + "]";
+      }
+      sj += "}";
+      const char* path = b.debug ? "unbound" : char_b ? "char" : wet_bound ? "wet" : rule_bound ? "rule" : (shadow_bound && shadow_bound->shadow) ? "shadow" : (plane_bound && plane_bound->plane) ? "plane" : (light_bound && light_bound->props_reader) ? "light" : "plain";
+      const assets::Material* dm = me.material >= 0 ? &m.materials[size_t(me.material)] : nullptr;
+      const bool at = st && at_on;
+      char abuf[200];
+      std::snprintf(abuf, sizeof abuf, ",\"vs_oa\":%d,\"vc\":%d,\"mdl_a\":%.4f,\"amb_w\":%.4f,\"dif_w\":%.4f,\"dal\":%.4f", vvp ? int(vvp->out_alpha) : -1, vvp ? int(vvp->vc_fetch) : -1, double(it.alpha),
+                    dm ? double(dm->ambient[3]) : -1.0, dm ? double(dm->diffuse_color[3]) : -1.0, dm ? double(dm->diffuse_alpha_clear) : -1.0);
+      char buf[900];
+      std::snprintf(buf, sizeof buf, ",\"blend\":%d,\"ben\":%d,\"bdst\":%d,\"at\":%d,\"af\":%d,\"ar\":%d,\"dw\":%d,\"cull\":%d,\"ff\":%d,\"mir\":%d,\"cword\":%u,\"oa\":%d,\"lm\":%d,\"phase1\":%d,\"ent\":%d,\"grp\":%d,\"rule_tried\":%d,"
+                    "\"spec_lev\":%.3f,\"no_hl\":%d,\"ablend\":%d,\"add\":%d,\"inl\":%d,\"cutout\":%d,\"mat_at\":%d,\"amask\":%d,\"cull_back\":%d,\"szw\":%d,\"twin\":%d}\n",
+                    st ? int(it.blend) : -1, st ? int(st->blend[0].enable) : -1, st ? int(st->blend[0].dst_color) : -1, at ? 1 : 0, at && dy ? int(dy->system[9]) : -1, at && dy ? int(dy->system[8] * 255.f + 0.5f) : -1,
+                    st ? int(st->depth_write) : -1, st ? int(st->cull) : -1, st ? int(st->front_face) : -1, it.mirrored ? 1 : 0, dm ? unsigned(dm->cull_word) : 0u, out_alpha, int(lm_mode), phase1 ? 1 : 0, frame.entrance ? 1 : 0, int(m.group),
+                    (!is_char && m.arena_id >= 0 && me.slot_no >= 0 && me.slot_no <= 398 && me.material >= 0) ? 1 : 0, dm ? double(dm->spec_lev) : 0.0, dm && dm->no_highlight ? 1 : 0,
+                    dm && dm->alpha_blend ? 1 : 0, dm && dm->additive ? 1 : 0, dm && dm->blend_inline ? 1 : 0, dm ? int(dm->cutout_blend) : 0, dm && dm->alpha_test ? 1 : 0, dm && dm->alpha_mask ? 1 : 0, dm && dm->cull_back ? 1 : 0, int(it.zw), b.zw_twin ? 1 : 0);   // S105 SZW: the slot state bits, and whether the pair has an alpha twin
+      const std::string js = "{\"k\":\"d2\",\"part\":\"" + fdump::Esc(me.part) + "\",\"slot\":" + std::to_string(me.slot_no) + ",\"mesh\":" + std::to_string(me.src_record) + ",\"key\":" + std::to_string(me.src_key) +
+                             ",\"src_pac\":\"" + fdump::Esc(me.src_pac) + "\",\"arena\":" + std::to_string(m.arena_id) + ",\"shader\":\"" + fdump::Esc(dm ? dm->shader : std::string("(no material)")) + "\",\"vs\":\"" +
+                             (b.debug ? "" : kVariants[b.choice.vs].name) + "\",\"ps\":\"" + (b.debug ? "" : kVariants[b.choice.ps].name) + "\",\"path\":\"" + path + "\"" + sj + abuf + buf;
+      std::fwrite(js.data(), 1, js.size(), f);
+      std::fflush(f);   // a served rig keeps the file open between jobs: the job's lines are on disk when its @@JOB_END is read
+    };
+    if (b.debug && (!options_.debug_unbound || debug_vs_ < 0)) { d2(nullptr, nullptr, nullptr, nullptr, nullptr); ++coverage_[me.material >= 0 ? m.materials[size_t(me.material)].shader : "(no material)"].meshes_unbound; return; }
     if (b.props_reader) ++props_mat_bound_;   // S103 RML
     else if (!b.plane && !is_char && me.material >= 0 && IsPlaneReaderEffect(m.materials[size_t(me.material)].shader)) ++plane_wanted_plain_;   // S103 MSF: a ring-mat draw that wanted the plane-shadow variant and got a plain one (no map this frame, or the rule pair is not a plane reader)
     EffectCoverage& cov = coverage_[me.material >= 0 ? m.materials[size_t(me.material)].shader : "(no material)"];
@@ -2712,19 +2921,34 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     };
 
     rdr::DrawState state{};
-    state.program = b.program;
+    state.program = plant_strip ? b.zw_plain : zw_discard ? b.zw_program : b.program;   // S105 SZW: the alpha twin (the game's test) for a stage draw under the switch
     state.vertex_layout = b.layout;
     state.topology = 3;  // triangle list
     const assets::Material* mp = me.material >= 0 ? &mat : nullptr;
-    state.cull = (mp && mp->cull_back) ? 2 : 0;  // back faces culled (the file's rule); two-sided otherwise
-    state.front_face = 1;  // clockwise on screen (the viewer's rule)
+    // Back faces culled where the material says so: a stage mesh by its record's +0x8C bit 0x2 (SCU, jboy.h; sub_82C04DF0 0x82C0A880), the screens / crowd by their own rules; two-sided otherwise.
+    // wwe2k14_rdr_stage_cull off (stage_cull_on, read once per Record) = the stage meshes two-sided again (today's draw); the screens keep theirs.
+    // S105 C3: the same block draws every family: a stage slot's cull follows wwe2k14_rdr_stage_cull, every other family's wwe2k14_rdr_family_cull.
+    state.cull = family_cull::Cull(mp, stage_cull_on, family_cull_on);
+    // Clockwise front on screen (the game's value 6 = cull back + front CW for a normal camera, CUL_ADV C). The game swaps the winding for a bit-set mesh's `r` copy (0x82C0B920-0x82C0B968) so the same outer side
+    // survives: the copy's front is counter-clockwise. In DrawState (not a dynamic state) so the colour cuts' depth pre-pass twin (renderer.cpp RecordPass) follows it. The plant (test only) leaves the swap out.
+    // S105 C3: the `r` copy's swap is the stage slots' alone (a non-arena object with a mirrored world gets no swap in the game, CUL_ADV D). Planted twin (test only): the other families take the swap (a wrong winding).
+    state.front_face = family_cull::FrontFace(mp, state.cull, it.mirrored, plant_no_flip, plant_family_flip);
     if (it.pass) state.cull = it.pass == 1 ? 2 : 1;  // S101 lane 13: hair / translucent, drawn twice: back faces culled, then front faces
     state.depth_test = 1;
     state.depth_write = it.depth_write ? 1 : 0;
+    if (zw_item && state.depth_write && !zw_discard && !plant_zw_no_test && !((it.zw & 4) && b.debug)) state.depth_write = 0;   // (an UNBOUND screen piece keeps its old depth write: it draws nothing but the flat debug colour)   // S105 SZW rule 2: no discard (no alpha twin), no depth write
+    if (it.zw && !in_seed_) {   // S105 SZW census: by the game's rule an `s` / `a` slot without `z` and a blended screen piece write depth; ours = the final state; nodisc = a depth write with no discard; notwin = a game-writer whose pair has no twin
+      const bool game_writes = ((it.zw & 1) && !(it.zw & 2)) || (it.zw & 4);
+      const bool has_discard = at_on && !b.debug && b.zw_twin;
+      szw_.game += game_writes ? 1u : 0u;
+      szw_.ours += state.depth_write ? 1u : 0u;
+      szw_.nodisc += (state.depth_write && !has_discard) ? 1u : 0u;
+      if (game_writes && (b.debug || !b.zw_twin)) ++szw_.notwin, szw_.notwin_names.insert(b.debug ? std::string("(unbound / debug)") : std::string(kVariants[b.choice.ps].name));
+    }
     const pass_state::PassClass pcls = pass_state::ClassOf(mat.shader.c_str(), it.pass != 0);   // S103 B2
     state.depth_compare = pass_state::ForwardZ(pass_state::Of(pcls).game_z_func);  // S103 B2: the game's reversed GEQUAL -> our forward-Z LEQUAL (3, as before)
     state.blend[0].write_mask = 0xF;
-    if (!it.blend && b.alpha_test && pass_state::Of(pcls).tested_blends && !options_.plant_cutout_noblend) {   // S103 B2 (review 1): an alpha-TESTED part is BLENDED by the game (census: every tested lit / arena draw has blend 1, 6 / 7, z write 1); with the 1/255 reference the test only drops alpha 0, the soft alpha is the blend's. An untested opaque draw stays unblended (alpha 1: invisible). The depth write and the draw order stay ours (opaque list)
+    if (!it.blend && at_on && pass_state::Of(pcls).tested_blends && !options_.plant_cutout_noblend) {   // S103 B2 (review 1): an alpha-TESTED part is BLENDED by the game (census: every tested lit / arena draw has blend 1, 6 / 7, z write 1); with the 1/255 reference the test only drops alpha 0, the soft alpha is the blend's. An untested opaque draw stays unblended (alpha 1: invisible). The depth write and the draw order stay ours (opaque list)
       state.blend[0].enable = 1;
       state.blend[0].src_color = 6;  // src alpha
       state.blend[0].dst_color = 7;  // one minus src alpha
@@ -2739,6 +2963,8 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       state.blend[0].dst_alpha = 7;
     }
     rdr::TextureSet set{};
+    const bool d2_on = fdump::File() != nullptr;   // S103 WGD (dev): the samplers as bound, for the d2 line
+    std::vector<std::pair<int, rdr::SamplerDesc>> d2_sd;
     for (uint32_t s = 0; !b.debug && s < fv.sampler_count; ++s) {
       const int slot = fv.samplers[s].slot;
       rdr::SamplerDesc sd{};
@@ -2748,6 +2974,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       sd.max_anisotropy = sampler_table::AnisoWanted();   // S103 B1: kAnisoFollowsSetting (false: 8x as before)
       sd.max_lod = 1000.f;
       TableSampler(b.samp, b.choice, slot, b.cube_slot[slot] == 4 || b.cube_slot[slot] == 5, false, sd);   // S103 B1
+      if (d2_on) d2_sd.push_back({slot, sd});
       set.slots[slot].image = b.cube_slot[slot] == 1 ? (cube ? cube->image : b.slot_image[slot]) : (b.cube_slot[slot] == 4 && rd_map) ? rd_map->image : (b.cube_slot[slot] == 5 && plane_map) ? plane_map->image : (b.cube_slot[slot] == 2 && b.chr && rim_map) ? rim_map->image : b.slot_image[slot];  // the ambient cube is per object; S103 L6: slot 12 = the frame's shadow map
       if (b.cube_slot[slot] == 4 && !b.chr && !b.props_reader && rd_map && props_on && set.slots[slot].image == rd_map->image) ++pms_site_[5], pms_slot12_ = rd_map->image;   // site 5: slot 12 of a floor draw is the props map's image
       if (liquid_image != rdr::kNoImage && slot == int(b.liquid_slot)) set.slots[slot].image = liquid_image;   // S103 SWF: the wrestler's liquid map (wrap / linear / mip linear: the sampler of the effect's own table, not a clamp)
@@ -2763,16 +2990,19 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       sd.address_u = sd.address_v = sd.address_w = 2;
       sd.max_lod = 1000.f;
       TableSampler(b.samp, b.choice, slot, false, true, sd);   // S103 B1: the vertex light-map page (stage 16 + i: clamp in every effect that has it)
+      if (d2_on) d2_sd.push_back({slot, sd});
       set.slots[slot].image = b.slot_image[slot];
       set.slots[slot].sampler = fb.Sampler(sd);
       set.slots[slot].kind = vv.samplers[s].kind;
       set.slots[slot].vertex = 1;
     }
     // S103 SCF [C, SCM.md sub_8276AEF8 / sub_8276A808]: a shown screen with no movie draws the live frame grab, never black: slot 800 always (match look), every other movie key the applier marked idle (SetIdleScreens; match look only)
-    if (live_valid_ && (me.part == "slot 800" || (me.slot_no >= 801 && me.slot_no <= 809 && (m.idle_screens >> (me.slot_no - 800) & 1u))) && live_screen_ != rdr::kNoImage && fv.sampler_count && set.slots[0].image != rdr::kNoImage) set.slots[0].image = live_screen_;  // S101 lane 257
+    // WGS PAR1 (TEST ONLY): a primed grab (PrimeGrabForTest, the offline arena sheet) stands in for the live copy through this same binding; the game never primes it
+    const rdr::ImageId grab_img = grab_prime_ != rdr::kNoImage ? grab_prime_ : live_screen_;
+    if ((live_valid_ || grab_prime_ != rdr::kNoImage) && (me.part == "slot 800" || (me.slot_no >= 801 && me.slot_no <= 809 && (m.idle_screens >> (me.slot_no - 800) & 1u))) && grab_img != rdr::kNoImage && fv.sampler_count && set.slots[0].image != rdr::kNoImage) set.slots[0].image = grab_img;  // S101 lane 257
     rdr::DrawOp op{};
     op.state = fb.State(state);
-    op.dynamic = fb.Dynamic(b.alpha_test ? alpha_dyn(pcls) : dynamic);
+    op.dynamic = fb.Dynamic(at_on ? alpha_dyn(pcls) : dynamic);
     op.textures = fb.Textures(set);
     op.vs_constants = pack(vs, vv, kept ? &kept->vs : nullptr, true);  // S103 G
     const uint32_t vs_pushed = pushed_bytes;
@@ -2840,8 +3070,9 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       const auto fd_kind = [&](uint32_t im) -> const char* { return im == 0 ? "none" : im == uint32_t(white_) ? "white" : im == uint32_t(black_) ? "black" : im == uint32_t(grey_) ? "grey" : im == uint32_t(neutral_normal_) ? "neutral_normal" : im == uint32_t(black_cube_) ? "black_cube" : "map"; };
       fdump::Draw(fdf, "emit", mat.shader, me.part, b.chr, it.blend, vv.name, fv.name, T().by_index[size_t(vs)], T().by_index[size_t(ps)], fn, fsl, fim, fd_kind,
                   [&](const std::string& n, uint32_t v4, float* o) { return b.chr ? ResolveChar(n, v4, cc, o) : Resolve(n, v4, ctx, o); });
-      fdump::StateLine(fdf, state, b.alpha_test != 0, b.alpha_test ? alpha_dyn(pcls) : dynamic, int(pcls), mat.diffuse_alpha_clear, int(fv.out_alpha));   // S103 B2 (dev)
+      fdump::StateLine(fdf, state, at_on != 0, at_on ? alpha_dyn(pcls) : dynamic, int(pcls), mat.diffuse_alpha_clear, int(fv.out_alpha));   // S103 B2 (dev); S105 SZW: at_on
     }
+    if (fdump::File()) { const rdr::DynamicState d2_dyn = at_on ? alpha_dyn(pcls) : dynamic; d2(&state, &d2_dyn, &vv, &fv, &d2_sd); }   // S103 WGD (dev): the final draw state
     // S103 GSTP: this draw's group (a character mesh is a wrestler whatever its model says). The plant is read only while the stamps are on (TEST ONLY, host_rig --plant group_nolabel: the model draws are labelled `other`).
     const uint8_t group = fb.GroupsOn() && rdr::g_gpu_group_plant.load(std::memory_order_relaxed) == 3 ? uint8_t(rdr::kGrpOther) : is_char ? uint8_t(rdr::kGrpWrestler) : m.group;
     fb.Draw(op, group);
@@ -2850,12 +3081,20 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
   run_stage(Stage::AfterOpaque);
   for (const Item& it : blended) emit(it);
   run_stage(Stage::AfterBlended);
+  if (!in_seed_ && (szw_.game || szw_.ours) && !(szw_ == szw_logged_) && szw_lines_ < 12) {   // S105 SZW: the census line (proof 1 of SZW_contract.md): on a change, at most 12 a run
+    ++szw_lines_, szw_logged_ = szw_;
+    std::string names;
+    for (const std::string& n : szw_.notwin_names) names += (names.empty() ? "" : ", ") + n;
+    rdr::Log("[scene][szw] switch %s: stage-slot draws the game's rule gives a depth write %u, ours writes depth on %u, of which without a discard %u, game writers with no alpha twin %u%s%s; order items %u",
+             zw_on ? "on" : "off", szw_.game, szw_.ours, szw_.nodisc, szw_.notwin, names.empty() ? "" : " (variants: ", names.empty() ? "" : (names + ")").c_str(), szw_.order_items);
+  }
 
   if (have_screen && live_screen_ != rdr::kNoImage) {  // S101 lane 257: this frame's scene colour becomes the next frame's screen picture
     rdr::CopyOp cp{};
     cp.source.image = tg.color, cp.dest.image = live_screen_;
-    cp.source_rect = {0, 0, tg.width, tg.height};
-    cp.dest_rect = cp.source_rect;
+    const BigScreenBox bx = BigScreenBoxOf(tg.width, tg.height);   // S105 A2: the centred 16:9 box (the whole target at 16:9)
+    cp.source_rect = {int32_t(bx.x), int32_t(bx.y), bx.w, bx.h};
+    cp.dest_rect = {0, 0, bx.w, bx.h};
     fb.Copy(cp);
     live_valid_ = true;
   }   // S103 SCX: a frame with no screen object keeps the last grab, as the game's texture does (SCG.md 3); only a scene / arena / size change clears it
@@ -2866,6 +3105,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     if (!post_pass_) post_pass_ = std::make_unique<PostPass>(renderer_);
     PostParams pp = *frame.post;
     pp.width = tg.width, pp.height = tg.height;
+    if (targets_scaled_ && tg.color == color_) pp.scaled_images = true;   // S105 A1: the chain (and its game-depth image) follows the targets actually drawn: the scene's own are scaled
     pp.depth_w = tg.width, pp.depth_h = tg.height;   // S103 SLV2: tg.depth is made with tg.color's size (EnsureTargets): the depth-convert fold's precondition (post_pass.h)
     if (FILE* fdf = fdump::File()) fdump::Pass(fdf, std::string("\"name\":\"post\",\"dof\":") + (pp.dof ? "1" : "0") + ",\"fog\":" + (pp.fog ? "1" : "0") + ",\"bloom\":" + (pp.bloom ? "1" : "0") + ",\"glare\":" + (pp.glare ? "1" : "0") + ",\"film\":" + (pp.film ? "1" : "0") + ",\"dead_bloom\":" + (pp.dead_bloom ? "1" : "0") + ",\"dead_glare\":" + (pp.dead_glare ? "1" : "0"));   // S103 T2 (dev)
     if (!post_pass_->Record(fb, tg.color, tg.depth, post_out_, pp, error)) return false;

@@ -1,0 +1,11 @@
+# S105 C3 (review F2): OUR derived numbers only (counts of mesh-record cull words, from `py tools\q\q.py asset cull bgEtc 4` and docs\research\s105\C3.md); no game bytes.
+# ladder  <PACH> <entry>/<k> <word> <mesh count>      the ladder rig (bgEtc PACH 4): disc 1/2 and column 1/3 are word 6 (culled), the briefcase 1/1 is word 4 (two-sided)
+ladder 4 1/0 0x6 1
+ladder 4 1/1 0x4 2
+ladder 4 1/2 0x6 1
+ladder 4 1/3 0x6 1
+# hair  <family> <effect group> <bit set count> <bit clear count>     sorted hair-effect meshes by the record bit (C3.md characters row; ch = the wrestlers' pacs, edit = the CAW parts)
+hair ch trans 20 358
+hair ch Aniso_trans 0 555
+hair edit trans 175 679
+hair edit Aniso_trans 28 2032

@@ -147,10 +147,10 @@ void BuildE2Input(const SceneTables& t, const E2Faults& faults, E2Input& out) {
     for (const LiquidItemRow& it : m.items) {
       if (!it.picture) continue;
       bool have = false;
-      for (const CrowdPictureRow& p : out.liquid_pictures) have = have || p.key == it.picture;
+      for (const LiquidPictureRow* p : out.liquid_pictures) have = have || p->key == it.picture;
       if (have) continue;
-      for (const CrowdPictureRow& p : t.liquid_pictures)
-        if (p.key == it.picture) { out.liquid_pictures.push_back(p); break; }
+      for (const LiquidPictureRow& p : t.liquid_pictures)
+        if (p.key == it.picture) { out.liquid_pictures.push_back(&p); break; }
     }
     out.liquid.push_back(std::move(m));
   }

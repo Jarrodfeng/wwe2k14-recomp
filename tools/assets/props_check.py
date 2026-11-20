@@ -45,6 +45,8 @@ print("plant (old behaviour):", plant)
 if "--plant-expect-fail" in args:
     bad = verdict(plant)
     print("planted twin verdict:", bad or "PASSED (the plant was NOT caught)")
+    if bad:
+        print('PLANTED-OK: the planted props twin was caught (%d bar(s) failed)' % len(bad))   # S105 E
     sys.exit(0 if bad else 1)
 cur = run()
 print("fixed:", cur)

@@ -14,8 +14,8 @@
   {"name": "s103_PM2.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/live_map_props.cpp,src/renderer_scene/live_map_circles.cpp,src/renderer_scene/live_map_shadow.cpp,src/renderer_scene/live_maps.cpp,src/renderer_scene/rf_props.cpp,src/start_settings.cpp"], "timeout_s": 900, "tier": "cheap",
    "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
    "affects": ["src/renderer_scene/live_maps.h", "src/renderer_scene/props_map_switch.h", "src/renderer_scene/scene_record.h", "src/renderer_scene/front_end.h", "src/renderer_scene/weapon_plan.h"]},
-  {"name": "s103_PM2.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
-  {"name": "s103_PM2.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_PM2.build_rsc", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_PM2.build_rig", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
   {"name": "s103_PM2.rig_props", "cmd": ["py", "-I", "tools/scene/pm2_check.py", "--faults", "--out", "out/s103/PM2"], "timeout_s": 2400, "tier": "cheap",
    "needs": ["out/d3caster/z7147/capture", "out/renderer/dev/fview.exe", "game_data/extracted"],
    "affects": ["tools/scene/pm2_check.py", "tools/scene/frame_rig.cpp", "tools/scene/frame_rig.py", "src/renderer_scene/live_map_props.cpp", "src/renderer_scene/live_map_circles.cpp", "src/renderer_scene/live_map_shadow.cpp", "src/renderer_scene/live_maps.cpp", "src/renderer_scene/live_maps.h", "src/renderer_scene/rf_props.cpp"]}

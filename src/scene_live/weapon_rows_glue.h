@@ -9,6 +9,8 @@
 #include "draw_camera_core.h"  // S103 STG: kFlagA ... (static_assert below), ReadThreadSlot via caster_core.h
 #include "weapon_rows_contrib.h"
 #include "wrestler_hook.h"  // ReadWord / ReadMatrices
+#include "belt_plate.h"  // S105 PLATE: the belt nameplate read at the event prop's model call
+#include "guest_model_contrib.h"  // S105 PLATE: guestmodel::PhysRead (the physical pixel reader, reused)
 
 namespace wwe2k14::weaponrows {
 
@@ -40,7 +42,8 @@ inline bool RawEntry(bool ours, uint32_t model, uint32_t palette_ptr, uint64_t f
   wr::CallResult r;
   const bool run = wr::RawHookEntry(
       wr::Rows().tracker, wr::WeaponRowsRegistered() && rdr_scene::live::Enabled(), ours, model, palette_ptr, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
-      [](uint32_t a, uint32_t n, std::vector<rdr_scene::Mat4>& out) { return wwe2k14::wrestlers::ReadMatrices(a, n, out); }, &r, f1, lr, pass0, pass_ctx, shadow);   // S103 CGF: f1 / lr (ctx.f1, ctx.lr at the hook) tag a stage structure call's family
+      [](uint32_t a, uint32_t n, std::vector<rdr_scene::Mat4>& out) { return wwe2k14::wrestlers::ReadMatrices(a, n, out); }, &r, f1, lr, pass0, pass_ctx, shadow,
+      [](uint32_t a, uint32_t n, uint8_t* d) { return rdr_scene::live::guestmodel::PhysRead(a, n, d); });   // S105 PLATE: the belt nameplate's pixel reader (read at the event prop's call inside RawHookEntry); S103 CGF: f1 / lr (ctx.f1, ctx.lr at the hook) tag a stage structure call's family
   if (r.gm || r.blood) {   // S103 GBR: the first 40 set-object / splat rows (the step check reads them)
     static std::atomic<int> logged_gb{0};
     if (logged_gb.fetch_add(1, std::memory_order_relaxed) < 40)

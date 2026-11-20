@@ -185,7 +185,7 @@ def scan_file(path):
 def build(gen, db_path):
     files = sorted(glob.glob(os.path.join(gen, 'wwe2k14_recomp.*.cpp')))
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    tmp = db_path + '.tmp'
+    tmp = '%s.%d.tmp' % (db_path, os.getpid())   # S105 E review 7: one temp per process (two cold builds no longer remove each other's open file)
     if os.path.exists(tmp):
         os.remove(tmp)
     con = sqlite3.connect(tmp)
@@ -221,7 +221,15 @@ def open_db(rebuild=False):
         except sqlite3.Error:
             pass
         con.close()
-    build(gen, db_path)
+    # S105 E (s103_T2d.fields_check timed out at 600 s on a cold index): build()'s Pool is a spawn pool; started from another script's top level (fields_check.py runs
+    # open_db() at import) each worker re-imports THAT script, which calls open_db() again: the build never ends. Another script builds through this file's own __main__.
+    mainf = getattr(sys.modules.get('__main__'), '__file__', None)
+    if mainf and os.path.abspath(mainf) != os.path.abspath(__file__):
+        r = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), 'build', '--rebuild'])
+        if r.returncode:
+            raise RuntimeError('fields.py build failed (exit %d)' % r.returncode)
+    else:
+        build(gen, db_path)
     return sqlite3.connect(db_path)
 
 

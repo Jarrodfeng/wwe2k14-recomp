@@ -20,7 +20,7 @@ $contexts = [ordered]@{
     tag    = @($quick, '--wwe2k14_launch=@quick --wwe2k14_quick_type=3 --wwe2k14_launch_participants=343,324,139,103 --wwe2k14_launch_skip_entrances=true')
     ladder = @($quick, '--wwe2k14_launch=@quick --wwe2k14_quick_type=55 --wwe2k14_launch_participants=343,324 --wwe2k14_launch_skip_entrances=true')
     tlc    = @($quick, '--wwe2k14_launch=@quick --wwe2k14_quick_type=72 --wwe2k14_launch_participants=139,103 --wwe2k14_launch_skip_entrances=true')
-    # Session 44 additions: 30 Years of WrestleMania gameplay (match 43, The Undertaker vs. CM Punk; match 15, the
+    # Session 44 additions: 30 Years of WrestleMania gameplay (match 43, match 43; match 15, the
     # Iron Man score board), a Rumble well past its start, Create a Story (its route runs at normal speed by header)
     wm30_43 = @("$R\tools\input_scripts\short\s44_wm30_play.txt", '--wwe2k14_wm30=43 --wwe2k14_wm30_auto=false')
     wm30_15 = @("$R\tools\input_scripts\short\s44_wm30_play.txt", '--wwe2k14_wm30=15 --wwe2k14_wm30_auto=false')

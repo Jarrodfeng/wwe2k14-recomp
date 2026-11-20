@@ -15,7 +15,7 @@ args = ap.parse_args()
 if not args.no_build:
     exe.parent.mkdir(parents=True, exist_ok=True)
     b = subprocess.run([clang, '-std=c++20', '-O1', '-Wall', '-Wextra', '-Wno-unused-parameter', '-D_CRT_SECURE_NO_WARNINGS', '-o', str(exe), str(root / 'tools' / 'd3' / 'd3_ring_test.cpp'),
-                        str(root / 'src' / 'renderer_scene' / 'record_io.cpp'), '-I' + str(root / 'src')], capture_output=True, text=True, timeout=600)
+                        str(root / 'src' / 'renderer_scene' / 'record_io.cpp'), str(root / 'src' / 'renderer' / 'shaders' / 'spv' / 'fx_spv_data.cpp'), '-I' + str(root / 'src')], capture_output=True, text=True, timeout=600)
     if b.returncode:
         print(b.stdout + b.stderr)
         print('FAIL: build')

@@ -3,8 +3,8 @@
  "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0], "basis": "a LOOK (the soft round contact blob under every wrestler on the ring mat in 3+ wrestler matches and ladder / TLC matches, and the receivers' face-away term 0 instead of 0.2 x (1 - N.L)); no saving claimed."},
  "note": "0 game runs, 0 Surface runs. rml_check.py: the wm30 stream (out/captures/s100_wm30_300 f0 / f1) proves the reference (the mat is skinned_shadow_light + light_shadow, its VS c68-71 / c164-166 / c168-169 and PS c168-170 bit-equal to every floor receiver's); wm30 has no scene records, so the REAL front end (frame_rig.exe) draws z7147 f100 told the game built no plane module and the mat's resolved constants are compared with that stream frame's floor receivers' (<= 1e-5), slot 12 = the props image, validation 0. Planted twins mat_plain_when_no_module (the past behaviour), mat_reads_mapb, mat_vs_prm_ps_rows must fail; controls: module present and switch off never bind light_shadow. pms_check.py --rig gains the VS ShadowPrm registers (float32-equal to the stream's) with the planted twin vs_prm_ps_rows.",
  "checks": [
-  {"name": "s103_RML.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
-  {"name": "s103_RML.build_rig", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
+  {"name": "s103_RML.build_rsc", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1800},
+  {"name": "s103_RML.build_rig", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rig.ps1"], "timeout_s": 1800},
   {"name": "s103_RML.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/front_end.cpp,src/renderer_scene/live_map_plane.cpp,src/start_settings.cpp"], "timeout_s": 900, "tier": "cheap",
    "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
    "affects": ["src/renderer_scene/front_end.h", "src/renderer_scene/plane_game_gate.h", "src/scene_live/inputs_contrib.h"]},

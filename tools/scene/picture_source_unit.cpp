@@ -286,6 +286,40 @@ void Synthetic() {
     const bool rm = src.Lookup(M, m) && m.kind == ps::Kind::Refused && m.why == ps::Why::Movie;
     Check(ra && rm && src.counters().reads == 0, "RT", "a render-target creator's key is refused gpu_picture and a movie plane refused movie, with no guest read (reads " + N(src.counters().reads) + ", bar 0)");
   }
+  // RT (S105 N1): the key born at 0x82C2AC58 (sub_82C2AB90, the post module's yAfterImage history texture) is a render target: refused gpu_picture, never read as bytes.
+  {
+    // entry: ps::PictureSource::Seen (OnBorn with the site, then Seen: the order the guest thread runs them)
+    Forge f;
+    ps::PictureSource src(nullptr);
+    const auto phys = phys_of(f);
+    const uint32_t H = 0x00080007u;
+    const auto p = Pattern(16 * 16 * 4, 41);
+    f.Place(H, rdr::Format::BGRA8, 16, 16, p.data(), true, 2);
+    src.OnBorn(H, 0x82C2AC58u);
+    src.Seen(H, 1, f, phys);
+    ps::Answer a;
+    Check(ps::CreatorOfSite(0x82C2AC58u) == ps::Creator::Gpu && src.Lookup(H, a) && a.kind == ps::Kind::Refused && a.why == ps::Why::Gpu && src.counters().reads == 0, "RT",
+          "the post module's history texture (site 0x82C2AC58) is a render target: refused gpu_picture, no guest read (reads " + N(src.counters().reads) + ", bar 0)");
+  }
+  // SCENECOPY (S105 A4): the key born at the game's scene-colour copy site (0x82BB07C4, kCreators -> SceneCopy) is answered by name `scene_copy`, never `unclassified_creator`, and its bytes are never read (a resolve target).
+  // A k_8_8_8_8 picture born at a sibling site of the same function (0x82BB081C, still Unknown) stays `unclassified_creator`.
+  {
+    // entry: ps::PictureSource::Seen (OnBorn with the site, then Seen, the order the guest thread runs them)
+    Forge f;
+    ps::PictureSource src(nullptr);
+    const auto phys = phys_of(f);
+    const uint32_t S = 0x00010000u, Q = 0x00070005u;   // S = the first texture the game makes (key 0x00010000, the key in the player log)
+    const auto p = Pattern(16 * 16 * 4, 31);
+    f.Place(S, rdr::Format::BGRA8, 16, 16, p.data(), true, 2);
+    f.Place(Q, rdr::Format::BGRA8, 16, 16, p.data(), true, 2);
+    src.OnBorn(S, 0x82BB07C4u), src.OnBorn(Q, 0x82BB081Cu);
+    src.Seen(S, 1, f, phys), src.Seen(Q, 1, f, phys);
+    ps::Answer a, q;
+    const bool sa = src.Lookup(S, a) && a.kind == ps::Kind::Refused && a.why == ps::Why::SceneCopy;
+    const bool qa = src.Lookup(Q, q) && q.kind == ps::Kind::Refused && q.why == ps::Why::Unclassified;
+    Check(sa && qa && ps::CreatorOfSite(0x82BB07C4u) == ps::Creator::SceneCopy && std::string(ps::WhyName(ps::Why::SceneCopy)) == "scene_copy", "SCENECOPY",
+          "the scene-copy site's key is answered scene_copy (never unclassified), its sibling site stays unclassified_creator (copy " + std::string(sa ? "ok" : "WRONG") + ", sibling " + std::string(qa ? "ok" : "WRONG") + ")");
+  }
   // GUARD (past-bug re-find, S100's stale roster render): new bytes written under a LIVE key with no birth are caught by the sample guard, counted refill_unannounced, and answered fresh.
   {
     Forge f;
@@ -315,7 +349,7 @@ void Synthetic() {
 
 // ---- review A1-A8 -------------------------------------------------------------------------------------------------------------------------------------------
 void SyntheticReview() {
-  constexpr uint32_t kLoader = 0x82BAA908u, kUnknown = 0x82BB07C4u;
+  constexpr uint32_t kLoader = 0x82BAA908u, kUnknown = 0x82BB081Cu;   // S105 A4: 0x82BB07C4 is the SceneCopy site now; 0x82BB081C is a sibling still Unknown
   const auto phys_of = [](Forge& f) { return [&f](uint32_t a, uint32_t n, uint8_t* d) { return f.phys(a, n, d); }; };
   // RACE (A2): the key dies while its first read is in flight (the guest read is outside the lock): the answer is stored DEAD and the host's trim drops it.
   {
@@ -504,7 +538,7 @@ int main(int argc, char** argv) {
   struct Plant { const char* name; const char* tag; int pic, tex; };
   static const Plant kPlants[] = {{"death_ignored", "DEATH", 1, 0}, {"counter_ignored", "COUNTER", 2, 0}, {"rehash_every_hit", "REHASH", 3, 0}, {"rt_as_file", "RT", 4, 0},
                                   {"wrong_mip", "JOIN", 5, 0}, {"no_swap", "JOIN", 0, 3}, {"tiled_ignored", "JOIN", 0, 2},
-                                  {"race_ignored", "RACE", 6, 0}, {"swizzle_ignored", "SWZ", 0, 6}, {"unknown_8888", "UNCLASS", 7, 0}, {"file_any_order", "SWZ", 8, 0}, {"no_budget", "BUDGET", 9, 0}, {"keep_blocks", "RELEASE", 10, 0}, {"no_bridge", "BRIDGE", 11, 0}, {"bridge_cap", "BRIDGE", 12, 0}};
+                                  {"race_ignored", "RACE", 6, 0}, {"swizzle_ignored", "SWZ", 0, 6}, {"unknown_8888", "UNCLASS", 7, 0}, {"file_any_order", "SWZ", 8, 0}, {"no_budget", "BUDGET", 9, 0}, {"keep_blocks", "RELEASE", 10, 0}, {"no_bridge", "BRIDGE", 11, 0}, {"bridge_cap", "BRIDGE", 12, 0}, {"scene_copy_old", "SCENECOPY", 13, 0}};
   const Plant* plant = nullptr;
   for (const Plant& p : kPlants)
     if (a.plant == p.name) plant = &p;

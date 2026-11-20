@@ -21,6 +21,7 @@
 
 #include "../renderer_game/scene_frame.h"
 #include "../task_group_walk.h"  // S103 FDP: the one task-group walk
+#include "../renderer_scene/cam_gate.h"   // S105 A3
 #include "stage_clock_flag.h"   // S103 E5: bit 17 (OFF)
 #include "ring_stamp_flag.h"   // S103: bit 6 (released)
 #include "caster_stamp_flag.h"   // S103 L1C: bit 7 moved follows it
@@ -692,6 +693,14 @@ inline bool ReadCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& info, ui
 // to mgr +1488 (the 4x4 world -> view matrix, row-vector, the camera object's +240, the view) and +1552 (FOV, degrees: CineCam writes 60 there)
 // every frame on the update side, before any walk. The projection is built by the reader from the FOV (kCamProjFromFov).
 inline constexpr uint32_t kCamMgrPtr = 0x836F3AA8, kCamMgrView = 1488, kCamMgrFov = 1552;
+// S105 A3 (docs\research\s105\A3.md, [C] two stream-build captures): the game draws no scene while its shown camera [[0x836F3AA8] + 1392] is 0. read = the manager exists (>= 0x10000) and the word was readable;
+// shown = the word is non-zero. No manager / an unreadable word: read = false (the record then never blackens: the CAW editor has no manager).
+// S105 A3 review: the composer's override cameras count as shown too (cam_gate.h ReadShown reads all three words).
+inline void ReadShownCameraGate(ReadFn rd, bool& read, bool& shown) {
+  read = shown = false;
+  if (!rd) return;
+  rdr_scene::ReadShown([rd](uint32_t a, uint32_t& v) { return ReadWord(rd, a, v); }, read, shown);
+}
 inline bool ReadSceneCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& info, rdr_scene::Camera* raw_out = nullptr) {
   info = CameraInfo{};
   uint32_t mgr = 0, fw = 0;

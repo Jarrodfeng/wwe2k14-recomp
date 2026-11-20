@@ -30,6 +30,7 @@
 // NOT covered (so a snapshot made here is `latch_partial` in crowd_snapshot_core.h): the single people (sub_8276E7B0: docs\renderer\CROWD_PROPS_GATES.md section 4 says what is missing), and the signs' own pictures.
 // Cost (review F8): each type's arrays are read with one words() call each, the 64 KB sine table once, no per-frame heap vectors.
 #pragma once
+#include <atomic>
 #include <cmath>
 #include <utility>
 #include <cstdint>
@@ -786,6 +787,24 @@ inline bool ReadSingleSkin(const M& mem, uint32_t x, SingleObs& s) {
 //   hidden when w < near (blt 0x8276E3AC); inv = one / w; px = out0 inv, r = inv f30, py = out1 inv, ry = inv f29; hidden when r + px < lo, px - r > one, py - ry < lo (blt / bgt: a NaN is not taken, so it passes each); DRAWN unless ry + py > one: `ble` at 0x8276E404 is "branch if not greater" (bf gt), TAKEN on an unordered compare, so a NaN anywhere DRAWS (S103 C1 review fix 1).
 // Constants (image words [C]): K = 120.0 (0x8201BDD8: the floor's K), the y offset -120.0 (0x8201BDDC), one = 1.0 (0x8218B8C0, also the `hi` bound: f31 reloaded at 0x8276E390), near = 0.0 (0x8218B8CC), lo = -1.0 (0x82004734).
 inline constexpr uint32_t kSingleCamGate = 0x83929A68u, kSingleScreenK = 0x8201BDD8u, kSingleScreenYOff = 0x8201BDDCu, kSingleScreenOne = 0x8218B8C0u, kSingleScreenNear = 0x8218B8CCu, kSingleScreenLo = 0x82004734u;
+// S105 A2 (ultrawide / tall screens): our two ports of the game's 16:9 screen tests (the floor seats' sub_8250E7E0 and the singles' sub_8276E2C0) read the game's own 16:9 projection; on a wider / taller
+// frame the seats and sign holders past the 16:9 box would pop at the sides. Columns 0 / 1 of the copied projection are scaled by 1 / k and 1 / t, as the S101 floor hook does (crowd_wide_core.h ApplyFloor),
+// BEFORE the radius scales (m00 K, m11 K) are taken and before the view multiply. Set once at start (start_settings.cpp) from the crowd switch's Scale; 1.0f = the game's test (default, 16:9, `off`).
+inline std::atomic<uint32_t> g_screen_sx_bits{0x3F800000u}, g_screen_sy_bits{0x3F800000u};
+// (review crowd F2) The singles' test (sub_8276E2C0) has no wide hook in the STREAM build: a walked frame draws the game's own holders, culled at 16:9, so there the singles' port keeps the game's 16:9 test
+// (g_single_screen_scaled false, set by start_settings.cpp under WWE2K14_STREAM()) and CompareScreenLocked compares like with like. The floor seats' test has the S101 hook in both builds: it is always scaled.
+inline std::atomic<bool> g_single_screen_scaled{true};
+inline void ScaleScreenProjection(float pj[4][4], bool single = false) {
+  if (single && !g_single_screen_scaled.load(std::memory_order_relaxed)) return;
+#ifdef RDR_CROWD_SNAP_PLANTS
+  if (g_latch_plant == 31) return;   // planted twin screen_scale_ignored: the screen tests keep the game's 16:9 projection
+#endif
+  const uint32_t bx = g_screen_sx_bits.load(std::memory_order_relaxed), by = g_screen_sy_bits.load(std::memory_order_relaxed);
+  float sx, sy;
+  std::memcpy(&sx, &bx, 4), std::memcpy(&sy, &by, 4);
+  if (sx == 1.0f && sy == 1.0f) return;
+  for (int r = 0; r < 4; ++r) pj[r][0] *= sx, pj[r][1] *= sy;
+}
 struct SingleScreen {
   enum State : uint8_t { kUnknown = 0, kHideAll = 1, kOn = 2 } state = kUnknown;
   float pc[4][4] = {}, f30 = 0.f, f29 = 0.f, yoff = 0.f, one = 1.f, near_w = 0.f, lo = 0.f;
@@ -799,6 +818,7 @@ inline void InitSingleScreen(const M& mem, uint32_t cam, SingleScreen& st) {
   mem.words(cam + 240, 16, v_w);
   float pj[4][4], v[4][4];
   std::memcpy(pj, pj_w, sizeof pj);
+  ScaleScreenProjection(pj, true);   // S105 A2 (the singles' test)
   std::memcpy(v, v_w, sizeof v);
   const float k = mem.f32(kSingleScreenK);
   st.f30 = pj[0][0] * k, st.f29 = pj[1][1] * k;
@@ -967,6 +987,7 @@ inline void InitScreenTest(const M& mem, ScreenTest& st) {
   mem.words(C + 240, 16, v_w);
   float pj[4][4], v[4][4];
   std::memcpy(pj, pj_w, sizeof pj);
+  ScaleScreenProjection(pj);   // S105 A2 (the floor seats' test: always scaled)
   std::memcpy(v, v_w, sizeof v);
   st.k = mem.f32(kScreenK), st.near_w = mem.f32(kScreenNear), st.one = mem.f32(kScreenOne), st.lo = mem.f32(kScreenLo), st.hi = mem.f32(kScreenHi);
   st.f29 = pj[0][0] * st.k;

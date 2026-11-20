@@ -44,7 +44,7 @@ if (-not (Test-Path $stamp) -or (Get-Content -Raw $stamp).Trim() -ne $flagHash) 
   Set-Content -Path $stamp -Value $flagHash
 }
 $failed = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-$sources | ForEach-Object -ThrottleLimit 12 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $sources | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 12) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $source = $_
   $object = Join-Path $using:objects (($source.Substring($using:repo.Length + 1) -replace '[\\/:]', '_') + '.o')
   $deps = [IO.Path]::ChangeExtension($object, '.d')
@@ -64,7 +64,7 @@ $sources | ForEach-Object -ThrottleLimit 12 -Parallel {
     $text = & $using:ccExe @using:ccArgs @using:flags -c $rel -o $relObj 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
-}
+} } finally { Release-BuildParallel }
 if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($failed.Count) file(s) failed to compile" }
 
 $exe = Join-Path $out 'rplay.exe'

@@ -1,5 +1,6 @@
 // See live_assets.h. Session 103, lane S.
 #include "live_assets.h"
+#include "load_order.h"   // S105 SKB fix F3: kEvtobjPrewarmEntry
 
 // stb_image compiled INTO this translation unit, static (crowd_body.cpp's rule: no stbi_* symbol leaves it; the game exe and the phone
 // library must not export stbi_*). asset_load.h's decoders use it.
@@ -89,6 +90,18 @@ static void BuildEffectTable(launcher::GameFiles& files) {
   std::fprintf(stderr, "[read_rule] sampler table: %zu effects with a sampler block, %u pass disagreements\n", with_samplers, sampler_conflicts);
   sampler_table::Publish(std::move(samplers));
   PublishEffectTable(std::move(table));
+  // S105 A5c fix F1: the editor's table, pac\edit\edit.pac leaf p7/0 (tools\shaders\effect_table.py names it "p7/0": top-level PACH 7, entry 0). Its yCh rows are the logo variants (and drop bss / sweat); a CAW material
+  // with a logo takes its row from here. A failure leaves the startup row in force (no logo drawn, as before).
+  assets::pac::Pac ep;
+  std::string eerr;
+  if (!assets::pac::Open(files, "pac\\edit\\edit.pac", ep, eerr)) { rdr::Log("[read_rule] no editor effect table: %s", eerr.c_str()); return; }
+  if (ep.pachs.size() <= 7 || ep.pachs[7].ents.empty()) { rdr::Log("[read_rule] edit.pac: no top-level entry p7/0"); return; }
+  const assets::pac::Ent& le = ep.pachs[7].ents[0];
+  const assets::Bytes ldec = assets::pac::Decode(ep.bytes.data() + le.off, le.size);
+  auto ltable = std::make_shared<EffectTable>();
+  if (!ParseEffectLeaf(ldec.data(), ldec.size(), hash, *ltable)) { rdr::Log("[read_rule] edit.pac p7/0: no effect table parsed"); return; }
+  rdr::Log("[read_rule] editor (logo) effect table: %zu effects from pac\\edit\\edit.pac p7/0", ltable->size());
+  PublishLogoEffectTable(std::move(ltable));
 }
 }  // namespace read_rule
 
@@ -105,6 +118,7 @@ bool GameFilesSource::SetRoot(const std::string& game_root) {
   if (game_root.empty()) return false;
   std::lock_guard<std::recursive_mutex> load_lock(assets::load_detail::LoadMutex());   // S103 S: the shared pac cache (see Load)
   assets::attire_remap::Reset();   // S103 ARM: a new game folder re-reads the colour table
+  assets::load_detail::EvtLogHook() = [](const std::string& line) { rdr::Log("[wwe2k14][weapon_rows] %s", line.c_str()); };   // S105 SKB3 fix L1 / L5: the evtobj.pac fallbacks reach the run log
   impl_->files.SetRoot(std::filesystem::u8path(game_root));
   rdr_scene::wrestler_src::ApplyOverlays(impl_->files, &impl_->overlay_gen);   // S103 DLW: the packs the game was offered (src\dlc.h), so a DLC wrestler's pac\ch\ch385.pac opens
   ready_ = impl_->files.Exists("pac\\ch") || impl_->files.Exists("default.xex");
@@ -170,6 +184,17 @@ static bool ApplyCompositeAttire(launcher::GameFiles& files, int id, int attire,
 }
 
 // S103 DLW census (a step check reads it): one line per distinct named wrestler ref, where its pac came from. A failed load is said by ModelCache (named_load_fail.h: "load failed ... guest rows draw it").
+// S105 A7: the named loader's "texture 'X' not found" warnings (dds.h TexSet::Get; the part then draws white) reached no game log: one line per name per pac.
+static void WrestlerTexWarnings(const std::string& pac, const assets::Model& m) {
+  static std::mutex mu;
+  static std::set<std::string> told;
+  for (const std::string& w : m.warnings) {
+    if (w.compare(0, 9, "texture '") != 0 || w.find("not found") == std::string::npos) continue;
+    { std::lock_guard<std::mutex> l(mu); if (!told.insert(pac + "|" + w).second) continue; }
+    rdr::Log("[wwe2k14][wrestler_src] %s (%s): %s: the sampler stays unbound (a diffuse then draws white; a normal or wrinkle map just stays off)", m.label.c_str(), pac.c_str(), w.c_str());
+  }
+}
+
 static void WrestlerSrcCensus(const launcher::GameFiles& files, const std::string& pac, const std::string& entry, uint32_t variant, bool ok) {
   if (!ok) return;
   static std::mutex mu;
@@ -178,6 +203,14 @@ static void WrestlerSrcCensus(const launcher::GameFiles& files, const std::strin
   { std::lock_guard<std::mutex> l(mu); if (!told.insert(key).second) return; }
   rdr::Log("[wwe2k14][wrestler_src] key %s variant %u (%s): loaded from %s", entry.c_str(), variant, pac.c_str(), rdr_scene::wrestler_src::Where(files, pac));
 }
+
+namespace {
+// S103 GBR (BH4 4): the release hook returns false when the loader's lock was busy: the drawer retries next frame. Shared by the prewarm and the first event prop load.
+void MarkEvtobjReleasable() {
+  assets::load_detail::DlcProps().releasable = true;
+  rdr_scene::weapons::g_evtobj_release = [] { bool busy = false; assets::load_detail::ReleaseEvtobj(&busy); return !busy; };
+}
+}  // namespace
 
 bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uint32_t variant, assets::Model& out, std::string& error) {
   if (!ready_) { error = "no game files (SetRoot first)"; return false; }
@@ -245,8 +278,10 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
       // S103 ARM (fix 3, the stream-free rule as `/r`): a composite or remapped attire body whose named load fails stays a counted HOLE, never the guest rows (they bind atlases this build never fills).
       auto fail = [&](const std::string& why) {
         error = why;
-        if (namedfail::HoleOnFailure(remap_on && pick.hole_class, remap_on && tagged, pac, entry, variant))   // review F1: the switch off is the old load (guest rows)
+        if (namedfail::HoleOnFailure(remap_on && pick.hole_class, remap_on && tagged, pac, entry, variant)) {   // review F1: the switch off is the old load (guest rows)
+          if (remap_on && tagged && !pick.remapped && !pick.hole_class) attire_build::Count().identity_hole.fetch_add(1, std::memory_order_relaxed);   // S105 A5d: an identity tagged load that failed: a hole where the plain base drew before
           rdr::Log("[attire_remap] attire_load_hole %llu (key %d): %s: a hole, the guest rows do not draw it", static_cast<unsigned long long>(namedfail::Holes()), key, why.c_str());
+        }
         return false;
       };
       if (pick.ord < 0) return fail("no model PACH named " + std::to_string(key) + " (or its kind 2) in " + pac);
@@ -260,21 +295,34 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
       if (!ok) return fail(error);
       if (!ApplyCompositeAttire(impl_->files, id, ord, entry, key, out, error)) return fail(error);   // S103 CMB: a refusal is a failed load (a hole); a plain entry has no tag: nothing happens
       WrestlerSrcCensus(impl_->files, norm, entry, variant, ok);
+      WrestlerTexWarnings(norm, out);   // S105 A7
       return ok;
     }
     const int n = assets::AttireCount(impl_->files, id);
     if (int(variant) >= n) { error = "attire " + std::to_string(variant) + " does not exist (wrestler " + std::to_string(id) + " has " + std::to_string(n) + ")"; return false; }
     const bool ok = assets::LoadWrestler(impl_->files, id, int(variant), out, error);
     WrestlerSrcCensus(impl_->files, norm, entry, variant, ok);
+    if (ok) WrestlerTexWarnings(norm, out);   // S105 A7
     return ok;
   }
   // S103 BLF: an entrance's event prop (weapon_draw_core.h EvtEntryOf): "evtprop:<prop id>/<k>" = entry k of the PACH the game's own directory gives the prop id (assets::PropPach), the model MakeWeapon built for entry k.
   {
     int pid = 0, k = 0;
+    if (norm == "pac\\evt\\evtobj.pac" && entry == kEvtobjPrewarmEntry) {   // S105 SKB fix F3: the 160 MB unpack, started when the match loads (LiveSceneDraw::QueueMisses), not at the first entrance prop's ask; a cache hit when already open
+      MarkEvtobjReleasable();
+      // S105 SKB3: the disc pac is read BY BLOCKS now (assets::load_detail::OpenEvtRanged: the block index by ranged reads + the directory, ~25 ms, never the 160 MB unpack); the whole-file open stays the fallback when a ranged read fails
+      std::string rerr;
+      if (assets::load_detail::EvtRanged* rg = assets::load_detail::OpenEvtRanged(impl_->files, rerr)) {
+        static bool told = false;
+        if (!told) { told = true; rdr::Log("[wwe2k14][weapon_rows] evtobj.pac ranged: %u blocks indexed by %zu reads in %.1f ms, directory %zu PACHs", rg->ix.count, rg->ix.reads, rg->index_ms, rg->rows.size()); }
+        return true;
+      }
+      rdr::Log("[wwe2k14][weapon_rows] evtobj.pac ranged unavailable (%s): whole-file open", rerr.c_str());
+      return assets::load_detail::OpenPropFile(impl_->files, 0, error) != nullptr;   // pach 0 = the disc evtobj.pac slot (dlc_files.h PropFile); `out` stays empty (the caller never stores it)
+    }
     if (norm == "pac\\evt\\evtobj.pac" && std::sscanf(entry.c_str(), "evtprop:%d/%d", &pid, &k) == 2) {
       if (pid < 0 || k < 0 || k > 9) { error = "event prop " + entry + ": id or entry out of range"; return false; }
-      assets::load_detail::DlcProps().releasable = true;   // the live game: the drawer may close the evtobj.pac slot when the entrance's last prop model retires (weapon_draw_core.h ReleaseEvtobjSlot)
-      rdr_scene::weapons::g_evtobj_release = [] { bool busy = false; assets::load_detail::ReleaseEvtobj(&busy); return !busy; };   // S103 GBR (BH4 4): false = the loader's lock was busy: the drawer retries next frame
+      MarkEvtobjReleasable();   // the live game: the drawer may close the evtobj.pac slot when the entrance's last prop model retires (weapon_draw_core.h ReleaseEvtobjSlot)
       int other = -1;
       const int pach = assets::PropPachEvt(impl_->files, uint32_t(pid), &other);
       rdr::Log("[wwe2k14][weapon_rows] event prop id %d -> PACH %d (entry %d)", pid, pach, k);

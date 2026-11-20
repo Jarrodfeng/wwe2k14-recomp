@@ -13,7 +13,7 @@
     py tools/q/q.py ours text WORDS...
         lines of src / tools / config / probes / android (code, comments, strings, shaders) holding ALL the words, case-insensitive; an address word (82C1E840,
         0x82C1E840, sub_82C1E840) matches every spelling. C++ / py / ps1 hits are marked comment / string / code.
-    py tools/q/q.py ours affects FILE
+    py tools/q/q.py ours affects FILE [FILE...]
         the gate lanes (tools\\gate\\lanes\\*.json) whose `affects` globs (per check or lane-wide) cover FILE, one line per check, plus the lanes that only name it
         in a `needs` / `cmd`. (`q ours covers|lanes-of FILE` is the older, wider form; this one is the short answer.)
     q ours def|refs NAME on a name that is no C++ symbol falls back to the shader text (src\\**\\*.glsl / .frag / .vert / .hlsl / .fx.json): where a block field
@@ -27,6 +27,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -972,10 +973,140 @@ def load_gate_checks(root):
     return checks
 
 
+def derive_budget():
+    """QAF: seconds of derive() work one `q ours affects` call may spend on a cold table (WWE_Q_AFFECTS_BUDGET, default 4)"""
+    try:
+        return max(0.0, float(os.environ.get('WWE_Q_AFFECTS_BUDGET', '4')))
+    except ValueError:
+        return 4.0
+
+
+def affects_index(root, main):
+    """QAF: the `q ours` index view the derived deps read -> (Index or None, note). It never waits on a writer: ours.db busy (a refresh swapping it in) = answer from
+    ours.db.good (qours.open_ro's rule, same WWE_Q_DB_WAIT) and say so. No index at all = None (derive() then runs without it, as the gate does)."""
+    gdeps = _gate_mod('deps')
+    try:
+        wait = max(0.1, float(os.environ.get('WWE_Q_DB_WAIT', '2')))
+    except ValueError:
+        wait = 2.0
+    base = next((p for p in (os.path.join(b, 'out', 'harness', 'index', 'ours.db') for b in (root, main)) if os.path.isfile(p)), None)
+    if base is None:
+        return None, ''
+    for cand, why in ((base, ''), (base + '.good', 'index busy (a refresh is swapping it in): derived deps read ours.db.good')):
+        if not os.path.isfile(cand):
+            continue
+        idx = None
+        try:
+            idx = gdeps.Index(cand, timeout=wait)
+            idx.db.execute('select 1 from files limit 1').fetchone()   # the probe: waits at most `wait` on a writer
+            return idx, why
+        except sqlite3.Error:
+            if idx is not None:
+                idx.close()
+            continue
+    return None, 'index unreadable (busy, no last-good copy): derived deps read without it'
+
+
+def _warm_lock(root):
+    import hashlib
+    main = main_root(root)
+    return os.path.join(main, 'out', 'gate', 'deps.warm.' + hashlib.sha1(str(root).encode()).hexdigest()[:10] + '.lock')
+
+
+def _warm_running(lock, max_age=1500):
+    try:
+        return time.time() - os.path.getmtime(lock) < max_age
+    except OSError:
+        return False
+
+
+def _take_lock(lock, max_age=1500):
+    """QAF: ATOMIC one-per-checkout lock: exclusive create; a lock older than max_age (a killed warm-up) is removed and taken once. -> True = taken, False = someone else holds it"""
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if _warm_running(lock, max_age):
+                return False
+            try:
+                os.unlink(lock)
+            except OSError:
+                return False
+            continue
+        except OSError:
+            return False
+        with os.fdopen(fd, 'w') as f:
+            f.write(str(os.getpid()))
+        return True
+    return False
+
+
+def spawn_warmer(root):
+    """QAF: ONE detached, below-normal-priority process per checkout fills the derived-deps table (the same work the gate does at its first selection, once per
+    checkout) so the next `q ours affects` is warm. The starter takes the lock (an atomic create) BEFORE it starts the process and hands it over (--lock-held): a second
+    starter finds it and starts nothing. The process runs in the system temp folder (a process sitting in a worktree blocks deleting that folder on Windows), takes ROOT as
+    an argument, inherits no output handles (the caller's capture must not wait for it); WWE_Q_NO_WARM=1 switches it off. -> the sentence for the note."""
+    if os.environ.get('WWE_Q_NO_WARM') == '1':
+        return 'the warm-up is switched off (WWE_Q_NO_WARM=1)'
+    lock = _warm_lock(root)
+    if not _take_lock(lock):
+        return 'a warm-up is already running (about 1-2 min); ask again then'
+    try:
+        import tempfile
+        cf = 0x00000008 | 0x00000200 | 0x00004000 | 0x08000000   # DETACHED_PROCESS | NEW_PROCESS_GROUP | BELOW_NORMAL_PRIORITY | NO_WINDOW
+        subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--warm-deps', root, '--lock-held'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, close_fds=True, cwd=tempfile.gettempdir(), creationflags=cf if os.name == 'nt' else 0)
+    except (OSError, ValueError) as e:
+        try:
+            os.unlink(lock)
+        except OSError:
+            pass
+        return f'the warm-up could not start ({type(e).__name__}); a slower full answer: WWE_Q_AFFECTS_BUDGET=300'
+    return 'a background warm-up was started (about 1-2 min); ask again then'
+
+
+def warm_deps(root, give_up_s=1200, lock_held=False):
+    """QAF: derive every check of this checkout (no budget) and save the table as it goes. One at a time per checkout (an atomic lock file, stale after 25 min)."""
+    lock = _warm_lock(root)
+    if not lock_held and not _take_lock(lock):
+        return 0
+    t0 = time.time()
+    n = 0
+    try:
+        gdeps = _gate_mod('deps')
+        main = main_root(root)
+        idx, _ = affects_index(root, main)
+        dtab = gdeps.Table(root, main, cache_path=os.path.join(main, 'out', 'gate', 'deps.json'), log=lambda m: None, idx=idx)
+        dtab.quick = True
+        for c in load_gate_checks(root):
+            dtab.get(c)
+            n += 1
+            if n % 100 == 0:
+                dtab.save()
+                os.utime(lock, None)
+            if time.time() - t0 > give_up_s:
+                break
+        dtab.save()
+    finally:
+        try:
+            os.unlink(lock)
+        except OSError:
+            pass
+    return n
+
+
 def cmd_affects(root, arg, derived=True):
-    """which checks the GATE would select for a change to FILE: fastgate.selected() itself (affects globs, a changed lane json, derived dependency sets, and the
+    """one file (a str) -> its answer dict; several (a list) -> a list of answers, the checks / the derived-deps table / the index opened ONCE for all of them"""
+    if isinstance(arg, (list, tuple)):
+        return cmd_affects_many(root, list(arg), derived)
+    return cmd_affects_many(root, [arg], derived)[0]
+
+
+def cmd_affects_many(root, args, derived=True):
+    """which checks the GATE would select for a change to each FILE: fastgate.selected() itself (affects globs, a changed lane json, derived dependency sets, and the
     'no affects: always runs' rule), not a re-implementation."""
-    rel = normalise_rel(root, arg)
+    rels = [normalise_rel(root, a) for a in args]
     fg = _gate_mod('fastgate')
     checks = load_gate_checks(root)
     dtab, note = None, ''
@@ -983,23 +1114,46 @@ def cmd_affects(root, arg, derived=True):
         try:
             gdeps = _gate_mod('deps')
             main = main_root(root)
-            dtab = gdeps.Table(root, main, cache_path=os.path.join(main, 'out', 'gate', 'deps.json'), log=lambda m: None)   # the first call in a checkout computes the table (~40 s), saved below
+            idx, inote = affects_index(root, main)
+            # QAF: a short-lived reader: files statted once per process, and a bounded derive budget (a NEW checkout's table is empty: deriving every check is ~100 s);
+            # what is not derived yet is counted as deps-unknown (always-run, the conservative side) and said so below, while a detached warm-up fills the table.
+            dtab = gdeps.Table(root, main, cache_path=os.path.join(main, 'out', 'gate', 'deps.json'), log=lambda m: None, idx=idx)
+            dtab.quick = True
+            dtab.derive_budget_s = derive_budget()
+            if inote:
+                note = inote
         except Exception as e:
-            note = f'derived dependency sets not consulted ({type(e).__name__}: {e}); checks without `affects` may be missing from the answer or shown as always-run'
-    sel = []
-    for c in checks:
-        try:
-            aff = fg.lane_affects(c)
-            if c['_lane_rel'] == rel:   # DPC: already selected by its lane json / its affects: its derived set cannot change the answer, so it is not derived
-                ok, why = True, 'its lane json changed'
-            elif aff is not None and fg.matches(rel, aff):
-                ok, why = True, f'{rel} matches'
-            else:
-                ok, why = fg.selected(c, [rel], c['_lane_rel'], dtab.get(c) if dtab else None, dtab.idx if dtab else None, root)
-        except Exception as e:
-            ok, why = True, f'selection failed ({type(e).__name__}: {e}); counted as selected'
-        if ok:
-            sel.append({'lane': c['lane'], 'check': c.get('name'), 'why': why, 'retired': bool(c.get('retired')), 'timeout_s': c.get('timeout_s')})
+            note = f'derived dependency sets not consulted ({type(e).__name__}: {e}); a lane selected only through derived dependencies may be missing, checks without `affects` are shown as always-run'
+    sels = []
+    for rel in rels:
+        sel = []
+        for c in checks:
+            try:
+                aff = fg.lane_affects(c)
+                if c['_lane_rel'] == rel:   # DPC: already selected by its lane json / its affects: its derived set cannot change the answer, so it is not derived
+                    ok, why = True, 'its lane json changed'
+                elif aff is not None and fg.matches(rel, aff):
+                    ok, why = True, f'{rel} matches'
+                else:
+                    dv = dtab.get(c) if dtab else None
+                    ok, why = fg.selected(c, [rel], c['_lane_rel'], dv, dtab.idx if dtab else None, root)
+                    if dtab is not None and not ok and aff is not None and dtab.underived(c.get('name')):
+                        # QAF: a check WITH `affects` that only its derived deps could select, left underived: the answer may add a lane, never drop one
+                        ok, why = True, 'maybe (deps not derived yet)'
+            except Exception as e:
+                ok, why = True, f'selection failed ({type(e).__name__}: {e}); counted as selected'
+            if ok:
+                sel.append({'lane': c['lane'], 'check': c.get('name'), 'why': why, 'retired': bool(c.get('retired')), 'timeout_s': c.get('timeout_s')})
+        sels.append(sel)
+    if dtab is not None and (dtab.skipped or dtab.stale_used):
+        warm = spawn_warmer(root)
+        parts = []
+        if dtab.skipped:
+            parts.append(f'the derived dependency sets of {dtab.skipped} of {len(checks)} checks are not computed yet (this checkout\'s table is cold or stale; budget {dtab.derive_budget_s:g} s): '
+                         f'those with `affects` are listed "maybe" and counted as selected, those without count as always-run (the safe side: the answer may name too many lanes, never too few)')
+        if dtab.stale_used:
+            parts.append(f'{dtab.stale_used} derived sets are from before the latest build manifests (manifest-free sets whose script files are unchanged; answered from them within the {dtab.derive_budget_s:g} s budget)')
+        note = (note + '; ' if note else '') + '; '.join(parts) + f'; {warm}'
     if dtab is not None:
         try:
             dtab.save()   # the gate's own cache file (atomic merge): the next call is warm
@@ -1007,27 +1161,37 @@ def cmd_affects(root, arg, derived=True):
                 dtab.idx.close()
         except Exception:
             pass
-    always = [s for s in sel if 'always runs' in s['why']]
-    specific = [s for s in sel if 'always runs' not in s['why']]
-    needle = re.compile(re.escape(rel).replace('/', r'[/\\]+'))
-    named = []
-    selnames = {s['check'] for s in sel}
-    for c in checks:
-        if c.get('name') in selnames:
-            continue
-        via = []
-        if any(isinstance(x, str) and pat_match(x, rel) for x in c.get('needs', [])):
-            via.append('needs')
-        if needle.search(' '.join(str(x) for x in c.get('cmd', []))):
-            via.append('cmd')
-        if via:
-            named.append({'lane': c['lane'], 'check': c.get('name'), 'via': via, 'retired': bool(c.get('retired'))})
-    return {'file': rel, 'total_checks': len(checks), 'selected': specific, 'always': len(always), 'always_sample': [f'{a["lane"]}.{a["check"]}' for a in always[:3]],
-            'named': named, 'note': note}
+    out = []
+    nd = len(checks) if (derived and dtab is None) else (dtab.skipped if dtab is not None else 0)     # no table at all (it failed to open) = every check not derived
+    partial = nd > 0
+    for rel, sel in zip(rels, sels):
+        always = [s for s in sel if 'always runs' in s['why']]
+        specific = [s for s in sel if 'always runs' not in s['why']]
+        needle = re.compile(re.escape(rel).replace('/', r'[/\\]+'))
+        named = []
+        selnames = {s['check'] for s in sel}
+        for c in checks:
+            if c.get('name') in selnames:
+                continue
+            via = []
+            needs = c.get('needs', [])
+            if any(isinstance(x, str) and pat_match(x, rel) for x in needs):
+                via += ['needs']
+            cmdline = ' '.join(str(x) for x in c.get('cmd', []))
+            if needle.search(cmdline):
+                via += ['cmd']
+            if via:
+                named.append({'lane': c['lane'], 'check': c.get('name'), 'via': via, 'retired': bool(c.get('retired'))})
+        out.append({'file': rel, 'total_checks': len(checks), 'selected': specific, 'always': len(always), 'always_sample': [f'{a["lane"]}.{a["check"]}' for a in always[:3]],
+                    'named': named, 'note': note, 'partial': partial, 'not_derived': nd,
+                    'maybe': sum(1 for s in sel if s['why'].startswith('maybe'))})
+    return out
 
 
 def print_affects(r):
     sp = r['selected']
+    if r.get('partial'):
+        print(f'PARTIAL: {r["not_derived"]} of {r["total_checks"]} checks have no derived dependency set yet; {r["maybe"]} lane check(s) below are "maybe" (counted as selected, the safe side) and always-run checks may be over-counted. Ask again after the warm-up (see NOTE).')
     print(f'the gate selects {len(sp) + r["always"]} of {r["total_checks"]} checks for a change to {r["file"]}: {len(sp)} by affects / derived deps / a lane json change, '
           f'{r["always"]} that run for ANY change (no `affects` and no exact derived deps)')
     if r['note']:
@@ -1070,3 +1234,10 @@ def print_shader_hits(r, limit=40):
         print(f'  {h["file"]}:{h["line"]} [{h["kind"]}]  {h["text"]}')
     if r['n'] > limit:
         print(f'  ... {r["n"] - limit} more (--limit N)')
+
+
+if __name__ == '__main__':      # QAF: the detached warm-up that `q ours affects` starts for a cold checkout (spawn_warmer)
+    if len(sys.argv) in (3, 4) and sys.argv[1] == '--warm-deps':
+        sys.exit(0 if warm_deps(os.path.abspath(sys.argv[2]), lock_held=len(sys.argv) == 4 and sys.argv[3] == '--lock-held') >= 0 else 1)
+    print('usage: qx6.py --warm-deps ROOT   (internal: fills the derived-deps table of a checkout)', file=sys.stderr)
+    sys.exit(2)

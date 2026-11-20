@@ -1,6 +1,7 @@
 // Quads2DDraw (Session 103, lane I1; docs\renderer\REMNANT_MAP.md section 10). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "quads2d_draw.h"
 #include "sampler_table.h"
+#include "../renderer_host/wide_frame.h"   // S105 A2: FullViewRow (pure)
 
 #include <algorithm>
 #include <atomic>
@@ -102,10 +103,11 @@ bool ScissorOf(const Quad2D& row, uint32_t width, uint32_t height, rdr::Rect& ou
 namespace {
 // The one scissor decision of a row, shared by Append and Check (review F5): the row's own box, else the resolver's (the offline rig), else none. `empty` = a zero-area scissor: the row is skipped, never drawn whole (fail closed).
 bool RowScissor(const Quad2D& row, const Context& ctx, rdr::Rect& sc, bool& empty) {
-  sc = rdr::Rect{0, 0, ctx.width, ctx.height};
+  sc = rdr::Rect{0, 0, ctx.target_w ? ctx.target_w : ctx.width, ctx.target_h ? ctx.target_h : ctx.height};
   bool have = ScissorOf(row, ctx.width, ctx.height, sc);
   if (!have && ctx.scissor) have = ctx.scissor(row, sc);
   empty = have && (!sc.width || !sc.height);
+  if (have) sc.x += ctx.origin_x, sc.y += ctx.origin_y;   // S105 A2: the row's box is in the centred game box of the target
   return have;
 }
 }  // namespace
@@ -133,7 +135,7 @@ Report Check(const Context& ctx, const Quad2D* rows, size_t count) {
       }
     }
     ++rep.drawn;
-    ++(b.program == Program::Rect ? rep.rect : b.program == Program::Movie ? rep.movie : b.program == Program::Sprite ? rep.sprite : b.program == Program::Glyph ? rep.glyph : rep.sprite_hsl);
+    ++(b.program == Program::Rect || b.program == Program::RectColor ? rep.rect : b.program == Program::Movie ? rep.movie : b.program == Program::Sprite ? rep.sprite : b.program == Program::Glyph ? rep.glyph : rep.sprite_hsl);
   }
   return rep;
 }
@@ -165,7 +167,8 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
     }
     for (int s = 0; s < slots; ++s) textures.slots[s].sampler = builder.Sampler(rowSampler), textures.slots[s].kind = 0;
     rdr::DrawState state{};
-    state.program = b.proj ? (b.program == Program::Rect ? programs.rect_proj : b.program == Program::Glyph ? programs.glyph_proj : programs.sprite_proj)   // S103 P3c: a matrix-placed row (BlocksOf never makes one of the movie or the hue-shifted program)
+    state.program = b.program == Program::RectColor ? (b.proj ? programs.rect_color_proj : programs.rect_color)   // S105 A8: the vertex-colour rect
+                           : b.proj ? (b.program == Program::Rect ? programs.rect_proj : b.program == Program::Glyph ? programs.glyph_proj : programs.sprite_proj)   // S103 P3c: a matrix-placed row (BlocksOf never makes one of the movie or the hue-shifted program)
                            : b.program == Program::Rect ? programs.rect : b.program == Program::Movie ? programs.movie : b.program == Program::Sprite ? programs.sprite : b.program == Program::Glyph ? programs.glyph : programs.sprite_hsl;
     state.vertex_layout = programs.layout;
     state.topology = 3;   // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
@@ -178,19 +181,20 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
       state.blend[0].write_mask = 0x7;   // rgb only: the scene's alpha is read by the post (the game's category-36 draw leaves alpha alone [U: no capture shows an alpha write there])
     }
     rdr::DynamicState dyn{};
-    dyn.viewport[2] = float(ctx.width), dyn.viewport[3] = float(ctx.height), dyn.viewport[5] = 1.0f;
-    dyn.scissor = rdr::Rect{0, 0, ctx.width, ctx.height};
-    {   // S103 SC: the row's own scissor (a menu list clipped to its panel), else the resolver's (the offline host rig), else the whole target
-      rdr::Rect sc{};
-      bool empty = false;
-      if (RowScissor(row, ctx, sc, empty)) {
-        if (empty) {   // a zero-area game scissor clips everything: the row is SKIPPED (counted), never drawn whole (fail closed)
-          ++rep.scissor_empty;
-          continue;
-        }
-        dyn.scissor = sc;
-      }
+    // S105 A2: the viewport is the game box at (origin_x, origin_y) of the target (the 2D layer is a centred 16:9 on a wider / taller F); a full-view flat row (a fade / flash / tint) takes the whole target.
+    const uint32_t tgt_w = ctx.target_w ? ctx.target_w : ctx.width, tgt_h = ctx.target_h ? ctx.target_h : ctx.height;
+    // S103 SC: the row's own scissor (a menu list clipped to its panel), else the resolver's (the offline host rig), else the whole target
+    rdr::Rect sc{};
+    bool empty = false;
+    const bool have_sc = RowScissor(row, ctx, sc, empty);
+    if (have_sc && empty) {   // a zero-area game scissor clips everything: the row is SKIPPED (counted), never drawn whole (fail closed)
+      ++rep.scissor_empty;
+      continue;
     }
+    namespace wf = wwe2k14::scene_host::wide_frame;
+    const wf::RowView view = wf::RowViewOf(ctx.width, ctx.height, tgt_w, tgt_h, ctx.origin_x, ctx.origin_y, wf::FullViewRow(row), have_sc, wf::IRect{sc.x, sc.y, sc.width, sc.height});
+    dyn.viewport[0] = float(view.viewport.x), dyn.viewport[1] = float(view.viewport.y), dyn.viewport[2] = float(view.viewport.w), dyn.viewport[3] = float(view.viewport.h), dyn.viewport[5] = 1.0f;
+    dyn.scissor = rdr::Rect{view.scissor.x, view.scissor.y, view.scissor.w, view.scissor.h};
     if (addr_cls != 255) g_addr_rows[addr_cls].fetch_add(1, std::memory_order_relaxed);   // S103 RFX census: only rows that are drawn
     // ndc scale (1, -1, 1): the row programs make the game's clip space (y UP, rdr_uiquad.vert: 1 - y); our targets are upright images, so y is negated here exactly as every own pass does
     // (front_end.cpp: "clip y is up; the viewport is Vulkan's"). S103 P7 H2: the host's first pixel proof of this drawer found it +1 (the whole 2D layer upside down on F).
@@ -198,7 +202,7 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
     if (z_test) dyn.system[2] = -1.0f, dyn.system[6] = 1.0f;   // S103 SCS: z' = w - z (the game's reversed depth -> our forward depth; the program adds ndc_offset.z * w)
     // ndc offset (1/w, 1/h, 0): the half pixel of the game's 2D convention. The stream's 2D draws carry (1/1280, 1/720, 0) in every captured frame (c2d_menu frame 7: 0.00078 / 0.00139); the rows' own
     // "position - 0.5" only lands on pixel edges with it. (system[3] is the scale's w, system[6..7] the offset's z / w: left 0.)
-    dyn.system[4] = 1.0f / float(ctx.width), dyn.system[5] = 1.0f / float(ctx.height);
+    dyn.system[4] = 1.0f / float(ctx.width), dyn.system[5] = 1.0f / float(ctx.height);   // (the rows' own pixel space, also for a full-view row drawn over the whole target)
     dyn.system[8] = (row.have & kQhAlphaTest) ? row.alpha_ref : 0.0f;
     dyn.system[9] = (row.have & kQhAlphaTest) ? float(row.alpha_func) : 7.0f;
     rdr::DrawOp op{};
@@ -211,7 +215,7 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
     op.instances = 1;
     builder.Draw(op, b.program == Program::Glyph ? rdr::kGrpText : b.program == Program::Movie ? rdr::kGrpMovie : rdr::kGrpSprite);   // S103 GSTP: the 2D group (text / movie / sprite and rect)
     ++rep.drawn;
-    ++(b.program == Program::Rect ? rep.rect : b.program == Program::Movie ? rep.movie : b.program == Program::Sprite ? rep.sprite : b.program == Program::Glyph ? rep.glyph : rep.sprite_hsl);
+    ++(b.program == Program::Rect || b.program == Program::RectColor ? rep.rect : b.program == Program::Movie ? rep.movie : b.program == Program::Sprite ? rep.sprite : b.program == Program::Glyph ? rep.glyph : rep.sprite_hsl);
   }
   return rep;
 }

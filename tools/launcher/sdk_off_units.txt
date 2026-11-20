@@ -1,0 +1,8 @@
+# S105 A1b: SDK units that do NOT run in the stream-free player build (path prefixes under the SDK's src\, as `q ours cvar` prints them).
+# Source: the player log line "[owner][gpu-only] guest_gpu_only on: no SDK graphics provider, no command processor, no presenter (MMIO + VSync only)"
+# (out\reports\report_20261119_144822.zip, log 009; docs\research\s105\A1b.md). An SDK reader in one of these is not a player-build reader.
+src/graphics/
+src/ui/presenter.cpp
+src/ui/vulkan/vulkan_presenter.cpp
+src/ui/vulkan/gpu_quirks_apply.cpp
+src/ui/d3d12/

@@ -29,7 +29,34 @@ struct Fake {
   int stock_cap = 3;
   bool stuck_com = false, stuck_meter = false;  // a game that ignores the store: the read-back must say so
   std::map<uint32_t, uint32_t> list_to_comp;  // sub_82C31CB0: the CHP component of a character's list
+  bool stuck_bleed = false;                     // S105 T1: a setter that stores nothing
+  bool dev = true;                              // S105 T1: IsDevBuild()
+  std::map<uint32_t, uint32_t> list_to_cbdc;    // S105 T1: sub_82C31CB0 with 'CBDC': the liquid component of [char+3736]
   uint32_t U32(uint32_t a) { auto it = mem.find(a); return it == mem.end() ? 0 : it->second; }
+  uint8_t U8(uint32_t a) { return uint8_t(U32(a & ~3u) >> (24 - 8 * (a & 3))); }  // big-endian byte lanes of the word map
+  void Put8(uint32_t a, uint8_t v) {
+    const int sh = 24 - 8 * int(a & 3);
+    mem[a & ~3u] = (U32(a & ~3u) & ~(0xFFu << sh)) | (uint32_t(v) << sh);
+  }
+  void Put32(uint32_t a, uint32_t v) { mem[a] = v; order.push_back("put32 " + std::to_string(a)); }  // big-endian word map: a store is the word
+  bool Dev() { return dev; }
+  std::vector<uint64_t> bleed_r5;  // every r5 the SetBleed call got, in order
+  std::vector<std::vector<uint64_t>> ctor_args;  // S105 SLO3: every DimSceneCtor call's (r3, r4, r5)
+  std::vector<uint64_t> alloc_sizes;             // S105 SLO3: every Alloc size
+  bool alloc_fails = false;
+  std::vector<std::string> order;  // S105 T1: the writes and the call, in the order they happened
+  uint32_t Call3(Fn f, uint64_t r3, uint64_t r4, uint64_t r5) {
+    calls.push_back({int(f), r3});
+    if (f == Fn::DimSceneCtor) { ctor_args.push_back({r3, r4, r5}); mem[uint32_t(r3) + 80] = 0x1234; mem[uint32_t(r3) + 84] = 0x5678; mem[uint32_t(r3) + 88] = 0x9ABC; order.push_back("ctor"); return uint32_t(r3); }
+    if (f != Fn::SetBleed) return 0;
+    // sub_825A1F28 as read: G+15229 == 0 -> level r30 = -1 (0x825A1F44 / 0x825A1F50), else the r5 given; the level byte at +1392 is level + 1 (clear = 0)
+    if (stuck_bleed) return 0;
+    bleed_r5.push_back(r5);
+    order.push_back(std::string("call opt=") + (U8(0x8376AAF4u + 15229) ? "1" : "0"));
+    const int64_t lvl = U8(0x8376AAF4u + 15229) == 0 ? -1 : int64_t(r5);
+    Put8(uint32_t(r3) + 1392, uint8_t(lvl + 1));
+    return 0;
+  }
   float F32(uint32_t a) { uint32_t u = U32(a); float f; std::memcpy(&f, &u, 4); return f; }
   bool Ok(uint32_t p) { return p >= 0x10000; }
   Gate GetGate() { return gate; }
@@ -40,7 +67,8 @@ struct Fake {
     switch (f) {
       case Fn::SetComActive: if (!stuck_com) mem[uint32_t(r3) + 100] = uint32_t(r4); return 0;        // stw r4,100(r3)
       case Fn::TeamShared: return team ? 1 : 0;
-      case Fn::FindComponent: return r4 == 0x43485020 && list_to_comp.count(uint32_t(r3)) ? list_to_comp[uint32_t(r3)] : 0;
+      case Fn::FindComponent: if (r4 == 0x43424443) return list_to_cbdc.count(uint32_t(r3)) ? list_to_cbdc[uint32_t(r3)] : 0;
+        return r4 == 0x43485020 && list_to_comp.count(uint32_t(r3)) ? list_to_comp[uint32_t(r3)] : 0;
       case Fn::SetMeter: {  // stfs f31,76(r31): the meter is whatever arrived in f1 (0 when the caller forgot it)
         if (stuck_meter) return 0;
         float v = float(f1);
@@ -50,6 +78,8 @@ struct Fake {
       }
       case Fn::AddStock: { uint32_t ch = mem[uint32_t(r3) + 32]; if (int(mem[ch + 1928]) < stock_cap) mem[ch + 1928]++; return 0; }
       case Fn::RemoveStock: { uint32_t ch = mem[uint32_t(r3) + 32]; if (int(mem[ch + 1928]) > 0) mem[ch + 1928]--; return 0; }
+      case Fn::Alloc: alloc_sizes.push_back(r3); return alloc_fails ? 0u : 0x30000000u;  // sub_82250050(size)
+      case Fn::SetBleed: case Fn::DimSceneCtor: return 0;
     }
     return 0;
   }
@@ -66,6 +96,11 @@ struct Fake {
     mem[ch + 0x2000 + 24] = ch + 0x3000;
     mem[ch + 0x3000 + 32] = ch;
     mem[ch + 1928] = 1;
+    // S105 T1: the liquid component list at char+3736 (NOT 3728): 'CBDC' -> comp (+24 -> X), X+36 = its map (non-zero = the pool is built)
+    mem[ch + 3736] = ch + 0x5000;
+    list_to_cbdc[ch + 0x5000] = ch + 0x6000;
+    mem[ch + 0x6000 + 24] = ch + 0x7000;
+    mem[ch + 0x7000 + 36] = 0x20000000u;
     float m = 0.25f; uint32_t u; std::memcpy(&u, &m, 4); mem[ch + 0x3000 + 76] = u;
   }
   uint32_t ChOf(int slot) { return 0x10000000u + uint32_t(slot) * 0x10000u; }
@@ -291,6 +326,152 @@ int main(int argc, char** argv) {
     Check(Starts(r, "refused"), "stock.referee_refused", r);
   }
 
+  // ---- bleed (S105 T1: dev only; the option first, then the level; read-back) ----
+  {
+    Cmd c;
+    // the parser: slot 0-8, level 1-3, one token each
+    bool ok = Parse("bleed 0 3", c).empty() && c.verb == Verb::Bleed && c.slot == 0 && c.value == 3;
+    ok = ok && Parse("bleed 8 1", c).empty() && c.slot == 8 && c.value == 1;
+    Check(ok && IsVerb("bleed"), "bleed.parse_good", "bleed 0 3 / bleed 8 1");
+    const char* bad[] = {"bleed", "bleed 0", "bleed 9 1", "bleed 0 0", "bleed 0 4", "bleed 0 12", "bleed x 1", "bleed 0 3 3", "bleed -1 1", "bleed 0 -1"};
+    bool all_bad = true;
+    for (const char* b : bad) all_bad = all_bad && !Parse(b, c).empty();
+    Check(all_bad, "bleed.parse_bad", "slot 9, level 0 / 4 / 12, malformed, extra words");
+  }
+  {
+    Fake f = Match(); State st;  // the order: the option is written before the level call (the setter forces -1 while the option is 0)
+    const uint32_t g = 0x8376AAF4u + 15229, ch = f.ChOf(0);
+    Check(f.U8(g) == 0, "bleed.fake_starts_blood_off");
+    std::string r = Do(f, st, "bleed 0 3");
+    Check(Starts(r, "ok") && f.U8(g) == 1 && f.U8(ch + 1398) == 1 && f.U8(ch + 1392) == 3, "bleed.ok_path", r);
+    Check(f.bleed_r5.size() == 1 && f.bleed_r5[0] == 2, "bleed.level_minus_one_in_r5", f.bleed_r5.empty() ? "no call" : std::to_string(f.bleed_r5[0]));
+    Check(f.order.size() == 1 && f.order[0] == "call opt=1", "bleed.option_set_before_the_call", f.order.empty() ? "no call" : f.order[0]);
+    bool turned = false, line = false;
+    for (const std::string& l : f.log) {
+      if (l.find("turned it on") != std::string::npos) turned = true;
+      if (l.find("bleed slot 0 level 3: ok") != std::string::npos) line = true;
+    }
+    Check(turned && line, "bleed.logs_the_option_and_the_verdict");
+    r = Do(f, st, "bleed 1 1");  // option already 1: not written again, level 1 -> r5 = 0
+    Check(Starts(r, "ok") && f.U8(f.ChOf(1) + 1392) == 1 && f.bleed_r5.size() == 2 && f.bleed_r5[1] == 0, "bleed.level_one_is_r5_zero", r);
+  }
+  {
+    Fake f = Match(); State st;  // F3: lowering the level is refused (the setter never clears the higher set)
+    std::string r = Do(f, st, "bleed 0 3");
+    r = Do(f, st, "bleed 0 1");
+    Check(Starts(r, "refused") && f.U8(f.ChOf(0) + 1392) == 3 && f.bleed_r5.size() == 1, "bleed.lowering_is_refused_level_kept", r);
+    r = Do(f, st, "bleed 0 3");
+    Check(Starts(r, "ok"), "bleed.same_level_again_is_ok", r);
+  }
+  {
+    Fake f = Match(); State st;  // the dev gate: a player build never runs it, whatever else is true
+    f.dev = false;
+    std::string r = Do(f, st, "bleed 0 3");
+    Check(Starts(r, "refused") && f.calls.empty() && f.U8(0x8376AAF4u + 15229) == 0 && f.U8(f.ChOf(0) + 1398) == 0, "bleed.player_build_refused_no_writes", r);
+    f.gate.seq = 0;  // not even a busy / match answer in a player build
+    r = Do(f, st, "bleed 0 3");
+    Check(Starts(r, "refused: bleed is a dev-build verb"), "bleed.player_build_refused_before_the_match_gate", r);
+  }
+  {
+    Fake f = Match(); State st;  // busy: no pool yet (every link of [char+3736] -> 'CBDC' -> +24 -> +36), and nothing written
+    f.mem[f.ChOf(0) + 0x7000 + 36] = 0;
+    std::string r = Do(f, st, "bleed 0 2");
+    Check(Starts(r, "busy") && f.calls.size() == 1 && f.U8(0x8376AAF4u + 15229) == 0 && f.U8(f.ChOf(0) + 1398) == 0, "bleed.no_map_is_busy_and_writes_nothing", r);
+    f.mem[f.ChOf(0) + 0x7000 + 36] = 0x20000000u;
+    f.mem[f.ChOf(0) + 0x6000 + 24] = 0;
+    Check(Starts(Do(f, st, "bleed 0 2"), "busy"), "bleed.no_liquid_object_is_busy");
+    f.list_to_cbdc.clear();
+    Check(Starts(Do(f, st, "bleed 0 2"), "busy"), "bleed.no_cbdc_component_is_busy");
+    f.mem[f.ChOf(0) + 3736] = 0;
+    Check(Starts(Do(f, st, "bleed 0 2"), "busy"), "bleed.no_list_is_busy");
+    Fake h = Match();
+    h.gate.clock_started = false;
+    Check(Starts(Do(h, st, "bleed 0 2"), "busy"), "bleed.before_the_bell_is_busy");
+  }
+  {
+    Fake f = Match(); State st;
+    Check(Starts(Do(f, st, "bleed 6 2"), "refused"), "bleed.referee_refused");
+    Check(Starts(Do(f, st, "bleed 5 2"), "refused"), "bleed.empty_slot_refused");
+  }
+  {
+    Fake f = Match(); State st;  // a game that ignores the setter: the read-back says so, with the number
+    f.stuck_bleed = true;
+    std::string r = Do(f, st, "bleed 2 3");
+    Check(Starts(r, "failed") && r.find("readback 0") != std::string::npos, "bleed.stuck_setter_is_a_failure", r);
+    Check(Last(f).find("readback 0") != std::string::npos, "bleed.readback_is_logged", Last(f));
+  }
+  // ---- lightsout (S105 SLO3: dev only; Alloc(136) then ctor(obj, attacker, target); busy while the brightness is not 1.0) ----
+  {
+    Cmd c;
+    bool ok = Parse("lightsout 0", c).empty() && c.verb == Verb::LightsOut && c.slot == 0;
+    ok = ok && Parse("lightsout 8", c).empty() && c.slot == 8 && IsVerb("lightsout");
+    Check(ok, "lightsout.parse_good", "lightsout 0 / lightsout 8");
+    bool all_bad = true;
+    for (const char* t : {"lightsout", "lightsout 9", "lightsout x", "lightsout 0 1", "lightsout -1", "lightsout 0 on"})
+      if (Parse(t, c).empty()) all_bad = false;
+    Check(all_bad, "lightsout.parse_bad", "no slot, slot 9, malformed, extra words");
+  }
+  auto Dim = []() {  // a running match with the dim scene's preconditions: slot 0 targets slot 1, the scene root and the light manager (brightness 1.0)
+    Fake f = Match();
+    f.mem[0x10000000u + 2672] = 0x10010000u;
+    f.mem[0x837631CCu] = 0x20001000u;
+    f.mem[0x20001000u] = 0x20002000u;
+    f.mem[0x83924778u] = 0x21000000u;
+    f.mem[0x21000000u + 452] = 0x3F800000u;
+    return f;
+  };
+  {
+    Fake f = Dim(); State st;
+    std::string r = Do(f, st, "lightsout 0");
+    Check(Starts(r, "ok"), "lightsout.ok_path", r);
+    Check(f.alloc_sizes.size() == 1 && f.alloc_sizes[0] == 136, "lightsout.alloc_136", f.alloc_sizes.empty() ? "no alloc" : std::to_string(f.alloc_sizes[0]));
+    Check(f.ctor_args.size() == 1 && f.ctor_args[0][0] == 0x30000000u && f.ctor_args[0][1] == f.ChOf(0) && f.ctor_args[0][2] == 0x10010000u, "lightsout.ctor_obj_attacker_target_in_order",
+          f.ctor_args.empty() ? "no ctor" : std::to_string(f.ctor_args[0][0]) + " " + std::to_string(f.ctor_args[0][1]) + " " + std::to_string(f.ctor_args[0][2]));
+    Check(f.calls.size() == 2 && f.calls[0].first == int(Fn::Alloc) && f.calls[1].first == int(Fn::DimSceneCtor), "lightsout.alloc_before_ctor");
+    Check(Last(f).find("lightsout slot 0: ok") != std::string::npos, "lightsout.logs_ok", Last(f));
+    // S105 LO2 (run 127): the ctor leaves a trigger frame in obj+80 / +84 (a passive act has none): both are zeroed AFTER the ctor, word-sized, at +80 / +84; +88 untouched
+    Check(f.U32(0x30000000u + 80) == 0 && f.U32(0x30000000u + 84) == 0 && f.U32(0x30000000u + 88) == 0x9ABC, "lightsout.trigger_frame_zeroed_at_80_84");
+    Check(f.order.size() == 3 && f.order[0] == "ctor" && f.order[1] == "put32 " + std::to_string(0x30000000u + 80) && f.order[2] == "put32 " + std::to_string(0x30000000u + 84), "lightsout.stores_after_ctor_at_80_84");
+    {  // twin: the run-127 behaviour (no stores) leaves the ctor's non-zero trigger, so the scene would stay in phase 0
+      Fake tw = Dim();
+      tw.Call3(Fn::DimSceneCtor, 0x30000000u, 1, 2);
+      Check(tw.U32(0x30000000u + 80) != 0 && tw.U32(0x30000000u + 84) != 0, "lightsout.twin_without_stores_keeps_the_trigger");
+    }
+  }
+  {
+    Fake f = Dim(); State st; f.dev = false;  // a player build never runs it, not even a busy answer
+    std::string r = Do(f, st, "lightsout 0");
+    Check(Starts(r, "refused: lightsout is a dev-build verb") && f.calls.empty(), "lightsout.player_build_refused_no_calls", r);
+    f.gate.clock_started = false;
+    Check(Starts(Do(f, st, "lightsout 0"), "refused: lightsout is a dev-build verb"), "lightsout.player_build_refused_before_the_match_gate");
+  }
+  {
+    Fake f = Dim(); State st;  // the busy rule: a dim already holds the brightness
+    f.mem[0x21000000u + 452] = 0x3F000000u;
+    std::string r = Do(f, st, "lightsout 0");
+    Check(Starts(r, "busy") && f.calls.empty() && Last(f).find("lightsout slot 0: busy") != std::string::npos, "lightsout.dim_running_is_busy_no_calls", r);
+    f.mem[0x21000000u + 452] = 0;  // a fully dark arena is also busy
+    Check(Starts(Do(f, st, "lightsout 0"), "busy") && f.calls.empty(), "lightsout.fully_dark_is_busy");
+  }
+  {
+    Fake f = Dim(); State st;
+    f.mem[0x10000000u + 2672] = 0;
+    Check(Starts(Do(f, st, "lightsout 0"), "refused") && f.calls.empty(), "lightsout.no_target_refused");
+    Fake g = Dim(); g.mem[0x837631CCu] = 0;
+    Check(Starts(Do(g, st, "lightsout 0"), "refused") && g.calls.empty(), "lightsout.no_scene_root_refused");
+    Fake h = Dim(); h.mem[0x20001000u] = 0;
+    Check(Starts(Do(h, st, "lightsout 0"), "refused") && h.calls.empty(), "lightsout.empty_inner_scene_root_refused");
+    Fake m = Dim(); m.mem[0x83924778u] = 0;
+    Check(Starts(Do(m, st, "lightsout 0"), "refused") && m.calls.empty(), "lightsout.no_light_manager_refused");
+    Fake e2 = Dim();
+    Check(Starts(Do(e2, st, "lightsout 5"), "refused") && e2.calls.empty(), "lightsout.empty_slot_refused");
+    Check(Starts(Do(e2, st, "lightsout 6"), "refused") && e2.calls.empty(), "lightsout.referee_refused");
+    Fake b = Dim(); b.gate.clock_started = false;
+    Check(Starts(Do(b, st, "lightsout 0"), "busy") && b.calls.empty(), "lightsout.before_the_bell_is_busy");
+    Fake a = Dim(); a.alloc_fails = true;
+    std::string r = Do(a, st, "lightsout 0");
+    Check(Starts(r, "failed") && a.ctor_args.empty(), "lightsout.alloc_failure_is_a_failure_no_ctor", r);
+  }
   std::printf("SUMMARY %d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }

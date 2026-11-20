@@ -24,9 +24,13 @@
 #include <rex/system/xmemory.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <memory>
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
+#include <cstring>
 #include <string>
 #include <thread>
 
@@ -34,6 +38,14 @@
 #include "flight_recorder.h"  // FlightDump (loader stall dump, S103)
 #include "frame_stats.h"
 #include "load_stall.h"
+#include "load_watch.h"  // S105 A6W: the loader watch (own thread) and its progress counters
+#include "load_watch_dump.h"  // S105 A6W2: the first-fire dump fields (H3 heap statistics, queue, pause gate), worker CPU window
+#ifndef _WIN32
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <cstdio>
+#endif
+#include "thread_name.h"
 #include "load_turbo.h"  // g_load_turbo_ingame_window (fast loader scope, Session 15)
 #include "scene_live/safe_guest_pages.h"   // BH3-2: PlausibleGuestPtr
 
@@ -90,6 +102,8 @@ inline StallWatch g_stall;  // same thread as g_step
 inline LastPath g_last_path;  // newest enqueued path (the stall line names it); lock-free, always kept (S103)
 inline StallOnce g_stall_once;
 inline std::atomic<uint32_t> g_worker_tid{0};  // host tid of the thread that steps the state machine
+inline std::atomic<uint32_t> g_worker_guest_tid{0};  // S105 A6W2: the worker's XThread guest thread id (the match key for the guest thread list)
+inline std::atomic<uint32_t> g_worker_ktid{0};  // S105 A6W2: the worker's kernel tid (Android: /proc/self/task/<tid>; HostTid is a hash there)
 
 inline bool SafeRead32(uint32_t guest, uint32_t* out);   // defined below
 // BH3-2: runs after every worker step (stall watch): table-checked reads, and a request pointer that is low / MMIO / unaligned is not followed.
@@ -131,6 +145,21 @@ REX_HOOK_RAW(sub_82C37070) {
   // behaviour change. On fire (once per stall): a WARN naming the request and the last file; the first stall of a run also
   // dumps every thread's stacks to logs\flight_NNN.txt (works without --wwe2k14_flight_recorder) on a helper thread.
   const int64_t now = Us();
+  g_worker_last_step_us.store(now ? now : 1, std::memory_order_relaxed);  // S105 A6W: the loader watch's "worker last stepped" (one relaxed store)
+  {  // S105 A6W2: the worker's thread ids, once per thread (players too: the watch reads its CPU time)
+    static thread_local bool noted = false;
+    if (!noted) {
+      noted = true;
+      g_worker_tid.store(HostTid(), std::memory_order_relaxed);
+#ifdef _WIN32
+      g_worker_ktid.store(uint32_t(GetCurrentThreadId()), std::memory_order_relaxed);
+#else
+      g_worker_ktid.store(uint32_t(syscall(SYS_gettid)), std::memory_order_relaxed);
+#endif
+      // the guest thread id (XThread::thread_id): the guest thread list's host_tid is pthread_t on Android, not HostTid()'s hash
+      g_worker_guest_tid.store(uint32_t(rex::system::XThread::GetCurrentThreadId()), std::memory_order_relaxed);
+    }
+  }
   if (g_stall.Update(req, state, now, 5'000'000, wwe2k14::g_guest_frame.load(std::memory_order_relaxed))) {
     const std::string newest = g_last_path.Get();
     // The stuck request's own file name: the step copies up to 15 chars from request+50 with sub_82C35118 (q decomp
@@ -204,6 +233,7 @@ REX_HOOK_RAW(sub_82C37C08) {
 #endif
   if (!REXCVAR_GET(wwe2k14_load_probe)) {
     __imp__sub_82C37C08(ctx, base);
+    wwe2k14::load_probe::g_loader_completions.fetch_add(1, std::memory_order_relaxed);  // S105 A6W: a read-end completion finished (watch progress)
     return;
   }
   using namespace wwe2k14::load_probe;
@@ -212,6 +242,7 @@ REX_HOOK_RAW(sub_82C37C08) {
   const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
   const int64_t us = Us();
   __imp__sub_82C37C08(ctx, base);
+  g_loader_completions.fetch_add(1, std::memory_order_relaxed);  // S105 A6W
   REXLOG_INFO("[wwe2k14][load] done us={} frame={} tid={} reader=0x{:08X} size={} path={} cb_us={}", us, frame,
               HostTid(), reader, size, Path(base, reader), Us() - us);
 }
@@ -282,14 +313,209 @@ REXCVAR_DEFINE_STRING(wwe2k14_fast_loader_scope, "turbo", "wwe2k14",
                       "wwe2k14_fast_loader: 'turbo' = only inside the load turbo's in-game windows (pre-entrance load, "
                       "match load; Session 15), 'all' = every load (Sessions 12-14)");
 
+REXCVAR_DEFINE_INT32(wwe2k14_load_watch_seconds, 5, "wwe2k14",
+                     "S105 A6W: the loader watch (own thread, always on) logs a WATCH line and dumps the guest stacks when a pac "
+                     "request is current and the loader made no progress for this many seconds while guest frames advanced; 0 = off");
+
 namespace wwe2k14::load_probe {
 // Fault-safe guest word read (sequence chain read from the loader thread; same checks as load_turbo.h Read).
 inline bool SafeRead32(uint32_t guest, uint32_t* out) {
   if (guest == 0 || (guest & 3) != 0) return false;
   auto* host = REX_KERNEL_MEMORY()->TranslateVirtual<const uint8_t*>(guest);
   if (!host || !wwe2k14::GuestWordReadable(guest, host)) return false;  // guest_read.h (Session 15)
-  *out = Be32(host);
-  return true;
+  return wwe2k14::GuestLoadBe32Guarded(host, out);  // S105 A6W2: the load itself under __try on Windows (guest_read.h)
+}
+
+// S105 A6W: the loader watch (docs/systems/file_loading.md "Loader watch"). ALWAYS ON for players, its own host thread named
+// "load_watch", one wake every 250 ms, a few relaxed loads and two table-checked guest reads; nothing in the worker's path but one
+// timestamp store. Fires (LoadWatch, load_watch.h) when a pac request is current and no (request, state) change, file open or file
+// read happened for wwe2k14_load_watch_seconds while >= 100 guest frames advanced. Log only; never touches guest memory except
+// through SafeRead32 (table-checked). The first fire of a run also prints the request's 32 state words and dumps every guest
+// thread's stack (FlightDump, works without --wwe2k14_flight_recorder; a no-op on Android: there the log line and the words carry it).
+inline std::string ReqFileName(uint32_t req) {  // the request's own file name: 15 chars at request+50 (same read as the STALL line)
+  LastPath own;
+  uint8_t nm[20] = {};
+  for (uint32_t k = 0; k < 5; ++k) {
+    uint32_t w = 0;
+    if (!SafeRead32(req + 48 + 4 * k, &w)) break;
+    nm[4 * k] = uint8_t(w >> 24), nm[4 * k + 1] = uint8_t(w >> 16), nm[4 * k + 2] = uint8_t(w >> 8), nm[4 * k + 3] = uint8_t(w);
+  }
+  own.Set(nm + 2);
+  return own.Get();
+}
+
+#ifndef _WIN32
+// Android: FlightDump is a no-op there, so the guest stacks go into the log (the phone report zip carries it): one WARN line per guest
+// thread. FlightGuestThreads takes the object table lock, which a stuck thread might hold: a helper thread, given up after 2 s.
+inline void LogGuestStacks() {
+  try {
+    auto task = std::make_shared<std::packaged_task<std::vector<FlightGuestThread>()>>(FlightGuestThreads);
+    std::future<std::vector<FlightGuestThread>> future = task->get_future();
+    std::thread([task] { wwe2k14::NameThread(L"watch_stacks"); (*task)(); }).detach();
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+      REXLOG_WARN("[wwe2k14][load] WATCH stacks: the guest thread list did not answer in 2 s (the object table lock is held)");
+      return;
+    }
+    for (const FlightGuestThread& g : future.get()) {
+      std::string stack = g.stack;
+      for (size_t p; (p = stack.find("\n      <- ")) != std::string::npos;) stack.replace(p, 10, " <- ");
+      REXLOG_WARN("[wwe2k14][load] WATCH stack tid {} '{}': {}", g.host_tid, g.name, stack);
+    }
+  } catch (...) {
+  }
+}
+#endif
+
+// S105 A6W2: a host thread's CPU time (kernel + user) in microseconds, -1 = unavailable. Windows: GetThreadTimes; Android / Linux:
+// /proc/self/task/<tid>/stat fields 14 + 15 (clock ticks, 100 Hz assumed: sysconf is read once).
+inline int64_t ThreadCpuUs(uint32_t tid) {
+  if (tid == 0) return -1;
+#ifdef _WIN32
+  HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
+  if (!h) return -1;
+  FILETIME cr, ex, kr, us;
+  const BOOL ok = GetThreadTimes(h, &cr, &ex, &kr, &us);
+  CloseHandle(h);
+  if (!ok) return -1;
+  auto u64 = [](const FILETIME& f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+  return int64_t((u64(kr) + u64(us)) / 10);  // 100 ns units
+#else
+  char path[64];
+  std::snprintf(path, sizeof path, "/proc/self/task/%u/stat", tid);
+  FILE* f = std::fopen(path, "r");
+  if (!f) return -1;
+  char buf[1024];
+  const size_t n = std::fread(buf, 1, sizeof buf - 1, f);
+  std::fclose(f);
+  buf[n] = 0;
+  const char* p = std::strrchr(buf, ')');  // the name (field 2) may hold spaces: count after its closing paren
+  if (!p) return -1;
+  unsigned long long ut = 0, st = 0;
+  if (std::sscanf(p + 1, " %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %llu %llu", &ut, &st) != 2) return -1;
+  static const long hz = sysconf(_SC_CLK_TCK) > 0 ? sysconf(_SC_CLK_TCK) : 100;
+  return int64_t((ut + st) * 1'000'000ull / uint64_t(hz));
+#endif
+}
+
+// S105 A6W2: where the read-end thread and the worker are (their guest stack, innermost first), one WARN line each. The guest thread list
+// takes the object table lock, which a stuck thread might hold: a helper thread, given up after 2 s. Reads go through FlightGuestThreads'
+// guarded walk (guest_stack_walk.h).
+inline void LogLoaderThreadWhere() {
+  try {
+    {  // S105 A6W2: the function names are loaded only inside FlightDump on Windows; load them here, under the dump mutex (FlightDump's own Load()
+       // reallocates the table: a late helper must never read it while it does, and the helper below runs after this returns)
+#ifdef _WIN32
+      std::lock_guard<std::mutex> lock(g_flight_dump_mutex);
+      g_flight_names.Load();
+#endif
+    }
+    auto task = std::make_shared<std::packaged_task<std::vector<FlightGuestThread>()>>(FlightGuestThreads);
+    std::future<std::vector<FlightGuestThread>> future = task->get_future();
+    std::thread([task] { wwe2k14::NameThread(L"watch_where"); (*task)(); }).detach();
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+      REXLOG_WARN("[wwe2k14][load] WATCH where: the guest thread list did not answer in 2 s (the object table lock is held)");
+      return;
+    }
+    const uint32_t worker = g_worker_guest_tid.load(std::memory_order_relaxed);
+    bool found_end = false, found_worker = false;
+    for (const FlightGuestThread& g : future.get()) {
+      const std::string which_s = WhichLoaderThread(g.name, g.guest_tid, worker);
+      const bool is_end = which_s == "read-end thread", is_worker = which_s == "worker";
+      if (!is_end && !is_worker) continue;
+      found_end |= is_end, found_worker |= is_worker;
+      std::string stack = g.stack;
+      for (size_t p; (p = stack.find("\n      <- ")) != std::string::npos;) stack.replace(p, 10, " <- ");
+      REXLOG_WARN("[wwe2k14][load] WATCH where: {} tid {} '{}': {}", is_end ? "read-end thread" : "worker", g.host_tid, g.name, stack);
+    }
+    if (!found_end) REXLOG_WARN("[wwe2k14][load] WATCH where: no guest thread named like the read-end thread (PacComplete / ReadEnd / FileRead) in the list");
+    if (!found_worker) REXLOG_WARN("[wwe2k14][load] WATCH where: the worker (guest thread id {}) is not in the guest thread list", worker);
+  } catch (...) {
+  }
+}
+
+inline void LoadWatchTick(LoadWatch& w, StallOnce& once) {
+  if (g_load_watch_stop.load(std::memory_order_relaxed) || !REX_KERNEL_STATE()) return;  // teardown: the guest may be gone
+  const int64_t limit_us = int64_t(REXCVAR_GET(wwe2k14_load_watch_seconds)) * 1'000'000;
+  if (limit_us <= 0) return;
+  Sample s;
+  s.state = ReqState(nullptr, &s.req);
+  uint32_t c = 0;  // the read-end thread object [0x8394024C]; +40 = the request it works on
+  if (SafeRead32(0x8394024Cu, &c) && wwe2k14::safe_pages::PlausibleGuestPtr(c, 56)) SafeRead32(c + 40, &s.job);
+  // S105 A6W2 (run 064's false fire): [0x839400A8] is the queue OBJECT (never 0 after boot); the LIST HEAD is [[0x839400A8]+4] (sub_82C54FA8 +34)
+  FillQueueHead(s, [](uint32_t a, uint32_t* v) { return SafeRead32(a, v); },
+                [](uint32_t p) { return wwe2k14::safe_pages::PlausibleGuestPtr(p, 8); });
+  SafeRead32(0x8362A0B0u, &s.pause);
+  s.opens = g_loader_opens.load(std::memory_order_relaxed);
+  s.reads = g_loader_reads.load(std::memory_order_relaxed);
+  s.completions = g_loader_completions.load(std::memory_order_relaxed);
+  const uint64_t frame = wwe2k14::g_guest_frame.load(std::memory_order_relaxed);
+  const int64_t now = Us();
+  static CpuWindow cpu_window;  // S105 A6W2: only this thread runs the tick
+  const int64_t cpu_now = ThreadCpuUs(g_worker_ktid.load(std::memory_order_relaxed));
+  const bool fire = w.Update(s, frame, now, limit_us);
+  cpu_window.Note(w.since_us, now, cpu_now);  // re-arms the baseline whenever the no-progress window restarts
+  if (!fire) return;
+  const std::string cpu_text = CpuTextFor(cpu_window, now, cpu_now);
+  const int64_t step = g_worker_last_step_us.load(std::memory_order_relaxed);
+  const uint32_t shown = s.req ? s.req : s.job;  // the request to describe: the current one, else the read-end job's
+  const std::string file = shown ? ReqFileName(shown) : std::string(), newest = g_last_path.Get();
+  const double secs = double(w.HeldUs(now)) / 1e6;
+  const uint64_t frames = w.FramesHeld(frame);
+  const std::string stepped = step ? fmt::format("{}", (now - step) / 1000) : std::string("never");
+  REXLOG_WARN("[wwe2k14][load] WATCH: no loader progress for {:.1f} s while {} guest frames advanced: req 0x{:08X} state {} "
+              "(file {}), read-end job 0x{:08X}, queue 0x{:08X}, pause {}, worker last stepped {} ms ago, newest queued file {}, "
+              "opens {} reads {} completions {}, {} (please send this log)",
+              secs, frames, s.req, s.state, file, s.job, s.queue, s.pause, stepped, newest, s.opens, s.reads, s.completions, cpu_text);
+  if (!once.TakeDump()) return;
+  // S105 A6W2: the fields that decide H3 (worker spinning on a full loader heap) vs H1 / H2 (A6.md "Still needed"): words only, table-checked.
+  for (const std::string& line : FireLines([](uint32_t a, uint32_t* v) { return SafeRead32(a, v); }, s.req, c))
+    REXLOG_WARN("{}", line);
+  LogLoaderThreadWhere();
+  // 44 words of the request (the step uses +140..+168), and of the read-end job's request when it is a different one.
+  auto words = [](uint32_t base, const char* what) {
+    if (!base) return;
+    std::string w3[3];
+    for (uint32_t k = 0; k < 44; ++k) {
+      uint32_t v = 0;
+      w3[k / 16] += SafeRead32(base + 4 * k, &v) ? fmt::format(" {:08X}", v) : std::string(" ????????");
+    }
+    REXLOG_WARN("[wwe2k14][load] WATCH {} 0x{:08X} words 0..15:{}", what, base, w3[0]);
+    REXLOG_WARN("[wwe2k14][load] WATCH {} 0x{:08X} words 16..31:{}", what, base, w3[1]);
+    REXLOG_WARN("[wwe2k14][load] WATCH {} 0x{:08X} words 32..43:{}", what, base, w3[2]);
+  };
+  words(s.req, "request");
+  if (s.job != s.req) words(s.job, "read-end job");
+  words(c, "read-end object");
+  const std::string detail = fmt::format("pac request 0x{:08X} (file {}) state {}, read-end job 0x{:08X}, queue 0x{:08X}: no loader "
+                                         "progress for {:.1f} s, worker last stepped {} ms ago, newest queued file {}, opens {} "
+                                         "reads {} completions {}",
+                                         s.req, file, s.state, s.job, s.queue, secs, stepped, newest, s.opens, s.reads, s.completions);
+  // samples -1 = guest thread stacks only: no host thread is suspended on a healthy game. Run here on the watch thread: it has
+  // nothing else to do, and a stuck guest thread cannot block it (the dump reads stacks, it takes no guest lock).
+  FlightDump("loader watch", detail, nullptr, -1);
+#ifndef _WIN32
+  LogGuestStacks();
+#endif
+}
+
+inline void StartLoadWatch() {
+  if (REXCVAR_GET(wwe2k14_load_watch_seconds) <= 0) return;
+  try {
+    std::thread([] {
+      wwe2k14::NameThread(L"load_watch");
+      static LoadWatch watch;
+      static StallOnce once;
+      // Windows SafeRead32 takes BaseHeap::heap_mutex_ inside QueryProtect (xmemory.cpp): a few short reads per tick, never in the worker's path.
+      while (!g_load_watch_stop.load(std::memory_order_relaxed)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        try {  // nothing may escape the thread (std::terminate would end the game)
+          LoadWatchTick(watch, once);
+        } catch (...) {
+        }
+      }
+    }).detach();
+  } catch (...) {
+  }
 }
 // Current game sequence id (0 if unreadable), read at most once per guest frame, and the sequence it was entered from
 // (the previous non-zero id; 0 until a change has been seen). Called on every loader pass (each frame).

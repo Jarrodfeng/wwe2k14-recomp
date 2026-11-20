@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "../thread_cpu.h"  // S105 A10: the Threads section
+
 namespace mlauncher::report {
 
 namespace fs = std::filesystem;
@@ -78,6 +80,7 @@ struct GameLog {
   // Session 95 (Lane E): the open Android items (r3_report.txt:187,200): the Savage attire latch, read-back slot failures, the crowd rank diag. Capped.
   std::vector<std::string> readback_notes, slot_notes, window_notes, rank_notes;  // latch / slot failures / window on-off + wide resolves / rank
   int readback_seen = 0, slot_seen = 0, window_seen = 0, rank_seen = 0;
+  std::vector<wwe2k14::thread_cpu::Window> threads;  // S105 A10: "[wwe2k14][perf][threads] t=" lines, one per 10 s
   std::map<long, std::string> slow;  // "slow frame N:" -> the text after "ms (t=...):"
 };
 
@@ -149,6 +152,10 @@ inline void ReadGameLog(const fs::path& file, GameLog& g) {
         h.gpu_mhz = std::atoi(line.c_str() + s + 6);
       if (const size_t s = line.find("busy ", at); s != std::string::npos) h.gpu_busy = std::atoi(line.c_str() + s + 5);
       g.heat.push_back(h);
+      continue;
+    }
+    if (wwe2k14::thread_cpu::Window tw; wwe2k14::thread_cpu::ParseLine(line, "[wwe2k14][perf][threads] ", tw)) {  // S105 A10
+      g.threads.push_back(std::move(tw));
       continue;
     }
     if (line.find("[wwe2k14][warm] keep-warm") != std::string::npos) {
@@ -424,6 +431,16 @@ inline std::string Build(const Inputs& in) {
                    clk->t)
              : "Lowest top-cluster clock: " + kNot + "\n";
     r += Fmt("(%zu thermal lines)\n", g.heat.size());
+  }
+
+  {  // S105 A10: which thread holds a core: the game's [perf][threads] lines and the launcher's own "threads:" lines
+    std::vector<wwe2k14::thread_cpu::Window> launcher_threads;
+    std::ifstream ll(in.logs_dir / "launcher.log");
+    for (std::string line; std::getline(ll, line);) {
+      wwe2k14::thread_cpu::Window tw;
+      if (wwe2k14::thread_cpu::ParseLine(line, "threads: ", tw)) launcher_threads.push_back(std::move(tw));
+    }
+    r += wwe2k14::thread_cpu::Section(g.threads, launcher_threads);
   }
 
   // 6. The GPU's clock (b77: each entrance's first seconds ran the GPU slowly in Jarrod's b76 log).

@@ -208,7 +208,7 @@ class GameFiles {
     root_ = root, opened_ = true, image_.reset(), error_.clear();
     std::error_code ec;
     if (!root.empty() && fs::is_regular_file(root, ec)) {
-      image_ = std::make_unique<DiscImage>();
+      image_ = std::make_shared<DiscImage>();   // S105 SKB3 fix L2: shared, so a RangeReader keeps its image alive past a SetRoot / the GameFiles' destruction
       if (!image_->Open(root, error_)) image_.reset();
     }
   }
@@ -344,6 +344,42 @@ class GameFiles {
     return out;
   }
 
+  // S105 SKB3: ranged reads of one file without reading it whole (the XCTD ranged reader, src\assets\xctd_ranged.h). Resolves like Stream: the root first, an overlay (DLC / mod) only when the root lacks the file.
+  // The reader holds one open handle (a plain file) or points into the image / package: use it under the caller's loader lock and drop it before SetRoot / Reopen.
+  struct RangeReader {
+    uint64_t size = 0;
+    std::function<bool(uint64_t off, uint8_t* out, size_t n)> read;   // exactly n bytes at off; false on any failure
+  };
+  bool OpenRange(const std::string& rel, RangeReader& r) {
+    r = {};
+    if (!overlays_.empty() && !InRoot(rel)) {
+      const Hit h = Locate(rel);
+      if (!h.o) return false;
+      if (h.f) {   // a file inside an STFS package
+        std::shared_ptr<PackageSource> pkg = h.o->pkg;
+        const wwe2k14::dlc::StfsPackage::File* f = h.f;
+        r.size = f->length;
+        r.read = [pkg, f](uint64_t off, uint8_t* out, size_t n) { return pkg->ReadRange(*f, off, out, n) == n; };
+        return true;
+      }
+      return OpenRangeHost(h.path, r);
+    }
+    if (is_image()) {
+      const DiscImage::Entry* e = image_ ? image_->Find(rel) : nullptr;
+      if (!e || e->dir) return false;
+      std::shared_ptr<DiscImage> img = image_;   // S105 SKB3 fix L2: the reader owns the image (never a raw pointer)
+      r.size = e->size;
+      r.read = [img, e](uint64_t off, uint8_t* out, size_t n) { return img->ReadFile(*e, off, out, n); };
+      return true;
+    }
+    return OpenRangeHost(root_ / Rel(rel), r);
+  }
+  // Exactly n bytes at `off` of `rel` (a one-shot OpenRange: opens the file each call).
+  bool ReadRange(const std::string& rel, uint64_t off, uint8_t* out, size_t n) {
+    RangeReader r;
+    return OpenRange(rel, r) && off + n <= r.size && r.read(off, out, n);
+  }
+
   // Calls `sink` with the whole file in chunks; false if missing or a read failed.
   bool Stream(const std::string& rel, const std::function<void(const uint8_t*, size_t)>& sink) {
     std::vector<uint8_t> buf(1 << 20);
@@ -452,6 +488,24 @@ class GameFiles {
       if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
     return s;
   }
+  // S105 SKB3: one open stream of a host file behind a RangeReader (reads serialised by a mutex of its own).
+  static bool OpenRangeHost(const fs::path& p, RangeReader& r) {
+    std::error_code ec;
+    const uint64_t size = fs::file_size(p, ec);
+    if (ec) return false;
+    auto f = std::make_shared<std::ifstream>(p, std::ios::binary);
+    if (!*f) return false;
+    auto mu = std::make_shared<std::mutex>();
+    r.size = size;
+    r.read = [f, mu](uint64_t off, uint8_t* out, size_t n) {
+      std::lock_guard<std::mutex> l(*mu);
+      f->clear();
+      f->seekg(std::streamoff(off));
+      f->read(reinterpret_cast<char*>(out), std::streamsize(n));
+      return bool(*f) && size_t(f->gcount()) == n;
+    };
+    return true;
+  }
   // Session 71 (Android launcher): the relative paths use the game's backslashes; a POSIX folder needs slashes.
   static fs::path Rel(const std::string& rel) {
 #ifdef _WIN32
@@ -464,7 +518,7 @@ class GameFiles {
   }
   fs::path root_;
   bool opened_ = false;
-  std::unique_ptr<DiscImage> image_;
+  std::shared_ptr<DiscImage> image_;
   std::string error_;
   std::vector<Overlay> overlays_;
 };

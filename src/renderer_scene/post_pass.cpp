@@ -9,6 +9,7 @@
 
 #include "../renderer/combine_lite.h"  // S102 R18-B2
 #include "../renderer/gpu_small.h"    // S102 R24-E
+#include "../renderer/problem.h"      // S105 A1: rdr::Log
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "../renderer/shaders/spv/rdr_fullscreen_vert.h"
 #include "../renderer/shaders/spv/rdr_post_depth_frag.h"
@@ -150,8 +151,10 @@ rdr::ImageId PostPass::Make(uint32_t w, uint32_t h) {
   return id;
 }
 
-bool PostPass::Ensure(uint32_t w, uint32_t h, bool scaled, std::string& error) {
-  if (size_w_ == w && size_h_ == h && scaled_ == scaled && q1_ != rdr::kNoImage) return true;
+bool PostPass::Ensure(uint32_t w, uint32_t h, bool scaled, bool viewer_depth, std::string& error) {
+  const bool same_chain = size_w_ == w && size_h_ == h && scaled_ == scaled && q1_ != rdr::kNoImage;
+  if (same_chain && (!viewer_depth || viewer_depth_ || !scaled)) return true;   // S105 A1 review F5: a first frame that reads the depth-convert image on a scaled chain remakes it once (sticky after)
+  viewer_depth_ = (same_chain ? viewer_depth_ : false) || viewer_depth;
   scaled_ = scaled;  // S101 lane PO
   mid_ = rdr::kNoImage;
   // S101 lane PO: no WaitIdle (DestroyImage already defers past the frames in flight): a chain whose size alternates must not stall every frame.
@@ -170,12 +173,19 @@ bool PostPass::Ensure(uint32_t w, uint32_t h, bool scaled, std::string& error) {
     rdr::ImageDesc d;  // the game-depth image of the viewer's scenes (R32F: the depth differences are ~0.005)
     d.width = uint16_t(w), d.height = uint16_t(h);
     d.format = rdr::Format::R32F;
-    d.usage = rdr::kUsageTarget | rdr::kUsageSampled;
+    d.usage = rdr::kUsageTarget | rdr::kUsageSampled | ((scaled_ && viewer_depth_ && !g_a1_plant_dconv_unscaled.load(std::memory_order_relaxed)) ? rdr::kUsageScaled : 0);   // S105 A1: its pass reads texelFetch(depth, gl_FragCoord): it must be the scene depth's size (planted twin: left unscaled = the DoF reads a quarter of the depth)
     dconv_ = renderer_.CreateImage(d);
     if (dconv_ != rdr::kNoImage) images_.push_back(dconv_);
 #if !WWE2K14_STREAM()
     if (dconv_ != rdr::kNoImage) renderer_.SetImageClass(dconv_, rdr::kGpuPost);   // S103 GT
 #endif
+  }
+  {   // S105 A1: the real created sizes of the chain's depth image and its first image, once per new (w, h, scaled) (a check reads them: a scaled 1440p scene prints 2560x1440 scaled=1 for dconv); review F5: not on every re-make
+    uint32_t dw = 0, dh = 0, qw_ = 0, qh_ = 0;
+    bool ds = false, qs = false;
+    renderer_.ImageExtent(dconv_, dw, dh, ds), renderer_.ImageExtent(q1_, qw_, qh_, qs);
+    if (logged_w_ != w || logged_h_ != h || logged_scaled_ != int(scaled_) || logged_dconv_scaled_ != int(ds)) logged_w_ = w, logged_h_ = h, logged_scaled_ = int(scaled_), logged_dconv_scaled_ = int(ds),
+    rdr::Log("[scene][targets] post chain at %ux%u (logical): depth-convert %ux%u scaled=%d, quarter %ux%u scaled=%d", w, h, dw, dh, int(ds), qw_, qh_, int(qs));
   }
   size_w_ = w, size_h_ = h;
   if (q1_ == rdr::kNoImage || gsum_ == rdr::kNoImage) { error = "post pass: could not create the pass images"; return false; }
@@ -194,7 +204,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
   PostParams drop_copy;
   if (use->tonemap || use->night || use->aa) {
     if (colour == rdr::kNoImage || out == rdr::kNoImage) { error = "post pass: a missing input image"; return false; }
-    if (!Ensure(use->width, use->height, use->scaled_images, error)) return false;
+    if (!Ensure(use->width, use->height, use->scaled_images, use->depth_from_viewer, error)) return false;
     bool drop_l = false, drop_a = false;
     if (use->tonemap || use->night) {
       drop_l = !MakeLum();
@@ -219,7 +229,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
   PostParams cue_copy;
   if (use->defocus || use->emboss || use->retro) {
     if (colour == rdr::kNoImage || out == rdr::kNoImage) { error = "post pass: a missing input image"; return false; }
-    if (!Ensure(use->width, use->height, use->scaled_images, error)) return false;
+    if (!Ensure(use->width, use->height, use->scaled_images, use->depth_from_viewer, error)) return false;
     for (rdr::ImageId& ci : cue_)
       if (ci == rdr::kNoImage) ci = Make(use->width, use->height);
     const bool images_ok = cue_[0] != rdr::kNoImage && cue_[1] != rdr::kNoImage;
@@ -237,7 +247,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
   combined_ = false;  // S101 lane PO
   if (!(p.tonemap || p.night)) lum_paused_ = true;   // S103 PST: the game steps the adapted luminance only while S+180 | S+184 is set: the next step after a pause is ONE guest frame
   if (colour == rdr::kNoImage || out == rdr::kNoImage || ((p.dof || p.fog || p.dof_chain) && depth == rdr::kNoImage)) { error = "post pass: a missing input image"; return false; }  // (yGlareEtc_fog reads the depth too)
-  if (!Ensure(p.width, p.height, p.scaled_images, error)) return false;  // S101 lane PO: + scaled_images
+  if (!Ensure(p.width, p.height, p.scaled_images, p.depth_from_viewer, error)) return false;  // S101 lane PO: + scaled_images
   const bool bloom = p.bloom || p.glare;
   // S101 lane PS: the dead work. The chain's parts that the combine multiplies by zero are not recorded; the images it still reads are cleared.
   const bool run_blur = bloom && !p.dead_bloom, run_glare = p.glare && !p.dead_glare, run_bright = run_blur || run_glare;
@@ -622,7 +632,7 @@ bool PostPass::Record(rdr::FrameBuilder& b, rdr::ImageId colour, rdr::ImageId de
     b.SetTargets(t);
     const float k[12] = {p.ghost_centre[0], p.ghost_centre[1], scale_eff, first ? 0.f : alpha_eff,
                          p.ghost_colour[0], p.ghost_colour[1], p.ghost_colour[2], p.ghost_additive ? 1.f : 0.f,
-                         float(w), float(h), 0.f, 0.f};
+                         float(w), float(h), g_a1_plant_ghost_logical.load(std::memory_order_relaxed) ? 1.f : 0.f, 0.f};   // c.z = 1: the planted old divide (S105 A1)
     rdr::TextureSet set{};
     set.slots[0].image = pre_, set.slots[0].sampler = sampler(false, false);
     set.slots[1].image = hist_[ghost_read_], set.slots[1].sampler = sampler(true, false);

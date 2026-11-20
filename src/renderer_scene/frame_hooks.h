@@ -44,26 +44,36 @@ constexpr bool Scene2DSite(uint32_t site) { return site == 0x82BC3EE8u || site =
 
 class LiveScene2D final : public StageHook {
  public:
-  // (builder, stage ctx, the rows in seq order, count, the record's guest frame)
-  using DrawFn = std::function<void(rdr::FrameBuilder&, const StageCtx&, const Quad2D*, size_t, uint64_t)>;
+  // (builder, stage ctx, the rows in seq order, count, the record's guest frame, phase)
+  // S105 A4B: the hook draws twice a frame when the record has pre-3D rows. phase kPhaseOnly = the frame's only call (the late rows, no early ones); kPhaseEarly = the early rows at BeforeOpaque (a late call may
+  // follow); kPhaseLate = the late rows at AfterBlended after an early call of the same record (the owner's per-frame report goes on, it does not restart).
+  enum : uint8_t { kPhaseOnly = 0, kPhaseEarly = 1, kPhaseLate = 2 };
+  using DrawFn = std::function<void(rdr::FrameBuilder&, const StageCtx&, const Quad2D*, size_t, uint64_t, uint8_t)>;
   explicit LiveScene2D(DrawFn draw) : draw_(std::move(draw)) {}
   const char* Name() const override { return "scene2d"; }
+  // S105 A4B: a scene-colour row the tap marked kQhPre3DCat (recorded at a frame-walk category below the first wrestler category: CAF's black quad, category 3) is EARLY (pure: the unit calls it).
+  static bool IsEarly(const Quad2D& q) { return (q.have & kQhPre3DCat) != 0; }
   void SetRows(const SceneTables& rec) {
     rows_.clear();
+    early_.clear();
     guest_frame_ = uint64_t(rec.header.guest_frame);
     if (rec.quad2d_holes == kQuad2DNotTaken) return;
     for (const Quad2D& q : rec.quads2d)
-      if (q.pass == kQpSceneColour && Scene2DSite(q.site)) rows_.push_back(q);
+      if (q.pass == kQpSceneColour && Scene2DSite(q.site)) (IsEarly(q) ? early_ : rows_).push_back(q);   // both in record order
   }
-  size_t rows() const { return rows_.size(); }
+  size_t rows() const { return rows_.size() + early_.size(); }
+  size_t early_rows() const { return early_.size(); }
   void Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& builder) override {
-    if (stage != Stage::AfterBlended || rows_.empty() || !draw_) return;
-    draw_(builder, ctx, rows_.data(), rows_.size(), guest_frame_);
+    if (!draw_) return;
+    // S105 A4B: the game draws the early rows before its 3D (CAF's black quad), so they go right after our colour + depth clear; the late rows (flashes, lens flares: category 36) after the 3D, as before.
+    if (stage == Stage::BeforeOpaque && !early_.empty()) draw_(builder, ctx, early_.data(), early_.size(), guest_frame_, kPhaseEarly);
+    else if (stage == Stage::AfterBlended && !rows_.empty()) draw_(builder, ctx, rows_.data(), rows_.size(), guest_frame_, early_.empty() ? kPhaseOnly : kPhaseLate);
   }
 
  private:
   DrawFn draw_;
-  std::vector<Quad2D> rows_;   // reused every frame
+  std::vector<Quad2D> rows_;    // reused every frame: the rows drawn after the 3D
+  std::vector<Quad2D> early_;   // S105 A4B: the rows drawn before the 3D (BeforeOpaque)
   uint64_t guest_frame_ = 0;
 };
 

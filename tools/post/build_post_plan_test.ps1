@@ -11,7 +11,7 @@ if ($Clean -and (Test-Path $obj)) { Remove-Item -Recurse -Force -Confirm:$false 
 New-Item -ItemType Directory -Force $obj | Out-Null
 $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-DRDR_DEV')
 $inc = @('-I', (Join-Path $repo 'src'))
-$srcs = @((Join-Path $PSScriptRoot 'post_plan_test.cpp'), (Join-Path $repo 'src\renderer_scene\post_plan.cpp'))
+$srcs = @((Join-Path $PSScriptRoot 'post_plan_test.cpp'), (Join-Path $repo 'src\renderer_scene\post_plan.cpp'), (Join-Path $repo 'src\renderer\shaders\spv\fx_spv_data.cpp'))
 $check = @((Join-Path $repo 'src\renderer_scene\post_pass.cpp'))
 $all = $srcs + $check
 $newestHdr = (Get-ChildItem (Join-Path $repo 'src\renderer_scene'), (Join-Path $repo 'src\renderer_adapter'), (Join-Path $repo 'src\renderer') -Recurse -Include *.h, *.hpp | Measure-Object LastWriteTimeUtc -Maximum).Maximum

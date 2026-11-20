@@ -1,0 +1,11 @@
+{
+ "owner": "S105 lane D (F1 + F2 of docs/research/FABLE_AUDIT_INDEX.md): the field index rebuild cannot collide with itself (per-process temp + rebuild lock + answer-from-old), and the schema is in the FILE NAME for the fields, vcall, runlog and sdk stores (the design of the asset index, lane QAC). 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling, cheap. qfield_selftest.py --no-real: the fixture checks plus the two-version test (a legacy fields.db and a schema-N file stay byte-identical when a schema-N+1 call builds its own file), the TWO-PROCESS test (two rebuilds started together: exactly one builds, the other answers from the old file and says so; the survivor has one build's rows), a stale-lock takeover (holder pid printed) and a fresh lock with no old index (waits, then takes over once stale). qindex_schema_selftest.py: the same two-version test for the vcall, runlog (plus: the rows of logs gone from disk are carried into the new file by a read-only copy) and sdk stores, all in temp folders. The real-data proofs of qfield_selftest (without --no-real) are the qf_fields lane's: they build the shared index and so run only on the merged tree.",
+ "checks": [
+  {"name": "s105_D.fields_selftest", "cmd": ["py", "-I", "tools/q/qfield_selftest.py", "--no-real"], "timeout_s": 600,
+   "affects": ["tools/q/qfield_selftest.py", "tools/q/build_fields.py", "tools/q/qfield.py"]},
+  {"name": "s105_D.schema_selftest", "cmd": ["py", "-I", "tools/q/qindex_schema_selftest.py"], "timeout_s": 600,
+   "affects": ["tools/q/qindex_schema_selftest.py", "tools/q/qx7.py", "tools/q/qx7_selftest.py", "tools/q/qrunlog.py", "tools/q/qsdk.py"]}
+ ]
+}

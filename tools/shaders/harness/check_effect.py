@@ -61,6 +61,15 @@ BIN = os.path.join(H, 'bin')
 TRANSLATE = os.path.join(BIN, 'check_effect_translate.exe')
 RUNNER = os.path.join(BIN, 'check_effect_run.exe')
 DISASM = os.path.join(DATA, 'out', 's100', 'disasm', 'ucode_disasm.exe')
+# S105 E (s103_T6 red since 2026-11-19, exit 0xC0000135 = rexruntime.dll not found): the translator and disassembler link rexruntime.dll, which the build scripts
+# (check_effect_build_translate.ps1, build_disasm.ps1) copy next to them from <Worktree>\out\win-amd64\Release; when that copy is gone the exes die with no output (every row
+# "not testable"). Fall back to that same build folder on PATH (the SDK worktree the exes were linked against). NEVER out/build: that is the game Jarrod plays, built against the pinned SDK.
+_SDKDLL = os.path.join(DATA, 'thirdparty', 'sdk-wt', 's99', 'out', 'win-amd64', 'Release')
+if not (os.path.exists(os.path.join(BIN, 'rexruntime.dll')) and os.path.exists(os.path.join(os.path.dirname(DISASM), 'rexruntime.dll'))):
+    if os.path.exists(os.path.join(_SDKDLL, 'rexruntime.dll')):
+        os.environ['PATH'] = _SDKDLL + os.pathsep + os.environ.get('PATH', '')
+    else:
+        print('check_effect: rexruntime.dll is missing beside the translator / disassembler and in %s: rebuild with tools\shaders\harness\check_effect_build_translate.ps1 and tools\shaders\packets\build_disasm.ps1' % _SDKDLL, file=sys.stderr)
 SDKBIN = None
 for d in sorted(glob.glob(r'C:\VulkanSDK\*'), reverse=True):
     if os.path.exists(os.path.join(d, 'Bin', 'glslangValidator.exe')):

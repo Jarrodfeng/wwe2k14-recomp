@@ -1,0 +1,9 @@
+{
+ "owner": "S105 lane A10: the thread self-report (src/thread_cpu.h: the [perf][threads] line, the launcher's threads: line, the report's Threads section with SPINNING) and the Android SDL poll-sentinel hint. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "instrument", "ms": [0, 0]},
+ "note": "KIND: instrument, cheap. thread_cpu_test: ParseStat / ParseStatus on synthetic /proc text (a comm with a ')' and spaces), Compute / Format with the planted spinner (+10 s x hz of CPU in a 10 s window = 100 %, SPINNING after two windows in a row; an idle twin and a hot / cool / hot twin are not), the report Section, and one live reading whose own sleeping thread must read under 1 %. Nothing spins.",
+ "checks": [
+  {"name": "s105_A10.thread_cpu_test", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/thread_cpu_test.ps1"], "timeout_s": 300, "tier": "cheap", "gpu": false,
+   "affects": ["src/thread_cpu.h", "src/thread_cpu_win.h", "src/perf_mem.h", "src/launcher_mobile/share_report.h", "tools/tests/thread_cpu_test.cpp", "tools/tests/thread_cpu_test.ps1"]}
+ ]
+}

@@ -8,6 +8,9 @@
 #include "../renderer/shaders/spv/rdr_uiquad_frag.h"
 #include "../renderer/shaders/spv/rdr_uiquad_hsl_frag.h"
 #include "../renderer/shaders/spv/rdr_uiquad_proj_vert.h"
+#include "../renderer/shaders/spv/rdr_uiquad_vcol_frag.h"
+#include "../renderer/shaders/spv/rdr_uiquad_vcol_proj_vert.h"
+#include "../renderer/shaders/spv/rdr_uiquad_vcol_vert.h"
 #include "../renderer/shaders/spv/rdr_uiquad_vert.h"
 
 namespace rdr_scene::q2d {
@@ -56,6 +59,16 @@ Programs Register(rdr::Renderer& renderer, bool switch_on) {
   d.fragment_spirv = kSpv_rdr_uiglyph_frag;
   d.fragment_bytes = sizeof(kSpv_rdr_uiglyph_frag);
   p.glyph_proj = renderer.AddProgram(d);
+  d.name = "rdr_uiquad_vcol_proj";   // S105 A8: the vertex-colour rect (T_RectColor), matrix-placed and pixel-placed
+  d.vertex_spirv = kSpv_rdr_uiquad_vcol_proj_vert;
+  d.vertex_bytes = sizeof(kSpv_rdr_uiquad_vcol_proj_vert);
+  d.fragment_spirv = kSpv_rdr_uiquad_vcol_frag;
+  d.fragment_bytes = sizeof(kSpv_rdr_uiquad_vcol_frag);
+  p.rect_color_proj = renderer.AddProgram(d);
+  d.name = "rdr_uiquad_vcol";
+  d.vertex_spirv = kSpv_rdr_uiquad_vcol_vert;
+  d.vertex_bytes = sizeof(kSpv_rdr_uiquad_vcol_vert);
+  p.rect_color = renderer.AddProgram(d);
   p.layout = renderer.AddVertexLayout(rdr::VertexLayoutDesc{});   // no vertex buffer: the corners come from the constants and gl_VertexIndex
   return p;
 }

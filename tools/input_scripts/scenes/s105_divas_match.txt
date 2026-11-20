@@ -1,0 +1,29 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=298,290 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true
+# intent: scene 2
+# S105 lane C1R (docs\research\s105\C1_routes.md): a divas match: AJ Lee (298) v Natalya (290), 1v1 (match type 0: the Divas match type is the plain one [L]), entrances kept, fast-forward.
+# Ids: db\ids\characters.json (298 AJ Lee, 290 Natalya: both confidence "medium", from the community list; 229 Kaitlyn, 228 Layla, 357 Lita are alternates: swap the participants flag
+# in the run line, not here). Timeline copied from scenes\s103_off1.txt (state / file waits, fast-forward) with the tron wait made optional (the diva's tron file name is the id
+# per the titantron range note in characters.json, but it was never seen for these ids). If the launch builds an arena the game picks one (no --wwe2k14_launch_arena).
+# UNCONFIRMED: the entrance shots (step 5 / 15) land on the first entrance (slot 0 = AJ Lee, 298); a diva with no entrance step 15 would stop the run at the wait.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+log scene=entrances
+wait_file 298.bik2 1800 optional
+wait_frames 200
+screenshot s105_diva_ent1
+wait_state entrance_step_0 >=5 3600 2
+wait_frames 60
+screenshot s105_diva_ent2
+wait_state entrance_step_0 >=15 3600 2
+screenshot s105_diva_ent3
+wait_state match_clock >0 30000
+log scene=match
+wait_frames 300
+screenshot s105_diva_match1
+wait_frames 900
+screenshot s105_diva_match2
+log bench: done
+wait_frames 10
+quit

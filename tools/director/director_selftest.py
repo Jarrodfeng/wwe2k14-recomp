@@ -83,6 +83,22 @@ PLANTS = [
     ('off_without_ownership', r'    if \(!\(sv\.on && sv\.ch == ch\)\) return "refused: slot "', '    if (false) return "refused: slot "'),
     ('auto_every_tick', r'  a\.applied = true;\n', '\n'),
     ('stock_wrong_direction', r'for \(int i = was; i < target; \+\+i\) e\.Call\(Fn::AddStock', 'for (int i = was; i < target; ++i) e.Call(Fn::RemoveStock'),
+    # S105 T1 bleed twins (docs/research/s105/T1_blood.md): each must FAIL the unit test
+    ('bleed_player_build_runs_it', r'if \(c\.verb == Verb::Bleed && !e\.Dev\(\)\) \{', 'if (false) {'),
+    ('bleed_option_not_set_first', r'    e\.Put8\(kG \+ kBloodSwitchOff, 1\);\n', '\n'),
+    ('bleed_level_off_by_one', r'uint64_t\(int64_t\(level - 1\)\)', 'uint64_t(int64_t(level))'),
+    ('bleed_wrong_list_offset', r'kBleedListOff = 3736;', 'kBleedListOff = 3728;'),
+    ('bleed_wrong_level_readback_offset', r'kBleedLevelOff = 1392;', 'kBleedLevelOff = 1396;'),
+    ('bleed_bled_byte_not_set', r'  e\.Put8\(ch \+ kBledOff, 1\);\n', '\n'),
+    ('bleed_no_pool_not_busy', r'if \(!e\.Ok\(x\) \|\| e\.U32\(x \+ kLiquidMapOff\) == 0\) \{', 'if (!e.Ok(x)) {'),
+    ('bleed_lowering_not_refused', r'  if \(have > level\) \{', '  if (false) {'),
+    # S105 SLO3 lightsout twins: each must FAIL the unit test
+    ('lightsout_player_build_runs_it', r'if \(c\.verb == Verb::LightsOut && !e\.Dev\(\)\) \{', 'if (false) {'),
+    ('lightsout_wrong_argument_order', r'e\.Call3\(Fn::DimSceneCtor, obj, ch, tgt\);', 'e.Call3(Fn::DimSceneCtor, obj, tgt, ch);'),
+    ('lightsout_no_busy_check', r'if \(e\.U32\(mgr \+ kBrightOff\) != kBrightOne\) \{', 'if (false) {'),
+    ('lightsout_wrong_alloc_size', r'kDimSceneSize = 136;', 'kDimSceneSize = 128;'),
+    ('lightsout_wrong_target_offset', r'kTargetOff = 2672;', 'kTargetOff = 2668;'),
+    ('bleed_no_readback_check', r'  if \(now != level\) \{\n    e\.Log\("director: " \+ tag \+ ": readback', '  if (false) {\n    e.Log("director: " + tag + ": readback'),
     ('all_includes_humans', r'if \(e\.U32\(comp \+ kComActiveOff\) == 0 && !\(st\.s\[slot\]\.on && st\.s\[slot\]\.ch == ch\)\) \{', 'if (false) {'),
 ]
 
@@ -127,6 +143,9 @@ def parse_rule(tmp):
     check(len(got) == len(texts) and all(g.startswith('OK') for g in got), 'the resolver\'s director strings are not all accepted by the game parse: %s -> %s' % (texts, got))
     for s, t in zip(steps, texts):   # the round trip text -> step -> text
         check(resolve.director_arg(resolve.director_step_from_text(t)) == t, 'round trip of %r' % t)
+    # S105 T1: the script line `bleed 0 3` is accepted by the parse the input script and the live channel share; the bad forms are not
+    r = subprocess.run([exe, 'parse'], input='bleed 0 3\nbleed 8 1\n', capture_output=True, text=True, timeout=30)
+    check(len(r.stdout.splitlines()) == 2 and all(g.startswith('OK') for g in r.stdout.splitlines()), 'bleed script lines are not accepted by the game parse: %s' % r.stdout.split())
     bad = ['passive', 'passive 9 on', 'momentum 1 101', 'stock 1 10', 'passive_cpu', 'dance 1 2']
     r = subprocess.run([exe, 'parse'], input='\n'.join(bad) + '\n', capture_output=True, text=True, timeout=30)
     check(r.stdout.split() == ['ERR'] * len(bad), 'bad director strings are not all refused by the game parse: %s' % r.stdout.split())
@@ -179,6 +198,9 @@ def wiring():
         ('src/situation_director_core.h' in rd('tools/director/director_selftest.py') or True, ''),
     ]:
         check(ok, msg)
+    # S105 SLO3: the lightsout glue (the factory's own two calls, dev-gated at parse and run time)
+    check('call(sub_82250050, {r3})' in glue and 'call(sub_8275DF98, {r3, r4, r5})' in glue, 'the lightsout glue (alloc / ctor calls) changed')
+    check('Verb::LightsOut && !wwe2k14::IsDevBuild()' in inp, 'input_script.h does not refuse lightsout at parse in a player build')
     # nothing runs unless asked: the tick is free when idle (the latch is off, the queue empty, nothing pending)
     check('if (g_state.passive_cpu || g_auto.applied)' in glue and 'TakeQueued(text)' in glue and 'g_pending.exchange(false)' in glue, 'the tick is not a no-op when idle')
     check('Housekeeping(g_state, g)' in glue and 'seq != scenario::kSeqInGame' in glue, 'the glue does not reset the state outside the in-game sequence on every tick (S1)')
@@ -187,6 +209,10 @@ def wiring():
     check('NOT DONE after' in glue and 'kScriptBusyFrames' in glue, 'a script verb can still be dropped silently (S6)')
     check('Fn::PadRecord' not in core and 'Fn::PadRecord' not in glue and 'PadRecord' not in glue, 'a pad-record call is back in the director (B1)')
     # the script verbs: a line's text is checked at parse time (a bad line fails the script before the game starts)
+    # S105 T1: the bleed verb reaches the queue through the same script op, and the glue is dev-gated and calls the setter with r3 / r4 / r5
+    check('bleed SLOT LEVEL' in inp and 'bleed' in core and '"bleed"' in core, 'input_script.h / the core do not carry the bleed verb')
+    check('call(sub_825A1F28, {r3, r4, r5})' in glue and 'wwe2k14::IsDevBuild()' in glue and '"dev_build.h"' in glue, 'the bleed glue (setter call with r5 / IsDevBuild) changed')
+    check('e.Dev()' in core and core.index('e.Dev()') < core.index('const Gate g = e.GetGate();', core.index('std::string Run(')), 'the dev gate is not before the match gate in Run')
     check('director::Parse' not in inp, 'input_script.h still names the old namespace (wwe2k14::director is the match director)')
 
 
@@ -234,6 +260,9 @@ LISTING = {   # address: [text that must be in the listing]
     '8241DAB0': ['lwz r3,132(r3)', 'stw r30,1888(r31)'],
     '823AE0B8': ['cmpwi cr6,r3,9', 'lwzx r3,r10,r9'],
     '825A0B50': ['lwz r3,3088(r31)', 'lwz r3,100(r3)'],
+    '825A0F28': ['lwz r3,3736(r3)', 'lis r4,17218', 'ori r4,r4,17475', 'lwz r3,24(r3)', 'stb r4,1392(r31)'],
+    '825C19B0': ['lwz r3,36(r3)'],            # S105 T1 (note section 4; the 'CBDC' constant is read from 0x825A0F4C by the probe)
+    '825A1F28': ['15229(r3)', 'li r30,-1'],
 }
 
 
@@ -253,10 +282,13 @@ def listing():
             check(n.lower() in low, '--listing: sub_%s no longer has "%s"' % (addr, n))
     # the numbers in the core, against the listing's
     core = rd('src/situation_director_core.h')
-    for name, val in (('kComOff', 3088), ('kComActiveOff', 100), ('kListOff', 3728), ('kChpDataOff', 24), ('kMeterOff', 76), ('kStockOff', 1928), ('kChpTag', 0x43485020)):
+    for name, val in (('kComOff', 3088), ('kComActiveOff', 100), ('kListOff', 3728), ('kChpDataOff', 24), ('kMeterOff', 76), ('kStockOff', 1928), ('kChpTag', 0x43485020),
+                      ('kBleedListOff', 3736), ('kCbdcTag', 0x43424443), ('kLiquidOff', 24), ('kLiquidMapOff', 36), ('kBleedLevelOff', 1392), ('kBledOff', 1398),
+                      ('kG', 0x8376AAF4), ('kBloodSwitchOff', 15229)):
         m = re.search(r'%s = (0x[0-9A-Fa-f]+|\d+);' % name, core)
         check(bool(m) and int(m.group(1), 0) == val, 'core %s is not %s' % (name, val))
     check(0x4348 == 17224 and (0x4348 << 16 | 20512) == 0x43485020, 'the CHP tag arithmetic (lis 17224 / ori 20512)')
+    check(0x4342 == 17218 and (0x4342 << 16 | 17475) == 0x43424443, 'the CBDC tag arithmetic (lis 17218 / ori 17475)')
     print('  listing pins: %d functions, %d texts' % (len(LISTING), sum(len(v) for v in LISTING.values())))
 
 

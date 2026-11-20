@@ -1,0 +1,58 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the Threads editor (sequence 77) has no mapped cursor state; presses wait on frame counts)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): EXPLORATORY, for the TEST save mirror's Threads outfit. Nothing was ever driven past entering the Threads editor (s101_sweep_caw_pages.txt
+# only waits ~400 frames on it; atlas mode:threads, state word seq+64 "0x839400F8>0>64"). The route enters CREATIONS -> item 1 SUPERSTAR THREADS (screen 1504, seq 77), then presses A
+# up to four times, 300 frames apart, logging the state word + the screen text and taking a shot after each, so the main session can read the page order (stock attire pick, recolour, SAVE).
+# Nothing is saved (no ACCEPT is pressed on purpose); B leaves. When the pages are read, a make route is copied from this one: pick one stock attire, change one colour (LEFT / RIGHT or a
+# colour grid), ACCEPT, name / confirm, back to the main menu, and quit 10 s after the save line, like s105_make_caw.txt.
+# UNCONFIRMED: everything after entering seq 77.
+# Marks: 1 menu, 2 threads editor, 3..6 after A 1..4, 7 end.
+on_fail continue
+log bench: start scene s105_threads_explore
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_creations
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A seq 77 8 120 5
+wait_frames 600
+log scene=threads_editor
+log_state seq
+log_state 0x839400F8>0>64
+log_text 8
+screenshot sc_s105_thr_0
+mark 2 threads_editor
+press A
+wait_frames 300
+log scene=threads_a1
+log_state 0x839400F8>0>64
+log_text 8
+screenshot sc_s105_thr_1
+mark 3 a1
+press A
+wait_frames 300
+log scene=threads_a2
+log_state 0x839400F8>0>64
+log_text 8
+screenshot sc_s105_thr_2
+mark 4 a2
+press A
+wait_frames 300
+log scene=threads_a3
+log_state 0x839400F8>0>64
+log_text 8
+screenshot sc_s105_thr_3
+mark 5 a3
+press A
+wait_frames 300
+log scene=threads_a4
+log_state 0x839400F8>0>64
+log_text 8
+screenshot sc_s105_thr_4
+mark 6 a4
+mark 7 end
+log bench: done
+wait_frames 10
+quit

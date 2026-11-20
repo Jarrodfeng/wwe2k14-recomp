@@ -1,3 +1,4 @@
+# entry: gate
 # Selftest for the fast gate (S102 lane M4). py -I tools\gate\fastgate_selftest.py
 # A scratch git repo in a temp folder, fake lanes whose checks only append to a counter file, the real gate.py run on it (--root TMP --out TMP/out):
 #   1 a change to one renderer file runs only the lanes that declare it (and the lane without "affects"), not the others
@@ -118,11 +119,11 @@ def run():
         n0 = count(root, 'a')
         rc, out = gate(root, '--changed', 'HEAD')
         line = [l for l in out.splitlines() if 'l_a.one' in l]
-        ok(rc == 1 and line and line[0].startswith('FAIL') and 'stale build' in line[0] and count(root, 'a') == n0, f'4 PLANTED stale program -> FAIL stale build, check not run ({line[:1]})')
+        ok(rc == 3 and line and line[0].startswith('BLOCKED') and 'stale build' in line[0] and count(root, 'a') == n0, f'4 PLANTED stale program -> BLOCKED stale build, check not run ({line[:1]})')
         missing = base / 'x'
         write_lane(root, 'l_a', [chk('l_a.one', 'a', programs=[{'path': 'out/nope.exe', 'sources': ['src/renderer/**']}])], affects=['src/renderer/**'])
         rc, out = gate(root, '--changed', 'HEAD')
-        ok(rc == 1 and 'missing' in out and 'stale build' in out, '4b PLANTED missing program -> FAIL stale build (missing)')
+        ok(rc == 3 and 'missing' in out and 'stale build' in out and 'BLOCKED' in out, '4b PLANTED missing program -> BLOCKED stale build (missing)')   # S105 E: could not run = BLOCKED, exit 3
         write_lane(root, 'l_a', [chk('l_a.one', 'a', programs=[{'path': 'out/tool.exe', 'sources': ['src/renderer/**']}])], affects=['src/renderer/**'])
         now = time.time() + 5
         os.utime(exe, (now, now))
@@ -142,7 +143,7 @@ def run():
         os.utime(reg, (old, old))
         n1 = count(root, 'a')
         rc, out = gate(root, '--changed', 'HEAD')
-        ok(rc == 1 and 'stale build' in out and count(root, 'a') == n1 and not (root / 'builds.txt').exists(), '4f stale registered exe in --changed: FAIL stale build, not built, check not run')
+        ok(rc == 3 and 'BLOCKED' in out and 'stale build' in out and count(root, 'a') == n1 and not (root / 'builds.txt').exists(), '4f stale registered exe in --changed: FAIL stale build, not built, check not run')
         rc, out = gate(root, '--changed', 'HEAD', '--build-stale')
         ok(rc == 0 and (root / 'builds.txt').exists() and count(root, 'a') == n1 + 1, '4g --build-stale builds it once and the check runs')
         # 5 ---- failures and skips are never cached

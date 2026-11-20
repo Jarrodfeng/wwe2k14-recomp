@@ -1,0 +1,22 @@
+# ReXGlue SDK changes for WWE 2K14 (session105-android-poll-sentinel): b2c661bd33fe..c00feaf400f8 on wwe2k14-local
+# Apply in order on upstream rexglue/rexglue-sdk f5337cd (git apply). Commits (first parent):
+#  c00feaf4 S105 A10: Android: SDL_HINT_POLL_SENTINEL=0 (SDL_WaitEvent busy loop, SDL #16713 / 8dc8694)
+
+diff --git a/src/ui/windowed_app_context_sdl.cpp b/src/ui/windowed_app_context_sdl.cpp
+index eb59543bd0499bfa4830628b95c8ca350b404ddd..f74e5291cd009563b6378c87e805349fb134c4eb 100644
+--- a/src/ui/windowed_app_context_sdl.cpp
++++ b/src/ui/windowed_app_context_sdl.cpp
+@@ -67,6 +67,13 @@ bool SDLWindowedAppContext::Initialize() {
+   if (!requested_driver.empty()) {
+     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, requested_driver.c_str());
+   }
++#if REX_PLATFORM_ANDROID
++  // S105 A10: SDL 3.5.0 (pin 8bf3b72) on Android busy-loops SDL_WaitEvent: every pass pushes a poll sentinel whose add
++  // posts a lifecycle WAKE that the next pump takes at once (libsdl-org/SDL #16713, fixed by 8dc8694). It pegged the
++  // SDLThread (this UI loop). Sentinel off = the wait blocks. Drop when the SDL pin passes 8dc8694.
++  SDL_SetHint(SDL_HINT_POLL_SENTINEL, "0");
++  REXLOG_INFO("Android: SDL poll sentinel off (SDL #16713 busy-wait workaround)");
++#endif
+   if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+     REXLOG_ERROR("SDL_InitSubSystem(SDL_INIT_VIDEO) failed: {}", SDL_GetError());
+     return false;

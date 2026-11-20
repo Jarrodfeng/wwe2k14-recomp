@@ -20,6 +20,7 @@
 // cut (Camera::cut): nothing may be blended into it. `--tween-plant alpha0|no_forget|swap` = the three planted faults (SceneHost TestSeam): weight 0 (the halfway is the previous tick), the previous tick survives a
 // cut, the tick's own picture presented before the halfway one. host_rig.py judges the printed numbers; the final picture is also compared with a run without `--tween`.
 #define WWE2K14_FRAME_TICK_CORE_ONLY 1   // frame_tick.h without the guest-memory part (SizeOfFetch only)
+#include "../../src/renderer_scene/cam_gate.h"   // S105 A3
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -44,6 +45,7 @@
 #include "../../src/renderer/renderer.h"
 #include "../../src/renderer_game/scene_frame.h"
 #include "../../src/renderer_host/scene_host.h"
+#include "../../src/renderer_host/wide_frame.h"   // S105 A2
 #include "../../src/renderer_host/overlay_mailbox.h"   // S103 AIM (--mode overlay)
 #include "../../src/renderer_scene/body_scale.h"
 #include "../../src/renderer/depth_nostencil.h"   // S103 CHS C5: the stencil liveness switch, its plant and census
@@ -269,7 +271,10 @@ int main(int argc, char** argv) {
   int fault_kind = 1;            // --fault-kind 1 (the failed draw recorded nothing into `out`) / 2 (it spoiled `out`)
   int direct_plant = 0;          // S103 CHS C6 (--direct-plant N)
   bool stage_stamp = false;      // S103 SVO (--stage-stamp): every posted record carries kSceneStagePlaying (what live_scene.cpp stamps on the guest thread while a stage push plays); --plant stage_ignore = the host ignores the stamp (the twin)
+  uint32_t cam_gate_bits = 0;    // S105 A3 (--cam-gate N): the record carries the camera-gate header bits N (what the latch stamps); --plant cam_gate_ignore = the host does not read them
   long long cut_frame = -1;
+  float wide_k = 1.f, tall_t = 1.f;   // S105 A2 (--wide K / --tall T): the screen-shape factors; the host widens the scene and F during play (every posted message is an in-game one, Msg::fill_now)
+  float a1_scale = 1.f;   // S105 A1 review F3 (--scale S): the renderer's render_scale through the real SceneHost (the stream-free host's live path: LiveSceneDraw sets the scaled targets from it); --a1-plant unscaled = the scene targets left unscaled (the bug)
   static bool no_scissor = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -282,6 +287,8 @@ int main(int argc, char** argv) {
     else if (a == "--size") size_arg = next();
     else if (a == "--capture") capture = next();
     else if (a == "--plant") plant = next();
+    else if (a == "--scale") a1_scale = std::strtof(next().c_str(), nullptr);   // S105 A1
+    else if (a == "--a1-plant") rdr_scene::g_a1_plant_host_unscaled.store(next() == "unscaled" ? 1 : 0);   // S105 A1
     else if (a == "--no-curve") no_curve = true;
     else if (a == "--missing-input") missing_input = true;
     else if (a == "--flat") flat = true;
@@ -302,8 +309,11 @@ int main(int argc, char** argv) {
     else if (a == "--present-direct") present_direct = std::atoi(next().c_str()) != 0;   // S103 CHS C6: the host's present_direct option (a frame with no 2D row presents `out` itself)
     else if (a == "--direct-plant") direct_plant = std::atoi(next().c_str());              // S103 CHS C6 planted faults (scene_host.h TestSeam::direct_plant)
     else if (a == "--stage-stamp") stage_stamp = true;   // S103 SVO
+    else if (a == "--cam-gate") cam_gate_bits = uint32_t(std::strtoul(next().c_str(), nullptr, 0));   // S105 A3: SceneHeader::flags bits (cam_gate.h) OR-ed into every posted record
     else if (a == "--real") real = true;   // S103 PN4: the host's pictures from the REAL PictureResolver (forged guest memory, the player's file index) and its movie planes from the plane store (forged display sets), not the capture stand-ins
     else if (a == "--tween") tween = true;
+    else if (a == "--wide") wide_k = std::strtof(next().c_str(), nullptr);   // S105 A2
+    else if (a == "--tall") tall_t = std::strtof(next().c_str(), nullptr);   // S105 A2
     else if (a == "--gpu-stamps") gpu_stamps = true;
     else if (a == "--gpu-group-stamps") group_stamps = std::max(0, std::atoi(next().c_str()));
     else if (a == "--tween-plant") tween_plant = next();
@@ -489,7 +499,13 @@ int main(int argc, char** argv) {
 
   // ---- host mode ----------------------------------------------------------------------------------------------------------------------------------------
   sh::HostOptions ho;
-  ho.renderer.present_offscreen_w = w, ho.renderer.present_offscreen_h = h;
+  ho.wide = wide_k, ho.tall = tall_t;   // S105 A2: the in-play frame is the screen's shape (wide_frame.h): the present image is that size
+  const bool widen_now = wide_k > 1.001f || tall_t > 1.001f;
+  ho.renderer.render_scale = a1_scale;   // S105 A1 review F3
+  {   // the offscreen present = the in-play frame shape (A2 Shape) scaled by A1's render scale (F's real size at a scale)
+    const wwe2k14::scene_host::wide_frame::FrameShape shp = wwe2k14::scene_host::wide_frame::Shape(w, h, wide_k, tall_t, true);
+    ho.renderer.present_offscreen_w = a1_scale == 1.f ? shp.w : uint32_t(std::ceil(float(shp.w) * a1_scale)), ho.renderer.present_offscreen_h = a1_scale == 1.f ? shp.h : uint32_t(std::ceil(float(shp.h) * a1_scale));
+  }
   ho.renderer.vsync = false;
   ho.game_root = game;
   ho.tween_wanted = tween;
@@ -539,6 +555,8 @@ int main(int argc, char** argv) {
   sh::TestSeam seam;
   seam.force_ours = !flat;
   seam.skip_copy = plant == "skip_copy";
+  seam.wide_box_origin = plant == "wide_box_origin";       // S105 A2 twins
+  seam.wide_pass_f_size = plant == "wide_pass_f_size";
   seam.direct_plant = direct_plant;
   if (missing_input || plant == "stale_walks") seam.inject_stale = 1u << 10;   // S103 ONF: bit 10 (crowd_snapshot) reads stale on every record
   seam.stale_walks = plant == "stale_walks";   // planted twin: the old rule (a stale input stops the frame): no 3D is ever presented
@@ -547,6 +565,7 @@ int main(int argc, char** argv) {
   seam.rows_first = plant == "rows_first";
   seam.rows_never = plant == "rows_never";
   seam.stage_plant = plant == "stage_ignore";   // S103 SVO twin: a stamped record still draws its rows
+  seam.cam_ignore = plant == "cam_gate_ignore";   // S105 A3 twin: the host ignores the camera-gate bits
   host_rig_2d::CapSource cap2d;
   const bool have_cap = !capture.empty();
   if (have_cap) {
@@ -661,6 +680,7 @@ int main(int argc, char** argv) {
     }
     if (cut_frame >= 0 && uint64_t(cut_frame) == n && rec->has_camera) rec->camera.cut = 1;   // --cut: a camera cut on this record
     if (stage_stamp) rec->header.flags |= rdr_scene::kSceneStagePlaying;   // S103 SVO: the guest thread's stamp (live_scene.cpp), set here on the record the host is posted
+    rec->header.flags = (rec->header.flags & ~rdr_scene::kCamGateMask) | (cam_gate_bits & rdr_scene::kCamGateMask);   // S105 A3: the latch's camera-gate facts, set here on the record the host is posted
     if (reintern && pass == 1) {   // review F1: same object names, other string-blob offsets (the pooled live record's offsets move between ticks): each id gets its own fresh copy of its text, appended in reverse order
       rec->strings.append(size_t(n * 7919u % 251u) + 1u, 'x'), rec->strings.push_back('\0');   // a decoy of a tick-dependent length first: two ticks never land on the same offsets by chance
       for (size_t oi = rec->objects.size(); oi-- > 0;) {
@@ -686,7 +706,7 @@ int main(int argc, char** argv) {
       sh::Msg m;
       m.guest_frame = rec->header.guest_frame;
       info = TickInfo{};
-      m.width = plant == "wrong_size" ? w - 1 : w, m.height = h;
+      m.width = plant == "wrong_size" ? w - 1 : w, m.height = h; m.fill_now = widen_now;
       m.record = shown;
       if (!curve_sent && !curve.empty()) { m.curve_changed = true, std::memcpy(m.curve.data(), curve.data(), 1024); curve_sent = true; }
       host.Post(std::move(m));
@@ -706,7 +726,7 @@ int main(int argc, char** argv) {
       sh::Msg m;
       m.guest_frame = rec->header.guest_frame;
       info = TickInfo{};
-      m.width = plant == "wrong_size" ? w - 1 : w, m.height = h;
+      m.width = plant == "wrong_size" ? w - 1 : w, m.height = h; m.fill_now = widen_now;
       m.record = shown;
       host.Post(std::move(m));
       ++posted;
@@ -736,6 +756,7 @@ int main(int argc, char** argv) {
           for (int c3 = 0; c3 < 3; ++c3) maxd = std::max(maxd, std::abs(int(rgba[i + c3]) - int(shot[i + c3])));
       }
       std::printf("shot frame %llu: captured %s %ux%u (present %ux%u), max RGB diff %d\n", (unsigned long long)n, got ? "yes" : "NO", sw, sh_, pw, ph, maxd);
+      std::printf("a1-host: scale %.4f logical %ux%u F (shown) %ux%u present %ux%u\n", a1_scale, w, h, sw, sh_, pw, ph);   // S105 A1 review F3: F's real size after the out -> F copy
       if (maxd < 0 || maxd > 1) { std::fprintf(stderr, "host_rig: FAIL CaptureShown differs from the presented picture (frame %llu)\n", (unsigned long long)n); ++bad; }
     }
     if (!tween && !real && plant.empty()) {   // S103 lane SHOT (review F1 / F4): three callers at once while a frame is about to render: the queued (no-drain) readback answers them all with that frame's picture
@@ -745,7 +766,7 @@ int main(int argc, char** argv) {
       std::this_thread::sleep_for(std::chrono::milliseconds(30));   // (shorter than the host's 100 ms idle poll: the drain does not serve them)
       sh::Msg again;
       again.guest_frame = rec->header.guest_frame;
-      again.width = w, again.height = h;
+      again.width = w, again.height = h; again.fill_now = widen_now;
       again.record = shown;
       host.Post(std::move(again));
       ++posted;
@@ -776,7 +797,7 @@ int main(int argc, char** argv) {
       const bool fault = fault_after >= 0 && uint64_t(fault_after) == n;
       sh::Msg extra;
       extra.guest_frame = rec->header.guest_frame;
-      extra.width = w, extra.height = h;
+      extra.width = w, extra.height = h; extra.fill_now = widen_now;
       if (fault) extra.record = shown, host.PlantFaultNext(fault_kind);
       host.Post(std::move(extra));
       ++posted;
@@ -847,7 +868,7 @@ int main(int argc, char** argv) {
     for (int k = 0; k < 8 && prev; ++k) {   // the stamps of a frame are read a few frames late: more ticks of the last record flush them
       sh::Msg m;
       m.guest_frame = prev->header.guest_frame;
-      m.width = w, m.height = h;
+      m.width = w, m.height = h; m.fill_now = widen_now;
       m.record = prev;
       host.Post(std::move(m));
       ++posted;

@@ -398,6 +398,39 @@ int main(int argc, char** argv) {
   SceneTables t;
   Counters cnt;
   con.Emit(fi, t, cnt);
+  {   // S105 A3 (entry: InputsContributor::Latch / Emit): the record's camera-gate header bits. No scene manager word in this guest: nothing read, no bits (never black on a failed read)
+    Check((t.header.flags & rdr_scene::kCamGateMask) == 0, "s105.cam_gate_unread_no_bits");
+    const Guest keep = g_guest;
+    g_guest.Put(0x836F3AA8u, 0x40004000u), g_guest.Put(0x40004000u + 1392, 0), g_guest.Put(0x40004000u + 1412, 0), g_guest.Put(0x83767B74u, 0);   // a manager with no shown camera and no override camera
+    g_guest.Put(0x836F3940u, 4), g_guest.Put(0x839400F8u, 0x40001000u), g_guest.Put(0x40001000u, 0x40002000u), g_guest.Put(0x40002000u + 48, 9), g_guest.Put(0x836F3ABCu, 0x40003000u), g_guest.Put(0x40003000u + 1440, 0);   // the load window
+    live::inputs::InputsContributor c2;
+    c2.SetReader(ReadThunk);
+    c2.SetModels(ModelsThunk);
+    FrameInfo f2;
+    f2.guest_frame = 300;
+    c2.Latch(f2);
+    SceneTables t2;
+    Counters cn2;
+    c2.Emit(f2, t2, cn2);
+    Check(rdr_scene::NoShownCamera(t2.header.flags) && rdr_scene::CamUnanimated(t2.header.flags) && rdr_scene::CamAnimPending(t2.header.flags), "s105.cam_gate_bits_written", "flags " + std::to_string(t2.header.flags));
+    {   // review 5: the fallback take (game threads running) leaves every camera-gate bit clear
+      live::inputs::InputsContributor::Frame ff;
+      c2.Take(300, ff, false);
+      Check(!ff.cam_gate_read && !ff.cam_gate_shown && !ff.cam_unanimated && !ff.cam_anim_pending, "s105.cam_gate_fallback_take_clear");
+    }
+    g_guest.Put(0x40004000u + 1412, 9);   // the composer's override camera is set: shown
+    c2.Latch(f2);
+    SceneTables t4;
+    c2.Emit(f2, t4, cn2);
+    Check(!rdr_scene::NoShownCamera(t4.header.flags) && (t4.header.flags & rdr_scene::kCamGateShown), "s105.cam_gate_override_counts_as_shown", "flags " + std::to_string(t4.header.flags));
+    g_guest.Put(0x40004000u + 1412, 0);
+    g_guest.Put(0x40004000u + 1392, 0x40005000u), g_guest.Put(0x40003000u + 1440, 1);   // a shown camera, the motion camera animated
+    c2.Latch(f2);
+    SceneTables t3;
+    c2.Emit(f2, t3, cn2);
+    Check(!rdr_scene::NoShownCamera(t3.header.flags) && !rdr_scene::CamUnanimated(t3.header.flags) && (t3.header.flags & rdr_scene::kCamGateShown), "s105.cam_gate_shown_animated", "flags " + std::to_string(t3.header.flags));
+    g_guest = keep;
+  }
   {
     const bool ok = t.post_params.size() == 1 && t.model_runtime.size() == 2 && t.model_runtime[0].object == kM0 && t.model_runtime[1].object == kM1 && t.model_runtime[0].frame == 200;
     Check(ok, "contrib.rows", "post " + std::to_string(t.post_params.size()) + " models " + std::to_string(t.model_runtime.size()));

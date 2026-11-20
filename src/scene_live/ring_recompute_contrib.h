@@ -192,7 +192,13 @@ inline void ReadCoverInputs(ReadFn read, uint32_t x, Inputs& in, CvInputs& cv, R
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kCvModelHi, hi) || !hi || !ReadWord(read, g + kCvModelLo, lo)) { ++cn.cv_gate; return; }
   if (!ReadModelPal(read, hi, true, cv.models[0])) { ++cn.cv_unreadable; return; }
-  if (lo) ++cn.cv_lod_both;   // S103 C5: the low cover is counted, NOT read or emitted: the LOD test (view distance) is not replicated [U], the high cover stands in (like the rope), so one model is drawn, never both
+  if (lo) {
+    ++cn.cv_lod_both;   // S103 C5: counted. S105 C4: the low cover IS read now and the game's own distance test picks ONE model per corner (CoverModelIndex: never both)
+    if (!ReadModelPal(read, lo, true, cv.models[1])) cv.models[1] = ModelPal{}, ++cn.cv_lo_unreadable;   // unreadable: the high model stands in (S105 C4 fix F4: counted)
+    std::vector<float> fd;
+    if (ReadFloats(read, kLodDistAddr, 1, fd) && std::isfinite(fd[0])) cv.lod_dist = fd[0], cv.lod_ok = true;
+    else ++cn.lod_dist_unreadable;
+  }
   for (uint32_t c = 0; c < kCvCorners; ++c) {
     uint32_t cnt = 0, flag = 0;
     if (!ReadWord(read, x + kCvCountOff + 4 * c, cnt)) { ++cn.cv_unreadable; return; }
@@ -236,7 +242,13 @@ inline void ReadPostInputs(ReadFn read, uint32_t x, Inputs& in, PostInputs& po, 
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kPostModelHi, hi) || !hi || !ReadWord(read, g + kPostModelLo, lo)) { ++cn.post_unreadable; return; }
   if (!ReadModelPal(read, hi, false, po.models[0])) { ++cn.post_unreadable; return; }
-  if (lo) ++cn.post_lod_both;   // S103 C5: counted, not read or emitted (see ReadCoverInputs)
+  if (lo) {
+    ++cn.post_lod_both;   // S103 C5: counted. S105 C4: read; the distance test picks one model per post (PostModelIndex)
+    if (!ReadModelPal(read, lo, false, po.models[1])) po.models[1] = ModelPal{}, ++cn.post_lo_unreadable;   // S105 C4 fix F4: counted
+    std::vector<float> fd;
+    if (ReadFloats(read, kLodDistAddr, 1, fd) && std::isfinite(fd[0])) po.lod_dist = fd[0], po.lod_ok = true;
+    else ++cn.lod_dist_unreadable;
+  }
   std::vector<float> f;
   if (!ReadFloats(read, kCvAngStep, 1, f)) { ++cn.post_unreadable; return; }
   po.step = f[0];
@@ -349,7 +361,7 @@ class RingRecomputeContributor final : public Contributor {
     auto n = [](uint64_t v) { return std::to_string((unsigned long long)v); };
     out += "[ring_recompute frames " + n(c.frames) + ", ropes " + n(c.ropes) + ", rows " + n(c.rows) + ", nodes " + n(c.nodes_total) + ", no_ring " + n(c.no_ring) + ", gate_closed " + n(c.gate_closed) +
            ", unreadable " + n(c.unreadable) + ", bad_count " + n(c.bad_count) + ", bad_index " + n(c.bad_index) + ", tb_rows " + n(c.tb_rows) + " (bad_index " + n(c.tb_bad_index) + " table_mode " + n(c.tb_table_mode) + " unreadable " + n(c.tb_unreadable) + "), tb_gate " + n(c.tb_gate) + " tb_rids " + n(c.tb_rids) + " tb_nopose " + n(c.tb_nopose) + " rope_rids " + n(c.rope_rids) + ", no_call " + n(c.no_call) + ", noted_calls " + n(c.noted_calls) + ", delta[-3..3,other,never] " + n(c.delta[0]) + " " + n(c.delta[1]) + " " + n(c.delta[2]) + " " + n(c.delta[3]) + " " + n(c.delta[4]) + " " + n(c.delta[5]) + " " + n(c.delta[6]) + " " + n(c.delta[7]) + " " + n(c.delta[8]) + (mm.empty() ? std::string() : "; " + mm) + ", alt_frames " + n(c.alt_frames) + ", override_gate_set " + n(c.override_gate_set) + ", covers " + n(c.cv_rows) + " (hidden " + n(c.cv_hidden) + " bad " + n(c.cv_bad) + " unreadable " + n(c.cv_unreadable) + " gate " + n(c.cv_gate) + " table " + n(c.cv_table_mode) + " alt_ring " + n(c.cv_alt_ring) + " rids " + n(c.cv_rids) + " lod_both " + n(c.cv_lod_both) + "), posts " + n(c.post_rows) + " (unreadable " + n(c.post_unreadable) + " lod_both " + n(c.post_lod_both) + " alt_ring " + n(c.post_alt_ring) + "), skirts " + n(c.skirt_rows) + " (unreadable " + n(c.skirt_unreadable) + " vis_unreadable " + n(c.skirt_vis_unreadable) + " none_visible " + n(c.skirt_vis_none) + "), ring_rows whole clean " + n(c.whole_clean) + " unclean " + n(c.whole_unclean) + " [rope " + n(c.unclean_rope) + " tb " + n(c.unclean_tb) + " cover " + n(c.unclean_cover) + " post " + n(c.unclean_post) + " skirt " + n(c.unclean_skirt) + " override " + n(c.unclean_override) + "]]";
-    out += " [ring_lod ours lo " + n(c.lod_lo) + " hi " + n(c.lod_hi) + " nocam " + n(c.lod_nocam) + "]";
+    out += " [ring_lod ours lo " + n(c.lod_lo) + " hi " + n(c.lod_hi) + " nocam " + n(c.lod_nocam) + "]" + " [ring_lod2 cover low " + n(c.cv_low) + " post low " + n(c.post_low) + " dist_unreadable " + n(c.lod_dist_unreadable) + " cover_lo_unreadable " + n(c.cv_lo_unreadable) + " post_lo_unreadable " + n(c.post_lo_unreadable) + "]";   // S105 C4
   }
   struct Out {
     std::vector<RingRows> rows;
@@ -402,20 +414,26 @@ class RingRecomputeContributor final : public Contributor {
     // S103 C4: covers, posts, skirts (S103 C5: ONE LOD model each: the high one stands in, the low ones are not read), 
     CvInputs cv;
     ReadCoverInputs(read_, Ring(), in, cv, census_);
-    for (uint32_t mi = 0; mi < kCvModels; ++mi) {
-      mark = out.rows.size();
-      const uint64_t hidden0 = census_.cv_hidden;
-      for (uint32_t r25 = 0; r25 < kCvCorners; ++r25)
-        for (uint32_t r28 = 0; r28 < kCvLayers; ++r28) AppendCover(cv, in, mi, r25, r28, stamp, out.rows, out.pool, census_);
-      if (mi == 0) whole.covers = uint32_t(out.rows.size() - mark), whole.covers_hidden = uint32_t(census_.cv_hidden - hidden0);
+    // S105 C4: ONE model per corner / post by the game's own distance test (CoverModelIndex / PostModelIndex: low when the eye is farther than [0x82012B14] from the corner point), as sub_827403E8 / sub_82740350.
+    mark = out.rows.size();
+    const uint64_t hidden0 = census_.cv_hidden;
+    for (uint32_t r25 = 0; r25 < kCvCorners; ++r25) {
+      const uint32_t mi = CoverModelIndex(cv, in.view, r25);
+      const size_t before = out.rows.size();
+      for (uint32_t r28 = 0; r28 < kCvLayers; ++r28) AppendCover(cv, in, mi, r25, r28, stamp, out.rows, out.pool, census_);
+      if (mi == 1) census_.cv_low += out.rows.size() - before;
     }
+    whole.covers = uint32_t(out.rows.size() - mark), whole.covers_hidden = uint32_t(census_.cv_hidden - hidden0);
     PostInputs po;
     ReadPostInputs(read_, Ring(), in, po, census_);
-    for (uint32_t mi = 0; mi < kPostModels; ++mi) {
-      mark = out.rows.size();
-      for (uint32_t i = 0; i < PostCalls(po); ++i) AppendPost(po, mi, i, stamp, out.rows, out.pool, census_);   // (S103 CRR: 8 calls in a created arena)
-      if (mi == 0) whole.posts = uint32_t(out.rows.size() - mark), whole.posts_expected = PostCalls(po);
+    mark = out.rows.size();
+    for (uint32_t i = 0; i < PostCalls(po); ++i) {   // (S103 CRR: 8 calls in a created arena)
+      const uint32_t mi = PostModelIndex(po, in.view, i);
+      const size_t before = out.rows.size();
+      AppendPost(po, mi, i, stamp, out.rows, out.pool, census_);
+      if (mi == 1) census_.post_low += out.rows.size() - before;
     }
+    whole.posts = uint32_t(out.rows.size() - mark), whole.posts_expected = PostCalls(po);
     // S103 C5: only the skirts the game poses for the camera quadrant (3 of 4 in the usual view), and the whole-ring test wants EXACTLY that many
     SkirtVisIn svis;
     ReadSkirtVisibility(read_, Ring(), svis, census_);

@@ -332,7 +332,8 @@ def script_inputs(root, main, check):
     return sorted(found.values()), '', extra
 
 
-HELPER_PS1 = ('tools/env.ps1', 'tools/cxx_cache.ps1', 'tools/cxx_cc.ps1', 'tools/wrestler/atomic_build.ps1')
+HELPER_PS1 = ('tools/env.ps1', 'tools/cxx_cache.ps1', 'tools/cxx_cc.ps1', 'tools/wrestler/atomic_build.ps1',
+              'tools/admit/Admit.ps1')   # CQW: the compile queue's helper (it changes how many compiles run at once, never what a build reads or writes)
 
 
 def ps1_manifest_inputs(root, main, ps1_all):

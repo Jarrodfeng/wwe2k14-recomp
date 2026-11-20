@@ -1,0 +1,10 @@
+{
+ "owner": "S105 lane QM (index: `q menu`). 0 game runs, 0 Surface runs. Menu pages, rows, state words and route lines for route lanes.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. qmenu_selftest.py: re-finds T5's Finisher path (menu 1 item 3 > menu 3 item 4 > menu 15 item 0 > menu 28 item 0 > sequence 26), T5's Streak / 30 Years sequence names from the code index, R3's Create a Superstar editor map (sequence 76, every HEAD / CLOTHING / UPPER BODY row label in the editor text bank and loaded by editor code, HAIR carousel 86), then refuses six planted twins (item index moved, CAW row renamed, sequence renamed, id outside the bank, page missing, code sites gone).",
+ "checks": [
+  {"name": "s105_QM.selftest", "cmd": ["py", "-I", "tools/q/qmenu_selftest.py"], "timeout_s": 300,
+   "needs": ["game_data/extracted", "out/harness/index/index.db"],
+   "affects": ["tools/q/qmenu.py", "tools/q/qmenu_lodge.py", "tools/q/qmenu_selftest.py", "tools/q/q.py", "docs/systems/game_atlas.json", "tools/atlas/screens.json"]}
+ ]
+}

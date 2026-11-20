@@ -84,6 +84,7 @@ BRANCHES = {
     'ss_group':     ('R4 pass[+16]', 'sub_82BAE370 0x82BAE5CC-0x82BAE6D4', 'sampler-state entries (sampler, id, value) from the pass block'),
     'blend_off':    ('B_d3d_api 3.2 idx 15 / reader.h DecodeBlend', 'setter 0x82CA9050', 'blend enable 0 -> control ONE/ZERO -> off'),
     'cull_single':  ('R4 cull per mesh / V batch 2 (4)', 'sub_82C04DF0 0x82C0A880-0x82C0A914; sub_82BD38B8 0x82BD38D4-0x82BD38F8', 'record word +0x8C bit 0x2: one sub-pass, cull on; clear: t = [model+276+4k] (k outside 0..1 -> 0; null slot -> [model+276]): 0 one sub-pass cull off, 1 two (mode 2 then 1), other: not drawn'),
+    'cull_copy':    ('SCU / CUL_ADV D', 'sub_82C04DF0 0x82C0A918-0x82C0A930 (r26); 0x82C0B920-0x82C0B968 (swap, draw 0x82C0B94C, restore)', 'an `r` slot\'s mirrored copy of a bit-set record: the winding swapped (r26 = 2 if the entry is 1, else 1) around its draw'),
     'draw_gate':    ('V batch 2 (4)', 'sub_82C04DF0 0x82C0A918-0x82C0A968 (draw 0x82C0A950)', 'drawn only if [model+832] != 0 or [model+624] != 0'),
     'slot_fixed':   ('R5 tex.fixed', 'sub_82BD5CE8/DC0/E58 0x82BD5D80; 0x82BD5E18; 0x82BD5EA0', 'slots 12 / 13 / 15 bound from the shared object, not the material'),
     'slot_mat':     ('R5 tex.slot / tex.table / tex.value', 'sub_82C04DF0 0x82C08108-0x82C08134; 0x82C080CC-0x82C080E8', 'a material slot: the mesh parameter value indexes the model texture table (the file textures)'),
@@ -160,10 +161,8 @@ ASSUMED = {
                          'R4 / R8: states neither the stage pass begin, the slot draw nor the pass block set (separate alpha, alpha-channel factors, colour write mask: "no setter found", R8) keep D3D defaults (mask 0xF)'),
     'blend_sep_off':    ('copy', 'B_d3d_api 3.2 idx 16 "flag 30 of +12284": with separate alpha off the alpha factors are taken = the colour factors [L, D3D9 rule]'),
     'cull_k':           (None, 'R4 cull per mesh / V batch 2 (4): the slot k = [[thread+1048]+32]; None = null [r13]+1048 (k = 0, t = [model+276]); k outside 0..1 -> t = 0; default None'),
-    'cull_t':           (1, 'R4 cull per mesh: t = [model+276+4k] writer unread; default 1 (two sub-passes)'),
     'draw_gate':        (1, 'V batch 2 (4): the mesh is drawn only if [model+832] != 0 or [model+624] != 0; writers unread; default 1 (drawn)'),
     'model_callbacks':  (None, 'V batch 2 (5): [model+316](model,[model+320]) per model and [model+324](model,[model+328]) per mesh; the one sub_825A3908 installs (characters) records command 44 only; stage / prop models: callbacks unread, assumed none'),
-    'cull_entry_mode':  (1, 'R4 cull per mesh: the mode found at entry (stack 324) unread; default 1'),
     'role_fixed':       ({12: 'target:ShadowMap', 13: 'map', 15: 'map'}, 'R5 tex.fixed: what the shared object at 0x83930000-8796 holds is [U]; default roles by guess of the slot 12 shadow sampler, listed'),
     'role_vtex':        ('map', 'vertex sampler slots (>= 16, fx.json): no claim names their source (the light-map page, arena_lightmap.md); default map'),
     'role_material':    ('file', 'R5 tex.table: a material slot binds an entry of the model texture table = the file textures [L]'),
@@ -174,6 +173,21 @@ ASSUMED = {
 
 def assumed_value(name, overrides):
     return overrides.get(name, ASSUMED[name][0])
+
+
+# ---- named inputs a probe settled (no longer ASSUMED; a plant may still override them) ------------------------------------------
+SETTLED = {
+    'cull_t':          (0, 'SCU / CUL.md 1, CUL_ADV.md A [C]: t = [model+276+4k]; the model base constructor sub_82BD39C8 writes 0 (0x82BD3A54 / 0x82BD3A58); the only indexed setter '
+                           'sub_82BD3900 is called from wrestler draw helpers (sub_8259E008, sub_8259FAE8) and sub_83368C90 (a character draw method): a stage model keeps t = 0'),
+    'stage_zwrite_inherited': (1, 'SZW / ZW2 [C capture: 726 `s` draws in 20 captures of 13 arenas, both looks, z write 1 at fixed-state byte +9] + ZW3 [C: after the wrestler translucent node too]: sub_825B9860 (the group begin) never sets '
+                                  'ZWRITEENABLE (no slot-18 call), the value is what the previous render node left, which is 1 on every path read; who sets the standing 1 at frame start is [U] (ZW1)'),
+    'cull_entry_mode': (2, 'SCU / CUL.md 1, CUL_ADV.md B [C]: the winding at entry = recorder state +116: init 2 (sub_82C22F88, store 0x82C22FF8); the camera hand-off sub_823C79A8 sets 2 '
+                           'for a camera slot with [+176] == 0 (0x823C7D68-0x823C7D74), 1 only for a mirrored camera (+176 set: no stage pass of ours draws through one, [U] whether a live slot sets it)'),
+}
+
+
+def settled_value(name, overrides):
+    return overrides.get(name, SETTLED[name][0])
 
 
 # ---- the branch recorder --------------------------------------------------------------------------------------------------------
@@ -407,7 +421,7 @@ def rule_blend_code(B, st, code):
 def rule_stage_state(B, srec, cycled, inp):
     """-> the render state at the colour pass of a stage slot, before the pass block (z write included)."""
     st = dict(assumed_value('inherited_state', inp))
-    st['zwrite'] = 1
+    st['zwrite'] = settled_value('stage_zwrite_inherited', inp)   # SZW: a SETTLED input (ZW2 / ZW3), no longer a literal
     B.br('afunc_code', True)  # [R8 alpha func code (method 22)] codes 5 / 6 below go through AFUNC_CODE
     if B.br('cycled', cycled):  # [R8 cycled slot groups] sub_83420EA0 0x83421074-0x8342112C
         st.update(blend_en=1, atest=1, aref=0, afunc=AFUNC_CODE[6])
@@ -415,7 +429,7 @@ def rule_stage_state(B, srec, cycled, inp):
         if B.br('slot_a_o', (srec[8] & 0x40) != 0, 'a (cycled)'):  # [R8 cycled slot groups] a -> ref 1, blend code 1
             st['aref'] = 1
             rule_blend_code(B, st, 1)
-        if B.br('slot_z', (srec[8] & 0x08) != 0, 'z (cycled)'):  # [R8 cycled slot groups] z -> z write 0
+        if B.br('slot_z', (srec[8] & 0x08) != 0 and st['zwrite'] != 0, 'z (cycled)'):  # [R8 cycled slot groups] z -> z write 0 (only when z write is on: sub_824E9E10 tests the cached +84 first)
             st['zwrite'] = 0
         return st
     B.br('stage_begin', True)  # [R8 stage pass begin] sub_825B9860 0x825B9888-0x825B98C4
@@ -427,7 +441,7 @@ def rule_stage_state(B, srec, cycled, inp):
         rule_blend_code(B, st, 1)
         st['aref'] = 1
         st['afunc'] = AFUNC_CODE[5]
-    if B.br('slot_z', (srec[8] & 0x08) != 0, 'z'):  # [R8 z write per slot] 0x824EA134-0x824EA154
+    if B.br('slot_z', (srec[8] & 0x08) != 0 and st['zwrite'] != 0, 'z'):  # [R8 z write per slot] 0x824EA134-0x824EA154 (only when z write is on: the cached +84 test, ZWR_ADV B)
         st['zwrite'] = 0
     return st
 
@@ -555,9 +569,13 @@ def rule_blend_alpha(B, st, inp):
 
 def rule_cull(B, rec, inp):
     if B.br('cull_single', (rec['w8c'] & 0x2) != 0, 'bit2 set'):  # [R4 cull per mesh] 0x82C0A880-0x82C0A914
-        return dict(subpasses=1, cull=True, mode=assumed_value('cull_entry_mode', inp))
+        mode = settled_value('cull_entry_mode', inp)
+        out = dict(subpasses=1, cull=True, mode=mode)
+        if B.br('cull_copy', 'r' in (rec.get('slot_tokens') or []), 'r copy'):  # [R4 cull per mesh; SCU / CUL_ADV D] 0x82C0B920-0x82C0B968: the `r` copy (draw 0x82C0B94C) swaps the winding
+            out['copy_mode'] = 2 if mode == 1 else 1  # [R4 cull per mesh; SCU / CUL_ADV D] r26 = 2 if the entry is 1, else 1 (0x82C0A918-0x82C0A930)
+        return out
     k = assumed_value('cull_k', inp)
-    t = assumed_value('cull_t', inp)  # [R4 cull per mesh / V batch 2 (4)] null slot pointer -> [model+276]
+    t = settled_value('cull_t', inp)  # [R4 cull per mesh / V batch 2 (4)] null slot pointer -> [model+276]
     if B.br('cull_single', k is not None and k not in (0, 1), 'k outside 0..1'):  # [V batch 2 (4)] sub_82BD38B8 returns 0
         t = 0
     if B.br('cull_single', t == 0, 't==0'):  # [R4 cull per mesh] t = sub_82BD38B8 = [model+276+4k]: 0 one sub-pass cull off
@@ -766,6 +784,8 @@ def _synthetic(reg):
     out.append((390, dict(name='yProp_Default', w8c=0, w90=0, w64=0, param_words={}, slot_tokens=[])))
     out.append((81, dict(name='yProp_Default', w8c=0, w90=0, w64=0, param_words={}, slot_tokens=[], stage_1216=210)))
     out.append((140, dict(name='yBG_Default', w8c=0, w90=0, w64=0, param_words={}, slot_tokens=['a'], cycled=True)))
+    # SCU: a cull-bit record (+0x8C = 6) in an `r` slot: the one-sided draw and the mirrored copy's swapped winding
+    out.append((160, dict(name='yBG_Default', w8c=6, w90=0, w64=0, param_words={}, slot_tokens=['r'])))
     return out
 
 
@@ -785,8 +805,8 @@ PLANTS = {
     'camera':        ({'camera_1164': {'entrance': 1, 'match': 1}}, 'pass +4 for the rec+8 names'),
     'inherited':     ({'inherited_state': dict(ASSUMED['inherited_state'][0], wmask=7, blend_sep=1)}, 'inherited write mask 7 + separate alpha on'),
     'role_fixed':    ({'role_fixed': {12: 'rt', 13: 'rt', 15: 'rt'}}, 'fixed slot roles'),
-    'cull_t':        ({'cull_t': 0}, 'cull off for two-sided records'),
-    'cull_k':        ({'cull_k': 5}, 'slot k outside 0..1 -> t = 0'),
+    'cull_t':        ({'cull_t': 1}, 'two sub-passes for two-sided records (t = 1)'),
+    'cull_entry':    ({'cull_entry_mode': 1}, 'the entry winding of a mirrored camera (mode 1)'),
     'draw_gate':     ({'draw_gate': 0}, 'nothing drawn'),
 }
 

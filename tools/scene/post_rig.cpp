@@ -681,6 +681,9 @@ int main(int argc, char** argv) {
   uint32_t w = 1280, h = 720;
   std::vector<float> cam, eye;
   bool no_post = false, fov_test = false;
+  float a1_scale = 1.f;   // S105 A1: --scale S = the renderer's render scale; the scene targets are drawn at S x the logical size (the stream-free player build with the launcher's 1440p / 4K / 360p-648p)
+  bool a1_no_dof = false;   // S105 A1: --a1-no-dof: the post row with its depth of field switched off (the DoF-only effect map = the picture with DoF minus this one)
+  std::string a1_plant;   // S105 A1: dconv | ghost | unscaled (each must make a1_check.py FAIL)
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--record" && i + 1 < argc) rec = argv[++i];
@@ -692,6 +695,9 @@ int main(int argc, char** argv) {
     else if (a == "--row" && i + 1 < argc) row_file = argv[++i];
     else if (a == "--plant" && i + 1 < argc) plant = argv[++i];
     else if (a == "--no-post") no_post = true;
+    else if (a == "--scale" && i + 1 < argc) a1_scale = std::strtof(argv[++i], nullptr);   // S105 A1
+    else if (a == "--a1-plant" && i + 1 < argc) a1_plant = argv[++i];   // S105 A1
+    else if (a == "--a1-no-dof") a1_no_dof = true;   // S105 A1
     else if (a == "--ghost" && i + 1 < argc) ghost_mode = argv[++i];                 // S103 FXF: alpha | additive: the ghost twin test (see below)
     else if (a == "--ghost-plant" && i + 1 < argc) ghost_plant = argv[++i];          // S103 FXF: ignored = the second ghost frame draws without the ghost (must be caught)
     else if (a == "--fov-test") fov_test = true;
@@ -751,11 +757,15 @@ int main(int argc, char** argv) {
   if (!source.SetRoot(game)) { std::fprintf(stderr, "post_rig: FAIL no game files under %s\n", game.c_str()); return 3; }
   rdr::RendererOptions ro;
   if (const char* v = std::getenv("WWE_RDR_VALIDATION")) ro.validation = std::atoi(v);
+  ro.render_scale = a1_scale;   // S105 A1
+  g_a1_plant_dconv_unscaled.store(a1_plant == "dconv" ? 1 : 0), g_a1_plant_ghost_logical.store(a1_plant == "ghost" ? 1 : 0), rdr_scene::g_a1_plant_scaled_alloc_fail.store(a1_plant == "alloc" ? 1 : 0);
+  if (!a1_plant.empty() && a1_plant != "dconv" && a1_plant != "ghost" && a1_plant != "unscaled" && a1_plant != "alloc") { std::fprintf(stderr, "post_rig: unknown --a1-plant %s\n", a1_plant.c_str()); return 1; }
   auto renderer = rdr::Renderer::Create(ro, err);
   if (!renderer) { std::fprintf(stderr, "post_rig: FAIL renderer: %s\n", err.c_str()); return 3; }
   int rc = 0;
   {
     FrontEnd fe(*renderer);
+    fe.SetScaledTargets(a1_scale != 1.f && a1_plant != "unscaled");   // S105 A1 ("unscaled" = the planted twin: the scene targets left at the logical size = the bug)
     rf::ModelCache cache(fe, source, true);
     if (fov_test) {   // S103 P: a camera as the composer's copy gives it (view + FOV, kCamProjFromFov): BuildFrame builds the projection; ProjQ must read (f/(f-n), n f/(f-n))
       const float cases[2][2] = {{0.f, 0.f}, {5.f, 1000.f}};   // near / far 0 = the reader's default (10 / 300000)
@@ -879,7 +889,8 @@ int main(int argc, char** argv) {
     if (!rf::BuildFrame(t, cache, rf::kAllFamilies, w, h, f, reports, err)) { std::fprintf(stderr, "post_rig: FAIL build: %s\n", err.c_str()); return 3; }
     std::vector<uint8_t> rgba;
     fe.ResetCoverage();
-    if (!fe.RenderToPixels(f, rgba, err) || !scene_png::WritePngRgb(prefix + "_nopost.png", rgba, w, h)) { std::fprintf(stderr, "post_rig: FAIL draw (no post): %s\n", err.c_str()); return 3; }
+    uint32_t rw = w, rh = h;   // S105 A1: the read-back's real size (the logical size x the render scale)
+    if (!fe.RenderToPixels(f, rgba, err, &rw, &rh) || !scene_png::WritePngRgb(prefix + "_nopost.png", rgba, rw, rh)) { std::fprintf(stderr, "post_rig: FAIL draw (no post): %s\n", err.c_str()); return 3; }
     PostParams pp;
     post_from_record::Info info;
     const bool built = !no_post && post_from_record::Build(t, f.camera, w, h, pp, info);
@@ -896,10 +907,21 @@ int main(int argc, char** argv) {
                   "depth_linear %d | dead_bloom %d dead_glare %d | q %.9g nq %.9g | down_w %.7g\n",
                   pp.DOFParam[0], pp.DOFParam[1], pp.DOFParam[2], pp.DOFParam[3], pp.DOFParam2[0], pp.DOFParam2[1], pp.DOFParam2[2], pp.DOFParam2[3], pp.RGB[0], pp.RGB[1], pp.RGB[2], pp.RGB[3],
                   pp.BloomScale[0], pp.StarScale[0], pp.dof, pp.fog, pp.bloom, pp.glare, pp.film, pp.dof_depth_linear, pp.dead_bloom, pp.dead_glare, pp.proj_q, pp.proj_nq, pp.dof_param2_down[3]);
+      if (a1_no_dof) pp.dof = false, pp.dof_chain = false;   // S105 A1
       f.post = &pp;
-      if (!fe.RenderToPixels(f, rgba, err) || !scene_png::WritePngRgb(prefix + "_post.png", rgba, w, h)) { std::fprintf(stderr, "post_rig: FAIL draw (post): %s\n", err.c_str()); rc = 3; }
+      if (!fe.RenderToPixels(f, rgba, err, &rw, &rh) || !scene_png::WritePngRgb(prefix + "_post.png", rgba, rw, rh)) { std::fprintf(stderr, "post_rig: FAIL draw (post): %s\n", err.c_str()); rc = 3; }
+      {   // S105 A1: the real sizes of the scene targets and of every live image with its kUsageScaled flag (a1_check.py reads these lines)
+        uint32_t cw = 0, ch = 0, dw = 0, dh = 0, vw = 0, vh = 0;
+        bool cs = false, ds = false, vs = false;
+        fe.TargetExtent(fe.scene_colour_image(), cw, ch, cs), fe.TargetExtent(fe.scene_depth_image(), dw, dh, ds);
+        if (fe.post_pass_for_test()) fe.TargetExtent(fe.post_pass_for_test()->depth_convert_image(), vw, vh, vs);
+        std::printf("a1-sizes: scale %.4f logical %ux%u picture %ux%u colour %ux%u scaled %d depth %ux%u scaled %d dconv %ux%u scaled %d\n", a1_scale, w, h, rw, rh, cw, ch, int(cs), dw, dh, int(ds), vw, vh, int(vs));
+        for (const rdr::Renderer::LiveImageInfo& li : renderer->LiveImageInfos()) std::printf("a1-image: id %u %ux%u format %u scaled %d\n", li.id, li.width, li.height, li.format, int(li.scaled));
+      }
       if (!ghost_mode.empty() && rc == 0) {   // S103 FXF: the yAfterImage twin test (FXP.md adversary E). The static scene's off twin = the post picture just drawn. Ghost frame 1 (a new effect: no blend, the history is filled)
         // must equal it; ghost frame 2 draws the previous output over this one: it must differ INSIDE the sprite's rectangle only. Rect = centre +- scale / 2 of the picture (here 0.5 wide, centred at 0.62 / 0.4).
+        // S105 A1: a second draw of the same post frame is the off twin: the first render of a record can differ from the next ones (a movie screen's stand-in picture appears from the second render on), which made this test fail at any scale.
+        if (!fe.RenderToPixels(f, rgba, err, &rw, &rh)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost off twin): %s\n", err.c_str()); return 3; }
         const std::vector<uint8_t> off = rgba;
         PostParams gp = pp;
         gp.ghost = true, gp.ghost_additive = ghost_mode == "additive";
@@ -908,24 +930,24 @@ int main(int argc, char** argv) {
         gp.ghost_frame = 1000;
         f.post = &gp;
         std::vector<uint8_t> g1, g2;
-        if (!fe.RenderToPixels(f, g1, err)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 1): %s\n", err.c_str()); return 3; }
+        if (!fe.RenderToPixels(f, g1, err, &rw, &rh)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 1): %s\n", err.c_str()); return 3; }
         gp.ghost_frame = 1001;
         if (ghost_plant == "ignored") gp.ghost = false;   // planted twin: the effect is ignored on the frame that must show it
-        if (!fe.RenderToPixels(f, g2, err)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 2): %s\n", err.c_str()); return 3; }
-        scene_png::WritePngRgb(prefix + "_ghost1.png", g1, w, h), scene_png::WritePngRgb(prefix + "_ghost2.png", g2, w, h);
+        if (!fe.RenderToPixels(f, g2, err, &rw, &rh)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 2): %s\n", err.c_str()); return 3; }
+        scene_png::WritePngRgb(prefix + "_ghost1.png", g1, rw, rh), scene_png::WritePngRgb(prefix + "_ghost2.png", g2, rw, rh);
         // review 1: recording the SAME guest frame again (the 120 fps tween, the dev mirror) must give the same picture as once. The planted twin (--ghost-plant advance) records the repeat as the next guest frame.
         std::vector<uint8_t> g2b;
         if (ghost_plant == "advance") gp.ghost_frame = 1002;
-        if (!fe.RenderToPixels(f, g2b, err)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 2 again): %s\n", err.c_str()); return 3; }
+        if (!fe.RenderToPixels(f, g2b, err, &rw, &rh)) { std::fprintf(stderr, "post_rig: FAIL draw (ghost 2 again): %s\n", err.c_str()); return 3; }
         const bool idem = g2b == g2;
         std::printf("ghost-test repeat of the same guest frame: %s\n", idem ? "identical" : "DIFFERS");
         if (!idem) rc = 3;
-        const size_t stride = size_t(w) * 4;   // (RenderToPixels: RGBA8, rows top first)
-        const float x0 = (gp.ghost_centre[0] - gp.ghost_scale * 0.5f) * float(w), x1 = (gp.ghost_centre[0] + gp.ghost_scale * 0.5f) * float(w);
-        const float y0 = (gp.ghost_centre[1] - gp.ghost_scale * 0.5f) * float(h), y1 = (gp.ghost_centre[1] + gp.ghost_scale * 0.5f) * float(h);
+        const size_t stride = size_t(rw) * 4;   // (RenderToPixels: RGBA8, rows top first; S105 A1: the real read-back size)
+        const float x0 = (gp.ghost_centre[0] - gp.ghost_scale * 0.5f) * float(rw), x1 = (gp.ghost_centre[0] + gp.ghost_scale * 0.5f) * float(rw);
+        const float y0 = (gp.ghost_centre[1] - gp.ghost_scale * 0.5f) * float(rh), y1 = (gp.ghost_centre[1] + gp.ghost_scale * 0.5f) * float(rh);
         uint64_t first_diff = 0, inside_diff = 0, outside_diff = 0, inside_less = 0;
-        for (uint32_t y = 0; y < h; ++y)
-          for (uint32_t x = 0; x < w; ++x) {
+        for (uint32_t y = 0; y < rh; ++y)
+          for (uint32_t x = 0; x < rw; ++x) {
             const size_t o = y * stride + x * 4;
             if (o + 2 >= off.size() || o + 2 >= g1.size() || o + 2 >= g2.size()) continue;
             for (int c = 0; c < 3; ++c) first_diff += off[o + c] != g1[o + c];

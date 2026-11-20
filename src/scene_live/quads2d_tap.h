@@ -20,6 +20,7 @@
 #include "../keep_stream.h"  // WWE2K14_STREAM() (S103 PN4: the OFF-only arming in Active())
 #include "../frame_stats.h"  // g_guest_frame
 #include "../renderer_scene/quads2d_core.h"
+#include "../renderer_scene/walk_cat.h"   // S105 A4B
 #include "../renderer_game/fallback_census.h"   // S103 L2b
 #if !WWE2K14_STREAM()
 #include "../renderer_game/thumb_scope.h"   // S103 RBC: the replay-thumbnail render scope (the frame-restore draw is a 360 habit, not a hole)
@@ -57,6 +58,9 @@ inline thread_local q::TargetState t_target;     // S103 SC: this thread's colou
 inline thread_local q::Saves t_saves;           // S103 PFR: this thread's op-46 saves (holder -> the target it had bound); not cleared by the frame reset
 inline thread_local uint32_t t_frame = 0xFFFFFFFFu;   // S103 PFR: the guest frame this thread last ran a tap op in
 inline thread_local q::Shadow t_shadow;   // S103 I3: the 2D programs' constant registers as THIS thread last set them (the glyph rows' constants)
+inline thread_local rdr_scene::walkcat::Walk t_walk;   // S105 A4B: the category of the MAIN frame walk (sub_82C2FA10) this thread is inside; set by the begin hook (sub_82C3B200), reset by the end hook (sub_82C3B218): the main walk never nests (A4B_ADV E4)
+inline void OnWalkBegin(uint32_t cat) { t_walk.Begin(cat); }
+inline void OnWalkEnd() { t_walk.End(); }
 inline q::Counters g_counters;   // process-wide atomics: a log from any thread reads them all
 
 // The guest memory the core reads: wrestler_hook.h's ReadGuest (MMIO heap excluded, fault-safe SafeCopy; the plane and circle hooks read the same way). A failed read is a counted refusal in the core.
@@ -131,6 +135,7 @@ inline void OnOp19(const PPCContext& ctx, const uint8_t* base) {   // q2d-lint: 
   }
   q::SeedTargetIfUnseen(t_target, GuestMem{}, g_counters);   // PBS: a thread with no target op yet draws into the default back buffer (boot / title / menu screens)
   q::OnOp19(t_scope, GuestMem{}, TheStore(), Frame(), uint32_t(ctx.lr) - 4, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, g_counters, &t_shadow, ctx.r13.u32, &t_scissor, &t_target);   // (S103 I3: &t_shadow; S103 L2a: r13 -> the state object's blend / alpha test; S103 SC: + the state object's scissor enable and this thread's last rect)
+  if (t_scope.drawn) rdr_scene::walkcat::Mark(t_scope.cur, t_walk);   // S105 A4B: a scene-colour row recorded below the first wrestler category gets kQhPre3DCat (before the census key and the CloseScope commit)
   if (t_scope.drawn && t_scope.cur.pass == rdr_scene::kQpSceneColour) {   // PFR review 6: the FIRST scene-colour row's site, once (the host drops these rows: this says what is lost)
     static std::atomic<bool> logged{false};
     if (!logged.exchange(true)) REXLOG_INFO("[q2d] first scene-colour 2D row (op 73 target): frame {}, op-19 site 0x{:08X}, row site 0x{:08X}, kind {}", Frame(), uint32_t(ctx.lr) - 4, t_scope.cur.site, unsigned(t_scope.cur.kind));
@@ -139,7 +144,7 @@ inline void OnOp19(const PPCContext& ctx, const uint8_t* base) {   // q2d-lint: 
       struct Cell { std::atomic<uint64_t> key{0}, n{0}; };
       static Cell cells[24];
       static std::atomic<uint64_t> total{0};
-      const uint64_t key = (uint64_t(t_scope.cur.site) << 16) | (uint64_t(t_scope.cur.kind) << 8) | uint64_t(t_scope.cur.state & 0x3Fu) | (1ull << 62);   // state: code (4 bits) + z test (16) + z write (32)
+      const uint64_t key = (uint64_t(t_scope.cur.site) << 16) | (uint64_t(t_scope.cur.kind) << 8) | uint64_t(t_scope.cur.state & 0x3Fu) | (1ull << 62) | ((t_scope.cur.have & rdr_scene::kQhPre3DCat) ? (1ull << 61) : 0ull);   // S105 A4B: bit 61 = early;   // state: code (4 bits) + z test (16) + z write (32)
       for (Cell& c : cells) {
         uint64_t k = c.key.load(std::memory_order_relaxed);
         if (k == 0 && c.key.compare_exchange_strong(k, key)) k = key;
@@ -173,7 +178,7 @@ inline void OnOp19(const PPCContext& ctx, const uint8_t* base) {   // q2d-lint: 
           const uint64_t k = c.key.load(std::memory_order_relaxed);
           if (!k) continue;
           char b[96];
-          std::snprintf(b, sizeof b, " [site 0x%08X kind %u blend %u z_test %u z_write %u: %llu]", unsigned((k >> 16) & 0xFFFFFFFFu), unsigned((k >> 8) & 0xFFu), unsigned(k & 15u), unsigned((k >> 4) & 1u), unsigned((k >> 5) & 1u), (unsigned long long)c.n.load(std::memory_order_relaxed));
+          std::snprintf(b, sizeof b, " [site 0x%08X kind %u blend %u z_test %u z_write %u early %u: %llu]", unsigned((k >> 16) & 0xFFFFFFFFu), unsigned((k >> 8) & 0xFFu), unsigned(k & 15u), unsigned((k >> 4) & 1u), unsigned((k >> 5) & 1u), unsigned((k >> 61) & 1u), (unsigned long long)c.n.load(std::memory_order_relaxed));
           line += b;
         }
         REXLOG_INFO("[q2d] scene-colour rows by site / kind / blend / z ({} rows):{}", (unsigned long long)t, line);

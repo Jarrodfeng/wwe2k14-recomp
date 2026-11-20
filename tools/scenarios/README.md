@@ -62,7 +62,7 @@ Unattended check (quits 900 frames after the in-game sequence starts; up to 3 at
 | Setting | Effect |
 |---|---|
 | `--wwe2k14_launch_arena=N` | another arena (ids in `db\ids\arenas.json`; locked WrestleMania arenas 28-55 work: run 492) |
-| `--wwe2k14_launch_participants=ID[:PAD],...` | other wrestlers for slots 0, 1, ... (ids in `db\ids\characters.json`; PAD 0-3 = that controller, default CPU) |
+| `--wwe2k14_launch_participants=ID[:PAD[:ATTIRE]],...` | other wrestlers for slots 0, 1, ... (ids in `db\ids\characters.json`; PAD 0-3 = that controller, default or empty CPU; ATTIRE (S105 T3) = `N` attire 0-9, `N/S` attire N + Threads colour set S, `tS` attire 0 + set S, `s` the superstar's saved defaults; e.g. `397:0:1,324`, `397::1` = CPU in attire 1; no third part = attire 0, nothing else changes) |
 | `--wwe2k14_launch_restore_ga=false` | keep the G / A this apply made (e.g. a fresh random Rumble entry order) |
 | `--wwe2k14_scenario_dir=DIR` | another scenario folder |
 

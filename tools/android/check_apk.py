@@ -125,6 +125,25 @@ def check_stream_free(apk: str) -> list:
     return [] if STREAM_FREE_MARK in data else ['libmain.so is not the stream-free build (no "the scene host is the poster" string): a release APK is built stream-free']
 
 
+def release_version_fails(data: bytes, version: str) -> list:
+    """S105 ADEV: pure part. A player (release) libmain.so carries the PC version as `vX.Y.Z` and never `vX.Y.Z+dev` (CMake appends +dev unless WWE2K14_RELEASE=ON)."""
+    v = version.strip().encode('ascii')
+    if v + b'+dev' in data:
+        return [f'libmain.so says "{version.strip()}+dev": the game library was not built with -DWWE2K14_RELEASE=ON (build_all.ps1 -Release)']
+    if v + b'\0' not in data:
+        return [f'libmain.so does not carry the version string "{version.strip()}" (cannot tell the build)']
+    return []
+
+
+def check_release_version(apk: str, pc_version: str) -> list:
+    with zipfile.ZipFile(apk) as z:
+        try:
+            data = z.read('lib/arm64-v8a/libmain.so')
+        except KeyError:
+            return ['lib/arm64-v8a/libmain.so is missing (cannot tell the build)']
+    return release_version_fails(data, pc_version)
+
+
 def check_libraries(apk: str) -> list:
     with zipfile.ZipFile(apk) as z:
         names = set(z.namelist())
@@ -164,6 +183,8 @@ def main() -> int:
     version = Path(args.version_file).read_text(encoding='ascii').strip()
     fails = check_manifest(dump.stdout, version, args.release)
     fails += check_libraries(args.apk)
+    if args.release:
+        fails += check_release_version(args.apk, (ROOT / 'VERSION').read_text(encoding='ascii').splitlines()[0])
     if args.stream_free:
         fails += check_stream_free(args.apk)
     if not args.no_signature:
@@ -171,8 +192,10 @@ def main() -> int:
     for f in fails:
         print(f'check_apk: FAIL {f}')
     if not fails:
+        with zipfile.ZipFile(args.apk) as z:
+            kind = 'dev (+dev)' if b'+dev\0' in z.read('lib/arm64-v8a/libmain.so') else 'release (no +dev)'
         print(f'check_apk: ok ({version}, versionCode {version_code(version)}, configChanges and hasFragileUserData as asked, '
-              f'{len(LIBRARIES)} native libraries present)')
+              f'{len(LIBRARIES)} native libraries present, libmain {kind})')
     return 1 if fails else 0
 
 

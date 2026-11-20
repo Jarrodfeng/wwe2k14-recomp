@@ -10,8 +10,9 @@
 //
 //   * Compose(): pure; plain DDS blobs + 48 bytes in, RGBA8 + mips out. k = entry - 13 (NEVER the n-th present entry: the game binds Mask1..4 by fixed
 //     index; attire_build.py's enumerate() shifted k when an entry was missing). Channel masks come from each mask's DDS header (Heenan's: R 0x0F00, G
-//     0x00F0, B 0x000F, A 0xF000). A colour of 255 paints WHITE (the game's loop has no test for 255: every byte x 1/255), `White::kKeep` (the old
-//     tool default: a 255 colour leaves the texel) only through Options::white (the check tool; no player switch) until shader FB40689827987460 is read [U].
+//     0x00F0, B 0x000F, A 0xF000). A colour of 255 paints value x white (S105 A5dW [C]: sub_83418580 +150..+1E0 sends u8 / 255 as g_CompR..A; shader
+//     FB40689827987460 writes (mask value x colour, 1) on the first non-zero channel, blend SrcAlpha / InvSrcAlpha: no colour test anywhere). `White::kKeep` is a
+//     test-only alternative (Options::white, the check tool; no player switch) that is NOT the game's rule.
 //   * ReadComposite(): the hook's pure half (template over the guest word reader, so the host test drives it with a byte map): desc = [reader+96],
 //     mode = u32 [desc+44], set = s32 [desc+48], chosen = [desc+92], loaded = [desc+28]; mode 0 or 2 = the base as is (nothing composed); else
 //     P = [reader+100], block = [P+16], 0 <= set <= 15, 48 bytes at block + 132 set + 1320 (index 4k + c, RGB). Every refusal is counted.
@@ -41,7 +42,7 @@ constexpr uint32_t kBaseEntry = 12;   // the PACH's base texture ("color")
 constexpr uint32_t kFirstMaskEntry = 13;
 constexpr int kMasks = 4;             // entries 13..16 = k 0..3
 
-enum class White { kPaint, kKeep };
+enum class White { kPaint /* the game (S105 A5dW) */, kKeep /* test only */ };
 
 // Planted faults for the offline proof (tools\assets\attire_compose_check.*); never set in the game.
 enum class Fault {

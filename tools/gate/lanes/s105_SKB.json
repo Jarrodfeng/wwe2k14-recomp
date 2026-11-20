@@ -1,0 +1,19 @@
+{
+ "owner": "S105 lane SKB (note docs/research/s105/SKB.md): the live loader runs the jobs that gate READY (wrestler models, the arena) before the non-gating props (src/renderer_scene/load_order.h PickJob, Missed.gates), and pac\\m2.pac is opened once (asset_load.h OpenM2) instead of per LoadM2Weapon call. 0 game runs.",
+ "claim": {"scene": "entrance start / skipped-entrance bell", "side": "cpu", "ms": [2500, 4000], "basis": "S105 SKB note: runs 110 / 111 / 114 black seconds; m2 re-read 555-582 ms for 14 ids vs 47.6 ms opened once (offline harness). Not measured on this build."},
+ "note": "load_order_unit (pure pick + the prop-gating table + bulk prewarm); the script runs its twins (fifo, nobulk, gate_ambient) and requires each to fail its named check. The m2 open-once check (OpenM2 open counter; twin m2_reopen) is weapon_draw_unit loader.m2_open_once, run by lane s103_PW3.",
+ "checks": [
+  {"name": "s105_SKB.order_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_load_order_unit.ps1"], "timeout_s": 600,
+   "affects": ["src/renderer_scene/load_order.h", "src/renderer_scene/live_scene_draw.cpp", "tools/scene/load_order_unit.cpp", "tools/scene/build_load_order_unit.ps1"]},
+  {"name": "s105_SKB3.missed_init_lint", "cmd": ["py", "-I", "tools/scene/missed_init_lint.py"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["src/renderer_scene/record_frame.cpp", "src/renderer_scene/record_frame.h", "src/renderer_scene/live_scene_draw.cpp", "src/renderer_scene/live_assets.cpp", "tools/scene/missed_init_lint.py"]},
+  {"name": "s105_SKB3.evtobj_ranged_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_evtobj_ranged_unit.ps1"], "timeout_s": 900, "tier": "cheap", "gpu": false,
+   "affects": ["src/assets/xctd_ranged.h", "src/assets/asset_load.h", "src/assets/pac.h", "src/launcher/disc_image.h", "src/xctd_file.h", "src/native_lzx.h", "tools/assets/evtobj_ranged_unit.cpp", "tools/assets/build_evtobj_ranged_unit.ps1"]},
+  {"name": "s105_SKB3.evtobj_ranged_real", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_evtobj_ranged_unit.ps1", "-Real", "C:/Users/Jarrod/wwe2k14-recomp/game_data/extracted", "-All"], "timeout_s": 900, "tier": "cheap", "gpu": false,
+   "affects": ["src/assets/xctd_ranged.h", "src/assets/asset_load.h", "src/assets/pac.h", "src/launcher/disc_image.h", "src/xctd_file.h", "src/native_lzx.h", "tools/assets/evtobj_ranged_unit.cpp", "tools/assets/build_evtobj_ranged_unit.ps1"]},
+  {"name": "s105_SKB3.missed_tag_compile_twin", "cmd": ["pwsh", "-NoProfile", "-Command", ". tools/env.ps1 | Out-Null; py -I tools/scene/missed_init_lint.py --compile-twin; exit $LASTEXITCODE"], "timeout_s": 300, "tier": "cheap", "gpu": false,
+   "affects": ["src/renderer_scene/record_frame.h", "tools/scene/missed_init_lint.py"]},
+  {"name": "s105_SKB3.missed_init_twin", "cmd": ["py", "-I", "tools/scene/missed_init_lint.py", "--selftest"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/missed_init_lint.py"]}
+ ]
+}

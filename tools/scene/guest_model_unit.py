@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41]   # 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
+PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
 
 # ---- lints, over a {relative path: text} map so a twin can add a synthetic file --------------------------------------------------------------------------------------------------------------------------
 STRIDE_ONLY = [re.compile(r'\bLayoutOfStride\b'), re.compile(r'switch\s*\(\s*\w*stride\w*\s*/\s*4\s*\)')]
@@ -28,6 +28,9 @@ LOCAL_STATIC = re.compile(r'^\s{2,}static\s+(?!const\b)(?:std::(?:unordered_map|
 LOCAL_STATIC_ALLOW = {  # existing function-local statics of rf_*.cpp, not touched by this lane; a NEW one must fail the lint
     ('src/renderer_scene/rf_c_core.cpp', 'static std::map<int, State> s;'): 'pre-existing per-class state of the C core (S103 C; one cache owns it)',
     ('src/renderer_scene/rf_screens.cpp', 'static std::vector<uint8_t> black;'): 'pre-existing constant black picture (never written after init)',
+    ('src/renderer_scene/rf_wrestlers.cpp', 'static std::map<std::pair<uint32_t, std::string>, std::pair<uint64_t, uint64_t>> age;   // (skeleton, object id) -> (last record frame counted, records); review 4: a body absent for > 8 records starts again at 0'): 'pre-existing (S103 HGF 86aed0dc7 / 7c5130025): the guest-piece age, behind the static mutex of the same function',
+    ('src/renderer_scene/rf_wrestlers.cpp', 'static std::set<std::string> logged_ids;'): 'pre-existing (S103 HGF): log-once set, behind the same mutex',
+    ('src/renderer_scene/rf_wrestlers.cpp', 'static std::set<std::string> seen;'): 'pre-existing (S103 AUSF bb5b179b4): census set, capped at 64, reached only on the record thread through rf::Classes',
 }
 
 
@@ -177,7 +180,7 @@ namespace scene_skip { enum class Hook { Model }; }
 namespace wwe2k14 { inline std::atomic<uint64_t> g_guest_frame{777}; namespace scene_skip { inline bool Ours(::scene_skip::Hook) { return true; } } }
 namespace rdr_scene::live::guestmodel { inline int g_calls = 0; inline uint32_t g_model = 0; inline uint64_t g_frame = 0;
   inline void OnModelEntry(uint32_t m, uint64_t f) { ++g_calls, g_model = m, g_frame = f; } }
-namespace wwe2k14::weaponrows { inline bool RawEntry(bool ours, uint32_t, uint32_t, uint64_t, float, uint32_t, bool (*)(void*), void*) { return !ours; } }   // the weapons' raw entry (PWI2; S103 CGF added MdlAlpha, the caller lr, the GBR pass test): returns false when the frame is OURS
+namespace wwe2k14::weaponrows { inline uint8_t ShadowKindHook(bool, uint32_t, uint64_t) { return 0; } inline bool RawEntry(bool ours, uint32_t, uint32_t, uint64_t, float, uint32_t, bool (*)(void*), void*, uint8_t) { return !ours; } }   // the weapons' raw entry (PWI2; S103 CGF added MdlAlpha, the caller lr, the GBR pass test): returns false when the frame is OURS
 namespace wwe2k14::wrestlers { inline bool ReadWord(uint32_t, uint32_t&) { return false; } }   // S103 DRL: the hook's draw-ask line passes it on
 namespace rdr_scene::live { inline bool WrestlersRegistered() { return false; } inline bool Enabled() { return false; }
   struct WrestlerStub { template <class F> void NoteDrawAsked(uint32_t, uint64_t, F) {} }; inline WrestlerStub& Wrestlers() { static WrestlerStub w; return w; } }   // S103 DRL: not registered in the unit, so the line is a no-op
@@ -264,6 +267,25 @@ def main():
     twin = dro.replace(re.search(r'[^\n]*guestmodel::OnModelEntry\([^\n]*\n', dro).group(0), '', 1)
     ok2, why2 = ours_hook_unit(out, twin)
     need(not ok2, 'U-OURS twin (call removed from the raw hook) is caught')
+    # S105 A5c L12: the unlock flush hook tells the dirty table BEFORE its `if (!mode)` return, in both builds (no #if around the call): a flush the hook returned on would never mark a logo / DXT picture dirty
+    d3t = files.get('src/d3d_textures.h', '')
+    call = 'rdr_scene::live::guest_tex_dirty::NoteFlush(ctx.r3.u32);'
+
+    def flush_hook_ok(src):
+        mh = re.search(r'REX_HOOK_RAW\(sub_82CA6BE0\)\s*\{(.*?)\n\}\n', src, re.S)
+        if not mh:
+            return False
+        body = mh.group(1)
+        i = body.find('guest_tex_dirty::NoteFlush(ctx.r3.u32)')
+        j = body.find('if (!mode)')
+        if i < 0 or j < 0 or i > j:
+            return False
+        before = body[:i]
+        return before.count('#if') == before.count('#endif')
+    need(flush_hook_ok(d3t), 'L12 the unlock flush hook sub_82CA6BE0 calls guest_tex_dirty::NoteFlush(r3) before its mode return, outside any #if')
+    need(not flush_hook_ok(d3t.replace(call, '', 1)), 'L12 twin (the NoteFlush call removed) is caught')
+    late = d3t.replace(call, '', 1).replace('__imp__sub_82CA6BE0(ctx, base);\n    return;\n  }\n', '__imp__sub_82CA6BE0(ctx, base);\n    return;\n  }\n  ' + call + '\n', 1)
+    need(not flush_hook_ok(late), 'L12 twin (the call moved behind the mode return) is caught')
     twin_dc = dro.replace(re.search(r'[^\n]*drawcam::NoteDraw\([^\n]*\n', dro).group(0), '', 1)
     ok3, why3 = ours_hook_unit(out, twin_dc)
     need(not ok3, 'U-OURS twin (WC R5: the draw-thread camera call removed from the raw hook) is caught')

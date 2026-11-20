@@ -1,0 +1,54 @@
+# Session 98 combined capture run (out\s98\combo\prep.md): Kane vs John Cena, 1-on-1, SmackDown (arena 0, raised stage),
+# seed 1, on the COVERAGE exe (probe plugin) with RenderDoc. Three questions in one run:
+#   Q1 particles: the world matrix the game hands to sub_82A0B8F0 for Kane's GMEV scene object 5 (+ the entrant roots and
+#      the entrance clock at that frame)            -> probe lines "play" / "fx-matrix" / "obj-frame" / "tick"
+#   Q2 cap: every id reaching sub_8258C590 + the EV record it came from, during Cena's entrance
+#                                                  -> probe lines "ev-list" / "ev-rec" / "x-rewrite" / "prop-load"
+#   Q3 match look: RenderDoc captures of the 1-on-1 match with both wrestlers standing (clock 30 and 150)
+# Before this script (live channel, in this order; the probe must be in BEFORE the match loads, its hooks fire during the
+# match load): `plugin load C:\Users\Jarrod\wwe2k14-recomp\out\s98\combo\wwe2k14_probes_combo.dll`, then
+# `py tools\atlas\match.py "Kane vs John Cena; arena=SmackDown" --name combo --no-wait`, then this file.
+# Entrance order is NOT slot order (LESSONS, run 6824): the only per-entrant wait is Kane's (slot 0) own step 5; Cena is
+# covered by the background screenshots and the probe whichever goes first. No ring-in cue waits. Every wait is optional.
+on_fail continue
+mark 1 combo start
+log combo: waiting for the entrances (probe already loaded)
+screenshot_every 120 ent
+# Kane's stage moment (slot 0 step 5 + 400 = the run 6824 reference frame for his stage smoke, f27170 there)
+wait_state entrance_step_0 5 20000 2 optional
+mark 2 kane step 5
+log_state entrance_step_1
+wait_frames 400
+mark 3 kane stage
+log_state entrance_step_0
+log_state entrance_step_1
+dump_struct CharPos0
+dump_struct CharPos1
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\combo\kane_stage
+screenshot combo_kane_stage
+# Kane's ramp moment (object 5 plays until cue 15): one more shot + the roots, no capture
+wait_state entrance_step_0 10 6000 2 optional
+wait_frames 300
+mark 4 kane ramp
+dump_struct CharPos0
+screenshot combo_kane_ramp
+# The match: both wrestlers standing at the bell
+wait_state match_clock >=30 30000 2 optional
+screenshot_every 0
+mark 5 match a
+log_state match_clock
+dump_struct CharPos0
+dump_struct CharPos1
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\combo\match_a
+screenshot combo_match_a
+wait_state match_clock >=150 600 2 optional
+mark 6 match b
+dump_struct CharPos0
+dump_struct CharPos1
+cvar gpu_debug_draw_probe_frames 2
+renderdoc_capture C:\Users\Jarrod\wwe2k14-recomp\out\s98\combo\match_b
+screenshot combo_match_b
+wait_frames 60
+log combo: script done; the game stays up for a follow-up (check the .rdc files, then live.py quit --name combo)

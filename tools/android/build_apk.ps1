@@ -80,6 +80,33 @@ $libs = [ordered]@{
     'libmain_hook.so'    = (In "$gameDir\adrenotools\src\hook\libmain_hook.so")
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
+# S105 A1b: the launcher in this APK must be the one built for the same game library (src\stream_free_target.h): a stream-free game with a stream launcher
+# would still offer PREPARE SHADERS / DLSS, a stream game with a stream-free launcher would hide settings that work.
+$launcherCache = "$AndroidOut\launcher-arm64\CMakeCache.txt"
+# S105 ADEV: a release APK's game library must be configured with WWE2K14_RELEASE=ON (else the player's version line says "+dev" and the dev gates are on)
+if ($Release) {
+    $gameCache = In "$gameDir\CMakeCache.txt"
+    if (-not (Test-Path $gameCache) -or -not (Select-String -LiteralPath $gameCache -Pattern '^WWE2K14_RELEASE:BOOL=ON' -Quiet)) {
+        "build_apk.ps1: -Release needs the game library configured with WWE2K14_RELEASE=ON (not so in $gameCache): run build_all.ps1 -Run NAME -Release"; exit 2
+    }
+} else {
+    # R1 (review_ADEV): a test APK must not carry a release libmain.so (no "+dev", dev_flags.txt ignored)
+    $gameCache = In "$gameDir\CMakeCache.txt"
+    if ((Test-Path $gameCache) -and (Select-String -LiteralPath $gameCache -Pattern '^WWE2K14_RELEASE:BOOL=ON' -Quiet)) {
+        "build_apk.ps1: the game library in $gameDir is the RELEASE build (WWE2K14_RELEASE=ON), a test APK would ignore dev_flags.txt: run build_game_android.ps1$(if ($StreamFree) { ' -StreamFree' }) (dev) first, or pass -Release"; exit 2
+    }
+}
+if ($Release -and -not (Test-Path $launcherCache)) { "build_apk.ps1: -Release needs $launcherCache (run build_launcher.ps1 -Target android$(if ($StreamFree) { ' -StreamFree' }))"; exit 2 }
+# a failed launcher build after a reconfigure leaves the new cache with the old liblauncher.so: a release needs the library newer than the cache
+if ($Release -and (Test-Path $launcherCache) -and ((Get-Item $libs['liblauncher.so']).LastWriteTime -lt (Get-Item $launcherCache).LastWriteTime)) {
+    "build_apk.ps1: liblauncher.so is older than its CMakeCache.txt (a launcher build failed after a reconfigure?): run build_launcher.ps1 -Target android$(if ($StreamFree) { ' -StreamFree' }) again"; exit 2
+}
+if ((Test-Path $launcherCache) -and ($Release -or (Select-String -LiteralPath $launcherCache -Pattern '^WWE2K14_KEEP_STREAM:BOOL=' -Quiet))) {  # (a dev tree from before S105 has no entry: its next build_launcher run adds it; a release must have it)
+    $want = if ($StreamFree) { 'OFF' } else { 'ON' }
+    if (-not (Select-String -LiteralPath $launcherCache -Pattern "^WWE2K14_KEEP_STREAM:BOOL=$want" -Quiet)) {
+        "build_apk.ps1: liblauncher.so was built for the other game build (WWE2K14_KEEP_STREAM is not $want in $launcherCache): run build_launcher.ps1 -Target android$(if ($StreamFree) { ' -StreamFree' }) first (build_all.ps1 does)"; exit 2
+    }
+}
 # Session 72: the custom Vulkan drivers built from source (tools\android\drivers\build_drivers.ps1); optional.
 # S101 (Jarrod, 2026-11-13: "packaging the drivers doesn't seem to fix things really"): NOT packaged unless -BundleDrivers.
 # The phone's own driver is the default; a player can still import their own (launcher, src\android_driver.h), and the
@@ -177,7 +204,11 @@ Run 'apksigner' { & "$BuildTools\apksigner.bat" sign --ks $keystore --ks-pass pa
     --out $apk "$obj\aligned.apk" }
 # Session 95: the manifest's flags, the version and the key's fingerprint, read back from the APK (prints the SHA-256).
 & py "$ProjectRoot\tools\android\check_apk.py" $apk --build-tools $BuildTools $(if ($Release) { '--release' }) $(if ($Release -and -not $Stream) { '--stream-free' })
-if ($LASTEXITCODE -ne 0) { "build_apk.ps1: the APK check failed (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+    # R3 (review_ADEV): a failed release check must not leave a signed, release-named APK that could be shipped
+    if ($Release -and (Test-Path $apk)) { Move-Item $apk ($apk -replace '\.apk$', '.FAILED.apk') -Force; "renamed the failed APK to *.FAILED.apk" }
+    "build_apk.ps1: the APK check failed (exit $LASTEXITCODE)"; exit 1
+}
 "apk: {0:N1} MB  {1}  ({2} s)" -f ((Get-Item $apk).Length / 1MB), $apk, [int]((Get-Date) - $t0).TotalSeconds
 } finally { Exit-RunLock $lock }
 

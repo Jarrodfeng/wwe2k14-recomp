@@ -1,0 +1,13 @@
+{
+ "owner": "lane LNK (2026-11-20, docs/research/harness/LNK_contract.md): the stream (ON) build did not link: wwe2k14_rdr_hide_stage_slot / _guest_flat / _detached_pieces / _spring_hair_rows were read by start_settings.cpp in both builds and defined only for the stream-free build. Their stream definitions are in src/renderer_adapter/reader.h; tools/scene/cvar_link_lint.py runs the hand-back check's cvar judge (tools/handback/check.py cvar_findings) over every cvar of every game unit. Round 3: the judge asks the REAL preprocessor (tools/handback/cvar_pp.py: clang -E -fdirectives-only with each unit's own build flags from tools/gate/game_syntax.py, both builds; cache in the main checkout's out/cvar_pp); a unit it cannot preprocess is BLOCKED (exit 2), never clean.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "0 game runs, 0 Surface runs. Preprocess + text scan, no compile: cold about 20 s (186 unit-builds), warm about 1-2 s. Selftest twins are clang VFS overlays on the real tree (nothing is written to src): the four switches' reader.h definitions dropped (their pre-fix state), moved under #ifdef LNK_NEVER_DEFINED, moved to a header only host_start.cpp (an OFF unit) includes (each: exactly their four ON link findings; the third also their four OFF duplicates), and live.cpp as a second ON includer of reader.h (ON duplicates).",
+ "checks": [
+  {"name": "lnk_cvar_link.selftest", "cmd": ["py", "-I", "tools/scene/cvar_link_lint.py", "--selftest"], "timeout_s": 900, "needs": [], "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/cvar_link_lint.py", "tools/handback/check.py", "tools/handback/cvar_pp.py", "tools/gate/game_syntax.py", "src/renderer_adapter/reader.h",
+               "src/start_settings.cpp", "src/renderer_host/host_start.cpp", "src/renderer_adapter/live.cpp"]},
+  {"name": "lnk_cvar_link.tree", "cmd": ["py", "-I", "tools/scene/cvar_link_lint.py", "--root", "."], "timeout_s": 300, "needs": [], "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/cvar_link_lint.py", "tools/handback/check.py", "tools/handback/cvar_pp.py", "tools/gate/game_syntax.py", "src/**/*.cpp", "src/**/*.h", "src/*.cpp",
+               "src/*.h", "CMakeLists.txt", "tools/scene/keep_stream_sources.txt", "tools/scene/keep_stream_off_sources.txt"]}
+ ]
+}

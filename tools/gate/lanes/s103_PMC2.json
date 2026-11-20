@@ -3,7 +3,7 @@
  "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
  "note": "0 game runs, 0 Surface runs. Census only: the draw is unchanged (the floor already draws its pass without +2 on a frame with no props map; PMH.md). One new record row: a PropsLight with flags kPlDegenerate on a degenerate frame (never read as a ShadowPrm: PrmFromRecord needs kPlRead | kPlHaveVp); an older record has none. pmc2_unit: the production readers over fixture memory (branch per unreadable word, NaN ViewProj, NaN / far == near props words) + the pure classifier, four planted twins. pmc2_lint: the wiring, four plants.",
  "checks": [
-  {"name": "s103_PMC2.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_pmc2_unit.ps1"], "timeout_s": 300},
+  {"name": "s103_PMC2.build_unit", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_pmc2_unit.ps1"], "timeout_s": 300},
   {"name": "s103_PMC2.unit", "cmd": ["out/tools/pmc2_unit.exe"], "timeout_s": 60, "tier": "cheap",
    "affects": ["src/scene_live/circle_points.h", "src/scene_live/props_light_read.h", "src/renderer_scene/maps_census.h", "src/renderer_scene/props_light_rows.h", "tools/scene/pmc2_unit.cpp"]},
   {"name": "s103_PMC2.lint", "cmd": ["py", "-I", "tools/scene/pmc2_lint.py"], "timeout_s": 60, "tier": "cheap",

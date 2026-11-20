@@ -20,6 +20,8 @@
 #include "props_map_switch.h"   // S103 MBC: mapb_props::On
 #include "../start_settings.h"   // S103 MBC review 5: Quality().shadows
 #include "weapon_draw_core.h"   // S103 PW-3
+#include "load_order.h"   // S105 SKB fix F3: PropAskGatesReady
+#include "../scene_live/belt_plate.h"   // S105 PLATE: the belt nameplate store (pure)
 
 namespace rdr_scene::rf::c {
 
@@ -35,6 +37,7 @@ struct WeaponState {
   weapons::Census::Stage last_stage;
   bool stage_printed = false;
   weapons::StageFamilyLatch latch;   // review fix 6: the family chosen per PACH, kept until the structure is gone (its PACH leaves the holder's rows); S103 GBR: also the held rows of each latched structure
+  bool bell_released = false;        // S105 SKB fix F3: the prewarm was released in this phase-1 stretch (load_order.h BellRelease)
   bool release_pending = false;      // S103 GBR (BH4 4): the evtobj.pac release wanted but the loader's lock was busy: retried each frame (never blocks the render thread)
   std::vector<std::pair<int32_t, uint32_t>> asked_gb;   // S103 GBR: the gm set objects (arena, key | kWantGm) and blood splat models (arena, texture | kWantBlood) drawn last frame (their stored models and pools go when no row asks any more)
   std::string last_gbr;                                 // the gm / blood census presence key printed last
@@ -94,6 +97,14 @@ static void DropGbr(BuildCtx& ctx, WeaponState& w) {
 // node rows. The posed copies live in the cache's pools ("weapon:<id>" / "weapon:<id>/<entry>", slot = the call's instance), exactly as the ring's pieces do (ModelCache::PosedModel, rf_ring.cpp): vertices only after the first upload,
 // the images shared. A model that is not resident yet (m2.pac is 31 MB behind the loader's lock) never fails the frame: every (id, entry) of section 59 is asked for each frame before the plan loop, a miss is queued
 // WITHOUT counting as a loading miss, the rest of the scene is drawn and the miss is counted in the census (PW review fix 2).
+// S105 PLATE review 2: the plate store's census, printed where the entrance's event props retire (the step check reads it).
+static void LogPlateCensus() {
+  const live::beltplate::Counters c = live::beltplate::TheStore().Counts();
+  rdr::Log("[wwe2k14][belt_plate] read %llu reread %llu no_plate %llu bad_shape %llu unreadable %llu dropped %llu bound %llu missing %llu", static_cast<unsigned long long>(c.read), static_cast<unsigned long long>(c.reread),
+           static_cast<unsigned long long>(c.no_plate), static_cast<unsigned long long>(c.bad_shape), static_cast<unsigned long long>(c.unreadable), static_cast<unsigned long long>(c.dropped), static_cast<unsigned long long>(c.bound),
+           static_cast<unsigned long long>(c.missing));
+}
+
 void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint32_t& objects, uint32_t& drawn) {
   const weapons::View view0 = weapons::WeaponViewOf(ctx.t);   // weapon_plan.h: the record's sections 59 / 60 / 61 (member names checked at compile time)
   if (view0.empty() && view0.n_slots == 0) {   // no sections 59 / 60 / 61: nothing to draw, nothing to pay (but a finished entrance's event props still have to go: S103 BLF review 4)
@@ -102,6 +113,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
       if (!w0.asked_ev.empty()) {
         for (const auto& pr : w0.asked_ev) ctx.models.DropStored(weapons::EvtPacOf(), weapons::EvtEntryOf(pr.first, pr.second & ~weapons::kWantEvent), 0);
         ctx.models.RetireOther("weapon:ev", "\x01"), ctx.models.RetireOther("weapon:bound:ev", "\x01");
+        LogPlateCensus();   // S105 PLATE
         w0.release_pending = true;   // S103 GBR (BH4 4): tried just below, retried every frame while the loader's lock is busy
         w0.asked_ev.clear();
       }
@@ -125,6 +137,8 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
   const std::vector<std::pair<int32_t, uint32_t>> want_all = weapons::Prefetch(view0, plants);
   // S103 BLF review 4: the event props (entrance belt / mic / cap / stage props) are asked for as soon as MakeWeapon has made their models (section-59 rows with kSlotFlagEvent), not at their first draw; they keep their own
   // retire rule (below): the match-weapon signature never sees them (a prop coming or going mid-entrance must not re-pose the others).
+  // S105 SKB fix F3: the opening window: no frame of this scene drawn yet, or another asset (the wrestler) already misses this frame (ApplyProps runs after the wrestlers: the entrance start asks both at once)
+  const bool gate_window = !ctx.models.SceneDrawn() || ctx.models.misses_this_frame() > 0;
   std::vector<std::pair<int32_t, uint32_t>> want, want_ev, want_stg;
   for (const auto& pr : want_all) (pr.second & weapons::kWantStage ? want_stg : pr.second & weapons::kWantEvent ? want_ev : want).push_back(pr);   // S103 CGF: the stage structures have their own lifetime too (the match-weapon signature never sees them)
   if (!ctx.warm() && !want.empty()) {   // a new match / arena: the slot id set or the ring set key changed: retire every weapon pool / posed copy / memo, and drop the CPU copies nothing asks for any more
@@ -141,6 +155,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
   if (!ctx.warm()) {   // the event props' own lifetime: stored models nothing asks for any more are dropped; with none asked, their pools / posed copies / memos go too (the entrance is over: nothing retired them before)
     for (const auto& pr : ws.asked_ev)
       if (std::find(want_ev.begin(), want_ev.end(), pr) == want_ev.end()) ctx.models.DropStored(weapons::EvtPacOf(), weapons::EvtEntryOf(pr.first, pr.second & ~weapons::kWantEvent), 0);
+    if (want_ev.empty() && !ws.asked_ev.empty()) LogPlateCensus();   // S105 PLATE
     if (want_ev.empty() && !ws.asked_ev.empty()) ctx.models.RetireOther("weapon:ev", "\x01"), ctx.models.RetireOther("weapon:bound:ev", "\x01"), ws.release_pending = true;   // the last event model: the loader's 160 MB evtobj.pac unpack goes too (S103 GBR BH4 4: tried below, retried while the loader's lock is busy)
     ws.asked_ev = want_ev;
     std::set<int32_t> dropped_pach;
@@ -154,21 +169,22 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
       if (!present) ws.latch.Reset(pach);
     }
     ws.asked_stg = want_stg;
+    BellRelease(ctx.frame.phase_word, want_ev.empty(), ws.asked_ev.empty(), ws.bell_released, ws.release_pending);   // S105 SKB fix F3: the match is on and no event prop is wanted or held: the prewarm's 160 MB goes
     weapons::RetryRelease(ws.release_pending, !want_ev.empty());   // S103 GBR (BH4 4): a busy loader lock answers false: the release is tried again next frame, the render thread never waits
   }
   for (const auto& pr : want) {   // the prefetch: one StoredNamed per slot id (and secondary), every frame, before anything is drawn
     std::string why;
-    ctx.models.StoredNamed(weapons::PacOf(), weapons::EntryOf(pr.first, pr.second), 0, &why, /*count_miss=*/false);
+    ctx.models.StoredNamed(weapons::PacOf(), weapons::EntryOf(pr.first, pr.second), 0, &why, /*count_miss=*/PropAskGatesReady(PropAsk::M2Weapon));
     ++census.prefetched;
   }
   for (const auto& pr : want_ev) {
     std::string why;
-    ctx.models.StoredNamed(weapons::EvtPacOf(), weapons::EvtEntryOf(pr.first, pr.second & ~weapons::kWantEvent), 0, &why, /*count_miss=*/false);
+    ctx.models.StoredNamed(weapons::EvtPacOf(), weapons::EvtEntryOf(pr.first, pr.second & ~weapons::kWantEvent), 0, &why, /*count_miss=*/PropAskGatesReady(PropAsk::EventProp, gate_window));   // S105 SKB fix F3: the game shows an entering wrestler WITH his event props (every kSlotFlagEvent row is a CWeaponEventSD::MakeWeapon model: belt / mic / cap / entrance stage props): they gate READY like the wrestler
     ++census.prefetched;
   }
   for (const auto& pr : want_stg) {   // S103 CGF: the stage structure models of the holder, asked for before their first draw
     std::string why;
-    ctx.models.StoredNamed(weapons::StgPacOf(), weapons::StgEntryOf(pr.first, pr.second & ~weapons::kWantStage), 0, &why, /*count_miss=*/false);
+    ctx.models.StoredNamed(weapons::StgPacOf(), weapons::StgEntryOf(pr.first, pr.second & ~weapons::kWantStage), 0, &why, /*count_miss=*/PropAskGatesReady(PropAsk::StageStructure, gate_window));   // S105 SKB fix F3: the match structure (cage / cell / chamber / ladder rig) is on screen with the ring from the first frame: gates READY. Ambient props (m2 weapons above, gm sets, blood) stay non-gating
     ++census.prefetched;
   }
   std::vector<weapons::WeaponCall> hold_calls;   // S103 GBR (CGF follow-up): the plan's view = the record's rows + the latched structures' held rows (a latched family with no rows this frame is drawn from its last frame, up to 30 frames)
@@ -201,10 +217,11 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
     if (!stored) { ++census.no_model; continue; }   // not resident / failed: counted, the frame goes on (it is not a hole or a loading miss)
     if (ctx.warm()) continue;
     auto& aux = ctx.models.Aux();
+    const auto plate = it.event ? live::beltplate::TheStore().Get(w.object) : nullptr;   // S105 PLATE: the belt's own nameplate picture (null: not a belt / not read)
     const std::string pool = it.gm ? "weapon:gm" + std::to_string(arena_id) + "/" + std::to_string(it.entry)   // S103 GBR: (arena bank, key): each set object is its own model
                            : it.blood ? "weapon:blood" + std::to_string(it.entry) + "/" + std::to_string(blevel) + "@" + std::to_string(arena_id)   // S103 SMF (review A6): arena_id in the key (a new arena never reuses the old arena's bound copy: blood:<index> names a texture of the arena's own bg pac). (texture, colour level): the splats of one look are the pose slots; the bound copy carries the colour
                            : it.stage ? "weapon:stg" + std::to_string(it.id) + "/" + std::to_string(it.entry)   // S103 CGF: (PACH, key k): each piece is its own model; its instances (a wall drawn 3 times) are the pose slots
-                           : it.event ? "weapon:ev" + std::to_string(it.id) + "/" + std::to_string(it.entry)   // (prop id, entry k): each entry is its own model with its own pose slots
+                           : it.event ? "weapon:ev" + std::to_string(it.id) + "/" + std::to_string(it.entry) + live::beltplate::PoolSuffix(plate)   // S105 PLATE: + the plate hash (two holders never share a pool)   // (prop id, entry k): each entry is its own model with its own pose slots
                                       : "weapon:m2:" + std::to_string(it.id) + (it.entry ? "/" + std::to_string(it.entry) : std::string());   // (id, main or k): a secondary has its own mesh and its own pose slots
     // S103 GBR (review 5): a splat's pose slot is numbered per POOL inside this drawer (a per-frame counter, from 0): the splats of one (texture, colour level) are consecutive slots of one pool, so their images are shared and nothing uploads per splat
     // (the recorder's instance counts per model call, which is the same number for a pool only by luck of the colour level)
@@ -214,6 +231,16 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
     if (bit == aux.end()) {
       assets::Model bound;
       weapons::BindModel(*stored, bound);
+      if (it.event) {   // S105 PLATE: the material whose diffuse sampler is `nameplate` gets the game's own plate (BC3 256 x 128); a belt with no plate is counted and said once, never silent white
+        auto& pst = live::beltplate::TheStore();
+        const uint64_t miss0 = pst.Counts().missing;
+        const uint32_t nb = live::beltplate::BindPlate(bound, plate);
+        static std::set<std::pair<int32_t, uint64_t>> said;
+        if (nb && plate && said.insert({it.id, plate->hash}).second)
+          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: plate bound (hash %016llx, %ux%u, t %u)", it.id, w.object, static_cast<unsigned long long>(plate->hash), plate->width, plate->height, plate->t);
+        else if (pst.Counts().missing != miss0 && said.insert({it.id, 0}).second)
+          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: NO plate read for a nameplate material (draws white); last refusal: %s", it.id, w.object, pst.LastRefusal().c_str());   // S105 PLATE review 2: WHY
+      }
       if (it.stage && weapons::IsLadderLightPiece(it.id, it.entry))   // S103 LDR2 (LDC.md): the ladder's light pool / shaft are the game's blend code 1 (SRC_ALPHA, ONE): the flags make the front end sort them, blend additive and skip the depth write; the vertex alpha (k 3's fade) reaches SRC_ALPHA via arena_vs_bg.vert out_color.a -> arena_bg.frag
         for (assets::Material& mat : bound.materials) mat.alpha_blend = true, mat.additive = true;
       if (it.blood)  // the material's colour scalar (r = g = b, g_f4MatDifCol) of this pool's level [L: the record's float, 16 levels]

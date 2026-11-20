@@ -24,6 +24,7 @@
 #include "props_light_rows.h"  // S103 KS1
 #include "bone_tag_rows.h"    // S103 W2B: BoneTag, kScBoneTags (66)
 #include "quads2d_plants.h"  // S103 I1: Q2D_PLANT (false outside the unit test)
+#include "quads2d_corner.h"  // S105 A8: CornerValid (a T_RectColor row's packed corner colours)
 
 namespace rdr_scene {
 
@@ -92,7 +93,7 @@ struct SceneTables {
   uint32_t clock_errors = 0;             // S103 E5: the part-clock section (50) ParseRecord dropped (unknown layout / non-finite / element size)
   std::vector<LiquidMapRow> liquid_maps;     // kScLiquidMaps (S103 SWF, 51): the wrestlers' liquid maps with a live item / a clear request this frame
   std::vector<LiquidItemRow> liquid_items;   // kScLiquidItems (52): their live items
-  std::vector<CrowdPictureRow> liquid_pictures;   // kScLiquidPictures (53): the items' source textures (block data)
+  std::vector<LiquidPictureRow> liquid_pictures;   // kScLiquidPictures (53): the items' source textures (block data)
   uint32_t liquid_errors = 0;            // S103 SWF: the three liquid sections ParseRecord dropped together (unknown layout / non-finite / a range outside the item table / a bad picture)
   uint32_t arena_world_errors = 0;       // lane 130: kScArenaWorlds sections ParseRecord dropped (unknown layout / kind / element size); the rest of the record is read
   std::vector<ArenaWorld> arena_worlds;  // kScArenaWorlds (S101 lane 130): evaluated object worlds + the stage clock, stamped with the hook's guest frame
@@ -279,14 +280,15 @@ inline std::string LiquidTablesProblem(const SceneTables& t) {
       if (!std::isfinite(r.local_area[k]) || !std::isfinite(r.world_param[k]) || !std::isfinite(r.rect[k])) return "LiquidItemRow " + std::to_string(i) + ": a non-finite number";
   }
   for (size_t i = 0; i < t.liquid_pictures.size(); ++i)
-    if (!CrowdPictureValid(t.liquid_pictures[i])) return "liquid picture " + std::to_string(i) + ": not exactly its block bytes";
+    if (!LiquidPictureValid(t.liquid_pictures[i])) return "liquid picture " + std::to_string(i) + ": not exactly its block bytes";
   return "";
 }
 
 // S103 I1: why ONE 2D row is not usable ("" = fine): an unknown layout / kind / pass / blend, no vertices, a non-finite number.
 inline std::string Quad2DRowProblem(const Quad2D& q) {
   if (q.version != kQuad2DLayout) return "layout version " + std::to_string(q.version);
-  if (q.kind != kQkRect && q.kind != kQkYuvAlpha && q.kind != kQkYuv && q.kind != kQkSprite && q.kind != kQkGlyph) return "kind " + std::to_string(q.kind) + " (this reader knows rect, sprite, glyph and yuv-alpha)";   // S103 I3: + glyph
+  if (q.kind != kQkRect && q.kind != kQkYuvAlpha && q.kind != kQkYuv && q.kind != kQkSprite && q.kind != kQkGlyph && q.kind != kQkRectColor) return "kind " + std::to_string(q.kind) + " (this reader knows rect, rect-colour, sprite, glyph, yuv and yuv-alpha)";   // S103 I3: + glyph; S105 A8: + rect-colour, yuv
+  if (q.kind == kQkRectColor && q.prim != q2d::kSiteRectColorPrimWord && !Q2D_PLANT(67)) return "a T_RectColor row with primitive " + std::to_string(q.prim) + " (the quad list, 13, is the only one drawn)";   // S105 A8 review F1
   if (q.pass >= kQpCount || q.blend >= kQbCount || q.alpha_func > 7) return "pass / blend / alpha function out of range";
   if (q.nverts != 4) return std::to_string(q.nverts) + " vertices (a quad has 4)";
   if (!(q.have & kQhVerts)) return "no vertices read";
@@ -309,6 +311,9 @@ inline std::string Quad2DRowProblem(const Quad2D& q) {
   for (int c = 0; c < 2; ++c) fin = fin && std::isfinite(q.pos_scale[c]);   // S103 I2: only (2 / width, 2 / height) are read; the payload's z / w are the leaf's stack bytes (not finite-checked, never used)
   for (int c = 0; c < 16; ++c) fin = fin && ((q.have & kQhMatrix) == 0 || std::isfinite(q.proj[c]));   // S103 P3c: the matrix c29..c32
   for (int c = 0; c < 4; ++c) fin = fin && ((q.have & (kQhHsl | kQhChannel)) == 0 || std::isfinite(q.hsl[c]));   // (S103 I3: the glyph's selector shares the field)
+  if (fin && q.kind == kQkRectColor)   // S105 A8: the corner colours are packed bytes (verts[v][3] = r | g << 8 | b << 16, verts[v][4] = a): whole numbers in range, or the row is bad
+    for (int v = 0; v < 4; ++v)
+      if (!q2d::CornerValid(q.verts[v][3], q.verts[v][4])) return "a corner colour outside 0..255";
   return fin ? std::string() : std::string("a non-finite value");
 }
 // The whole table: every row valid and the tickets ascending ("" = fine). ParseRecord refuses a bad ROW alone (Quads2DKeepGood) and drops the section only for the ordering.

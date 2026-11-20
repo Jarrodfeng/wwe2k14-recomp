@@ -1,4 +1,4 @@
-r"""Build the FIELD INDEX (out/harness/index/fields.db): every load / store with base register + displacement in the
+r"""Build the FIELD INDEX (out/harness/index/fields.s<SCHEMA>.db): every load / store with base register + displacement in the
 recompiled game, with the base register's provenance folded mechanically (S103 lane QF; query side: tools/q/qfield.py,
 `q field`). Sources: generated/default/wwe2k14_recomp.*.cpp (PPC instruction comments + `goto loc_X;` lines, never
 committed), out/harness/index/image.bin (vtable slots). Output is game-derived metadata: gitignored folder, never commit.
@@ -79,10 +79,145 @@ def data_root(gen):
     return os.path.normpath(os.path.join(gen, '..', '..'))
 
 
+def db_name():
+    """S105 D (F1): the index file's name carries the schema (fields.s2.db): a q of another schema uses ANOTHER file and never opens, wipes or rebuilds this one
+    (the design of qasset.db_name). The next SCHEMA bump gets a new name by itself."""
+    return 'fields.s%d.db' % SCHEMA
+
+
+def other_index_files(db):
+    """index files of OTHER names beside ours (the old fields.db, fields.s1.db ...): left alone by q, named in `q field info` / the build line so the tidy / a person can clear them"""
+    d = os.path.dirname(os.path.abspath(db))
+    me = os.path.basename(db)
+    try:
+        return sorted(f for f in os.listdir(d) if re.match(r'^fields(\.s\d+)?\.db$', f) and f != me)
+    except OSError:
+        return []
+
+
 def default_paths(root=None, gen=None):
+    """(generated/default, image.bin, fields.s<SCHEMA>.db); WWE_QFIELD_DB=<file> = another index file (how a builder / the selftest tests without touching the shared index)"""
     gen = gen or gen_dir(root)
     d = os.path.join(data_root(gen), 'out', 'harness', 'index')
-    return gen, os.path.join(d, 'image.bin'), os.path.join(d, 'fields.db')
+    return gen, os.path.join(d, 'image.bin'), os.environ.get('WWE_QFIELD_DB') or os.path.join(d, db_name())
+
+
+# ----------------------------------------------------------------------------------------------------------------------- the rebuild lock (S105 D, F2)
+class Busy(Exception):
+    """another process holds the rebuild lock; .holder = its pid text"""
+    def __init__(self, holder):
+        super().__init__(holder)
+        self.holder = holder
+
+
+def lock_stale_s():
+    try:
+        return float(os.environ.get('WWE_QFIELD_LOCK_STALE', '1200'))
+    except ValueError:
+        return 1200.0
+
+
+def pid_alive(pid):
+    """True when a process with this pid exists (Windows: OpenProcess + exit code; elsewhere signal 0; the design of qasset.pid_alive)"""
+    if pid <= 0:
+        return False
+    try:
+        if os.name == 'nt':
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)       # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return False
+            code = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+            ctypes.windll.kernel32.CloseHandle(h)
+            return bool(ok) and code.value == 259                              # STILL_ACTIVE
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _read_pid(lk):
+    try:
+        with open(lk) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def lock_is_stale(lk):
+    """S105 D (F-1): a lock is a dead builder's when its pid is gone (a killed q never runs its `finally`: taken over at once); a live holder that has not touched the lock
+    (a heartbeat per scanned batch) for WWE_QFIELD_LOCK_STALE s (default 20 min) is a hung one"""
+    txt = _read_pid(lk)
+    try:
+        age = time.time() - os.path.getmtime(lk)
+    except OSError:
+        return False
+    try:
+        pid = int(txt or 0)
+    except ValueError:
+        pid = 0
+    return (not pid_alive(pid)) or age > lock_stale_s()
+
+
+def touch_lock(lk):
+    if lk:
+        try:
+            os.utime(lk, None)
+        except OSError:
+            pass
+
+
+def acquire_lock(db):
+    """one rebuilder at a time (db.lock, created exclusively, holding the pid; the builder touches it as a heartbeat). A dead holder's lock (or a live one idle past WWE_QFIELD_LOCK_STALE)
+    is taken over, the old holder's pid printed. Raises Busy(holder) when a live builder holds it."""
+    lk = db + '.lock'
+    os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
+    for _ in range(4):
+        try:
+            fd = os.open(lk, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return lk
+        except FileExistsError:
+            holder = _read_pid(lk)
+            if holder is None:
+                continue      # released in between: try again
+            if not lock_is_stale(lk):
+                raise Busy(holder or '?')
+            print(f'q field: taking over a stale rebuild lock (pid {holder}: gone, or idle over {int(lock_stale_s())} s)', file=sys.stderr)
+            mine = f'{lk}.stale.{os.getpid()}'
+            try:
+                os.rename(lk, mine)      # atomic: of several takers only one wins the rename
+            except OSError:
+                continue
+            if _read_pid(mine) != holder:      # we renamed a FRESH lock a faster taker had just made: put it back and stand aside
+                try:
+                    os.rename(mine, lk)
+                except OSError:
+                    pass
+                raise Busy(_read_pid(lk) or '?')
+            try:
+                os.remove(mine)
+            except OSError:
+                pass
+    raise Busy('?')
+
+
+def release_lock(lk):
+    for _ in range(5):      # a Windows sharing violation can refuse the remove for a moment
+        try:
+            with open(lk) as f:
+                mine = f.read().strip() == str(os.getpid())
+            if mine:
+                os.remove(lk)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            time.sleep(0.2)
 
 
 def signature(gen, image):
@@ -369,15 +504,92 @@ def _scan_one(path):
         raise RuntimeError(f'{path}: {e!r}')
 
 
-def build(gen, image, db_path, jobs=None, quiet=False):
+def build(gen, image, db_path, jobs=None, quiet=False, say=None, if_stale=False):
+    """Build db_path under the rebuild lock (raises Busy when another process is building). say = a line printed once the lock is held; if_stale = after taking the lock,
+    return False (nothing built) when the index already carries the current signature (another builder finished while we waited)."""
     files = sorted(glob.glob(os.path.join(gen, 'wwe2k14_recomp.*.cpp')))
     if not files:
         raise SystemExit(f'build_fields: no wwe2k14_recomp.*.cpp in {gen}')
+    lk = acquire_lock(db_path)
+    try:
+        if if_stale and current_signature(db_path) == signature(gen, image):
+            return False
+        if say:
+            other = other_index_files(db_path)
+            print(say + (f' (older index files left alone: {", ".join(other)})' if other else ''), file=sys.stderr)
+        _build_locked(gen, image, db_path, jobs, quiet, files, lk)
+        return True
+    finally:
+        release_lock(lk)
+
+
+def current_signature(db):
+    if not os.path.exists(db):
+        return None
+    try:
+        c = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+        try:
+            r = c.execute("select v from meta where k='signature'").fetchone()
+            return r[0] if r else None
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return None
+
+
+def _sweep_tmps(db_path):
+    """leftovers of crashed builds (we hold the lock, so only a dead builder's): older than an hour, `.tmp` and sqlite's `-journal` / `-wal` sidecars, and the pre-S105 fixed `<db>.tmp`"""
+    for old in glob.glob(glob.escape(db_path) + '.*.tmp*') + glob.glob(glob.escape(db_path) + '.tmp*'):
+        try:
+            if time.time() - os.path.getmtime(old) > 3600:
+                os.remove(old)
+        except OSError:
+            pass
+
+
+def _swap_in(tmp, db_path, quiet):
+    """os.replace with a ~30 s backoff (a reader holding the old file open refuses it on Windows). -> True when swapped; False (the temp deleted by the caller) when a reader still holds it"""
+    delay, waited = 0.25, 0.0
+    while True:
+        try:
+            os.replace(tmp, db_path)
+            return True
+        except PermissionError:
+            if waited >= float(os.environ.get('WWE_QFIELD_SWAP_WAIT', '30')):
+                return False
+            time.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 4.0)
+
+
+def _build_locked(gen, image, db_path, jobs, quiet, files, lk=None):
     t0 = time.time()
+    hold = float(os.environ.get('WWE_QFIELD_BUILD_HOLD', '0') or 0)
+    if hold:
+        time.sleep(hold)      # test hook (qfield_selftest): the lock holder lingers so a second caller meets the lock
+        touch_lock(lk)
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    tmp = db_path + '.tmp'
-    if os.path.exists(tmp):
-        os.remove(tmp)
+    _sweep_tmps(db_path)
+    tmp = f'{db_path}.{os.getpid()}.tmp'
+    try:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        nf, nrows, nroots, t_scan = _build_body(gen, image, tmp, jobs, files, lk, t0)
+        if _swap_in(tmp, db_path, quiet):
+            if not quiet:
+                print(f'built {db_path}: {nf} functions, {nrows} rows, {nroots} roots, scan {t_scan:.0f}s, '
+                      f'total {time.time() - t0:.0f}s, {os.path.getsize(db_path) / 1e6:.0f} MB', file=sys.stderr)
+        else:
+            print(f'q field: a reader holds the index: the new one was not swapped in, answering from the old one ({db_path}); the next call rebuilds', file=sys.stderr)
+    finally:
+        for x in (tmp, tmp + '-journal', tmp + '-wal', tmp + '-shm'):
+            try:
+                os.remove(x)
+            except OSError:
+                pass
+
+
+def _build_body(gen, image, tmp, jobs, files, lk, t0):
     con = sqlite3.connect(tmp)
     con.executescript('''
       create table roots(id integer primary key, text text unique, glob integer);
@@ -407,6 +619,7 @@ def build(gen, image, db_path, jobs=None, quiet=False):
                             [(f, s, t, ai, rid(r)) for f, s, t, args in calls for ai, r in args])
             funcs.update(fl)
             nrows += len(rows)
+            touch_lock(lk)      # heartbeat: a live builder's lock never looks idle
     for text, i in rootid.items():
         m = re.match(r'^g:([0-9A-F]{8})$', text)
         con.execute('insert into roots values (?,?,?)', (i, text, int(m.group(1), 16) if m else None))
@@ -423,10 +636,7 @@ def build(gen, image, db_path, jobs=None, quiet=False):
     con.commit()
     con.execute('vacuum')
     con.close()
-    os.replace(tmp, db_path)
-    if not quiet:
-        print(f'built {db_path}: {len(funcs)} functions, {nrows} rows, {len(rootid)} roots, scan {t_scan:.0f}s, '
-              f'total {time.time() - t0:.0f}s, {os.path.getsize(db_path) / 1e6:.0f} MB', file=sys.stderr)
+    return len(funcs), nrows, len(rootid), t_scan
 
 
 def build_types(con, funcs, image, rootid):
@@ -543,9 +753,14 @@ def main(argv=None):
     ap.add_argument('-j', type=int, default=None)
     a = ap.parse_args(argv)
     gen, image, db = default_paths(a.root, a.gen)
-    build(gen, a.image or image, a.db or db, a.j)
+    try:
+        build(gen, a.image or image, a.db or db, a.j)
+    except Busy as e:
+        print(f'build_fields: another process (pid {e.holder}) is rebuilding {a.db or db}: not building in parallel', file=sys.stderr)
+        return 3
+    return 0
 
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    main()
+    sys.exit(main())

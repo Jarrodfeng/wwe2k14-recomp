@@ -32,6 +32,7 @@
 #include "../renderer_scene/stage_pool_words.h"   // S103 L2
 #include "inputs_core.h"
 #include "gsf_latch.h"   // S103 FXF
+#include "../renderer_scene/cam_gate.h"   // S105 A3
 #include "draw_camera_core.h"   // S103 WC R5: the draw thread's camera, the fallback for no scene manager
 
 #include "plane_eye_read.h"   // S103 E5
@@ -97,6 +98,7 @@ class InputsContributor final : public Contributor {
   struct SlotTable { std::vector<SlotSkel> skels; uint8_t state[9] = {}; std::vector<scene_inputs::CharPiece> pieces; std::vector<uint32_t> ring_models; };   // S103 NRB: pieces = the slot characters' SUBM instances (piece_link.h; the ONE shared type, slot_piece.h)
   // S103 NRBF: the node count the scene core recorded for a piece model (0 = none), set by the glue; the node-map proof reads exactly that many words.
   void SetPieceNodeCount(scene_inputs::PieceCountFn f) { piece_count_ = f; }
+  void SetPieceHookCount(scene_inputs::PieceCountFn f) { piece_hook_count_ = f; }   // S105 A5a F1
   // S103 PZ F2: the owner body's declared link (descriptor + key) for the build-path proof of a NotDeferred piece, set by the glue (the wrestlers contributor's body link); null = NotDeferred pieces stay holes.
   void SetPieceBodyDesc(scene_inputs::BodyDescFn f) { piece_body_ = f; }
   // S103 PZF2 A1 / A3: the identity check of the body links (links never age). `raw` = the body's declared link whether or not it is verified (known / desc / key), `verify` = hand the latch's verdict to the
@@ -133,7 +135,7 @@ class InputsContributor final : public Contributor {
       VerifyBodyIdentity(skel);   // PZF2 A1: BEFORE the pieces are read (their proof asks for the verified link) and before Collect names the body
       // S103 NRB: the character's own pieces (SUBM component). An unreadable component is counted and gives no links (the pieces then stay holes: never guessed).
       static thread_local std::vector<scene_inputs::CharPiece> piece_buf;   // the caller's thread's scratch
-      if (scene_inputs::ReadCharacterPieces(read_, ch, piece_buf, piece_count_, piece_body_, skel, 0, rdr_scene::g_spring_hair_rows.load(std::memory_order_relaxed))) {   // S103 W2B: -1 nodes = spring-hair rows read here, not Unmapped
+      if (scene_inputs::ReadCharacterPieces(read_, ch, piece_buf, piece_count_, piece_body_, skel, 0, rdr_scene::g_spring_hair_rows.load(std::memory_order_relaxed), piece_hook_count_)) {   // S105 A5a F1: + the hook-count fallback   // S103 W2B: -1 nodes = spring-hair rows read here, not Unmapped
         for (scene_inputs::CharPiece& p : piece_buf) p.slot = int32_t(s), out.pieces.push_back(std::move(p));   // S103 HGF (XLB 3): moved out of the scratch (it is cleared by the next read), never copied
       } else if (count) {
         slot_pieces_unreadable_.fetch_add(1, std::memory_order_relaxed);
@@ -250,6 +252,7 @@ class InputsContributor final : public Contributor {
       f = &scratch;
     }
     if (f->disabled) return;
+    t.header.flags = (t.header.flags & ~rdr_scene::kCamGateMask) | rdr_scene::CamGateBits(f->cam_gate_read, f->cam_gate_shown, f->cam_unanimated, f->cam_anim_pending);   // S105 A3: the game shows a scene camera (header bits 1 / 2, cam_gate.h)
     if (f->have_camera) {   // K1: the render camera, from the engine's slot-0 camera object (kScCamera)
       t.has_camera = true;
       t.camera = f->camera;
@@ -362,6 +365,8 @@ class InputsContributor final : public Contributor {
     bool ent_ok = false, is_entrance = false, entrance_known = false, phase_readable = false, clock_ok = false;   // S103 PHS: entrance_known = the stage-page object's entrance word [obj+88] was read (this latch, or the last latch-thread one for the fallback take)   // S103 FD: clock_ok = the page-clock row below was read
     StageLookRow lm_row;                  // S103 B3: the card factor row (kSlCardFactor) of THIS latch frame; lm_ok = the word was read
     bool lm_ok = false;
+    bool cam_unanimated = false, cam_anim_pending = false;   // S105 A3: the load-window test / sequence 9 + an unanimated motion camera (cam_gate.h UnanimatedWindow / AnimPending)
+    bool cam_gate_read = false, cam_gate_shown = false;  // S105 A3: [[0x836F3AA8] + 1392] read / != 0 at this latch (cam_gate.h)
     StageLookRow clr_row;                 // S103 CLRB: the scene clear colour row (kSlClearColor) of THIS latch frame; clr_ok = all five reads succeeded
     bool clr_ok = false;
     StageLookRow page_clock;              // S103 FD: the stage-page pass object's own clock (inputs_core.h ReadStagePageClock)
@@ -369,7 +374,7 @@ class InputsContributor final : public Contributor {
     int32_t plane_module = -1;                   // S103 RML (F3 / F4): 0 = the plane module singleton is null, 1 = it exists, -1 = unread (read every latch, independent of the plane pass's `why`)
     int32_t participants = -1, ring_gate = -1;   // S103 MBC: read every latch (-1 = unknown): the participant count (slot-loop path only) and [0x836F39A0]
     uint32_t models_unreadable = 0;
-    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
+    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, cam_gate_read = cam_gate_shown = cam_unanimated = cam_anim_pending = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
   };
   void Take(uint64_t frame, Frame& f, bool latch_thread = true) {
     f.Clear();
@@ -385,6 +390,7 @@ class InputsContributor final : public Contributor {
       f.have_camera = scene_inputs::ReadSceneCameraOrDraw(read_, frame, &drawcam::GetForLatch, f.camera, f.cam_info, &from_draw);
       if (from_draw) drawcam_used_.fetch_add(1, std::memory_order_relaxed);
     }
+    if (latch_thread) scene_inputs::ReadShownCameraGate(read_, f.cam_gate_read, f.cam_gate_shown);   // S105 A3: the game shows a scene camera (the record's header fact, Emit). The fallback take (game threads running) leaves the bits clear (review 5)
     if (f.have_camera) scene_inputs::Capture(scene_inputs::kInCamera, hook);   // no clear winner / unreadable: no camera, no stamp
     else {
       no_camera_.fetch_add(1, std::memory_order_relaxed);
@@ -622,6 +628,11 @@ class InputsContributor final : public Contributor {
       // The pool / spot VALUES are not read here: they are the light object's block (id 32, read just above into f.lights), the game's CURRENT values (stage_pool_words.h). Only the entering slot is read (entrance-step states).
       uint32_t phase = 0;
       f.phase_readable = read_ && scene_inputs::ReadWord(read_, kPhaseWord, phase);
+      if (latch_thread && read_) {   // S105 A3: the entrance load window + the sticky hold's condition, read here on the latch thread (never g_phase_entrance; the fallback take leaves them clear)
+        const auto rw = [this](uint32_t a, uint32_t& v) { return scene_inputs::ReadWord(read_, a, v); };
+        f.cam_unanimated = rdr_scene::UnanimatedWindow(rw, f.phase_readable, phase);
+        f.cam_anim_pending = rdr_scene::AnimPending(rw);
+      }
       if (latch_thread) {   // S103 FD (F1): page_obj_ / page_misses_ belong to the latch thread; an object mid-construction (vtable stored before +108) is read only there, between frames
         task_walk::GroupInfo gi;
         f.clock_ok = scene_inputs::ReadStagePageClock(read_, page_obj_, page_misses_, f.page_clock, &gi);
@@ -988,6 +999,7 @@ class InputsContributor final : public Contributor {
   SlotTable slot_buf_;                     // S103 L31B: the latch thread's scratch
   std::atomic<uint64_t> palette_stale_withheld_{0}, slot_unreadable_{0}, slot_no_skel_{0};   // S103 L31B
   std::atomic<uint64_t> slot_pieces_unreadable_{0};   // S103 NRB
+  scene_inputs::PieceCountFn piece_hook_count_ = nullptr;   // S105 A5a F1
   scene_inputs::PieceCountFn piece_count_ = nullptr;   // S103 NRBF
   scene_inputs::BodyDescFn piece_body_ = nullptr;      // S103 PZ F2
   scene_inputs::BodyDescFn body_raw_ = nullptr;        // S103 PZF2 A1

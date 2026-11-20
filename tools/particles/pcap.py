@@ -34,6 +34,15 @@ OP_DRAW = 2  # adapter_frame.h OpKind::Draw
 LAY_DT = np.dtype([('first', '<u4'), ('count', '<u4'), ('stride', '<u4'), ('gstride', '<u4')])
 ELE_DT = np.dtype([('fmt', '<u2'), ('off', '<u2'), ('src', 'u1'), ('comp', 'u1'), ('flags', 'u1'), ('mini', 'u1'), ('goff', '<i4')])
 RAW = {SEC['fixeds']: 72, SEC['dynamics']: 192, SEC['samplers']: 20, SEC['bool_loops']: 160}
+# The fixed-state table (section 7): rdr_adapter::DrawFixed (src\renderer_adapter\adapter_frame.h) = rdr::DrawState (src\renderer\api.h) + the alpha-test tail,
+# 72 bytes. Field names are the headers' own; tools\arena\draw_states.py reads both headers at start and fails when this layout no longer matches them (S104 lane CDT).
+_STENCIL_DT = np.dtype([('fail', 'u1'), ('pass', 'u1'), ('depth_fail', 'u1'), ('compare', 'u1')])
+_BLEND_DT = np.dtype([('enable', 'u1'), ('src_color', 'u1'), ('dst_color', 'u1'), ('color_op', 'u1'), ('src_alpha', 'u1'), ('dst_alpha', 'u1'), ('alpha_op', 'u1'), ('write_mask', 'u1')])
+FIXED_DT = np.dtype([('program', '<u2'), ('vertex_layout', '<u2'), ('topology', 'u1'), ('cull', 'u1'), ('front_face', 'u1'), ('depth_clamp', 'u1'),
+                     ('depth_test', 'u1'), ('depth_write', 'u1'), ('depth_compare', 'u1'), ('stencil_test', 'u1'), ('depth_bias_enable', 'u1'), ('primitive_restart', 'u1'),
+                     ('variant', 'u1'), ('pad', 'u1'), ('front', _STENCIL_DT), ('back', _STENCIL_DT), ('blend', _BLEND_DT, (4,)),
+                     ('alpha_test', 'u1'), ('alpha_func', 'u1'), ('alpha_to_coverage', 'u1'), ('clip_off', 'u1'), ('exp_bias', 'i1', (4,)), ('alpha_ref', '<f4'), ('pad_2', '<u4')])
+assert FIXED_DT.itemsize == RAW[SEC['fixeds']]
 CLASS_NAMES = ['unnamed', 'model_part', 'crowd', 'sprite', 'text', 'movie', 'particle', 'shadow', 'post', 'clear', 'other']
 K_PARTICLE, K_MODEL_PART, K_SPRITE, K_POST, K_OTHER = 6, 1, 3, 8, 10
 K_SHADOW = 7
@@ -174,6 +183,13 @@ class FrameData:
         self.bdefs = tab(SEC['bank_defs'], capread.BANKDEF_DT)
         self.bpatches = tab(SEC['bank_patches'], capread.BANKPATCH_DT)
         self._banks = {}
+
+    def fixeds(self):
+        """The fixed-state table as a FIXED_DT array (empty when the frame has none); row = a draw's `fixed`."""
+        if SEC['fixeds'] not in self.secs:
+            return np.zeros(0, FIXED_DT)
+        es, cnt, off = self.secs[SEC['fixeds']]
+        return np.frombuffer(self.buf, FIXED_DT, cnt, off)
 
     def draw_ops(self):
         """Draw indices in op-list order, with each one's position in the op list."""

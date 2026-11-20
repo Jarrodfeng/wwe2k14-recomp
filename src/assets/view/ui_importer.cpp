@@ -277,6 +277,7 @@ struct ImporterPanel::Impl {
   }
   bool SavePackNow(std::string& err) {
     const bool ok = importer::SavePack(host->mods_dir, pack, err);
+    if (ok) pack.retired = importer::RetiredSlots(host->mods_dir);  // S105 IMP: a removed import's slot is retired by this write
     pack_sig = PackSig();
     return ok;
   }
@@ -309,9 +310,18 @@ struct ImporterPanel::Impl {
       if (int(i) != except && pack.stars[i].slot == slot) return true;
     return false;
   }
+  // S105 IMP review M1: the slots of the last built pack (superstars.txt), read at most once a second (the form asks every frame)
+  const std::vector<int>& BuiltSlots() const {
+    const auto now = std::chrono::steady_clock::now();
+    if (!built_read || now - built_at > std::chrono::seconds(1)) built_slots = importer::BuiltPackSlots(host->mods_dir), built_at = now, built_read = true;
+    return built_slots;
+  }
+  mutable std::vector<int> built_slots;
+  mutable std::chrono::steady_clock::time_point built_at;
+  mutable bool built_read = false;
   std::vector<int> SlotsFor(int except) const {  // free slots not used by another pack entry
     std::vector<int> v;
-    for (int s : free_slots)
+    for (int s : importer::slots::NeverUsedFirst(free_slots, pack.retired, BuiltSlots()))  // (S105 IMP: a retired slot may still hold a save's old row)
       if (!SlotTaken(s, except)) v.push_back(s);
     if (except >= 0 && except < int(pack.stars.size())) {
       const int own = pack.stars[size_t(except)].slot;
@@ -548,6 +558,8 @@ struct ImporterPanel::Impl {
     std::string err;
     if (!SavePackNow(err)) return Say("Saved here, but the pack list could not be written: " + err, true), false;
     Say(draft.name + " is in the pack (slot " + std::to_string(draft.slot) + "). BUILD INTO GAME puts the pack in the game.");
+    if (std::find(pack.retired.begin(), pack.retired.end(), draft.slot) != pack.retired.end())  // S105 IMP review L1: a warning, never a stop
+      Say("Slot " + std::to_string(draft.slot) + " held another superstar before: a save that met him keeps his ratings and moves for this one (a new save does not).", true);
     return true;
   }
   void RemoveSel() {
@@ -559,6 +571,11 @@ struct ImporterPanel::Impl {
     const auto it = std::find_if(pack.stars.begin(), pack.stars.end(), [slot](const importer::Superstar& s) { return s.slot == slot; });
     if (it == pack.stars.end()) return NewDraft(), Say(n + " was already removed.");
     pack.stars.erase(it);
+    {  // S105 IMP review L2: a slot a build held is retired in memory before the write, so a failed write cannot hand it out first (M1: an unbuilt one is not)
+      const std::vector<int> bs = importer::BuiltPackSlots(host->mods_dir);
+      if (std::find(bs.begin(), bs.end(), slot) != bs.end() && std::find(pack.retired.begin(), pack.retired.end(), slot) == pack.retired.end())
+        pack.retired.push_back(slot);
+    }
     pack.needs_build = true;
     std::string err;
     SavePackNow(err);
@@ -963,7 +980,12 @@ struct ImporterPanel::Impl {
     Label(cx, "SLOT", lab);
     {
       const std::vector<int> slots = SlotsFor(list_sel);
-      auto show = [](int s) { return s < 0 ? std::string("no free slot") : std::to_string(s) + " (free) - Downloadable Content"; };
+      // S105 IMP review L1: a slot an import held before may still hold a save's old row: said in the list
+      auto show = [this](int s) {
+        if (s < 0) return std::string("no free slot");
+        const bool used = std::find(pack.retired.begin(), pack.retired.end(), s) != pack.retired.end();
+        return std::to_string(s) + (used ? " (used before) - Downloadable Content" : " (free) - Downloadable Content");
+      };
       ImGui::SetNextItemWidth(field);
       if (ImGui::BeginCombo("##slot", show(draft.slot).c_str(), ImGuiComboFlags_HeightLarge)) {
         for (int s : slots)

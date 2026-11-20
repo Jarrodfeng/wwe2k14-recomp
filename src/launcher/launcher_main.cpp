@@ -60,6 +60,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <condition_variable>
 #include <random>
 #include <mutex>
@@ -90,6 +92,7 @@
 #include "wm30_list.h"  // Session 34: the 30 Years of WrestleMania matches from the player's game files
 #include "../diag_plan.h"  // Session 95: the diagnostic run (shared with the phone launcher)
 #include "../diag_logcut.h"  // Session 95 (diag4): the game log cut for the zip (shared)
+#include "report_findings.h"  // S105 C0b: findings.txt in the report zip (the C++ port of tools\report\triage.py; shared with the phone launcher)
 #include "../gfx_applied.h"  // S102 S0-1: SuggestIntegrated (shared with the Surface bench's profile generator)
 #include "../vk_devices.h"  // Session 37: integrated graphics? interlock? (the renderer and FSR choices)
 #include "../tron_zip.h"  // Session 98: EXPORT FOR PHONE (the tron previews as one zip for the phone launcher)
@@ -1908,13 +1911,13 @@ class App {
                         : s.frame_rate == 0 ? ", classic frame rate"
                         : s.frame_rate == 3 ? ", 30 fps"  // Session 41 (it said 60)
                                             : ", 60 fps",
-                        s.upscale ? ", upscaling on" : "", dlc_text.c_str());
+                        (!kStreamFreeTarget && s.upscale) ? ", upscaling on" : "", dlc_text.c_str());
     if (ImGui::Button("Advanced: replays, re-shoots, seeds, director...")) play_view_ = 2;
   }
 
   static constexpr const char* kResolutionNames[] = {"720p", "1440p", "4K"};
   // Session 54: the size the game draws at (360p ... 4K): a draw height only with NATIVE and no upscaler.
-  static bool DrawHeightApplies(const Settings& t) { return t.renderer == 2 && t.upscale == 0 && !t.original_look; }
+  static bool DrawHeightApplies(const Settings& t) { return t.renderer == 2 && (kStreamFreeTarget || t.upscale == 0) && !t.original_look; }  // S105 A1b: a saved upscaler is not sent in the stream-free build
   static std::string ResolutionName(const Settings& t) {
     if (t.original_look) return kResolutionNames[0];
     if (DrawHeightApplies(t) && t.draw_height) return std::to_string(t.draw_height) + "p";
@@ -3086,8 +3089,21 @@ class App {
       swprintf(key, 256, L"%s\\%04d", cls, i);
       const std::string desc = RegString(HKEY_LOCAL_MACHINE, key, L"DriverDesc");
       if (desc.empty()) continue;
-      t += "  " + desc + ": driver " + RegString(HKEY_LOCAL_MACHINE, key, L"DriverVersion") + " (" +
-           RegString(HKEY_LOCAL_MACHINE, key, L"DriverDate") + ")\n";
+      const std::string driver_date = RegString(HKEY_LOCAL_MACHINE, key, L"DriverDate");
+      t += "  " + desc + ": driver " + RegString(HKEY_LOCAL_MACHINE, key, L"DriverVersion") + " (" + driver_date + ")";
+      {  // S105 A9: a driver older than two years is flagged (the registry date is M-D-YYYY); a text that does not parse is left alone
+        int m = 0, d = 0, y = 0;
+        // (review F6) Windows' own built-in drivers (Microsoft Basic Display / Remote Display) carry a 2006 date: not a card maker's driver, no flag
+        const bool windows_own = RegString(HKEY_LOCAL_MACHINE, key, L"ProviderName").find("Microsoft") != std::string::npos;
+        if (!windows_own && std::sscanf(driver_date.c_str(), "%d-%d-%d", &m, &d, &y) == 3 && y >= 1990 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+          std::tm tm{};
+          tm.tm_year = y - 1900, tm.tm_mon = m - 1, tm.tm_mday = d, tm.tm_hour = 12;
+          const std::time_t then = std::mktime(&tm);
+          if (then != std::time_t(-1) && std::difftime(std::time(nullptr), then) > 730.0 * 86400.0)
+            t += " - older than two years: an update from the card maker may fix graphics problems";
+        }
+      }
+      t += "\n";
     }
     DWORD len = 0;
     uint32_t cores = 0;
@@ -3258,12 +3274,15 @@ class App {
     const fs::path captures = paths_.game_exe.parent_path() / "captures";
     size_t marks = 0;
     about += "\nGames in this report (newest first):\n";
+    std::vector<fs::path> raw_logs;  // S105 C0b: the raw logs findings.txt is read from (before CondenseLog)
     for (const fs::path& log : NewestN(paths_.logs, "wwe2k14_", ".log", 3)) {
+      raw_logs.push_back(log);
       const std::string name = PathStr(log.filename());
       const std::string text = Redact(CondenseLog(log));
       files.emplace_back(name, text);
       const std::string number = name.substr(8, name.size() - 8 - 4);  // wwe2k14_NNN.log
       about += "- " + name + "\n" + MatchCardsText(text);
+      if (text.find("[rdr][DEVICE_LOST] =====") != std::string::npos) about += "  the graphics driver stopped (device lost) in this game\n";  // S105 A9
       {  // S103: the run's stack dump (loader stall / hang / crash: logs\flight_NNN.txt), when the game wrote one
         const std::string flight = ReadTail(paths_.logs / ("flight_" + number + ".txt"), 4u << 20);
         if (!flight.empty()) {
@@ -3286,6 +3305,12 @@ class App {
       }
     }
     about += "F11 marks: " + std::to_string(marks) + "\n";
+    // S105 C0b: what the logs say was not drawn, per mode (findings.txt; never fails the report: a log it cannot read becomes a line saying so)
+    // "log line N" counts the RAW log on the player's PC; the copy in this zip is condensed (repeated lines left out), so its line numbers differ: say so.
+    files.emplace_back("findings.txt", Redact("NOTE: 'log line N' below counts the ORIGINAL wwe2k14_NNN.log on the player's PC. The copy of the log in this zip is condensed\n"
+                                              "(repeated lines left out), so its line numbers differ: find a line by its HH:MM:SS time stamp.\n" +
+                                              report_findings::Build(raw_logs, "the logs in this report")));
+    about += "Not-drawn summary: findings.txt\n";
     const fs::path perf = Newest(paths_.logs, "perf_report_", ".txt");
     about += "Performance report: " + (perf.empty() ? std::string("(none: turn it on in Settings)") : PathStr(perf.filename())) + "\n";
     if (!perf.empty()) files.emplace_back(PathStr(perf.filename()), Redact(ReadTail(perf, 4u << 20)));
@@ -5772,6 +5797,8 @@ class App {
                      "Frame and load times per scene when the game closes; it goes into Report a problem."))
       s.perf_report = pr ? 1 : 0;
     // Session 70: src\precompile.h, PrecompileKey above.
+    // S105 B3: back in the stream-free build: the boot builds the player's own stored pipeline list of the new renderer (src\precompile.h owner mode, "prepared N of M"),
+    // so no pipeline is made cold at the first match frames. (A1b had hidden it while that boot made 0 pipelines: the catalog was never registered.)
     OptionToggle("PREPARE SHADERS", s.precompile, true,
                  "Before playing, build the graphics for this PC once (after an update, a new driver or a graphics "
                  "change), so entrances don't stutter. Takes a minute or less; SKIP is always there.");
@@ -5869,7 +5896,7 @@ class App {
       }
     }
 
-    const bool dlss = (s.upscale >= 2 && s.upscale <= 4) || s.upscale == 6 || s.upscale == 7;  // S33: or FSR Q / P
+    const bool dlss = !kStreamFreeTarget && ((s.upscale >= 2 && s.upscale <= 4) || s.upscale == 6 || s.upscale == 7);  // S33: or FSR Q / P (S105 A1b: not sent in the stream-free build)
     static constexpr const char* kRes[] = {"720P", "1440P", "4K"};
     const int sug = SuggestResolution(hw_);
     char rnote[200];
@@ -5964,7 +5991,10 @@ class App {
   // only"): no RENDERER row - NATIVE always; --wwe2k14_renderer=light|accurate in Advanced -> Extra flags for
   // troubleshooting (launcher_core.h BuildFlags, gfx_settings.h RendererFromFlags).
 
-  void SettingsGraphics() {
+  // S105 A1b: the UPSCALING row (DLAA / DLSS / FSR) and its NVIDIA files notes. Not in the stream-free build: the scene host has no upscaler
+  // path (start_settings.cpp RefuseSetting "DLSS / DLAA" / "FSR"), so the row would choose a picture the game then refuses.
+  void SettingsUpscaling() {
+    if (kStreamFreeTarget) return;  // S105 A1b: hidden in the stream-free build (settings_reader_lint.py checks this guard)
     const float d = Dpi();
     // Shown in Jarrod's order (Session 31): DLAA, then DLSS from the fastest to the sharpest. Session 33: then AMD FSR 3
     // (native, quality, performance) on every card (AMD's runtime ships next to the game). kUpValue = the stored
@@ -6050,6 +6080,10 @@ class App {
       }
       ImGui::Dummy(ImVec2(0, 6 * d));
     }
+  }
+
+  void SettingsGraphics() {
+    SettingsUpscaling();  // S105 A1b (the stream build only)
     // Session 85 (Jarrod's order: UPSCALING, SHADOWS, CROWD DENSITY, DEPTH OF FIELD, POST EFFECTS, TEXTURE FILTERING).
     // The three are NATIVE-only flags (gfx_settings.h GraphicsFlags); crowd density is read when the game starts.
     OptionToggle("SHADOWS", s.shadows, true,
@@ -6200,7 +6234,7 @@ class App {
     OptionToggle("LOGO IMPORT: OLD ROUTE", s.logo_legacy_route, true, "Counted presses, no screen checks (a fallback).");
     // Session 85 (Jarrod: "hide Original look ... put it in advanced"): moved here from the Graphics page.
     OptionToggle("ORIGINAL LOOK", s.original_look, true,
-                 "The Xbox 360 picture: 720p, the game's 4x MSAA, 30 fps entrances.");
+                 "The Xbox 360 look: the picture drawn at 720p and entrances at 30 fps (no anti-aliasing, since the new renderer).");  // S105 A1b: the note said "4x MSAA", gone since Session 95
     // Session 87 (Jarrod: "an advanced launcher toggle, called true native"): --wwe2k14_d3d_owned. NATIVE only.
     // S101 (Jarrod, 2026-11-13: "yes hide true native"): hidden. Owner mode (default on) draws everything with our renderer and, with
     // bundle 2, the old SDK draw stack this toggled is not even created; the setting stays on (launcher_core.h forces it on load).

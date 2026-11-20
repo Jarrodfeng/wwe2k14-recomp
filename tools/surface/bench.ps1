@@ -91,7 +91,12 @@ param([string]$Exe = '', [string]$GameData = '', [string]$UserData = '', [string
 # and the measured steps start from a drawn-down credit. No new route is needed: a scene run is 40-50 s, Warm=60 is two of them. Repeats=N: every selected scene step runs N times,
 # round-robin (bryan, brock, match, bryan, ...), the first in frames_<scene>, the others in frames_<scene>_r2 ... _rN; tools\surface\bar_report.py prints median and range per scene
 # (and which repeats were SUSTAINED, burst_rules.py). Both are for the scene steps (frames_bryan / _brock / _match / _bryan_heavy), not ab.
-[int]$Warm = 0, [int]$Repeats = 1)
+[int]$Warm = 0, [int]$Repeats = 1,
+# S105 SRJ: Only=route runs ONE input-script route (Route=<file in Routes>, e.g. s103_moveset_stall.txt) Repeats times (1-9), with the job's GameFlags added to the
+# step's own flags (GameFlags=a=b,c=d in bench_args.txt, no leading --, comma separated; the route's '# harness: flags' header is NOT read here: put them in GameFlags).
+# Steps route, route_r2 .. route_rN, each with the frozen user data copied fresh, TimeoutSeconds as the hard per-run kill, the game's logs (log / csv / txt, so
+# flight_*.txt too) and its new captures\*.png (screenshots) copied into the step folder; Front=true puts the window in front as before.
+[string]$Route = '')
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)
 $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })  # (pwsh -File: one string)
@@ -302,6 +307,14 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   if ($pwr -and -not $pwr.WaitForExit(30000)) { Stop-Process -Id $pwr.Id -Force }
   Get-ChildItem $logs | Where-Object { $before -notcontains $_.Name -and $_.LastWriteTime -ge $t0 } |
     Where-Object { $_.Extension -in '.log', '.csv', '.txt' } | Copy-Item -Destination $dest
+  if ($name -like 'route*') {   # S105 SRJ: the route's screenshots (the game writes captures\NNN_label.png next to the exe)
+    $capDir = Join-Path $exeDir 'captures'
+    if (Test-Path $capDir) {
+      $shots = @(Get-ChildItem $capDir -File | Where-Object { $_.LastWriteTime -ge $t0 -and $_.Extension -in '.png', '.jpg' })
+      if ($shots.Count) { $sd = Join-Path $dest 'captures'; New-Item -ItemType Directory -Force $sd | Out-Null; $shots | Copy-Item -Destination $sd }
+      Write-Host "[surface] $name : $($shots.Count) screenshots copied"
+    }
+  }
   Write-Host "[surface] $name : exit $($p.ExitCode), $([int]((Get-Date) - $t0).TotalSeconds) s"
   # (Session 102 lane S0-2: the heat verdict of a scene step, one rule written in heat_steady.ps1 / heat_rules.py.)
   # (A/B arms and the abwarm run get a verdict but never a repeat; only a heat reason on a game that ended cleanly repeats: Test-HeatRetry.)
@@ -385,7 +398,7 @@ if ($AbFlip) {   # S102 M7: the in-run A/B; the format is checked here and by s0
 $abSceneFlags = @($SceneFlags | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { '--' + $_.TrimStart('-') })   # S102 M7 (F8): SceneFlags (the base levers) reach EVERY ab arm
 # S102 B1: Warm / Repeats (see the parameters). The names the zip takes are listed in $stepKeys below.
 $selScenes = @($sceneSteps.Keys | Where-Object { $Only -contains $_ })
-if (($Warm -gt 0 -or $Repeats -gt 1) -and -not $selScenes.Count) { Write-Host "[surface] Warm=$Warm Repeats=$Repeats ignored: no scene step in -Only ($($Only -join ','))" }
+if (($Warm -gt 0 -or ($Repeats -gt 1 -and $Only -notcontains 'route')) -and -not $selScenes.Count) { Write-Host "[surface] Warm=$Warm Repeats=$Repeats ignored: no scene step in -Only ($($Only -join ','))" }
 if ($Warm -lt 0 -or $Warm -gt 600) { throw "Warm=$Warm : seconds, 0 to 600" }
 if ($Repeats -lt 1 -or $Repeats -gt 9) { throw "Repeats=$Repeats : 1 to 9" }
 if ($Warm -gt 0 -and $selScenes.Count) {
@@ -402,6 +415,17 @@ for ($rep = 1; $rep -le $Repeats; $rep++) {
   foreach ($k in $selScenes) {
     $nm = if ($rep -eq 1) { $k } else { "${k}_r$rep" }
     Invoke-Step $nm $sceneSteps[$k][0] (@($sceneSteps[$k][1]) + $sceneFlagList) $false -Threads $true
+  }
+}
+# S105 SRJ: route (see the Route parameter): one route, Repeats times, no heat verdict / retry (a diagnosis job, not a bar).
+if ($Only -contains 'route') {
+  if (-not $Route) { throw 'Only=route needs Route=<route file name in the routes folder>' }
+  if ($Route -notmatch '^[A-Za-z0-9_.-]+$') { throw "Route=$Route : a file name only" }
+  if (-not (Test-Path (Join-Path $Routes $Route))) { throw "Route=$Route : not in $Routes (push_kit.ps1 sends it)" }
+  if ($Repeats -lt 1 -or $Repeats -gt 9) { throw "Repeats=$Repeats : 1 to 9" }
+  for ($rep = 1; $rep -le $Repeats; $rep++) {
+    $nm = if ($rep -eq 1) { 'route' } else { "route_r$rep" }
+    Invoke-Step $nm $Route @() $false -Threads $false
   }
 }
 # pinned (Session 79, not in the default list): the frames run held to 2 cores / 4 threads (the i3-6100U's count; the

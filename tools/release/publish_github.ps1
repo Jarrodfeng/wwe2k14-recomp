@@ -96,6 +96,9 @@ $bad = @($files | Where-Object {
   $_.Path -match '\.(pac|bik|bik2|xex|xexp|iso|cac|pdb|map|pck|dlc|arc)$' -or $_.Path -match '^(game_data|out|dlc[^/]*)/' -or
   ($_.Path -match '^generated/' -and $_.Path -ne 'generated/rexglue.cmake') })
 if ($bad.Count) { Fail ("forbidden paths: " + (($bad | Select-Object -First 10).Path -join ', ')) }
+# S105 R1L (rule 1): no line of the game's own text (string.pac / CSDT, >= 5 words or >= 24 characters) in the tree about to be committed.
+$gt = py -I (Join-Path $R 'tools\harness\game_text_lint.py') --tree $tree --root $R 2>&1
+if ($LASTEXITCODE -ne 0) { Write-Host ($gt | Select-Object -Last 30 | Out-String); Fail "game_text_lint: game text in the publish tree (or the game files are missing: exit $LASTEXITCODE)" }
 $gameFiles = @(Get-ChildItem -Recurse -File -Path (Join-Path $R 'game_data') -ErrorAction SilentlyContinue)
 $bySize = @{}
 foreach ($g in $gameFiles) { if (-not $bySize.ContainsKey($g.Length)) { $bySize[$g.Length] = @() }; $bySize[$g.Length] += $g.FullName }

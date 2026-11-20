@@ -96,7 +96,7 @@ def part_test(root):
         return fail('%s not found' % CLANG)
     main = main_checkout(root)
     caps = [('brock', os.path.join(main, 'out', 'lane86', 'brock', 'capture')),
-            ('bryan', os.path.join(main, 'out', 's101', 'runs', '20261112_122700_s100_owner_bryan_entrance', 'case_20261112_122719_969_0_pc_run_exit.zip'))]
+            ('bryan', os.path.join(main, 'out', 'captures', 'c2d_entrance_tron'))]   # S105 E: the old Bryan case zip (out/s101/runs) is gone (scratch). 'bryan' now = out/captures/c2d_entrance_tron: an entrance with text draws (254k candidate draws, 120 frames); plant 12 (glyph origin copied) is caught on it and not on the other entrances / matches tried (S105 E, 20 captures), lane86's bryan capture has no text draws
     for n, p in caps:
         if not os.path.exists(p):
             return fail('capture %s missing: %s' % (n, p))

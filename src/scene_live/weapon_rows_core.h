@@ -30,6 +30,7 @@
 #include "arena_world.h"     // RowsFromMatrix
 #include "weapon_mgr_reader.h"  // ReadSlots: the one reader of the slot table
 #include "lock_stats.h"  // BHF1: the tracker lock cost counters
+#include "belt_plate.h"  // S105 PLATE: the belt nameplate store (a model leaving the event list drops its plate)
 
 namespace rdr_scene::live::weaponrows {
 
@@ -100,6 +101,7 @@ class EventProps {
   void OnMake(uint32_t model, uint32_t prop_id, uint32_t k) {
     if (model == 0) return;   // the allocation failed (0x82BD41B0); the game tests it later (0x8272E044), the hook tests it itself
     std::lock_guard<std::mutex> lk(mu_);
+    beltplate::DropOnMake(model);   // S105 PLATE review 1: a free the destructor hook missed leaves the old model's plate verdict at this address (lock order EventProps::mu_ then the Store's, as OnFree / Prune / Clear)
     map_[model] = Entry{int32_t(prop_id), k};
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     ++made_;
@@ -117,7 +119,7 @@ class EventProps {
     ++frees_;
     if (!drop) return 0;
     for (uint32_t m : models)
-      if (m != 0) n += uint32_t(map_.erase(m));
+      if (m != 0) n += uint32_t(map_.erase(m)), beltplate::DropOnFree(m);   // S105 PLATE: a freed model address reused by another belt must not keep the old name
     dropped_ += n;
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     Publish();
@@ -129,7 +131,7 @@ class EventProps {
   uint32_t Clear() {
     std::lock_guard<std::mutex> lk(mu_);
     const uint32_t n = uint32_t(map_.size());
-    map_.clear();
+    map_.clear(), beltplate::ClearOnScene();   // S105 PLATE
     cleared_ += n;
     live_.store(0, std::memory_order_relaxed);
     Publish();
@@ -143,7 +145,7 @@ class EventProps {
     for (auto it = map_.begin(); it != map_.end();) {
       uint32_t vt = 0;
       if (read_word(it->first, vt) && vt == w::kSkinnedModelVtable) { ++it; continue; }
-      it = map_.erase(it), ++n;
+      beltplate::DropOnFree(it->first), it = map_.erase(it), ++n;   // S105 PLATE
     }
     if (n) {
       pruned_ += n;
@@ -786,11 +788,12 @@ inline uint8_t ShadowKindAt(ReadWordFn read_word, uint32_t slot) {
 // The first lines of the raw hook on sub_82C04DF0 (draw_origin.h), kept pure so the offline unit runs the REAL order: the rows are taken BEFORE the scene_skip::Ours(Model) test (under OURS the original never runs,
 // and neither does the mid-asm hook inside it: the stream-free build recorded nothing: PW review fix 1). Returns true when the original must run (not OURS). `registered` = WeaponRowsRegistered() && Enabled().
 template <class ReadWordFn, class ReadMatsFn>
-inline bool RawHookEntry(Tracker& tr, bool registered, bool ours, uint32_t r3, uint32_t r5, uint64_t frame, ReadWordFn read_word, ReadMatsFn read_mats, CallResult* out = nullptr, float f1 = 1.0f, uint32_t lr = 0, bool (*pass0)(void*) = nullptr, void* pass_ctx = nullptr, uint8_t shadow = 0) {
+inline bool RawHookEntry(Tracker& tr, bool registered, bool ours, uint32_t r3, uint32_t r5, uint64_t frame, ReadWordFn read_word, ReadMatsFn read_mats, CallResult* out, float f1, uint32_t lr, bool (*pass0)(void*), void* pass_ctx, uint8_t shadow, bool (*plate_phys)(uint32_t, uint32_t, uint8_t*)) {   // S105 PLATE review 6: no defaults, so a glue edit that drops plate_phys cannot compile
   if (tr.plant == Plant::RowsAfterOursCheck && ours) return false;   // the planted bug: the rows are a feature of the stream's path only
   if (registered) {
     const CallResult r = tr.OnModelCall(r3, r5, frame, IsOwnSubmit(r3), read_word, read_mats, f1, lr, IsOwnSubmit(r3) ? t_slot13_caller : 0u, pass0, pass_ctx, shadow);   // S103 GBR: pass0 = "the thread's pass index (sub_82BA77A8) is 0", asked only for a gm set object / a splat   // S103 CGF (review 3: the own submit's caller): f1 (MdlAlpha) and the guest LR ride along for the stage structures' family tag
     if (out) *out = r;
+    if (r.event && plate_phys) beltplate::TheStore().OnEventCall(r3, read_word, plate_phys);   // S105 PLATE: the belt's nameplate, read once per model on the game thread (both builds: the rows are taken before the OURS test)
   }
   return !ours;
 }

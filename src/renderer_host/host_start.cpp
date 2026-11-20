@@ -27,7 +27,8 @@
 #include "../renderer/breadcrumbs.h" // rdr::DeviceLost
 #include "../renderer_adapter/display_rate.h"   // rate::Decide / PanelHz: header-only, no stream state (the display-follow rule of the tween)
 #include "../renderer_adapter/snapshot_keeper.h"
-#include "../dev_build.h"         // S103: IsDevBuild (--wwe2k14_rdr_test_fail_start is a +dev switch)
+#include "../ultrawide_state.h"   // S105 A2: FillNow (no cvar: this unit and the app both include it)
+#include "../dev_build.h"        // S103: IsDevBuild (--wwe2k14_rdr_test_fail_start is a +dev switch)
 #define WWE2K14_FRAME_TICK_CORE_ONLY 1   // the Tick / poster / display table only: the game part (guest reads) pulls in frame_stats.h, whose cvars are defined in main.cpp's unit alone
 #include "../renderer_game/frame_tick.h"
 #include "../renderer_game/owner_globals.h"
@@ -44,6 +45,7 @@
 #include "../thread_name.h"
 #include "host_start.h"
 #include "scene_host.h"
+#include "wide_frame.h"   // S105 A2
 
 // Settings the stream build defines in reader.h. A build without the stream defines the ones the host reads here (the launcher passes them on the command line: they must exist).
 namespace wwe2k14::rdr_reader { REXCVAR_DECLARE(bool, wwe2k14_rdr_test_fail_start); }   // S103: DEFINED once, in the main TU (start_failure_show.h via wwe2k14_app.h); this TU includes no header that defines a cvar (tools\lint\cvar_define_once.py)
@@ -72,6 +74,8 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene2d, true, "wwe2k14",
                     "S103 SCS: the in-scene 2D rows (the entrance screen flashes and the lens flares) are drawn inside the new renderer's scene pass, as the game does. false = they are dropped (the old behaviour; for A/B)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_view, false, "wwe2k14",
                     "S103 SVO (tool view, never a player look): while goto's `scene:` stage push plays through the Create a Story preview, the host leaves the 2D rows (the editor's full-screen red background) out of the picture, so the scene shows.");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_copy_sprite, true, "wwe2k14",
+                    "S105 A4: the game's own copy of its 3D picture, drawn back as a full-screen 2D sprite (Create a Finisher's preview, the pause background), shows the new renderer's 3D picture of the frame. false = that sprite is dropped (the old behaviour; for A/B)");
 #else
 REXCVAR_DECLARE(bool, wwe2k14_vsync);
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_bc_decode);
@@ -125,6 +129,7 @@ void PostTick(const frame_tick::Tick& t) {
   m.guest_frame = t.guest_frame;
   m.present_interval = t.present_interval;
   m.width = t.width, m.height = t.height;
+  m.fill_now = wwe2k14::ultrawide::FillNow();   // S105 A2: in play, the scene / F take the screen's shape (wide_frame.h)
   m.no_picture = t.no_picture;
   m.curve_changed = t.display_curve_changed;
   if (t.display_curve_changed) m.curve = t.display_curve;
@@ -156,10 +161,6 @@ void NotePresent() {
     rex::perf::hang_beats::Beat(rex::perf::hang_beats::Get().presents);
   }
 }
-
-// S103 SPB (SP2 M6): the stream path squeezes the 3D scene by the screen-shape factors (the SDK's clip x / k) and the present stretches the picture back over the window (present_fill). This host's scene draw
-// does not widen its camera yet, so a stretched 16:9 picture would be DISTORTED: until it does, the picture is fitted with bars and the request is refused out loud (RefuseSetting), never silently.
-constexpr bool kSceneFollowsWide = false;
 
 // The renderer half of the stream path's StartLive (reader.h), without any stream switch. The settings both starts share (gpu timestamps, counts, robust buffers, exclusive fullscreen, LOW's present
 // clear, the ultrawide fill, the quality levers) come from wwe2k14::start::ApplyStartSettings() (start_settings.cpp). The 30 fps decouple and the phone's 120 Hz spacing are read below. Not read here yet (later pieces): per frame, the three builder settings live.cpp sets (FrameBuilder::SetOutput = the output cap height / bilinear, SetPresentFetch, SetColourCuts): the host keeps the builder's defaults
@@ -198,12 +199,22 @@ HostOptions BuildOptions() {
   ro.exclusive_fullscreen = applied.exclusive_fullscreen;
   ro.present_noclear = applied.present_noclear;   // SP2 M4: LOW's present lever
   o.present_direct = applied.present_direct;   // S103 CHS C6: a frame with no 2D row presents the 3D picture itself (scene_host.h HostOptions::present_direct)
-  ro.present_fill = applied.present_fill && kSceneFollowsWide;   // SP2 M6 (see kSceneFollowsWide)
-  if (applied.present_fill && !kSceneFollowsWide) wwe2k14::start::RefuseSetting("ULTRAWIDE / TALL SCREEN FILL", "the scene host does not widen the 3D camera yet, so the 16:9 picture is fitted with bars");
-  rdr_case::info::SetRender(uint32_t(std::ceil(1280.0f * ro.render_scale)), uint32_t(std::ceil(720.0f * ro.render_scale)), ro.render_scale);   // SP2 M5: the case zip's render size (live.cpp does the same)
+  // S105 A2: the picture is never stretched (the stream path's anamorphic squeeze + present_fill is gone with the stream): during play the scene and F take the screen's shape (a Hor+ / Vert+ camera
+  // with the game's vertical FOV, wide_frame.h), the 2D layer stays a centred 16:9, and the present fits F to the window.
+  ro.present_fill = false;
+  o.wide = applied.wide, o.tall = applied.tall;
+  const wwe2k14::scene_host::wide_frame::FrameShape play = wwe2k14::scene_host::wide_frame::Shape(1280, 720, o.wide, o.tall, true);
+  {
+    HostLog(("[host][wide] aspect " + std::to_string(double(play.w) / double(play.h)) + ", k " + std::to_string(o.wide) + ", t " + std::to_string(o.tall) + ", play scene " + std::to_string(play.w) + "x" + std::to_string(play.h) +
+             ", 2D box x0,y0 " + std::to_string(play.box_x) + "," + std::to_string(play.box_y) + " 1280x720, menus 16:9").c_str());
+  }
+  rdr_case::info::SetRender(uint32_t(std::ceil(float(play.w) * ro.render_scale)), uint32_t(std::ceil(float(play.h) * ro.render_scale)), ro.render_scale);   // SP2 M5: the case zip's render size = the IN-PLAY scene size (menus render 1280x720; review F6), the same even size Shape gives the host
   if (REXCVAR_GET(wwe2k14_rdr_pipeline_store)) {
     ro.pipeline_store_dir = wwe2k14::rdr_reader::g_pipeline_store_root;
     ro.pipeline_prebuild_slice_us = uint32_t(REXCVAR_GET(wwe2k14_rdr_pipeline_prebuild_slice_us));
+    // S105 B3: the precompile boot ("Preparing shaders"): the player's own stored list is built before play, a second at a time (the window is behind; src\precompile.h ends the boot when none is left).
+    o.precompile_mode = !rex::cvar::GetFlagByName("wwe2k14_precompile").empty();
+    if (o.precompile_mode) ro.pipeline_prebuild_slice_us = 1000000;
   }
   o.game_root_fn = []() -> std::string { return wwe2k14::rdr_reader::g_crowd_game_root; };
   o.log = &HostLog;
@@ -290,6 +301,8 @@ static void StartPictures(SceneHost& host) {
   const std::string root = wwe2k14::rdr_reader::g_crowd_game_root;
   g_resolver_owner = std::make_unique<rdr_scene::PictureResolver>(*host.renderer(), source, *g_index, root);
   g_resolver_owner->SetWorkerStart([] { wwe2k14::NameThread(L"rdr_pic_load"); });   // D1: the pac reads are on this thread, never on the host's
+  if (REXCVAR_GET(wwe2k14_rdr_scene_copy_sprite))   // S105 A4: the scene-copy sprite row is served the host's own 3D picture (SceneHost::ScenePicture: host thread, the same thread that resolves rows)
+    g_resolver_owner->SetScenePicture([h = &host](const rdr_scene::Quad2D& row) { return h->ScenePicture(row); });
   g_resolver.store(g_resolver_owner.get(), std::memory_order_release);
   std::string cache;
   if (!wwe2k14::rdr_reader::g_ui_index_root.empty()) {   // B4: <cache root>\ui_index (wwe2k14_app.h sets it from runtime()->cache_root()), not a sibling of the pipeline store (a tests' store folder is somewhere else)

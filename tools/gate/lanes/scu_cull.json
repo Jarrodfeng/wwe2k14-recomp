@@ -1,0 +1,24 @@
+{
+ "owner": "SCU (2026-11-20): arena stage meshes culled as the game (record word +0x8C bit 0x2; the `r` copy's winding swapped), docs/research/harness/SCU_contract.md, docs/formats/model_mesh_record.md. 0 game runs.",
+ "claim": {"scene": "none", "side": "look", "ms": [0, 0]},
+ "note": "unit = the three-arm proof's arithmetic on synthetic depth pictures (right side, planted wrong side unseen, a vanished half, a nearer pixel, a mirrored camera's handedness) + the predictor's lint (the cull_copy branch cites its claim). rig = the three arms (cull off / on / on without the r-copy swap) on capture a04_match frame 40 through a wide symmetric camera of the capture camera's handedness, and the whole-game diff on arenas 4 and 0: the stage cull classes must be empty.",
+ "checks": [
+  {"name": "scu_cull.unit", "cmd": ["py", "-I", "tools/scene/stage_cull_proof.py", "--selftest"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/stage_cull_proof.py"]},
+  {"name": "scu_cull.predict_lint", "cmd": ["py", "-I", "tools/harvest/choice_predict.py", "--lint"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/harvest/choice_predict.py"]},
+  {"name": "scu_cull.proof", "cmd": ["py", "-I", "tools/scene/stage_cull_proof.py", "--capture", "out/captures/a04_match", "--frame", "40", "--look", "0,-1100,-2400", "0,-300,600", "75", "--out", "out/gate/scu_cull/proof", "--check"],
+   "timeout_s": 600, "tier": "rig",
+   "needs": ["game_data/extracted", "out/captures/a04_match"],
+   "affects": ["tools/scene/stage_cull_proof.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/assets/jboy.h", "src/assets/asset_model.h", "src/assets/asset_load.h"]},
+  {"name": "scu_cull.flip", "cmd": ["py", "-I", "tools/scene/stage_cull_proof.py", "--capture", "out/captures/a04_match", "--frame", "40", "--look", "0,-1100,-2400", "0,-300,600", "75", "--out", "out/gate/scu_cull/flip", "--flip-check"],
+   "timeout_s": 600, "tier": "rig",
+   "needs": ["game_data/extracted", "out/captures/a04_match"],
+   "affects": ["tools/scene/stage_cull_proof.py", "tools/scene/frame_rig.cpp", "src/renderer_scene/front_end.cpp", "src/renderer_scene/front_end.h", "src/renderer_scene/draw_lists.h", "src/renderer_adapter/rdr_switches.h"]},
+  {"name": "scu_cull.diff", "cmd": ["py", "-I", "tools/harvest/choice_diff.py", "--run-ours", "--arenas", "4,0", "--ours", "out/gate/scu_cull/ours", "--out-dir", "out/gate/scu_cull", "--fail-on", "stage cull"],
+   "timeout_s": 900, "tier": "rig",
+   "needs": ["game_data/extracted"],
+   "affects": ["tools/harvest/choice_diff.py", "tools/harvest/choice_ours.py", "tools/harvest/choice_predict.py", "tools/scene/arena_rec.cpp", "tools/scene/frame_rig.cpp",
+               "src/renderer_scene/front_end.cpp", "src/assets/jboy.h", "src/assets/asset_load.h"]}
+ ]
+}

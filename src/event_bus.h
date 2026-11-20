@@ -52,7 +52,7 @@ REXCVAR_DEFINE_INT64(wwe2k14_match_state_dump, 0, "wwe2k14",
                      "Session 91: set to a new value for one 'state' event: the match snapshot (clock, referee mode / "
                      "count, finish, every wrestler's id, team, role, state, health); needs --wwe2k14_events");
 
-// S101 lane 113 / lane 120: "" = the move event emits signature / finisher moves only; "all" adds the normal moves.
+// S101 lane 113 / lane 120: "" = the move event emits signature + finisher moves only; "all" adds the normal moves.
 REXCVAR_DEFINE_STRING(wwe2k14_events_moves, "", "wwe2k14",
                       "S101 lane 113: --wwe2k14_events_moves=all also emits normal moves as 'move' bus lines (default: signature "
                       "and finisher only); needs --wwe2k14_events");

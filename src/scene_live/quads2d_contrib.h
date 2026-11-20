@@ -41,6 +41,13 @@ class Quads2DContributor : public rdr_scene::live::Contributor {
                   n(with_holes_), n(rows_), n(holes_), n(same_), n(prev_), n(next_), n(other_), n(stale_));
     out += line;
     out += " [" + StateReport().substr(2) + "]";
+    {   // S105 A8: the glyph refusals the old line never named (q2d_tap::Report() had no callers): a glyph row whose register file lacked c0 / c1 / c4 / c28 (glyph_no_shadow) or took one stamped with another guest frame (glyph_stale),
+      // and a T_RectColor draw whose corner colour was not a whole byte (bad_corner)
+      const auto& gc = g_counters;
+      char g[240];
+      std::snprintf(g, sizeof g, " [glyph: rows %llu, no_shadow %llu, stale %llu; rect_color bad_corner %llu]", n(gc.glyph_rows), n(gc.glyph_no_shadow), n(gc.glyph_stale), n(gc.bad_corner));
+      out += g;
+    }
   }
 
  private:

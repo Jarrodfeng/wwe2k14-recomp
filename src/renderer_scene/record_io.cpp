@@ -85,7 +85,7 @@ const char* SectionName(uint32_t id) {
     case kScBoneTags: return "BoneTag";       // S103 W2B
     case kScLiquidMaps: return "LiquidMapRow";  // S103 SWF
     case kScLiquidItems: return "LiquidItemRow";
-    case kScLiquidPictures: return "CrowdPictureRow";
+    case kScLiquidPictures: return "LiquidPictureRow";
     case kScArenaWorlds: return "ArenaWorld";  // S101 lane 130
     case kScRingRows: return "RingRows";  // lane 194
     case kScRingNodes: return "RingNodeRows";  // lane 194
@@ -615,7 +615,17 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         bool good = true;
         if (e.id == kScLiquidMaps) good = Load(size, data, e, out.liquid_maps, werr);
         else if (e.id == kScLiquidItems) good = Load(size, data, e, out.liquid_items, werr);
-        else good = Load(size, data, e, out.liquid_pictures, werr);
+        else if (e.element_size == sizeof(CrowdPictureRow)) {   // S105 A12: an older record's section 53 (the crowd's 4 KB row): converted, so its sweat still paints
+          std::vector<CrowdPictureRow> old;
+          good = Load(size, data, e, old, werr);
+          for (const CrowdPictureRow& o : old) {
+            if (!good) break;
+            good = CrowdPictureValid(o);
+            LiquidPictureRow n;
+            n.key = o.key, n.width = o.width, n.height = o.height, n.format = o.format, n.nbytes = o.nbytes;
+            if (good) std::memcpy(n.bytes, o.bytes, o.nbytes), LiquidPictureSeal(n), out.liquid_pictures.push_back(n);
+          }
+        } else good = Load(size, data, e, out.liquid_pictures, werr);
         if (!good) out.liquid_maps.clear(), out.liquid_items.clear(), out.liquid_pictures.clear(), ++out.liquid_errors;
         ok = true;
         break;

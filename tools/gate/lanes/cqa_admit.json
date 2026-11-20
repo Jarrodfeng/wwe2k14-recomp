@@ -1,0 +1,11 @@
+{
+ "owner": "Lane CQA (2026-11-20): admit, the memory admission gate compiles will be started through (tools/admit/admit.cpp; docs/agents/admit.md). Wired into nothing by this lane. 0 game runs. Evidence docs/research/harness/CQ2.md, CQ_ADV.md claims 5-6, CQM.md (the measured reservations).",
+ "claim": {"scene": "none", "side": "harness (no OOM from several compiles at once: physical AND commit; observe mode first)", "ms": [0, 0], "basis": "no saving claimed: it bounds memory, it does not speed anything up."},
+ "note": "build = tools/admit/build_admit.ps1 (one clang++ compile, absolute path, never through admit); selftest = admit.exe selftest via tools/admit/run_selftest.ps1 (~3 min, no GPU, trivial children in a kill-on-close job, a fake memory file under %TEMP%, waits driven by events / marker lines): 46 cases run in enforce mode, the observe cases beside them (round 4: observe never waits and logs would_grant / would_reason; a hold's reservation counts for its whole life; the senior cap; grant words held / nested / observed / open; a second hold for the same pid nests and its release is absorbed; a bad config key does not open the queue). Earlier rounds: argument fidelity incl. a 30,000-char line, peak_scope, lone job, memory / slot waits, the pending window and expiry with planted twins, commit-limited hold, killed holder / admit, timeouts, fail-open, nesting by marker (kind-checked) and by --pid ancestry, --detach / release, parent death, stdin = NUL, --max-s, daemons survive a normal exit, .cmd by bare name and no cmd retry, seniors (tie-break, slot-refused, never-fitting, cut rule), a busy lock, orphans, the known-folder state, --want clamp, --min, Python msvcrt.locking interop both ways, overhead <= 30 ms judged on a quiet CPU.",
+ "checks": [
+  {"name": "cqa_admit.build", "cmd": ["pwsh", "-NoProfile", "-File", "tools/admit/build_admit.ps1"], "timeout_s": 300, "tier": "cheap", "gpu": false,
+   "affects": ["tools/admit/admit.cpp", "tools/admit/build_admit.ps1"]},
+  {"name": "cqa_admit.selftest", "cmd": ["pwsh", "-NoProfile", "-File", "tools/admit/run_selftest.ps1"], "timeout_s": 900, "tier": "cheap", "gpu": false,
+   "affects": ["tools/admit/*"]}
+ ]
+}

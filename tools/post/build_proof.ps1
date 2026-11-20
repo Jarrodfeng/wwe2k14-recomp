@@ -24,7 +24,7 @@ $sources += @(Get-Content (Join-Path $repo 'tools\fview\session_deps.txt') | Whe
 # (post_pass.cpp comes with tools\fview\session_deps.txt since S101 lane PO: session.cpp links the post chain's promotion)
 $sources += Join-Path $repo 'src\post_proof\post_proof.cpp'
 $failed = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-$sources | ForEach-Object -ThrottleLimit 12 -Parallel {
+. (Join-Path $PSScriptRoot '..\admit\Admit.ps1'); try { $sources | ForEach-Object -ThrottleLimit (Request-BuildParallel -Want 12) -Parallel {   # CQW: the compile queue (tools\admit\Admit.ps1)
   $source = $_
   $object = Join-Path $using:objects (($source -replace '[\\/:]', '_') + '.o')
   $deps = [IO.Path]::ChangeExtension($object, '.d')
@@ -42,7 +42,7 @@ $sources | ForEach-Object -ThrottleLimit 12 -Parallel {
     $text = & $using:clang @using:flags -c $source -o $object 2>&1
     if ($LASTEXITCODE -ne 0) { ($using:failed).Add("$source`n$($text -join "`n")") } elseif ($text) { Write-Host ($text -join "`n") }
   }
-}
+} } finally { Release-BuildParallel }
 if ($failed.Count) { $failed | ForEach-Object { Write-Host $_ }; throw "$($failed.Count) file(s) failed to compile" }
 $exe = Join-Path $out 'post_proof.exe'
 $objectFiles = @($sources | ForEach-Object { Join-Path $objects (($_ -replace '[\\/:]', '_') + '.o') })

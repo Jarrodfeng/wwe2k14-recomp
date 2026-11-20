@@ -1,5 +1,83 @@
 # Changelog
 
+## v0.4.1
+
+**v0.4.1: the faults you reported on v0.4.0, and a sweep of every game mode on the new renderer.**
+
+v0.4.0 drew the whole game with my own renderer for the first time. Reports from players (thank you) and my own sweep of every mode (36 routes,
+all exited cleanly) found faults; this release fixes the ones I could trace to a cause. If something still looks wrong, please send it with Report a problem.
+
+### Both platforms
+
+- **Picking 1440p or 4K in the launcher now does something.**
+  What you saw: a bigger resolution looked the same and ran no better. Cause: the 3D picture was always made at 1280 x 720 and stretched; only
+  the final image followed the launcher. Fix: the 3D picture and its effects are made at the size you choose, so 1440p and 4K add real detail
+  and the smaller sizes really cost less.
+- **Ultrawide and other wide or tall screens: the 3D picture fills the screen.**
+  What you saw: bars at the sides. Cause: the renderer sized the crowd, stage boxes, shadows and post effects as if the screen were 16:9.
+  Fix: they follow the real screen shape; the HUD stays a centred 16:9.
+- **Settings that did nothing in v0.4.0 are gone from the launcher.** What you saw: options (UPSCALING, the screen shape
+  choice) that changed nothing. Cause: they set switches only the old drawing path read. Fix: removed or hidden, and a check in my build now
+  fails if a launcher option ever has nothing behind it.
+- **The first matches hitch less: the launcher's shader preparation now really prepares.**
+  What you saw: hitches the first time you play something, even with preparation on. Cause: the player build never registered my shader
+  list, so the preparation step prepared nothing. Fix: it is registered and the store is saved before the step says it is done.
+- **Entrances start much sooner, and a skipped entrance gets back to the ring faster.**
+  What you saw: a long black screen at the start of an entrance and after skipping one. Cause: the entrance's stage props were read in a fixed
+  order, each by unpacking a 160 MB file, and the wrestlers waited behind them. Fix: the props are read in slices and the wrestlers load first.
+- **The camera no longer shows the ring's default spot at the start of an entrance.** Cause: the renderer showed the arena while the game was still covering the screen
+  and the camera had not yet moved. Fix: it waits for the game's signal.
+- **Classic WrestleMania banners and other one-sided stage pieces draw as the game draws them.**
+  What you saw: logos on banners missing or see-through in older arenas. Cause: the renderer drew the back of surfaces the game hides. Fix: it
+  hides them as the game does (10,465 pieces). It also makes the draw cheaper.
+- **See-through stage pieces (grates, fences) follow the game's depth, alpha and order rules.**
+- **Stage materials read the textures and layers the game's files name.** Cause: some materials took a grey
+  stand-in for a texture the file names (the mat's noise, plain diffuse pictures on props) or drew one scrolling layer of several. Fix: every
+  named texture is bound and every scrolling layer drawn. Honest note: at match cameras the mat's grain is as faint as on the 360.
+- **One light column on the ladder match, not two.** Cause: the light piece was drawn twice. Fix: one draw, with
+  the game's one-sided rule for every kind of model.
+- **Create a Finisher and Create a Title previews work.** What you saw: black previews, and afterwards
+  the main menu without its 3D scene. Cause: the preview is a copy of the game's own picture drawn back as 2D, which my renderer refused
+  (an Xbox 360 habit, free there, costly on a PC); a leftover state stuck. Fix: drawn as the game does, state cleared.
+- **Created superstars: hair, dog tag and necklaces follow the head, in matches and in the editor.** What you saw: bald heads, floating or missing
+  pieces. Cause: created pieces had no owner in my renderer's record, and the dog tag was never read. Fix: attached to their body.
+- **Created superstars: black eye rims fixed.** Cause: the see-through layer of a created body drew opaque. Fix: the same
+  see-through rule the game's own faces use.
+- **Created superstars: custom logos show.**
+  Cause: logos are stamped into the picture the game composes; my renderer read it once and never again. Fix: it re-reads on the game's update.
+- **Superstar Threads outfits keep their colours in matches and entrances.** Cause: my renderer threw
+  away the saved colours whenever the outfit was the same stock outfit. Fix: kept, and refused only for created superstars (Hogan's ring
+  attires were the same class, not seen).
+- **Imported superstars: attires 1 and 2 load from the pack (Lashley's, for example).** What you saw: a white head or parts, "seemingly random". Cause: only the first attire's alias was found. Fix: every alias
+  row resolves and the texture slots match what the game reads.
+- **Superstar Importer: every superstar you import now shows up, no need to delete your save.** What you saw: only your first 1
+  or 3 imports appeared, a different number for different players; deleting the save fixed it at the cost of your progress. Cause: the game
+  records which download packs a save has already taken in, and copies a pack's characters only the first time it sees that pack, so imports
+  added later were never copied. Fix: the importer's pack is offered to the save again on every boot, so the game's own pass copies the new ones.
+  Also: a removed import's slot is not handed to the next import while a save may still hold his row (shown as "(used before)").
+- **Title belts show the champion's nameplate.** What you saw: a blank plate on the belt. Cause: the game paints
+  the champion's name into a texture in memory while the match loads, and my renderer only drew textures from the files. Fix: that painted
+  plate is read once and drawn on the belt. (Only belts with a nameplate in the game have one: the WWE title's design has none.)
+- **Blood draws.** Cause: blood textures are 4 to 32 KB and my reader capped them
+  at 4 KB, so 51 of 54 were refused. Fix: the cap is the file's own size. (The blood option is off in my test save: turn BLOOD on.)
+- **30 Years of WrestleMania: the captions draw, without a dark box.** What you saw: captions missing, or in a dark box. Cause: the box was a 2D piece dropped on some frames, and the captions only show
+  when the game's own caption option is on (it was off in my tests, which looked like a bug). Fix: the box is drawn as the game's row. The
+  flicker you reported does not reproduce on a PC; the phone is unconfirmed.
+- **30 Years menu: the layered movie pictures draw.** Cause: its rows took the previous flush's state.
+- **The Move-set editor no longer stalls at the loading screen (Signatures / Finishers).** Cause: when a large file did not fit the loader's memory heap, its
+  read-end thread deadlocked (an Xbox 360 habit). Fix: such files skip the cache copy and are read straight.
+- **The graphics driver stopping now shows a message.** Cause: the message only existed in my test build.
+- **A load that never ends is noted in the log and names what it waited on.** It no longer
+  false-fires on idle stretches.
+- **Reports from the launcher read faster.** Report zips carry an automatic summary of what was not drawn (nothing is uploaded).
+
+### Android
+
+- **The Android release is a release build.** What you saw: nothing, but every phone build was marked as a
+  development build with the debug behaviour on. Fix: the player build is no longer a dev build.
+- **Phones no longer spin one core at 100 %, in the launcher and the game: less heat and throttling.** Cause: a bug in my pinned version of SDL makes Android's event wait loop without sleeping. Fix: the
+  hint that stops it is set. A player's sudden drop in their third match looks like this heat; tell me if your phone is cooler.
+
 ## v0.4.0
 
 **v0.4.0: the whole game is now drawn by my own renderer, and it runs about twice as fast on a weak laptop.**

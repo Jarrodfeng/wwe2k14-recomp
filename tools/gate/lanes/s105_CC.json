@@ -1,0 +1,11 @@
+{
+ "owner": "S105 lane CC (harness): game_syntax's per-unit result store. tools/gate/syntax_store.py (one file per key under %USERPROFILE%\\.cache\\wwe2k14-syntax, atomic writes, LRU cap) + game_syntax.py (pass AND failure stored and replayed, written as each unit ends, --no-cache) + syntax_store_selftest.py. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "none (a tool)", "ms": [0, 0]},
+ "note": "selftest: second run hits; a preprocessed-output change misses; a comment-only edit misses (strict); a planted broken header is replayed as a FAILURE with its diagnostics, fixing it misses; two worktrees with different header content never share a hit, identical content does; --no-cache reads and writes nothing; prune is LRU.",
+ "checks": [
+  {"name": "s105_CC.selftest", "cmd": ["py", "-I", "tools/gate/syntax_store_selftest.py"], "timeout_s": 300,
+   "affects": ["tools/gate/syntax_store.py", "tools/gate/game_syntax.py", "tools/gate/syntax_store_selftest.py"]},
+  {"name": "s105_CC.game_syntax_selftest", "cmd": ["py", "-I", "tools/gate/game_syntax_selftest.py"], "timeout_s": 300,
+   "affects": ["tools/gate/game_syntax.py", "tools/gate/syntax_store.py"]}
+ ]
+}

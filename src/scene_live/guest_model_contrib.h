@@ -48,7 +48,7 @@ inline bool PhysRead(uint32_t addr, uint32_t n, uint8_t* dst) {
 inline bool BirthOfKey(uint32_t key, uint8_t& creator, uint32_t& site) {
   rdr_scene::live::picsrc::Creator c = rdr_scene::live::picsrc::Creator::Unknown;
   const bool seen = rdr_scene::live::picsrc::TheSource().BirthOf(key, c, site);
-  creator = uint8_t(c);
+  creator = c == rdr_scene::live::picsrc::Creator::SceneCopy ? uint8_t(rdr_scene::live::picsrc::Creator::Unknown) : uint8_t(c);   // S105 A4: the model textures' creator codes stop at Gpu (tex8888_by_creator[4]); the scene copy is "unclassified" for them, as before
   return seen;
 }
 
@@ -81,7 +81,8 @@ class GuestModelContributor final : public Contributor {
       for (const guest_model::SamplerRead& s : p.samplers) has_override = has_override || s.has_override;
     // `st` is never null here: Planner::Update creates states_[model] before it returns a read, and Prune runs only at the end of this call under run_mu_ (CTF review 7). Nothing below depends on it anyway: without a state the model is re-asked every call.
     uint64_t no_state = 0;
-    const bool tex_due = guest_model::TexCallStep(*rd, has_override, fresh, st ? st->tex_checked : no_state, frame);   // the one due / checked rule (the unit calls the same function)
+    uint64_t no_seen = 0;
+    const bool tex_due = guest_model::TexCallStep(*rd, has_override, fresh, st ? st->tex_checked : no_state, frame, st ? &st->dirty_seen : &no_seen);   // S105 A5c: + the flush rule   // the one due / checked rule (the unit calls the same function)
     if (fresh) {
       tex_.Resolve(GuestMemory{}, &PhysRead, *rd, frame);   // `rd` is not shared yet: in place
       PutBytes(*rd, frame);
@@ -161,7 +162,7 @@ class GuestModelContributor final : public Contributor {
            ", bad flags " + std::to_string(bad_flags_) + ", no descriptor " + std::to_string(no_desc_) + " (D of another class " + std::to_string(d_other_class_) + "), via D " + std::to_string(via_d_) + " (H+16 != m+372: " + std::to_string(parts_mismatch_) + ")" + ", extra-stream parts (HOLE) " + std::to_string(extra_) + ", textures: samplers " + std::to_string(t.samplers) + " bound " +
            std::to_string(t.bound) + " override " + std::to_string(t.from_override) + " missing " + std::to_string(t.missing) + " deferred " + std::to_string(t.deferred) + ", refused: " + guest_model::WhySummary(t) + ", override refused " + std::to_string(t.override_refused) + ", byte reads " + std::to_string(t.byte_reads) + ", retry calls " + std::to_string(t.retry_calls) +
            ", override block entries " + std::to_string(ov_entries_) + " matched " + std::to_string(ov_matched_) + " (equal only ignoring case " + std::to_string(ov_ci_) + "), 8888 pictures " + std::to_string(t.tex8888) + " (creator unknown " + std::to_string(t.tex8888_by_creator[0]) + " loader " +
-           std::to_string(t.tex8888_by_creator[1]) + " movie " + std::to_string(t.tex8888_by_creator[2]) + " gpu " + std::to_string(t.tex8888_by_creator[3]) + "), 8888 guard unchanged " + std::to_string(t.tex8888_guard_same) + " re-read " + std::to_string(t.tex8888_rereads) + ", engine default cube " + std::to_string(t.engine_default_cube) + ", store " + std::to_string(guest_model::ByteStore::Process().bytes() >> 20) + " MB, run_lock " + run_lock_.Text();
+           std::to_string(t.tex8888_by_creator[1]) + " movie " + std::to_string(t.tex8888_by_creator[2]) + " gpu " + std::to_string(t.tex8888_by_creator[3]) + "), logos bound " + std::to_string(t.logo_bound) + " missing " + std::to_string(t.logo_missing) + ", flush re-reads " + std::to_string(t.dirty_rereads) + " (deferred " + std::to_string(t.dirty_deferred) + ", unwatched " + std::to_string(t.unwatched) + "), 8888 guard unchanged " + std::to_string(t.tex8888_guard_same) + " re-read " + std::to_string(t.tex8888_rereads) + ", engine default cube " + std::to_string(t.engine_default_cube) + ", store " + std::to_string(guest_model::ByteStore::Process().bytes() >> 20) + " MB, run_lock " + run_lock_.Text();
     out += lines;
   }
   guest_model::PlannerStats PlannerStats() { std::lock_guard<std::mutex> run(run_mu_); return planner_.stats(); }
@@ -232,7 +233,7 @@ class GuestModelContributor final : public Contributor {
       }
     }
     std::string line = "[rdr][caw] textures: parts " + std::to_string(parts) + ", bound " + std::to_string(bound) + ", from override " + std::to_string(ov) + ", missing " + std::to_string(missing) + ", engine default cube " + std::to_string(cube) + ", override block entries " + std::to_string(m.ov_entries) + " matched " +
-                       std::to_string(m.ov_matched) + (m.tex_retry ? ", retrying" : "") + " (model " + Hex(m.model) + " hash " + Hex64(m.hash) + ")";
+                       std::to_string(m.ov_matched) + (m.logo.has ? std::string(", logo7 ") + (m.logo_state[0] == kGtBound ? "bound" : "missing") + " logo4 " + (m.logo_state[1] == kGtBound ? "bound" : "missing") : std::string()) + (m.tex_retry ? ", retrying" : "") + " (model " + Hex(m.model) + " hash " + Hex64(m.hash) + ")";
     return line;
   }
   std::mutex mu_, run_mu_;   // mu_: pending_ + the Emit-side memos; run_mu_: the planner and the resolver (hook threads); never held together by Emit

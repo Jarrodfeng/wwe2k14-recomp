@@ -46,7 +46,9 @@ inline bool DeviceLost() { return g_device_lost.load(std::memory_order_relaxed) 
 namespace crumbs {
 
 inline std::atomic<bool> g_on{true};      // wwe2k14_rdr_breadcrumbs
-inline std::atomic<bool> g_message{false};  // wwe2k14_rdr_device_lost_message (the game's frame_stats.h shows the player's message once)
+inline std::atomic<bool> g_message{true};  // wwe2k14_rdr_device_lost_message (S105 A9: default on; frame_stats.h reads rdr_sw::kDeviceLostMessage itself, this mirror is the stream build's)
+// S105 A9, test only (+dev builds: ApplyStartSettings stores --wwe2k14_rdr_test_device_lost): the frame serial from which the renderer treats its device as lost (-1 = off).
+inline std::atomic<int64_t> g_test_lost_at{-1};
 inline std::atomic<int> g_marker{0};      // wwe2k14_rdr_gpu_marker: 0 off, 1 class runs + the present, 2 passes / dispatches / present / copy runs, 3 every step, 4 every step with BEGIN words only (no barriers)
 // Test only (rplay): the frame serial and step to stall at (-1 = off), the plant (1 marker off by one, 2 a crumb left out, 3 presents counted after the loss)
 inline std::atomic<int64_t> g_selftest_frame{-1};

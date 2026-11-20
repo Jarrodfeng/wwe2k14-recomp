@@ -243,7 +243,7 @@ static int GuestModelFor(BuildCtx& ctx, size_t obj_index, std::string_view id) {
     return why_text = bs.why, -1;
   }
   cnt.models_built++, cnt.tex_bound += bs.tex_bound, cnt.tex_override += bs.tex_override, cnt.tex_missing += bs.tex_missing, cnt.no_diffuse += bs.no_diffuse, cnt.extra_streams += bs.extra_streams,
-      cnt.bad_nodes += bs.bad_nodes, cnt.effect_fallback += bs.effect_fallback, cnt.engine_default_cube += bs.tex_default_cube, cnt.bad_slots += bs.bad_slots, cnt.unskinned += bs.unskinned;
+      cnt.bad_nodes += bs.bad_nodes, cnt.effect_fallback += bs.effect_fallback, cnt.engine_default_cube += bs.tex_default_cube, cnt.bad_slots += bs.bad_slots, cnt.unskinned += bs.unskinned, cnt.blended += bs.blended, cnt.blended_no_normal += bs.blended_no_normal, cnt.logo_parts += bs.logo_parts, cnt.logo_missing += bs.logo_missing;   // S105 A5c:   // S105 A5b
   ctx.models.LogOnce("guest-palettes:" + bs.part_palettes, "[rdr][caw] part palettes (palette slot -> skeleton node, CAWG row 6): " + bs.part_palettes + "; model max node + 1 = " + std::to_string(bs.max_node));   // S103 CAWS: per distinct content
   ctx.models.LogOnce("guest-census", guestmodel::CensusLine());   // ONE fixed key (a slider drag rebuilds the model many times: the line prints once per cache); the writer's `[rdr][caw] textures:` line is the per-content one
   const bool retired = hashes.size() >= 16;
@@ -366,7 +366,16 @@ bool ApplyWrestlers(BuildCtx& ctx) {
         bool owner_guest = false;
         // S103 DLF: only a hole the owner does NOT draw may take the guest route (no double draw, no resurrecting a hidden piece)
         std::string hole_text = "own-skeleton piece " + std::string(t.Str(o.id)) + " is a hole (the game draws it and no model of ours does)";
-        if (o.flags & kObjDetachedPiece) {   // S103 DTP: the game poses this piece from its OWN palette now (the owner's copy is off), and the owner's merged mesh was told to skip it (pre-pass): it is drawn from its own guest rows, whatever the owner kind
+        if (o.flags & kObjOwnRowsPiece) {   // S105 A5a (A5a_ADV.md sites 10 / 13): a linked own-skeleton piece of a GUEST-ROW owner (the contributor proved the owner-row copy, own_rows_rule.h): drawn from its own guest rows with its own palette,
+          // beside whatever named bodies are in the picture (the unlinked owner-kinds rule below is never reached: it would refuse every CAW piece as soon as one stock body with pieces is visible). Never in the EYF pre-pass (the mask above).
+          const unsigned oslot = o.layer;
+          const auto ow = oslot != 0 && o.pad != 0 ? owner_obj.find(oslot - 1) : owner_obj.end();
+          owner_guest = ow != owner_obj.end() && owner_is_guest_body(ow->second);
+          const OwnRowsRoute orr = DecideOwnRowsRoute(owner_guest, PieceSeenThisFrame(t, obj_index, walked, stamp) == PieceSeen::Hidden, nullptr, 0);   // guest_piece_fade.h (the unit's twin: the unlinked rule)
+          if (orr.not_hole) ++st.skel_not_hole;   // the game did not draw it this frame (a walked frame with no ref for it): a skip, not a hole
+          hole = orr.hole, guest_route = orr.guest_route;
+          hole_text = "own-rows piece " + std::string(t.Str(o.id)) + (owner_guest ? ": no guest model of ours draws it (see the guest-model line)" : ": its owner slot is not a visible guest-row body");
+        } else if (o.flags & kObjDetachedPiece) {   // S103 DTP: the game poses this piece from its OWN palette now (the owner's copy is off), and the owner's merged mesh was told to skip it (pre-pass): it is drawn from its own guest rows, whatever the owner kind
           if (PieceSeenThisFrame(t, obj_index, walked, stamp) == PieceSeen::Hidden) ++st.skel_not_hole;   // the game did not draw it this frame: a skip, not a hole
           else hole = true, guest_route = o.pad != 0 && o.layer != 0;   // S103 DTP fix: a flag with no piece id / owner slot has no owner row (the owner would draw it too): a hole, never a guest draw
           hole_text = "detached piece " + std::string(t.Str(o.id)) + " (the game poses it from its own palette): no guest model of ours draws it";
@@ -432,7 +441,8 @@ bool ApplyWrestlers(BuildCtx& ctx) {
           if (hole) {
             ++guestmodel::Counters().skel_holes;   // CAWD Q1 site 2: the skel hole has a number (AAB142F0: a model with no character slot)
             ++rep.holes;
-            skip(st.skipped_invisible, hole_text, true);   // the hole is NAMED (the rig's check reads it)
+            const std::string& piece_guest_why = guestmodel::StateIn(ctx.models.GuestStateSlot()).why;   // S105 A5a (site 13): when the guest route was taken and refused, GuestModelFor's own reason rides along (three reasons shared one text)
+            skip(st.skipped_invisible, hole_text + (guest_route && !piece_guest_why.empty() ? "; guest model: " + piece_guest_why : std::string()), true);   // the hole is NAMED (the rig's check reads it)
           } else {
             log_skip("no character slot, not a hole", false);
             ++st.skipped_invisible, ++rep.skipped;   // not a hole: counted, never the "first skip" reason
@@ -585,7 +595,16 @@ bool ApplyWrestlers(BuildCtx& ctx) {
     // S103 E8: a wrestler whose model call read a light state is lit by THAT state (the game's own constants), not by the arena's set: a copy of the chosen set with the state's lights. One stamp per frame (the key's).
     {
       LightStateUse use = LightStateUse::None;
-      const LightState* ls_state = WrestlerLightState(t, obj_index < t.engine_objects.size() ? t.engine_objects[obj_index] : 0u, have_stamp, stamp, use);
+      // S105 A5a (A5a_ADV.md site 12, D): the game installs ONE wrestler light per character draw node and draws the SUBM pieces inside it (sub_825A3908 -> sub_82620488, then the pieces, then the body), so a guest-routed piece
+      // that names its owner (layer = owner slot + 1: an own-rows or detached piece) is lit with the OWNER's state, never "no state of its own" (the latch's synthetic refs are one per actor:slot, none for a piece address).
+      // An unlinked guest-routed piece (layer 0) keeps asking for its own address, as before.
+      const uint32_t own_light_object = obj_index < t.engine_objects.size() ? t.engine_objects[obj_index] : 0u;
+      uint32_t owner_light_object = 0;
+      if (piece_from_guest && o.layer != 0) {
+        const auto lo = owner_obj.find(unsigned(o.layer) - 1u);
+        if (lo != owner_obj.end() && lo->second < t.engine_objects.size()) owner_light_object = t.engine_objects[lo->second];
+      }
+      const LightState* ls_state = WrestlerLightState(t, PieceLightObject(piece_from_guest, o.layer, own_light_object, owner_light_object), have_stamp, stamp, use);   // guest_piece_fade.h
       if (use == LightStateUse::Missing) {   // light states are registered (this record has some, or the caller says so) and this visible wrestler has none: the arena's set would light it differently (OURS frames carry no state): a HOLE, the live frame falls back whole
         ++st.light_state_missing;
         ++rep.holes;

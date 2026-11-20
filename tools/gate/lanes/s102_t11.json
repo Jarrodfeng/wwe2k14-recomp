@@ -38,6 +38,7 @@
     "src/renderer_scene/live_scene.*",
     "src/renderer_adapter/names.h","src/assets/asset_model.h","src/renderer_scene/guest_model_draw.h","src/renderer_scene/light_state_rows.h","src/renderer_scene/stage_census.h","src/scene_live/buffer_unlock_log.h","src/scene_live/caster_core.h","src/scene_live/draw_camera_core.h","src/scene_live/guest_model_reader.h","src/scene_live/guest_model_store.h","src/scene_live/light_state_hook.h","src/scene_live/skin_data.h",
     "src/scene_live/tail_latch.h",
+    "src/renderer_adapter/stage_view.h", "src/renderer_scene/plane_game_gate.h",
     "src/scene_live/safe_guest_pages.h",
     "src/renderer_adapter/upd_lean.h",
     "src/keep_stream.h",

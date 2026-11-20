@@ -62,6 +62,7 @@
 #include "crowd_hype.h"  // called from the owner update hook below
 #include "scene_freeze.h"  // Session 36: the true freeze, around the owner update below
 #include "frame_stats.h"
+#include "launch_participant.h"  // S105 T3: the launch participant token parser (pure)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_scenario_observe, false, "wwe2k14",
                     "Log the match-setup calls (mode / match type / arena / participant setters, exhibition "
@@ -621,9 +622,12 @@ REXCVAR_DEFINE_INT64(wwe2k14_launch_arena, -1, "wwe2k14",
                      "Launch the scenario in arena N instead (the arena setter's value = pac/bg/BGnn.PAC, "
                      "db/ids/arenas.json), set through the game's arena setter sub_822C9748; -1 = the captured arena");
 REXCVAR_DEFINE_STRING(wwe2k14_launch_participants, "", "wwe2k14",
-                      "Replace the scenario's participants: comma-separated ID[:PAD] for slots 0, 1, ... (character "
-                      "ids, db/ids/characters.json; PAD = controller 0-3, default -1 = CPU), set through the game's "
-                      "participant setter sub_822C89F8 like the demo launcher does. Empty = the captured ones");
+                      "Replace the scenario's participants: comma-separated ID[:PAD[:ATTIRE]] for slots 0, 1, ... (character "
+                      "ids, db/ids/characters.json; PAD = controller 0-3, default / empty = -1 = CPU), set through the game's "
+                      "participant setter sub_822C89F8 like the demo launcher does. ATTIRE (S105 T3) = N (attire 0-9) | "
+                      "N/S (attire N, Threads colour set S, -1..3) | tS (attire 0, set S) | s (the superstar's saved "
+                      "defaults, through the select screen's own copy); the set goes through sub_822C6808. No third "
+                      "part = attire 0, no set call. Empty = the captured ones");
 // Session 27 item 8: Quick Match without a captured setup.
 REXCVAR_DEFINE_INT64(wwe2k14_quick_type, 0, "wwe2k14",
                      "With --wwe2k14_launch=@quick: the match type id for the game's type setter (0 1v1, 3 tag, 23 Royal "
@@ -679,6 +683,10 @@ REX_EXTERN(sub_827D7770);         // finalize's next step: reset of the block at
 REX_EXTERN(sub_822C9748);         // arena setter (M, arena, flag)
 REX_EXTERN(sub_822C89F8);         // participant setter (M, i, id, controller, a5, a6, a7, a8)
 REX_EXTERN(sub_822C0898);         // per-character data (id) -> pointer; the demo launcher reads +108 for a6
+REX_EXTERN(sub_822C6808);         // S105 T3: colour set setter (M, i, set): slot +16 key, +22 mode 1, +23 set
+REX_EXTERN(sub_82923DF8);         // S105 T3: the select screen's pick defaults (_, rec): attire rec+20, set +24, alt look +28
+REX_EXTERN(sub_822C4FF8);         // S105 T3: alternate key (M, i, alt, attire, 1), finalize 0x82926748-0x82926764
+REX_EXTERN(sub_827DA658);         // S105 T3: superstar record by id (the empty-set check reads [rec + 860 + 132 set])
 REX_EXTERN(sub_82B6D900);         // Session 27: mode setter (M, mode): M+4
 REX_EXTERN(sub_822CA9C0);         // Session 27: match type setter (M, type, options; 0 = the type's defaults)
 REX_EXTERN(sub_822C6668);         // Session 27: pace setter (M, pace): M+528
@@ -1070,11 +1078,17 @@ inline void FireLaunch(PPCContext& ctx, uint8_t* base, uint32_t sm) {
       const std::string token = parts.substr(pos, comma - pos);
       pos = comma + 1;
       if (token.empty()) continue;
-      const size_t colon = token.find(':');
-      char* end = nullptr;
-      const long id = std::strtol(token.substr(0, colon).c_str(), &end, 10);
-      long pad = -1;
-      if (colon != std::string::npos) pad = std::strtol(token.substr(colon + 1).c_str(), nullptr, 10);
+      // S105 T3: ID[:PAD[:ATTIRE]], split on every ':' (src\launch_participant.h)
+      wwe2k14::launch::ParticipantToken tok;
+      std::string tok_why;
+      if (!wwe2k14::launch::ParseParticipantToken(token, tok, tok_why)) {
+        REXLOG_WARN("[wwe2k14][scenario] launch participant '{}' skipped ({})", token, tok_why);
+        ++slot;
+        continue;
+      }
+      if (!tok_why.empty()) REXLOG_WARN("[wwe2k14][scenario] launch participant '{}': {}", token, tok_why);
+      const long id = tok.id;
+      const long pad = tok.pad;
       if (id < 0 || id >= 500 || pad < -1 || pad > 3) {
         REXLOG_WARN("[wwe2k14][scenario] launch participant '{}' skipped (id 0-499, pad -1..3)", token);
         ++slot;
@@ -1086,19 +1100,79 @@ inline void FireLaunch(PPCContext& ctx, uint8_t* base, uint32_t sm) {
       const uint32_t chr = ctx.r3.u32;
       ctx = saved;
       const uint32_t a6 = chr ? U8(chr + 108) : 0;  // as the demo launcher sub_82800158 passes it
+      // S105 T3: the attire (the setter's a5) and the colour set. `s` = the superstar's saved defaults through the select
+      // screen's own copy (sub_82923DF8) on a scratch 156-byte record; an explicit set is checked like the game's predicate.
+      const uint32_t slot_base = m + 724 + 3580 * slot;
+      wwe2k14::launch::SavedDefaults sd;
+      const wwe2k14::launch::SavedDefaults* sdp = nullptr;
+      if (tok.has_attire && tok.saved) {
+        static uint32_t scratch = 0;
+        if (!scratch) scratch = REX_KERNEL_MEMORY()->SystemHeapAlloc(160);
+        if (scratch) {
+          std::memset(Guest(scratch), 0, 160);
+          rex::memory::store_and_swap<uint32_t>(Guest(scratch), uint32_t(id));
+          ctx.lr = 0;
+          ctx.r3.u64 = 0;
+          ctx.r4.u64 = scratch;
+          sub_82923DF8(ctx, base);
+          ctx = saved;
+          sd.attire = int32_t(U32(scratch + 20));
+          sd.set = int32_t(U32(scratch + 24));
+          sd.alt = U32(scratch + 28);
+          sdp = &sd;
+        }
+      }
+      // the record the game's own sub_822C6808 gives sub_822C3000: slot+104 (+456 inside) when slot+68 != 0, else sub_827DA658(id)
+      const auto word_of_set = [&](int set_want) -> uint32_t {
+        uint32_t rec;
+        if (U32(slot_base + 68) != 0) {
+          rec = slot_base + 104 + 456;
+        } else {
+          ctx.lr = 0;
+          ctx.r3.u64 = uint64_t(id);
+          sub_827DA658(ctx, base);
+          rec = ctx.r3.u32;
+          ctx = saved;
+        }
+        return rec ? U32(rec + 860 + 132 * uint32_t(set_want)) : 0;
+      };
+      const wwe2k14::launch::ParticipantPlan plan = wwe2k14::launch::PlanParticipant(tok, sdp, word_of_set);
+      const int attire = plan.attire;
+      const int set_use = plan.set;
+      if (!plan.set_why.empty())
+        REXLOG_WARN("[wwe2k14][scenario] launch participant '{}': colour set refused ({}), no set", token, plan.set_why);
       ctx.lr = 0;
       ctx.r3.u64 = m;
       ctx.r4.u64 = slot;
       ctx.r5.u64 = uint64_t(id);
       ctx.r6.s64 = pad;
-      ctx.r7.u64 = 0;   // a5 (0 in every capture)
+      ctx.r7.u64 = uint64_t(attire);  // a5: the attire (0 in every capture; S105 T3 ATTIRE part)
       ctx.r8.u64 = a6;
       ctx.r9.u64 = 1;   // a7, a8 (1 in every capture)
       ctx.r10.u64 = 1;
       sub_822C89F8(ctx, base);
       ctx = saved;
+      // S105 T3 (finalize 0x82926748-0x82926764): the alternate look key for `s`, then the colour set setter, both right
+      // after the participant setter and before the arena setter and apply
+      if (plan.alt_call) {
+        ctx.lr = 0;
+        ctx.r3.u64 = m, ctx.r4.u64 = slot, ctx.r5.u64 = plan.alt, ctx.r6.u64 = uint64_t(attire), ctx.r7.u64 = 1;
+        sub_822C4FF8(ctx, base);
+        ctx = saved;
+      }
+      if (plan.set_call) {
+        ctx.lr = 0;
+        ctx.r3.u64 = m, ctx.r4.u64 = slot, ctx.r5.s64 = set_use;
+        sub_822C6808(ctx, base);
+        ctx = saved;
+      }
       REXLOG_INFO("[wwe2k14][scenario] launch '{}': participant {} = id {} ({}), a6 {} (character byte +108) frame={}",
                   g_launch_name, slot, id, pad < 0 ? "CPU" : fmt::format("pad {}", pad), a6, Frame());
+      // the parsed token, read by the main session's run (S105 T3); roster_proof.py reads the line above, by its launch prefix
+      REXLOG_INFO("[wwe2k14][scenario] participant {} = id {} pad {} attire {} set {} (src '{}') -> key {} mode {} set byte {}",
+                  slot, id, pad, tok.has_attire ? fmt::format("{}", attire) : std::string("-"),
+                  tok.has_attire && tok.has_set ? fmt::format("{}", set_use) : std::string("-"), token, U32(slot_base + 16),
+                  U8(slot_base + 22), U8(slot_base + 23));
       if (pad >= 0 && first_pad < 0) first_pad = pad;
       ++slot;
       overridden = true;

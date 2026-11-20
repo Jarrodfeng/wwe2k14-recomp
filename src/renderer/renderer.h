@@ -198,6 +198,11 @@ class Renderer {
   bool ReadPresent(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height);
   // S103 SHOT (review F3): true when the image is live, single-sampled and 8 bits a channel (RGBA8 / BGRA8): the only formats whose read-back is the picture as shown (16F is scaled by its own peak, RGB10A2 is refused).
   bool ImageIs8Bit(ImageId image) const;
+  float render_scale() const;   // S105 A1: the scale kUsageScaled images are multiplied by (fixed at Init)
+  struct LiveImageInfo { uint32_t id = 0, width = 0, height = 0, format = 0; bool scaled = false; };
+  std::vector<LiveImageInfo> LiveImageInfos() const;   // S105 A1 (test use): every live image with its real size and kUsageScaled flag (the units assert that only screen images are scaled)
+  // S105 A1: the image's REAL created size (after the render scale) and whether it carries kUsageScaled (false and 0x0 for a dead image). Log lines and tests read it.
+  bool ImageExtent(ImageId image, uint32_t& width, uint32_t& height, bool& scaled) const;
   // Lane 232 (3d a2): the read-back without a drain. QueueReadback asks for a level to be copied (persistent host-visible staging, recorded into the command buffer of the NEXT RenderFrame, after
   // all its steps); false: not readable / already queued or in flight. PollReadbacks (render thread, never waits) appends each copy whose frame's fence has signalled, as RGBA8 like ReadImage.
   struct ReadbackResult {
@@ -245,8 +250,12 @@ class Renderer {
   void SavePipelineStore();
   struct PipelineStoreCounts {
     uint64_t on_demand = 0, prebuilt = 0, prebuilt_used = 0, on_demand_ns = 0, prebuilt_ns = 0, list_records = 0, list_loaded = 0;
+    // S105 B3: published by the render thread after each slice (atomics): records alive, built, still to try, waiting for a program.
+    uint64_t total = 0, made = 0, left_resolvable = 0, unresolved = 0;
+    bool valid = false;
   };
   PipelineStoreCounts pipeline_store_counts() const;
+  PipelineStoreCounts published_store_counts() const;  // S105 B3: total / made / left_resolvable / unresolved / valid only; any thread
   bool validation_active() const;
 
   uint64_t validation_errors() const;

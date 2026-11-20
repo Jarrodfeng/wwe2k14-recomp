@@ -15,7 +15,7 @@ CAPTURES = ['c2d_entrance_tron', 'c2d_menu']   # an entrance tron (1280x280 Y, 6
 PLANTS = {
     'stale_plane': 'planes.fresh', 'future_frame': 'order.flush_before_draw', 'any_size': 'select.size', 'no_set_hint': 'select.set', 'swap_chroma': 'planes.chroma_order',
     'wrong_buffer': 'planes.display_buffer', 'half_chroma': 'planes.chroma_size', 'upload_always': 'upload.shared', 'switch_on': 'switch.default_off', 'rig_stale': 'rig.planes_equal',
-    'no_ambiguity_guard': 'select.ambiguous_refused', 'no_age_limit': 'order.too_old', 'leak_stream': 'guest.no_stream_image', 'unbounded': 'upload.bounded', 'alpha_required': 'upload.no_alpha_served', 'kind_guard_off': 'upload.kind_guard',
+    'no_ambiguity_guard': 'select.ambiguous_refused', 'no_age_limit': 'order.too_old', 'leak_stream': 'guest.no_stream_image', 'unbounded': 'upload.bounded', 'alpha_required': 'upload.no_alpha_served', 'kind_guard_off': 'upload.kind_guard', 'key_ignored': 'select.key',
 }
 
 

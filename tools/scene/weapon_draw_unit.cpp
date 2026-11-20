@@ -1,6 +1,6 @@
 // weapon_draw_unit: lane PW-3's offline proof (S103; 0 game runs, no GPU): the weapon drawer's loader and pure part (src\assets\asset_load.h LoadM2Weapon, src\renderer_scene\weapon_draw_core.h)
 // on the player's own pac\m2.pac and the stream draws of a capture.
-//   weapon_draw_unit --game DIR --steps DUMP.txt [--plant tex_key|transpose|merge]
+//   weapon_draw_unit --game DIR --steps DUMP.txt [--plant tex_key|transpose|merge|m2_reopen]
 // DUMP.txt = tools\scene\pw3_steps_dump.py: a capture's stream draws of the ring-steps object 0xAA141900 (frame, draw, part, VS c76..c78 as float bits).
 // What it checks (each line PASS / FAIL, exit 1 on any FAIL, 2 loud failure, 3 usage):
 //   loader   : m2.pac p0/1000/32 loads (3 meshes, the steps' 181 / 32 / 20 vertices), every mesh binds to the game's node numbers; id 14 (belts) is refused; an absent id fails cleanly; a census over every id of p0/1000: ASSERTS every id but 14 loads, binds and is textured (PW review fix 6); id 89's secondary models (entries 1 / 2) load, bind and are textured.
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     else if (a == "--steps" && i + 1 < argc) steps = argv[++i];
     else if (a == "--plant" && i + 1 < argc) plant = argv[++i];
   }
-  if (game.empty() || steps.empty()) { std::fprintf(stderr, "usage: weapon_draw_unit --game DIR --steps DUMP.txt [--plant tex_key|transpose|merge]\n"); return 3; }
+  if (game.empty() || steps.empty()) { std::fprintf(stderr, "usage: weapon_draw_unit --game DIR --steps DUMP.txt [--plant tex_key|transpose|merge|m2_reopen]\n"); return 3; }
   std::vector<StreamDraw> dump;
   if (!ReadDump(steps, dump)) { std::fprintf(stderr, "weapon_draw_unit: FAIL cannot read draws from %s\n", steps.c_str()); return 2; }
   launcher::GameFiles files;
@@ -150,6 +150,29 @@ int main(int argc, char** argv) {
     for (int c : counts) s += (s.empty() ? "" : "/") + std::to_string(c);
     return s.c_str();
   }());
+  {   // S105 SKB (fix F1): m2.pac is opened ONCE (OpenM2 counts its successful opens), not per LoadM2Weapon call; the cached pac equals a fresh open; ids load identically from the cache. Twin m2_reopen: OpenM2 forgets its copy before every call (the old per-call open), so the count goes above 1.
+    std::string e1, e2;
+    const assets::pac::Pac* a = assets::load_detail::OpenM2(files, e1);
+    assets::pac::Pac fresh;
+    const bool fresh_ok = assets::pac::Open(files, "pac\\m2.pac", fresh, e2);
+    const assets::pac::Pac* b = assets::load_detail::OpenM2(files, e1);
+    int same = 0, tried = 0;
+    for (int id : {1, 5, 32, 40, 60, 89}) {
+      assets::Model m1, m2;
+      std::string e;
+      if (plant == "m2_reopen") assets::load_detail::M2ForgetForTest();
+      const bool o1 = assets::LoadM2Weapon(files, id, m1, e);
+      if (plant == "m2_reopen") assets::load_detail::M2ForgetForTest();
+      const bool o2 = assets::LoadM2Weapon(files, id, m2, e);
+      if (!o1 && !o2) continue;
+      ++tried;
+      bool eq = o1 == o2 && m1.meshes.size() == m2.meshes.size();
+      for (size_t k = 0; eq && k < m1.meshes.size(); ++k) eq = m1.meshes[k].vertices.size() == m2.meshes[k].vertices.size() && m1.meshes[k].src_record == m2.meshes[k].src_record;
+      same += eq;
+    }
+    Check("loader.m2_open_once", a && a == b && fresh_ok && assets::load_detail::M2Opens() == 1 && a->bytes.size() == fresh.bytes.size() && a->pachs.size() == fresh.pachs.size(), "opens %d (must be 1) over 13 loads; cached %zu bytes / %zu PACH vs fresh %zu / %zu", assets::load_detail::M2Opens(), a ? a->bytes.size() : size_t(0), a ? a->pachs.size() : size_t(0), fresh.bytes.size(), fresh.pachs.size());
+    Check("loader.m2_cached_ids_identical", tried > 0 && same == tried, "%d of %d ids load identically on a repeat from the cached pac", same, tried);
+  }
   assets::Model bound;
   const uint32_t unbound = weapons::BindModel(steps_model, bound);
   Check("loader.binds_to_nodes", unbound == 0 && !bound.meshes.empty(), "%u of %zu meshes could not be bound", unbound, bound.meshes.size());

@@ -305,6 +305,8 @@ def cmd_check(a):
     print('VERDICT', 'PASS' if ok else 'FAIL')
     if a.expect_fail:   # a planted twin: the check must have failed
         print('EXPECTED FAIL: %s' % ('caught' if not ok else 'NOT CAUGHT'))
+        if not ok:
+            print('PLANTED-OK: the planted stage_vis fault (%s) was caught' % a.plant)   # S105 E
         return 0 if not ok else 1
     return 0 if ok else 1
 

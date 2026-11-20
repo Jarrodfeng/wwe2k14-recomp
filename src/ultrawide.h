@@ -18,6 +18,7 @@
 #include <rex/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -31,6 +32,7 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
 #include "guest_read.h"
+#include "ultrawide_state.h"   // S105 A2: g_fill_now / FillNow()
 
 REXCVAR_DEFINE_STRING(wwe2k14_aspect, "16:9", "wwe2k14",
                       "Session 33: screen shape. 16:9 = the game's own (default); auto = the monitor's (or the window's "
@@ -86,6 +88,7 @@ inline void Configure() {
 // 16:9 (SDK gpu_wide_all); in game only the scene and the HUD (states.toml seq: 9 = in game).
 inline void OnFrame(uint8_t* base, uint64_t frame) {
   static int on = -1;
+  // S105 A2 review F4 (known, not changed): the in-play verdict is polled every 15th frame, so a flip lags 0-14 guest frames (the stream build's gpu_wide_all had the same cadence). Polling every frame while `on` is the fix if it ever shows.
   if (on == 0 || frame % 15 != 0) return;
   if (on < 0) {
     on = std::strtod(rex::cvar::GetFlagByName("gpu_wide_factor").c_str(), nullptr) > 1.001 ||
@@ -107,6 +110,7 @@ inline void OnFrame(uint8_t* base, uint64_t frame) {
   if (int(in_game) != last) {
     last = int(in_game);
     rex::cvar::SetFlagByName("gpu_wide_all", in_game ? "false" : "true");
+    g_fill_now.store(in_game, std::memory_order_relaxed);
   }
 }
 

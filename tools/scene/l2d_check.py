@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {1: 'mask.match_unchanged', 2: 'flat.hole_falls_back', 3: 'flat.never_with_flag_off', 4: 'kind.lag', 5: 'flat.no_apply_unless_ours', 6: 'walk.sticky_stage_flat', 7: 'caw.classifier', 8: 'caw.leave', 9: 'caw.hysteresis'}
+PLANTS = {1: 'mask.match_unchanged', 2: 'flat.hole_falls_back', 3: 'flat.never_with_flag_off', 4: 'kind.lag', 5: 'flat.no_apply_unless_ours', 6: 'walk.sticky_stage_flat', 7: 'caw.classifier', 8: 'caw.leave', 9: 'caw.hysteresis', 10: 'a4.ours_no_walk', 11: 'a4.ours_no_walk'}
 
 
 def main():

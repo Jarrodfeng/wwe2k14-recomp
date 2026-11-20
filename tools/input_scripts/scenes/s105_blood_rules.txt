@@ -1,0 +1,50 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# harness: realtime (the MATCH RULES pages' rows have no mapped states; LB / RB page presses must be 12+ frames apart, menus.md Session 67)
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): where the BLOOD setting is. READING ROUTE for a later route that turns it on: OPTIONS (menu 4) -> MATCH RULES (item 1, menu 19) ->
+# ONE ON ONE (item 0, menu 30) -> NORMAL (item 0, screen code 1001 = rules:0, screen_mode 6), then a shot + the screen text on each of its pages (RB twice: pages 1-3, menus.md "Pages (MATCH
+# RULES)"), so the main session can read the BLOOD row and its position. Nothing is changed (no LEFT / RIGHT). The same rows exist in the PLAY setup bar's MATCH RULES.
+# What is known (docs\research\s105\A12.md): the bleed itself is a game event (sub_826CD980), the match option only enables it; NO switch / scenario / route makes a wrestler bleed early
+# (a dev switch calling sub_825A1F28(char, 0, level) is a possible builder piece of lane A12). UNCONFIRMED: which page / row holds BLOOD, and its default on the frozen save.
+# Marks: 1 menu, 2 options, 3 rules page 1, 4 page 2, 5 page 3, 6 back, 7 end.
+on_fail continue
+log bench: start scene s105_blood_rules
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_options
+mark 2 options
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A menu 19 8 120 5
+press_until_state UP cursor 0 6 30 5 if_needed
+press_until_state A menu 30 8 120 5
+press_until_state UP cursor 0 6 30 5 if_needed
+press_until_state A menu 1001 8 120 5
+wait_frames 400
+log scene=rules_page1
+log_state menu
+log_state screen_mode
+log_text 8
+screenshot sc_s105_rules_1
+mark 3 page1
+press RB
+wait_frames 120
+log scene=rules_page2
+log_text 8
+screenshot sc_s105_rules_2
+mark 4 page2
+press RB
+wait_frames 120
+log scene=rules_page3
+log_text 8
+screenshot sc_s105_rules_3
+mark 5 page3
+press_until_state B menu 1 16 150 5
+wait_state menu 1 3600 10
+mark 6 back_at_menu
+wait_frames 300
+mark 7 end
+log bench: done
+wait_frames 10
+quit

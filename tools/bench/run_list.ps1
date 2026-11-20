@@ -84,6 +84,7 @@ param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen'
       [string]$WorkerDir = '', [int]$WorkerId = 0)   # internal (task L1): a -Parallel worker started by run_list
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$R\tools\runlock.ps1"
+. "$PSScriptRoot\run_pass.ps1"   # S105 H: Get-RunPassWord
 . "$PSScriptRoot\load_snapshot.ps1"   # Session 101 lane 302: Get-LoadSnapshot / Save-RunLoad (other heavy processes at the start and end of each run)
 
 # Session 16: '' when script $Path should run fast-forwarded, else why it runs at normal speed. $Flags = the run's
@@ -201,6 +202,8 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     # S101 2026-11-13: the PC exe now starts with the Check K promotions on by default (wwe2k14_s101_promotions, branch only). A harness run that
     # names neither owner mode nor the bundle keeps the OLD defaults, so owned_check, references and old-path routes measure what they always did.
     if ("$ScriptExtra $Extra" -notmatch '--wwe2k14_(rdr_owner|s101_promotions)=') { $flags += ' --wwe2k14_s101_promotions=false'; Write-Host "[run_list] HIDDEN ADDITION: --wwe2k14_s101_promotions=false (this run names neither rdr_owner nor s101_promotions: it runs the OLD renderer defaults; name one in the route's harness flags to change that)" }
+    # S105 A9 (review F5): the player's "graphics driver stopped" box (default ON) never reaches a test run's screen; a run that must see it passes --wwe2k14_rdr_device_lost_message=true.
+    if ("$ScriptExtra $Extra" -notmatch '(^|\s)--wwe2k14_rdr_device_lost_message=') { $flags += ' --wwe2k14_rdr_device_lost_message=false' }
     $win =Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
     if ($win[0]) { $flags += " $($win[0])" }
     Write-Host "[run_list] $(Split-Path $s -Leaf): window $($win[1])"
@@ -254,9 +257,9 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait:(-not $NoKill) -Exe $Exe -Exclusive:($Lock.Mode -eq 'Exclusive') -ExtraArgs "$flags $Extra" 2>&1
     $loadEnd = Get-LoadSnapshot
     $log = ($out | Select-String '=== log: (wwe2k14_\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) -join ','
-    $exit = (($out | Select-String 'EXITED|STILL|KILLED|ABORT') | ForEach-Object Line) -join ' '
+    $exit = Get-RunExitColumn $out   # S105 H review F1: anchored, case-sensitive
     $fail = ($out | Select-String 'script FAILED|\]\[crash\]|\[rdr\]\[live\] WARN pace_game|device lost|Failed to await|run log number MISMATCH' | Select-Object -First 2 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(160, $_.Line.Length)) }) -join ' | '
-    $pass = if ($out | Select-String ': PASS') { ' PASS' } else { '' }
+    $pass = Get-RunPassWord $out $exit $fail   # S105 H: a crash / script FAILED / non-zero exit is never PASS
     $tri = ''
     if (-not $NoTriage) {
         # case-sensitive: $exit also collects game log lines that merely contain "still" / "aborted"

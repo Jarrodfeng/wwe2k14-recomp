@@ -38,7 +38,7 @@ inline const char* KindName(Kind k) {
 
 #ifdef RDR_L2D_PLANTS
 // Test only (tools\scene\l2d_unit.cpp): 1 = SetKindDrop accepts a match drop (a match input silently not required); 2 = the flat verdict ignores the 2D holes;
-// 3 = the flat verdict ignores the switch; 4 = KindFor ignores the lag (a kind published for j - 1 is not taken: every frame reads Match); 5 = Apply2DAllowed says yes to a non-Ours flat frame; 6 = ApplyWalk trusts the record without a walk (S103 WB, the old rule); 7 = the CAW classifier is unwired (Classifier::Step never publishes: S103 CW1); 8 = leaving Caw does not clear the publish (one frame late); 9 = the classifier's hysteresis is N = 1
+// 3 = the flat verdict ignores the switch; 4 = KindFor ignores the lag (a kind published for j - 1 is not taken: every frame reads Match); 5 = Apply2DAllowed says yes to a non-Ours flat frame; 6 = ApplyWalk trusts the record without a walk (S103 WB, the old rule); 7 = the CAW classifier is unwired (Classifier::Step never publishes: S103 CW1); 8 = leaving Caw does not clear the publish (one frame late); 9 = the classifier's hysteresis is N = 1; 10 = an OURS frame with no walk bit stays OURS (S105 A4, the old rule); 11 = a demoted frame keeps its Scene3D stamp as 3D evidence (S105 A4 review F1)
 inline int g_plant = 0;
 #define L2D_PLANT(n) (::scene_kind::g_plant == (n))
 #else
@@ -202,6 +202,23 @@ inline constexpr uint8_t kWalkBit = 0x80u;
 inline constexpr uint8_t kKindMask = 0x07u;
 inline uint8_t KindOfPad(uint8_t pad) { return uint8_t(pad & kKindMask); }
 inline bool WalkOfPad(uint8_t pad) { return (pad & kWalkBit) != 0; }
+// S105 A4 (F1 / F2 of review_A4.md): an OURS frame (stream-free: READY alone) whose Scene3D stamp had NO walk bit for kRecords consecutive records is not ours: the record's stage is a leftover (a sticky arena after Create
+// a Finisher / a match; the menu case lasts hundreds of frames, one record missing its bit mid-match must not go black). Such a frame is DEMOTED: it takes the host's not-ours branch and its Scene3D stamp is dropped
+// as 3D evidence (DropStampWhenDemoted), so FlatFacts3D / ApplyWalk see a stage-less, stamp-less frame and IsFlatFrame says flat. `force_ours` = the rig's seam (never demoted, resets the run).
+// `k` is a parameter only for the unit's old-rule twin (k = 1 = the first build of this piece); L2D_PLANT(10) = the older rule still (never demoted).
+struct WalkGate {
+  static constexpr uint32_t kRecords = 3;
+  uint32_t run = 0;   // consecutive records with no walk bit
+  bool Demote(bool walked, bool force_ours, uint32_t k = kRecords) {
+    if (walked || force_ours) return run = 0, false;
+    if (run < 0xFFFFu) ++run;
+    return !L2D_PLANT(10) && run >= k;
+  }
+};
+// A demoted frame's Scene3D stamp is no evidence of a 3D walk (it is an OURS stamp from READY alone). `plant_old` = the first build of this piece (the stamp stays: the frame is "the game walked", Hold3D / black_no_3d).
+inline void DropStampWhenDemoted(FlatFacts& f, bool demoted, bool plant_old = false) {
+  if (demoted && !plant_old && !L2D_PLANT(11)) f.scene3d_stamp = false;
+}
 // The ONE step both FlatFacts3D and the unit run: no walk = the record's stage and 3D objects are leftovers (a sticky snapshot), not a picture. `plant_old` = the old rule (the record is trusted).
 // A walk with a missing asset (a NOT READY stamp) is still a walk: it also counts as a Scene3D stamp, so it is never flat.
 inline void ApplyWalk(bool walked, FlatFacts& f, bool plant_old = false) {

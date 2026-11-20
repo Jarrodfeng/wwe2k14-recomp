@@ -42,6 +42,10 @@ file(STRINGS "${REPO}/android/VERSION" WWE2K14_VERSION LIMIT_COUNT 1)
 # Session 72: re-run CMake when it changes (without this an incremental build kept the old version: 0.1.3 showed 0.1.2).
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/android/VERSION")
 
+# S105 A1b: the launcher knows whether the game library it starts is the stream-free build (src/stream_free_target.h): tools\android\build_launcher.ps1 -StreamFree
+# passes OFF (build_all.ps1 does, with the game library's -StreamFree; a release implies both). Default ON = the stream build, where every setting works.
+option(WWE2K14_KEEP_STREAM "The game library has the command stream (OFF = the stream-free player build)" ON)
+
 if(ANDROID)
     add_library(launcher SHARED ${SOURCES} platform_android.cpp)
     # SDL's JNI entry points (JNI_OnLoad, nativeSetupJNI, ...) are referenced by nothing native: keep them all.
@@ -60,7 +64,8 @@ else()
 endif()
 target_include_directories(${TARGET} PRIVATE ${IMGUI} ${IMGUI}/backends "${TP}/stb" "${TP}/inja/third_party/include"
                            "${TP}/vulkan-headers/include")  # Session 73: phone_check.h
-target_compile_definitions(${TARGET} PRIVATE "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"" WWE_MUSIC_SDL_PLAYER _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING)
+target_compile_definitions(${TARGET} PRIVATE "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"" WWE_MUSIC_SDL_PLAYER _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
+                           WWE2K14_KEEP_STREAM=$<BOOL:${WWE2K14_KEEP_STREAM}>)  # S105 A1b
 wwe2k14_add_opus(${TARGET})  # lane 297
 
 # Session 98 (Arena Viewer phone port, stage C): libviewer.so = the Arena Viewer (src\assets\view) for ViewerActivity, its own process

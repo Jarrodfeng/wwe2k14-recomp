@@ -37,4 +37,26 @@ inline bool UnlinkedPieceMayGuestRoute(const BodyKind* bodies, size_t n) {
   return any_guest;
 }
 
+// S105 A5a (A5a_ADV.md sites 10 / 12): a LINKED own-skeleton piece of a guest-row owner (kObjOwnRowsPiece: the contributor proved the owner-row copy). It names its owner (layer = slot + 1), so the unlinked rule above (every visible
+// body must be able to own it: one stock opponent with hair blocked EVERY CAW piece in a match) never applies. Route = the owner is a visible guest-row body and the game did not hide the piece (a walked frame with no ref for it);
+// hidden = not a hole, not drawn. `plant_unlinked_rule` = the old rule (test only): the route follows UnlinkedPieceMayGuestRoute over the visible bodies.
+struct OwnRowsRoute {
+  bool hole = false, guest_route = false, not_hole = false;
+};
+inline OwnRowsRoute DecideOwnRowsRoute(bool owner_visible_guest, bool game_hid_it, const BodyKind* bodies, size_t n, bool plant_unlinked_rule = false) {
+  OwnRowsRoute r;
+  if (game_hid_it) { r.not_hole = true; return r; }
+  r.hole = true;
+  r.guest_route = plant_unlinked_rule ? UnlinkedPieceMayGuestRoute(bodies, n) : owner_visible_guest;
+  return r;
+}
+
+// S105 A5a (site 12): which engine object's light state a guest-routed piece is lit by. The game installs ONE wrestler light per character draw node and draws the SUBM pieces inside it (sub_825A3908), so a piece that names its
+// owner (layer != 0) is lit with the owner's state; the latch's synthetic refs are one per actor:slot, none for a piece's own address. An unlinked piece (layer 0) or an owner that is not in the record keeps its own address.
+// `plant_own_address` = the old rule (test only): every piece asks for its own address (no state: a hole).
+inline uint32_t PieceLightObject(bool piece_from_guest, uint32_t layer, uint32_t own_object, uint32_t owner_object, bool plant_own_address = false) {
+  if (plant_own_address || !piece_from_guest || layer == 0 || owner_object == 0) return own_object;
+  return owner_object;
+}
+
 }  // namespace rdr_scene::rf

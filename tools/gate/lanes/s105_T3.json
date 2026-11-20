@@ -1,0 +1,22 @@
+{
+ "owner": "S105 lane T3 (docs/research/s105/T3_attire.md): the scenario launcher picks a wrestler's attire and Threads colour set: --wwe2k14_launch_participants tokens ID[:PAD[:ATTIRE]], ATTIRE = N | N/S | tS | s (src/launch_participant.h, the pure parser; src/scenario.h FireLaunch writes r7 and calls sub_822C6808). 0 game runs. tools/scene/launch_participant_unit.cpp covers every form, the old 1- / 2-part meanings, malformed tokens, the empty-set refusal, and three planted twins (old first-colon parse, third part ignored, empty set not refused).",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "KIND: tooling. With no third part nothing changes: the 1- and 2-part cases pin today's strtol reading (including '397:' = pad 0).",
+ "checks": [
+  {"name": "s105_T3.build_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_launch_participant_unit.ps1"], "timeout_s": 600, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "tools/scene/build_launch_participant_unit.ps1", "src/launch_participant.h"]},
+  {"name": "s105_T3.unit", "cmd": ["out/tools/launch_participant_unit.exe"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "src/launch_participant.h"]},
+  {"name": "s105_T3.plant_old_first_colon", "cmd": ["out/tools/launch_participant_unit.exe", "--plant", "old_first_colon"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "src/launch_participant.h"]},
+  {"name": "s105_T3.plant_third_part_ignored", "cmd": ["out/tools/launch_participant_unit.exe", "--plant", "third_part_ignored"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "src/launch_participant.h"]},
+  {"name": "s105_T3.plant_empty_set_not_refused", "cmd": ["out/tools/launch_participant_unit.exe", "--plant", "empty_set_not_refused"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "src/launch_participant.h"]},
+  {"name": "s105_T3.plant_caw_attire_unchecked", "cmd": ["out/tools/launch_participant_unit.exe", "--plant", "caw_attire_unchecked"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/launch_participant_unit.cpp", "src/launch_participant.h"]},
+  {"name": "s105_T3.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/main.cpp"], "timeout_s": 1500, "tier": "cheap", "gpu": false,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scenario.h", "src/launch_participant.h"]}
+ ]
+}

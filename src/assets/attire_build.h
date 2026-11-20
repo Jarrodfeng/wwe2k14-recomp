@@ -36,8 +36,14 @@ constexpr int kStepBytes = 12;    // one mask step = 4 channels x RGB
 constexpr int kMaxSteps = 4;      // sub_83418580 runs its colour loop for r4 < 4
 constexpr size_t kMaxEntries = 64;
 
+// S105 A5d: a CREATED superstar's key. The game's own test is sub_822C0998 (key <= 9999; 45 call sites; sub_8230ED80 +CC, sub_822C2AC0 "/CASD/%d" only above 9999): CAW ids are 0-99
+// (chetc_roster_record.md:65) and the lowest character pac is ch100.pac, so every key < 10000 names a pac that does not exist (docs\research\s105\A5d_ADV.md verdict 3).
+inline bool IsCreatedKey(uint32_t key) { return key < 10000u; }
+
 // Planted faults for the offline proof; never set in the game.
 enum class Fault { kNone, kSetFromKeySlot, kLinkTimeSet, kComposeMode2 };
+// S105 A5d: planted tag rules for the offline proof (Latch::SetPlantForTest); never set in the game.
+enum class Plant { kNone, kOldIdentityRule /* the pre-A5d rule: loaded == chosen never tags */, kNoCreatedGuard /* IsCreatedKey is always false */ };
 
 struct Capture {
   uint32_t chosen = 0, loaded = 0, mode = 0, desc = 0;
@@ -94,6 +100,7 @@ struct Counters {
   std::atomic<uint64_t> steps0_mode1{0}, steps0_mode2{0}, steps0_other{0};   // build steps (step 0) by mode: mode 1 / mode 2 / any other non-zero mode
   std::atomic<uint64_t> refused{0}, refreshed{0}, late_change{0}, orphan{0}, recolour{0}, forgotten{0}, evicted{0};
   std::atomic<uint64_t> applied{0};   // captures used for a record's entry (first use of each capture)
+  std::atomic<uint64_t> identity_tagged{0}, caw_refused{0}, identity_hole{0};   // S105 A5d: a loaded == chosen capture (key >= 10000) used for a tag / a created-superstar capture (key < 10000) refused (once per capture) / a tagged identity load whose compose refused (a hole where the plain base drew)
   std::atomic<uint64_t> missing{0};   // a remapped key the loader loaded as the plain base: no capture (the game did not build it, or the build comes later)
 };
 inline Counters& Count() {
@@ -104,11 +111,12 @@ inline Counters& Count() {
 // The census line (step check): composite at build step N (mode 1 N / mode 2 N), colours applied N, missing N.
 inline std::string CensusLine() {
   const Counters& c = Count();
-  char b[384];
-  std::snprintf(b, sizeof b, "[attire_build] composite at build step %llu (mode 1 %llu / mode 2 %llu / other %llu), colours applied %llu, missing %llu; refused %llu, refreshed %llu (late change %llu), orphan steps %llu, recoloured %llu, forgotten %llu",
+  char b[512];
+  std::snprintf(b, sizeof b, "[attire_build] composite at build step %llu (mode 1 %llu / mode 2 %llu / other %llu), colours applied %llu, missing %llu; refused %llu, refreshed %llu (late change %llu), orphan steps %llu, recoloured %llu, forgotten %llu; identity tagged %llu, caw refused %llu, identity hole %llu",
                 (unsigned long long)(c.steps0_mode1 + c.steps0_mode2 + c.steps0_other), (unsigned long long)c.steps0_mode1.load(), (unsigned long long)c.steps0_mode2.load(), (unsigned long long)c.steps0_other.load(),
                 (unsigned long long)c.applied.load(), (unsigned long long)c.missing.load(), (unsigned long long)c.refused.load(), (unsigned long long)c.refreshed.load(), (unsigned long long)c.late_change.load(),
-                (unsigned long long)c.orphan.load(), (unsigned long long)c.recolour.load(), (unsigned long long)c.forgotten.load());
+                (unsigned long long)c.orphan.load(), (unsigned long long)c.recolour.load(), (unsigned long long)c.forgotten.load(),
+                (unsigned long long)c.identity_tagged.load(), (unsigned long long)c.caw_refused.load(), (unsigned long long)c.identity_hole.load());
   return b;
 }
 
@@ -118,6 +126,7 @@ class Latch {
     Capture cap;
     uint64_t gen = 0;
     bool applied = false;   // counted once
+    bool identity_counted = false, caw_counted = false;   // S105 A5d: the two refusal / identity counters, once per capture
   };
   static Latch& Instance() {
     static Latch l;
@@ -158,7 +167,7 @@ class Latch {
       Entry& e = by_chosen_[c.chosen];
       const bool same = e.cap.hash == c.hash && e.cap.desc == c.desc && e.gen != 0;
       e.cap = c, e.gen = ++gen_;
-      if (!same) e.applied = false;
+      if (!same) e.applied = false, e.identity_counted = e.caw_counted = false;
       char b[256];
       std::snprintf(b, sizeof b, "[attire_build] build step 0: chosen %u loaded %u mode %u set %d desc 0x%X: colours %016llX", c.chosen, c.loaded, c.mode, c.set, c.desc, (unsigned long long)c.hash);
       line = b;
@@ -174,20 +183,22 @@ class Latch {
     Entry& e = it->second;
     if (std::memcmp(e.cap.colours + kStepBytes * step, c.colours + kStepBytes * step, kStepBytes) != 0) {
       std::memcpy(e.cap.colours + kStepBytes * step, c.colours + kStepBytes * step, kStepBytes);
-      e.cap.hash = attire_compose::HashColours(e.cap.colours), e.applied = false;
+      e.cap.hash = attire_compose::HashColours(e.cap.colours), e.applied = false, e.identity_counted = e.caw_counted = false;   // S105 A5d review: a changed capture counts afresh
       Count().late_change.fetch_add(1, std::memory_order_relaxed);
     }
     return r;
   }
 
   // The record side: the entry tag ("/c:<96 hex>") of the capture for a body NAMED BY ITS PARTICIPANT SLOT KEY (the chosen key), "" = none.
-  // F2: only for the slot's OWN descriptor (`slot_desc`, found by the hook by the game's index rule, slotkey::SlotDescriptor: D+7 else the slot index; 0 = unknown = no tag) and only for a key the game REMAPPED (loaded != chosen: the class the
-  // loader's remap table loads, so a failed tagged load is a counted hole as in ARM; F3: a chosen == loaded capture, e.g. a CAW or an edited stock attire, stays the plain key and its guest-row fallback).
+  // F2: only for the slot's OWN descriptor (`slot_desc`, found by the hook by the game's index rule, slotkey::SlotDescriptor: D+7 else the slot index; 0 = unknown = no tag).
+  // S105 A5d: the tag is used for any key >= 10000 whose capture matches the slot's descriptor, remapped (loaded != chosen) or not (a Threads-edited stock attire, Hogan's default-built identity keys: the game
+  // builds them, mode 1). A created superstar (key < 10000, IsCreatedKey) keeps the plain key and its guest-row fallback: it has no pac, so a tagged failed load would be a hole (docs\research\s105\A5d_ADV.md).
   std::string TagForSlot(uint32_t chosen, uint32_t slot_desc) {
     if (slot_desc == 0) return std::string();
     std::lock_guard<std::mutex> l(mu_);
     auto it = by_chosen_.find(chosen);
-    if (it == by_chosen_.end() || it->second.cap.desc != slot_desc || it->second.cap.loaded == it->second.cap.chosen) return std::string();
+    if (it == by_chosen_.end() || it->second.cap.desc != slot_desc) return std::string();
+    if (Refused(it->second)) return std::string();
     return Use(it->second);
   }
   bool HasChosen(uint32_t chosen) {   // the hook's cheap question before it reads guest memory for the descriptor
@@ -200,6 +211,7 @@ class Latch {
     std::lock_guard<std::mutex> l(mu_);
     auto it = by_chosen_.find(chosen);
     if (it == by_chosen_.end() || it->second.cap.desc != desc || it->second.cap.loaded != loaded) return std::string();
+    if (Refused(it->second)) return std::string();   // S105 A5d: a linked CAW keeps the guest rows too (no pac: a tagged failed load would be a hole)
     return Use(it->second);
   }
   void Clear() {   // a new game folder (ModelCache::ClearFailed): nothing captured under the old files stays
@@ -211,25 +223,41 @@ class Latch {
     std::lock_guard<std::mutex> l(mu_);
     if (by_chosen_.erase(chosen)) Count().forgotten.fetch_add(1, std::memory_order_relaxed);
   }
+  void SetPlantForTest(Plant p) {
+    std::lock_guard<std::mutex> l(mu_);
+    plant_ = p;
+  }
   size_t Size() {
     std::lock_guard<std::mutex> l(mu_);
     return by_chosen_.size();
   }
   void ResetForTest() {
     std::lock_guard<std::mutex> l(mu_);
-    by_chosen_.clear(), gen_ = 0;
+    by_chosen_.clear(), gen_ = 0, plant_ = Plant::kNone;
     Counters& c = Count();
-    for (std::atomic<uint64_t>* a : {&c.steps0_mode1, &c.steps0_mode2, &c.steps0_other, &c.refused, &c.refreshed, &c.late_change, &c.orphan, &c.recolour, &c.forgotten, &c.evicted, &c.applied, &c.missing}) a->store(0);
+    for (std::atomic<uint64_t>* a : {&c.steps0_mode1, &c.steps0_mode2, &c.steps0_other, &c.refused, &c.refreshed, &c.late_change, &c.orphan, &c.recolour, &c.forgotten, &c.evicted, &c.applied, &c.missing, &c.identity_tagged, &c.caw_refused, &c.identity_hole}) a->store(0);
   }
 
+
  private:
+  // S105 A5d (under mu_): the one tag guard for both routes. A capture whose chosen key is a created superstar's is refused (counted once per capture); the planted old rule refuses loaded == chosen instead.
+  bool Refused(Entry& e) {
+    if (plant_ == Plant::kOldIdentityRule) return e.cap.loaded == e.cap.chosen;
+    if (plant_ != Plant::kNoCreatedGuard && IsCreatedKey(e.cap.chosen)) {
+      if (!e.caw_counted) e.caw_counted = true, Count().caw_refused.fetch_add(1, std::memory_order_relaxed);
+      return true;
+    }
+    return false;
+  }
   std::string Use(Entry& e) {   // under mu_
+    if (e.cap.loaded == e.cap.chosen && !e.identity_counted) e.identity_counted = true, Count().identity_tagged.fetch_add(1, std::memory_order_relaxed);   // S105 A5d: a tagged identity capture
     e.gen = ++gen_;   // F5: a capture in use is the newest, never the eviction victim
     if (!e.applied) e.applied = true, Count().applied.fetch_add(1, std::memory_order_relaxed);
     return attire_compose::EntryTag(e.cap.colours);
   }
   std::mutex mu_;
   std::map<uint32_t, Entry> by_chosen_;
+  Plant plant_ = Plant::kNone;   // S105 A5d: the proof's planted rule (never set in the game)
   uint64_t gen_ = 0;
 };
 

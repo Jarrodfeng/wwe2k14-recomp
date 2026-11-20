@@ -54,6 +54,10 @@ struct Material {
   std::string cube_name;   // the cube sampler's texture name as stored (kept when no texture directory holds it: census / the unfed-cube report)
   float reflect_alpha = 0.f;
   int layer[3] = {-1, -1, -1};  // S103 LAY: sampDiffuse1Prm / 2Prm / 3Prm = the UVScroll layers 2..4 (texture indices; the technique word 0/2/4/6 says how many are drawn; docs/formats/uvscroll_params.md "Layers")
+  // S105 C2L (docs/research/s105/C2L.md 3b [C]): the yProp_PSM grain: sampNoisePrm = the noise picture (fetch slot 6, `mat_noize`), and the game's name entries (sub_82BAAEE8 0x82BADB60 / 0x82BADB98 /
+  // 0x82BADD20: register 207, components 3 / 4 / 5 = x / y / z) pack g_iNoiseTileX / g_iNoiseTileY / g_fNoiseLvl into c207 = (tile x, tile y, level, -): `Noise` (PS) and `NoiseParam` (VS).
+  int noise = -1;
+  float noise_lvl = 0, noise_tile[2] = {0, 0};
   std::string diffuse_name;  // Session 97: the diffuse sampler's texture name as stored (kept when the name is in no texture directory: stage movies)
   float ambient[4] = {1, 1, 1, 1};  // g_f4MatAmbCol when present
   float diffuse_color[4] = {1, 1, 1, 1};  // g_f4MatDifCol when present
@@ -83,6 +87,8 @@ struct Material {
   // g_f4NoiseTSpec) = (50, .08, .08, .5), c208 = (0, ..TBumpF, ..TDiffF, ..TSpecF) = (0, .3, .3, .8), vertex c188 = (g_fNoiseTNear,
   // g_fNoiseTFar) = (250, 1000): the two sets are mixed by the clip depth). `detail` = g_mNoiseTilePrm (texture `noise2`, chCommon.pac).
   int detail = -1;
+  int logo7 = -1, logo4 = -1;   // S105 A5c: the CAW logo pictures (fetch slots 7 / 4, bound by the model draw's logo callback; see the A5c note); -1 = none (black: the layer does nothing)
+  bool diffuse_t0 = false;      // S105 A5c: the game sets pixel bool 150 for this part (its diffuse sampler's texture index is 0): an FX_LOGO fragment then reads the layer at slot 7, else slot 4
   int wrinkle_normal = -1;   // S103 WRK: g_mNormalWklPrm (the face wrinkle normal map `wrinkles_n`, fetch slot 5; WRK.md 1a [C])
   float wrink_uv[4] = {0, 0, 1, 1};   // S103 WRK: g_f4WrinkUV_x/y/z/w = PS c230 (the wrinkle rectangle, a file value); (0,0,1,1) only when has_wrink_uv is false
   float idmap_col[4] = {0, 0, 0, 0};  // S103 WRK: g_f4IdMapCol = PS c145 (file value)
@@ -115,10 +121,19 @@ struct Material {
   float spe_lod[2] = {0.f, 1e30f};   // S103 D1: g_fSpeLodNear / g_fSpeLodFar (the FX_SPEC_FADE highlight fade range, VS SpeLodParam.xy); absent = no fade [U: the effect's own default]
   uint32_t technique = 0;    // S103 D1: the mesh record word +0x90 = the technique index the colour pass hands the effect (sub_82C04DF0 0x82C05AF8; PLAN.md skeleton R0)
   bool vertex_lm = false;    // S103 L10: an arena yBG_* material whose mesh record word +0x90 has bit 0 set and bit 3 clear: the game draws it with the `*_vertex_lm_vertex` program (the stage light-map page sampled in the VERTEX stage at slot 16; its pixel shader still reads the page at slot 13). [C arena 4: 264 of 264 meshes the stream shows (yProp_* excluded by effect); L elsewhere] (jboy.h; docs/formats/arena_lightmap.md "S103 L10")
-  bool cull_back = false;   // Session 98 (stage fix): the game draws this material with back faces culled (the stage movie surfaces, capture 6818)
+  bool cull_back = false;   // the game draws this material with back faces culled. Stage slots 0..399 of an arena: the mesh record's word +0x8C bit 0x2 (SCU, jboy.h; sub_82C04DF0 0x82C0A880);
+                            // the movie screens 800-809 (Session 98, capture 6818; rf_c_core.cpp / stage_media.h) and the crowd (live_crowd.cpp) keep their own rules
+  bool cull_from_record = false;   // SCU / S105 C3: cull_back came from the mesh record's bit 0x2 (EVERY JBOY family now, jboy.h; the front end's switches turn exactly these off: wwe2k14_rdr_stage_cull for a stage slot, wwe2k14_rdr_family_cull for the rest; the viewer ignores it)
+  bool stage_slot = false;         // S105 C3: an arena stage slot 0..399 (kind 1): only these meshes' mirrored `r` copy takes the swapped front face (sub_82C04DF0 0x82C0B920-0x82C0B968; a non-arena object with a mirrored world gets no swap, CUL_ADV D)
+  uint32_t cull_word = 0;          // SCU: the mesh record's word +0x8C as stored (values 4 / 6 / 0x114 / 0x116 in the arenas; d2 dump + census only)
   bool blend_inline = false;  // Session 98 (spot / beard pass): alpha-blended in the opaque pass's order with depth write on (the stage movie
                               // surfaces: capture 6818 draws them SrcAlpha / InvSrcAlpha with depth write, before the later layers)
   bool additive = false;     // S97: drawn added on top (arena slots flagged `a` in entry 50001: glows, beams, fog)
+  // S105 SZW (docs/research/harness/SZW_contract.md): the game's per-draw state of a stage slot, by its entry-50001 tokens (the slot record byte 8: `a` 0x40, `s` 0x20, `z` 0x08; arena_slot_flags.md).
+  // bit 1 = an `s` / `a` slot (group 1 / 2: blended, alpha-tested GEQUAL 1/255, WRITES depth unless `z`), bit 2 = the `z` token (z write off for the slot's draw; alone it draws in the opaque group, blended,
+  // tested, no depth write), bit 4 = a movie-key piece (800-809) with a vertex alpha below 255 (blend_inline, depth write: the test must discard what it hides, A54). Read by FrontEnd::Record behind the
+  // switch wwe2k14_rdr_stage_zwrite; the loader's own alpha_test / alpha_blend / cutout_blend fields are unchanged (switch off = today's draw).
+  uint8_t stage_zw = 0;
   // S103 E6: the UV-scroll speeds of the scrolling classes (yBG_UVScroll / yProp_UVScroll and their LM twins), stored in the material record as eight scalars
   // g_fScrollU, g_fScrollV, g_fScrollU2, g_fScrollV2, ..U3, ..V3, ..U4, ..V4 (layer 0..3); UVScroll0 = (U, V, U2, V2), UVScroll1 = (U3, V3, U4, V4) [hints in
   // docs/renderer/CONSTANTS.md]. scroll_have = at least one was found in the record (else the speeds stay 0 and the consumer counts the absence).

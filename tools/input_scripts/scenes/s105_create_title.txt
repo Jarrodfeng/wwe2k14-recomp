@@ -1,0 +1,39 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S105 lane C1R (docs\research\s105\C1_routes.md): Create a Title / Championship page. Fast-forward: presses wait for menu states.
+# Path: main menu -> CREATIONS (menu 3) -> item 7 CHAMPIONSHIP (screen code 1506, atlas edge verified run 5893, "screen:1506 recognise seq 75 menu 1506"). COV5 / the run list expect
+# sequence 29 once the page is up; the atlas says seq stays 75 with menu 1506. Both are read here (log_state seq / menu): UNCONFIRMED which one it is, so the A press uses
+# `unreadable` (menu unreadable after the switch counts as accepted; a second A is never sent). ~10 s on the page, two shots, back to CREATIONS then the main menu.
+# Marks: 1 menu, 2 creations, 3 title page up, 4 end of the 10 s, 5 back at the main menu, 6 end.
+on_fail quit
+log bench: start scene s105_create_title
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_creations
+mark 2 creations
+press_until_state DOWN cursor >=7 12 30 5 if_needed
+press_until_state UP cursor 7 12 30 5 if_needed
+press_until_state A menu !=3 8 120 5 unreadable
+wait_frames 120
+log scene=title_page
+log_state menu
+log_state seq
+log_state screen_mode
+log_state msgbox
+mark 3 title_page
+wait_frames 180
+log_text 8
+screenshot sc_s105_title_1
+wait_frames 300
+screenshot sc_s105_title_2
+mark 4 ten_seconds
+press_until_state B menu 3 12 120 5
+press_until_state B menu 1 12 90 5
+wait_state menu 1 3600 10
+mark 5 back_at_menu
+wait_frames 600
+mark 6 end
+log bench: done
+wait_frames 10
+quit

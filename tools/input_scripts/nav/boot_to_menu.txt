@@ -5,7 +5,7 @@
 #        `wait_state menu 1 1200 30` after this.
 # From short/boot_menu_quit.txt and repro_logo_lettering.txt (Session 29: boot_step 3 title / 4 storage notice /
 # 5 after A, found with the memory scanner).
-wait_file SaveData.Dat 3600     # "Press Start" is up once the save is read
+wait_file SaveData.Dat 7200     # "Press Start" is up once the save is read (S105 N4: realtime + DLC reads it at ~3630)
 wait_state boot_step 3 1800 2
 press_until_state START boot_step 4 10 30
 press_until_state A boot_step >=5 10 30   # accept the ATTENTION storage notice

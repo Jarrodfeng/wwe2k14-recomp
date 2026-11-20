@@ -99,7 +99,10 @@ class ModelCache {
   // S103 S (live, load_on_miss = false): the assets Get() / Stored() could not answer since the last call (each once), for the caller's loader thread,
   // and the way the loaded model comes back: under the SAME key Get() looks up, so the next Get() finds it. `stored` = it was asked for by Stored(): PutLoaded
   // keeps the CPU copy only and uploads nothing.
-  struct Missed { std::string pac, entry; uint32_t variant = 0; std::string key; bool stored = false; };
+  // S105 SKB3: construct with designated initializers ONLY (a field inserted before `gates` silently re-targeted the positional inits and made every miss gating; lint s105_SKB.missed_init)
+  // S105 SKB3 fix L3: NoPositional is the first field and nothing converts to it, so ANY positional / parenthesised init (`{a, b, ..}`, `Missed m(a, ..)`, `emplace_back(a, ..)`, `return {a, ..}`) fails to COMPILE; a designated init omits it (lint + twin: tools/scene/missed_init_lint.py)
+  struct NoPositional { explicit NoPositional() = default; };
+  struct Missed { NoPositional no_positional_{}; std::string pac, entry; uint32_t variant = 0; std::string key; bool stored = false; bool bulk = false; /* S105 SKB fix F3: the evtobj.pac prewarm: runs after every other job (it blocks the one loader for ~1.7 s) */ bool gates = true; /* S105 SKB: a counted miss holds READY: the loader runs it before the non-gating (prop) asks */ };
   std::vector<Missed> TakeMisses();
   // The loader gave up on it: remembered as failed (never queued again until ClearFailed).
   void MissFailed(const Missed& m, const std::string& error = std::string());
@@ -110,6 +113,9 @@ class ModelCache {
   void NoteMiss() { ++misses_; }                       // S103 D2: a class applier's own asset is not resident (the crowd's bodies): this frame is a miss like a Get() miss
   bool load_on_miss() const { return load_on_miss_; }  // S103 D2: offline caches load in line; the live cache never loads on the render thread
   void NewFrame() { misses_ = 0; }
+  // S105 SKB fix F3: has this scene drawn an OURS frame yet? (false at the start and at an arena change; true after a successful live draw.) rf_props.cpp: event / stage props gate READY only while it is false (load_order.h PropAskGatesReady)
+  bool SceneDrawn() const { return scene_drawn_; }
+  void SetSceneDrawn(bool v) { scene_drawn_ = v; }
   // BuildFrame's per-record scratch: the asset infos and keys of the record being built (reused across records).
   std::vector<AssetInfo>& InfoScratch() { return info_; }
   void BeginRecord(const SceneTables& t);
@@ -161,6 +167,7 @@ class ModelCache {
   uint64_t retired_total_ = 0;
   uint64_t uploads_ = 0;
   uint32_t misses_ = 0;
+  bool scene_drawn_ = false;   // S105 SKB fix F3
   std::vector<Missed> missed_;                       // queued, not yet taken
   std::unordered_set<std::string> pending_;          // keys queued or being loaded (deduplicated until PutLoaded / MissFailed)
   std::vector<AssetInfo> info_;

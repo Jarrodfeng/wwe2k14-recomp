@@ -14,7 +14,7 @@
                     "back": {"press": "B", "times": 3, "to": "list:1", "run": 5892},
                     "evidence": "crawl run 5892 (stays in seq 75); reader f: an 8-state machine on ctl+356 (6 = up), inner pages not mapped"},
   "mode:shop": {"kind": "mode", "label": "SHOP (in-game store)", "recognise": {"seq": 5}, "dead_end": true,
-                "back": {"status": "unconfirmed", "note": "offline it is a notice, not a store: 'ATTENTION: To purchase downloadable content, please connect to Xbox Live' with OK (run 5896, live status); 10 B presses did not leave it (run 5892): A on OK is the likely way back (to verify, then this node gets a back edge)"},
+                "back": {"status": "unconfirmed", "note": "offline it is a notice, not a store: the Xbox Live connect notice (text id 52068) with OK (run 5896, live status); 10 B presses did not leave it (run 5892): A on OK is the likely way back (to verify, then this node gets a back edge)"},
                 "evidence": "exit 25 -> seq 5 (crawl run 5892)"},
   "mode:threads": {"kind": "mode", "label": "SUPERSTAR THREADS", "recognise": {"seq": 77}, "state_word": "0x839400F8>0>64",
                    "back": {"press": "B", "times": 6, "to": "list:1", "run": 5892}, "evidence": "exit 20 (crawl 5892); reader e: state word seq+64"},

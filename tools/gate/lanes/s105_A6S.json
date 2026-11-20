@@ -1,0 +1,7 @@
+{
+  "claim": {"scene": "none", "side": "none (drops the loader's RAM file-cache copy on the read-end thread; fewer memcpys, no deadlock)", "ms": [0, 0]},
+  "checks": [
+    {"name": "s105_A6S.unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/loader_cache_skip_test.ps1"], "timeout_s": 180},
+    {"name": "s105_A6S.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/loader_cache_skip.h", "src/loader_cache_skip_pred.h", "src/load_probe.h", "src/wwe2k14_app.h"]}
+  ]
+}

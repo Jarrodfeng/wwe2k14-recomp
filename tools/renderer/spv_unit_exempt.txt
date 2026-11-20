@@ -1,0 +1,31 @@
+# S105 SPV: scripts that name a registry-using .cpp without linking it. script | reason. Read by spv_split_lint.py (check 5).
+tools/cxx_cache.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/gate/deps.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/gate/deps_selftest.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/gate/version_define_lint.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/handback/cvar_pp.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/memory/rig_unit_line.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/movie/movie_planes_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/q/qcensus_selftest.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/q/qx_selftest.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/r18/frame_roundtrip_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/guard_decay_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/host_core_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/lasting_draw_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/nogroup_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/own_nodes_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/scene_skip_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/renderer/skips_auto_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/build_b3_card_unit.ps1 | b3_card_unit.cpp includes front_end.h only (types), no kVariants use
+tools/scene/build_e5_unit.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/build_swf_unit.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/cvar_link_lint.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/guest_model_unit.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/inputs_check.py | links live_map_e2_input.cpp / live_map_rope_input.cpp: llvm-nm shows 0 undefined kFx_ (S105 SPV review)
+tools/scene/l2d_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/mp_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/s2_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/scene/slv_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/ui/build_ui_ours_test.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/upd_lean/upd_lean2_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/wrestler/build_w1_check.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user

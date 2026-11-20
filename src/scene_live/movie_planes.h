@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 #include <mutex>
 #include <vector>
@@ -46,12 +47,14 @@ struct Plants {
   bool no_ambiguity_guard = false;   // no set hint and several candidate sets: the newest is served anyway (review F1): "select.ambiguous_refused"
   bool no_age_limit = false;   // a frame older than the window is served (review F4): "order.too_old"
   bool leak_stream = false;    // (ServeGuest) the stream's image ids are handed out instead of ours: "guest.no_stream_image"
+  bool key_ignored = false;    // the row's plane key is ignored: the set is the row's hint (the last flush of ANY movie): "select.key"
   bool half_chroma = false;    // the chroma planes copied at (w+1)/2 x (h+1)/2 instead of the set header's own size (a 1280x280 movie has 640x144 chroma): "planes.chroma_size" / the rig on the tron capture
 };
 
 // What the caller knows about the next draw (MovieOurs fills it from the stream slot-0 image's DESCRIPTION and, when the 2D record is on, the row's plane_set). 0 = unknown.
 struct DrawHint {
   uint32_t set = 0, y_w = 0, y_h = 0, seq = 0;
+  uint32_t key = 0;   // N2: the row's Y plane handle key (tex_key[0], the sprite object's +400); 0 = unknown
 };
 // What the draw knows. Every field is optional; 0 = unknown.
 struct Query {
@@ -59,12 +62,13 @@ struct Query {
   uint32_t y_w = 0, y_h = 0;   // the Y plane's size (the draw's slot 0 image); 0 = any
   uint64_t guest_frame = 0;    // the draw's guest frame
   uint32_t seq = 0;            // the flush serial the draw was stamped with (Store().seq() when the draw was recorded); 0 = unknown, the guest frame is used
+  uint32_t key = 0;            // N2: the draw's own plane key; a set whose handle keys hold it is THE set (the hint is the last flush of any movie); 0 = unknown
 };
 
 // The ONE way a Query is made (MovieOurs and the offline unit / rig both call it; review F1 3).
 inline Query MakeQuery(const DrawHint& h, uint64_t guest_frame) {
   Query q;
-  q.set = h.set, q.y_w = h.y_w, q.y_h = h.y_h, q.seq = h.seq, q.guest_frame = guest_frame;
+  q.set = h.set, q.y_w = h.y_w, q.y_h = h.y_h, q.seq = h.seq, q.key = h.key, q.guest_frame = guest_frame;
   return q;
 }
 
@@ -72,6 +76,7 @@ struct Census {
   uint64_t flushes = 0, copied = 0, bytes = 0, refused = 0, sets_pruned = 0;
   uint64_t asked = 0, answered = 0;
   uint64_t flush_before = 0, flush_same = 0, flush_after = 0, no_flush = 0;   // U3
+  uint64_t key_hit = 0, key_miss = 0, key_hint_differs = 0;   // N2: key_hit = a set held the row's key; key_miss = none did (the hint's rule); key_hint_differs = the key's set was not the row's hint
   uint64_t no_size = 0, ambiguous = 0, ring_miss = 0, too_old = 0;   // ambiguous = no set hint and more than one candidate set flushed near the draw: refused (the stream draw stays)
 };
 
@@ -87,6 +92,14 @@ class MovieStore {
       ++c_.flushes;
       my_seq = ++seq_;   // this flush's serial, taken with the count: a flush racing this one cannot give it a later number (review F5)
     }
+    uint32_t keys[8] = {};   // N2: the set's 2 x 4 plane handle keys (word 0 of each pair at set + 64 b + 8 k); 0 = unreadable / none
+    uint32_t nbuf = 0;   // N2 F5: only the buffers the set has (the count at set + 128)
+    if (!stagefx::ReadWord(read, set + screens::kSetCount, nbuf)) nbuf = 0;
+    for (uint32_t b = 0; b < 2 && b < nbuf; ++b)
+      for (uint32_t k = 0; k < 4; ++k) {
+        uint32_t v = 0;
+        if (stagefx::ReadWord(read, set + 64 * b + 8 * k, v)) keys[b * 4 + k] = v;
+      }
     screens::Plants cp;
     cp.swap_chroma = plants.swap_chroma, cp.wrong_buffer = plants.wrong_buffer;
     cp.header_chroma = !plants.half_chroma;   // the chroma textures are the header's size (the draw's uv spans the whole texture)
@@ -107,6 +120,7 @@ class MovieStore {
     s->seq[s->next % kRing] = my_seq;
     s->ring[s->next++ % kRing] = f;
     s->last_gf = gf;
+    for (int i = 0; i < 8; ++i) s->keys[i] = keys[i];
     Prune(gf);
     ++c_.copied;
     c_.bytes += f->y.size() + f->cb.size() + f->cr.size() + f->a.size();
@@ -117,8 +131,9 @@ class MovieStore {
   std::shared_ptr<const Frame> Find(const Query& q) {
     std::lock_guard<std::mutex> lk(m_);
     ++c_.asked;
-    const bool hinted = q.set && !plants.no_set_hint;
-    Slot* s = Choose(q);
+    bool by_key = false;
+    Slot* s = Choose(q, by_key);
+    const bool hinted = (q.set && !plants.no_set_hint) || by_key;   // a key match is as exact as a hint
     if (!s) return nullptr;
     // newest first
     std::shared_ptr<const Frame> newest;
@@ -167,6 +182,13 @@ class MovieStore {
     return pick;
   }
 
+  // N2 F2: the display set whose handle keys hold `key` (either buffer's key names the same set); 0 = none. The host's R9 repeat compares sets, not raw keys (the two display buffers have two keys).
+  uint32_t SetOfKey(uint32_t key) {
+    if (!key) return 0;
+    std::lock_guard<std::mutex> lk(m_);
+    Slot* s = SlotOfKey(key, 0);
+    return s ? s->set : 0;
+  }
   uint32_t seq() const { std::lock_guard<std::mutex> lk(m_); return seq_; }
   Census census() const { std::lock_guard<std::mutex> lk(m_); return c_; }
   size_t sets() const { std::lock_guard<std::mutex> lk(m_); return slots_.size(); }
@@ -181,6 +203,7 @@ class MovieStore {
     uint64_t last_gf = 0;
     std::shared_ptr<const Frame> ring[kRing];
     uint32_t seq[kRing] = {};
+    uint32_t keys[8] = {};   // N2: the plane handle keys read at the last flush
   };
   Slot* FindSlot(uint32_t set) {
     for (auto& s : slots_)
@@ -195,7 +218,29 @@ class MovieStore {
   }
   // The set the query means (caller holds m_): the hint when given and held. With no hint: the sets whose newest frame matches the size (when known) AND that flushed within kNoHintWindow guest frames of the draw;
   // exactly one = that set; none = null; more than one (an entrance flushes a banner, a titantron, a mini screen and panels together) = REFUSED (counted `ambiguous`; the stream's draw is kept) (review F1).
-  Slot* Choose(const Query& q) {
+  Slot* SlotOfKey(uint32_t key, uint32_t prefer_set) {   // caller holds m_: the preferred set when it holds the key, else the newest holder
+    Slot* hit = nullptr;
+    for (auto& s : slots_) {
+      bool holds = false;
+      for (uint32_t k : s.keys) holds = holds || k == key;
+      if (!holds) continue;
+      if (!hit || s.set == prefer_set || (hit->set != prefer_set && s.last_gf > hit->last_gf)) hit = &s;
+    }
+    return hit;
+  }
+  // N2: a row's own plane key picks the set whose handle keys hold it (a hint is only the last flush of ANY movie: the 30 Years menu flushes three sets per frame). No set holds it: today's rule.
+  Slot* Choose(const Query& q, bool& by_key) {
+    by_key = false;
+    if (q.key && !plants.key_ignored) {
+      Slot* hit = SlotOfKey(q.key, q.set);
+      if (hit) {
+        ++c_.key_hit;
+        if (q.set && hit->set != q.set) ++c_.key_hint_differs;
+        by_key = true;
+        return hit;
+      }
+      ++c_.key_miss;
+    }
     if (q.set && !plants.no_set_hint) return FindSlot(q.set);
     if (!q.y_w || !q.y_h) ++c_.no_size;   // once per query
     Slot* best = nullptr;
@@ -258,6 +303,15 @@ inline std::atomic<bool> g_guest_planes{false};
 inline MovieStore& Store() {
   static MovieStore s;
   return s;
+}
+
+// N2: the plane-key census (one line, printed next to the [host] line; empty until a movie row asked with a key). key_hit = the row's key was held by a set; key_miss = no set held it (the hint's rule served it);
+// key_hint_differs = the key's set was not the row's hint (the last flush of any movie): > 0 proves the old hint was wrong.
+inline std::string KeyCensusLine() {
+  const Census c = Store().census();
+  if (!c.key_hit && !c.key_miss) return std::string();
+  return "[host][movie_planes] key_hit " + std::to_string((unsigned long long)c.key_hit) + ", key_miss " + std::to_string((unsigned long long)c.key_miss) + ", key_hint_differs " + std::to_string((unsigned long long)c.key_hint_differs) +
+         ", sets " + std::to_string((unsigned long long)Store().sets()) + ", asked " + std::to_string((unsigned long long)c.asked) + ", answered " + std::to_string((unsigned long long)c.answered);
 }
 
 // ---- the upload: a frame's four planes into OUR images -----------------------------------------------------------------------------------------------

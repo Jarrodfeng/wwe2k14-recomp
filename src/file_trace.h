@@ -39,6 +39,7 @@
 #include "frame_stats.h"
 #include "flight_recorder.h"  // NtReadFile events for --wwe2k14_flight_recorder (Session 8 task 11)
 #include "host_write.h"       // Session 100 strip-360 E2 / E3: file reads reported to the new renderer's reader
+#include "load_watch.h"       // S105 A6W: the loader watch counters
 #include <rex/system/xfile.h>  // S101 names A1c: a read's file path (XFile::path)
 
 namespace rex::kernel::xboxkrnl {
@@ -239,6 +240,7 @@ inline uint32_t NtReadFileTraceOverride(uint32_t file_handle, uint32_t event_han
                                                                  apc_context, io_status_block, buffer, buffer_length,
                                                                  byte_offset_ptr));
   }
+  load_probe::NoteRead(file_handle);  // S105 A6W: a read on a PAC handle returned (the SDK completes reads at once): loader watch progress
   if (cache) {
     CacheFileLog("read", cache_path, file_handle, cache_offset, buffer_length, event_handle,
                  apc_routine_ptr.guest_address(), result, io_status_block);
@@ -267,6 +269,7 @@ inline uint32_t NtReadFileScatterOverride(uint32_t file_handle, uint32_t event_h
                                           uint32_t length, mapped_u64 byte_offset_ptr) {
   const uint32_t result = rex::kernel::xboxkrnl::NtReadFileScatter_entry(file_handle, event_handle, apc_routine_ptr, apc_context,
                                                                          io_status_block, segment_array, length, byte_offset_ptr);
+  load_probe::NoteRead(file_handle);  // S105 A6W: loader watch progress (PAC handles only)
   if (int32_t(result) >= 0 && segment_array.guest_address()) {
     const auto* segments = REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<uint32_t>*>(segment_array.guest_address());
     std::string path;  // S101 names A1c

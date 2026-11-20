@@ -1,0 +1,28 @@
+{
+ "owner": "S105 lane A5ab: (A5b) a guest part with a `trans` effect is built blended and never answers the EYF piece-row lookup (src/renderer_scene/guest_model_draw.h, piece_row_rule.h, front_end.cpp); (A5a) a linked own-skeleton piece of a guest-row owner (a created superstar's hair / necklace / braces) is accepted at the latch, proved by the owner-row copy (own_rows_rule.h), written kObjOwnRowsPiece and drawn from its own guest rows lit with the owner's state (src/scene_live/wrestler_contrib.*, piece_link.h, rf_wrestlers.cpp, guest_piece_fade.h). docs/research/s105/A5a_ADV.md, A5b.md. 0 game runs.",
+ "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
+ "note": "Every check is compile-only or a unit with planted twins in the unsafe direction. wrestler_emit selftest drives the production order (update exit -> latch -> SubmitLatchConsumer -> Emit).",
+ "checks": [
+  {"name": "s105_A5ab.build_emit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_wrestler.ps1"], "timeout_s": 900, "tier": "cheap",
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/slot_piece.h", "src/scene_live/piece_link.h", "src/scene_live/own_rows_rule.h", "src/renderer_scene/scene_record.h", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s105_A5ab.emit_selftest", "cmd": ["out/tools/wrestler_emit.exe", "selftest"], "timeout_s": 300, "tier": "cheap",
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/slot_piece.h", "src/scene_live/piece_link.h", "src/scene_live/own_rows_rule.h", "src/renderer_scene/scene_record.h", "tools/scene/wrestler_emit.cpp"]},
+  {"name": "s105_A5ab.build_route", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_guest_route_unit.ps1"], "timeout_s": 600, "tier": "cheap"},
+  {"name": "s105_A5ab.route_unit", "cmd": ["out/tools/guest_route_unit.exe"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/renderer_scene/guest_piece_fade.h", "tools/scene/guest_route_unit.cpp"]},
+  {"name": "s105_A5ab.route_plant_unlinked_rule", "cmd": ["out/tools/guest_route_unit.exe", "--plant", "own_unlinked_rule", "--expect-fail"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/renderer_scene/guest_piece_fade.h", "tools/scene/guest_route_unit.cpp"]},
+  {"name": "s105_A5ab.route_plant_light_address", "cmd": ["out/tools/guest_route_unit.exe", "--plant", "own_light_address", "--expect-fail"], "timeout_s": 60, "tier": "cheap",
+   "affects": ["src/renderer_scene/guest_piece_fade.h", "tools/scene/guest_route_unit.cpp"]},
+  {"name": "s105_A5ab.prepass_lint_selftest", "cmd": ["py", "-I", "tools/scene/own_rows_prepass_lint.py", "--selftest"], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/own_rows_prepass_lint.py", "src/renderer_scene/rf_wrestlers.cpp", "src/renderer_scene/scene_record.h"]},
+  {"name": "s105_A5ab.prepass_lint_tree", "cmd": ["py", "-I", "tools/scene/own_rows_prepass_lint.py", "--root", "."], "timeout_s": 60, "tier": "cheap", "gpu": false,
+   "affects": ["tools/scene/own_rows_prepass_lint.py", "src/renderer_scene/rf_wrestlers.cpp", "src/renderer_scene/scene_record.h"]},
+  {"name": "s105_A5ab.guest_model_unit", "cmd": ["py", "-I", "tools/scene/guest_model_unit.py", "--root", "."], "timeout_s": 1200, "tier": "cheap", "gpu": false,
+   "note": "the blend rule + the piece-row rule with planted twins 42 / 43 (CBL checks); the unit's U-OURS compile and L5 rows have been red on s105 since before this lane (ShadowKindHook harness, rf_wrestlers function-local statics): not this lane's",
+   "affects": ["src/renderer_scene/guest_model_draw.h", "src/renderer_scene/piece_row_rule.h", "tools/scene/guest_model_unit.cpp", "tools/scene/guest_model_unit.py"]},
+  {"name": "s105_A5ab.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/scene_live/wrestler_contrib.cpp,src/renderer_scene/rf_wrestlers.cpp,src/renderer_scene/front_end.cpp"], "timeout_s": 1500,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/scene_live/wrestler_contrib.*", "src/scene_live/own_rows_rule.h", "src/scene_live/piece_link.h", "src/scene_live/inputs_glue.h", "src/renderer_scene/rf_wrestlers.*", "src/renderer_scene/front_end.cpp", "src/renderer_scene/guest_model_draw.h", "src/renderer_scene/scene_record.h"]}
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "owner": "S105 builder T1 (docs/research/s105/T1_blood.md): the dev-only situation-director verb `bleed SLOT LEVEL` (blood option on, char+1398 = 1, sub_825A1F28(char, 0, LEVEL-1), read-back char+1392 == LEVEL).",
+ "claim": {"scene": "none", "side": "correctness (a dev tool that makes the blood items appear on demand; a player build refuses it)", "ms": [0, 0], "basis": "no saving claimed."},
+ "note": "director_selftest.py compiles src/situation_director_core.h against the fake game (tools/director/director_test.cpp): the parser, the dev gate, the busy rule, the write order, the read-back verdict, and planted twins (player build runs it, option not set first, level off by one, wrong list offset, ...) that must each fail the unit.",
+ "checks": [
+  {"name": "s105_T1.director_selftest", "cmd": ["py", "-I", "tools/director/director_selftest.py"], "timeout_s": 600, "tier": "cheap", "gpu": false,
+   "affects": ["src/situation_director_core.h", "src/situation_director.h", "src/input_script.h", "tools/director/*", "tools/goto/resolve.py"]}
+ ]
+}

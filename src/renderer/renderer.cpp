@@ -724,6 +724,11 @@ struct Renderer::Impl {
   bool StoreFindProgram(const ProgramDesc& desc, uint16_t& id);   // store on: the program made from these same SPIR-V words, if there is one (else remembers the hashes for StoreProgramAdded)
   void StoreProgramAdded(uint16_t id);
   void PrebuildSlice(uint64_t budget_ns, bool all);
+  // S105 B3: what the store has left, for a thread that is not the render thread (the host's precompile rule): written only by StorePublish on the render thread.
+  std::atomic<uint64_t> store_pub_left{0}, store_pub_unresolved{0}, store_pub_total{0}, store_pub_made{0};
+  std::atomic<bool> store_pub_valid{false};
+  bool store_pub_dirty = true;   // render thread only: a count moved since the last StorePublish (F5)
+  void StorePublish();
   bool PrebuildOne(uint32_t index);
   void StoreSave(bool final);
   void StoreMaybeSave();
@@ -773,7 +778,8 @@ struct Renderer::Impl {
   bool EnsureMarker();
   uint16_t MarkBegin(VkCommandBuffer cmd, uint32_t slot_index);   // closes the open marker (its END), writes the next one's BEGIN
   void MarkClose(VkCommandBuffer cmd, uint32_t slot_index);         // the open marker's END: barrier, word, barrier
-  bool lost_simulated = false;          // the loss is rplay's selftest (the device is fine: keep submitting)
+  bool idle_after_loss = false;         // S105 A9 review F3: the one vkDeviceWaitIdle after a real loss has been done
+  bool lost_simulated = false;         // the loss is rplay's selftest (the device is fine: keep submitting)
   void OnDeviceLost(const char* where, int result, bool simulated);
   void DumpCrumbs(bool simulated);
 
@@ -858,7 +864,7 @@ struct Renderer::Impl {
   };
   bool PrepareHalf(const PassPlan& pass, FrameSlot& slot, HalfPrep& prep);
   VkDescriptorSet MakeHalfSet(FrameSlot& slot, ImageEntry* a, ImageEntry* b, ImageEntry* c);
-  void RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, const PassPlan& pass, FrameSlot& slot, VkDeviceSize ring_base, const std::vector<uint8_t>& half_skip, uint32_t pass_class, float factor, const HalfPrep& prep, CallCounts& pc);
+  void RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, const PassPlan& pass, FrameSlot& slot, VkDeviceSize ring_base, const std::vector<uint8_t>& half_skip, uint32_t pass_class, float factor_x, float factor_y, const HalfPrep& prep, CallCounts& pc);
   void RecordCopy(VkCommandBuffer cmd, const CopyOp& copy);
   // S102 G12: where a copy reads and writes, computed once for RecordCopy and for the batch rule (path 0 = unsupported, 1 = vkCmdCopyImage, 2 = vkCmdBlitImage)
   struct CopyGeom {
@@ -2651,6 +2657,7 @@ void Renderer::Impl::StoreInit(const RendererOptions& opts, std::vector<uint8_t>
   } else {
     Log("[rdr][pipestore] no cache yet");
   }
+  StorePublish();  // S105 B3: the list's records are counted from the start (a precompile never reads "0 of 0" with records waiting)
 }
 
 bool Renderer::Impl::StoreFindProgram(const ProgramDesc& desc, uint16_t& id) {
@@ -2688,6 +2695,7 @@ void Renderer::Impl::StoreNoteBuilt(const DrawState& state, uint32_t pass_class,
   r.pass.color_count = ck.color_count, r.pass.has_depth = ck.has_depth, r.pass.samples = ck.samples, r.pass.pad = ck.views > 1 ? ck.views : 0;   // S102 C1: a multiview class keeps its view count in `pad` (pipeline_store.h Sane)
   r.seen = store_session;
   r.built = true;
+  store_pub_dirty = true;   // S105 B3 F5: the counts changed (published at the next slice call)
   const char* name = programs[state.program].name;
   std::strncpy(r.name, name ? name : "", pstore::kNameBytes - 1);
   if (!pstore::Sane(r)) {  // would be dropped when loaded: not recorded, counted (the pipeline itself was built and works)
@@ -2793,7 +2801,10 @@ void Renderer::Impl::PrebuildSlice(uint64_t budget_ns, bool all) {
     store_pending.insert(store_pending.end(), store_unresolved.begin(), store_unresolved.end());
     store_unresolved.clear();
   }
-  if (store_cursor >= store_pending.size()) return;
+  if (store_cursor >= store_pending.size()) {
+    if (store_pub_dirty || !store_pub_valid.load(std::memory_order_relaxed)) StorePublish();   // S105 B3 F5: nothing pending: publish only when a count moved (no walk of every record per menu frame)
+    return;
+  }
   const uint64_t t0 = RenderNow();
   const uint64_t built_before = store_stats.prebuilt;
   while (store_cursor < store_pending.size()) {
@@ -2810,6 +2821,23 @@ void Renderer::Impl::PrebuildSlice(uint64_t budget_ns, bool all) {
   ++store_stats.slices;
   store_stats.slice_ns += spent;
   store_stats.slice_max_ns = std::max(store_stats.slice_max_ns, spent);
+  StorePublish();
+}
+
+// S105 B3: the counts the precompile reads (made / total / left that can be tried / unresolved), computed on the render thread, read by atomics anywhere.
+void Renderer::Impl::StorePublish() {
+  uint64_t total = 0, made = 0;
+  for (const pstore::Record& r : store_records) {
+    if (r.dead) continue;
+    ++total;
+    if (r.built) ++made;
+  }
+  store_pub_total.store(total, std::memory_order_relaxed);
+  store_pub_made.store(made, std::memory_order_relaxed);
+  store_pub_left.store(store_pending.size() - store_cursor, std::memory_order_relaxed);
+  store_pub_unresolved.store(store_unresolved.size(), std::memory_order_relaxed);
+  store_pub_dirty = false;
+  store_pub_valid.store(true, std::memory_order_release);
 }
 
 // The render thread builds the records to keep and copies the driver blob; the serialise + checksum + write run on ONE worker (at most one in flight; a save asked
@@ -2868,19 +2896,21 @@ void Renderer::Impl::StoreSave(bool final) {
   auto job = [this, keep = std::move(keep), blob = std::move(blob), do_list, do_cache, written_session, final, copy_ms]() {
     const uint64_t w0 = RenderNow();
     if (do_list) {
-      if (pstore::WriteFileAtomic(store_dir / "pipelines.bin", pstore::SerialiseList(keep, written_session, store_device, store_caps_mask))) {
+      std::string why;   // S105 B3: which step failed and the OS error
+      if (pstore::WriteFileAtomicWhy(store_dir / "pipelines.bin", pstore::SerialiseList(keep, written_session, store_device, store_caps_mask), why)) {
         store_saved_list.store(keep.size(), std::memory_order_relaxed);
       } else {
         store_redo_list.store(true);
-        Log("[rdr][pipestore] could not write the list in %s", store_dir.string().c_str());
+        Log("[rdr][pipestore] could not write the list in %s: %s", store_dir.string().c_str(), why.c_str());
       }
     }
     if (do_cache) {
-      if (pstore::WriteFileAtomic(store_dir / "pipeline_cache.bin", pstore::SerialiseCache(store_device, blob.data(), blob.size()))) {
+      std::string why;
+      if (pstore::WriteFileAtomicWhy(store_dir / "pipeline_cache.bin", pstore::SerialiseCache(store_device, blob.data(), blob.size()), why)) {
         store_saved_cache.store(blob.size(), std::memory_order_relaxed);
       } else {
         store_redo_cache.store(true);
-        Log("[rdr][pipestore] could not write the cache in %s", store_dir.string().c_str());
+        Log("[rdr][pipestore] could not write the cache in %s: %s", store_dir.string().c_str(), why.c_str());
       }
     }
     wwe2k14::perf_sys::NoteFileWrite(double(RenderNow() - w0) / 1e6);  // lane 302: the [perf][sys] line's file_write_ms
@@ -2923,6 +2953,7 @@ void Renderer::RegisterShaderCatalog(const ShaderBlobDesc* blobs, size_t count) 
   Impl& im = *impl_;
   if (!im.store_on) return;
   std::lock_guard<std::mutex> tables(im.tables_mutex);  // S102 R21-B (hazard 2): PrebuildOne reads the catalog on the record stage
+  const uint64_t hash_t0 = RenderNow();   // S105 B3 F6: the hash of every blob runs on the boot thread
   for (size_t i = 0; i < count; ++i) {
     if (!blobs[i].words || !blobs[i].bytes) continue;
     Impl::ShaderBlob blob;
@@ -2932,7 +2963,7 @@ void Renderer::RegisterShaderCatalog(const ShaderBlobDesc* blobs, size_t count) 
       Log("[rdr][pipestore] two different shaders share a hash (%s): the second is not in the catalog", blob.name ? blob.name : "?");  // never seen
   }
   im.store_retry = true;
-  Log("[rdr][pipestore] shader catalog: %zu shaders", im.store_catalog.size());
+  Log("[rdr][pipestore] shader catalog: %zu shaders (hashed in %.1f ms)", im.store_catalog.size(), double(RenderNow() - hash_t0) / 1e6);
 }
 
 bool Renderer::pipeline_store_active() const { return impl_->store_on; }
@@ -2986,6 +3017,15 @@ Renderer::PipelineStoreCounts Renderer::pipeline_store_counts() const {
   PipelineStoreCounts c;
   c.on_demand = s.on_demand, c.prebuilt = s.prebuilt, c.prebuilt_used = s.prebuilt_used, c.on_demand_ns = s.on_demand_ns, c.prebuilt_ns = s.prebuilt_ns;
   c.list_records = impl_->store_records.size(), c.list_loaded = s.list_loaded;
+  return c;
+}
+
+// S105 B3: only the atomics StorePublish wrote: safe from any thread (the host's precompile rule); the other counts read render-thread tables.
+Renderer::PipelineStoreCounts Renderer::published_store_counts() const {
+  PipelineStoreCounts c;
+  c.valid = impl_->store_pub_valid.load(std::memory_order_acquire);
+  c.total = impl_->store_pub_total.load(std::memory_order_relaxed), c.made = impl_->store_pub_made.load(std::memory_order_relaxed);
+  c.left_resolvable = impl_->store_pub_left.load(std::memory_order_relaxed), c.unresolved = impl_->store_pub_unresolved.load(std::memory_order_relaxed);
   return c;
 }
 
@@ -3850,7 +3890,9 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
   const ImageRef& first_target = targets.color_count ? targets.color[0] : targets.depth;
   const bool layered_pass = targets.color_count && ViewCount(targets.color[0]) > 1;   // S102 C1 review F6: a multiview pass makes a query count once per view: no in-pass queries there
   const bool scaled = images[first_target.image].desc.usage & kUsageScaled;
-  const float factor = scaled ? scale : 1.0f;
+  // S105 A1 review F1: the factor is per axis = the pass image's REAL size / its logical size (exactly `scale` at integer scales; at 0.6667 the image is ceil'd to 854 wide and the viewport must reach it: 853.33 left a column undrawn)
+  const float factor_x = scaled ? float(images[first_target.image].width) / float(std::max<uint32_t>(1u, images[first_target.image].desc.width)) : 1.0f;
+  const float factor_y = scaled ? float(images[first_target.image].height) / float(std::max<uint32_t>(1u, images[first_target.image].desc.height)) : 1.0f;
   uint64_t dyn_area = 0;  // S102 M1: the current dynamic block's viewport x scissor x pass rectangle, in pixels
 
   // S102 G10 (colour cut 1, colour_cuts.h): a depth-only prepass of the eligible opaque arena draws, FIRST in the pass; their normal draws then test LESS_OR_EQUAL (below), so the fragment shader
@@ -3935,11 +3977,11 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
         if (draw.dynamic != pre_dynamic) {
           pre_dynamic = draw.dynamic;
           const DynamicState& dyn = frame.dynamics[draw.dynamic];
-          VkViewport viewport{dyn.viewport[0] * factor, dyn.viewport[1] * factor, dyn.viewport[2] * factor, dyn.viewport[3] * factor, dyn.viewport[4], dyn.viewport[5]};
+          VkViewport viewport{dyn.viewport[0] * factor_x, dyn.viewport[1] * factor_y, dyn.viewport[2] * factor_x, dyn.viewport[3] * factor_y, dyn.viewport[4], dyn.viewport[5]};
           vkCmdSetViewport(cmd, 0, 1, &viewport);
           VkRect2D scissor{};
-          scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * factor)), std::max(0, int32_t(float(dyn.scissor.y) * factor))};
-          scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * factor)), uint32_t(std::ceil(float(dyn.scissor.height) * factor))};
+          scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * factor_x)), std::max(0, int32_t(float(dyn.scissor.y) * factor_y))};
+          scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * factor_x)), uint32_t(std::ceil(float(dyn.scissor.height) * factor_y))};
           if (cut_plant == 4) scissor.offset.x = 8, scissor.extent.width = 0x7FFFFFFF;  // plant 4: offset + extent overflows int32 (VUID-vkCmdSetScissor-offset-00596): only the validation layer sees it; the driver clamps to the render area
           vkCmdSetScissor(cmd, 0, 1, &scissor);
           vkCmdSetDepthBias(cmd, dyn.depth_bias_constant, dyn.depth_bias_clamp, dyn.depth_bias_slope);
@@ -4097,10 +4139,10 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
         if (clear.full) {
           rect.rect.extent = {pass.width, pass.height};
         } else {
-          const int64_t left = std::clamp<int64_t>(int64_t(float(clear.rect.x) * factor), 0, pass.width);
-          const int64_t top = std::clamp<int64_t>(int64_t(float(clear.rect.y) * factor), 0, pass.height);
-          const int64_t right = std::clamp<int64_t>(int64_t(std::ceil(float(clear.rect.x + int64_t(clear.rect.width)) * factor)), left, pass.width);
-          const int64_t bottom = std::clamp<int64_t>(int64_t(std::ceil(float(clear.rect.y + int64_t(clear.rect.height)) * factor)), top, pass.height);
+          const int64_t left = std::clamp<int64_t>(int64_t(float(clear.rect.x) * factor_x), 0, pass.width);
+          const int64_t top = std::clamp<int64_t>(int64_t(float(clear.rect.y) * factor_y), 0, pass.height);
+          const int64_t right = std::clamp<int64_t>(int64_t(std::ceil(float(clear.rect.x + int64_t(clear.rect.width)) * factor_x)), left, pass.width);
+          const int64_t bottom = std::clamp<int64_t>(int64_t(std::ceil(float(clear.rect.y + int64_t(clear.rect.height)) * factor_y)), top, pass.height);
           rect.rect.offset = {int32_t(left), int32_t(top)};
           rect.rect.extent = {uint32_t(right - left), uint32_t(bottom - top)};
         }
@@ -4184,20 +4226,20 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
       if (counting) {  // S102 M1: the area bound of this block: viewport (clamped to the pass) intersected with the scissor, integer pixels
         const auto lo = [](float v) { return int64_t(std::floor(v)); };
         const auto hi = [](float v) { return int64_t(std::ceil(v)); };
-        const float vx = dyn.viewport[0] * factor, vy = dyn.viewport[1] * factor, vw = dyn.viewport[2] * factor, vh = dyn.viewport[3] * factor;
+        const float vx = dyn.viewport[0] * factor_x, vy = dyn.viewport[1] * factor_y, vw = dyn.viewport[2] * factor_x, vh = dyn.viewport[3] * factor_y;
         const int64_t vx0 = std::clamp<int64_t>(lo(vx), 0, pass_w), vy0 = std::clamp<int64_t>(lo(vy), 0, pass_h);
         const int64_t vx1 = std::clamp<int64_t>(hi(vx + vw), vx0, pass_w), vy1 = std::clamp<int64_t>(hi(vy + vh), vy0, pass_h);
-        const int64_t sx0 = std::clamp<int64_t>(std::max(0, int32_t(float(dyn.scissor.x) * factor)), 0, pass_w), sy0 = std::clamp<int64_t>(std::max(0, int32_t(float(dyn.scissor.y) * factor)), 0, pass_h);
-        const int64_t sx1 = std::clamp<int64_t>(sx0 + int64_t(std::ceil(float(dyn.scissor.width) * factor)), sx0, pass_w), sy1 = std::clamp<int64_t>(sy0 + int64_t(std::ceil(float(dyn.scissor.height) * factor)), sy0, pass_h);
+        const int64_t sx0 = std::clamp<int64_t>(std::max(0, int32_t(float(dyn.scissor.x) * factor_x)), 0, pass_w), sy0 = std::clamp<int64_t>(std::max(0, int32_t(float(dyn.scissor.y) * factor_y)), 0, pass_h);
+        const int64_t sx1 = std::clamp<int64_t>(sx0 + int64_t(std::ceil(float(dyn.scissor.width) * factor_x)), sx0, pass_w), sy1 = std::clamp<int64_t>(sy0 + int64_t(std::ceil(float(dyn.scissor.height) * factor_y)), sy0, pass_h);
         const int64_t ax0 = std::max(vx0, sx0), ay0 = std::max(vy0, sy0), ax1 = std::min(vx1, sx1), ay1 = std::min(vy1, sy1);
         dyn_area = ax1 > ax0 && ay1 > ay0 ? uint64_t(ax1 - ax0) * uint64_t(ay1 - ay0) : 0;
       }
       ++pc.dynamic_sets, ++pc.push_constants;  // S102 M1
-      VkViewport viewport{dyn.viewport[0] * factor, dyn.viewport[1] * factor, dyn.viewport[2] * factor, dyn.viewport[3] * factor, dyn.viewport[4], dyn.viewport[5]};
+      VkViewport viewport{dyn.viewport[0] * factor_x, dyn.viewport[1] * factor_y, dyn.viewport[2] * factor_x, dyn.viewport[3] * factor_y, dyn.viewport[4], dyn.viewport[5]};
       vkCmdSetViewport(cmd, 0, 1, &viewport);
       VkRect2D scissor{};
-      scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * factor)), std::max(0, int32_t(float(dyn.scissor.y) * factor))};
-      scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * factor)), uint32_t(std::ceil(float(dyn.scissor.height) * factor))};
+      scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * factor_x)), std::max(0, int32_t(float(dyn.scissor.y) * factor_y))};
+      scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * factor_x)), uint32_t(std::ceil(float(dyn.scissor.height) * factor_y))};
       vkCmdSetScissor(cmd, 0, 1, &scissor);
       vkCmdSetDepthBias(cmd, dyn.depth_bias_constant, dyn.depth_bias_clamp, dyn.depth_bias_slope);
       vkCmdSetBlendConstants(cmd, dyn.blend_constants);
@@ -4346,7 +4388,7 @@ void Renderer::Impl::RecordPass(VkCommandBuffer cmd, const Frame& frame, const P
     vkCmdClearAttachments(cmd, 1, &poison, 1, &prect);
   }
   vkCmdEndRenderPass(cmd);
-  if (tail_begin < pass.end_op) RecordHalfTail(cmd, frame, pass, slot, ring_base, half_skip, pass_class, factor, half_prep, pc);  // S102 C4
+  if (tail_begin < pass.end_op) RecordHalfTail(cmd, frame, pass, slot, ring_base, half_skip, pass_class, factor_x, factor_y, half_prep, pc);  // S102 C4
   if (crumb_step) {  // S102 D1: the pass's counts into its crumb (the counters above, no per-draw work), its first draw op's and last recorded draw's programs
     crumb_step->draws = pc.draws + pc.indexed_draws, crumb_step->binds = pc.pipeline_binds;
     crumb_step->prims = uint32_t(std::min<uint64_t>(pc.vertices + pc.indices, 0xFFFFFFFFull));
@@ -4493,7 +4535,7 @@ bool Renderer::Impl::PrepareHalf(const PassPlan& pass, FrameSlot& slot, HalfPrep
 
 // S102 C4: after the pass's first part (its render pass has ended): (1) the half-size depth from the full-size depth, (2) the tail's draws into a cleared half-size colour against it, (3) the half-size colour added
 // onto the full-size colour with a depth-aware upsample. Three render passes, a handful of barriers; the fragment work is a quarter of the tail's (plus one half-size triangle and one full-size one).
-void Renderer::Impl::RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, const PassPlan& pass, FrameSlot& slot, VkDeviceSize ring_base, const std::vector<uint8_t>& half_skip, uint32_t pass_class, float factor, const HalfPrep& prep, CallCounts& pc) {
+void Renderer::Impl::RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, const PassPlan& pass, FrameSlot& slot, VkDeviceSize ring_base, const std::vector<uint8_t>& half_skip, uint32_t pass_class, float factor_x, float factor_y, const HalfPrep& prep, CallCounts& pc) {
   const TargetsOp& targets = *pass.targets;
   ImageEntry& color = images[targets.color[0].image];
   ImageEntry& depth = images[targets.depth.image];
@@ -4566,7 +4608,7 @@ void Renderer::Impl::RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, con
     begin.clearValueCount = 2;
     begin.pClearValues = clears;
     vkCmdBeginRenderPass(cmd, &begin, VK_SUBPASS_CONTENTS_INLINE);
-    const float half_factor = factor * 0.5f;
+    const float half_factor_x = factor_x * 0.5f, half_factor_y = factor_y * 0.5f;
     VkPipeline bound_pipeline = VK_NULL_HANDLE;
     uint32_t bound_dynamic = ~0u, bound_textures = ~0u;
     BufferRange bound_vertex[2];
@@ -4591,11 +4633,11 @@ void Renderer::Impl::RecordHalfTail(VkCommandBuffer cmd, const Frame& frame, con
       if (draw.dynamic != bound_dynamic) {
         bound_dynamic = draw.dynamic;
         const DynamicState& dyn = frame.dynamics[draw.dynamic];
-        VkViewport viewport{dyn.viewport[0] * half_factor, dyn.viewport[1] * half_factor, dyn.viewport[2] * half_factor, dyn.viewport[3] * half_factor, dyn.viewport[4], dyn.viewport[5]};
+        VkViewport viewport{dyn.viewport[0] * half_factor_x, dyn.viewport[1] * half_factor_y, dyn.viewport[2] * half_factor_x, dyn.viewport[3] * half_factor_y, dyn.viewport[4], dyn.viewport[5]};
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         VkRect2D scissor{};
-        scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * half_factor)), std::max(0, int32_t(float(dyn.scissor.y) * half_factor))};
-        scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * half_factor)), uint32_t(std::ceil(float(dyn.scissor.height) * half_factor))};
+        scissor.offset = {std::max(0, int32_t(float(dyn.scissor.x) * half_factor_x)), std::max(0, int32_t(float(dyn.scissor.y) * half_factor_y))};
+        scissor.extent = {uint32_t(std::ceil(float(dyn.scissor.width) * half_factor_x)), uint32_t(std::ceil(float(dyn.scissor.height) * half_factor_y))};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
         vkCmdSetDepthBias(cmd, dyn.depth_bias_constant, dyn.depth_bias_clamp, dyn.depth_bias_slope);
         vkCmdSetBlendConstants(cmd, dyn.blend_constants);
@@ -5349,11 +5391,21 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   const uint32_t slot_index = uint32_t(serial % slots.size());
   FrameSlot& slot = slots[slot_index];
   VkDevice dev = device.device();
-  if (rdr::g_fence_friendly.load(std::memory_order_relaxed)) {  // S102 H2: poll + sleep slices; a cap hit falls through to the blocking wait below
+  // S105 A9: after a real loss the slot's fence is reset every frame (below) but never submitted again, so it is never signalled: a really lost device returns from the wait at once, a
+  // healthy one (the +dev test plant --wwe2k14_rdr_test_device_lost) would wait for ever. Once lost, wait for the device to go idle instead (at once on a lost device; on a healthy one it
+  // lets the frames already in flight finish, so the retired resources below are not freed under them).
+  // (review F1) the +dev test plant (--wwe2k14_rdr_test_device_lost=N) is set HERE, at the top, before the acquire / present steps: from frame serial N the renderer takes the REAL lost-device path on a
+  // healthy device, and this frame's present step is skipped too (a present waiting on a semaphore no submit signals could block the queue for good).
+  if (const int64_t plant_at = crumbs::g_test_lost_at.load(std::memory_order_relaxed); plant_at >= 0 && int64_t(serial) >= plant_at && !lost_serial)
+    OnDeviceLost("test plant", int(VK_ERROR_DEVICE_LOST), false);
+  const bool lost_for_good = lost_serial && !lost_simulated;
+  if (lost_for_good) {
+    if (!idle_after_loss) idle_after_loss = true, vkDeviceWaitIdle(dev);   // (review F3) once: later frames have nothing in flight
+  } else if (rdr::g_fence_friendly.load(std::memory_order_relaxed)) {  // S102 H2: poll + sleep slices; a cap hit falls through to the blocking wait below
     VkFence fence = slot.fence;
     rdr::fence_wait::Wait([&] { return vkGetFenceStatus(dev, fence) != VK_NOT_READY; }, rdr::fence_wait::NowNs, rdr::fence_wait::SleepNs);
   }
-  if (const VkResult waited = vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX); waited != VK_SUCCESS) {
+  if (const VkResult waited = lost_for_good ? VK_SUCCESS : vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX); waited != VK_SUCCESS) {
     if (waited == VK_ERROR_DEVICE_LOST) OnDeviceLost("vkWaitForFences", int(waited), false);  // S102 D1 (before the Problem: a RDR_DEV build stops on it, review F4)
     Problem("frame_fence_wait_failed", "VkResult %d (a lost device shows here first)", int(waited));  // S102 U1 (R9)
   }
@@ -5925,9 +5977,9 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   }
   readback.MarkRecorded(slot_index, serial);  // lane 232: the recorded read-back copies are in flight in this slot
   if (ps_pool && ps_count) {  // S102 G10 (instrument): wait for this frame, read the statistics, fold them into the census rows by program name
-    vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    if (!(lost_serial && !lost_simulated)) vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX);   // S105 A9 review F2: not on the fence a real loss leaves unsubmitted
     std::vector<uint64_t> values(size_t(ps_count) * 2);
-    if (vkGetQueryPoolResults(dev, ps_pool, 0, ps_count, values.size() * 8, values.data(), 16, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS) {
+    if (!(lost_serial && !lost_simulated) && vkGetQueryPoolResults(dev, ps_pool, 0, ps_count, values.size() * 8, values.data(), 16, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS) {
       std::lock_guard<std::mutex> lock(g_draw_census_mutex);
       for (uint32_t q = 0; q < ps_count; ++q) {
         DrawCensusRow& row = g_draw_census_rows[ps_names[q]];
@@ -5943,7 +5995,7 @@ void Renderer::Impl::Render(const Frame& frame, RenderMode mode) {
   slot.out_wall_ns = 0;
   if (meter_outside) {  // S102 G5 (the instrument): wait for this frame's fence now, so the submit-to-signal wall time is known; collected with the stamps a frame later (CollectGpuTime)
     const uint64_t wait_t0 = RenderNow();
-    vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+    if (!(lost_serial && !lost_simulated)) vkWaitForFences(dev, 1, &slot.fence, VK_TRUE, UINT64_MAX);   // S105 A9 review F2: not on the fence a real loss leaves unsubmitted
     meter_wait_ns = RenderNow() - wait_t0;
     slot.out_wall_ns = RenderNow() - meter_t0;
     t = RenderNow();  // (the meter's wait is not lapped into any field: it is the instrument's own cost)
@@ -6620,6 +6672,29 @@ bool Renderer::ImageIs8Bit(ImageId image) const {
   if (image == kNoImage) return false;
   const ImageEntry& entry = impl_->images[image];
   return entry.live && entry.desc.samples == 1 && (entry.desc.format == Format::RGBA8 || entry.desc.format == Format::BGRA8);
+}
+
+float Renderer::render_scale() const { return impl_->scale; }   // S105 A1
+
+std::vector<Renderer::LiveImageInfo> Renderer::LiveImageInfos() const {   // S105 A1 (test use)
+  std::vector<LiveImageInfo> out;
+  for (uint32_t id = 1; id < impl_->images.high_water(); ++id) {
+    const ImageEntry& entry = impl_->images[id];
+    if (!entry.live) continue;
+    LiveImageInfo info;
+    info.id = id, info.width = entry.width, info.height = entry.height, info.format = uint32_t(entry.desc.format), info.scaled = (entry.desc.usage & kUsageScaled) != 0;
+    out.push_back(info);
+  }
+  return out;
+}
+
+bool Renderer::ImageExtent(ImageId image, uint32_t& width, uint32_t& height, bool& scaled) const {   // S105 A1
+  width = height = 0, scaled = false;
+  if (image == kNoImage) return false;
+  const ImageEntry& entry = impl_->images[image];
+  if (!entry.live) return false;
+  width = entry.width, height = entry.height, scaled = (entry.desc.usage & kUsageScaled) != 0;
+  return true;
 }
 
 bool Renderer::ReadImage(ImageRef image, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height) {

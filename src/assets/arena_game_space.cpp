@@ -120,7 +120,7 @@ bool Load(int arena, StageArena& out, std::string& err, bool viewer_space) {
       };
       mix(mt.ambient, sizeof mt.ambient), mix(mt.diffuse_color, sizeof mt.diffuse_color), mix(mt.light_limit, sizeof mt.light_limit), mix(mt.spec_col, sizeof mt.spec_col);
       mix(&mt.spec_lev, 4), mix(&mt.spec_pow, 4), mix(mt.shader.data(), mt.shader.size());
-      const uint8_t flags[4] = {uint8_t(mt.has_lm_slot), uint8_t(mt.alpha_test), uint8_t(mt.alpha_blend), uint8_t(mt.additive | (mt.cull_back << 1) | (mt.blend_inline << 2))};
+      const uint8_t flags[4] = {uint8_t(mt.has_lm_slot), uint8_t(mt.alpha_test), uint8_t(mt.alpha_blend), uint8_t(mt.additive | (mt.cull_back << 1) | (mt.blend_inline << 2))};   // S105 SZW: stage_zw is NOT in the hash (the ON build's join stays as before; the draw decides)
       mix(flags, 4);
       s.material_hash = h;
       s.alpha_test = mt.alpha_test, s.alpha_blend = mt.alpha_blend, s.additive = mt.additive;

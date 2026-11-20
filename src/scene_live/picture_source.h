@@ -34,34 +34,34 @@ namespace gt = rdr_scene::live::guest_tex;
 // Test only (the unit's planted twins): 1 death_ignored (OnDied / TrimDrawn keep everything), 2 counter_ignored (a key is looked up by its slot only), 3 rehash_every_hit (a hit re-reads and re-hashes),
 // 4 rt_as_file (a render-target creator's key is read as bytes), 5 wrong_mip (the join hashes the blocks without their first row: not mip 0's bytes), 6 race_ignored (a read that finished after the key's death
 // stores a LIVE answer), 7 unknown_8888 (an Unknown creator's uncompressed picture is read), 8 file_any_order (a 4-byte picture joins whatever file holds the bytes, any channel order),
-// 9 no_budget (the resident cap is ignored), 10 keep_blocks (ReleaseBlocks does nothing).
+// 9 no_budget (the resident cap is ignored), 10 keep_blocks (ReleaseBlocks does nothing), 13 scene_copy_old (S105 A4: the scene copy's site is answered Unclassified again).
 inline int g_pic_plant = 0;
 inline bool g_pic_keep_bridge = false;   // T2F: set by the PictureResolver (the only consumer that uploads and releases a File answer's bridge bytes); without one a File answer keeps no blocks
 inline uint64_t g_pic_resident_cap = 192ull << 20;   // A6: Guest blocks held at once (test: the unit lowers it); past it a first sight is refused `memory_budget`
 
 enum class Kind : uint8_t { None, File, Guest, Refused };
-enum class Why : uint8_t { Ok, NoKey, Gpu, Movie, NoHandle, NotPlain2D, Format, Size, Memory, Unreadable, Unclassified, Budget, Count };
+enum class Why : uint8_t { Ok, NoKey, Gpu, Movie, NoHandle, NotPlain2D, Format, Size, Memory, Unreadable, Unclassified, Budget, SceneCopy, Count };   // S105 A4: SceneCopy = the game's scene-colour copy (site 0x82BB07C4): a resolve target, answered by name, served by the host's own 3D picture
 inline const char* WhyName(Why w) {
-  static const char* const k[] = {"ok", "no_key", "gpu_picture", "movie", "no_handle", "not_plain_2d", "format", "size", "memory", "unreadable", "unclassified_creator", "memory_budget"};
+  static const char* const k[] = {"ok", "no_key", "gpu_picture", "movie", "no_handle", "not_plain_2d", "format", "size", "memory", "unreadable", "unclassified_creator", "memory_budget", "scene_copy"};
   return uint8_t(w) < uint8_t(Why::Count) ? k[uint8_t(w)] : "?";
 }
 
 // Who made the key (from the birth hook's call site = lr - 4; docs\renderer\PICTURES_NO_STREAM.md section 2; the table below is `q callers 0x822951F0`, linted by tools\scene\picture_creators_lint.py).
-enum class Creator : uint8_t { Unknown, Loader, Movie, Gpu };
+enum class Creator : uint8_t { Unknown, Loader, Movie, Gpu, SceneCopy };   // S105 A4: SceneCopy = sub_82BB0660's first texture ([0x8392B948]+4, the game's scene-colour copy); docs\research\s105\A4.md
 struct CreatorSite {
   uint32_t site;
   Creator what;
 };
 // Loader = the named-texture loaders from a pac in memory (sub_82BAA6F8 / 82BAA568 / 82BA9D68 / 82BA9EF8 / 82BAA048 / 82BAA958 / 82BA9CB8 / 82BAA158 / 82B124A0): FILE bytes. Movie = sub_827FBB10 (P4's).
-// Gpu = the render-target creators (sub_825BB398, 827E8CC8 x4, 827EA4F0 x2, 828135A0, 827506A0, 82BC39E0, 82BCB9B8: render_targets.md / H_textures 1.3). Unknown = [U] which family (PN3's census answers).
+// Gpu = the render-target creators (sub_825BB398, 827E8CC8 x4, 827EA4F0 x2, 828135A0, 827506A0, 82BC39E0, 82BCB9B8, 82C2AB90 (the post module's yAfterImage history texture, S105 N1): render_targets.md / H_textures 1.3). Unknown = [U] which family (PN3's census answers).
 inline constexpr CreatorSite kCreators[] = {
     {0x8229620C, Creator::Unknown}, {0x82296234, Creator::Unknown}, {0x8229F1C0, Creator::Unknown}, {0x8234E19C, Creator::Unknown}, {0x825BB4E8, Creator::Gpu},     {0x827507A4, Creator::Gpu},
     {0x827E8D64, Creator::Gpu},     {0x827E8E78, Creator::Gpu},     {0x827E8F34, Creator::Gpu},     {0x827E9040, Creator::Gpu},     {0x827EA5FC, Creator::Gpu},     {0x827EA6E4, Creator::Gpu},
     {0x827FBB84, Creator::Movie},   {0x82813750, Creator::Gpu},     {0x828255F4, Creator::Unknown}, {0x8294023C, Creator::Unknown}, {0x82B12620, Creator::Loader},  {0x82B126F0, Creator::Loader},
     {0x82BA9D40, Creator::Loader},  {0x82BA9EBC, Creator::Loader},  {0x82BAA020, Creator::Loader},  {0x82BAA12C, Creator::Loader},  {0x82BAA1A0, Creator::Loader},  {0x82BAA6C0, Creator::Loader},
-    {0x82BAA908, Creator::Loader},  {0x82BAACD0, Creator::Loader},  {0x82BB07C4, Creator::Unknown}, {0x82BB081C, Creator::Unknown}, {0x82BB0874, Creator::Unknown}, {0x82BB08D4, Creator::Unknown},
+    {0x82BAA908, Creator::Loader},  {0x82BAACD0, Creator::Loader},  {0x82BB07C4, Creator::SceneCopy}, {0x82BB081C, Creator::Unknown}, {0x82BB0874, Creator::Unknown}, {0x82BB08D4, Creator::Unknown},
     {0x82BB092C, Creator::Unknown}, {0x82BB097C, Creator::Unknown}, {0x82BB0C98, Creator::Unknown}, {0x82BB0D00, Creator::Unknown}, {0x82BB0D50, Creator::Unknown}, {0x82BC3A80, Creator::Gpu},
-    {0x82BCBA30, Creator::Gpu},     {0x82C20A60, Creator::Unknown}, {0x82C2219C, Creator::Unknown}, {0x82C221D8, Creator::Unknown}, {0x82C2AC58, Creator::Unknown}, {0x83327E5C, Creator::Unknown},
+    {0x82BCBA30, Creator::Gpu},     {0x82C20A60, Creator::Unknown}, {0x82C2219C, Creator::Unknown}, {0x82C221D8, Creator::Unknown}, {0x82C2AC58, Creator::Gpu}, {0x83327E5C, Creator::Unknown},
     {0x83343BEC, Creator::Unknown}, {0x833A1ED0, Creator::Unknown}, {0x83418F50, Creator::Unknown}};
 inline Creator CreatorOfSite(uint32_t site) {
   for (const CreatorSite& c : kCreators)
@@ -293,6 +293,8 @@ class PictureSource {
       a.kind = Kind::Refused, a.why = Why::Gpu;   // a render target is never readable as bytes (a stale surface is the one wrong answer)
     } else if (creator == Creator::Movie) {
       a.kind = Kind::Refused, a.why = Why::Movie;
+    } else if (creator == Creator::SceneCopy && g_pic_plant != 13) {
+      a.kind = Kind::Refused, a.why = Why::SceneCopy;   // S105 A4: a resolve target (the game's 3D frame copy): never read as bytes; the resolver serves the host's own 3D picture for it (plant 13: the old Unclassified refusal)
     } else {
       gt::Resolved r;
       gt::Shape shape;

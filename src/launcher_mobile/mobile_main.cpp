@@ -13,6 +13,7 @@
 // launcher_shots.ps1 uses it). --tap sends a touch tap at the 3rd frame, --quit-ms quits after N ms (Session 72: the
 // frame pacing check; launcher.log shows when the page came and how many frames were drawn). --share-test makes
 // SHARE's zip (<files>/logs/share/wwe2k14_report_NNN.zip, its path in launcher.log) without a share sheet and quits.
+#include "../thread_cpu.h"   // S105 A10: the threads: line
 #include "../thread_name.h"  // S102 H1
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -21,6 +22,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
+#include <atomic>  // S105 A10
+#include <condition_variable>
 #include <cstdio>
 #include <ctime>
 #include <fstream>
@@ -28,6 +31,7 @@
 #include <memory>
 #include <mutex>  // Session 101: the superstars build before PLAY
 #include <string>
+#include <thread>  // S105 A10
 #include <vector>
 
 #include "imgui.h"
@@ -55,6 +59,7 @@
 #include "phone_check.h"  // Session 73: CHECK THIS PHONE and how the last game run ended
 #include "ladder.h"  // Session 95 (LADDER): run history, SAFE MODE steps, the cards
 #include "share_report.h"  // Session 73: report.txt in the shared zip
+#include "../launcher/report_findings.h"  // S105 C0b: findings.txt in the shared zip (the C++ port of tools\report\triage.py, shared with the PC launcher)
 #include "zip_writer.h"
 #include "../tron_zip.h"  // Session 98: IMPORT TRON PREVIEWS (ZIP), the PC launcher's EXPORT FOR PHONE
 #include "../importer/importer_core.h"  // Session 98: the SUPERSTARS list (LoadPack / SavePack)
@@ -145,6 +150,16 @@ struct TestSteps {
 class App {
  public:
   App(SDL_Window* window, SDL_Renderer* renderer, float ui) : window_(window), renderer_(renderer), ui_(ui) {}
+  ~App() { StopSampler(); }
+  // S105 A10: the thread sampler must end before the log it writes to (and before SDL / ImGui shut down).
+  void StopSampler() {
+    {
+      std::lock_guard<std::mutex> lk(thr_mu_);
+      thr_stop_ = true;
+    }
+    thr_cv_.notify_all();
+    if (thr_cpu_.joinable()) thr_cpu_.join();
+  }
 
   void Start(const TestSteps& test) {
     test_ = test;
@@ -191,6 +206,25 @@ class App {
       if (!fs::exists(TronsPendingPath(), ec)) tron_zip::Recover(TronsDir());
     }
     if (!test_.import_trons.empty()) StartTronZipImport(test_.import_trons, U8(fs::u8path(test_.import_trons).filename()));
+#if !defined(_WIN32)
+    // S105 A10: which thread holds a core, one "threads:" line every 10 s (the report's Threads section reads it). Its own thread: the
+    // frame loop sleeps when idle, so a log from there would never fire exactly when a spin is hiding in SDL's wait. Sleeps on a condition
+    // variable between readings (one read of /proc/self/task per window).
+    thr_cpu_ = std::thread([this] {
+      wwe2k14::NameThread(L"mob_thread_cpu");
+      wwe2k14::thread_cpu::Meter meter;
+      wwe2k14::thread_cpu::Window w;
+      wwe2k14::thread_cpu::StepNow(meter, double(SDL_GetTicks()) / 1000.0, w);  // the baseline
+      while (true) {
+        std::unique_lock<std::mutex> lk(thr_mu_);
+        if (thr_cv_.wait_for(lk, std::chrono::seconds(10), [this] { return thr_stop_; })) return;
+        lk.unlock();
+        // (a paused launcher still takes the reading, so the baseline stays current, but writes no line: ~144 KB an hour for nothing)
+        if (wwe2k14::thread_cpu::StepNow(meter, double(SDL_GetTicks()) / 1000.0, w) && !backgrounded_.load())
+          Log("threads: %s", wwe2k14::thread_cpu::Format(w).c_str());
+      }
+    });
+#endif
   }
 
   // One frame. Returns false once the PC test's screenshot is saved.
@@ -280,6 +314,7 @@ class App {
     SDL_Log("wwe2k14 launcher: %s", buf);
     char at[24];
     std::snprintf(at, sizeof(at), "%8.3f ", double(SDL_GetTicks()) / 1000.0);  // seconds since the launcher started
+    std::lock_guard<std::mutex> lk(log_mu_);  // S105 A10: the thread sampler logs too
     if (log_) log_ << at << buf << "\n", log_.flush();
   }
 
@@ -1908,7 +1943,8 @@ class App {
   }
   // The PC test's shot waits until the library has answered (the worker thread is slower than the shot's few frames).
  public:
-  void OnBackground() { StopPreview(); }  // the app went to the background (lane 297)
+  void OnBackground() { backgrounded_ = true; StopPreview(); }  // the app went to the background (lane 297)
+  void OnForeground() { backgrounded_ = false; }  // S105 A10
   bool TestHold() const { return !test_.music_busy && mlib_ && mlib_->Pending() > 0; }
   bool MusicBusy() const { return !preview_.playing().empty() || (mlib_ && mlib_->Pending() > 0); }
  private:
@@ -2707,6 +2743,8 @@ class App {
 
     zip::Writer z(path);
     bool ok = z.ok() && z.AddText("report.txt", text);
+    // S105 C0b: what the log says was not drawn, per mode (never fails the zip: a log it cannot read becomes a line saying so)
+    if (ok) ok = z.AddText("findings.txt", report_findings::Build(in.game_logs, "this phone's game log"));
     auto add = [&](const fs::path& f) {
       if (ok && !f.empty() && fs::is_regular_file(f, ec)) ok = z.AddFile(U8(f.filename()), f);
     };
@@ -2714,6 +2752,7 @@ class App {
     add(oldest_part);
     add(frames);
     add(memory);
+    add(num.empty() ? fs::path() : logs / fs::u8path("flight_" + num + ".txt"));  // S105 A6W: the run's stack dump (loader watch / stall / hang), when the game wrote one
     for (const char* extra : {"startup.txt", "stderr.txt", "hang.txt", "last_game_exit.txt", "last_game_exit_trace.bin", "last_launcher_exit.txt", "run_history.txt"}) add(logs / extra);
     // Session 98: the last tron export's timings and progress (our own numbers, no game data) for the speed work
     add(TronsDir() / "timings.json");
@@ -3513,6 +3552,12 @@ class App {
   }
   std::vector<check::Line> check_;     // Session 73: CHECK THIS PHONE's results
   std::ofstream log_;
+  std::mutex log_mu_;                   // S105 A10
+  std::thread thr_cpu_;                 // S105 A10: mob_thread_cpu (not on the Windows test build)
+  std::mutex thr_mu_;
+  std::condition_variable thr_cv_;
+  bool thr_stop_ = false;
+  std::atomic<bool> backgrounded_{false};  // S105 A10: no threads: lines while paused
   Settings s_;
   // Session 95: the crowd before the QUALITY row's LOW moved it (-1 = LOW moved nothing). Leaving LOW gives it back if the slider
   // still shows what LOW wrote, so clicking through LOW leaves no value behind.
@@ -3675,6 +3720,14 @@ int main(int argc, char** argv) {
   using namespace mlauncher;
   SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait LandscapeLeft LandscapeRight");  // the launcher turns with the phone
   SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");  // Back = our page back (LauncherActivity also sends it)
+#if defined(__ANDROID__)
+  // S105 A10: SDL 3.5.0 (our pin 8bf3b72) busy-loops SDL_WaitEvent on Android: every pass pushes a poll sentinel whose add posts a
+  // lifecycle WAKE that the next pump takes at once, so the wait below never blocks and SDLThread sat at one full core even on an idle
+  // launcher page. Upstream libsdl-org/SDL #16713, fixed by commit 8dc8694 (after our pin). Sentinel off = the wait blocks.
+  // Drop this when the SDL pin passes 8dc8694. (Note docs\research\s105\A10b.md.)
+  // (A pad open: the wait below is 50 ms, see the loop.)
+  SDL_SetHint(SDL_HINT_POLL_SENTINEL, "0");
+#endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("wwe2k14 launcher: SDL_Init failed: %s", SDL_GetError());
     return 1;
@@ -3749,6 +3802,9 @@ int main(int argc, char** argv) {
     if (app.Busy()) settle = std::max(settle, 2);
     int wait = app.IdleWaitMs();
     if (test.quit_ms) wait = int(std::clamp<int64_t>(int64_t(test.quit_ms) - int64_t(SDL_GetTicks()), 1, wait < 0 ? INT32_MAX : wait));
+    // S105 A10 (review F3): SDL reads a HIDAPI pad only inside a pump, so an idle launcher with a pad open wakes every 50 ms (desktop SDL's own
+    // poll interval) or the pad's first press is missed. No pad: the wait stays -1 (the sentinel hint makes it block).
+    if (SDL_HasGamepad() && (wait < 0 || wait > 50)) wait = 50;
     const bool got = (!test.shot.empty() || settle > 0) ? SDL_PollEvent(&e) : SDL_WaitEventTimeout(&e, wait);
     if (!got && settle > 0) --settle;
     if (got) {
@@ -3757,6 +3813,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDL3_ProcessEvent(&e);
         if (e.type == SDL_EVENT_QUIT) running = false;
         else if (e.type == SDL_EVENT_KEY_DOWN && (e.key.key == SDLK_AC_BACK || e.key.key == SDLK_ESCAPE)) app.Back();
+        else if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) app.OnForeground();
         else if (e.type == SDL_EVENT_WILL_ENTER_BACKGROUND) app.OnBackground();  // lane 297: a preview does not play on in the background
         else if (e.type == SDL_EVENT_RENDER_DEVICE_RESET) {
           ImGui_ImplSDLRenderer3_DestroyDeviceObjects();
@@ -3784,6 +3841,7 @@ int main(int argc, char** argv) {
     ++drawn;
   }
   stats.Flush(app);
+  app.StopSampler();  // S105 A10 (review F4): before SDL / ImGui shut down
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();

@@ -5,8 +5,10 @@
 //   !director passive SLOT|all on|off      sub_823C8FB8([char+3088], 0) = the game's own verb 513 (no pad-record call: lane 161 review B1)
 //   !director momentum SLOT PCT            sub_825F1F10(data, f1 = PCT * 0.01)          = verb 602
 //   !director stock SLOT N                 sub_825F4510(data) / sub_825F1DF0(data), N - was times  = verb 605
+//   !director bleed SLOT LEVEL            S105 T1, DEV BUILDS ONLY: G+15229 = 1 if 0, char+1398 = 1, sub_825A1F28(char, 0, LEVEL - 1); read-back char+1392 == LEVEL (LEVEL 1-3)
+//   !director lightsout SLOT              S105 SLO3, DEV BUILDS ONLY: sub_82250050(136), sub_8275DF98(obj, char, [char+2672]): the game's own arena-dim scene (make the attacker passive first)
 //   !director passive_cpu on|off           latch: at the bell of every match, every CPU-driven wrestler is made passive (once per match)
-// The same text is an input-script line (`passive 1 on`, `momentum 2 100`, `stock 0 3`, `passive_cpu on`; src/input_script.h) and a goto op.
+// The same text is an input-script line (`passive 1 on`, `momentum 2 100`, `stock 0 3`, `passive_cpu on`, `bleed 0 3`; src/input_script.h) and a goto op.
 //
 // Everything runs on the game thread from the owner tick (scene_director::Tick -> g_situation_tick), with scene_director::Caller (save / restore of every
 // register around each call). Free when idle: one sequence-id read, two bool tests, queue-empty tests and one atomic load. Nothing is written unless a verb is called.
@@ -32,6 +34,7 @@
 #include "replay_verbs.h"
 #include "scene_director.h"  // Caller, kG, g_situation_tick
 #include "situation_director_core.h"
+#include "dev_build.h"  // S105 T1: IsDevBuild
 
 REX_EXTERN(sub_823C8FB8);  // stw r4,100(r3): the COM component's "CPU drives this wrestler" word
 REX_EXTERN(sub_825E7168);  // team-shared momentum / stock rules on? (no argument)
@@ -39,6 +42,9 @@ REX_EXTERN(sub_82C31CB0);  // component lookup by tag in a list
 REX_EXTERN(sub_825F1F10);  // momentum meter setter (data, f1)
 REX_EXTERN(sub_825F4510);  // finisher stock + 1
 REX_EXTERN(sub_825F1DF0);  // finisher stock - 1
+REX_EXTERN(sub_82250050);  // S105 SLO3: allocator (size)
+REX_EXTERN(sub_8275DF98);  // S105 SLO3: arena-dim scene ctor (obj, attacker, target)
+REX_EXTERN(sub_825A1F28);  // S105 T1: bleed level setter (char, part, level - 1)
 
 namespace wwe2k14::situation {
 
@@ -54,6 +60,15 @@ struct GameEnv {
   static bool Plausible(uint32_t p) { return p >= 0x10000 && p < 0xC0000000u; }  // below: null / small ints; above: not guest RAM (0xC0.. 0xE0..: devices / physical aliases)
   bool Ok(uint32_t p) const { return Plausible(p); }
   uint32_t U32(uint32_t a) const { return Plausible(a) ? scenario::U32(a) : 0; }
+  uint8_t U8(uint32_t a) const { return Plausible(a) ? *scenario::Guest(a) : 0; }  // S105 T1
+  void Put8(uint32_t a, uint8_t v) { if (Plausible(a)) *scenario::Guest(a) = v; }  // S105 T1: bytes (+1392 / +1398 / G+15229 are not word-aligned stores)
+  void Put32(uint32_t a, uint32_t v) { if (Plausible(a)) rex::memory::store_and_swap<uint32_t>(scenario::Guest(a), v); }  // S105 LO2
+  bool Dev() const { return wwe2k14::IsDevBuild(); }                               // S105 T1: bleed refuses outside a +dev build
+  uint32_t Call3(Fn f, uint64_t r3, uint64_t r4, uint64_t r5) {
+    if (f == Fn::SetBleed) return call(sub_825A1F28, {r3, r4, r5});
+    if (f == Fn::DimSceneCtor) return call(sub_8275DF98, {r3, r4, r5});
+    return 0;
+  }
   float F32(uint32_t a) const {
     const uint32_t u = U32(a);
     float f;
@@ -80,6 +95,9 @@ struct GameEnv {
       case Fn::SetMeter: return call.withf(sub_825F1F10, {r3}, f1);
       case Fn::AddStock: return call(sub_825F4510, {r3});
       case Fn::RemoveStock: return call(sub_825F1DF0, {r3});
+      case Fn::SetBleed: return 0;  // S105 T1: three registers, through Call3
+      case Fn::Alloc: return call(sub_82250050, {r3});
+      case Fn::DimSceneCtor: return 0;  // S105 SLO3: three registers, through Call3
     }
     return 0;
   }

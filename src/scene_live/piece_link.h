@@ -25,6 +25,7 @@ inline constexpr uint32_t kSubmTag = 0x5355424D, kSubmNodeComp = 24, kSubmBegin 
 // +8 the special-id object (0 on the normal path), +12 the node map (one int32 per piece node: the owner node index, -1 = none), +24 the owner-copy flag, +28 = 1 when built from the deferred PACH data.
 inline constexpr uint32_t kSubmMode = 36;   // S103 W2B: the word at +36 whose byte +37 is sub_8259D390's mode (sub_8259E720 0x8259E7C0 stores 1); read as a big-endian word: byte 37 = bits 16-23
 inline constexpr uint32_t kSubmSpecial = 8, kSubmMap = 12, kSubmCopy = 24, kSubmDeferred = 28, kSubmMaxNodes = 1024;
+inline constexpr uint32_t kSubmDrawn = 20;   // S105 A5a: inst +20, the word the SUBM draw loop tests (sub_8259E488 0x8259E4D8: 0 = the instance is not drawn)
 
 // The node-count of a piece model as the scene core recorded it (0 = never recorded as an own skeleton). Supplied by the glue (the wrestlers contributor's WantCount).
 using PieceCountFn = uint32_t (*)(uint32_t model);
@@ -128,13 +129,19 @@ inline PieceWhy UpgradeNotDeferred(ReadFn read, uint32_t inst, uint32_t owner_sk
 // The delegate case ([model + 296] == 0: [model + 220]) is not followed: 0 = unknown, fail closed.
 // Templated on the word reader `rw(addr, uint32_t&) -> bool` so the build hook (model_hooks.h ModelLinkRead, PZF2 A2) shares it with the latch reader.
 inline constexpr uint32_t kModelVtable = 0x8206AF90, kModelCountFlag = 296, kModelCount = 300;
+// S105 CAWP: the game's own count rule, sub_82BD3AB8 (listing 0x82BD3AB8): [m+296] != 0 -> [m+300]; else D = [m+220]: 0 -> -1 (unknown here), else D's vtable slot 2. The only slot-2 target seen is sub_82C27620 ([[D+12]+24],
+// 0 when [D+12] is 0); any other target is not followed (0, fail closed). A model is recognised by its OWN vtable slot 2 == sub_82BD3AB8 (the dispatch the game makes), not by one vtable address.
+inline constexpr uint32_t kCountGetter = 0x82BD3AB8, kDelegateOff = 220, kDataCountGetter = 0x82C27620;
 template <class ReadWordFn>
 inline uint32_t GameNodeCountW(ReadWordFn rw, uint32_t model) {
-  uint32_t vt = 0, flag = 0, n = 0;
-  if (model == 0 || !rw(model, vt) || vt != kModelVtable) return 0;
-  if (!rw(model + kModelCountFlag, flag) || flag == 0) return 0;
-  if (!rw(model + kModelCount, n)) return 0;
-  return n;
+  uint32_t vt = 0, getter = 0, flag = 0, n = 0;
+  if (model == 0 || !rw(model, vt) || vt < 0x10000 || !rw(vt + 8, getter) || getter != kCountGetter) return 0;   // S105 CAWP: was vt != kModelVtable
+  if (!rw(model + kModelCountFlag, flag)) return 0;
+  if (flag != 0) return rw(model + kModelCount, n) ? n : 0;
+  uint32_t d = 0, dvt = 0, dget = 0, data = 0;   // S105 CAWP: the delegate branch ([m+296] == 0: the object at [m+220])
+  if (!rw(model + kDelegateOff, d) || d < 0x10000 || !rw(d, dvt) || dvt < 0x10000 || !rw(dvt + 8, dget) || dget != kDataCountGetter) return 0;
+  if (!rw(d + 12, data) || data == 0) return 0;
+  return rw(data + 24, n) ? n : 0;
 }
 inline uint32_t GameNodeCount(ReadFn read, uint32_t model) {
   return GameNodeCountW([read](uint32_t a, uint32_t& v) { return ReadWord(read, a, v); }, model);
@@ -162,23 +169,39 @@ inline bool ReadDescriptorPieces(ReadWordFn rw, uint32_t desc, std::vector<DescP
 // PZ F2: NotDeferred is returned only when everything else passed (special, copy, map, every node mapped); the caller upgrades it with UpgradeNotDeferred.
 // S103 W2B: `free_out` non-null = a node whose map word is -1 is no longer Unmapped by itself: its index goes to `free_out` (ascending) and the proof goes on. The caller then reads those nodes' finished rows
 // (ReadPieceRows) and the draw side checks them against the model's tags; null = the old rule (any -1 word = Unmapped).
-inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t* copy_out = nullptr, std::vector<uint32_t>* free_out = nullptr) {   // copy_out (S103 DTP fix): the raw +24 word when it was read
+// S105 A5a: `probe` non-null = also read inst +20 and remember the LAST mapped node (j, map[j]) for the own-rows copy proof (OwnRowsProbe); the proof's return value is unchanged (a -1 word is still Unmapped; with a probe the scan
+// just reads on to the last word first).
+inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t* copy_out = nullptr, std::vector<uint32_t>* free_out = nullptr, OwnRowsProbe* probe = nullptr) {   // copy_out (S103 DTP fix): the raw +24 word when it was read
   if (free_out) free_out->clear();
+  if (probe) *probe = OwnRowsProbe{};
   if (nodes == 0 || nodes > kSubmMaxNodes) return PieceWhy::NoCount;
   uint32_t special = 0, map = 0, copy = 0, deferred = 0;
   if (!ReadWord(read, inst + kSubmSpecial, special) || !ReadWord(read, inst + kSubmMap, map) || !ReadWord(read, inst + kSubmCopy, copy) || !ReadWord(read, inst + kSubmDeferred, deferred)) return PieceWhy::MapUnreadable;
   if (copy_out) *copy_out = copy;
+  if (probe) {
+    probe->special = special, probe->copy = copy;
+    uint32_t drawn = 0;
+    if (ReadWord(read, inst + kSubmDrawn, drawn)) probe->drawn = drawn;   // unreadable stays 0xFFFFFFFF: the rule refuses it
+  }
   if (special != 0) return PieceWhy::Special;
   if (copy == 0) return PieceWhy::NoCopy;
   if (map < 0x10000) return PieceWhy::MapNull;
+  bool unmapped = false;
   for (uint32_t i = 0; i < nodes; ++i) {
     uint32_t w = 0;
     if (!ReadWord(read, map + 4 * i, w)) return PieceWhy::MapUnreadable;
     if (w == 0xFFFFFFFFu) {
-      if (!free_out) return PieceWhy::Unmapped;
+      if (!free_out) {
+        if (!probe) return PieceWhy::Unmapped;
+        unmapped = true;
+        continue;
+      }
       free_out->push_back(i);
+    } else if (probe) {
+      probe->piece_node = i, probe->owner_node = w;   // the last mapped node wins
     }
   }
+  if (unmapped) return PieceWhy::Unmapped;
   if (free_out && !free_out->empty()) {   // S103 W2B (W2_ADV.md 3b): the -1 rows are computed by sub_8259D390's mode 1 (inst + 37 == 1: world = local x the PIECE's parent world). Mode 0 computes only a node whose parent is mapped: not proved
     uint32_t w36 = 0;
     if (!ReadWord(read, inst + kSubmMode, w36) || ((w36 >> 16) & 0xFFu) != 1u) return free_out->clear(), PieceWhy::Unmapped;
@@ -235,7 +258,7 @@ inline bool PieceRowsAreBind(const float* rows, size_t n_rows) {
 // makes the piece MapUnreadable (a hole), never a rest-pose row. `faults` kFaultNoRows (test only): collect the nodes but skip the row read (the planted twin of "rest-pose fallback": the piece must not be Ok).
 inline constexpr uint32_t kFaultNoRows = 16;
 inline constexpr uint32_t kFaultDrawUnposed = 32;   // S103 HGF planted twin (test only): the old rule, rows that all still equal the bind palette are kept (the hair would draw at the record origin)
-inline bool ReadCharacterPieces(ReadFn read, uint32_t ch, std::vector<CharPiece>& out, PieceCountFn count_of = nullptr, BodyDescFn body_of = nullptr, uint32_t owner_skel = 0, uint32_t faults = 0, bool free_rows = false) {
+inline bool ReadCharacterPieces(ReadFn read, uint32_t ch, std::vector<CharPiece>& out, PieceCountFn count_of = nullptr, BodyDescFn body_of = nullptr, uint32_t owner_skel = 0, uint32_t faults = 0, bool free_rows = false, PieceCountFn hook_count_of = nullptr) {   // S105 A5a F1: hook_count_of = the update hook's own count of the model, used ONLY when neither the wanted table nor the game's own count knows the model (a created superstar's piece); never a second opinion that can contradict a known count
   out.clear();
   bool unreadable = false;
   const uint32_t node = FindByTag(read, ch + kCharCompList, kSubmTag, unreadable);
@@ -257,11 +280,12 @@ inline bool ReadCharacterPieces(ReadFn read, uint32_t ch, std::vector<CharPiece>
     // PZ F3: the scene core's wanted count (0 until the stream core joined this piece's draws) or, when it has none, the game's own count read here; both known and different = the draw object is not
     // the model we counted (CountMismatch)
     const uint32_t wanted = count_of ? count_of(model) : 0u, game = GameNodeCount(read, model);
+    const uint32_t hooked = (!wanted && !game && hook_count_of) ? hook_count_of(model) : 0u;   // S105 A5a F1
     if (wanted && game && wanted != game) {
       p.why = PieceWhy::CountMismatch;
     } else {
-      p.nodes = wanted ? wanted : game;
-      p.why = ProvePiece(read, inst, wanted ? wanted : game, &p.copy, free_rows ? &p.free_nodes : nullptr);
+      p.nodes = wanted ? wanted : game ? game : hooked;
+      p.why = ProvePiece(read, inst, p.nodes, &p.copy, free_rows ? &p.free_nodes : nullptr, &p.probe);   // S105 A5a: + the own-rows copy probe
       if (p.why == PieceWhy::Ok) p.build = PieceBuild::Deferred;
       if (p.why == PieceWhy::NotDeferred && body_of) p.why = UpgradeNotDeferred(read, inst, owner_skel, body_of(owner_skel), faults, &p.build, &p.kind);   // PZ F2: path B1 proven on a proven kind, path A / B2 / an unproven kind refused
       if (p.why != PieceWhy::Ok) p.free_nodes.clear();   // S103 W2B: only a proven piece contributes rows

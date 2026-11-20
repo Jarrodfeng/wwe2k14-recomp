@@ -1,3 +1,4 @@
+// entry: Latch::OnBuildStep   (the function the hook wwe2k14_attire_build_step calls; the unit then drives the record side and the loader half)
 // S103 ARM2: offline proof of the composite attire's colours read at the game's BUILD STEP (src\assets\attire_build.h, docs\agents\s103\HNN.md, run wwe2k14_046). 0 game runs; every byte here is a
 // fixture made in this file (nothing from the game). Heenan-shaped: chosen key 24912 -> loaded 24902, mode 1, P+44 = 0 (colour set 0), the colours of "slot 1" copied into set 0 of the block.
 //   arm2_unit.exe selftest
@@ -260,7 +261,8 @@ static int SelfTest() {
     rdr_scene::namedfail::HoleRule().store(true);
     const Mem m = BuildScene(1, 0, 0);   // desc+4 = 0: a character slot load never writes it
     std::vector<Mat4> pose(4, IdentityMat4());
-    auto record = [&](bool latch_on, const Mem* scene = nullptr, bool pass_desc = true) {   // the record frame for a body named by its slot key (the hook: find the slot's descriptor, SlotOwner, SubmitSlotKey)
+    auto record = [&](bool latch_on, const Mem* scene = nullptr, bool pass_desc = true, uint32_t key = kChosen) {
+      const uint32_t kChosen = key;   // S105 A5d: the slot key under test (shadows the Heenan constant; the hook-step lines below stay as they were)   // the record frame for a body named by its slot key (the hook: find the slot's descriptor, SlotOwner, SubmitSlotKey)
       rdr_scene::namedfail::HoleRule().store(latch_on);
       WrestlerContributor w;
       w.SubmitSkin(kBody, 0, 4, pose.data(), 3);
@@ -280,12 +282,28 @@ static int SelfTest() {
     Check(ab::Count().applied == 1, "census: colours applied 1");
     Check(record(false) == "model_key:24912", "PLANT / switch off (wwe2k14_rdr_attire_remap false): the old plain entry");
     Check(record(true, nullptr, false) == "model_key:24912", "F2: a slot body whose descriptor the hook could not find (slot_desc 0) is not tagged");
-    {  // F3: a capture the game did not remap (loaded == chosen: a CAW / an edited stock attire) never tags a slot-key body
+    {  // S105 A5d (the game's value, sub_822C0998 key <= 9999; the F3 bar moved with it): a loaded == chosen capture of a key >= 10000 (a Threads-edited stock attire, Hogan's default-built identity keys) DOES tag a slot-key body
       Mem same = m;
       same.w[kDesc + 28] = kChosen;
       L.ResetForTest();
       L.OnBuildStep(same, kComposite, 0, line);
-      Check(record(true, &same) == "model_key:24912", "F3: chosen == loaded: the slot-key entry stays plain (its failed load keeps the guest-row fallback)");
+      Check(record(true, &same) == "model_key:24912" + want_tag && ab::Count().identity_tagged == 1 && ab::Count().caw_refused == 0, "A5d: chosen == loaded (key >= 10000): the slot-key entry carries the colours, identity tagged 1");
+      Check(record(true, &same) == "model_key:24912" + want_tag && ab::Count().identity_tagged == 1, "A5d: the identity count is once per capture");
+      L.SetPlantForTest(ab::Plant::kOldIdentityRule);
+      Check(record(true, &same) != "model_key:24912" + want_tag, "PLANT (the pre-A5d rule, loaded == chosen never tags): the entry is plain, i.e. the identity check above would FAIL under it");
+      L.SetPlantForTest(ab::Plant::kNone);
+      // the CAW twin: id 12 attire 1 kind 2 = key 1212, no pac: stays the plain key (guest-row fallback), refused once, on both routes
+      constexpr uint32_t kCaw = 1212;
+      Mem caw = m;
+      caw.w[kDesc + 28] = caw.w[kDesc + 92] = kCaw, caw.w[kP + 0] = kCaw, caw.w[kP + 64] = kCaw;
+      L.ResetForTest();
+      L.OnBuildStep(caw, kComposite, 0, line);
+      Check(record(true, &caw, true, kCaw) == "model_key:1212" && record(true, &caw, true, kCaw) == "model_key:1212" && ab::Count().caw_refused == 1 && ab::Count().identity_tagged == 0, "A5d twin: a created superstar (key 1212 < 10000) stays the plain key, caw refused 1 (once per capture)");
+      Check(L.TagForOwner(kDesc, kCaw, kCaw).empty() && ab::Count().caw_refused == 1, "A5d twin: the link route refuses the CAW too (no hole for a body with no pac)");
+      L.SetPlantForTest(ab::Plant::kNoCreatedGuard);
+      Check(record(true, &caw, true, kCaw) != "model_key:1212", "PLANT (IsCreatedKey always false): the CAW entry is tagged, i.e. the CAW check above would FAIL under it");
+      Check(!L.TagForOwner(kDesc, kCaw, kCaw).empty(), "PLANT (no created guard) on the link route: the CAW is tagged, i.e. the link CAW check above would FAIL under it");
+      L.SetPlantForTest(ab::Plant::kNone);
       L.ResetForTest();
       L.OnBuildStep(m, kComposite, 0, line);
       L.OnBuildStep(m, kComposite, 1, line);
@@ -308,6 +326,11 @@ static int SelfTest() {
     Check(LoaderCompose(entry, table, px, &loaded, &slot) && loaded == kLoaded && slot == 1, "loader: the entry parses as key 24912, the game's remap gives 24902 (colour slot 1)");
     Check(HeenanPicture(px), "loader: base 24902 + masks + the build step's colours = Heenan's picture (grey / red / white areas, base elsewhere)");
     std::vector<uint8_t> plain;
+    {  // S105 A5d: a tagged non-remapped (identity) key composes: the loader finds the named PACH (24902 is not in the table as a source), not remapped, and the build step's colours paint it
+      std::vector<uint8_t> idpx;
+      int idl = 0;
+      Check(LoaderCompose("model_key:24902" + want_tag, table, idpx, &idl) && idl == 24902 && HeenanPicture(idpx), "A5d loader: a tagged identity key (24902) composes the colours, not remapped");
+    }
     Check(!LoaderCompose("model_key:24912", table, plain), "twin: the plain entry (no colours) composes nothing: the plain base, the bug the log showed (no colour tag in the record)");
 
     // PLANT: the wrong slot through the whole chain: the hook reads the decoy block, the record carries it, the picture is wrong
@@ -327,6 +350,29 @@ static int SelfTest() {
     L.OnBuildStep(m2, kComposite, 1, l2);
     uint8_t cols[48];
     Check(ab::Count().late_change == 1 && attire_compose::ParseEntryTag(record(true), cols) && cols[12] == 0x0A && cols[15] == 0x0D && std::memcmp(cols, slot1, 12) == 0, "a step's colours that changed after step 0 are followed (counted late change), earlier steps untouched");
+  }
+
+  // ---- S105 A5d review F1: a LINKED created superstar (desc+4 != 0, key 1212 < 10000) gets no tag from the link read either (through ModelLinkRead + SubmitSkin + VerifyBodyLink + Emit) ----
+  {
+    L.ResetForTest();
+    rdr_scene::namedfail::HoleRule().store(true);
+    std::vector<Mat4> pose(4, IdentityMat4());
+    auto linked = [&](uint32_t key, std::string* link_tag) {
+      Mem lk = BuildScene(1, 0);   // a mode 1 link read: the link-time tag is the decoy colours (desc+48 = 1), non-empty for any key
+      lk.w[kDesc + 28] = lk.w[kDesc + 92] = key, lk.w[kP + 0] = key, lk.w[kP + 64] = key;
+      WrestlerContributor w;
+      wwe2k14::wrestlers::ModelLinkRead(w, kReader, lk);
+      if (link_tag) *link_tag = w.ModelKeyFor(kBody).tag;
+      w.SubmitSkin(kBody, 0, 4, pose.data(), 3);
+      w.VerifyBodyLink(kBody, true);
+      SceneTables t = EmitAt(w, 3);
+      return t.objects.size() == 1 ? std::string(t.Str(t.assets[t.objects[0].asset].entry)) : std::string("<none>");
+    };
+    std::string tag_id, tag_caw;
+    const std::string id_entry = linked(24902, &tag_id);
+    Check(!tag_id.empty() && id_entry.find("/c:") != std::string::npos && ab::Count().caw_refused == 0, "A5d F1 precondition: a linked stock key (24902, mode 1) carries the link-time tag (non-empty): the route does tag");
+    const std::string caw_entry = linked(1212, &tag_caw);
+    Check(tag_caw.empty() && caw_entry == "model_key:1212" && ab::Count().caw_refused == 1, "A5d F1: a linked CAW (key 1212) has NO tag from the link read, its record entry is the plain key, caw refused 1 (dropped at the source)");
   }
 
   // ---- the production order for the model-link route: link (early, no colours) -> build steps -> record ----

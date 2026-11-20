@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(generated/rexglue.cmake)
 
 # Session 25: one version string (VERSION, e.g. v0.1.0-playtest) for the game and the launcher; it is in every game
-# log, perf report and problem report. Builds made by tools/release/make_release.ps1 pass -DWWE2K14_RELEASE=ON; every
+# log, perf report and problem report. Builds made by tools/release/make_release.ps1 (PC) and tools/android/build_all.ps1 -Release (Android game library, S105 ADEV) pass -DWWE2K14_RELEASE=ON; every
 # other build is marked "+dev".
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" WWE2K14_VERSION LIMIT_COUNT 1)
 option(WWE2K14_RELEASE "A release build (tools/release/make_release.ps1)" OFF)
@@ -161,6 +161,7 @@ set(WWE2K14_SOURCES
     src/renderer/memory.cpp
     src/renderer/problem.cpp
     src/renderer/renderer.cpp
+    src/renderer/shaders/spv/fx_spv_data.cpp  # S105 SPV: the effects' SPIR-V words, the one unit that parses them (the headers only declare); in BOTH builds (stream ON and OFF)
     src/renderer/swapchain.cpp
     src/renderer/vk_api.cpp
     src/renderer/streamline.cpp
@@ -421,7 +422,8 @@ if(WIN32)
             "${WWE2K14_SDK_THIRDPARTY}/inja/third_party/include" "${WWE2K14_SDK_THIRDPARTY}/stb"
             "${WWE2K14_SDK_THIRDPARTY}/Vulkan-Headers/include")  # Session 37: src/vk_devices.h (headers only)
         target_compile_definitions(wwe2k14_launcher PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
-            WWE2K14_VERSION="${WWE2K14_VERSION}")
+            WWE2K14_VERSION="${WWE2K14_VERSION}"
+            WWE2K14_KEEP_STREAM=$<BOOL:${WWE2K14_KEEP_STREAM}>)  # S105 A1b: the launcher knows its game exe is the stream-free build (src/stream_free_target.h)
         set_property(TARGET wwe2k14_launcher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
         wwe2k14_add_opus(wwe2k14_launcher)  # lane 283: Ogg Opus songs
         if(WWE2K14_ICON_RC)

@@ -29,6 +29,7 @@ inline constexpr uint32_t kGmMaxTexBytes = 4u << 20;                            
 enum GuestModelFlags : uint32_t {
   kGmN1 = 1,             // the part has a second draw range
   kGmExtraStreams = 2,   // the game binds extra 12-byte streams for it that this carrier does not hold: a HOLE, counted (the part is drawn without them; CW2_review item 8)
+  kGmDiffuseT0 = 4,      // S105 A5c: the part's diffuse sampler names texture index 0 of the model's table: the game sets pixel bool 150 for it ([C] sub_82C04DF0 0x82C096F8-0x82C0971C), which picks the logo layer 7 over 4 in an FX_LOGO fragment
 };
 enum GuestTexState : uint32_t { kGtMissing = 0, kGtBound = 1, kGtOverride = 2, kGtEngineDefault = 3 };   // a sampler's picture: not read / the model's own texture table / the override block (CEditEx composite textures, [L]) / CTX2: the sampler names a CUBE (fetch dimension 3): the engine supplies its default, no picture carried (hash 0)
 
@@ -57,9 +58,10 @@ struct GuestModelPart {   // 344 bytes
   uint16_t nodes[kGmMaxNodes] = {};   // slot k -> skeleton node = [desc+12+4k] - 1 (0xFFFF = the palette value was 0: no node)
   char effect[kGmNameBytes] = {};     // the material class / effect name ([desc+124]), NUL padded; empty = not read
   uint32_t tex_count = 0;
-  uint32_t tex_pad = 0;
+  uint32_t logo7_tex = 0;     // S105 A5c: the model's logo picture bound at fetch slot 7: 1 + the index of its row in GuestModelTables::textures, 0 = none (the row layout is unchanged: this was padding)
   GuestModelTex tex[kGmMaxTex] = {};
-  uint32_t tex_overflow = 0, pad2 = 0;   // sampler params beyond kGmMaxTex (counted)
+  uint32_t tex_overflow = 0;   // sampler params beyond kGmMaxTex (counted)
+  uint32_t logo4_tex = 0;      // S105 A5c: the same for the logo picture at fetch slot 4 ("logo2")
 };
 static_assert(sizeof(GuestModelPart) == 344, "GuestModelPart layout: 16 + 24 + 32 + 8 + 40 + 16 + 8 + 6 * 32 + 8");
 
@@ -81,6 +83,12 @@ struct GuestModelTables {
   uint32_t errors = 0;   // ParseRecord dropped these sections (unknown layout / element size / a bad row / an offset past the blob)
   bool Empty() const { return parts.empty() && blobs.empty() && textures.empty(); }
   void Clear() { parts.clear(), blobs.clear(), textures.clear(), errors = 0; }
+  // S105 A5c: the row index of the picture with `hash` (-1 = not in this record).
+  int IndexOfTexture(uint64_t hash) const {
+    for (size_t i = 0; i < textures.size(); ++i)
+      if (textures[i].hash == hash) return int(i);
+    return -1;
+  }
   const GuestModelTexture* FindTexture(uint64_t hash) const {
     for (const GuestModelTexture& t : textures)
       if (t.hash == hash) return &t;

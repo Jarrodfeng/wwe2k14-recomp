@@ -74,7 +74,10 @@ def main():
     print('vertex-LM rule (record word +0x90 bit 0): %d of %d arena-4 yBG_ meshes match the stream (%d wrong) %s' % (ok, ok + bad, bad, miss[:6]))
     good = bad == 0 and ok > 0
     if '--expect-fail' in sys.argv:  # the planted twin must be caught
-        return 0 if not good else 1
+        caught = bad > 0 and ok + bad > 0   # S105 E review 6: zero meshes found is not a caught twin (a check that reads nothing proves nothing)
+        if caught:
+            print('PLANTED-OK: the planted vertex-LM rule was caught (%d of %d meshes disagree with the stream)' % (bad, ok + bad))
+        return 0 if caught else 1
     return 0 if good else 1
 
 

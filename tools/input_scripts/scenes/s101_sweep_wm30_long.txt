@@ -18,14 +18,11 @@ press_until_state A match_clock !=0 60 600 5
 log scene=match
 mark 1 match_clock
 wait_frames 300
-cvar wwe2k14_rdr_live_picture sc_sweep_wm30_300
 screenshot sc_sweep_wm30_300
 wait_frames 600
 mark 2 plus900
-cvar wwe2k14_rdr_live_picture sc_sweep_wm30_900
 screenshot sc_sweep_wm30_900
 wait_frames 600
-cvar wwe2k14_rdr_live_picture sc_sweep_wm30_1500
 screenshot sc_sweep_wm30_1500
 wait_frames 300
 log scene=end (match clock +1800)

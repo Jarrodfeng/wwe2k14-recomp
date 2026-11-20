@@ -1,0 +1,20 @@
+{
+ "owner": "S105 lane IMP (docs/research/s105/IMP_B.md, IMP_ADV.md): imported superstars reach an old save. src/superstars_save.h hooks sub_82818798 and clears pack 6's bit in the save's DLC mask (src/superstars_mask.h) so the game's own pass copies the new imports into inactive rows; the importer never re-uses a retired slot (src/importer/slot_retire.h, pack.json 'retired'); make_test_save.py --mask HEX. 0 game runs, 0 Surface runs.",
+ "claim": {"scene": "none", "side": "instrument", "ms": [0, 0]},
+ "note": "KIND: game logic + instrument, cheap. imp_test: the mask rule (mask in -> mask out, gate id, big-endian word) and the retire rule with planted twins (wrong bit, set instead of clear, whole mask, real pack id, little-endian; retire forgotten / held-now kept / old list dropped / no reorder / dropped / reversed); importer_test --retire-cases: pack.json keeps the retired list through LoadPack / SavePack; make_test_save_check (lane s105_T4 too): --mask offset 0x1A3630, big-endian, sum, planted twins.",
+ "checks": [
+  {"name": "s105_IMP.build_imp_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/importer/build_imp_test.ps1"], "timeout_s": 600, "tier": "cheap", "gpu": false,
+   "affects": ["tools/importer/test_imp.cpp", "tools/importer/build_imp_test.ps1", "src/superstars_mask.h", "src/importer/slot_retire.h"]},
+  {"name": "s105_IMP.imp_test", "cmd": ["out/tools/imp_test.exe"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/importer/test_imp.cpp", "src/superstars_mask.h", "src/importer/slot_retire.h"]},
+  {"name": "s105_IMP.build_importer_test", "cmd": ["pwsh", "-NoProfile", "-File", "tools/importer/build_test.ps1"], "timeout_s": 900, "tier": "cheap", "gpu": false,
+   "affects": ["tools/importer/test_core.cpp", "tools/importer/build_test.ps1", "src/importer/importer_core.cpp", "src/importer/importer_core.h", "src/importer/slot_retire.h"]},
+  {"name": "s105_IMP.retire_cases", "cmd": ["out/tools/importer_test.exe", "--retire-cases", "--mods", "out/imp_gate_mods"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/importer/test_core.cpp", "src/importer/importer_core.cpp", "src/importer/importer_core.h", "src/importer/slot_retire.h"]},
+  {"name": "s105_IMP.make_test_save_check", "cmd": ["py", "-I", "tools/save/make_test_save_check.py"], "timeout_s": 120, "tier": "cheap", "gpu": false,
+   "affects": ["tools/save/make_test_save.py", "tools/save/make_test_save_check.py", "tools/save/unlock_all.py"]},
+  {"name": "s105_IMP.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/main.cpp"], "timeout_s": 1500, "tier": "cheap", "gpu": false,
+   "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include"],
+   "affects": ["src/superstars_save.h", "src/superstars_mask.h", "src/wwe2k14_app.h", "src/dlc.h", "src/superstars.h"]}
+ ]
+}
