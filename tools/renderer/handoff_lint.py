@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """S102 T8 review F2: the hand-over's section list against ParseFrame's case ids and the reader's FrameTables (equal sets), with a planted twin.
-Used by handoff_unit.py (gate lane s102_t8). lint(handoff_text, capture_reader_text, reader_text) -> list of problems (empty = clean)."""
+Used by handoff_unit.py. lint(handoff_text, capture_reader_text, reader_text) -> list of problems (empty = clean)."""
 import re
 
 EXEMPT = {'kSecSurfaceRoles', 'kSecWhere'}   # ParseFrame binds them; the live reader never writes them

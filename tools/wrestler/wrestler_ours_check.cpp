@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     const bool ok = all && (loader_fault ? opens > 2 : opens == 2);
     std::printf("loader-test: %zu reads of 2 pacs queued behind a held mutex, all read %d, pac opens %d (FIFO-by-pac: 2; arrival order: more): %s\n", futs.size(), int(all), opens, ok ? "ok" : "FAIL");
     roster.TrimIdle(0);
-    return loader_fault ? (opens > 2 ? 1 : 0) : (ok ? 0 : 1);   // the planted run exits 1 when the fault shows (the gate wants exit 1 from it)
+    return loader_fault ? (opens > 2 ? 1 : 0) : (ok ? 0 : 1);   // the planted run exits 1 when the fault shows (the check wants exit 1 from it)
   }
   if (link_rule_test) {   // lane 206 (review B1): a small model's declared link needs its rows; its same-count miss leaves the piece route open. --link-rule-test-fault = the old rules (must FAIL)
     const bool old = link_rule_fault;

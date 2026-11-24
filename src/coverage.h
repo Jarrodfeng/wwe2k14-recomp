@@ -86,6 +86,9 @@ REXCVAR_DEFINE_STRING(wwe2k14_trace, "", "wwe2k14",
 
 #include "frame_stats.h"
 #include "guest_read.h"
+#include "icall_observe.h"  // S110 OBSERVE: host half (cvar wwe2k14_icalls, pair set, icall::Write); before Mark uses it
+#include "store_watch.h"    // S110 FEEDREC: host half (cvar wwe2k14_feedrec, watch set, storewatch::Write -> stores.tsv)
+#include "feed_seen.h"      // S110 FEEDREC: feedseen::Write -> feed_reads.tsv
 
 REXCVAR_DEFINE_BOOL(wwe2k14_coverage, false, "wwe2k14",
                     "Coverage build: record which guest functions run between input-script marks");
@@ -349,6 +352,8 @@ inline void Init(const std::string& script) {
     s.enabled = true;
     __atomic_store_n(&wwe2k14_cov_epoch, 1u, __ATOMIC_RELAXED);
   }
+  wwe2k14::icall::Start();  // S110 OBSERVE: --wwe2k14_icalls takes effect here, once
+  wwe2k14::storewatch::Start(dir);  // S110 FEEDREC: --wwe2k14_feedrec takes effect here, once
   if (FILE* f = std::fopen((dir / "run.txt").string().c_str(), "w")) {
     const std::time_t now = std::time(nullptr);
     char when[32];
@@ -408,6 +413,9 @@ inline void Mark(uint32_t id, const std::string& text, uint64_t frame) {
                  (unsigned long long)frame, rows.size(), new_in_run);
     std::fclose(f);
   }
+  wwe2k14::icall::Write(s.dir);  // S110 OBSERVE: icalls.tsv (no-op unless --wwe2k14_icalls)
+  wwe2k14::feedseen::Write(s.dir);   // S110 FEEDREC: feed_reads.tsv (no-op unless --wwe2k14_feedrec)
+  wwe2k14::storewatch::Write(s.dir);  // S110 FEEDREC: stores.tsv (no-op unless --wwe2k14_feedrec)
   REXLOG_INFO("[wwe2k14][coverage] window {} ({}): frames {}..{}, {} functions ({} new this run) -> {}", window,
               text, start, frame, rows.size(), new_in_run, fname);
   if (rows.empty()) {

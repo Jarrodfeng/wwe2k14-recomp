@@ -140,6 +140,10 @@ def main():
         tmp = a.list + '.shaders'
         rc = subprocess.call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locate.py'),
                               'match', os.path.join(a.out, TITLE + '.xsh'), '--list', tmp])
+        seed_lines = []   # S106 PSEED fix F7: the pipeline seed (R lines + `H rdr`) is not made here: a regenerated list keeps the one already in the file, never silently drops it
+        if os.path.exists(a.list):
+            with open(a.list, encoding='utf-8', errors='replace') as old:
+                seed_lines = [ln.rstrip('\r\n') for ln in old if ln.startswith('R ') or ln.startswith('H rdr ')]
         with open(a.list, 'w', newline='\n') as o:
             o.write(open(tmp).read())
             o.write('H xsh %s\n' % xsh_head.hex().upper())
@@ -153,6 +157,8 @@ def main():
                     o.write('H native-%s %s\n' % (api, head.hex().upper()))
                     for r in recs.values():
                         o.write('N %s %s\n' % (api, r.hex().upper()))
+            for ln in seed_lines:
+                o.write(ln + '\n')
         os.remove(tmp)
         print('list -> %s (locate exit %d: 1 = some shaders not found in the files)' % (a.list, rc))
     return 0

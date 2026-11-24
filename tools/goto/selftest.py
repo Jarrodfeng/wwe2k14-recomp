@@ -1,4 +1,4 @@
-"""S101 N1 (go-anywhere): the goto self test (the gate entry, tools/gate/lanes/goto.json). No game run: plans only.
+"""S101 N1 (go-anywhere): the goto self test (run it by path). No game run: plans only.
 
     py -I tools/goto/selftest.py
 
@@ -307,6 +307,11 @@ def planted(ctx):
     check(p3.status == 'error', 'planted: wm30:46 resolved to %s' % p3.status)
     p4 = resolve.resolve('match:Nobody Atall vs Nobody Else; type=one on one > normal', ctx)
     check(p4.status == 'error', 'planted: a match with unknown wrestlers resolved to %s' % p4.status)
+    p5 = resolve.resolve('menu:goto 40', ctx)   # S110 GOTO: the record-id form is one `page` step, never presses
+    check(p5.status == 'plan' and p5.steps == [{'op': 'page', 'rec': 40}], 'S110: menu:goto 40 resolved to %s %s' % (p5.status, p5.steps))
+    check(resolve.page_line(p5.steps[0]) == 'page 40', 'S110: the page step lowers to %r, not the script line `page 40`' % resolve.page_line(p5.steps[0]))
+    p6 = resolve.resolve('menu:goto', ctx)       # no id: not the goto form, falls to the atlas words (which do not match)
+    check(p6.status == 'error' and not any(s['op'] == 'page' for s in p6.steps), 'S110: menu:goto without an id resolved to %s' % p6.status)
     print('5. planted faults caught: unknown node -> ERROR "%s"; unknown words, wm30:46, unknown wrestlers -> ERROR' % p.reason[:70])
 
 
@@ -319,6 +324,8 @@ def main():
         game_side(ctx)
     except RuntimeError as x:
         check(False, 'cannot read an input: %s' % x)
+    import menu_goto_selftest  # S110: the menu_goto / menu_home host units and the hook-line pins
+    check(menu_goto_selftest.main() == 0, 'the menu_goto / menu_home units failed (output above)')
     if problems:
         print('FAILED: %d problem(s)' % len(problems))
         return 1

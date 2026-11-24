@@ -1,5 +1,6 @@
 // See circle_shadows_ours.h. Session 101, lane 136 (SH3 slice 1).
 #include "circle_shadows_ours.h"
+#include "rows_circle.h"   // S106 G4-2
 
 #include <chrono>
 #include <cstdio>

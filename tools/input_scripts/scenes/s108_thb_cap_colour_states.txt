@@ -1,0 +1,122 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lane MENU: the STATES version of s108_thb_cap_colour.txt (that route stays as the working fallback). Threads editor, John Cena, ENTRANCE ATTIRE page (RB), HAT colour picker; shots thb_cap_before / _after (white) / _after3 (red). Nothing saved.
+# Waits are on the built-in menu_* states: menu_page names the page class (values read in runs 31-34, docs/research/s108/MENU_route_values.md), menu_row is the cursor row.
+# menu_ready is 1 on nearly every menu frame, so it only means "a menu is taking input"; it does not tell that a page changed (wait_state menu_ready 1 N here is a settle of N frames at most).
+# wait_frames appear only right before a screenshot, never before a press. The colour picker's swatch row has no cursor state (menu_cols reads 0): its RIGHT presses are paced by press_until_state hold only.
+on_fail continue
+log bench: start scene s108_thb_cap_colour_states
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A seq 77 8 120 5
+wait_state menu_page 0x82038500 3000 20
+log scene=threads_editor
+include log_menu
+wait_frames 30
+screenshot thb_00
+press_until_state DOWN menu_row 22 40 20 5
+log scene=cena_selected
+include log_menu
+log_text 8
+wait_frames 30
+screenshot thb_02
+press A
+wait_state menu_page 0x8203BDF0 600 20
+log scene=attire_box
+include log_menu
+log_text 12
+wait_frames 30
+screenshot thb_02b
+press A
+wait_state menu_page 0x821BA588 900 20
+log scene=slots_list
+include log_menu
+log_text 8
+wait_frames 30
+screenshot thb_04
+press A
+wait_state menu_page 0x821BCC70 900 20
+log scene=edit_copy_delete
+include log_menu
+log_text 12
+wait_frames 30
+screenshot thb_05
+press A
+wait_state menu_rows 14 900 20
+log scene=ring_attire
+include log_menu
+log_text 16
+wait_frames 30
+screenshot thb_06
+press_until_text RB 4 60 5 ENTRANCE ATTIRE
+log scene=entrance_attire
+include log_menu
+log_text 16
+wait_frames 30
+screenshot thb_07
+press_until_state DOWN menu_row 4 8 30 5
+log scene=hat_hover
+include log_menu
+log_text 16
+wait_frames 30
+screenshot thb_08
+press A
+wait_state menu_page 0x821BAA68 900 20
+log scene=hat_picker_before
+include log_menu
+log_state threads_page
+log_state threads_colour_index
+log_state threads_colour_a0
+log_state threads_colour_a1
+log_text 16
+wait_frames 30
+screenshot thb_cap_before
+press DOWN
+wait_state menu_ready 1 300 20
+log scene=hat_picker_down
+include log_menu
+log_state threads_colour_a0
+log_state threads_colour_a1
+log scene=hat_picker_sample
+include log_menu
+log_state threads_colour_a0
+log_state threads_colour_a1
+log_text 16
+wait_frames 30
+screenshot thb_cap_hover_sample
+press A
+wait_state menu_cols 10 900 20
+log scene=hat_picker_after
+include log_menu
+log_state threads_colour_index
+log_state threads_colour_a0
+log_state threads_colour_a1
+log_text 16
+wait_frames 120
+screenshot thb_cap_after
+wait_frames 120
+screenshot thb_cap_after2
+press_until_state RIGHT menu_col 1 6 30 5
+log_state threads_colour_a0
+log_state threads_colour_a1
+press_until_state RIGHT menu_col 2 6 30 5
+log_state threads_colour_a0
+log_state threads_colour_a1
+log scene=hat_picker_red_hover
+include log_menu
+press A
+wait_state menu_page 0x821BAA68 900 20
+log scene=hat_picker_red
+include log_menu
+log_state threads_colour_index
+log_state threads_colour_a0
+log_state threads_colour_a1
+log_text 16
+wait_frames 120
+screenshot thb_cap_after3
+log bench: done
+wait_frames 10
+quit

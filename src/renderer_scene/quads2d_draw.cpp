@@ -1,5 +1,6 @@
 // Quads2DDraw (Session 103, lane I1; docs\renderer\REMNANT_MAP.md section 10). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "quads2d_draw.h"
+#include "rows_quad2d.h"   // S106 G4-2
 #include "sampler_table.h"
 #include "../renderer_host/wide_frame.h"   // S105 A2: FullViewRow (pure)
 

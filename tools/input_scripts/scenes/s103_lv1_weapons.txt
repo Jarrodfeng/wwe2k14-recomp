@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=@quick --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_quick_type=72 --wwe2k14_launch_participants=343,324 --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true --wwe2k14_scene_records=true --audio_mute=true
-# harness: realtime (as s101_sweep_match_type: the roster is built in wall time)
 # intent: owner on, scene 2
 # S103 LV1 run 1: ladder match (type 72) on the stream-free exe. s101_sweep_match_type's wait_event roster_ready never fires stream-free (run 005 failed there), so frames are counted from the match clock.
 on_fail quit
@@ -8,6 +7,8 @@ include boot_to_menu
 wait_file INGAMELUA.PAC 3600
 wait_state seq 9 3600 30
 wait_state match_clock >0 36000
+wait_event render roster_ready 2400
+# S109 FF: the (stream-free) roster loads in wall time; roster_signal.h posts roster_ready there too, so the frame counts below start after it
 log scene=lv1_weapons
 wait_frames 400
 log_text 8

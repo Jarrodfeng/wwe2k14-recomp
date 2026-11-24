@@ -259,7 +259,7 @@ def run_entrance(a):
     result = dict(label=a.label, arena=a.arena, wrestler=a.wrestler, frames={})
     picks = {}
     some = next(iter(frames.values()))
-    if a.clock:  # pinned clocks (frame:cue:local,...): no scan (the gate re-checks the fit at a clock an earlier full search found)
+    if a.clock:  # pinned clocks (frame:cue:local,...): no scan (the check re-checks the fit at a clock an earlier full search found)
         for item in a.clock.split(','):
             n, cue, fl = (int(x) for x in item.split(':'))
             picks[n] = (None, cue, fl)
@@ -303,7 +303,7 @@ BG_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 
           45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 66, 67, 68, 76, 77, 78, 79, 80]
 
 
-EXTRA_CMDS = []  # viewer commands inserted right after the arena load (--viewer-cmd, gate controls)
+EXTRA_CMDS = []  # viewer commands inserted right after the arena load (--viewer-cmd, check controls)
 AFTER_ENTRANCE = [0]  # wrestler id: start and stop an entrance before the dump (--after-entrance)
 
 

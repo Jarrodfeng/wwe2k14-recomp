@@ -246,19 +246,23 @@ inline int EntranceAttire(launcher::GameFiles& files, int id, int game_attire) {
 inline int EntranceAttireFile(const std::string& path_u8, int game_attire);
 
 // Attires of a wrestler = the PACH archives in his pac that hold a model (entry 0). 0 when the pac cannot be read.
-inline int AttireCount(launcher::GameFiles& files, int id) {
+// S110 LIBSIZE: the ...At forms open the file they are given (a library character's `<KEY>\pac\ch\ch497.pac`: every library file is CH497, so the id names none of them);
+// the id forms open WrestlerRel(id) as before.
+inline int AttireCountAt(launcher::GameFiles& files, const std::string& rel) {
   std::string err;
-  const pac::Pac* p = load_detail::OpenCached(files, load_detail::WrestlerRel(id), err);
+  const pac::Pac* p = load_detail::OpenCached(files, rel, err);
   return p ? load_detail::CountAttires(*p) : 0;
 }
+inline int AttireCount(launcher::GameFiles& files, int id) { return AttireCountAt(files, load_detail::WrestlerRel(id)); }
 
 // S103 B: the viewer attire ORDINAL (the n-th model PACH, what LoadWrestler takes) of the PACH whose EMD name is `key` (character * 100 + game attire * 10 + kind: the
 // inverse of ModelKey). -1 when the pac holds no PACH of that name. A record that names a model by the game's key resolves it here, never by "variant = the attire digit".
-inline int OrdinalOfModelKey(launcher::GameFiles& files, int id, int key) {
+inline int OrdinalOfModelKeyAt(launcher::GameFiles& files, const std::string& rel, int key) {
   std::string err;   // S105 A7: by row name, so the alias rows of an imported superstar (000397<n>2, one PACH) answer
-  const pac::Pac* p = load_detail::OpenCached(files, load_detail::WrestlerRel(id), err);
+  const pac::Pac* p = load_detail::OpenCached(files, rel, err);
   return p ? load_detail::OrdinalOfModelKeyIn(*p, key) : -1;
 }
+inline int OrdinalOfModelKey(launcher::GameFiles& files, int id, int key) { return OrdinalOfModelKeyAt(files, load_detail::WrestlerRel(id), key); }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
                             bool prop_slots = false);  // (Session 99: prop_slots = also the PACH's model slots 1..9, LoadProp)
@@ -279,29 +283,38 @@ inline void AddTexDirs(TexSet& tex, const Bytes& buf, const pac::Pach& hh) {
   for (const pac::Ent& e : hh.ents)
     if (IsTexDirEntry(e.id) && e.size >= 0x30) tex.AddDir(pac::Decode(buf.data() + e.off, e.size));
 }
+// S108 AL1: chCommon.pac was tried and gave no texture directory: why (empty = not tried, or it gave some). Every wrestler model then names shared textures (all0, noise, u_body, sweat_bump ...) that
+// no directory holds: a fault, not the game's choice (LoadWrestlerPac says it as a `texture_pac` shortfall).
+inline std::string& CommonTexError() {
+  static std::string e;
+  return e;
+}
 inline void LoadCommonTexDirs(launcher::GameFiles& files) {
   static bool tried = false;
   if (tried) return;
   tried = true;
   pac::Pac p;
   std::string e;
-  if (!pac::Open(files, "pac\\ch\\chCommon.pac", p, e)) return;
+  if (!pac::Open(files, "pac\\ch\\chCommon.pac", p, e)) { CommonTexError() = e.empty() ? std::string("did not open") : e; return; }
   for (const pac::Pach& h : p.pachs)
     for (const pac::Ent& en : h.ents)
       if (en.id >= 10 && en.id <= 29 && en.size >= 0x30) CommonTexDirs().push_back(pac::Decode(p.bytes.data() + en.off, en.size));
+  if (CommonTexDirs().empty()) CommonTexError() = "opened, but no entry 10..29 is a texture directory";
 }
 }  // namespace load_detail
 
-inline bool LoadWrestler(launcher::GameFiles& files, int id, int attire, Model& m, std::string& err) {
+inline bool LoadWrestlerAt(launcher::GameFiles& files, const std::string& rel, int id, int attire, Model& m, std::string& err) {   // S110 LIBSIZE: `rel` = the file (AttireCountAt)
   using namespace load_detail;
   m = {};
   LoadCommonTexDirs(files);
-  char lab[64];
-  std::snprintf(lab, sizeof lab, "wrestler %d attire %d", id, attire);
-  const pac::Pac* p = OpenCached(files, WrestlerRel(id), err);
+  char lab[128];
+  if (rel == WrestlerRel(id)) std::snprintf(lab, sizeof lab, "wrestler %d attire %d", id, attire);
+  else std::snprintf(lab, sizeof lab, "wrestler %d (%.80s) attire %d", id, rel.c_str(), attire);   // a library file: every one is CH497, the folder names him
+  const pac::Pac* p = OpenCached(files, rel, err);
   if (!p) return false;
-  return LoadWrestlerPac(p, lab, BaseName(WrestlerRel(id)), attire, m, err);
+  return LoadWrestlerPac(p, lab, BaseName(rel), attire, m, err);
 }
+inline bool LoadWrestler(launcher::GameFiles& files, int id, int attire, Model& m, std::string& err) { return LoadWrestlerAt(files, load_detail::WrestlerRel(id), id, attire, m, err); }
 
 // Session 98 (gen check 4): an event PROP of pac\evt\evtobj.pac: PACH `pach` (entry 0 = the JBOY, 10 = its textures). The title belts
 // are PACHs 349-366+ (yProp_BumpMap, a shared 782-vertex strap; 36 nodes 'root', 'bone01'..): probe run 6820 drew Cena's WWE
@@ -773,28 +786,33 @@ inline int PropPach(launcher::GameFiles& files, uint32_t prop_id) {
 // head]. Returns the PACH index in `p`, -1 when the pac has no such directory record (DLC pacs without a header: the node rule below).
 // (attire props, review) `bobj_only`: only the "BOBJ" section (sub_8230B4C0's precheck sub_82310000 -> sub_825AE680 "/BOBJ/%04d").
 // S105 SKB3: the directory half of PropDirIn, on the 16 KB header alone (the ranged evtobj path has no whole pac): the byte start (0x4000 + start x 0x800) of the first row of `prop_id` in the asked section(s); false = no such row / no EPAC header.
-inline bool PropDirStart(const Bytes& b, uint32_t prop_id, bool bobj_only, bool sobj_only, size_t& at_out) {
+// S108 THB: the same walk for ONE named section ("SOBJ" / "BOBJ" / "SPMT": the recolour masks of the Threads gear colours, docs\formats\evtobj_pac.md), the byte start of the first row of `prop_id` in it.
+inline bool PropDirStartIn(const Bytes& b, uint32_t prop_id, const char* section, size_t& at_out) {
   if (prop_id > 9999 || b.size() < 0x4000) return false;
   if (std::memcmp(b.data(), "EPAC", 4) != 0 && std::memcmp(b.data(), "EPK8", 4) != 0) return false;
   char want[8];
   std::snprintf(want, sizeof want, "%04u", unsigned(prop_id));
   auto is_id = [](const uint8_t* s) { return std::isdigit(s[0]) && std::isdigit(s[1]) && std::isdigit(s[2]) && std::isdigit(s[3]); };
+  std::string cur(reinterpret_cast<const char*>(b.data() + 0x800), 4);   // (the first section's name sits at +0x800; "LIST" is its first record, not a section)
+  for (size_t o = 0x80C; o + 12 <= 0x4000; o += 12) {
+    const uint8_t* r = b.data() + o;
+    const uint32_t st = Le32(b, o + 4);
+    if (!is_id(r)) {
+      if (r[0] == 0 && st == 0) break;  // the end of the directory
+      if (std::memcmp(r, "LIST", 4) != 0) cur.assign(reinterpret_cast<const char*>(r), 4);
+      continue;
+    }
+    if (cur != section || std::memcmp(r, want, 4) != 0) continue;
+    at_out = 0x4000 + size_t(st) * 0x800;
+    return true;
+  }
+  return false;
+}
+inline bool PropDirStart(const Bytes& b, uint32_t prop_id, bool bobj_only, bool sobj_only, size_t& at_out) {
   for (const char* section : {"SOBJ", "BOBJ"}) {
     if (bobj_only && std::strcmp(section, "BOBJ") != 0) continue;
     if (sobj_only && std::strcmp(section, "SOBJ") != 0) continue;
-    std::string cur(reinterpret_cast<const char*>(b.data() + 0x800), 4);   // (the first section's name sits at +0x800; "LIST" is its first record, not a section)
-    for (size_t o = 0x80C; o + 12 <= 0x4000; o += 12) {
-      const uint8_t* r = b.data() + o;
-      const uint32_t st = Le32(b, o + 4);
-      if (!is_id(r)) {
-        if (r[0] == 0 && st == 0) break;  // the end of the directory
-        if (std::memcmp(r, "LIST", 4) != 0) cur.assign(reinterpret_cast<const char*>(r), 4);
-        continue;
-      }
-      if (cur != section || std::memcmp(r, want, 4) != 0) continue;
-      at_out = 0x4000 + size_t(st) * 0x800;
-      return true;
-    }
+    if (PropDirStartIn(b, prop_id, section, at_out)) return true;
   }
   return false;
 }
@@ -855,6 +873,45 @@ inline int PropPachEvt(launcher::GameFiles& files, uint32_t prop_id, int* other 
     if (b >= 0) return b;
   }
   return PropPach(files, prop_id);
+}
+
+// S108 THB (docs\research\s108\THB_threads_gear.md section 3): the recolour mask of an entrance prop. The disc evtobj.pac's "SPMT" section has one PACH per cap / hat / T-shirt / scarf id (26 ids): its entry 0 is a texture directory
+// holding ONE texture, `Mask1` (a 512 x 512 four-channel mask, one channel per colour of the Threads set's 4 gear colours). The game finds it by the path "/SPMT/%04d" (sub_825AE6D0) and binds it at the recolour shader's sampler 12.
+// PropMaskPachEvt: the PACH ordinal of the id's SPMT row in the disc evtobj.pac (the same ordinal rule as PropPachEvt), -1 = the id has none (not recolourable: Cena's default cap, hat, camo caps ...).
+inline int PropMaskPachEvt(launcher::GameFiles& files, uint32_t prop_id) {
+  using namespace load_detail;
+  std::string err;
+  if (EvtRanged* r = OpenEvtRanged(files, err)) {
+    size_t at = 0;
+    if (!PropDirStartIn(r->header, prop_id, "SPMT", at)) return -1;
+    const auto it = std::lower_bound(r->rows.begin(), r->rows.end(), std::make_pair(at, size_t(0)));
+    return it != r->rows.end() && it->first == at ? int(it - r->rows.begin()) : -1;
+  }
+  const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err);
+  size_t at = 0;
+  if (!p || !PropDirStartIn(p->bytes, prop_id, "SPMT", at)) return -1;
+  for (size_t i = 0; i < p->pachs.size(); ++i)
+    if (p->pachs[i].base == at) return int(i);
+  return -1;
+}
+// The `Mask1` texture of SPMT PACH `ordinal` (PropMaskPachEvt), as the file stores it (kB4G4R4A4, one level). False + `err` when the pac / PACH / entry / texture is not what the rule above says.
+inline bool LoadPropMask(launcher::GameFiles& files, int ordinal, Texture& out, std::string& err) {
+  using namespace load_detail;
+  if (ordinal < 0) return err = "no SPMT PACH", false;
+  int at = ordinal;
+  const pac::Pac* p = nullptr;
+  std::string slice_err;
+  if ((p = OpenEvtSlice(files, ordinal, slice_err))) at = 0;
+  if (!p) p = OpenPropFile(files, ordinal, err);
+  if (!p) return false;
+  if (size_t(at) >= p->pachs.size()) return err = "evtobj.pac has no PACH " + std::to_string(ordinal), false;
+  const pac::Ent* e = pac::Find(p->pachs[size_t(at)], 0);
+  if (!e) return err = "SPMT PACH " + std::to_string(ordinal) + " has no entry 0", false;
+  TexSet ts;
+  if (!ts.AddDir(pac::Decode(p->bytes.data() + e->off, e->size))) return err = "SPMT PACH " + std::to_string(ordinal) + " entry 0 is not a texture directory", false;
+  std::string why;
+  if (!ts.Peek("Mask1", out, why)) return err = "SPMT PACH " + std::to_string(ordinal) + ": Mask1 " + why, false;
+  return true;
 }
 
 // Session 98 (cap / particles): true when prop PACH `pach` is a WORN item: its model (entry 0) has a node named "hat" or ending in "hat"
@@ -1018,6 +1075,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
       }
   }
   for (const Bytes& b : CommonTexDirs()) tex.AddDir(Bytes(b));  // (wrestler fix 3: chCommon's shared textures, last)
+  if (!CommonTexError().empty()) NoteDropped(m, "pac\\ch\\chCommon.pac (the shared wrestler textures)", CommonTexError(), "texture_pac");   // S108 AL1
 
   // JBOY pieces: 0 (body), 26, 27, and 10000..39999 (hair, hats, extras). Others are not models.
   // Session 99 (scene objects): an event PROP (prop_slots) also has its model slots 1..9: the game's prop maker CWeaponEventSD::MakeWeapon
@@ -1049,7 +1107,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
     std::string e2;
     if (!LoadJboy(blob, o, m, e2)) {
       if (pid == 0) return err = e2, false;
-      m.warnings.push_back("piece " + std::to_string(pid) + " failed: " + e2);
+      NoteDropped(m, "piece " + std::to_string(pid), e2);   // S108 AL1: the warning + the renderer's draw_shortfall (model_part)
       continue;
     }
     ++pieces;
@@ -1211,7 +1269,7 @@ inline size_t AddProp(launcher::GameFiles& files, uint32_t key, const std::vecto
   const size_t first = m.meshes.size();
   std::string e2;
   if (!LoadJboy(blob, o, m, e2)) {
-    m.warnings.push_back(std::string(label) + " " + std::to_string(key) + " failed: " + e2);
+    NoteDropped(m, std::string(label) + " " + std::to_string(key), e2);   // S108 AL1
     return 0;
   }
   if (swap_rb) {
@@ -1463,7 +1521,7 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
     const size_t before = m.meshes.size();
     std::string e2;
     if (!LoadJboy(blob, o, m, e2)) {
-      m.warnings.push_back("crowd body " + std::to_string(type) + " failed: " + e2);
+      NoteDropped(m, "crowd body " + std::to_string(type), e2);   // S108 AL1
       continue;
     }
     if (use_game) {
@@ -1633,6 +1691,7 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
         pac::Pac dpac;
         const pac::Ent* de = pac::Open(files, ArenaRel(bn.donor_arena), dpac, derr) && !dpac.pachs.empty() ? pac::Find(dpac.pachs[0], 400) : nullptr;
         if (de) tex.AddDir(pac::Decode(dpac.bytes.data() + de->off, de->size), std::vector<std::string>{bn.name});   // the log line comes from TexSet::Get when a material uses it
+        else NoteDropped(m, ArenaRel(bn.donor_arena) + " entry 400 (the donor of '" + bn.name + "')", derr.empty() ? std::string("no top-level entry 400") : derr, "texture_pac");   // S108 AL1: the donor did not open: a fault, not the game's choice
       }
   }
   // Session 97: the light sets (nested PACH 30002) and the per-slot `l(N)` choice (text entry 50001).
@@ -1849,11 +1908,10 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
     o.part = "slot " + std::to_string(key);
     o.kind = 1, o.key = int(key), o.pac = BaseName(ArenaRel(id));  // Session 98 (step 16)
     o.tex = car_id ? &tex_part[car::PartOfKey(key)] : &tex;   // S103 CAR fix 2
-    o.uv_in_s2 = key >= 800 && key <= 809;  // the movie leaves keep their UV in S2 (S1 is a constant)
     std::string e2;
     const size_t before = m.meshes.size();
     if (!LoadJboy(blob, o, m, e2)) {
-      m.warnings.push_back("slot " + std::to_string(key) + " failed: " + e2);
+      NoteDropped(m, "slot " + std::to_string(key), e2);   // S108 AL1
       continue;
     }
     if (key >= 951) ring_meshes[key] = {before, m.meshes.size()};
@@ -1928,6 +1986,8 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
     // [C for arena 5, swap 6728 draws 849-852, 868-870, 880-882, 1078-1081 matched by vertex / index counts; world matrices are pure
     // translations]: 390 and 394 (561, 0, -560); 391 and 395 (-561, 0, -560); 392 and 396 (532.9, 0, 560); 393 and 397
     // (-532.9, 0, 560). [U] that other arenas use the same offsets (the pieces are the same in bg00-04, 06-09; bg02 differs).
+    // S110 BARRICADE: OFFLINE VIEWER FALLBACK ONLY. The game's corner position and pose are the slot model's own palette ([model + 200], BARRICADE.md); the live build reads it (kFxSlotPalette rows, stage_posed.h)
+    // and drops this placement for every slot that has them (rf_c_core.cpp, the slot's own skinned model). These hand-measured constants stay only for the Arena Viewer, which has no palette.
     if (key >= 390 && key <= 397 && first_mesh < m.meshes.size() && m.meshes[first_mesh].placement < 0) {
       float lim = 0;
       for (size_t k = first_mesh; k < m.meshes.size(); ++k)
@@ -2110,7 +2170,7 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
         o.kind = 1, o.key = 31000, o.pac = BaseName(ArenaRel(id));
         o.tex = car_id ? &tex_part[2] : &tex;   // (CARG's flash)
         std::string e2;
-        if (!LoadJboy(blob, o, m, e2)) m.warnings.push_back("crowd flash 31000 failed: " + e2);
+        if (!LoadJboy(blob, o, m, e2)) NoteDropped(m, "crowd flash 31000", e2);   // S108 AL1
       }
     }
   }
@@ -2170,7 +2230,8 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
 
 // S103 CAR (BCA G1 piece 1): a Create-an-Arena venue = CASD n + CAEN n + CARG 0 + CARL n of pac\car\ merged (car_arena.h) and read by LoadArena exactly like a bg pac. `sel` = the three part indices the game
 // built the stage from (stage_fx_contrib.h reads them at the latch) + the real bg id it borrows. The merge is made by OpenCached under this thread's selection; the Model carries its key (custom_key) so the applier can
-// tell a model of another selection. NOT done (BCA [U]): the player's paint (TextureSetup_CAR, /CART/TEXP, /CARM/TSnn): the parts draw with their default textures.
+// tell a model of another selection. The pictures here are the part FILES': the game paints the player's choices into the stage's own texture objects ([stage + 14452]) at run time; S108 CAP reads
+// those (scene_live\car_paint.h) and rf_c_core.cpp EnsureArenaImpl puts them into this model by name (the file's picture stays only where the game's could not be read, reported, and offline).
 inline bool LoadCustomArena(launcher::GameFiles& files, int id, const car::Sel& sel, Model& m, std::string& err) {
   if (!car::IsCustomId(id)) return err = "arena " + std::to_string(id) + " is not a created arena (200-249)", false;
   if (!sel.valid) return err = "created arena " + std::to_string(id) + ": its part indices were not read", false;

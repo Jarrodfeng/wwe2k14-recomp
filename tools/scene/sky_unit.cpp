@@ -5,6 +5,7 @@
 // A plant swaps the rule under test for the old row rule; it must make NAMED checks fail (exit 1):
 //   row_rule   the hook names bodies from the participant row   -> "swap.desc_follows_body", "rumble.rows_full_named", "rumble.seat_reoccupied" (it passes the real remap case)
 //   desc_1220  the first SKY rule: the descriptor indexed by +1220 even with the remap active -> "remap.follows_1224"
+//   scale_by_slot  S110 MGRFINGERS: the old scale read, D[slot-table position] + 12 -> "scale.follows_1224", "scale.not_from_slot_record" (no remap: "scale.inactive_equals_slot" still passes)
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -43,7 +44,22 @@ struct Guest {
   void Seat(uint32_t i, uint32_t key, uint32_t table_index) { W(Desc(i), key); W(Char(int(i)) + 1220, i); W(kSlotTable + 4 * table_index, Char(int(i))); }
 };
 
-static bool g_plant_row = false, g_plant_1220 = false;
+static bool g_plant_row = false, g_plant_1220 = false, g_plant_scale_slot = false;
+// S110 MGRFINGERS: the body scale of the slot's body: the shipped DescScale, or (planted) the old read D[slot position] + 12. ok=false = no scale.
+static float F(uint32_t bits) { float f; std::memcpy(&f, &bits, 4); return f; }
+static uint32_t Bits(float f) { uint32_t b; std::memcpy(&b, &f, 4); return b; }
+static bool ScaleOf(const Guest& g, int slot, float& out) {
+  uint32_t ch = 0;
+  g.Read(kSlotTable + 4 * uint32_t(slot), ch);
+  auto rd = [&](uint32_t a, uint32_t& v) { return g.Read(a, v); };
+  if (g_plant_scale_slot) {
+    uint32_t ctx = 0, bits = 0;
+    if (!rd(kMatchCtx, ctx) || !ctx || !rd(ctx + 864 + 80 * uint32_t(slot) + 12, bits)) return false;
+    out = F(bits);
+    return true;
+  }
+  return DescScale(rd, ch, out);
+}
 // the rule under test: the shipped desc rule, or (planted) the old row rule
 static uint32_t Name(const Guest& g, int slot) {
   uint32_t ch = 0;
@@ -59,7 +75,7 @@ static uint32_t Name(const Guest& g, int slot) {
 
 int main(int argc, char** argv) {
   for (int i = 1; i + 1 < argc; ++i)
-    if (!std::strcmp(argv[i], "--plant")) { g_plant_row = !std::strcmp(argv[i + 1], "row_rule"); g_plant_1220 = !std::strcmp(argv[i + 1], "desc_1220"); }
+    if (!std::strcmp(argv[i], "--plant")) { g_plant_row = !std::strcmp(argv[i + 1], "row_rule"); g_plant_1220 = !std::strcmp(argv[i + 1], "desc_1220"); g_plant_scale_slot = !std::strcmp(argv[i + 1], "scale_by_slot"); }
 
   {   // 1v1 build layout: rows 0..1 occupied, 2..5 empty
     Guest g; g.Init();
@@ -124,10 +140,12 @@ int main(int argc, char** argv) {
     g.W(kRemapTable, ptr); g.W(ptr, 1);
     const uint32_t orig[3] = {24902, 10402, 31002};   // original descriptors O[m] (= the participant rows)
     const uint32_t table[3] = {1, 2, 0};              // j -> m (a 3-cycle: not an involution, so +1220 as an index is wrong)
+    const float osc[3] = {3664.f / 4096.f, 4139.f / 4096.f, 3729.f / 4096.f};   // the per-character k/4096 scale of original m (sub_823BB0C8)
     for (uint32_t m = 0; m < 3; ++m) g.Row(m, orig[m]);
     for (uint32_t j = 0; j < 3; ++j) {
       g.W(ptr + 4 + 4 * j, table[j]);
       g.W(g.Desc(j), orig[table[j]]);                  // D_j = O[table[j]]
+      g.W(g.Desc(j) + 12, Bits(osc[table[j]]));        // D_j+12 = the scale of original table[j] (sub_827EFCD0 +3A0)
       g.W(Guest::Char(int(j)) + 1220, table[j]);
       g.W(Guest::Char(int(j)) + 1224, j);
       g.W(kSlotTable + 4 * table[j], Guest::Char(int(j)));   // slot = table[j]
@@ -135,10 +153,32 @@ int main(int argc, char** argv) {
     bool ok = true;
     for (uint32_t j = 0; j < 3; ++j) ok = ok && Name(g, int(table[j])) == orig[table[j]];
     Check(ok, "remap.follows_1224: with the real remap, the key is the body's (D indexed by char+1224)");
+    bool sok = true;
+    for (uint32_t j = 0; j < 3; ++j) { float s = 0.f; sok = sok && ScaleOf(g, int(table[j]), s) && s == osc[table[j]]; }
+    Check(sok, "scale.follows_1224: with the real remap, the body's scale is its own record's (D indexed by char+1224)");
     auto rd = [&](uint32_t a, uint32_t& v) { return g.Read(a, v); };
     bool rowok = true;
     for (int s = 0; s < 3; ++s) { bool u = false; rowok = rowok && RowKey(rd, s, u) == orig[s]; }
     Check(rowok, "remap.row_rule_ok: the old row rule happens to pass this case (rows = original indices)");
+  }
+  {   // the real reset state (sub_827EFCD0 +2EC..+3D0, review MGRFINGERS): two participants O0, O1; O0's model was kept in model slot 3, O1 went to the free slot 0:
+      // table = {1, -1, -1, 0}. m = 0: D_3 = O0, D_0 reset (nothing copied into it yet); m = 1: D_0 = O1, D_1 reset (key 51200, +12 = 1.0, sub_823BB1C8). D_2 was empty already.
+      // sub_8251E928: char j=0 (+1224 = 0) sits at slot table[0] = 1 (a RESET record), char j=3 (+1224 = 3) at slot table[3] = 0 (O1's record: another body's).
+    Guest g; g.Init();
+    const uint32_t ptr = 0x43000000;
+    g.W(kRemapTable, ptr); g.W(ptr, 1);
+    const int32_t table[6] = {1, -1, -1, 0, -1, -1};
+    for (uint32_t j = 0; j < 6; ++j) g.W(ptr + 4 + 4 * j, uint32_t(table[j]));
+    const float s0 = 3664.f / 4096.f, s1 = 4139.f / 4096.f;
+    g.W(g.Desc(0), 10402); g.W(g.Desc(0) + 12, Bits(s1));            // D_0 = O1
+    g.W(g.Desc(1), 51200); g.W(g.Desc(1) + 12, Bits(1.0f));          // D_1 reset
+    g.W(g.Desc(2), 51200); g.W(g.Desc(2) + 12, Bits(1.0f));          // D_2 empty
+    g.W(g.Desc(3), 24902); g.W(g.Desc(3) + 12, Bits(s0));            // D_3 = O0
+    g.W(Guest::Char(0) + 1220, 1); g.W(Guest::Char(0) + 1224, 0); g.W(kSlotTable + 4 * 1, Guest::Char(0));   // O1's body
+    g.W(Guest::Char(3) + 1220, 0); g.W(Guest::Char(3) + 1224, 3); g.W(kSlotTable + 4 * 0, Guest::Char(3));   // O0's body
+    float a = 0.f, b = 0.f;
+    const bool ok1 = ScaleOf(g, 1, a) && a == s1, ok0 = ScaleOf(g, 0, b) && b == s0;
+    Check(ok1 && ok0, "scale.not_from_slot_record: the body at a reset record's slot gets its own scale, not 1.0; the body at another's record's slot gets its own, not the other's");
   }
   {   // remap table present but its active word is 0: not active, +1220 is the index
     Guest g; g.Init();
@@ -146,6 +186,9 @@ int main(int argc, char** argv) {
     g.W(kRemapTable, ptr); g.W(ptr, 0);
     g.Seat(0, 24902, 0); g.W(Guest::Char(0) + 1224, 7);
     Check(Name(g, 0) == 24902, "remap.inactive_uses_1220");
+    g.W(g.Desc(0) + 12, Bits(3664.f / 4096.f));
+    float s = 0.f;
+    Check(ScaleOf(g, 0, s) && s == 3664.f / 4096.f, "scale.inactive_equals_slot: no remap, the record index is the slot position, same value");
   }
   {   // bad values
     Guest g; g.Init();

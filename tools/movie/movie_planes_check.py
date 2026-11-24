@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane P4 gate check: builds tools\\movie\\movie_planes_unit.cpp (the movie planes taken from guest memory at the plane flush: the flush copy, the draw-order choice with U3's census, the upload; the rig on the
+"""S103 lane P4 check: builds tools\\movie\\movie_planes_unit.cpp (the movie planes taken from guest memory at the plane flush: the flush copy, the draw-order choice with U3's census, the upload; the rig on the
 2D corpus captures: planes from a fake guest built out of the capture's plane bytes vs the stream images, max diff 0; 0 game runs, no game, no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED
 check), then the wiring lints and a syntax check of movie_ours.cpp.
   py -I tools\\movie\\movie_planes_check.py [--root DIR] [--captures DIR]

@@ -13,7 +13,7 @@
 #include <mutex>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_plane.h"
 #include "plane_sites.h"
 
 namespace rdr_scene::live::plane {

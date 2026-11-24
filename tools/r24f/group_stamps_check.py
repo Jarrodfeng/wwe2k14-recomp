@@ -1,7 +1,7 @@
 r"""S102 lane R24-F: offline proof of wwe2k14_rdr_gpu_group_stamps (GPU stamps at the change of draw group inside the colour / frame passes). 0 game runs, 0 Surface runs.
   py -I tools\r24f\group_stamps_check.py [--root DIR] [--only unit|bryan|brock]
   unit      tools\r24f\group_stamps_test.cpp: the planner, the budget, the chain check, the coverage count, the aggregation and both planted faults.
-  bryan / brock   the gate's Bryan entrance capture (237 frames) and the Brock capture (375), the SHIPPED DEFAULT BUNDLE, replayed by rplay:
+  bryan / brock   the standard Bryan entrance capture (237 frames) and the Brock capture (375), the SHIPPED DEFAULT BUNDLE, replayed by rplay:
       off         no switch: no [rdr][gpu][groups] line at all (the draws carry no group, no stamp is written).
       pictures    shots under min run 1, min run 4 and validation 1 are BYTE-EQUAL to the off run (a stamp changes no output).
       validation  rplay --validation 1 with the switch on: `validation errors 0`, exit 0.
@@ -22,7 +22,7 @@ import colour_cuts_check as cc  # BUNDLE, shot_diffs, main_checkout, say, FAILS
 FAILS = cc.FAILS
 say = cc.say
 CAPS = {
-    'bryan': ('s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture', 120, [59, 60, 119]),   # (S102 build fast, prove small: 120 frames keep the whole gate under ~10 min)
+    'bryan': ('s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture', 120, [59, 60, 119]),   # (S102 build fast, prove small: 120 frames keep the whole check under ~10 min)
     'brock': ('s101/lane92/case_20261113_093550_855_0_pc_run_exit/capture', 120, [60, 61, 119]),
 }
 HEAD_RE = re.compile(r'\[rdr\]\[gpu\]\[groups\] (?P<why>[^:]+): group GPU table over (?P<frames>\d+) frames .*?min run (?P<min>\d+) draws.*?; (?P<stamps>[\d.]+) group stamps a frame;'

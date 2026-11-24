@@ -7,7 +7,8 @@
 //                 .bik2 .mp4 .mov .mkv .alpha.mp4 .alpha.mov .alpha.mkv (src\mods.h FindTron + kTronExts; same as the launcher)
 //   banner        <mods>\titantron\NNN.banner.txt (original | video | none | a file name, relative = titantron\), else
 //                 NNN.banner.mp4 / .mov / .mkv, else original (src\tron_shim.h ReadBanner)
-//   sheet         only when the original tron is a 320x320 sheet (src\tron_shim.h:624; --wwe2k14_tron_sheet assumed on, its default):
+//   sheet         only when the original tron is a 320x320 sheet, or the number is a custom tron slot (no original: "original" strips are
+//                 black) (src\tron_shim.h TryOpen; --wwe2k14_tron_sheet assumed on, its default):
 //                 the video on rows 0-223 (the big screen), four 24-row banner strips below: original strips = the game's own,
 //                 video = a centred band, file = the banner video (cut in four when wider than 26.7:1), none = black.
 //                 Otherwise the video fills the whole frame. A Bink 2 mod is played by the game's own decoder: the viewer has
@@ -23,6 +24,9 @@
 #pragma once
 
 #include "../thread_name.h"  // S102 H1
+#include "../tron_sheet_core.h"  // S110 TRONSHEET: the sheet's sizes (kSheetSize, ...), the shim's and the store's
+#include "../tron_slots_core.h"  // S110 TRONSLOT: kTronExts, the one tron extension list (the game's, the launcher's)
+#include "../tron_slots_ui_core.h"  // S110 TRON-B: the custom-tron screens' decisions (launcher, importer form, these commands)
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -45,7 +49,7 @@ namespace mods_lookup {
 
 namespace fs = std::filesystem;
 
-inline constexpr const char* kTronExts[] = {".bik2", ".mp4", ".mov", ".mkv", ".alpha.mp4", ".alpha.mov", ".alpha.mkv"};
+using wwe2k14::tron_slots_core::kTronExts;  // src\tron_slots_core.h: the game's order
 inline constexpr int kMaxTron = 9999;  // the game parses at most 4 digits
 
 inline std::string Lower(std::string s) {
@@ -329,6 +333,14 @@ inline std::string AssignTron(int tron, const fs::path& src, bool stacked_alpha 
   Reindex();
   return "";
 }
+// S110 TRON-B: custom trons (src\tron_slots_ui_core.h decides: the same rule as the launcher's TRONS tab). Each returns "" or the reason.
+inline std::string CustomAdd(const fs::path& src, const std::string& name, int* id) {
+  if (Cfg().dir.empty()) return "no mods folder";
+  return wwe2k14::tron_slots_ui::AddSlot(TronDir(), name, [&](int n) { return AssignTron(n, src); }, id);
+}
+inline std::string CustomRename(int tron, const std::string& name) {
+  return Cfg().dir.empty() ? std::string("no mods folder") : wwe2k14::tron_slots_ui::RenameSlot(TronDir(), tron, name);
+}
 // True when `p` is a file inside the mods folder (the only files the panel may remove).
 inline bool InsideMods(const fs::path& p) {
   if (Cfg().dir.empty()) return false;
@@ -346,6 +358,47 @@ inline std::string RemoveTron(int tron) {
   if (!Plat().recycle(f, err)) return "could not remove: " + err;
   Reindex();
   return "";
+}
+
+// S110 TRON-B: removes a custom tron by the core's rule (tron_slots_ui_core.h RemovedFiles: every video of the number and its banner files),
+// each to the Recycle Bin (as every viewer removal), then its line is RETIRED (RetireLine). A failed recycle stops before the line changes.
+inline std::string CustomRemove(int tron) {
+  if (Cfg().dir.empty()) return "no mods folder";
+  if (!wwe2k14::tron_slots_core::IsSlotId(tron)) return "that is not a custom tron number";
+  const std::vector<fs::path> files = wwe2k14::tron_slots_ui::RemovedFiles(TronDir(), tron);
+  if (!files.empty() && !Plat().recycle) return "no Recycle Bin on this platform";
+  const std::string g = NormKey(Cfg().game_root);
+  for (const fs::path& f : files) {
+    if (!InsideMods(f)) return "refusing: not inside the mods folder";
+    if (!g.empty() && SameOrInside(NormKey(f), g)) return "refusing: that is a game file";
+    std::string err;
+    if (!Plat().recycle(f, err)) {
+      Reindex();
+      return "could not remove " + U8(f.filename()) + ": " + err;
+    }
+  }
+  Reindex();
+  return wwe2k14::tron_slots_ui::RetireLine(TronDir(), tron);
+}
+// {"tron":N,"name":"...","file":"..."} per FILLED slot, and the problems' texts.
+inline std::string CustomJson() {
+  const fs::path dir = TronDir();
+  if (dir.empty()) return "\"custom\":[],\"custom_problems\":[]";
+  const auto lib = wwe2k14::tron_slots_core::ReadSlots(dir);
+  const auto m = wwe2k14::tron_slots_ui::BuildModel(dir, lib);
+  auto esc = [](const std::string& s) {
+    std::string o;
+    for (char c : s) {
+      if (c == '"' || c == '\\') o += '\\';
+      if (static_cast<unsigned char>(c) >= 32) o += c;
+    }
+    return o;
+  };
+  std::string a, b;
+  for (const auto& s : m.filled)
+    a += std::string(a.empty() ? "" : ",") + "{\"tron\":" + std::to_string(s.id) + ",\"name\":\"" + esc(s.name) + "\",\"file\":\"" + esc(Name(s.file)) + "\"}";
+  for (const auto& p : m.problems) b += std::string(b.empty() ? "" : ",") + "\"" + esc(p.text) + "\"";
+  return "\"custom\":[" + a + "],\"custom_problems\":[" + b + "]";
 }
 
 // ---------------------------------------------------------------- frames and the sheet
@@ -520,8 +573,11 @@ inline Frame ModSheet(int id, const Frame* original) {
   if (!Cfg().on) return none;
   const fs::path f = TronFor(id);
   if (f.empty()) return none;
-  constexpr int S = 320, kBig = 224, kStrip = 24, kStrips = 4;
-  const bool sheet = original && original->ok() && original->w == S && original->h == S;  // tron_shim.h:624
+  namespace ts = wwe2k14::tron_sheet;   // S110 TRONSHEET: the sheet's sizes, stated once (src\tron_sheet_core.h)
+  constexpr int S = int(ts::kSheetSize), kBig = int(ts::kSheetBigRows), kStrip = int(ts::kSheetStripRows), kStrips = int(ts::kSheetStrips);
+  // as the shim (tron_shim.h TryOpen): a 320x320 original, or a custom slot (no original file at all)
+  const bool has_original = original && original->ok() && original->w == S && original->h == S;
+  const bool sheet = has_original || wwe2k14::tron_slots_core::IsSlotId(id);
   if (IsBink(f)) {  // the game would play the mod with its own Bink decoder; the viewer has none: a black "no preview" sheet
     Frame k;
     k.w = k.h = S;
@@ -554,7 +610,8 @@ inline Frame ModSheet(int id, const Frame* original) {
   Scale(v, 0, 0, v.w, v.h, out, 0, 0, S, kBig);
   const Banner b = ReadBanner(id);
   if (b.mode == BannerMode::kOriginal) {
-    std::copy_n(&original->rgba[size_t(kBig) * S * 4], size_t(S - kBig) * S * 4, &out.rgba[size_t(kBig) * S * 4]);
+    // a custom slot has no original: black strips, as the shim ("the original's strips could not be opened; black banners")
+    if (has_original) std::copy_n(&original->rgba[size_t(kBig) * S * 4], size_t(S - kBig) * S * 4, &out.rgba[size_t(kBig) * S * 4]);
   } else if (b.mode == BannerMode::kVideo) {
     const int band = std::clamp(int(int64_t(v.h) * kStrip / kBig) & ~1, 2, v.h & ~1);
     const int y0 = ((v.h - band) / 2) & ~1;

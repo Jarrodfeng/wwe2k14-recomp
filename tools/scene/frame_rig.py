@@ -788,7 +788,7 @@ def main(argv=None):
     ap.add_argument('--no-textures', action='store_true', help='plant: WWE_RDR_NO_TEXTURES=1 on our side (must show in the per-family numbers)')
     ap.add_argument('--mask', default=None, help='a family mask for the whole panel (0x0 drops everything: the empty-panel plant)')
     ap.add_argument('--size', default=None, help='WxH of our picture (default: the game picture\'s size)')
-    ap.add_argument('--expect-fail', default=None, metavar='TOKEN', help='a planted-fault run: exit 0 only when the run failed AND its output holds TOKEN (the gate runs the twins this way)')
+    ap.add_argument('--expect-fail', default=None, metavar='TOKEN', help='a planted-fault run: exit 0 only when the run failed AND its output holds TOKEN (the twins are run this way)')
     ap.add_argument('--repeat', type=int, default=3, help='build the same record N times on one cache: no frame after the first may add a model (the live path builds every frame)')
     ap.add_argument('--particles-probe', action='store_true', help='S103 F: also draw a synthetic particle record through BuildFrame (viewer space) and check where the particles land')
     ap.add_argument('--particles-probe-fault', default=None, metavar='no_mirror', help='S103 F plant: the hook skips the viewer-space mirror: the probe must FAIL')

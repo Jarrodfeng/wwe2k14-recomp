@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "scene_record.h"
+#include "rows_part_clock.h"
 
 namespace rdr_scene {
 

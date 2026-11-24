@@ -6,6 +6,6 @@ $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $outDir = Join-Path $repo 'out\tools'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 $exe = Join-Path $outDir 'imp_test.exe'
-& clang++ -O1 -std=c++20 -Wall -Wno-unused-command-line-argument (Join-Path $repo 'tools\importer\test_imp.cpp') -o $exe
+& clang++ -O1 -std=c++20 -D_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING -Wall -Wno-unused-command-line-argument (Join-Path $repo 'tools\importer\test_imp.cpp') -o $exe
 if ($LASTEXITCODE -ne 0) { throw "clang++ failed ($LASTEXITCODE)" }
 Write-Host "built $exe"

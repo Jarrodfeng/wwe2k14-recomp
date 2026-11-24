@@ -4,7 +4,7 @@ Arms (fview --replay, validation on, per-frame picture hashes; switches --frame-
   unit        the rules on plain facts (frame_cuts_test.cpp): every rule declines on its own fault, the write versions, the stencil mark; six planted faults must each FAIL the test.
   per capture off / selfblit / restore / both: the picture hashes byte-equal to off, validation errors 0 AND exit code 0 (fview writes its csv before it exits 4 on errors),
               bound draws fall by exactly the draws taken (selfblit 1 a frame, restore 3 a frame on the entrance captures), the census line is read (frames taken are reported).
-  bundle      the same under the default bundle the gate uses (--shadows-ours --shadow-casters-ours --plane-shadow-ours --post-ours --small-passes-ours --rim-ours --rim-chain-ours --circles-ours
+  bundle      the same under this check's BUNDLE (--shadows-ours --shadow-casters-ours --plane-shadow-ours --post-ours --small-passes-ours --rim-ours --rim-chain-ours --circles-ours
               --movie-ours --screens-ours): hashes equal to the bundle without the cuts, frames taken reported (0 taken = the lever does nothing for players).
   alias       --copy-alias 2 --copy-alias-classes 63 and --alias-fullsize 2: the cuts and G8's alias together (a restore's copies read an aliased texture).
   scale       --scale 1.5 and 0.75 (F3): hashes equal, the cuts still take every frame (every image is scaled alike).

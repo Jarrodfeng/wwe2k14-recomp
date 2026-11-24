@@ -253,6 +253,15 @@ class Table {
     std::lock_guard<std::mutex> lock(mu_);
     ++null_block_;
   }
+  // S108 RDS: the game destroyed this model (the base destructor sub_82BD3B40, model_release_hook.h): its learned light entry names a block the game may free with it. `ever_` keeps the address (a census of holes, no read).
+  void Forget(uint32_t model) {
+    std::lock_guard<std::mutex> lock(mu_);
+    map_.erase(model);
+  }
+  bool Has(uint32_t model) {
+    std::lock_guard<std::mutex> lock(mu_);
+    return map_.count(model) != 0;
+  }
   void Clear() {
     std::lock_guard<std::mutex> lock(mu_);
     map_.clear();

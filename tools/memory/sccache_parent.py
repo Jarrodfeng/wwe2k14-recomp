@@ -19,7 +19,7 @@ import psutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'gate'))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'compile'))
 import proc  # noqa: E402
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane U1 gate check (offline, 0 game runs): wwe2k14_rdr_tail_release (docs\\renderer\\SWAP_TAIL.md).
+"""S102 lane U1 check (offline, 0 game runs): wwe2k14_rdr_tail_release (docs\\renderer\\SWAP_TAIL.md).
 
   py -I tools\\tail\\tail_order_check.py [--root DIR] [--frames N]
 

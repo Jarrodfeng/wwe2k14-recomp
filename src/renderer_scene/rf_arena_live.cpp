@@ -7,8 +7,13 @@
 #include <set>
 
 #include "../assets/stage_pools.h"  // S103 L
+#include "rows_stage_fx.h"   // S106 G4-2
+#include "rows_stage_look.h"
 #include "rf_c.h"
 #include "rf_crowd.h"  // S103 B4F
+#include "ring_pose.h"   // S110 BARRICADE: RingInstancePad, WorldFromRowsCore
+#include "stage_posed.h"   // S110 BARRICADE
+#include "stage_slot_vis.h"   // VisFromRows (the marker's stage generation)
 #include "stage_look.h"  // S103 L
 #include "stage_lmpage.h"  // S103 L8
 
@@ -127,14 +132,43 @@ bool ApplyArenaLive(BuildCtx& ctx) {
     ctx.frame.model_lights.push_back(LightsFor(ctx.t, it->second, uint32_t(it->second.model)));
     drawn += it->second.meshes;
   };
+  // S110 BARRICADE (docs\research\s110\BARRICADE.md): a slot whose model has more than one node is drawn with the palette the game holds for it (the record's kFxSlotPalette rows, stage_posed.h): ITS one-slot model
+  // (rf_c_core.cpp, built skinned) at identity world with the node rows made viewer-space matrices as the frame's bones, node index = pool index = the bound vertices' node (as the ring's GPU pieces, rf_ring.cpp).
+  // false = the slot has no skinned model of its own (nothing drawn, nothing counted: the static arena still holds it).
+  PosedAdoptRows(ctx.t.stage_fx, as->arena, as->posed_keep);   // the rows of this frame under THIS arena's stage marker, then the LAST rows of this stage generation (a frame without rows never makes a rig vanish)
+  std::map<int, PosedSlot> posed = as->posed_keep.last;
+  const auto push_posed = [&](const PosedSlot& ps) {
+    auto it = as->moving.find(int(ps.slot));
+    if (it == as->moving.end() || it->second.model < 0 || !it->second.posed) return false;
+    Object o;
+    o.asset = uint32_t(it->second.model);
+    o.world = IdentityMat4();
+    o.pad = RingInstancePad(0, false);
+    o.flags |= kObjSkinned;
+    o.bones_first = uint32_t(ctx.frame.bones.size());
+    o.bones_count = ps.Nodes();
+    for (uint32_t k = 0; k < ps.Nodes(); ++k) {
+      const assets::Matrix m = WorldFromRowsCore(&ps.rows[size_t(k) * 12u]);
+      Mat4 b;
+      std::memcpy(b.m, m.data(), sizeof b.m);
+      ctx.frame.bones.push_back(b);
+    }
+    LogOrder("arena");
+    ctx.frame.objects.push_back(o);
+    ctx.frame.model_lights.push_back(LightsFor(ctx.t, it->second, uint32_t(it->second.model)));
+    drawn += it->second.meshes;
+    return true;
+  };
   push_static(lead);
   for (const auto& c : as->cuts) {
+    if (auto p = posed.find(c.slot); p != posed.end() && push_posed(p->second)) posed.erase(p);   // S110 BARRICADE: a slot built skinned is drawn posed here (one not built skinned stands in the static arena: its rows are unused)
     auto r = rows.find(c.slot);
     if (r != rows.end()) push_moving(c.slot, r->second), rows.erase(r);   // S103 SOF: a pushed row leaves `rows` (no per-frame set of placed slots)
     push_static(c.seg);
   }
   for (const auto& kv : rows)   // what is left: a row whose slot has no cut (no meshes / the planted order): after the static arena
     push_moving(kv.first, kv.second);
+  for (const auto& kv : posed) push_posed(kv.second);   // S110 BARRICADE: the posed slots with no cut
   Report(ctx, Family::Arena, static_meshes, drawn, skipped, reason);
   // S103 NR (3): the hole rules below run on a WARM build too (they are pure record tests, no upload): a frame READY in Warm must not then be refused by DrawLive for the same rule.
   {  // S103 L (review 7): an entrance whose rig values are missing for a set the game remaps is a MISSING INPUT (a hole: the live caller keeps the game's frame), counted

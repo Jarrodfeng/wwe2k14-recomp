@@ -1,5 +1,83 @@
 # Changelog
 
+## v0.4.2
+
+**v0.4.2: a library for your imported superstars, a letter jump on the select screen, custom titantrons, and fixes for what you reported since v0.4.1.**
+
+Everything below is in the PC build and the phone build. The biggest change is inside the Superstar Importer: the first time you press PLAY
+in the launcher with USE MY SUPERSTARS on, your imported superstars are moved into a new form (the first entry below). There are still a few
+reported faults I have not fixed (see the known issues), so this is a small version step. If something looks wrong, please send it with
+Report a problem.
+
+### New
+
+- **Imported superstars live in a library, at about half the size.**
+  What you saw: every import was built into a fixed, numbered slot of one big pack, about 9 to 10 MB per superstar. Now each superstar is
+  kept once in the importer's library (about 4 to 6 MB each), and the game seats your superstars when it starts.
+  Your existing imports are converted the first time you press PLAY in the launcher with USE MY SUPERSTARS on: the launcher says so and builds
+  them once more (nothing is lost). The old pack is kept as a backup until the game has run once on the library; the importer removes it at a
+  later build. The importer no longer keeps a second copy of each pac you imported (the superstar's own library file holds his model), so keep
+  your downloads if you want the original files. I tested the conversion through the launcher on a copy of my own imports, and loaded a save
+  made in v0.4.1 with an edited entrance afterwards: the superstars and the edit were intact.
+- **More imported superstars than the game has seats.** The game has about 100 seats for imports. When your library holds more superstars,
+  the rest appear on further pages of the DOWNLOADED SUPERSTARS tab: LB / RB turn the page ("DOWNLOADED SUPERSTARS (LB) 1/2 (RB)"), and a
+  superstar picked from a later page plays his own entrance with his own name plate.
+- **An imported superstar keeps his own move set, entrance and Superstar Threads colours** when seats change hands between superstars.
+  Titles, teams, rivalries and Universe stay with your save.
+- **Universe: when an imported superstar's seat goes to another superstar, the one who left is taken off his booked matches.** The game
+  rebuilds that day's card without him, and the newcomer does not stand in for him. (A Royal Rumble or battle royal is the exception: see
+  the known issues.)
+- **Jump by letter on the select screen.** LT / RT jump to the previous / next letter in every tab of the superstar select screen, turning
+  the page when needed. A small box in the game's own menu style beside each picking panel shows the letters around the current one
+  ("LT H J K RT").
+- **The DOWNLOADED SUPERSTARS tab is in alphabetical order,** DLC superstars and your imports together. Only the list's order changes;
+  nothing is written to your save.
+- **Custom titantron slots.** Add a video in the launcher's CUSTOM TRONS section (it goes into the mods folder's titantron folder) and it
+  gets a number of its own: it shows at the end of every superstar's MOVIE list in Create an Entrance, and the Superstar Importer can give
+  it to an imported superstar. Big screen only for now.
+
+### Fixed
+
+- **Imported superstars: entrances.**
+  What you saw: an import had no entrance effects of his own or the wrong light beams, ADVANCED CREATION in Create an Entrance dropped back
+  to the list, or an import took over another superstar's entrance motion. Cause: the importer used the import's slot number as his
+  entrance number, and copied entrance rows that were only placeholders. Fix: each import gets an entrance number of his own, his entrance
+  superstar's effects, stage videos, name plate and victory scene, and the editor rows the game expects. The conversion above rebuilds
+  your imports with all of this.
+- **Imported superstars: a saved highlight reel that shows one loads again.**
+  Cause: each import took one entry of a list the game keeps in 64 bits, so once you had many imports (with no DLC installed, from the
+  first one) a reel showing one was refused. Fix: all imports share one entry. Honest note: fixed from the game's code; I have not loaded such a reel yet.
+- **Stretched fingers, mostly on managers.** Checked in Bobby Heenan's entrance with King Kong Bundy, and on Miss Elizabeth.
+  Cause: in 30 Years and story scenes the game reshuffles which body sits where, and my renderer read another body's size. Fix: each body's
+  size is read through its own superstar's record.
+- **The crowd's camera flashes are crisp again,** not grey smudges. Cause: my renderer drew them before the picture's blur, haze and (in
+  the retro arenas) sepia, which smeared them; the game draws them after. Fix: drawn after, with the game's own colours. Honest note: a
+  crowd flicker some of you saw in 30 Years story moments may be something else; its cause is not found yet (see the known issues).
+- **Custom titantron videos play on the big screen.**
+  What you saw: a black big screen with a custom video (MP4, MOV or MKV), also one that replaces a stock titantron. Cause: the video was
+  handed to the game at a size my renderer's stage screen refuses. Fix: one size that both use, the stock titantron's (so a larger video
+  shows at the stock titantron's sharpness). Found while building the custom slots; v0.4.1 has the same fault.
+- **The OMG spear through a corner barricade breaks it.** What you saw: the barricade stayed whole. Cause: the game moves the corner
+  barricade's parts every frame; my renderer drew them as one fixed piece. Fix: drawn from the game's moving parts.
+- **Create a Moveset no longer shows an extra wrestler.** Cause: my renderer drew a body the game had hidden. Fix: a body is drawn only
+  while the game asks for it.
+- **Blood stays after the victory scene (a fix of the original game).** Cause, in the original game: the victory scene repaints the
+  wrestlers' blood and keeps only the blood still being drawn, so most of an earlier bleed disappeared. Fix: the blood is kept, always on.
+  Blood also stays after the post-match clip, and mirrored blood and sweat land in the right place.
+- **DLC entrance particles and pyro draw** (Fandango's entrance, for example), and **Fandango's tassels** are back.
+- **Create an Arena paint shows,** in the editor and from a match's first frame.
+- **Superstar Threads colours show on the wrestler and on entrance gear** in the editor.
+- **Long hair draws as the game draws it.**
+- **Arena logos and strips sit where the game puts them** (the logo strip of one arena, and about 2,000 pieces in 50 arenas). Cause: my
+  renderer read the wrong set of texture positions for arena pieces.
+- **My own effects are part of "Preparing shaders" (PC),** on a fresh install too, so the first crowd camera flash and the other effects I draw
+  myself no longer hitch the first time they appear. The phone build does not do this yet (see the known issues).
+
+### Android
+
+- **Everything above is in the phone build too, except the "Preparing shaders" entry.** Custom titantrons work on the phone, but the phone launcher has no screen for them yet.
+  The letter jump has not been tried with the touch controls.
+
 ## v0.4.1
 
 **v0.4.1: the faults you reported on v0.4.0, and a sweep of every game mode on the new renderer.**

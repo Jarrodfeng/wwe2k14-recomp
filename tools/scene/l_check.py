@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Lane L's gate check (Session 103): the stage lit like the game's, from the record. 0 game runs: fview headless + frame_rig.exe.
+r"""Lane L's check (Session 103): the stage lit like the game's, from the record. 0 game runs: fview headless + frame_rig.exe.
 
   py -I tools\scene\l_check.py [--out DIR] [--frames 20,110,200] [--second CAPTURE:FRAME]
 
@@ -12,7 +12,7 @@ FL_floor_brightness.md [C]; the presented-frame numbers are printed as INFO line
   - plant `rig`: worse than after by >= 1.0 point of arena mean |diff|;
   - plant `wrong_slot`: the arena's luminance ratio outside [0.8, 1.4];
   - the second capture / frame (default brock_losswin_rt:100): the same `after` rule.
-Exit 0 = all PASS. Writes a JSON of the numbers under --out (default: GATE_CHECK_DIR\L_gate, else a per-run out\L_gate_<pid>, removed on PASS).
+Exit 0 = all PASS. Writes a JSON of the numbers under --out (default: a per-run out\L_gate_<pid>, removed on PASS).
 
 S103 PS1 (load once, draw many; compare in the rig): the arms of a frame set run on ONE frame_rig.exe process (frame_rig.RigSession: the arena, models, textures and crowd stay loaded between arms; the game's
 replay pictures, body scales, camera, look rows and pools are made once per frame, not once per arm), and the numbers above are computed by the rig itself from the pictures it just drew (tools\scene\rig_metrics.h:
@@ -73,7 +73,7 @@ def main():
     ap.add_argument('--metrics-device', default='gpu', choices=['gpu', 'cpu', 'both'], help='where the rig measures (gpu default; both = measure twice and FAIL when they disagree)')
     args = ap.parse_args()
     t_start = time.time()
-    args.out = run_dirs.run_out('L_gate', args.out)   # --out, else GATE_CHECK_DIR, else a per-run folder (removed on PASS)
+    args.out = run_dirs.run_out('L_gate', args.out)   # --out, else a per-run folder (removed on PASS)
     frame_rig.SESSION = frame_rig.RigSession(serve=not args.no_serve, prep_root=None if args.no_serve else os.path.join(args.out, 'prep'))
     main_root = main_checkout()
     out = args.out

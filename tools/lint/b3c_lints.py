@@ -94,7 +94,7 @@ def main():
                 bad.append(('f32_port', '%s:%d' % (os.path.relpath(p, ROOT), ln), '%s:%d: [f32] line uses a double or a float literal without f' % (os.path.relpath(p, ROOT), ln)))
     if '--write-baseline' in sys.argv:
         with open(BASE, 'w', encoding='utf-8', newline='\n') as f:
-            f.write('# S103 B3c: findings that already existed when the lints were made (rule NAME); a new one fails the gate.\n')
+            f.write('# S103 B3c: findings that already existed when the lints were made (rule NAME); a new one fails the lint.\n')
             for rule, key, _ in sorted(set(bad)):
                 if rule != 'f32_port':
                     f.write('%s %s\n' % (rule, key))

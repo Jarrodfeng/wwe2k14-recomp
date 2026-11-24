@@ -15,7 +15,7 @@ __attribute__((noinline))
 #endif
 inline void NoteDraw(uint32_t r13, uint64_t frame) {
   if (!rdr_scene::live::Enabled()) return;
-  rdr_scene::live::drawcam::Cam().Note(&wwe2k14::wrestlers::ReadGuest, r13, frame);
+  rdr_scene::live::drawcam::Cam().Note(&wwe2k14::wrestlers::ReadGuestNoNote, r13, frame);   // S110 FEEDREC: the reader type notes each read at its caller
 }
 
 }  // namespace wwe2k14::drawcam

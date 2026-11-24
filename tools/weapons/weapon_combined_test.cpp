@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/weapon_rows.h"
 #include "../../src/renderer_scene/weapon_plan.h"
 #include "../../src/scene_live/weapon_contrib.h"
 #include "../../src/scene_live/weapon_rows_contrib.h"

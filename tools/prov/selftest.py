@@ -193,11 +193,11 @@ def main():
             print(f'FAIL 3 (text pin) {name}: missing in {rel}')
             fails += 1
     # 4
-    r = run(['git', '-C', str(REPO), 'diff', '--quiet', 's101-renderer-arc', '--', 'src/renderer_adapter/names.h'], 60)
+    r = run(['git', '-C', str(REPO), 'diff', '--quiet', 'main', '--', 'src/renderer_adapter/names.h'], 60)   # S106 TIPFIX: main carries the S102 G6 names (s101-renderer-arc is behind it)
     if r.returncode == 0:
-        print('PASS 4 names.h (the frame format) is unchanged from s101-renderer-arc')
+        print('PASS 4 names.h (the frame format) is unchanged from main')
     else:
-        print('FAIL 4 names.h differs from s101-renderer-arc (a format change needs a version bump written into NAMES.md)')
+        print('FAIL 4 names.h differs from main (a format change needs a version bump written into NAMES.md)')
         fails += 1
     print('PASS' if not fails else f'FAIL: {fails} check(s)')
     return 1 if fails else 0

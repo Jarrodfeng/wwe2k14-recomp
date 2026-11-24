@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/renderer_scene/stage_slot_vis.h"
 #include "../../src/scene_live/stage_fx_contrib.h"
 
@@ -251,6 +252,32 @@ int main(int argc, char** argv) {
     Guest g2 = Make(w);
     SlotVisWords v2;
     Check(!ReadVisWords([&g2](uint32_t a, void* d, size_t n) { return g2.Read(a, d, n); }, 0, v2), "words.no_stage", "no stage = nothing read");
+  }
+  // ---------------------------------------------------------------- 6b. S110 BARRICADE (site 6): the game's head of sub_824E7190 (0x824E71AC-0x824E71F0): the per-slot SHOW bit
+  {
+    World w;
+    Guest g = Make(w);
+    SlotVisWords vw;
+    ReadVisWords([&g](uint32_t a, void* d, size_t n) { return g.Read(a, d, n); }, kStage, vw);
+    uint8_t recs[kSlotVisSlots * kStageRecordSize];
+    std::memcpy(recs, g_recs, sizeof recs);
+    auto set9 = [&](uint32_t s, uint8_t b8, uint8_t b9) { recs[s * kStageRecordSize + 8] = b8, recs[s * kStageRecordSize + 9] = b9; };
+    set9(131, 0x00, 0x80);   // shown
+    set9(132, 0x00, 0x00);   // show bit clear (the chairs' hide, the story hooks)
+    set9(133, 0x00, 0x88);   // bit 0x08 of byte +9
+    set9(134, 0x80, 0x80);   // +8 bit 0x80 (a cycle group's slot: never drawn by the stage pass)
+    std::vector<uint16_t> sk;
+    BuildVisSkips(recs, vw, sk);
+    Check(!Has(sk, 131) && Has(sk, 132) && Has(sk, 133) && Has(sk, 134), "show.bit_clear_skipped", "a slot whose byte +9 bit 0x80 is clear (or bit 0x08 set, or +8 bit 0x80) is skipped; a shown one is not");
+    // a cycle slot still follows CycleSkips: listed slots 295 / 296 carry the builder's +8 bit 0x80; the picked one is drawn, the other skipped
+    set9(295, 0x80, 0x80), set9(296, 0x80, 0x80);
+    BuildVisSkips(recs, vw, sk);
+    CycleGroup cg;
+    cg.n = 2, cg.slot[0] = 295, cg.slot[1] = 296, cg.thr[0] = 100, cg.thr[1] = 200, cg.tick = 50;   // pick = 295
+    CycleWords cw;
+    cw.phase = vw.phase;
+    CycleSkips({cg}, cw, recs, sk);
+    Check(!Has(sk, 295) && Has(sk, 296) && Has(sk, 132), "show.cycle_slot_follows_cycle", "the picked cycle slot is drawn although its +8 bit is set, the other is skipped, the show-bit skips stay");
   }
   // ---------------------------------------------------------------- 7. the rows (round trip) and the applier's keep rule
   {

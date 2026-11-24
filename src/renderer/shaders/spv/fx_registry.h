@@ -85,6 +85,9 @@ struct Attribute { uint8_t fetch, location, integer; };
 struct Sampler { uint8_t slot, kind; };
 struct Variant { const char* name; const uint32_t* spirv; size_t bytes; const uint32_t* spirv_alpha; size_t bytes_alpha; const ConstantRange* constants; uint16_t constant_count; uint16_t block_bytes; uint16_t bools_offset; const Attribute* attributes; uint16_t attribute_count; const Sampler* samplers; uint16_t sampler_count; uint8_t out_alpha; uint8_t vc_fetch; };
 struct HashEntry { uint64_t hash; uint32_t variant; };
+// S110 RDRPREP: our own shaders (kSpv_<name> of src\renderer\shaders\*.vert|*.frag, test_* left out): the pipeline store's shader catalog holds them beside kVariants (pipeline_catalog.h).
+struct OwnShader { const char* name; const uint32_t* words; size_t bytes; };
+extern const OwnShader kOwnShaders[39];
 
 inline constexpr Attribute kA_yAfterImage_quad_vertex[] = {{0, 0, 0}, {1, 1, 0}};
 inline constexpr ConstantRange kC_yAfterImage_alpha_fragment[] = {{0, 1, 0, 0}};

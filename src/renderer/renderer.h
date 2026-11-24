@@ -64,6 +64,7 @@ struct RendererOptions {
   // Lane 276 (SKIP_GAME_WORK_MAP 19.10): the pipeline store. A folder (UTF-8) for pipelines.bin (the list of pipelines built, keys only) and pipeline_cache.bin (the
   // driver's VkPipelineCache, header-checked); empty = off (the default: the cache starts empty and dies with the process, as before).
   std::string pipeline_store_dir;
+  std::string pipeline_seed_path;  // S106 PSEED: the shader_list.txt whose R lines seed the store (hashes only, shipped); empty = no seed
   uint32_t pipeline_prebuild_slice_us = 2000;  // the listed pipelines are built in slices of about this long at the start of each RenderFrame (at least one a slice); 0 = only PrebuildPipelines() builds them
   uint32_t pipeline_store_plant = 0;           // test plants: 1 = the list's checksum is not checked, 2 = the cache's device/driver/checksum is not checked
   uint32_t pipeline_save_interval_ms = 30000;  // how often new pipelines are saved while the game runs (the save runs on one worker; tests use a short one)

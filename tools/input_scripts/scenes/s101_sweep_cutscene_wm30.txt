@@ -1,5 +1,4 @@
-# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
-# harness: realtime (the pre-match video plays at its own length; menu presses)
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --wwe2k14_replay_mode=true
 # Session 101 lane 252 (UNTESTED: never run; copy of scenes\s101_sweep_wm30_long.txt with the A presses that skip the era presentation held back): the CUTSCENES row of the coverage board
 # (tools\board\coverage.py ITEMS 'cutscenes'). The board assigns a zip to this item by the ROUTE NAME (ITEM_RULES: 'sweep_cutscene'), so this file name keeps the words. What it reaches:
 # 30 Years of WrestleMania, era card, the first match picked (EVTDSC opens), then the game's OWN pre-match presentation (video + loading card) is watched for 2400 frames with NO press

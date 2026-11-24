@@ -44,10 +44,12 @@ struct Fake {
   std::vector<std::vector<uint64_t>> ctor_args;  // S105 SLO3: every DimSceneCtor call's (r3, r4, r5)
   std::vector<uint64_t> alloc_sizes;             // S105 SLO3: every Alloc size
   bool alloc_fails = false;
+  std::vector<std::vector<uint64_t>> state_calls;  // S110 OMGROUTE: every QueueState call's (r3, r4, r5)
   std::vector<std::string> order;  // S105 T1: the writes and the call, in the order they happened
   uint32_t Call3(Fn f, uint64_t r3, uint64_t r4, uint64_t r5) {
     calls.push_back({int(f), r3});
     if (f == Fn::DimSceneCtor) { ctor_args.push_back({r3, r4, r5}); mem[uint32_t(r3) + 80] = 0x1234; mem[uint32_t(r3) + 84] = 0x5678; mem[uint32_t(r3) + 88] = 0x9ABC; order.push_back("ctor"); return uint32_t(r3); }
+    if (f == Fn::QueueState) { state_calls.push_back({r3, r4, r5}); return 1; }
     if (f != Fn::SetBleed) return 0;
     // sub_825A1F28 as read: G+15229 == 0 -> level r30 = -1 (0x825A1F44 / 0x825A1F50), else the r5 given; the level byte at +1392 is level + 1 (clear = 0)
     if (stuck_bleed) return 0;
@@ -79,8 +81,36 @@ struct Fake {
       case Fn::AddStock: { uint32_t ch = mem[uint32_t(r3) + 32]; if (int(mem[ch + 1928]) < stock_cap) mem[ch + 1928]++; return 0; }
       case Fn::RemoveStock: { uint32_t ch = mem[uint32_t(r3) + 32]; if (int(mem[ch + 1928]) > 0) mem[ch + 1928]--; return 0; }
       case Fn::Alloc: alloc_sizes.push_back(r3); return alloc_fails ? 0u : 0x30000000u;  // sub_82250050(size)
-      case Fn::SetBleed: case Fn::DimSceneCtor: return 0;
+      case Fn::PlaceOf: pcalls.push_back("place"); return F32(uint32_t(r3)) > 0 ? 7 : 2;  // S110 PLACE: sub_82612E88 reads the x stored at r3 = char+160 (the code depends on it)
+      case Fn::SetBleed: case Fn::DimSceneCtor: case Fn::QueueState: case Fn::SetYaw: case Fn::FloorY: case Fn::Warp: return 0;
     }
+    return 0;
+  }
+  // S110 PLACE: the game's functions as read (sub_822FB578 stores +148; sub_82612BF8 reads the place byte at +70; sub_829C0EE8 writes the mirrors and its OWN +70 rule)
+  std::vector<std::string> pcalls;  // the place verb's game calls in order
+  std::vector<double> pargs;        // their float arguments in order (yaw radians; then x, y, z)
+  static uint32_t Bits(double d) { float v = float(d); uint32_t u; std::memcpy(&u, &v, 4); return u; }
+  uint32_t CallF(Fn f, uint64_t r3, double f1) {
+    calls.push_back({int(f), r3});
+    pcalls.push_back("yaw"); pargs.push_back(f1);
+    mem[uint32_t(r3) + 148] = Bits(f1);
+    return 0;
+  }
+  double CallRetF(Fn f, uint64_t r3, uint64_t r4) {
+    calls.push_back({int(f), r3});
+    pcalls.push_back("floor");
+    if (r4 != 255) return 12345.0;
+    const uint8_t p = U8(uint32_t(r3) + 70);  // the floor height depends on the place byte already stored
+    return p == 7 ? -120.0 : (p == 2 ? -605.0 : 999.0);
+  }
+  uint32_t CallF3(Fn f, uint64_t r3, double f1, double f2, double f3) {
+    calls.push_back({int(f), r3});
+    pcalls.push_back("warp"); pargs.push_back(f1); pargs.push_back(f2); pargs.push_back(f3);
+    const uint32_t ch = uint32_t(r3), ctrl = U32(ch + 3096);
+    mem[ch + 160] = Bits(f1); mem[ch + 164] = Bits(f2); mem[ch + 168] = Bits(f3);
+    mem[ch + 192] = Bits(f1); mem[ch + 200] = Bits(f3);
+    if (ctrl) { mem[ctrl + 48] = Bits(f1); mem[ctrl + 56] = Bits(f3); }  // not ctrl+32: the warp writes no angle
+    Put8(ch + 70, 9);  // its own story-scene place rule: not the match's code
     return 0;
   }
   // slot -> character 0x10000000 + slot * 0x10000; comp = ch + 0x1000; chp comp = ch + 0x2000, its data = ch + 0x3000 (data+32 = the character)
@@ -471,6 +501,179 @@ int main(int argc, char** argv) {
     Fake a = Dim(); a.alloc_fails = true;
     std::string r = Do(a, st, "lightsout 0");
     Check(Starts(r, "failed") && a.ctor_args.empty(), "lightsout.alloc_failure_is_a_failure_no_ctor", r);
+  }
+  // ---- state (S110 OMGROUTE: dev only; the wrestler's own registry [[char+3148]+40]: count, records of {ctor, name ptr}; one call with the record's own name pointer) ----
+  {
+    Cmd c;
+    bool ok = Parse("state 1 FenceCornerGroggy", c).empty() && c.verb == Verb::State && c.slot == 1 && c.name == "FenceCornerGroggy" && IsVerb("state");
+    ok = ok && Parse("state 0 StateFenceCornerGroggy", c).empty() && c.name == "FenceCornerGroggy";  // the game's yaseChgState drops a leading "State"
+    ok = ok && Parse("state 8 Idle_2", c).empty() && c.slot == 8 && c.name == "Idle_2";
+    Check(ok, "state.parse_good", "slot 1 / the State prefix dropped / slot 8 with _ and a digit");
+    bool all_bad = true;
+    for (const char* t : {"state", "state 1", "state 9 Idle", "state x Idle", "state 1 Bad-Name", "state 1 Idle now", "state -1 Idle",
+                          "state 1 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+      if (Parse(t, c).empty()) all_bad = false;
+    Check(all_bad, "state.parse_bad", "no slot / no name / slot 9 / bad characters / two names / 64+ characters");
+    Check(Parse(std::string("state 1 ") + std::string(63, 'A'), c).empty(), "state.parse_63_characters_ok");
+  }
+  // the registry, written as the game's literal numbers: char+3148 = sm, [sm+40] = desc, [desc] = 4 records, [desc+4] = the array, record i = {ctor, name ptr} at +8i
+  auto Reg = []() {
+    Fake f = Match();
+    const uint32_t ch = f.ChOf(0), sm = ch + 0x8000, desc = ch + 0x9000, recs = ch + 0xA000;
+    f.mem[ch + 3148] = sm;
+    f.mem[sm + 40] = desc;
+    f.mem[desc] = 4;
+    f.mem[desc + 4] = recs;
+    const char* names[4] = {"Fence", "Idle", "FenceCornerGroggy", "FenceCornerGroggyDamage"};
+    for (uint32_t i = 0; i < 4; ++i) {
+      f.mem[recs + 8 * i] = 0x82001000u + i;          // a constructor (not the name)
+      f.mem[recs + 8 * i + 4] = 0x30000000u + 0x100 * i;  // the name pointer
+      for (uint32_t k = 0;; ++k) { f.Put8(0x30000000u + 0x100 * i + k, uint8_t(names[i][k])); if (!names[i][k]) break; }
+    }
+    f.mem[ch + 28] = ch + 0xC000;  // [[char+28]] = a u16 act (big-endian bytes)
+    f.Put8(ch + 0xC000, 0x00); f.Put8(ch + 0xC001, 0x7B);
+    return f;
+  };
+  {
+    Fake f = Reg(); State st;
+    std::string r = Do(f, st, "state 0 FenceCornerGroggy");
+    Check(Starts(r, "ok"), "state.ok_path", r);
+    Check(f.state_calls.size() == 1 && f.calls.size() == 1 && f.calls[0].first == int(Fn::QueueState), "state.exactly_one_call", std::to_string(f.state_calls.size()));
+    Check(f.state_calls.size() == 1 && f.state_calls[0][0] == f.ChOf(0) + 0x8000 && f.state_calls[0][1] == 0x30000200u && f.state_calls[0][2] == 0,
+          "state.call_gets_the_state_machine_and_the_records_own_name_pointer", f.state_calls.empty() ? "no call" : std::to_string(f.state_calls[0][0]) + " " + std::to_string(f.state_calls[0][1]));
+    Check(Last(f).find("state 0 FenceCornerGroggy: queued") != std::string::npos && Last(f).find("later tick") != std::string::npos && Last(f).find("record 2") != std::string::npos && Last(f).find("30000200") != std::string::npos &&
+              Last(f).find("act was 0x0000007B") != std::string::npos,
+          "state.log_has_slot_name_pointer_record_and_act", Last(f));
+    Fake g = Reg();
+    Check(Starts(Do(g, st, "state 0 StateIdle"), "ok") && g.state_calls.size() == 1 && g.state_calls[0][1] == 0x30000100u, "state.prefix_dropped_finds_the_record", g.state_calls.empty() ? "no call" : "");
+    Fake h = Reg();  // only slot 0 has a registry: slot 1 (no state machine) is refused, never given slot 0's
+    Check(Starts(Do(h, st, "state 1 Fence"), "refused") && h.calls.empty(), "state.other_slot_is_not_given_slot_0s_registry");
+    Fake i0 = Reg();
+    // the game's own search never finds record 0 or the last (exclusive bounds) and queues the last for a miss: both are refused here, nothing called
+    Check(Starts(Do(i0, st, "state 0 Fence"), "refused") && i0.calls.empty(), "state.record_0_refused");
+    Check(Starts(Do(i0, st, "state 0 FenceCornerGroggyDamage"), "refused") && i0.calls.empty(), "state.last_record_refused");
+    // already in the state ([[desc+12]+12] == the found index): nothing is queued
+    Fake cur = Reg();
+    cur.mem[cur.ChOf(0) + 0x9000 + 12] = cur.ChOf(0) + 0xD000;
+    cur.mem[cur.ChOf(0) + 0xD000 + 12] = 2;
+    std::string rc = Do(cur, st, "state 0 FenceCornerGroggy");
+    Check(Starts(rc, "ok") && cur.calls.empty() && Last(cur).find("already in it") != std::string::npos, "state.already_in_it_queues_nothing", rc);
+    cur.mem[cur.ChOf(0) + 0xD000 + 12] = 1;
+    Check(Starts(Do(cur, st, "state 0 FenceCornerGroggy"), "ok") && cur.state_calls.size() == 1, "state.another_current_state_queues");
+  }
+  {
+    Fake f = Reg(); State st;
+    for (const char* t : {"state 0 Nope", "state 0 FenceCorner", "state 0 Fence_", "state 0 fencecornergroggy", "state 0 FenceCornerGroggyDamageX"}) {
+      std::string r = Do(f, st, t);
+      Check(Starts(r, "refused") && f.calls.empty() && Last(f).find("refused (no such state") != std::string::npos, (std::string("state.unknown_name_refused_no_call ") + t).c_str(), r);
+    }
+  }
+  {
+    Fake f = Reg(); State st; f.mem[f.ChOf(0) + 0x8000 + 40] = 0;
+    Check(Starts(Do(f, st, "state 0 Idle"), "refused") && f.calls.empty(), "state.no_registry_refused");
+    Fake a = Reg(); a.mem[a.ChOf(0) + 3148] = 0;
+    Check(Starts(Do(a, st, "state 0 Idle"), "refused") && a.calls.empty(), "state.no_state_machine_refused");
+    Fake b = Reg(); b.mem[b.ChOf(0) + 0x9000] = 0;
+    Check(Starts(Do(b, st, "state 0 Idle"), "refused") && b.calls.empty(), "state.empty_registry_refused");
+    Fake d = Reg(); d.mem[d.ChOf(0) + 0x9000] = 100000;
+    Check(Starts(Do(d, st, "state 0 Nope"), "refused") && d.calls.empty(), "state.absurd_count_refused");
+    Fake e2 = Reg();
+    Check(Starts(Do(e2, st, "state 5 Idle"), "refused") && e2.calls.empty(), "state.empty_slot_refused");
+    Check(Starts(Do(e2, st, "state 6 Idle"), "refused") && e2.calls.empty(), "state.referee_refused");
+    Fake m = Reg(); m.gate.clock_started = false;
+    Check(Starts(Do(m, st, "state 0 Idle"), "busy") && m.calls.empty(), "state.before_the_bell_is_busy");
+  }
+  {
+    Fake f = Reg(); State st; f.dev = false;
+    std::string r = Do(f, st, "state 0 FenceCornerGroggy");
+    Check(Starts(r, "refused: state is a dev-build verb") && f.calls.empty(), "state.player_build_refused_no_calls", r);
+    f.gate.clock_started = false;
+    Check(Starts(Do(f, st, "state 0 FenceCornerGroggy"), "refused: state is a dev-build verb"), "state.player_build_refused_before_the_match_gate");
+  }
+  // ---- place (S110 PLACE: dev only; the game's own yaw / place / floor / warp calls in that order; the place byte put back; the controller angle; the refusals call nothing) ----
+  {
+    Cmd c;
+    bool ok = Parse("place 1 520 525 225", c).empty() && c.verb == Verb::Place && c.slot == 1 && c.x == 520.0f && c.z == 525.0f && c.deg == 225.0f && c.has_facing && IsVerb("place");
+    ok = ok && Parse("place 0 -12.5 +3.25", c).empty() && c.x == -12.5f && c.z == 3.25f && !c.has_facing;
+    ok = ok && Parse("place 8 2000 -2000 -360", c).empty() && c.deg == -360.0f;
+    Check(ok, "place.parse_good", "with and without a facing, signed decimals, the bounds");
+    bool all_bad = true;
+    for (const char* t : {"place", "place 1", "place 1 5", "place 9 1 1", "place x 1 1", "place 1 a 1", "place 1 1e3 1", "place 1 2000.5 1", "place 1 1 -2001", "place 1 1 1 361", "place 1 1 1 -360.5",
+                          "place 1 1 1 1 1", "place 1 - 1", "place 1 . 1", "place 1 0x10 1"})
+      if (Parse(t, c).empty()) all_bad = false;
+    Check(all_bad, "place.parse_bad", "missing words, slot 9, not decimals, past the typo bounds, five numbers");
+  }
+  // slot 1 as the wrestler: kind 4 at +24, controller at +3096, skeleton root at +176; a rotation vector at +144..+159 with a sentinel in each word
+  auto Pl = []() {
+    Fake f = Match();
+    const uint32_t ch = f.ChOf(1);
+    f.mem[ch + 24] = 4; f.mem[ch + 3096] = ch + 0x8100; f.mem[ch + 176] = ch + 0x8200;
+    for (uint32_t i = 0; i < 16; i += 4) f.mem[ch + 144 + i] = 0x11110000u + i;
+    f.mem[ch + 148] = 0x3F800000u;  // facing 1.0 rad
+    return f;
+  };
+  {
+    Fake f = Pl(); State st; const uint32_t ch = f.ChOf(1), ctrl = ch + 0x8100;
+    const std::string r = Do(f, st, "place 1 540 545 225");
+    Check(Starts(r, "ok"), "place.ok_path", r);
+    Check(f.pcalls.size() == 4 && f.pcalls[0] == "yaw" && f.pcalls[1] == "place" && f.pcalls[2] == "floor" && f.pcalls[3] == "warp", "place.calls_in_the_notes_order_yaw_place_floor_warp",
+          std::to_string(f.pcalls.size()));
+    Check(f.pargs.size() == 4 && std::fabs(f.pargs[0] - 225.0 * 3.14159265358979323846 / 180.0) < 1e-6, "place.facing_is_degrees_to_radians_in_f1", f.pargs.empty() ? "" : std::to_string(f.pargs[0]));
+    Check(f.pargs.size() == 4 && f.pargs[1] == 540.0 && f.pargs[2] == -120.0 && f.pargs[3] == 545.0, "place.warp_gets_x_floor_y_z_in_f1_f2_f3", f.pargs.size() == 4 ? std::to_string(f.pargs[2]) : "");
+    Check(f.calls.size() == 4 && f.calls[0].second == ch && f.calls[1].second == ch + 160 && f.calls[2].second == ch && f.calls[3].second == ch, "place.call_arguments_are_the_character_and_char_plus_160");
+    Check(f.F32(ch + 160) == 540.0f && f.F32(ch + 168) == 545.0f && f.F32(ch + 164) == -120.0f, "place.position_written");
+    Check(f.F32(ch + 0x8200 + 0) == 540.0f && f.F32(ch + 0x8200 + 8) == 545.0f, "place.root_node_x_z_stored_before_the_height_call");
+    Check(f.U8(ch + 70) == 7, "place.place_byte_restored_after_the_warp_scene_rule", std::to_string(f.U8(ch + 70)));
+    Check(f.mem[ctrl + 48] == f.mem[ch + 160] && f.mem[ctrl + 56] == f.mem[ch + 168], "place.controller_position_mirrored");
+    Check(f.mem[ctrl + 32] == f.mem[ch + 148] && f.mem[ctrl + 32] != 0, "place.controller_angle_written");
+    Check(f.mem[ch + 208] == f.mem[ch + 144] && f.mem[ch + 212] == f.mem[ch + 148] && f.mem[ch + 216] == f.mem[ch + 152] && f.mem[ch + 220] == f.mem[ch + 156], "place.old_rotation_copied");
+    Check(Last(f).find("place 1 540.00 545.00 225.00") != std::string::npos && Last(f).find("read back x 540.000 y -120.000 z 545.000") != std::string::npos && Last(f).find("place 7") != std::string::npos &&
+              Last(f).find("facing 3.92699") != std::string::npos, "place.log_has_asked_and_read_back", Last(f));
+  }
+  {
+    Fake f = Pl(); State st; const uint32_t ch = f.ChOf(1);
+    const std::string r = Do(f, st, "place 1 -300 10");
+    Check(Starts(r, "ok") && f.pcalls.size() == 3 && f.pcalls[0] == "place" && f.mem[ch + 148] == 0x3F800000u && f.U8(ch + 70) == 2 && f.F32(ch + 164) == -605.0f, "place.no_facing_keeps_the_yaw_and_skips_the_call", r);
+    Check(f.mem[f.ChOf(1) + 0x8100 + 32] == 0x3F800000u, "place.no_facing_controller_gets_the_kept_yaw");
+  }
+  {  // each refusal: nothing is called, nothing is stored
+    struct Case { const char* name; void (*set)(Fake&); };
+    const Case cases[] = {
+        {"kind_not_4", [](Fake& f) { f.mem[f.ChOf(1) + 24] = 6; }},
+        {"no_controller", [](Fake& f) { f.mem[f.ChOf(1) + 3096] = 0; }},
+        {"partner_836_set", [](Fake& f) { f.mem[f.ChOf(1) + 836] = f.ChOf(2); }},
+        {"someone_holds_him", [](Fake& f) { f.mem[f.ChOf(2) + 836] = f.ChOf(1); }},
+        {"cutscene_actor", [](Fake& f) { f.mem[f.ChOf(1) + 1340] = 3; f.mem[0x836F4B40u + 12] = 1; }},
+        {"two_wrestler_special_1920", [](Fake& f) { f.mem[f.ChOf(1) + 1920] = 1; }},
+        {"referee", [](Fake& f) { f.mem[f.ChOf(1) + 3720] = 6; }},
+    };
+    for (const Case& k : cases) {
+      Fake f = Pl(); State st; k.set(f);
+      const auto before = f.mem;
+      const std::string r = Do(f, st, "place 1 540 545 225");
+      Check(Starts(r, "refused") && f.calls.empty() && f.pcalls.empty() && f.mem == before && Last(f).find("refused") != std::string::npos, (std::string("place.refused_no_call_no_store ") + k.name).c_str(), r);
+    }
+    // reviewer (run 28 / 29 logs: slot 0's char+1340 = 0xFFFFFFFF): the game's own test sub_823CB3F0 reads the table only for 0 <= index < 72; an index of -1 or 72+
+    // is "no actor". 4u * 0xFFFFFFFF wraps to the word BEFORE the table: a nonzero word there must not refuse the place.
+    for (uint32_t idx : {0xFFFFFFFFu, 72u, 0x40000000u}) {
+      Fake g = Pl(); State sg;
+      g.mem[g.ChOf(1) + 1340] = idx;
+      g.mem[0x836F4B40u - 4] = 0xDEAD; g.mem[0x836F4B40u + 4u * 72u] = 0xDEAD; g.mem[0x836F4B40u] = 0xDEAD;
+      const std::string rg = Do(g, sg, "place 1 540 545 225");
+      Check(Starts(rg, "ok"), (std::string("place.actor_index_out_of_range_is_no_actor ") + std::to_string(idx)).c_str(), rg);
+    }
+    Fake e2 = Pl(); State st;
+    Check(Starts(Do(e2, st, "place 5 1 1"), "refused") && e2.calls.empty(), "place.empty_slot_refused");
+    Fake b = Pl(); b.gate.clock_started = false;
+    Check(Starts(Do(b, st, "place 1 1 1"), "busy") && b.calls.empty(), "place.before_the_bell_is_busy");
+  }
+  {
+    Fake f = Pl(); State st; f.dev = false;
+    const auto before = f.mem;
+    std::string r = Do(f, st, "place 1 540 545 225");
+    Check(Starts(r, "refused: place is a dev-build verb") && f.calls.empty() && f.mem == before, "place.player_build_refused_no_calls", r);
+    f.gate.clock_started = false;
+    Check(Starts(Do(f, st, "place 1 540 545 225"), "refused: place is a dev-build verb"), "place.player_build_refused_before_the_match_gate");
   }
   std::printf("SUMMARY %d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;

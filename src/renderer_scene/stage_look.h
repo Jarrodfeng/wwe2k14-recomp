@@ -22,6 +22,9 @@
 #include "../assets/stage_pools.h"
 #include "stage_pool_words.h"
 #include "record_io.h"
+#include "rows_inputs.h"   // S106 G4-2
+#include "rows_lights.h"
+#include "rows_stage_look.h"
 
 namespace rdr_scene::stage_look {
 

@@ -1,0 +1,65 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, blood on
+# Session 108 lane BLD6 (docs/research/s108/BLD6_plan.md): the direct launch of the earlier blood routes starts a BLOOD-OFF match, and
+# the game's own set-level / bleed events return early for a seat whose blood option is off (sub_826CDBC8, the per-seat byte), so after
+# the victory scene's rebuild froze the face decals nothing could regrow them. This route is s108_bld5_late's body in a match made by
+# the game's own MATCH BUILDER with the blood option ON (o=81:1); the entrances play.
+# Question: with blood on, does the face regrow in the victory scene (the liquid census's `skipped: state` stops rising by 7 a frame,
+# items drawn rise) and end as full as the in-match level-3 shot? Control = run 28 (s108_bld5_late, blood off, the face stayed thin).
+# Read with: py -I tools/bench/run_read.py <exe folder> --full. Shots bld6_* are local only.
+on_fail quit
+log bench: start scene s108_bld6_bloodon
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=139:-1,343:-1;arena=5;o=81:1
+cvar wwe2k14_match_go 108
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_state match_clock >0 40000
+log scene=bld6_match
+mark 2 match_clock
+wait_frames 120
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+bleed 0 1
+wait_frames 120
+screenshot bld6_level1
+bleed 0 2
+wait_frames 120
+screenshot bld6_level2
+bleed 0 3
+wait_frames 120
+screenshot bld6_level3
+mark 3 bleed_levels_done
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 60
+screenshot bld6_after_60
+wait_frames 240
+screenshot bld6_after_300
+wait_frames 600
+screenshot bld6_after_900
+wait_frames 1000
+screenshot bld6_after_1900
+wait_frames 400
+screenshot bld6_after_2300
+wait_frames 400
+screenshot bld6_after_2700
+wait_frames 500
+screenshot bld6_after_3200
+wait_frames 500
+screenshot bld6_after_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

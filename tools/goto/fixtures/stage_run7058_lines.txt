@@ -1,4 +1,4 @@
-# S101 lane 38: lines of run 7058's log (the old 'menu 4025 mode 2' check), kept as the gate's real past fact: the stage reached WSD00 at frame 3385 and the log never showed 'menu: playback finished' (0 such lines in the whole 3.5 MB log, checked 2026-11-11). Our own log text only; no game bytes.
+# S101 lane 38: lines of run 7058's log (the old 'menu 4025 mode 2' check), kept as a real past fact of the check: the stage reached WSD00 at frame 3385 and the log never showed 'menu: playback finished' (0 such lines in the whole 3.5 MB log, checked 2026-11-11). Our own log text only; no game bytes.
 [2026-11-11 22:34:40.741] [info] [core] [t10640] [wwe2k14][scene][director] menu: scene 4025 requested (exit action 5 on SmartMenu A5075C90), program mode 2, frame=3154
 [2026-11-11 22:34:40.772] [info] [core] [t10640] [wwe2k14][scene][director] menu: playing scene 4025 instead of the default (r3 0 r4 -1), frame=3183
 [2026-11-11 22:34:40.772] [info] [core] [t10640] [wwe2k14][scene][director] forced: menu scene 4025 at frame 3183 (the case zip manifest says where.forced until the main menu is back)

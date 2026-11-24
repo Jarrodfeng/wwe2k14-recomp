@@ -63,6 +63,7 @@
 #include "../renderer/player/png.h"
 #include "../renderer_scene/shader_reload.h"  // S101 lane24
 #include "../renderer_scene/record_io.h"  // S102 T19: g_crowd_run_roundtrip
+#include "../renderer_scene/rows_quad2d.h"   // S106 G4-2
 #include "../renderer_scene/quads2d_rig.h"  // S103 I1: --quads-2d-rows / --quads-2d-fault
 #include "../renderer_adapter/const_override.h"  // S101 lane 164
 

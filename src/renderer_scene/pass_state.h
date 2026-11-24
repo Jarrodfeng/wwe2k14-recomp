@@ -47,8 +47,9 @@ constexpr PassState kTable[size_t(PassClass::kCount)] = {
     {"particles", 7, 0.f, 6, 0, 0, 0xFF, false, "0x82A0D0E0 particle_draw_method_a/b/c"},
     // See-through (yCh_trans), two kinds in the census [C]: this one = GEQUAL 1/255, z write 0 (2 draws): the sorted blended pass, which is what ours draws (sorted, blended, no depth write).
     {"see_through", 6, 1.f / 255.f, 6, 0, -1, 0, true, "stream census yCh_trans (GEQUAL 1, dw 0)"},
-    // The other kind: GEQUAL 128/255 with z write 1 (4 draws; the T2 alpha-ref immediate 128). Ours does not draw yCh_trans this way (ClassOf never returns it): which draws are these is [U].
-    {"see_through_cut", 6, 128.f / 255.f, 6, 1, -1, 0, true, "stream census yCh_trans (GEQUAL 128, dw 1); T2 section 3 alpha-ref immediates"},
+    // The other kind: GEQUAL 128/255 with z write 1 (4 draws; the T2 alpha-ref immediate 128). S108 HAIR settled which draws these are [C]: the character's SUBM PIECES in its translucent pass, sub_8259FAE8 +0x328 ->
+    // sub_8259E488 (alpha ref := r6 = 128 at +0x74 for every piece id outside the ref-1 list, z write := 1 after each piece at +0x1B4; piece_draw_rule.h). Ours: ClassOf(..., piece_cut) for such a mesh (front_end.cpp).
+    {"see_through_cut", 6, 128.f / 255.f, 6, 1, -1, 0, true, "stream census yCh_trans (GEQUAL 128, dw 1); sub_8259E488 +0x74 (r6 = 128 from sub_8259FAE8 +0x328), +0x1B4 z write 1"},
     // Rim map (0x827EA098 / 0x827E95D8): atest 0, zFunc code 2 GEQUAL, zWr 1, cull wrapper value 1 (enable) [C]. Ours draws its own rim map (not this table's consumer): rows kept for the per-draw compare.
     {"rim", 7, 0.f, 6, 1, -1, 0, false, "0x827EA098 rim map, 0x827E95D8 shadow modules"},
     // Plane shadow proxy (0x825CECE0): blendEn 1, cull 0, colour mask 0 then 1, zWr 0 / 1, stencil [C]. Ours draws its own shadow (rule 6: no stencil).
@@ -64,7 +65,9 @@ constexpr uint8_t ForwardZ(uint8_t vk_func) { return vk_func == 6 ? 3 : vk_func 
 
 // The class of a scene draw from its effect name. `hair_pass` = our twice-drawn hair / translucent pass (Item::pass != 0). The crowd is the audience card / member effects (yAudience*) on both paths
 // (the stage hook's instanced draw and the generic one); yAudDefault_* (the skinned bodies) is a lit draw.
-inline PassClass ClassOf(const char* effect, bool hair_pass) {
+// S108 HAIR: `piece_cut` = a stock wrestler piece's translucent mesh the game draws at ref 128 with depth write (piece_draw_rule.h PieceCut): see_through_cut, whatever its effect name.
+inline PassClass ClassOf(const char* effect, bool hair_pass, bool piece_cut = false) {
+  if (piece_cut) return PassClass::SeeThroughCut;
   if (effect && std::strncmp(effect, "yAudience", 9) == 0) return PassClass::Crowd;
   if (effect && std::strncmp(effect, "yCh_trans", 9) == 0) return PassClass::SeeThrough;
   if (hair_pass) return PassClass::Hair;

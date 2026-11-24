@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T14b gate check (offline, 0 game runs): wwe2k14_rdr_origin_index and wwe2k14_rdr_shader_serial.
+"""S102 lane T14b check (offline, 0 game runs): wwe2k14_rdr_origin_index and wwe2k14_rdr_shader_serial.
 
   py -I tools\\draw_index\\draw_index_check.py [--root DIR] [--syntax] [--build-only]
 

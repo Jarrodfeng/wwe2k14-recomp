@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C3 gate check: builds tools\\scene\\ring_recompute_unit.cpp (the ring ropes' node rows recomputed from the rope grid on a fake guest: hand-worked values, the three heights, the rest pose, table mode, the gates, the contributor's mode
+"""S103 lane C3 check: builds tools\\scene\\ring_recompute_unit.cpp (the ring ropes' node rows recomputed from the rope grid on a fake guest: hand-worked values, the three heights, the rest pose, table mode, the gates, the contributor's mode
 gate, the record round trip: 0 game runs, no game, no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\ring_recompute_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""

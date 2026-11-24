@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "buffer_unlock_log.h"
+#include "safe_guest_pages.h"   // S108 RDS: LineCopy (the layout pass's line copy)
 #include "skin_data.h"   // S103 WC R3: kSkinData* (the +220 data object, shared)
 
 namespace rdr_scene::live::guest_model {
@@ -212,25 +213,39 @@ struct ModelRead {
 namespace detail {
 inline uint32_t Bswap(uint32_t v) { return (v << 24) | ((v & 0xFF00u) << 8) | ((v >> 8) & 0xFF00u) | (v >> 24); }
 // A reader over M that folds every word it returns into the layout key.
+// S108 RDS phase 2: every field of ONE layout pass goes through a pass-scoped line copy (safe_guest_pages.h LineCopy): the 128-byte aligned line that holds a field is read once per pass (one page check),
+// the other fields of that line come from the copy. The line lies in the field's own page, so the verdicts are the field reads' (a refused line is the field read). The copy dies with the pass (Rd is a local
+// of ReadModelLayout): the next call reads the game's memory again, so the layout key still sees every change. Was one page check per word: ~7,000 a frame in Fandango's entrance (S108 RDS tally, thread 8B28).
+// Test only: g_gm_plant 15 = the window starts AT the field (unaligned: it can ask a page no field read asks); 16 = no line copy (one read per field: the cost check must fail).
 template <class M>
 struct Rd {
   const M& m;
   uint64_t key = 0x517CC1B727220A95ull;
+  wwe2k14::safe_pages::LineCopy<> lines{};
+  wwe2k14::safe_pages::LineCopy<1, true> lines_unaligned{};   // plant 15 only (one 128-byte window)
+  bool Get(uint32_t a, uint32_t n, uint8_t* d) {
+    const auto rd = [this](uint32_t x, uint32_t k, void* o) { return m.bytes(x, k, static_cast<uint8_t*>(o)); };
+    if (g_gm_plant == 16) return rd(a, n, d);
+    if (g_gm_plant == 15) return lines_unaligned.Get(a, n, d, rd);
+    return lines.Get(a, n, d, rd);
+  }
   bool Word(uint32_t a, uint32_t& v) {
-    if (!m.u32(a, v)) return false;
+    uint8_t b[4];
+    if (!Get(a, 4, b)) return false;
+    v = (uint32_t(b[0]) << 24) | (uint32_t(b[1]) << 16) | (uint32_t(b[2]) << 8) | b[3];   // the guest's big-endian word (M::u32's value)
     key = HashU32(v, key);
     return true;
   }
   bool Half(uint32_t a, uint32_t& v) {   // a big-endian u16
     uint8_t b[2];
-    if (!m.bytes(a, 2, b)) return false;
+    if (!Get(a, 2, b)) return false;
     v = (uint32_t(b[0]) << 8) | b[1];
     key = HashU32(v, key);
     return true;
   }
   bool Name(uint32_t a, char* out) {   // 16 bytes, NUL padded
     uint8_t b[kNameBytes];
-    if (!m.bytes(a, kNameBytes, b)) return false;
+    if (!Get(a, kNameBytes, b)) return false;
     bool end = false;
     for (uint32_t i = 0; i < kNameBytes; ++i) {
       if (b[i] == 0) end = true;

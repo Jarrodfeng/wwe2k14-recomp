@@ -71,7 +71,7 @@ def read_hashes(path):
 
 
 class Arm:
-    scale = []  # --scale N for every replay arm (the gate at scale 2: --scale 2)
+    scale = []  # --scale N for every replay arm (the check at scale 2: --scale 2)
 
     def __init__(self, exe, zip_path, game, work, name, extra):
         self.name = name
@@ -118,7 +118,7 @@ def main():
     ap.add_argument('--no-build', action='store_true')
     ap.add_argument('--match-only', action='store_true', help='lane 219: only the two sweep match zips (pictures + frames), no Check B / F arms and no planted faults')
     ap.add_argument('--exe', default='', help='fview.exe to use (default out/renderer/dev/fview.exe of --root)')
-    ap.add_argument('--scale', default='1', help='render scale of the replay arms (the review asked for the gate once at 2)')
+    ap.add_argument('--scale', default='1', help='render scale of the replay arms (the review asked for the check once at 2)')
     ap.add_argument('--leftovers', action='store_true', help='also re-run the leftovers census on Check B frame 200 with --promote auto,cards (slow)')
     args = ap.parse_args()
     root = os.path.abspath(args.root)

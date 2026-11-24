@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time)
 # intent: owner on
 # S105 lane R2 (T5 item 5): copy of s101_sweep_match_replay.txt, shots labelled chk_replay_*: the post-match replay (seq 9, Spectacular clip); the logged text after each step shows whether a SAVE button exists. Run with -WaitSeconds 2400.
 # Session 101 lane 252 (UNTESTED: never run; copy of scenes\s101_sweep_victory.txt with a longer hold and the log words below): the MATCH REPLAYS row of the coverage board

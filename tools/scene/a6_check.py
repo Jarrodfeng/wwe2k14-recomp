@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane A6 gate check: builds tools\\scene\\a6_unit.cpp (bits 4 / 7 read from memory at the latch: the predictors, the two compares, the board, Table::Find / OnLatchEntry; 0 game runs, no game, no SDK),
+"""S103 lane A6 check: builds tools\\scene\\a6_unit.cpp (bits 4 / 7 read from memory at the latch: the predictors, the two compares, the board, Table::Find / OnLatchEntry; 0 game runs, no game, no SDK),
 runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\a6_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""

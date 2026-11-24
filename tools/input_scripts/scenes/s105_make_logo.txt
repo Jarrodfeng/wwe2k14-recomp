@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_logo_import_file=C:\Users\Jarrod\wwe2k14-recomp\out\s105\routes\R3\s105_test_logo.png
-# harness: realtime (the editor presses wait on frame counts)
 # intent: owner on
 # S105 R3: STEP A of the TEST CAW mirror: a logo (our own 256x256 test PNG) into 00PaintTool.pt slot 3 through the game's own Create-a-Logo, so the CAW's CUSTOM LOGO DATA picker has a logo.
 # Adapted from short\logo_import_check.txt (S25, run 1731-1738: PASS): CREATIONS -> LOGO grid -> RIGHT x2 = slot 3 -> A -> SELECT CANVAS SIZE (cursor 128x128, DOWN = 256x256) -> A = editor ->

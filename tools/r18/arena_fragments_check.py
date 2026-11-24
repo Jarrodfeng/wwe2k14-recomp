@@ -9,7 +9,7 @@ r"""S102 lane R18-B3: offline proof of wwe2k14_rdr_arena_fragments (0 game runs,
             af_not_applied (4): the lever reads the mask and applies nothing -> "DID NOT APPLY" (draws blend-off = 0 while the real run takes > 0)
   unit      tools\r18\arena_fragments_test.cpp (the proof's constants, the blend decision, with twins).
   validation fview --validation 1 with the lever on: `validation errors 0` AND exit code 0.
-rplay plays the gate's Bryan entrance capture (237 frames) and the Brock capture (375 frames) under the SHIPPED DEFAULT BUNDLE (colour_pass_rank.py BUNDLE)."""
+rplay plays the standard Bryan entrance capture (237 frames) and the Brock capture (375 frames) under the SHIPPED DEFAULT BUNDLE (colour_pass_rank.py BUNDLE)."""
 import argparse, concurrent.futures, os, re, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

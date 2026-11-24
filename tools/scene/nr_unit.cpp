@@ -5,7 +5,7 @@
 //   Planted twins on the record: ring rows ignored -> the drawn skirts are holes again; a light ref planted for the undrawn 4th skirt -> one more; light refs dropped -> every piece (fail closed).
 // SYMMETRY (live_scene_draw.cpp Warm == DrawLive): the shadow input's hole is asked by Warm through FrameHooks::ShadowInputHole (the rule BuildMapsInput owns): a record with wrestlers whose key light is
 //   not in it is a hole there. (The arena / crowd hole rules run on the same code in both builds: tools\scene\nr_symmetry_lint.py.)
-// Exit 0 = all checks passed. With --plant old_rule (the rule before NR) the run must FAIL (exit 1: the gate lane expects that).
+// Exit 0 = all checks passed. With --plant old_rule (the rule before NR) the run must FAIL (exit 1: the check expects that).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -15,6 +15,10 @@
 #include "../../src/renderer_scene/frame_hooks.h"
 #include "../../src/renderer_scene/record_frame.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/renderer_scene/rf_wrestlers.h"
 #include "../../src/renderer_scene/shadow_fit_record.h"
 

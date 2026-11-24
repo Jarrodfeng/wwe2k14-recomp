@@ -4,10 +4,11 @@
 # the runs are compared with tools\determinism\det_compare.py --cross (strict: frame against frame, all layers).
 #   pwsh -NoProfile -File tools\xdet\run_stageA.ps1 -Record NAME [-Scenario pad|cpu] [-Seed 77]   record NAME.rec
 #   pwsh -NoProfile -File tools\xdet\run_stageA.ps1 -Play NAME [-Plays 2]       play it N times, compare each pair
-#   ... [-More '--flag=x ...'] [-Shots] [-RealTime] [-Compare RUN]
+#   ... [-More '--flag=x ...'] [-Shots] [-NormalSpeed] [-Compare RUN]
 # -Scenario: tools\xdet\scenario_<NAME>.flags, recording only (playback takes the launch from the recording).
 # -Shots: a PC-only variant of the route with a screenshot at each match mark (PICTURE layer; phones write none).
-# -RealTime: normal speed (the host-speed check: a fast-forwarded and a normal-speed play must match).
+# -NormalSpeed: --vsync=true (the host-speed check: a fast-forwarded and a normal-speed play must match). An explicit speed arm: the route lint refuses --vsync=true
+#   without a speed term, so this arm runs with run_list -SkipRouteLint (the conscious override).
 # -Compare RUN: also compare every new run with RUN (e.g. the reference play).
 # -Route FILE: another route (stage 2: tools\xdet\cena_taker_entr.txt with -Scenario entr); default cena_taker_a.txt.
 # -FlagsFile NAME: the flags file in tools\xdet (default stageA.flags; played.flags = the "as played" config).
@@ -19,7 +20,7 @@
 #   --wwe2k14_input_script): a flag given twice drops every startup flag after it (run 4952: --cache_root in -More,
 #   the game booted without the replay, the route or the profile and sat in the attract demo). Refused here.
 param([string]$Record = '', [string]$Play = '', [int]$Plays = 2, [int]$Seed = 77, [string]$More = '',
-      [string]$Scenario = 'pad', [switch]$Shots, [switch]$RealTime, [int]$Compare = 0, [int]$WaitSeconds = 900,
+      [string]$Scenario = 'pad', [switch]$Shots, [switch]$NormalSpeed, [int]$Compare = 0, [int]$WaitSeconds = 900,
       [string]$Route = '', [string]$FlagsFile = 'stageA.flags', [switch]$NoDraw, [string]$Data = 'userdata_frozen',
       [string]$Exe = '')  # Session 95: -Exe a worktree's exe (run_list's default otherwise)
 $ErrorActionPreference = 'Stop'
@@ -30,11 +31,11 @@ foreach ($own in 'user_data_root', 'cache_root', 'wwe2k14_timeline', 'wwe2k14_in
 }
 $iso = "$R\game_data\iso\wwe2k14_test.iso"
 if (-not (Test-Path $iso)) { "missing $iso (the phone's test image)"; exit 2 }
-. "$PSScriptRoot\flags.ps1"  # Merge-Flags: -More / -RealTime replace a stage A flag (a repeat drops flags)
+. "$PSScriptRoot\flags.ps1"  # Merge-Flags: -More / -NormalSpeed replace a stage A flag (a repeat drops flags)
 $trace = "$R\out\harness\determinism\trace"
 New-Item -ItemType Directory -Force $trace | Out-Null
 $merged = Merge-Flags (Get-StageAFlags $FlagsFile) "--game_data_root=$iso --det_serial_trace=$trace --wwe2k14_det_hash_raw_every=60"
-if ($RealTime) { $merged = Merge-Flags $merged '--vsync=true' }
+if ($NormalSpeed) { $merged = Merge-Flags $merged '--vsync=true' }
 if ($NoDraw) { $merged = Merge-Flags $merged '--gpu_det_skip_host_draws=true' }
 if ($More) { $merged = Merge-Flags $merged $More }
 $extra = Join-Flags $merged
@@ -64,14 +65,14 @@ if ($Record) {
   $scen = (Get-Content "$R\tools\xdet\scenario_$Scenario.flags" | Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
            ForEach-Object { $_.Trim() }) -join ' '
   $recExtra = Join-Flags (Merge-Flags $merged "$scen --wwe2k14_replay_record=$Record --wwe2k14_fixed_seed=$Seed")
-  $o = & "$R\tools\bench\run_list.ps1" -Scripts @($script) -Extra $recExtra -Data $Data -WaitSeconds $WaitSeconds 2>&1
+  $o = & "$R\tools\bench\run_list.ps1" -Scripts @($script) -Extra $recExtra -Data $Data -WaitSeconds $WaitSeconds -SkipRouteLint:$NormalSpeed 2>&1
   $o | Where-Object { "$_" -match '->|checks:' } | ForEach-Object { "record: $_" }
   $runs += Get-Runs $o
 }
 if ($Play) {
   $scripts = @(); for ($i = 0; $i -lt $Plays; $i++) { $scripts += $script }
   $exeArg = if ($Exe) { @{ Exe = $Exe } } else { @{} }
-  $o = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -Extra "$extra --wwe2k14_replay_play=$Play" -Data $Data -WaitSeconds $WaitSeconds @exeArg 2>&1
+  $o = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -Extra "$extra --wwe2k14_replay_play=$Play" -Data $Data -WaitSeconds $WaitSeconds -SkipRouteLint:$NormalSpeed @exeArg 2>&1
   $o | Where-Object { "$_" -match '->|checks:' } | ForEach-Object { "play: $_" }
   $runs += Get-Runs $o
 }

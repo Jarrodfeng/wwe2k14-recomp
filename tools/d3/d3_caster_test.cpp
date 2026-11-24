@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "../../src/renderer_adapter/d3_binder.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_lights.h"
 
 using namespace rdr_adapter;
 namespace d3 = rdr_adapter::d3;

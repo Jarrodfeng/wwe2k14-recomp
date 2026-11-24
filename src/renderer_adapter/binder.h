@@ -24,6 +24,7 @@
 #include "../renderer/problem.h"
 #include "../renderer/renderer.h"
 #include "../renderer/shaders/spv/fx_registry.h"
+#include "../renderer_host/pipeline_catalog.h"   // S110 RDRPREP: the one catalog registrar (RegisterShaderCatalogFrom)
 #include "../renderer/dlss_jitter.h"
 #include "../cost_counters.h"  // S101 lane 83: NoteObject (no game or SDK includes)
 #include "capture_reader.h"
@@ -240,15 +241,8 @@ class Binder {
 
   // Lane 276 (SKIP_GAME_WORK_MAP 19.10): with the pipeline store on, the renderer can make a stored pipeline's program again from the hash of its SPIR-V: the
   // shaders programs here are made from are the compiled-in kVariants arrays (our own, static). Nothing is done while the store is off.
-  void RegisterPipelineCatalog() {
-    if (!renderer_.pipeline_store_active()) return;
-    std::vector<rdr::Renderer::ShaderBlobDesc> blobs;
-    blobs.reserve(std::size(rdr::fx::kVariants) * 2);
-    for (const rdr::fx::Variant& v : rdr::fx::kVariants) {
-      blobs.push_back({v.name, v.spirv, v.bytes});
-      if (v.spirv_alpha) blobs.push_back({v.name, v.spirv_alpha, v.bytes_alpha});
-    }
-    renderer_.RegisterShaderCatalog(blobs.data(), blobs.size());
+  void RegisterPipelineCatalog() {   // S110 RDRPREP: the one registrar (src\renderer_host\pipeline_catalog.h: kVariants + alpha twins + our own kOwnShaders); this class keeps no loop of its own
+    wwe2k14::scene_host::RegisterShaderCatalogFrom(renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));
   }
 
   // S101 lane 50: true while the Bind call that follows is not the last of its guest frame (live.cpp: the first part of a frame split at a readback, a
@@ -2504,7 +2498,7 @@ class Binder {
     pb_on_ = pb_ok_ = pb_sub_ = false;
     pb_dyn_on_ = false, pb_extra_image_ = rdr::kNoImage;
     plane_bake::g_shared.proj_valid = false;
-    const uint64_t guest_frame = frame.header.guest_frame;   // (tools/gate/lint_seen.py: the switch table is acknowledged with the GUEST frame)
+    const uint64_t guest_frame = frame.header.guest_frame;   // (tools/lint/lint_seen.py: the switch table is acknowledged with the GUEST frame)
     pb_composited_ = false, pb_past_chain_ = false, pb_drop_final_copy_ = false;
     if (!rdr_sw::BoolSeen(rdr_sw::kPlaneBake, plane_bake::g_fview.load(std::memory_order_relaxed), guest_frame)) {
       pb_last_took_ = false;

@@ -274,6 +274,7 @@ struct Inputs {
   std::vector<fs::path> game_logs;     // oldest first (a rotated log's oldest kept part, then the newest)
   fs::path frames_csv;                 // may not exist
   std::string rung_text;               // Session 95 (LADDER): the SAFE MODE step in force, empty = normal
+  std::string cpu_text;                // S108 MOB: the CPU block (cpu_block.h PhoneText), lines ending in \n; empty = none
 };
 
 inline std::string Build(const Inputs& in) {
@@ -290,6 +291,7 @@ inline std::string Build(const Inputs& in) {
   const fs::path startup = in.logs_dir / "startup.txt", exit_file = in.logs_dir / "last_game_exit.txt";
   const std::string phone = FirstAfter(startup, "phone: ");
   r += "Phone: " + (phone.empty() ? std::string("not in startup.txt") : phone) + "\n";
+  r += in.cpu_text;  // S108 MOB: SoC, cores, clocks, core types, ABI, RAM
   // Session 95 (LADDER): the lines a triage starts with - the kernel (startup.txt KERNEL:), the driver the game really loaded,
   // the quality tier, the SAFE MODE step, the last failure.
   {

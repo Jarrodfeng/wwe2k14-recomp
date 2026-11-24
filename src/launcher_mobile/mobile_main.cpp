@@ -61,8 +61,11 @@
 #include "share_report.h"  // Session 73: report.txt in the shared zip
 #include "../launcher/report_findings.h"  // S105 C0b: findings.txt in the shared zip (the C++ port of tools\report\triage.py, shared with the PC launcher)
 #include "zip_writer.h"
+#include "../launcher/report_redact.h"  // S108 MOB: every text the phone zips goes through the same redaction as the PC's (PhoneRules)
+#include "cpu_block.h"                  // S108 MOB: the CPU block of report.txt
 #include "../tron_zip.h"  // Session 98: IMPORT TRON PREVIEWS (ZIP), the PC launcher's EXPORT FOR PHONE
 #include "../importer/importer_core.h"  // Session 98: the SUPERSTARS list (LoadPack / SavePack)
+#include "../importer/screen_text.h"  // S110 SEAT-C: the count line, "not seated", the old pack's conversion line
 #include "../assets/id_names.h"
 #include "../music_core.h"  // Lane 286: what the phone's music player can play (shared with the game)
 #include "music_mods.h"      // Lane 286: the MUSIC group's file rules (the PC launcher's, Windows-free)
@@ -1665,6 +1668,8 @@ class App {
   // pack_fit.h); when the list changed, was never built or no longer fits, it is rebuilt here first, then the game starts.
   importer::PlayCheck stars_fit_;
   std::string stars_fit_key_, stars_last_;
+  int stars_seats_ = 102;  // S110 SEAT-C: SeatCount and the old pack's conversion state (read with the check, SuperstarsGroup)
+  importer::Migration stars_mig_ = importer::Migration::None;
   std::chrono::steady_clock::time_point stars_fit_at_{};
   struct StarsJob {
     std::atomic<int> state{1};  // 1 building, 2 done, 3 failed
@@ -1744,8 +1749,8 @@ class App {
     std::error_code ec;
     for (const auto& e : fs::directory_iterator(files_ / "mods" / "superstars", ec)) {
       std::error_code e2;
-      if (!e.is_regular_file(e2)) continue;
-      sig += U8(e.path().filename()) + ":" + std::to_string(fs::file_size(e.path(), e2)) + ":" +
+      // (S110 SEAT-C: the folders too: the library\ folder's time moves when a character is added or removed; a folder has no size)
+      sig += U8(e.path().filename()) + ":" + std::to_string(e.is_regular_file(e2) ? fs::file_size(e.path(), e2) : 0) + ":" +
              std::to_string(static_cast<long long>(fs::last_write_time(e.path(), e2).time_since_epoch().count())) + ";";
     }
     return sig;
@@ -1768,7 +1773,7 @@ class App {
     const bool stars_free = !stars_job_;  // Session 101 (review S3): nothing edits the pack while a PLAY builds it
     if (Button("IMPORT MANY", game_ok_ && !TronZipRunning() && stars_free)) StartViewer({"--importer", "--importer-bulk"});
     char head[96];
-    std::snprintf(head, sizeof head, "%zu of up to %d superstars", stars_.stars.size(), importer::kMaxStars);
+    std::snprintf(head, sizeof head, "%s", importer::screen::CountLine(stars_.stars, stars_seats_).c_str());  // S110 SEAT-C: "N imported, S of M seated"
     Note(head);
     // Session 101 (lane 199): whether they are in the game, and the one thing to do when not (the PC launcher's sentences)
     if (now - stars_fit_at_ > std::chrono::seconds(2)) {
@@ -1776,35 +1781,46 @@ class App {
       const std::string key = stars_sig_ + "|" + StarsDlcDir() + "|" + StarsDlcOff();
       if (key != stars_fit_key_) {
         stars_fit_key_ = key;
+        stars_seats_ = importer::SeatCount(ModsDir()), stars_mig_ = importer::MigrationState(ModsDir());
         stars_fit_ = importer::CheckBeforePlay(ModsDir(), StarsDlcDir(), StarsDlcOff());
         stars_last_ = stars_fit_.build ? std::string() : importer::LastGameProblem(ModsDir());
       }
     }
     if (!stars_.stars.empty() && !s_.superstars) Note("USE MY SUPERSTARS is off: switch it on to put them in the game.");
     else if (!stars_.stars.empty() && stars_fit_.build) Note((stars_fit_.why + " PLAY builds them into the game first.").c_str());
-    else if (!stars_.stars.empty() && !stars_last_.empty()) Note((stars_last_ + " Share a report if it happens again.").c_str());
+    else if (!stars_.stars.empty() && !stars_last_.empty()) Note(stars_last_.c_str());  // (S110 SEAT-C: the sentence says what to do)
     else if (!stars_fit_.why.empty()) Note((stars_fit_.why + (stars_fit_.build && s_.superstars ? " PLAY takes it out first." : "")).c_str());
-    for (int i = 0; i < int(stars_.stars.size()); ++i) {
-      const importer::Superstar& x = stars_.stars[size_t(i)];
+    if (stars_mig_ == importer::Migration::Kept) Note(importer::screen::MigrationLine(stars_mig_).c_str());  // (while it is pending, the check above says it)
+    for (const size_t oi : importer::screen::DisplayOrder(stars_.stars)) {  // (S110 SEAT-C: seated first, in seat order; then not seated, by name)
+      const int i = int(oi);
+      const importer::Superstar& x = stars_.stars[oi];
       char label[160], note[160];
-      std::snprintf(label, sizeof label, "%d   %s", x.slot, x.name.c_str());
+      if (x.slot >= 0) std::snprintf(label, sizeof label, "%d   %s", x.slot, x.name.c_str());
+      else std::snprintf(label, sizeof label, "NOT SEATED   %s", x.name.c_str());
       std::snprintf(note, sizeof note, "based on %s", assets::CharacterLabel(x.base_id).c_str());
       ImGui::PushID(i);
       if (Choice(label, stars_sel_ == i, note)) stars_sel_ = stars_sel_ == i ? -1 : i;
       ImGui::PopID();
       if (stars_sel_ == i) {
-        if (Button("EDIT IN THE IMPORTER", game_ok_ && stars_free)) StartViewer({"--importer", "--importer-edit", std::to_string(x.slot)});
+        if (x.slot < 0) Note(importer::screen::NotSeatedWhy(importer::screen::SeatedCount(stars_.stars), stars_seats_).c_str());
+        if (Button("EDIT IN THE IMPORTER", game_ok_ && stars_free)) {
+          // (S110 SEAT-C review: by his library key, as the PC launcher; one with no seat has no slot; an old pack's entry has no key yet)
+          if (!x.key.empty()) StartViewer({"--importer", "--importer-edit", x.key});
+          else if (x.slot >= 0) StartViewer({"--importer", "--importer-edit", std::to_string(x.slot)});
+          else StartViewer({"--importer"});
+        }
         if (!stars_confirm_) {
           if (Button("REMOVE FROM THE PACK", stars_free)) stars_confirm_ = true;
         } else {
-          Note("Remove him from the pack? Build the pack again in the importer to take him out of the game.");
+          Note("Remove this superstar? This deletes the library folder made for the game. The source file you imported stays in the mods folder.");
           if (Button("YES, REMOVE", stars_free)) {
             importer::PackState st;
             std::string err;
             // (importer review: by slot, read fresh - the importer may have changed the list since)
             const int slot = x.slot;
+            const std::string key = x.key;  // (S110 SEAT-C: by his key; one with no seat has no slot)
             const bool read = importer::LoadPack(ModsDir(), st, err);
-            const auto it = std::find_if(st.stars.begin(), st.stars.end(), [slot](const importer::Superstar& y) { return y.slot == slot; });
+            const auto it = std::find_if(st.stars.begin(), st.stars.end(), [slot, &key](const importer::Superstar& y) { return !key.empty() ? y.key == key : slot >= 0 && y.slot == slot; });
             if (read && it != st.stars.end()) {
               st.stars.erase(it);
               st.needs_build = true;
@@ -2706,7 +2722,23 @@ class App {
     }
     if (!zip.empty()) out = {zip};
     if (!hand_over) return;
+    size_t dropped = 0;
+    if (zip.empty()) {  // S108 MOB: the files one by one go out redacted too (copies in logs/share/plain, the originals are not shared)
+      const fs::path plain_dir = files_ / "logs" / "share" / "plain";
+      fs::remove_all(plain_dir, ec);
+      fs::create_directories(plain_dir, ec);
+      std::vector<fs::path> copies;
+      for (const fs::path& f : out) {
+        const fs::path c = plain_dir / f.filename();
+        if (report_redact::RedactFileByKind(f, c, report_redact::PhoneRules())) copies.push_back(c);  // (review D1: the .bin binary-safe)
+        else fs::remove(c, ec);  // (S108 review: a part-written copy is not left behind)
+      }
+      dropped = out.size() - copies.size();
+      out = copies;
+    }
     if (newest.empty()) ShowToast("No game log yet: sharing the launcher's log");
+    // S108 review: the zip failed and some copies could not be written either (most likely a full phone): say so, never a silent short set
+    if (dropped) ShowToast(std::to_string(dropped) + " of the log files could not be prepared for sharing (is the phone's storage full?)", 8000);
     platform::Share(out);
   }
 
@@ -2736,7 +2768,9 @@ class App {
     if (!oldest_part.empty()) in.game_logs.push_back(oldest_part);
     if (!game_log.empty()) in.game_logs.push_back(game_log);
     in.frames_csv = frames;
-    const std::string text = report::Build(in);
+    in.cpu_text = mlauncher::cpu::PhoneText();  // S108 MOB
+    const report_redact::Rules rules = report_redact::PhoneRules();  // S108 MOB: everything below goes through it
+    const std::string text = report_redact::Redact(report::Build(in), rules);
     std::string phone;
     static const char* const kMarks[3] = {"OK", "!", "X"};
     for (const auto& line : check_) phone += std::string(kMarks[std::clamp(line.level, 0, 2)]) + "  " + line.text + "\n";
@@ -2744,9 +2778,15 @@ class App {
     zip::Writer z(path);
     bool ok = z.ok() && z.AddText("report.txt", text);
     // S105 C0b: what the log says was not drawn, per mode (never fails the zip: a log it cannot read becomes a line saying so)
-    if (ok) ok = z.AddText("findings.txt", report_findings::Build(in.game_logs, "this phone's game log"));
+    if (ok) ok = z.AddText("findings.txt", report_redact::Redact(report_findings::Build(in.game_logs, "this phone's game log"), rules));
+    // S108 MOB: each file is redacted in pieces into a temp file (about 2 MiB of memory whatever its size), and that is what is zipped.
+    // (S108 review D1: by its kind: the text types through the text redaction, last_game_exit_trace.bin - a tombstone protobuf or ANR text -
+    // through the binary-safe pass, which keeps its size and structure)
+    const fs::path plain = dir / "redacting.tmp";
     auto add = [&](const fs::path& f) {
-      if (ok && !f.empty() && fs::is_regular_file(f, ec)) ok = z.AddFile(U8(f.filename()), f);
+      if (!ok || f.empty() || !fs::is_regular_file(f, ec)) return;
+      ok = report_redact::RedactFileByKind(f, plain, rules) && z.AddFile(U8(f.filename()), plain);
+      fs::remove(plain, ec);
     };
     add(game_log);
     add(oldest_part);
@@ -2760,7 +2800,7 @@ class App {
     Log("share: report zip %s", U8(path).c_str());  // before the copy, so the zip's launcher.log has it
     add(logs / "launcher.log");
     add(SettingsPath());
-    if (ok) ok = z.AddText("phone.txt", phone);
+    if (ok) ok = z.AddText("phone.txt", report_redact::Redact(phone, rules));
     const size_t entries = z.count();
     ok = z.Finish() && ok;
     if (!ok) {
@@ -3128,7 +3168,16 @@ class App {
       if (!e.is_regular_file()) continue;
       const std::string name = fs::relative(e.path(), r.run, ec).generic_string();
       if (name.rfind("save/", 0) == 0 || name.rfind("cache/", 0) == 0 || e.path().extension() == ".part" || e.path().extension() == ".rgba") continue;
-      ok = z.AddFile(name, e.path());
+      // S108 MOB: the files are redacted (PhoneRules) in pieces into a temp file; the pictures (shots/) are zipped as they are.
+      // (S108 review D1: by an explicit list of text types, as the PC's diagnostic zip; anything else - the arm's copy of
+      // last_game_exit_trace.bin - takes the binary-safe pass, never the text one)
+      if (report_redact::KindOf(e.path()) == report_redact::Kind::kPicture) {
+        ok = z.AddFile(name, e.path());
+        continue;
+      }
+      const fs::path plain = dir / "redacting.tmp";
+      ok = report_redact::RedactFileByKind(e.path(), plain, report_redact::PhoneRules()) && z.AddFile(name, plain);
+      fs::remove(plain, ec);
     }
     ok = z.Finish() && ok;
     fs::remove(DiagPendingPath(), ec);

@@ -26,6 +26,7 @@
 #include <cstring>
 
 #include "inputs_core.h"
+#include "../renderer_scene/rows_plane.h"   // S106 G4-2
 
 namespace scene_inputs {
 

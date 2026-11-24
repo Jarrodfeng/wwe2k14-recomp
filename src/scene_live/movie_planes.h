@@ -85,7 +85,7 @@ class MovieStore {
   Plants plants;
 
   // The flush of display set `set` at guest frame `gf` (called inside the movie present). Copies the display buffer. Returns true when a frame was stored.
-  bool OnFlush(ReadFn read, uint32_t set, uint64_t gf) {
+  bool OnFlush(ReadFn read, uint32_t set, uint64_t gf, screens::RowsFn rows = nullptr) {   // rows: S108 RDS (a plane in one call; null = a read a row)
     uint32_t my_seq;
     {
       std::lock_guard<std::mutex> lk(m_);
@@ -107,7 +107,7 @@ class MovieStore {
     {
       std::lock_guard<std::mutex> lk(copy_m_);   // (CopyDisplay counts into the copier's own census)
       copier_.plants = cp;
-      if (!copier_.CopyDisplay(read, set, *f)) {
+      if (!copier_.CopyDisplay(read, set, *f, rows)) {
         std::lock_guard<std::mutex> lk2(m_);
         ++c_.refused;
         return false;

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/scene_live/ring_recompute_core.h"
 
 using namespace rdr_scene;

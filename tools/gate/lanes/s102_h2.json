@@ -1,7 +1,0 @@
-{
- "owner": "S102 lane H2 (spins and waits): src/owner_hires_wait.h (PlanWaitBatched), owner_timing_core.h (max_catch_up), owner_timing.h (wwe2k14_owner_load_batch), src/renderer/fence_wait.h + renderer.cpp / overlay.h / renderer_adapter (wwe2k14_rdr_fence_friendly), tools/h2. 0 game runs.",
- "claim": {"scene": "bryan", "side": "swap (owner timing thread, match-load windows only) and render (fence wait)", "ms": [0.0, 0.6], "note": "CPU, not frame time: owner-timing spin 60-97 % of a core for 3-4 s per match load -> about 4 %; fence wait up to 13-17 % of a core if the Intel driver spins in vkWaitForFences (unconfirmed), at the price of seeing the fence up to 0.5 ms late; the shared-power GPU-clock effect is an estimate, not measured"},
- "checks": [
-  {"name": "s102_h2.waits", "cmd": ["py", "-I", "tools/h2/h2_selftest.py"], "timeout_s": 1500, "cache": false}
- ]
-}

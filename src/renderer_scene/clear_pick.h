@@ -4,7 +4,7 @@
 #pragma once
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_stage_look.h"
 
 namespace rdr_scene::clear_pick {
 

@@ -1,4 +1,4 @@
-r"""Lane SN (S101 lane 86, SH0) gate driver for src\renderer_adapter\shadow_roles.h: shadow casters chosen by draw origin and surface role, not by shader hash.
+r"""Lane SN (S101 lane 86, SH0) driver for src\renderer_adapter\shadow_roles.h: shadow casters chosen by draw origin and surface role, not by shader hash.
 
   py -I tools\shadow\shadow_roles.py check      build tools\shadow\shadow_roles_check.cpp (the shipped header) and run it on Check B (brock), Bryan and wm30:
                                                 clean (exit 0), plants hash_only and rim_as_shadow (each exit 1 with the named checks failing), a missing input (exit 1)

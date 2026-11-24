@@ -1,7 +1,7 @@
 r"""PreToolUse hook (Bash | PowerShell): refuse long sleep / poll waits in shell commands (Session 103, 2026-11-17).
 
-Why: builders sleep-polled gate logs (GT: five 3-minute sleeps) although docs\agents\builder_brief.md says "ONE blocking gate_wait call,
-never a sleep-and-grep loop" (docs\research\s103\BT_builder_time.md). A written rule did not hold; this makes it a mechanism.
+Why: builders sleep-polled logs (GT: five 3-minute sleeps) although docs\agents\builder_brief.md says to run long jobs in the background,
+not in a sleep-and-grep loop (docs\research\s103\BT_builder_time.md). A written rule did not hold; this makes it a mechanism.
 Jarrod, 2026-11-17: "Do all 4 steps, and add the hook".
 
 Reads the hook JSON on stdin; looks only at the command TEXT (a script that sleeps inside is not affected). Refuses (exit 2, reason on
@@ -21,8 +21,8 @@ import sys
 LIMIT_S = 30
 WAIT_PROCESS_LIMIT_S = 60
 MSG = ("Refused by tools\\harness\\no_long_sleep_hook.py: no long sleeps or poll loops (S103 rule). "
-       "Waiting on a gate? Use ONE blocking call: py -I tools\\gate\\gate_wait.py --root . --only LANE "
-       "(or --attach LOGFILE). Long job? Run it with run_in_background and keep working; you are notified when it ends.")
+       "Waiting on a long job? Run it with run_in_background and a hard timeout, keep working, and read its log when you are notified; "
+       "or make ONE blocking call with a timeout.")
 
 
 def _num(s):
@@ -72,6 +72,32 @@ def why_refused(cmd: str):
     return None
 
 
+CTRL_MSG = ("Refused by tools\\harness\\no_long_sleep_hook.py: the Python script this command runs holds a control character "
+            "(usually 0x08: a `\\b` word boundary that went through a non-raw string or a shell on its way into the file, so the "
+            "regex silently never matches; S109: it produced wrong numbers that were reported). Rewrite that line with the Edit / "
+            "Write tool, then run it again.")
+_CTRL = frozenset(range(0, 9)) | {11, 12} | frozenset(range(14, 32)) | {127}
+
+
+def script_control_char(cmd: str, cwd: str = ''):
+    """S109 (Jarrod: "we should ensure this doesn't happen"): 'FILE:LINE: 0xNN' for the first control character in a .py file
+    the command names, else None. Runs for background commands too. Never raises (fail open)."""
+    try:
+        for tok in re.findall(r'''[^\s"'<>|;&()]+\.py\b''', cmd or ''):
+            p = tok if os.path.isabs(tok) else os.path.join(cwd or os.getcwd(), tok)
+            if re.match(r'^/[a-zA-Z]/', tok):                       # Git Bash drive path: /c/Users/... -> C:\Users\...
+                p = tok[1].upper() + ':' + tok[2:]
+            if not os.path.isfile(p) or os.path.getsize(p) > 4_000_000:
+                continue
+            data = open(p, 'rb').read()
+            for i, b in enumerate(data):
+                if b in _CTRL:
+                    return f'{tok}:{data.count(b"\n", 0, i) + 1}: 0x{b:02X}'
+    except Exception:
+        return None
+    return None
+
+
 def main():
     if '--selftest' in sys.argv:
         return selftest()
@@ -79,6 +105,19 @@ def main():
         data = json.load(sys.stdin)
         ti = data.get('tool_input') or {}
         cmd = ti.get('command', '')
+        bad = script_control_char(cmd, str(data.get('cwd') or ''))
+        if bad:
+            print(f'{CTRL_MSG} (found: {bad})', file=sys.stderr)
+            return 2
+        try:   # S110: the four shell habits the agent definitions forbid (tools\harness\habit_hook.py; fails open)
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import habit_hook
+            habit = habit_hook.message(cmd)
+        except Exception:
+            habit = None
+        if habit:
+            print(habit, file=sys.stderr)
+            return 2
         if ti.get('run_in_background'):
             return 0   # a background wait blocks nobody: the agent keeps working and is notified when it ends (S103 SG operator, 21:4x)
     except Exception:
@@ -132,14 +171,33 @@ def selftest():
               'Start-Sleep -Milliseconds 60000', 'until grep -q PASS log; do sleep 5; done', 'while true; do sleep 10; done',
               'Wait-Process -Id 1 -Timeout 580', 'timeout /t 90', 'sleep 2m', 'cd x && sleep 31',
               'py -c "while 1: pass"', "python -c 'while True: pass' &", 'pwsh -c "while($true){}"', 'stress-ng --cpu 16',
-              'py out/load_gen.py']
-    allow = ['sleep 5', 'Start-Sleep -Seconds 10', 'time.sleep(0.5)', 'py -I tools/gate/gate_wait.py --root . --only s103_B2',
-             'Start-Sleep -Milliseconds 500', 'git log --oneline -5', 'timeout 900 py -I tools/gate/gate_wait.py --root .',
+              'py out/load_gen.py',
+              r'while true; do py -I tools\harness\wait_commit.py --branch b --after a; sleep 60; done',
+              r'until py -I tools\harness\wait_commit.py --branch b --after a; do sleep 5; done',
+              r'py -I other\wait_commit.py --branch b --after a; sleep 60']
+    allow = ['sleep 5', 'Start-Sleep -Seconds 10', 'time.sleep(0.5)', 'py -I tools/handback/check.py --root .',
+             'Start-Sleep -Milliseconds 500', 'git log --oneline -5', 'timeout 900 py -I tools/handback/check.py --root .',
              'grep -n sleep src/x.cpp', 'Wait-Process -Id 1 -Timeout 30', 'echo "sleepy 100"', 'for f in *.txt; do wc -l $f; done',
-             'git commit -m "no busy loops, stress tools or load tests on the PC"', 'grep -n "while True" tools/x.py']
+             'git commit -m "no busy loops, stress tools or load tests on the PC"', 'grep -n "while True" tools/x.py',
+             # S108 lane F: the commit wait is a marker wait with its own hard bound (<= 580 s); the old hook already allows it (no sleep in the command)
+             r'py -I tools\harness\wait_commit.py --branch b --after abc --timeout 540',
+             r'py -I C:\Users\Jarrod\wwe2k14-recomp\tools\harness\wait_commit.py --branch b --after abc --marker HAND-BACK']
     bad = [c for c in refuse if not why_refused(c)] + [c for c in allow if why_refused(c)]
     for c in bad:
         print('FAIL', repr(c), '->', why_refused(c))
+    # S109: a script holding a control character is refused before it runs (planted twin: the same script with a real \b passes).
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        good, evil = os.path.join(d, 'ok_script.py'), os.path.join(d, 'bs_script.py')
+        open(good, 'w', encoding='utf-8', newline='\n').write("import re\nre.search(r'\\bgit\\b', 'git')\n")
+        open(evil, 'wb').write(b"import re\nx = 1\nre.search(r'\x08git\x08', 'git')\n")
+        cases = [(f'py -I {evil} --section chains', True), (f'py {good}', False), ('py -I bs_script.py', True),
+                 ('py ok_script.py && echo done', False), ('git log --oneline -3', False), ('py -I no_such_file.py', False)]
+        for c, want in cases:
+            got = script_control_char(c, d)
+            if bool(got) != want or (want and not got.endswith(':3: 0x08')):
+                bad.append(c)
+                print('FAIL control-char case', repr(c), '->', got)
     print('PASS no_long_sleep_hook selftest' if not bad else f'FAIL {len(bad)} case(s)')
     return 1 if bad else 0
 

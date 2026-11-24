@@ -1,0 +1,32 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_a --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 SEAT2 boot 3 / 5 (mods_a again, same user data): open seat 397's (Lashley) entrance EASY and read it (no edit), leave, quit.
+log seat2: start b5
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+log_text 12
+screenshot b5_picker
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log seat2: editor first open
+log_text 12
+screenshot b5_open
+mark 1 editor
+on_fail continue
+press B
+wait_frames 300
+log_text 12
+log_state msgbox
+screenshot b5_leave
+log seat2: done
+quit

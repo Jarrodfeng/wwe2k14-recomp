@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../../renderer_scene/bone_tag_rows.h"   // S106 C4W: BoneTag, kBoneTagLayout
 #include "../../renderer_scene/record_io.h"
 #include "json_lite.h"
 
@@ -107,6 +108,14 @@ std::string RecordScene(const Renderer& r, const Camera& cam, int w, int h, cons
         rdr_scene::Mat4 bm{};
         std::memcpy(bm.m, b.data(), sizeof bm.m);
         t.bones.push_back(bm);
+      }
+      // S106 C4W: one tag per piece-added (spring-hair) row, ascending, as the live writer does (wrestler_contrib.cpp): without them PlanPalette refuses the palette and the wrestler is a hole.
+      // Only when the palette is exactly body rows + the model's extras; otherwise no tags (fail closed, as before).
+      if (gm.main_bones && gm.skin_cpu.size() == size_t(gm.main_bones) + gm.extra_tags.size()) {
+        for (size_t e = 0; e < gm.extra_tags.size(); ++e) {
+          const auto& tg = gm.extra_tags[e];
+          t.bone_tags.push_back(rdr_scene::BoneTag{rdr_scene::kBoneTagLayout, o.bones_first + gm.main_bones + uint32_t(e), tg[0], tg[1], tg[2]});
+        }
       }
     }
     t.objects.push_back(o);

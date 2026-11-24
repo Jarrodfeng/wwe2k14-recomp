@@ -23,7 +23,8 @@
 #include <utility>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_lights.h"
+#include "../renderer_scene/rows_ring.h"
 #include "arena_world.h"  // RowsFromMatrix
 #include "skin_data.h"    // S103 WC R1: the +220 data object rule, shared with the crowd latch
 

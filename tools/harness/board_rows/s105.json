@@ -1,0 +1,189 @@
+{
+ "name": "s105",
+ "session": "ef470155-8715-45c7-83ff-4dcfa8c4db83",
+ "branch": "s105",
+ "window": [
+  "2026-11-20 16:30",
+  "2026-11-21 02:10"
+ ],
+ "run_estimate": 120,
+ "check_log": null,
+ "note": "Rows of SESSION105_PLAN.md section 3. Needs: B2 after B1; B3 after B1 + B2 (plan row B3). The other rows state test-save needs, which are not rows. B1 was built and merged before agents were started (its branch worktree-agent-ad1d7e98262274c49, merged 16:40).",
+ "rows": [
+  {
+   "id": "A1",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A1(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A1b",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A1b(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A2",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A2(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A3",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A3(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A4",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A4(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A5a",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A5a(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A5b",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A5b(?![A-Za-z0-9])",
+    "A5a/b"
+   ]
+  },
+  {
+   "id": "A5c",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A5c(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A5d",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A5d(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A6",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A6(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A7",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A7(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A8",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A8(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A9",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A9(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A10",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A10(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A11",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A11(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "A12",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])A12(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "B1",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])B1(?![A-Za-z0-9])",
+    "ad1d7e98262274c49"
+   ]
+  },
+  {
+   "id": "B2",
+   "needs": [
+    "B1"
+   ],
+   "match": [
+    "(?<![A-Za-z0-9])B2(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "B3",
+   "needs": [
+    "B1",
+    "B2"
+   ],
+   "match": [
+    "(?<![A-Za-z0-9])B3(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "C0",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])C0(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "C1",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])C1(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "C2",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])C2(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "C3",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])C3(?![A-Za-z0-9])"
+   ]
+  },
+  {
+   "id": "C4",
+   "needs": [],
+   "match": [
+    "(?<![A-Za-z0-9])C4(?![A-Za-z0-9])"
+   ]
+  }
+ ]
+}

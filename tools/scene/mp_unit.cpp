@@ -49,7 +49,9 @@ struct FakeMem : GuestMem {
   void F(uint32_t a, float f) { uint32_t u; std::memcpy(&u, &f, 4); w[a] = u; }
 };
 static FakeMem* g_mem = nullptr;
+static uint64_t g_reads_scoped = 0, g_reads_unscoped = 0;   // S108 RDS review: reads made inside / outside a pass scope (safe_guest_pages.h PassLines)
 static bool SrcRead(uint32_t guest, void* dst, size_t n) {   // n raw BIG-ENDIAN bytes
+  ++(wwe2k14::safe_pages::PassLines::Current() ? g_reads_scoped : g_reads_unscoped);
   uint8_t* d = static_cast<uint8_t*>(dst);
   for (size_t i = 0; i < n; i += 4) {
     const auto it = g_mem->w.find(guest + uint32_t(i));
@@ -244,7 +246,9 @@ int main(int argc, char** argv) {
     ParticleSource* g = NewSource();
     g->NoteCall(CallOf(0x4000, 3), kFrame);    // group 1 after 3 rows
     g->NoteCall(CallOf(0x4100, 7), kFrame);    // group 2 after 7 rows
+    g_reads_scoped = g_reads_unscoped = 0;
     const SceneTables raw = EmitFrame(*g, kFrame);
+    Check(g_reads_scoped > 0 && g_reads_unscoped == 0 && !wwe2k14::safe_pages::PassLines::Current(), "rds.particle_take_pass_scoped", "reads in the pass scope " + std::to_string((unsigned long long)g_reads_scoped) + ", outside it " + std::to_string((unsigned long long)g_reads_unscoped));   // S108 RDS review: Take is one pass (the namer's ReadGuest walks share its line copy)
     const SceneTables t = RoundTrip(raw);
     const ParticleTables& p = t.particles;
     Check(p.batches.size() == 2 && p.particles.size() == 2 && p.Valid(), "groups.every_call", std::to_string(p.batches.size()) + " batches, " + std::to_string(p.particles.size()) + " particles");

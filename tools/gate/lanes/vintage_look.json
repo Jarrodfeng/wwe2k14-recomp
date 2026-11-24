@@ -1,9 +1,0 @@
-{
- "owner": "S103 VTG2: one VINTAGE LOOK switch: src/vintage_look_core.h, src/vintage_look.h (hook sub_82594808), tools/vintage/vintage_look_test.cpp",
- "note": "builds out/tools/vintage_look_test.exe, runs the shipped decision (must pass) and once per planted fault (each must exit 1).",
- "affects": ["src/vintage_look_core.h", "src/vintage_look.h", "tools/vintage/**"],
- "checks": [
-  {"name": "vintage_look.build", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/vintage/build_vintage_look_test.ps1"], "timeout_s": 600},
-  {"name": "vintage_look.unit", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/vintage/vintage_look_selftest.py"], "timeout_s": 300}
- ]
-}

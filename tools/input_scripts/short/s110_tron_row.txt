@@ -1,0 +1,92 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\tron\mods --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 TRONROW Q1: Create an Entrance > SUPERSTAR (row 0, disc) > first wrestler (AJ LEE) > EASY CREATION: MOVIE row (row 5) list is PAGED
+# (1/4 .. 4/4; DOWN / UP wrap inside a page, run 002): RIGHT x3 to page 4/4, UP from the page's first row wraps to its last (TEST TRON),
+# select it, X full preview (big screen = test pattern?), ACCEPT YES, reopen: MOVIE still TEST TRON?
+# Pages: picker 0x82038500, EASY / ADVANCED popup 0x8203BDF0, editor 0x82046A68 (no row state: frame waits, replay mode).
+log tronrow: start disc2
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state UP menu_row 0 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log tronrow: editor first open
+screenshot d_editor
+mark 1 editor
+on_fail continue
+# MOVIE row = row 5
+repeat 5
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+log tronrow: movie list open
+screenshot d_page1
+press RIGHT
+wait_frames 60
+screenshot d_page2
+press RIGHT
+wait_frames 60
+screenshot d_page3
+press RIGHT
+wait_frames 60
+log tronrow: page 4
+screenshot d_page4
+press UP
+wait_frames 60
+log tronrow: page 4 up 1
+screenshot d_page4_up1
+mark 2 on test tron
+press A
+wait_frames 300
+log tronrow: movie picked
+log_state msgbox
+screenshot d_picked
+mark 3 picked
+# full preview from the editor (cursor on MOVIE)
+press X
+screenshot_every 120 d_prev
+wait_frames 1500
+screenshot_every 0
+log tronrow: preview
+press START
+wait_frames 300
+screenshot d_preview_end
+mark 4 preview
+# ACCEPT (row 7) from MOVIE (row 5)
+repeat 2
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+log tronrow: accept box
+log_state msgbox
+screenshot d_accept
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 600
+log tronrow: accepted
+include log_menu
+screenshot d_accepted
+mark 5 accepted
+# reopen the same wrestler
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log tronrow: reopened
+screenshot d_reopen
+mark 6 reopened
+log tronrow: done
+quit

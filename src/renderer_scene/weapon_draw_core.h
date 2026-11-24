@@ -71,6 +71,10 @@ inline uint32_t BindModel(const assets::Model& stored, assets::Model& bound) {
   return bad;
 }
 
+// S108 FAN: the rows a bound model's vertices ask for: rf::c::RowsNeeded (ring_pose.h; S108 AL1 moved it there, the ring's pieces use it too). A call that gives a skinned model fewer rows leaves every vertex
+// past them at its file position (PoseMesh): reported by pose_rows_report.h ReportWeaponRows (the shared draw_shortfall), never only as a count.
+using rf::c::RowsNeeded;
+
 // Poses the vertices of `out` (a structural copy of `bound`: same meshes and vertex counts; its textures may be empty) with the call's node rows. `pal` is a caller scratch.
 inline void PoseCall(const assets::Model& bound, const View& v, const WeaponCall& w, const Plants& p, std::vector<assets::Matrix>& pal, assets::Model& out) {
   pal.resize(w.node_count);

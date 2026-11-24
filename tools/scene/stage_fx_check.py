@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C2 gate check: builds tools\\scene\\stage_fx_unit.cpp (the stage's live writers: moving slot worlds from a fake guest, the screen rows, the YUV -> RGBA feed conversion, the record
+"""S103 lane C2 check: builds tools\\scene\\stage_fx_unit.cpp (the stage's live writers: moving slot worlds from a fake guest, the screen rows, the YUV -> RGBA feed conversion, the record
 round trip: 0 game runs, no game, no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\stage_fx_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""

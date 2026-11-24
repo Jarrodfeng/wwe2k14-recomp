@@ -31,6 +31,7 @@
 #include "../../src/assets/asset_load.h"                 // ReleaseEvtobj / GmBankOffset / the loaders are compiled here
 #include "../../src/renderer_scene/weapon_draw_core.h"   // (+ weapon_plan.h)
 #include "../../src/scene_live/weapon_rows_core.h"
+#include "../../src/renderer_scene/splat_state.h"         // S108 BLD2: the splat's object flags + the front end's depth-write rule (check splat.depth_write <- splat_depth_write)
 
 using namespace rdr_scene;
 using namespace rdr_scene::live::weaponrows;
@@ -135,7 +136,7 @@ int main(int argc, char** argv) {
   std::string plant;
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant = argv[++i];
-  static const char* const kPlants[] = {"gm_all_models", "gm_no_recheck", "gm_ignore_pass", "blood_include_dead", "event_no_clear", "event_no_prune", "no_hold", "gm_dead_alpha", "release_drop_on_busy", "want_low_bit", "gm_rescan_empty", "scene_sig_loaded", "gm_no_fallthrough", "hold_ignore_sig", "first_write_clears"};
+  static const char* const kPlants[] = {"gm_all_models", "gm_no_recheck", "gm_ignore_pass", "blood_include_dead", "event_no_clear", "event_no_prune", "no_hold", "gm_dead_alpha", "release_drop_on_busy", "want_low_bit", "gm_rescan_empty", "scene_sig_loaded", "gm_no_fallthrough", "hold_ignore_sig", "first_write_clears", "splat_depth_write"};
   bool known = plant.empty();
   for (const char* k : kPlants) known = known || plant == k;
   if (!known) {
@@ -511,6 +512,14 @@ int main(int argc, char** argv) {
     const size_t a80 = assets::load_detail::GmBankOffset(b, 80, fr);
     const size_t a5 = assets::load_detail::GmBankOffset(b, 5, fr);
     Check(a21 == 0x4000 + 554 * 0x800 && !fr21 && a78 == 0x4000 + 607 * 0x800 && fr78 && a80 == 0x4000 + 3081 * 0x800 && a5 == 0, "gm.bank_offset", "21 -> 0x" + std::to_string(a21) + (fr21 ? " FR" : " plain") + ", 78 -> " + (fr78 ? "FR" : "PLAIN") + " 0x" + std::to_string(a78) + ", 5 -> " + std::to_string(a5));
+  }
+
+  {   // S108 BLD2 splat.depth_write: the flags rf_props.cpp gives a splat, through the front end's own rule (splat_state.h); the planted twin = the old flags (force-blend alone: the material's depth write)
+    using namespace rdr_scene;
+    const uint32_t f = splat_state::SplatObjectFlags(plant == "splat_depth_write");
+    const bool splat_dw = splat_state::DepthWriteOf(f, /*sorted=*/false, /*game_order_cutout=*/false);   // the splat material is opaque (yDefault): unsorted, force-blended
+    const bool prop_dw = splat_state::DepthWriteOf(0u, false, false);
+    Check(!splat_dw && (f & kObjForceBlend) && prop_dw, "splat.depth_write", std::string("splat depth write ") + (splat_dw ? "ON" : "off") + ", opaque prop " + (prop_dw ? "on" : "OFF"));
   }
 
   std::printf("%s\n", g_fail ? "gbr_test: FAILED" : "gbr_test: all checks passed");

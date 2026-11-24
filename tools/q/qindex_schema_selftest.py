@@ -185,7 +185,7 @@ def sdk_checks(fails):
         check('other_index_files' in buf.getvalue() and 'sdk.db' in buf.getvalue(), 'sdk: `info` names the other-schema files it left alone', fails)
         os.environ['WWE_QSDK_DB'] = os.path.join(tmp, 'elsewhere.db')
         try:
-            check(qsdk.db_path(tmp) == os.path.join(tmp, 'elsewhere.db'), 'sdk: WWE_QSDK_DB points the index at another file (a builder / a gate lane never touches the shared one)', fails)
+            check(qsdk.db_path(tmp) == os.path.join(tmp, 'elsewhere.db'), 'sdk: WWE_QSDK_DB points the index at another file (a builder or a selftest never touches the shared one)', fails)
         finally:
             del os.environ['WWE_QSDK_DB']
         h1 = sha(mine)

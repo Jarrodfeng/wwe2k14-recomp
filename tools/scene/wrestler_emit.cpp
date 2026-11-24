@@ -19,10 +19,13 @@
 #include <vector>
 
 #include "../../src/scene_live/wrestler_contrib.h"
+#include "../../src/renderer_scene/detached_piece.h"
+#include "../../src/renderer_scene/bone_tag_rows.h"
 #include "../../src/scene_live/model_hooks.h"
 #include "../../src/scene_live/piece_link.h"        // S103 NRB
 #include <set>
 #include "../../src/renderer_scene/named_load_fail.h"   // S103 DLW
+#include "../../src/scene_live/model_file_note.h"        // S110 SEATREL (was PACANS' pac_answer table)
 #include "../../src/renderer_scene/detached_piece.h"    // S103 DTP
 
 using namespace rdr_scene;
@@ -566,6 +569,27 @@ static int SelfTest() {
                 "CMB: the link carries the tag; the composite entry differs from the stock attire's of the same loaded key; the plain KeyLink (the slot_key fallback) stays the plain base");
           wt.SubmitModelLink(kHeenan, 24902, 0, 0, 0x3, {}, 109);   // a relink at the address without a tag (the stock attire, or a base / refused read)
           Check(wt.ModelKeyFor(kHeenan).tag.empty(), "CMB drop path (relink): the old colours are gone");
+        }
+        {  // S110 SEATREL (was PACANS): the file the game's model was BUILT from, noted per slot descriptor (a seated slot: the game built slot 397's model from CH398's pac)
+          const uint32_t kRd = 0x70001000, kDsc = 0x71000000;   // the reader of the read, the slot descriptor it built
+          model_file_note::Clear();
+          rdr_scene::namedfail::Clear();
+          model_file_note::NoteRead(kRd, "/EMD/00039702", "DLC4:\\PAC\\CH\\CH398_DLC06.PAC");
+          model_file_note::NoteBuild(kDsc, 39702, kRd);
+          const WrestlerContributor::Link ls = WrestlerContributor::KeyLink(39702, std::string(), kDsc);
+          Check(ls.pac == "pac\\ch\\ch398.pac" && ls.entry == "model_key:39802" && ls.variant == 0, "SEATREL: the descriptor the game built from CH398's pac: KeyLink(39702, desc) names pac\\ch\\ch398.pac / model_key:39802");
+          Check(WrestlerContributor::KeyLink(39702).pac == "pac\\ch\\ch397.pac" && WrestlerContributor::KeyLink(39702, std::string(), kDsc + 192).pac == "pac\\ch\\ch397.pac", "SEATREL: no descriptor, or another one: the id rule (a probe lookup names nothing)");
+          Check(WrestlerContributor::KeyLink(39802, std::string(), kDsc).pac == "pac\\ch\\ch398.pac" && WrestlerContributor::KeyLink(39802, std::string(), kDsc).entry == "model_key:39802", "SEATREL: another key (398's own) on that descriptor keeps the id rule");
+          Check(WrestlerContributor::KeyLink(39712, std::string(), kDsc).pac == "pac\\ch\\ch397.pac", "SEATREL: another attire of 397 on that descriptor (the note is for key 39702 only): the id rule");
+          rdr_scene::namedfail::Note("pac\\ch\\ch398.pac", "model_key:39802", 0);
+          Check(WrestlerContributor::KeyFailed(39702, std::string(), kDsc) && !WrestlerContributor::KeyFailed(39702), "SEATREL: KeyFailed sees the failure of ch398 (the file the game built from) for the descriptor only");
+          model_file_note::NoteRead(kRd, "/EMD/00039702", "DLC4:\\PAC\\CH\\CH397_DLC05.PAC");   // the next read took CH397 again, but the game has not built from it yet
+          Check(WrestlerContributor::KeyLink(39702, std::string(), kDsc).pac == "pac\\ch\\ch398.pac", "SEATREL: a read that built nothing changes the descriptor's answer not at all");
+          model_file_note::NoteBuild(kDsc, 39702, kRd);   // the rebuild
+          const WrestlerContributor::Link lo = WrestlerContributor::KeyLink(39702, std::string(), kDsc);
+          Check(lo.pac == "pac\\ch\\ch397.pac" && lo.entry == "model_key:39702", "SEATREL: after the rebuild from CH397's pac the answer is back to the id rule");
+          model_file_note::Clear();
+          rdr_scene::namedfail::Clear();
         }
         {
           WrestlerContributor wt;   // the node-count drop (another object built at the address)
@@ -1517,6 +1541,7 @@ static int SelfTest() {
         w.SetNoWalk(!m.stream);
         w.SetFaultsForTest(faults);
         w.SubmitSkin(kOwner, 0, kN, own_rows.data(), kHook);                // the owner's update exit: equals the latch read (no mismatch for the owner)
+        w.StampDrawForTest(kOwner, kHook);                                  // S107 CAM: the stream-free build shows a body only while the game asked to draw it
         w.SubmitSkin(kPiece, -1, 7, derived_piece.data(), kHook);           // the piece's update exit: the game rewrites +200 AFTER it, so the latch read differs (the refusal's cause)
         if (m.shift != 0.f) w.ApplyDelta(kOwner, m.shift, 0.f, 0.f);        // sub_82BD3620 (the wwe2k14_skel_shift hook)
         // (review F8 b) the piece is READ the way the latch reads it: ReadCharacterPieces over a forged SUBM chain, the count from the update hook only because neither the wanted table nor the game's own count knows the model

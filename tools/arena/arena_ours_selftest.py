@@ -1,4 +1,4 @@
-# Gate check of lane 40 (Session 101): our arena's unit test (arena_ours_test.exe) with its planted faults and loud failures.
+# Check of lane 40 (Session 101): our arena's unit test (arena_ours_test.exe) with its planted faults and loud failures.
 #   py -I tools\arena\selftest.py [--zip CASE.zip] [--step N]
 # Runs the SHIPPED core (src\renderer_scene\arena_ours_core.cpp, the code ArenaOurs calls) via out\tools\arena_ours_test.exe (built by
 # tools\arena\build_arena_ours_test.ps1, which also compile-checks the GPU side arena_ours.cpp) on the files of arenas 4 and 5 and on Check B's capture

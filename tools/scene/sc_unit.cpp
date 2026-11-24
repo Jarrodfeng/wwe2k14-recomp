@@ -23,6 +23,7 @@
 #include "../../src/renderer_scene/quads2d_core.h"
 #include "sc_support.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_scene/quads2d_rig.h"
 
 using namespace rdr_scene;

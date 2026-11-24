@@ -226,7 +226,7 @@ def main():
     ap.add_argument('a')
     ap.add_argument('b')
     ap.add_argument('--allow', default='',
-                    help='with --cross: a regex of settings allowed to differ (renderer variants of the invariance gate); '
+                    help='with --cross: a regex of settings allowed to differ (renderer variants of the invariance check); '
                          'the differences are still listed')
     ap.add_argument('--cross', action='store_true',
                     help='Session 77: strict cross-device verdict (frame against frame, layers, INVALID checks); A and '

@@ -1,0 +1,41 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=210:0:0,103::2 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# Session 108 lane HAIR check (the fixed build only): a match between two long-haired Undertakers (210 American Badass in slot 0,
+# 103 attire 2 in slot 1; UNCONFIRMED that 210 launches from the frozen save, where he is locked).
+# Question: is the long hair drawn as solid strands with soft edges, no white haze or sparkle, at rest and in motion (two bursts of
+# shots 5 frames apart), with `[scene][hair_cut] draws > 0 ... no alpha twin 0 ... without a discard 0` and no `piece_cut_notwin` line?
+# Read it with: py -I tools\bench\run_read.py <exe folder> --full. Shots hair_* are local only.
+on_fail quit
+log bench: start scene s108_hair_match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=hair_match
+mark 1 match_clock
+wait_event render roster_ready 2400
+passive 1 on
+wait_frames 240
+screenshot hair_a0
+wait_frames 5
+screenshot hair_a1
+wait_frames 5
+screenshot hair_a2
+wait_frames 5
+screenshot hair_a3
+wait_frames 400
+screenshot hair_b0
+wait_frames 5
+screenshot hair_b1
+wait_frames 5
+screenshot hair_b2
+wait_frames 5
+screenshot hair_b3
+wait_frames 400
+screenshot hair_c0
+wait_frames 300
+screenshot hair_c1
+log scene=end
+mark 2 end
+log bench: done
+wait_frames 10
+quit

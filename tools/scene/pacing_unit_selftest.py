@@ -1,4 +1,4 @@
-"""Lane G (S103) gate check: builds out/tools/pacing_unit.exe, runs it clean (must exit 0) and with each planted fault (each must exit 1 with its message).
+"""Lane G (S103) check: builds out/tools/pacing_unit.exe, runs it clean (must exit 0) and with each planted fault (each must exit 1 with its message).
    py -I tools/scene/pacing_unit_selftest.py            exit 0 = all good
 """
 import os

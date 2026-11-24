@@ -2,8 +2,8 @@ r"""One line on the compile queue for a session-start screen (lane CQW; docs\age
 
   admit: INSTALLED <path> (built HH:MM, current) | mode observe | last history row 2026-11-20 14:02 (cc.tool admitted) | <state folder>
   admit: NOT INSTALLED <path>: wired builds are not queued (build it: pwsh -NoProfile -File tools\admit\build_admit.ps1 in the main checkout)
-  admit: STALE <path> is older than tools\admit\admit.cpp (rebuild it) | ...
-The exe and the config are the MAIN checkout's (what the helpers use); the state folder is env WWE_ADMIT_DIR, else %LOCALAPPDATA%\wwe2k14-admit.
+  admit: STALE <path> ... is not built from tools\admit\admit.cpp as it is now (S109 GATE: by content, the admit.exe.sha256 stamp) | ...
+The exe and the config are the MAIN checkout's (what the helpers use); the state folder is env WWE_ADMIT_DIR, else <main>\out\harness\admit (S106 0C: one folder for every tool).
 Reads files only: never starts admit. Exit 0 when installed and current, 1 otherwise (a caller may print it either way)."""
 import json
 import os
@@ -36,7 +36,7 @@ def main():
         mode = f'? ({cfg} missing)' if not os.path.exists(cfg) else f'? ({cfg} unreadable: admit then grants `open`)'
     if os.environ.get('WWE_ADMIT_MODE'):
         mode = f"{os.environ['WWE_ADMIT_MODE']} (env WWE_ADMIT_MODE, over {mode})"
-    state = os.environ.get('WWE_ADMIT_DIR') or os.path.join(os.environ.get('LOCALAPPDATA', ''), 'wwe2k14-admit')
+    state = os.environ.get('WWE_ADMIT_DIR') or os.path.join(main_root, 'out', 'harness', 'admit')   # S106 0C
     hist = os.path.join(state, 'history.tsv')
     last = 'no history yet'
     try:
@@ -53,8 +53,9 @@ def main():
         print(f'admit: NOT INSTALLED {exe}: wired builds are not queued (build it in the main checkout: pwsh -NoProfile -File tools\\admit\\build_admit.ps1) | {tail}')
         return 1
     built = os.path.getmtime(exe)
-    if os.path.isfile(src) and os.path.getmtime(src) > built:
-        print(f'admit: STALE {exe} (built {stamp(built)}) is older than {src} (rebuild it) | {tail}')
+    if admit_py.exe_current(exe) is False:   # S109 GATE: by CONTENT (the exe's sha256 stamp vs admit.cpp), never by file time
+        print(f'admit: STALE {exe} (built {stamp(built)}) is not built from {src} as it is now (no or another sha256 stamp): the first ask '
+              f'rebuilds it (build_admit.ps1 -IfStale) | {tail}')
         return 1
     print(f'admit: INSTALLED {exe} (built {stamp(built)}, current) | {tail}')
     return 0

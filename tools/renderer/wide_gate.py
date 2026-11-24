@@ -6,7 +6,7 @@ Renders captures with rplay at a wide factor and checks the picture with numbers
   tall     the same for a taller screen (4:3, --tall 1.3333).
   parity   16:9 with the new rplay equals the baseline rplay's picture byte for byte (--base-rplay), at scale 1 and 2.
 usage: py -I tools\\renderer\\wide_gate.py [--rplay EXE] [--base-rplay EXE] [--root DIR] [--out DIR]
-Exit 0 when every line passes. Captures are read from the main checkout's out\\captures and out\\cases (the same ones the other gates use)."""
+Exit 0 when every line passes. Captures are read from the main checkout's out\\captures and out\\cases (the same ones the other *_gate.py checks use)."""
 import argparse, os, subprocess, sys
 import numpy as np
 from PIL import Image

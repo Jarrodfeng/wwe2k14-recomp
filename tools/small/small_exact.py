@@ -1,4 +1,4 @@
-"""Lane 135: which float32 recipe reproduces the stream's cube direction bytes exactly? Numbers only (a search tool, not part of the gate)."""
+"""Lane 135: which float32 recipe reproduces the stream's cube direction bytes exactly? Numbers only (a search tool, not part of a check)."""
 import os
 import sys
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -65,7 +65,7 @@ def oracle(arena, vp, w, h):
             tx = tex_rgba(arena, m.samplers['sampDiffusePrm'])
             th, tw = tx.shape[:2]
             P = np.c_[m.positions.astype(np.float64), np.ones(len(m.positions))] @ vp
-            uv = m.uv1 if np.ptp(m.uv0, axis=0).max() < 1e-6 else m.uv0   # the diffuse UV rides S2 when S1 is constant (jboy.h s1_const_uv: no light map)
+            uv = m.uv1   # the diffuse UV is S2 for every mesh (the game, sub_82BD4BE0; BAN3); arena_files.py keeps the file-stream names (uv0 = S1 bytes, uv1 = S2)
             for (a, b, c) in strips_to_tris(m.indices):
                 q = P[[a, b, c]]
                 if (q[:, 3] <= 0).any():
@@ -151,7 +151,7 @@ def main():
     ap.add_argument('--expect-fail', default=None, metavar='TOKEN')
     a = ap.parse_args()
     if a.case:
-        if not os.path.exists(a.case):   # a worktree has no out\ of its own: the main checkout's (the gate's needs are relative to it)
+        if not os.path.exists(a.case):   # a worktree has no out\ of its own: the main checkout's (the check's needs are relative to it)
             main = os.environ.get('RDR_MAIN_CHECKOUT') or os.path.join('C:\\', 'Users', 'Jarrod', 'wwe2k14-recomp')
             a.case = os.path.join(main, a.case)
         a.panel, a.camera = rig_from_case(a.case, a.frame, a.out, a.plant)

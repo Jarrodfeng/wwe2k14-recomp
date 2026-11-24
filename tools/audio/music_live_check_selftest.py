@@ -197,8 +197,8 @@ def route_lint():
                 probs.append(f + ': no "# harness: flags" line')
             elif '--wwe2k14_launch=' in fl[0] or '--wwe2k14_launch ' in fl[0]:
                 probs.append(f + ': the header must not pass --wwe2k14_launch (the route arms it after the editor)')
-            if not any(l.startswith('# harness: realtime') for l in head):
-                probs.append(f + ': not marked realtime')
+            if any(l.startswith('# harness: realtime') for l in head):   # S109 FF: that header no longer exists (normal speed has one door: the intent term)
+                probs.append(f + ': carries the removed realtime header')
             for flag in re.findall(r'--(\w+)=', fl[0] if fl else ''):
                 if flag not in srcs and flag not in ('vulkan_stored_pipelines_at_boot',):
                     probs.append(f + ': flag --%s is not defined in src' % flag)

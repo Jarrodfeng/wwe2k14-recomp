@@ -72,10 +72,9 @@ $objectFiles = @($sources | ForEach-Object { Join-Path $objects (($_.Substring($
 $missingObjects = @($objectFiles | Where-Object { -not (Test-Path $_) })
 if ($missingObjects.Count) { throw "missing objects: $($missingObjects -join ', ')" }
 # S101 lane 163: no object is newer than the exe -> nothing to link. Relinking an unchanged tree failed with 'permission denied' whenever another
-# process (a gate lane, a viewer) had the exe open.
-if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra @((Join-Path $repo 'tools\fview\session_deps.txt')); Write-Host "up to date $exe"; exit 0 }
+# process (another build, a viewer) had the exe open.
+if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-Host "up to date $exe"; exit 0 }
 Show-CxxCache
 & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -ld3d11 -ldxgi -ldwmapi -lole32 -luuid -lshell32 -o $exe
 if ($LASTEXITCODE -ne 0) { throw 'link failed' }
-Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra @((Join-Path $repo 'tools\fview\session_deps.txt'))   # S103 DIB: <exe>.deps.txt = what this exe was built from (tools\gate\deps.py)
 Write-Host "built $exe"

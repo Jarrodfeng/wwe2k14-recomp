@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/renderer_scene/screen_feed_yuv.h"
 #include "../../src/renderer_scene/yuv_rgba.h"
 #include "../../src/scene_live/arena_id_core.h"
@@ -64,7 +66,8 @@ struct Guest {
   }
 };
 static Guest g_guest;
-static bool ReadThunk(uint32_t a, void* dst, size_t n) { return g_guest.Read(a, dst, n); }
+static uint64_t g_reads_scoped = 0, g_reads_unscoped = 0;   // S108 RDS review: reads made inside / outside a pass scope (safe_guest_pages.h PassLines; the game's ReadGuest serves the scoped ones from the pass's line copy)
+static bool ReadThunk(uint32_t a, void* dst, size_t n) { ++(wwe2k14::safe_pages::PassLines::Current() ? g_reads_scoped : g_reads_unscoped); return g_guest.Read(a, dst, n); }
 
 static constexpr uint32_t kStage = 0x40100000;
 static uint32_t ModelOf(uint32_t slot) { return 0x40200000 + slot * 0x400; }
@@ -275,7 +278,10 @@ int main(int argc, char** argv) {
     con.SetStage(kStage);
     FrameInfo f;
     f.guest_frame = 500;
+    g_reads_scoped = g_reads_unscoped = 0;
     const bool latched = con.Latch(f);
+    Check(g_reads_scoped > 0 && g_reads_unscoped == 0 && !wwe2k14::safe_pages::PassLines::Current(), "rds.stagefx_take_pass_scoped",
+          "reads in the pass scope " + std::to_string((unsigned long long)g_reads_scoped) + ", outside it " + std::to_string((unsigned long long)g_reads_unscoped));   // S108 RDS review: the take is one pass (its line copy dies with it)
     SceneTables t;
     for (uint8_t k = 0; k < 3; ++k) {   // the arena contributor's part of the record: a TronPicture Target (index = key - 800) + an OnTarget Movie for keys 800, 801, 802
       Target tg;

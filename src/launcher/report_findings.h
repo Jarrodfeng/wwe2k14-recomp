@@ -24,6 +24,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "report_facts.h"  // S108 RPT: the IN PLAY / PROBLEMS / SHORTFALLS / ERRORS / REPRODUCE blocks (table: report_facts.inc)
+
 namespace report_findings {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -67,7 +69,7 @@ inline std::vector<Cls>& Classes() {
       // S105 H: the WATCH dump is several lines; the main line is the finding, request / read-end words and guest stacks are detail
       Cls c{"load_watch", 0, {"[load] WATCH"}, R"(\[wwe2k14\]\[load\] WATCH: (.*)$)", {"why"}, {{"n", "one"}, {"why", "first"}, {"det", "detail"}}, "n",
             "{n} loader WATCH line(s) (+{det} detail line(s): request words, guest stacks)"};
-      c.detail = R"(\[wwe2k14\]\[load\] WATCH (?:request|read-end job|read-end object) 0x[0-9A-Fa-f]+ words \d+\.\.\d+:|\[wwe2k14\]\[load\] WATCH stacks?[ :])";
+      c.detail = R"(\[wwe2k14\]\[load\] WATCH (?:request|read-end job|read-end object) 0x[0-9A-Fa-f]+ words \d+\.\.\d+:|\[wwe2k14\]\[load\] WATCH stacks?[ :]|\[wwe2k14\]\[load\] WATCH (?:h\d+ fields|loader heap|where):)";   // S106 0F: the A6W2 dump lines, as triage.py
       add(std::move(c));
     }
     {
@@ -110,6 +112,14 @@ inline std::vector<Cls>& Classes() {
       add(std::move(c));
     }
     {
+      // S106 0F: the [host] frames line's `holes N` (host_core.h:527), as triage.py's holes_2d row
+      Cls c{"holes_2d", 2, {"[host] frames"}, R"(\[host\] frames \d+,.*? 2d_rows \d+ drawn \d+ not_drawn \d+ .*?holes (\d+))", {"n"}, {{"n", "delta"}}, "n",
+            "{n} 2D holes (sprite rows the game draws and the host has no draw for)"};
+      c.periodic = true;
+      c.why_const = "[host] frames census holes";
+      add(std::move(c));
+    }
+    {
       Cls c{"strikes", 4, {"[host][strikes]"}, R"(\[host\]\[strikes\] (\d+) strikes: .*\| why: (.*)$)", {"n", "why"}, {{"n", "delta"}, {"why", "first"}}, "n",
             "{n} strikes (frames the host could not present as a built frame)"};
       c.periodic = true;
@@ -132,6 +142,17 @@ inline std::vector<Cls>& Classes() {
          {{"frames", "delta"}, {"ours", "delta"}, {"only2d", "delta"}, {"rep", "delta"}}, "", "frames +{frames}: ours {ours}, 2d only {only2d}, repeat 3d {rep}"});
     add({"load_adopted", 9, {"[scene][load] adopted"}, R"(\[scene\]\[load\] adopted #\d+: (.*), waited (\d+) ms)", {"what", "ms"}, {{"ms", "max"}, {"what", "first"}}, "",
          "slowest scene load {ms} ms"});
+    // S106 0FF B1 / F7: the crash handler's lines and the [host] frames counters that had no class (host_core.h:526-527), as triage.py's last rows (same order)
+    // S106 0FFN N2: the hang guard's lines (hang_guard.h:326 / :344 / :314 / :382), as triage.py's row before crash (same order)
+    add({"hang", 0, {"[hang] HANG?", "[hang] HANG:", "[hang] BLACK:"}, R"(\[hang\] ((?:HANG\?|HANG:|BLACK:) .*)$)", {"why"}, {{"n", "one"}, {"why", "first"}}, "n",
+         "{n} [hang] line(s) (the hang guard fired: HANG / BLACK)"});
+    add({"crash", 0, {"[wwe2k14][crash]"}, R"(\[wwe2k14\]\[crash\] (.*)$)", {"why"}, {{"n", "one"}, {"why", "first"}}, "n", "{n} [crash] line(s) (the game crashed)"});
+    for (const char* ctr : {"no_record", "no_picture", "no_size", "resize_black", "repeat_full", "particles_not_drawn"}) {
+      Cls c{ctr, 4, {"[host] frames"}, std::string(R"(\[host\] frames \d+,.*? )") + ctr + R"( (\d+))", {"n"}, {{"n", "delta"}}, "n",
+            std::string("{n} frames counted as ") + ctr + " (a [host] frames counter that stays 0 in a clean run)"};
+      c.periodic = true;
+      add(std::move(c));
+    }
     return t;
   }();
   return table;
@@ -259,6 +280,7 @@ struct Result {
   double t_first = 0, t_last = 0;
   long long failed_opens = 0, failed_open_paths = 0;
   std::vector<Cross> crossings;
+  facts::Facts facts;  // S108 RPT: fed every line by ReadLog, printed under the LOG line
 };
 
 inline void AddUnparsed(std::vector<std::pair<std::string, std::pair<long long, std::string>>>& v, const std::string& cls, const std::string& loc) {
@@ -378,7 +400,7 @@ inline std::optional<std::string> ReasonOf(const Cls& c, const Groups& g, const 
     return nonempty(out);
   }
   if (nm == "hole_skip") return GrpS(c, g, "hole") == "yes" ? nonempty(GrpS(c, g, "why")) : std::nullopt;
-  if (nm == "black_no_3d" || nm == "caw_holes") return nonempty(c.why_const);
+  if (nm == "black_no_3d" || nm == "caw_holes" || nm == "holes_2d") return nonempty(c.why_const);
   const std::string why = GrpS(c, g, "why");
   if (!why.empty()) return nm == "problem" ? GrpS(c, g, "name") + ": " + why : why;
   return std::nullopt;
@@ -499,7 +521,9 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
   const bool multi = parts.size() > 1;
   size_t cur = 0;  // index of the current span
 
+  size_t part_i = 0;
   for (const PartIn& part : parts) {
+    const bool last_part = ++part_i == parts.size();
     std::ifstream f(part.path, std::ios::binary);
     if (!f) throw std::runtime_error("cannot open " + part.label);
     std::string line;
@@ -540,6 +564,7 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
         t = last_t;
       }
       const std::string& hm = last_hm;
+      res.facts.Feed(line, stamped, hm, last_part);  // S108 RPT: every line, the same pass
       if (stamped) {
         if (Has(line, "[wwe2k14] ") && (Has(line, "version ") || Has(line, "run log number") || Has(line, "quality tier"))) {
           std::string v;
@@ -567,49 +592,9 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
           continue;
         }
       }
-      if (Has(line, "NtCreateFile") || Has(line, "NtOpenFile")) {
-        // "[wwe2k14][file] NtCreateFile 'PATH'[ (relative to handle 0xH)] KIND access=X -> 0xSTATUS" (src\kernel_overrides.h:223)
-        bool ok = false;
+      {  // the file open line (src\kernel_overrides.h:225); the parse is shared with the facts block (report_facts.h ParseFileOpen)
         std::string path, status;
-        size_t a = line.find("[wwe2k14][file] Nt");
-        if (a != std::string::npos) {
-          size_t p = a + 18;
-          const bool cr = line.compare(p, 10, "CreateFile") == 0, op = line.compare(p, 8, "OpenFile") == 0;
-          p += cr ? 10 : (op ? 8 : 0);
-          if ((cr || op) && line.compare(p, 2, " '") == 0) {
-            const size_t q = line.find('\'', p + 2);
-            if (q != std::string::npos) {
-              path = line.substr(p + 2, q - (p + 2));
-              p = q + 1;
-              if (line.compare(p, 21, " (relative to handle ") == 0) {
-                if (line.compare(p + 21, 2, "0x") == 0) {
-                  const size_t h = p + 23;
-                  size_t e = h;
-                  while (e < line.size() && std::isxdigit((unsigned char)line[e])) ++e;
-                  if (e > h && e < line.size() && line[e] == ')') p = e + 1;
-                }
-              }
-              // " \S+ access=\S+ -> 0x HEX"
-              if (p < line.size() && line[p] == ' ') {
-                size_t e = p + 1;
-                while (e < line.size() && !std::isspace((unsigned char)line[e])) ++e;
-                if (e > p + 1 && line.compare(e, 8, " access=") == 0) {
-                  size_t e2 = e + 8;
-                  while (e2 < line.size() && !std::isspace((unsigned char)line[e2])) ++e2;
-                  if (line.compare(e2, 6, " -> 0x") == 0) {
-                    size_t h = e2 + 6, e3 = h;
-                    while (e3 < line.size() && std::isxdigit((unsigned char)line[e3])) ++e3;
-                    if (e3 > h) {
-                      status = line.substr(h, e3 - h);
-                      ok = true;
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        if (ok && Has(line, "[file]")) {
+        if (facts::Facts::ParseFileOpen(line, path, status)) {
           ++file_lines;
           res.spans[cur].opens.push_back({t, host_frames});
           if (status != "00000000") ++fails[path];
@@ -995,6 +980,7 @@ inline std::string Render(const std::vector<std::pair<Result, std::vector<std::s
       for (size_t i = 0; i < res.parts.size(); ++i) partsText += (i ? ", " : "") + res.parts[i];
     }
     line("LOG " + res.name + "  (" + sources[ri] + ")" + partsText);
+    for (const std::string& s : res.facts.Render(res.lines)) line(s);  // S108 RPT: what was in play, at the top of the log's section
     std::string bits;
     for (const char* k : {"version", "quality_tier", "gpu", "run_log"}) {
       auto it = res.machine.find(k);

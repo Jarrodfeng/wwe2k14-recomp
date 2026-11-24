@@ -2,6 +2,9 @@
 #include <cstdio>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_plane.h"
 using namespace rdr_scene;
 int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {

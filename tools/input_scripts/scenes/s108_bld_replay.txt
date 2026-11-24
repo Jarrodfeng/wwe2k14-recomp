@@ -1,0 +1,62 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# Session 108 lane BLD diagnosis run (the current build, no fix): s105_chk_replay with slot 0 made to bleed (`bleed 0 3`, a dev verb)
+# for 1200 frames before the finish is set up, then the victory scene and the post-match highlight clip.
+# Questions (docs\research\s108\BLD_plan.md section 5): (1) floor splats: do `blood calls` / `live` rise and are the splat quads drawn
+# (the front end's `d2` dump lines for the blood splat model; the mat shots at +600 / +1200); (2) the replay: does the face blood stay
+# in the highlight clip, and what does the liquid census show in that window (clears, pruned, map releases)?
+# Run with the env WWE_RDR_FEATURE_DUMP set (dev) and -WaitSeconds 2400. Read with: py -I tools\bench\run_read.py <exe folder> --full.
+on_fail quit
+log bench: start scene s108_bld_replay
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=bld_match
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+passive 1 on
+bleed 0 3
+wait_frames 600
+screenshot bld_mat_600
+wait_frames 600
+screenshot bld_mat_1200
+mark 3 bleed_1200
+momentum 0 100
+stock 0 1
+wait_frames 120
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 300
+log_state seq
+screenshot bld_replay_300
+wait_frames 300
+screenshot bld_replay_600
+wait_frames 300
+log_state seq
+screenshot bld_replay_900
+wait_frames 300
+screenshot bld_replay_1200
+wait_frames 300
+log_state seq
+screenshot bld_replay_1500
+wait_frames 400
+screenshot bld_replay_1900
+wait_frames 400
+screenshot bld_replay_2300
+wait_frames 400
+log_state seq
+screenshot bld_replay_2700
+wait_frames 500
+screenshot bld_replay_3200
+wait_frames 500
+log_state seq
+screenshot bld_replay_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

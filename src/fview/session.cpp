@@ -24,6 +24,9 @@
 #include "../renderer_scene/post_ours.h"  // S101 lane PO
 #include "../renderer_scene/crowd_floor_synth.h"  // S101 lane 82: test-only floor members
 #include "../renderer_scene/record_io.h"
+#include "../renderer_scene/rows_caster.h"   // S106 G4-2
+#include "../renderer_scene/rows_circle.h"
+#include "../renderer_scene/rows_plane.h"
 #include "../renderer_scene/circle_oracle.h"  // lane 136: the circle blobs' capture-side oracle
 #include "../renderer_scene/plane_oracle.h"  // lane 139: the plane chain's capture-side oracle
 #include "../renderer_scene/replace_factories.h"  // S101 lane 41

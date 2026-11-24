@@ -1,4 +1,4 @@
-"""S101 lane 118: shared helpers of the N2 selftests (where the kept walks are, the C++ test exe, the gate-style report). 0 game runs."""
+"""S101 lane 118: shared helpers of the N2 selftests (where the kept walks are, the C++ test exe, the check-style report). 0 game runs."""
 import os
 import subprocess
 import sys
@@ -56,7 +56,7 @@ def capture_dir(main, run):
 def test_exe():
     exe = os.path.join(REPO, 'out', 'tools', 'caw_text_test.exe')
     if not os.path.exists(exe):
-        raise SystemExit('FAIL  %s is missing: run tools\\n2\\build_caw_text_test.ps1 first (gate check n2_caw_text.build)' % exe)
+        raise SystemExit('FAIL  %s is missing: run tools\\n2\\build_caw_text_test.ps1 first (check n2_caw_text.build)' % exe)
     return exe
 
 

@@ -2,7 +2,7 @@
 """Run triage: what kept the frames from being ours, per scene (S103 L2b, landing 2 piece P2; docs\\renderer\\LANDING2_PLAN.md section 3).
 
   py -I tools\\scene\\fallback_triage.py LOG [--top N] [--stale FRAMES]
-  py -I tools\\scene\\fallback_triage.py --selftest          (the gate check: parses fixtures of both line formats)
+  py -I tools\\scene\\fallback_triage.py --selftest          (the check: parses fixtures of both line formats)
 
 Reads a run log and prints, per game scene, the top reasons the frame was not wholly ours:
   1. the `[scene][2d] frames F, 2d-whole W, fallback B (by reason: ...)` census lines (src\\renderer_game\\fallback_census.h). Every line's FIRST part is one window (the exit line's first part is the
@@ -11,7 +11,7 @@ Reads a run log and prints, per game scene, the top reasons the frame was not wh
      INCOMPLETE (the census is not a proof) when any line says SUM MISMATCH / UNCOUNTED, or has orphan notes, pending dropped, pending unadopted > 0, or the windows do not add up to the run totals.
   2. the scene inputs: `[scene][inputs] moved ... name N/fL` (and `name (open) N/fL` for an input with no reader) gives each input's last stamped frame L; an input whose last stamp is more than
      --stale (default 120) frames behind the newest stamp in the same line STOPPED being captured: it keeps `records ours 0` at 0. The `[blocks the frame: ...]` segment names the inputs with no reader.
-Exit code 0 always (a reader, not a gate); the last line names the top blocker of the whole run."""
+Exit code 0 always (a reader, not a check); the last line names the top blocker of the whole run."""
 import argparse
 import re
 import sys
@@ -202,7 +202,7 @@ def report(scenes, n2d, run_problems, top=6, stale_frames=120, out=print):
     return run_blockers, bad
 
 
-# --- the gate check: fixtures in both formats (the census line as fallback_census.h prints it; the inputs line as inputs_core.h CensusLine prints it)
+# --- the check: fixtures in both formats (the census line as fallback_census.h prints it; the inputs line as inputs_core.h CensusLine prints it)
 FIX_WINDOW = ("[wwe2k14] [scene][2d] frames 600, 2d-whole 100, fallback 500 (by reason: scene inputs_missing_bit4_light_states:420,hold:30; render no_frame_image:5; hole 0x82BC3758:20; refused n/a; "
               "unknown_site 0x82BC4404:15; remnant_extra 0x82BB10C0:10; pass_unknown n/a; blend_code n/a); rows n/a, pair n/a; sum ok; none uncounted; orphan notes 0, pending dropped 0, window 600; in scene main_menu")
 FIX_EXIT = ("[scene][2d] exit: frames 40, 2d-whole 40, fallback 0 (by reason: scene -; render -; hole -; refused n/a; unknown_site -; remnant_extra -; pass_unknown n/a; blend_code n/a); rows n/a, pair n/a; sum ok; none uncounted; "

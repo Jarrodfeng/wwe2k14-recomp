@@ -12,6 +12,7 @@ Outcome of resolving, three kinds, never silent:
 
 Steps (dicts with "op"):
     nav          {target}                       tools/atlas/nav.py Nav.go (state-confirmed presses; the MCP game_nav)
+    page         {rec}                          S110 GOTO `menu:goto N`: the script line `page N` (src/menu_goto.h: the game's own goto for flow record N)
     events_mark  {}                             remember the event bus position (tools/live/events.py) before the match is started
     match        {spec}                         the match builder's cvar batch, then wait for sequence 9 (tools/atlas/match.py run)
     wait_event   {kind, fields, timeout_s}      wait on the event bus (src/event_bus.h): entrance slot N, the bell (match clock_started),
@@ -185,10 +186,17 @@ class Plan:
         return out
 
 
+def page_line(s):
+    """S110 GOTO: the route-script line a `page` step lowers to (src/input_script.h `page N [back]`)."""
+    return 'page %d' % s['rec']
+
+
 def describe_step(s):
     op = s['op']
     if op == 'nav':
         return 'nav %s%s' % (s['target'], ('  (%s)' % s['label']) if s.get('label') else '')
+    if op == 'page':
+        return 'open flow record %d through the game\'s own goto: the script line `%s` (FAILS on a refusal or when the game does not serve it)' % (s['rec'], page_line(s))
     if op == 'events_mark':
         return 'mark the event bus position'
     if op == 'match':
@@ -336,6 +344,9 @@ class Context:
 def _menu(addr, ctx):
     atlas = ctx.atlas
     target = addr.body
+    gm = re.fullmatch(r'goto\s+(\d{1,9})', target.strip())   # S110 GOTO: `menu:goto RECORD_ID` = the game's own page-change mailbox (src/menu_goto.h), not presses
+    if gm:
+        return Plan(str(addr), 'plan', steps=[{'op': 'page', 'rec': int(gm.group(1))}])
     hits = [target] if target in atlas.nodes else atlas.resolve(target)
     if not hits:
         return Plan(str(addr), 'error', 'no atlas node or path name matches "%s" (tools/atlas/nav.py names WORDS lists them)' % target)
@@ -470,7 +481,7 @@ def _match_scene(addr, ctx, spec, summary):
 
 
 RAW_MAX_PARTS = 6  # participants in a p= list (the builder has six slots)
-RAW_KEYS = ('type', 'p', 'arena', 'pace', 'o', 'title', 'rumble', 'pods')  # the game's numeric builder spec (src/scenario.h ParseBuildSpec)
+RAW_KEYS = ('type', 'p', 'arena', 'pace', 'o', 'title', 'rumble', 'pods', 'entrances')  # the game's numeric builder spec (src/build_spec.h ParseBuildSpec)
 
 
 def raw_spec(body):
@@ -483,7 +494,7 @@ def raw_spec(body):
     for p in parts:
         k, eq, v = p.partition('=')
         k, v = k.strip(), v.strip()
-        if not eq or k not in RAW_KEYS or not v or not re.fullmatch(r'[0-9:,/\-]+', v):
+        if not eq or k not in RAW_KEYS or not v or not re.fullmatch(r'[0-9:,/\-st]+', v):   # s / t: a p item's ATTIRE part (S109 ENT)
             return None
         # the builder's own limits (src/scenario.h ParseBuildSpec / the slots): raised as a refusal, so a bad spec is an error, not a plan
         if k in seen:
@@ -500,9 +511,16 @@ def raw_spec(body):
             if len(items) > RAW_MAX_PARTS:
                 raise ValueError('p= has %d participants: a spec takes at most %d' % (len(items), RAW_MAX_PARTS))
             for x in items:
-                m2 = re.fullmatch(r'(\d{1,3}):(-?\d)', x)
-                if not m2 or int(m2.group(1)) > 499 or not -1 <= int(m2.group(2)) <= 3:
-                    raise ValueError('p item "%s": ID:PAD with ID 0-499 and PAD -1..3' % x)
+                # S109 ENT: ID:PAD or ID:PAD:ATTIRE (ATTIRE N 0-9, a CAW 0-3, or s; an empty PAD = CPU); colour sets are launcher only
+                if x.count(':') == 2 and re.search(r':[^:]*[/t][^:]*$', x):
+                    raise ValueError('p item "%s": colour sets (N/S, tS) are launcher only: the builder takes ATTIRE N or s' % x)
+                m2 = re.fullmatch(r'(\d{1,3}):(-?\d)', x) or re.fullmatch(r'(\d{1,3}):(-?\d)?:(\d|s)', x)
+                if not m2 or int(m2.group(1)) > 499 or not -1 <= int(m2.group(2) or -1) <= 3:
+                    raise ValueError('p item "%s": ID:PAD[:ATTIRE] with ID 0-499, PAD -1..3 (empty with an ATTIRE = CPU), ATTIRE 0-9 or s' % x)
+                if m2.lastindex == 3 and m2.group(3) != 's' and int(m2.group(1)) < 100 and int(m2.group(3)) > 3:
+                    raise ValueError('p item "%s": a CAW (id < 100) has attires 0-3' % x)
+        if k == 'entrances' and v not in ('0', '1'):
+            raise ValueError('entrances=%s: 0 (skip) or 1 (play)' % v)
         if k == 'rumble':
             ids = [x for x in v.split(',') if x]
             if len(ids) > 40 or not all(re.fullmatch(r'\d{1,3}', x) and int(x) <= 499 for x in ids):
@@ -842,7 +860,7 @@ def _where(name):
 
 def _era_to_top(name, say):
     """The pick presses A on the focused era card and then on its first match, and a locked match cannot be picked: put the era
-    column's cursor on era 0 first, confirmed by the focused widget's row (the focus dump, tools/atlas/nav.py Nav.focus), not by a
+    column's cursor on era 0 first, confirmed by the focused widget's row (the built-in menu_* states, tools/atlas/nav.py Nav.focus), not by a
     press count. [U]: the era column as a focus widget has never been read live. Stops when the cursor cannot be read or moved."""
     import nav
     n = nav.Nav(name)
@@ -1169,6 +1187,10 @@ def execute(plan, name='main', say=print):
                         raise Stopped('the game is on the title (sequence 3): start it with `live.py start --script menu` (idle leaves the title)')
                 for line in nav.Nav(name).go(s['target']):
                     say('  ' + line)
+            elif op == 'page':   # S110 GOTO: the route-script line `page N` (src/input_script.h): it ends ok only when the game served the request
+                fields, _, _ = live.run_batch(name, [page_line(s)], 60)
+                if fields.get('status') != 'ok':
+                    raise Stopped('page %d ended %s %s (the [menu_goto] line in the run log names the refusal)' % (s['rec'], fields.get('status'), fields.get('error', '')))
             elif op == 'events_mark':
                 import events as ev_mod
                 fields, _ = live.parse(live.request(name, '!status'))

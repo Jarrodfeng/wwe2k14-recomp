@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate check of lane 99 (S101): out\\tools\\shadow_casters_unit.exe (built by tools\\shadow\\build_shadow_casters_unit.ps1) against Check B's capture.
+"""Check of lane 99 (S101): out\\tools\\shadow_casters_unit.exe (built by tools\\shadow\\build_shadow_casters_unit.ps1) against Check B's capture.
 Clean run exits 0; the planted fault arena_stale (the old bug: ring pairings and buffers kept across an arena change) exits 1 and fails exactly swap.join_not_reused, swap.buffer_not_reused and
 no_arena.not_replaced; a missing capture exits 2; an unknown fault 3. 0 game runs.   py -I tools\\shadow\\shadow_casters_unit_selftest.py"""
 import os

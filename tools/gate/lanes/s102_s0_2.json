@@ -1,7 +1,0 @@
-{
-  "claim": {"scene": "bryan", "side": "none (instrument)", "ms": [0, 0]},
-  "checks": [
-    {"name": "s102_s0_2.perf_sys", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/perf_sys_test.ps1"], "timeout_s": 300},
-    {"name": "s102_s0_2.heat", "cmd": ["py", "-I", "tools/tests/heat_s02_test.py"], "timeout_s": 300}
-  ]
-}

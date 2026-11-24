@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/scene_live/flash_fx_contrib.h"
 
 using namespace rdr_scene;

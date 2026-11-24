@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "../../src/renderer_scene/light_fixed_id.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 using namespace rdr_scene;
 
 static int g_fail = 0;

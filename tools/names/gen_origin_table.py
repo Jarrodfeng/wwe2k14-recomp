@@ -3,7 +3,7 @@ class and technique, with each function's bounds from the q index).
 
   py -I tools\names\gen_origin_table.py [--check]
 
---check: exit 1 if the header is not what the json gives (the gate runs this). Function bounds: `py tools\q\q.py fn ADDR` ("size N").
+--check: exit 1 if the header is not what the json gives (the checks run this). Function bounds: `py tools\q\q.py fn ADDR` ("size N").
 Writes only our annotations (addresses, class names, technique names): no game code.
 """
 import json, re, subprocess, sys

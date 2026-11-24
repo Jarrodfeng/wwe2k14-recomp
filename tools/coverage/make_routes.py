@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "tools" / "bench"))
+from route_lint import strip_speed_intent  # noqa: E402  (S109 FF2: the one shared helper for generators that copy a source route's lines)
 OUT = REPO / "tools" / "coverage" / "routes"
 
 # (rule, anchor regex, payload). Rules apply in order; each anchor matches the first line at or after the previous
@@ -228,7 +230,7 @@ def apply(lines: list[str], rules) -> list[str]:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, (src, rules) in ROUTES.items():
-        lines = (REPO / src).read_text(encoding="utf-8").splitlines()
+        lines = strip_speed_intent((REPO / src).read_text(encoding="utf-8").splitlines())   # S109 FF2: cov_match copies the bench route's `# intent: performance fps`: not this route's
         new = apply(lines, rules)
         extra = "; its last lines are replaced by a pause menu + replay tail" if name == "cov_match.txt" else ""
         text = HEADER.format(src=src, extra=extra) + "\n".join(new) + "\n"

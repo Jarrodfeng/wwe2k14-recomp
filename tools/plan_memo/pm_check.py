@@ -5,7 +5,7 @@ fview (the player's bundle, the shipped planner switches, --validation 1) on the
            every bit took (post cache hits / pass marks skipped / counting sort / site marks skipped; props early exits; dead content counted), std::sort fallback 0.
   planted twins (--plan-memo-plant N, verify 1): each must be caught (verify mismatch > 0, or a picture hash differs), and each must be a plant that APPLIED (its counter moved).
   a tampered csv (one hash changed by hand) must be reported different (the comparison itself is checked).
-  timing (unless --no-timing): per-planner ms a frame off vs on (--plan-memo-times, no verify), 2 alternating pairs on Bryan; printed, not gated (a PC number; the claim is in the lane json).
+  timing (unless --no-timing): per-planner ms a frame off vs on (--plan-memo-times, no verify), 2 alternating pairs on Bryan; printed, not judged (a PC number).
   census: --plan-memo-census prints the 6 planner rows and exact-input equality; the check requires 'input same + output differs' = 0 for every planner (a missed input would show).
 Past bug re-found: plant 1 is the lane-140 review F2 class (post_plan: the writer label of an image a stream draw wrote after a chain draw): the stale label must be seen.
 0 game runs, 0 Surface runs. Exit 0 = every line OK."""

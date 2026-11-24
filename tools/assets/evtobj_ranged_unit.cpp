@@ -6,7 +6,7 @@
 // written under out\SKB3\fixture_root\pac\evt\evtobj.pac and read through the production path (GameFiles::SetRoot -> OpenEvtRanged -> PropPachEvt -> OpenEvtSlice). Nothing from the game is read or committed.
 //   evtobj_ranged_unit.exe [--plant corrupt|skip_gap|drop_row|tail]    each plant must make it exit 1 and fail its named check
 //   evtobj_ranged_unit.exe [--comp] [--plant ...]                      --comp: the same unit over a fixture of LZX blocks (uncompressed-type LZX blocks in real chunk headers, 2 chunks per block)
-//   evtobj_ranged_unit.exe --real GAME_DIR --all                       S105 SKB3 fix M1 (the gate check): on the player's own file, every block decoded byte-equal to the whole unpack, every directory row / slice, every directory id (needs game_data; a missing file = FAIL)
+//   evtobj_ranged_unit.exe --real GAME_DIR --all                       S105 SKB3 fix M1 (the check): on the player's own file, every block decoded byte-equal to the whole unpack, every directory row / slice, every directory id (needs game_data; a missing file = FAIL)
 //   evtobj_ranged_unit.exe --real GAME_DIR [--verify]                  offline timing on the player's own pac\evt\evtobj.pac: per-prop ms (index, ordinal, slice, LoadPropEntry); --verify = slice byte-equal to the whole open
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -357,7 +357,7 @@ int RunReal(const std::string& game, bool verify, bool all) {
   }
   std::printf("slices decoded: %d; the whole 181 MB pac held: %s\n", r->slice_decodes, load_detail::DlcProps().cache.count("pac\\evt\\evtobj.pac") ? "YES" : "no");
   if (all) {
-    // S105 SKB3 fix M1 (folded in from the reviewer's all-props check): the real file is LZX-compressed in every block; the gate's fixture alone never decoded one
+    // S105 SKB3 fix M1 (folded in from the reviewer's all-props check): the real file is LZX-compressed in every block; the fixture alone never decoded one
     if (!pac::Open(files, "pac\\evt\\evtobj.pac", whole, err)) { std::printf("FAIL whole open: %s\n", err.c_str()); return 1; }
     int stored = 0, comp = 0;
     for (uint32_t i = 0; i < r->ix.count; ++i) { uint8_t c[2]; if (!r->rr.read(r->ix.start[i], c, 2)) { ++g_fail; continue; } (c[0] == 0 && c[1] == 0 ? stored : comp)++; }

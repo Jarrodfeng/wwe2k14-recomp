@@ -8,7 +8,7 @@ $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $route = "$R\tools\input_scripts\short\present_match.txt"
 $log = "$R\out\harness\step21\present_$Tag.txt"
 New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-$sw = @{ Exclusive = $true; RealTime = $true }
+$sw = @{ Exclusive = $true }   # S109 FF: normal speed = the route's `# intent: performance` term
 foreach ($hz in $Rates) {
     $step = if ($hz -ne 60) { "--wwe2k14_step_hz=$hz --wwe2k14_step_vblank=true" } else { '' }
     foreach ($arm in 'off', 'on') {

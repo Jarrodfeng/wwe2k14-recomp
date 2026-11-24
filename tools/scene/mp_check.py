@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane MP gate check (menu particles: empty-is-whole + every node call recorded with the node's own camera and 2D row position).
+"""S103 lane MP check (menu particles: empty-is-whole + every node call recorded with the node's own camera and 2D row position).
 Builds tools/scene/mp_unit.cpp (the SHIPPED particle_source.h / particle_contrib.cpp / particle_reader.cpp / record_io.cpp / scene_kind.h on synthetic guest memory; 0 game runs), runs it, then its planted
 twins (each must exit 1 and fail its NAMED check), then the wiring lints (the hook passes the thread block and the row count; the glue wires the empty source; the flat verdict reads the record).
   py -I tools/scene/mp_check.py [--root DIR]

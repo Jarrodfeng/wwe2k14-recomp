@@ -24,11 +24,11 @@ inline bool ReadPhys(uint32_t addr, uint32_t n, uint8_t* dst) {
 #if defined(_MSC_VER) || defined(__clang__) || defined(__GNUC__)
 __attribute__((noinline))
 #endif
-inline uint32_t OnNode(uint32_t map, uint64_t frame) {   // bit 0 = a row recorded, bit 1 = it carried the clear request (the caller consumes only then)
+inline uint32_t OnNode(uint32_t map, uint64_t frame, rdr_scene::live::liquid::AltConsume* consume = nullptr) {   // bit 0 = a row recorded, bit 1 = it carried the clear request (the caller consumes only then); S108 BLD2: bit 2 = it carried the game's rebuild, whose write-back `consume` receives
   if (!rdr_scene::live::liquid::LiquidRegistered() || !rdr_scene::live::Enabled()) return 0;
   const uint32_t rec = rdr_scene::live::liquid::Liquid().tracker.OnNode(
       map, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
-      [](uint32_t a, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, dst, n); }, &ReadPhys);
+      [](uint32_t a, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, dst, n); }, &ReadPhys, consume);
   if (!rec) return 0;
   static std::atomic<int> logged{0};
   if (logged.fetch_add(1, std::memory_order_relaxed) < 8) {

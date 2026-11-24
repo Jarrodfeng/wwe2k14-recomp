@@ -11,7 +11,7 @@
 
 #include "../scene_live/movie_planes.h"
 #include "host_core.h"   // HOST_PLANT (the unit's planted faults)
-#include "../renderer_scene/scene_record.h"   // Quad2D (PlaneKeyOf)
+#include "../renderer_scene/rows_quad2d.h"   // Quad2D (PlaneKeyOf)
 
 namespace wwe2k14::scene_host {
 

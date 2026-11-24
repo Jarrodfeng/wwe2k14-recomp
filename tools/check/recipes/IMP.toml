@@ -1,0 +1,48 @@
+# S106 C2: Superstar Importer. Sources: C2.md 3.5 (logs 182 no-fix / 184 fix; both read packs {2,3,4,5,6} offered).
+[recipe]
+row = "IMP"
+question = "on a save whose DLC mask is 0x7C, do Lashley / Maryse and the pack 3-5 superstars show in the DOWNLOADED tab (the fix re-offers pack 6)?"
+notes = ["docs/research/s105/IMP_B.md", "docs/research/s105/IMP_ADV.md", "docs/research/s105/review_IMP.md"]
+preset = "win-amd64-release-off"
+
+[destination]
+route = 'tools\input_scripts\scenes\s105_lashley_select.txt'
+flags = '--wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc'
+data = "plant"
+settings = "new_player"
+mods = 'out\s105\mods'
+timeout_s = 600
+
+[plant]
+threads = "none"
+mask = "7C"
+
+[[pre]]
+save = ["dlc:mask=0x7C"]
+
+[[pre]]
+# S110 SEAT-B: the game reads the frame + library, never pack6 (that folder must be migrated first: the recipe refuses to run until it is)
+file = 'out\s105\mods\superstars\frame'
+
+[[pre]]
+file = 'game_data\dlc'
+
+[[guard]]
+name = "the boot offers exactly the mask's packs 2-6"
+line = '\[wwe2k14\]\[dlc\] pack (?P<v>\d+) .*-> offered to the game'
+agg = "set"
+need = "== {2,3,4,5,6}"
+
+[[readout]]
+# S110 SEAT-B: the mask trick (and its "pack 6 re-offered to the save" line) is gone; the residents reach the save through the row-pass hook.
+name = "residents seated after the game's row pass"
+line = '\[wwe2k14\]\[seats\] row pass: residents seated (?P<v>\d+), kept \d+'
+agg = "max"
+role = "mechanism"
+fixed = ">= 1"
+
+[[shots]]
+labels = ["*"]
+ask = "Are Bobby Lashley and Maryse (and the pack 3-5 superstars) in the DOWNLOADED tab?"
+fault = "no"
+fixed = "yes"

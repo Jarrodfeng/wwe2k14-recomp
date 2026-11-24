@@ -12,7 +12,7 @@
 //     pack 6
 //     built_on 4 5        every real pack it copies files from (the top roster pack + the packs of DLC base / entrance wrestlers)
 //     top 5 8A1C33F0      the top roster pack's id and its catalog's FNV-1a (0 0 = the disc's own files, no DLC)   [Session 101]
-//     star 397 music 100
+//     star 397 music 100 bank 1     (S110 BANKID: "bank" = his entrance bank number, optional; then optional "was N ...")
 // An older superstars.txt has no "top" line: the top is then max(built_on) (0 when empty) and the copy is not compared.
 // Portable C++ (game, launchers, viewer, the PC check tools\importer\test_core.cpp).
 #pragma once
@@ -60,6 +60,14 @@ struct Built {
   int top = -1;                 // the top roster pack it copied (0 = the disc); -1 = not recorded (an importer before Session 101)
   uint32_t top_sig = 0;         // that pack's catalog FNV-1a; 0 = not recorded / the disc
   std::map<int, int> music;     // slot -> music id
+  std::map<int, int> bank;      // S110 BANKID: slot -> entrance bank number (absent: an older file; the bank was the slot)
+  std::map<int, std::vector<int>> was;  // slot -> his older bank numbers (a rebuild moved him because the number was no longer free)
+  std::map<int, int> movie;             // S110 TRONSLOT: slot -> the movie word the build wrote (informational; absent: an older file)
+  // S110 SEAT-A (the FRAME's superstars.txt, <mods>\superstars\frame\): one `seat S bank B rank R [was ..]` line per seat the frame offers.
+  // `bank` / `was` land in the maps above (same meaning); `rank` and the seat list are new. `frame F` = the digest the cards' `inst` carries.
+  std::vector<int> seats;               // every seat line, in file order
+  std::map<int, int> rank;              // seat -> the roster rank (+2 of his chEtc DAT row)
+  uint32_t frame_sig = 0;               // 0 = not recorded (the old per-pack file)
   int Top() const {
     if (top >= 0) return top;
     int t = 0;
@@ -84,11 +92,54 @@ inline Built ParseBuilt(std::istream& f) {
       std::string sig;
       if (in >> id) b.top = id >= 0 && id <= 0xFFFF ? id : -1;
       if (in >> sig) b.top_sig = uint32_t(std::strtoul(sig.c_str(), nullptr, 16));
+    } else if (key == "frame") {
+      std::string sig;
+      if (in >> sig) b.frame_sig = uint32_t(std::strtoul(sig.c_str(), nullptr, 16));
+    } else if (key == "seat") {  // S110 SEAT-A: seat S bank B rank R [was N ...]
+      int seat = -1;
+      if (!(in >> seat) || seat < 0 || seat > 9999) continue;
+      b.seats.push_back(seat);
+      std::string w;
+      while (in >> w) {
+        if (w == "bank" || w == "rank") {
+          int v = 0;
+          if (in >> v && v > 0 && v < 10000) (w == "bank" ? b.bank : b.rank)[seat] = v;
+        } else if (w == "was") {
+          for (int v; in >> v;)
+            if (v > 0 && v < 10000) b.was[seat].push_back(v);
+          in.clear();
+        }
+      }
     } else if (key == "star") {
       int slot = -1, music = -1;
       std::string m;
       in >> slot >> m >> music;
-      if (m == "music" && slot >= 397 && slot <= 499 && music >= 0 && music < 10000) b.music[slot] = music;
+      if (m == "music" && slot >= 397 && slot <= 499 && music >= 0 && music < 10000) {
+        b.music[slot] = music;
+        std::string k2;  // S110 BANKID: the optional "bank N" (the entrance bank number the build gave him; older files have none = bank was the slot)
+        int bank = 0;
+        if (in >> k2 >> bank && k2 == "bank" && bank > 0 && bank < 10000) {
+          b.bank[slot] = bank;
+          // (review) the optional "was N ..." (his older banks, when a rebuild had to move him: the save shim's old values); (S110 TRONSLOT)
+          // "movie M" (the movie word the build wrote, informational), any order; a "movie_was N ..." (written by one earlier build only, no
+          // longer used: the save shim moves only a movie word equal to the slot) is read past
+          std::string k3;
+          auto ints = [&](auto&& keep) {
+            for (int v; in >> v;)
+              if (v > 0 && v < 10000) keep(v);
+            in.clear();  // (the list ended at the next word: not a number)
+          };
+          while (in >> k3) {
+            if (k3 == "was") ints([&](int w) { if (w != bank) b.was[slot].push_back(w); });
+            else if (k3 == "movie_was") ints([](int) {});
+            else if (k3 == "movie") {
+              int mv = 0;
+              if (in >> mv && mv > 0 && mv < 10000) b.movie[slot] = mv;
+              in.clear();
+            }
+          }
+        }
+      }
     }
   }
   return b;
@@ -144,7 +195,11 @@ inline std::string Problem(const Built& b, const std::vector<const Pack*>& offer
 // The same check from the files: <mods>\superstars\superstars.txt against the packs GamePacks(dlc_dir, dlc_off) gives. "" also when
 // nothing is built yet (no superstars.txt).
 inline std::string ProblemFor(const fs::path& mods_dir, const fs::path& dlc_dir, const std::string& dlc_off) {
-  const Built b = ReadBuilt(mods_dir / "superstars" / "superstars.txt");
+  // S110 SEAT-A: the frame's file; the old per-pack file only while a pack built before the library is still there
+  fs::path txt = mods_dir / "superstars" / "frame" / "superstars.txt";
+  std::error_code ec;
+  if (!fs::is_regular_file(txt, ec)) txt = mods_dir / "superstars" / "superstars.txt";
+  const Built b = ReadBuilt(txt);
   if (!b.found) return {};
   const std::vector<Pack> packs = GamePacks(dlc_dir, dlc_off);
   std::vector<const Pack*> offered;

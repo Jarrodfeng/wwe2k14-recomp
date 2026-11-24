@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 #include "../../src/scene_live/gsf_latch.h"
 
 using namespace rdr_scene;

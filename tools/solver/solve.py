@@ -578,7 +578,7 @@ def main(argv=None):
         Path(a.doc).write_text(doc_page.render(result, atlas.mesh_count), encoding='utf-8')
         log(f'wrote {a.doc}')
     log(f'done in {result["seconds"]} s')
-    # verdict line for the gate
+    # verdict line for the runner
     if a.plant:
         key = plant
         v = None

@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "doc": "docs/research/s106/C3.md",
+  "about": "S106 C3: the state verbs a check can put the game in, one registry. Placeholders are <name> (never {}: regex quantifiers). apply.script lines go into the recipe's route in order; apply.flags are added to the launch; apply.data is the -Data mirror; apply.make is run offline before the run when the mirror is missing. needs uses C1's `q save check` grammar (holder:title=T:char=C, option:caption=N, option:blood=N, dlc:mask=0xNN (equals), caw:count>=1, threads:char=C) plus build:dev. needs_lane names the lane a verb waits on. proof rows: re, min, max (optional), after (optional: a proof row whose re contains this text must match earlier), sample (a line our NEW log code prints, written from the code, for the offline self-test). fail: any match = the verb did not apply. seen.line is the exact text from the seen run (row = which proof row it matches; default 0), so tools/check/verbs.py --selftest proves every regex offline even after out/ is cleared. defaults/ranges/derive feed verbs.py expand(). Run numbers are out/build/<exe>/logs/wwe2k14_NNN.log of S105.",
+  "verbs": [
+    {
+      "name": "bleed", "state": "slot <slot> bleeds at level <level> (face set); the blood option G+15229 is forced on",
+      "build": "dev", "params": {"slot": "0-8", "level": "1-3"},
+      "defaults": {"slot": 0, "level": 3}, "ranges": {"slot": [0, 8], "level": [1, 3]},
+      "apply": {"script": ["wait_state match_clock >0 36000", "wait_frames 900", "bleed <slot> <level>", "wait_frames 240"]},
+      "needs": ["build:dev"],
+      "proof": [
+        {"re": "\\[director\\] script 'bleed <slot> <level>' -> ok: bleed slot <slot> level <level>$", "min": 1, "max": 1},
+        {"re": "\\[liquid calls [^\\]]*, blood [1-9][0-9]*\\]", "min": 1, "after": "script 'bleed", "note": "the census counts item reads (blood items read this window), not drops",
+         "sample": "[liquid calls 1, recorded 1, replaced 0, early_out 0 (disabled 0), unreadable 0, items 12 (undrawn 0, overflow 0), clears 0, pictures read 1 hit 1, tex_class 0 tex_null 0 tex_fail 0 tex_size 0, no_object 0, late 0, overflow 0, frames 5, emitted frames 5 maps 5 items 12, blood 6]"}
+      ],
+      "effect_interim": {"re": "\\[scene\\]\\[maps\\]\\[liquid\\] frames ([1-9][0-9]*), maps ([0-9]+) \\(this frame [0-9]+\\), items drawn ([0-9]+)",
+                         "rule": "group3 / group2 >= 1.5 on the first match after proof[0]", "mark": "L fitted (C3: 4 bleed, 4 non-bleed runs)"},
+      "fail": ["\\[director\\] script 'bleed [^']*' (NOT DONE|DROPPED)", "refused: bleed is a dev-build verb"],
+      "route": "tools/input_scripts/scenes/s105_chk_bleed.txt",
+      "site": "src/situation_director_core.h:358", "source": "docs/research/s105/T1_blood.md; docs/research/s105/BLD.md",
+      "seen": {"run": 110, "exe": "win-amd64-release-off", "line": "[wwe2k14][director] script 'bleed 0 3' -> ok: bleed slot 0 level 3", "also": [128, 135, 180]}
+    },
+    {
+      "name": "lightsout", "state": "the arena-dim scene of slot <slot> runs: brightness below 1.0, then back to 1.0 by itself",
+      "build": "dev", "params": {"slot": "0-8"},
+      "defaults": {"slot": 0}, "ranges": {"slot": [0, 8]},
+      "apply": {"script": ["wait_state match_clock >0 36000", "wait_frames 300", "lightsout <slot>",
+                           "wait_state 0x83924778>452 <1065353216 600 1", "wait_state 0x83924778>452 1065353216 1800 2"]},
+      "needs": ["build:dev"],
+      "proof": [
+        {"re": "\\[director\\] script 'lightsout <slot>' -> ok: lightsout slot <slot>$", "min": 1, "max": 1},
+        {"re": "state 0x83924778>452 <1065353216 reached after [0-9]+ frames", "min": 1},
+        {"re": "state 0x83924778>452 1065353216 reached after [0-9]+ frames", "min": 1, "after": "<1065353216 reached"}
+      ],
+      "fail": ["\\[director\\] script 'lightsout [^']*' (NOT DONE|DROPPED)", "refused: lightsout is a dev-build verb", "0x83924778>452 [^ ]+ not reached within"],
+      "route": "tools/input_scripts/scenes/s105_chk_lightsout.txt",
+      "site": "src/situation_director_core.h:399", "source": "docs/research/s105/SLO3.md",
+      "seen": {"run": 134, "exe": "win-amd64-release-off", "line": "[wwe2k14][director] script 'lightsout 0' -> ok: lightsout slot 0"}
+    },
+    {
+      "name": "attire", "state": "participant 0 (id <id>) wears attire <n> (always seat 0: one flags token seats participant 0, scenario.h:1080 skips empty tokens)",
+      "build": "any", "params": {"id": "0-499", "pad": "-1..3 or empty", "n": "0-9 (CAW 0-3)"},
+      "defaults": {"id": 397, "pad": 0, "n": 1}, "ranges": {"id": [0, 499], "pad": [-1, 3], "n": [0, 9]},
+      "derive": {"key": "<id>*100+<n>*10+2"},
+      "apply": {"flags": ["--wwe2k14_launch_participants=<id>:<pad>:<n>"]},
+      "proof": [
+        {"re": "\\[scenario\\] participant 0 = id <id> pad -?[0-9]+ attire <n> set -?[0-9]+ \\(src '[^']*'\\) -> key <key> mode [0-9]+ set byte [0-9]+", "min": 1,
+         "key": "<id>*100+<n>*10+2 (the a7=1 fallback would print <id>*100+2)"},
+        {"re": "\\[scene\\]\\[live\\] slot 0 occupant .* row key <key> ", "min": 1}
+      ],
+      "fail": ["launch participant '[^']*': colour set refused"],
+      "site": "src/scenario.h:1149", "source": "docs/research/s105/T3_attire.md",
+      "seen": {"run": 111, "exe": "win-amd64-release-off", "line": "[wwe2k14][scenario] participant 0 = id 397 pad 0 attire 1 set -1 (src '397:0:1') -> key 39712 mode 0 set byte 255", "also": [114, 132, 137, 181]},
+      "unseen_forms": ["<n>/<set>", "t<set>", "s"]
+    },
+    {
+      "name": "threads", "state": "Cena (139) wears his saved Threads set 0 with the mirror's colours",
+      "build": "any", "defaults": {"hash": "AF096E32DDC07743"},
+      "apply": {"make": "py -I tools/save/make_test_save.py --threads 139:0:0 --palette magenta", "data": "userdata_threads_s105", "flags": ["--wwe2k14_launch=s71_cena_threads"]},
+      "needs": ["threads:char=139"],
+      "proof": [{"re": "\\[attire_build\\] build step 0: chosen 13902 loaded 13902 mode 1 set 0 desc 0x[0-9A-F]+: colours <hash>", "min": 1,
+                 "hash": "FNV-1a 64 of the 48 colour bytes at payload set_offset(139,0)+4 (src/assets/attire_compose.h:98); magenta x16 = AF096E32DDC07743, frozen (empty set) = 902DCA9C47FA0DC3"}],
+      "site": "tools/save/make_test_save.py:131", "source": "docs/research/s105/T4_test_save.md",
+      "seen": {"run": 109, "exe": "win-amd64-release-off", "line": "[attire_build] build step 0: chosen 13902 loaded 13902 mode 1 set 0 desc 0xAF480224: colours AF096E32DDC07743"}
+    },
+    {
+      "name": "caw", "state": "created superstar id 0 is seated (slot 0 of the save)",
+      "build": "any",
+      "apply": {"data": "userdata_caw_s105", "flags": ["--wwe2k14_launch=lesnar_bryan", "--wwe2k14_launch_participants=0,343"]},
+      "needs": ["caw:count>=1"],
+      "proof": [
+        {"re": "\\[content\\] open 'SaveDrive' user=0 type=1 file='00CustomSuperStar\\.cas' flags=0x[0-9a-fA-F]+ -> 0x0", "min": 1},
+        {"re": "\\[scenario\\] participant 0 = id 0 pad -?[0-9]+ attire [-0-9]+ set [-0-9]+ \\(src '0'\\) -> key 0 ", "min": 1}
+      ],
+      "route": "tools/input_scripts/scenes/s105_caw_match.txt",
+      "site": "tools/input_scripts/scenes/s105_caw_match.txt:1", "source": "docs/research/s105/R3_caw_save.md",
+      "seen": {"run": 112, "exe": "win-amd64-release-off", "row": 1, "line": "[wwe2k14][scenario] participant 0 = id 0 pad -1 attire - set - (src '0') -> key 0 mode 0 set byte 255"}
+    },
+    {
+      "name": "dlc_mask", "state": "the save's DLC pack mask equals the offered set <mask>",
+      "build": "any", "params": {"mask": "HEX, bit N = pack N offered"}, "defaults": {"mask": "7c"},
+      "apply": {"make": "py -I tools/save/make_test_save.py --threads none --mask <mask> --dst out/bench/userdata_mask<mask>_s105", "data": "userdata_mask<mask>_s105"},
+      "needs": ["dlc:mask=0x<mask_u>"],
+      "proof": "none yet: the game no longer logs the saved DLC mask (S110 SEAT-B removed the mask hook, src/superstars_save.h, and its line 're-offered to the save (saved mask ..'); the planted save's own mask is checked before the run by needs (tools/save/save_read.py dlc_mask) [L]",
+      "site": "tools/save/make_test_save.py:139", "source": "docs/research/s105/IMP_B.md",
+      "seen": null
+    },
+    {
+      "name": "caption_poke", "state": "the 30 Years caption option is on: captions are handed to the box",
+      "build": "any", "params": {"frame": "after the mode object exists, before the first caption (3930 for --wwe2k14_wm30=18 --wwe2k14_wm30_direct)"},
+      "defaults": {"frame": 3930}, "ranges": {"frame": [0, 10000000]},
+      "apply": {"flags": ["--wwe2k14_det_hash=true", "--wwe2k14_det_poke=<frame>:0x839295F0>4>20:1", "--wwe2k14_peek=d8=0x836F2E58>3504>284>8"]},
+      "needs": ["option:caption=0"],
+      "proof": [
+        {"re": "\\[dethash\\] poke at frame <frame>: 0x[0-9A-F]{8} 00000000 -> 00000001", "min": 1, "max": 1},
+        {"re": "\\[peek\\] frame=[0-9]+ d8=0x00000001 \\(1\\) \\(was 0x00000000\\)", "min": 1}
+      ],
+      "fail": ["\\[dethash\\] poke at frame [0-9]+: (chain not readable|null pointer in the chain|0x[0-9A-F]+ not readable)", "\\[dethash\\] ignoring --wwe2k14_det_poke"],
+      "site": "src/frame_hash.h:340", "source": "docs/research/s105/A8D.md; docs/research/s106/C1.md",
+      "seen": {"run": 133, "exe": "win-amd64-release-off", "line": "[wwe2k14][dethash] poke at frame 3930: 0xAF612254 00000000 -> 00000001 (test: the game is changed from here)"},
+      "replace_with": "make_test_save.py --caption 1 (C1 sites 6-7) + needs option:caption=1, no poke"
+    },
+    {
+      "name": "champion_build", "state": "save holder <id> of title <t> enters with his title",
+      "build": "any", "params": {"t": "title 0..90", "id": "0-499", "opp": "0-499"}, "defaults": {"t": 1, "id": 322, "opp": 324}, "ranges": {"t": [0, 90], "id": [0, 499], "opp": [0, 499]},
+      "apply": {"script": ["cvar wwe2k14_match type=0;p=<id>:-1,<opp>:-1;arena=5;pace=1", "cvar wwe2k14_match_go 1"]},
+      "needs": ["holder:title=<t>:char=<id>"],
+      "proof": [{"re": "\\[match\\] titles \\([^)]*\\): .*[0-9]+:<id> t<t>/", "min": 1,
+                 "sample": "[wwe2k14][match] titles (bell): 0:322 t1/255, 1:324 t255/255 frame=1301", "sample_note": "t255/255 = no title; the second number is byte +42; when = in-game sequence started | match clock started"}],
+      "effect_title1": {"re": "\\[belt_plate\\] prop 5009 holder 0x[0-9A-F]+: plate bound", "min": 1,
+                        "seen_line": "[wwe2k14][belt_plate] prop 5009 holder 0xA4F7AA70: plate bound (hash 2c59956d98b45b92, 256x128, t 2)"},
+      "route": "tools/input_scripts/scenes/s105_chk_belt.txt",
+      "site": "src/scenario.h:1485", "source": "docs/research/s105/CHAMP.md; docs/research/s105/PLATE2.md",
+      "seen": {"run": 186, "exe": "win-amd64-release-off", "line": "[wwe2k14][belt_plate] prop 5009 holder 0xA4F7AA70: plate bound (hash 2c59956d98b45b92, 256x128, t 2)", "matches": "effect_title1"}
+    },
+    {
+      "name": "champion_mirror", "status": "missing: lands with C1F (make_test_save.py --holder)", "needs_lane": "C1F", "build": "any",
+      "params": {"t": "title 0..90", "id": "0-499 or 512 = vacant"}, "defaults": {"t": 1, "id": 322}, "ranges": {"t": [0, 90], "id": [0, 512]},
+      "apply": {"make": "py -I tools/save/make_test_save.py --threads none --holder <t>:<id> --dst out/bench/userdata_holder_<t>_<id>", "data": "userdata_holder_<t>_<id>"},
+      "needs": ["holder:title=<t>:char=<id>"], "proof_as": "champion_build", "source": "docs/research/s106/C1.md 2; docs/research/s105/CHAMP.md 2"
+    },
+    {"name": "momentum", "build": "any", "defaults": {"slot": 0, "pct": 50}, "ranges": {"slot": [0, 8], "pct": [0, 100]}, "apply": {"script": ["momentum <slot> <pct>"]},
+     "proof": [{"re": "\\[director\\] script 'momentum <slot> <pct>' -> ok: slot <slot> momentum is <pct>%", "min": 1}],
+     "fail": ["\\[director\\] script 'momentum [^']*' (NOT DONE|DROPPED)"], "site": "src/situation_director_core.h:131",
+     "source": "docs/systems/situation_director.md 8", "seen": {"run": 12, "exe": "win-amd64-release-off-v3"}},
+    {"name": "stock", "build": "any", "defaults": {"slot": 0, "n": 3}, "ranges": {"slot": [0, 8], "n": [0, 9]}, "apply": {"script": ["stock <slot> <n>"]},
+     "proof": [{"re": "\\[director\\] script 'stock <slot> <n>' -> ok: slot <slot> finisher stock is <n>", "min": 1}],
+     "fail": ["\\[director\\] script 'stock [^']*' (NOT DONE|DROPPED)"], "site": "src/situation_director_core.h:333",
+     "source": "docs/systems/situation_director.md 8", "seen": {"run": 12, "exe": "win-amd64-release-off-v3"}},
+    {"name": "passive", "build": "any", "defaults": {"slot": 1}, "ranges": {"slot": [0, 8]}, "apply": {"script": ["passive <slot> on"]},
+     "proof": [{"re": "\\[director\\] script 'passive <slot> on' -> ok: slot <slot> is passive \\(CPU word 0\\)", "min": 1}],
+     "fail": ["\\[director\\] script 'passive [^']*' (NOT DONE|DROPPED)"], "site": "src/situation_director_core.h:111",
+     "source": "docs/systems/situation_director.md 8", "seen": {"run": 12, "exe": "win-amd64-release-off-v3"}},
+    {"name": "passive_cpu", "build": "any", "apply": {"script": ["passive_cpu on"]},
+     "proof": [{"re": "\\[director\\] passive_cpu at the bell: ok: passive all on", "min": 1}], "site": "src/situation_director.h:165",
+     "source": "docs/systems/situation_director.md 8", "seen": null},
+    {"name": "blood_build", "build": "any", "defaults": {"a": 322, "b": 324}, "ranges": {"a": [0, 499], "b": [0, 499]}, "apply": {"script": ["cvar wwe2k14_match type=0;p=<a>:-1,<b>:-1;arena=5;o=81:1", "cvar wwe2k14_match_go 1"]},
+     "proof": "none yet: log_state 0x8376E670 byte 1 (G+15229) = 1 [L]", "site": "src/scenario.h:1533", "source": "docs/research/s105/T1_blood.md 2", "seen": null}
+  ]
+}

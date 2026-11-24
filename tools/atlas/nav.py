@@ -23,7 +23,6 @@ import json
 import os
 import re
 import sys
-import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'live'))
@@ -159,27 +158,19 @@ class Nav:
         st, text, _ = self.batch(['log_state %s' % s for s in READ] + ['log_text'])
         return st, text
 
-    FOCUS = re.compile(r'\[wwe2k14\]\[focus\] frame (\d+): (\d+) widgets took the input(.*)$')
-    ENTRY = re.compile(r'm=([0-9A-F]+) vt=([0-9A-F]+) row=(-?\d+)/(-?\d+) col=(-?\d+)/(-?\d+) moved=(\d+) '
-                       r'pads=([0-9A-F]+) f=\d+(?: list=[0-9A-F]+ item=(-?\d+)/(-?\d+))?')
+    MENU = ('menu_ready', 'menu_count', 'menu_page', 'menu_row', 'menu_rows', 'menu_col', 'menu_cols')
 
     def focus(self):
-        """The input widgets that took the input in the last two frames (src/focus_widget.h), the focused one first:
-        it listens to pad 1 (+8 bit 0) and keeps its own cursor (row or column count > 0)."""
-        fields, log, _ = live.run_batch(self.name, ['cvar wwe2k14_focus_dump %d' % (int(time.time() * 1000) % 10**9),
-                                                    'wait_frames 3'], 60)
-        widgets = []
-        for ln in log:
-            m = self.FOCUS.search(ln.rstrip())
-            if m:
-                widgets = [dict(m=g[0], vt=g[1], row=int(g[2]), rows=int(g[3]), col=int(g[4]), cols=int(g[5]),
-                                moved=int(g[6]), pads=int(g[7], 16)) for g in self.ENTRY.findall(m.group(3))]
-                for w, g in zip(widgets, self.ENTRY.findall(m.group(3))):
-                    if g[8]:  # a UI list's mixin: the list keeps the cursor ([list+88] / [list+612])
-                        w['rows'], w['row'], w['cols'], w['col'] = int(g[9]), int(g[8]), 1, 0
-        own = [w for w in widgets if (w['rows'] > 0 or w['cols'] > 0)]
-        mine = [w for w in own if w['pads'] & 1] or own
-        return mine + [w for w in widgets if w not in mine]
+        """The focused input widget (src/focus_widget.h, the built-in menu_* route states; the pick rule is the C++ one
+        in src/menu_focus.h, no rule here): [] when no mixin is focused (menu_ready 0: none live; or a tie: menu_page
+        unreadable with menu_count above 1), else one dict: vt (the mixin's vtable word), row / rows / col / cols (rows 0 =
+        the owner keeps no count, the SmartMenu), count (mixins that dispatched in the newest frame)."""
+        st, _, _ = self.batch(['log_state %s' % s for s in self.MENU])
+        if not st.get('menu_ready') or st.get('menu_page') is None:
+            return []
+        g = lambda k: st.get(k) or 0
+        return [dict(m=None, vt='%08X' % (g('menu_page') & 0xFFFFFFFF), row=g('menu_row'), rows=g('menu_rows'),
+                     col=g('menu_col'), cols=g('menu_cols'), count=g('menu_count'))]
 
     def where(self):
         st, text = self.read()

@@ -1,4 +1,4 @@
-# Gate check of lane 70 (Session 101): our ring's unit test (ring_ours_test.exe) with its planted faults and loud failures.
+# Check of lane 70 (Session 101): our ring's unit test (ring_ours_test.exe) with its planted faults and loud failures.
 #   py -I tools\ring\ring_ours_selftest.py [--step N]
 # Runs the SHIPPED core (src\renderer_scene\ring_ours_core.cpp, the code RingOurs calls) via out\tools\ring_ours_test.exe (built by tools\ring\build_ring_ours_test.ps1, which also
 # compile-checks the GPU side ring_ours.cpp) on the ring files of arenas 4 and 29 and on three captures: Check B (case zip of run 7051, arena 4, scene records), Bryan's entrance (arena 4)

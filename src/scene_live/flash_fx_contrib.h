@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../renderer_game/scene_frame.h"
+#include "../renderer_scene/rows_stage_fx.h"   // S106 G4-2
 #include "../renderer_scene/live_scene.h"
 #include "flash_fx_core.h"
 #include "tail_latch.h"   // LatchMark

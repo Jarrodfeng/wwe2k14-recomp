@@ -1,4 +1,4 @@
-# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# intent: performance load s
 # Session 12: load-time route, TURBO-ALL variant (load_times_turbo.txt + boot and main-menu load; load_times.txt + `cvar vsync false` while the two loading screens run:
 # INGAMELUA.PAC -> first titantron, and from the last START -> match_clock running). Experiment only.
 # Original header:

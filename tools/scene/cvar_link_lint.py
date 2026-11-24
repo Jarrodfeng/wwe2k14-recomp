@@ -2,7 +2,7 @@
 """cvar_link_lint (lane LNK, 2026-11-20; docs\\research\\harness\\LNK_contract.md): every cvar a game build READS is DEFINED by exactly one unit of that build, over the whole tree.
 
 The class: a switch declared (REXCVAR_DECLARE, only a function declaration) and read (REXCVAR_GET / SET) in one game build that never compiles its REXCVAR_DEFINE_*: an unresolved
-symbol at link time, which the syntax check (tools\\gate\\game_syntax.py) cannot see. Found 2026-11-20: wwe2k14_rdr_hide_stage_slot / _guest_flat / _detached_pieces / _spring_hair_rows
+symbol at link time, which the syntax check (tools\\compile\\game_syntax.py) cannot see. Found 2026-11-20: wwe2k14_rdr_hide_stage_slot / _guest_flat / _detached_pieces / _spring_hair_rows
 were defined only in start_settings.cpp's `#if !WWE2K14_STREAM()` block, so the stream (ON) build did not link.
 
 The judge is the hand-back check's own (tools\\handback\\check.py cvar_findings), and since LNK round 3 it asks the REAL preprocessor: every game unit of each build (the tree's
@@ -27,7 +27,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'handback'))
-import check as hb  # noqa: E402  (tools\handback\check.py: cvar_findings, RULES)
+import cvar_pp as hb  # noqa: E402  (tools\handback\cvar_pp.py: cvar_findings)
 
 LNK_FOUR = ('wwe2k14_rdr_hide_stage_slot', 'wwe2k14_rdr_guest_flat', 'wwe2k14_rdr_detached_pieces', 'wwe2k14_rdr_spring_hair_rows')
 LNK_HOME = 'src/renderer_adapter/reader.h'
@@ -36,9 +36,6 @@ PLANTED = 'src/renderer_adapter/lnk_planted.h'
 
 def link_findings(root, overlay=None, notes=None):
     """([(key, message)] of the undeclared / link / duplicate rules for every cvar, rows, blocked). `overlay` {path relative to root: planted text}."""
-    hb.RULES['cvar_mode'] = True
-    hb.RULES['cvar_link'] = True
-    hb.RULES['cvar_dup'] = True
     ov = {os.path.join(root, k): v for k, v in (overlay or {}).items()}
     return hb.cvar_findings(root, None, notes, overlay=ov or None)
 

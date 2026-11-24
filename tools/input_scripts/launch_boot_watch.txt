@@ -1,4 +1,5 @@
-# harness: realtime (Jarrod watches / plays; Session 16: run_list fast-forwards other routes)
+# intent: watch
+# harness: flags --wwe2k14_input_fail_quit=false
 # Session 9 (scenario launcher): watched launch for any scenario. Boots to the main menu with the title-screen presses
 # of Jarrod's recording 056 (so the title never times out into the attract-mode demo match), then ends: the real
 # controller is active from the main menu on, and --wwe2k14_launch=NAME fires by itself once the main menu has been

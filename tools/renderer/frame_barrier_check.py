@@ -5,7 +5,7 @@ Arms (rplay, --validation 1, offscreen present, --role-audit so the barrier is s
     off: no barrier line; 1: a "top" barrier in every frame; 2: a "top" and a "present" barrier in every frame; plant: none (must be caught as missing);
     the picture byte-equal across off / 1 / 2, 0 validation messages, exit code 0.
   The loss window (out\captures\brock_losswin_rt, 320 frames, the shipped bundle + --game): off vs 1, byte-equal pictures, 0 validation messages, a barrier in
-    every frame. (--no-window skips it; the gate runs it.)
+    every frame. (--no-window skips it.)
 Exit 1 on any failure."""
 import argparse, hashlib, json, os, re, subprocess, sys, tempfile
 

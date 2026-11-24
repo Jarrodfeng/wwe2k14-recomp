@@ -1,12 +1,18 @@
 // Class C4, the wrestlers (Session 101, lane 29). See wrestler_contrib.h.
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "wrestler_contrib.h"
+#include "../renderer_scene/detached_piece.h"   // S106 G4-2
+#include "../renderer_scene/bone_tag_rows.h"
 #include "piece_link.h"   // S105 CAWP fix F5: kSubmMaxNodes
+#include "model_file_note.h"   // S110 SEATREL (was PACANS' pac_answer.h table): the file each slot descriptor's model was built from
 
 #include "../renderer_adapter/upd_lean.h"   // S102 U3 (the plant macro, the census)
 #include "../renderer_game/scene_frame.h"   // S103 A3 (F7: the mode gate)
 #include "../renderer_scene/named_load_fail.h"   // S103 DLW
 #include "../assets/attire_build.h"   // S103 ARM2: the colours the game painted a composite attire with (build-step latch)
+#include "../assets/change_mask.h"    // S108 THR2: the `/m` entry tag (a recoloured body loads with its four masks)
+#include "../renderer_scene/rows_change_colour.h"   // S108 THR2: section 67
+#include "../renderer_scene/change_colour_draw.h"   // S108 THR2: the draw side's census (printed with the store's)
 
 #include <algorithm>
 #include <cstdio>
@@ -117,7 +123,7 @@ void WrestlerContributor::Put(uint32_t skel, int32_t slot, uint64_t frame, std::
     } else {
       if (k->max_count != 0 && k->max_count != uint32_t(skin.size()) && !(faults_ & kFaultKeepStaleKnown)) {   // BHF1 G1: another node count at a known address = another object: nothing of the old body's liveness / consumer / slot facts carries over
         k->palette_ptr = 0, k->has_consumer = false, k->consumer_frame = 0, k->mismatch_walk_ok = false, k->slot_key = 0;
-        k->walk_frame = k->pose_frame = k->draw_frame = 0;
+        k->walk_frame = k->draw_frame = 0;
         for (Known::Head& h : k->heads) h.m.clear(), h.frame = ~0ull;   // BHF1 fix: the old body's last three derived palettes must not match the new object's guard read
         reuse_reset_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -226,20 +232,10 @@ bool WrestlerContributor::PutConsumerInPlace(uint32_t skel, uint64_t frame, cons
   return true;   // unreachable: the update of this frame is a consumer one and the erase keeps those
 }
 
-void WrestlerContributor::NoteReplayPose(uint32_t skel, uint64_t frame, bool shown) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto kn = known_.find(skel);   // find, never create: only a body the update hook has met is a body
-  if (kn == known_.end()) { replay_pose_unknown_.fetch_add(1, std::memory_order_relaxed); return; }
-  if (!shown) { kn->second.pose_frame = 0; kn->second.draw_frame = 0; replay_hidden_.fetch_add(1, std::memory_order_relaxed); return; }   // the track hid him this frame: not posed, the old rule at once
-  kn->second.pose_frame = std::max(kn->second.pose_frame, frame);
-  replay_posed_.fetch_add(1, std::memory_order_relaxed);
-}
-
-void WrestlerContributor::StampDraw(uint32_t skel, uint64_t frame, bool shown) {   // S103 DRL
+void WrestlerContributor::StampDrawForTest(uint32_t skel, uint64_t frame) {   // tests only: the find-only draw stamp NoteDrawAsked makes (the game asked to draw this body)
   std::lock_guard<std::mutex> lock(mutex_);
   auto kn = known_.find(skel);   // find, never create: only a body the update hook has met is a body
   if (kn == known_.end()) { draw_unknown_.fetch_add(1, std::memory_order_relaxed); return; }
-  if (!shown) { HideLiveness(kn->second); draw_hidden_.fetch_add(1, std::memory_order_relaxed); return; }   // the game hides him: no stamp, the old rule at once
   kn->second.draw_frame = std::max(kn->second.draw_frame, frame);
   draw_asked_.fetch_add(1, std::memory_order_relaxed);
 }
@@ -278,6 +274,7 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
     for (const SlotSkel& s : slots->skels) {
       if (slot_set.count(s.skel)) continue;   // two slots, one skeleton: read once
       auto kn = known_.find(s.skel);
+      if (kn != known_.end() && !s.game_shown) HideLiveness(kn->second);   // S107 CAM: the game's own shown predicate (sub_823CBC50) is false: it hid him; no ask stamp outlives that (the ask stops, this clears the linger at once)
       if (kn == known_.end() || !kn->second.max_count) { note(slot_no_count_); continue; }
       // render-clock: lookup - freshness of the update hook's report, how old our own input is
       const bool quiet = kn->second.upd_frame + kConsumerFresh < hook_frame;
@@ -433,7 +430,8 @@ std::string WrestlerContributor::SlotCensus() const {
     return std::string(", ") + name + " by slot [" + r + "]";
   };
   return "want_lock " + want_lock_.Text() + ", reuse_reset " + u(reuse_reset_) + ", slot_targets " + u(slot_targets_) + " (hook quiet " + u(slot_hook_quiet_) + "), slot_no_count " + u(slot_no_count_) + ", slot join agree " + u(slot_join_agree_) + " differ " + u(slot_join_differ_) +
-         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", replay_posed " + u(replay_posed_) + " (unknown " + u(replay_pose_unknown_) + ", hidden " + u(replay_hidden_) + ")" + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + ", stale_held " + u(stale_held_) + ", mismatch_submitted_nowalk " + u(mismatch_submitted_nowalk_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) + bins("mismatch_no_evidence", by_slot_no_evidence_);
+         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + ", stale_held " + u(stale_held_) + ", mismatch_submitted_nowalk " + u(mismatch_submitted_nowalk_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) + bins("mismatch_no_evidence", by_slot_no_evidence_) +
+         "; " + change_colour::Bodies().CensusLine() + "; " + rdr_scene::change_colour_draw::Draws().Text();   // S108 THR2: the Threads editor's live colours (the hook's reads, the rows, the draws)
 }
 
 int WrestlerContributor::SubmitLatchConsumer(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t hook_frame) {
@@ -592,28 +590,34 @@ bool WrestlerContributor::RecordCanNameL(uint32_t skel) {   // the same, mutex_ 
   auto bl = body_links_.find(skel);
   // F4: the cheap test first (one bit while no ref of the character ever failed); the tag (latch mutex + map walk + string) is built only when it can matter
   if (bl != body_links_.end() && bl->second.info.known && (bl->second.verified_seq == collect_seq_ || (faults_ & kFaultLinkInKnown)))
-    return keep || !rdr_scene::namedfail::MaybeFailedChar(CharacterOfKey(bl->second.info.key)) || !KeyFailed(bl->second.info.key, BuildTagOfLink(bl->second.info));
+    return keep || !rdr_scene::namedfail::MaybeFailedChar(model_file_note::FileIdOf(bl->second.info.desc, bl->second.info.key)) || !KeyFailed(bl->second.info.key, BuildTagOfLink(bl->second.info), bl->second.info.desc);
   if (bl != body_links_.end() && !bl->second.info.tag.empty()) {   // S103 CMB: a composite attire whose link is not usable this latch is never named by the plain slot key (a hole, not the stock model)
     // S103 ARM (review F8): "can name" true = the GuestModel rows are not asked, the body goes out unnamed = a HOLE (the guest rows bind atlases this build never fills); counted. Switch off = the old answer.
     if (!rdr_scene::namedfail::HoleRule().load(std::memory_order_relaxed) || keep) return false;
     rdr_scene::namedfail::LinkHoles().fetch_add(1, std::memory_order_relaxed);
     return true;
   }
-  if (k.slot_key) return keep || !rdr_scene::namedfail::MaybeFailedChar(CharacterOfKey(k.slot_key)) || !KeyFailed(k.slot_key, BuildTagOfSlotKey(k.slot_key, k.slot_desc));
+  if (k.slot_key) return keep || !rdr_scene::namedfail::MaybeFailedChar(model_file_note::FileIdOf(k.model_desc, k.slot_key)) || !KeyFailed(k.slot_key, BuildTagOfSlotKey(k.slot_key, k.slot_desc), k.model_desc);
   return false;
 }
 
-bool WrestlerContributor::KeyFailed(uint32_t key, const std::string& composite_tag) {   // S103 DLW: one bit test while no ref of this character ever failed (the game thread asks per skeleton)
-  if (!rdr_scene::namedfail::MaybeFailedChar(CharacterOfKey(key))) return false;
-  const Link l = KeyLink(key, composite_tag);
+bool WrestlerContributor::KeyFailed(uint32_t key, const std::string& composite_tag, uint32_t model_desc) {   // S103 DLW: one bit test while no ref of this character ever failed (the game thread asks per skeleton)
+  if (!rdr_scene::namedfail::MaybeFailedChar(model_file_note::FileIdOf(model_desc, key))) return false;
+  const Link l = KeyLink(key, composite_tag, model_desc);
   return rdr_scene::namedfail::FailedToGuest(l.pac, l.entry, l.variant);
 }
 
-WrestlerContributor::Link WrestlerContributor::KeyLink(uint32_t key, const std::string& composite_tag) {   // S103 B / DLW: the AssetRef a model key is named by (pac from the character, the key in `entry`, the attire)
+WrestlerContributor::Link WrestlerContributor::KeyLink(uint32_t key, const std::string& composite_tag, uint32_t model_desc) {   // S103 B / DLW: the AssetRef a model key is named by (pac from the character, the key in `entry`, the attire)
   Link l;
   char pac[32];
-  std::snprintf(pac, sizeof pac, "pac\\ch\\ch%03u.pac", CharacterOfKey(key));
-  l.pac = pac, l.entry = "model_key:" + std::to_string(key) + composite_tag, l.variant = AttireOfKey(key), l.known = true;
+  // S110 SEATREL (was S110 PACANS, a name-keyed table fed by every lookup): the file the game's model in this slot descriptor was BUILT from (model_file_note.h: the read's own answer, handed to
+  // the descriptor at the build), while the descriptor still holds this key. The id rule (character = key / 100, the file's own key) is what the game's pac list answers when nothing is seated.
+  pac_answer::Answer a;
+  const bool game = model_file_note::FileOfDesc(model_desc, key, a);
+  std::snprintf(pac, sizeof pac, "pac\\ch\\ch%03u.pac", game ? a.file_id : CharacterOfKey(key));
+  // S110 LIBSIZE: a library character's file is `<KEY>\pac\ch\ch497.pac` under the one "lib" overlay (the folder is the game's own answer, not the id)
+  l.pac = (game && !a.lib_rel.empty()) ? a.lib_rel : std::string(pac);
+  l.entry = "model_key:" + std::to_string(game ? a.file_key : key) + composite_tag, l.variant = AttireOfKey(key), l.known = true;
   return l;
 }
 
@@ -881,14 +885,20 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       }
       Link link;
       int32_t slot = it->second.slot;
+      change_colour::Body cc_body;   // S108 THR2: the body's change-colour state as the game's draw left it (NoteDrawAsked); on = the game draws it recoloured
+      bool cc_on = false;
       if (auto kn = known_.find(it->first); kn != known_.end()) {
         kn->second.age = 0;
         if (kn->second.slot >= 0) slot = kn->second.slot;  // the slot the update hook matched wins (a consumer palette carries none)
         // S103 L31B review C: a hook-quiet body is shown only while the game's own draw saw it lately; else emitted invisible = a hole (the frame goes to the game), the palette still in the record
         // (only a REFRESHED body: a stale visible one is the guard's, below, so a body that left the table is dropped, not turned into a 120-record hole)
-        if (!stale && slot >= 0 && !(faults_ & kFaultNoWalkGate) && kn->second.upd_frame + kConsumerFresh < hook && kn->second.walk_frame + kQuietSeenWindow < hook && kn->second.pose_frame + kQuietSeenWindow < hook && kn->second.draw_frame + kConsumerFresh < hook) {   // review 1b: a draw ask comes every guest frame while drawn, so its window is short (a hidden body the game stops asking about goes quiet within kConsumerFresh)   // S103 RPF: + the replay track's pose; S103 DRL: + the game's draw ask
+        // S107 CAM: the stream-free (player) build shows a body only while the game ASKED to draw it (draw_frame: the sub_82C04DF0 hook): the editor's extra slots are posed by the skeleton update but never asked, and lay on the mat.
+        // The STREAM (ON) build is dev-only: it keeps the older rule (update / walk / ask), its un-asked commentators would be skel holes every frame otherwise. kFaultUpdShows = the old rule in the stream-free build (the twin).
+        const bool seen = (no_walk_ && !(faults_ & kFaultUpdShows)) ? kn->second.draw_frame + kConsumerFresh >= hook
+                                                                     : (kn->second.upd_frame + kConsumerFresh >= hook || kn->second.walk_frame + kQuietSeenWindow >= hook || kn->second.draw_frame + kConsumerFresh >= hook);   // review 1b: a draw ask comes every guest frame while drawn, so its window is short (a hidden body the game stops asking about goes quiet within kConsumerFresh)   // S103 DRL: the game's draw ask
+        if (!stale && slot >= 0 && !(faults_ & kFaultNoWalkGate) && !seen) {
           by_slot_quiet_unseen_[SlotBin(slot)].fetch_add(1, std::memory_order_relaxed);   // S103 AUSF
-          if (uint64_t& ql = quiet_last_[it->first]; ql == 0 || f.guest_frame != ql + 1) EventLog(2, f.guest_frame, it->first, slot, kn->second.upd_frame, kn->second.draw_frame, kn->second.pose_frame);   // on change: the first record of a run of hides
+          if (uint64_t& ql = quiet_last_[it->first]; ql == 0 || f.guest_frame != ql + 1) EventLog(2, f.guest_frame, it->first, slot, kn->second.upd_frame, kn->second.draw_frame, 0);   // on change: the first record of a run of hides
           quiet_last_[it->first] = f.guest_frame;
           slot = -1;
           quiet_unseen_.fetch_add(1, std::memory_order_relaxed);
@@ -907,11 +917,16 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
           // The game's model key is [C]; the pac NAME is [U] (R1): a pac-less AssetRef (pac 0 = unknown) whose entry names the key and whose variant is the attire.
           // S103 B: the pac is named from the key (character = key / 100; pac\ch\chNNN.pac holds every attire of the character [L: 187 = the ring announcer and 150 / 153 =
           // the commentators in db\ids\characters.json; the viewer loads wrestler N attire A from that pac]): a drawer needs no side table. The key stays in `entry`.
-          link = KeyLink(model_key, BuildTagOfLink(bl->second.info));   // S103 CMB: a composite attire's tag rides in the body's own link; a composite attire never falls back to the plain slot key (below)
+          link = KeyLink(model_key, BuildTagOfLink(bl->second.info), bl->second.info.desc);   // S110 SEATREL: + the descriptor whose build note names the file. S103 CMB: a composite attire's tag rides in the body's own link; a composite attire never falls back to the plain slot key (below)
         } else if (!link.known && kn->second.slot_key && !(bl != body_links_.end() && !bl->second.info.tag.empty())) {   // S103 CMB: a body whose link carries a composite tag (verification pending / failed this latch) goes out unnamed: a hole, never the stock attire
           // S103 B: no declared link: the participant slot key
-          link = KeyLink(kn->second.slot_key, BuildTagOfSlotKey(kn->second.slot_key, kn->second.slot_desc));   // S103 ARM2: + the build step's colours when the game composed this attire
+          link = KeyLink(kn->second.slot_key, BuildTagOfSlotKey(kn->second.slot_key, kn->second.slot_desc), kn->second.model_desc);   // S110 SEATREL: + the slot's descriptor. S103 ARM2: + the build step's colours when the game composed this attire
         }
+        // S108 THR2: a body the game draws recoloured (the Threads editor) is named with the `/m` tag: the loader keeps its PACH's four masks (change_mask.h), a load cached apart
+        // from the plain one. Before the failed-load test below, so that test asks about the entry this record really names. A refusal entry ("/r") is never tagged (it stays a hole).
+        cc_on = change_colour::Bodies().Get(it->first, hook, cc_body);
+        if (cc_on && link.known && !attire_compose::IsRefusalTag(link.entry)) link.entry = change_mask::WithTag(link.entry);
+        if (cc_on && !link.known) rdr_scene::change_colour_draw::Draws().unnamed.fetch_add(1, std::memory_order_relaxed);   // a recoloured body the record cannot name (guest rows): no masks, drawn plain
         // S103 DLW (COV2 GAP 2 part 3): a link whose model the loader could not load is not written: the object goes out unnamed (pac 0) and the GuestModel rows draw it (RecordCanName says the same).
         if (link.known && !(faults_ & kFaultNamedFailHole) && rdr_scene::namedfail::FailedToGuest(link.pac, link.entry, link.variant)) {
           link = Link();
@@ -923,9 +938,9 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       // S103 AUSF (AUS2 fix 2): in a build with NO walk (no_walk_) "the frame walks" never happens: the drop was "draw the frame without him". A stale VISIBLE body the character table still holds (slot_present_) is held with its kept
       // palette for up to kConsumerFresh records (a 1-4 frame pose hold is invisible, a vanished wrestler is not) and dropped only once it left the table or is older. The stream build keeps the drop (its frame walks).
       if (stale && stale_guard_ && scene_frame::CurrentMode() == scene_frame::Mode::Ours && (slot >= 0 || (faults_ & kFaultDropInvisible))) {
-        // review 3: only a LIVE body is held (the negation of the quiet gate: the game updated, drew or posed it lately); review 4: never over a fresh body's slot
+        // review 3: only a LIVE body is held (the negation of the quiet gate: in the stream-free build only the game's draw ask counts (S107 CAM); the stream build also counts an update / walk); review 4: never over a fresh body's slot
         const auto kh = known_.find(it->first);
-        const bool live_body = (faults_ & kFaultHoldAny) || (kh != known_.end() && (kh->second.draw_frame + kConsumerFresh >= hook || kh->second.upd_frame + kConsumerFresh >= hook || kh->second.pose_frame + kQuietSeenWindow >= hook));
+        const bool live_body = (faults_ & kFaultHoldAny) || (kh != known_.end() && (no_walk_ && !(faults_ & kFaultUpdShows) ? kh->second.draw_frame + kConsumerFresh >= hook : (kh->second.draw_frame + kConsumerFresh >= hook || kh->second.upd_frame + kConsumerFresh >= hook || kh->second.walk_frame + kQuietSeenWindow >= hook)));   // S107 CAM: stream-free = the game's ask only
         if (no_walk_ && !(faults_ & kFaultNoWalkRefuse) && slot >= 0 && it->second.age <= kConsumerFresh && live_body && ((faults_ & kFaultHoldNoSlotCheck) || !fresh_slots.count(slot)) && std::binary_search(slot_present_.begin(), slot_present_.end(), it->first)) {
           stale_held_.fetch_add(1, std::memory_order_relaxed);
         } else {
@@ -938,6 +953,10 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       }
       items.push_back(Item{it->first, slot, it->second.consumer, link, it->second.skin});
       items.back().stale = stale;   // S103 NRB
+      if (cc_on) {   // S108 THR2: the colours ride with the body to EmitItems (section 67)
+        items.back().cc_on = true, items.back().cc_unsettled = cc_body.unsettled;
+        std::memcpy(items.back().cc_colours, cc_body.colours, sizeof items.back().cc_colours);
+      }
       if (slot >= 0) {   // S105 A5a F5: an owner carries its previous palette and the shifts for the own-rows copy proof
         items.back().prev_skin = it->second.prev_skin, items.back().prev_consumer = it->second.prev_consumer;
         std::memcpy(items.back().shift, it->second.shift, sizeof it->second.shift), std::memcpy(items.back().prev_shift, it->second.prev_shift, sizeof it->second.prev_shift);
@@ -1086,6 +1105,9 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
         if (ow_why == scene_inputs::OwnRowsWhy::Hidden) continue;   // the game's SUBM loop skips this instance (inst +20 == 0): no object, not a hole
         own_rows = ow_why == scene_inputs::OwnRowsWhy::Ok;
       }
+      // S108 THR2: a piece of a recoloured owner drawn as its own object has no colours on the draw side (only the owner's merged model draws with them): counted + reported
+      // (change_colour_piece) until the piece path carries them (lane RDS's files).
+      if ((detached || own_rows) && ow != owner_of.end() && ow->second->cc_on) change_colour::Bodies().NotePieceApart(s.skel, ow->second->skel);
     }
     if (s.link_only && !detached) continue;   // S103 DTP fix: a link-only entry is written only as a detached piece (its owner is drawn); nothing else to say about a model with no palette
     const bool no_palette = detached && (s.stale || s.link_only);   // S103 DTP fix: the piece's own palette is gone or old: the flag (the owner's skip) stays, no bones are written, rf_wrestlers never guest-routes it
@@ -1125,6 +1147,14 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
     // mesh mask stays all-ones (every mesh shown): the attire's piece list is unknown, so this is "unknown", not a claim.
     t.objects.push_back(o);
     t.engine_objects.push_back(s.skel);  // the pairing key with DrawOrigin::object (the model object IS the skeleton; map section 1)
+    if (s.cc_on && slot_ok) {   // S108 THR2: section 67, keyed by the engine object (the draw side joins it through kScEngineObjects, as the liquid maps)
+      rdr_scene::ChangeColourRow row;
+      row.object = s.skel;
+      row.flags = s.cc_unsettled ? rdr_scene::kCcUnsettled : 0u;
+      std::memcpy(row.colours, s.cc_colours, sizeof row.colours);
+      t.change_colours.push_back(row);
+      change_colour::Bodies().NoteRow();
+    }
     ++c.objects;
     c.unknown += (link.known && !link.pac.empty()) ? 1 : 2;   // (asset: a key without a pac name is still unknown,) mesh mask
     if (!s.consumer && !s.link_only) {   // the palette came from the exit of sub_82BD30E8: not where the draw reads it (Brock's nodes 59-108)

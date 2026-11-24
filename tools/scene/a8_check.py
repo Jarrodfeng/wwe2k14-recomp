@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane A8 gate check: the wrestlers' light object computed at the latch (docs\\renderer\\INPUTS_A8.md). 0 game runs, no game, no SDK.
+"""S103 lane A8 check: the wrestlers' light object computed at the latch (docs\\renderer\\INPUTS_A8.md). 0 game runs, no game, no SDK.
   1. builds tools\\scene\\a8_proof.cpp (with record_io.cpp and the pure module src\\renderer_scene\\wrestler_light_latch.h);
   2. the module's unit (--unit) must pass, and each of its six planted twins must FAIL its NAMED check (stale / early -> HOOK, wrong_slot -> CENSUS, always_equal -> CENSUS differ, no_changed_gate -> CHANGED GATE, no_walk_guard -> WALK GUARD);
   3. the replay over the scene records of run 27, 28 and 29's cases (out\\s103\\runNN_case.zip, shared captures, read-only): `wrestler_light latch==walk, differ 0` on changed frames AND on all frames, and the synthesis equals the walk,

@@ -55,7 +55,7 @@ MACRO_LIKE = re.compile(r'[A-Z][A-Z0-9_]{2,}')
 def db_path(root, sdk_arg=None):
     """the default SDK (thirdparty/rexglue-sdk-src) is out/harness/index/sdk.s<SCHEMA>.db; --sdk PATH (a thirdparty/sdk-wt/<name> tree) has its own sdk-<name>.s<SCHEMA>.db.
     S105 D (F1): the schema is in the FILE NAME: a q of another schema uses ANOTHER file and never opens, wipes or rebuilds this one (the design of qasset.db_name)."""
-    if os.environ.get('WWE_QSDK_DB'):      # S105 D (F-3): another file (how a builder / a gate lane works without touching the shared index)
+    if os.environ.get('WWE_QSDK_DB'):      # S105 D (F-3): another file (how a builder or a selftest works without touching the shared index)
         return os.environ['WWE_QSDK_DB']
     name = ('sdk' if not sdk_arg else 'sdk-' + re.sub(r'[^\w.-]', '_', os.path.basename(os.path.normpath(sdk_arg)))) + '.s%d.db' % SCHEMA
     if not sdk_arg and not os.path.isdir(os.path.join(root, 'thirdparty', 'rexglue-sdk-src')):
@@ -104,10 +104,10 @@ def scan(sdk):
 
 
 def safe_jobs(want):
-    """at most MAX_JOBS workers, fewer when free RAM is low (the build_ours rule; a lexer worker is ~0.3 GB, so 1 GB each with 4 GB left over)"""
+    """at most MAX_JOBS workers, fewer when free RAM is low (the q free-RAM rule; a lexer worker is ~0.3 GB, so 1 GB each with 4 GB left over)"""
     try:
-        import build_ours
-        free = build_ours._free_ram_gb()
+        import qm
+        free = qm.free_ram_gb()
     except Exception:
         free = None
     by_ram = MAX_JOBS if free is None else int((free - 4) // 1)

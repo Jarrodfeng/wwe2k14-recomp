@@ -18,6 +18,7 @@
 #include "sc_support.h"
 #include "../../src/renderer_scene/quads2d_draw.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_scene/frame_hooks.h"
 #include "../../src/renderer_scene/walk_cat.h"   // S105 A4B
 #include "../../src/renderer_host/row_fate.h"   // S105 A4B: FateOf (the flat-frame rule)

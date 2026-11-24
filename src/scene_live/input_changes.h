@@ -22,6 +22,7 @@
 
 #include "../renderer_game/scene_frame.h"
 #include "../renderer_scene/record_io.h"
+#include "../renderer_scene/record_all.h"   // S106 G4-2
 #include "inputs_core.h"   // scene_inputs::kInputCount, kInputs (names)
 
 namespace rdr_scene::live::inputchanges {

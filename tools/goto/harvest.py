@@ -13,7 +13,7 @@ tools\\run\\run.py (the run contract, the run lock).
         `moments.py add` with the recording, the bus stream and the hash stream (the place comes from DIR/plan.json), refuses a recording whose
         header lacks the carried place flags (a replay would not rebuild the match: src/replay_carried.h), then prints every addressable moment
         with the frame it resolves to.
-    py -I tools\\goto\\harvest.py selftest        (also gate lane moments_harvest)
+    py -I tools\\goto\\harvest.py selftest       
 """
 import argparse
 import json

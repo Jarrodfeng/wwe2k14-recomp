@@ -9,7 +9,7 @@ Arms (frame_rig.py --wrk-told / --wrk-off, a labelled FIXTURE: the capture is ol
   C  levels   the switch on, Lv0..Lv5 and IdMapLv0..7 told 1: the face must CHANGE against B (>= CHANGED_PIXELS pixels differ by more than 3 / 255).
   D  twin     `--plant levels_dropped`: C is run with the switch OFF (the levels never reach the shader): the picture must equal B, the check CATCHES it (exit 0 with the token WRINKLES, as the other planted arms).
 Prints one PASS / FAIL line per arm; writes DIR\wrk_sheet.png (off | zero | levels | where C differs x8).
-This check needs fview / frame_rig built (tools\scene\build_rig.ps1) and the capture out\captures\brock_losswin: it is a rig-tier check (the gate counts it as skipped by default; the main session runs it).
+This check needs fview / frame_rig built (tools\scene\build_rig.ps1) and the capture out\captures\brock_losswin: it is a rig-tier check (the main session runs it).
 """
 import argparse, glob, os, subprocess, sys
 import numpy as np

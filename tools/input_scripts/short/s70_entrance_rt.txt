@@ -1,4 +1,4 @@
-# harness: realtime (Session 70: entrances timed at normal speed, as players see them)
+# intent: performance frame ms
 # Session 70 (v0.2.8's slow entrances): a release exe's Quick Match with both entrances, in real time. Use with
 #   --game_data_root=<repo>\game_data\extracted --wwe2k14_settings_file=<test file> --wwe2k14_launch=@quick
 #   --wwe2k14_quick_type=0 --wwe2k14_launch_participants=343,324 --gpu_session_stats_frames=60

@@ -1,0 +1,44 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\step3check\lib3 --wwe2k14_seat_pool_cap=2 --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 step 3 check Q3 boot B (route lane): the same library lib3 and the user data saved by boot A (ud_q3). Expect the load's `[handover]` lines to treat
+# the guests' seats as the plan says (a `leaves` line per guest seat: state exported, purged), residents unchanged, the main menu healthy, and the
+# DOWNLOADED tab listing page 1 again (a walk of the list).
+log step3: start q3_b
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+log step3: main menu
+screenshot q3b_menu
+wait_frames 20
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+press A
+wait_frames 60
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+press LEFT
+wait_frames 40
+press LEFT
+wait_frames 40
+press A
+wait_frames 120
+log step3: tab open
+log_text 12
+screenshot q3b_tab
+wait_frames 20
+log step3: walk
+screenshot_every 40 w
+repeat 25
+press DOWN
+wait_frames 40
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: done
+quit

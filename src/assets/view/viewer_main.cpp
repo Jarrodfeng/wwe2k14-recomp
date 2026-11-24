@@ -1551,7 +1551,32 @@ struct Viewer : InputSink {
       ViewerStageWrestlers("", game, used);
       std::string g;
       for (int id : game) g += (g.empty() ? "" : ",") + std::to_string(id);
-      return "{\"ok\":true," + ModsState() + ",\"trons\":[" + a + "],\"banners\":[" + b + "],\"game_trons\":[" + g + "]}";
+      return "{\"ok\":true," + ModsState() + ",\"trons\":[" + a + "],\"banners\":[" + b + "],\"game_trons\":[" + g + "]," + ml::CustomJson() + "}";
+    }
+    // S110 TRON-B (src\tron_slots_ui_core.h = the launcher's rule): custom trons, big screen only
+    //   {"cmd":"mods_custom"}                                          the filled custom trons and the problems
+    //   {"cmd":"mods_custom_add","file":"x.mp4","name":"My tron"}      the lowest free number, the video copied, the name saved
+    //   {"cmd":"mods_custom_rename","tron":N,"name":"..."}             (also names a video that has no name)
+    //   {"cmd":"mods_custom_remove","tron":N,"confirm":true}           every video + banner file to the Recycle Bin, the line retired
+    if (c == "mods_custom") return "{\"ok\":true," + ModsState() + "," + ml::CustomJson() + "}";
+    if (c == "mods_custom_add") {
+      int id = -1;
+      const std::string e = ml::CustomAdd(std::filesystem::u8path(cmd.str("file")), cmd.str("name"), &id);
+      if (!e.empty()) return Err(e);
+      return "{\"ok\":true,\"tron\":" + std::to_string(id) + "," + ml::CustomJson() + "}";
+    }
+    if (c == "mods_custom_rename" || c == "mods_custom_remove") {
+      const int ct = IntArg(cmd.num("tron", -1));
+      std::string e;
+      if (c == "mods_custom_rename") e = ml::CustomRename(ct, cmd.str("name"));
+      else {
+        const jl::Value* cv = cmd.get("confirm");
+        if (!cv || cv->t != jl::Value::Bool || !cv->b) return Err("mods_custom_remove needs \"confirm\":true (the video goes to the Recycle Bin)");
+        e = ml::CustomRemove(ct);
+        if (e.empty()) ModsRestage(ct);
+      }
+      if (!e.empty()) return Err(e);
+      return "{\"ok\":true,\"tron\":" + std::to_string(ct) + "," + ml::CustomJson() + "}";
     }
     const int tron = IntArg(cmd.num("tron", -1));
     if (tron < 0 || tron > ml::kMaxTron) return Err("tron must be 0-9999 (the game reads at most 4 digits)");
@@ -3990,7 +4015,7 @@ struct Viewer : InputSink {
       return "{\"ok\":true,\"w\":" + std::to_string(pw) + ",\"h\":" + std::to_string(ph) + "}";
     }
     { std::string po; if (DoPathCmd(c, cmd, po)) return po; }  // Session 98: path_* / render
-    if (c.compare(0, 4, "mods") == 0 && (c == "mods" || c == "mods_list" || c == "mods_select" || c == "mods_add" || c == "mods_remove" || c == "mods_sheet" || c == "mods_refresh")) return DoMods(c, cmd);
+    if (c.compare(0, 4, "mods") == 0 && (c == "mods" || c == "mods_list" || c == "mods_select" || c == "mods_add" || c == "mods_remove" || c == "mods_sheet" || c == "mods_refresh" || c == "mods_custom" || c == "mods_custom_add" || c == "mods_custom_rename" || c == "mods_custom_remove")) return DoMods(c, cmd);
     if (c == "char_import" || c == "char_list" || c == "char_remove") return DoChars(c, cmd);
     if (c == "quit") { quit = true; return "{\"ok\":true}"; }
     return Err("unknown cmd '" + c + "'");
@@ -4211,7 +4236,11 @@ int main(int argc_in, char** argv_in) {
     else if (a == "--parent") parent_pid = strtoul(next().c_str(), nullptr, 10);
     else if (a == "--importer") v.importer = true;                  // Session 98: the SUPERSTAR IMPORTER window (ui_importer.h)
     else if (a == "--settings-file") v.imp.settings_file = ui::LauncherSettingsFile() = next();  //   the launcher's settings file ("superstars" in the importer, "lighting" in the LIGHT tab)
-    else if (a == "--importer-edit") v.imp.edit_slot = atoi(next().c_str());
+    else if (a == "--importer-edit") {  // S110 SEAT-C review: 8 hex digits = a library key; anything else = a slot (397..499: never 8 digits)
+      const std::string e = next();
+      if (e.size() == 8 && std::all_of(e.begin(), e.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; })) v.imp.edit_key = e;
+      else v.imp.edit_slot = atoi(e.c_str());
+    }
     else if (a == "--importer-bulk") v.imp.bulk_at_start = true;
     else if (a == "--backend") next();  // (read above)
     else if (a == "--shader_dir" || a == "--shader_src" || a == "--shader_root" || a == "--shader_watch") {  // S101 lane24: live shader reload (rdr backend, dev only; src\renderer_scene\shader_reload.h)

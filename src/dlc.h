@@ -51,7 +51,8 @@
 #include "dlc_overlays.h"  // S103 DLW
 #include "gfx_settings.h"
 #include "replay.h"  // g_dlc_offered: a recording keeps the packs it was made with
-#include "superstars.h"  // Session 98: the Superstar Importer's pack (<mods>\superstars\pack6), one more pack when switched on
+#include "seats.h"  // S110 SEAT-B: MountLibrary (sslib:), the residents' library folders as overlay items
+#include "superstars.h"  // Session 98: the Superstar Importer's pack (<mods>\superstars\frame since S110 SEAT-B), one more pack when switched on
 
 REXCVAR_DEFINE_BOOL(wwe2k14_dlc, false, "wwe2k14",
                     "Session 32: give the game the DLC packs in the DLC folder (one folder per pack with "
@@ -150,6 +151,16 @@ inline void ApplyLauncherSettings(const fs::path& settings_file) {
 // After setup (OnPostSetup): find the packs and register a read-only device for each one the game gets.
 constexpr const char* kSuperstarsFolder = "[superstars] ";  // the Superstar Importer's pack in g_packs (folder name prefix)
 inline int g_gate_id = 0;  // Session 98: the pack id the gate is opened for (the superstars pack's), 0 = none
+inline bool IsSuperstarsPack(const Pack& p) { return p.folder.rfind(kSuperstarsFolder, 0) == 0; }
+// (S110 UPDOV review D1) Install offered the Superstar Importer's pack to the game (its device mounted: the game's DLC pass will list its
+// pacs). False before Install, and when the pack is left out (not built, stale, misfit, switched off, not mountable). The update: overlay
+// (src\superstars_update.h) belongs to that pack and is mounted only when this holds.
+inline bool SuperstarsOffered() {
+  std::lock_guard lock(g_mutex);
+  for (const Offered& o : g_offered)
+    if (IsSuperstarsPack(*o.pack)) return true;
+  return false;
+}
 
 inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::path& game_data_root) {
   try {
@@ -222,7 +233,7 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
     std::string what;
     // Session 98: the superstars pack: its id must be the one superstars.txt names, and every pack it was built on must be
     // offered (they have lower ids, so they are decided before it in this pack-id order).
-    const bool ours = p.folder.rfind(kSuperstarsFolder, 0) == 0;
+    const bool ours = IsSuperstarsPack(p);
     // Session 101 (lane 199): whether the superstars pack fits the real packs the game gets - the ONE rule the importer and the
     // launchers use too (src\importer\pack_fit.h; they rebuild before PLAY). The real packs have lower ids, so they are decided
     // before ours in this pack-id order.
@@ -230,7 +241,7 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
     if (ours && p.status == Status::kReady) {
       std::vector<const Pack*> real;
       for (const Offered& o : g_offered)
-        if (o.pack->folder.rfind(kSuperstarsFolder, 0) != 0) real.push_back(o.pack);
+        if (!IsSuperstarsPack(*o.pack)) real.push_back(o.pack);
       misfit = superstars_fit::Problem(superstars::g_built, real);
     }
     if (p.status != Status::kReady) {
@@ -278,6 +289,8 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
                 p.DisplayName(), StatusName(p.status), p.files_listed, Mb(p.bytes), what);
   }
   g_on = !g_offered.empty();
+  if (superstars::g_active) seats::MountLibrary(file_system);  // S110 SEAT-B: sslib: = <mods>\superstars\library (the residents' pacs; the nodes' paths start with it)
+  if (superstars::g_active) seats::MountSeatEv(file_system);   // S110 SEAT3: sseat: = <user data>\superstars\seatev (the guests' EV files; src\seat_bind.h)
   {  // S103 DLW: the live scene loader reads the same packs the game was offered (extracted folders; a package is counted and left out)
     std::vector<wwe2k14::dlc_overlays::Item> ov;
     size_t pkgs = 0;
@@ -287,6 +300,8 @@ inline void Install(rex::filesystem::VirtualFileSystem* file_system, const fs::p
       char sfx[16];
       std::snprintf(sfx, sizeof sfx, "_dlc%02d", o.pack->pack_id);   // a pack names its files the disc's name + "_dlcPP" (dlc_files.h SuffixOf)
       pkgs += o.pack->package;
+      if (superstars::g_active && IsSuperstarsPack(*o.pack))  // S110 LIBSIZE: ONE "lib" item (root = library\): every character's file is <KEY>\pac\ch\ch497.pac (the scene renderer's lib_rel names the key)
+        ov.push_back({seats::g_roster.library, "", "lib", o.pack->pack_id, false});
       ov.push_back({o.pack->root, sfx, o.pack->folder.rfind(kSuperstarsFolder, 0) == 0 ? "mod" : "dlc", o.pack->pack_id, o.pack->package});   // folders AND STFS packages (the phone's DLC is packages)
     }
     REXLOG_INFO("[wwe2k14][dlc] live loader overlays: {} pack(s) ({} of them STFS packages, read in place), highest pack id first", ov.size(), pkgs);
@@ -356,7 +371,13 @@ inline void PatchGate() {
   const bool restored = heap->Protect(kGateTable, 4, old);
   if (stars_gate) {
     superstars::g_active = true;  // the superstars pack is in the game (its music remap may run)
-    superstars::WriteStatus("in " + std::to_string(superstars::g_music.size()));  // (Session 101, review N4: only now)
+    // (Session 101, review N4: only now.) S110 SEAT-B: "in N" = the residents seated; cards the game left out (stale inst, missing files) are counted (reasons: the log)
+    // S110 D1: a seat HELD by a card left out (stale, missing pac, edited) is cured in the launcher: say so in plain words
+    const size_t held_n = seats::g_roster.held.size(), out_n = seats::g_roster.left_out.size();
+    superstars::WriteStatus("in " + std::to_string(superstars::g_music.Count()) +
+                            (held_n  ? ", " + std::to_string(held_n) + " imported superstar(s) need a rebuild: open the importer"
+                             : out_n ? ", " + std::to_string(out_n) + " card(s) left out (see the game's log)"
+                                     : std::string()));
   }
   REXLOG_INFO("[wwe2k14][dlc] gate table {:08X} ({}): {:08X} {:08X} {:08X} {:08X} "
               "{:08X}; word 0 {:08X} -> {:08X} (pack {} accepted from revision 1), protection 0x{:X} {} frame={}",

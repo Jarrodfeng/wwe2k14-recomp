@@ -6,7 +6,7 @@
 Two switches, each PerFrame, default off:
   shadow_direct  wwe2k14_rdr_shadow_direct  (copy_alias.h `sd` rule, binder.h): with shadows_ours on, the whole copies of our shadow map into the game's map texture are not made; the readers sample our map.
   frame_direct   wwe2k14_rdr_frame_direct   (copy_alias.h: the full-size rule at level 3 under its own switch and census, fview / rplay --frame-direct): the scene resolve copies and the Present's copy go.
-Every arm is fview headless (--validation 1) on a gate capture: the presented picture's hash of EVERY frame, the validation error count AND the exit code are read (never "the csv exists").
+Every arm is fview headless (--validation 1) on a standard capture: the presented picture's hash of EVERY frame, the validation error count AND the exit code are read (never "the csv exists").
 wiring   each link of both switches (table PerFrame default 0, cvar default false, live.cpp per-frame read, binder facts, census lines, fview / rplay flags); each removed in a text copy must fail the lint
          (a text twin that no longer applies fails as DID NOT APPLY).
 core     bryan: the whole bundle off, + shadow direct, + frame direct, + both: byte-equal, validation 0, exit 0, taken counts read from the census lines.
@@ -74,7 +74,7 @@ FDL = re.compile(r"\[rdr\]\[frame_direct\] effective level 3 \(G8 alias_fullsize
 
 
 class Arm:
-    """One fview replay of a gate capture. `cap` = ('zip', path) or ('dir', path)."""
+    """One fview replay of a standard capture. `cap` = ('zip', path) or ('dir', path)."""
 
     def __init__(self, exe, cap, game, work, name, extra, frames=FRAMES, allow_stop=False):
         hashes = os.path.join(work, name + '.csv')

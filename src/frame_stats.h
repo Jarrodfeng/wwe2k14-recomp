@@ -144,6 +144,22 @@ inline int CurrentLogNumber() {
   return cached.load(std::memory_order_acquire);
 }
 
+// S108 SHOT-A (docs\research\s108\SHOT_plan.md 5): this run's own folder for the subject-shot outputs: captures\NNN_pPID (NNN = the log number, PID = the process id the run logs as
+// "run log number: NNN (pid P)"). A run is told apart by its folder, never by a bare number. Fixed on first use (the verb runs long after start). Not created here.
+inline std::filesystem::path RunCaptureDir() {
+  static const std::filesystem::path dir = [] {
+#ifdef _WIN32
+    const unsigned long pid = GetCurrentProcessId();
+#else
+    const unsigned long pid = static_cast<unsigned long>(getpid());
+#endif
+    char name[48];
+    std::snprintf(name, sizeof name, "%03d_p%lu", std::max(CurrentLogNumber(), 0), pid);
+    return std::filesystem::current_path() / "captures" / name;
+  }();
+  return dir;
+}
+
 // Guest frames presented so far (VdSwap calls). Also the clock for input replay later.
 inline std::atomic<uint64_t> g_guest_frame{0};
 

@@ -13,6 +13,7 @@ Exit 0 = all pass, 1 = a check failed, 2 = a planted twin was NOT caught.
 """
 import json
 import os
+import re
 import shutil
 import sqlite3
 import struct
@@ -22,6 +23,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qdecomp  # noqa: E402
+import qdecomp_phi  # noqa: E402
 
 FIXTURE = os.path.join(HERE, 'decomp_fixture.json')
 FAILS = []
@@ -229,6 +231,67 @@ def synthetic(e):
     check('cache rebuilt on source change', after['source_sha1'] != cached['source_sha1'])
     n82 = [f for f in os.listdir(e.cache) if f.startswith('82001A00.')]
     check('stale cache entry removed', len(n82) == 1, str(n82))
+    check('cache key holds qdecomp\'s own code hash', len(n82) == 1 and qdecomp._code_sha()[:10] in n82[0], str(n82))
+
+    # 12. a join of an `add` and a plain value: the join value is defined, with BOTH inputs (S110 QDEC case A)
+    fname, lab = e.add(0x82001B00, ['lwz r10,8(r3)', 'lwz r11,12(r3)', 'cmpwi cr6,r4,0', 'beq cr6,<L>',
+                                    'add r11,r10,r11', ('label', 'L'), 'stw r11,0(r5)', 'blr'])
+    r = e.get(0x82001B00)
+    t = text(r)
+    check('join defines its value with both inputs',
+          f'r11@{lab["L"]:08X} = one of:' in t and '([in_r3+8] + [in_r3+12])' in t and '[in_r3+12]' in t, t)
+    check('join: no printed name is undefined', qdecomp_phi.undefined(r['lines']) == [], str(qdecomp_phi.undefined(r['lines'])))
+
+    # 13. an argument set in a predecessor block reaches the call in the join block
+    e.add(0x82001C00, ['li r4,7', 'cmpwi cr6,r5,0', 'beq cr6,<L>', 'li r6,9', ('label', 'L'), 'bl 0x82009000', 'blr'])
+    r = e.get(0x82001C00)
+    check('argument set in a predecessor block', any('call#' in l and 'r4=7' in l for l in r['lines']), text(r))
+    # ... but a register set on only ONE path to the call is not printed as an argument (it may be stale)
+    check('register set on one path only is not an argument',
+          any('call#' in l and 'r4=7' in l and 'r6=' not in l for l in r['lines']), text(r))
+
+    # 14. the carry: `addic rX,rY,-1` then `subfe rZ,rZ,rZ` is (rY != 0) - 1, never a `?r`
+    e.add(0x82001D00, ['bl 0x82009000', 'mr r30,r3', 'addic r9,r3,-1', 'subfe r8,r8,r8', 'stw r8,0(r30)', 'blr'])
+    r = e.get(0x82001D00)
+    t = text(r)
+    check('addic + subfe is (r != 0) - 1', '((ret#0 != 0) - 1)' in t and '?r' not in t, t)
+    # ... and a carry that is not known is marked, with real listing lines
+    e.add(0x82001D80, ['subfe r8,r4,r5', 'stw r8,0(r3)', 'blr'])
+    r = e.get(0x82001D80)
+    check('unknown carry is marked with listing lines', '?carry (not modelled))  (u32)  ?(simplified: see listing :3-:5)' in text(r)
+          and r['summary']['simplified'] == 1, text(r))
+    # a block with no known predecessor says so instead of printing the entry value
+    e.add(0x82001E00, ['b <E>', ('label', 'D'), 'mr r3,r7', 'blr', ('label', 'E'), 'li r3,0', 'blr'])
+    r = e.get(0x82001E00)
+    check('no known predecessor is marked', 'return r3=?r7 (no known predecessor), f1=' in text(r)
+          and '?(simplified: see listing :6-:8)' in text(r)
+          and 'in_r7' not in text(r), text(r))
+
+    # 15. a join input that is ANOTHER register's join value stays that name: the other register's predecessors and
+    # values are not r4's (S110 QDECFIX review: r4@82842B24 listed r29's blocks as if r4 held -1 / 1337 there)
+    fname, lab = e.add(0x82001F00, ['li r29,5', 'cmpwi cr6,r4,0', 'beq cr6,<A>', 'li r29,6', ('label', 'A'),
+                                    'li r4,-1', 'cmpwi cr6,r5,0', 'beq cr6,<B>', 'mr r4,r29', ('label', 'B'),
+                                    'stw r4,0(r3)', 'blr'])
+    r = e.get(0x82001F00)
+    a_, b_ = lab['A'], lab['B']
+    r4line = [l for l in r['lines'] if f'r4@{b_:08X} = one of:' in l]
+    check('cross-register join input keeps its own name',
+          len(r4line) == 1 and f'@{b_ - 4:08X} r29@{a_:08X}' in r4line[0] and ' 5' not in r4line[0]
+          and qdecomp_phi.undefined(r['lines']) == [], text(r))
+
+    # 16. `+N more not shown: see listing :A-:B` covers the blocks of the hidden inputs, not only the direct predecessors
+    items = []
+    for k in range(13):
+        items += [f'cmpwi cr6,r4,{k}', f'li r9,{k + 100}', 'beq cr6,<J>']
+    items += ['li r9,50', ('label', 'J'), 'cmpwi cr6,r5,0', 'beq cr6,<K>', 'li r9,99', ('label', 'K'), 'stw r9,0(r3)', 'blr']
+    e.add(0x82002000, items)
+    r = e.get(0x82002000)
+    t = text(r)
+    # 13 + 2 inputs, 12 shown: the first hidden one is the 13th compare's block @82002090 (a predecessor of @820020A0,
+    # not of the join @820020AC whose direct predecessors start at :84)
+    hidden = int(re.search(r'@82002090  \[listing :(\d+)\]', t).group(1))
+    more = re.search(r'more not shown: see listing :(\d+)-:(\d+)', t)
+    check('"more not shown" range reaches the hidden inputs', more is not None and int(more.group(1)) <= hidden, t)
 
 
 # ------------------------------------------------------------------ planted twins (synthetic)
@@ -286,6 +349,17 @@ def expectation_ok(r, ex):
     for sub in ex.get('text', []):
         if sub not in '\n'.join(r['lines']):
             return f'text {sub!r} missing'
+    for prefix, subs in ex.get('line_has', []):         # one line holding the prefix AND every word
+        if not any(prefix in l and all(x in l for x in subs) for l in r['lines']):
+            return f'no line with {prefix!r} holds all of {subs}'
+    if ex.get('defined'):                               # the general rule: every printed name is defined, none marked away
+        bad = qdecomp_phi.undefined(r['lines'])
+        if bad:
+            return f'printed names with no definition: {bad[:6]}'
+    else:
+        bad = qdecomp_phi.undefined(r['lines'], marked_ok=True)
+        if bad:
+            return f'printed names with no definition and no marker: {bad[:6]}'
     return None
 
 
@@ -315,6 +389,8 @@ def real_fixture():
                 twin['constants'][0] = bad
             elif key == 'float':
                 twin['floats'][0][1] = bad
+            elif key == 'line_has':
+                twin['line_has'][0][1][0] = bad
             if expectation_ok(r, twin) is None:
                 print(f'NOT CAUGHT planted twin in {ex["func"]}: {key}')
                 caught = False

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Session 103 lane PS1 gate check: a job on a `frame_rig.exe --serve` process draws exactly the picture a one-shot run of the same arm draws (0 game runs: fview headless + frame_rig.exe).
+r"""Session 103 lane PS1 check: a job on a `frame_rig.exe --serve` process draws exactly the picture a one-shot run of the same arm draws (0 game runs: fview headless + frame_rig.exe).
 
   py -I tools\scene\serve_equal_check.py [--out DIR] [--plant lights_key|no_reset|no_keep_cpu] [--orders N] [--first-order K]
 
@@ -15,7 +15,7 @@ Planted twins (each exits 0 only when the check FAILS the fault; they run every 
   lights_key    WWE_RDR_PLANT_LIGHTS_KEY_OLD=1: the crowd's light cache keyed on the record's address + guest frame alone (the Q5 cause: the old key; 38 081 pixels differ on `before` after `after`)
   no_reset      WWE_RIG_PLANT_NO_RESET=1: the serve path does not call rf::c::ResetForJob (F1)
   no_keep_cpu   WWE_RIG_PLANT_NO_KEEP_CPU=1: the serve cache does not keep the wrestlers' CPU copies (F2)
-Writes under --out (default: GATE_CHECK_DIR\ps1[_plant], else a per-run <main checkout>\out\ps1[_plant]_<pid>, removed on PASS; run_dirs.py). A state a future change lets one job leave behind for the next shows up here as an unequal picture.
+Writes under --out (default: a per-run <main checkout>\out\ps1[_plant]_<pid>, removed on PASS; run_dirs.py). A state a future change lets one job leave behind for the next shows up here as an unequal picture.
 """
 import argparse, glob, hashlib, io, os, subprocess, sys, contextlib
 

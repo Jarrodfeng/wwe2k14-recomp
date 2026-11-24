@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T11 gate check (offline, 0 game runs): wwe2k14_rdr_crowd_ids_once and wwe2k14_rdr_origin_memo.
+"""S102 lane T11 check (offline, 0 game runs): wwe2k14_rdr_crowd_ids_once and wwe2k14_rdr_origin_memo.
 
   py -I tools\\crowd\\crowd_ids_check.py [--root DIR] [--syntax]
 
@@ -10,8 +10,6 @@ serialised-bytes arms (4), the allocation and speed arms, the 3 crowd planted tw
 crowd_ours.cpp) with the main build's flags (ninja -t commands, out\\build\\win-amd64-release), include paths pointed at this tree's src first.
 A check that cannot read its input fails loudly: a missing test, a missing clang, no result line, all FAIL."""
 import argparse
-import fnmatch
-import json
 import os
 import re
 import subprocess
@@ -34,53 +32,6 @@ def main_checkout(root):
 def fail(msg):
     print('FAIL: ' + msg)
     return 1
-
-
-INC = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.M)
-
-
-def local_includes(root, roots):
-    """Every repo file reached from `roots` by quoted #include."""
-    seen, todo = set(), [os.path.normpath(r) for r in roots]
-    while todo:
-        f = todo.pop()
-        if f in seen or not os.path.isfile(f):
-            continue
-        seen.add(f)
-        for m in INC.findall(open(f, encoding='utf-8', errors='replace').read()):
-            cand = os.path.normpath(os.path.join(os.path.dirname(f), m))
-            if os.path.isfile(cand) and os.path.abspath(cand).startswith(os.path.abspath(root)):
-                todo.append(cand)
-    return sorted(seen)
-
-
-def rel_of(root, f):
-    return os.path.relpath(f, root).replace('\\', '/')
-
-
-def uncovered(root, files, affects):
-    return [rel_of(root, f) for f in files if not any(fnmatch.fnmatch(rel_of(root, f), g) for g in affects)]
-
-
-def run_lint(root):
-    """F6: every file the test's build reads (the test, the sources it links, every header they include) must match this lane's `affects`, or the cache could pass a stale result."""
-    lane = json.load(open(os.path.join(root, 'tools', 'gate', 'lanes', 's102_t11.json'), encoding='utf-8'))
-    aff = lane['checks'][0].get('affects') or []
-    if not aff:
-        return fail('the lane json has no affects for check 1')
-    roots = [os.path.join(root, p) for p in ('tools/crowd/crowd_ids_test.cpp', 'src/renderer_scene/record_io.cpp', 'src/scene_live/crowd_contrib.cpp', 'src/renderer_scene/live_scene.cpp')]
-    files = local_includes(root, roots)
-    missing = uncovered(root, files, aff)
-    if missing:
-        return fail("files the test builds from are not in the lane's affects: " + ', '.join(missing))
-    probe = 'src/renderer_scene/scene_record.h'
-    if probe not in [rel_of(root, f) for f in files]:
-        return fail('lint input changed: %s is no longer reached from the test' % probe)
-    twin = [g for g in aff if not fnmatch.fnmatch(probe, g)]
-    if probe not in uncovered(root, files, twin):
-        return fail('the affects lint did not notice a header missing from affects (twin)')
-    print("PASS: affects lint: the %d files the test builds from are all covered by the lane's affects (the missing-glob twin is caught)" % len(files))
-    return 0
 
 
 def run_test(root):
@@ -111,9 +62,6 @@ def run_test(root):
         return fail('expected >= 26 PASS lines and 11 planted twins caught, got %d and %d (a check that reads nothing proves nothing)' % (passes, twins))
     if len(re.findall(r'^PASS EndFrame with a contributor before and after the crowd', text, re.M)) != 2:
         return fail('the 2 mixed-record (live::EndFrame) arms did not both run')
-    rc = run_lint(root)
-    if rc:
-        return rc
     if len(re.findall(r'^PASS serialised record bytes equal', text, re.M)) != 4:
         return fail('the 4 byte-equality arms did not all run')
     print('PASS: crowd_ids_test: %d checks, %d planted twins caught, exit 0' % (passes, twins))

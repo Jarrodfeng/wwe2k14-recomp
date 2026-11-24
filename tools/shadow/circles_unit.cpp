@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/circle_oracle.h"
+#include "../../src/renderer_scene/rows_circle.h"
 #include "../../src/renderer_scene/live_scene.h"
 
 using namespace rdr_scene;

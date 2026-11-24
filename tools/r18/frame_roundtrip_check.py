@@ -3,12 +3,12 @@
 
   py -I tools\\r18\\frame_roundtrip_check.py [--root DIR] [--only unit|wiring|bryan|scale|combo|brock|match|plants|pastbugs|counts|trace]
 
-Switch wwe2k14_rdr_frame_roundtrip (PerFrame, default off; fview / rplay --frame-roundtrip N). Every arm is fview headless (--validation 1) on a gate capture: the hash of every frame's picture, the validation
+Switch wwe2k14_rdr_frame_roundtrip (PerFrame, default off; fview / rplay --frame-roundtrip N). Every arm is fview headless (--validation 1) on a standard capture: the hash of every frame's picture, the validation
 error count AND the exit code are read (never "the csv exists"). The PLAYER config = the shipped bundle + the LOW levers + half-rate shadows (c3_check.py's BUNDLE / LOW), G11's self blit + restore on in both arms.
 unit      the rules on plain ops (frame_roundtrip_test.cpp): 14 cases; four planted faults (identity_after_write, hidden_as_proof, wrong_depth, no_pair) must each FAIL the test.
 wiring    each link of the switch (table row PerFrame default 0, cvar default 0, binder reads it every frame, census line, fview / rplay flags, the fate name): each removed in a text copy must fail the lint.
 bryan     player config (G11 on) off / on, and off / on with G11 off: pictures byte-equal, validation 0, exit 0; frames taken reported per rule (0 taken = the lever does nothing for players).
-scale     the same at --scale 1.5.      combo   with C3's frame_direct + shadow_direct and G8's alias on in both arms.      brock / match   the other gate captures.
+scale     the same at --scale 1.5.      combo   with C3's frame_direct + shadow_direct and G8's alias on in both arms.      brock / match   the other standard captures.
 plants    twins that must be CAUGHT (a picture differs on most frames, or validation errors, or the replay stops): no_pair (every restore the static rules pass is left out); the others where a capture can show them.
 pastbugs  C3's fd_present_stale (the Present's copy dropped, the Present not re-pointed) and G11's restore_no_depth (the sweep hashes of the frame buffer's colour AND depth) still CAUGHT with the lever on.
 counts    rplay --counts, 100 frames: copies, passes, draws, barriers, pipeline binds: they fall and none rises.

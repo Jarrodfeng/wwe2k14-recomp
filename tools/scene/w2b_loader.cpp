@@ -1,7 +1,7 @@
 // S103 W2B: the loader's piece-node tags on the player's own files (docs\agents\s103\W2.md section 6, W2_ADV.md R1). Reads game files only, writes nothing.
 //   w2b_loader.exe --game DIR WRESTLER:ATTIRE ...   -> per attire: main_bones, extras, per-piece extra counts, canonical-order check, forced names that also exist in the body
 //   w2b_loader.exe --game DIR --expect 166:0=62 278:0=44 322:1=8 ...   -> exit 1 unless each attire's EXTRA count equals the number (the W2.md table: Khali 62, McIntyre 44, Del Rio 8)
-// Build: tools\scene\build_w2b_loader.ps1 (needs the game folder; the gate lane s103_W2B skips it in a worktree: NEEDS-MAIN).
+// Build: tools\scene\build_w2b_loader.ps1 (needs the game folder, so it builds only from the main checkout).
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 

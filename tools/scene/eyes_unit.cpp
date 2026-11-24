@@ -13,13 +13,14 @@
 #include <vector>
 
 #include "../../src/renderer_scene/piece_alpha.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 
 using namespace rdr_scene;
 
 static bool LoadAny(const std::string& arg, long frame, SceneTables& t, std::string& err) {
   std::filesystem::path p = arg;
   std::error_code ec;
-  if (p.is_relative() && !std::filesystem::exists(p, ec))   // a gate row names the record under out\ of the MAIN checkout (records are not in a worktree)
+  if (p.is_relative() && !std::filesystem::exists(p, ec))   // a check row names the record under out\ of the MAIN checkout (records are not in a worktree)
     if (const char* mc = std::getenv("RDR_MAIN_CHECKOUT")) p = std::filesystem::path(mc) / p;
   if (std::filesystem::is_directory(p, ec)) {
     char name[32];
@@ -64,7 +65,7 @@ int main(int argc, char** argv) {
       if (!(o.flags & kObjDrawnByOwner)) continue;
       ++pieces;
       const uint32_t addr = i < t.engine_objects.size() ? t.engine_objects[i] : 0u;
-      const rf::PieceAlphaValue v = rf::PieceModelAlpha(t, i, plant);   // --plant one: the carried value IS the bug (alpha 1); the proof below must FAIL (the gate row expects it)
+      const rf::PieceAlphaValue v = rf::PieceModelAlpha(t, i, plant);   // --plant one: the carried value IS the bug (alpha 1); the proof below must FAIL (the check row expects it)
       const rf::PieceAlphaValue planted = rf::PieceModelAlpha(t, i, true);
       float row_alpha = -1.f;
       bool have = false;

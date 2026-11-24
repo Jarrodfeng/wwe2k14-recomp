@@ -1,4 +1,4 @@
-r"""Lane 123 (S101, SH2) gate driver: our shadow passes (src\renderer_adapter\shadows_ours.h, docs\renderer\SHADOWS_OURS.md). 0 game runs.
+r"""Lane 123 (S101, SH2) driver: our shadow passes (src\renderer_adapter\shadows_ours.h, docs\renderer\SHADOWS_OURS.md). 0 game runs.
 
   py -I tools\shadow\shadows_ours_check.py clean512     fview --shadows-check (this checkout's out\renderer\dev\fview.exe, tools\fview\build.ps1) plays Check B (brock), Bryan and wm30
                                                          with every frame in lockstep: A = the stream, B = our shadow passes at 512. The readers' images (the destinations of the copies out

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane L2d gate check (every frame kind needs an owner: the flat frame kind + the per-scene required-input masks, src/renderer_game/scene_kind.h).
+"""S103 lane L2d check (every frame kind needs an owner: the flat frame kind + the per-scene required-input masks, src/renderer_game/scene_kind.h).
 Builds tools/scene/l2d_unit.cpp (scene_kind.h, the REAL scene_frame.h DecideNow, inputs_core.h RegisterAll / kCawDrop; 0 game runs, no game, no SDK), runs it, then its planted
 twins (each must exit 1 and fail its NAMED check), then the wiring lints (the decision reads the kind's mask; RegisterAll registers the scene masks; the switch is dev only).
   py -I tools/scene/l2d_check.py [--root DIR]

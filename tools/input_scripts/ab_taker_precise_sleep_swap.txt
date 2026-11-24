@@ -1,4 +1,4 @@
-# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)
+# intent: performance fps
 # In-run A/B of wwe2k14_precise_sleep (period 90 frames) on bench_taker_wm.txt; made by make_ab.py
 # Benchmark route: Brock Lesnar vs The Undertaker (CH103) in WrestleMania Moment (BG56): CH103's
 # heavy entrance (Jarrod's run 075; reproduced in run 083: ~20 s at 22-27 fps).

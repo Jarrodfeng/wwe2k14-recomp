@@ -3,7 +3,7 @@ r"""S102 lane L2: the ring-plane shadow bake (src\renderer_adapter\plane_bake.h)
   py -I tools\shadow\plane_bake_check.py [--root DIR] [--jobs 3] [--keep] [--calibrate]
 
 Inputs (the MAIN checkout's out\, read in place; Check B's zip is unpacked into this tree's out\l2 and its plane oracle dumped there):
-  Check B   out\s101\runs\20261111_215201_s100_owner_s89_brock\case_*.zip (341 frames; the only gate input with a live plane mask and its scene records)
+  Check B   out\s101\runs\20261111_215201_s100_owner_s89_brock\case_*.zip (341 frames; the only standard input with a live plane mask and its scene records)
   Bryan     out\lane86\bryan\capture (91 frames; the plane chain is BLANK: the lever must take 0 frames there and say blank). It has no scene records, so its arms use the record-free part of the bundle.
 Every Check B arm is the SHIPPED DEFAULT BUNDLE (wwe2k14_app.h: wrestlers / shadow casters / shadows / rim / circles / rim chain / small passes / plane shadow ours); `half_*` arms add `--shadow-half` (the half rate).
 Arms: off | nochain (every mask draw dropped: where the shadow chain matters) | dropropes / dropwrestler (the game's chain without one of its two proxies) | on (1024) | on2048 | nobake (the composite
@@ -44,7 +44,7 @@ ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 FAILS = 0
 REPORT = {}
 BUNDLE = ['--wrestlers-ours', '--shadow-casters-ours', '--shadows-ours', '--rim-ours', '--circles-ours', '--rim-chain-ours', '--small-passes-ours', '--plane-shadow-ours']
-BUNDLE_BRYAN = ['--shadows-ours', '--rim-chain-ours', '--small-passes-ours', '--plane-shadow-ours']   # (the gate's Bryan capture has no scene records)
+BUNDLE_BRYAN = ['--shadows-ours', '--rim-chain-ours', '--small-passes-ours', '--plane-shadow-ours']   # (the standard Bryan capture has no scene records)
 ROPE, WRESTLER = '0xaaf56230', '0xad424110'   # Check B's proxy objects (the rope proxy is the one with 4 eye points)
 FRAMES = list(range(0, 341, 10))
 WOBBLE = '110,160,8'

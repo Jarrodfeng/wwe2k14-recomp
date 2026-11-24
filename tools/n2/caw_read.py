@@ -1,6 +1,6 @@
 """S101 lane 118 (N2 / L-6): the Python reference reader of the Create a Superstar editor's drawn state. 0 game runs.
 
-read_cstate(frame_path, geom_bytes, opts=None) -> dict   (the SAME fields and rules as src/caw_text.h ReadCawState; the gate compares the two)
+read_cstate(frame_path, geom_bytes, opts=None) -> dict   (the SAME fields and rules as src/caw_text.h ReadCawState; the selftest compares the two)
     guest        guest frame of the file
     has_text     the file holds run strings (names.h section 69, count > 0); False = "no text", never a guess
     seq          the sequence id read from the text draws' widget strings ("screen seq=76 menu=-1"), -1 = none read
@@ -153,7 +153,7 @@ def flash_between(prev, cur):
 
 
 def line(n, s, flash):
-    """The text form src/caw_text.h Line() prints (plus the capture index and the flash), for the gate's frame-by-frame comparison."""
+    """The text form src/caw_text.h Line() prints (plus the capture index and the flash), for the selftest's frame-by-frame comparison."""
     out = '%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.3f\t%d\t%d\t%s' % (
         n, s['guest'], 1 if s['has_text'] else 0, s['seq'], 1 if s['seq76'] else 0, 1 if s['complete'] else 0, s['hot'], s['hot_n'], s['tab'],
         s['hot_r'], s['dots'], len(s['rows']), s['title'])

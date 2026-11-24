@@ -4,7 +4,7 @@
   py -I tools\\scene\\picture_source_check.py --root . [--only c2d_menu,...] [--no-plants]
 
 Inputs (read only, from the MAIN checkout: out\\captures\\c2d_*, game_data\\extracted): a missing input FAILS loudly (exit 2), never a pass. 0 game runs. The unit is built by
-tools\\scene\\build_picture_source_unit.ps1 (a separate gate check)."""
+tools\\scene\\build_picture_source_unit.ps1 (a separate check)."""
 import argparse
 import os
 import subprocess

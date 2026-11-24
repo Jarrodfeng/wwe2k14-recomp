@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=397:0:1,324 --wwe2k14_dlc=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_scene=2
+# S106 C2F: the A7 check's own copy of dlc_pair.txt (the check recipe tools\check\recipes\A7.toml names it). Only the header differs: the participants are
+# 397:0:1,324 (Lashley attire 1 v Bryan) here, so the recipe repeats no switch the route header already sets (lint: a repeated switch, last wins, no log line).
+# Attire 2 = the same with 397:0:2 (log 114). The recipe adds --wwe2k14_mods / --wwe2k14_mods_superstars / --wwe2k14_dlc_dir.
+# Session 32 (DLC, plan item 4): one DLC wrestler in a Quick Match. Entrance START does not skip at some steps: wrestler 1's entrance: step 5 (optional), 5 s,
+# screenshot; START until the match scene loads (M3.PAC); 30 s of match with screenshots at 10 s and 30 s. Untimed. Fast-forward (waits are by file / state).
+on_fail quit
+log pair: start
+include boot_to_menu
+log pair: main menu reached (the launcher fires after its idle frames)
+wait_file INGAMELUA.PAC 1800
+wait_file titantron 2400 optional
+wait_state entrance_step_0 >=5 2400 2 optional
+wait_frames 300
+screenshot dp_entrance
+log pair: START until the match scene loads
+press_until_file START m3.pac 30 300
+log pair: match scene
+wait_frames 600
+screenshot dp_match10
+wait_frames 1200
+screenshot dp_match30
+log pair: 30 s of match
+quit

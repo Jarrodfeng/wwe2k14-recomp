@@ -59,10 +59,12 @@
 #include <string>
 #include <vector>
 
+#include "guest_mem.h"  // Guest, U32, U8 (EXEB-B1: moved out so blood_keep.cpp does not need this header)
 #include "crowd_hype.h"  // called from the owner update hook below
 #include "scene_freeze.h"  // Session 36: the true freeze, around the owner update below
 #include "frame_stats.h"
 #include "launch_participant.h"  // S105 T3: the launch participant token parser (pure)
+#include "build_spec.h"  // S109 ENT: the match builder's spec parser (pure; moved out of this file)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_scenario_observe, false, "wwe2k14",
                     "Log the match-setup calls (mode / match type / arena / participant setters, exhibition "
@@ -83,6 +85,10 @@ namespace wwe2k14::scenario {
 inline void (*g_director_tick)(PPCContext&, uint8_t*) = nullptr;
 // S103 lane WMB: the menu-free 30 Years start's tick (src/wm30_boot.h fills this at start-up; null when that header is not built in). Same call site.
 inline void (*g_wm30_boot_tick)(PPCContext&, uint8_t*) = nullptr;
+// S110 GOTO: the menu page goto's tick (src/menu_goto.h fills this at start-up; null when that header is not built in). Same call site, test / tooling path only.
+inline void (*g_page_tick)(PPCContext&, uint8_t*) = nullptr;
+// S110 SEAT3: the seat bind's tick (src/seat_bind.h fills this at start-up: the select screen's DOWNLOADED pages are bound here, on the game thread). Same call site.
+inline void (*g_seat_tick)(PPCContext&, uint8_t*) = nullptr;
 
 constexpr uint32_t kMatchDescPtr = 0x836F2D88;  // word: M
 constexpr uint32_t kSettings = 0x8376AAF4;      // G (static)
@@ -118,9 +124,6 @@ constexpr uint32_t kGameDataSnapSize = 0x20000;  // first 128 KB of P (P+0x129A8
 constexpr uint32_t kMaxLinesPerHook = 256;
 
 inline bool On() { return REXCVAR_GET(wwe2k14_scenario_observe); }
-inline uint8_t* Guest(uint32_t address) { return REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(address); }
-inline uint32_t U32(uint32_t address) { return rex::memory::load_and_swap<uint32_t>(Guest(address)); }
-inline uint8_t U8(uint32_t address) { return *Guest(address); }
 inline uint64_t Frame() { return g_guest_frame.load(std::memory_order_relaxed); }
 inline uint32_t CallerLr() {
   auto* ts = rex::runtime::ThreadState::Get();
@@ -236,6 +239,10 @@ inline uint64_t g_pending_frame = 0;
 inline bool g_bad_name_logged = false;
 inline std::atomic<bool> g_launcher_applying{false};  // the launcher's own apply call is never captured
 inline std::atomic<bool> g_build_applying{false};  // Session 91: our finalize is running: the apply hooks compare
+// S109 ENT: true only while FireBuild's own finalize call runs with entrances=0; read by REX_HOOK_RAW(sub_822CBD28). thread_local by construction:
+// FireBuild runs on the thread of the per-frame owner update (REX_HOOK_RAW(sub_82C302A0) -> BuildTick -> FireBuild, the main thread) and calls
+// finalize synchronously on it, so the hook sees true only inside that call stack; any other thread reads its own copy, always false.
+inline thread_local bool g_build_no_entrances = false;
 inline std::vector<uint8_t> g_build_m;               // Session 91: M at apply entry during our finalize
 inline void BuildCompare();                          // Session 91: defined with the match builder below
 
@@ -679,6 +686,7 @@ REX_EXTERN(__imp__sub_82C302A0);  // per-frame owner update (the original body)
 REX_EXTERN(sub_822CA740);         // apply M to G and the participant slots
 REX_EXTERN(sub_8283CFF0);         // smart_menu_request_exit(SM, action)
 REX_EXTERN(sub_822CBD28);         // finalize's step after apply: wrestler list in P from the slots (no arguments)
+REX_EXTERN(__imp__sub_822CBD28);  // S109 ENT: its original, called by REX_HOOK_RAW(sub_822CBD28) below
 REX_EXTERN(sub_827D7770);         // finalize's next step: reset of the block at G+472
 REX_EXTERN(sub_822C9748);         // arena setter (M, arena, flag)
 REX_EXTERN(sub_822C89F8);         // participant setter (M, i, id, controller, a5, a6, a7, a8)
@@ -703,7 +711,8 @@ REXCVAR_DEFINE_STRING(wwe2k14_match, "", "wwe2k14",
                       "type=T;p=ID:PAD,ID:PAD,...;arena=A;pace=P;o=K:V,...;title=T0/T1;rumble=ID,ID,... "
                       "(PAD -1 = CPU; o = option-block bytes R+8+K after the defaults; no arena = 300, the type's "
                       "default; seats not given keep the defaults' wrestlers; rumble = the first picks over the "
-                      "type's own CPU roster). Fired by "
+                      "type's own CPU roster). S109 ENT: p=ID:PAD:ATTIRE (ATTIRE N 0-9 or s, empty PAD = CPU; colour "
+                      "sets are launcher only); entrances=0 skips the entrances (src/build_spec.h). Fired by "
                       "--wwe2k14_match_go (or `cvar wwe2k14_match_go N` with a new N) at the idle main menu");
 REXCVAR_DEFINE_INT64(wwe2k14_match_go, 0, "wwe2k14",
                      "Session 91: set to a new non-zero value to build and launch --wwe2k14_match at the next idle main "
@@ -1414,73 +1423,7 @@ inline int64_t g_build_go_seen = 0;
 inline bool g_build_armed = false;
 inline uint64_t g_build_idle = 0, g_build_last_frame = 0;
 
-struct BuildSpec {
-  int64_t type = -1, arena = -1, pace = -1, title0 = -1, title1 = -1;
-  std::vector<std::pair<int64_t, int64_t>> parts;  // (id, pad)
-  std::vector<std::pair<int64_t, int64_t>> opts;   // (k, v): option block byte R+8+k
-  std::vector<int64_t> rumble;
-  std::vector<int64_t> pods;  // Elimination Chamber (types 39 / 40): the pod per seat, 0..5 (-1 = the game's draw)
-};
-
-inline bool ParseBuildSpec(const std::string& spec, BuildSpec& out, std::string& why) {
-  auto num = [](const std::string& s, int64_t& v) {
-    char* end = nullptr;
-    v = std::strtoll(s.c_str(), &end, 0);
-    return !s.empty() && end && *end == 0;
-  };
-  auto split = [](const std::string& s, char c) {
-    std::vector<std::string> v;
-    size_t a = 0;
-    while (a <= s.size()) {
-      size_t b = s.find(c, a);
-      if (b == std::string::npos) b = s.size();
-      if (b > a) v.push_back(s.substr(a, b - a));
-      a = b + 1;
-    }
-    return v;
-  };
-  for (const std::string& kv : split(spec, ';')) {
-    const size_t eq = kv.find('=');
-    if (eq == std::string::npos) return why = "'" + kv + "': KEY=VALUE", false;
-    const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
-    int64_t n = 0, m = 0;
-    if (k == "type" || k == "arena" || k == "pace") {
-      if (!num(v, n)) return why = "'" + kv + "': a number", false;
-      (k == "type" ? out.type : k == "arena" ? out.arena : out.pace) = n;
-    } else if (k == "title") {
-      const auto t = split(v, '/');
-      if (t.size() != 2 || !num(t[0], n) || !num(t[1], m)) return why = "title=T0/T1", false;
-      out.title0 = n, out.title1 = m;
-    } else if (k == "p" || k == "o") {
-      for (const std::string& item : split(v, ',')) {
-        const size_t c = item.find(':');
-        if (c == std::string::npos || !num(item.substr(0, c), n) || !num(item.substr(c + 1), m))
-          return why = "'" + item + "': A:B", false;
-        (k == "p" ? out.parts : out.opts).push_back({n, m});
-      }
-    } else if (k == "rumble" || k == "pods") {
-      for (const std::string& item : split(v, ',')) {
-        if (!num(item, n)) return why = k + ": '" + item + "'", false;
-        (k == "rumble" ? out.rumble : out.pods).push_back(n);
-      }
-    } else {
-      return why = "unknown key '" + k + "'", false;
-    }
-  }
-  if (out.type < 0 || out.type > 118) return why = "type 0..118 is required", false;
-  for (auto& [id, pad] : out.parts)
-    if (id < 0 || id >= 500 || pad < -1 || pad > 3) return why = "participant id 0..499, pad -1..3", false;
-  for (auto& [k, v] : out.opts)
-    if (k < 0 || k > 91 || v < 0 || v > 255) return why = "o: K 0..91, V 0..255", false;
-  if (out.rumble.size() > 40) return why = "rumble: at most 40", false;
-  for (int64_t id : out.rumble)
-    if (id < 0 || id >= 500) return why = "rumble ids 0..499", false;
-  for (int64_t pod : out.pods)
-    if (pod < -1 || pod > 5) return why = "pods -1..5", false;
-  if (out.pods.size() > 6) return why = "pods: at most 6", false;
-  if (out.pace > 2) return why = "pace 0..2", false;
-  return true;
-}
+// BuildSpec / ParseBuildSpec: src/build_spec.h (S109 ENT: pure, driven by tools/scene/launch_participant_unit.cpp).
 
 inline void FireBuild(PPCContext& ctx, uint8_t* base, uint32_t sm) {
   const std::string spec_text = REXCVAR_GET(wwe2k14_match);
@@ -1572,8 +1515,20 @@ inline void FireBuild(PPCContext& ctx, uint8_t* base, uint32_t sm) {
     call(sub_829230E0, {s, i, 1});
     call(sub_82925148, {s, i, uint64_t(id)});
     call(sub_829278C8, {s, i});
+    // S109 ENT (docs\research\s109\ENT_plan.md section 3): an explicit attire into the select screen's seat record R + 156 (i + 1), AFTER
+    // sub_829278C8 (its sub_82925D28 resets +20 and reruns the pick defaults sub_82923DF8). Finalize, the record's only reader, then calls
+    // sub_822C89F8 with a5 = [+20] (0x82926728-0x82926744), skips the alternate key for [+28] == 512 (0x82926748) and calls sub_822C6808 with
+    // [+24] = -1 (0x82926804-0x8292680C): the launcher's calls for ID:PAD:N.
+    const SeatAttire att = i < spec.attire.size() ? spec.attire[i] : SeatAttire{};
+    if (att.write) {
+      const uint32_t rec = r + 156 * (i + 1);
+      put32(rec + 20, uint32_t(att.attire));
+      put32(rec + 24, 0xFFFFFFFFu);
+      put32(rec + 28, 512);
+    }
     if (pad >= 0 && first_pad < 0) first_pad = pad;
-    done += fmt::format(", seat {} = {}{}", i, id, pad < 0 ? " CPU" : fmt::format(" pad {}", pad));
+    done += fmt::format(", seat {} = {}{}{}", i, id, pad < 0 ? " CPU" : fmt::format(" pad {}", pad),
+                        att.write ? fmt::format(" attire {}", att.attire) : std::string());
   }
   // 5b. Elimination Chamber pods through the game's own setter (finalize turns -1 into 6 = apply's random pod).
   for (uint32_t i = 0; i < spec.pods.size(); ++i) call(sub_82922900, {s, i, uint64_t(spec.pods[i])});
@@ -1583,8 +1538,13 @@ inline void FireBuild(PPCContext& ctx, uint8_t* base, uint32_t sm) {
   call(sub_82922568, {s, uint64_t(int64_t(int8_t(U8(r + 28))))});
   g_build_m.clear();
   g_build_applying = true;
+  // S109 ENT: entrances=0 -> finalize's own team-table build (bl 0x822cbd28 at 0x82927154) returns at once (REX_HOOK_RAW(sub_822CBD28) below);
+  // set on this thread only around this one synchronous call
+  g_build_no_entrances = !spec.entrances;
   call(sub_829263B0, {s});
+  g_build_no_entrances = false;
   g_build_applying = false;
+  if (!spec.entrances) done += ", entrances skipped (entrances=0)";
   if (REXCVAR_GET(wwe2k14_match_dry)) {
     REXLOG_INFO("[wwe2k14][build] built (dry, not launched): {}; arena {} pace {}; M type {} arena {} frame={}", done,
                 int32_t(U32(r + 100)), int32_t(U32(r + 140)), int32_t(U32(m + 8)), int32_t(U32(m + 532)), Frame());
@@ -1780,6 +1740,19 @@ inline void SnapshotTick() {
 
 }  // namespace wwe2k14::scenario
 
+// S109 ENT: the team-table build (sub_822CBD28, no arguments; its r3 is unused at every call site read: finalize 0x82927158, FireLaunch). HARNESS
+// ONLY: g_build_no_entrances is true only inside FireBuild's own finalize call for a spec with entrances=0 (thread_local, set on the owner update's
+// thread around that one call), so every other call - a player's menus -> finalize, the launcher's own call, the game's other callers - takes the
+// one branch and runs the original with the same registers. Skipped, the table stays as apply left it (empty: sub_822CA740 -> sub_827F60D0) and the
+// in-game sequence plays no entrances, the same state --wwe2k14_launch_skip_entrances leaves (docs\research\s109\ENT_plan.md sections 1-3).
+REX_HOOK_RAW(sub_822CBD28) {
+  if (wwe2k14::scenario::g_build_no_entrances) {
+    REXLOG_INFO("[wwe2k14][build] team table not built (entrances=0): no entrances frame={}", wwe2k14::scenario::Frame());
+    return;
+  }
+  __imp__sub_822CBD28(ctx, base);
+}
+
 // Override of the per-frame owner update (weak alias of __imp__sub_82C302A0): the snapshot trigger and the
 // launcher's tick, then the original body with its entry registers. With both settings empty this is two string
 // reads (the trigger one every 30 frames) and a call.
@@ -1789,6 +1762,8 @@ REX_HOOK_RAW(sub_82C302A0) {
   wwe2k14::scenario::LaunchTick(ctx, base);
   wwe2k14::scenario::BuildTick(ctx, base);  // Session 91: the match builder (--wwe2k14_match / _go)
   if (wwe2k14::scenario::g_director_tick) wwe2k14::scenario::g_director_tick(ctx, base);  // S101 lane 32: the scene director (!scene)
+  if (wwe2k14::scenario::g_page_tick) wwe2k14::scenario::g_page_tick(ctx, base);  // S110 GOTO: !page (a flow record opened through the game's own mailbox)
+  if (wwe2k14::scenario::g_seat_tick) wwe2k14::scenario::g_seat_tick(ctx, base);  // S110 SEAT3: the seat bind (src/seat_bind.h)
   wwe2k14::events::Tick(wwe2k14::scenario::Frame());  // Session 91 step 7: the event bus (--wwe2k14_events)
   wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);

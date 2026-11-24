@@ -83,6 +83,16 @@ def twin_switch():
     check('switch twin: planted wrong constant (3, 6) is NOT reported', (3, 6) not in b0['consts'])
 
 
+def twin_strip_flags():
+    rest = qgx.qfield_args(['0x10', '--stores', '--var-span', '4096', '--all-copies', '--writes', '--global', '0x83930050'])
+    check('strip twin: --var-span N and --all-copies reach qstores, not qfield', rest == ['0x10', '--writes', '--global', '0x83930050'], str(rest))
+    rest = qgx.qfield_args(['0x10', '--stores', '--var-span=64'])
+    check('strip twin: --var-span=N form and the default --writes', rest == ['0x10', '--writes'], str(rest))
+    h = qstores.none_hint('0x836F38D0', 0x836F38D0)
+    check('stores twin: an empty --global answer says what --global means and the right spelling', 'pointer stored at' in h and 'field 0x836F38D0 --stores' in h, h)
+    check('stores twin: no hint without --global', qstores.none_hint(None, 0x10) == '')
+
+
 def twin_stores():
     rows, calls = [], []
     SELF = 0x82000000
@@ -275,7 +285,7 @@ def real_includes():
 
 
 def main():
-    for f in (twin_text, twin_csdt, twin_switch, twin_switch_bias, twin_switch_body, twin_stores, twin_includes, real_text, real_csdt, real_switch, real_stores, real_includes):
+    for f in (twin_text, twin_csdt, twin_switch, twin_switch_bias, twin_switch_body, twin_strip_flags, twin_stores, twin_includes, real_text, real_csdt, real_switch, real_stores, real_includes):
         f()
     print('FAIL: %s' % ', '.join(FAILS) if FAILS else 'all ok')
     return 1 if FAILS else 0

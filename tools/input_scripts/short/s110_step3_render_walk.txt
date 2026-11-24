@@ -1,0 +1,71 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\step3check\lib1 --wwe2k14_seat_pool_cap=2 --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 step 3 check Q1 (route lane): library lib1 (residents Adam Test 397 / Ned Test 398, guests Brock / Zed / Quinn / Kara Test, each with
+# render pictures in his card), pages of two. DOWNLOADED tab: walk page 1 (a shot per row), RB, walk page 2 (a shot per row), LB, walk page 1 again.
+# Question: does each guest show HIS OWN render (big figure + list portrait), and after RB does the new occupant of a seat show his picture?
+log step3: start q1_walk
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+press A
+wait_frames 60
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+press LEFT
+wait_frames 40
+press LEFT
+wait_frames 40
+press A
+wait_frames 120
+log step3: tab open
+log_text 12
+screenshot q1_tab
+wait_frames 20
+log step3: walk page1
+screenshot_every 40 p1
+repeat 25
+press DOWN
+wait_frames 40
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: press RB
+press RB
+wait_frames 120
+log_text 8
+screenshot q1_rb
+wait_frames 20
+log step3: walk page2
+screenshot_every 40 p2
+repeat 25
+press DOWN
+wait_frames 40
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: press LB
+press LB
+wait_frames 120
+log_text 8
+screenshot q1_lb
+wait_frames 20
+log step3: walk page1_again
+screenshot_every 40 p3
+repeat 25
+press DOWN
+wait_frames 40
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: done
+quit

@@ -335,6 +335,14 @@ def hidden(con, off, root, func, var_span, copy_max):
     return out
 
 
+def none_hint(glob, off):
+    """--global G with OFF = the offset OFF from the POINTER STORED AT the global word G (root g:G). A global TABLE's own address is the OFF itself, with no --global."""
+    if not glob:
+        return ''
+    return ('  hint: --global G means "+OFF from the pointer stored at the word G". To list the writers of a global table / word at an absolute address, '
+            'pass the address as OFF and drop --global: q field 0x%08X --stores' % (int(glob, 0)))
+
+
 def run(a, con_q):
     gen, image, _ = bf.default_paths(a.root, a.gen)
     con = open_db(gen, image)
@@ -361,6 +369,8 @@ def run(a, con_q):
         off, (' root ' + root) if root else '', off))
     if not idx and not cpy:
         print('  none')
+        if a.glob:
+            print(none_hint(a.glob, off))
     last = None
     for f, ad, mn, w, rt, of, var, via in idx[:a.limit]:
         if f != last:

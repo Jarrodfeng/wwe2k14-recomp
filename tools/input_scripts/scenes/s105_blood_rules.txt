@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the MATCH RULES pages' rows have no mapped states; LB / RB page presses must be 12+ frames apart, menus.md Session 67)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): where the BLOOD setting is. READING ROUTE for a later route that turns it on: OPTIONS (menu 4) -> MATCH RULES (item 1, menu 19) ->
 # ONE ON ONE (item 0, menu 30) -> NORMAL (item 0, screen code 1001 = rules:0, screen_mode 6), then a shot + the screen text on each of its pages (RB twice: pages 1-3, menus.md "Pages (MATCH

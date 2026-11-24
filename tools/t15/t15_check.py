@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T15 gate check (offline, 0 game runs, 0 Surface runs): the reader's per-draw slot / sampler / geometry-hash memos (src\\renderer_adapter\\slot_geo_memo.h).
+"""S102 lane T15 check (offline, 0 game runs, 0 Surface runs): the reader's per-draw slot / sampler / geometry-hash memos (src\\renderer_adapter\\slot_geo_memo.h).
 
   py -I tools\\t15\\t15_check.py [--root DIR] [--part test|wiring|all]
 

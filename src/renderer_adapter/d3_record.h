@@ -29,6 +29,12 @@
 #include "../renderer_scene/light_state_rows.h"
 #include "../renderer_scene/plane_shadow_core.h"
 #include "../renderer_scene/record_io.h"
+#include "../renderer_scene/rows_arena_world.h"   // S106 G4-2
+#include "../renderer_scene/rows_caster.h"
+#include "../renderer_scene/rows_lights.h"
+#include "../renderer_scene/rows_plane.h"
+#include "../renderer_scene/rows_ring.h"
+#include "../renderer_scene/rows_sphere.h"
 
 namespace rdr_adapter::d3 {
 

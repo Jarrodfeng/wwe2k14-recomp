@@ -1,4 +1,4 @@
-r"""Gate check for the constant solver (lane 16). Needs the six Check A case zips and the atlas (main checkout out\).
+r"""Check for the constant solver (lane 16). Needs the six Check A case zips and the atlas (main checkout out\).
   1. baseline run over all zips: exits 0, prints one scene row per zip and one effect table; known classes hold (expect.json).
   2. positive controls are the same run: S98's value-matched FILE constants, and a constant S98 left as "RUNTIME, unconfirmed".
   3. planted fault A: one FILE comparison perturbed in one draw -> that (effect, constant) must come out RUNTIME (solve.py exits 0 only then).
@@ -18,7 +18,7 @@ import solve  # noqa: E402
 
 
 # The corpus is PINNED to Check A's zips (out\s101\runs\20261111_17*, KEEP files): every later check adds zips to out\s101\runs, and the default glob
-# (every case zip) made this selftest grow past the gate's 900 s timeout (S101 full gate after Check D).
+# (every case zip) made this selftest grow past a 900 s timeout (S101 full run after Check D).
 PINNED = str(solve.MAIN / 'out' / 's101' / 'runs' / '20261111_17*' / 'case_*.zip')
 
 

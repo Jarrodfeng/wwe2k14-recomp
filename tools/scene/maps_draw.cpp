@@ -24,6 +24,9 @@
 #include "../../src/renderer_scene/live_maps.h"
 #include "../../src/renderer_scene/props_map_rows.h"   // S103 PMS: --props-debug
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_circle.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_plane.h"
 #include "../../src/scene_live/plane_eye_read.h"   // S103 E5
 #include "e5_fake_memory.h"                           // S103 E5
 

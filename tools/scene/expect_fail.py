@@ -1,4 +1,4 @@
-r"""Gate helper (S103 IXF): runs a command and PASSES only when it exits non-zero (a planted twin: the check must catch the plant).
+r"""Helper (S103 IXF): runs a command and PASSES only when it exits non-zero (a planted twin: the check must catch the plant).
   py -I tools\scene\expect_fail.py CMD [ARGS...]
 """
 import os

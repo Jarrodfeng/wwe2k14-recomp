@@ -1,4 +1,4 @@
-# harness: realtime (Session 19 item 9: latency, frame times matter)
+# intent: performance latency ms
 # Session 19 item 9, MAPPING run: launch (--wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true), then
 # in the match press START 10 times (pause / unpause), with a screenshot every frame from 4 frames before each press
 # to 24 after it. tools\perf\latency.py RUN finds the first capture showing the response and how many guest output

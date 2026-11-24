@@ -26,7 +26,8 @@
 //
 // The tron sheet (Session 18 item 1; --wwe2k14_tron_sheet, default on inside the mods feature): when the original tron
 // is a 320x320 sheet (header of GAME:\movies\titantron\NNN.bik2), the texture keeps the sheet's layout instead of the
-// video filling all of it: rows 0-223 (x k) = the big screen, then four 24-row (x k) strips that feed the banner ring
+// video filling all of it: rows 0-223 = the big screen, then four 24-row strips that feed the banner ring (the texture is the
+// stock 320x320, src\tron_sheet_core.h TronTextureSize)
 // (layout measured on 6 trons: docs\systems\video_tron.md "The tron sheet"). The video goes on the big screen; the
 // strips come from titantron\NNN.banner.txt (one word: original | video | none, or a file name in titantron\), else
 // NNN.banner.mp4 / .mov / .mkv when present, else "original":
@@ -89,6 +90,8 @@
 #include "guest_read.h"
 #include "input_script.h"
 #include "mods.h"
+#include "tron_sheet_core.h"  // S110 TRONSHEET: the sheet constants + TronTextureSize
+#include "tron_slots_core.h"  // S110 TRONSLOT: IsSlotId
 
 REXCVAR_DEFINE_STRING(wwe2k14_tron_max_size, "1280x720", "wwe2k14",
                       "Tron shim (MP4 trons): largest texture; bigger videos are scaled down to fit, keeping their "
@@ -340,8 +343,12 @@ inline uint32_t GuestCall(void (*fn)(PPCContext&, uint8_t*), uint8_t* base, uint
 }
 
 // The tron sheet (header comment): a 320x320 original is a sheet of the big screen (rows 0-223) and four 24-row
-// strips. Sizes scale with k = texture height / 320.
-inline constexpr uint32_t kSheetSize = 320, kSheetBigRows = 224, kSheetStripRows = 24, kSheetStrips = 4;
+// strips. Our sheet texture is the stock 320x320 (k = 1 since S110 TRONSHEET: the stage-screen store accepts only that size).
+// The constants and the texture-size rule live in src\tron_sheet_core.h (the stage-screen store reads the same size).
+using tron_sheet::kSheetBigRows;
+using tron_sheet::kSheetSize;
+using tron_sheet::kSheetStripRows;
+using tron_sheet::kSheetStrips;
 
 enum class Banner { kOriginal, kVideo, kNone, kFile };
 inline const char* BannerName(Banner b) {
@@ -412,7 +419,8 @@ inline Banner ReadBanner(int id, std::filesystem::path& file) {
       return Banner::kFile;
     }
   }
-  return Banner::kOriginal;
+  // S110 TRONSLOT: a custom slot has no original strips to take (key 807 is off for these numbers): no banner unless the player gave one
+  return tron_slots_core::IsSlotId(id) ? Banner::kNone : Banner::kOriginal;
 }
 
 // Session 27.5: the shim's clock. In replay mode (det_frames) the guest's virtual time, i.e. game time at any step
@@ -482,20 +490,7 @@ inline void ParseMaxSize(uint32_t& mw, uint32_t& mh) {
     mw = std::min(a, 4096u), mh = std::min(b, 4096u);
 }
 
-// Texture width rule (empirical, Session 17 runs 1311-1321): the plane textures are linear L8 with rows padded to
-// 256 bytes, and their fetch constants match the lock exactly (--wwe2k14_tron_shim_log probe, run 1319: e.g. 1296
-// wide -> pitch 1536). Still, only widths whose Y and chroma row pitches are both powers of two show correctly:
-//   1024 (pitch 1024 / 512) clean (run 1316); 1280 (1280 / 768) colour off by up to 128 chroma texels (1311);
-//   1296 (1536 / 768) scrambled with stale rows (1313, also with the 1440p preset and the Session 6 GPU defaults off:
-//   1315, 1320); 1536 (1536 / 768) colour off (1321). Bink's own sizes fit the rule: 320 -> 512 / 256, 880 ->
-//   1024 / 512. Where it breaks (ReXGlue's linear-texture upload or the game's sampling) is unconfirmed. So the width
-// is a power of two (512, 1024 or 2048, never above the maximum size; the tron screen stretches the picture to its
-// own shape anyway); the height is free (multiple of 8).
-inline uint32_t SafeWidth(uint32_t want, uint32_t max_w) {
-  uint32_t w = 512;
-  while (w * 2 <= max_w && w < want) w *= 2;
-  return w;
-}
+// (The texture width rule, SafeWidth, moved to src\tron_sheet_core.h with its evidence: Bink's own 320 -> pitch 512 / 256 fits it.)
 
 // The original tron's strips: a private handle on the original file through the game's own Bink, opened with the
 // pre-open settings the movie module set for this open (BinkOpen consumes them), and our own planes.
@@ -617,16 +612,16 @@ inline uint32_t TryOpen(uint8_t* base, uint32_t name_ptr, uint32_t flags) {
     REXLOG_INFO("[wwe2k14][tron_shim] titantron {}: stacked alpha {} ({}x{} picture); the original {} alpha{}", id,
                 file.filename().string(), m->video.w, vis_h, m->alpha ? "has" : "has no",
                 m->alpha ? ": A plane delivered" : ": alpha half ignored, opaque");
-  const double scale = std::min({1.0, double(mw) / m->video.w, double(mh) / vis_h});
-  m->tw = SafeWidth(uint32_t(m->video.w * scale + 0.5), mw);
-  if (REXCVAR_GET(wwe2k14_tron_shim_width) >= 16) m->tw = uint32_t(REXCVAR_GET(wwe2k14_tron_shim_width)) & ~7u;
-  m->th = std::max(8u, (uint32_t(vis_h * scale + 0.5) + 7) & ~7u);
-  m->sheet = REXCVAR_GET(wwe2k14_tron_sheet) && orig_hd.ok && orig_hd.w == kSheetSize && orig_hd.h == kSheetSize;
+  // S110 TRONSLOT: a custom slot number has NO original file; the band's bitmaps read as a sheet tron (TRONSLOT.md part 2), so it is one
+  m->sheet = REXCVAR_GET(wwe2k14_tron_sheet) &&
+             ((orig_hd.ok && orig_hd.w == kSheetSize && orig_hd.h == kSheetSize) || tron_slots_core::IsSlotId(id));
+  // S110 TRONSHEET: one size rule (src\tron_sheet_core.h): a sheet is the stock 320x320 (the store's expected size), k = 1.
+  const tron_sheet::TronTex tex = tron_sheet::TronTextureSize(m->video.w, vis_h, m->sheet, mw, mh,
+                                                              REXCVAR_GET(wwe2k14_tron_shim_width));
+  m->tw = tex.w, m->th = tex.h;
   if (m->sheet) {
-    // k = how many sheet rows per original row: the big screen gets about the video's (scaled) height.
-    const uint32_t k = std::clamp<uint32_t>((uint32_t(vis_h * scale + 0.5) + kSheetBigRows / 2) / kSheetBigRows,
-                                            1, std::max(1u, mh / kSheetSize));
-    m->th = kSheetSize * k, m->big_rows = kSheetBigRows * k, m->strip_rows = kSheetStripRows * k;
+    const uint32_t k = tex.k;
+    m->big_rows = kSheetBigRows * k, m->strip_rows = kSheetStripRows * k;
     std::filesystem::path banner_file;
     m->banner = ReadBanner(id, banner_file);
     if (m->banner == Banner::kOriginal) {

@@ -54,3 +54,6 @@ struct wwe2k14_trace_guard {
 #else
 #error "coverage_prologue.h: the coverage preset is clang only"
 #endif
+
+#include "icall_observe.h"  // S110 OBSERVE: REX_CALL_INDIRECT_FUNC override (guest half)
+#include "store_watch.h"    // S110 FEEDREC: the 9 store-macro overrides (guest half)

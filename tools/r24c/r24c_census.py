@@ -4,7 +4,7 @@
   py -I tools\\r24c\\r24c_census.py [--root DIR] [--captures bryan,brock,match] [--out DIR]
 
 fview headless with --depth-census on each capture under the whole bundle the players run (and the LOW combination), then one table: per depth image, size, whether the
-stream ever stencil-tests (with a real effect), writes or clears-to-nonzero it, and the pass classes that used it. Exit 0 always (it is a report); r24c_check.py is the gate."""
+stream ever stencil-tests (with a real effect), writes or clears-to-nonzero it, and the pass classes that used it. Exit 0 always (it is a report); r24c_check.py is the check."""
 import argparse
 import os
 import re

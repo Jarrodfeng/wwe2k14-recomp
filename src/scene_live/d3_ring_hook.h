@@ -29,6 +29,7 @@
 #include <rex/ppc/context.h>
 
 #include "../frame_stats.h"  // wwe2k14::g_guest_frame
+#include "../renderer_scene/rows_ring.h"   // S106 G4-2
 #include "../guest_read.h"   // GuestWordReadableFast
 #include "../renderer_adapter/d3_guest_core.h"
 #include "d3_arena_hook.h"   // Ld32, t_open, g_state_probe, g_entry (the arena's open call: the ring's call is open in the same slot, so a nested model call is never decided)

@@ -50,6 +50,7 @@
 
 #include "../thread_name.h"  // S102 H1
 #include "launcher_core.h"
+#include "../tron_slots_ui_core.h"  // S110 TRON-B: the custom-tron screens' decisions
 #include "tab_strip.h"
 #include "bench_button.h"  // S102 U4: the benchmark button's numbers and results writer
 
@@ -92,12 +93,15 @@
 #include "wm30_list.h"  // Session 34: the 30 Years of WrestleMania matches from the player's game files
 #include "../diag_plan.h"  // Session 95: the diagnostic run (shared with the phone launcher)
 #include "../diag_logcut.h"  // Session 95 (diag4): the game log cut for the zip (shared)
+#include "report_redact.h"  // S108 MOB: Redact, shared with the phone launcher
+#include "cpu_report.h"  // S108 MOB: the CPU feature lines of about.txt
 #include "report_findings.h"  // S105 C0b: findings.txt in the report zip (the C++ port of tools\report\triage.py; shared with the phone launcher)
 #include "../gfx_applied.h"  // S102 S0-1: SuggestIntegrated (shared with the Surface bench's profile generator)
 #include "../vk_devices.h"  // Session 37: integrated graphics? interlock? (the renderer and FSR choices)
 #include "../tron_zip.h"  // Session 98: EXPORT FOR PHONE (the tron previews as one zip for the phone launcher)
 #include "../audio_import/audio_import.h"  // lane 283: song import (decode, loudness-normalise, cover art)
 #include "../importer/importer_core.h"  // Session 98: the SUPERSTARS tab's table (LoadPack / SavePack)
+#include "../importer/screen_text.h"  // S110 SEAT-C: the count line, "not seated", the old pack's conversion line
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -3025,35 +3029,9 @@ class App {
   static std::string Redact(std::string t) {
     wchar_t buf[MAX_PATH];
     const DWORD n = GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH);
-    if (!n || n >= MAX_PATH) return t;
-    std::string prof = Narrow(buf);
-    for (const std::string& needle : {prof, Lower(prof), [&] {  // also with forward slashes
-           std::string x = prof;
-           std::replace(x.begin(), x.end(), '\\', '/');
-           return x;
-         }()}) {
-      if (needle.size() < 4) continue;
-      for (size_t at = 0; (at = t.find(needle, at)) != std::string::npos;) t.replace(at, needle.size(), "%USERPROFILE%");
-    }
-    // The user name as a whole word anywhere (case-insensitive), e.g. in a folder named after the user (Session 25
-    // release check: "C--Users-NAME-..." in a temp folder name). Bounded by non-alphanumerics so a short name doesn't
-    // eat parts of ordinary words.
-    const size_t slash = prof.find_last_of('\\');
-    const std::string user = Lower(slash == std::string::npos ? prof : prof.substr(slash + 1));
-    if (user.size() >= 3) {
-      const std::string low = Lower(t);
-      std::string out;
-      size_t from = 0;
-      auto word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; };
-      for (size_t at = low.find(user); at != std::string::npos; at = low.find(user, at + 1)) {
-        const bool left = at == 0 || !word(low[at - 1]), right = at + user.size() >= low.size() || !word(low[at + user.size()]);
-        if (!left || !right || at < from) continue;
-        out.append(t, from, at - from).append("USER");
-        from = at + user.size();
-      }
-      t = out.append(t, from, std::string::npos);
-    }
-    return t;
+    // S108 MOB: the rules are in report_redact.h (shared with the phone launcher): the profile and user-name passes are this function's old body verbatim,
+    // plus another user's profile, a UNC path and an email-shaped string. (No USERPROFILE: only those three.)
+    return report_redact::Redact(std::move(t), report_redact::PcRules(n && n < MAX_PATH ? Narrow(buf) : std::string()));
   }
 
   static fs::path Newest(const fs::path& dir, const std::string& prefix, const std::string& ext) {
@@ -3120,6 +3098,14 @@ class App {
     }
     t += "CPU threads: " + std::to_string(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)) + ", cores: " +
          std::to_string(cores) + "\n";
+    {  // S108 MOB: the CPU's vendor and the instruction-set features the game's two builds care about (cpu_report.h)
+      int r[4] = {};
+      __cpuid(r, 0);
+      char vendor[13] = {};
+      std::memcpy(vendor, &r[1], 4), std::memcpy(vendor + 4, &r[3], 4), std::memcpy(vendor + 8, &r[2], 4);
+      __cpuid(r, 1);
+      t += CpuFeaturesText(vendor, (unsigned(r[2]) & (1u << 19)) != 0, ReadCpuBits());
+    }
     return t;
   }
 
@@ -4244,6 +4230,10 @@ class App {
   // It gets the launcher's settings file: its footer switch IS USE MY SUPERSTARS (the "superstars" key, the only on / off). Only when
   // this launcher saves its settings (a test run with no saving never hands its file over: CLAUDE.md Safety). `more` = --importer-edit
   // SLOT / --importer-bulk.
+  // S110 SEAT-C review: --importer-edit names his library KEY (one with no seat has no slot); an old pack's entry (no key yet) its slot
+  static std::string EditArgs(const importer::Superstar& x) {
+    return !x.key.empty() ? "--importer-edit " + x.key : x.slot >= 0 ? "--importer-edit " + std::to_string(x.slot) : std::string();
+  }
   void LaunchImporter(const std::string& more = "") {
     const fs::path exe = paths_.launcher_dir / "wwe2k14_assets.exe";
     const std::string game = s.game_data_dir.empty() ? PathStr(paths_.game_data) : s.game_data_dir;
@@ -4416,12 +4406,13 @@ class App {
                           ImVec2(0, std::max(120 * dpi, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() * 1.3f)))) {
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, thumb);
-      ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+      ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 0.9f);
       ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.4f);
       ImGui::TableSetupColumn("Based on", ImGuiTableColumnFlags_WidthStretch, 2.0f);
       ImGui::TableHeadersRow();
-      for (int i = 0; i < int(stars_.stars.size()); ++i) {
-        const importer::Superstar& x = stars_.stars[size_t(i)];
+      for (const size_t oi : importer::screen::DisplayOrder(stars_.stars)) {  // (S110 SEAT-C: seated first, in seat order; then not seated, by name)
+        const int i = int(oi);
+        const importer::Superstar& x = stars_.stars[oi];
         ImGui::TableNextRow(0, thumb);
         ImGui::TableNextColumn();
         const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -4429,10 +4420,10 @@ class App {
           DrawPicture(ImGui::GetWindowDrawList(), stars_tex_[size_t(i)], x.render_w[2], x.render_h[2], p, ImVec2(p.x + thumb, p.y + thumb));
         else Checker(ImGui::GetWindowDrawList(), p, ImVec2(p.x + thumb, p.y + thumb), 6 * dpi);
         ImGui::TableNextColumn();
-        if (ImGui::Selectable((std::to_string(x.slot) + "##star" + std::to_string(i)).c_str(), stars_sel_ == i,
+        if (ImGui::Selectable(((x.slot >= 0 ? std::to_string(x.slot) : std::string("NOT SEATED")) + "##star" + std::to_string(i)).c_str(), stars_sel_ == i,
                               ImGuiSelectableFlags_SpanAllColumns, ImVec2(0, thumb)))
           stars_sel_ = i;
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) LaunchImporter("--importer-edit " + std::to_string(x.slot));
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) LaunchImporter(EditArgs(x));
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(x.name.c_str());
         ImGui::TableNextColumn();
@@ -4464,7 +4455,13 @@ class App {
     if (stars_sel_ >= 0 && stars_sel_ < int(stars_.stars.size())) {
       const importer::Superstar x = stars_.stars[size_t(stars_sel_)];
       Heading(Upper(x.name).c_str(), 1.25f);
-      ImGui::Text("Slot %d (Downloadable Content)", x.slot);
+      if (x.slot >= 0) ImGui::Text("Slot %d (Downloadable Content)", x.slot);
+      else {
+        ImGui::Text("Not seated");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", importer::screen::NotSeatedWhy(importer::screen::SeatedCount(stars_.stars), stars_seats_).c_str());
+        ImGui::PopStyleColor();
+      }
       ImGui::TextDisabled("Short name: %s", x.short_name.c_str());
       ImGui::Separator();
       ImGui::Text("Based on: %s", CharName(x.base_id).c_str());
@@ -4478,17 +4475,17 @@ class App {
         ImGui::Dummy(ImVec2(sz, sz));
       }
       ImGui::Spacing();
-      if (ImGui::Button("Edit in the importer", ImVec2(-1, 0))) LaunchImporter("--importer-edit " + std::to_string(x.slot));
+      if (ImGui::Button("Edit in the importer", ImVec2(-1, 0))) LaunchImporter(EditArgs(x));
       if (ImGui::Button("Remove from the pack...", ImVec2(-1, 0))) ImGui::OpenPopup("remove_star");
       if (ImGui::BeginPopupModal("remove_star", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Remove %s from the pack?", x.name.c_str());
-        ImGui::TextDisabled("His files stay in the mods folder. Build the pack again (the importer's BUILD INTO GAME) to take him out of the game.");
+        ImGui::TextDisabled("This deletes the superstar's library folder (the model made for the game and the menu pictures). The source file you imported stays in the mods folder.");
         if (ImGui::Button("Remove")) {
           importer::PackState st;
           std::string err;
-          // (importer review: by slot, read fresh - the importer may have changed the list since this table was drawn)
+          // (importer review: by slot, read fresh - the importer may have changed the list since this table was drawn; S110 SEAT-C: by his key, a character with no seat has no slot)
           const bool read = importer::LoadPack(PathStr(paths_.mods), st, err);
-          const auto it = std::find_if(st.stars.begin(), st.stars.end(), [&](const importer::Superstar& y) { return y.slot == x.slot; });
+          const auto it = std::find_if(st.stars.begin(), st.stars.end(), [&](const importer::Superstar& y) { return !x.key.empty() ? y.key == x.key : x.slot >= 0 && y.slot == x.slot; });
           if (read && it != st.stars.end()) {
             st.stars.erase(it);
             st.needs_build = true;
@@ -4522,10 +4519,13 @@ class App {
     const ImVec4 warn(1, 0.8f, 0.35f, 1);
     if (!stars_.stars.empty() && !s.superstars) ImGui::TextColored(warn, "USE MY SUPERSTARS is off: switch it on (top right) to put them in the game.");
     else if (!stars_.stars.empty() && stars_fit_.build) ImGui::TextColored(warn, "%s PLAY builds them into the game first (a few seconds).", stars_fit_.why.c_str());
-    else if (!stars_.stars.empty() && !stars_last_.empty()) ImGui::TextColored(warn, "%s Send a report if it happens again.", stars_last_.c_str());
+    else if (!stars_.stars.empty() && !stars_last_.empty()) ImGui::TextColored(warn, "%s", stars_last_.c_str());  // (S110 SEAT-C: the sentence says what to do)
     else if (!stars_fit_.why.empty()) ImGui::TextColored(warn, "%s%s", stars_fit_.why.c_str(), stars_fit_.build && s.superstars ? " PLAY takes it out first." : "");
-    else ImGui::TextDisabled("%zu of up to %d superstar(s)%s", stars_.stars.size(), importer::kMaxStars, stars_err_.empty() ? "" : ("; " + stars_err_).c_str());
+    else ImGui::TextDisabled("%s%s", importer::screen::CountLine(stars_.stars, stars_seats_).c_str(), stars_err_.empty() ? "" : ("; " + stars_err_).c_str());
+    if (stars_mig_ == importer::Migration::Kept) ImGui::TextDisabled("%s", importer::screen::MigrationLine(stars_mig_).c_str());  // (while it is pending, the check above says it)
   }
+  int stars_seats_ = 102;  // S110 SEAT-C: SeatCount, and where the old pack's conversion stands (read with the check before PLAY, below)
+  importer::Migration stars_mig_ = importer::Migration::None;
   // Session 101: the check before PLAY, as this tab shows it: recomputed when the pack folder or the DLC settings changed (it scans the
   // DLC folder), at most every 2 s.
   importer::PlayCheck stars_fit_;
@@ -4538,6 +4538,7 @@ class App {
     const std::string key = stars_sig_ + "|" + StarsDlcDir() + "|" + s.dlc_off;
     if (key == stars_fit_key_) return;
     stars_fit_key_ = key;
+    stars_seats_ = importer::SeatCount(PathStr(paths_.mods)), stars_mig_ = importer::MigrationState(PathStr(paths_.mods));
     stars_fit_ = importer::CheckBeforePlay(PathStr(paths_.mods), StarsDlcDir(), s.dlc_off);
     stars_last_ = stars_fit_.build ? std::string() : importer::LastGameProblem(PathStr(paths_.mods));
   }
@@ -7396,6 +7397,165 @@ class App {
     }
   }
 
+  // ---- S110 TRON-B: CUSTOM TRONS (src\tron_slots_ui_core.h decides; this only draws). Only FILLED slots are listed; a name with no video
+  // and a video with no name are problems with a one-line fix. The slot's video is assigned through AssignTron like any tron.
+  fs::path CustomDir() const { return paths_.mods / "titantron"; }
+  void RefreshCustom(bool force = false) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now - custom_checked_ < std::chrono::seconds(1)) return;
+    custom_checked_ = now;
+    custom_lib_ = wwe2k14::tron_slots_core::ReadSlots(CustomDir());
+    custom_model_ = wwe2k14::tron_slots_ui::BuildModel(CustomDir(), custom_lib_);
+  }
+  void CustomDone(const std::string& err, const std::string& ok) {
+    RefreshOverrides();
+    ForgetMedia();
+    thumb_.reset();
+    RefreshCustom(true);
+    Status(err.empty() ? ok : "Not done: " + err);
+  }
+  void CustomWarnBik2(const fs::path& f) {
+    if (Lower(PathStr(f.extension())) != ".bik2") return;
+    const VideoInfo vi = BinkInfo(f);
+    if (vi.ok)
+      if (const std::string w = wwe2k14::tron_slots_ui::SheetWarning(".bik2", vi.w, vi.h); !w.empty())
+        ImGui::TextColored(ImVec4(1, 0.75f, 0.3f, 1), "%s", w.c_str());
+  }
+  void CustomSection() {
+    namespace tu = wwe2k14::tron_slots_ui;
+    RefreshCustom();
+    Heading("CUSTOM TRONS", 1.1f);
+    for (const auto& sl : custom_model_.filled) {
+      const bool sel = selected_ < 0 && selected_tron_ == sl.id;
+      if (ImGui::Selectable((sl.name + "##ct" + std::to_string(sl.id)).c_str(), sel)) Select(sl.id);
+    }
+    // (review) a copy: "Add the video..." refreshes custom_model_ (CustomDone) inside the loop, which freed the vector being walked; and the
+    // name popup is opened OUTSIDE the PushID, where BeginPopupModal("custom_name") below looks it up (OpenPopup hashes the ID stack).
+    const std::vector<tu::Problem> problems = custom_model_.problems;
+    bool open_name = false;
+    for (size_t k = 0; k < problems.size(); ++k) {
+      const tu::Problem& p = problems[k];
+      ImGui::PushID(int(k));
+      ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), "Problem: %s", p.text.c_str());
+      if (p.kind == tu::Problem::kVideoMissing && ImGui::SmallButton("Add the video...")) {
+        if (auto f = PickFile(hwnd_)) {
+          const std::string err = tu::RefillSlot(CustomDir(), p.id, [&](int n) { return AssignTron(paths_, n, *f); });
+          CustomDone(err, "Custom tron " + std::to_string(p.id) + " has its video again");
+        }
+      }
+      if (p.kind == tu::Problem::kNameMissing && ImGui::SmallButton("Give it a name...")) {
+        custom_fix_id_ = p.id, custom_pending_.clear(), custom_name_new_ = "Custom tron " + std::to_string(p.id);
+        open_name = true;
+      }
+      ImGui::PopID();
+    }
+    if (open_name) ImGui::OpenPopup("custom_name");
+    if (ImGui::Button("Add a custom tron...")) {
+      if (auto f = PickFile(hwnd_)) {
+        custom_pending_ = *f, custom_fix_id_ = -1;
+        custom_name_new_ = wwe2k14::tron_slots_core::CleanName(PathStr(f->stem()));
+        ImGui::OpenPopup("custom_name");
+      }
+    }
+    if (custom_model_.filled.empty() && custom_model_.problems.empty())
+      ImGui::TextDisabled("None yet. A custom tron is a video that you can give to a superstar you imported.");
+    if (ImGui::BeginPopupModal("custom_name", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+      if (custom_fix_id_ < 0) ImGui::Text("Add %s", PathStr(custom_pending_.filename()).c_str());
+      else ImGui::Text("Name for the video of custom tron %d", custom_fix_id_);
+      if (custom_fix_id_ < 0) CustomWarnBik2(custom_pending_);
+      ImGui::TextUnformatted("Name (shown in lists):");
+      ImGui::SetNextItemWidth(320 * Dpi());
+      ImGui::InputText("##cname_new", &custom_name_new_);
+      const bool can = !wwe2k14::tron_slots_core::CleanName(custom_name_new_).empty();
+      ImGui::BeginDisabled(!can);
+      if (ImGui::Button(custom_fix_id_ < 0 ? "Add" : "Save the name")) {
+        if (custom_fix_id_ < 0) {
+          int id = -1;
+          const fs::path f = custom_pending_;
+          const std::string err = tu::AddSlot(CustomDir(), custom_name_new_, [&](int n) { return AssignTron(paths_, n, f); }, &id);
+          CustomDone(err, "Added " + wwe2k14::tron_slots_core::CleanName(custom_name_new_) + (s.mods ? "" : "  (switch USE MY VIDEOS on)"));
+          if (err.empty()) Select(id);
+        } else {
+          CustomDone(tu::RenameSlot(CustomDir(), custom_fix_id_, custom_name_new_), "Named: " + custom_name_new_);
+        }
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+  }
+  void CustomDetail(int tron) {
+    namespace tu = wwe2k14::tron_slots_ui;
+    RefreshCustom();
+    const wwe2k14::tron_slots_core::Slot* sl = nullptr;
+    for (const auto& x : custom_model_.filled)
+      if (x.id == tron) sl = &x;
+    if (!sl) {  // removed, or its video went: nothing to show (the section lists the problem)
+      ImGui::TextWrapped("This custom tron is not in the list any more.");
+      return;
+    }
+    Heading(Upper(sl->name).c_str(), 1.25f);
+    ImGui::TextDisabled("Custom tron, number %d", tron);
+    ImGui::Separator();
+    const fs::path ov = OverrideFor(paths_, tron);
+    UpdateThumb(ov);
+    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "Plays: %s", PathStr(ov.filename()).c_str());
+    if (thumb_) {
+      const auto& vi = thumb_->info;
+      if (vi.ok) ImGui::TextDisabled("%s, %dx%d, %.2f fps, %.1f s", vi.format.c_str(), vi.w, vi.h, vi.fps, vi.seconds);
+      else ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), "Problem: %s", vi.error.c_str());
+      if (thumb_->srv) {
+        const float w = ImGui::GetContentRegionAvail().x;
+        ImGui::Image(ImTextureRef(reinterpret_cast<ImTextureID>(thumb_->srv)),
+                     ImVec2(w, w * float(thumb_->h) / float(std::max(1, thumb_->w))));
+      } else if (vi.ok) {
+        ImGui::TextDisabled("(Bink 2: no preview here; it plays in the game)");
+      }
+    }
+    CustomWarnBik2(ov);
+    ImGui::Separator();
+    if (custom_name_for_ != tron) custom_name_edit_ = sl->name, custom_name_for_ = tron;
+    ImGui::TextUnformatted("Name in lists:");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##cname", &custom_name_edit_);
+    if (ImGui::Button("Rename", ImVec2(-1, 0))) {
+      CustomDone(tu::RenameSlot(CustomDir(), tron, custom_name_edit_), "Renamed: " + custom_name_edit_);
+      custom_name_for_ = -1;
+    }
+    if (ImGui::Button("Replace the video...", ImVec2(-1, 0))) {
+      if (auto f = PickFile(hwnd_)) CustomDone(AssignTron(paths_, tron, *f), "Custom tron " + std::to_string(tron) + " now plays " + PathStr(f->filename()));
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Remove this custom tron...", ImVec2(-1, 0))) ImGui::OpenPopup("remove_custom");
+    if (ImGui::BeginPopupModal("remove_custom", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+      ImGui::Text("Remove %s and delete its video?", sl->name.c_str());
+      ImGui::TextDisabled("A superstar or a saved entrance that uses it will show an idle big screen. Its number is given to a new\n"
+                          "custom tron only when all 116 are used.");
+      if (ImGui::Button("Remove")) {
+        const std::string name = sl->name;
+        CustomDone(tu::RemoveSlot(CustomDir(), tron), "Removed: " + name);
+        selected_tron_ = -1;
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Give it to a superstar you imported in MODS > SUPERSTARS (TRON). MP4 / MOV / MKV: any size, looped, no sound. "
+                       "Only the big screen plays it. Needs USE MY VIDEOS on.");
+    ImGui::PopStyleColor();
+  }
+  wwe2k14::tron_slots_core::Library custom_lib_;
+  wwe2k14::tron_slots_ui::Model custom_model_;
+  std::chrono::steady_clock::time_point custom_checked_{};
+  std::string custom_name_edit_, custom_name_new_;
+  int custom_name_for_ = -1, custom_fix_id_ = -1;
+  fs::path custom_pending_;
+
   void TronsTab() {
     const float right_w = 430 * ImGui::GetStyle().FontScaleDpi;
     const ImGuiStyle& st = ImGui::GetStyle();
@@ -7418,9 +7578,14 @@ class App {
 
     // Left: the characters (list or grid).
     const std::vector<int> rows = Visible();
-    ImGui::BeginChild("list", ImVec2(-right_w - 8, -ImGui::GetFrameHeightWithSpacing() * 1.4f), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("left", ImVec2(-right_w - 8, -ImGui::GetFrameHeightWithSpacing() * 1.4f), ImGuiChildFlags_None);
+    ImGui::BeginChild("list", ImVec2(0, -150 * ImGui::GetStyle().FontScaleDpi), ImGuiChildFlags_Borders);
     if (s.trons_view == 1) TronsGrid(rows);
     else TronsList(rows);
+    ImGui::EndChild();
+    ImGui::BeginChild("customs", ImVec2(0, 0), ImGuiChildFlags_Borders);  // S110 TRON-B: CUSTOM TRONS
+    CustomSection();
+    ImGui::EndChild();
     ImGui::EndChild();
     ImGui::SameLine();
 
@@ -7434,6 +7599,8 @@ class App {
                          "(Lesnar 343, Bryan 324). Some share one (The Shield: 403) or use an era version "
                          "(Stone Cold: 658). Assigning a video copies it into the mods folder; the game's own files "
                          "are never changed. Switch USE MY VIDEOS on (above).");
+    } else if (selected_ < 0 && wwe2k14::tron_slots_core::IsSlotId(tron)) {  // S110 TRON-B: a custom tron
+      CustomDetail(tron);
     } else {
       const Character* c = selected_ >= 0 ? &chars_[size_t(selected_)] : nullptr;
       Heading(c ? Upper(c->name).c_str() : "TRON", 1.25f);

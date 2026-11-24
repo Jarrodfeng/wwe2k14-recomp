@@ -1,0 +1,111 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s105\mods --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 IMPCRASH run 8: Create an Entrance on Bobby Lashley (397): EASY CREATION, change MUSIC + MOTION, ACCEPT YES (run 012), then REOPEN 397
+# (EASY) to see the saved rows, leave, open 397 with ADVANCED CREATION and walk it, then Maryse (398) EASY + MUSIC + ACCEPT.
+log impcrash: start en4
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+mark 1 editor
+repeat 6
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 3
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 6
+press UP
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 2
+press DOWN
+wait_frames 60
+end_repeat
+press A
+wait_frames 600
+screenshot en4_changed
+repeat 7
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 600
+log impcrash: accepted
+log_text 12
+include log_menu
+screenshot en4_accepted
+mark 2 accepted
+on_fail continue
+# reopen 397 EASY
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log impcrash: reopened easy
+log_text 12
+screenshot en4_reopen_easy
+mark 3 reopened
+press B
+wait_frames 300
+log_text 12
+include log_menu
+log_state msgbox
+screenshot en4_reopen_b
+press_until_state A menu_page 0x82038500 10 60 5 unreadable
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press DOWN
+wait_frames 40
+include log_menu
+screenshot en4_adv_row
+press A
+wait_frames 900
+log impcrash: advanced
+log_text 16
+include log_menu
+screenshot en4_advanced
+mark 4 advanced
+repeat 4
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+log_text 16
+include log_menu
+screenshot en4_adv_row4
+press B
+wait_frames 300
+press B
+wait_frames 300
+log_text 12
+include log_menu
+log_state msgbox
+screenshot en4_adv_b
+log impcrash: done
+quit

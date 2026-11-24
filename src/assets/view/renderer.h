@@ -35,6 +35,7 @@ struct GpuMesh {
 
 struct GpuPlacement {
   uint32_t count = 0;  // instances (the backend keeps one row-vector 4x4 per instance, by the placement's index)
+  std::vector<uint8_t> mirrored;  // S106 FCN: per copy, 1 = the 3x3 determinant is negative (the `r` copy); the census's record-cull reference reads it
 };
 
 struct GpuMaterial {
@@ -58,6 +59,10 @@ struct GpuMaterial {
   bool wrestler = false, hair = false, stage_lm = false, crowd = false;
   bool alpha_blend = false, alpha_test = false, additive = false;
   bool cull_back = false;  // Session 98 (stage fix): asset_model.h Material::cull_back
+  // S106 FCN: the record cull bit, kept for the census's reference (WWE_VIEWER_RECORD_CULL=1). rec_cull: family_cull::Cull (2 = back faces culled, 0 = two-sided);
+  // rec_front / rec_front_mirrored: family_cull::FrontFace for an unmirrored / a mirrored copy (1 = the viewer's cull-back raster, 0 = the swapped winding = raster 2).
+  bool cull_record = false;
+  uint8_t rec_cull = 0, rec_front = 1, rec_front_mirrored = 1;
   bool blend_inline = false;  // Session 98 (spot / beard pass): asset_model.h Material::blend_inline
   // Session 98 (flash fix): the game's entrance draws this material with its lightmap ("LM") shader variant, i.e. it samples the live
   // stage light map page (the entrance light pools) [C: probe run 6816, the same draws in entrance frame 12241 vs match frame 12841:
@@ -97,6 +102,8 @@ struct GpuModel {
   size_t bone_count = 0;
   float lm_xy[2] = {1.f / 3500.f, 1.f / 3500.f}, lm_gain = 2.5f;  // g_f4LightMapParam x, y / z
   size_t model_bones = 0;  // the model's bone count (a palette is padded to it)
+  uint32_t main_bones = 0;  // S106 C4W: the body entry's own node count (rows after it are piece-added spring-hair rows)
+  std::vector<std::array<uint32_t, 3>> extra_tags;  // S106 C4W: (piece_id, piece_node, piece_nodes) per bone after main_bones (the record's section 66)
   std::vector<assets::Matrix> skin_cpu;  // Session 98 (replay S0): the palette as last set (read-only copy for bank_dump)
   bool has_wrestler = false;  // Session 98: any yCh_* mesh; bmin / bmax = the bounds of those meshes (model space, no offset)
   float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};
@@ -289,7 +296,7 @@ class Renderer {
   bool MakeDrawCB(const GpuModel& gm, const GpuMesh& me, bool blended, bool live_avail, DrawCB& dcb, DrawTex& dt) const;
   // The scene pass in order: opaque (and inline-blended) meshes in model order, then the blended ones far to near.
   // raster: 0 two-sided, 1 cull back (the game's rule), 2 cull front; blend: 0 off, 1 alpha, 2 additive.
-  struct DrawItem { const GpuModel* gm; const GpuMesh* me; bool blended; uint8_t raster, blend; bool depth_write; };
+  struct DrawItem { const GpuModel* gm; const GpuMesh* me; bool blended; uint8_t raster, blend; bool depth_write; int inst = -1; /* S106 FCN: >= 0 draws that copy only */ };
   void BuildSceneList(const Camera& cam, std::vector<DrawItem>& out) const;
   uint8_t SceneRaster(const GpuMaterial& m) const { return m.cull_back && cull_mode_ == 1 ? 1 : m.cull_back && cull_mode_ == 2 ? 2 : 0; }
   // The shadow casters: 0 props (ring pieces), 1 wrestlers (opaque + cut-outs).

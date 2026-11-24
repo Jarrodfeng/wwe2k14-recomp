@@ -1,4 +1,4 @@
-r"""S101 lane 242 gate check: H3, the wrestlers' sphere occluders (VS c168-c171). Offline, 0 game runs, headless.
+r"""S101 lane 242 check: H3, the wrestlers' sphere occluders (VS c168-c171). Offline, 0 game runs, headless.
 
   py -I tools\sphere\sphere_selftest.py [--no-build] [--captures]
 

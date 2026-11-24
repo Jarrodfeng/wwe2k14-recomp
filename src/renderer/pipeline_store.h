@@ -77,6 +77,7 @@ struct Record {
   // Runtime only, not stored:
   bool built = false;       // a pipeline for it exists in this session
   bool dead = false;        // the driver refused it (or it names nothing buildable): dropped at the next save
+  bool seed = false;        // S106 PSEED: from the shipped seed (pipeline_seed.h); never saved into the player's list until it is drawn (seen != 0)
 };
 
 inline VertexLayoutDesc Canonical(const VertexLayoutDesc& in) {

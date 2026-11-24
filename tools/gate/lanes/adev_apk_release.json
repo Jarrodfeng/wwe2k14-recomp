@@ -1,9 +1,0 @@
-{
- "owner": "S105 ADEV fix round (review_ADEV R4): tools/android/test_check_apk_release.py, the twin of check_apk --release (a +dev libmain must fail a release APK check). 0 game runs.",
- "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
- "note": "KIND: unit. Pure Python on synthetic bytes.",
- "checks": [
-  {"name": "adev.check_apk_release", "cmd": ["py", "-I", "tools/android/test_check_apk_release.py"], "timeout_s": 120,
-   "affects": ["tools/android/check_apk.py", "tools/android/test_check_apk_release.py"], "needs": []}
- ]
-}

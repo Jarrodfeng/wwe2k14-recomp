@@ -5,7 +5,7 @@ code and stays on Jarrod's machines (the PC and the Surface kit).
   py -I tools\\release\\check_zip_symbols.py --selftest             the planted twins must be caught, the clean zip must pass
 
 A member is a hit by NAME (.pdb / .map, any case, any folder) or by CONTENT (the first bytes are an MSF 7.00 pdb header, so a renamed pdb is
-caught too). Called by tools\\release\\make_release.ps1 on the finished zip; the gate lane s102_symbols runs the selftest.
+caught too). Called by tools\\release\\make_release.ps1 on the finished zip.
 """
 import sys, zipfile, tempfile
 from pathlib import Path

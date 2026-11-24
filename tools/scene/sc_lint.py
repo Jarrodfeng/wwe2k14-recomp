@@ -79,7 +79,7 @@ def lint_layout_text(scene_record, units):
     m = re.search(r'kQuad2DLayout\s*=\s*(\d+)', scene_record)
     s = re.search(r'static_assert\(sizeof\(Quad2D\)\s*==\s*(\d+)', scene_record)
     if not m or not s:
-        return ['layout_text: kQuad2DLayout or the sizeof static_assert not found in scene_record.h']
+        return ['layout_text: kQuad2DLayout or the sizeof static_assert not found in scene_record.h / rows_quad2d.h']
     layout, size = int(m.group(1)), int(s.group(1))
     for name, text in units.items():
         for ln, line in enumerate(text.splitlines(), 1):
@@ -123,7 +123,7 @@ def load(root):
     tap = rd(root, 'src/scene_live/quads2d_tap.h')
     hooks = do + rd(root, 'src/scene_crowd.h') + rd(root, 'src/d3d_textures.h')   # every file that calls a tap entry from a REX_HOOK_RAW
     draw = rd(root, 'src/renderer_scene/quads2d_draw.cpp')
-    sr = rd(root, 'src/renderer_scene/scene_record.h')
+    sr = rd(root, 'src/renderer_scene/scene_record.h') + '\n' + rd(root, 'src/renderer_scene/rows_quad2d.h')   # S106 G4-1AF: the Quad2D layout constants moved to rows_quad2d.h
     units = {p.name: p.read_text(encoding='utf-8', errors='replace') for p in sorted((Path(root) / 'tools' / 'scene').glob('*_unit.cpp'))}
     return do, tap, draw, sr, units, hooks
 

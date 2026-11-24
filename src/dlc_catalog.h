@@ -37,6 +37,7 @@ struct Catalog {
   uint16_t revision = 0;  // header +10 (Session 101)
   uint32_t sig = 0;       // FNV-1a of the whole file (Session 101)
   std::vector<CatalogEntry> entries;
+  std::vector<int> bundle_chars;   // S110: the characters of the type-21 bundle records ((char, attire, third) rows, char of each)
   std::vector<std::string> files;  // relative to the pack folder, '\' separators as in the file
 };
 
@@ -65,6 +66,7 @@ struct Pack {
   std::string reason;  // why it is not ready
   int pack_id = -1;
   std::vector<CatalogEntry> entries;
+  std::vector<int> bundle_chars;  // S110: the characters its bundle records list (the importer's pack lists its slots here)
   size_t files_listed = 0;
   std::vector<std::string> missing;
   uint64_t bytes = 0;
@@ -193,6 +195,22 @@ inline bool ParseCatalog(const std::vector<uint8_t>& d, Catalog& c, std::string&
     ce.char_id = int32_t(uint32_t(e[16]) | (uint32_t(e[17]) << 8) | (uint32_t(e[18]) << 16) | (uint32_t(e[19]) << 24));
     ce.name = Cp1252ToUtf8(e + 32, 32);
     c.entries.push_back(std::move(ce));
+  }
+  // S110: the bundle records (u16 size = 8 + 6n, u16 pack, u16 0, u16 n, n x (u16 char, u16 attire, u16 third)) follow the na attribute
+  // records. Read leniently: a record that does not chain stops the walk (the file list below is found by its own search).
+  c.bundle_chars.clear();
+  {
+    const size_t na = U16(&d[14]), nb = U16(&d[16]);
+    size_t p = kHeaderSize + kEntrySize * n_entries;
+    for (size_t i = 0; i < na + nb && p + 2 <= d.size(); ++i) {
+      const size_t size = U16(&d[p]);
+      if (size == 0 || p + size > d.size()) break;
+      if (i >= na && size >= 8) {
+        const size_t n = std::min<size_t>(U16(&d[p + 6]), (size - 8) / 6);
+        for (size_t k = 0; k < n; ++k) c.bundle_chars.push_back(int(U16(&d[p + 8 + 6 * k])));
+      }
+      p += size;
+    }
   }
   if (!FindFileList(d, kHeaderSize + kEntrySize * n_entries, n_files, c.files)) return why = "file list damaged", false;
   return true;
@@ -519,6 +537,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
       pk.pack_id = c.pack_id;
       pk.revision = c.revision, pk.sig = c.sig;  // (Session 101)
       pk.entries = std::move(c.entries);
+      pk.bundle_chars = std::move(c.bundle_chars);
       pk.files_listed = c.files.size();
       NoteCatalogFiles(c.files, pk);
       if (check_files) {
@@ -589,6 +608,7 @@ inline std::vector<Pack> Scan(const fs::path& dir, bool check_files = true, bool
       pk.pack_id = c.pack_id;
       pk.revision = c.revision, pk.sig = c.sig;  // (Session 101)
       pk.entries = std::move(c.entries);
+      pk.bundle_chars = std::move(c.bundle_chars);
       pk.files_listed = c.files.size();
       NoteCatalogFiles(c.files, pk);
       if (check_files)

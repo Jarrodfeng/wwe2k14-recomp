@@ -1,4 +1,4 @@
-# harness: realtime (Session 27 item C: Cena's title as he comes out, as Jarrod sees it; the original look, 30 fps entrances)
+# harness: flags --wwe2k14_replay_mode=true --wwe2k14_clip_frame_locked=true
 # Session 27 item C (Cena's title flying mid-entrance): launch_boot_check.txt, then screenshots every 60 game frames
 # from INGAMELUA.PAC for 9000 frames (both entrances). Use with --wwe2k14_launch=hiac_cena_brodus
 # --wwe2k14_replay_mode=true (same entrance every run).

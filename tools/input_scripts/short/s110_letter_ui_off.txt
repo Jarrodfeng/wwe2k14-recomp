@@ -1,0 +1,49 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_a --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true --wwe2k14_letter_jump=true --wwe2k14_letter_ui=false --wwe2k14_letter_ui_dump=true
+# intent: owner on
+# S110 LETTERUI run 1: one on one grid, letter_ui OFF: the screen as stock. Does the game run with the strip on, does it appear, the dump. Then pick P1 and look at P2's (COM slot) strip.
+log letter: start lu14
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+log letter: select open
+screenshot u_open
+wait_frames 20
+press A
+wait_frames 60
+log letter: in grid
+screenshot u_grid
+wait_frames 20
+press RT
+wait_frames 40
+screenshot u_rt1
+wait_frames 20
+press RT
+wait_frames 40
+screenshot u_rt2
+wait_frames 20
+press RT
+wait_frames 40
+screenshot u_rt3
+wait_frames 20
+press LT
+wait_frames 40
+screenshot u_lt1
+wait_frames 20
+press A
+wait_frames 90
+press A
+wait_frames 90
+log letter: slot2 picking
+screenshot u_s2
+wait_frames 20
+press RT
+wait_frames 40
+screenshot u_s2_rt1
+wait_frames 20
+log letter: done
+quit

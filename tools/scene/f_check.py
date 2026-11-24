@@ -1,4 +1,4 @@
-r"""S103 lane F: the lane's one proof, offline (gate lane s103_F). Runs from the repo root (or --root).
+r"""S103 lane F: the lane's one proof, offline. Runs from the repo root (or --root).
   py -I tools\scene\f_check.py [--root DIR]
 1. out\tools\f_test.exe clean: exit 0, "0 failed" (the order rule, the record, the contributor, the hook drawn against the CPU model).
 2. Each planted fault must make f_test exit 1 AND name the check it is meant to break (a twin that fails for another reason does not count).

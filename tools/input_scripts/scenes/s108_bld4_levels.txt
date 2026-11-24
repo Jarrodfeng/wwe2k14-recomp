@@ -1,0 +1,51 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lane BLD4 (docs/research/s108/BLD4_plan.md): the game raises the blood level one step per bleed event and each level
+# turns on its OWN set of face / chest decals (6, 12, 12 names); s108_bld_replay called `bleed 0 3` once, which turns on the level-3
+# set only. This route calls the dev verb once per level, as the game's handler steps.
+# Question: does the blood on slot 0 spread across the three level shots (more of the face and chest at each), and does it stay
+# after the post-match clip?
+# Read with: py -I tools/bench/run_read.py <exe folder> --full. Shots bld4_* are local only.
+on_fail quit
+log bench: start scene s108_bld4_levels
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=bld4_match
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+passive 1 on
+screenshot bld4_level0
+bleed 0 1
+wait_frames 600
+screenshot bld4_level1
+bleed 0 2
+wait_frames 600
+screenshot bld4_level2
+bleed 0 3
+wait_frames 600
+screenshot bld4_level3
+mark 3 bleed_levels_done
+momentum 0 100
+stock 0 1
+wait_frames 120
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 900
+screenshot bld4_replay_900
+wait_frames 1000
+screenshot bld4_replay_1900
+wait_frames 800
+screenshot bld4_replay_2700
+wait_frames 1000
+screenshot bld4_replay_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

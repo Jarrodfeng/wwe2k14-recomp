@@ -33,8 +33,10 @@
 #include <vector>
 
 #include "../../src/assets/load_plants.h"   // S103 SCF
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/renderer_scene/screen_feed_yuv.h"
 #include "../../src/renderer_scene/screen_idle_rows.h"
+#include "../../src/scene_live/safe_guest_pages.h"   // S108 RDS: ReadRows (the game's plane read)
 #include "../../src/scene_live/screen_planes_contrib.h"
 #include "../../src/scene_live/screen_planes_hook.h"
 #include "../../src/scene_live/stage_fx_contrib.h"
@@ -253,6 +255,26 @@ int main(int argc, char** argv) {
   Check(f803 && MatchesFrame(*f803, 4, 1, 20, true), "copy.display_buffer", "movie B toggled to buffer 1");
   Check(f801 && f801->y.size() == size_t(kW) * kH && f801->y[kW * 3 + kW - 1] == Pat(0, kW - 1, 3, 2, 0, 10) && f801->y[kW * 3] == Pat(0, 0, 3, 2, 0, 10), "copy.pitch", "row 3 ends at the picture's edge, not in the padding marker");
   Check(f801 && f801->cb[5] == Pat(2, 5, 0, 2, 0, 10) && f801->cr[5] == Pat(1, 5, 0, 2, 0, 10) && f801->cb[5] != f801->cr[5], "copy.chroma_order", "data plane 1 (cR) -> Cr, data plane 2 (cB) -> Cb (the game's crossed dispatch, sub_827F9D88)");
+
+  {   // S108 RDS phase 2: a plane in one call (the game's wrestler_hook.h ReadGuestRows runs safe_pages::ReadRows over the page table): the same frame as the row reads, one hull check a plane, no row read
+    static uint32_t hull_checks = 0, row_reads = 0;
+    const scr::RowsFn rows = [](uint32_t g, uint32_t pitch, uint32_t n, uint32_t w, uint8_t* d) {
+      return wwe2k14::safe_pages::ReadRows(
+          g, pitch, n, w, d, [](uint32_t, uint64_t) { return true; },
+          [](uint32_t a, uint64_t len) {
+            ++hull_checks;
+            for (const Region& r : g_guest.regions) if (a >= r.base && a + len <= uint64_t(r.base) + r.bytes.size()) return true;
+            return false;
+          },
+          [](uint32_t a, uint8_t* dst, uint32_t len) { return g_guest.Read(a, dst, len); }, [](uint32_t a, uint8_t* dst, uint32_t len) { ++row_reads; return g_guest.Read(a, dst, len); });
+    };
+    scr::PlaneStore cp;
+    scr::Frame fa, fb;
+    const bool ra = cp.CopyDisplay(&ReadThunk, SetOfSlot(4), fa), rb = cp.CopyDisplay(&ReadThunk, SetOfSlot(4), fb, rows);
+    std::string whyb;
+    Check(ra && rb && fa.y == fb.y && fa.cr == fb.cr && fa.cb == fb.cb && fa.a == fb.a && MatchesFrame(fb, 4, 1, 20, true, &whyb) && hull_checks == 4 && row_reads == 0, "rds.plane_rows_one_check",
+          "the frame read a plane at a time equals the row reads' (" + whyb + "), hull checks " + std::to_string(hull_checks) + " (4 planes), row reads " + std::to_string(row_reads));
+  }
 
   // ---------------------------------------------------------------- 3. no tearing: the decoder rewrites the source after the flush; the copy is untouched
   Scribble(2);
@@ -492,6 +514,34 @@ int main(int argc, char** argv) {
       if (fp != first_panel || !MatchesFrame(*fp, 2, 0, 43, false, &wp)) { panels = false; break; }
     }
     Check(panels && table, "bind.panels_channel1", panels ? "801 802 806 808 809 -> channel 1 -> one shared 256x256 sheet" : "WRONG " + wp);
+
+    // S110 TRONSHEET (TRONBLACK.md): the texture the tron shim registers for an MP4 sheet tron is accepted by the default binding of channel 0
+    // (the old rule gave it a width of at least 512: every frame was wrong_size_skipped and the big screen was black). Plant "sheet_512" = the old rule.
+    namespace ts = wwe2k14::tron_sheet;
+    std::string ws;
+    bool shim_ok = true;
+    const uint32_t vids[][2] = {{320, 320}, {640, 360}, {1280, 720}, {1920, 1080}};
+    for (const auto& v : vids) {
+      ts::TronTex t = ts::TronTextureSize(v[0], v[1], true, 1280, 720, 0);
+      if (Plant("sheet_512")) t.w = ts::SafeWidth(std::min(v[0], 1280u), 1280), t.h = 320;   // the pre-fix rule (width at least 512)
+      if (!b.ChannelAccepts(0, t.w, t.h)) {
+        shim_ok = false;
+        ws += " " + std::to_string(v[0]) + "x" + std::to_string(v[1]) + "->" + std::to_string(t.w) + "x" + std::to_string(t.h);
+      }
+    }
+    Check(shim_ok, "default.accepts_shim_sheet", shim_ok ? "320x320 640x360 1280x720 1920x1080 sheets -> 320x320 accepted by channel 0 (804, 807)" : "REFUSED:" + ws);
+  }
+
+  // TronTextureSize itself: a sheet is always 320x320 k 1 (the override and the maximum do not matter); a non-sheet keeps the stream-era rule.
+  {
+    namespace ts = wwe2k14::tron_sheet;
+    const ts::TronTex a = ts::TronTextureSize(1920, 1080, true, 1280, 720, 0), a2 = ts::TronTextureSize(640, 360, true, 4096, 4096, 1024);
+    const ts::TronTex n1 = ts::TronTextureSize(1280, 720, false, 1280, 720, 0), n2 = ts::TronTextureSize(1920, 1080, false, 1280, 720, 0);
+    const ts::TronTex n3 = ts::TronTextureSize(640, 360, false, 1280, 720, 0), n4 = ts::TronTextureSize(640, 360, false, 1280, 720, 800);
+    const bool sheet_ok = a.w == 320 && a.h == 320 && a.k == 1 && a2.w == 320 && a2.h == 320 && a2.k == 1;
+    // (the old rule: SafeWidth of the scaled width, the scaled height rounded up to 8; 1920x1080 scales by 2/3 to 1280x720)
+    const bool non_ok = n1.w == 1024 && n1.h == 720 && n2.w == 1024 && n2.h == 720 && n3.w == 1024 && n3.h == 360 && n4.w == 800 && n4.h == 360;
+    Check(sheet_ok && non_ok, "tron_texture_size", std::string("sheet ") + (sheet_ok ? "ok" : "WRONG") + " non-sheet " + (non_ok ? "ok" : "WRONG"));
   }
 
   // ---------------------------------------------------------------- 16. review B1: an unopened channel ALIASES slot 0's movie (another size): never copied, never a row, the expected size stays

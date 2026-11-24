@@ -1,7 +1,0 @@
-{
- "owner": "S103 lane G: the latest-record mailbox + the kept draw lists (docs/renderer/SCENE_PACING.md). The unit (mailbox on a virtual clock and on threads, the lists' counts and oracle, three planted faults) and the lists' picture check on rsc_draw (0 game runs).",
- "checks": [
-  {"name": "s103_G.unit", "cmd": ["py", "-I", "tools/scene/pacing_unit_selftest.py"], "timeout_s": 900, "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false},
-  {"name": "s103_G.lists", "cmd": ["py", "-I", "tools/scene/lists_check.py"], "timeout_s": 1800, "needs": ["out/captures/brock_losswin_rt", "game_data/extracted"], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
- ]
-}

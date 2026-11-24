@@ -3,7 +3,7 @@
     q note                               list the notes (docs/research/**, docs/systems/*.md, docs/formats/*.md): path, lines
     q note NAME                          the headings of one note with line spans (NAME = file stem, a unique substring, or a path)
     q note NAME --verdict                the verdict: the section headed Verdict / Summary / Answer / Result / TL;DR (else the text before the first `##`)
-    q note NAME --sites                  the `## Sites the build will touch` section (the probe contract; tools/builder/pack.py reads the same one)
+    q note NAME --sites                  the `## Sites the build will touch` section (the probe contract)
     q note NAME --section HEADING        every section whose heading contains HEADING (case-insensitive), to the next heading of the same or higher level
     q note NAME --max N                  cap on printed lines per section (default 120)
 
@@ -142,7 +142,7 @@ def answer(name, mode=None, arg=None, cap=120):
     if mode == 'sites':
         want = [k for k, h in enumerate(hs) if h[1].lower().startswith('sites the build will touch')]
         if not want:
-            raise NoteError(f'{rel}: no `## Sites the build will touch` section (a survey note cannot be packed); headings: ' + '; '.join(h[1] for h in hs[:12]))
+            raise NoteError(f'{rel}: no `## Sites the build will touch` section (a survey note has no sites to hand a builder); headings: ' + '; '.join(h[1] for h in hs[:12]))
     elif mode == 'verdict':
         vh = [k for k, h in enumerate(hs) if h[0] > 1 and h[1].lower().lstrip('0123456789. ').startswith(VERDICT_WORDS)]
         vh.sort(key=lambda k: (VERDICT_WORDS.index(next(w for w in VERDICT_WORDS if hs[k][1].lower().lstrip('0123456789. ').startswith(w))), k))   # `Verdict` outranks an earlier `Summary of ...` (QC L1)

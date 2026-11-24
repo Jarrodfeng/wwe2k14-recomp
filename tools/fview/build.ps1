@@ -12,7 +12,7 @@ $out = Join-Path $repo "out\renderer\$kind"
 $objects = Join-Path $out 'fview_obj'
 if ($Clean -and (Test-Path $objects)) { Remove-Item -Recurse -Force -Confirm:$false $objects }
 New-Item -ItemType Directory -Force $objects | Out-Null
-# S101 lane 239: two builds at once (the wrestler gate lanes) collided on fview_obj and on the link; one named mutex per exe serialises them (released when this process ends)
+# S101 lane 239: two builds at once (the wrestler lanes) collided on fview_obj and on the link; one named mutex per exe serialises them (released when this process ends)
 . (Join-Path $repo "tools/wrestler/atomic_build.ps1")
 $null = Enter-ExeBuild (Join-Path $out 'fview.exe')
 
@@ -79,14 +79,12 @@ $objectFiles = @($jobs | ForEach-Object { $oname = if ($_.Source.StartsWith($rep
 $missingObjects = @($objectFiles | Where-Object { -not (Test-Path $_) })
 if ($missingObjects.Count) { throw "missing objects: $($missingObjects -join ', ')" }
 # S101 lane 163: no object is newer than the exe -> nothing to link. Relinking an unchanged tree failed with 'permission denied' whenever another
-# process (a gate lane, a viewer) had the exe open.
-$depsExtra = @((Join-Path $PSScriptRoot 'session_deps.txt'), (Join-Path $repo 'tools\wrestler\atomic_build.ps1'))   # S103 DIB: the non-C++ inputs this script reads (the dependency manifest names them)
-if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra $depsExtra; Write-Host "up to date $exe"; exit 0 }
+# process (another build, a viewer) had the exe open.
+if ((Test-Path $exe) -and -not @($objectFiles | Where-Object { (Get-Item $_).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc }).Count) { Write-Host "up to date $exe"; exit 0 }
 $tmpExe = Join-Path $out ("fview.tmp$PID.exe")   # lane 239: link beside, then rename into place (a running fview.exe cannot be overwritten, only renamed)
 & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -ld3d11 -ldxgi -ldwmapi -lole32 -luuid -lshell32 -o $tmpExe
 if ($LASTEXITCODE -ne 0) { Remove-Item (Join-Path $out "fview.tmp$PID.*") -Force -ErrorAction SilentlyContinue; throw 'link failed' }
 Publish-Exe $tmpExe $exe
-Write-CxxDeps -Exe $exe -Objects $objectFiles -Extra $depsExtra   # S103 DIB: <exe>.deps.txt = what this exe was built from (tools\gate\deps.py)
 Show-CxxCache
 Remove-Item (Join-Path $out "fview.tmp$PID.*") -Force -ErrorAction SilentlyContinue
 Write-Host "built $exe"

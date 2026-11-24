@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane C3: the sheet. Presented frames of the gate's Bryan, match and Check B / brock captures, the whole bundle with both switches OFF against ON, side by side with the pixel difference
+"""S102 lane C3: the sheet. Presented frames of the standard Bryan, match and Check B / brock captures, the whole bundle with both switches OFF against ON, side by side with the pixel difference
 (the hash says byte-equal; the sheet lets Jarrod see it). fview headless (--dump-frames), no window.
   py -I tools\\c3\\c3_sheet.py [--root DIR] [--out DIR]"""
 import argparse

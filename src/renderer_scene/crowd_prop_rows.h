@@ -17,6 +17,7 @@
 
 #include "record_io.h"
 #include "scene_record.h"
+#include "rows_crowd.h"   // S106 G4-2
 
 namespace rdr_scene::crowd_rows {
 

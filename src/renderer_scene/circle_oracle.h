@@ -20,6 +20,7 @@
 
 #include "../scene_live/circle_hook.h"
 #include "record_io.h"
+#include "rows_circle.h"   // S106 G4-2
 
 namespace rdr_scene::circles::oracle {
 

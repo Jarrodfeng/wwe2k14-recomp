@@ -1,7 +1,0 @@
-{"owner": "lane CDT (S104): tools/arena/draw_states.py, the render state of a stored capture's stage draws per arena slot (z write, blend, alpha test, cull; rows / summary / order / all), and its unit on an invented buffer: the fixed-state decode, the token groups, the ambiguous / unjoined counting, and the header-layout check (pcap.FIXED_DT against DrawFixed / DrawState, planted twins must fail). Cheap tier only; reads no capture and no game file. 0 game runs.",
- "claim": {"scene": "none", "side": "none (harness: a probe tool; no game work moves)", "ms": [0, 0]},
- "checks": [
-  {"name": "cdt_draw_states.unit", "cmd": ["py", "-I", "tools/arena/draw_states_unit.py"], "timeout_s": 300, "needs": [], "tier": "cheap", "gpu": false,
-   "affects": ["tools/arena/draw_states.py", "tools/arena/draw_states_unit.py", "tools/particles/pcap.py", "src/renderer_adapter/adapter_frame.h", "src/renderer/api.h", "tools/arena/join_census.py"]}
- ]
-}

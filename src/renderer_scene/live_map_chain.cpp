@@ -16,6 +16,7 @@
 
 #include "../renderer/output_switches.h"   // rdr::g_low_tier
 #include "char_effects.h"
+#include "bone_tag_rows.h"   // S106 G4-C: SkinChunkAbsent
 #include "front_end.h"
 #include "live_maps.h"
 #include "live_maps_chain.h"

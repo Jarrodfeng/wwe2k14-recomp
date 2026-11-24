@@ -8,6 +8,8 @@
 #include <string>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_lights.h"   // S106 G4-2
+#include "../renderer_scene/rows_ring.h"
 #include "ring_rows_hook.h"
 #include "tail_latch.h"  // S102 U1
 

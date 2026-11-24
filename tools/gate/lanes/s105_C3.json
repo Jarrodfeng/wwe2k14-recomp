@@ -1,9 +1,0 @@
-{
- "owner": "S105 lane C3: every model family follows the record's cull bit (wwe2k14_rdr_family_cull; src/renderer_scene/family_cull.h, jboy.h, stage_media.h, front_end.cpp). Cheap checks only: the rule's unit with planted twins + fixture of derived counts, and the depth/colour proof's own selftest (its capture runs are the builder's one proof, not the gate). 0 game runs.",
- "checks": [
-  {"name": "s105_C3.family_cull_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_family_cull_unit.ps1"], "timeout_s": 600, "tier": "cheap",
-   "affects": ["src/renderer_scene/family_cull.h", "src/assets/asset_model.h", "src/assets/jboy.h", "src/assets/stage_media.h", "tools/scene/family_cull_unit.cpp", "tools/scene/build_family_cull_unit.ps1", "tools/scene/fixtures/family_cull_counts.txt"]},
-  {"name": "s105_C3.family_cull_selftest", "cmd": ["py", "-I", "tools/scene/family_cull_proof.py", "--selftest"], "timeout_s": 300, "tier": "cheap",
-   "affects": ["tools/scene/family_cull_proof.py", "tools/scene/stage_cull_proof.py"]}
- ]
-}

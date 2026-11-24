@@ -1,0 +1,84 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\enex2\mods --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 IMPCHECK Q3: Create an Entrance > 397 (enex2 pack, base 100) > EASY CREATION: rows on FIRST open; then B, and ADVANCED CREATION on 397:
+# the INTRO page and its rows walked DOWN, then RB to the next page(s). Picker/popup states from IMPCRASH en4 (s110_imp_entrance_edit.txt).
+log impcheck: start easy
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+press_until_state UP menu_row 21 10 30 5
+wait_frames 60
+log_text 8
+screenshot easy_picker
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log impcheck: easy first open
+log_text 20
+include log_menu
+screenshot easy_first
+on_fail continue
+press B
+wait_frames 300
+log_text 12
+include log_menu
+log_state msgbox
+screenshot easy_b
+log impcheck: advanced
+press_until_state A menu_page 0x82038500 10 60 5 unreadable
+wait_frames 120
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press DOWN
+wait_frames 40
+include log_menu
+press A
+wait_frames 900
+log impcheck: advanced open
+log_text 20
+include log_menu
+screenshot adv_intro
+press RB
+wait_frames 200
+log impcheck: adv RB1
+log_text 30
+screenshot adv_rb1
+press RB
+wait_frames 200
+log impcheck: adv RB2
+log_text 30
+screenshot adv_rb2
+press RB
+wait_frames 200
+log impcheck: adv RB3
+log_text 30
+screenshot adv_rb3
+press RB
+wait_frames 200
+log impcheck: adv RB4
+log_text 30
+screenshot adv_rb4
+press RB
+wait_frames 200
+log impcheck: adv RB5
+log_text 30
+screenshot adv_rb5
+press RB
+wait_frames 200
+log impcheck: adv RB6
+log_text 30
+screenshot adv_rb6
+press RB
+wait_frames 200
+log impcheck: adv RB7
+log_text 30
+screenshot adv_rb7
+log impcheck: done
+quit

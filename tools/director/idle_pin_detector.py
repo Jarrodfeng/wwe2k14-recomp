@@ -14,8 +14,8 @@ controlled idle, reported as expected, not as a flag.
 Exit: 0 = no unexplained no-defender pin (a clean run, or no pin at all), 3 = at least one, 2 = the input cannot be read. A pin with no finish after it
 (a kick-out the bus did not see, the run ended) is reported "unfinished" and never flagged.
 Proven on: run 7092 (must say no_defender) and run 5910 (must not): tools/director/director_selftest.py.
-NOT a pass / fail gate for a route yet: over the 55 pins on disk 24 are no_defender, 1 clean (5910), the rest were kicked out, because the CPU rarely defends and the bus
-`move` option (the lines that show a player's activity) is off in every historical log. It becomes a gate only for runs recorded with that option on.
+NOT a pass / fail check for a route yet: over the 55 pins on disk 24 are no_defender, 1 clean (5910), the rest were kicked out, because the CPU rarely defends and the bus
+`move` option (the lines that show a player's activity) is off in every historical log. It becomes a pass / fail check only for runs recorded with that option on.
 """
 import json
 import re

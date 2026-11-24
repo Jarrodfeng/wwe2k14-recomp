@@ -1,0 +1,48 @@
+# S106 C2: A7 imported attires. Sources: C2.md 3.6 (log 111; fault text A7.md 2). Attire 2 = the same with 397:0:2 and 39722 (log 114).
+[recipe]
+row = "A7"
+question = "does Lashley's attire 1 (key 39712) load from the mod instead of failing to the guest rows?"
+notes = ["docs/research/s105/A7.md"]
+preset = "win-amd64-release-off"
+
+[destination]
+route = 'tools\input_scripts\short\s106_chk_attire.txt'      # S106 C2F: the check's own copy of dlc_pair.txt, participants 397:0:1,324 in its header (no repeated switch)
+flags = '--wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc'
+data = "userdata_frozen"
+settings = "blank"
+mods = 'out\s105\mods'
+timeout_s = 300
+
+[[pre]]
+file = 'out\s105\mods\superstars\pack6'
+
+[[guard]]
+name = "Lashley attire 1 in the card"
+line = '\[wwe2k14\]\[match\] card .*participants 0:397 \(slot 39712\)'
+agg = "count"
+need = ">= 1"
+
+# S106 C2F F12: "loaded from mod == 0" is only a fault when the game asked for key 39712 variant 1 at all (loaded or failed): this guard is that line family.
+[[guard]]
+name = "key 39712 variant 1 asked for"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:39712 variant 1'
+agg = "count"
+need = ">= 1"
+
+[[readout]]
+name = "39712 load failed"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:39712 variant 1: load failed \(no model PACH named 39712'
+agg = "count"
+role = "fault"
+specific = true
+fault = ">= 1"
+fixed = "== 0"
+
+[[readout]]
+name = "39712 loaded from mod"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:39712 variant 1 \(pac\\ch\\ch397\.pac\): loaded from mod'
+agg = "count"
+role = "fault"
+specific = true
+fault = "== 0"
+fixed = ">= 1"

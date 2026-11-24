@@ -67,10 +67,10 @@ inline void PrintCensus(const char* what) {
 inline bool ReadCameraObject(uint32_t obj, rdr_scene::Camera& out) {
   namespace si = scene_inputs;
   rdr_scene::Camera c;
-  if (!si::ReadMat(&wwe2k14::wrestlers::ReadGuest, obj + si::kCamView, c.view) || !si::ReadMat(&wwe2k14::wrestlers::ReadGuest, obj + si::kCamProj, c.proj)) return false;
+  if (!si::ReadMat(&wwe2k14::wrestlers::ReadGuestNoNote, obj + si::kCamView, c.view) || !si::ReadMat(&wwe2k14::wrestlers::ReadGuestNoNote, obj + si::kCamProj, c.proj)) return false;   // S110 FEEDREC: the un-noted leaf (si::ReadFn notes)
   if (!si::IsRigidView(c.view.m) || !si::IsPerspective(c.proj.m)) return false;
   uint32_t nw = 0, fw = 0;
-  if (si::ReadWord(&wwe2k14::wrestlers::ReadGuest, obj + si::kCamNear, nw) && si::ReadWord(&wwe2k14::wrestlers::ReadGuest, obj + si::kCamFar, fw)) {
+  if (si::ReadWord(&wwe2k14::wrestlers::ReadGuestNoNote, obj + si::kCamNear, nw) && si::ReadWord(&wwe2k14::wrestlers::ReadGuestNoNote, obj + si::kCamFar, fw)) {
     std::memcpy(&c.near_z, &nw, 4);
     std::memcpy(&c.far_z, &fw, 4);
   }

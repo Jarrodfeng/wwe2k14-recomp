@@ -1,4 +1,4 @@
-r"""S101 lane 92 (KL) gate check: the values ledger (tools\skip\ledger.py) on Check B (run 7051) and on run 7079, plus its planted twins.
+r"""S101 lane 92 (KL) check: the values ledger (tools\skip\ledger.py) on Check B (run 7051) and on run 7079, plus its planted twins.
 Offline, 0 game runs. Input: the two case zips (unpacked once under <main checkout>\out\s101\lane92, game data, local only). A missing input FAILS loudly.
 
   py -I tools\skip\ledger_selftest.py [--frames 0:340:6]

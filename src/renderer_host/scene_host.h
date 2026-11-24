@@ -23,8 +23,10 @@
 #include <vector>
 
 #include "../renderer/frame_blend.h"
+#include "../renderer_scene/rows_quad2d.h"   // S106 G4-2
 #include "../renderer/renderer.h"
 #include "../renderer_scene/live_scene_draw.h"
+#include "../renderer_scene/snapshot_save.h"   // S108 SHOT-A: the subject-shot saver's pure steps (rows_snapshot.h)
 #include "../renderer_scene/quads2d_draw.h"
 #include "../renderer_scene/stage_census.h"   // S103 CPU1
 #include "../scene_live/movie_planes.h"
@@ -175,6 +177,12 @@ class SceneHost {
   bool RequestScene(SceneCb cb);
   bool CaptureScene(std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, uint32_t timeout_ms = 500, uint64_t* guest_frame = nullptr);
 
+  // S108 SHOT-A (docs\research\s108\SHOT_plan.md 7; src\shown_frame.h g_record_save_owner): save the record the host DRAWS next, with the host state a one-frame record lacks, to `path` (a .rsc the offline rig draws a subject from).
+  // Any thread, never blocks. On the first frame whose 3D draw succeeded the host keeps that frame's record (no copy), queues a read-back of mip 0 of every liquid image that holds paint into that frame's command
+  // buffer (so it is read after the frame's own paint), snapshots the body scales (section 68); a writer thread then adds the images (69 / 70) and the created-superstar bytes the byte store holds, and writes the file.
+  // Logs `[wwe2k14][input] scene record saved: PATH (guest frame G, host frame J)` or `... NOT saved: PATH: WHY`. Never touches the game or the match. False + why: the host is not running.
+  bool RequestRecordSave(const std::string& path, std::string& why);
+
   // The SDK's quit flush (rex::RegisterQuitFlush, host_start.cpp): the app leaves with a hard exit, so Stop() never runs. The SDK sets the request flag; the host thread sees it within ~100 ms (HostCore's
   // idle poll), saves the pipeline store, prints the [host] and [scene][2d] exit lines and sets the ack.
   std::atomic<bool>* QuitRequest() { return &quit_req_; }
@@ -205,6 +213,9 @@ class SceneHost {
   void MakeF(uint32_t w, uint32_t h);
   // lane SHOT (host thread): QueueShot = the readback joins the frame about to be rendered; PollShot = a finished one is published; ServeShotSync = the drain, only when no frame is coming
   void QueueShot(uint64_t guest_frame);
+  void QueueRecordSave(uint64_t host_frame, const Msg& m, bool drew);   // S108 SHOT-A (host thread): see RequestRecordSave
+  void FinishRecordSave();                                                // S108 SHOT-A (host thread): every image read back (or refused): the writer thread takes the job
+  void ExpireRecordRequests();                                            // S108 SHOT review (host thread): requests older than 10 s answered NOT saved (idle poll and every Handle)
   void PollShot();
   void ServeShotSync();
   // S103 RBC (host thread): the scene read-backs (see RequestScene). Polled by PollShot (one PollReadbacks drain serves both).
@@ -214,7 +225,7 @@ class SceneHost {
   // S103 RBC fix2 (F1): a scene copy is only taken from `out` while it is the picture of a RECENT OURS 3D frame: the state says `out` is complete (st_.last3d_valid) and it was drawn within 2 guest frames of `frame`.
   // A menu, a loading screen or a replay the game draws itself (no OURS frame for a while) has no scene: the callers are answered not-ok, never the last match's arena.
   bool SceneFresh(uint64_t frame) const { return scene_rules::Fresh(out_ok_, st_.last3d_valid, last_out_ != rdr::kNoImage, frame, last_out_frame_); }
-  bool PollDue() const { return shot_inflight_.load(std::memory_order_relaxed) || scene_inflight_; }
+  bool PollDue() const { return shot_inflight_.load(std::memory_order_relaxed) || scene_inflight_ || rec_job_ != nullptr; }
   void PublishShot(uint64_t covers, bool ok, std::vector<uint8_t>&& rgba, uint32_t w, uint32_t h, uint64_t frame);
   void Log(const std::string& line) const;
   void ServePortrait(const std::shared_ptr<const Rec>& cur, uint64_t j);   // S103 CPB (CPR.md H1): the pending Create a Superstar portrait request, drawn offscreen before this frame's builder begins
@@ -317,6 +328,22 @@ class SceneHost {
   uint64_t shot_tag_ = 0, shot_inflight_covers_ = 0, shot_inflight_frame_ = 0;
   std::array<uint8_t, 1024> shot_inflight_curve_{};
   bool shot_inflight_curve_set_ = false;
+  // S108 SHOT-A: the record-save requests (rec_mu_) and the one save in flight (host thread only). rec_active_ = a request waits for a drawn frame, or a save's read-backs are in flight.
+  struct RecJob {
+    std::vector<std::string> paths;
+    std::shared_ptr<const Rec> record;
+    uint64_t guest_frame = 0, host_frame = 0;
+    std::vector<rdr_scene::BodyScaleRow> scales;
+    uint32_t scale_holes = 0, refused = 0, cancelled = 0;
+    struct Pending { uint64_t tag = 0; rdr_scene::LiveMapsHook::LiveLiquidImage img; bool done = false; std::vector<uint8_t> rgba; uint32_t w = 0, h = 0; };
+    std::vector<Pending> pending;
+  };
+  std::mutex rec_mu_;
+  std::vector<std::pair<std::string, std::chrono::steady_clock::time_point>> rec_paths_;   // (rec_mu_) requested, not yet taken by a frame
+  std::atomic<bool> rec_active_{false};
+  std::shared_ptr<RecJob> rec_job_;       // host thread only
+  uint64_t rec_tag_n_ = 0;
+  std::atomic<int> rec_writers_{0};       // writer threads running (LogFinal waits for them so a route's quit does not cut a file)
   // S103 RBC: scene requests (scene_mu_), and the one copy in flight (host thread only)
   std::mutex scene_mu_;
   std::vector<SceneCb> scene_waiting_;

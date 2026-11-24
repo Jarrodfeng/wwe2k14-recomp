@@ -176,6 +176,9 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
     rdr::ImageId tex = b.texture == kNoParticleTexture || !texture_of_ ? rdr::kNoImage : texture_of_(b.texture);
     if (tex == rdr::kNoImage) {
       ++stats_.no_texture;
+      // S108 PRT: since the namer reads the game's own texture on an index miss, a batch reaching here unnamed is a fault (the game's texture was unreadable: namer guest_failed; or a guest name
+      // replayed offline: frame_hooks.cpp says so by key).
+      // PRT->AL1 DrawShortfall: rdr::DrawShortfall("particle_texture", b.texture, b.count, 0, "batch of %u particles skipped: no texture", b.count);   (connect after AL1's problem.h lands)
       if (skip_unnamed_) { ++stats_.unnamed_skipped; continue; }   // CAWH: the game always has its texture; a white quad is never right
       tex = white_;
     }

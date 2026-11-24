@@ -73,6 +73,11 @@ inline std::string (*g_caw_live)(const std::string& args) = nullptr;
 // ("ok: ..." / "failed: ..." / "refused: ..." / "busy: ..." / "error: ...").
 inline std::string (*g_director_live)(const std::string& args) = nullptr;
 
+// S110 GOTO: the menu page goto (src/menu_goto.h sets this; null when that header is not built in). Takes the text after "!page" ("rec=N [back]"),
+// returns one line ("ok: ..." / "error: ..."). A test / tooling verb.
+inline std::string (*g_page_live)(const std::string& args) = nullptr;
+
+
 constexpr size_t kMaxRequest = 1 << 20;  // bytes
 constexpr int kDefaultTimeoutS = 120;
 
@@ -140,6 +145,8 @@ inline std::string Handle(const std::string& request) {
   std::string scene_args;
   bool caw_cmd = false;  // S101 lane 118: !caw (the editor driver's reader)
   std::string caw_args;
+  bool page_cmd = false;  // S110 GOTO: !page
+  std::string page_args;
   bool director_cmd = false;  // S101 lane 161: !director (the situation director's verbs)
   std::string director_args;
   std::string script;
@@ -167,6 +174,9 @@ inline std::string Handle(const std::string& request) {
       } else if (directive == "director") {  // S101 lane 161: !director passive|momentum|stock ... (src/situation_director.h)
         director_cmd = true;
         std::getline(words, director_args);
+      } else if (directive == "page") {  // S110 GOTO: !page rec=N [back] (src/menu_goto.h)
+        page_cmd = true;
+        std::getline(words, page_args);
       } else return fmt::format("status: error\nerror: unknown directive !{}\n.\n", directive);
       continue;
     }
@@ -221,6 +231,10 @@ inline std::string Handle(const std::string& request) {
   if (caw_cmd) {  // S101 lane 118: an answer of its own (one request, one line; nothing else in the request runs)
     const std::string caw_note = g_caw_live ? g_caw_live(caw_args) : "error: the editor reader is not built in";
     return fmt::format("status: {}\nrun: {:03}\ncaw: {}\n.\n", caw_note.rfind("error", 0) == 0 ? "error" : "ok", run, caw_note);
+  }
+  if (page_cmd) {  // S110 GOTO: an answer of its own (one request, one line)
+    const std::string note = g_page_live ? g_page_live(page_args) : "error: the menu page goto is not built in";
+    return fmt::format("status: {}\nrun: {:03}\npage: {}\n.\n", note.rfind("ok", 0) == 0 ? "ok" : "error", run, note);
   }
   if (director_cmd) {  // S101 lane 161: an answer of its own (one request, one line; not recorded into a replay: a verb of the director is a test aid, not a recording event)
     const std::string note = g_director_live ? g_director_live(director_args) : "error: the situation director is not built in";

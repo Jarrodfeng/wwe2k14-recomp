@@ -35,7 +35,9 @@ def walk(root, exts, tops=('src', 'tools', 'probes')):
                 if f.endswith(exts):
                     fp = os.path.join(dp, f)
                     try:
-                        if os.path.getsize(fp) > MAX_BYTES or os.sep + 'spv' + os.sep in fp:   # SPIR-V headers (up to 12 MB each) hold no hand-written text
+                        # SPIR-V headers (up to 12 MB each) hold no hand-written text. S106 QM: the spv folder's .cpp / small .h stay (fx_spv_data.cpp holds the
+                        # `#include "fx_y*_data.inc"` lines `includers` must find); only its .inc / big .h data files are skipped.
+                        if os.path.getsize(fp) > MAX_BYTES or (os.sep + 'spv' + os.sep in fp and (f.endswith('.inc') or os.path.getsize(fp) > 200_000)):
                             continue
                     except OSError:
                         continue
@@ -389,7 +391,11 @@ def parse_int(q):
 def lit_patterns(q):
     v, kind = parse_int(q)
     if v is None:
-        return [re.compile(re.escape(q.strip().strip('"')))], f'text {q!r}'
+        t = q.strip().strip('"')
+        parts = re.split(r'[\\/]+', t)
+        if sum(1 for x in parts if re.search(r'\w', x)) >= 2:   # a path (two named parts): the separators are one (S108 P4a B3); `\n`, `\d+`, `/foo` stay exact
+            return [re.compile(r'[\\/]+'.join(re.escape(x) for x in parts))], f'text {q!r} (/ and \\ match as one)'
+        return [re.compile(re.escape(t))], f'text {q!r}'
     pats = [re.compile(r"(?<![\w.])0[xX][0']*" + re.escape(format(v, 'x')) + r"[uUlL]*(?![\w.])", re.I)]
     if v >= 0:
         pats.append(re.compile(r"(?<![\w.])" + str(v) + r"(?:[uUlL]+|\.0+f?|f)?(?![\w.])"))
@@ -558,17 +564,19 @@ def print_lit(r, args):
     by = {}
     for h in r['hits']:
         by.setdefault(h['file'], []).append(h)
+    import qcap   # S108 FD: one sizing rule; the trim line names the total and the exact call that gives the rest
+    nshow = qcap.cut_n(len(by), args.limit, getattr(args, 'all', False))     # --all = every line of every file
     shown = 0
     for f, hs in by.items():
+        if shown >= nshow:
+            print('  ' + qcap.trim_line(shown, len(by), 'files', r.get('again') or f'q ours lit {qcap.requote([r["query"]])} --all'))
+            break
         print(f'  {f}  ({len(hs)})')
         for h in (hs if getattr(args, 'all', False) else hs[:3]):
             print(f'    {h["line"]}: {h["text"][:110]}' + (f'   [in {h["func"]}]' if h['func'] else '') + (f'   <{h["kind"]}>' if h.get('kind') else ''))
         if not getattr(args, 'all', False) and len(hs) > 3:
             print(f'    ... {len(hs) - 3} more lines in this file (--all)')
         shown += 1
-        if shown >= args.limit:
-            print(f'  ... {len(by) - shown} more files (--limit; --all lists every line of the files shown)')
-            break
 
 
 # ---------------------------------------------------------------- includes
@@ -647,7 +655,40 @@ def cmd_includers(root, rel):
     return {'file': rel, 'includers': out}
 
 
+def expand_glob(root, spec):
+    """S106 QM: `includers 'src/renderer/shaders/spv/fx_y*_data.inc'` -> the repo-relative files the glob matches (a glob has to name its folder)."""
+    import glob
+    spec = spec.replace('\\', '/')
+    r = root.replace('\\', '/').rstrip('/') + '/'
+    if spec.startswith(r):
+        spec = spec[len(r):]
+    return sorted(rel_of(root, p) for p in glob.glob(os.path.join(root, spec)) if os.path.isfile(p))
+
+
+def cmd_includers_many(root, rels):
+    """S106 QM: the includers of several files in ONE walk of the tree (a glob of .inc data files): every including line, tagged with the target it names."""
+    names = by_name(root)
+    want = {}
+    for rel in rels:
+        want.setdefault(os.path.basename(rel), set()).add(rel)
+    out = []
+    for p in walk(root, CPP):
+        r2 = rel_of(root, p)
+        for i, ln in enumerate(read_lines(p), 1):
+            m = INC.match(ln)
+            if m and os.path.basename(m.group(2)) in want:
+                res = resolve_inc(root, r2, m.group(1), m.group(2), names)
+                tgt = res.split(' ')[0] if res else None
+                if tgt in want[os.path.basename(m.group(2))] and r2 != tgt:
+                    out.append({'file': r2, 'line': i, 'text': ln.strip(), 'target': tgt})
+    out.sort(key=lambda x: (x['file'], x['line']))
+    return {'file': f'{len(rels)} files', 'files': rels, 'includers': out}
+
+
 def print_includers(r, args):
     print(f'{r["file"]}: included directly by {len(r["includers"])} files')
+    if r.get('files'):
+        got = {x['target'] for x in r['includers']}
+        print(f'  ({len(got)} of the {len(r["files"])} matched files are included by something; none: {", ".join(f for f in r["files"] if f not in got)[:300] or "-"})')
     for x in r['includers'][:args.limit * 3]:
         print(f'  {x["file"]}:{x["line"]}  {x["text"]}')

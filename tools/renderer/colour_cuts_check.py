@@ -1,6 +1,6 @@
 r"""S102 lane G10: offline proof of the scene colour pass's LOW cut 1 (src\renderer\colour_cuts.h: a depth-only prepass of the opaque light-mapped arena draws), 0 game runs, 0 Surface runs.
   py -I tools\renderer\colour_cuts_check.py [--root DIR] [--sheet] [--timing] [--only unit|pictures|validation]
-The gate's `bryan` capture (237 frames, scene records) is replayed by rplay under the SHIPPED DEFAULT BUNDLE (the --*-ours switches wwe2k14_app.h turns on, as tools\renderer\colour_pass_rank.py BUNDLE).
+The `bryan` capture (237 frames, scene records) is replayed by rplay under the SHIPPED DEFAULT BUNDLE (the --*-ours switches wwe2k14_app.h turns on, as tools\renderer\colour_pass_rank.py BUNDLE).
   unit        tools\renderer\colour_cuts_test.cpp: the SPIR-V classifier, the alpha rule, the names, the eligibility reasons, the compare mapping + its plant. Exit 1 on any wrong case.
   taken       the cut ON (mask 1) under the default bundle: the summary line says how many colour passes got a prepass and how many draws were pre-drawn. 0 taken = the lever does nothing for
               players = FAIL. (Bryan: one of the two colour passes a frame, 237 of 474.)
@@ -15,7 +15,7 @@ The gate's `bryan` capture (237 frames, scene records) is replayed by rplay unde
   validation  fview --replay --validation 1 --colour-cuts 1 on the same capture (arena / crowd / wrestlers / ring promotions): `validation errors 0` and exit code 0.
   --sheet     writes the before / after sheet (full picture + 1:1 crops of the floor and the wall at 2x) to out\s102\sheets\g10\ with a KEEP file (reason, until 7 days out).
   --timing    the interleaved GPU ms (rplay --arms off=3:0|on=3:1: frame f drawn under arm f % 2, each stamped frame's colour ms kept per arm), 3 runs at scale 1 and 3 at scale 3 (3840x2160:
-              the fragment work lifts above the shared 4090's noise). Informational: the shared PC GPU is too noisy to gate on (the spread is printed).
+              the fragment work lifts above the shared 4090's noise). Informational: the shared PC GPU is too noisy to judge on (the spread is printed).
 Counts and numbers only (hard rule 1); pictures go under out\ only."""
 import argparse, concurrent.futures, datetime, os, re, subprocess, sys, tempfile
 
@@ -246,7 +246,7 @@ def main():
             say('mixed depth direction 0, depth-dependent stencil writer 0' in cut['text'], 'F5/F6: no pass of the Bryan entrance declined for mixed directions or stencil writers (%s)' % re.findall(r'mixed depth direction \d+, depth-dependent stencil writer \d+', cut['text']))
             if a.sheet:
                 sheet(base, cut, root, main_co)
-            # F14: the second arena capture among the gate inputs (tools\gate\inputs.py 'r7149': the Brock entrance caster capture, 375 frames, scene records)
+            # F14: the second arena capture among the check inputs (tools\harness\inputs.py 'r7149': the Brock entrance caster capture, 375 frames, scene records)
             brock = os.path.join(main_co, 'out', 's101', 'lane92', 'case_20261113_093550_855_0_pc_run_exit', 'capture')
             if os.path.isfile(os.path.join(brock, 'images.bin')):
                 bshots = [100, 200, 300, 370]

@@ -1,5 +1,7 @@
 // See live_scene_draw.h. Session 103, lane S.
 #include "live_scene_draw.h"
+#include "rows_inputs.h"   // S106 G4-2
+#include "rows_owned.h"
 #include "load_order.h"   // S105 SKB
 #include "../assets/car_sel.h"   // S103 CAR fix 7
 #include "../thread_name.h"  // S103 H1
@@ -24,6 +26,7 @@
 #include "stage_census.h"   // S103 CPU1: the [host][cpu] census timers
 #include "guest_model_draw.h"   // S103 DLF: guestmodel::Counters (roster signal)
 #include "rf_c.h"   // S103 S (integration): lane C's arena seam (TakeArenaMisses / PutLoadedArena / FailArena / SetOfflineLoad / TakeRetired)
+#include "model_load_report.h"   // S108 AL1: ReportLoadedModel / LoadCensus (the one reader of what the loader could not give)
 
 namespace rdr_scene {
 
@@ -166,6 +169,10 @@ void LiveSceneDraw::NoteLoadLine(bool ask, const std::string& what, const std::s
     load_log_.push_back(std::string("[scene][load] ") + (ask ? "ask #" : "adopted #") + std::to_string((unsigned long long)(i + 1)) + ": " + what + ", key " + key + waited);
 }
 
+void LiveSceneDraw::LiveLiquidImages(std::vector<LiveMapsHook::LiveLiquidImage>& out) const {   // S108 SHOT-A
+  if (live_hooks_ && live_hooks_->maps()) live_hooks_->maps()->LiveLiquidImages(out);
+}
+
 void LiveSceneDraw::AdoptLoaded() {
   if (!live_cache_) return;
   std::vector<Loaded> done;
@@ -184,6 +191,8 @@ void LiveSceneDraw::AdoptLoaded() {
 #endif
     NoteLoadLine(false, std::string(l.ok ? "ok " : "FAILED ") + (l.arena >= 0 ? "arena " + std::to_string(l.arena) : "pac " + l.m.pac + " entry " + l.m.entry + " variant " + std::to_string(l.m.variant)),
                  l.arena >= 0 ? "arena " + std::to_string(l.arena) : l.m.key, l.arena);   // S103 OFFT: the arrival, named (the ask line above carries the same key)
+    if (l.ok)   // S108 AL1: the ONE reader of what the loader could not give (model_load_report.h): dropped parts / an unopened texture pac -> draw_shortfall; textures not found -> a capped plain note
+      ReportLoadedModel(l.arena >= 0 ? "arena " + std::to_string(l.arena) : l.m.pac + " " + l.m.entry + " variant " + std::to_string(l.m.variant), l.model);
     if (l.ok && l.arena >= 0) {   // lane C's arena: split into its family models on the next build
       rf::c::PutLoadedArena(l.arena, std::make_unique<assets::Model>(std::move(l.model)));
       ++loads_ok_;
@@ -197,6 +206,8 @@ void LiveSceneDraw::AdoptLoaded() {
       if (first_load_error_.empty()) first_load_error_ = (l.arena >= 0 ? "arena " + std::to_string(l.arena) : l.m.key) + ": " + l.error;
     }
   }
+  if (!done.empty())   // S108 AL1: the shortfall / note tally, only when it changed (a jump in textures not found is visible)
+    if (const std::string c = LoadCensus(); !c.empty()) rdr::Log("%s", c.c_str());
 #if !WWE2K14_STREAM()
   roster_signal_.Poll(guestmodel::Counters().actors_drawn.load(std::memory_order_relaxed));   // RRS: once per call (a guest frame); S103 DLF: failed bodies the guest rows drew count as guest
 #endif
@@ -475,7 +486,7 @@ bool LiveSceneDraw::DrawLive(const SceneTables& rec, rdr::FrameBuilder& fb, uint
     if (rc_.shadow_first.empty()) rc_.shadow_first = live_hooks_->input().fit_key_why;
   }
   frame.post = post;
-  const LiveTargets t = fe_->OwnTargets(w, h, post != nullptr, LiveParticles::HasSoft(frame.particles));   // S103 PRT: a soft particle batch copies the scene depth: the depth must be stored (not transient); the post output is not made for it
+  const LiveTargets t = fe_->OwnTargets(w, h, post != nullptr || !frame.flashes.empty(), LiveParticles::HasSoft(frame.particles));   // S103 PRT: a soft particle batch copies the scene depth: the depth must be stored (not transient); the post output is not made for it   // S110 CUTGREY: a frame with flash sprites needs the scene depth sampled (the whole-sprite centre test)
   lists_->Tick(rec.header.guest_frame);   // S103 G2: the grace counts guest frames
   fault_color_ = t.color;
   bool recorded = false;
@@ -721,6 +732,7 @@ std::string LiveSceneDraw::Census() const {
   if (fe_) s += " props_bound " + std::to_string((unsigned long long)fe_->props_bound()) + " d1_shadow_nomap " + std::to_string((unsigned long long)fe_->d1_shadow_nomap());   // S103 PMS: floor draws bound to the props map / floor receivers that found no map this frame (the pass without +2)
   if (fe_) s += " " + fe_->WrkCensusLine();   // S103 WRK
   if (fe_) s += " " + fe_->ReflectLine();   // S103 RFL: cubes loaded (name, size), reflect draws, fallbacks
+  if (fe_) s += " " + fe_->FlashLine();   // S110 RDRPREP F3: flash sprites given / drawn / skipped for want of a depth
   if (fe_) s += " plane_bound " + std::to_string((unsigned long long)fe_->plane_bound()) + " plane_wanted_plain " + std::to_string((unsigned long long)fe_->plane_wanted_plain()) + " props_mat_bound " + std::to_string((unsigned long long)fe_->props_mat_bound()) + " char_table_picked " + std::to_string((unsigned long long)fe_->char_table_picked()) + " char_cube_analytic " + std::to_string((unsigned long long)fe_->char_cube_analytic()) + " char_wrinkle_blocked " + std::to_string((unsigned long long)fe_->char_wrinkle_blocked()) + " char_nontable_fallback " + std::to_string((unsigned long long)fe_->char_nontable_fallback()) + " char_mode_unknown " + std::to_string((unsigned long long)fe_->char_mode_unknown()) + " wet_unknown " +std::to_string((unsigned long long)fe_->wet_unknown()) + " wet_bound " + std::to_string((unsigned long long)fe_->wet_bound()) + " wet_no_variant " + std::to_string((unsigned long long)fe_->wet_no_variant()) + " wet_lost_shadow " + std::to_string((unsigned long long)fe_->wet_lost_shadow()) + " time_frozen " + std::to_string((unsigned long long)fe_->time_frozen())
     + " card_factor_missing " + std::to_string((unsigned long long)fe_->card_factor_missing()) + " lm_param [clamped " + std::to_string((unsigned long long)assets::arena_lm::g_clamped.load(std::memory_order_relaxed)) + ", no_table " + std::to_string((unsigned long long)assets::arena_lm::g_no_table.load(std::memory_order_relaxed)) + ", zero_record " + std::to_string((unsigned long long)assets::arena_lm::g_zero.load(std::memory_order_relaxed)) + "]";   // S103 L9 / B3c
   if (lists_) s += " " + lists_->Census();   // S103 G2: the lists' census on the same line (no newline inside)

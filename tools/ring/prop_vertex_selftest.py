@@ -1,4 +1,4 @@
-# Gate check of lane 49 (Session 101): the skinned prop host vertex writer (src\assets\prop_host_vertex.h) against Check B's vertex bytes.
+# Check of lane 49 (Session 101): the skinned prop host vertex writer (src\assets\prop_host_vertex.h) against Check B's vertex bytes.
 #   py -I tools\ring\prop_vertex_selftest.py [--step N]
 # Runs out\tools\prop_vertex_check.exe (built by tools\ring\build_prop_vertex_check.ps1) on the capture of Check B (case zip of run 7051, unpacked once to <main checkout>\out\lane40\brock,
 # the same folder the arena's unit test uses; never committed). Bars: the clean run exits 0; each planted writer fault (colour_order, uv_halves_swapped, bone_zero, weight_word)

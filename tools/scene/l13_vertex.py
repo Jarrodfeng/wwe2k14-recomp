@@ -94,7 +94,7 @@ for di in range(len(fr.draws)):
         P = np.c_[mesh.positions.astype(np.float64), np.ones(n)]
         N = mesh.normal.astype(np.float64)
         C = mesh.colour[:, [1, 2, 3, 0]].astype(np.float64) / 255
-        UV = mesh.uv0.astype(np.float64)
+        UV = mesh.uv1.astype(np.float64)   # S2 (arena_files' uv1): the game's diffuse UV for every mesh (sub_82BD4BE0; S108 BAN3); uv0 there is S1, skin pairs
         idx = mesh.indices.astype(np.int64)
         topo = 4
     else:

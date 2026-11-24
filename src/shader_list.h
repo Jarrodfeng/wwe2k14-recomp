@@ -36,6 +36,7 @@
 #endif
 #include "platform/compat.h"  // GetModuleFileNameW
 
+#include "shader_list_path.h"  // S106 PSEED: ListPath
 #include "game_files.h"
 #include "native_bpe.h"
 #include "xctd_file.h"
@@ -148,15 +149,8 @@ inline bool OpenRecords(const std::filesystem::path& path, const std::vector<uin
 inline void Import(const std::filesystem::path& cache_root) {
   std::string setting = REXCVAR_GET(wwe2k14_shader_list);
   if (setting == "off" || cache_root.empty()) return;
-  std::filesystem::path list_path;
-  if (setting.empty()) {
-    wchar_t buf[MAX_PATH];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    if (!n || n >= MAX_PATH) return;
-    list_path = std::filesystem::path(buf).parent_path() / "shader_list.txt";
-  } else {
-    list_path = setting;
-  }
+  const std::filesystem::path list_path = ListPath(setting);   // S106 PSEED: the rule moved to shader_list_path.h (the host reads the same path for the seed)
+  if (list_path.empty()) return;
   std::ifstream lf(list_path);
   if (!lf) {
     if (!setting.empty()) REXLOG_WARN("[wwe2k14][shaders] no shader list at {}", list_path.string());

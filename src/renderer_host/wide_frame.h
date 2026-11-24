@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "../renderer_adapter/wide_rule.h"
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_quad2d.h"
 
 namespace wwe2k14::scene_host::wide_frame {
 

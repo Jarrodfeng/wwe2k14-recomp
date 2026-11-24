@@ -2,6 +2,7 @@
 #include "renderer.h"
 #include "readback_tracker.h"
 #include "stable_table.h"  // S102 R21-B: programs / layouts never move under Render
+#include "pipeline_seed.h"  // S106 PSEED
 #include "stage_plants.h"  // S102 R21-B: test plants (rplay only)
 #include "present_clear.h"  // S102 G1
 #include "../renderer_adapter/census_flush.h"  // S102 CEN1: a flip phase end prints every lever's census now
@@ -693,6 +694,7 @@ struct Renderer::Impl {
   std::filesystem::path store_dir;
   pstore::DeviceId store_device;
   std::vector<pstore::Record> store_records;
+  uint32_t store_seed_added = 0;                                  // S106 PSEEDF2 N9: seed records merged at boot (pending): StoreNoteBuilt's cap leaves room for them
   std::unordered_map<uint64_t, uint32_t> store_index;             // RecordKey -> record
   std::vector<uint32_t> store_pending;                            // record indices waiting for their prebuild, in the order they were first needed
   size_t store_cursor = 0;
@@ -2639,6 +2641,20 @@ void Renderer::Impl::StoreInit(const RendererOptions& opts, std::vector<uint8_t>
   } else {
     Log("[rdr][pipestore] no list yet (first session on this store)");
   }
+  if (!opts.pipeline_seed_path.empty()) {   // S106 PSEED: the shipped seed (R lines of shader_list.txt): records the player's list lacks join the pending ones
+    std::vector<uint8_t> seed_file;
+    if (pstore::ReadFile(pstore::PathOf(opts.pipeline_seed_path), seed_file, 64ull << 20)) {
+      std::vector<pstore::Record> seed;
+      // S106 PSEED fix B1: the seed's depth slot is a token, swapped here for THIS device's depth format; a record whose colour format the device cannot render to is dropped
+      const pstore::SeedParse sp = pstore::ParseSeedLines(std::string(seed_file.begin(), seed_file.end()), seed, device.caps().multiview, uint16_t(device.caps().depth_format),
+                                                          [this](uint16_t f) { return f != 0 && device.FormatHas(VkFormat(f), VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT); });
+      const pstore::SeedMerge sm = pstore::MergeSeed(store_records, store_index, store_pending, seed);
+      store_seed_added = sm.added;
+      Log("[rdr][pipestore] seed: %u records, %u new, %u already in the list, %u refused%s%s, %u multiview skipped, %u colour format unsupported", sp.lines, sm.added, sm.known, sp.refused, sp.refused ? " (" : "", sp.refused ? (sp.first_refusal + ")").c_str() : "", sp.multiview, sp.unsupported);
+    } else {
+      Log("[rdr][pipestore] seed: %s not readable (no seed)", opts.pipeline_seed_path.c_str());
+    }
+  }
   store_session = list_session + 1;
   if (pstore::ReadFile(store_dir / "pipeline_cache.bin", file, pstore::kMaxCacheBytes + 64)) {
     const uint8_t* blob = nullptr;
@@ -2711,7 +2727,7 @@ void Renderer::Impl::StoreNoteBuilt(const DrawState& state, uint32_t pass_class,
     store_list_dirty = true;
     return;
   }
-  if (store_records.size() >= pstore::kMaxRecords * 2) return;  // far past the cap: the save drops the oldest anyway
+  if (store_records.size() >= pstore::kMaxRecords * 2 + store_seed_added) return;  // far past the cap: the save drops the oldest anyway
   store_index.emplace(key, uint32_t(store_records.size()));
   store_records.push_back(r);
   store_list_dirty = true;
@@ -2859,7 +2875,7 @@ void Renderer::Impl::StoreSave(bool final) {
     written_session = substantial ? store_session : store_session - 1;
     keep.reserve(store_records.size());
     for (pstore::Record r : store_records) {
-      if (r.dead) continue;
+      if (!pstore::SaveKeeps(r)) continue;   // S106 PSEED: dead, or a seed record nobody drew
       if (r.seen > written_session) r.seen = written_session;
       if (written_session - r.seen > pstore::kKeepSessions) continue;
       keep.push_back(r);

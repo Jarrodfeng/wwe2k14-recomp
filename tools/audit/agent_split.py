@@ -8,7 +8,6 @@ def cat(name, inp):
     if name in ('Edit', 'Write', 'NotebookEdit'): return 'edit'
     if name in ('Bash', 'PowerShell'):
         c = (inp.get('command') or '').lower()
-        if 'gate.py' in c: return 'gate'
         if re.search(r'build_\w+\.ps1|build\.ps1|fast_build|ninja|clang|cmake|glslang|spirv|make_spv|cl\.exe|link\.exe', c): return 'build'
         if re.search(r'_check\.py|fview|rplay|rsc_draw|frame_rig|_unit|selftest|_lint|lint\.py|feature_diff|choice_score|choice_predict|_test\.exe|_test\.py|rig\.py|\.exe', c): return 'proof'
         if re.search(r'q\.py|list_function|fields\.py|fold\.py|seq_find|effect_table|select-string|get-content|\bcat\b|\brg\b|grep|findstr|get-childitem|\bls\b|test-path|\bhead\b|\btail\b|\bwc\b|\bsed -n', c): return 'read'
@@ -62,7 +61,7 @@ for f in files:
     rereads = sum(v - 1 for v in read_files.values() if v > 1)
     out.append(dict(first=' '.join(first.split())[:46], t0=lines[0]['timestamp'][5:16], wall=wall, tool_wall=tool_wall, catn=catn, catt=catt, rounds=rounds, rereads=rereads, nread=sum(read_files.values()), top_edit=edits_files.most_common(2)))
 out.sort(key=lambda r: r['t0'])
-cats = ['read', 'edit', 'build', 'proof', 'gate', 'git', 'other']
+cats = ['read', 'edit', 'build', 'proof', 'git', 'other']
 print('%-11s %-46s %5s | calls %s | tool-minutes %s | model-min | re-reads/reads | rounds (turns, units M)' % ('start', 'agent', 'wall', ' '.join('%5s' % c for c in cats), ' '.join('%5s' % c for c in cats)))
 agg = collections.defaultdict(lambda: [collections.Counter(), collections.Counter(), 0.0, 0.0, 0])
 for r in out:

@@ -1,6 +1,9 @@
 // Wrestlers from the live record (Session 103, lane B). See rf_wrestlers.h.
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "rf_wrestlers.h"
+#include "rows_lights.h"   // S106 G4-2
+#include "rows_ring.h"
+#include "bone_tag_rows.h"
 #include "../renderer/problem.h"   // rdr::Log: the game run log (stderr never reaches it)
 #include "body_scale.h"   // S103 W2
 #include "crowd_fast.h"   // S103 CPU1: fast::ParseUInt
@@ -9,6 +12,8 @@
 #include "guest_piece_fade.h"
 #include "piece_alpha.h"   // S103 EYF: the piece's [model+252] row
 #include "detached_piece.h"   // S103 DTP: the owner-mesh row of a piece the game detached
+#include "change_colour_draw.h"   // S108 THR2: the Threads editor's live colours (section 67 -> the frame)
+#include "rows_change_colour.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -259,11 +264,20 @@ static int GuestModelFor(BuildCtx& ctx, size_t obj_index, std::string_view id) {
   return model_id;
 }
 
+// S108 THR2 (change_colour.h Shortfall): the change-colour refusals the hook / record side queued (a body the game recolours that we cannot, a piece drawn apart), said through the
+// shared report once per (kind, object) a run. Drained here, once per frame, because the queueing sides are linked into units that carry no report sink.
+static void ReportChangeColourShortfalls() {
+  std::vector<live::change_colour::Shortfall> got;   // (a local: TakeShortfalls swaps the queue in, so an empty queue allocates nothing; guest_model_unit L5 forbids function-local static containers in rf_*.cpp)
+  live::change_colour::Bodies().TakeShortfalls(got);
+  for (const live::change_colour::Shortfall& s : got) rdr::DrawShortfall(s.kind, s.object.c_str(), 1, 0, "%s", s.detail.c_str());
+}
+
 bool ApplyWrestlers(BuildCtx& ctx) {
   const SceneTables& t = ctx.t;
   SceneFrame& f = ctx.frame;
   g_stats = WrestlerStats{};
   WrestlerStats& st = g_stats;
+  size_t cc_carried = 0;   // S108 THR2: section-67 rows carried into this frame
   // Runtime values (sweat, damage, fades of the shader, the rim map, hair highlights, team colours) are not in the record until lane A's sections land: they stay at the
   // file's value. Named here so the rig's report lists them (never silent). The object's own tint IS in the record and is applied.
   st.at_file_value = "sweat, blood, damage, rim map, hair highlights, reflection cube (front-end rules: SCENE_FRONTEND.md Wrestlers)";
@@ -654,6 +668,8 @@ bool ApplyWrestlers(BuildCtx& ctx) {
     st.hair_pieces_absent += uint32_t(plan.absent.size());
     for (uint32_t ap : plan.absent) f.absent_extras.push_back({uint32_t(f.objects.size()), ap});   // S103 W2B: the front end skips the meshes of this object that skin to the piece's extra nodes
     if (obj_index < t.engine_objects.size() && t.engine_objects[obj_index]) wrk::CarryBody(t, f, uint32_t(f.objects.size()), t.engine_objects[obj_index]);   // S103 WRK: the engine join + the pass mode + the live levels (wrk_join.h)   // S103 SWF: the join key of the body's liquid map
+    if (!t.change_colours.empty() && obj_index < t.engine_objects.size() && t.engine_objects[obj_index])   // S108 THR2: the body's live colours (section 67, by engine object) -> the frame, for its draws
+      cc_carried += change_colour_draw::CarryChangeColour(t.change_colours, f, uint32_t(f.objects.size()), t.engine_objects[obj_index]) ? 1u : 0u;
     f.objects.push_back(c);
     ++st.drawn;
     ++rep.drawn;
@@ -686,6 +702,10 @@ bool ApplyWrestlers(BuildCtx& ctx) {
     }
     if (unnamed) guestmodel::NoteActorDrawn(t.header.guest_frame);   // S103 CW-2 (CAWD: the one counting place; the last-draw frame rides with it)
   }
+  size_t cc_body_rows = 0;   // S108 THB: the entrance props' rows (kCcProp) share the section; rf_props.cpp carries them, so they are not "a body this frame does not draw"
+  for (const ChangeColourRow& r : t.change_colours) cc_body_rows += !(r.flags & kCcProp);
+  if (cc_carried < cc_body_rows) change_colour_draw::Draws().no_engine.fetch_add(cc_body_rows - cc_carried, std::memory_order_relaxed);   // S108 THR2: a row whose body this frame does not draw
+  ReportChangeColourShortfalls();
   ctx.reports.push_back(rep);
   return true;
 }

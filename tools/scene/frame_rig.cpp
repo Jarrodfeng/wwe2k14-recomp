@@ -4,14 +4,20 @@
 //             [--link ID=CHAR:ATTIRE ...] [--see-order game|distance] [--no-hooks] [--synth-camera] [--lists N [--lists-plant | --lists-plant-specular]]
 // Writes OUTPREFIX_whole.png (or _mask<MASK>.png when --families), OUTPREFIX_<family>.png per family with objects (--per-family), OUTPREFIX_map_shadow.png / _map_circles.png
 // when the maps hook made them, and OUTPREFIX_report.txt.
-// A live record carries no camera yet (FRAME_CONTRACT: lane A / S): --camera is the game-space row-vector world -> clip matrix the caller read from the stream's own frame
-// (OFFLINE ONLY: live, the camera must come from a reader at its source). Exit 0 ok, 2 bad record / no camera, 3 failure, 4 a kept-lists draw differed from the plain draw.
+// A live record carries its camera (kScCamera: the composer's copy, mgr +1488 / +1552, src\scene_live\inputs_core.h); --camera is the game-space row-vector world -> clip matrix for a record that has none
+// or a camera of the caller's own (OFFLINE ONLY). Exit 0 ok, 2 bad record / no camera, 3 failure, 4 a kept-lists draw differed from the plain draw.
+// S108 SHOT-B (docs\research\s108\SHOT_plan.md): --subject face:N | wrestler:N | stage:S | prop:ID [,from=front|back|left|right|game][,radius=R] draws a NAMED SUBJECT from a camera built from the record's own positions
+// (tools\scene\subject_cam.h: built in viewer space, handed in through ToGame; DOF off unless --post-dof game); --pick X,Y [--pick X,Y ...] lists EVERY mesh the pixel's ray crosses, front to back (--pick-only: no picture);
+// the record's snapshot sections 68-70 (body scales, liquid images) are applied and reported. Planted twins: --subject-plant no_togame, --pick-plant nearest_only, --snapshot-plant no_body_scale | no_liquid_image.
 //
 // R2 (round 2): the whole panel (and a --families panel) is made the way the live frame is: SeeOrder::Game (the game's see-through order), lane E's maps hook (LiveMapsHook at
 // Stage::Maps, its inputs from BuildMapsInput on the record) and lane F's particle hook (LiveParticles at Stage::AfterBlended, the record's particle tables), exactly as live_scene_draw
 // would attach them; --no-hooks leaves them off. --link names the model of an object whose record carries none (a record taken before lane B's writer): TOLD, labelled in the report,
 // never from the record. --lists is lane G's lists check (the kept draw lists draw the same picture as no lists; ported from rsc_draw, which lost it when it moved onto the library).
 #include "../../src/renderer_scene/body_scale.h"   // S103 W2
+#include "../../src/renderer_scene/rows_snapshot.h"   // S108 SHOT: sections 68-70 (BodyScaleRow, LiquidImageRow)
+#include "../../src/renderer_scene/record_ids.h"      // S108 SHOT-B: ParseArenaId (--subject stage:S, --pick)
+#include "subject_cam.h"                              // S108 SHOT-B: the pure subject resolver and the ray
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -61,12 +67,24 @@
 #include "../../src/renderer_scene/post_from_record.h"   // S103 P2: the rig draws the post the live mirror draws
 #include "../../src/renderer_scene/record_frame.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_circle.h"
+#include "../../src/renderer_scene/rows_crowd.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_liquid.h"
+#include "../../src/renderer_scene/rows_pictures.h"
+#include "../../src/renderer_scene/rows_plane.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 #include "../../src/renderer_scene/rf_c.h"       // S103 D2: SetOfflineLoad
 #include "../../src/renderer_scene/rf_crowd.h"   // S103 D2
 #include "../../src/renderer_scene/rf_wrestlers.h"   // S103 NRBF: WrestlerStatsText
 #include "../../src/renderer_scene/rf_c.h"
 #include "../../src/renderer_scene/see_through_order.h"
 #include "../../src/renderer_scene/stage_look.h"  // S103 L
+// entry: wwe2k14::scene_host::RegisterShaderCatalogFrom (S106 PSEED: the rig's seed proof registers the catalog and prebuilds as SceneHost::Start does, scene_host.cpp:54; the rig has no host)
+#include "../../src/renderer/shaders/spv/fx_registry.h"   // S106 PSEED: rdr::fx::kVariants
+#include "../../src/renderer_host/pipeline_catalog.h"   // S106 PSEED: RegisterShaderCatalogFrom (header-only; the seed proof registers the catalog as scene_host.cpp Start does)
 
 using namespace rdr_scene;
 
@@ -531,6 +549,398 @@ std::vector<uint8_t> LoadRefRgb(const std::string& path, uint32_t& w, uint32_t& 
 }
 }  // namespace
 
+// ---- S108 SHOT-B (docs\research\s108\SHOT_plan.md sections 3, 6, 7): --subject / --pick, the saved snapshot sections ----
+// The resolver and the ray are tools\scene\subject_cam.h (pure). This block gathers what they need from the BuildFrame result (VIEWER space) and from the record, and hands the new camera back in the GAME's space.
+using V3 = wgs::V3;
+struct SubjectOpts {
+  std::string subject;                // --subject text ("" = none)
+  std::vector<std::pair<double, double>> picks;   // --pick X,Y (pixels of --size)
+  bool pick_only = false;
+  std::string subject_plant, pick_plant;   // no_togame | nearest_only
+  std::vector<std::string> synth;   // --synth-wrestler SLOT=CH:ATTIRE[@x,y,z]: a FIXTURE (told, labelled): the body in its bind pose (an identity palette moved by x,y,z game space), for a record with no wrestler (arena_rec)
+};
+
+static std::string IdOf(const SceneTables& t, const Object& o) { return std::string(t.Str(o.id)); }
+static bool IdentityLike(const Mat4& m) { return std::fabs(m.m[0] - 1) < 1e-6f && std::fabs(m.m[5] - 1) < 1e-6f && std::fabs(m.m[10] - 1) < 1e-6f; }
+
+// Section 68 into the body-scale table (a scale TOLD by --body-scales / the environment stays: it was set first), the three sections reported, the plants applied. One line per fact, never a silent skip.
+static std::string ApplySnapshot(SceneTables& t, const std::string& plant) {
+  std::string rep;
+  char b[420];
+  if (const std::string prob = SnapshotProblem(t); !prob.empty()) rep += "snapshot PROBLEM: " + prob + "\n";
+  const bool has = (t.header.flags & kSceneSnapshot) != 0 || !t.body_scales.empty() || !t.liquid_images.empty();
+  if (!has) { rep += "snapshot: none in this record (no sections 68-70): a Live record draws no wrestler without --body-scales, and no accumulated liquid\n"; return rep; }
+  if (plant == "no_body_scale") t.body_scales.clear(), rep += "snapshot PLANT no_body_scale: section 68 dropped\n";
+  if (plant == "no_liquid_image") t.liquid_images.clear(), t.liquid_image_bytes.clear(), rep += "snapshot PLANT no_liquid_image: sections 69 / 70 dropped (the frame's items only)\n";
+  uint32_t applied = 0, told = 0;
+  for (const BodyScaleRow& r : t.body_scales) {
+    if (BodyScaleTable::Get().Find(r.object) > 0.f) { ++told; continue; }
+    BodyScaleTable::Get().Set(r.object, r.scale), ++applied;
+  }
+  std::snprintf(b, sizeof b, "snapshot: body scales %zu (applied %u, already told %u)", t.body_scales.size(), applied, told);
+  rep += b;
+  uint64_t painted = 0;
+  for (const LiquidImageRow& r : t.liquid_images) {
+    const uint8_t* px = t.liquid_image_bytes.data() + r.offset;
+    uint64_t n = 0;
+    for (uint32_t i = 0; i < r.width * r.height; ++i) n += (px[i * 4] | px[i * 4 + 1] | px[i * 4 + 2] | px[i * 4 + 3]) != 0;
+    painted += n;
+  }
+  std::snprintf(b, sizeof b, ", liquid images %zu (painted texels %llu of the image bytes %zu)\n", t.liquid_images.size(), (unsigned long long)painted, t.liquid_image_bytes.size());
+  rep += b;
+  return rep;
+}
+
+struct BodyFind {
+  const Object* rec = nullptr;      // the record's object (game space)
+  const Object* fo = nullptr;       // the frame's object (viewer space; its palette is f.bones[bones_first ..], the body scale in it)
+  const assets::Model* model = nullptr;
+  std::string why;
+};
+static BodyFind FindBody(const SceneTables& t, rf::ModelCache& cache, const SceneFrame& f, int slot) {
+  BodyFind r;
+  const std::string id = "actor:slot:" + std::to_string(slot);
+  for (const Object& o : t.objects)
+    if ((o.flags & kObjSkinned) && IdOf(t, o) == id) { r.rec = &o; break; }
+  if (!r.rec) { r.why = "the record has no skinned object '" + id + "'"; return r; }
+  for (const Object& o : f.objects)
+    if (o.bones_count && IdOf(t, o) == id) { r.fo = &o; break; }
+  if (!r.fo) { r.why = "the frame did not draw '" + id + "' (no palette row: the host did not draw it this frame, or its body scale is unknown: section 68 / --body-scales)"; return r; }
+  std::string why;
+  r.model = cache.Stored(t, r.rec->asset, &why);
+  if (!r.model) r.why = "the body model of '" + id + "' could not be loaded: " + why;
+  return r;
+}
+
+// The meshes of a skinned body that the object shows (the CasterOf walk: the same source numbering as Object::mesh_mask), calling `fn(mesh, ordinal)`.
+template <class F>
+static void EachShownMesh(const assets::Model& m, const Object& o, F fn) {
+  int src = -1, ordinal = -1;
+  for (const assets::Mesh& me : m.meshes) {
+    ++ordinal;
+    if (me.vertices.empty() || me.indices.size() < 3) continue;
+    bool bad = false;
+    for (uint32_t ix : me.indices) bad = bad || ix >= me.vertices.size();
+    if (bad || me.part.rfind("crowd flash", 0) == 0) continue;
+    ++src;
+    if (src < 32 ? !((o.mesh_mask_lo >> src) & 1u) : (src < 64 && !((o.mesh_mask_hi >> (src - 32)) & 1u))) continue;
+    fn(me, ordinal);
+  }
+}
+
+static V3 PickSkinVertex(const assets::Vertex& v, const SceneFrame& f, const Object& o) {
+  V3 acc = {0, 0, 0};
+  double wsum = 0;
+  for (int k = 0; k < 4; ++k) {
+    const double w = double(v.weights[k]);
+    if (w <= 0) continue;
+    const uint16_t bn = v.bones[k];
+    if (bn >= o.bones_count) continue;
+    const V3 p = subj::XformPoint(f.bones[o.bones_first + bn].m, {double(v.pos[0]), double(v.pos[1]), double(v.pos[2])});
+    for (size_t j = 0; j < 3; ++j) acc[j] += w * p[j];
+    wsum += w;
+  }
+  if (wsum <= 0) return subj::XformPoint(o.world.m, {double(v.pos[0]), double(v.pos[1]), double(v.pos[2])});
+  for (size_t j = 0; j < 3; ++j) acc[j] /= wsum;
+  return subj::XformPoint(o.world.m, acc);
+}
+
+// The sampled skinned box of one body (every 8th vertex, its dominant bone: LiveMapsHook::MeasureCasters' rule restricted to one object; blended layers do not count).
+static bool SkinnedBox(const assets::Model& m, const Object& o, const SceneFrame& f, V3& lo, V3& hi, uint32_t& n) {
+  lo = {1e30, 1e30, 1e30}, hi = {-1e30, -1e30, -1e30}, n = 0;
+  EachShownMesh(m, o, [&](const assets::Mesh& me, int) {
+    if (!me.skinned) return;
+    if (me.material >= 0 && size_t(me.material) < m.materials.size() && m.materials[size_t(me.material)].alpha_blend) return;
+    for (size_t vi = 0; vi < me.vertices.size(); vi += 8) {
+      const assets::Vertex& v = me.vertices[vi];
+      uint32_t heavy = 0;
+      for (uint32_t b = 1; b < 4; ++b) if (v.weights[b] > v.weights[heavy]) heavy = b;
+      if (v.bones[heavy] >= o.bones_count) continue;
+      const V3 p = subj::XformPoint(f.bones[o.bones_first + v.bones[heavy]].m, {double(v.pos[0]), double(v.pos[1]), double(v.pos[2])});
+      if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) continue;
+      for (size_t j = 0; j < 3; ++j) lo[j] = std::min(lo[j], p[j]), hi[j] = std::max(hi[j], p[j]);
+      ++n;
+    }
+  });
+  return n > 0;
+}
+
+static std::string TextureOf(const assets::Model& m, const assets::Material& mat) {
+  if (!mat.diffuse_name.empty()) return mat.diffuse_name;
+  return mat.diffuse >= 0 && size_t(mat.diffuse) < m.textures.size() ? m.textures[size_t(mat.diffuse)].name : std::string();
+}
+
+// What the pass gives back: the report text, whether a subject camera was set, and the frame it was built on.
+struct SubjectResult { std::string report; bool ok = true; };
+
+static assets::Matrix ToMatrix(const Mat4& m) { assets::Matrix a; std::memcpy(a.data(), m.m, sizeof(float) * 16); return a; }
+
+// The slot's triangles (all copies: the slot object and its `:r` / `:y` twins) in VIEWER space, wound as drawn (a copy whose world mirrors an odd number of axes swaps two corners). Also the pick meshes of every slot.
+struct SlotGather { std::vector<wgs::Tri> tris; std::vector<std::string> ids; };
+
+static SubjectResult RunSubjectPass(SceneTables& t, rf::ModelCache& cache, uint32_t w, uint32_t h, const SubjectOpts& so, const std::string& snapshot_report) {
+  SubjectResult res;
+  char b[900];
+  std::string err;
+  SceneFrame f0;
+  std::vector<rf::ClassReport> reps;
+  res.report = snapshot_report;
+  for (const std::string& spec : so.synth) {   // FIXTURE: a wrestler body in its bind pose (the palette = identity rows moved by x,y,z), told, never from a record
+    int slot = 0, ch = 0, at = 0;
+    float x = 0, y = 0, z = 0;
+    if (std::sscanf(spec.c_str(), "%d=%d:%d@%f,%f,%f", &slot, &ch, &at, &x, &y, &z) < 3) { res.report += "synth-wrestler FAIL bad spec '" + spec + "' (SLOT=CH:ATTIRE[@x,y,z])\n"; res.ok = false; return res; }
+    AssetRef a;
+    a.kind = uint8_t(AssetKind::Model);
+    char pac[32];
+    std::snprintf(pac, sizeof pac, "pac\\ch\\ch%03d.pac", ch);
+    a.pac = t.AddString(pac);
+    a.entry = t.AddString("model_key:" + std::to_string(ch * 100 + at * 10 + 2));
+    a.variant = uint32_t(at);
+    const uint32_t ai = uint32_t(t.assets.size());
+    t.assets.push_back(a);
+    std::string why;
+    const assets::Model* m = cache.Stored(t, ai, &why);
+    if (!m) { res.report += "synth-wrestler FAIL the body model ch" + std::to_string(ch) + " attire " + std::to_string(at) + " could not be loaded: " + why + "\n"; res.ok = false; return res; }
+    Object o;
+    o.asset = ai, o.flags = kObjVisible | kObjSkinned, o.id = t.AddString("actor:slot:" + std::to_string(slot)), o.world = IdentityMat4();
+    o.bones_first = uint32_t(t.bones.size()), o.bones_count = m->main_bones ? m->main_bones : uint32_t(m->bones.size());
+    Mat4 pal = IdentityMat4();
+    pal.m[12] = x, pal.m[13] = y, pal.m[14] = z;
+    for (uint32_t k = 0; k < o.bones_count; ++k) t.bones.push_back(pal);
+    t.engine_objects.resize(t.objects.size(), 0u);
+    t.engine_objects.push_back(0xA0000000u + uint32_t(slot));   // a told engine address (the key of a section-68 row: --snapshot-fixture 0xA0000000=S)
+    t.objects.push_back(o);
+    res.report += "synth-wrestler FIXTURE (told, not in the record): actor:slot:" + std::to_string(slot) + " = ch" + std::to_string(ch) + " attire " + std::to_string(at) + " in its bind pose, " + std::to_string(o.bones_count) + " nodes\n";
+  }
+  if (!rf::BuildFrame(t, cache, rf::kAllFamilies, w, h, f0, reps, err)) { res.report += "subject: FAIL the pre-pass build: " + err + "\n"; res.ok = false; return res; }
+  const bool live = t.header.source == uint8_t(Source::Live);
+  V3 eye = {double(f0.camera.eye[0]), double(f0.camera.eye[1]), double(f0.camera.eye[2])};
+  uint32_t holes = 0;
+  for (const rf::ClassReport& c : reps) holes += c.holes;
+  SceneFrame fp;   // the frame the pick reads (the subject camera's, else the pre-pass's)
+  const SceneFrame* pf = &f0;
+  subj::Subject sub;
+  subj::Spec spec;
+  if (!so.subject.empty()) {
+    if (!subj::ParseSpec(so.subject, spec, err)) { res.report += "subject: FAIL " + err + "\n"; res.ok = false; return res; }
+    uint32_t drawn_rows = 0, light_refs = 0, change_colour = 0, missing = 0;
+    std::string rows_note;
+    V3 game_dir = {0, 0, -1};
+    if (spec.kind == "face" || spec.kind == "wrestler") {
+      const BodyFind bf = FindBody(t, cache, f0, spec.n);
+      if (!bf.model) { res.report += "subject " + so.subject + ": FAIL " + bf.why + "\n"; res.ok = false; return res; }
+      drawn_rows = 1;
+      light_refs = bf.rec->light_set != 0xFFFFFFFFu ? 1u : 0u;
+      for (const SceneFrame::ChangeColour& cc : f0.change_colours) change_colour += (&f0.objects[cc.object] == bf.fo) ? 1u : 0u;
+      missing = (light_refs ? 0u : 1u);
+      const std::vector<assets::Bone>& bones = bf.model->bones;
+      const int hi = subj::FindBone(bones, "Bip Head"), li = subj::FindBone(bones, "l_mabuta"), ri = subj::FindBone(bones, "r_mabuta");
+      if (hi < 0 || uint32_t(hi) >= bf.fo->bones_count) { res.report += "subject " + so.subject + ": FAIL the model has no 'Bip Head' node inside the palette (" + std::to_string(bones.size()) + " nodes, palette " + std::to_string(bf.fo->bones_count) + ")\n"; res.ok = false; return res; }
+      const auto joint = [&](int k) { return subj::XformPoint(f0.bones[bf.fo->bones_first + uint32_t(k)].m, {double(bones[size_t(k)].bind_world[12]), double(bones[size_t(k)].bind_world[13]), double(bones[size_t(k)].bind_world[14])}); };   // bind translation x the (scaled) palette row
+      const V3 head = joint(hi);
+      const bool lids = li >= 0 && ri >= 0 && uint32_t(li) < bf.fo->bones_count && uint32_t(ri) < bf.fo->bones_count;
+      const V3 l = lids ? joint(li) : head, r = lids ? joint(ri) : head;
+      game_dir = wgs::Norm(wgs::Sub(eye, head));
+      if (spec.kind == "face") sub = subj::FaceSubject(head, lids, l, r, game_dir, spec);
+      else {
+        V3 lo, hi3;
+        uint32_t n = 0;
+        if (!SkinnedBox(*bf.model, *bf.fo, f0, lo, hi3, n)) { res.report += "subject " + so.subject + ": FAIL no skinned vertices of the body are shown\n"; res.ok = false; return res; }
+        V3 fwd{}, eyes{};
+        const bool have_fwd = lids && subj::FaceForward(head, l, r, fwd, eyes);
+        sub = subj::WrestlerSubject(lo, hi3, have_fwd, fwd, game_dir, spec);
+        std::snprintf(b, sizeof b, " (box of %u sampled vertices)", n);
+        rows_note += b;
+      }
+    } else if (spec.kind == "stage") {
+      SlotGather sg;
+      const assets::Model* arena = nullptr;
+      std::string why;
+      bool any_visible = false;
+      for (int pass = 0; pass < 2 && sg.tris.empty(); ++pass) {   // pass 1 = the slot objects the frame hid, when none is visible (said)
+        for (const Object& o : t.objects) {
+          const ArenaId ai = ParseArenaId(t.Str(o.id));
+          if (ai.n == 0 || ai.k != spec.n) continue;
+          if (pass == 0 && !(o.flags & kObjVisible)) continue;
+          if (pass == 0) any_visible = true;
+          if (!arena) {
+            if (o.asset >= t.assets.size()) continue;
+            arena = cache.StoredNamed(std::string(t.Str(t.assets[o.asset].pac)), "arena", 0, &why);
+            if (!arena) break;
+          }
+          ++drawn_rows;
+          light_refs += o.light_set != 0xFFFFFFFFu ? 1u : 0u;
+          sg.ids.push_back(IdOf(t, o));
+          Mat4 world = o.world;
+          assets::Matrix wm = ToMatrix(world);
+          if (live) wm = assets::MirrorY(wm);
+          const double det = double(wm[0]) * (double(wm[5]) * wm[10] - double(wm[6]) * wm[9]) - double(wm[1]) * (double(wm[4]) * wm[10] - double(wm[6]) * wm[8]) + double(wm[2]) * (double(wm[4]) * wm[9] - double(wm[5]) * wm[8]);
+          for (const assets::Mesh& me : arena->meshes) {
+            if (me.src_kind != 1 || me.src_key != spec.n) continue;
+            std::vector<assets::Matrix> xf;
+            if (me.placement >= 0 && size_t(me.placement) < arena->placements.size()) xf = arena->placements[size_t(me.placement)].transforms;
+            if (xf.empty()) xf.push_back(assets::Identity());
+            for (const assets::Matrix& pm : xf) {
+              const assets::Matrix M = assets::Mul(pm, wm);
+              for (size_t i = 0; i + 2 < me.indices.size(); i += 3) {
+                wgs::Tri tr;
+                bool ok = true;
+                for (int j = 0; j < 3 && ok; ++j) {
+                  const uint32_t ix = me.indices[i + size_t(j)];
+                  if (ix >= me.vertices.size()) { ok = false; break; }
+                  tr.p[j] = subj::XformPoint(M.data(), {double(me.vertices[ix].pos[0]), double(me.vertices[ix].pos[1]), double(me.vertices[ix].pos[2])});
+                }
+                if (!ok) continue;
+                if (det < 0) std::swap(tr.p[1], tr.p[2]);   // a mirrored copy's front face is the swapped winding (SCU)
+                sg.tris.push_back(tr);
+              }
+            }
+          }
+        }
+        if (!arena && !why.empty()) break;
+      }
+      if (!arena) { res.report += "subject " + so.subject + ": FAIL " + (why.empty() ? "the record has no stage slot " + std::to_string(spec.n) : "the arena could not be loaded: " + why) + "\n"; res.ok = false; return res; }
+      if (!any_visible && !sg.tris.empty()) rows_note += " (slot hidden in this frame: its rows are drawn from the record anyway)";
+      missing = any_visible ? 0u : 1u;
+      sub = subj::StageSubject(sg.tris, eye, spec);
+      if (!sub.ok) { res.report += "subject " + so.subject + ": FAIL " + sub.why + "\n"; res.ok = false; return res; }
+    } else {   // prop
+      const weapons::WeaponCall* best = nullptr;
+      uint32_t newest = 0;
+      for (const weapons::WeaponCall& c : t.weapon_calls) newest = std::max(newest, c.frame);
+      for (const weapons::WeaponCall& c : t.weapon_calls)
+        if (c.frame == newest && c.id == int32_t(spec.n) && c.node_count >= 1 && size_t(c.node_first) + c.node_count <= t.weapon_nodes.size() && (!best || c.instance < best->instance)) best = &c;
+      if (!best) { res.report += "subject " + so.subject + ": FAIL no weapon / event-prop call with id " + std::to_string(spec.n) + " in the record's newest frame (the game did not draw it, or the record has no section 60 / 61)\n"; res.ok = false; return res; }
+      // S108 (main session, the reviewer's rule-6 answer): no guessed size. The prop's model box is not read here, so a prop subject
+      // is drawn only with a told radius (prop:ID,radius=R); without one it is refused, never framed from a default.
+      if (!(spec.radius > 0)) { res.report += "subject " + so.subject + ": FAIL a prop subject needs radius=R (the prop's model box is not read; no default is guessed)\n"; res.ok = false; return res; }
+      drawn_rows = 1;
+      const float* rw = t.weapon_nodes[best->node_first].rows;   // node 1's c76..c78: row k = (m[k], m[4+k], m[8+k], m[12+k]) of the node's 4x4: the translation is the 4th column
+      V3 pos = {double(rw[3]), double(rw[7]), double(rw[11])};
+      if (live) pos[1] = -pos[1];
+      game_dir = wgs::Norm(wgs::Sub(eye, pos));
+      sub = subj::PropSubject(pos, 60.0, game_dir, spec);
+      rows_note += " (radius told)";
+    }
+    const wgs::Cam cam = subj::CameraOf(sub);
+    const bool to_game = live && so.subject_plant != "no_togame";
+    const subj::GameCam g = to_game ? subj::ToGameCam(cam) : subj::NoToGame(cam);
+    std::memcpy(t.camera.view.m, g.vp, sizeof g.vp);
+    t.camera.proj = IdentityMat4();
+    t.camera.flags = kCamViewIsViewProj;
+    t.camera.eye[0] = g.eye[0], t.camera.eye[1] = g.eye[1], t.camera.eye[2] = g.eye[2];
+    t.camera.fov_y_deg = float(cam.fov), t.camera.near_z = float(cam.near_z), t.camera.far_z = float(cam.far_z);
+    t.has_camera = true;
+    std::snprintf(b, sizeof b, "subject %s target %.1f,%.1f,%.1f radius %.1f forward %.3f,%.3f,%.3f (%s)%s drawn_rows %u light_refs %u change_colour %u missing_draw_rows %u pre-pass_holes %u camera eye %.1f,%.1f,%.1f dist %.1f fov %.0f\n",
+                  so.subject.c_str(), sub.target[0], sub.target[1], sub.target[2], sub.radius, sub.normal[0], sub.normal[1], sub.normal[2], sub.source.c_str(), rows_note.c_str(), drawn_rows, light_refs, change_colour, missing, holes,
+                  cam.eye[0], cam.eye[1], cam.eye[2], cam.dist, cam.fov);
+    res.report += b;
+    res.report += std::string("subject limits: DOF off (--post-dof game keeps the game's), screens = rig feed, game-camera items (crowd LOD, cheap arena, entrance light directions, plane / circle shadow coverage, camera-facing particles) as the game drew them, the camera ") + (to_game ? "built in viewer space and handed in through ToGame" : "handed in UNCONVERTED (planted no_togame, or a non-Live record)") + "\n";
+    if (so.subject_plant == "no_togame") res.report += "subject PLANT no_togame: the camera is handed in without ToGame\n";
+    fp = SceneFrame();
+    if (!rf::BuildFrame(t, cache, rf::kAllFamilies, w, h, fp, reps, err)) { res.report += "subject: FAIL the second build: " + err + "\n"; res.ok = false; return res; }
+    pf = &fp;
+    eye = {double(fp.camera.eye[0]), double(fp.camera.eye[1]), double(fp.camera.eye[2])};
+    float vp2[16];
+    Mul4(fp.camera.view.m, fp.camera.proj.m, vp2);
+    const subj::Px c = subj::Project(vp2, sub.target, int(w), int(h));
+    std::snprintf(b, sizeof b, "subject target pixel %.1f,%.1f of %ux%u (the centre is %.1f,%.1f)\n", c.x, c.y, w, h, w / 2.0, h / 2.0);
+    res.report += b;
+    const bool centred = c.ok && std::fabs(c.x - w / 2.0) <= 0.05 * w && std::fabs(c.y - h / 2.0) <= 0.05 * h;   // the space check: a camera built in the wrong space puts the target elsewhere (the mirror)
+    res.report += std::string("subject check target at the picture centre +-5 %: ") + (centred ? "PASS" : "FAIL") + "\n";
+    if (!centred) res.ok = false;
+  }
+
+  if (!so.picks.empty()) {
+    float vp[16];
+    Mul4(pf->camera.view.m, pf->camera.proj.m, vp);
+    // the pickable geometry: every arena slot object of the record (its meshes x placements x world), every skinned wrestler body of the frame
+    std::vector<subj::PickMesh> meshes;
+    uint32_t unpicked = 0;
+    {
+      std::map<std::string, const assets::Model*> arena_by_pac;
+      for (const Object& o : t.objects) {
+        const ArenaId ai = ParseArenaId(t.Str(o.id));
+        if (ai.n == 0 || !(o.flags & kObjVisible) || o.asset >= t.assets.size()) continue;
+        const std::string pac(t.Str(t.assets[o.asset].pac));
+        auto it = arena_by_pac.find(pac);
+        if (it == arena_by_pac.end()) { std::string why; it = arena_by_pac.emplace(pac, cache.StoredNamed(pac, "arena", 0, &why)).first; }
+        const assets::Model* arena = it->second;
+        if (!arena) continue;
+        assets::Matrix wm = ToMatrix(o.world);
+        if (live) wm = assets::MirrorY(wm);
+        const double det = double(wm[0]) * (double(wm[5]) * wm[10] - double(wm[6]) * wm[9]) - double(wm[1]) * (double(wm[4]) * wm[10] - double(wm[6]) * wm[8]) + double(wm[2]) * (double(wm[4]) * wm[9] - double(wm[5]) * wm[8]);
+        int ordinal = -1;
+        for (const assets::Mesh& me : arena->meshes) {
+          if (me.src_kind != 1 || me.src_key != ai.k) continue;
+          ++ordinal;
+          subj::PickMesh pm;
+          pm.object = IdOf(t, o), pm.part = me.part, pm.ordinal = ordinal, pm.src_record = me.src_record;
+          if (me.material >= 0 && size_t(me.material) < arena->materials.size()) {
+            const assets::Material& mat = arena->materials[size_t(me.material)];
+            pm.shader = mat.shader, pm.texture = TextureOf(*arena, mat), pm.blend = mat.alpha_blend || mat.additive || mat.vertex_alpha_lt255, pm.tested = mat.alpha_test || mat.texel_cutout != 0, pm.cull_back = mat.cull_back;
+          }
+          std::vector<assets::Matrix> xf;
+          if (me.placement >= 0 && size_t(me.placement) < arena->placements.size()) xf = arena->placements[size_t(me.placement)].transforms;
+          if (xf.empty()) xf.push_back(assets::Identity());
+          for (const assets::Matrix& pmx : xf) {
+            const assets::Matrix M = assets::Mul(pmx, wm);
+            for (size_t i = 0; i + 2 < me.indices.size(); i += 3) {
+              V3 q[3];
+              bool ok = true;
+              for (int j = 0; j < 3; ++j) {
+                const uint32_t ix = me.indices[i + size_t(j)];
+                if (ix >= me.vertices.size()) { ok = false; break; }
+                q[j] = subj::XformPoint(M.data(), {double(me.vertices[ix].pos[0]), double(me.vertices[ix].pos[1]), double(me.vertices[ix].pos[2])});
+              }
+              if (!ok) continue;
+              if (det < 0) std::swap(q[1], q[2]);
+              pm.tris.push_back(q[0]), pm.tris.push_back(q[1]), pm.tris.push_back(q[2]);
+            }
+          }
+          meshes.push_back(std::move(pm));
+        }
+      }
+    }
+    for (const Object& fo : pf->objects) {   // wrestler bodies: Stored model + this frame's (scaled) palette
+      const std::string id = IdOf(t, fo);
+      if (fo.bones_count == 0 || id.rfind("actor:slot:", 0) != 0) { if (id.rfind("arena", 0) != 0) ++unpicked; continue; }
+      const Object* rec = nullptr;
+      for (const Object& o : t.objects) if ((o.flags & kObjSkinned) && IdOf(t, o) == id) { rec = &o; break; }
+      std::string why;
+      const assets::Model* m = rec ? cache.Stored(t, rec->asset, &why) : nullptr;
+      if (!m) { ++unpicked; continue; }
+      EachShownMesh(*m, fo, [&](const assets::Mesh& me, int ordinal) {
+        if (!me.skinned) return;
+        subj::PickMesh pm;
+        pm.object = id, pm.part = me.part, pm.ordinal = ordinal, pm.src_record = me.src_record;
+        if (me.material >= 0 && size_t(me.material) < m->materials.size()) {
+          const assets::Material& mat = m->materials[size_t(me.material)];
+          pm.shader = mat.shader, pm.texture = TextureOf(*m, mat), pm.blend = mat.alpha_blend, pm.tested = mat.alpha_test, pm.cull_back = mat.cull_back;
+        }
+        std::vector<V3> pos(me.vertices.size());
+        for (size_t vi = 0; vi < me.vertices.size(); ++vi) pos[vi] = PickSkinVertex(me.vertices[vi], *pf, fo);
+        for (size_t i = 0; i + 2 < me.indices.size(); i += 3)
+          pm.tris.push_back(pos[me.indices[i]]), pm.tris.push_back(pos[me.indices[i + 1]]), pm.tris.push_back(pos[me.indices[i + 2]]);
+        meshes.push_back(std::move(pm));
+      });
+    }
+    std::snprintf(b, sizeof b, "pick: %zu meshes gathered (arena slot objects + wrestler bodies); NOT pickable: %u other drawn object(s) (ring, props, crowd, particles)\n", meshes.size(), unpicked);
+    res.report += b;
+    for (const auto& pxy : so.picks) {
+      const subj::Ray ray = subj::PixelRay(vp, int(w), int(h), pxy.first + 0.5, pxy.second + 0.5);
+      std::snprintf(b, sizeof b, "pick pixel %.0f,%.0f of %ux%u:\n", pxy.first, pxy.second, w, h);
+      res.report += b;
+      if (!ray.ok) { res.report += "  pick FAIL: the camera matrix cannot be inverted\n"; continue; }
+      const std::vector<subj::Hit> hits = subj::PickAll(ray, meshes, eye, so.pick_plant == "nearest_only");
+      if (so.pick_plant == "nearest_only") res.report += "  pick PLANT nearest_only: only the nearest hit is kept\n";
+      if (hits.empty()) res.report += "  pick: nothing is crossed at this pixel (the sky / the clear colour, or a family the pick does not cover)\n";
+      for (size_t k = 0; k < hits.size(); ++k) res.report += "  " + subj::HitLine(hits[k], meshes[hits[k].mesh], k + 1) + "\n";
+    }
+  }
+  return res;
+}
+
 static int RunJob(int argc, char** argv, Shared& sh) {
   std::string rec, game, prefix, write_record;
   std::string body_scales_arg;   // S103 PS1: --body-scales "0xOBJECT=s,id=s" (per job; the one-shot reads WWE_RIG_BODY_SCALES)
@@ -539,6 +949,9 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   std::string metrics_out, cov_store_key, cov_from_key;           // --metrics-out FILE.json, --metrics-cov-store KEY, --metrics-cov-from KEY
   std::string metrics_device = std::getenv("WWE_RIG_METRICS") ? std::getenv("WWE_RIG_METRICS") : "gpu";   // S103 PS1: --metrics-device gpu | cpu | both (both: measure twice, FAIL when the GPU and the CPU disagree)
   std::string l2_dump_arg;       // S103 PS1: --l2-dump FILE: the composed page (WWE_RDR_L2_DUMP) for THIS job
+  SubjectOpts subject_opts;      // S108 SHOT-B: --subject / --pick / --pick-only / the plants
+  std::string snapshot_fixture;
+  std::string post_dof_arg, snapshot_plant;  // S108 SHOT-B: --post-dof off|game (default: off with --subject, game without), --snapshot-plant no_body_scale | no_liquid_image
   uint32_t w = 1280, h = 720, mask = rf::kAllFamilies;
   bool probe = false, probe_fault = false;  // S103 F: --particles-probe [--particles-probe-fault no_mirror]
   std::vector<std::string> also_rec, also_cam, also_eye;   // S103 D2: further records drawn in the SAME process after the first (cross-frame state of the hooks)
@@ -561,6 +974,10 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   std::vector<float> cam, eye, cam_view, stream_vp;
   float cam_fov = 0.f, cam_near = 0.f, cam_far = 0.f;
   std::vector<std::string> links, piece_links;
+  std::string pipeline_store_arg;   // S106 PSEED: --pipeline-store DIR (the renderer's own store: its list is the census; fixed by the first job of a process)
+  std::string pipeline_seed_arg;    // S106 PSEED
+  uint32_t census_maps = 0;         // S106 PSEED: --census-maps N (FrontEndOptions::census_maps)
+  int census_char_mode = -1;        // S106 PSEED: --census-char-mode N (0 or 2)
   bool piece_plant_hide = false;   // S103 NRB
   std::vector<StageLookRow> look_rows;  // S103 L
   bool flat_feed = false;               // WGS DIM1: --flat-feed
@@ -663,6 +1080,10 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     else if (a == "--async-crowd") async_crowd = true;   // S103 D2: the crowd's bodies load on the worker (the live path): builds answer "miss" until resident
     else if (a == "--plant-crowd" && i + 1 < argc) plant_crowd = argv[++i];        // S103 D2: palettes | cards_black | hidden | cards_back | inst_first
     else if (a == "--link" && i + 1 < argc) links.push_back(argv[++i]);
+    else if (a == "--pipeline-store" && i + 1 < argc) pipeline_store_arg = argv[++i];   // S106 PSEED
+    else if (a == "--pipeline-seed" && i + 1 < argc) pipeline_seed_arg = argv[++i];   // S106 PSEED: a shader_list.txt whose R lines seed the store (the loader proof, tools\renderer\pseed_proof.py)
+    else if (a == "--census-maps" && i + 1 < argc) census_maps = uint32_t(std::atoi(argv[++i]));   // S106 PSEED
+    else if (a == "--census-char-mode" && i + 1 < argc) census_char_mode = std::atoi(argv[++i]);   // S106 PSEED
     else if (a == "--piece-link" && i + 1 < argc) piece_links.push_back(argv[++i]);   // S103 NRB
     else if (a == "--piece-link-plant-hide") piece_plant_hide = true;                  // S103 NRB plant
     else if (a == "--no-hooks") no_hooks = true;
@@ -670,7 +1091,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     else if (a == "--plane-told" && i + 1 < argc) plane_told_path = argv[++i];   // S103 L9
     else if (a == "--liquid-told" && i + 1 < argc) liquid_told_path = argv[++i];   // S103 SWF
     else if (a == "--wrk-told" && i + 1 < argc) wrk_told = ParseFloats(argv[++i]);   // S103 WRK: the six g_fWklLv0..5 (+ eight g_fIdMapLv0..7) every wrestler body is told (a capture's record has no kScParamOverrides rows)
-    else if (a == "--wrk-off") assets::g_wrk_live.store(false);   // S103 WRK: the switch OFF (the picture before the lane)
+    else if (a == "--wrk-off") assets::g_wrk_live.store(false);   // S103 WRK: the switch OFF (the picture before the lane)   // RIG-ONLY: the offline rig has no game start; --wrk-off is the "before" arm of the WRK proof
     else if (a == "--liquid-plant" && i + 1 < argc) {   // S103 SWF: off | unbound | no_prev | mask_white (comma list): the planted twins (liquid_switch.h Plants)
       std::string v = argv[++i];
       auto& pl = rdr_scene::liquid_map::Plants();
@@ -707,6 +1128,19 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     else if (a == "--metrics-cov-store" && i + 1 < argc) cov_store_key = argv[++i];
     else if (a == "--metrics-cov-from" && i + 1 < argc) cov_from_key = argv[++i];
     else if (a == "--l2-dump" && i + 1 < argc) l2_dump_arg = argv[++i];
+    else if (a == "--subject" && i + 1 < argc) subject_opts.subject = argv[++i];   // S108 SHOT-B
+    else if (a == "--pick" && i + 1 < argc) {
+      double px = 0, py = 0;
+      if (std::sscanf(argv[++i], "%lf,%lf", &px, &py) != 2) { std::fprintf(stderr, "bad --pick (X,Y)\n"); return 1; }
+      subject_opts.picks.push_back({px, py});
+    }
+    else if (a == "--pick-only") subject_opts.pick_only = true;
+    else if (a == "--synth-wrestler" && i + 1 < argc) subject_opts.synth.push_back(argv[++i]);
+    else if (a == "--snapshot-fixture" && i + 1 < argc) snapshot_fixture = argv[++i];   // ADDR=S[,ADDR=S]: FIXTURE rows of section 68 (with --write-record: a record that has the sections, for the plants' proof)
+    else if (a == "--post-dof" && i + 1 < argc) { post_dof_arg = argv[++i]; if (post_dof_arg != "off" && post_dof_arg != "game") { std::fprintf(stderr, "bad --post-dof (off | game)\n"); return 1; } }
+    else if (a == "--subject-plant" && i + 1 < argc) { subject_opts.subject_plant = argv[++i]; if (subject_opts.subject_plant != "no_togame") { std::fprintf(stderr, "bad --subject-plant (no_togame)\n"); return 1; } }
+    else if (a == "--pick-plant" && i + 1 < argc) { subject_opts.pick_plant = argv[++i]; if (subject_opts.pick_plant != "nearest_only") { std::fprintf(stderr, "bad --pick-plant (nearest_only)\n"); return 1; } }
+    else if (a == "--snapshot-plant" && i + 1 < argc) { snapshot_plant = argv[++i]; if (snapshot_plant != "no_body_scale" && snapshot_plant != "no_liquid_image") { std::fprintf(stderr, "bad --snapshot-plant (no_body_scale | no_liquid_image)\n"); return 1; } }
   }
   {  // S103 W2: the offline rig has no game stream, so the body scales the live WrestlerCore would measure come in by env (frame_rig.py runs w2_skin_path_check --scales on the capture's own stream draws):
      // "0xOBJECT=s,0xOBJECT=s". A Live record's wrestler with no scale stays a hole (the real rule: rf_wrestlers.cpp). S103 PS1: per job by --body-scales (a serve process starts every job from an empty table).
@@ -723,6 +1157,35 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   SceneTables t;
   std::string err;
   if (!ReadRecord(rec, t, err)) { std::fprintf(stderr, "frame_rig: FAIL bad record: %s\n", err.c_str()); return 2; }
+  if (!snapshot_fixture.empty()) {   // FIXTURE (told): section-68 rows for a record that has none (written by --write-record; the saver of a game run writes the real ones)
+    size_t at = 0;
+    while (at < snapshot_fixture.size()) {
+      size_t end = snapshot_fixture.find(',', at);
+      if (end == std::string::npos) end = snapshot_fixture.size();
+      const std::string item = snapshot_fixture.substr(at, end - at);
+      const size_t eq = item.find('=');
+      if (eq == std::string::npos) { std::fprintf(stderr, "bad --snapshot-fixture ADDR=S | img=MAP:W:H:PAINTED [, ...]\n"); return 1; }
+      if (item.rfind("img=", 0) == 0) {   // a liquid image row (section 69): MAP, W x H, the first PAINTED texels painted (RGBA8 mip 0)
+        unsigned map = 0, iw = 0, ih = 0, painted = 0;
+        if (std::sscanf(item.c_str() + 4, "%i:%u:%u:%u", &map, &iw, &ih, &painted) != 4 || !iw || !ih || iw > 4096 || ih > 4096 || painted > iw * ih) { std::fprintf(stderr, "bad --snapshot-fixture img=MAP:W:H:PAINTED\n"); return 1; }
+        LiquidImageRow lr;
+        lr.map = map, lr.width = iw, lr.height = ih, lr.nbytes = iw * ih * 4, lr.offset = t.liquid_image_bytes.size();
+        t.liquid_image_bytes.resize(t.liquid_image_bytes.size() + lr.nbytes, 0);
+        for (unsigned px = 0; px < painted; ++px) t.liquid_image_bytes[lr.offset + px * 4] = 200, t.liquid_image_bytes[lr.offset + px * 4 + 3] = 255;
+        t.liquid_images.push_back(lr);
+        at = end + 1;
+        continue;
+      }
+      BodyScaleRow r;
+      r.object = uint32_t(std::strtoul(item.c_str(), nullptr, 0)), r.scale = std::strtof(item.c_str() + eq + 1, nullptr);
+      t.body_scales.push_back(r);
+      at = end + 1;
+    }
+    t.header.flags |= kSceneSnapshot;
+    t.snapshot_seen |= kSnapSeenScales | kSnapSeenImages | kSnapSeenBytes;
+  }
+  const std::string snapshot_report = ApplySnapshot(t, snapshot_plant);  // S108 SHOT-B: section 68 into the body-scale table (told scales stay), sections 68-70 reported
+  if (subject_opts.subject.empty() && subject_opts.picks.empty()) std::fputs(snapshot_report.c_str(), stderr);   // (a subject / pick pass prints it with its own report)
   if (body_scale_one)   // S103 L9
     for (uint32_t addr : t.engine_objects) BodyScaleTable::Get().Set(addr, 1.0f);
   t.stage_look.insert(t.stage_look.end(), look_rows.begin(), look_rows.end());  // S103 L
@@ -894,6 +1357,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   }
 
   FrontEndOptions fo;
+  fo.census_maps = census_maps, fo.census_char_mode = census_char_mode;   // S106 PSEED (the census arms; tool only)
   if (const char* v = std::getenv("WWE_RDR_NO_TEXTURES")) fo.textures = std::atoi(v) == 0;
   if (const char* sb = std::getenv("WWE_RDR_SKIP_BLANK_PLANE")) rdr_scene::g_skip_blank_plane.store(std::strcmp(sb, "0") != 0);   /* S103 SLV2: "0" turns the rule OFF, anything else on */   // RIG-ONLY: S103 SLV (slv_check.py): the blank plane rule on (the game start stores it from wwe2k14_rdr_skip_blank_plane, start_settings.cpp)
   if (const char* pco = std::getenv("WWE_RDR_PROPS_CASTERS")) rdr_scene::props_casters::g_on.store(std::strcmp(pco, "0") != 0);   // RIG-ONLY: S103 PM2: "0" = the props map without its prop casters (the switch's off arm)
@@ -925,8 +1389,15 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     rdr::RendererOptions ro;
     if (const char* v = std::getenv("WWE_RDR_VALIDATION")) ro.validation = std::atoi(v);
     ro.render_scale = a1_scale;   // S105 A1
+    ro.pipeline_seed_path = pipeline_seed_arg;
+    ro.pipeline_store_dir = pipeline_store_arg;   // S106 PSEED: the renderer's own store (empty = off); saved at the renderer's shutdown (Shutdown -> StoreSave), the census list
     sh.renderer = rdr::Renderer::Create(ro, err);
     if (!sh.renderer) { std::fprintf(stderr, "frame_rig: FAIL renderer: %s\n", err.c_str()); return 3; }
+    if (!pipeline_seed_arg.empty() && sh.renderer->pipeline_store_active()) {   // S106 PSEED proof P2: the stream-free host's catalog registration (scene_host.cpp Start), then every pending record built at once (the prepare boot)
+      const size_t n = wwe2k14::scene_host::RegisterShaderCatalogFrom(*sh.renderer, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + own
+      const size_t built = sh.renderer->PrebuildPipelines(0);
+      std::fprintf(stderr, "frame_rig: seed proof: catalog %zu shaders, %zu pipelines prebuilt before the first frame\n", n, built);
+    }
     sh.built = true, sh.built_scale = a1_scale;
   }
   auto& renderer = sh.renderer;
@@ -1033,7 +1504,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
       std::snprintf(line, sizeof line, "async crowd: first build missed %u, %u builds were a miss before the frame became whole (build %u)\n", first_misses, miss_builds, build_n);
       report += line;
     }
-    std::map<std::string, std::vector<uint8_t>> panel_store;   // S103 PS1: this job's panels (RGBA8, w * h) for the metrics
+    std::map<std::string, std::vector<uint8_t>> panel_store;  // S103 PS1: this job's panels (RGBA8, w * h) for the metrics
     struct Run { std::string name; uint32_t mask; };
     std::vector<Run> runs;
     if (have_mask) { char n[32]; std::snprintf(n, sizeof n, "mask%u", mask); runs.push_back({n, mask}); }
@@ -1076,8 +1547,20 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     if (std::getenv("WWE_RDR_PARTICLE_FIXTURE") || !t.particles.empty()) { rdr_scene::live::particles::NameIndex sprite_idx; std::string se; if (!BuildParticleSprites(game, sprite_idx, se)) report += "particle sprites: " + se + "\n"; }   // S103 F5: the decoded sprites, built once here (live: on the namer worker)
     FrameHooks hooks(*renderer, cache, ho);   // (made before the first Get: it turns the wrestlers' CPU copies on)
     if (hooks.maps()) hooks.maps()->SetBlockingLoads(true), hooks.maps()->SetGameRoot(game);   // S103 B2F: the rope proxy's arena pac
+    if (!subject_opts.subject.empty() || !subject_opts.picks.empty() || !subject_opts.synth.empty()) {   // S108 SHOT-B: the subject pre-pass (one BuildFrame with the record's own camera, the resolver, the new camera) and the pick. After the hooks exist: they turn the wrestlers' CPU copies on before the first Get
+      const SubjectResult sr = RunSubjectPass(t, cache, w, h, subject_opts, snapshot_report);
+      report += sr.report;
+      std::fputs(sr.report.c_str(), stdout);
+      std::fflush(stdout);
+      if (!sr.ok) { std::fprintf(stderr, "frame_rig: FAIL the subject pass (see above)\n"); return 3; }
+      if (subject_opts.pick_only) {
+        FILE* pf = std::fopen((prefix + "_pick.txt").c_str(), "wb");
+        if (pf) { std::fputs(sr.report.c_str(), pf); std::fclose(pf); }
+        return 0;
+      }
+    }
     SeeOrder used = see_order;
-    SeeOrderFromEnv(used);                    // the front-end reads WWE_RDR_ORDER over the frame's own choice: say what it will ACTUALLY use
+    SeeOrderFromEnv(used);                   // the front-end reads WWE_RDR_ORDER over the frame's own choice: say what it will ACTUALLY use
     std::snprintf(line, sizeof line, "see_order requested %s used %s hooks %s\n", see_order == SeeOrder::Game ? "game" : "distance", used == SeeOrder::Game ? "game" : "distance", ho.maps ? "maps+particles" : "off");
     report += line;
     for (const Run& r : runs) {
@@ -1121,6 +1604,10 @@ static int RunJob(int argc, char** argv, Shared& sh) {
             if (ps == "bloom_off" || ps == "all_off") post_store.bloom = false, post_store.glare = false, post_store.dead_bloom = true, post_store.dead_glare = true;
             if (ps == "fog_off" || ps == "all_off") post_store.fog = false;
             if (ps == "glare_off")post_store.glare = false, post_store.dead_glare = true;
+          }
+          if ((post_dof_arg.empty() ? !subject_opts.subject.empty() : post_dof_arg == "off") && post_store.dof) {   // S108 SHOT-B: DOF is off in a subject shot (its focus / near / far are the GAME camera's, post_from_record.cpp:112); --post-dof game keeps it
+            post_store.dof = false;
+            report += "post_dof off (subject shot: the game's depth-of-field focus is not this camera's; --post-dof game keeps it)\n";
           }
           f.post = &post_store;
         }

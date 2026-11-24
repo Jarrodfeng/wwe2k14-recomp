@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 r"""cvar_pp (lane LNK round 3, 2026-11-20): what each game unit REALLY compiles of the cvars, asked of the real preprocessor, not modelled.
 
-For each (unit, mode) of the game target the unit's own compile command (the configured build's flags, pointed at the tree: tools\gate\game_syntax.py flags_for / tree_args /
+For each (unit, mode) of the game target the unit's own compile command (the configured build's flags, pointed at the tree: tools\compile\game_syntax.py flags_for / tree_args /
 with_pch, the same command lines the syntax check uses) runs with `-E -fdirectives-only` in place of the compile: clang resolves every #if / #include exactly (values, the SDK's
 macros, guard-less headers, `#include MACRO`, a unit's own #define of its mode macro) and leaves macro INVOCATIONS unexpanded, so the text still holds `REXCVAR_DEFINE_*(name`,
 `REXCVAR_DECLARE(type, name)`, `REXCVAR_GET(name)` / `REXCVAR_SET(name`. Those, plus a hand-written `FLAGS_<name>_storage_() {` (an inline definition) and a call of a macro whose
 body reads a literal cvar (src\replay_guard.h W3_GUARD_TEST_FRAME), are what this scans. Directive lines and string literals are not scanned (clang already drops comments).
 
 Units: the game target per the TREE's lists (CMakeLists.txt `set(WWE2K14_SOURCES ...)` + `target_sources(wwe2k14 ...)`, minus tools\scene\keep_stream_sources.txt in the OFF
-build, plus keep_stream_off_sources.txt there). A unit the configured build compiles uses its own flags; one it does not compile and the main checkout's CMakeLists.txt does not
-name either (new in this tree) borrows src\start_settings.cpp's (as game_syntax does); one the main CMakeLists.txt names that the configured build skips is NOT JUDGED (a platform
-branch). A unit whose preprocess fails is BLOCKED (its first error line), never clean. Mode 2 ("ON tool build"): an OFF-only game unit that a tool build compiles in ON
-(tools\**\build*.ps1 / .bat, a gate lane json with --syntax naming it), preprocessed with start_settings.cpp's ON flags; only its undeclared reads are judged (S103 SCS).
+build, plus keep_stream_off_sources.txt there). A unit the configured build compiles uses its own flags; one it does not compile and the TREE's CMakeLists.txt does not
+name either (new in this tree) borrows src\start_settings.cpp's (as game_syntax does); one the tree's CMakeLists.txt names that the configured build skips is NOT JUDGED (a platform
+branch; S106 GSMAINF N12: the configured builds are the tree's own configure, so its CMakeLists decides). A unit whose preprocess fails is BLOCKED (its first error line), never clean. Mode 2 ("ON tool build"): an OFF-only game unit that a tool build compiles in ON
+(tools\**\build*.ps1 / .bat), preprocessed with start_settings.cpp's ON flags; only its undeclared reads are judged (S103 SCS).
 
 Cache (scratch, <main>\out\cvar_pp\): per (unit, mode, the placeholder-normalised command line, the clang): the result and the files the output's own `# N "file"` markers name, each
 with a stamp (a tree file: its content hash, so worktrees and the base tree share entries; any other file: size + mtime). A re-run preprocesses only units whose stamps changed.
@@ -28,11 +28,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, '..', 'gate'))
+sys.path.insert(0, os.path.join(HERE, '..', 'compile'))
 sys.path.insert(0, os.path.join(HERE, '..', 'admit'))
 import admit_py as _admit   # noqa: E402  (the machine-wide compile queue: tools\admit\admit_py.py)
 
-SCAN_VERSION = 'lnk3-6'
+SCAN_VERSION = 'lnk3-8'   # 7: EXEB-B1 adds res['hook']; 8: its review: hooks through a macro that calls a hook macro, with ## pasted (nf/reg_save.h)
 T_PP = 300
 KIND = 'cvar.pp'
 STUB_ENV = 'HBK_CVAR_STUB_FLAGS'   # check_selftest.py only: a scratch tree's flags (-I<tree>/src -I<tree>/sdk, the mode define); never set by a real run
@@ -43,6 +43,9 @@ STORAGE = re.compile(rb'\bFLAGS_([A-Za-z_]\w*?)_storage_\s*\(\s*\)\s*(\{)?')
 MARKER = re.compile(rb'^# \d+ "((?:[^"\\]|\\.)*)"', re.M)
 DEF_LINE = re.compile(rb'^\s*#\s*define\s+(\w+)(\([^)]*\))?(.*)$')
 STRING = re.compile(rb'"(?:[^"\\\n]|\\.)*"')
+# EXEB-B1: a hook definition's first argument (the guest function it replaces): REX_HOOK_RAW(sub_X) { ... } / REX_HOOK(name, fn) / REX_STUB* / REX_EXPORT*
+HOOK = re.compile(rb'\bREX_(?:HOOK_RAW|HOOK|STUB\w*|EXPORT\w*)\s*\(\s*([A-Za-z_]\w*)')
+HOOK_DEF = re.compile(rb'^[ \t]*#[ \t]*define[ \t]+(\w+)(\([^)]*\))?', re.M)
 
 
 def _clang():
@@ -115,8 +118,131 @@ def _args(text, start):
     return None
 
 
+def scan_hooks(out):
+    """{guest function name: definitions} of one preprocessed text: every REX_HOOK_RAW( / REX_HOOK( / REX_STUB*( / REX_EXPORT*( outside a directive, plus each call of a macro of ours
+    whose #define body (continuation lines joined) holds one, directly or through another such macro (src\\nf\\reg_save.h: WWE2K14_REG_HOOKS(n) -> WWE2K14_REG_HOOK(name, fn, n) ->
+    REX_HOOK_RAW(name##n)): the call's arguments are put in for the parameters and `##` is pasted, so the name is the guest function's own. EXEB-B1: a function hooked by two
+    units of one build is a duplicate symbol (or a silent override) at link."""
+    hooks = {}
+    n_out = len(out)
+
+    def line_of(pos):
+        s = out.rfind(b'\n', 0, pos) + 1
+        e = out.find(b'\n', pos)
+        return s, (len(out) if e < 0 else e)
+
+    def logical_start(s):
+        """start of the logical line that holds the line starting at s (a #define's continuation lines)."""
+        while s > 0:
+            ps = out.rfind(b'\n', 0, s - 1) + 1
+            if out[ps:s - 1].rstrip(b' \t\r').endswith(b'\\'):
+                s = ps
+            else:
+                break
+        return s
+
+    def logical_end(e):
+        """end of the logical line whose physical line ends at e."""
+        while e < n_out and out[out.rfind(b'\n', 0, e) + 1:e].rstrip(b' \t\r').endswith(b'\\'):
+            n = out.find(b'\n', e + 1)
+            e = n_out if n < 0 else n
+        return e
+
+    def directive_at(pos):
+        """the #define match of the directive (logical line, continuations included) that holds pos; True for another directive; None outside one."""
+        ls = logical_start(line_of(pos)[0])
+        if not out[ls:ls + 400].lstrip().startswith(b'#'):
+            return None
+        return HOOK_DEF.match(out, ls) or True
+
+    wrappers = {}   # name -> (function-like, [parameter names], body with its continuations joined, offset after the define, offset of its #undef or the end)
+
+    def add_wrapper(d):
+        name = d.group(1)
+        if name.startswith(b'REX_') or name in wrappers:   # the SDK's own hook macros; a redefinition keeps the first (its scope ends at its #undef)
+            return False
+        end = logical_end(line_of(d.start())[1])
+        params = [p.strip().decode() for p in (d.group(2) or b'()')[1:-1].split(b',') if re.match(rb'^\s*[A-Za-z_]\w*\s*$', p)]
+        undef = n_out
+        undef_line = re.compile(rb'\s*#\s*undef\s+' + re.escape(name) + rb'(?![A-Za-z0-9_])')
+        for i in occurrences(name, end):
+            s = line_of(i)[0]
+            if undef_line.match(out, s):
+                undef = s
+                break
+        wrappers[name] = (bool(d.group(2)), params, re.sub(rb'\\\r?\n', b' ', out[d.end():end]), end, undef)
+        return True
+
+    def occurrences(name, a=0, b=None):
+        """offsets of `name` as a whole word in out[a:b] (bytes.find, not a regex: the text is 60-90 MB and this runs per wrapper)."""
+        b = n_out if b is None else b
+        i = out.find(name, a, b)
+        while i >= 0:
+            j = i + len(name)
+            if not (i and (out[i - 1:i].isalnum() or out[i - 1:i] == b'_')) and not (out[j:j + 1].isalnum() or out[j:j + 1] == b'_'):
+                yield i
+            i = out.find(name, j, b)
+
+    def word(name):
+        return re.compile(rb'(?<![A-Za-z0-9_])' + re.escape(name) + rb'(?![A-Za-z0-9_])')
+
+    for m in HOOK.finditer(out):
+        d = directive_at(m.start())
+        if d is None:
+            nm = m.group(1).decode()
+            hooks[nm] = hooks.get(nm, 0) + 1
+        elif d is not True:
+            add_wrapper(d)
+    todo = list(wrappers)   # a macro whose body calls a wrapper is one too, to a fixed point
+    while todo:
+        w = todo.pop()
+        for i in occurrences(w):
+            d = directive_at(i)
+            if d is not None and d is not True and d.group(1) != w and add_wrapper(d):
+                todo.append(d.group(1))
+
+    def call_args(text, j, end):
+        """the arguments of a function-like call whose name ends at text[j]; None when no '(' follows on the line or the call is unbalanced there."""
+        k = j
+        while k < end and text[k:k + 1] in (b' ', b'\t'):
+            k += 1
+        return _args(text[k:end], 0) if text[k:k + 1] == b'(' else None
+
+    def expand(w, args, depth):
+        fnlike, params, body = wrappers[w][:3]
+        if fnlike and params:
+            amap = {p.encode(): (args[i] if args and i < len(args) else b'') for i, p in enumerate(params)}
+            body = re.sub(rb'(?<![A-Za-z0-9_])(' + b'|'.join(re.escape(p) for p in amap) + rb')(?![A-Za-z0-9_])', lambda m: amap[m.group(1)], body)
+        body = re.sub(rb'[ \t]*##[ \t]*', b'', body)
+        for m in HOOK.finditer(body):
+            nm = m.group(1).decode()
+            hooks[nm] = hooks.get(nm, 0) + 1
+        if depth >= 8:
+            return
+        for v in wrappers:
+            if v == w:
+                continue
+            for m in word(v).finditer(body):
+                vargs = call_args(body, m.end(), len(body)) if wrappers[v][0] else None
+                if wrappers[v][0] and vargs is None:
+                    continue
+                expand(v, vargs, depth + 1)
+
+    for w, (fnlike, _params, _body, a, b) in wrappers.items():
+        for i in occurrences(w, a, b):
+            if directive_at(i) is not None:
+                continue
+            args = None
+            if fnlike:
+                args = call_args(out, i + len(w), line_of(i)[1])
+                if args is None:
+                    continue
+            expand(w, args, 0)
+    return hooks
+
+
 def scan(out, ours):
-    """{'def': {name: n}, 'inline', 'decl', 'read', 'ext': names declared / defined by a header outside our src (the SDK's own cvars), 'deps': paths} of one preprocessed text.
+    """{'def': {name: n}, 'inline', 'decl', 'read', 'ext': names declared / defined by a header outside our src (the SDK's own cvars), 'hook': {guest function: definitions}, 'deps': paths} of one preprocessed text.
     `ours(path)` says whether a line-marker path is our src."""
     marks = [(m.start(), m.group(1).decode('utf-8', 'replace').replace('\\\\', '\\')) for m in MARKER.finditer(out)]
     starts = [p for p, _f in marks]
@@ -188,11 +314,11 @@ def scan(out, ours):
                 note(kind, name, s)
             i = e
     deps = sorted({f for _p, f in marks if not f.startswith('<')})
-    return {'def': res['def'], 'inline': sorted(res['inline']), 'decl': sorted(res['decl']), 'read': sorted(res['read']), 'ext': sorted(res['ext']), 'deps': deps}
+    return {'def': res['def'], 'inline': sorted(res['inline']), 'decl': sorted(res['decl']), 'read': sorted(res['read']), 'ext': sorted(res['ext']), 'hook': scan_hooks(out), 'deps': deps}
 
 
 class Flags:
-    """The command line of each (unit, mode). Real: the main checkout's configured builds (game_syntax). Stub (STUB_ENV, check_selftest.py only): a scratch tree."""
+    """The command line of each (unit, mode). Real: the tree's own configured builds (game_syntax / syntax_cfg, S106 GSMAIN). Stub (STUB_ENV, check_selftest.py only): a scratch tree."""
 
     def __init__(self, tree):
         self.stub = bool(os.environ.get(STUB_ENV))
@@ -208,9 +334,9 @@ class Flags:
                 raise RuntimeError('not a git tree: no main checkout for the configured builds')
             self.main = self.main.replace('\\', '/')
             for mode, b in ((1, 'on'), (0, 'off')):
-                self.lines[mode] = gs.build_commands(self.main, gs.BUILD_DIRS[b])   # RuntimeError: no ninja / no build.ninja (the caller: BLOCKED)
+                self.lines[mode] = gs.build_lines_for(tree, self.main, b)   # S106 GSMAIN: the tree's own configure (syntax_cfg); RuntimeError: the tree does not configure / no ninja (the caller: BLOCKED)
             try:
-                self.main_cmake = open(os.path.join(self.main, 'CMakeLists.txt'), encoding='utf-8', errors='replace').read().replace('\\', '/')
+                self.main_cmake = open(os.path.join(self.tree, 'CMakeLists.txt'), encoding='utf-8', errors='replace').read().replace('\\', '/')   # S106 GSMAINF N12: the TREE's (the configured builds are the tree's own configure now; the attribute keeps its old name)
             except OSError:
                 self.main_cmake = ''
 
@@ -372,21 +498,18 @@ def _worker_main():
 
 def game_units(tree):
     """{mode: sorted units} the tree's lists give the game target (cmake_sources + the keep_stream lists)."""
-    sys.path.insert(0, HERE)
-    import check as hb   # noqa: E402  (cmake_sources)
-
     def rd(rel):
         try:
             return open(os.path.join(tree, rel), encoding='utf-8', errors='replace').read()
         except OSError:
             return ''
-    cm = hb.cmake_sources(rd('CMakeLists.txt'))
+    cm = cmake_sources(rd('CMakeLists.txt'))
     off_only = {x.strip() for x in rd('tools/scene/keep_stream_off_sources.txt').splitlines() if x.strip().startswith('src/')}
     on_only = {x.strip() for x in rd('tools/scene/keep_stream_sources.txt').splitlines() if x.strip().startswith('src/')}
     have = lambda u: os.path.isfile(os.path.join(tree, u))   # noqa: E731
     on = sorted(u for u in cm - off_only if have(u))
     off = sorted(u for u in (cm - on_only) | off_only if have(u))
-    # TOOL (mode 2): an OFF-only game unit a tool build compiles in ON (tools\**\build*.ps1 / .bat, a gate lane with --syntax; S103 SCS: host_start.cpp through lane s103_P7H1):
+    # TOOL (mode 2): an OFF-only game unit a tool build compiles in ON (tools\**\build*.ps1 / .bat; S103 SCS: host_start.cpp):
     # a read there that the unit does not declare is a compile error of that tool build. (Tool-only units, e.g. the viewers, are not judged.)
     texts = []
     for dp, _dn, fn in os.walk(os.path.join(tree, 'tools')):
@@ -394,10 +517,9 @@ def game_units(tree):
             continue
         for f in fn:
             low = f.lower()
-            if (low.startswith('build') and low.endswith(('.ps1', '.bat'))) or low.endswith('.json'):
+            if low.startswith('build') and low.endswith(('.ps1', '.bat')):
                 t = rd(os.path.relpath(os.path.join(dp, f), tree))
-                if not low.endswith('.json') or '--syntax' in t:
-                    texts.append(t.replace('\\', '/'))
+                texts.append(t.replace('\\', '/'))
     tool = sorted(u for u in set(off) - set(on) if any(u[4:] in t for t in texts))
     return {1: on, 0: off, 2: tool}
 
@@ -477,6 +599,85 @@ def judge_tree(tree, overlay=None, stats=None):
         stats.update({'units': len(jobs), 'hits': len(jobs) - len(misses), 'misses': len(misses), 'check_s': round(t_check, 2), 'pp_s': round(time.time() - t1, 2),
                       'per_unit_s': round(sum(times) / len(times), 2) if times else 0.0, 'max_unit_s': round(max(times), 2) if times else 0.0})
     return out, blocked, not_judged
+
+
+
+# ---------------------------------------------------------------------------------------------------------- the judgement (moved from check.py, S108)
+
+def cmake_sources(text):
+    """{src/..cpp|.cc} the GAME target compiles per CMakeLists.txt (LNK review item 3): the paths inside `set(WWE2K14_SOURCES ...)` and `target_sources(wwe2k14 ...)`, in code only
+    (a `#` comment is not a source; before, a substring test on the whole text counted a commented-out .cpp and the launcher's sources as game units). The keep_stream lists are
+    read apart (cvar_findings). Not read: generator expressions, list(APPEND ...) of other variables; every `if(ANDROID)` / `if(WIN32)` branch counts."""
+    code = '\n'.join(ln.split('#', 1)[0] for ln in text.replace('\\', '/').splitlines())
+    out = set()
+    for m in re.finditer(r'\b(?:set\s*\(\s*WWE2K14_SOURCES|target_sources\s*\(\s*wwe2k14)(?=[\s)])', code):
+        depth, i = 1, code.index('(', m.start()) + 1
+        start = i
+        while i < len(code) and depth:
+            depth += {'(': 1, ')': -1}.get(code[i], 0)
+            i += 1
+        out.update(re.findall(r'(?<![\w/.-])src/[\w/.-]+\.(?:cpp|cc)(?![\w.])', code[start:i]))
+    return out
+
+
+def cvar_findings(root, names=None, notes=None, overlay=None):
+    """The judgement of one tree from what each game unit REALLY compiles (LNK round 3: tools\\handback\\cvar_pp.py runs clang -E -fdirectives-only with the unit's own build flags,
+    per mode; nothing about the preprocessor is modelled here). -> (findings [(key, message)], rows, blocked [(unit, mode, first error line)]):
+      undeclared  a unit reads a cvar its own text never declares or defines (a compile error)
+      link        a game build reads a cvar that no unit of that build defines (REXCVAR_DEFINE_*, or an inline FLAGS_<name>_storage_() { ... })
+      duplicate   two or more units of one build define it (REXCVAR_DEFINE_* has external linkage); key (mode, cvar) + the unit count
+    A cvar that a header outside our src declares or defines (the SDK's own: clock_no_scaling) is the SDK library's and is not judged. `names` (None = every cvar) limits the cvars;
+    `overlay` {path: text} serves planted texts (the lint's twins). A unit cvar_pp could not preprocess is in `blocked`, never judged clean; a unit it does not judge (a platform branch)
+    goes to `notes`. RuntimeError when nothing can be judged (no clang, no configured build)."""
+    out, blocked, not_judged = judge_tree(root, overlay=overlay)
+    if notes is not None:
+        for u, mode, why in not_judged:
+            notes.append('%s (%s) not judged: %s' % (u, 'ON' if mode else 'OFF', why))
+    found, rows = [], 0
+    # every iteration is sorted: a message naming another file at base than at head would look new (round 3 item 4); the subtraction keys on (unit, mode, cvar, kind)
+    for mode in (1, 0):
+        mtxt = 'ON' if mode else 'OFF'
+        units = out[mode]
+        defined, anydef, ext = {}, set(), set()
+        for u in sorted(units):
+            r = units[u]
+            for n in r['def']:
+                defined.setdefault(n, []).append(u)
+            anydef.update(r['def'])
+            anydef.update(r['inline'])
+            ext.update(r['ext'])
+        for u in sorted(units):
+            r = units[u]
+            own = set(r['decl']) | set(r['def']) | set(r['inline'])
+            for nm in r['read']:
+                if (names is not None and nm not in names) or nm in ext:
+                    continue
+                rows += 1
+                if nm not in own:
+                    found.append(([u, mtxt, nm, 'undeclared'], '%s (%s game build): reads %s, but nothing in that unit declares or defines it (a compile error)' % (u, mtxt, nm)))
+                    continue
+                if nm not in anydef:
+                    found.append(([u, mtxt, nm, 'link'], '%s (%s game build): reads %s, declared, but no unit of the %s game build defines it (REXCVAR_DECLARE is only a declaration: a '
+                                                          'link error)' % (u, mtxt, nm, mtxt)))
+        for nm in sorted(defined):
+            if (names is not None and nm not in names) or nm in ext:
+                continue
+            us = sorted(set(defined[nm]))
+            if len(us) > 1:
+                # LNK review item 4: the key is (mode, cvar) + the unit count; key kept from the base comparison
+                found.append((['*', mtxt, nm, 'duplicate', len(us)], '%s is defined in %d units of the %s game build (a duplicate symbol at link): %s' % (nm, len(us), mtxt, ', '.join(us))))
+    # an OFF-only game unit that a tool build compiles in ON (cvar_pp mode 2; S103 SCS): only `undeclared` applies (a compile error of that tool build; it links nothing of the game's)
+    for u in sorted(out.get(2, {})):
+        r = out[2][u]
+        own = set(r['decl']) | set(r['def']) | set(r['inline'])
+        for nm in r['read']:
+            if (names is not None and nm not in names) or nm in r['ext']:
+                continue
+            rows += 1
+            if nm not in own:
+                found.append(([u, 'ON-tool', nm, 'undeclared'], '%s (ON, as a tool build compiles it: an OFF-only game unit): reads %s, but nothing in that unit declares or defines it '
+                                                                  'in ON (a compile error of that tool build)' % (u, nm)))
+    return found, rows, blocked
 
 
 if __name__ == "__main__":

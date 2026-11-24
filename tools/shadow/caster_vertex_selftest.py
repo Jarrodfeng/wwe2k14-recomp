@@ -1,4 +1,4 @@
-# Gate check of lane 85 = SV (Session 101): the shadow-layout vertex writers (src\assets\shadow_caster_vertex.h) against the shadow-pass vertex bytes of two captures.
+# Check of lane 85 = SV (Session 101): the shadow-layout vertex writers (src\assets\shadow_caster_vertex.h) against the shadow-pass vertex bytes of two captures.
 #   py -I tools\shadow\caster_vertex_selftest.py [--step N]
 # Runs out\tools\caster_vertex_check.exe (built by tools\shadow\build_caster_vertex_check.ps1) on
 #   Check B (case zip of run 7051, unpacked once to <main checkout>\out\lane40\brock; the u of the stream is |u|, before SDK patch 109) and

@@ -1,4 +1,4 @@
-# harness: realtime (Session 66 in-run CPU A/B nf7, tools\s66\nf_ab.py; pass --vsync=false)
+# intent: performance cpu ms
 # wwe2k14_nf_vec4_mat4_inplace=on/off wwe2k14_nf_vec4_mat4_row=on/off wwe2k14_nf_sincos_vmx=on/off wwe2k14_nf_atan2_d=on/off wwe2k14_nf_memcpy_fwd=on/off wwe2k14_nf_memcpy_vmx=on/off wwe2k14_nf_skin_3bone=on/off
 # Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_preset_low=true. on_fail quit.
 on_fail quit

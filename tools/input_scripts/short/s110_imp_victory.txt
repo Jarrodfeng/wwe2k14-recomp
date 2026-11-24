@@ -1,0 +1,46 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\updov\mods --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_participants=397,324 --wwe2k14_launch_skip_entrances=true
+# intent: owner on
+# S110 IMPCHECK Q1: does an imported character (397 "Mr. Kennedy", base 107 Kane) get a victory scene when he wins, and is it Kane's?
+# Finish mechanism from s101_sweep_victory / s101_checkK_finish_logo (K4): slot 0 (CPU) full momentum + stock, slot 1 passive, the CPU pins;
+# G+472 = 0x8376ACCC != 0 is the finish. Then shots through the victory scene.
+on_fail quit
+log impcheck: start vic
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_state match_clock >0 30000
+wait_event render roster_ready 2400
+wait_frames 60
+screenshot vic_match
+momentum 0 100
+stock 0 1
+passive 1 on
+wait_frames 120
+wait_state 0x8376ACCC !=0 72000 2
+log impcheck: finish
+log_state 0x8376ACCC
+log_state 0x8376E3EC
+log_state match_clock
+log_state seq
+screenshot vic_finish
+wait_frames 200
+log_state seq
+screenshot vic_200
+wait_frames 250
+log_state seq
+screenshot vic_450
+wait_frames 250
+log_state seq
+screenshot vic_700
+wait_frames 300
+log_state seq
+log_text 8
+screenshot vic_1000
+wait_frames 400
+log_state seq
+log_text 8
+screenshot vic_1400
+wait_frames 400
+log_state seq
+screenshot vic_1800
+log impcheck: done
+quit

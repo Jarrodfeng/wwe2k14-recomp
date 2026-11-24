@@ -21,6 +21,8 @@
 #include <vector>
 
 #include "../../src/scene_live/light_latch.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
 
 using namespace rdr_scene;
 namespace ll = rdr_scene::live::lightlatch;

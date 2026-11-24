@@ -319,31 +319,50 @@ struct CatFile {
 };
 struct CatEntry {
   uint16_t id = 0, type = 1, pack = 0, bit = 0;
-  int32_t char_id = -1;
-  std::string name;  // Latin-1 bytes, <= 31
+  int32_t char_id = -1;  // file +16 (the game's attr0)
+  int32_t attr1 = 0;     // file +20 (S110: the game's attr1; a type-21 entry has -1)
+  int32_t attr2 = 0;     // file +24 (S110 review: a type-21 entry's bundle key; its availability row +12 = this, sub_82816AE8 +3FC)
+  std::string name;  // Latin-1 bytes, <= 31 (the game keeps 31 too: sub_8281FA40 +110 zeroes the name's 32nd byte)
 };
+// A bundle record (the real packs' multi-character item): u16 size = 8 + 6n, u16 pack, u16 key, u16 n, n x (u16 char, u16 attire,
+// u16 third). The game's record loop does not bound-check n; the importer keeps it at 64 or fewer (docs\research\s110\MASK64.md).
+// key (0 in every real record) must equal the type-21 entry's attr2: availability (sub_828173E8 +B4..+C0) only reads the records
+// whose key = that entry's row +12 (S110 review).
+struct CatRow {
+  uint16_t ch = 0, attire = 0, third = 0;
+};
+struct CatBundle {
+  uint16_t pack = 0, key = 0;
+  std::vector<CatRow> rows;
+};
+constexpr size_t kMaxBundleRows = 64;
 struct CatInfo {
   uint16_t version = 0, header = 0, pack = 0, revision = 0;
   std::vector<CatEntry> entries;
+  std::vector<CatBundle> bundles;
   std::vector<CatFile> files;
 };
 
-inline Bytes WriteCatalog(uint16_t pack, uint16_t revision, const std::vector<CatEntry>& entries, std::vector<CatFile> files,
-                          uint64_t filetime) {
+inline Bytes WriteCatalog(uint16_t pack, uint16_t revision, const std::vector<CatEntry>& entries, const std::vector<CatBundle>& bundles,
+                          std::vector<CatFile> files, uint64_t filetime) {
   std::sort(files.begin(), files.end(), [](const CatFile& x, const CatFile& y) { return x.name < y.name; });  // strcmp order
   Bytes out = {'D', 'L', 'C', 'C'};
-  P16(out, 2), P16(out, 28), P16(out, pack), P16(out, revision), P16(out, uint16_t(entries.size())), P16(out, 0), P16(out, 0),
-      P16(out, uint16_t(files.size()));
+  P16(out, 2), P16(out, 28), P16(out, pack), P16(out, revision), P16(out, uint16_t(entries.size())), P16(out, 0),
+      P16(out, uint16_t(bundles.size())), P16(out, uint16_t(files.size()));
   for (int i = 0; i < 8; ++i) out.push_back(uint8_t(filetime >> (8 * i)));
   for (const CatEntry& e : entries) {
     Bytes r;
     P16(r, 64), P16(r, e.id), P16(r, e.type), P16(r, e.pack), P16(r, e.bit), P16(r, e.id);
-    P32(r, 0), P32(r, uint32_t(e.char_id));
+    P32(r, 0), P32(r, uint32_t(e.char_id)), P32(r, uint32_t(e.attr1)), P32(r, uint32_t(e.attr2));
     r.resize(32, 0);
     std::string nm = e.name.substr(0, 31);
     r.insert(r.end(), nm.begin(), nm.end());
     r.resize(64, 0);
     out.insert(out.end(), r.begin(), r.end());
+  }
+  for (const CatBundle& b : bundles) {  // after the entries (no attribute records), before the file list: the real packs' order
+    P16(out, uint16_t(8 + 6 * b.rows.size())), P16(out, b.pack), P16(out, b.key), P16(out, uint16_t(b.rows.size()));
+    for (const CatRow& w : b.rows) P16(out, w.ch), P16(out, w.attire), P16(out, w.third);
   }
   for (const CatFile& f : files) {
     P16(out, uint16_t(7 + f.name.size())), P16(out, uint16_t(f.a)), P16(out, uint16_t(f.b));
@@ -370,14 +389,25 @@ inline std::string ParseCatalogLikeGame(const Bytes& d, const std::vector<uint32
     if (p + 64 > d.size() || L16(&d[p]) != 64) return "entry size";
     CatEntry e;
     e.id = L16(&d[p + 2]), e.type = L16(&d[p + 4]), e.pack = L16(&d[p + 6]), e.bit = L16(&d[p + 8]);
-    e.char_id = int32_t(L32(&d[p + 16]));
+    e.char_id = int32_t(L32(&d[p + 16])), e.attr1 = int32_t(L32(&d[p + 20])), e.attr2 = int32_t(L32(&d[p + 24]));
     const char* nm = reinterpret_cast<const char*>(&d[p + 32]);
     e.name.assign(nm, strnlen(nm, 32));
     info.entries.push_back(e);
   }
   for (uint32_t i = 0; i < uint32_t(na) + nb; ++i) {
     if (p + 2 > d.size() || L16(&d[p]) == 0) return "record size";
-    p += L16(&d[p]);
+    const size_t size = L16(&d[p]);
+    if (i >= na) {  // S110: the nb bundle records follow the na attribute records (sub_8281FDB0)
+      if (size < 8 || p + size > d.size()) return "bundle record size";
+      const size_t n = L16(&d[p + 6]);
+      if (n > kMaxBundleRows) return "bundle record with " + std::to_string(n) + " rows (the game does not bound-check it; 64 at most)";
+      if (size != 8 + 6 * n) return "bundle record size";
+      CatBundle b;
+      b.pack = L16(&d[p + 2]), b.key = L16(&d[p + 4]);
+      for (size_t k = 0; k < n; ++k) b.rows.push_back({L16(&d[p + 8 + 6 * k]), L16(&d[p + 10 + 6 * k]), L16(&d[p + 12 + 6 * k])});
+      info.bundles.push_back(std::move(b));
+    }
+    p += size;
   }
   for (uint16_t i = 0; i < nf; ++i) {
     if (p + 7 > d.size()) return "file record past the end";

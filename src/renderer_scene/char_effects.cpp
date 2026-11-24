@@ -17,6 +17,7 @@
 #include "technique_pick.h"   // S103 YCB: RowOf
 #include "logo_bool.h"        // S105 A5c: bit 150
 #include "../assets/load_plants.h"   // S103 LNT: EyaOldParam1Plant
+#include "../scene_live/change_colour.h"   // S108 THR2: MaskIndexOfSlot, kColours (pure)
 
 namespace rdr_scene {
 namespace {
@@ -264,12 +265,16 @@ bool CheckVs(int v, int f, bool skinned, std::string& why) {
 }
 }  // namespace
 
-CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo) {
+CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo, bool change_colour) {
   CharChoice out;
   out.effect = effect;
   auto table = read_rule::EffectTableNow();
   if (!table) return out.no_table = true, out.why_not = "no effect table yet", out;
-  if (logo) {   // S105 A5c fix F1: a logo material draws from the editor's table (edit.pac p7/0), as the game's editor does
+  if (change_colour) {   // S108 THR2: a recoloured body draws from the Threads editor's table (edit.pac p9/0 = the game's model+392 row while model+604 is set)
+    const auto st = read_rule::StsEffectTableNow();
+    if (st && st->count(read_rule::Lower(effect))) table = st, out.change_colour_table = true;
+  }
+  if (logo && !out.change_colour_table) {   // S105 A5c fix F1: a logo material draws from the editor's table (edit.pac p7/0), as the game's editor does
     const auto lt = read_rule::LogoEffectTableNow();
     if (lt && lt->count(read_rule::Lower(effect))) table = lt, out.logo_table = true;
   }
@@ -303,6 +308,7 @@ CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool a
     const std::vector<std::string> fdef = Defines(*T().by_index[size_t(f)]), vdef = Defines(*T().by_index[size_t(v)]);
     out.shadow = Has(fdef, "FX_SHADOW") || Has(vdef, "FX_SHADOW");
     for (uint32_t s = 0; s < kVariants[f].sampler_count; ++s) out.wet = out.wet || kVariants[f].samplers[s].slot == 14;
+    if (out.change_colour_table) out.wet = false;   // S108 THR2: on a change-colour draw slot 14 is Mask3 (sub_8339F0E0 binds it), never the liquid map
     return out;
   }
 }
@@ -310,6 +316,12 @@ CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool a
 CharSlot RoleOfWetSlot(int slot) {   // S103 SWF
   if (slot == 4) return CharSlot::SweatBump;
   if (slot == 14) return CharSlot::LiquidMap;
+  return RoleOfSlot(slot);
+}
+
+CharSlot RoleOfChangeSlot(int slot) {   // S108 THR2
+  const int k = live::change_colour::MaskIndexOfSlot(slot);
+  if (k >= 0) return CharSlot(int(CharSlot::ChangeMask1) + k);
   return RoleOfSlot(slot);
 }
 
@@ -655,8 +667,10 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "IdMapCol") { if (assets::g_wrk_live.load(std::memory_order_relaxed)) set4(0, mt.idmap_col[0], mt.idmap_col[1], mt.idmap_col[2], mt.idmap_col[3]); return true; }
   if (name == "IdMapLvLst") { if (c.idmap) set4(0, c.idmap[0], c.idmap[1], c.idmap[2], c.idmap[3]), set4(1, c.idmap[4], c.idmap[5], c.idmap[6], c.idmap[7]); return true; }
   if (name == "WklLvLst") { if (c.wkl) set4(0, c.wkl[0], c.wkl[1], c.wkl[2], c.wkl[3]), set4(1, c.wkl[4], c.wkl[5], 0.f, 0.f); return true; }
+  // S108 THR2: g_fChangeColor[0..15] = the Threads editor's colours (sub_8339F0E0: (R, G, B, 1) / 255), only on a change-colour draw (CharCtx::change_color); every other draw keeps zero.
+  if (name == "ChangeColor") { if (c.change_color) std::memcpy(out, c.change_color, sizeof(float) * 4 * std::min<uint32_t>(vec4s, uint32_t(live::change_colour::kColours))); return true; }
   // Zero is the neutral value: the option that reads these is not chosen, or the file carries no value (hair highlights: unconfirmed).
-  if (name == "FogColor" || name == "ChangeColor" || name == "Blood" || name == "BSSBldClr" || name == "Sweat" || name == "DebugPS0" || name == "DebugPS1" ||
+  if (name == "FogColor" || name == "Blood" || name == "BSSBldClr" || name == "Sweat" || name == "DebugPS0" || name == "DebugPS1" ||
       name == "ShadowPrm" || name == "ViewLightDepth" || name == "TexProjLightXY" || name == "TexProjLightW" || name == "ConvScreen" ||
       name == "SSColor" || name == "SS" || name == "SphereOccP" || name == "SphereOccV")
     return true;

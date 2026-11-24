@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=@quick --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
 # Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): ONE ROUTE FOR MANY MATCH TYPES. The board's "Exhibition matches (every type)" column is read from
 # the cell states only (tools\board\coverage.py prints "match types seen: N" from the manifest, no cell depends on it), but the item is "every type": a type changes what is drawn
 # (cage walls, a hell-in-a-cell structure, ladders, tables, four wrestlers, a battle royal's crowd of wrestlers, the inferno's fire). The type is NOT in this file: it comes from the

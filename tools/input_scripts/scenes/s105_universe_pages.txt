@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the Universe pages have no mapped states; their A presses wait on frame counts, fast-forwarded menus drop presses)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): a WWE Universe cutscene beyond the first page. EXPLORATORY: nothing past the first page was ever mapped (atlas node mode:universe
 # "inner pages not mapped"; goto.md: universe: is parse-only). The route enters UNIVERSE (nav menu_to_universe, menu 1497, screen_mode 15), then presses A five times, 400 frames

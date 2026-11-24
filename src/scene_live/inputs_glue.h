@@ -4,6 +4,7 @@
 // (the game threads parked), so no hook of the game's walks is touched (a function takes one hook: S101).
 #pragma once
 #include "../guest_read.h"   // GuestWordReadableFast
+#include <rex/logging.h>   // S110 CROWDFLIPS
 #include "crowd_latch_reader.h"   // S103 D3b
 #include <type_traits>
 #include "guest_texture.h"       // PhysRangeOk (A8)
@@ -19,26 +20,35 @@
 namespace wwe2k14::scene_inputs_glue {
 
 // ReadGuest page-checks off Windows and has the SEH on Windows (wrestler_hook.h); the name stays for the readers that use it.
-inline bool ReadChecked(uint32_t guest, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuest(guest, dst, n); }
+inline bool ReadChecked(uint32_t guest, void* dst, size_t n) { return wwe2k14::wrestlers::ReadGuestNoNote(guest, dst, n); }   // S110 FEEDREC: the reader type (ReadFnT) notes the read at its caller
 
 // S103 D3b: guest memory for the crowd's latch reader (crowd_latch_reader.h): fault-checked, big-endian undone, `fail` set when a read is refused.
 struct CrowdGuestMem {
   mutable bool fail = false;
   mutable uint32_t fail_addr = 0;   // S103 D8: the first refused address since `fail` was last clear (crowd_latch_reader.h Scoped resets `fail` per unit)
+  // S108 RDS phase 2: the snapshot's line copy (safe_guest_pages.h LineCopy), owned by CrowdLatchRead for ONE snapshot; null = one checked read per field (the hasher's phys-only instance). The floor's per-seat
+  // words (ReadFloor's SoftEach: e+152/+156/+160, the 16-byte position, the 64-byte matrix, the flags halfword) were one page check each: ~2,200 a frame in Fandango's entrance (S108 RDS tally, thread 8B28).
+  wwe2k14::safe_pages::LineCopy<>* lines = nullptr;
+  bool Read(uint32_t a, void* dst, size_t n) const {
+    if (!lines) return ReadChecked(a, dst, n);
+    return lines->Get(a, uint32_t(n), dst, [](uint32_t x, uint32_t k, void* o) { return ReadChecked(x, o, k); });   // n <= the snapshot's largest read: a 64 KB table is a direct read (Get takes n > 128 directly)
+  }
   void Refuse(uint32_t a) const { if (!fail) fail_addr = a; fail = true; }
-  uint32_t u32(uint32_t a) const {
+  uint32_t u32(uint32_t a WWE_FEED_LOC_PARAM) const {
     uint32_t v = 0;
-    if (!ReadChecked(a, &v, 4)) return Refuse(a), 0;
+    WWE_FEED_NOTE(a, 4);   // S110 FEEDREC: Read() below is the un-noted leaf (line copy or checked read)
+    if (!Read(a, &v, 4)) return Refuse(a), 0;
     return scene_inputs::Swap32(v);
   }
-  float f32(uint32_t a) const {
-    const uint32_t v = u32(a);
+  float f32(uint32_t a WWE_FEED_LOC_PARAM) const {
+    const uint32_t v = u32(a WWE_FEED_LOC_ARG);
     float f;
     std::memcpy(&f, &v, 4);
     return f;
   }
-  void words(uint32_t a, uint32_t n, uint32_t* dst) const {
-    if (!ReadChecked(a, dst, size_t(n) * 4)) {
+  void words(uint32_t a, uint32_t n, uint32_t* dst WWE_FEED_LOC_PARAM) const {
+    WWE_FEED_NOTE(a, n * 4u);
+    if (uint64_t(n) * 4 > 0xFFFFFFFFull || !Read(a, dst, size_t(n) * 4)) {
       Refuse(a);
       std::memset(dst, 0, size_t(n) * 4);
       return;
@@ -53,7 +63,16 @@ struct CrowdGuestMem {
   }
 };
 inline uint32_t CrowdLatchRead(rdr_scene::live::crowd::LatchSnapshot& out) {
-  return uint32_t(rdr_scene::live::crowd::latch::ReadSnapshot(CrowdGuestMem{}, out));
+  wwe2k14::safe_pages::LineCopy<> lines;   // S108 RDS: one snapshot = one pass; dropped on return (no line is read at a later latch)
+  CrowdGuestMem mem;
+  mem.lines = &lines;
+  const uint32_t why = uint32_t(rdr_scene::live::crowd::latch::ReadSnapshot(mem, out));
+  if (wwe2k14::crowd_flips::g_line_due.exchange(false, std::memory_order_acquire)) {   // S110 CROWDFLIPS: one census line per 600 latches
+    char line[1024];
+    wwe2k14::crowd_flips::The().Line(line, sizeof line);
+    REXLOG_INFO("[wwe2k14][crowd_flips] {}", line);
+  }
+  return why;
 }
 
 // Once, at start (wwe2k14_app.h OnPostSetup, with the other class contributors, after RegisterWrestlers so Emit order is wrestlers first). Idempotent.
@@ -80,7 +99,7 @@ inline void Register() {
         static thread_local std::vector<rdr_scene::live::WrestlerContributor::PaletteTarget> t;   // the caller's thread's scratch
         static thread_local rdr_scene::live::WrestlerContributor::SlotTable s;
         s.skels.clear();
-        for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr});
+        for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr, x.game_shown});
         static_assert(std::is_same_v<decltype(s.pieces), decltype(slots.pieces)>, "the piece list is ONE shared type (slot_piece.h)");   // S103 NRBF
         s.pieces.clear();
         s.pieces_view = &slots.pieces;   // S103 NRB; S103 HGF (XLB 3): a view of the latch's own list, no deep copy of every piece's vectors (LatchTargets reads pieces_view)

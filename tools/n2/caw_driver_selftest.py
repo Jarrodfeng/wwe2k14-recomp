@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S101 lane 118 (N2 / L-6): the offline acceptance test of the editor driver (tools\\n2\\caw_driver.py), gate lane n2_caw_text. 0 game runs.
+"""S101 lane 118 (N2 / L-6): the offline acceptance test of the editor driver (tools\\n2\\caw_driver.py). 0 game runs.
 
   py -I tools\\n2\\caw_driver_selftest.py
 

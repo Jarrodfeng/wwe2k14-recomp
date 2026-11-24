@@ -8,7 +8,7 @@ core-loop item x device x draw class, with the newest evidence for each cell and
   py -I tools\\board\\coverage.py                     print the board (markdown) to stdout
   py -I tools\\board\\coverage.py --write             write docs\\renderer\\COVERAGE_BOARD.md (generated; never edit by hand)
   py -I tools\\board\\coverage.py --runs DIR          read zips under DIR instead of <main checkout>\\out\\s101\\runs (and no live channels)
-  py -I tools\\board\\coverage.py --check             parse every zip; exit 1 if any zip cannot be read (a gate check)
+  py -I tools\\board\\coverage.py --check             parse every zip; exit 1 if any zip cannot be read (a check)
   py -I tools\\board\\coverage.py --selftest          planted-fault selftest (see tools\\board\\selftest.py)
 
 Cell states (a cell is one core-loop item x device x draw class):

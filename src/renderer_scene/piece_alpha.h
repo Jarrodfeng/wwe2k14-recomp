@@ -8,6 +8,7 @@
 
 #include "record_io.h"
 #include "scene_record.h"
+#include "rows_inputs.h"   // S106 G4-2
 
 namespace rdr_scene::rf {
 

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/plane_shadow_core.h"
+#include "../../src/renderer_scene/rows_plane.h"
 
 using namespace rdr_scene;
 

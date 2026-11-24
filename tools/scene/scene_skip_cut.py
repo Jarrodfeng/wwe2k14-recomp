@@ -59,7 +59,7 @@ def fview_run(capture, frames, drops):
 
 # The 15 hooked functions (tools\renderer\scene_skip_unit.py HOOKS) and the attachments the call graph cannot show: a method reached through a vtable from a hooked node.
 HOOKED = [0x82C04DF0, 0x82C13A80, 0x82519508, 0x827FD698, 0x825D0438, 0x825D01F0, 0x827E9740, 0x827EA7B8, 0x827EF070, 0x827EBE78, 0x8279ACD8, 0x82254E30, 0x82C1E840, 0x8276EAA0, 0x82C1F728]
-# Scene draws whose submitter reaches no hook, KNOWN and reported as OPEN (SCENE_SKIPS.md section 10): not a failure of this gate, a named piece of work. Anything else unreached fails.
+# Scene draws whose submitter reaches no hook, KNOWN and reported as OPEN (SCENE_SKIPS.md section 10): not a failure of this check, a named piece of work. Anything else unreached fails.
 KNOWN_OPEN = {}   # S103 T: 0x82815840 attaches to the plane node (ATTACH), 0x82C1F728 is hooked
 ATTACH = {   # method -> the hooked node that calls it through a vtable (each from a lodged page)
     0x82C1E4C0: 0x82C1E840, 0x82C28A70: 0x82C1E840, 0x82C28F68: 0x82C1E840, 0x82C29478: 0x82C1E840, 0x82C29818: 0x82C1E840, 0x82C2A868: 0x82C1E840, 0x82C2AF80: 0x82C1E840,   # OWN_THE_PASS.md 11: the effects' slot 2
@@ -125,7 +125,7 @@ def main():
     ap.add_argument('--json', default='')
     ap.add_argument('--plant', choices=['drop_nothing', 'keep_unnamed', 'keep_post'])
     ap.add_argument('--skip-fview', action='store_true', help='census only (no replay)')
-    ap.add_argument('--selftest', action='store_true', help='the real cut (must pass), then each planted twin (each must exit 1): the gate lane')
+    ap.add_argument('--selftest', action='store_true', help='the real cut (must pass), then each planted twin (each must exit 1)')
     a = ap.parse_args()
     if a.selftest:
         base = [sys.executable, '-I', os.path.abspath(__file__), '--capture', a.capture, '--frames', str(a.frames)]

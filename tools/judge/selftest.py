@@ -1,4 +1,4 @@
-r"""The judge's acceptance test (Session 101 lane 20; gate checks judge.build / judge.selftest). Needs out\renderer\dev\fview.exe (tools\fview\build.ps1) and the fixture zip in
+r"""The judge's acceptance test (Session 101 lane 20; checks judge.build / judge.selftest). Needs out\renderer\dev\fview.exe (tools\fview\build.ps1) and the fixture zip in
 the MAIN checkout (out\s101\judge\fixture\brock_exit_f0-200.zip, KEEP: a Check A zip, capture frames 0..200). 0 game runs: fview only. A check that cannot read its input FAILS.
 
  1 same arm twice      fview vs fview, frame 5: 0 regions and 0 differing pixels (two fview arms are deterministic; threshold 1)

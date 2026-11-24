@@ -1,4 +1,4 @@
-# harness: realtime (Session 20 item 10: present timing at a step rate; timed, run_list -Exclusive)
+# intent: performance frame ms
 # Session 20 item 10: boot, launch (use with --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true and a
 # step rate, e.g. --wwe2k14_step_hz=165 --wwe2k14_step_vblank=true), 3,000 frames of the match from M3.PAC, quit.
 # Scene mark: match. Present spread: py tools\perf\present_spread.py RUN. Needs the frozen user data (run_list.ps1).

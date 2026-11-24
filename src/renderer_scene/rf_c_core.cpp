@@ -11,6 +11,7 @@
 #include <set>
 
 #include "../scene_live/arena_apply.h"
+#include "rows_stage_fx.h"   // S106 G4-2
 #include "../scene_live/page_skip_core.h"   // S103 EPS: the arena's page-less flag
 #include "arena_debounce.h"   // S103 L31A
 #include "rf_c.h"
@@ -24,6 +25,8 @@
 #include "stage_show.h"
 #include "stage_slot_vis.h"  // S103 SCF
 #include "car_arena_rows.h"   // S103 CAR: a created arena's part indices row
+#include "../scene_live/car_paint.h"   // S108 CAP: a created arena's textures as the game painted them (the store; pure)
+#include "../renderer/problem.h"   // S108 CAP: rdr::DrawShortfall / rdr::Log
 
 namespace rdr_scene::rf::c {
 
@@ -58,6 +61,7 @@ struct State {                                     // per arena id: the one live
   bool fresh = false;                              // S103 PS1 F1 (test only): ResetForJob set it; the next EnsureArena rebuilds at once on a signature mismatch (no debounce)
   std::unique_ptr<ArenaSet> set;
   std::set<int> moving;
+  std::set<int> posed;                             // S110 BARRICADE: the moving slots a kFxSlotPalette row names (their model has more than one node): grows like `moving`
   std::map<int, std::pair<uint32_t, uint32_t>> screens;
   std::shared_ptr<const assets::Model> pristine;   // S103 L31A: the arena's pristine Model, kept (CPU) so a signature change rebuilds the set in the same frame, never through a new loader trip (run 30: that trip was the "not resident" holes at entrance -> match)
   std::string car_key;                              // S103 CAR: a Create-an-Arena venue (200-249): the part selection (car::Sel::Key) the kept pristine / set belong to; a change drops the pristine and asks the loader again
@@ -270,6 +274,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
   // selection (another save slot, the editor changing a part) drops the kept pristine and asks the loader again. No row read yet = nothing is drawn for it (fail closed, never the wrong venue).
   assets::car::Sel car_sel;
   const bool car_custom = assets::car::IsCustomId(view.arena_id);
+  std::shared_ptr<const live::carpaint::Snapshot> car_paint;   // S108 CAP: the game's painted textures of the row's stage (null offline)
   if (car_custom) {
     if (!rdr_sw::BoolOr(rdr_sw::kCustomArena, true)) return assets::car::Clear(), why = "created arena " + std::to_string(view.arena_id) + ": wwe2k14_rdr_custom_arena is off", nullptr;
     int row_arena = -1;
@@ -285,10 +290,16 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
       st.pristine.reset(), st.look_b6.clear(), st.look_cycle_groups.clear();
       st.car_key = car_sel.Key();
     }
+    // S108 CAP (docs\research\s108\CAP_plan.md): the stage's own texture list is the source of every picture it holds. S108 CAP3 (CAP2_plan.md): live, the set waits until the snapshot of THIS row's
+    // stage is READY: every entry of its list was tried once (no wait on the game's paint; its later paint arrives through the flush re-reads and the rebuild; each texture not taken: arena_paint).
+    uint32_t car_stage = 0;
+    car_paint = CarStageFromRows(ctx.t.stage_fx, car_stage) ? live::carpaint::TheStore().For(car_stage) : live::carpaint::TheStore().Current();
+    if (!g_offline && (!car_paint || !car_paint->ready)) return why = "created arena " + std::to_string(view.arena_id) + ": the stage's texture list is not yet fully read", nullptr;
   }
   // the unions (a slot once moved stays in its own model; a screen once sized keeps its size): `moving` only grows; `screens` shrinks when a movie leaves (DropIdleScreens below) and grows when a sized row returns. The set can therefore be rebuilt: st.pristine makes that need no loader read
   for (const StageFxRow& r : ctx.t.stage_fx) {
     if (r.kind == kFxSlotWorld && !g_plants.ignore_slot_worlds) st.moving.insert(int(r.slot));
+    if (r.kind == kFxSlotPalette) st.moving.insert(int(r.slot)), st.posed.insert(int(r.slot));   // S110 BARRICADE: the palette row moves its slot into its own model too (the loader's corner placement is dropped there)
     if (r.kind == kFxScreen && r.w && r.h && r.w <= kMaxScreen && r.h <= kMaxScreen && !st.screens.count(int(r.slot))) {
       uint32_t ew = 0, eh = 0;   // S103 M (review B1): the EXPECTED size decides the texture, never the first row (a row of another size is refused by the applier)
       if (g_size_fn && g_size_fn(uint32_t(r.slot), ew, eh) && ew && eh && ew <= kMaxScreen && eh <= kMaxScreen) st.screens[int(r.slot)] = {ew, eh};
@@ -300,11 +311,13 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
   uint64_t h = 1469598103934665603ull;
   for (const auto& kv : view.slots) h = Fnv(Fnv(h, uint64_t(kv.first)), uint64_t(kv.second.base) | uint64_t(kv.second.r) << 1 | uint64_t(kv.second.y) << 2);
   for (int s : st.moving) h = Fnv(h, 0x1000u + uint64_t(s));
+  for (int s : st.posed) h = Fnv(h, 0x5000u + uint64_t(s));   // S110 BARRICADE: a posed slot's model is built skinned
   h = Fnv(h, g_ring_gpu_skin.load(std::memory_order_relaxed) ? 0x4001u : 0x4000u);   // S103 RGP review F3: the switch decides how the ring set is built (piece.gpu): part of the set's identity (a rig flipping WWE_RDR_RING_GPU_SKIN rebuilds)
   if (g_plants.moving_last) h = Fnv(h, 0x3000u);   // S103 RGF: the planted order is part of the set's identity
   for (const auto& kv : st.screens) h = Fnv(Fnv(Fnv(h, 0x2000u + uint64_t(kv.first)), kv.second.first), kv.second.second);
   if (car_custom)
     for (char ch : car_sel.Key()) h = Fnv(h, uint64_t(uint8_t(ch)));   // S103 CAR: the part selection is part of the set's identity
+  if (car_paint) h = Fnv(h, car_paint->hash);   // S108 CAP: the game's paint is part of the set's identity (a repaint rebuilds through the debounce, from the kept pristine)
   char key[64];
   std::snprintf(key, sizeof key, "c:arena:%d:%016llx", view.arena_id, static_cast<unsigned long long>(h));
   if (st.set && st.sig == key) { st.deb.active = false, st.fresh = false; return st.set.get(); }
@@ -356,6 +369,16 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
   }
   if (!st.pristine) st.pristine = std::make_shared<const assets::Model>(*pristine);   // S103 L31A: the copy ApplyToModel will not touch
   assets::Model& full = *pristine;
+  if (car_custom && car_paint) {   // S108 CAP: the game's pictures by name (car_paint.h Apply); st.pristine keeps the part files' (it was copied above)
+    live::carpaint::ApplyResult ar;
+    live::carpaint::Apply(full, *car_paint, ar);
+    for (const live::carpaint::Missing& ms : ar.missing)
+      rdr::DrawShortfall("arena_paint", ms.name.c_str(), 1, 0, "created arena %d: the game's picture could not be taken (%s): the part file's picture is drawn", view.arena_id, ms.why.c_str());
+    if (!car_paint->list_read)
+      rdr::DrawShortfall("arena_paint", "stage texture list", 1, 0, "created arena %d: the stage's texture list [stage %08X + 14452] is %s (list %08X, %u takes): every part file picture is drawn until it reads", view.arena_id,
+                         car_paint->stage, car_paint->list_why == 1 ? "a null pointer" : "unreadable", car_paint->list, car_paint->takes);   // S108 CAP3b: built ready with no pictures; one report a set (the next set is the painted one)
+    rdr::Log("%s", live::carpaint::CensusLine(*car_paint, ar, live::carpaint::TheStore().Counts()).c_str());
+  }
   const std::vector<assets::LightSet> baseline = full.light_sets;  // the file's own sets, before the record's edits (review 7)
   const live::arena::ApplyStats ap = live::arena::ApplyToModel(view, full);
 
@@ -426,6 +449,18 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
       if (SlotOf(full.meshes[i]) == slot && !Skipped(full.meshes[i])) pick.push_back(i);
     if (pick.empty()) continue;
     assets::Model sub = SubModel(full, pick, "arena slot " + std::to_string(slot));
+    bool posed = false;
+    if (st.posed.count(slot)) {   // S110 BARRICADE: the game draws this slot with its model's palette: bind each vertex to its palette node (ring_pose.h BindMesh) and build it skinned, as the ring's GPU pieces
+      bool bound = g_ring_gpu_skin.load(std::memory_order_relaxed);
+      for (assets::Mesh& me : sub.meshes) me.placement = -1, bound = BindMesh(me) && bound;
+      if (!bound || !GpuSkinnable(sub)) {   // not skinnable (switch off / unbound mesh / not an opaque yProp_* effect): the slot stays in the static arena at the loader's placement (the old look), its rows unused
+        ctx.models.LogOnce("posed-static:" + std::to_string(view.arena_id) + ":" + std::to_string(slot), "[rdr] arena " + std::to_string(view.arena_id) + " slot " + std::to_string(slot) + ": the game poses it (palette rows) but it is drawn static: " +
+                           (!g_ring_gpu_skin.load(std::memory_order_relaxed) ? "wwe2k14_rdr_ring_gpu_skin is off" : !bound ? "a mesh could not be bound to its palette nodes" : "not an opaque yProp_* model"));   // S110 review: never silent
+        continue;
+      }
+      for (assets::Mesh& me : sub.meshes) me.skinned = true;
+      posed = true;
+    }
     for (assets::Mesh& me : sub.meshes) {
       if (me.placement < 0) continue;
       const std::string& lb = sub.placements[size_t(me.placement)].label;
@@ -433,6 +468,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
     }
     FamilyModel fm = Register(ctx, std::string(key) + ":slot" + std::to_string(slot), std::move(sub), as->all_models, as->page_group, rdr::kGrpArena);
     rebase(fm);
+    fm.posed = posed;
     as->moving[slot] = std::move(fm);
     assets::Placement pl;
     pl.label = "slot " + std::to_string(slot) + " moved to its own model";
@@ -589,6 +625,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
       me.placement = -1;   // the call's rows carry the whole placement (the corner / side turn is in them)
       all_bound = BindMesh(me) && all_bound;
     }
+    piece.rows_needed = RowsNeeded(piece.stored);   // S108 AL1: the rows its bound vertices name (the per-call shortfall test, rf_ring.cpp)
     for (const assets::Mesh& me : piece.stored.meshes) {
       piece.fm.mesh_slot.push_back(SlotOf(me));
       piece.fm.mesh_set_file.push_back(me.light_set);

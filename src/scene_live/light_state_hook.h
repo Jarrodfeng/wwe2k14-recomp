@@ -24,8 +24,9 @@
 #include <utility>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_lights.h"
 #include "../renderer_adapter/upd_lean.h"   // S102 U2 (the plant macro; no game includes)
+#include "safe_guest_pages.h"   // S108 RDS: HullOk (pure)
 
 namespace rdr_scene::live::lights {
 
@@ -89,6 +90,26 @@ struct FrameBuffer {
   void Clear() { valid = false; states.clear(), refs.clear(), hashes.clear(), keys.clear(); }  // capacity stays
 };
 
+// S108 RDS (docs\research\s108\RDS_plan.md B, phase 1): G's three words of a model call (+4 the record array, +208 / +212 the map size) as ONE read of their hull [G+4, G+216) (HullOk: at most two
+// pages, exactly the pages the three word reads touch), loaded on the first ask of one of them. Refused (or another address): the word is read alone, as before, so every verdict is the old one.
+struct GHull {
+  uint8_t b[212];
+  bool tried = false, ok = false;
+  template <class ReadWordFn, class ReadBytesFn>
+  bool Word(uint32_t g, uint32_t a, uint32_t& v, ReadWordFn& read_word, ReadBytesFn& read_bytes) {
+    if (g != 0 && (a == g + 4 || a == g + 208 || a == g + 212)) {
+      if (!tried) tried = true, ok = wwe2k14::safe_pages::HullOk(g + 4, uint64_t(g) + 216) && read_bytes(g + 4, b, sizeof b);
+      if (ok) {
+        uint32_t w;
+        std::memcpy(&w, b + (a - g - 4), 4);
+        v = __builtin_bswap32(w);
+        return true;
+      }
+    }
+    return read_word(a, v);
+  }
+};
+
 class Tracker {
  public:
   Tracker() {
@@ -101,15 +122,18 @@ class Tracker {
   // first few calls' (object, ordinal, state) lines. `frame` = the guest frame read on this thread; `r13` = the guest thread register.
   template <class ReadWordFn, class ReadBytesFn, class LogFn>
   void OnModelCall(uint32_t model, uint32_t r13, uint64_t frame, ReadWordFn read_word, ReadBytesFn read_bytes, LogFn log) {
+    GHull gh_;   // S108 RDS: G+4 / +208 / +212 from one hull read
+    uint32_t g_for_hull_ = 0;
+    auto rw_ = [&](uint32_t a, uint32_t& v) { const bool r = gh_.Word(g_for_hull_, a, v, read_word, read_bytes); if (a == kGlobalWord && r) g_for_hull_ = v; return r; };
     uint32_t g = 0, arr = 0, tls = 0, blk = 0, idx = 0, wbits = 0, hbits = 0;
     bool null_block = false;
-    if (!read_word(kGlobalWord, g) || g == 0 || !read_word(g + 4, arr) || arr == 0 || !read_word(r13, tls) || tls == 0 || !read_word(tls + 1048, blk)) {
+    if (!rw_(kGlobalWord, g) || g == 0 || !rw_(g + 4, arr) || arr == 0 || !rw_(r13, tls) || tls == 0 || !rw_(tls + 1048, blk)) {
       Count(&Stats::unreadable);
       return;
     }
     if (blk == 0) {  // sub_82BCBFD8: no recording-list block: slot 0
       idx = 0, null_block = true;
-    } else if (!read_word(blk + 32, idx)) {
+    } else if (!rw_(blk + 32, idx)) {
       Count(&Stats::unreadable);
       return;
     }
@@ -123,7 +147,7 @@ class Tracker {
       Count(&Stats::unreadable);
       return;
     }
-    const bool have_map = read_word(g + 208, wbits) && read_word(g + 212, hbits);
+    const bool have_map = rw_(g + 208, wbits) && rw_(g + 212, hbits);
     if (!have_map) wbits = hbits = 0;
     uint8_t key[kKeyBytes];
     std::memcpy(key, raw, kUsedA);
@@ -205,10 +229,13 @@ class Tracker {
   // the states, refs and hashes that come out are the same bytes (tools\upd_lean). Counters differ only in `same_as_last`, which both paths bump.
   template <class ReadWordFn, class SameFn, class ReadBytesFn, class LogFn>
   void OnModelCallLean(uint32_t model, uint32_t r13, uint64_t frame, ReadWordFn read_word, SameFn same, ReadBytesFn read_bytes, LogFn log, bool* took = nullptr) {
+    GHull gh_;   // S108 RDS: G+4 / +208 / +212 from one hull read
+    uint32_t g_for_hull_ = 0;
+    auto rw_ = [&](uint32_t a, uint32_t& v) { const bool r = gh_.Word(g_for_hull_, a, v, read_word, read_bytes); if (a == kGlobalWord && r) g_for_hull_ = v; return r; };
     if (took) *took = false;
     uint32_t g = 0, arr = 0, tls = 0, blk = 0, idx = 0, wbits = 0, hbits = 0;
-    if (read_word(kGlobalWord, g) && g != 0 && read_word(g + 4, arr) && arr != 0 && read_word(r13, tls) && tls != 0 && read_word(tls + 1048, blk) && blk != 0 &&
-        read_word(blk + 32, idx) && idx < kMaxSlot && read_word(g + 208, wbits) && read_word(g + 212, hbits)) {
+    if (rw_(kGlobalWord, g) && g != 0 && rw_(g + 4, arr) && arr != 0 && rw_(r13, tls) && tls != 0 && rw_(tls + 1048, blk) && blk != 0 &&
+        rw_(blk + 32, idx) && idx < kMaxSlot && rw_(g + 208, wbits) && rw_(g + 212, hbits)) {
       const uint32_t rec = arr + idx * kRecordSize;
       std::unique_lock<std::mutex> lock(mu_);
       Slot& sl = slot_[idx];
@@ -236,15 +263,18 @@ class Tracker {
   enum class Probe : uint8_t { Ok, Unreadable, StateOverflow };
   template <class ReadWordFn, class ReadBytesFn>
   Probe ProbeModelCall(uint32_t model, uint32_t r13, uint64_t frame, ReadWordFn read_word, ReadBytesFn read_bytes, uint32_t& table_states, uint32_t& ordinal) const {
+    GHull gh_;   // S108 RDS: G+4 / +208 / +212 from one hull read
+    uint32_t g_for_hull_ = 0;
+    auto rw_ = [&](uint32_t a, uint32_t& v) { const bool r = gh_.Word(g_for_hull_, a, v, read_word, read_bytes); if (a == kGlobalWord && r) g_for_hull_ = v; return r; };
     table_states = 0;
     ordinal = 0;
     uint32_t g = 0, arr = 0, tls = 0, blk = 0, idx = 0, wbits = 0, hbits = 0;
-    if (!read_word(kGlobalWord, g) || g == 0 || !read_word(g + 4, arr) || arr == 0 || !read_word(r13, tls) || tls == 0 || !read_word(tls + 1048, blk)) return Probe::Unreadable;
-    if (blk != 0 && !read_word(blk + 32, idx)) return Probe::Unreadable;
+    if (!rw_(kGlobalWord, g) || g == 0 || !rw_(g + 4, arr) || arr == 0 || !rw_(r13, tls) || tls == 0 || !rw_(tls + 1048, blk)) return Probe::Unreadable;
+    if (blk != 0 && !rw_(blk + 32, idx)) return Probe::Unreadable;
     if (idx >= kMaxSlot) return Probe::Unreadable;
     uint8_t raw[kRecordSize];
     if (!read_bytes(arr + idx * kRecordSize, raw, kRecordSize)) return Probe::Unreadable;
-    if (!(read_word(g + 208, wbits) && read_word(g + 212, hbits))) wbits = hbits = 0;
+    if (!(rw_(g + 208, wbits) && rw_(g + 212, hbits))) wbits = hbits = 0;
     uint8_t key[kKeyBytes];
     std::memcpy(key, raw, kUsedA);
     std::memcpy(key + kUsedA, raw + kUsedB0, kUsedB);

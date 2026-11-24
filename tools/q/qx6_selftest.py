@@ -1,10 +1,9 @@
-"""qx6_selftest: proves the QX3 verbs (q asm, q ours hooks / text / affects, shader fallback) on a fixture in a TEMP folder, with PLANTED misses (no clang, no game, 0 runs):
+"""qx6_selftest: proves the QX3 verbs (q asm, q ours hooks / text, shader fallback) on a fixture in a TEMP folder, with PLANTED misses (no clang, no game, 0 runs):
   asm      a generated listing with a loop, a switch and an outside branch: the window marks branch targets and their sources; `--into` finds the planted branch
            that enters a range from outside, says whether the fall-through enters, and reports ZERO for a range that only the fall-through enters;
   hooks    a REX_HOOK_RAW, a macro that expands to REX_HOOK_RAW invoked with sub_X, a [[midasm_hook]] row + its callback definition + the generated `extern void` line;
            a function with no hook answers none (no false positive); a mid-asm hook inside a function is listed when the function is asked;
   text     an address written in a comment (any spelling) and a word in a string / code line, with the kind;
-  affects  a lane with a per-check glob: a covered file lists the check, a file outside it lists none (the gate's `*` does not cross `/`);
   shader   a block field declared in a .glsl and used in a .fx.json is found when it is no C++ symbol.
 Then the real tree (skipped when generated\\ is absent): the BELT adversary's window of sub_8272D710 and the branches into 0x8272E030..0x8272E4EC.
 Run:  py -I tools/q/qx6_selftest.py
@@ -97,10 +96,6 @@ address = 0x8200012C
 name = "wwe2k14_gate_cb"
 registers = ["r3"]
 ''')
-    write(root, 'tools/gate/lanes/fx_lane.json', json.dumps({'affects': ['src/other/*.h'], 'checks': [
-        {'name': 'fx.one', 'cmd': ['py', 'tools/x.py'], 'affects': ['src/fx/*.h', 'src/hooks.h']},
-        {'name': 'fx.two', 'cmd': ['py', 'tools/x.py']}]}))
-    write(root, 'tools/gate/lanes/fx_always.json', json.dumps({'checks': [{'name': 'fa.never_declared', 'cmd': ['some_unknown_tool', '--all']}]}))
     write(root, 'tools/x.py', 'print(1)\n')
     write(root, 'tools/y.py', 'print(2)\n')
     write(root, 'src/other/o.h', '// o\n')
@@ -140,8 +135,83 @@ def run_asm(root, con, *args):
     return buf.getvalue()
 
 
+def git_text_cases():
+    """S108 lane D: text at a revision (a word that exists ONLY at that branch), --docs, -E regex, --any (OR); planted on a throwaway git repo"""
+    with tempfile.TemporaryDirectory(prefix='qx6g_', ignore_cleanup_errors=True) as root:
+        def git(*a):
+            r = subprocess.run(['git', '-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false'] + list(a), capture_output=True, text=True)
+            if r.returncode:
+                raise Fail('git %s: %s' % (a, r.stderr))
+        git('init', '-q')
+        write(root, 'src/a.cpp', 'int alpha_only_main = 1;\nint beta_both = 2;\n')
+        write(root, 'docs/note.md', 'the docs mention gamma_docs_word here\n')
+        write(root, 'README.md', 'root md has delta_root_word\n')
+        write(root, 'CMakeLists.txt', 'add_library(epsilon_cmake_word)\n')
+        git('add', '-A')
+        git('commit', '-q', '-m', 'one')
+        git('branch', 'side')
+        git('checkout', '-q', 'side')
+        write(root, 'src/b.cpp', 'int zeta_only_side = 3;\n')
+        git('add', '-A')
+        git('commit', '-q', '-m', 'two')
+        git('checkout', '-q', '-')
+        r = qx6.cmd_text(root, ['zeta_only_side'])
+        check(r['n'] == 0, 'text: a word that exists only on another branch is not in the checkout', r)
+        r = qx6.cmd_text(root, ['zeta_only_side'], rev='side')
+        check(r['n'] == 1 and r['hits'][0]['file'] == 'src/b.cpp' and r['hits'][0]['line'] == 1, 'text --rev: the word that exists only at REF is found, file path without the REF prefix', r)
+        try:
+            qx6.cmd_text(root, ['zeta_only_side'], rev='no_such_ref')
+            check(False, 'text --rev: an unknown REF is an error, not "0 lines"')
+        except qx6.XError:
+            check(True, 'text --rev: an unknown REF is an error, not "0 lines"')
+        r = qx6.cmd_text(root, ['gamma_docs_word'])
+        check(r['n'] == 0, 'text: docs are outside the default path set', r)
+        r = qx6.cmd_text(root, ['gamma_docs_word'], docs=True)
+        check(r['n'] == 1 and r['hits'][0]['file'] == 'docs/note.md', 'text --docs: a doc mentioning the word is found', r)
+        r = qx6.cmd_text(root, ['delta_root_word', ], docs=True)
+        check(r['n'] == 1 and r['hits'][0]['file'] == 'README.md', 'text --docs: a root *.md is in the docs set', r)
+        r = qx6.cmd_text(root, ['epsilon_cmake_word'], docs=True)
+        check(r['n'] == 1 and r['hits'][0]['file'] == 'CMakeLists.txt', 'text --docs: the root CMakeLists.txt is in the set', r)
+        r = qx6.cmd_text(root, ['alpha_only_main|beta_both'])
+        check(r['n'] == 0, 'text: without -E the word is literal (the | is not an OR)', r)
+        r = qx6.cmd_text(root, ['alpha_only_main|beta_both'], regex=True)
+        check(r['n'] == 2, 'text -E: the pattern is passed through as a regex', r)
+        r = qx6.cmd_text(root, ['alpha_only_main', 'beta_both'])
+        check(r['n'] == 0, 'text: several words are ANDed on one line by default', r)
+        r = qx6.cmd_text(root, ['alpha_only_main', 'beta_both'], any_=True)
+        check(r['n'] == 2, 'text --any: several words are ORed', r)
+        # review: git's prefilter must speak the regex dialect of the Python filter (\d is not POSIX ERE: -E found 0 lines, silently)
+        r = qx6.cmd_text(root, [r'beta_both = \d'], regex=True)
+        check(r['n'] == 1 and r['hits'][0]['file'] == 'src/a.cpp', 'text -E: a Python-regex class (\\d) finds the line git -E would miss', r)
+        # review: a REF that starts with `-` is a git option (--cached searched the index; -O<cmd> runs a program), never a revision
+        for bad in ('--cached', '-Onotepad'):
+            try:
+                qx6.cmd_text(root, ['zeta_only_side'], rev=bad)
+                check(False, 'text --rev %s: a REF starting with - is refused, not handed to git as an option' % bad)
+            except qx6.XError:
+                check(True, 'text --rev %s: a REF starting with - is refused, not handed to git as an option' % bad)
+
+
+def lit_path_case():
+    """S108 lane D (P4a B3): `/` and `\\` are one in a path literal, so out/harness/index and out\\harness\\index find the same lines"""
+    import qtext
+    text = 'a = "out/harness/index"\nb = "out\\\\harness\\\\index"\nc = out\\harness\\index\nd = outXharnessXindex\n'
+    for q in ('out/harness/index', 'out\\harness\\index'):
+        pats, _ = qtext.lit_patterns(q)
+        n = sum(1 for ln in text.splitlines() if any(rx.search(ln) for rx in pats))
+        check(n == 3, 'lit: the path %r matches all three spellings (/, \\, \\\\) and not a look-alike' % q, (n, text))
+    # review: a literal with ONE separator-bounded part is not a path (an escape such as \n, a regex-looking \d+): exact, as before S108
+    text = 'a = "and/not"\nb = "x\\ny"\nc = "/d+"\nd = "\\d+"\n'
+    for q, want in (('\\n', 1), ('\\d+', 1)):
+        pats, _ = qtext.lit_patterns(q)
+        n = sum(1 for ln in text.splitlines() if any(rx.search(ln) for rx in pats))
+        check(n == want, 'lit: the non-path %r matches only its own spelling (not "/n" / "/d+")' % q, (n, text))
+
+
 def main():
-    with tempfile.TemporaryDirectory(prefix='qx6_') as root:
+    # S106 main: an sqlite connection of the fixture can still hold index.db at exit on Windows (WinError 32: a flake seen in TIPFIX's
+    # runs); the scratch folder's cleanup must not turn a passing selftest into a FAIL
+    with tempfile.TemporaryDirectory(prefix='qx6_', ignore_cleanup_errors=True) as root:
         fixture(root)
         con = index_con(root)
         # ---- asm
@@ -188,159 +258,8 @@ def main():
         check(kinds == ['comment', 'string'], 'text: a word, case-insensitive, with its kind (comment and string)', r)
         r = qx6.cmd_text(root, ['PartsBlur', 'ambient'])
         check(r['n'] == 0, 'text: ALL words must be on the line (no partial match)', r)
-        # ---- affects (the gate's own selection: fastgate.selected)
-        r = qx6.cmd_affects(root, 'src/fx/a.h')
-        check('fx.one' in [a['check'] for a in r['selected']], 'affects: a file under the per-check glob selects the check', r)
-        check('fx.two' not in [a['check'] for a in r['selected']] and 'fx.one' in [a['check'] for a in r['selected']], 'affects: the lane-wide list does NOT merge into a check that has its own (src/fx/a.h is not src/other/*.h)', r)
-        r = qx6.cmd_affects(root, 'src/other/o.h')
-        names = [a['check'] for a in r['selected']]
-        check('fx.two' in names and 'fx.one' not in names, 'affects: a check with NO list of its own uses the lane-wide one; one with its own list does not', r)
-        check(r['always'] >= 1, 'affects: a check with no affects anywhere is reported as running for ANY change (never "gated by no lane")', r)
-        r = qx6.cmd_affects(root, 'src/fx/deep/b.h')
-        check('fx.one' not in [a['check'] for a in r['selected']], 'affects: `*` does not cross a `/` (the gate rule): src/fx/deep/b.h is NOT covered by src/fx/*.h', r)
-        r = qx6.cmd_affects(root, 'tools/gate/lanes/fx_lane.json')
-        check({'fx.one', 'fx.two'} <= {a['check'] for a in r['selected']}, 'affects: a changed lane json selects its checks (the gate rule)', r)
-        for bad in ('../outside.h', 'C:/Windows/notepad.exe'):
-            try:
-                qx6.cmd_affects(root, bad)
-                check(False, f'affects: {bad} must be refused (outside the repository)')
-            except qx6.XError as e:
-                check('outside' in str(e) or 'not under' in str(e), f'affects: {bad} is refused, not answered with 0', str(e))
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            qx6.print_affects(qx6.cmd_affects(root, 'src/zzz/none.h'))
-        check('no lane' not in out.getvalue().lower() and 'selects' in out.getvalue(), 'affects: the printed answer never says "no lane covers"', out.getvalue())
-        # a wrong-case spelling is matched to the git spelling (a git repo fixture)
-        subprocess.run(['git', '-C', root, 'init', '-q'], check=True)
-        subprocess.run(['git', '-C', root, 'add', '-A'], check=True)
-        r = qx6.cmd_affects(root, 'SRC/Fx/A.H')
-        check(r['file'] == 'src/fx/a.h' and 'fx.one' in [a['check'] for a in r['selected']], 'affects: a wrong-case path is mapped to the git spelling', r)
-        # ---- QAF: cached == uncached; a cold table answers in bounded time, says so, and a warm-up (warm_deps) makes the next answer the full one; a busy index never waits
-        import shutil
-        import time
-        os.environ['WWE_Q_NO_WARM'] = '1'
-
-        def lane_key(r):
-            return json.dumps({k: r[k] for k in ('file', 'total_checks', 'selected', 'always', 'named')}, sort_keys=True, default=str)
-
-        write(root, 'tools/gate/lanes/fx_exact.json', json.dumps({'checks': [{'name': 'fe.script_only', 'cmd': ['py', 'tools/y.py']}]}))
-        write(root, 'tools/gate/lanes/fx_maybe.json', json.dumps({'checks': [{'name': 'fm.has_affects', 'cmd': ['py', 'tools/y.py'], 'affects': ['src/never/*.h']}]}))   # selected for tools/y.py ONLY through its derived deps
-        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
-        cold_full =qx6.cmd_affects(root, 'src/other/o.h')                 # no table yet: derives every check (a fixture: milliseconds)
-        warm_full = qx6.cmd_affects(root, 'src/other/o.h')                 # the saved table
-        check(lane_key(cold_full) == lane_key(warm_full) and not cold_full['note'], 'affects QAF: the cached and the uncached derived-deps answers are the same set of lanes', [cold_full, warm_full])
-        many = qx6.cmd_affects(root, ['src/other/o.h', 'src/fx/a.h'])     # several files in one call: the same answers as one call each
-        check([lane_key(x) for x in many] == [lane_key(warm_full), lane_key(qx6.cmd_affects(root, 'src/fx/a.h'))], 'affects QAF: several files in one call answer exactly as one call each', many)
-        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
-        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
-        try:
-            planted = qx6.cmd_affects(root, 'src/other/o.h')               # PLANTED cold table: a zero derive budget derives nothing
-        finally:
-            del os.environ['WWE_Q_AFFECTS_BUDGET']
-        check('not computed yet' in planted['note'] and planted['always'] > cold_full['always'], 'affects QAF: a cold table over its budget counts the underived checks as always-run AND says so (never silently)', [planted, cold_full])
-        check(cold_full['partial'] is False and planted['partial'] is True and planted['not_derived'] > 0, 'affects QAF: a complete answer says partial false, an over-budget one partial true with the count (JSON fields)', [cold_full, planted])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            qx6.print_affects(planted)
-            qx6.print_affects(cold_full)
-        lines = buf.getvalue().split('\n')
-        check(lines[0].startswith('PARTIAL: ') and str(planted['not_derived']) in lines[0] and any(l.startswith('the gate selects') for l in lines[1:2]) and not any(l.startswith('PARTIAL') for l in lines[2:]),
-              'affects QAF: a partial answer starts with PARTIAL (and the count) on its FIRST line; a complete one does not', lines[:3])
-        # a check WITH `affects` that only its derived deps select, left underived: listed as maybe and COUNTED (a lane is never dropped)
-        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
-        full_y = qx6.cmd_affects(root, 'tools/y.py')
-        check('fm.has_affects' in [a['check'] for a in full_y['selected'] if 'derived deps' in a['why']], 'affects QAF: (setup) fm.has_affects is selected for tools/y.py through its derived deps when they are known', full_y)
-        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
-        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
-        try:
-            maybe_y = qx6.cmd_affects(root, 'tools/y.py')
-        finally:
-            del os.environ['WWE_Q_AFFECTS_BUDGET']
-        check(any(a['check'] == 'fm.has_affects' and a['why'].startswith('maybe') for a in maybe_y['selected']) and maybe_y['maybe'] >= 1,
-              'affects QAF: a check with `affects` left underived is listed "maybe (deps not derived yet)" and counted among the selected (the planted "not selected" answer fails this row)', maybe_y)
-        # a manifest-based (tier A) entry whose stamp is old is NOT reused over the budget; a manifest-free one is; an entry saved before the flag existed is not
-        gd = qx6._gate_mod('deps')
-        tb = gd.Table(root, root, cache_path=os.path.join(root, 'out', 'gate', 'deps.json'), log=lambda m: None)
-        chk = {'name': 'fe.script_only', 'cmd': ['py', 'tools/y.py']}
-        tb.get(chk)
-        ent = tb.cache['fe.script_only']
-        ent['mstamp'] = 'an older manifest stamp'
-        tb.quick, tb.derive_budget_s = True, 0.0
-        tb.get(chk)
-        check(tb.stale_used == 1 and ent['d']['manifest'] is False, 'affects QAF: a manifest-free entry with an old stamp is reused over the budget (counted)', ent['d'])
-        for label, mutate in (('a tier-A / manifest entry', lambda d: d.update(manifest=True)), ('an entry saved before the flag existed', lambda d: d.pop('manifest'))):
-            tb._stale.clear(), tb._skipped.clear()
-            mutate(ent['d'])
-            d2 = tb.get(chk)
-            check(tb.underived('fe.script_only') and tb.stale_used == 0 and 'not derived' in d2['notes'][0], f'affects QAF: {label} with an old stamp is NOT reused over the budget (counted not derived)', d2)
-        tb.close()
-        # the signature of an entry (every saved shard is keyed by it): a later edit that changes it must fail here, loudly. Digests taken from the ORIGINAL pathlib implementation.
-        class Ix:
-            def sha(self, r):
-                return {'f.h': 'abc123'}.get(r)
-        gold = [(({'cmd': ['py', 'a.py']}, [], None, [], []), 'd0fe53b0f059ae6252b10b05f9021d021b698f57906a0b3cf256f907f25fd62b'),
-                (({'cmd': ['py', 'b.py', '--x'], 'deps': 'scan:src'}, ['nope/a.h', 'nope/b.h'], None, ['x/y', 'z'], []), 'a6b420d17dbc19225a5b15ac61d29e0b94330b15d17595ea48eb0e33ab0655b4'),
-                (({'cmd': ['tools/t.exe'], 'uncacheable': 'why'}, ['q.h'], Ix(), ['lit'], ['f.h', 'missing.h']), '18ce2ad0ef628a4d68da8fc8342b38afcec6c726c22537f4bb5d05ae399000ea')]
-        got = [gd._sig(a[0], 'R:/golden/root', a[1], a[2], a[3], a[4]) for a, _ in gold]
-        check(got == [g for _, g in gold], 'affects QAF: _sig gives the fixed golden digests on three invented inputs (a changed signature invalidates every saved table: fail loudly)', got)
-        lk0 = qx6._warm_lock(root) + '.atomic'
-        check(qx6._take_lock(lk0) and not qx6._take_lock(lk0), 'affects QAF: the one-per-checkout lock is an exclusive create: the second taker is refused at once', None)
-        os.unlink(lk0)
-        shutil.rmtree(os.path.join(root, 'out', 'gate'), ignore_errors=True)
-        check(qx6.warm_deps(root) >= 1 and not os.path.exists(qx6._warm_lock(root)),'affects QAF: the warm-up derives every check, saves the table and releases its lock', None)
-        after = qx6.cmd_affects(root, 'src/other/o.h')
-        check(lane_key(after) == lane_key(cold_full) and not after['note'], 'affects QAF: after the warm-up the answer is the full one again (the same set of lanes, no note)', after)
-        # a build elsewhere rewrote a manifest: every entry's stamp is older, its FILES are unchanged. Over the budget the older answer is used (counted, said), never "unknown"
-        write(root, 'out/deps/zz_other_build.deps.txt', '# wwe2k14-deps v1\ntools/y.py\n')
-        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
-        try:
-            older = qx6.cmd_affects(root, 'src/other/o.h')
-        finally:
-            del os.environ['WWE_Q_AFFECTS_BUDGET']
-        check(lane_key(older) == lane_key(cold_full) and 'before the latest build manifests' in older['note'] and 'not computed yet' not in older['note'],
-              'affects QAF: entries older than the latest build manifests (files unchanged) answer within the budget: the same lanes, and the note says so', older)
-        # ... but a file the entry was derived from CHANGED: that entry is not used (unknown, said), whatever the budget
-        write(root, 'tools/y.py', 'print(3)\n')
-        os.environ['WWE_Q_AFFECTS_BUDGET'] = '0'
-        try:
-            changed = qx6.cmd_affects(root, 'src/other/o.h')
-        finally:
-            del os.environ['WWE_Q_AFFECTS_BUDGET']
-        check('not computed yet' in changed['note'] and changed['always'] > cold_full['always'], 'affects QAF: an entry whose derived-from file changed is NOT used over the budget (counted unknown, said)', changed)
-        write(root, 'tools/y.py', 'print(2)\n')
-        os.unlink(os.path.join(root, 'out', 'deps', 'zz_other_build.deps.txt'))
-        # a warm-up already running (fresh lock) is not started twice; a stale lock is taken over
-        lk = qx6._warm_lock(root)
-        os.makedirs(os.path.dirname(lk), exist_ok=True)
-        open(lk, 'w').close()
-        check(qx6._warm_running(lk) and qx6.warm_deps(root) == 0, 'affects QAF: a fresh warm-up lock = one warm-up per checkout', None)
-        os.utime(lk, (time.time() - 4000, time.time() - 4000))
-        check(not qx6._warm_running(lk), 'affects QAF: a stale warm-up lock (> 25 min) is not honoured', None)
-        os.unlink(lk)
-        # the index: a writer holding ours.db must not make the reader wait; it answers from ours.db.good and says so
-        idir = os.path.join(root, 'out', 'harness', 'index')
-        os.makedirs(idir, exist_ok=True)
-        dbp = os.path.join(idir, 'ours.db')
-        w = sqlite3.connect(dbp, isolation_level=None)
-        w.executescript('CREATE TABLE files(path TEXT, sha TEXT, size INTEGER); CREATE TABLE tus(id INTEGER, file TEXT, errors INTEGER); CREATE TABLE incs(tu INTEGER, file TEXT);')
-        shutil.copyfile(dbp, dbp + '.good')
-        idx, why = qx6.affects_index(root, root)
-        check(idx is not None and idx.path.name == 'ours.db' and not why, 'affects QAF: an idle index is read as itself', (idx, why))
-        idx.close()
-        w.execute('BEGIN EXCLUSIVE')
-        os.environ['WWE_Q_DB_WAIT'] = '0.2'
-        t0 = time.time()
-        try:
-            idx, why = qx6.affects_index(root, root)
-        finally:
-            del os.environ['WWE_Q_DB_WAIT']
-        dt = time.time() - t0
-        w.execute('ROLLBACK')
-        w.close()
-        check(idx is not None and idx.path.name == 'ours.db.good' and 'busy' in why and dt < 3.0, f'affects QAF: a busy ours.db is not waited on ({dt:.2f} s): the answer reads ours.db.good and says so', (idx, why))
-        idx.close()
-        for fn in ('ours.db', 'ours.db.good'):
-            os.unlink(os.path.join(idir, fn))
+        git_text_cases()
+        lit_path_case()
         # ---- hooks, review fixes
         r = qx6.cmd_hooks(root, 'sub_82008888', main=root)
         check(not r['src'], 'hooks: a hook inside a COMMENT is not a hook', r)
@@ -372,8 +291,8 @@ def main():
         check('8272E030  lis r11,-31853' in o and '8272E040  bl 0x82ba7f08' in o, 'real: BELT window of sub_8272D710 0x8272E02C..0x8272E040', o)
         o = q('asm', 'sub_8272D710', '--into', '0x8272E030', '0x8272E4EC')
         check('from outside it (0)' in o and 'falls through into 8272E030' in o, 'real: no branch enters 0x8272E030..0x8272E4EC from outside; only the fall-through from 8272E02C', o)
-        o = q('ours', 'hooks', 'sub_8270ECE8')
-        check('src/scene_live/replay_pose_hook.h:20' in o, 'real: q ours hooks sub_8270ECE8 finds the RPF hook', o)
+        o = q('ours', 'hooks', 'sub_82C04DF0')
+        check('REX_HOOK_RAW sub_82C04DF0' in o and 'src/draw_origin.h' in o, 'real: q ours hooks sub_82C04DF0 finds the draw-ask hook', o)
         o = q('ours', 'hooks', '0x82C04E1C')
         check('wwe2k14_model_entry' in o and 'config/fp_probe_hooks.toml:72' in o and re.search(r'src/fp_probe.h:[0-9]+', o), 'real: q ours hooks 0x82C04E1C finds wwe2k14_model_entry (toml row, callback, generated)', o)
         o = q('ours', 'hooks', 'wwe2k14_model_entry')
@@ -385,10 +304,9 @@ def main():
         o = q('ours', 'def', 'Param1')
         check(('not in the C++ index' in o or 'Param1' in o) and 'no C++ symbol' not in o, 'real: shader fallback wording (the symbol is not in the index, it is not claimed absent)', o)
         e = subprocess.run([sys.executable, Q, 'ours', '--branch', 'main', 'text', 'foo'], capture_output=True, text=True, env=env, timeout=120)
-        check(e.returncode == 2 and '--branch is not supported' in e.stderr, 'real: --branch on a text verb is refused with a clear error', e.stderr)
-        wt = os.path.dirname(os.path.dirname(HERE))
-        r = qx6.cmd_affects(wt, 'tools/q/qx6.py', derived=False)      # derived=False: the selection rule is proven by the fixture above; the derived-deps table is a cold ~2 min computation under load
-        check(isinstance(r, dict) and 'selected' in r, 'real: cmd_affects on this checkout answers (derived deps not consulted)', r)
+        check(e.returncode == 0 and ' at main' in e.stdout, 'real: --branch on a text verb searches that revision (S108 lanes C + D)', e.stdout + e.stderr)
+        e = subprocess.run([sys.executable, Q, 'ours', 'text', '--branch', '-x', 'foo'], capture_output=True, text=True, env=env, timeout=120)
+        check(e.returncode == 2 and 'is not a revision' in e.stderr, 'real: a --branch REF starting with - is refused (it would reach git as an option)', e.stderr)
         o = q('ours', 'text', '82C1E840', 'post')
         check('scene_skip_core.h' in o or 'post_settings.h' in o, 'real: q ours text finds addresses written in comments', o)
     else:

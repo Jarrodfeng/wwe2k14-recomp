@@ -1,4 +1,4 @@
-"""S101 lane 32 (the scene director): the offline acceptance test (the gate entry, tools/gate/lanes/scene_director.json). No game run.
+"""S101 lane 32 (the scene director): the offline acceptance test (run it by path). No game run.
 
     py -I tools/goto/scene_selftest.py
 

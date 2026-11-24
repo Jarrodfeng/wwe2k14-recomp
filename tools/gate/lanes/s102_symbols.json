@@ -1,8 +1,0 @@
-{
- "owner": "S102 lane S0-6 (symbols for the game exe): CMake option WWE2K14_EXE_SYMBOLS, tools/build.ps1 -Symbols, push_kit.ps1 -Symbols, tools/release/check_zip_symbols.py, docs/harness/symbols.md. 0 game runs, 0 Surface runs.",
- "note": "zip_symbols = a release zip holding a pdb (by name, nested, upper case, or renamed: caught by content) or a map must be flagged; a clean zip, a missing input and an empty zip are checked too. Claim: 0 ms (instrument).",
- "claim": {"scene": "bryan", "side": "none (instrument)", "ms": [0, 0]},
- "checks": [
-  {"name": "s102_symbols.zip_symbols", "cmd": ["py", "-I", "tools/release/check_zip_symbols.py", "--selftest"], "timeout_s": 120}
- ]
-}

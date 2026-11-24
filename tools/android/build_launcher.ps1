@@ -30,7 +30,24 @@ $ErrorActionPreference = 'Continue'
 [void][System.IO.Directory]::CreateDirectory("$root\logs\android")
 $log = "$root\logs\android\launcher_$Target.log"
 
-$lock = Enter-RunLock -Name "build_launcher.ps1 $Target"
+# S106 G2L: -Target pc writes only out\launcher_mobile\pc (no game run reads it), so it takes the BUILD lock class (beside untimed game runs, 3 at once) instead of
+# the exclusive one (S105 11-20 17:27: an exclusive launcher build waited 624.9 s behind game runs and held the lock 0.1 s). Refused while a process runs from the build
+# folder (the link would fail on a running exe). -Target android stays exclusive: build_apk.ps1 packs its output.
+$lockMode = 'Exclusive'
+if ($Target -eq 'pc') {
+    $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -and $_.Path.StartsWith("$build\", [StringComparison]::OrdinalIgnoreCase) } catch { $false } })
+    if ($running.Count) { "REFUSED: $($running.Count) process(es) run from $build (pid $($running[0].Id) ...): close it and build again"; exit 6 }
+    $lockMode = 'Build'
+}
+$lock = Enter-RunLock -Name "build_launcher.ps1 $Target" -Mode $lockMode
+# S106 G2LF F9: the BUILD class lets two of these run at once, and two pc builds would write one folder and one log: a per-folder lock file (open with no sharing,
+# held to the end) refuses the second. Not needed for android (exclusive).
+$folderLock = $null
+if ($Target -eq 'pc') {
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $build))
+    try { $folderLock = [System.IO.File]::Open("$build.build.lock", 'OpenOrCreate', 'ReadWrite', 'None') }
+    catch { Exit-RunLock $lock; "REFUSED: another build_launcher.ps1 pc is already building $build (lock file $build.build.lock is held): wait for it"; exit 6 }
+}
 try {
     $t0 = Get-Date
     "== launcher build $Target, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $(git -C $root log --oneline -1)" | Out-File $log
@@ -57,4 +74,4 @@ try {
         if (-not (Test-Path $out)) { "missing $out"; exit 1 }
         "{0}: {1:N1} MB" -f $out, ((Get-Item $out).Length / 1MB)
     }
-} finally { Exit-RunLock $lock }
+} finally { if ($folderLock) { $folderLock.Dispose() }; Exit-RunLock $lock }

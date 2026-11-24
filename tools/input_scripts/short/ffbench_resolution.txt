@@ -1,4 +1,4 @@
-# harness: realtime (sets vsync itself (fast-forward speed bench); Session 16: run_list fast-forwards other routes)
+# intent: performance fps
 # Session 14 (Jarrod's question): does the render resolution limit the fast-forward speed? Use with
 # --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_load_turbo=false and --resolution_scale=1|2|3.
 # Once the match clock runs: vsync off, 600 frames settle, then 'ffbench: start' / 'ffbench: end' 3000 game frames

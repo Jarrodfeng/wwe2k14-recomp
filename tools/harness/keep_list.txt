@@ -1,6 +1,5 @@
 # The ONE keep list for out\ (S102 TIDY2, Jarrod 2026-11-15: "out should be scratch"). Committed; read by tools\harness\tidy.py.
-# Everything in out\ not held goes at the end of a session. Held: tidy_out.py's allowlist (out\build is SACRED), this list, and exact paths a gate lane
-# names (tools\gate\lanes\*.json needs / programs / exes / command arguments).
+# Everything in out\ not held goes at the end of a session. Held: tidy_out.py's allowlist (out\build is SACRED), this list, and the capture / run folders a check script in tools\ names.
 # Format, one line each:   out/exact/path | reason | optional until YYYY-MM-DD
 #   - an EXACT path (a file, or a leaf folder): never a container (out/cases, out/captures, out/sNNN, a runs folder), never an unpack copy (fview_unpack_*)
 #   - a reason is required; an entry past its date stops holding (printed as a problem)
@@ -22,8 +21,18 @@ out/tools/loopback_rec.exe | Quick start: loopback audio recorder
 out/tools/rsc_dump.exe | Quick start: scene file dump
 out/tools/wwe2k14_assets_rdr.exe | Quick start: the asset renderer tool
 
-# --- the captures the gate corpus plays (tools\gate\corpus.py plays EVERY folder in out\captures; each is also named exactly by tools\gate\lanes\core.json)
-# (held through the lane's exact names, not repeated here)
+# --- captures only the lane jsons (deleted) held (S107: the lane jsons are gone); each needs a game run to remake
+out/captures/a01_entrance | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/a02_entrance | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/a09_match | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/a41_match | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/a52_match | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/a54_match | input of tools/scene/b3_lm_check.py (was held by lane s103_B3 until S107); needs a game run to remake | 2026-12-31
+out/captures/live | input of the core capture corpus (was held by lane core until S107); needs a game run to remake | 2026-12-31
+out/s103/E7/case/capture | input of tools/skip/part_clock_join.py and screens_idle_check.py (was held by lane s103_E7 until S107); needs a game run to remake | 2026-12-31
+out/s103/p7h2/rows_match_hud | input of tools/scene/chs_c6_check.py (was held by lane s103_CHS until S107); needs a game run to remake | 2026-12-31
+out/s102/ab8/g4w3/x | input of tools/ab_flip/ab_flip_check.py (its past-bug re-find, ab_flip_check.py:401; was held by lane s102_m7 until S107) | 2026-12-31
+out/s102/ab8/g2banks/x | input of tools/surface/ab_multi_check.py:116 and ab_two_arm_same.py:12 (was held until S107) | 2026-12-31
 
 # --- Android test build Jarrod installs
 out/android/apk/wwe2k14-android-s102rc1-bundle3.apk | the newest test APK STATUS.md names (Jarrod installs it)
@@ -77,7 +86,6 @@ out/captures/c2d_caw_other | S103 landing-2 2D corpus capture (menus / load / HU
 out/captures/c2d_caw_form | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
 out/captures/c2d_caw_saving | S103 landing-2 2D corpus capture (menus / load / HUD / pause / CAW) | 2026-12-31
 out/s103/run36_pics | run 36 (7303) mirror / dump pictures copied out (honest mode 2; for sheets / comparisons) | 2026-11-24
-out/gate/times.csv | the gate's per-check timing ledger since 2026-11-14 (timings only, nothing from the game): half of the S103 audit's evidence; audits rerun on it | 2026-12-31
 out/s103/run38_pairs | run 38 (7305) mirror pairs (CLK diagnosis; FH / RM probes read them) | 2026-11-24
 out/s103/run39_pairs | run 39 (7306) mirror pairs (CLK2 live check) | 2026-11-24
 out/s103/ab2_pics | A/B pair 7309 (ours every frame) / 7310 (game), landing-1 sheet | 2026-11-24
@@ -104,6 +112,17 @@ out/reports/report_20261119_144822.zip | a player's v0.4.0 problem report (Intel
 out/harness/q_missed.log | the q gaps agents and the main session logged (py tools\q\q.py missed ...): the input of Session 105's index lane (SESSION105_PLAN.md section 3 D; every miss becomes a q entry); tiny | 2026-12-31
 out/sheets/cull_before_after.png | the stage cull fix's before / after sheet (classic WrestleMania banners show their logos): the picture Session 105's row B1 game check is compared with; made offline by the branch's tools\scene\stage_cull_sheet.py; 4.5 MB; a picture of game assets, never committed | 2026-12-20
 out/reports/wwe2k14_report_025.zip | a player's android-v0.4.0 report with the endless Move-set load in its log (stock roster, DLC off, 8 cores; MOT08 opened twice, then no file for 46 s; the stall note did not fire): the only real log of Session 105's row A6 (reading: docs\research\s104\REPORT_025_moveset_stall.md); 1 MB; never committed | 2026-12-20
-out/bench/userdata_threads_s105 | TEST mirror: frozen save + Cena (139) Threads set 0 in a loud magenta palette (make_test_save.py, S105 T4); run with -Data userdata_threads_s105 --wwe2k14_launch=s71_cena_threads | 2026-11-27
-out/bench/userdata_caw_s105 | TEST mirror (S105 R3): the frozen save + ONE created superstar (slot 0, id 0: hair 57, body accessory 1, tank top with a custom chest logo) + a test logo in logo slot 3; made by scenes\s105_make_logo.txt + s105_make_caw.txt; run with -Data userdata_caw_s105 | 2026-11-27
-out/bench/userdata_mask7c_s105 | TEST mirror (S105 IMP): the frozen save with its saved DLC pack mask set to 0x7C = packs 2-6 (make_test_save.py --threads none --mask 7C); the 2-arm check of the imports-reach-an-old-save fix (with out\s105\mods and USE MY DLC packs 2-5 offered: without the fix Lashley / Maryse and the pack 3-5 characters are missing from the DOWNLOADED tab, with it present); run with -Data userdata_mask7c_s105 | 2026-11-27
+out/bench/userdata_threads_s105 | TEST mirror: frozen save + Cena (139) Threads set 0 in a loud magenta palette (make_test_save.py, S105 T4); run with -Data userdata_threads_s105 --wwe2k14_launch=s71_cena_threads | 2026-12-05
+out/bench/userdata_caw_s105 | TEST mirror (S105 R3): the frozen save + ONE created superstar (slot 0, id 0: hair 57, body accessory 1, tank top with a custom chest logo) + a test logo in logo slot 3; made by scenes\s105_make_logo.txt + s105_make_caw.txt; run with -Data userdata_caw_s105 | 2026-12-05
+out/bench/userdata_mask7c_s105 | TEST mirror (S105 IMP): the frozen save with its saved DLC pack mask set to 0x7C = packs 2-6 (make_test_save.py --threads none --mask 7C); the 2-arm check of the imports-reach-an-old-save fix (with out\s105\mods and USE MY DLC packs 2-5 offered: without the fix Lashley / Maryse and the pack 3-5 characters are missing from the DOWNLOADED tab, with it present); run with -Data userdata_mask7c_s105 | 2026-12-05
+out/s105/check_runs.log | Session 105's run questions (every game run, logged before it started): read by the Fable workflow audit (docs/history/fable_audit_s105.md) | 2026-12-05
+out/s105/release_v041.log | the v0.4.1 release log (entrance check numbers, the first attempt's store failure): read by the Fable workflow audit | 2026-12-05
+out/s105/chk9/b3cache/renderer_pipelines/pipelines.bin | S106 PSEED: PC run 136's stored pipeline list (95 on-demand builds; full RecordKeys): proof P1 (tools/renderer/pseed_proof.py) reads it | 2026-12-31
+out/s105/a6_surface/surface_bench_20261120_1843.zip | S106 PSEED: Surface run 780's bench zip (its log names the 20 cold builds >= 15 ms after match on): proof P1b (pseed_proof.py --surface-zip) reads the names | 2026-12-31
+out/s105/mods | S106 time trial (docs/research/s106/TT.md): the A7 and importer rows' mods folder (pacs built from the player's own DLC: never committed, never shipped) for their BEFORE / AFTER recipes | 2026-12-05
+out/d3caster/z7147 | the only copy of run 7147's case (its source zip under out/s101/runs is gone): live checks name its capture subfolder; held whole so the session-end sweep keeps inputs.rec / manifest / picture (S106 0E review BLOCK) | 2026-12-31
+out/lane115/r7079 | run 7079's case folder: live checks name its capture subfolder; held whole (S106 0E review BLOCK) | 2026-12-31
+out/atlas/atlas.json | 92 MB material atlas read by tools/census/roster_materials.py and roster_proof.py; its only holder (solver.selftest) was retired in S106 0E; rebuild: out/tools/atlas.exe --game ... --all | 2026-12-31
+out/exe/lane-s108stream-086c0fa41 | S108 GBF-1 (docs/GAME_BUG_FIXES.md): run 32, the reference shots of the game's own draw commands (the thin victory face before the fix); never committed | 2026-12-06
+out/exe/lane-s108tip-9986ecb2e | S108 GBF-1: runs 35 / 36, the fixed build's face subject shots and saved records and the blood-off control; never committed | 2026-12-06
+out/exe/lane-s108tip-cb873c14b | S109 plan step 6: the run 26 / 27 sheets (arena 53 and the created arena after the UV fix) wait for Jarrod's eyes; never committed | 2026-12-06

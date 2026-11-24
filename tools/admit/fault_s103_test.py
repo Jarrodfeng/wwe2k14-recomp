@@ -11,8 +11,8 @@ call Request-BuildParallel -Want 16, keep their grant for 3 s and call Release-B
      `admitted` rows, neither nested); the second waited for the first.
   F2 PLANTED, the S103 fault: the same with WWE_NO_ADMIT=1 (today): 16 + 16 at once, 64 GB > 16 GB: the same overlap test catches it.
   F3 nested: a build holding 8 starts a child build (its descendant) that wants 16: the child is granted 8, and history shows ONE reservation.
-  F4 timeout: memory that never frees (another holder keeps it): Request-BuildParallel -TimeoutS 3 and admit_py.hold(timeout_s=3) each return N (16)
-     with the loud line, never 1.
+  F4 timeout: memory that never frees (another holder keeps it): Request-BuildParallel -TimeoutS 3 throws and admit_py.hold(timeout_s=3) raises Refused
+     (S109 GATE: REFUSED at the bound, exit 75, the loud line), never N and never a forced slot.
 admit.exe: env WWE_ADMIT_EXE, else this checkout's out\tools\admit\admit.exe, else the main checkout's.
 """
 import json
@@ -120,6 +120,8 @@ def two_builds(tmp, tag, env):
 
 
 def main():
+    # S106 C5F note 7: a real `run_list -Alone` holds a pause the wrappers honour: point this test at a pause file that does not exist (same as wiring_test.isolate_alone)
+    os.environ['WWE_ALONE_FILE'] = os.path.join(tempfile.gettempdir(), 'wwe_fault_s103_no_alone_here', 'alone.lock')
     # F0 the REAL setup: the exe the helpers themselves find (the main checkout's), not the one this test borrows for the logic rows below
     saved_exe = os.environ.pop('WWE_ADMIT_EXE', None)
     try:
@@ -171,8 +173,14 @@ def main():
         ok(on == '8' and cr and cr[1] == 8 and len(reserving) == 1,
            f'F3 nested: a build holding 8 starts a child wanting 16: the child is granted {cr[1] if cr else "?"} (= the covering 8), ONE reservation in history ({len(reserving)})')
         # F4 timeout: another holder keeps the memory for the whole test
-        state4, env4 = setup(tmp, 's4', 20.0)
-        saved = {k: os.environ.get(k) for k in env4}
+        # S109 GATE: the queue's limit (3 s here) caps every caller; memory that never frees is REFUSED at the bound (exit 75): the PowerShell build throws
+        # and compiles nothing, admit_py raises Refused; never the whole want, never a forced slot past the floor
+        cfg3 = json.loads((HERE / 'admit.json').read_text(encoding='utf-8'))
+        cfg3['timeout_s'] = 3
+        cfg3_file = Path(tmp) / 'admit_timeout3.json'
+        cfg3_file.write_text(json.dumps(cfg3), encoding='utf-8')
+        state4, env4 = setup(tmp, 's4', 20.0, config=cfg3_file)
+        saved = {k: os.environ.get(k) for k in list(env4)}
         os.environ.update(env4)
         try:
             with admit_py.hold('cc.tool', 8, timeout_s=30) as occ:
@@ -182,8 +190,12 @@ def main():
                 dt_ps = time.time() - t0
                 sr = row(tmp, 'starved')
                 t0 = time.time()
-                with admit_py.hold('cc.tool', 16, timeout_s=3) as g:
-                    pass
+                g = refused_py = None
+                try:
+                    with admit_py.hold('cc.tool', 16, timeout_s=3) as g:
+                        pass
+                except admit_py.Refused as r:
+                    refused_py = r
                 dt_py = time.time() - t0
         finally:
             for k, v in saved.items():
@@ -191,14 +203,18 @@ def main():
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-        loud = [ln for ln in (p.stdout + p.stderr).splitlines() if ln.startswith('[admit]') and '(not held:' in ln]
-        print(f'  timeout: occupier {int(occ)} ({occ.why}); PowerShell -> {sr[1] if sr else "?"} in {dt_ps:.1f} s; Python -> {int(g)} ({g.why}) in {dt_py:.1f} s')
-        ok(occ.admitted and int(occ) == 8 and sr and sr[1] == 16 and loud and 'not admitted' in loud[0] and dt_ps < 3 * 1.1 + 25,
-           f'F4a memory that never frees: Request-BuildParallel -TimeoutS 3 returns N (16), never 1, with the loud line: {loud[:1]}')
-        ok(int(g) == 16 and not g.admitted and dt_py < 3 * 1.1 + 25, f'F4b admit_py.hold(timeout_s=3) returns N (16), never 1')
+        loud = [ln for ln in (p.stdout + p.stderr).splitlines() if 'REFUSED after ' in ln]
+        print(f'  timeout: occupier {int(occ)} ({occ.why}); PowerShell -> rc {p.returncode}, row {sr} in {dt_ps:.1f} s; Python -> '
+              f'{"Refused " + str(refused_py.code) if refused_py else g} in {dt_py:.1f} s')
+        ok(occ.admitted and int(occ) == 8 and sr is None and p.returncode != 0 and loud and dt_ps < 3 * 1.1 + 25,
+           f'F4a memory that never frees: Request-BuildParallel -TimeoutS 3 is REFUSED at the 3 s bound (the occupier\'s 16 GB is pending, nothing is left above the floor): '
+           f'the build throws and compiles nothing, with the loud REFUSED line: {loud[:1]}')
+        ok(refused_py is not None and refused_py.code == 75 and g is None and dt_py < 3 * 1.1 + 25,
+           f'F4b admit_py.hold(timeout_s=3) raises Refused (exit 75), the pool never starts: {refused_py.line[:80] if refused_py else g}')
         # F5 a hold kept PAST the pending window still counts for its whole life (CQA case 37's method: a config with pending_window_s 1 and a > 2 s gap)
         cfg = json.loads((HERE / 'admit.json').read_text(encoding='utf-8'))
         cfg['pending_window_s'] = 1
+        cfg['timeout_s'] = 3   # S106 0CF: the queue limit is the floor of every caller's limit (B5): 3 s here so the second build times out quickly
         cfg_file = Path(tmp) / 'admit_window1.json'
         cfg_file.write_text(json.dumps(cfg), encoding='utf-8')
         for mode in ('enforce', 'observe'):
@@ -216,9 +232,12 @@ def main():
             print(f'  past the window ({mode}): first {ra[1] if ra else "?"}, second {rb[1] if rb else "?"}: {line_b}; history '
                   f'{[(h.get("outcome"), h.get("workers"), h.get("would_grant")) for h in hist]}')
             if mode == 'enforce':
-                ok(got_a and ra and ra[1] == 8 and rb and rb[1] == 16 and '(not held: not admitted' in line_b,
-                   'F5a enforce: a first hold of 8 kept 2.5 s past a 1 s pending window still fills the budget: the second (want 16, min 4) is REFUSED '
-                   '(it times out and runs its plain 16; on the old rule it was admitted)')
+                # S109 GATE: the second waits its 3 s bound and is REFUSED (a `refused` row, never `admitted`; its script throws); on the old rule (the window
+                # expiry) it was admitted at once
+                ok(got_a and ra and ra[1] == 8 and rb is None and pb.returncode != 0 and 'REFUSED after ' in (pb.stdout + pb.stderr)
+                   and any(h.get('outcome') == 'refused' for h in hist) and not any(h.get('outcome') == 'admitted' and h.get('workers') == '16' for h in hist),
+                   'F5a enforce: a first hold of 8 kept 2.5 s past a 1 s pending window still fills the budget: the second (want 16, min 4) is REFUSED at its 3 s bound '
+                   '(a `refused` row, the build throws; on the old rule it was admitted at once)')
             else:
                 second_rows = [h for h in hist if h.get('queue_mode') == 'observe' and h.get('workers') == '16']
                 ok(got_a and rb and rb[1] == 16 and '(observed: not limited' in line_b and any(h.get('would_grant') == '0' for h in second_rows),

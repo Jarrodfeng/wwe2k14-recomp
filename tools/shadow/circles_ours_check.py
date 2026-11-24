@@ -1,4 +1,4 @@
-r"""Lane 136 (SH3 slice 1) gate driver: the circle blob shadows drawn by ours from the scene record (docs\renderer\SHADOW_CIRCLES.md). 0 game runs.
+r"""Lane 136 (SH3 slice 1) driver: the circle blob shadows drawn by ours from the scene record (docs\renderer\SHADOW_CIRCLES.md). 0 game runs.
 
   py -I tools\shadow\circles_ours_check.py unit      half (a): the capture's circle constants -> guest memory -> the SHIPPED writer's tracker -> record -> BuildRows equals the stream's constants
                                                       bit for bit on Check B, run 7079 and Bryan (tools\shadow\circles_unit.cpp); the record, guard and board checks; plants circle_bind_pose,

@@ -1,6 +1,6 @@
 r"""Agent wall-time audit (Session 103, WTA). Reads every subagent transcript (.output / .jsonl) of a day, splits each into
 rounds (a new user message = a resumed round), and prints, per agent and per round: wall time, minutes in tool calls by kind
-(compile, gate, check_run, q, q_update, context_pack, read_search, edit, sleep_wait, git, other), model time (gap between a
+(compile, check_run, q, q_update, context_pack, read_search, edit, sleep_wait, git, other), model time (gap between a
 result and the next call), output tokens and call count. Then a ranked table of the biggest sinks. Aggregates and short
 labels only; never prints message text beyond the first 60 characters of a prompt (the agent's name line).
 
@@ -16,7 +16,7 @@ import argparse, csv, glob, json, os, re, sys, tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-KINDS = ['compile', 'gate', 'check_run', 'q_update', 'context_pack', 'q', 'sleep_wait', 'read_search', 'edit', 'git', 'other']
+KINDS = ['compile', 'check_run', 'q_update', 'context_pack', 'q', 'sleep_wait', 'read_search', 'edit', 'git', 'other']
 
 
 def classify(name, inp):
@@ -35,8 +35,6 @@ def classify(name, inp):
             return 'context_pack'
         if re.search(r'q\.py\s+ours\s+update|q\s+ours\s+update', cl):
             return 'q_update'
-        if re.search(r'gate_wait|tools[\\/]+gate|gate[\\/]run|run_gate|gate\.py|gate\.ps1|\bgate\b.*--lane', cl):
-            return 'gate'
         if re.search(r'build\.ps1|fast_build|build_rig|cmake|ninja|clang|cl\.exe|msbuild|\bbuild_|compile|cargo|make\b', cl):
             return 'compile'
         if re.search(r'tools[\\/]q[\\/]q\.py|\bq\.py\b|py\s+-I\s+tools[\\/]q', cl):
@@ -219,7 +217,7 @@ SLOT_RE = re.compile(r'waiting for (a )?(gpu )?slot|slot[s]? (busy|full|taken)|q
 
 
 def contention(args):
-    """Concurrency vs duration of compile/gate calls, OOM hits and slot / lock waits. Prints aggregates."""
+    """Concurrency vs duration of compile calls, OOM hits and slot / lock waits. Prints aggregates."""
     d = args.dir
     files = sorted(glob.glob(os.path.join(d, '*.jsonl')) + glob.glob(os.path.join(d, '*.output')))
     since = datetime.fromisoformat(args.since).replace(tzinfo=timezone(timedelta(hours=args.utc_offset)))
@@ -247,7 +245,7 @@ def contention(args):
                     if isinstance(body, list):
                         body = ' '.join(b.get('text', '') for b in body if isinstance(b, dict))
                     body = str(body or '')
-                    if k in ('compile', 'gate'):
+                    if k == 'compile':
                         calls.append((s, (t - s).total_seconds(), k, aid, lab))
                     if OOM_RE.search(body):
                         oom.append((s, (t - s).total_seconds(), aid, lab, OOM_RE.search(body).group(0)))
@@ -255,8 +253,8 @@ def contention(args):
                         slot.append((s, (t - s).total_seconds(), aid, lab, SLOT_RE.search(body).group(0)))
     def conc(t):
         return sum(1 for a, b, _ in spans if a <= t <= b)
-    print(f'{len(spans)} agents; compile/gate calls {len(calls)}')
-    for kind in ('compile', 'gate'):
+    print(f'{len(spans)} agents; compile calls {len(calls)}')
+    for kind in ('compile',):
         b = defaultdict(list)
         for s, dur, k, aid, lab in calls:
             if k == kind and 20 < dur < 3000:

@@ -12,6 +12,7 @@
 #include "../../src/assets/arena_lm.h"
 #include "../../src/renderer_scene/card_gain.h"
 #include "../../src/renderer_scene/front_end.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 
 namespace al = assets::arena_lm;
 namespace cg = rdr_scene::card_gain;

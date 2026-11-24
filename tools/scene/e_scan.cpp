@@ -1,6 +1,10 @@
 // S103 lane E scratch: counts the record sections lane E reads, per record file. e_scan FILE.rsc...
 #include <cstdio>
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_circle.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_plane.h"
 using namespace rdr_scene;
 int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {

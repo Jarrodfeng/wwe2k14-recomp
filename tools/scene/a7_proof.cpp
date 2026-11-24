@@ -13,6 +13,10 @@
 #include <vector>
 #include "../../src/renderer_scene/light_fixed_id.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 using namespace rdr_scene;
 namespace fs = std::filesystem;
 

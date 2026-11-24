@@ -1,4 +1,4 @@
-# Lane C's gate check (Session 103): builds c_driver, draws brock_losswin frame 110 and brock_losswin_rt frame 100 (the arena, ring, props, screens, flashes from the record,
+# Lane C's check (Session 103): builds c_driver, draws brock_losswin frame 110 and brock_losswin_rt frame 100 (the arena, ring, props, screens, flashes from the record,
 # with synthetic stage rows), then c_sheet.py checks the planted faults, the rest-matrix rows, validation and magenta. Exit 0 = all good. 0 game runs.
 #   py -I tools\scene\c_check.py [--root .] [--game DIR] [--captures DIR]
 import argparse, os, subprocess, sys

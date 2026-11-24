@@ -69,7 +69,7 @@ PRESENTS = re.compile(r'\[(?:fview|rplay)\]\[present\] (?:size \S+: )?presents (
 
 
 class Arm:
-    """One fview replay of a gate capture with the present into offscreen images of size WxH."""
+    """One fview replay of a standard capture with the present into offscreen images of size WxH."""
 
     def __init__(self, exe, cap, game, work, name, extra, size='1280x720', frames=FRAMES, bundle=DEFAULT3):
         hashes = os.path.join(work, name + '.csv')

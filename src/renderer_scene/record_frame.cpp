@@ -2,6 +2,8 @@
 // (tools\scene\frame_rig, rsc_draw) and, with lane S's loader, the live record on the render thread (every frame: nothing here may cost a per-frame
 // allocation storm, a stderr line, a GPU upload of something already uploaded, or a deep copy of the record).
 #include "record_frame.h"
+#include "rows_part_clock.h"   // S106 G4-2
+#include "rows_stage_look.h"
 #include "../renderer_host/wide_frame.h"   // S105 A2: TallScale (pure)
 
 #include <algorithm>
@@ -361,7 +363,7 @@ bool BuildFrame(const SceneTables& t, ModelCache& models, uint32_t families, uin
   const bool live = t.header.source == uint8_t(Source::Live);
   if (!warm && !t.has_camera) { error = "the record has no camera (a live record carries none yet: the caller supplies one)"; return false; }
   // reset `out` field by field: the vectors keep their capacity from the last frame
-  out.objects.clear(), out.piece_alphas.clear(), out.absent_extras.clear(), out.object_engine.clear(), out.wrinkle_levels.clear(), out.params.clear(), out.param_names.clear(), out.light_sets.clear(), out.model_lights.clear(), out.stage_hooks.clear();
+  out.objects.clear(), out.piece_alphas.clear(), out.absent_extras.clear(), out.object_engine.clear(), out.wrinkle_levels.clear(), out.change_colours.clear() /* S108 THR2 */, out.params.clear(), out.param_names.clear(), out.light_sets.clear(), out.model_lights.clear(), out.stage_hooks.clear();
   out.entrance = out.entrance_bg = false;
   if (stage_look::Entrance(t)) out.entrance = out.entrance_bg = true;
   out.phase_word = -1;   // S103 D1: the phase word of the frame (the record's kSlPhase row), -1 = none

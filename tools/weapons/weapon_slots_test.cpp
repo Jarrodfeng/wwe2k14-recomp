@@ -11,6 +11,7 @@
 
 #include "../../src/renderer_scene/live_scene.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/weapon_rows.h"
 #include "../../src/scene_live/weapon_contrib.h"
 
 using namespace rdr_scene;

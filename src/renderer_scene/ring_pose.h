@@ -90,6 +90,18 @@ inline void PoseMesh(const assets::Mesh& stored, const assets::Matrix* pal, size
   }
 }
 
+// S108 FAN / AL1 (moved here from weapon_draw_core.h: the ring's pieces need it too): the rows a BOUND model's vertices ask for = the highest node an influence with weight > 0 names, + 1 (0 = none).
+// PoseMesh above skips exactly the influences with `bones[k] >= count` and `w > 0`, so `RowsNeeded(bound) > count` is exactly "some vertex is left (or partly left) at its file position". Computed ONCE per bound
+// model (it walks every vertex); the callers compare it with each call's rows (pose_rows_report.h).
+inline uint32_t RowsNeeded(const assets::Model& bound) {
+  uint32_t need = 0;
+  for (const assets::Mesh& m : bound.meshes)
+    for (const assets::Vertex& v : m.vertices)
+      for (int k = 0; k < 4; ++k)
+        if (v.weights[k] > 0.f && uint32_t(v.bones[k]) + 1u > need) need = uint32_t(v.bones[k]) + 1u;
+  return need;
+}
+
 // ---- S103 RGP: the call's palette (the GPU-skinned ring's bones, rf_ring.cpp; the unit runs this function) ------------------------------------------------------------------------------------------------
 // The call's n_nodes rows starting at `first_node` of the record's node pool, each made a viewer-space matrix (pool index k = node k, as BindMesh's nodes and the CPU pose read them). `no_pose` = the ring_no_pose plant (every node
 // the identity). Node = any type with a float rows[12] member (RingNodeRows; the unit's own struct).

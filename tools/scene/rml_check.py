@@ -8,7 +8,7 @@ wm30 has no scene records (the rig cannot draw it), so OURS runs on a capture th
 that stream frame (F + --stream-offset, as pms_check.py) are the mat's reference (the equality above is what makes them one). The REAL front end (frame_rig.exe: record_frame + FrontEnd::RenderToPixels, maps hook attached):
  - PASS: ours binds the mat to the light_shadow fragment + a shadow_light vertex (the game's is the skinned twin: the mat is a rigid mesh here, its palette is the identity [L]); props_mat_bound > 0, plane_wanted_plain 0.
  - SLOT 12: the mat's slot 12 is the props map's image, never map B's.
- - CONSTANTS: the mat's RESOLVED VS c68-c71 (TexProjLight), c166 (ViewLight row 2, the only row the vertex stage reads: fx_prop.glsl `ViewLight[2]`; rows 0-1 are printed, not gated), c168-c169
+ - CONSTANTS: the mat's RESOLVED VS c68-c71 (TexProjLight), c166 (ViewLight row 2, the only row the vertex stage reads: fx_prop.glsl `ViewLight[2]`; rows 0-1 are printed, not judged), c168-c169
    (ShadowPrm: (0, 0, 0, 1) x 2) and PS c168-c170 (ShadowPrm) against the stream's: max relative error <= 1e-5.
  - validation layer: 0 errors.
 Planted faults (--faults), each must FAIL: mat_plain_when_no_module (today's binding: the plain variant, no shadow at all: the past behaviour re-found), mat_reads_mapb (slot 12 = the wrestlers' map B),
@@ -133,7 +133,7 @@ def judge(ours, floors):
             best = (m, e, g)
     m, e, g = best
     vl = d["fields"].get(("vs", "ViewLight"))
-    txt = f"pass {d['vs']} + {d['ps']}; " + "; ".join(f"{k} {v:.2e}" for k, v in e.items()) + f"; ViewLight rows 0-1 (not read, not gated): ours {'none' if vl is None else vl[:2].round(3).tolist()} stream {g['vc164'][:2].round(3).tolist()}"
+    txt = f"pass {d['vs']} + {d['ps']}; " + "; ".join(f"{k} {v:.2e}" for k, v in e.items()) + f"; ViewLight rows 0-1 (not read, not judged): ours {'none' if vl is None else vl[:2].round(3).tolist()} stream {g['vc164'][:2].round(3).tolist()}"
     if not d["slot12_props"] or d["slot12_mapb"]:
         return False, txt + f"; slot 12 is the props image {d['slot12_props']}, map B's image {d['slot12_mapb']}"
     return m <= ERR, txt + f"; slot 12 = the props image; worst {m:.2e} (bar {ERR:.0e})"

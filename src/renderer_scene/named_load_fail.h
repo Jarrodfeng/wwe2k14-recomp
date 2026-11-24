@@ -12,6 +12,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include "rows_inputs.h"   // S106 G4-2
 
 namespace rdr_scene::namedfail {
 
@@ -34,9 +35,25 @@ inline std::string Key(std::string_view pac, std::string_view entry, uint32_t va
 }
 }  // namespace detail
 
-inline bool IsWrestlerPac(std::string_view pac) {   // pac\ch\chNNN.pac
+// S110 LIBSIZE (docs\research\s110\LIBSIZE.md items 13-15): a library character's file is `<KEY>\pac\ch\ch497.pac` (KeyLink: every library file is CH497, his KEY folder tells
+// them apart; resolved under the one "lib" overlay) = the disc form under ONE folder. True with `id` = the digits after `ch` (any case, '/' or '\\'); the disc form itself is false.
+// GameFilesSource::Load opens THAT file (the id alone names no library file).
+inline bool LibWrestlerPac(std::string_view pac, int& id) {
+  const std::string k = detail::Key(pac, "", 0);
+  const size_t cut = k.find('\\');
+  if (cut == 0 || cut == std::string::npos || k.compare(cut + 1, 9, "pac\\ch\\ch") != 0) return false;
+  size_t i = cut + 10;
+  if (i >= k.size() || k[i] < '0' || k[i] > '9') return false;
+  int v = 0;
+  for (; i < k.size() && k[i] >= '0' && k[i] <= '9' && v < 100000; ++i) v = v * 10 + (k[i] - '0');
+  id = v;
+  return true;
+}
+inline bool IsWrestlerPac(std::string_view pac) {   // pac\ch\chNNN.pac, or a library character's <KEY>\pac\ch\ch497.pac (S110 LIBSIZE)
   std::string k = detail::Key(pac, "", 0);
-  return k.rfind("pac\\ch\\ch", 0) == 0;
+  if (k.rfind("pac\\ch\\ch", 0) == 0) return true;
+  const size_t cut = k.find('\\');
+  return cut != 0 && cut != std::string::npos && k.compare(cut + 1, 9, "pac\\ch\\ch") == 0;
 }
 // Called by the loader side when a named wrestler asset failed. Returns true the first time (the caller logs the census line).
 inline bool Note(std::string_view pac, std::string_view entry, uint32_t variant) {

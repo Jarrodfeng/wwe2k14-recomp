@@ -33,11 +33,14 @@
 #include <atomic>
 #include <cmath>
 #include <utility>
+#include "crowd_flip_count.h"   // S110 CROWDFLIPS
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
 #include "crowd_contrib.h"
+#include "handed_camera.h"   // S110 CUTCROWD: the props' eye takes the scene camera's source (PickCamera)
+#include "../renderer_scene/rows_pictures.h"   // S106 G4-2
 #include "guest_texture.h"   // S103 D6
 #include "sign_file_keys.h"   // S103 CSF
 #include "crowd_mgr_reader.h"
@@ -228,13 +231,13 @@ inline constexpr uint32_t kEntityField1184 = 1184, kEntityWord832 = 832, kEntity
 inline constexpr uint32_t kSignMeshCountPtr = 0x19710u, kSignMeshVertPtr = 0x1970Cu, kSignRingBase = 26049u, kHandRecStride = 28, kHandCountPtr = 0x198E0u, kHandVertPtr = 0x198DCu, kHandResBase = 26165u, kHandKeyBase = 26277u;
 inline constexpr uint32_t kTexMgrGlobal = 0x83767C5Cu, kHandleTableGlobal = 0x8392DD9Cu, kPropF31Addr = 0x8201C26Cu, kPropEyeDefault = 0x8206F2D0u, kSceneCamMgr = 0x836F3AA8u, kSceneCamView = 1488, kCamEnableWord = 0x83929A68u;
 template <class M>
-inline uint32_t U8(const M& mem, uint32_t a) {
-  return (mem.u32(a & ~3u) >> ((3u - (a & 3u)) * 8u)) & 0xFFu;
+inline uint32_t U8(const M& mem, uint32_t a WWE_FEED_LOC_PARAM) {
+  return (mem.u32(a & ~3u WWE_FEED_LOC_ARG) >> ((3u - (a & 3u)) * 8u)) & 0xFFu;
 }
 // A halfword at a 2-aligned guest address (big-endian memory read as words).
 template <class M>
-inline uint32_t U16(const M& mem, uint32_t a) {
-  const uint32_t w = mem.u32(a & ~3u);
+inline uint32_t U16(const M& mem, uint32_t a WWE_FEED_LOC_PARAM) {
+  const uint32_t w = mem.u32(a & ~3u WWE_FEED_LOC_ARG);
   return (a & 2u) ? (w & 0xFFFFu) : (w >> 16);
 }
 // sub_82294F20: does the texture key resolve to a non-zero object? (listing 0x82294F20-0x82294F8C)
@@ -326,13 +329,16 @@ inline PropDist MakePropDist(const M& mem) {
   if (!d.on) return d;
   d.f31 = mem.f32(kPropF31Addr);
   d.eye_x = mem.f32(kPropEyeDefault), d.eye_z = mem.f32(kPropEyeDefault + 8);
-  // S103 D5 review 2: slot 0 of 0x83929A40 is the HUD camera at the latch (inputs_core.h ReadSceneCamera, run 7259 [C]); the scene's eye comes from the composer's copy [0x836F3AA8] + 1488 (world -> view, row
-  // vectors), eye = -(t . R) exactly as ReadSceneCamera derives it. [L] that this is the camera sub_82BA7748 returns on the draw thread; the mirror census (props(shown) diff) settles it.
+  // S103 D5 review 2: slot 0 of 0x83929A40 is the HUD camera at the latch (inputs_core.h ReadSceneCamera, run 7259 [C]); the eye is the scene camera's, eye = -(t . R) of its world -> view (row vectors).
+  // S110 CUTCROWD: the SAME source as ReadSceneCamera (handed_camera.h PickCamera): the block the game handed to its renderer, [[0x83929A68] + 256] + 240, else the composer's copy [0x836F3AA8] + 1488. On a gated
+  // cut +1488 is already the next shot while the game's draw-thread camera is still the handed one. [L] that sub_82BA7748's camera +592 is this eye; the mirror census (props(shown) diff) settles it.
   if (mem.u32(kCamEnableWord)) {
     const uint32_t mgr = mem.u32(kSceneCamMgr);
     if (mgr) {
       float v[16];
-      for (int i = 0; i < 16; ++i) v[i] = mem.f32(mgr + kSceneCamView + 4u * uint32_t(i));
+      const scene_inputs::handed::Pick pick = scene_inputs::handed::PickCamera([&mem](uint32_t a, uint32_t& w) { w = mem.u32(a); return true; }, mgr);
+      if (pick.src == scene_inputs::handed::kSrcBlock) std::memcpy(v, pick.view, sizeof v);
+      else for (int i = 0; i < 16; ++i) v[i] = mem.f32(mgr + kSceneCamView + 4u * uint32_t(i));
       d.eye_x = -(v[12] * v[0] + v[13] * v[1] + v[14] * v[2]);
       d.eye_z = -(v[12] * v[8] + v[13] * v[9] + v[14] * v[10]);
     }
@@ -1137,6 +1143,7 @@ inline Why ReadSnapshot(const M& mem, LatchSnapshot& out) {
   if (out.read_ring > 1) return Why::NoPalette;
   if (out.want_palettes && out.write_ring > 1) return Why::NoPalette;   // (a write ring < 0 is a state the game tests, 0x82509D20; an OURS install does not need it: item 5)
   const bool pass = mem.u32(manager + kPassGateOff0) != 0 || mem.u32(manager + kPassGateOff1) != 0 || mem.u32(manager + kPassGateOff2) != 0;   // 0x82519760-88: else no stands, no cards
+  wwe2k14::crowd_flips::Latch fl_latch;   // S110 CROWDFLIPS
   if (pass && out.scope != 2) {   // S103 D9: scope 2 (the entry half) reads no lists
     // the walk classifies first (0x825185F4-0x82518608): a pending request means the lists are stale. On an OURS frame CrowdKeepRegistration has done that serve step (out.served): not a decline (item 4).
     if (!out.served && mem.u32(manager + mgr::kRequestOff) != 0) return Why::ClassifyPending;
@@ -1149,6 +1156,7 @@ inline Why ReadSnapshot(const M& mem, LatchSnapshot& out) {
     mem.words(e + kCardGateOff, mgr::kTypes, gate);
     static thread_local uint32_t fl[mgr::kMaxPerType], gr[mgr::kMaxPerType], sc[mgr::kMaxPerType], rc[mgr::kMaxPerType * 4];
     const CachedSinCos sincos;
+    fl_latch.Open();   // S110 CROWDFLIPS: census only (crowd_flip_count.h); nothing below reads it
     // pass 1: the stands (type i, group g, member k), pass 2: the cards (type i, member k): the walk's order
     for (int pass_no = 0; pass_no < 2; ++pass_no) {
       for (uint32_t i = 0; i < mgr::kTypes; ++i) {
@@ -1165,6 +1173,9 @@ inline Why ReadSnapshot(const M& mem, LatchSnapshot& out) {
         if (!gate_ok) continue;
         mem.words(e + mgr::kFlagsOff + mgr::kFlagTypeStride * i, uint32_t(n), fl);
         if (pass_no == 0) mem.words(e + mgr::kGroupOff + mgr::kFlagTypeStride * i, uint32_t(n), gr);
+        if (pass_no == 0)
+          for (uint32_t k = 0; k < uint32_t(n); ++k)   // S110 CROWDFLIPS: the DRAWN class per member: culled / group 0-2 / card
+            fl_latch.Set(i, k, (fl[k] & 0x80000000u) ? uint8_t(0) : (fl[k] & 0x40000000u) ? wwe2k14::crowd_flips::kCardClass : uint8_t(1 + (gr[k] > 2 ? 2 : gr[k])));
         mem.words(scales + mgr::kFlagTypeStride * i, uint32_t(n), sc);
         mem.words(recs + mgr::kTypeStride * i, uint32_t(n) * 4, rc);
         auto emit = [&](uint32_t k, uint32_t group, bool card) {
@@ -1191,6 +1202,7 @@ inline Why ReadSnapshot(const M& mem, LatchSnapshot& out) {
     }
   }
   if (mem.fail) return out.fail_stage = kStageLists, out.fail_addr = FailAddr(mem, 0), Why::Unreadable;   // S103 D8: the stands / cards are HARD
+  fl_latch.Finish();   // S110 CROWDFLIPS: the lists were read whole (no-op when they were not read)
   if (node && out.scope != 1) {   // S103 D9: scope 1 (the latch half) leaves the in-place parts to the entry's read   // S103 D3c   // before the stands pass in the walk (0x82519734 < 0x82519788); order is immaterial to the record (compared sorted)
     // S103 D8: each optional part on its own flag, on top of the per-object scopes inside (a refused read in a part's setup drops that part only)
     const auto part = [&](uint32_t which, auto&& fn) {

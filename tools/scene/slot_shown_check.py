@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane V1 (R17) gate check: builds tools\\scene\\slot_shown_unit.cpp (the game's per-slot 'shown' bit read at the latch: a hidden slot is emitted invisible and not asked for light; EmittedSkeletons
+"""S103 lane V1 (R17) check: builds tools\\scene\\slot_shown_unit.cpp (the game's per-slot 'shown' bit read at the latch: a hidden slot is emitted invisible and not asked for light; EmittedSkeletons
 asks only slot skeletons; 0 game runs, no game, no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\slot_shown_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""

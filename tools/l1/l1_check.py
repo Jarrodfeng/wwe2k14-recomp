@@ -176,8 +176,8 @@ def wiring(root):
         line(ok, 'wiring: %s' % what)
         line(planted != text and needle not in planted, '  twin: with that link removed the check fails (did apply: %s)' % (planted != text))
     for what, script, extra in (('own_pass_helpers_lint (no bare builder.SetTargets / builder.Copy in the new code)', os.path.join('tools', 'shadow', 'own_pass_helpers_lint.py'), ['--root', root]),
-                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'gate', 'lint_seen.py'), ['--root', root]),
-                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'gate', 'win_macro_lint.py'), ['--root', root]),
+                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'lint', 'lint_seen.py'), ['--root', root]),
+                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'lint', 'win_macro_lint.py'), ['--root', root]),
                                 ('spv_lint (every variant this lane does not name keeps byte-equal SPIR-V)', os.path.join('tools', 'l1', 'spv_lint.py'), ['--root', root])):
         if not os.path.exists(os.path.join(root, script)):
             line(False, '%s: the script %s is missing' % (what, script))

@@ -88,12 +88,16 @@ BUILTIN_DEFAULT_FLAGS = {'present_guest_frames_once': 'false'}
 # Session 29 (Jarrod: "small wins"): the two functional routes run with the real load defaults (fast loader, load
 # turbo, boot skip, native zlib, fast guest reads all on, as players run the game): no LOAD_PIN. Faster boot, and T2
 # tests what ships. References rebuilt with these flags. The timed routes keep LOAD_PIN (their perf baselines).
+# S109 FF review: the two functional routes have no speed term, so they run fast-forwarded; they say so in their own
+# flags (--vsync=false: run_list then adds none, run_list.ps1 Get-RunListRealTimeReason) so the flags check expects it,
+# while a timed route that arrives with --vsync=false still fails it (RUNLIST_FLAGS leaves vsync out on purpose).
+# Their screenshot windows switch to normal speed in-route (`cvar vsync true`), as before.
 ROUTES['selftest'] = dict(
-    script='selftest_title.txt', extra='--wwe2k14_preset_1440p60=false', timeout=720,  # original look: baseline/refs
+    script='selftest_title.txt', extra='--wwe2k14_preset_1440p60=false --vsync=false', timeout=720,  # original look: baseline/refs
     shots=['title', 'storage_notice', 'main_menu'],
     checks=['flags', 'hard_fails', 'clean_exit', 'screenshots'])
 ROUTES['logo'] = dict(
-    script='repro_logo_lettering.txt', extra='--wwe2k14_preset_1440p60=false', timeout=720,  # original look
+    script='repro_logo_lettering.txt', extra='--wwe2k14_preset_1440p60=false --vsync=false', timeout=720,  # original look; S109 FF: --vsync=false as selftest
     shots=['logo_grid', 'editor', 'stamp_categories', 'after_lettering'],
     checks=['flags', 'hard_fails', 'clean_exit', 'pass_line', 'screenshots'])
 ROUTES['lesnar'] = dict(
@@ -111,7 +115,10 @@ ROUTES['taker4k'] = dict(
 # Session 30: the test window flags (fullscreen behind other windows without the focus; -Windowed adds the last two).
 # Session 32: the background throttling opt-out run_list adds with them (src/background_speed.h).
 RUNLIST_FLAGS = {'user_data_root', 'cache_root', 'wwe2k14_timeline', 'window_activate_when_shown',
-                 'window_show_behind', 'fullscreen', 'window_position', 'wwe2k14_background_full_speed'}
+                 'window_show_behind', 'fullscreen', 'window_position', 'wwe2k14_background_full_speed',
+                 'wwe2k14_input_fail_quit', 'audio_mute', 'wwe2k14_s101_promotions', 'wwe2k14_rdr_device_lost_message',
+                 'wwe2k14_rdr_start_failure_dialog'}  # S106 0aF: flags run_list adds (never 'vsync': a --vsync=false here means a regress
+                                                    # run was fast-forwarded by mistake, which check_flags must report)
 
 SCENES = ['brock', 'second', 'match']
 SCENE_LABEL = {'brock': 'Brock', 'second': '2nd', 'match': 'match'}
@@ -220,7 +227,7 @@ def check_flags(ctx):
     want = {k: v for k, v in expected_flags(ctx.route, ctx.extra_args).items() if k not in RUNLIST_FLAGS}
     have = {k: v for k, v in got.items() if k not in RUNLIST_FLAGS and k != 'wwe2k14_input_script'}
     diffs = []
-    # Session 16: regress runs every route with -RealTime; a --vsync=false here means the run was fast-forwarded.
+    # Session 16 / S109 FF: normal speed is the route's own `# intent: performance` term; a --vsync=false here means the run was fast-forwarded.
     for k, v in want.items():
         if k not in have:
             if BUILTIN_DEFAULT_FLAGS.get(k, '').lower() == v.lower():
@@ -571,12 +578,12 @@ def route_extra(route, extra_args):
 
 
 def run_list_command(route, exe, extra_args):
-    # Session 16: run_list fast-forwards (--vsync=false) by default; every regress route STARTS at normal speed
-    # (-RealTime): the timed ones measure speed. Session 29: selftest / logo then switch speed themselves (`cvar vsync`:
+    # Session 16: run_list fast-forwards (--vsync=false) by default. S109 FF: normal speed is the route's own intent term
+    # (`# intent: performance <what>`): the timed bench routes carry it (build_bench_routes.py). Session 29: selftest / logo switch speed themselves (`cvar vsync`:
     # fast-forwarded where states drive them, normal-speed screenshot windows; references rebuilt from runs 2173-2182).
     # Session 30: routes that measure speed keep the focused fullscreen window their baselines were measured with
     # (-Foreground); the others open behind other windows without the focus.
-    return '& %s -Scripts @(%s) -Extra %s -Exe %s -WaitSeconds %d -RealTime%s' % (
+    return '& %s -Scripts @(%s) -Extra %s -Exe %s -WaitSeconds %d%s' % (
         ps_quote(RUN_LIST), ps_quote(script_arg(route['script'], exe)), ps_quote(route_extra(route, extra_args)),
         ps_quote(exe), route.get('timeout', 720), foreground_arg(route))
 
@@ -744,7 +751,7 @@ def build_fingerprint(exe):
 def run_list_parallel_command(rnames, exe, extra_args, n):
     """One run_list call for several routes: each route's own flags via -ScriptExtras (placed before -Extra, so the
     game's command line is the same as route_extra() gives one route), --extra-args as -Extra."""
-    return '& %s -Scripts @(%s) -ScriptExtras @(%s) -Extra %s -Exe %s -WaitSeconds %d -Parallel %d -RealTime' % (
+    return '& %s -Scripts @(%s) -ScriptExtras @(%s) -Extra %s -Exe %s -WaitSeconds %d -Parallel %d' % (
         ps_quote(RUN_LIST), ', '.join(ps_quote(script_arg(ROUTES[r]['script'], exe)) for r in rnames),
         ', '.join(ps_quote(ROUTES[r]['extra']) for r in rnames), ps_quote(extra_args or ''), ps_quote(exe),
         max(ROUTES[r].get('timeout', 720) for r in rnames), n)

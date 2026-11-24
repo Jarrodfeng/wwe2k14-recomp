@@ -6,7 +6,7 @@ on the Surface, which has no Python); tools\\tests\\heat_rules_test.py checks bo
       prints "steady" / "not steady: reason" (+ " | vs previous step: ..." with --prev), exit 0 / 1. Without --log the newest wwe2k14_*.log
       in the folder BY MTIME is used for the freshness check.
   py -I tools\\surface\\heat_rules.py --csv power.csv --log LOG [--prev PREVIOUS_power.csv]
-  Tests: py -I tools\\tests\\heat_s02_test.py (gate lane s102_s0_2).
+  Tests: py -I tools\\tests\\heat_s02_test.py.
 
 THE RULE (one place, the numbers are the S0-2 pick; recalibrate on the Surface baseline, S0-5):
   rows      power.csv, one per second. Drop the first WARMUP_S seconds. Need at least MIN_ROWS rows left, else "not steady: too short".

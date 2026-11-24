@@ -135,11 +135,11 @@ def find_dupes(folders):
     return sorted(out, key=lambda x: -x[0] * (len(x[1]) - 1))
 
 
-def dupe_lines(groups, gate_named, human):
-    """Report lines. A duplicate set is reported ONCE; the copy a gate lane names is marked and is never the one proposed for removal."""
+def dupe_lines(groups, named, human):
+    """Report lines. A duplicate set is reported ONCE; the copy a check names is marked and is never the one proposed for removal."""
     L, saved = [], 0
     for b, paths in groups:
-        keep = next((p for p in paths if gate_named(p)), paths[0])
+        keep = next((p for p in paths if named(p)), paths[0])
         extra = [p for p in paths if p != keep]
         saved += b * len(extra)
         L.append('%s x %d identical: keep %s' % (human(b), len(paths), keep) + ''.join('\n      duplicate: ' + p for p in extra))

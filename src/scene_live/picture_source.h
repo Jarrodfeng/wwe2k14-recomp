@@ -266,7 +266,7 @@ class PictureSource {
   // A cheap sample of the picture: kGuardBlocks blocks spread over mip 0, hashed (not the whole read).
   template <class Phys>
   static bool SampleHash(const gt::Shape& s, Phys&& phys, uint64_t& out) {
-    const uint32_t bx = s.BlocksX(), by = s.BlocksY(), log2_bpb = s.bpb == 8 ? 3u : (s.bpb == 4 ? 2u : 4u);
+    const uint32_t bx = s.BlocksX(), by = s.BlocksY();
     const uint64_t total = uint64_t(bx) * by;
     if (!total) return false;
     rdr_adapter::ContentHasher h;
@@ -274,7 +274,7 @@ class PictureSource {
     for (uint32_t i = 0; i < kGuardBlocks; ++i) {
       const uint64_t at = total * i / kGuardBlocks;
       const uint32_t x = uint32_t(at % bx), y = uint32_t(at / bx);
-      const uint32_t off = s.tiled ? gt::TiledOffset2D(int32_t(x), int32_t(y), s.pitch_blocks, log2_bpb) : (y * s.pitch_blocks + x) * s.bpb;
+      const uint32_t off = gt::BlockOffset(s, x, y);   // (S108 CAP2: the shared offset, a packed-tail picture's offset included)
       if (!phys(s.base + off, s.bpb, blk)) return false;
       h.Update(blk, s.bpb);
     }

@@ -1,0 +1,20 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --audio_mute=true
+# S106 C3 (copy of the S105 chk4 route, BLD site 6: 900 frames so our scene draws before the first shot). S105 A12 / T1 check: after the bell the dev director verb `bleed 0 3` turns the blood option on and raises slot 0 (Lesnar) to level 3; shots of the face blood.
+on_fail quit
+log bench: start scene s105_chk_bleed
+include boot_to_menu
+wait_file INGAMELUA.PAC 3600
+wait_state match_clock >0 36000
+log scene=bell
+wait_frames 900
+screenshot bleed_before
+bleed 0 3
+wait_frames 240
+log scene=bleed_on
+screenshot bleed_240
+wait_frames 600
+screenshot bleed_840
+wait_frames 900
+screenshot bleed_1740
+log bench: done
+quit

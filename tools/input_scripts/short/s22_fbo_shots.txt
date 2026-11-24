@@ -1,4 +1,4 @@
-# harness: realtime (screenshot sheet: same replay frames for two render paths; normal speed like screenshot references)
+# harness: flags --wwe2k14_replay_play=s21_lb
 # Session 22 item 5: screenshots of the same replay frames for the FBO vs FSI render path sheet (for Jarrod's eyes).
 # Play with --wwe2k14_launch=lesnar_bryan --wwe2k14_replay_play=s21_lb (out\replays\s21_lb.rec: Brock vs Bryan, both
 # entrances, 2,000 match frames, CPU vs CPU) and --render_target_path_vulkan=fbo|fsi. Shots f_* (local only): Brock's

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 PW-3 gate check: the weapon drawer's offline proof (0 game runs). Needs out\\tools\\weapon_draw_unit.exe (tools\\scene\\build_weapon_draw_unit.ps1), the main checkout's game_data\\extracted and
+"""S103 PW-3 check: the weapon drawer's offline proof (0 game runs). Needs out\\tools\\weapon_draw_unit.exe (tools\\scene\\build_weapon_draw_unit.ps1), the main checkout's game_data\\extracted and
 out\\captures\\a04_match (read by absolute path, never copied).
   py -I tools\\scene\\weapon_draw_unit.py --root .
 Dumps the capture's stream draws of the ring-steps object (pw3_steps_dump.py), runs the unit clean (exit 0), then each planted twin, which must exit 1 AND fail its own named check."""

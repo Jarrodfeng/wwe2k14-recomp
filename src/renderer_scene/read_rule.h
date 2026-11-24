@@ -205,5 +205,11 @@ inline std::shared_ptr<const EffectTable> EffectTableNow() { std::lock_guard<std
 inline std::shared_ptr<const EffectTable>& LogoTableSlot() { static std::shared_ptr<const EffectTable> t; return t; }
 inline void PublishLogoEffectTable(std::shared_ptr<const EffectTable> t) { std::lock_guard<std::mutex> l(TableMutex()); LogoTableSlot() = std::move(t); }
 inline std::shared_ptr<const EffectTable> LogoEffectTableNow() { std::lock_guard<std::mutex> l(TableMutex()); return LogoTableSlot(); }
+// S108 THR2 (THR_plan.md section 2): the Superstar Threads editor's table, pac\edit\edit.pac PACH 9 entry 0 (`EDIT/STS`: the editor's constructor sub_8339E020 requests it into the second effect registry [0x83929A94] (0x8339E1A8, sub_82BAADA0), before its states 1..9 load the characters;
+// the model draw takes model+392 = the effect of that registry while model+604 is set). [C, thr_census on the player's file: 12 of its 13 yCh effects are change-colour in every pixel row;
+// yCh_Ls has none, the game's own table, kept so.] A recoloured body's material takes its pass row from here (ChooseCharEffectTable change_colour); null = not built (drawn plain).
+inline std::shared_ptr<const EffectTable>& StsTableSlot() { static std::shared_ptr<const EffectTable> t; return t; }
+inline void PublishStsEffectTable(std::shared_ptr<const EffectTable> t) { std::lock_guard<std::mutex> l(TableMutex()); StsTableSlot() = std::move(t); }
+inline std::shared_ptr<const EffectTable> StsEffectTableNow() { std::lock_guard<std::mutex> l(TableMutex()); return StsTableSlot(); }
 
 }  // namespace rdr_scene::read_rule

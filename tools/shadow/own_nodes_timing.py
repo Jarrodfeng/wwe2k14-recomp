@@ -1,4 +1,4 @@
-r"""S102 lane P4P5: the PC cost of the shadow module's and the rim map's passes, from rplay --timing (a measurement, not a gate check; 0 game runs, headless).
+r"""S102 lane P4P5: the PC cost of the shadow module's and the rim map's passes, from rplay --timing (a measurement, not a check; 0 game runs, headless).
 
   py -I tools\shadow\own_nodes_timing.py [--capture bryan|match] [--reps 3] [--frames 237] [--skip 30]
 

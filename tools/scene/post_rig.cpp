@@ -22,6 +22,7 @@
 #include "../../src/renderer_scene/post_pass.h"   // S103 SLV: the census counters
 #include "../../src/renderer_scene/record_frame.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 #include "../../src/renderer_scene/rf_c.h"
 #include "../../src/scene_live/post_settings.h"
 #include "../../src/scene_live/gsf_latch.h"   // S103 FXF: Classify

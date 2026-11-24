@@ -25,6 +25,7 @@
 #include "sc_support.h"
 #include "../../src/renderer_scene/quads2d_draw.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 using namespace rdr_scene;
 

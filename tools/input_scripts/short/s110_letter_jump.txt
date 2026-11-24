@@ -1,0 +1,102 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_a --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 LETTER check Q1 + Q3: the select screen opens with the 1P pad icon on the slot row (run 001/002): A puts the cursor in the grid (JOHN CENA).
+# Then RT x3, LT x1 (shot + text after each), A picks the character (attire box), RT there (expect no jump), A = READY, RT (the cursor is now on the
+# second slot: a jump there would be that slot's panel), A / A for slot 2, then the arena grid and the loading screen.
+log letter: start grid2
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+log letter: select open
+log_text 8
+screenshot g_open
+wait_frames 20
+press A
+wait_frames 60
+log letter: in grid
+log_text 8
+screenshot g_grid
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt1
+log_text 8
+screenshot g_rt1
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt2
+log_text 8
+screenshot g_rt2
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt3
+log_text 8
+screenshot g_rt3
+wait_frames 20
+press LT
+wait_frames 40
+log letter: lt1
+log_text 8
+screenshot g_lt1
+wait_frames 20
+press A
+wait_frames 90
+log letter: picked (attire box)
+log_text 8
+screenshot g_pick
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt in attire box
+log_text 8
+screenshot g_pick_rt
+wait_frames 20
+press LT
+wait_frames 40
+log letter: lt in attire box
+log_text 8
+screenshot g_pick_lt
+wait_frames 20
+press A
+wait_frames 90
+log letter: ready
+log_text 8
+screenshot g_ready
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt after ready
+log_text 8
+screenshot g_ready_rt
+wait_frames 20
+press A
+wait_frames 90
+log letter: slot2 picked
+log_text 8
+screenshot g_s2pick
+wait_frames 20
+press A
+wait_frames 90
+log letter: slot2 ready
+log_text 8
+screenshot g_s2ready
+wait_frames 20
+press_until_file A matchhd.pac 6 90 5
+log letter: arena picked
+wait_frames 240
+log_text 12
+screenshot g_load1
+wait_frames 20
+wait_frames 600
+log_text 12
+screenshot g_load2
+wait_frames 20
+log letter: done
+quit

@@ -1,4 +1,3 @@
-# harness: realtime (starts at normal speed; Session 29: the route fast-forwards itself outside its screenshot windows)
 # Harness self-test: boot to "Press Start", Start, accept the storage notice with A, wait for the main menu,
 # screenshot each step, quit.
 # Run (from the repo root):

@@ -1,3 +1,4 @@
+# intent: watch
 # Session 29: live session start (tools\live\live.py start): boot to the main menu, then the live channel takes over
 # (--wwe2k14_live=NAME). With --wwe2k14_launch=NAME the scenario launcher fires at the main menu by itself.
 # Title presses by state (boot_step 3 title / 4 storage notice / 5 after A; states.toml), so it works at any speed.

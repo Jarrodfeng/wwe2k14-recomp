@@ -19,6 +19,7 @@ enum class Stage : uint8_t {
   AfterOpaque = 2,   // every opaque mesh drawn
   AfterBlended = 3,  // the see-through list drawn (far to near): particles, flashes, beams go here (lanes F, C)
   BeforePost = 4,    // the scene's colour + depth are final; the post pass follows
+  AfterPost = 5,     // S110 CUTGREY: the post pass is recorded; `StageCtx::color` is its OUTPUT (the post output, or the scene colour of a no-post frame). The crowd flashes are drawn onto it just before this stage
 };
 
 // Where FrontEnd::Record draws. Images owned by the caller (live: the render thread's scene images; offline: the front-end's own).

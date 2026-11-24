@@ -1,0 +1,5 @@
+# S106 0a: game check route (a parse error with on_fail continue). With --wwe2k14_input_fail_quit=true (run_list adds it) the game
+# logs "script FAILED: could not load" and quits within ~10 s.
+on_fail continue
+log parse: start
+not_a_verb 1

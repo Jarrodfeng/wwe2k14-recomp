@@ -16,17 +16,22 @@
 
 #include "scene_record.h"
 #include "stage_census.h"   // S103 CPU1
-#include "weapon_rows.h"   // S103 PW-1: WeaponSlot, kScWeaponSlots (59)
 #include <algorithm>
 #include "string_pool.h"   // S102 T11b
 #include "particle_tables.h"  // S103 F
 #include "guest_model_rows.h"  // S103 CW-2
-#include "props_light_rows.h"  // S103 KS1
-#include "bone_tag_rows.h"    // S103 W2B: BoneTag, kScBoneTags (66)
-#include "quads2d_plants.h"  // S103 I1: Q2D_PLANT (false outside the unit test)
-#include "quads2d_corner.h"  // S105 A8: CornerValid (a T_RectColor row's packed corner colours)
 
 namespace rdr_scene {
+
+// S106 G4-C: the row types SceneTables holds, declared here (the families' headers define them: rows_*.h, weapon_rows.h, props_light_rows.h, bone_tag_rows.h; record_all.h has all of them)
+struct ModelLightRow; struct StageFxRow; struct StageLookRow; struct CrowdPropRow; struct CrowdPictureRow; struct CrowdSingleRow;
+struct CrowdRun; struct CrowdMember; struct LightState; struct LightRef; struct CircleShadow; struct CircleMesh;
+struct PlaneFrame; struct PlaneDraw; struct PlaneEyes; struct PartClock; struct LiquidMapRow; struct LiquidItemRow; struct LiquidPictureRow;
+struct Quad2D; struct ArenaWorld; struct RingRows; struct RingNodeRows; struct CasterCall; struct CasterExtra; struct SphereOccRow;
+struct PostParamsRow; struct ModelRuntimeRow; struct InputStampRow; struct ParamOverrideRow; struct LightObjectRow; struct OwnedStamp;
+struct BoneTag; struct PropsLight; struct ChangeColourRow; struct BodyScaleRow; struct LiquidImageRow;   // S108 SHOT: rows_snapshot.h
+namespace weapons { struct WeaponCall; struct WeaponSlot; }
+inline constexpr uint32_t kQuad2DNotTaken = 0xFFFFFFFFu;   // S103 L2a: SceneTables::quad2d_holes when no live 2D contributor took the frame (moved from scene_record.h, S106 G4-C)
 
 // All of a record's tables. Strings: Str(field) reads a name field (offset + 1, 0 = none), AddString makes one.
 // S102 RT1 (render_lean bit 2, Q7): the arena (bgNN of the first arena asset) of THIS record, found once and kept ON the record: a pure function of the immutable tables, so a new record
@@ -88,6 +93,12 @@ struct SceneTables {
   std::vector<PlaneDraw> plane_draws;        // kScPlaneDraws (lane 139): the plane chain's per-draw part and the blur block
   std::vector<PlaneEyes> plane_eyes;         // kScPlaneEyes (S103 E5, 49): EyePos per proxy kind + PlanePos, recomputed at the latch from the plane module's tables
   std::vector<BoneTag> bone_tags;            // kScBoneTags (S103 W2B, 66): the (piece id, node) tag of every spring-hair palette row after a wrestler's body rows (bone_tag_rows.h); empty = none recorded
+  std::vector<ChangeColourRow> change_colours;   // kScChangeColour (S108 THR2, 67): one row per wrestler body the game draws recoloured this frame (the Threads editor; rows_change_colour.h); empty = none
+  std::vector<BodyScaleRow> body_scales;        // kScBodyScales (S108 SHOT, 68): the scale the host drew each wrestler with (rows_snapshot.h); empty = none recorded (a live record then draws no wrestler: a hole)
+  std::vector<LiquidImageRow> liquid_images;   // kScLiquidImages (69): each live liquid map's persistent image at the end of the frame; empty = none (the map is painted from the frame's items)
+  std::vector<uint8_t> liquid_image_bytes;     // kScLiquidBytes (70): the images' RGBA8 bytes (liquid_images[i] = [offset, offset + nbytes))
+  uint32_t snapshot_seen = 0;            // S108 SHOT: which of sections 68 / 69 / 70 the file's directory had (kSnapSeen*); SnapshotProblem names a missing one when the header says kSceneSnapshot
+  uint32_t snapshot_errors = 0;          // S108 SHOT: the three snapshot sections ParseRecord dropped together (element size / layout / a non-finite scale / an image range past the bytes)
   std::vector<PropsLight> props_light;       // kScPropsLight (S103 KS1, 65): the props light's ShadowPrm read at the latch from the shadow module's light-1 record; empty = none recorded (an older record: PrmFromRecord searches the light states)
   std::vector<PartClock> part_clocks;        // kScPartClocks (S103 E5, 50): the UV-scroll clock (VS c186) per run of parts of a stage model, read at the latch
   uint32_t clock_errors = 0;             // S103 E5: the part-clock section (50) ParseRecord dropped (unknown layout / non-finite / element size)
@@ -140,6 +151,12 @@ struct SceneTables {
   GuestModelTables guest_models;  // S103 CW-2: kScGuestModelParts / kScGuestModelBlobs (guest_model_rows.h): models the game built at run time, read from its memory; empty = none (an older record). Hard rule 1: local records only
 
   SceneTables();  // camera matrices = identity (the v2 candidate: an unset Mat4 was garbage)
+  // S106 G4-C: out of line (record_io.cpp includes the row families): the members above are vectors of types declared only by name here
+  ~SceneTables();
+  SceneTables(const SceneTables&);
+  SceneTables(SceneTables&&);
+  SceneTables& operator=(const SceneTables&);
+  SceneTables& operator=(SceneTables&&);
   // S102 SW1 (wwe2k14_rdr_swap_once bit 1; tables_pool.h): back to the state of a freshly constructed table, KEEPING every vector's capacity (and the string blob's), so a recycled table
   // allocates nothing once it has grown. EVERY member is reset here: add a new member to this function too (the offline test serialises a recycled table, fed with every section, against a
   // fresh one, and fails when sizeof(SceneTables) is not the size it was written for).
@@ -232,201 +249,9 @@ inline uint64_t SceneTables::LightsKey(bool rehash) const {
   return k;
 }
 
-// lane 136: why the circle tables are not usable ("" = fine): at most one mesh, counts inside the fixed capacity, every index inside the vertices.
-inline std::string CircleTablesProblem(const SceneTables& t) {
-  if (t.circle_mesh.size() > 1) return "CircleMesh: " + std::to_string(t.circle_mesh.size()) + " elements, at most one";
-  for (const CircleMesh& m : t.circle_mesh) {
-    if (m.vertex_count > kCircleMeshVertices || m.index_count > kCircleMeshIndices || m.stride != kCircleVertexStride) return "CircleMesh: counts or stride outside the fixed capacity";
-    for (uint32_t i = 0; i < m.index_count; ++i)
-      if (m.indices[i] >= m.vertex_count) return "CircleMesh: index " + std::to_string(i) + " points past the vertices";
-  }
-  return {};
-}
 
-// S103 E5: why the eye / clock tables are not usable ("" = fine): an unknown layout version or a non-finite value. A reader drops only that section (plane_errors / clock_errors), never the record.
-inline std::string EyeClockTablesProblem(const SceneTables& t, bool* eyes_bad, bool* clocks_bad) {
-  std::string p;
-  *eyes_bad = *clocks_bad = false;
-  for (size_t i = 0; i < t.plane_eyes.size() && !*eyes_bad; ++i) {
-    const PlaneEyes& e = t.plane_eyes[i];
-    bool fin = true;
-    for (uint32_t k = 0; k < kPeKinds; ++k)
-      if (e.have & (1u << k))
-        for (int c = 0; c < 4; ++c) fin = fin && std::isfinite(e.eye[k][c]);
-    for (int c = 0; c < 4; ++c) fin = fin && std::isfinite(e.plane_pos[c]);
-    if (e.version != kPlaneEyesLayout || !fin) *eyes_bad = true, p = "PlaneEyes " + std::to_string(i) + (e.version != kPlaneEyesLayout ? ": layout version " + std::to_string(e.version) : std::string(": a non-finite value"));
-  }
-  for (size_t i = 0; i < t.part_clocks.size() && !*clocks_bad; ++i) {
-    const PartClock& c = t.part_clocks[i];
-    if (c.version != kPartClockLayout || !std::isfinite(c.time) || !std::isfinite(c.period) || !std::isfinite(c.step)) *clocks_bad = true, p = "PartClock " + std::to_string(i) + (c.version != kPartClockLayout ? ": layout version " + std::to_string(c.version) : std::string(": a non-finite value"));
-  }
-  return p;
-}
 
-// S103 SWF: why the liquid tables are not usable ("" = fine): an unknown layout, a non-finite number, an item range outside the item table, or a picture row that is not exactly its block bytes (an item whose picture has no row is a counted skip of the host, not a record error).
-// A reader drops the three sections together (liquid_errors): a record then draws every skin dry.
-inline std::string LiquidTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.liquid_maps.size(); ++i) {
-    const LiquidMapRow& m = t.liquid_maps[i];
-    if (m.layout != kLiquidLayout) return "LiquidMapRow " + std::to_string(i) + ": layout version " + std::to_string(m.layout);
-    if (uint64_t(m.item_first) + m.item_count > t.liquid_items.size()) return "LiquidMapRow " + std::to_string(i) + ": item range outside the item table";
-    if (m.item_count > 16) return "LiquidMapRow " + std::to_string(i) + ": more than the pool's 16 items";
-    if (!m.width || !m.height || m.width > 4096 || m.height > 4096 || m.levels > 12) return "LiquidMapRow " + std::to_string(i) + ": map size";
-  }
-  for (size_t i = 0; i < t.liquid_items.size(); ++i) {
-    const LiquidItemRow& r = t.liquid_items[i];
-    if (r.layout != kLiquidLayout) return "LiquidItemRow " + std::to_string(i) + ": layout version " + std::to_string(r.layout);
-    for (int k = 0; k < 4; ++k)
-      if (!std::isfinite(r.local_area[k]) || !std::isfinite(r.world_param[k]) || !std::isfinite(r.rect[k])) return "LiquidItemRow " + std::to_string(i) + ": a non-finite number";
-  }
-  for (size_t i = 0; i < t.liquid_pictures.size(); ++i)
-    if (!LiquidPictureValid(t.liquid_pictures[i])) return "liquid picture " + std::to_string(i) + ": not exactly its block bytes";
-  return "";
-}
 
-// S103 I1: why ONE 2D row is not usable ("" = fine): an unknown layout / kind / pass / blend, no vertices, a non-finite number.
-inline std::string Quad2DRowProblem(const Quad2D& q) {
-  if (q.version != kQuad2DLayout) return "layout version " + std::to_string(q.version);
-  if (q.kind != kQkRect && q.kind != kQkYuvAlpha && q.kind != kQkYuv && q.kind != kQkSprite && q.kind != kQkGlyph && q.kind != kQkRectColor) return "kind " + std::to_string(q.kind) + " (this reader knows rect, rect-colour, sprite, glyph, yuv and yuv-alpha)";   // S103 I3: + glyph; S105 A8: + rect-colour, yuv
-  if (q.kind == kQkRectColor && q.prim != q2d::kSiteRectColorPrimWord && !Q2D_PLANT(67)) return "a T_RectColor row with primitive " + std::to_string(q.prim) + " (the quad list, 13, is the only one drawn)";   // S105 A8 review F1
-  if (q.pass >= kQpCount || q.blend >= kQbCount || q.alpha_func > 7) return "pass / blend / alpha function out of range";
-  if (q.nverts != 4) return std::to_string(q.nverts) + " vertices (a quad has 4)";
-  if (!(q.have & kQhVerts)) return "no vertices read";
-  // S103 SC (layout 4): a row whose scissor state was not read is a HOLE (fail closed), never an unclipped draw; the rect of a scissor-on row is a sane box (the target is at most 8192 px; width / height 0 = clips everything)
-  if (!(q.have & kQhScissor)) return "no scissor state read";
-  if (q.scissor_on > 1u) return "scissor_on " + std::to_string(q.scissor_on);
-  if (q.scissor_on) {
-    for (int c = 0; c < 4; ++c)
-      if (q.scissor[c] < -8192 || q.scissor[c] > 16384) return "scissor out of range";
-    if (q.scissor[2] < 0 || q.scissor[3] < 0) return "scissor with a negative size";
-  } else if (q.scissor[0] || q.scissor[1] || q.scissor[2] || q.scissor[3]) return "scissor rect set with the scissor off";
-  if (!(q.have & kQhTarget)) return "no target / viewport state read";   // S103 SC: fail closed
-  if ((q.pass != kQpFinal && q.pass != kQpOffscreen && q.pass != kQpSceneColour) || !q.target_size[0] || !q.target_size[1] || q.target_size[0] > 16384u || q.target_size[1] > 16384u) return "target class / size";
-  for (int c = 0; c < 4; ++c)
-    if (q.viewport[c] < -16384 || q.viewport[c] > 16384) return "viewport out of range";
-  bool fin = std::isfinite(q.alpha_ref) && std::isfinite(q.use_proj);
-  for (int v = 0; v < 4; ++v)
-    for (int c = 0; c < 5; ++c) fin = fin && std::isfinite(q.verts[v][c]);
-  for (int c = 0; c < 4; ++c) fin = fin && std::isfinite(q.color[c]);
-  for (int c = 0; c < 2; ++c) fin = fin && std::isfinite(q.pos_scale[c]);   // S103 I2: only (2 / width, 2 / height) are read; the payload's z / w are the leaf's stack bytes (not finite-checked, never used)
-  for (int c = 0; c < 16; ++c) fin = fin && ((q.have & kQhMatrix) == 0 || std::isfinite(q.proj[c]));   // S103 P3c: the matrix c29..c32
-  for (int c = 0; c < 4; ++c) fin = fin && ((q.have & (kQhHsl | kQhChannel)) == 0 || std::isfinite(q.hsl[c]));   // (S103 I3: the glyph's selector shares the field)
-  if (fin && q.kind == kQkRectColor)   // S105 A8: the corner colours are packed bytes (verts[v][3] = r | g << 8 | b << 16, verts[v][4] = a): whole numbers in range, or the row is bad
-    for (int v = 0; v < 4; ++v)
-      if (!q2d::CornerValid(q.verts[v][3], q.verts[v][4])) return "a corner colour outside 0..255";
-  return fin ? std::string() : std::string("a non-finite value");
-}
-// The whole table: every row valid and the tickets ascending ("" = fine). ParseRecord refuses a bad ROW alone (Quads2DKeepGood) and drops the section only for the ordering.
-inline std::string Quads2DProblem(const std::vector<Quad2D>& rows) {
-  uint32_t last_seq = 0;
-  bool first = true;
-  for (size_t i = 0; i < rows.size(); ++i) {
-    if (const std::string p = Quad2DRowProblem(rows[i]); !p.empty()) return "Quad2D " + std::to_string(i) + ": " + p;
-    if (!first && rows[i].seq <= last_seq && !Q2D_PLANT(9)) return "Quad2D " + std::to_string(i) + ": seq does not ascend";
-    first = false, last_seq = rows[i].seq;
-  }
-  return {};
-}
-// Removes the rows that fail on their own; returns how many went.
-inline uint32_t Quads2DKeepGood(std::vector<Quad2D>& rows) {
-  const size_t before = rows.size();
-  rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Quad2D& q) { return !Quad2DRowProblem(q).empty(); }), rows.end());
-  return uint32_t(before - rows.size());
-}
-
-// lane 139: why the plane tables are not usable ("" = fine): an unknown layout version or kind. A reader drops only the plane tables (plane_errors), never the record.
-inline std::string PlaneTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.plane_frames.size(); ++i)
-    if (t.plane_frames[i].version != kPlaneLayoutVersion) return "PlaneFrame " + std::to_string(i) + ": layout version " + std::to_string(t.plane_frames[i].version) + " (this reader knows " + std::to_string(kPlaneLayoutVersion) + ")";
-  for (size_t i = 0; i < t.plane_draws.size(); ++i) {
-    const PlaneDraw& d = t.plane_draws[i];
-    if (d.version != kPlaneLayoutVersion) return "PlaneDraw " + std::to_string(i) + ": layout version " + std::to_string(d.version) + " (this reader knows " + std::to_string(kPlaneLayoutVersion) + ")";
-    if (d.kind > kPlaneProxy) return "PlaneDraw " + std::to_string(i) + ": unknown kind";
-  }
-  return {};
-}
-
-// lane 194: why the ring tables are not usable ("" = fine): an unknown layout / kind, or a node range outside the pool. A reader drops only the ring tables (ring_errors), never the record.
-inline std::string RingTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.ring_rows.size(); ++i) {
-    const RingRows& r = t.ring_rows[i];
-    if (r.layout != kRingRowsLayout || r.kind != 1) return "RingRows " + std::to_string(i) + ": layout " + std::to_string(r.layout) + " kind " + std::to_string(r.kind) + " (this reader knows layout 1, kind 1)";
-    if (uint64_t(r.first_node) + r.n_nodes > t.ring_nodes.size()) return "RingRows " + std::to_string(i) + ": nodes " + std::to_string(r.first_node) + "+" + std::to_string(r.n_nodes) + " past the " + std::to_string(t.ring_nodes.size()) + " pool rows";
-  }
-  return {};
-}
-// S103 PW-2: why the weapon call tables are not usable ("" = fine): a node range outside the pool. A reader drops only these two tables (weapon_call_errors), never the record.
-inline std::string WeaponCallTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.weapon_calls.size(); ++i) {
-    const weapons::WeaponCall& c = t.weapon_calls[i];
-    if (uint64_t(c.node_first) + c.node_count > t.weapon_nodes.size())
-      return "WeaponCall " + std::to_string(i) + ": nodes " + std::to_string(c.node_first) + "+" + std::to_string(c.node_count) + " past the " + std::to_string(t.weapon_nodes.size()) + " pool rows";
-  }
-  return {};
-}
-// lane 202: why the caster tables are not usable ("" = fine): an unknown layout / kind / pass, or a state index outside the table. A reader drops only the caster tables (caster_errors), never the record.
-inline std::string CasterTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.caster_calls.size(); ++i) {
-    const CasterCall& c = t.caster_calls[i];
-    if (c.layout != kCasterCallsLayout || c.kind != 1) return "CasterCall " + std::to_string(i) + ": layout " + std::to_string(c.layout) + " kind " + std::to_string(c.kind) + " (this reader knows layout 1, kind 1)";
-    if (c.pass == kCpNone || c.pass >= kCpCount) return "CasterCall " + std::to_string(i) + ": pass " + std::to_string(c.pass);
-    if (c.state != kCasterNoState && c.state >= t.caster_states.size()) return "CasterCall " + std::to_string(i) + ": state " + std::to_string(c.state) + " past the " + std::to_string(t.caster_states.size()) + " states";
-    if ((c.flags & kCcNodeHashes) && uint64_t(c.node_first) + c.n_nodes > t.caster_nodes.size()) return "CasterCall " + std::to_string(i) + ": node hashes " + std::to_string(c.node_first) + "+" + std::to_string(c.n_nodes) + " past the " + std::to_string(t.caster_nodes.size()) + " pool entries";
-    if ((c.flags & kCcMats) && ((c.flags & kCcNodeHashes) || uint64_t(c.node_first) + c.n_nodes > t.caster_mats.size())) return "CasterCall " + std::to_string(i) + ": palette matrices " + std::to_string(c.node_first) + "+" + std::to_string(c.n_nodes) + " past the " + std::to_string(t.caster_mats.size()) + " pool entries (or also node hashes)";   // lane 226
-  }
-  if (!t.caster_extras.empty()) {   // lane 221: parallel to the calls, a known layout
-    if (t.caster_extras.size() != t.caster_calls.size()) return "CasterExtra: " + std::to_string(t.caster_extras.size()) + " entries for " + std::to_string(t.caster_calls.size()) + " calls (must be parallel)";
-    for (size_t i = 0; i < t.caster_extras.size(); ++i)
-      if (t.caster_extras[i].layout != kCasterExtraLayout) return "CasterExtra " + std::to_string(i) + ": layout " + std::to_string(t.caster_extras[i].layout) + " (this reader knows layout 1)";
-  }
-  return {};
-}
-// lane 242: the sphere rows: a known layout and a count the component can have (sub_826E0030 makes 2).
-inline std::string SphereTablesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.sphere_occ.size(); ++i) {
-    const SphereOccRow& r = t.sphere_occ[i];
-    if (r.layout != kSphereOccLayout) return "SphereOcc " + std::to_string(i) + ": layout " + std::to_string(r.layout) + " (this reader knows layout 1)";
-    if (r.count > kSphereMax) return "SphereOcc " + std::to_string(i) + ": count " + std::to_string(r.count) + " past " + std::to_string(kSphereMax);
-  }
-  return {};
-}
-// S103 A: the input sections (29-31): a known layout, one post row at most. A reader drops only these tables (inputs_errors), never the record.
-inline std::string InputsTablesProblem(const SceneTables& t) {
-  if (t.post_params.size() > 1) return "PostParams: " + std::to_string(t.post_params.size()) + " rows (one per record)";
-  for (size_t i = 0; i < t.post_params.size(); ++i)
-    if (t.post_params[i].layout != kPostParamsLayout) return "PostParams " + std::to_string(i) + ": layout " + std::to_string(t.post_params[i].layout) + " (this reader knows layout 1)";
-  for (size_t i = 0; i < t.model_runtime.size(); ++i)
-    if (t.model_runtime[i].layout != kModelRuntimeLayout) return "ModelRuntime " + std::to_string(i) + ": layout " + std::to_string(t.model_runtime[i].layout) + " (this reader knows layout 1)";
-  for (size_t i = 0; i < t.input_stamps.size(); ++i)
-    if (t.input_stamps[i].bit >= 32) return "InputStamp " + std::to_string(i) + ": bit " + std::to_string(t.input_stamps[i].bit);
-  return {};
-}
-// S103 A2: the light-object section (32): known layout, row 0 the one manager row, every other row a block row, every manager ref in range or kLightNoRow.
-inline std::string LightObjectsProblem(const SceneTables& t) {
-  if (t.light_objects.empty()) return {};
-  for (size_t i = 0; i < t.light_objects.size(); ++i) {
-    const LightObjectRow& r = t.light_objects[i];
-    if ((r.layout != kLightObjectLayout && r.layout != 2 && r.layout != 1) || r.kind > kLoNodeObject || (r.layout == 1 && r.kind >= kLoModelMap)) return "LightObject " + std::to_string(i) + ": layout " + std::to_string(r.layout) + " kind " + std::to_string(r.kind);
-    if (r.layout < 3 && r.kind == kLoManager && (r.flags & kLoTracksRead)) return "LightObject " + std::to_string(i) + ": layout " + std::to_string(r.layout) + " manager row with the track words flag (S103 TNB: layout 3 only)";
-    if (r.kind == kLoModelMap && r.aux0 > kLightModelsPerRow) return "LightObject " + std::to_string(i) + ": model map with " + std::to_string(r.aux0) + " triples";
-    if ((r.kind == kLoManager) != (i == 0)) return "LightObject " + std::to_string(i) + ": the manager row must be row 0 and only row 0";
-  }
-  const LightObjectRow& m = t.light_objects[0];
-  for (uint32_t k = 0; k < kLmRefCount; ++k) {
-    const uint32_t v = m.words[kLmRefBase + k];
-    if (v != kLightNoRow && (v == 0 || v >= t.light_objects.size() || t.light_objects[v].kind > kLoOverride)) return "LightObject manager ref " + std::to_string(k) + " = " + std::to_string(v) + " (rows " + std::to_string(t.light_objects.size()) + ")";
-  }
-  return {};
-}
-// S103 A2: the parameter-override section (33): a known layout, a part index inside the sane bound or the model-wide marker.
-inline std::string ParamOverridesProblem(const SceneTables& t) {
-  for (size_t i = 0; i < t.param_overrides.size(); ++i) {
-    const ParamOverrideRow& r = t.param_overrides[i];
-    if (r.layout != kParamOverrideLayout) return "ParamOverride " + std::to_string(i) + ": layout " + std::to_string(r.layout);
-    if (r.part != kParamModelWide && r.part >= 64) return "ParamOverride " + std::to_string(i) + ": part " + std::to_string(r.part);
-  }
-  return {};
-}
 inline Mat4 IdentityMat4() {
   Mat4 r{};
   for (int i = 0; i < 4; ++i) r.m[i * 5] = 1.f;
@@ -461,6 +286,9 @@ std::vector<uint8_t> SerializeRecord(const SceneTables& t);
 bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string& error);
 
 bool WriteRecord(const std::string& path, const SceneTables& t, std::string& error);
+// S108 SHOT: "" when the snapshot sections (68-70, rows_snapshot.h) are consistent: the header flag kSceneSnapshot absent, or all three in the directory and the rows valid. Else what is missing / wrong
+// (a record whose snapshot was dropped must be reported, never drawn half: the rig draws no wrestler without section 68).
+std::string SnapshotProblem(const SceneTables& t);
 // S103 R, the CAMERA LAYOUT (tested by tools\scene\frame_rig.py --camera-roundtrip): `Camera::view` is 16 floats ROW-MAJOR, ROW-VECTOR: view.m[4 * r + c] is row r, column c,
 // clip = [x y z 1] * V (translation in m[12..14]); with kCamViewIsViewProj and proj = identity it is the whole world -> clip matrix. A GAME-space (Live) record's camera is the
 // game's ViewProj constants (c56-c59, four rows of the column-vector matrix M, clip = M * [p 1]) TRANSPOSED: m[4 * r + c] = M[c][r]. `eye` is the world-space eye.

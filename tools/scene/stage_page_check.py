@@ -2,7 +2,7 @@
 r"""S103 L12: which page is the game's stage light-map page (image 388) in a MATCH, and at what scale?
 
   py -I tools\scene\stage_page_check.py DUMP [--arena 4]        # DUMP = a stage_page_f<frame>.rgba8 (or .png) from --wwe2k14_dump_stage_page, under out\s103\stage_page\
-  py -I tools\scene\stage_page_check.py --synthetic             # offline self-test (the gate): scaled / blended copies of the player's own pages must read back their scale
+  py -I tools\scene\stage_page_check.py --synthetic             # offline self-test (the check): scaled / blended copies of the player's own pages must read back their scale
 
 Compares the dumped page with the arena's own fade_lightmap00 / fade_lightmap01 (the player's bgNN.pac, decoded the way tools\arena\arena_files.py / the loader do):
   - mean ratio per channel (dump mean / page mean, of the stored 8-bit values), for each page;

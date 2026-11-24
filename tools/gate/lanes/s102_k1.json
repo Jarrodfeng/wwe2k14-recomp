@@ -1,7 +1,0 @@
-{
- "note": "S102 K1 (the disk): tidy.py's KEEP match, strict age, input scan (comments / docstrings / `# tidy: output`), regenerable inputs, quota, scratchpad rule, shared lock, free-space log with its rate of fall, duplicate-capture report. 63 checks, each with a planted twin; the out/s100 re-find (a lane naming out/s100/attires held the whole 39.8 GB). No game run, no delete outside a fake tree under out/k1_selftest.",
- "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
- "checks": [
-  {"name": "s102_k1.tidy_selftest", "cmd": ["py", "-I", "tools/harness/tidy_k1_selftest.py"], "timeout_s": 300}
- ]
-}

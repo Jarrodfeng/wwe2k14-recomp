@@ -1,0 +1,12 @@
+# S106 0a: game check route: selftest_state_negative.txt with on_fail continue. The wait_state at the end times out after 120 frames,
+# logs "script FAILED at line N: wait_state seq 75 not reached within 120 frames"; with --wwe2k14_input_fail_quit=true (run_list adds
+# it) the game still quits after the failure screenshot. "NOT REACHED" must not appear.
+on_fail continue
+log negative: start
+wait_state seq 3 120
+wait_file SaveData.Dat 3600
+log_state menu
+log negative: the next line must time out
+wait_state seq 75 120
+log negative: NOT REACHED
+quit

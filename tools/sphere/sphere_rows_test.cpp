@@ -21,6 +21,7 @@
 #include <fstream>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_sphere.h"
 #include "../../src/scene_live/sphere_contrib.h"
 
 using namespace rdr_scene;

@@ -1,7 +1,6 @@
 # harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=0,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
 # intent: owner on
-# S105 R3: proof of the TEST CAW mirror (-Data userdata_caw_s105): CAW id 0 (slot 0, 00CustomSuperStar.cas) seated against Brock (343) in the lesnar_bryan scenario; made by tools\censusoster_caw_route.py 0.
+# S105 R3: proof of the TEST CAW mirror (-Data userdata_caw_s105): CAW id 0 (slot 0, 00CustomSuperStar.cas) seated against Brock (343) in the lesnar_bryan scenario; made by tools\census\roster_caw_route.py 0.
 # TEMPLATE, NOT A ROUTE (extension .tmpl: no lint, no run). Make the route with `py -I tools\census\roster_caw_route.py CAWID` (lane 158 review B3): it refuses a missing, non-numeric or
 # out-of-range id, so this leg can never start with a placeholder id. Why it matters: scenario.h skips a participant id outside 0-499 ("launch participant ... skipped") and leaves the
 # captured wrestler in the seat, so a wrong id plays Lesnar v BRYAN and the "unexplained body" the CAW proof looks for is Bryan.

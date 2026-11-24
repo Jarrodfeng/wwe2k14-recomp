@@ -1,9 +1,0 @@
-{
- "owner": "S103 lane V1b (R17 [C], the game's per-slot 'shown' bit in our frame): src/scene_live/arena_contrib.* (hidden slots from the stage records at stage + 1220, read at the latch), stage_fx_contrib.h ReadSlotRecords, inputs_glue.h wiring, wrestler_contrib.h EmittedSkeletons (slot skeletons only), tools/scene/slot_shown_unit.cpp + slot_shown_check.py. 0 game runs, 0 Surface runs.",
- "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
- "note": "sub_824E7190 0x824E71C8-0x824E71F0: a slot with record byte +9 bit 0x80 clear (or +8 bit 0x80 set, or +9 bit 0x08 set) gets no light install and no draw. The unit builds the real arena and wrestler contributors against a fake guest, plus four planted twins.",
- "checks": [
-  {"name": "s103_V1b.slot_shown", "cmd": ["py", "-I", "tools/scene/slot_shown_check.py", "--root", "."], "timeout_s": 600,
-   "affects": ["src/scene_live/arena_contrib.*", "src/scene_live/stage_fx_contrib.h", "src/scene_live/inputs_glue.h", "src/scene_live/wrestler_contrib.*", "src/renderer_scene/record_io.*", "src/renderer_scene/live_scene.*", "tools/scene/slot_shown_unit.cpp", "tools/scene/slot_shown_check.py"]}
- ]
-}

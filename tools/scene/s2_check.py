@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane S2 gate check: builds tools/scene/s2_unit.cpp (bit 11's per-frame verdict, the sentinel walked frames on the real decision, the changes census per input: 0 game runs, no game,
+"""S103 lane S2 check: builds tools/scene/s2_unit.cpp (bit 11's per-frame verdict, the sentinel walked frames on the real decision, the changes census per input: 0 game runs, no game,
 no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints (the switches exist and default off, the rules are called where they must be).
 Bit 10's presence rule is proved by tools/scene/crowd_snapshot_check.py (crowd_snapshot_s2_part.h, the shipped contributor).
   py -I tools/scene/s2_check.py [--root DIR]

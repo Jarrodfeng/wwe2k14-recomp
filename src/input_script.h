@@ -58,6 +58,10 @@
 //   set BUTTONS LT RT LX LY RX RY set the full pad state until the next set/press (what recordings use);
 //                                 settings are changed with `cvar`, not `set`
 //   screenshot LABEL              save the current guest output to captures/NNN_LABEL.png
+//   shot SUBJECT N [LABEL]        (S108 SHOT) a screenshot of this frame AND the scene record the host draws for it (the host state a one-frame record lacks goes with it: body scales,
+//                                 liquid maps, created-superstar bytes), saved to captures/NNN_pPID/LABEL.rsc for the offline rig (frame_rig --subject SUBJECT:N). SUBJECT =
+//                                 face | wrestler | stage | prop, N = slot / stage slot / prop id; LABEL defaults to SUBJECT_N. Stream-free build only (no scene host: the step fails)
+//   record LABEL                  (S108 SHOT) the record only, no screenshot
 //   screenshot_every N [LABEL]    (Session 10) from now on, a screenshot every N frames in the background while
 //                                 the script runs, captures/NNN_LABEL_01.png, _02, ...; `screenshot_every 0` stops
 //                                 it. Runs alongside the other steps (e.g. a long wait_state for a match's end)
@@ -130,6 +134,7 @@
 //   wait_event render WHAT [TIMEOUT] [optional]   (lane 147) wait until the renderer posted WHAT (roster_ready: the wrestler roster is
 //                                 built; roster_failed), up to TIMEOUT frames (default 1800), then a script failure (on_fail), or with
 //                                 'optional' a warning; roster_ready also fails at once when the roster build failed. src/render_signal.h;
+//                                 background_ended (S109 FF): the test background (--wwe2k14_test_background_at, src/android_lifecycle.h) is over and the app is back in front;
 //                                 the event bus (when on) also logs it as kind render
 //   bleed SLOT LEVEL              (S105 T1, DEV builds only) the situation director verb: the blood option on, then wrestler SLOT bleeds at LEVEL 1-3 (like passive / momentum / stock, queued and
 //                                 retried until the bell and the blood pool exist; src/situation_director.h)
@@ -139,8 +144,9 @@
 //   on_fail quit|continue         what a failure (wait_file / wait_state timeout, forbidden file, cvar error,
 //                                 assert_state mismatch, watch/snap refused at run time) does: quit the game (default; after a failure screenshot
 //                                 the quit waits until it is written), or end the script and leave the game
-//                                 running
-//   quit                          close the game like Alt+F4
+//                                 running (--wwe2k14_input_fail_quit=true, set by run_list: a failure always quits, except in a
+//                                 --wwe2k14_live session)
+//   quit                        close the game like Alt+F4
 //   scan_start [1|2|4] / scan_eq V / scan_ne V / scan_gt V / scan_lt V / scan_changed / scan_unchanged /
 //   scan_inc [N] / scan_dec [N] / scan_show [N] / scan_end
 //                                 (Session 29, src/mem_scan.h) Cheat-Engine-style memory scanner: narrow the writable
@@ -221,11 +227,15 @@
 #include "replay.h"  // Session 16 item 1: --wwe2k14_replay_mode / _record / _play (default off)
 #include "check_prompt.h"  // Session 29: `check TEXT` (on-screen question, F1 / F2 / F5)
 #include "mem_scan.h"      // Session 29: scan_* (live memory scanner)
+#include "menu_goto_core.h"  // S110 GOTO: `page N [back]` (the request port; the game side is src/menu_goto.h)
+#include "wm30_script_core.h"  // S110 FIRELINE: `wm30_fire ...` / `wm30_step ...` (the ports; the game side is src/wm30_fire.h / src/wm30_step.h)
+#include "menu_home.h"       // S110 HOMESTEP: `home` (B to the settled main menu; rules in src/menu_home_core.h)
 #include "situation_director_core.h"  // S101 lane 161: passive / momentum / stock / passive_cpu script lines (pure; the game side is src/situation_director.h)
 #include "dev_build.h"  // S105 T1 F6: IsDevBuild (bleed is refused at parse time in a player build)
 #include "diag.h"          // Session 95: diag_stage / diag_scene / diag_ab / diag_restore (the diagnostic run)
 #include "case/case_script_hook.h"  // S101: a route's quit takes the black box (filled by bookmark.h)
 #include "renderer/overlay.h"  // S103 GT round 3: rdr::GpuWindowMark (the route windows of the per-role GPU block)
+#include "script_fail_policy.h"  // S106 0a
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in public headers).
@@ -249,6 +259,11 @@ REXCVAR_DEFINE_STRING(wwe2k14_input_result, "", "wwe2k14",
                       "last log step). For the launcher's scripted runs");
 REXCVAR_DEFINE_STRING(wwe2k14_input_script, "", "wwe2k14",
                       "Drive controller 1 from this input script (see src/input_script.h)");
+REXCVAR_DEFINE_BOOL(wwe2k14_input_fail_quit, false, "wwe2k14",
+                    "S106 0a: every failure of the main input script quits the game (as on_fail quit) whatever the route's "
+                    "on_fail says; a script that fails to load quits too. Live batches and --wwe2k14_diag_hold keep their own "
+                    "rule. tools\\bench\\run_list.ps1 sets it");
+REXCVAR_DECLARE(std::string, wwe2k14_live);  // S106 0aF: live_control.h; a live session ignores the force switch above
 
 namespace wwe2k14 {
 
@@ -474,6 +489,13 @@ class InputScript {
           failed_ = true;
           WriteResult();
           if (quit_on_fail_ && g_request_quit) g_request_quit();
+        } else if (QuitOnScriptFail(ScriptFailState{false, REXCVAR_GET(wwe2k14_input_fail_quit), false, diag::On() && diag::Hold(), !REXCVAR_GET(wwe2k14_live).empty()})) {  // S106 0a / 0aF: the one policy
+          REXLOG_ERROR("[wwe2k14][input] script FAILED: could not load {} (--wwe2k14_input_fail_quit)", script);
+          last_log_ = "script load";
+          failed_ = true;
+          fail_quit_pending_ = true;
+          fail_quit_frame_ = frame_;
+          fail_quit_max_ = kFailQuitMaxFrames;
         }
         return;
       }
@@ -806,6 +828,7 @@ class InputScript {
     kWatchCmd,  // watch / unwatch / snap / unsnap (text = command, value = its arguments; src/guest_watch.h)
     kClipStart, kClipStop,  // src/clip_capture.h (text = NAME; value = "FPS SCALE")
     kScreenshotEvery,       // Session 10: frames = interval (0 = stop), text = label
+    kShot, kRecord,         // S108 SHOT: text = label, value = "SUBJECT N" (kShot: the subject shot + the record; kRecord: the record only)
     kCheck,                 // Session 29: text = the question (src/check_prompt.h)
     kScan,                  // Session 29: text = scan command, value = its arguments (src/mem_scan.h)
     kLogText, kWaitText, kAssertText,  // Session 30: screen text (src/screen_text.h); text = TEXT, frames = N / timeout
@@ -817,7 +840,10 @@ class InputScript {
     kLabel, kJumpPreview,              // lane 303: `label NAME` (no-op) and `jump_if_preview_not ID NAME` (text = NAME, want = ID)
     kPressUntilPreview,                // lane 303: value = WHAT (id or "custom"), pad = TARGETS, pad2 = tab key (src/music_preview_seen.h)
     kDiagStage, kDiagScene, kDiagAb, kDiagRestore, kDiagCapture,  // Session 95: the diagnostic run (src/diag.h)
-    kDirector                          // S101 lane 161: passive / momentum / stock / passive_cpu (text = the verb's full text; src/situation_director_core.h)
+    kDirector,                         // S101 lane 161: passive / momentum / stock / passive_cpu (text = the verb's full text; src/situation_director_core.h)
+    kPage,                             // S110 GOTO: `page N [back]` (frames = record id, hold = back; src/menu_goto_core.h)
+    kHome,                             // S110 HOMESTEP: `home` (B one page at a time to the settled main menu; src/menu_home.h)
+    kWm30Fire, kWm30Step               // S110 FIRELINE: text = the verb's arguments (value = "fire" / "step"; src/wm30_script_core.h)
   };
   struct Step {
     Op op;
@@ -992,7 +1018,8 @@ class InputScript {
 
   static std::string DescribeState(const GuestState& state, bool readable, uint32_t raw) {
     if (!readable) return "unreadable";
-    return fmt::format("0x{:0{}X} ({})", raw, state.size * 2, StateNumber(state, raw));
+    return fmt::format("0x{:0{}X} ({}){}", raw, state.size * 2, StateNumber(state, raw),
+                       state.host_field ? " [focus]" : "");  // Session 108: a built-in menu_* state, not a chain
   }
 
   // wait_state / assert_state / log_state NAME: an inline chain (0x...), or an entry of states.toml in the script's
@@ -1003,6 +1030,11 @@ class InputScript {
         index = i;
         return true;
       }
+    }
+    if (GuestState builtin; MakeHostState(name, builtin)) {  // Session 108: menu_ready, menu_row ... need no states.toml
+      states_.push_back(std::move(builtin));
+      index = states_.size() - 1;
+      return true;
     }
     if (name.rfind("0x", 0) == 0 || name.rfind("0X", 0) == 0) {
       GuestState inline_state;
@@ -1135,7 +1167,7 @@ class InputScript {
           why = "wait_event only knows the kind 'render' (render_signal.h), got '" + kind + "'";
         } else if (ok && !wwe2k14::render_signal::Known(step.text)) {
           ok = false;
-          why = "unknown render event '" + step.text + "' (roster_ready, roster_failed)";
+          why = "unknown render event '" + step.text + "' (roster_ready, roster_failed, background_ended)";
         }
         if (std::string extra; ok && (words >> extra)) {
           ok = extra == "optional";
@@ -1274,6 +1306,26 @@ class InputScript {
       } else if (cmd == "screenshot") {
         step.op = Op::kScreenshot;
         ok = bool(words >> step.text);
+      } else if (cmd == "shot" || cmd == "record") {  // S108 SHOT: shot SUBJECT N [LABEL] / record LABEL (the label names a file: letters, digits, _ - . only)
+        std::string subject;
+        int64_t sn = 0;
+        std::string label;
+        if (cmd == "shot") {
+          step.op = Op::kShot;
+          ok = bool(words >> subject) && (subject == "face" || subject == "wrestler" || subject == "stage" || subject == "prop") && OptionalNumber(words, sn, -1) && sn >= 0;
+          if (!ok) why = "shot SUBJECT N [LABEL] (SUBJECT = face | wrestler | stage | prop)";
+          if (ok && !(words >> label)) label = subject + "_" + std::to_string(sn);
+          step.value = subject + " " + std::to_string(sn);
+        } else {
+          step.op = Op::kRecord;
+          ok = bool(words >> label);
+          if (!ok) why = "record LABEL";
+        }
+        if (ok && (label.empty() || label.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != std::string::npos || label.find("..") != std::string::npos)) {
+          ok = false;
+          why = "the label names a file: letters, digits, _ - . only";
+        }
+        step.text = label;
       } else if (cmd == "screenshot_every") {  // Session 10: screenshot_every N [LABEL] (N = 0 stops)
         step.op = Op::kScreenshotEvery;
         ok = OptionalNumber(words, n, -1) && n >= 0;
@@ -1315,6 +1367,23 @@ class InputScript {
         ok = bool(words >> step.text) && (step.text == "quit" || step.text == "continue");
       } else if (cmd == "quit") {
         step.op = Op::kQuit;
+      } else if (cmd == "home") {  // S110 HOMESTEP: no arguments (docs/research/s110/HOME.md)
+        step.op = Op::kHome;
+        ok = RestOfLine(words).empty();
+        if (!ok) why = "home takes no arguments";
+      } else if (cmd == "wm30_fire" || cmd == "wm30_step") {  // S110 FIRELINE: the live `!wm30 fire` / `!wm30 step` through the same owner-tick code
+        const wm30_script::Verb verb = cmd == "wm30_fire" ? wm30_script::Verb::kFire : wm30_script::Verb::kStep;
+        step.op = verb == wm30_script::Verb::kFire ? Op::kWm30Fire : Op::kWm30Step;
+        step.text = RestOfLine(words);
+        why = wm30_script::CheckLine(verb, step.text);
+        ok = why.empty();
+      } else if (cmd == "page") {  // S110 GOTO: page N [back] (a flow record opened through the game's own goto; src/menu_goto.h)
+        step.op = Op::kPage;
+        uint32_t id = 0;
+        bool back = false;
+        why = menu_goto::ParseScriptLine(RestOfLine(words), id, back);
+        ok = why.empty();
+        step.frames = id, step.hold = back ? 1u : 0u;
       } else if (situation::IsVerb(cmd)) {  // S101 lane 161: `passive 1 on`, `passive all off`, `momentum 2 100`, `stock 0 3`, `passive_cpu on`, `bleed 0 3` (dev builds; the text is checked here, served by the owner tick)
         step.op = Op::kDirector;
         step.text = cmd + " " + RestOfLine(words);
@@ -1322,6 +1391,8 @@ class InputScript {
         std::string error = situation::Parse(step.text, checked);
         if (error.empty() && checked.verb == situation::Verb::Bleed && !wwe2k14::IsDevBuild()) error = "refused: bleed is a dev-build verb";  // S105 T1 F6: same message as the run-time refusal
         if (error.empty() && checked.verb == situation::Verb::LightsOut && !wwe2k14::IsDevBuild()) error = "refused: lightsout is a dev-build verb";  // S105 SLO3
+          if (error.empty() && checked.verb == situation::Verb::State && !wwe2k14::IsDevBuild()) error = "refused: state is a dev-build verb";  // S110 OMGROUTE
+          if (error.empty() && checked.verb == situation::Verb::Place && !wwe2k14::IsDevBuild()) error = "refused: place is a dev-build verb";  // S110 PLACE
         ok = error.empty();
         if (!ok) why = error;
       } else if (cmd == "watch_zero") {
@@ -2023,6 +2094,21 @@ class InputScript {
           REXLOG_INFO("[wwe2k14][input] line {}: screenshot '{}' (frame {})", L(step), step.text, frame_);
           SaveScreenshot(step.text);
           break;
+        case Op::kShot:
+        case Op::kRecord: {  // S108 SHOT: the host saves the record it draws next (and the host state it lacks), then the usual screenshot of the same frame
+          if (step.op == Op::kShot) REXLOG_INFO("[wwe2k14][input] subject shot: {} label {}", step.value, step.text);
+          else REXLOG_INFO("[wwe2k14][input] record: label {}", step.text);
+          const std::string path = (wwe2k14::RunCaptureDir() / (step.text + ".rsc")).string();
+          std::string why;
+          if (!wwe2k14::g_record_save_owner || !wwe2k14::g_record_save_owner(path, why)) {
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: {} '{}': the scene record cannot be saved: {} (frame {})", L(step), step.op == Op::kShot ? "shot" : "record", step.text,
+                         why.empty() ? std::string("no scene host (the stream build has none)") : why, frame_);
+            FailWithScreenshot(fmt::format("shot_fail_l{}", Tag(step)));
+            return;
+          }
+          if (step.op == Op::kShot) SaveScreenshot(step.text);
+          break;
+        }
         case Op::kScreenshotEvery:  // Session 10: OnFrame takes them while the script runs
           periodic_every_ = step.frames;
           periodic_label_ = step.text;
@@ -2120,6 +2206,70 @@ class InputScript {
             return;
           }
           break;
+        case Op::kPage: {  // S110 GOTO: one request, then the game's own outcome (served, or refused / not served / timed out = FAIL)
+          std::string why;
+          if (press_attempt_++ == 0) why = menu_goto::Request(uint32_t(step.frames), step.hold != 0, page_ticket_);
+          const int outcome = why.empty() ? menu_goto::Poll(page_ticket_, why) : -1;
+          if (outcome == 0 && frame_ - step_start_frame_ < menu_goto::kScriptFrames) return;
+          if (outcome == 1) {
+            REXLOG_INFO("[wwe2k14][input] line {}: page {} served after {} frames (frame {})", L(step), step.frames, frame_ - step_start_frame_, frame_);
+            break;
+          }
+          if (outcome == 0) why = menu_goto::Withdraw() ? "the game thread never took the request (is src/menu_goto.h built in?)" : "no outcome within the line's bound";
+          REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: page {}: {}", L(step), step.frames, why);
+          FailAndFinish();
+          return;
+        }
+        case Op::kWm30Fire:    // S110 FIRELINE: one request, then the owner tick's verdict (fired / stepped = go on; busy / refused / failed / not served = FAIL)
+        case Op::kWm30Step: {
+            const wm30_script::Verb verb = step.op == Op::kWm30Fire ? wm30_script::Verb::kFire : wm30_script::Verb::kStep;
+            std::string why;
+            if (press_attempt_++ == 0) why = wm30_script::Request(verb, step.text);
+            const int outcome = why.empty() ? wm30_script::Poll(verb, frame_ - step_start_frame_, why) : -1;
+            if (outcome == 0) return;
+            if (outcome == 1) {
+              REXLOG_INFO("[wwe2k14][input] line {}: wm30_{} {} -> {} (frame {})", L(step), wm30_script::VerbWord(verb), step.text, why, frame_);
+              break;
+            }
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: wm30_{} {}: {}", L(step), wm30_script::VerbWord(verb), step.text, why);
+            FailAndFinish();
+            return;
+          }
+        case Op::kHome: {  // S110 HOMESTEP: the rules are src/menu_home_core.h; here only the presses (held 6 frames like `press`) and the log
+          const bool first = press_attempt_ == 0;
+          if (first) {
+            press_attempt_ = 1;
+            press_released_ = true;
+          }
+          if (!press_released_) {
+            if (frame_ - press_t0_ < 6) return;
+            pad_ = {};
+            ++packet_;
+            press_released_ = true;
+            return;  // the game reads this neutral pad for a frame: a B right after a B is then a new press, not one held B
+          }
+          const menu_home::Decision d = menu_home::Step(frame_, first);
+          if (d.act == menu_home::Act::kWait) return;
+          if (d.act == menu_home::Act::kDone) {
+            REXLOG_INFO("[wwe2k14][menu_home] {} (frame {})", d.log, frame_);
+            sync_mark_ = frame_;
+            break;
+          }
+          if (d.act == menu_home::Act::kFail) {
+            REXLOG_ERROR("[wwe2k14][menu_home] FAILED: {} (frame {})", d.why, frame_);
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: home: {}", L(step), d.why);
+            FailAndFinish();
+            return;
+          }
+          REXLOG_INFO("[wwe2k14][menu_home] {} (frame {})", d.log, frame_);
+          pad_ = {};
+          pad_.buttons = d.act == menu_home::Act::kPressB ? 0x2000 : d.act == menu_home::Act::kPressA ? 0x1000 : 0x0004;  // B / A / LEFT (ParseButtons names)
+          ++packet_;
+          press_t0_ = frame_;
+          press_released_ = false;
+          sync_mark_ = frame_;
+          return;
+        }
         case Op::kDirector:  // S101 lane 161: queued for the owner tick (the answer and the read-back are `[director]` log lines)
           REXLOG_INFO("[wwe2k14][input] line {}: director {} (frame {})", L(step), step.text, frame_);
           situation::Submit(step.text);
@@ -2420,7 +2570,11 @@ class InputScript {
   void FailAndFinish() {
     failed_ = true;
     batch_failed_ = true;  // Session 29: live batches
-    Finish(quit_on_fail_);
+    // S110: a failed script still closes its coverage window, so what the run recorded (the window, icalls.tsv) is written
+    // (run 1 of S110 failed at its last line and left an empty coverage folder).
+    WWE2K14_COVERAGE_MARK(0u, std::string("fail"), frame_);
+    // S106 0a: the policy (route's on_fail, --wwe2k14_input_fail_quit, live batch, diag hold) is read before Finish clears live_running_
+    Finish(QuitOnScriptFail(ScriptFailState{quit_on_fail_, REXCVAR_GET(wwe2k14_input_fail_quit), live_running_, diag::On() && diag::Hold(), !REXCVAR_GET(wwe2k14_live).empty()}));
   }
 
   // Session 27: --wwe2k14_input_result=FILE: one line when the script ends, for a program that started the game with
@@ -2498,7 +2652,8 @@ class InputScript {
     failed_ = true;  // Session 27: --wwe2k14_input_result
     batch_failed_ = true;  // Session 29: live batches
     SaveScreenshot(label);
-    const bool quit = quit_on_fail_ && !(diag::On() && diag::Hold());
+    // S106 0a: same policy as FailAndFinish (script_fail_policy.h)
+    const bool quit = QuitOnScriptFail(ScriptFailState{quit_on_fail_, REXCVAR_GET(wwe2k14_input_fail_quit), live_running_, diag::On() && diag::Hold(), !REXCVAR_GET(wwe2k14_live).empty()});
     Finish(false);  // also stops a running clip; OnFrame then waits for it too
     if (quit) {
       fail_quit_pending_ = true;
@@ -2539,6 +2694,7 @@ class InputScript {
   size_t index_ = 0;
   bool step_started_ = false;
   uint64_t step_start_frame_ = 0;
+  uint64_t page_ticket_ = 0;  // S110 GOTO: the `page` line's request (menu_goto_core.h Request / Poll)
   bool quit_on_fail_ = true;
   bool failed_ = false, result_written_ = false;  // Session 27: --wwe2k14_input_result
   std::string last_log_;

@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=sixpack --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=335,229,325,344,364,298 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
 # Session 101 lane 167: the REDUCED roster-wide route (replaces lane 158's legs 1 and 2). Same mechanism and steps as s101_roster_sixpack.txt (6-Pack Challenge, all CPU, entrances
 # skipped, seed 1, arena 4); only the six ids differ. The ids come from `py -I tools\census\roster_classes.py` (docs\renderer\WRESTLER_PROMOTION_MAP.md section 15): the
 # classes of the roster's 692 model entries that NO kept capture proves, one attire-0 representative each (the launcher seats the default attire only), the sixth seat an unproven skeleton family:

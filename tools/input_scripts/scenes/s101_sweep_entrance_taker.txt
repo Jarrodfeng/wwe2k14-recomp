@@ -1,5 +1,4 @@
-# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=103,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the entrance follows the wall clock; the roster is built on a worker thread)
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=103,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_replay_mode=true
 # Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the Undertaker's entrance as an OWNER route. GATE_FAULTS row 3 ("The Undertaker's blocks",
 # open, run 7030) has no owner route (Check K K.E: "an Undertaker owner route does not exist [U]"); this is it: scenes\s100_owner_bryan_entrance.txt with the participants swapped so
 # the Undertaker (103, db\ids\characters.json "Undertaker") is slot 0 and comes out first (Lesnar 343 behind him), entrances KEPT (no skip flag), fixed seed 1.
@@ -19,15 +18,12 @@ wait_file 103.bik2 7200
 log scene=tron_103
 mark 1 tron_103
 wait_frames 200
-cvar wwe2k14_rdr_live_picture sc_sweep_taker_200
 screenshot sc_sweep_taker_200
 wait_state entrance_step_0 >=15 7200 2
 log scene=step15 (the Undertaker's entrance step 15)
 mark 2 step15
-cvar wwe2k14_rdr_live_picture sc_sweep_taker_s15
 screenshot sc_sweep_taker_s15
 wait_frames 900
-cvar wwe2k14_rdr_live_picture sc_sweep_taker_s15_900
 screenshot sc_sweep_taker_s15_900
 mark 3 step15_900
 wait_frames 600

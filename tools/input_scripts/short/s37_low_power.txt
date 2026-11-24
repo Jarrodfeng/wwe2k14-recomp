@@ -1,4 +1,4 @@
-# harness: realtime (the game's GPU waits for the flip only exist at vsync)
+# intent: performance cpu ms
 # Session 37 (low power): 25 s of a launched match at normal speed, for per-thread CPU time
 # (tools\perf\thread_busy.ps1 next to it, py tools\perf\thread_report.py RUN) and frame pacing (frames_NNN.csv) with
 # --wwe2k14_low_power=false / true. Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. Run alone

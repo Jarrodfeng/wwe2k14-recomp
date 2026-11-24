@@ -32,6 +32,7 @@ struct CharChoice {
   // blocked_wrinkles = the row needs the wrinkle map and the WRK switch is off, so nothing was picked (the caller takes the old no-table pick, counted).
   bool shadow = false, wet = false, tech_picked = false, cube_analytic = false, blocked_wrinkles = false;
   bool logo_table = false;   // S105 A5c fix F1: the row was taken from the editor's table (edit.pac p7/0)
+  bool change_colour_table = false;   // S108 THR2: the row was taken from the Threads editor's table (edit.pac p9/0, the game's model+392 row while model+604 is set): slots 7 / 4 / 14 / 2 are Mask1..4, never the liquid map
   bool no_table = false;   // S103 YCB (review F4): no effect table existed when the pick ran (the caller rebuilds the bind once one does); one snapshot, no second read
   bool Ok() const { return vs >= 0 && ps >= 0; }
 };
@@ -41,7 +42,11 @@ struct CharChoice {
 // IdMapLvLst / WklLvLst = the wrestler's live levels (S103 WRK: CharCtx::idmap / wkl, null = 0 = no tint / no wrinkle depth)); a row with FX_WRINKLES binds slot 5 = the material's wrinkles_n (S103 WRK; blocked only with the switch off).
 // S105 A5c fix F1: `logo` = the material carries a CAW logo (Material::logo7 / logo4 >= 0): the row comes from the editor's table (read_rule::LogoEffectTableNow, edit.pac p7/0), the game's own editor rows, which are all logo variants.
 // No editor table or no such effect in it: the startup table's row (nothing is drawn for the logo, as before). CharChoice::logo_table says which table was used.
-CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo = false);
+// S108 THR2: `change_colour` = the body is drawn recoloured this frame (the Threads editor; change_colour_draw.h WantsChangeColour): the row comes from the STS table
+// (read_rule::StsEffectTableNow, edit.pac p9/0), which wins over the logo table (the second registry holds the pack of the editor that is open). The fragment is the
+// registry variant of the SAME effect (OwnVariantOfHash: a hash shared with another effect's variant never picks that one). No STS table or no such effect: the startup
+// row (change_colour_table false: the caller binds no masks).
+CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo = false, bool change_colour = false);
 // The simplest vertex + fragment pair of `effect` that reads only textures the front-end can supply (the ones below), has every fragment
 // interpolator written by the vertex stage, and uses none of the options that need a runtime pass the files do not carry (shadow map,
 // cube reflections, blood, sweat, debug). `skinned`: the FX_SKINNED vertex variant, else the rigid one.
@@ -69,10 +74,13 @@ enum class CharSlot : uint8_t {
   ShadowMap,    // S103 L6, 12: the wrestlers' shadow map (lane E's MapRole::ShadowMap); a shadow-variant fragment only
   LiquidMap,    // S103 SWF, 14: the wrestler's liquid map (x blood, y sweat, z gloss; set per draw from MapRole::SweatMap); only a wet-variant fragment samples it
   SweatBump,    // S103 SWF, 4: the wet skin's bump map (the material's g_mSweatPrm); only a wet-variant fragment samples it
+  ChangeMask1, ChangeMask2, ChangeMask3, ChangeMask4,   // S108 THR2, 7 / 4 / 14 / 2 of a change-colour bind: the Threads editor's Mask1..Mask4 (Material::change_mask[k]); black when absent
 };
 CharSlot RoleOfSlot(int slot);
 // S103 SWF: the role of a slot of a `wet` fragment (slots 4 and 14 differ from RoleOfSlot's team-colour stand-ins).
 CharSlot RoleOfWetSlot(int slot);
+// S108 THR2: the role of a slot of a change-colour bind (the STS row): 7 / 4 / 14 / 2 = ChangeMask1..4 (sub_8339F0E0's binds; change_colour.h MaskIndexOfSlot), the rest as RoleOfSlot.
+CharSlot RoleOfChangeSlot(int slot);
 
 // ---- the ambient cube ----------------------------------------------------------------------------------------------------------
 // The wrestlers' diffuse light, as the game's yPreLight pass fills it and the skin / gear shaders read it back (viewer_hlsl.h PreLight, port):
@@ -117,6 +125,7 @@ struct CharCtx {
   bool cube_analytic = false;          // S103 YCB (review F3): the draw is a cube row bound as its non-cube twin: a lobe power of 0 is fed as 1, as the 360's bake did
   bool spec_sweat = false;            // S103 YCB: a table-picked draw (CUB.md Route A): Sweat (c210) comes from the material even when the draw is not the wet variant (the analytic slot-11 term / the gear sibling read it)
   bool wet = false;                    // S103 SWF: this draw is bound to the wet variant (a liquid map is bound at slot 14): Param0.zw, Sweat, Blood and BSSBldClr come from the material; else they stay the dry zeros
+  const float* change_color = nullptr;   // S108 THR2: a change-colour draw's 16 ChangeColor constants ((R, G, B, 1) / 255, change_colour_draw.h); null = zero (every other draw)
   const float* rim_params = nullptr;   // S103 L7: the frame's filtered rim map (MapImage::params: w, h, near, far; null = none bound: RimLightDepth stays (0, 1, 1, 0) and slot 15 is black)
 };
 // Fills `out` (vec4s * 4 floats, zeroed by the caller). False = a name this path does not know (reported by the caller).

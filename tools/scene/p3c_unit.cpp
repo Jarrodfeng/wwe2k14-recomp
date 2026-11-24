@@ -21,6 +21,7 @@
 #include "../../src/renderer_scene/quads2d_core.h"
 #include "sc_support.h"   // S103 SC
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 using namespace rdr_scene;
 using namespace rdr_scene::q2d;

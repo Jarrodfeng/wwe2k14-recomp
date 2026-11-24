@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../renderer_scene/record_io.h"
+#include "../renderer_scene/record_all.h"   // S106 G4-2
 #include "case_hook.h"
 
 namespace rdr_case {
@@ -32,10 +33,10 @@ class CaseSceneSink : public rdr_scene::live::Sink {
                               // lane 226 N1: the live tables (about 80 KB a frame with caster D3 on: 13 plane calls x 96 matrices alone are 80 KB)
                               r.engine_objects.size() * 4 + r.light_states.size() * sizeof(rdr_scene::LightState) + r.light_refs.size() * sizeof(rdr_scene::LightRef) +
                               r.circle_shadows.size() * sizeof(rdr_scene::CircleShadow) + r.circle_mesh.size() * sizeof(rdr_scene::CircleMesh) + r.plane_frames.size() * sizeof(rdr_scene::PlaneFrame) +
-                              r.plane_draws.size() * sizeof(rdr_scene::PlaneDraw) + r.plane_eyes.size() * sizeof(rdr_scene::PlaneEyes) + r.part_clocks.size() * sizeof(rdr_scene::PartClock) +  /* S103 E5 */ r.props_light.size() * sizeof(rdr_scene::PropsLight) + r.bone_tags.size() * sizeof(rdr_scene::BoneTag) +  /* S103 W2B */  /* S103 KS1 */ r.arena_worlds.size() * sizeof(rdr_scene::ArenaWorld) + r.ring_rows.size() * sizeof(rdr_scene::RingRows) +
+                              r.plane_draws.size() * sizeof(rdr_scene::PlaneDraw) + r.plane_eyes.size() * sizeof(rdr_scene::PlaneEyes) + r.part_clocks.size() * sizeof(rdr_scene::PartClock) +  /* S103 E5 */ r.props_light.size() * sizeof(rdr_scene::PropsLight) + r.bone_tags.size() * sizeof(rdr_scene::BoneTag) +  /* S103 W2B */ r.change_colours.size() * sizeof(rdr_scene::ChangeColourRow) +  /* S108 THR2 */  /* S103 KS1 */ r.arena_worlds.size() * sizeof(rdr_scene::ArenaWorld) + r.ring_rows.size() * sizeof(rdr_scene::RingRows) +
                               r.ring_nodes.size() * sizeof(rdr_scene::RingNodeRows) + r.weapon_calls.size() * sizeof(rdr_scene::weapons::WeaponCall) + r.weapon_nodes.size() * sizeof(rdr_scene::RingNodeRows) +  /* S103 PW-2 */ r.caster_calls.size() * sizeof(rdr_scene::CasterCall) + r.caster_nodes.size() * 4 +
                               r.caster_mats.size() * sizeof(rdr_scene::Mat4) + r.caster_states.size() * sizeof(rdr_scene::LightState) + r.caster_extras.size() * sizeof(rdr_scene::CasterExtra) + r.sphere_occ.size() * sizeof(rdr_scene::SphereOccRow) +
-                              // S102 T19 F3: the crowd run markers (tools\gate\t19_lint.py: this names every SceneTables vector)
+                              // S102 T19 F3: the crowd run markers (tools\lint\t19_lint.py: this names every SceneTables vector)
                               r.crowd_runs.size() * sizeof(rdr_scene::CrowdRun) + r.crowd_members.size() * sizeof(rdr_scene::CrowdMember) +
                               r.model_lights.size() * sizeof(rdr_scene::ModelLightRow) + r.stage_fx.size() * sizeof(rdr_scene::StageFxRow) + r.stage_look.size() * sizeof(rdr_scene::StageLookRow) +  // S103 C, S103 L
                               r.crowd_props.size() * sizeof(rdr_scene::CrowdPropRow) + r.crowd_singles.size() * sizeof(rdr_scene::CrowdSingleRow) + r.crowd_pictures.size() * sizeof(rdr_scene::CrowdPictureRow) +  // S103 D4, S103 D6
@@ -45,7 +46,8 @@ class CaseSceneSink : public rdr_scene::live::Sink {
                               r.post_params.size() * sizeof(rdr_scene::PostParamsRow) + r.model_runtime.size() * sizeof(rdr_scene::ModelRuntimeRow) +
                               r.input_stamps.size() * sizeof(rdr_scene::InputStampRow) + r.param_overrides.size() * sizeof(rdr_scene::ParamOverrideRow) +
                               r.light_objects.size() * sizeof(rdr_scene::LightObjectRow) +
-                              r.liquid_maps.size() * sizeof(rdr_scene::LiquidMapRow) + r.liquid_items.size() * sizeof(rdr_scene::LiquidItemRow) + r.liquid_pictures.size() * sizeof(rdr_scene::LiquidPictureRow);   // S103 SWF
+                              r.liquid_maps.size() * sizeof(rdr_scene::LiquidMapRow) + r.liquid_items.size() * sizeof(rdr_scene::LiquidItemRow) + r.liquid_pictures.size() * sizeof(rdr_scene::LiquidPictureRow) +   // S103 SWF
+                              r.body_scales.size() * sizeof(rdr_scene::BodyScaleRow) + r.liquid_images.size() * sizeof(rdr_scene::LiquidImageRow) + r.liquid_image_bytes.size();   // S108 SHOT (68-70)
     // S102 T19 F1: the file is the plain list (version 1, what every reader of a case folder reads): a marker record is expanded here, on the ring's thread, never on the game's
     case_hook::OnScene(f.guest_frame, estimate, [t] {
       if (t->crowd_runs.empty()) return rdr_scene::SerializeRecord(*t);

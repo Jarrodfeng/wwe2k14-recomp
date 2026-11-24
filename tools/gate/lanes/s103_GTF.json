@@ -1,4 +1,0 @@
-{"owner": "lane GTF (S103): the 30 Years jump writes the selection in a raw hook of sub_82A9D890 (lr 0x827AA340 only), so the game's own reads feed the jumped era to the DSC load AND the caption-table load. The call-site filter COMPILED and driven, planted twins, wiring pins, listing pins of sub_827AA2E8. 0 game runs. Claims: docs/agents/s103/GTW.md.", "checks": [
- {"name": "s103_GTF.selftest", "cmd": ["py", "-I", "tools/goto/gtf_selftest.py"], "timeout_s": 300, "needs": [], "affects": ["src/wm30_jump.h", "src/wm30_args.h", "tools/goto/gtf_selftest.py", "tools/goto/gtf_test.cpp"]},
- {"name": "s103_GTF.listing", "deps": "scan:src,tools", "cmd": ["py", "-I", "tools/goto/gtf_selftest.py", "--listing"], "timeout_s": 300, "needs": ["generated/default/wwe2k14_recomp.310.cpp"]}
-]}

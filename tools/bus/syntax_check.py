@@ -1,10 +1,10 @@
-"""S101 lane 120: a syntax-only compile of src/event_bus.h (the shipped bus header, with the SDK headers it includes), part of the gate lane
-rumble_bus. No game, no link, nothing written outside a temp folder.
+"""S101 lane 120: a syntax-only compile of src/event_bus.h (the shipped bus header, with the SDK headers it includes), part of the
+rumble_bus check. No game, no link, nothing written outside a temp folder.
 
     py -I tools/bus/syntax_check.py [--root DIR]     DIR = the checkout whose src/ is compiled (default: this one)
 
 C++23, -DSPDLOG_FMT_EXTERNAL -DFMT_HEADER_ONLY, the SDK include folder of the main checkout (thirdparty/rexglue-sdk-vulkan/include). Fails loudly
-when the compiler or the SDK headers are missing (the gate lane lists the SDK folder in "needs", so a machine without it SKIPs, not passes).
+when the compiler or the SDK headers are missing (a machine without the SDK folder SKIPs, not passes).
 """
 import os
 import shutil

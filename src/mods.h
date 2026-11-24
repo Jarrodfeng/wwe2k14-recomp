@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "tron_slots_core.h"  // kTronExts (S110 TRONSLOT review: one list for the game, the launcher and the viewer)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_mods, false, "wwe2k14",
                     "Mods folder: a titantron in <mods>\\titantron\\NNN.bik2 replaces movies\\titantron\\NNN.bik2 "
@@ -71,8 +72,8 @@ inline bool g_on = false;            // the mods: device is mounted (trons, musi
 inline bool g_lighting_on = false;   // --wwe2k14_mods_lighting: src\lighting_mod.h reads g_dir\lighting\ (Session 98)
 inline std::atomic<uint32_t> g_overrides{0};
 
-// Extensions in priority order: the game's own format first.
-inline constexpr const char* kTronExts[] = {".bik2", ".mp4", ".mov", ".mkv", ".alpha.mp4", ".alpha.mov", ".alpha.mkv"};
+// Extensions in priority order: the game's own format first (the one list, src\tron_slots_core.h).
+using tron_slots_core::kTronExts;
 
 // "NNN.alpha.mp4" (stacked alpha: colour on top, alpha as grey below; Session 18 item 2).
 inline bool IsStackedAlpha(const std::filesystem::path& p) {

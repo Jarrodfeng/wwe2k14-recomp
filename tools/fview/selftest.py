@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Session 101 lane 2: fview's offline acceptance test (registered in tools\\gate\\lanes\\fview.json). 0 game runs: it plays captures through the renderer.
+"""Session 101 lane 2: fview's offline acceptance test (run it by path). 0 game runs: it plays captures through the renderer.
 
   py -I tools\\fview\\selftest.py [--root DIR] [--keep]
 

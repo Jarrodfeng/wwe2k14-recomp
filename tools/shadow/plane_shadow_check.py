@@ -1,4 +1,4 @@
-r"""Lane 139 (SH3 slice 2) gate driver: the plane shadow chain's constants drawn by ours from the scene record (docs\renderer\SHADOW_PLANE.md). 0 game runs.
+r"""Lane 139 (SH3 slice 2) driver: the plane shadow chain's constants drawn by ours from the scene record (docs\renderer\SHADOW_PLANE.md). 0 game runs.
 
   py -I tools\shadow\plane_shadow_check.py unit      half (a): the capture's plane-chain constants -> register uploads -> the SHIPPED writer's tracker -> record -> BuildMask / BuildBlur equal the
                                                       stream's constants bit for bit on Check B, run 7079 and Bryan (tools\shadow\plane_unit.cpp); the record, guard and board checks; plants

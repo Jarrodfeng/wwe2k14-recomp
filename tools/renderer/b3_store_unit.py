@@ -2,7 +2,7 @@
 """S105 B3: builds and runs tools\\renderer\\b3_store_unit.cpp (the stream-free host's pipeline store wiring: catalog registration, the 3D-scene slice gate, the owner-mode
 precompile rule, the store-write failure reason; 0 game runs, no GPU, no SDK), then its planted twins (each must exit 1 and name its check), then the wiring lints on the real
 tree, each with a planted twin of its own text that must be caught:
-  - scene_host.cpp Start calls RegisterFxCatalogFrom after Renderer::Create (a stream-free host that never registers the catalog is the v0.4.0 fault: "0 of 0");
+  - scene_host.cpp Start calls RegisterShaderCatalogFrom (kVariants AND kOwnShaders) after Renderer::Create (a stream-free host that never registers the catalog is the v0.4.0 fault: "0 of 0");
   - scene_host.cpp sets SetPipelinePrebuildAllowed(store_progress::PrebuildAllowed(... Source::Draw3D)) before its RenderFrame calls;
   - precompile.h has no unconditional "owner and frame >= 120 = done" rule and asks OwnerPrecompileDone;
   - the launcher no longer hides PREPARE SHADERS or the precompile start behind kStreamFreeTarget.
@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {1: 'catalog.registered_once_with_alpha_twins', 2: 'rule.not_done_with_records_waiting', 3: 'gate.no_slice_in_a_3d_scene', 4: 'write.failure_names_the_step_and_the_os_error', 5: 'flush.saved_before_the_ack'}
+PLANTS = {6: 'catalog.own_blobs_in_the_same_call', 1: 'catalog.registered_once_with_alpha_twins', 2: 'rule.not_done_with_records_waiting', 3: 'gate.no_slice_in_a_3d_scene', 4: 'write.failure_names_the_step_and_the_os_error', 5: 'flush.saved_before_the_ack'}
 
 
 def read(root, rel):
@@ -30,7 +30,8 @@ def strip_comments(s):
 
 def lint_catalog(sc):
     m = re.search(r'Renderer::Create\(', sc)
-    return m is not None and re.search(r'RegisterFxCatalogFrom\(\s*\*renderer_', sc[m.end():]) is not None
+    c = re.search(r'RegisterShaderCatalogFrom\(\s*\*renderer_[^;]*;', sc[m.end():]) if m else None
+    return c is not None and 'kVariants' in c.group(0) and 'kOwnShaders' in c.group(0)   # S110 RDRPREP: our own blobs go in the same call
 
 
 def lint_gate(sc):
@@ -89,7 +90,8 @@ def main():
 
     sc = strip_comments(read(root, 'src/renderer_host/scene_host.cpp'))
     need(lint_catalog(sc), 'scene_host.cpp: Start registers the catalog after Renderer::Create')
-    need(not lint_catalog(re.sub(r'RegisterFxCatalogFrom\(', 'RegisterNothing(', sc)), 'wiring twin: a Start that never registers the catalog IS caught')
+    need(not lint_catalog(re.sub(r'RegisterShaderCatalogFrom\(', 'RegisterNothing(', sc)), 'wiring twin: a Start that never registers the catalog IS caught')
+    need(not lint_catalog(sc.replace('kOwnShaders', 'kNothing')), 'wiring twin: a Start that registers kVariants only IS caught')
     need(lint_gate(sc), 'scene_host.cpp: the slice gate is set from PrebuildAllowed(... Black) before RenderFrame')
     need(not lint_gate(re.sub(r'SetPipelinePrebuildAllowed\(', 'SetNothing(', sc)), 'wiring twin: a frame with no slice gate IS caught')
     pc = strip_comments(read(root, 'src/precompile.h'))

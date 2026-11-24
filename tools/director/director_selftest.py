@@ -39,12 +39,17 @@ def find_clang():
     raise RuntimeError('no clang++ found (tools\\env.ps1 puts the project\'s LLVM on PATH): the director unit test cannot run')
 
 
-def build(header_text, tmp, tag):
-    """Compiles director_test.cpp against `header_text` as src/situation_director_core.h (a copy under tmp: a planted twin never touches the tree)."""
+def build(header_text, tmp, tag, verb_text=None, place_text=None):
+    """Compiles director_test.cpp against `header_text` as src/situation_director_core.h (a copy under tmp: a planted twin never touches the tree).
+    S110 OMGROUTE: the core includes src/situation_state_verb.h; `verb_text` (default: the shipped file) is its copy next to it."""
     inc = os.path.join(tmp, tag)
     os.makedirs(inc, exist_ok=True)
     with open(os.path.join(inc, 'situation_director_core.h'), 'w', encoding='utf-8') as f:
         f.write(header_text)
+    with open(os.path.join(inc, 'situation_state_verb.h'), 'w', encoding='utf-8') as f:
+        f.write(verb_text if verb_text is not None else open(os.path.join(REPO, 'src', 'situation_state_verb.h'), encoding='utf-8').read())
+    with open(os.path.join(inc, 'situation_place_verb.h'), 'w', encoding='utf-8') as f:   # S110 PLACE: the core includes this one too
+        f.write(place_text if place_text is not None else open(os.path.join(REPO, 'src', 'situation_place_verb.h'), encoding='utf-8').read())
     exe = os.path.join(inc, 'director_test.exe')
     r = subprocess.run([find_clang(), '-std=c++17', '-I', inc, os.path.join(HERE, 'director_test.cpp'), '-o', exe], capture_output=True, text=True, timeout=180)
     if r.returncode != 0 or not os.path.isfile(exe):
@@ -100,6 +105,49 @@ PLANTS = [
     ('lightsout_wrong_target_offset', r'kTargetOff = 2672;', 'kTargetOff = 2668;'),
     ('bleed_no_readback_check', r'  if \(now != level\) \{\n    e\.Log\("director: " \+ tag \+ ": readback', '  if (false) {\n    e.Log("director: " + tag + ": readback'),
     ('all_includes_humans', r'if \(e\.U32\(comp \+ kComActiveOff\) == 0 && !\(st\.s\[slot\]\.on && st\.s\[slot\]\.ch == ch\)\) \{', 'if (false) {'),
+    # S110 OMGROUTE `state SLOT NAME` twins (4th field 'verb' = the plant is applied to src/situation_state_verb.h, else to the core): each must FAIL the unit test
+    ('state_player_build_runs_it', r'if \(c\.verb == Verb::State && !e\.Dev\(\)\) \{', 'if (false) {'),
+    ('state_prefix_kept', r'if \(n\.size\(\) > 5 && n\.compare\(0, 5, "State"\) == 0\) n = n\.substr\(5\);', ''),
+    ('state_not_routed_by_run', r'case Verb::State: return QueueState\(e, c\.slot, c\.name\);', 'case Verb::State: return "refused: no verb";'),
+    ('state_wrong_machine_offset', r'kStateMachineOff = 3148;', 'kStateMachineOff = 3144;', 'verb'),
+    ('state_wrong_descriptor_offset', r'kStateDescOff = 40;', 'kStateDescOff = 44;', 'verb'),
+    ('state_wrong_records_offset', r'kStateRecsOff = 4;', 'kStateRecsOff = 8;', 'verb'),
+    ('state_record_stride_4', r'kStateRecStride = 8;', 'kStateRecStride = 4;', 'verb'),
+    ('state_name_at_record_0', r'kStateRecNameOff = 4;', 'kStateRecNameOff = 0;', 'verb'),
+    ('state_record_0_and_last_findable', r'for \(uint32_t i = 1; i \+ 1 < n; \+\+i\) \{', 'for (uint32_t i = 0; i < n; ++i) {', 'verb'),
+    ('state_already_in_it_queues', r'e\.U32\(cur \+ kStateCurIdxOff\) == uint32_t\(found\)\) \{', 'false) {', 'verb'),
+    ('state_wrong_current_offset', r'kStateCurIdxOff = 12;', 'kStateCurIdxOff = 8;', 'verb'),
+    ('state_wrong_current_object_offset', r'kStateCurOff = 12;', 'kStateCurOff = 16;', 'verb'),   # reviewer: [desc+12] (0x8266B57C), the other half of the already-in-it read
+    ('state_unknown_name_called_anyway', r'if \(found < 0\) return refuse\(', 'if (false) return refuse(', 'verb'),
+    ('state_prefix_match', r'if \(s == name\) \{', 'if (s.compare(0, name.size(), name) == 0) {', 'verb'),
+    ('state_call_gets_the_name_not_the_record', r'e\.Call3\(Fn::QueueState, sm, namep, 0\);', 'e.Call3(Fn::QueueState, sm, recs + kStateRecStride * uint32_t(found), 0);', 'verb'),
+    ('state_call_gets_the_character', r'e\.Call3\(Fn::QueueState, sm, namep, 0\);', 'e.Call3(Fn::QueueState, ch, namep, 0);', 'verb'),
+    # S110 PLACE `place SLOT X Z [FACING]` twins (4th field 'place' = applied to src/situation_place_verb.h): each must FAIL the unit test
+    ('place_player_build_runs_it', r'if \(c\.verb == Verb::Place && !e\.Dev\(\)\) \{', 'if (false) {'),
+    ('place_not_routed_by_run', r'case Verb::Place: return PlaceWrestler\(e, c\.slot, c\.x, c\.z, c\.has_facing, c\.deg\);', 'case Verb::Place: return "refused: no verb";'),
+    ('place_parse_no_bound_on_x', r'SignedDecimal\(w\[2\], kPlaceCoordMaxParse, out\.x\)', 'SignedDecimal(w[2], 1e9f, out.x)'),
+    ('place_place_byte_not_restored', r'  e\.Put8\(ch \+ kPlaceOff, place\);\n  // 6\.', '  // 6.', 'place'),
+    ('place_facing_skipped', r'if \(has_facing\) e\.CallF\(Fn::SetYaw, ch, ', 'if (false) e.CallF(Fn::SetYaw, ch, ', 'place'),
+    ('place_facing_degrees_not_converted', r'double\(deg\) \* \(3\.14159265358979323846 / 180\.0\)\);\n  // 3\.', 'double(deg));\n  // 3.', 'place'),
+    ('place_ctrl_angle_not_written', r'  e\.Put32\(ctrl \+ kCtrlAngOff, e\.U32\(ch \+ kYawOff\)\);\n', '\n', 'place'),
+    ('place_old_rotation_not_copied', r'  for \(uint32_t i = 0; i < 16; i \+= 4\) e\.Put32\(ch \+ kOldRotOff', '  for (uint32_t i = 0; i < 0; i += 4) e.Put32(ch + kOldRotOff', 'place'),
+    ('place_warp_not_called', r'  e\.CallF3\(Fn::Warp, ch, double\(x\), y, double\(z\)\);\n', '\n', 'place'),
+    ('place_warp_y_not_passed', r'e\.CallF3\(Fn::Warp, ch, double\(x\), y, double\(z\)\);', 'e.CallF3(Fn::Warp, ch, double(x), 0.0, double(z));', 'place'),
+    ('place_floor_before_place_byte', r'  e\.Put8\(ch \+ kPlaceOff, place\);\n  const double y', '  const double y', 'place'),
+    ('place_x_not_stored_before_place_call', r'  e\.Put32\(ch \+ kPosOff, FloatBits\(x\)\);\n', '\n', 'place'),
+    ('place_root_node_not_stored', r'    e\.Put32\(root \+ 0, FloatBits\(x\)\);\n', '\n', 'place'),
+    ('place_partner_not_refused', r'  if \(e\.U32\(ch \+ kPartnerOff\) != 0\) return refuse', '  if (false) return refuse', 'place'),
+    ('place_holder_not_refused', r'e\.U32\(other \+ kPartnerOff\) == ch\) return refuse', 'false) return refuse', 'place'),
+    ('place_kind_not_refused', r'if \(e\.U32\(ch \+ kKindOff\) != kWrestlerKind\) return refuse', 'if (false) return refuse', 'place'),
+    ('place_actor_not_refused', r'if \(actor_idx >= 0 && actor_idx < kActorCount && e\.U32\(kActorTable \+ 4u \* uint32_t\(actor_idx\)\) != 0\) return refuse', 'if (false) return refuse', 'place'),
+    ('place_actor_index_unbounded', r'if \(actor_idx >= 0 && actor_idx < kActorCount && ', 'if (', 'place'),   # reviewer: -1 wraps to the word before the table
+    ('place_special_not_refused', r'if \(e\.U32\(ch \+ kSpecialOff\) != 0\) return refuse', 'if (false) return refuse', 'place'),
+    ('place_no_controller_not_refused', r'if \(!e\.Ok\(ctrl\)\) return refuse', 'if (false) return refuse', 'place'),
+    ('place_wrong_controller_offset', r'kCtrlOff = 3096;', 'kCtrlOff = 3092;', 'place'),
+    ('place_wrong_pos_offset', r'kPosOff = 160;', 'kPosOff = 164;', 'place'),
+    ('place_wrong_yaw_offset', r'kYawOff = 148;', 'kYawOff = 152;', 'place'),
+    ('place_wrong_place_offset', r'kPlaceOff = 70;', 'kPlaceOff = 71;', 'place'),
+    ('place_wrong_ctrl_angle_offset', r'kCtrlAngOff = 32;', 'kCtrlAngOff = 36;', 'place'),
 ]
 
 
@@ -111,14 +159,24 @@ def unit_tests(tmp):
     n = int(m.group(1)) if m else 0
     print('  unit test: %s' % (m.group(0) if m else 'no summary'))
     caught = 0
-    for name, pat, rep in PLANTS:
-        hits = len(re.findall(pat, header))
+    verb_src = open(os.path.join(REPO, 'src', 'situation_state_verb.h'), encoding='utf-8').read()
+    place_src = open(os.path.join(REPO, 'src', 'situation_place_verb.h'), encoding='utf-8').read()
+    for plant in PLANTS:
+        name, pat, rep = plant[:3]
+        which = plant[3] if len(plant) > 3 else 'core'
+        target = {'core': header, 'verb': verb_src, 'place': place_src}[which]
+        hits = len(re.findall(pat, target))
         if hits != 1:
             check(False, 'plant %s: the pattern matches %d times in the header (must be exactly 1: the plant is stale)' % (name, hits))
             continue
-        twin = re.sub(pat, lambda _m: rep, header, count=1)
+        twin = re.sub(pat, lambda _m: rep, target, count=1)
         try:
-            code, out = run_test(build(twin, tmp, 'plant_' + name))
+            if which == 'verb':
+                code, out = run_test(build(header, tmp, 'plant_' + name, twin))
+            elif which == 'place':
+                code, out = run_test(build(header, tmp, 'plant_' + name, None, twin))
+            else:
+                code, out = run_test(build(twin, tmp, 'plant_' + name))
         except RuntimeError as x:
             check(False, 'plant %s does not compile: %s' % (name, x))
             continue
@@ -187,7 +245,8 @@ def wiring():
     for ok, msg in [
         ('g_director_live' in live and 'director_cmd' in live and '"director"' in live, 'live_control.h does not route !director'),
         ('g_situation_tick(ctx, base)' in sd and '(*g_situation_tick)(PPCContext&, uint8_t*) = nullptr' in sd, 'scene_director.h does not call the director tick'),
-        ('uint32_t withf(' in sd and 'ctx.f1.f64 = f1;' in sd, 'scene_director.h Caller has no float call (withf / ctx.f1)'),
+        ('uint32_t withf(' in rd('src/guest_call.h') and 'ctx.f1.f64 = f1;' in rd('src/guest_call.h') and '#include "guest_call.h"' in sd,
+         'guest_call.h Caller has no float call (withf / ctx.f1), or scene_director.h does not include it (EXEB-B1 moved Caller there)'),
         ('#include "situation_director.h"' in app, 'wwe2k14_app.h does not include situation_director.h'),
         ('Op::kDirector' in inp and 'situation::Submit(step.text)' in inp and 'situation::IsVerb(cmd)' in inp, 'input_script.h does not carry the director verbs'),
         ('call.withf(sub_825F1F10, {r3}, f1)' in glue, 'the momentum setter is not called with f1'),
@@ -201,6 +260,18 @@ def wiring():
     # S105 SLO3: the lightsout glue (the factory's own two calls, dev-gated at parse and run time)
     check('call(sub_82250050, {r3})' in glue and 'call(sub_8275DF98, {r3, r4, r5})' in glue, 'the lightsout glue (alloc / ctor calls) changed')
     check('Verb::LightsOut && !wwe2k14::IsDevBuild()' in inp, 'input_script.h does not refuse lightsout at parse in a player build')
+    # S110 OMGROUTE: the state verb's glue (the game's own queue, r3 = state machine, r4 = name), the parse refusal in a player build, the core includes the new file
+    check('Fn::QueueState) return call(sub_8266B550, {r3, r4})' in glue, 'the state verb glue (sub_8266B550 with r3 / r4) changed')
+    check('Verb::State && !wwe2k14::IsDevBuild()' in inp, 'input_script.h does not refuse state at parse in a player build')
+    check('#include "situation_state_verb.h"' in core and 'return QueueState(e, c.slot, c.name)' in core, 'the core does not include / route the state verb')
+    # S110 PLACE: the float callers, the four glue mappings, the parse refusal in a player build, the core routes and includes the verb
+    gc = rd('src/guest_call.h')
+    check('double retf(' in gc and 'const double f1 = ctx.f1.f64;\n    ctx = saved;' in gc and
+          'uint32_t withf3(' in gc and 'ctx.f3.f64 = f3;' in gc, 'guest_call.h has no retf (f1 read before the restore) / withf3 (f1..f3)')
+    check('call.withf(sub_822FB578, {r3}, f1)' in glue and 'call.retf(sub_82612BF8, {r3, r4})' in glue and 'call.withf3(sub_829C0EE8, {r3}, f1, f2, f3)' in glue and 'call(sub_82612E88, {r3})' in glue,
+          'the place verb glue (yaw / floor / warp / place calls) changed')
+    check('Verb::Place && !wwe2k14::IsDevBuild()' in inp, 'input_script.h does not refuse place at parse in a player build')
+    check('#include "situation_place_verb.h"' in core and 'return PlaceWrestler(e, c.slot, c.x, c.z, c.has_facing, c.deg)' in core, 'the core does not include / route the place verb')
     # nothing runs unless asked: the tick is free when idle (the latch is off, the queue empty, nothing pending)
     check('if (g_state.passive_cpu || g_auto.applied)' in glue and 'TakeQueued(text)' in glue and 'g_pending.exchange(false)' in glue, 'the tick is not a no-op when idle')
     check('Housekeeping(g_state, g)' in glue and 'seq != scenario::kSeqInGame' in glue, 'the glue does not reset the state outside the in-game sequence on every tick (S1)')
@@ -263,6 +334,21 @@ LISTING = {   # address: [text that must be in the listing]
     '825A0F28': ['lwz r3,3736(r3)', 'lis r4,17218', 'ori r4,r4,17475', 'lwz r3,24(r3)', 'stb r4,1392(r31)'],
     '825C19B0': ['lwz r3,36(r3)'],            # S105 T1 (note section 4; the 'CBDC' constant is read from 0x825A0F4C by the probe)
     '825A1F28': ['15229(r3)', 'li r30,-1'],
+    # S110 OMGROUTE `state SLOT NAME` (note: docs/research/s110/OMGROUTE.md section 3): yaseChgState hands [char+3148] and the name to sub_8266B550; that one finds the
+    # index with sub_826AC388 (desc = [sm+40], records [desc+4], count [desc]) and calls the record's constructor at index * 8 (+0)
+    '826D9080': ['lwz r3,3148(r11)', 'bl 0x8266b550', 'cmplwi cr6,r10,97', 'cmplwi cr6,r10,116', 'cmplwi cr6,r10,101', 'addi r4,r4,5'],
+    '8266B550': ['lwz r3,40(r3)', 'bl 0x826ac388', 'lwz r11,40(r30)', 'lwz r10,4(r11)', 'lwz r11,0(r11)', 'rlwinm r11,r29,3,0,28', 'lwzx r31,r11,r10',
+                 'lwz r10,12(r11)', 'lwz r10,12(r10)', 'cmplw cr6,r10,r3'],   # reviewer: the already-in-it read [[desc+12]+12] == the found index (0x8266B57C-0x8266B590)
+    '826AC388': ['lwz r4,4(r11)', 'lwz r11,0(r11)', 'bl 0x826ac270'],
+    # S110 PLACE (note: docs/research/s110/PLACE.md "Sites the build will touch"): the all-copies warp, the floor height, the match-start placement's own use of the two
+    # helpers, the controller's per-frame copy, the root applier's controller read, the yaw setter
+    '829C0EE8': ['stfs f1,160(r3)', 'std r11,192(r3)', 'stfs f0,0(r9)', 'lwz r11,3096(r3)', 'std r10,48(r11)', 'std r8,56(r11)', 'bl 0x823a6450', 'std r11,176(r3)', 'stb r11,70(r31)'],
+    '82612BF8': ['cmplwi cr6,r11,15', 'lbz r4,70(r3)'],
+    '8273B790': ['bl 0x82612e88', 'stb r3,70(r31)', 'li r4,255', 'bl 0x82612bf8', 'stfs f1,164(r31)', 'lwz r30,3096(r31)', 'std r9,48(r30)', 'stfs f0,32(r30)'],
+    '82410AB8': ['stfs f0,32(r31)', 'std r8,48(r31)', 'std r7,56(r31)'],
+    '823EA6E0': ['lwz r3,3096(r11)'],
+    '822FB578': ['stfs f1,148(r3)'],
+    '823CB3F0': ['lwz r11,1340(r3)', 'cmpwi cr6,r11,-1', 'cmpwi cr6,r11,72', 'addi r8,r10,19264'],   # reviewer: the actor table is read only for 0 <= index < 72 (0x836F4B40 = lis -31889 + 19264)
 }
 
 
@@ -289,6 +375,15 @@ def listing():
         check(bool(m) and int(m.group(1), 0) == val, 'core %s is not %s' % (name, val))
     check(0x4348 == 17224 and (0x4348 << 16 | 20512) == 0x43485020, 'the CHP tag arithmetic (lis 17224 / ori 20512)')
     check(0x4342 == 17218 and (0x4342 << 16 | 17475) == 0x43424443, 'the CBDC tag arithmetic (lis 17218 / ori 17475)')
+    verb = rd('src/situation_state_verb.h')   # S110 OMGROUTE: the verb's numbers against the pins above (0x826D9120 +3148; 0x8266B560 +40; 0x8266B594 +4; 0x8266B5AC rlwinm 3 = stride 8)
+    for name, val in (('kStateMachineOff', 3148), ('kStateDescOff', 40), ('kStateRecsOff', 4), ('kStateRecStride', 8), ('kStateRecNameOff', 4), ('kStateCurOff', 12), ('kStateCurIdxOff', 12)):
+        m = re.search(r'%s = (0x[0-9A-Fa-f]+|\d+);' % name, verb)
+        check(bool(m) and int(m.group(1), 0) == val, 'state verb %s is not %s' % (name, val))
+    place = rd('src/situation_place_verb.h')   # S110 PLACE: the verb's numbers against the pins above
+    for name, val in (('kPosOff', 160), ('kYOff', 164), ('kZOff', 168), ('kYawOff', 148), ('kRotOff', 144), ('kOldRotOff', 208), ('kPlaceOff', 70), ('kKindOff', 24), ('kCtrlOff', 3096),
+                      ('kCtrlAngOff', 32), ('kCtrlPosOff', 48), ('kPartnerOff', 836), ('kActorTable', 0x836F4B40), ('kActorIdxOff', 1340), ('kActorCount', 72), ('kSpecialOff', 1920), ('kRootOff', 176)):
+        m = re.search(r'%s = (0x[0-9A-Fa-f]+|\d+);' % name, place)
+        check(bool(m) and int(m.group(1), 0) == val, 'place verb %s is not %s' % (name, val))
     print('  listing pins: %d functions, %d texts' % (len(LISTING), sum(len(v) for v in LISTING.values())))
 
 

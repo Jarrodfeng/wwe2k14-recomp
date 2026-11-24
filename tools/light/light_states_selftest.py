@@ -1,4 +1,4 @@
-r"""S101 lane 109 (LS0-LS3) gate check: the per-draw light state, offline, 0 game runs.
+r"""S101 lane 109 (LS0-LS3) check: the per-draw light state, offline, 0 game runs.
 
   py -I tools\light\light_states_selftest.py [--frames 0:340:20] [--no-build]
 

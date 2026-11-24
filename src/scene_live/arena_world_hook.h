@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_arena_world.h"
 #include "arena_world.h"
 #include "../renderer_adapter/upd_lean.h"   // S102 U2 (the plant macro, the census; no game includes)
 

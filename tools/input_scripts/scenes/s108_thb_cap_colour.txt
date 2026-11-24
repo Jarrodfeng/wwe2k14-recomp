@@ -1,0 +1,115 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lane THB check: Threads editor, John Cena, ENTRANCE ATTIRE page (RB), HAT colour picker; shots thb_cap_before / _after (white) / _after3 (red). Nothing saved.
+on_fail continue
+log bench: start scene s108_thb_cap_colour
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A seq 77 8 120 5
+wait_frames 600
+log scene=threads_editor
+screenshot thb_00
+press_until_text DOWN 80 20 5 JOHN CENA
+log scene=cena_visible
+log_text 8
+screenshot thb_01
+wait_frames 90
+press DOWN
+wait_frames 90
+press DOWN
+wait_frames 120
+log scene=cena_selected
+log_text 8
+screenshot thb_02
+press A
+wait_frames 120
+press RIGHT
+wait_frames 120
+log scene=attire_right1
+log_text 12
+screenshot thb_02b
+press RIGHT
+wait_frames 120
+log scene=attire_right2
+log_text 12
+screenshot thb_02c
+press LEFT
+wait_frames 60
+press LEFT
+wait_frames 120
+wait_frames 300
+log scene=attire_slots
+log_text 8
+screenshot thb_03
+press A
+wait_frames 300
+log scene=edit_copy_delete
+log_text 8
+screenshot thb_04
+press A
+wait_frames 300
+log scene=ring_attire
+log_text 12
+screenshot thb_05
+press A
+wait_frames 300
+log scene=ring_attire
+log_text 16
+screenshot thb_06
+press RB
+wait_frames 300
+log scene=page2
+log_text 16
+screenshot thb_07
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+log scene=hat_hover
+log_text 16
+screenshot thb_08
+press A
+wait_frames 300
+log scene=hat_picker_before
+log_text 16
+screenshot thb_cap_before
+press DOWN
+wait_frames 90
+press RIGHT
+wait_frames 90
+press RIGHT
+wait_frames 90
+press RIGHT
+wait_frames 90
+press RIGHT
+wait_frames 90
+press RIGHT
+wait_frames 90
+log_text 16
+screenshot thb_cap_hover_sample
+press A
+wait_frames 120
+log scene=hat_picker_after
+log_text 16
+screenshot thb_cap_after
+wait_frames 120
+screenshot thb_cap_after2
+press RIGHT
+wait_frames 90
+press RIGHT
+wait_frames 90
+press A
+wait_frames 120
+log scene=hat_picker_red
+log_text 16
+screenshot thb_cap_after3
+log bench: done
+wait_frames 10
+quit

@@ -85,6 +85,12 @@ class LiveNamer final : public rdr_scene::live::particles::TextureNamer {
                     (unsigned long long)st.cache_hits, (unsigned long long)st.no_handle, (unsigned long long)st.not_2d, (unsigned long long)st.no_header, (unsigned long long)st.wrapper_unreadable, (unsigned long long)st.no_key,
                     (unsigned long long)st.not_in_index);
       out += b;
+      // S108 PRT: the index misses named from the game's own texture; guest_failed = the game's texture could not be read (each one a skipped batch: a fault)
+      const auto& gs = rdr_scene::live::particles::GuestSprites::Process();
+      // (review: `short` = the guest held fewer levels than the file, those it held equal: the chain past them was not checked)
+      std::snprintf(b, sizeof b, ", guest %llu, guest_failed %llu, guest_check equal %llu differ %llu short %llu, guest_store %zu (%zu KB, evicted %llu)", (unsigned long long)st.guest, (unsigned long long)st.guest_failed,
+                    (unsigned long long)st.guest_check_equal, (unsigned long long)st.guest_check_differ, (unsigned long long)st.guest_check_short, gs.entries(), gs.bytes() >> 10, (unsigned long long)gs.evicted());
+      out += b;
     }
     return out;
   }
@@ -93,7 +99,17 @@ class LiveNamer final : public rdr_scene::live::particles::TextureNamer {
     explicit Inner(const rdr_scene::live::particles::NameIndex& idx)
         : mem(&wwe2k14::scene_inputs_glue::ReadChecked),
           hasher([](uint32_t a, uint32_t n, uint8_t* d) { return wwe2k14::scene_inputs_glue::CrowdGuestMem{}.phys(a, n, d); }),
-          namer(mem, hasher, idx) { namer.EnableDiag(wwe2k14::IsDevBuild()); }
+          namer(mem, hasher, idx) {
+      namer.EnableDiag(wwe2k14::IsDevBuild());
+      namer.SetGuestStore(&rdr_scene::live::particles::GuestSprites::Process());   // S108 PRT: an index miss reads the game's own texture (a DLC pack's / mod's particle file is not in the index)
+      if (wwe2k14::IsDevBuild())   // S108 PRT: the guest chain checked against the file on every newly named disc sprite (census guest_check)
+        namer.SetFileSprite([](const std::string& entry) -> std::shared_ptr<const assets::Texture> {
+          const auto map = rdr_scene::ParticleSpritesNow();
+          if (!map) return nullptr;
+          const auto it = map->find(entry);
+          return it == map->end() ? nullptr : std::shared_ptr<const assets::Texture>(map, &it->second);
+        });
+    }
     rdr_scene::live::particles::FnGuestMem mem;
     rdr_scene::live::particles::GuestContentHasher<bool (*)(uint32_t, uint32_t, uint8_t*)> hasher;
     rdr_scene::live::particles::HandleTextureNamer namer;

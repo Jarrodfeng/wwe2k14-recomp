@@ -1,7 +1,7 @@
 """S103 TLF: cheap link cross-check for every tools\\scene\\build_*.ps1 that links an rf_*.cpp applier (no compile, under 1 s).
 
 The failure it stops (tip reds s103_B / s103_C / s103_C3): an applier (rf_props.cpp, rf_wrestlers.cpp, ...) starts calling a public ModelCache method, the tool builds that
-supply their own ModelCache stand-in instead of linking record_frame.cpp do not define it, and the tool only fails at LINK, in a gate lane far from the change.
+supply their own ModelCache stand-in instead of linking record_frame.cpp do not define it, and the tool only fails at LINK, in a lane far from the change.
 
 For each build script: the .cpp files it names (resolved by file name under src\\ and tools\\scene\\; a line starting `$check` is compile-only and skipped), the ModelCache methods
 record_frame.h declares out of line, the ones the linked files call (`models.X(` / `mc.X(` / `cache.X(`), and the ones defined (`ModelCache::X(` in a linked file or in a local

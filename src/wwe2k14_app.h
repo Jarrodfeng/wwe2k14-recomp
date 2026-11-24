@@ -64,6 +64,7 @@
 #include "runin.h"          // --wwe2k14_runin (Session 16 item 9 experiment, default off)
 #include "director.h"       // --wwe2k14_director (Session 17 Track 3, default off)
 #include "tron_shim.h"
+#include "pac_answer_hook.h"  // S110 PACANS: the game's own pac-list answer per model name (post-hook on sub_82C51D20), read by the scene's KeyLink
 #include "lighting_mod.h"  // --wwe2k14_mods_lighting (Session 98 step 13: arena / entrance light colours from <mods>\lighting, default off)
 #include "scene_live/arena_hooks.h"  // S101 lane28: the arena's evaluated light sets for the live scene record (post-hook on sub_827F8730; free unless a scene sink is attached)
 #include "scene_live/stage_look_probe_hook.h"  // S103 L2: dev probe of the entrance rig objects (off: --wwe2k14_stage_look_probe=N)
@@ -100,7 +101,13 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 #include "motion_fix.h"     // --wwe2k14_fix_secondary_motion (Session 27.5: Cena's title at 60 fps, default off)
 #include "gfx_menu.h"       // GRAPHICS menu in the Options (Session 28)
 #include "dlc.h"            // --wwe2k14_dlc: the player's DLC packs (Session 32, default off)
-#include "superstars_save.h"  // S105 IMP: pack 6's bit cleared in the save's DLC mask before the game's own pass (imports reach an old save)
+#include "seats.h"            // S110 SEAT-B: the library's residents seated at boot (hooks: DSBD, ENEX BIN, table 102, text find, availability; sslib: mount)
+#include "superstars_save.h"  // S105 IMP / S110 SEAT-B: after the game's own new-DLC pass the residents are seated (seats::AfterRowPass)
+#include "seat_bind.h"         // S110 SEAT3: a library character in any free seat in session; the DOWNLOADED tab's pages on LB / RB (--wwe2k14_seat_pool_cap)
+#include "seat_alias.h"        // S110 LIBSIZE lane 3: the alias nodes (the residents' and the guests' EVZ / GMEV / PCE6 / MOVN / base renders point at the game's own entries)
+#include "letter_jump.h"       // S110 LETTER: --wwe2k14_letter_jump: LT / RT in the select screen jump to the previous / next letter
+#include "letter_ui.h"         // S110 LETTERUI: --wwe2k14_letter_ui: the letter strip of that jump, drawn by the game's own menu drawing
+#include "roster_abc.h"        // S110 DLCRANK: --wwe2k14_roster_abc: the DOWNLOADED tab (DLC rows and imports) in one alphabetical order
 #include "background_speed.h"  // --wwe2k14_background_full_speed (Session 32, default off; run_list turns it on)
 #include "display_mode.h"      // --wwe2k14_display_720p (Session 95, default off): 1280x720 desktop while playing
 #include "live_control.h"   // --wwe2k14_live (Session 29: live control channel, default off)
@@ -111,7 +118,6 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 #include "intel_exact_mul.h"  // Session 76: on Intel GPUs NATIVE keeps the 360's multiply rule (--wwe2k14_intel_exact_mul)
 #include "light_renderer.h" // Session 37: --wwe2k14_light_renderer (weak GPUs), --wwe2k14_fbo_fallback_fix (default off)
 #include "android_touch.h"  // Session 71 (Android): the touch controls' virtual pad (TouchOverlay.java)
-#include "job_dispatch_fix.h"  // Session 71: --wwe2k14_job_reset_first (the entrance freeze on 4-thread CPUs, default on)
 #include "photo_mode.h"     // --wwe2k14_photo_mode (Session 33 item 4, default off)
 #include "ultrawide.h"      // --wwe2k14_aspect (Session 33 item 6, default 16:9 = off)
 #include "wm30_jump.h"      // --wwe2k14_wm30 (Session 34: jump into a 30 Years of WrestleMania match, default off)
@@ -120,7 +126,8 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 #include "wm30_step.h"       // S101 lane 121: !wm30 step K (the match script driven into a step; the faithful 30 Years moment)
 #include "situation_director.h"  // S101 lane 161: !director passive / momentum / stock (the situation director's first verbs; live channel + input script, default off)
 #include "wm30_boot.h"       // S103 lane WMB: --wwe2k14_wm30_direct (a 30 Years match with no 30 Years menus; owner-update tick, default off)
-#include "wm30_fire.h"       // S101 lane 108: !wm30 fire BANK (a 30 Years scene fired through the game's own Lua call 1003; live channel, default off)
+#include "menu_goto.h"       // S110 GOTO: !page rec=N (a front-end flow record opened through the game's own mailbox; live channel, test / tooling path, off until used)
+#include "wm30_fire.h"     // S101 lane 108: !wm30 fire BANK (a 30 Years scene fired through the game's own Lua call 1003; live channel, default off)
 #include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
 #include "keybinds_save.h"  // Session 53: the keyboard binds saved in the save folder (--wwe2k14_save_keybinds)
@@ -1146,7 +1153,11 @@ class Wwe2k14App : public rex::ReXApp {
         REXCVAR_GET(wwe2k14_rdr_ring_ours) || REXCVAR_GET(wwe2k14_rdr_flash_ours) || REXCVAR_GET(wwe2k14_rdr_props_ours) || REXCVAR_GET(wwe2k14_rdr_shadow_casters_ours) || REXCVAR_GET(wwe2k14_rdr_screens_ours) || REXCVAR_GET(wwe2k14_rdr_rim_ours) /* lane 124 */ || REXCVAR_GET(wwe2k14_rdr_crowd_props_ours) /* lane 133 */ || REXCVAR_GET(wwe2k14_rdr_circles_ours) /* lane 136 */ || REXCVAR_GET(wwe2k14_rdr_plane_shadow_ours) /* lane 139 */ || REXCVAR_GET(wwe2k14_rdr_ui_ours) || REXCVAR_GET(wwe2k14_rdr_ui_text_ours))  // S101 lane 84: props; lane 89
       wwe2k14::rdr_reader::g_crowd_game_root = game_data_root().string();
     wwe2k14::diag::Init();  // Session 95: the diagnostic run (no-op unless --wwe2k14_diag): its folder, cvars.txt, the watchdog
-    wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
+    wwe2k14::slot_handover::Install(user_data_root());  // S110 SEAT2: the side record + per-character state files beside the save
+    wwe2k14::seat_bind::Install(user_data_root());  // S110 SEAT3: the guests' EV files beside the save (before dlc::Install mounts them)
+    wwe2k14::letter_jump::Install();  // S110 LETTER: one line saying whether the select screen's letter jump is on
+    wwe2k14::roster_abc::Install();  // S110 DLCRANK: one line saying whether the DOWNLOADED tab is alphabetical
+      wwe2k14::keybinds_save::Install(user_data_root());  // Session 53 item 2.6: keyboard binds kept between starts
     wwe2k14::keyboard_player::Install(runtime());  // Session 76: the keyboard as its own player (P2 beside one pad)
     for (const char* name : {"gpu_plugin", "wwe2k14_gpu_backend", "readback_resolve",
                              "gpu_allow_invalid_fetch_constants", "vsync",

@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "../renderer_adapter/adapter_frame.h"
+#include "rows_quad2d.h"   // S106 G4-2
 #include "../renderer_adapter/draw_replace_hook.h"   // S103 SC: ReplaceOut::OwnDraw (the row's scissor)
 #include "quads2d_blocks.h"
 #include "quads2d_core.h"

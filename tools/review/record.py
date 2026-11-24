@@ -255,7 +255,8 @@ def run_job(batch, route, arm, cfg):
     flags = ARMS[arm]['flags']
     ingame = cfg == 'ingame'
     # In-game clips land straight in the job folder. The run is exclusive (-Exclusive): clips are judged for
-    # smoothness and the per-clip game fps is reported, so no other game may run alongside.
+    # smoothness and the per-clip game fps is reported, so no other game may run alongside. S109 FF2: -Exclusive means "alone", not "normal speed":
+    # the generated routes say `# intent: performance clip fps` themselves (make_routes.py); a fixed route without that term (review_caw: stills) runs fast-forwarded.
     if ingame:
         for what, v in (('ffmpeg path', FFMPEG), ('job folder', jobdir)):
             if not extra_safe(v):

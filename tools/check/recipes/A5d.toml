@@ -1,0 +1,61 @@
+# S106 C2: A5d Threads colours. Sources: C2.md 3.2 (log 109; fault side A5d.md 3, :30-31).
+[recipe]
+row = "A5d"
+question = "does Cena's saved Threads set (139 set 0, magenta) reach our loader as a coloured key and draw magenta?"
+notes = ["docs/research/s105/A5d.md", "docs/research/s105/T4_test_save.md"]
+preset = "win-amd64-release-off"
+
+[destination]
+route = 'tools\input_scripts\short\s71_threads_shot.txt'
+flags = '--wwe2k14_launch=s71_cena_threads'
+data = "plant"
+settings = "new_player"
+timeout_s = 300
+
+[plant]
+threads = "139:0:0"
+palette = "magenta"
+
+[[pre]]
+save = ["threads:char=139:set=0"]
+
+[[guard]]
+name = "Cena in the card"
+line = '\[wwe2k14\]\[match\] card .*participants 0:139 \(slot'
+agg = "count"
+need = ">= 1"
+
+[[guard]]
+name = "the game built mode 1 from set 0"
+line = '\[attire_build\] build step 0: chosen 1390\d loaded 1390\d mode 1 set 0'
+agg = "count"
+need = ">= 1"
+
+# S106 C2F F12: the fault bar below is "== 0 lines": this guard (same line family, need >= 1) makes a log with no Cena key line at all a VOID, not a FAULT.
+[[guard]]
+name = "Cena key lines present"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:139\d\d'
+agg = "count"
+need = ">= 1"
+
+[[readout]]
+name = "Cena key named with colours"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:139\d\d/c:'
+agg = "count"
+role = "fault"
+specific = true
+fault = "== 0"
+fixed = ">= 1"
+
+[[readout]]
+name = "the colours are the planted magenta"
+line = '\[wwe2k14\]\[wrestler_src\] key model_key:139\d\d/c:(?:e628c8)+ variant'
+agg = "count"
+role = "mechanism"
+fixed = ">= 1"
+
+[[shots]]
+labels = ["*"]
+ask = "Is Cena's outfit in a loud magenta (not his stock colours)?"
+fault = "no"
+fixed = "yes"

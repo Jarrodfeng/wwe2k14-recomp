@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
 #include "../../src/scene_live/arena_world_contrib.h"
 
 using namespace rdr_scene;

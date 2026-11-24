@@ -18,6 +18,9 @@
 #include "../../src/renderer_scene/crowd_picture_cache.h"
 #include "../../src/renderer_scene/crowd_prop_rows.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_crowd.h"
+#include "../../src/renderer_scene/rows_pictures.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 
 using namespace rdr_scene;
 namespace cr = rdr_scene::crowd_rows;

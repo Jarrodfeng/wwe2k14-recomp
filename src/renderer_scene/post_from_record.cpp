@@ -1,5 +1,6 @@
 // See post_from_record.h. Session 103, lane P.
 #include "post_from_record.h"
+#include "rows_inputs.h"   // S106 G4-2
 #include "../start_settings.h"   // S103 SPB: PlayerQuality (header-only part)
 
 #include <cmath>

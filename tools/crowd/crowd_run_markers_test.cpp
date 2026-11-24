@@ -31,6 +31,7 @@
 #include "../../src/renderer_scene/live_scene.h"
 #include "../../src/renderer_scene/live_sinks.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_crowd.h"
 #include "../../src/scene_live/crowd_contrib.h"
 
 // ---- the allocation counter ----------------------------------------------------------------------------------------------------------------------
@@ -718,7 +719,7 @@ int main(int argc, char** argv) {
     std::printf("[crowd_run_markers_test] wrote %d version 2 records into %s\n", written, write_v2.c_str());
     return written > 0 ? 0 : 1;
   }
-  if (!rsc_dir.empty()) {   // ---- 4. a capture's records only (one process per capture: the gate names them)
+  if (!rsc_dir.empty()) {   // ---- 4. a capture's records only (one process per capture: the caller names them)
     std::vector<Frame> fs;
     std::string why;
     Check(LoadCaptureFrames(rsc_dir, step, fs, why), "capture: the sampled records read and carry stands members", why);

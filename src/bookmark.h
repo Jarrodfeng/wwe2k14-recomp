@@ -406,6 +406,11 @@ inline int TakeImpl(const std::string& reason) {
                    : g_player      ? fmt::format("Marked ({}): it goes into Report a problem", k)
                                    : fmt::format("Bookmark {} saved (frame {})", k, frame));
   TakeCase(reason.empty() ? rdr_case::Trigger::Key : rdr_case::Trigger::AutoHitch, reason, label);  // S101 lane 5
+  if (!g_player && reason.empty() && g_record_save_owner) {   // S108 SHOT-A (stream-free build: the owner is set only there): the same saver as the `record` verb, next to the run's other shot outputs (the case zip cannot hold it: no frames in the ring)
+    std::string why;
+    const std::string rsc = (RunCaptureDir() / (label + ".rsc")).string();
+    if (!g_record_save_owner(rsc, why)) REXLOG_WARN("[wwe2k14][bookmark] scene record not requested: {}", why);
+  }
   const std::string text_now = screen_text::Joined(2000);  // Session 30: the text on screen at the key
   // Session 30 (#5): every known struct whose base is a readable, non-null pointer, read now (structs.toml).
   std::string structs_now;
@@ -666,7 +671,11 @@ inline void Install(bool harness) {
     case_hook::Config cfg = case_hook::ConfigFromCvars(CaseDefaultDir(), by_build);
     cfg.log = [](const std::string& line) { REXLOG_INFO("{}", line); };
     case_hook::Configure(cfg);
+#if WWE2K14_STREAM()
     if (cfg.enabled && REXCVAR_GET(wwe2k14_scene_records)) rdr_case::AttachSceneSink();  // S101 lane 26: scene records join the zip (nothing is built until a class registers a contributor)
+#endif
+    // S108 SHOT-A: not attached in the stream-free build: the case ring is fed only by renderer_adapter\live.cpp (stream only), so the sink could never hold a frame (and a +dev ring kept every record for a zip WriteCase
+    // refuses: "the ring holds no frames"). There the key asks the scene host for the shown frame's record instead (TakeImpl below: the same saver as the `record` verb).
     // S101: a route's quit takes the black box (case_script_hook.h), then waits for the zip so the exit does not cut it.
     if (cfg.enabled)
       case_script::g_take.store(+[](bool failure, const char* note) {

@@ -12,6 +12,8 @@
 #include "../../src/renderer_scene/light_install.h"
 #include "../../src/renderer_scene/live_maps_e2.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/shadow_fit_record.h"
 #include "../../src/scene_live/caster_stamp_flag.h"
 

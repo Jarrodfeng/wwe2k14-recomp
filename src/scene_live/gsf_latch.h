@@ -8,7 +8,7 @@
 #include <cstring>
 #include <mutex>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_inputs.h"
 #include "post_settings.h"
 
 namespace scene_inputs::gsf {

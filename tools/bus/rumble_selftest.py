@@ -1,4 +1,4 @@
-"""S101 lane 120 (+ lane 113's move line): the gate check `rumble_bus`. No game, no game data.
+"""S101 lane 120 (+ lane 113's move line): the check `rumble_bus`. No game, no game data.
 
     py -I tools/bus/rumble_selftest.py
 

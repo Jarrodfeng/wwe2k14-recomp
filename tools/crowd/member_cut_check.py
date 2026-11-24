@@ -3,7 +3,7 @@
 
   py -I tools\\crowd\\member_cut_check.py [--root DIR] [--no-build] [--captures bryan,match131008] [--strip K]
 
-The cut itself and its picture proof are lane 272 / 295's (member_thin_check.py, gate lane crowd_member_thin: the cut EMULATED on the captures and replayed byte-equal, holes 0, the class-uniformity census, the stamp
+The cut itself and its picture proof are lane 272 / 295's (member_thin_check.py: the cut EMULATED on the captures and replayed byte-equal, holes 0, the class-uniformity census, the stamp
 probe, 20 planted faults). The cut can only be shown on a capture made with it on, so, as for the cards (T2), the emulation (member_thin_cut.py: the op-15 of every member but the first of each mesh run removed, the op-21s
 and the tally kept) is what is replayed; what the switch itself decides (the per-run mode, the observers, the binder's per-frame read) is proven by the unit test (member_thin_test.cpp: ResolveMemberMode, the run's mode) and by
 the wiring lint below. This check adds what T13 needs:

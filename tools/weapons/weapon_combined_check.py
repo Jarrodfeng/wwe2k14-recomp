@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""S103 PW integration gate check (offline, 0 game runs): builds tools\weapons\weapon_combined_test.cpp (the real PW-1 and PW-2 contributors -> SceneTables -> record file -> the drawer's view and plan) and
+r"""S103 PW integration check (offline, 0 game runs): builds tools\weapons\weapon_combined_test.cpp (the real PW-1 and PW-2 contributors -> SceneTables -> record file -> the drawer's view and plan) and
 runs it clean, then each planted twin, which must exit 1 AND fail its own named check.
   py -I tools\weapons\weapon_combined_check.py [--root DIR]
 Exit 0 = the clean run passes and every plant fails the check it names. A check that cannot build or read its input fails loudly."""

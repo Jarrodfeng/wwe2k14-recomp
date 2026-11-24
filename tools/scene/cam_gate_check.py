@@ -10,7 +10,7 @@ Drives host_rig on c2d_match_hud (frames 50, 60, 70; needs the main checkout's c
   arm S  bit 1 (read, not shown): no 3D is drawn (ours 0), the census counts shown0 == frames, the presented picture is black (Handle skipped DrawLive, Decide put black)
   arm U  bit 3 (load window):     no 3D is drawn, unanimated == frames, black
   twin   arm S with --plant cam_gate_ignore (the host does not read the bits): the 3D is drawn: must be CAUGHT.
-A row the machine cannot run (the exe, the capture or the game files missing) is SKIP, never PASS (the gate calls it needs-main). Exit 0 = pass."""
+A row the machine cannot run (the exe, the capture or the game files missing) is SKIP, never PASS (a runner calls it needs-main). Exit 0 = pass."""
 import argparse
 import os
 import re

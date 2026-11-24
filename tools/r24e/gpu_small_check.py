@@ -1,7 +1,7 @@
 r"""S102 lane R24-E: offline proof of wwe2k14_rdr_gpu_small (bit 1: the dead quarter-size DoF chain of our post pass is not recorded). 0 game runs, 0 Surface runs.
   py -I tools\r24e\gpu_small_check.py [--root DIR] [--only unit|bryan|wm30|census]
   unit      tools\r24e\gpu_small_test.cpp: the decision table + every planted fault changes an answer.
-  bryan     the gate's Bryan entrance capture (237 frames, scene records, the SHIPPED DEFAULT BUNDLE) replayed by rplay:
+  bryan     the standard Bryan entrance capture (237 frames, scene records, the SHIPPED DEFAULT BUNDLE) replayed by rplay:
               taken       the census line: on (--gpu-small 1) the lever took the frames (237 of 237 here: two_layer shape, DOFParam2.x 0); 0 taken = the lever does nothing for players = FAIL.
               equal       shots (7 frames) off vs on are BYTE-EQUAL (the combine never samples the skipped chain).
               passes      the role audit steps fall by exactly 2 per taken frame (the two 320x180 passes); undefined reads 0 on and off.
@@ -10,7 +10,7 @@ r"""S102 lane R24-E: offline proof of wwe2k14_rdr_gpu_small (bit 1: the dead qua
               twins       plant 4 (never applied): the census reads 0 taken and the check FAILS on it (a lever that is on and does nothing).
   wm30      the 30 Years entrance / film capture (no scene records: --post-ours only): the lever is declined (near blur live) and the picture is byte-equal; plant 3 (neither test made)
             takes the skip where slots 2 and 6 read the chain: the picture MOVES (the twin the byte-equal check must see). That is the class of lane 296b SF1 (a pass skipped whose image the combine still samples).
-  census    tools\r24e\rim_prelight_census.py on Bryan / Brock / wm30 (the rim chain and the pre-light constants: how often equal to the previous frame): reported, gated to the finding recorded in docs.
+  census    tools\r24e\rim_prelight_census.py on Bryan / Brock / wm30 (the rim chain and the pre-light constants: how often equal to the previous frame): reported, held to the finding recorded in docs.
 Counts and numbers only (hard rule 1); pictures go under out\ only."""
 import argparse, concurrent.futures, os, re, subprocess, sys, tempfile
 

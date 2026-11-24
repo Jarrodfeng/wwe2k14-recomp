@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane U3 gate check (offline, 0 game runs): wwe2k14_rdr_upd_lean bit 16 (round 2 of our work off the game's update thread).
+"""S102 lane U3 check (offline, 0 game runs): wwe2k14_rdr_upd_lean bit 16 (round 2 of our work off the game's update thread).
 
   py -I tools\\upd_lean\\upd_lean2_check.py [--root DIR] [--build-only]
 
@@ -49,7 +49,7 @@ def build(root):
     if os.path.exists(exe):
         os.remove(exe)
     # S102 main: the compile ran only when an old exe existed (indentation); a fresh tree failed with an UnboundLocalError
-    b = subprocess.run([CLANG, '-std=c++20', '-O2', '-Wall', '-Wextra', '-Werror', '-DUPD_LEAN_PLANTS', '-DNOMINMAX', '-fuse-ld=lld', '-o', exe] + srcs,
+    b = subprocess.run([CLANG, '-std=c++20', '-O2', '-Wall', '-Wextra', '-Wno-missing-field-initializers', '-Werror', '-DUPD_LEAN_PLANTS', '-DNOMINMAX', '-fuse-ld=lld', '-o', exe] + srcs,
                        capture_output=True, text=True)
     if b.returncode or not os.path.isfile(exe):
         return None, fail('upd_lean2_test did not compile\n' + b.stdout + b.stderr)

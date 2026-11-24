@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane M7 gate check (offline, 0 game runs, 0 Surface runs): the in-run A/B (--wwe2k14_ab_flip, src\\ab_flip_math.h) and its reader (tools\\surface\\flip_line.py).
+"""S102 lane M7 check (offline, 0 game runs, 0 Surface runs): the in-run A/B (--wwe2k14_ab_flip, src\\ab_flip_math.h) and its reader (tools\\surface\\flip_line.py).
 
   py -I tools\\ab_flip\\ab_flip_check.py [--root DIR]
 
@@ -426,7 +426,7 @@ def part4(root):
         raise Fail('round 3 no longer reads as a whole-run step at equal power (gpu step %+.2f ms, power step %+.2f W)' % (da3, dp3))
     if any(abs(v) > 1.0 for v in nulls.values()):
         raise Fail('an old run has an in-run null gpu_ms delta above 1.0 ms: %s' % nulls)
-    print('part 4: round 3 B is %.2f ms slower as a whole at %.2f W apart (the old power gate calls that pair matched); every run\'s in-run delta is within +-1 ms, so an in-run flip inside it '
+    print('part 4: round 3 B is %.2f ms slower as a whole at %.2f W apart (the old power-match rule calls that pair matched); every run\'s in-run delta is within +-1 ms, so an in-run flip inside it '
           'would have read ~0 where the two-run job read the step. The old job has no flips: what is shown is that the offset is run-level, and an interleaved design cancels it.' % (da3, abs(dp3)))
 
 

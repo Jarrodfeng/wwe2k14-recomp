@@ -55,6 +55,8 @@
 #include "audio_import/audio_import.h"  // lane 283
 #include "guest_read.h"
 #include "mods.h"
+#include "seats.h"  // S110 SEAT-B: LsdAppend (the residents' rows in the /ENEX/LSD lists)
+#include "tron_slots.h"  // S110 TRONSLOT: the MOVIE list's rows are added in this file's sub_82928B08 hook
 
 REXCVAR_DEFINE_BOOL(wwe2k14_music_slots, true, "wwe2k14",
                     "Session 75: songs in <mods>\\music\\new\\ (mp3, m4a, wav, flac, wma, aac) are added as new entries "
@@ -382,5 +384,9 @@ inline void OnListsLoaded(uint8_t* base, uint32_t self) {
 REX_HOOK_RAW(sub_82928B08) {
   const uint32_t self = ctx.r3.u32;
   __imp__sub_82928B08(ctx, base);
+  // S110 SEAT-B: the residents' rows go into the lists BEFORE the songs are appended (today's pack held them in the file, so they came first); the note put
+  // this after OnListsLoaded, which would list a resident's music row after the songs. src\seats.h LsdAppend.
+  wwe2k14::seats::LsdAppend(base, self);
   wwe2k14::music_slots::OnListsLoaded(base, self);
+  wwe2k14::tron_slots::OnListsLoaded(base, self);  // S110 TRONSLOT: the filled custom trons in list 0 (MOVIE), src\tron_slots.h
 }

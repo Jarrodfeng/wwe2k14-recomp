@@ -22,6 +22,7 @@ PLANTS = {
     "first_write_clears": "event.first_write_keeps",   # S103 SMF (BUG2 7): a 0 -> X first write of the manager / holder pointer clears the event list
     "gm_no_fallthrough": "gm.fallthrough",    # a failed gm member returns instead of reaching the event lookup
     "hold_ignore_sig": "plan.hold_holder_change",  # a structure is held across a holder change
+    "splat_depth_write": "splat.depth_write",  # S108 BLD2: a floor splat keeps its material's depth write (force-blend alone, the old flags)
 }
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C4 gate check: the SHIPPED cover and post rules (src\\scene_live\\ring_recompute_core.h CoverNodes / PostNodes) against the GAME's own RingRows in run 16's records (Lesnar vs Bryan, mode 1,
+"""S103 lane C4 check: the SHIPPED cover and post rules (src\\scene_live\\ring_recompute_core.h CoverNodes / PostNodes) against the GAME's own RingRows in run 16's records (Lesnar vs Bryan, mode 1,
 --wwe2k14_rdr_ring_d3=1). Covers: the grid records are derived from the game's rope rows of the same record, the cover model's inverse bind from the first record only (tools\\scene\\ring_pieces_fit.cpp):
 every cover instance of every sampled record must be within 2e-3 of the game's rows. Posts: every instance within 1e-5 (no input but the image constants). Posts and canvas rows identical in every record;
 skirt rows differ record to record. Planted twins (side + 1, angle base pi/2, post step 0) must be caught. Reads the case zip READ ONLY; 0 game runs.

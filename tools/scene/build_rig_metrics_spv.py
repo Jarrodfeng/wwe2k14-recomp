@@ -4,7 +4,7 @@ Same tools and target as tools\renderer\compile_shaders.py: glslangValidator -V 
 
   py -I tools\scene\build_rig_metrics_spv.py [--check]
 
---check: exit 1 when the header is not what the source compiles to (a gate check: s103_L.rig_metrics_spv).
+--check: exit 1 when the header is not what the source compiles to (a check: s103_L.rig_metrics_spv).
 """
 import os
 import re

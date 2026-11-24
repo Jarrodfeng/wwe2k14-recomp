@@ -13,6 +13,8 @@
 #include "../../src/renderer_scene/live_maps_e2.h"
 #include "../../src/renderer_scene/part_clock_lookup.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_part_clock.h"
+#include "../../src/renderer_scene/rows_plane.h"
 #include "../../src/scene_live/stage_clock_flag.h"
 #include "../../src/scene_live/part_clock_read.h"
 #include "../../src/scene_live/plane_eye_read.h"

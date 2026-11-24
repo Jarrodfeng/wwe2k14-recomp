@@ -1,5 +1,9 @@
 // The live sink (Session 100, live.h, docs\renderer\LIVE_ADAPTER.md). No game or SDK includes.
 #include "../thread_name.h"  // S102 H1
+#include "../renderer_scene/rows_crowd.h"   // S106 G4-2
+#include "../renderer_scene/rows_inputs.h"
+#include "../renderer_scene/rows_owned.h"
+#include "../renderer_scene/rows_quad2d.h"
 #include "live.h"
 
 #include <algorithm>
@@ -707,7 +711,7 @@ struct LiveSink::Impl {
         continue;
       }
       // S102 T19: a record that carries crowd run markers (wwe2k14_rdr_crowd_run_markers) becomes the plain member list here, on this thread, before anything reads message.record / d3_record
-      // (tools\gate\t19_lint.py checks the order). The table comes from this thread's pool of three (reused once nothing holds it) and is keyed by the record: the present's record is the
+      // (tools\lint\t19_lint.py checks the order). The table comes from this thread's pool of three (reused once nothing holds it) and is keyed by the record: the present's record is the
       // d3_record now and the record of the next message, and is found there, not expanded twice. A record with no markers is passed as it is (one empty() test).
       if (message.record && !message.record->crowd_runs.empty()) message.record = rdr_scene::ExpandedForReading(message.record);
       if (message.d3_record && !message.d3_record->crowd_runs.empty()) message.d3_record = rdr_scene::ExpandedForReading(message.d3_record);

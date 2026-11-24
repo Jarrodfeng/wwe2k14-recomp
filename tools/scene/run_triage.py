@@ -11,7 +11,7 @@ Per scene (route `scene=NAME (frame N)` markers split the in-game sequence; `[ww
     "frames freed if bit X (or X + Y) were stamped" = frames whose whole set lies inside {X} (or {X,Y}); a log that predates the histogram says so (the per-bit readings above are then all there is);
   - the crowd input's own withheld reasons (`crowd_snapshot withheld .. stamped a/b [reasons]`), the 2D fallback census (`[scene][2d]`) when the log has it;
   - the route's `# intent:` line against the real flags the log shows, honest-mode check (no force_inputs / unrequire / hold), and the exe against HEAD (an exe older than the last src commit = STALE).
-Windows are 600 frames; a window that straddles a scene boundary goes to the scene holding its middle frame. Reads old logs (the legacy census lines) as well as new ones. Exit code 0 always: a reader, not a gate."""
+Windows are 600 frames; a window that straddles a scene boundary goes to the scene holding its middle frame. Reads old logs (the legacy census lines) as well as new ones. Exit code 0 always: a reader, not a check."""
 import argparse
 import datetime
 import os

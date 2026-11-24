@@ -67,6 +67,8 @@ class LiveSceneDraw {
   // or could not build, reads as a 3D frame (fail closed).
   void FlatFacts3D(const SceneTables& rec, scene_kind::FlatFacts& f) const;
   void AdoptLoaded();                      // render thread, between frames: loaded models into the front-end; READY may return
+  // S108 SHOT-A (the subject-shot saver): the live drawer's persistent liquid images that hold paint (live_maps.h LiveLiquidImages); empty when there is no maps hook yet. Host thread, between frames.
+  void LiveLiquidImages(std::vector<LiveMapsHook::LiveLiquidImage>& out) const;
 
   // S103 T7 (the stage mirror, --wwe2k14_dump_targets): the NEXT DrawToPng also reads back every map of its frame (LiveMaps by role) and writes ours_<role>.<n>_f<frame>.rgba8 + .png and
   // manifest_ours_f<frame>.txt into `dir`. One shot: cleared when that call ends. Never set = nothing runs.

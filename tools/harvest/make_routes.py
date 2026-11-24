@@ -71,7 +71,7 @@ def gen_arena(r):
 def gen_type(r):
     wl = [w.split(':')[0] for w in r['windows']]
     flags = '--wwe2k14_launch=@quick --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=%d --wwe2k14_quick_type=%d --wwe2k14_launch_participants=%s %s' % (r['arena'], r['type'], r['participants'], CAPTURE_FLAGS)
-    out = ['# harness: flags ' + flags, '# harness: realtime',
+    out = ['# harness: flags ' + flags,
            '# S103 J1 harvest sweep %s: match type %d in arena %d (participants %s), capture window %s at match clock +300. Mirror off.' % (r['id'], r['type'], r['arena'], r['participants'], wl[0]),
            'on_fail quit', 'log bench: start scene harvest_%s' % r['id'], 'include boot_to_menu', 'wait_file INGAMELUA.PAC 3600', 'wait_state seq 9 3600 30', 'wait_state match_clock >0 36000',
            'log scene=match', 'mark 1 match_clock', 'wait_frames 300'] + win_cvars(wl[0]) + ['log bench: done', 'wait_frames 10', 'quit']

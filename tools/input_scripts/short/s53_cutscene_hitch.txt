@@ -1,4 +1,4 @@
-# harness: realtime (Session 53 item 2.7: frame-time hitches around cutscenes - entrances, the cut to the match, the
+# intent: performance frame ms
 # match's own cinematic moments - at normal speed)
 # A launched match with entrances (e.g. --wwe2k14_launch=@quick --wwe2k14_quick_type=0
 # --wwe2k14_launch_participants=218,276 --wwe2k14_fixed_seed=13 --wwe2k14_bookmark_auto_ms=50): logs each scene

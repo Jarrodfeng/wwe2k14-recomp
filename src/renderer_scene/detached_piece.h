@@ -5,7 +5,15 @@
 #pragma once
 #include <cstdint>
 
+#include <atomic>
 #include "scene_record.h"
+
+namespace rdr_scene {
+
+// S103 DTP: --wwe2k14_rdr_detached_pieces (default on; start_settings.cpp stores it). Off = a piece the game stopped copying the owner's rows into is a hole again (the old picture: the pad stays on the arm).
+inline std::atomic<bool> g_detached_pieces{true};
+
+}  // namespace rdr_scene
 
 namespace rdr_scene::rf {
 

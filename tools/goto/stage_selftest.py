@@ -1,4 +1,4 @@
-"""S101 lane 38 (the stage push: play any scene from the main menu): the offline acceptance test (gate lane scene_stage). No game run.
+"""S101 lane 38 (the stage push: play any scene from the main menu): the offline acceptance test. No game run.
 
     py -I tools/goto/stage_selftest.py
 

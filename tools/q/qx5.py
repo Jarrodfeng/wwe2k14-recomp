@@ -2,7 +2,7 @@
 
     py tools/q/q.py ours cvar NAME            a cvar: every REXCVAR_DEFINE_* (ours AND the SDK's thirdparty\\rexglue-sdk-src), its type / default / category / help, the #if block it
                                               sits in (stream = ON build only, stream-free = OFF build only, Android), every REXCVAR_GET / SET / DECLARE use, every string-literal
-                                              use (GetFlagByName("x"), flag_int("x")), and every `--NAME=value` on a command line in tools\\**, lane json, routes, .tsv, android\\.
+                                              use (GetFlagByName("x"), flag_int("x")), and every `--NAME=value` on a command line in tools\\**, routes, .tsv, android\\.
                                               NAME may be a part of a name (lists the cvars containing it). `q ours def|refs NAME` answers the same when the C++ index has
                                               no such symbol (a cvar is a macro, not a symbol).
     (qours.py appends to writes / reads / refs)  the sites inside `#if defined(__ANDROID__)` branches: the ON / OFF index never compiles them (text match).

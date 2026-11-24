@@ -1,3 +1,4 @@
+# harness: flags --wwe2k14_input_fail_quit=false
 # Session 9 (scenario launcher, step 3): boot to the main menu with the title-screen presses of Jarrod's recording
 # 056 (the first lines of bench_lesnar_bryan.txt), then let --wwe2k14_launch=NAME take over (it fires by itself once
 # the main menu has been idle for --wwe2k14_launch_idle_frames). Checks: the arena archive and the first titantron

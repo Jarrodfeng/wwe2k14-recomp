@@ -18,6 +18,7 @@
 //            stream's: every draw in fview, the first use of each built part plus every 64th live.
 #pragma once
 #include "../thread_name.h"  // S102 H1
+#include "bone_tag_rows.h"   // S106 G4-2
 #include <algorithm>
 #include <array>
 #include <chrono>

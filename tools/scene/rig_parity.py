@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""The rig-vs-live parity gate (Session 103, lane T3; docs\renderer\S103_FABLE_REVIEW_2.md Q4).
+r"""The rig-vs-live parity check (Session 103, lane T3; docs\renderer\S103_FABLE_REVIEW_2.md Q4).
 
   py -I tools\scene\rig_parity.py --case out\s103\run28_case.zip --live out\s103\run28_live [--frames 15000] [--variant live]
         [--out DIR] [--expect-fail TOKEN] [--ratio-tol 0.10] [--diff-tol 12] [--curve-file F]

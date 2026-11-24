@@ -1,4 +1,4 @@
-r"""Selftest of tools\census\leftovers.py (S101 lane 58; gate lane `leftovers`).
+r"""Selftest of tools\census\leftovers.py (S101 lane 58).
 
 Unit level (no GPU): the shipped functions (load_draws, plant_draws, owners, aggregate) on a hand-made ops json + pixels chain with known answers; planted twins
 (a wrong fate, a doubled table) must change an answer the test pins.

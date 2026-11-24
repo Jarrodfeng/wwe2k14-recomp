@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the Threads editor (sequence 77) has no mapped cursor state; presses wait on frame counts)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): EXPLORATORY, for the TEST save mirror's Threads outfit. Nothing was ever driven past entering the Threads editor (s101_sweep_caw_pages.txt
 # only waits ~400 frames on it; atlas mode:threads, state word seq+64 "0x839400F8>0>64"). The route enters CREATIONS -> item 1 SUPERSTAR THREADS (screen 1504, seq 77), then presses A

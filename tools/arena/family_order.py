@@ -146,7 +146,7 @@ def main():
     ap.add_argument('--captures', default=os.path.join(jc.MAIN, 'out', 'captures'))
     ap.add_argument('--only', default='')
     ap.add_argument('--no-plant', action='store_true')
-    ap.add_argument('--held-out', action='store_true', help='score D1 / D2 / D3 on the other arenas captures (report only; a disagreement is said, never tuned, never a gate failure)')
+    ap.add_argument('--held-out', action='store_true', help='score D1 / D2 / D3 on the other arenas captures (report only; a disagreement is said, never tuned, never a failure)')
     a = ap.parse_args()
     bad = 0
     for name, frames in FRAMES:

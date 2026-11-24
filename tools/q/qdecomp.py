@@ -23,12 +23,15 @@ import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import qdecomp_phi  # noqa: E402  what flowed into a join; the audit
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 GEN = os.path.join(REPO, 'generated', 'default')
 IMAGE = os.path.join(REPO, 'out', 'harness', 'index', 'image.bin')
 CACHE_DIR = os.path.join(REPO, 'out', 'harness', 'index', 'decomp')
 IMAGE_BASE = 0x82000000
-VERSION = 3          # bump when the output format changes: old cache files are not read
+VERSION = 4          # bump when the output format changes: old cache files are not read
 
 INS_RE = re.compile(r'^\t// ([A-Za-z][\w.+\-]*) ?(.*?)\s*$')
 LABEL_RE = re.compile(r'^loc_([0-9A-F]{8}):')
@@ -51,7 +54,7 @@ class DecompError(Exception):
 # ('def', reg, site) a long value named where it was computed; ('lr',) the link register at entry;
 # ('cmp', kind, a, b) a compare record held in a CR field; ('raw', text).
 INFIX = {'+': '+', '-': '-', '*': '*', '/': '/', '&': '&', '|': '|', '^': '^', '<<': '<<', '>>': '>>',
-         '>>s': '>>'}
+         '>>s': '>>', '!=': '!='}
 
 
 def sc(n):
@@ -123,7 +126,7 @@ def fmt(e):
         return f'ret#{e[1]:X}' + ('' if e[2] == 'r3' else '.' + e[2])
     if k == 'undef':
         return '?' + e[1]
-    if k == 'phi':
+    if k in ('phi', 'crphi'):
         return f'{e[1]}@{e[2]:08X}'
     if k == 'def':
         return f'{e[1]}@+{e[2]:X}'
@@ -273,32 +276,47 @@ def vol_regs():
 
 
 class State:
-    __slots__ = ('regs', 'cr', 'stack', 'ctr', 'lr')
+    # fresh: registers written since the last call on every path here (the likely call arguments); ca: the XER carry as
+    # an expression (None = not known); nopred: the block has no known predecessor (a register it never wrote is unknown)
+    __slots__ = ('regs', 'cr', 'stack', 'ctr', 'lr', 'fresh', 'ca', 'nopred')
 
     def __init__(self):
         self.regs, self.cr, self.stack, self.ctr, self.lr = {}, {}, {}, None, None
+        self.fresh, self.ca, self.nopred = set(), None, False
 
     def copy(self):
         s = State()
         s.regs, s.cr, s.stack, s.ctr, s.lr = dict(self.regs), dict(self.cr), dict(self.stack), self.ctr, self.lr
+        s.fresh, s.ca, s.nopred = set(self.fresh), self.ca, self.nopred
         return s
 
     def get(self, r):
-        return self.regs.get(r) or entry_value(r)
+        v = self.regs.get(r)
+        if v:
+            return v
+        if self.nopred and r != 'r1':
+            return ('raw', f'?{r} ({qdecomp_phi.NO_PRED})')
+        return entry_value(r)
 
 
-def merge(states, addr):
-    """Join of the predecessor states: a register keeps its value when every predecessor agrees, else it becomes a
-    loop/join value `rN@block`. Stack slots and CR fields survive only when all agree."""
+def merge(states, addr, preds, fn):
+    """Join of the predecessor states (`preds`: their block addresses, None = the function entry): a register keeps its
+    value when every predecessor agrees, else it becomes a join value `rN@block` and qdecomp_phi keeps what each
+    predecessor held (printed at the block). Same for ctr / lr and a CR field. Stack slots survive only when all agree."""
     if len(states) == 1:
         return states[0].copy()
+    qdecomp_phi.reset(fn, addr)
     out = State()
     keys = set()
     for s in states:
         keys |= set(s.regs)
     for k in keys:
         vals = [s.get(k) for s in states]
-        out.regs[k] = vals[0] if all(v == vals[0] for v in vals) else ('phi', k, addr)
+        if all(v == vals[0] for v in vals):
+            out.regs[k] = vals[0]
+        else:
+            out.regs[k] = ('phi', k, addr)
+            qdecomp_phi.record(fn, 'reg', k, addr, zip(preds, vals))
     for k in set().union(*[set(s.stack) for s in states]):
         vals = [s.stack.get(k) for s in states]
         if all(v is not None and v == vals[0] for v in vals):
@@ -307,8 +325,21 @@ def merge(states, addr):
         vals = [s.cr.get(k) for s in states]
         if all(v is not None and v == vals[0] for v in vals):
             out.cr[k] = vals[0]
-    out.ctr = states[0].ctr if all(s.ctr == states[0].ctr for s in states) else None
-    out.lr = states[0].lr if all(s.lr == states[0].lr for s in states) else None
+        elif any(v is not None for v in vals):
+            out.cr[k] = ('crphi', k, addr)
+            qdecomp_phi.record(fn, 'cr', k, addr, zip(preds, vals))
+    for nm in ('ctr', 'lr'):
+        vals = [getattr(s, nm) for s in states]
+        if all(v == vals[0] for v in vals):
+            setattr(out, nm, vals[0])
+        else:
+            setattr(out, nm, ('phi', nm, addr))
+            qdecomp_phi.record(fn, nm, nm, addr, zip(preds, vals))
+    # an argument is a register written since the last call on EVERY path here: one only some paths wrote may be stale
+    # (a previous loop iteration's value, or a value from before another path's call) and is not printed as one
+    out.fresh = set.intersection(*[s.fresh for s in states])
+    out.ca = states[0].ca if all(s.ca == states[0].ca for s in states) else None
+    out.nopred = any(s.nopred for s in states)
     return out
 
 
@@ -416,7 +447,14 @@ class Ctx:
         self.fn, self.blk, self.st = fn, blk, st
         self.events = []
         self.term = None
-        self.fresh = set()      # registers written since the last call in this block: the likely arguments of the next
+
+    @property
+    def fresh(self):            # registers written since the last call on every path here: the likely arguments of the next
+        return self.st.fresh
+
+    @fresh.setter
+    def fresh(self, v):
+        self.st.fresh = v
 
     # registers
     def g(self, r):
@@ -489,6 +527,7 @@ def volatile_after_call(c, site):
     c.st.cr = {}
     c.st.lr = None
     c.st.ctr = None
+    c.st.ca = None
     # a callee may write our locals through a pointer we passed: only prologue saves survive a call
     c.st.stack = {k: v for k, v in c.st.stack.items() if v[0] == 'save'}
 
@@ -545,7 +584,8 @@ def cond_of(c, mn, ops):
     if base in CR_BIT:
         bit = CR_BIT[base]
         neg = bit.startswith('!')
-        name = f'{cr}.{bit.lstrip("!")}'
+        crv = c.st.cr.get(cr)
+        name = f'{fmt(crv) if crv is not None and crv[0] == "crphi" else cr}.{bit.lstrip("!")}'
         return (f'!{name}' if neg else name), (name if neg else f'!{name}'), None
     return f'{mn} {ops}', f'!({mn} {ops})', None
 
@@ -563,6 +603,10 @@ def step(c, ins):
         if rec:
             st.cr['cr0'] = ('cmp', 'i32', c.g(r), ('c', 0))
 
+    ca_in = st.ca                               # the carry this instruction reads; whatever writes XER.CA clears it
+    if base_mn in qdecomp_phi.CA_WRITERS:
+        st.ca = None
+
     # ---- moves, immediates
     if base_mn == 'li':
         return done(t[0], ('c', int_of(t[1])))
@@ -576,6 +620,7 @@ def step(c, ins):
         return done(t[0], mk_add(('c', 0) if t[1] == 'r0' else c.g(t[1]), int_of(t[2]) << 16))
     if base_mn in ('addic', 'addic.'):
         st.cr['cr0'] = None
+        st.ca = qdecomp_phi.ca_addic(c.g(t[1]), int_of(t[2]))
         return c.setreg(t[0], mk_add(c.g(t[1]), int_of(t[2])), site)
     if base_mn == 'add':
         a, b = c.g(t[1]), c.g(t[2])
@@ -599,7 +644,9 @@ def step(c, ins):
         return done(t[0], ('op', '*', c.g(t[1]), ('c', int_of(t[2]))))
     if base_mn in ('divw', 'divd'):
         return done(t[0], ('op', '/', c.g(t[1]), c.g(t[2])))
-    if base_mn in ('divwu', 'divdu', 'mulhw', 'mulhwu', 'subfc', 'subfe', 'adde', 'addc', 'addze', 'subfze', 'addme'):
+    if base_mn in qdecomp_phi.CA_USERS:
+        return done(t[0], qdecomp_phi.ca_use(base_mn, [c.gv(x) for x in t[1:]], ca_in))
+    if base_mn in ('divwu', 'divdu', 'mulhw', 'mulhwu', 'subfc', 'addc'):
         return done(t[0], ('op', base_mn, *[c.gv(x) for x in t[1:]]))
     if base_mn in ('and', 'or', 'xor'):
         a, b = c.g(t[1]), c.g(t[2])
@@ -830,7 +877,7 @@ def ret_values(c):
     if r3[0] != 'undef':
         out.append(f'r3={fmt(r3)}')
     f1 = c.g('f1')
-    if f1[0] not in ('undef', 'in', 'ret', 'phi'):
+    if f1[0] not in ('undef', 'in', 'ret'):     # an f1 that is a join value is printed (its inputs: the join lines)
         out.append(f'f1={fmt(f1)}')
     return out
 
@@ -900,15 +947,18 @@ def analyse(fn):
         changed = False
         for b in fn.blocks:
             if b.start == fn.addr:
-                srcs = [State()] + [exits[p] for p, _ in fn.preds[b.start] if p in exits]
+                ps = [p for p, _ in fn.preds[b.start] if p in exits]
+                srcs = [State()] + [exits[p] for p in ps]
                 # the function entry state is the clean one; back edges into the entry merge with it
-                st = merge(srcs, b.start) if len(srcs) > 1 else srcs[0]
+                st = merge(srcs, b.start, [None] + ps, fn) if len(srcs) > 1 else srcs[0]
             else:
-                srcs = [exits[p] for p, _ in fn.preds[b.start] if p in exits]
+                ps = [p for p, _ in fn.preds[b.start] if p in exits]
+                srcs = [exits[p] for p in ps]
                 if not srcs:
                     st = State()
+                    st.nopred = True        # no known predecessor: a register the block never wrote is unknown, not an input
                 else:
-                    st = merge(srcs, b.start)
+                    st = merge(srcs, b.start, ps, fn)
             if entries.get(b.start) is not None and _same(entries[b.start], st):
                 pass
             else:
@@ -927,7 +977,8 @@ def analyse(fn):
 
 
 def _same(a, b):
-    return a.regs == b.regs and a.cr == b.cr and a.stack == b.stack and a.ctr == b.ctr
+    return a.regs == b.regs and a.cr == b.cr and a.stack == b.stack and a.ctr == b.ctr and a.lr == b.lr and \
+        a.fresh == b.fresh and a.ca == b.ca and a.nopred == b.nopred
 
 
 # ------------------------------------------------------------------ structure + text
@@ -1051,6 +1102,7 @@ def render_func(fn, db_head, listing_name, first_line):
         back = [p for p, kind in preds[b.start] if p >= b.start]
         hdr = f'{pad}@{b.start:08X}  [listing :{b.line}]' + (f'  (loop head; back edge from {", ".join(f"@{p:08X}" for p in back)})' if back else '')
         out_lines.append(hdr)
+        out_lines.append(qdecomp_phi.slot(b.start, pad))    # the join values this block defines (filled by the audit)
         for e in b.events:
             if e['k'] == 'RET' and e.get('cond') is None and False:
                 continue
@@ -1122,10 +1174,12 @@ def render_func(fn, db_head, listing_name, first_line):
     emit_range(0, len(blocks), 0, frozenset())
     for b, t in zip(blocks, saved_terms):
         b.term = t
+    out_lines, n_simplified = qdecomp_phi.audit(out_lines, fn, fmt)
     summary = {
         'reads': [{'addr': a, 'w': w, 'n': n} for (a, w), n in reads.items()],
         'writes': [{'addr': a, 'w': w, 'n': n} for (a, w), n in writes.items()],
         'calls': calls, 'sites': {f'{k:08X}': v for k, v in sites.items()}, 'consts': consts[:24],
+        'consts_total': len(consts), 'globals_total': len(lis_addrs), 'simplified': n_simplified,
         'globals': [f'0x{a:08X}' for a in lis_addrs[:16]], 'frame': fn.frame, 'saves': sorted(fn.saves),
         'helpers': sorted(set(fn.helpers)), 'counts': counts, 'converged': fn.converged,
     }
@@ -1138,10 +1192,16 @@ def summary_lines(s):
     lines = [f'fields read:    {fld(s["reads"])}', f'fields written: {fld(s["writes"])}']
     cl = ', '.join(f'{k}' + (f' x{v}' if v > 1 else '') for k, v in s['calls'].items()) or '-'
     lines.append(f'calls:          {cl}')
+    if s.get('simplified'):
+        lines.append(f'WARNING: {s["simplified"]} names simplified: each is marked ?(simplified: see listing :A-:B) in the body')
     if s['globals']:
-        lines.append('absolute addrs: ' + ', '.join(s['globals']))
+        more = s.get('globals_total', 0) - len(s['globals'])
+        lines.append('absolute addrs: ' + ', '.join(s['globals']) +
+                     (f'  (+{more} more not shown: {s["globals_total"]} in all; see listing)' if more > 0 else ''))
     if s['consts']:
-        lines.append('constants:      ' + ', '.join(s['consts']))
+        more = s.get('consts_total', 0) - len(s['consts'])
+        lines.append('constants:      ' + ', '.join(s['consts']) +
+                     (f'  (+{more} more not shown: {s["consts_total"]} in all; see listing)' if more > 0 else ''))
     bits = []
     if s['frame'] is not None:
         bits.append(f'frame {s["frame"]} bytes')
@@ -1162,6 +1222,25 @@ def _lookup(con, addr):
     return r['name'] if r else None
 
 
+_CODE_SHA = []
+
+
+def _code_sha():
+    """sha1 over qdecomp's own code (this file and qdecomp_phi.py): a change of either rebuilds every cache entry on demand,
+    so no reader is shown text from an older qdecomp"""
+    if not _CODE_SHA:
+        h = hashlib.sha1()
+        for n in ('qdecomp.py', 'qdecomp_phi.py'):
+            with open(os.path.join(HERE, n), 'rb') as f:
+                h.update(f.read())
+        _CODE_SHA.append(h.hexdigest())
+    return _CODE_SHA[0]
+
+
+def _cache_path(addr, sha):
+    return os.path.join(CACHE_DIR, f'{addr:08X}.{sha[:12]}.v{VERSION}.{_code_sha()[:10]}.json')
+
+
 def decompile(con, addr, use_cache=True):
     """-> dict {addr, name, size, insns, listing, source_sha1, lines, summary}. `con` = the q index connection."""
     f = con.execute('SELECT * FROM funcs WHERE addr = ?', (addr,)).fetchone()
@@ -1171,7 +1250,7 @@ def decompile(con, addr, use_cache=True):
     if not os.path.exists(path):
         raise DecompError(f'generated source {path} is missing (generated/ is local only)')
     sha = _cached_sha1(path)
-    cpath = os.path.join(CACHE_DIR, f'{addr:08X}.{sha[:12]}.v{VERSION}.json')
+    cpath = _cache_path(addr, sha)
     if use_cache and os.path.exists(cpath):
         try:
             with open(cpath, encoding='utf-8') as fh:
@@ -1352,7 +1431,7 @@ def fn_summary(con, addr):
         sha = _cached_sha1(path)
     except OSError:
         return []
-    cpath = os.path.join(CACHE_DIR, f'{addr:08X}.{sha[:12]}.v{VERSION}.json')
+    cpath = _cache_path(addr, sha)
     if not os.path.exists(cpath):
         return [f'  decomp: py tools\\q\\q.py decomp {f["name"]}   (not built yet; builds in a moment)']
     with open(cpath, encoding='utf-8') as fh:

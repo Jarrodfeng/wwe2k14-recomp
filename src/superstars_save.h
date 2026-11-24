@@ -1,33 +1,38 @@
-// wwe2k14 - S105 IMP: imported superstars added after a save was made reach that save (docs\research\s105\IMP_B.md, IMP_ADV.md).
+// wwe2k14 - S105 IMP / S110 SEAT-B: imported superstars reach the game's tables and a save made before them (docs\research\s110\SEAT1.md section 4).
 //
-// Hook: sub_82818798 = the game's own "new DLC since the save" pass (called from the save load, sub_827F3500, and two paths never
-// seen in our runs). Before it runs, pack 6's bit is cleared in the save's saved DLC mask (block B 0x839129E0, src\superstars_mask.h)
-// so the game sees the superstars pack as new and copies the DLC rows of characters imported since into INACTIVE rows; the pass
-// writes the bit back itself in the same call. Active rows (edited, or already imported) are never touched by that pass.
-// Game logic, not a renderer hook: it runs in the stream-free and the stream build and on Android. Needs the pack offered
-// (superstars::g_active, set by src\dlc.h PatchGate) and its id (dlc::g_gate_id); otherwise nothing changes.
+// Hook: sub_82818798 = the game's own "new DLC since the save" pass (called from the save load, sub_827F3500, and from the DLC pass end,
+// sub_8281DAF0 +5C). After it runs, src\seats.h AfterRowPass seats the library's residents: their pac-list nodes (once), then for each one whose live
+// roster row is not active (the game's own rule for a row it keeps) his row and profile. The pass itself never touches a seat (the frame's chEtc rows
+// are blank), so the old "clear the pack's bit in the saved DLC mask" trick (src\superstars_mask.h) is gone: the residents no longer ride the DLC
+// manager's copy. Game logic, not a renderer hook: it runs in the stream-free and the stream build and on Android. Needs the pack offered
+// (superstars::g_active, set by src\dlc.h PatchGate); otherwise nothing changes.
 #pragma once
 
 #include <rex/hook.h>
 #include <rex/logging.h>
 
 #include "dlc.h"
+#include "seats.h"
+#include "slot_handover.h"
 #include "superstars.h"
-#include "superstars_mask.h"
+#include "superstars_migrate.h"
 
 REX_EXTERN(__imp__sub_82818798);
 REX_HOOK_RAW(sub_82818798) {
-  namespace sm = wwe2k14::superstars_mask;
-  const int id = wwe2k14::dlc::g_gate_id;
-  // S105 IMP review L5: only when the DLC manager exists (the game's own pass, sub_82818798, reads the word at 0x8392476C first and
-  // does nothing when it is 0: clearing the bit then would hide the pack for no reason). Big-endian, like every guest word.
-  if (wwe2k14::superstars::g_active && sm::ValidGateId(id) && sm::LoadBE(base + 0x8392476C) != 0) {
-    uint32_t was = 0, now = 0;
-    const bool cleared = sm::ClearInGuestWord(base + sm::kSavedMaskAddr, id, &was, &now);
-    {  // (N1: every call is logged: the pass runs at each save load, and the step check reads this line)
-      REXLOG_INFO("[wwe2k14][dlc] pack {} re-offered to the save (saved mask {:08X} -> {:08X}{}): the game's own pass copies the "
-                  "characters imported since into inactive rows", id, was, now, cleared ? "" : ", bit was already clear");
-    }
-  }
   __imp__sub_82818798(ctx, base);
+  wwe2k14::slot_handover::BeforeSeating(ctx, base);  // S110 SEAT2: inside a save load only, a seat that changed hands is exported + purged + re-seated
+  wwe2k14::seats::AfterRowPass(ctx, base);
+  // S110 BANKID: MIGRATION BAND-AID for saves made before an import's entrance bank got its own number (src\superstars_migrate.h; removable
+  // once old packs are gone). Only for the pack the game was offered; does nothing for a save that is already current. Its "pack row" is the
+  // resident's profile from his card (converted by the game's own functions, src\seats.h PackProfile).
+  if (wwe2k14::superstars::g_active && !wwe2k14::seats::g_roster.res.empty()) {
+    std::vector<int> slots;
+    std::map<int, std::vector<int>> was;
+    for (const auto& r : wwe2k14::seats::g_roster.res) {
+      slots.push_back(r.seat);
+      if (!r.was.empty()) was[r.seat] = r.was;
+    }
+    wwe2k14::superstars_migrate::MigrateEntranceWords(base, [](int seat) { return wwe2k14::seats::PackProfile(seat); }, slots,
+                                                      [](const std::string& l) { REXLOG_INFO("{}", l); }, was);  // (S110 TRONSLOT: + the movie words equal to the slot)
+  }
 }

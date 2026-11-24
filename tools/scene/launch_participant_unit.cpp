@@ -6,16 +6,21 @@
 //                                          caw_attire_unchecked: a CAW attire above 3 accepted; empty_set_not_refused: a stock set with word 0xFFFFFFFF is used)
 // entry: wwe2k14::launch::PlanParticipant, ParseParticipantToken  (the production caller, FireLaunch's participant loop in src\scenario.h, passes the
 // comma-split token to it, then range-checks id / pad, then ResolveSet before sub_822C6808)
+// S109 ENT (docs\research\s109\ENT_plan.md): the match builder's spec, through the production parser wwe2k14::scenario::ParseBuildSpec
+// (src\build_spec.h; its caller FireBuild in src\scenario.h writes the seat record from spec.attire and arms the team-table skip from spec.entrances).
+// Builder plants (each must be CAUGHT): builder_old_parse (a third ':' part refused: the pre-ENT parse), builder_no_entrances_key (entrances=
+// unknown), builder_set_accepted (a colour set accepted on the builder).
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
 
 #include "../../src/launch_participant.h"
+#include "../../src/build_spec.h"
 
 using namespace wwe2k14::launch;
 
-enum Plant { kNone, kOldFirstColon, kThirdIgnored, kEmptySetUsed, kCawAttire };
+enum Plant { kNone, kOldFirstColon, kThirdIgnored, kEmptySetUsed, kCawAttire, kBuilderOld, kBuilderNoEntrances, kBuilderSetAccepted };
 static Plant g_plant = kNone;
 static int g_fail = 0;
 
@@ -36,6 +41,41 @@ static bool Parse(const std::string& t, ParticipantToken& o, std::string& why) {
     o.has_attire = o.has_set = true;
     o.attire = 4;
     why.clear();
+  }
+  return ok;
+}
+
+// the builder's spec parse, with the plants emulating the faults they name
+static bool Spec(const std::string& text, wwe2k14::scenario::BuildSpec& out, std::string& why) {
+  out = wwe2k14::scenario::BuildSpec{};
+  why.clear();
+  if (g_plant == kBuilderOld) {  // pre-ENT: a p item is A:B, a third part fails the number check
+    const size_t p = text.find("p=");
+    if (p != std::string::npos) {
+      const std::string v = text.substr(p + 2, text.find(';', p) == std::string::npos ? std::string::npos : text.find(';', p) - p - 2);
+      size_t a = 0;
+      while (a <= v.size()) {
+        size_t b = v.find(',', a);
+        if (b == std::string::npos) b = v.size();
+        const std::string item = v.substr(a, b - a);
+        const size_t c = item.find(':');
+        if (c != std::string::npos && item.find(':', c + 1) != std::string::npos) return why = "'" + item + "': A:B", false;
+        a = b + 1;
+      }
+    }
+  }
+  if (g_plant == kBuilderNoEntrances && text.find("entrances=") != std::string::npos) return why = "unknown key 'entrances'", false;
+  const bool ok = wwe2k14::scenario::ParseBuildSpec(text, out, why);
+  if (!ok && g_plant == kBuilderSetAccepted && why.find("colour sets") != std::string::npos) {
+    out = wwe2k14::scenario::BuildSpec{};
+    std::string t = text;
+    for (size_t s = t.find('/'); s != std::string::npos; s = t.find('/')) {  // N/S read as N
+      size_t e = s;
+      while (e < t.size() && t[e] != ',' && t[e] != ';') ++e;
+      t.erase(s, e - s);
+    }
+    why.clear();
+    return wwe2k14::scenario::ParseBuildSpec(t, out, why);
   }
   return ok;
 }
@@ -69,7 +109,9 @@ int main(int argc, char** argv) {
     if (std::strcmp(argv[i], "--plant") == 0) {
       const std::string n = argv[i + 1];
       g_plant = n == "old_first_colon" ? kOldFirstColon : n == "third_part_ignored" ? kThirdIgnored
-                : n == "empty_set_not_refused" ? kEmptySetUsed : n == "caw_attire_unchecked" ? kCawAttire : kNone;
+                : n == "empty_set_not_refused" ? kEmptySetUsed : n == "caw_attire_unchecked" ? kCawAttire
+                : n == "builder_old_parse" ? kBuilderOld : n == "builder_no_entrances_key" ? kBuilderNoEntrances
+                : n == "builder_set_accepted" ? kBuilderSetAccepted : kNone;
       if (g_plant == kNone) {
         std::printf("unknown plant %s\n", n.c_str());
         return 2;
@@ -177,6 +219,59 @@ int main(int argc, char** argv) {
     CHECK(p.attire == 0, "s: a CAW's saved attire 9 clamps to 0");
     p = plan("397:0:s", nullptr, 5, calls);
     CHECK(p.attire == 0 && p.set == -1 && !p.alt_call && p.set_call, "s without a copy: attire 0, set -1");
+  }
+
+  // S109 ENT: the match builder's spec (src\build_spec.h ParseBuildSpec, the production parser FireBuild calls)
+  {
+    using wwe2k14::scenario::BuildSpec;
+    BuildSpec b;
+    std::string w;
+    // a pre-ENT spec parses as before: two-part p items, no attire written, entrances play
+    bool ok = Spec("type=0;p=139:-1,343:0;arena=5;o=81:1", b, w);
+    CHECK(ok && b.parts.size() == 2 && b.parts[0].first == 139 && b.parts[0].second == -1 && b.parts[1].second == 0 && b.attire.size() == 2 &&
+              !b.attire[0].write && !b.attire[1].write && b.entrances && b.opts.size() == 1,
+          "pre-ENT spec unchanged (%s)", w.c_str());
+    ok = Spec("type=0;p=139:,343:0", b, w);
+    CHECK(!ok, "two-part '139:' still refused (strict numbers, as before)");
+    ok = Spec("type=0;p=139", b, w);
+    CHECK(!ok, "one-part p item still refused");
+    // the third part: attire N (empty PAD = CPU), s = nothing written
+    ok = Spec("type=0;p=139::2,343:-1", b, w);
+    CHECK(ok && b.parts[0].second == -1 && b.attire[0].write && b.attire[0].attire == 2 && !b.attire[1].write, "139::2 = CPU, attire 2 written (%s)", w.c_str());
+    ok = Spec("type=0;p=139:1:9", b, w);
+    CHECK(ok && b.parts[0].second == 1 && b.attire[0].write && b.attire[0].attire == 9, "139:1:9 = pad 1, attire 9 (%s)", w.c_str());
+    ok = Spec("type=0;p=139:-1:s", b, w);
+    CHECK(ok && !b.attire[0].write, "s = the pick's saved defaults: nothing written (%s)", w.c_str());
+    ok = Spec("type=0;p=5:-1:3", b, w);
+    CHECK(ok && b.attire[0].write && b.attire[0].attire == 3, "CAW attire 3 (%s)", w.c_str());
+    ok = Spec("type=0;p=5:-1:4", b, w);
+    CHECK(!ok, "CAW attire 4 refused");
+    ok = Spec("type=0;p=139:-1:10", b, w);
+    CHECK(!ok, "attire 10 refused (never dropped)");
+    ok = Spec("type=0;p=139:-1:", b, w);
+    CHECK(!ok, "empty attire part refused");
+    ok = Spec("type=0;p=139:x:2", b, w);
+    CHECK(!ok, "a junk PAD with an attire refused (strict)");
+    ok = Spec("type=0;p=139:-1:2:1", b, w);
+    CHECK(!ok, "four parts refused");
+    ok = Spec("type=0;p=139:4:2", b, w);
+    CHECK(!ok, "pad 4 refused by the range check");
+    // colour sets: launcher only
+    ok = Spec("type=0;p=139:-1:2/1", b, w);
+    CHECK(!ok && w.find("colour sets") != std::string::npos, "N/S refused on the builder (%s)", w.c_str());
+    ok = Spec("type=0;p=139:-1:t1", b, w);
+    CHECK(!ok && w.find("colour sets") != std::string::npos, "tS refused on the builder (%s)", w.c_str());
+    // entrances
+    ok = Spec("type=0;p=139:-1,343:-1;entrances=0", b, w);
+    CHECK(ok && !b.entrances, "entrances=0 skips (%s)", w.c_str());
+    ok = Spec("type=0;entrances=1", b, w);
+    CHECK(ok && b.entrances, "entrances=1 plays");
+    ok = Spec("type=0;entrances=off", b, w);
+    CHECK(!ok, "entrances=off refused (0 | 1)");
+    // the request the main session runs: blood on + no entrances + an attire
+    ok = Spec("type=0;p=139:-1:2,343:-1;arena=5;o=81:1;entrances=0", b, w);
+    CHECK(ok && !b.entrances && b.attire[0].write && b.attire[0].attire == 2 && b.opts[0].first == 81 && b.opts[0].second == 1,
+          "blood + no entrances + attire in one spec (%s)", w.c_str());
   }
 
   if (g_plant != kNone) {

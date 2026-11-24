@@ -14,6 +14,7 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "../renderer_scene/record_io.h"
+#include "../renderer_scene/rows_quad2d.h"   // S106 G4-2
 #include "quads2d_tap.h"
 
 namespace wwe2k14::q2d_tap {

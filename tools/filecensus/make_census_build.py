@@ -80,7 +80,7 @@ INST_NEW = INST_OLD + '''      g_census_sub_instances += instances;  // S101 lan
         if (census_f != g_census_flagged.end() && census_f->second.count(me.placement)) g_census_sub.insert({&m, me.placement});
       }
 '''
-RT_OLD = 'bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error) {\n'
+RT_OLD = 'bool FrontEnd::RenderToPixels(const SceneFrame& frame, std::vector<uint8_t>& rgba, std::string& error, uint32_t* out_w, uint32_t* out_h) {\n'
 RT_NEW = RT_OLD + '  g_census_sub.clear(), g_census_sub_instances = 0;  // S101 lane 21 (census build only)\n'
 CT_OLD = 'std::string FrontEnd::CoverageText() const {\n'
 CT_NEW = CT_OLD + '''  {  // S101 lane 37 (census build only): which slots the draw list drew more than once
@@ -154,6 +154,8 @@ def main():
         f.write(patch_front_end(open(fe, encoding='utf-8').read(), scene_dir))
     ps = open(vb, encoding='utf-8').read()
     ps = must_replace(ps, "$repo = Resolve-Path (Join-Path $PSScriptRoot '..\\..')", "$repo = Resolve-Path '%s'" % root, 'repo line')
+    # S106 TIPFIX2: build_viewer.ps1 dot-sources the compile queue next to itself (PSScriptRoot + ..\admit); the copy lives elsewhere, so the path becomes absolute
+    ps = must_replace(ps, "(Join-Path $PSScriptRoot '..\\admit\\Admit.ps1')", "'%s'" % os.path.join(root, 'tools', 'admit', 'Admit.ps1'), 'admit queue')
     ps = must_replace(ps, "'wwe2k14_assets_rdr.exe'", "'wwe2k14_assets_rdr_census.exe'", 'exe name')
     ps = must_replace(ps, "'viewer_obj_rdr'", "'viewer_obj_rdr_census'", 'object folder')
     ps = must_replace(ps, "$srcs += @(Join-Path $repo 'src\\renderer_scene\\front_end.cpp')", "$srcs += @('%s')" % patched, 'front_end source')

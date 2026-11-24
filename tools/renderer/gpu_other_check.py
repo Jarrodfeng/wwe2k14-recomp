@@ -1,4 +1,4 @@
-r"""S102 lane G6 (name what the GPU stamps call "other"): offline proof on the Bryan entrance capture (the gate's `bryan` input, 100 frames), 0 game runs.
+r"""S102 lane G6 (name what the GPU stamps call "other"): offline proof on the Bryan entrance capture (the standard `bryan` input, 100 frames), 0 game runs.
   py -I tools\renderer\gpu_other_check.py [--root DIR] [--capture out/s101/lane92/case_.../capture]
 rplay (this checkout's out\renderer\dev\rplay.exe) plays the capture with `--gpu-stamps 1`; the roles line gives mean ms a frame per GPU class.
 DETERMINISTIC checks (run ONCE, never inside the retry loop: the same capture and exe give the same answer):
@@ -149,7 +149,7 @@ def timing(rplay, capture):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=ROOT)
-    ap.add_argument('--capture', default='out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture', help='a capture dir under the MAIN checkout (the gate\'s `bryan` input)')
+    ap.add_argument('--capture', default='out/s101/lane92/case_20261112_122719_969_0_pc_run_exit/capture', help='a capture dir under the MAIN checkout (the standard `bryan` input)')
     args = ap.parse_args()
     root = os.path.abspath(args.root)
     rplay = os.path.join(root, 'out', 'renderer', 'dev', 'rplay.exe')

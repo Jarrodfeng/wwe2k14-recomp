@@ -1,5 +1,4 @@
-# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true
-# harness: realtime (the builder's roster is built in wall time; entrances play)
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true --wwe2k14_replay_mode=true
 # intent: scene 2
 # S105 PLATE step check (2026-11-21, fixed by probe PLATE2): Alberto Del Rio (322) holds title 1 in the frozen save; his waist act is belt 5009 = evtobj
 # PACH 459, which carries key 30 (the plate canvas) and an entry-4 plate mesh. (Cena's WWE title 2004 / 3004 / 5004 has NO plate in the game's files:

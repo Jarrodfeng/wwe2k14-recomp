@@ -1,0 +1,53 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=385,324 --wwe2k14_dlc=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 108 lane FAN check: Fandango's entrance (character 385, a DLC wrestler: needs the player's DLC folder and --wwe2k14_dlc=true).
+# The lesnar_bryan launch with slot 0 replaced by Fandango, so he comes out first (Over the Limit BG04, Quick pace), fixed seed 1.
+# Question: do the stage prop's tassels (evtobj prop 2591 entry 4, 658 node rows) hang and swing with no spikes at his first appearance
+# (Jarrod: "the camera has a wide shot of him bursting through the tassels")? Before S108 our prop tracker copied 96 rows a model.
+# Shots sc_fan_00 .. sc_fan_13: one every 40 frames from his entrance step 1 (the first ~9 s of game time; fast-forwarded the entrance follows
+# the wall clock, so the frames are spread through the opening, not frame-exact). Local only (game imagery).
+# The dancer comes out first: that is how his entrance works (Jarrod, S108), and the tassel curtain is in frame from her first step.
+# Proven pair (S108 runs 1 + 2): the fixed build draws no spikes with `capped 0`; s108 before the fix draws spikes fanning to the top-left
+# in shots 02-12 with `capped 4374`. Both load `event prop id 2591 -> PACH 400000 (entry 4)`.
+# Read in the log: no `[rdr][PROBLEM] weapon_pose_short_rows` / `weapon_rows_over_bound`, `[scene][weapon_rows] ... capped 0, overflow 0`,
+# no `ROWS REFUSED`. Run it alone (entrances sync to the wall clock). on_fail quit.
+on_fail quit
+log bench: start scene s108_fandango_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_state entrance_step_0 >=1 3600 2
+log scene=fandango_step1
+mark 1 fandango_step1
+screenshot sc_fan_00
+wait_frames 40
+screenshot sc_fan_01
+wait_frames 40
+screenshot sc_fan_02
+wait_frames 40
+screenshot sc_fan_03
+wait_frames 40
+screenshot sc_fan_04
+wait_frames 40
+screenshot sc_fan_05
+wait_frames 40
+screenshot sc_fan_06
+wait_frames 40
+screenshot sc_fan_07
+wait_frames 40
+screenshot sc_fan_08
+wait_frames 40
+screenshot sc_fan_09
+wait_frames 40
+screenshot sc_fan_10
+wait_frames 40
+screenshot sc_fan_11
+wait_frames 40
+screenshot sc_fan_12
+wait_frames 40
+screenshot sc_fan_13
+wait_frames 600
+log scene=end (step 1 + 1120 frames)
+mark 2 end
+log bench: done
+quit

@@ -2,7 +2,6 @@
 # EASY CREATION) 8 times and leave it again: a crash check for the editor's loads (run 050 crashed on the loader
 # thread entering the editor, sub_82C359E8 from the load-completion trampoline sub_82C37C08, the pattern of the
 # Session 12 / 14 Create-a-Wrestler fast-loader crash). Untimed; normal speed so no menu press is dropped.
-# harness: realtime (menu presses must not drop)
 on_fail quit
 include boot_to_menu
 include menu_to_creations

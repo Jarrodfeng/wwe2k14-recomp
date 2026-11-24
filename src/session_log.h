@@ -81,6 +81,51 @@ inline void LogMatchCard(const char* when, uint64_t frame) {
   REXLOG_INFO("[wwe2k14][match] card ({}): mode {} type {} arena {} extras [{}, {}, {}]; participants {} frame={}", when,
               int32_t(Read(m + 4)), int32_t(Read(m + 8)), int32_t(Read(m + 532)), int32_t(Read(m + 544)),
               int32_t(Read(m + 548)), int32_t(Read(m + 552)), who.empty() ? "(none)" : who, frame);
+  // S106 C3: the title bytes of the same seats (slot +41 / +42 of the participant word at e + 40), so "the champion carried his title into the match" is a line.
+  std::string titles;
+  for (uint32_t i = 0; i < 43; ++i) {
+    const uint32_t e = m + 724 + 3580 * i;
+    const uint32_t id = Read(e + 56);
+    if (id >= 500) continue;
+    const uint32_t w = Read(e + 40);
+    titles += fmt::format("{}{}:{} t{}/{}", titles.empty() ? "" : ", ", i, id, (w >> 16) & 0xFF, (w >> 8) & 0xFF);
+  }
+  REXLOG_INFO("[wwe2k14][match] titles ({}): {} frame={}", when, titles.empty() ? "(none)" : titles, frame);
+}
+
+// S108 RPT (docs\systems\problem_report.md): what a problem report needs to rebuild this match on our PC (its REPRODUCE block prints a
+// `--wwe2k14_launch=@quick ...` line from it). Ids and option values only, read from M like the card, once per entry into the in-game sequence:
+//   [wwe2k14][match] setup: mode M type T pace P arena A; rules HEX; seats i:ID/PAD/aN[/sS], ... frame=F
+//   [wwe2k14][match] setup+: seats ... frame=F      (the seats after the first 12, at most 24 per line: no line over ~600 characters)
+// pace = M+528 (setter sub_822C6668); rules = the 64 rule bytes M+12..75 (what --wwe2k14_quick_rules writes, scenario.h); per seat (entry
+// e = M+724+3580 i, seats 0..39, id = e+56 < 500): PAD = `cpu` when byte e+12 is 1, else `p` + byte e+4 (sub_822C6BD8 +CC..+D4 / +110); aN = the
+// attire digit of the slot key u32 e+16 = id*100 + attire*10 + 2 (sub_822C2B20; `a?` when the key is not this id's); /sS = the colour set,
+// signed byte e+23, when the set mode byte e+22 is 1 (sub_822C6808).
+inline void LogMatchSetup(uint64_t frame) {
+  const uint32_t m = Read(scenario::kMatchDescPtr);
+  if (!m) return;
+  std::string rules;
+  for (uint32_t o = 12; o < 76; o += 4) rules += fmt::format("{:08X}", Read(m + o));
+  std::vector<std::string> seats;
+  for (uint32_t i = 0; i < 40; ++i) {
+    const uint32_t e = m + 724 + 3580 * i;
+    const uint32_t id = Read(e + 56);
+    if (id >= 500) continue;
+    const uint32_t key = Read(e + 16), w20 = Read(e + 20);
+    const bool cpu = (Read(e + 12) >> 24) == 1;
+    std::string s = fmt::format("{}:{}/{}/a{}", i, id, cpu ? std::string("cpu") : fmt::format("p{}", Read(e + 4) >> 24),
+                                key / 100 == id ? std::to_string((key / 10) % 10) : std::string("?"));
+    if (((w20 >> 8) & 0xFF) == 1) s += fmt::format("/s{}", int(int8_t(w20 & 0xFF)));
+    seats.push_back(std::move(s));
+  }
+  auto list = [&](size_t from, size_t to) {
+    std::string t;
+    for (size_t k = from; k < to && k < seats.size(); ++k) t += (t.empty() ? "" : ", ") + seats[k];
+    return t.empty() ? std::string("(none)") : t;
+  };
+  REXLOG_INFO("[wwe2k14][match] setup: mode {} type {} pace {} arena {}; rules {}; seats {} frame={}", int32_t(Read(m + 4)), int32_t(Read(m + 8)),
+              int32_t(Read(m + 528)), int32_t(Read(m + 532)), rules, list(0, 12), frame);
+  for (size_t k = 12; k < seats.size(); k += 24) REXLOG_INFO("[wwe2k14][match] setup+: seats {} frame={}", list(k, k + 24), frame);
 }
 
 inline void Snapshot() {
@@ -113,6 +158,7 @@ inline void OnFrame(uint64_t frame) {
     Change(fmt::format("sequence {} -> {} ({})", s.seq, seq, SequenceName(seq)), frame);
     if (seq == 9) {
       LogMatchCard("in-game sequence started", frame);
+      LogMatchSetup(frame);  // S108 RPT: the report's REPRODUCE line (one setup line per match, + setup+ lines for seats past 12)
       // S101 lane 271: the live renderer's per-arena loads start now, not at the first record that draws the arena (renderer_adapter/announce.h)
       const uint32_t m = Read(scenario::kMatchDescPtr);
       int people = 0;   // a card with fewer than two participants is not a match yet (a stale or half-built description): no early load

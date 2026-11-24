@@ -16,6 +16,11 @@
 #include <vector>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_circle.h"   // S106 G4-2
+#include "../renderer_scene/rows_inputs.h"
+#include "../renderer_scene/rows_plane.h"
+#include "../renderer_scene/rows_stage_look.h"
+#include "../renderer_scene/props_light_rows.h"
 #include "../renderer_scene/bone_tag_rows.h"   // S103 W2B: g_spring_hair_rows
 #include <algorithm>
 #include "circle_points.h"   // S103 A3 (S6)
@@ -86,13 +91,27 @@ class InputsContributor final : public Contributor {
   static constexpr uint32_t kHgfOffLatchReads = 1, kHgfNoTargetReuse = 2;
   void SetHgfFaultsForTest(uint32_t f) { hgf_faults_ = f; }
   struct PaletteTarget { uint32_t skel = 0, count = 0; };
+  // S108 RDS review (the class closure, model_release.h): the game destroyed this model. The last latch's target copy (snap_targets_) is read by the OFF-latch fallback (Take's ResolveModelList,
+  // LatchPalettes' palette reads) for as long as no latch replaces it, so it must stop naming the address. Its own lock only (the hook thread holds nothing else).
+  void ForgetModel(uint32_t model) {
+    std::lock_guard<std::mutex> lock(snap_mu_);
+    snap_targets_.erase(std::remove_if(snap_targets_.begin(), snap_targets_.end(), [model](const PaletteTarget& t) { return t.skel == model; }), snap_targets_.end());
+  }
+  bool SnapNames(uint32_t model) {   // test / census
+    std::lock_guard<std::mutex> lock(snap_mu_);
+    return std::any_of(snap_targets_.begin(), snap_targets_.end(), [model](const PaletteTarget& t) { return t.skel == model; });
+  }
+  void SetSnapForTest(std::vector<PaletteTarget> v, uint64_t hook) {
+    std::lock_guard<std::mutex> lock(snap_mu_);
+    snap_targets_ = std::move(v), snap_hook_ = hook;
+  }
   using TargetsFn = void (*)(uint64_t hook_frame, std::vector<PaletteTarget>& out, uint32_t& missing);
   using SubmitFn = int (*)(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t hook_frame);
   void SetPalettes(TargetsFn t, SubmitFn s) { targets_ = t, submit_ = s; }
   // S103 L31B: the targets from the CHARACTER TABLE (wrestler_contrib.h LatchTargets(slots)). When set it is used instead of TargetsFn: the latch reads the table itself (ReadSlotSkeletons: character
   // [0x836F38D0 + 4 * slot], skeleton [char + 48]) and passes (skeleton, slot) per occupied slot plus each slot's state (review A: empty / occupied / unreadable). `stale_visible` non-null = also ask
   // WrestlerContributor::StaleVisibleAt for this record (the guard: > 0 in mode Ours = no stamp); null = do not ask. `count` = false: no census counted (Take's second ask of the same latch, review E).
-  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; };   // S103 DRL: shown_addr = [char + 232] (the game's shown flag, replay_pose_hook.h)
+  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; bool game_shown = true; };   // S103 DRL: shown_addr = [char + 232] (the game's shown flag)   // S107 CAM: game_shown = the game's own predicate sub_823CBC50 ([char+1208] && [char+224] && [char+232]); an unreadable word counts as shown (never a guessed hide)
   enum SlotState : uint8_t { kSlotEmpty = 0, kSlotOccupied = 1, kSlotUnreadable = 2 };
   // S103 NRBF (review F1): ring_models = the ring's model pointers (class table at G, ring_rows_core.h): the ring family draws them, so they are no wrestler objects (the skirts were the "ring-drawn" exemption).
   struct SlotTable { std::vector<SlotSkel> skels; uint8_t state[9] = {}; std::vector<scene_inputs::CharPiece> pieces; std::vector<uint32_t> ring_models; };   // S103 NRB: pieces = the slot characters' SUBM instances (piece_link.h; the ONE shared type, slot_piece.h)
@@ -131,7 +150,12 @@ class InputsContributor final : public Contributor {
       if (ch < 0x10000) continue;   // empty slot
       if (!scene_inputs::ReadWord(read_, ch + lightlatch::kCharSkeletonOff, skel) || skel < 0x10000) { out.state[s] = kSlotUnreadable; if (count) slot_no_skel_.fetch_add(1, std::memory_order_relaxed); continue; }
       out.state[s] = kSlotOccupied;
-      out.skels.push_back(SlotSkel{skel, int32_t(s), ch + 232});
+      bool shown = true;   // S107 CAM: sub_823CBC50 = [char+1208] != 0 && [char+224] != 0 && [char+232] != 0 (listing); a read that fails leaves "shown"
+      {
+        uint32_t w1208 = 0, w224 = 0, w232 = 0;
+        if (scene_inputs::ReadWord(read_, ch + 1208, w1208) && scene_inputs::ReadWord(read_, ch + 224, w224) && scene_inputs::ReadWord(read_, ch + 232, w232)) shown = w1208 != 0 && w224 != 0 && w232 != 0;
+      }
+      out.skels.push_back(SlotSkel{skel, int32_t(s), ch + 232, shown});
       VerifyBodyIdentity(skel);   // PZF2 A1: BEFORE the pieces are read (their proof asks for the verified link) and before Collect names the body
       // S103 NRB: the character's own pieces (SUBM component). An unreadable component is counted and gives no links (the pieces then stay holes: never guessed).
       static thread_local std::vector<scene_inputs::CharPiece> piece_buf;   // the caller's thread's scratch
@@ -166,11 +190,41 @@ class InputsContributor final : public Contributor {
       targets_(hook, out, missing);
     }
   }
+  // S108 RDS part A: Take's one list of the models the game names at this latch (S103 L31B's parameter-target rule, moved here unchanged so the runtime rows and the node-light filter share it). list = null:
+  // no target function is set (units): the caller falls back to the kept set. this_hook = false: the off-latch fallback's copy belongs to an older latch (its stamps are withheld).
+  struct MemoList {
+    const std::vector<PaletteTarget>* list = nullptr;
+    bool this_hook = true, done = false;
+  };
+  void ResolveModelList(uint64_t hook, uint64_t frame, bool latch_thread, MemoList& out) {
+    out = MemoList{};
+    out.done = true;
+    if (!targets_ && !slot_targets_) return;
+    if (slot_targets_ && !latch_thread && !(hgf_faults_ & kHgfOffLatchReads)) {
+      // S103 HGF (XLB 4): the fallback take runs off the latch thread with the game threads running: it must not read the slot table or any piece rows, and must not replace the wrestlers' piece state
+      // (piece_rows_ / piece_links_): it asks about the LAST latch's targets (a copy; the same rule as the page clock and gsf::Fill). Review 3: the stamp is only given when that latch is THIS hook's.
+      uint64_t last_hook = ~0ull;
+      {
+        std::lock_guard<std::mutex> lock(snap_mu_);
+        off_targets_ = snap_targets_, last_hook = snap_hook_;
+      }
+      out.list = &off_targets_, out.this_hook = last_hook == hook;
+    } else if (slot_targets_ && pal_targets_hook_ == hook && !(hgf_faults_ & kHgfNoTargetReuse)) {
+      out.list = &pal_targets_;   // S103 HGF (XLB 3): this latch's own targets (LatchPalettes just built them): no second ReadSlotSkeletons / ReadPieceRows / VerifyBodyIdentity
+    } else {
+      uint32_t missing = 0;
+      SlotTable local;   // (no slot targets: the old liveness rule reads no table; or the latch thread without this hook's LatchPalettes: its own scratch)
+      SlotTable& sc = (latch_thread && slot_targets_ && !(hgf_faults_ & kHgfNoTargetReuse)) ? slot_buf_ : local;
+      Targets(hook, frame, sc, param_targets_, missing, nullptr, false);   // review E: the latch's ask already counted; no StaleVisibleAt, no census
+      out.list = &param_targets_;
+    }
+  }
   // S103 A2 (W1): called at the START of the wrestlers' latch (wrestler_contrib.cpp Latch calls the pre-latch pointer), so the palettes it submits are in the items that latch collects. Reads each live skeleton's
   // [skel+200] block (inputs_core.h ReadPalette), submits it as the consumer palette tagged with the hook frame, stamps kInWrestlerPalette only when EVERY kept skeleton was read (an unreadable one, or one with no
   // count, is no stamp). Mode Off = nothing read, nothing stamped (as Latch). One thread (the latch); no allocation once the scratch has grown.
   void LatchPalettes(uint64_t record_frame, bool latch_thread = true) {
     if (!read_ || (!targets_ && !slot_targets_) || !submit_ || scene_frame::CurrentMode() == scene_frame::Mode::Off) return;
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: this pass's line copy (the game's ReadGuest serves this thread's reads through it until return)
     const uint64_t hook = scene_inputs::HookFrameOfRecord(record_frame);
     uint32_t missing = 0, stale_visible = 0;
     if (!latch_thread && slot_targets_ && !(hgf_faults_ & kHgfOffLatchReads)) {
@@ -284,6 +338,7 @@ class InputsContributor final : public Contributor {
   }
   void Census(std::string& out) override {
     out += " " + scene_inputs::CensusLine() + " models_unreadable " + std::to_string((unsigned long long)unreadable_.load(std::memory_order_relaxed)) + " no_camera " + std::to_string((unsigned long long)no_camera_.load(std::memory_order_relaxed));
+    out += " " + scene_inputs::handed::CensusLine();   // S110 CUTCROWD: the handed camera's census (handed_camera.h)
     out += " camera_source scene_manager (" + std::to_string((unsigned long long)drawcam_used_.load(std::memory_order_relaxed)) + " frames from the draw thread)" + drawcam::Cam().CensusText();   // S103 WC R5
     if (no_camera_.load(std::memory_order_relaxed)) {   // S103 S: camera diagnosis
       out += " [camera reasons mgr:";
@@ -377,15 +432,25 @@ class InputsContributor final : public Contributor {
     void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, cam_gate_read = cam_gate_shown = cam_unanimated = cam_anim_pending = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
   };
   void Take(uint64_t frame, Frame& f, bool latch_thread = true) {
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: this pass's line copy (the game's ReadGuest serves this thread's reads through it until return)
     f.Clear();
     const uint64_t hook = scene_inputs::HookFrameOfRecord(frame);   // every stamp is in the hook clock (review 7)
+    // S108 RDS (docs\research\s108\RDS_plan.md part A): the models the GAME names at this latch (the palette / parameter targets: the character table's skeletons, their SUBM pieces, the hook-alive rest), resolved once per
+    // Take and used by every reader below that dereferences a model. The kept set (models_) outlives a released model by up to 120 Emits (a match load freed the old bodies, their blocks were reused: [model+480] read
+    // as 0x41700001), so it is never the list of a guest read here; it stays the list of membership-only uses and of the unit fallback (no target function set).
+    MemoList ml;
+    const auto model_list = [&]() -> const MemoList& {
+      if (!ml.done) ResolveModelList(hook, frame, latch_thread, ml);
+      return ml;
+    };
     f.post = scene_inputs::ReadPostSettings(read_, frame);
     if (latch_thread) scene_inputs::gsf::Fill(f.post);   // S103 FXF: the gGsf node's classification (review 7: the latch thread only changes its state; the fallback take reads the last result)
     else scene_inputs::gsf::Peek(f.post);
     f.have_post = true;
     if (f.post.flags & kPpRead) scene_inputs::Capture(scene_inputs::kInPostSettings, hook);   // an unreadable S is NOT a stamp: the decision stays at InputsMissing
-    {   // S103 CAE: the shared read (inputs_core.h ReadSceneCameraOrDraw): the composer's copy (S103 S: run 7259, the camera table holds the HUD camera at the latch), else, with no scene manager (the CAW editor,
+    {   // S103 CAE: the shared read (inputs_core.h ReadSceneCameraOrDraw): the handed block, else the composer's copy (S110 CUTCROWD; S103 S: run 7259, the camera table holds the HUD camera at the latch), else, with no scene manager (the CAW editor,
         // S103 WC R5), the draw thread's camera the game's own draw reads (S103 CCF: Get on the RECORD clock; the kInCamera stamp below stays on the hook clock).
+      if (latch_thread) scene_inputs::HandedCensusLatch(read_);   // S110 CUTCROWD: the handed camera's census (source taken, differ / longest_differ, the reach words)
       bool from_draw = false;
       f.have_camera = scene_inputs::ReadSceneCameraOrDraw(read_, frame, &drawcam::GetForLatch, f.camera, f.cam_info, &from_draw);
       if (from_draw) drawcam_used_.fetch_add(1, std::memory_order_relaxed);
@@ -473,7 +538,9 @@ class InputsContributor final : public Contributor {
         {   // blocks the map names that the manager's lists do not carry (the wrestlers' EMBEDDED objects, flash / crowd-group items): read here as kLoNodeObject rows. Only entries of models the latch knows
           // THIS frame (the kept wrestler skeletons and the arena's models: arena_buf_ is filled above, this frame), tested against EVERY manager object address (li.objects, review must 5/6).
           std::vector<uint32_t> known;
-          if (models_) {
+          if (const MemoList& l = model_list(); l.list) {   // S108 RDS (plan (a)): the models the game names at this latch, never the kept set (a released model's learned object would be read for up to kMaxAge)
+            for (const PaletteTarget& t : *l.list) known.push_back(t.skel);
+          } else if (models_) {
             models_(addrs_);
             known = addrs_;
           }
@@ -771,9 +838,13 @@ class InputsContributor final : public Contributor {
       props_why_[uint32_t(pw)].fetch_add(1, std::memory_order_relaxed);
       if (scene_inputs::PropsDegenerate(pw)) f.light_degenerate = true, f.degenerate_frame = frame;   // S103 PMC2
     }
-    if (models_) {
-      models_(addrs_);
-      bool all = true;
+    if (const MemoList& l = model_list(); l.list || models_) {   // S108 RDS part A: the runtime rows of the models the game names at THIS latch (was: the kept set, which read a released model)
+      if (!l.list) models_(addrs_);   // the unit fallback (no target function set): the kept set, as before
+      else {
+        addrs_.clear();
+        for (const PaletteTarget& t : *l.list) addrs_.push_back(t.skel);
+      }
+      bool all = l.this_hook;   // off the latch thread: the last latch's targets stamp only when they are of this hook (the parameter rule, review 3 of S103 HGF)
       for (uint32_t m : addrs_) {
         ModelRuntimeRow row;
         if (scene_inputs::ReadModelRuntime(read_, m, frame, row, rdr_scene::wrk::Live() ? (scene_inputs::kReadPassMode | scene_inputs::kReadPartE20) : 0u)) {   // S103 WRK: wrestlers only, the switch on
@@ -784,7 +855,7 @@ class InputsContributor final : public Contributor {
           all = false;
         }
       }
-      if (all) scene_inputs::Capture(scene_inputs::kInModelRuntime, hook);   // every known WRESTLER model read (none known = nothing to read = still a stamp)
+      if (all) scene_inputs::Capture(scene_inputs::kInModelRuntime, hook);   // every named WRESTLER model read (none named = nothing to read = still a stamp)
     }
     {   // S103 A2 (W4): the override tables of the LIVE wrestler skeletons (the wrestlers contributor's LatchTargets: update hook alive, as W1), not a list of its own; the unit-test fallback is the models list.
       // No stamp when any model's table is unreadable, a half-null part table, a live pointer or a name that could not be read, or the wrestlers' own row budget ran out (counted apart). PIECES are NOT covered.
@@ -799,27 +870,9 @@ class InputsContributor final : public Contributor {
           param_unreadable_.fetch_add(1, std::memory_order_relaxed);
         }
       };
-      if (targets_ || slot_targets_) {   // S103 L31B: the same targets as the palettes (the character table's when set)
-        uint32_t missing = 0;
-        if (slot_targets_ && !latch_thread && !(hgf_faults_ & kHgfOffLatchReads)) {
-          // S103 HGF (XLB 4): the fallback take runs off the latch thread with the game threads running: it must not read the slot table or any piece rows, and must not replace the wrestlers' piece state
-          // (piece_rows_ / piece_links_): it asks about the LAST latch's targets (a copy; the same rule as the page clock and gsf::Fill above). Review 3: the stamp is only given when that latch is THIS hook's.
-          std::vector<PaletteTarget> last;
-          uint64_t last_hook = ~0ull;
-          {
-            std::lock_guard<std::mutex> lock(snap_mu_);
-            last = snap_targets_, last_hook = snap_hook_;
-          }
-          if (last_hook != hook) pall = false;
-          for (const PaletteTarget& t : last) one(t.skel);
-        } else if (slot_targets_ && pal_targets_hook_ == hook && !(hgf_faults_ & kHgfNoTargetReuse)) {
-          for (const PaletteTarget& t : pal_targets_) one(t.skel);   // S103 HGF (XLB 3): this latch's own targets (LatchPalettes just built them): no second ReadSlotSkeletons / ReadPieceRows / VerifyBodyIdentity
-        } else {
-          SlotTable local;   // (no slot targets: the old liveness rule reads no table; or the latch thread without this hook's LatchPalettes: its own scratch)
-          SlotTable& sc = (latch_thread && slot_targets_ && !(hgf_faults_ & kHgfNoTargetReuse)) ? slot_buf_ : local;
-          Targets(hook, frame, sc, param_targets_, missing, nullptr, false);   // review E: the latch's ask already counted; no StaleVisibleAt, no census
-          for (const PaletteTarget& t : param_targets_) one(t.skel);
-        }
+      if (const MemoList& l = model_list(); l.list) {   // S103 L31B: the same targets as the palettes (the character table's when set); S108 RDS: resolved once per Take (ResolveModelList), shared with the runtime rows
+        if (!l.this_hook) pall = false;
+        for (const PaletteTarget& t : *l.list) one(t.skel);
       } else if (models_) {
         models_(addrs_);
         for (uint32_t m : addrs_) one(m);
@@ -1007,6 +1060,7 @@ class InputsContributor final : public Contributor {
   BodyRelistFn body_relist_ = nullptr;
   SubmitFn submit_ = nullptr;
   std::vector<PaletteTarget> pal_targets_, param_targets_;   // param_targets_: Take (S103 A2 W4)
+  std::vector<PaletteTarget> off_targets_;   // S108 RDS: the off-latch fallback take's copy of the last latch's targets (ResolveModelList; the take's thread only, one take at a time)
   uint32_t hgf_faults_ = 0;   // S103 HGF planted twins (tests only)
   uint64_t pal_targets_hook_ = ~0ull;           // S103 HGF: the hook frame pal_targets_ was built for (latch thread only)
   std::mutex snap_mu_;

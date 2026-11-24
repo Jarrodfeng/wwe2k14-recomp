@@ -1,6 +1,6 @@
 r"""S102 lane R24-D part 2: the census of the frame class's HIDDEN draws (draws that write 0 pixels), offline, 0 game runs, 0 Surface runs.
   py -I tools\renderer\hidden_draw_census.py [--root DIR] [--only NAME] [--trace-only]
-For each capture (the gate's Bryan, lane86 Bryan / Brock, lane86 wm30 = a match) rplay replays with `--frame-trace` (the tool-only per-draw precise occlusion query, FRAME_CLASS.md): every draw of every
+For each capture (the standard Bryan, lane86 Bryan / Brock, lane86 wm30 = a match) rplay replays with `--frame-trace` (the tool-only per-draw precise occlusion query, FRAME_CLASS.md): every draw of every
 frame-class pass has the pixels it wrote. Draws are grouped by a stable identity (draw class, technique, pass site, pass ordinal, program, vertices, blend, depth / stencil flags, viewport, scissor,
 bound textures). Per group: occurrences, occurrences that wrote 0 px, and a CPU-SIDE PROOF CLASS from the draw's own state (never from "it was 0 in the capture"):
   P1  no_target_write  every colour write mask is 0 AND no depth write AND no stencil test: the draw writes no attachment whatever the shader does (the proof used by `drop_hidden`).

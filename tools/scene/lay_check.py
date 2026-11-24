@@ -47,7 +47,7 @@ def main():
     ap.add_argument('--out', default=None)
     ap.add_argument('--plant', default='', help='one_layer: judge the planted one-layer picture as if it were the build; exits 0 only when the check FAILS it')
     a = ap.parse_args()
-    a.out = run_dirs.run_out('lay', a.out)   # --out, else GATE_CHECK_DIR, else a per-run folder (removed on PASS)
+    a.out = run_dirs.run_out('lay', a.out)   # --out, else a per-run folder (removed on PASS)
     cap = a.capture if os.path.isdir(a.capture) else os.path.join(os.environ.get('RDR_MAIN_CHECKOUT', ROOT), 'out', 'captures', 'a04_entrance')
     frame_rig.SESSION = frame_rig.RigSession()
     try:

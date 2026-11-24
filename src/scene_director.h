@@ -41,6 +41,7 @@
 #include <mutex>
 #include <string>
 
+#include "guest_call.h"           // Caller (EXEB-B1: moved out so blood_keep.cpp does not need this header)
 #include "live_control.h"         // g_scene_live
 #include "scenario.h"             // U32, Guest, Frame, SequenceId, the main-menu constants, g_director_tick
 #include "scene_director_args.h"  // ParseSceneArgs
@@ -123,39 +124,6 @@ inline void (*g_fire_tick)(PPCContext&, uint8_t*) = nullptr;
 // S101 lane 161 (named g_situation_tick: scenario.h already has a g_director_tick): the situation director's per-frame tick (src/situation_director.h fills this at start-up; null when that header is not built in).
 inline void (*g_situation_tick)(PPCContext&, uint8_t*) = nullptr;
 inline std::atomic<bool> g_cancel_log{false};  // `!scene off` stops the mid-match log (served by the next tick)
-
-// Calls guest functions on the owner update's context, saving and restoring every register around each call (the launcher's recipe,
-// src/scenario.h FireBuild): lr is 0 during the calls, so observe hooks show the caller as 00000000.
-struct Caller {
-  PPCContext& ctx;
-  uint8_t* base;
-  PPCContext saved;
-  Caller(PPCContext& c, uint8_t* b) : ctx(c), base(b), saved(c) {}
-  uint32_t operator()(void (*fn)(PPCContext&, uint8_t*), std::initializer_list<uint64_t> args) {
-    ctx = saved;
-    ctx.lr = 0;
-    uint64_t* regs[] = {&ctx.r3.u64, &ctx.r4.u64, &ctx.r5.u64, &ctx.r6.u64};
-    size_t i = 0;
-    for (uint64_t a : args) *regs[i++] = a;
-    fn(ctx, base);
-    const uint32_t r3 = ctx.r3.u32;
-    ctx = saved;
-    return r3;
-  }
-  // lane 161: a call that also passes a float in f1 (the PowerPC float argument register; sub_825F1F10 does `fmr f31,f1`). Same save / restore.
-  uint32_t withf(void (*fn)(PPCContext&, uint8_t*), std::initializer_list<uint64_t> args, double f1) {
-    ctx = saved;
-    ctx.lr = 0;
-    ctx.f1.f64 = f1;
-    uint64_t* regs[] = {&ctx.r3.u64, &ctx.r4.u64, &ctx.r5.u64, &ctx.r6.u64};
-    size_t i = 0;
-    for (uint64_t a : args) *regs[i++] = a;
-    fn(ctx, base);
-    const uint32_t r3 = ctx.r3.u32;
-    ctx = saved;
-    return r3;
-  }
-};
 
 // "/EVP/<id>" resolves in the pac index (the game's own test; 1 = yes).
 inline bool BankExists(Caller& call, int32_t id) {

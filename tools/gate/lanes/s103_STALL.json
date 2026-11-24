@@ -1,7 +1,0 @@
-{
-  "claim": {"scene": "none", "side": "none (log-only loader stall detector, always on; no work moves)", "ms": [0, 0]},
-  "affects": ["src/load_stall.h", "src/load_probe.h", "tools/tests/load_stall_test.ps1", "tools/tests/load_stall_test.cpp"],
-  "checks": [
-    {"name": "s103_STALL.unit", "deps": "scan:src,tools", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/load_stall_test.ps1"], "timeout_s": 180}
-  ]
-}

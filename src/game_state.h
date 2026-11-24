@@ -32,6 +32,7 @@
 #include <rex/system/xmemory.h>
 
 #include "guest_read.h"  // Session 15: --wwe2k14_fast_guest_reads
+#include "menu_focus.h"  // Session 108: the built-in menu_* state names
 
 #include <bit>
 #include <cctype>
@@ -63,7 +64,28 @@ struct GuestState {
   uint32_t size = 4;
   bool is_signed = false;
   std::string meaning;
+  uint32_t host_field = 0;  // Session 108: != 0 = a built-in menu_* state read by the host (menu_focus::Field), not a chain
 };
+
+// Session 108 (lane MENU): where the built-in menu_* states read from. src/focus_widget.h registers its reader here at
+// static init (null = no reader: the state is unreadable). `field` is a menu_focus::Field.
+using HostStateReader = bool (*)(uint32_t field, uint32_t* out);
+inline HostStateReader g_host_state = nullptr;
+
+// The built-in state NAME (menu_ready, menu_page, menu_row, menu_rows, menu_col, menu_cols, menu_count) as a GuestState.
+inline bool MakeHostState(const std::string& name, GuestState& out) {
+  for (const menu_focus::HostName& h : menu_focus::kHostNames) {
+    if (name != h.name) continue;
+    out = {};
+    out.name = name;
+    out.chain = "(focus)";
+    out.host_field = uint32_t(h.field);
+    out.is_signed = h.is_signed;
+    out.meaning = h.meaning;
+    return true;
+  }
+  return false;
+}
 
 // A comparison from a script: VALUE, or !=VALUE / >VALUE / <VALUE / >=VALUE / <=VALUE (also "!VALUE" for !=).
 // VALUE is decimal (may be negative) or 0x hex.
@@ -176,6 +198,7 @@ inline bool ReadGuestBytes(uint32_t guest, uint32_t size, uint32_t* out) {
 // Follows the chain; the final read uses state.size. The raw (zero-extended) value goes to *out. A pointer read as 0
 // anywhere in the chain makes the state unreadable (without this, 0 + a large offset would read low guest memory).
 inline bool ReadGuestState(const GuestState& state, uint32_t* out) {
+  if (state.host_field) return g_host_state && g_host_state(state.host_field, out);  // a built-in menu_* state
   const bool chained = !state.offsets.empty();
   uint32_t v = 0;
   if (!ReadGuestBytes(state.address, chained ? 4 : state.size, &v)) return false;
@@ -265,6 +288,10 @@ inline bool LoadGuestStates(const std::string& path, std::vector<GuestState>& ou
       }
       if (!finish_entry()) return false;
       const std::string name = Trim(line.substr(1, line.size() - 2));
+      if (GuestState builtin; MakeHostState(name, builtin)) {
+        error = where + ": '" + name + "' is a built-in state (src/menu_focus.h kHostNames), not a states.toml entry";
+        return false;
+      }
       for (const GuestState& s : out) {
         if (s.name == name) {
           error = where + ": state '" + name + "' defined twice";

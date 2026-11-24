@@ -14,6 +14,8 @@
 #include "props_map_switch.h"   // g_on / On()
 #include "record_io.h"   // SceneTables
 #include "scene_record.h"
+#include "rows_lights.h"   // S106 G4-2
+#include "props_light_rows.h"
 
 namespace rdr_scene {
 namespace props_map {

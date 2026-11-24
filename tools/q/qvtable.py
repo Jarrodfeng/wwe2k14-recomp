@@ -128,14 +128,23 @@ def slots_of(con, img, base, nslots, only, summary):
     return {'vtable': f'0x{base:08X}', 'table_slots': total, 'shown': len(rows), 'slots': rows}
 
 
+def has_tables(con):
+    """an index built before S110 ICALL has no `tables` catalog (the run-start heuristic below answers for it, said in the row)"""
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tables'").fetchone() is not None
+
+
 def of_func(con, img, addr):
     names = db_names()
     rows = []
+    cat = has_tables(con)
     for r in con.execute("SELECT at FROM ptrs WHERE value = ? AND kind = 'func' ORDER BY at", (addr,)).fetchall():
         at = r['at']
         v = con.execute('''SELECT v.vt, v.nslots, c.name FROM rtti_vtable v JOIN rtti_class c ON c.td = v.td
                            WHERE v.vt <= ? ORDER BY v.vt DESC LIMIT 1''', (at,)).fetchone()
-        if v and at < v['vt'] + 4 * max(1, v['nslots']):
+        t = con.execute('SELECT start, rule, len FROM tables WHERE start <= ? ORDER BY start DESC LIMIT 1', (at,)).fetchone() if cat else None
+        if t and at < t['start'] + 4 * t['len']:      # S110 ICALL: the table catalog (build_index.tables) bounds the table
+            vt, how, cls = t['start'], f'table ({t["rule"]} start)', v['name'] if v and v['vt'] == t['start'] else None
+        elif v and at < v['vt'] + 4 * max(1, v['nslots']):
             vt, how, cls = v['vt'], 'rtti', v['name']
         else:
             vt = at
@@ -144,7 +153,7 @@ def of_func(con, img, addr):
             how, cls = 'run-start (heuristic)', None
         rows.append({'vtable': f'0x{vt:08X}', 'slot': (at - vt) // 4, 'offset': at - vt, 'word': f'0x{at:08X}',
                      'table_by': how, 'class': cls})
-    return {'function': fname(con, addr), 'addr': f'0x{addr:08X}', 'db_name': names.get(addr), 'points': rows}
+    return {'function': fname(con, addr), 'addr': f'0x{addr:08X}', 'db_name': names.get(addr), 'points': rows, 'tables_catalog': cat}
 
 
 def main(argv, con, resolve):
@@ -166,6 +175,9 @@ def main(argv, con, resolve):
             return 0
         if note:
             print(f'({note})')
+        if not r['tables_catalog']:
+            print('(this index has no `tables` catalog (built before S110 ICALL): the bounds below are the old RTTI / run-start heuristics and can name the wrong table '
+                  'and slot; rebuild: py tools\\q\\build_index.py)')
         print(f'{r["function"]} 0x{addr:08X}' + (f'  [{r["db_name"]}]' if r['db_name'] else '') + f': {len(r["points"])} data word(s) point at it')
         for p in r['points']:
             print(f'  vtable {p["vtable"]} slot {p["slot"]} (+{p["offset"]})  word {p["word"]}  table by {p["table_by"]}' + (f'  class {p["class"]}' if p['class'] else ''))

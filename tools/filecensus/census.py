@@ -228,7 +228,8 @@ class Census:
                 raise SystemExit('unknown --plant %s' % p)
         if env:
             env['WWE_RDR_VALIDATION'] = '1'
-        self.env = dict(env, WWE_RDR_VALIDATION='1')
+        # S106 FCN: the vk reference follows the game's record cull (one-sided stage meshes, the mirrored `r` copy swapped per copy); rdr ignores it. The Arena Viewer's own default stays two-sided.
+        self.env = dict(env, WWE_RDR_VALIDATION='1', WWE_VIEWER_RECORD_CULL='1')
         for kv in a.env:
             k, _, v = kv.partition('=')
             self.env[k] = v

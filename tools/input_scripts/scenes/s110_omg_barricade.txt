@@ -1,0 +1,210 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=0 --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=103:0,125 --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S110 OMGROUTE (docs/research/s110/OMGROUTE.md section 4): the corner-barricade OMG moment, unattended, so the barricade's break (BARRICADE) can be photographed.
+# Question: with a finisher stock on slot 0 and the CPU target in the game's own state FenceCornerGroggy (the dev director verb `state`), does a Y press
+# by slot 0 start the OMG (bus `move` slot 0, move 2113..2122: waza 17 alone is NOT the OMG, run 27's ordinary finisher logged waza 17 move 50379)
+# and does the corner barricade break (corner object word +228 = 1)?
+# Run 27 (tip fcb22d26c, wwe2k14_001.log): act 240 held at frame 4426, but the first Y press reached the finisher dispatcher sub_82601138 (bus move waza 17 /
+# 50379 at 4451): the chooser sub_826056E0 calls it (+0x238) only when sub_82600A80 (+0x218) returned 0, i.e. sub_82600800 refused on that pass. G4-G7, G10 read
+# good; G8 / G9 / G11 were not read at the press. The bursts below (B0..B3, no frames each) read every remaining gate input around ONE press.
+# Slot 0 = the scripted pad (human), slot 1 = the CPU. Chains: A = 0x836F38D0 (slot 0's character), V = 0x836F38D4 (slot 1's). Fast-forwarded: a picture / behaviour run, not a timing run.
+# Read with: py -I tools/harness/run_verdict.py --log <this run's log>. Shots (captures/NNN_omg_*.png, stage 390-393 records) are local only. DEV build only (the `state` verb).
+# Every wait has a timeout; a timeout is a script failure and on_fail quit ends the run with the failing line and a screenshot.
+on_fail quit
+log bench: start scene s110_omg_barricade
+include boot_to_menu
+log bench: waiting for INGAMELUA.PAC (3600 frames)
+wait_file INGAMELUA.PAC 3600
+log bench: waiting for the in-game sequence 9 (3600 frames)
+wait_state seq 9 3600 30
+log bench: waiting for the bell, match_clock > 0 (36000 frames)
+wait_state match_clock >0 36000
+log scene=omg_match
+# step 2: a finisher stock for slot 0 (G10)
+stock 0 1
+# step 3: the conditions nothing here sets, read once: G4 (top byte 0), G7 (top byte nonzero, expect 0xFF), G6 (!= 2), G5, char+1920 before (expect 0)
+log_state 0x8376E544
+log_state 0x836F38D0>3084>1760
+log_state 0x83767B6C>108
+log_state 0x836F38D0>1340
+log_state 0x836F38D0>1920
+# step 4: the CPU target is left ACTIVE: it walks up to the idle human and faces him; 150.0 = 0x43160000 = 1125515264 (positive floats compare as ints)
+log bench: waiting for the CPU to come within 150.0 (3600 frames)
+wait_state 0x836F38D0>2812 <1125515264 3600 2
+# G11 margin: run 27 froze the CPU at 147.3 and the act-240 motion stumbles the target BACK (shot omg_01); give it up to 2 s more to come within 100.0
+# (0x42C80000 = 1120403456). Optional: a warning and on at 150 when it stops further out.
+wait_state 0x836F38D0>2812 <1120403456 120 2 optional
+# step 5: freeze the CPU; the attacker recovers from any hit (G1)
+passive 1 on
+wait_frames 60
+# Run 30: `place 0` was refused because the attacker's [char+836] held a partner (a two-object motion, the target's act read 103 when the state was forced in
+# runs 27-30, and the forced state pulled the target out of it and left the attacker in it). Force the state only once BOTH wrestlers are out of any
+# two-object motion: +836 = 0 on both, held 10 frames.
+log_state 0x836F38D0>836
+log_state 0x836F38D4>836
+log_state 0x836F38D4>28>0
+log bench: waiting for both wrestlers to be out of a two-object motion, +836 = 0 (900 frames)
+wait_state 0x836F38D0>836 0 900 10
+wait_state 0x836F38D4>836 0 900 10
+wait_state 0x836F38D0>836 0 900 2
+# B0, before the state: target / attacker facing (+148, radians) and the gate's own points ([char+176] -> x +0, z +8: sub_825758A8 / sub_82573B70),
+# distance, the attacker's target pointer (must equal the slot 1 word logged next)
+log_state 0x836F38D4>148
+log_state 0x836F38D0>148
+log_state 0x836F38D4>176>0
+log_state 0x836F38D4>176>8
+log_state 0x836F38D0>176>0
+log_state 0x836F38D0>176>8
+log_state 0x836F38D0>2812
+log_state 0x836F38D0>2672
+log_state 0x836F38D4
+# step 6: the game's own state FenceCornerGroggy on the target. The verb only QUEUES it (it takes effect on a later tick). char+2568 is NOT a gate signal
+# (12 writers, the chooser zeroes it every pass, every special sets it): read before / after only. The G5 table entry table[char+1340]: a chain cannot index, so entry 0 of 0x836F4B40 is logged here; it is the gate's entry only when char+1340 (step 3) reads 0.
+log_state 0x836F38D0>2568
+log_state 0x836F4B40
+state 1 FenceCornerGroggy
+# The verb is served by the NEXT owner tick and the queued state is entered after it: a wait_state on this frame reads the OLD act (HOLD 1 = no frames),
+# and an old act >= 243 would meet the >= below at once and fail the assert. A few frames first, so the read below is the queued state's act.
+wait_frames 4
+# step 7: wait for the target's own act (the u16 at [[char+28]] is the top half of the word: 240 = 0x00F0 -> >= 0x00F00000 = 15728640, < 243 = 0x00F30000 = 15925248)
+log bench: waiting for the target act 240..242 (120 frames)
+wait_state 0x836F38D4>28>0 >=15728640 120 1
+assert_state 0x836F38D4>28>0 <15925248
+log_state 0x836F38D0>2568
+# step 8 (S110 PLACE, run 29): the state carries the target out of the ring to its barricade corner in about 35 frames; he rests at (636.0, 640.5) facing pi/4 and the
+# gate reads act 240 for about 105 frames in all. Wait 40 frames, log both points, then put the attacker on the ringside floor in front of him with the dev verb `place`
+# (the game's own all-copies warp; PLACE.md). Facing 225 = the game's angle from the attacker toward the target, atan2(-dz, dx) - pi/2 (sub_82C32810) from
+# (540, 545) toward (636, 640.5) = -134.9 deg = 225.1 deg. Distance about 135 (the gate wants +2812 <= 200.0).
+log bench: waiting 40 frames for the target to reach his corner
+wait_frames 40
+log_state 0x836F38D4>160
+log_state 0x836F38D4>168
+log_state 0x836F38D0>160
+log_state 0x836F38D0>168
+log_state 0x836F38D0>836
+log_state 0x836F38D0>1920
+# Run 32: both wrestlers floated at ring height through the whole move. The forced state slides the target outside the ring without the game's own place /
+# floor-height update (his +164 and place byte +70 stay the ring's), and the move takes its height from him. Put him at his OWN resting point with `place`
+# (facing kept), which takes the place byte and floor height from the game's functions for that point. Height and place byte logged before and after.
+log_state 0x836F38D4>164
+log_state 0x836F38D4>70
+place 1 636 640.5
+wait_frames 2
+log_state 0x836F38D4>160
+log_state 0x836F38D4>164
+log_state 0x836F38D4>168
+log_state 0x836F38D4>70
+log_state 0x836F38D4>28>0
+place 0 540 545 225
+wait_frames 2
+log_state 0x836F38D0>160
+log_state 0x836F38D0>164
+log_state 0x836F38D0>168
+log_state 0x836F38D0>148
+log_state 0x836F38D0>70
+log_state 0x836F38D0>176>0
+log_state 0x836F38D0>176>8
+# the gate's distance must be <= 200.0 (0x43480000 = 1128792064) now; the target must still be in act 240..242 and facing pi/4
+log_state 0x836F38D0>2812
+log_state 0x836F38D4>28>0
+log_state 0x836F38D4>148
+# the four corner words BEFORE the press (a 1 here is stale, not this break)
+log_state 0x83763544>23116>228
+log_state 0x83763544>23120>228
+log_state 0x83763544>23124>228
+log_state 0x83763544>23128>228
+# step 9: Y at once, held / repeated across that window (the press takes two chooser passes: the first creates the request, the gate is tested again on the second);
+# until a special started on slot 0 (char+1920 = 1); the shots run from the press
+screenshot_every 15 omg
+# B1, the frame of the press: every gate input sub_825FBD58 reads that can change (G8 act, G9 facing + points, G11 distance), the target link, the hint,
+# and the stand-up inputs of the target's Execute (sub_826D76B8: byte +1021 = 2nd byte of the +1020 word, +40 > 60)
+log_state 0x836F38D4>28>0
+log_state 0x836F38D0>2812
+log_state 0x836F38D4>148
+log_state 0x836F38D4>176>0
+log_state 0x836F38D4>176>8
+log_state 0x836F38D0>176>0
+log_state 0x836F38D0>176>8
+log_state 0x836F38D0>2672
+log_state 0x836F38D0>2568
+log_state 0x836F38D4>40
+log_state 0x836F38D4>1020
+# ONE press (held 4, released 2: 6 frames), then what it did: +1712 = 6 = sub_825FFE30 made a request (the OMG's first pass, or another special's);
+# +2484 / +2488 = the logged waza / act; +1920 = a two-wrestler start
+press Y 4 2
+log_state 0x836F38D0>1712
+log_state 0x836F38D0>2484
+log_state 0x836F38D0>2488
+log_state 0x836F38D0>1920
+log_state 0x836F38D4>28>0
+log_state 0x836F38D0>2812
+log_state 0x836F38D4>148
+# B2 / B3: the second chooser pass (FRA +224) lands in here
+wait_frames 6
+log_state 0x836F38D0>1712
+log_state 0x836F38D0>2488
+log_state 0x836F38D0>1920
+log_state 0x836F38D4>28>0
+log_state 0x836F38D0>2812
+wait_frames 12
+log_state 0x836F38D0>1712
+log_state 0x836F38D0>2488
+log_state 0x836F38D0>1920
+log_state 0x836F38D4>28>0
+log bench: pressing Y until char+1920 = 1 (5 more tries)
+press_until_state Y 0x836F38D0>1920 1 5 20 4 if_needed
+log scene=omg_pressed
+# char+1920 = 1 is written by EVERY two-wrestler special start (sub_825FE118 +0x1E8 too), so it does not prove the OMG. The OMG's own mark: sub_82600800
+# calls sub_824E4A98 (the corner break, +0x1C4) and then sub_825A14A8(slot, 17, act) (+0x1D4), which stores act 2113..2122 as the u16 at char+2488
+# (the top half of the word: 2113 << 16 = 138477568, 2123 << 16 = 139132928) and 17 at +2486 (the low half of the +2484 word, logged). Anything else fails here.
+log_state 0x836F38D0>2484
+log_state 0x836F38D0>2488
+# Run 31: a two-wrestler special started (+1920 = 1, a close-up camera on both at the barricade) but +2488 read 0x00000002 on the frame +1920 was met, and the
+# hard asserts here quit the run before any picture of the move. The mark may be written on a later frame than +1920: wait for it (optional, the run goes on
+# to the pictures either way) and log it again at every shot. The proof of the OMG is these logged words, read after the run.
+log bench: waiting for the OMG mark at char+2488, act 2113..2122 (180 frames, optional)
+wait_state 0x836F38D0>2488 >=138477568 180 1 optional
+log_state 0x836F38D0>2484
+log_state 0x836F38D0>2488
+log_state 0x836F38D0>28>0
+log_state 0x836F38D4>28>0
+# step 10: exactly the corner q reads 1 (the break started)
+log_state 0x83763544>23116>228
+log_state 0x83763544>23120>228
+log_state 0x83763544>23124>228
+log_state 0x83763544>23128>228
+log_state 0x83763544>23140>228
+# The attacker stands at (540, 545) after `place`, so q = 2*(z >= 0) + (x < 0) = 2 (sub_824E49F0 on char+160 / +168): sub_824E4A98 breaks the objects at
+# stage + 23116 + 4q = 23124 and stage + 23132 + 4q = 23140 (the second may be absent: logged above), and sub_826684F8 sets [obj + 228] = 1. Hard check on the first.
+log bench: waiting for the q = 2 corner object's break word +228 = 1 (180 frames, optional)
+wait_state 0x83763544>23124>228 1 180 1 optional
+log_state 0x83763544>23116>228
+log_state 0x83763544>23120>228
+log_state 0x83763544>23124>228
+log_state 0x83763544>23128>228
+# step 11: the target is in the q = 2 corner (636, 640.5): rig records of its stage slots 392 / 396 (the corner rig and its sign) at about +120, +300, +600 and +960 frames
+# after the press. NOTE: `shot stage 390` / `392` currently trip the rig's centring check (an older fault), and `shot` has no `optional` form, so a failing subject
+# shot would fail the route. The route therefore takes game screenshots only (the guest output, no scene record); take the `shot stage 392` / `396` records by hand
+# in a run that wants the rig, once the centring fault is fixed.
+log bench: break shots at about +120 frames
+wait_frames 120
+screenshot omg_break_120
+log_state 0x836F38D0>2488
+log_state 0x836F38D0>28>0
+log_state 0x83763544>23124>228
+log bench: break shots at about +300 frames
+wait_frames 180
+screenshot omg_break_300
+log bench: break shots at about +600 frames
+wait_frames 300
+screenshot omg_break_600
+# step 12: the break motion is 850-950 motion frames; 120 + 180 + 300 + 360 reaches about +960 frames from the press
+log bench: break shots at about +960 frames
+wait_frames 360
+screenshot omg_break_960
+screenshot_every 0
+screenshot omg_after
+log_state 0x836F38D0>1920
+passive 1 off
+log bench: done
+quit

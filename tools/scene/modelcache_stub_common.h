@@ -1,7 +1,7 @@
 // S103 TLF: the ONE shared stand-in for the parts of record_frame.cpp's ModelCache that the appliers call by name (rf_props.cpp: StoredNamed / DropStored / RetireOther;
 // rf_wrestlers.cpp, rf_arena.cpp, rf_c_core.cpp: RetireOther). Included at file scope by every tool that supplies its own ModelCache constructor / Get / Put / Find
 // instead of linking record_frame.cpp (c_driver.cpp, rf_b_modelcache_stub.cpp). A new public ModelCache method an applier starts calling goes HERE once, not into each
-// tool's stub; tools\scene\link_check.py (the gate's s103_TLF lane) fails when a tool build lacks one. The signatures are record_frame.h's; the drop rule is
+// tool's stub; tools\scene\link_check.py fails when a tool build lacks one. The signatures are record_frame.h's; the drop rule is
 // record_frame.cpp's, without the front-end release (the tools never retire GPU models).
 // NOT inline: an inline member is emitted only in a TU that uses it, so the applier TUs would still fail to link. Include it in exactly ONE TU per tool.
 #pragma once

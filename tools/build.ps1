@@ -28,11 +28,18 @@
 param([string]$Run = '002', [string]$Preset = 'win-amd64-release', [string]$AllowUnpinnedSdk = '',
       [switch]$CheckOnly, [string]$ExeDir = '', [string[]]$SdkBin = @(), [string]$PinFile = '',
       [double]$LockWaitMinutes = 3, [double]$LockMaxMinutes = 30,
-      [switch]$Symbols, [switch]$NoSymbols, [switch]$GuestLines, [string]$Root = '')
+      [switch]$Symbols, [switch]$NoSymbols, [switch]$GuestLines, [string]$Root = '',
+      # S106 C4: tools\exe\lane_exe.ps1 builds a lane's / commit's exe in a slot worktree under a BUILD-class hold (it replaces no exe any game runs from), with its own -j.
+      [ValidateSet('Exclusive', 'Build')][string]$LockMode = 'Exclusive', [int]$Jobs = 16)
 # S103 WTG: the tree this script builds is the one it lives in (or -Root), never a hardcoded path (a worktree build used to build the MAIN tree silently).
 if (-not $Root) { $Root = Join-Path $PSScriptRoot '..' }
 if (-not (Test-Path -LiteralPath $Root -PathType Container)) { "build.ps1: -Root $Root is not a folder"; exit 2 }
 $repo = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
+# S106 C4: -LockMode Build is for slot worktrees only. The main checkout (.git is a folder there, a file in a worktree) builds out\build, whose exe a running game can have loaded.
+if ($LockMode -eq 'Build' -and (Test-Path -LiteralPath "$repo\.git" -PathType Container)) {
+    "build.ps1: REFUSED, nothing built: -LockMode Build on the main checkout $repo (its out\build exe can be loaded by a running game; use the default exclusive lock, or build in a slot worktree: tools\exe\lane_exe.ps1)"
+    exit 6
+}
 . "$repo\tools\sdk_pins.ps1"
 $script:SdkPinRepo = $repo   # the pin helpers read the same tree (their default is the main checkout)
 $overrideGiven = $PSBoundParameters.ContainsKey('AllowUnpinnedSdk')
@@ -44,7 +51,7 @@ if ($overrideGiven -and -not $AllowUnpinnedSdk.Trim()) {
 if (-not $CheckOnly) {
     $lack = @(@('generated\default', "out\build\$Preset\CMakeCache.txt", 'tools\sdk_pins.json') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $repo $_)) })
     if ($lack.Count) {
-        "build.ps1: REFUSED, nothing built: $repo lacks $($lack -join ', ') (a builder worktree has no generated code, build folder or SDK pins: this is a NEEDS-MAIN step, hand it to the main session; or pass -Root to a tree that has them)"
+        "build.ps1: REFUSED, nothing built: $repo lacks $($lack -join ', ') (a builder worktree has no generated code or configured build folder, and its tree has no installed SDK: this is a NEEDS-MAIN step, hand it to the main session; or pass -Root to a tree that has them)"
         exit 6
     }
 }
@@ -122,6 +129,11 @@ if ($CheckOnly) {
 }
 
 . "$repo\tools\env.ps1" *> $null
+# S106 C4: env.ps1 looks for the SDK in ITS OWN tree's thirdparty (unset REXSDK stays unset in a worktree: configure fails, the DLL stage reads \bin).
+if (-not $env:REXSDK -or -not (Test-Path -LiteralPath "$env:REXSDK\bin")) {
+    "build.ps1: REFUSED, nothing built: REXSDK is not set to an installed SDK (set REXSDK to the main checkout's thirdparty\rexglue-sdk-vulkan; env.ps1 looks in -Root's own thirdparty)"
+    exit 6
+}
 . "$repo\tools\runlock.ps1"
 $ErrorActionPreference = 'Continue'
 Set-Location $repo
@@ -133,7 +145,7 @@ if ($Symbols -and $NoSymbols) { 'build.ps1: -Symbols and -NoSymbols together mak
 # Session 95 (process report item 5: "build.ps1 s95d3 timed out after 301 s" while the queue was moving): QUEUE-AWARE. The
 # -LockWaitMinutes clock restarts whenever the line moves (our position drops or the holder changes) up to -LockMaxMinutes
 # (default 30) in all; a live game nobody started (a manual session) still times out at -LockWaitMinutes as before.
-try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -TimeoutMinutes $LockWaitMinutes -QueueAware -MaxTotalMinutes $LockMaxMinutes }
+try { $lock = Enter-RunLock -Name "build.ps1 $Preset $Run" -Mode $LockMode -TimeoutMinutes $LockWaitMinutes -QueueAware -MaxTotalMinutes $LockMaxMinutes }
 catch {
     "build.ps1: NOT BUILT, the run lock was not free within $LockWaitMinutes min ($($_.Exception.Message)). Quit the " +
         "game that holds it (a live game: game_quit), or wait longer with -LockWaitMinutes N (no-progress wait) or -LockMaxMinutes N (total, with -QueueAware)."
@@ -153,13 +165,19 @@ $cache = Join-Path $repo "out\build\$Preset\CMakeCache.txt"
 $symNow = (Test-Path -LiteralPath $cache) -and ((Get-Content -LiteralPath $cache) -contains 'WWE2K14_EXE_SYMBOLS:BOOL=ON')
 if ($Symbols) {
     $gl = if ($GuestLines) { 'ON' } else { 'OFF' }
-    cmake -S . -B "out/build/$Preset" -DWWE2K14_EXE_SYMBOLS=ON -DWWE2K14_EXE_SYMBOLS_GUEST_LINES=$gl *>&1 | Select-Object -Last 3
+    # S106 (GSMAINF re-review side finding): quoted, or PowerShell passes the literal text `$gl` (both release caches held `BOOL=$gl`: -GuestLines never worked)
+    cmake -S . -B "out/build/$Preset" -DWWE2K14_EXE_SYMBOLS=ON "-DWWE2K14_EXE_SYMBOLS_GUEST_LINES=$gl" *>&1 | Select-Object -Last 3
 } elseif ($NoSymbols -and $symNow) {
     cmake -S . -B "out/build/$Preset" -DWWE2K14_EXE_SYMBOLS=OFF -DWWE2K14_EXE_SYMBOLS_GUEST_LINES=OFF *>&1 | Select-Object -Last 3
 } elseif ($symNow) { "build.ps1: note: wwe2k14.pdb symbols are ON in this build folder (-NoSymbols turns them off)" }
 $t0 = Get-Date
-cmake --build "out/build/$Preset" -j 16 *>&1 | Out-File $log
+# S106 C4 (first real lane_exe build, 11:44): a fresh slot worktree has no logs\ (gitignored): Out-File failed before cmake ran and the
+# stale $LASTEXITCODE (0) reported success. Make the folder, and never read success from a build that wrote no log.
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
+$global:LASTEXITCODE = 1
+cmake --build "out/build/$Preset" -j $Jobs *>&1 | Out-File $log
 $buildExit = $LASTEXITCODE
+if (-not (Test-Path -LiteralPath $log)) { "build.ps1: no build log was written ($log): reporting failure"; $buildExit = 1 }
 "build exit: $buildExit  elapsed: $([int]((Get-Date) - $t0).TotalSeconds)s"
 
 # The SDK DLLs are only staged when the exe relinks, so an SDK-only rebuild would leave stale copies.

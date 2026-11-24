@@ -173,8 +173,8 @@ def with_state_checks(lines, name):
 
 
 def build(name, header, second, moves, bg, second_tron, entrance_frames, state=False):
-    # Session 16: timed routes run at normal speed (run_list fast-forwards routes without this line).
-    lines = ['# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)'] + [
+    # S109 FF: a timed route says so on its intent line: `performance <number>` is the ONE door to normal speed (run_list fast-forwards routes without it).
+    lines = ['# intent: performance fps'] + [
         f'# {l}' if l else '#' for l in header] + ['on_fail quit', f'log bench: start {name}']
     lines += route(*BOOT_TO_FIRST_PICK, '--until', '2346' if second == 'undertaker' else '2504')
     if second == 'undertaker':

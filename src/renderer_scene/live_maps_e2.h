@@ -13,6 +13,10 @@
 #include "live_map_rope.h"   // S103 B2F
 #include "record_io.h"
 #include "scene_record.h"
+#include "rows_liquid.h"   // S106 G4-2
+#include "rows_snapshot.h"   // S108 SHOT-A: LiquidImageRow
+#include "rows_pictures.h"
+#include "rows_plane.h"
 #include "stage_hook.h"
 #include "../renderer/renderer.h"
 
@@ -54,6 +58,11 @@ struct PreLightSlotInput {
 struct LiquidMapIn {
   LiquidMapRow row;
   std::vector<LiquidItemRow> items;
+};
+// S108 SHOT-A: a saved record's image of one map (section 69; `bytes` points into the record's section 70, which outlives the frame).
+struct LiquidImageIn {
+  LiquidImageRow row;
+  const uint8_t* bytes = nullptr;
 };
 
 // A short list of input names that are missing (fixed storage: no allocation per frame).
@@ -105,6 +114,7 @@ struct E2Input {
   std::vector<PreLightSlotInput> prelight_slots;
   // S103 SWF: the sweat / blood liquid maps (kScLiquidMaps / Items / Pictures, written by src\scene_live\liquid_*.h at the sweat node's entry). Empty = a dry record (nothing live, or an older record): not a missing input.
   std::vector<LiquidMapIn> liquid;
+  std::vector<LiquidImageIn> liquid_images;   // S108 SHOT-A: section 69: a map with an image starts FROM it and its frame's items are not painted again (the image already holds them); empty for every live record
   std::vector<const LiquidPictureRow*> liquid_pictures;   // only the pictures an item of `liquid` names: POINTERS into the record's kScLiquidPictures rows (the record outlives the frame; no 32 KB copies)
   NameList prelight_missing, sweat_missing;
 };
@@ -154,6 +164,7 @@ struct E2State {
     uint64_t items_drawn = 0, clears = 0;
     uint32_t clear_gen = 0;               // the last clear generation seen (LiquidMapRow::reserved[0]); a changed one clears even when the row that carried the request was dropped
     bool pending_clear = false;           // a clear that could not be applied (no resources yet): kept until a row can
+    uint32_t rebuild_gen = 0;             // S108 BLD3: the last rebuild package generation applied (LiquidMapRow::reserved[1]); the hook re-sends a package until this is acknowledged
   };
   std::unordered_map<uint32_t, LiquidState> liquid;   // by the guest's map object
   rdr::ImageId liquid_prev = rdr::kNoImage;           // the snapshot of the map under the item rects (the sweat shader reads the previous map at slot 0; a render target cannot be read while it is written)
@@ -166,7 +177,14 @@ struct E2State {
   // per frame (reset by RecordSweat) and totals (census)
   uint32_t liq_maps_frame = 0, liq_items_frame = 0, liq_published = 0;
   uint64_t liq_frames = 0, liq_maps_total = 0, liq_items_total = 0, liq_clears = 0, liq_pruned = 0;
+  uint64_t liq_images_applied = 0, liq_skip_image = 0;   // S108 SHOT-A: saved images uploaded / frame rows left unpainted because their map came from an image
   uint64_t liq_skip_no_pic = 0, liq_skip_type = 0, liq_skip_state = 0, liq_skip_rect = 0, liq_skip_resources = 0, liq_skip_repeat = 0, liq_no_object = 0, liq_unmatched = 0, liq_no_variant = 0, liq_skip_size = 0;
+  // S108 BLD2: the game's rebuild draw (sub_8279A328; liquid_plan.h): rows, its sweat discs (mask B), its region quads (blood R / sweat G), rows with nothing to draw, rebuild rows / regions without a picture (shortfall)
+  int liq_vs_plain = -1, liq_fs_tint = -1, liq_fs_tint_dim = -1;
+  uint16_t liq_prog_tint = 0, liq_prog_tint_dim = 0;
+  rdr::BufferId liquid_region_vb = rdr::kNoBuffer;   // the unit quad of the plain vertex shader: position = uv = the corner
+  uint64_t liq_regions_mirrored = 0, liq_discs_mirrored = 0, liq_items_mirrored = 0;   // S108 BLD4: drawn with a mirrored box (the game's own look) / live items held back for it (a counted hole)
+  uint64_t liq_alt_rows = 0, liq_rebuild_drawn = 0, liq_regions_drawn = 0, liq_alt_empty = 0, liq_alt_no_pic = 0, liq_alt_late = 0;   // (S108 BLD3: liq_alt_rows = packages applied, liq_alt_late = of them on a later row)
   // counters (relaxed; census strings built at print time)
   uint64_t rim_made = 0, plane_made = 0, prelight_made = 0, sweat_made = 0;
   uint32_t rim_objects = 0, rim_meshes = 0, plane_draws = 0, prelight_slots = 0, sweat_items = 0;

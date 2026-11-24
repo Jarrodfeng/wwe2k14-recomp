@@ -2,7 +2,7 @@ r"""Fold the repeated idioms of a recompiled function's PPC listing into one lin
 
   py -I tools\analysis\fold.py sub_82C04DF0 [-o out\s103\decomp\sub_82C04DF0.fold]     list + fold (reads the generated code)
   py -I tools\analysis\fold.py --lst out\s103\decomp\sub_82C04DF0.lst [-o FILE]        fold a listing made by list_function.py
-  py -I tools\analysis\fold.py --check FOLDFILE --lst LSTFILE                          the gate: every listing address is in exactly one output line
+  py -I tools\analysis\fold.py --check FOLDFILE --lst LSTFILE                          the check: every listing address is in exactly one output line
   py -I tools\analysis\fold.py sub_82C04DF0 --expand 0x82C05B3C                        the raw listing lines of the fold holding that address
 
 Output lines (one per item; every instruction address of the listing is in exactly one item, the check proves it):
@@ -405,7 +405,7 @@ def read_lst(path):
 
 
 def check(fold_path, lst_path):
-    """The gate: the listing's instruction addresses == the union of the folded output's addresses, each exactly once."""
+    """The check: the listing's instruction addresses == the union of the folded output's addresses, each exactly once."""
     lst = [int(LINE_RE.match(l).group(1), 16) for l in read_lst(lst_path) if LINE_RE.match(l)]
     addr_set = sorted(lst)
     claimed = []

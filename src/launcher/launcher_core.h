@@ -42,6 +42,8 @@
 #include "../gfx_settings.h"  // Session 28: the graphics settings mapping the game shares
 #include "../dlc_catalog.h"   // Session 32: DLC packs (finding them, reading their catalogs), shared with the game
 #include "../stream_free_target.h"  // S105 A1b: kStreamFreeTarget
+#include "../tron_sheet_core.h"  // S110 TRONSHEET: the tron sheet's sizes (the shim's, the store's)
+#include "../tron_slots_core.h"  // S110 TRONSLOT: kTronExts (the one tron extension list) and the custom tron slots
 
 namespace launcher {
 
@@ -491,7 +493,7 @@ inline std::vector<Arena> LoadArenas(const fs::path& ids_dir) {
 // ---------------------------------------------------------------------------------------------------------------
 // Tron files
 
-inline constexpr const char* kTronExts[] = {".bik2", ".mp4", ".mov", ".mkv", ".alpha.mp4", ".alpha.mov", ".alpha.mkv"};
+using wwe2k14::tron_slots_core::kTronExts;  // (the game's order; src\tron_slots_core.h)
 
 // "500.alpha.mp4" -> ".alpha.mp4", "343.mp4" -> ".mp4": the part of a tron file name after the number.
 inline std::string TronExt(const fs::path& f) {
@@ -643,7 +645,9 @@ inline VideoInfo ProbeVideo(const fs::path& p, std::vector<uint8_t>* rgba = null
 }
 
 // The tron sheet (Session 18): a 320x320 character tron is the big screen (rows 0-223) and four 24-row banner strips.
-inline constexpr int kSheetBigRows = 224, kSheetStripRows = 24, kSheetStrips = 4;
+// (int copies of src\tron_sheet_core.h's constants: the panel's arithmetic is int / float)
+inline constexpr int kSheetBigRows = int(wwe2k14::tron_sheet::kSheetBigRows), kSheetStripRows = int(wwe2k14::tron_sheet::kSheetStripRows),
+                     kSheetStrips = int(wwe2k14::tron_sheet::kSheetStrips);
 
 // Banner strips for an MP4 tron (the game reads titantron\NNN.banner.txt / NNN.banner.mp4; src\tron_shim.h).
 enum class BannerMode { kOriginal, kVideo, kNone, kFile };
@@ -743,6 +747,9 @@ inline std::map<int, fs::path> AllOverrides(const Paths& p) {
     if (stem.empty() || !std::all_of(stem.begin(), stem.end(), ::isdigit)) continue;
     if (std::find(std::begin(kTronExts), std::end(kTronExts), ext) == std::end(kTronExts)) continue;
     const int id = std::stoi(stem);
+    // S110 TRON-B review: a custom tron slot is not a replacement of a stock tron (the CUSTOM TRONS section owns it): "Revert all..." (RevertAll)
+    // deleted every custom video, leaving its line without a file
+    if (wwe2k14::tron_slots_core::IsSlotId(id)) continue;
     if (!out.count(id) || OverrideFor(p, id) == e.path()) out[id] = e.path();
   }
   return out;

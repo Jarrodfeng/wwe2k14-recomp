@@ -6,11 +6,11 @@ already leaves the chain out is neither the ledger's "first executed run" nor co
 
   unit     plane_blank_test.cpp compiles and passes; the planted twins (no_first_run, ignore_overlap, ignore_half, drop_mask, ignore_readers) each FAIL it.
   fview    fview --replay --validation 1 --hash-frames, bundle + --shadow-half, switch off vs on (exit code AND `validation errors N` are read):
-             the gate's Bryan capture (237 frames, scene records), lane86 Bryan (91) and lane86 Check B (120): picture hashes equal on EVERY frame; Bryan: the lever TOOK frames
+             the standard Bryan capture (237 frames, scene records), lane86 Bryan (91) and lane86 Check B (120): picture hashes equal on EVERY frame; Bryan: the lever TOOK frames
              (skipped > 0 and every skipped frame is a drawn one: bound draws fall by exactly the census' draws); Check B: nothing skipped.
            Twins (must be CAUGHT, pictures differ): `always` (a chain that is not blank, skipped) on Check B under the bundle + half rate; `window` [70,80): the first window frame
              equals the off arm (the ledger's executed run), the later ones differ and no frame outside the window does.
-  counts   rplay --counts (src\renderer\counts.h) on the gate's Bryan capture, same bundle, off vs on: passes, draws, copies, clears, barriers, pipeline binds and area_px per frame
+  counts   rplay --counts (src\renderer\counts.h) on the standard Bryan capture, same bundle, off vs on: passes, draws, copies, clears, barriers, pipeline binds and area_px per frame
              must fall (none rises); the fall is printed per frame; --draw-census 2 adds the colour passes' fragment shader invocations.
 Exit 1 on any failure or an input that cannot be read."""
 import argparse
@@ -166,7 +166,7 @@ def counts_arms(root, main):
     out = os.path.join(root, 'out', 's102', 'g4c')
     os.makedirs(out, exist_ok=True)
     if not os.path.isfile(os.path.join(cap, 'images.bin')):
-        say(False, 'cannot read the gate capture %s' % cap)
+        say(False, 'cannot read the standard capture %s' % cap)
         return
 
     def run(tag, extra, census_level=0):

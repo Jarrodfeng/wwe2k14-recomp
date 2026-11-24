@@ -14,6 +14,7 @@
 
 #include "../../src/renderer_scene/maps_census.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_circle.h"
 #include "../../src/scene_live/circle_points.h"
 #include "../../src/scene_live/props_light_read.h"
 #include "e5_fake_memory.h"

@@ -34,6 +34,7 @@
 #include "wm30_fire_args.h"
 #include "wm30_fire_watch.h"
 #include "wm30_jump.h"       // g_fire_live, g_fire_started
+#include "wm30_script_core.h"  // S110 FIRELINE: g_fire_port
 
 REX_EXTERN(sub_82736790);          // Lua native 1003 (yMatch.CallFunction ... 1003): queue / play a scene
 REX_EXTERN(sub_827F5C78);          // request table record i (T, i)
@@ -215,11 +216,8 @@ inline void Tick(PPCContext& ctx, uint8_t* base) {
 }
 
 // `!wm30 fire BANK [actor=0|1] [mode=N] [force]` (the pipe thread): parse; hand to the game thread; wait <= 3 s for its answer. Reads no guest memory.
-inline std::string LiveCommand(const std::string& args) {
-  FireArgs a;
-  const std::string error = ParseFireArgs(args, a);
-  if (!error.empty()) return error;
-  std::unique_lock<std::mutex> lock(g_mu);
+// The request half (g_mu held): "" = queued for the owner tick. Shared by the live command and the `wm30_fire` script line (S110 FIRELINE).
+inline std::string SubmitLocked(const FireArgs& a) {
   if (g_pending.load() >= 0) return "error: a fire request is already waiting for the game";
   g_answered = false;
   g_answer.clear();
@@ -227,6 +225,15 @@ inline std::string LiveCommand(const std::string& args) {
   g_pending_mode.store(a.mode);
   g_pending_force.store(a.force);
   g_pending.store(a.bank);
+  return "";
+}
+
+inline std::string LiveCommand(const std::string& args) {
+  FireArgs a;
+  const std::string error = ParseFireArgs(args, a);
+  if (!error.empty()) return error;
+  std::unique_lock<std::mutex> lock(g_mu);
+  if (const std::string busy = SubmitLocked(a); !busy.empty()) return busy;
   if (!g_cv.wait_for(lock, std::chrono::seconds(3), [] { return g_answered; })) {
     if (g_pending.exchange(-1) >= 0) return "error: the game thread did not serve the request within 3 s (is the game running frames?)";
     g_cv.wait_for(lock, std::chrono::seconds(5), [] { return g_answered; });
@@ -235,7 +242,25 @@ inline std::string LiveCommand(const std::string& args) {
   return g_answer.rfind("fired", 0) == 0 ? g_answer : "error: " + g_answer;
 }
 
-inline const bool g_registered = (wwe2k14::wm30::g_fire_live = &LiveCommand, wwe2k14::scene_director::g_fire_tick = &Tick, true);
+// S110 FIRELINE: the script line's three calls (src/wm30_script_core.h): the same parse + request as LiveCommand, then a poll instead of the 3 s wait.
+inline std::string ScriptSubmit(const std::string& args) {
+  FireArgs a;
+  const std::string error = ParseFireArgs(args, a);
+  if (!error.empty()) return error;
+  std::lock_guard<std::mutex> lock(g_mu);
+  return SubmitLocked(a);
+}
+inline bool ScriptPoll(std::string& answer) {
+  std::lock_guard<std::mutex> lock(g_mu);
+  if (!g_answered) return false;
+  answer = g_answer;
+  g_answered = false;
+  return true;
+}
+inline bool ScriptWithdraw() { return g_pending.exchange(-1) >= 0; }
+
+inline const bool g_registered = (wwe2k14::wm30::g_fire_live = &LiveCommand, wwe2k14::scene_director::g_fire_tick = &Tick,
+                                  wwe2k14::wm30_script::g_fire_port = {&ScriptSubmit, &ScriptPoll, &ScriptWithdraw}, true);
 
 }  // namespace wwe2k14::wm30_fire
 

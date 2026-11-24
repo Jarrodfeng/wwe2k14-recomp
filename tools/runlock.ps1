@@ -106,6 +106,7 @@ $script:RunLockFile = Join-Path $script:RunLockDir 'lock.json'
 $script:RunLockQueue = Join-Path $script:RunLockDir 'queue'
 $script:RunLockLaunchFile = Join-Path $script:RunLockDir 'launch.lock'
 $script:RunLockGameNames = @('wwe2k14')
+$script:RunLockCompilerNames = @('clang', 'clang++', 'clang-cl', 'lld-link', 'ld.lld', 'ninja', 'rexglue', 'cl', 'glslangValidator', 'glslang')   # S106 C5: what -Alone treats as a compile (a test swaps it)
 $script:RunLockMaxShared = 3   # THE setting: shared holders at once, and wwe2k14 processes at once in shared mode
 $script:RunLockMaxBuild = 3    # BUILD class: builds at once (see the design note; Session 94: 2 -> 3, Jarrod); they run no game
 $script:RunLockHistoryFile = Join-Path $script:RunLockDir 'history.tsv'
@@ -113,6 +114,9 @@ $script:RunLockHistoryColumns = @('time', 'event', 'mode', 'slot', 'name', 'pid'
 $script:RunLockLongHoldMinutes = 10   # hold discipline: exclusive holds longer than this get a warning (never blocked)
 $script:RunLockRepo = 'C:\Users\Jarrod\wwe2k14-recomp'   # report: run logs are read from <repo>\out\build\*\logs
 if ($null -eq $script:RunLockMsgToStderr) { $script:RunLockMsgToStderr = $false }
+# S106 C5: -Alone (the pause file, the drain, the sampler); functions only. S106 C5F note 6: guarded, so a copy of this script without the file (tools\owned\test_runlock_build.ps1) still loads; -Alone then throws.
+$script:RunLockAloneFile = Join-Path $PSScriptRoot 'harness\runlock_alone.ps1'
+if (Test-Path -LiteralPath $script:RunLockAloneFile) { . $script:RunLockAloneFile }
 
 function Write-RunLockMsg([string]$Message) {
     if ($script:RunLockMsgToStderr) { [Console]::Error.WriteLine($Message) } else { Write-Host $Message }
@@ -508,12 +512,17 @@ function Exit-RunLockLaunch($Stream) { if ($Stream) { try { $Stream.Dispose() } 
 function Enter-RunLock {
     param([string]$Name = 'unnamed', [double]$TimeoutMinutes = 240, [int]$PollMs = 2000, [switch]$Quiet,
           [ValidateSet('Exclusive', 'Shared', 'Build')][string]$Mode = 'Exclusive',
-          [switch]$QueueAware, [double]$MaxTotalMinutes = 30)
+          [switch]$QueueAware, [double]$MaxTotalMinutes = 30,
+          [switch]$Alone, [double]$AloneDrainSeconds = 300, [double]$AloneRunMinutes = 15)   # S106 C5: -Alone = EXCLUSIVE + the pause file + a drain (tools\harness\runlock_alone.ps1)
     # Session 95 (-QueueAware, process report item 5; a build timed out after 301 s with the queue moving): the deadline
     # restarts whenever the line moves (our position drops, or the thing blocking us changes) but never for a game nobody
     # started (a manual session: waiting on it is the old "quit the game" case), and never past -MaxTotalMinutes in all.
     [void][System.IO.Directory]::CreateDirectory($script:RunLockQueue)
     $max = $script:RunLockMaxShared
+    if ($Alone) {   # S106 C5
+        $Mode = 'Exclusive'
+        if (-not (Get-Command Enter-RunLockAlone -ErrorAction SilentlyContinue)) { throw "-Alone needs $script:RunLockAloneFile (not found next to this script): not run" }   # S106 C5F note 6
+    }
     # Re-entry: an ancestor (or this process, further up the stack) holds the lock and passed its token down.
     $inherited = $env:WWE2K14_RUNLOCK_TOKEN
     if ($inherited) {
@@ -521,7 +530,14 @@ function Enter-RunLock {
         if ($cur -and $cur.token -eq $inherited -and (Test-RunLockOwnerAlive $cur)) {
             if (-not $Quiet) { Write-RunLockMsg "[runlock] re-entered the exclusive lock held by '$($cur.name)' (pid $($cur.pid)) for '$Name'" }
             Write-RunLockHistory -Kind 'reenter' -Mode 'exclusive' -Slot 0 -Name $Name -Waited 0 -Token $inherited -Note "inside '$($cur.name)' pid $($cur.pid)"
-            return [pscustomobject]@{ Token = $inherited; Reentrant = $true; Name = $Name; Stream = $null; LockStream = $null; Mode = 'Exclusive'; Slot = 0 }
+            $rh = [pscustomobject]@{ Token = $inherited; Reentrant = $true; Name = $Name; Stream = $null; LockStream = $null; Mode = 'Exclusive'; Slot = 0 }
+            if ($Alone -and -not (Test-RunLockAloneHeldBy $env:WWE_ALONE_TOKEN)) {   # S106 C5: inside an exclusive hold that is not alone: take the pause and drain (games are already kept out). S106 C5F note 3: own = this process's tree + its ancestors, never the outer holder's other children; the pause has its own token (WWE_ALONE_TOKEN)
+                $aok = $false   # S106 C5FF N2: finally, not catch: a stopped pipeline (Ctrl+C) runs only `finally`
+                try { $ar = Enter-RunLockAlone -Handle $rh -DrainSeconds $AloneDrainSeconds -RunMinutes $AloneRunMinutes -Token $inherited; $aok = [bool]$ar.Ok }
+                finally { if (-not $aok) { Exit-RunLock $rh } }   # S106 C5F note 2
+                if (-not $ar.Ok) { throw $ar.Line }
+            }
+            return $rh
         }
         foreach ($sl in (Get-RunLockSlots)) {
             if ($sl.Rec -and $sl.Rec.token -eq $inherited -and (Test-RunLockOwnerAlive $sl.Rec)) {
@@ -560,7 +576,8 @@ function Enter-RunLock {
     $token = [guid]::NewGuid().ToString('N')
     $ticket = Join-Path $script:RunLockQueue ('{0:D19}_{1}.json' -f [DateTime]::UtcNow.Ticks, $PID)
     $rec = [ordered]@{ token = $token; pid = $PID; pid_start = $myStart; name = $Name;
-        cmd = [Environment]::CommandLine; queued = (Get-RunLockNow); mode = $modeWord }
+        cmd = [Environment]::CommandLine; queued = (Get-RunLockNow); mode = $modeWord;
+        root = (Split-Path -Parent $PSScriptRoot) }   # S106 G2FF F-B: the checkout this runlock.ps1 belongs to (the merge train counts only the main checkout's holders)
     Write-RunLockTicket $ticket $rec
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $lastMsg = ''
@@ -647,6 +664,12 @@ function Enter-RunLock {
                         Write-RunLockHistory -Kind 'acquire' -Mode 'exclusive' -Slot 0 -Name $Name -Waited $h.WaitedSeconds `
                             -Queue ([Math]::Max(0, $s.Tickets.Count - 1)) -Games $s.Games.Count -Token $token `
                             -Note $(if ($took) { "took over a stale lock from '$($took.name)' pid $($took.pid)" } else { '' })
+                        if ($Alone) {   # S106 C5: the pause file + the drain; a refusal gives the lock back and throws the NO line (exit 3 at the callers)
+                            $aok = $false   # S106 C5FF N2: finally, not catch: a stopped pipeline (Ctrl+C) runs only `finally`
+                            try { $ar = Enter-RunLockAlone -Handle $h -DrainSeconds $AloneDrainSeconds -RunMinutes $AloneRunMinutes -QueueWaited $h.WaitedSeconds; $aok = [bool]$ar.Ok }
+                            finally { if (-not $aok) { Exit-RunLock $h } }   # S106 C5F note 2: a throw or a stop in the drain must not leak the EXCLUSIVE lock into a long-lived caller (a refusal gives it back here too)
+                            if (-not $ar.Ok) { throw $ar.Line }
+                        }
                         return $h
                     }
                 }
@@ -726,6 +749,7 @@ function Enter-RunLock {
 # hold-discipline warning (exclusive hold over $script:RunLockLongHoldMinutes min). Either way after the release itself.
 function Exit-RunLock {
     param($Handle, [switch]$Report)
+    if ($Handle -and $Handle.PSObject.Properties['Alone'] -and $Handle.Alone) { Exit-RunLockAlone $Handle }   # S106 C5: before anything else (also for a reentrant handle that took the pause)
     if (-not $Handle -or $Handle.Reentrant) { return }
     $released = $false
     if ("$($Handle.Mode)" -in 'Shared', 'Build') {
@@ -957,7 +981,7 @@ function Get-RunLockGameRuns([datetime]$From, [datetime]$To) {
     # Build folders, exe copies of experiments (out\harness\<task>\exe, e.g. task L3's lanes snapshot) and bisect
     # worktree builds. Not out\harness\triage\*\logs (synthetic test logs). Wildcards only at fixed depths: the bisect
     # worktree has junctions into game_data, so nothing here recurses.
-    $dirs = @(foreach ($pat in @('out\build\*\logs', 'out\harness\*\exe\logs', 'out\harness\bisect\wt\*\out\build\*\logs')) {
+    $dirs = @(foreach ($pat in @('out\build\*\logs', 'out\harness\*\exe\logs', 'out\harness\bisect\wt\*\out\build\*\logs', 'out\exe\*\logs')) {   # S106 G2L: out\exe\*\logs (lane_exe.ps1 / train exes)
         Resolve-Path -Path (Join-Path $script:RunLockRepo $pat) -ErrorAction SilentlyContinue | ForEach-Object { $_.Path } })
     $runs = foreach ($d in $dirs) {
         foreach ($f in @(Get-ChildItem -LiteralPath $d -Filter 'wwe2k14_*.log' -File -ErrorAction SilentlyContinue)) {
@@ -1207,7 +1231,7 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
         'status' { Show-RunLockStatus; exit 0 }
         'clear-stale' { Clear-RunLockStale -Lock; exit 0 }
         'run' {
-            $name = 'runlock run'; $timeout = 240; $runMode = 'Exclusive'; $i = 1; $maxMin = 30.0; $untimedExe = ''; $untimedRoot = ''
+            $name = 'runlock run'; $timeout = 240; $runMode = 'Exclusive'; $i = 1; $maxMin = 30.0; $untimedExe = ''; $untimedRoot = ''; $runAlone = $false; $aloneDrain = 300.0
             while ($i -lt $args.Count -and $args[$i] -ne '--') {
                 switch ($args[$i]) {
                     '-Name' { $name = $args[$i + 1]; $i += 2 }
@@ -1217,17 +1241,20 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
                     '-Shared' { $runMode = 'Shared'; $i += 1 }
                     '-Exclusive' { $runMode = 'Exclusive'; $i += 1 }
                     '-Build' { $runMode = 'Build'; $i += 1 }
+                    '-Alone' { $runAlone = $true; $i += 1 }   # S106 C5: EXCLUSIVE + the pause file + a drain
+                    '-AloneDrainSeconds' { $aloneDrain = [double]$args[$i + 1]; $i += 2 }
                     default { Write-Host "runlock run: unknown option $($args[$i])"; exit 2 }
                 }
             }
-            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared | -Build] [-Name NAME] [-Untimed GAME_EXE USER_DATA_ROOT] [-TimeoutMinutes M] [-MaxMinutes M (default 30; 0 = no limit)] -- CMD [ARGS...]'; exit 2 }
+            if ($i -ge $args.Count - 1) { Write-Host 'usage: runlock.ps1 run [-Shared | -Build | -Alone [-AloneDrainSeconds S]] [-Name NAME] [-Untimed GAME_EXE USER_DATA_ROOT] [-TimeoutMinutes M] [-MaxMinutes M (default 30; 0 = no limit)] -- CMD [ARGS...]'; exit 2 }
             $cmd = $args[$i + 1]; $rest = @(); if ($args.Count -gt $i + 2) { $rest = $args[($i + 2)..($args.Count - 1)] }
             # Session 95 (process report item 2: the untimed launcher / reference runs r1 r2 r3 diag3 diag4 held the exclusive lock
             # 15-25 min of a session): `-Untimed GAME_EXE USER_DATA_ROOT` takes a SHARED slot instead of the default exclusive
             # one when it is safe: the exe logs "run log number" (Test-RunLockExeSharedSafe), USER_DATA_ROOT is a folder of its
             # own under out\ (not Jarrod's real data, not the frozen mirror, not one a running game already uses). Otherwise it
             # stays exclusive and says why on stderr. Never for a timed run (perf numbers from a shared run are not comparable).
-            if ($untimedExe -and $runMode -eq 'Exclusive') {
+            if ($runAlone) { $runMode = 'Exclusive' }
+            if ($untimedExe -and $runMode -eq 'Exclusive' -and -not $runAlone) {
                 $why = ''
                 $rootFull = ''; try { $rootFull = [System.IO.Path]::GetFullPath($untimedRoot).TrimEnd('\') } catch { }
                 $outRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot) 'out')).TrimEnd('\') + '\'
@@ -1253,8 +1280,9 @@ if ($MyInvocation.InvocationName -ne '.' -and $args.Count -gt 0) {
             # Checked before queueing: a typo shouldn't wait its turn and then "succeed".
             if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine("runlock run: command not found: $cmd"); exit 127 }
             $script:RunLockMsgToStderr = $true   # keep the tool's stdout clean for whoever parses it
-            try { $h = Enter-RunLock -Name $name -TimeoutMinutes $timeout -Mode $runMode }
-            catch { [Console]::Error.WriteLine("runlock run: $($_.Exception.Message)"); exit 1 }
+            try { $h = Enter-RunLock -Name $name -TimeoutMinutes $timeout -Mode $runMode -Alone:$runAlone -AloneDrainSeconds $aloneDrain -AloneRunMinutes $(if ($maxMin -gt 0) { $maxMin } else { 30 }) }
+            catch { [Console]::Error.WriteLine("runlock run: $($_.Exception.Message)"); exit $(if ("$($_.Exception.Message)" -match '^alone: NO') { 3 } else { 1 }) }   # S106 C5: 3 = refused, not alone
+            if ($h.PSObject.Properties['Alone'] -and $h.Alone) { Write-RunLockMsg $h.Alone.YesLine }
             $code = 1
             try {
                 $global:LASTEXITCODE = $null

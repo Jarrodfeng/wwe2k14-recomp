@@ -5,44 +5,11 @@
 #include <vector>
 
 #include "../assets/asset_model.h"
+#include "../renderer/problem.h"   // S108 PRT: rdr::Log (the guest-sprite line)
 #include "live_assets.h"
+#include "particle_sprite_lookup.h"   // S108 PRT: MakeSpriteImage + the name -> sprite resolve (file map or the guest store)
 
 namespace rdr_scene {
-
-namespace {
-size_t SpriteMipBytes(assets::TexFormat f, uint32_t w, uint32_t h) {
-  const size_t blocks = size_t(std::max(1u, (w + 3) / 4)) * std::max(1u, (h + 3) / 4);
-  return f == assets::TexFormat::kBC1 ? blocks * 8 : blocks * 16;
-}
-// A particle sprite (BC1 / BC2 / BC3 DDS, as prtcls.pac stores them) as a sampled image with the mips the file holds. kNoImage for anything else.
-rdr::ImageId MakeSpriteImage(rdr::Renderer& r, const assets::Texture& t) {
-  const bool bc = t.format == assets::TexFormat::kBC1 || t.format == assets::TexFormat::kBC2 || t.format == assets::TexFormat::kBC3;
-  if (!bc || t.width == 0 || t.height == 0 || (t.width % 4) || (t.height % 4) || t.width > 4096 || t.height > 4096) return rdr::kNoImage;
-  uint32_t mx = std::max(t.width, t.height), maxmips = 1;
-  while (mx > 1) mx >>= 1, ++maxmips;
-  const uint32_t want = std::min(std::max(1u, t.mips), maxmips);
-  size_t total = 0;
-  uint32_t fit = 0;
-  for (uint32_t i = 0; i < want; ++i) {
-    const size_t sz = SpriteMipBytes(t.format, std::max(1u, t.width >> i), std::max(1u, t.height >> i));
-    if (total + sz > t.data.size()) break;
-    total += sz, ++fit;
-  }
-  if (!fit) return rdr::kNoImage;
-  rdr::ImageDesc d;
-  d.width = uint16_t(t.width), d.height = uint16_t(t.height), d.mips = uint8_t(fit), d.usage = rdr::kUsageSampled;
-  d.format = t.format == assets::TexFormat::kBC1 ? rdr::Format::BC1 : t.format == assets::TexFormat::kBC2 ? rdr::Format::BC2 : rdr::Format::BC3;
-  const rdr::ImageId id = r.CreateImage(d);
-  if (id == rdr::kNoImage) return id;
-  size_t at = 0;
-  for (uint32_t i = 0; i < fit; ++i) {
-    const size_t sz = SpriteMipBytes(t.format, std::max(1u, t.width >> i), std::max(1u, t.height >> i));
-    r.UpdateImage(id, i, 0, t.data.data() + at, sz);
-    at += sz;
-  }
-  return id;
-}
-}  // namespace
 
 FrameHooks::~FrameHooks() {
   for (auto& kv : particle_images_)
@@ -55,12 +22,20 @@ rdr::ImageId FrameHooks::ParticleImage(const std::string& pac, const std::string
   const std::string key = pac + "|" + entry;
   const auto it = particle_images_.find(key);
   if (it != particle_images_.end()) return it->second;
-  const auto store = ParticleSpritesNow();
-  if (!store) return rdr::kNoImage;
-  rdr::ImageId id = rdr::kNoImage;
-  const auto t = store->find(entry);
-  if (t != store->end()) id = MakeSpriteImage(renderer_, t->second);
+  const bool guest_pac = pac == live::particles::kGuestSpritePac;
+  const auto store = guest_pac ? nullptr : ParticleSpritesNow();
+  if (!guest_pac && !store) return rdr::kNoImage;
+  bool guest = false;
+  const auto t = ParticleSpriteFor(pac, entry, store, live::particles::GuestSprites::Process(), guest);   // S108 PRT: a guest name -> the picture the namer read from the game's own texture
+  if (!t && guest) {   // not cached: asked again next frame. LOUD, once per key: in a record replayed offline this is expected (the bytes live only in the live game), live it is a fault
+    ++particle_guest_missing_;
+    if (guest_told_.size() < 16 && guest_told_.insert(entry).second)   // bounded: 16 keys named, the rest counted (guest missing)
+      rdr::Log("[scene][particles] guest sprite %s is not in this process: its bytes exist only in the live game that read them (a record replayed offline cannot draw it); its batches are skipped, the picture is not a renderer fault", entry.c_str());
+    return rdr::kNoImage;
+  }
+  const rdr::ImageId id = t ? MakeSpriteImage(renderer_, *t) : rdr::kNoImage;
   (id == rdr::kNoImage ? particle_failed_ : particle_loaded_) += 1;
+  if (guest && id != rdr::kNoImage) ++particle_guest_loaded_;
   particle_images_[key] = id;
   return id;
 }
@@ -122,7 +97,7 @@ bool FrameHooks::ShadowInputHole(const SceneTables& rec, std::string& why) {
 std::string FrameHooks::CensusLine() const {
   std::string s = std::string("[scene][hooks] order ") + (options_.order == SeeOrder::Game ? "game" : "distance") + ", frames " + std::to_string(frames_);
   if (maps_) s += "; " + maps_->CensusLine();
-  if (particles_) s += "; " + particles_->CensusLine() + ", sprite images " + std::to_string((unsigned long long)particle_loaded_) + " (failed " + std::to_string((unsigned long long)particle_failed_) + ")";
+  if (particles_) s += "; " + particles_->CensusLine() + ", sprite images " + std::to_string((unsigned long long)particle_loaded_) + " (failed " + std::to_string((unsigned long long)particle_failed_) + ", from the game's texture " + std::to_string((unsigned long long)particle_guest_loaded_) + ", guest missing " + std::to_string((unsigned long long)particle_guest_missing_) + ")";
   return s;
 }
 

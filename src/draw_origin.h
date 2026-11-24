@@ -23,9 +23,12 @@
 #include <cstdint>
 
 #include "cost_counters.h"  // S101 lane 83: the passive cost counters (--wwe2k14_cost_counters)
+#include "renderer_scene/rows_caster.h"   // S106 G4-2
+#include "renderer_scene/rows_quad2d.h"
 #include "scene_live/span_timer.h"  // lane 122: records per span
 #include <cstring>
 #include "guest_read.h"  // S101 lane18: GuestWordReadableFast (ReadUnitsBe)
+#include "feed_seen.h"   // S110 FEEDREC
 #include "renderer_adapter/origin_intern.h"
 #include "renderer_adapter/post_origin.h"  // S101 lane PN: ApplyPostSite (the post effect that queued an op-68 quad)
 #include "scene_live/plane_glue.h"  // lane 139: the plane shadow chain's snapshot at the mask part draw (read only)
@@ -46,14 +49,14 @@
 #include "scene_live/scene_skip_nodes.h"  // S103 H: the scene skips (--wwe2k14_rdr_scene=2): the cvar, the frame clock and the hooks the scene tasks did not have
 #include "scene_live/quads2d_tap.h"  // S103 I1: the 2D layer's record (--wwe2k14_rdr_2d_record, default off; read only): the scope on the T_Rect / movie leaves, the vertices at the op-19 recorder below
 #include "scene_live/own_node_hook.h"  // S102 P4P5: the node switch on the shadow module's (sub_827E9740) and the rim map's (sub_827EA7B8) draw nodes; compiled and reviewed, not run
-#include "scene_live/replay_pose_hook.h"  // S103 RPF: the replay track (sub_8270ECE8) reports the body skeleton it posed (read only)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_draw_origin, true, "wwe2k14",
                     "S101: tag every draw record with the code that submitted it (renderer names, docs\\renderer\\NAMES.md); false = all draws unnamed");
 
 namespace wwe2k14::draw_origin {
 
-inline uint32_t Ld32(const uint8_t* base, uint32_t a) {
+inline uint32_t Ld32(const uint8_t* base, uint32_t a WWE_FEED_LOC_PARAM) {
+  WWE_FEED_NOTE(a, 4);
   const uint8_t* p = base + a;
   return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
 }
@@ -373,7 +376,7 @@ REX_HOOK_RAW(sub_82C04DF0) {
   wwe2k14::drawcam::NoteDraw(ctx.r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S103 WC R5 (draw_camera_glue.h)
   // S103 PW (review fix 1): the weapons' rows are taken FIRST, whatever the frame's mode. Under OURS the Ours test below returns before the original, so the mid-asm hook inside it (0x82C04E1C) never runs: the stream-free build
   // (every frame OURS) recorded no weapon call at all. RawEntry is weapon_rows_core.h RawHookEntry (the unit runs the same order with Ours = true). r5 here is [model+200], set by the callers.
-  if (rdr_scene::live::WrestlersRegistered() && rdr_scene::live::Enabled()) rdr_scene::live::Wrestlers().NoteDrawAsked(ctx.r3.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed), wwe2k14::wrestlers::ReadWord);   // S103 DRL: the game asked to draw this model (liveness of a body nothing updates: the post-match freeze frame)
+  if (rdr_scene::live::WrestlersRegistered() && rdr_scene::live::Enabled()) rdr_scene::live::Wrestlers().NoteDrawAsked(ctx.r3.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed), wwe2k14::wrestlers::ReadWordNoNote);   // S103 DRL: the game asked to draw this model (liveness of a body nothing updates: the post-match freeze frame)
   const bool ours_model = wwe2k14::scene_skip::Ours(::scene_skip::Hook::Model);
   // S103 GBR: "the thread's shadow flag A (sub_82BA77A8: u32 [0x83929A48 + 4 * slot]) is 0" (the colour pass), asked by the tracker ONLY for a gm set object / a blood splat call (GMS.md (A) / (B)); ctx is restored
   GbrPassCtx pass_ctx{&ctx, base};

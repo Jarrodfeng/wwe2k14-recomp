@@ -1,0 +1,59 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, blood on
+# Session 108 lane BLD7, the game check of GBF-1 (docs/GAME_BUG_FIXES.md): a blood-on match from the game's match builder, slot 0
+# bled through levels 1, 2, 3, then the finish, the highlight clip and the victory scene, with a face subject shot at each point.
+# Fast-forwarded (no realtime header): every wait is on game state or game frames.
+# Question: at the victory scene does `[wwe2k14][blood_keep] swet_burst|restore char=.. levels=3/0/0 gate=1 live=A->B` show B > A,
+# and do the face shots grow from thin (after_60) to as full as face_level3 by after_1900 .. after_3700?
+# Reference: run 32 (the game's own draw commands, before the fix): thin to the end.
+# Read with: py -I tools/harness/run_verdict.py --log <this run's log>. Shots and records are local only.
+on_fail quit
+log bench: start scene s108_bld7_bloodon
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=139:-1,343:-1;arena=5;o=81:1
+cvar wwe2k14_match_go 108
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_state match_clock >0 40000
+log scene=bld7_match
+mark 2 match_clock
+wait_frames 120
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+bleed 0 1
+wait_frames 120
+bleed 0 2
+wait_frames 120
+bleed 0 3
+wait_frames 400
+shot face 0 face_level3
+mark 3 bleed_levels_done
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 1900
+shot face 0 after_1900
+wait_frames 100
+shot face 0 after_2000
+wait_frames 300
+shot face 0 after_2300
+wait_frames 400
+shot face 0 after_2700
+wait_frames 500
+shot face 0 after_3200
+wait_frames 500
+shot face 0 after_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 30
+quit

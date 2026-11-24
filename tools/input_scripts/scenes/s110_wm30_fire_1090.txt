@@ -1,0 +1,32 @@
+# harness: flags --wwe2k14_wm30=3 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S110 FIRELINE: fires a 30 Years story scene (bank 1090) from the script, mid-match, with the `wm30_fire` line (the live `!wm30 fire 1090`
+# through the same owner-tick code, src\wm30_script_core.h). 30 Years match 3 (WrestleMania III, Hulk Hogan vs Andre the Giant): menus as
+# out\s110\bugs\vic\vic_wm30.txt / tools\input_scripts\scenes\s101_sweep_wm30_long.txt (menu_to_wm30, the era card, A until EVTDSC), then A
+# until the match clock runs (the bell; one A closes the "??? OK" box if one is up). The fire line FAILS this script (on_fail quit) when the
+# verb refuses (not a 30 Years match, still loading, a scene already running, the match clock held): the verdict's text is in the log.
+# After it: a shot every 20 frames while the scene plays and the match goes on (the live run's log said `back in the match`; the script has
+# no wait-for-log line, so a frame wait covers it), then quit. Read the `[wm30] fire:` log lines for the flow (25 -> 14 -> the state after).
+on_fail quit
+log fireline: start wm30 fire 1090
+include boot_to_menu
+include menu_to_wm30
+wait_frames 180
+press_until_file A EVTDSC 6 300 4
+log fireline: wm30 match picked
+press_until_state A match_clock !=0 60 600 5
+log scene=wm30_match
+wait_frames 60
+press_until_state A match_clock >30 5 60 5 if_needed
+log_state match_clock
+screenshot fl_match
+wm30_fire 1090
+log fireline: fired bank 1090
+screenshot_every 20 fire
+wait_frames 1800
+screenshot_every 0
+log_state match_clock
+log_state seq
+log fireline: done
+wait_frames 10
+quit

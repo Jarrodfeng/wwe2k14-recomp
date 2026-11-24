@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "../assets/ring_low_keys.h"
-#include "scene_record.h"
+#include "rows_ring.h"
 
 namespace rdr_scene::rf::c::ringkeys {
 

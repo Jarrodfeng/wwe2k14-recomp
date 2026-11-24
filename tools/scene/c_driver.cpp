@@ -30,6 +30,8 @@
 #include "../../src/scene_live/arena_apply.h"
 #include "../../src/renderer_scene/record_frame.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_ring.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/scene_live/flash_fx_core.h"   // S103 C3: the flash rows the LIVE writer makes (a fake guest below)
 
 using namespace rdr_scene;

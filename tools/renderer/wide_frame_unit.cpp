@@ -11,6 +11,7 @@
 //     7 scissor_dropped   a HUD row's own scissor is not applied                                   -> "rowview.hud_scissor"
 //     8 scene_box_origin  the in-scene box is not centred in the scene colour                      -> "scenebox.centred"
 #include "../../src/renderer_host/wide_frame.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 #include <cmath>
 #include <cstdio>

@@ -1,5 +1,5 @@
 # harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
-# harness: realtime (Session 95 lean natives in-run CPU A/B, capped 60, A B B A order; tools\s66\nf_ab.py report)
+# intent: performance cpu ms
 on_fail quit
 log bench: start nf_ab
 include boot_to_menu

@@ -1,16 +1,15 @@
-"""Per-run output folders for gate check scripts (S103 PSO).
+"""Per-run output folders for check scripts (S103 PSO).
 
 The class this closes: a check that defaults its output / reference folder to a FIXED path under the MAIN checkout's out\\ (every worktree and every parallel
-check shares it) races with itself: two gates rewrite each other's reference and served pictures (false FAIL, half-written PNG errors, a possible false PASS).
+check shares it) races with itself: two runs rewrite each other's reference and served pictures (false FAIL, half-written PNG errors, a possible false PASS).
 
   run_out(name, explicit=None)  ->  RunOut (a str subclass: use it as the path)
       1. the script's own --out argument (explicit): kept, never removed
-      2. else GATE_CHECK_DIR (the gate gives every check its own folder per checkout): <GATE_CHECK_DIR>\\<name>, kept (the gate empties it)
-      3. else a per-run folder <main>\\out\\<name>_<pid> (made when asked for), removed by finish() on PASS, kept and printed on FAIL
+      2. else a per-run folder <main>\\out\\<name>_<pid> (made when asked for), removed by finish() on PASS, kept and printed on FAIL
   finish(path, rc) -> rc   removes the per-run folder when rc == 0; on a failure prints where the pictures are
   Use at the end of main():   return run_dirs.finish(out, rc)
 
-A lint (tools\\gate\\out_dir_lint.py) fails a gate-run script that defaults an output to a fixed path rooted at the main checkout.
+A script that defaults an output to a fixed path rooted at the main checkout shares it with every worktree; this module gives each run its own folder.
 """
 import os
 import shutil
@@ -37,9 +36,6 @@ def run_out(name, explicit=None, env=None, pid=None):
     env = os.environ if env is None else env
     if explicit:
         return RunOut(explicit)
-    gcd = env.get('GATE_CHECK_DIR')
-    if gcd:
-        return RunOut(os.path.join(gcd, name))
     r = RunOut(os.path.join(main_checkout(), 'out', '%s_%d' % (name, os.getpid() if pid is None else pid)))
     r.owned = True
     return r

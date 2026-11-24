@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane WSL (COV6 G5) gate check: builds tools\\scene\\slot_vis_unit.cpp (the game's per-slot look gate sub_824E7190 0x824E72A8-0x824E7500 and the applier's stage-generation reset; 0 game runs, no game,
+"""S103 lane WSL (COV6 G5) check: builds tools\\scene\\slot_vis_unit.cpp (the game's per-slot look gate sub_824E7190 0x824E72A8-0x824E7500 and the applier's stage-generation reset; 0 game runs, no game,
 no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\slot_vis_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""
@@ -56,7 +56,7 @@ def main():
         ('src/renderer_scene/live_assets.cpp', 'KeepLookSlots() = true', 'the live arena load keeps the e and g slots (masked per frame)'),
         ('src/assets/asset_load.h', 'KeepLookSlots()', 'the loader skips its e / g delete when asked'),
         ('src/renderer_adapter/reader.h', 'wwe2k14_rdr_slot_look', 'the switch exists'),
-        ('src/renderer_scene/record_io.cpp', 'kFxCar', 'the record reader accepts the new row kinds (up to kFxCar, S103 CAR)'),
+        ('src/renderer_scene/record_io.cpp', 'kFxSlotPalette', 'the record reader accepts the new row kinds (up to kFxSlotPalette, S110 BARRICADE; kFxCar, S103 CAR, before it)'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

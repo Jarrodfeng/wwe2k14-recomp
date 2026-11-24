@@ -1,4 +1,4 @@
-# Gate check of lane 84 (S101): the unit test of our props of other pacs (props_ours_test.exe) with its planted faults and loud failures.
+# Check of lane 84 (S101): the unit test of our props of other pacs (props_ours_test.exe) with its planted faults and loud failures.
 #   py -I tools\props\props_ours_selftest.py [--step N]
 # Runs the SHIPPED core (src\renderer_scene\props_ours_core.cpp, the code PropsOurs calls) via out\tools\props_ours_test.exe (built by tools\props\build_props_ours_test.ps1, which also compile-checks the GPU
 # side props_ours.cpp) on the prop files and on three captures: Check F (run 7067's case zip, scene records, consumer palettes), Check B (the folder lane 40 unpacked) and the post-u-fix run 7074 ("h1": the stream

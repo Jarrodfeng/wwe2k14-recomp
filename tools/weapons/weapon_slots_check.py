@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane PW-1 gate check (offline, 0 game runs): builds tools\\weapons\\weapon_slots_test.cpp against the tree's src\\scene_live\\weapon_mgr_reader.h / weapon_contrib.h and
+"""S103 lane PW-1 check (offline, 0 game runs): builds tools\\weapons\\weapon_slots_test.cpp against the tree's src\\scene_live\\weapon_mgr_reader.h / weapon_contrib.h and
 src\\renderer_scene\\record_io.cpp (+ live_scene.cpp) and runs it: the slot reader on forged guest memory (literal offsets), the cap, the reload, the contributor, section 59 through
 SerializeRecord / ParseRecord, and 9 planted twins (4 shifted offsets, a 16-byte secondary stride changed to 4, the vtable constant, k < 4 (the first contract),the cap not applied, the manager floor) that must each be caught.
   py -I tools\\weapons\\weapon_slots_check.py [--root DIR]

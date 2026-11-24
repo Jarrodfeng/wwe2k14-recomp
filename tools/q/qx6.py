@@ -1,4 +1,4 @@
-"""qx6: five more answers (S103 QX3 lane): the q misses of 2026-11-18/19 turned into verbs. All read files directly: always current, no index to refresh.
+"""qx6: four more answers (S103 QX3 lane): the q misses of 2026-11-18/19 turned into verbs. All read files directly: always current, no index to refresh.
 
     py tools/q/q.py asm FUNC|ADDR [FROM TO] [--into FROM TO]
         a per-address window of the generated listing of one game function: `ADDR  mnemonic operands`, branches marked `=> TARGET` (and `(out)` when the target
@@ -13,13 +13,9 @@
     py tools/q/q.py ours text WORDS...
         lines of src / tools / config / probes / android (code, comments, strings, shaders) holding ALL the words, case-insensitive; an address word (82C1E840,
         0x82C1E840, sub_82C1E840) matches every spelling. C++ / py / ps1 hits are marked comment / string / code.
-    py tools/q/q.py ours affects FILE [FILE...]
-        the gate lanes (tools\\gate\\lanes\\*.json) whose `affects` globs (per check or lane-wide) cover FILE, one line per check, plus the lanes that only name it
-        in a `needs` / `cmd`. (`q ours covers|lanes-of FILE` is the older, wider form; this one is the short answer.)
     q ours def|refs NAME on a name that is no C++ symbol falls back to the shader text (src\\**\\*.glsl / .frag / .vert / .hlsl / .fx.json): where a block field
         (Param1) is declared and used.
 """
-import fnmatch
 import glob
 import json
 import os
@@ -27,7 +23,6 @@ import re
 import sqlite3
 import subprocess
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -291,6 +286,14 @@ def asm_main(argv, con, resolve, root=None):
     ap.add_argument('--limit', type=int, default=400)
     ap.add_argument('--json', action='store_true')
     a = ap.parse_args(argv)
+    fl = re.fullmatch(r'(wwe2k14_recomp\.\d+\.cpp):(\d+)', a.func.strip())
+    if fl:       # a listing FILE:LINE -> the function whose body holds that line (the last DEFINE at or above it)
+        hit = con.execute('SELECT name FROM funcs WHERE file = ? AND line <= ? ORDER BY line DESC LIMIT 1',
+                          (fl.group(1), int(fl.group(2)))).fetchone()
+        if hit is None:
+            raise XError(f'{a.func}: no function of that listing file starts at or above that line')
+        print(f'({a.func} is in {hit["name"]})')
+        a.func = hit['name']
     addr, note = resolve(con, a.func)
     if note:
         print(f'({note})')
@@ -414,6 +417,7 @@ def print_asm(r):
     print(f'window 0x{r["window"][0]:08X}..0x{r["window"][1]:08X}')
     for row in r['rows']:
         s = f'{row["addr"]:08X}  {row["text"]}'
+        s = f'{s:<56} [:{row["line"]}]'      # the listing line (read it with the listing file; `q show` refuses generated\)
         if 'to' in row:
             s += f'   => {row["to"]:08X}' + (' (out)' if row['out'] else '')
         if 'cases' in row:
@@ -532,17 +536,8 @@ def _guards(masked):
 
 
 def compiled_builds(main, rel):
-    """-> sorted build names that compile `rel` (a TU, or included by one), or None when there is no ours index"""
-    db = os.path.join(main, 'out', 'harness', 'index', 'ours.db')
-    if not os.path.exists(db):
-        return None
-    try:
-        con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
-        rows = con.execute('SELECT DISTINCT t.build FROM tus t LEFT JOIN incs i ON i.tu = t.id WHERE t.file = ? OR i.file = ?', (rel, rel)).fetchall()
-        con.close()
-    except sqlite3.Error:
-        return None
-    return sorted(BUILDS.get(r[0], str(r[0])) for r in rows)
+    """the builds that compile `rel`: None (S110 QTEXT: no ours index, so no build tag; `q ours covers FILE` names the units that include a file)"""
+    return None
 
 
 def scan_hooks(root, main=None):
@@ -775,6 +770,8 @@ def _hook_tags(h):
 def print_hooks(r, limit=60):
     a = r['arg'] or 'all'
     print(f'hooks on game code ({a}): {len(r["src"])} REX_HOOK*, {len(r["midasm"])} [[midasm_hook]]   (all: {r["total_src"]} / {r["total_midasm"]})')
+    if r['src'] and all(h.get('builds') is None for h in r['src']):
+        print('  (no per-build tags: q ours has no index, so a hook in a file no unit compiles is NOT marked; `q ours covers FILE` = the units that include it)')
     for h in r['src'][:limit]:
         tags = _hook_tags(h)
         print(f'  {h["kind"].split(" ")[0]:<9} {h["target"]:<22} {h["file"]}:{h["line"]}' + (f'   via {h["kind"]}' if h['kind'].startswith('macro') else '') + (f'   [{"; ".join(tags)}]' if tags else ''))
@@ -821,25 +818,47 @@ def _span_kind(ext, text, ln_start, pos, line):
     return ''
 
 
-def _git_grep_lines(root, rxs, words):
-    """-> [(rel, line no, text)] of lines holding ALL words, from `git grep` (tracked + untracked, never ignored files: a C++ line scan of 88 MB per call
-    x many agents on the shared PC was the cost of the Python walk), or None when git cannot answer. The exact word rules are applied afterwards in Python."""
-    args = ['git', '-C', root, 'grep', '--untracked', '-n', '-I', '-i', '-E']
+DOCS_PATHS = ('docs', ':(glob)*.md', '.claude', 'CMakeLists.txt', 'cmake')   # --docs: which docs / plans / briefs / agent definitions / build files mention a word
+CODE_PATHS = ('src', 'tools', 'config', 'probes', 'android')
+
+
+def _word_pat(w, regex):
+    if regex:
+        return w
+    m = WORD_ADDR.match(w)
+    return m.group(1) if (m and re.search(r'[0-9]', m.group(1))) else re.sub(r'([^A-Za-z0-9_])', lambda mm: chr(92) + mm.group(1), w)
+
+
+def _git_grep_lines(root, rxs, words, rev=None, docs=False, regex=False, any_=False):
+    """-> [(rel, line no, text)] of lines holding ALL words (ANY with any_), from `git grep` (tracked + untracked, never ignored files: a C++ line scan of 88 MB per call
+    x many agents on the shared PC was the cost of the Python walk), or None when git cannot answer. The exact word rules are applied afterwards in Python.
+    rev: search that revision (a branch / tag / commit; committed files only, `--untracked` does not combine with a revision); docs: the docs path set;
+    regex: the words are Python regexes, passed through unescaped as -P (PCRE: \\d, (?:...) and the like, which POSIX -E misses or refuses; a git without PCRE
+    exits 128 and the plain walk answers)."""
+    if rev and rev.startswith('-'):
+        raise XError(f'text: {rev!r} is not a revision (a REF starting with - would reach git as an option)')
+    args = ['git', '-C', root, 'grep', '-n', '-I', '-i', '-P' if regex else '-E']
+    if not rev:
+        args.insert(4, '--untracked')
     for i, w in enumerate(words):
-        m = WORD_ADDR.match(w)
-        pat = m.group(1) if (m and re.search(r'[0-9]', m.group(1))) else re.sub(r'([^A-Za-z0-9_])', lambda mm: chr(92) + mm.group(1), w)
         if i:
-            args.append('--and')
-        args += ['-e', pat]
-    args += ['--', 'src', 'tools', 'config', 'probes', 'android']
+            args.append('--or' if any_ else '--and')
+        args += ['-e', _word_pat(w, regex)]
+    if rev:
+        args.append(rev)
+    args += ['--'] + list(DOCS_PATHS if docs else CODE_PATHS)
     try:
         p = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None
     if p.returncode not in (0, 1):
+        if rev:
+            raise XError(f'text: git cannot search revision {rev!r}: {p.stderr.strip()[:200]}')
         return None
     out = []
     for ln in p.stdout.splitlines():
+        if rev and ln.startswith(rev + ':'):
+            ln = ln[len(rev) + 1:]
         m = re.match(r'^(.*?):(\d+):(.*)$', ln)
         if not m:
             continue
@@ -851,359 +870,65 @@ def _git_grep_lines(root, rxs, words):
     return out
 
 
-def cmd_text(root, words, limit_files=60, per_file=4, allhits=False):
+def cmd_text(root, words, limit_files=60, per_file=4, allhits=False, rev=None, docs=False, regex=False, any_=False):
     if not words:
-        raise XError('text: give the words to look for (all must be on one line), e.g. q ours text PartsBlur   or   q ours text 82C1E840')
-    rxs = [_word_rx(w) for w in words]
+        raise XError('text: give the words to look for (all must be on one line; --any: any of them), e.g. q ours text PartsBlur   or   q ours text 82C1E840')
+    if regex:
+        try:
+            rxs = [re.compile(w, re.I) for w in words]
+        except re.error as e:
+            raise XError(f'text: bad regex {e}')
+    else:
+        rxs = [_word_rx(w) for w in words]
+
+    def line_hit(ln):
+        ms = [m for m in (rx.search(ln) for rx in rxs) if m]
+        return ms if (ms if any_ else len(ms) == len(rxs)) else None
+
     hits = []
-    got = _git_grep_lines(root, rxs, words)
+    got = _git_grep_lines(root, rxs, words, rev=rev, docs=docs, regex=regex, any_=any_)
+    if got is None and rev:
+        raise XError(f'text: git cannot answer for revision {rev!r}')
     if got is not None:
         for rel, i, ln in got:
-            ms = [rx.search(ln) for rx in rxs]
-            if all(ms):
+            ms = line_hit(ln)
+            if ms:
                 hits.append({'file': rel, 'line': i, 'kind': _span_kind(os.path.splitext(rel)[1], '', 0, min(m.start() for m in ms), ln), 'text': ln.strip()[:160]})
     else:   # no git: the plain walk
-        for p in walk(root, ('src', 'tools', 'config', 'probes', 'android'), TEXT_EXT):
+        for p in walk(root, ('docs', '.claude', 'cmake') if docs else CODE_PATHS, TEXT_EXT):
             t = read_text(p)
-            if not all(rx.search(t) for rx in rxs):
+            if not (any if any_ else all)(rx.search(t) for rx in rxs):
                 continue
             rel = rel_of(root, p)
             ext = os.path.splitext(rel)[1]
             for i, ln in enumerate(t.splitlines(), 1):
-                ms = [rx.search(ln) for rx in rxs]
-                if all(ms):
+                ms = line_hit(ln)
+                if ms:
                     hits.append({'file': rel, 'line': i, 'kind': _span_kind(ext, t, 0, min(m.start() for m in ms), ln), 'text': ln.strip()[:160]})
     hits.sort(key=lambda h: (h['file'], h['line']))
-    return {'words': words, 'n': len(hits), 'files': len({h['file'] for h in hits}), 'hits': hits, 'per_file': 10**9 if allhits else per_file, 'limit_files': limit_files}
+    return {'words': words, 'n': len(hits), 'files': len({h['file'] for h in hits}), 'hits': hits, 'per_file': 10**9 if allhits else per_file, 'limit_files': limit_files,
+            'rev': rev, 'docs': docs, 'regex': regex, 'any': any_}
 
 
 def print_text(r):
-    print(f'text {" ".join(r["words"])}: {r["n"]} lines in {r["files"]} files')
+    print(f'text {(" | " if r.get("any") else " ").join(r["words"])}: {r["n"]} lines in {r["files"]} files' + (f' at {r["rev"]}' if r.get('rev') else '') + (' (docs)' if r.get('docs') else ''))
+    import qcap   # S108 FD: one sizing rule; the trim line names the total and the exact call that gives the rest
+    nshow = qcap.cut_n(r['files'], r['limit_files'], r['per_file'] >= 10**9)       # --all = every line of every file
+    per = {}
+    for h in r['hits']:
+        per[h['file']] = per.get(h['file'], 0) + 1
     cur, shown, nf = None, 0, 0
     for h in r['hits']:
         if h['file'] != cur:
             cur, shown, nf = h['file'], 0, nf + 1
-            if nf > r['limit_files']:
-                print(f'  ... {r["files"] - r["limit_files"]} more files (--limit N / --all)')
+            if nf > nshow:
+                print('  ' + qcap.trim_line(nshow, r['files'], 'files', r.get('again') or '--all'))
                 return
         shown += 1
         if shown <= r['per_file']:
             print(f'  {h["file"]}:{h["line"]}' + (f' [{h["kind"]}]' if h['kind'] else '') + f'  {h["text"]}')
         elif shown == r['per_file'] + 1:
-            print(f'  {h["file"]}: ... more lines (--all)')
-
-
-# ================================================================= q ours affects
-
-def _gate_mod(name):
-    gd = os.path.join(os.path.dirname(HERE), 'gate')
-    if gd not in sys.path:
-        sys.path.insert(0, gd)
-    return __import__(name)
-
-
-def pat_match(pat, rel):
-    """the GATE's own glob rule (tools/gate/fastgate.py glob_re: `*` does not cross a `/`, `**` does). No fallback: a gate module that does not import is an error, never a different rule."""
-    try:
-        fg = _gate_mod('fastgate')
-    except Exception as e:
-        raise XError(f'cannot import tools/gate/fastgate.py ({type(e).__name__}: {e}); affects needs the gate\'s own glob rule')
-    return bool(fg.glob_re(pat.replace(chr(92), '/')).match(rel))
-
-
-def git_names(root):
-    try:
-        out = subprocess.run(['git', '-C', root, 'ls-files', '-co', '--exclude-standard'], capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [x.strip().replace('\\', '/') for x in out.split('\n') if x.strip()]
-
-
-def normalise_rel(root, arg):
-    """-> the repo-relative path in the spelling git tracks: absolute paths of this checkout OR of the main checkout are mapped, a path outside both is refused ('..'),
-    and a wrong-case spelling is matched case-insensitively against git ls-files (Windows paths are case-insensitive, the gate's globs are not)."""
-    a = arg.strip().strip('"')
-    if os.path.isabs(a) or re.match(r'^[A-Za-z]:[\\/]', a):
-        ap = os.path.normcase(os.path.abspath(a))
-        for base in (root, main_root(root)):
-            nb = os.path.normcase(os.path.abspath(base))
-            if ap == nb or ap.startswith(nb + os.sep):
-                a = os.path.relpath(os.path.abspath(a), base)
-                break
-        else:
-            raise XError(f'{arg}: not under this checkout ({root}) nor the main checkout; give a repo-relative path')
-    rel = a.replace('\\', '/')
-    if rel.startswith('./'):
-        rel = rel[2:]
-    if rel == '..' or rel.startswith('../') or '/../' in rel:
-        raise XError(f'{arg}: a path outside the repository ({rel}); give a repo-relative path')
-    names = git_names(root)
-    if names and rel not in set(names):
-        low = [n for n in names if n.lower() == rel.lower()]
-        if len(low) == 1:
-            rel = low[0]
-        elif not low:
-            base = rel.rsplit('/', 1)[-1].lower()
-            cands = [n for n in names if n.rsplit('/', 1)[-1].lower() == base]
-            if len(cands) == 1:
-                rel = cands[0]
-            elif len(cands) > 1:
-                raise XError(f'{arg}: ambiguous: ' + ', '.join(cands[:6]))
-    return rel
-
-
-def load_gate_checks(root):
-    """the gate's own loading of every lane json (tools/gate/gate.py): per-check `affects` falls back to the lane-wide list ONLY when the check has none"""
-    checks = []
-    for p in sorted(glob.glob(os.path.join(root, 'tools', 'gate', 'lanes', '*.json'))):
-        try:
-            with open(p, encoding='utf-8') as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            continue
-        for c in data.get('checks', []):
-            c['lane'] = os.path.basename(p)[:-5]
-            c['_lane_rel'] = 'tools/gate/lanes/' + os.path.basename(p)
-            if 'affects' not in c and 'affects' in data:
-                c['affects'] = data['affects']
-            for k in ('tier', 'retired'):
-                if k not in c and k in data:
-                    c[k] = data[k]
-            checks.append(c)
-    return checks
-
-
-def derive_budget():
-    """QAF: seconds of derive() work one `q ours affects` call may spend on a cold table (WWE_Q_AFFECTS_BUDGET, default 4)"""
-    try:
-        return max(0.0, float(os.environ.get('WWE_Q_AFFECTS_BUDGET', '4')))
-    except ValueError:
-        return 4.0
-
-
-def affects_index(root, main):
-    """QAF: the `q ours` index view the derived deps read -> (Index or None, note). It never waits on a writer: ours.db busy (a refresh swapping it in) = answer from
-    ours.db.good (qours.open_ro's rule, same WWE_Q_DB_WAIT) and say so. No index at all = None (derive() then runs without it, as the gate does)."""
-    gdeps = _gate_mod('deps')
-    try:
-        wait = max(0.1, float(os.environ.get('WWE_Q_DB_WAIT', '2')))
-    except ValueError:
-        wait = 2.0
-    base = next((p for p in (os.path.join(b, 'out', 'harness', 'index', 'ours.db') for b in (root, main)) if os.path.isfile(p)), None)
-    if base is None:
-        return None, ''
-    for cand, why in ((base, ''), (base + '.good', 'index busy (a refresh is swapping it in): derived deps read ours.db.good')):
-        if not os.path.isfile(cand):
-            continue
-        idx = None
-        try:
-            idx = gdeps.Index(cand, timeout=wait)
-            idx.db.execute('select 1 from files limit 1').fetchone()   # the probe: waits at most `wait` on a writer
-            return idx, why
-        except sqlite3.Error:
-            if idx is not None:
-                idx.close()
-            continue
-    return None, 'index unreadable (busy, no last-good copy): derived deps read without it'
-
-
-def _warm_lock(root):
-    import hashlib
-    main = main_root(root)
-    return os.path.join(main, 'out', 'gate', 'deps.warm.' + hashlib.sha1(str(root).encode()).hexdigest()[:10] + '.lock')
-
-
-def _warm_running(lock, max_age=1500):
-    try:
-        return time.time() - os.path.getmtime(lock) < max_age
-    except OSError:
-        return False
-
-
-def _take_lock(lock, max_age=1500):
-    """QAF: ATOMIC one-per-checkout lock: exclusive create; a lock older than max_age (a killed warm-up) is removed and taken once. -> True = taken, False = someone else holds it"""
-    os.makedirs(os.path.dirname(lock), exist_ok=True)
-    for _ in range(2):
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            if _warm_running(lock, max_age):
-                return False
-            try:
-                os.unlink(lock)
-            except OSError:
-                return False
-            continue
-        except OSError:
-            return False
-        with os.fdopen(fd, 'w') as f:
-            f.write(str(os.getpid()))
-        return True
-    return False
-
-
-def spawn_warmer(root):
-    """QAF: ONE detached, below-normal-priority process per checkout fills the derived-deps table (the same work the gate does at its first selection, once per
-    checkout) so the next `q ours affects` is warm. The starter takes the lock (an atomic create) BEFORE it starts the process and hands it over (--lock-held): a second
-    starter finds it and starts nothing. The process runs in the system temp folder (a process sitting in a worktree blocks deleting that folder on Windows), takes ROOT as
-    an argument, inherits no output handles (the caller's capture must not wait for it); WWE_Q_NO_WARM=1 switches it off. -> the sentence for the note."""
-    if os.environ.get('WWE_Q_NO_WARM') == '1':
-        return 'the warm-up is switched off (WWE_Q_NO_WARM=1)'
-    lock = _warm_lock(root)
-    if not _take_lock(lock):
-        return 'a warm-up is already running (about 1-2 min); ask again then'
-    try:
-        import tempfile
-        cf = 0x00000008 | 0x00000200 | 0x00004000 | 0x08000000   # DETACHED_PROCESS | NEW_PROCESS_GROUP | BELOW_NORMAL_PRIORITY | NO_WINDOW
-        subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--warm-deps', root, '--lock-held'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, close_fds=True, cwd=tempfile.gettempdir(), creationflags=cf if os.name == 'nt' else 0)
-    except (OSError, ValueError) as e:
-        try:
-            os.unlink(lock)
-        except OSError:
-            pass
-        return f'the warm-up could not start ({type(e).__name__}); a slower full answer: WWE_Q_AFFECTS_BUDGET=300'
-    return 'a background warm-up was started (about 1-2 min); ask again then'
-
-
-def warm_deps(root, give_up_s=1200, lock_held=False):
-    """QAF: derive every check of this checkout (no budget) and save the table as it goes. One at a time per checkout (an atomic lock file, stale after 25 min)."""
-    lock = _warm_lock(root)
-    if not lock_held and not _take_lock(lock):
-        return 0
-    t0 = time.time()
-    n = 0
-    try:
-        gdeps = _gate_mod('deps')
-        main = main_root(root)
-        idx, _ = affects_index(root, main)
-        dtab = gdeps.Table(root, main, cache_path=os.path.join(main, 'out', 'gate', 'deps.json'), log=lambda m: None, idx=idx)
-        dtab.quick = True
-        for c in load_gate_checks(root):
-            dtab.get(c)
-            n += 1
-            if n % 100 == 0:
-                dtab.save()
-                os.utime(lock, None)
-            if time.time() - t0 > give_up_s:
-                break
-        dtab.save()
-    finally:
-        try:
-            os.unlink(lock)
-        except OSError:
-            pass
-    return n
-
-
-def cmd_affects(root, arg, derived=True):
-    """one file (a str) -> its answer dict; several (a list) -> a list of answers, the checks / the derived-deps table / the index opened ONCE for all of them"""
-    if isinstance(arg, (list, tuple)):
-        return cmd_affects_many(root, list(arg), derived)
-    return cmd_affects_many(root, [arg], derived)[0]
-
-
-def cmd_affects_many(root, args, derived=True):
-    """which checks the GATE would select for a change to each FILE: fastgate.selected() itself (affects globs, a changed lane json, derived dependency sets, and the
-    'no affects: always runs' rule), not a re-implementation."""
-    rels = [normalise_rel(root, a) for a in args]
-    fg = _gate_mod('fastgate')
-    checks = load_gate_checks(root)
-    dtab, note = None, ''
-    if derived:
-        try:
-            gdeps = _gate_mod('deps')
-            main = main_root(root)
-            idx, inote = affects_index(root, main)
-            # QAF: a short-lived reader: files statted once per process, and a bounded derive budget (a NEW checkout's table is empty: deriving every check is ~100 s);
-            # what is not derived yet is counted as deps-unknown (always-run, the conservative side) and said so below, while a detached warm-up fills the table.
-            dtab = gdeps.Table(root, main, cache_path=os.path.join(main, 'out', 'gate', 'deps.json'), log=lambda m: None, idx=idx)
-            dtab.quick = True
-            dtab.derive_budget_s = derive_budget()
-            if inote:
-                note = inote
-        except Exception as e:
-            note = f'derived dependency sets not consulted ({type(e).__name__}: {e}); a lane selected only through derived dependencies may be missing, checks without `affects` are shown as always-run'
-    sels = []
-    for rel in rels:
-        sel = []
-        for c in checks:
-            try:
-                aff = fg.lane_affects(c)
-                if c['_lane_rel'] == rel:   # DPC: already selected by its lane json / its affects: its derived set cannot change the answer, so it is not derived
-                    ok, why = True, 'its lane json changed'
-                elif aff is not None and fg.matches(rel, aff):
-                    ok, why = True, f'{rel} matches'
-                else:
-                    dv = dtab.get(c) if dtab else None
-                    ok, why = fg.selected(c, [rel], c['_lane_rel'], dv, dtab.idx if dtab else None, root)
-                    if dtab is not None and not ok and aff is not None and dtab.underived(c.get('name')):
-                        # QAF: a check WITH `affects` that only its derived deps could select, left underived: the answer may add a lane, never drop one
-                        ok, why = True, 'maybe (deps not derived yet)'
-            except Exception as e:
-                ok, why = True, f'selection failed ({type(e).__name__}: {e}); counted as selected'
-            if ok:
-                sel.append({'lane': c['lane'], 'check': c.get('name'), 'why': why, 'retired': bool(c.get('retired')), 'timeout_s': c.get('timeout_s')})
-        sels.append(sel)
-    if dtab is not None and (dtab.skipped or dtab.stale_used):
-        warm = spawn_warmer(root)
-        parts = []
-        if dtab.skipped:
-            parts.append(f'the derived dependency sets of {dtab.skipped} of {len(checks)} checks are not computed yet (this checkout\'s table is cold or stale; budget {dtab.derive_budget_s:g} s): '
-                         f'those with `affects` are listed "maybe" and counted as selected, those without count as always-run (the safe side: the answer may name too many lanes, never too few)')
-        if dtab.stale_used:
-            parts.append(f'{dtab.stale_used} derived sets are from before the latest build manifests (manifest-free sets whose script files are unchanged; answered from them within the {dtab.derive_budget_s:g} s budget)')
-        note = (note + '; ' if note else '') + '; '.join(parts) + f'; {warm}'
-    if dtab is not None:
-        try:
-            dtab.save()   # the gate's own cache file (atomic merge): the next call is warm
-            if dtab.idx is not None:
-                dtab.idx.close()
-        except Exception:
-            pass
-    out = []
-    nd = len(checks) if (derived and dtab is None) else (dtab.skipped if dtab is not None else 0)     # no table at all (it failed to open) = every check not derived
-    partial = nd > 0
-    for rel, sel in zip(rels, sels):
-        always = [s for s in sel if 'always runs' in s['why']]
-        specific = [s for s in sel if 'always runs' not in s['why']]
-        needle = re.compile(re.escape(rel).replace('/', r'[/\\]+'))
-        named = []
-        selnames = {s['check'] for s in sel}
-        for c in checks:
-            if c.get('name') in selnames:
-                continue
-            via = []
-            needs = c.get('needs', [])
-            if any(isinstance(x, str) and pat_match(x, rel) for x in needs):
-                via += ['needs']
-            cmdline = ' '.join(str(x) for x in c.get('cmd', []))
-            if needle.search(cmdline):
-                via += ['cmd']
-            if via:
-                named.append({'lane': c['lane'], 'check': c.get('name'), 'via': via, 'retired': bool(c.get('retired'))})
-        out.append({'file': rel, 'total_checks': len(checks), 'selected': specific, 'always': len(always), 'always_sample': [f'{a["lane"]}.{a["check"]}' for a in always[:3]],
-                    'named': named, 'note': note, 'partial': partial, 'not_derived': nd,
-                    'maybe': sum(1 for s in sel if s['why'].startswith('maybe'))})
-    return out
-
-
-def print_affects(r):
-    sp = r['selected']
-    if r.get('partial'):
-        print(f'PARTIAL: {r["not_derived"]} of {r["total_checks"]} checks have no derived dependency set yet; {r["maybe"]} lane check(s) below are "maybe" (counted as selected, the safe side) and always-run checks may be over-counted. Ask again after the warm-up (see NOTE).')
-    print(f'the gate selects {len(sp) + r["always"]} of {r["total_checks"]} checks for a change to {r["file"]}: {len(sp)} by affects / derived deps / a lane json change, '
-          f'{r["always"]} that run for ANY change (no `affects` and no exact derived deps)')
-    if r['note']:
-        print(f'NOTE: {r["note"]}')
-    for a in sp:
-        print(f'  {a["lane"]:<28} {a["check"]}   {a["why"]}' + (' [retired]' if a['retired'] else '') + (f'  ({a["timeout_s"]} s)' if a.get('timeout_s') else ''))
-    if r['always']:
-        print(f'  + {r["always"]} always-run checks (e.g. {", ".join(r["always_sample"])}); `py tools\\gate\\gate.py --why CHECK --changed` explains one')
-    if r['named']:
-        print('named by a check that the gate does NOT select for it (needs / cmd):')
-        for a in r['named']:
-            print(f'  {a["lane"]:<28} {a["check"]}   via {"+".join(a["via"])}' + (' [retired]' if a['retired'] else ''))
+            print(f'  {h["file"]}: ... {per[h["file"]] - r["per_file"]} more lines in this file (--all)')
 
 
 # ================================================================= shader names
@@ -1234,10 +959,3 @@ def print_shader_hits(r, limit=40):
         print(f'  {h["file"]}:{h["line"]} [{h["kind"]}]  {h["text"]}')
     if r['n'] > limit:
         print(f'  ... {r["n"] - limit} more (--limit N)')
-
-
-if __name__ == '__main__':      # QAF: the detached warm-up that `q ours affects` starts for a cold checkout (spawn_warmer)
-    if len(sys.argv) in (3, 4) and sys.argv[1] == '--warm-deps':
-        sys.exit(0 if warm_deps(os.path.abspath(sys.argv[2]), lock_held=len(sys.argv) == 4 and sys.argv[3] == '--lock-held') >= 0 else 1)
-    print('usage: qx6.py --warm-deps ROOT   (internal: fills the derived-deps table of a checkout)', file=sys.stderr)
-    sys.exit(2)

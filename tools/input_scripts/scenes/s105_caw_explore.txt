@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): EXPLORATORY. Shows what each Create a Superstar tab holds, to find the HAIR, BODY ACCESSORIES and LOGO rows that s105_make_caw.txt needs.
 # Same chain as nav\creations_to_new_caw.txt up to the template pick (CREATIONS -> SUPERSTAR -> NEW -> seq 76 -> A = the SUPERSTAR template), then: a shot + the screen text on the page

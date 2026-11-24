@@ -6,6 +6,9 @@
 #include <set>
 #include <string>
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/shadow_fit.h"
 #include "../../src/renderer_scene/shadow_fit_record.h"
 using namespace rdr_scene;

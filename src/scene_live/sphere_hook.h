@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_sphere.h"
 
 namespace rdr_scene::live::spheres {
 

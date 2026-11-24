@@ -1,4 +1,4 @@
-"""S101 lane 102 (go-anywhere L-1, "bus moments"): the WHEN self test (gate lane moments_when). No game, no game data: the fixtures are lines of
+"""S101 lane 102 (go-anywhere L-1, "bus moments"): the WHEN self test. No game, no game data: the fixtures are lines of
 our own event-bus format (tools/goto/fixtures/when_events_70NN.jsonl, cut from the kept runs 7060 / 7063 / 7055; when_log_*.txt, five or six
 lines of the run logs) and streams written here.
 

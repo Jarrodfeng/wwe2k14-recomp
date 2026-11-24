@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_ring.h"   // S106 G4-2
 #include "ring_rows_core.h"
 
 namespace rdr_scene::live::ringrows {

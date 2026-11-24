@@ -3,7 +3,7 @@
 Reads the player's own game files, read-only; prints ids only (no game bytes). An arena lacking 10 / 20 / 30 / 31 / 32 installs NOTHING for that class (sub_827F6A40 returns -1,
 sub_826203E8 skips a negative index), so the rule's caveat 2 is checked per arena.
   py -I tools\\scene\\a7_pac_census.py [--quiet]
-Exit 0 always (a census, not a gate); the table is the finding."""
+Exit 0 always (a census, not a check); the table is the finding."""
 import glob
 import os
 import re

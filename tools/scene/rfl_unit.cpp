@@ -7,7 +7,7 @@
 // B. REAL (needs the game files): the first arena whose yBG_Reflect meshes name a cube (cube_00 / cube_01 / cube_ref ...) with g_fReflectAlpha > 0. Those meshes are drawn with the switch ON, with the cube UNBOUND
 //    (same variants, plant_cube_unbound) and OFF (the S101 stand-in); the control (non-reflective yBG_Default meshes of the same arena) is drawn ON and OFF. The reflective picture must DIFFER from the unbound one
 //    (the reflection itself), the control must be IDENTICAL (nothing non-reflective changes), and the census line must report the cube loaded, reflect draws > 0, no fallback.
-// --plant unbound = FrontEndOptions::plant_cube_unbound (the cube is never bound: the S101 black stand-in): checks A and B1 must FAIL; --expect-fail inverts the exit code for the gate row.
+// --plant unbound = FrontEndOptions::plant_cube_unbound (the cube is never bound: the S101 black stand-in): checks A and B1 must FAIL; --expect-fail inverts the exit code for the check row.
 // Exit 0 = every check passed (with --expect-fail: only when the fault was caught), 1 = a check failed, 2 = usage / cannot read.
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
     else return std::fprintf(stderr, "usage: rfl_unit --game DIR [--plant unbound] [--expect-fail] [--arena N]\n"), 2;
   }
   if (game.empty()) return std::fprintf(stderr, "usage: rfl_unit --game DIR [--plant unbound] [--expect-fail] [--arena N]\n"), 2;
-  if (const char* mc = std::getenv("RDR_MAIN_CHECKOUT")) {   // a gate row names game_data under the MAIN checkout (a worktree has none)
+  if (const char* mc = std::getenv("RDR_MAIN_CHECKOUT")) {   // a check row names game_data under the MAIN checkout (a worktree has none)
     if (!std::filesystem::exists(game)) game = (std::filesystem::path(mc) / game).string();
   }
   launcher::GameFiles files;

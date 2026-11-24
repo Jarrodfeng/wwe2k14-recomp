@@ -40,7 +40,8 @@ def route(a):
             body += [f'cvar {c} {on}' for c, on, _ in pairs] + ['log ab: mode 1', f'wait_frames {a.window}']
             body += [f'cvar {c} {off}' for c, _, off in pairs] + ['log ab: mode 0', f'wait_frames {a.window}']
         body += ['log scene=done_' + scene]
-    out = [f'# harness: realtime (Session 66 in-run CPU A/B {a.name}, tools\\s66\\nf_ab.py; pass --vsync=false)',
+    out = ['# intent: performance cpu ms',
+           f'# Session 66 in-run CPU A/B {a.name}, tools\\s66\\nf_ab.py (S109 FF: normal speed comes from the intent term; pass --vsync=false for a fast-forwarded arm)',
            '# ' + ' '.join(f'{c}={on}/{off}' for c, on, off in pairs),
            '# Use with --wwe2k14_launch=lesnar_bryan --wwe2k14_preset_low=true. on_fail quit.',
            'on_fail quit', 'log bench: start nf_ab (launch)'] + nav + body + ['log bench: done', 'quit']

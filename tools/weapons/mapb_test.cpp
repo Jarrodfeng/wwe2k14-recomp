@@ -13,6 +13,7 @@
 #include <string>
 
 #include "../../src/renderer_scene/prop_cache_sweep.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 #include "../../src/renderer_scene/weapon_plan.h"
 #include <memory>
 

@@ -2,7 +2,7 @@
 # Session 89 scene route: Brock Lesnar's entrance on its own. The lesnar_bryan launch as captured (Brock 343 in slot 0
 # comes out first; Over the Limit BG04, Quick pace), fixed seed 1. Quits 600 frames (10 s of game time) after his
 # entrance reaches step 15 (Jarrod: "end entrance runs 10 seconds after Step 15"): no Bryan, no match. Fast-forwarded,
-# the 600 frames can be less than 10 s of entrance (it follows the wall clock); -Exclusive / -RealTime runs are 10 s.
+# the 600 frames can be less than 10 s of entrance (it follows the wall clock); a run with `# intent: performance` (normal speed) is 10 s.
 # Boot pipelines skipped (Jarrod, for runs like this): the 406 stored pipelines are made on first use, not at boot (a boot
 # that made them took 2-18 s, runs 5805 / 5812). For a TIMED run pass -Extra '--vulkan_stored_pipelines_at_boot=true'
 # (the caller's flag wins), or the compiles land inside the measured scene.

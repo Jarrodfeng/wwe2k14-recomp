@@ -6,9 +6,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "../crowd_flash.h"
+#include "../../renderer_scene/family_cull.h"   // S106 FCN: the game's cull rule (header-only)
 #include "json_lite.h"
 
 namespace view {
@@ -109,7 +111,14 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
     gm.detail_mask = slot(mt.mask);
     memcpy(gm.noise_near, mt.noise_near, sizeof gm.noise_near); memcpy(gm.noise_far, mt.noise_far, sizeof gm.noise_far);
     memcpy(gm.noise_dist, mt.noise_dist, sizeof gm.noise_dist);
-    gm.alpha_blend = mt.alpha_blend || (mt.texel_cutout & 2); gm.alpha_test = mt.alpha_test || (mt.texel_cutout & 1); gm.additive = mt.additive; gm.cull_back = mt.cull_back && !mt.cull_from_record;   // SCU: the viewer leaves the stage record's cull bit off (two-sided as before): it draws a placement's copies in ONE instanced draw, so the `r` copy's winding swap cannot be per copy here
+    gm.alpha_blend = mt.alpha_blend || (mt.texel_cutout & 2); gm.alpha_test = mt.alpha_test || (mt.texel_cutout & 1); gm.additive = mt.additive; gm.cull_back = mt.cull_back && !mt.cull_from_record;
+    {  // S106 FCN: the record cull bit through the front-end's own rule (family_cull.h), used only when WWE_VIEWER_RECORD_CULL=1 (the census)
+      gm.cull_record = mt.cull_back && mt.cull_from_record;
+      const int c = rdr_scene::family_cull::Cull(&mt, true, true);
+      gm.rec_cull = (uint8_t)c;
+      gm.rec_front = (uint8_t)rdr_scene::family_cull::FrontFace(&mt, c, false, false, false);
+      gm.rec_front_mirrored = (uint8_t)rdr_scene::family_cull::FrontFace(&mt, c, true, false, false);
+    }   // SCU: the viewer leaves the stage record's cull bit off (two-sided as before): it draws a placement's copies in ONE instanced draw, so the `r` copy's winding swap cannot be per copy here
     gm.blend_inline = mt.blend_inline;
     g.materials.push_back(gm);
   }
@@ -120,6 +129,14 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
   for (const auto& me : m.meshes)
     for (const auto& v : me.vertices)
       for (int k = 0; k < 4; ++k) g.model_bones = std::max<size_t>(g.model_bones, size_t(v.bones[k]) + 1);
+  // S106 C4W: the piece-added bones and their tags, as the front end reads them (front_end.cpp AddModelImpl): the record writer tags those palette rows
+  if (m.main_bones && m.main_bones <= m.bones.size()) {
+    g.main_bones = m.main_bones;
+    for (size_t b = m.main_bones; b < m.bones.size(); ++b) {
+      const assets::Bone& eb = m.bones[b];
+      g.extra_tags.push_back({uint32_t(eb.piece_id), uint32_t(eb.piece_node), uint32_t(eb.piece_nodes)});
+    }
+  }
   g.lm_xy[0] = m.lm_scale[0]; g.lm_xy[1] = m.lm_scale[1]; g.lm_gain = m.lm_gain;
   g.lights = m.light_sets;
   g.lights.push_back(assets::DefaultRig());  // last entry: the default rig (wrestlers, meshes with no set)
@@ -127,6 +144,10 @@ bool Renderer::AddModel(const assets::Model& m, const float offset[3], std::vect
   for (auto& pl : m.placements) {
     GpuPlacement gp;
     gp.count = uint32_t(pl.transforms.size());
+    for (const assets::Matrix& t : pl.transforms) {  // S106 FCN: the `r` copy = a negative 3x3 determinant (front_end.cpp Record's own test; MirrorY is a conjugation, the sign survives)
+      const float* p = t.data();
+      gp.mirrored.push_back(p[0] * (p[5] * p[10] - p[6] * p[9]) - p[1] * (p[4] * p[10] - p[6] * p[8]) + p[2] * (p[4] * p[9] - p[5] * p[8]) < 0.f ? 1 : 0);
+    }
     if (!UploadPlacement(*g.gpu, pl.transforms, err)) return false;
     g.placements.push_back(gp);
   }
@@ -446,6 +467,20 @@ void Renderer::BuildSceneList(const Camera& cam, std::vector<DrawItem>& out) con
   const V3 eye = Eye(cam);
   struct BlendItem { const GpuModel* model; const GpuMesh* mesh; float dist2; };
   std::vector<BlendItem> blend;
+  // S106 FCN: the census's reference follows the game's record cull (WWE_VIEWER_RECORD_CULL=1, set by tools/filecensus/census.py; the Arena Viewer's own default stays two-sided).
+  // A record-culled mesh draws one-sided (family_cull::Cull / FrontFace); a placement with mirrored `r` copies is split per copy (the mirrored copy takes the swapped winding = raster 2).
+  static const bool record_cull = [] { const char* e = getenv("WWE_VIEWER_RECORD_CULL"); return e && *e && *e != '0'; }();
+  auto emit = [&](const GpuModel& gmod, const GpuMesh& mesh, bool blended, uint8_t raster, uint8_t bl, bool dw) {
+    const GpuMaterial& mm = gmod.materials[mesh.material];
+    if (!record_cull || !mm.cull_record || cull_mode_ == 0) { out.push_back({&gmod, &mesh, blended, raster, bl, dw}); return; }
+    const auto rast = [&](uint8_t front) -> uint8_t { return mm.rec_cull != 2 ? 0 : front ? (cull_mode_ == 2 ? 2 : 1) : (cull_mode_ == 2 ? 1 : 2); };
+    const GpuPlacement* pl = mesh.placement >= 0 && size_t(mesh.placement) < gmod.placements.size() ? &gmod.placements[size_t(mesh.placement)] : nullptr;
+    bool any_mirror = false;
+    if (pl) for (uint8_t mf : pl->mirrored) any_mirror = any_mirror || mf;
+    if (!any_mirror) { out.push_back({&gmod, &mesh, blended, rast(mm.rec_front), bl, dw}); return; }
+    for (size_t k = 0; k < pl->mirrored.size(); ++k)
+      out.push_back({&gmod, &mesh, blended, rast(pl->mirrored[k] ? mm.rec_front_mirrored : mm.rec_front), bl, dw, int(k)});
+  };
   for (auto& gm : models_)
     for (auto& me : gm.meshes) {
       const GpuMaterial& mt = gm.materials[me.material];
@@ -455,9 +490,9 @@ void Renderer::BuildSceneList(const Camera& cam, std::vector<DrawItem>& out) con
         float dx = cx + gm.offset[0] - eye.x, dy = me.center[1] + gm.offset[1] - eye.y, dz = cz + gm.offset[2] - eye.z;
         blend.push_back({&gm, &me, dx * dx + dy * dy + dz * dz});
       } else if (mt.blend_inline) {  // (the stage movie surfaces: blended in this order, depth write on)
-        out.push_back({&gm, &me, true, SceneRaster(mt), 1, true});
+        emit(gm, me, true, SceneRaster(mt), 1, true);
       } else {
-        out.push_back({&gm, &me, false, SceneRaster(mt), 0, true});
+        emit(gm, me, false, SceneRaster(mt), 0, true);
       }
     }
   std::sort(blend.begin(), blend.end(), [](const BlendItem& a, const BlendItem& b) { return a.dist2 > b.dist2; });
@@ -473,7 +508,7 @@ void Renderer::BuildSceneList(const Camera& cam, std::vector<DrawItem>& out) con
       out.push_back({b.model, b.mesh, true, 2, bl, false});
       continue;
     }
-    out.push_back({b.model, b.mesh, true, SceneRaster(bm), bl, false});
+      emit(*b.model, *b.mesh, true, SceneRaster(bm), bl, false);
   }
 }
 

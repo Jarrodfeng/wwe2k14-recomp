@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Gate check for tools\scene\feature_diff.py (Session 103, lane T2). 0 game runs; offline (frame_rig.exe + the case zip).
+r"""Check for tools\scene\feature_diff.py (Session 103, lane T2). 0 game runs; offline (frame_rig.exe + the case zip).
 
   py -I tools\scene\feature_diff_check.py --root . --case out\s103\run27_case.zip --frame 500 --refind unlit|old_alpha|today
 

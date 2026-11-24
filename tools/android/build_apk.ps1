@@ -83,7 +83,7 @@ foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: m
 # S105 A1b: the launcher in this APK must be the one built for the same game library (src\stream_free_target.h): a stream-free game with a stream launcher
 # would still offer PREPARE SHADERS / DLSS, a stream game with a stream-free launcher would hide settings that work.
 $launcherCache = "$AndroidOut\launcher-arm64\CMakeCache.txt"
-# S105 ADEV: a release APK's game library must be configured with WWE2K14_RELEASE=ON (else the player's version line says "+dev" and the dev gates are on)
+# S105 ADEV: a release APK's game library must be configured with WWE2K14_RELEASE=ON (else the player's version line says "+dev" and the dev-only paths are on)
 if ($Release) {
     $gameCache = In "$gameDir\CMakeCache.txt"
     if (-not (Test-Path $gameCache) -or -not (Select-String -LiteralPath $gameCache -Pattern '^WWE2K14_RELEASE:BOOL=ON' -Quiet)) {

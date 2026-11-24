@@ -56,7 +56,7 @@ import check_effect_ucode as uc
 
 import dataroot
 DATA = dataroot.data_root(REPO)   # S103 T6: out\ and game_data\ live in the main checkout when this runs from a worktree
-H = os.path.join(DATA, 'out', 's100', 'harness')      # tidy: output  (S102 K1: a scratch workspace, 39 GB of built harness, not a gate input)
+H = os.path.join(DATA, 'out', 's100', 'harness')      # tidy: output  (S102 K1: a scratch workspace, 39 GB of built harness, not a check input)
 BIN = os.path.join(H, 'bin')
 TRANSLATE = os.path.join(BIN, 'check_effect_translate.exe')
 RUNNER = os.path.join(BIN, 'check_effect_run.exe')

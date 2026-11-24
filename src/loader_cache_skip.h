@@ -48,3 +48,30 @@ REX_HOOK_RAW(sub_82C54DE0) {
     REXLOG_INFO("[wwe2k14][load][cache] census: copy requests skipped {} moved {} fallback {}", g_skipped.load(std::memory_order_relaxed),
                 g_moved.load(std::memory_order_relaxed), g_fallback.load(std::memory_order_relaxed));
 }
+
+REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_hits, false, "wwe2k14",
+                    "TEST ONLY (S110 CACHEHIT, for A / B runs): true = the game's own name-keyed loader RAM-cache hit (a bound seat then shows "
+                    "its previous occupant's picture); false (default) = every read goes through the pac list");
+
+// S110 CACHEHIT: drop the loader's cache NAME HIT (360 habit, docs\renderer\360_HABITS.md row 20; docs\research\s110\GUESTRENDER.md).
+// The game: the worker (sub_82C37070 +218, the only caller) asks sub_82C54A00(cache, request) first; it matches the request's entry NAME
+// (+50, e.g. /SSFB/0400) against every kept record (state 11, data != 0) and on a hit hands that record's bytes over and the request skips
+// the open and the read (state 9). Why we drop it: a seat bind changes which file a name means at run time, so the hit returns the previous
+// occupant's bytes; on a PC the OS file cache serves re-reads. A miss is the worker's normal path (+250 on): on a miss the function only
+// enters and leaves the cache section (flag +28 1 -> 0) and returns 0, so answering 0 leaves nothing half-done. The inserts (moves above)
+// stay: they give a loader-allocated buffer its owner. The count is of dropped LOOKUPS, not of real hits (the original is not run, so a
+// hit cannot be told from a miss).
+REX_HOOK_RAW(sub_82C54A00) {
+  using namespace wwe2k14::loader_cache;
+  using wwe2k14::load_probe::SafeRead32;
+  uint32_t cache = 0;
+  if (!REXCVAR_GET(wwe2k14_loader_cache_hits) && SafeRead32(0x839400ACu, &cache) && cache == ctx.r3.u32) {
+    ctx.r3.u64 = 0;  // "not in the cache"
+    if (NoteHitDropped())
+      REXLOG_INFO("[wwe2k14][load][cache] census: copy requests skipped {} moved {} fallback {} name lookups dropped {}",
+                  g_skipped.load(std::memory_order_relaxed), g_moved.load(std::memory_order_relaxed),
+                  g_fallback.load(std::memory_order_relaxed), g_hits_dropped.load(std::memory_order_relaxed));
+    return;
+  }
+  __imp__sub_82C54A00(ctx, base);
+}

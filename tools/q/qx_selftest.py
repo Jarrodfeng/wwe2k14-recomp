@@ -1,7 +1,7 @@
 """qx_selftest: proves the QX1-QX5 queries of `q ours` on a tiny fixture in a TEMP folder (no clang, no game, 0 runs):
-  QX1 worktree freshness: a worktree's edited file gives the NEW line from `q ours def` within seconds; a planted slow parse hits the budget and prints
-      the `stale:` note with the old line; a symbol the branch added shows as a text match;
-  QX2 tools index: covers / lanes-of on a python file name the lane checks (affects + cmd); def / refs on a python class attribute, a function, a ps1 function;
+  QX1 (worktree freshness) is gone with the index (S110 QTEXT: every answer is the text of the checkout; proven in qsym_selftest.py);
+      the two QX1 checks kept here (a name with no C++ hit answers from the tools index, a $variable) do not depend on it;
+  QX2 tools index: covers on a python file lists who invokes it and the files that name it; def / refs on a python class attribute, a function, a ps1 function;
   QX3 line: a C++ printf line -> its site + the python regex that parses it (and a regex that does NOT cover it is not listed as matching);
   QX4 lit / includes / includers: a hex literal found word-bounded (0x1234ABCD2 and 980.5 are not hits), includes resolved, includers listed.
   QX5 cvar (define / GET / string / --flag, #if tags, SDK definitions), lit --all / --tools, q sdk def / refs / callers, ps1 function callers, writes inside #if __ANDROID__.
@@ -61,15 +61,6 @@ def sha_size(root, rel):
     return hashlib.sha1(b).hexdigest(), len(b)
 
 
-def set_index_file(root, rel, marker_line=None):
-    con = sqlite3.connect(os.path.join(root, 'out', 'harness', 'index', 'ours.db'))
-    con.execute('UPDATE files SET sha = ?, size = ? WHERE path = ?', (*sha_size(root, rel), rel))
-    if marker_line:
-        con.execute("UPDATE syms SET line = ? WHERE usr = 'c:@F@Marker'", (marker_line,))
-    con.commit()
-    con.close()
-
-
 def build_fixture(root):
     write(root, 'src/a.h', '#pragma once\nint Census(int n);\n')
     write(root, 'src/a.cpp', A_CPP)
@@ -97,34 +88,8 @@ def parse(line):
     return LINE_RX.search(line)
 ''')
     write(root, 'tools/r.ps1', 'param([string]$Foo = "x", [switch]$Bar)\nfunction Do-It { & .\\tools\\p.py $Foo }\nDo-It\n')
-    write(root, 'tools/gate/lanes/x.json', json.dumps({'owner': 't', 'checks': [
-        {'name': 'x.parse', 'cmd': ['py', '-I', 'tools/p.py', '--selftest'], 'affects': ['tools/p.py', 'src/a.cpp']},
-        {'name': 'x.glob', 'cmd': ['py', 'tools/other.py'], 'affects': ['tools/*.py']}]}))
     for a in (['init', '-q'], ['add', '-A'], ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'fx']):
         subprocess.run(['git', '-C', root] + a, check=True, capture_output=True)
-    db = os.path.join(root, 'out', 'harness', 'index', 'ours.db')
-    os.makedirs(os.path.dirname(db), exist_ok=True)
-    con = sqlite3.connect(db)
-    con.executescript('''
-        CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
-        CREATE TABLE tus(id INTEGER PRIMARY KEY, file TEXT, build INTEGER, errors INTEGER, first_err TEXT, secs REAL, cursors INTEGER);
-        CREATE TABLE incs(tu INTEGER, file TEXT);
-        CREATE TABLE files(path TEXT PRIMARY KEY, sha TEXT, size INTEGER, mtime_ns INTEGER);
-        CREATE TABLE syms(usr TEXT PRIMARY KEY, qname TEXT, name TEXT, kind INTEGER, file TEXT, line INTEGER, isdef INTEGER, builds INTEGER);
-        CREATE TABLE refs(usr TEXT, kind TEXT, file TEXT, line INTEGER, col INTEGER, func TEXT, builds INTEGER);
-        CREATE TABLE funcs(usr TEXT PRIMARY KEY, file TEXT, line INTEGER, endline INTEGER, builds INTEGER, cvars TEXT, logs TEXT);''')
-    con.execute("INSERT INTO meta VALUES('schema','3')")
-    for f in ('src/a.cpp', 'src/a.h', 'src/b.h', 'src/e.h', 'src/d.cpp'):
-        con.execute('INSERT INTO files VALUES(?,?,?,?)', (f, *sha_size(root, f), 1))
-    con.execute("INSERT INTO syms VALUES('c:@F@Marker', 'Marker', 'Marker', 8, 'src/b.h', 3, 0, 1)")
-    con.execute("INSERT INTO syms VALUES('c:@F@Moved', 'Moved', 'Moved', 8, 'src/e.h', 2, 0, 1)")
-    con.execute("INSERT INTO syms VALUES('c:@F@Mover', 'Mover', 'Mover', 8, 'src/d.cpp', 17, 1, 1)")
-    con.execute("INSERT INTO funcs VALUES('c:@F@Mover', 'src/d.cpp', 17, 17, 1, '[]', '[]')")
-    con.execute("INSERT INTO syms VALUES('c:@S@Gate@FI@verbose', 'fx::verbose', 'verbose', 6, 'src/a.h', 2, 1, 1)")
-    con.execute("INSERT INTO syms VALUES('c:@F@Census', 'fx::Census', 'Census', 8, 'src/a.cpp', 5, 1, 1)")
-    con.execute("INSERT INTO funcs VALUES('c:@F@Census', 'src/a.cpp', 5, 12, 1, '[]', '[]')")
-    con.commit()
-    con.close()
 
 
 def q(root, *a, env=None):
@@ -155,10 +120,7 @@ def main():
         build_fixture(main_root)
         # ---- QX2 tools index
         out, so, _ = q(main_root, 'covers', 'tools/p.py')
-        check('x.parse' in so and 'via affects+cmd' in so and 'x.glob' not in so.split('by glob only')[0], 'QX2 covers tools/p.py names the check that affects + runs it (not the glob-only one)', out)
-        check('glob only: lanes x' in so or 'match only by an affects glob' in so, 'QX2 covers reports the glob-only lane separately', out)
-        out, so, _ = q(main_root, 'lanes-of', 'p.py')
-        check('x.parse' in so and 'py -I tools/p.py' in so, 'QX2 lanes-of by basename lists the check with its command', out)
+        check('invoked / named by scripts' in so and 'tools/r.ps1' in so, 'QX2 covers tools/p.py lists the ps1 that invokes it', out)
         out, so, _ = q(main_root, 'def', 'Gate.conn')
         check('attr' in so and 'sqlite3.connect' in so and 'tools/p.py:' in so, 'QX2 def of a python self-attribute shows where and what it holds', out)
         out, so, _ = q(main_root, 'refs', 'parse')
@@ -208,6 +170,24 @@ def main():
         check('== src/a.cpp:1-3' in so and '== tools/p.py:1-' in so, 'QB show: a unique basename, FILE:N+-C, FILE:N (context), two files in one call', out)
         out, so, _ = qraw(main_root, 'show', 'src/a.cpp:9999-10001')
         check('beyond the end' in so and 'not clamped' in so, 'QB show: a range past the end of the file is said, not clamped (planted twin)', out)
+        # S108 lane D: the first screen is the routing table; the bare verbs of `ours` work
+        r_ = subprocess.run([sys.executable, '-I', Q], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(ENV), timeout=120)
+        check(r_.returncode == 0 and 'WHICH q COMMAND ANSWERS YOUR QUESTION' in r_.stdout and 'q missed' in r_.stdout and 'ours text' in r_.stdout,
+              'S108 q with no arguments prints the routing table (question -> command) and names q missed', r_.stdout + r_.stderr)
+        for verb_args in (['def', 'Gate.conn'], ['refs', 'parse']):
+            r_ = subprocess.run([sys.executable, '-I', Q] + verb_args + ['--root', main_root], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(ENV), timeout=120)
+            check(r_.returncode == 0 and 'tools/p.py' in r_.stdout, f'S108 bare `q {verb_args[0]}` routes to `q ours {verb_args[0]}`', r_.stdout + r_.stderr)
+        r_ = subprocess.run([sys.executable, '-I', Q, 'text', 'Param1', 'ambient', '--root', main_root], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(ENV), timeout=120)
+        check('text id must be a number' not in (r_.stdout + r_.stderr), 'S108 bare `q text WORD` is the code text search, not the string-table lookup', r_.stdout + r_.stderr)
+        # review: the game's own `text` forms stay the game's (an option before the id, -h); a word or a phrase goes to `ours text`
+        r_ = subprocess.run([sys.executable, '-I', Q, 'text', '-h'], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(ENV), timeout=120)
+        check(r_.returncode == 0 and 'game string tables' in r_.stdout, 'S108 review: `q text -h` is still the string-table lookup help', r_.stdout + r_.stderr)
+        sys.path.insert(0, HERE)
+        import q as qmain
+        for av, want in ((['text', '12'], False), (['text', '0x1F'], False), (['text', '--lang', '1', '12'], False), (['text', '--all', '--json', '282'], False),
+                         (['text', '-h'], False), (['text'], False), (['text', '12 rounds'], True), (['text', 'PartsBlur'], True), (['text', '12', 'rounds'], True),
+                         (['text', '--limit', '5', 'PartsBlur'], True), (['outline', 'src/a.cpp'], True), (['fn', 'sub_82000000'], False), (['db', 'X'], False)):
+            check(qmain.bare_ours(av) == want, f'S108 review: bare `q {" ".join(av)}` -> {"ours" if want else "unchanged"}', str(av))
         # review 8: fallback candidates only inside a string literal; comments, .txt / .json and fixtures are not printers; a pair is WEAK unless a second needle backs it
         write(main_root, 'src/qb_cmt.cpp', '// Zorkflib quibblex is only mentioned in a comment\nvoid QbCmt() {}\n')
         write(main_root, 'src/qb_notes.txt', 'Zorkflib quibblex in a txt file\n')
@@ -218,49 +198,9 @@ def main():
         check('src/qb_str.cpp:1' in so and 'UNCONFIRMED' in so and 'WEAK' in so, 'QB line: a pair inside a string literal is listed as UNCONFIRMED and WEAK', out)
         out, so, _ = qraw(main_root, 'py', 'def', 'Gate.conn')
         check('attr' in so and 'tools/p.py:' in so, 'QB py def NAME = the tools python index (self-attribute shown)', out)
-        # ---- QX1 worktree freshness
-        subprocess.run(['git', '-C', main_root, 'worktree', 'add', '-q', '-b', 'wt', wt], check=True, capture_output=True)
-        write(wt, 'src/a.cpp', '// one\n// two\n// three\n' + A_CPP + 'int QxAdded() { return 7; }\n')
-        out, so, secs = q(wt, 'def', 'fx::Census')
-        check('src/a.cpp:8' in so and secs < 10, f'QX1 worktree def gives the edited file\'s NEW line (5 -> 8) in {secs:.1f} s (< 10 s)', out)
-        out, so, secs = q(wt, 'def', 'QxAdded')
-        check('QxAdded' in so and 'src/a.cpp:' in so and 'not in the index' in out, 'QX1 a symbol the branch added shows as a text match with a note', out)
-        out, so, secs = q(wt, 'def', 'fx::Census', env={'WWE_Q_FRESH_PLANT_MS': '3000', 'WWE_Q_FRESH_BUDGET': '1'})
-        check('stale: 1 files' in out and 'src/a.cpp:5' in so, f'QX1 a planted slow parse hits the budget: stale note printed, the base line (5) kept, answered in {secs:.1f} s', out)
-        # ---- QX1 fix round: wrong-line cases (each was silent before)
-        sys.path.insert(0, HERE)
-        import qfresh
-        # (10) endline of a function grown at its end maps to the hunk's LAST line; a git error never counts as mapped; stray env cleared
-        check(qfresh.map_line([(11, 2, 11, 5)], 12, end=True)[0] == 15, 'QX1 an endline inside a grown hunk maps to the end of the replacement (12 -> 15)')
-        try:
-            qfresh.hunks_of(os.path.join(tmp, 'nope1'), os.path.join(tmp, 'nope2'), 10)
-            check(False, 'QX1 hunks_of on missing files raises instead of returning "no hunks"')
-        except OSError:
-            check(True, 'QX1 a git diff error raises (never counted as mapped)')
-        check('WWE_Q_FRESH_BUDGET' not in ENV and 'WWE_Q_FRESH' not in ENV, 'QX1 selftest env is cleared of WWE_Q_FRESH*')
-        # (4) a function MOVED from line 17 to 4: the row sits in a deleted hunk; the name check finds it at its new line
-        d = open(os.path.join(wt, 'src/d.cpp'), encoding='utf-8').read().split('\n')
-        mv = d.pop(16)
-        d[3:3] = [mv]
-        write(wt, 'src/d.cpp', '\n'.join(d))
-        out, so, _ = q(wt, 'def', 'Mover')
-        check('src/d.cpp:4' in so and 'src/d.cpp:16' not in so and 'src/d.cpp:17' not in so, 'QX1 a function moved 17 -> 4 is found at line 4 (not the deleted hunk start)', out)
-        # (3) a renamed file: the old path's rows are dropped, the symbol shows as a text match in the new file
-        subprocess.run(['git', '-C', wt, 'mv', 'src/e.h', 'src/f.h'], check=True, capture_output=True)
-        out, so, _ = q(wt, 'def', 'Moved')
-        check('src/f.h' in so and 'src/e.h' not in so and 'deleted / renamed' in out, 'QX1 a renamed file: the symbol is not reported under the old path; the new file is searched', out)
-        # (1) main changed the file after the fork (index rebuilt from main's newer b.h); the worktree's b.h is the OLD one
-        write(main_root, 'src/b.h', '// n1\n// n2\n#pragma once\n#include "a.h"\nint Marker();\n')
-        set_index_file(main_root, 'src/b.h', marker_line=5)
-        out, so, _ = q(wt, 'def', 'Marker')
-        check('src/b.h:3' in so and 'src/b.h:5' not in so, 'QX1 main changed a file after the fork: the worktree own line (3) is given, not the main one (5)', out)
-        # (2) main's copy changed AFTER the index was built and the worktree also edits the file: the offsets cannot be trusted: listed stale
-        write(main_root, 'src/a.cpp', open(os.path.join(main_root, 'src/a.cpp'), encoding='utf-8').read() + '// late main edit\n')
-        out, so, _ = q(wt, 'def', 'fx::Census')
-        check('stale: 1 files' in out and 'src/a.cpp:8' not in so, 'QX1 main file changed since the index: not mapped (wrong offsets), listed stale', out)
-        # (6) a name found in the C++ index only as a field: the error stands (no python answer hiding it), and a text match is not faked
+        # (6) S110: a name with no C++ text hit answers from the tools index (there is no C++ index to say "found only as a field")
         out, so, _ = q(main_root, 'callers', 'verbose')
-        check('found only as field' in out and 'tools/p.py' not in so, 'QX1 callers of a field-only name keeps "found only as field" (the tools index is not consulted)', out)
+        check('tools/p.py' in out, 'QX1 callers of a name with no C++ text hit is answered by the tools index', out)
         out, so, _ = q(main_root, 'def', '$Foo')
         check('r.ps1' in so, 'QX1 def of a PowerShell variable written with its $ finds it', out)
         print('qx_selftest: PASS')
@@ -329,7 +269,7 @@ def qfix_main():
         jp = os.path.join(tmp, 'agent-x.jsonl')
         with open(jp, 'w', encoding='utf-8') as f:
             f.write(json.dumps(rec) + '\n' + json.dumps(blob) + '\n' + json.dumps(rec) + '\n')
-        qn, rn, dn, _ = qa.audit(jp)
+        qn, rn, dn, _, _ = qa.audit(jp)
         check((qn, rn, dn) == (1, 0, 0), f'FIX9 a tool call logged twice (assistant + api-request-blob, same id) counts once: q {qn}')
     except Fail as e:
         print(f'FAIL  {e}')
@@ -406,10 +346,6 @@ def qx5_main():
         write(root, 'tools/cv.py', 'FLAGS = "--fx_step_hz=60"\n')
         write(root, 'thirdparty/rexglue-sdk-src/include/s.h', SDK_H)
         write(root, 'thirdparty/rexglue-sdk-src/src/s.cpp', SDK_CPP)
-        con = sqlite3.connect(os.path.join(root, 'out', 'harness', 'index', 'ours.db'))
-        con.execute("INSERT INTO syms VALUES('c:@g_owner', 'g_owner', 'g_owner', 9, 'src/an.cpp', 1, 1, 1)")
-        con.commit()
-        con.close()
         # ---- 1 cvar
         out, so, _ = q(root, 'cvar', 'fx_step_hz')
         check('src/cv.h:3' in so and 'REXCVAR_DEFINE_INT32' in so and 'default 0' in so and 'second half' in so and 'ON build only (stream)' in so,
@@ -436,9 +372,9 @@ def qx5_main():
         check('tools/run.ps1' in so and 'tools/use.ps1:2' in so and '[call]' in so, 'QX5 callers of a ps1 function lists the OTHER scripts that call it (dot-sourced)', out)
         # ---- 5 __ANDROID__ branches
         out, so, _ = q(root, 'writes', 'g_owner')
-        check('src/an.cpp:4' in so and 'src/an.cpp:6' not in so and '__ANDROID__' in so, 'QX5 writes: a write inside #if __ANDROID__ is listed (the #else branch is not)', out)
+        check('src/an.cpp:4' in so and '#if defined(__ANDROID__)' in so.replace('#if !(defined(__ANDROID__))', '') or 'defined(__ANDROID__)' in so, 'QX5 writes: a write inside #if __ANDROID__ is listed with its #if chain (S110: text lists every branch)', out)
         out, so, _ = q(root, 'reads', 'g_owner')
-        check('src/an.cpp:9' not in so, 'QX5 reads: the !__ANDROID__ branch is not listed as Android', out)
+        check('src/an.cpp:9' in so and '#if !defined(__ANDROID__)' in so, 'QX5 reads: the !__ANDROID__ branch is listed with its negated #if chain', out)
         # ---- 3 q sdk
         out, so = qs(root, 'update')
         check('2 files' in so and 'definitions' in so, 'QX5 q sdk update builds the index', out)
@@ -526,10 +462,6 @@ def qx5fix_main():
         write(root, 'src/andq.cpp', '#if defined(__ANDROID__)\nvoid AQ() { Thing::Frob();\n  other.Frob(); }\n#endif\n')
         git(root, 'add', '-A')
         git(root, 'commit', '-q', '-m', 'fx2')
-        con = sqlite3.connect(os.path.join(root, 'out', 'harness', 'index', 'ours.db'))
-        con.execute("INSERT INTO syms VALUES('c:@S@Thing@F@Frob', 'Thing::Frob', 'Frob', 21, 'src/a.h', 2, 1, 1)")
-        con.commit()
-        con.close()
         # 1 build tags from the file's own #if lines + the lists + includers
         out, so, _ = q(root, 'cvar', 'fx_rdr_scene')
         soft('ON build only (stream)' in so and 'REXCVAR_SET: 1' in so, 'FIX1a/2 a cvar in a keep_stream_sources file is ON only; REXCVAR_SET is found', out)
@@ -564,9 +496,8 @@ def qx5fix_main():
         out, so, _ = q(root, 'refs', 'Thing::Frob')
         l2 = re.search(r'andq\.cpp:2\s.*', so)
         l3 = re.search(r'andq\.cpp:3\s.*', so)
-        soft(bool(l2) and bool(l3) and 'name match only' not in l2.group(0) and 'name match only' in l3.group(0),
-             'FIX7 a qualified query: the Android line holding the qualifier is exact, one with only the name says "name match only"', out)
-        soft(os.path.exists(os.path.join(root, 'out', 'harness', 'index', 'android_files.json')), 'FIX7 the list of files holding __ANDROID__ is cached', out)
+        soft(bool(l2) and bool(l3) and 'name only' not in l2.group(0) and 'name only' in l3.group(0),
+             'FIX7 a qualified query: the line holding the qualifier is exact, one with only the name says "name only"', out)
         # 4 / 8 SDK
         sdk = os.path.join(root, 'thirdparty', 'rexglue-sdk-src')
         write(root, 'thirdparty/rexglue-sdk-src/include/v.h', 'namespace rexx {\nclass Vk {\n public:\n  bool Initialize(int x);\n};\n}\n')

@@ -6,7 +6,7 @@
 //  2. the owner's model holds a mesh of each such piece (ModelHasPieceMesh);
 //  3. the front end skipped meshes of alpha-0 rows (piece_mesh_stats().skipped_alpha0 > 0 when such a row has a mesh) and drew meshes of alpha > 0 rows (drawn > 0);
 //  4. no piece is a missing-row hole (pieces_alpha_missing == 0).
-// --plant one = the bug (every piece at alpha 1): check 1 fails for the lid layer; --expect-fail inverts the exit code for the gate row.
+// --plant one = the bug (every piece at alpha 1): check 1 fails for the lid layer; --expect-fail inverts the exit code for the check row.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +23,7 @@
 #include "../../src/renderer_scene/piece_alpha.h"
 #include "../../src/renderer_scene/record_frame.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 #include "../../src/renderer_scene/rf_wrestlers.h"
 
 using namespace rdr_scene;
@@ -37,7 +38,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "--expect-fail")) expect_fail = true;
   }
   if (rec.empty() || game.empty()) { std::printf("usage: eyes_frame_unit --record FRAME.rsc --game DIR [--plant one|norows] [--expect-fail]\n"); return 2; }
-  if (const char* mc = std::getenv("RDR_MAIN_CHECKOUT")) {   // a gate row names game_data / the record under the MAIN checkout (a worktree has neither)
+  if (const char* mc = std::getenv("RDR_MAIN_CHECKOUT")) {   // a check row names game_data / the record under the MAIN checkout (a worktree has neither)
     auto fix = [&](std::string& p) { if (!std::filesystem::exists(p)) p = (std::filesystem::path(mc) / p).string(); };
     fix(rec), fix(game);
   }

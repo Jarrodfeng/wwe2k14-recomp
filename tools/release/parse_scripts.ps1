@@ -1,4 +1,4 @@
-# Session 102 W1/W2: the release scripts must at least parse (they are never run by the gate). Exit 0 = no parse error in any of them.
+# Session 102 W1/W2: the release scripts must at least parse (a script nobody runs can rot). Exit 0 = no parse error in any of them.
 # A planted file with a syntax error (-Plant) must make this exit 1.
 param([switch]$Plant)
 $here = $PSScriptRoot

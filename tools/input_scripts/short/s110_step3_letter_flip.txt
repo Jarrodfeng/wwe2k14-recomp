@@ -1,0 +1,51 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\step3check\lib1 --wwe2k14_seat_pool_cap=2 --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 step 3 check Q2 (route lane): lib1, pages of two; page 1 binds Brock Test + Kara Test (run 01), page 2 holds Quinn Test + Zed Test. The tab opens on
+# Adam Test (A). RT x12 (A B C D F G J K N then Q: a letter only page 2 has), then LT x4, each press logged with the screen text and shot.
+# Question: does the jump to Q flip the page by itself (`[bind] page 2 of 2` right after the `[letter]` line) and land the cursor on Quinn Test
+# (`[bind] cursor to row R (KEY, seat S)`), his name shown? Then Z (Zed, page 2), and LT back.
+log step3: start q2_letter
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+press A
+wait_frames 60
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+press LEFT
+wait_frames 40
+press LEFT
+wait_frames 40
+press A
+wait_frames 120
+log step3: tab open
+log_text 12
+screenshot q2_tab
+wait_frames 20
+log step3: RT x12
+screenshot_every 60 rt
+repeat 12
+press RT
+wait_frames 60
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: LT x4
+screenshot_every 60 lt
+repeat 4
+press LT
+wait_frames 60
+log_text 2
+end_repeat
+screenshot_every 0
+wait_frames 20
+log step3: done
+quit

@@ -9,7 +9,7 @@ $log = "$R\out\harness\step21\headline_$Tag.txt"
 foreach ($hz in $Rates) {
     $step = "--wwe2k14_fixed_seed=1 --wwe2k14_step_hz=$hz --wwe2k14_step_vblank=true"
     $arms = @("off$hz=$step", "on$hz=$step $On")
-    $out = & "$R\tools\perf\s20_batch.ps1" -Tag "s21$Tag" -RealTime -Arms $arms 2>&1
+    $out = & "$R\tools\perf\s20_batch.ps1" -Tag "s21$Tag" -NormalSpeed -Arms $arms 2>&1
     foreach ($line in @($out | Where-Object { "$_" -match ' -> wwe2k14_(\d+)' })) {
         [void]("$line" -match '^s21\S+ (\S+) -> .* -> wwe2k14_(\d+)')
         $arm = $Matches[1]; $run = $Matches[2]

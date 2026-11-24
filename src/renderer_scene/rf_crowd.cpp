@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include "live_crowd.h"
+#include "rows_crowd.h"   // S106 G4-2
 #include "../scene_live/sign_file_keys.h"   // S103 CSF
 #include "card_atlas_rule.h"   // S103 CB1
 #include "../keep_stream.h"      // S103 CB1: WWE2K14_STREAM()

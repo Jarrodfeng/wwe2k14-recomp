@@ -1230,7 +1230,7 @@ void RendererVk::Impl::Scene(int w, int h, const Camera& cam) {
     k.prog = kPScene, k.cull = it.raster, k.blend = it.blend, k.depth = it.depth_write ? 1 : 2, k.color = kSceneFmt, k.depthf = kDepthFmt;
     BindPipe(Pipe(k));
     if (!set0) SceneSet0(fcb, true), set0 = true;
-    DrawMesh(*it.gm, *it.me, it.blended);
+    draw_inst = it.inst; DrawMesh(*it.gm, *it.me, it.blended); draw_inst = -1;   // S106 FCN: a per-copy item draws that copy only
   }
   EndRP();
 }

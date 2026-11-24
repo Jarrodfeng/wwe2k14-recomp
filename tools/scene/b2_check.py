@@ -14,7 +14,7 @@ game group of that key is a failure (NO GAME GROUP), never a fallback to the fam
   DEPTH          our compare must equal the game's mapped to forward Z (pass_state.h ForwardZ: GEQUAL -> LEQUAL, GREATER -> LESS; the shadow caster's LEQUAL stays).
   Reported, not asserted (T2 section 4): depth write, cull, blend on untested draws (the game blends every lit draw at alpha 1: not copied).
 Coverage: per pass class (and wrestler vs other) the number of compared draws; a class the code can return with 0 compared draws over all the captures FAILs, except the rows named in UNCOVERED_OK
-(the gate captures draw no wrestler: no record names the models): those are printed UNCOVERED, not passed silently.
+(the standard captures draw no wrestler: no record names the models): those are printed UNCOVERED, not passed silently.
 --plant old_ref / cutout_noblend run the rig with the old behaviour (WWE_RDR_PLANT_OLD_ALPHA_REF / WWE_RDR_PLANT_CUTOUT_NOBLEND): the check must FAIL with OLD ALPHA REF / CUTOUT BLEND. A crash does not pass.
 --crop-compare NAME --vs PLANT: the rig picture of a plain run and of a --plant run beside each other, the changed-pixel count and a side-by-side PNG under out\s103\B2\.
 --game-only: the game census of a capture / case folder that has no scene records.
@@ -293,7 +293,7 @@ def main():
     if a.crop_compare:
         print('\n'.join(crop_compare(os.path.join(ROOT, a.out), a.crop_compare, int(a.frames or 100), a.vs, a.crop)))
         return 0
-    # the gate's captures: two brock_losswin frames (arena fences / haze cards, props) and a04_match (a match with the crowd cards); none draws a wrestler (no record names the models)
+    # the standard captures: two brock_losswin frames (arena fences / haze cards, props) and a04_match (a match with the crowd cards); none draws a wrestler (no record names the models)
     caps = a.capture or [os.path.join(main_co, 'out', 'captures', 'brock_losswin') + '@100', os.path.join(main_co, 'out', 'captures', 'brock_losswin_rt') + '@100', os.path.join(main_co, 'out', 'captures', 'a04_match')]
     out = os.path.join(ROOT, a.out)
     os.makedirs(out, exist_ok=True)
@@ -321,7 +321,7 @@ def main():
     for r in rows:
         if cover[r] == 0:
             if r in UNCOVERED_OK:
-                lines.append('  UNCOVERED: %s (no gate capture draws it: the records do not name the models)' % r)
+                lines.append('  UNCOVERED: %s (no standard capture draws it: the records do not name the models)' % r)
             elif not fails:
                 fails.append('COVERAGE: pass class %s has 0 compared draws' % r)
     print('\n'.join(lines))

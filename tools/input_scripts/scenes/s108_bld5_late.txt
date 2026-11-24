@@ -1,0 +1,55 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lane BLD5 (docs/research/s108/BLD5_plan.md): the game's post-match rebuild repaints only decals still alive, and the
+# level-by-level regrowth Jarrod knows from the real game is the replay's per-wrestler track playing back the recorded bleed levels.
+# s108_bld4_levels bled about 77 s before the finish, outside what the replay holds. This route bleeds slot 0 through levels 1, 2, 3
+# right before the finish (after the finisher is stocked).
+# Question: after the finish, does the blood on slot 0 regrow level by level (a clear, then items drawn rising fast in the liquid
+# census) and is the face as full after the clip as in the in-match level-3 shot?
+# Read with: py -I tools/bench/run_read.py <exe folder> --full. Shots bld5_* are local only.
+on_fail quit
+log bench: start scene s108_bld5_late
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=bld5_match
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+mark 2 roster_wait_done
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+bleed 0 1
+wait_frames 120
+screenshot bld5_level1
+bleed 0 2
+wait_frames 120
+screenshot bld5_level2
+bleed 0 3
+wait_frames 120
+screenshot bld5_level3
+mark 3 bleed_levels_done
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 60
+screenshot bld5_after_60
+wait_frames 240
+screenshot bld5_after_300
+wait_frames 600
+screenshot bld5_after_900
+wait_frames 1000
+screenshot bld5_after_1900
+wait_frames 800
+screenshot bld5_after_2700
+wait_frames 1000
+screenshot bld5_after_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

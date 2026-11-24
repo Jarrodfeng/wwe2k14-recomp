@@ -86,6 +86,11 @@ using BodyDescFn = BodyDesc (*)(uint32_t owner_skel);
 // PZF2 B-2: the latch re-reads [desc + 4] == owner_skel and [desc + 28] == the link's key itself; the KIND comes from that read, not from the link.
 inline PieceWhy ProveBuildPath(ReadFn read, uint32_t inst, uint32_t owner_skel, const BodyDesc& bd, uint32_t faults = 0, PieceBuild* build = nullptr, uint32_t* kind_out = nullptr) {
   if (!bd.known || bd.desc < 0x10000) return PieceWhy::WrongDesc;
+  GuestBlock<kDescCustom + 4 - kDescBody> dw;   // S108 RDS: the descriptor's words +4 / +12 / +16 / +28 / +144 as one hull [desc+4, desc+148)
+  dw.Load(read, bd.desc + kDescBody, uint64_t(bd.desc) + kDescCustom + 4);
+  GuestBlock<kSubmIndexWord + 4> iw;   // inst +0 / +4 / +16: [inst, inst+20)
+  iw.Load(read, inst, uint64_t(inst) + kSubmIndexWord + 4);
+  const auto ReadWord = [&dw, &iw](ReadFn r, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) { return dw.Has(a, 4) ? dw.Word(r, a, v WWE_FEED_LOC_ARG) : iw.Word(r, a, v WWE_FEED_LOC_ARG); };   // (shadows scene_inputs::ReadWord: every field below through the copies, else alone)
   uint32_t key = bd.key;
   if (!(faults & kFaultNoDescReread)) {
     uint32_t body = 0;
@@ -106,7 +111,9 @@ inline PieceWhy ProveBuildPath(ReadFn read, uint32_t inst, uint32_t owner_skel, 
   if (entries < 0x10000 || count == 0 || count > kSubmMaxPieces || index >= count) return PieceWhy::WrongDesc;
   const uint32_t entry = entries + kEntryStride * index;
   uint32_t e0 = 0, e4 = 0, e16 = 0;
-  if (!ReadWord(read, entry + kEntryFirst, e0) || !ReadWord(read, entry + kEntryModel, e4) || !ReadWord(read, entry + kEntryPach, e16)) return PieceWhy::WrongDesc;
+  GuestBlock<kEntryPach + 4> ew;   // S108 RDS: the entry's +0 / +4 / +16 as one hull [entry, entry+20)
+  ew.Load(read, entry, uint64_t(entry) + kEntryPach + 4);
+  if (!ew.Word(read, entry + kEntryFirst, e0) || !ew.Word(read, entry + kEntryModel, e4) || !ew.Word(read, entry + kEntryPach, e16)) return PieceWhy::WrongDesc;
   if (e0 != first || e16 != 0) return PieceWhy::EntryMismatch;   // not built from this entry, or the entry holds deferred data (then inst + 28 would be 1)
   if (!(faults & kFaultAnyKind) && !ProvenKind(kind)) return PieceWhy::KindUnproven;
   if (e4 == 0) {   // B2: both words 0, a fresh model from [entry + 0]: no run has shown one yet, refused until it does (the log line prints B1 / B2 per piece)
@@ -132,6 +139,7 @@ inline constexpr uint32_t kModelVtable = 0x8206AF90, kModelCountFlag = 296, kMod
 // S105 CAWP: the game's own count rule, sub_82BD3AB8 (listing 0x82BD3AB8): [m+296] != 0 -> [m+300]; else D = [m+220]: 0 -> -1 (unknown here), else D's vtable slot 2. The only slot-2 target seen is sub_82C27620 ([[D+12]+24],
 // 0 when [D+12] is 0); any other target is not followed (0, fail closed). A model is recognised by its OWN vtable slot 2 == sub_82BD3AB8 (the dispatch the game makes), not by one vtable address.
 inline constexpr uint32_t kCountGetter = 0x82BD3AB8, kDelegateOff = 220, kDataCountGetter = 0x82C27620;
+inline std::atomic<uint64_t> g_delegate_unreadable{0};   // S108 GAVF: the delegate reads of GameNodeCountW ([m+220], [d]) that failed
 template <class ReadWordFn>
 inline uint32_t GameNodeCountW(ReadWordFn rw, uint32_t model) {
   uint32_t vt = 0, getter = 0, flag = 0, n = 0;
@@ -139,7 +147,10 @@ inline uint32_t GameNodeCountW(ReadWordFn rw, uint32_t model) {
   if (!rw(model + kModelCountFlag, flag)) return 0;
   if (flag != 0) return rw(model + kModelCount, n) ? n : 0;
   uint32_t d = 0, dvt = 0, dget = 0, data = 0;   // S105 CAWP: the delegate branch ([m+296] == 0: the object at [m+220])
-  if (!rw(model + kDelegateOff, d) || d < 0x10000 || !rw(d, dvt) || dvt < 0x10000 || !rw(dvt + 8, dget) || dget != kDataCountGetter) return 0;
+  if (!rw(model + kDelegateOff, d)) { g_delegate_unreadable.fetch_add(1, std::memory_order_relaxed); return 0; }   // S108 GAVF: a failed read of [m+220] or of [d] is counted (printed with the page-check census); a null / low delegate is not a failure
+  if (d < 0x10000) return 0;
+  if (!rw(d, dvt)) { g_delegate_unreadable.fetch_add(1, std::memory_order_relaxed); return 0; }
+  if (dvt < 0x10000 || !rw(dvt + 8, dget) || dget != kDataCountGetter) return 0;
   if (!rw(d + 12, data) || data == 0) return 0;
   return rw(data + 24, n) ? n : 0;
 }
@@ -176,6 +187,9 @@ inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t*
   if (probe) *probe = OwnRowsProbe{};
   if (nodes == 0 || nodes > kSubmMaxNodes) return PieceWhy::NoCount;
   uint32_t special = 0, map = 0, copy = 0, deferred = 0;
+  GuestBlock<kSubmMode + 4 - kSubmSpecial> iw;   // S108 RDS: inst +8 / +12 / +20 / +24 / +28 / +36 as one hull [inst+8, inst+40)
+  iw.Load(read, inst + kSubmSpecial, uint64_t(inst) + kSubmMode + 4);
+  const auto ReadWord = [&iw](ReadFn r, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) { return iw.Word(r, a, v WWE_FEED_LOC_ARG); };   // (shadows scene_inputs::ReadWord: the map words below use `mw`)
   if (!ReadWord(read, inst + kSubmSpecial, special) || !ReadWord(read, inst + kSubmMap, map) || !ReadWord(read, inst + kSubmCopy, copy) || !ReadWord(read, inst + kSubmDeferred, deferred)) return PieceWhy::MapUnreadable;
   if (copy_out) *copy_out = copy;
   if (probe) {
@@ -187,9 +201,11 @@ inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t*
   if (copy == 0) return PieceWhy::NoCopy;
   if (map < 0x10000) return PieceWhy::MapNull;
   bool unmapped = false;
+  static thread_local GuestBlock<4 * kSubmMaxNodes> mw;   // S108 RDS: the node map's `nodes` words as one block (<= 4 KB: at most two pages); thread-local (4 KB), reloaded every call
+  mw.Load(read, map, uint64_t(map) + 4ull * nodes);
   for (uint32_t i = 0; i < nodes; ++i) {
     uint32_t w = 0;
-    if (!ReadWord(read, map + 4 * i, w)) return PieceWhy::MapUnreadable;
+    if (!mw.Word(read, map + 4 * i, w)) return PieceWhy::MapUnreadable;
     if (w == 0xFFFFFFFFu) {
       if (!free_out) {
         if (!probe) return PieceWhy::Unmapped;
@@ -266,14 +282,18 @@ inline bool ReadCharacterPieces(ReadFn read, uint32_t ch, std::vector<CharPiece>
   if (!node) return true;   // no SUBM component: no pieces
   uint32_t comp = 0, begin = 0, end = 0;
   if (!ReadWord(read, node + kSubmNodeComp, comp) || comp < 0x10000) return false;
-  if (!ReadWord(read, comp + kSubmBegin, begin) || !ReadWord(read, comp + kSubmEnd, end)) return false;
+  GuestBlock<kSubmEnd + 4 - kSubmBegin> cw;   // S108 RDS: comp +72 / +80 as one hull [comp+72, comp+84)
+  cw.Load(read, comp + kSubmBegin, uint64_t(comp) + kSubmEnd + 4);
+  if (!cw.Word(read, comp + kSubmBegin, begin) || !cw.Word(read, comp + kSubmEnd, end)) return false;
   if (begin == 0 && end == 0) return true;
   if (end < begin || (end - begin) % kSubmStride || (end - begin) / kSubmStride > kSubmMaxPieces) return false;
   const uint32_t n = (end - begin) / kSubmStride;
   for (uint32_t i = 0; i < n; ++i) {
     const uint32_t inst = begin + kSubmStride * i;
     uint32_t model = 0, idw = 0;
-    if (!ReadWord(read, inst + kSubmModel, model) || !ReadWord(read, inst + kSubmId, idw)) return false;
+    GuestBlock<kSubmId + 4> hw;   // S108 RDS: inst +0 / +16 as one hull [inst, inst+20)
+    hw.Load(read, inst + kSubmModel, uint64_t(inst) + kSubmId + 4);
+    if (!hw.Word(read, inst + kSubmModel, model) || !hw.Word(read, inst + kSubmId, idw)) return false;
     if (model < 0x10000) continue;   // an instance with no model (a hole): nothing to link
     CharPiece p;
     p.model = model, p.id = idw >> 16;   // the id is a u16 stored with sth at +16: the high half of the big-endian word

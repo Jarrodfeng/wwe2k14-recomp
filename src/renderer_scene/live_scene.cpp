@@ -3,6 +3,12 @@
 // No game or SDK includes. Everything under one mutex held for a whole EndFrame: contributors register at startup, sinks attach when a
 // capture arms / the case ring starts, so contention is nil, and RemoveSink returning means no EndFrame still holds the sink.
 #include "live_scene.h"
+#include "rows_arena_world.h"   // S106 G4-2
+#include "rows_crowd.h"
+#include "rows_inputs.h"
+#include "rows_lights.h"
+#include "rows_owned.h"
+#include "record_checks.h"
 #include "../renderer_adapter/census_flush.h"  // S102 CEN1
 static census_flush::Site g_cf_swap_once, g_cf_pool;  // S102 CEN1
 

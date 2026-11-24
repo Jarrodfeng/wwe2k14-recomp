@@ -1,4 +1,4 @@
-# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)
+# intent: performance fps
 # In-run A/B of wwe2k14_precise_sleep (period 90 frames) on bench_taker_wm.txt; made by make_ab.py
 # SWAP: every cvar after "mark 1" inverted (opposite phase to ab_taker_precise_sleep_30.txt).
 # For DEFAULT settings (30 fps entrances): make_ab.py's default --entrance-frames 5450. At the 4K preset (60 fps

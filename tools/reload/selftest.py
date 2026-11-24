@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Session 101 lane 24: the live shader reload's offline acceptance test (gate lane file tools\\gate\\lanes\\reload.json). 0 game runs: it starts the Arena Viewer
+"""Session 101 lane 24: the live shader reload's offline acceptance test. 0 game runs: it starts the Arena Viewer
 (rdr backend, --hidden) and fview headless; neither is the game.
 
   py -I tools\\reload\\selftest.py [--root DIR] [--only viewer|fview]

@@ -22,6 +22,7 @@
 #include "assets/load_plants.h"                        // S103 W2B: assets::load_detail::SpringNodes
 #include "renderer_scene/rf_wrestlers.h"          // S103 ENV: rf::Plants
 #include "renderer_scene/record_io.h"                  // (SceneTables, before the scene_live headers that name it)
+#include "renderer_scene/detached_piece.h"   // S106 G4-2
 #include "renderer/breadcrumbs.h"                    // S105 A9: rdr::crumbs::g_test_lost_at (the +dev plant)
 #include "renderer/depth_nostencil.h"               // S103 CHS C5: rdr::g_stencil_dead (stored here in the stream-free build)
 #include "renderer/combine_lite.h"                   // S103 SLV: rdr::g_combine_lite (stored here in the stream-free build)
@@ -298,7 +299,7 @@ const Applied& ApplyStartSettings() {
     std::memcpy(&bx, &cs.x, 4), std::memcpy(&by, &cs.y, 4);
     rdr_scene::live::crowd::latch::g_screen_sx_bits.store(bx, std::memory_order_relaxed), rdr_scene::live::crowd::latch::g_screen_sy_bits.store(by, std::memory_order_relaxed);
 #if WWE2K14_STREAM()
-    rdr_scene::live::crowd::latch::g_single_screen_scaled.store(false, std::memory_order_relaxed);   // the stream build's walked frames cull the singles with the game's own 16:9 test (no wide hook): the port must agree (crowd F2)
+    rdr_scene::live::crowd::latch::g_single_screen_scaled.store(false, std::memory_order_relaxed);   // the stream build's walked frames cull the singles with the game's own 16:9 test (no wide hook): the port must agree (crowd F2)   // START-ONLY(ON): the OFF build has no walked frames, its singles port keeps the header default true (crowd_latch_reader.h:794-796)
 #endif
   }
 

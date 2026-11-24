@@ -2,6 +2,7 @@
 //   build: clang++ -std=c++20 -O1 -DNOMINMAX tools\scene\guest_model_unit.cpp src\renderer_scene\record_io.cpp ...   (tools\scene\guest_model_unit.py does it)
 //   usage: guest_model_unit.exe [--plant N]    N = 1..13 reader / planner plants (guest_model_reader.h), 21..27 = decoder plants (guest_model_draw.h: N - 20). Exit 0 = every check passed; with a plant: exit 1 = caught.
 // The vertex forges are built from the game's PACKER rules (sub_82BD4BE0, CW2_review bug 5: the byte stores of the skin block, the 10:11:11 words, the half2 uv dwords), NOT from the decoder's own layout table.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -410,6 +411,62 @@ static void CheckOracle() {
 }
 
 // ---- the planner: the filter and the cost -----------------------------------------------------------------------------------------------------------------------------------------------------
+static ModelSpec OneBody(uint32_t seed);
+// S108 RDS phase 2: a view of the forged memory that records every page a read ASKS (a range's pages, before any refusal) and refuses the pages outside `ok_pages` when set.
+struct PageMem {
+  explicit PageMem(const Mem& mm) : m(mm) {}
+  const Mem& m;
+  mutable std::vector<uint32_t> asked;
+  mutable uint64_t reads = 0;
+  const std::vector<uint32_t>* ok_pages = nullptr;
+  bool range(uint32_t a, uint32_t n) const {
+    bool ok = true;
+    for (uint64_t p = a >> 12; p <= (uint64_t(a) + n - 1) >> 12; ++p) {
+      if (std::find(asked.begin(), asked.end(), uint32_t(p)) == asked.end()) asked.push_back(uint32_t(p));
+      if (ok_pages && std::find(ok_pages->begin(), ok_pages->end(), uint32_t(p)) == ok_pages->end()) ok = false;
+    }
+    return ok;
+  }
+  bool u32(uint32_t a, uint32_t& v) const { ++reads; return range(a, 4) && m.u32(a, v); }
+  bool bytes(uint32_t a, uint32_t n, uint8_t* d) const { ++reads; return range(a, n) && m.bytes(a, n, d); }
+};
+// The layout pass reads each 128-byte aligned line once (guest_model_reader.h Rd): the same layout as the field reads (key, every part's words), no page the field reads do not ask, far fewer reads.
+// The second model object sits at a page end (its last layout word, +832, ends at the page end; the next page is never asked by the field pass and is unreadable for the line pass).
+// Twins: plant 15 (the window starts AT the field) asks the page past that end; plant 16 (no line copy) fails the cost.
+static void CheckLineCopy() {
+  Mem m;
+  const uint32_t body = BuildModel(m, OneBody(5));
+  const uint32_t pg = (m.next + 0x1FFFu) & ~0xFFFu;
+  const uint32_t moved = pg + 0x1000u - (gm::kOffOverride + 4);
+  for (uint32_t o = 0; o < gm::kOffOverride + 4; o += 4) { uint32_t v = 0; m.u32(body + o, v); m.put32(moved + o, v); }
+  m.next = pg + 0x3000u;
+  bool same = true, subset = true, cost = true;
+  uint64_t field_reads = 0, line_reads = 0;
+  for (uint32_t model : {body, moved}) {
+    const int keep = gm::g_gm_plant;
+    gm::g_gm_plant = 16;   // the reference: one read per field
+    PageMem ref{m};
+    const gm::ModelRead a = gm::ReadModelLayout(ref, model);
+    gm::g_gm_plant = keep;
+    PageMem sub{m};
+    sub.ok_pages = &ref.asked;
+    const gm::ModelRead b = gm::ReadModelLayout(sub, model);
+    bool eq = a.why == gm::Why::Ok && a.why == b.why && a.layout_key == b.layout_key && a.parts == b.parts && a.parts_ok == b.parts_ok && a.parts_ok == 12 && a.p.size() == b.p.size();
+    for (size_t p = 0; eq && p < a.p.size(); ++p) {
+      const gm::PartRead &x = a.p[p], &y = b.p[p];
+      eq = x.why == y.why && x.vertex_count == y.vertex_count && x.stride == y.stride && x.vflags == y.vflags && x.n0 == y.n0 && x.n1 == y.n1 && x.node_count == y.node_count &&
+           std::memcmp(x.nodes, y.nodes, sizeof x.nodes) == 0 && std::memcmp(x.effect, y.effect, sizeof x.effect) == 0 && x.vdata == y.vdata && x.idata == y.idata && x.samplers.size() == y.samplers.size();
+    }
+    same = same && eq;
+    for (uint32_t pgn : sub.asked)
+      if (std::find(ref.asked.begin(), ref.asked.end(), pgn) == ref.asked.end()) subset = false;
+    cost = cost && sub.reads * 3 <= ref.reads;
+    field_reads += ref.reads, line_reads += sub.reads;
+  }
+  Check(same, "rds.layout_line_copy_same: the line-copy layout pass equals the per-field pass (layout key, 12 parts' words), at a page end too");
+  Check(subset, "rds.layout_line_copy_pages: no page asked that the per-field pass does not ask (the model at the page end included)");
+  Check(cost, "rds.layout_line_copy_cost: reads per layout pass " + std::to_string(line_reads / 2) + " with the line copy, " + std::to_string(field_reads / 2) + " one per field (at least 3x fewer)");
+}
 static ModelSpec OneBody(uint32_t seed) {
   ModelSpec spec;
   for (int p = 0; p < 12; ++p) {
@@ -1485,7 +1542,7 @@ int main(int argc, char** argv) {
   int plant = 0;
   for (int i = 1; i + 1 < argc; ++i)
     if (!std::strcmp(argv[i], "--plant")) plant = std::atoi(argv[i + 1]);
-  if (plant >= 1 && plant <= 14) gm::g_gm_plant = plant;
+  if (plant >= 1 && plant <= 16) gm::g_gm_plant = plant;   // 15 / 16 = S108 RDS: the layout line copy's window unaligned / no line copy
   if (plant >= 21 && plant <= 30) guestmodel::g_draw_plant = plant - 20;   // 30 (draw plant 10, CAWS P3): every decoded node + 200   // 29 (draw plant 9, CTX2): the actors_drawn increment is left out
   if (plant == 41) guestmodel::g_draw_plant = 11;                           // 41 (draw plant 11, CAWH): the file-space -> viewer-space mirror is skipped
   if (plant == 42) guestmodel::g_draw_plant = 12;                           // 42 (draw plant 12, S105 A5b): no guest part blends (the old rule)
@@ -1502,6 +1559,7 @@ int main(int argc, char** argv) {
   CheckVariants();
   CheckOracle();
   CheckPlanner();
+  CheckLineCopy();   // S108 RDS
   CheckTextures();
   CheckCtf();
   CheckBlend();

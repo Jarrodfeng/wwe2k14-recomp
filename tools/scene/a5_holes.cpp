@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 using namespace rdr_scene;
 int main(int argc, char** argv) {
   if (argc < 2) return 1;

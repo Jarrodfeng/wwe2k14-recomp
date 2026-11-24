@@ -29,6 +29,7 @@ try {
         if ($Setting -eq 'on') { $extra = "$extra --wwe2k14_det_inline_motion=true" }
         if ($MoreArgs) { $extra = "$extra $MoreArgs" }
         Write-Output "=== inline motion $Setting, run $($i + 1) of $Count : $extra"
+        # S109 FF2: -Exclusive = alone, not normal speed. The route asks for no speed term (frame-exact hashes): it runs fast-forwarded, as run_det.ps1 does.
         & "$R\tools\bench\run_list.ps1" -Scripts @($route) -Extra $extra -Exclusive
     }
 } finally { Exit-RunLock $lock }

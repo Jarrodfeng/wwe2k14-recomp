@@ -5,6 +5,7 @@
 // (the front-end's own rule, SCENE_FRONTEND "live screen"): unchanged.
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "../keep_stream.h"
+#include "rows_stage_fx.h"   // S106 G4-2
 #include <deque>
 #include "rf_c.h"
 #include "screen_idle_rows.h"

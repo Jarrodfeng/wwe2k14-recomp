@@ -1,0 +1,150 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lane THR check (the fixed build only; EXPLORATORY: the pages past entering the Threads editor are not mapped).
+# Question: in the Superstar Threads editor, does a colour change show on the previewed wrestler? The game recolours only in editor
+# state 10 (word [0x839BFC84]+20; 1 loading, 2 props loaded, 3..9 setup): the route presses A up to six times logging that state,
+# then RIGHT / DOWN presses with a shot after each. Read: `[scene][change_colour]` census (bodies with the switch on, drawn with the
+# STS row and masks), no `draw_shortfall: change_colour` line. Nothing is saved. Shots sc_thr_* are local only.
+on_fail continue
+log bench: start scene s108_threads_colour
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor >=1 12 30 5 if_needed
+press_until_state UP cursor 1 12 30 5 if_needed
+press_until_state A seq 77 8 120 5
+wait_frames 600
+log scene=threads_editor
+log_state 0x839BFC84>0>20
+log_text 8
+screenshot sc_thr_00
+mark 1 threads_editor
+press A
+wait_frames 300
+log scene=threads_a1
+log_state 0x839BFC84>0>20
+log_state 0x839BFC84>0>76
+log_text 8
+screenshot sc_thr_a1
+press A
+wait_frames 300
+log scene=threads_a2
+log_state 0x839BFC84>0>20
+log_state 0x839BFC84>0>76
+log_text 8
+screenshot sc_thr_a2
+press A
+wait_frames 300
+log scene=threads_a3
+log_state 0x839BFC84>0>20
+log_state 0x839BFC84>0>76
+log_text 8
+screenshot sc_thr_a3
+press A
+wait_frames 300
+log scene=threads_a4
+log_state 0x839BFC84>0>20
+log_state 0x839BFC84>0>76
+log_text 8
+screenshot sc_thr_a4
+press A
+wait_frames 300
+log scene=threads_a5
+log_state 0x839BFC84>0>20
+log_state 0x839BFC84>0>76
+log_text 8
+screenshot sc_thr_a5
+press DOWN
+wait_frames 90
+log scene=threads_s00_down
+log_text 4
+screenshot sc_thr_s00_down
+press RIGHT
+wait_frames 90
+log scene=threads_s01_right
+log_text 4
+screenshot sc_thr_s01_right
+press RIGHT
+wait_frames 90
+log scene=threads_s02_right
+log_text 4
+screenshot sc_thr_s02_right
+press RIGHT
+wait_frames 90
+log scene=threads_s03_right
+log_text 4
+screenshot sc_thr_s03_right
+press A
+wait_frames 90
+log scene=threads_s04_a
+log_text 4
+screenshot sc_thr_s04_a
+press RIGHT
+wait_frames 90
+log scene=threads_s05_right
+log_text 4
+screenshot sc_thr_s05_right
+press RIGHT
+wait_frames 90
+log scene=threads_s06_right
+log_text 4
+screenshot sc_thr_s06_right
+press A
+wait_frames 90
+log scene=threads_s07_a
+log_text 4
+screenshot sc_thr_s07_a
+press DOWN
+wait_frames 90
+log scene=threads_s08_down
+log_text 4
+screenshot sc_thr_s08_down
+press A
+wait_frames 90
+log scene=threads_s09_a
+log_text 4
+screenshot sc_thr_s09_a
+press RIGHT
+wait_frames 90
+log scene=threads_s10_right
+log_text 4
+screenshot sc_thr_s10_right
+press RIGHT
+wait_frames 90
+log scene=threads_s11_right
+log_text 4
+screenshot sc_thr_s11_right
+press RIGHT
+wait_frames 90
+log scene=threads_s12_right
+log_text 4
+screenshot sc_thr_s12_right
+press RIGHT
+wait_frames 90
+log scene=threads_s13_right
+log_text 4
+screenshot sc_thr_s13_right
+press DOWN
+wait_frames 90
+log scene=threads_s14_down
+log_text 4
+screenshot sc_thr_s14_down
+press DOWN
+wait_frames 90
+log scene=threads_s15_down
+log_text 4
+screenshot sc_thr_s15_down
+press DOWN
+wait_frames 90
+log scene=threads_s16_down
+log_text 4
+screenshot sc_thr_s16_down
+press A
+wait_frames 90
+log scene=threads_s17_a
+log_text 4
+screenshot sc_thr_s17_a
+mark 2 end
+log bench: done
+wait_frames 10
+quit

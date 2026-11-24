@@ -1,4 +1,4 @@
-# Gate check of lane 115 (S101): the unit test of our stage screens (screens_ours_test.exe) with its planted faults and loud failures.
+# Check of lane 115 (S101): the unit test of our stage screens (screens_ours_test.exe) with its planted faults and loud failures.
 #   py -I tools\screens\screens_ours_selftest.py [--step N]
 # Runs the SHIPPED core (src\renderer_scene\screens_ours_core.cpp, the code ScreensOurs calls) via out\tools\screens_ours_test.exe (built by tools\screens\build_screens_ours_test.ps1, which also compile-checks the GPU
 # side screens_ours.cpp) on the arena files and on four captures: Check F (run 7067's case zip, scene records, consumer palettes), Check B (the folder lane 40 unpacked, or run 7051's zip), run 7074 ("h1": the stream

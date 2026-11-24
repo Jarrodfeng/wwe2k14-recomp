@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/weapon_rows.h"   // S106 G4-2
 #include "tail_latch.h"   // LatchMark
 #include "weapon_mgr_reader.h"
 

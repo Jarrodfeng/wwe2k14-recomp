@@ -25,6 +25,7 @@
 #include "../../src/renderer_scene/front_end.h"
 #include "../../src/renderer_scene/live_crowd.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_crowd.h"
 
 using namespace rdr_scene;
 

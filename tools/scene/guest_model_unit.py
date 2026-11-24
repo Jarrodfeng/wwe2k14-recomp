@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lanes CW-2 / CW-2b gate check (offline, 0 game runs): the guest model reader, planner, texture resolver, the GuestModel record rows and the consumer.
+"""S103 lanes CW-2 / CW-2b check (offline, 0 game runs): the guest model reader, planner, texture resolver, the GuestModel record rows and the consumer.
   py -I tools\\scene\\guest_model_unit.py [--root DIR]
 Builds tools\\scene\\guest_model_unit.cpp (forged guest memory only) against src\\renderer_scene\\record_io.cpp and runs it: forged models built from the game's PACKER rules (2/3/4-pair weights, the uv order of the
 jboy loader, a non-identity palette, every F variant, unknown F bits refused), the 12-part stock-body oracle, the planner's filter + cost units (a named wrestler is NOT read; 6 named + 1 unnamed reads only the unnamed
@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
+PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
 
 # ---- lints, over a {relative path: text} map so a twin can add a synthetic file --------------------------------------------------------------------------------------------------------------------------
 STRIDE_ONLY = [re.compile(r'\bLayoutOfStride\b'), re.compile(r'switch\s*\(\s*\w*stride\w*\s*/\s*4\s*\)')]
@@ -31,6 +31,7 @@ LOCAL_STATIC_ALLOW = {  # existing function-local statics of rf_*.cpp, not touch
     ('src/renderer_scene/rf_wrestlers.cpp', 'static std::map<std::pair<uint32_t, std::string>, std::pair<uint64_t, uint64_t>> age;   // (skeleton, object id) -> (last record frame counted, records); review 4: a body absent for > 8 records starts again at 0'): 'pre-existing (S103 HGF 86aed0dc7 / 7c5130025): the guest-piece age, behind the static mutex of the same function',
     ('src/renderer_scene/rf_wrestlers.cpp', 'static std::set<std::string> logged_ids;'): 'pre-existing (S103 HGF): log-once set, behind the same mutex',
     ('src/renderer_scene/rf_wrestlers.cpp', 'static std::set<std::string> seen;'): 'pre-existing (S103 AUSF bb5b179b4): census set, capped at 64, reached only on the record thread through rf::Classes',
+    ('src/renderer_scene/rf_props.cpp', 'static std::set<std::pair<int32_t, uint64_t>> said;'): 'pre-existing (S105 PLATE 372ea055f): the belt-plate log-once set in ApplyWeaponRows (a log line per prop id and plate hash, bounded by the plates a run binds), reached only on the record thread through rf::Classes -> BuildFrame; no draw state',
 }
 
 
@@ -79,9 +80,14 @@ def lint_win_guard(files):
     w = files.get('src/scene_live/wrestler_hook.h')
     if w is not None:
         m = re.search(r'inline bool ReadGuest\s*\([^)]*\)\s*\{(.*?)\n\}\n', w, re.S)
-        if not m:
+        body = m.group(1) if m else None
+        # S108 RDS: ReadGuest may serve a pass's line copy whose every read is ReadGuestDirect; then ReadGuestDirect must keep the check, and ReadGuest must not copy guest memory itself
+        if body is not None and 'GuestRangeReadable' not in body and 'ReadGuestDirect' in body and 'SafeCopy' not in body:
+            d = re.search(r'inline bool ReadGuestDirect\s*\([^)]*\)\s*\{(.*?)\n\}\n', w, re.S)
+            body = d.group(1) if d else ''
+        if body is None:
             bad.append('src/scene_live/wrestler_hook.h: ReadGuest not found')
-        elif 'GuestRangeReadable' not in m.group(1):
+        elif 'GuestRangeReadable' not in body:
             bad.append('src/scene_live/wrestler_hook.h: ReadGuest reads without the guest page check (off Windows SafeCopy is a plain memcpy)')
     return bad
 

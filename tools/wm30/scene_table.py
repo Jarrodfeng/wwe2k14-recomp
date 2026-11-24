@@ -102,7 +102,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--game', default=pac.GAME)
     ap.add_argument('--json')
-    ap.add_argument('--check', action='store_true', help='gate check: the pinned counts hold, and a planted wrong count must fail')
+    ap.add_argument('--check', action='store_true', help='check: the pinned counts hold, and a planted wrong count must fail')
     a = ap.parse_args()
     rows, missing = build(a.game)
     if a.check:

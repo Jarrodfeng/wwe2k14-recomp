@@ -778,7 +778,7 @@ def main(argv=None):
         if m and not re.match(r'^[A-Za-z]$', m.group(1)):
             path, arena = m.group(1), int(m.group(2))
         if not os.path.exists(path) and os.path.exists(os.path.join(MAIN, path)):
-            path = os.path.join(MAIN, path)  # gate lanes name captures relative to the main checkout (where out\ lives)
+            path = os.path.join(MAIN, path)  # check scripts name captures relative to the main checkout (where out\ lives)
         try:
             cap = Capture(path)
             sel = parse_frames(a.frames, len(cap.frames))

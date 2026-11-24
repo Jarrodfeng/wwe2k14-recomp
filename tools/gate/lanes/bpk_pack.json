@@ -1,9 +1,0 @@
-{
- "owner": "BPK (2026-11-20): tools/builder/pack.py, the builder pack (a probe note -> one Markdown file holding the code at every site it cites, plus labelled companion blocks; docs/agents/builder_pack.md). selftest = invented fixtures (every citation shape, drift moved / partly gone / gone / not mapped, an ambiguous bare name, untracked and out\\ names never expanded, a temp git repo for the tracked-files-only guard, the review-finding cases, each companion rule, the size cap, the drift planted fault; a null note first). refind = real probe -> fix pairs of 2026-11-19 from git history and the pinned committed notes (no q context, nothing under out\\): 4 DEV pairs (the tool was designed on them) and 4 SEALED pairs (frozen before the companion rules ran on them). --floor 0.58 is a REGRESSION FLOOR on the DEV probe-led score (measured 61 % on 2026-11-20, round 2), NOT the target: the tool prints 80 % as its target. It also fails when a pack takes >= 15 s, goes over its cap, or the planted fault (bare-filename resolver off) does not lower the DEV score. 0 game runs.",
- "checks": [
-  {"name": "bpk_pack.selftest", "cmd": ["py", "-I", "tools/builder/pack.py", "--selftest"], "timeout_s": 180, "tier": "cheap",
-   "affects": ["tools/builder/**"]},
-  {"name": "bpk_pack.refind", "cmd": ["py", "-I", "tools/builder/pack_refind.py", "--no-q", "--floor", "0.58"], "timeout_s": 400, "tier": "cheap",
-   "affects": ["tools/builder/pack.py", "tools/builder/companions.py", "tools/builder/pack_refind.py"]}
- ]
-}

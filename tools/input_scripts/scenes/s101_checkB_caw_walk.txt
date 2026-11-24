@@ -2,7 +2,6 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
 # Session 100: owner-mode twin of s90_caw_editor.txt (tools\renderer\owner_route.py): the new renderer writes live_<name>.png of
 # every screenshot the reference build takes. Run with --wwe2k14_rdr_owner=true.
-# harness: realtime (plain frame-counted menu presses from a recording; fast-forwarded menus drop presses, LESSONS)
 # Session 90 step 3 (TRUE NATIVE outside the bench): the Create-a-Superstar editor (CREATIONS -> SUPERSTAR -> NEW), the
 # create mode's own render path (CREATEMODE.PAC / ED02.PAC, the readback-heavy editor copies). Menu presses and timings
 # from tools\input_scripts\short\caw_logo_attire_check.txt (Jarrod's recording, run 1748). Shots of the editor (the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane CRR gate check: builds tools\\scene\\crr_unit.cpp (a created arena's ALT ring, ids 200-249: src\\renderer_scene\\ring_keys.h, asset_load.h load lists + PlaceRing, ring_low_keys.h, ring_rows_core.h kClassTable,
+"""S103 lane CRR check: builds tools\\scene\\crr_unit.cpp (a created arena's ALT ring, ids 200-249: src\\renderer_scene\\ring_keys.h, asset_load.h load lists + PlaceRing, ring_low_keys.h, ring_rows_core.h kClassTable,
 ring_recompute_core.h alt posts), runs it on the pure rules AND on the player's own pac\\car + pac\\bg\\bg04.pac files (0 game runs, no SDK), then its planted twins (each must exit 1 and fail its NAMED check), then the
 wiring lints.
   py -I tools\\scene\\crr_check.py [--root DIR] [--game DIR] [--no-game]

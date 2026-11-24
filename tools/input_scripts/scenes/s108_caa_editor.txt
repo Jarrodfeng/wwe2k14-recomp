@@ -1,0 +1,53 @@
+# Session 108 lane CAP check, part 1: the Create an Arena EDITOR's stage view, custom arena slot 1 of the frozen save (the fixed build only).
+# Question: do the stage panels (mini-tron below the big screen, the header above it, both side walls) show the game's paint (a new /
+# unpainted arena: solid grey: Jarrod's fact) and never the part files' placeholder text (red "MINITORON" / "HEADDER" / "WALL L" /
+# "WALL R", blue "L" / "R")? Before S108 lane CAP we bound the file copy of every painted texture.
+# The steps are creations_to_arena_shot's up to the editor (DOWN x6 = ARENA -> EDIT -> slot 1 -> EDIT -> the summary page -> DOWN x3 =
+# ACCEPT -> the editor); it then only looks: nothing is saved (the run uses its own copy of the frozen save anyway).
+# Frame-counted presses: S109 FF: there is no normal-speed switch any more, and fast-forwarded the lint refuses them: sync the presses on menu_page / menu_row / cursor (`watch` is only for a run a person plays or watches, not an escape).
+# Read it with: py -I tools\bench\run_read.py <exe folder> --full   ([wwe2k14][car_paint] ready 1 built_take N built_game ... (S108 CAP3: ready = every entry tried once; the manager's words are evidence on the line), read > 0, failed 0, missing 0; no
+# `draw_shortfall: arena_paint`). Shots sc_caa_ed_00 .. 05 are local only.
+on_fail quit
+log bench: start scene s108_caa_editor
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+log scene=caa_editor
+mark 1 caa_editor
+wait_frames 300
+screenshot sc_caa_ed_00
+wait_frames 150
+screenshot sc_caa_ed_01
+wait_frames 150
+screenshot sc_caa_ed_02
+wait_frames 150
+screenshot sc_caa_ed_03
+wait_frames 150
+screenshot sc_caa_ed_04
+wait_frames 150
+screenshot sc_caa_ed_05
+log bench: done
+quit

@@ -16,6 +16,7 @@
 #include "../assets/ring_low_keys.h"  // S103 RLB2: the low ring pieces and their high twins
 #include "../assets/stage_pools.h"  // S103 L2
 #include "record_frame.h"
+#include "stage_posed.h"   // S110 BARRICADE: PosedKeep
 #include "stage_show.h"   // S103 SCF
 
 namespace rdr_scene::rf::c {
@@ -81,6 +82,7 @@ struct FamilyModel {
   int page_tex = -1;                       // S103 L: the model's stage light-map page (a live RGBA8 texture, the model's own copy); -1 = none
   uint64_t page_key = 0;                   // S103 L: which page the texture holds now: 0 = the match page (as built), 1 = the entrance base page, else the composed page's PoolsHash
   uint32_t meshes = 0;
+  bool posed = false;                      // S110 BARRICADE: a moving slot built GPU-skinned (bound vertices, every mesh `skinned`): drawn from its kFxSlotPalette rows as bones (rf_arena_live.cpp)
   float radius = 0.f;                      // Flash: the sprite's largest |position| (the row's scale is a half-size in world units)
 };
 struct ArenaSet {
@@ -90,7 +92,8 @@ struct ArenaSet {
   // stage array order); part[Arena] = the meshes before the first moving slot, each cut = {the moving slot drawn there, the static meshes up to the next moving slot}. Empty when no slot moves (or the plant).
   struct ArenaCut { int slot = -1; FamilyModel seg; };
   std::vector<ArenaCut> cuts;
-  std::map<int, FamilyModel> moving;       // slot -> its own one-slot model (a slot some kFxSlotWorld row moves)
+  PosedKeep posed_keep;                    // S110 BARRICADE: the last kFxSlotPalette rows of the current stage generation (stage_posed.h PosedAdopt)
+  std::map<int, FamilyModel> moving;      // slot -> its own one-slot model (a slot some kFxSlotWorld row moves)
   std::string key;                         // the cache key (arena, twin state, moving slots)
   std::vector<uint8_t> page_base, page_match;  // S103 L: this arena's stage light-map pages (RGBA8, page_w x page_h), copied at registration; empty = the arena has none
   assets::stage_pools::Cache pcache;           // S103 L2: the same pages + the pool sprite (lightmap00) + the span, caller-owned: ComposeFrom builds the entrance page from the record's pools without the loader's global cache
@@ -110,6 +113,7 @@ struct ArenaSet {
     // S103 RGP: the key's GPU-skinned model (one static model: the bound vertices, every mesh `skinned`; each instance is an object with its node rows in the frame's bones). gpu.model < 0 = this key is CPU-posed
     // (the switch is off, a mesh is not a yProp_* effect / is alpha-blended: ring_pose.h GpuSkinnable). gpu.sets / mesh_slot feed LightsFor, once per key.
     FamilyModel gpu;
+    uint32_t rows_needed = 0;   // S108 AL1: RowsNeeded(stored) after the bind (ring_pose.h), once: rf_ring.cpp compares it with each call's rows (pose_rows_report.h ReportRingRows)
   };
   std::map<int, FamilyModel> ring_rest;
   std::map<int, RingPiece> ring_piece;

@@ -1,1 +1,0 @@
-{"owner": "S102 lanes F1+F2 (ready-lanes parser, stop hook, merge trains, waiting board)", "claim": {"scene": "none", "side": "flow", "ms": [0, 0]}, "checks": [{"name": "s102_flow.selftest", "cmd": ["py", "-I", "tools/harness/flow_selftest.py"], "timeout_s": 900}]}

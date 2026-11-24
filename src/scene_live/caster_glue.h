@@ -9,6 +9,7 @@
 #include <atomic>
 
 #include "caster_contrib.h"
+#include "../renderer_scene/rows_caster.h"   // S106 G4-2
 #include "plane_contrib.h"        // lane 226 follow-up (S1): the plane tracker's snapshot at the pass entry
 #include "wrestler_contrib.h"   // WantCount (the palette's node count)
 #include "wrestler_hook.h"      // ReadGuest / ReadWord / ReadMatrices

@@ -1,4 +1,4 @@
-# harness: realtime (slow motion needs vsync on; Session 16: run_list fast-forwards other routes)
+# intent: performance match clock rate
 # Session 14 (S3, report only): slow-motion experiment. Use with --wwe2k14_launch=lesnar_bryan
 # --wwe2k14_launch_skip_entrances=true (SDK pin-32fae13 or later: gpu_vblank_rate_override_hz). In the match: the guest
 # vblank at 60 (normal), 30, 15 Hz, then back to normal; the match clock (frames) is logged at the start and end of

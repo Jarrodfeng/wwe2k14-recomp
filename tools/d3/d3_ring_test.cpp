@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "../../src/renderer_adapter/d3_binder.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/scene_live/ring_rows_core.h"
 
 using namespace rdr_adapter;

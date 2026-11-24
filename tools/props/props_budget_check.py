@@ -223,7 +223,8 @@ def main():
             print(text[-1500:])
             print('FAIL  arm %s wrote no hash / time file (exit %d)' % (tag, rc))
             sys.exit(1)
-        return dict(rc=rc, text=text, hashes=read_hashes(hp), times=read_times(tp), facts=facts(text))
+        # S106 TIPFIX: the count is parsed beside rc in this function (fview_csv_lint's same-function rule); judge() reads it from `text` as before
+        return dict(rc=rc, text=text, val0='validation errors 0' in text, hashes=read_hashes(hp), times=read_times(tp), facts=facts(text))
 
     def thin_arm(tag, extra):
         d = os.path.join(work, tag)

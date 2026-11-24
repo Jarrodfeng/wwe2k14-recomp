@@ -1,4 +1,4 @@
-r"""S101 lane PN selftest (gate lane post_names). 0 game runs.
+r"""S101 lane PN selftest. 0 game runs.
 
   1  post_names_check.py --static: the q index's 22 queue sites in 13 effect functions and the direct callers all have a row with a technique
   2  post_origin_test.cpp: the SHIPPED PostSiteScope / ApplyPostSite -> names_draw.h -> origin_table.h path names every site (clang++)

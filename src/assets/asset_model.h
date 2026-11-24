@@ -16,12 +16,12 @@
 namespace assets {
 
 // One vertex as the viewer draws it (little-endian, host floats). Filled from the JBOY's planar streams:
-// S0 position + normal + colour, S1 skin (bone slot, weight) pairs, S2 UV (first set), a lightmap UV (arenas), S3 tangent.
+// S0 position + normal + colour, S1 skin (bone slot, weight) pairs, S2 UV (the diffuse UV of every model, S108 BAN3), S3 tangent.
 struct Vertex {
   float pos[3];
   float normal[3];
   float uv0[2];       // the first texture coordinate set
-  float uv1[2];       // the lightmap set (arenas); 0 when the mesh has none
+  float uv1[2];       // static arena meshes: a copy of uv0 (S2) for the dev viewer's own light-map read; 0 otherwise. No game shader reads it (only particles map inUv2)
   float tangent[3];   // 0 when the mesh has none
   uint32_t color;     // RGBA8 as stored (0xFFFFFFFF when none)
   // skeleton NODE indices (the mesh's palette slot already mapped through its palette); 0 when unused. Session 99 (scene objects): 16
@@ -43,7 +43,7 @@ struct Texture {
 
 // What a mesh's material needs for a plain look: texture slots are indices into Model::textures, -1 = none.
 // S103 WRK (switch wwe2k14_rdr_wrk, stream-free, default ON): live face wrinkles + id-map tint + the +616 pass mode. The loader reads it: OFF = the wrinkle normal map is not decoded or uploaded.
-inline std::atomic<bool> g_wrk_live{true};
+inline std::atomic<bool> g_wrk_live{true};   // BOTH-BUILDS: a LOOK, ON in both builds; the cvar exists only in the OFF build (start_settings.cpp:92), the stream build keeps the default true
 
 struct Material {
   std::string shader;  // the material class name as stored ("yCh_skin", "yBG_Default", "yProp_BumpMap", ...)
@@ -88,6 +88,7 @@ struct Material {
   // g_fNoiseTFar) = (250, 1000): the two sets are mixed by the clip depth). `detail` = g_mNoiseTilePrm (texture `noise2`, chCommon.pac).
   int detail = -1;
   int logo7 = -1, logo4 = -1;   // S105 A5c: the CAW logo pictures (fetch slots 7 / 4, bound by the model draw's logo callback; see the A5c note); -1 = none (black: the layer does nothing)
+  int change_mask[4] = {-1, -1, -1, -1};   // S108 THR2 (change_mask.h): the Superstar Threads editor's Mask1..Mask4 (PACH entries 13..16, kept only for a `/m` load), bound at pixel slots 7, 4, 14, 2 on a change-colour draw; -1 = none (black: that mask does nothing)
   bool diffuse_t0 = false;      // S105 A5c: the game sets pixel bool 150 for this part (its diffuse sampler's texture index is 0): an FX_LOGO fragment then reads the layer at slot 7, else slot 4
   int wrinkle_normal = -1;   // S103 WRK: g_mNormalWklPrm (the face wrinkle normal map `wrinkles_n`, fetch slot 5; WRK.md 1a [C])
   float wrink_uv[4] = {0, 0, 1, 1};   // S103 WRK: g_f4WrinkUV_x/y/z/w = PS c230 (the wrinkle rectangle, a file value); (0,0,1,1) only when has_wrink_uv is false
@@ -341,8 +342,19 @@ struct Model {
   // Anything odd the loader saw (a missing texture name, a stream that did not tile, NaN positions, ...). The census
   // reports these per item; an empty list means the loader found nothing wrong.
   std::vector<std::string> warnings;
+  // S108 AL1: what the loader could NOT give of what the game draws (each also a warning): `kind` = "model_part" (a part / slot / piece / crowd body whose JBOY failed to load: dropped) or
+  // "texture_pac" (a pac holding this model's shared textures did not open: every name it holds stays unbound); `part` = the thing a person looks for; `why` = the loader's reason.
+  // Read once per adopted model by the live renderer (renderer_scene\model_load_report.h) and said through rdr::DrawShortfall. Written only through NoteDropped below.
+  struct Shortfall { const char* kind; std::string part, why; };
+  std::vector<Shortfall> shortfalls;
   // Time spent reading + decoding (ms), for the census.
   double load_ms = 0;
 };
+
+// S108 AL1: the loader's one way to say it dropped something the game draws: the warning (text unchanged: "<part> failed: <why>" for a part) and the shortfall the renderer reports.
+inline void NoteDropped(Model& m, const std::string& part, const std::string& why, const char* kind = "model_part") {
+  m.warnings.push_back(std::string(kind) == "model_part" ? part + " failed: " + why : part + ": " + why);
+  m.shortfalls.push_back({kind, part, why});
+}
 
 }  // namespace assets

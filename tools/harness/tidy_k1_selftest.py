@@ -94,9 +94,7 @@ def main():
     # ---- fake repo
     R = os.path.join(WORK, 'repo')
     os.makedirs(os.path.join(R, 'out', 'tidy'))
-    os.makedirs(os.path.join(R, 'tools', 'gate', 'lanes'))
-    write(os.path.join(R, 'tools', 'gate', 'lanes', 'lane_a.json'),
-          json.dumps({'checks': [{'name': 'a', 'cmd': ['py', 'tools/x_check.py', 'out/s100x/attires'], 'needs': ['out/gated/capture']}]}))
+    write(os.path.join(R, 'tools', 'a_check.py'), "A = 'out/s100x/attires'\nB = 'out/gated/capture'\n")      # a check script that names a folder and a capture
     write(os.path.join(R, 'tools', 'x_check.py'), src)
     T = load_tidy(R)
 
@@ -109,9 +107,9 @@ def main():
         T._keep_cache.clear()
         return T.keep_info(d)
     i = keep('s100x', 'Session 100: shader packets, local only', 9)
-    check('RE-FIND out/s100: a longer path named by a lane (out/s100x/attires) does NOT hold the parent', not i['valid'], str(i))
-    i = keep('s100x/attires', 'gate input', 9)
-    check('twin: the lane that names the folder itself holds it', i['valid'] and 'named' in i['kind'], str(i))
+    check('RE-FIND out/s100: a longer path named by a check (out/s100x/attires) does NOT hold the parent', not i['valid'], str(i))
+    i = keep('s100x/attires', 'a named input', 9)
+    check('twin: the check that names the folder itself holds it', i['valid'] and 'named' in i['kind'], str(i))
     i = keep('bare_old', '# todo', 9)
     check('bare KEEP (comment only), 9 days old: NOT honoured', not i['valid'], str(i))
     i = keep('bare_new', '# todo', 2)
@@ -132,7 +130,7 @@ def main():
     check('strict cutoff with a session open 70 h = now - 24 h (was its start)', abs(strict.cutoff - (now - 24 * 3600)) < 5, '%.1f h' % ((now - strict.cutoff) / 3600))
     check('low pass strict = now - 1 h', abs(T.make_ages(now, live, low=True)[1].cutoff - (now - 3600)) < 5)
 
-    # ---- 4. a gate-named capture older than 72 h is kept; an unnamed twin is not
+    # ---- 4. a check-named capture older than 72 h is kept; an unnamed twin is not
     cap = os.path.join(R, 'out', 'gated', 'capture')
     write(os.path.join(cap, 'images.bin'), binary=b'a' * 100)
     write(os.path.join(cap, 'manifest.json'), '{}')
@@ -141,7 +139,7 @@ def main():
     write(os.path.join(other, 'images.bin'), binary=b'a' * 100)
     age_tree(os.path.join(R, 'out', 'ungated'), now - 100 * 3600)
     bad = dict(T.guard_paths([cap]))
-    check('gate-named capture, 100 h old, is refused by the guard', bool(bad.get(cap)), str(bad))
+    check('check-named capture, 100 h old, is refused by the guard', bool(bad.get(cap)), str(bad))
     bad = dict(T.guard_paths([other]))
     check('twin: an unnamed capture of the same age is not refused', not bad.get(other), str(bad))
     protect, _ = T.protect_keys()
@@ -158,7 +156,7 @@ def main():
     g = td.find_dupes([c1, c2, c3])
     check('duplicate capture set reported once (2 of 3)', len(g) == 1 and sorted(g[0][1]) == sorted([c1, c2]), str(g))
     L, saved = td.dupe_lines(g, lambda p: p == c2, lambda b: '%d B' % b)
-    check('the gate-named copy is the one kept', 'keep ' + c2 in L[0] and 'duplicate: ' + c1 in L[0] and saved == 4008, L[0])
+    check('the check-named copy is the one kept', 'keep ' + c2 in L[0] and 'duplicate: ' + c1 in L[0] and saved == 4008, L[0])
     write(os.path.join(c2, 'images.bin'), binary=b'SAMF' + b'SAME' * 999)
     check('twin: one changed byte -> no duplicate', td.find_dupes([c1, c2, c3]) == [])
 
@@ -224,14 +222,12 @@ def main():
     check('twin: a game process still blocks it', bool(T.lock_busy(shared_ok=True)))
     os.environ.pop('TIDY_TEST_LOCKSTATUS')
 
-    # ---- 10. regenerable inputs are not "missing"; a lost capture is
-    write(os.path.join(R, 'tools', 'build_it.ps1'), '#')
-    write(os.path.join(R, 'tools', 'gate', 'regenerable.json'), json.dumps({'out/built': 'tools/build_it.ps1', 'out/gated2': 'tools/nope.ps1'}))
-    write(os.path.join(R, 'tools', 'gate', 'lanes', 'lane_b.json'), json.dumps({'needs': ['out/built', 'out/gated2/capture', 'out/lostcap/capture']}))
-    miss = [m[0] for m in T.missing_gate_inputs()]
-    check('a build output with a recipe on disk is not MISSING', 'out/built' not in miss, str(miss))
-    check('twin: a recipe whose file is gone is MISSING', 'out/gated2/capture' in miss or 'out/gated2' in miss, str(miss))
-    check('twin: a lost capture (no recipe) is MISSING', 'out/lostcap/capture' in miss, str(miss))
+    # ---- 10. a lost capture a check names is MISSING; one that exists is not
+    write(os.path.join(R, 'tools', 'b_check.py'), "A = 'out/lostcap/capture'\nB = 'out/ring/capX/capture'\n")
+    write(os.path.join(R, 'out', 'ring', 'capX', 'capture', 'images.bin'), binary=b'x')
+    miss = [m[0] for m in T.missing_inputs()]
+    check('a lost capture a check names is MISSING', 'out/lostcap/capture' in miss, str(miss))
+    check('twin: a capture that exists is not', 'out/ring/capx/capture' not in miss, str(miss))
 
     # ---- 11. review fixes (K1 review, 2026-11-14)
     # (1) the quota never touches a RUNNING agent's out\ and never a folder holding compiled output; a FINISHED agent over quota is picked
@@ -312,13 +308,6 @@ def main():
     check('hourly pass with "mode: BUILD only" is skipped (leaves an expired live_X under out\\harness\\bisect\\exe)', bool(T.lock_busy(shared_ok=T.lock_shared_ok(_A(auto='hourly')))))
     check('twin: the watch is not stopped by it', T.lock_busy(shared_ok=T.lock_shared_ok(_A(auto='watch'))) == '')
     os.environ.pop('TIDY_TEST_LOCKSTATUS')
-
-    # (5) regenerable.json is an exact key
-    write(os.path.join(R, 'tools', 'gate', 'regenerable.json'), json.dumps({'out/ring': 'tools/build_it.ps1'}))
-    write(os.path.join(R, 'tools', 'gate', 'lanes', 'lane_c.json'), json.dumps({'needs': ['out/ring', 'out/ring/capX/capture']}))
-    miss = [m[0] for m in T.missing_gate_inputs()]
-    check('a lane naming out/ring/capX/capture while out/ring is listed: still MISSING', 'out/ring/capx/capture' in miss, str(miss))
-    check('twin: out/ring itself (exact key, recipe on disk) is not', 'out/ring' not in miss, str(miss))
 
     print('\n%d checks, %d failed%s' % (N, len(FAILS), (': ' + ', '.join(FAILS)) if FAILS else ''))
     shutil.rmtree(WORK, ignore_errors=True)

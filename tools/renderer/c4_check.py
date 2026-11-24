@@ -3,7 +3,7 @@ r"""S102 lane C4: offline proof of the scene colour pass's two new levers (0 gam
   wwe2k14_rdr_arena_overdraw  the G10 depth prepass also takes the arena draws whose diffuse texture is PROVEN alpha-free (src\renderer\texture_alpha.h, binder.h AlphaOpaque). No look change.
   wwe2k14_rdr_low_half_transparents  the tail of additive no-depth-write draws that ends a scene colour pass is drawn at half size and added back with a depth-aware upsample
                                      (src\renderer\half_trans.h, renderer.cpp RecordHalfTail). The approved look lever: a sheet judges it.
-rplay plays the gate's Bryan entrance capture (237 frames) and the Brock capture (375 frames) under the SHIPPED DEFAULT BUNDLE (the --*-ours switches wwe2k14_app.h turns on, as colour_pass_rank.py BUNDLE).
+rplay plays the standard Bryan entrance capture (237 frames) and the Brock capture (375 frames) under the SHIPPED DEFAULT BUNDLE (the --*-ours switches wwe2k14_app.h turns on, as colour_pass_rank.py BUNDLE).
   unit        tools\renderer\c4_overdraw_test.cpp (the texture-alpha proof, the half-size planner, each with twins).
   arena       cut off vs on (+ both levers together): the colour passes' fragment shader invocations fall (>= 12 % total on Bryan), draws are pre-drawn (0 taken = FAIL: the lever does nothing for players), the texture
               proof admitted draws, pictures (4 shots) differ by > 8 on under 0.05 % of the pixels and by > 32 on none. Brock: the same picture bar with its own shots.

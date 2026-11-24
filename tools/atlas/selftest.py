@@ -1,4 +1,4 @@
-"""S101 lane 4: the atlas self test (the gate entry, tools/gate/lanes/atlas.json).
+"""S101 lane 4: the atlas self test (run it by path).
 
     py -I tools/atlas/selftest.py
 
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-# game_data lives in the main checkout (gitignored): the gate's env var, this tree, or the checkout above a .claude/worktrees/<name> worktree
+# game_data lives in the main checkout (gitignored): the RDR_MAIN_CHECKOUT env var, this tree, or the checkout above a .claude/worktrees/<name> worktree
 _cands = [Path(os.environ[k]) for k in ('RDR_MAIN_CHECKOUT',) if k in os.environ] + [ROOT, ROOT.parents[2]]
 GAME = next((c / 'game_data' / 'extracted' for c in _cands if (c / 'game_data' / 'extracted' / 'pac').is_dir()), _cands[0] / 'game_data' / 'extracted')
 EXE = ROOT / 'out' / 'tools' / 'atlas.exe'

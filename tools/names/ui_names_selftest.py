@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Session 101 lane 18 (UI draw names): the offline acceptance test, registered in tools\\gate\\lanes\\ui_names.json. 0 game runs.
+"""Session 101 lane 18 (UI draw names): the offline acceptance test. 0 game runs.
 
   py -I tools\\names\\ui_names_selftest.py [--root DIR]
 

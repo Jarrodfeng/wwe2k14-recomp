@@ -1,9 +1,0 @@
-{
- "owner": "S102 lane T3 (a lasting frame is drawn and shown, not skipped): src/renderer_adapter/lasting_draw.h (the decision), live.cpp (skip path: Classify defers its left-out copies, Decide after the prune, the drawn frame takes the draw path; Report line), rdr_switches.h (LastingDraw, LastingDrawPct), reader.h (cvars), lasting_draw_test.cpp + tools/renderer/lasting_draw_unit.py. 0 game runs.",
- "claim": {"scene": "bryan", "side": "render", "ms": [0.3, 0.8], "switch": "wwe2k14_rdr_lasting_draw", "basis": "a COST, not a saving: a converted frame costs ~22 ms drawn vs ~13.5 ms lasting bind (+63 %); net about +5-12 % shown frames for about +3 % render-thread time (~0.3-0.8 ms a frame averaged), and those frames are at least max_queued frames old (latency). Estimate, unmeasured. The Surface job must report present gaps / latency as well as shown frames a second"},
- "note": "unit = the decision (Bryan's 11202/20240, boundaries at exactly the fraction, off, no lasting work, 30 fps rate skip never overridden, clamps) and the counts proof on synthetic frames through the real Pruner (a drawn lasting frame binds exactly the frame's draws, a skipped one only the kept draws); plants 1-4 (threshold ignored, >= at the boundary, rate skip overridden, drawn frame binds only the lasting ops) must each be caught; wiring lint (table, cvars, live.cpp reads per frame). fview / rplay cannot skip frames, so the live skip path itself is a game check.",
- "checks": [
-  {"name": "s102_t3.unit", "cmd": ["py", "-I", "tools/renderer/lasting_draw_unit.py", "--root", "."], "timeout_s": 300,
-   "affects": ["src/renderer_adapter/lasting_draw.h", "src/renderer_adapter/lasting_draw_test.cpp", "src/renderer_adapter/lasting_prune.h", "src/renderer_adapter/live.cpp", "src/renderer_adapter/rdr_switches.h", "src/renderer_adapter/reader.h", "tools/renderer/lasting_draw_unit.py"]}
- ]
-}

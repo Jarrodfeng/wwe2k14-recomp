@@ -6,6 +6,7 @@
 // from a stream build fails to link, so the host is never started there, g_post stays null and the keeper is never attached (tools\renderer\host_core_unit.py lints the call site as well).
 // The app calls StartForGame at the end of OnPreLaunchModule: the window is known and the contributors are registered (OnPostSetup), the pipeline store folder is set (OnPreLaunchModule), the guest has not run yet.
 #include "../keep_stream.h"
+#include "../renderer_scene/rows_quad2d.h"   // S106 G4-2
 
 #include <algorithm>
 #include <chrono>
@@ -46,6 +47,7 @@
 #include "host_start.h"
 #include "scene_host.h"
 #include "wide_frame.h"   // S105 A2
+#include "../shader_list_path.h"   // S106 PSEED: ListPath (cvar-free); LAST: it pulls <windows.h> through platform/compat.h (near / far macros), so no later header sees it
 
 // Settings the stream build defines in reader.h. A build without the stream defines the ones the host reads here (the launcher passes them on the command line: they must exist).
 namespace wwe2k14::rdr_reader { REXCVAR_DECLARE(bool, wwe2k14_rdr_test_fail_start); }   // S103: DEFINED once, in the main TU (start_failure_show.h via wwe2k14_app.h); this TU includes no header that defines a cvar (tools\lint\cvar_define_once.py)
@@ -67,6 +69,8 @@ REXCVAR_DEFINE_INT32(wwe2k14_rdr_bc_decode, 1, "wwe2k14",
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_live_validation, 0, "wwe2k14", "The new renderer's Vulkan validation (0 off, 1 core + sync, 2 + best practices)");
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pipeline_store, true, "wwe2k14",
                     "Lane 276: keep a list of the pipelines the new renderer built and the driver's pipeline cache on disk (made on this machine, never shipped)");
+REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pipeline_seed, true, "wwe2k14",
+                    "S106 PSEED: read the shipped pipeline seed (the R lines of shader_list.txt) at start, so a first match builds no pipeline cold. On by default since 2026-11-24 (SHADERSEED: the list holds records of our own programs only); false = no seed");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_pipeline_prebuild_slice_us, 2000, "wwe2k14",
                      "Lane 276: the listed pipelines are built in slices of about this many microseconds at the start of each frame; 0 = never")
     .range(0, 100000);
@@ -81,6 +85,7 @@ REXCVAR_DECLARE(bool, wwe2k14_vsync);
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_bc_decode);
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_live_validation);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_pipeline_store);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pipeline_seed);
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_pipeline_prebuild_slice_us);
 #endif
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_pipeline_delay_ms, 0, "wwe2k14",
@@ -211,16 +216,19 @@ HostOptions BuildOptions() {
   rdr_case::info::SetRender(uint32_t(std::ceil(float(play.w) * ro.render_scale)), uint32_t(std::ceil(float(play.h) * ro.render_scale)), ro.render_scale);   // SP2 M5: the case zip's render size = the IN-PLAY scene size (menus render 1280x720; review F6), the same even size Shape gives the host
   if (REXCVAR_GET(wwe2k14_rdr_pipeline_store)) {
     ro.pipeline_store_dir = wwe2k14::rdr_reader::g_pipeline_store_root;
+    // S106 PSEED: the shipped seed rides in shader_list.txt (R lines); the cvar lives in shader_list.h (one unit), so it is read by name, like wwe2k14_precompile below.
+    if (REXCVAR_GET(wwe2k14_rdr_pipeline_seed))   // START-ONLY(OFF): a stream-free-only cvar for its own pipeline store. B2: off by default (no seed is read, no log line, nothing queued)
+    ro.pipeline_seed_path = wwe2k14::shader_list::ListPath(rex::cvar::GetFlagInfo("wwe2k14_shader_list") ? rex::cvar::GetFlagByName("wwe2k14_shader_list") : std::string()).string();   // START-ONLY(OFF): the seed feeds the stream-free renderer's own pipeline store (StoreInit); the stream build has no such store
     ro.pipeline_prebuild_slice_us = uint32_t(REXCVAR_GET(wwe2k14_rdr_pipeline_prebuild_slice_us));
     // S105 B3: the precompile boot ("Preparing shaders"): the player's own stored list is built before play, a second at a time (the window is behind; src\precompile.h ends the boot when none is left).
-    o.precompile_mode = !rex::cvar::GetFlagByName("wwe2k14_precompile").empty();
+    o.precompile_mode = !rex::cvar::GetFlagByName("wwe2k14_precompile").empty();   // START-ONLY(OFF): the host option only; the precompile boot itself runs in both builds from precompile.h Install (line 162), not from this host
     if (o.precompile_mode) ro.pipeline_prebuild_slice_us = 1000000;
   }
   o.game_root_fn = []() -> std::string { return wwe2k14::rdr_reader::g_crowd_game_root; };
   o.log = &HostLog;
 #if !WWE2K14_STREAM()   // the cvar is defined only in the OFF build (line 68); an ON build compiles this unit for its syntax check only
-  o.scene2d = REXCVAR_GET(wwe2k14_rdr_scene2d);   // S103 SCS
-  rdr_adapter::stage_view::g_host_enabled.store(REXCVAR_GET(wwe2k14_rdr_stage_view), std::memory_order_relaxed);   // S103 SVO: the guest thread stamps the records (live_scene.cpp) from this; set before the first frame
+  o.scene2d = REXCVAR_GET(wwe2k14_rdr_scene2d);   // S103 SCS   // START-ONLY(OFF): the cvar exists only in the OFF build (host_start.cpp:73); the host is OFF-only and the stream build has no scene2d host option
+  rdr_adapter::stage_view::g_host_enabled.store(REXCVAR_GET(wwe2k14_rdr_stage_view), std::memory_order_relaxed);   // S103 SVO: the guest thread stamps the records (live_scene.cpp) from this; set before the first frame   // START-ONLY(OFF): a tool view, cvar defined only in the OFF build (host_start.cpp:75); the ON build never carries kSceneStagePlaying by design (stage_view.h:25)
 #endif
   o.on_thread_start = [] { wwe2k14::NameThread(L"rdr_host"); };
   o.on_present = &NotePresent;
@@ -399,9 +407,16 @@ bool StartForGame() {
     SceneHost* host = g_host.get();
     return host && host->RequestScene(std::move(cb));
   };
-  g_scene_capture_owner = [](std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t timeout_ms, uint64_t* frame) {
+  g_scene_capture_owner = [](std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t timeout_ms, uint64_t* frame) {   // START-ONLY(OFF): the stream build has no host; its read-backs come from the reader (see the marker on g_scene_request_owner above; shown_frame.h:36 "null in the stream build")
     SceneHost* host = g_host.get();
     return host && host->CaptureScene(rgba, w, h, timeout_ms, frame);
+  };
+  // S108 SHOT-A: the input script's `shot` / `record` verbs ask the host to save the record of the next drawn frame (src\shown_frame.h g_record_save_owner; the stream build leaves it null: "no scene host").
+  // START-ONLY(OFF): the stream build has no host to save from
+  g_record_save_owner = [](const std::string& path, std::string& why) {
+    SceneHost* host = g_host.get();
+    if (!host) { why = "no scene host"; return false; }
+    return host->RequestRecordSave(path, why);
   };
   frame_tick::TheCurve().RepostIfKnown();   // a table the game set at boot reaches the first frame
   // START-ONLY(OFF): the poster of every present is the host's (the stream build presents through LiveSink)

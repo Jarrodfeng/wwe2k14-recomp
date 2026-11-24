@@ -20,6 +20,7 @@
 
 #include "../../src/renderer_scene/light_state_rows.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/scene_live/light_state_contrib.h"
 
 using namespace rdr_scene;

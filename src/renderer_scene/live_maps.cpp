@@ -1,5 +1,10 @@
 // See live_maps.h. Session 103, lane E.
 #include "live_maps.h"
+#include "rows_caster.h"   // S106 G4-2
+#include "rows_circle.h"
+#include "rows_lights.h"
+#include "rows_pictures.h"
+#include "props_light_rows.h"
 #include "liquid_switch.h"   // S103 SWF
 
 #include <algorithm>
@@ -345,12 +350,14 @@ std::string LiveMapsHook::CensusLine() const {
   else
     std::snprintf(rp, sizeof rp, "\n[scene][maps][b2f] rope proxy: not reached (no plane mask this frame)");
   // S103 SWF: the wrestlers' liquid maps (live_map_sweat.cpp): frames with rows, maps painted, items drawn, what was skipped and why, maps kept / handed to the skin / not matched to a body in the frame
-  char lq[760];
+  char lq[1200];
   std::snprintf(lq, sizeof lq,
-                "\n[scene][maps][liquid] frames %llu, maps %llu (this frame %u), items drawn %llu (this frame %u; skipped: state %llu, type %llu, rect %llu, no_picture %llu, resources %llu, size %llu, repeat %llu), clears %llu, kept %zu, handed to the skin %u (unmatched %llu, no_object %llu, pruned %llu)%s%s",
+                "\n[scene][maps][liquid] frames %llu, maps %llu (this frame %u), items drawn %llu (this frame %u; skipped: state %llu, type %llu, rect %llu, no_picture %llu, resources %llu, size %llu, repeat %llu), clears %llu, kept %zu, handed to the skin %u (unmatched %llu, no_object %llu, pruned %llu); "
+                "rebuild rows %llu (empty %llu, on a later row %llu): sweat discs %llu, regions %llu (mirrored: regions %llu, discs %llu; live items held back %llu), no picture %llu%s%s",   // S108 BLD2: the game's rebuild draw (liquid_plan.h); BLD3: packages applied, of them re-sent on a later row
                 (unsigned long long)s.liq_frames, (unsigned long long)s.liq_maps_total, s.liq_maps_frame, (unsigned long long)s.liq_items_total, s.liq_items_frame, (unsigned long long)s.liq_skip_state, (unsigned long long)s.liq_skip_type,
                 (unsigned long long)s.liq_skip_rect, (unsigned long long)s.liq_skip_no_pic, (unsigned long long)s.liq_skip_resources, (unsigned long long)s.liq_skip_size, (unsigned long long)s.liq_skip_repeat, (unsigned long long)s.liq_clears, s.liquid.size(), s.liq_published,
-                (unsigned long long)s.liq_unmatched, (unsigned long long)s.liq_no_object, (unsigned long long)s.liq_pruned, s.sweat_skip[0] ? "; hole: " : "", s.sweat_skip);
+                (unsigned long long)s.liq_unmatched, (unsigned long long)s.liq_no_object, (unsigned long long)s.liq_pruned, (unsigned long long)s.liq_alt_rows, (unsigned long long)s.liq_alt_empty, (unsigned long long)s.liq_alt_late, (unsigned long long)s.liq_rebuild_drawn,
+                (unsigned long long)s.liq_regions_drawn, (unsigned long long)s.liq_regions_mirrored, (unsigned long long)s.liq_discs_mirrored, (unsigned long long)s.liq_items_mirrored, (unsigned long long)s.liq_alt_no_pic, s.sweat_skip[0] ? "; hole: " : "", s.sweat_skip);
   char pc[560];   // S103 PM2: the props map's prop casters (live_map_props.cpp)
   std::snprintf(pc, sizeof pc, "\n[scene][maps][props] casters %u objects / %u meshes (weapons %u / event %u / stage %u, ids 59/68/71/96 %u), skipped: no model %u, piece 43 assumed %u (the re-key condition is not recorded), no props light %u; prop min light-depth < near %u; %s",
                 counts_.props_cast, counts_.props_meshes, counts_.props_fam_weapon, counts_.props_fam_event, counts_.props_fam_stage, counts_.props_fam_unsure, counts_.props_skipped_no_model, counts_.props_skipped_piece43,

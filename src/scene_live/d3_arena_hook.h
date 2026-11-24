@@ -30,6 +30,7 @@
 
 #include "../frame_stats.h"  // wwe2k14::g_guest_frame
 #include "../guest_read.h"   // GuestWordReadableFast
+#include "../feed_seen.h"   // S110 FEEDREC
 #include "../renderer_adapter/d3_guest_core.h"
 #include "../renderer_adapter/d3_timers.h"   // S102 K3 review F5
 
@@ -60,7 +61,8 @@ inline void NotePart(uint32_t pass_site) {
   else ++t_open.other;
 }
 
-inline uint32_t Ld32(const uint8_t* base, uint32_t a) {
+inline uint32_t Ld32(const uint8_t* base, uint32_t a WWE_FEED_LOC_PARAM) {
+  WWE_FEED_NOTE(a, 4);
   uint32_t v;
   std::memcpy(&v, base + a, 4);
   return __builtin_bswap32(v);

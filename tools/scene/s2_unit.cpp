@@ -14,6 +14,8 @@
 #include <string>
 
 #include "../../src/scene_live/presence_rules.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_owned.h"
 #include "../../src/scene_live/input_changes.h"
 
 using namespace rdr_scene;

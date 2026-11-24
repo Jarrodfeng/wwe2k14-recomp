@@ -13,7 +13,7 @@ wiring   each link of both switches (table PerFrame default 0, cvar, live.cpp pe
 bryan    fview headless on the Bryan entrance, every frame's presented-surface hash: A = the whole bundle (every *-ours switch the players run), B = + copy batch, S1 / S2 = + alias small, the
          default bundle (shadows ours + casters + plane), the --copy-alias 2 (LOW) combination, the planted twins (plant 1: a region dropped, caught by the picture; plant 2: the barrier left out,
          caught ONLY by validation; alias src_dirty). Validation errors AND the exit code are read, never the csv's existence.
-match    the same pair on the gate's match capture.
+match    the same pair on the standard match capture.
 counts   rplay --counts on Bryan: copies and barriers a frame before / after, equal to what the census says (copies in batches minus batches; the alias census's elided a frame)."""
 import argparse
 import json

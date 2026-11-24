@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
-# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
 # Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): OTHER CREATE-MODE EDITOR PAGES. Check K's K5w walks only CREATE A SUPERSTAR (s101_checkB_caw_walk).
 # This route visits, one after another, the CREATIONS list's other editors that are READ-ONLY to enter (nothing is saved; the run uses the per-run copy of the frozen save anyway):
 #   CREATIONS cursor: 0 SUPERSTAR (14), 1 SUPERSTAR THREADS (1504), 2 ENTRANCE (1523), 3 MOVE-SET (1524), 4 SPECIAL MOVE (15), 5 STORY (16), 6 ARENA (17), 7 CHAMPIONSHIP (1506), 8 LOGO (1522)

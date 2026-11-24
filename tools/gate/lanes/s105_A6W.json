@@ -1,8 +1,0 @@
-{
-  "claim": {"scene": "none", "side": "none (log-only loader watch on its own thread, always on; no work moves)", "ms": [0, 0]},
-  "checks": [
-    {"name": "s105_A6W.unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/load_watch_test.ps1"], "timeout_s": 180},
-    {"name": "s105_A6W.stall_unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/load_stall_test.ps1"], "timeout_s": 180},
-    {"name": "s105_A6W.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", "."], "timeout_s": 900, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"], "affects": ["src/load_watch.h", "src/load_probe.h", "src/file_trace.h", "src/kernel_overrides.h", "src/wwe2k14_app.h"]}
-  ]
-}

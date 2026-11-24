@@ -1,0 +1,40 @@
+# S106 C2: belt plate. Sources: C2.md 3.4 (log 186 fixed side; run 185 = Cena, bound 0). No log line shows the fault on a pre-fix exe: shots decide BEFORE.
+[recipe]
+row = "PLATE"
+question = "does Del Rio's World Heavyweight belt (5009) bind its 256x128 nameplate and show his name?"
+notes = ["docs/research/s105/PLATE2.md", "docs/research/s105/CHAMP.md", "docs/research/s106/C1.md"]
+preset = "win-amd64-release-off"
+
+[destination]
+route = 'tools\input_scripts\scenes\s105_chk_belt.txt'
+data = "userdata_frozen"
+settings = "blank"
+champion = { title = 1, char = 322, plate = true }
+timeout_s = 900
+
+[[readout]]
+name = "prop 5009 plate bound"
+line = '\[wwe2k14\]\[belt_plate\] prop 5009 .*: plate bound \(hash [0-9a-f]+, 256x128'
+agg = "count"
+role = "mechanism"
+fixed = ">= 1"
+
+[[readout]]
+name = "plate census bound"
+line = '\[wwe2k14\]\[belt_plate\] read .* bound (?P<v>\d+) missing'
+agg = "max"
+role = "mechanism"
+fixed = ">= 1"
+
+[[readout]]
+name = "plate census missing"
+line = '\[wwe2k14\]\[belt_plate\] read .* missing (?P<v>\d+)'
+agg = "max"
+role = "mechanism"
+fixed = "== 0"
+
+[[shots]]
+labels = ["belt_ent2", "belt_ent3", "belt_ent4", "belt_ent5", "belt_ent6"]
+ask = "Is Del Rio's name readable on his belt's plate?"
+fault = "no"
+fixed = "yes"

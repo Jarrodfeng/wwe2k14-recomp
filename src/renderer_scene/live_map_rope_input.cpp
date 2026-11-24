@@ -4,6 +4,7 @@
 
 #include "live_map_rope.h"
 #include "record_io.h"
+#include "rows_ring.h"   // S106 G4-2
 
 namespace rdr_scene {
 

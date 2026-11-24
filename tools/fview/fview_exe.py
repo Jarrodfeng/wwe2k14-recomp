@@ -15,7 +15,7 @@ shaders from the exe's own headers, so an exe older than the code under test is 
               (A main-checkout exe is not preferred over the root's own: it can be newer than a worktree's exe and still lack the worktree's changes.)
   refusal     the exe is older than any file it compiles: the headers its build read (the .d files next to it, out\renderer\<kind>\fview_obj; without them every .h / .cpp /
               .hpp / .inl / .inc of src\fview, src\renderer_adapter, src\renderer_scene, src\renderer without player\), every .cpp of src\fview and src\renderer, and the files
-              tools\fview\session_deps.txt names. (Gate lanes: tools\gate\exes.py already builds a stale exe first; its source set is wider, so a gate-fresh exe passes here.) Message: 'fview.exe built HH:MM is older than <file> (HH:MM): rebuild with tools\fview\build.ps1'.
+              tools\fview\session_deps.txt names. Message: 'fview.exe built HH:MM is older than <file> (HH:MM): rebuild with tools\fview\build.ps1'.
   allow_stale / env WWE_FVIEW_ALLOW_STALE=1   run anyway (the exe and the warning are still printed).
   Prints '[fview_exe] <path> (built YYYY-MM-DD HH:MM)' once per exe per process (quiet=True hides it).
 Selftest: py -I tools\fview\fview_exe.py --selftest      Where is it:  py -I tools\fview\fview_exe.py [--root DIR] [--kind dev|release|any] [--prefer EXE] [--allow-stale]

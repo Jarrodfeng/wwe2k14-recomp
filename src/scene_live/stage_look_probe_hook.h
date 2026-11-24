@@ -23,6 +23,7 @@
 #include "frame_stats.h"
 #include "gfx_menu.h"  // IsDevBuild
 #include "guest_read.h"
+#include "feed_seen.h"   // S110 FEEDREC
 
 REXCVAR_DEFINE_INT32(wwe2k14_stage_look_probe, 0, "wwe2k14", "Session 103 lane L2 (dev probe): log N frames of the entrance rig objects' output rows (pool / spot tracks), one every 20 guest frames; 0 = off");
 
@@ -31,7 +32,8 @@ REX_EXTERN(__imp__sub_827F8808);
 namespace wwe2k14::scene_live {
 
 inline bool ProbeReadable(const uint8_t* base, uint32_t a, uint32_t len) { return a >= 0x10000 && wwe2k14::GuestWordReadable(a & ~3u, base + (a & ~3u)) && wwe2k14::GuestWordReadable((a + len - 4) & ~3u, base + ((a + len - 4) & ~3u)); }
-inline uint32_t ProbeWord(const uint8_t* base, uint32_t a) {
+inline uint32_t ProbeWord(const uint8_t* base, uint32_t a WWE_FEED_LOC_PARAM) {
+  WWE_FEED_NOTE(a, 4);
   uint32_t v;
   std::memcpy(&v, base + a, 4);
   return std::byteswap(v);

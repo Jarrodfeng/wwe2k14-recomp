@@ -3,7 +3,7 @@ r"""Twin of host_rig.py's parallel arms (S103 GSP). 0 game runs.
 
   py -I tools\scene\host_rig_serial_twin.py [--root DIR] [--only a04_entrance]
 
-Runs host_rig.py twice on the same capture with the gate's own flags (--no-tween), once in parallel (the default workers) and once forced serial (--serial, the old
+Runs host_rig.py twice on the same capture with --no-tween (the flags the deleted gate passed), once in parallel (the default workers) and once forced serial (--serial, the old
 order: one host_rig.exe at a time), each into its own output folder, and requires:
   1. both exit codes equal (and 0),
   2. the verdict text BYTE-identical (same lines, same order; wall-clock number lines cut by normalise(): they differ between any two runs, even two serial ones),
@@ -19,14 +19,14 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WORKERS = os.environ.get('GATE_GPU_PROCS') or '4'   # the gate gives this check gpu_procs slots and says how many in this variable: the parallel runs use exactly that many processes
+WORKERS = os.environ.get('GATE_GPU_PROCS') or '4'   # GATE_GPU_PROCS (set by the old gate system, now normally unset): the parallel runs use exactly that many processes
 
 
 def run_rig(cmd):
-    """host_rig.py with a hard timeout (S103 GST: both runs had none; a hung one held GPU slots until an outer cap killed the whole gate). On expiry: exit 124 and the tail of what it printed.
+    """host_rig.py with a hard timeout (S103 GST: both runs had none; a hung one held GPU slots until an outer cap killed the whole run). On expiry: exit 124 and the tail of what it printed.
     WWE_TWIN_TIMEOUT_S overrides the 1200 s default."""
     tmo = float(os.environ.get('WWE_TWIN_TIMEOUT_S') or 1200)
-    # S103 GST review 9: Popen + taskkill /T (as gate.run_tree): subprocess.run's timeout killed only the python child and left its host_rig.exe grandchildren holding GPU slots;
+    # S103 GST review 9: Popen + taskkill /T (as the old gate system's run_tree did): subprocess.run's timeout killed only the python child and left its host_rig.exe grandchildren holding GPU slots;
     # the child's own checked waits get a deadline 30 s before ours (host_rig.cpp reads WWE_RIG_DEADLINE_S), so a hung arm ends itself first
     env = dict(os.environ, WWE_RIG_DEADLINE_S=str(max(30, int(tmo) - 30)))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', env=env)
@@ -119,7 +119,7 @@ def go(root, rig, only, tag, extra):
 
 
 def tween_run(root, rig, only):
-    """Bug 7: the arm the gate's --no-tween never covers: a parallel run with the tween section, every verdict line there."""
+    """Bug 7: the arm a --no-tween run never covers: a parallel run with the tween section, every verdict line there."""
     rc, txt, secs = go(root, rig, only, 'tween', [])
     m = re.search(r'verdict lines \[%s\]: all there \(([^)]*)\)' % re.escape(only), txt)
     ok = rc == 0 and m is not None and '12 tween' in m.group(1)

@@ -1,0 +1,10 @@
+# nav: log the built-in menu states (Session 108 lane MENU, docs/research/s108/MENU_plan.md); `include log_menu`.
+# Start: any screen. End: unchanged (log_state never fails, never presses). One [wwe2k14][input] "state NAME = V [focus]" line each.
+# menu_count > 1 = several mixins dispatched (the pick rule chose by cursor / change stamp); menu_page unreadable with count > 1 = a tie.
+log_state menu_ready
+log_state menu_count
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_col
+log_state menu_cols

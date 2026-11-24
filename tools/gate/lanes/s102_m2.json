@@ -1,7 +1,0 @@
-{
- "owner": "S102 lane M2: the Surface lab (tools/surface/lab.py). Claim: none (instrument). 0 game runs, 0 Surface runs: a local folder stands in for the Surface.",
- "claim": null,
- "checks": [
-  {"name": "s102_m2.lab_selftest", "cmd": ["py", "-I", "tools/surface/lab_selftest.py"], "timeout_s": 300}
- ]
-}

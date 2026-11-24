@@ -17,6 +17,7 @@
 #include "../scene_live/plane_hook.h"
 #include "plane_shadow_core.h"
 #include "record_io.h"
+#include "rows_plane.h"   // S106 G4-2
 
 namespace rdr_scene::plane::oracle {
 

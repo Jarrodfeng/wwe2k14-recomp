@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "../../src/renderer_scene/stage_pool_words.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 #include "../../src/renderer_scene/stage_look.h"
 #include "../../src/scene_live/inputs_core.h"
 

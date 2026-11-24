@@ -1,4 +1,4 @@
-# Session 77 (XDET_PLAN.md verification rule 3): the graphics invariance gate. Plays a stage A recording once per
+# Session 77 (XDET_PLAN.md verification rule 3): the graphics invariance check. Plays a stage A recording once per
 # renderer variant ("NAME<TAB>FLAGS" lines, the format of tools\android\emulate\profiles_*.tsv) with the stage A flags,
 # 3 at a time (fast-forwarded; under replay mode the game's result must not depend on speed or lane load either), and
 # compares each with a reference play using det_compare.py --cross --allow <render settings>: the game's layers (SIM,

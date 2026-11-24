@@ -1,4 +1,4 @@
-r"""Lane 33 gate check (offline, 0 game runs): the light extraction and the light comparison, with positive controls.
+r"""Lane 33 check (offline, 0 game runs): the light extraction and the light comparison, with positive controls.
 
   py -I tools\lightmatch\selftest.py
 

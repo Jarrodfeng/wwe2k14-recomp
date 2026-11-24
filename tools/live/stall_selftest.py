@@ -43,7 +43,7 @@ POLICY = [
     ('Press START', 3, 'press', 'START'),
     ('PRESS START', 3, 'press', 'START'),
     ('??? | OK', 9, 'press', 'A'),
-    ('Beat the clock in a stage | Continue', 9, 'press', 'A'),
+    ('Finish the planted objective | Continue', 9, 'press', 'A'),   # S106 TIPFIX: the objective-card shape, no game string (rule 1 text lint)
     # stops
     ('Overwrite existing save? | OK', 9, 'stop', ''),
     ('Saving... Do not turn off | OK', 75, 'stop', ''),
@@ -54,7 +54,7 @@ POLICY = [
     ('Create a Wrestler | OK', 75, 'stop', ''),       # unknown body segment
     ('??? OK', 75, 'stop', ''),                        # glyph box outside a match: could be a save notice
     ('??? OK', None, 'stop', ''),
-    ('Beat the clock in a stage | Continue', 75, 'stop', ''),
+    ('Finish the planted objective | Continue', 75, 'stop', ''),
     ('PAUSE | Resume Match | Quit Match', 9, 'stop', ''),
     ('', 9, 'stop', ''),
     ('Accept | Cancel', 9, 'stop', ''),

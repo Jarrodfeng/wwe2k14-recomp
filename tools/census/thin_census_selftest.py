@@ -1,4 +1,4 @@
-r"""Selftest of the census's thin-capture handling and proof bar (S101 lane 143; gate lane `thin_census`).
+r"""Selftest of the census's thin-capture handling and proof bar (S101 lane 143).
 
 Unit level (no GPU, always runs; the SHIPPED functions in leftovers.py / proof_bar.py):
   - thin_frames reads the frame header's flags (kFrameHasThin = 32) of a hand-made capture folder: a capture with flagged frames is thin, one without is not;

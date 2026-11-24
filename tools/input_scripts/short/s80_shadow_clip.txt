@@ -1,4 +1,4 @@
-# harness: realtime
+# harness: flags --wwe2k14_replay_play=s21_lb --wwe2k14_clip_frame_locked=true
 # Session 80 (gpu_shadow_half_rate review): as s72_swap_shots.txt, but 4-second clips (frame-locked, 60 fps) of Bryan's
 # entrance from +360 and of the match from +780 (Brock on Bryan: their shadows on each other), plus the match +900
 # screenshot. Run with --wwe2k14_replay_play=s21_lb --wwe2k14_clip_dir=DIR --wwe2k14_clip_frame_locked=true and a

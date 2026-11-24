@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C6 gate check: the offline replay of the ring's covers and apron skirts over run 26's case (a mode-1 mirror of a CPU vs CPU match, ropes moving; tools\\scene\\ring_replay.cpp).
+"""S103 lane C6 check: the offline replay of the ring's covers and apron skirts over run 26's case (a mode-1 mirror of a CPU vs CPU match, ropes moving; tools\\scene\\ring_replay.cpp).
 For every sampled record the SHIPPED contributor (readers + rules + the whole-ring verdict) runs on a fake guest built at the listing literals from the record's own stream draws; what it emits must equal what the game
 drew: the 12 cover instances (call set + rows) and the visible skirts (count + rows). Planted faults (the two address misreads of run 26, a rule that never hides a skirt, a dropped corner) must be caught.
 Also the LISTING LITERAL LINT (review finding of lane C5/C6 made a check): the addresses the shipped constants name are recomputed from the generated listing of sub_82609060 / sub_825CE668 (lis + lwz/lbz, lis | ori)

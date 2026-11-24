@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane H3 gate check (offline, 0 game runs, 0 Surface runs): the swap-thread split columns of frames_NNN.csv (--wwe2k14_frame_split).
+"""S102 lane H3 check (offline, 0 game runs, 0 Surface runs): the swap-thread split columns of frames_NNN.csv (--wwe2k14_frame_split).
 
   py -I tools\\frame_split\\frame_split_check.py [--root DIR]
 

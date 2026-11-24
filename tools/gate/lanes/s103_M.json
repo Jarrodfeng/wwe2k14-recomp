@@ -1,9 +1,0 @@
-{
- "owner": "S103 lane M: the stage screens' live PlaneSource (src/scene_live/screen_planes_*.h, the SetExtraCensus line in stage_fx_contrib.h, the flush entry line in d3d_textures.h, the registration line in wwe2k14_app.h). 0 game runs.",
- "checks": [
-  {"name": "s103_M.screen_planes", "cmd": ["py", "-I", "tools/scene/screen_planes_check.py", "--root", "."], "timeout_s": 600,
-   "affects": ["src/scene_live/screen_planes_*.h", "src/scene_live/stage_fx_contrib.h", "src/scene_live/inputs_core.h", "src/renderer_scene/screen_feed_yuv.h", "src/renderer_scene/yuv_rgba.h", "src/renderer_scene/rf_c.h", "tools/scene/screen_planes_unit.cpp", "tools/scene/screen_planes_check.py"]},
-  {"name": "s103_M.game_syntax", "cmd": ["py", "-I", "tools/gate/game_syntax.py", "--root", ".", "--files", "src/renderer_scene/rf_screens.cpp,src/renderer_scene/rf_c_core.cpp,src/renderer_scene/live_assets.cpp"], "timeout_s": 1500, "needs": ["generated/default", "thirdparty/rexglue-sdk-vulkan/include", "out/build/win-amd64-release/build.ninja"],
-   "affects": ["src/wwe2k14_app.h", "src/d3d_textures.h", "src/draw_origin.h", "src/scene_live/*", "src/renderer_scene/rf_c.h", "src/renderer_scene/rf_c_core.cpp", "src/renderer_scene/rf_screens.cpp"]}
- ]
-}

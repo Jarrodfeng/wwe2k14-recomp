@@ -12,10 +12,12 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>   // S108 PRT
 
 #include <functional>   // S103 L9
 #include <vector>
 #include "front_end.h"
+#include "rows_quad2d.h"   // S106 G4-2
 #include "live_maps.h"
 #include "live_particles.h"
 #include "record_frame.h"
@@ -110,6 +112,8 @@ class FrameHooks {
   rf::AssetSource& source_;
   std::unordered_map<std::string, rdr::ImageId> particle_images_;
   uint64_t particle_loaded_ = 0, particle_failed_ = 0;
+  uint64_t particle_guest_loaded_ = 0, particle_guest_missing_ = 0;   // S108 PRT: images made from the game's own texture (guest:prtcls); guest names with no picture in this process (offline replay)
+  std::unordered_set<std::string> guest_told_;   // S108 PRT: the guest keys already logged (one line each, at most 16)
   rdr::ImageId ParticleImage(const std::string& pac, const std::string& entry);   // render thread; never loads (see the .cpp)
 };
 

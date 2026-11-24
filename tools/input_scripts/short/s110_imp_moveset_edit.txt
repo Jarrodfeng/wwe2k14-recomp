@@ -1,0 +1,143 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s105\mods --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 IMPCRASH run 17: Create a Moveset -> DOWNLOADABLE CONTENT -> Bobby Lashley (397): change STANDING strike 1, then MOVE-SET TEMPLATES ->
+# PRESET MOVE-SET -> AIRBORNE -> ALL (apply, its box YES), then DEFAULT (YES), ACCEPT (YES), and reopen 397.
+# Pages (runs 009 / 013 / 015): categories 0x820555C8 (row 11 TEMPLATES, 12 DEFAULT, 13 ACCEPT); TEMPLATES list -> PRESET MOVE-SET (2 pages of
+# presets) -> the category list (ALL, STANDARD ACTIONS, ...).
+log impcrash: start ms8
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 3 24 30 5 if_needed
+press A
+wait_text CUSTOM MOVE-SET 600
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press A
+wait_frames 900
+mark 1 editor
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+press A
+wait_frames 300
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+press B
+wait_frames 300
+press B
+wait_frames 300
+press B
+wait_frames 300
+mark 2 changed
+on_fail continue
+# templates: PRESET -> AIRBORNE -> ALL
+press_until_state DOWN menu_row 11 20 30 5
+press A
+wait_frames 300
+press A
+wait_frames 300
+press A
+wait_frames 300
+press A
+wait_frames 300
+log impcrash: template ALL pressed
+log_text 12
+include log_menu
+log_state msgbox
+log_state msgbox_kind
+log_state msgbox_button
+log_state msgbox_text
+screenshot ms8_template_all
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 600
+log impcrash: template applied?
+log_text 12
+include log_menu
+log_state msgbox
+screenshot ms8_template_applied
+mark 3 template
+press B
+wait_frames 300
+log_text 12
+include log_menu
+log_state msgbox
+screenshot ms8_template_b
+log impcrash: back to categories?
+include log_menu
+screenshot ms8_template_bbb
+# default
+press_until_state DOWN menu_row 12 20 30 5
+press A
+wait_frames 300
+log impcrash: default
+log_text 12
+include log_menu
+log_state msgbox
+log_state msgbox_kind
+log_state msgbox_text
+screenshot ms8_default
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 600
+log impcrash: default yes
+log_text 12
+include log_menu
+log_state msgbox
+screenshot ms8_default_yes
+mark 4 default
+# accept
+press_until_state DOWN menu_row 13 20 30 5
+press A
+wait_frames 300
+log impcrash: accept
+log_text 12
+include log_menu
+log_state msgbox
+log_state msgbox_text
+screenshot ms8_accept
+wait_frames 300
+log impcrash: accept yes
+log_text 12
+include log_menu
+log_state msgbox
+screenshot ms8_accept_yes
+mark 5 saved
+# back on CUSTOM MOVE-SET (run 019: ACCEPT saves with no box): reopen 397 from DOWNLOADABLE CONTENT
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press A
+wait_frames 900
+log impcrash: reopened
+log_text 12
+include log_menu
+screenshot ms8_reopen
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+press A
+wait_frames 300
+log impcrash: reopened standing slot
+log_text 12
+screenshot ms8_reopen_slot
+press B
+wait_frames 300
+press B
+wait_frames 300
+press B
+wait_frames 300
+log_text 12
+log_state msgbox
+screenshot ms8_left
+log impcrash: done
+quit

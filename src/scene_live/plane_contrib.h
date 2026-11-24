@@ -5,6 +5,8 @@
 #include <atomic>
 #include <algorithm>
 #include "frame_delta.h"   // S103 A3 (F1)
+#include "../renderer_scene/rows_plane.h"   // S106 G4-2
+#include "../renderer_scene/plane_checks.h"
 #include <cstring>
 #include <string>
 

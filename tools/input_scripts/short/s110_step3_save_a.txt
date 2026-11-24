@@ -1,0 +1,51 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\step3check\lib3 --wwe2k14_seat_pool_cap=2 --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 step 3 check Q3 boot A (route lane): lib3 (= lib1: 2 residents, 4 guests, pages of two), TEST user data out\s110\step3check\ud_q3 (a copy of the
+# frozen mirror). Page 1's guests are bound at the first front-end tick; then force a save write the SEAT2 way (b3w): a DISC wrestler's entrance
+# (SUPERSTAR row 0, AJ LEE, EASY: MUSIC 3 DOWN), ACCEPT YES. Expect "[handover] save written: ... entry added" and seats.txt naming the guests' seats `guest`.
+log step3: start q3_a
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state UP menu_row 0 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log step3: disc editor open
+screenshot q3a_disc_open
+wait_frames 20
+repeat 6
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 3
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 600
+screenshot q3a_disc_changed
+wait_frames 20
+repeat 1
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 900
+log step3: disc accepted
+include log_menu
+screenshot q3a_accepted
+wait_frames 20
+log step3: done
+quit

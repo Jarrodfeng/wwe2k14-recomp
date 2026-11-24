@@ -135,6 +135,7 @@ def parse_jboy(slot, blob, with_positions=True):
             h.update(bytes(body[s1:s1 + d1 + d2 + d3]))
             m.stream_hash = h.hexdigest()
             st1 = d1 // n
+            # S108 BAN3 naming: uv0 here = the S1 stream read as pairs (skin pairs in the file, NOT a UV); uv1 = S2 = the diffuse UV the game uses.
             m.uv0 = np.frombuffer(body, dtype=np.dtype([('u', '>f4', 2), ('r', 'V%d' % (st1 - 8))]) if st1 > 8 else np.dtype([('u', '>f4', 2)]), count=n, offset=s1)['u'].astype(np.float32)
             m.uv1 = np.frombuffer(body, dtype=np.dtype('>f4'), count=2 * n, offset=s2).reshape(n, 2).astype(np.float32)
             m.normal = np.frombuffer(body, dtype=np.dtype([('p', '>f4', 3), ('n', '>f4', 3), ('r', 'V4')]), count=n, offset=s0 + 4)['n'].astype(np.float32)

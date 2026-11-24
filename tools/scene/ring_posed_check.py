@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C4 gate check: the ring DRAWN from a record's per-call rows (rf_ring.cpp posed path, ring_pose.h) on run 16's real record (frame 399: Lesnar vs Bryan, mode 1; the game's own rows for covers / turnbuckles /
+"""S103 lane C4 check: the ring DRAWN from a record's per-call rows (rf_ring.cpp posed path, ring_pose.h) on run 16's real record (frame 399: Lesnar vs Bryan, mode 1; the game's own rows for covers / turnbuckles /
 posts, our recomputed ropes): built and drawn headless with lane C's driver (tools\\scene\\c_driver.cpp, no window, no game run). The checks, on one 960x540 view of the ring:
   1. the report says the classes were drawn from rows (rope 12, cover 12, turnbuckle 12, post 4) and nothing was skipped;
   2. the posed ring is the rest ring to within 2 % of the pixels (the ropes barely move in this match: the pose must not move the pieces: a wrong slot -> node map, a wrong space or a wrong mirror would);

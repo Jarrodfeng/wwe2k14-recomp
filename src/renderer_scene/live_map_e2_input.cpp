@@ -5,6 +5,11 @@
 #include "live_maps_e2.h"
 #include "live_maps_internal.h"
 #include "record_io.h"
+#include "rows_caster.h"   // S106 G4-2
+#include "rows_lights.h"
+#include "rows_liquid.h"
+#include "rows_pictures.h"
+#include "rows_plane.h"
 
 namespace rdr_scene {
 
@@ -153,6 +158,12 @@ void BuildE2Input(const SceneTables& t, const E2Faults& faults, E2Input& out) {
         if (p.key == it.picture) { out.liquid_pictures.push_back(&p); break; }
     }
     out.liquid.push_back(std::move(m));
+  }
+  for (const LiquidImageRow& r : t.liquid_images) {   // S108 SHOT-A: a saved record's maps (section 69): ParseRecord already checked the range; a hand-built table must not index past the bytes
+    if (uint64_t(r.offset) + r.nbytes > t.liquid_image_bytes.size()) continue;
+    LiquidImageIn im;
+    im.row = r, im.bytes = t.liquid_image_bytes.data() + r.offset;
+    out.liquid_images.push_back(im);
   }
 }
 

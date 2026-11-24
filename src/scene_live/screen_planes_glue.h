@@ -200,7 +200,7 @@ inline void OnPartDraw(uint8_t*, uint32_t model, uint32_t part) {
 }
 inline void OnFlush(uint8_t*, uint32_t set) {
   NoteFlush(set);
-  rdr_scene::live::screens::Store().OnFlush(&ReadBase, set, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
+  rdr_scene::live::screens::Store().OnFlush(&ReadBase, set, wwe2k14::g_guest_frame.load(std::memory_order_relaxed), &wwe2k14::wrestlers::ReadGuestRows);   // S108 RDS: a plane in one page check
 }
 
 inline rdr_scene::rf::c::YuvScreenFeed& Feed() {

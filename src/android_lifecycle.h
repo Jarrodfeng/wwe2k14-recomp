@@ -31,6 +31,7 @@
 #include <thread>
 
 #include "blackbox.h"
+#include "render_signal.h"
 
 #if defined(__ANDROID__)
 #include <jni.h>
@@ -101,6 +102,9 @@ inline void TestBackground() {
   rex::cvar::SetFlagByName("wwe2k14_test_app_event", "foreground");
   SetInFront(true);
   REXLOG_INFO("[life] test: UI thread free again{}", sent ? "" : " (no wwe2k14_test_app_event: this SDK sent no events)");
+  // S109 FF: the sleep above is WALL time while the guest frames keep running, so a route cannot count frames to land after it (at another speed the
+  // same frame count lands elsewhere): it waits for this signal (`wait_event render background_ended`).
+  wwe2k14::render_signal::Post("background_ended", "\"ms\": " + std::to_string(ms));
 }
 
 inline void Park(uint64_t frame) {

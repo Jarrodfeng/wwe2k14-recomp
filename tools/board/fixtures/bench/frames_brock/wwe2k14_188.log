@@ -1,9 +1,0 @@
-[2026-11-13 19:35:56.149] [info] [core] [t7492] [wwe2k14] quality tier: STANDARD (chosen in the launcher)
-[2026-11-13 19:35:56.150] [info] [core] [t7492] [wwe2k14][gfxmenu] settings file C:\wwe\out\settings_native720.json: upscale 0, resolution 0, frame rate 1, renderer 2 -> resolution_scale=1
-[2026-11-13 19:35:56.158] [info] [core] [t7492] [wwe2k14][gfxmenu] settings file C:\wwe\out\settings_native720.json: upscale 0, resolution 0, frame rate 1, renderer 2 -> resolution_scale=1
-[2026-11-13 19:35:58.520] [info] [core] [t7492] [wwe2k14] modified: wwe2k14_fixed_seed = '1' (source: command line)
-[2026-11-13 19:35:58.520] [info] [core] [t7492] [wwe2k14] modified: wwe2k14_launch = 'lesnar_bryan' (source: command line)
-[2026-11-13 19:36:15.185] [info] [core] [t2848] [wwe2k14][input] line 19: scene=tron_343 (frame 4399)
-[2026-11-13 19:36:48.920] [info] [core] [t2848] [wwe2k14][input] line 24: scene=step15 (Brock's entrance step 15) (frame 6055)
-[2026-11-13 19:37:01.353] [info] [core] [t2848] [wwe2k14][input] line 30: scene=end (step 15 + 600 frames) (frame 6655)
-[2026-11-13 19:37:01.353] [info] [core] [t2848] [wwe2k14][input] line 32: bench: done (frame 6655)

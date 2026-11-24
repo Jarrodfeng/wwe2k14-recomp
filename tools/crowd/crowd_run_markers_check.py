@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T19 gate check (offline, 0 game runs): wwe2k14_rdr_crowd_run_markers (one marker object per run of same-type stands members, expanded by our renderer).
+"""S102 lane T19 check (offline, 0 game runs): wwe2k14_rdr_crowd_run_markers (one marker object per run of same-type stands members, expanded by our renderer).
 
   py -I tools\\crowd\\crowd_run_markers_check.py [--root DIR] [--syntax | --fview [--no-build]]
 
@@ -13,8 +13,6 @@ vs markers; and 3 planted twins run on each capture must FAIL there.
 default bundle's crowd flags (--crowd-floor --crowd-cards), and Brock with T13's member cut (the thin capture): every frame's hash must be equal, validation errors 0, exit 0.
 A check that cannot read its input fails loudly."""
 import argparse
-import fnmatch
-import json
 import os
 import re
 import subprocess
@@ -32,7 +30,6 @@ CAPS = {
 }
 BROCK_DIR = 'out/lane86/brock/capture/scene'
 BROCK_ZIP = 'out/s101/runs/20261111_215201_s100_owner_s89_brock/case_20261111_215233_217_0_pc_run_exit.zip'
-LANE = 's102_t19.json'
 
 
 def main_checkout(root):
@@ -45,51 +42,6 @@ def main_checkout(root):
 def fail(msg):
     print('FAIL: ' + msg)
     return 1
-
-
-INC = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.M)
-
-
-def local_includes(root, roots):
-    seen, todo = set(), [os.path.normpath(r) for r in roots]
-    while todo:
-        f = todo.pop()
-        if f in seen or not os.path.isfile(f):
-            continue
-        seen.add(f)
-        for m in INC.findall(open(f, encoding='utf-8', errors='replace').read()):
-            cand = os.path.normpath(os.path.join(os.path.dirname(f), m))
-            if os.path.isfile(cand) and os.path.abspath(cand).startswith(os.path.abspath(root)):
-                todo.append(cand)
-    return sorted(seen)
-
-
-def rel_of(root, f):
-    return os.path.relpath(f, root).replace('\\', '/')
-
-
-def uncovered(root, files, affects):
-    return [rel_of(root, f) for f in files if not any(fnmatch.fnmatch(rel_of(root, f), g) for g in affects)]
-
-
-def run_lint(root):
-    lane = json.load(open(os.path.join(root, 'tools', 'gate', 'lanes', LANE), encoding='utf-8'))
-    aff = lane['checks'][0].get('affects') or []
-    if not aff:
-        return fail('the lane json has no affects for check 1')
-    roots = [os.path.join(root, p) for p in ('tools/crowd/crowd_run_markers_test.cpp', 'src/renderer_scene/record_io.cpp', 'src/scene_live/crowd_contrib.cpp', 'src/renderer_scene/live_scene.cpp', 'src/renderer_scene/live_sinks.cpp')]
-    files = local_includes(root, roots)
-    missing = uncovered(root, files, aff)
-    if missing:
-        return fail("files the test builds from are not in the lane's affects: " + ', '.join(missing))
-    probe = 'src/renderer_scene/scene_record.h'
-    if probe not in [rel_of(root, f) for f in files]:
-        return fail('lint input changed: %s is no longer reached from the test' % probe)
-    twin = [g for g in aff if not fnmatch.fnmatch(probe, g)]
-    if probe not in uncovered(root, files, twin):
-        return fail('the affects lint did not notice a header missing from affects (twin)')
-    print("PASS: affects lint: the %d files the test builds from are all covered by the lane's affects (the missing-glob twin is caught)" % len(files))
-    return 0
 
 
 def extract_rsc(zpath, out_dir, step):
@@ -201,9 +153,6 @@ def run_test(root):
         return fail('expected >= 30 PASS lines and 9 planted twins caught (1, 2, 3, 4, b, c, d, 5, 8), got %d and %d (a check that reads nothing proves nothing)' % (passes, twins))
     if len(re.findall(r'^PASS expanded marker list equals the plain list', text, re.M)) != 8 or len(re.findall(r'^PASS EndFrame with a contributor', text, re.M)) != 2:
         return fail('the 8 synthetic arms and 2 EndFrame arms did not all run')
-    rc = run_lint(root)
-    if rc:
-        return rc
     main = main_checkout(root)
     caps = []
     for name, rel in CAPS.items():

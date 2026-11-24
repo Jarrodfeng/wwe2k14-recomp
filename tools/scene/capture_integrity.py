@@ -12,7 +12,7 @@ Prints one line per capture and, for a bad one, one line per bad frame. With no 
   --known   the sealed captures that carry a bad frame 0 (tools\scene\capture_integrity_known.txt) are expected: fail only when a capture has
             bad frames the list does not state (exact frame list and ref count), or a listed capture no longer shows them.
   --strict  fail on any bad frame (the default without --known).
-  --frames  print only 'NAME: f,f,f' lines (machine form; tools\gate\corpus.py and the choice scoring use BadFrames() directly).
+  --frames  print only 'NAME: f,f,f' lines (machine form; the choice scoring uses BadFrames() directly).
   --selftest  builds planted captures in a temp folder (a clean one, one with a stale frame 0, one with an overlap) and checks the verdicts.
 Reads the player's captures locally; writes nothing into the repo.
 """
@@ -84,7 +84,7 @@ def check(folder):
 
 
 def BadFrames(folder):
-    """For tools\\gate\\corpus.py and the choice scoring: the sorted capture frame indices the lint flags, and the per-frame detail."""
+    """For the choice scoring: the sorted capture frame indices the lint flags, and the per-frame detail."""
     bad, _n = check(folder)
     return sorted(bad), bad
 
@@ -199,7 +199,7 @@ def selftest():
 
 def main(argv):
     args = [a for a in argv if not a.startswith('--')]
-    if '--root' in argv:  # the gate lints' convention (the repo root): not used here
+    if '--root' in argv:  # the lints' convention (the repo root): not used here
         args = [a for a in args if a != argv[argv.index('--root') + 1]]
     root = os.path.join(os.environ.get('RDR_MAIN_CHECKOUT', os.path.dirname(os.path.dirname(HERE))), 'out', 'captures')
     if '--captures-root' in argv:

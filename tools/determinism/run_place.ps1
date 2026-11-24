@@ -20,6 +20,7 @@ try {
         if ($p -ne 'off') { $extra = "$extra --wwe2k14_det_boot_alloc_place=$p" }
         if ($MoreArgs) { $extra = "$extra $MoreArgs" }
         Write-Output "=== place $p : $extra"
+        # S109 FF2: -Exclusive = alone, not normal speed. determinism_lesnar.txt asks for no speed term (the result is frame-exact hashes): it runs fast-forwarded, as run_det.ps1 does.
         & "$R\tools\bench\run_list.ps1" -Scripts @($route) -Extra $extra -Exclusive
     }
 } finally { Exit-RunLock $lock }

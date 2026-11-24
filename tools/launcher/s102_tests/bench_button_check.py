@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""S102 lane U4: the benchmark button's offline proof (gate lane s102_u3_u4). 0 game runs.
+r"""S102 lane U4: the benchmark button's offline proof. 0 game runs.
 
   py -I tools\launcher\s102_tests\bench_button_check.py [--root DIR]
 

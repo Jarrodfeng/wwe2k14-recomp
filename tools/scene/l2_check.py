@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Lane L2's gate check (Session 103): the entrance page's floor pools and the follow spot, composed from the record's rows. 0 game runs: fview headless + frame_rig.exe.
+r"""Lane L2's check (Session 103): the entrance page's floor pools and the follow spot, composed from the record's rows. 0 game runs: fview headless + frame_rig.exe.
 
   py -I tools\scene\l2_check.py [--out DIR] [--frames 20,110,150,200] [--reuse]      (--reuse: judge the pictures already under --out, no rig runs: for tuning the bars)
 

@@ -1,5 +1,4 @@
-# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1
-# harness: realtime (the entrance follows the wall clock; shots must land on the intro's wide shot)
+# harness: flags --wwe2k14_wm30=1 --wwe2k14_wm30_auto=false --wwe2k14_fixed_seed=1 --wwe2k14_replay_mode=true
 # Session 90 black-arena diagnosis, Opus fresh read (copy of short\s90_arena_diag.txt): the census + segment log for 3 frames AT shot heenan_05 (black under H fix 7280b0e), ends after shot 06.
 # turns on the owned-frame census per pass and the segment log for 2 frames inside the intro's wide shot ("LOS ANGELES,
 # CA"), between shots heenan_01 and heenan_02, then ends after shot 06 (the first stage shot). EVTDSC0's wait is optional:

@@ -7,6 +7,8 @@
 #include <string>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_liquid.h"   // S106 G4-2
+#include "../renderer_scene/rows_pictures.h"
 #include "liquid_hook.h"
 #include "tail_latch.h"
 
@@ -40,7 +42,9 @@ class LiquidContributor : public Contributor {
            "), unreadable " + std::to_string(s.unreadable) + ", items " + std::to_string(s.items) + " (undrawn " + std::to_string(s.items_undrawn) + ", overflow " + std::to_string(s.items_overflow) + "), clears " + std::to_string(s.clears) +
            ", pictures read " + std::to_string(s.pictures_read) + " hit " + std::to_string(s.picture_hits) + ", tex_class " + std::to_string(s.tex_class) + " tex_null " + std::to_string(s.tex_null) + " tex_fail " + std::to_string(s.tex_fail) + " tex_size " + std::to_string(s.tex_size) +
            ", no_object " + std::to_string(s.no_object) + ", late " + std::to_string(s.late) + ", overflow " + std::to_string(s.overflow) + ", frames " + std::to_string(s.frames) + ", emitted frames " + std::to_string(frames_emitted_) +
-           " maps " + std::to_string(maps_emitted_) + " items " + std::to_string(items_emitted_) + "]";
+           " maps " + std::to_string(maps_emitted_) + " items " + std::to_string(items_emitted_) + ", blood " + std::to_string(s.items_blood) +   // S106 C3
+           ", rebuild rows " + std::to_string(s.alt_rows) + " (sweat discs " + std::to_string(s.rebuild_items) + ", regions " + std::to_string(s.regions) + ", over the bounds " + std::to_string(s.alt_overflow) + ", sweat left by the game's pages " + std::to_string(s.alt_left) + ", kept from an earlier call " + std::to_string(s.alt_carried) + "), packages re-sent " + std::to_string(s.resent) + " (acknowledged " + std::to_string(s.resend_acked) +
+           ", expired unacknowledged " + std::to_string(s.resend_expired) + ", made old by a clear " + std::to_string(s.resend_superseded) + ")]";   // S108 BLD2 / BLD3 (BLD3 review: no picture cap left to count)
   }
   Tracker tracker;
   const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // (tests)

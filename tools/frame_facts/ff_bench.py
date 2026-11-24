@@ -1,7 +1,7 @@
 r"""S102 lane R21-A: the PC counts for the lane's claim (docs\renderer\FRAME_FACTS.md).  py -I tools\frame_facts\ff_bench.py [--repeats 3] [--root DIR]
 rplay --timing on the Bryan (237 frames) and Brock (341 frames) captures WITH scene records (an unpacked case folder of the main checkout's out\cases: the folder with that many
 frames and a scene\ folder; read in place, never copied), the player's bundle, arms frame facts off / on interleaved, `repeats` times. Prints the mean load_us / bind_us /
-load+bind per frame over the frames after the 30th, per arm, and the on - off difference. 0 game runs, 0 Surface runs. Not a gate check (timing is noisy): the gate lane proves equality."""
+load+bind per frame over the frames after the 30th, per arm, and the on - off difference. 0 game runs, 0 Surface runs. Not a pass / fail check (timing is noisy)."""
 import argparse, csv, glob, os, re, statistics, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))

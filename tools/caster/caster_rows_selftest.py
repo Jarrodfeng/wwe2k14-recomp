@@ -1,4 +1,4 @@
-r"""S101 lane 202 gate check: Caster D3 pieces E0-E2 (the caster pass entries in the scene record; docs\renderer\SKIP_GAME_WORK_MAP.md 17.7). Offline, 0 game runs, headless.
+r"""S101 lane 202 check: Caster D3 pieces E0-E2 (the caster pass entries in the scene record; docs\renderer\SKIP_GAME_WORK_MAP.md 17.7). Offline, 0 game runs, headless.
 
   py -I tools\caster\caster_rows_selftest.py [--no-build]
 

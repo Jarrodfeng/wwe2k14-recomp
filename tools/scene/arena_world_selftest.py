@@ -1,4 +1,4 @@
-r"""S101 lane 130 gate check: the arena's D3 gaps (placed world, moving world, stage clock) in the scene record. Offline, 0 game runs.
+r"""S101 lane 130 check: the arena's D3 gaps (placed world, moving world, stage clock) in the scene record. Offline, 0 game runs.
 
   py -I tools\scene\arena_world_selftest.py [--no-build] [--frames 0:380:6]
 
@@ -10,7 +10,7 @@ r"""S101 lane 130 gate check: the arena's D3 gaps (placed world, moving world, s
   3. the capture-side oracle on Check B (run 7051), run 7079 and h1: the field's FITTED values against the stream's registers (a separate, not-provable column);
   4. planted twins, each of which must fail its NAMED check: placed_identity, moving_static, clock_frozen, stamp_off_by_one, refuse_foreign_palette, node1_assumed,
      origin_after_reload (unit test) and placed_identity, moving_static, clock_frozen, stamp_off_by_one (oracle).
-A missing input FAILS loudly (this machine's gate lane lists the captures under needs)."""
+A missing input FAILS loudly."""
 import os
 import re
 import subprocess

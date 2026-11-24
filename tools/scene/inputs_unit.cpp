@@ -76,6 +76,12 @@
 //   l33_strict_derived S103 L33F: the old strict derived guard (every mismatch withholds bit 3)                  -> "l33.mismatch_walk_equal_accepted"
 //   unrequire_ignored S103 L33F: --wwe2k14_rdr_scene_unrequire applies nothing                                    -> "unrequire.drops_named_bits_only"
 //   l33_no_evidence  S103 L33F review F3: an OURS-frame mismatch is submitted without the walk evidence for that body  -> "l33.mismatch_ours_no_evidence_refused"
+//   handed_ignored   S110 CUTCROWD: the scene camera is always the composer's copy +1488 / +1552 (the old read)          -> "handed.gated_takes_block"
+//   handed_any_block S110 CUTCROWD: any non-zero engine block is taken (not only the main manager's two)               -> "handed.other_block_live"
+//   handed_mirror_taken S110 CUTCROWD: a mirrored block (negative determinant) is taken                                 -> "handed.mirror_live"
+//   handed_fov_derived S110 CUTCROWD: the FOV is always derived from the block's radians (never the live word)          -> "handed.equal_is_live"
+//   handed_invalid_taken S110 CUTCROWD: a block that fails the record's tests is taken (no camera instead of the live)   -> "handed.invalid_block_live"
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -83,11 +89,18 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <set>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
+#include "../../src/renderer_scene/rows_circle.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_plane.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/scene_live/inputs_contrib.h"
 #include "../../src/scene_live/draw_camera_core.h"   // S103 WC R5
 #include "../../src/scene_live/hold_switch.h"   // S103 L1C: the run-time hold
@@ -100,6 +113,7 @@
 #include "../../src/renderer_scene/live_maps_e2.h"   // S103 PB: BuildE2Input over a no-draw plane frame
 #include "../../src/scene_live/plane_contrib.h"   // S103 A2: the walk's plane contributor (the emit order and the merge)
 #include "../../src/scene_live/wrestler_contrib.h"   // S103 A2: the REAL wrestlers contributor (liveness, mirror compare)
+#include "../../src/scene_live/model_release.h"   // S108 RDS: what the sub_82BD3B40 hook runs
 
 using namespace rdr_scene;
 using rdr_scene::live::Counters;
@@ -458,6 +472,103 @@ int main(int argc, char** argv) {
       const bool f2 = scene_inputs::ReadModelRuntime(ReadThunk, kM0, 5, rr, 1) && (rr.flags & kMrPassModeRead) && ((rr.reserved >> 24) & 0xFF) == 0;   // bit 0 alone: no part-table read
       Check(a && b && c && d && e && f2, "model.pass_mode_partial", "insane +620 / unreadable +620: no flag, alpha kept");
     }
+    {   // S108 RDS part A (entry: InputsContributor::Take, the production order: models_ / targets resolved, then ReadModelRuntime per model). A model the game released stays in the KEPT set (up to 120 Emits) and its block
+        // was reused: +252 a plausible float, +372 = 1, +480 = 0x41700001 (the float 15.000001, the run's refused address). The runtime rows come from the latch's targets: the released model is never read.
+      const Guest keep_rel = g_guest;
+      constexpr uint32_t kRel = 0x40070000;
+      g_guest.PutF(kRel + 252, 0.25f), g_guest.Put(kRel + 372, 1), g_guest.Put(kRel + 480, 0x41700001u), g_guest.Put(kRel + 616, 0), g_guest.Put(kRel + 620, 0);
+      static uint32_t rel_reads = 0;
+      const auto run = [&](bool with_targets, std::vector<uint32_t>& objs) {
+        live::inputs::InputsContributor rc;
+        rc.SetReader([](uint32_t a, void* d, size_t n) { if (uint64_t(a) + n > kRel && a < kRel + 1024) ++rel_reads; if (a >= 0x41700000u && a < 0x41701000u) ++rel_reads; return g_guest.Read(a, d, n); });
+        rc.SetModels([](std::vector<uint32_t>& out) { out = {kM0, kRel}; });   // the kept set: the live body and the released one
+        if (with_targets) rc.SetPalettes([](uint64_t, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing) { out = {{kM0, 3}}; missing = 0; }, [](uint32_t, uint32_t, const Mat4*, uint64_t) { return 0; });
+        rel_reads = 0;
+        live::inputs::InputsContributor::Frame fr;
+        rc.Take(800, fr, true);
+        objs.clear();
+        for (const ModelRuntimeRow& r : fr.models) objs.push_back(r.object);
+      };
+      std::vector<uint32_t> objs;
+      run(true, objs);
+      Check(objs == std::vector<uint32_t>{kM0} && rel_reads == 0, "rds.released_model_not_read", "rows " + std::to_string(objs.size()) + ", reads of the released block / the wild address " + std::to_string(rel_reads));
+      run(false, objs);   // planted twin: the kept set (the old list) reads the released block and makes it a row
+      Check(objs.size() == 2 && rel_reads > 0, "rds.twin_kept_set_reads_released", "rows " + std::to_string(objs.size()) + ", reads " + std::to_string(rel_reads));
+      {   // RDS review: the game's own branch and order: the character-table targets (SetSlotPalettes), LatchPalettes builds THIS hook's targets, then Take reuses them (ResolveModelList's pal_targets_ branch)
+        live::inputs::InputsContributor sc;
+        static uint32_t unscoped = 0;   // S108 RDS phase 2: reads made outside a pass scope (PassLines) by LatchPalettes / Take
+        sc.SetReader([](uint32_t a, void* d, size_t n) { if (!wwe2k14::safe_pages::PassLines::Current()) ++unscoped; if (uint64_t(a) + n > kRel && a < kRel + 1024) ++rel_reads; if (a >= 0x41700000u && a < 0x41701000u) ++rel_reads; return g_guest.Read(a, d, n); });
+        sc.SetModels([](std::vector<uint32_t>& out) { out = {kM0, kRel}; });
+        sc.SetSlotPalettes([](uint64_t, uint64_t, const live::inputs::InputsContributor::SlotTable&, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing, uint32_t* stale_visible, bool) {
+                             missing = 0;
+                             if (stale_visible) *stale_visible = 0;
+                             out = {{kM0, 3}};
+                           },
+                           [](uint32_t, uint32_t, const Mat4*, uint64_t) { return 0; });
+        const int keep_mode = g_mode;
+        g_mode = 2;
+        sc.LatchPalettes(800);
+        rel_reads = 0;
+        live::inputs::InputsContributor::Frame fr;
+        sc.Take(800, fr, true);
+        g_mode = keep_mode;
+        objs.clear();
+        for (const ModelRuntimeRow& r : fr.models) objs.push_back(r.object);
+        Check(objs == std::vector<uint32_t>{kM0} && rel_reads == 0, "rds.slot_path_released_model_not_read", "rows " + std::to_string(objs.size()) + ", reads of the released block / the wild address " + std::to_string(rel_reads));
+        Check(unscoped == 0 && !wwe2k14::safe_pages::PassLines::Current(), "rds.inputs_pass_scoped", "reads outside a pass scope " + std::to_string(unscoped) + "; the scope outlived the pass: " + (wwe2k14::safe_pages::PassLines::Current() ? "YES" : "no"));
+      }
+      g_guest = keep_rel;
+    }
+    {   // S108 RDS class closure: the production function the sub_82BD3B40 hook runs (model_release.h OnModelDestroyed, over the process singletons Wrestlers() / lightidx::The()): a model destroyed between two
+        // latches is named by no container afterwards, so the next latch reads nothing of it. (The REX_HOOK_RAW itself needs the SDK: compiled by game_syntax, not here.) Twins: each erase left out in turn.
+      constexpr uint32_t kGone = 0x40500000;
+      auto& wc = live::Wrestlers();
+      std::vector<Mat4> mats(3);
+      const auto plant = [&] {
+        wc.SubmitWorld(kGone, -1, 3, mats.data(), mats.data(), 10);
+        live::lightidx::The().OnLatchEntry(kGone, 0x40600000, 0, 0, 10);
+        live::inputs::Inputs().SetSnapForTest({{0x40510000u, 3}, {kGone, 3}}, 10);   // RDS review: the last latch's target copy the off-latch fallback reads
+        return wc.NamesModel(kGone) && live::lightidx::The().Has(kGone) && live::inputs::Inputs().SnapNames(kGone);
+      };
+      const auto gone = [&] {
+        std::vector<uint32_t> kept;
+        wc.KeptSkeletons(kept);
+        return !wc.NamesModel(kGone) && !live::lightidx::The().Has(kGone) && !live::inputs::Inputs().SnapNames(kGone) && std::find(kept.begin(), kept.end(), kGone) == kept.end();
+      };
+      const bool before = plant();
+      wwe2k14::model_release::OnModelDestroyed(kGone);   // the release, between latch 10 and latch 11
+      const bool after = gone();
+      Check(before && after, "rds.release_forgets_address", std::string("named before ") + (before ? "yes" : "no (the plant did not register)") + ", after " + (after ? "none" : "STILL NAMED"));
+      const bool tw_ok = plant() && (wwe2k14::model_release::OnModelDestroyed<true, false>(kGone), !gone()) && plant() && (wwe2k14::model_release::OnModelDestroyed<false, true>(kGone), !gone()) &&
+                         plant() && (wwe2k14::model_release::OnModelDestroyed<false, false, true>(kGone), !gone());   // RDS review: + the snapshot's erase left out
+      wwe2k14::model_release::OnModelDestroyed(kGone);   // leave the singletons clean
+      const bool other_kept = live::inputs::Inputs().SnapNames(0x40510000u);   // only the destroyed address leaves the copy
+      live::inputs::Inputs().SetSnapForTest({}, ~0ull);
+      Check(tw_ok && gone() && other_kept, "rds.release_twins_keep_address", std::string("twins (the wrestlers' erase / the light erase left out) ") + (tw_ok ? "still name the address: caught" : "FORGOT IT ANYWAY (the check cannot see a missing erase)"));
+    }
+    {   // S108 RDS phase 1: the per-object copy reads the hull once and keeps the per-field verdicts; at a mapped page end the exact hull reads, the one-byte-wider twin is refused. Page-granular fake (an unset word reads 0).
+      static std::set<uint32_t> pages_ok;
+      static uint32_t calls = 0;
+      const scene_inputs::ReadFn pread = [](uint32_t a, void* d, size_t n) {
+        ++calls;
+        for (uint64_t p = a >> 12; p <= (uint64_t(a) + n - 1) >> 12; ++p) if (!pages_ok.count(uint32_t(p))) return false;
+        for (size_t i = 0; i < n; i += 4) if (!g_guest.Read(a + uint32_t(i), static_cast<uint8_t*>(d) + i, 4)) std::memset(static_cast<uint8_t*>(d) + i, 0, 4);
+        return true;
+      };
+      const Guest keep_pe = g_guest;
+      const uint32_t m = 0x40101000u - scene_inputs::kModelRuntimeEnd;   // the hull [m+252, m+624) ends exactly at the end of page 0x40100
+      pages_ok = {0x40100u, 0x40200u};
+      g_guest.PutF(m + 252, 0.5f), g_guest.Put(m + 372, 1), g_guest.Put(m + 480, 0x40200000u), g_guest.Put(m + 616, 2), g_guest.Put(m + 620, 1), g_guest.Put(0x40200000u + 20, 1);
+      ModelRuntimeRow rr;
+      calls = 0;
+      const bool exact = scene_inputs::ReadModelRuntime(pread, m, 5, rr, 3) && (rr.flags & kMrPassModeRead) && Near(rr.alpha, 0.5f) && ((rr.reserved >> 16) & 0xFF) == 1 && ((rr.reserved >> 24) & 0xFF) == 1;
+      const uint32_t exact_calls = calls;
+      const bool wide = scene_inputs::ReadModelRuntimeT<true>(pread, m, 5, rr, 3);   // planted twin: one byte past the hull, no per-field fallback
+      pages_ok = {0x40200u};   // the model's page unmapped: the copy is refused and the per-field reads refuse too (no row), exactly as before
+      const bool gone = !scene_inputs::ReadModelRuntime(pread, m, 5, rr, 3);
+      Check(exact && exact_calls == 2 && !wide && gone, "rds.copy_hull_page_end", std::string("exact ") + (exact ? "row" : "none") + " in " + std::to_string(exact_calls) + " reads (was 5 + the table), wide twin " + (wide ? "row (WRONG)" : "refused") + ", unmapped " + (gone ? "none" : "row"));
+      g_guest = keep_pe;
+    }
     Check(!t.input_stamps.empty(), "contrib.stamp_rows", std::to_string(t.input_stamps.size()) + " rows");
     bool sorted = true, has_post = false;
     for (const auto& r : t.input_stamps) {
@@ -688,7 +799,7 @@ int main(int argc, char** argv) {
         pc.SetSlotPalettes([](uint64_t hook, uint64_t record, const live::inputs::InputsContributor::SlotTable& slots, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing,
                               uint32_t* stale_visible, bool count) {
                              live::WrestlerContributor::SlotTable s;
-                             for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr});
+                             for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr, x.game_shown});
                              for (int i = 0; i < 9; ++i) s.state[i] = slots.state[i];
                              std::vector<live::WrestlerContributor::PaletteTarget> t;
                              W->LatchTargets(hook, &s, t, missing, count);
@@ -701,14 +812,14 @@ int main(int argc, char** argv) {
       w.SetPreLatch([](uint64_t, bool) {});   // the unit drives the pre-latch itself
       if (Plant("l31b_guard_off")) w.SetStaleGuardForTest(false);
       w.SetFaultsForTest((Plant("l31b_pointer_presence") ? live::WrestlerContributor::kFaultPointerPresence : 0u) | (Plant("l31b_drop_invisible") ? live::WrestlerContributor::kFaultDropInvisible : 0u) |
-                         (Plant("l31b_no_walk_gate") ? live::WrestlerContributor::kFaultNoWalkGate : 0u) | (Plant("l31b_keep_gone") ? live::WrestlerContributor::kFaultKeepGoneTargets : 0u));
+                         (Plant("l31b_no_walk_gate") ? live::WrestlerContributor::kFaultNoWalkGate : 0u) | (Plant("l31b_keep_gone") ? live::WrestlerContributor::kFaultKeepGoneTargets : 0u) |
+                         (Plant("cam_upd_shows") ? live::WrestlerContributor::kFaultUpdShows : 0u));   // S107 CAM twin: the old stream-free rule (a posed, un-asked body shows)
     };
     struct Out { size_t objects = 0; uint32_t stale = 0; float bone0 = -1.f; uint64_t stamp = 0; uint64_t reads = 0; bool visible = false; size_t invisible = 0; };
     // walk = the game's draw read the body this frame (the consumer hook sub_82C04DF0: SubmitConsumer). In mode Ours the walk does not run; review C shows a hook-quiet body only while a walk saw it lately.
-    auto frame = [&](live::WrestlerContributor& w, live::inputs::InputsContributor& pc, uint64_t rec, bool update_hook, bool walk = false, bool replay_pose = false, bool pose_shown = true, bool draw_ask = false) {
+    auto frame = [&](live::WrestlerContributor& w, live::inputs::InputsContributor& pc, uint64_t rec, bool update_hook, bool walk = false, bool draw_ask = false) {
       const uint64_t hook = rec - 1;
       if (draw_ask) w.NoteDrawAsked(kSkel, hook, [](uint32_t a, uint32_t& v) { auto it = g_guest.words.find(a); if (!g_guest.readable || it == g_guest.words.end()) return false; v = it->second; return true; });   // S103 DRL: the game's draw ask (sub_82C04DF0 raw hook)
-      if (replay_pose) w.NoteReplayPose(kSkel, hook, pose_shown);   // S103 RPF: the game's replay track (sub_8270ECE8) posed the body this frame, no update hook, no walk
       put_pal(kPal, float(rec));   // the game keeps posing the body: [skel+200] holds this frame's palette
       std::vector<Mat4> d(kCount);
       for (uint32_t i = 0; i < kCount; ++i)
@@ -740,6 +851,7 @@ int main(int argc, char** argv) {
       for (uint32_t i = 0; i < 9; ++i) g_guest.Put(live::lightlatch::kCharSlotTable + 4 * i, i == 0 && occupied ? kCh : 0u);
       g_guest.Put(kCh + live::lightlatch::kCharSkeletonOff, kSkel);
       g_guest.Put(kCh + 52, kPiece);   // a decoy next to the skeleton word
+      g_guest.Put(kCh + 1208, 1u), g_guest.Put(kCh + 224, 1u), g_guest.Put(kCh + 232, 1u);   // S107 CAM: the three words of the game's shown predicate sub_823CBC50 ([char+232] is also the flag the draw ask reads)
     };
     g_mode = 2;
     {   // 1. the hook goes quiet, the character stays in the table: read every latch, emitted with the CURRENT palette, palettes read == wrestler objects, the stamp given
@@ -798,47 +910,10 @@ int main(int argc, char** argv) {
       const bool back = o.objects == 1 && o.visible;
       Check(hidden && back && w.QuietUnseen() > 0, "l31b.quiet_unseen_is_hole", "hidden " + std::to_string(hidden) + " back " + std::to_string(back) + " quiet_unseen " + std::to_string((unsigned long long)w.QuietUnseen()));
     }
-    {   // S103 RPF: the replay poses the body with its own track (no update hook, no walk: the stream-free build never walks). A fresh track pose keeps him VISIBLE past the quiet window; the twin without the pose
-        // (the plant: today's behaviour) is quiet_unseen = invisible. The pose is also what brings him back after a gap.
-      auto run = [&](bool pose, bool shown, bool& visible_all, bool& hidden_all, uint64_t& unseen, uint64_t& posed) {
-        BuildGuest();
-        g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
-        table(true);
-        live::WrestlerContributor w;
-        live::inputs::InputsContributor pc;
-        setup(w, pc);
-        ResetStamps();
-        for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true);   // live match: update hook + walk
-        visible_all = true;
-        hidden_all = true;
-        for (uint64_t r = 110; r < 260; ++r) {   // the replay: only the track pose (when pose), nothing else
-          const Out o = frame(w, pc, r, false, false, pose, shown);
-          if (r >= 180) {   // well past kConsumerFresh + kQuietSeenWindow after the last update / walk
-            visible_all = visible_all && o.objects == 1 && o.visible;
-            hidden_all = hidden_all && o.objects == 1 && !o.visible && o.invisible == 1;
-          }
-        }
-        unseen = w.QuietUnseen();
-        posed = w.ReplayPosed();
-      };
-      bool vis = false, hid = false, tv = false, th = false;
-      uint64_t unseen = 0, posed = 0, tunseen = 0, tposed = 0;
-      run(true, true, vis, hid, unseen, posed);
-      run(false, true, tv, th, tunseen, tposed);
-      bool hv = false, hh = false;
-      uint64_t hunseen = 0, hposed = 0;
-      run(true, false, hv, hh, hunseen, hposed);   // review: the track HIDES the character ([char+232] == 0, no pose) every frame
-      Check(hh && !hv && hunseen > 0 && hposed == 0, "rpf.hidden_track_call_is_quiet_unseen", "hidden " + std::to_string(hh) + " visible " + std::to_string(hv) + " quiet_unseen " + std::to_string((unsigned long long)hunseen) + " posed " + std::to_string((unsigned long long)hposed));
-      Check(vis && unseen == 0 && posed == 150, "rpf.replay_pose_keeps_visible", "visible " + std::to_string(vis) + " quiet_unseen " + std::to_string((unsigned long long)unseen) + " replay_posed " + std::to_string((unsigned long long)posed));
-      Check(th && !tv && tunseen > 0 && tposed == 0, "rpf.plant_no_pose_quiet_unseen", "hidden " + std::to_string(th) + " visible " + std::to_string(tv) + " quiet_unseen " + std::to_string((unsigned long long)tunseen));
-      live::WrestlerContributor unk;
-      unk.NoteReplayPose(0x40001230, 5);   // a skeleton the update hook never met: counted, never created
-      Check(unk.ReplayPosed() == 0 && unk.KnownCount() == 0, "rpf.unknown_skeleton_not_created", "posed " + std::to_string((unsigned long long)unk.ReplayPosed()) + " known " + std::to_string((unsigned long long)unk.KnownCount()));
-    }
-    {   // S103 DRL: the freeze frame (no update hook, no walk, no replay pose: only the game's draw ASK). A shown body stays visible past the quiet window; the twin with no ask (plant) is quiet_unseen; a HIDDEN
+    {   // S103 DRL: the freeze frame (no update hook, no walk: only the game's draw ASK). A shown body stays visible past the quiet window; the twin with no ask (plant) is quiet_unseen; a HIDDEN
         // character ([char+232] == 0) that is still asked about stays hidden (a draw ask must not revive it).
       const auto rw = [](uint32_t a, uint32_t& v) { auto it = g_guest.words.find(a); if (!g_guest.readable || it == g_guest.words.end()) return false; v = it->second; return true; };
-      auto run = [&](uint64_t ask_to, bool shown, uint64_t hide_from, uint64_t from, bool& visible_all, bool& hidden_all, uint64_t& unseen, uint64_t& asked) {   // asks while r < ask_to; the replay track hides him from hide_from (0 = never); the verdict is read from `from`
+      auto run = [&](uint64_t ask_to, bool shown, uint64_t hide_from, uint64_t from, bool& visible_all, bool& hidden_all, uint64_t& unseen, uint64_t& asked) {   // asks while r < ask_to; the game hides him from hide_from (0 = never); the verdict is read from `from`
         BuildGuest();
         g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
         table(true);
@@ -852,7 +927,8 @@ int main(int argc, char** argv) {
         hidden_all = true;
         for (uint64_t r = 110; r < 260; ++r) {   // the freeze: nothing updates him; the game keeps asking to draw him
           const bool ask = r < ask_to;
-          const Out o = frame(w, pc, r, false, false, hide_from != 0 && r >= hide_from, false, ask);
+          if (hide_from != 0 && r == hide_from) g_guest.Put(kCh + 232, 0u);   // S107 CAM: the game hides him (the shown predicate sub_823CBC50 goes false: read by the latch)
+          const Out o = frame(w, pc, r, false, false, ask);
           if (ask)
             for (int k = 0; k < 3; ++k) w.NoteDrawAsked(kSkel, r - 1, rw);   // ~99 asks a frame: the same frame's further asks cost nothing and stamp nothing more
           if (r >= from) {
@@ -874,10 +950,10 @@ int main(int argc, char** argv) {
       bool sv = false, sh = false, pv = false, ph = false;   // review 1: the game STOPS asking about a body it hides / the freeze ends: invisible within the short window (kConsumerFresh), not 60 frames
       uint64_t su = 0, sa = 0, pu = 0, pa = 0;
       run(200, true, 0, 215, sv, sh, su, sa);     // asks stop at 200 (the live walk stamp expired at ~170), he stays shown in the table: quiet by 215
-      run(200, true, 200, 215, pv, ph, pu, pa);   // asks stop and the replay track hides him at 200
+      run(200, true, 200, 215, pv, ph, pu, pa);   // asks stop and the game hides him at 200
       Check(sh && !sv && su > 0, "drl.freeze_end_no_asks_goes_quiet", "hidden " + std::to_string(sh) + " visible " + std::to_string(sv) + " quiet_unseen " + std::to_string((unsigned long long)su));
       Check(ph && !pv && pu > 0, "drl.hidden_no_further_asks_goes_quiet", "hidden " + std::to_string(ph) + " visible " + std::to_string(pv) + " quiet_unseen " + std::to_string((unsigned long long)pu));
-      {   // review 5: a slot body the update hook never met (Known lacks it): published by LatchTargets, so the filter passes it; StampDraw counts draw_unknown and creates nothing
+      {   // review 5: a slot body the update hook never met (Known lacks it): published by LatchTargets, so the filter passes it; the draw ask counts draw_unknown and creates nothing
         live::WrestlerContributor unk;
         live::WrestlerContributor::SlotTable st;
         st.skels.push_back({0x40001230, 0, 0});
@@ -904,23 +980,23 @@ int main(int argc, char** argv) {
           w.SubmitSkin(kA, -1, 5, m5.data(), 11);   // the update hook no longer matches a slot at this address
           live::WrestlerContributor::KnownProbe p;
           Check(w.ProbeForTest(kA, p) && (plant == 1 ? p.slot == 3 : p.slot == -1), plant == 1 ? "g1.plant_slot_sticky" : "g1.unmatched_update_clears_slot", "slot after an unmatched (-1) update: " + std::to_string(p.slot) + (plant == 1 ? " (the old rule keeps 3)" : " (cleared)"));
-          w.NoteReplayPose(kA, 12);
+          w.StampDrawForTest(kA, 12);
           w.SubmitSkin(kA, -1, 7, m7.data(), 13);   // another node count at the same address = another object
           w.ProbeForTest(kA, p);
-          Check(plant == 1 ? p.pose == 12 : (p.pose == 0 && w.ReuseReset() == 1), plant == 1 ? "g1.plant_no_reset" : "g1.count_change_resets_liveness", "pose stamp after a node-count change: " + std::to_string((unsigned long long)p.pose));
+          Check(plant == 1 ? p.draw == 12 : (p.draw == 0 && w.ReuseReset() == 1), plant == 1 ? "g1.plant_no_reset" : "g1.count_change_resets_liveness", "draw stamp after a node-count change: " + std::to_string((unsigned long long)p.draw));
           live::WrestlerContributor::SlotTable st;
           st.skels.push_back({kA, 0, kShown});
           st.state[0] = live::WrestlerContributor::kSlotOccupied;
           std::vector<live::WrestlerContributor::PaletteTarget> t;
           uint32_t missing = 0;
           w.LatchTargets(20, &st, t, missing);
-          w.NoteReplayPose(kA, 21);   // pose + (below) a draw ask stamp
+          w.SubmitConsumer(kA, 7, m7.data(), 21);   // a walk stamp + (below) a draw ask stamp
           w.NoteDrawAsked(kA, 21, rd(1));
           w.ProbeForTest(kA, p);
-          const bool stamped = p.draw == 21 && p.pose == 21;
+          const bool stamped = p.draw == 21 && p.walk == 21;
           w.NoteDrawAsked(kA, 22, rd(0));   // the game hides him (seen by the draw ask only)
           w.ProbeForTest(kA, p);
-          Check(stamped && p.draw == 0 && (plant == 2 ? p.pose == 21 : p.pose == 0), plant == 2 ? "bh4.plant_hide_keeps_pose" : "bh4.draw_hide_clears_every_stamp", "after a draw-ask hide: draw " + std::to_string((unsigned long long)p.draw) + " pose " + std::to_string((unsigned long long)p.pose));
+          Check(stamped && p.draw == 0 && (plant == 2 ? p.walk == 21 : p.walk == 0), plant == 2 ? "bh4.plant_hide_keeps_walk" : "bh4.draw_hide_clears_every_stamp", "after a draw-ask hide: draw " + std::to_string((unsigned long long)p.draw) + " walk " + std::to_string((unsigned long long)p.walk));
         }
         {   // BH3-4: the published flag address is old and its character now owns ANOTHER skeleton: the word is arbitrary, nothing is stamped (counted unread)
           live::WrestlerContributor w;
@@ -980,6 +1056,36 @@ int main(int argc, char** argv) {
         }
       }
     }
+    {   // S107 CAM (docs\research\s107\CAM_EXTRA.md): Create a Moveset's extra slot bodies are POSED by the skeleton update (update hook every frame) but the game never ASKS to draw them: in the stream-free build
+        // such a body is invisible (a hole, quiet_unseen), shown only while the game asks (draw_ask). Planted twin cam_upd_shows = the old rule (upd_frame shows him).
+      auto run = [&](bool ask, uint64_t hide_from, bool& vis_late, bool& hid_late, bool& vis_before, uint64_t& unseen) {
+        BuildGuest();
+        g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
+        table(true);
+        g_guest.Put(kCh + 232, 1u);   // all three words of the shown predicate readable
+        live::WrestlerContributor w;
+        live::inputs::InputsContributor pc;
+        setup(w, pc);
+        w.SetNoWalk(true);  // the player build: no command-stream walk
+        ResetStamps();
+        vis_late = true, hid_late = true, vis_before = true;
+        for (uint64_t r = 100; r < 250; ++r) {
+          if (hide_from != 0 && r == hide_from) g_guest.Put(kCh + 1208, 0u);   // the game hides him: sub_823CBC50 ([char+1208] && [char+224] && [char+232]) goes false (+232 stays unset-or-set: the ask path alone would not catch it)
+          const Out o = frame(w, pc, r, true, false, ask);   // the skeleton update runs EVERY frame; the draw ask only when asked
+          if (r >= 120 && (hide_from == 0 || r < hide_from)) vis_late = vis_late && o.objects == 1 && o.visible, hid_late = hid_late && o.objects == 1 && !o.visible && o.invisible == 1;
+          if (hide_from != 0 && r == hide_from) vis_before = o.objects == 1 && o.visible;   // the record of the very frame he was hidden in
+        }
+        unseen = w.QuietUnseen();
+      };
+      bool v = false, h = false, b = false, tv = false, th = false, tb = false, gv = false, gh = false, gb = false;
+      uint64_t unseen = 0, tunseen = 0, gunseen = 0;
+      run(false, 0, v, h, b, unseen);    // posed, never asked (the extra editor body)
+      run(true, 0, tv, th, tb, tunseen);   // posed and asked
+      run(true, 150, gv, gh, gb, gunseen);   // posed and asked, then the game hides him at 150 ([char+1208] = 0) while the asks go on: hidden AT ONCE (not after kConsumerFresh records)
+      Check(h && !v && unseen > 0, "cam.posed_unasked_is_hidden", "hidden " + std::to_string(h) + " visible " + std::to_string(v) + " quiet_unseen " + std::to_string((unsigned long long)unseen) + " (a posed body the game never asks to draw is a hole)");
+      Check(tv && !th && tunseen == 0, "cam.posed_and_asked_visible", "visible " + std::to_string(tv) + " quiet_unseen " + std::to_string((unsigned long long)tunseen));
+      Check(gv && !gb && gunseen > 0, "cam.game_hidden_is_hidden", "visible before the hide " + std::to_string(gv) + " visible in the record of the hide frame " + std::to_string(gb) + " quiet_unseen " + std::to_string((unsigned long long)gunseen) + " (the shown predicate false = hidden at once)");
+    }
     {   // review A: presence by SLOT. The body is stale (its block unreadable) and the table's slot 0 holds (a) another pointer (a wrong [char+48] [L]), (b) an unreadable word: in both he is still
         // present: the frame walks (no stamp), never ours without him. Twin l31b_pointer_presence (the pointer rule) gives the stamp.
       bool held = true;
@@ -1038,7 +1144,7 @@ int main(int argc, char** argv) {
         if (Plant("ausf_drop")) w.SetFaultsForTest(live::WrestlerContributor::kFaultNoWalkRefuse);
         ResetStamps();
         Out fresh;
-        for (uint64_t r = 400; r < 410; ++r) fresh = frame(w, pc, r, true, true);
+        for (uint64_t r = 400; r < 410; ++r) fresh = frame(w, pc, r, true, true, true);   // S107 CAM: the game draws him (asks)
         g_guest.words.erase(kSkel + scene_inputs::kPaletteOff);   // the palette block goes unreadable: no fresh palette from now on
         int held_records = 0;
         bool held_visible = true, held_kept_palette = true;   // review: a held body is VISIBLE and carries the KEPT palette (the last fresh read), never a zero / bind pose
@@ -1079,7 +1185,7 @@ int main(int argc, char** argv) {
         if (variant == 2) w.SetPieceRowsForTest(kSkel, 7);
         for (uint64_t r = 400; r < 410; ++r) {
           if (variant == 1) w.SubmitSkin(kM1, 0, kCount, d.data(), r - 1);   // the fresh claimant of slot 0 is updating all along
-          frame(w, pc, r, true, true);
+          frame(w, pc, r, true, true, true);   // S107 CAM: asked (the live phase)
         }
         if (variant == 0) for (uint64_t r = 410; r < 440; ++r) frame(w, pc, r, false);   // quiet for 30 records, the palette still READ (fresh each latch): the game stopped updating him
         const uint64_t stale_from = variant == 0 ? 440 : 410;
@@ -2648,7 +2754,7 @@ int main(int argc, char** argv) {
         static uint32_t slot_calls, table_reads;
         const auto latch_once = [&](uint32_t faults, uint64_t rec, uint64_t& rows_latch, uint64_t& rows_off, uint32_t& calls_latch, uint32_t& calls_off, uint32_t& tbl_latch, uint32_t& tbl_off) {
           live::inputs::InputsContributor pc;
-          pc.SetReader([](uint32_t a, void* d, size_t n) { if (a == live::lightlatch::kCharSlotTable) ++table_reads; if (!g_guest.Read(a, d, n)) std::memset(d, 0, n); return true; });   // an unset guest word reads 0 (like wrestler_emit's fake)
+          pc.SetReader([](uint32_t a, void* d, size_t n) { if (a == live::lightlatch::kCharSlotTable) ++table_reads; for (size_t i = 0; i < n; i += 4) if (!g_guest.Read(a + uint32_t(i), static_cast<uint8_t*>(d) + i, n - i < 4 ? n - i : 4)) std::memset(static_cast<uint8_t*>(d) + i, 0, n - i < 4 ? n - i : 4); return true; });   // S108 RDS: word by word (an unset word reads 0, its set neighbours keep their bytes: a block read of one object must see what the field reads saw)   // an unset guest word reads 0 (like wrestler_emit's fake)
           pc.SetPieceNodeCount([](uint32_t) { return 11u; });
           pc.SetSlotPalettes([](uint64_t, uint64_t, const live::inputs::InputsContributor::SlotTable&, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing, uint32_t* stale_visible, bool) {
                                ++slot_calls;
@@ -2989,6 +3095,110 @@ int main(int argc, char** argv) {
     SceneTables back;
     std::string er;
     Check(ParseRecord(by.data(), by.size(), back, er) && back.has_camera && Near(back.camera.eye[2], 300.f) && SerializeRecord(back) == by, "camera.roundtrip", er);
+
+    // ---- S110 CUTCROWD (docs\research\s110\CUTCROWD.md; src\scene_live\handed_camera.h): the record's camera is the block the game HANDED to its renderer, [[0x83929A68] + 256] (view +240, FOV radians
+    // +512), read at the latch through the real ReadSceneCamera; the composer's copy +1488 / +1552 is one shot ahead on a gated pass. Forged: the manager, the engine object, the block, the live copy, the image k.
+    {
+        namespace hd = scene_inputs::handed;
+        hd::g_plant = Plant("handed_ignored") ? 1 : Plant("handed_any_block") ? 2 : Plant("handed_mirror_taken") ? 3 : Plant("handed_fov_derived") ? 4 : Plant("handed_invalid_taken") ? 5 : 0;
+        constexpr uint32_t kMgr = 0x40003000, kEng = 0x40005000, kOther = 0x40009000;
+        const float kDeg = 0.017453292f;   // the image float at 0x82004D70 (q decomp sub_823C79A8 +58)
+        const uint32_t kw = hd::WordOf(kDeg);
+        const auto view_at = [](float x) {   // a rigid view (identity rotation) with its translation x: eye = (-x, 0, 0)
+            std::array<float, 16> v{};
+            v[0] = v[5] = v[10] = v[15] = 1.f;
+            v[12] = x;
+            return v;
+        };
+        const auto put_live = [](const std::array<float, 16>& v, uint32_t fov_w) {
+            for (int i = 0; i < 16; ++i) g_guest.PutF(kMgr + 1488 + 4 * i, v[i]);
+            g_guest.Put(kMgr + 1552, fov_w);
+        };
+        const auto put_block = [&](uint32_t blk, const std::array<float, 16>& v, uint32_t deg_w) {   // what the hand-off writes: the view at +240, fl(deg k) at +512; then the engine's pointer
+            for (int i = 0; i < 16; ++i) g_guest.PutF(blk + 240 + 4 * i, v[i]);
+            g_guest.Put(blk + 512, hd::RadWordOf(deg_w, kw));
+            g_guest.Put(kEng + 256, blk);
+        };
+        const auto read_cam = [](Camera& c) {
+            scene_inputs::CameraInfo ci;
+            return scene_inputs::ReadSceneCamera(ReadThunk, c, ci);
+        };
+        Guest keep3 = g_guest;
+        g_guest.Put(scene_inputs::kCamMgrPtr, kMgr);
+        g_guest.Put(0x83929A68u, kEng);
+        g_guest.PutF(0x82004D70u, kDeg);
+        const auto A = view_at(-100.f), B = view_at(-500.f);   // A: eye x = 100 (the old shot, handed), B: eye x = 500 (the new shot, +1488)
+        const uint32_t f50 = hd::WordOf(50.f), f40 = hd::WordOf(40.f);
+        // a gated pass: the block holds A (either of the manager's two blocks), +1488 already B
+        bool gated_ok = true;
+        std::string gwhy;
+        for (uint32_t k = 0; k < 2; ++k) {
+            put_block(kMgr + 48 + 656 * k, A, f50);
+            put_live(B, f40);
+            Camera ca;
+            const bool ok = read_cam(ca);
+            gated_ok = gated_ok && ok && Near(ca.eye[0], 100.f) && std::fabs(ca.fov_y_deg - 50.f) < 1e-4f;
+            gwhy += " k" + std::to_string(k) + (ok ? (": eye x " + std::to_string(ca.eye[0]) + " fov " + std::to_string(ca.fov_y_deg)) : ": unreadable");
+        }
+        Check(gated_ok, "handed.gated_takes_block", gwhy);
+        // an ungated pass: block == live; the record's bytes are the old read's, the FOV word too. The FOV is one whose radians do NOT give it back by division (fl(r / k) or a neighbour lands on another
+        // degrees value with the same radians), so a derived word would differ from the live one.
+        uint32_t dw = hd::WordOf(60.f);
+        int steps = 0;
+        while (steps < 200000 && hd::DegWordFromRad(hd::RadWordOf(dw, kw), kw) == dw) dw = hd::WordOf(std::nextafter(hd::FloatOf(dw), INFINITY)), ++steps;
+        put_block(kMgr + 48, B, dw);
+        put_live(B, dw);
+        Camera cb, cl;
+        const bool okb = read_cam(cb);
+        g_guest.Put(kEng + 256, 0);   // no block: the old read
+        const bool okl = read_cam(cl);
+        Check(steps < 200000 && okb && okl && std::memcmp(&cb, &cl, sizeof cb) == 0 && Near(cb.eye[0], 500.f), "handed.equal_is_live",
+              "fov " + std::to_string(hd::FloatOf(dw)) + " (searched " + std::to_string(steps) + " ulps); the block read and the live read are the same bytes");
+        // not the main manager's block (a sub-view, another manager): the live read; pointer 0 likewise
+        put_block(kOther, A, f50);
+        put_live(B, f40);
+        Camera co, cz;
+        const bool oko = read_cam(co);
+        g_guest.Put(kEng + 256, 0);
+        const bool okz = read_cam(cz);
+        Check(oko && okz && Near(co.eye[0], 500.f) && Near(co.fov_y_deg, 40.f) && Near(cz.eye[0], 500.f), "handed.other_block_live", "eye x " + std::to_string(co.eye[0]));
+        // a mirrored block (the hand-off's slot +176 path: row 0 negated, with a cull-winding flip the record cannot carry): the live read
+        auto M = A;
+        for (int i = 0; i < 4; ++i) M[i] = -M[i];
+        put_block(kMgr + 48, M, f50);
+        put_live(B, f40);
+        Camera cm;
+        const bool okm = read_cam(cm);
+        Check(okm && Near(cm.eye[0], 500.f), "handed.mirror_live", okm ? "eye x " + std::to_string(cm.eye[0]) : "unreadable");
+        // a block that fails the record's own tests (a scaled view): the live read, not "no camera"
+        auto S = A;
+        for (int i = 0; i < 3; ++i) S[i * 4 + i] = 2.f;
+        put_block(kMgr + 48, S, f50);
+        put_live(B, f40);
+        Camera cs;
+        const bool oks = read_cam(cs);
+        Check(oks && Near(cs.eye[0], 500.f), "handed.invalid_block_live", oks ? "eye x " + std::to_string(cs.eye[0]) : "no camera");
+        // the census through the real latch call: three gated latches, then an equal one; the reach words [mgr+1424] and the composer slot's +176 / +184
+        if (hd::g_plant == 0) {
+            hd::ResetCensus();
+            g_guest.Put(kMgr + 1424, 1);
+            g_guest.Put(kMgr + 24, 0x40006000), g_guest.Put(kMgr + 28, 2), g_guest.Put(kMgr + 32, 1);
+            g_guest.Put(0x40006000 + 272 + 176, 1), g_guest.Put(0x40006000 + 272 + 184, 0);
+            put_block(kMgr + 48, A, f50);
+            put_live(B, f40);
+            for (int i = 0; i < 3; ++i) scene_inputs::HandedCensusLatch(ReadThunk);
+            put_block(kMgr + 48, B, f40);
+            scene_inputs::HandedCensusLatch(ReadThunk);
+            g_guest.Put(kEng + 256, kOther);
+            scene_inputs::HandedCensusLatch(ReadThunk);
+            const std::string line = hd::CensusLine();
+            Check(line.find("latches 5 block 4 differ 3 longest_differ 3 fov_derived 3") != std::string::npos && line.find("other_block 1") != std::string::npos &&
+                  line.find("reach(mgr1424 5 slot176 5 slot184 0)") != std::string::npos, "handed.census", line);
+            hd::ResetCensus();
+        }
+        hd::g_plant = 0;
+        g_guest = keep3;
+    }
 
     // ---- S103 WC R5 (WNCC_adversary.md R5): the draw thread's camera, read as sub_82BA7748 does: slot = [[[r13]+1048]+32] (0 when [[r13]+1048] is 0), cam = [0x83929A40 + 4 slot], view +240, proj +176
     {

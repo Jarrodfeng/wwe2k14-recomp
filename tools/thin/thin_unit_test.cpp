@@ -1,6 +1,6 @@
 // Session 101 lane 122 (KR): the unit test of the SHIPPED headers src\renderer_adapter\{thin_draw,reader_thin,thin_store}.h and src\scene_live\span_timer.h. No GPU, no game.
 //   thin_unit_test.exe                 every check on the honest build: exit 0 or 1
-//   thin_unit_test.exe plant NAME      the same check with one planted fault: must exit 1 (the gate requires it)
+//   thin_unit_test.exe plant NAME      the same check with one planted fault: must exit 1 (a runner requires it)
 // Plants: release_without_ack (R: lane 50's hole: a template dropped while frames that need it are in flight), stale_generation (the reader decides from an older set
 // than it stamps), descriptor_stride_64 (the 68-byte descriptor stride read as 64).
 #include <array>

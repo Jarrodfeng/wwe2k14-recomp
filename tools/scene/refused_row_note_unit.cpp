@@ -8,6 +8,7 @@
 #include <string>
 
 #include "../../src/renderer_host/refused_row_note.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 namespace rr = wwe2k14::scene_host::refused_row;
 static int g_fail = 0;

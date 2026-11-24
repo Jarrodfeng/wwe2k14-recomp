@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane LH gate check: the planned light hold (a deliberate walked frame that refreshes an expiring light entry) is gone for the arena slot models (docs\\systems\\wrestler_light_hold.md). 0 game runs, no game, no SDK.
+"""S103 lane LH check: the planned light hold (a deliberate walked frame that refreshes an expiring light entry) is gone for the arena slot models (docs\\systems\\wrestler_light_hold.md). 0 game runs, no game, no SDK.
   1. builds tools\\scene\\lh_proof.cpp and runs it on the scene records of run 27 and run 28's cases (out\\s103\\run27_case.zip / run28_case.zip, shared captures, read-only): for every arena slot model the entry
      the latch COMPUTES from the record equals the walk's entry one frame later (index, mode), and with the new rule 0 entries stay walk-learned (so none ages and plans a hold: `would_hold 0`);
   2. the planted twins on the same records must FAIL: old_rule (the old hold: an equal learned entry is kept and ages -> would_hold > 0, name LH HOLD), keep_all_default (same, name LH HOLD),

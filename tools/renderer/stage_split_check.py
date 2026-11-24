@@ -9,7 +9,7 @@ r"""Lane R21-B (S102) offline proof: the two-stage render thread (wwe2k14_rdr_st
   selftest  rplay --stage-selftest 40 (synthetic frames carrying every hazard on every frame, exact expected pixels), staging cap 8 MB, validation 1:
             sync PASS, split PASS; the twins split_no_seal, split_shared_builder, split_queue_unbounded, split_no_release_defer, split_no_producer
             must each FAIL (no_producer: U1's stall, 4 frames, 2 s a wait).
-  equal     rplay on the gate's Bryan capture (shipped bundle) and Brock's entrance (lane86/brock: a tron video, shipped bundle), 40 frames,
+  equal     rplay on the standard Bryan capture (shipped bundle) and Brock's entrance (lane86/brock: a tron video, shipped bundle), 40 frames,
             --validation 1, --frame-hashes: the split path (with the test latch: frame N+1's bind really overlaps N's recording) gives the same picture
             hash on EVERY frame as the one-thread path, 0 validation errors, and the census shows every frame was split (the lever took the frames).
   speed     rplay on the Bryan capture, bundle, 120 frames after 20 warm: with the tool-only spins of the Surface's stages (bind 16000 us, record 5000 us)
@@ -232,7 +232,7 @@ def main():
             speed(rplay, main_co)
         if 'u1' in only:
             u1(rplay, main_co)
-    print('[stage_split_check] %s' % ('FAIL: %d: %s' % (len(FAILS), ' / '.join(f[:90] for f in FAILS)) if FAILS else 'PASS'))   # (the gate shows only the last line: name the failures there)
+    print('[stage_split_check] %s' % ('FAIL: %d: %s' % (len(FAILS), ' / '.join(f[:90] for f in FAILS)) if FAILS else 'PASS'))   # (only the last line may be shown: name the failures there)
     return 1 if FAILS else 0
 
 

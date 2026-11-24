@@ -1,4 +1,4 @@
-# Gate check of lane 42 (Session 101): the wrestler pairing tool on Check B's material (run 7051), with its planted faults and the REAL bug.
+# Check of lane 42 (Session 101): the wrestler pairing tool on Check B's material (run 7051), with its planted faults and the REAL bug.
 #   py -I tools\wrestler\wrestler_pair_selftest.py [--zip CASE.zip]
 # Runs the SHIPPED tool (out\tools\wrestler_pair.exe, built by tools\wrestler\build_wrestler_pair.ps1) on the capture inside run 7051's case zip
 # (unpacked once, no textures, to <main checkout>\out\lane36\brock or lane 36's folder if already there). Game data stays under out\.

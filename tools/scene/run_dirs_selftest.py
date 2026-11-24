@@ -2,7 +2,7 @@
 
   py -I tools\\scene\\run_dirs_selftest.py
 
-Unit: --out wins; else GATE_CHECK_DIR\\<name>; else a per-run folder with the pid; finish() removes a per-run folder on PASS, keeps it on FAIL, never touches --out / the gate's folder.
+Unit: --out wins; else a per-run folder with the pid; finish() removes a per-run folder on PASS, keeps it on FAIL, never touches --out.
 Twin: two copies of a fake check run AT ONCE, each writing its own reference + served files into its output folder, then reading them back and comparing (what serve_equal does).
   fixed shared folder (the old default): at least one copy must FAIL (they overwrite each other);   run_out folder (the fix): both must PASS.
 """
@@ -58,12 +58,9 @@ def twin(mode, td):
 
 def main():
     with tempfile.TemporaryDirectory() as td:
-        env = {'GATE_CHECK_DIR': os.path.join(td, 'chk')}
+        env = {}
         r = run_dirs.run_out('x', os.path.join(td, 'mine'), env=env)
-        check(str(r) == os.path.join(td, 'mine') and not r.owned, '--out wins over GATE_CHECK_DIR and is never owned')
-        r = run_dirs.run_out('x', None, env=env)
-        check(str(r) == os.path.join(td, 'chk', 'x') and not r.owned, 'GATE_CHECK_DIR\\<name> when there is no --out')
-        env.pop('GATE_CHECK_DIR')
+        check(str(r) == os.path.join(td, 'mine') and not r.owned, '--out wins and is never owned')
         a, b = run_dirs.run_out('x', None, env=env, pid=111), run_dirs.run_out('x', None, env=env, pid=222)
         check(a != b and a.endswith('x_111') and a.owned and os.sep + 'out' + os.sep in a, 'per-run folder out\\<name>_<pid>: two runs never share one')
         # finish()
@@ -73,7 +70,7 @@ def main():
         check(run_dirs.finish(mine, 1, quiet=True) == 1 and os.path.isdir(d), 'FAIL keeps the per-run folder')
         check(run_dirs.finish(mine, 0) == 0 and not os.path.exists(d), 'PASS removes the per-run folder')
         d2 = tempfile.mkdtemp(dir=td)
-        check(run_dirs.finish(run_dirs.RunOut(d2), 0) == 0 and os.path.isdir(d2), 'PASS never removes --out / the gate folder (not owned)')
+        check(run_dirs.finish(run_dirs.RunOut(d2), 0) == 0 and os.path.isdir(d2), 'PASS never removes --out / the out folder (not owned)')
         # the twin
         t0 = time.time()
         rf = twin('fixed', td)

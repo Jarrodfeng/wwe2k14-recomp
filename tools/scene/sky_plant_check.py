@@ -4,6 +4,7 @@ exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'out'
 plants = {
     'row_rule': {'swap.desc_follows_body', 'rumble.rows_full_named', 'rumble.seat_reoccupied', 'remap.inactive_uses_1220'},   # the old row rule passes the real remap case
     'desc_1220': {'remap.follows_1224'},                                                          # the first SKY rule fails only the real remap
+    'scale_by_slot': {'scale.follows_1224', 'scale.not_from_slot_record'},                        # S110 MGRFINGERS: the old scale read (D[slot position]+12); no remap = same value, so inactive_equals_slot passes
 }
 bad = False
 for plant, want in plants.items():

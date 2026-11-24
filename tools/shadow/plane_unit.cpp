@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../../src/renderer_adapter/blend_key.h"  // lane 159 (S2)
+#include "../../src/renderer_scene/rows_plane.h"
 #include "../../src/renderer_scene/live_scene.h"
 #include "../../src/renderer_scene/plane_oracle.h"
 #include "../../src/scene_live/plane_contrib.h"

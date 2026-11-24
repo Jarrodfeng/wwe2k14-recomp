@@ -7,11 +7,14 @@
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include <cstdio>
 #include "../renderer_adapter/census_flush.h"   // S102 CEN1
+#include "rows_stage_fx.h"   // S106 G4-2
 #include <algorithm>
 #include <cstring>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -20,8 +23,12 @@
 #include "props_map_switch.h"   // S103 MBC: mapb_props::On
 #include "../start_settings.h"   // S103 MBC review 5: Quality().shadows
 #include "weapon_draw_core.h"   // S103 PW-3
+#include "splat_state.h"   // S108 BLD2: the splat's object flags
+#include "pose_rows_report.h"   // S108 AL1: ReportWeaponRows (the shared draw_shortfall)
 #include "load_order.h"   // S105 SKB fix F3: PropAskGatesReady
 #include "../scene_live/belt_plate.h"   // S105 PLATE: the belt nameplate store (pure)
+#include "../scene_live/prop_colour.h"   // S108 THB: the entrance props' colours (the shortfalls the hooks queued)
+#include "change_colour_draw.h"   // S108 THB: CarryChangeColour (the prop's row -> the frame)
 
 namespace rdr_scene::rf::c {
 
@@ -48,7 +55,11 @@ struct WeaponState {
   weapons::Coverage last_cov;        // S103 LDR: the companion census (ladder / belt / steps variant / desk / WPBS: recorded vs planned vs drawn) printed last
   bool cov_printed = false;
   uint32_t cov_ticks = 0;
+  std::map<std::string, uint32_t> rows_needed;   // S108 FAN: per bound copy (its aux key), weapons::RowsNeeded: the rows its vertices name
 };
+
+// S108 FAN -> AL1: a skinned call that gives fewer rows than the bound model's vertices name (the tassel "explosion" of the old 96 cut) is said by weapons::ReportWeaponRows (pose_rows_report.h: the shared
+// draw_shortfall, one line per model a run in every build, never an abort).
 
 // The light sets of a weapon model: the arena PROPS part's sets (the ring steps' set, the one the arena loader lights props with), evaluated by the record (LightsFor), every mesh on the props part's first set. [L fitted, PW review 5]:
 // the game's own rule (the weapon ctor sub_825E0F60 0x825E1090-0x825E10AC, sub_825DDC70) is not read yet: the open LOOK item of PW_weapons_props.md section 5. No arena part = the model's own file sets (nothing pushed).
@@ -106,6 +117,11 @@ static void LogPlateCensus() {
 }
 
 void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint32_t& objects, uint32_t& drawn) {
+  {   // S108 THB: the entrance props the game recolours and we cannot (a foreign callback, an unreadable gear object) / a saved set's block that failed a check: said once each through the shared draw_shortfall (queued by the hooks, drained here on the render side)
+    std::vector<live::change_colour::Shortfall> got;   // (a local: guest_model_unit L5 forbids function-local static containers in rf_*.cpp)
+    live::propcolour::TheStore().TakeShortfalls(got);
+    for (const live::change_colour::Shortfall& s : got) rdr::DrawShortfall(s.kind, s.object.c_str(), 1, 0, "%s", s.detail.c_str());
+  }
   const weapons::View view0 = weapons::WeaponViewOf(ctx.t);   // weapon_plan.h: the record's sections 59 / 60 / 61 (member names checked at compile time)
   if (view0.empty() && view0.n_slots == 0) {   // no sections 59 / 60 / 61: nothing to draw, nothing to pay (but a finished entrance's event props still have to go: S103 BLF review 4)
     if (auto& s0 = ctx.models.WeaponStateSlot(); s0 && !ctx.warm()) {
@@ -198,6 +214,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
   std::vector<assets::Matrix> pal;
   std::vector<std::pair<int32_t, uint32_t>> gb_now;   // S103 GBR: the gm / blood models asked for this frame
   std::map<std::string, uint32_t> pool_next;          // S103 GBR (review 5): the next pose slot of each blood pool this frame
+  struct SplatProbe { bool have = false; float centre[3] = {}, half[3] = {}, normal_y = 0.f, alpha = 0.f; } splat_probe;   // S108 BLD2 F1: the first live splat of this frame (census line below)
   for (const weapons::Item& it : items) {
     std::string why;
     // S103 BLF: an event prop (entrance belt / mic / cap / stage prop) is pac\evt\evtobj.pac entry "evtprop:<id>/<k>" (the loader resolves the PACH from the prop id); a weapon is m2.pac p0/1000/<id>
@@ -245,9 +262,11 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
         for (assets::Material& mat : bound.materials) mat.alpha_blend = true, mat.additive = true;
       if (it.blood)  // the material's colour scalar (r = g = b, g_f4MatDifCol) of this pool's level [L: the record's float, 16 levels]
         for (assets::Material& mat : bound.materials) mat.diffuse_color[0] = mat.diffuse_color[1] = mat.diffuse_color[2] = weapons::BloodLevelColour(blevel);
+      ws.rows_needed[bkey] = RowsNeeded(bound);   // S108 FAN (AL1: rf::c::RowsNeeded, ring_pose.h): once per bound copy
       bit = aux.emplace(bkey, std::move(bound)).first;
     }
     assets::Model& bound = bit->second;
+    if (const auto rn = ws.rows_needed.find(bkey); rn != ws.rows_needed.end()) weapons::ReportWeaponRows(it, w, arena_id, pool, rn->second);   // S108 FAN -> AL1: the shared draw_shortfall (pose_rows)
     const std::string skey = pool + "#" + std::to_string(inst);
     auto sit = aux.find(skey);
     if (sit == aux.end()) {   // the textures are copied only while the pool has no image owner (the first instance made); later instances share them (ModelCache::PosedModel)
@@ -293,14 +312,30 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
     if (it.stage && weapons::StageRowForceBlend(w)) {   // review fixes 2 / 4: a slot-32 row (alpha = the call's f1 = MdlAlpha, clamped to 1; alpha not > 0 was never planned): blended by that alpha even over an opaque material
       o.tint[3] = weapons::StageRowAlpha(w);
       o.flags |= kObjForceBlend;
-    } else if (it.blood) {   // S103 GBR: a splat is alpha-blended by its record's alpha even over an opaque material (GMS.md (B)). DEPTH WRITE: the node sub_82698770 sets seven device states before the draw (vtable slots 18 / 19 / 2 / 3 / 22 / 21 / 4 = 0 / 1 / 1 / 1 / 5 / 1 / 0) but WHICH is z-write is [U] (the device class's vtable is not identified: q vtable cannot name it), so the front end's rule stands: a force-blended opaque mesh keeps the material's depth write (front_end.cpp, kObjForceBlend); a splat lies on the mat, so a z-write only matters between overlapping splats
+    } else if (it.blood) {   // S103 GBR: a splat is alpha-blended by its record's alpha even over an opaque material (GMS.md (B)). S108 BLD2: the node sub_82698770 sets z enable 1 / z WRITE 0 / blend 1 / alpha test 1, GEQUAL, ref 1, blend code 0
+      // (0x82698898..0x826988E0 through the recorder wrappers: sub_82BB7AD8 = slot 18 = z write, docs\research\s103\T2_render_states.md): the object carries the game's z-write-off (kObjNoDepthWrite), whatever its material says
       o.tint[3] = w.alpha > 1.f ? 1.f : w.alpha;
-      o.flags |= kObjForceBlend;
+      o.flags |= splat_state::SplatObjectFlags();   // (S108 BLD3: the run-19 depth-test-off diagnosis switch is removed: it showed no more splats than the plain arm)
+      if (!splat_probe.have && !scratch.meshes.empty() && !scratch.meshes[0].vertices.empty()) {   // S108 BLD2 F1: the first live splat as our pose leaves it (viewer space: +Y up after the loader's mirror)
+        const assets::Mesh& me0 = scratch.meshes[0];
+        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+        for (const assets::Vertex& v : me0.vertices)
+          for (int a = 0; a < 3; ++a) lo[a] = std::min(lo[a], v.pos[a]), hi[a] = std::max(hi[a], v.pos[a]);
+        for (int a = 0; a < 3; ++a) splat_probe.centre[a] = 0.5f * (lo[a] + hi[a]), splat_probe.half[a] = 0.5f * (hi[a] - lo[a]);
+        if (me0.indices.size() >= 3 && me0.indices[0] < me0.vertices.size() && me0.indices[1] < me0.vertices.size() && me0.indices[2] < me0.vertices.size()) {   // the first triangle's geometric normal (right-handed cross of its edges), y component
+          const float* a = me0.vertices[me0.indices[0]].pos; const float* b = me0.vertices[me0.indices[1]].pos; const float* c = me0.vertices[me0.indices[2]].pos;
+          const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+          splat_probe.normal_y = e1[2] * e2[0] - e1[0] * e2[2];
+        }
+        splat_probe.alpha = o.tint[3], splat_probe.have = true;
+      }
     } else if (it.event && w.alpha >= 0.f && w.alpha < 1.f) o.tint[3] = w.alpha;   // S103 SMF (review A5): an event prop follows the game (EYES.md:105-114): MdlAlpha 0 still draws, only BLENDED materials vanish at 0; the tint carries 0 <= alpha < 1 and the front end fades blended meshes, opaque ones draw
     else if (w.alpha > 0.f && w.alpha < 1.f) o.tint[3] = w.alpha;   // [model+252] at the call. alpha == 0 draws opaque: whether 0 means "faded out" or "not set" is [U] (no capture shows a weapon with 0)
     if (casts_p) o.flags |= kObjCastsProps;   // S103 PM2: the props map's caster (live_map_props.cpp); the family bits below serve both maps' census
     if (casts_b || casts_p) o.flags |= (casts_b ? kObjCastsMapB : 0u) | (it.event ? (kObjMapBEvent | (weapons::IsMapBPiece43Id(it.id) ? kObjMapBPiece43 : 0u)) : it.stage ? kObjMapBStage : weapons::IsMapBUnsureId(it.id) ? kObjMapBUnsure : 0u);   // S103 MBC: map B casts it in mode 0 (live_map_shadow.cpp); the PMC filter, pure in weapon_plan.h
+    const uint32_t frame_index = uint32_t(ctx.frame.objects.size());
     ctx.frame.objects.push_back(o);
+    if (it.event) change_colour_draw::CarryChangeColour(ctx.t.change_colours, ctx.frame, frame_index, w.object);   // S108 THB: an entrance prop's colours (the record's section-67 row of kCcProp, keyed by the model address = the call's object): the draw binds the STS cc_mask row + the prop's mask
     ModelLights ml;
     if (it.stage ? (StageLights(ctx, it.id, it.entry, bound.meshes.size(), uint32_t(id), ml) || WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml)) : WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml)) ctx.frame.model_lights.push_back(std::move(ml));   // S103 CGF: a stage piece takes its key set by id (cage / cell 100, Inferno 31), else the arena props set [L]
     if (const int cc = weapons::CovClassOfItem(it); cc >= 0) ++cov.drawn[cc];   // S103 LDR
@@ -316,6 +351,10 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
       for (const auto& k : gb_now)
         if (std::find(ws.asked_gb.begin(), ws.asked_gb.end(), k) == ws.asked_gb.end()) ws.asked_gb.push_back(k);
     } else if (!ws.asked_gb.empty() && ++ws.gb_idle >= 120) DropGbr(ctx, ws);
+    static uint64_t splat_frames = 0;   // S108 BLD2 F1: every 120 frames while splats are drawn, the first one's place as we pose it (the floor splats are drawn and not seen: this says where they are)
+    if (splat_probe.have && (splat_frames++ % 120) == 0)
+      rdr::Log("[rdr][weapons] blood splat probe: drawn %u; first: centre (%.2f, %.2f, %.2f) half-size (%.2f, %.2f, %.2f) alpha %.2f, first triangle normal y %+.4f (viewer space, +Y up; front face rule as the weapons'), z write off (the game's)",
+               census.blood_drawn, splat_probe.centre[0], splat_probe.centre[1], splat_probe.centre[2], splat_probe.half[0], splat_probe.half[1], splat_probe.half[2], splat_probe.alpha, splat_probe.normal_y);
     char gl[96];
     std::snprintf(gl, sizeof gl, "gm %d blood %d", census.gm_items ? 1 : 0, census.blood_items ? 1 : 0);   // the line prints when a family appears / goes, never per count change (the splat count moves every frame)
     if (ws.last_gbr != gl && (census.gm_items || census.blood_items || !ws.last_gbr.empty())) {

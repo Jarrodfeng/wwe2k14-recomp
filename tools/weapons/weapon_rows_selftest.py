@@ -1,4 +1,4 @@
-r"""S103 lane PW-2 gate check: the weapons' per-call rows (src\scene_live\weapon_rows_*.h; contract src\renderer_scene\weapon_rows.h). Offline, 0 game runs, headless.
+r"""S103 lane PW-2 check: the weapons' per-call rows (src\scene_live\weapon_rows_*.h; contract src\renderer_scene\weapon_rows.h). Offline, 0 game runs, headless.
 
   py -I tools\weapons\weapon_rows_selftest.py [--no-build] [--capture DIR]
 

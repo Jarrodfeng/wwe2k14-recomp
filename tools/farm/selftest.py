@@ -1,4 +1,4 @@
-r"""The replay farm's own check (gate lane `farm`): positive control and planted faults, on two captures of the main checkout's corpus.
+r"""The replay farm's own check: positive control and planted faults, on two captures of the main checkout's corpus.
   py -I tools\farm\selftest.py
 Captures: s100_heenan_build (100 frames, a post / sprite scene: no wrestler skin) and brock_s15 (16 frames, a full scene).
  1. the same rplay against itself (paired): no SLOWER, no DIFFERS, exit 0   (the noise band must not trip the thresholds)

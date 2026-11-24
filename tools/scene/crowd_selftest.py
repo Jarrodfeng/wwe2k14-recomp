@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _main_checkout():
-    # The main checkout (where game_data\ and out\ live), also from a worktree: git's common dir is the main .git (as tools\gate\gate.py).
+    # The main checkout (where game_data\ and out\ live), also from a worktree: git's common dir is the main .git.
     here = os.path.normpath(os.path.join(HERE, '..', '..'))
     try:
         common = subprocess.run(['git', '-C', here, 'rev-parse', '--path-format=absolute', '--git-common-dir'], capture_output=True, text=True, timeout=20).stdout.strip()

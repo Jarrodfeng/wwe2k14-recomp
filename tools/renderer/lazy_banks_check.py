@@ -3,7 +3,7 @@
 
   py -I tools\\renderer\\lazy_banks_check.py [--root DIR] [--no-build] [--exe FVIEW] [--frames N] [--only bryan|match]
 
-For Bryan's entrance and a match capture (the gate's own crowd_card_thin.json captures): the same replay (fview --case ZIP --replay --crowd-ours --validation 1 --hash-frames)
+For Bryan's entrance and a match capture (the standard crowd_card_thin captures): the same replay (fview --case ZIP --replay --crowd-ours --validation 1 --hash-frames)
 in three arms: OFF (--lazy-banks off: every bank of every frame expanded at parse time, the old reader), ON (--lazy-banks on) and PLANT (ON + --bank-plant: a resolved bank
 skips its patches). Our own code against our own code, so equality IS the bar:
   1. picture: ON's presented-surface hash equals OFF's on EVERY frame (byte-equal), on both captures.

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "guest_texture.h"
+#include "guest_texture_mips.h"   // S108 PRT
 #include "particle_namer.h"
 
 namespace rdr_scene::live::particles {
@@ -33,6 +34,16 @@ class GuestContentHasher final : public ContentHasher {
     out.width = s.width, out.height = s.height, out.mip0_bytes = uint32_t(blocks.size());
     out.fourcc = s.game_format == 18 ? 0x31545844u : s.game_format == 19 ? 0x33545844u : 0x35545844u;
     for (size_t i = 0; i < 16 && i < blocks.size(); ++i) out.head[i] = blocks[i];
+    return true;
+  }
+  // S108 PRT: the bound texture as the game hands it to the GPU, every stored level, through the same physical reader (its range and page checks: a refused read is a false, never a guess).
+  bool ReadSprite(const uint32_t fetch[6], assets::Texture& out) const override {
+    guest_tex::Chain c;
+    if (guest_tex::ReadChain(fetch, phys_, c) != guest_tex::Why::Ok) return false;
+    out = assets::Texture{};
+    out.format = c.game_format == 18 ? assets::TexFormat::kBC1 : c.game_format == 19 ? assets::TexFormat::kBC2 : assets::TexFormat::kBC3;
+    out.width = c.width, out.height = c.height, out.mips = c.mips;
+    out.data = std::move(c.data);
     return true;
   }
  private:

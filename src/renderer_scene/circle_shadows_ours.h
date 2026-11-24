@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include "../renderer/renderer.h"
+#include "rows_circle.h"   // S106 G4-2
 #include "../renderer_adapter/draw_replace_hook.h"
 #include "../renderer_adapter/shadow_roles.h"
 #include "circle_shadow_core.h"

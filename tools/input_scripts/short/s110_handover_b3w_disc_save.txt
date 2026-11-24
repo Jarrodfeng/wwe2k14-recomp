@@ -1,0 +1,66 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_a --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 SEAT2 boot 3c (mods_a, same user data): force a save write without touching the imports: edit a DISC wrestler's entrance
+# (SUPERSTAR row 0, first wrestler AJ LEE, EASY: MUSIC 3 DOWN), ACCEPT YES; then reopen seat 397 (Lashley) EASY and read it. Run 05 showed an
+# ACCEPT with no change writes nothing.
+log seat2: start b3w
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state UP menu_row 0 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log seat2: disc editor open
+screenshot b3w_disc_open
+mark 1 editor
+repeat 6
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 3
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 600
+screenshot b3w_disc_changed
+repeat 1
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 900
+log seat2: disc accepted
+include log_menu
+screenshot b3w_disc_accepted
+mark 2 accepted
+on_fail continue
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log seat2: lashley open
+log_text 12
+screenshot b3w_lashley
+mark 3 reopened
+press B
+wait_frames 300
+screenshot b3w_leave
+wait_frames 600
+log seat2: done
+quit

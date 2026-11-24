@@ -1243,6 +1243,7 @@ int main(int argc, char** argv) {
     else if (arg == "--robust-buffers") options.robust_buffers = true;  // S102 D1: the device with robustBufferAccess
     else if (arg == "--exclusive-fullscreen") options.exclusive_fullscreen = true;  // S102 G2b: with --window only (a window on the screen: a lab run, never an agent run)
     else if (arg == "--pipeline-store" && i + 1 < argc) options.pipeline_store_dir = argv[++i];  // lane 276
+    else if (arg == "--pipeline-seed" && i + 1 < argc) options.pipeline_seed_path = argv[++i];  // S106 PSEED: a shader_list.txt whose R lines seed the store
     else if (arg == "--prebuild") g_farm.prebuild = true;
     else if (arg == "--scene-live") g_farm.scene_live = true;  // lane 276: SetPipelinePrebuildAllowed(false)
     else if (arg == "--save-ms" && i + 1 < argc) options.pipeline_save_interval_ms = uint32_t(std::atoi(argv[++i]));

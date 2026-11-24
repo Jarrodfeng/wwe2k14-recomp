@@ -20,10 +20,19 @@
 
 #include "../assets/char_mods.h"
 #include "../dlc_catalog.h"
+#include "../tron_slots_core.h"  // S110 TRONSLOT: the custom tron numbers
 #include "../xctd_file.h"
+#include "asset_ids.h"  // S110 BANKID: every asset number of an import (his entrance bank, victory, plate) is asked there
 #include "bc3.h"
+#include "enex_rows.h"  // S110 ENEX: the DLC pac's per-character entrance rows (/ENEX/BIN, /ENEX/LSD)
+#include "entrance_fx.h"  // S110 ENTFX: the entrance's scene objects / particles (gm, prtcls pacs)
+#include "entrance_movies.h"  // S110 ENTMOV: the name-plate movie (evtmov pac)
+#include "../seat_card.h"  // S110 SEAT-A: card.txt + rows.bin (the library's format, shared with the game)
+#include "../seat_bind_core.h"  // S110 LIBSIZE-2: the migration's check re-targets the reference identity's rows to the old pack's seat (RetargetCard / RetargetName)
 #include "pack_fit.h"  // Session 101: the game's DLC view + the "does the pack fit" rule (shared with src\dlc.h and the launchers)
 #include "pack_io.h"
+#include "screen_text.h"  // S110 SEAT-C: LastGameProblem's sentences
+#include "pack_entry.h"  // S110: the pack's one type-21 catalog entry + its bundle records
 #include "slot_retire.h"  // S105 IMP: retired slots (a new import never inherits a save's old row)
 #include "png.h"
 
@@ -380,17 +389,6 @@ struct JsonParser {
     return ok;
   }
 };
-std::string Esc(const std::string& s) {
-  std::string o;
-  for (unsigned char c : s) {
-    if (c == '"' || c == '\\') o += '\\', o += char(c);
-    else if (c == '\n') o += "\\n";
-    else if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); o += b; }
-    else o += char(c);
-  }
-  return o;
-}
-
 // UTF-8 -> Latin-1 (the catalog entry names are Windows-1252 bytes); '?' for anything else.
 std::string Latin1(const std::string& u) {
   std::string o;
@@ -530,123 +528,6 @@ uint32_t VersionWord(const Bytes& raw) { return raw.size() >= 8 && io::L32(&raw[
 
 // ---- chEtc: one row set per character, cloned from his base (patch_rows in build_mod_pack.py)
 constexpr size_t kRecHead = 4;  // the file row's header {u16 2, u16 208}
-bool PatchChEtc(Builder& b, io::Pac& etc, const std::vector<Superstar>& stars, std::string& err) {
-  io::Entry* dat = etc.Find("CHAR", "DAT ");
-  io::Entry* dsbd = etc.Find("CHAR", "DSBD");
-  io::Entry* pro = etc.Find("CHAR", "PRO ");
-  std::vector<io::Leaf> ldat, ldsbd, lpro;
-  if (!dat || !dsbd || !pro || !io::ReadPach(dat->blob, ldat) || !io::ReadPach(dsbd->blob, ldsbd) || !io::ReadPach(pro->blob, lpro))
-    return err = "the chEtc of " + b.BaseName() + " is not as expected (CHAR DAT / DSBD / PRO)", false;
-  auto find = [](std::vector<io::Leaf>& v, uint32_t id) -> io::Leaf* {
-    for (auto& l : v)
-      if (l.id == id) return &l;
-    return nullptr;
-  };
-  // rank (+2): unique among the active rows 100..499 (pack 5: 1..140)
-  int rank = 0;
-  std::map<uint32_t, Bytes> rows;
-  for (const io::Leaf& l : ldat) {
-    Bytes r = io::Decode(l.raw);
-    if (r.size() == 208 && l.id >= 100 && l.id < 500 && r[kRecHead + 16] == 1) rank = std::max<int>(rank, io::L16(&r[kRecHead + 2]));
-    rows[l.id] = std::move(r);
-  }
-  for (const Superstar& s : stars) {
-    const uint32_t src = uint32_t(s.base_id), slot = uint32_t(s.slot);
-    io::Leaf *ld = find(ldat, slot), *ls = find(ldsbd, src), *lsd = find(ldsbd, slot), *lp = find(lpro, src), *lpd = find(lpro, slot);
-    const auto rit = rows.find(src);
-    if (!ld || !ls || !lsd || !lp || !lpd || rit == rows.end() || rit->second.size() != 208 || io::L16(&rit->second[kRecHead]) != src)
-      return err = "base wrestler " + std::to_string(src) + " (or slot " + std::to_string(slot) + ") has no usable roster row", false;
-    if (!b.top && rit->second[kRecHead + 16] != 1)  // (no DLC: a DLC wrestler's row exists on the disc but he is not in this game)
-      return err = "base wrestler " + std::to_string(src) + " comes with DLC the game does not get now (USE MY DLC is off, or you have no "
-                   "DLC): switch USE MY DLC on, or pick another base wrestler in the Superstar Importer", false;
-    const uint16_t att_lo = uint16_t(src * 100), att_hi = uint16_t(src * 100 + 99);
-    auto att = [&](uint16_t v) { return uint16_t(v - att_lo + slot * 100); };
-    Bytes rec = rit->second;
-    uint8_t* R = &rec[kRecHead];
-    for (int off : {0, 4, 200}) io::W16(R + off, uint16_t(slot));
-    io::W16(R + 2, uint16_t(++rank));
-    io::W16(R + 6, uint16_t(60000 + slot)), io::W16(R + 8, uint16_t(62000 + slot)), io::W16(R + 10, uint16_t(64000 + slot));
-    io::W32(R + 12, 99999);  // no Twitter text (the base's would show his handle)
-    R[16] = 1;                // roster active
-    R[17] = uint8_t(b.pack_id);  // pack code = our catalog pack id (availability through the DLC manager)
-    if (!s.copy_ratings) std::fill(R + 32, R + 46, uint8_t(75));
-    std::string atts;
-    for (int off = 116; off < 200; off += 2) {
-      const uint16_t v = io::L16(R + off);
-      if (v >= att_lo && v <= att_hi) io::W16(R + off, att(v)), atts += " " + std::to_string(att(v));
-    }
-    ld->raw = io::BpeIdentity(rec, VersionWord(ld->raw));
-    // DSBD: raw 80-byte rows, the attire id list first
-    Bytes ds = ls->raw;
-    for (size_t off = 0; off + 1 < ds.size(); off += 2) {
-      const uint16_t v = io::L16(&ds[off]);
-      if (v >= att_lo && v <= att_hi) io::W16(&ds[off], att(v));
-    }
-    lsd->raw = ds;
-    // PRO (1276 bytes): the character's own id in the u16 slots +576 .. +602 (384, 385, 393 and the blank 397 alike; disc
-    // characters also hold their id at +150 / +152: left alone, meaning [U])
-    Bytes pr = io::Decode(lp->raw);
-    if (pr.size() < 604) return err = "base wrestler " + std::to_string(src) + ": profile row too short", false;
-    int self = 0;
-    for (size_t off = 576; off < 604; off += 2)
-      if (io::L16(&pr[off]) == src) io::W16(&pr[off], uint16_t(slot)), ++self;
-    lpd->raw = io::BpeIdentity(pr, VersionWord(lp->raw));
-    b.Log("chEtc row " + std::to_string(slot) + " = row " + std::to_string(src) + ": rank " + std::to_string(rank) + ", texts " +
-          std::to_string(60000 + slot) + "/" + std::to_string(62000 + slot) + "/" + std::to_string(64000 + slot) + ", pack code " +
-          std::to_string(b.pack_id) + ", ratings " + (s.copy_ratings ? "copied" : "75") + ", attire ids" + atts + ", " +
-          std::to_string(self) + " profile self ids");
-  }
-  dat->blob = io::WritePach(ldat), dsbd->blob = io::WritePach(ldsbd), pro->blob = io::WritePach(lpro);
-  return true;
-}
-
-// ---- string pac: the name tables (every SDB entry whose ZLIB table holds text ids 60100..60999: one per language)
-bool PatchStrings(Builder& b, io::Pac& str, const std::map<uint32_t, std::string>& texts, std::string& err) {
-  io::Dir* sdb = str.FindDir("SDB ");
-  if (!sdb) return err = "the string pac has no SDB directory", false;
-  int tables = 0;
-  for (io::Entry& e : sdb->ents) {
-    std::vector<io::Leaf> leaves;
-    if (!io::ReadPach(e.blob, leaves)) continue;
-    bool changed = false;
-    for (io::Leaf& l : leaves) {
-      if (l.raw.size() < 18 || std::memcmp(l.raw.data(), "ZLIB", 4) != 0) continue;
-      const Bytes d = io::Decode(l.raw);
-      if (d.size() < 8 || io::L32(&d[0]) != 0) continue;
-      const uint32_t cnt = io::L32(&d[4]);
-      if (cnt > 200000 || 8 + 12ull * cnt > d.size()) continue;
-      std::map<uint32_t, Bytes> recs;
-      bool names = false, bad = false;
-      for (uint32_t i = 0; i < cnt; ++i) {
-        const uint8_t* r = &d[8 + 12 * size_t(i)];
-        const uint32_t off = io::L32(r), len = io::L32(r + 4), id = io::L32(r + 8);
-        if (uint64_t(off) + len > d.size()) { bad = true; break; }
-        names = names || (id >= 60100 && id < 61000);
-        recs[id].assign(d.begin() + off, d.begin() + off + len);
-      }
-      if (bad || !names) continue;
-      for (const auto& [id, s] : texts) {
-        Bytes v(s.begin(), s.end());
-        v.push_back(0);
-        recs[id] = v;
-      }
-      // rebuild: header, records sorted by id, strings in record order right after the table (the real tables' layout)
-      Bytes t;
-      io::P32(t, 0), io::P32(t, uint32_t(recs.size()));
-      uint32_t off = uint32_t(8 + 12 * recs.size());
-      for (const auto& [id, v] : recs) io::P32(t, off), io::P32(t, uint32_t(v.size())), io::P32(t, id), off += uint32_t(v.size());
-      for (const auto& [id, v] : recs) t.insert(t.end(), v.begin(), v.end());
-      l.raw = io::ZlibLeaf(t, io::L32(&l.raw[4]));
-      changed = true;
-      ++tables;
-    }
-    if (changed) e.blob = io::WritePach(leaves);
-  }
-  if (!tables) return err = "no name table found in the string pac", false;
-  b.Log("string pac: " + std::to_string(texts.size()) + " texts written into " + std::to_string(tables) + " name tables (one per language)");
-  return true;
-}
-
 // ---- entrance banks: EVP (the EV table) + EVZ (the motions) of bank E and its variants 10000 + 1000 G + E, renamed to the slot
 struct BankSrc {
   Bytes evp, evz;  // the raw (BPE) entries
@@ -668,12 +549,16 @@ Bytes RetargetEv(const Bytes& evp_raw, int from, int to_bank, int to_char, int& 
 }
 
 // Reads every needed bank from the disc's Entrance00..NN and the packs' Entrance_dlcPP (first one found wins, disc first).
-std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars) {
+// S110 WINNING: victory = true reads the victory banks 6000 + e (no variants) from Winning0N.pac / Winning_dlcPP.pac instead (same EVP / EVZ layout).
+std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars, bool victory = false) {
   std::set<std::string> want;
+  const int bank0 = victory ? 6000 : 0;
   for (int e : wanted_chars) {
-    want.insert(std::to_string(e));
-    for (int g = 0; g < 10; ++g) want.insert(std::to_string(10000 + 1000 * g + e));
+    want.insert(std::to_string(bank0 + e));
+    if (!victory)
+      for (int g = 0; g < 10; ++g) want.insert(std::to_string(10000 + 1000 * g + e));
   }
+  const std::string stem = victory ? "winning" : "entrance";
   std::map<int, BankSrc> got;
   auto take = [&](io::Pac& p) {
     io::Dir *evp = p.FindDir("EVP "), *evz = p.FindDir("EVZ ");
@@ -688,7 +573,8 @@ std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars) 
   std::vector<std::string> disc;
   for (const std::string& f : b.game.ListRoot("pac\\evt")) {
     const std::string l = Lower(f);
-    if (l.size() == 14 && l.compare(0, 8, "entrance") == 0 && l.compare(10, 4, ".pac") == 0 && std::isdigit((unsigned char)l[8]))
+    const size_t n = stem.size();
+    if (l.size() == n + 6 && l.compare(0, n, stem) == 0 && l.compare(n + 2, 4, ".pac") == 0 && std::isdigit((unsigned char)l[n]))
       disc.push_back(f);
   }
   std::sort(disc.begin(), disc.end());
@@ -696,7 +582,7 @@ std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars) 
   // Entrance00 (100 / 10100) and Entrance_dlc04 (385 / 10385..14385))
   auto all = [&] {
     for (int e : wanted_chars)
-      if (!got.count(e)) return false;
+      if (!got.count(bank0 + e)) return false;
     return true;
   };
   for (const std::string& f : disc) {
@@ -708,7 +594,7 @@ std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars) 
   }
   for (const RealPack& rp : b.packs) {
     if (all()) return got;
-    const std::string rel = "pac\\evt\\Entrance_dlc" + rp.Pp() + ".pac";
+    const std::string rel = std::string("pac\\evt\\") + (victory ? "Winning" : "Entrance") + "_dlc" + rp.Pp() + ".pac";
     Bytes d;
     io::Pac p;
     std::string e;
@@ -720,30 +606,7 @@ std::map<int, BankSrc> FindBanks(Builder& b, const std::set<int>& wanted_chars) 
 // ---- renders: SSFA / SSFB / SSFC of a character, from the UI (RGBA) or copied from the base's own
 // (review: a full pack's renders are ~90 MB per resolution, so HD and SD are made in turn, never held together)
 using Renders = std::array<Bytes, 3>;  // the pac entries (BPE-packed DDS) for SSFA / SSFB / SSFC at one resolution
-bool BaseRenders(Builder& b, int id, bool sd, Renders& r, std::map<std::string, std::unique_ptr<io::Pac>>& cache) {
-  const char* tags[3] = {"SSFA", "SSFB", "SSFC"};
-  char key[8];
-  std::snprintf(key, sizeof key, "%04d", id);
-  const RealPack* p = b.PackOfChar(id);
-  const std::string file = p ? std::string("pac\\DLC_") + (sd ? "SD" : "HD") + "_dlc" + p->Pp() + ".pac"
-                             : std::string("pac\\menu\\menu") + (sd ? "SD" : "HD") + ".pac";
-  const std::string k = (p ? std::to_string(p->id) : "disc") + file;
-  auto it = cache.find(k);
-  if (it == cache.end()) {
-    Bytes d;
-    auto pac = std::make_unique<io::Pac>();
-    std::string e;
-    const bool ok = p ? b.ReadPackFile(*p, file, d) : b.ReadGame(file, d);
-    if (!ok || !io::ReadPac(d, *pac, e)) pac.reset();
-    it = cache.emplace(k, std::move(pac)).first;
-  }
-  for (int t = 0; t < 3; ++t) {
-    io::Entry* e = it->second ? it->second->Find(tags[t], key) : nullptr;
-    if (!e || e->blob.empty()) return false;
-    r[size_t(t)] = e->blob;
-  }
-  return true;
-}
+// (S110 LIBSIZE-2: a picture the player gave none of is no longer copied from the base's menu pac: it is an alias row, library_file.h AliasesOf)
 // The UI's pictures at one resolution; have[k] = SSFx k came from the UI.
 void UiRenders(const Superstar& s, bool sd, Renders& r, std::array<bool, 3>& have) {
   static const int hw[3] = {512, 512, 256}, hh[3] = {512, 512, 256}, sw[3] = {512, 512, 256}, sh[3] = {256, 256, 256};
@@ -755,86 +618,6 @@ void UiRenders(const Superstar& s, bool sd, Renders& r, std::array<bool, 3>& hav
     r[size_t(k)] = io::BpeIdentity(bc3::Dds(bc3::Resize(s.render_rgba[k], w, h, dw, dh), dw, dh));
     have[size_t(k)] = true;
   }
-}
-
-std::string ManifestJson(const PackState& st, int pack_id, bool needs_build, const std::vector<int>& retired) {
-  std::string j = "{\n  \"version\": 1,\n  \"enabled\": " + std::string(st.enabled ? "true" : "false") + ",\n  \"needs_build\": " +
-                  (needs_build ? "true" : "false") + ",\n  \"pack_id\": " + std::to_string(pack_id) + ",\n  \"retired\": [";
-  for (size_t i = 0; i < retired.size(); ++i) j += (i ? ", " : "") + std::to_string(retired[i]);  // S105 IMP
-  j += "],\n  \"stars\": [";
-  for (size_t i = 0; i < st.stars.size(); ++i) {
-    const Superstar& s = st.stars[i];
-    j += std::string(i ? "," : "") + "\n    {\"slot\": " + std::to_string(s.slot) + ", \"name\": \"" + Esc(s.name) + "\", \"short_name\": \"" +
-         Esc(s.short_name) + "\", \"base_id\": " + std::to_string(s.base_id) + ", \"entrance_from\": " + std::to_string(s.entrance_from) +
-         ", \"copy_ratings\": " + (s.copy_ratings ? "true" : "false") + ", \"source_pac\": \"" + Esc(s.source_pac) + "\", \"renders\": [";
-    for (int k = 0; k < 3; ++k)
-      j += std::string(k ? ", " : "") + "[" + std::to_string(s.render_rgba[k].empty() ? 0 : s.render_w[k]) + ", " +
-           std::to_string(s.render_rgba[k].empty() ? 0 : s.render_h[k]) + "]";
-    j += "]}";
-  }
-  return j + "\n  ]\n}\n";
-}
-
-const char* const kRenderTag[3] = {"A", "B", "C"};
-fs::path RenderFile(const fs::path& root, int slot, int k) { return root / "renders" / (std::to_string(slot) + "_" + kRenderTag[k] + ".png"); }
-
-// pack.json + renders\<slot>_A/B/C.png (PNG, our own writer); renders of characters no longer in the list are removed.
-// S105 IMP: the manifest on disk: its retired list and the slots its characters hold (a missing / damaged one = empty).
-static void ReadManifestSlots(const fs::path& root, std::vector<int>& retired, std::vector<int>& slots) {
-  Bytes b;
-  if (!ReadAll(root / "pack.json", b, 16 << 20)) return;
-  const std::string text(b.begin(), b.end());
-  Json j;
-  JsonParser p{text};
-  if (!p.Val(j) || j.t != Json::kObj) return;
-  if (const Json* a = j.Get("retired"); a && a->t == Json::kArr)
-    for (const Json& x : a->a)
-      if (x.t == Json::kNum) retired.push_back(int(x.n));
-  if (const Json* a = j.Get("stars"); a && a->t == Json::kArr)
-    for (const Json& x : a->a) slots.push_back(x.Int("slot", -1));
-}
-
-// S105 IMP review M1: the slots of the last BUILT pack (the `star SLOT music N` lines of superstars.txt): only those can be in a save.
-static std::vector<int> BuiltSlots(const fs::path& root) {
-  std::vector<int> v;
-  for (const auto& kv : wwe2k14::superstars_fit::ReadBuilt(root / "superstars.txt").music) v.push_back(kv.first);
-  return v;
-}
-
-// `built`: the built slots read BEFORE a build deleted / replaced superstars.txt (null = read it now).
-bool WriteManifest(const fs::path& root, const PackState& st, int pack_id, bool needs_build, std::string& err,
-                   const std::vector<int>* built = nullptr) {
-  std::error_code ec;
-  fs::create_directories(root / "renders", ec);
-  std::set<std::string> keep;
-  for (const Superstar& s : st.stars)
-    for (int k = 0; k < 3; ++k) {
-      const fs::path f = RenderFile(root, s.slot, k);
-      if (s.render_rgba[k].empty() || s.render_w[k] <= 0 || s.render_h[k] <= 0) continue;
-      const Bytes png = png::Write(s.render_rgba[k], s.render_w[k], s.render_h[k]);
-      if (png.empty() || !WriteAll(f, png)) return err = "could not write " + PathU8(f), false;
-      keep.insert(Lower(PathU8(f.filename())));
-    }
-  for (const auto& e : fs::directory_iterator(root / "renders", ec))
-    if (!keep.count(Lower(PathU8(e.path().filename())))) fs::remove(e.path(), ec);
-  // S105 IMP: a slot the previous manifest held and this list no longer does is retired for good (slot_retire.h)
-  std::vector<int> retired = st.retired, old_slots, new_slots;
-  {
-    std::vector<int> disk_retired;
-    ReadManifestSlots(root, disk_retired, old_slots);
-    retired.insert(retired.end(), disk_retired.begin(), disk_retired.end());
-    for (const Superstar& s : st.stars) new_slots.push_back(s.slot);
-    // (M1: retire a slot only if a build held it; built slots missing from pack.json seed the list once)
-    retired = importer::slots::MergeRetired(retired, built ? *built : BuiltSlots(root), new_slots);
-  }
-  if (!WriteText(root / "pack.json.part", ManifestJson(st, pack_id, needs_build, retired))) return err = "could not write pack.json", false;
-  fs::rename(root / "pack.json.part", root / "pack.json", ec);
-  if (ec) {
-    fs::remove(root / "pack.json", ec);
-    fs::rename(root / "pack.json.part", root / "pack.json", ec);
-    if (ec) return err = "could not write pack.json", false;
-  }
-  return true;
 }
 
 // Session 101 (review S4): <mods>\superstars\build.lock, created exclusively (fails when it exists), removed when the build ends. One
@@ -1003,58 +786,6 @@ static std::string ExtractSourceImpl(const std::string& zip_path, const std::str
   return PathU8(dst);
 }
 
-// ------------------------------------------------------------------ manifest
-// portraits = false (review N3): the list without the PNG portraits, for the check before every PLAY (cheap).
-static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::string& err, bool portraits = true) {
-  out = {};
-  const fs::path root = U8Path(mods_dir) / "superstars";
-  Bytes b;
-  std::error_code ec;
-  if (!fs::exists(root / "pack.json", ec)) return true;
-  if (!ReadAll(root / "pack.json", b, 16 << 20)) return err = "cannot read pack.json", false;
-  const std::string text(b.begin(), b.end());
-  Json j;
-  JsonParser p{text};
-  if (!p.Val(j) || j.t != Json::kObj) return err = "pack.json is damaged", false;
-  out.enabled = j.Bool("enabled", true);
-  if (const Json* a = j.Get("stars"); a && a->t == Json::kArr)
-    for (const Json& x : a->a) {
-      Superstar s;
-      s.slot = x.Int("slot", -1), s.name = x.Str("name"), s.short_name = x.Str("short_name");
-      s.base_id = x.Int("base_id", 100), s.entrance_from = x.Int("entrance_from", -1);
-      s.copy_ratings = x.Bool("copy_ratings", true), s.source_pac = ResolveSource(root, x.Str("source_pac"));  // (Session 101: a moved folder)
-      for (int k = 0; k < 3 && portraits; ++k) {  // the portraits kept by SavePack / BuildPack
-        Bytes f;
-        int w = 0, h = 0;
-        if (ReadAll(RenderFile(root, s.slot, k), f, 64 << 20) && png::Read(f, s.render_rgba[k], w, h)) s.render_w[k] = w, s.render_h[k] = h;
-        else s.render_rgba[k].clear();
-      }
-      out.stars.push_back(std::move(s));
-    }
-  if (const Json* a = j.Get("retired"); a && a->t == Json::kArr)  // S105 IMP
-    for (const Json& x : a->a)
-      if (x.t == Json::kNum) out.retired.push_back(int(x.n));
-  out.needs_build = j.Bool("needs_build", false) ||
-                    (!out.stars.empty() && !fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec));
-  return true;
-}
-
-static bool SavePackImpl(const std::string& mods_dir, const PackState& st, std::string& err) {
-  if (mods_dir.empty()) return err = "no mods folder", false;
-  if (st.stars.size() > size_t(kMaxStars)) return err = "more than " + std::to_string(kMaxStars) + " characters", false;
-  const fs::path root = U8Path(mods_dir) / "superstars";
-  // the pack id stays what the last build wrote (pack.json), else 6
-  int pack_id = 6;
-  Bytes b;
-  if (ReadAll(root / "pack.json", b, 16 << 20)) {
-    const std::string text(b.begin(), b.end());
-    Json j;
-    JsonParser p{text};
-    if (p.Val(j)) pack_id = j.Int("pack_id", 6);
-  }
-  return WriteManifest(root, st, pack_id, st.needs_build, err);
-}
-
 // The ids in 397..499 the player's own packs use (every pack in the DLC folder, on or off; and the top pack's MUSIC ids). Session 101
 // (review S5): a slot is MOVED by a build only when one of these uses it; kReservedSlots only keeps new imports off 399.
 static std::set<int> UsedByPacks(const std::string& dlc_dir) {
@@ -1064,7 +795,12 @@ static std::set<int> UsedByPacks(const std::string& dlc_dir) {
   for (const wwe2k14::dlc::Pack& p : wwe2k14::dlc::Scan(U8Path(dlc_dir), false, false)) {
     if (p.status != wwe2k14::dlc::Status::kReady) continue;
     bool ours = false;
-    for (const auto& e : p.entries) ours = ours || (e.pack >= 6 && e.type == 1 && e.char_id >= kFirstSlot);  // (a pack of ours in the DLC folder)
+    // (a pack of ours in the DLC folder) S110: one type-21 entry whose bundle rows hold slots >= kFirstSlot. The old form, one type-1
+    // entry per character, is read only for packs built before this change, so a rebuild still finds them as ours.
+    for (const auto& e : p.entries) ours = ours || (e.pack >= 6 && e.type == 1 && e.char_id >= kFirstSlot);
+    for (const auto& e : p.entries)
+      if (e.pack >= 6 && e.type == 21)
+        for (int c : p.bundle_chars) ours = ours || c >= kFirstSlot;
     if (ours && p.pack_id >= 6) continue;
     for (const auto& e : p.entries) used.insert(e.char_id);
     for (int c : p.char_ids) used.insert(c);
@@ -1111,7 +847,95 @@ static std::vector<int> FreeSlotsImpl(const launcher::GameFiles& game, const std
   return out;
 }
 
+// S110 BANKID: the numeric names of every EVP / EVZ / GMEV / PCE6 directory in the files the game gets: the disc's entrance / winning / event
+// pacs, gm.pac, prtcls.pac and the offered real packs' pacs of the same kinds (the dedicated bank numbers are the ones none of these names).
+static std::set<int> UsedNames(Builder& b) {
+  std::set<int> used;
+  auto kind = [](const std::string& l) {  // l: lowercase, no folder: is it a pac that holds these directories?
+    if (l.size() < 5 || l.compare(l.size() - 4, 4, ".pac") != 0) return false;
+    for (const char* p : {"entrance", "winning", "season", "universe", "wsd", "gm", "prtcls"})
+      if (l.rfind(p, 0) == 0) return true;
+    return false;
+  };
+  Bytes d;
+  for (const std::string& f : b.game.ListRoot("pac\\evt"))
+    if (kind(Lower(f)) && b.ReadGame("pac\\evt\\" + f, d)) asset_ids::AddNames(d, used);
+  for (const char* f : {"pac\\gm.pac", "pac\\prtcls.pac"})
+    if (b.ReadGame(f, d)) asset_ids::AddNames(d, used);
+  for (const RealPack& rp : b.packs)
+    for (const io::CatFile& cf : rp.files) {
+      const std::string l = Lower(cf.name);
+      const bool evt = l.rfind("pac\\evt\\", 0) == 0 && l.find('\\', 8) == std::string::npos && kind(l.substr(8));
+      const bool top = l.rfind("pac\\", 0) == 0 && l.find('\\', 4) == std::string::npos && (l.rfind("pac\\gm", 0) == 0 || l.rfind("pac\\prtcls", 0) == 0) && kind(l.substr(4));
+      if ((evt || top) && rp.Read(cf.name, d)) asset_ids::AddNames(d, used);
+    }
+  return used;
+}
+
+// ------------------------------------------------------------------ the list: the library's cards (S110 SEAT-A)
+// The library and the frame are included here, after everything they use (library.h, frame_pack.h, library_migrate.h are unity includes).
+#include "library.h"
+#include "frame_pack.h"
+#include "library_migrate.h"
+#include "host_alias.h"  // S110 LIBSIZE-2: the bind cases' host finder (test support)
+
+namespace sc = wwe2k14::seat_card;
+
+// Is a card not instantiated for the frame on disk? Every card has ONE file for the reference identity (seat_card.h kRefSeat / kRefBank, `file_form 2`) and rows.bin for
+// the frame (inst.frame_sig); a seat change is no change (the game re-targets). A card in the old per-seat form, or one whose rows.bin has no relocation list, is not made.
+// (cheap: the card files, the frame's digest and the rows.bin framing; no game file is read)
+static bool CardsNeedBuild(const fs::path& root, const std::map<std::string, sc::Card>& cards) {
+  std::error_code ec;
+  if (cards.empty()) return false;
+  frame::Info f;
+  if (!frame::ReadInfo(root, f) || !fs::is_regular_file(frame::Dir(root) / "info" / "catalog.dlc", ec)) return true;
+  for (const auto& [k, c] : cards) {
+    if (!lib::InOneForm(c) || c.inst.frame_sig != f.sig) return true;
+    if (c.seat >= 0 && !f.bank.count(c.seat)) return true;  // (a seat the frame does not hold: the build moves him)
+    if (!lib::InstanceFilesThere(root, c)) return true;     // (review: a missing rows.bin / pac = the game holds him: make him again)
+    if (lib::SourceChanged(root, c)) return true;            // (review: his source replaced under the same name)
+  }
+  return false;
+}
+
+// portraits = false (review N3): the list without the PNG portraits, for the check before every PLAY (cheap).
+static bool LoadPackImpl(const std::string& mods_dir, PackState& out, std::string& err, bool portraits = true) {
+  out = {};
+  const fs::path root = U8Path(mods_dir) / "superstars";
+  if (!lib::LibraryExists(root)) {
+    if (migrate::Legacy(root)) return migrate::LoadLegacy(root, out, portraits, err);  // an old pack: its list; the next build migrates it
+    return true;
+  }
+  std::map<std::string, sc::Card> cards;
+  if (!lib::ReadAllCards(root, cards, err, &out.problems)) return false;  // (review: a folder that is not a readable card is listed, the rest load)
+  for (const auto& [key, c] : cards) {
+    Superstar s;
+    lib::FillSuperstar(root, c, s, portraits);
+    out.stars.push_back(std::move(s));
+  }
+  out.retired = lib::ReadRetired(root);
+  out.enabled = lib::ReadEnabled(root);
+  out.needs_build = CardsNeedBuild(root, cards) || migrate::Legacy(root);
+  return true;
+}
+
+static bool SavePackImpl(const std::string& mods_dir, PackState& st, std::string& err) {
+  if (mods_dir.empty()) return err = "no mods folder", false;
+  const fs::path root = U8Path(mods_dir) / "superstars";
+  // (no cap: the library holds any number of cards; the seats are given out by BuildPack, a card past them is stored unseated)
+  std::vector<std::string> keys;
+  if (!lib::SaveCards(root, st, &keys, err)) return false;
+  for (size_t i = 0; i < st.stars.size() && i < keys.size(); ++i) st.stars[i].key = keys[i];  // (S110 SEAT-C review: the caller's list keeps them)
+  return true;
+}
+
 // ------------------------------------------------------------------ BuildPack
+// S110 SEAT-A: the library + frame build. What it does now (the old one rebuilt ONE pack holding every character):
+//   * the cards are written (only what changed: lib::SaveCards), seats are given out;
+//   * the FRAME is built only when it does not fit the DLC the game gets (frame::Fresh);
+//   * each seated card whose files were not made for his seat / bank / the frame gets his folder written (lib::Instantiate), nobody else.
+// An old pack (pack.json + pack6\) migrates on the way: the frame is built aside, every card is read back and compared with the old pack
+// (migrate::Verify), and only then is the old pack moved aside and the frame put in place.
 static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles& game_in, const std::string& dlc_dir, const PackState& st_in,
                std::function<void(float, const char*)> progress, std::string& err, const std::string& dlc_off) {
   std::lock_guard lock(g_log_mutex);
@@ -1121,8 +945,7 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
   b.progress = std::move(progress);
   if (mods_dir.empty()) return err = "no mods folder", false;
   const fs::path root = U8Path(mods_dir) / "superstars";
-  // Session 101 (review S4): one build at a time across processes (the importer, the PC launcher, the phone's launcher and viewer
-  // all build the same pack6.building): an exclusive lock file, released on every return.
+  // Session 101 (review S4): one build at a time across processes: an exclusive lock file, released on every return.
   BuildLock held(root);
   if (!held.ok) return err = held.why, false;
   b.game.SetRoot(game_in.root());
@@ -1132,41 +955,94 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
   b.packs = RealPacks(dlc_dir, root, dlc_off);
   for (const RealPack& p : b.packs)
     if (p.Roster()) b.top = &p;
-  // Session 101: the build's own copy of the list - sources found again after a moved folder, slots no longer free moved (below)
   PackState st = st_in;
   for (Superstar& s : st.stars) s.source_pac = ResolveSource(root, s.source_pac);
-  // No DLC pack with a roster: the disc's own cumulative files are the base (b.top stays null; built_on stays empty).
-  int max_real = 0, max_entry = 0;
-  for (const RealPack& p : b.packs) {
-    max_real = std::max(max_real, p.id);
-    for (const auto& e : p.entries) max_entry = std::max<int>(max_entry, e.id);
-  }
+  int max_real = 0;
+  for (const RealPack& p : b.packs) max_real = std::max(max_real, p.id);
   b.pack_id = std::max(6, max_real + 1);
   char ppb[8];
   std::snprintf(ppb, sizeof ppb, "%02d", b.pack_id);
   b.pp = ppb;
-  const uint16_t revision = uint16_t(b.top ? b.top->revision + 1 : 32);  // (no DLC: 32, the value proven in the game beside pack 5's 31)
+  frame::Info want;
+  want.pack_id = b.pack_id;
+  want.revision = uint16_t(b.top ? b.top->revision + 1 : 32);  // (no DLC: 32, the value proven in the game beside pack 5's 31)
+  want.top_id = b.top ? b.top->id : 0, want.top_sig = b.top ? b.top->sig : 0;
   if (b.top) b.built_on.insert(b.top->id);
   b.Log("packs " + std::to_string(b.packs.size()) + ", cumulative files from " + b.BaseName() + (b.top ? " (" + PathU8(b.top->root) + ")" : std::string()) +
-        ", our pack id " + std::to_string(b.pack_id) + " revision " + std::to_string(revision));
-
-  // ---- check the characters
-  const std::vector<int> built_before = BuiltSlots(root);  // S105 IMP M1: before the empty path deletes superstars.txt / the rename replaces it
-  if (st.stars.empty()) {
-    // Session 101 (lane 199): the last one was removed - the old pack (still holding him) comes out of the game; before, the build
-    // refused an empty list and the removed characters stayed in the game.
+        ", our pack id " + std::to_string(b.pack_id) + " revision " + std::to_string(want.revision));
+  const bool legacy = migrate::Legacy(root);  // an old pack still in place: this build migrates it
+  if (const int n = migrate::RemoveHolds(root, U8Path(mods_dir)); n > 0)  // (review) the old pack kept since the migration: the game booted on the library
+    b.Log("the old pack kept since the migration (legacy.old) is removed: the game has booted on the library");
+  // (S110 SEAT-A review) a source pac that is gone is recovered from a pac already made for him (the old pack's model pac while it migrates, else
+  // his own library pac): no character is lost because a source file was deleted after the import
+  std::set<int> recovered;  // the seats whose source was recovered from the OLD pack's pac (migrate::Verify: the same model by another file name)
+  {
+    const wwe2k14::superstars_fit::Built old = legacy ? migrate::LegacyBuilt(root) : wwe2k14::superstars_fit::Built();
+    char opp[8];
+    std::snprintf(opp, sizeof opp, "%02d", old.pack_id > 0 ? old.pack_id : 6);
+    for (Superstar& s : st.stars) {
+      std::error_code e2;
+      if (sc::ValidKey(s.key)) lib::RestoreOldFile(lib::CardDir(root, s.key));  // (S110 LIBSIZE-2 review) a build stopped between Publish's two renames: his old file back
+      if (s.source_pac.empty() || fs::is_regular_file(U8Path(s.source_pac), e2)) continue;
+      fs::path from;
+      bool from_old = false;
+      if (legacy && s.slot >= 0 && old.music.count(s.slot)) {
+        from = root / "pack6" / "pac" / "ch" / ("ch" + std::to_string(s.slot) + "_dlc" + opp + ".pac");
+        from_old = fs::is_regular_file(from, e2);
+      }
+      if (!from_old) from = lib::LibraryPacOf(root, s.key);
+      if (from.empty() || !fs::is_regular_file(from, e2)) continue;  // (nothing to recover from: said when he is made)
+      if (!from_old && Lower(PathU8(from)) == Lower(PathU8(lib::CharFile(root, s.key)))) {  // (S110 LIBSIZE-2) his own file in the one form is a source (lib::ModelOf)
+        g_moves.push_back(s.name + ": his source file " + s.source_pac + " is gone; his model is taken from his own library file.");
+        b.warnings.push_back(g_moves.back());
+        s.source_pac = PathU8(from);
+        continue;
+      }
+      std::string why;
+      const std::string got = lib::RecoverSource(root, from, s.name, why);
+      if (got.empty()) {
+        b.warnings.push_back(s.name + ": his source pac " + s.source_pac + " is gone and could not be recovered: " + why);
+        continue;
+      }
+      g_moves.push_back(s.name + ": his source file " + s.source_pac + " is gone; his model was recovered from " + (from_old ? "the old pack" : "his library folder") +
+                        " into " + got + ".");
+      b.warnings.push_back(g_moves.back());
+      if (from_old) recovered.insert(s.slot);
+      s.source_pac = got;
+    }
+  }
+  fs::path stage = root / "frame.building";
+  auto fail = [&](const std::string& why) {
     std::error_code e2;
-    fs::remove(root / "superstars.txt", e2);
-    fs::remove_all(root / "pack6", e2);
+    fs::remove_all(stage, e2);
+    err = why;
+    return false;
+  };
+
+  // ---- no characters: the frame (and an old pack) come out of the game
+  if (st.stars.empty()) {
+    std::error_code e2;
+    std::string why;
+    if (!lib::SaveCards(root, st, nullptr, why)) return fail(why);
+    fs::remove_all(root / "frame.old", e2);
+    fs::remove_all(stage, e2);
+    if (legacy) {
+      if (!migrate::Retire(root, why)) return fail(why);
+      migrate::Drop(root);
+    }
+    fs::remove_all(frame::Dir(root), e2);
     if (e2) return err = "the old pack could not be removed (close the game first): " + e2.message(), false;
-    if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err, &built_before)) return false;
     fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), e2);
-    b.Log("no characters: the pack is removed (the game's own roster only)");
+    b.Log("no characters: the frame is removed (the game's own roster only)");
     return true;
   }
+
+  // ---- check the characters
+  // Session 101 (lane 199): a base / entrance wrestler from DLC the game does not get now - said plainly, with what to do. (S110 SEAT-A review)
+  // It no longer stops the build: a SEATED character with such a wrestler is not made (his card keeps its seat and is not instantiated, so the
+  // game holds him) and the sentence says why; an unseated one never blocks anything.
+  std::vector<std::string> dlc_why(st.stars.size());
   {
-    // Session 101 (lane 199): a base / entrance wrestler from DLC the game does not get now (USE MY DLC off, that pack switched off or
-    // gone) - said plainly, with what to do, instead of a missing-render or roster-row error further on.
     std::set<int> dlc_ids, offered_ids;  // every pack in the DLC folder (on or off) / the packs the game gets
     std::error_code e2;
     if (!dlc_dir.empty() && fs::is_directory(U8Path(dlc_dir), e2))
@@ -1183,487 +1059,300 @@ static bool BuildPackImpl(const std::string& mods_dir, const launcher::GameFiles
     }
     for (size_t i = 0; i < st.stars.size(); ++i) {
       const Superstar& s = st.stars[i];
-      for (int w : {s.base_id, s.entrance_from}) {
-        if (w < 0 || !dlc_ids.count(w) || offered_ids.count(w)) continue;
-        return err = s.name + ": his " + (w == s.base_id ? "base" : "entrance") + " wrestler (" + std::to_string(w) +
+      for (int w : {s.base_id, s.entrance_from, s.tron_slot > 0 ? 0 : s.tron_from}) {  // (S110 TRONSLOT: the wrestler whose tron he uses too)
+        if (w <= 0 || !dlc_ids.count(w) || offered_ids.count(w) || !dlc_why[i].empty()) continue;
+        dlc_why[i] = s.name + " is not in the game: the " + (w == s.base_id ? "base" : w == s.entrance_from ? "entrance" : "tron") + " wrestler (" + std::to_string(w) +
                      ") comes with DLC the game does not get now. Switch that DLC on (USE MY DLC, and the pack itself), or pick "
-                     "another wrestler for him in the Superstar Importer", false;
+                     "another wrestler in the Superstar Importer";
       }
     }
   }
-  if (st.stars.size() > size_t(kMaxStars)) return err = "more than " + std::to_string(kMaxStars) + " characters", false;
-  std::vector<int> free = FreeSlots(game_in, dlc_dir);
-  {  // S105 IMP: a character that has to move never takes a retired slot while a never-used one is free (a save's old row there)
-    std::vector<int> retired = st.retired, old_slots;
-    ReadManifestSlots(root, retired, old_slots);
-    free = importer::slots::NeverUsedFirst(free, retired, built_before);
-  }
-  const std::set<int> pack_used = UsedByPacks(dlc_dir);
+  std::map<std::string, sc::Card> before;  // the cards as the library holds them now (their inst = what was built)
+  if (!lib::ReadAllCards(root, before, err)) return false;
+  std::vector<int> built_before;
+  for (const auto& [k, c] : before)
+    if (c.inst.valid && c.seat >= 0) built_before.push_back(c.seat);  // (S110 LIBSIZE-2: inst is the reference identity for every card: the seat he holds)
+  if (legacy)
+    for (const auto& kv : migrate::LegacyBuilt(root).music) built_before.push_back(kv.first);  // (the old pack's slots: a removed one is retired)
+  // ---- the seats: 397..499 minus 399 minus the ids real packs use; the frame offers exactly these
+  want.seats = FreeSlots(game_in, dlc_dir);
+  // (S110 SEAT-A review) a reserved id (399: pack 4's bundle entry) is a seat ONLY for a character already on it while no pack in the DLC folder
+  // uses it, as the old build kept him there (the reservation is for new imports); it is never handed to a new import or a mover (`order`)
+  std::set<int> reserved_kept;
   {
-    // Session 101 (lane 199; review S5): a slot one of the player's packs now uses (a pack added since the last build), one used
-    // twice or one outside 397..499 is MOVED to a free slot, not refused: before, such a rebuild failed and the player had to remove
-    // and import the character again. Only those: a character already on 399 (kReservedSlots) with no pack using it stays (the
-    // reservation is for new imports). His id changes, so a save that used the old one (Universe, a match card) shows someone else
-    // there; pack.json follows, and the player is told (LastBuildMoves).
+    const std::set<int> pack_used = UsedByPacks(dlc_dir);
+    for (int r : kReservedSlots)
+      for (const Superstar& s : st.stars)
+        if (s.slot == r && !pack_used.count(r) && reserved_kept.insert(r).second) want.seats.push_back(r);
+  }
+  std::sort(want.seats.begin(), want.seats.end());
+  if (want.seats.empty()) return err = "no seat is free: your DLC packs use every id 397..499", false;
+  {
+    // Session 101 (lane 199; review S5): a character whose seat is not one of these (a pack added since uses it, it is used twice, it is 399 or
+    // outside 397..499) is MOVED to a free seat, not refused; one with no seat takes a free one. A card past the seats stays unseated (S110 SEAT-A:
+    // there is no cap, the library holds him). His id changes, so a save that used the old one shows someone else there; the player is told.
+    std::vector<int> retired = st.retired;
+    {
+      const std::vector<int> disk = lib::ReadRetired(root);
+      retired.insert(retired.end(), disk.begin(), disk.end());
+      if (legacy) {
+        PackState old;
+        std::string e2;
+        if (migrate::LoadLegacy(root, old, false, e2)) retired.insert(retired.end(), old.retired.begin(), old.retired.end());
+      }
+    }
+    // S105 IMP: a character that has to move never takes a retired seat while a never-used one is free (a save's old row there)
+    std::vector<int> handed;  // (the seats a mover / a new import may get: not a reserved id kept for its resident)
+    for (int s : want.seats)
+      if (!reserved_kept.count(s)) handed.push_back(s);
+    const std::vector<int> order = importer::slots::NeverUsedFirst(handed, retired, built_before);
+    const std::set<int> seat_set(want.seats.begin(), want.seats.end());
     std::set<int> kept;
     std::vector<size_t> move;
     for (size_t i = 0; i < st.stars.size(); ++i) {
       const int slot = st.stars[i].slot;
-      if (slot >= kFirstSlot && slot <= kLastSlot && !pack_used.count(slot) && kept.insert(slot).second) continue;
+      if (slot >= 0 && seat_set.count(slot) && kept.insert(slot).second) continue;
       move.push_back(i);
     }
     for (size_t i : move) {
       int to = -1;
-      for (int f : free)  // (never a slot another character keeps or was just given; a slot a mover leaves is a pack's: never free)
+      for (int f : order)  // (never a seat another character keeps or was just given)
         if (!kept.count(f)) {
           to = f;
           break;
         }
       Superstar& s = st.stars[i];
-      if (to < 0) return err = "character " + std::to_string(i + 1) + " (" + s.name + "): no free slot left for him", false;
-      b.Log("slot " + std::to_string(s.slot) + " of " + s.name + " is not free (a DLC pack uses it, or it was used twice): moved to " +
-            std::to_string(to));
-      g_moves.push_back(s.name + " moved from slot " + std::to_string(s.slot) + " to " + std::to_string(to) +
-                        " (saves that used him may show someone else).");
-      b.warnings.push_back(g_moves.back());
+      if (s.slot >= 0 && to >= 0) {
+        b.Log("seat " + std::to_string(s.slot) + " of " + s.name + " is not free (a DLC pack uses it, or it was used twice): moved to " + std::to_string(to));
+        g_moves.push_back(s.name + " moved from slot " + std::to_string(s.slot) + " to " + std::to_string(to) + " (saves that used him may show someone else).");
+        b.warnings.push_back(g_moves.back());
+      } else if (to >= 0) {
+        b.Log(s.name + " had no seat: now seat " + std::to_string(to));
+      } else {
+        if (s.slot >= 0) {
+          g_moves.push_back(s.name + " has no seat now (all " + std::to_string(want.seats.size()) + " are taken): kept in your library until one is free.");
+          b.warnings.push_back(g_moves.back());
+        }
+        b.Log(s.name + ": no free seat, stored without one");
+      }
       s.slot = to;
-      kept.insert(to);
+      if (to >= 0) kept.insert(to);
     }
   }
   std::set<int> slots;
-  std::vector<ModPac> mods(st.stars.size());
-  uint64_t source_bytes = 0;
   for (size_t i = 0; i < st.stars.size(); ++i) {
     const Superstar& s = st.stars[i];
     const std::string who = "character " + std::to_string(i + 1) + " (" + s.name + ")";
-    if (s.slot < kFirstSlot || s.slot > kLastSlot || pack_used.count(s.slot)) return err = who + ": slot " + std::to_string(s.slot) + " is not free", false;
-    if (!slots.insert(s.slot).second) return err = who + ": slot " + std::to_string(s.slot) + " used twice", false;
+    if (s.slot >= 0 && !slots.insert(s.slot).second) return err = who + ": seat " + std::to_string(s.slot) + " used twice", false;
     if (s.name.empty()) return err = who + ": no name", false;
     if (s.base_id < kMinBase || s.base_id > kMaxBase || (s.entrance_from >= 0 && (s.entrance_from < kMinBase || s.entrance_from > kMaxBase)))
-      return err = who + ": the base / entrance wrestler must be a roster wrestler (" + std::to_string(kMinBase) + ".." +
-                   std::to_string(kMaxBase) + ")", false;
-    Bytes d;
-    if (!ReadAll(U8Path(s.source_pac), d, assets::char_mods::kMaxPac)) return err = who + ": cannot read " + s.source_pac, false;
-    source_bytes += d.size();
-    const std::string why = ParseModPac(std::move(d), mods[i], nullptr);
-    if (!why.empty()) return err = who + ": " + why, false;
-    mods[i].pac = {};  // (review: only the claimed id / attires are kept here; step 4 reads each source again, one at a time)
-    if (const RealPack* p = b.PackOfChar(s.base_id)) b.built_on.insert(p->id);
-    if (const RealPack* p = b.PackOfChar(s.entrance_from >= 0 ? s.entrance_from : s.base_id)) b.built_on.insert(p->id);
+      return err = who + ": the base / entrance wrestler must be a roster wrestler (" + std::to_string(kMinBase) + ".." + std::to_string(kMaxBase) + ")", false;
+    if (s.tron_from > 0 && (s.tron_from < kMinBase || s.tron_from > kMaxBase))  // S110 TRONSLOT (<= 0: none, as entrance_from's -1)
+      return err = who + ": the wrestler whose tron he uses must be a roster wrestler (" + std::to_string(kMinBase) + ".." + std::to_string(kMaxBase) + ")", false;
+    if (s.tron_slot > 0 && !wwe2k14::tron_slots_core::IsSlotId(s.tron_slot))
+      return err = who + ": custom tron " + std::to_string(s.tron_slot) + " is not a custom tron number (823-843, 845-899, 910-949)", false;
+    // (a source pac is read only for a card that is made: Instantiate reads and checks it)
   }
-
-  // ---- free space (review): the sources + the top pack's pacs we copy + a tron each, + 10%; x2 while the old pack is kept
-  //      until the new one is swapped in
-  {
-    uint64_t need = source_bytes;
-    if (b.top) {
-      for (const auto& f : b.top->files) {
-        const std::string l = Lower(f.name);
-        if (l.rfind("pac\\", 0) == 0 && l.find("\\ch\\ch") == std::string::npos && l.find("\\evt\\") == std::string::npos)
-          need += b.top->Size(f.name);
+  // ---- the library holds the list (a card written only where it changed)
+  b.Prog(0.02f, "saving the library");
+  std::vector<std::string> keys;
+  if (!lib::SaveCards(root, st, &keys, err)) return false;
+  for (size_t i = 0; i < st.stars.size(); ++i) st.stars[i].key = keys[i];
+  std::map<std::string, sc::Card> cards;
+  std::vector<std::string> card_problems;  // (review) folders that are not readable cards: left alone, said
+  if (!lib::ReadAllCards(root, cards, err, &card_problems)) return false;
+  // ---- the frame: kept while it fits the DLC the game gets, else built aside (frame.building)
+  frame::Info stored;
+  lib::Ctx ctx(b);
+  want.sig = frame::Sig(want);
+  const bool fresh = frame::Fresh(root, want, stored);
+  if (fresh) {
+    want = stored;  // (the numbers it holds stay: a card made for them stays valid)
+    asset_ids::Config().assigned = want.bank;
+  }
+  // ---- what each card needs (S110 LIBSIZE-2: every card is made ONCE for the reference identity, so the game binds him to any seat; a frame change makes his rows only)
+  std::vector<size_t> todo;
+  std::vector<std::string> problems = card_problems;  // (review) one sentence per character not made this time (LastBuildMoves): the others are made
+  for (size_t i = 0; i < st.stars.size(); ++i) {
+    const Superstar& s = st.stars[i];
+    sc::Card& c = cards.at(s.key);
+    if (!dlc_why[i].empty()) {  // (review) not made; an instance made before is withdrawn, so the game holds him instead of seating him without that DLC
+      problems.push_back(dlc_why[i]);
+      if (c.inst.valid) {
+        sc::Card w = c;
+        w.inst = {};
+        std::string e2;
+        if (sc::WriteCard(lib::SeatFile(lib::CardDir(root, c.key) / "card.txt"), w, &e2)) c.inst = {};
       }
-    } else {
-      need += 64ull << 20;  // (the disc's string, DLC, sound, audience, AI and roster pacs, unpacked)
+      continue;
     }
-    need += uint64_t(st.stars.size()) * ((8ull << 20) /* a tron */ + (2ull << 20) /* entrance banks, renders */);
+    const bool ok = fresh && lib::InOneForm(c) && c.inst.frame_sig == want.sig && (c.seat < 0 || want.bank.count(c.seat)) &&
+                    lib::InstanceFilesThere(root, c) &&  // (review: a folder whose rows.bin / pac went missing is made again)
+                    !lib::SourceChanged(root, c);        // (review: a source replaced under the same name: size / time differ)
+    if (!ok) todo.push_back(i);
+  }
+  // ---- free space: the sources and the renders of each card to make, and the frame's copies
+  {
+    uint64_t need = 0;
+    std::error_code e3;
+    for (size_t i : todo) {  // (a card whose file is made: his source's size + the renders; a card made again for a new frame writes a few KB)
+      const sc::Card& c = cards.at(st.stars[i].key);
+      if (!c.inst.valid || !lib::InstanceFilesThere(root, c)) need += fs::file_size(U8Path(st.stars[i].source_pac), e3) * (e3 ? 0 : 1) + (4ull << 20);
+    }
+    if (!fresh) need += 64ull << 20;
     need += need / 10;
     std::error_code e2;
-    if (fs::exists(root / "pack6", e2)) need *= 2;
     fs::create_directories(root, e2);
     const fs::space_info sp = fs::space(root, e2);
     if (!e2 && sp.available < need)
-      return err = "not enough free space for the pack: " + std::to_string(need >> 20) + " MB needed, " + std::to_string(sp.available >> 20) +
-                   " MB free", false;
+      return err = "not enough free space for the pack: " + std::to_string(need >> 20) + " MB needed, " + std::to_string(sp.available >> 20) + " MB free", false;
   }
-
-  // ---- the output folder: built aside, swapped in at the end
-  b.out = root / "pack6.building";
-  fs::remove_all(b.out, ec);
-  fs::create_directories(b.out / "info", ec);
-  fs::create_directories(b.out / "pac" / "ch", ec);
-  fs::create_directories(b.out / "pac" / "evt", ec);
-  auto fail = [&](const std::string& why) {
-    std::error_code e2;
-    fs::remove_all(b.out, e2);
-    err = why;
-    return false;
-  };
-  std::vector<std::pair<std::string, io::Pac>> written;  // (catalog name, the pac's directory with blobs cleared): the arcs
-  auto keep = [&](const std::string& rel, io::Pac& p) {
-    for (io::Dir& d : p.dirs)
-      for (io::Entry& e : d.ents) e.blob.clear(), e.blob.shrink_to_fit();
-    written.emplace_back(rel, std::move(p));
-  };
-  auto emit = [&](const std::string& rel, io::Pac& p) {
-    const Bytes bytes = io::WritePac(p);
-    if (bytes.empty() || !WriteAll(Under(b.out, rel), bytes)) return false;
-    keep(rel, p);
-    return true;
-  };
-  std::vector<std::string> plain_files;  // listed (-1, -1): trons
-
-  // 1. cumulative byte copies (DLC, ExclusiveAI, audience, sound) of the top pack's
-  b.Prog(0.02f, "copying your DLC's shared files");
-  for (const char* base : {"DLC", "ExclusiveAI", "audience", "sound"}) {
-    const std::string src = std::string("pac\\") + base, from = b.CumulativeName(src), to = b.Rel(src);
-    Bytes d;
-    io::Pac p;
-    std::string e;
-    if (!b.ReadCumulative(src, d) || !io::ReadPac(d, p, e)) return fail("cannot read " + from + " of " + b.BaseName());
-    if (!WriteAll(Under(b.out, to), d)) return fail("cannot write " + to);
-    keep(to, p);
-    b.Log(to + " = copy of " + b.BaseName() + "'s");
-  }
-  // 2. string: the top pack's with every character's own name / short / long text
-  b.Prog(0.06f, "writing the names");
-  {
-    const std::string from = b.CumulativeName("pac\\string");
-    Bytes d;
-    io::Pac p;
-    std::string e;
-    if (!b.ReadCumulative("pac\\string", d) || !io::ReadPac(d, p, e)) return fail("cannot read " + from);
-    std::map<uint32_t, std::string> texts;
-    for (const Superstar& s : st.stars) {
-      texts[uint32_t(60000 + s.slot)] = s.name;
-      texts[uint32_t(62000 + s.slot)] = s.short_name.empty() ? s.name : s.short_name;
-      texts[uint32_t(64000 + s.slot)] = s.name;
-    }
-    if (!PatchStrings(b, p, texts, e)) return fail(e);
-    if (!emit(b.Rel("pac\\string"), p)) return fail("cannot write the string pac");
-  }
-  // 3. chEtc
-  b.Prog(0.10f, "writing the roster rows");
-  {
-    const std::string from = b.CumulativeName("pac\\ch\\chEtc");
-    Bytes d;
-    io::Pac p;
-    std::string e;
-    if (!b.ReadCumulative("pac\\ch\\chEtc", d) || !io::ReadPac(d, p, e)) return fail("cannot read " + from);
-    if (!PatchChEtc(b, p, st.stars, e)) return fail(e);
-    if (!emit(b.Rel("pac\\ch\\chEtc"), p)) return fail("cannot write the roster pac");
-  }
-  // 4. the character pacs: EMD 000<claimed>ak -> 000<slot>ak; attires the base has and the mod lacks point at the mod's
-  //    attire 0 (directory aliases, no copy: any attire the game asks for loads the mod's model)
-  std::map<int, std::set<int>> base_attires;  // base id -> attire digits of his own model pac
-  for (size_t i = 0; i < st.stars.size(); ++i) {
-    const Superstar& s = st.stars[i];
-    b.Prog(0.12f + 0.30f * float(i) / float(st.stars.size()), "relabelling the models");
-    if (!base_attires.count(s.base_id)) {
-      std::set<int>& a = base_attires[s.base_id];
-      Bytes d;
-      io::Pac p;
-      std::string e;
-      const RealPack* rp = b.PackOfChar(s.base_id);
-      const std::string rel = "pac\\ch\\ch" + std::to_string(s.base_id) + (rp ? "_dlc" + rp->Pp() : std::string()) + ".pac";
-      if ((rp ? b.ReadPackFile(*rp, rel, d) : b.ReadGame(rel, d)) && io::ReadPac(d, p, e))
-        if (io::Dir* emd = p.FindDir("EMD "))
-          for (const io::Entry& x : emd->ents)
-            if (IsEmdName(x.name) && std::atoi(x.name.substr(3, 3).c_str()) == s.base_id) a.insert(x.name[6] - '0');
-    }
-    // (review: one source in memory at a time) read and check it again: it may have changed since the check above
-    ModPac m;
+  if (!fresh) {
+    b.Prog(0.05f, "choosing the entrance numbers");
+    wwe2k14::superstars_fit::Built recorded;
     {
-      Bytes d;
-      if (!ReadAll(U8Path(s.source_pac), d, assets::char_mods::kMaxPac)) return fail(s.name + ": cannot read " + s.source_pac);
-      const std::string why = ParseModPac(std::move(d), m, nullptr);
-      if (!why.empty() || m.claimed != mods[i].claimed)
-        return fail(s.name + ": " + (why.empty() ? std::string("the source pac changed during the build") : why));
-      mods[i] = {};
+      frame::Info old;
+      if (frame::ReadInfo(root, old)) recorded = wwe2k14::superstars_fit::ReadBuilt(frame::Dir(root) / "superstars.txt");
+      else if (legacy) recorded = migrate::LegacyBuilt(root);
     }
-    io::Dir* emd = m.pac.FindDir("EMD ");
-    char from[8], to[8];
-    std::snprintf(from, sizeof from, "000%03d", m.claimed), std::snprintf(to, sizeof to, "000%03d", s.slot);
-    std::string renamed;
-    for (io::Entry& x : emd->ents)
-      if (x.name.compare(0, 6, from) == 0) x.name.replace(0, 6, to), renamed += " " + x.name;
-    // aliases: the attires the base has, for each kind the mod's first attire has
-    const auto& first = m.att.begin()->second;
-    std::string aliased;
-    for (int a : base_attires[s.base_id]) {
-      if (m.att.count(a)) continue;
-      for (const auto& [kind, idx] : first) {
-        io::Entry al;
-        al.name = std::string(to) + char('0' + a) + char('0' + kind);
-        const int target = emd->ents[size_t(idx)].alias;  // (an alias of an alias points at the real entry)
-        al.alias = target >= 0 ? target : idx;
-        emd->ents.push_back(al);
-        aliased += " " + al.name;
-      }
-    }
-    const std::string rel = b.Rel("pac\\ch\\ch" + std::to_string(s.slot));
-    if (!emit(rel, m.pac)) return fail("cannot write " + rel);
-    m.pac = {};
-    b.Log(rel + ": models" + renamed + (aliased.empty() ? "" : "; attire aliases" + aliased) + " (from " + s.source_pac + ", claimed " +
-          std::to_string(m.claimed) + ")");
+    if (!frame::Plan(b, ctx, recorded, want, err)) return false;
+    want.sig = frame::Sig(want);
+    b.Prog(0.15f, "writing the frame");
+    fs::remove_all(stage, ec);
+    if (!frame::Write(b, stage, want, err)) return fail(err);
   }
-  // 5. entrances
-  b.Prog(0.45f, "copying the entrances");
+  // ---- the characters
+  if (!ctx.LoadChEtc(err)) return fail(err);
+  std::vector<lib::FilePlan> plans(todo.size());  // (S110 LIBSIZE-2) per card: is his FILE stale (its file_sig), or only his rows
   {
-    std::set<int> want;
-    for (const Superstar& s : st.stars) want.insert(s.entrance_from >= 0 ? s.entrance_from : s.base_id);
-    const std::map<int, BankSrc> banks = FindBanks(b, want);
-    io::Pac ent;
-    ent.magic = "EPK8";
-    ent.dirs.resize(2);
-    ent.dirs[0].tag = "EVP ", ent.dirs[1].tag = "EVZ ";
-    ent.dirs[0].kind = ent.dirs[1].kind = 1;
-    // One pac's directory holds at most ~447 banks (two 16-byte rows each, 14 KB: io::kMaxDirBytes). Banks are taken in
-    // tiers over all characters - every character's own bank first, then the variants 10000 + 1000 G + id by G - so a
-    // full pack (102 characters x 6 banks for The Rock) keeps everyone's own and first variants and drops the rest (logged).
-    // [U] whether the game finds a bank in a second entrance pac of the same pack: not tried, so one pac only.
-    struct Cand {
-      int tier, star, from, to;
-    };
-    std::vector<Cand> cands;
-    for (size_t i = 0; i < st.stars.size(); ++i) {
-      const Superstar& s = st.stars[i];
-      const int e = s.entrance_from >= 0 ? s.entrance_from : s.base_id;
-      bool any = false;
-      for (int g = -1; g < 10; ++g) {
-        const int from = g < 0 ? e : 10000 + 1000 * g + e, to = g < 0 ? s.slot : 10000 + 1000 * g + s.slot;
-        if (banks.count(from)) cands.push_back({g + 1, int(i), from, to}), any = true;
-      }
-      if (!any) b.warnings.push_back(s.name + ": no entrance bank " + std::to_string(e) + " found (entrances may not play)");
+    std::vector<const Superstar*> prime;
+    for (size_t n = 0; n < todo.size(); ++n) {
+      const Superstar& s = st.stars[todo[n]];
+      plans[n] = lib::PlanFile(ctx, root, cards.at(s.key), s);
+      if (plans[n].stale) prime.push_back(&s);
     }
-    std::stable_sort(cands.begin(), cands.end(), [](const Cand& x, const Cand& y) { return x.tier < y.tier; });
-    const size_t room = (io::kMaxDirBytes - 2 * 12) / 32;
-    std::vector<std::pair<int, BankSrc>> out;  // (new bank id, data)
-    std::map<int, std::string> ids;
-    std::map<int, int> actors_total;
-    std::string dropped;
-    for (const Cand& c : cands) {
-      if (out.size() >= room) {
-        dropped += " " + std::to_string(c.to);
-        continue;
-      }
-      const Superstar& s = st.stars[size_t(c.star)];
-      int actors = 0;
-      BankSrc n;
-      n.evp = RetargetEv(banks.at(c.from).evp, s.entrance_from >= 0 ? s.entrance_from : s.base_id, c.to, s.slot, actors);
-      n.evz = banks.at(c.from).evz;
-      if (n.evp.empty()) continue;
-      actors_total[c.star] += actors;
-      out.emplace_back(c.to, std::move(n));
-      ids[c.star] += " " + std::to_string(c.to);
-    }
-    for (size_t i = 0; i < st.stars.size(); ++i)
-      if (ids.count(int(i)))
-        b.Log("entrance banks" + ids[int(i)] + " = wrestler " + std::to_string(st.stars[i].entrance_from >= 0 ? st.stars[i].entrance_from : st.stars[i].base_id) +
-              "'s (" + std::to_string(actors_total[int(i)]) + " actor model keys -> " + std::to_string(st.stars[i].slot) + "xx)");
-    if (!dropped.empty()) b.warnings.push_back("the entrance pac is full: variant banks left out:" + dropped);
-    if (!out.empty()) {
-      std::sort(out.begin(), out.end(), [](auto& x, auto& y) { return x.first < y.first; });  // ids ascending, as the DLC files
-      for (auto& [id, d] : out) {
-        io::Entry p, z;
-        p.name = z.name = io::Pad(std::to_string(id), 8);
-        p.blob = std::move(d.evp), z.blob = std::move(d.evz);
-        ent.dirs[0].ents.push_back(std::move(p)), ent.dirs[1].ents.push_back(std::move(z));
-      }
-      if (!emit(b.Rel("pac\\evt\\Entrance"), ent)) return fail("cannot write the entrance pac");
-    }
+    b.Prog(0.20f, "reading the entrances");
+    ctx.PrimeFor(prime);
   }
-  // 6. trons: the entrance wrestler's movies\titantron\<id>.bik2 (disc or pack) as <slot>.bik2
-  b.Prog(0.60f, "copying the trons");
-  for (const Superstar& s : st.stars) {
-    const int e = s.entrance_from >= 0 ? s.entrance_from : s.base_id;
-    const std::string src = "movies\\titantron\\" + std::to_string(e) + ".bik2", dst = "movies\\titantron\\" + std::to_string(s.slot) + ".bik2";
-    const fs::path to = Under(b.out, dst);
-    fs::create_directories(to.parent_path(), ec);
-    bool found = false, ok = false;
-    const RealPack* rp = b.PackOfChar(e);
-    const fs::path f = rp && !rp->pkg && rp->Has(src) ? FindUnder(rp->root, src) : fs::path();
-    if (!f.empty()) {
-      found = true;
-      ok = fs::copy_file(f, to, fs::copy_options::overwrite_existing, ec) && !ec;
-    } else if (rp && rp->pkg && rp->Has(src)) {  // (Session 101: from inside an Xbox 360 package)
-      Bytes d;
-      found = true;
-      ok = rp->Read(src, d) && WriteAll(to, d);
-    } else if (b.game.Exists(src)) {
-      found = true;
-      std::ofstream o(to, std::ios::binary | std::ios::trunc);
-      ok = o && b.game.Stream(src, [&](const uint8_t* p, size_t n) { o.write(reinterpret_cast<const char*>(p), std::streamsize(n)); }) && o.flush();
-    }
-    if (found && !ok) return fail("could not copy " + src + " into the pack (disk full?)");  // (review: a write failure is fatal)
-    if (ok) plain_files.push_back(dst), b.Log(dst + " = " + src);
-    else b.warnings.push_back(s.name + ": no titantron " + src + " found");
-  }
-  // 7. DLC_HD / DLC_SD: SSFA / SSFB / SSFC <slot> + the top pack's banners with one leaf per entry
-  b.Prog(0.70f, "making the roster pictures");
-  // (no DLC: the disc's banner table has its own leaf ids, 0..4, 90, 91 on Jarrod's disc; ours start above them. A clash = two leaves
-  // with one id, seen in the S98 no-DLC check.)
-  if (!b.top) {
-    for (const char* res : {"pac\\DLC_HD", "pac\\DLC_SD"}) {
-      Bytes d;
-      io::Pac p;
-      std::string e;
-      std::vector<io::Leaf> leaves;
-      if (!b.ReadCumulative(res, d) || !io::ReadPac(d, p, e)) return fail(std::string("cannot read ") + res + ".pac");
-      if (io::Entry* tex = p.Find("IGST", "TEX "); tex && io::ReadPach(tex->blob, leaves))
-        for (const io::Leaf& l : leaves) max_entry = std::max<int>(max_entry, int(l.id));
-    }
-  }
-  const uint16_t first_entry = uint16_t(max_entry + 1);
-  {
-    for (int sd = 0; sd < 2; ++sd) {
-      const std::string res = sd ? "SD" : "HD";
-      std::map<std::string, std::unique_ptr<io::Pac>> cache;  // (this resolution's base pacs only)
-      std::vector<Renders> rs(st.stars.size());
-      for (size_t i = 0; i < st.stars.size(); ++i) {
-        const Superstar& s = st.stars[i];
-        std::array<bool, 3> have;
-        UiRenders(s, sd != 0, rs[i], have);
-        Renders base;
-        const bool need_base = !have[0] || !have[1] || !have[2];
-        if (need_base && !BaseRenders(b, s.base_id, sd != 0, base, cache))
-          return fail(s.name + ": no renders of wrestler " + std::to_string(s.base_id) + " to copy");
-        std::string what;
-        for (int k = 0; k < 3; ++k) {
-          if (!have[size_t(k)]) rs[i][size_t(k)] = base[size_t(k)];
-          what += std::string(k ? ", " : "") + "SSF" + char('A' + k) + (have[size_t(k)] ? " from the importer" : " = " + std::to_string(s.base_id) + "'s");
-        }
-        if (!sd) b.Log("renders " + std::to_string(s.slot) + ": " + what);
-      }
-      io::Pac topp;
-      Bytes d;
-      std::string e;
-      const std::string from = b.CumulativeName("pac\\DLC_" + res);
-      if (!b.ReadCumulative("pac\\DLC_" + res, d) || !io::ReadPac(d, topp, e)) return fail("cannot read " + from);
-      io::Pac p;
-      p.magic = "EPAC", p.version = topp.version, p.trailer = topp.trailer;
-      const char* tags[3] = {"SSFA", "SSFB", "SSFC"};
-      for (int k = 0; k < 3; ++k) {
-        io::Dir dir;
-        dir.tag = tags[k];
-        for (size_t i = 0; i < st.stars.size(); ++i) {
-          io::Entry x;
-          char key[8];
-          std::snprintf(key, sizeof key, "%04d", st.stars[i].slot);
-          x.name = key;
-          x.blob = std::move(rs[i][size_t(k)]);
-          dir.ents.push_back(std::move(x));
-        }
-        std::sort(dir.ents.begin(), dir.ents.end(), [](auto& x, auto& y) { return x.name < y.name; });
-        p.dirs.push_back(std::move(dir));
-      }
-      io::Entry* tex = topp.Find("IGST", "TEX ");
-      std::vector<io::Leaf> leaves;
-      if (!tex || !io::ReadPach(tex->blob, leaves) || leaves.empty()) return fail(from + ": no store banners");
-      Bytes generic = leaves.front().raw;  // leaf 0: the generic card
-      for (const auto& l : leaves)
-        if (l.id == 0) generic = l.raw;
-      for (size_t i = 0; i < st.stars.size(); ++i) {
-        io::Leaf l;
-        l.id = first_entry + uint32_t(i);
-        l.raw = generic;
-        leaves.push_back(std::move(l));
-      }
-      std::sort(leaves.begin(), leaves.end(), [](auto& x, auto& y) { return x.id < y.id; });  // ids ascending, as the real PACHs
-      io::Dir ig;
-      ig.tag = "IGST";
-      io::Entry te;
-      te.name = "TEX ";
-      te.blob = io::WritePach(leaves, /*dedupe=*/true);
-      ig.ents.push_back(std::move(te));
-      p.dirs.push_back(std::move(ig));
-      if (!emit(b.Rel("pac\\DLC_" + res), p)) return fail("cannot write DLC_" + res);
-    }
-    b.Log("DLC_HD / DLC_SD: renders for " + std::to_string(st.stars.size()) + " characters + banner leaves " + std::to_string(first_entry) +
-          ".." + std::to_string(first_entry + st.stars.size() - 1) + " (copies of leaf 0, shared data)");
-  }
-  // 8. catalog + arcs: DLC_HD (0, -1), DLC_SD (-1, 0), trons (-1, -1), every other pac a == b running in sorted order
-  b.Prog(0.90f, "writing the catalog");
-  {
-    std::vector<io::CatFile> files;
-    std::vector<std::pair<std::string, const io::Pac*>> sorted;
-    for (auto& [n, p] : written) sorted.emplace_back(n, &p);
-    std::sort(sorted.begin(), sorted.end(), [](auto& x, auto& y) { return x.first < y.first; });
-    std::vector<const io::Pac*> hd, sd;
-    hd.push_back(nullptr), sd.push_back(nullptr);
-    int k = 1;
-    for (auto& [n, p] : sorted) {
-      io::CatFile f;
-      f.name = n;
-      if (n.find("DLC_HD_") != std::string::npos) f.a = 0, f.b = -1, hd[0] = p;
-      else if (n.find("DLC_SD_") != std::string::npos) f.a = -1, f.b = 0, sd[0] = p;
-      else f.a = f.b = int16_t(k++), hd.push_back(p), sd.push_back(p);
-      files.push_back(f);
-    }
-    for (const std::string& n : plain_files) files.push_back({n, -1, -1});
-    if (!hd[0] || !sd[0]) return fail("internal: no DLC_HD / DLC_SD written");
-    std::vector<io::CatEntry> entries;
-    for (size_t i = 0; i < st.stars.size(); ++i) {
-      io::CatEntry e;
-      e.id = uint16_t(first_entry + i), e.type = 1, e.pack = uint16_t(b.pack_id), e.bit = 0, e.char_id = st.stars[i].slot;
-      e.name = Latin1(st.stars[i].name);
-      entries.push_back(e);
-    }
-    const Bytes cat = io::WriteCatalog(uint16_t(b.pack_id), revision, entries, files, FileTimeNow());
-    if (!WriteAll(b.out / "info" / "catalog.dlc", cat) || !WriteAll(b.out / "info" / "catalog_hd.arc", io::WriteArc(hd)) ||
-        !WriteAll(b.out / "info" / "catalog_sd.arc", io::WriteArc(sd)))
-      return fail("cannot write the catalog");
-    // check it the way the game reads it (the gate opened for our pack id, as the game side does)
-    std::vector<uint32_t> gate(std::begin(io::kGateTable), std::end(io::kGateTable));
-    gate[0] = uint32_t(b.pack_id) << 16 | 1;
-    io::CatInfo info;
-    const std::string why = io::ParseCatalogLikeGame(cat, gate, info);
-    if (!why.empty()) return fail("internal: the catalog does not parse: " + why);
-    b.Log("info\\catalog.dlc: pack " + std::to_string(b.pack_id) + " revision " + std::to_string(revision) + ", " + std::to_string(entries.size()) +
-          " type-1 entries (" + std::to_string(first_entry) + ".." + std::to_string(first_entry + entries.size() - 1) + "), " +
-          std::to_string(files.size()) + " files");
-  }
-  // 9. swap in, then the manifest, the renders and the game's file. The game's file is written aside BEFORE the swap (review N1) and
-  // renamed right after it, so the pack and it always agree (nothing slow between the two). No on / off in it: the launcher's
-  // USE MY SUPERSTARS is the only switch (Jarrod, S98: one simple switch).
-  b.Prog(0.96f, "finishing");
-  {
-    std::string txt = "# WWE 2K14 Superstar Importer: read by the game at boot (src\\superstars.h). Written by the importer.\npack " +
-                      std::to_string(b.pack_id) + "\nbuilt_on";
-    for (int id : b.built_on) txt += " " + std::to_string(id);
-    txt += "\n";
-    {  // Session 101: the top roster pack and which copy of it (pack_fit.h: the game, the importer and the launchers compare it)
-      char top[48];
-      std::snprintf(top, sizeof top, "top %d %08X\n", b.top ? b.top->id : 0, b.top ? unsigned(b.top->sig) : 0u);
-      txt += top;
-    }
-    for (const Superstar& s : st.stars)
-      txt += "star " + std::to_string(s.slot) + " music " + std::to_string(s.entrance_from >= 0 ? s.entrance_from : s.base_id) + "\n";
-    if (!WriteText(root / "superstars.txt.part", txt)) return fail("superstars.txt could not be written");
-  }
-  const fs::path final_dir = root / "pack6", old = root / "pack6.old";
-  fs::remove_all(old, ec);
-  if (fs::exists(final_dir, ec)) {
-    fs::rename(final_dir, old, ec);
-    if (ec) {
-      const std::string why = ec.message();
+  // (S110 SEAT-A review: the order) each character's new files are made into his folder's stage\ first; his card, rows.bin and pac are not
+  // touched until the frame is committed (Publish, below). One character that cannot be made does not stop the others: he keeps his card and
+  // seat, not instantiated for this frame, so the game holds him, and the player is told why.
+  const wwe2k14::superstars_fit::Built old_built = legacy ? migrate::LegacyBuilt(root) : wwe2k14::superstars_fit::Built();
+  struct Made {
+    sc::Card card;  // with the new inst (for the checks); Publish writes it last
+    sc::Inst inst;
+  };
+  std::vector<Made> made;
+  size_t n_made = 0;
+  for (size_t n = 0; n < todo.size(); ++n) {
+    Superstar s = st.stars[todo[n]];
+    const int card_slot = s.slot;  // (Instantiate makes him for the reference identity: s.slot is put back below)
+    const lib::FilePlan& plan = plans[n];
+    b.Prog(0.25f + 0.65f * float(n) / float(todo.size()), "making the characters");
+    sc::SeatRows rows;
+    io::Pac pac;
+    std::string why;
+    if (!lib::Instantiate(ctx, s, ctx.base_rank + 1, plan.stale, plan.own, lib::CharFile(root, s.key), rows, pac, why)) {
       std::error_code e2;
-      fs::remove(root / "superstars.txt.part", e2);
-      return fail("the old pack is in use (close the game first): " + why);
+      if (why.rfind(s.name + ": ", 0) == 0) why = why.substr(s.name.size() + 2);  // (some reasons name him already)
+      // (while an old pack migrates: a character whose only model is in the old pack is never left behind; the migration stops, the old pack stays)
+      if (legacy && card_slot >= 0 && old_built.music.count(card_slot) && !fs::is_regular_file(U8Path(s.source_pac), e2))
+        return fail("migration stopped, your old pack is untouched: " + s.name + ": " + why);
+      problems.push_back(s.name + " is not in the game: " + why);
+      continue;
+    }
+    sc::Card c = cards.at(s.key);
+    sc::Inst inst;
+    inst.valid = true, inst.seat = sc::kRefSeat, inst.bank = sc::kRefBank, inst.src_bank = s.src_bank;
+    inst.music = s.entrance_from >= 0 ? s.entrance_from : s.base_id, inst.frame_sig = want.sig, inst.movie = s.movie;
+    {  // the packs his base / entrance / tron wrestlers' files come from (a launcher check: the game must still get them)
+      std::set<int> on;
+      for (int w : {s.base_id, s.entrance_from >= 0 ? s.entrance_from : s.base_id, s.tron_slot > 0 ? 0 : s.tron_from})
+        if (w > 0)
+          if (const RealPack* p = b.PackOfChar(w)) on.insert(p->id);
+      std::string v;
+      for (int id : on) v += (v.empty() ? "" : " ") + std::to_string(id);
+      lib::SetExtra(c, "built_on", v);
+    }
+    lib::StampFile(c, plan.model_sig, plan.sig);  // `file_form 2`, `file_sig`, `model_sig` (Publish puts his own file as his source and drops source_stat)
+    if (!lib::WriteStage(root, c.key, rows, plan.stale ? &pac : nullptr, why)) return fail(s.name + ": " + why);
+    c.inst = inst;
+    if (const std::string w = lib::CheckInstance(lib::StageDir(root, c.key), plan.stale ? Under(lib::StageDir(root, c.key), lib::CharRel()) : lib::CharFile(root, c.key), plan.stale, c); !w.empty())
+      return fail(s.name + ": " + w);
+    // (S110 LIBSIZE-2 review) his new file, read back, holds his source whole: after Publish it is his only copy (his source becomes his own file, the sources\ copy goes)
+    if (plan.stale)
+      if (const std::string w = lib::HoldsSource(U8Path(s.source_pac), plan.own, Under(lib::StageDir(root, c.key), lib::CharRel())); !w.empty())
+        return fail(s.name + ": his new file does not hold his source: " + w);
+    made.push_back({std::move(c), inst});
+    s.slot = card_slot;
+    st.stars[todo[n]] = s;  // (src_bank / movie)
+  }
+  // ---- read everything back (migration step 4); nothing of an old pack is touched before this passes
+  b.Prog(0.92f, "checking");
+  if (legacy) {
+    std::vector<sc::Card> mc;
+    for (const Made& m : made) mc.push_back(m.card);
+    int checked = 0, skipped = 0;
+    if (const std::string why = migrate::Verify(root, mc, want, b.pp, old_built, checked, &skipped, &recovered); !why.empty())
+      return fail("migration stopped, your old pack is untouched: " + why);
+    b.Log("migration: " + std::to_string(checked) + " of " + std::to_string(made.size()) + " characters compared with the old pack: rows, names and models equal" +
+          (skipped ? " (" + std::to_string(skipped) + " changed since the old pack was built: not compared)" : std::string()));
+  }
+  // ---- commit: the old pack aside, the frame in place, then each character's new files and card, then the old pack's folder kept aside
+  b.Prog(0.96f, "finishing");
+  if (legacy) {
+    std::string why;
+    if (!migrate::Retire(root, why)) return fail(why);
+  }
+  if (!fresh) {
+    std::string why;
+    if (!frame::Commit(root, why)) {
+      if (legacy) migrate::Restore(root);
+      return fail(why);
     }
   }
-  fs::rename(b.out, final_dir, ec);
-  if (ec) {
-    std::error_code e2;
-    fs::rename(old, final_dir, e2);
-    fs::remove(root / "superstars.txt.part", e2);
-    return fail("could not put the new pack in place: " + ec.message());
+  for (Made& m : made) {  // (a failure here leaves that card without an inst: held, and made again by the next build)
+    std::string why;
+    if (lib::Publish(root, m.card, m.inst, why)) ++n_made;
+    else problems.push_back(m.card.name + " is not in the game: " + why);
   }
-  {
-    std::error_code e2;
-    fs::rename(root / "superstars.txt.part", root / "superstars.txt", e2);
-    if (e2) {
-      fs::remove(root / "superstars.txt", e2);
-      fs::rename(root / "superstars.txt.part", root / "superstars.txt", e2);
-      if (e2) return err = "the pack is built but superstars.txt could not be written", false;
+  // (S110 LIBSIZE-2) his own file is his source now: a sources\ file no card names any more goes (the inbox is empty after the build). Never while a folder of the
+  // library could not be read as a card (it may name one).
+  if (card_problems.empty()) {
+    std::map<std::string, sc::Card> after;
+    std::string e5;
+    auto norm = [](const fs::path& p) {
+      std::string t = Lower(PathU8(p.lexically_normal()));
+      for (char& ch : t)
+        if (ch == '/') ch = '\\';
+      return t;
+    };
+    if (lib::ReadAllCards(root, after, e5)) {
+      // (S110 LIBSIZE-2 review) only a file a card named when this build began goes: a file no card ever named (a pick the importer has not added to its list yet;
+      // on a phone its only copy) is not the build's to delete
+      std::set<std::string> named, was_named;
+      for (const auto& [k, c] : after)
+        if (!c.source.empty()) named.insert(norm(lib::SourceOf(root, c)));
+      for (const std::map<std::string, sc::Card>* m : {&before, &cards})
+        for (const auto& [k, c] : *m)
+          if (!c.source.empty()) was_named.insert(norm(lib::SourceOf(root, c)));
+      std::vector<fs::path> gone;
+      for (const auto& f : fs::directory_iterator(root / "sources", ec))
+        if (f.is_regular_file(ec) && was_named.count(norm(f.path())) && !named.count(norm(f.path()))) gone.push_back(f.path());
+      for (const fs::path& f : gone) fs::remove(f, ec);
+      if (!gone.empty()) b.Log(std::to_string(gone.size()) + " source file(s) in sources\\ that no card names any more removed");
     }
   }
-  fs::remove_all(old, ec);
-  if (!WriteManifest(root, st, b.pack_id, /*needs_build=*/false, err, &built_before)) return err = "the pack is built but " + err, false;
+  if (legacy) migrate::Drop(root);
   fs::remove(wwe2k14::superstars_fit::StatusFile(U8Path(mods_dir)), ec);  // (Session 101: the game's old verdict is about the old pack)
+  for (const std::string& p : problems) g_moves.push_back(p), b.warnings.push_back(p);
+  b.Log(std::to_string(n_made) + " character(s) made, " + std::to_string(problems.size()) + " not made, " + std::to_string(st.stars.size() - todo.size()) + " kept" +
+        (fresh ? "; the frame was kept" : "; the frame was built"));
   for (const std::string& w : b.warnings) b.Log("warning: " + w);
   b.Prog(1.f, "done");
   return true;
 }
+
 
 // ------------------------------------------------------------------ the public calls: nothing throws out of them (review: the UI thread)
 std::vector<SourceInfo> InspectSources(const std::string& path) {
@@ -1691,7 +1380,7 @@ bool LoadPack(const std::string& mods_dir, PackState& out, std::string& err) {
     return err = std::string("could not read the pack list: ") + e.what(), false;
   }
 }
-bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err) {
+bool SavePack(const std::string& mods_dir, PackState& st, std::string& err) {
   try {
     return SavePackImpl(mods_dir, st, err);
   } catch (const std::exception& e) {
@@ -1700,18 +1389,54 @@ bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err
 }
 std::vector<int> BuiltPackSlots(const std::string& mods_dir) {  // S105 IMP review M1
   try {
-    if (!mods_dir.empty()) return BuiltSlots(U8Path(mods_dir) / "superstars");
+    if (mods_dir.empty()) return {};
+    const fs::path root = U8Path(mods_dir) / "superstars";
+    std::vector<int> v;
+    if (lib::LibraryExists(root)) {  // the seats his files were made for (a card with an `inst`)
+      std::map<std::string, sc::Card> cards;
+      std::string e;
+      if (lib::ReadAllCards(root, cards, e))
+        for (const auto& [k, c] : cards)
+          if (c.inst.valid && c.seat >= 0) v.push_back(c.seat);  // (S110 LIBSIZE-2 review: inst is the reference identity for every card: the seat he holds)
+    }
+    // (an old pack not migrated yet, also once a save made the library: its slots were built; the file goes with the migration)
+    for (const auto& kv : wwe2k14::superstars_fit::ReadBuilt(root / "superstars.txt").music) v.push_back(kv.first);
+    std::sort(v.begin(), v.end()), v.erase(std::unique(v.begin(), v.end()), v.end());
+    return v;
   } catch (...) {
   }
   return {};
 }
 std::vector<int> RetiredSlots(const std::string& mods_dir) {  // S105 IMP
-  std::vector<int> r, s;
   try {
-    if (!mods_dir.empty()) ReadManifestSlots(U8Path(mods_dir) / "superstars", r, s);
+    if (mods_dir.empty()) return {};
+    const fs::path root = U8Path(mods_dir) / "superstars";
+    if (lib::LibraryExists(root)) return lib::ReadRetired(root);
+    PackState old;
+    std::string e;
+    if (migrate::LoadLegacy(root, old, false, e)) return old.retired;
   } catch (...) {
   }
-  return r;
+  return {};
+}
+int SeatCount(const std::string& mods_dir) {
+  try {
+    frame::Info f;
+    if (!mods_dir.empty() && frame::ReadInfo(U8Path(mods_dir) / "superstars", f)) return int(f.seats.size());
+  } catch (...) {
+  }
+  return kLastSlot - kFirstSlot + 1 - int(sizeof kReservedSlots / sizeof kReservedSlots[0]);  // (no frame built yet: 397..499 minus 399)
+}
+Migration MigrationState(const std::string& mods_dir) {
+  try {
+    if (mods_dir.empty()) return Migration::None;
+    const fs::path root = U8Path(mods_dir) / "superstars";
+    std::error_code ec;
+    if (migrate::Legacy(root)) return Migration::Pending;
+    if (fs::is_directory(root / "legacy.old", ec)) return Migration::Kept;
+  } catch (...) {
+  }
+  return Migration::None;
 }
 std::vector<int> FreeSlots(const launcher::GameFiles& game, const std::string& dlc_dir) {
   try {
@@ -1744,19 +1469,40 @@ PlayCheck CheckBeforePlay(const std::string& mods_dir, const std::string& dlc_di
     c.stars = int(st.stars.size());
     const fs::path root = U8Path(mods_dir) / "superstars";
     std::error_code ec;
-    if (!c.stars) {  // (every superstar removed: the old pack, still holding them, comes out with a build)
-      // (review S6) only when pack.json exists and says so: a pack with no list (copied in by hand, or pack.json lost) is never removed
-      if (fs::is_regular_file(root / "pack.json", ec) && fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec))
+    const bool frame_there = fs::is_regular_file(frame::Dir(root) / "info" / "catalog.dlc", ec) && fs::is_regular_file(frame::Dir(root) / "superstars.txt", ec);
+    const bool old_pack = migrate::Legacy(root) && (fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec) || fs::is_regular_file(root / "pack.json", ec));
+    if (!c.stars) {  // (every superstar removed: the frame / the old pack, still holding them, comes out with a build)
+      // (review S6) only when the library or pack.json says so: a pack with no list (copied in by hand) is never removed
+      // (review: an old pack6\ only when pack.json exists, the old rule: pack6\ holds the characters' models)
+      if (frame_there || (old_pack && fs::is_regular_file(root / "pack.json", ec) && fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec)))
         c.build = true, c.why = "You removed every superstar, but the old pack is still in the game.";
       return c;
     }
-    if (!fs::is_regular_file(root / "pack6" / "info" / "catalog.dlc", ec) || !fs::is_regular_file(root / "superstars.txt", ec)) {
+    if (old_pack) {
+      c.build = true, c.why = "Your superstars move into the new library: they are built once more (nothing is lost).";
+    } else if (!frame_there) {
       c.build = true, c.why = "Your superstars are not built into the game yet.";
     } else if (st.needs_build) {
       c.build = true, c.why = "Your superstars list changed since the pack was last built.";
     } else if (const std::string p = PackProblem(mods_dir, dlc_dir, dlc_off); !p.empty()) {
       c.build = true, c.why = "Your superstars pack no longer fits your DLC: " + p + ".";
+    } else {
+      // a card made on a DLC pack the game does not get now (its base / entrance / tron wrestler's files)
+      std::map<std::string, sc::Card> cards;
+      std::string e;
+      std::set<int> offered;
+      for (const wwe2k14::dlc::Pack& p : wwe2k14::superstars_fit::GamePacks(dlc_dir.empty() ? fs::path() : U8Path(dlc_dir), dlc_off)) offered.insert(p.pack_id);
+      if (lib::ReadAllCards(root, cards, e))
+        for (const auto& [k, card] : cards)
+          for (const auto& kv : card.extra)
+            if (kv.first == "built_on") {
+              std::istringstream in(kv.second);
+              for (int id; in >> id;)
+                if (!offered.count(id) && !c.build) c.build = true, c.why = card.name + " was made with DLC pack " + std::to_string(id) + ", which the game does not get now.";
+            }
     }
+    if (!c.build && !st.problems.empty())  // (review) a library folder left out: said (the launchers show `why` when there is nothing to build)
+      c.why = "Your superstars library has " + std::to_string(st.problems.size()) + " folder(s) it cannot use. " + st.problems.front();  // (SEAT-C: the sentence ends itself)
   } catch (const std::exception& e) {
     c.why = std::string("Your superstars could not be checked: ") + e.what();
   }
@@ -1766,11 +1512,32 @@ PlayCheck CheckBeforePlay(const std::string& mods_dir, const std::string& dlc_di
 std::string LastGameProblem(const std::string& mods_dir) {
   try {
     if (mods_dir.empty()) return {};
-    const std::string s = wwe2k14::superstars_fit::ReadStatus(U8Path(mods_dir));
-    if (s.rfind("out ", 0) != 0) return {};
-    return "In your last game your superstars were left out: " + s.substr(4) + ".";
+    // S110 SEAT-C: the game now writes "in N, M ... need a rebuild", "out N ... need converting" too (screen_text.h words all of them)
+    return screen::GameStatusSentence(wwe2k14::superstars_fit::ReadStatus(U8Path(mods_dir)));
   } catch (...) {
     return {};
+  }
+}
+
+int HostPackOfChar(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const std::string& dlc_off, int id) {
+  try {
+    return HostPackOfCharImpl(mods_dir, game, dlc_dir, dlc_off, id);
+  } catch (...) {
+    return -1;
+  }
+}
+std::vector<HostPac> HostGamePacs(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const std::string& dlc_off, bool sd) {
+  try {
+    return HostGamePacsImpl(mods_dir, game, dlc_dir, dlc_off, sd);
+  } catch (...) {
+    return {};
+  }
+}
+std::string FileHoldsSource(const std::string& source_pac, bool own, const std::string& file) {
+  try {
+    return lib::HoldsSource(U8Path(source_pac), own, U8Path(file));
+  } catch (const std::exception& e) {
+    return std::string("the check failed: ") + e.what();
   }
 }
 
@@ -1780,7 +1547,7 @@ bool BuildPack(const std::string& mods_dir, const launcher::GameFiles& game, con
     return BuildPackImpl(mods_dir, game, dlc_dir, st, std::move(progress), err, dlc_off);
   } catch (const std::exception& e) {
     std::error_code ec;
-    fs::remove_all(U8Path(mods_dir) / "superstars" / "pack6.building", ec);
+    fs::remove_all(U8Path(mods_dir) / "superstars" / "frame.building", ec);
     return err = std::string("the build stopped: ") + e.what(), false;
   }
 }

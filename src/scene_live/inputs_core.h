@@ -22,13 +22,19 @@
 #include "../renderer_game/scene_frame.h"
 #include "../task_group_walk.h"  // S103 FDP: the one task-group walk
 #include "../renderer_scene/cam_gate.h"   // S105 A3
+#include "handed_camera.h"   // S110 CUTCROWD
 #include "stage_clock_flag.h"   // S103 E5: bit 17 (OFF)
 #include "ring_stamp_flag.h"   // S103: bit 6 (released)
 #include "caster_stamp_flag.h"   // S103 L1C: bit 7 moved follows it
 #include "light_stamp_flag.h"    // S103 A4: bit 4 stamp switch (OFF)
 #include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_inputs.h"   // S106 G4-2
+#include "../renderer_scene/rows_lights.h"
+#include "../renderer_scene/rows_plane.h"
+#include "../renderer_scene/rows_stage_look.h"
 #include "post_settings.h"
 #include "safe_guest_pages.h"   // BH3-4: ModelAlphaPlausible
+#include "../feed_seen.h"   // S110 FEEDREC: ReadFnT and the WWE_FEED_* macros (empty outside coverage)
 
 namespace scene_inputs {
 
@@ -173,14 +179,47 @@ inline uint32_t MovedMask() {
 inline uint32_t AllMask() { return (1u << kInputCount) - 1u; }
 
 // ---- reading the guest, pure: `read(guest, dst, n)` copies n raw (big-endian) guest bytes, false when unreadable.
-using ReadFn = bool (*)(uint32_t guest, void* dst, size_t n);
+using ReadFn = ::wwe2k14::feedseen::ReadFnT;   // S110 FEEDREC: the plain pointer outside coverage (feed_seen.h)
 inline uint32_t Swap32(uint32_t v) { return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24); }
-inline bool ReadWord(ReadFn read, uint32_t guest, uint32_t& v) {
+inline bool ReadWord(ReadFn read, uint32_t guest, uint32_t& v WWE_FEED_LOC_PARAM) {
   uint32_t raw = 0;
-  if (!read(guest, &raw, 4)) return false;
+  if (!read(guest, &raw, 4 WWE_FEED_LOC_ARG)) return false;
   v = Swap32(raw);
   return true;
 }
+// S108 RDS (docs\research\s108\RDS_plan.md B, phase 1): ONE read of the hull [first, end) of the fields a reader reads of one object (safe_pages::HullOk: at most two pages, so exactly the pages the field reads
+// touch), then each field from the local copy. When the hull is refused (HullOk false, or a page unreadable), Word() reads that field alone, exactly as before: the verdicts and values are the old per-field ones
+// in every case (a field that was readable alone is still read; a field that was not is still refused). `kPlantWide` (units only): the twin that copies one byte past the hull with no per-field fallback.
+template <uint32_t kMaxBytes, bool kPlantWide = false>
+struct GuestBlock {
+  uint32_t lo = 0, n = 0;
+  bool ok = false;
+  alignas(4) uint8_t b[kMaxBytes];
+  bool Load(ReadFn read, uint32_t first, uint64_t end WWE_FEED_LOC_PARAM) {
+    ok = false, lo = first, n = 0;
+    if (kPlantWide) ++end;
+    if (!read || end <= first || end - first > kMaxBytes || !wwe2k14::safe_pages::HullOk<kPlantWide>(first, end)) return false;
+    n = uint32_t(end - first);
+    return ok = read(first, b, n WWE_FEED_LOC_ARG);
+  }
+  bool Has(uint32_t a, uint32_t bytes) const { return ok && a >= lo && uint64_t(a) + bytes <= uint64_t(lo) + n; }
+  bool Word(ReadFn read, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) const {
+    if (Has(a, 4)) {
+      WWE_FEED_NOTE(a, 4);   // served from the hull copy: the leaf is never reached, so the record sits here
+      uint32_t w;
+      std::memcpy(&w, b + (a - lo), 4);
+      v = Swap32(w);
+      return true;
+    }
+    if (kPlantWide) return false;   // the twin has no fallback: a field the copy could not give is refused
+    return ReadWord(read, a, v WWE_FEED_LOC_ARG);
+  }
+  bool Bytes(ReadFn read, uint32_t a, void* dst, uint32_t bytes WWE_FEED_LOC_PARAM) const {   // raw guest bytes (big-endian), as read(a, dst, bytes)
+    if (Has(a, bytes)) return WWE_FEED_NOTE(a, bytes), std::memcpy(dst, b + (a - lo), bytes), true;
+    if (kPlantWide) return false;
+    return read(a, dst, bytes WWE_FEED_LOC_ARG);
+  }
+};
 
 // S103 FD (CF2, docs\research\s103\CF_crowd_fade.md): the stage-page pass object's own clock. The object is a task of task group 11 (docs\systems\task_runner.md: owner [0x83930050]; [owner+32] = POINTER to the
 // group array, [owner+40] = its end, group g at [owner+32] + 16g: +0 = first task word, +8 = end; sub_82C2FEB8 / sub_82C302A0; S103 FDP: the first version read the array inline at owner+32 and never found it) whose
@@ -214,7 +253,9 @@ inline bool ReadStagePageClock(ReadFn read, uint32_t& cache, uint32_t& misses, r
     misses = 0;
   }
   uint32_t ent = 0, run = 0, tbits = 0;
-  if (!ReadWord(read, cache + kPageEntranceOff, ent) || !ReadWord(read, cache + kPageClockOff, tbits) || !ReadWord(read, cache + kPageRunOff, run)) return false;
+  GuestBlock<kPageRunOff + 4 - kPageEntranceOff> cp;   // S108 RDS: the hull [obj+88, obj+116) once (3 checked reads -> 1)
+  cp.Load(read, cache + kPageEntranceOff, uint64_t(cache) + kPageRunOff + 4);
+  if (!cp.Word(read, cache + kPageEntranceOff, ent) || !cp.Word(read, cache + kPageClockOff, tbits) || !cp.Word(read, cache + kPageRunOff, run)) return false;
   float t;
   std::memcpy(&t, &tbits, 4);
   out = rdr_scene::StageLookRow();
@@ -255,7 +296,12 @@ inline constexpr uint32_t kModelAlphaOff = 252;
 // `pass` (S103 WRK, review F5): bit 0 = read the char pass mode (+616 / +620) -- a wrestler model with the switch on; bit 1 = also latch the part table's E+20 words. 0 = MdlAlpha only (an arena model, or the switch off:
 // the row is then strictly what it was before the lane).
 inline constexpr unsigned kReadPassMode = 1, kReadPartE20 = 2;
-inline bool ReadModelRuntime(ReadFn read, uint32_t model, uint64_t frame, rdr_scene::ModelRuntimeRow& out, unsigned pass = 0) {
+inline constexpr uint32_t kModelRuntimeEnd = 624;   // S108 RDS: the hull of the fields below, [model+252, model+624) (+252 alpha, +372 parts, +480 part table, +616 / +620 pass mode)
+template <bool kPlantWide = false>
+inline bool ReadModelRuntimeT(ReadFn read, uint32_t model, uint64_t frame, rdr_scene::ModelRuntimeRow& out, unsigned pass = 0) {
+  GuestBlock<kModelRuntimeEnd - kModelAlphaOff, kPlantWide> cp;   // S108 RDS: one read of the fields this function reads (the pass-mode fields only when asked)
+  if (pass & kReadPassMode) cp.Load(read, model + kModelAlphaOff, uint64_t(model) + kModelRuntimeEnd);
+  const auto ReadWord = [&cp](ReadFn r, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) { return cp.Word(r, a, v WWE_FEED_LOC_ARG); };   // (shadows scene_inputs::ReadWord in this function: every field read below goes through the copy)
   uint32_t w = 0;
   if (!read || !ReadWord(read, model + kModelAlphaOff, w)) return false;
   out = rdr_scene::ModelRuntimeRow{};
@@ -285,6 +331,7 @@ inline bool ReadModelRuntime(ReadFn read, uint32_t model, uint64_t frame, rdr_sc
   }
   return true;
 }
+inline bool ReadModelRuntime(ReadFn read, uint32_t model, uint64_t frame, rdr_scene::ModelRuntimeRow& out, unsigned pass = 0) { return ReadModelRuntimeT<false>(read, model, frame, out, pass); }
 
 
 // ---- W1 (S103 A2): the skin palette AS THE DRAW READS IT = count x 64 bytes at the pointer [skeleton+200] (the consumer copy sub_82C04DF0 took inside the walk; WRESTLER_PROMOTION_MAP.md). Read at the latch.
@@ -352,6 +399,9 @@ inline bool ReadLightObjects(ReadFn read, uint64_t frame, std::vector<rdr_scene:
   out.clear();
   uint32_t mgr = 0, n = 0, sets = 0, ids = 0, remap = 0, pool = 0, pool_n = 0, ovr = 0, ovr_flag = 0, blend = 0;
   if (!read || !ReadWord(read, kLightMgrPtr, mgr) || mgr < 0x10000) return info.why = LightWhy::ManagerUnreadable, false;
+  GuestBlock<380 - 112> cp;   // S108 RDS: the hull [mgr+112, mgr+380) of the nine manager words once (9 checked reads -> 1)
+  cp.Load(read, mgr + 112, uint64_t(mgr) + 380);
+  const auto ReadWord = [&cp](ReadFn r, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) { return cp.Word(r, a, v WWE_FEED_LOC_ARG); };   // (shadows scene_inputs::ReadWord for the manager words only)
   if (!ReadWord(read, mgr + 124, n) || !ReadWord(read, mgr + 112, sets) || !ReadWord(read, mgr + 116, ids) || !ReadWord(read, mgr + 120, remap) || !ReadWord(read, mgr + 140, pool) ||
       !ReadWord(read, mgr + 144, pool_n) || !ReadWord(read, mgr + 368, ovr) || !ReadWord(read, mgr + 372, ovr_flag) || !ReadWord(read, mgr + 376, blend))
     return info.why = LightWhy::ManagerUnreadable, false;
@@ -417,6 +467,7 @@ inline bool ReadLightObjects(ReadFn read, uint64_t frame, std::vector<rdr_scene:
 // non-null), the 16 bytes at [char + 176] (x, y, z, w: the skeleton's node-2 translation, which the game writes over the track's row at 0x825BAECC). `act25000` = the character's act (the u16 of the act record's first word) is the
 // entrance body act: the writer of track 0 is then sub_8231FCC0's, else YAT2 code 208's (census only). A track whose character does not resolve gets no row (the game keeps the rig's row there too). Pure guest reads.
 inline constexpr uint32_t kCharSlotTable = 0x836F38D0, kEntranceAct = 25000;
+inline std::atomic<uint64_t> g_track_act_unreadable{0};   // S108 GAVF: the act reads of ReadTrackBinds ([ch+28] -> [act]) that failed
 struct TrackBindInfo { uint32_t bound = 0, unresolved = 0, nonfinite = 0; };
 inline void ReadTrackBinds(ReadFn read, const rdr_scene::LightObjectRow& mgr, std::vector<rdr_scene::StageLookRow>& out, TrackBindInfo& info) {
   using namespace rdr_scene;
@@ -431,7 +482,13 @@ inline void ReadTrackBinds(ReadFn read, const rdr_scene::LightObjectRow& mgr, st
     for (int c = 0; c < 3; ++c) { const uint32_t w = Swap32(raw[c]); std::memcpy(&v[c], &w, 4); }
     if (!std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2])) { ++info.nonfinite; continue; }
     uint32_t act = 0, word = 0;
-    const bool act25000 = ReadWord(read, ch + 28, act) && act >= 0x10000 && ReadWord(read, act, word) && (word >> 16) == kEntranceAct;
+    bool act25000 = false;
+    if (ReadWord(read, ch + 28, act)) {   // S108 GAVF: a failed read of [ch+28] or of [act] is counted (g_track_act_unreadable, printed with the page-check census); a null / low act is not a failure
+      if (act >= 0x10000) {
+        if (ReadWord(read, act, word)) act25000 = (word >> 16) == kEntranceAct;
+        else g_track_act_unreadable.fetch_add(1, std::memory_order_relaxed);
+      }
+    } else g_track_act_unreadable.fetch_add(1, std::memory_order_relaxed);
     StageLookRow r;
     r.kind = kSlTrackBind, r.rig_slot = uint16_t(i + 1), r.flags = uint32_t(b + 1) | (act25000 ? 0x100u : 0u), r.dir[0] = v[0], r.dir[1] = v[2], r.dir[2] = v[1];
     out.push_back(r);
@@ -453,9 +510,11 @@ inline bool ReadParamOverrides(ReadFn read, uint32_t model, uint64_t frame, std:
   const size_t keep = out.size();
   auto fail = [&]() { out.resize(keep); return false; };
   uint32_t b = 0, parts = 0;
-  if (!ReadWord(read, model + kModelBlockOff, b)) return fail();
+  GuestBlock<kModelBlockOff + 4 - kModelPartsOff> mw;   // S108 RDS: [model+372, model+836) once (the part count and B: 2 checked reads -> 1)
+  mw.Load(read, model + kModelPartsOff, uint64_t(model) + kModelBlockOff + 4);
+  if (!mw.Word(read, model + kModelBlockOff, b)) return fail();
   if (b < 0x10000) return info.no_block = true, true;
-  if (!ReadWord(read, model + kModelPartsOff, parts) || parts > kOverrideMaxParts) return fail();
+  if (!mw.Word(read, model + kModelPartsOff, parts) || parts > kOverrideMaxParts) return fail();
   auto entries = [&](uint32_t ptr, uint32_t n, uint32_t part) -> bool {
     if (!n) return true;
     if (out.size() + n > row_limit) return info.overflow = true, false;
@@ -491,13 +550,17 @@ inline bool ReadParamOverrides(ReadFn read, uint32_t model, uint64_t frame, std:
     return true;
   };
   uint32_t wide = 0, wide_n = 0, tables = 0, counts = 0;
-  if (!ReadWord(read, b + kBlkWideTable, wide) || !ReadWord(read, b + kBlkWideCount, wide_n) || !ReadWord(read, b + kBlkPartTables, tables) || !ReadWord(read, b + kBlkPartCounts, counts)) return fail();
+  GuestBlock<16> bw;   // S108 RDS: B's four words [B+1132, B+1148) once (4 checked reads -> 1)
+  bw.Load(read, b + kBlkWideTable, uint64_t(b) + kBlkPartCounts + 4);
+  if (!bw.Word(read, b + kBlkWideTable, wide) || !bw.Word(read, b + kBlkWideCount, wide_n) || !bw.Word(read, b + kBlkPartTables, tables) || !bw.Word(read, b + kBlkPartCounts, counts)) return fail();
   if (!entries(wide, wide_n, kParamModelWide)) return fail();
   if (parts && ((tables >= 0x10000) != (counts >= 0x10000))) return fail();   // a half-null part table (one of the two arrays missing) is a failure, never a partial pass
   if (tables >= 0x10000 && counts >= 0x10000) {
+    GuestBlock<4 * kOverrideMaxParts> tw, cw;   // S108 RDS: each of the two part arrays once (2 x parts checked reads -> 2)
+    if (parts) tw.Load(read, tables, uint64_t(tables) + 4 * parts), cw.Load(read, counts, uint64_t(counts) + 4 * parts);
     for (uint32_t p = 0; p < parts; ++p) {
       uint32_t ptr = 0, n = 0;
-      if (!ReadWord(read, tables + 4 * p, ptr) || !ReadWord(read, counts + 4 * p, n)) return fail();
+      if (!tw.Word(read, tables + 4 * p, ptr) || !cw.Word(read, counts + 4 * p, n)) return fail();
       if (!entries(ptr, n, p)) return fail();
     }
   }
@@ -643,18 +706,8 @@ inline bool ReadMat(ReadFn read, uint32_t guest, rdr_scene::Mat4& m) {
   std::memcpy(m.m, w, sizeof w);
   return true;
 }
-// A rigid row-vector world -> view: the 3x3 rows orthonormal within 1e-3, column 3 = (0, 0, 0, 1) (zero and scaled matrices fail).
-inline bool IsRigidView(const float* v) {
-  for (int i = 0; i < 16; ++i)
-    if (!std::isfinite(v[i])) return false;
-  if (std::fabs(v[3]) > 1e-3f || std::fabs(v[7]) > 1e-3f || std::fabs(v[11]) > 1e-3f || std::fabs(v[15] - 1.f) > 1e-3f) return false;
-  for (int i = 0; i < 3; ++i)
-    for (int j = i; j < 3; ++j) {
-      const float d = v[i * 4] * v[j * 4] + v[i * 4 + 1] * v[j * 4 + 1] + v[i * 4 + 2] * v[j * 4 + 2];
-      if (std::fabs(d - (i == j ? 1.f : 0.f)) > 1e-3f) return false;
-    }
-  return true;
-}
+// A rigid row-vector world -> view: the 3x3 rows orthonormal within 1e-3, column 3 = (0, 0, 0, 1) (zero and scaled matrices fail). One definition, in handed_camera.h (its block test uses it too).
+inline bool IsRigidView(const float* v) { return handed::IsRigidView(v); }
 // A row-vector perspective: finite, clip.w = view z (m[11] = +-1, m[15] = 0), a non-zero focal pair, nothing off the pattern's zero cells.
 inline bool IsPerspective(const float* m) {
   for (int i = 0; i < 16; ++i)
@@ -701,14 +754,20 @@ inline void ReadShownCameraGate(ReadFn rd, bool& read, bool& shown) {
   if (!rd) return;
   rdr_scene::ReadShown([rd](uint32_t a, uint32_t& v) { return ReadWord(rd, a, v); }, read, shown);
 }
-inline bool ReadSceneCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& info, rdr_scene::Camera* raw_out = nullptr) {
+// S110 CUTCROWD (handed_camera.h): the scene camera is the block the game HANDED to its renderer, [[0x83929A68] + 256] (view +240, FOV radians +512), read here at the latch: the crowd's cull / LOD, the floor
+// seats' screen test and the plane module use that block, and on a gated cut +1488 is already the next shot. The live +1488 / +1552 only when the block is not the main manager's (none yet, a sub-view, another
+// manager), is mirrored, or fails the tests below; `pick_out` says which (the census, HandedCensusLatch). Stateless: particle_source.h and the inputs latch read the same answer in any order.
+inline bool ReadSceneCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& info, rdr_scene::Camera* raw_out = nullptr, handed::Pick* pick_out = nullptr) {
   info = CameraInfo{};
   uint32_t mgr = 0, fw = 0;
   if (!read || !ReadWord(read, kCamMgrPtr, mgr)) return info.reason = 2, false;
   if (!mgr) return info.reason = 1, false;
   info.object = mgr;
   rdr_scene::Camera c;
-  if (!ReadMat(read, mgr + kCamMgrView, c.view) || !ReadWord(read, mgr + kCamMgrFov, fw)) return info.reason = 2, false;
+  const handed::Pick pick = handed::PickCamera([read](uint32_t a, uint32_t& v) { return ReadWord(read, a, v); }, mgr);
+  if (pick_out) *pick_out = pick;
+  if (pick.src == handed::kSrcBlock) std::memcpy(c.view.m, pick.view, sizeof pick.view), fw = pick.fov_word;
+  else if (!ReadMat(read, mgr + kCamMgrView, c.view) || !ReadWord(read, mgr + kCamMgrFov, fw)) return info.reason = 2, false;
   float fov = 0;
   std::memcpy(&fov, &fw, 4);
   c.fov_y_deg = fov;
@@ -720,6 +779,32 @@ inline bool ReadSceneCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& inf
   c.flags = rdr_scene::kCamProjFromFov;   // proj stays the identity; near / far 0 = the reader's default [U]
   out = c;
   return true;
+}
+// S110 CUTCROWD: the handed camera's census, once per latch (inputs_contrib.h Take, the latch thread): which source the record took, whether it differs from the live +1488 / +1552 bytes (a gated pass: one
+// expected per cutscene cut, none in a match), and the reach leads at this latch: [mgr+1424] (the hand-off's effect switch) and the composer slot's +176 (mirror) / +184 (effect) words.
+inline void HandedCensusLatch(ReadFn read) {
+  uint32_t mgr = 0;
+  if (!read || !ReadWord(read, kCamMgrPtr, mgr) || !mgr) return;   // no manager (the CAW editor): not a scene camera latch
+  rdr_scene::Camera c;
+  CameraInfo ci;
+  handed::Pick p;
+  const bool ok = ReadSceneCamera(read, c, ci, nullptr, &p);
+  bool differ = false;
+  rdr_scene::Mat4 lv;
+  uint32_t lf = 0;
+  if (ok && p.src == handed::kSrcBlock && ReadMat(read, mgr + kCamMgrView, lv) && ReadWord(read, mgr + kCamMgrFov, lf)) {
+    uint32_t tf;
+    std::memcpy(&tf, &c.fov_y_deg, 4);
+    differ = std::memcmp(c.view.m, lv.m, sizeof lv.m) != 0 || tf != lf;
+  }
+  uint32_t effect = 0, views = 0, count = 0, index = 0, s176 = 0, s184 = 0;
+  ReadWord(read, mgr + handed::kEffectWord, effect);
+  if (ReadWord(read, mgr + handed::kSlotViews, views) && views && ReadWord(read, mgr + handed::kSlotCount, count) && ReadWord(read, mgr + handed::kSlotIndex, index) && int32_t(index) >= 0 && int32_t(index) < int32_t(count)) {
+    const uint32_t slot = views + handed::kSlotStride * index;
+    ReadWord(read, slot + handed::kSlotMirror, s176);
+    ReadWord(read, slot + handed::kSlotEffect, s184);
+  }
+  handed::NoteLatch(p, differ, effect != 0, s176 != 0, s184 != 0);
 }
 
 // S103 CAE: ONE shared camera read for the scene's latch readers: the composer's copy (ReadSceneCamera) and, when there is no scene manager at all (reason 1, the CAW editor), the draw thread's camera the

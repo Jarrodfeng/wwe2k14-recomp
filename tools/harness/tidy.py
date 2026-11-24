@@ -5,8 +5,8 @@ Replaces tools\\harness\\disk_cleanup.ps1. Rules and where they came from: docs\
 S102 TIDY2 (Jarrod, 2026-11-15) SUPERSEDES every rule below about ages, KEEP files, KEEP_TREES and state-doc names for out\\:
   out\\ is SCRATCH. It is cleared at the end of a session (--auto end) and by the hourly pass when no session is live; while a session is live it is
   left alone (only --now / the under-50-GB pass, which clear what has been idle 2 h). Held (rules in tidy_out.py): the allowlist (out\\build is SACRED:
-  Jarrod plays from it, never deleted by any pass), tools\\harness\\keep_list.txt (exact paths, reason, optional until-date), exact paths a gate lane
-  names (a container name protects nothing and is a lint error: tools\\gate\\needs_lint.py), --hold carry-overs. A KEEP file is reported as ignored.
+  Jarrod plays from it, never deleted by any pass), tools\\harness\\keep_list.txt (exact paths, reason, optional until-date), exact paths a check script
+  names (a container name protects nothing), --hold carry-overs. A KEEP file is reported as ignored.
   Unpack copies (fview_unpack_*) are never held. Agent worktrees: finished + merged go at the next pass; unmerged are reported, never taken
   automatically. --plan shows what session end would delete now, the held paths with sizes, and problems. Tests: tidy_out_selftest.py.
 
@@ -19,13 +19,13 @@ never follows a junction or link.
     EXPIRE_H (24 h). Sheets made for Jarrod overnight need a hold.
   - RUN FOLDERS out\\sNN\\runs\\YYYYMMDD_HHMMSS_<route> (lane 294): the newest of each route, and any within RUN_PAIR_MIN (30 min) of it
     (a run's case and record folders, A/B pairs), keep 24 h (S102 K1: a live session's start no longer widens it); every other run folder goes after
-    RUN_H (2 h). A run named in a state doc / --hold / gate lane, or holding a valid KEEP, stays. An unpacked capture copy
+    RUN_H (2 h). A run named in a state doc / --hold, or holding a valid KEEP, stays. An unpacked capture copy
     (images.bin / manifest.json / case_*.zip) outside a run goes at CAPTURE_COPY_H (6 h). A file that cannot be removed stops its
     folder (capture markers go first); never half a capture.
   - KEEP FILES EXPIRE (lane 294, Jarrod 2026-11-13): a KEEP holds only while it has a reason AND (1) a future "until YYYY-MM-DD"
-    in it, or (2) a gate lane / a check, selftest, oracle or gate script in tools\\ names the folder's own out path (the folder ITSELF: a
+    in it, or (2) a check, selftest, oracle or gate script in tools\\ names the folder's own out path (the folder ITSELF: a
     longer path under it does not count; comments, docstrings and `# tidy: output` lines are not read), or its reason cites an existing such
-    script or lane json that names the folder. A bare KEEP is a 7-day hold from its mtime, then no hold. --plan
+    script that names the folder. A bare KEEP is a 7-day hold from its mtime, then no hold. --plan
     lists every KEEP folder with its size and state.
   - KEEP_TREES (current builds, tools, indexes) stay, minus the throwaway run files inside them (THROW).
   - NO_TOUCH (bench data, replays, scenarios, recordings, ...) is never touched.
@@ -51,12 +51,12 @@ never follows a junction or link.
 
 NEVER REMOVED, on every trigger: anything younger than the rolling limit above, anything under a folder with an ACTIVE KEEP (above),
 anything on the carry-over list (--hold), any path named in STATUS.md, PLAYBOOK.md, CLAUDE.md or the newest session plan / summary
-(a session root or an out\\sNN\\runs namespace named there protects nothing), any out path (depth 2 and deeper) a gate lane names
-(tools\\gate\\lanes\\*.json: needs and commands; a glob cut at * is a prefix) and every capture / run folder a check script names
+(a session root or an out\\sNN\\runs namespace named there protects nothing), any out path (depth 2 and deeper) a check script names
+(a glob cut at * is a prefix): every capture / run folder it names stays
 (whatever its age); other folders a check / selftest / oracle / gate script names while they were touched within TOOL_STALE_DAYS
 (7). A game or build holding the run lock = the tidy skips this time (--scratch and the watch only skip for an EXCLUSIVE hold or a
 game process: S102 K1). Free space is logged every watch run (out\\tidy\\free.csv, the [disk] line; --reserve-ok exits 1 under 40 GB free). Every pass except --now prints the project's size against the
-~75 GB budget and the top 5 folders, and MISSING GATE INPUT for gate-named paths that do not exist.
+~75 GB budget and the top 5 folders, and MISSING INPUT for paths a check names that do not exist.
 
   py tools\\harness\\tidy.py --plan [--ahead H]       dry run: writes out\\tidy\\plan_<time>.json/.txt, prints the summary
                                                      (--ahead: a forecast as if it were H hours later, not applicable;
@@ -78,8 +78,8 @@ game process: S102 K1). Free space is logged every watch run (out\\tidy\\free.cs
                                                      outside out\\ / sdk-wt / an agent out\\; at, under or ABOVE a keep-list or never-touch
                                                      folder; at, under or above a registered worktree; inside the out\\ of a running or recent
                                                      agent; a newest (possibly running) run folder or the runs folder; behind a link; under or
-                                                     holding an active KEEP; a gate-named input, inside one or above one
-  py tools\\harness\\tidy.py --missing              gate-named inputs that do not exist (MISSING GATE INPUT)
+                                                     holding an active KEEP; an input a check names, inside one or above one
+  py tools\\harness\\tidy.py --missing              inputs a check names that do not exist (MISSING INPUT)
   py tools\\harness\\tidy.py --hold PATH "why"       carry a folder over to the next session (released when that session
                                                      ends, or after 7 days)
   py tools\\harness\\tidy.py --hold PATH "why" --until YYYY-MM-DD   (or --days N) a hold with its own expiry: released
@@ -157,7 +157,7 @@ REPARSE = stat.FILE_ATTRIBUTE_REPARSE_POINT
 WORKERS = 16
 RUN_H = 2               # lane 294: a run folder that is not the newest of its route goes after this
 CAPTURE_COPY_H = 6      # lane 294: an unpacked capture copy outside a kept run goes after this
-KEEP_BARE_DAYS = 7      # lane 294: a KEEP with neither an expiry nor a gate / tool that names it holds this long from its mtime
+KEEP_BARE_DAYS = 7      # lane 294: a KEEP with neither an expiry nor a tool that names it holds this long from its mtime
 SCRATCH_REPORT_GB = 10      # lane 294: an agent worktree's out\ over this is reported loudly every pass
 SCRATCH_PRESSURE_GB = 100   # and cleared (even if its agent is live) while C: has less than this free
 SCRATCH_RECENT_MIN = 15     # under pressure only files modified in the last 15 min stay
@@ -168,7 +168,7 @@ SCRATCHPAD_PASS = True       # S102 K1: the scratchpad DELETE pass; ON since Jar
 SCRATCHPAD_CHILD_H = 12     # S102 K1: a scratchpad child of a session that is not live goes when its newest file is older than this
 SCRATCHPAD_LOUD_GB = 15     # a live session's scratchpad over this is reported loudly
 
-# S102 TIDY2: out\\ is scratch (tidy_out.py: the allowlist, the keep list, gate-named exact paths). NO_TOUCH is the Deleter's last backstop: nothing
+# S102 TIDY2: out\\ is scratch (tidy_out.py: the allowlist, the keep list, exact paths a check names). NO_TOUCH is the Deleter's last backstop: nothing
 # below is ever deleted by any pass, --now included. out\\build is SACRED (Jarrod, 2026-11-15: "out/build which is where I play my game from").
 NO_TOUCH = {'build', 'replays', 'scenarios', 'recordings', 'harness/screenshots', 'backup', 'tidy', 'bench/userdata_frozen', 'bench/userdata_frozen.sha256',
             'harness/runlock'}
@@ -392,7 +392,7 @@ def _sessions_raw(now):
 FIXED_WHY = re.compile(r'jarrod|until\s+\d{4}-\d\d-\d\d', re.I)
 
 
-GATE_RE = re.compile(r'(?<![A-Za-z0-9_])(out[\\/]+[^\s`\'"<>|*?(),;:\[\]{}]+)')
+OUT_RE = re.compile(r'(?<![A-Za-z0-9_])(out[\\/]+[^\s`\'"<>|*?(),;:\[\]{}]+)')
 JOIN_RE = re.compile(r"""['"]out['"]((?:\s*[,/]\s*['"][^'"\\/\n]+['"](?!\s*:))+)""")      # S102 K1: a literal followed by ':' is a dict key, not a path part
 LIT_RE = re.compile(r"""['"]([^'"\\/\n]+)['"]""")
 TOOLS_PY_MAX = 2 * 1024 * 1024
@@ -432,50 +432,24 @@ def _add_input(found, k, src):
 
 
 def _scan_text(text, found, src):
-    for m in GATE_RE.finditer(text):
+    for m in OUT_RE.finditer(text):
         _add_input(found, m.group(1) + ('*' if text[m.end():m.end() + 1] in ('*', '?') else ''), src)
     for m in JOIN_RE.finditer(text):      # os.path.join(..., 'out', 'a', 'b') and 'out' / 'a' / 'b'
         _add_input(found, 'out/' + '/'.join(LIT_RE.findall(m.group(1))), src)
 
 
 def required_input(k):
-    """Lane 294 (2026-11-13: the clean-up deleted ring gate captures J1 / 7149 that d3_ring_check.py needs): a capture or run folder a check
+    """Lane 294 (2026-11-13: the clean-up deleted ring check captures J1 / 7149 that d3_ring_check.py needs): a capture or run folder a check
     names is a REQUIRED input and is protected whatever its age (no TOOL_STALE_DAYS rule): its last part is capture, or a part is case_*
     or a runs/<stamp> folder. Other tool-named folders keep the 7-day rule."""
     parts = k.split('/')
     return parts[-1] == 'capture' or any(x.startswith('case_') for x in parts) or 'runs' in parts[1:-1]
 
 
-def gate_input_split():
-    """-> (lane inputs, tool inputs): the two dicts gate_inputs() merges (the tools' names unfiltered by age)."""
-    """Repo-relative paths (depth >= 2, so out/post_plan_cache counts) that lanes and tools read (lane 154, S3):
-      - tools\\gate\\lanes\\*.json: every string naming out\\... (needs, command arguments);
-      - tools\\**\\*check*.py / *selftest*.py / *oracle*.py / *gate*.py: out path literals ('out/a/b', r'out\\a\\b', os.path.join(..., 'out', 'a', 'b'), 'out' / 'a').
-    Gates, fview and the check tools take no run lock, so the tidy cannot know when they run."""
-    found = {}
-    d = os.path.join(REPO, 'tools', 'gate', 'lanes')
-    try:
-        names = sorted(n for n in os.listdir(d) if n.endswith('.json'))
-    except OSError:
-        names = []
-
-    def walk(x, src):
-        if isinstance(x, str):
-            _scan_text(x, found, src)
-        elif isinstance(x, list):
-            for y in x:
-                walk(y, src)
-        elif isinstance(x, dict):
-            for y in x.values():
-                walk(y, src)
-
-    for n in names:
-        try:
-            with open(os.path.join(d, n), encoding='utf-8') as f:
-                for x in tidy_out.lane_strings(json.load(f)):      # S102 TIDY2: only cmd / needs / exes / programs: prose in a note protects nothing
-                    walk(x, 'tools/gate/lanes/' + n)
-        except (OSError, ValueError):
-            continue
+def tool_inputs():
+    """Repo-relative paths (depth >= 2, so out/post_plan_cache counts) that check tools read (lane 154, S3):
+      tools\\**\\*check*.py / *selftest*.py / *oracle*.py / *gate*.py: out path literals ('out/a/b', r'out\\a\\b', os.path.join(..., 'out', 'a', 'b'), 'out' / 'a').
+    The check tools take no run lock, so the tidy cannot know when they run."""
     troot = os.path.join(REPO, 'tools')
     py = {}
     for dp, dn, fn in os.walk(troot):
@@ -491,15 +465,15 @@ def gate_input_split():
             except OSError:
                 continue
             _scan_text(tidy_disk.strip_py(text), py, os.path.relpath(fp, REPO).replace('\\', '/'))      # S102 K1: no comments, docstrings or `# tidy: output` lines
-    return found, py
+    return py
 
 
-def gate_inputs():
-    """Protected inputs (S102 TIDY2): the gate lanes' exact paths, and the capture / case / run folders a check script names. No age rule. A check
-    script's working folder (out/l123, ...) is scratch: the check makes it again."""
-    found, py = gate_input_split()
-    for k, v in py.items():
-        if k not in found and (required_input(k) or (not k.endswith('*') and tidy_out.is_capture_dir(os.path.join(REPO, k.replace('/', os.sep))))):
+def named_inputs():
+    """Protected inputs (S102 TIDY2): the capture / case / run folders a check script names. No age rule. A check script's working folder
+    (out/l123, ...) is scratch: the check makes it again."""
+    found = {}
+    for k, v in tool_inputs().items():
+        if required_input(k) or (not k.endswith('*') and tidy_out.is_capture_dir(os.path.join(REPO, k.replace('/', os.sep)))):
             found[k] = v
     return found
 
@@ -507,31 +481,12 @@ def gate_inputs():
 MISSING_IGNORE_SOURCES = {'tools/renderer/scene_start_check.py'}      # names out/s101/runs/run/case_* as a placeholder, not an input
 
 
-def regenerable_recipe(k):
-    """S102 K1: the recipe file (tools/gate/regenerable.json) that rebuilds exactly this key (not a path under it), when that file exists."""
-    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))      # this copy's own checkout (a worktree before its merge)
-    tab = None
-    for base in (REPO, here):
-        try:
-            with open(os.path.join(base, 'tools', 'gate', 'regenerable.json'), encoding='utf-8') as f:
-                tab = json.load(f)
-            break
-        except (OSError, ValueError):
-            continue
-    if tab is None:
-        return ''
-    for root, recipe in tab.items():
-        if not root.startswith('_') and k == root and os.path.isfile(os.path.join(REPO, recipe.replace('/', os.sep))):
-            return recipe
-    return ''
-
-
-def missing_gate_inputs():
-    """Lane 294: [(path, source)] of gate-named inputs that do not exist now: every path a lane json names, and every required_input()
-    a check script names (a glob prefix counts: some scripts name case_<stamp>*). Outputs a lane writes can show here before they ran."""
-    lanes, py = gate_input_split()
+def missing_inputs():
+    """Lane 294: [(path, source)] of required_input() paths a check script names that do not exist now (a glob prefix counts: some scripts name
+    case_<stamp>*)."""
+    py = tool_inputs()
     out = []
-    for k, v in sorted({**{k: v for k, v in py.items() if required_input(k)}, **lanes}.items()):
+    for k, v in sorted({k: v for k, v in py.items() if required_input(k)}.items()):
         if re.search(r'[%{}$<>]', k) or '*' in k[:-1] or 'selftest' in v.lower() or v in MISSING_IGNORE_SOURCES:      # selftest paths are fixtures, not inputs
             continue
         star = k.endswith('*')
@@ -540,8 +495,6 @@ def missing_gate_inputs():
             present = bool(glob.glob(glob.escape(base) + '*'))
         else:
             present = os.path.exists(base) or bool(glob.glob(glob.escape(base) + '*'))
-        if not present and regenerable_recipe(k):
-            continue      # S102 K1: a build output / cache / lazy unpack with a recipe on disk: not a lost input
         if not present:
             if not k.endswith(('.exe', '.dll')) and not any(k.startswith(m[0] + '/') for m in out):     # one line per missing root
                 out.append((k, v))
@@ -550,12 +503,12 @@ def missing_gate_inputs():
 
 def missing_lines(limit=12):
     try:
-        miss = missing_gate_inputs()
+        miss = missing_inputs()
     except Exception as e:
-        return ['MISSING GATE INPUT check failed: %r' % (e,)]
-    L = ['MISSING GATE INPUT: %s  (named by %s)' % m for m in miss[:limit]]
+        return ['MISSING INPUT check failed: %r' % (e,)]
+    L = ['MISSING INPUT: %s  (named by %s)' % m for m in miss[:limit]]
     if len(miss) > limit:
-        L.append('MISSING GATE INPUT: ... and %d more (tidy.py --missing)' % (len(miss) - limit))
+        L.append('MISSING INPUT: ... and %d more (tidy.py --missing)' % (len(miss) - limit))
     return L
 
 
@@ -572,7 +525,7 @@ def main_checkout():
 
 
 def _refuse_tree(ap):
-    """At, under or ABOVE anything held (the allowlist, the keep list, gate-named paths, carry-overs, never-touch): the tidy never deletes those,
+    """At, under or ABOVE anything held (the allowlist, the keep list, paths a check names, carry-overs, never-touch): the tidy never deletes those,
     so a hand-written delete must not."""
     if not os.path.normcase(ap).startswith(os.path.normcase(OUT) + os.sep):
         return ''
@@ -743,18 +696,10 @@ _corpus_cache = []
 
 
 def reader_corpus():
-    """(text, lane names): tools\\gate\\lanes\\*.json and tools\\**\\*.py, lower case, slashes normalised. Read once, only when a KEEP needs it."""
+    """tools\\**\\*.py (the check readers), lower case, slashes normalised. Read once, only when a KEEP needs it."""
     if _corpus_cache:
         return _corpus_cache[0]
-    parts, lanes = [], set()
-    d = os.path.join(REPO, 'tools', 'gate', 'lanes')
-    try:
-        for n in sorted(os.listdir(d)):
-            if n.endswith('.json'):
-                lanes.add(n[:-5].lower())
-                parts.append(open(os.path.join(d, n), encoding='utf-8', errors='replace').read())
-    except OSError:
-        pass
+    parts = []
     for dp, dn, fn in os.walk(os.path.join(REPO, 'tools')):
         dn[:] = [x for x in dn if x not in ('__pycache__', 'node_modules')]
         for n in fn:
@@ -766,7 +711,7 @@ def reader_corpus():
                 except OSError:
                     pass
     text = re.sub(r'[\\/]+', '/', '\n'.join(parts)).lower()
-    _corpus_cache.append((text, lanes))
+    _corpus_cache.append(text)
     return _corpus_cache[0]
 
 
@@ -776,7 +721,7 @@ def keep_name_re(key):
 
 def _tool_names(t, key):
     fp = os.path.join(REPO, t.rstrip('./').replace('/', os.sep))
-    if not key or not os.path.isfile(fp) or not (TOOL_READERS.search(os.path.basename(t)) or t.startswith('tools/gate/lanes/')):
+    if not key or not os.path.isfile(fp) or not TOOL_READERS.search(os.path.basename(t)):
         return False
     try:
         text = open(fp, encoding='utf-8', errors='replace').read()
@@ -789,7 +734,7 @@ def _tool_names(t, key):
 
 def keep_info(d):
     """None when d has no KEEP file, else {'valid': bool (holds now), 'kind': str, 'why': str (first words of its reason)}.
-    Valid: a reason + an expiry date still ahead; or a reason that a gate lane / tool names; or a bare KEEP younger than
+    Valid: a reason + an expiry date still ahead; or a reason that a tool names; or a bare KEEP younger than
     KEEP_BARE_DAYS (a hold from its mtime). Everything else is no hold (reported in --plan)."""
     f = os.path.join(d, 'KEEP')
     try:
@@ -818,18 +763,18 @@ def keep_info(d):
         info['valid'] = until > now
         info['kind'] = ('expiry %s' if until > now else 'expired %s (no hold)') % m.group(1)
     elif reason:
-        corpus, lanes = reader_corpus()
+        corpus = reader_corpus()
         try:
             key = repo_key(d)
         except ValueError:
             key = ''
         low = re.sub(r'[\\/]+', '/', reason).lower()
         # S102 K1 (R12 change 1): the reader names the folder ITSELF (a longer path under it does not count: out/s100 was held for 39.8 GB because a
-        # lane named out/s100/attires; that child is protected by its own name), and a tool the reason points at must name the folder too.
+        # check named out/s100/attires; that child is protected by its own name), and a tool the reason points at must name the folder too.
         named = bool(key) and bool(keep_name_re(key).search(corpus))
         named = named or any(_tool_names(t, key) for t in TOOL_REF_RE.findall(low))
         if named:
-            info.update(valid=True, kind='named by a gate lane / tool')
+            info.update(valid=True, kind='named by a tool')
     if not info['valid'] and not info['kind'].startswith('expired'):
         left = st.st_mtime + KEEP_BARE_DAYS * 86400
         if now < left:
@@ -978,6 +923,9 @@ def check_worktree_inner(w, age, protect, carried, subs):
         return w
     w['b'], w['n'], w['t'], links, keeps = walk_tree(p)
     key = repo_key(p)
+    if key.startswith('out/wt/exe-slot'):      # S106 G2LF F4: lane C4's exe slots (out\wt\exe-slot1..3): an idle detached slot is a cold build to remake, kept like the other worktree keeps
+        w.update(state='kept', why="an exe-build slot (out/wt/exe-slot*): the exe lane's build tree")
+        return w
     # A state doc naming a parent (out\\harness\\bisect\\wt) protects nothing below it; a deliberate --hold on one does.
     if any(k == key or k.startswith(key + '/') for k in protect) or any(key.startswith(k + '/') for k in carried):
         w.update(state='kept', why='named in a state doc or carried')
@@ -1214,6 +1162,23 @@ class Deleter:
             with self.lock:
                 self.skipped += 1
             return subs
+        if os.path.normcase(os.path.dirname(os.path.abspath(d))) == os.path.normcase(os.path.join(os.path.abspath(OUT), 'exe')):
+            # S106 G2LF F1: an out/exe/<name> folder. A game may have started after the scan: re-read the busy set now (skip the whole folder), and probe every
+            # top-level .exe / .dll with a rename round trip BEFORE anything is deleted (a loaded image cannot be renamed: the folder is then left untouched).
+            if os.path.normcase(os.path.abspath(d)) in {os.path.normcase(x) for x in busy_exe_dirs()}:
+                with self.lock:
+                    self.skipped += 1
+                self.err(d, 'an exe in it is running: folder left whole')
+                return subs
+            for e in entries:
+                if e.name.lower().endswith(('.exe', '.dll')) and not e.is_dir(follow_symlinks=False):
+                    src = os.path.join(d, e.name)
+                    try:
+                        os.rename(lp(src), lp(src + '.tidychk'))
+                        os.rename(lp(src + '.tidychk'), lp(src))
+                    except OSError as ex:
+                        self.err(d, 'an image in it is in use (%s: %s): folder left whole' % (e.name, ex))
+                        return []
         # (d) never delete part of a folder: capture markers go first (tools re-extract only when images.bin is missing), and the
         # first file that cannot be removed (open, locked) stops this folder: the rest stays, and so do its subfolders.
         entries.sort(key=lambda e: (e.name.lower() not in CAPTURE_MARKERS and not (e.name.lower().startswith('case_') and e.name.lower().endswith('.zip')),
@@ -1905,7 +1870,7 @@ def report_lines(sw, wts, live, problems, held):
     area, types = summarize(items, wts)
     total = sum(i['b'] for i in items)
     L = ['tidy plan %s. out\\ is SCRATCH: at the end of a session (and when no session is live) everything in it goes except the allowlist, '
-         'tools\\harness\\keep_list.txt and gate-lane-named exact paths. No ages. While a session is live out\\ is left alone (only --now under the reserve).' % stamp(),
+         'tools\\harness\\keep_list.txt and exact paths a check script names. No ages. While a session is live out\\ is left alone (only --now under the reserve).' % stamp(),
          'live sessions: ' + (', '.join('%s (since %s)' % (s_[0][:8], stamp(s_[1])) for s_ in live) or 'none'),
          'C: free now: %.0f GB' % free_gb(), '',
          'WOULD DELETE AT SESSION END: %s (%d items)' % (human(total), len(items)), '']
@@ -1966,8 +1931,8 @@ KEEP_LIST = os.environ.get('TIDY_TEST_KEEP') or next(
 
 
 def protect_keys():
-    """-> (keys, named): the gate-named exact paths (S102 TIDY2: the state docs no longer protect anything) and the --hold carry-overs."""
-    named = dict(gate_inputs())
+    """-> (keys, named): the exact paths a check names (S102 TIDY2: the state docs no longer protect anything) and the --hold carry-overs."""
+    named = dict(named_inputs())
     return set(named) | carried_keys(), named
 
 
@@ -1975,7 +1940,7 @@ _held_cache = []
 
 
 def held_index(fresh=False):
-    """-> (HeldIndex, problems): the allowlist, the keep list, the gate-named exact paths, the carry-overs. Cached per process."""
+    """-> (HeldIndex, problems): the allowlist, the keep list, the exact paths a check names, the carry-overs. Cached per process."""
     global HELD
     if _held_cache and not fresh:
         return _held_cache[0]
@@ -1987,17 +1952,6 @@ def held_index(fresh=False):
     except OSError:
         pass
     h = tidy_out.HeldIndex(version, entries, named, carried_keys())
-    lane_dir = os.path.join(REPO, 'tools', 'gate', 'lanes')      # a gate lane that names a container / an unpack copy is a lint error and protects nothing
-    try:
-        for n in sorted(os.listdir(lane_dir)):
-            if n.endswith('.json'):
-                try:
-                    with open(os.path.join(lane_dir, n), encoding='utf-8') as f:
-                        problems += ['lint: ' + x for x in tidy_out.lint_lane_data(json.load(f), n, OUT)]
-                except (OSError, ValueError):
-                    pass
-    except OSError:
-        pass
     _held_cache[:] = [(h, problems)]
     HELD = h
     return _held_cache[0]
@@ -2013,8 +1967,34 @@ def scan_out(wts, idle_h=None):
     held, _ = held_index()
     skip = {os.path.normcase(os.path.abspath(w['path'])) for w in wts}
     cutoff = time.time() - idle_h * HOUR if idle_h else None
-    items, rows, notes = tidy_out.sweep(OUT, held, skip, cutoff, type_of)
+    items, rows, notes = tidy_out.sweep(OUT, held, skip, cutoff, type_of, busy_dirs=busy_exe_dirs())
     return Sweep(items, rows, notes)
+
+
+def running_image_paths():
+    """S106 G2L: exe image paths of every running process (psutil; TIDY_TEST_PROCS = a JSON list in the selftest). Unreadable processes are skipped."""
+    if TEST and os.environ.get('TIDY_TEST_PROCS') is not None:
+        try:
+            return [str(x) for x in json.loads(os.environ['TIDY_TEST_PROCS'])]
+        except ValueError:
+            return []
+    try:
+        import psutil
+    except ImportError:
+        return []
+    out = []
+    for p in psutil.process_iter(['exe']):
+        try:
+            if p.info.get('exe'):
+                out.append(p.info['exe'])
+        except (psutil.Error, OSError):
+            pass
+    return out
+
+
+def busy_exe_dirs():
+    """S106 G2L: out\\exe\\<name> folders a running process image sits in: the sweep skips them whole."""
+    return tidy_out.busy_exe_dirs(OUT, running_image_paths())
 
 
 def disk_status(log=False):
@@ -2025,14 +2005,14 @@ def disk_status(log=False):
     return tidy_disk.disk_line(f, tidy_disk.read_free(TIDY), now, RESERVE_GB)
 
 
-def gate_named_fn():
+def named_fn():
     h = held_index()[0]
     return lambda path: bool(h.why(repo_key(path)))
 
 
 def cmd_dupes():
     """R12 change 5, report only: byte-identical capture folders under out\\ (a folder holding images.bin / manifest.json), each set once; the
-    copy a gate lane or check names is the one to keep. Nothing is deleted, linked or moved."""
+    copy a check names is the one to keep. Nothing is deleted, linked or moved."""
     t0 = time.time()
     cand = []
     for dp, dn, fn in os.walk(OUT):
@@ -2044,7 +2024,7 @@ def cmd_dupes():
             cand.append(dp)
             dn[:] = []
     groups = tidy_disk.find_dupes(cand)
-    L, saved = tidy_disk.dupe_lines(groups, gate_named_fn(), human)
+    L, saved = tidy_disk.dupe_lines(groups, named_fn(), human)
     L.insert(0, 'duplicate captures: %d capture folders, %d identical sets, %s could be stored once (report only; scan took %.0f s)' % (
         len(cand), len(groups), human(saved), time.time() - t0))
     os.makedirs(TIDY, exist_ok=True)
@@ -2177,7 +2157,7 @@ def cmd_auto(trigger, dry, session_id):
     wts = check_worktrees(age, protect, now)
     do_out, why_not, idle_h = out_sweep_decision(trigger, live, session_id, now)
     held, problems = held_index(fresh=True)
-    if do_out and problems:      # fix 4: FAIL CLOSED. A flagged gate name / bad keep line would stop holding its inputs: no sweep until it is fixed
+    if do_out and problems:      # fix 4: FAIL CLOSED. A bad keep line would stop holding its inputs: no sweep until it is fixed
         do_out, why_not = False, 'LOUD: %d lint / keep-list problem(s): out\\ NOT swept until fixed (first: %s)' % (len(problems), problems[0][:140])
         history('out\\ sweep skipped: ' + why_not)
         if not dry:
@@ -2495,8 +2475,8 @@ def main():
     ap.add_argument('--disk', action='store_true', help='S102 K1: print the [disk] line (free space and its rate of fall)')
     ap.add_argument('--scratchpads', action='store_true', help='S102 K1: also run the Claude scratchpad delete pass (OFF by default until Jarrod says yes)')
     ap.add_argument('--dupes', action='store_true', help='S102 K1: report byte-identical capture folders (reads only)')
-    ap.add_argument('--missing', action='store_true', help='list gate-named inputs that do not exist')
-    ap.add_argument('--guard', nargs='+', metavar='PATH', help='exit 1 and name every PATH a delete must refuse (a gate input, inside one, or holding one)')
+    ap.add_argument('--missing', action='store_true', help='list inputs a check names that do not exist')
+    ap.add_argument('--guard', nargs='+', metavar='PATH', help='exit 1 and name every PATH a delete must refuse (an input a check names, inside one, or holding one)')
     ap.add_argument('--dry', action='store_true')
     ap.add_argument('--ahead', type=float, help='with --plan: a read-only forecast, as if it were N hours later')
     ap.add_argument('--session', help='this session id, for --auto end (default: the transcript written most recently)')
@@ -2531,8 +2511,8 @@ def main():
     if a.dupes:
         return cmd_dupes()
     if a.missing:
-        ml = missing_gate_inputs()
-        print('\n'.join('MISSING GATE INPUT: %s  (named by %s)' % m for m in ml) or 'no gate input is missing')
+        ml = missing_inputs()
+        print('\n'.join('MISSING INPUT: %s  (named by %s)' % m for m in ml) or 'no named input is missing')
         return 0
     if a.guard:
         bad = [(p, r) for p, r in guard_paths(a.guard) if r]

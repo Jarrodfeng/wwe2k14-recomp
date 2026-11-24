@@ -28,6 +28,14 @@
 #include "sc_support.h"   // S103 SC
 #include "../../src/renderer_scene/quads2d_draw.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_crowd.h"
+#include "../../src/renderer_scene/rows_liquid.h"
+#include "../../src/renderer_scene/rows_part_clock.h"
+#include "../../src/renderer_scene/rows_pictures.h"
+#include "../../src/renderer_scene/rows_plane.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 
 using namespace rdr_scene;
 

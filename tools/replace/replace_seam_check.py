@@ -223,7 +223,7 @@ def main():
     else:
         for kind, rc_k, text in [('arena', rc_a, t_arena), ('wrestlers', rc_w, t_wres)]:
             if kind in registered:
-                print('SKIP  %s class is registered in this build: the "no class registered" arm does not apply (its own lane gate proves it)' % kind)
+                print('SKIP  %s class is registered in this build: the "no class registered" arm does not apply (its own lane check proves it)' % kind)
             else:
                 verdict(rc_k != 0 and ('no %s class' % kind) in text, '--%s-ours with no class registered refuses loudly (exit %d, message named)' % (kind, rc_k))
     print('%s  (%d failed)' % ('PASS' if not fails else 'FAIL', fails))

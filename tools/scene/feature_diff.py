@@ -2,7 +2,7 @@
 r"""Feature diff (Session 103, lane T2): WHAT IS DRAWN, game vs ours, per frame and per class. 0 game runs, 0 Surface runs; offline.
 
   py -I tools\scene\feature_diff.py CASE.zip [--frames 400,500] [--out DIR] [--env KEY=VAL ...] [--json OUT.json] [--max-values 12]
-  py -I tools\scene\feature_diff.py --selftest          (the tool's own check: synthetic faults on a real case frame; the gate lane s103_T2 runs it)
+  py -I tools\scene\feature_diff.py --selftest          (the tool's own check: synthetic faults on a real case frame)
 
 Why: the census checks INPUTS ("is this value read and stamped") and the mirror sheet's difference image is one blended number. Nothing compared WHAT IS DRAWN, so whole features
 (the crowd lit, the barricade's alpha_spec variant, the wrestlers' shadows, rim lights, depth of field) went missing while every check passed. This tool lists them.
@@ -13,7 +13,7 @@ Three layers, game side read in Python from the case's own stream (tools\solver\
   2 VARIANTS  per class (arena / props / wrestler / crowd) the vertex / pixel variants and their FX_* defines (FX_LIT, FX_SHADOW, FX_RIM*, FX_ALPHA_SPEC, FX_LM*, ...) drawn, and draw counts.
   3 VALUES    per texture slot what is bound (a real map / white / black / neutral / missing) and every named constant the draws are fed (DifLghCol / DifLghVec / Amb / Sky / Ground,
               ShadowPrm, TexProjLight, MatAmbCol / MatDifCol, the rim / sweat params ...): a game value no draw of ours is fed (beyond a per-constant tolerance) is reported, worst first.
-Output per frame: a short table + a MISSING list (worst first) + the VALUES list; the case summary merges the frames. Exit 0 always for a report run (it reports; the gate lane checks it).
+Output per frame: a short table + a MISSING list (worst first) + the VALUES list; the case summary merges the frames. Exit 0 always for a report run (it reports).
 Game bytes are read in place (the zip); nothing is written but our own numbers (--out under out\).
 """
 import argparse, collections, json, math, os, re, struct, subprocess, sys, zipfile

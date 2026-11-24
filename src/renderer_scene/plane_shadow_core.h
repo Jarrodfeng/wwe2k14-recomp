@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_plane.h"
 #include "../renderer/render_lean.h"   // S102 RT1: the switch globals only (plain C++, no Vulkan)
 
 namespace rdr_scene::plane {

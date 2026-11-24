@@ -79,15 +79,7 @@ bool Load(int arena, StageArena& out, std::string& err, bool viewer_space) {
     s.strip_indices = me.strip_indices;
     s.index_groups = me.index_groups;
     s.indices = me.indices;
-    // The game's UV: the diffuse UV is S1; a mesh whose S1 is ONE constant pair (0, 1) while S2 varies keeps the real diffuse UV in S2, with or without a light map
-    // (the viewer's loader swaps only without one: a light-map mesh needs S2 as ITS set; the game's vertex has one UV and lights the map from the world position).
-    // [C: tools\arena\arena_ours_test on the Check B capture, uv class report; the loader's own swap has already happened where it applies.]
-    bool s1_const = me.vertices.size() > 1, s2_vary = false;
-    for (size_t i = 1; i < me.vertices.size() && s1_const; ++i) {
-      s1_const = me.vertices[i].uv0[0] == me.vertices[0].uv0[0] && me.vertices[i].uv0[1] == me.vertices[0].uv0[1];
-      s2_vary = s2_vary || me.vertices[i].uv1[0] != me.vertices[0].uv1[0] || me.vertices[i].uv1[1] != me.vertices[0].uv1[1];
-    }
-    const bool uv_from_s2 = s1_const && s2_vary;
+    // The game's UV (S108 BAN3): the loader's uv0 is S2 pair 0 for every mesh (sub_82BD4BE0); the light map is read from the world position.
     if (me.src_skin_pairs == 1 && me.src_skin_slots.size() == 4 * me.vertices.size() && me.src_skin_weights.size() == 4 * me.vertices.size()) {  // S101 lane 49
       std::vector<uint8_t> ids, weights;
       bool all = true;
@@ -106,7 +98,7 @@ bool Load(int arena, StageArena& out, std::string& err, bool viewer_space) {
       d.pos[0] = v.pos[0], d.pos[1] = ys * v.pos[1], d.pos[2] = v.pos[2];
       d.normal[0] = v.normal[0], d.normal[1] = ys * v.normal[1], d.normal[2] = v.normal[2];
       std::memcpy(d.color, &v.color, 4);
-      d.uv[0] = uv_from_s2 ? v.uv1[0] : v.uv0[0], d.uv[1] = uv_from_s2 ? v.uv1[1] : v.uv0[1];
+      d.uv[0] = v.uv0[0], d.uv[1] = v.uv0[1];
       s.uv1.push_back(v.uv1[0]), s.uv1.push_back(v.uv1[1]);
     }
     if (me.material >= 0 && size_t(me.material) < model.materials.size()) {

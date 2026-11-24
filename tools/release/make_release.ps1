@@ -63,7 +63,7 @@ Set-Location $R
 
 function Fail([string]$why) { "make_release: FAILED: $why"; exit 1 }
 . (Join-Path $PSScriptRoot 'release_configure_args.ps1')
-# Session 102: the profile and the configure lines, before anything else can fail (the gate runs -PlanOnly).
+# Session 102: the profile and the configure lines, before anything else can fail (-PlanOnly stops there).
 $profFull = ''
 if ($GuestProfdata) {
     if (-not (Test-Path -LiteralPath $GuestProfdata -PathType Leaf)) { Fail "-GuestProfdata: $GuestProfdata not found" }

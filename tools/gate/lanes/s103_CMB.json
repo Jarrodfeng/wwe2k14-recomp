@@ -1,8 +1,0 @@
-{
- "owner": "S103 lane CMB: composite attires composed on the host in the stream-free build (src/assets/attire_compose.h, docs/research/s103/CMP.md). 0 game runs.",
- "checks": [
-  {"name": "s103_CMB.build_check", "cmd": ["pwsh", "-NoProfile", "-File", "tools/assets/build_attire_compose_check.ps1"], "timeout_s": 600, "affects": ["src/assets/attire_compose.h", "tools/assets/attire_compose_check.cpp", "tools/assets/build_attire_compose_check.ps1"]},
-  {"name": "s103_CMB.unit", "cmd": ["out/tools/attire_compose_check.exe", "unit"], "reads": ["out/tools/attire_compose_check.exe"], "timeout_s": 60, "affects": ["src/assets/attire_compose.h", "tools/assets/attire_compose_check.cpp"]},
-  {"name": "s103_CMB.proof", "cmd": ["py", "-I", "tools/assets/attire_compose_check.py", "--no-build"], "reads": ["out/tools/attire_compose_check.exe"], "needs": ["game_data/extracted", "out/captures/s100_heenan_build"], "timeout_s": 900, "affects": ["src/assets/attire_compose.h", "tools/assets/attire_*.py", "tools/assets/attire_compose_check.cpp"], "cache": false}
- ]
-}

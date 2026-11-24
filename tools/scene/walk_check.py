@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""S103 lane WB gate check (the scene-walk bit; docs\research\s103\PM_post_match_menu.md section 5 item 2). 0 game runs, a headless GPU, no game process.
+r"""S103 lane WB check (the scene-walk bit; docs\research\s103\PM_post_match_menu.md section 5 item 2). 0 game runs, a headless GPU, no game process.
 
   py -I tools\scene\walk_check.py [--root DIR]
 
@@ -9,7 +9,7 @@ rule: records 0-346 carry an OURS Scene3D stamp with the walk bit (a Model / Cro
   1. census: records 0 and 346 hold an arena, records 400 and 781 STILL hold the arena (the bug's input: the record never forgets it);
   2. `--walk-until 347 --frames 100,300,360,500,781`: 100 and 300 are DRAWN in 3D (source draw3d), 360 / 500 / 781 are flat (source black, never a drawn dark arena, never hold3d);
   3. twin `--walk-all`: the same records all carrying the walk bit must FAIL at 360 / 500 / 781 (a check that cannot fail proves nothing).
-Skips with exit 0 (printed SKIP) when the case zip / game files / host_rig.exe are missing, the way a gate `needs` does.
+Skips with exit 0 (printed SKIP) when the case zip / game files / host_rig.exe are missing.
 Exit 0 = pass, 1 = fail."""
 import argparse
 import os

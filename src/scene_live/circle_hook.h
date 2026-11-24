@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "../renderer_scene/circle_shadow_core.h"
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_circle.h"
 
 namespace rdr_scene::live::circles {
 

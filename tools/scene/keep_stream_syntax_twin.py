@@ -74,8 +74,8 @@ def main():
     rc, hit, n, txt = run()
     expect('compile_error_replayed_as_failure', rc != 0 and hit == 1 and 'kScratch' in txt, 'rc %d, served %d of %d (a second run must replay the FAILURE with its diagnostics, never a pass)' % (rc, hit, n))
     open(hdr, 'w').write(stamp + base)
-    # step 7 (the second-preprocess race guard) moved to tools\gate\syntax_store_selftest.py row 10 (S105 CC F1): it exercises game_syntax's own store directly
-    sys.path.insert(0, os.path.join(root, 'tools', 'gate'))
+    # step 7 (the second-preprocess race guard) moved to tools\compile\syntax_store_selftest.py row 10 (S105 CC F1): it exercises game_syntax's own store directly
+    sys.path.insert(0, os.path.join(root, 'tools', 'compile'))
     import game_syntax as gs
     got = gs.norm_args(['-IC:/a/wt/src', '-I' + 'C:/a', '-IC:\\a\\wt'], (('C:/a', '<MAIN>'), ('C:/a/wt', '<ROOT>')))
     expect('path_placeholders', got == ['-I<ROOT>/src', '-I<MAIN>', '-I<ROOT>'], 'flags with the tree paths: %s (a worktree inside the main checkout, either slash style, must read the same in every worktree)' % got)

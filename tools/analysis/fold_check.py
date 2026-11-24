@@ -1,4 +1,4 @@
-r"""Gate check for tools/analysis/fold.py (S103 lane T2). Needs the local generated code; writes under out\analysis\fold_check\.
+r"""Check for tools/analysis/fold.py (S103 lane T2). Needs the local generated code; writes under out\analysis\fold_check\.
 
   py -I tools\analysis\fold_check.py
 

@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
-# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
 # Session 101 lane 198 (the coverage sweep, SESSION101_PLAN.md "Coverage sweep"): the UNIVERSE column of the coverage board (4 cells: UI pictures, UI text, UI sprites + rects,
 # Movie planes; all "none" before: no zip has ever been assigned to Universe). The board assigns a zip to an item by the ROUTE NAME first (tools\board\coverage.py ITEM_RULES:
 # 'universe' in the name), so the file name must keep the word "universe". Boot -> main menu -> UNIVERSE (item 2), ~1600 frames on the screen (two census windows of 600),

@@ -1,0 +1,102 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=385,324 --wwe2k14_dlc=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false
+# Session 108 lane PRT check: Fandango's WHOLE entrance to its end (character 385, DLC), fixed build only (Jarrod: "Run his entrance
+# uncapped fast forwarded, not in a before build, post fix, seeing the pyro will be a good thing").
+# Question: are the entrance's particles drawn, above all at the end: Fandango in the ring, a big sign above him, pyro bursting out of it
+# (Jarrod's description of the real game)? Before S108 lane PRT our particle namer named 0 of ~30,000 textures in this entrance and every
+# batch was skipped (`particles_unnamed_skipped`, `draws 0`).
+# The dancer comes out first (that is how his entrance works). Shots: one at his entrance steps 1, 5 and 10 (the stage and ramp), then
+# sc_fan_end_00 .. 11 every 50 frames from step 15 (the in-ring end; adjust the step if the lane's plan names another), all local only.
+# Fast-forwarded the entrance follows the wall clock, so shots are spread through the moment, not frame-exact. Run it alone.
+# Read it with: py -I tools\bench\run_read.py <exe folder> --expect "event prop id 2591 -> PACH 400000 (entry 4)" --zero capped --zero particles_unnamed_skipped
+on_fail quit
+log bench: start scene s108_fandango_entrance_end
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+wait_state entrance_step_0 >=1 3600 2
+log scene=fandango_step1
+mark 1 fandango_step1
+wait_frames 200
+screenshot sc_fan_step1
+wait_state entrance_step_0 >=5 30000 2
+log scene=fandango_step5
+mark 2 fandango_step5
+screenshot sc_fan_step5
+wait_state entrance_step_0 >=10 30000 2
+log scene=fandango_step10
+mark 3 fandango_step10
+screenshot sc_fan_step10
+wait_state entrance_step_0 >=15 30000 2
+log scene=fandango_step15 (the in-ring end)
+mark 4 fandango_step15
+screenshot sc_fan_end_00
+wait_frames 50
+screenshot sc_fan_end_01
+wait_frames 50
+screenshot sc_fan_end_02
+wait_frames 50
+screenshot sc_fan_end_03
+wait_frames 50
+screenshot sc_fan_end_04
+wait_frames 50
+screenshot sc_fan_end_05
+wait_frames 50
+screenshot sc_fan_end_06
+wait_frames 50
+screenshot sc_fan_end_07
+wait_frames 50
+screenshot sc_fan_end_08
+wait_frames 50
+screenshot sc_fan_end_09
+wait_frames 50
+screenshot sc_fan_end_10
+wait_frames 50
+screenshot sc_fan_end_11
+# S108 run 4: at step 15 + 550 frames he is only at ringside, so the in-ring end (the sign and its pyro) is later: 20 more shots, one every
+# 150 frames (another 3,000 frames of entrance), named sc_fan_ring_NN.
+wait_frames 150
+screenshot sc_fan_ring_00
+wait_frames 150
+screenshot sc_fan_ring_01
+wait_frames 150
+screenshot sc_fan_ring_02
+wait_frames 150
+screenshot sc_fan_ring_03
+wait_frames 150
+screenshot sc_fan_ring_04
+wait_frames 150
+screenshot sc_fan_ring_05
+wait_frames 150
+screenshot sc_fan_ring_06
+wait_frames 150
+screenshot sc_fan_ring_07
+wait_frames 150
+screenshot sc_fan_ring_08
+wait_frames 150
+screenshot sc_fan_ring_09
+wait_frames 150
+screenshot sc_fan_ring_10
+wait_frames 150
+screenshot sc_fan_ring_11
+wait_frames 150
+screenshot sc_fan_ring_12
+wait_frames 150
+screenshot sc_fan_ring_13
+wait_frames 150
+screenshot sc_fan_ring_14
+wait_frames 150
+screenshot sc_fan_ring_15
+wait_frames 150
+screenshot sc_fan_ring_16
+wait_frames 150
+screenshot sc_fan_ring_17
+wait_frames 150
+screenshot sc_fan_ring_18
+wait_frames 150
+screenshot sc_fan_ring_19
+wait_frames 100
+log scene=end (step 15 + 3650 frames)
+mark 5 end
+log bench: done
+quit

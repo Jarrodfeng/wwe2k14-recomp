@@ -8,6 +8,7 @@
 #include <string>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_arena_world.h"   // S106 G4-2
 #include "arena_world_hook.h"
 #include "tail_latch.h"  // S102 U1
 

@@ -16,7 +16,7 @@ foreach ($spec in ($Arms -split ',')) {
     $csv = "$R\$OutDir\ab_threads_$($spec -replace '\+','_')_$(Get-Date -Format HHmmss).csv"
     $job = Start-Job { param($t, $o, $e) & pwsh -NoProfile -File $t -Out $o -WaitForStart 1800 -ExePath $e } -ArgumentList "$PSScriptRoot\thread_busy.ps1", $csv, "$dir\wwe2k14.exe"
     $flags = "$Extra $(if ($set) { $ArmExtra[$set] })".Trim()
-    $args2 = @{ Scripts = @($route); Exe = "$dir\wwe2k14.exe"; RealTime = $true; NoTriage = $true; WaitSeconds = 420 }
+    $args2 = @{ Scripts = @($route); Exe = "$dir\wwe2k14.exe"; NoTriage = $true; WaitSeconds = 420 }
     if ($Exclusive) { $args2.Exclusive = $true }
     if ($flags) { $args2.Extra = $flags }
     $o = & "$R\tools\bench\run_list.ps1" @args2 2>&1 | Where-Object { "$_" -match '->' }

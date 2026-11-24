@@ -41,7 +41,7 @@ inline const char* Where(const launcher::GameFiles& files, const std::string& re
   if (files.InRoot(rel)) return "disc";
   const launcher::GameFiles::Overlay* o = files.OverlayOf(rel);
   if (!o) return "none";
-  return o->kind == "mod" ? "mod" : "dlc";
+  return o->kind == "mod" || o->kind == "lib" ? "mod" : "dlc";  // S110 SEAT-B: "lib" = a resident's library folder (src\seats_core.h), reported as "mod"
 }
 
 }  // namespace rdr_scene::wrestler_src

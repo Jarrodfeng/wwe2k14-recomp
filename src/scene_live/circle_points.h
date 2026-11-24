@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "inputs_core.h"
+#include "../renderer_scene/rows_circle.h"   // S106 G4-2
 
 namespace scene_inputs {
 

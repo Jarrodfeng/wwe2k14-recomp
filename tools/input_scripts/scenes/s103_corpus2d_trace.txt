@@ -1,5 +1,4 @@
-# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=343:0,324 --wwe2k14_launch_idle_frames=100000 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_capture=true --wwe2k14_rdr_2d_record=true --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true
-# harness: realtime (menu presses; fast-forwarded menus drop presses, LESSONS)
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=343:0,324 --wwe2k14_launch_idle_frames=100000 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_capture=true --wwe2k14_rdr_2d_record=true --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true --wwe2k14_replay_mode=true
 # intent: 2d_record on, rdr_capture on, no flag --wwe2k14_rdr_owner, launch lesnar_bryan
 # Session 103 lane CR: the 2D CORPUS capture run (docs\renderer\S103_AUDIT_REVIEW.md 3.3 "One capture run, early"; REMNANT_MAP section 0: only s100_heenan_build is a menu capture).
 #  Mirror off (no owner / scene switches): the game draws alone; the adapter only observes, so every window is a recording + the game's own picture. --wwe2k14_rdr_2d_record=true taps the 2D leaves

@@ -1,4 +1,4 @@
-"""S101 lane 72 (go anywhere's two gaps: the set behind a pushed scene, and leaving the stage): the offline pins, called from stage_selftest.py (gate lane scene_stage). No game run.
+"""S101 lane 72 (go anywhere's two gaps: the set behind a pushed scene, and leaving the stage): the offline pins, called from stage_selftest.py. No game run.
 
 Design: docs/research/s101/GOANY_stage_set_and_leave.md. What is checked, all against the shipped files:
  8. Arena: src/scene_stage_logic.h ArenaLoadable (clang++ via scene_stage_test.cpp) answers every id 0-300 like the player's own pac\\bg\\bgNN.pac listing (read only, counts

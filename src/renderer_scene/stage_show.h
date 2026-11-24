@@ -8,7 +8,7 @@
 #include <initializer_list>
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_stage_fx.h"
 
 namespace rdr_scene {
 

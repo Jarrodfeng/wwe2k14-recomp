@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Lane UPS's gate check (Session 103): the stage light-map page is ONE image per arena set, uploaded once per key change. 0 game runs: fview headless + frame_rig.exe on brock_losswin_rt (an entrance).
+r"""Lane UPS's check (Session 103): the stage light-map page is ONE image per arena set, uploaded once per key change. 0 game runs: fview headless + frame_rig.exe on brock_losswin_rt (an entrance).
 
   py -I tools\scene\up_check.py [--out DIR] [--frames 20,60,100,140,180]
 

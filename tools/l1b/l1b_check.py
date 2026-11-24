@@ -3,7 +3,7 @@ src\renderer\shaders\rdr_light_cubes.comp; renderer: renderer.cpp LightCubesInit
   py -I tools\l1b\l1b_check.py [--root DIR] [--only census,wiring,unit,selftest,replay,counts,plants,pics,opcount] [--captures bryan,brock]
 
 fview sweeps (--sweep: the picture, the frame the renderer is given: ops / targets / draws / copies, and with FVIEW_SWEEP_CUBE_DUMP the bytes of every layer of every cube bound at fetch slot 13) on the
-gate's Bryan capture and on Check B (brock, every 4th frame's cubes dumped), under the PLAYER CONFIG (the shipped promotions bundle: --crowd-ours ... --shadows-ours; G12's copy batch ON in both arms):
+the Bryan capture and on Check B (brock, every 4th frame's cubes dumped), under the PLAYER CONFIG (the shipped promotions bundle: --crowd-ours ... --shadows-ours; G12's copy batch ON in both arms):
   main      switch off (the stream's bake) vs on (the dispatch): validation read from the error count AND the exit code; every slot taken (census), none declined, the audit counters 0; the cubes' texels compared
             with the stream's bake (l1b_cubes.py: |off - on| per channel, the bars below); the pictures' differing frames counted; dispatches = frames taken; passes (targets) fall by exactly the taken
             slots, draws by the taken slots, copies by 6 x taken.
@@ -203,8 +203,8 @@ def wiring(root):
         line(ok, 'wiring: %s' % what)
         line(planted != text and needle not in planted, '  twin: with that link removed the check fails (did apply: %s)' % (planted != text))
     for what, script, extra in (('own_pass_helpers_lint (no bare builder.SetTargets / builder.Copy in the new code)', os.path.join('tools', 'shadow', 'own_pass_helpers_lint.py'), ['--root', root]),
-                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'gate', 'lint_seen.py'), ['--root', root]),
-                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'gate', 'win_macro_lint.py'), ['--root', root]),
+                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'lint', 'lint_seen.py'), ['--root', root]),
+                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'lint', 'win_macro_lint.py'), ['--root', root]),
                                 ('device_features_lint (the device creation is as it was: no feature, no extension)', os.path.join('tools', 'renderer', 'device_features_lint.py'), ['--root', root]),
                                 ('spv_lint (every SPIR-V header but this lane\'s three compute shader headers byte-equal to the tip\'s)', os.path.join('tools', 'l1b', 'spv_lint.py'), ['--root', root])):
         if not os.path.exists(os.path.join(root, script)):

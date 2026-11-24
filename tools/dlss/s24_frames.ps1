@@ -3,12 +3,12 @@
 # (tools\input_scripts\short\s21_hash.txt: frame-locked clip from Brock's titantron to match +2,000), with
 # --async_shader_compilation=false (deterministic rendering) and --wwe2k14_clip_png=FRAMES.
 #   & .\tools\dlss\s24_frames.ps1 -Tag T -Arms @('native2=', 'dlss_perf=--wwe2k14_dlss=true ...', ...) [-Parallel 2]
-#       [-Frames 'A-B/S,...'] [-RealTime]
+#       [-Frames 'A-B/S,...']
 # Output: out\dlss_s24\frames\T\ARM\RUN_clip_h_fGUEST.png (+ the run's clip json / hashes), and T\arms.txt
 # (arm = run). Local only (game frames).
 param([Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string[]]$Arms, [int]$Parallel = 2,
       [string]$Frames = '2457,2700,5771-5891/30,5830-5833,7600,7800,10200,10500,10850-10872/2,11262-11278/4,11700',
-      [string]$Common = '', [switch]$RealTime, [string]$Route = 'tools\input_scripts\short\s21_hash.txt')
+      [string]$Common = '', [string]$Route = 'tools\input_scripts\short\s21_hash.txt')
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $route = "$R\$Route"   # -Route: e.g. tools\input_scripts\short\s24_pan.txt (Bryan's ramp pan only)
 $root = "$R\out\dlss_s24\frames\$Tag"
@@ -24,7 +24,7 @@ foreach ($a in $Arms) {
                 "--wwe2k14_clip_frame_locked=true --wwe2k14_clip_hash_log=true --wwe2k14_clip_png=$Frames " +
                 "$Common $flags").Trim()
 }
-$sw = @{ RealTime = [bool]$RealTime }
+$sw = @{}
 $out = & "$R\tools\bench\run_list.ps1" -Scripts $scripts -ScriptExtras $extras @sw -Parallel $Parallel -WaitSeconds 1500 2>&1
 $lines = @($out | Where-Object { "$_" -match ' -> wwe2k14_(\d+)' })
 $lines | ForEach-Object { "frames: $_" }

@@ -7,6 +7,7 @@ src/assets/stage_media.h|WWE_STAGE_MEDIA_LOG|1
 src/assets/view/lightmatch_plant.h|WWE_LM_PLANT|1
 src/assets/view/mods_android.cpp|WWE2K14_FILES_DIR|1
 src/assets/view/platform_sdl.cpp|WWE2K14_FILES_DIR|1
+src/assets/view/renderer.cpp|WWE_VIEWER_RECORD_CULL|1
 src/assets/view/renderer_rdr.cpp|WWE_RDR_NO_PALETTE|1
 src/assets/view/renderer_rdr.cpp|WWE_RDR_NO_TEXTURES|1
 src/assets/view/renderer_rdr.cpp|WWE_RDR_VALIDATION|2

@@ -10,22 +10,25 @@
 #include <cstdint>
 #include <mutex>
 #include "ring_stamp_flag.h"   // S103: bit 6 switch
+#include "../renderer_scene/rows_ring.h"   // S106 G4-2
 #include <string>
 #include <vector>
 
 #include "../renderer_game/scene_frame.h"
 #include "../renderer_scene/live_scene.h"
+#include "safe_guest_pages.h"   // S108 RDS review: PassLines (the take's pass scope)
+#include "../feed_seen.h"   // S110 FEEDREC
 #include "ring_recompute_core.h"
 #include "ring_rows_core.h"   // ringrows::NodeCount (the palette node count rule)
 #include "tail_latch.h"   // LatchMark
 
 namespace rdr_scene::live::ringrecompute {
 
-using ReadFn = bool (*)(uint32_t guest, void* dst, size_t n);
+using ReadFn = ::wwe2k14::feedseen::ReadFnT;   // S110 FEEDREC: the plain pointer outside coverage (feed_seen.h)
 inline uint32_t Swap32(uint32_t v) { return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24); }
-inline bool ReadWord(ReadFn read, uint32_t a, uint32_t& v) {
+inline bool ReadWord(ReadFn read, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) {
   uint32_t raw = 0;
-  if (!read || !read(a, &raw, 4)) return false;
+  if (!read || !read(a, &raw, 4 WWE_FEED_LOC_ARG)) return false;
   v = Swap32(raw);
   return true;
 }
@@ -369,6 +372,7 @@ class RingRecomputeContributor final : public Contributor {
     void Clear() { rows.clear(), pool.clear(); }
   };
   void Take(uint64_t frame, Out& out) {
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS review: this pass's line copy (the game's ReadGuest serves this thread's reads of up to 128 bytes through it until return: ReadInputs, ReadTurnbuckleInputs, the covers / posts / skirts)
     std::lock_guard<std::mutex> lk(cmu_);
     ++census_.frames;
     // STAMP = the callback's own frame (the record frame), the game's call stamp convention: run 16 compare (tools scene ring_compare.cpp): our rows of record j equal the game's RingRows of record j+1 (stamped j), 912 of 912.

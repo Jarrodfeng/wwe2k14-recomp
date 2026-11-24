@@ -7,7 +7,7 @@ and the ten images the two groups write hashed per frame; the GPU's targets / cl
   game          the stream as recorded
   ours          --own-shadow-module --own-rim-map: both groups found, taken out of the walk and re-issued as ONE unit each at the first pass's place (a unit that is one run keeps the stream's order)
   ours_m/ours_r one group at a time
-  records_only  --wrestlers-ours --shadow-casters-ours --rim-ours: the casters / rim map drawn from the scene records (lanes 99 / 124, byte-equal on their own gates)
+  records_only  --wrestlers-ours --shadow-casters-ours --rim-ours: the casters / rim map drawn from the scene records (lanes 99 / 124, byte-equal on their own checks)
   ours_records  records_only + the two groups: "the unit re-issued, the casters from the records we own"
   none_m/_r/_b  --own-shadow-module=none / --own-rim-map=none / both: the node's passes left out, NOTHING re-issued ("cutting the node without drawing ours": the planted twin, must FAIL the picture check)
   cut_b         tools\shadow\own_nodes_cut.py cut --which both: the capture itself rewritten with every op of both groups removed (the binder's `none` must equal it)
@@ -21,7 +21,7 @@ and the ten images the two groups write hashed per frame; the GPU's targets / cl
 Checks (PASS / FAIL):
   census        the C++ planner's groups == the Python census of the capture (passes, ops, draws, copies per group, every frame), every group ONE run of the frame's ops, both groups adjacent
   ours_equal    ours / ours_m / ours_r == game on EVERY frame (presented + the ten images + the GPU counts), validation 0
-  records       ours_records == records_only on every frame; records_only == game is reported (the casters' own gates prove it; here a number)
+  records       ours_records == records_only on every frame; records_only == game is reported (the casters' own checks prove it; here a number)
   none_fails    none_m / none_r / none_b differ from the game's picture on >= 90 % of the frames (readers read the maps / the rim map every frame), the reader images differ, validation 0
   counts        the GPU's draws / copies / targets fall by exactly the group's draws / copies / passes with none; the C++ left-out counts == the census
   none_vs_cut   none_b == cut_b on every frame (the binder's cut is the capture's cut)
@@ -237,7 +237,7 @@ def main():
         d_rec = differing(res['records_only'], res['ours_records'], nc)
         line(not d_rec, '%s: ours_records == records_only on every frame (the unit re-issued with the casters / rim map from the records changes nothing; frames differing %d)' % (name, len(d_rec)))
         d_g = differing(G, res['records_only'], 2)
-        print('      info  records_only vs game (presented): %d of %d frames differ (the casters\' own gates; not this lane\'s bar)' % (len(d_g), nframes))
+        print('      info  records_only vs game (presented): %d of %d frames differ (the casters\' own checks; not this lane\'s bar)' % (len(d_g), nframes))
         # none must fail
         for k, grp in (('none_m', ('module',)), ('none_r', ('rim',)), ('none_b', ('module', 'rim'))):
             dp = differing(G, res[k], 2)

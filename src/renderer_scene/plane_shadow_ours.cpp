@@ -1,5 +1,6 @@
 // See plane_shadow_ours.h. Session 101, lane 139 (SH3 slice 2).
 #include "plane_shadow_ours.h"
+#include "rows_plane.h"   // S106 G4-2
 
 #include <cstdio>
 #include <cstring>

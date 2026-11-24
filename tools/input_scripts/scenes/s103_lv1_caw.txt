@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_scene_records=true --wwe2k14_scene_light_states=true --wwe2k14_rdr_owner=true --wwe2k14_rdr_scene=2 --wwe2k14_s101_promotions=true --audio_mute=true
-# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
 # intent: owner on, scene 2
 # Session 103 lane CR: the 2D corpus, Create a Superstar (docs\renderer\S103_AUDIT_REVIEW.md 3.3; second route beside s103_corpus2d.txt). No match launched. Release +dev exe, mirror off (game draws), --wwe2k14_rdr_2d_record=true.
 #  Steps copied from nav\creations_to_new_caw.txt (Session 57, live run 3844) with a capture window at each page: CREATIONS list, the CAW editor (seq 76) after 900 frames, the template picked, the last tab

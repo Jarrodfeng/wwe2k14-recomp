@@ -7,7 +7,7 @@
 # with the participants swapped so Bryan (324) is slot 0 and comes out FIRST (Jarrod: no START skips); fixed seed 1 pins
 # his camera variant. Quits 300 frames (5 s of game time) after his entrance reaches step 15 (Jarrod: "end Bryan's run 5s
 # after step 15"): no Brock, no match. Fast-forwarded, the tron and the entrance follow the wall clock, so the 300 frames
-# can be less than 5 s of entrance; -Exclusive / -RealTime runs are 5 s.
+# can be less than 5 s of entrance; a run with `# intent: performance` (normal speed) is 5 s.
 # Boot pipelines skipped (Jarrod, for runs like this): the 406 stored pipelines are made on first use, not at boot (a boot
 # that made them took 2-18 s, runs 5805 / 5812). For a TIMED run pass -Extra '--vulkan_stored_pipelines_at_boot=true'
 # (the caller's flag wins), or the compiles land inside the measured scene.

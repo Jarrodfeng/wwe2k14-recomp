@@ -1,10 +1,9 @@
-"""qtools: `q ours` for OUR scripts (tools\\ python + ps1 + gate lane json), S103 QX2.
+"""qtools: `q ours` for OUR scripts (tools\\ python + ps1), S103 QX2.
 
     py tools/q/q.py ours def|refs|callers|callees|fn NAME      NAME = a python / ps1 function, class, variable, attribute, parameter, or a script
-                                                                (gate.py, gate_wait.main, Deleter.unlink, $RunDir); falls back to this index when the
+                                                                (build_ours.py, qtools.load, Deleter.unlink, $RunDir); falls back to this index when the
                                                                 C++ index has no such symbol; --tools asks for it first
-    py tools/q/q.py ours covers tools/gate/gate.py             gate lanes / checks that name the file (affects, needs, cmd) + scripts that name it
-    py tools/q/q.py ours lanes-of SCRIPT                       the same, one line per check with its command, and what the script invokes / who invokes it
+    py tools/q/q.py ours covers tools/q/build_ours.py          what the script invokes / who invokes it + the files that name it
 
 No persistent index: tools\\ is ~1,600 files (parse of all of it 2-3 s); a per-checkout cache (out/harness/index/qtools_cache.pkl, size + mtime per
 file) re-parses only files that changed, so the answer is always THIS checkout's (a worktree's own edits included, no staleness).
@@ -24,7 +23,7 @@ SKIP_DIRS = ('__pycache__', 'node_modules', '.git')
 SCRIPT_TOK = re.compile(r'[\w$.:\\/-]*?[\w-]+\.(?:ps1|py|exe|bat|cmd)\b', re.I)
 RE_FUNCS = {'compile', 'search', 'match', 'fullmatch', 'findall', 'finditer', 'sub', 'subn', 'split'}
 RX_LIKE = re.compile(r'\\[\[\]dswbDSW.(){}]|\(\?|\.\*|\[\^?[\w\\-]+\][+*?]|\\d')
-CACHE_VER = 3
+CACHE_VER = 4       # S108 FD: records carry the file's sha1 (reused by content after a checkout / in a fresh worktree)
 
 
 def base_script(tok):
@@ -257,8 +256,34 @@ def list_files(root):
     return out
 
 
-def load(root=ROOT, budget=None):
-    """-> {rel: record}; every .py / .ps1 of tools, probes, src, android, assets (parsed fresh when size / mtime differ from the cache)."""
+SEED_MIN = 50                  # this many stamp misses = a fresh tree: also reuse the main checkout's parses (by content)
+STATS = {'parsed': 0, 'reused': 0}
+
+
+def _seed_by_sha(root, explicit=None):
+    """{sha1: record} of the MAIN checkout's cache when `root` is a worktree (or of the checkout `explicit` names); {} when there is none"""
+    main = explicit
+    if main is None:
+        try:
+            import qours
+            main = qours._main_checkout(root)
+        except Exception:       # noqa: BLE001 - seeding is an optimisation only
+            main = None
+    if not main:
+        return {}
+    try:
+        with open(_cache_path(main), 'rb') as f:
+            blob = pickle.load(f)
+        if blob.get('ver') != CACHE_VER:
+            return {}
+        return {e['sha']: e for e in blob['files'].values() if e.get('sha')}
+    except Exception:       # noqa: BLE001
+        return {}
+
+
+def load(root=ROOT, budget=None, seed=None):
+    """-> {rel: record}; every .py / .ps1 of tools, probes, src, android, assets (parsed fresh when size / mtime differ from the cache).
+    seed: None = the main checkout's cache when this is a worktree; a path = that checkout's cache; False = none."""
     cp = _cache_path(root)
     cache = {}
     try:
@@ -270,6 +295,7 @@ def load(root=ROOT, budget=None):
         cache = {}
     out, dirty = {}, False
     t0 = time.time()
+    misses = []
     for p in list_files(root):
         rel = os.path.relpath(p, root).replace('\\', '/')
         try:
@@ -281,16 +307,35 @@ def load(root=ROOT, budget=None):
         if e and e['key'] == key:
             out[rel] = e
             continue
-        try:
-            with open(p, encoding='utf-8', errors='replace') as fh:
-                text = fh.read()
-        except OSError:
-            continue
-        rec = scan_py(text) if rel.endswith('.py') else scan_ps1(text)
-        rec['key'] = key
-        rec['n'] = text.count('\n') + 1
-        out[rel] = rec
-        dirty = True
+        misses.append((rel, p, key))
+    if misses:
+        # S108 FD: a record depends on the file's TEXT only. A file whose stamp changed (a fresh worktree, a checkout, a merge) is hashed and its
+        # record reused when the same text was parsed before: here, or (a fresh worktree: many misses) in the main checkout's cache. Cold `q py`
+        # in a new worktree was 16.7 s (every file parsed); it is now a read + sha1 of each file.
+        by_sha = {e['sha']: e for e in cache.values() if e.get('sha')}
+        if len(misses) > SEED_MIN and seed is not False:
+            by_sha.update(_seed_by_sha(root, None if seed is None else seed))
+        import hashlib
+        for rel, p, key in misses:
+            try:
+                with open(p, 'rb') as fh:
+                    raw = fh.read()
+            except OSError:
+                continue
+            sha = hashlib.sha1(raw).hexdigest()
+            e = by_sha.get(sha)
+            if e is not None:
+                rec = dict(e)
+                STATS['reused'] += 1
+            else:
+                text = raw.decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')     # as text-mode open read it
+                rec = scan_py(text) if rel.endswith('.py') else scan_ps1(text)
+                rec['n'] = text.count('\n') + 1
+                rec['sha'] = sha
+                STATS['parsed'] += 1
+            rec['key'] = key
+            out[rel] = rec
+            dirty = True
     if dirty or len(cache) != len(out):
         tmp = cp + f'.{os.getpid()}.tmp'
         try:
@@ -365,13 +410,17 @@ def cmd_def(idx, name, args, root):
 
 
 def print_def(r, args):
-    for m in r['matches'][:args.limit]:
+    import qcap
+    if r.get('as_script'):
+        print(f'({r["as_script"]})')
+    shown, cut = qcap.cap(r['matches'], args.limit, getattr(args, 'all', False))
+    for m in shown:
         end = f'-{m["endline"]}' if m['endline'] and m['endline'] != m['line'] and m['kind'] in ('function', 'method', 'class') else ''
         print(f'{m["kind"]:<9} {m["qname"]}  {m["file"]}:{m["line"]}{end}   {m["text"][:110]}')
     for f in r['files']:
         print(f'script    {f["file"]}  ({f["lines"]} lines)')
-    if len(r['matches']) > args.limit:
-        print(f'  ... {len(r["matches"]) - args.limit} more (--limit)')
+    if cut:
+        print(f'  {qcap.trim_line(len(shown), len(r["matches"]), "definitions", _again(args), narrow=False)}')
 
 
 def ps_sources(text, defining):
@@ -417,7 +466,7 @@ def cmd_refs(idx, name, args, root, kinds=None):
     sites = {}
     parts = name.replace('::', '.').split('.')
     allowed = None
-    if defs and len(parts) > 1 and not is_script:       # `gate_wait.main`: only the defining file(s) and the files that import it
+    if defs and len(parts) > 1 and not is_script:       # `build_ours.main`: only the defining file(s) and the files that import it
         stems = {os.path.splitext(os.path.basename(r))[0] for r, d in defs}
         allowed = {r for r, d in defs} | {r for r, rec in idx.items() if any(k == 'import' and n_ in stems for n_, k, ln, fn in rec['refs'])}
     for rel, rec in idx.items():
@@ -470,13 +519,27 @@ def cmd_refs(idx, name, args, root, kinds=None):
     return {'symbol': name, 'defs': [f'{r}:{d[3]} ({d[2]} {d[0]})' for r, d in defs[:8]], 'sites': out, 'n': sum(len(s['lines']) for s in out)}
 
 
+def _again(args, extra='--all'):
+    """S108 FD: the exact call that repeats the question with `extra` (every trim line names it)"""
+    import qcap
+    cmd, arg = getattr(args, 'cmd', None), getattr(args, 'arg', None)
+    if not cmd or arg is None:
+        return '--all'
+    inn = f' --in {qcap.requote([args.in_path])}' if getattr(args, 'in_path', None) else ''
+    return f'q py {cmd} {qcap.requote([arg])} {extra}{inn}'
+
+
 def print_refs(r, args):
+    import qcap
+    if r.get('as_script'):
+        print(f'({r["as_script"]})')
     print(f'{r["symbol"]}: {r["n"]} references in {len(r["sites"])} places' + (f'; defined: {"; ".join(r["defs"][:4])}' if r['defs'] else ''))
-    for s in r['sites'][:args.limit]:
+    shown, cut = qcap.cap(r['sites'], args.limit, getattr(args, 'all', False))
+    for s in shown:
         ls = ','.join(str(x) for x in s['lines'][:6]) + ('...' if len(s['lines']) > 6 else '')
         print(f'  {s["file"]}:{ls}  in {s["func"]}  [{"/".join(s["kinds"])}]   {s["text"][:100]}')
-    if len(r['sites']) > args.limit:
-        print(f'  ... {len(r["sites"]) - args.limit} more (--limit)')
+    if cut:
+        print(f'  {qcap.trim_line(len(shown), len(r["sites"]), "places", _again(args))}')
 
 
 def cmd_callers(idx, name, args, root):
@@ -579,7 +642,7 @@ DISPATCH = {'body': (cmd_body, print_body), 'def': (cmd_def, print_def),'refs': 
 
 
 def looks_scripty(root, name, cmd):
-    """`gate.dtab`, `gdeps.Table.idx`, `build_ours.main`, `gate_wait.py`: a dotted name whose qualifier is a script / class of the tools index asks the tools index first."""
+    """`qtools.load`, `build_ours.main`, `qm_selftest.py`: a dotted name whose qualifier is a script / class of the tools index asks the tools index first."""
     if cmd not in DISPATCH or '::' in name or '.' not in name:
         return False
     parts = name.strip().split('.')
@@ -596,11 +659,21 @@ def answer(cmd, name, args, root=ROOT):
         return None
     idx = load(root)
     fn, pr = DISPATCH[cmd]
+    note = None
+    if cmd in ('refs', 'callers', 'def') and re.fullmatch(r'[\w-]+', name.strip()) and not resolve(idx, name)[0]:
+        # S108 FD: a bare module / script stem with no python def of that name IS the script (`q py refs q_first_hook` = q_first_hook.py): who
+        # imports / invokes it, instead of "no such symbol"
+        stems = sorted({r.rsplit('/', 1)[-1] for r in idx if os.path.splitext(r.rsplit('/', 1)[-1])[0] == name.strip()})
+        if len(stems) == 1:
+            note = f'{name} is no python / ps1 symbol: answered as the script {stems[0]}'
+            name = stems[0]
     r = fn(idx, name, args, root)
+    if r and note:
+        r['as_script'] = note
     return (r, pr) if r else None
 
 
-# ---------------------------------------------------------------- covers / lanes-of
+# ---------------------------------------------------------------- covers (a script)
 
 def find_file(root, spec):
     """a repo-relative path, an absolute one, or a unique basename -> repo-relative path of an existing file under tools / probes / src, else None."""
@@ -621,48 +694,16 @@ def find_file(root, spec):
     return hits[0] if len(hits) == 1 else (None if not hits else hits)
 
 
-def cmd_lanes_of(rel, root, lanes_for, load_lanes, scripts_naming):
+def cmd_script_covers(rel, root, scripts_naming):
     idx = load(root)
     base = rel.split('/')[-1].lower()
-    rows = []
-    for lane, d in load_lanes(root):
-        for c in d.get('checks', []):
-            hs = lanes_for_one(lane, d, c, rel)
-            if hs:
-                cmdtxt = ' '.join(str(x) for x in c.get('cmd', [])) if isinstance(c.get('cmd'), list) else str(c.get('cmd', ''))
-                rows.append({'lane': lane[:-5], 'check': c.get('name'), 'via': hs, 'cmd': cmdtxt[:160], 'retired': bool(c.get('retired') or d.get('retired'))})
     invokes = sorted({t for t, ln in idx.get(rel, {'invs': []})['invs']})
     invoked_by = sorted(r for r, rec in idx.items() if any(t == base for t, ln in rec['invs']) and r != rel)
-    return {'file': rel, 'checks': rows, 'invokes': invokes, 'invoked_by': invoked_by, 'scripts_naming_it': scripts_naming(root, rel)}
+    return {'file': rel, 'invokes': invokes, 'invoked_by': invoked_by, 'scripts_naming_it': scripts_naming(root, rel)}
 
 
-def lanes_for_one(lane, d, c, rel):
-    import qours
-    via = []
-    top = d.get('affects', [])
-    ps = [p for p in list(c.get('affects', [])) + list(top) if isinstance(p, str) and qours.pat_match(p, rel)]
-    if ps:
-        via.append('affects' if any(p.replace('\\', '/') == rel for p in ps) else 'affects-glob')
-    for key in ('needs', 'exes', 'programs'):
-        for p in c.get(key, []) or []:
-            if isinstance(p, str) and qours.pat_match(p, rel):
-                via.append(key)
-                break
-    cmdtxt = ' '.join(str(x) for x in c.get('cmd', [])) if isinstance(c.get('cmd'), list) else str(c.get('cmd', ''))
-    if re.search(re.escape(rel).replace('/', r'[/\\]+'), cmdtxt):
-        via.append('cmd')
-    return via
-
-
-def print_lanes_of(r, args):
-    named = [h for h in r['checks'] if h['via'] != ['affects-glob']]
-    globs = [h for h in r['checks'] if h['via'] == ['affects-glob']]
-    print(f'{r["file"]}: {len(named)} gate checks name it in {len({h["lane"] for h in named})} lanes; {len(globs)} more match only by an affects glob')
-    for h in named[:args.limit]:
-        print(f'  {h["lane"]} / {h["check"]}  via {"+".join(h["via"])}{"  [RETIRED]" if h["retired"] else ""}   {h["cmd"][:110]}')
-    if globs:
-        gl = sorted({h['lane'] for h in globs})
-        print(f'  by glob only: lanes {", ".join(gl[:14])}{" ..." if len(gl) > 14 else ""}')
+def print_script_covers(r, args):
+    print(f'{r["file"]}:')
     if r['invokes']:
         print(f'  it invokes: {", ".join(r["invokes"][:14])}{" ..." if len(r["invokes"]) > 14 else ""}')
     if r['invoked_by']:

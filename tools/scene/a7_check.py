@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane A7 gate check: bit 4 from the record by FIXED set ids (docs\\renderer\\INPUTS_A7.md, S103_FABLE_REVIEW.md 1.5). 0 game runs, no game, no SDK.
+"""S103 lane A7 check: bit 4 from the record by FIXED set ids (docs\\renderer\\INPUTS_A7.md, S103_FABLE_REVIEW.md 1.5). 0 game runs, no game, no SDK.
   1. builds tools\\scene\\light_fixed_unit.cpp, runs it and its five planted twins (each must exit 1 and fail its NAMED check: ring30for31, remap_ignored, override_ignored, absent_filled, census_equal_always);
   2. builds tools\\scene\\a7_proof.cpp and runs it on the scene records of run 27 and run 28's cases (out\\s103\\run27_case.zip / run28_case.zip, shared captures, read-only): every ring canvas / pieces / ropes / arena-slot
      LightRef's walked state must equal, word for word, the block the fixed-id rule picks (this latch's, or the previous latch's: the walk copies an object before the update task rewrites it);

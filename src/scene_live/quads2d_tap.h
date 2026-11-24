@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../dev_build.h"     // wwe2k14::IsDevBuild
+#include "../renderer_scene/rows_quad2d.h"   // S106 G4-2
 #include "../keep_stream.h"  // WWE2K14_STREAM() (S103 PN4: the OFF-only arming in Active())
 #include "../frame_stats.h"  // g_guest_frame
 #include "../renderer_scene/quads2d_core.h"
@@ -65,8 +66,8 @@ inline q::Counters g_counters;   // process-wide atomics: a log from any thread 
 
 // The guest memory the core reads: wrestler_hook.h's ReadGuest (MMIO heap excluded, fault-safe SafeCopy; the plane and circle hooks read the same way). A failed read is a counted refusal in the core.
 struct GuestMem {
-  bool ReadWords(uint32_t a, uint32_t* out, uint32_t n) const {
-    if (!wwe2k14::wrestlers::ReadGuest(a, out, size_t(n) * 4)) return false;
+  bool ReadWords(uint32_t a, uint32_t* out, uint32_t n WWE_FEED_LOC_PARAM) const {
+    if (!wwe2k14::wrestlers::ReadGuest(a, out, size_t(n) * 4 WWE_FEED_LOC_ARG)) return false;
     for (uint32_t i = 0; i < n; ++i) out[i] = __builtin_bswap32(out[i]);
     return true;
   }

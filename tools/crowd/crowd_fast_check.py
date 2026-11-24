@@ -10,7 +10,7 @@ Arms (S102 common.md "Speed of the lane itself": the player config on / off, the
           (crowd_workers_test.cpp, 3 planted twins).
   wiring  every link of both switches in the source (table PerFrame default 0, cvar default off / 0, live.cpp per-frame read, fview / rplay flags, binder SetFast + the crowd table, crowd_ours' per-frame read and join);
           each removed in a text copy must fail the lint (each text plant checks it applied).
-  bryan   fview headless on the gate's Bryan capture, the whole player bundle AND crowd density 70 (the AUTO LOW tier's value: at 100 the rank is never called): every frame's picture hash byte-equal off vs
+  bryan   fview headless on the standard Bryan capture, the whole player bundle AND crowd density 70 (the AUTO LOW tier's value: at 100 the rank is never called): every frame's picture hash byte-equal off vs
           fast vs fast + 2 workers, validation 0 / exit 0, the crowd census lines (members drawn, draws dropped / kept, cards) and the rank counters (calls, followed / inherited / fresh) equal, how many frames took
           each step; the twins early_keep (a stream draw the hook keeps is dropped: pictures differ from the same arm without the plant), early_first (the draw that triggers the injection takes the early path:
           ours never draws), rank_radius_off (ranks differ: pictures differ), workers_unjoined (the pool is not joined: pictures differ or validation).
@@ -202,7 +202,7 @@ def counts(root):
             continue
         variants = [('off', []), ('step1', ['--crowd-fast', 'on', '--crowd-fast-steps', '1']), ('step2', ['--crowd-fast', 'on', '--crowd-fast-steps', '2']), ('steps1+2', ['--crowd-fast', 'on']),
                     ('workers2', ['--crowd-fast', 'on', '--crowd-workers', '2'])]
-        if which == 'brock':   # (the one other capture: off, both steps, workers; two repeats: the gate's time)
+        if which == 'brock':   # (the one other capture: off, both steps, workers; two repeats: the check's time)
             variants = [variants[0], variants[3], variants[4]]
         res = {n: [] for n, _ in variants}
         for rep in range(3 if which == 'bryan' else 2):  # interleaved

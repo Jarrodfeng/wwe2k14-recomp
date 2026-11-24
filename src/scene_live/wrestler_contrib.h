@@ -45,6 +45,7 @@
 #include "slot_piece.h"  // S103 NRBF: scene_inputs::CharPiece / PieceWhy, the one shared piece type
 #include "own_rows_rule.h"  // S105 A5a: JudgeOwnRows (the copy proof of a CAW own-skeleton piece)
 #include "lock_stats.h"  // BHF1: WantCount lock cost counters
+#include "change_colour.h"  // S108 THR: the Threads editor's live colours, read in NoteDrawAsked
 
 namespace rdr_scene::live {
 
@@ -103,7 +104,7 @@ class WrestlerContributor final : public Contributor {
   // Review D: a slot skeleton whose update hook is quiet is a target only while it is still KEPT (in cur_, or in last_ within kPruneAfter): one whose reads keep failing ages out of last_ and then leaves the
   // targets (counted slot_gone), so an unreadable [skel+200] cannot hold the stamp back for kKnownAge records.
   // `count` = false: the same targets with no census counted (Take's second ask of the same latch, review E).
-  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; };   // S103 DRL: shown_addr = the guest address of [char+232] (0 = unknown: a draw ask is then not filtered by it)
+  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; bool game_shown = true; };   // S103 DRL: shown_addr = the guest address of [char+232] (0 = unknown: a draw ask is then not filtered by it)   // S107 CAM: game_shown = the game's predicate sub_823CBC50 ([char+1208] && [char+224] && [char+232]); false = the game hid him: LatchTargets clears his liveness stamps at once
   enum SlotState : uint8_t { kSlotEmpty = 0, kSlotOccupied = 1, kSlotUnreadable = 2 };   // review A: per slot of the table, read at the latch
   struct SlotTable { std::vector<SlotSkel> skels; uint8_t state[9] = {}; std::vector<scene_inputs::CharPiece> pieces; std::vector<uint32_t> ring_models; const std::vector<scene_inputs::CharPiece>* pieces_view = nullptr; /* S103 HGF (XLB 3): when set, LatchTargets reads the pieces from here instead of `pieces` (the glue passes the inputs table's list without a deep copy) */ };   // S103 NRB: pieces = ONE shared type (slot_piece.h); NRBF: ring_models = models the ring family draws (left out of the wrestler objects)
   void LatchTargets(uint64_t hook_frame, const SlotTable* slots, std::vector<PaletteTarget>& out, uint32_t& missing, bool count = true);
@@ -112,19 +113,21 @@ class WrestlerContributor final : public Contributor {
   // one-frame read failure can then never drop a wrestler while the frame goes ours); only an EMPTY slot means he left. null = unknown: every stale visible body counts. In mode Ours the caller withholds
   // kInWrestlerPalette when this is > 0, so the frame walks (the STREAM build; a build with no walk has no such frame: Collect holds the body for up to kConsumerFresh records instead, S103 AUSF, see SetNoWalk).
   uint32_t StaleVisibleAt(uint64_t record_frame, const SlotTable* slots);
+  // S107 CAM: in the stream-free (player) build a refreshed slot body is visible ONLY while the game asked to draw it (draw_frame, NoteDrawAsked): the update hook says "posed", not "drawn" (Create a Moveset
+  // poses two extra slot bodies it never draws). The paragraph below is the older rule, kept for the dev-only STREAM build (and the planted twin kFaultUpdShows). Also LatchTargets hides at once a body whose
+  // game predicate (SlotSkel::game_shown = sub_823CBC50) is false.
   // Review C: a slot body whose update hook has been quiet longer than kConsumerFresh is emitted VISIBLE only while the game's own draw (the consumer hook sub_82C04DF0, SubmitConsumer) saw it within
   // kQuietSeenWindow hook frames: the early exit [this+220] == 0 && [this+296] == 0 may mean "not posed, not drawn" (a waiting opponent). Otherwise it is emitted invisible (a skinned skel: object =
   // rf_wrestlers' hole: the frame goes to the game) and counted quiet_unseen. The palette is still read.
   static constexpr uint64_t kQuietSeenWindow = 60;
-  // S103 RPF (docs\systems\wrestler_pose.md "S103 RPL"): the replay track poses the body skeleton with no update-hook call; the track hook (src\scene_live\replay_pose_hook.h) reports the skeleton here. A known body posed within
-  // kQuietSeenWindow hook frames counts as seen (like a walk), so the stream-free build (no walk) keeps it visible. An unknown skeleton is only counted (the update hook has not met it).
-  void NoteReplayPose(uint32_t skel, uint64_t frame, bool shown = true);   // shown = [char+232] != 0 after the track ran: false (the track hid the character, no pose) clears the stamp
+  // S107 CAM: the replay track's pose hook (S103 RPF) is gone: the game ASKS to draw a replay body like any other (draw_frame, below), so a pose is no liveness signal.
+  void StampDrawForTest(uint32_t skel, uint64_t frame);   // tests only: the find-only draw stamp NoteDrawAsked makes
   // S103 DRL (docs\research\s103\FRZ.md, wrestler_pose.md "fixed by DRL"): the game ASKS to draw the body (sub_82C04DF0 raw hook, read before the Ours return) even when nothing updated it (the post-match freeze
-  // frame: upd_frame stops, no walk in the stream-free build). A draw ask for a known slot body stamps draw_frame, which the quiet gate ORs. Filter first, lock-free, against the latch's published slot skeletons
+  // frame: upd_frame stops, no walk in the stream-free build). A draw ask for a known slot body stamps draw_frame: in the stream-free build the quiet gate's only term (S107 CAM), in the stream build one of three. Filter first, lock-free, against the latch's published slot skeletons
   // (<= kDrawSlots, LatchTargets); one check per body per frame; a character the game HIDES ([char+232] == 0) is not stamped and loses its stamp at once (a draw ask must not revive a hidden body).
   // `read_word(addr, v)` = the guest read (page-checked); an unreadable flag is not a stamp (counted).
   static constexpr uint32_t kDrawSlots = 9;
-  static constexpr uint32_t kShownToSkeleton = 184;   // [char+232] (shown) - [char+48] (skeleton), replay_pose_hook.h / light_latch.h kCharSkeletonOff
+  static constexpr uint32_t kShownToSkeleton = 184;   // [char+232] (shown) - [char+48] (skeleton), light_latch.h kCharSkeletonOff
   template <class ReadWordFn>
   void NoteDrawAsked(uint32_t skel, uint64_t frame, ReadWordFn read_word) {
     if (!skel) return;
@@ -138,7 +141,7 @@ class WrestlerContributor final : public Contributor {
     if (i == kDrawSlots) return;   // not a slot body (the other ~95 asks of the frame): nothing more
     uint64_t prev = draw_checked_[i].load(std::memory_order_relaxed);   // review 4: once per body per frame, claimed by compare-exchange (two threads cannot both count it) [U: which threads call sub_82C04DF0 is not settled; the CAS makes either answer safe]
     if (prev >= frame || !draw_checked_[i].compare_exchange_strong(prev, frame, std::memory_order_relaxed)) return;
-    // BHF1 B6: the shown flag is read UNDER mutex_ (NoteReplayPose(false) takes the same lock after the guest hid the character), so a hide always wins: the stamp either read the flag before the hide and the hide's clear follows it, or reads 0.
+    // BHF1 B6: the shown flag is read UNDER mutex_ (HideLiveness takes the same lock after the game hid the character), so a hide always wins: the stamp either read the flag before the hide and the hide's clear follows it, or reads 0.
     // The flag read: 0 = shown word read and non-zero, 1 = unread, 2 = hidden. (BHF1 fix: the planted twin kFaultFlagReadUnlocked does it BEFORE the lock, the old code.)
     auto read_flag = [&]() -> int {
       if (!shown_addr) return 0;
@@ -159,9 +162,12 @@ class WrestlerContributor final : public Contributor {
     if (flag == 2) { HideLiveness(kn->second); draw_hidden_.fetch_add(1, std::memory_order_relaxed); return; }
     kn->second.draw_frame = std::max(kn->second.draw_frame, frame);
     draw_asked_.fetch_add(1, std::memory_order_relaxed);
+    // S108 THR (change_colour.h): the Threads editor's live colours, read at the game's own draw of this body (skel = the model it draws); the editor object is
+    // re-read from [skel+328] here, never remembered. Outside mutex_ (the store has its own lock).
+    lock.unlock();
+    change_colour::Bodies().Note(skel, frame, change_colour::ReadDraw(read_word, skel));
   }
   uint64_t DrawAsked() const { return draw_asked_.load(std::memory_order_relaxed); }
-  uint64_t ReplayPosed() const { return replay_posed_.load(std::memory_order_relaxed); }
   uint64_t QuietUnseen() const { return quiet_unseen_.load(std::memory_order_relaxed); }
   uint64_t SlotGone() const { return slot_gone_.load(std::memory_order_relaxed); }
   // S103 AUSF: that is the STREAM build's rule (its frame walks); with no walk a stale visible body still in the character table is HELD (stale_held, <= kConsumerFresh records), dropped only after it left the table or is older.
@@ -185,12 +191,12 @@ class WrestlerContributor final : public Contributor {
   static constexpr uint32_t kFaultHairAnyFrame = 4096;   // S103 HGF planted twin: the old rule, hair rows attach to any fresh body palette whatever latch they were read in
   // BHF1 planted twins: 256 = the old sticky slot / no reset on a node-count change (BH2 G1); 512 = a draw-ask hide clears only draw_frame (BH4 item 6)
   static constexpr uint32_t kFaultKeepStaleKnown = 256, kFaultHideKeepsStamps = 512, kFaultFlagReadUnlocked = 1024, kFaultDetachNeedsFresh = 2048;   // 2048 = S103 DTP fix twin: the detach flag needs a FRESH piece palette and no link-only entry is written (the pad returns to the arm once its palette goes stale / is pruned)   // 1024 = B6: the shown flag is read before the lock (the old code)
-  struct KnownProbe { int32_t slot = -1; uint32_t count = 0; uint64_t walk = 0, pose = 0, draw = 0, upd = 0; };
+  struct KnownProbe { int32_t slot = -1; uint32_t count = 0; uint64_t walk = 0, draw = 0, upd = 0; };
   bool ProbeForTest(uint32_t skel, KnownProbe& out) {   // tests: one Known record's slot / count / liveness stamps
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = known_.find(skel);
     if (it == known_.end()) return false;
-    out = {it->second.slot, it->second.max_count, it->second.walk_frame, it->second.pose_frame, it->second.draw_frame, it->second.upd_frame};
+    out = {it->second.slot, it->second.max_count, it->second.walk_frame, it->second.draw_frame, it->second.upd_frame};
     return true;
   }
   bool TryLockForTest() { if (!mutex_.try_lock()) return false; mutex_.unlock(); return true; }   // tests: is mutex_ free right now (B6: the flag read must hold it)
@@ -244,6 +250,20 @@ class WrestlerContributor final : public Contributor {
   std::string DerivedDeltaStr() const { return derived_delta_.Str(); }
   uint64_t DerivedChecked() const { return derived_checked_.load(std::memory_order_relaxed); }
   // S103 A: the skeleton (= model) addresses the wrestlers keep every frame (the kept set), for the latch reader of per-model runtime values (inputs_contrib.h). Short lock; `out` is cleared first.
+  // S108 RDS: the game destroyed this model (the base destructor sub_82BD3B40, model_release_hook.h; reached from the deleting destructor sub_82BD99F8, the non-deleting sub_82BD9888 and the base class's
+  // sub_82BD3BF0, always before the block is freed): every remembered row of the address goes, so no latch reads it after the free (the kept set, the pending updates, the Known record with its count and
+  // palette pointer). A new model later allocated at the same address is a new body to us: the update hook registers it again.
+  // The body links (body_links_) stay: the latch re-verifies them against the game's descriptors every latch (PZF2 A1).
+  void ForgetModel(uint32_t model) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    last_.erase(model), cur_.erase(model), known_.erase(model), last_extra_.erase(model);
+    released_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t Released() const { return released_.load(std::memory_order_relaxed); }
+  bool NamesModel(uint32_t model) {   // test / census: does any per-address container still hold it
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_.count(model) || cur_.count(model) || known_.count(model) || last_extra_.count(model);
+  }
   void KeptSkeletons(std::vector<uint32_t>& out) {
     out.clear();
     std::lock_guard<std::mutex> lock(mutex_);
@@ -269,9 +289,10 @@ class WrestlerContributor final : public Contributor {
   void SubmitAssetGuess(uint32_t skel, const std::string& pac, const std::string& entry, uint32_t variant);
   struct Link { std::string pac, entry; uint32_t variant = 0; bool known = false; };
   Link GuessFor(uint32_t skel);
-  static bool KeyFailed(uint32_t key, const std::string& composite_tag = std::string());   // S103 DLW: the loader failed this key's model (named_load_fail.h)
+  static bool KeyFailed(uint32_t key, const std::string& composite_tag = std::string(), uint32_t model_desc = 0);   // S103 DLW: the loader failed this key's model (named_load_fail.h); S110 SEATREL: model_desc = the descriptor whose file note names the file
   // S103 DLW: the AssetRef of a model key (the one rule the emitter and RecordCanName share). S103 CMB: `composite_tag` is appended to `entry`, so a composite attire caches apart from the stock attire of the same loaded key.
-  static Link KeyLink(uint32_t key, const std::string& composite_tag = std::string());
+  // S110 SEATREL: `model_desc` = the slot descriptor whose model the body is: the file is the one that descriptor's model was BUILT from (model_file_note.h), while it still holds `key`; 0 = the id rule.
+  static Link KeyLink(uint32_t key, const std::string& composite_tag = std::string(), uint32_t model_desc = 0);
   // S103 B: the participant slot's key (entrant_slots A: P + 148 + 56 * slot, +16; match_setup.md, R1_wrestler_assets.md section 2): character * 100 + attire * 10 + kind, the model the
   // game builds for that character slot. The declared route (SubmitModelLink) never linked a wrestler in any capture; this names the model of a slot-matched skeleton from the setup table.
   // [U live: participant row == character slot is the R1 open point. Known to FAIL for slots 6-8 (referee / role-4 people are rows 40-42, db\ids\characters.json ch255, match_state.md) and in a
@@ -279,7 +300,9 @@ class WrestlerContributor final : public Contributor {
   // beside each slot's model address (the wrestler_hook census line); lodged in docs\renderer\WRESTLERS_RECORD.md.]
   // An empty / invalid key (0, 0xC800 = 51200, key / 100 >= 500) CLEARS it: a stale key must never outlive the slot (review B2 / B3).
   // S103 ARM2 F2: `slot_desc` = the slot manager's descriptor of this body (the character's descriptor by the game's index rule, D+7 else the slot index: slotkey::SlotDescriptor; desc+4 is never written for a character slot) when the hook found it and its occupant builds (attire_build.h SlotOwner), else 0: the build-step colours match only that descriptor.
-  void SubmitSlotKey(uint32_t skel, uint32_t key, uint32_t slot_desc = 0) {
+  // S110 SEATREL: `model_desc` = the same slot descriptor by the game's index rule, found for EVERY keyed slot (slot_desc above only under the attire latch): the file the game's
+  // model was built from is noted per descriptor (model_file_note.h), and the key's file is named from that note only while the descriptor still holds this key. 0 = unknown (the id rule).
+  void SubmitSlotKey(uint32_t skel, uint32_t key, uint32_t slot_desc = 0, uint32_t model_desc = 0) {
     if (key == 0 || key / 100 >= 500) key = 0;
     std::lock_guard<std::mutex> lock(mutex_);
     if (key) {   // S103 PZ F5: a slot key (slot < 6) naming another character than the declared link at this address: the address now holds another body: the link is dead
@@ -289,7 +312,7 @@ class WrestlerContributor final : public Contributor {
         body_link_dropped_key_.fetch_add(1, std::memory_order_relaxed);
       }
     }
-    if (Known* k = KnownFor(skel)) k->slot_key = key, k->slot_desc = key ? slot_desc : 0;
+    if (Known* k = KnownFor(skel)) k->slot_key = key, k->slot_desc = key ? slot_desc : 0, k->model_desc = key ? model_desc : 0;
   }
 
   // ---- the declared route, read at the exit of sub_82720658 (R1_wrestler_assets.md section 1; model_hooks.h ModelLinkRead) ----
@@ -428,6 +451,7 @@ class WrestlerContributor final : public Contributor {
   // 1048576 = no copy proof in EmitItems (the old rule's hole reappears as a WRONG pose: any guest-owner piece with a link is drawn from whatever palette it has). The latch's acceptance is `piece_latch_submitted`.
   static constexpr uint32_t kFaultNoPieceLatch = 524288, kFaultNoCopyProof = 1048576, kFaultNoPrevRows = 2097152, kFaultRotationOnly = 4194304;   // S105 A5a F5 twins: the owner's previous palette is not offered / the translation is not compared (the first rule)
     static constexpr uint32_t kFaultHookOnlyPieces = 8388608, kFaultReaderIgnoresLinks = 16777216, kFaultPushEverything = 33554432;   // S105 CAWP twin: the old rule, a linked piece is a latch target only while the update hook reports it
+    static constexpr uint32_t kFaultUpdShows = 67108864;   // S107 CAM twin: the old stream-free rule, a body the skeleton update posed (upd_frame) shows with no draw ask: the Create a Moveset extra body
     uint64_t PieceLatchSubmitted() const { return piece_latch_submitted_.load(std::memory_order_relaxed); }
   uint64_t OwnRowsCount(scene_inputs::OwnRowsWhy w) const { return own_rows_[size_t(w)].load(std::memory_order_relaxed); }
   std::string OwnRowsText() const;   // "ok N hidden_by_game N ..." + piece_latch_submitted (the 600-frame wrestlers line)
@@ -539,9 +563,9 @@ class WrestlerContributor final : public Contributor {
     uint32_t head_next = 0;
     uint64_t upd_frame = 0;      // S103 A2: the newest hook frame the UPDATE hook (derived palette) reported this skeleton; the latch reader's liveness signal
     uint64_t walk_frame = 0;     // S103 L31B review C: the newest tag the GAME'S DRAW (SubmitConsumer, sub_82C04DF0) read this skeleton; the latch's own reads never set it
-    uint64_t pose_frame = 0;     // S103 RPF: the newest hook frame the game's REPLAY track (sub_8270ECE8) posed this skeleton directly ([char+48] arrays, no sub_82BD30E8); the stream-free liveness signal beside upd_frame / walk_frame
-    uint64_t draw_frame = 0;     // S103 DRL: the newest hook frame the game ASKED to draw this skeleton (sub_82C04DF0 raw hook) while its character was shown; the stream-free liveness signal beside pose_frame
+    uint64_t draw_frame = 0;     // S103 DRL: the newest hook frame the game ASKED to draw this skeleton (sub_82C04DF0 raw hook) while its character was shown; the stream-free build's ONLY liveness signal (S107 CAM: upd_frame is the latch reader's signal, not a visibility one)
     uint32_t slot_desc = 0;      // S103 ARM2 F2: the descriptor the hook proved is this slot's (0 = unknown)
+    uint32_t model_desc = 0;     // S110 SEATREL: the slot's descriptor for the file note (SubmitSlotKey); 0 = unknown
     uint32_t slot_key = 0;       // S103 B: the model key of the participant slot the skeleton matched (SubmitSlotKey); 0 = none
   };
  public:
@@ -629,6 +653,7 @@ class WrestlerContributor final : public Contributor {
   std::vector<uint32_t> slot_present_;   // S103 L33F: the slot skeletons of the last LatchTargets(slots) (sorted; under mutex_); empty on the old 3-argument path
   DeltaCensus derived_delta_;   // latch hook frame - the matching derived head's tag
   std::mutex mutex_;
+  std::atomic<uint64_t> released_{0};   // S108 RDS: ForgetModel calls (the release hook)
   std::map<uint32_t, Pending> cur_;   // by skeleton address: updates not yet merged
   std::map<uint32_t, Kept> last_;     // by skeleton address: what Emit writes
   std::map<uint32_t, Known> known_;   // by skeleton address: slot, node count, palette pointer, asset links
@@ -642,19 +667,17 @@ class WrestlerContributor final : public Contributor {
   bool first_wins_ = false;
   bool stale_guard_ = true;   // S103 L31B
   uint32_t faults_ = 0;       // S103 L31B review (test only)
-  void StampDraw(uint32_t skel, uint64_t frame, bool shown);   // the one locked step (<= 9 a frame): find only, never create
   std::atomic<uint64_t> draw_pub_[kDrawSlots] = {};   // S103 DRL: per slot (shown_addr << 32) | skeleton, 0 = none (LatchTargets publishes)
   std::atomic<uint64_t> draw_pub_frame_{0};           // the hook frame of the last publish: a list older than kQuietSeenWindow is ignored
   std::atomic<uint64_t> draw_checked_[kDrawSlots] = {};
   rdr_scene::live::LockStats want_lock_;   // BHF1 B2: the cost of the lock WantCount takes on every model call (census: want_lock)
   std::atomic<uint64_t> draw_asked_{0}, draw_hidden_{0}, draw_unread_{0}, draw_unknown_{0};
   std::atomic<uint64_t> reuse_reset_{0};   // BHF1 G1: Known records reset because the update hook reported another node count at the address
-  void HideLiveness(Known& k) { k.draw_frame = 0; if (!(faults_ & kFaultHideKeepsStamps)) k.pose_frame = 0, k.walk_frame = 0; }   // BHF1 (BH4 6): a hidden character keeps no pose / walk / draw stamp (upd_frame stays: the update hook reports what it updates)
-  std::atomic<uint64_t> replay_posed_{0}, replay_pose_unknown_{0}, replay_hidden_{0};   // S103 RPF
+  void HideLiveness(Known& k) { k.draw_frame = 0; if (!(faults_ & kFaultHideKeepsStamps)) k.walk_frame = 0; }   // BHF1 (BH4 6): a hidden character keeps no walk / draw stamp (upd_frame stays: the update hook reports what it updates)
   std::atomic<uint64_t> quiet_unseen_{0}, slot_gone_{0};   // S103 L31B review C / D
   std::atomic<uint64_t> stale_dropped_{0}, slot_targets_{0}, slot_no_count_{0}, slot_hook_quiet_{0}, slot_join_agree_{0}, slot_join_differ_{0}, slot_join_unmatched_{0};   // S103 L31B
   // ---- S102 U1: the latch (docs\renderer\SWAP_TAIL.md). Collect = Emit's two locked blocks, unchanged; the formatting reads only the items. ----
-  struct EmitItem { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; bool stale = false; int32_t piece_slot = -1; uint32_t piece_owner = 0; scene_inputs::PieceWhy piece_why = scene_inputs::PieceWhy::NoCount; uint32_t piece_id = 0; bool link_only = false; std::vector<ExtraRow> extra; uint64_t tag = 0; scene_inputs::OwnRowsProbe probe; std::vector<Mat4> prev_skin; bool prev_consumer = false; float shift[3] = {0, 0, 0}, prev_shift[3] = {0, 0, 0}; };   // S105 A5a F5: the owner's previous palette + the recorded shifts   // S105 A5a: tag = the Kept palette's frame tag (hook + kPaletteLead for a latch read: the own-rows rule pairs a piece and its owner only when both are of the SAME latch); probe = the link's copy probe   // S103 W2B: extra = the owner body's spring-hair rows of this latch (canonical order), appended after its palette by EmitItems   // S103 DTP fix: link_only = no palette of its own (the piece object is gone or stale): written from the latch's link proof alone   // S103 NRB: stale / the SUBM link (S103 NRBF: the owner skeleton the link was read from + the reader's proof)
+  struct EmitItem { uint32_t skel; int32_t slot; bool consumer; Link link; std::vector<Mat4> skin; bool stale = false; int32_t piece_slot = -1; uint32_t piece_owner = 0; scene_inputs::PieceWhy piece_why = scene_inputs::PieceWhy::NoCount; uint32_t piece_id = 0; bool link_only = false; std::vector<ExtraRow> extra; uint64_t tag = 0; scene_inputs::OwnRowsProbe probe; std::vector<Mat4> prev_skin; bool prev_consumer = false; float shift[3] = {0, 0, 0}, prev_shift[3] = {0, 0, 0}; bool cc_on = false, cc_unsettled = false; uint8_t cc_colours[48] = {}; };   // S108 THR2: cc_* = the body's change-colour state (Bodies().Get in Collect): section 67   // S105 A5a F5: the owner's previous palette + the recorded shifts   // S105 A5a: tag = the Kept palette's frame tag (hook + kPaletteLead for a latch read: the own-rows rule pairs a piece and its owner only when both are of the SAME latch); probe = the link's copy probe   // S103 W2B: extra = the owner body's spring-hair rows of this latch (canonical order), appended after its palette by EmitItems   // S103 DTP fix: link_only = no palette of its own (the piece object is gone or stale): written from the latch's link proof alone   // S103 NRB: stale / the SUBM link (S103 NRBF: the owner skeleton the link was read from + the reader's proof)
   void Collect(const FrameInfo& f, std::vector<EmitItem>& items, Counters& c);
   void EmitItems(const FrameInfo& f, SceneTables& t, Counters& c, std::vector<EmitItem>& items, uint32_t light);
   LatchMark latch_;

@@ -26,6 +26,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include "d3_timers.h"   // S102 K3 review F1: the resume counters
+#include "../renderer_scene/rows_caster.h"   // S106 G4-2
+#include "../renderer_scene/rows_ring.h"
 #include <cstring>
 #include <functional>
 #include <map>

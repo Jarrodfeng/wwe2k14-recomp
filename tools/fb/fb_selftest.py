@@ -1,4 +1,4 @@
-r"""S102 T4 gate check (offline, 0 game runs): builds tools\fb\fb_test.cpp (clang, AddressSanitizer) four ways and runs each.
+r"""S102 T4 check (offline, 0 game runs): builds tools\fb\fb_test.cpp (clang, AddressSanitizer) four ways and runs each.
   py -I tools\fb\fb_selftest.py [--root DIR]
   real                         must print FB PASS (ids equal legacy, hash well spread, storage kept)
   plant lastword               a hash that ignores the last word: must FAIL on full hash collisions

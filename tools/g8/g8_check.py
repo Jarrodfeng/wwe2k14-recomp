@@ -6,7 +6,7 @@
 unit    out\\tools\\alias_fullsize_test.exe: the rule on synthetic 1280x720 frames; every planted fault (src_dirty, read_first, ignore_readback, format) must FAIL it.
 wiring  the switch is in the S0-4 table (PerFrame, default 0), defined as a cvar, read per frame by live.cpp, carried to the binder, ended before Map() at a kept copy;
         each link removed in a text copy must fail the lint.
-replay  fview headless on the Bryan entrance and the gate's match capture (presented-surface hashes, every frame):
+replay  fview headless on the Bryan entrance and the standard match capture (presented-surface hashes, every frame):
           A = switch off; B = --alias-fullsize 2 (and 1 on Bryan): 0 frames differ, validation 0, violations 0 (the stale-read ledger), copies dropped a frame > 0,
           read-backs of aliased destinations 0, elided although read back 0; the players' combinations (shadows ours + 256 + half rate + copy alias classes 11; post ours) stay equal.
         rplay counts on Bryan (M1 counters): copies and barriers fall by exactly the census' elided a frame.

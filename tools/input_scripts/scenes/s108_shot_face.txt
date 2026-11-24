@@ -1,0 +1,34 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lanes SHOT-A / SHOT-B, the first game check of subject shots (docs/systems/subject_shot.md): slot 0 bleeds through
+# levels 1, 2, 3 and `shot face 0 LABEL` saves the drawn record with its host state after each level.
+# Question: does each `shot` log `scene record saved`, and does the rig draw slot 0's face from the front with the blood of that
+# level on it (the three face pictures show the spread per level that the wide game camera cannot)?
+# Read with: py -I tools/harness/run_verdict.py --log <this run's log>. Shots and records are local only.
+on_fail quit
+log bench: start scene s108_shot_face
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=shot_face
+mark 1 match_clock
+wait_event render roster_ready 2400
+wait_frames 60
+passive 1 on
+shot face 0 face_clean
+bleed 0 1
+wait_frames 600
+shot face 0 face_level1
+bleed 0 2
+wait_frames 600
+shot face 0 face_level2
+bleed 0 3
+wait_frames 600
+shot face 0 face_level3
+wait_frames 120
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 30
+quit

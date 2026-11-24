@@ -5,7 +5,7 @@ r"""S103 B3 (docs\research\s103\T3b_lightmap_writer.md): the stage LightMapParam
 NOT circular: the value under test is computed from the player's `pac\misc02_ingame.pac` leaf p0/102/5 by the loader's own parser (src\assets\arena_lm.h, tools\scene\b3_unit.cpp) for the arena id,
 and compared BIT FOR BIT with what each capture's draws carry in vs bank register 184 (what the game uploaded, read from the stream): x, y, z of the lit-LM draws, w = 1. The cards' z is checked against
 the game's rule z = (float)word * 0.001 * (G * 0.01) with the word the captures imply (850; the record carries no word yet): the rule must reproduce the captured card z exactly.
---plant (planted twins, the gate inverts the exit code): shift = the record one index off, swap = X and Z exchanged, gain01 = G * 0.1 instead of G * 0.01: every one must FAIL on the captures.
+--plant (planted twins: the exit code is inverted by the runner): shift = the record one index off, swap = X and Z exchanged, gain01 = G * 0.1 instead of G * 0.01: every one must FAIL on the captures.
 Numbers only. Nothing from the game is written except the decoded leaf under out\ (never committed)."""
 import argparse
 import os
@@ -72,7 +72,7 @@ def main():
     ap.add_argument('--unit', default=os.path.join(ROOT, 'out', 'tools', 'b3_unit.exe'))
     a = ap.parse_args()
     if not os.path.exists(a.unit):
-        print('FAIL  %s is not built (the gate lane builds it)' % a.unit)
+        print('FAIL  %s is not built (build it first)' % a.unit)
         return 1
     leaf = os.path.join(ROOT, 'out', 'tools', 'b3_leaf.bin')
     size = dump_leaf(leaf)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""S103 GRF: bench_line.py on a small committed synthetic fixture (tools\surface\fixtures\bench_synth: our own made-up numbers, no game data).
-Replaces the old gate check that read out\s101\surface_rebench\y (a Surface capture the tidy removed).
+Replaces the old check that read out\s101\surface_rebench\y (a Surface capture the tidy removed).
 
   py -I tools\surface\bench_line_fixture_check.py [--root DIR]
 

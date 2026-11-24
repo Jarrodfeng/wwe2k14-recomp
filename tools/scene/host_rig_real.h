@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "host_rig_2d.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "picture_forge.h"
 #include "../../src/renderer_scene/picture_resolver.h"
 #include "../../src/renderer_scene/ui_file_index.h"

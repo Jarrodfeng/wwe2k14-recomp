@@ -9,6 +9,8 @@
 #include <vector>
 #include "../../src/renderer_scene/light_fixed_id.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_ring.h"
 using namespace rdr_scene;
 namespace fs = std::filesystem;
 int main(int argc, char** argv) {

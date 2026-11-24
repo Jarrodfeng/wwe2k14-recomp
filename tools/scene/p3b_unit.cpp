@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/quads2d_blocks.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_scene/quads2d_core.h"
 #include "sc_support.h"   // S103 SC
 

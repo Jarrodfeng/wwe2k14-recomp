@@ -66,7 +66,7 @@ def main():
         print('!' * 78)
     # Session 95 (Jarrod: future sessions must know these): CLAUDE.md rule 7 and its Speed block, every session.
     print('RULES (CLAUDE.md rule 7): game runs at milestones only; builders and reviewers 0 game runs; one check per step,')
-    print('  never re-run a pass; 2 logged diagnosis runs per question, then ask Jarrod; plan states runs, reports say used vs budget;')
+    print('  never re-run a pass; 2 logged diagnosis runs per question, then more if they would answer it (logged, never an ask); plan states runs, reports say used vs budget;')
     print('  no soak except the final build, no census unless asked; every background job has a hard timeout + a timed log check;')
     print('  launcher runs --exit --no-save; small changes done directly, not by an agent; never wait idle on a device.')
     branch = run(['git', 'branch', '--show-current'])

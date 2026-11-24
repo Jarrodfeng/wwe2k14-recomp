@@ -45,6 +45,10 @@ REX_EXTERN(sub_825F1DF0);  // finisher stock - 1
 REX_EXTERN(sub_82250050);  // S105 SLO3: allocator (size)
 REX_EXTERN(sub_8275DF98);  // S105 SLO3: arena-dim scene ctor (obj, attacker, target)
 REX_EXTERN(sub_825A1F28);  // S105 T1: bleed level setter (char, part, level - 1)
+REX_EXTERN(sub_822FB578);  // S110 PLACE: yaw setter (char, f1 = radians)
+REX_EXTERN(sub_82612E88);  // S110 PLACE: place code of a position (char+160)
+REX_EXTERN(sub_82612BF8);  // S110 PLACE: floor height (char, 255) -> f1
+REX_EXTERN(sub_829C0EE8);  // S110 PLACE: the all-copies warp (char, f1 = x, f2 = y, f3 = z)
 
 namespace wwe2k14::situation {
 
@@ -67,8 +71,13 @@ struct GameEnv {
   uint32_t Call3(Fn f, uint64_t r3, uint64_t r4, uint64_t r5) {
     if (f == Fn::SetBleed) return call(sub_825A1F28, {r3, r4, r5});
     if (f == Fn::DimSceneCtor) return call(sub_8275DF98, {r3, r4, r5});
+    if (f == Fn::QueueState) return call(sub_8266B550, {r3, r4});  // S110 OMGROUTE: the game's own state queue (state machine, name)
     return 0;
   }
+  // S110 PLACE: the float-argument callers (the integer ones above cannot carry f1..f3)
+  uint32_t CallF(Fn f, uint64_t r3, double f1) { return f == Fn::SetYaw ? call.withf(sub_822FB578, {r3}, f1) : 0; }
+  double CallRetF(Fn f, uint64_t r3, uint64_t r4) { return f == Fn::FloorY ? call.retf(sub_82612BF8, {r3, r4}) : 0.0; }
+  uint32_t CallF3(Fn f, uint64_t r3, double f1, double f2, double f3) { return f == Fn::Warp ? call.withf3(sub_829C0EE8, {r3}, f1, f2, f3) : 0; }
   float F32(uint32_t a) const {
     const uint32_t u = U32(a);
     float f;
@@ -98,6 +107,9 @@ struct GameEnv {
       case Fn::SetBleed: return 0;  // S105 T1: three registers, through Call3
       case Fn::Alloc: return call(sub_82250050, {r3});
       case Fn::DimSceneCtor: return 0;  // S105 SLO3: three registers, through Call3
+      case Fn::QueueState: return 0;    // S110 OMGROUTE: through Call3
+      case Fn::PlaceOf: return call(sub_82612E88, {r3});  // S110 PLACE: the place code of the position at r3
+      case Fn::SetYaw: case Fn::FloorY: case Fn::Warp: return 0;  // S110 PLACE: float callers (CallF / CallRetF / CallF3)
     }
     return 0;
   }

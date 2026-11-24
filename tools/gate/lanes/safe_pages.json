@@ -1,9 +1,0 @@
-{
- "owner": "S103 PC1 (Android weapons + CAW bodies in the stream-free build): the off-Windows page-checked guest reads (src/scene_live/safe_guest_pages.h, wrestler_hook.h GuestRangeReadable / PhysRangeReadable). 0 game runs.",
- "note": "KIND: unit. tools/scene/safe_pages_test.cpp: readable / unreadable / straddling / n == 0 / 4 GB wrap for the virtual walk; the physical walk checks the heap address of the RAW bytes (addr & 0x1FFFFFFF) against guest_view.h's view rule (the 0xE0000000 view is 4 KB further in; the old rule checked the view address, one page off), plus the 512 MB bound.",
- "claim": {"scene": "none", "side": "upkeep", "ms": [0, 0]},
- "checks": [
-  {"name": "safe_pages.unit", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_safe_pages_test.ps1"], "timeout_s": 300,
-   "affects": ["src/scene_live/safe_guest_pages.h", "src/scene_live/wrestler_hook.h", "src/guest_view.h", "tools/scene/safe_pages_test.cpp", "tools/scene/build_safe_pages_test.ps1"]}
- ]
-}

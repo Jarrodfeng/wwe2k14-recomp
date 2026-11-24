@@ -1,4 +1,3 @@
-# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
 # Session 12: boot-screen study. Screenshot every 20 frames from the first frame to the title screen (+300 frames),
 # with --wwe2k14_peek=step=0x839246FC (CStartupCtrlSequence step index, Session 12). Untimed. Screenshots bs_* are
 # local only. on_fail quit.

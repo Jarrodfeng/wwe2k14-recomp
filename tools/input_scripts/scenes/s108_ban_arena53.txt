@@ -1,0 +1,42 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=103,343 --wwe2k14_launch_arena=53 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# Session 108 lane BAN diagnosis run (the current build, no fix): an exhibition match in arena 53 (WrestleMania XXVI), the Undertaker in slot 0.
+# Question (docs\research\s108\BAN_plan.md section 5): in the match, which surface covers the arena-branding banner on the lower fascia
+# ring: are stage keys 806 / 807 / 304 shown ([stage_show]), what does the cycle group pick ([slot_look] cycle_groups ... 295-298), what
+# does the Screens family report for keys 806 / 807 (updated / on the frame grab / never got its first picture), and is the game's grab
+# object at [0x8392DD8C] present?
+# UNCONFIRMED: that an exhibition takes the same screens branch as the 30 Years match of Jarrod's picture.
+# Read it with: py -I tools\bench\run_read.py <exe folder> --full. Shots ban53_* are local only.
+on_fail quit
+log bench: start scene s108_ban_arena53
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=ban_arena53
+mark 1 match_clock
+wait_event render roster_ready 2400
+passive 1 on
+wait_frames 300
+log_state 0x8392DD8C
+log_state 0x836F3940
+screenshot ban53_00
+wait_frames 400
+log_state 0x8392DD8C
+log_state 0x836F3940
+screenshot ban53_01
+wait_frames 400
+log_state 0x836F3940
+screenshot ban53_02
+wait_frames 400
+log_state 0x8392DD8C
+log_state 0x836F3940
+screenshot ban53_03
+wait_frames 400
+screenshot ban53_04
+wait_frames 400
+screenshot ban53_05
+log scene=end
+mark 2 end
+log bench: done
+wait_frames 10
+quit

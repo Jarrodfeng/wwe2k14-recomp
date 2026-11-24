@@ -23,6 +23,7 @@ import zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import unlock_all as U  # noqa: E402  (read_payload / find_save / PREFIX / REPO)
+import save_read as SR  # noqa: E402  # S106 C1: the caption / blood offsets
 
 REPO = U.REPO
 PREFIX = U.PREFIX
@@ -131,18 +132,31 @@ def load_palette(arg):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--src', default=os.path.join(REPO, 'out', 'bench', 'userdata_frozen'))
-    ap.add_argument('--dst', default=os.path.join(REPO, 'out', 'bench', 'userdata_threads_s105'))
-    ap.add_argument('--threads', default='139:0:0', help='CHAR:SET:SLOT (default Cena, set 0, base attire slot 0)')
+    ap.add_argument('--dst', default=None, help='the test copy under out\\. Default userdata_threads_s105 ONLY when nothing but the default Cena Threads set is asked; '
+                    'with --mask / --caption / --blood it is REQUIRED (S106 C1F F5: the default is a keep-listed mirror)')
+    ap.add_argument('--threads', default=None, help='CHAR:SET:SLOT, or none (default: Cena set 0 slot 0 when no --mask / --caption / --blood is given, else none)')
     ap.add_argument('--palette', default='magenta', help='magenta | black | FILE.json (16 RGB triples)')
     ap.add_argument('--name', default='S105 TEST')
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--mask', default=None, help='S105 IMP: HEX, the saved DLC pack mask (bit N = pack N offered); e.g. 7C = packs 2-6. '
                     'Set it to the pack set the test boot offers EXACTLY (a superset gives the refusal notice, a subset hides the bug). '
-                    'Without --threads none the default Cena threads set is planted too')
+                    'S106 C1F: with --mask and no --threads no Threads set is planted (pass --threads 139:0:0 for the old S105 mirror) and --dst is required')
+    # S106 C1: TEST mirrors for check recipes (q save check option:caption=1 ...)
+    ap.add_argument('--caption', type=int, choices=(0, 1), default=None, help='S106 C1: the 30 Years caption option word (u32 at payload 0x75E70): 0 off, 1 on')
+    ap.add_argument('--blood', type=int, choices=(0, 1), default=None, help='S106 C1: the blood option byte (payload 0x1C + sizeA + 0x804A9): 0 off, 1 on')
+    ap.add_argument('--holder', default=None, help='S106 C1F: T:ID[:ID2], title T\'s holder words (record +156 / +160; ID2 default 512 = none); T 0..90 with a record')
+    ap.add_argument('--profile-word', default=None, help='S110 SEAT2: CHAR:OFF:VAL, one u16 (big-endian) of stock superstar CHAR\'s 1272-byte profile at byte OFF; CHAR 100..499, OFF 0..1270, VAL 0..65535')
     a = ap.parse_args()
+    other = a.mask is not None or a.caption is not None or a.blood is not None or a.holder is not None or a.profile_word is not None
+    if a.threads is None:  # S106 C1F F5: a caption / blood / mask copy plants no Threads set unless asked
+        a.threads = 'none' if other else '139:0:0'
+    if a.dst is None:
+        if other:
+            raise SystemExit('--dst is required with --mask / --caption / --blood (the default test copy userdata_threads_s105 is keep-listed)')
+        a.dst = os.path.join(REPO, 'out', 'bench', 'userdata_threads_s105')
     if a.threads.lower() == 'none':
-        if a.mask is None:
-            raise SystemExit('--threads none needs --mask')
+        if not other:
+            raise SystemExit('--threads none needs --mask, --caption, --blood, --holder or --profile-word')
         c = n = slot = None
     else:
         try:
@@ -155,6 +169,24 @@ def main():
             mask = int(a.mask, 16)
         except ValueError:
             raise SystemExit('--mask wants a hex number (7C)')
+    holder = None
+    if a.holder is not None:
+        try:
+            ids = [int(x) for x in a.holder.split(':')]
+            if not 2 <= len(ids) <= 3 or not all(0 <= x <= 512 for x in ids) or not 0 <= ids[0] < SR.TITLE_N:
+                raise ValueError
+        except ValueError:
+            raise SystemExit('--holder wants T:ID[:ID2] (T 0..90, ids 0..512)')
+        holder = (ids[0], [ids[1], ids[2] if len(ids) == 3 else SR.NO_HOLDER])
+    pword = None
+    if a.profile_word is not None:
+        try:
+            pc, po, pv = (int(x) for x in a.profile_word.split(':'))
+            if not (100 <= pc <= 499 and 0 <= po <= 1270 and 0 <= pv <= 65535):
+                raise ValueError
+        except ValueError:
+            raise SystemExit('--profile-word wants CHAR:OFF:VAL (CHAR 100..499, OFF 0..1270, VAL 0..65535)')
+        pword = (pc, po, pv)
     pal = load_palette(a.palette)
     check_dst(a.dst, a.src, allowed_outs())
     if os.path.exists(a.dst):
@@ -167,14 +199,40 @@ def main():
     p = bytearray(payload)
     o = write_set(p, hdr[0], hdr[1], c, n, slot, pal, a.name, a.force) if c is not None else None
     mo = write_mask(p, hdr[0], hdr[1], mask) if mask is not None else None
+    if a.caption is not None:  # S106 C1
+        struct.pack_into('>I', p, SR.BLOB + SR.CAPTION, a.caption)
+    if a.blood is not None:
+        p[SR.BLOB + hdr[0] + SR.BLOOD] = a.blood
+    if holder is not None:  # S106 C1F (C3 sites 6-7): title T's holder words, record +156 / +160 (big-endian u32)
+        r = SR.BLOB + SR.TITLE_TABLE + SR.TITLE_STRIDE * holder[0]
+        if holder[0] >= struct.unpack_from('>I', p, SR.BLOB + SR.TITLE_COUNT)[0] or struct.unpack_from('>I', p, r)[0] == 0:
+            raise SystemExit('--holder: title %d is outside the table or has kind 0 (no record)' % holder[0])
+        struct.pack_into('>II', p, r + SR.HOLDER_OFF, *holder[1])
+    pword_at = None
+    if pword is not None:  # S110 SEAT2: a u16 of CHAR's profile = block B + 4 + 1272 (CHAR - 100) + OFF (the same base as set_offset)
+        pword_at = 0x1C + hdr[0] + 4 + REC_STRIDE * (pword[0] - 100) + pword[1]
+        struct.pack_into('>H', p, pword_at, pword[2])
     finish(p)
     out = pack_save(data, word, p)
     with open(path, 'wb') as f:
         f.write(out)
     _, _, chk, h2 = U.read_payload(path)  # re-check what we wrote (sum, sizes, magic)
     if (o is not None and chk[o:o + SET_LEN] != make_set(slot, pal, a.name)) or h2[:2] != hdr[:2] \
-            or (mo is not None and struct.unpack_from('>I', chk, mo)[0] != mask):
+            or (mo is not None and struct.unpack_from('>I', chk, mo)[0] != mask) \
+            or (a.caption is not None and struct.unpack_from('>I', chk, SR.BLOB + SR.CAPTION)[0] != a.caption) \
+            or (pword_at is not None and struct.unpack_from('>H', chk, pword_at)[0] != pword[2]) \
+              or (a.blood is not None and chk[SR.BLOB + hdr[0] + SR.BLOOD] != a.blood):
         raise SystemExit('read-back differs from what was written')
+    if a.caption is not None or a.blood is not None:  # S106 C1: read back through the reader too (q save)
+        o2 = SR.Save(a.dst).options()
+        if (a.caption is not None and o2['caption'] != a.caption) or (a.blood is not None and o2['blood'] != a.blood):
+            raise SystemExit('save_read disagrees with what was written')
+        print('%s: caption %s blood %s (read back by save_read)' % (path, o2['caption'], o2['blood']))
+    if holder is not None:  # S106 C1F (C3 sites 6-7): read back through the reader
+        rec = {x['title']: x for x in SR.Save(a.dst).titles()}[holder[0]]
+        if rec['holders'] != holder[1]:
+            raise SystemExit('save_read disagrees with the written holders')
+        print('%s: title %d holders %s (read back by save_read)' % (path, holder[0], rec['holders']))
     if mo is not None:
         print('%s: saved DLC pack mask = 0x%08X at payload 0x%X; save %d -> %d bytes' % (path, mask, mo, len(data), len(out)))
     if c is None:

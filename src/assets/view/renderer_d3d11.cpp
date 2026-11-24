@@ -583,7 +583,7 @@ void RendererD3D11::Scene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* d
     ctx_->OMSetDepthStencilState(it.depth_write ? ds_opaque_.Get() : ds_blend_.Get(), 0);
     ctx_->OMSetBlendState(it.blend == 2 ? bs_add_.Get() : it.blend == 1 ? bs_blend_.Get() : bs_opaque_.Get(), nullptr, 0xFFFFFFFF);
     ctx_->RSSetState(Raster(it.raster));
-    DrawMesh(*it.gm, *it.me, it.blended);
+    draw_inst_ = it.inst; DrawMesh(*it.gm, *it.me, it.blended); draw_inst_ = -1;   // S106 FCN: a per-copy item draws that copy only
   }
   ctx_->RSSetState(raster_.Get());
   ID3D11ShaderResourceView* nul[8] = {};

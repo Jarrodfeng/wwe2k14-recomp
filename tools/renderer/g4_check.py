@@ -195,7 +195,7 @@ def make_sheets():
     sheet.save(path)
     until = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
     with open(os.path.join(SHEETS, 'KEEP'), 'w') as f:
-        f.write('reason: lane G4 final-frame sheet (dead work cut off / on, match + Bryan + Check B), judged by Jarrod and the S102 gate\nuntil %s\n' % until)
+        f.write('reason: lane G4 final-frame sheet (dead work cut off / on, match + Bryan + Check B), judged by Jarrod\nuntil %s\n' % until)
     print('sheet', path)
 
 

@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "../assets/car_sel.h"
-#include "scene_record.h"
+#include "rows_stage_fx.h"
 
 namespace rdr_scene {
 
@@ -51,6 +51,13 @@ inline bool CarFromRows(const std::vector<StageFxRow>& rows, int& arena, assets:
     if (r.flags & kFxfCarValid) out.valid = true, out.arena = int(r.h), out.caen = r.slot, out.casd = r.movie, out.carl = r.seq, out.bg = r.w == 0xFFFFFFFFu ? -1 : int(r.w);
     return true;
   }
+  return false;
+}
+
+// S108 CAP: the stage object the kFxCar row was read from (`pad`): the applier takes THAT stage's painted textures (scene_live\car_paint.h Store::For). false = no row.
+inline bool CarStageFromRows(const std::vector<StageFxRow>& rows, uint32_t& stage) {
+  for (const StageFxRow& r : rows)
+    if (r.kind == kFxCar) return stage = r.pad, true;
   return false;
 }
 

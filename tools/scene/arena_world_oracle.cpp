@@ -28,7 +28,7 @@
 #include "../../src/assets/pac.h"
 #include "../../src/assets/stage_key.h"
 #include "../../src/assets/view/loader_seam.h"
-#include "../../src/renderer_scene/scene_record.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
 #include "../../src/scene_live/arena_world.h"
 
 using namespace rdr_scene;

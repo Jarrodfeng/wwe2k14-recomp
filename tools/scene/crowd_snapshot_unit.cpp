@@ -106,6 +106,7 @@ int main(int argc, char** argv) {
   else if (plant == "prop_mul_order") lp = 6;
   else if (plant == "floor_near_cut_ignored") lp = 7;
   else if (plant == "prop_distance_ignored") lp = 11;     // S103 D5
+  else if (plant == "prop_eye_composer") scene_inputs::handed::g_plant = 1;   // S110 CUTCROWD: the props' eye from the composer's copy +1488 (not the handed block)
   else if (plant == "prop_texture_ignored") lp = 12;
   else if (plant == "prop_exit_ignored") lp = 13;
   else if (plant == "prop_global_ignored") lp = 14;
@@ -131,7 +132,7 @@ int main(int argc, char** argv) {
   else if (plant == "picture_handle_unchecked") rdr_scene::live::guest_tex::g_tex_plant = 1;
   else if (plant == "picture_tiled_ignored") rdr_scene::live::guest_tex::g_tex_plant = 2;
   else if (plant == "picture_endian_ignored") rdr_scene::live::guest_tex::g_tex_plant = 3;
-  else if (plant == "picture_packed_ignored") rdr_scene::live::guest_tex::g_tex_plant = 4;
+  else if (plant == "picture_packed_ignored") rdr_scene::live::guest_tex::g_tex_plant = 4;   // S108 CAP2: mip 0 of a packed-tail texture read from the tail's corner (its offset ignored)
   else if (plant == "picture_fail_leaks") rdr_scene::live::guest_tex::g_tex_plant = 5;
   else if (plant == "sign_guest_read_despite_file") rdr_scene::live::crowd::g_sign_file_plant = 1;   // S103 CSF: the pre-CSF rule (every sign picture read back from the guest, whatever the file holds)
   else if (plant == "picture_huge_pitch_unbounded") rdr_scene::live::guest_tex::g_tex_plant = 10;   // S103 CSF review A: no padding bound, a bad pitch is read

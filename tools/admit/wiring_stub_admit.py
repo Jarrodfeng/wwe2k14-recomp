@@ -1,6 +1,6 @@
 r"""A stand-in for admit.exe in the wiring units (tools\admit\wiring_test.py), run through a .cmd the test writes and names in WWE_ADMIT_EXE.
 Behaviour from env STUB_MODE: 'grant N [WORD]' (print `granted N [WORD]`; STUB_SEQ 'grant 5 held;grant 5 nested' answers successive calls in turn), 'fail' (no output, exit 3), 'garbage' (print nonsense, exit 0), 'timeout75' (no output,
-exit 75), 'hang' (print nothing and never answer: writes its pid to STUB_LOG + '.pid', then blocks; the helper under test must kill it).
+exit 75), 'refused' (a `refused REFUSED after ...` line, exit 75: S109 GATE), 'hang' (print nothing and never answer: writes its pid to STUB_LOG + '.pid', then blocks; the helper under test must kill it).
 Every call appends its argv (one line, JSON) to env STUB_LOG; a stdin-form hold (no --detach) then waits for stdin EOF and appends 'released'.
 A `release` call always answers at once (exit 0)."""
 import json
@@ -33,6 +33,9 @@ def main():
     if mode[0] == 'fail':
         return 3
     if mode[0] == 'timeout75':
+        return 75
+    if mode[0] == 'refused':   # S109 GATE: a refusal at the bound: the stdout line, exit 75
+        print('refused REFUSED after 3 s: cc.tool needs 1 x 2.0 GB + floor 4.0 (commit 1 x 2.0 + 4.0); available 5.0 GB, commit left 3.9 GB; queue holders 0', flush=True)
         return 75
     if mode[0] == 'garbage':
         print('what is this', flush=True)

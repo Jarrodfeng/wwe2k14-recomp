@@ -2,7 +2,7 @@ r"""How much of the PC is the work using? (Session 103, 2026-11-17; Jarrod: "you
 ABSOLUTELY be leveraging this to the best of your ability".)
 
 Samples CPU %, free RAM, GPU utilisation and VRAM every N seconds into a csv, then summarises it. Run it in the BACKGROUND alongside
-gates / builders (it ends by itself after --minutes). Read-only; starts nothing else.
+checks / builders (it ends by itself after --minutes). Read-only; starts nothing else.
 
     py -I tools\harness\util_sample.py --minutes 30 [--every 5] [--out out\harness\util\NAME.csv]
     py -I tools\harness\util_sample.py --summary out\harness\util\NAME.csv

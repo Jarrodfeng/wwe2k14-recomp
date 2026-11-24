@@ -1,0 +1,25 @@
+// S106 G4-1A: every record row family, the codec and the validators in one include (the proof tools and the families' own units).
+#pragma once
+#include "rows_arena_world.h"
+#include "rows_caster.h"
+#include "rows_circle.h"
+#include "rows_crowd.h"
+#include "rows_inputs.h"
+#include "rows_lights.h"
+#include "rows_liquid.h"
+#include "rows_owned.h"
+#include "rows_part_clock.h"
+#include "rows_pictures.h"
+#include "rows_plane.h"
+#include "rows_quad2d.h"
+#include "rows_ring.h"
+#include "rows_sphere.h"
+#include "rows_stage_fx.h"
+#include "rows_stage_look.h"
+#include "weapon_rows.h"
+#include "bone_tag_rows.h"
+#include "props_light_rows.h"
+#include "rows_change_colour.h"   // S108 THR2: section 67
+#include "rows_snapshot.h"   // S108 SHOT: sections 68-70
+#include "record_io.h"
+#include "record_checks.h"

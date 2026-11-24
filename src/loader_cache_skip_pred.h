@@ -18,16 +18,18 @@ inline bool CacheInsertSkips(uint32_t f140, uint32_t f116) { return !(f140 != 0 
 inline std::atomic<uint64_t> g_skipped{0};   // copy REQUESTS skipped (counted before the game's size gate: some of these the original would have refused anyway)
 inline std::atomic<uint64_t> g_moved{0};     // moves the original really did (it returned r3 == 1)
 inline std::atomic<uint64_t> g_fallback{0};  // a guard failed (r3 / cache word / unreadable request): the game's own code ran, copy included
+inline std::atomic<uint64_t> g_hits_dropped{0};  // S110 CACHEHIT: name lookups (sub_82C54A00) answered "miss" without running the game's code
 inline constexpr uint64_t kLogEvery = 8;     // one census line per this many events of any kind, and on the first of each kind
 
 // Each returns true when the caller should print the census line now (first of its kind, or every kLogEvery-th event in total).
 inline bool Due(uint64_t kindCount) {
   const uint64_t total = g_skipped.load(std::memory_order_relaxed) + g_moved.load(std::memory_order_relaxed) +
-                         g_fallback.load(std::memory_order_relaxed);
+                         g_fallback.load(std::memory_order_relaxed) + g_hits_dropped.load(std::memory_order_relaxed);
   return kindCount == 1 || (total % kLogEvery) == 0;
 }
 inline bool NoteSkip() { return Due(g_skipped.fetch_add(1, std::memory_order_relaxed) + 1); }
 inline bool NoteMove() { return Due(g_moved.fetch_add(1, std::memory_order_relaxed) + 1); }
 inline bool NoteFallback() { return Due(g_fallback.fetch_add(1, std::memory_order_relaxed) + 1); }
+inline bool NoteHitDropped() { return Due(g_hits_dropped.fetch_add(1, std::memory_order_relaxed) + 1); }
 
 }  // namespace wwe2k14::loader_cache

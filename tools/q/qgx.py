@@ -610,6 +610,24 @@ def wants(argv):
     return c == 'ours' and len(argv) > 1 and argv[1] == 'includes' and any(x in argv for x in ('--included-by', '--transitive', '--closure'))
 
 
+def qfield_args(args):
+    """the argv qfield's parser gets for `field OFF --stores ...`: qstores-only flags (--var-span N, --all-copies) and --stores itself are stripped (S108 P4a B5:
+    qfield exited on --var-span before qstores ran); the default --writes is added"""
+    rest, skip = [], False
+    for x in args:
+        if skip:
+            skip = False
+        elif x == '--var-span':
+            skip = True
+        elif x in ('--stores', '--all-copies') or x.startswith('--var-span='):
+            pass
+        else:
+            rest.append(x)
+    if '--writes' not in rest and '--reads' not in rest:
+        rest.append('--writes')
+    return rest
+
+
 def dispatch(argv, connect, db, resolve):
     try:
         c = argv[0]
@@ -624,10 +642,7 @@ def dispatch(argv, connect, db, resolve):
         if c == 'field':
             import qstores
             import qfield
-            rest = [x for x in argv[1:] if x != '--stores']
-            if '--writes' not in rest and '--reads' not in rest:
-                rest.append('--writes')
-            qfield.main(rest)
+            qfield.main(qfield_args(argv[1:]))
             return qstores.main(argv[1:], connect(db))
         return includes_graph_main(argv[1:], REPO)
     except GxError as e:

@@ -14,6 +14,8 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, '..', 'bench'))
+from route_lint import strip_speed_intent  # noqa: E402  (S109 FF2: the one shared helper for generators that copy a source route's lines)
 SRC = os.path.join(HERE, 'bench_lesnar_bryan.txt')
 OUT = os.path.join(HERE, 'determinism_arena.txt')
 
@@ -31,7 +33,7 @@ head = [
     '# (do not edit by hand). Boot -> Lesnar vs Bryan -> arena grid; screenshot the grid on its random',
     '# pre-selected arena (t8a_grid; dark red tile frame), quit. Needs the frozen user data (tools/bench/run_list.ps1).',
 ]
-body = [l for l in lines[:arena] if not l.startswith(DROP)]
+body = [l for l in strip_speed_intent(lines[:arena]) if not l.startswith(DROP)]   # S109 FF2: the bench route's `# intent: performance` term is not this route's
 body = [l.replace('log bench: start lesnar_bryan', 'log t8a: start') for l in body]
 grid = [
     '# Arena grid: no RB x3 reset, so the cursor stays on the pre-selected arena (dark red tile frame).',

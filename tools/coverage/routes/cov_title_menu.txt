@@ -9,9 +9,15 @@
 # menu archives -> title_logo.bik2 (title video) -> SaveData.Dat read = "Press Start" is up. Start opens an
 # "ATTENTION" storage notice (no file load; seen by Jarrod) that needs A. Then the main-menu UI (MNUIHD.PAC)
 # loads. Left alone, the title goes to the attract demo (MOT*.PAC) instead.
+# Session 29 (Jarrod: no fixed waits): the boot and the menu load run fast-forwarded (`cvar vsync false`); each
+# screenshot window runs at normal speed (`cvar vsync true` from the screen's own event to its screenshot, the same
+# frames as before): the references were recorded at normal speed and the menus animate on real time (Session 16,
+# runs 1302 / 1303). The quit waits for screenshots being written by itself (Session 18), so no wait before it.
 log selftest: start
+cvar vsync false
 wait_file SaveData.Dat 3600
 mark 1 boot
+cvar vsync true
 wait_frames 60
 mark 2 title.first60
 wait_frames 120
@@ -21,13 +27,13 @@ press START
 wait_frames 120
 screenshot storage_notice
 press A
+cvar vsync false
 wait_file MNUIHD.PAC 1800
 mark 4 storage_notice
+cvar vsync true
 wait_frames 60
 mark 5 main_menu.first60
 wait_frames 240
 screenshot main_menu
 mark 6 main_menu.rest
-# The screenshot is saved on another thread; give it time before quitting (Session 7c run 174 lost one at 4K).
-wait_frames 60
 quit

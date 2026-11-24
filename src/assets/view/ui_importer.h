@@ -35,6 +35,7 @@ struct ImporterHost {
   std::string game;           // --game (a folder or a disc image)
   std::string settings_file;  // the launcher's settings file: its "superstars" key is the ON / OFF switch ("" = not linked)
   int edit_slot = -1;         // --importer-edit SLOT: open that pack entry
+  std::string edit_key;       // --importer-edit KEY (8 hex digits, S110 SEAT-C review): that library character (one with no seat has no slot)
   bool bulk_at_start = false; // --importer-bulk: open the bulk picker at once
   bool phone = false;
   std::string picked_dir;     // the phone's picker copies (<files>/importer/picked): cleared once a source is copied into the pack

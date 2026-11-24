@@ -44,10 +44,12 @@
 #   -ScriptExtras @('', '--x=1', ...) (any -Parallel): flags for each script, same order and count as -Scripts ('' =
 #   none), placed BEFORE -Extra on the game's command line (so -Extra wins a clash), e.g. the regress routes' own flags.
 # Session 16 (step 0, Jarrod's rule): test runs are FAST-FORWARDED by default: every run gets --vsync=false (the game
-# runs as fast as the PC allows). Normal speed (no --vsync flag added) when: -RealTime; -Exclusive (timed runs);
-# the caller's flags already set --vsync=; or the script says so in its header (first 40 lines) with a line
-#   # harness: realtime  (reason)
-# (load-time routes, timed bench routes, audio checks, routes Jarrod watches). The flag goes BEFORE -ScriptExtras /
+# runs as fast as the PC allows). S109 FF: normal speed (no --vsync flag added) has ONE door, the route's own intent line
+# (first 40 lines): `# intent: performance <number>` (fps, frame ms, load s, latency, CPU profile: a timed run, which must
+# hold the machine: -Exclusive / -Alone) or `# intent: watch` (a run a person plays, watches or listens to; not with
+# -Parallel). The old realtime switch, the realtime header and -Exclusive's implied speed are gone (-Exclusive means "alone",
+# not "slow"). An explicit --vsync= in the flags (-Extra / -ScriptExtras) still wins: an A/B arm, which route_lint.py
+# allows only with a speed term or `flag --vsync=true` in the intent. The flag goes BEFORE -ScriptExtras /
 # -Extra on the command line. Each run's choice is printed: "[run_list] <script>: fast-forward (vsync off)" or
 # "... normal speed (<why>)".
 # Session 19 (Jarrod): -Step30 adds --wwe2k14_step_hz=30 to fast-forwarded runs (the game's own 30 fps mode as the
@@ -67,13 +69,15 @@
 # --window_activate_when_shown=, --window_show_behind=, --window_position=) is not added again; the others still are.
 # Printed per run: "[run_list] <script>: window ...".
 param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen', [int]$WaitSeconds = 720,
+      [switch]$HarvestPipelines,   # S106 PSEED (arm e): copy each run's stored pipeline list (cache\renderer_pipelines\pipelines.bin of its user data) to out\pipeseed\harvest\<log>.bin, for tools\renderer\pipeline_seed.py merge
       [switch]$NoKill, [switch]$NoTriage, [switch]$SkipRouteLint,   # H2: run even when route_lint.py refuses the flags
       [switch]$AllowStaleExe,   # S103 H3: run an exe built before HEAD's code (also WWE_ALLOW_STALE_EXE=1)
-      [string]$Exe = 'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\wwe2k14.exe',
+      [string]$ForCommit = '',   # S106 G2L: the commit this run was queued for; an -Exe under out\exe\ is judged against it (default: the commit its exe_info.json names), never HEAD
+      [string]$Exe = 'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\wwe2k14.exe',   # S109 WARM: 'tip' = the current exe of the main checkout's HEAD (tools\exe\tip_exe.ps1; 'tip-stream' = the stream-keeping one), no other flag needed
       [switch]$Exclusive,   # Session 8: -Exclusive = timed run (perf, fps, clips): no other game may run alongside.
+      [switch]$Alone,       # S106 C5: -Alone = -Exclusive + no compile runs either (the run lock's pause file: tools\harness\runlock_alone.ps1); prints `alone: yes|held|broken|NO ...`, exit 3 when it could not be alone
       [int]$Parallel = 1,   # task L1: run the list N (1..3) at a time in shared slots; 1 = one at a time (as before)
       [string[]]$ScriptExtras = @(),   # task L1: per-script flags (same order as -Scripts), placed before -Extra
-      [switch]$RealTime,    # Session 16: run at normal speed (vsync on); default = fast-forward, see below
       [switch]$Step30,      # Session 19: --wwe2k14_step_hz=30 on fast-forwarded runs, see above
       [switch]$Visible,     # Session 30: the window on top (unfocused) instead of behind the others
       [switch]$Windowed,    # Session 30: a 1280x720 window instead of fullscreen
@@ -85,19 +89,27 @@ param([string[]]$Scripts, [string]$Extra = '', [string]$Data = 'userdata_frozen'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$R\tools\runlock.ps1"
 . "$PSScriptRoot\run_pass.ps1"   # S105 H: Get-RunPassWord
+. "$PSScriptRoot\run_list_exe.ps1"   # S106 G2L: out\exe\<folder> exes (kind, --want args, guard verdict, replay dir)
+. "$PSScriptRoot\run_fail_quit.ps1"   # S106 0a: Get-RunFailQuitFlag
 . "$PSScriptRoot\load_snapshot.ps1"   # Session 101 lane 302: Get-LoadSnapshot / Save-RunLoad (other heavy processes at the start and end of each run)
+. "$PSScriptRoot\run_list_scene.ps1"   # S109 SCENE: Resolve-RunListScene (a `scene:` request / NAME.scene file -> a generated route under out\scenes)
 
 # Session 16: '' when script $Path should run fast-forwarded, else why it runs at normal speed. $Flags = the run's
 # other flags (-ScriptExtras entry + -Extra). Relative paths are tried from here and from the exe folder.
 function Get-RunListRealTimeReason([string]$Path, [string]$Flags) {
-    if ($RealTime) { return '-RealTime' }
-    if ($Exclusive) { return '-Exclusive (timed run)' }
+    # S109 FF: the ONE door is the route's first `# intent:` line (first 40 lines): the term `performance <what>` or `watch`.
     if ($Flags -match '(^|\s)--vsync=') { return 'the flags set --vsync' }
     $p = $Path
     if (-not (Test-Path -LiteralPath $p -PathType Leaf) -and -not [IO.Path]::IsPathRooted($p)) { $p = Join-Path (Split-Path -Parent $Exe) $Path }
     if (Test-Path -LiteralPath $p -PathType Leaf) {
-        $m = Get-Content -LiteralPath $p -TotalCount 40 | Select-String -Pattern '^#\s*harness:\s*realtime\b(.*)$' | Select-Object -First 1
-        if ($m) { return "script header: realtime$($m.Matches[0].Groups[1].Value)" }
+        $m = Get-Content -LiteralPath $p -TotalCount 40 | Select-String -Pattern '^#\s*intent:\s*(.+)$' | Select-Object -First 1
+        if ($m) {
+            foreach ($t in ($m.Matches[0].Groups[1].Value -split ',')) {
+                $t = $t.Trim()
+                if ($t -match '^performance\b') { return "route intent: $t" }
+                if ($t -eq 'watch') { return 'route intent: watch' }
+            }
+        }
     }
     return ''
 }
@@ -204,10 +216,14 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     if ("$ScriptExtra $Extra" -notmatch '--wwe2k14_(rdr_owner|s101_promotions)=') { $flags += ' --wwe2k14_s101_promotions=false'; Write-Host "[run_list] HIDDEN ADDITION: --wwe2k14_s101_promotions=false (this run names neither rdr_owner nor s101_promotions: it runs the OLD renderer defaults; name one in the route's harness flags to change that)" }
     # S105 A9 (review F5): the player's "graphics driver stopped" box (default ON) never reaches a test run's screen; a run that must see it passes --wwe2k14_rdr_device_lost_message=true.
     if ("$ScriptExtra $Extra" -notmatch '(^|\s)--wwe2k14_rdr_device_lost_message=') { $flags += ' --wwe2k14_rdr_device_lost_message=false' }
+    $fq = Get-RunFailQuitFlag "$ScriptExtra $Extra" ([bool]$NoKill); if ($fq) { $flags += $fq; Write-Host "[run_list] $(Split-Path $s -Leaf): on a failure the game quits (--wwe2k14_input_fail_quit=true)" }   # S106 0a
     $win =Get-RunListWindowFlags $s "$ScriptExtra $Extra" $(if ($Lock.Mode -eq 'Shared') { [int]$Lock.Slot } else { 0 })
     if ($win[0]) { $flags += " $($win[0])" }
     Write-Host "[run_list] $(Split-Path $s -Leaf): window $($win[1])"
     if ($ScriptExtra) { $flags += " $ScriptExtra" }
+    # S106 G2L: an exe under out\exe\ has no ..\..\replays beside it: it plays the repo's recordings.
+    $flags = Add-RunListExeFlags $flags (Get-RunListExeKind $Exe $R) $R "$ScriptExtra $Extra"
+    $flags = Add-RunListSettingsFlag $flags $R $Work "$ScriptExtra $Extra"   # S109 WARM2: a test run never reaches the player's settings.json
     # Session 19: step 30 on fast-forwarded runs (-Step30 or the script header "# harness: step30").
     $allFlags = "$flags $Extra"
     $stepHeader = $false
@@ -236,12 +252,20 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     # H2 / L1 (S103 runs 24-26: failed runs from forgotten switches): the FINAL flag line is printed and linted (cvars exist, dev-only flags vs a release exe, the route's '# intent:' line); an ERROR refuses the run.
     $finalFlags = "$flags $Extra"
     Write-Host "[run_list] $(Split-Path $s -Leaf): FINAL FLAGS $finalFlags"   # always printed, lint or no lint
+    # S108 OPT: the ONE line of what save options this run has (read from the slot copy just mirrored, no game) and how its match is started
+    # (tools\bench\save_facts.py; docs\research\s108\OPT_save_options.md). Never silently absent: a failure to read says so. Kept for the run record below.
+    $saveLine = ''
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try { $saveLine = (@(& py -I "$PSScriptRoot\save_facts.py" --data "$R\out\bench\$Work" --route $s --final $finalFlags 2>&1) | Where-Object { "$_".Trim() } | Select-Object -Last 1) } catch { $saveLine = "save options: NOT READ ($($_.Exception.Message))" }
+    } else { $saveLine = 'save options: NOT READ (py not found)' }
+    if (-not "$saveLine".Trim()) { $saveLine = 'save options: NOT READ (the reader printed nothing)' }
+    Write-Host "[run_list] $(Split-Path $s -Leaf): $saveLine"
     if ($SkipRouteLint -or $env:WWE_SKIP_ROUTE_LINT -eq '1') {
         Write-Host "[run_list] $(Split-Path $s -Leaf): route lint SKIPPED ($(if ($SkipRouteLint) { '-SkipRouteLint' } else { 'WWE_SKIP_ROUTE_LINT=1' }))"
     } elseif (-not (Get-Command py -ErrorAction SilentlyContinue)) {
         Write-Host "[run_list] $(Split-Path $s -Leaf): route lint SKIPPED (py not found)"
     } else {
-        $lintJob = Start-Job -ScriptBlock { param($a) $o = & py @a 2>&1; $o; "LINT_EXIT=$LASTEXITCODE" } -ArgumentList (, @('-I', "$PSScriptRoot\route_lint.py", '--route', $s, '--final', $finalFlags, '--exe', $Exe))
+        $lintJob = Start-Job -ScriptBlock { param($a) $o = & py @a 2>&1; $o; "LINT_EXIT=$LASTEXITCODE" } -ArgumentList (, (@('-I', "$PSScriptRoot\route_lint.py", '--route', $s, '--final', $finalFlags, '--exe', $Exe, '--save', "$R\out\bench\$Work") + $(if ($Lock.Mode -ne 'Shared') { @('--exclusive') } else { @() }) + $(if ($Parallel -gt 1 -or $WorkerId -gt 0) { @('--parallel') } else { @() })))   # S109 FF: the hold, for the `performance` / `watch` intent terms
         if (Wait-Job $lintJob -Timeout 90) {
             $lintOut = @(Receive-Job $lintJob)
             $lintCode = if (("$($lintOut | Select-Object -Last 1)") -match '^LINT_EXIT=(-?\d+)$') { [int]$Matches[1] } else { 0 }
@@ -257,6 +281,17 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
     $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait:(-not $NoKill) -Exe $Exe -Exclusive:($Lock.Mode -eq 'Exclusive') -ExtraArgs "$flags $Extra" 2>&1
     $loadEnd = Get-LoadSnapshot
     $log = ($out | Select-String '=== log: (wwe2k14_\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) -join ','
+    if ($HarvestPipelines) {   # S106 PSEED arm e: the run's list is the real keys of the fixed families (UI, post, maps, particles) the census cannot draw yet; read at the run's end, never during it
+        $hp = Get-ChildItem -Path (Join-Path $R "out\bench\$work") -Recurse -Filter pipelines.bin -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'renderer_pipelines' } | Select-Object -First 1
+        if ($hp -and $log) { $hd = Join-Path $R 'out\pipeseed\harvest'; New-Item -ItemType Directory -Force $hd | Out-Null; Copy-Item $hp.FullName (Join-Path $hd (($log -split ',')[0] + '.bin')) -Force; Write-Host "[run_list] harvested the pipeline list of $log" }
+        else { Write-Host '[run_list] -HarvestPipelines: no stored pipeline list found (the store is off, or the run wrote none)' }
+    }
+    if ($log -match '^wwe2k14_\d+$') {   # S108 OPT: the run's save-options line, for tools\bench\run_read.py (it prints it at the top; second line = the exe folder the log is in)
+        try {
+            $rs = Join-Path $R 'out\harness\run_save'; New-Item -ItemType Directory -Force -Path $rs | Out-Null
+            [IO.File]::WriteAllText((Join-Path $rs "$log.txt"), "$saveLine`n$(Split-Path ([IO.Path]::GetFullPath($Exe)) -Parent)`n", [Text.UTF8Encoding]::new($false))
+        } catch { }
+    }
     $exit = Get-RunExitColumn $out   # S105 H review F1: anchored, case-sensitive
     $fail = ($out | Select-String 'script FAILED|\]\[crash\]|\[rdr\]\[live\] WARN pace_game|device lost|Failed to await|run log number MISMATCH' | Select-Object -First 2 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(160, $_.Line.Length)) }) -join ' | '
     $pass = Get-RunPassWord $out $exit $fail   # S105 H: a crash / script FAILED / non-zero exit is never PASS
@@ -333,8 +368,8 @@ if ($WorkerId -gt 0) {
     $job = [IO.File]::ReadAllText((Join-Path $WorkerDir 'job.json')) | ConvertFrom-Json
     $Extra = "$($job.extra)"; $Data = "$($job.data)"; $WaitSeconds = [int]$job.wait; $Exe = "$($job.exe)"
     $NoKill = [switch][bool]$job.nokill; $NoTriage = [switch][bool]$job.notriage; $SkipRouteLint = [switch][bool]$job.skiproutelint
-    $RealTime = [switch][bool]$job.realtime
     $Step30 = [switch][bool]$job.step30
+    $HarvestPipelines = [switch][bool]$job.harvest   # S106 PSEED fix F6: carried into the worker (it was dropped: a parallel run never harvested, silently)
     $Visible = [switch][bool]$job.visible; $Foreground = [switch][bool]$job.foreground; $Windowed = [switch][bool]$job.windowed
     $KeepShaderStorage = "$($job.keep_shaders)"
     $items = @($job.items)
@@ -386,7 +421,7 @@ function Invoke-RunListParallel {
     $items = @(for ($i = 0; $i -lt $all.Count; $i++) {
         [ordered]@{ i = $i; script = "$($all[$i])"; extra = $(if ($i -lt @($ScriptExtras).Count) { "$($ScriptExtras[$i])" } else { '' }) } })
     $job = [ordered]@{ n = $n; extra = $Extra; data = $Data; wait = $WaitSeconds; nokill = [bool]$NoKill;
-        notriage = [bool]$NoTriage; skiproutelint = [bool]$SkipRouteLint; exe = $Exe; parent = $PID; items = $items; realtime = [bool]$RealTime; step30 = [bool]$Step30;
+        notriage = [bool]$NoTriage; skiproutelint = [bool]$SkipRouteLint; exe = $Exe; parent = $PID; items = $items; step30 = [bool]$Step30; harvest = [bool]$HarvestPipelines;
         visible = [bool]$Visible; foreground = [bool]$Foreground; windowed = [bool]$Windowed;
         keep_shaders = $KeepShaderStorage }
     Write-RunListFile (Join-Path $dir 'job.json') ($job | ConvertTo-Json -Depth 5)
@@ -459,6 +494,15 @@ function Invoke-RunListParallel {
 if ($Parallel -lt 1 -or $Parallel -gt $script:RunLockMaxShared) { "ABORT: -Parallel must be 1..$($script:RunLockMaxShared) (the shared slots), got $Parallel"; exit 2 }
 if ($Parallel -gt 1 -and $Exclusive) { "ABORT: -Parallel $Parallel runs games side by side in shared slots; -Exclusive (timed runs) never runs next to another game: use one or the other"; exit 2 }
 if (@($ScriptExtras).Count -and @($ScriptExtras).Count -ne @($Scripts).Count) { "ABORT: -ScriptExtras has $(@($ScriptExtras).Count) entries for $(@($Scripts).Count) scripts (one per script, '' for none)"; exit 2 }
+# S109 WARM: -Exe tip | tip-stream -> the tip's current exe (built now if the warm build did not run), resolved here in the parent, so -Parallel workers get the path.
+$script:RunListTip = $false
+if (Test-RunListTipName $Exe) {
+    $tipR = Resolve-RunListTipExe $Exe "$R\tools\exe\tip_exe.ps1" $ForCommit
+    foreach ($l in $tipR.Lines) { Write-Host "[run_list] $l" }
+    if ($tipR.Abort) { "ABORT: $($tipR.Abort)"; exit 2 }
+    Write-Host "[run_list] -Exe $Exe -> $($tipR.Exe)"
+    $Exe = $tipR.Exe; $script:RunListTip = $true
+}
 # Session 14 (run 1019): a list passed through `pwsh -File` arrives as ONE string ('a.txt','b.txt'); the game then got a
 # script path that does not exist, no launch flag, and played the attract demo for 400 s. Refuse missing scripts.
 # Relative paths are tried from the current folder and from the exe folder (the game resolves them from there; regress
@@ -470,6 +514,15 @@ function Resolve-RunListScript([string]$Path) {
     if (Test-Path -LiteralPath $fromExe -PathType Leaf) { return $fromExe }
     return $null
 }
+# S109 SCENE: a `scene:` request / NAME.scene file is lowered to a route first (tools\run\scene.py); a refusal ends the call with its reason.
+$sceneScripts = @()
+foreach ($s in @($Scripts)) {
+    $lowered = Resolve-RunListScene "$s" $Exe $Data
+    if ("$lowered" -like 'ABORT:*') { $lowered; exit 2 }
+    if ("$lowered" -ne "$s") { Write-Host "[run_list] scene request -> $lowered" }
+    $sceneScripts += $lowered
+}
+$Scripts = @($sceneScripts)
 foreach ($s in @($Scripts)) {
     if (-not (Resolve-RunListScript "$s")) {
         "ABORT: input script not found: $s (several scripts through pwsh -File arrive as one string: call run_list.ps1 with & from PowerShell, or one script per call)"; exit 2
@@ -525,41 +578,48 @@ for ($i = 0; $i -lt @($Scripts).Count; $i++) {
 # exe was built at (the stamp header beside it, confirmed inside the exe's bytes) and diffs it against HEAD over the code paths (src, config, patches, CMakeLists.txt);
 # docs / tools commits do not count. An exe it cannot date (no stamp beside it: a bisect snapshot, a copied exe) only warns; bisect exes are exempt (they are old on
 # purpose). Override: -AllowStaleExe or WWE_ALLOW_STALE_EXE=1 (the reason is printed either way).
-if (-not $WorkerDir -and $Exe -notmatch '\\bisect\\') {
-    $evh = & py -I "$PSScriptRoot\exe_vs_head.py" --exe $Exe --repo $R 2>&1 | Out-String
+if (-not $WorkerDir -and -not (Test-RunListBisectExe $Exe)) {   # S106 G2LF: was -notmatch '\\bisect\\' (skipped the guard for an out\exe folder named bisect)
+    # S106 G2L: an exe under out\exe\ is judged against -ForCommit (else the commit its exe_info.json names), never HEAD; cannot-tell is an ABORT there.
+    $exeKind = Get-RunListExeKind $Exe $R
+    $wantArgs = @(Get-RunListWantArgs $exeKind $ForCommit -Tip:$script:RunListTip)
+    $evh = & py -I "$PSScriptRoot\exe_vs_head.py" --exe $Exe --repo $R @wantArgs 2>&1 | Out-String
     $evhCode = $LASTEXITCODE
-    if ($evhCode -eq 3) {
-        if ($AllowStaleExe -or $env:WWE_ALLOW_STALE_EXE -eq '1') { Write-Host "[run_list] stale exe ALLOWED ($(if ($AllowStaleExe) { '-AllowStaleExe' } else { 'WWE_ALLOW_STALE_EXE=1' })): $($evh.Trim())" }
-        else { "ABORT: $($evh.Trim())"; exit 2 }
-    } elseif ($evhCode -ne 0) { Write-Host "[run_list] exe age: $($evh.Trim())" }
+    $evhAllow = [bool]($AllowStaleExe -or $env:WWE_ALLOW_STALE_EXE -eq '1')
+    $evhVerdict = Get-RunListGuardVerdict $exeKind $evhCode $evhAllow
+    if ($evhVerdict -eq 'allowed') { Write-Host "[run_list] stale exe ALLOWED ($(if ($AllowStaleExe) { '-AllowStaleExe' } else { 'WWE_ALLOW_STALE_EXE=1' })): $($evh.Trim())" }
+    elseif ($evhVerdict -eq 'abort') { "ABORT: $($evh.Trim())"; exit 2 }
+    elseif ($evhVerdict -eq 'warn') { Write-Host "[run_list] exe age: $($evh.Trim())" }
 }
 # Fixer (review finding 5): an exe built before the per-run log number (no "run log number" string, e.g. the
 # coverage build of 10:04 or an old bisect snapshot) rescans for the newest log whenever it names a capture, CSV or
 # coverage folder, so it must not run next to other games: take the lock exclusively for it.
-$listMode = if ($Exclusive) { 'Exclusive' } else { 'Shared' }
-if (-not $Exclusive -and -not (Test-RunLockExeSharedSafe $Exe)) {
+$listMode = if ($Exclusive -or $Alone) { 'Exclusive' } else { 'Shared' }   # S106 C5: -Alone is exclusive too
+if (-not $Exclusive -and -not $Alone -and -not (Test-RunLockExeSharedSafe $Exe)) {
     Write-Host "[run_list] $Exe does not log 'run log number' (built before the per-run log number): running EXCLUSIVE, not shared"
     $listMode = 'Exclusive'
 }
 if ($Parallel -gt 1) {
     $held = Get-RunListHold
-    $why = if ($listMode -eq 'Exclusive') { "this exe cannot run shared (see above)" }
+    $why = if ($Alone) { "-Alone: one game, and nothing else on the PC" }   # S106 C5
+           elseif ($listMode -eq 'Exclusive') { "this exe cannot run shared (see above)" }
            elseif ($held) { "this call runs inside a caller's $held run-lock hold (regress, bisect, runlock.ps1 run ...), which its games share" }
            else { $null }
     if ($why) { Write-Host "[run_list] -Parallel ${Parallel}: running the scripts ONE AT A TIME instead: $why" }
     elseif (-not @($Scripts).Count) { Write-Host "[run_list] -Parallel ${Parallel}: no scripts"; return }
     else { Invoke-RunListParallel; return }
 }
-try { $lock = Enter-RunLock -Name "run_list $(($Scripts | ForEach-Object { Split-Path $_ -Leaf }) -join ',') $Extra" -Mode $listMode }
-catch { "ABORT: $($_.Exception.Message)"; exit 1 }
+try { $lock = Enter-RunLock -Name "run_list $(($Scripts | ForEach-Object { Split-Path $_ -Leaf }) -join ',') $Extra" -Mode $listMode -Alone:$Alone -AloneRunMinutes ([Math]::Max(15, [Math]::Ceiling(@($Scripts).Count * $WaitSeconds / 60.0) + 5)) }   # S106 C5: the pause lasts the whole list
+catch { "ABORT: $($_.Exception.Message)"; exit $(if ("$($_.Exception.Message)" -match '^alone: NO') { 3 } else { 1 }) }   # S106 C5: exit 3 = could not be alone (nothing ran)
 try {
 $work = if ($lock.Mode -eq 'Shared') { "userdata_work_s$($lock.Slot)" } else { 'userdata_work' }
 Write-Host "[run_list] run lock $($lock.Mode.ToLowerInvariant())$(if ($lock.Slot) { " slot $($lock.Slot)" }), user data out\bench\$work"
+if ($lock.PSObject.Properties['Alone'] -and $lock.Alone) { Write-Host $lock.Alone.YesLine }   # S106 C5
 $k = 0
 foreach ($s in $Scripts) {
     $se = if ($k -lt @($ScriptExtras).Count) { "$($ScriptExtras[$k])" } else { '' }
     $k++
     @(Invoke-RunListScript $s $se $lock $work)
     if ($script:RunListChecks) { Write-Host $script:RunListChecks }   # Session 29: under the result line
+    if ($lock.PSObject.Properties['Alone'] -and $lock.Alone) { Write-Host (Format-RunLockAloneLine $lock) }   # S106 C5: what the sampler saw during this script
 }
 } finally { Exit-RunLock $lock }

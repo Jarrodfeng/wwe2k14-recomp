@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C4 gate check: builds tools\\scene\\ring_pose_unit.cpp (src\\renderer_scene\\ring_pose.h: the file's slot -> node map and the CPU skin with a call's rows, hand-worked numbers), runs it, then its planted
+"""S103 lane C4 check: builds tools\\scene\\ring_pose_unit.cpp (src\\renderer_scene\\ring_pose.h: the file's slot -> node map and the CPU skin with a call's rows, hand-worked numbers), runs it, then its planted
 twins (each must exit 1 and fail its NAMED check). 0 game runs.   py -I tools\\scene\\ring_pose_check.py [--root DIR]"""
 import argparse
 import os

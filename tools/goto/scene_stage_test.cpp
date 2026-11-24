@@ -3,7 +3,7 @@
 //   "ready held seq r g_mode cmd_obj cmd_vtable read write slot0 listener pending m participants ui_manager ui_gate"  -> "READY" | "NOT <reason>"
 //   "story bank arena n c0 a0 c1 a1 ..."  -> "OK <hex of the 25360-byte story>" | "REFUSED"  (the buffer starts zeroed, as the director's does)
 //   "holds BANK" -> "HOLD" | "ENDS" (S101 lane 59: does the bank get the story command class)
-//   "consts" -> "name=value" lines (the offsets the push relies on), for the gate to pin against the design
+//   "consts" -> "name=value" lines (the offsets the push relies on), for the selftest to pin against the design
 #include <cstdio>
 #include <iostream>
 #include <sstream>

@@ -302,7 +302,7 @@ def main():
     ap.add_argument('--root', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--plant', action='store_true')
-    ap.add_argument('--gate', action='store_true', help='the lint, then the plants (the gate check)')
+    ap.add_argument('--gate', action='store_true', help='the lint, then the plants (the check)')
     a = ap.parse_args()
     root = os.path.abspath(a.root)
     if a.gate:

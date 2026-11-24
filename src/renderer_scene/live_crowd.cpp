@@ -1,5 +1,8 @@
 // The crowd from the scene record alone: see live_crowd.h.
 #include "live_crowd.h"
+#include "rows_crowd.h"   // S106 G4-2
+#include "rows_pictures.h"
+#include "rows_stage_look.h"
 #include "../assets/car_sel.h"   // S103 CAR fix 5
 #include "../keep_stream.h"  // S103 GT: WWE2K14_STREAM()
 #include "../thread_name.h"  // S103 H1

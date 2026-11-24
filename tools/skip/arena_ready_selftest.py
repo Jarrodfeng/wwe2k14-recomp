@@ -1,4 +1,4 @@
-r"""S101 lane 128 gate check: the arena D3 readiness tool (tools\skip\arena_ready.py) on run 7079's case folder, plus its planted twins. Offline, 0 game runs.
+r"""S101 lane 128 check: the arena D3 readiness tool (tools\skip\arena_ready.py) on run 7079's case folder, plus its planted twins. Offline, 0 game runs.
 Input: lane 92's unpacked case of run 7079 (<main checkout>\out\s101\lane92\case_20261112_122658_040_0_pc_run_exit, game data, local only). A missing input FAILS loudly.
 
   py -I tools\skip\arena_ready_selftest.py [--frames 0:380:19]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane C3 gate check (step 2 evidence): the turnbuckle model of run 16's real records. For every sampled record, the game's 12 turnbuckle calls (class turnbuckle, call = 3 corner + height) must satisfy
+"""S103 lane C3 check (step 2 evidence): the turnbuckle model of run 16's real records. For every sampled record, the game's 12 turnbuckle calls (class turnbuckle, call = 3 corner + height) must satisfy
 the loop's structure [listing 0x825CE324-0x825CE57C]: node 1's skin translation = A + inv.t * R(a_corner), A = (V_corner.x, -154 - 42 height, V_corner.z), with ONE constant inv.t for all 12 instances and all
 records (V = the vec table 0x8201FA20, a = the angle table 0x8201FA60, both read from the image constants below), node 0 / 3 identity, nodes 1 / 2 the same rotation row0 (cos a, 0, -sin a). The planted twin
 (angles shifted by one corner) must break the constancy. Reads the case zip READ ONLY; 0 game runs.

@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
   sp::FadeFrom(none, 128, o);
   Expect(o == c.base, "an arena without a match page keeps its base");
   // S103 FD: the alpha follows the GAME's page clock (PageAlpha255 on the fed t), through a no-entrance match, a replay rewind and a second match. `--plant own_fade_clock` replaces the rule with the
-  // old one (a clock of ours, started at the first non-entrance frame, unsigned guest_frame - t0): the same asserts must FAIL (the gate lane expects exit 1).
+  // old one (a clock of ours, started at the first non-entrance frame, unsigned guest_frame - t0): the same asserts must FAIL (the check expects exit 1).
   {
     const bool plant = argc == 3 && std::strcmp(argv[1], "--plant") == 0 && std::strcmp(argv[2], "own_fade_clock") == 0;
     struct OldClock {

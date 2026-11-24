@@ -1,4 +1,3 @@
-# harness: realtime (starts at normal speed; Session 29: the route fast-forwards itself where states drive it)
 # Regression test: Create a Logo -> W stamp tool -> Lettering (PLAYBOOK session 3). Crashed until setjmp/longjmp
 # were configured in the manifest; now expected to reach the SELECT FONT screen and log "PASS". A crash before
 # the PASS line = regression.

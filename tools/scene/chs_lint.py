@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""S103 CHS lint (review fixes): the present_direct switch cannot drift from its rig, and every planted value is run by a gate lane.
+"""S103 CHS lint (review fixes): the present_direct switch cannot drift from its rig, and every planted value is run by its check.
 
   py -I tools\\scene\\chs_lint.py [--root DIR] [--selftest]
 
 R1  a HostOptions field that mirrors a cvar (CVAR_FIELDS) has the cvar's default, or its line carries `RIG-DEFAULT: why` (a rig / unit that builds a HostOptions by hand must test the game's default).
 R2  host_rig.cpp's local for the same switch has the cvar's default too, or carries `RIG-DEFAULT: why` (the row / shot / GT / WB lanes then run the game's path).
-R3  every `direct_plant` value the TestSeam documents (`N = ...` in the comment on direct_plant) appears as `'--direct-plant', 'N'` in the check script a gate lane runs, and every `--fault-kind` value the rig
-    accepts (1, 2) appears there too; the check script is a cmd of some lane in tools\\gate\\lanes.
+R3  every `direct_plant` value the TestSeam documents (`N = ...` in the comment on direct_plant) appears as `'--direct-plant', 'N'` in tools\\scene\\chs_c6_check.py, and every `--fault-kind` value the rig
+    accepts (1, 2) appears there too.
 Exit 0 = clean."""
-import json
 import re
 import sys
 from pathlib import Path
@@ -23,7 +22,7 @@ def cvar_default(start_text, cvar):
     return m.group(1) if m else None
 
 
-def check(start_text, host_h, rig_cpp, check_py, lane_cmds):
+def check(start_text, host_h, rig_cpp, check_py):
     pr = []
     for field, cvar, local in CVAR_FIELDS:
         want = cvar_default(start_text, cvar)
@@ -47,38 +46,28 @@ def check(start_text, host_h, rig_cpp, check_py, lane_cmds):
     for v in ('1', '2'):
         if not re.search(r"'--fault-kind',\s*'%s'" % v, check_py):
             pr.append('R3: --fault-kind %s is never run by chs_c6_check.py' % v)
-    if not any('chs_c6_check.py' in c for c in lane_cmds):
-        pr.append('R3: no gate lane runs tools/scene/chs_c6_check.py')
     return pr
 
 
 def load(root):
     r = Path(root)
-    cmds = []
-    for f in (r / 'tools/gate/lanes').glob('*.json'):
-        try:
-            for c in json.loads(f.read_text(encoding='utf-8')).get('checks', []):
-                cmds.append(' '.join(c.get('cmd', [])))
-        except Exception:
-            pass
     rd = lambda p: (r / p).read_text(encoding='utf-8')
-    return rd('src/start_settings.cpp'), rd('src/renderer_host/scene_host.h'), rd('tools/scene/host_rig.cpp'), rd('tools/scene/chs_c6_check.py'), cmds
+    return rd('src/start_settings.cpp'), rd('src/renderer_host/scene_host.h'), rd('tools/scene/host_rig.cpp'), rd('tools/scene/chs_c6_check.py')
 
 
 def main():
     root = sys.argv[sys.argv.index('--root') + 1] if '--root' in sys.argv else '.'
-    st, hh, rig, chk, cmds = load(root)
-    pr = check(st, hh, rig, chk, cmds)
+    st, hh, rig, chk = load(root)
+    pr = check(st, hh, rig, chk)
     if '--selftest' in sys.argv:
         if pr:
             print('SELFTEST: the clean tree must pass: %s' % pr)
             return 1
         plants = {
-            'HostOptions default flipped': (st, re.sub(r'(bool\s+present_direct\s*=\s*)true;[^\n]*', r'\1false;', hh, count=1), rig, chk, cmds),
-            'rig default flipped': (st, hh, re.sub(r'(bool\s+present_direct\s*=\s*)true;[^\n]*', r'\1false;', rig, count=1), chk, cmds),
-            'plant 3 not run by the check': (st, hh, rig, chk.replace("'--direct-plant', '3'", "'--direct-plant', '9'"), cmds),
-            'fault kind 2 not run': (st, hh, rig, chk.replace("'--fault-kind', '2'", "'--fault-kind', '1'"), cmds),
-            'no lane runs the check': (st, hh, rig, chk, []),
+            'HostOptions default flipped': (st, re.sub(r'(bool\s+present_direct\s*=\s*)true;[^\n]*', r'\1false;', hh, count=1), rig, chk),
+            'rig default flipped': (st, hh, re.sub(r'(bool\s+present_direct\s*=\s*)true;[^\n]*', r'\1false;', rig, count=1), chk),
+            'plant 3 not run by the check': (st, hh, rig, chk.replace("'--direct-plant', '3'", "'--direct-plant', '9'")),
+            'fault kind 2 not run': (st, hh, rig, chk.replace("'--fault-kind', '2'", "'--fault-kind', '1'")),
         }
         bad = 0
         for name, args in plants.items():

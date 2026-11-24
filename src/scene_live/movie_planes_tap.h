@@ -39,7 +39,7 @@ inline bool ReadBase(uint32_t guest, void* dst, size_t n) { return wwe2k14::wres
 // r3 = the display set (the flush hook's own argument).
 inline void OnFlush(uint32_t set) {
   if (!Active()) return;
-  rdr_scene::live::movieplanes::Store().OnFlush(&ReadBase, set, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));
+  rdr_scene::live::movieplanes::Store().OnFlush(&ReadBase, set, wwe2k14::g_guest_frame.load(std::memory_order_relaxed), &wwe2k14::wrestlers::ReadGuestRows);   // S108 RDS: a plane in one page check
 }
 
 }  // namespace wwe2k14::movie_planes_tap

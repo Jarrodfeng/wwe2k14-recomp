@@ -1,0 +1,49 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, blood off
+# Session 108 lane BLD7 (docs/research/s108/BLD7_plan.md): the BLOOD-OFF control of the blood-keeping game fix. The body of s108_bld6_bloodon.txt with the
+# blood option OFF (o=81:0) and the three `bleed` lines removed (the verb turns the option byte on, src/situation_director_core.h).
+# Question: with blood off, no blood shows in any shot and every [wwe2k14][blood_keep] line reads `skipped` (gate=0 blood off, or levels=0/0/0); a `swet_burst` / `reapply` line shows the hook was reached (the fix adds nothing the game did not give).
+# Read with: py -I tools/bench/run_read.py <exe folder> --full. Shots bld7_* are local only.
+on_fail quit
+log bench: start scene s108_bld7_bloodoff
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=139:-1,343:-1;arena=5;o=81:0
+cvar wwe2k14_match_go 108
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_state match_clock >0 40000
+log scene=bld7_match
+mark 2 match_clock
+wait_frames 120
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+wait_frames 120
+screenshot bld7_level0
+mark 3 no_bleed
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 60
+screenshot bld7_after_60
+wait_frames 240
+screenshot bld7_after_300
+wait_frames 600
+screenshot bld7_after_900
+wait_frames 1000
+screenshot bld7_after_1900
+wait_frames 1800
+screenshot bld7_after_3700
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

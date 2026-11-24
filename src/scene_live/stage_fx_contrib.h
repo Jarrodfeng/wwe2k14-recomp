@@ -18,10 +18,15 @@
 #include <vector>
 
 #include "../renderer_game/scene_frame.h"
+#include "../renderer_scene/rows_arena_world.h"   // S106 G4-2
+#include "../renderer_scene/rows_part_clock.h"
+#include "../renderer_scene/rows_stage_fx.h"
 #include "../renderer_scene/live_scene.h"
 #include "../renderer_scene/stage_look.h"   // S103 M: Entrance(t), the front end's own look signal
 #include "../renderer_scene/stage_slot_vis.h"   // S103 WSL: the game's per-slot look gate (G5)
 #include "../renderer_scene/car_arena_rows.h"   // S103 CAR: a created arena's part indices row (ReadCarSel / CarToRows)
+#include "car_paint.h"   // S108 CAP: a created arena's painted textures, read at the latch
+#include "../renderer_scene/stage_posed.h"   // S110 BARRICADE: the slots the game draws posed (palette rows)
 #include "../renderer_scene/stage_show.h"   // S103 SCF: the game's per-screen / per-art-slot show bits
 #include "inputs_core.h"   // S103 M (B2): kInStageScreens, Capture
 #include "arena_id_core.h"   // S103 CAE: kStageArenaIdOffset, kMaxArenaId
@@ -222,6 +227,8 @@ class StageFxContributor final : public Contributor {
       char buf[256];
       std::snprintf(buf, sizeof buf, "[slot_look skipped %u, takes %llu, unread %llu, stage_gen %u, cycle_groups %u pick %u tick %u]", vis_skipped_.load(std::memory_order_relaxed), (unsigned long long)vis_ok_.load(std::memory_order_relaxed), (unsigned long long)vis_unread_.load(std::memory_order_relaxed), stage_gen_.load(std::memory_order_relaxed), cyc_groups_.load(std::memory_order_relaxed), cyc_pick_.load(std::memory_order_relaxed), cyc_tick_.load(std::memory_order_relaxed));   // S103 CAR: cycle groups read in the last take, the first group's picked slot and tick
       out += buf;
+      std::snprintf(buf, sizeof buf, "[posed_slots %u, cap_dropped %llu]", posed_slots_.load(std::memory_order_relaxed), (unsigned long long)posed_dropped_.load(std::memory_order_relaxed));   // S110 BARRICADE: palette-posed slots written in the last take; slots the row cap left out (total)
+      out += buf;
     }
     {   // S103 CAR: the created-arena census: the part indices read from the game, the loads made (parts, bands)
       const uint64_t l = car_last_.load(std::memory_order_relaxed);
@@ -265,6 +272,7 @@ class StageFxContributor final : public Contributor {
   };
   // One frame's take (public for the unit).
   void Take(uint64_t frame, Frame& f) {
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS review: this pass's line copy (the game's ReadGuest serves this thread's reads of up to 128 bytes through it until return: BuildSlotRows / ReadSlotWorld / ReadMat, ReadStageClocks' ReadModelClocks, the show / vis / CAR / paint words)
     f.Clear();
     if (moving_) moving_(moving_buf_);
     else moving_buf_.clear();
@@ -273,6 +281,16 @@ class StageFxContributor final : public Contributor {
       GuardLocked();
       const uint64_t before_unreadable = census_.unreadable, before_no_motion = census_.no_motion;
       BuildSlotRows(read_, Stage(), moving_buf_, uint32_t(frame), f.slot_rows, census_);
+        {   // S110 BARRICADE [C, docs\research\s110\BARRICADE.md]: every slot whose model has more than one node, its palette ([model + 200]) as kFxSlotPalette rows (same take)
+          const ReadFn rd = read_;
+          std::vector<PosedSlot> posed;
+          if (ReadPosedSlots([rd](uint32_t a, void* d, size_t n) { return rd(a, d, n); }, Stage(), posed)) {
+            PosedWithoutWorldRows(posed, f.slot_rows);   // exactly one of kFxSlotWorld / kFxSlotPalette per slot
+            const size_t dropped = PosedToRows(posed, uint32_t(frame), f.slot_rows);
+            posed_slots_.store(uint32_t(posed.size() - dropped), std::memory_order_relaxed);
+            if (dropped) posed_dropped_.fetch_add(dropped, std::memory_order_relaxed);   // S110 review: a hit row cap is counted (census), never silent
+          }
+        }
       {   // S103 SCF [C, SCM.md]: the game's show bits (stage + 6008 key records, stage + 1220 + 12 * 301 art-slot records, byte +9 bit 0x80). Unreadable = no rows this frame: the applier keeps the LAST bits (never all-on, never all-off)
         const ReadFn rd = read_;
         if (!ReadStageShow([rd](uint32_t a, void* d, size_t n) { return rd(a, d, n); }, Stage(), f.show)) {
@@ -315,6 +333,7 @@ class StageFxContributor final : public Contributor {
         (f.car_ok ? car_ok_ : car_unread_).fetch_add(1, std::memory_order_relaxed);
         if (f.car_ok) assets::car::Publish(f.car);   // S103 CAR fix (blocker): published at the latch, so the slot provider and the crowd / ring readers (arena_hooks.h, OpenCached) see the venue before the record names the arena
         if (f.car_ok) car_last_.store(uint64_t(f.car.caen) | uint64_t(f.car.casd) << 16 | uint64_t(f.car.carl) << 32 | uint64_t(uint16_t(f.car.bg)) << 48, std::memory_order_relaxed);
+        carpaint::OnLatch(f.vis.stage, read_, f.vis.gen);   // S108 CAP: the stage's own texture list [stage + 14452] as the game painted it (car_paint.h), read here with the game threads parked; the generation tells a new stage at a reused address
       }
       f.unreadable = uint32_t(census_.unreadable - before_unreadable);
       const bool slots_ready = slots_ready_ ? slots_ready_() : true;
@@ -475,6 +494,8 @@ class StageFxContributor final : public Contributor {
   std::atomic<uint32_t> stage_gen_{0};   // S103 WSL: bumped when the stage object changes or is freed (stage_slot_vis.h marker row)
   std::atomic<uint32_t> vis_skipped_{0}, cyc_groups_{0}, cyc_pick_{0}, cyc_tick_{0};   // S103 CAR: the cycle census
   std::atomic<uint64_t> vis_ok_{0}, vis_unread_{0};
+  std::atomic<uint32_t> posed_slots_{0};     // S110 BARRICADE: posed slots written in the last take
+  std::atomic<uint64_t> posed_dropped_{0};   // S110 review: posed slots the row cap left out (total)
   std::atomic<uint32_t> last_show_{0};   // S103 SCF: the last show bits read (LastShow)
   KeyFn shown_ = nullptr, bound_ = nullptr;
   IdleFn idle_ = nullptr;   // S103 E7

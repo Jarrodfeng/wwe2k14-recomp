@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the editor presses wait on frame counts; fast-forwarded menus drop presses)
 # intent: owner on
 # Editor map read from runs 073 / 075 / 082 / 083 / 091 / 094 (sheets): after the template pick (A) the HEAD tab (rows FACES TEMPLATES SKIN HAIR FACE ...) is up; B at the editor top EXITS to the main menu (never B there).
 # HAIR (row 3): A -> SUPERSTAR / DIVA list -> A on SUPERSTAR -> carousel "1/86" -> DOWN x56 = 57/86 (dreadlocks) -> A -> options page (COLOR, ETC / LENGTH / ACCEPT) -> DOWN x2 + A = ACCEPT -> the HEAD list.

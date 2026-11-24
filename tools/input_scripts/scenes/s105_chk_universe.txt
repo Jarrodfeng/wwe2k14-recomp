@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the Universe pages have no mapped states; their presses wait on frame counts)
 # intent: owner on
 # S105 lane R2 (T5 route 3): UNIVERSE (menu 1497) -> card -> RIVALRY MATCH row (DOWN x2) -> A (TONIGHT page) -> A (PLAY) -> match; the oracle for a Universe scene is a UNIVERSE0 pac open.
 # UNCONFIRMED: which card row carries a Universe event; Y = INTERFERE is the next try.

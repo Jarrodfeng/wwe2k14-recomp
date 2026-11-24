@@ -3,6 +3,7 @@
 # clock runs, loads the probe plugin (probes\probes.cpp: sets device byte 11069 bit 0x02 at the next indexed draw and
 # reports draws / waits / submits / Present per 30 guest frames), takes a shot every 60 frames and logs the match
 # clock, so the log shows whether frames, fences and Present keep coming. on_fail continue (a hang is a result).
+# harness: flags --wwe2k14_input_fail_quit=false
 on_fail continue
 log n5c: start
 include boot_to_menu

@@ -15,6 +15,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -53,7 +55,7 @@ constexpr uint32_t kBrightOff = 452;
 constexpr uint32_t kBrightOne = 0x3F800000;
 constexpr uint64_t kDimSceneSize = 136;        // sub_82250050(136) (0x8266278C)
 
-enum class Verb { None, Passive, Momentum, Stock, PassiveCpu, Bleed, LightsOut };
+enum class Verb { None, Passive, Momentum, Stock, PassiveCpu, Bleed, LightsOut, State, Place };
 
 struct Cmd {
   Verb verb = Verb::None;
@@ -61,6 +63,9 @@ struct Cmd {
   bool all = false;    // passive all
   bool on = false;     // passive / passive_cpu
   int value = 0;       // momentum percent 0..100, stock 0..9
+  std::string name;    // S110 OMGROUTE: `state SLOT NAME` (a leading "State" dropped)
+  float x = 0, z = 0, deg = 0;  // S110 PLACE: `place SLOT X Z [FACING_DEG]`
+  bool has_facing = false;
 };
 
 inline std::vector<std::string> Words(const std::string& s) {
@@ -77,7 +82,25 @@ inline std::vector<std::string> Words(const std::string& s) {
   return w;
 }
 
-inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu" || first == "bleed" || first == "lightsout"; }
+inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu" || first == "bleed" || first == "lightsout" || first == "state" || first == "place"; }
+
+constexpr float kPlaceCoordMaxParse = 2000.0f;  // S110 PLACE: parse bounds on |X|, |Z| (a typo guard, not an arena size) and the facing in degrees
+constexpr float kPlaceDegMaxParse = 360.0f;
+// S110 PLACE: a signed decimal (optional sign, digits, optional fraction; no exponent, no hex) within +-limit.
+inline bool SignedDecimal(const std::string& t, float limit, float& out) {
+  size_t i = (!t.empty() && (t[0] == '-' || t[0] == '+')) ? 1 : 0;
+  size_t digits = 0, dots = 0;
+  for (size_t k = i; k < t.size(); ++k) {
+    if (t[k] == '.') ++dots;
+    else if (t[k] >= '0' && t[k] <= '9') ++digits;
+    else return false;
+  }
+  if (digits == 0 || dots > 1 || t.size() > 16) return false;
+  const double v = std::strtod(t.c_str(), nullptr);
+  if (v > double(limit) || v < -double(limit)) return false;
+  out = float(v);
+  return true;
+}
 
 inline bool DigitsOnly(const std::string& s, size_t max_len) {
   if (s.empty() || s.size() > max_len) return false;
@@ -91,7 +114,7 @@ inline bool DigitsOnly(const std::string& s, size_t max_len) {
 // (`passive 1 on`).
 inline std::string Parse(const std::string& text, Cmd& out) {
   out = Cmd{};
-  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off | bleed SLOT LEVEL (dev builds; LEVEL 1-3) | lightsout SLOT (dev builds) (SLOT 0-8, PCT 0-100, N 0-9)";
+  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off | bleed SLOT LEVEL (dev builds; LEVEL 1-3) | lightsout SLOT (dev builds) | state SLOT NAME (dev builds; the game's own state name; it is only QUEUED and takes effect on a later tick) | place SLOT X Z [FACING_DEG] (dev builds; the game's own warp of a live wrestler to the point; |X|, |Z| <= 2000, FACING -360..360) (SLOT 0-8, PCT 0-100, N 0-9)";
   const std::vector<std::string> w = Words(text);
   if (w.empty() || !IsVerb(w[0])) return "error: " + usage;
   auto slot_of = [&](const std::string& t) {
@@ -119,6 +142,27 @@ inline std::string Parse(const std::string& text, Cmd& out) {
   if (w[0] == "lightsout") {  // S105 SLO3: two words
     out.verb = Verb::LightsOut;
     if (w.size() != 2 || !slot_of(w[1])) return "error: lightsout needs a slot; " + usage;
+    return "";
+  }
+  if (w[0] == "state") {  // S110 OMGROUTE: `state SLOT NAME`; NAME = letters, digits, _ (1-63); a leading "State" is dropped as sub_826D9080 does
+    out.verb = Verb::State;
+    if (w.size() != 3 || !slot_of(w[1])) return "error: state needs a slot and a state name; " + usage;
+    std::string n = w[2];
+    if (n.size() > 5 && n.compare(0, 5, "State") == 0) n = n.substr(5);
+    bool good = !n.empty() && n.size() <= 63;
+    for (char c : n) good = good && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_');
+    if (!good) return "error: state name '" + w[2] + "' is not 1-63 letters, digits or _; " + usage;
+    out.name = n;
+    return "";
+  }
+  if (w[0] == "place") {  // S110 PLACE: `place SLOT X Z [FACING_DEG]`
+    out.verb = Verb::Place;
+    if ((w.size() != 4 && w.size() != 5) || !slot_of(w[1])) return "error: place needs a slot, X and Z (and optionally a facing in degrees); " + usage;
+    if (!SignedDecimal(w[2], kPlaceCoordMaxParse, out.x) || !SignedDecimal(w[3], kPlaceCoordMaxParse, out.z)) return "error: place X / Z '" + w[2] + "' '" + w[3] + "' is not a decimal within +-2000; " + usage;
+    if (w.size() == 5) {
+      if (!SignedDecimal(w[4], kPlaceDegMaxParse, out.deg)) return "error: place facing '" + w[4] + "' is not a decimal within +-360 degrees; " + usage;
+      out.has_facing = true;
+    }
     return "";
   }
   if (w.size() != 3 || !slot_of(w[1])) return "error: " + usage;
@@ -182,6 +226,11 @@ enum class Fn {
   SetBleed,       // S105 T1: sub_825A1F28(char, part = r4, level - 1 = r5): the bleed level setter
   Alloc,          // S105 SLO3: sub_82250050(size) -> object or 0
   DimSceneCtor,   // S105 SLO3: sub_8275DF98(obj, attacker, target) -> obj: the arena-dim scene
+  QueueState,     // S110 OMGROUTE: sub_8266B550(state machine = r3, name pointer = r4): the game's own state queue (what yChgState reaches)
+  SetYaw,         // S110 PLACE: sub_822FB578(char, f1 = radians): stores char+148 wrapped to pi
+  PlaceOf,        // S110 PLACE: sub_82612E88(char+160) -> the place code (r3 & 255)
+  FloorY,         // S110 PLACE: sub_82612BF8(char, 255) -> the floor height in f1
+  Warp,           // S110 PLACE: sub_829C0EE8(char, f1 = x, f2 = y, f3 = z): the game's all-copies warp
 };
 
 // What the director remembers: per slot, the original COM word of a wrestler it made passive (so `off` gives back exactly that).
@@ -217,6 +266,7 @@ inline std::string Hex(uint32_t v) {
 // E (the environment) provides: uint32_t U32(a); float F32(a); bool Ok(ptr) (a plausible guest pointer); uint32_t Call(Fn, r3, r4, double f1);
 // Gate GetGate(); std::string Clock(); void Log(const std::string&); S105 T1: uint8_t U8(a); void Put8(a, v); void Put32(a, v) (big-endian guest store, S105 LO2); bool Dev() (IsDevBuild).
 // uint32_t Call3(Fn, r3, r4, r5) for the three-register call (SetBleed).
+// S110 PLACE: uint32_t CallF(Fn, r3, double f1); double CallRetF(Fn, r3, r4) (the callee's f1 result); uint32_t CallF3(Fn, r3, f1, f2, f3).
 
 // The slot's character, or the refusal. "" = ok.
 template <class E>
@@ -229,6 +279,9 @@ std::string SlotChar(E& e, int slot, uint32_t& ch) {
   if (role == 4 || role == 5 || role == 6 || role == 10) return "refused: slot " + std::to_string(slot) + " is not a wrestler (role " + std::to_string(role) + ")";
   return "";
 }
+
+#include "situation_state_verb.h"  // S110 OMGROUTE: QueueState (new code lives there; it needs SlotChar / Hex / Fn above)
+#include "situation_place_verb.h"  // S110 PLACE: PlaceWrestler (same recipe)
 
 // The health component's data pointer (the game's own path: a lookup by tag in the character's component list, then [comp+24]).
 template <class E>
@@ -452,6 +505,14 @@ std::string Run(E& e, State& st, const Cmd& c) {
     e.Log("director: lightsout: refused, a dev-build verb clock " + e.Clock());
     return "refused: lightsout is a dev-build verb";
   }
+  if (c.verb == Verb::State && !e.Dev()) {  // S110 OMGROUTE: dev only, before the match gate
+    e.Log("director: state: refused, a dev-build verb clock " + e.Clock());
+    return "refused: state is a dev-build verb";
+  }
+  if (c.verb == Verb::Place && !e.Dev()) {  // S110 PLACE: dev only, before the match gate
+    e.Log("director: place: refused, a dev-build verb clock " + e.Clock());
+    return "refused: place is a dev-build verb";
+  }
   const Gate g = e.GetGate();
   const bool restore = c.verb == Verb::Passive && !c.on;  // S5: giving a wrestler back needs a match program, not an undecided, scene-free match (the results flow needs him active)
   const std::string gate = restore ? (g.seq == kSeqInGame ? std::string() : GateVerdict(g)) : GateVerdict(g);
@@ -465,6 +526,8 @@ std::string Run(E& e, State& st, const Cmd& c) {
     case Verb::Stock: return Stock(e, c.slot, c.value);
     case Verb::Bleed: return Bleed(e, c.slot, c.value);
     case Verb::LightsOut: return LightsOut(e, c.slot);
+    case Verb::State: return QueueState(e, c.slot, c.name);
+    case Verb::Place: return PlaceWrestler(e, c.slot, c.x, c.z, c.has_facing, c.deg);
     default: return "refused: no verb";
   }
 }

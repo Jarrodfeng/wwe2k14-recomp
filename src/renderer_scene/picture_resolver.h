@@ -31,7 +31,7 @@
 #include "../renderer/api.h"
 #include "../renderer/renderer.h"
 #include "../scene_live/picture_source.h"
-#include "scene_record.h"
+#include "rows_quad2d.h"
 #include "ui_file_index.h"
 
 namespace rdr_scene {

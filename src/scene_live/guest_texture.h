@@ -79,10 +79,36 @@ inline constexpr uint32_t kBgraIdentitySwizzle = 2u | (1u << 3) | (0u << 6) | (3
 struct Shape {
   uint32_t width = 0, height = 0, game_format = 0, bw = 4, bh = 4, bpb = 8, base = 0, pitch_blocks = 0, endian = 0;
   uint32_t fetch_swizzle = 0;   // fetch dword 3 bits 1..12: four 3-bit selectors X, Y, Z, W (0..3 = a memory byte of the texel after the endian swap, 4 = zero, 5 = one; reader.h ComposeSwizzle)
+  uint32_t tail_x = 0, tail_y = 0;   // S108 CAP2: mip 0's block offset inside the base's packed mip tail (PackedMipOffset level 0); 0, 0 unless the packed bit is set and min(w, h) <= 16 texels
   bool tiled = false;
   uint32_t BlocksX() const { return (width + bw - 1) / bw; }
   uint32_t BlocksY() const { return (height + bh - 1) / bh; }
 };
+
+// S108 CAP2: the SDK's GetPackedMipOffset (thirdparty\rexglue-sdk-src\src\graphics\pipeline\texture\util.cpp:110), the 2D case, ported here as the ONE copy (guest_texture_mips.h TailOffset calls
+// it; the adapter's own port is reader.h:2923). The block offset of level `mip` inside the packed tail of a width x height (texels) texture; false (0, 0) when that level is not packed. There is no
+// level-0 special case: when log2ceil(min(w, h)) <= 4 the packed level is 0 and mip 0 itself sits in the tail, stored under the BASE address with the base pitch (util.h:76-95; the D3D12 loader
+// texture_cache.cpp:1898-1915 reads level 0 from the base layout with this offset). Mip 0's offset: wider than tall -> (0, 16 texels), else (16 texels, 0), in blocks.
+inline bool PackedMipOffset(uint32_t width, uint32_t height, uint32_t bw, uint32_t bh, uint32_t mip, uint32_t& x, uint32_t& y) {
+  x = y = 0;
+  uint32_t log2_w = 0, log2_h = 0;
+  while ((1u << log2_w) < width) ++log2_w;
+  while ((1u << log2_h) < height) ++log2_h;
+  const uint32_t log2_size = std::min(log2_w, log2_h);
+  if (log2_size > 4 + mip) return false;
+  const uint32_t packed_base = log2_size > 4 ? log2_size - 4 : 0;
+  const uint32_t packed = mip - packed_base;
+  if (packed < 3) {
+    if (log2_w > log2_h) y = 16 >> packed;
+    else x = 16 >> packed;
+  } else if (log2_w > log2_h) {
+    x = (1u << (log2_w - packed_base)) >> (packed - 2);
+  } else {
+    y = (1u << (log2_h - packed_base)) >> (packed - 2);
+  }
+  x /= bw, y /= bh;
+  return true;
+}
 // S103 PN2: `allow_8888` also takes game format 6 (k_8_8_8_8: 1x1 blocks of 4 bytes; the UI's A8R8G8B8 pictures, which the file index holds as BGRA8 / RGBA8). Default false: the I2 picture table (quads2d_pictures.h)
 // keeps refusing every uncompressed texture, which is also its guard against a surface the GPU draws into; picture_source.h refuses those by CREATOR (the birth hook), not by format.
 inline Why ShapeOfFetch(const uint32_t f[6], Shape& s, bool allow_8888 = false) {
@@ -101,9 +127,10 @@ inline Why ShapeOfFetch(const uint32_t f[6], Shape& s, bool allow_8888 = false) 
   s.tiled = (f[0] >> 31) != 0;
   if (g_tex_plant == 2) s.tiled = false;
   const uint32_t lw = (f[2] & 0x1FFFu) + 1u, lh = ((f[2] >> 13) & 0x1FFFu) + 1u;
-  uint32_t log2min = 0;   // review 3: with the packed-mips bit set and min(w, h) <= 16 texels, mip 0 sits in the packed tail (reader.h PackedMipOffset): not read here, never a wrong picture
-  while ((1u << log2min) < std::min(lw, lh)) ++log2min;
-  if (g_tex_plant != 4 && ((f[5] >> 11) & 1u) && log2min <= 4) return Why::Size;
+  // S108 CAP2 (was review 3's refusal): with the packed-mips bit set and min(w, h) <= 16 texels, mip 0 sits in the packed tail at the SDK's offset (PackedMipOffset level 0): read there, every caller
+  // (ReadMip0 and BlockOffset honour it). Plant 4: the offset is ignored (mip 0 read from the tail's corner, the wrong picture the refusal used to prevent).
+  if ((f[5] >> 11) & 1u) PackedMipOffset(lw, lh, s.bw, s.bh, 0, s.tail_x, s.tail_y);
+  if (g_tex_plant == 4) s.tail_x = s.tail_y = 0;
   const bool border = (f[3] >> 31) != 0;
   const uint32_t adj = border ? 3u : 1u;
   s.width = (f[2] & 0x1FFFu) + adj, s.height = ((f[2] >> 13) & 0x1FFFu) + adj;
@@ -115,7 +142,7 @@ inline Why ShapeOfFetch(const uint32_t f[6], Shape& s, bool allow_8888 = false) 
   const uint32_t row_texels = pitch_div32 << 5;
   const uint32_t bx = (row_texels + s.bw - 1) / s.bw;
   s.pitch_blocks = (bx + 31u) & ~31u;   // GuestLevelLayout (base level): Align(Align(row_texels, bw) / bw, 32)
-  if (s.pitch_blocks < s.BlocksX()) return Why::Size;
+  if (s.pitch_blocks < s.tail_x + s.BlocksX()) return Why::Size;
   return Why::Ok;
 }
 
@@ -130,6 +157,13 @@ inline uint32_t TiledOffset2D(int32_t x, int32_t y, uint32_t pitch, uint32_t log
   const int32_t micro = ((x & 7) + ((y & 0xE) << 2)) << log2_bpb;
   const int32_t offset = macro + ((micro & ~0xF) << 1) + (micro & 0xF) + ((y & 1) << 4);
   return uint32_t(((offset & ~0x1FF) << 3) + ((y & 16) << 7) + ((offset & 0x1C0) << 2) + ((((((y & 8) >> 2) + (x >> 3)) & 3)) << 6) + (offset & 0x3F));
+}
+
+// S108 CAP2: the byte offset from s.base of mip 0's block (x, y): tiled or linear (the base pitch), mip 0's tail offset included. Every pixel read of a Shape goes through this (ReadMip0, the change
+// guards of guest_model_tex.h / picture_source.h), so no caller reads a tail texture's corner.
+inline uint32_t BlockOffset(const Shape& s, uint32_t x, uint32_t y) {
+  const uint32_t log2_bpb = s.bpb == 8 ? 3u : (s.bpb == 4 ? 2u : 4u);
+  return s.tiled ? TiledOffset2D(int32_t(s.tail_x + x), int32_t(s.tail_y + y), s.pitch_blocks, log2_bpb) : ((s.tail_y + y) * s.pitch_blocks + s.tail_x + x) * s.bpb;
 }
 
 // The adapter's SwapBlock (reader.h).
@@ -167,29 +201,30 @@ inline constexpr uint32_t kMaxRead = 1u << 20;   // review 4: nothing past 1 MB 
 inline constexpr uint32_t kMaxReadHard = 8u << 20;   // S103 PN2: a caller may ask for up to 8 MB (a 512 x 1024 A8R8G8B8 menu picture is 2 MB); nothing past this, whatever the caller asks
 template <class P>
 inline Why ReadMip0(const Shape& s, P&& phys, std::vector<uint8_t>& out, uint32_t max_bytes = kMaxRead) {
-  const uint32_t bx = s.BlocksX(), by = s.BlocksY(), log2_bpb = s.bpb == 8 ? 3u : (s.bpb == 4 ? 2u : 4u);
+  const uint32_t bx = s.BlocksX(), by = s.BlocksY();
   const uint32_t lim = std::min(max_bytes, kMaxReadHard);
   if (uint64_t(bx) * by * s.bpb > lim) return Why::Size;   // checked BEFORE any read
   out.assign(size_t(bx) * by * s.bpb, 0);
+  // S108 CAP2: mip 0 of a packed-tail texture starts at block (tail_x, tail_y) of the base (BlockOffset); the extents below run over the offset too (the tail is inside the base's first 32x32 tile)
   if (!s.tiled) {
-    const uint32_t row_bytes = s.pitch_blocks * s.bpb;
-    const uint64_t ext = uint64_t(row_bytes) * by;
-    if (ext > (g_tex_plant == 8 ? lim : kMaxReadHard) || (g_tex_plant != 10 && ext > uint64_t(lim) + 32ull * s.bpb * by)) return Why::Size;   // S103 CSF review A: padding is at most 32 blocks a row; a bad pitch is refused before the 8 MB allocation / read   // S103 CSF: the pitch-PADDED source extent (360 habit H-CS2: rows padded to 32 blocks) is bounded by the hard cap; the payload was bounded above by lim (same class as TX on the tiled branch)
-    std::vector<uint8_t> src(size_t(row_bytes) * by);
+    const uint32_t row_bytes = s.pitch_blocks * s.bpb, rows = s.tail_y + by;
+    const uint64_t ext = uint64_t(row_bytes) * rows;
+    if (ext > (g_tex_plant == 8 ? lim : kMaxReadHard) || (g_tex_plant != 10 && ext > uint64_t(lim) + 32ull * s.bpb * rows)) return Why::Size;   // S103 CSF review A: padding is at most 32 blocks a row; a bad pitch is refused before the 8 MB allocation / read   // S103 CSF: the pitch-PADDED source extent (360 habit H-CS2: rows padded to 32 blocks) is bounded by the hard cap; the payload was bounded above by lim (same class as TX on the tiled branch)
+    std::vector<uint8_t> src(static_cast<size_t>(ext));
     if (!phys(s.base, uint32_t(src.size()), src.data())) return Why::Memory;
-    for (uint32_t y = 0; y < by; ++y) std::memcpy(out.data() + size_t(y) * bx * s.bpb, src.data() + size_t(y) * (g_tex_plant == 9 ? bx * s.bpb : row_bytes), size_t(bx) * s.bpb);   // (plant 9 = a wrong stride: the padding is not stepped over)
+    for (uint32_t y = 0; y < by; ++y)
+      std::memcpy(out.data() + size_t(y) * bx * s.bpb, src.data() + size_t(s.tail_y + y) * (g_tex_plant == 9 ? bx * s.bpb : row_bytes) + size_t(s.tail_x) * s.bpb, size_t(bx) * s.bpb);   // (plant 9 = a wrong stride: the padding is not stepped over)
   } else {
     uint32_t top = 0;
     for (uint32_t y = 0; y < by; ++y)
-      for (uint32_t x = 0; x < bx; ++x) top = std::max(top, TiledOffset2D(int32_t(x), int32_t(y), s.pitch_blocks, log2_bpb) + s.bpb);
-    const uint64_t rect = uint64_t((bx + 31u) & ~31u) * ((by + 31u) & ~31u) * s.bpb;   // S103 CSF review 5: the padded RECTANGLE (whole 32x32-block tiles) the picture can touch; a wider pitch than the picture needs puts the tile rows further apart and is refused before the allocation / read
+      for (uint32_t x = 0; x < bx; ++x) top = std::max(top, BlockOffset(s, x, y) + s.bpb);
+    const uint64_t rect = uint64_t((s.tail_x + bx + 31u) & ~31u) * ((s.tail_y + by + 31u) & ~31u) * s.bpb;   // S103 CSF review 5: the padded RECTANGLE (whole 32x32-block tiles) the picture can touch; a wider pitch than the picture needs puts the tile rows further apart and is refused before the allocation / read
     if (top > kMaxReadHard || (g_tex_plant != 10 && top > rect)) return Why::Size;
     // S103 TX: the padded TILE extent is bounded by the hard read cap; the caller's max_bytes bounds the PICTURE payload (checked above). PN2 (16699681f) had made `top > lim` too, so a 64x64 BC1 sign (2048 B payload, ~4 KB+ tiled extent) failed Why::Size under the crowd's 4096 cap
     std::vector<uint8_t> src(top);
     if (!phys(s.base, top, src.data())) return Why::Memory;
     for (uint32_t y = 0; y < by; ++y)
-      for (uint32_t x = 0; x < bx; ++x)
-        std::memcpy(out.data() + (size_t(y) * bx + x) * s.bpb, src.data() + TiledOffset2D(int32_t(x), int32_t(y), s.pitch_blocks, log2_bpb), s.bpb);
+      for (uint32_t x = 0; x < bx; ++x) std::memcpy(out.data() + (size_t(y) * bx + x) * s.bpb, src.data() + BlockOffset(s, x, y), s.bpb);
   }
   for (size_t i = 0; i < out.size(); i += s.bpb) SwapBlock(out.data() + i, s.bpb, s.endian);
   return Why::Ok;

@@ -146,7 +146,7 @@ def main():
             if tag == 'bundle':
                 say(r is not None and r['skipped'] == 90 and r['first_run'] == 1, 'bryan bundle: skipped %s (90 required)' % (r and r['skipped']))
                 # S102 main (04:45): the hook sees what reaches it per chain frame (34 with a scene record; 2, the blurs, when the capture's mask
-                # draws are "not ready": the gate's Bryan case). So the fall is per-frame x skipped, with the per-frame count read from the off arm.
+                # draws are "not ready": the standard Bryan case). So the fall is per-frame x skipped, with the per-frame count read from the off arm.
                 per = (a['hook'] // r['chains']) if (a['hook'] is not None and r and r['chains']) else 0
                 say(a['hook'] is not None and r is not None and per >= 1 and a['hook'] == per * r['chains'] and a['hook'] - b['hook'] == per * r['skipped'],
                     'bryan bundle: the plane hook sees %s draws off (%s a chain frame), %s on: falls by %s = %s x %s skipped' % (a['hook'], per, b['hook'], a['hook'] - b['hook'], per, r and r['skipped']))

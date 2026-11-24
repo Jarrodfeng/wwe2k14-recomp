@@ -1,5 +1,6 @@
 // MovieOurs (Session 101, lane 131; docs\renderer\MOVIE_OURS.md). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "movie_ours.h"
+#include "rows_quad2d.h"   // S106 G4-2
 
 #include <cstdio>
 #include <cstring>

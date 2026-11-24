@@ -3,7 +3,7 @@
 # Prints PASS/FAIL per scenario; exit 1 on any FAIL.   pwsh -NoProfile -File tools\owned\test_runlock_build.ps1
 param([string]$Scratch = (Join-Path ([System.IO.Path]::GetTempPath()) 'runlock_build_test'))
 $ErrorActionPreference = 'Stop'
-$src = 'C:\Users\Jarrod\wwe2k14-recomp\tools\runlock.ps1'
+$src = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'tools\runlock.ps1'   # S106 C5F note 6: THIS checkout's script; the scratch copy has no harness\runlock_alone.ps1, so the dot-source guard must let it load
 if (Test-Path $Scratch) { Remove-Item -Recurse -Force $Scratch }
 New-Item -ItemType Directory -Force $Scratch | Out-Null
 $lockDir = Join-Path $Scratch 'lock'
@@ -32,13 +32,14 @@ function Get-Stamp([string]$name, [string]$what) {
 function Wait-All($procs) { foreach ($p in $procs) { $p | Wait-Process -Timeout 120 } }
 function Reset-Trace { if (Test-Path $trace) { Remove-Item $trace -Force }; Remove-Item "$Scratch\tr_*.txt" -Force -ErrorAction SilentlyContinue }
 
-# 1. two builds at once, a third waits for a free build slot
+# 1. builds at once (RunLockMaxBuild = 3 since Session 94; this step was still written for 2: S106 C5F fixed it), the next waits for a free build slot
 Reset-Trace
-$p = @((Start-Hold 'b1' '-Build' 6), (Start-Hold 'b2' '-Build' 6)); Start-Sleep -Milliseconds 1500
+$p = @((Start-Hold 'b1' '-Build' 6), (Start-Hold 'b2' '-Build' 6), (Start-Hold 'b5' '-Build' 6)); Start-Sleep -Milliseconds 1500
 $p += (Start-Hold 'b3' '-Build' 1); Wait-All $p
-$b1s = Get-Stamp b1 start; $b2s = Get-Stamp b2 start; $b1e = Get-Stamp b1 end; $b2e = Get-Stamp b2 end; $b3s = Get-Stamp b3 start
-Check '1a two builds run at the same time' ($b1s -and $b2s -and $b2s -lt $b1e -and $b1s -lt $b2e)
-Check '1b a third build waits for a slot' ($b3s -and $b3s -ge ([datetime]::Compare($b1e, $b2e) -lt 0 ? $b1e : $b2e).AddMilliseconds(-100)) "b3 start $b3s b1 end $b1e b2 end $b2e"
+$b1s = Get-Stamp b1 start; $b2s = Get-Stamp b2 start; $b1e = Get-Stamp b1 end; $b2e = Get-Stamp b2 end; $b3s = Get-Stamp b3 start; $b5e = Get-Stamp b5 end
+Check '1a builds run at the same time' ($b1s -and $b2s -and $b2s -lt $b1e -and $b1s -lt $b2e)
+$firstEnd = @($b1e, $b2e, $b5e | Sort-Object)[0]
+Check '1b a build beyond the slot count waits for a slot' ($b3s -and $b3s -ge $firstEnd.AddMilliseconds(-100)) "b3 start $b3s b1 end $b1e b2 end $b2e b5 end $b5e"
 
 # 2. builds coexist with a shared hold
 Reset-Trace
@@ -165,6 +166,10 @@ Check '12a ensure_lock(build=True) takes a build hold' ($po -match 'parent held=
 Check '12b a build child re-enters it' ($po -match 'child-build exit=0 .*held=build') $po
 Check '12c a shared child inside a build exits 1' ($po -match 'child-shared exit=1') $po
 Check '12d an exclusive child inside a build exits 1' ($po -match 'child-excl exit=1') $po
+
+# 13. S106 C5F note 6: this copy has no harness\runlock_alone.ps1 (it loaded: the dot-source is guarded); -Alone must refuse, never run "alone" without the pause
+$ao = (& pwsh -NoProfile -File $copy run -Alone -Name alone_missing -- cmd /c exit 0 2>&1) -join ' | '
+Check '13 -Alone with runlock_alone.ps1 missing throws (exit 1, says what is missing), runs nothing' ($LASTEXITCODE -eq 1 -and $ao -match '-Alone needs .*runlock_alone\.ps1') "exit $LASTEXITCODE : $ao"
 
 # 8. clear-stale / leftover: nothing left behind
 $left = (& pwsh -NoProfile -File $copy status) -join "`n"

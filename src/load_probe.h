@@ -47,6 +47,7 @@
 #endif
 #include "thread_name.h"
 #include "load_turbo.h"  // g_load_turbo_ingame_window (fast loader scope, Session 15)
+#include "scene_live/model_file_note.h"    // S110 SEATREL: ReaderScope (the real read's window for the pac-answer note)
 #include "scene_live/safe_guest_pages.h"   // BH3-2: PlausibleGuestPtr
 
 REXCVAR_DEFINE_BOOL(wwe2k14_load_probe, false, "wwe2k14",
@@ -196,6 +197,8 @@ REX_HOOK_RAW(sub_82C37070) {
 
 REX_HOOK_RAW(sub_82C37E48) {
   using namespace wwe2k14::load_probe;
+  // S110 SEATREL: the pac lookups this request makes (sub_82C51D20, hooked in pac_answer_hook.h) are the read's own: the current reader, cleared (restored) on exit
+  const rdr_scene::live::model_file_note::ReaderScope reader_scope(ctx.r3.u32);
   if (!REXCVAR_GET(wwe2k14_load_probe)) {
     const uint32_t reader_off = ctx.r3.u32 + 20;
     __imp__sub_82C37E48(ctx, base);

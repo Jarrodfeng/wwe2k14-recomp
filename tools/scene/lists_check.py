@@ -1,4 +1,4 @@
-"""Lane G (S103) gate check: the kept draw lists draw the same picture as no lists (frame_rig --lists N, S103 R2: every repeat is drawn with the lists and
+"""Lane G (S103) check: the kept draw lists draw the same picture as no lists (frame_rig --lists N, S103 R2: every repeat is drawn with the lists and
 without, byte-compared), on two frames of the Brock capture; and the planted fault (the lists ignore a moved world) must FAIL (exit 4).
    py -I tools/scene/lists_check.py [--capture DIR] [--game DIR]     exit 0 = good
 Needs out/tools/frame_rig.exe (tools/scene/build_rig.ps1; built here when missing). 0 game runs: frame_rig is the offline renderer.

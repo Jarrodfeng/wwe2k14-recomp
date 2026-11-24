@@ -22,8 +22,10 @@
 #include <cstring>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_arena_world.h"
+#include "../renderer_scene/rows_stage_fx.h"
 #include "arena_world.h"   // RowsFromMatrix, RowsEqual
+#include "../feed_seen.h"   // S110 FEEDREC
 
 namespace rdr_scene::live::stagefx {
 
@@ -40,11 +42,11 @@ enum SlotFlags : uint32_t {
 };
 
 // The guest reader: copies n raw big-endian bytes, false when unreadable (inputs_core.h's ReadFn, restated here so this header stays free of it).
-using ReadFn = bool (*)(uint32_t guest, void* dst, size_t n);
+using ReadFn = ::wwe2k14::feedseen::ReadFnT;   // S110 FEEDREC: the plain pointer outside coverage (feed_seen.h)
 inline uint32_t Swap32(uint32_t v) { return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24); }
-inline bool ReadWord(ReadFn read, uint32_t a, uint32_t& v) {
+inline bool ReadWord(ReadFn read, uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) {
   uint32_t raw = 0;
-  if (!read || !read(a, &raw, 4)) return false;
+  if (!read || !read(a, &raw, 4 WWE_FEED_LOC_ARG)) return false;
   v = Swap32(raw);
   return true;
 }

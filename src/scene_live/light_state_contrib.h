@@ -8,6 +8,7 @@
 #include <string>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_lights.h"   // S106 G4-2
 #include "light_state_hook.h"
 #include "light_latch_board.h"  // S103 A6
 #include "wrestler_light_latch.h"  // S103 A8

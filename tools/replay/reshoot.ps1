@@ -65,8 +65,8 @@ if ($Audio -or $AudioOnly) {
     $source = if ($Director) { "--wwe2k14_director=$Name" } else { "--wwe2k14_replay_play=$Name" }
     $extra = "$source --wwe2k14_audio_capture=$dir\audio.wav --wwe2k14_audio_capture_until=$until"
     if ($More) { $extra += " $More" }
-    "audio pass (normal speed, until guest frame $until) ..."
-    $out = & "$R\tools\bench\run_list.ps1" -Scripts @("$R\tools\replay\reshoot_pass.txt") -Extra $extra -RealTime -WaitSeconds $WaitSeconds 2>&1
+    "audio pass (until guest frame $until; S109 FF: the game pumps its audio per vblank in replay mode, so speed does not matter) ..."
+    $out = & "$R\tools\bench\run_list.ps1" -Scripts @("$R\tools\replay\reshoot_pass.txt") -Extra $extra -WaitSeconds $WaitSeconds 2>&1
     $line = @($out | Where-Object { "$_" -match '->' }) | Select-Object -Last 1
     "audio: $line"
     py "$R\tools\replay\audio_mux.py" $Name

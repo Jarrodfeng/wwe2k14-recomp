@@ -3,7 +3,7 @@ switch wwe2k14_rdr_prelight_layered; vertex program yPreLight_base_layered; rend
   py -I tools\c1\c1_check.py [--root DIR] [--only census,wiring,replay,match,counts,plants] [--captures bryan,brock]
 
 fview sweeps (--sweep: the picture and the hash of EVERY layer of every cube image bound at fetch slot 13 -- the cubes the characters sample -- on every frame; the frame the renderer is given: ops / targets /
-draws / copies counts) on the gate's Bryan capture and on Check B (brock, 341 frames), with G12's copy batch ON in both arms. The faces are drawn ours-vs-ours (the same owned pre-light mesh in both arms),
+draws / copies counts) on the Bryan capture and on Check B (brock, 341 frames), with G12's copy batch ON in both arms. The faces are drawn ours-vs-ours (the same owned pre-light mesh in both arms),
 so the bar is BYTE-EQUAL pictures and cubes. Arms (switch off = A, on = B), every one with `--small-passes-ours --copy-batch on --validation 1`:
   main      A vs B: pictures and cube hashes equal on every frame; validation read from the error count AND the exit code; every group taken, none declined, none fell back; passes (targets) a frame
             UNCHANGED; copies a frame fall by exactly 6 x taken groups; layered passes = taken; strip passes not made = taken.
@@ -15,7 +15,7 @@ so the bar is BYTE-EQUAL pictures and cubes. Arms (switch off = A, on = B), ever
   dead      --dead-work 2 --dead-work-fault cut_live (G4's pre-light cut made real): the cut slots are declined as dead, the rest taken, no op both cut and taken.
 Planted twins (each must be CAUGHT by the check named): swap_faces (cube hashes differ), missing_layer (they differ), keep_copies (copies do not fall), fallback_no_strip with --no-multiview (the fallback
 taken but the strip not made: the faces differ), phantom_reader + no_strip_check (taken with a reader > 0), ignore_overlap with the dead cut (taken overlapping > 0).
-match: the gate's match capture (the case zip) replayed under the whole bundle with the switch off / on: pictures equal on every frame, validation clean.
+match: the match capture (the case zip) replayed under the whole bundle with the switch off / on: pictures equal on every frame, validation clean.
 counts: rplay renderer counts on Bryan, copy batch ON in both arms: copies, passes, barriers, pipeline binds a frame (passes and barriers must not rise; copies fall by 5 against the batch).
 Also: the face map from the captures alone (c1_census.py: tile j -> layer j, no flip), the wiring (switch table, cvar, per-frame read with the guest frame, helper calls, census line, target usage) with each link
 removed in a text copy. Exit 1 on any FAIL; a missing capture or exe FAILS."""
@@ -173,8 +173,8 @@ def wiring(root):
         line(ok, 'wiring: %s' % what)
         line(planted != text and needle not in planted, '  twin: with that link removed the check fails (did apply: %s)' % (planted != text))
     for what, script, extra in (('own_pass_helpers_lint (no bare builder.SetTargets / builder.Copy in the new code)', os.path.join('tools', 'shadow', 'own_pass_helpers_lint.py'), ['--root', root]),
-                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'gate', 'lint_seen.py'), ['--root', root]),
-                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'gate', 'win_macro_lint.py'), ['--root', root]),
+                                ('lint_seen (every BoolSeen passes a guest frame)', os.path.join('tools', 'lint', 'lint_seen.py'), ['--root', root]),
+                                ('win_macro_lint (no member named small / near / far / interface)', os.path.join('tools', 'lint', 'win_macro_lint.py'), ['--root', root]),
                                 ('device_features_lint', os.path.join('tools', 'renderer', 'device_features_lint.py'), ['--root', root]),
                                 ('spv_lint (F7: every variant this lane does not name keeps byte-equal SPIR-V)', os.path.join('tools', 'c1', 'spv_lint.py'), ['--root', root])):
         if not os.path.exists(os.path.join(root, script)):

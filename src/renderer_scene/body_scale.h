@@ -56,8 +56,9 @@ class BodyScaleTable {
     latch_.clear();
   }
 
-  // CENSUS ONLY (never used for drawing): the float the game keeps in the participant record of the wrestler's character slot ([[0x83924734] + 864 + 80 x slot] + 12,
-  // docs\systems\wrestler_pose.md "S103 W2 follow-up"), read at the scene latch, by the skeleton object address. A finite value is stored; `unreadable` counts the rest.
+  // The float the game keeps in the character's own descriptor record ([[0x83924734] + 864 + 80 x DescIndex(char)] + 12, slot_key.h DescScale; S110 MGRFINGERS: not the slot-table
+  // position, wrong under the slot remap; docs\systems\wrestler_pose.md "S103 W2 follow-up"), read at the scene latch, by the skeleton object address. A finite value is stored; `unreadable` counts the rest:
+  // REFUSED reads (since MGRFINGERS also a record whose key at D+0 is not valid: DescScale false), not only unreadable memory.
   void SetLatch(uint32_t object_addr, int slot, float v, bool readable) {
     std::lock_guard<std::mutex> g(mu_);
     if (!readable || !(v == v) || v > 1e6f || v < -1e6f) { ++latch_unreadable_; latch_.erase(object_addr); return; }   // S103 W3: an unreadable record leaves no stale value
@@ -103,7 +104,7 @@ class BodyScaleTable {
   // The census line: `body_scale latch==stream N, differ M, unjoined K` plus the first differing pair.
   static std::string CensusText(const CensusResult& r) {
     char b[320];
-    int n = std::snprintf(b, sizeof b, "body_scale latch==stream %u, differ %u, unjoined %u (latch unreadable %llu)", r.same, r.differ, r.unjoined, (unsigned long long)r.unreadable);
+    int n = std::snprintf(b, sizeof b, "body_scale latch==stream %u, differ %u, unjoined %u (latch refused %llu: unreadable or no valid descriptor key)", r.same, r.differ, r.unjoined, (unsigned long long)r.unreadable);
     if (r.have_first) std::snprintf(b + n, sizeof b - size_t(n), "; first differing: object 0x%08X slot %d latch %.6f stream %.6f", r.first_addr, r.first_slot, double(r.first_latch), double(r.first_stream));
     return b;
   }
@@ -120,7 +121,7 @@ class BodyScaleTable {
 // The decision rf_wrestlers.cpp takes for one wrestler object: the scale its palette takes, or 0 = HOLE (never drawn unscaled; the live caller treats a hole as a miss, so the
 // frame is not ours and the game draws it). A Viewer record (the viewer's own pose on its own unscaled mesh) needs no game scale: 1. `unknown_as_one` is the planted twin
 // (the old behaviour: an unknown scale drawn unscaled); only the offline check sets it.
-// S103 W3: the scale comes from the game's own record (the latch, read at the scene latch: [[0x83924734] + 864 + 80 x slot] + 12). Run 28 (mirror, entrances + match): latch == stream
+// S103 W3: the scale comes from the game's own record (the latch, read at the scene latch: [[0x83924734] + 864 + 80 x DescIndex(char)] + 12, slot_key.h DescScale). Run 28 (mirror, entrances + match): latch == stream
 // on every joined wrestler of 18 of 19 census windows (4-6 objects each, tolerance 1e-4); the stream's fit of the same object (tools\wrestler\w2_skin_path_check --scales) is the same k/4096
 // value (0.894531248 = 3664/4096). The stream value is the mirror-mode compare: where both exist and DISAGREE the scale is unknown (a hole, never a guess; `conflict` says so).
 // A stream value with no latch (the slot was not matched) is the old W2 behaviour. Neither = 0 = HOLE.

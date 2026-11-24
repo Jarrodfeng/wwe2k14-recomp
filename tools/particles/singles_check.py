@@ -4,13 +4,13 @@
   py -I tools\\particles\\singles_check.py [--root DIR] [--no-build] [--keep]
 
 Bar (each line PASS / FAIL; a missing input FAILS, never skips). Menu (3,329 frames), CAW (300), Check B (341), Bryan (91); switch off vs on, EVERY frame:
-  1. the presented picture's max channel difference <= 1 level (owned_check's bar is looser; this is the bar of the existing particles_ours gate), rplay exit 0 (validation 0),
+  1. the presented picture's max channel difference <= 1 level (owned_check's bar is looser; this is the bar of the existing particles_ours check), rplay exit 0 (validation 0),
      no `attribute type:` line (mismatch 0), no missing shader.
   2. census (the shipped binder's line, on): kept 0 (lone / soft / third / other all 0), draws == folded, particles drawn == folded, blend keyed 0, runs == merged calls.
      Menu and CAW must show runs of one / soft drawn (> 0): the census cannot pass by finding nothing.
   3. plants (each must move the picture, > 1 level, from the clean arm): soft_as_hard (CAW: the soft run takes the hard pixel stage), single_dropped (menu: runs of one dropped),
      view_first (every member takes the first particle's c203-c206) and soft_rows_at_32 (LocalWorldView at the hard path's offset), first_texture (R: the past bug of lane 35, "one texture for every member", on the menu where neighbouring runs differ only by texture).
-The existing particles_ours gate (runs_check.py: Check B and Bryan, counts, timing, plants) is separate and unchanged."""
+The existing particles_ours check (runs_check.py: Check B and Bryan, counts, timing, plants) is separate and unchanged."""
 import argparse
 import os
 import re

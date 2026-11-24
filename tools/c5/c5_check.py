@@ -12,7 +12,7 @@ faults, ONE other capture):
           (taken > 0 a frame); the LOW combination (copy alias 2, classes 11) on vs off; the planted twins must differ: no_retarget (the destination is never written: a reader still bound to a removed copy's
           destination, also what a CPU read of it sees), wrong_dest (a bake written to the wrong atlas cell), and a copy removed while its destination is read back by the CPU (the planted read-back
           refuses it: the census declines it and pictures stay equal).
-  match   the same pair on the gate's match capture (the one other capture).
+  match   the same pair on the standard match capture (the one other capture).
   counts  rplay --counts: copies / barriers a frame off vs on: the copies fall by what the census says, barriers fall with them, draws, clears and pipeline binds do not rise."""
 import argparse
 import json

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Session 101 lane 200: the format-capability fallbacks' acceptance test (tools\\gate\\lanes\\format_caps.json). 0 game runs: captures through fview.
+"""Session 101 lane 200: the format-capability fallbacks' acceptance test. 0 game runs: captures through fview.
 
   py -I tools\\fview\\format_caps_check.py [--root DIR]
 

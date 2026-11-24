@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane U2 gate check (offline, 0 game runs): wwe2k14_rdr_upd_lean (our work off the game's update thread).
+"""S102 lane U2 check (offline, 0 game runs): wwe2k14_rdr_upd_lean (our work off the game's update thread).
 
   py -I tools\\upd_lean\\upd_lean_check.py [--root DIR] [--syntax] [--build-only]
 

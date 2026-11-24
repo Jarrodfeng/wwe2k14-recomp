@@ -190,11 +190,8 @@ inline void Tick(PPCContext& ctx, uint8_t* base) {
 }
 
 // `!wm30 step K ...` (the pipe thread): parse; hand to the game thread; wait <= 3 s for its answer. Reads no guest memory.
-inline std::string LiveCommand(const std::string& args) {
-  StepArgs a;
-  const std::string error = ParseStepArgs(args, a);
-  if (!error.empty()) return error;
-  std::unique_lock<std::mutex> lock(g_mu);
+// The request half (g_mu held): "" = queued for the owner tick. Shared by the live command and the `wm30_step` script line (S110 FIRELINE).
+inline std::string SubmitLocked(const StepArgs& a) {
   if (g_pending.load() >= 0) return "error: a step request is already waiting for the game";
   g_answered = false;
   g_answer.clear();
@@ -204,6 +201,15 @@ inline std::string LiveCommand(const std::string& args) {
   g_pending_steps.clear();
   for (size_t i = 0; i < a.steps.size(); ++i) g_pending_steps += (i ? "," : "") + std::to_string(a.steps[i]);
   g_pending.store(a.step);
+  return "";
+}
+
+inline std::string LiveCommand(const std::string& args) {
+  StepArgs a;
+  const std::string error = ParseStepArgs(args, a);
+  if (!error.empty()) return error;
+  std::unique_lock<std::mutex> lock(g_mu);
+  if (const std::string busy = SubmitLocked(a); !busy.empty()) return busy;
   if (!g_cv.wait_for(lock, std::chrono::seconds(3), [] { return g_answered; })) {
     if (g_pending.exchange(-1) >= 0) return "error: the game thread did not serve the request within 3 s (is the game running frames?)";
     g_cv.wait_for(lock, std::chrono::seconds(5), [] { return g_answered; });
@@ -212,6 +218,24 @@ inline std::string LiveCommand(const std::string& args) {
   return g_answer.rfind("stepped", 0) == 0 ? g_answer : "error: " + g_answer;
 }
 
-inline const bool g_registered = (wwe2k14::wm30::g_step_live = &LiveCommand, wwe2k14::wm30_fire::g_step_tick = &Tick, true);
+// S110 FIRELINE: the script line's three calls (src/wm30_script_core.h), as in src/wm30_fire.h.
+inline std::string ScriptSubmit(const std::string& args) {
+  StepArgs a;
+  const std::string error = ParseStepArgs(args, a);
+  if (!error.empty()) return error;
+  std::lock_guard<std::mutex> lock(g_mu);
+  return SubmitLocked(a);
+}
+inline bool ScriptPoll(std::string& answer) {
+  std::lock_guard<std::mutex> lock(g_mu);
+  if (!g_answered) return false;
+  answer = g_answer;
+  g_answered = false;
+  return true;
+}
+inline bool ScriptWithdraw() { return g_pending.exchange(-1) >= 0; }
+
+inline const bool g_registered = (wwe2k14::wm30::g_step_live = &LiveCommand, wwe2k14::wm30_fire::g_step_tick = &Tick,
+                                  wwe2k14::wm30_script::g_step_port = {&ScriptSubmit, &ScriptPoll, &ScriptWithdraw}, true);
 
 }  // namespace wwe2k14::wm30_step

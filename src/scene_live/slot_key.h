@@ -47,6 +47,21 @@ inline uint32_t DescKey(Read&& read, uint32_t ch) {
   return key;
 }
 
+// S110 MGRFINGERS (docs\research\s110\MGRFINGERS.md): the body scale of the character `ch`: the float at D+12 of the SAME record DescKey reads the key from (D_s, s = DescIndex).
+// D+12 is written by sub_823BB0C8 (k/4096 of the character data, 1.0 outside 0.789..1.211). Indexing it by the slot-table position instead is wrong under the remap (another body's record).
+// false = no scale (s < 0, unreadable ctx, invalid key at D_s+0, unreadable word). `index` (optional) gets s.
+template <class Read>
+inline bool DescScale(Read&& read, uint32_t ch, float& out, int* index = nullptr) {
+  const int s = DescIndex(read, ch);
+  if (index) *index = s;
+  uint32_t ctx = 0, key = 0, bits = 0;
+  if (s < 0 || !read(kMatchCtx, ctx) || !ctx) return false;
+  if (!read(ctx + 864 + 80 * uint32_t(s), key) || !ValidKey(key) || !read(ctx + 864 + 80 * uint32_t(s) + 12, bits)) return false;
+  static_assert(sizeof(float) == 4, "float word");
+  __builtin_memcpy(&out, &bits, 4);
+  return true;
+}
+
 // S103 HPF (docs\agents\s103\HPR.md): the 192-byte slot-manager descriptor the game pairs with the character `ch` [C listings 0x827E4660-0x827E4674, recomp.151.cpp:10331-10370]:
 //   s = DescIndex (the manager index); D = [0x83924734] + 864 + 80 s; b7 = byte D+7 (the low byte of the big-endian word at D+4); idx = b7 != 255 ? b7 : s;
 //   desc = [[0x837635A4] + 8] + 192 idx (sub_8258B910). A character slot load never writes desc+4 (the body), so the body can not find its descriptor: this index rule does.

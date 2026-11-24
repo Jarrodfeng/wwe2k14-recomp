@@ -11,7 +11,7 @@ shape planted (the page gain applied twice, a light vector's sign flipped, a dro
 (and the untouched control variants must stay equal). Everything the game gave stays under out\ (rule 1); nothing is committed from it.
 
 Calls (run from any checkout; out\ and game_data\ are found in the main checkout):
-  py tools\shaders\shader_equiv.py --sample                 the fixed sample of variants (the gate lane s103_T6)
+  py tools\shaders\shader_equiv.py --sample                 the fixed sample of variants
   py tools\shaders\shader_equiv.py --twins                  the planted twins + their controls (exit 0 only if all caught and all controls equal)
   py tools\shaders\shader_equiv.py --effects yAudience,yCh_skin [--variant REGEX] [--stage vertex|fragment]
   py tools\shaders\shader_equiv.py --probes                 harness-limited effects with the one limited line probed (yGlareEtc)

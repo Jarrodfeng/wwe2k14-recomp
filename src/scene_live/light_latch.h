@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "inputs_core.h"
+#include "../renderer_scene/rows_inputs.h"   // S106 G4-2
 #include "light_index_core.h"
 #include "light_latch_board.h"
 #include "../renderer_scene/light_install.h"

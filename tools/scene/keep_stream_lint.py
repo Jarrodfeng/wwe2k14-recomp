@@ -14,7 +14,7 @@ Checks (all read the tree, nothing is run):
   3. removed switches (L3): every REXCVAR_GET / REXCVAR_SET of a name in renderer_game\\removed_switches.h (and the pipeline store folder) in a file of the OFF closure carries an
      `OFF:` comment on its own line or one of the 3 lines above, stating what the switch means when the stream is left out (the stub reads constant false / empty).
   4. exclusivity (L6): see tools\\renderer\\scene_skip_unit.py (the cvar definitions, the two source lists).
-Planted twins (--plant reader_h; its own gate check): scratch files under src\\renderer_scene\\ are added to the OFF scan and MUST be reported: (a) a unit that includes
+Planted twins (--plant reader_h; its own check): scratch files under src\\renderer_scene\\ are added to the OFF scan and MUST be reported: (a) a unit that includes
 "../renderer_adapter/reader.h", (b) a unit that includes a kept header which includes renderer_adapter/d3_arena.h (transitive). The files are written, scanned and always deleted.
 Exit 0 = clean (and, with --plant, both twins were caught)."""
 import argparse

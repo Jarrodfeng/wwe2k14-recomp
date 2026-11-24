@@ -13,13 +13,18 @@
 // The map is handed to the skin (MapRole::SweatMap) only once something was painted since its last clear: a dry wrestler keeps the dry variant, byte for byte.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "front_end.h"   // SceneFrame (the frame's wrestler bodies and their engine objects)
+#include "rows_liquid.h"   // S106 G4-2
+#include "rows_pictures.h"
 #include "liquid_switch.h"
 #include "live_maps.h"
 #include "live_maps_internal.h"
+#include "liquid_plan.h"   // S108 BLD2: the per-row draw list (normal / the game's rebuild)
 #include "small_passes_core.h"
+#include "../renderer/problem.h"   // rdr::DrawShortfall
 
 namespace rdr_scene {
 namespace md = maps_detail;
@@ -78,7 +83,7 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   s.sweat_items = 0;
   if (!liquid_map::On()) return false;
   if (in.sweat_missing.n) s.sweat_skip = in.sweat_missing.First();   // (a record whose liquid tables were refused: a counted hole, every skin dry)
-  if (in.liquid.empty() && s.liquid.empty()) return false;
+  if (in.liquid.empty() && s.liquid.empty() && in.liquid_images.empty()) return false;
   ++s.liq_frames;
 
   // ---- programs, layout, meshes, scratch image: once ----
@@ -90,7 +95,10 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     s.liq_fs_paste = md::FindVariant("yLiquidMap_paste_fragment");
     s.liq_fs_copy = md::FindVariant("yLiquidMap_copy_prev_fragment");
     s.liq_fs_copy_dim = md::FindVariant("yLiquidMap_copy_prev_dim_fragment");
-    if (s.liq_vs_local < 0 || s.liq_vs_base < 0 || s.liq_fs_sweat < 0 || s.liq_fs_sweat_dim < 0 || s.liq_fs_paste < 0 || s.liq_fs_copy < 0 || s.liq_fs_copy_dim < 0) {
+    s.liq_vs_plain = md::FindVariant("yLiquidMap_plain_vertex");          // S108 BLD2: the rebuild's region quads (T_Paste p1 / p4)
+    s.liq_fs_tint = md::FindVariant("yLiquidMap_tint_fragment");
+    s.liq_fs_tint_dim = md::FindVariant("yLiquidMap_tint_dim_fragment");
+    if (s.liq_vs_local < 0 || s.liq_vs_base < 0 || s.liq_fs_sweat < 0 || s.liq_fs_sweat_dim < 0 || s.liq_fs_paste < 0 || s.liq_fs_copy < 0 || s.liq_fs_copy_dim < 0 || s.liq_vs_plain < 0 || s.liq_fs_tint < 0 || s.liq_fs_tint_dim < 0) {
       s.sweat_skip = "the yLiquidMap effect is not in the registry";
       return false;
     }
@@ -106,6 +114,8 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     s.liq_prog_paste = prog("yLiquidMap_paste", s.liq_vs_local, s.liq_fs_paste);
     s.liq_prog_copy = prog("yLiquidMap_copy_prev", s.liq_vs_base, s.liq_fs_copy);
     s.liq_prog_copy_dim = prog("yLiquidMap_copy_prev_dim", s.liq_vs_base, s.liq_fs_copy_dim);
+    s.liq_prog_tint = prog("yLiquidMap_tint", s.liq_vs_plain, s.liq_fs_tint);
+    s.liq_prog_tint_dim = prog("yLiquidMap_tint_dim", s.liq_vs_plain, s.liq_fs_tint_dim);
     rdr::VertexLayoutDesc l{};
     l.strides[0] = sizeof(sp::DiscVertex);
     l.attributes[0] = {0, 0, kRG32F, 0};
@@ -122,10 +132,13 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     sp::DiscVertex quad[4] = {};   // the copy passes' unit quad (the game's own is a four-vertex strip at obj +240)
     quad[1].patch[0] = 1.f, quad[2].patch[1] = 1.f, quad[3].patch[0] = quad[3].patch[1] = 1.f;
     s.liquid_quad_vb = renderer_.CreateBuffer(sizeof quad, quad);
+    sp::DiscVertex region[4] = {};   // S108 BLD2: the plain vertex shader's unit quad: position (fetch 0) = uv (fetch 1 x / y) = the corner (the game's +240 quads hold the region corners and uv 0 / 1, sub_82798EE0)
+    for (int v = 0; v < 4; ++v) region[v].patch[0] = region[v].fade[0] = float(v & 1), region[v].patch[1] = region[v].fade[1] = float(v >> 1);
+    s.liquid_region_vb = renderer_.CreateBuffer(sizeof region, region);
     s.liquid_pics = std::make_unique<live::PictureCache>();
     s.liquid_ready = true;
   }
-  if (s.liquid_disc_vb == rdr::kNoBuffer || s.liquid_disc_ib == rdr::kNoBuffer || s.liquid_quad_vb == rdr::kNoBuffer) {
+  if (s.liquid_disc_vb == rdr::kNoBuffer || s.liquid_disc_ib == rdr::kNoBuffer || s.liquid_quad_vb == rdr::kNoBuffer || s.liquid_region_vb == rdr::kNoBuffer) {
     s.sweat_skip = "could not upload the disc mesh";
     return false;
   }
@@ -156,7 +169,7 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   const uint32_t sampler = fb.Sampler(sd);
 
   // One pass's state: the disc (indexed strips with restart) or the quad (a four-vertex strip), the item blend (SrcAlpha / InvSrcAlpha, add, mask 0xF: SWB S2-1 [C 3,668 of 3,668 captured draws]) or none.
-  const auto make_state = [&](uint16_t program, bool disc, bool blend) {
+  const auto make_state = [&](uint16_t program, bool disc, bool blend, uint8_t write_mask = 0xF) {   // S108 BLD2: write_mask = the rebuild's channel masks (R 1, G 2, B 4: liquid_plan.h)
     rdr::DrawState st{};
     st.program = program;
     st.vertex_layout = s.liq_layout;
@@ -164,7 +177,7 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     st.primitive_restart = disc ? 1 : 0;
     st.cull = 0;
     st.front_face = 1;
-    st.blend[0].write_mask = 0xF;
+    st.blend[0].write_mask = write_mask;
     if (blend) {
       st.blend[0].enable = 1;
       st.blend[0].src_color = 6, st.blend[0].dst_color = 7, st.blend[0].color_op = 0;   // SrcAlpha, InvSrcAlpha, add
@@ -192,13 +205,45 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     return fb.PushConstants(b.data(), uint32_t(b.size()));
   };
 
+  // S108 SHOT-A (docs\research\s108\SHOT_plan.md 7, section 69): a map the record carries an IMAGE for starts from that image (the host saved it after the frame's paint: it holds the match's whole accumulation, which a
+  // one-frame record's items cannot rebuild) and the frame's own items of that map are NOT painted again. Only live records saved by the subject-shot verb have image rows; every other record takes the loop below as before.
+  std::vector<uint32_t> image_maps;
+  for (const LiquidImageIn& li : in.liquid_images) {
+    const LiquidImageRow& r = li.row;
+    image_maps.push_back(r.map);
+    if (r.width != kMapW || r.height != kMapH) { ++s.liq_skip_size; continue; }
+    E2State::LiquidState& st = s.liquid[r.map];
+    if (st.image != rdr::kNoImage && (st.w != r.width || st.h != r.height || st.levels != 1)) {
+      renderer_.DestroyImage(st.image);
+      if (s.sweat_color == st.image) s.sweat_color = rdr::kNoImage;
+      st.image = rdr::kNoImage;
+    }
+    if (st.image == rdr::kNoImage) {
+      rdr::ImageDesc c;
+      c.width = uint16_t(r.width), c.height = uint16_t(r.height), c.mips = 1, c.format = rdr::Format::RGBA8;   // (the skin reads mip 0 only, see the header)
+      c.usage = rdr::kUsageSampled | rdr::kUsageTarget;
+      st.image = renderer_.CreateImage(c);
+      if (st.image == rdr::kNoImage) { s.sweat_skip = "could not create a liquid map from a saved image"; continue; }
+      renderer_.SetImageClass(st.image, rdr::kGpuFeedback);
+    }
+    renderer_.UpdateImage(st.image, 0, 0, li.bytes, r.nbytes);
+    st.w = uint16_t(r.width), st.h = uint16_t(r.height), st.levels = 1, st.painted = true, st.pending_clear = false;
+    if (r.object) st.object = r.object;
+    st.seen = frames_;
+    s.sweat_color = st.image;
+    ++s.liq_images_applied;
+  }
+
   for (const LiquidMapIn& mi : in.liquid) {
     const LiquidMapRow& row = mi.row;
+    if (std::find(image_maps.begin(), image_maps.end(), row.map) != image_maps.end()) { ++s.liq_skip_image; continue; }   // S108 SHOT-A: its image already holds this frame's items
     E2State::LiquidState& st = s.liquid[row.map];
     ++s.liq_maps_frame;
     const bool dim = (row.flags & kLmDim) != 0;
     // The clear request of this row: its flag, or a changed clear generation (review SWF-6: a row dropped by the hook's frame ring still moves the generation), or one kept pending from a row that could not be applied.
-    const bool clear_now = (row.flags & kLmClear) != 0 || row.reserved[0] != st.clear_gen || st.pending_clear;
+    // S108 BLD3: a rebuild package of a generation not applied yet (on the game's ALT row, or re-sent on a later row because the ALT row's record was never drawn) is the game's clear + repaint: it clears too.
+    const bool rebuild_new = liquid_plan::RebuildIsNew(row, st.rebuild_gen);
+    const bool clear_now = (row.flags & kLmClear) != 0 || row.reserved[0] != st.clear_gen || st.pending_clear || rebuild_new;
     st.clear_gen = row.reserved[0];
     // The map's size and levels (1 x 1 x 1 while the game's resources are missing: nothing is drawn then, and a clear is kept PENDING, never dropped). Only the game's 1024 x 512 is accepted (review SWF-7): the snapshot
     // image and the copies are that size, and a copy past it would be out of range.
@@ -220,22 +265,50 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     if (st.image != rdr::kNoImage && row.frame && row.frame <= st.last_row_frame) { ++s.liq_skip_repeat; continue; }
     st.last_row_frame = row.frame;
     st.seen = frames_;
-    // ---- the items to draw: the game's own skips (not drawn: bits 30 / 29 / 26), the two types it knows, a texture, a rect ----
-    struct Draw { const LiquidItemRow* item; rdr::ImageId pic; IRect rect; };
+    // ---- the items to draw: the game's own choice per row (liquid_plan.h). A normal row: the live items minus the game's skips (not drawn: bits 30 / 29 / 26; types 0 / 1 only). S108 BLD2: a REBUILD row (kLmAlt):
+    // the game draws sub_8279A328 INSTEAD (the sweat sub-pool's discs, B only; then the dirty regions' quads, blood R / sweat G); then a texture and a rect for each ----
+    struct Draw { const LiquidItemRow* item; const liquid_plan::Step* step; rdr::ImageId pic; IRect rect; };
     std::vector<Draw> draws;
     IRect box;
-    if (!e2_faults_.sweat_no_items)
-      for (const LiquidItemRow& it : mi.items) {
-        ++s.sweat_items;
-        if (it.state & kLiStateNotDrawn) { ++s.liq_skip_state; continue; }
-        if (it.type > 1) { ++s.liq_skip_type; continue; }   // type >= 2 inherits the previous item's constants in the game (SWB A-4): never seen, never guessed
-        const IRect r = RectOf(it.rect, w, h);
+    const liquid_plan::Plan plan = liquid_plan::Make(row, mi.items, rebuild_new);
+    liquid_plan::AcceptRebuild(row, st.rebuild_gen, RebuildAck());   // applied now (when new) and acknowledged (every package row): the hook stops re-sending this generation (rows_liquid.h LiquidRebuildAck)
+    if (!e2_faults_.sweat_no_items) {
+      s.sweat_items += uint32_t(mi.items.size());
+      s.liq_skip_state += plan.skip_state, s.liq_skip_type += plan.skip_type;
+      char obj[24];
+      std::snprintf(obj, sizeof obj, "map 0x%08X", row.map);
+      if (plan.skip_type) rdr::DrawShortfall("liquid_item_type", obj, plan.skip_type, 0, "item(s) of type >= 2: the game draws them with the previous item's constants (SWB A-4), never guessed here");
+      if (plan.rebuild) {   // (an empty rebuild is the game's own: its picture is the cleared map)
+        ++s.liq_alt_rows;
+        if (!plan.alt) ++s.liq_alt_late;   // S108 BLD3: the package came on a later row (the ALT row's record was not drawn)
+        bool any = false;
+        for (const liquid_plan::Step& stp : plan.steps) any = any || stp.kind != liquid_plan::Kind::Item;
+        if (!any) ++s.liq_alt_empty;
+      }
+      if (plan.no_picture) s.liq_alt_no_pic += plan.no_picture, rdr::DrawShortfall("liquid_region_picture", obj, plan.no_picture, 0, "rebuild disc(s) / region(s) whose texture was not read: the game draws them");
+      for (const liquid_plan::Step& stp : plan.steps) {
+        const LiquidItemRow& it = mi.items[stp.item];
+        // S108 BLD4: one bound rule for every step (liquid_plan::StepBox: min / max of the corners); the draw keeps the game's corners. A LIVE item whose game rect is inverted is the one hole kept on purpose: what the
+        // game's per-frame resolve copies for a negative-width rect is not in any listing (BLD4_plan.md section 4), so it is counted and reported, never guessed.
+        if (stp.kind == liquid_plan::Kind::Item && liquid_plan::Mirrored(it.rect)) {
+          ++s.liq_items_mirrored;
+          rdr::DrawShortfall("liquid_item_mirrored", obj, 1, 0, "live item(s) whose dirty rect is stored mirrored: what the game's resolve copies for a negative-width rect is not settled, never guessed here");
+          continue;
+        }
+        float bx[4];
+        liquid_plan::StepBox(stp, it, w, h, bx);
+        const IRect r = RectOf(bx, w, h);
         if (r.Empty()) { ++s.liq_skip_rect; continue; }
         rdr::ImageId pic = it.picture ? rdr::ImageId(s.liquid_pics->For(it.picture, in.liquid_pictures, pb)) : rdr::kNoImage;
         if (pic == rdr::kNoImage) { ++s.liq_skip_no_pic; continue; }
-        draws.push_back({&it, pic, r});
+        if (liquid_plan::Mirrored(it.world_param)) {
+          if (stp.kind == liquid_plan::Kind::Region) ++s.liq_regions_mirrored;
+          else if (stp.kind == liquid_plan::Kind::Rebuild) ++s.liq_discs_mirrored;
+        }
+        draws.push_back({&it, &stp, pic, r});
         box.Union(r);
       }
+    }
     // The image is made on the first frame that has something to draw (review SWF-9); a clear on a map with no image is a no-op (a new image is cleared on creation).
     bool fresh = false;
     if (st.image != rdr::kNoImage && (st.w != w || st.h != h || st.levels != levels)) {
@@ -299,8 +372,9 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       return fb.Textures(set);
     };
     const auto rect_param = [&](const IRect& r, float out[4]) { out[0] = float(r.x0) / float(w), out[1] = float(r.y0) / float(h), out[2] = float(r.x1) / float(w), out[3] = float(r.y1) / float(h); };
-    // A (dim only): the previous map pasted back x (1, 0.775, 0.775) inside each rect: the drying (LOOK). Not dim: the game's copy_prev is the identity the image already is (HABIT).
-    if (dim) {
+    // A (dim only): the previous map pasted back x (1, 0.775, 0.775) inside each rect: the drying (LOOK). Not dim: the game's copy_prev is the identity the image already is (HABIT). A rebuild row has no pass A: its
+    // full-map copy_prev (sub_8279A328 0x8279A42C..0x8279A500) pastes the map the node has just cleared (HABIT, nothing to draw).
+    if (dim && !plan.alt && !plan.rebuild) {   // (S108 BLD3: a package applied on a later row has just cleared the map: pass A there is a paste of nothing)
       const rdr::fx::Variant& fv = rdr::fx::kVariants[s.liq_fs_copy_dim];
       const uint32_t state = make_state(s.liq_prog_copy_dim, false, false);
       for (const Draw& d : draws) {
@@ -316,34 +390,55 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
         fb.Draw(op, rdr::kGrpOther);
       }
     }
-    // B then C: the sweat shader (pass select 0) and the paste (1), in the list's order within each; c203 SrcChan / c204 DstChan by type [C SWB A-4 q asm sub_82798748].
-    for (int pass = 0; pass < 2; ++pass) {
-      const int want = pass;   // item+144: 0 = T_Normal p0 / p2, 1 = T_Normal p1
-      const int fsi = pass == 0 ? (dim ? s.liq_fs_sweat_dim : s.liq_fs_sweat) : s.liq_fs_paste;
-      const uint16_t program = pass == 0 ? (dim ? s.liq_prog_sweat_dim : s.liq_prog_sweat) : s.liq_prog_paste;
+    // B then C (a normal row): the sweat shader (pass select 0) and the paste (1), the plan's order (pass 0 first, list order within); c203 SrcChan / c204 DstChan by type [C SWB A-4 q asm sub_82798748], every channel.
+    // A rebuild row (S108 BLD2): loop 1's sweat discs (the sweat shader, its own constants, mask B), then loop 2's region quads (plain + tint, the list's constants, mask R / G): liquid_plan.h.
+    const rdr::fx::Variant& vplain = rdr::fx::kVariants[s.liq_vs_plain];
+    bool package_drawn = false, resnapped = false;
+    for (const Draw& d : draws) {
+      const liquid_plan::Step& stp = *d.step;
+      const bool region = stp.kind == liquid_plan::Kind::Region;
+      if (stp.kind != liquid_plan::Kind::Item) package_drawn = true;
+      else if (package_drawn && !resnapped && !e2_faults_.sweat_no_prev) {   // S108 BLD3: a later row's live items after the package read the map AS REPAINTED (the game's later frame reads it after its ALT frame)
+        rdr::CopyOp cp;
+        cp.source.image = st.image, cp.dest.image = s.liquid_prev;
+        cp.source_rect.x = cp.dest_rect.x = box.x0, cp.source_rect.y = cp.dest_rect.y = box.y0;
+        cp.source_rect.width = cp.dest_rect.width = uint32_t(box.x1 - box.x0), cp.source_rect.height = cp.dest_rect.height = uint32_t(box.y1 - box.y0);
+        cp.filter = rdr::CopyFilter::Nearest;
+        fb.Copy(cp);
+        fb.SetTargets(t0);
+        resnapped = true;
+      }
+      const int fsi = region ? (dim ? s.liq_fs_tint_dim : s.liq_fs_tint) : stp.pass == 0 ? (dim ? s.liq_fs_sweat_dim : s.liq_fs_sweat) : s.liq_fs_paste;   // T_Paste p4 / p1; T_Normal p2 / p0; T_Normal p1
+      const uint16_t program = region ? (dim ? s.liq_prog_tint_dim : s.liq_prog_tint) : stp.pass == 0 ? (dim ? s.liq_prog_sweat_dim : s.liq_prog_sweat) : s.liq_prog_paste;
       const rdr::fx::Variant& fv = rdr::fx::kVariants[fsi];
-      const uint32_t state = make_state(program, true, true);
-      for (const Draw& d : draws) {
-        if (int(d.item->pass) != want) continue;
-        float local[4], world[4], src[4], dst[4];
+      std::vector<uint8_t> fcb(std::max<uint32_t>(fv.block_bytes, 16), 0);
+      md::PutRegisters(fcb, fv, 203, stp.src, 1);
+      md::PutRegisters(fcb, fv, 204, stp.dst, 1);
+      rdr::DrawOp op{};
+      op.state = make_state(program, !region, true, stp.write_mask), op.dynamic = dyn0, op.textures = textures(fv, d.pic);
+      op.fs_constants = fb.PushConstants(fcb.data(), uint32_t(fcb.size()));
+      if (region) {
+        float scale[4];
+        liquid_plan::RegionScreenScale(d.item->world_param, scale);
+        std::vector<uint8_t> b(std::max<uint32_t>(vplain.block_bytes, 16), 0);
+        md::PutRegisters(b, vplain, 201, scale, 1);
+        op.vs_constants = fb.PushConstants(b.data(), uint32_t(b.size()));
+        op.vertex[0] = {s.liquid_region_vb, 0};
+        op.count = 4, op.instances = 1;
+        ++s.liq_regions_drawn;
+      } else {
+        float local[4], world[4];
         std::memcpy(local, d.item->local_area, 16), std::memcpy(world, d.item->world_param, 16);
         if (e2_faults_.sweat_flip) std::swap(world[0], world[2]);
-        if (d.item->type == 1) { const float a[4] = {1, 0, 0, 0}, b[4] = {0, 1, 1, 0}; std::memcpy(src, a, 16), std::memcpy(dst, b, 16); }   // sweat: reads R of the item texture, writes G and B
-        else { const float a[4] = {1, 1, 0, 0}, b[4] = {1, 0, 0, 0}; std::memcpy(src, a, 16), std::memcpy(dst, b, 16); }                      // blood: reads R and G, writes R
-        std::vector<uint8_t> fcb(std::max<uint32_t>(fv.block_bytes, 16), 0);
-        md::PutRegisters(fcb, fv, 203, src, 1);
-        md::PutRegisters(fcb, fv, 204, dst, 1);
-        rdr::DrawOp op{};
-        op.state = state, op.dynamic = dyn0, op.textures = textures(fv, d.pic);
         op.vs_constants = vs_block(vloc, world, local);
-        op.fs_constants = fb.PushConstants(fcb.data(), uint32_t(fcb.size()));
         op.vertex[0] = {s.liquid_disc_vb, 0};
         op.index = {s.liquid_disc_ib, 0};
         op.index_32bit = 0;
         op.count = s.liquid_disc_indices, op.instances = 1;
-        fb.Draw(op, rdr::kGrpOther);
-        ++s.liq_items_frame, ++s.liq_items_total, ++st.items_drawn;
+        if (stp.kind == liquid_plan::Kind::Rebuild) ++s.liq_rebuild_drawn;
       }
+      fb.Draw(op, rdr::kGrpOther);
+      ++s.liq_items_frame, ++s.liq_items_total, ++st.items_drawn;
     }
     st.painted = true;
     // Mk: the mip chain of the rects. Level k reads a snapshot of level 0 AFTER the items (the game's resolve of level 0 comes first), with the same copy shader at the level's own size.
@@ -417,6 +512,17 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     ++it;
   }
   return s.liq_published > 0;
+}
+
+// S108 SHOT-A: see live_maps.h.
+void LiveMapsHook::LiveLiquidImages(std::vector<LiveLiquidImage>& out) const {
+  for (const auto& kv : e2_->liquid) {
+    const E2State::LiquidState& st = kv.second;
+    if (!st.painted || st.image == rdr::kNoImage || !st.w || !st.h) continue;
+    LiveLiquidImage li;
+    li.map = kv.first, li.object = st.object, li.image = st.image, li.width = st.w, li.height = st.h;
+    out.push_back(li);
+  }
 }
 
 }  // namespace rdr_scene

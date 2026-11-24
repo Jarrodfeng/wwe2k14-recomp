@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -38,6 +39,11 @@ inline void FillRawImage(rex::ui::RawImage& image, const uint8_t* rgba, uint32_t
 using SceneAnswer = std::function<void(bool ok, std::vector<uint8_t>&& rgba, uint32_t w, uint32_t h, uint64_t guest_frame)>;
 inline std::function<bool(SceneAnswer)> g_scene_request_owner;
 inline std::function<bool(std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t timeout_ms, uint64_t* guest_frame)> g_scene_capture_owner;
+
+// S108 SHOT-A (docs\research\s108\SHOT_plan.md 7): ask the scene host to save the record it draws NEXT (the picture's own record, plus the host state a one-frame record lacks: record sections 68-70) to `path`.
+// Any thread, never blocks; the write happens on a writer thread and logs "[wwe2k14][input] scene record saved: PATH (...)" or "... NOT saved: WHY". False + `why` = the request could not be made. Null in the stream build
+// (it has no scene host: the verb then fails with "no scene host"), set by host_start.cpp.
+inline std::function<bool(const std::string& path, std::string& why)> g_record_save_owner;
 
 inline thread_local uint64_t t_shown_guest_frame = ~0ull;
 inline constexpr uint64_t kShownFrameUnknown = ~0ull;

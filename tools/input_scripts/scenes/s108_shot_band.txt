@@ -1,0 +1,24 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=103,343 --wwe2k14_launch_arena=53 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# Session 108 lanes SHOT-A / SHOT-B, the past-bug check of subject shots: arena 53 from the match hard camera, `shot stage 114 band`
+# saves the drawn record. Question: from the saved record, does the rig's --pick at a pixel inside the lower-bowl logo strip name
+# arena:slot:114 mesh 0 met_st_logo_01 first, and does `stage:114` frame the strip?
+# Read with: py -I tools/harness/run_verdict.py --log <this run's log>. Shots and records are local only.
+on_fail quit
+log bench: start scene s108_shot_band
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=shot_band
+mark 1 match_clock
+wait_event render roster_ready 2400
+passive 1 on
+wait_frames 300
+shot stage 114 band
+wait_frames 120
+log scene=end
+mark 2 end
+log bench: done
+wait_frames 30
+quit

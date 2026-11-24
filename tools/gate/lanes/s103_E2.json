@@ -1,9 +1,0 @@
-{
- "owner": "S103 lane E2: the rim, plane, pre-light (and the named non-build of the sweat) maps of the Maps stage hook (src/renderer_scene/live_maps_e2.h, live_map_e2_input.cpp, live_map_rim.cpp, live_map_plane.cpp, live_map_prelight.cpp, live_map_sweat.cpp); tools/scene/maps_draw.cpp, e2_check.py; docs/renderer/LIVE_MAPS.md section Lane E2",
- "note": "headless, 0 game runs. Builds the scene tools and maps_draw (compile only), then e2_check.py --maps rim,plane,prelight --faults on the z7147 capture (frames 20/100/180 for rim and pre-light, 240/280/320 for the plane where the game's plane chain holds the wrestlers), with the Vulkan validation layer ON (the script sets WWE_RDR_VALIDATION=1 for maps_draw and fails when the layer is not active): rim IoU >= 0.85 and mean |d| (green) <= 9, plane precision >= 0.6, pre-light mean |d| <= 4 per slot, validation 0; every planted fault (rim_shadow_camera, rim_no_depth, plane_identity_fit, plane_stale_camera, prelight_wrong_light, prelight_no_faces) fails the SAME bar as the clean run. Plane / pre-light inputs the record lacks are TOLD to the rig from the game's own draw constants (a fixture; LIVE_MAPS.md lists what lane A must move). Sheet: <main checkout>/out/s103/E2/sheet_maps.png. Needs numpy + Pillow.",
- "checks": [
-  {"name": "s103_E2.build_rsc", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_rsc.ps1"], "timeout_s": 1500},
-  {"name": "s103_E2.build_maps", "cmd": ["pwsh", "-NoProfile", "-File", "tools/scene/build_maps.ps1"], "timeout_s": 600},
-  {"name": "s103_E2.proof", "cmd": ["py", "-I", "tools/scene/e2_check.py", "--maps", "rim,plane,prelight", "--faults"], "timeout_s": 1200, "exes": ["out/renderer/dev/fview.exe"], "needs": ["out/d3caster/z7147/capture", "game_data/extracted"], "affects": ["tools/scene/**", "src/renderer_scene/**", "tools/renderer/**", "tools/analysis/**", "tools/gate/**"], "cache": false}
- ]
-}

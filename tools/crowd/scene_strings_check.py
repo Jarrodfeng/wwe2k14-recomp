@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T11b gate check (offline, 0 game runs): wwe2k14_rdr_scene_strings_once (the live scene record's repeated strings made once, in a pool every frame's table starts as a copy of).
+"""S102 lane T11b check (offline, 0 game runs): wwe2k14_rdr_scene_strings_once (the live scene record's repeated strings made once, in a pool every frame's table starts as a copy of).
 
   py -I tools\\crowd\\scene_strings_check.py [--root DIR] [--syntax] [--no-records]
 
@@ -10,9 +10,7 @@ flipping, a second pool, a moved table, the moved-from shell, live::EndFrame twi
 --syntax: clang -fsyntax-only of the game's translation units that include the touched headers, with the main build's flags (as crowd_ids_check.py).
 A check that cannot read its input fails loudly: a missing test, a missing zip, no result line, all FAIL."""
 import argparse
-import fnmatch
 import glob
-import json
 import os
 import re
 import shutil
@@ -59,27 +57,6 @@ def extract_records(root, zip_path):
             with z.open(n) as src, open(os.path.join(out, os.path.basename(n)), 'wb') as dst:
                 shutil.copyfileobj(src, dst)
     return out, ''
-
-
-def run_lint(root):
-    """Every file the test builds from must match this lane's `affects` (so the gate cache cannot pass a stale result), and the lint must notice a missing glob (twin)."""
-    lane = json.load(open(os.path.join(root, 'tools', 'gate', 'lanes', 's102_t11b.json'), encoding='utf-8'))
-    aff = lane['checks'][0].get('affects') or []
-    if not aff:
-        return fail('the lane json has no affects for check 1')
-    roots = [os.path.join(root, p) for p in ['tools/crowd/scene_strings_test.cpp'] + SOURCES]
-    files = base.local_includes(root, roots)
-    missing = base.uncovered(root, files, aff)
-    if missing:
-        return fail("files the test builds from are not in the lane's affects: " + ', '.join(missing))
-    probe = 'src/renderer_scene/string_pool.h'
-    if probe not in [base.rel_of(root, f) for f in files]:
-        return fail('lint input changed: %s is no longer reached from the test' % probe)
-    twin = [g for g in aff if not fnmatch.fnmatch(probe, g)]
-    if probe not in base.uncovered(root, files, twin):
-        return fail('the affects lint did not notice a header missing from affects (twin)')
-    print("PASS: affects lint: the %d files the test builds from are all covered by the lane's affects (the missing-glob twin is caught)" % len(files))
-    return 0
 
 
 def run_test(root, records):
@@ -129,9 +106,6 @@ def run_test(root, records):
         return fail('the real-record arm did not run')
     if passes < 30:
         return fail('expected >= 30 PASS lines, got %d (a check that reads nothing proves nothing)' % passes)
-    rc = run_lint(root)
-    if rc:
-        return rc
     print('PASS: scene_strings_test: %d checks, %d planted twins caught, exit 0' % (passes, twins))
     return 0
 

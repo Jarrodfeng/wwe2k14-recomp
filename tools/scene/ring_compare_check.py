@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lanes C3 + C7 gate check: our recomputed ring rows against the GAME's own RingRows in a real mode-1 record (--wwe2k14_rdr_ring_d3=1, scene records on).
+"""S103 lanes C3 + C7 check: our recomputed ring rows against the GAME's own RingRows in a real mode-1 record (--wwe2k14_rdr_ring_d3=1, scene records on).
 Our rows of record j (stamp j) must equal the game's RingRows of record j + 1 (stamped j); the planted twin (the game's rows three records later) must NOT pass.
 Reads the case zip READ ONLY (it sits in out\\: never moved or deleted). 0 game runs.
   py -I tools\\scene\\ring_compare_check.py [--root DIR] [--zip PATH] [--every N] [--classes rope,turnbuckle,cover,post,skirt]

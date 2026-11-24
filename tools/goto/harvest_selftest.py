@@ -1,4 +1,4 @@
-"""S101 lane 111 (go-anywhere L-2 and the small part of L-3): the harvest self test (gate lane moments_harvest). No game, no game data.
+"""S101 lane 111 (go-anywhere L-2 and the small part of L-3): the harvest self test. No game, no game data.
 
     py -I tools/goto/harvest_selftest.py
 

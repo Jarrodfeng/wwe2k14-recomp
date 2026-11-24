@@ -11,9 +11,11 @@
 4. planted missing texture (WWE_CENSUS_PLANT_TEX): flagged on that item only (arena_5);
 5. wrestler twin: the same wrestlers with WWE_RDR_NO_PALETTE=1 (bind pose): EVERY wrestler row must fail;
 6. planted hang (WWE_CENSUS_PLANT_HANG, --timeout 5): the hung item becomes a non-pass row and the next item still runs (any status but load failure: the picture verdicts move with the renderer).
-7. lane 257: arenas 0, 2, 29, 40 clean pass; WWE_RDR_SPEC_NO_LIGHTCOL=1 fails 2 and WWE_RDR_NO_LIVE_SCREEN=1 fails 0.
+7. lane 257: arenas 0, 2, 29, 40 clean pass (the vk reference follows the game's record cull: WWE_VIEWER_RECORD_CULL=1, S106 FCN); WWE_RDR_NO_LIVE_SCREEN=1 fails
+   arena 0 (status is not pass); WWE_RDR_SPEC_NO_LIGHTCOL=1 on arena 2 is judged against the SAME run's clean arm (S106 FCN: since L5 the plant stays inside the census bar):
+   the ring view must lose close tiles and the rdr picture must change; a plant switch that is no longer read fails.
 Exit 0 only when all hold. A board that cannot be read, a viewer that cannot start, a missing input: FAIL, never a pass. Tags are per run (pid), so
-concurrent gate runs do not share a folder."""
+concurrent runs do not share a folder."""
 import argparse
 import json
 import os
@@ -34,6 +36,28 @@ WRESTLERS = '197,210,156'
 def run(cmd, timeout):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return p.returncode, p.stdout + p.stderr
+
+
+def plant_vs_clean(clean, plant):
+    """S106 FCN: (ok, message). The plant arm's arena 2 `ring` view against the same run's clean arm: fewer close tiles AND a changed rdr picture
+    (any channel moved by > 2 on any pixel). Either missing = False; a row that cannot be read = False (never a pass)."""
+    try:
+        import numpy as np
+        from PIL import Image
+        if not clean or not plant:
+            return False, 'a row is missing (clean %s, plant %s)' % (bool(clean), bool(plant))
+        c_close, p_close = clean.get('close'), plant.get('close')
+        if c_close is None or p_close is None:
+            return False, 'no close-tile numbers (clean %s, plant %s)' % (c_close, p_close)
+        a = np.asarray(Image.open(clean['angles']['ring'][1]).convert('RGB')).astype(int)
+        b = np.asarray(Image.open(plant['angles']['ring'][1]).convert('RGB')).astype(int)
+        if a.shape != b.shape:
+            return False, 'the two rdr shots differ in size %s vs %s' % (a.shape, b.shape)
+        moved = float((np.abs(a - b).max(axis=2) > 2).mean())
+        ok = p_close < c_close and moved > 0.0
+        return ok, 'ring close tiles %.3f -> %.3f, %.1f%% of the rdr pixels moved by > 2 (need fewer tiles AND > 0%%)' % (c_close, p_close, moved * 100)
+    except Exception as e:
+        return False, 'cannot compare (%s)' % e
 
 
 def main():
@@ -175,13 +199,22 @@ def main():
     print(('PASS' if ok7 else 'FAIL') + '  lane 257 clean: arenas 0, 2, 29, 40 pass (not passing: %s)' % notpass)
     if not ok7:
         fails.append('lane 257 clean')
+    # S106 FCN: the clean arm's arena 2 numbers and its rdr shots, read NOW (the board folders are removed at the end)
+    clean2 = {r['key']: r for r in rows}.get('arena_2') if rows else None
     for env, ids, what in (('WWE_RDR_SPEC_NO_LIGHTCOL=1', '2', 'highlight without the first light colour (NXT curtains washed white)'),
                            ('WWE_RDR_NO_LIVE_SCREEN=1', '0', 'the stage screen left black')):
         rows, path = census_run('l257_' + ids, ['--only', 'arenas', '--env', env], ids=ids)
         if rows is None:
             return 1
-        ok7 = len(rows) == 1 and rows[0]['status'] != 'pass'
-        print(('PASS' if ok7 else 'FAIL') + '  lane 257 planted "%s" on arena %s: %s' % (what, ids, rows[0]['status'] if rows else '?'))
+        if ids == '2':
+            # S106 FCN (probe docs/research/s105 -> s106 FCN.md): since S103 L5 the specular plant moves arena 2's ring view by 8 tiles, inside the census bar, so its verdict is
+            # judged against the SAME run's clean arm: the ring view must lose close tiles AND its rdr picture must change (moved vs did not move; the noise floor on this
+            # deterministic offline viewer is 0). A plant switch that is no longer read gives an identical picture and FAILS.
+            ok7, msg = plant_vs_clean(clean2, rows[0] if rows else None)
+            print(('PASS' if ok7 else 'FAIL') + '  lane 257 planted "%s" on arena %s against the clean arm: %s' % (what, ids, msg))
+        else:
+            ok7 = len(rows) == 1 and rows[0]['status'] != 'pass'
+            print(('PASS' if ok7 else 'FAIL') + '  lane 257 planted "%s" on arena %s: %s' % (what, ids, rows[0]['status'] if rows else '?'))
         if not ok7:
             fails.append('lane 257 plant ' + env)
 

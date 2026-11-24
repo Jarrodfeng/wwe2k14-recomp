@@ -15,7 +15,7 @@ static int g_fail = 0;
 
 // S102 S0-2: `perf_sys_test.exe --seconds N [--out FILE]`: the standalone sampler. Runs N seconds with one named and one unnamed busy thread of this
 // process, takes one [perf][sys] window per second (the same Take / Format the game uses) and prints / appends each line. tools\perf\thread_busy.ps1
-// -ProcessName perf_sys_test samples this process's threads at the same time (the gate lane checks both outputs).
+// -ProcessName perf_sys_test samples this process's threads at the same time.
 static int RunSampler(int seconds, const char* out_path) {
   std::atomic<bool> stop{false};
   auto burn = [&] { volatile double x = 0; while (!stop.load()) x += 1.0; };

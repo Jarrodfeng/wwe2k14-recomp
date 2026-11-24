@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T18 gate check (offline, 0 game runs, 0 Surface runs): wwe2k14_rdr_particle_lite (src\\renderer_adapter\\particle_lite.h + the lines marked "S102 T18" in reader.h).
+"""S102 lane T18 check (offline, 0 game runs, 0 Surface runs): wwe2k14_rdr_particle_lite (src\\renderer_adapter\\particle_lite.h + the lines marked "S102 T18" in reader.h).
 
   py -I tools\\particle_lite\\lite_check.py [--root DIR] [--part test|wiring|all]
 
@@ -56,7 +56,7 @@ def part_test(root):
     if not main:
         return fail('no git common dir: the captures live in the main checkout')
     caps = [('brock', os.path.join(main, 'out', 'lane86', 'brock', 'capture')),
-            ('bryan', os.path.join(main, 'out', 's101', 'runs', '20261112_122700_s100_owner_bryan_entrance', 'case_20261112_122719_969_0_pc_run_exit.zip'))]
+            ('bryan', os.path.join(main, 'out', 'lane86', 'bryan', 'capture'))]      # S106 0E: the S101 case zip is lost; lite_trace.py reads a capture folder too (offline: taken 2429 in 91 runs)
     for name, path in caps:
         if not os.path.exists(path):
             return fail('capture %s missing: %s' % (name, path))

@@ -1,0 +1,33 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=200 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# Session 108 lanes CAP + CAP2 check, part 2 (the fixed build only): a match in the frozen save's created arena (arena 200).
+# UNCONFIRMED: that --wwe2k14_launch_arena=200 loads the save's custom arena slot 1 through the direct launch.
+# Question: do the stage panels show the game's paint from the first drawn frame (no red MINITORON / HEADDER / WALL placeholder), and
+# does the FIRST `[wwe2k14][car_paint]` line after the load read `ready 1 built_take N built_game ...` (the build's take and the manager's words then: `none` = built before the game created its manager) and the `game:` words, and later lines with the painted pictures (reread > 0),
+# `failed 0`? (S108 CAP3: no wait on the game's paint; the early set is expected not to be seen: the loading screen stays up until the game's paint is done.)
+# Read it with: py -I tools\bench\run_read.py <exe folder> --full. Shots caa_m_* are local only.
+on_fail quit
+log bench: start scene s108_caa_match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+log scene=caa_match
+mark 1 match_clock
+screenshot caa_m_00
+wait_event render roster_ready 2400
+passive 1 on
+wait_frames 120
+screenshot caa_m_01
+wait_frames 300
+screenshot caa_m_02
+wait_frames 300
+screenshot caa_m_03
+wait_frames 300
+screenshot caa_m_04
+wait_frames 300
+screenshot caa_m_05
+log scene=end
+mark 2 end
+log bench: done
+wait_frames 10
+quit

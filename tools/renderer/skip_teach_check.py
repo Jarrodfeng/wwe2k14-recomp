@@ -104,7 +104,7 @@ def main():
             return 1
     import fview_exe as fe
     exe = fe.find_or_exit(root=root, kind='dev')
-    out = os.path.join(root, 'out', 'k4_%d' % os.getpid())   # one folder per process: two runs at once (a gate and a hand run) deleted each other's saved frames
+    out = os.path.join(root, 'out', 'k4_%d' % os.getpid())   # one folder per process: two runs at once (a check and a hand run) deleted each other's saved frames
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out, exist_ok=True)
     n = len([x for x in os.listdir(os.path.join(cap, 'frames'))])

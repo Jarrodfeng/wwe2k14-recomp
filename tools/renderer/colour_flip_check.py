@@ -10,7 +10,7 @@ Levers: G10 `wwe2k14_rdr_low_colour_cuts` (Int, mask bit 1) and C4 `wwe2k14_rdr_
               show a difference (the comparison can fail).
   scan        C4 only: the texture-alpha scan (binder.h ScanImageAlpha) runs only while the switch is on. Replaying with `--arena-scan-follow` (the scan flag follows the arm, as live.cpp sets it) and the
               lever OFF in the first phase leaves textures that arrived then unproven: the on phases take FEWER draws (the finding that makes `wwe2k14_rdr_arena_overdraw_scan` necessary for a flip). Reported,
-              not gated; with the hold on (the default arm parse) the flipped run is byte-equal to steady.
+              not judged; with the hold on (the default arm parse) the flipped run is byte-equal to steady.
 Counts and numbers only (hard rule 1); pictures go under out\ only."""
 import argparse, concurrent.futures, os, re, subprocess, sys
 

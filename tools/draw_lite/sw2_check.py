@@ -1,4 +1,4 @@
-r"""S102 lane SW2 gate checks (0 game runs).
+r"""S102 lane SW2 checks (0 game runs).
 
   py -I tools\draw_lite\sw2_check.py --root . --part wiring|test
 

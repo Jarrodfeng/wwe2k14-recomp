@@ -43,7 +43,7 @@ struct StageMesh {
   std::string effect;           // the material class as stored ("yBG_Default", "yBG_BumpMapLM", "yProp_DefaultLM", ...)
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;  // a triangle list in the stream's winding
-  std::vector<float> uv1;       // the second (light-map) set, 2 floats a vertex: not drawn, kept for the test's diagnosis
+  std::vector<float> uv1;       // the loader's Vertex::uv1, 2 floats a vertex (since S108 BAN3 = S2 = the drawn uv on a static mesh, 0 on a skinned one): not drawn, kept for the test's diagnosis
   uint32_t strip_indices = 0;   // the file's strip indices (sum over the groups)
   uint32_t index_groups = 0;
   int diffuse = -1, normal_map = -1, specular = -1;  // indices into StageArena::textures; -1 = none

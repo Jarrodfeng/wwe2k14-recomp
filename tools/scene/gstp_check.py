@@ -157,7 +157,7 @@ def main():
     jobs = {'off': [], 'on1': ['--gpu-group-stamps', '1'], 'on4': ['--gpu-group-stamps', '4'],
             'p_chain': ['--plant', 'group_chain'], 'p_cover': ['--plant', 'group_cover'], 'p_nolabel': ['--plant', 'group_nolabel']}
     res = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get('GATE_GPU_PROCS') or 3)) as ex:  # the gate holds gpu_procs slots for this check and says how many in GATE_GPU_PROCS: run exactly that many
+    with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get('GATE_GPU_PROCS') or 3)) as ex:  # GATE_GPU_PROCS (set by the old gate system, now normally unset): how many to run; default 3
         futs = {k: ex.submit(run, exe, cap, game, os.path.join(base, k), a.frames, size, extra, a.job_timeout) for k, extra in jobs.items()}
         for k, f in futs.items():
             rc, text = f.result()

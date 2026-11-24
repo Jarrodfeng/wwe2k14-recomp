@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the 30 Years era screen has no mapped cursor state: its presses wait on frame counts)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): where is The Streak (Defeat / Defend the Streak) in the menus? SEARCH ROUTE, not a mode route: the flow table has no entry for it
 # (searched: game_atlas.json / tools\atlas\screens.json nodes + edges, docs\systems\menus.md PLAY tree, db\ids\match_types.json, wm30.md, q fact "defeat the streak" / 1501: the only

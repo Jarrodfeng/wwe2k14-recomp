@@ -10,7 +10,7 @@ its reason), refuses contradictions (exit 2), then starts the run through tools\
 triage): hidden and at low priority for untimed runs (a timed --speed run keeps normal priority: its numbers must be the player's), with a
 hard timeout and a heartbeat line every 60 s, and a black box: --wwe2k14_case=true --wwe2k14_case_dir=<out\\s101\\runs\\STAMP_ROUTE> so the
 case hook (src\\case\\case_hook.h; triggers RunExit / RunShot / RunFailure) leaves a case zip there. Kinds: --check (default, untimed, fast-forward),
---speed (timed: run_list -Exclusive, normal speed), --picture (untimed A/B of two arms). Flags are --name=value (a loose word is refused).
+--speed (timed: run_list -Exclusive; normal speed only when the route's intent says `performance <what>`), --picture (untimed A/B of two arms). Flags are --name=value (a loose word is refused).
 Unknown options are the game's flags (or the launcher's with --launcher). Exit: 0 run ok, 1 run failed / timed out, 2 refused.
 """
 import argparse
@@ -84,7 +84,7 @@ def make_parser():
     ap = argparse.ArgumentParser(prog='run.py', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     ap.add_argument('route', nargs='?', help='a route (input script): full path, repo-relative, or relative to the exe folder')
     k = ap.add_mutually_exclusive_group()
-    k.add_argument('--speed', dest='kind', action='store_const', const='speed', help='a timed run (run_list -Exclusive, normal speed, normal priority)')
+    k.add_argument('--speed', dest='kind', action='store_const', const='speed', help='a timed run (run_list -Exclusive, normal priority; normal speed comes from the route intent term `performance <what>`)')
     k.add_argument('--picture', dest='kind', action='store_const', const='picture', help='a picture A/B: two arms (--arm-a / --arm-b / --under-test)')
     k.add_argument('--check', dest='kind', action='store_const', const='check', help='an ordinary untimed check (default)')
     ap.add_argument('--dry-run', action='store_true', help='print the plan and the verdict; start nothing')
@@ -145,12 +145,12 @@ def build_plan(ns, rest, dry=False):
 def speed_description(plan):
     """What run_list will do about speed (its Get-RunListRealTimeReason), for the plan print."""
     merged, _ = plan.merged()
-    if plan.kind == 'speed':
-        return 'normal speed (run_list -Exclusive: a timed run)'
-    if plan.route.has_realtime:
-        return f'normal speed (route header: realtime {plan.route.realtime})'
+    if plan.route.speed_term:   # S109 FF: the ONE door is the route's intent term
+        return f'normal speed (route intent: {plan.route.speed_term})'
     if any(f.bare == 'vsync' for f in merged):
         return 'as the flags set --vsync'
+    if plan.kind == 'speed':
+        return 'fast-forward (a --speed run is only at normal speed when the route says `# intent: performance <what>`; this one does not: run_list adds --vsync=false)'
     return 'fast-forward (run_list adds --vsync=false --audio_mute=true)'
 
 

@@ -8,6 +8,7 @@
 #include <map>
 
 #include "../../src/scene_live/inputs_core.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 
 namespace si = scene_inputs;
 using rdr_scene::StageLookRow;

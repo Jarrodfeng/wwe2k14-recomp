@@ -20,6 +20,7 @@ cursor there). Snippets never change the speed (`cvar vsync`) or take screenshot
 | `creations_to_logo_grid` | CREATIONS, cursor 0 | Create a Logo grid ready (logo_phase 124) |
 | `logo_grid_to_editor` | logo grid ready, slot 1 empty | editor, new 256x256 logo (logo_screen 3) |
 | `editor_to_categories` | editor, Tools closed | LOGO CATEGORIES (logo_screen 2, W stamp tool) |
+| `log_menu` | any screen | unchanged: logs the built-in menu states (menu_ready / _count / _page / _row / _rows / _col / _cols) |
 
 Chains used by routes: `boot_to_menu` + `menu_to_creations` + `creations_to_logo_grid` + `logo_grid_to_editor` +
 `editor_to_categories` = the T2 logo route up to the categories (`repro_logo_lettering.txt`).

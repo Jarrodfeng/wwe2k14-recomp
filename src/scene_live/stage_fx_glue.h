@@ -18,6 +18,7 @@ namespace wwe2k14::scene_stagefx_glue {
 inline void Register() {
   auto& c = rdr_scene::live::stagefx::StageFx();
   c.SetReader(&wwe2k14::scene_inputs_glue::ReadChecked);
+  rdr_scene::live::carpaint::SetPhys([](uint32_t a, uint32_t n, uint8_t* d) { return wwe2k14::scene_inputs_glue::CrowdGuestMem{}.phys(a, n, d); });   // S108 CAP: the shared physical reader (page-checked, <= 1 MB a call)
   c.SetMoving(&rdr_scene::live::arena::MovingSlots);
   c.SetArenaFn(&rdr_scene::live::arena::PublishedArena);
   c.SetSlotsReady([]() {   // S103 A3 review F2; CAE F2: the slot table of THIS stage's arena, published (arena_id_core.h SlotsReady)

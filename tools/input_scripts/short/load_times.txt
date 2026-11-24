@@ -1,4 +1,4 @@
-# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
+# intent: performance load s
 # Session 12: load-time route. Use with --wwe2k14_launch=lesnar_bryan (or any two-person scenario). Logs a marker
 # ("lt: ...") at each load boundary so tools\lzx\load_report.py can time the loads from the log's wall-clock stamps:
 #   boot: process start -> title data (SaveData.Dat); menu: last title press -> MNUIHD.PAC (main menu);

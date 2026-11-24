@@ -1,4 +1,4 @@
-# Gate check of lane 36 (Session 101): the crowd's pairing and pose test on Check B's material, with its planted faults.
+# Check of lane 36 (Session 101): the crowd's pairing and pose test on Check B's material, with its planted faults.
 #   py -I tools\crowd\crowd_pair_selftest.py [--zip CASE.zip]
 # Runs the SHIPPED tool (out\tools\crowd_pair.exe, built by tools\crowd\build_crowd_pair.ps1) on the capture inside the case zip of run 7051
 # (the Brock replay with scene records on). The zip is read, never written; the parts the tool needs (frames, scene, images.bin,

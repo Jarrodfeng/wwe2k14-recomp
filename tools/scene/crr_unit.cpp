@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "../../src/assets/asset_load.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/renderer_scene/ring_keys.h"
 #include "../../src/scene_live/ring_recompute_core.h"
 #include "../../src/scene_live/ring_rows_core.h"

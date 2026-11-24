@@ -4,7 +4,7 @@
   py -I tools\\scene\\wrestler_selftest.py [--root DIR] [--size 640x360]
 
 Needs out\\tools\\wrestler_emit.exe (tools\\scene\\build_wrestler.ps1) under --root, and the Arena Viewer (wwe2k14_assets_rdr.exe) + rsc_draw.exe
-under --root\\out\\tools or, failing that, under the main checkout's out\\tools (built by the scene / scene_io gate checks).
+under --root\\out\\tools or, failing that, under the main checkout's out\\tools (built by the scene / scene_io checks).
  1. wrestler_emit selftest: the contributor's unit checks (last update wins, skin = inv_bind x world, ids, counters) with their planted twins.
  2. Per wrestler (the same three as lane 13: cloth, gear, transparency): the viewer writes a record of the posed wrestler (arena 5, idle frame 30);
     wrestler_emit feeds its palette through the contributor as three updates in one frame (bind pose, a pose off by 3 units, the real pose LAST)
@@ -136,6 +136,10 @@ def main():
             if rc != 0 or not os.path.exists(png):
                 print(f'FAIL  {tag} {label}: rsc_draw: {text.strip()[-300:]}')
                 fails.append(f'{tag} {label}: rsc_draw')
+                continue
+            if re.search(r'\[rsc_draw\] wrestlers: \d+ of \d+ objects skipped', text):   # S106 C4W: a skipped wrestler must never pass a planted arm by absence
+                print(f'FAIL  {tag} {label}: wrestler not drawn')
+                fails.append(f'{tag} {label}: wrestler not drawn')
                 continue
             errs = [int(m) for m in re.findall(r'validation errors(?: so far)?: (\d+)', text)]
             ok, notes = lane6.compare_crop(np, ref, np.asarray(Image.open(png).convert('RGB')))

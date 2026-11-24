@@ -1,4 +1,3 @@
-# harness: realtime (load-time measurement (wall clock); Session 16: run_list fast-forwards other routes)
 # Session 12: match-load marker study (load_times.txt + a screenshot every 6 frames from the last entrance's START to
 # 120 frames after the match clock runs). Untimed. Screenshots ml_* are local only.
 # Original header:

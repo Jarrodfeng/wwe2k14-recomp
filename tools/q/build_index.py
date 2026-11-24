@@ -439,6 +439,49 @@ def be32(img, a):
     return struct.unpack_from('>I', img, o)[0]
 
 
+def image_sections(img):
+    """-> [(name, lo, hi)] from the PE section table at the head of image.bin (virtual addresses, base 0x82000000); [] when there is none"""
+    try:
+        e = struct.unpack_from('<I', img, 0x3C)[0]
+        if img[e:e + 4] != b'PE\0\0':
+            return []
+        ns = struct.unpack_from('<H', img, e + 6)[0]
+        oh = struct.unpack_from('<H', img, e + 20)[0]
+        so = e + 24 + oh
+        out = []
+        for i in range(ns):
+            h = img[so + 40 * i:so + 40 * i + 40]
+            va = IMAGE_BASE + struct.unpack_from('<I', h, 12)[0]
+            out.append((h[:8].rstrip(b'\0').decode('ascii', 'replace'), va, va + struct.unpack_from('<I', h, 8)[0]))
+        return out
+    except (struct.error, IndexError):
+        return []
+
+
+def tables(fw, rtti_vts, col_set, code_consts, word):
+    """S110 ICALL: the table catalog -> [(start, rule, len)]. fw = {address: function} of the data words that name a function (outside the code range,
+    .pdata and .reloc). A table STARTS at an RTTI vtable ('rtti'), after a COL word ('col'), at an address code builds with lis+addi / lis+ori or reads with lis+lwz ('code'),
+    or where a run of function words begins ('run'); word(a) = the image word at a. It ENDS at the first word that is not a function, or at the next start. len counts words."""
+    starts = {}
+    for at in fw:
+        if at in rtti_vts:
+            starts[at] = 'rtti'
+        elif word(at - 4) in col_set:
+            starts[at] = 'col'
+        elif at in code_consts:
+            starts[at] = 'code'
+        elif (at - 4) not in fw:
+            starts[at] = 'run'
+    out = []
+    for s in sorted(starts):
+        n, a = 0, s
+        while a in fw and (a == s or a not in starts):
+            n += 1
+            a += 4
+        out.append((s, starts[s], n))
+    return out
+
+
 def scan_rtti(img, func_starts, code_lo, code_hi):
     """MSVC RTTI from the image: classes, vtables (+slots), base classes. See module docstring."""
     words = {}  # value -> list of addresses holding it (only for values we need, filled lazily below)
@@ -660,7 +703,7 @@ def build(args, prefix, mapping, files, tmp):
         edges.append((src, dst, t, site, kind))
 
     # image-derived tables
-    strings, strrefs, ptrs, rtti = {}, [], [], None
+    strings, strrefs, ptrs, rtti, tabs = {}, [], [], None, []
     img = None
     image_info = None
     code_lo = min(starts)
@@ -721,12 +764,19 @@ def build(args, prefix, mapping, files, tmp):
                     strrefs.append((fn, site, w, 'ptr@%08X' % a, op))
         tds, cols, vtables, bases, arr = scan_rtti(img, all_set, code_lo, code_hi)
         string_set = set(strings)
+        # S110 ICALL: the PE section table; the words of .pdata (unwind records) and .reloc are not pointers the game follows
+        skip = [(lo, hi) for name, lo, hi in image_sections(img) if name in ('.pdata', '.reloc')]
+        fw = {}
         for idx, v in enumerate(arr):
             if v in all_set or v in string_set:
                 where = IMAGE_BASE + idx * 4
-                if code_lo <= where < code_hi:
+                if code_lo <= where < code_hi or any(lo <= where < hi for lo, hi in skip):
                     continue
                 ptrs.append((where, v, 'func' if v in all_set else 'str'))
+                if v in all_set:
+                    fw[where] = v
+        code_consts = {x[2] for x in imms if x[3] in ('lis+addi', 'lis+ori', 'lis+lwz')}      # an address code builds, or reads a word at (the probe's rule: 5,294 starts)
+        tabs = tables(fw, {vt for vt, _, _, _ in vtables}, set(cols), code_consts, lambda a: be32(img, a))
         rtti = (tds, cols, vtables, bases)
     else:
         print(f'build_index: no image at {args.image}: strings/RTTI/data pointers skipped '
@@ -754,6 +804,7 @@ def build(args, prefix, mapping, files, tmp):
         CREATE TABLE rtti_slot(vt INTEGER, idx INTEGER, func INTEGER);
         CREATE TABLE rtti_base(cls TEXT, idx INTEGER, base TEXT);
         CREATE TABLE hostsyms(rva INTEGER, name TEXT, obj TEXT);
+        CREATE TABLE tables(start INTEGER PRIMARY KEY, rule TEXT, len INTEGER);
     ''')
     c.executemany('INSERT INTO funcs VALUES (?,?,?,?,?,?,?,?,?,1)', funcs)
     c.executemany('INSERT INTO funcs VALUES (?,?,0,0,NULL,NULL,0,0,0,0)', extra)
@@ -772,6 +823,7 @@ def build(args, prefix, mapping, files, tmp):
                       [(vt, k, fn) for vt, col, td, sl in vtables for k, fn in enumerate(sl)])
         c.executemany('INSERT INTO rtti_base VALUES (?,?,?)', [(demangle(a), k, demangle(b)) for a, k, b in bases])
     c.executemany('INSERT INTO hostsyms VALUES (?,?,?)', syms)
+    c.executemany('INSERT INTO tables VALUES (?,?,?)', tabs)
     c.executescript('''
         CREATE INDEX edges_src ON edges(src); CREATE INDEX edges_dst ON edges(dst);
         CREATE INDEX imms_value ON imms(value); CREATE INDEX imms_func ON imms(func);
@@ -799,7 +851,7 @@ def build(args, prefix, mapping, files, tmp):
         'counts': {'funcs': len(funcs), 'mapped_without_body': len(extra), 'edges': len(edges), 'imms': len(imms),
                    'lis_pairs': n_pairs, 'lis_pairs_uncertain': n_unsure,
                    'strings': len(strings), 'strrefs': len(strrefs), 'ptrs': len(ptrs),
-                   'rtti_classes': len(rtti[0]) if rtti else 0, 'rtti_vtables': len(rtti[2]) if rtti else 0,
+                   'tables': len(tabs), 'rtti_classes': len(rtti[0]) if rtti else 0, 'rtti_vtables': len(rtti[2]) if rtti else 0,
                    'hostsyms': len(syms)},
         'flow': {'funcs_with_loops': st_back, 'loop_passes': st_passes, 'not_converged': st_nonconv,
                  'gotos_without_label': st_nolabel, 'edges_into_overlapping_funcs': n_overlap_edges,

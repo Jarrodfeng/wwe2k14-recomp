@@ -9,10 +9,9 @@ wait_state match_clock >0 36000
 log scene=slo_match
 log_state 0x83924778>452
 screenshot slo_lit_before
-# S105 SLO3 / LO: a finisher does not dim; the dim is the corner-special scene. Fire it with the dev verb (the attacker passive first: the scene ends when his act changes).
+# S105 SLO3 / LO: a finisher does not dim; the dim is the corner-special scene. Fire it with the dev verb. This route does NOT make the attacker passive first (situation_director_core.h:396 says the scene ends when his act changes): the restore below is that act change happening on its own (S106 C3F).
 wait_frames 300
 log_state 0x83924778>452
-passive 0 on
 lightsout 0
 wait_state 0x83924778>452 <1065353216 600 1
 log scene=slo_dim

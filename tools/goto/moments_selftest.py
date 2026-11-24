@@ -1,4 +1,4 @@
-"""S101 lane 31: the moments self test (gate entry tools/gate/lanes/moments.json). No game, no game data: every fixture is written here.
+"""S101 lane 31: the moments self test (run it by path). No game, no game data: every fixture is written here.
 
     py -I tools/goto/moments_selftest.py
 

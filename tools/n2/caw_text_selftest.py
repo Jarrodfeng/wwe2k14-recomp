@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""S101 lane 118 (N2 / L-6): the offline acceptance test of the editor's drawn-state reader, gate lane n2_caw_text. 0 game runs.
+"""S101 lane 118 (N2 / L-6): the offline acceptance test of the editor's drawn-state reader. 0 game runs.
 
   py -I tools\\n2\\caw_text_selftest.py [--root DIR]
 
 The inputs are the two kept CAW walks (Check B, names.h section 69): out\\s101\\runs\\20261112_122353_s101_checkB_caw_walk and ..._121944 (game data, kept
-local, extracted once under out\\s101\\n2_editor\\). Needs out\\tools\\caw_text_test.exe (tools\\n2\\build_caw_text_test.ps1, the gate's n2_caw_text.build).
+local, extracted once under out\\s101\\n2_editor\\). Needs out\\tools\\caw_text_test.exe (tools\\n2\\build_caw_text_test.ps1).
 
  1 pinned sequence    per walk: seq 76 on every frame; (title, rows, tab, hot) change at capture frames 0 / 37 / 104 / 107 / 117 / 233; 9 rows then 4 rows;
                       293 frames with list rows (the lane-117 loose rule), 292 of them with exactly one hot row; 287 settled (rows on the grid, one hot row)

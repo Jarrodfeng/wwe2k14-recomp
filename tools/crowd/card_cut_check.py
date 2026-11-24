@@ -3,7 +3,7 @@
 
   py -I tools\\crowd\\card_cut_check.py [--root DIR] [--no-build] [--captures bryan,checkB]
 
-The cut itself and its picture proof are lane 175's (card_thin_check.py, gate lane crowd_card_thin). This check adds what T2 needs:
+The cut itself and its picture proof are lane 175's (card_thin_check.py). This check adds what T2 needs:
   1. COUNTS on the Bryan capture with the cut emulated (card_thin_cut.py: the op-15 of every card but the first of each type is removed in every thin frame):
      stream draws per frame (all classes) before / after, the card draws among them, and OUR card draws unchanged (cards drawn thin arm == full arm, holes 0).
   2. THE FALLBACK. A frame ours has no scene record for:

@@ -1,4 +1,4 @@
-# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)
+# intent: performance fps
 # Session 11: the decoder study's hitch route (bench_taker_wm: Brock Lesnar vs The Undertaker, WrestleMania XXX BG56;
 # run 327's 66.8 ms end-of-first-entrance hitch at the 4K preset) started by the scenario launcher. Use with
 # --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=56 --wwe2k14_launch_participants=343,103 (and

@@ -8,6 +8,9 @@
 
 extern "C" int stbi_zlib_decode_buffer(char*, int, const char*, int) { return -1; }  // pac.h's decoder hook: this unit reads no pac (the declaration pac.h needs, never called)
 #include "../../src/renderer_scene/stage_look.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 
 using namespace rdr_scene;
 namespace sl = rdr_scene::stage_look;

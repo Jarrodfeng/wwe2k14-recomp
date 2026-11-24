@@ -1,5 +1,6 @@
 // UiQuads (Session 101, lane 148; docs\renderer\UI_QUADS_OURS.md). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "ui_quads.h"
+#include "rows_quad2d.h"   // S106 G4-2
 
 #include <cmath>
 #include <cstdio>

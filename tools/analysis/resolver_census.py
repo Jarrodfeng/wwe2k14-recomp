@@ -4,7 +4,7 @@ site's constant (the id passed, or the string at the address passed) and where t
 light-set ids by reading 8 of 62 sites by hand; this reads all of them.
 
   py -I tools\\analysis\\resolver_census.py                  # census of the resolvers in resolver_census_list.json -> out\\analysis\\resolver_census.md (regenerated, never committed: strings read from the game image)
-  py -I tools\\analysis\\resolver_census.py --check          # re-find gate: the known light-set answers must be in the table (exit 1 if not)
+  py -I tools\\analysis\\resolver_census.py --check          # re-find check: the known light-set answers must be in the table (exit 1 if not)
   py -I tools\\analysis\\resolver_census.py --discover [N]   # rank candidate resolvers (small, loop + compare, many callers)
   py -I tools\\analysis\\resolver_census.py --site 0x825CE05C  # one call site, with its readings
 
@@ -412,7 +412,7 @@ def render(fns, img, spec_list):
                'offsets and addresses; no listing text. **[C]** = constant and store both read from the listing; **[U]** = otherwise (dynamic argument, '
                'result passed on or not stored within 14 instructions). The scan is linear (no control flow): a join before the call can hide a second '
                'value, so a [C] row is "the last write on the straight path", not a proof for every path. Resolver list and evidence: section 1. '
-               'The known answers it re-finds are the gate lane s103_T5 (`--check`). What the table proves and settles: `resolver_census_findings.md`.\n')
+               'The known answers it re-finds are checked by `--check` (S103 lane T5). What the table proves and settles: `resolver_census_findings.md`.\n')
     tables = []
     for spec in spec_list:
         addr = int(spec['addr'], 16)
@@ -596,7 +596,7 @@ def main():
     ap.add_argument('--keys', default='4')
     ap.add_argument('--out', default=os.path.join(ROOT, 'out', 'analysis', 'resolver_census.md'))
     ap.add_argument('--no-write', action='store_true')
-    ap.add_argument('--twin', choices=['wrong_key_reg'], help='planted fault for the gate: the light-set key read from r3 (the manager) instead of r4')
+    ap.add_argument('--twin', choices=['wrong_key_reg'], help='planted fault for the check: the light-set key read from r3 (the manager) instead of r4')
     ap.add_argument('--expect-fail', action='store_true', help='exit 0 only if the check FAILS (the planted twin must be caught)')
     ap.add_argument('--cache', default=os.path.join(os.environ.get('TEMP', '.'), 't5_parse_cache.pkl'))
     a = ap.parse_args()

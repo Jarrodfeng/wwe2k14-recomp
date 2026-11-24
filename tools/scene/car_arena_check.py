@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane CAR (BCA G1 piece 1) gate check: builds tools\\scene\\car_arena_unit.cpp (a Create-an-Arena venue from the game's own part pacs: src\\assets\\car_arena.h, asset_load.h LoadCustomArena / OpenCached;
+"""S103 lane CAR (BCA G1 piece 1) check: builds tools\\scene\\car_arena_unit.cpp (a Create-an-Arena venue from the game's own part pacs: src\\assets\\car_arena.h, asset_load.h LoadCustomArena / OpenCached;
 the kFxCar record row; the selection registry), runs it on synthetic parts AND on the player's own pac\\car files (0 game runs, no SDK), then its planted twins (each must exit 1 and fail its NAMED check),
 then the wiring lints.
   py -I tools\\scene\\car_arena_check.py [--root DIR] [--game DIR] [--no-game]

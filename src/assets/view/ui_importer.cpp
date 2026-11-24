@@ -24,6 +24,8 @@
 #include "../char_mods.h"
 #include "../id_names.h"
 #include "../../importer/importer_core.h"
+#include "../../importer/screen_text.h"  // S110 SEAT-C: the sentences about seats / the library / the game's status
+#include "../../tron_slots_ui_core.h"  // S110 TRON-B: the TRON choice
 
 namespace view {
 namespace ui {
@@ -253,9 +255,20 @@ struct ImporterPanel::Impl {
   // Session 101 (lane 199): why the game would leave the built pack out with the DLC the launcher gives it (src\importer\pack_fit.h,
   // the rule src\dlc.h applies at boot); "" = it fits. A misfit marks the pack to build again and says why in the footer.
   std::string fit_why;
-  bool BuiltOnDisk() const {  // a built pack is in the mods folder (an empty list then builds = takes it out of the game)
+  bool BuiltOnDisk() const {  // a built frame (or an old pack not converted yet) is in the mods folder (an empty list then builds = takes it out of the game)
     std::error_code ec;
-    return host && fs::is_regular_file(fs::u8path(host->mods_dir) / "superstars" / "pack6" / "info" / "catalog.dlc", ec);
+    return host && (fs::is_regular_file(fs::u8path(host->mods_dir) / "superstars" / "frame" / "info" / "catalog.dlc", ec) || mig == importer::Migration::Pending);
+  }
+  // S110 SEAT-C: the seats the frame offers and where the old pack's conversion stands, read from disk at most once a second (the screen asks every frame)
+  int seats = 102;
+  importer::Migration mig = importer::Migration::None;
+  std::chrono::steady_clock::time_point status_at{};
+  void RefreshSeats(bool force = false) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!host || (!force && now - status_at < std::chrono::seconds(1))) return;
+    status_at = now;
+    seats = importer::SeatCount(host->mods_dir);
+    mig = importer::MigrationState(host->mods_dir);
   }
   void RefreshFit() {
     fit_why = host ? importer::PackProblem(host->mods_dir, host->dlc_dir, host->dlc_off) : std::string();
@@ -269,14 +282,15 @@ struct ImporterPanel::Impl {
     std::error_code ec;
     for (const auto& e : fs::directory_iterator(fs::u8path(host->mods_dir) / "superstars", ec)) {
       std::error_code e2;
-      if (!e.is_regular_file(e2)) continue;
-      sig += U8(e.path().filename()) + ":" + std::to_string(fs::file_size(e.path(), e2)) + ":" +
+      // (S110 SEAT-C: the folders too: the library\ folder's time moves when a character is added or removed; a folder has no size)
+      sig += U8(e.path().filename()) + ":" + std::to_string(e.is_regular_file(e2) ? fs::file_size(e.path(), e2) : 0) + ":" +
              std::to_string(static_cast<long long>(fs::last_write_time(e.path(), e2).time_since_epoch().count())) + ";";
     }
     return sig;
   }
   bool SavePackNow(std::string& err) {
-    const bool ok = importer::SavePack(host->mods_dir, pack, err);
+    const bool ok = importer::SavePack(host->mods_dir, pack, err);  // (S110 SEAT-C review: it writes each library key into `pack` itself)
+    if (ok && list_sel >= 0 && list_sel < Used()) draft.key = pack.stars[size_t(list_sel)].key;
     if (ok) pack.retired = importer::RetiredSlots(host->mods_dir);  // S105 IMP: a removed import's slot is retired by this write
     pack_sig = PackSig();
     return ok;
@@ -290,13 +304,16 @@ struct ImporterPanel::Impl {
     importer::PackState st;
     std::string err;
     if (!importer::LoadPack(host->mods_dir, st, err)) return Say("The pack could not be read again: " + err, true);
-    const int slot = list_sel >= 0 && list_sel < int(pack.stars.size()) ? pack.stars[size_t(list_sel)].slot : -1;
+    const bool had_sel = list_sel >= 0 && list_sel < int(pack.stars.size());
+    const int slot = had_sel ? pack.stars[size_t(list_sel)].slot : -1;
+    const std::string key = had_sel ? pack.stars[size_t(list_sel)].key : std::string();  // (S110 SEAT-C: by his key; one with no seat has no slot to be found by)
     pack = std::move(st);
     RefreshFit();  // (Session 101: the game's own rule, with the switched-off packs)
+    RefreshSeats(true);
     list_sel = -1;
     for (size_t i = 0; i < pack.stars.size(); ++i)
-      if (slot >= 0 && pack.stars[i].slot == slot) list_sel = int(i);
-    if (slot >= 0 && list_sel < 0) NewDraft(), Say("That superstar was removed from the pack elsewhere.");
+      if (!key.empty() ? pack.stars[i].key == key : slot >= 0 && pack.stars[i].slot == slot) list_sel = int(i);
+    if (had_sel && list_sel < 0) NewDraft(), Say("That superstar was removed from the pack elsewhere.");
   }
   // The phone's picked copies (<files>/importer/picked/...): the pack keeps its own copy in <mods>\superstars\sources (review).
   void CleanPicked() {
@@ -305,7 +322,9 @@ struct ImporterPanel::Impl {
     fs::remove_all(fs::u8path(host->picked_dir), ec);
   }
   int Used() const { return int(pack.stars.size()); }
+  int SeatedNow() const { return importer::screen::SeatedCount(pack.stars); }
   bool SlotTaken(int slot, int except) const {
+    if (slot < 0) return false;  // (no seat: any number of characters wait in the library)
     for (size_t i = 0; i < pack.stars.size(); ++i)
       if (int(i) != except && pack.stars[i].slot == slot) return true;
     return false;
@@ -332,6 +351,7 @@ struct ImporterPanel::Impl {
   void Start() {
     if (started || !host) return;
     started = true;
+    RefreshSeats(true);
     std::string err;
     if (!importer::LoadPack(host->mods_dir, pack, err)) pack_err = err, Say("The pack could not be read: " + err, true);
     RefreshFit();  // (your DLC changed: the game leaves the old pack out; Session 101: the game's rule, with the switched-off packs)
@@ -352,9 +372,9 @@ struct ImporterPanel::Impl {
     std::sort(wrestlers.begin(), wrestlers.end(), by_name);
     std::sort(entrants.begin(), entrants.end(), by_name);
     NewDraft();
-    if (host->edit_slot >= 0)
-      for (size_t i = 0; i < pack.stars.size(); ++i)
-        if (pack.stars[i].slot == host->edit_slot) Edit(int(i));
+    // --importer-edit: a library key (S110 SEAT-C review: one with no seat has no slot to be opened by), else a slot
+    for (size_t i = 0; i < pack.stars.size(); ++i)
+      if (!host->edit_key.empty() ? pack.stars[i].key == host->edit_key : host->edit_slot >= 0 && pack.stars[i].slot == host->edit_slot) Edit(int(i));
     if (host->bulk_at_start) PickMany(true);
   }
   void DropTex(Tex& t) {
@@ -447,16 +467,10 @@ struct ImporterPanel::Impl {
   void AssignBulkSlots() {
     std::vector<int> slots = SlotsFor(-1);
     size_t k = 0;
-    int room = importer::kMaxStars - Used();
-    for (BulkItem& b : bulk) {
+    for (BulkItem& b : bulk) {  // (S110 SEAT-C: no cap; one past the free seats is added NOT SEATED, kept in the library)
       b.slot = -1;
       if (!b.take || !b.err.empty()) continue;
-      if (room <= 0 || k >= slots.size()) {
-        b.err = room <= 0 ? "no room: the pack holds " + std::to_string(importer::kMaxStars) : "no free slot left";
-        b.take = false;
-        continue;
-      }
-      b.slot = slots[k++], --room;
+      if (k < slots.size()) b.slot = slots[k++];
     }
   }
   // Every source, a zip member or a plain pac, is copied into <mods>\superstars\sources (review: the pack never points outside it).
@@ -547,18 +561,16 @@ struct ImporterPanel::Impl {
     if (draft.name.empty()) return Say("Give the superstar a name", true), false;
     if (draft.short_name.empty()) draft.short_name = draft.name;
     if (draft.source_pac.empty()) return Say("Choose a .zip or .pac first", true), false;
-    if (draft.slot < 0) return Say("No free slot: pick one", true), false;
-    if (SlotTaken(draft.slot, list_sel)) return Say("Slot " + std::to_string(draft.slot) + " is already used in the pack", true), false;
-    if (list_sel < 0 && Used() >= importer::kMaxStars)
-      return Say("The pack is full: it holds up to " + std::to_string(importer::kMaxStars) + " superstars", true), false;
+    if (SlotTaken(draft.slot, list_sel)) return Say("Slot " + std::to_string(draft.slot) + " is already used in the pack", true), false;  // (no seat is fine: he waits in the library)
     if (draft.render_rgba[0].empty() && have_model) Retake();
-    if (list_sel >= 0) pack.stars[size_t(list_sel)] = draft;
-    else pack.stars.push_back(draft), list_sel = int(pack.stars.size()) - 1;
+    // (S110 SEAT-C review: the entry keeps its library key; a draft saved twice must not hand SavePack a keyless copy, whose folder it would replace)
+    list_sel = importer::PutInList(pack, list_sel, draft);
     pack.needs_build = true;
     std::string err;
     if (!SavePackNow(err)) return Say("Saved here, but the pack list could not be written: " + err, true), false;
-    Say(draft.name + " is in the pack (slot " + std::to_string(draft.slot) + "). BUILD INTO GAME puts the pack in the game.");
-    if (std::find(pack.retired.begin(), pack.retired.end(), draft.slot) != pack.retired.end())  // S105 IMP review L1: a warning, never a stop
+    if (draft.slot < 0) Say(draft.name + " is in your library. " + importer::screen::NotSeatedWhy(SeatedNow(), seats));
+    else Say(draft.name + " is in the pack (slot " + std::to_string(draft.slot) + "). BUILD INTO GAME puts the pack in the game.");
+    if (draft.slot >= 0 && std::find(pack.retired.begin(), pack.retired.end(), draft.slot) != pack.retired.end())  // S105 IMP review L1: a warning, never a stop
       Say("Slot " + std::to_string(draft.slot) + " held another superstar before: a save that met him keeps his ratings and moves for this one (a new save does not).", true);
     return true;
   }
@@ -567,8 +579,16 @@ struct ImporterPanel::Impl {
     if (list_sel < 0 || list_sel >= int(pack.stars.size())) return;
     const int slot = pack.stars[size_t(list_sel)].slot;  // (review: by slot - the list may have changed under the index)
     const std::string n = pack.stars[size_t(list_sel)].name;
+    const std::string key = pack.stars[size_t(list_sel)].key;
+    const int row = list_sel;
     CheckReload();
-    const auto it = std::find_if(pack.stars.begin(), pack.stars.end(), [slot](const importer::Superstar& s) { return s.slot == slot; });
+    // (S110 SEAT-C review) by his key; with no key, by his seat; with neither (never written: a save that failed), only by his own row, and only
+    // while the list was not read again: a slot of -1 would match every character with no seat, and the first of them would be removed
+    auto it = pack.stars.end();
+    if (!key.empty() || slot >= 0)
+      it = std::find_if(pack.stars.begin(), pack.stars.end(), [slot, &key](const importer::Superstar& s) { return !key.empty() ? s.key == key : s.slot == slot; });
+    else if (list_sel == row && row < Used() && pack.stars[size_t(row)].key.empty() && pack.stars[size_t(row)].slot < 0)
+      it = pack.stars.begin() + row;
     if (it == pack.stars.end()) return NewDraft(), Say(n + " was already removed.");
     pack.stars.erase(it);
     {  // S105 IMP review L2: a slot a build held is retired in memory before the write, so a failed write cannot hand it out first (M1: an unbuilt one is not)
@@ -640,14 +660,13 @@ struct ImporterPanel::Impl {
     }
     BulkItem& b = bulk[bulk_next];
     b.done = true;
-    if (Used() >= importer::kMaxStars) { b.err = "no room: the pack holds " + std::to_string(importer::kMaxStars); return; }
     std::string xerr;
     const std::string pac = StableSource(b.file, b.entry, xerr);
     if (pac.empty()) { b.err = xerr; return; }
     importer::Superstar s;
     s.source_pac = pac, s.name = b.name, s.short_name = b.name, s.base_id = kBaseDefault, s.entrance_from = -1, s.copy_ratings = true;
     s.slot = b.slot;
-    if (s.slot < 0 || SlotTaken(s.slot, -1)) { b.err = "no free slot left"; return; }
+    if (SlotTaken(s.slot, -1)) { b.err = "the seat was taken meanwhile"; return; }  // (no seat at all is fine: he waits in the library)
     draft = s, entrance_attire = false, have_model = false;
     if (LoadPreview()) {
       Retake();
@@ -751,6 +770,40 @@ struct ImporterPanel::Impl {
     return changed;
   }
 
+  // S110 TRON-B: the TRON choice (src\tron_slots_ui_core.h): his entrance wrestler's (default), another wrestler's, or a FILLED custom tron by
+  // name (<mods>\titantron, src\tron_slots_core.h). A saved custom tron that is not filled any more shows MISSING and its number is kept.
+  char tron_filter[32] = {};
+  void TronCombo(const ImporterCtx& cx, float lab, float field) {
+    namespace tu = wwe2k14::tron_slots_ui;
+    (void)cx;
+    wwe2k14::tron_slots_core::Library lib;  // no mods folder = no custom trons
+    if (host && !host->mods_dir.empty()) lib = wwe2k14::tron_slots_core::ReadSlots(fs::u8path(host->mods_dir) / "titantron", false);
+    const tu::Choice cur = tu::ChoiceOf(draft.tron_from, draft.tron_slot);
+    const std::string label = tu::ChoiceLabel(cur, lib.listed, &lib, [](int id) { return WrestlerName(id); });
+    ImGui::SetNextItemWidth(field);
+    if (ImGui::BeginCombo("##tron", label.c_str(), ImGuiComboFlags_HeightLarge)) {
+      if (ImGui::Selectable("ENTRANCE WRESTLER'S", cur.kind == tu::Choice::kEntrance)) tu::Apply({tu::Choice::kEntrance, 0}, draft.tron_from, draft.tron_slot);
+      if (ImGui::Selectable("ANOTHER WRESTLER'S ...", cur.kind == tu::Choice::kWrestler))
+        tu::Apply({tu::Choice::kWrestler, draft.entrance_from > 0 ? draft.entrance_from : draft.base_id}, draft.tron_from, draft.tron_slot);
+      for (const auto& sl : lib.listed)
+        if (ImGui::Selectable((sl.name + "##tron" + std::to_string(sl.id)).c_str(), cur.kind == tu::Choice::kSlot && cur.value == sl.id))
+          tu::Apply({tu::Choice::kSlot, sl.id}, draft.tron_from, draft.tron_slot);
+      if (cur.kind == tu::Choice::kSlot && !tu::IsFilled(lib.listed, cur.value)) ImGui::Selectable(label.c_str(), true);  // the saved one stays until he picks another
+      ImGui::EndCombo();
+    }
+    if (cur.kind == tu::Choice::kWrestler) {
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + lab);
+      WrestlerCombo("##tronw", entrants, draft.tron_from, nullptr, tron_filter, sizeof tron_filter, field);
+    } else if (cur.kind == tu::Choice::kSlot && !tu::IsFilled(lib.listed, cur.value)) {
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + lab);
+      ImGui::TextDisabled("%s", tu::IsRetired(lib, cur.value) ? "It was removed in the launcher (TRONS). Pick another."
+                                                              : "Its video is gone. Pick another, or add it again in the launcher (TRONS).");
+    } else if (lib.listed.empty()) {
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + lab);
+      ImGui::TextDisabled("Add custom trons in the launcher (TRONS).");
+    }
+  }
+
   void Draw(const ImporterCtx& cx) {
     exec = cx.exec;
     Refresh(cx);
@@ -794,7 +847,7 @@ struct ImporterPanel::Impl {
       const float px = (narrow ? 22 : 28) * d;
       cx.text(dl, ImVec2(22 * d, (head - px) / 2), px, IM_COL32_WHITE, "SUPERSTAR IMPORTER");
       char b[96];
-      std::snprintf(b, sizeof b, "MOD PACK: %d OF UP TO %d SLOTS USED", Used(), importer::kMaxStars);
+      std::snprintf(b, sizeof b, "%s", ("MOD PACK: " + importer::screen::CountLine(pack.stars, seats)).c_str());
       const float sp = (narrow ? 14 : 17) * d;
       const ImVec2 ts = cx.size(sp, b);
       cx.text(dl, ImVec2(disp.x - ts.x - 22 * d, (head - sp) / 2), sp, IM_COL32(255, 205, 205, 255), b);
@@ -895,16 +948,18 @@ struct ImporterPanel::Impl {
     if (ImGui::BeginTable("##pack", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_SizingStretchProp,
                           ImVec2(inner, list_h))) {
       ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 0.55f);
+      ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 0.95f);
       ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
       ImGui::TableSetupColumn("Based on", ImGuiTableColumnFlags_WidthStretch, 1.6f);
       ImGui::TableHeadersRow();
-      for (int i = 0; i < int(pack.stars.size()); ++i) {
-        const importer::Superstar& s = pack.stars[size_t(i)];
+      for (const size_t oi : importer::screen::DisplayOrder(pack.stars)) {  // (S110 SEAT-C: seated first, in seat order; then not seated, by name)
+        const int i = int(oi);
+        const importer::Superstar& s = pack.stars[oi];
         ImGui::TableNextRow(0, row_h);
         ImGui::TableNextColumn();
-        char id[32];
-        std::snprintf(id, sizeof id, "%d##row%d", s.slot, i);
+        char id[48];
+        if (s.slot >= 0) std::snprintf(id, sizeof id, "%d##row%d", s.slot, i);
+        else std::snprintf(id, sizeof id, "NOT SEATED##row%d", i);
         if (ImGui::Selectable(id, list_sel == i, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0, row_h - 4 * d)) && !bulk_running) {
           const int k = i;
           cx.queued->push_back([this, k] { cropping = false, bulk_open = false, Edit(k); });
@@ -946,6 +1001,16 @@ struct ImporterPanel::Impl {
       if (ImGui::Button("Cancel", ImVec2(120 * d, 0))) ImGui::CloseCurrentPopup();
       ImGui::EndPopup();
     }
+    // S110 SEAT-C: what the library says about itself (importer::screen words it; nothing here changes or deletes a folder)
+    ImGui::PushTextWrapPos(0.f);
+    if (SeatedNow() < Used()) ImGui::TextDisabled("%s", importer::screen::NotSeatedWhy(SeatedNow(), seats).c_str());
+    if (const std::string m = importer::screen::MigrationLine(mig); !m.empty()) ImGui::TextDisabled("%s", m.c_str());
+    if (!pack.problems.empty()) {
+      ImGui::Dummy(ImVec2(0, 4 * d));
+      Head(cx, "LIBRARY PROBLEMS");
+      for (const std::string& p : pack.problems) ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "%s", importer::screen::ProblemLine(p).c_str());
+    }
+    ImGui::PopTextWrapPos();
   }
 
   void Form(const ImporterCtx& cx, float w, bool narrow) {
@@ -969,6 +1034,9 @@ struct ImporterPanel::Impl {
     Label(cx, "ENTRANCE", lab);
     WrestlerCombo("##ent", entrants, draft.entrance_from, "Same as base", ent_filter, sizeof ent_filter, field);
     ImGui::Dummy(ImVec2(0, row_gap));
+    Label(cx, "TRON", lab);  // S110 TRON-B: his big-screen video
+    TronCombo(cx, lab, field);
+    ImGui::Dummy(ImVec2(0, row_gap));
     Label(cx, "RATINGS", lab);
     {
       int r = draft.copy_ratings ? 0 : 1;
@@ -982,7 +1050,7 @@ struct ImporterPanel::Impl {
       const std::vector<int> slots = SlotsFor(list_sel);
       // S105 IMP review L1: a slot an import held before may still hold a save's old row: said in the list
       auto show = [this](int s) {
-        if (s < 0) return std::string("no free slot");
+        if (s < 0) return std::string("not seated (no free seat)");
         const bool used = std::find(pack.retired.begin(), pack.retired.end(), s) != pack.retired.end();
         return std::to_string(s) + (used ? " (used before) - Downloadable Content" : " (free) - Downloadable Content");
       };
@@ -1054,8 +1122,8 @@ struct ImporterPanel::Impl {
     int take = 0;
     for (const BulkItem& b : bulk) take += b.take ? 1 : 0;
     ImGui::TextWrapped("%d of %zu file(s) will be added with the defaults: based on %s, his entrance, ratings copied, the portrait rendered from each "
-                       "model. %d of %d slots used now. Each one can be edited afterwards.",
-                       take, bulk.size(), WrestlerName(kBaseDefault).c_str(), Used(), importer::kMaxStars);
+                       "model. Now: %s. One with no free seat is kept in your library, not seated. Each one can be edited afterwards.",
+                       take, bulk.size(), WrestlerName(kBaseDefault).c_str(), importer::screen::CountLine(pack.stars, seats).c_str());
     const float tab_h = std::max(140 * d, ImGui::GetContentRegionAvail().y - 120 * d);
     if (ImGui::BeginTable("##bulk", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersOuterH,
                           ImVec2(inner, tab_h))) {
@@ -1079,6 +1147,7 @@ struct ImporterPanel::Impl {
         ImGui::TextUnformatted(b.name.c_str());
         ImGui::TableNextColumn();
         if (b.slot >= 0) ImGui::Text("%d", b.slot);
+        else if (b.take && b.err.empty()) ImGui::TextDisabled("not seated");
         else ImGui::TextDisabled("-");
         ImGui::TableNextColumn();
         if (!b.err.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.45f, 1), "skipped: %s", b.err.c_str());
@@ -1163,6 +1232,7 @@ struct ImporterPanel::Impl {
       pack_checked = std::chrono::steady_clock::now();
       CheckReload();
     }
+    RefreshSeats();
     if (bulk_running) BulkStep();
     if (job && job->state >= 2) {
       std::string err;
@@ -1170,8 +1240,13 @@ struct ImporterPanel::Impl {
         std::lock_guard<std::mutex> lk(job->m);
         err = job->err;
       }
+      {  // S110 SEAT-C: the build gave seats / converted the old pack: read the list again (who is seated now), keep the one being edited
+        const std::string was = list_sel >= 0 && list_sel < Used() ? pack.stars[size_t(list_sel)].key : std::string();
+        CheckReload(true);
+        if (!was.empty() && list_sel >= 0 && list_sel < Used() && pack.stars[size_t(list_sel)].key == was) draft.slot = pack.stars[size_t(list_sel)].slot;
+      }
       if (job->state == 2) {
-        pack.needs_build = false;
+        // (S110 SEAT-C: needs_build now comes from the list read back above: a character the build could not make still says so)
         fit_why.clear();
         // Session 101 (lane 199: "as simple as possible"): BUILD INTO GAME means "in the game", so the one switch goes on with it
         // (a player who built and never found USE MY SUPERSTARS saw nothing in the game). Not linked = no settings file to write.
@@ -1182,9 +1257,11 @@ struct ImporterPanel::Impl {
           if (!enabled && settings_linked) SetEnabled(true);
           std::string moved;  // (Session 101, review S5b: a character moved to another slot is said, not only logged)
           for (const std::string& m : importer::LastBuildMoves()) moved += " " + m;
-          Say("Built: " + std::to_string(pack.stars.size()) + " superstar" + (pack.stars.size() == 1 ? "" : "s") +
+          const size_t in_game = size_t(SeatedNow());  // (S110 SEAT-C: a character with no seat is kept in the library, not in the game)
+          Say("Built: " + std::to_string(in_game) + " superstar" + (in_game == 1 ? "" : "s") +
               (enabled ? (was_on ? " in the game (USE MY SUPERSTARS is on)." : " in the game (USE MY SUPERSTARS switched on).")
-                       : ". Switch USE MY SUPERSTARS on to see them in the game.") + moved);
+                       : ". Switch USE MY SUPERSTARS on to see them in the game.") +
+              (SeatedNow() < Used() ? " " + std::to_string(Used() - SeatedNow()) + " not seated: " + importer::screen::NotSeatedWhy(SeatedNow(), seats) : std::string()) + moved);
         }
       } else {
         Say("The build failed: " + err, true);
@@ -1204,7 +1281,7 @@ struct ImporterPanel::Impl {
     }
     s += "],\"enabled\":" + std::string(enabled ? "true" : "false") + ",\"linked\":" + (settings_linked ? "true" : "false") +
          ",\"needs_build\":" + (pack.needs_build ? "true" : "false") + ",\"selected\":" + std::to_string(list_sel) + ",\"draft\":{\"name\":\"" + Esc(name_buf) +
-         "\",\"short\":\"" + Esc(short_buf) + "\",\"slot\":" + std::to_string(draft.slot) + ",\"base\":" + std::to_string(draft.base_id) + ",\"source\":\"" +
+         "\",\"short\":\"" + Esc(short_buf) + "\",\"slot\":" + std::to_string(draft.slot) + ",\"base\":" + std::to_string(draft.base_id) + ",\"tron_from\":" + std::to_string(draft.tron_from) + ",\"tron_slot\":" + std::to_string(draft.tron_slot) + ",\"source\":\"" +
          Esc(draft.source_pac) + "\",\"renders\":[" + std::to_string(draft.render_w[0]) + "," + std::to_string(draft.render_w[1]) + "," +
          std::to_string(draft.render_w[2]) + "],\"model\":" + (have_model ? "true" : "false") + ",\"entrance\":" + (entrance_attire ? "true" : "false") +
          "},\"cropping\":" + (cropping ? "true" : "false") + ",\"bulk\":{\"open\":" + (bulk_open ? "true" : "false") + ",\"running\":" +
@@ -1232,6 +1309,18 @@ struct ImporterPanel::Impl {
       if (s->has("short")) std::snprintf(short_buf, sizeof short_buf, "%s", s->str("short").c_str());
       if (s->has("base")) draft.base_id = int(s->num("base", draft.base_id));
       if (s->has("entrance")) draft.entrance_from = int(s->num("entrance", -1));
+      // S110 TRON-B (review): as the combo, through tu::Apply: setting one clears the other (a value <= 0 clears only its own field)
+      namespace tu = wwe2k14::tron_slots_ui;
+      if (s->has("tron_from")) {
+        const int v = int(s->num("tron_from", 0));
+        if (v > 0) tu::Apply({tu::Choice::kWrestler, v}, draft.tron_from, draft.tron_slot);
+        else draft.tron_from = 0;
+      }
+      if (s->has("tron_slot")) {
+        const int v = int(s->num("tron_slot", 0));
+        if (v > 0) tu::Apply({tu::Choice::kSlot, v}, draft.tron_from, draft.tron_slot);
+        else draft.tron_slot = 0;
+      }
       if (s->has("slot")) draft.slot = int(s->num("slot", draft.slot));
       if (const jl::Value* r = s->get("copy_ratings")) draft.copy_ratings = r->t == jl::Value::Bool ? r->b : r->n != 0;
     }

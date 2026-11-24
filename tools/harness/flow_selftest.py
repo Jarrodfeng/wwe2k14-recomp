@@ -1,10 +1,10 @@
-"""Session 102 lanes F1 + F2 proof (gate lane s102_flow): ready_lanes.py, stop_hook.py and train.py, each with planted-fault twins.
+"""Session 102 lanes F1 + F2 proof: ready_lanes.py and stop_hook.py, each with planted-fault twins.
 
   py -I tools\\harness\\flow_selftest.py
 
 Everything runs in a scratch repo / scratch folder under out\\s102_flow_selftest (gitignored); no real branch, hook state or READY.md is touched.
 Each twin copies the tool, plants one fault and requires the same scenario to FAIL (a check that cannot fail proves nothing).
-Review findings covered: S1 S2 S3 S4 (stop hook), T1-T7 (train), B1-B4 (board).
+Review findings covered: S1 S2 S3 S4 (stop hook).
 """
 import contextlib, csv, importlib.util, io, json, os, re, shutil, stat, subprocess, sys
 from pathlib import Path
@@ -190,249 +190,6 @@ def parser_checks():
     return bad
 
 
-# ---- F1 / train ---------------------------------------------------------------------------------------------------------------
-STUB_GATE = r"""import json,sys
-from pathlib import Path
-a=sys.argv
-names=a[a.index('--only')+1].split(',')
-out=Path(a[a.index('--out')+1]) if '--out' in a else Path('out/gate'); out.mkdir(parents=True,exist_ok=True)
-res=[];bad=0
-for n in names:
-    j=json.loads(Path('tools/gate/lanes/%s.json'%n).read_text())
-    if j.get('touch'):
-        with open(j['touch'],'a') as f: f.write('gate was here\n')
-    v='SKIP' if j.get('skip') else ('PASS' if j['pass'] else 'FAIL')
-    bad+=v=='FAIL'; res.append({'lane':n,'verdict':v}); print(n,v)
-(out/'last.json').write_text(json.dumps({'results':res}))
-sys.exit(1 if bad else 0)
-"""
-
-
-class Scratch:
-    def __init__(self, work, train):
-        rmtree(work)
-        self.repo, self.csv, self.train = work / 'repo', work / 'trains.csv', train
-        self.repo.mkdir(parents=True)
-        self.g('init', '-q', '-b', 's102-arc-pt2')
-        self.g('config', 'user.name', 't')
-        self.g('config', 'user.email', 't@t')
-        self.g('config', 'commit.gpgsign', 'false')
-        (self.repo / 'tools' / 'gate' / 'lanes').mkdir(parents=True)
-        (self.repo / 'tools' / 'gate' / 'gate.py').write_text(STUB_GATE, encoding='utf-8')
-        (self.repo / '.gitignore').write_text('out/\n')
-        (self.repo / 'README').write_text('base\n')
-        (self.repo / 'STATUS.md').write_text('status\n')
-        self.g('add', '-A')
-        self.g('commit', '-qm', 'base')
-
-    def g(self, *a):
-        r = sh(['git', '-C', str(self.repo)] + list(a))
-        if r.returncode:
-            raise SystemExit('scratch git %s failed: %s' % (a, r.stderr))
-        return r.stdout.strip()
-
-    def lane(self, name, j, extra_files=()):
-        self.g('checkout', '-q', '-b', name, 's102-arc-pt2')
-        (self.repo / 'tools' / 'gate' / 'lanes').mkdir(parents=True, exist_ok=True)
-        (self.repo / 'tools' / 'gate' / 'lanes' / (name.lower() + '.json')).write_text(json.dumps(j))
-        (self.repo / ('file_' + name)).write_text(name)
-        for fn in extra_files:
-            (self.repo / 'tools' / 'gate' / 'lanes' / fn).write_text(json.dumps({'pass': True}))
-        self.g('add', '-A')
-        self.g('commit', '-qm', name)
-        self.g('checkout', '-q', 's102-arc-pt2')
-
-    def t(self, *a):
-        return sh([PY, '-I', str(self.train), '--repo', str(self.repo), '--csv', str(self.csv)] + list(a))
-
-    def land(self, lane, track='rt', stamp=True, *extra):
-        if stamp:
-            self.t('stamp', lane, 'agent_started', '--track', track, '--at', '2026-11-14 10:00')
-            self.t('stamp', lane, 'handback', '--at', '2026-11-14 11:00')
-        return self.t('land', lane, '--track', track, '--lane', lane, *extra)
-
-    def rows(self):
-        return {x['lane']: x for x in csv.DictReader(open(self.csv, encoding='utf-8'))} if self.csv.exists() else {}
-
-    def files(self, br):
-        return set(self.g('ls-tree', '-r', '--name-only', br).split())
-
-
-def train_scenario(train, work):
-    bad = []
-    S = Scratch(work / 'x', train)
-    S.lane('laneA', {'pass': True})
-    S.lane('laneB', {'pass': False, 'touch': 'README'})
-    S.lane('laneC', {'pass': True}, extra_files=('s102_budget.json',))
-    S.lane('laneN', {'pass': True})  # json removed below: touches no gate json
-    S.g('checkout', '-q', 'laneN')
-    (S.repo / 'tools' / 'gate' / 'lanes' / 'lanen.json').unlink()
-    (S.repo / 'orphan').write_text('x')
-    S.g('add', '-A')
-    S.g('commit', '-qm', 'laneN no gate')
-    S.g('checkout', '-q', 's102-arc-pt2')
-    S.lane('laneS', {'pass': True, 'skip': True})  # T7: its only check SKIPs
-    ra = S.land('laneA')
-    if 'default extra gate lane s102_budget' not in ra.stdout:
-        bad.append('T3: absent default lane s102_budget was not announced')
-    rc = {'laneA': ra.returncode}
-    for lane in ('laneB', 'laneC', 'laneN', 'laneS'):
-        rc[lane] = S.land(lane).returncode
-    files = S.files('s102-track-rt')
-    if rc != {'laneA': 0, 'laneB': 1, 'laneC': 0, 'laneN': 1, 'laneS': 1}:
-        bad.append('land exit codes %s' % rc)
-    if not {'file_laneA', 'file_laneC'} <= files or files & {'file_laneB', 'orphan', 'file_laneS'}:
-        bad.append('track contents wrong: %s' % sorted(files))
-    d = S.rows()
-    for lane, want in (('laneA', 'PASS'), ('laneC', 'PASS'), ('laneB', 'FAIL:gate_failed'), ('laneN', 'FAIL:no_gate'), ('laneS', 'FAIL:gate_failed')):
-        if d.get(lane, {}).get('gate') != want:
-            bad.append('%s gate column %r want %r' % (lane, d.get(lane, {}).get('gate'), want))
-    if 's102_budget' not in d.get('laneC', {}).get('note', ''):
-        bad.append('T3: laneC note lacks s102_budget: %r' % d.get('laneC', {}).get('note'))
-    for lane in ('laneB', 'laneN', 'laneS'):
-        if d.get(lane, {}).get('landed_track'):
-            bad.append('%s was stamped landed' % lane)
-    # T4: already an ancestor -> no csv write; a later commit not touching its json lands again
-    before = S.rows()['laneA']['landed_track']
-    r = S.land('laneA', stamp=False)
-    if r.returncode or 'already on' not in r.stdout or S.rows()['laneA']['landed_track'] != before:
-        bad.append('T4: re-land of an ancestor wrong: %s' % r.stdout[-200:])
-    S.g('checkout', '-q', 'laneA')
-    (S.repo / 'extra_file').write_text('more')
-    S.g('add', '-A')
-    S.g('commit', '-qm', 'laneA round 2')
-    S.g('checkout', '-q', 's102-arc-pt2')
-    r = S.land('laneA', stamp=False)
-    if r.returncode or 'extra_file' not in S.files('s102-track-rt'):
-        bad.append('T4: second round of laneA did not land: rc=%s %s' % (r.returncode, r.stdout[-300:]))
-    # T6: --lane required, and a name with no csv row is refused
-    if S.t('land', 'laneC', '--track', 'rt').returncode == 0:
-        bad.append('T6: land without --lane passed')
-    if S.t('land', 'laneC', '--track', 'rt', '--lane', 'nosuchrow').returncode == 0:
-        bad.append('T6: land with an unknown csv row passed')
-    # T1: `up` never touches the base checkout. Red gate first: a dirty tracked edit + a gate that edits a tracked file.
-    S.g('branch', 's102-track-game', 'laneB')               # a track whose gate is red
-    (S.repo / 'tools' / 'gate' / 'lanes').mkdir(exist_ok=True)
-    (S.repo / 'STATUS.md').write_text('status\nJARROD UNCOMMITTED EDIT\n')
-    head0 = S.g('rev-parse', 'HEAD')
-    r = S.t('up', '--track', 'game')
-    if r.returncode == 0 or S.g('rev-parse', 'HEAD') != head0 or 'JARROD UNCOMMITTED EDIT' not in (S.repo / 'STATUS.md').read_text():
-        bad.append('T1 red: the dirty edit or HEAD changed, or up passed: rc=%s' % r.returncode)
-    if 'gate was here' in (S.repo / 'README').read_text():
-        bad.append('T1 red: the gate ran in the base checkout')
-    # green gate, still dirty: HEAD advances (fast-forward), the dirty file is untouched
-    r = S.t('up', '--track', 'rt')
-    base_files = S.files('s102-arc-pt2')
-    if r.returncode or not {'file_laneA', 'file_laneC'} <= base_files or 'file_laneB' in base_files:
-        bad.append('up failed or wrong: rc=%s %s %s' % (r.returncode, sorted(base_files), r.stdout[-300:]))
-    if S.g('rev-parse', 'HEAD') == head0 or 'JARROD UNCOMMITTED EDIT' not in (S.repo / 'STATUS.md').read_text():
-        bad.append('T1 green: HEAD did not advance or the dirty file changed')
-    if not (S.repo / 'file_laneA').exists():
-        bad.append('T1 green: the checkout was not updated')
-    rows2 = S.rows()
-    if not rows2.get('laneA', {}).get('landed_session') or rows2.get('laneB', {}).get('landed_session'):
-        bad.append('landed_session stamps wrong')
-    leftovers = [l for l in S.g('worktree', 'list').splitlines() if 'cand_' in l]
-    if leftovers:
-        bad.append('candidate worktrees left behind: %s' % leftovers)
-    return bad
-
-
-def interrupt_check(train, work):
-    """T2: an exception or Ctrl-C between the merge and the gate result leaves the track exactly as it was, no scratch worktree."""
-    bad = []
-    S = Scratch(work / 'x', train)
-    S.lane('laneA', {'pass': True})
-    S.t('stamp', 'laneA', 'agent_started', '--track', 'rt')
-    S.g('branch', 's102-track-rt', 's102-arc-pt2')
-    before = S.g('rev-parse', 's102-track-rt')
-    m = load(train, 'train_t2')
-
-    def boom(*a, **k):
-        raise KeyboardInterrupt()
-    m.run_gate = boom
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            m.main(['land', 'laneA', '--track', 'rt', '--lane', 'laneA', '--repo', str(S.repo), '--csv', str(S.csv)])
-        bad.append('T2: KeyboardInterrupt did not propagate')
-    except KeyboardInterrupt:
-        pass
-    if S.g('rev-parse', 's102-track-rt') != before:
-        bad.append('T2: the track moved after an interrupted gate')
-    if [l for l in S.g('worktree', 'list').splitlines() if 'cand_' in l]:
-        bad.append('T2: scratch worktree left behind')
-    return bad
-
-
-def csv_checks(train, work):
-    bad = []
-    rmtree(work)
-    work.mkdir(parents=True)
-    c = work / 'p.csv'
-    procs = [subprocess.Popen([PY, '-I', str(train), '--csv', str(c), 'stamp', 'lane%02d' % i, 'brief_written'], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL) for i in range(20)]
-    for p in procs:
-        p.wait()
-    n = len(list(csv.DictReader(open(c, encoding='utf-8')))) if c.exists() else 0
-    if n != 20:
-        bad.append('T5: 20 parallel stamps gave %d rows' % n)
-    return bad
-
-
-def board_check(train, work):
-    bad = []
-    rmtree(work)
-    work.mkdir(parents=True)
-    c = work / 'b.csv'
-    m = load(train, 'train_board')
-
-    def T(*a):
-        return sh([PY, '-I', str(train), '--csv', str(c)] + list(a))
-
-    def board(now=None):
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            m.board(c, now)
-        return buf.getvalue()
-
-    # B3 + B4: first handback kept, later rounds recorded, "YYYY-MM-DD HH:MM" accepted: 10:00 start, 11:00 / 11:50 handbacks, 12:00 landed -> 50 %
-    for stage, at in (('agent_started', '10:00'), ('handback', '11:00'), ('handback', '11:50'), ('landed_track', '12:00')):
-        T('stamp', 'multi', stage, '--at', '2026-11-14 ' + at)
-    row = next(csv.DictReader(open(c, encoding='utf-8')))
-    if row['handback'] != '2026-11-14 11:00:00' or row['rounds'] != '2026-11-14 11:50:00':
-        bad.append('B3: first handback not kept / round not recorded: %s %s' % (row['handback'], row['rounds']))
-    out = board()
-    mm = re.search(r'landed or now\): ([\d.]+) %', out)
-    if not mm or abs(float(mm.group(1)) - 50.0) > 0.1:
-        bad.append('B3: share should be 50 %%: %s' % out[-500:])
-    if 'wait to land' not in out or 'session_time.py' not in out:
-        bad.append('B1: board does not label the measure / point at session_time.py')
-    if T('stamp', 'x', 'handback', '--at', 'yesterday').returncode == 0:
-        bad.append('B4: a bad --at was accepted')
-    # B2: handed back, not landed: counted to now, listed as waiting now
-    T('stamp', 'stuck', 'agent_started', '--at', '2026-11-14 10:00')
-    T('stamp', 'stuck', 'handback', '--at', '2026-11-14 11:00')
-    out = board('2026-11-14 12:00:00')
-    if not re.search(r'waiting now.*stuck 60 min', out):
-        bad.append('B2: stuck lane not listed as waiting now: %s' % out[-300:])
-    mm = re.search(r'landed or now\): ([\d.]+) %', out)
-    if not mm or abs(float(mm.group(1)) - 50.0) > 0.1:   # both lanes 60/120
-        bad.append('B2: the stuck lane is not in the share: %s' % (mm.group(1) if mm else out[-200:]))
-    # B4: a bad cell and out-of-order stamps: warnings, no crash, never over 100 %
-    rows = list(csv.DictReader(open(c, encoding='utf-8')))
-    rows[0]['review_done'] = 'garbage'
-    m.write_csv(c, rows + [{'lane': 'backwards', 'agent_started': '2026-11-14 12:00:00', 'handback': '2026-11-14 11:00:00', 'landed_track': '2026-11-14 13:00:00'}])
-    out = board('2026-11-14 12:00:00')
-    if 'WARN' not in out or 'garbage' not in out or 'out of order' not in out:
-        bad.append('B4: no warning for bad cell / out-of-order: %s' % out[-400:])
-    for v in re.findall(r'([\d.]+) %', out):
-        if float(v) > 100:
-            bad.append('B4: a share over 100 %')
-    if m.board(work / 'nope.csv') == 0:
-        bad.append('board on a missing csv returned 0')
-    return bad
-
-
 def twin(src_name, old, new, scenario_fn, label, work):
     src = (HERE / src_name).read_text(encoding='utf-8')
     if old not in src:
@@ -457,13 +214,8 @@ def main():
         results.append(bool(bad))
 
     caught_h = lambda m, w: bool(hook_scenario(m, w))
-    caught_t = lambda m, w: bool(train_scenario(m, w))
     step('ready_lanes parser', parser_checks())
     step('stop_hook scenarios (S1-S4)', hook_scenario(HERE / 'stop_hook.py', SCR / 'hook'))
-    step('train land/up scenario (T1 T3 T4 T6 T7)', train_scenario(HERE / 'train.py', SCR / 'train'))
-    step('train interrupt (T2)', interrupt_check(HERE / 'train.py', SCR / 'int'))
-    step('train csv lock (T5)', csv_checks(HERE / 'train.py', SCR / 'csv'))
-    step('train board (B1-B4)', board_check(HERE / 'train.py', SCR / 'board'))
     for label, old, new in (
             ('hook ignores running count', "c['running'] < MIN_RUNNING", 'False'),
             ('hook never checks the ask', 'if not ASK.search(s):\n        return None', 'if False:\n        return None'),
@@ -476,15 +228,6 @@ def main():
             ('hook blocks quoted questions', "t = QUOTED.sub(' ', t)", 't = t'),
             ('hook blocks clarifying questions', 'or CLARIFY.search(s)', 'or False')):
         step('twin: ' + label, twin('stop_hook.py', old, new, caught_h, label, SCR / ('tw_' + re.sub(r'\W', '', label)[:24])))
-    for label, old, new, fn in (
-            ('train ignores a red gate', 'if not ok:\n                print', 'if False:\n                print', caught_t),
-            ('train accepts a gate with no PASS', "if not any(x.get('verdict') == 'PASS' for x in res):", 'if False:', caught_t),
-            ('train: handback overwritten (B3)', "if stage == 'handback' and row.get('handback'):", 'if False:', lambda m, w: bool(board_check(m, w))),
-            ('train: csv not locked (T5)', 'with Lock(p):', 'if True:', lambda m, w: bool(csv_checks(m, w))),
-            ('train: interrupt leaves track moved (T2)', 'ok = run_gate(cand, lanes, template, repo / \'out\' / \'gate_train\' / track_key)',
-             'advance(repo, branch, old, git(cand, \'rev-parse\', \'HEAD\').stdout.strip()); ok = run_gate(cand, lanes, template, repo / \'out\' / \'gate_train\' / track_key)',
-             lambda m, w: bool(interrupt_check(m, w)))):
-        step('twin: ' + label, twin('train.py', old, new, fn, label, SCR / ('tw_' + re.sub(r'\W', '', label)[:24])))
     rmtree(SCR)
     print('flow selftest: %s' % ('FAIL' if any(results) else 'PASS'))
     return 1 if any(results) else 0

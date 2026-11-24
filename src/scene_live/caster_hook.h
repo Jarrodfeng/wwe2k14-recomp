@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "caster_core.h"
+#include "../renderer_scene/rows_caster.h"   // S106 G4-2
+#include "../renderer_scene/rows_lights.h"
 
 namespace rdr_scene::live::casters {
 

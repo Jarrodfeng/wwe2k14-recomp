@@ -8,6 +8,8 @@
 #include "light_install.h"   // S103 E4
 #include "record_io.h"
 #include "scene_record.h"
+#include "rows_inputs.h"   // S106 G4-2
+#include "rows_lights.h"
 
 namespace rdr_scene {
 

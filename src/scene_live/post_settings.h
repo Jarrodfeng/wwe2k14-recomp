@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_inputs.h"
 
 namespace rdr_scene::post_settings {
 

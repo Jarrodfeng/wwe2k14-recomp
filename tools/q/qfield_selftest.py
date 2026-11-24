@@ -1,5 +1,5 @@
 r"""Self-test of the field index (S103 lane QF): a fixture (synthetic generated sources + image, nothing from the game) and the
-real-data proofs of the findings the index was built for. Gate lane `qf_fields`.
+real-data proofs of the findings the index was built for.
 
     py -I tools/q/qfield_selftest.py [--root .] [--no-real]
 

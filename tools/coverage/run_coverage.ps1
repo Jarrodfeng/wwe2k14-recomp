@@ -9,9 +9,10 @@
 # the game would sit at the title until the kill). A run counts only if it EXITED with exit code 0, no failure lines,
 # and its coverage folder has the script's quit window (NN_quit.txt); any other run's folder is renamed to
 # <run>_failed, which cov.py does not read, and the script exits 1 after rebuilding the tables from the good runs.
-param([string[]]$Routes = @(), [int]$WaitSeconds = 720, [string]$Extra = '')
+param([string[]]$Routes = @(), [int]$WaitSeconds = 720, [string]$Extra = '',
+       [string]$Preset = 'win-amd64-coverage')   # win-amd64-coverage-off = the scene-host flavour (S110 COVHOST)
 $repo = 'C:\Users\Jarrod\wwe2k14-recomp'
-$exe = "$repo\out\build\win-amd64-coverage\wwe2k14.exe"
+$exe = "$repo\out\build\$Preset\wwe2k14.exe"
 $covRoot = "$repo\out\harness\coverage"
 if (-not (Test-Path $exe)) { "run_coverage: no coverage exe at $exe (configure + build the win-amd64-coverage preset first)"; exit 2 }
 py "$repo\tools\coverage\make_routes.py"

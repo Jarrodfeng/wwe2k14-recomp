@@ -1039,6 +1039,10 @@ REX_HOOK_RAW(sub_822563F8) {
     if (wwe2k14::screen_text::Enabled()) wwe2k14::screen_text::Note(id, GuestStr(base, s, 120));
     return;
   }
+  if (const uint32_t s = wwe2k14::tron_slots::NameFor(id)) {  // S110 TRONSLOT: the custom trons' names in the MOVIE list (src/tron_slots.h)
+    ctx.r3.u64 = s;
+    return;
+  }
   if (id == 50303 && wwe2k14::g_music_hint_on && wwe2k14::g_music_hint_on()) {  // lane 291: the USER PLAYLIST hint in our words
     if (const uint32_t s = TextFor(id)) {
       ctx.r3.u64 = s;

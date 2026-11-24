@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
-# harness: realtime (the select grid has no mapped cursor state past the tab row; its presses wait on frame counts)
 # intent: owner on
 # S105 lane C1R (docs\research\s105\C1_routes.md): Bobby Lashley (397) in attire 1 / 2. EXPLORATORY SELECT-SCREEN ROUTE. No flag picks an attire: --wwe2k14_launch_participants takes
 # ID[:PAD] only (src\scenario.h:623, the setter's attire argument r7 is fixed 0), so attire 1 / 2 can only come from the real select screen (A7 note: "needs a menu route through PLAY").

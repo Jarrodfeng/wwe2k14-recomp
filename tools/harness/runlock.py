@@ -154,12 +154,43 @@ def held_by_us():
     return ''
 
 
+def alone_held_by_us():
+    """S106 C5: True when the alone pause file (runlock_alone.ps1) is locked and its record names this process's token (an ancestor took -Alone)."""
+    # S106 C5FF R1: since C5F the record carries the DEDICATED pause token (env WWE_ALONE_TOKEN, runlock_alone.ps1), not the run-lock token
+    tok = os.environ.get('WWE_ALONE_TOKEN')
+    path = os.environ.get('WWE_ALONE_FILE') or os.path.join(LOCK_DIR, 'alone.lock')
+    if not tok:
+        return False
+    try:
+        fd = os.open(path, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        os.lseek(fd, 0, 0)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            os.lseek(fd, 1, 0)
+            try:
+                return json.loads(os.read(fd, 4096).decode('utf-8', 'replace')).get('token') == tok
+            except Exception:
+                return False
+        os.lseek(fd, 0, 0)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        return False
+    finally:
+        os.close(fd)
+
+
 # (Known limit, runlock.ps1 header: build=True inside a SHARED hold re-enters the shared slot, so the 2-build cap can be exceeded.)
-def ensure_lock(name, timeout_minutes=240, shared=False, build=False, max_minutes=None):
+def ensure_lock(name, timeout_minutes=240, shared=False, build=False, max_minutes=None, alone=False):
     # max_minutes: wall-clock limit of the re-run (runlock.ps1 -MaxMinutes; None = its default 30, 0 = none). Long jobs
     # (bisect, sdk_rebase, codegen_repro) pass 0 (Session 95 review).
+    # alone=True (S106 C5): EXCLUSIVE + the pause file + a drain (runlock.ps1 run -Alone); exit code 3 = it could not be alone (nothing ran).
     held = held_by_us()
-    if held == 'exclusive' or (held == 'shared' and (shared or build)) or (held == 'build' and build):
+    if alone and held == 'exclusive' and alone_held_by_us():
+        return
+    if held == 'exclusive' and not alone or (held == 'shared' and (shared or build) and not alone) or (held == 'build' and build and not alone):
         return
     if held in ('shared', 'build'):
         # (Review fix: a shared request inside a build hold exits too: a build runs no games.)
@@ -171,7 +202,7 @@ def ensure_lock(name, timeout_minutes=240, shared=False, build=False, max_minute
     argv = getattr(sys, 'orig_argv', None)   # 3.10+: keeps -I / -X utf8 / -O / -m
     args = list(argv[1:]) if argv else list(sys.argv)
     cmd = ['pwsh', '-NoProfile', '-File', RUNLOCK_PS1, 'run', '-Name', name,
-           '-TimeoutMinutes', str(timeout_minutes)] + (['-Build'] if build else ['-Shared'] if shared else []) + ([] if max_minutes is None else ['-MaxMinutes', str(max_minutes)]) + ['--', sys.executable] + args
+           '-TimeoutMinutes', str(timeout_minutes)] + (['-Alone'] if alone else ['-Build'] if build else ['-Shared'] if shared else []) + ([] if max_minutes is None else ['-MaxMinutes', str(max_minutes)]) + ['--', sys.executable] + args
     sys.stdout.flush()
     sys.stderr.flush()
     sys.exit(subprocess.call(cmd))

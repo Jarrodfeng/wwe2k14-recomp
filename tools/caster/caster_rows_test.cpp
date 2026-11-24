@@ -38,6 +38,8 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/scene_live/caster_contrib.h"
 
 using namespace rdr_scene;

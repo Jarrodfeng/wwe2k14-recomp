@@ -11,7 +11,7 @@ Why not cmake: the guest code (generated\\default, ~hundreds of units) is identi
   3. links them with the main build's guest objects + SDK libraries into <out>\\wwe2k14_keep<keep>.exe (no staging, no DLL copy, nothing is started).
 --syntax stops after the compile pass as -fsyntax-only (fast iteration); --only limits the compile pass to the named units. The undefined symbols the link prints ARE
 the list of what still references the stream (COMPILE_OUT_LIST.md section C step 1). Prints wall time and the exe size. Exit 0 = every unit compiled and the link passed.
-Needs the main checkout's out\\build\\win-amd64-release (configured once; it is the build every lane's game_syntax gate already reads)."""
+Needs the main checkout's out\\build\\win-amd64-release (configured once; it is the build game_syntax already reads)."""
 import argparse
 import os
 import re
@@ -21,7 +21,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'gate'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'compile'))
 import game_syntax   # S103 GSP: --syntax shares game_syntax's preprocessed-hash cache (syntax_check / load_cache / save_cache)
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'admit'))
 import admit_py as _admit   # CQW: the machine-wide compile queue for the unit pool (nothing runs at import)
@@ -113,7 +113,21 @@ def main():
     drop = stream_only(root) if a.keep == 0 else set()
     only = {x.strip().replace('\\', '/') for x in a.only.split(',') if x.strip()}
     objs, libs, lflags = parse_ninja(bd)
-    cmds = compile_lines(ninja, bd)
+    cmds = None
+    if a.syntax:   # S106 GSN N14: the flags of the CHECKED tree's own configure (game_syntax.build_lines_for = syntax_cfg), not main's out\build; the object list above stays main's (a new unit is added below)
+        try:
+            cmds = [ln for ln in game_syntax.build_lines_for(root, main_dir, 'on') if 'clang' in ln.lower()]
+            print('flags: this tree\'s own configure (syntax_cfg)')
+        except RuntimeError as e:   # ConfigureFailed: the tree does not configure = a real FAIL, never stale flags
+            print('FAIL: this tree\'s CMakeLists.txt does not configure: %s' % e)
+            return 1
+        if not cmds:
+            print('note: FALLING BACK to main\'s out\\build flags (--syntax): syntax_cfg gave no compile lines')
+            cmds = None
+    if cmds is None:
+        if a.syntax:
+            print('note: FALLING BACK to the main checkout\'s out\\build flags (they may not describe this tree)')
+        cmds = compile_lines(ninja, bd)
     by_src = {}
     for ln in cmds:
         m = re.search(r' -c (\S+)\s*$', ln)
@@ -177,6 +191,9 @@ def main():
         if d not in sources_expected:
             print('FAIL: keep_stream_sources.txt names %s which the exe does not compile' % d)
             return 1
+
+    if a.syntax:
+        game_syntax.set_force(rfwd, [r_ for r_, _l in jobs])   # S106 G4-4F (review F1): the real build force-includes this tree's src/pch_units.h into every game unit; same unit set as game_syntax --changed
 
     def one(job):
         rel, ln = job

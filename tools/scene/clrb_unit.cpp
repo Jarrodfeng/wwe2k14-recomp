@@ -21,6 +21,7 @@
 
 #include "../../src/renderer_scene/clear_pick.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_stage_look.h"
 #include "../../src/scene_live/inputs_contrib.h"
 
 using namespace rdr_scene;

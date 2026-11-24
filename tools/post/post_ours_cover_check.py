@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""Lane 140 offline proof (S101, 0 game runs): the post chain's COVERAGE. Every frame shape the Check J runs (7086 / 7087 / 7088) refused and that the captures hold is drawn by our pass and the picture stays inside
-the post gate's bar. Docs: docs\renderer\POST_OURS.md section "Coverage (lane 140)".
+the post check's bar. Docs: docs\renderer\POST_OURS.md section "Coverage (lane 140)".
 
   py -I tools\post\post_ours_cover_check.py [--root DIR] [--stride N] [--only core,pictures,scale2,plants]
 

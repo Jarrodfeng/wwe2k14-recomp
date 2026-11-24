@@ -6,7 +6,7 @@
 Bars (each line PASS / FAIL; a missing input FAILS, never skips; one GPU process of ours at a time):
  A. the live image-info supplier through fview (`--image-info`): the capture reader and the live ImageInfoTable (same records, same Set()) give the SAME arena census line and the same
     picture md5, and `size unchecked` is 0 in both; `none` (the old live behaviour) counts size unchecked > 0; the planted table (`live-fault`, every width +1) changes the answers
-    (the census' `size` count). The unit twin (every id, the threads, the planted tables) is tools\\arena\\arena_ours_selftest.py (gate lane arena_ours_unit).
+    (the census' `size` count). The unit twin (every id, the threads, the planted tables) is tools\\arena\\arena_ours_selftest.py.
  B. rplay with every switch off draws what the base drew: frame 200's picture md5 == the crowd lane's pinned BASE_STREAM_MD5 (tools\\crowd\\crowd_ours_check.py), and also with
     `--game DIR` given and no switch. Each switch on (crowd / arena / wrestlers), validation 1: exit 0, no validation errors, the census says ours drew frames; the arena's
     `size unchecked` is 0 (the supplier is present); the arena's picture differs from the switch-off one (it really replaced something).

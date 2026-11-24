@@ -94,7 +94,10 @@ def build_fixture(tmp):
         CREATE TABLE edges(src INTEGER, dst INTEGER, target INTEGER, site INTEGER, kind TEXT);
         CREATE TABLE rtti_class(td INTEGER PRIMARY KEY, mangled TEXT, name TEXT);
         CREATE TABLE rtti_vtable(vt INTEGER PRIMARY KEY, col INTEGER, td INTEGER, nslots INTEGER);
-        CREATE TABLE rtti_slot(vt INTEGER, idx INTEGER, func INTEGER);''')
+        CREATE TABLE rtti_slot(vt INTEGER, idx INTEGER, func INTEGER);
+        CREATE TABLE rtti_base(cls TEXT, idx INTEGER, base TEXT);
+        CREATE TABLE tables(start INTEGER PRIMARY KEY, rule TEXT, len INTEGER);
+        CREATE TABLE imms(func INTEGER, site INTEGER, value INTEGER, op TEXT);''')      # S110 ICALL: the tables the indirect-call build reads (empty here)
     lines = listing().split('\n')
     for a in (F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16):
         ln = next((i + 1 for i, l in enumerate(lines) if l.startswith(f'DEFINE_REX_FUNC(sub_{a:08X})')), 0)

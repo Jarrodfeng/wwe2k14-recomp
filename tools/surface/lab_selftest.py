@@ -1,4 +1,4 @@
-# S102 M2: the Surface lab's offline proof (gate lane s102_m2). 0 game runs, 0 Surface runs: a local folder stands in for the Surface (lab.py --host fake:DIR)
+# S102 M2: the Surface lab's offline proof 0 game runs, 0 Surface runs: a local folder stands in for the Surface (lab.py --host fake:DIR)
 # and lab_fake_rplay.py for rplay. Positive: jobs -> results.csv rows with the right fields. Planted twins that must be FAILED rows with blank ms (never 0 ms):
 # rplay exits non-zero / times out / is not finished / writes short, zero or no timing; capture missing; ssh down (not "capture missing"); host busy (nothing killed);
 # exe changed or never hashed; a stale csv left by an earlier run. Locks, flag checking, push hygiene, source lints.

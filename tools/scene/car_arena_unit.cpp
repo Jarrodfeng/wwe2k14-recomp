@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../../src/assets/asset_load.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/renderer_scene/car_arena_rows.h"
 #include "../../src/scene_live/arena_provider.h"
 #include "../../src/scene_live/stage_fx_contrib.h"

@@ -15,6 +15,9 @@
 #include <vector>
 
 #include "../../src/renderer_adapter/d3_guest_core.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
+#include "../../src/renderer_scene/rows_sphere.h"
 #include "../../src/renderer_adapter/d3_record.h"
 #include "../../src/scene_live/ring_rows_core.h"   // lane 246: the ring's class table (RingTable / ReadRingTable) the ring hook claims calls by
 #include "../../src/scene_live/light_state_hook.h"   // lane 152 (review S5 / S6): the tracker's read-only probe on a fake guest   // lane 152: RecordRegister (pure; no SceneTables is built here)

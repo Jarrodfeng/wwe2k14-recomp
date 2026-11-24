@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_circle.h"
 
 namespace rdr_scene::circles {
 

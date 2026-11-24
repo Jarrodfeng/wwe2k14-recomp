@@ -1,8 +1,6 @@
 # S105 SPV: scripts that name a registry-using .cpp without linking it. script | reason. Read by spv_split_lint.py (check 5).
 tools/cxx_cache.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
-tools/gate/deps.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
-tools/gate/deps_selftest.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
-tools/gate/version_define_lint.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/lint/version_define_lint.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
 tools/handback/cvar_pp.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
 tools/memory/rig_unit_line.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
 tools/movie/movie_planes_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
@@ -29,3 +27,5 @@ tools/scene/slv_check.py | names the source as text (a read / regex / docstring 
 tools/ui/build_ui_ours_test.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
 tools/upd_lean/upd_lean2_check.py | names the source as text (a read / regex / docstring / comment line); compiles no registry user
 tools/wrestler/build_w1_check.ps1 | names the source as text (a read / regex / docstring / comment line); compiles no registry user
+tools/game_fixes/blood_keep_selftest.py | names live_map_sweat.cpp as text (the wiring pin: the fix's own sources must not name a renderer file); compiles blood_keep_test.cpp only (S110 RDRPREP review)
+tools/renderer/onf_unit.py | reads scene_host.cpp as text (text('src/renderer_host/scene_host.cpp')); compiles onf_unit.cpp only (S110 RDRPREP review)

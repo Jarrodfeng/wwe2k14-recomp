@@ -165,8 +165,8 @@ def main():
     ap.add_argument('--window', type=int, default=90, help='frames after a press to look for its effect (90)')
     a = ap.parse_args()
     lines, n, timed = convert(a.recording, a.window)
-    if timed:
-        lines.insert(3, '# harness: realtime (%d press(es) keep the recorded timing)' % timed)
+    if timed:   # S109 FF: no realtime header any more: run_list fast-forwards, and route_lint refuses frame-counted presses after a page change
+        print('WARNING: %d press(es) keep the recorded frame timing: sync each on a state (menu_page / menu_row, press_until_state) or the route_lint ERROR will refuse it fast-forwarded' % timed, file=sys.stderr)
     text = '\n'.join(lines)
     if a.out:
         with open(a.out, 'w', encoding='utf-8', newline='\n') as f:

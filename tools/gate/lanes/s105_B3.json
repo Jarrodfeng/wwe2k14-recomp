@@ -1,9 +1,0 @@
-{
- "owner": "S105 B3 (docs/research/s105/B3.md parts a, c, d): the stream-free host registers the shader catalog (renderer_host/pipeline_catalog.h, SceneHost::Start), the pipeline store never slices during a 3D scene (store_progress.h PrebuildAllowed), the owner-mode precompile ends when the store has nothing left (OwnerPrecompileDone, 'prepared N of M'), PREPARE SHADERS is back in the launchers, a failed store write logs its step and OS error (pipeline_store.h WriteFileAtomicWhy). Not built: the shipped pipeline_seed.bin (part b, needs Jarrod's OK). 0 game runs.",
- "claim": {"scene": "none", "side": "CPU (no cold pipeline builds at the first match frames)", "ms": [0, 0], "basis": "no saving measured; the 2-run check is the main session's"},
- "note": "0 game runs, 0 Surface runs. Cheap: the unit (catalog fixture, gate, precompile rule, write reason) with four planted twins and the wiring lints with their twins, and the settings lint (PREPARE SHADERS live).",
- "checks": [
-  {"name": "s105_B3.store_unit", "cmd": ["py", "-I", "tools/renderer/b3_store_unit.py", "--root", "."], "timeout_s": 900, "tier": "cheap", "gpu": false,
-   "affects": ["src/renderer_host/pipeline_catalog.h", "src/renderer_host/store_progress.h", "src/renderer_host/scene_host.*", "src/renderer_host/host_start.cpp", "src/precompile.h", "src/renderer/renderer.cpp", "src/renderer/renderer.h", "src/renderer/pipeline_store.h", "src/launcher/launcher_main.cpp", "src/launcher_mobile/mobile_main.cpp", "tools/renderer/b3_store_unit.*"]}
- ]
-}

@@ -4,6 +4,7 @@
 //    (rdr_plane_mask), the palette = the rope's node rows by the mesh's palette (slot k = pool row palette[k]), the eye = the ring kind on the rope's side.
 // Everything here is read from the record and the player's files; nothing from the stream.
 #include "../thread_name.h"  // S103 H1
+#include "rows_plane.h"   // S106 G4-2
 #include <algorithm>
 #include <cmath>
 #include <cstdio>

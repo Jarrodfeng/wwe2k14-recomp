@@ -1,4 +1,4 @@
-"""S101 lane 9: the 2D pass's self test (the gate entry, tools/gate/lanes/pass2d.json).
+"""S101 lane 9: the 2D pass's self test (run it by path).
 
     py -I tools/pass2d/selftest.py
 
@@ -32,7 +32,8 @@ OUT = MAIN / 'out' / 's101' / 'pass2d'
 EXE = ROOT / 'out' / 'tools' / 'pass2d_test.exe'
 EXE_GAPS = ROOT / 'out' / 'tools' / 'pass2d_gaps_test.exe'  # S101 lane 23
 SOURCES = [ROOT / 'tools' / 'pass2d' / n for n in ('pass2d_test.cpp', 'gaps_test.cpp', 'build.ps1')] + \
-          [ROOT / 'src' / 'renderer_scene' / n for n in ('pass2d.cpp', 'pass2d.h', 'ui_assets.cpp', 'ui_assets.h', 'scene_record.h')] + \
+          [ROOT / 'src' / 'renderer_scene' / n for n in ('pass2d.cpp', 'pass2d.h', 'ui_assets.cpp', 'ui_assets.h', 'scene_record.h', 'record_checks.h', 'plane_checks.h')] + \
+          list((ROOT / 'src' / 'renderer_scene').glob('rows_*.h')) + \
           [ROOT / 'src' / 'renderer' / 'shaders' / n for n in ('rdr_2d_quad.vert', 'rdr_2d_quad.frag', 'rdr_2d_yuv.frag')]
 SIZES = [(1280, 720), (2560, 1440), (3440, 1440)]
 EPS = 0.02

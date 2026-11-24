@@ -3,7 +3,7 @@ r"""SCU: the three-arm proof of the stage-mesh cull (docs\research\harness\SCU_c
 
   py -I tools\scene\stage_cull_proof.py --capture C:\...\out\captures\a04_match --frame 40 [--size 960x540] [--out DIR] [--check]
   py -I tools\scene\stage_cull_proof.py --record R.rsc --camera 16floats --eye x,y,z [...]      (a record with a told camera: arena_rec's beauty records)
-  py -I tools\scene\stage_cull_proof.py --selftest                                              (the arithmetic on synthetic depth pictures; gate lane scu_cull)
+  py -I tools\scene\stage_cull_proof.py --selftest                                              (the arithmetic on synthetic depth pictures)
 
 What it answers: does the game's cull rule (record word +0x8C bit 0x2 = back faces culled; the `r` copy's winding swapped, sub_82C04DF0 0x82C0A880 / 0x82C0B920) keep the
 right side of every stage mesh in OUR renderer? Three one-shot frame_rig draws of the same record and camera, the arena family alone (--families 0x1, --no-hooks), each with its scene depth
@@ -319,7 +319,7 @@ def main(argv=None):
     W, H = (int(v) for v in a.size.split('x'))
     if a.capture is not None:
         if not os.path.isabs(a.capture) and not os.path.isdir(a.capture):
-            a.capture = os.path.join(main_root, a.capture)   # captures live in the MAIN checkout's out\ (a gate in a worktree names them relative)
+            a.capture = os.path.join(main_root, a.capture)   # captures live in the MAIN checkout's out\ (a check in a worktree names them relative)
         M, vp, eye, why = camera_from_capture(a.capture, a.frame)
         rsc = os.path.join(a.capture, 'scene', 'frame_%06d.rsc' % a.frame)
         name = a.name or '%s_f%d' % (os.path.basename(os.path.normpath(a.capture)), a.frame)

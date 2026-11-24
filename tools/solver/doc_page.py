@@ -63,13 +63,13 @@ def render(res, mesh_count):
       'even if some other parameter is its real source** (the "value hints" below list file parameters that equal it in at least 90% of joined draws: the gaps to close).')
     w('   A FILE verdict covers **only the components that have a declared source** (a `null` entry in the field map is not judged: e.g. `Sweat` and `Blood` are FILE for the static '
       'components the file names, while the amount that moves with play is not in any component the map declares, so read a FILE row as "no hook needed for the file-named part").')
-    w('4. **Planted faults** (gate lane `solver`): one FILE comparison perturbed in one draw must turn that (effect, constant) RUNTIME; a capture with its names stripped must report every draw unjoined.')
+    w('4. **Planted faults**: one FILE comparison perturbed in one draw must turn that (effect, constant) RUNTIME; a capture with its names stripped must report every draw unjoined.')
     w('')
     w('Limits, stated: the corpus is six zips (Bryan\'s entrance, 30 Years, the create editor, three Brock runs; the manifests do not record the resolution arm); the join is by geometry counts plus the object\'s part set, not by an '
       'asset path (the six captures carry no FILE texture provenance and no `asset` strings, see NAMES.md "Open"), so a model the files do not hold (the create editor\'s wrestler) is unjoined; a '
       'constant that only a different scene would change reads as "one value". Frames are sampled (evenly, first to last), not all read.')
     w('')
-    w('## Checks that were made (gate lane `solver`, `py -I tools\\solver\\selftest.py`, ~50 s)')
+    w('## Checks that were made (`py -I tools\\solver\\selftest.py`, ~50 s)')
     w('- **Positive controls** (`tools\\solver\\expect.json`): the constants S98 value-matched against a wrestler file (`asset_model.h` 55-60: SpecCubPrm1, Reflect, Param0, SSS, SSSSinCol2; the gear\'s '
       'noise set) come out FILE; the hair highlight colours S98 left "RUNTIME, unconfirmed" (`SCENE_FRONTEND.md`, SpeCol1 / SpeCol2) come out RUNTIME (about 5 of 6 joined draws differ from the file); '
       'bones and fade (WorldMatrixArray, MdlAlpha) RUNTIME; the camera SCENE.')

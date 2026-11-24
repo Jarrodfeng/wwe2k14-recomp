@@ -4,7 +4,7 @@
 # alongside (it hears the custom track, which Media Foundation plays outside the game's mixer), muxed afterwards.
 # Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_mods=true --wwe2k14_mods_dir=<folder with music\343.*>
 # --wwe2k14_entrance_music=true --wwe2k14_clip_dir=<folder>. Normal speed.
-# harness: realtime (sound check)
+# intent: watch
 on_fail quit
 log mc: start
 include boot_to_menu

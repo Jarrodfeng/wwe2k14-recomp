@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "circle_shadow_core.h"
+#include "rows_circle.h"   // S106 G4-2
 #include "front_end.h"   // S103 PM2: SceneFrame
 #include "live_maps.h"
 #include "live_maps_internal.h"

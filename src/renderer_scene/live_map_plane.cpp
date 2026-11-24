@@ -11,12 +11,14 @@
 #include <cstring>
 
 #include "plane_game_gate.h"   // S103 PLF
+#include "rows_plane.h"   // S106 G4-2
 
 #include "../renderer/shaders/spv/rdr_plane_blur_frag.h"   // S103 L9: the chain behind the mask
 #include "../renderer/shaders/spv/rdr_plane_blur_vert.h"
 #include "../renderer/shaders/spv/rdr_plane_mask_frag.h"
 #include "../renderer/shaders/spv/rdr_plane_mask_vert.h"
 #include "char_effects.h"
+#include "bone_tag_rows.h"   // S106 G4-C: SkinChunkAbsent
 #include "front_end.h"
 #include "live_maps.h"
 #include "live_maps_internal.h"

@@ -28,6 +28,9 @@ files in a worktree with the real flags); `tools/build_sdk.ps1` (SDK build + ins
 `run_list.ps1` is the simple batch runner used for every Session 6 measurement: a loop over
 `tools/run_and_triage.ps1` that mirrors the frozen user data before every run (`run_bench.ps1` is the fuller
 runner with manifests and a watchdog; not used in Session 6).
+(S106 0a) A route with `on_fail continue` ends its script at the first failure and leaves the game running until `-WaitSeconds` kills it
+(S105: six runs, 82.5 min of run slots); `run_list.ps1` adds `--wwe2k14_input_fail_quit=true` (once built) so a failure quits; opt out with
+`# harness: flags --wwe2k14_input_fail_quit=false` (`docs\research\s106\0A.md`).
 
 Run numbers can be written `73`, `073` or as a file name. `--logs DIR` points at another logs folder (default
 `out\build\win-amd64-release\logs`).

@@ -24,6 +24,7 @@
 #include "live_maps_e2.h"   // S103 E2: the plane, rim, pre-light and sweat maps' inputs and state
 #include "record_io.h"
 #include "scene_record.h"
+#include "rows_circle.h"   // S106 G4-2
 #include "stage_hook.h"
 
 namespace rdr_scene {
@@ -162,6 +163,10 @@ class LiveMapsHook final : public StageHook {
   void SetBlockingLoads(bool on) { blocking_loads_ = on; }   // S103 B2F: the offline rigs draw ONE frame: the rope proxy's mesh is waited for instead of arriving a frame later
   void SetGameRoot(const std::string& root) { game_root_ = root; }   // S103 B2F: where the rope proxy's arena pac is read from (the live drawer, the rigs); empty = the proxy is not drawn
   const E2State& e2() const { return *e2_; }                // S103 E2
+  // S108 SHOT-A (the subject-shot saver, src\renderer_host\scene_host.cpp): the persistent liquid images that hold paint (the ones the skin reads): the map key, its character's skeleton object, the image and its
+  // size. Read-only; call on the thread that runs Record (the host thread) between frames.
+  struct LiveLiquidImage { uint32_t map = 0, object = 0; rdr::ImageId image = rdr::kNoImage; uint32_t width = 0, height = 0; };
+  void LiveLiquidImages(std::vector<LiveLiquidImage>& out) const;
   const char* Name() const override { return "live_maps"; }
   void Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& builder) override;
 

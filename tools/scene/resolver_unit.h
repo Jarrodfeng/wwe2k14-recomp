@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "host_rig_real.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 namespace resolver_unit {
 

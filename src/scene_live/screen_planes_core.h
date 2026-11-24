@@ -31,10 +31,14 @@
 #include <vector>
 
 #include "stage_fx_core.h"   // ReadFn, ReadWord, Swap32
+#include "../tron_sheet_core.h"   // S110 TRONSHEET: kSheetSize (std only)
 
 namespace rdr_scene::live::screens {
 
 using stagefx::ReadFn;
+// S108 RDS phase 2: a plane's rows in one call (`rows` x `width` bytes, `pitch` apart, packed into dst); the game's is wrestler_hook.h ReadGuestRows (one page check of the rows' hull: safe_guest_pages.h
+// RowsHullOk / ReadRows). Null = one `read` a row (the units, and the old path).
+using RowsFn = bool (*)(uint32_t guest, uint32_t pitch, uint32_t rows, uint32_t width, uint8_t* dst);
 
 inline constexpr uint32_t kTitanGlobal = 0x8392477C;   // [C q addr] the titan manager pointer
 inline constexpr uint32_t kTitanController = 16;       // T + 16 [C sub_827F9D88 0x827F9D9C `lwz r4,16(r4)`]
@@ -112,7 +116,8 @@ class ScreenBinding {
   void LoadDefaults(bool wrong, bool wrong_panels = false) {
     Clear();
     // (803 is the same quad as 804 over the whole sheet; the game draws it in NEITHER look and the live model has no family for it, so it is not bound: a row for it would be a render-side hole)
-    Set(804, 0, 320, 320), Set(807, wrong ? 5 : 0, 320, 320), Set(805, 2, 256, 128);
+    constexpr uint32_t kSheet = wwe2k14::tron_sheet::kSheetSize;   // S110 TRONSHEET: the sheet size is ONE constant; the tron shim hands the game a texture of exactly it
+    Set(804, 0, kSheet, kSheet), Set(807, wrong ? 5 : 0, kSheet, kSheet), Set(805, 2, 256, 128);
     for (uint32_t k : {801u, 802u, 806u, 808u, 809u}) Set(k, wrong_panels ? 2 : 1, 256, 256);   // S103 M2: the panel sheet (channel 1, 256x256)
   }
   void Clear() {
@@ -232,7 +237,7 @@ class PlaneStore {
   }
 
   // The flush of display set `set` at guest frame `gf`: copy its display buffer if some bound channel resolves to it. Returns true when a frame was stored.
-  bool OnFlush(ReadFn read, uint32_t set, uint64_t gf) {
+  bool OnFlush(ReadFn read, uint32_t set, uint64_t gf, RowsFn rows = nullptr) {
     if (plants.lazy_copy) lazy_read_ = read;   // (the lazy_copy plant only)
     {
       std::lock_guard<std::mutex> lk(m_);
@@ -289,7 +294,7 @@ class PlaneStore {
       if (Slot* old = FindSlot(set); old && old->latest) return false;
     }
     std::shared_ptr<Frame> f = TakeSpare(set);
-    if (!CopyDisplay(read, set, *f)) return false;
+    if (!CopyDisplay(read, set, *f, rows)) return false;
     f->guest_frame = gf;
     std::lock_guard<std::mutex> lk(m_);
     f->id = ++next_id_;
@@ -479,7 +484,7 @@ class PlaneStore {
   }
  public:
   // Copy the display buffer of `set` into `f` (packed). false = the layout is not one we trust (counted bad_layout) or unreadable.
-  bool CopyDisplay(ReadFn read, uint32_t set, Frame& f) {
+  bool CopyDisplay(ReadFn read, uint32_t set, Frame& f, RowsFn rows = nullptr) {
     uint32_t hdr[6];
     if (!read || !read(set + kSetCount, hdr, sizeof hdr)) { Bump(&StoreCensus::unreadable); return false; }
     for (auto& v : hdr) v = stagefx::Swap32(v);
@@ -494,7 +499,9 @@ class PlaneStore {
     uint32_t ptr[4], pitch[4], alloc[4];
     for (uint32_t k = 0; k < 4; ++k) {
       const uint32_t base = set + kSetPlanes + kPlaneStride * k + kBufferStride * idx;
-      if (!(stagefx::ReadWord(read, base, alloc[k]) && stagefx::ReadWord(read, base + 4, ptr[k]) && stagefx::ReadWord(read, base + 8, pitch[k]))) { Bump(&StoreCensus::unreadable); return false; }
+      uint32_t pw[3];   // S108 RDS: the plane's three words as ONE 12-byte read (its pages are the three word reads' pages: safe_guest_pages.h HullOk); was three checks
+      if (!read(base, pw, sizeof pw)) { Bump(&StoreCensus::unreadable); return false; }
+      alloc[k] = stagefx::Swap32(pw[0]), ptr[k] = stagefx::Swap32(pw[1]), pitch[k] = stagefx::Swap32(pw[2]);
       if (k < 3 && !alloc[k]) { Bump(&StoreCensus::bad_layout); return false; }   // planes 0-2 must be allocated (review F2)
     }
     f.set = set, f.w = w, f.h = h, f.cw = plants.header_chroma ? cw : need_cw, f.ch = need_ch;
@@ -509,6 +516,10 @@ class PlaneStore {
       f.lazy_ptr[k] = ptr[k], f.lazy_pitch[k] = plants.ignore_pitch ? wdt[k] : pitch[k];
       if (plants.lazy_copy) continue;   // the planted "copy" is a view: bytes are read at use
       const uint32_t pk = plants.ignore_pitch ? wdt[k] : pitch[k];
+      if (rows) {   // S108 RDS: the plane in one call (one page check of the rows' hull when RowsHullOk; else a read a row inside it): was one check a row, ~1,400 a movie flush
+        if (!rows(ptr[k], pk, hgt[k], wdt[k], dst[k]->data())) { Bump(&StoreCensus::unreadable); return false; }
+        continue;
+      }
       for (uint32_t r = 0; r < hgt[k]; ++r)
         if (!read(ptr[k] + r * pk, dst[k]->data() + size_t(r) * wdt[k], wdt[k])) { Bump(&StoreCensus::unreadable); return false; }
     }

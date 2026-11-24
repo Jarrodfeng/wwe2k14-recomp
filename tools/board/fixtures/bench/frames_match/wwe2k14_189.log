@@ -1,8 +1,0 @@
-[2026-11-13 19:37:05.481] [info] [core] [t9448] [wwe2k14] quality tier: STANDARD (chosen in the launcher)
-[2026-11-13 19:37:05.481] [info] [core] [t9448] [wwe2k14][gfxmenu] settings file C:\wwe\out\settings_native720.json: upscale 0, resolution 0, frame rate 1, renderer 2 -> resolution_scale=1
-[2026-11-13 19:37:05.491] [info] [core] [t9448] [wwe2k14][gfxmenu] settings file C:\wwe\out\settings_native720.json: upscale 0, resolution 0, frame rate 1, renderer 2 -> resolution_scale=1
-[2026-11-13 19:37:08.077] [info] [core] [t9448] [wwe2k14] modified: wwe2k14_fixed_seed = '1' (source: command line)
-[2026-11-13 19:37:08.077] [info] [core] [t9448] [wwe2k14] modified: wwe2k14_launch = 'lesnar_bryan' (source: command line)
-[2026-11-13 19:37:28.344] [info] [core] [t14424] [wwe2k14][input] line 18: scene=match (frame 5058)
-[2026-11-13 19:37:38.340] [info] [core] [t14424] [wwe2k14][input] line 25: scene=end (match clock +600) (frame 5658)
-[2026-11-13 19:37:38.340] [info] [core] [t14424] [wwe2k14][input] line 27: bench: done (frame 5658)

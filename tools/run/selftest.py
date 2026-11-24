@@ -112,6 +112,7 @@ def main():
         ('1 validation in a speed run', [bench, '--speed', '--wwe2k14_rdr_live_validation=1'], 1, [bench, '--speed']),
         ('1 fast-forward in a speed run', [bench, '--speed', '--vsync=false'], 1, [bench, '--speed']),
         ('1 a second game alive in a speed run', [bench, '--speed', '--alive-games', '1'], 1, [bench, '--speed']),
+        ('1 a speed run on a route without a `performance` intent term (S109 FF2)', [af] + LAUNCH + ['--speed'], 1, [bench, '--speed']),
         ('1 a diagnostic switch in a speed run', [bench, '--speed', '--wwe2k14_file_trace=true'], 1, [bench, '--speed']),
         ('3 a misspelt flag', [af] + LAUNCH + ['--wwe2k14_cinecm=true'], 3, [af] + LAUNCH),
         ('3 a flag twice', [af] + LAUNCH + ['--wwe2k14_cinecam=false'], 3, [af] + LAUNCH),
@@ -156,13 +157,13 @@ def main():
             quit
             '''), encoding='utf-8')
         rt_shot = td / 'entrance_realtime.txt'
-        rt_shot.write_text('# harness: realtime (watched)\n' + bad_shot.read_text(encoding='utf-8'), encoding='utf-8')
+        rt_shot.write_text('# intent: watch\n' + bad_shot.read_text(encoding='utf-8'), encoding='utf-8')   # S109 FF: normal speed's one door
         rc, out = door([str(bad_shot)] + BASE)
         check('refused: 5 a shot after a bare wait_frames in an entrance (rule 5 named)', rc == 2 and 5 in refused_rules(out), out[-400:])
         rc, out = door([str(good_shot)] + BASE)
         check('passes without the fault: 5 the shot waits on game state', rc == 0, out[-400:])
         rc, out = door([str(rt_shot)] + BASE)
-        check('passes: 5 the same route is realtime (not fast-forwarded)', rc == 0, out[-400:])
+        check('passes: 5 the same route says `# intent: watch` (normal speed, not fast-forwarded)', rc == 0, out[-400:])
         # a release-looking exe: needs the settings file and replay dir
         fake = td / 'rel' / 'wwe2k14.exe'
         fake.parent.mkdir()
@@ -173,6 +174,14 @@ def main():
         okflags = [f'--wwe2k14_settings_file={C.MAIN}\\out\\s101\\t.json', f'--wwe2k14_replay_dir={C.MAIN}\\out\\s101\\replays']
         rc, out = door([af] + LAUNCH + okflags + args)
         check('passes without the fault: 4 a release exe with both under out\\', rc == 0, out[-400:])
+        # S109 WARM: an out\exe folder (lane_exe / the tip exe) says what it is in exe_info.json: +dev = no settings file needed, release = refused as above
+        (fake.parent / 'exe_info.json').write_text('{"options": {"WWE2K14_RELEASE": "OFF"}}', encoding='utf-8')
+        rc, out = door([af] + LAUNCH + args)
+        check('passes: 4 an exe folder whose exe_info.json says WWE2K14_RELEASE=OFF (+dev) needs no settings file', rc == 0, out[-400:])
+        (fake.parent / 'exe_info.json').write_text('{"options": {"WWE2K14_RELEASE": "ON"}}', encoding='utf-8')
+        rc, out = door([af] + LAUNCH + args)
+        check('refused: 4 an exe folder whose exe_info.json says WWE2K14_RELEASE=ON', rc == 2 and 4 in refused_rules(out), out[-400:])
+        (fake.parent / 'exe_info.json').unlink()
         # header-flag fault: a misspelt flag inside a route header is refused too
         hdr = td / 'hdr_bad.txt'
         hdr.write_text('# harness: flags --wwe2k14_fixd_seed=1\non_fail quit\nquit\n', encoding='utf-8')
@@ -199,14 +208,15 @@ def main():
         tree = td / 'tree'
         (tree / 'tools' / 'input_scripts' / 'short').mkdir(parents=True)
         for i in range(3):
-            (tree / 'tools' / 'input_scripts' / 'short' / f'ok{i}.txt').write_text('on_fail quit\nquit\n', encoding='utf-8')
-        (tree / 'tools' / 'input_scripts' / 'short' / 'planted_flag.txt').write_text('# harness: flags --wwe2k14_fixd_seed=1\nquit\n', encoding='utf-8')
+            (tree / 'tools' / 'input_scripts' / 'short' / f'ok{i}.txt').write_text('# intent: performance fps\non_fail quit\nquit\n', encoding='utf-8')
+        (tree / 'tools' / 'input_scripts' / 'short' / 'planted_flag.txt').write_text('# intent: performance fps\n# harness: flags --wwe2k14_fixd_seed=1\nquit\n', encoding='utf-8')
         (tree / 'tools' / 'input_scripts' / 'short' / 'planted_shot.txt').write_text('wait_file 343.bik2 10\nwait_frames 5\nscreenshot x\nquit\n', encoding='utf-8')
-        (tree / 'tools' / 'input_scripts' / 'short' / 'planted_speed.txt').write_text('# harness: flags --wwe2k14_rdr_live_validation=1\nquit\n', encoding='utf-8')
+        (tree / 'tools' / 'input_scripts' / 'short' / 'planted_speed.txt').write_text('# intent: performance fps\n# harness: flags --wwe2k14_rdr_live_validation=1\nquit\n', encoding='utf-8')
+        (tree / 'tools' / 'input_scripts' / 'short' / 'planted_noperf.txt').write_text('quit\n', encoding='utf-8')   # S109 FF2: no `performance` term: refused as a speed run
         ps = R.lint_all(td / 'tree_lint.md', repo=tree, quiet=True, min_routes=1)
         check('lint positive control: the planted misspelt flag is counted (rule 3)', ps['counts']['flags']['refuse'] == 1, str(ps['counts']))
         check('lint positive control: the planted entrance shot is counted (rule 5)', ps['counts']['shots']['refuse'] == 1, str(ps['counts']))
-        check('lint positive control: the planted validation flag counts as speed-refused', ps['counts']['speed']['as_speed'] == 1, str(ps['counts']))
+        check('lint positive control: the planted validation flag and the planted route without `performance` count as speed-refused, with the planted shot route that has no term too (3)', ps['counts']['speed']['as_speed'] == 3, str(ps['counts']))
         check('lint positive control: clean routes are not counted', ps['refused_routes'] == 2, str(ps))
 
     # the start commands parse as PowerShell (parsed through [scriptblock]::Create from an env var: nothing is executed)

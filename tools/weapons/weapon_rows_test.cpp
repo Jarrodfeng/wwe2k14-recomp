@@ -29,6 +29,9 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
+#include "../../src/renderer_scene/weapon_rows.h"
 #include "../../src/renderer_scene/weapon_plan.h"   // S103 STG: Plan, ShadowCasterRows
 #include "../../src/scene_live/weapon_rows_contrib.h"
 

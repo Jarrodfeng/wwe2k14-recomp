@@ -1,4 +1,4 @@
-"""S102 W3 gate check: the opcode table in src\\nf\\replay_native.h (kind, handler and the lr a case sets) equals what the local generated code says about the
+"""S102 W3 check: the opcode table in src\\nf\\replay_native.h (kind, handler and the lr a case sets) equals what the local generated code says about the
 recompiled dispatcher sub_82BB53D0 (tools\\w3\\classify_dispatch.py; a case counts as `Call` only when its non-comment lines are exactly load / lr / call / goto),
 and the generated text the native loop mirrors is the text it was written from (sha256 pins of sub_82BB5BE8, the dispatcher's entry and its epilogue).
 A drift (a regenerated game, a hand edit) fails loudly; a missing input is exit 2, never a pass.
@@ -39,7 +39,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--gen', required=True)
     ap.add_argument('--plant', choices=['kind', 'lr', 'probe', 'loop'])
-    ap.add_argument('--expect-fail', action='store_true', help='exit 0 when the check FAILS (the gate runs a planted twin this way: a twin that is caught passes)')
+    ap.add_argument('--expect-fail', action='store_true', help='exit 0 when the check FAILS (a planted twin is run this way: a twin that is caught passes)')
     a = ap.parse_args()
     if not os.path.exists(HEADER):
         print('check_table: %s is missing' % HEADER)

@@ -22,7 +22,7 @@
 #include "quads2d_corner.h"   // S105 A8: PackCorner (a T_RectColor corner colour -> the row)
 #include "quads2d_plants.h"
 #include "../renderer_game/fallback_census.h"   // S103 L2b: a 2D hole is a fallback reason (PendHole)
-#include "scene_record.h"
+#include "rows_quad2d.h"
 
 namespace rdr_scene::q2d {
 

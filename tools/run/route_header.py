@@ -2,7 +2,8 @@
 
 Facts this file encodes (each one is read from run_list.ps1 / src\\input_script.h, not guessed):
   - The header is the first 40 lines of the top file. `# harness: flags --a=1 --b=2` (several lines add up) are flags run_list puts in
-    front of the route's -ScriptExtras entry; `# harness: realtime (reason)` = normal speed; `# harness: step30`.
+    front of the route's -ScriptExtras entry; `# harness: step30`. Normal speed has ONE door (S109 FF): the first `# intent:` line's term
+    `performance <what it measures>` or `watch` (run_list.ps1 Get-RunListRealTimeReason reads the same line); the realtime header no longer exists.
   - run_list refuses a route whose first 16 lines say `Use with --wwe2k14_launch` when no --wwe2k14_launch= flag is in -Extra / the header's flags.
   - `include FILE` is looked up beside the script, then tools\\input_scripts\\nav\\, then tools\\input_scripts\\ (walking up); up to 8 deep.
   - Steps are one per line: `cmd args`; `#` starts a comment line.
@@ -18,10 +19,10 @@ MAX_INCLUDE_DEPTH = 8      # input_script.h: "Up to 8 levels deep, no loops"
 
 # Steps that wait on game STATE (not on the wall clock or a frame count): a shot taken right after one of these is exact.
 STATE_SYNC_STEPS = {'wait_state', 'wait_text', 'press_until_state', 'press_until_text', 'wait_file', 'press_until_file'}
-SHOT_STEPS = {'screenshot', 'screenshot_every'}
+SHOT_STEPS = {'screenshot', 'screenshot_every', 'shot', 'record'}   # S108 SHOT: `shot SUBJECT N [LABEL]` (the screenshot + the drawn record) and `record LABEL` (the record only) capture the frame like a screenshot
 
 _HARNESS_FLAGS = re.compile(r'^#\s*harness:\s*flags\s+(.+)$')
-_HARNESS_REALTIME = re.compile(r'^#\s*harness:\s*realtime\b(.*)$')
+_INTENT = re.compile(r'^#\s*intent:\s*(.+)$')
 _HARNESS_STEP30 = re.compile(r'^#\s*harness:\s*step30\b')
 _CONTRACT_ALLOW = re.compile(r'^#\s*contract:\s*allow\s+([\w,-]+)\s*(.*)$')
 _LAUNCH_NEEDED = re.compile(r'(Use with|Needs?|Run with|Requires?|Use it with)\s+[^\n]*?--wwe2k14_launch\b(?:=([\w-]+))?', re.I)
@@ -43,8 +44,7 @@ class Route:
     header_flags: list = field(default_factory=list)      # [(token, 'route header line N')], run_list order (last of a name wins)
     header_dup_names: list = field(default_factory=list)  # names given twice in the header (run_list keeps the last)
     header_not_flags: list = field(default_factory=list)  # header tokens that are not --flags (run_list ignores them)
-    realtime: str = ''                                    # the reason text when the header says realtime, else ''
-    has_realtime: bool = False
+    speed_term: str = ''                                  # the normal-speed intent term: 'performance <what>' / 'watch', else '' (fast-forwarded)
     step30: bool = False
     needs_launch: bool = False
     launch_scenario: str = ''                             # the NAME the note gives, '' when none / a placeholder
@@ -124,6 +124,7 @@ def parse_route(path, repo_root):
     route.header_text = '\n'.join(head)
     toks = {}
     order = []
+    seen_intent = False
     for n, ln in enumerate(head, 1):
         s = ln.strip()
         m = _HARNESS_FLAGS.match(s)
@@ -136,10 +137,13 @@ def parse_route(path, repo_root):
                 if name in toks:
                     route.header_dup_names.append(name)
                 toks[name] = (tok, f'route header line {n}')
-        m = _HARNESS_REALTIME.match(s)
-        if m and not route.has_realtime:
-            route.has_realtime = True
-            route.realtime = m.group(1).strip()
+        m = _INTENT.match(s)
+        if m and not seen_intent:
+            seen_intent = True   # run_list reads the FIRST intent line only
+            for t in (x.strip() for x in m.group(1).split(',')):
+                if re.match(r'^performance\b', t) or t == 'watch':
+                    route.speed_term = t
+                    break
         if _HARNESS_STEP30.match(s):
             route.step30 = True
         m = _CONTRACT_ALLOW.match(s)

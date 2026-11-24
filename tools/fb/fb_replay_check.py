@@ -1,4 +1,4 @@
-r"""S102 T4 / T5 gate proof (offline, 0 game runs, no window): picture equality of the frame builder's two ways, on real captures, plus our thread's time.
+r"""S102 T4 / T5 proof (offline, 0 game runs, no window): picture equality of the frame builder's two ways, on real captures, plus our thread's time.
   py -I tools\fb\fb_replay_check.py --lane t4|t5 [--root DIR] [--reps N] [--quick]
 Arms (our code against our code: equality is the bar):
   t4: off (reference), --fb-fast, and the planted twin --fb-fast --fb-fast-plant (the table hashes only the first half of each entry and trusts the key: must DIFFER)
@@ -6,14 +6,15 @@ Arms (our code against our code: equality is the bar):
 Every arm's process prints "[fb] fast frames N, pack-once frames M" (the builder's own count of frames begun in each mode): a fast arm must show N > 0, a pack-once arm M > 0,
 and the off arm 0 / 0, so the flag provably reached the builder (a picture equal because the switch did nothing would otherwise pass).
 Captures (read in place from the MAIN checkout, never copied):
-  Bryan's entrance: the case zip named in tools\gate\lanes\crowd_card_thin.json, replayed by fview (--case ZIP --replay --hash-frames): the FNV hash of the presented picture of EVERY frame
+  Bryan's entrance: the case zip BRYAN_ZIP below, replayed by fview (--case ZIP --replay --hash-frames): the FNV hash of the presented picture of EVERY frame
   four rplay captures (s100_heenan_build 100 frames, s100_match300 3, s100_s89k_a 6, brock_s15 16): the presented picture after chosen frames (--shots, PNG, sha256)
 Time (not a bar, direction only; the PC hides GPU cost): rplay --timing's bind_us over the steady frames of s100_heenan_build, arms INTERLEAVED, at least 5 reps (--quick: 1), min and median.
 A missing input FAILs loudly."""
-import argparse, csv, hashlib, json, os, re, statistics, subprocess, sys, tempfile
+import argparse, csv, hashlib, os, re, statistics, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
+BRYAN_ZIP = 'out/s101/runs/20261112_122700_s100_owner_bryan_entrance/case_20261112_122719_969_0_pc_run_exit.zip'
 FB_RE = re.compile(r'\[fb\] fast frames (\d+), pack-once frames (\d+)')
 
 def main_checkout(root):
@@ -28,14 +29,6 @@ def main_checkout(root):
 def fail(msg):
     print('FAIL ' + msg)
     sys.exit(1)
-
-def bryan_zip(root):
-    j = json.load(open(os.path.join(root, 'tools', 'gate', 'lanes', 'crowd_card_thin.json')))
-    for c in j['checks']:
-        for n in c.get('needs', []):
-            if 'bryan' in n:
-                return n
-    fail('no Bryan capture named in tools/gate/lanes/crowd_card_thin.json')
 
 # name, flags, expects fast frames > 0, expects pack-once frames > 0
 ARMS = {
@@ -107,7 +100,7 @@ def main():
     main_co = main_checkout(root)
     fview = os.path.join(root, 'out', 'renderer', 'dev', 'fview.exe')
     rplay = os.path.join(root, 'out', 'renderer', 'dev', 'rplay.exe')
-    zip_path = os.path.join(main_co, bryan_zip(root).replace('/', os.sep))
+    zip_path = os.path.join(main_co, BRYAN_ZIP.replace('/', os.sep))
     caps = [('s100_heenan_build', 100), ('s100_match300', 3), ('s100_s89k_a', 6), ('brock_s15', 16)]  # name, frames in the capture
     for p in (fview, rplay, zip_path) + tuple(os.path.join(main_co, 'out', 'captures', c[0]) for c in caps):
         if not os.path.exists(p):

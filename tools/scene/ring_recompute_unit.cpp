@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/scene_live/ring_recompute_contrib.h"
 
 using namespace rdr_scene;
@@ -69,7 +70,8 @@ struct Guest {
   }
 };
 static Guest g_guest;
-static bool ReadThunk(uint32_t a, void* dst, size_t n) { return g_guest.Read(a, dst, n); }
+static uint64_t g_reads_scoped = 0, g_reads_unscoped = 0;   // S108 RDS review: reads made inside / outside a pass scope (safe_guest_pages.h PassLines; the game's ReadGuest serves the scoped ones from the pass's line copy)
+static bool ReadThunk(uint32_t a, void* dst, size_t n) { ++(wwe2k14::safe_pages::PassLines::Current() ? g_reads_scoped : g_reads_unscoped); return g_guest.Read(a, dst, n); }
 
 static constexpr uint32_t kX = 0x40100000, kG = 0x40010000, kG2 = 0x40020000, kGate = 0x40030000;
 static uint32_t LayerObj(uint32_t r) { return 0x40040000 + r * 0x1000; }
@@ -572,7 +574,10 @@ int main(int argc, char** argv) {
     con.NoteRing(kX, 700);
     FrameInfo f;
     f.guest_frame = 700;
+    g_reads_scoped = g_reads_unscoped = 0;
     con.Latch(f);
+    Check(g_reads_scoped > 0 && g_reads_unscoped == 0 && !wwe2k14::safe_pages::PassLines::Current(), "rds.ring_take_pass_scoped",
+          "reads in the pass scope " + std::to_string((unsigned long long)g_reads_scoped) + ", outside it " + std::to_string((unsigned long long)g_reads_unscoped));   // S108 RDS review: the take is one pass (its line copy dies with it)
     SceneTables t;
     Counters c;
     con.Emit(f, t, c);

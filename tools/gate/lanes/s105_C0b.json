@@ -1,9 +1,0 @@
-{
- "owner": "S105 lane C0b (docs/research/s105/C0_contract.md 'Later piece'): src/launcher/report_findings.h, the C++ port of tools/report/triage.py that writes findings.txt into every report zip (PC launcher MakeReport, phone launcher ShareZip). 0 game runs, 0 Surface runs.",
- "claim": {"scene": "none", "side": "none (an instrument)", "ms": [0, 0]},
- "note": "findings_compare: builds the C++ port, runs it and triage.py on the same synthetic logs (every class planted / format-changed, the gaps, the review rows, rotated parts, CRLF) and FAILS on any difference in the text. The two real player zips are gitignored data and stay out of the lane (hand-back).",
- "affects": ["tools/report/**", "src/launcher/report_findings.h"],
- "checks": [
-  {"name": "s105_C0b.findings_compare", "cmd": ["py", "-I", "tools/report/findings_compare.py"], "timeout_s": 300, "tier": "cheap", "gpu": false, "affects": ["tools/report/**", "src/launcher/report_findings.h"]}
- ]
-}

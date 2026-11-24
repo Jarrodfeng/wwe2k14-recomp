@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane SW1 gate check (offline, 0 game runs): wwe2k14_rdr_swap_once.
+"""S102 lane SW1 check (offline, 0 game runs): wwe2k14_rdr_swap_once.
 
   py -I tools\\swap\\swap_once_check.py [--root DIR] [--no-records]
 

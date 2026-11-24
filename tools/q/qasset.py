@@ -456,8 +456,8 @@ def scan():
 def safe_jobs(want):
     """at most MAX_JOBS workers; fewer when free RAM is low (a worker holds one decoded pac, up to ~0.5 GB, plus numpy: 1.5 GB each with 4 GB left over)"""
     try:
-        import build_ours
-        free = build_ours._free_ram_gb()
+        import qm
+        free = qm.free_ram_gb()
     except Exception:       # noqa: BLE001
         free = None
     by_ram = MAX_JOBS if free is None else int((free - 4) // 1.5)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""The scene host's headless rig gate (S103 landing 2, piece P7 H1; docs\renderer\P7_DESIGN.md section 5 H1 (b)). 0 game runs.
+r"""The scene host's headless rig check (S103 landing 2, piece P7 H1; docs\renderer\P7_DESIGN.md section 5 H1 (b)). 0 game runs.
 
   py -I tools\scene\host_rig.py [--root DIR] [--captures DIR] [--tol 2] [--only a04_entrance] [--no-twins]
 
@@ -10,7 +10,7 @@ For each capture (default a04_entrance and brock_losswin under the main checkout
   4. per frame: max / mean absolute difference over RGB (0-255) and the number of pixels that differ. PASS when the max is <= --tol (owned_check's tolerance is far looser; the host
      path is the mirror's own drawing plus one copy and the present, so 0 is expected). The real numbers are printed, never rounded.
 Planted twins (host mode, each must FAIL the comparison): stale_record (the previous record is drawn), skip_copy (F presented without the copy of `out`), wrong_size (the tick's width is
-one pixel short). A twin that still passes means the comparison is blind: the gate fails.
+one pixel short). A twin that still passes means the comparison is blind: the check fails.
 S103 P7 tween (the decoupled 120 in the host; `--no-tween` skips it, `--tween-only` runs nothing else): for each capture a pair of records with motion (TWEEN_PAIRS) is run through the SAME host with HostOptions::tween_wanted on (`--tween`: the
 list is run twice, the second pass is measured). The halfway frame's constants are checked against the rig's OWN expectation (every keyed draw found in both ticks: each blend range = (previous + this) / 2, every
 byte outside the mixed ranges = this tick's), at least 90 % of the keyed draws must pair and some range must really move; the halfway picture must lie between the previous and this tick's picture (it is closer to
@@ -299,10 +299,10 @@ def tween_section(exe, name, cap, game, out, size, tol):
 
 
 # S103 GSP review bug 3: the ms-share rules of the stamps check judge wall-clock GPU time shares (role 'other' < 10 % of the work, the roles' bracket sum within 2 % of the csv GPU time). Another process on the
-# same GPU (any gate's rig, Windows time-slicing) lands inside our brackets and breaks them, and the gate's GPU slots are shared PC-wide, so no in-rig lock can guard them. The gate therefore judges the
+# same GPU (any rig, Windows time-slicing) lands inside our brackets and breaks them, and GPU slots are shared PC-wide, so no in-rig lock can guard them. The check therefore judges the
 # STRUCTURAL rules only (steps recorded == closed by a written stamp, the stamp count identity, no pool overflow, the colour / frame roles named and non-zero, the stamps switched on); the ms-share rules
-# run in measuring runs (`--stamps-ms`, with their two twins), where the PC is meant to be quiet. Cleaner than draining every GPU slot of every gate for the check (that stalls the whole PC for a number the
-# gate does not need): the gate stays deterministic, and a measurement is still taken where a measurement belongs.
+# run in measuring runs (`--stamps-ms`, with their two twins), where the PC is meant to be quiet. Cleaner than draining every GPU slot for the check (that stalls the whole PC for a number the
+# check does not need): the check stays deterministic, and a measurement is still taken where a measurement belongs.
 MS_RULES = ("role 'other' holds", 'UNSTAMPED: the roles')
 STAMP_TWINS_STRUCTURAL = (('gpu_unbracketed', 'UNBRACKETED: steps recorded'), ('gpu_overflow', 'UNBRACKETED: the stamp pool overflowed'), ('gpu_ident', 'UNBRACKETED: the stamp count identity'),
                           ('gpu_unnamed', 'colour target images have no role'), ('gpu_off', 'fewer than 3 stamp-per-step frames'))
@@ -330,7 +330,7 @@ def stamps_section(exe, name, common, od, twins, ms=False):
     note = ''
     ok = rc == 0 and 'gpu stamps check: PASS' in text
     if not ok and not ms and rc != 0 and fails and not infra_failure(text) and 'NOT DRAWN' not in text and all(any(f.startswith(r) for r in MS_RULES) for f in fails):
-        ok = True   # only ms-share rules failed: not judged in the gate (a quiet-PC measuring run, --stamps-ms, judges them)
+        ok = True   # only ms-share rules failed: not judged in the default run (a quiet-PC measuring run, --stamps-ms, judges them)
         note = ' [ms-share rules not judged here (run with --stamps-ms on a quiet PC): %s]' % '; '.join(f[:80] for f in fails)
     print('%s [%s] gpu stamps (PC numbers, record %s): %s%s' % ('PASS' if ok else 'FAIL', name, sc[fr], line[:900] if line else text[-600:], note))
     bad += 0 if ok else 1
@@ -515,8 +515,8 @@ def main():
     ap.add_argument('--out', default='')
     ap.add_argument('--break-plants', action='store_true', help='TWIN ONLY: planted runs get a missing scene folder (the host fails for its own reasons): every planted twin must then read ERROR, never caught')
     ap.add_argument('--serial', action='store_true', help='one process at a time (the old order; the twin of the parallel run)')
-    ap.add_argument('--workers', type=int, default=0, help='parallel host_rig.exe processes (default: GATE_GPU_PROCS when the gate gives the check a share, else min(8, cpu/4))')
-    ap.add_argument('--stamps-ms', action='store_true', help='also judge the gpu stamps ms-share rules and run their twins (measuring runs on a quiet PC; the gate judges the structural rules only)')
+    ap.add_argument('--workers', type=int, default=0, help='parallel host_rig.exe processes (default: GATE_GPU_PROCS when set, else min(8, cpu/4))')
+    ap.add_argument('--stamps-ms', action='store_true', help='also judge the gpu stamps ms-share rules and run their twins (measuring runs on a quiet PC; the default run judges the structural rules only)')
     a = ap.parse_args()
     root = os.path.abspath(a.root)
     main_dir = main_checkout(root)

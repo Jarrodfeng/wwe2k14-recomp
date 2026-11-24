@@ -9,6 +9,10 @@
 #include <string>
 #include <vector>
 
+#include <map>
+#include <set>
+
+#include "../../src/importer/asset_ids.h"
 #include "../../src/importer/slot_retire.h"
 #include "../../src/superstars_mask.h"
 
@@ -81,6 +85,80 @@ static bool OrderCases(const OrderFn& f) {
   return ok;
 }
 
+// S110 SEAT-A: the bank numbers are assigned over ALL seats (the frame's seat list), the recorded numbers first; the seat order puts retired last.
+namespace ai = importer::asset_ids;
+using AssignFn = std::function<std::string(const std::vector<int>&, const std::vector<int>&, const std::map<int, int>&, std::map<int, int>&, std::map<int, int>&)>;
+static std::vector<int> AllSeats() {
+  std::vector<int> v;
+  for (int s = 397; s <= 499; ++s)
+    if (s != 399) v.push_back(s);
+  return v;
+}
+static bool AssignCases(const AssignFn& f) {
+  bool ok = true;
+  const std::vector<int> seats = AllSeats();  // 102 seats
+  std::vector<int> free_numbers;
+  for (int n = 1; n <= 599; ++n)
+    if (n != 103 && n != 410) free_numbers.push_back(n);
+  auto distinct = [](const std::map<int, int>& a) {
+    std::set<int> s;
+    for (auto& [k, v] : a) s.insert(v);
+    return s.size() == a.size();
+  };
+  {  // nothing recorded: every seat has a number, all different, the ordinal's: seat 397 -> free[0], 400 -> free[3] (the ordinal counts from 397, 399 included)
+    std::map<int, int> as, mv;
+    const std::string why = f(seats, free_numbers, {}, as, mv);
+    ok = ok && why.empty() && as.size() == 102 && distinct(as) && as[397] == free_numbers[0] && as[400] == free_numbers[3] && as[499] == free_numbers[102] && mv.empty();
+  }
+  {  // a recorded number that is still free stays, whatever the ordinal says
+    std::map<int, int> as, mv;
+    const std::string why = f(seats, free_numbers, {{400, 77}, {450, 12}}, as, mv);
+    ok = ok && why.empty() && as[400] == 77 && as[450] == 12 && distinct(as) && as.size() == 102;
+  }
+  {  // a recorded number that is no longer free (a code constant, 103) moves: the seat gets another, and `moved` remembers 103
+    std::map<int, int> as, mv;
+    const std::string why = f(seats, free_numbers, {{400, 103}, {401, 410}}, as, mv);
+    ok = ok && why.empty() && as[400] != 103 && as[401] != 410 && mv[400] == 103 && mv[401] == 410 && distinct(as);
+  }
+  {  // two seats recorded on one number: the first keeps it, the other moves
+    std::map<int, int> as, mv;
+    const std::string why = f(seats, free_numbers, {{400, 50}, {401, 50}}, as, mv);
+    ok = ok && why.empty() && as[400] == 50 && as[401] != 50 && distinct(as);
+  }
+  {  // a number recorded for a seat that has left the list is kept clear while there is a choice
+    std::map<int, int> as, mv;
+    const std::string why = f(seats, free_numbers, {{600, 5}}, as, mv);
+    bool has5 = false;
+    for (auto& [k, v] : as) has5 = has5 || v == 5;
+    ok = ok && why.empty() && !has5 && distinct(as);
+  }
+  {  // exactly as many free numbers as seats: all get one; one fewer: refused with a reason
+    std::vector<int> exact(free_numbers.begin(), free_numbers.begin() + 102), less(free_numbers.begin(), free_numbers.begin() + 101);
+    std::map<int, int> as, mv, as2, mv2;
+    ok = ok && f(seats, exact, {}, as, mv).empty() && as.size() == 102 && distinct(as);
+    ok = ok && !f(seats, less, {}, as2, mv2).empty();
+  }
+  return ok;
+}
+static const AssignFn kRealAssign = [](const std::vector<int>& seats, const std::vector<int>& fr, const std::map<int, int>& rec, std::map<int, int>& as, std::map<int, int>& mv) {
+  ai::SetFreeList(fr);
+  const std::string why = ai::Assign(seats, rec, &mv);
+  as = ai::Config().assigned;
+  return why;
+};
+using SeatOrderFn = std::function<std::vector<int>(const std::vector<int>&, const std::vector<int>&, const std::vector<int>&)>;
+static bool SeatOrderCases(const SeatOrderFn& f) {
+  const std::vector<int> seats = AllSeats();
+  const std::vector<int> o = f(seats, {397, 398, 450}, {397});  // 398 and 450 were never built, 397 was
+  if (o.size() != seats.size()) return false;
+  // never-used seats first in their own order, then the retired ones no build held (398, 450), then the built retired (397) last
+  std::vector<int> want;
+  for (int s : seats)
+    if (s != 397 && s != 398 && s != 450) want.push_back(s);
+  want.insert(want.end(), {398, 450, 397});
+  return o == want;
+}
+
 int main() {
   std::printf("S105 IMP unit\n");
   // entry: wwe2k14::superstars_mask::ClearPackBit
@@ -142,6 +220,35 @@ int main() {
   Twin("order: retired slots first", !OrderCases([](auto& a, auto& r) {
          std::vector<int> v = sl::NeverUsedFirst(a, r);
          std::reverse(v.begin(), v.end());
+         return v;
+       }));
+  // S110 SEAT-A: Assign over all seats (entry: importer::asset_ids::Assign) and the retired order over all seats
+  Say(AssignCases(kRealAssign), "Assign over all 102 seats: ordinal numbers, recorded first, moved remembered, duplicates and left seats avoided, exact fit / one short");
+  Twin("assign: the recorded numbers ignored", !AssignCases([](auto& seats, auto& fr, auto&, auto& as, auto& mv) { return kRealAssign(seats, fr, {}, as, mv); }));
+  Twin("assign: every seat takes the first free number (not distinct)", !AssignCases([](auto& seats, auto& fr, auto&, auto& as, auto&) {
+         for (int s : seats) as[s] = fr[0];
+         return std::string();
+       }));
+  Twin("assign: a recorded number kept although it is no longer free", !AssignCases([](auto& seats, auto& fr, auto& rec, auto& as, auto& mv) {
+         const std::string w = kRealAssign(seats, fr, rec, as, mv);
+         for (auto& [s, b] : rec) as[s] = b;
+         return w;
+       }));
+  Twin("assign: one number short is not refused", !AssignCases([](auto& seats, auto& fr, auto& rec, auto& as, auto& mv) {
+         const std::string w = kRealAssign(seats, fr, rec, as, mv);
+         return as.size() == seats.size() ? w : std::string();
+       }));
+  Twin("assign: only the first 103 seats' worth of the old cap (a seat past it has none)", !AssignCases([](auto& seats, auto& fr, auto& rec, auto& as, auto& mv) {
+         std::vector<int> few(seats.begin(), seats.begin() + 50);
+         return kRealAssign(few, fr, rec, as, mv);
+       }));
+  Say(SeatOrderCases([](auto& a, auto& r, auto& b) { return sl::NeverUsedFirst(a, r, b); }), "seat order over all 102 seats: never-used, unbuilt-retired, built-retired (the retired rule is unchanged)");
+  Twin("seat order: the seats in list order", !SeatOrderCases([](auto& a, auto&, auto&) { return a; }));
+  Twin("seat order: built-retired before unbuilt-retired", !SeatOrderCases([](auto& a, auto& r, auto&) { return sl::NeverUsedFirst(a, r); }));
+  Twin("seat order: retired seats dropped", !SeatOrderCases([](auto& a, auto& r, auto&) {
+         std::vector<int> v;
+         for (int s : a)
+           if (std::find(r.begin(), r.end(), s) == r.end()) v.push_back(s);
          return v;
        }));
   std::printf("imp_test: %s (%d failure(s))\n", g_fail ? "FAIL" : "PASS", g_fail);

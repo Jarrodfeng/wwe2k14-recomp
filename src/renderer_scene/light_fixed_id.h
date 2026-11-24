@@ -17,7 +17,8 @@
 #include <vector>
 
 #include "light_install.h"
-#include "scene_record.h"
+#include "rows_inputs.h"
+#include "rows_ring.h"
 
 namespace rdr_scene {
 

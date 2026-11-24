@@ -1,7 +1,7 @@
 r"""Session 101 lane 34: the post pass proven against the game's own frames (docs\renderer\POST_PASS.md).
 
   py -I tools\post\post_proof.py [--root DIR] [--only NAME[,NAME]] [--fault bloom_half|dof_threshold|skip_hdr] [--out DIR] [--no-run]
-  py -I tools\post\post_proof.py --selftest          (the gate check: every case within tolerance, every planted fault OUT of tolerance on the case where it shows)
+  py -I tools\post\post_proof.py --selftest          (the check: every case within tolerance, every planted fault OUT of tolerance on the case where it shows)
 
 Per case (a capture frame): out\renderer\dev\post_proof.exe renders the frame up to just before the post region, runs OUR post pass
 (src\renderer_scene\post_pass.*) on the scene colour and depth with the parameters read from the game's post draws by name, renders the game's own post
@@ -57,8 +57,18 @@ def last_frame(capture):
     return n - 1
 
 
+_BUILT = set()   # S106 TIPFIX2: one build per process
+
+
 def exe(root):
     p = Path(root) / 'out' / 'renderer' / 'dev' / 'post_proof.exe'
+    # S106 TIPFIX2: the build is incremental (only changed files recompile), so the check makes sure of a fresh exe itself: when nothing built it first this check used to FAIL on a missing exe, and a stale exe was never noticed.
+    bp = Path(root) / 'tools' / 'post' / 'build_proof.ps1'
+    if bp.exists() and str(root) not in _BUILT:
+        _BUILT.add(str(root))
+        r = subprocess.run(['pwsh', '-NoProfile', '-File', str(bp)], cwd=str(root), capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit('FAIL  build_proof.ps1 failed (exit %d): %s' % (r.returncode, (r.stdout + r.stderr).strip()[-400:]))
     if not p.exists():
         raise SystemExit(f'FAIL  {p} is not built: pwsh -NoProfile -File tools\\post\\build_proof.ps1')
     return str(p)
@@ -309,6 +319,11 @@ def main():
                 bad.append('fault:' + fault)
         # The non-circular check: what was on screen (Check A's case zips' picture.png). A zip whose owner run drew at a render scale is reported, not compared.
         for zn in ZIPS:
+            if not sorted((MAIN / 'out' / 's101' / 'runs').glob(ZIPS[zn][0] + '/case_*.zip')):
+                # S106 main (TIPFIX2 row 3): the S101 owner-run case zips were tidied; Jarrod S103: the S101-capture lanes are retired, none needed.
+                # The arm is reported retired, never a pass; the replay arms, the planted faults and the defaults check above / below still decide.
+                print(f'retired: picture arm {zn} ({ZIPS[zn][1]}): its S101 case zip under out\\s101\\runs is gone (S101-capture lanes retired, Jarrod S103)')
+                continue
             r = picture_check(a.root, zn, out)
             if r.get('ok') is None:
                 print('NOTE  ' + picture_line(r))

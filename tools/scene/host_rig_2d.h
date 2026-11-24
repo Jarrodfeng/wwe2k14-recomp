@@ -12,7 +12,7 @@
 
 #include "../../src/renderer/renderer.h"
 #include "../../src/renderer_adapter/capture_reader.h"
-#include "../../src/renderer_scene/scene_record.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 
 namespace host_rig_2d {
 

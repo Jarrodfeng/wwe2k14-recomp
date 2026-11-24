@@ -1,10 +1,10 @@
-"""proc_sweep: find (and with --kill, remove) orphaned build / gate / q processes. QTF, S103 WTA fix 7; rewritten after the Opus review (C3, H1, M1).
+"""proc_sweep: find (and with --kill, remove) orphaned build / q processes. QTF, S103 WTA fix 7; rewritten after the Opus review (C3, H1, M1).
 
     py tools\\harness\\proc_sweep.py [--kill] [--min-age 30] [--json]      (dry run unless --kill)
     py tools\\harness\\proc_sweep.py --selftest
 
 OPT-IN OWNERSHIP ONLY. A process is a candidate only when its environment carries  WWE_SWEEP_OWNER=<pid>:<create_time_epoch_seconds>  (set by
-tools\\gate\\proc.run for every child it starts, by q.py / build_ours.py for their workers and compilers, and by build_rig.ps1) AND the named owner
+tools\\compile\\proc.run for every child it starts, by q.py / build_ours.py for their workers and compilers, and by build_rig.ps1) AND the named owner
 process is gone (no such pid, or a pid reused by a newer process) AND it is older than --min-age minutes. A process without the variable is never
 touched, whatever it looks like (the earlier name / command-line matching could hit an unrelated python or compiler).
 
@@ -34,7 +34,7 @@ ENV_VAR = 'WWE_SWEEP_OWNER'
 PROTECT_RE = re.compile(r'^(wwe2k14.*|frame_rig|fview.*|rplay.*|host_rig.*|record_frame_test|nr_unit|owned_check.*|wwe2k14_launcher)\.exe$', re.I)
 PROTECT_BASENAMES = {'git', 'ssh', 'sccache', 'gh', 'adb', 'ssh-agent'}
 try:
-    sys.path.insert(0, os.path.join(ROOT, 'tools', 'gate'))
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'compile'))
     import proc as _proc
     PROTECT_BASENAMES |= set(_proc.DAEMONS)
 except Exception:        # noqa: BLE001 - the static list above already covers the real daemon names
@@ -246,7 +246,7 @@ def sweep(kill=False, min_age=30.0, log=None, quiet=False, only=None, worktree_b
         if not quiet:
             print(line)
     if not cands and not quiet:
-        print('proc_sweep: no orphaned build / gate / q processes (opt-in owner variable only)')
+        print('proc_sweep: no orphaned build / q processes (opt-in owner variable only)')
     return cands
 
 

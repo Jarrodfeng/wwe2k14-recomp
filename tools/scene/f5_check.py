@@ -1,4 +1,4 @@
-r"""S103 F5 gate: particles drawn by OUR frame from the record alone, offline. 0 game runs.
+r"""S103 F5 check: particles drawn by OUR frame from the record alone, offline. 0 game runs.
   py -I tools\scene\f5_check.py [--root .]
 1. blend codes from their writer (f5_blend_codes.py --check; plant mode_field must fail);
 2. f5_unit.exe: the sprite library / NameIndex / guest hasher + namer on the player's own prtcls.pac (plants tiled, endian must fail);

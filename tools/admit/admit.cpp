@@ -3,18 +3,26 @@
 // Why (docs\research\harness\CQ2.md): in Session 103 several compiles at once took available memory to 0.2 GB / 0.0 GB, and "LLVM out of
 // memory" was the COMMIT limit (RAM + page file = 45.9 GB here; one q refresh at -j 28 committed 48 GB). The older limits each read memory
 // once and could not see what a job started a second earlier was about to use. admit keeps one machine-wide record of who holds what
-// (OS-locked slot files, like the gate's GPU slots in tools\gate\sched.py GpuSlots) and counts the reservations of jobs younger than the
+// (OS-locked slot files) and counts the reservations of jobs younger than the
 // pending window as still to come. Reservations per kind are measured (docs\research\harness\CQM.md).
 //
-//   admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] [--on-timeout run|fail] [--state DIR] [--config F] -- PROGRAM ARGS...
+//   admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] [--state DIR] [--config F] -- PROGRAM ARGS...
+//        (S109 GATE: no production caller; the selftest's vehicle for the rule, and the rule is the same as hold's)
 //   admit hold --kind K --want N [--min M] [--per-gb X] [--per-commit-gb Y] [--timeout S] [--max-s S]
-//        -> stdout "granted M" + "marker V"; held until stdin EOF (a pipe) / the parent exits; a timeout = exit 75 and no "granted"
+//        -> stdout "granted M <word>" + "marker V"; held until stdin EOF (a pipe) / the parent exits
 //   admit hold ... --pid P --detach [--max-s S]   -> the two lines at once; a detached helper holds until P exits, `admit release`, or --max-s
-//   admit release --pid P [--kind K] | admit status | admit selftest [--keep] [--target EXE] [--plant no_pending|no_expiry]
+//   admit release --pid P [--kind K] | admit status | admit selftest [--keep] [--target EXE] [--plant no_pending|no_expiry] [--only-gate]
 //   No shim mode (CQ_ADV claims 2e / c): explicit call sites only.
 //
-// Never blocks a build: any internal error prints "[admit] ERROR <what>: running without admission" and runs the command.
-// Built by tools\admit\build_admit.ps1 (clang++ by absolute path; never through admit).
+// S109 GATE (docs\research\s109\GATE_plan.md): an ask waits at most min(--timeout, admit.json timeout_s = 180 s), for ANY reason. At 2 s of waiting it
+// writes a `waiting` history row (a waiter its caller kills is still on record). At the bound it asks once more at a minimum of 1 worker (a grant below
+// the asker's minimum = `granted N narrowed`); if not even that fits above the floor it is REFUSED: exit 75, a `refused` row, stdout `refused <line>`,
+// and one loud stderr line naming the need, the memory, every queue holder with its age, pending, and the largest committers outside the queue.
+// Nothing ever runs unadmitted after a wait (the S106 forced slot, its endless extension and --on-timeout are gone).
+// Never blocks a build on its OWN error: any internal error prints "[admit] ERROR <what>: running without admission" and runs the command.
+// Built by tools\admit\build_admit.ps1 (clang++ by absolute path; never through admit). The callers rebuild it from the main checkout's admit.cpp when
+// its sidecar admit.exe.sha256 differs (build_admit.ps1 -IfStale): this stands in for a Python port of the gate, the structural answer once the
+// exe's speed (the reason for C++: `admit run` wrapping single compiles) has no production caller.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #ifndef PSAPI_VERSION
@@ -34,7 +42,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,7 +55,7 @@ using std::wstring;
 
 static wstring g_self;                 // full path of this exe
 static volatile LONG g_child_running = 0;
-static const int EXIT_TIMEOUT_FAIL = 75;
+static const int EXIT_REFUSED = 75;   // not admitted within the bound (S109 GATE), or the caller is gone (orphaned): nothing ran
 static const DWORD GLOCK_WAIT_MS = 1000;   // one try at the machine lock; a busy lock is "keep waiting", never an error
 static const long long HISTORY_CAP = 16LL << 20;   // history.tsv rotates to history.old.tsv past 16 MB (~100k rows)
 
@@ -457,8 +467,39 @@ static wstring find_up(const wstring& start, const wstring& rel) {
     }
     return {};
 }
+// S106 0C: the main checkout of the repo this exe sits in. `.git` a directory = that checkout; `.git` a file ("gitdir: <main>\.git\worktrees\X") = a
+// worktree, whose main checkout is the part before "\.git\worktrees\". "" = no repo above the exe.
+static wstring main_checkout_of(const wstring& start) {
+    wstring d = start;
+    for (int i = 0; i < 12; i++) {
+        wstring g = join(d, L".git");
+        DWORD a = GetFileAttributesW(g.c_str());
+        if (a != INVALID_FILE_ATTRIBUTES) {
+            if (a & FILE_ATTRIBUTE_DIRECTORY) return d;
+            string t;
+            if (read_file(g, t) && t.rfind("gitdir:", 0) == 0) {
+                wstring gd = w16(t.substr(7));
+                while (!gd.empty() && (gd.back() == L'\n' || gd.back() == L'\r' || gd.back() == L' ')) gd.pop_back();
+                while (!gd.empty() && gd.front() == L' ') gd.erase(0, 1);
+                for (auto& ch : gd) if (ch == L'/') ch = L'\\';
+                if (!(gd.size() > 1 && (gd[1] == L':' || (gd[0] == L'\\' && gd[1] == L'\\')))) gd = full(join(d, gd));   // S106 0CF (review F11): a relative `gitdir:` is relative to this folder
+                size_t k = gd.find(L"\\.git\\worktrees\\");
+                if (k != wstring::npos) return gd.substr(0, k);
+            }
+            return d;
+        }
+        wstring above = dir_of(d);
+        if (above == d || above.size() < 3) break;
+        d = above;
+    }
+    return {};
+}
 static wstring default_state() {
-    // One fixed folder per Windows user, whichever checkout's exe runs: <LocalAppData>\wwe2k14-admit, outside out\ (which is cleared). The known
+    // S106 0C: ONE folder for every tool and every worktree: <main checkout>\out\harness\admit (the PowerShell tool and the Bash tool see different
+    // copies of <LocalAppData> (a Claude Code sandbox quirk): S105 ran two queues that could not see each other's holds, docs\research\s106\0C.md).
+    wstring root = main_checkout_of(dir_of(g_self));
+    if (!root.empty()) return join(join(join(root, L"out"), L"harness"), L"admit");
+    // last fallback only (an exe outside any repo): one folder per Windows user, <LocalAppData>\wwe2k14-admit. The known
     // folder first (a process started with a bare environment has no LOCALAPPDATA), then the variable; "" = neither: the caller falls open.
     static const GUID kLocalAppData = {0xF1B32785, 0x6FBA, 0x4FCF, {0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91}};   // FOLDERID_LocalAppData
     PWSTR p = nullptr;
@@ -487,6 +528,7 @@ struct Ctx {
     bool plant_no_pending = false;   // selftest planted faults: the pending window off / young-holder ages never expire
     bool plant_no_expiry = false;
     bool plant_no_tiebreak = false;  // two seniors with the same start tick: no pid tie-break (the round-3 freeze)
+    bool plant_no_outer_alone = false, plant_no_inner_alone = false;   // S106 C5F note 4: the alone pause looked at before / inside the machine lock (a plant drops one look)
     HANDLE glock = INVALID_HANDLE_VALUE;
     string cfg_err, state_err;
 };
@@ -518,6 +560,8 @@ static bool setup(Ctx& c, const wstring& state_opt, const wstring& cfg_opt, stri
     c.plant_no_pending = c.test && plant == L"no_pending";
     c.plant_no_expiry = c.test && plant == L"no_expiry";
     c.plant_no_tiebreak = c.test && plant == L"no_tiebreak";
+    c.plant_no_outer_alone = c.test && (plant == L"no_outer_alone" || plant == L"no_alone_looks");
+    c.plant_no_inner_alone = c.test && plant == L"no_alone_looks";
     err = !c.state_err.empty() ? c.state_err : c.cfg_err;
     return err.empty();
 }
@@ -624,8 +668,9 @@ static bool parse_slot_name(const wstring& name, string& kind, int& idx) {
 struct Holder {
     string kind, label, mode;
     int index = 0;
-    unsigned long pid = 0, for_pid = 0;
-    unsigned long long for_ct = 0;   // the owner's creation time: a dead owner's pid reused later is not it
+    unsigned long pid = 0, for_pid = 0, parent = 0;   // S106 0C: parent = the process that started this admit (the owner of a stdin-form hold)
+    unsigned long long for_ct = 0;  // the owner's creation time: a dead owner's pid reused later is not it
+    unsigned long long parent_ct = 0;   // S106 0CF: the creation time of `parent` (the owner of a stdin-form hold)
     double phys = 0, commit = 0, age_s = 0;
     int workers = 1;
 };
@@ -663,7 +708,9 @@ static vector<Holder> scan(const Ctx& c) {
         if (!rec.empty() && json_parse(rec, j, e) && j.t == JV::OBJ) {
             hd.pid = (unsigned long)j.num("pid", 0);
             hd.for_pid = (unsigned long)j.num("for_pid", 0);
+            hd.parent = (unsigned long)j.num("parent", 0);   // S106 0C
             hd.for_ct = strtoull(j.str("for_ct", "0").c_str(), nullptr, 10);   // a string: a FILETIME does not fit a double exactly
+            hd.parent_ct = strtoull(j.str("parent_ct", "0").c_str(), nullptr, 10);   // S106 0CF
             hd.phys = j.num("phys_gb", hd.phys);
             hd.commit = j.num("commit_gb", hd.commit);
             hd.workers = (int)j.num("workers", 1);
@@ -751,9 +798,10 @@ struct Want {
 struct Snap {
     Mem mem;
     int holders = 0;
-    double pend_p = 0, pend_c = 0;
+    double pend_p = 0, pend_c = 0, use_p = 0;   // S106 0C: use_p = what the holds' owner trees use now
     string reason;   // memory / commit / slots / lock / senior: also written to the waiter's ticket
     string why;      // the sentence for the waiting line when the reason is slots or senior
+    vector<Holder> hs;   // S109 GATE: the live holders the decision saw (named in a refusal)
 };
 struct Slot {
     HANDLE h;
@@ -812,16 +860,187 @@ static unsigned long long read_gen(const Ctx& c) {
 struct View {
     vector<Holder> hs;
     double pend_p = 0, pend_c = 0;
+    double use_p = 0, use_c = 0;   // S106 0C: what the holds' owner trees were measured using (already out of the available memory)
 };
+// S106 0C: the measured use of a hold's owner tree (the processes under the owner, not the owner itself), so that `pending` counts only the UNUSED part
+// of a reservation: `ullAvailPhys` already excludes what a running pool uses, and counting its whole reservation as well counted it twice
+// (docs\research\s106\0C.md: 141 of 174 waiting states in S105 had memory free and were refused only by that). WorkingSetSize for physical,
+// PrivateUsage for commit. false = not measurable (the owner is gone, cannot be opened, or is another process with the same pid): the caller then
+// counts the full reservation, as before. Test mode (the selftest, WWE_ADMIT_TEST under %TEMP%): `<state>\fake_use.txt` lines "<pid> <phys_gb> <commit_gb>";
+// an owner not listed (or no file) uses 0, so the selftest never depends on what its own processes happen to use.
+struct ProcTree {
+    std::map<unsigned long, vector<unsigned long>> kids;
+};
+static void snap_tree(ProcTree& t) {
+    HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (s == INVALID_HANDLE_VALUE) return;
+    PROCESSENTRY32W ent{};
+    ent.dwSize = sizeof ent;
+    if (Process32FirstW(s, &ent)) do { if (ent.th32ProcessID != ent.th32ParentProcessID) t.kids[ent.th32ParentProcessID].push_back(ent.th32ProcessID); } while (Process32NextW(s, &ent));
+    CloseHandle(s);
+}
+// S106 0CF (review B2): the physical figure of one process = its PRIVATE working set. WorkingSetSize counts the clang image, DLLs and mapped headers in every
+// process that maps them, so a sum over a pool's processes overstated its use and understated `pending` (the floor guarantee). priv_ws < 0 = the counter is
+// not available (Windows before 11 lacks PrivateWorkingSetSize): then min(WorkingSetSize, PrivateUsage). Never more than the working set.
+static double pick_private_phys(double ws, double priv_usage, double priv_ws) {
+    if (priv_ws >= 0) return std::min(ws, priv_ws);
+    return std::min(ws, priv_usage);
+}
+struct ProcUse {
+    bool ok = false;                 // false = not readable: the process and everything under it is not counted (the safe direction)
+    unsigned long long ct = 0;       // its creation time
+    double phys = 0, commit = 0;     // GB
+};
+// The tree walk, apart from the process table so a selftest can feed it a fake one (review B1). Toolhelp's th32ParentProcessID is the creator's pid AT
+// CREATION and is never updated: when the owner's pid was recycled, a process created long before the owner still names it. A process is counted only if
+// it was created AT OR AFTER its parent (the owner's creation time first, then each child's own for the next level): a real child cannot be older. A
+// process whose creation time cannot be read is not counted, nor anything under it. `exclude` = every live holder's own pid and every other hold owner
+// (review F6): what is not the pool's is never credited to the hold. owner_ct 0 = unknown: nothing under the owner can be told from a reused pid, nothing counted.
+static void walk_tree(const ProcTree& t, const std::function<ProcUse(unsigned long)>& use, unsigned long owner, unsigned long long owner_ct,
+                      const std::set<unsigned long>& exclude, double& phys, double& commit) {
+    phys = commit = 0;
+    if (!owner_ct) return;
+    vector<std::pair<unsigned long, unsigned long long>> todo{{owner, owner_ct}};
+    std::set<unsigned long> seen{owner};
+    while (!todo.empty()) {
+        auto cur = todo.back();
+        todo.pop_back();
+        auto it = t.kids.find(cur.first);
+        if (it == t.kids.end()) continue;
+        for (unsigned long k : it->second) {
+            if (seen.count(k) || exclude.count(k)) continue;   // (a reused pid can close a loop)
+            seen.insert(k);
+            ProcUse u = use(k);
+            if (!u.ok || !u.ct || u.ct < cur.second) continue;   // unreadable, or older than its recorded parent: a recycled pid, not a child
+            phys += u.phys;
+            commit += u.commit;
+            todo.push_back({k, u.ct});
+        }
+    }
+}
+static ProcUse real_use(unsigned long pid) {
+    const double GB = 1024.0 * 1024.0 * 1024.0;
+    ProcUse u;
+    HANDLE hp = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hp) return u;
+    u.ct = proc_created(hp);
+    PROCESS_MEMORY_COUNTERS_EX2 pm{};
+    pm.cb = sizeof pm;
+    if (GetProcessMemoryInfo(hp, (PROCESS_MEMORY_COUNTERS*)&pm, sizeof pm)) {
+        u.phys = pick_private_phys((double)pm.WorkingSetSize, (double)pm.PrivateUsage, (double)pm.PrivateWorkingSetSize) / GB;
+        u.commit = (double)pm.PrivateUsage / GB;
+        u.ok = true;
+    } else {
+        PROCESS_MEMORY_COUNTERS_EX p1{};
+        p1.cb = sizeof p1;
+        if (GetProcessMemoryInfo(hp, (PROCESS_MEMORY_COUNTERS*)&p1, sizeof p1)) {
+            u.phys = pick_private_phys((double)p1.WorkingSetSize, (double)p1.PrivateUsage, -1) / GB;
+            u.commit = (double)p1.PrivateUsage / GB;
+            u.ok = true;
+        }
+    }
+    CloseHandle(hp);
+    return u;
+}
+static bool tree_use(const Ctx& c, const ProcTree& t, const std::set<unsigned long>& exclude, unsigned long owner, unsigned long long want_ct, double& phys,
+                     double& commit) {
+    phys = commit = 0;
+    if (c.test) {
+        // `<state>\fake_tree.txt` (a fake process table): lines "<pid> <ppid> <ct> <phys_gb> <commit_gb>"; the owner's own row gives its creation time
+        // (1 when it has none). Without it, `<state>\fake_use.txt` lines "<pid> <phys_gb> <commit_gb>" (the owner's use, no tree).
+        string f;
+        if (read_file(join(c.state, L"fake_tree.txt"), f)) {
+            ProcTree ft;
+            std::map<unsigned long, ProcUse> rows;
+            unsigned long long owner_ct = 1;
+            size_t p = 0;
+            while (p < f.size()) {
+                size_t e = f.find('\n', p);
+                if (e == string::npos) e = f.size();
+                unsigned long pid = 0, ppid = 0;
+                unsigned long long ct = 0;
+                double a = 0, b = 0;
+                if (sscanf(f.substr(p, e - p).c_str(), "%lu %lu %llu %lf %lf", &pid, &ppid, &ct, &a, &b) == 5) {
+                    ProcUse u;
+                    u.ok = true;
+                    u.ct = ct;
+                    u.phys = a;
+                    u.commit = b;
+                    rows[pid] = u;
+                    if (pid == owner) owner_ct = ct;
+                    else ft.kids[ppid].push_back(pid);
+                }
+                p = e + 1;
+            }
+            walk_tree(ft, [&rows](unsigned long k) { auto i = rows.find(k); return i == rows.end() ? ProcUse{} : i->second; }, owner, owner_ct, exclude, phys, commit);
+            return owner != 0;
+        }
+        if (read_file(join(c.state, L"fake_use.txt"), f)) {
+            size_t p = 0;
+            while (p < f.size()) {
+                size_t e = f.find('\n', p);
+                if (e == string::npos) e = f.size();
+                unsigned long who = 0;
+                double a = 0, b = 0;
+                if (sscanf(f.substr(p, e - p).c_str(), "%lu %lf %lf", &who, &a, &b) == 3 && who == owner) { phys = a; commit = b; }
+                p = e + 1;
+            }
+        }
+        return owner != 0;
+    }
+    if (!owner) return false;
+    if (!want_ct) return false;   // S106 0CFF (review B-b): no recorded creation time (every hold written before 0CF) = unknown identity: the pid may be a stranger's now, its tree is not walked and the reservation counts in full
+    HANDLE ho = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, owner);
+    if (!ho) return false;
+    DWORD code = 0;
+    unsigned long long owner_ct = proc_created(ho);
+    bool alive = GetExitCodeProcess(ho, &code) && code == STILL_ACTIVE && owner_ct == want_ct;
+    CloseHandle(ho);
+    if (!alive) return false;
+    walk_tree(t, real_use, owner, owner_ct, exclude, phys, commit);
+    return true;
+}
 // pending = what live holders have reserved but may not use yet. A HOLD's reservation counts for its whole life (CQA review 4, item 2): a build
 // lasts minutes and a running compiler sits near half its peak, so after a minute a second pool would be admitted on a dip and both would peak
 // together. Only a `run` record (one process whose use does show up) and a Python holder count for the pending window alone.
 static View view_of(const Ctx& c) {
     View v;
     v.hs = scan(c);
+    // S106 0C: a HOLD slot counts its reservation minus what its owner's process tree is measured using (spread over the owner's live slots)
+    std::map<unsigned long, int> slots_of;   // owner pid -> live hold slots
+    auto owner_of = [](const Holder& h) { return h.for_pid ? h.for_pid : h.parent; };
+    for (auto& h : v.hs)
+        if (h.mode.rfind("hold", 0) == 0 && owner_of(h)) slots_of[owner_of(h)]++;
+    ProcTree tree;
+    std::set<unsigned long> exclude;   // S106 0CF (review F6): every live holder's own pid and every hold owner: not the pool's use
+    for (auto& h : v.hs) exclude.insert(h.pid);
+    for (auto& so : slots_of) exclude.insert(so.first);
+    std::map<unsigned long, std::pair<double, double>> used;   // owner -> measured (phys, commit); absent = not measurable
+    if (!slots_of.empty() && !c.test) snap_tree(tree);
+    for (auto& so : slots_of) {
+        double up = 0, uc = 0;
+        unsigned long long ct = 0;
+        for (auto& h : v.hs) {   // the creation time the hold recorded for its owner (for_pid), or for its parent (a stdin-form hold: review B1)
+            if (h.for_pid == so.first && h.for_ct) ct = h.for_ct;
+            else if (!h.for_pid && h.parent == so.first && h.parent_ct) ct = h.parent_ct;
+        }
+        std::set<unsigned long> ex = exclude;
+        ex.erase(so.first);   // (the owner itself is the walk's root: other owners stay excluded)
+        if (tree_use(c, tree, ex, so.first, ct, up, uc)) { used[so.first] = {up, uc}; v.use_p += up; v.use_c += uc; }
+    }
     for (auto& h : v.hs) {
-        bool counts = c.plant_no_expiry || h.mode.rfind("hold", 0) == 0 || h.age_s < c.cfg.window_s;
-        if (!c.plant_no_pending && counts) { v.pend_p += h.phys; v.pend_c += h.commit; }
+        bool is_hold = h.mode.rfind("hold", 0) == 0;
+        bool counts = c.plant_no_expiry || is_hold || h.age_s < c.cfg.window_s;
+        if (c.plant_no_pending || !counts) continue;
+        auto u = is_hold ? used.find(owner_of(h)) : used.end();
+        if (u != used.end()) {
+            int n = std::max(1, slots_of[owner_of(h)]);
+            v.pend_p += std::max(0.0, h.phys - u->second.first / n);
+            v.pend_c += std::max(0.0, h.commit - u->second.second / n);
+        } else {
+            v.pend_p += h.phys;
+            v.pend_c += h.commit;
+        }
     }
     return v;
 }
@@ -831,7 +1050,10 @@ static long long decide(const Ctx& c, const Want& w, const Mem& m, const View& v
     long long nbp = w.phys > 0 ? (long long)std::floor(bp / w.phys + 1e-9) : w.want;
     long long nbc = w.commit > 0 ? (long long)std::floor(bc / w.commit + 1e-9) : w.want;
     long long budget = std::min<long long>({(long long)w.want, nbp, nbc});
-    long long target = v.hs.empty() ? std::max<long long>(w.min, budget) : budget;   // a lone job is admitted at once (with at least its minimum)
+    // S106 0C: a lone job is admitted at once only if its minimum fits the PC's free memory (budget >= min already says so) or can never fit it (nobody
+    // can wait for that: the senior_cap rule's test); otherwise it waits like anyone else (the old rule admitted it into a PC with memory short)
+    bool never_fits = w.phys * w.min + c.cfg.floor_phys > m.total_phys;
+    long long target = v.hs.empty() && never_fits ? std::max<long long>(w.min, budget) : budget;
     if (target < w.min) { reason = nbc < w.min ? "commit" : "memory"; return 0; }
     return target;
 }
@@ -879,9 +1101,9 @@ static void write_slots(Ctx& c, const Want& w, Taken& t, unsigned long long gen)
     unsigned long long tick = now_tick();
     unsigned long pp = parent_pid();
     string rec = fmt("{\"pid\":%lu,\"kind\":\"%s\",\"phys_gb\":%.3f,\"commit_gb\":%.3f,\"start_tick\":%llu,\"start_ft\":%llu,\"start\":\"%s\",\"mode\":\"%s\",\"prog\":\"%s\","
-                     "\"parent\":%lu,\"for_pid\":%lu,\"for_ct\":\"%llu\",\"workers\":%d}",   // the creation time as a string: > 2^53
+                     "\"parent\":%lu,\"parent_ct\":\"%llu\",\"for_pid\":%lu,\"for_ct\":\"%llu\",\"workers\":%d}",   // the creation time as a string: > 2^53
                      GetCurrentProcessId(), json_esc(w.kind).c_str(), w.phys, w.commit, tick, now_ft(), local_stamp().c_str(), w.mode.c_str(),
-                     json_esc(w.prog).c_str(), pp, w.for_pid, pid_created(w.for_pid), (int)t.slots.size());
+                     json_esc(w.prog).c_str(), pp, pid_created(pp), w.for_pid, pid_created(w.for_pid), (int)t.slots.size());
     for (auto& sl : t.slots) write_record(sl.h, rec);
     write_file(join(c.state, L"generation"), fmt("%llu", gen + 1));
 }
@@ -894,10 +1116,89 @@ static void take_slots(const Ctx& c, const Want& w, Taken& t, long long n, int l
         else CloseHandle(h);
     }
 }
-// 1 = admitted (t holds the slots), 0 = wait (s.reason / s.why say why), -1 = internal error (err). force: the timeout-run path, take any one
-// slot so the job stays visible to the others (index up to max_slots + 64), whatever the numbers and the queue.
-static int attempt(Ctx& c, const Want& w, Taken& t, Snap& s, string& err, bool force) {
+// S106 C5: the "alone" pause. A run that must be alone (tools\runlock.ps1 -Alone) holds byte 0 of <main checkout>\out\harness\runlock\alone.lock and writes
+// {pid, token, name, since, until} from byte 1 (until = epoch seconds). While the lock is held admit grants NOTHING (reason "alone"), the forced path
+// included; the holder's own process tree (WWE2K14_RUNLOCK_TOKEN == the record's token) passes, and a record whose `until` has passed is ignored (a hung
+// holder cannot hold compiles past its own deadline). Liveness is the OS lock (freed when the holder dies), never the record. Tests: env WWE_ALONE_FILE
+// (honoured only in test mode, state folder under %TEMP% with WWE_ADMIT_TEST=1).
+static wstring alone_file_path(const Ctx& c) {
+    if (c.test) {
+        wstring e = getenv_w(L"WWE_ALONE_FILE");
+        if (!e.empty()) return full(e);
+    }
+    wstring root = main_checkout_of(dir_of(g_self));
+    if (root.empty()) return {};
+    return join(join(join(join(root, L"out"), L"harness"), L"runlock"), L"alone.lock");
+}
+// S106 C5F note 1: the probe takes a SHARED lock on byte 0 (the holder's exclusive lock refuses it; two probers never collide with each other), and a lock
+// is a pause only with a parseable record: a token, a future `until`, a live pid (and pid_start, when the record has one). A locked file with an empty or
+// unparseable record, or a record whose process is gone, is NOT a pause (a clean exit truncates the record; a hung writer must not hold compiles forever).
+static bool probe_shared0(HANDLE h) {   // true = no exclusive holder (we could take byte 0 shared, and let it go)
+    OVERLAPPED ov{};
+    if (!LockFileEx(h, LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ov)) return false;
+    OVERLAPPED ov2{};
+    UnlockFileEx(h, 0, 1, 0, &ov2);
+    return true;
+}
+static const long long FILETIME_TO_DOTNET_TICKS = 504911232000000000LL;   // 0001-01-01 -> 1601-01-01 in 100 ns (the record's pid_start is DateTime.Ticks, UTC)
+static bool alone_record_live(unsigned long pid, double pid_start) {
+    if (!pid) return false;
+    HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    if (!ph) return false;
+    bool alive = WaitForSingleObject(ph, 0) == WAIT_TIMEOUT;
+    if (alive && pid_start > 0) {
+        unsigned long long ct = proc_created(ph);
+        double want = pid_start - (double)FILETIME_TO_DOTNET_TICKS;
+        if (ct && std::fabs((double)ct - want) > 1e7) alive = false;   // the pid was reused (within 1 s; a double holds the ticks to ~100 ticks)
+    }
+    CloseHandle(ph);
+    return alive;
+}
+static bool alone_paused(const Ctx& c, string& why) {
+    wstring f = alone_file_path(c);
+    if (f.empty()) return false;
+    HANDLE h = slot_open(f, false);
+    if (h == INVALID_HANDLE_VALUE) return false;   // no file, or one opened without sharing: no pause we can read
+    bool paused = false;
+    string rec;
+    if (!probe_shared0(h)) { paused = true; rec = read_record(h); }
+    CloseHandle(h);
+    if (!paused) return false;
+    JV j;
+    string e;
+    if (rec.empty() || !json_parse(rec, j, e) || j.t != JV::OBJ) return false;   // locked, no readable record: not a pause
+    double until = j.num("until", 0);
+    unsigned long pid = (unsigned long)j.num("pid", 0);
+    string name = j.str("name", "?");
+    string token = j.str("token", "");
+    if (name.size() > 200) name.resize(200);
+    double now = (double)now_ft() / 1e7 - 11644473600.0;
+    if (token.empty() || until <= 0) return false;   // not a record this tool writes
+    if (until <= now) return false;   // expired: the holder outlived its own deadline
+    if (!alone_record_live(pid, j.num("pid_start", 0))) return false;   // the holder's process is gone (or the pid is another process now)
+    string mine = u8(getenv_w(L"WWE2K14_RUNLOCK_TOKEN")), mine2 = u8(getenv_w(L"WWE_ALONE_TOKEN"));
+    if (token == mine || (!mine2.empty() && token == mine2)) return false;   // the alone run's own tree (S106 C5F note 3: WWE_ALONE_TOKEN = the dedicated token of the alone run)
+    string when = "an unknown time";
+    {
+        FILETIME ft;
+        unsigned long long t100 = (unsigned long long)((until + 11644473600.0) * 1e7);
+        ft.dwLowDateTime = (DWORD)(t100 & 0xFFFFFFFFULL);
+        ft.dwHighDateTime = (DWORD)(t100 >> 32);
+        FILETIME lft;
+        SYSTEMTIME sys;
+        if (FileTimeToLocalFileTime(&ft, &lft) && FileTimeToSystemTime(&lft, &sys)) when = fmt("%02d:%02d:%02d", sys.wHour, sys.wMinute, sys.wSecond);
+    }
+    why = fmt("held off by an alone run '%s' pid %lu until %s: nothing is granted while it runs", name.c_str(), pid, when.c_str());
+    return true;
+}
+// 1 = admitted (t holds the slots), 0 = wait (s.reason / s.why say why), -1 = internal error (err). S109 GATE: there is no forced take; a grant
+// always fits above the floor by the rule (evaluate).
+static int attempt(Ctx& c, const Want& w, Taken& t, Snap& s, string& err) {
     s = Snap{};
+    {   // S106 C5: an alone run's pause grants nothing
+        string aw;
+        if (!c.plant_no_outer_alone && alone_paused(c, aw)) { s.reason = "alone"; s.why = aw; return 0; }
+    }
     Mem m;
     if (!read_mem(c, m, err)) return -1;   // memory, holders and waiters are read outside the lock
     s.mem = m;
@@ -906,23 +1207,31 @@ static int attempt(Ctx& c, const Want& w, Taken& t, Snap& s, string& err, bool f
     s.holders = (int)v.hs.size();
     s.pend_p = v.pend_p;
     s.pend_c = v.pend_c;
-    long long target = force ? 1 : evaluate(c, w, m, v, s);
+    s.use_p = v.use_p;
+    s.hs = v.hs;
+    long long target = evaluate(c, w, m, v, s);
     if (target < 1) return 0;
     GLock g = glock_take(c, GLOCK_WAIT_MS, err);
     if (g == GL_ERROR) return -1;
     if (g == GL_BUSY) { s.reason = "lock"; return 0; }
+    {   // S106 C5F note 4: the pause is looked at again INSIDE the machine lock: an alone run that took its pause after the look above still keeps this grant out
+        string aw;
+        if (!c.plant_no_inner_alone && alone_paused(c, aw)) { glock_release(c); s.reason = "alone"; s.why = aw; return 0; }
+    }
     unsigned long long g1 = read_gen(c);
-    if (g1 != g0 && !force) {   // a take since our scan: check again on the current holders
+    if (g1 != g0) {   // a take since our scan: check again on the current holders
         v = view_of(c);
         s.holders = (int)v.hs.size();
         s.pend_p = v.pend_p;
         s.pend_c = v.pend_c;
+        s.use_p = v.use_p;
+        s.hs = v.hs;
         target = evaluate(c, w, m, v, s);
         if (target < 1) { glock_release(c); return 0; }
     }
     int slots = std::max(1, c.cfg.kinds.at(w.kind).slots);
-    take_slots(c, w, t, target, force ? slots + 64 : slots);
-    if ((int)t.slots.size() < (force ? 1 : w.min)) {   // fewer free slots than the minimum: take none
+    take_slots(c, w, t, target, slots);
+    if ((int)t.slots.size() < w.min) {   // fewer free slots than the minimum: take none
         t.release();
         s.reason = "slots";
         s.why = w.min > 1 ? fmt("fewer than %d of the %d %s slots free", w.min, slots, w.kind.c_str()) : fmt("all %d %s slots held", slots, w.kind.c_str());
@@ -944,6 +1253,7 @@ static void observe_take(Ctx& c, const Want& w, Taken& t, Snap& s, long long& wo
     s.holders = (int)v.hs.size();
     s.pend_p = v.pend_p;
     s.pend_c = v.pend_c;
+    s.use_p = v.use_p;
     int slots = std::max(1, c.cfg.kinds.at(w.kind).slots);
     would = s.mem.phys < 0 ? 0 : evaluate(c, w, m, v, s);
     if (s.mem.phys < 0) s.reason = "error";
@@ -969,17 +1279,76 @@ static void observe_take(Ctx& c, const Want& w, Taken& t, Snap& s, long long& wo
 static string wait_line(const Ctx& c, const Want& w, const Snap& s) {
     if (s.reason == "lock")
         return fmt("[admit] waiting: %s: the machine lock %s\\admit.lock is busy (another admit holds it)", w.kind.c_str(), u8(c.state).c_str());
+    if (s.reason == "alone") return fmt("[admit] waiting: %s: %s", w.kind.c_str(), s.why.c_str());   // S106 C5
     string extra = s.why.empty() ? "" : "; " + s.why;
     return fmt("[admit] waiting: %s needs %.1f GB + floor %.1f (commit %.1f + %.1f); available %.1f GB, commit left %.1f GB, holders %d (pending %.1f GB, commit %.1f GB)%s",
                w.kind.c_str(), w.phys, c.cfg.floor_phys, w.commit, c.cfg.floor_commit, s.mem.phys, s.mem.commit, s.holders, s.pend_p, s.pend_c, extra.c_str());
 }
+// S109 GATE: the largest committers on the PC (PrivateUsage), for a refusal only: "name pid G GB" x n, the queue's own holders marked. Test mode reads
+// <state>\fake_top.txt lines "<name> <pid> <commit_gb>" instead (the selftest never depends on what really runs).
+static string top_committers(const Ctx& c, const vector<Holder>& hs, size_t n) {
+    struct PU { string name; unsigned long pid; double gb; };
+    vector<PU> all;
+    const double GB = 1024.0 * 1024.0 * 1024.0;
+    if (c.test) {
+        string f;
+        if (read_file(join(c.state, L"fake_top.txt"), f)) {
+            size_t p = 0;
+            while (p < f.size()) {
+                size_t e = f.find('\n', p);
+                if (e == string::npos) e = f.size();
+                char nm[128] = {0};
+                unsigned long pid = 0;
+                double gb = 0;
+                if (sscanf(f.substr(p, e - p).c_str(), "%127s %lu %lf", nm, &pid, &gb) == 3) all.push_back({nm, pid, gb});
+                p = e + 1;
+            }
+        }
+    } else {
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe{};
+            pe.dwSize = sizeof pe;
+            if (Process32FirstW(snap, &pe)) do {
+                HANDLE hp = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
+                if (!hp) continue;
+                PROCESS_MEMORY_COUNTERS_EX pm{};
+                pm.cb = sizeof pm;
+                if (GetProcessMemoryInfo(hp, (PROCESS_MEMORY_COUNTERS*)&pm, sizeof pm)) all.push_back({u8(pe.szExeFile), pe.th32ProcessID, (double)pm.PrivateUsage / GB});
+                CloseHandle(hp);
+            } while (Process32NextW(snap, &pe));
+            CloseHandle(snap);
+        }
+    }
+    std::sort(all.begin(), all.end(), [](const PU& a, const PU& b) { return a.gb > b.gb; });
+    string out;
+    for (size_t i = 0; i < all.size() && i < n; i++) {
+        bool queued = false;
+        for (auto& h : hs) queued = queued || h.pid == all[i].pid || h.for_pid == all[i].pid || h.parent == all[i].pid;
+        out += fmt("%s%s pid %lu %.1f GB%s", i ? ", " : "", all[i].name.c_str(), all[i].pid, all[i].gb, queued ? " (a queue holder)" : "");
+    }
+    return out.empty() ? "unreadable" : out;
+}
+// S109 GATE: the one loud line of a refusal: the need, the memory, every queue holder with its age, pending, the largest committers, the reason.
+static string refusal_text(const Ctx& c, const Want& w, const Snap& s, double waited) {
+    string holders;
+    for (size_t i = 0; i < s.hs.size(); i++) {
+        const Holder& h = s.hs[i];
+        holders += fmt("%s%s.%d pid %lu '%s' for %.0f s", i ? ", " : "", h.kind.c_str(), h.index, h.pid, h.label.c_str(), h.age_s);
+    }
+    string why = s.reason == "alone" || s.reason == "lock" ? wait_line(c, w, s).substr(17) : s.reason + (s.why.empty() ? "" : ": " + s.why);
+    return fmt("REFUSED after %.0f s: %s needs %d x %.1f GB + floor %.1f (commit %d x %.1f + %.1f); available %.1f GB, commit left %.1f GB; queue holders %d%s%s "
+               "(pending %.1f GB, commit %.1f GB); largest commit on the PC: %s; reason %s. Nothing ran: report it, do not retry in a loop",
+               waited, w.kind.c_str(), w.min, w.phys, c.cfg.floor_phys, w.min, w.commit, c.cfg.floor_commit, s.mem.phys, s.mem.commit, (int)s.hs.size(),
+               holders.empty() ? "" : ": ", holders.c_str(), s.pend_p, s.pend_c, top_committers(c, s.hs, 3).c_str(), why.c_str());
+}
 
-enum Outcome { ADMITTED, TIMEOUT_RUN, TIMEOUT_FAIL, ERROR_OPEN, NESTED, NESTED_HOLD, OFF, ORPHANED, OBSERVED };
+enum Outcome { ADMITTED, NARROWED, REFUSED, ERROR_OPEN, NESTED, NESTED_HOLD, OFF, ORPHANED, OBSERVED };   // S109 GATE: narrowed / refused (history rows `waiting` too)
 static const char* outcome_name(Outcome o) {
     switch (o) {
         case ADMITTED: return "admitted";
-        case TIMEOUT_RUN: return "timeout_run";
-        case TIMEOUT_FAIL: return "timeout_fail";
+        case NARROWED: return "narrowed";
+        case REFUSED: return "refused";
         case ERROR_OPEN: return "error_open";
         case NESTED: return "nested";
         case NESTED_HOLD: return "nested_hold";
@@ -993,22 +1362,26 @@ struct Admission {
     Taken t;
     Snap s;
     double waited = 0;
+    string refusal;   // S109 GATE: the refusal line (without "[admit] ") when out == REFUSED
 };
-static void admit_wait(Ctx& c, Want& w, double timeout_s, bool on_timeout_fail, Admission& a) {
+// S109 GATE: an ask waits at most min(timeout_s, admit.json timeout_s), for any reason (an alone run's pause included). on_wait is called ONCE, at 2 s
+// of waiting (the caller writes the `waiting` history row). At the bound: one last ask at a minimum of 1 worker (NARROWED when below the asker's
+// minimum), else REFUSED with the loud line (a.refusal). Nothing is forced, and the bound is never extended.
+static void admit_wait(Ctx& c, Want& w, double timeout_s, Admission& a, const std::function<void(const Admission&)>& on_wait) {
     double t0 = qpc_s(), last = 0;
     w.t0_tick = now_tick();
     if (c.test && !getenv_w(L"WWE_ADMIT_TEST_TICK0").empty()) w.t0_tick = wcstoull(getenv_w(L"WWE_ADMIT_TEST_TICK0").c_str(), nullptr, 10);   // selftest: a shared tick
     w.runlock = !getenv_w(L"WWE2K14_RUNLOCK_TOKEN").empty();
     unsigned seed = (unsigned)(GetCurrentProcessId() * 2654435761u) ^ (unsigned)GetTickCount();
     auto rnd = [&seed] { seed = seed * 1103515245u + 12345u; return (double)((seed >> 8) & 0xFFFF) / 65535.0; };
-    double limit = timeout_s * (1.0 + 0.10 * rnd());   // +0-10 %: a cohort that started together never times out in one instant
+    double limit = std::max(0.0, std::min(timeout_s, c.cfg.timeout_s));   // the config caps every caller: no caller can buy a long silent wait
     bool said = false, said_big = false, owner_tried = false, owner_gone = false;
     HANDLE ticket = INVALID_HANDLE_VALUE, owner = nullptr;
     unsigned long owner_pid = 0;
     int tries = 0;
     for (;;) {
         string err;
-        int r = attempt(c, w, a.t, a.s, err, false);
+        int r = attempt(c, w, a.t, a.s, err);
         double el = qpc_s() - t0;
         a.waited = el;
         if (r < 0) {
@@ -1027,36 +1400,51 @@ static void admit_wait(Ctx& c, Want& w, double timeout_s, bool on_timeout_fail, 
             if (owner && proc_created(owner) > proc_created(GetCurrentProcess())) owner_gone = true;
         }
         if (owner_gone || (owner && WaitForSingleObject(owner, 0) == WAIT_OBJECT_0)) {
-            say_err(fmt("[admit] ORPHANED: the caller (pid %lu) is gone: not running (exit %d)", owner_pid, EXIT_TIMEOUT_FAIL));
+            say_err(fmt("[admit] ORPHANED: the caller (pid %lu) is gone: not running (exit %d)", owner_pid, EXIT_REFUSED));
             a.out = ORPHANED;
             break;
         }
         if (ticket == INVALID_HANDLE_VALUE) ticket = ticket_open(c);
         if (ticket != INVALID_HANDLE_VALUE) ticket_write(ticket, w.kind, w.phys * w.min, w.commit * w.min, w.t0_tick, w.runlock, a.s.reason);
-        if (!said_big && w.phys * w.min + c.cfg.floor_phys > a.s.mem.total_phys) {
+        if (!said_big && a.s.mem.total_phys > 0 && w.phys * w.min + c.cfg.floor_phys > a.s.mem.total_phys) {   // (S106 C5: an alone pause refuses before memory is read: total -1 = unknown, no note)
             said_big = true;
             say_err(fmt("[admit] note: %s needs %.1f GB + floor %.1f, more than this PC's %.1f GB: nobody will wait for it", w.kind.c_str(), w.phys * w.min,
                         c.cfg.floor_phys, a.s.mem.total_phys));
         }
-        if (el >= 2.0 && !said) { say_err(wait_line(c, w, a.s)); said = true; last = el; }
-        else if (said && el - last >= 30.0) { say_err(wait_line(c, w, a.s)); last = el; }
+        if (el >= 2.0 && !said) {
+            say_err(wait_line(c, w, a.s) + fmt("; refused after %.0f s unless admitted", limit));
+            said = true;
+            last = el;
+            if (on_wait) on_wait(a);   // S109 GATE: the `waiting` row, so a waiter its caller kills is still on record
+        } else if (said && el - last >= 30.0) { say_err(wait_line(c, w, a.s)); last = el; }
         if (el >= limit) {
-            string why = wait_line(c, w, a.s).substr(17);
-            if (on_timeout_fail) {
-                say_err(fmt("[admit] TIMEOUT after %.0f s: not running (exit %d); %s", timeout_s, EXIT_TIMEOUT_FAIL, why.c_str()));
-                a.out = TIMEOUT_FAIL;
-                break;
-            }
-            say_err(fmt("[admit] TIMEOUT after %.0f s: running without admission; %s", timeout_s, why.c_str()));
-            // stay visible to the others in an overflow slot; a busy lock is tried again for up to 5 s (CQA review 3, item 6)
+            // S109 GATE: one last ask at a minimum of 1 worker (the full rule: floor, seniors, slots); a busy machine lock is tried again for up to 5 s
+            Want w1 = w;
+            w1.min = 1;
             double until = qpc_s() + 5.0;
+            Snap s2;
+            int r2 = 0;
             for (;;) {
-                Snap s2;
                 string e2;
-                if (attempt(c, w, a.t, s2, e2, true) != 0 || s2.reason != "lock" || qpc_s() > until) break;
+                r2 = attempt(c, w1, a.t, s2, e2);
+                if (r2 != 0 || s2.reason != "lock" || qpc_s() > until) break;
                 Sleep(100);
             }
-            a.out = TIMEOUT_RUN;
+            a.waited = qpc_s() - t0;
+            if (r2 < 0) {
+                say_err("[admit] ERROR at the bound: running without admission");
+                a.out = ERROR_OPEN;
+                break;
+            }
+            if (r2 == 1) {
+                a.s = s2;
+                a.out = (int)a.t.slots.size() < w.min ? NARROWED : ADMITTED;
+                break;
+            }
+            a.s = s2;
+            a.refusal = refusal_text(c, w, s2, a.waited);
+            say_err("[admit] " + a.refusal);
+            a.out = REFUSED;
             break;
         }
         // poll: 250 ms, backing off to 1 s, +-20 % jitter so many waiters do not poll in step
@@ -1151,6 +1539,7 @@ struct HistRow {
     string qmode = "-", would_reason = "-";   // the queue's mode (observe / enforce) and, in observe mode, what enforce would have done
     long long would_grant = -1;
     double waited = 0, rp = -1, rc = -1, avail = -1, commit = -1, held = -1, peak_mb = -1;
+    double pending = -1, held_use = -1;   // S106 0C: the last decision's pending and measured held use (GB), for the next replay
     int holders = -1, workers = 1;
     bool has_exit = false;
     unsigned long exit_code = 0;
@@ -1158,7 +1547,7 @@ struct HistRow {
 static string numf(double v, const char* f = "%.2f") { return v < 0 ? "-" : fmt(f, v); }
 static const char* HISTORY_HEADER =
     "time\tkind\tpid\twaited_s\treserve_phys_gb\treserve_commit_gb\tavail_phys_gb\tcommit_left_gb\tholders\toutcome\texit_code\theld_s\tpeak_job_mb\tpeak_scope\tmode\tworkers\tended\t"
-    "queue_mode\twould_grant\twould_reason\tprog\n";
+    "queue_mode\twould_grant\twould_reason\tprog\tpending_gb\theld_use_gb\n";   // S106 0C: the last two (appended: older readers keep their columns)
 static bool history_header_current(const wstring& p) {   // the first line, read alone (the file may be 16 MB)
     HANDLE h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE) return true;
@@ -1190,14 +1579,29 @@ static void history(const Ctx& c, const HistRow& r) {
         if (ch == '\t' || ch == '\n' || ch == '\r') ch = ' ';
     string line;
     if (sz.QuadPart == 0) line = HISTORY_HEADER;
-    line += fmt("%s\t%s\t%lu\t%.3f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n", local_stamp().c_str(), r.kind.c_str(), GetCurrentProcessId(),
+    line += fmt("%s\t%s\t%lu\t%.3f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", local_stamp().c_str(), r.kind.c_str(), GetCurrentProcessId(),
                 r.waited, numf(r.rp).c_str(), numf(r.rc).c_str(), numf(r.avail).c_str(), numf(r.commit).c_str(), r.holders < 0 ? "-" : fmt("%d", r.holders).c_str(),
                 r.outcome.c_str(), r.has_exit ? fmt("%lu", r.exit_code).c_str() : "-", numf(r.held, "%.3f").c_str(),
                 r.scope == "job" || r.scope == "partial" ? numf(r.peak_mb, "%.1f").c_str() : "-", r.scope.c_str(), r.mode.c_str(), r.workers, r.ended.c_str(),
-                r.qmode.c_str(), r.would_grant < 0 ? "-" : fmt("%lld", r.would_grant).c_str(), r.would_reason.c_str(), prog.c_str());
+                r.qmode.c_str(), r.would_grant < 0 ? "-" : fmt("%lld", r.would_grant).c_str(), r.would_reason.c_str(), prog.c_str(), numf(r.pending).c_str(), numf(r.held_use).c_str());
     DWORD n = 0;
     WriteFile(h, line.data(), (DWORD)line.size(), &n, nullptr);
     CloseHandle(h);
+}
+// S109 GATE: the row a wait writes at 2 s (outcome `waiting`, ended `waiting:<reason>`, workers 0): a waiter killed later is still on record; the
+// row at the wait's end (admitted / narrowed / refused / orphaned) follows it with the same pid.
+static HistRow waiting_row(const HistRow& base, const Admission& a) {
+    HistRow r = base;
+    r.outcome = "waiting";
+    r.ended = "waiting:" + (a.s.reason.empty() ? string("?") : a.s.reason);
+    r.waited = a.waited;
+    r.avail = a.s.mem.phys;
+    r.commit = a.s.mem.commit;
+    r.holders = a.s.holders;
+    r.pending = a.s.pend_p;
+    r.held_use = a.s.use_p;
+    r.workers = 0;
+    return r;
 }
 
 // ---------------------------------------------------------------- the command line (verbatim tail)
@@ -1487,9 +1891,9 @@ static void settle_kind(const Ctx& c, Want& w) {
     w.kind = c.cfg.default_kind;
 }
 static int cmd_run() {
-    Opts o = parse_opts(2, {L"--kind", L"--reserve-gb", L"--reserve-commit-gb", L"--timeout", L"--on-timeout", L"--state", L"--config"});
+    Opts o = parse_opts(2, {L"--kind", L"--reserve-gb", L"--reserve-commit-gb", L"--timeout", L"--state", L"--config"});
     if (!o.has_tail) {
-        say_err("usage: admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] [--on-timeout run|fail] -- PROGRAM ARGS...");
+        say_err("usage: admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] -- PROGRAM ARGS...");
         return 2;
     }
     string err = o.err;
@@ -1548,28 +1952,30 @@ static int cmd_run() {
         hr.avail = a.s.mem.phys;
         hr.commit = a.s.mem.commit;
         hr.holders = a.s.holders;
+        hr.pending = a.s.pend_p;
+        hr.held_use = a.s.use_p;
         hr.outcome = "observed";
         hr.would_grant = would;
         hr.would_reason = a.s.reason;
         return exec_tail(c, w, a, o.tail, hr, true, true);
     }
     double timeout = timeout_opt >= 0 ? timeout_opt : c.cfg.timeout_s;
-    wstring ot = o.kv.count(L"--on-timeout") ? o.kv.at(L"--on-timeout") : L"run";
-    if (ot != L"run" && ot != L"fail") { say_err("[admit] ERROR --on-timeout " + u8(ot) + " is not run|fail: using run"); ot = L"run"; }
-    admit_wait(c, w, timeout, ot == L"fail", a);
+    admit_wait(c, w, timeout, a, [&](const Admission& x) { history(c, waiting_row(hr, x)); });
     hr.waited = a.waited;
     hr.rp = w.phys;
     hr.rc = w.commit;
     hr.avail = a.s.mem.phys;
     hr.commit = a.s.mem.commit;
     hr.holders = a.s.holders;
+    hr.pending = a.s.pend_p;
+    hr.held_use = a.s.use_p;
     hr.outcome = outcome_name(a.out);
-    if (a.out == TIMEOUT_FAIL || a.out == ORPHANED) {   // nothing is started
+    if (a.out == REFUSED || a.out == ORPHANED) {   // nothing is started
         hr.has_exit = true;
-        hr.exit_code = EXIT_TIMEOUT_FAIL;
-        hr.ended = a.out == ORPHANED ? "orphaned" : "timeout_fail";
+        hr.exit_code = EXIT_REFUSED;
+        hr.ended = a.out == ORPHANED ? "orphaned" : "refused:" + a.s.reason;
         history(c, hr);
-        return EXIT_TIMEOUT_FAIL;
+        return EXIT_REFUSED;
     }
     return exec_tail(c, w, a, o.tail, hr, true, true);
 }
@@ -1752,6 +2158,7 @@ static int hold_front(const Opts& o, unsigned long owner, int want, const string
     while (read_line_blocking(r, line)) {
         if (line.rfind("granted ", 0) == 0) { say_out(line + "\n"); granted = true; continue; }
         if (line.rfind("marker ", 0) == 0) { say_out(line + "\n"); break; }
+        if (line.rfind("refused ", 0) == 0) { say_out(line + "\n"); continue; }   // S109 GATE: the refusal's stdout line, for the caller
         say_err(line);
     }
     CloseHandle(r);
@@ -1760,7 +2167,7 @@ static int hold_front(const Opts& o, unsigned long owner, int want, const string
     WaitForSingleObject(h.h, 5000);
     GetExitCodeProcess(h.h, &code);
     CloseHandle(h.h);
-    if (code == (DWORD)EXIT_TIMEOUT_FAIL) return EXIT_TIMEOUT_FAIL;
+    if (code == (DWORD)EXIT_REFUSED) return EXIT_REFUSED;
     say_err(fmt("[admit] ERROR hold: the helper ended without a grant (exit %lu): running without admission", code));
     say_out(fmt("granted %d open\n", want));
     return 0;
@@ -1771,6 +2178,7 @@ static const char* grant_word(const string& outcome) {
     if (outcome == "admitted") return "held";
     if (outcome == "nested" || outcome == "nested_hold") return "nested";
     if (outcome == "observed") return "observed";
+    if (outcome == "narrowed") return "narrowed";   // S109 GATE: granted at the bound below the asker's minimum (still above the floor)
     return "open";
 }
 static int cmd_hold() {
@@ -1849,26 +2257,35 @@ static int cmd_hold() {
                 hr.avail = a.s.mem.phys;
                 hr.commit = a.s.mem.commit;
                 hr.holders = a.s.holders;
+                hr.pending = a.s.pend_p;
+                hr.held_use = a.s.use_p;
             } else {
                 double timeout = timeout_opt >= 0 ? timeout_opt : c.cfg.timeout_s;
+                // S109 GATE: a hold not admitted within its bound is REFUSED (exit 75, stdout `refused <line>`), or NARROWED below its minimum when one fits
                 w.watch_pid = helper ? w.for_pid : 0;   // a waiting helper's caller is P (its front exits by design); otherwise the parent
-                // a hold that times out grants NOTHING: exit 75 and no "granted" line; the caller runs its plain count (CQA addendum A3)
-                admit_wait(c, w, timeout, true, a);
+                admit_wait(c, w, timeout, a, [&](const Admission& x) {
+                    HistRow b = hr;
+                    b.kind = w.kind;
+                    history(c, waiting_row(b, x));
+                });
                 hr.outcome = outcome_name(a.out);
                 hr.waited = a.waited;
                 hr.avail = a.s.mem.phys;
                 hr.commit = a.s.mem.commit;
                 hr.holders = a.s.holders;
-                if (a.out == TIMEOUT_FAIL || a.out == ORPHANED) {
+                hr.pending = a.s.pend_p;
+                hr.held_use = a.s.use_p;
+                if (a.out == REFUSED || a.out == ORPHANED) {
                     hr.kind = w.kind;
                     hr.has_exit = true;
-                    hr.exit_code = EXIT_TIMEOUT_FAIL;
+                    hr.exit_code = EXIT_REFUSED;
                     hr.workers = 0;
-                    hr.ended = a.out == ORPHANED ? "orphaned" : "timeout_fail";
+                    hr.ended = a.out == ORPHANED ? "orphaned" : "refused:" + a.s.reason;
                     history(c, hr);
-                    return EXIT_TIMEOUT_FAIL;
+                    if (a.out == REFUSED) say_out("refused " + a.refusal + "\n");
+                    return EXIT_REFUSED;
                 }
-                if (a.out == ADMITTED) grant = (int)a.t.slots.size();
+                if (a.out == ADMITTED || a.out == NARROWED) grant = (int)a.t.slots.size();
             }
         }
     }
@@ -1919,11 +2336,6 @@ static int cmd_release() {
 }
 
 // ---------------------------------------------------------------- status
-static unsigned long long file_time(const wstring& p) {
-    WIN32_FILE_ATTRIBUTE_DATA d{};
-    if (!GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &d)) return 0;
-    return ((unsigned long long)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
-}
 static int cmd_status() {
     Opts o = parse_opts(2, {L"--state", L"--config"});
     Ctx c;
@@ -1931,10 +2343,13 @@ static int cmd_status() {
     setup(c, opt_str(o, L"--state"), opt_str(o, L"--config"), err);
     wstring em = getenv_w(L"WWE_ADMIT_MODE");
     say_out("admit status: mode " + c.cfg.mode + (em == L"observe" || em == L"enforce" ? " (from WWE_ADMIT_MODE)" : c.cfg.path.empty() ? " (default)" : " (from the config)") +
-            (c.cfg.mode == "observe" ? ": nothing waits or is narrowed; history logs what enforce would have done\n" : ": askers wait for memory\n"));
-    wstring src = c.cfg.path.empty() ? L"" : join(dir_of(c.cfg.path), L"admit.cpp");
-    unsigned long long te = file_time(g_self), ts = src.empty() ? 0 : file_time(src);
-    say_out("  exe      " + u8(g_self) + (!ts ? ": source admit.cpp not found beside the config" : te < ts ? ": STALE (older than " + u8(src) + "): rebuild with tools\\admit\\build_admit.ps1" : ": up to date with " + u8(src)) + "\n");
+            (c.cfg.mode == "observe" ? ": nothing waits or is narrowed; history logs what enforce would have done\n" : fmt(": askers wait for memory at most %.0f s, then are refused (exit 75)\n", c.cfg.timeout_s)));
+    // S109 GATE: staleness is judged by CONTENT (the sidecar's SHA-256 of the admit.cpp it was built from) by tools\admit\status.py, and repaired by the
+    // callers (build_admit.ps1 -IfStale); a file time said STALE after a one-line label change and said nothing useful
+    string stamp;
+    read_file(g_self + L".sha256", stamp);
+    while (!stamp.empty() && (stamp.back() == '\n' || stamp.back() == '\r' || stamp.back() == ' ')) stamp.pop_back();
+    say_out("  exe      " + u8(g_self) + (stamp.empty() ? " (no source stamp: built before S109 GATE; the callers rebuild it)" : " (built from admit.cpp sha256 " + stamp.substr(0, 12) + "; py -I tools\\admit\\status.py compares)") + "\n");
     say_out("  state    " + (c.state.empty() ? "(none: " + c.state_err + ")" : u8(c.state)) + "\n");
     say_out("  config   " + (c.cfg.path.empty() ? "(none: " + c.cfg_err + ")" : u8(c.cfg.path)) + "\n");
     Mem m;
@@ -2208,7 +2623,7 @@ static void report(ST& st, Case& c) {
     for (auto& f : c.fails) say_out("        - " + f + "\n");
 }
 enum Col { C_TIME, C_KIND, C_PID, C_WAITED, C_RP, C_RC, C_AVAIL, C_COMMIT, C_HOLDERS, C_OUTCOME, C_EXIT, C_HELD, C_PEAK, C_SCOPE, C_MODE, C_WORKERS, C_ENDED,
-           C_QMODE, C_WOULD, C_WREASON, C_PROG, C_N };
+           C_QMODE, C_WOULD, C_WREASON, C_PROG, C_PENDING, C_HELDUSE, C_N };
 static vector<vector<string>> hist_rows(const wstring& sd) {
     vector<vector<string>> rows;
     string t = slurp(join(sd, L"history.tsv"));
@@ -2322,14 +2737,19 @@ static void case1(ST& st) {
     report(st, c);
 }
 static void case2(ST& st) {
-    Case c{"2 a lone job below the floor is admitted at once"};
+    // S106 0C: was "a lone job below the floor is admitted at once": that admitted a job into a PC with its memory short (the old lone-job rule)
+    Case c{"2 a lone job whose minimum does not fit the free memory WAITS (it is admitted at once only when it fits or can never fit this PC: case 24)"};
     wstring sd = set_case(st, L"c2", 24, 60, 900, "1.0 1.0");
     string e;
-    long rc = run_admit(st, L"run --kind compile --timeout 5 --on-timeout fail -- cmd /c exit 0", L"c2", &e);
+    long rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c2", &e);
     auto rows = hist_rows(sd);
-    c.need(rc == 0, fmt("rc %ld", rc));
-    c.need(e.empty(), "stderr: " + e);
-    c.need(rows.size() == 1 && rows[0][C_OUTCOME] == "admitted" && atof(rows[0][C_WAITED].c_str()) < 0.1, "not admitted at once");
+    c.need(rc == EXIT_REFUSED, fmt("rc %ld, want 75 (it must wait, not run)", rc));
+    c.need(e.find("[admit] waiting:") != string::npos && e.find("; refused after 2 s unless admitted") != string::npos, "no waiting line naming its bound: " + e);
+    c.need(rows.size() == 2 && rows[0][C_OUTCOME] == "waiting" && rows[1][C_OUTCOME] == "refused", "the rows are not waiting + refused (S109 GATE)");
+    set_fake(sd, "30 30");   // the same lone job with room: admitted at once
+    rc = run_admit(st, L"run --kind compile --timeout 5 -- cmd /c exit 0", L"c2b", &e);
+    rows = hist_rows(sd);
+    c.need(rc == 0 && rows.size() == 3 && rows[2][C_OUTCOME] == "admitted" && atof(rows[2][C_WAITED].c_str()) < 0.1, "with room it was not admitted at once");
     if (!rows.empty()) c.info = "available " + rows[0][C_AVAIL] + " GB, commit " + rows[0][C_COMMIT] + " GB, waited " + rows[0][C_WAITED] + " s";
     report(st, c);
 }
@@ -2476,26 +2896,23 @@ static void case6(ST& st) {
     report(st, c);
 }
 static void case7(ST& st) {
-    Case c{"7 timeout: run goes on with the loud line; fail exits 75 and starts nothing"};
+    Case c{"7 the bound (S109 GATE): a run not admitted in its 1 s is REFUSED (exit 75), starts nothing, and the loud line names the holder"};
     wstring sd = set_case(st, L"c7", 1, 60, 900, "100 100");
     WJ a = wait_job(st, L"c7a", L"run --kind compile");
     c.need(signalled(a.started, LONG_MS), "A never started");
-    string e;
-    double secs = 0;
-    long rc = run_admit(st, L"run --kind compile --timeout 1 --on-timeout run -- cmd /c exit 3", L"c7b", &e, &secs);
-    c.need(rc == 3, fmt("timeout-run rc %ld", rc));
-    c.need(e.find("[admit] TIMEOUT after 1 s: running without admission") != string::npos, "no TIMEOUT run line: " + e);
-    c.need(secs >= 0.9, fmt("timeout-run returned after %.2f s", secs));
     wstring touched = join(st.root, L"c7_touched");
     string e2;
-    rc = run_admit(st, L"run --kind compile --timeout 1 --on-timeout fail -- " + q(g_self) + L" __touch " + q(touched), L"c7c", &e2);
-    c.need(rc == EXIT_TIMEOUT_FAIL, fmt("timeout-fail rc %ld, want 75", rc));
-    c.need(!is_file(touched), "timeout-fail started the command");
-    c.need(e2.find("[admit] TIMEOUT after 1 s: not running (exit 75)") != string::npos, "no TIMEOUT fail line: " + e2);
+    double secs = 0;
+    long rc = run_admit(st, L"run --kind compile --timeout 1 -- " + q(g_self) + L" __touch " + q(touched), L"c7c", &e2, &secs);
+    c.need(rc == EXIT_REFUSED, fmt("refused rc %ld, want 75", rc));
+    c.need(!is_file(touched), "a refused ask started the command");
+    c.need(secs >= 0.9 && secs < 15.0, fmt("the refusal came after %.2f s (bound 1 s)", secs));
+    c.need(e2.find("[admit] REFUSED after ") != string::npos && e2.find(" s: compile needs") != string::npos && e2.find("compile.0 pid ")!= string::npos && e2.find("reason slots") != string::npos,
+           "the REFUSED line does not name the need, the holder and the reason: " + e2);
     finish(a);
     auto rows = hist_rows(sd);
-    c.need(has_row(rows, C_OUTCOME, "timeout_run") && has_row(rows, C_OUTCOME, "timeout_fail"), "history lacks timeout_run / timeout_fail");
-    c.info = first_line(e);
+    c.need(has_row(rows, C_OUTCOME, "refused") && !has_row(rows, C_OUTCOME, "timeout_run"), "history lacks the refused row");
+    c.info = first_line(e2);
     report(st, c);
 }
 static void case8(ST& st) {
@@ -2519,7 +2936,7 @@ static void case8(ST& st) {
     WJ a = wait_job(st, L"c8h", L"run --kind compile");
     c.need(signalled(a.started, LONG_MS), "holder never started");
     SetEnvironmentVariableW(L"WWE_NO_ADMIT", L"1");
-    rc = run_admit(st, L"run --kind compile --timeout 20 --on-timeout fail -- cmd /c exit 4", L"c8c", &e);
+    rc = run_admit(st, L"run --kind compile --timeout 20 -- cmd /c exit 4", L"c8c", &e);
     SetEnvironmentVariableW(L"WWE_NO_ADMIT", nullptr);
     c.need(rc == 4 && e.empty(), fmt("WWE_NO_ADMIT: rc %ld, stderr '%s'", rc, e.c_str()));
     finish(a);
@@ -2531,7 +2948,7 @@ static void case9(ST& st) {
     wstring sd = set_case(st, L"c9", 1, 60, 900, "100 100");
     wstring cnt = join(st.root, L"c9_count.txt");
     string e;
-    long rc = run_admit(st, L"run --kind compile --timeout 10 --on-timeout fail -- " + q(g_target) + L" run --kind compile --timeout 10 --on-timeout fail -- " +
+    long rc = run_admit(st, L"run --kind compile --timeout 10 -- " + q(g_target) + L" run --kind compile --timeout 10 -- " +
                                 q(g_self) + L" __count " + q(cnt),
                         L"c9", &e);
     string n = slurp(cnt);
@@ -2616,7 +3033,7 @@ static void case10(ST& st) {
     report(st, c);
 }
 static void case12(ST& st) {
-    Case c{"12 interop with Python msvcrt.locking (the gate's lock), both ways"};
+    Case c{"12 interop with Python msvcrt.locking (the former Python scheduler's lock), both ways"};
     wstring sd = set_case(st, L"c12", 1, 60, 900, "100 100");
     c.need(!st.helper.empty(), "tools\\admit\\lock_interop.py not found above the exe");
     if (st.helper.empty()) { report(st, c); return; }
@@ -2637,8 +3054,8 @@ static void case12(ST& st) {
     int n = live_count(sd, &hs);
     c.need(n == 1 && hs[0].label == "interop", fmt("admit sees %d live holders", n) + (n ? " (label " + hs[0].label + ")" : ""));
     string e;
-    long rc = run_admit(st, L"run --kind compile --timeout 1 --on-timeout fail -- cmd /c exit 0", L"c12a", &e);
-    c.need(rc == EXIT_TIMEOUT_FAIL, fmt("admit took the slot python holds (rc %ld)", rc));
+    long rc = run_admit(st, L"run --kind compile --timeout 1 -- cmd /c exit 0", L"c12a", &e);
+    c.need(rc == EXIT_REFUSED, fmt("admit took the slot python holds (rc %ld)", rc));
     CloseHandle(inW);
     c.need(wait_exit(py, LONG_MS) == 0, "python hold did not exit");
     CloseHandle(outR);
@@ -2726,7 +3143,7 @@ static void case15(ST& st) {
     string e;
     if (ml.rfind("marker ", 0) == 0) {
         SetEnvironmentVariableW(L"WWE_ADMIT_HELD", w16(ml.substr(7)).c_str());
-        long rc = run_admit(st, L"run --kind compile --timeout 3 --on-timeout fail -- cmd /c exit 0", L"c15a", &e);
+        long rc = run_admit(st, L"run --kind compile --timeout 3 -- cmd /c exit 0", L"c15a", &e);
         SetEnvironmentVariableW(L"WWE_ADMIT_HELD", nullptr);
         c.need(rc == 0, fmt("marker route: rc %ld (75 = it waited for the hold's own slot)", rc));
     }
@@ -2741,7 +3158,7 @@ static void case15(ST& st) {
     HANDLE go1 = CreateEventW(nullptr, TRUE, FALSE, g1.c_str());
     wstring cnt = join(st.root, L"c15_count.txt");
     HANDLE ef2 = out_file(join(st.root, L"c15p.err"));
-    P p = spawn(q(g_self) + L" __later --go " + g1 + L" -- " + q(g_target) + L" run --kind compile --timeout 3 --on-timeout fail -- " + q(g_self) + L" __count " + q(cnt),
+    P p = spawn(q(g_self) + L" __later --go " + g1 + L" -- " + q(g_target) + L" run --kind compile --timeout 3 -- " + q(g_self) + L" __count " + q(cnt),
                 nullptr, ef2, ef2);
     CloseHandle(ef2);
     string out;
@@ -3012,11 +3429,31 @@ static void case27(ST& st) {
     report(st, c);
 }
 static void case28(ST& st) {
-    Case c{"28 with LOCALAPPDATA unset the state folder is still <LocalAppData>\\wwe2k14-admit (the known folder)"};
+    // S106 0C: the default state is the MAIN checkout's out\harness\admit (one folder for every tool and worktree); the LocalAppData folder is the last fallback only
+    Case c{"28 with LOCALAPPDATA unset the state folder is still <main checkout>\\out\\harness\\admit (LocalAppData only for an exe outside any repo)"};
     static const GUID kLocalAppData = {0xF1B32785, 0x6FBA, 0x4FCF, {0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91}};
     PWSTR p = nullptr;
     wstring want;
-    if (SUCCEEDED(SHGetKnownFolderPath(kLocalAppData, 0, nullptr, &p)) && p) want = join(p, L"wwe2k14-admit");
+    wstring mroot = main_checkout_of(dir_of(g_target));
+    {   // S106 0CF (review F11): the expectation comes from git itself (`--git-common-dir`), not from main_checkout_of again; skipped when git is not available
+        FILE* gp = _wpopen((L"git -C \"" + dir_of(g_target) + L"\" rev-parse --path-format=absolute --git-common-dir 2>nul").c_str(), L"r");
+        char gb[2048] = {0};
+        if (gp) {
+            if (fgets(gb, sizeof gb, gp)) {
+                string gl = gb;
+                while (!gl.empty() && (gl.back() == '\n' || gl.back() == '\r' || gl.back() == ' ')) gl.pop_back();
+                wstring gw = w16(gl);
+                for (auto& ch : gw) if (ch == L'/') ch = L'\\';
+                if (gw.size() > 5 && _wcsicmp(gw.c_str() + gw.size() - 5, L"\\.git") == 0) {
+                    wstring gm = gw.substr(0, gw.size() - 5);
+                    if (!gm.empty() && canon(gm) != canon(mroot)) c.need(false, "main_checkout_of said " + u8(mroot) + " but git's common dir says " + u8(gm));
+                }
+            }
+            _pclose(gp);
+        }
+    }
+    if (!mroot.empty()) want = join(join(join(mroot, L"out"), L"harness"), L"admit");
+    else if (SUCCEEDED(SHGetKnownFolderPath(kLocalAppData, 0, nullptr, &p)) && p) want = join(p, L"wwe2k14-admit");
     if (p) CoTaskMemFree(p);
     wstring la = getenv_w(L"LOCALAPPDATA"), wd = getenv_w(L"WWE_ADMIT_DIR");
     SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
@@ -3142,28 +3579,6 @@ static void case33(ST& st) {
     CloseHandle(go0);
     report(st, c);
 }
-static void case34(ST& st) {
-    Case c{"34 a hold that times out exits 75, says TIMEOUT, and prints no 'granted' (both forms)"};
-    set_case(st, L"c34", 1, 60, 900, "100 100");
-    WJ a = wait_job(st, L"c34a", L"run --kind compile");
-    c.need(signalled(a.started, LONG_MS), "A never started");
-    SH h = stdin_hold(st, L"hold --kind compile --want 2 --timeout 1", L"c34s");
-    long rc = stdin_hold_end(h);
-    string e = slurp(join(st.root, L"c34s.err"));
-    c.need(rc == EXIT_TIMEOUT_FAIL && h.granted.empty() && e.find("TIMEOUT") != string::npos,
-           fmt("stdin form: rc %ld, stdout '%s', stderr '%s'", rc, h.granted.c_str(), first_line(e).c_str()));
-    WJ p = plain_wait(st);
-    signalled(p.started, LONG_MS);
-    string out;
-    bool eof = false;
-    rc = run_piped(st, L"hold --kind compile --want 2 --timeout 1 --pid " + wnum(p.p.pid) + L" --detach", L"c34d", out, eof);
-    string e2 = slurp(join(st.root, L"c34d.err"));
-    c.need(rc == EXIT_TIMEOUT_FAIL && out.find("granted") == string::npos && e2.find("TIMEOUT") != string::npos,
-           fmt("detached form: rc %ld, stdout '%s', stderr '%s'", rc, first_line(out).c_str(), first_line(e2).c_str()));
-    finish(p);
-    finish(a);
-    report(st, c);
-}
 static void case35(ST& st) {
     Case c{"35 hold --min 4: room for 3 waits, room for 5 grants 5 (never fewer than the minimum)"};
     wstring sd = set_case(st, L"c35", 24, 60, 900, "13.5 13.5");   // with A's 1.7 pending: (13.5 - 1.7 - 4) / 2.5 commit = 3 compile workers
@@ -3201,7 +3616,7 @@ static void case36(ST& st) {
     c.need(signalled(a.started, LONG_MS), "A never started");
     SetEnvironmentVariableW(L"WWE_ADMIT_MODE", L"observe");
     string e;
-    long rc = run_admit(st, L"run --kind compile --timeout 3 --on-timeout fail -- cmd /c exit 0", L"c36r", &e);
+    long rc = run_admit(st, L"run --kind compile --timeout 3 -- cmd /c exit 0", L"c36r", &e);
     c.need(rc == 0, fmt("observed run: rc %ld (75 = it waited)", rc));
     c.need(last_row_col(sd, C_OUTCOME) == "observed" && last_row_col(sd, C_QMODE) == "observe" && last_row_col(sd, C_WOULD) == "0" && last_row_col(sd, C_WREASON) == "slots",
            "run row: outcome '" + last_row_col(sd, C_OUTCOME) + "' queue_mode '" + last_row_col(sd, C_QMODE) + "' would '" + last_row_col(sd, C_WOULD) + "' reason '" +
@@ -3229,8 +3644,8 @@ static void case37(ST& st) {
     long rc = run_piped(st, L"hold --kind parse --want 7 --pid " + wnum(p1.p.pid) + L" --detach", L"c37a", out, eof);   // 7 x 1.7 = 11.9 of 16 - 4
     c.need(rc == 0 && out.rfind("granted 7 held", 0) == 0, "first hold: '" + first_line(out) + "'");
     Sleep(2000);   // the first hold is now older than the 1 s pending window
-    rc = run_piped(st, L"hold --kind parse --want 8 --timeout 2 --pid " + wnum(p2.p.pid) + L" --detach", L"c37b", out, eof);
-    c.need(rc == EXIT_TIMEOUT_FAIL && out.find("granted") == string::npos,
+    rc = run_piped(st, L"hold --kind parse --want 8 --timeout 2 --pid " + wnum(p2.p.pid) + L" --detach", L"c37b", out, eof);   // refused = it waits its 2 s, then exit 75 (S109 GATE: never forced; 0.1 GB is left above the floor)
+    c.need(rc == EXIT_REFUSED && out.rfind("refused REFUSED after ", 0) == 0,
            fmt("enforce: the second hold was admitted (rc %ld, '%s'): the first one's 11.9 GB stopped counting after the window", rc, first_line(out).c_str()));
     SetEnvironmentVariableW(L"WWE_ADMIT_MODE", L"observe");
     rc = run_piped(st, L"hold --kind parse --want 8 --pid " + wnum(p3.p.pid) + L" --detach", L"c37c", out, eof);
@@ -3359,6 +3774,506 @@ static void case41(ST& st) {
     CloseHandle(go0);
     report(st, c);
 }
+// S106 0C: pending counts only the UNUSED part of a hold's reservation (the owner tree's measured use cancels it); a fresh hold counts in full; a
+// partly used one only in part (the UNSAFE-direction twins: full use is the only thing that lets the next job in)
+static void case42(ST& st) {
+    Case c{"42 a hold's pending is its reservation minus its owner's measured use: fresh = full, partly used = the rest, fully used = 0"};
+    wstring sd = set_case(st, L"c42", 24, 60, 900, "10 10");
+    SH h = stdin_hold(st, L"hold --kind parse --want 3", L"c42h");   // 3 x 1.7 = 5.1 GB reserved, owner = this process
+    c.need(h.granted == "granted 3 held", "the hold: '" + h.granted + "'");
+    string e;
+    const wstring ask = L"run --kind compile --timeout 2 -- cmd /c exit 0";   // needs 2.0 + floor 4 (and 2.5 + 4 commit)
+    long rc = run_admit(st, ask, L"c42a", &e);   // no use listed: the whole 5.1 is pending: 10 - 5.1 - 4 = 0.9 < 2
+    c.need(rc == EXIT_REFUSED, fmt("a fresh hold (no use): rc %ld, want 75 (waits)", rc));
+    write_file(join(sd, L"fake_use.txt"), fmt("%lu 1.0 1.0\n", GetCurrentProcessId()));   // 1.0 of 5.1 used: 4.1 pending: 10 - 4.1 - 4 = 1.9 < 2
+    rc = run_admit(st, ask, L"c42b", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a partly used hold (1.0 of 5.1): rc %ld, want 75 (waits)", rc));
+    write_file(join(sd, L"fake_use.txt"), fmt("%lu 5.1 5.1\n", GetCurrentProcessId() + 1));   // use listed for ANOTHER process: this owner still counts in full
+    rc = run_admit(st, ask, L"c42c", &e);
+    c.need(rc == EXIT_REFUSED, fmt("use of another pid: rc %ld, want 75 (waits)", rc));
+    write_file(join(sd, L"fake_use.txt"), fmt("%lu 5.1 5.1\n", GetCurrentProcessId()));   // all of it in use (and already out of the available figure): 0 pending
+    rc = run_admit(st, ask, L"c42d", &e);
+    auto rows = hist_rows(sd);
+    c.need(rc == 0 && has_row(rows, C_OUTCOME, "admitted"), fmt("a fully used hold: rc %ld, want 0 (admitted)", rc));
+    if (!rows.empty() && rows.back().size() > (size_t)C_HELDUSE) c.need(rows.back()[C_PENDING] != "-" && rows.back()[C_HELDUSE] != "-", "the history row has no pending_gb / held_use_gb");
+    stdin_hold_end(h);
+    report(st, c);
+}
+// S109 GATE: a hold whose minimum is not met within its bound asks once more at a minimum of 1: a free slot with memory above the floor = `narrowed`
+static void case43(ST& st) {
+    Case c{"43 at its bound a hold whose minimum cannot be met is granted what fits (granted 1 narrowed: one free slot), never forced past a slot or the floor"};
+    wstring sd = set_case(st, L"c43", 2, 60, 900, "100 100");
+    WJ a = wait_job(st, L"c43a", L"run --kind compile");   // one of the kind's two slots: a minimum of 2 cannot be met
+    c.need(signalled(a.started, LONG_MS), "A never started");
+    SH h = stdin_hold(st, L"hold --kind compile --want 8 --min 2 --timeout 1", L"c43h");
+    c.need(h.granted == "granted 1 narrowed", "the hold said '" + h.granted + "', want 'granted 1 narrowed' (one free slot of two)");
+    c.need(live_count(sd) == 2, fmt("live slots %d, want 2 (A's and the narrowed one)", live_count(sd)));
+    stdin_hold_end(h);
+    finish(a);
+    report(st, c);
+}
+// S106 0CF (review B1): a hold's use is the use of the processes that really are under its owner. The fake process table (<state>\fake_tree.txt, rows
+// "<pid> <ppid> <creation time> <phys_gb> <commit_gb>") plants a process that was created BEFORE the owner yet names it as its parent (a recycled pid):
+// it is not counted, so the next ask waits; a real child (created after), a real grandchild, and the planted older grandchild each get the verdict.
+static void case44(ST& st) {
+    Case c{"44 a hold's measured use counts only processes created AFTER their parent (a recycled owner pid is not a child); a holder's own pid is not the pool's"};
+    wstring sd = set_case(st, L"c44", 24, 60, 900, "10 10");
+    SH h = stdin_hold(st, L"hold --kind parse --want 3", L"c44h");   // 5.1 GB reserved, owner = this process
+    c.need(h.granted == "granted 3 held", "the hold: '" + h.granted + "'");
+    unsigned long me = GetCurrentProcessId();
+    const wstring ask = L"run --kind compile --timeout 2 -- cmd /c exit 0";   // needs 2.0 + floor 4: waits while 5.1 is pending
+    string e;
+    auto tree = [&](const string& rows) { write_file(join(sd, L"fake_tree.txt"), rows); };
+    tree(fmt("%lu 1 1000 0 0\n7001 %lu 500 5.1 5.1\n", me, me));   // created at 500, the owner at 1000: an unrelated process with a recycled parent pid
+    long rc = run_admit(st, ask, L"c44a", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a process OLDER than the owner that names it as parent was counted: rc %ld, want 75 (waits)", rc));
+    tree(fmt("%lu 1 1000 0 0\n7001 %lu 2000 5.1 5.1\n", me, me));   // a real child, fully using the reservation
+    rc = run_admit(st, ask, L"c44b", &e);
+    c.need(rc == 0, fmt("a real child using all of it: rc %ld, want 0 (admitted)", rc));
+    tree(fmt("%lu 1 1000 0 0\n7001 %lu 2000 0 0\n7002 7001 1500 5.1 5.1\n", me, me));   // a grandchild older than its parent
+    rc = run_admit(st, ask, L"c44c", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a grandchild older than its parent was counted: rc %ld, want 75", rc));
+    tree(fmt("%lu 1 1000 0 0\n7001 %lu 2000 0 0\n7002 7001 2500 5.1 5.1\n", me, me));   // a real grandchild
+    rc = run_admit(st, ask, L"c44d", &e);
+    c.need(rc == 0, fmt("a real grandchild using all of it: rc %ld, want 0 (admitted)", rc));
+    tree(fmt("%lu 1 1000 0 0\n%lu %lu 2000 5.1 5.1\n", me, (unsigned long)h.p.pid, me));   // the hold's own admit process (a child of the owner): not the pool's use
+    rc = run_admit(st, ask, L"c44e", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a live holder's own process was credited to the hold: rc %ld, want 75", rc));
+    stdin_hold_end(h);
+    report(st, c);
+}
+// S106 0CF (review B5) / S109 GATE: at the bound a hold gets what fits above the floor, never its whole minimum into a full PC
+static void case45(ST& st) {
+    Case c{"45 at the bound a grant is what fits: min 4 x 1.7 GB into 2 GB above the floor gives granted 1 narrowed, not 4"};
+    set_case(st, L"c45", 24, 60, 900, "6 6");   // 6 GB free, floor 4: room for ONE 1.7 GB worker; the minimum of 4 never fits, so the hold reaches its bound
+    SH h = stdin_hold(st, L"hold --kind parse --want 8 --min 4 --timeout 1", L"c45h");
+    c.need(h.granted == "granted 1 narrowed", "the hold said '" + h.granted + "', want 'granted 1 narrowed' (the minimum 4, cut to what fits)");
+    stdin_hold_end(h);
+    set_case(st, L"c45b", 24, 60, 900, "100 100");
+    SH h2 = stdin_hold(st, L"hold --kind parse --want 8 --min 4 --timeout 1", L"c45h2");   // plenty of memory: admitted at once, never forced
+    c.need(h2.granted == "granted 8 held", "with memory free: '" + h2.granted + "'");
+    stdin_hold_end(h2);
+    report(st, c);
+}
+// S106 0CF (review B2): the counter choice. Shared pages (images, DLLs) are in every process's WorkingSetSize: the private figure is used.
+static void case46(ST& st) {
+    Case c{"46 the physical use of a process is its private working set (shared pages are not counted once per process)"};
+    (void)st;
+    c.need(pick_private_phys(100, 30, 20) == 20, "with PrivateWorkingSetSize 20 of a working set of 100: want 20");
+    c.need(pick_private_phys(100, 30, -1) == 30, "without that counter: min(working set 100, PrivateUsage 30) = 30");
+    c.need(pick_private_phys(100, 300, -1) == 100, "PrivateUsage above the working set (paged out): the working set, 100");
+    c.need(pick_private_phys(10, 30, 50) == 10, "never more than the working set");
+    c.need(pick_private_phys(100, 30, 0) == 0, "a private working set of 0 is 0, not a fall-back");
+    report(st, c);
+}
+// S106 0CF (review F11): the REAL tree_use path (no fake file): a hold whose owner (this process) has a child that really allocates ~256 MB. A single
+// allocation, held for a few seconds; killed at the end.
+static void case47(ST& st) {
+    Case c{"47 real mode: the use of a hold owner's child process is measured (GetProcessMemoryInfo works with the access the walk asks for)"};
+    wstring sd = set_case(st, L"c47", 24, 60, 900, "100 100");
+    SH h = stdin_hold(st, L"hold --kind parse --want 3", L"c47h");
+    c.need(h.granted == "granted 3 held", "the hold: '" + h.granted + "'");
+    wstring of = join(st.root, L"c47alloc.out");
+    HANDLE oh = out_file(of);
+    P ch = spawn(q(g_self) + L" __alloc 256 8", nullptr, oh, oh);
+    CloseHandle(oh);
+    c.need(wait_text_or(of, "ready", nullptr, LONG_MS) == 1, "the allocating child never said ready");
+    Ctx cx;
+    cx.state = sd;
+    load_config(g_cfg_path, cx.cfg, cx.cfg_err);
+    cx.test = false;   // the real reader
+    View v = view_of(cx);
+    c.need(v.use_p >= 0.2 && v.use_p < 4.0, fmt("held_use_gb %.3f, want >= 0.2 (a child holding 256 MB) and sane", v.use_p));
+    c.info = fmt("held_use_gb %.3f", v.use_p);
+    if (ch.h) { TerminateProcess(ch.h, 1); WaitForSingleObject(ch.h, 5000); CloseHandle(ch.h); }
+    stdin_hold_end(h);
+    report(st, c);
+}
+// S106 0CFF (review B-a): a forced grant is capped by what is FREE above the floor AFTER the pending reservations (read under the lock): a hold that
+// timed out into a PC whose pools are reserved but not yet allocated used to get its whole minimum on top of them (three of min 4 x 3 GB = 36 GB)
+static void case48(ST& st) {
+    Case c{"48 the bound's grant counts pending reservations: 12 GB free, 5.1 GB reserved, min 4 x 1.7 GB gives granted 1 narrowed; a third (1.2 GB left) is REFUSED"};
+    set_case(st, L"c48", 24, 60, 900, "12 12");   // free 12, floor 4: 8 GB above it; the first hold reserves 5.1 and uses nothing yet
+    SH h1 = stdin_hold(st, L"hold --kind parse --want 3", L"c48h1");
+    c.need(h1.granted == "granted 3 held", "the first hold: '" + h1.granted + "'");
+    SH h2 = stdin_hold(st, L"hold --kind parse --want 8 --min 4 --timeout 1", L"c48h2");
+    c.need(h2.granted == "granted 1 narrowed", "the second hold said '" + h2.granted + "', want 'granted 1 narrowed' (8 - 5.1 pending = 2.9 above the floor = one 1.7 GB worker; 4 would be 6.8 GB)");
+    SH h3 = stdin_hold(st, L"hold --kind parse --want 8 --min 4 --timeout 1", L"c48h3");   // the lock-held read sees h1 AND h2: 12 - 6.8 - 4 = 1.2 < 1.7
+    c.need(h3.granted.rfind("refused REFUSED after ", 0) == 0, "a third hold said '" + h3.granted + "', want the refusal (S109 GATE: never forced past the floor)");
+    stdin_hold_end(h3);
+    stdin_hold_end(h2);
+    stdin_hold_end(h1);
+    report(st, c);
+}
+// S106 0CFF (review B-b): a hold record with no recorded creation time (every hold written before 0CF) names an owner pid that may since belong to a
+// STRANGER: unknown identity counts the reservation in full, the stranger's tree is never walked. Real mode (no fake file): this process owns the hold
+// and has a child that really holds 256 MB; with the creation time stripped from the record the use must be 0.
+static void case49(ST& st) {
+    Case c{"49 a hold record with creation time 0: its owner's tree is not walked (the reservation counts in full); with the time it is measured"};
+    wstring sd = set_case(st, L"c49", 24, 60, 900, "100 100");
+    SH h = stdin_hold(st, L"hold --kind parse --want 3", L"c49h");
+    c.need(h.granted == "granted 3 held", "the hold: '" + h.granted + "'");
+    wstring of = join(st.root, L"c49alloc.out");
+    HANDLE oh = out_file(of);
+    P ch = spawn(q(g_self) + L" __alloc 256 8", nullptr, oh, oh);
+    CloseHandle(oh);
+    c.need(wait_text_or(of, "ready", nullptr, LONG_MS) == 1, "the allocating child never said ready");
+    Ctx cx;
+    cx.state = sd;
+    load_config(g_cfg_path, cx.cfg, cx.cfg_err);
+    cx.test = false;   // the real reader
+    View v0 = view_of(cx);
+    c.need(v0.use_p >= 0.2, fmt("control: with its creation time the hold's use is %.3f, want >= 0.2", v0.use_p));
+    vector<Holder> hs;
+    live_count(sd, &hs);
+    bool done = false;
+    for (auto& h0 : hs) {   // every slot of the hold carries the record
+        wstring f = join(sd, w16(h0.kind) + L"." + wnum((unsigned)h0.index));
+        HANDLE fh = CreateFileW(f.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (fh != INVALID_HANDLE_VALUE) {
+            string rec = read_record(fh);
+            size_t a = rec.find("\"parent_ct\":\"");
+            if (a != string::npos) {
+                size_t b = rec.find('"', a + 13);
+                if (b != string::npos) { rec.replace(a + 13, b - (a + 13), "0"); write_record(fh, rec); done = true; }
+            }
+            CloseHandle(fh);
+        }
+    }
+    c.need(done, "could not rewrite the hold record");
+    View v1 = view_of(cx);
+    c.need(v1.use_p == 0.0, fmt("no creation time recorded: use %.3f, want 0 (a stranger's tree is not walked)", v1.use_p));
+    c.need(v1.pend_p >= 5.0, fmt("pending %.3f, want the whole 5.1 GB reservation", v1.pend_p));
+    if (ch.h) { TerminateProcess(ch.h, 1); WaitForSingleObject(ch.h, 5000); CloseHandle(ch.h); }
+    stdin_hold_end(h);
+    report(st, c);
+}
+// S109 GATE (was S106 0CFF F-a, the forced take's `open`): a last ask whose machine lock stays busy for its 5 s of retries is REFUSED, the lock named
+static void case50(ST& st) {
+    Case c{"50 the bound's last ask with the machine lock busy throughout is REFUSED (exit 75), the line naming the lock; nothing is granted open"};
+    wstring sd = set_case(st, L"c50", 2, 60, 900, "100 100");
+    WJ a = wait_job(st, L"c50a", L"run --kind compile");   // one of the kind's two slots: a minimum of 2 cannot be met, so the hold times out
+    c.need(signalled(a.started, LONG_MS), "A never started");
+    Ctx cx;
+    cx.state = sd;
+    cx.glock = CreateFileW(join(sd, L"admit.lock").c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr);
+    string err;
+    c.need(glock_take(cx, 5000, err) == GL_TAKEN, "the selftest could not take the machine lock");
+    SH h = stdin_hold(st, L"hold --kind compile --want 8 --min 2 --timeout 1", L"c50h");   // never gets the lock: the last ask's retries run out after 5 s
+    c.need(h.granted.rfind("refused REFUSED after ", 0) == 0 && h.granted.find("admit.lock is busy") != string::npos,
+           "the hold said '" + h.granted + "', want a refusal naming the busy machine lock");
+    glock_release(cx);
+    CloseHandle(cx.glock);
+    stdin_hold_end(h);
+    finish(a);
+    report(st, c);
+}
+// S109 GATE (EXEB-B1, S108 12:54-13:28; was S106 0CFF F-b "keeps waiting", the endless extension): commit short, nothing in the queue holding anything.
+// The hold waits its 3 s bound, writes its `waiting` row at 2 s, and is REFUSED: exit 75, stdout `refused ...`, the loud line naming the memory, the
+// empty queue and the largest committer outside it (fake_top.txt). Planted twin: the pre-GATE exe (--target) waits on and fails every check.
+static void case51(ST& st) {
+    Case c{"51 commit short with 0 holders: a hold is REFUSED at its 3 s bound (exit 75, `refused` on stdout, `waiting` + `refused` rows, the outside committer named)"};
+    wstring sd = set_case(st, L"c51", 24, 60, 900, "5 5");
+    write_file(join(sd, L"fake_top.txt"), "wwe2k14.exe 4242 17.5\nchrome.exe 777 2.0\n");
+    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, FALSE};
+    HANDLE inR, inW, outR, outW;
+    CreatePipe(&inR, &inW, &sa, 0);
+    CreatePipe(&outR, &outW, &sa, 0);
+    HANDLE ef = out_file(join(st.root, L"c51h.err"));
+    double t0 = qpc_s();
+    P p = spawn(q(g_target) + L" hold --kind parse --want 3 --min 1 --timeout 3", inR, outW, ef);
+    CloseHandle(inR);
+    CloseHandle(outW);
+    CloseHandle(ef);
+    string line = read_line_pipe(outR, 15000);   // the bound is 3 s: 15 s is the old code's tell (it waits on, says nothing)
+    double secs = qpc_s() - t0;
+    c.need(line.rfind("refused REFUSED after ", 0) == 0, "the hold said '" + line + "', want `refused REFUSED after ...`");
+    c.need(secs >= 2.5 && secs < 12.0, fmt("the answer came after %.1f s (bound 3 s)", secs));
+    long rc = wait_exit(p, 10000);
+    c.need(rc == EXIT_REFUSED, fmt("exit %ld, want 75", rc));
+    string e = slurp(join(st.root, L"c51h.err"));
+    c.need(e.find("[admit] REFUSED after ") != string::npos && e.find("commit left 5.0 GB") != string::npos && e.find("queue holders 0") != string::npos &&
+               e.find("wwe2k14.exe pid 4242 17.5 GB") != string::npos && e.find("reason commit") != string::npos,
+           "the loud line lacks the memory / the empty queue / the outside committer / the reason: " + e.substr(0, 400));
+    auto rows = hist_rows(sd);
+    c.need(rows.size() == 2 && rows[0][C_OUTCOME] == "waiting" && rows[1][C_OUTCOME] == "refused", fmt("%zu rows, want `waiting` then `refused`", rows.size()));
+    CloseHandle(inW);
+    CloseHandle(outR);
+    c.info = e.substr(0, 160);
+    report(st, c);
+}
+// S109 GATE: the config caps every caller's limit: --timeout 900 with timeout_s 2 is refused at about 2 s (no caller can buy a long silent wait)
+static void case55(ST& st) {
+    Case c{"55 the config's timeout_s caps the caller: --timeout 900 against timeout_s 2 is refused in about 2 s, not 900"};
+    set_case(st, L"c55", 24, 60, 2, "5 5");
+    string e;
+    double secs = 0;
+    long rc = run_admit(st, L"run --kind compile --timeout 900 -- cmd /c exit 0", L"c55", &e, &secs);
+    c.need(rc == EXIT_REFUSED && secs >= 1.5 && secs < 12.0, fmt("rc %ld after %.1f s, want 75 after about 2 s", rc, secs));
+    report(st, c);
+}
+// S109 GATE: a queue holder is named in a refusal with its slot, pid, program and age
+static void case56(ST& st) {
+    Case c{"56 a refusal names every queue holder (kind.slot pid 'prog' for N s) and the pending reservation"};
+    wstring sd = set_case(st, L"c56", 24, 60, 900, "8 8");   // 4 GB above the floor; the first hold reserves 3 x 1.7 = 5.1 of it
+    SH h1 = stdin_hold(st, L"hold --kind parse --want 3 --min 1", L"c56h1");
+    c.need(h1.granted.rfind("granted ", 0) == 0, "the first hold: '" + h1.granted + "'");
+    string e;
+    long rc = run_admit(st, L"run --kind parse --timeout 2 -- cmd /c exit 0", L"c56", &e);
+    c.need(rc == EXIT_REFUSED, fmt("rc %ld, want 75", rc));
+    c.need(e.find("parse.0 pid ") != string::npos && e.find("'hold' for ") != string::npos && e.find("queue holders ") != string::npos && e.find("pending ") != string::npos,
+           "the refusal does not name the holder: " + e.substr(0, 400));
+    stdin_hold_end(h1);
+    report(st, c);
+}
+// S109 GATE: a waiter its caller kills (no end row can be written) is still on record: its `waiting` row from 2 s
+static void case57(ST& st) {
+    Case c{"57 a waiter killed after 2 s leaves its `waiting` row (pid, kind, the reason) in history.tsv"};
+    wstring sd = set_case(st, L"c57", 24, 60, 900, "5 5");
+    HANDLE ef = out_file(join(st.root, L"c57.err"));
+    P p = spawn(q(g_target) + L" run --kind compile --timeout 60 -- cmd /c exit 0", nullptr, ef, ef);
+    CloseHandle(ef);
+    bool seen = wait_row(sd, C_OUTCOME, "waiting", 10000);
+    if (p.h) { TerminateProcess(p.h, 1); WaitForSingleObject(p.h, 5000); }
+    c.need(seen, "no `waiting` row within 10 s of a wait that began at once");
+    auto rows = hist_rows(sd);
+    bool mine = false;
+    for (auto& r : rows) mine = mine || (r[C_OUTCOME] == "waiting" && r[C_PID] == fmt("%lu", p.pid) && r[C_KIND] == "compile" && r[C_ENDED] == "waiting:commit");
+    c.need(mine, "the waiting row lacks the killed waiter's pid / kind / reason");
+    if (p.h) CloseHandle(p.h);
+    report(st, c);
+}
+static int child_alloc(int mb, int sec) {   // __alloc MB SECONDS: commit and touch MB megabytes once, say ready, hold them
+    char* m = (char*)VirtualAlloc(nullptr, (SIZE_T)mb << 20, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!m) return 3;
+    memset(m, 1, (size_t)mb << 20);
+    say_out("ready\n");
+    Sleep((DWORD)sec * 1000);
+    return 0;
+}
+// entry: attempt (cases 52 / 53 drive `hold` and `run` through admit_wait -> attempt, the production path)
+// S106 C5: the alone pause (docs\research\s106\C5.md). The selftest holds the pause file's byte-0 lock itself (an in-process handle), exactly what runlock.ps1 -Alone does.
+static HANDLE alone_hold(const wstring& f, double until_in_s, const char* token) {
+    HANDLE h = slot_open(f, true);
+    if (h == INVALID_HANDLE_VALUE) return h;
+    if (!try_lock0(h)) { CloseHandle(h); return INVALID_HANDLE_VALUE; }
+    double now = (double)now_ft() / 1e7 - 11644473600.0;
+    write_record(h, fmt("{\"pid\":%lu,\"token\":\"%s\",\"name\":\"selftest alone\",\"since\":%.0f,\"until\":%.0f}", GetCurrentProcessId(), token, now, now + until_in_s));
+    return h;
+}
+// 52: a pause grants nothing (the stdin-form hold and the run-form); S109 GATE: its time counts toward the bound, so both are REFUSED naming the alone
+// run; closing the pause grants at once
+static void case52(ST& st) {
+    Case c{"52 an alone pause grants nothing (hold, run): both are REFUSED at their 1 s bound naming the run; closing it grants"};
+    wstring sd = set_case(st, L"c52", 24, 60, 900, "100 100");
+    wstring af = join(sd, L"alone.lock");
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", af.c_str());
+    HANDLE ph = alone_hold(af, 600, "tok52");
+    c.need(ph != INVALID_HANDLE_VALUE, "the selftest could not take the pause");
+    SH h;
+    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, FALSE};
+    HANDLE inR, outW;
+    CreatePipe(&inR, &h.inW, &sa, 0);
+    CreatePipe(&h.outR, &outW, &sa, 0);
+    HANDLE ef = out_file(join(st.root, L"c52h.err"));
+    h.p = spawn(q(g_target) + L" hold --kind compile --want 1 --min 1 --timeout 1", inR, outW, ef);
+    CloseHandle(inR);
+    CloseHandle(outW);
+    CloseHandle(ef);
+    wstring touched = join(sd, L"c52_touched");
+    HANDLE e = out_file(join(st.root, L"c52r.err"));
+    P run = spawn(q(g_target) + L" run --kind compile --timeout 1 -- " + q(g_self) + L" __touch " + q(touched), nullptr, e, e);
+    CloseHandle(e);
+    // S109 GATE: the pause counts toward the bound like any reason: both asks are REFUSED at about 1 s, naming the alone run; nothing ran
+    h.granted = read_line_pipe(h.outR, 15000);
+    c.need(h.granted.rfind("refused REFUSED after ", 0) == 0 && h.granted.find("held off by an alone run 'selftest alone'") != string::npos,
+           "the paused hold said '" + h.granted + "', want a refusal naming the alone run");
+    c.need(wait_exit(run, 15000) == EXIT_REFUSED && !is_file(touched), "the paused run-form was not refused at its bound, or it ran its command");
+    stdin_hold_end(h);
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);   // closing the handle frees byte 0
+    SH h2 = stdin_hold(st, L"hold --kind compile --want 1 --min 1 --timeout 5", L"c52h2");
+    c.need(h2.granted == "granted 1 held", "after the pause ended a hold said '" + h2.granted + "', want 'granted 1 held'");
+    stdin_hold_end(h2);
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", join(st.root, L"alone_none.lock").c_str());
+    report(st, c);
+}
+// 53: a paused ask ends at its bound (75, never forced); the run's own token passes; an expired pause is ignored
+static void case53(ST& st) {
+    Case c{"53 a pause ends the ask at its bound (75, not forced); the alone run's own token passes; an expired pause is ignored"};
+    wstring sd = set_case(st, L"c53", 24, 60, 900, "100 100");
+    wstring af = join(sd, L"alone.lock");
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", af.c_str());
+    HANDLE ph = alone_hold(af, 600, "tok53");
+    string e;
+    double waited53 = 0;
+    long rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c53a", &e, &waited53);
+    c.need(rc == EXIT_REFUSED, fmt("a paused fail-form ask: rc %ld, want 75", rc));
+    c.need(waited53 >= 1.5, fmt("a paused fail-form ask ended after %.1f s: it was refused at once instead of waiting its limit", waited53));
+    SetEnvironmentVariableW(L"WWE2K14_RUNLOCK_TOKEN", L"tok53");
+    rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c53b", &e, &waited53);
+    c.need(rc == 0, fmt("the alone run's own token was held off: rc %ld", rc));
+    SetEnvironmentVariableW(L"WWE2K14_RUNLOCK_TOKEN", L"other");
+    rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c53c", &e);
+    c.need(rc == EXIT_REFUSED, fmt("another run's token passed the pause: rc %ld, want 75", rc));
+    SetEnvironmentVariableW(L"WWE2K14_RUNLOCK_TOKEN", nullptr);
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    ph = alone_hold(af, -30, "tok53x");   // the lock is held but the record's `until` has passed: a hung holder
+    rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c53d", &e);
+    c.need(rc == 0, fmt("an expired pause held compiles off: rc %ld", rc));
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // a holder that dies without cleaning up (python's msvcrt lock, killed): the OS frees byte 0 and the ask is granted
+    if (!st.helper.empty()) {
+        SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, FALSE};
+        HANDLE inR, inW, outR, outW;
+        CreatePipe(&inR, &inW, &sa, 0);
+        CreatePipe(&outR, &outW, &sa, 0);
+        HANDLE ef = out_file(join(st.root, L"c53py.err"));
+        P py = spawn(L"py -I " + q(st.helper) + L" hold " + q(af) + L" alone", inR, outW, ef);   // S106 C5F: the pause record carries a token and a future until
+        CloseHandle(inR);
+        CloseHandle(outW);
+        CloseHandle(ef);
+        string line = read_line_pipe(outR, LONG_MS);
+        c.need(line == "locked", "python said '" + line + "'");
+        rc = run_admit(st, L"run --kind compile --timeout 1 -- cmd /c exit 0", L"c53e", &e);
+        c.need(rc == EXIT_REFUSED, fmt("a python-held pause did not hold compiles off: rc %ld", rc));
+        wstring kill = L"taskkill /F /T /PID " + wnum(py.pid);
+        P k = spawn(kill, nullptr, nullptr, nullptr);
+        wait_exit(k, LONG_MS);
+        CloseHandle(inW);
+        CloseHandle(outR);
+        double t0 = qpc_s();
+        rc = run_admit(st, L"run --kind compile --timeout 5 -- cmd /c exit 0", L"c53f", &e);
+        c.need(rc == 0 && qpc_s() - t0 < 5.0, fmt("after the holder was killed the pause still held compiles off: rc %ld", rc));
+    }
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", join(st.root, L"alone_none.lock").c_str());
+    report(st, c);
+}
+// S106 C5F note 1 / 4: what is a pause. A locked pause file is a pause only with a parseable record (token, future until, live pid [+ pid_start]); the probe
+// never takes the exclusive byte (two probers, or a prober and a holder's own scan, never make each other "paused"); the pause is looked at again inside the
+// machine lock.
+static HANDLE alone_hold_raw(const wstring& f, const string& raw) {   // takes byte 0 (exclusive, like the holder) and writes RAW from byte 1 as the record
+    HANDLE h = slot_open(f, true);
+    if (h == INVALID_HANDLE_VALUE) return h;
+    if (!try_lock0(h)) { CloseHandle(h); return INVALID_HANDLE_VALUE; }
+    if (!raw.empty()) write_record(h, raw);
+    else { LARGE_INTEGER one{}; one.QuadPart = 1; SetFilePointerEx(h, one, nullptr, FILE_BEGIN); SetEndOfFile(h); }
+    return h;
+}
+static void case54(ST& st) {
+    Case c{"54 a pause needs a parseable live record: empty / unparseable / dead-pid / reused-pid records are not pauses; the probe is shared; the in-lock look refuses"};
+    wstring sd = set_case(st, L"c54", 24, 60, 900, "100 100");
+    wstring af = join(sd, L"alone.lock");
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", af.c_str());
+    const wstring ask = L"run --kind compile --timeout 2 -- cmd /c exit 0";
+    string e;
+    double now = (double)now_ft() / 1e7 - 11644473600.0;
+    unsigned long me = GetCurrentProcessId();
+    long long my_start = (long long)pid_created(me) + 504911232000000000LL;
+    HANDLE ph;
+    long rc;
+    // a) a live holder with an EMPTY record (a clean exit truncates it; a failed write leaves it): not a pause
+    ph = alone_hold_raw(af, "");
+    c.need(ph != INVALID_HANDLE_VALUE, "the selftest could not take the pause (a)");
+    rc = run_admit(st, ask, L"c54a", &e);
+    c.need(rc == 0, fmt("a locked pause file with an empty record held compiles off: rc %ld, want 0", rc));
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // b) unparseable
+    ph = alone_hold_raw(af, "{\"pid\": 12, \"token\": ");
+    rc = run_admit(st, ask, L"c54b", &e);
+    c.need(rc == 0, fmt("a locked pause file with an unparseable record held compiles off: rc %ld, want 0", rc));
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // c) a record with a token and a future until whose process is gone
+    {
+        wstring cmd0 = L"cmd /c exit 0";
+        P dead = spawn(cmd0, nullptr, nullptr, nullptr);
+        wait_exit(dead, LONG_MS);
+        ph = alone_hold_raw(af, fmt("{\"pid\":%lu,\"token\":\"t54c\",\"name\":\"gone\",\"since\":%.0f,\"until\":%.0f}", (unsigned long)dead.pid, now, now + 600));
+        rc = run_admit(st, ask, L"c54c", &e);
+        c.need(rc == 0, fmt("a pause whose holder process is gone held compiles off: rc %ld, want 0", rc));
+        if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    }
+    // d) a live pid with a pid_start that is not that process's start (the pid was reused): not a pause; the same record with the right pid_start IS one
+    ph = alone_hold_raw(af, fmt("{\"pid\":%lu,\"pid_start\":%lld,\"token\":\"t54d\",\"name\":\"reused\",\"since\":%.0f,\"until\":%.0f}", me, my_start + 600000000LL, now, now + 600));
+    rc = run_admit(st, ask, L"c54d", &e);
+    c.need(rc == 0, fmt("a pause with another process's start time held compiles off: rc %ld, want 0", rc));
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    ph = alone_hold_raw(af, fmt("{\"pid\":%lu,\"pid_start\":%lld,\"token\":\"t54e\",\"name\":\"%s\",\"since\":%.0f,\"until\":%.0f}", me, my_start, string(500, 'n').c_str(), now, now + 600));
+    rc = run_admit(st, ask, L"c54e", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a live pause with the right pid_start did not hold compiles off (the detector cannot fail): rc %ld, want 75", rc));
+    c.need(e.find(string(201, 'n')) == string::npos, "a 500-character pause name was printed whole (capped at 200)");
+    // f) the in-lock look: the OUTER look dropped (a plant: the pause began after it), the lock look must still refuse; both dropped (the twin) grants
+    SetEnvironmentVariableW(L"WWE_ADMIT_PLANT", L"no_outer_alone");
+    rc = run_admit(st, ask, L"c54f", &e);
+    c.need(rc == EXIT_REFUSED, fmt("with the outer look dropped the in-lock look let a grant through: rc %ld, want 75", rc));
+    SetEnvironmentVariableW(L"WWE_ADMIT_PLANT", L"no_alone_looks");
+    rc = run_admit(st, ask, L"c54g", &e);
+    c.need(rc == 0, fmt("both looks dropped must grant (the plant's detector): rc %ld, want 0", rc));
+    SetEnvironmentVariableW(L"WWE_ADMIT_PLANT", st.plant ? w16(st.plant_name).c_str() : nullptr);
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // g) two probers at once, no exclusive holder: a SHARED lock on byte 0 (another admit probing) must not make a pause out of a leftover valid record
+    ph = alone_hold_raw(af, fmt("{\"pid\":%lu,\"pid_start\":%lld,\"token\":\"t54h\",\"name\":\"left\",\"since\":%.0f,\"until\":%.0f}", me, my_start, now, now + 600));
+    if (ph != INVALID_HANDLE_VALUE) { unlock0(ph); }
+    HANDLE other = slot_open(af, false);
+    OVERLAPPED ov{};
+    bool shared_ok = other != INVALID_HANDLE_VALUE && LockFileEx(other, LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ov);   // the other prober's shared byte
+    c.need(shared_ok, "the selftest could not take a shared byte 0");
+    rc = run_admit(st, ask, L"c54h", &e);
+    c.need(rc == 0, fmt("a prober holding byte 0 shared made a pause out of a record nobody holds: rc %ld, want 0", rc));
+    if (other != INVALID_HANDLE_VALUE) { OVERLAPPED o2{}; UnlockFileEx(other, 0, 1, 0, &o2); CloseHandle(other); }
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // h) the dedicated alone token (S106 C5F note 3): WWE_ALONE_TOKEN = the record's token passes even when WWE2K14_RUNLOCK_TOKEN is the OUTER holder's; the outer
+    // token alone (a sibling of the alone run inside the outer holder's tree) does not
+    ph = alone_hold_raw(af, fmt("{\"pid\":%lu,\"pid_start\":%lld,\"token\":\"t54i\",\"name\":\"dedicated\",\"since\":%.0f,\"until\":%.0f}", me, my_start, now, now + 600));
+    SetEnvironmentVariableW(L"WWE2K14_RUNLOCK_TOKEN", L"outer-holder");
+    rc = run_admit(st, ask, L"c54i", &e);
+    c.need(rc == EXIT_REFUSED, fmt("a sibling carrying only the outer holder's token passed the pause: rc %ld, want 75", rc));
+    SetEnvironmentVariableW(L"WWE_ALONE_TOKEN", L"t54i");
+    rc = run_admit(st, ask, L"c54j", &e);
+    c.need(rc == 0, fmt("the alone run's dedicated token was held off: rc %ld, want 0", rc));
+    SetEnvironmentVariableW(L"WWE_ALONE_TOKEN", nullptr);
+    SetEnvironmentVariableW(L"WWE2K14_RUNLOCK_TOKEN", nullptr);
+    if (ph != INVALID_HANDLE_VALUE) CloseHandle(ph);
+    // i) the capability query (note 5)
+    {
+        string out_cap;
+        long rcc = run_admit(st, L"capabilities", L"c54k", &out_cap);
+        c.need(rcc == 0, fmt("`admit capabilities` exit %ld, want 0", rcc));
+    }
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", join(st.root, L"alone_none.lock").c_str());
+    report(st, c);
+}
+static bool g_no_real = false;   // S109 GATE: --no-real skips the cases that allocate real memory or read the real PC (47, 49, overhead)
+static void run_new_cases(ST& st) {
+    case52(st);
+    case53(st);
+    case54(st);
+    case44(st);
+    case45(st);
+    case46(st);
+    if (!g_no_real) case47(st);
+    case48(st);
+    if (!g_no_real) case49(st);
+    case50(st);
+    case51(st);
+    case55(st);
+    case56(st);
+    case57(st);
+}
+// S109 GATE: the cases of the bounded wait and the refusal (`--only-gate`; with `--target <pre-GATE exe>` every one of them fails: the planted twin)
+static void run_gate_cases(ST& st) {
+    case2(st);
+    case7(st);
+    case37(st);
+    case43(st);
+    case45(st);
+    case48(st);
+    case50(st);
+    case51(st);
+    case52(st);
+    case55(st);
+    case56(st);
+    case57(st);
+}
 static void case_overhead(ST& st) {
     Case c{"overhead: admit run -- cmd /c exit 0 vs cmd /c exit 0, median of 50 each (bar 30 ms, judged only when the CPU was under 50 % busy)"};
     set_case(st, L"cov", 24, 60, 900, nullptr);   // no fake file: the real memory reader
@@ -3407,15 +4322,19 @@ static void rmtree(const wstring& d) {
 }
 static int cmd_selftest(int argc, wchar_t** argv) {
     ST st;
-    bool keep = false;
+    bool keep = false, only_new = false, only_alone = false, only_gate = false;
     g_target = g_self;
     for (int i = 2; i < argc; i++) {
         wstring a = argv[i];
         if (a == L"--keep") keep = true;
+        else if (a == L"--only-gate") only_gate = true;   // S109 GATE: the bounded wait and the refusal
+        else if (a == L"--no-real") g_no_real = true;     // S109 GATE: fake memory only (skips 47, 49 and the overhead case)
+        else if (a == L"--only-new") only_new = true;   // S106 0CF: just the new cases (44 and up)
+        else if (a == L"--only-alone") only_alone = true;   // S106 C5F: cases 52 - 54
         else if (a == L"--target" && i + 1 < argc) g_target = full(argv[++i]);
         else if (a == L"--plant" && i + 1 < argc) { st.plant = true; st.plant_name = u8(argv[++i]); }
     }
-    for (const wchar_t* v : {L"WWE_ADMIT_HELD", L"WWE_NO_ADMIT", L"WWE_ADMIT_PLANT", L"WWE_ADMIT_DIR", L"WWE_ADMIT_CONFIG", L"WWE2K14_RUNLOCK_TOKEN"})
+    for (const wchar_t* v : {L"WWE_ADMIT_HELD", L"WWE_NO_ADMIT", L"WWE_ADMIT_PLANT", L"WWE_ADMIT_DIR", L"WWE_ADMIT_CONFIG", L"WWE2K14_RUNLOCK_TOKEN", L"WWE_ALONE_FILE"})
         SetEnvironmentVariableW(v, nullptr);
     SetEnvironmentVariableW(L"WWE_ADMIT_TEST", L"1");
     SetEnvironmentVariableW(L"WWE_ADMIT_MODE", L"enforce");   // the waiting rules are tested in enforce; the observe cases set observe themselves
@@ -3433,8 +4352,13 @@ static int cmd_selftest(int argc, wchar_t** argv) {
     rmtree(st.root);
     if (!make_dirs(st.root)) { say_out("selftest: cannot create " + u8(st.root) + "\n"); return 1; }
     st.helper = find_up(dir_of(g_self), L"tools\\admit\\lock_interop.py");
+    SetEnvironmentVariableW(L"WWE_ALONE_FILE", join(st.root, L"alone_none.lock").c_str());   // S106 C5: a real alone run's pause must not hold the selftest's asks off
     say_out("admit selftest (temp " + u8(st.root) + (g_target != g_self ? ", TARGET " + u8(g_target) : "") + (st.plant ? ", PLANTED: " + st.plant_name : "") + ")\n");
     double t0 = qpc_s();
+    if (only_gate) run_gate_cases(st);
+    else if (only_alone) { case52(st); case53(st); case54(st); }
+    else if (only_new) run_new_cases(st);
+    else {
     case1(st);
     case2(st);
     case3(st);
@@ -3471,7 +4395,6 @@ static int cmd_selftest(int argc, wchar_t** argv) {
     case31(st);
     case32(st);
     case33(st);
-    case34(st);
     case35(st);
     case36(st);
     case37(st);
@@ -3479,7 +4402,11 @@ static int cmd_selftest(int argc, wchar_t** argv) {
     case39(st);
     case40(st);
     case41(st);
-    case_overhead(st);
+    case42(st);
+    case43(st);
+    run_new_cases(st);
+    if (!g_no_real) case_overhead(st);
+    }
     if (!st.hist_line.empty()) say_out("history (case 1, first row):\n" + st.hist_line + "\n");
     say_out(fmt("selftest: %d of %d cases passed in %.1f s%s\n", st.cases - st.fails, st.cases, qpc_s() - t0, st.fails ? "  -> FAIL" : "  -> PASS"));
     if (g_stjob) { TerminateJobObject(g_stjob, 1); CloseHandle(g_stjob); g_stjob = nullptr; }   // pass or fail: nothing of ours left running
@@ -3491,11 +4418,11 @@ static int cmd_selftest(int argc, wchar_t** argv) {
 // ---------------------------------------------------------------- main
 static void usage() {
     say_err("admit: the compile admission gate (docs\\agents\\admit.md)\n"
-            "  admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] [--on-timeout run|fail] [--state DIR] [--config F] -- PROGRAM ARGS...\n"
+            "  admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] [--state DIR] [--config F] -- PROGRAM ARGS...\n"
             "  admit hold --kind K --want N [--min M] [--per-gb X] [--per-commit-gb Y] [--timeout S] [--max-s S] [--pid P [--detach]]\n"
             "  admit release --pid P [--kind K]\n"
             "  admit status [--state DIR] [--config F]\n"
-            "  admit selftest [--keep] [--target EXE] [--plant no_pending|no_expiry]");
+            "  admit selftest [--keep] [--target EXE] [--plant no_pending|no_expiry] [--only-gate] [--no-real]");
 }
 int wmain(int argc, wchar_t** argv) {
     wchar_t buf[32768];
@@ -3509,6 +4436,7 @@ int wmain(int argc, wchar_t** argv) {
     if (sub == L"release") return cmd_release();
     if (sub == L"status") return cmd_status();
     if (sub == L"selftest") return cmd_selftest(argc, argv);
+    if (sub == L"capabilities") { say_out("alone_pause 2\n"); return 0; }   // S106 C5F note 5: what this exe honours (runlock.ps1 -Alone asks; an older exe answers its usage, exit 2)
     if (sub == L"__wait") return child_wait(argc, argv);
     if (sub == L"__echo" && argc >= 3) return child_echo(argv[2]);
     if (sub == L"__count" && argc >= 3) return child_count(argv[2]);
@@ -3517,6 +4445,7 @@ int wmain(int argc, wchar_t** argv) {
     if (sub == L"__later") return child_later();
     if (sub == L"__jobinfo" && argc >= 3) return child_jobinfo(argv[2]);
     if (sub == L"__memcost") return child_memcost();
+    if (sub == L"__alloc" && argc >= 4) return child_alloc(_wtoi(argv[2]), _wtoi(argv[3]));
     usage();
     return 2;
 }

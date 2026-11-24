@@ -122,6 +122,10 @@ def custom_cases():
             "[wwe2k14][load] WATCH stack tid 12 'twin thread': 0x82000000 0x82000004", "[wwe2k14][load] WATCH stacks: the guest thread list did not answer in 2 s"]
     cs["WATCH dump (S105 H detail lines)"] = {"wwe2k14_001.log": T.custom([(21, wmain)] + [(21, d) for d in wdet])}
     cs["WATCH mangled main line + detail"] = {"wwe2k14_001.log": T.custom([(21, wmain)] + [(21, d) for d in wdet[:2]] + [(22, "[wwe2k14][load] WATCH no loader progress twin")])}
+    # S106 0FFN N2: the hang guard's lines: three are findings, the over / picture / guard-on lines are neither a finding nor UNPARSED
+    cs["hang lines"] = {"wwe2k14_001.log": T.custom([(21, "[hang] HANG? no present for 20 s, guest frame 1234"), (22, "[hang] BLACK: no present for 25 s, 900 guest frames ran (presents 5, acquire timeouts 0)"),
+                                                     (22, "[hang] HANG: guest side, no guest frame for 60 s, guest frame 1234"), (23, "[hang] HANG over: guest frames and presents go on, guest frame 1300"),
+                                                     (23, "[hang] picture 30 s in: fine, 20 of 24 points bright, 5 ms"), (23, "[hang] BLACK over: presents came back")])}
     cs["WATCH detail only"] = {"wwe2k14_001.log": T.custom([(21, d) for d in wdet])}
     cs["CRLF log"] = {"wwe2k14_002.log": T.gen(plant=("holes", "black_no_3d")).replace("\n", "\r\n")}
     cs["two logs in one report"] = {"wwe2k14_001.log": T.gen(plant=("holes",)), "wwe2k14_002.log": T.gen(plant=("problem", "strikes"))}
@@ -131,6 +135,15 @@ def custom_cases():
         (14, "BaseHeap::Alloc failed at 0x1000 size 5"), (15, "[scene][load] adopted #3: scene Foo, waited 1500 ms"), (16, "[scene][load] adopted #4: scene Bar, waited 900 ms"),
         (17, "[rdr][caw] guest draw: models built 3, holes 0, actors drawn from them 36 (last at frame 4006, skipped: palette mismatch 0, own-skeleton piece holes of ALL wrestlers 4), textures bound 86 from override 0 missing 2 engine_default_cube 2 (parts without a diffuse 3)"),
         (18, "[rdr][caw] guest draw: models built 3, holes 0, actors drawn from them 36 (last at frame 4006, skipped: palette mismatch 0, own-skeleton piece holes of ALL wrestlers 9), textures bound 86 from override 0 missing 5 engine_default_cube 2 (parts without a diffuse 3)")])}
+    # S108 RPT: the facts block on a stream-free run with a match setup, a problem, a counter, an error and paths (both twins, the whole text)
+    import facts_selftest as FS
+    ev = FS.HEAD + [FS.seq(1, 0, 75, "main menu / match setup: CSmartMenuSequence", 10), FS.seq(2, 75, 9, "in-game: CGameMainSequence", 400),
+                    FS.L(2, "[wwe2k14] modified: wwe2k14_mods_dir = 'C:\\Users\\Twin Name\\mods' (source: command line)"),
+                    FS.L(3, "[rdr][PROBLEM] draw_shortfall: prop 2591 model 0x40000004: no rows frame=500"), FS.L(3, "[scene][weapon_rows] capped 9, overflow 0"),
+                    FS.L(4, "vkCreateGraphicsPipelines failed 0x1234 for /data/user/0/com.twin/files/store.bin", "error"),
+                    FS.L(5, "[wwe2k14][match] card (in-game sequence started): mode 0 type 3 arena 9 extras [255, 150, 153]; participants 0:343 (slot 34312), 1:12 (slot 1202) frame=400")]
+    ev += FS.setup_lines(2, 0, 3, 1, 9, FS.RULES, ["0:343/p0/a1", "1:12/cpu/a0/s1"], 400)
+    cs["S108 RPT facts block (setup, problem, counter, error, paths)"] = {"wwe2k14_001.log": "\n".join(ev) + "\n"}
     return cs
 
 

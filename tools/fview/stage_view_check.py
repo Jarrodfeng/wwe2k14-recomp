@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S101 lane 59: the stage view's offline proof (gate lane fview). 0 game runs.
+"""S101 lane 59: the stage view's offline proof. 0 game runs.
 
   py -I tools\\fview\\stage_view_check.py [--root DIR]
 

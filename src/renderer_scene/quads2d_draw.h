@@ -15,7 +15,7 @@
 #include "../renderer/frame_builder.h"
 #include "../renderer/renderer.h"
 #include "quads2d_blocks.h"
-#include "scene_record.h"
+#include "rows_quad2d.h"
 
 namespace rdr_scene::q2d {
 

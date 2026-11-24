@@ -4,7 +4,7 @@ r"""S102 lane P4P5: the shadow module's and the rim map's draw nodes as groups o
   py -I tools\shadow\own_nodes_cut.py cut CAPTURE OUT.zip --which module|rim|both [--only-frames A:B]
   py -I tools\shadow\own_nodes_cut.py oracle CAPTURE        (rule-independent: what of the two nodes is LEFT in a capture; exit 1 when anything is)
 
-CAPTURE = a case zip (the Bryan entrance / the 15-type match of the gate; relative paths are read from the main checkout).
+CAPTURE = a case zip (the Bryan entrance / the 15-type match of the standard captures; relative paths are read from the main checkout).
 
 What a "group" is: the passes (SetTargets up to the next SetTargets, with their clears, draws and copies) the game's two draw nodes make in one frame.
   module  sub_827E9740 -> sub_827E95D8: props map + circle blobs, map A, map B, the two coverage reductions, the min blurs   (pass kinds props, mapA, mapB, reduce, min_*)
@@ -14,7 +14,7 @@ The pass kinds are shadow_census.py's classification (draw origins: pass_site / 
 
 `census` prints, per capture and group: frames carrying it, passes / ops / draws / copies per frame (min..max), whether the passes of the group are ONE run of the frame's
 ops (no foreign pass between the first and last: "contiguous"), what stands directly before / after, the images the group writes and which later draws read them (slot, effect
-family), and the image ids the gate compares. `cut` writes a copy of the case zip in which every op of the chosen group(s) is removed (the node's walk is not run: the emulation of
+family), and the image ids the check compares. `cut` writes a copy of the case zip in which every op of the chosen group(s) is removed (the node's walk is not run: the emulation of
 "the node returned at once"); nothing else in the frame is touched. The cut is the planted twin of the lane: with nothing drawing the pass, the picture must differ.
 Counts only; the output zip is scratch for under out\ (delete it after the comparison)."""
 import argparse

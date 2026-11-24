@@ -1,6 +1,6 @@
 r"""Session 101 lane 143: the census's proof bar. The census's redraw of a capture's LAST frame must match the zip's picture.png (what the live game showed) within
 owned_check's tolerance (tools\native\owned_verdict.py: p99.9 of the per-pixel largest channel difference <= 8, no 16x16 block mean > 2, share of pixels over 4 <= 0.3 %).
-The strict tolerance is reported but does not gate (it fails on a healthy capture, see GUARD_BLOCK); the gate is a coarse block-mean guard. A redraw that misses the ring, the arena or anything else the live picture shows fails here, whatever the cause (the thin-draw bug of Check J1, run 7086: the lite draws were
+The strict tolerance is reported but does not decide pass / fail (it fails on a healthy capture, see GUARD_BLOCK); the pass rule is a coarse block-mean guard. A redraw that misses the ring, the arena or anything else the live picture shows fails here, whatever the cause (the thin-draw bug of Check J1, run 7086: the lite draws were
 dropped and the census said "99.4 % ours" of a picture without the ring and the arena).
 
   py -I tools\census\proof_bar.py REDRAW.png LIVE.png [--sheet OUT.jpg]      exit 0 within tolerance, 1 OVER, 2 cannot read

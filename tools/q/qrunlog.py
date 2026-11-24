@@ -4,7 +4,7 @@ r"""q runlog: an index of OUR run logs (S103 lane QX4): which exe, which route, 
         every indexed line holding ALL the words (case-insensitive, word prefixes; `a_b` = a phrase is not supported: quote nothing, just list the words). A hit is
         `run NNNN  exe  route  start  :line  text`. The lines indexed per run: the run header (exe dir + build time, route script, every `modified:` command-line
         flag, version) and the census lines, FIRST occurrence of each shape (digits normalised) with how many times it repeated:
-        [scene][ready] (holes / reasons), [stage_show], replay_posed, draw_asked, [rdr][weapons], event-prop lines, [wwe2k14][census], [rdr][census],
+        [scene][ready] (holes / reasons), [stage_show], draw_asked, [rdr][weapons], event-prop lines, [wwe2k14][census], [rdr][census],
         [scene][live] / [skips] / [maps] / [screens] / [frame], [rdr][crowd], [rdr][verdict].
         --exe X / --route R keep the runs whose exe path / route script path contains X / R. With no WORDS the matching runs are listed.
     py tools/q/q.py runlog which --mode X [--exe X] [--route R] [--limit N]
@@ -119,7 +119,7 @@ VERSION_RE = re.compile(r'\[wwe2k14\] version (\S+)')
 MOD_RE = re.compile(r"\[wwe2k14\] modified: (\w+) = '(.*)' \(source: ([^)]*)\)")
 EXE_RE = re.compile(r'\[wwe2k14\] exe built \(file time, local\): (\d{4}-\d\d-\d\d \d\d:\d\d)')
 PAC_RE = re.compile(r"\[wwe2k14\]\[file\] NtCreateFile '([^']+)' open .*?frame=(\d+)")
-CENSUS = (('stage_show', re.compile(r'stage_show', re.I)), ('replay_posed', re.compile(r'replay_posed')), ('draw_asked', re.compile(r'draw_asked')),
+CENSUS = (('stage_show', re.compile(r'stage_show', re.I)), ('draw_asked', re.compile(r'draw_asked')),
           ('weapons', re.compile(r'\[rdr\]\[weapons\]')), ('event_prop', re.compile(r'event[ _]prop', re.I)), ('scene_ready', re.compile(r'\[scene\]\[ready\]')),
           ('census', re.compile(r'\[wwe2k14\]\[census\]')), ('rdr_census', re.compile(r'\[rdr\]\[census\]')),
           ('scene', re.compile(r'\[scene\]\[(?:live|skips|maps|screens|frame|inputs)\]')), ('crowd', re.compile(r'\[rdr\]\[crowd\]')),
@@ -133,7 +133,8 @@ class RunlogError(Exception):
 
 def find_logs():
     pats = [os.path.join(REPO, 'logs', 'wwe2k14_*.log'), os.path.join(REPO, 'out', 'build', '*', 'logs', 'wwe2k14_*.log'),
-            os.path.join(REPO, 'out', 'release', 'build', 'logs', 'wwe2k14_*.log')]
+            os.path.join(REPO, 'out', 'release', 'build', 'logs', 'wwe2k14_*.log'),
+            os.path.join(REPO, 'out', 'exe', '*', 'logs', 'wwe2k14_*.log')]   # S106 G2L: lane_exe exes (log numbers repeat per folder: `q runlog field FOLDER:NNN`)
     out = []
     for p in pats:
         out.extend(glob.glob(p))
@@ -502,21 +503,30 @@ def resolve_run(run):
         return str(run), ''
     logs = find_logs()
     if not logs:
-        raise RunlogError('no run logs found (logs\\, out\\build\\*\\logs, out\\release\\build\\logs)')
+        raise RunlogError('no run logs found (logs\\, out\\build\\*\\logs, out\\release\\build\\logs, out\\exe\\*\\logs)')
     if run is None:
         best = max(logs, key=lambda p: os.path.getmtime(p))
         return best, 'newest log'
+    folder = None
+    run = str(run)
+    if ':' in run and not os.path.isabs(run):      # S106 G2L: FOLDER:NNN = log NNN of out\exe\FOLDER (numbers repeat per folder)
+        folder, run = run.rsplit(':', 1)
+        logs = [p for p in logs if os.path.basename(os.path.dirname(os.path.dirname(p))).lower() == folder.lower()
+                and os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(p)))).lower() == 'exe']
     try:
         want = int(str(run))
     except ValueError:
-        raise RunlogError(f'run "{run}": give a run number or a log path')
+        raise RunlogError(f'run "{run}": give a run number, FOLDER:NNN (an out\\exe\\ folder) or a log path')
+    if folder is None:      # S106 G2LF F10: a bare number keeps out\build's / logs\'s answer; out\exe logs (each folder numbers from 001) only through FOLDER:NNN
+        exe_root = os.path.normcase(os.path.join(REPO, 'out', 'exe')) + os.sep
+        logs = [p for p in logs if not os.path.normcase(p).startswith(exe_root)]
     hit = []
     for p in logs:
         m = re.search(r'wwe2k14_(\d+)\.log$', p)
         if m and int(m.group(1)) == want:
             hit.append(p)
     if not hit:
-        raise RunlogError(f'no log wwe2k14_{want:03d}.log among {len(logs)} logs')
+        raise RunlogError(f'no log wwe2k14_{want:03d}.log among {len(logs)} logs' + (f' of out\\exe\\{folder}' if folder else ' (out\\exe\\ logs are reached as FOLDER:NNN, e.g. lane-x-abc123def:' + str(want) + ')'))
     hit.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return hit[0], ((f'{len(hit)} logs carry that number (newest taken; others: ' + ', '.join(hit[1:3]) + ')') if len(hit) > 1 else '')
 

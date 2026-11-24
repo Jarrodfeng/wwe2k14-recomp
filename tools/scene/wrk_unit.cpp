@@ -1,6 +1,6 @@
 // S103 WRK unit: the live face-wrinkle / id-map levels and the char pass mode, from the record to the shader constants. 0 game runs, no game, no SDK.
 //   out\tools\wrk_unit.exe                 -> PASS / FAIL lines, exit 0 / 1
-//   out\tools\wrk_unit.exe --plant NAME    a FAULT in the thing under test; the run must exit 1 and fail the NAMED check (the gate lane runs each):
+//   out\tools\wrk_unit.exe --plant NAME    a FAULT in the thing under test; the run must exit 1 and fail the NAMED check (the check runs each):
 //     levels_ignored    the front end does not hand the levels to the constants (CharCtx::wkl / idmap null)        -> "resolve.levels"
 //     part_loses        the part's own row is looked up under another part index (the model-wide value wins alone)  -> "merge.part_wins"
 //     other_model       the rows of ANOTHER model are taken for this body                                           -> "carry.rows_of_this_model"
@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "../../src/assets/asset_model.h"
+#include "../../src/renderer_scene/rows_inputs.h"
 #include "../../src/renderer_scene/char_effects.h"
 #include "../../src/renderer_scene/wrk_join.h"
 
@@ -166,7 +167,7 @@ int main(int argc, char** argv) {
   Check(Near(uvo[0], 0.f) && Near(uvo[2], 1.f) && Near(colo[0], 9.f), "resolve.switch_off_old_constants", "WrinkUV (0,0,1,1), IdMapCol untouched (zero from the caller)");
   assets::g_wrk_live.store(true);
 
-  if (!g_plant.empty()) {   // the gate convention: a planted run is a PASS (exit 0) only when the fault was caught
+  if (!g_plant.empty()) {   // the plant convention: a planted run is a PASS (exit 0) only when the fault was caught
     std::printf("%s: the planted twin %s %s\n", g_bad ? "PASS" : "FAIL", g_plant.c_str(), g_bad ? "was caught" : "was NOT caught");
     return g_bad ? 0 : 1;
   }

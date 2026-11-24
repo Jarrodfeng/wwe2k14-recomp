@@ -10,6 +10,8 @@
 #include <string>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_caster.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/shadow_fit.h"
 #include "../../src/renderer_scene/shadow_fit_record.h"
 

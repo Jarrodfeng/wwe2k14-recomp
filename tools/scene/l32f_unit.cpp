@@ -9,6 +9,7 @@
 #include <string>
 
 #include "../../src/renderer_scene/rf_c.h"
+#include "../../src/renderer_scene/rows_ring.h"
 
 namespace rdr_scene::rf {
 

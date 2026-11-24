@@ -152,12 +152,13 @@ struct Pick {
 };
 
 // `named` = the key the record names. The pac's own PACH named `named` wins (the old rule: its ring-model fallback included); only when the pac has none does the game's remap apply.
-inline Pick PickModel(launcher::GameFiles& files, const Table& t, int id, int named, Fault fault = Fault::kNone) {
+// S110 LIBSIZE: `rel` = the character's file (a library character's `<KEY>\pac\ch\ch497.pac`); the id form below opens WrestlerRel(id).
+inline Pick PickModel(launcher::GameFiles& files, const Table& t, const std::string& rel, int named, Fault fault = Fault::kNone) {
   Pick p;
   const Remap r = Resolve(t, named, fault);
   p.slot = r.slot, p.hole_class = r.remapped();   // review F3: identity flag-A keys keep the old fallback (guest rows)
   auto try_key = [&](int key) {
-    const int o = OrdinalOfModelKey(files, id, key);
+    const int o = OrdinalOfModelKeyAt(files, rel, key);
     return o;
   };
   int o = try_key(named);
@@ -176,5 +177,7 @@ inline Pick PickModel(launcher::GameFiles& files, const Table& t, int id, int na
   }
   return p;
 }
+
+inline Pick PickModel(launcher::GameFiles& files, const Table& t, int id, int named, Fault fault = Fault::kNone) { return PickModel(files, t, load_detail::WrestlerRel(id), named, fault); }
 
 }  // namespace assets::attire_remap

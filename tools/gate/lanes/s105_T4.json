@@ -1,9 +1,0 @@
-{
- "owner": "S105 lane T4: tools/save/make_test_save.py (a Threads recolour set written into a TEST copy of a user-data folder, payload sum recomputed). 0 game runs, 0 Surface runs.",
- "claim": {"scene": "none", "side": "instrument", "ms": [0, 0]},
- "note": "KIND: instrument, cheap. make_test_save_check: a synthetic SaveData.Dat built in the test (no real save); the set lands at 0x1C + sizeA + 4 + 1272 (c - 100) + 860 + 132 n, the sum matches, the palette re-reads, sizes / magic unchanged, refusals given; planted twins (sum not recomputed, superstar index c - 99, set stride 128) must each be caught.",
- "checks": [
-  {"name": "s105_T4.make_test_save_check", "cmd": ["py", "-I", "tools/save/make_test_save_check.py"], "timeout_s": 120, "tier": "cheap", "gpu": false,
-   "affects": ["tools/save/make_test_save.py", "tools/save/make_test_save_check.py", "tools/save/unlock_all.py"]}
- ]
-}

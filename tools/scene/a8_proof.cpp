@@ -17,6 +17,8 @@
 #include <vector>
 #include "../../src/renderer_scene/light_install.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/wrestler_light_latch.h"
 using namespace rdr_scene;
 namespace fs = std::filesystem;

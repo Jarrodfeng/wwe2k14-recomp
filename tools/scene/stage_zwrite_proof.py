@@ -3,7 +3,7 @@ r"""SZW: the three-arm proof of the see-through stage slots' depth write (docs\r
 
   py -I tools\scene\stage_zwrite_proof.py --capture C:\...\out\captures\brock_losswin --frame 200 [--size 960x540] [--out DIR] [--check]
   py -I tools\scene\stage_zwrite_proof.py --record R.rsc --camera 16floats --eye x,y,z [...]      (a record with a told camera: arena_rec's beauty records)
-  py -I tools\scene\stage_zwrite_proof.py --selftest                                              (the arithmetic on synthetic pictures; gate lane szw_zwrite)
+  py -I tools\scene\stage_zwrite_proof.py --selftest                                              (the arithmetic on synthetic pictures)
 
 What it answers: does the game's rule (an `s` / `a` stage slot writes depth unless `z`, every stage draw is alpha-tested GEQUAL 1/255, so a see-through piece hides what draws after it only
 where its texel alpha is >= 1/255) hold in OUR renderer without cutting a rectangle out of what draws later? Three one-shot frame_rig draws of the same record and camera, the arena family

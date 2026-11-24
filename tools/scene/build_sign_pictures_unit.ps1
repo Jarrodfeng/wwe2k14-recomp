@@ -14,7 +14,10 @@ if (-not $Game) {
 if (-not $Game) { Write-Host 'NEEDS-MAIN  no game_data\extracted\pac\audience.pac'; exit 2 }
 $outDir = Join-Path $repo 'out\tools'
 $obj = Join-Path $outDir 'rig_obj'
-$objs = @(Get-ChildItem $obj -Filter '*.o' | Where-Object { $_.Name -notmatch 'frame_rig\.cpp\.o$|tools_scene_.*_(unit|test)\.cpp\.o$' } | Select-Object -ExpandProperty FullName)
+# S106 TIPFIX2: a tree with no rig objects (the train's staging tree where build_rig did not run) used to exit 1 with an EMPTY log (a silent FAIL); it says what is missing and exits 2 (NEEDS-MAIN, not a failure)
+if (-not (Test-Path (Join-Path $obj '*.o'))) { Write-Host "NEEDS-MAIN  no rig objects in $obj (tools\scene\build_rig.ps1 builds them first)"; exit 2 }
+# S106 TIPFIX: tools_scene_post_rig.cpp.o (build_post_rig.ps1) has its own main. (S106 TIPFIX2: that note sat after the filter on the same line and swallowed the rest of the pipeline and the closing paren: a PARSE error, exit 1, empty log)
+$objs = @(Get-ChildItem $obj -Filter '*.o' | Where-Object { $_.Name -notmatch 'frame_rig\.cpp\.o$|tools_scene_.*_(unit|test|rig)\.cpp\.o$' } | Select-Object -ExpandProperty FullName)
 if (-not $objs.Count) { throw 'no rig objects: run tools\scene\build_rig.ps1 first' }
 $stb = Join-Path $repo 'thirdparty\rexglue-sdk-src\thirdparty\stb'
 if (-not (Test-Path (Join-Path $stb 'stb_image.h'))) { $stb = Join-Path (Resolve-Path (Join-Path $repo '..\..\..')).Path 'thirdparty\rexglue-sdk-src\thirdparty\stb' }

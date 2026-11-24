@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane D3 gate check: builds tools\\scene\\crowd_snapshot_unit.cpp (required input bit 10, `crowd_snapshot`: the crowd contributor stamps only a whole snapshot; 0 game runs, no game, no SDK),
+"""S103 lane D3 check: builds tools\\scene\\crowd_snapshot_unit.cpp (required input bit 10, `crowd_snapshot`: the crowd contributor stamps only a whole snapshot; 0 game runs, no game, no SDK),
 runs it, then its five planted twins (each must exit 1 and fail its NAMED check), then wiring lints (the sink is set where the contributor is registered; the input is flagged moved; no new hook).
   py -I tools\\scene\\crowd_snapshot_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""
@@ -27,6 +27,7 @@ PLANTS = {
     'floor_not_transposed': 'latch.floor_world',    # round 2: the seated floor people
     'card_gate_ignored': 'latch.card_gate',     # review F1
     'prop_distance_ignored': 'latch.prop_distance',      # S103 D5: the game's gates of the sign / foam-hand loops
+    'prop_eye_composer': 'latch.prop_distance_handed_eye',   # S110 CUTCROWD: the eye is the handed block's, as ReadSceneCamera's
     'prop_texture_ignored': 'latch.prop_texture',
     'prop_exit_ignored': 'latch.prop_hand_exit',
     'prop_global_ignored': 'latch.prop_sign_global',

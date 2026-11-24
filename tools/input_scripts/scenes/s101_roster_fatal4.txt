@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time; entrances play in this route, a fast-forward would also drop presses)
 # Session 101 lane 158: the ROSTER-WIDE wrestler route, leg 2 of 3. A FATAL 4-WAY built by the game's own MATCH BUILDER (src\scenario.h FireBuild: the menus' own
 # path, the type's defaults, the seats, finalize; docs\systems\game_atlas.md "The match builder"), fired at the idle main menu with `cvar wwe2k14_match` +
 # `cvar wwe2k14_match_go` exactly as tools\goto\resolve.py (`match:SPEC@bell`) and tools\atlas\match.py send it. NOT the scenario launcher: the builder runs finalize,

@@ -1,5 +1,6 @@
 // The scene record as a file (Session 101, lane 14). See record_io.h and docs\renderer\SCENE_RECORD.md "Files".
 #include "record_io.h"
+#include "record_all.h"   // S106 G4-C: the row families (record_io.h only declares their types)
 #include "../renderer/render_lean.h"   // S102 RT1
 
 #include <algorithm>
@@ -83,6 +84,10 @@ const char* SectionName(uint32_t id) {
     case kScPartClocks: return "PartClock";  // S103 E5
     case kScPropsLight: return "PropsLight";  // S103 KS1
     case kScBoneTags: return "BoneTag";       // S103 W2B
+    case kScChangeColour: return "ChangeColourRow";   // S108 THR2
+    case kScBodyScales: return "BodyScaleRow";   // S108 SHOT
+    case kScLiquidImages: return "LiquidImageRow";
+    case kScLiquidBytes: return "uint8(liquid image bytes)";
     case kScLiquidMaps: return "LiquidMapRow";  // S103 SWF
     case kScLiquidItems: return "LiquidItemRow";
     case kScLiquidPictures: return "LiquidPictureRow";
@@ -133,6 +138,15 @@ SceneTables::SceneTables() {
   camera.proj = IdentityMat4();
 }
 
+// S106 G4-C: the special members, out of line where the row types are complete. Defaulted WITHOUT noexcept: the implicit ones were noexcept(false)
+// (ArenaMemo's copy constructor is user-provided), so the layout / traits stay as they were.
+SceneTables::~SceneTables() = default;
+SceneTables::SceneTables(const SceneTables&) = default;
+SceneTables::SceneTables(SceneTables&&) = default;
+SceneTables& SceneTables::operator=(const SceneTables&) = default;
+SceneTables& SceneTables::operator=(SceneTables&&) = default;
+static_assert(!std::is_nothrow_move_constructible_v<SceneTables>);
+
 // S102 SW1: a fresh table's state with the allocations kept. Mirrors the member list of record_io.h in declaration order.
 void SceneTables::Recycle() {
   if (rdr::g_lean_plant.load(std::memory_order_relaxed) != 6) arena_memo.v.store(-2, std::memory_order_relaxed);   // S102 RT1 review: a refilled table is a new record (plant 6, tools only: the reset is left out)
@@ -150,6 +164,8 @@ void SceneTables::Recycle() {
   plane_eyes.clear(), part_clocks.clear();  // S103 E5
   props_light.clear();  // S103 KS1
   bone_tags.clear();    // S103 W2B
+  change_colours.clear();   // S108 THR2
+  body_scales.clear(), liquid_images.clear(), liquid_image_bytes.clear(), snapshot_seen = 0, snapshot_errors = 0;   // S108 SHOT
   liquid_maps.clear(), liquid_items.clear(), liquid_pictures.clear(), liquid_errors = 0;   // S103 SWF
   arena_world_errors = 0;
   clock_errors = 0;   // S103 E5
@@ -481,6 +497,12 @@ std::vector<uint8_t> SerializeRecord(const SceneTables& seeded_or_not) {
   if (!t.guest_models.textures.empty()) secs.push_back(Sec(kScGuestModelTextures, t.guest_models.textures));  // S103 CW-2b (64)
   if (!t.props_light.empty()) secs.push_back(Sec(kScPropsLight, t.props_light));  // S103 KS1 (65)
   if (!t.bone_tags.empty()) secs.push_back(Sec(kScBoneTags, t.bone_tags));  // S103 W2B (66; an additive section: a record without it is byte-identical to before, so no header version change: the draw side fails closed on a missing tag)
+  if (!t.change_colours.empty()) secs.push_back(Sec(kScChangeColour, t.change_colours));  // S108 THR2 (67; additive: a record without it draws every body with its plain row)
+  if (t.header.flags & kSceneSnapshot) {   // S108 SHOT (68-70; additive): a subject-shot record writes all three, counts may be 0 (the flag says they are all in the directory)
+    secs.push_back(Sec(kScBodyScales, t.body_scales));
+    secs.push_back(Sec(kScLiquidImages, t.liquid_images));
+    secs.push_back(Sec(kScLiquidBytes, t.liquid_image_bytes));
+  }
 
   SceneHeader h = t.header;
   h.magic = kSceneMagic;
@@ -601,6 +623,28 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         bool good = Load(size, data, e, tmp, werr);
         for (size_t bi = 0; good && bi < tmp.size(); ++bi) good = tmp[bi].layout == kBoneTagLayout && (bi == 0 || tmp[bi - 1].bone < tmp[bi].bone);
         if (good) out.bone_tags = std::move(tmp);
+        ok = true;
+        break;
+      }
+      case kScChangeColour: {  // S108 THR2: a bad section (element size, unknown layout, no object, a flag this reader does not know, one object twice) drops itself only: every body draws plain
+        std::string werr;
+        std::vector<ChangeColourRow> tmp;
+        bool good = Load(size, data, e, tmp, werr);
+        for (size_t ci = 0; good && ci < tmp.size(); ++ci) {
+          good = tmp[ci].layout == kChangeColourLayout && tmp[ci].object != 0 && (tmp[ci].flags & ~kCcKnownFlags) == 0 && ((tmp[ci].flags & kCcEditor) == 0 || (tmp[ci].flags & kCcProp) != 0);   // S108 THB: + kCcProp / kCcEditor (an entrance prop's row, same section); an editor flag without the prop flag is no row of ours
+          for (size_t cj = 0; good && cj < ci; ++cj) good = tmp[cj].object != tmp[ci].object;
+        }
+        if (good) out.change_colours = std::move(tmp);
+        ok = true;
+        break;
+      }
+      case kScBodyScales: case kScLiquidImages: case kScLiquidBytes: {   // S108 SHOT: a bad section drops the three together (checked after the loop, SnapshotProblem); the rest of the record is read
+        std::string werr;
+        bool good = true;
+        if (e.id == kScBodyScales) good = Load(size, data, e, out.body_scales, werr), out.snapshot_seen |= kSnapSeenScales;
+        else if (e.id == kScLiquidImages) good = Load(size, data, e, out.liquid_images, werr), out.snapshot_seen |= kSnapSeenImages;
+        else good = Load(size, data, e, out.liquid_image_bytes, werr), out.snapshot_seen |= kSnapSeenBytes;
+        if (!good) out.body_scales.clear(), out.liquid_images.clear(), out.liquid_image_bytes.clear(), ++out.snapshot_errors;
         ok = true;
         break;
       }
@@ -801,7 +845,7 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         std::string werr;
         std::vector<StageFxRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const StageFxRow& r : tmp) good = good && r.layout == kStageFxLayout && r.kind >= kFxScreen && r.kind <= kFxCar;
+        for (const StageFxRow& r : tmp) good = good && r.layout == kStageFxLayout && r.kind >= kFxScreen && r.kind <= kFxSlotPalette;   // S110 BARRICADE (kFxCar = 7, S103 CAR, before it)
         if (good) out.stage_fx = std::move(tmp);
         else ++out.c_errors;
         ok = true;
@@ -914,6 +958,17 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
       if (cb) out.part_clocks.clear(), ++out.clock_errors;
     }
   }
+  if (out.snapshot_seen) {   // S108 SHOT: a bad row / a range past the bytes drops the three snapshot sections together (SnapshotProblem names the loss when the flag says they were written)
+    bool bad = out.snapshot_errors != 0;
+    for (const BodyScaleRow& r : out.body_scales) bad = bad || r.layout != kSnapshotLayout || r.object == 0 || !(r.scale > 0.1f && r.scale < 10.f);
+    for (const LiquidImageRow& r : out.liquid_images)
+      bad = bad || r.layout != kSnapshotLayout || r.format != kLiquidImageFormatRgba8 || r.width == 0 || r.height == 0 || r.width > 4096 || r.height > 4096 ||
+            uint64_t(r.nbytes) != uint64_t(r.width) * r.height * 4 || r.offset > out.liquid_image_bytes.size() || r.nbytes > out.liquid_image_bytes.size() - r.offset;
+    if (bad) {
+      out.body_scales.clear(), out.liquid_images.clear(), out.liquid_image_bytes.clear();
+      if (!out.snapshot_errors) ++out.snapshot_errors;
+    }
+  }
   if (const std::string lp = LiquidTablesProblem(out); !lp.empty()) out.liquid_maps.clear(), out.liquid_items.clear(), out.liquid_pictures.clear(), ++out.liquid_errors;   // S103 SWF: only the liquid tables go
   if (const std::string rp = RingTablesProblem(out); !rp.empty()) out.ring_rows.clear(), out.ring_nodes.clear(), ++out.ring_errors;  // lane 194: only the ring tables go
   if (const std::string wp = WeaponCallTablesProblem(out); !wp.empty()) out.weapon_calls.clear(), out.weapon_nodes.clear(), ++out.weapon_call_errors;  // S103 PW-2: only the weapon call tables go
@@ -932,6 +987,16 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
   for (size_t i = 0; i < out.params.size(); ++i)
     if (bad_str(out.params[i].name)) { error = Fmt("ParamValue %zu: name string points outside the strings section", i); return false; }
   return true;
+}
+
+std::string SnapshotProblem(const SceneTables& t) {   // S108 SHOT
+  if (!(t.header.flags & kSceneSnapshot)) return {};
+  if (t.snapshot_errors) return Fmt("snapshot sections (68-70) were dropped as bad (%u): the rig would draw no wrestler and no accumulated liquid", t.snapshot_errors);
+  std::string miss;
+  if (!(t.snapshot_seen & kSnapSeenScales)) miss += " 68 (body scales: no wrestler is drawn)";
+  if (!(t.snapshot_seen & kSnapSeenImages)) miss += " 69 (liquid images)";
+  if (!(t.snapshot_seen & kSnapSeenBytes)) miss += " 70 (liquid image bytes)";
+  return miss.empty() ? std::string() : "header says snapshot, section(s) missing:" + miss;
 }
 
 bool WriteRecord(const std::string& path, const SceneTables& t, std::string& error) {
@@ -1012,7 +1077,7 @@ static Mat4 WorldOfConstants(const float* c) {   // = rdr_scene::live::crowd::Wo
 }
 
 // Everything but the member tables: assigned field by field into `o` (vector::assign keeps o's capacity, so a reused table allocates nothing; a whole-table copy copied the object
-// tables that were cleared at once, and the string index map). tools\gate\t19_lint.py: this names every SceneTables member.
+// tables that were cleared at once, and the string index map). tools\lint\t19_lint.py: this names every SceneTables member.
 static void CopyOtherTables(const SceneTables& t, SceneTables& o) {
   o.header = t.header;
   o.has_camera = t.has_camera;
@@ -1038,6 +1103,11 @@ static void CopyOtherTables(const SceneTables& t, SceneTables& o) {
   o.part_clocks.assign(t.part_clocks.begin(), t.part_clocks.end());  // S103 E5
   o.props_light.assign(t.props_light.begin(), t.props_light.end());  // S103 KS1
   o.bone_tags.assign(t.bone_tags.begin(), t.bone_tags.end());  // S103 W2B
+  o.change_colours.assign(t.change_colours.begin(), t.change_colours.end());  // S108 THR2
+  o.body_scales.assign(t.body_scales.begin(), t.body_scales.end());  // S108 SHOT
+  o.liquid_images.assign(t.liquid_images.begin(), t.liquid_images.end());
+  o.liquid_image_bytes.assign(t.liquid_image_bytes.begin(), t.liquid_image_bytes.end());
+  o.snapshot_seen = t.snapshot_seen, o.snapshot_errors = t.snapshot_errors;
   o.liquid_maps.assign(t.liquid_maps.begin(), t.liquid_maps.end());  // S103 SWF
   o.liquid_items.assign(t.liquid_items.begin(), t.liquid_items.end());
   o.liquid_pictures.assign(t.liquid_pictures.begin(), t.liquid_pictures.end());

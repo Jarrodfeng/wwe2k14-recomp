@@ -1,0 +1,379 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\bundle\sixty --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 IMPCHECK Q2: Create an Entrance > SUPERSTAR > DOWNLOADABLE CONTENT picker with 60 imports (bundle\sixty, slots 397..457 w/o 399, base 100):
+# scroll UP 65 rows from row 0 (UNDERTAKER (Biker)) logging the highlighted text and row, a shot every 5 rows; then pick the last import (expected row 80) and open EASY CREATION.
+log impcheck: start sel60
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_frames 120
+log impcheck: picker open
+log_text 8
+include log_menu
+screenshot sel_r00
+press UP
+wait_frames 30
+log impcheck: up 1
+log_state menu_row
+log_text 6
+screenshot sel_up01
+press UP
+wait_frames 30
+log impcheck: up 2
+log_state menu_row
+log_text 6
+screenshot sel_up02
+press UP
+wait_frames 30
+log impcheck: up 3
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 4
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 5
+log_state menu_row
+log_text 6
+screenshot sel_up05
+press UP
+wait_frames 30
+log impcheck: up 6
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 7
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 8
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 9
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 10
+log_state menu_row
+log_text 6
+screenshot sel_up10
+press UP
+wait_frames 30
+log impcheck: up 11
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 12
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 13
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 14
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 15
+log_state menu_row
+log_text 6
+screenshot sel_up15
+press UP
+wait_frames 30
+log impcheck: up 16
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 17
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 18
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 19
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 20
+log_state menu_row
+log_text 6
+screenshot sel_up20
+press UP
+wait_frames 30
+log impcheck: up 21
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 22
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 23
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 24
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 25
+log_state menu_row
+log_text 6
+screenshot sel_up25
+press UP
+wait_frames 30
+log impcheck: up 26
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 27
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 28
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 29
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 30
+log_state menu_row
+log_text 6
+screenshot sel_up30
+press UP
+wait_frames 30
+log impcheck: up 31
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 32
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 33
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 34
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 35
+log_state menu_row
+log_text 6
+screenshot sel_up35
+press UP
+wait_frames 30
+log impcheck: up 36
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 37
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 38
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 39
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 40
+log_state menu_row
+log_text 6
+screenshot sel_up40
+press UP
+wait_frames 30
+log impcheck: up 41
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 42
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 43
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 44
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 45
+log_state menu_row
+log_text 6
+screenshot sel_up45
+press UP
+wait_frames 30
+log impcheck: up 46
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 47
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 48
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 49
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 50
+log_state menu_row
+log_text 6
+screenshot sel_up50
+press UP
+wait_frames 30
+log impcheck: up 51
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 52
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 53
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 54
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 55
+log_state menu_row
+log_text 6
+screenshot sel_up55
+press UP
+wait_frames 30
+log impcheck: up 56
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 57
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 58
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 59
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 60
+log_state menu_row
+log_text 6
+screenshot sel_up60
+press UP
+wait_frames 30
+log impcheck: up 61
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 62
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 63
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 64
+log_state menu_row
+log_text 6
+press UP
+wait_frames 30
+log impcheck: up 65
+log_state menu_row
+log_text 6
+screenshot sel_up65
+include log_menu
+on_fail continue
+log impcheck: to last import
+press_until_state UP menu_row 80 40 30 5
+wait_frames 60
+log_text 8
+include log_menu
+screenshot sel_last
+press_until_state A menu_page 0x8203BDF0 10 60 5
+wait_frames 60
+log_text 8
+screenshot sel_popup
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log impcheck: easy creation
+log_text 16
+include log_menu
+screenshot sel_easy
+log impcheck: done
+quit

@@ -27,6 +27,7 @@
 #include "draw_camera_core.h"   // S103 CAE: the draw thread's camera, the fallback for no scene manager (the CAW editor)
 #include "particle_reader.h"
 #include "presence_rules.h"   // S103 S2: the per-frame stamp rule (hold by presence)
+#include "safe_guest_pages.h"   // S108 RDS: LineCopy (the pass's line copy)
 
 namespace rdr_scene::live::particles {
 
@@ -141,18 +142,23 @@ inline void ReadNodeWords(scene_inputs::ReadFn read, uint32_t node, NodeCall& c)
 
 // GuestMem over a ReadFn (copies n raw big-endian guest bytes, false when unreadable): the real path the game uses. The 4-byte range rule: a read whose range wraps mod 2^32 is refused here
 // as well as in the reader.
+// S108 RDS phase 2: `lines` = the pass's line copy (safe_guest_pages.h LineCopy: the 128-byte aligned line of a word is read once per pass, in the word's own page; a refused line is the word read). Owned by
+// the caller for ONE pass (Take / TakeScreen); null = one checked read per word (the namer's long-lived instance must never carry lines across frames). ReadItem / ReadNode / ReadEntry read their words one
+// by one (a key's 16-byte records word by word, a node's state byte four times per word): ~1,300 page checks a frame in Fandango's entrance (S108 RDS tally, thread 19F2).
 class FnGuestMem final : public GuestMem {
  public:
-  explicit FnGuestMem(scene_inputs::ReadFn read) : read_(read) {}
+  explicit FnGuestMem(scene_inputs::ReadFn read, wwe2k14::safe_pages::LineCopy<>* lines = nullptr) : read_(read), lines_(lines) {}
   bool Read32(uint32_t guest, uint32_t& out) const override {
     if (!read_ || guest > 0xFFFFFFFCu) return false;
     uint32_t raw = 0;
-    if (!read_(guest, &raw, 4)) return false;
+    const scene_inputs::ReadFn rd = read_;
+    if (!(lines_ ? lines_->Get(guest, 4, &raw, [rd](uint32_t a, uint32_t n, void* d) { return rd(a, d, n); }) : rd(guest, &raw, 4))) return false;
     out = scene_inputs::Swap32(raw);
     return true;
   }
  private:
   scene_inputs::ReadFn read_;
+  wwe2k14::safe_pages::LineCopy<>* lines_ = nullptr;
 };
 
 
@@ -186,6 +192,7 @@ class ParticleSource {
   }
   // S103 PRT fix 5: the game's entry list [[0x83929A84] + 24] (count + 36), sorted. Fail open: an unreadable object / pointer / an empty or oversized list = no filter (entry_list_open counts it).
   void ReadEntryList() {
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: the list's words through this pass's line copy (the game's ReadGuest; ~256 checks a frame were one a word)
     list_.clear();
     uint32_t obj = 0, ptr = 0, n = 0;
     if (!read_ || !scene_inputs::ReadWord(read_, kEntryListGlobal, obj) || obj < 0x40000000u || obj >= 0xE0000000u || !scene_inputs::ReadWord(read_, obj + 24u, ptr) || !scene_inputs::ReadWord(read_, obj + 36u, n) ||
@@ -232,6 +239,7 @@ class ParticleSource {
   // the pass did not run in the paired hook frame).
   bool Take(uint64_t writer_frame, ParticleSnapshot& out) {
     if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return false;   // one relaxed load
+    wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS review: the texture namer's handle walks of this pass (WalkTextureHandle through its own long-lived FnGuestMem = the game's ReadGuest) share this pass's line copy; TakeScreen runs inside it
     out.Clear();
     const uint64_t hook = scene_frame::HookFrameOf(writer_frame);
     const uint64_t want_noted = g_source_plant == 2 ? hook : writer_frame;   // plant 2 = the old rule (see below)
@@ -263,7 +271,8 @@ class ParticleSource {
     if (any_screen) return TakeScreen(calls, over, hook, writer_frame, out);   // S103 MP: a frame with a screen-camera call: every call is its own group, drawn with the node's own camera
     rdr_scene::Camera cam;
     scene_inputs::CameraInfo ci;
-    FnGuestMem mem(read_);
+    wwe2k14::safe_pages::LineCopy<> lines;   // S108 RDS: this pass's line copy (dropped on return)
+    FnGuestMem mem(read_, &lines);
     // S103 MP (A) + MPBF 4: the pass draws nothing when EVERY call of the frame returned before drawing (its own early-outs: +3084 / +3088 == 0 read at the call, null camera object): a whole, empty pass needs no camera and
     // reads no item. S103 PRT (PNS.md): EVERY distinct drawing node of the frame is read (call order) into the same snapshot: a node = one loaded particle bank, each with its own entry table (an entrance holds several, slots 4-8 + the arena
     // banks); reading only the last dropped the other banks' lights. A node called twice is read once (counted same_node_read). Plant 11 = the old rule (the last drawing node only).
@@ -346,7 +355,8 @@ class ParticleSource {
   // from the camera's +608 / +624 is not ported), with the scene camera otherwise; each call's batches carry the 2D row count at the call (BatchKey::row_after_p1) so a flat drawer draws them after that row.
   // A screen call always holds the pass (kPiScreenCam: the flat drawer for them is not built), and its camera goes into the record (ParticleSnapshot::screen). `over` = calls past the cap were dropped (kPiDropped).
   bool TakeScreen(const std::vector<NodeCall>& calls, bool over, uint64_t hook, uint64_t writer_frame, ParticleSnapshot& out) {
-    FnGuestMem mem(read_);
+    wwe2k14::safe_pages::LineCopy<> lines;   // S108 RDS: this pass's line copy (dropped on return)
+    FnGuestMem mem(read_, &lines);
     ReaderStats rs;
     rs.list = list_buf_.data(), rs.list_n = uint32_t(list_buf_.size());
     ParticleStatus& ps = out.status;

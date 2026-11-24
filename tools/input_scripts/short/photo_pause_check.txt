@@ -3,7 +3,6 @@
 # pp_on_row; A: the game resumes and photo mode starts 40 frames later; pp_photo (no HUD, the free camera); a photo
 # saved; photo mode off; pp_after. Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true
 # --wwe2k14_photo_mode=true --wwe2k14_photo_dir=<a folder under out\>.
-# harness: realtime (menu presses)
 on_fail quit
 include boot_to_menu
 wait_file INGAMELUA.PAC 1800

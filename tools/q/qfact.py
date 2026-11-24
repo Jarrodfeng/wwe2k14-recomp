@@ -33,6 +33,13 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 INDEX = os.path.join(ROOT, 'out', 'harness', 'index', 'fact.db')
 VERSION = 2
 
+
+def use_root(root):
+    """S108 FD: answer for another checkout (q find --root: a fixture tree); its own index under <root>/out/harness/index/fact.db"""
+    global ROOT, INDEX
+    ROOT = os.path.abspath(root)
+    INDEX = os.path.join(ROOT, 'out', 'harness', 'index', 'fact.db')
+
 # kind, glob (relative to ROOT), weight
 SOURCES = (
     ('format', os.path.join('docs', 'formats', '*.md'), 1.0),

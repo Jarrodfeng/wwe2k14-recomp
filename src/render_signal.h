@@ -5,6 +5,7 @@
 //   guest frame:    event_bus.h Tick() calls render_signal::Drain(...) and emits each queued line as {"kind": "render", "what": ..., fields}
 //                   (the event bus writes from the guest thread only, so the render thread only queues here)
 //   input script:   `wait_event render roster_ready [TIMEOUT_FRAMES] [optional]` reads Count("roster_ready") directly (works with the bus off).
+//   S109 FF: `background_ended` is posted by android_lifecycle.h when the test background (--wwe2k14_test_background_at) is over and the app is back in front.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,7 @@ struct Line { std::string what, fields; };
 struct State {
   std::mutex mu;
   std::vector<Line> queue;
-  std::atomic<uint32_t> roster_ready{0}, roster_failed{0};
+  std::atomic<uint32_t> roster_ready{0}, roster_failed{0}, background_ended{0};   // S109 FF: background_ended = src/android_lifecycle.h TestBackground's end (a route waits on it instead of counting frames over a wall-time sleep)
 };
 
 inline State& Global() { static State s; return s; }
@@ -30,6 +31,7 @@ inline State& Global() { static State s; return s; }
 inline void Post(State& s, const char* what, const std::string& fields) {
   if (std::strcmp(what, "roster_ready") == 0) s.roster_ready.fetch_add(1, std::memory_order_release);
   else if (std::strcmp(what, "roster_failed") == 0) s.roster_failed.fetch_add(1, std::memory_order_release);
+  else if (std::strcmp(what, "background_ended") == 0) s.background_ended.fetch_add(1, std::memory_order_release);
   std::lock_guard<std::mutex> lock(s.mu);
   s.queue.push_back({what, fields});
 }
@@ -53,9 +55,10 @@ size_t Drain(F&& emit) { return Drain(Global(), std::forward<F>(emit)); }
 inline uint32_t Count(State& s, const std::string& what) {
   if (what == "roster_ready") return s.roster_ready.load(std::memory_order_acquire);
   if (what == "roster_failed") return s.roster_failed.load(std::memory_order_acquire);
+  if (what == "background_ended") return s.background_ended.load(std::memory_order_acquire);
   return 0;
 }
 inline uint32_t Count(const std::string& what) { return Count(Global(), what); }
-inline bool Known(const std::string& what) { return what == "roster_ready" || what == "roster_failed"; }
+inline bool Known(const std::string& what) { return what == "roster_ready" || what == "roster_failed" || what == "background_ended"; }
 
 }  // namespace wwe2k14::render_signal

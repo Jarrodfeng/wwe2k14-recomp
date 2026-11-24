@@ -1,4 +1,4 @@
-# Gate check of lane 254 (S101): the props hook stays idle unless the arena record is a real match (PropsCore::InMatch, src\renderer_scene\props_ours_core.h).
+# Check of lane 254 (S101): the props hook stays idle unless the arena record is a real match (PropsCore::InMatch, src\renderer_scene\props_ours_core.h).
 #   py -I tools\props\props_gate_selftest.py [--step N]
 # Runs out\tools\props_ours_test.exe --gate-synth / --gate (built by tools\props\build_props_ours_test.ps1): no game files, no GPU, 0 game runs.
 #  (1) synthetic records: editor ids (bg00 one actor, bg23 none) idle; match ids load; unknown arena keeps the old rule; menu-only backgrounds never load.

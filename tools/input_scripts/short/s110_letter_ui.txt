@@ -1,0 +1,96 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_a --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true --wwe2k14_letter_jump=true --wwe2k14_letter_ui=true --wwe2k14_letter_ui_dump=true
+# intent: owner on
+# S110 LETTER check Q2: A on the slot puts the cursor in the grid on JOHN CENA (row 0, the right edge); DOWN x2 lands on the MANAGERS tab (run 006);
+# LEFT x2 toward DOWNLOADED SUPERSTARS (shot + text after each), A opens the list; RT x3 / LT x1 there; then A A picks the highlighted one, A A slot 2,
+# and the VS screen names both.
+log letter: start tab3
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+on_fail continue
+press A
+wait_frames 60
+log letter: in grid
+screenshot t_grid
+wait_frames 20
+log_text 8
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+log letter: down2 (managers tab expected)
+log_text 8
+screenshot t_d2
+wait_frames 20
+press LEFT
+wait_frames 40
+log letter: left1
+log_text 8
+screenshot t_l1
+wait_frames 20
+press LEFT
+wait_frames 40
+log letter: left2
+log_text 8
+screenshot t_l2
+wait_frames 20
+press A
+wait_frames 120
+log letter: tab a
+log_text 12
+screenshot t_tab
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt1
+log_text 8
+screenshot t_rt1
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt2
+log_text 8
+screenshot t_rt2
+wait_frames 20
+press RT
+wait_frames 40
+log letter: rt3
+log_text 8
+screenshot t_rt3
+wait_frames 20
+press LT
+wait_frames 40
+log letter: lt1
+log_text 8
+screenshot t_lt1
+wait_frames 20
+press A
+wait_frames 90
+log letter: picked
+log_text 8
+screenshot t_pick
+wait_frames 20
+press A
+wait_frames 90
+log letter: ready
+log_text 8
+press A
+wait_frames 90
+press A
+wait_frames 90
+log letter: slot2 ready
+log_text 8
+screenshot t_s2
+wait_frames 20
+press_until_file A matchhd.pac 6 90 5
+wait_frames 240
+log letter: vs screen
+log_text 12
+screenshot t_vs
+wait_frames 20
+log letter: done
+quit

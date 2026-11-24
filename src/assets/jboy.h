@@ -17,8 +17,8 @@
 //   +0x00 vertex count; +0x08 bone-palette count; +0x0C.. palette (node indices, up to 20)
 //   +0x68 S0 (data starts 4 bytes AFTER this offset; 28 B/vertex: position f32x3, normal f32x3, colour 4 bytes)
 //   +0x6C S1 (wrestlers: skin influences, 8 B each = LE u32 palette slot (255 = unused) + BE f32 weight, 1-4 per vertex;
-//             arenas: UV sets, 8 B each, the first is the diffuse UV)
-//   +0x70 S2 (8 B: wrestlers = UV; arenas = lightmap UV)
+//             arenas: the same skin pairs; a static mesh has one rigid pair, slot 0 / weight 1.0)
+//   +0x70 S2 (8 B UV pairs: the diffuse UV of every model, wrestlers and arenas alike; sub_82BD4BE0 0x82BD4E70-0x82BD4F0C)
 //   +0x74 S3 (12 B tangent f32x3; 0 bytes in arenas)
 //   +0x7C material class name (16 B, e.g. "yCh_skin", "yBG_Default")
 //   +0x94 parameter count; +0x98 offset of the parameter-offset list
@@ -246,16 +246,12 @@ struct JboyDecl {
 
 struct JboyOptions {
   std::vector<JboyDecl>* decl = nullptr;  // S101 atlas: when set, one JboyDecl per mesh record is appended
-  bool arena = false;      // arenas: S1 is UV (not skin), S2 lightmap UV, no skeleton
+  bool arena = false;      // arenas: no skeleton (S1 = skin pairs, S2 = UV as for every model)
   std::string part;        // "body", "piece 10000", "slot 12"...
   TexSet* tex = nullptr;   // where texture names resolve
   // Session 97: an arena piece with its own small skeleton (a crowd body): vertex bones are the piece's node indices and
   // the node records are returned here (file space), so the caller can pose it.
   std::vector<Bone>* own_nodes = nullptr;
-  // Session 97 (stage movie leaves, keys 800-809 of bg05): their S1 stream is the constant pair (0,1) on every vertex and the
-  // real texture UV is in S2 (read from the player's files), so the viewer drew each screen from one texel (a flat red patch).
-  // With this flag uv0 comes from S2 and uv1 is 0.
-  bool uv_in_s2 = false;
   // Session 98 (step 16): the source recorded on every mesh (Mesh::src_*): kind 1 arena, 2 wrestler, 3 crowd, 4 prop.
   int kind = 0;
   std::string pac;
@@ -546,8 +542,8 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     mesh.vertices.resize(N);
     uint32_t nan_count = 0, nonunit = 0, unused_slot = 0, bad_slot = 0, bad_node = 0, zero_w = 0, extra_node = 0;
     // Session 96 integration: arena models with a skeleton (the ring set 951-982, the crowd bodies) store their streams
-    // like a wrestler (S1 = skin pairs, S2 = UV), not like the static stage (S1 = UV, S2 = lightmap UV): read with the
-    // stage layout the ring drew as a black slab. Told apart by the first vertex's S1: a little-endian slot below 256
+    // like a wrestler (S1 = skin pairs, S2 = UV); a static mesh stores one rigid pair there (slot 0, weight 1.0). S108 BAN3: both read UV from S2; this only tells
+    // the skin pairs apart (bones, weights). Detected by the first vertex's S1: a little-endian slot below 256
     // and a big-endian weight in 0..1 (unconfirmed rule; checked on the ring set of arena 5).
     bool skin_streams = false;
     if (o.arena && nnode > 1 && N > 0 && st1 >= 8 && st1 % 8 == 0) {
@@ -557,18 +553,6 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       skin_streams = slot0 < 256 && w0 >= 0.f && w0 <= 1.0001f;
     }
     if (dc) dc->s1_skin = !o.arena || skin_streams;  // S101 atlas
-    // Session 97 (truss): arena meshes whose S1 UV pair is one constant value (0,1) on every vertex while S2 varies keep the real
-    // texture UV in S2 (the same layout as the stage movie leaves). Arena 5's truss rings / pillars (slots 162, 208, 211, 216,
-    // 217) read one solid texel from S1: the lattice's open cut-out (DXT5 alpha) never showed, they drew as solid bands.
-    bool uv_s2 = o.uv_in_s2, s1_const_uv = false;  // (s1_const_uv: decided after the material is known)
-    if (o.arena && !skin_streams && !uv_s2 && N > 1 && st1 == 8) {
-      bool s1_const = true, s2_vary = false;
-      for (uint32_t v = 1; v < N && s1_const; ++v) {
-        if (std::memcmp(r.b + s1 + 8ull * v, r.b + s1, 8) != 0) s1_const = false;
-        if (std::memcmp(r.b + s2 + 8ull * v, r.b + s2, 8) != 0) s2_vary = true;
-      }
-      s1_const_uv = s1_const && s2_vary;
-    }
     for (uint32_t v = 0; v < N; ++v) {
       Vertex& vx = mesh.vertices[v];
       const uint8_t* p0 = r.b + s0d + 28ull * v;
@@ -598,9 +582,9 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       if (st3 == 12)
         for (int k = 0; k < 3; ++k) vx.tangent[k] = BeF(r.b + s3 + 12ull * v + 4 * k);
       if (o.arena && !skin_streams) {
-        for (int k = 0; k < 2; ++k)
-          if (uv_s2) vx.uv0[k] = BeF(r.b + s2 + 8ull * v + 4 * k), vx.uv1[k] = 0;
-          else vx.uv0[k] = BeF(r.b + s1 + uint64_t(st1) * v + 4 * k), vx.uv1[k] = BeF(r.b + s2 + 8ull * v + 4 * k);
+        // S108 BAN3: the game's packer (sub_82BD4BE0) reads UV pairs only from S2 for every mesh; S1 is skin pairs (a static mesh: one
+        // rigid pair, slot 0 / weight 1.0). uv1 keeps the same pair for the dev viewer's own light-map read; the game's shaders never read it.
+        for (int k = 0; k < 2; ++k) vx.uv0[k] = vx.uv1[k] = BeF(r.b + s2 + 8ull * v + 4 * k);
         for (int k = 0; k < 4; ++k) vx.bones[k] = 0, vx.weights[k] = k == 0 ? 1.f : 0.f;
       } else {
         for (int k = 0; k < 2; ++k) vx.uv0[k] = BeF(r.b + s2 + 8ull * v + 4 * k), vx.uv1[k] = 0;
@@ -860,8 +844,6 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         else mat.alpha_blend = true, mat.cutout_blend = 1;
       }
     }
-    if (s1_const_uv && mat.lightmap < 0 && mat.diffuse >= 0)  // (no lightmap uses S2: it is the diffuse UV; Session 97 truss)
-      for (Vertex& vx : mesh.vertices) vx.uv0[0] = vx.uv1[0], vx.uv0[1] = vx.uv1[1], vx.uv1[0] = vx.uv1[1] = 0;
     if (mat.diffuse < 0) {
       // Not an error: plain-coloured parts exist; counted so the census shows how common it is.
       m.warnings.push_back("material without a diffuse texture");

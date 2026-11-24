@@ -1,0 +1,50 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=200 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# Session 108 lanes CAP + CAP3 check (the fixed build only): a match WITH entrances in the frozen save's created arena (arena 200), shots
+# from the first drawn frames after the load so the stage is in frame.
+# Question: are the part files' placeholder pictures (red MINITORON / HEADDER / WALL, blue L / R) ever visible when the arena first
+# appears, and what do `built_take` / `built_game` say (the set first built before, during or after the game's paint)? Also names the
+# `levels_only` / `shape` textures. Read with: py -I tools\bench\run_read.py <exe folder> --full. Shots caa_e_* are local only.
+on_fail quit
+log bench: start scene s108_caa_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+log scene=caa_entrance
+mark 1 launched
+wait_frames 60
+screenshot caa_e_00
+wait_frames 60
+screenshot caa_e_01
+wait_frames 60
+screenshot caa_e_02
+wait_frames 60
+screenshot caa_e_03
+wait_frames 60
+screenshot caa_e_04
+wait_frames 60
+screenshot caa_e_05
+wait_frames 60
+screenshot caa_e_06
+wait_frames 60
+screenshot caa_e_07
+wait_frames 180
+screenshot caa_e_08
+wait_frames 180
+screenshot caa_e_09
+wait_frames 180
+screenshot caa_e_10
+wait_frames 180
+screenshot caa_e_11
+wait_frames 180
+screenshot caa_e_12
+wait_frames 180
+screenshot caa_e_13
+wait_frames 180
+screenshot caa_e_14
+wait_frames 180
+screenshot caa_e_15
+log scene=end
+mark 2 end
+log bench: done
+wait_frames 10
+quit

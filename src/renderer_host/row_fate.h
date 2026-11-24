@@ -8,7 +8,7 @@
 
 #include "../renderer_scene/frame_hooks.h"   // Scene2DSite
 #include "../renderer_scene/quads2d_plants.h"
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_quad2d.h"
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
 
 namespace wwe2k14::scene_host {

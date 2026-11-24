@@ -1,4 +1,4 @@
-# harness: realtime (timed route; Session 16: run_list fast-forwards other routes)
+# intent: performance fps
 # In-run A/B of wwe2k14_precise_sleep (period 90 frames) on bench_taker_wm.txt; made by make_ab.py
 # For DEFAULT settings (30 fps entrances): make_ab.py's default --entrance-frames 5450. At the 4K preset (60 fps
 # entrances) use ab_taker_precise_sleep.txt (--entrance-frames 10500) instead. Session 8 task B fixer.

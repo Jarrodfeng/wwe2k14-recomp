@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../../src/assets/asset_load.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/renderer_scene/weapon_draw_core.h"   // EvtEntryOf (+ weapon_plan.h)
 #include "../../src/scene_live/weapon_rows_core.h"
 
@@ -250,7 +251,7 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 4; ++i) p.bytes[o + 4 + size_t(i)] = uint8_t(start >> (8 * i));
     };
     std::memcpy(p.bytes.data() + 0x800, "SOBJ", 4);
-    rec(0x80C, "LIST", 0), rec(0x818, "BOBJ", 0), rec(0x824, "2004", 1), rec(0x830, "3004", 2), rec(0x83C, "2717", 3), rec(0x848, "SOBJ", 0), rec(0x854, "2004", 3);
+    rec(0x80C, "LIST", 0), rec(0x818, "BOBJ", 0), rec(0x824, "2004", 1), rec(0x830, "3004", 2), rec(0x83C, "2717", 3), rec(0x848, "SOBJ", 0), rec(0x854, "2004", 3), rec(0x860, "SPMT", 0), rec(0x86C, "2718", 2);   // S108 THB: + the SPMT section (the Threads gear colours' masks): 2718 -> start 2
     for (int i = 0; i < 4; ++i) {
       assets::pac::Pach h;
       h.base = 0x4000 + size_t(i) * 0x800, h.end = h.base + 0x800;
@@ -264,6 +265,13 @@ int main(int argc, char** argv) {
     const int s2004 = assets::PropDirIn(&p, 2004, false, false, true), b2004 = assets::PropDirIn(&p, 2004, true, false);   // review 6: in both sections, SOBJ (PACH 3) first, BOBJ (PACH 1) the other
     Check(d_default == -1 && d_evt == 3 && s2004 == 3 && b2004 == 1, "pach.no_entry0_and_both", "2717: default " + std::to_string(d_default) + ", event path " + std::to_string(d_evt) + "; 2004 SOBJ " + std::to_string(s2004) + " BOBJ " + std::to_string(b2004));
     Check(a == 1 && b == 2 && c == -1, "pach.map", "2004 -> " + std::to_string(a) + ", 3004 -> " + std::to_string(b) + ", 2009 -> " + std::to_string(c));
+    {   // S108 THB: the SPMT section is its own directory section: an id is found in it only, and the SOBJ / BOBJ lookups never see it
+      size_t at_spmt = 0, at_sobj = 0, at_x = 0;
+      const bool in_spmt = assets::PropDirStartIn(p.bytes, 2718, "SPMT", at_spmt), in_sobj = assets::PropDirStartIn(p.bytes, 2718, "SOBJ", at_sobj), spmt_2004 = assets::PropDirStartIn(p.bytes, 2004, "SPMT", at_x);
+      size_t at_any = 0;
+      const bool old_walk_sees_it = assets::PropDirStart(p.bytes, 2718, false, false, at_any);   // (the SOBJ / BOBJ walk: SPMT rows are not props)
+      Check(in_spmt && at_spmt == p.pachs[2].base && !in_sobj && !spmt_2004 && !old_walk_sees_it, "pach.spmt_section", "2718 is an SPMT row at PACH 2's start (" + std::string(in_spmt ? "found" : "missing") + "), in no SOBJ / BOBJ row; 2004 has no SPMT row");
+    }
   }
   // the evtobj.pac slot (decision 2026-11-19): closed when the last event model retires, only for the live game (the viewer never marks it releasable), reopened by the next open (a cache miss)
   {

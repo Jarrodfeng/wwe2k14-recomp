@@ -29,6 +29,7 @@
 
 #include "../../src/renderer_scene/live_scene.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_crowd.h"
 #include "../../src/renderer_scene/string_pool.h"
 #include "../../src/renderer_scene/swap_once.h"   // S102 SW1: the knob below
 #include "../../src/scene_live/arena_contrib.h"

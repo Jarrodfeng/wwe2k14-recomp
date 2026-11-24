@@ -12,6 +12,8 @@
 #include "../../src/renderer_scene/light_state_rows.h"
 #include "../../src/renderer_scene/props_map_rows.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/props_light_rows.h"
 #include "../../src/scene_live/props_light_read.h"
 #include "e5_fake_memory.h"
 

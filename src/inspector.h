@@ -1323,6 +1323,8 @@ inline const char* BootOnlyWhere(std::string_view name) {
       {"wwe2k14_input_record", "read once at startup (InputScript::Init)"},
       {"wwe2k14_coverage", "read once at startup (coverage Init)"},
       {"wwe2k14_coverage_dir", "read once at startup (coverage Init)"},
+      {"wwe2k14_icalls", "read once at startup (coverage Init)"},
+      {"wwe2k14_feedrec", "read once at startup (coverage Init)"},
       {"wwe2k14_dump_words", "read once in OnPreLaunchModule"},
       {"wwe2k14_dump_image", "read once in OnPreLaunchModule"},
       {"wwe2k14_inspector", "read once in OnCreateDialogs"},

@@ -12,7 +12,7 @@ reaches the stamp) must make it FAIL.
   arm N  no stamp, rows:        frame 60 draws rows (drawn > 0) and its picture differs from the no-rows baseline B (the test can see the rows)
   arm S  stamped, rows:         frame 60 draws NO row (rows seen 0, drawn 0), every picture equals B (max |diff| 0), the census says stage_rows_dropped > 0 and the "[host][stage_view] on" line is printed once
   twin   stamped, --plant stage_ignore (the host ignores the stamp): frame 60 differs from B: must be CAUGHT.
-A row the machine cannot run (a capture or rows folder missing) is SKIP, never PASS (the gate calls it needs-main). Exit 0 = pass."""
+A row the machine cannot run (a capture or rows folder missing) is SKIP, never PASS (a runner calls it needs-main). Exit 0 = pass."""
 import argparse
 import os
 import re

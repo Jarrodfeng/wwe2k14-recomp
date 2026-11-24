@@ -1,4 +1,4 @@
-# harness: realtime (Session 19 item 9: latency, frame times matter)
+# intent: performance latency ms
 # Session 19 item 9, CLEAN run: as latency_map.txt (launch, skip entrances, START 10 times in the match) without
 # screenshots, so nothing but the game runs between the read and the present. tools\perf\latency.py RUN --map MAPRUN
 # uses the mapping run's refresh offset to find each response's host present. on_fail quit.

@@ -263,6 +263,19 @@ def bookmark(name='main', width=1280):
     return text.rstrip(), look
 
 
+def _script_watches(path):
+    """True when the script's first `# intent:` line (first 40 lines) has the term `watch` (run_list's one door to normal speed)."""
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            for ln in f.read().splitlines()[:40]:
+                m = re.match(r'^#\s*intent:\s*(.+)$', ln.strip())
+                if m:
+                    return any(t.strip() == 'watch' for t in m.group(1).split(','))
+    except OSError:
+        pass
+    return False
+
+
 def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=7200, boot_wait=180, exe='',
           window='behind', coverage=False, data='', keep_shaders=''):
     """Starts a game with the live channel through run_list (background). -> text.
@@ -317,9 +330,12 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
         exe = os.path.join(REPO, 'out', 'build', 'win-amd64-coverage', 'wwe2k14.exe')
     win = {'visible': ' -Visible', 'windowed': ' -Visible -Windowed',  # Session 30: run_list's window
            'foreground': ' -Foreground'}.get(window, '')
-    cmd = "& %s -Scripts @(%s) -Extra %s -WaitSeconds %d%s%s%s" % (q(RUN_LIST), q(path), q(flags), wait_s,
-                                                                  '' if fast else ' -RealTime',
-                                                                  (' -Exe %s' % q(exe)) if exe else '', win)
+    # S109 FF: normal speed has ONE door, the script's `# intent: watch` (live/menu.txt, live/idle.txt carry it); --fast says --vsync=false.
+    if fast:
+        flags += ' --vsync=false'
+    watches = _script_watches(path)
+    cmd = "& %s -Scripts @(%s) -Extra %s -WaitSeconds %d%s%s" % (q(RUN_LIST), q(path), q(flags), wait_s,
+                                                                (' -Exe %s' % q(exe)) if exe else '', win)
     if data:  # Session 32: another frozen save copy under out\bench (run_list -Data, e.g. userdata_unlocked)
         cmd += ' -Data %s' % q(data)
     if keep_shaders:  # Session 92: the final census keeps every item's pipeline storage (shader_list.txt coverage)
@@ -339,7 +355,7 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
                 continue
     if script == 'menu' and not launch:
         boot_wait = max(boot_wait, 300)  # normal speed: the title presses are state-gated and take real time
-    return wait_started(name, script, launch, fast, log_path, boot_wait)
+    return wait_started(name, script, launch, fast or not watches, log_path, boot_wait)
 
 
 def status_ready(fields):
@@ -373,7 +389,7 @@ def wait_started(name, script, launch, fast, log_path, boot_wait=180, poll_s=0.5
 # Session 30 (#1): save a live session as a route.
 INSPECT = {'log_state', 'scan_start', 'scan_eq', 'scan_ne', 'scan_gt', 'scan_lt', 'scan_changed', 'scan_unchanged',
            'scan_inc', 'scan_dec', 'scan_show', 'scan_end', 'scan_range', 'watch', 'unwatch', 'snap', 'unsnap',
-           'watch_zero', 'screenshot', 'screenshot_every', 'check', 'mark', 'log'}
+           'watch_zero', 'screenshot', 'screenshot_every', 'shot', 'record', 'check', 'mark', 'log'}   # S108 SHOT: `shot` / `record` only read the frame
 BATCH_LINE = re.compile(r'^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\].*\[wwe2k14\]\[live\] batch (\d+)> (.*)$')
 BATCH_RESULT = re.compile(r'\[wwe2k14\]\[live\] batch (\d+) result: (\w+)')
 START_SCRIPT = re.compile(r"\[wwe2k14\] modified: wwe2k14_input_script = '([^']*)'")

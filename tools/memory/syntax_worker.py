@@ -1,4 +1,4 @@
-"""syntax_worker.py: ONE tools\\gate\\game_syntax.py worker (one unit, one build), for measure_peak.py (CQM, 2026-11-20).
+"""syntax_worker.py: ONE tools\\compile\\game_syntax.py worker (one unit, one build), for measure_peak.py (CQM, 2026-11-20).
 
     py -I tools\\memory\\measure_peak.py --label U5 -- py -I tools\\memory\\syntax_worker.py --build on|off --unit src/main.cpp [--root .]
 
@@ -13,7 +13,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'gate'))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'compile'))
 os.environ['GAME_SYNTAX_NO_CACHE'] = '1'
 import game_syntax as gs  # noqa: E402
 
@@ -26,7 +26,7 @@ def main():
     a = ap.parse_args()
     root = os.path.abspath(a.root)
     main_dir = gs.main_checkout(root)
-    lines = gs.build_commands(main_dir, gs.BUILD_DIRS[a.build])
+    lines = gs.build_lines_for(root, main_dir, a.build)   # S106 GSMAIN: the tree's own configure (syntax_cfg), not main's out\build
     fl = gs.flags_for(lines, main_dir.replace('\\', '/'), a.unit)
     if a.unit == 'src/main.cpp':
         fl = fl + ['-include', os.path.abspath(os.path.join(root, 'src', 'pch_main.h')).replace('\\', '/')]

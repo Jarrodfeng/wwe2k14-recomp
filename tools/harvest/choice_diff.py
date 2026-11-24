@@ -576,7 +576,7 @@ def main():
     ap.add_argument('--out-dir', default=os.path.join(ROOT, 'out', 'wgd'))
     ap.add_argument('--name', default='choice_diff')
     ap.add_argument('--sheet', action='store_true')
-    ap.add_argument('--run-ours', action='store_true', help='first run choice_ours.py for these arenas / looks into --ours (the gate lane\'s rig check)')
+    ap.add_argument('--run-ours', action='store_true', help='first run choice_ours.py for these arenas / looks into --ours (the old lane\'s rig check)')
     ap.add_argument('--fail-on', action='append', default=[], help='exit 1 when a class starts with this text (a guard on a fixed class, e.g. "screen ")')
     ap.add_argument('--game-cache', default=os.path.join(ROOT, 'out', 'wgd', 'game_cache'), help='where the game side is cached per arena (scratch; "" = no cache)')
     ap.add_argument('--against', help='the reference arm\'s NAME.json: list the classes this run adds or grows (a planted twin\'s re-find)')

@@ -20,14 +20,16 @@
 //   * hide list c (c = 0..13, 30 sorted u16 at stage + 21216 + 60 c, 0xFFFF ends it) skips its slots only when bit c of [stage + 21196] is SET [C 0x824E75F4-0x824E7640: slw / and / addic -1 / subfe is "bit != 0"; a clear bit jumps over the list test];
 //   * the list at stage + 22056 skips its slots whatever the bits.
 // The list test is sub_824E47C8, a binary search over the count before the first 0xFFFF (ListHas below, the same search).
-// NOT implemented (drawn, i.e. never skipped by this header): the per-pass tests above 0x824E72A8 (SlotShown's own part).
+// S110 BARRICADE: the head 0x824E71AC-0x824E71F0 is implemented too (SlotLookSkipped's first line): no model -> skip is not here (the writer has no row for it); record byte +8 bit 0x80 -> skip (cycle group; CycleSkips
+// decides those slots after this, erasing every listed slot first); byte +9 bit 0x80 clear -> skip; byte +9 bit 0x08 -> skip (stage_show.h SlotRecordShown, the one place that test lives).
+// NOT implemented (drawn, i.e. never skipped by this header): the other per-pass tests above 0x824E72A8 (SlotShown's own part).
 #pragma once
 #include <algorithm>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_stage_fx.h"
 #include "stage_show.h"   // kStageSlotRecordsAt, kStageRecordSize
 
 namespace rdr_scene {
@@ -92,6 +94,7 @@ inline bool CustomTailSkipped(uint32_t slot, const SlotVisWords& w) {
 
 // True = the game skips this slot (no draw). `rec` = the slot's 12-byte record, `slot` = its number.
 inline bool SlotLookSkipped(const uint8_t* rec, uint32_t slot, const SlotVisWords& w) {
+  if (!SlotRecordShown(rec)) return true;   // S110 BARRICADE: the game's head test (0x824E71AC-0x824E71F0): +9 bit 0x80 clear, +9 bit 0x08 or +8 bit 0x80 = skipped (stage_show.h)
   const bool r28 = w.look_byte1, r30 = VisGameLook(w), r31 = w.phase == 4;
   const uint8_t b6 = rec[6];
   const bool e = (b6 & 1) != 0, ww = (b6 & 2) != 0, h = (b6 & 4) != 0, g = (b6 & 8) != 0;

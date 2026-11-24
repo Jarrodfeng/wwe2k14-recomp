@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "stage_fx_core.h"
+#include "../renderer_scene/rows_part_clock.h"   // S106 G4-2
 
 namespace rdr_scene::live::stagefx {
 

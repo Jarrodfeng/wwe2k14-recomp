@@ -12,7 +12,8 @@
 #include <cstring>
 #include <vector>
 
-#include "scene_record.h"
+#include "rows_inputs.h"
+#include "rows_lights.h"
 
 namespace rdr_scene {
 

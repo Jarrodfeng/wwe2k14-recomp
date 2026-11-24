@@ -33,6 +33,8 @@ set(WWE2K14_SOURCES
     src/main.cpp
     src/build_stamp.cpp  # S101 lane 19 review: the only file that includes the generated stamp header (a new commit recompiles just this one)
     src/dev_build.cpp  # S103 L33F: IsDevBuild() / VersionString() for every TU (it gets the WWE2K14_VERSION define below; no other TU does)
+    src/blood_keep.cpp  # S108 EXEB-B1: GBF-1 (the blood-keeping game fix), a unit of its own so a change to it does not recompile main.cpp; both builds, Android too
+    src/job_dispatch_fix.cpp  # S108 EXEB-B1: --wwe2k14_job_reset_first (Session 71), a unit of its own; both builds, Android too
     src/start_settings.cpp  # S103 SPB: ApplyStartSettings, the settings both start paths apply (KEPT with and without the stream; tools/scene/start_parity_lint.py)
     # S101 lane 292 (the music picker's VIEW, docs/systems/music.md): the ImGui dialog, the owner-mode texture uploader and the Android touch hook; the cover + menu-font decoders (own STATIC stb_image like crowd_body.cpp). Same list for the phone.
     src/music_picker_ui.cpp
@@ -215,6 +217,12 @@ endif()
 rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
 # S103 P9: an explicit 0 / 1 for every unit of the exe (never undefined); the generated guest code (wwe2k14_recomp) does not see it.
 target_compile_definitions(wwe2k14 PRIVATE WWE2K14_KEEP_STREAM=$<BOOL:${WWE2K14_KEEP_STREAM}>)
+# S106 FU1: the MSVC UCRT marks std::getenv / fopen ... "deprecated" (a warning only: no code changes). The game target never defined this (the launcher and the tools
+# do), so every unit that reads an environment variable (see_through_order.h, stage_lmpage.h, char_effects.cpp, post_from_record.cpp ...) warned in every full build,
+# before and after the pch_units.h force-include (21 in out\s105\build_0006.log). Target-wide, so no unit's include order matters.
+if(WIN32)
+    target_compile_definitions(wwe2k14 PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 if(WWE2K14_KEEP_STREAM_LINK_TEST)
     target_compile_definitions(wwe2k14 PRIVATE WWE2K14_KEEP_STREAM_LINK_TEST=1)
 endif()
@@ -292,6 +300,10 @@ if(ANDROID)
         endif()
     endforeach()
     target_link_libraries(wwe2k14 PRIVATE android log)
+    # Session 109 (docs/research/s109/MODULE_plan.md, option D; Jarrod: "build for the next apk"): bind the library's own function
+    # calls locally. Without it every guest-to-guest call, mid-asm hook call and __savegprlr call went through a PLT stub (47,345
+    # JUMP_SLOT entries for sub_* that nothing interposes). Hooks are still bound at the static link. Gain unmeasured until a phone A/B.
+    target_link_options(wwe2k14 PRIVATE "-Wl,-Bsymbolic-functions")
     # Session 98 (phone tron video, src/tron_export.h): the tron export's MP4s through the NDK's encoder + muxer (system libmediandk.so).
     target_link_libraries(wwe2k14 PRIVATE mediandk)
     # Session 72 (Android drivers, src/android_driver.h): libadrenotools (BSD-2-Clause, thirdparty/libadrenotools) loads a
@@ -309,7 +321,7 @@ if(ANDROID)
 endif()
 # Only main.cpp (our code): a target-wide define would rebuild all the generated code on every version change.
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
-# S103 L33F (review F1): and src/dev_build.cpp, the one place every other TU asks (src/dev_build.h; tools/gate/version_define_lint.py). Never test the macro in another .cpp: it is undefined there.
+# S103 L33F (review F1): and src/dev_build.cpp, the one place every other TU asks (src/dev_build.h; tools/lint/version_define_lint.py). Never test the macro in another .cpp: it is undefined there.
 set_property(SOURCE src/dev_build.cpp APPEND PROPERTY COMPILE_DEFINITIONS "WWE2K14_VERSION=\"${WWE2K14_VERSION}\"")
 # S101 lane 19: the build stamp (git hash, dirty flag, SDK pin, APK number) for the case zip's manifest. tools/build_stamp.cmake runs on every
 # build and rewrites <build>/stamp/wwe2k14_build_stamp.h only when its text changed; only src/build_stamp.cpp sees that folder (src/build_stamp.h declares Get(); it reads it
@@ -329,12 +341,17 @@ set_property(SOURCE src/build_stamp.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${C
 # (src/pch_main.h). With CMake's default PCH_INSTANTIATE_TEMPLATES (clang: -fpch-instantiate-templates) main.cpp
 # compiles in ~24 s instead of ~37 s; the PCH is rebuilt only when codegen or the SDK headers change.
 target_precompile_headers(wwe2k14 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/pch_main.h")
-# Only for main.cpp: the SDK's own sources in this target (rex_app.cpp, windowed_app_main_sdl.cpp) compile exactly as
-# before (windows.h macros in a forced header could rename their identifiers).
+# The PCH is for main.cpp only: every other source in this target has no PCH (SKIP_PRECOMPILE_HEADERS below: windows.h
+# macros in a forced header could rename their identifiers); they get only the STL-only force-include below.
 get_target_property(WWE2K14_TARGET_SOURCES wwe2k14 SOURCES)
 foreach(src IN LISTS WWE2K14_TARGET_SOURCES)
     if(src MATCHES "\\.(cpp|cc|cxx)$" AND NOT src MATCHES "(^|/)src/main\\.cpp$")
         set_source_files_properties("${src}" TARGET_DIRECTORY wwe2k14 PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        # S106 G4-4: every plain unit force-includes src/pch_units.h (STL only, no windows.h); tools/compile/game_syntax.py precompiles the same file for its
+        # compile check, so the check and the build parse the same text (review_PCH finding 1). Windows and Android: one target, one loop.
+        # S106 (main session, 12:3x, the first real build of this line): the SOURCE property COMPILE_OPTIONS takes no `SHELL:` prefix (that is
+        # target_compile_options' de-duplication syntax): clang got the literal text and every unit failed. Two list items instead.
+        set_property(SOURCE "${src}" TARGET_DIRECTORY wwe2k14 APPEND PROPERTY COMPILE_OPTIONS "-include" "${CMAKE_CURRENT_SOURCE_DIR}/src/pch_units.h")
     endif()
 endforeach()
 

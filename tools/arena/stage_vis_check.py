@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane V1 gate check: builds tools\\arena\\stage_vis_test.cpp (the stage visibility's tree reader, slot join and volume: 0 game runs, no game, no SDK, no files), runs it, then every planted
+"""S103 lane V1 check: builds tools\\arena\\stage_vis_test.cpp (the stage visibility's tree reader, slot join and volume: 0 game runs, no game, no SDK, no files), runs it, then every planted
 fault (each must exit 1 and fail a NAMED check), then the wiring lints (the switch, the applier, the loader hook are where they must be).
   py -I tools\\arena\\stage_vis_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""

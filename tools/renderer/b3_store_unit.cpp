@@ -1,6 +1,6 @@
 // S105 B3 unit: the stream-free host's pipeline store wiring (0 game runs, no GPU, no SDK).
-// entry: wwe2k14::scene_host::RegisterFxCatalogFrom, wwe2k14::scene_host::store_progress::PrebuildAllowed, wwe2k14::scene_host::store_progress::OwnerPrecompileDone, rdr::pstore::WriteFileAtomicWhy
-//   - catalog: a stream-free host registers every variant's spirv and its alpha twin with the renderer once the store is open; with the store off it registers nothing (as Binder did).
+// entry: wwe2k14::scene_host::RegisterShaderCatalogFrom, wwe2k14::scene_host::store_progress::PrebuildAllowed, wwe2k14::scene_host::store_progress::OwnerPrecompileDone, rdr::pstore::WriteFileAtomicWhy
+//   - catalog: a stream-free host registers every variant's spirv and its alpha twin AND every own shader's words (S110 RDRPREP) with the renderer, in ONE call, once the store is open; with the store off it registers nothing (as Binder did).
 //   - gate: the store builds in slices in menus, never while a 3D scene is the frame's source; the precompile boot always may.
 //   - precompile rule: done at frame >= 120 only when the store has nothing left (never "0 of 0" with records waiting, never before the store published).
 //   - write failure: the log names the step and the OS error.
@@ -49,12 +49,20 @@ struct FakeVariant {
   size_t bytes_alpha;
 };
 
-static const uint32_t kW1[4] = {1, 2, 3, 4}, kW2[4] = {5, 6, 7, 8}, kW3[4] = {9, 10, 11, 12};
-static const FakeVariant kFake[] = {{"vs_a", kW1, 16, nullptr, 0}, {"ps_a", kW2, 16, kW3, 16}, {"vs_b", kW3, 16, nullptr, 0}};
+struct FakeOwn {   // rdr::fx::OwnShader
+  const char* name;
+  const uint32_t* words;
+  size_t bytes;
+};
 
-// What SceneHost::Start does after Renderer::Create (the wiring lint in b3_store_unit.py checks the real call is there).
-static size_t FakeStart(FakeRenderer& r, bool call_register) {
-  return call_register ? sh::RegisterFxCatalogFrom(r, std::begin(kFake), std::end(kFake)) : 0;
+static const uint32_t kW1[4] = {1, 2, 3, 4}, kW2[4] = {5, 6, 7, 8}, kW3[4] = {9, 10, 11, 12}, kW4[4] = {13, 14, 15, 16}, kW5[4] = {17, 18, 19, 20};
+static const FakeVariant kFake[] = {{"vs_a", kW1, 16, nullptr, 0}, {"ps_a", kW2, 16, kW3, 16}, {"vs_b", kW3, 16, nullptr, 0}};
+static const FakeOwn kFakeOwn[] = {{"rdr_own_vert", kW4, 16}, {"rdr_own_frag", kW5, 16}};
+
+// What SceneHost::Start does after Renderer::Create (the wiring lint in b3_store_unit.py checks the real call is there). `own_range` false = the old variants-only walk (plant 6).
+static size_t FakeStart(FakeRenderer& r, bool call_register, bool own_range = true) {
+  if (!call_register) return 0;
+  return sh::RegisterShaderCatalogFrom(r, std::begin(kFake), std::end(kFake), std::begin(kFakeOwn), own_range ? std::end(kFakeOwn) : std::begin(kFakeOwn));
 }
 
 int main(int argc, char** argv) {
@@ -62,9 +70,10 @@ int main(int argc, char** argv) {
 
   {   // catalog
     FakeRenderer r;
-    const size_t n = FakeStart(r, plant != 1);
-    Check(n == 4 && r.calls == 1 && r.got.size() == 4, "catalog.registered_once_with_alpha_twins");
-    Check(r.got.size() == 4 && r.got[2].words == kW3 && r.got[1].words == kW2, "catalog.blob_words_are_the_variants");
+    const size_t n = FakeStart(r, plant != 1, plant != 6);
+    Check(n == 6 && r.calls == 1 && r.got.size() == 6, "catalog.registered_once_with_alpha_twins");
+    Check(r.got.size() == 6 && r.got[2].words == kW3 && r.got[1].words == kW2, "catalog.blob_words_are_the_variants");
+    Check(r.got.size() == 6 && r.got[4].words == kW4 && r.got[5].words == kW5, "catalog.own_blobs_in_the_same_call");
     FakeRenderer off;
     off.active = false;
     Check(FakeStart(off, true) == 0 && off.calls == 0, "catalog.store_off_registers_nothing");

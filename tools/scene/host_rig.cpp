@@ -52,6 +52,11 @@
 #include "../../src/renderer_scene/live_scene_draw.h"
 #include "../../src/renderer_scene/own_blend.h"   // S103 P7 tween review: the plants, the census, the F4 check
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
+#include "../../src/renderer_scene/rows_inputs.h"
+#include "../../src/renderer_scene/rows_owned.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
+#include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/renderer_adapter/capture_reader.h"
 #include "../../src/renderer_game/frame_tick.h"
 

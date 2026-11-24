@@ -101,6 +101,12 @@
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "WWE2K14_COVERAGE": "ON" }
         },
         {
+            "name": "win-amd64-coverage-off",
+            "displayName": "Windows AMD64 coverage on the scene host (stream-free: WWE2K14_KEEP_STREAM=OFF, S110 COVHOST)",
+            "inherits": "win-amd64-coverage",
+            "cacheVariables": { "WWE2K14_KEEP_STREAM": "OFF", "WWE2K14_KEEP_STREAM_RUN": "ON" }
+        },
+        {
             "name": "linux-amd64-debug",
             "displayName": "Linux AMD64 Debug",
             "inherits": "linux-base",
@@ -202,6 +208,7 @@
         { "name": "win-amd64-release", "configurePreset": "win-amd64-release" },
         { "name": "win-amd64-release-off", "configurePreset": "win-amd64-release-off" },
         { "name": "win-amd64-coverage", "configurePreset": "win-amd64-coverage" },
+        { "name": "win-amd64-coverage-off", "configurePreset": "win-amd64-coverage-off" },
         { "name": "win-amd64-relwithdebinfo", "configurePreset": "win-amd64-relwithdebinfo" },
         { "name": "linux-amd64-debug", "configurePreset": "linux-amd64-debug" },
         { "name": "linux-amd64-release", "configurePreset": "linux-amd64-release" },

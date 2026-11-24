@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _main_checkout(here=REPO):
-    # Where out\ and game_data\ live, also from a worktree (same trick as tools\gate\gate.py).
+    # Where out\ and game_data\ live, also from a worktree (git's common dir is the main .git).
     try:
         common = subprocess.run(['git', '-C', str(here), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
                                 capture_output=True, text=True, timeout=20).stdout.strip()
@@ -210,6 +210,12 @@ def rule_1_speed(plan):
         out.append(_finding(plan, 1, 'speed', 'refuse', f'{plan.alive_games} other game(s) alive: a timed run never runs beside another game',
                             'CLAUDE.md rule 7 / run_list.ps1 -Exclusive; LESSONS "GPU ms compare only at the same clock state and background load" (lanes share the GPU).'))
     vs = [f for f in merged if f.bare == 'vsync']
+    if not vs and not plan.route.speed_term and not plan.route.in_run_ab:   # S109 FF2: the one door; -Exclusive no longer implies normal speed, so a silent fast-forward is refused here
+        out.append(_finding(plan, 1, 'speed', 'refuse',
+                            'a speed run on a route whose `# intent:` line has no `performance <what it measures>` term would run fast-forwarded (run_list adds --vsync=false), '
+                            "and a number from that is not the player's",
+                            'LESSONS S82 (a fast-forwarded run overstated a gain 3-4x); S109 FF: normal speed has one door, the route intent term. Add `# intent: performance <fps | frame ms | load s ...>` '
+                            'to the route, or use --check for a frame-exact run.'))
     if any(f.value is not None and f.value.lower() in FALSY for f in vs) and not plan.route.in_run_ab:
         out.append(_finding(plan, 1, 'speed', 'refuse',
                             'a speed run is fast-forwarded (--vsync=false) and the route does not say it is an in-run A/B',
@@ -300,6 +306,16 @@ def _under_out(value, plan):
 
 
 def _is_dev_exe(exe, plan):
+    # S109 WARM: an exe folder made by tools\exe\lane_exe.ps1 (out\exe\<name>, the tip exe) says what it is: exe_info.json's options.WWE2K14_RELEASE
+    # (CMakeLists.txt: every build without -DWWE2K14_RELEASE=ON is "+dev", which reads the launcher settings only when asked). Else the path rule.
+    try:
+        import json
+        with open(os.path.join(os.path.dirname(str(exe)), 'exe_info.json'), encoding='utf-8-sig') as f:
+            rel = str((json.load(f).get('options') or {}).get('WWE2K14_RELEASE', '')).upper()
+        if rel in ('OFF', 'ON'):
+            return rel == 'OFF'
+    except (OSError, ValueError, AttributeError):
+        pass
     s = str(exe).lower().replace('/', '\\')
     return '\\out\\build\\' in s or '\\thirdparty\\' in s or '\\.claude\\worktrees\\' in s
 
@@ -342,7 +358,7 @@ def rule_4_settings(plan):
 
 # ------------------------------------------------------------------------------------------- rule 5: shots wait on state
 def _fast_forwarded(plan):
-    if plan.kind == 'speed' or plan.route.has_realtime:
+    if plan.route.speed_term:   # S109 FF: the intent term `performance <what>` / `watch` is the ONE door to normal speed
         return False
     merged, _ = plan.merged()
     return not any(f.bare == 'vsync' for f in merged) or any(f.bare == 'vsync' and f.value and f.value.lower() in FALSY for f in merged)
@@ -366,7 +382,7 @@ def rule_5_shots(plan):
                                 f'{st.cmd} at {st.file}:{st.line} follows wait_frames at {pending[0]}:{pending[1]} in an entrance run that is fast-forwarded',
                                 'LESSONS S100 "A fast-forwarded entrance shot follows the wall clock": entrances sync to the video / music, so a frame count after a sync '
                                 'lands on a different moment when the speed changes (gap 45 vs 2). Sync the shot on game state (wait_state / wait_text) with no wait_frames '
-                                'in between, or make the route realtime (`# harness: realtime`).'))
+                                'in between, or run in replay mode (--wwe2k14_replay_mode=true: guest time follows frames).'))
             pending = None   # one finding per shot
     return out
 

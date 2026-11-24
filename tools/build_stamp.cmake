@@ -18,9 +18,13 @@ if(GIT_EXE)
                     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     if(GIT_RC EQUAL 0 AND GIT_OUT)
         set(GIT "${GIT_OUT}")
-        execute_process(COMMAND "${GIT_EXE}" --no-optional-locks -C "${SRC}" status --porcelain --untracked-files=no OUTPUT_VARIABLE ST_OUT
-                        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-        if(ST_OUT)
+        # S106 (main session, 12:4x): dirty = the tracked tree's CONTENT differs from HEAD. `status --porcelain` also listed files whose only
+        # difference is a stat / end-of-line state the codegen leaves behind (generated/rexglue.cmake, wwe2k14_manifest.toml rewritten on every
+        # build), so every lane_exe exe was stamped dirty and run_list's guard refused it. `git diff --quiet HEAD` applies the same eol
+        # normalization git itself uses (exit 1 = a real content change, staged or not).
+        execute_process(COMMAND "${GIT_EXE}" --no-optional-locks -C "${SRC}" diff --quiet HEAD -- RESULT_VARIABLE DIFF_RC
+                        OUTPUT_QUIET ERROR_QUIET)
+        if(NOT DIFF_RC EQUAL 0)
             set(DIRTY 1)
         endif()
     endif()

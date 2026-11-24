@@ -53,8 +53,10 @@
 #include <rex/system/xthread.h>
 
 #include "scene_live/wrestler_hook.h"  // S101 lane29
+#include "scene_live/model_release_hook.h"  // S108 RDS: the game destroys a model -> our containers forget its address (the only include: one definition of the hook)
 #include "scene_live/guest_model_contrib.h"  // S103 CW-2: the guest model reader's one call at the model entry
 #include "scene_live/model_hooks.h"   // S101 lane43
+#include "scene_live/model_file_note.h"  // S110 SEATREL: the descriptor's note of the file its model was built from (wwe2k14_model_link)
 #include "scene_live/light_index_hook.h"  // S103 A3 (bit 4): the per-node install table (called from the model-entry hooks below)
 #include "scene_live/light_state_glue.h"  // S101 lane 109: the per-draw light state (LS1), read at the model call
 #include "scene_live/arena_world_glue.h"  // lane 130: the arena's evaluated object worlds, read at the model call
@@ -96,6 +98,7 @@ inline void _mm_setcsr(uint32_t) {}
 #endif
 
 #include "frame_stats.h"
+#include "feed_seen.h"   // S110 FEEDREC
 
 REXCVAR_DEFINE_BOOL(wwe2k14_fp_probe, false, "wwe2k14",
                     "Determinism probe: log every pairwise character distance the game computes (sub_82666310 / "
@@ -109,7 +112,8 @@ constexpr uint64_t kSummaryCalls = 20000;
 constexpr uint32_t kRoundBits = 0x6000;  // MXCSR RC
 constexpr uint32_t kFlushBits = 0x8040;  // MXCSR FTZ | DAZ
 
-inline uint32_t GuestU32(uint32_t address) {
+inline uint32_t GuestU32(uint32_t address WWE_FEED_LOC_PARAM) {
+  WWE_FEED_NOTE(address, 4);
   return rex::memory::load_and_swap<uint32_t>(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(address));
 }
 inline float AsFloat(uint32_t bits) {
@@ -941,6 +945,19 @@ void wwe2k14_event_prop_freed(PPCRegister& r3) {
   wwe2k14::weaponrows::EventWeaponFreed(r3.u32);
 }
 
+// S108 THB (docs\research\s108\THB_threads_gear.md section 2 / 6): the recolour block of a SAVED Threads set on an entrance prop. sub_833A1758(r3 = the task's recolour object, r4 = a 96-byte block) copies the block into the object; its only
+// caller is the recolour task of a participant with a set (0x83391EF8). The block: u32 +0 = the entry-0 model of the made prop, +4 = the prop id, colour i = the words +16 + 16 i / +20 + 16 i / +24 + 16 i (R, G, B, each <= 255).
+// Read only, then the original runs unchanged. A block that fails a check (the model is no event prop, the id differs, a colour above 255) is counted and ignored (prop_colour.h ReadBlock), never trusted.
+// No toml line, no regeneration: the REX_HOOK_RAW pattern of model_release_hook.h (a strong definition replaces the weak alias of the recompiled function for every caller).
+REX_EXTERN(__imp__sub_833A1758);
+REX_HOOK_RAW(sub_833A1758) {
+  namespace wr = rdr_scene::live::weaponrows;
+  rdr_scene::live::propcolour::OnRecolourBlock(
+      [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
+      [](uint32_t model, int32_t& id) { wr::EventProps::Entry e; if (!wr::Rows().tracker.events.Find(model, e)) return false; return id = e.id, true; }, ctx.r4.u32);
+  __imp__sub_833A1758(ctx, base);
+}
+
 // lane 138 (D3): when the hook on sub_82C04DF0 skips a call, the mid-asm hook above does not run (it sits inside the function), so the D3 glue calls the same two read-only readers itself.
 #if WWE2K14_STREAM()  // S103 P9 (B3): installs into the D3 skip seam (d3_*_hook.h), the stream's
 inline const bool g_d3_entry_installed = (wwe2k14::d3hook::g_entry = [](uint32_t model, uint32_t palette, uint32_t r13, uint64_t frame) {   // lane 152 (S4): the frame the decision was made in, not a re-read of the counter
@@ -971,6 +988,26 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_attire_compose, true, "wwe2k14",
 
 // S101 lane43: sub_82720658 (the char model reader) at 0x827207F0, just before it clears reader+100 / +96: r31 = the reader. Read only.
 void wwe2k14_model_link(PPCRegister& r31) {
+  {   // S110 SEATREL (MODELKEEP.md part 3): the descriptor the game just built takes the note of the read that built it (every player: not gated on the scene)
+    const auto rw = [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); };
+    uint32_t desc = 0, key = 0, mgr = 0, arr = 0;
+    if (rw(r31.u32 + 96, desc) && desc >= 0x10000 && rw(desc + 28, key) && rw(0x837635A4u, mgr) && mgr >= 0x10000 && rw(mgr + 8, arr) && arr >= 0x10000 && desc >= arr) {
+      const uint32_t i = (desc - arr) / 192;
+      uint32_t source = r31.u32;   // a character reads its own file; an entrance model (descriptors 9..11) is handed the bytes the entrance pre-reader read (claim 12)
+      if (i >= 9 && i < 12) {
+        uint32_t ctx = 0, pre = 0, pre68 = 0, mine68 = 0;
+        if (rw(0x83924738u, ctx) && ctx >= 0x10000 && rw(ctx + 312 + 4 * (i - 9), pre) && pre >= 0x10000 && rw(pre + 68, pre68) && rw(r31.u32 + 68, mine68) && pre68 == mine68)
+          source = pre;
+        else {   // review S110 SEATREL F4: the hand-over test failed, so the building reader's own note (an earlier read of the same key, if any) names the file: say so, once per run
+          static std::atomic<bool> logged{false};
+          if (!logged.exchange(true))
+            REXLOG_WARN("[wwe2k14][pac_answer] descriptor {} (entrance slot {}) key {}: pre-reader 0x{:08X} +68 0x{:08X} != the builder's +68 0x{:08X}: noted from the builder 0x{:08X}'s own read (first only)",
+                        desc, i, key, pre, pre68, mine68, r31.u32);
+        }
+      }
+      rdr_scene::live::model_file_note::NoteBuild(desc, key, source);
+    }
+  }
   // Gated on registration only, NOT on a sink being attached: models are built at match load, before a capture starts, and this is rare (a handful of
   // calls per load), so it costs nothing; the link must already be known when the first record is written.
   if (!rdr_scene::live::WrestlersRegistered()) return;

@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "inputs_core.h"
+#include "../renderer_scene/rows_inputs.h"   // S106 G4-2
+#include "../renderer_scene/rows_lights.h"
 #include "caster_stamp_flag.h"   // S103 L1C: bit 7's stamp rule (StampFromLatch)
 #include "light_latch.h"
 #include "../renderer_scene/light_install.h"

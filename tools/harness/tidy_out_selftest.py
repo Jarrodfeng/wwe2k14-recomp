@@ -1,11 +1,11 @@
-"""S102 TIDY2 selftest for the new out\\ clean-up (tools\\harness\\tidy.py + tidy_out.py + tools\\gate\\needs_lint.py). 0 game runs; every tree is
+"""S102 TIDY2 selftest for the new out\\ clean-up (tools\\harness\\tidy.py + tidy_out.py). 0 game runs; every tree is
 built in a TEMP folder (nothing under the checkout's out\\ is touched, nothing real is deleted).
 
   py -I tools\\harness\\tidy_out_selftest.py
 
-Every case has a planted twin that must come out the other way. The first cases re-find the 2026-11-15 bug: a lane naming out/cases held 265
-fview_unpack_* copies (140 GB). Then the rules: a container-naming lane is a lint error and protects nothing; an unpack copy is never held (not even
-inside a gate-named folder); out\\build (SACRED: Jarrod plays from it) survives session end AND --now; a build tree survives; a keep_list path survives and
+Every case has a planted twin that must come out the other way. The first cases re-find the 2026-11-15 bug: a name for out/cases held 265
+fview_unpack_* copies (140 GB). Then the rules: a container name protects nothing; an unpack copy is never held (not even
+inside a named folder); out\\build (SACRED: Jarrod plays from it) survives session end AND --now; a build tree survives; a keep_list path survives and
 prints its size; a KEEP file no longer protects; nothing is deleted while a session is live (except --now under the reserve, which also leaves recent
 files); with no live session the hourly pass clears.
 """
@@ -89,71 +89,72 @@ def main():
 
 def body(root):
     sys.path.insert(0, HERE)
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), 'tools', 'gate'))
     subprocess.run(['git', 'init', '-q', root], capture_output=True)
     keep = os.path.join(root, 'keep_list.txt')
     open(keep, 'w').write('# test keep list\n')
     out = os.path.join(root, 'out')
     os.makedirs(os.path.join(out, 'tidy'))
     open(os.path.join(out, 'tidy', 'enabled'), 'w').write('x\n')
-    lanes = os.path.join(root, 'tools', 'gate', 'lanes')
-    os.makedirs(lanes)
+    os.makedirs(os.path.join(root, 'tools'))
     m = load_tidy(root, keep)
-    import needs_lint
     import tidy_out
     old = time.time() - 100 * 86400
+    check_file = os.path.join(root, 'tools', 't_check.py')
 
     def reset():
         for d in os.listdir(out):
             if d != 'tidy':
                 p = os.path.join(out, d)
                 shutil.rmtree(p) if os.path.isdir(p) else os.unlink(p)
-        for f in os.listdir(lanes):
-            os.unlink(os.path.join(lanes, f))
+        if os.path.exists(check_file):
+            os.unlink(check_file)
         open(keep, 'w').write('# test keep list\n')
         m._held_cache.clear()
         os.environ['TIDY_TEST_LIVE'] = '[]'
         os.environ.pop('TIDY_TEST_FREE', None)
 
-    def lane(needs, name='t.json'):
-        json.dump({'checks': [{'name': 'x', 'needs': needs}]}, open(os.path.join(lanes, name), 'w'))
+    def names(paths):
+        """a check script in tools\\ that names these out paths (the only way a path is named now)"""
+        open(check_file, 'w').write(''.join('P%d = %r\n' % (i, p) for i, p in enumerate(paths)))
 
     def exists(rel):
         return os.path.exists(os.path.join(root, rel))
 
-    # ---- 1. the 2026-11-15 re-find: a lane naming out/cases held every fview_unpack copy
+    # ---- 1. the 2026-11-15 re-find: a name for out/cases held every fview_unpack copy
     reset()
     for i in range(3):
         write(os.path.join(out, 'cases', 'fview_unpack_2026%d' % i, 'capture', 'images.bin'))
     write(os.path.join(out, 'cases', 'case_a', 'capture', 'images.bin'))
-    lane(['out/cases'])
-    errs = needs_lint.lint_lane_file(os.path.join(lanes, 't.json'), out)
-    check('lint: a lane naming out/cases FAILS', bool(errs) and 'container' in errs[0], str(errs))
-    lane(['out/cases/case_a/capture'])
-    check('lint twin: the exact capture passes', not needs_lint.lint_lane_file(os.path.join(lanes, 't.json'), out))
-    lane(['out/cases'])
+    names(['out/cases'])
+    check('a check naming out/cases (a container) names nothing and the held index has no out/cases entry', 'out/cases' not in m.tool_inputs() and 'out/cases' not in m.named_inputs() and not m.held_index(fresh=True)[0].why('out/cases/case_a/capture/images.bin'))
     o = run(m.cmd_auto, 'end', False, None)
-    check('fix 4: a container-naming lane is a LOUD problem and out\\ is NOT swept (fail closed)', 'NOT swept' in o and 'names "out/cases" which is a container' in o and exists('out/cases/case_a/capture/images.bin'), o[-400:])
-    check('the container name protects nothing (held index has no out/cases entry)', not m.held_index(fresh=True)[0].why('out/cases/case_a/capture/images.bin'))
-    lane(['out/cases/case_a/capture'])
+    check('the container name protects nothing: unpack copies and the unnamed case are swept', not exists('out/cases/fview_unpack_20260') and not exists('out/cases/case_a/capture/images.bin'), o[-300:])
+    for i in range(3):
+        write(os.path.join(out, 'cases', 'fview_unpack_2026%d' % i, 'capture', 'images.bin'))
+    write(os.path.join(out, 'cases', 'case_a', 'capture', 'images.bin'))
+    names(['out/cases/case_a/capture'])
+    m._held_cache.clear()
     o = run(m.cmd_auto, 'end', False, None)
-    check('twin: with the lane fixed the sweep runs: unpack copies gone, the named capture stays', not exists('out/cases/fview_unpack_20260') and exists('out/cases/case_a/capture/images.bin'), o[-300:])
+    check('twin: with the exact capture named the sweep runs: unpack copies gone, the named capture stays', not exists('out/cases/fview_unpack_20260') and exists('out/cases/case_a/capture/images.bin'), o[-300:])
 
-    # ---- 2. an unpack copy is never held, even inside a folder a lane names exactly
+    # ---- 2. an unpack copy is never held, even inside a folder a check names exactly
     reset()
     write(os.path.join(out, 'leaf', 'keepme.bin'))
+    write(os.path.join(out, 'leaf', 'manifest.json'), b'{}')      # a capture folder: the kind a check's name holds
     write(os.path.join(out, 'leaf', 'fview_unpack_1', 'capture', 'images.bin'))
     write(os.path.join(out, 'cases', 'fview_unpack_9', 'capture', 'images.bin'))
     write(os.path.join(out, 'cases', 'case_real', 'capture', 'images.bin'))
-    lane(['out/leaf', 'out/cases/case_real/capture'])
+    names(['out/leaf', 'out/cases/case_real/capture'])
     o = run(m.cmd_auto, 'end', False, None)
-    check('a fview_unpack under a gate-named folder is deleted at session end', not exists('out/leaf/fview_unpack_1'), o[-300:])
+    check('a fview_unpack under a named folder is deleted at session end', not exists('out/leaf/fview_unpack_1'), o[-300:])
     check('twin: the files next to it in the named leaf stay', exists('out/leaf/keepme.bin'))
-    check('an unpack copy no lane names is deleted', not exists('out/cases/fview_unpack_9'))
-    lane(['out/cases/fview_unpack_9/capture/images.bin'])
+    check('an unpack copy no check names is deleted', not exists('out/cases/fview_unpack_9'))
+    write(os.path.join(out, 'cases', 'fview_unpack_9', 'capture', 'images.bin'))
+    names(['out/cases/fview_unpack_9/capture/images.bin', 'out/cases/case_real/capture'])
+    m._held_cache.clear()
     o = run(m.cmd_auto, 'end', False, None)
-    check('a lane naming an unpack copy directly is a lint problem (no sweep)', 'NOT swept' in o and 'unpack' in o, o[-300:])
-    check('twin: the exact case capture a lane names stays', exists('out/cases/case_real/capture/images.bin'))
+    check('a check naming an unpack copy directly holds nothing (the copy goes)', not exists('out/cases/fview_unpack_9'), o[-300:])
+    check('twin: the exact case capture a check names stays', exists('out/cases/case_real/capture/images.bin'))
 
     # ---- 3. builds: out\build is SACRED, renderer/dev stays, other renderer output goes
     reset()
@@ -332,9 +333,10 @@ def body(root):
         subprocess.run(['git', '-C', os.path.join(out, 'wt', name), 'add', '-A'], capture_output=True, env=env)
         subprocess.run(['git', '-C', os.path.join(out, 'wt', name), 'commit', '-q', '-m', 'p'], capture_output=True, env=env)
         subprocess.run(['git', '-C', root, 'merge', '-q', name], capture_output=True, env=env)      # merged into the session branch
-    for n_ in ('bis1h', 'bis7h', 'bisown'):
+    for n_ in ('bis1h', 'bis7h', 'bisown', 'exe-slot1'):
         mkwt(n_)
-    check('test setup: three worktrees exist', all(exists('out/wt/' + n_ + '/pad.bin') for n_ in ('bis1h', 'bis7h', 'bisown')))
+    check('test setup: four worktrees exist', all(exists('out/wt/' + n_ + '/pad.bin') for n_ in ('bis1h', 'bis7h', 'bisown', 'exe-slot1')))
+    age_tree(os.path.join(out, 'wt', 'exe-slot1'), time.time() - 7 * 3600)      # S106 G2LF F4: lane C4's exe slot, idle 7 h, merged
     age_tree(os.path.join(out, 'wt', 'bis1h'), time.time() - 3600)
     age_tree(os.path.join(out, 'wt', 'bis7h'), time.time() - 7 * 3600)
     age_tree(os.path.join(out, 'wt', 'bisown'), time.time() - 7 * 3600)
@@ -343,6 +345,7 @@ def body(root):
     check('fix 5 (planted: a 1 h idle bisect worktree): it stays', exists('out/wt/bis1h/pad.bin'), o[-400:])
     check('fix 5: a .owner pid that is alive keeps a 7 h idle worktree', exists('out/wt/bisown/pad.bin'))
     check('twin: a 7 h idle merged worktree goes', not exists('out/wt/bis7h'), o[-400:])
+    check('S106 G2LF F4: an idle merged out/wt/exe-slot1 (lane C4 slot, a cold build to remake) is kept', exists('out/wt/exe-slot1/pad.bin'), o[-400:])
 
     # ---- 13. fix 6: a nested clone (a .git DIRECTORY) is never swept
     reset()
@@ -355,18 +358,97 @@ def body(root):
     check('fix 6 (planted: a nested clone): a folder holding a .git directory is not swept', exists('out/nested/src/a.cpp') and exists('out/nested/.git/HEAD'), o[-300:])
     check('twin: a plain folder goes', not exists('out/plainx'))
 
-    # ---- 14. fix 7: an explicit keep-list entry on an unpack copy holds it; a lane name does not
+    # ---- 14. fix 7: an explicit keep-list entry on an unpack copy holds it; a check's name does not
     reset()
     write(os.path.join(out, 'leaf2', 'fview_unpack_7', 'capture', 'images.bin'))
     write(os.path.join(out, 'leaf2', 'fview_unpack_8', 'junk.bin'))
     write(os.path.join(out, 'leaf2', 'plain.bin'))
+    write(os.path.join(out, 'leaf2', 'manifest.json'), b'{}')
     open(keep, 'w').write('out/leaf2/fview_unpack_7 | the only copy of a capture I need while the case zip is lost | \n')
-    lane(['out/leaf2'])
+    names(['out/leaf2'])
     m._held_cache.clear()
     o = run(m.cmd_auto, 'end', False, None)
     check('fix 7 (planted: a held unpack copy): a keep-list entry overrides the scratch pattern', exists('out/leaf2/fview_unpack_7/capture/images.bin'), o[-400:])
-    check('twin: the other unpack copy in the same gate-named folder goes', not exists('out/leaf2/fview_unpack_8'), o[-500:])
+    check('twin: the other unpack copy in the same named folder goes', not exists('out/leaf2/fview_unpack_8'), o[-500:])
     check('the named leaf keeps its own files', exists('out/leaf2/plain.bin'))
+
+    # ---- 15. S106 G2L: out/exe/<folder> (lane_exe exes) is taken WHOLE or skipped, never split; a busy folder is never touched; out/exe is not SACRED
+    reset()
+    for nm in ('idle1', 'run1', 'fresh1'):
+        for f in ('wwe2k14.exe', 'wwe2k14.map', 'rexruntime.dll', 'exe_info.json'):
+            write(os.path.join(out, 'exe', nm, f))
+        write(os.path.join(out, 'exe', nm, 'logs', 'wwe2k14_001.log'))
+        age_tree(os.path.join(out, 'exe', nm), old)
+    write(os.path.join(out, 'exe', 'fresh1', 'logs', 'wwe2k14_002.log'))        # fresh logs, old-dated DLLs / map: the S106 past fault (today's sweep splits this)
+    os.environ['TIDY_TEST_PROCS'] = json.dumps([os.path.join(out, 'exe', 'run1', 'wwe2k14.exe'), 'C:\\Windows\\notepad.exe'])
+    check('exe is not an allowlist entry (not SACRED-like)', not any(a[0].split('/')[0] == 'exe' for a in tidy_out.ALLOW))
+    check('exe is a container name: a check must name the exact folder', 'exe' in tidy_out.CONTAINER_NAMES)
+    names(['out/exe'])
+    check('a check naming out/exe (a container) names nothing', 'out/exe' not in m.tool_inputs() and bool(tidy_out.container_reason('out/exe', out)))
+    reset()
+    for nm in ('idle1', 'run1', 'fresh1'):
+        for f in ('wwe2k14.exe', 'wwe2k14.map', 'rexruntime.dll', 'exe_info.json'):
+            write(os.path.join(out, 'exe', nm, f))
+        write(os.path.join(out, 'exe', nm, 'logs', 'wwe2k14_001.log'))
+        age_tree(os.path.join(out, 'exe', nm), old)
+    write(os.path.join(out, 'exe', 'fresh1', 'logs', 'wwe2k14_002.log'))
+    held_, _p = m.held_index()
+    busy = m.busy_exe_dirs()
+    check('busy set = the running image folder', {os.path.basename(x) for x in busy} == {'run1'}, str(busy))
+    items, _rows, notes = tidy_out.sweep(out, held_, (), time.time() - 2 * 3600, None, busy_dirs=busy)
+    taken = [os.path.relpath(i['p'], out).replace('\\', '/') for i in items]
+    check('past-fault twin (emergency pass): a folder with fresh logs and old DLLs is NOT split (nothing of fresh1 is taken)', not any(t.startswith('exe/fresh1') for t in taken), str(taken))
+    check('a busy folder (running image) is never taken or split', not any(t.startswith('exe/run1') for t in taken), str(taken))
+    check('an idle folder is taken WHOLE (one item, the folder)', 'exe/idle1' in taken and not any(t.startswith('exe/idle1/') for t in taken), str(taken))
+    check('the exe container itself is never taken whole', 'exe' not in taken, str(taken))
+    o = run(m.cmd_auto, 'end', False, None)
+    check('session end: the idle exe folder goes whole', not exists('out/exe/idle1'), o[-300:])
+    check('twin: the busy folder keeps every file (old-dated map + DLLs too)', all(exists('out/exe/run1/' + f) for f in ('wwe2k14.exe', 'wwe2k14.map', 'rexruntime.dll', 'logs/wwe2k14_001.log')), o[-300:])
+    os.environ.pop('TIDY_TEST_PROCS', None)
+    check('S106 G2LF F4: out/train is not an allowlist entry any more (nobody makes it)', not any(a[0].split('/')[0] == 'train' for a in tidy_out.ALLOW))
+
+    # ---- 16. S106 G2LF F1: the Deleter on an out/exe folder. A held-open image (a game started after the scan) stops the folder BEFORE anything is touched;
+    #          a folder that turned busy after the scan is skipped.
+    reset()
+    held_files = ('amd_fidelityfx_vk.dll', 'exe_info.json', 'wwe2k14.exe', 'rexruntime.dll', 'wwe2k14.map')
+    for nm in ('lockdll', 'turnedbusy'):
+        for f in held_files:
+            write(os.path.join(out, 'exe', nm, f))
+        write(os.path.join(out, 'exe', nm, 'logs', 'wwe2k14_001.log'))
+        age_tree(os.path.join(out, 'exe', nm), old)
+    fh = open(os.path.join(out, 'exe', 'lockdll', 'rexruntime.dll'), 'rb')      # held open: a loaded image
+    try:
+        dl = m.Deleter(time.time())
+        run(dl.folders, [os.path.join(out, 'exe', 'lockdll')])
+        check('F1 (planted: a held-open DLL): nothing else in the exe folder was deleted', all(exists('out/exe/lockdll/' + f) for f in held_files + ('logs/wwe2k14_001.log',)),
+              str([f for f in held_files if not exists('out/exe/lockdll/' + f)]))
+    finally:
+        fh.close()
+    os.environ['TIDY_TEST_PROCS'] = json.dumps([os.path.join(out, 'exe', 'turnedbusy', 'wwe2k14.exe')])
+    dl = m.Deleter(time.time())
+    run(dl.folders, [os.path.join(out, 'exe', 'turnedbusy')])
+    check('F1: a folder whose exe started after the scan is skipped whole (the busy set is re-read before each out/exe folder)',
+          all(exists('out/exe/turnedbusy/' + f) for f in held_files + ('logs/wwe2k14_001.log',)))
+    os.environ.pop('TIDY_TEST_PROCS', None)
+    dl = m.Deleter(time.time())
+    run(dl.folders, [os.path.join(out, 'exe', 'lockdll')])
+    check('F1 twin: the same folder with nothing holding it IS deleted', not exists('out/exe/lockdll/wwe2k14.exe') and not exists('out/exe/lockdll/exe_info.json'))
+
+    # ---- 17. S106 G2LF F3: a name for a FILE inside an exe folder holds the folder WHOLE (it must not be split)
+    reset()
+    for nm in ('lanex', 'idle2'):
+        for f in ('wwe2k14.exe', 'wwe2k14.map', 'rexruntime.dll', 'exe_info.json'):
+            write(os.path.join(out, 'exe', nm, f))
+        write(os.path.join(out, 'exe', nm, 'logs', 'wwe2k14_001.log'))
+        age_tree(os.path.join(out, 'exe', nm), old)
+    check('F3: a path inside an out/exe folder is a container reason (name the folder)', bool(tidy_out.container_reason('out/exe/lanex/wwe2k14.exe', out)))
+    check('F3 twin: exactly out/exe/lanex is not', not tidy_out.container_reason('out/exe/lanex', out))
+    held_ = tidy_out.HeldIndex(named={'out/exe/lanex/wwe2k14.exe': 'tools/x_check.py'})      # the index a name for that file would make (read directly: the name itself is refused above)
+    items, rows, _notes = tidy_out.sweep(out, held_, (), None, None, busy_dirs=())
+    taken = [os.path.relpath(i['p'], out).replace('\\', '/') for i in items]
+    check('F3 (planted: a name for out/exe/lanex/wwe2k14.exe): nothing of the folder is taken (not split into its files)', not any(t.startswith('exe/lanex') for t in taken), str(taken))
+    check('F3: the folder is reported held whole', any(r[0] == 'out/exe/lanex' for r in rows), str(rows))
+    check('F3 twin: an unnamed idle exe folder is taken whole', 'exe/idle2' in taken, str(taken))
 
     print('%d checks, %d failed' % (N, len(FAILS)))
     return 1 if FAILS else 0

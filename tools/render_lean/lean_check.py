@@ -2,7 +2,7 @@ r"""S102 lane RT1 (docs\renderer\RENDER_LEAN.md): offline checks of `wwe2k14_rdr
 0 game runs, 0 Surface runs. Exit 0 = every line PASS.
 
 census  Q5's first question (CLAUDE brief: skip the lever when under 50 %): the share of texture sets per frame whose key equals a set kept from an EARLIER frame (rplay --render-lean 1, the
-        census line `[rplay][lean]`: kept / (kept + built)). Printed per capture; the gate's bar is the brief's 50 %.
+        census line `[rplay][lean]`: kept / (kept + built)). Printed per capture; the check's bar is the brief's 50 %.
 rplay   Bryan and Brock (unpacked case folders with scene records, read in place): the presented picture hash of EVERY frame (--frame-hashes) off against mask 1, 4 and 5; validation errors 0 and exit 0
         in every arm (the exit code is rplay's validation error count); mask 1 keeps sets (kept > 0) and builds fewer than off; mask 4 pools staging (hits > 0). Planted twin: --lean-plant 1 (sets not evicted)
         is NOT visible in a capture that never destroys an image, so the plants are proved by lean_test (unit) and by the wiring lint below.

@@ -1,0 +1,48 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\step3check\mods_b_q4 --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 step 3 check Q4 (route lane): user data = a copy of SEAT2's ud_after_b2 (record entry E267: owners 397 Maryse 00000002, 398 Lashley 00000001,
+# pending 397 398), mods = a copy of SEAT2's mods_b (the library that save was written with). Main menu -> WWE UNIVERSE (menu 1497), then A into its
+# first page, a few shots and the screen text. Question: does "[handover] universe: seat S answered gone once (handed over)" appear, does the mode open
+# without a crash, and what does it show?
+log step3: start q4_universe
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+on_fail continue
+log step3: main menu
+include menu_to_universe
+wait_frames 300
+log step3: universe entered
+log_text 12
+screenshot q4_uni0
+wait_frames 20
+press A
+wait_frames 400
+log step3: universe A1
+log_text 12
+screenshot q4_uni1
+wait_frames 20
+press A
+wait_frames 400
+log step3: universe A2
+log_text 12
+screenshot q4_uni2
+wait_frames 20
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+log_text 12
+screenshot q4_uni3
+wait_frames 20
+press A
+wait_frames 400
+log step3: universe A3
+log_text 12
+screenshot q4_uni4
+wait_frames 20
+wait_frames 300
+screenshot q4_uni5
+wait_frames 20
+log step3: done
+quit

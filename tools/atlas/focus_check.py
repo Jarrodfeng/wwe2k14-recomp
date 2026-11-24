@@ -50,8 +50,8 @@ def main():
                 print('%s %-36s %s%s' % ('PASS' if ok else 'FAIL', target + (' +' + '+'.join(deeper) if deeper else ''),
                                         nav.Nav.describe(before), ' -> ' + nav.Nav.describe_widget(after)), flush=True)
                 for w in n.focus():
-                    print('      widget vt=%s row=%d/%d col=%d/%d pads=%X' % (w['vt'], w['row'], w['rows'], w['col'],
-                                                                         w['cols'], w['pads']))
+                    print('      widget vt=%s row=%d/%d col=%d/%d menu_count=%d' % (w['vt'], w['row'], w['rows'], w['col'],
+                                                                                   w['cols'], w['count']))
             except nav.Lost as x:
                 print('LOST %-36s %s' % (target, x), flush=True)
         print('%d / %d PASS' % (passed, len(SCREENS)))

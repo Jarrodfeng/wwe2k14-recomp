@@ -164,7 +164,9 @@ def do_recording(g, item, extra):
         body.pop()
     dst = os.path.join(C.CEN, 'jarrod_block_run.txt')
     with open(dst, 'w', encoding='utf-8', newline='\n') as f:
-        f.write("# harness: realtime (Jarrod's Session 91 recording as a state-driven route, recorded at normal speed)\n")
+        # S109 FF2: no `# intent: watch` here: nobody watches this run (`watch` is only for a run a person plays, watches or listens to). The route is fast-forwarded and route_lint
+        # refuses its frame-counted presses until they are synced (menu_page / menu_row / cursor); see the hand-back list.
+        f.write("# Jarrod's Session 91 recording as a state-driven route (its presses are frame-counted: not yet synced, so the lint refuses it fast-forwarded)\n")
         f.write('on_fail quit\ninclude boot_to_menu\n')
         f.write('screenshot_every 600 cen_%s\n' % item['id'])
         f.write('\n'.join(body) + '\nwait_frames 120\nscreenshot_every 0\nquit\n')

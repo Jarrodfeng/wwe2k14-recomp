@@ -1,4 +1,4 @@
-# The live scene writer's acceptance test (Session 101, lane 26; gate lane live_writer). Offline: no game, no GPU.
+# The live scene writer's acceptance test (Session 101, lane 26). Offline: no game, no GPU.
 #   py -I tools\scene\live_writer_selftest.py [--root DIR]
 # 1. builds out\scene\live_scene_selftest.exe (tools\scene\build_live_writer.ps1) when a source is newer
 # 2. runs it (fake contributors, the folder sink, the case ring, planted faults, a full queue); every OK/FAIL line it prints must be OK
@@ -33,7 +33,8 @@ def run(cmd, timeout):
         return 124, f'timed out after {timeout} s'
 
 
-sources = [REPO / 'src' / 'renderer_scene' / n for n in ('live_scene.cpp', 'live_scene.h', 'live_sinks.cpp', 'live_sinks.h', 'live_scene_selftest.cpp', 'record_io.cpp', 'record_io.h', 'scene_record.h')]
+sources = [REPO / 'src' / 'renderer_scene' / n for n in ('live_scene.cpp', 'live_scene.h', 'live_sinks.cpp', 'live_sinks.h', 'live_scene_selftest.cpp', 'record_io.cpp', 'record_io.h', 'scene_record.h', 'record_checks.h', 'plane_checks.h')]
+sources += list((REPO / 'src' / 'renderer_scene').glob('rows_*.h'))   # S106 G4-1AF: the split headers
 sources += list((REPO / 'src' / 'case').glob('*')) + [REPO / 'tools' / 'scene' / 'build_live_writer.ps1']
 newest = max(p.stat().st_mtime for p in sources if p.exists())
 if not EXE.exists() or EXE.stat().st_mtime < newest:

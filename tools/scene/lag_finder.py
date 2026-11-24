@@ -2,7 +2,7 @@
 r"""Lag finder (Session 103, lane T4; Fable 5.2's review section 3 tool 6). 0 game runs, 0 Surface runs; offline, reads a kept case in place.
 
   py -I tools\scene\lag_finder.py CASE.zip [--frames N] [--json OUT] [--assume NAME=OFFSET ...]
-  py -I tools\scene\lag_finder.py --selftest        (planted offsets on a real case; the gate lane s103_T4 runs the re-finds with --refind)
+  py -I tools\scene\lag_finder.py --selftest        (planted offsets on a real case; --refind runs the re-finds)
   py -I tools\scene\lag_finder.py CASE.zip --refind w1|e7|drawhalf|particles|all
 
 Why: the clock bugs of Session 103 (W1: record j held stream j+1's palette; E7: part clocks lag +2 hook frames; the ring callback and every draw-half hook note at the RECORD frame, not the

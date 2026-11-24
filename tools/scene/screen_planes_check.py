@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane M gate check: builds tools\\scene\\screen_planes_unit.cpp (the stage screens' live PlaneSource: the flush copy of the display frame, the titan channel -> display set chain, the frame store,
+"""S103 lane M check: builds tools\\scene\\screen_planes_unit.cpp (the stage screens' live PlaneSource: the flush copy of the display frame, the titan channel -> display set chain, the frame store,
 the latch rows, the shared YUV feed, the mode gate: 0 game runs, no game, no SDK), runs it, then its planted twins (each must exit 1 and fail its NAMED check), then the wiring lints.
   py -I tools\\scene\\screen_planes_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""
@@ -14,6 +14,7 @@ PLANTS = {
     'wrong_buffer': 'copy.display_buffer', 'ignore_pitch': 'copy.pitch', 'swap_chroma': 'copy.chroma_order',
     'lazy_copy': 'copy.stable', 'size_ignored': 'bind.expected_size', 'stamp_always': 'screens.complete_gate', 'gate_800': 'screens.complete_gate', 'stage_ignored': 'copy.needs_stage', 'banner_to_ch5': 'bind.default_table', 'panels_ch2': 'bind.panels_channel1', 'ignore_state': 'bind.not_ready_not_copied', 'unbound_falls_back': 'bind.unbound_none', 'ignore_serial': 'serial.exact', 'mode_ignored': 'mode.off_no_work', 'idle_off': 'screens.idle_gate', 'idle_window0': 'screens.idle_gate', 'idle_ignores_channels': 'screens.idle_gate', 'idle_keeps_texture': 'screens.idle_drops_texture', 'stale_movie_kept': 'screens.no_row_black',   # S103 HN
       # S103 E7
+    'sheet_512': 'default.accepts_shim_sheet',   # S110 TRONSHEET: the shim's pre-fix sheet texture (width >= 512) is refused by the store
     'stale_screen_pic': 'screens.pic_refresh',   # S103 SCN: the 805 picture never refreshes (run 38)
     'show_unread': 'show.gate_follows_bits', 'art_erased': 'show.loader_keeps_art', 'idle_black': 'show.idle_draw',   # S103 SCF (SCM.md): the game's show bits; the planted twins = the pre-SCF rules
 }

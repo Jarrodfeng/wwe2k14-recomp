@@ -201,12 +201,18 @@ REX_HOOK_RAW(sub_827EBE78) {
 // after Ours frames finds the requests the game would have served and builds / clears its own map (review F1). Lane A reads both flags at their writers; ours must treat them as levels, not edges.
 // S103 SWF (docs\systems\liquid_map.md): the entry is where the liquid map's live items are final (SWB section 1), so the hook records them first (liquid_glue.h: read only, one relaxed load when no sink wants them). Under Ours our own
 // map replaces the game's, so the node's request flag +136 (the clear: create, blood level 0, the Swet reset) must be an EDGE for it: the recorded row carries it and the hook then writes 0, as the game's node does at 0x8279AE00
-// after its clear packets (a level would clear our persistent map every frame, a flag nobody consumes). A walked frame leaves the flag to the node. The alt request +200 is left alone (never set: SWB 1c).
+// after its clear packets (a level would clear our persistent map every frame, a flag nobody consumes). A walked frame leaves the flag to the node.
+// S108 BLD2 (docs\research\s108\BLD_plan.md section 10): the rebuild request +200 IS set (sub_82727F30, with +136, at the post-match scene and other instant level changes). Its only clearers are inside the node's ALT draw
+// (sub_8279A328: item bit 27, entry +12; sub_8279AC78: +200), which our skip never runs: left alone every later row would be a rebuild. So, like +136, the hook's recorded row carries it and the glue performs exactly
+// those three writes (liquid_hook.h ApplyAltConsume), only for a recorded rebuild row.
 REX_HOOK_RAW(sub_8279ACD8) {
-  const uint32_t recorded = wwe2k14::liquid_glue::OnNode(ctx.r3.u32, wwe2k14::scene_skip::HookFrame());
+  rdr_scene::live::liquid::AltConsume alt;
+  const uint32_t recorded = wwe2k14::liquid_glue::OnNode(ctx.r3.u32, wwe2k14::scene_skip::HookFrame(), &alt);
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::Sweat)) {
 #if !WWE2K14_STREAM()   // (the stream build keeps the game's own map; it never consumes the request itself)
     if ((recorded & 2u) && wwe2k14::scene_skip_nodes::Rd(base, ctx.r3.u32 + rdr_scene::live::liquid::kMapClear) != 0) wwe2k14::scene_skip_nodes::Wr(base, ctx.r3.u32 + rdr_scene::live::liquid::kMapClear, 0);   // only when the recorded row carried the request
+    if (recorded & 4u)
+      rdr_scene::live::liquid::ApplyAltConsume(alt, [&](uint32_t a, uint32_t& v) { v = wwe2k14::scene_skip_nodes::Rd(base, a); return true; }, [&](uint32_t a, uint32_t v) { wwe2k14::scene_skip_nodes::Wr(base, a, v); });
 #else
     (void)recorded;
 #endif

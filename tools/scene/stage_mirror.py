@@ -3,7 +3,7 @@ r"""S103 T7: the STAGE MIRROR pairing tool. Pairs the game's in-between render t
 
   py -I tools\scene\stage_mirror.py [DIR] [--frame F ...] [--out OUTDIR] [--json FILE]     # DIR = out\s103\stage_mirror (the dumps of --wwe2k14_dump_targets)
   py -I tools\scene\stage_mirror.py --page DUMP [--arena 4] [--out OUTDIR]                  # the L12 stage-page dump (stage_page_f<frame>.rgba8) as the `stage_page` role against the player's own page
-  py -I tools\scene\stage_mirror.py --synthetic                                              # offline self-test (the gate): a known image against a scaled / shifted copy must report the scale / shift
+  py -I tools\scene\stage_mirror.py --synthetic                                              # offline self-test (the check): a known image against a scaled / shifted copy must report the scale / shift
 
 Dumps: game_<role>.<n>_f<frame>.rgba8 and ours_<role>.<n>_f<frame>.rgba8 (u32 width, u32 height, RGBA8 rows), manifests manifest_game_f<frame>.txt / manifest_ours_f<frame>.txt.
 Pairing: by ROLE and index (game role.n with ours role.n). When the game has more images of a role than we do (the shadow maps: props map, wrestler maps A / B) each of ours takes the game image it

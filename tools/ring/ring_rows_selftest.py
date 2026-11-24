@@ -1,4 +1,4 @@
-r"""S101 lane 194 gate check: Ring D3 pieces R0-R2 (the ring's per-call node rows in the scene record; docs\renderer\SKIP_GAME_WORK_MAP.md 16.7). Offline, 0 game runs, headless.
+r"""S101 lane 194 check: Ring D3 pieces R0-R2 (the ring's per-call node rows in the scene record; docs\renderer\SKIP_GAME_WORK_MAP.md 16.7). Offline, 0 game runs, headless.
 
   py -I tools\ring\ring_rows_selftest.py [--no-build]
 

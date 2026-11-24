@@ -1,4 +1,4 @@
-# harness: realtime (game time against wall time)
+# intent: performance match clock rate
 # Session 37 (a 30 fps cap for weak PCs): does a match at --wwe2k14_step_hz=30 --gpu_vblank_rate_override_hz=30 keep
 # real time? The match clock is logged twice ~10 s apart (log_state); compare its change with the log timestamps
 # (and with a default run). Needs --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true. on_fail quit.

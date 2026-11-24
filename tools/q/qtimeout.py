@@ -98,7 +98,7 @@ def run_with_deadline(fn, secs, cancel=None):
 def selftest():
     import subprocess
     here = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(here)), 'tools', 'gate'))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(here)), 'tools', 'compile'))
     import proc
     pidf = os.path.join(os.environ.get('TEMP', '.'), f'qtimeout_gc_{os.getpid()}.pid')
     code = ('import sys, os, subprocess, time\n'

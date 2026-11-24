@@ -1,0 +1,48 @@
+# S106 C2: A8 30 Years captions. Sources: C2.md 3.3 (log 133; fault side A8.md 2). Fallback if the plant does not reach B+20:
+# flags = '--wwe2k14_det_poke=3930:0x839295F0>4>20:1', data = "userdata_frozen", and drop the [[pre]].
+[recipe]
+row = "A8"
+question = "with the caption option on, does the 30 Years narration caption draw with its box (no 2D hole) on match 18's entrance?"
+notes = ["docs/research/s105/A8.md", "docs/research/s105/A8D.md", "docs/research/s106/C1.md"]
+preset = "win-amd64-release-off"
+eyes = "required"
+
+[destination]
+route = 'tools\input_scripts\scenes\s105_chk_caption.txt'
+data = "plant"
+settings = "blank"
+timeout_s = 900
+
+[plant]
+threads = "none"
+caption = 1
+
+[[pre]]
+save = ["option:caption=1"]
+
+[[guard]]
+name = "READY pressed"
+line = 'scene=card_ready'
+agg = "count"
+need = ">= 1"
+
+# S106 C2F B2: the caption phase was reached (the route's periodic shots exist). Logs 104 / 122 ran with captions OFF and also read holes 1: the hole count
+# is every 2D hole site, not the caption box, so it is a MECHANISM readout only and the fault side is the shots (EYES on both arms, recipe.eyes).
+[[guard]]
+name = "caption phase reached (periodic shots saved)"
+line = 'screenshot saved: .*[\\/]\d+_chk_caption_\d+\.png'
+agg = "count"
+need = ">= 3"
+
+[[readout]]
+name = "2D holes (every 2D hole site, the caption box 0x82BC4404 among them)"
+line = '\[host\] frames .* holes (?P<v>\d+) frames_2d_dropped'
+agg = "max"
+role = "mechanism"
+fixed = "== 0"
+
+[[shots]]
+labels = ["chk_caption_*"]
+ask = "Is there narration caption text, drawn on its dark box?"
+fault = "no"
+fixed = "yes"

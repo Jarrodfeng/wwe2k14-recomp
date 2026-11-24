@@ -1,6 +1,6 @@
 # harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=8 --wwe2k14_launch_arena=1 --wwe2k14_launch_participants=367,368,369,322,324,343 --wwe2k14_events=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --wwe2k14_s101_promotions=true --wwe2k14_rdr_scene=2
 # intent: owner on, scene 2
-# Speed: fast-forward (no realtime line). Every wait is by file / state / match clock (COV.md rows 1 + 2: android_check's realtime line is only about the roster worker thread [L]). If the shots miss the entrants, rerun with -RealTime.
+# Speed: fast-forward (no realtime line). Every wait is by file / state / match clock (COV.md rows 1 + 2: android_check's realtime line is only about the roster worker thread [L]). If the shots miss the entrants, rerun with `# intent: watch` in the route (normal speed).
 # Session 103 RTE (docs\agents\s103\COV.md rows 1 + 2, "Routes for the next milestone" 1): the tag / 6-man entrance at RAW (arena 1). Type 8, six participants: The Shield trio
 # (367,368,369) v Del Rio (322, brings Ricardo), Bryan (324), Lesnar (343), entrances KEPT. Reads: census no_unique_entering_slot (several entrants at once, inputs_core.h:571-583),
 # [scene][ready] holes, the [stage_show] / slot-cycle lines (arena 1 billboards). Copied from s103_android_check.txt (entrances kept, no finisher block).

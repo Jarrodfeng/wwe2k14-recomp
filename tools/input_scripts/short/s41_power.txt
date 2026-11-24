@@ -1,4 +1,4 @@
-# harness: realtime (frame pacing and the vblank timer's lateness only mean something at vsync)
+# intent: performance frame ms
 # Session 41 (low-spec step 1): one normal-speed run, a launched match in four windows of 2400 frames (40 s, at least one full
 # [s6][O1] precise-vblank stats line each): the SDK timer queue spinning vs sleeping (timer_queue_sleep), then the
 # precise vblank timer's final spin at 1000 / 250 / 0 us. Per-thread CPU: tools\perf\thread_busy.ps1 next to it,

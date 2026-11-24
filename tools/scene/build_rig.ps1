@@ -66,6 +66,10 @@ $objs = @($srcs | ForEach-Object { Join-Path $obj (($_.Substring($repoLen) -repl
 & clang++ -fuse-ld=lld -g @objs -o (Join-Path $outDir 'frame_rig.exe') @libs
 if ($LASTEXITCODE -ne 0) { throw 'frame_rig link failed' }
 Write-Host "built $(Join-Path $outDir 'frame_rig.exe')"
+# S108 SHOT-B: the rig's build stamp = the commit it was built from (tools\harness\run_verdict.py refuses a rig whose stamp differs from the game exe's). Dirty ignores untracked files, as tools\build_stamp.cmake.
+$rigGit = (& git -C $repo.Path rev-parse --short=12 HEAD).Trim()
+$rigDirty = if (@(& git -C $repo.Path status --porcelain -uno).Count) { 1 } else { 0 }
+Set-Content -LiteralPath (Join-Path $outDir 'frame_rig.stamp') -Value "git $rigGit dirty $rigDirty"
 
 # the ModelCache miss-queue unit check
 $test = Join-Path $obj 'tools_scene_record_frame_test.cpp.o'
@@ -93,6 +97,15 @@ $eobjs = @($objs | Where-Object { $_ -notmatch 'frame_rig\.cpp\.o$' }) + $ey
 & clang++ -fuse-ld=lld -g @eobjs -o (Join-Path $outDir 'eyes_frame_unit.exe') @libs
 if ($LASTEXITCODE -ne 0) { throw 'eyes_frame_unit link failed' }
 Write-Host "built $(Join-Path $outDir 'eyes_frame_unit.exe')"
+
+# S108 HAIR: the piece-cut draw state through the REAL FrontEnd::Record on a wrestler from the player's files (tools\scene\piece_cut_frame_unit.cpp): the same objects, its own main
+$pc = Join-Path $obj 'tools_scene_piece_cut_frame_unit.cpp.o'
+& $cxx0 @cxxRest -O1 -g -std=c++20 -c @defs -Wno-unused-command-line-argument @incRel 'tools\scene\piece_cut_frame_unit.cpp' -o ($pc.Substring($repoLen))
+if ($LASTEXITCODE -ne 0) { throw 'piece_cut_frame_unit compile failed' }
+$pcobjs = @($objs | Where-Object { $_ -notmatch 'frame_rig\.cpp\.o$' }) + $pc
+& clang++ -fuse-ld=lld -g @pcobjs -o (Join-Path $outDir 'piece_cut_frame_unit.exe') @libs
+if ($LASTEXITCODE -ne 0) { throw 'piece_cut_frame_unit link failed' }
+Write-Host "built $(Join-Path $outDir 'piece_cut_frame_unit.exe')"
 
 # S103 PVR: the posed-vertex ring's unit (tools\scene\pvr_unit.cpp): a synthetic re-posed model through the REAL FrontEnd + renderer, ring vs the old staged copy, the same objects, its own main
 $pv = Join-Path $obj 'tools_scene_pvr_unit.cpp.o'

@@ -11,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
-BASE = '21b39eb5d'   # S103 LNT3: the last SPIR-V change on purpose (TQ2; before: RFL, FXF, MIP daf91b9fe)
+BASE = 'b3ab82692'   # S106 TIPFIX: the last SPIR-V change on purpose (S105 SPV bbb9de9d0 + fix round b3ab82692; before: S103 LNT3 21b39eb5d, TQ2, RFL, FXF, MIP daf91b9fe)
 OWN = {'rdr_light_cubes_comp.h', 'rdr_light_dirs_comp.h', 'rdr_light_dirs_comp_swap.h'}
 FAILS = 0
 DIR = 'src/renderer/shaders/spv'

@@ -34,8 +34,8 @@ using guest_model::ModelRead;
 using guest_model::PartRead;
 
 struct GuestMemory {   // the reader's `M` over the game's memory
-  bool u32(uint32_t a, uint32_t& v) const { return wwe2k14::wrestlers::ReadWord(a, v); }
-  bool bytes(uint32_t a, uint32_t n, uint8_t* dst) const { return wwe2k14::wrestlers::ReadGuest(a, dst, n); }
+  bool u32(uint32_t a, uint32_t& v WWE_FEED_LOC_PARAM) const { return wwe2k14::wrestlers::ReadWord(a, v WWE_FEED_LOC_ARG); }
+  bool bytes(uint32_t a, uint32_t n, uint8_t* dst WWE_FEED_LOC_PARAM) const { return wwe2k14::wrestlers::ReadGuest(a, dst, n WWE_FEED_LOC_ARG); }
 };
 // Pixel memory by PHYSICAL address (the same reader as inputs_glue.h CrowdGuestMem::phys; the range check is ours, A8).
 inline bool PhysRead(uint32_t addr, uint32_t n, uint8_t* dst) {

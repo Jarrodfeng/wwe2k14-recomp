@@ -28,6 +28,8 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_lights.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/scene_live/ring_rows_contrib.h"
 
 using namespace rdr_scene;

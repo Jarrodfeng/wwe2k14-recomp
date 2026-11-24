@@ -38,7 +38,7 @@ const NameMask kTable[] = {
     {"FogDistance", 0}, {"NormalFlip", 0}, {"RimLightDepth", kStLight}, {"RimLightParam", 0}, {"RimLightParam3", kStMaterial}, {"HdLig", 0}, {"SpecCubPrm3", 0},
     {"View", 0}, {"MuscleParam", 0}, {"MuscleUV", 0}, {"WrinkUV", kStMaterial}, {"vMin", 0}, {"fvMin", 0}, {"LightMin", 0}, {"UVScroll0", kStMaterial}, {"UVScroll1", kStMaterial},
     {"MipmapBias", 0}, {"Level", 0},
-    {"FogColor", 0}, {"ChangeColor", 0}, {"Blood", kStMaterial}, {"BSSBldClr", kStMaterial}, {"Sweat", kStMaterial},   /* S103 SWF: the wet variant reads the material's own wet constants (like Param0): per material, never written once */ {"DebugPS0", 0}, {"DebugPS1", 0},
+    {"FogColor", 0}, {"ChangeColor", kStMaterial /* S108 THR2: a change-colour draw's colours (hashed into the material stamp, front_end.cpp) */}, {"Blood", kStMaterial}, {"BSSBldClr", kStMaterial}, {"Sweat", kStMaterial},   /* S103 SWF: the wet variant reads the material's own wet constants (like Param0): per material, never written once */ {"DebugPS0", 0}, {"DebugPS1", 0},
     {"ShadowPrm", kStLight}, {"ViewLightDepth", kStLight}, {"TexProjLightXY", kStLight}, {"TexProjLightW", kStLight},   // S103 L6: the shadow reader's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
     {"Param1", kStMaterial}, {"ConvScreen", 0}, {"HairSpeParam", kStMaterial}, {"SpeCol1", kStMaterial},
     {"SpeCol2", kStMaterial}, {"SSColor", 0}, {"SS", 0}, {"SphereOccP", 0}, {"SphereOccV", 0}, {"IdMapCol", kStMaterial}, {"IdMapLvLst", kStMaterial}, {"WklLvLst", kStMaterial},

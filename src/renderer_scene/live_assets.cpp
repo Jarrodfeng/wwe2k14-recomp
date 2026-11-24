@@ -35,6 +35,7 @@
 #include "../assets/attire_compose.h"     // S103 CMB: the composite attire's host compose
 #include "../assets/attire_remap.h"       // S103 ARM: the game's attire remap (pac\misc01_Start.pac p0/600)
 #include "../assets/attire_build.h"       // S103 ARM2: the colours the game painted with (build-step latch); the census counts
+#include "../assets/change_mask.h"        // S108 THR2: the `/m` tag, the Threads editor's masks as model textures
 #include "named_load_fail.h"              // S103 ARM: MarkHole (a failed composite / remapped attire stays a hole)
 #include "../assets/crowd_body.h"
 #include "../assets/particle_sprites.h"   // S103 F5
@@ -95,13 +96,18 @@ static void BuildEffectTable(launcher::GameFiles& files) {
   assets::pac::Pac ep;
   std::string eerr;
   if (!assets::pac::Open(files, "pac\\edit\\edit.pac", ep, eerr)) { rdr::Log("[read_rule] no editor effect table: %s", eerr.c_str()); return; }
-  if (ep.pachs.size() <= 7 || ep.pachs[7].ents.empty()) { rdr::Log("[read_rule] edit.pac: no top-level entry p7/0"); return; }
-  const assets::pac::Ent& le = ep.pachs[7].ents[0];
-  const assets::Bytes ldec = assets::pac::Decode(ep.bytes.data() + le.off, le.size);
-  auto ltable = std::make_shared<EffectTable>();
-  if (!ParseEffectLeaf(ldec.data(), ldec.size(), hash, *ltable)) { rdr::Log("[read_rule] edit.pac p7/0: no effect table parsed"); return; }
-  rdr::Log("[read_rule] editor (logo) effect table: %zu effects from pac\\edit\\edit.pac p7/0", ltable->size());
-  PublishLogoEffectTable(std::move(ltable));
+  // S108 THR2: the editors' tables share one reader: top-level PACH `pach`, entry 0 (p7/0 = /EDIT/CSS, the CAW logo rows; p9/0 = /EDIT/STS, the Threads change-colour rows).
+  const auto editor_leaf = [&](size_t pach, const char* what) -> std::shared_ptr<EffectTable> {
+    if (ep.pachs.size() <= pach || ep.pachs[pach].ents.empty()) { rdr::Log("[read_rule] edit.pac: no top-level entry p%zu/0 (%s)", pach, what); return nullptr; }
+    const assets::pac::Ent& le = ep.pachs[pach].ents[0];
+    const assets::Bytes ldec = assets::pac::Decode(ep.bytes.data() + le.off, le.size);
+    auto ltable = std::make_shared<EffectTable>();
+    if (!ParseEffectLeaf(ldec.data(), ldec.size(), hash, *ltable)) { rdr::Log("[read_rule] edit.pac p%zu/0: no effect table parsed (%s)", pach, what); return nullptr; }
+    rdr::Log("[read_rule] editor (%s) effect table: %zu effects from pac\\edit\\edit.pac p%zu/0", what, ltable->size(), pach);
+    return ltable;
+  };
+  if (auto lt = editor_leaf(7, "logo")) PublishLogoEffectTable(std::move(lt));
+  if (auto st = editor_leaf(9, "threads change colour")) PublishStsEffectTable(std::move(st));   // a failure: no body is drawn recoloured (the startup rows, as before)
 }
 }  // namespace read_rule
 
@@ -133,7 +139,7 @@ bool GameFilesSource::SetRoot(const std::string& game_root) {
 // nothing else is kept). Upload format is the renderer's BC1 path (UNORM, never SRGB).
 // Stream-free rule (decided S103): a refusal is a HOLE, never the plain base: a refusal tag ("/r": the hook could not read the colours) or a compose that fails returns false with
 // the reason, the load fails, ModelCache notes it (named_load_fail.h) and the record stops naming the model (the game's own geometry draws it, counted). A plain entry returns true untouched.
-static bool ApplyCompositeAttire(launcher::GameFiles& files, int id, int attire, const std::string& entry, int key, assets::Model& m, std::string& error) {
+static bool ApplyCompositeAttire(launcher::GameFiles& files, const std::string& rel, int attire, const std::string& entry, int key, assets::Model& m, std::string& error) {   // S110 LIBSIZE: rel = the character's file (Load)
   attire_compose::Input in;
   if (attire_compose::IsRefusalTag(entry)) {
     error = "composite attire refused at the link (its colours could not be read)";
@@ -146,7 +152,7 @@ static bool ApplyCompositeAttire(launcher::GameFiles& files, int id, int attire,
   std::vector<assets::Bytes> keep;   // the decoded entries (the Input points into them)
   do {
     std::string err;
-    const assets::pac::Pac* p = assets::load_detail::OpenCached(files, assets::load_detail::WrestlerRel(id), err);
+    const assets::pac::Pac* p = assets::load_detail::OpenCached(files, rel, err);
     if (!p) { why = "pac: " + err; break; }
     const assets::pac::Pach* h = nullptr;
     int seen = 0;
@@ -183,17 +189,48 @@ static bool ApplyCompositeAttire(launcher::GameFiles& files, int id, int attire,
   return false;
 }
 
-// S103 DLW census (a step check reads it): one line per distinct named wrestler ref, where its pac came from. A failed load is said by ModelCache (named_load_fail.h: "load failed ... guest rows draw it").
-// S105 A7: the named loader's "texture 'X' not found" warnings (dds.h TexSet::Get; the part then draws white) reached no game log: one line per name per pac.
-static void WrestlerTexWarnings(const std::string& pac, const assets::Model& m) {
-  static std::mutex mu;
-  static std::set<std::string> told;
-  for (const std::string& w : m.warnings) {
-    if (w.compare(0, 9, "texture '") != 0 || w.find("not found") == std::string::npos) continue;
-    { std::lock_guard<std::mutex> l(mu); if (!told.insert(pac + "|" + w).second) continue; }
-    rdr::Log("[wwe2k14][wrestler_src] %s (%s): %s: the sampler stays unbound (a diffuse then draws white; a normal or wrinkle map just stays off)", m.label.c_str(), pac.c_str(), w.c_str());
-  }
+// S108 THR2 (change_mask.h): a body the record names with `/m` (the game draws it recoloured: the Threads editor) keeps its attire PACH's Mask1..Mask4 (entries 13..16) as
+// model textures, every material's change_mask[k] naming them. Loader thread, once per distinct entry (the model cache). No masks: the body draws plain (counted by the draw side).
+static void ApplyChangeMasks(launcher::GameFiles& files, const std::string& rel, int attire, int key, assets::Model& m) {   // S110 LIBSIZE: rel = the character's file (Load)
+  std::string err;
+  const assets::pac::Pac* p = assets::load_detail::OpenCached(files, rel, err);
+  const assets::pac::Pach* h = nullptr;
+  int seen = 0;
+  if (p)
+    for (const assets::pac::Pach& c : p->pachs)
+      if (assets::pac::Find(c, 0) && seen++ == attire) { h = &c; break; }
+  std::vector<assets::Bytes> keep;
+  keep.reserve(change_mask::kMasks);
+  std::string why = p ? (h ? "" : "no such attire PACH") : "pac: " + err;
+  const int kept = h ? change_mask::KeepMasks(m, [&](int k, size_t& n) -> const uint8_t* {
+    const assets::pac::Ent* en = assets::pac::Find(*h, change_mask::kFirstEntry + uint32_t(k));
+    if (!en) return nullptr;
+    keep.push_back(assets::pac::Decode(p->bytes.data() + en->off, en->size));
+    n = keep.back().size();
+    return keep.back().data();
+  }, why) : 0;
+  rdr::Log("[change_colour] key %d: %d of %d masks kept for the Threads editor's live colours%s%s", key, kept, change_mask::kMasks, why.empty() ? "" : ": ", why.c_str());
 }
+
+// S108 THB (change_mask.h KeepPropMask): an entrance prop whose id has a /SPMT/<id> row in evtobj.pac (the caps, hats, T-shirts and scarf the Threads gear colours recolour) keeps that row's Mask1 as a model texture; every material's
+// change_mask[0] names it. Loader thread, once per distinct entry (the model cache), under the load lock. An id with no SPMT row draws as before (the game does not recolour it either); a mask that cannot be read is said once per id.
+static void ApplyPropMask(launcher::GameFiles& files, int pid, int k, assets::Model& m) {
+  const int ord = assets::PropMaskPachEvt(files, uint32_t(pid));
+  if (ord < 0) return;
+  assets::Texture t;
+  std::string why;
+  static std::set<int> told;   // (the loader runs under one lock: no second thread here)
+  if (!assets::LoadPropMask(files, ord, t, why)) {
+    if (told.insert(pid).second) rdr::Log("[prop_colour] prop %d (entry %d): SPMT mask not loaded: %s: the prop draws in its file colours", pid, k, why.c_str());
+    return;
+  }
+  const uint32_t w = t.width, h = t.height;
+  change_mask::KeepPropMask(m, std::move(t));
+  if (told.insert(pid).second) rdr::Log("[prop_colour] prop %d: /SPMT/%04d PACH %d Mask1 %ux%u kept as the Threads gear colours' mask", pid, pid, ord, w, h);
+}
+
+// S103 DLW census (a step check reads it): one line per distinct named wrestler ref, where its pac came from. A failed load is said by ModelCache (named_load_fail.h: "load failed ... guest rows draw it").
+// S105 A7 -> S108 AL1: the named loader's "texture 'X' not found" warnings are said for EVERY adopted model (not only wrestlers) by model_load_report.h ReportLoadedModel (LiveSceneDraw::AdoptLoaded).
 
 static void WrestlerSrcCensus(const launcher::GameFiles& files, const std::string& pac, const std::string& entry, uint32_t variant, bool ok) {
   if (!ok) return;
@@ -260,7 +297,12 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
     assets::load_detail::BorrowTextures() = saved_borrow;
     return arena_ok;
   }
-  if (std::sscanf(norm.c_str(), "pac\\ch\\ch%d.pac", &id) == 1) {
+  // S110 LIBSIZE: the file every wrestler loader below opens: the id's pac\ch\chNNN.pac (as before), or the library character's own `<KEY>\pac\ch\ch497.pac` that KeyLink
+  // names (every library file is CH497: the id alone names none of them; the one "lib" overlay resolves the folder). Before, that form matched no loader here ("no loader for pac").
+  std::string wrel;
+  if (std::sscanf(norm.c_str(), "pac\\ch\\ch%d.pac", &id) == 1) wrel = assets::load_detail::WrestlerRel(id);
+  else if (namedfail::LibWrestlerPac(norm, id)) wrel = norm;
+  if (!wrel.empty()) {
     // S103 B: entry "model_key:K" (what the wrestler contributor writes): the model PACH whose EMD name is K (character * 100 + attire * 10 + kind), else the same attire's
     // kind 2 (ring) model. `variant` is NOT an attire digit for such a record (the loader reads it as the n-th model PACH).
     int key = 0;
@@ -272,7 +314,7 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
       std::string table_err;
       const assets::attire_remap::Table& table = remap_on ? assets::attire_remap::TheTable(impl_->files, &table_err) : kNoTable;
       if (!table_err.empty()) rdr::Log("[attire_remap] no colour table (%s): no composite attire is remapped", table_err.c_str());
-      const assets::attire_remap::Pick pick = assets::attire_remap::PickModel(impl_->files, table, id, key);
+      const assets::attire_remap::Pick pick = assets::attire_remap::PickModel(impl_->files, table, wrel, key);
       uint8_t tag_colours[attire_compose::kColourBytes];
       const bool tagged = attire_compose::IsRefusalTag(entry) || attire_compose::ParseEntryTag(entry, tag_colours);
       // S103 ARM (fix 3, the stream-free rule as `/r`): a composite or remapped attire body whose named load fails stays a counted HOLE, never the guest rows (they bind atlases this build never fills).
@@ -291,18 +333,19 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
         attire_build::Count().missing.fetch_add(1, std::memory_order_relaxed);
         rdr::Log("%s", attire_build::CensusLine().c_str());
       }
-      const bool ok = assets::LoadWrestler(impl_->files, id, ord, out, error);
+      const bool ok = assets::LoadWrestlerAt(impl_->files, wrel, id, ord, out, error);
       if (!ok) return fail(error);
-      if (!ApplyCompositeAttire(impl_->files, id, ord, entry, key, out, error)) return fail(error);   // S103 CMB: a refusal is a failed load (a hole); a plain entry has no tag: nothing happens
+      if (!ApplyCompositeAttire(impl_->files, wrel, ord, entry, key, out, error)) return fail(error);   // S103 CMB: a refusal is a failed load (a hole); a plain entry has no tag: nothing happens
+      if (change_mask::HasTag(entry)) ApplyChangeMasks(impl_->files, wrel, ord, key, out);   // S108 THR2: the masks of a recoloured body (never fails the load: no masks = drawn plain)
       WrestlerSrcCensus(impl_->files, norm, entry, variant, ok);
-      WrestlerTexWarnings(norm, out);   // S105 A7
+      // (S105 A7 WrestlerTexWarnings: now the adopt-time reader, model_load_report.h)
       return ok;
     }
-    const int n = assets::AttireCount(impl_->files, id);
+    const int n = assets::AttireCountAt(impl_->files, wrel);
     if (int(variant) >= n) { error = "attire " + std::to_string(variant) + " does not exist (wrestler " + std::to_string(id) + " has " + std::to_string(n) + ")"; return false; }
-    const bool ok = assets::LoadWrestler(impl_->files, id, int(variant), out, error);
+    const bool ok = assets::LoadWrestlerAt(impl_->files, wrel, id, int(variant), out, error);
     WrestlerSrcCensus(impl_->files, norm, entry, variant, ok);
-    if (ok) WrestlerTexWarnings(norm, out);   // S105 A7
+    // (S105 A7 WrestlerTexWarnings: now the adopt-time reader, model_load_report.h)
     return ok;
   }
   // S103 BLF: an entrance's event prop (weapon_draw_core.h EvtEntryOf): "evtprop:<prop id>/<k>" = entry k of the PACH the game's own directory gives the prop id (assets::PropPach), the model MakeWeapon built for entry k.
@@ -331,7 +374,9 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
         if (told.insert(pid).second) rdr::Log("[wwe2k14][weapon_rows] event prop id %d is in BOTH SOBJ (PACH %d, used: the game looks SOBJ first) and BOBJ (PACH %d)", pid, pach, other);
       }   // the step check reads Cena's belt here (2004 / 3004, not 2009 / 3009)
       if (pach < 0) { error = "event prop " + std::to_string(pid) + ": no PACH in evtobj.pac's directory"; return false; }
-      return assets::LoadPropEntry(impl_->files, pach, uint32_t(k), out, error);
+      if (!assets::LoadPropEntry(impl_->files, pach, uint32_t(k), out, error)) return false;
+      ApplyPropMask(impl_->files, pid, k, out);   // S108 THB: the Threads gear colours' mask of a cap / hat / shirt / scarf (never fails the load: no mask = drawn in the file's colours)
+      return true;
     }
   }
   // S103 CGF: a stage structure piece (weapon_draw_core.h StgEntryOf): pac\bg\bgEtc.pac, entry "stg:<PACH>/<k>" = nested key 1 entry k of top-level PACH (steel cage 0 / 1 / 2, Hell in a Cell 3, Elimination Chamber 6, Inferno 7).

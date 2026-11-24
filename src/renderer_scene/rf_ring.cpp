@@ -22,10 +22,12 @@
 #include <set>
 
 #include "../renderer/problem.h"   // rdr::Log (the run log; stderr never reaches it)
+#include "rows_ring.h"   // S106 G4-2
 #include "rf_c.h"
 #include "ring_gpu_skin.h"
 #include "ring_keys.h"
 #include "ring_pose.h"
+#include "pose_rows_report.h"   // S108 AL1: ReportRingRows
 
 namespace rdr_scene::rf::c {
 
@@ -220,6 +222,7 @@ bool RingRun(BuildCtx& ctx, int run) {
     const int asked = KeyOf(*e, ours_g[g], alt);
     const int key = Resolve(*as, asked);
     ArenaSet::RingPiece& piece = as->ring_piece[key];
+    ReportRingRows(key, asked, as->arena, piece.rows_needed, e->n_nodes);   // S108 AL1: fewer rows than the piece's vertices name = vertices at their file position (both paths below): the shared draw_shortfall
     const uint32_t idx = InstanceOf(*e);
     if (key_census) {
       auto& c = census[key];

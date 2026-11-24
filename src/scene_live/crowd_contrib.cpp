@@ -1,5 +1,7 @@
 // The crowd contributor (Session 101, lane 27). See crowd_contrib.h. No game or SDK includes.
 #include "crowd_contrib.h"
+#include "../renderer_scene/rows_crowd.h"   // S106 G4-2
+#include "../renderer_scene/rows_pictures.h"
 #include "sign_file_keys.h"   // S103 CSF
 #include "../renderer_adapter/census_flush.h"  // S102 CEN1
 static census_flush::Site g_cf_ids, g_cf_run;  // S102 CEN1

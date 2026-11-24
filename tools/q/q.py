@@ -22,6 +22,7 @@
   switch FUNC                  every jump-table switch of FUNC: case -> target, the li constants / stores of constants / calls in each case (`decomp FUNC --cases` = the same; qgx.py)
   text ID [--lang N] [--all]   text id -> string from the game's string tables (string.pac; qgx.py)
   csdt [ERA [KEY]] [--find K]  evtdata.pac /CSDT caption tables: key, start / end frame, text (qgx.py)
+  save [titles|options|dlc|caw|threads] [--data M]   decode a user-data mirror (tools/save/save_read.py; docs/formats/save_data.md); `save check EXPR...` exits 1 when a precondition is false
   field OFF --stores           `field OFF --writes` + indexed stores (stbx / sthx / stwx ...) + memcpy writers (qstores.py)
   ours includes F --included-by | --transitive | --closure   the include graph of our src (qgx.py)
   info                         what the index was built from, counts, staleness
@@ -33,6 +34,11 @@
                                cache out/harness/index/qconst/; docs/agents/q_const.md)
   vtable ADDR [--slot K]|--of FUNC  the slots of a vtable (index, word, target, db name, decomp summary); --of = which
                                vtable slots point at FUNC (tools/q/qvtable.py)
+  name ADDR|WORD               the names the GAME carries for a function (Lua bindings, name tables) / functions whose name has WORD (tools/q/qnames.py)
+  seen [ADDR]                  indirect call pairs OBSERVED in coverage runs: totals / observed callers + targets of a function (tools/q/qseen.py)
+  lib UNIT | --stats | --build  is a unit third-party library code (Havok, Wwise, Lua, Bink, zlib, LZX, CRT)? by strings or by range (tools/q/qlib.py)
+  unit ADDR | cover [--json]  the unit (call cluster, K=32) of a function / the mechanical + meaning coverage numbers (tools/q/qunits.py, qcover.py)
+  feed [FILE[:LINE]] [--unread]  the scene feed's field table (every field our renderer reads) with struct key + the game's writers (tools/q/qfeedkey.py)
   field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
                                a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.s<SCHEMA>.db; `q field -h`)
   sdk def|refs|callers NAME [--part sdl3|imgui|sdk|...] | info   the ReXGlue SDK source + the SDK's SDL3 / imgui / VMA / spdlog / fmt / ... as a read-only index (tools/q/qsdk.py; builds and refreshes ITSELF on every call, 7 s cold, 0.4 s warm; each hit tagged [sdk] / [sdl3] / ...; the header says the index age)
@@ -41,12 +47,11 @@
                                from the player's own files, refreshes ITSELF; `q asset -h`)
   show FILE:N-M [...]         exact numbered lines of one of our files (FILE:N, FILE:N+-C, FILE:A-B,C-D; a unique basename works; tools/q/qshow.py)
   note [NAME] [--verdict|--sites|--section HEADING]   one section of a docs/research|systems|formats note, not the file (tools/q/qnote.py)
-  ours body FUNC | outline FILE | enclosing FILE:LINE   a function's lines | a file's functions / types / fields (no bodies) | the function holding a line (tools/q/qbody.py)
+  ours body FUNC | outline FILE | enclosing FILE:LINE   a function's lines | a file's functions / types (no bodies) | the function holding a line (tools/q/qsym.py, text)
   py body NAME                 the text of a python / ps1 tool function (def span)
   py def|refs|callers|callees|writes|reads|fn NAME   our python / ps1 tools first: `ours ... --tools` (tools/q/qtools.py: ast-based, this checkout's own files)
-  ours ...                     the structural index of OUR code: def refs callers callees writes reads fn covers rows info update diff + lanes-of line lit includes includers (tools py/ps1/lane json too) + hooks text affects (qx6.py) + glsl fxreg str (qgl.py)
-                               (tools/q/qours.py; db out/harness/index/ours.db; exact, from the clang AST; `q ours -h`;
-                               `q ours --branch REF CMD` / `q ours diff REF` = the same for a lane branch, via an overlay on the main index)
+  ours ...                     questions about OUR code by plain TEXT search (no index, no compiler; whole word, case-sensitive; same in every worktree): def refs callers callees writes reads fn covers info + line lit includes includers (tools py/ps1 too) + hooks text (qx6.py) + glsl fxreg str (qgl.py)
+                               (tools/q/qours.py + qsym.py; `q ours -h`; `Scope::name` narrows a common name; `q ours rows|diff|--branch` on the symbol verbs are gone)
 
 FUNC: sub_82CB1F50 | 0x82CB1F50 | 82cb1f50 | a mapped name (__imp__XamInputGetState, xstart) | a db name
 (gpu_wait_poll_step). An address inside a function resolves to that function (noted).
@@ -67,6 +72,22 @@ import re
 import sqlite3
 import subprocess
 import sys
+
+ROUTING = """WHICH q COMMAND ANSWERS YOUR QUESTION (q -h = every command)
+- not sure which? q find X [X2 ...]: tries every index (C++ / python name, file, path, cvar, env, log line, game address, sdk, code text, docs, fact)
+  and says what matched, each list with its total; --in PATH narrows, --all shows everything. (q X with an unknown first word = q find X)
+- several questions in one call: q multi "ours callers F" "show FILE:10-40" "decomp sub_X --fields" (each answered whole, with its exit code)
+- who calls / refs / writes / reads a C++ or python name: ours refs|callers|writes|reads NAME (python: py refs NAME; importers: py refs MODULE)
+- where defined / one screen: ours def|fn NAME; a file's functions: ours outline FILE; a function's lines: ours body NAME; lines: show FILE:N-M
+- who names a script / exe: ours runs FILE; a path / string / number in src+tools: ours lit VALUE; words on one line: ours text W1 W2 [--any] [-E regex]
+  (a word in docs / briefs / CMake: ours text WORD --docs; at a branch: ours text WORD --branch REF)
+- who prints / parses a log line: ours line "LINE"; a census field: ours census FIELD; env var: ours env NAME; cvar: ours cvar NAME
+- includes: ours includes|includers FILE; SDK / SDL source: sdk def|refs NAME; lodged: fact WORDS; a note's section: note NAME --section H
+- game code: decomp sub_X [--fields|--callers N]; field OFF [--writes|--stores]; callers|fn|addr|str|imm X; asm FUNC
+(bare outline / body / refs / def / lit / text WORD mean `ours` ...)
+Not answered by any of these? `q missed "<the question>"` logs the gap (voluntary; the list of what to build next), then use grep.
+"""
+
 
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 DB = os.path.join(REPO, 'out', 'harness', 'index', 'index.db')
@@ -210,7 +231,47 @@ def cmd_callers(con, a, args):
     return {'func': fname(con, a), 'addr': h(a), 'n_sites': len(rows), 'n_callers': len(by),
             'callers': [{'func': fname(con, s), 'addr': h(s), 'sites': v,
                          **({'ran_in': covf.get(h(s), [])} if covf is not None else {})} for s, v in by.items()],
-            'data_pointers': [h(r['at']) for r in data], 'vtable_slots': slots}
+            'data_pointers': [h(r['at']) for r in data], 'vtable_slots': slots, 'indirect': indirect_of(con, a)}
+
+
+def indirect_of(con, a):
+    """S110 ICALL: the callers that reach `a` through an indirect call (qx7 icall tables) and the count of sites this list cannot see; {'error': text} when the tables are not there"""
+    import qx7
+    try:
+        r = qx7.icall_callers(con, a)
+    except (qx7.XError, sqlite3.Error) as e:
+        return {'error': str(e)}
+    r['sites'] = [{**s, 'site': h(s['site']), 'func': fname(con, s['func'])} for s in r['sites']]
+    return r
+
+
+def print_indirect(r):
+    ind = r.get('indirect')
+    if ind is None:
+        return
+    if 'error' in ind:
+        print(f'  indirect callers: NOT KNOWN ({ind["error"]})')
+        return
+    # S110 CLASSFLOW: how = the rule that resolved the site (class, this-class, ... or the class-flow letters a b c d e h); an L = the result rests on memory the scan cannot
+    # prove it sees every write to (a global: f; a pointer field: b's field read; a stack slot: h): a candidate
+    def kind_of(s):
+        return 'sure' if s['status'] != 'cand' else 'candf' if str(s.get('how') or '').endswith('L') else 'cand'
+    for kind, head in (('sure', 'indirect callers (a virtual / pointer call that reaches it'),
+                       ('cand', 'candidate indirect callers (table matched by field offset only; class not checked'),
+                       ('candf', 'candidate indirect callers (class flow through a global, a pointer field or a stack slot (rules f / b / h): writes the scan does not see are not excluded')):
+        ss_all = [s for s in ind['sites'] if kind_of(s) == kind]
+        by = {}
+        for s in ss_all:
+            by.setdefault(s['func'], []).append(s)
+        if by:
+            print(f'  {head}; {len(ss_all)} sites in {len(by)} functions):')
+            for f, ss in by.items():
+                print(f'    {f:<28} ' + ', '.join(f'{s["site"]} slot +{s["off"]}' + ('' if s['status'] in ('exact', 'cand') else f' (1 of {s["n"]} targets)') + (f' [{s["how"]}]' if s.get('how') else '') for s in ss))
+    if ind['n_incomplete'] or ind['n_open']:
+        offs = ', '.join(f'+{o}' for o in ind['offsets'])
+        print(f'  incomplete: {ind["n_incomplete"]} sites call slot {offs or "(none)"} (class not shown)'
+              + (f' ({", ".join(f"+{o}: {n}" for o, n in ind["offsets"].items())})' if len(ind['offsets']) > 1 else '')
+              + f'; {ind["n_open"]} with CTR unknown')
 
 
 def print_callers(r, args):
@@ -226,6 +287,8 @@ def print_callers(r, args):
         print(f'  data words pointing at it: {len(dp)}: ' + ', '.join(dp[:12]) + (' ...' if len(dp) > 12 else ''))
     for s in r['vtable_slots']:
         print(f'  vtable slot: {s["class"]} vtable {s["vtable"]} slot {s["slot"]}')
+    print_indirect(r)
+    import qseen; qseen.print_observed(r)   # S110 SEEN
 
 
 def rtti_slots_of(con, a):
@@ -768,9 +831,96 @@ def cmd_info(con, args, m):
 
 # ---------------------------------------------------------------- main
 
+def bare_ours(argv):
+    """S108: the bare verbs of `ours` (bare `q outline` failed 11 of 12 times). `text` stays the game's string-table lookup (qgx.text_main) whenever the line
+    fits ITS grammar: at most one positional, a number, with --lang N / --all / --json / -h around it (`q text 12`, `q text --lang 1 12`, `q text -h`)."""
+    if argv[0] in ('outline', 'body', 'refs', 'def', 'lit'):
+        return True
+    if argv[0] != 'text':
+        return False
+    pos, i = [], 1
+    while i < len(argv):
+        x = argv[i]
+        i += 2 if x == '--lang' else 1
+        if x not in ('--lang', '--all', '--json', '-h', '--help') and not x.startswith('--lang='):
+            pos.append(x)
+    return not (len(pos) <= 1 and all(re.fullmatch(r'0[xX][0-9a-fA-F]+|\d+', x) for x in pos))
+
+
+VERBS = ('find', 'multi', 'switch', 'text', 'csdt', 'decomp', 'field', 'ours', 'save', 'menu', 'map', 'fact', 'show', 'note', 'py', 'sdk', 'asset',
+         'missed', 'asm', 'vcall', 'nodes', 'runlog', 'const', 'vtable', 'callers', 'callees', 'str', 'imm', 'rtti', 'addr', 'db', 'fn', 'info',
+         'outline', 'body', 'refs', 'def', 'lit', 'name', 'unit', 'cover', 'seen', 'sheet', 'feed', 'read', 'rendermd', 'pattern', 'lib')
+
+
+def _edits(a, b):
+    """Levenshtein distance (small words only)"""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def near_verb(w):
+    """S108 FD: an unknown first word that looks like a mistyped q verb (`decmp`, `ours-callers`) -> the verb line it probably meant, else None.
+    Only lowercase words (letters and -) are candidates: a name (CamelCase, snake_case, digits, a path) is a find question, not a typo."""
+    if not re.fullmatch(r'[a-z][a-z-]*', w):
+        return None
+    parts = [p for p in w.split('-') if p]
+    if len(parts) > 1 and parts[0] in VERBS:
+        return ' '.join(parts)
+    best = None
+    for v in VERBS:
+        d = _edits(w, v)
+        if d and d <= (1 if len(v) <= 4 else 2) and (best is None or d < best[0]):
+            best = (d, v)
+    return best[1] if best else None
+
+
 def main(argv=None):
     # Session 89: `q.py map ...` = the harness knowledge map (tools\q\qmap.py; no index needed).
     argv = sys.argv[1:] if argv is None else argv
+    if not argv:      # S108: the first screen says which command answers which question
+        print(ROUTING)
+        return 0
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    if argv[0] == 'find':      # S108 FD: the front door (tools/q/qfind.py)
+        import qfind
+        return qfind.main(list(argv[1:]), sys.modules[__name__])
+    if argv[0] == 'multi':     # S108 FD: several q questions in one call (tools/q/qmulti.py)
+        import qmulti
+        return qmulti.main(list(argv[1:]), main)
+    if not argv[0].startswith('-') and argv[0] not in VERBS:
+        # S108 FD: an unknown first word is a find question; a mistyped verb is said FIRST, on stdout, and exits 2 (never a quiet "no hit")
+        import qfind
+        meant = near_verb(argv[0])
+        if not meant:
+            print(f'q: {argv[0]!r} is not a q verb: answering `q find {" ".join(argv)}`', file=sys.stderr)
+            return qfind.main(list(argv), sys.modules[__name__])
+        # S108 FD review (coordinator's rule): near a verb AND no hit as a name (file / stem, C++ or python symbol, cvar, env var, game) = a typo:
+        # the did-you-mean line FIRST, then find's answer, exit 2. A name hit = a question (`q qfact`, `q test`): find's exit, one closing note.
+        import contextlib
+        import io
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = qfind.main(list(argv), sys.modules[__name__])
+        except SystemExit as e:        # find's own usage error (an option of the meant verb): still a typo
+            rc = e.code if isinstance(e.code, int) else 2
+            qfind.LAST.clear()
+        note_to = sys.stderr if '--json' in argv else sys.stdout      # --json: stdout stays one JSON document
+        if qfind.structural_hit(qfind.LAST, argv[0]):
+            sys.stdout.write(buf.getvalue())
+            print(f"(also a near-miss of the verb '{meant.split()[0]}': q {meant} ...)", file=note_to)
+            return rc
+        print(f'q: unknown verb {argv[0]!r}: did you mean `q {meant} ...`? (q -h lists the verbs; answered below as q find {" ".join(argv)}; exit 2)',
+              file=note_to, flush=True)
+        sys.stdout.write(buf.getvalue())
+        return 2
+    if bare_ours(argv):
+        argv = ['ours'] + list(argv)
     # S105 QG: `switch` / `text` / `csdt` / `decomp --cases` / `field OFF --stores` / `ours includes F --included-by|--transitive` = tools/q/qgx.py + qstores.py
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     # lazy: a broken qgx.py must not break every other q command (L4)
@@ -778,6 +928,10 @@ def main(argv=None):
         import qgx
         if qgx.wants(argv):
             return qgx.dispatch(argv, connect, DB, resolve)
+    # S106 C1: `q.py save ...` = decode a user-data mirror / precondition check (tools/q/qsave.py)
+    if argv and argv[0] == 'save':
+        import qsave
+        return qsave.main(argv[1:])
     # S105 QM: `q.py menu ...` = menu pages / rows / state words for route lanes (tools/q/qmenu.py; out/harness/index/menu.json)
     if argv and argv[0] == 'menu':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -796,7 +950,7 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfact
         return qfact.main(argv[1:])
-    # S103 QO: `q.py ours ...` = the structural index of OUR code (tools/q/qours.py, out/harness/index/ours.db; no game index needed).
+    # S103 QO / S110 QTEXT: `q.py ours ...` = text answers about OUR code (tools/q/qours.py + qsym.py; no index, no game index needed).
     if argv and argv[0] == 'ours':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qours
@@ -840,10 +994,19 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfield
         return qfield.main(argv[1:])
+    if argv and argv[0] == 'rendermd':      # S110 RENDERMD: writes docs/RENDERER.md from the index (tools/q/qrendermd.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qgamemd      # one document per category of the game (S110 GAMEMD); qrendermd.py holds the section renderers
+        return qgamemd.main(argv[1:])
+    # S110 FEEDKEY: `q.py feed [FILE[:LINE]] [--unread]` = the scene feed's field table with struct key + game writers (tools/q/qfeed.py, qfeedkey.py).
+    if argv and argv[0] == 'feed':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qfeed
+        return qfeed.verb(argv[1:])
     # S103 QD: `q.py decomp FUNC [--callers N] [--fields]` = a compact mechanical view of one function (tools/q/qdecomp.py;
     # cache out/harness/index/decomp/, keyed by the generated source's hash).
-    # S103: `q.py missed "QUESTION"` = log a question q could not answer (out/harness/q_missed.log). The q-first gate hook
-    # (tools/harness/q_gate_hook.py) grants 3 raw code searches for it; the log is the list of q entries to build next.
+    # S103: `q.py missed "QUESTION"` = log a question q could not answer (out/harness/q_missed.log): voluntary (S108: the q-first hook that
+    # refused raw searches is gone); the log is the list of q entries to build next.
     if argv and argv[0] == 'missed':
         import time
         q = ' '.join(argv[1:]).strip()
@@ -854,7 +1017,7 @@ def main(argv=None):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, 'a', encoding='utf-8') as f:
             f.write(f'{time.strftime("%Y-%m-%d %H:%M")}\t{os.path.basename(os.getcwd())}\t{q}\n')
-        print('q: logged as a q gap (out\\harness\\q_missed.log); 3 raw code searches granted')
+        print('q: logged as a q gap (out\\harness\\q_missed.log)')
         return 0
     # S103 QX3: `q.py asm FUNC|ADDR [FROM TO] [--into FROM TO]` = a per-address window of the generated listing, branch targets marked (tools/q/qx6.py).
     if argv and argv[0] == 'asm':
@@ -905,6 +1068,57 @@ def main(argv=None):
             return 2
         except BrokenPipeError:
             return 0
+    if argv and argv[0] == 'seen':          # S110 SEEN: observed indirect call pairs (tools/q/qseen.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qseen
+        try:
+            return qseen.main(argv[1:])
+        except qseen.SeenError as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    if argv and argv[0] == 'sheet':          # S110 SHEETS: the fact sheet of one unit (tools/q/qsheet.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qsheet
+        try:
+            return qsheet.main(argv[1:])
+        except (qsheet.SheetError, qsheet.qnames.NamesError, qsheet.qseen.SeenError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    if argv and argv[0] == 'pattern':        # S110 PATTERN: mechanical shape labels (tools/q/qpattern.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qpattern
+        try:
+            return qpattern.main(argv[1:])
+        except qpattern.qnames.NamesError as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    if argv and argv[0] == 'lib':            # S110 LSHEET2: which units are third-party library code (tools/q/qlib.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qlib
+        try:
+            return qlib.main(argv[1:])
+        except (qlib.LibError, qlib.qnames.NamesError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    if argv and argv[0] == 'read':           # S110 READSTORE: reader answers store / batch picker (tools/q/qread.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qread
+        try:
+            return qread.main(argv[1:])
+        except (qread.ReadError, qread.qnames.NamesError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    # S110 NAMES: `q.py name ADDR|WORD`, `q.py unit ADDR`, `q.py cover [--json]` = tools/q/qnames.py, qunits.py, qcover.py.
+    if argv and argv[0] in ('name', 'unit', 'cover'):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qnames, qunits, qcover
+        try:
+            return {'name': qnames, 'unit': qunits, 'cover': qcover}[argv[0]].main(argv[1:])
+        except qnames.NamesError as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
     # S103 QV: `q.py vtable ADDR | --of FUNC` = the slots of a vtable / which slots point at a function (tools/q/qvtable.py).
     if argv and argv[0] == 'vtable':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -916,7 +1130,7 @@ def main(argv=None):
             return 2
         except BrokenPipeError:
             return 0
-    ap = argparse.ArgumentParser(prog='q', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog='q', description=ROUTING + '\n' + __doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--json', action='store_true', help='machine-readable output')
     common.add_argument('--limit', type=int, default=25)
@@ -997,10 +1211,16 @@ def main(argv=None):
             pr(r, args)
         return 0
     except QError as e:
+        alt = None
+        if 'unknown function' in str(e) and getattr(args, 'func', None):    # S108 FD: no dead end: what the other indexes hold for the name
+            import qfind
+            alt = qfind.elsewhere(qfind.ROOT, args.func)
         if getattr(args, 'json', False):
-            print(json.dumps({'error': str(e)}))
+            print(json.dumps({'error': str(e), **({'elsewhere': alt} if alt else {})}))
         else:
             print(f'q: {e}', file=sys.stderr)
+            for ln in alt or []:
+                print(ln)
         return 2
     except BrokenPipeError:   # `q ... | head`: the reader went away, not an error
         try:
@@ -1009,6 +1229,11 @@ def main(argv=None):
             pass
         return 0
     except Exception as e:   # a bug in q itself: still one JSON object for agents (exit 3), traceback on stderr
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qm
+        if isinstance(e, OSError) and qm.closed_pipe(e):   # S106 QM: Windows' closed pipe is OSError [Errno 22] (or EPIPE), not BrokenPipeError
+            qm.silence_stdout()
+            return 0
         import traceback
         traceback.print_exc()
         if getattr(args, 'json', False):
@@ -1024,12 +1249,15 @@ if __name__ == '__main__':
             _stream.reconfigure(errors='replace')   # a db summary with a non-cp1252 character must not crash text output
         except (AttributeError, ValueError):
             pass
-    # QTF (S103 WTA fix 5): a hard timeout for every q call (WWE_Q_TIMEOUT s, default 120, 0 = off; `ours update` in the main checkout gets 10x).
+    # QTF (S103 WTA fix 5): a hard timeout for every q call (WWE_Q_TIMEOUT s, default 120, 0 = off; `sdk|asset update` get 10x).
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import qtimeout
     _secs = qtimeout.timeout_secs()
-    if sys.argv[1:3] in (['ours', 'update'], ['sdk', 'update'], ['asset', 'update']):
+    if sys.argv[1:3] in (['sdk', 'update'], ['asset', 'update']):
         _secs *= 10
+    elif sys.argv[1:2] == ['multi']:      # S108 FD: each question of a batch gets the usual time (up to 5 of them)
+        _secs *= min(max(1, len([a for a in sys.argv[2:] if a != '--json'])), 5)
     qtimeout.mark_owner()
     qtimeout.start_watchdog(_secs)
-    sys.exit(main())
+    import qm   # S106 QM: every dispatch (ours / py / show / fact / map ...) ends quietly on a closed stdout pipe, also at the final flush
+    sys.exit(qm.guarded(main))

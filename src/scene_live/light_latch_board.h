@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_lights.h"
 #include "light_index_core.h"
 
 namespace rdr_scene::live::lightlatch {

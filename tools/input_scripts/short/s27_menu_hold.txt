@@ -1,4 +1,3 @@
-# harness: realtime (Session 27 item 4: the presenter's scaling is checked from the screen; Jarrod may see the window)
 # Boots to the main menu (title presses of recording 056), holds it 1500 frames for tools\fsr\window_shot.ps1, quits.
 on_fail quit
 wait_file SaveData.Dat 3600

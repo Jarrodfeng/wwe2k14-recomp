@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/scene_live/ring_recompute_core.h"   // S103 RLB: PairLod
 
 using namespace rdr_scene;

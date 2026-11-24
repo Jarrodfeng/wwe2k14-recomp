@@ -64,7 +64,13 @@ def pick(name, entries, what, key='name'):
     if m:
         return int(m.group(1))
     if re.fullmatch(r'\d+', name):
-        return int(name)
+        n = int(name)
+        # S110 AV086: a bare arena number the game has no pac for (10: the index goes bg09 -> bg11) builds a match with no
+        # ring object and the ring-physics builder faults (sub_826455D0 reads a null rope grid). Known ids only; 300 and
+        # 200-249 are the ids the game makes itself (docs/research/s110/AV086.md).
+        if what == 'arena' and n != 300 and not 200 <= n <= 249 and n not in {e['id'] for e in entries}:
+            raise SpecError('arena %d: the game has no such arena (not in db/ids/arenas.json); a match built on it crashes' % n)
+        return n
     low = {e[key].lower(): e for e in entries if e.get(key)}
     if name.lower() in low:
         return low[name.lower()]['id']

@@ -229,7 +229,7 @@ class TexResolver {
     for (uint32_t i = 0; i < kGuardSamples; ++i) {
       const uint32_t x = (i * 37u + (i >> 3) * 11u) % sh.width, y = (i * 61u + 7u * (i / 4u)) % sh.height;   // fixed, spread over rows and columns
       uint8_t px[4];
-      if (!phys(sh.base + (y * sh.pitch_blocks + x) * 4u, 4u, px)) return 0;
+      if (!phys(sh.base + guest_tex::BlockOffset(sh, x, y), 4u, px)) return 0;   // (S108 CAP2: the shared offset, a packed-tail picture's offset included)
       h = HashU32(uint32_t(px[0]) | uint32_t(px[1]) << 8 | uint32_t(px[2]) << 16 | uint32_t(px[3]) << 24, h);
     }
     return h ? h : 1;

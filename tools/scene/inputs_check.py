@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S103 lane A gate check: builds tools\\scene\\inputs_unit.cpp (the scene inputs' stamping, the post settings reader, the latch contributor, the record round trip: 0 game runs, no game, no SDK),
+"""S103 lane A check: builds tools\\scene\\inputs_unit.cpp (the scene inputs' stamping, the post settings reader, the latch contributor, the record round trip: 0 game runs, no game, no SDK),
 runs it, then its seven planted twins (each must exit 1 and fail its NAMED check), then the wiring lints (the readers are in the files they must be in; no hook added).
   py -I tools\\scene\\inputs_check.py [--root DIR]
 Exit 0 = pass, 1 = fail."""
@@ -17,6 +17,9 @@ PLANTS = {
     'pb_offscreen_withheld': 'pb.offscreen_fit_stamps', 'pb_any_nonfinite_nodraw': 'pb.other_nonfinite_withheld', 'pb_merge_drops_nodraw': 'pb.merge_keeps_nodraw', 'pb_e2_nodraw_hole': 'pb.e2_nodraw_no_hole',
     'dc_slot_ignored': 'drawcam.thread_slot', 'dc_age_ignored': 'drawcam.age', 'dc_hook_clock': 'drawcam.latch_fallback', 'dc_light_not_skipped': 'drawcam.light_skipped', 'l31b_hook_targets': 'l31b.slot_read_after_hook_quiet', 'l31b_guard_off': 'l31b.stale_never_emitted',
     'ausf_refuse': 'l33_ausf.nowalk_mismatch_submitted', 'ausf_drop': 'l33_ausf.stale_held_bounded', 'ausf_hold_hidden': 'l33_ausf.hidden_stale_not_held', 'ausf_hold_slot': 'l33_ausf.held_never_over_fresh_slot', 'ausf_hold_extras': 'l33_ausf.held_keeps_hair_rows', 'ausf_offlatch': 'l33_ausf.offlatch_mismatch_refused',   # S103 AUSF: today's refusal / drop in a no-walk build
+    'cam_upd_shows': 'cam.posed_unasked_is_hidden',   # S107 CAM: the old stream-free rule (a posed, un-asked body shows)
+    'handed_ignored': 'handed.gated_takes_block',   # S110 CUTCROWD: the old read of the composer's copy +1488 / +1552
+    'handed_any_block': 'handed.other_block_live', 'handed_mirror_taken': 'handed.mirror_live', 'handed_fov_derived': 'handed.equal_is_live', 'handed_invalid_taken': 'handed.invalid_block_live',   # S110 CUTCROWD review
     'l31b_pointer_presence': 'l31b.presence_by_slot', 'l31b_drop_invisible': 'l31b.stale_invisible_stays_hole', 'l31b_no_walk_gate': 'l31b.quiet_unseen_is_hole', 'l31b_keep_gone': 'l31b.gone_slot_target_released', 'b4x_long_life': 'b4x.no_long_life_for_any_entry', 'b4x_noid_walk_learned': 'b4x.culled_no_id_slot_never_lapses', 'b4x_f4_not_asked': 'b4x.f4_no_slot_skeleton_asked_with_synthesis', 'b4x_f1_le_read': 'b4x.f1_le_lg_unread', 'b4x_f2_default_replaces': 'b4x.f2_default_never_replaces_learned', 'b4x_f3_no_row_none': 'b4x.f3_no_row_default', 'b4x_f5_oldest_all': 'b4x.f5_unasked_entry_plans_no_hold', 'l33_strict_derived': 'l33.mismatch_walk_equal_accepted', 'census_plane_bit': 'census.plane_bit_dropped_only_for_no_module', 'page_row_pass': 'census.stage_page_row_class', 'unrequire_ignored': 'unrequire.drops_named_bits_only', 'l33_no_evidence': 'l33.mismatch_ours_no_evidence_refused',   # S103 L33F   # S103 L31B: the old hook-liveness targets; the stale guard off
 }
 

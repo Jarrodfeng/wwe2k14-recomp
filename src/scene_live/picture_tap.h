@@ -52,9 +52,9 @@ inline uint64_t Frame() { return uint64_t(wwe2k14::g_guest_frame.load(std::memor
 // (the same reader as inputs_glue.h CrowdGuestMem::phys).
 struct Mem {
   mutable bool fail = false;
-  uint32_t u32(uint32_t a) const {
+  uint32_t u32(uint32_t a WWE_FEED_LOC_PARAM) const {
     uint32_t v = 0;
-    if (!wwe2k14::wrestlers::ReadWord(a, v)) fail = true;
+    if (!wwe2k14::wrestlers::ReadWord(a, v WWE_FEED_LOC_ARG)) fail = true;
     return v;
   }
 };

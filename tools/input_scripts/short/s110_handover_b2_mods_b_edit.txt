@@ -1,0 +1,73 @@
+# harness: flags --wwe2k14_dlc=true --wwe2k14_mods=true --wwe2k14_mods_superstars=true --wwe2k14_mods_dir=C:\Users\Jarrod\wwe2k14-recomp\out\s110\seat2\mods_b --wwe2k14_dlc_dir=C:\Users\Jarrod\wwe2k14-recomp\game_data\dlc --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: owner on
+# S110 SEAT2 boot 2 (mods_b: Maryse 397, Lashley 398; same user data): read seat 397's (Maryse) entrance on first open, then edit it (EASY: MUSIC 1 DOWN only; run 02 showed the MOTION list does not close on A), ACCEPT YES,
+# wait for the save write, reopen 397 EASY to read the saved rows, leave, quit.
+log seat2: start b2
+include boot_to_menu
+on_fail quit
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 2 24 30 5
+press A
+wait_text CREATE-AN-ENTRANCE 900
+press_until_state DOWN menu_row 1 10 30 5 if_needed
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log seat2: editor first open
+log_text 12
+screenshot b2_first_open
+mark 1 editor
+repeat 6
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+repeat 1
+press DOWN
+wait_frames 40
+end_repeat
+screenshot b2_music_list
+press A
+wait_frames 600
+log seat2: changed
+log_text 12
+screenshot b2_changed
+repeat 1
+press DOWN
+wait_frames 40
+end_repeat
+press A
+wait_frames 300
+press_until_state LEFT msgbox_button 0 4 30 5 unreadable
+press A
+wait_frames 900
+log seat2: accepted
+log_text 12
+include log_menu
+screenshot b2_accepted
+mark 2 accepted
+on_fail continue
+press_until_state A menu_page 0x82038500 10 60 5
+wait_text Bobby Lashley 600
+press_until_state UP menu_row 21 10 30 5
+press_until_state A menu_page 0x8203BDF0 10 60 5
+press_until_state A menu_page 0x82046A68 10 120 5
+wait_frames 600
+log seat2: reopened easy
+log_text 12
+screenshot b2_reopen
+mark 3 reopened
+press B
+wait_frames 300
+log_text 12
+include log_menu
+log_state msgbox
+screenshot b2_leave
+wait_frames 600
+log seat2: done
+quit

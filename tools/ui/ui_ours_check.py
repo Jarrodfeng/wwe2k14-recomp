@@ -34,7 +34,7 @@ import ui_consts  # noqa: E402  (PN5 review B1: the tier constants come from the
 TIER1 = ui_consts.tier1_count()          # kUiTier1Count (src\renderer_scene\ui_file_index.h)
 TIER1_TEXTURES = ui_consts.pinned_textures()   # the first tier's texture count on the player's files (tools\ui\ui_tier1_textures.txt)
 RUNS = os.path.join('out', 's101', 'runs')
-ZIPS = {   # kind -> run folder (the gate's ui_join lane uses the same three zips)
+ZIPS = {   # kind -> run folder (the three standard ui zips)
     'menu': '20261111_214249_s100_owner_boot_menu_quit',
     'editor': '20261111_223313_s101_checkB_caw_walk',
     'match': '20261111_215201_s100_owner_s89_brock',

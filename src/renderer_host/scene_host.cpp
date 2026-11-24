@@ -1,6 +1,10 @@
 // S103 landing 2, piece P7 H1: the scene host (scene_host.h). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 // Section / line references in the comments are to docs\renderer\P7_DESIGN.md and the stream path's live.cpp SceneOurs, whose rules the host keeps without the stream.
 #include "scene_host.h"
+#include "../renderer_scene/rows_inputs.h"   // S106 G4-2
+#include "../renderer_scene/rows_owned.h"
+#include "../renderer_scene/rows_quad2d.h"
+#include "../renderer_scene/rows_stage_look.h"
 #include "wide_frame.h"   // S105 A2
 #include "row_fate.h"   // S105 A4B: Fate / FateOf (moved out of this file)
 #include "../renderer_game/caw_portrait_core.h"   // S103 CPB
@@ -13,6 +17,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
+#include <atomic>
 
 #include "../renderer/combine_lite.h"   // S103 SLV: the combine_lite census line
 #include "../renderer/problem.h"
@@ -25,6 +31,7 @@
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
 #include "../renderer_scene/yuv_rgba.h"   // S103 CPU1: YuvPathName (the [host][cpu] census field)
 #include "../renderer_scene/post_pass.h"   // S103 SLV: g_post_dconv_passes
+#include "../scene_live/guest_model_store.h"   // S108 SHOT-A: ByteStore (the created-superstar bytes the saver adds)
 #include "../scene_live/inputs_core.h"   // S103 HN B2: scene_inputs::g_counters (which bits any stamp ever hit)
 
 namespace wwe2k14::scene_host {
@@ -51,9 +58,9 @@ bool SceneHost::Start(const HostOptions& options, std::string& error) {
   renderer_ = rdr::Renderer::Create(opts_.renderer, error);
   if (!renderer_) return false;
   {   // S105 B3: the shader catalog (the stream build's Binder did this; the stream-free host never did: every stored pipeline stayed "unresolved" and the first match frames built them cold)
-    const size_t n = RegisterFxCatalogFrom(*renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants));
+    const size_t n = RegisterShaderCatalogFrom(*renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + our own blobs
     store_progress::g_progress.store_expected.store(renderer_->pipeline_store_active(), std::memory_order_relaxed);
-    Log("[host][pipestore] catalog registered: " + std::to_string(n) + " shaders" + (opts_.precompile_mode ? "; precompile mode: the store builds everything at once" : ""));
+    Log("[host][pipestore] catalog registered: " + std::to_string(n) + " shaders (" + std::to_string(std::size(rdr::fx::kOwnShaders)) + " of them our own)" + (opts_.precompile_mode ? "; precompile mode: the store builds everything at once" : ""));
   }
   draw_ = std::make_unique<rdr_scene::LiveSceneDraw>(*renderer_);
   // S103 SCS: the in-scene 2D rows (screen flashes, lens flares: kQpSceneColour) are drawn inside the scene pass by the scene hook (frame_hooks.h LiveScene2D), onto the scene colour with its depth: the same
@@ -157,6 +164,7 @@ void SceneHost::LogDirect() const {
 }
 
 void SceneHost::LogFinal() {
+  for (int i = 0; i < 600 && rec_writers_.load() > 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));   // S108 SHOT-A: a route's quit does not cut a record being written (3 s at most)
   if (final_logged_) return;
   final_logged_ = true;
   if (renderer_) renderer_->FlushPipelineStore();
@@ -179,8 +187,29 @@ void SceneHost::LogFinal() {
   if (fc_handled_) Log(fallback_census::g_census.FinalLine(fc_handled_));   // the exit line of the fallback census ([scene][2d]), as the stream path prints it
 }
 
+// S108 SHOT-A: a request no drawn 3D frame served within 10 s is answered, never left silent. S108 SHOT review: also run from Handle: in a menu / a loading screen messages keep coming, so the idle
+// poll (PollQuit) never runs there and the request would wait for the next 3D frame, which may be another scene, and be saved under the label as if it were the asked moment.
+void SceneHost::ExpireRecordRequests() {
+  std::vector<std::string> late;
+  {
+    std::lock_guard lock(rec_mu_);
+    // render-clock: ctl - the 10 s give-up of a save request nothing served; gates a log line, no picture value reads it
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = rec_paths_.begin(); it != rec_paths_.end();) {
+      if (now - it->second > std::chrono::seconds(10)) late.push_back(std::move(it->first)), it = rec_paths_.erase(it);
+      else ++it;
+    }
+    rec_active_.store(!rec_paths_.empty() || rec_job_ != nullptr, std::memory_order_relaxed);
+  }
+  for (const std::string& p : late) Log("[wwe2k14][input] scene record NOT saved: " + p + ": no frame whose 3D draw succeeded came within 10 s (a menu, a loading screen or a faulted draw)");
+}
+
 // Host thread, every ~100 ms while no message comes (HostCore's idle poll).
 void SceneHost::PollQuit() {
+  if (rec_active_.load(std::memory_order_relaxed)) {   // S108 SHOT-A: a save's read-backs landed by now; an unserved request is answered after 10 s
+    PollShot();
+    ExpireRecordRequests();
+  }
   if (scene_active_.load(std::memory_order_relaxed)) {   // S103 RBC: a scene copy landed by now, or a request not queued is served from `out` as it is
     PollShot();
     ServeSceneSync();
@@ -280,13 +309,102 @@ void SceneHost::QueueShot(uint64_t guest_frame) {
   shot_active_.store(true, std::memory_order_relaxed);
 }
 
+// ---- S108 SHOT-A: the subject-shot record save -----------------------------------------------------------------------------------------------------------------------------------------------
+bool SceneHost::RequestRecordSave(const std::string& path, std::string& why) {
+  if (!renderer_ || !core_.Running()) { why = "the scene host is not running"; return false; }
+  if (path.empty()) { why = "no path"; return false; }
+  std::lock_guard lock(rec_mu_);
+  // render-clock: ctl - when a save was asked, for the 10 s "no drawn frame came" answer; no picture value reads it
+  rec_paths_.emplace_back(path, std::chrono::steady_clock::now());
+  rec_active_.store(true, std::memory_order_relaxed);
+  return true;
+}
+
+// Before the RenderFrame of the frame whose record is wanted. `drew` = this handled frame's 3D draw succeeded (DrawResult::Ok, presented from OUR picture): only such a record is the picture shown.
+void SceneHost::QueueRecordSave(uint64_t host_frame, const Msg& m, bool drew) {
+  if (rec_job_ || !drew || !m.record) return;   // one save at a time; the requests wait for a drawn frame
+  std::vector<std::string> paths;
+  {
+    std::lock_guard lock(rec_mu_);
+    for (auto& p : rec_paths_) paths.push_back(std::move(p.first));
+    rec_paths_.clear();
+    if (paths.empty()) { rec_active_.store(false, std::memory_order_relaxed); return; }
+  }
+  auto job = std::make_shared<RecJob>();
+  job->paths = std::move(paths), job->record = m.record, job->guest_frame = m.record->header.guest_frame, job->host_frame = host_frame;
+  rdr_scene::snapshot::BodyScaleRows(*m.record, job->scales, job->scale_holes);   // the scale the host used for each wrestler (BodyScaleFor), now: the table moves on
+  std::vector<rdr_scene::LiveMapsHook::LiveLiquidImage> imgs;
+  draw_->LiveLiquidImages(imgs);
+  for (const auto& im : imgs) {
+    RecJob::Pending p;
+    p.img = im, p.tag = (1ull << 61) | ++rec_tag_n_;
+    rdr::ImageRef ref;
+    ref.image = im.image, ref.mip = 0;
+    if (!renderer_->ImageIs8Bit(im.image) || !renderer_->QueueReadback(ref, p.tag)) { ++job->refused; continue; }   // (a refusal is reported in the saved line, never retried)
+    job->pending.push_back(std::move(p));
+  }
+  rec_job_ = job;
+  if (job->pending.empty()) FinishRecordSave();   // nothing to wait for (no painted map)
+}
+
+void SceneHost::FinishRecordSave() {
+  std::shared_ptr<RecJob> job = std::move(rec_job_);
+  rec_job_.reset();
+  if (!job) return;
+  {
+    std::lock_guard lock(rec_mu_);
+    rec_active_.store(!rec_paths_.empty(), std::memory_order_relaxed);
+  }
+  void (*log)(const char*) = opts_.log;   // (by value: the writer outlives no host state)
+  rec_writers_.fetch_add(1);
+  std::atomic<int>* writers = &rec_writers_;
+  std::thread([job, log, writers] {
+    struct Done { std::atomic<int>* w; ~Done() { w->fetch_sub(1); } } done{writers};
+    const auto say = [&](const std::string& line) { if (log) log(line.c_str()); else std::fprintf(stderr, "%s\n", line.c_str()); };
+    rdr_scene::SceneTables t = *job->record;   // the copy is made here, off the host thread
+    if (!t.crowd_runs.empty()) t = rdr_scene::ExpandCrowdRuns(t);   // (files are written plain: version 1)
+    t.body_scales = job->scales;
+    t.liquid_images.clear(), t.liquid_image_bytes.clear();
+    uint32_t images = 0;
+    for (const RecJob::Pending& p : job->pending)
+      if (p.done && rdr_scene::snapshot::AddLiquidImage(t, p.img.map, p.img.object, p.w, p.h, p.rgba)) ++images;
+    const rdr_scene::snapshot::FillCounts fc = rdr_scene::snapshot::FillGuestBytes(t, [](uint64_t h) { return rdr_scene::live::guest_model::ByteStore::Process().Peek(h); });
+    t.header.flags |= rdr_scene::kSceneSnapshot;
+    char extras[300];
+    std::snprintf(extras, sizeof extras, "[wwe2k14][input] scene record extras: wrestler scales %zu (holes %u), liquid images %u (refused %u, cancelled %u), guest-model bytes filled %u (not in the store %u)",
+                  t.body_scales.size(), job->scale_holes, images, job->refused, job->cancelled, fc.filled, fc.missing);
+    say(extras);
+    for (const std::string& path : job->paths) {
+      std::string err;
+      if (rdr_scene::WriteRecord(path, t, err)) {
+        char b[700];
+        std::snprintf(b, sizeof b, "[wwe2k14][input] scene record saved: %s (guest frame %llu, host frame %llu)", path.c_str(), (unsigned long long)job->guest_frame, (unsigned long long)job->host_frame);
+        say(b);
+      } else say("[wwe2k14][input] scene record NOT saved: " + path + ": " + err);
+    }
+  }).detach();
+}
+
 void SceneHost::PollShot() {
-  if (!shot_inflight_ && !scene_inflight_) return;
+  if (!shot_inflight_ && !scene_inflight_ && !rec_job_) return;
   std::vector<rdr::Renderer::ReadbackResult> done;
   renderer_->PollReadbacks(done);
   for (rdr::Renderer::ReadbackResult& r : done) {
     if (scene_inflight_ && r.tag == scene_tag_) {   // S103 RBC: the scene copy (its own tag space: the high bit)
       FinishScene(!r.cancelled && r.width && r.height && out_ok_, std::move(r.rgba), r.width, r.height, scene_frame_);
+      continue;
+    }
+    if (rec_job_ && (r.tag >> 61) == 1) {   // S108 SHOT-A: a liquid image's read-back (its own tag space: bit 61)
+      bool all = true;
+      for (RecJob::Pending& p : rec_job_->pending) {
+        if (p.tag == r.tag) {
+          if (r.cancelled || !r.width || !r.height) ++rec_job_->cancelled;
+          else p.done = true, p.rgba = std::move(r.rgba), p.w = r.width, p.h = r.height;
+          p.tag = 0;   // answered
+        }
+        all = all && p.tag == 0;
+      }
+      if (all) FinishRecordSave();
       continue;
     }
     if (!shot_inflight_ || r.tag != shot_tag_) continue;
@@ -736,6 +854,7 @@ void SceneHost::ServePortrait(const std::shared_ptr<const Rec>& cur, uint64_t j)
 void SceneHost::Handle(Msg& m) {
   const uint64_t shot_presented0 = core_.counters().presented;
   if (PollDue()) PollShot();   // lane SHOT (+ S103 RBC scene copies): a copy queued by an earlier frame whose fence has signalled
+  if (rec_active_.load(std::memory_order_relaxed)) ExpireRecordRequests();   // S108 SHOT review: the 10 s give-up while messages keep coming (no idle poll then)
   const uint64_t j = m.guest_frame;
   last_handled_frame_ = j;   // S103 RBC fix2 (F1)
   if (m.curve_changed) renderer_->SetDisplayCurve(m.curve.data()), curve_ = m.curve, curve_set_ = true;
@@ -984,6 +1103,7 @@ void SceneHost::Handle(Msg& m) {
     bool shot_queued = false;
     auto shot_before = [&] {
       if (shot_active_.load(std::memory_order_relaxed)) QueueShot(j), shot_queued = true;
+      if (rec_active_.load(std::memory_order_relaxed)) QueueRecordSave(j, m, f.draw == DrawResult::Ok && plan.source == Source::Draw3D);   // S108 SHOT-A: the record of a drawn 3D frame, its liquid images read after the frame's paint
       if (scene_active_.load(std::memory_order_relaxed)) QueueScene(j);   // S103 RBC
     };   // lane SHOT: the copy is recorded after all the steps of the frame rendered next
     {   // S103 CPU1: the render / submit of this presented frame (the [host][cpu] census); the scope ends before ++c.presented

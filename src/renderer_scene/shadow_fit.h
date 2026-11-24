@@ -24,7 +24,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "scene_record.h"
+#include "rows_lights.h"
 
 namespace rdr_scene {
 

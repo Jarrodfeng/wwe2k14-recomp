@@ -1,4 +1,4 @@
-"""admit selftest case 12 helper: take or test a slot file's lock exactly the way the gate's Python side does (tools\\gate\\sched.py GpuSlots:
+"""admit selftest case 12 helper: take or test a slot file's lock exactly the way the former Python scheduler did (GpuSlots, deleted in S107:
 os.open O_RDWR|O_CREAT, lseek to 0, msvcrt.locking LK_NBLCK on 1 byte; the record from byte 1).
 
   py -I tools\\admit\\lock_interop.py hold FILE   -> prints "locked" (or "busy"), keeps the lock until stdin reaches end-of-file
@@ -28,7 +28,11 @@ def main():
             return 0
         os.lseek(fd, 1, 0)
         os.ftruncate(fd, 1)
-        os.write(fd, json.dumps({'pid': os.getpid(), 'check': 'interop', 'kind': 'compile'}).encode())
+        rec = {'pid': os.getpid(), 'check': 'interop', 'kind': 'compile'}
+        if len(sys.argv) > 3 and sys.argv[3] == 'alone':   # S106 C5F: an alone pause's record (admit reads a token and a future until; the pid is this process)
+            import time
+            rec.update(token='interop-alone', name='interop', since=int(time.time()), until=int(time.time()) + 600)
+        os.write(fd, json.dumps(rec).encode())
         print('locked', flush=True)
         sys.stdin.read()
         os.lseek(fd, 0, 0)

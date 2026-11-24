@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_quad2d.h"
 
 namespace wwe2k14::scene_host::refused_row {
 

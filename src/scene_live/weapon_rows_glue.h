@@ -5,7 +5,11 @@
 #include <rex/logging.h>
 
 #include <atomic>
+#include <mutex>
+#include <set>
+#include <string>
 
+#include "weapon_rows_report.h"   // S108 AL1: ReportRefused (a refused row count is the shared draw_shortfall, not only a census number)
 #include "draw_camera_core.h"  // S103 STG: kFlagA ... (static_assert below), ReadThreadSlot via caster_core.h
 #include "weapon_rows_contrib.h"
 #include "wrestler_hook.h"  // ReadWord / ReadMatrices
@@ -44,6 +48,15 @@ inline bool RawEntry(bool ours, uint32_t model, uint32_t palette_ptr, uint64_t f
       wr::Rows().tracker, wr::WeaponRowsRegistered() && rdr_scene::live::Enabled(), ours, model, palette_ptr, frame, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t a, uint32_t n, std::vector<rdr_scene::Mat4>& out) { return wwe2k14::wrestlers::ReadMatrices(a, n, out); }, &r, f1, lr, pass0, pass_ctx, shadow,
       [](uint32_t a, uint32_t n, uint8_t* d) { return rdr_scene::live::guestmodel::PhysRead(a, n, d); });   // S105 PLATE: the belt nameplate's pixel reader (read at the event prop's call inside RawHookEntry); S103 CGF: f1 / lr (ctx.f1, ctx.lr at the hook) tag a stage structure call's family
+  if (r.refused) {   // S108 FAN: a call refused its rows: not drawn this frame. Said at once (the census only sums it every 600 frames)
+    // Over the bound (a count no file model has, the garbage guard kWeaponMaxNodes): "bones dropped" must never pass as a census number. S108 AL1: the shared draw_shortfall (row_bound,
+    // weapon_rows_report.h), one line per model a run in every build. Otherwise the frame's pool is full: refused whole (never cut), at most 64 warning lines a run.
+    if (!wr::ReportRefused(r, model)) {
+      static std::atomic<int> logged_refused{0};
+      if (logged_refused.fetch_add(1, std::memory_order_relaxed) < 64)
+        REXLOG_WARN("[wwe2k14][weapon_rows] ROWS REFUSED: frame {}: object 0x{:08X} ({}) node count {}: the frame's pool is full ({} of {} rows used): no rows, not drawn this frame", frame, model, wr::CallName(r), r.n, r.pool_used, wr::kMaxPoolNodes);
+    }
+  }
   if (r.gm || r.blood) {   // S103 GBR: the first 40 set-object / splat rows (the step check reads them)
     static std::atomic<int> logged_gb{0};
     if (logged_gb.fetch_add(1, std::memory_order_relaxed) < 40)

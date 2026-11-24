@@ -1,4 +1,4 @@
-# Shared by the wrestler tool build scripts (S101 lane 239). Why: the gate lanes wrestlers_ours and pieces_ours run in parallel and both build
+# Shared by the wrestler tool build scripts (S101 lane 239). Why: the wrestlers_ours and pieces_ours check lanes run in parallel and both build
 # out\tools\wrestler_ours_check.exe (and pieces also classify_unit.exe) in place; the other lane's CPU half has the exe running for minutes, so the
 # linker's write hit "unable to remove file: permission denied" and the lane failed on BUILD. The fix, three parts:
 #   1. one named mutex per exe serialises the build step across processes (Enter-ExeBuild / Exit-ExeBuild);

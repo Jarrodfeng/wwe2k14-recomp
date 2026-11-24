@@ -9,7 +9,7 @@ Rules (state: out\\harness\\watchdog\\state.json):
   a) CPU >= 95 % on two consecutive passes -> alert with the top 8 processes (CPU and command line)
   b) free RAM < 3 GB -> alert
   c) one of our processes older than its kind's limit with no log change (or no known log) -> alert; limits: game 30 min,
-     gate.py 2 h, build (clang / ninja / cmake / build.ps1) 90 min, any other python / pwsh of ours 3 h
+     build (clang / ninja / cmake / build.ps1) 90 min, any other python / pwsh of ours 3 h
   d) a command line matching the pre-command hook's busy-loop patterns (no_long_sleep_hook.why_refused) -> alert at once
 Alerts: one line each in out\\harness\\watchdog\\alerts.log, the flag file ALERT.txt (read by session_start.py and the main
 session's heartbeat; delete it to clear), and a Windows toast like tidy.py's (a scheduled task cannot reach the phone; no such
@@ -34,7 +34,7 @@ CPU_PCT = 95.0
 RAM_MIN_GB = 3.0
 OURS = re.compile(r'^(python|pythonw|py|pwsh|powershell|clang.*|ninja|cmake|wwe2k14.*|rplay.*|fview.*|host_rig.*|c_driver.*|.*_unit|git)\.exe$', re.I)
 SCRIPTERS = re.compile(r'^(python|pythonw|py|pwsh|powershell)\.exe$', re.I)
-LIMITS_MIN = {'game': 30, 'gate': 120, 'build': 90, 'other': 180}
+LIMITS_MIN = {'game': 30, 'build': 90, 'other': 180}
 NO_WINDOW = 0x08000000
 
 
@@ -42,8 +42,6 @@ def kind_of(name, cmd):
     n, c = name.lower(), (cmd or '').lower()
     if n.startswith('wwe2k14'):
         return 'game'
-    if 'gate.py' in c:
-        return 'gate'
     if n.startswith(('clang', 'ninja', 'cmake')) or 'build.ps1' in c or 'fast_build' in c:
         return 'build'
     return 'other'
@@ -240,11 +238,10 @@ def selftest():
     assert [k for k, _ in evaluate(mk(now, 0, 0, [], 2.0), None, {}, mtime_of=nolog)] == ['ram']
     assert evaluate(mk(now, 0, 0, [], 8.0), None, {}, mtime_of=nolog) == []
     # (c) over limit per kind; a fresh log change silences it; under the limit is silent
-    procs = [P(10, 'wwe2k14.exe', 'wwe2k14.exe', 31), P(11, 'python.exe', 'python tools\\gate\\gate.py', 121),
-             P(12, 'ninja.exe', 'ninja', 91), P(13, 'pwsh.exe', 'pwsh -File x.ps1', 181),
+    procs = [P(10, 'wwe2k14.exe', 'wwe2k14.exe', 31), P(12, 'ninja.exe', 'ninja', 91), P(13, 'pwsh.exe', 'pwsh -File x.ps1', 181),
              P(14, 'wwe2k14.exe', 'wwe2k14.exe', 29), P(15, 'python.exe', 'python y.py', 179)]
     ks = sorted(k for k, _ in evaluate(mk(now, 0, 0, procs), None, {}, mtime_of=nolog))
-    assert ks == ['old:10', 'old:11', 'old:12', 'old:13'], ks
+    assert ks == ['old:10', 'old:12', 'old:13'], ks
     fresh = lambda c: (now - 60, 'C:\\x.log')
     assert evaluate(mk(now, 0, 0, procs), None, {}, mtime_of=fresh) == []
     old_log = lambda c: (now - 3600, 'C:\\x.log')
@@ -270,7 +267,7 @@ def selftest():
             'NtSuspend', 'SetPriority' + 'Class', r'os\.kill', 'Priority' + 'Class', r'\bnice\(']
     bad = [p for p in pats if re.search(p, body)]
     assert not bad, bad
-    print('pc_watchdog selftest OK (cpu x2 passes, ram, 4 limits + fresh-log + under-limit, busy-loop, dedupe, alert files, never-kill lint)')
+    print('pc_watchdog selftest OK (cpu x2 passes, ram, 3 limits + fresh-log + under-limit, busy-loop, dedupe, alert files, never-kill lint)')
     return 0
 
 

@@ -138,7 +138,7 @@ def main():
     late = [f for f in sorted(o['hashes']) if f >= 299]
     say(len(late) > 0 and all(n['hashes'].get(f) != o['hashes'].get(f) for f in late) and len(set(n['hashes'][f] for f in late)) == 1, 'run end: img1216 after the run end (%d skipped frames from 299): ON holds the kept copy (differs from OFF in all, constant), PLANT equals OFF: %s' % (
         len(late), all(pl['hashes'].get(f) == o['hashes'].get(f) for f in late)))
-    # ROUND 3 GATE BARS. (1) --skip-every 298: only frame 297 (the run end of img1216 and img1287) is skipped. With the recovery ON the two images are BYTE-EQUAL to the full bind at 297 (group and nogroup), OFF is not.
+    # ROUND 3 BARS. (1) --skip-every 298: only frame 297 (the run end of img1216 and img1287) is skipped. With the recovery ON the two images are BYTE-EQUAL to the full bind at 297 (group and nogroup), OFF is not.
     # The earlier "separate shipped divergence" was an rplay artefact (rplay has no A1b catch-up; live catches up img1216's level-0 copy); the real shipped hole is the run end itself.
     h298 = {}
     for tag, extra in (('truth', ['--skip-prune', 'truth']), ('OFF', []), ('ON', ['--run-end-keep', 'on']), ('ON_nogroup', ['--run-end-keep', 'on', '--lasting-nogroup', 'on'])):

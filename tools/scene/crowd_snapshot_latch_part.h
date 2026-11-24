@@ -1,3 +1,5 @@
+#include "../../src/renderer_scene/rows_crowd.h"
+#include "../../src/renderer_scene/rows_pictures.h"
 // Part of crowd_snapshot_unit.cpp (S103 lane D3b): the latch reader on forged manager memory. Included by the unit after its helpers (Check, Fresh, Record, g_stamps ...).
 // Forged guest memory in the listing's layout (crowd_mgr_reader.h constants) and a HAND ORACLE of the member world (m = scale * Ry(angle), row 3 = x y z, transposed into c: CROWD docs), written from the
 // documented formula, never from the reader's own code.
@@ -695,6 +697,16 @@ static void LatchTests(crowd::Contributor& c, int p) {
         dn.F(0x9F200000u + 1488 + 48, -s0.c[3]), dn.F(0x9F200000u + 1488 + 56, -(s0.c[11] + 4.9f));   // d2 24.01 < 25: dropped
         r = read_props(dn);
         Check(r.size() == 2 && r[0].hidden == crowd::kPhDistance, "latch.prop_distance", r.size() == 2 ? std::to_string(r[0].hidden) : "n");
+        {   // S110 CUTCROWD: the eye comes from the block the game handed to its renderer ([[0x83929A68] + 256] + 240, a block of the manager [0x836F3AA8]), not +1488 (here 4.9 units: would drop)
+          Forge dh = dn;
+          const uint32_t blk = 0x9F200000u + 48;
+          dh.U(0x9F100000u + 256, blk);
+          for (int q = 0; q < 16; ++q) dh.F(blk + 240 + 4 * q, (q % 5 == 0) ? 1.f : 0.f);
+          dh.F(blk + 240 + 48, -s0.c[3]), dh.F(blk + 240 + 56, -(s0.c[11] + 6.f));   // the handed eye: 6 units away (shown)
+          dh.F(0x82004D70u, 0.017453292f), dh.F(0x9F200000u + 1552, 50.f), dh.F(blk + 512, float(double(50.f) * double(0.017453292f)));
+          r = read_props(dh);
+          Check(r.size() == 2 && r[0].hidden == 0, "latch.prop_distance_handed_eye", r.size() == 2 ? std::to_string(r[0].hidden) : "n");
+        }
         Forge dp0 = dn;
         dp0.U(0x836F3940u, 4);   // another phase: no test
         r = read_props(dp0);
@@ -1562,7 +1574,21 @@ static void LatchTests(crowd::Contributor& c, int p) {
           const uint32_t f64[6] = {(1u << 31) | (2u << 22), 18u | (1u << 6) | 0x00100000u, 63u | (63u << 13), 0, 0, (1u << 9) | (1u << 11)};
           const uint32_t f16[6] = {(1u << 31) | (1u << 22), 18u | (1u << 6) | 0x00100000u, 15u | (15u << 13), 0, 0, (1u << 9) | (1u << 11)};
           gt::Shape sh;
-          Check(gt::ShapeOfFetch(f64, sh) == gt::Why::Ok && gt::ShapeOfFetch(f16, sh) == gt::Why::Size, "latch.picture_packed_mips", "a 16x16 texture with the packed bit has mip 0 in the packed tail: Size, never a wrong picture");
+          {   // S108 CAP2: mip 0 of a 16x16 texture with the packed bit sits in the base's packed tail at block (4, 0) (the SDK's GetPackedMipOffset: 16 texels right; tools\scene\car_paint_unit.cpp part T
+              // proves the read against the SDK's own layout): it is read THERE, never from the tail's corner (plant 4 picture_packed_ignored = the corner)
+            const bool s64 = gt::ShapeOfFetch(f64, sh) == gt::Why::Ok && sh.tail_x == 0 && sh.tail_y == 0;
+            gt::Shape s16;
+            const bool shaped16 = gt::ShapeOfFetch(f16, s16) == gt::Why::Ok;
+            const auto by_offset = [](uint32_t a, uint32_t n, uint8_t* d) { for (uint32_t i = 0; i < n; ++i) d[i] = uint8_t(((a + i) >> 3) * 7u + 1u); return true; };   // each 8-byte block of memory distinct
+            std::vector<uint8_t> b16;
+            const bool read16 = shaped16 && gt::ReadMip0(s16, by_offset, b16) == gt::Why::Ok && b16.size() == 4 * 4 * 8;
+            const uint32_t at = gt::TiledOffset2D(4, 0, 32, 3);   // block (4, 0) of a 32-block pitch, 8-byte blocks
+            uint8_t want[8];
+            by_offset(s16.base + at, 8, want);
+            gt::SwapBlock(want, 8, s16.endian);
+            Check(s64 && shaped16 && s16.tail_x == 4 && s16.tail_y == 0 && read16 && std::memcmp(b16.data(), want, 8) == 0, "latch.picture_packed_mips",
+                  "a 16x16 packed texture: mip 0 read at its tail offset (4, 0), tail " + std::to_string(s16.tail_x) + "," + std::to_string(s16.tail_y));
+          }
           int reads = 0;
           const auto counting = [&](uint32_t, uint32_t, uint8_t*) { ++reads; return true; };
           const uint32_t fbig[6] = {(1u << 31) | (128u << 22), 18u | (1u << 6) | 0x00100000u, 4095u | (4095u << 13), 0, 0, 1u << 9};

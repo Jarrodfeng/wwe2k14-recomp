@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time, ~5 s; a fast-forwarded run would outrun it, run 7087)
 # Session 101 lane 141: the LONG owner-mode match route. s100_owner_match.txt ends ~16 s after boot (10 s of match), before the wrestler roster
 # (src\renderer_scene\wrestler_ours.cpp: roster_.BuildAsync, ready when Poll()==1) finishes, so in Check J1b (run 7087) the wrestlers class
 # stayed "not ready" the whole run and the referee's pieces, wrestler thin draws, sweat / pre-light, circle / plane shadows and the rim map

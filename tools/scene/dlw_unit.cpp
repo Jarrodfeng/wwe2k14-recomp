@@ -16,10 +16,12 @@
 #include <vector>
 
 #include "../../src/assets/asset_load.h"
+#include "../../src/assets/attire_remap.h"
 #include "../../src/dlc_catalog.h"
 #include "../../src/dlc_overlays.h"
 #include "../../src/renderer_scene/named_load_fail.h"
 #include "../../src/renderer_scene/wrestler_src.h"
+#include "../../src/scene_live/pac_answer.h"
 
 namespace fs = std::filesystem;
 using namespace rdr_scene;
@@ -33,6 +35,32 @@ static void Put(const fs::path& p, const char* bytes) {
   fs::create_directories(p.parent_path());
   std::ofstream f(p, std::ios::binary);
   f << bytes;
+}
+// S110 LIBSIZE: a synthetic character pac (tools\scene\a7_unit.cpp's layout: EPAC, the EMD directory at 0x800 with 16-byte rows from 0x80C, PACHs from 0x4000 in 0x800-byte
+// sectors). `rows` = (EMD name, sector); `pachs` model PACHs at sectors 0, 2, 4 ... (entry 0 = a 16-byte stand-in model). Our own bytes, nothing from the game.
+static void PutLe32(std::vector<uint8_t>& b, size_t o, uint32_t v) { std::memcpy(b.data() + o, &v, 4); }
+static void WritePac(const fs::path& p, const std::vector<std::pair<const char*, uint32_t>>& rows, int pachs) {
+  std::vector<uint8_t> f(0x4000 + 0x800 * 2 * size_t(pachs), 0);
+  std::memcpy(f.data(), "EPAC", 4);
+  std::memcpy(f.data() + 0x800, "EMD ", 4);
+  for (size_t r = 0; r < rows.size(); ++r) {
+    const size_t o = 0x80C + 16 * r;
+    std::memcpy(f.data() + o, rows[r].first, 8);
+    PutLe32(f, o + 8, rows[r].second);
+    PutLe32(f, o + 12, 0x10);
+  }
+  for (int i = 0; i < pachs; ++i) {   // one entry: id 0 (the model), offset 0, 16 bytes
+    const size_t at = 0x4000 + 0x800 * 2 * size_t(i);
+    std::memcpy(f.data() + at, "PACH", 4);
+    PutLe32(f, at + 4, 1);
+    PutLe32(f, at + 8, 0);
+    PutLe32(f, at + 12, 0);
+    PutLe32(f, at + 16, 16);
+    std::memset(f.data() + at + 20, i + 1, 16);
+  }
+  fs::create_directories(p.parent_path());
+  std::ofstream o(p, std::ios::binary);
+  o.write(reinterpret_cast<const char*>(f.data()), std::streamsize(f.size()));
 }
 
 static int SelfTest() {
@@ -122,6 +150,43 @@ static int SelfTest() {
       Check(std::find(ent.begin(), ent.end(), "pac/evt/Entrance_dlc05.pac") != ent.end() && assets::dlc_files::PropFile(5 * assets::dlc_files::kPropPackStride + 1) == "pac\\evt\\evtobj_dlc05.pac", "the entrance bank files and the prop file name of pack 5 follow the overlay");
     }
     Check(!files.Exists("pac\\ch\\ch999.pac") && files.Stream("pac\\ch\\ch999.pac", [](const uint8_t*, size_t) {}) == false, "a file the package lacks is missing");
+    wwe2k14::dlc_overlays::Publish({});
+    wrestler_src::ApplyOverlays(files, &gen);
+  }
+
+  // S110 LIBSIZE (docs\research\s110\LIBSIZE.md items 13-15): every library character's file is CH497.PAC in his own folder <library>\<KEY>\pac\ch\, published as ONE "lib"
+  // overlay (root = the library folder, no suffix); KeyLink names `<KEY>\pac\ch\ch497.pac` (pac_answer::LibRel of the game's node path). Two characters A and B: their
+  // EMD row 49702 sits at a different model PACH in each file, so a loader that opens the wrong file (or the id rule's pac\ch\ch497.pac) gives the wrong ordinal.
+  {
+    const fs::path lib = base / "mods" / "superstars" / "library";
+    const std::string relA = "1A2B3C4D\\pac\\ch\\ch497.pac", relB = "5E6F7A8B\\pac\\ch\\ch497.pac";
+    WritePac(lib / "1A2B3C4D" / "pac" / "ch" / "ch497.pac", {{"00049702", 0}}, 1);
+    WritePac(lib / "5E6F7A8B" / "pac" / "ch" / "ch497.pac", {{"00049712", 0}, {"00049702", 2}}, 2);
+    wwe2k14::dlc_overlays::Publish({{lib, "", "lib", 6}});
+    wrestler_src::ApplyOverlays(files, &gen);
+    Check(files.Exists(relA) && files.Exists(relB) && !files.Exists("pac\\ch\\ch497.pac"), "one lib overlay: each KEY folder's ch497.pac resolves; the id rule's pac\\ch\\ch497.pac does not");
+    Check(!std::strcmp(wrestler_src::Where(files, relA), "mod"), "census word: a library file is 'mod'");
+    // the loader opens the file KeyLink names (GameFilesSource::Load: LibWrestlerPac -> the ...At loaders), each folder its own file
+    int id = 0;
+    Check(live::pac_answer::LibRel("SSLIB:\\5E6F7A8B\\PAC\\CH\\CH497.PAC") == relB && namedfail::LibWrestlerPac(relB, id) && id == 497,
+          "the game's node path -> KeyLink's pac (LibRel) -> the loader's parse: <KEY>\\pac\\ch\\ch497.pac, id 497");
+    Check(!namedfail::LibWrestlerPac("pac\\ch\\ch497.pac", id) && !namedfail::LibWrestlerPac("1A2B3C4D\\pac\\bg\\bg01.pac", id) && !namedfail::LibWrestlerPac("\\pac\\ch\\ch497.pac", id) &&
+              !namedfail::LibWrestlerPac("1A2B3C4D\\pac\\ch\\chCommon.pac", id),
+          "not the library form: the disc form, another pac, an empty folder, no id digits");
+    Check(assets::AttireCountAt(files, relA) == 1 && assets::AttireCountAt(files, relB) == 2, "AttireCountAt: A's file has 1 model PACH, B's 2 (each folder's own file)");
+    Check(assets::OrdinalOfModelKeyAt(files, relA, 49702) == 0 && assets::OrdinalOfModelKeyAt(files, relB, 49702) == 1 && assets::OrdinalOfModelKeyAt(files, relA, 49702) == 0,
+          "OrdinalOfModelKeyAt: key 49702 is ordinal 0 in A's file, 1 in B's, 0 in A's again (the one open-pac slot follows the folder)");
+    Check(assets::attire_remap::PickModel(files, assets::attire_remap::Table(), relB, 49702).ord == 1 && assets::attire_remap::PickModel(files, assets::attire_remap::Table(), relA, 49702).ord == 0,
+          "PickModel (the production pick) on B's file: ordinal 1; on A's: 0");
+    Check(assets::OrdinalOfModelKey(files, 497, 49702) == -1 && assets::AttireCount(files, 497) == 0,
+          "PLANT (the old loader: the id's pac\\ch\\ch497.pac, the same for A and B): nothing under the library root");
+    // the failure registry keeps the folder: A's failure is not B's
+    namedfail::Clear();
+    Check(namedfail::IsWrestlerPac(relA) && namedfail::Note(relA, "model_key:49702", 0),
+          "a library file's failed load is noted (the old rule wanted a leading pac\\ch\\ch and dropped it: the record kept naming a model that never loads, a hole; the guest rows were never asked)");
+    Check(namedfail::FailedToGuest(relA, "model_key:49702", 0) && !namedfail::Failed(relB, "model_key:49702", 0), "A failed, B (the same id 497, the same entry) did not: the key carries the folder");
+    Check(namedfail::MaybeFailedChar(497), "the per-character bit of 497 is set (the file name's id)");
+    namedfail::Clear();
     wwe2k14::dlc_overlays::Publish({});
     wrestler_src::ApplyOverlays(files, &gen);
   }

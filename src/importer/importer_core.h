@@ -43,16 +43,35 @@ std::string ExtractSource(const std::string& zip_path, const std::string& entry_
                           std::string* err = nullptr);
 
 struct Superstar {
-  int slot = -1;               // the character id he gets (397..499, from FreeSlots)
+  // S110 SEAT-A: his library key (8 upper-case hex digits = the folder <mods>\superstars\library\<KEY>\). "" = not in the library yet
+  // (SavePack / BuildPack assign one, once, and never give it out again). A keyless entry whose slot a stored card holds is that card.
+  std::string key;
+  int slot = -1;               // the character id he gets: his resident SEAT (397..499, from FreeSlots); -1 = no seat (a card past the seats)
   std::string name, short_name;  // UTF-8; written as text 60000 + slot (name), 62000 + slot (short), 64000 + slot (long = name)
   int base_id = 100;           // the wrestler he is built on: roster record (moveset, ratings, class), default The Rock
   int entrance_from = -1;      // whose entrance / music / tron he uses; -1 = the base's
+  // S110 TRONSLOT (docs\research\s110\TRONSLOT.md part 4): whose tron he plays. tron_slot (a custom slot number, tron_slots_core.h band) wins,
+  // else tron_from (a wrestler: his PRO row's own movie word, not his id), else (both 0) his entrance wrestler's tron.
+  int tron_from = 0;           // a wrestler id whose tron he uses; 0 (any value <= 0, e.g. -1 as entrance_from) = his entrance wrestler's (the default)
+  int tron_slot = 0;           // a custom tron number (823-843, 845-899, 910-949); 0 (any value <= 0) = none
+  int movie = 0;               // the movie word BuildPack wrote (PRO +578 / +594); filled by BuildPack (PatchChEtc); not saved
+  int src_bank = -1;          // S110 BANKID: his entrance wrestler's bank WORD (PRO +580), filled by BuildPack (PatchChEtc); not saved
   bool copy_ratings = true;    // true = the base's 14 ratings; false = every rating 75 (an average default)
   std::string source_pac;      // the community pac (a .pac file; ExtractSource for zip members)
   std::vector<uint8_t> render_rgba[3];  // SSFA, SSFB, SSFC as the UI made them (RGBA8); empty = copy the base's renders
   int render_w[3] = {0, 0, 0}, render_h[3] = {0, 0, 0};
 };
-inline constexpr int kMaxStars = 103;  // the mod pack's slot cap (397..499)
+// S110 SEAT-A: NOT a cap on the library any more (it holds any number of cards); kept for the launchers that still print it. The number of
+// seats a library can fill is SeatCount(mods_dir) below.
+inline constexpr int kMaxStars = 103;
+// The seats the frame offers (superstars.txt of <mods>\superstars\frame\: one `seat` line each); before a frame is built: 102 (397..499
+// minus 399). Cards past the seats are stored unseated (`seat none`) until a seat is free.
+int SeatCount(const std::string& mods_dir);
+// S110 SEAT-C: where the old pack's conversion to the library stands, read from disk (no state of our own): Pending = an old pack (pack.json /
+// pack6\) is still in place, the next build converts it (it wins over a library already there: an interrupted conversion continues); Kept =
+// converted, the old pack is kept in legacy.old\ until the first build after the game said "in N" on the library (migrate::RemoveHolds).
+enum class Migration { None, Pending, Kept };
+Migration MigrationState(const std::string& mods_dir);
 
 struct PackState {
   std::vector<Superstar> stars;
@@ -60,7 +79,10 @@ struct PackState {
   // new import is given a never-used slot first (src\importer\slot_retire.h). Kept by SavePack / BuildPack; read by LoadPack.
   std::vector<int> retired;
   bool enabled = true;       // kept in pack.json for the UI only: the game's one switch is the launcher's USE MY SUPERSTARS
-  bool needs_build = false;  // the list changed since the last BuildPack (SavePack keeps the flag; BuildPack clears it)
+  // S110 SEAT-A review: library folders LoadPack left out (a card that cannot be read, says another key, or a folder copied by hand), one sentence
+  // each; nothing in them is changed or deleted. CheckBeforePlay says the first one when there is nothing to build.
+  std::vector<std::string> problems;
+  bool needs_build = false;  // S110 SEAT-A: DERIVED by LoadPack (a seated card is not instantiated for the current frame, or there is no frame); SavePack ignores it
 };
 
 // Reads <mods>\superstars\pack.json (+ the portraits in renders\). A missing manifest = an empty state, true. needs_build is
@@ -71,7 +93,23 @@ std::vector<int> RetiredSlots(const std::string& mods_dir);
 // S105 IMP review M1: the slots of the last BUILT pack (superstars.txt); only a slot in this list is retired when it is removed.
 std::vector<int> BuiltPackSlots(const std::string& mods_dir);
 // Writes pack.json + renders\ WITHOUT building (the list as the UI has it: REMOVE, an edit not built yet).
-bool SavePack(const std::string& mods_dir, const PackState& st, std::string& err);
+// S110 SEAT-C review: st.stars[i].key is FILLED here with the library key each entry has after the write (a new character gets his key, once).
+// A character with no seat is found again only by that key (a keyless entry is matched to a stored card by its seat alone), so the caller's
+// list always carries it: the next save of the same list keeps his folder instead of deleting it and making a new one.
+bool SavePack(const std::string& mods_dir, PackState& st, std::string& err);
+// S110 SEAT-C review: the UI's draft into the list. index in range = that entry is replaced and KEEPS its library key (the draft is a copy that
+// may be older than the key: an entry added, then saved again from the same draft, would otherwise lose it and SavePack would replace his
+// folder); else the draft is appended as a new character (no key). Returns the entry's index.
+inline int PutInList(PackState& st, int index, Superstar s) {
+  if (index >= 0 && index < int(st.stars.size())) {
+    s.key = st.stars[size_t(index)].key;
+    st.stars[size_t(index)] = std::move(s);
+    return index;
+  }
+  s.key.clear();
+  st.stars.push_back(std::move(s));
+  return int(st.stars.size()) - 1;
+}
 // The DLC the game gets, as everywhere below (Session 101): dlc_dir = the player's DLC folder, "" when USE MY DLC is off; dlc_off = the
 // launcher's switched-off pack ids ("3,5"). The same view the launchers give the game (--wwe2k14_dlc_dir / --wwe2k14_dlc_off).
 //
@@ -91,6 +129,19 @@ PlayCheck CheckBeforePlay(const std::string& mods_dir, const std::string& dlc_di
 // The game's own verdict at its last boot (<mods>\superstars\game_status.txt, written by src\dlc.h): "" when it took the pack in (or
 // never said), else one sentence for the player.
 std::string LastGameProblem(const std::string& mods_dir);
+
+// S110 LIBSIZE-2 (test support, tools\importer\bind_cases.h): the game's own pacs an import's EVZ / GMEV / PCE6 / MOVN / base renders are aliased to, newest DLC pack first then the
+// disc, each as plain bytes on request (an XCTD pac unpacked). `sd` = the SD menu pacs (DLC_SD / menuSD) instead of the HD ones. Nothing in a build uses it.
+struct HostPac {
+  std::string label;                                     // "pack 4 pac\evt\Entrance_dlc04.pac" / "disc pac\evt\Entrance00.pac"
+  std::function<bool(std::vector<uint8_t>&)> read;
+};
+std::vector<HostPac> HostGamePacs(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const std::string& dlc_off, bool sd);
+// The DLC pack whose files hold character `id`'s model (-1 = a disc character): the importer's FxSources puts that pack's own effects first.
+int HostPackOfChar(const std::string& mods_dir, const launcher::GameFiles& game, const std::string& dlc_dir, const std::string& dlc_off, int id);
+// S110 LIBSIZE-2 review (the check a build runs before his source can go; test support, tools\importer\library_cases.h): "" when the character file `file`
+// holds the source pac `source_pac` whole (`own` = the source is a character file itself), else what differs.
+std::string FileHoldsSource(const std::string& source_pac, bool own, const std::string& file);
 
 // Writes <mods>\superstars\pack6\ (the whole pack, rebuilt from scratch into pack6.building, then swapped in), pack.json,
 // renders\ and superstars.txt; needs_build is written false. Built on the packs the game gets (dlc_dir / dlc_off above; none = the

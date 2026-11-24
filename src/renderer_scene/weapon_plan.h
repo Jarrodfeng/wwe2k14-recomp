@@ -20,6 +20,7 @@
 
 #include "scene_record.h"
 #include "weapon_rows.h"
+#include "rows_ring.h"   // S106 G4-C: RingNodeRows (sizeof in WeaponViewOf)
 
 namespace rdr_scene::weapons {
 

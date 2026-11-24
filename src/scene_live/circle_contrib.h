@@ -7,6 +7,7 @@
 #include <string>
 
 #include "../renderer_scene/live_scene.h"
+#include "../renderer_scene/rows_circle.h"   // S106 G4-2
 #include "circle_hook.h"
 #include "frame_delta.h"   // S103 A3 (F1)
 #include "../renderer_game/node_switch.h"   // S103 A3 (F4): the stored decision

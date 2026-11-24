@@ -8,16 +8,21 @@
 // Naming is by CONTENT, never by the cached pointer (its writer is unknown): handle id -> wrapper -> header -> fetch dwords -> the game side's ContentHasher (untile + endian-swap the mip 0, hash it)
 // -> a NameIndex built from the player's own prtcls.pac sprite directories (AddSpriteDirectory) -> {pac, entry}. Every step is counted. A handle that fails any step stays unnamed (the white
 // stand-in, kPiTexture): never a guess. A named handle is cached by (id, wrapper pointer, base-address dword) so a reused registry slot is read again.
+// S108 PRT: an index MISS is no longer the end: the index holds only the disc's prtcls.pac, and a DLC pack's (prtcls_dlcPP.pac) or a mod's particle pictures can never be in it. The game's own bound texture
+// (the same fetch dwords, its whole mip chain) is read then, kept in GuestSprites by content and named {kGuestSpritePac, key}. Unnamed now means the game's texture itself could not be read (guest_failed).
 // [U] The ContentHasher's game-side implementation (renderer_adapter DecodeTexture + the hash below) and the NameIndex build at boot are NOT written or run in this lane (0 game runs).
 #pragma once
 #include <cstdint>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "particle_guest_sprites.h"   // S108 PRT: the pictures read from the game's own texture objects
 #include "particle_reader.h"
 #include "texture_registry.h"
 
@@ -25,6 +30,7 @@ namespace rdr_scene::live::particles {
 
 
 // Test only: 1 = the namer trusts the entry's cached pointer as the wrapper instead of resolving the handle id (the fault the contract forbids); 2 = the PF miss diagnostic ignores its 8-line cap.
+// S108 PRT: 3 = the old rule, the file index only (an index miss stays unnamed: a DLC / mod particle texture is never drawn).
 inline int g_namer_plant = 0;
 
 // FNV-1a 64 over (width, height, fourcc, then the mip-0 block bytes). The DDS side and the guest side must use this one function.
@@ -136,12 +142,17 @@ struct ContentHasher {
   // S103 PF (dev diagnostic): the shape and the first bytes the key was made of. Default: nothing to say.
   struct KeyInfo { uint32_t width = 0, height = 0, fourcc = 0, mip0_bytes = 0; uint8_t head[16] = {}; };
   virtual bool DescribeKey(const uint32_t /*fetch*/[6], KeyInfo& /*out*/) const { return false; }
+  // S108 PRT: the texture itself, the way the game bound it: the whole mip chain (guest_texture_mips.h ReadChain) as a decoded BC picture. False when it is not a plain 2D BC texture or a read is refused.
+  virtual bool ReadSprite(const uint32_t /*fetch*/[6], assets::Texture& /*out*/) const { return false; }
 };
 
 struct NamerStats {
   uint64_t asked = 0, named = 0, cache_hits = 0;
-  uint64_t no_handle = 0, wrapper_unreadable = 0, not_2d = 0, no_header = 0, no_key = 0, not_in_index = 0;   // why a handle stayed unnamed (one counter each)
+  uint64_t no_handle = 0, wrapper_unreadable = 0, not_2d = 0, no_header = 0, no_key = 0, not_in_index = 0;   // why a handle stayed unnamed (one counter each); S108: not_in_index counts index misses, the guest source then names most
   uint64_t diag_lines = 0;   // S103 PF: miss diagnostics produced (never more than kMaxDiagLines)
+  uint64_t guest = 0, guest_failed = 0;   // S108 PRT: index misses named from the game's own texture (fresh reads, not cache hits) / whose texture could not be read (a fault: the batch is skipped)
+  uint64_t guest_check_equal = 0, guest_check_differ = 0;   // S108 PRT (dev): fresh index hits whose guest chain equals / differs from the file sprite's levels (the live proof of the guest mip reader)
+  uint64_t guest_check_short = 0;   // S108 PRT review (dev): the guest held FEWER levels than the file and those it held are equal: mip 0 (and any held level) proven, the rest of the chain NOT exercised
 };
 inline constexpr size_t kMaxDiagLines = 8;
 
@@ -160,7 +171,7 @@ class HandleTextureNamer final : public TextureNamer {
       case TexWalk::Unreadable: return ++stats_.wrapper_unreadable, false;
     }
     const auto hit = cache_.find(handle_id);
-    if (hit != cache_.end() && hit->second.wrapper == t.wrapper && hit->second.base == t.fetch[1]) {   // only POSITIVE results are cached; a miss is asked again (cheap)
+    if (hit != cache_.end() && hit->second.wrapper == t.wrapper && hit->second.base == t.fetch[1] && (!hit->second.guest || (guest_ && guest_->Has(hit->second.key)))) {   // only POSITIVE results are cached; a miss is asked again (cheap); a guest picture the store let go is read again
       ++stats_.cache_hits;
       pac = hit->second.pac, entry = hit->second.entry;
       return ++stats_.named, true;
@@ -168,17 +179,31 @@ class HandleTextureNamer final : public TextureNamer {
     uint64_t key = 0;
     if (!hasher_.MipZeroKey(t.fetch, key)) return ++stats_.no_key, false;
     const NameIndex::Name* n = index_.Find(key);
+    Cached c;
+    c.wrapper = t.wrapper, c.base = t.fetch[1], c.key = key;
     if (!n) {
       ++stats_.not_in_index;
       if (diag_on_ && (diag_.size() < kMaxDiagLines || g_namer_plant == 2)) DiagMiss(handle_id, t, key);   // S103 PF: dev builds only (the glue turns it on under IsDevBuild())
-      return false;
+      // S108 PRT: the index holds only the disc's prtcls.pac; a DLC pack's or a mod's particle file is not in it. The game's own texture object is the source then: read it as it is bound now (the latch:
+      // game threads parked), check its mip 0 is the picture just hashed (a texture rewritten between the two reads is refused, never mixed), keep it by CONTENT, name it by that key.
+      if (!guest_ || g_namer_plant == 3) return false;
+      auto pic = std::make_shared<assets::Texture>();
+      if (!hasher_.ReadSprite(t.fetch, *pic) || !SameKey(*pic, key)) return ++stats_.guest_failed, false;   // the game's texture cannot be read: a fault (live_particles.cpp skips the batch, the shortfall hook)
+      guest_->Put(key, pic);
+      ++stats_.guest;
+      c.guest = true, c.pac = kGuestSpritePac, c.entry = GuestSpriteEntry(key);
+    } else {
+      c.pac = n->pac, c.entry = n->entry;
+      if (file_sprite_) CheckAgainstFile(t, c.entry);   // S108 PRT (dev): the guest reader against the file, once per newly named handle
     }
-    Cached c;
-    c.wrapper = t.wrapper, c.base = t.fetch[1], c.pac = n->pac, c.entry = n->entry;
     cache_[handle_id] = c;
     pac = c.pac, entry = c.entry;
     return ++stats_.named, true;
   }
+  // S108 PRT: the store guest pictures go to (null = the old index-only rule). Not owned.
+  void SetGuestStore(GuestSprites* s) { guest_ = s; }
+  // S108 PRT (dev builds): the file sprite of an index entry (the published map), for the guest-chain self-check. Null = no check.
+  void SetFileSprite(std::function<std::shared_ptr<const assets::Texture>(const std::string& entry)> f) { file_sprite_ = std::move(f); }
   const NamerStats& stats() const { return stats_; }
   // S103 PF: the dev-only miss diagnostic. Off by default; the glue switches it on only when IsDevBuild(). TakeDiag() hands over the lines made since the last call (at most 8 in all).
   void EnableDiag(bool on) { diag_on_ = on; }
@@ -188,6 +213,28 @@ class HandleTextureNamer final : public TextureNamer {
     return out;
   }
  private:
+  static uint32_t FourccOf(assets::TexFormat f) { return f == assets::TexFormat::kBC1 ? 0x31545844u : f == assets::TexFormat::kBC2 ? 0x33545844u : 0x35545844u; }
+  static size_t Mip0Bytes(const assets::Texture& p) { return size_t((p.width + 3) / 4) * ((p.height + 3) / 4) * (p.format == assets::TexFormat::kBC1 ? 8 : 16); }
+  static bool SameKey(const assets::Texture& p, uint64_t key) {
+    const size_t n = Mip0Bytes(p);
+    return p.data.size() >= n && ContentKey(p.width, p.height, FourccOf(p.format), p.data.data(), n) == key;
+  }
+  // The levels both hold, byte for byte (each level tightly packed, mip 0 first, in both).
+  void CheckAgainstFile(const TextureObject& t, const std::string& entry) const {
+    const std::shared_ptr<const assets::Texture> file = file_sprite_(entry);
+    if (!file) return;
+    assets::Texture g;
+    if (!hasher_.ReadSprite(t.fetch, g)) return void(++stats_.guest_check_differ);
+    size_t n = 0;
+    const uint32_t levels = std::min(g.mips, file->mips);
+    for (uint32_t i = 0; i < levels; ++i) {
+      const uint32_t w = std::max(1u, g.width >> i), h = std::max(1u, g.height >> i);
+      n += size_t((w + 3) / 4) * ((h + 3) / 4) * (g.format == assets::TexFormat::kBC1 ? 8 : 16);
+    }
+    const bool same = g.width == file->width && g.height == file->height && g.format == file->format && g.data.size() >= n && file->data.size() >= n && std::memcmp(g.data.data(), file->data.data(), n) == 0;
+    // review: `equal` only when the guest held the file's whole chain; fewer levels that match = `short` (the mip reader past those levels was not exercised: never a silent pass)
+    ++(!same ? stats_.guest_check_differ : g.mips < file->mips ? stats_.guest_check_short : stats_.guest_check_equal);
+  }
   void DiagMiss(uint32_t id, const TextureObject& t, uint64_t key) const {
     ContentHasher::KeyInfo ki;
     const bool have = hasher_.DescribeKey(t.fetch, ki);
@@ -206,10 +253,12 @@ class HandleTextureNamer final : public TextureNamer {
   }
   bool diag_on_ = false;
   mutable std::vector<std::string> diag_, diag_pending_;
-  struct Cached { uint32_t wrapper = 0, base = 0; std::string pac, entry; };
+  struct Cached { uint32_t wrapper = 0, base = 0; uint64_t key = 0; bool guest = false; std::string pac, entry; };
   const GuestMem& mem_;
   const ContentHasher& hasher_;
   const NameIndex& index_;
+  GuestSprites* guest_ = nullptr;
+  std::function<std::shared_ptr<const assets::Texture>(const std::string&)> file_sprite_;
   mutable NamerStats stats_;
   mutable std::unordered_map<uint32_t, Cached> cache_;
 };

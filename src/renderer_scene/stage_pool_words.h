@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "record_io.h"
+#include "rows_inputs.h"   // S106 G4-2
+#include "rows_stage_look.h"
 
 namespace rdr_scene::stage_pool_words {
 

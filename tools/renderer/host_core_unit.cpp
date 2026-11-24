@@ -24,6 +24,7 @@
 #define WWE2K14_HOST_PLANTS 1
 #define WWE2K14_STAMP_PLANTS 1
 #include "../../src/renderer_host/host_core.h"
+#include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_host/host_planes.h"
 #include "../../src/renderer_scene/cam_gate.h"   // S105 A3
 #include "../../src/renderer_game/scene_kind.h"

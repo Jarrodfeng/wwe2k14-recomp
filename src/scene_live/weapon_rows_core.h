@@ -25,19 +25,26 @@
 #include <vector>
 
 #include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_ring.h"   // S106 G4-2
 #include "../renderer_scene/weapon_rows.h"
 #include "ring_rows_core.h"  // NodeCount (vtable slot 2 / sub_82BD3AB8), kModelAlphaOffset, kRrCount* flags via scene_record.h
 #include "arena_world.h"     // RowsFromMatrix
 #include "weapon_mgr_reader.h"  // ReadSlots: the one reader of the slot table
 #include "lock_stats.h"  // BHF1: the tracker lock cost counters
 #include "belt_plate.h"  // S105 PLATE: the belt nameplate store (a model leaving the event list drops its plate)
+#include "prop_colour.h"  // S108 THB: the entrance props' colours (a model leaving the event list drops them; the editor's read at the draw ask)
 
 namespace rdr_scene::live::weaponrows {
 
 namespace w = rdr_scene::weapons;
 
 inline constexpr uint32_t kMaxCalls = 256;        // WeaponCall rows a frame (a match has a handful of weapons)
-inline constexpr uint32_t kMaxPoolNodes = 4096;   // node rows a frame
+inline constexpr uint32_t kMaxPoolNodes = 4096;   // node rows a frame (a call that does not fit is refused WHOLE, never cut: stats overflow + CallResult::refused, logged by the glue)
+// S108 FAN (docs\research\s108\FAN_plan.md): a call copies the model's OWN node count (sub_82BD3AB8), as the game's draw reads row v - 1 for every palette slot with no cap (sub_82C04DF0 0x82C0A038-0x82C0A04C).
+// This bound is only a guard against a garbage count, NOT a size the data must fit: the largest need in the player's files is 731 rows (evtobj PACH 70 entry 0; Fandango's tassels, prop 2591 entry 4, 658; m2 weapons 11,
+// bgEtc stage entries 5; scratch census over all 614 evtobj entries + DLC, 87 m2 models, 152 stage entries). A count above it is refused (no rows: the plan skips the call as bad_rows), never truncated: a cut palette
+// leaves every vertex past the cut at its file position (ring_pose.h PoseMesh) = the tassel "explosion" the ring's 96 (kRingMaxNodes, rows_ring.h) caused here before S108 FAN.
+inline constexpr uint32_t kWeaponMaxNodes = 1024;
 inline constexpr uint32_t kMaxMembers = w::kMaxSlots * (1 + w::kMaxSecondary);   // (informational: the membership is a vector)
 inline constexpr uint32_t kRing = 4;
 
@@ -86,6 +93,8 @@ enum class Plant : uint32_t {
   EventNoClear,         // S103 GBR (BH4 3): the event list is not cleared when the stage holder changes
   EventNoPrune,         // S103 GBR (BH4 3): a model whose vtable word is no longer a CSkinModel's stays in the event list
   ShadowAsColour,       // S103 STG (PMW): the shadow flag A tag is ignored: a caster submit under flag A is taken as a colour call (a manager weapon drawn 3x, an event row taken from the props-map call)
+  RingCap96,            // S108 FAN: the old rule: every call cut at the ring's kRingMaxNodes (96) rows (Fandango's tassels past bone95 stay at their file position)
+  EventRowsAppend,      // S108 FAN: an own submit that replaces an earlier non-own row of the same event model appends a second copy of its rows (the old one stays in the pool, unread) instead of rewriting them in place
 };
 
 // S103 BLF (docs\research\s103\BELT.md Adversary): the EVENT PROP models, pushed by two mid-asm hooks (draw_origin.h / event_props_hooks.h). MakeWeapon (sub_8272D710) makes up to 10 CSkinModel objects per prop, one per present
@@ -102,6 +111,7 @@ class EventProps {
     if (model == 0) return;   // the allocation failed (0x82BD41B0); the game tests it later (0x8272E044), the hook tests it itself
     std::lock_guard<std::mutex> lk(mu_);
     beltplate::DropOnMake(model);   // S105 PLATE review 1: a free the destructor hook missed leaves the old model's plate verdict at this address (lock order EventProps::mu_ then the Store's, as OnFree / Prune / Clear)
+    propcolour::DropOnMake(model);  // S108 THB: ... and the old model's prop colours (the same stale-address rule)
     map_[model] = Entry{int32_t(prop_id), k};
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     ++made_;
@@ -119,7 +129,7 @@ class EventProps {
     ++frees_;
     if (!drop) return 0;
     for (uint32_t m : models)
-      if (m != 0) n += uint32_t(map_.erase(m)), beltplate::DropOnFree(m);   // S105 PLATE: a freed model address reused by another belt must not keep the old name
+      if (m != 0) n += uint32_t(map_.erase(m)), beltplate::DropOnFree(m), propcolour::DropOnFree(m);   // S105 PLATE: a freed model address reused by another belt must not keep the old name   // S108 THB: nor the old prop's colours
     dropped_ += n;
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     Publish();
@@ -131,7 +141,7 @@ class EventProps {
   uint32_t Clear() {
     std::lock_guard<std::mutex> lk(mu_);
     const uint32_t n = uint32_t(map_.size());
-    map_.clear(), beltplate::ClearOnScene();   // S105 PLATE
+    map_.clear(), beltplate::ClearOnScene(), propcolour::ClearOnScene();   // S105 PLATE   // S108 THB
     cleared_ += n;
     live_.store(0, std::memory_order_relaxed);
     Publish();
@@ -145,7 +155,7 @@ class EventProps {
     for (auto it = map_.begin(); it != map_.end();) {
       uint32_t vt = 0;
       if (read_word(it->first, vt) && vt == w::kSkinnedModelVtable) { ++it; continue; }
-      beltplate::DropOnFree(it->first), it = map_.erase(it), ++n;   // S105 PLATE
+      beltplate::DropOnFree(it->first), propcolour::DropOnFree(it->first), it = map_.erase(it), ++n;   // S105 PLATE   // S108 THB
     }
     if (n) {
       pruned_ += n;
@@ -205,11 +215,16 @@ class EventProps {
   uint64_t made_ = 0, frees_ = 0, dropped_ = 0, cleared_ = 0, pruned_ = 0, pub_overflow_ = 0;
 };
 
+// capped (S108 FAN): calls whose node count is above kWeaponMaxNodes, refused (no rows); overflow: calls refused because the frame's pool (kMaxPoolNodes) is full. Neither is ever cut short.
 struct Stats {
   uint64_t other_pass = 0, calls = 0, weapon_calls = 0, recorded = 0, rows_copied = 0, unreadable = 0, count_unknown = 0, capped = 0, forwarded = 0, overflow = 0, old_calls = 0, late = 0, frames = 0,
            member_reads = 0, mgr_missing = 0, slots_refused = 0, alpha_unread = 0;
   uint64_t slots_unreadable = 0, bad_vtable_calls = 0;
   uint64_t event_replaced = 0;   // S103 BLF: an own-submit call replaced the row of an earlier non-own pass of the same model
+  uint64_t event_rows_in_place = 0;   // S108 FAN: of those, the rows rewritten in place (the replaced row's pool rows reused: one copy a frame)
+  uint32_t max_rows = 0, max_rows_k = 0;   // S108 FAN review: the largest row count one call was given so far, and whose (id / entry k; the census names it: `largest call N rows (event prop I k K)`)
+  int32_t max_rows_id = -1;
+  bool max_rows_event = false;
   uint64_t event_calls = 0;  // S103 BLF: calls whose r3 is an event prop model (every pass; the first of a frame becomes a row, the rest count in other_pass)
   uint64_t rigid = 0, rigid_node_assumed = 0;   // S103 LVF: rigid props (no skeleton: ONE row, the node of part 0's bone list); rigid_node_assumed = part 0 unreadable, node 1 taken
   uint64_t data_leaf = 0, zero_nodes = 0, foreign_fwd = 0, bad_count = 0;   // S103 WC R1 / R2: counts that came from the data object (+220 -> class 0x8206C7A0, [H+24]); n == 0 (no rows, the game copies nothing); forwards into an unknown class; counts below -1
@@ -329,7 +344,10 @@ struct CallResult {
   float f1 = 1.0f;                         // S103 CGF: the call's f1 (MdlAlpha)
   int32_t id = -1;
   uint32_t k = 0;
+  uint8_t refused = 0;                     // S108 FAN: kRefusedOverBound / kRefusedPoolFull (the call got no rows; the glue logs it with the model and the count `n`), 0 = not refused
+  uint32_t pool_used = 0;                  // S108 FAN: the frame's pool rows at the refusal
 };
+inline constexpr uint8_t kRefusedOverBound = 1, kRefusedPoolFull = 2;
 
 class Tracker {
  public:
@@ -459,6 +477,7 @@ class Tracker {
     const Named& hit = (is_event || is_stage || is_gm || is_blood) ? ev : *it;
     res.weapon = true, res.own_submit = own_submit;
     uint32_t ev_instance = 0;
+    uint32_t reuse_first = 0, reuse_count = 0;   // S108 FAN: the pool rows of the event row this own submit replaces (rewritten in place when the count matches: one copy of the model's rows a frame, not two)
     // S103 STG (docs\research\s103\PMW.md): a call made under the game's shadow flag A (the props pass and map B submit every caster once each, in a frame the game walks) is a caster row, never a colour row: it skips the event first-call
     // logic, the called_ mark and the stage counts, takes its own instance key, and carries kCallShadowPass (+ kCallShadowProps for the props map). gm sets and blood splats already return on flag A (pass0 above).
     const bool shadow_call = shadow != 0 && !is_gm && !is_blood;
@@ -482,7 +501,7 @@ class Tracker {
       if (seen) {
         if (seen->own || !own_submit) { ++stats_.other_pass; return res; }
         for (size_t i = 0; i < cur_.calls.size(); ++i)
-          if (cur_.calls[i].object == model) { ev_instance = cur_.calls[i].instance, cur_.calls.erase(cur_.calls.begin() + std::ptrdiff_t(i)); break; }
+          if (cur_.calls[i].object == model) { ev_instance = cur_.calls[i].instance, reuse_first = cur_.calls[i].node_first, reuse_count = cur_.calls[i].node_count, cur_.calls.erase(cur_.calls.begin() + std::ptrdiff_t(i)); break; }
         seen->own = true;
         ++stats_.event_replaced;
       } else {
@@ -559,22 +578,38 @@ class Tracker {
           else palette = palette_ptr + 64u * (node - 1u);
         } else ++stats_.rigid_node_assumed;
       }
-      if (count > kRingMaxNodes) count = kRingMaxNodes, ++stats_.capped;
-      if (cap2 && plant != Plant::StageNoCap && count > w::kStageCagePaletteRows) count = w::kStageCagePaletteRows, ++stats_.stage_capped;   // S103 CGF: the cage's stack palette holds exactly 2 rows (sub_826F9C40's loop); a larger NodeCount would read the caller's own stack
-      if (plant == Plant::NodeCountPlus1) ++count;
-      if (cur_.nodes.size() + count > kMaxPoolNodes) { ++stats_.overflow; return res; }
-      mats_.clear();
-      if (palette_ptr == 0 || !read_mats(palette, count, mats_) || mats_.size() < count) {
-        ++stats_.unreadable;
+      if (plant == Plant::RingCap96 && count > kRingMaxNodes) count = kRingMaxNodes, ++stats_.capped;   // the planted twin: the old cut at the ring's 96
+      const bool over_bound = count > kWeaponMaxNodes;   // S108 FAN: a garbage count (no file model needs more than 731): refused, no rows, never cut
+      if (over_bound) {
+        ++stats_.capped;
+        res.refused = kRefusedOverBound, res.pool_used = uint32_t(cur_.nodes.size());
       } else {
-        if (plant == Plant::LateRead) pending_.push_back(Pending{cur_.frame, palette, uint32_t(cur_.nodes.size()), count});   // zero rows now, filled at the next call
-        for (uint32_t i = 0; i < count; ++i) {
-          RingNodeRows r{};
-          if (plant != Plant::LateRead) arenaworld::RowsFromMatrix(mats_[i].m, r.rows);
-          cur_.nodes.push_back(r);
+        if (cap2 && plant != Plant::StageNoCap && count > w::kStageCagePaletteRows) count = w::kStageCagePaletteRows, ++stats_.stage_capped;   // S103 CGF: the cage's stack palette holds exactly 2 rows (sub_826F9C40's loop); a larger NodeCount would read the caller's own stack
+        if (plant == Plant::NodeCountPlus1) ++count;
+        // S108 FAN: an own submit replacing an earlier non-own row of the same event model rewrites that row's pool rows in place (same model, same palette, same frame: the same count), so the frame holds ONE copy
+        const bool in_place = reuse_count != 0 && reuse_count == count && plant != Plant::EventRowsAppend;
+        if (!in_place && cur_.nodes.size() + count > kMaxPoolNodes) {   // the frame's pool is full: the call is refused WHOLE (never cut short), counted and returned for the glue's log line
+          ++stats_.overflow;
+          res.refused = kRefusedPoolFull, res.pool_used = uint32_t(cur_.nodes.size());
+          return res;
         }
-        e.node_count = count;
-        stats_.rows_copied += count;
+        mats_.clear();
+        if (palette_ptr == 0 || !read_mats(palette, count, mats_) || mats_.size() < count) {
+          ++stats_.unreadable;
+        } else {
+          const uint32_t first = in_place ? reuse_first : uint32_t(cur_.nodes.size());
+          if (!in_place) cur_.nodes.resize(cur_.nodes.size() + count);
+          if (plant == Plant::LateRead) pending_.push_back(Pending{cur_.frame, palette, first, count});   // zero rows now, filled at the next call
+          for (uint32_t i = 0; i < count; ++i) {
+            RingNodeRows r{};
+            if (plant != Plant::LateRead) arenaworld::RowsFromMatrix(mats_[i].m, r.rows);
+            cur_.nodes[first + i] = r;
+          }
+          e.node_first = first, e.node_count = count;
+          stats_.rows_copied += count;
+          if (in_place) ++stats_.event_rows_in_place;
+          if (count > stats_.max_rows) stats_.max_rows = count, stats_.max_rows_id = hit.id, stats_.max_rows_k = res.k, stats_.max_rows_event = is_event;   // S108 FAN review
+        }
       }
     }
     cur_.calls.push_back(e);
@@ -794,6 +829,7 @@ inline bool RawHookEntry(Tracker& tr, bool registered, bool ours, uint32_t r3, u
     const CallResult r = tr.OnModelCall(r3, r5, frame, IsOwnSubmit(r3), read_word, read_mats, f1, lr, IsOwnSubmit(r3) ? t_slot13_caller : 0u, pass0, pass_ctx, shadow);   // S103 GBR: pass0 = "the thread's pass index (sub_82BA77A8) is 0", asked only for a gm set object / a splat   // S103 CGF (review 3: the own submit's caller): f1 (MdlAlpha) and the guest LR ride along for the stage structures' family tag
     if (out) *out = r;
     if (r.event && plate_phys) beltplate::TheStore().OnEventCall(r3, read_word, plate_phys);   // S105 PLATE: the belt's nameplate, read once per model on the game thread (both builds: the rows are taken before the OURS test)
+    if (r.event) propcolour::TheStore().NoteEditor(r3, frame, propcolour::ReadEditor(read_word, r3));   // S108 THB: the Threads editor recolours its entrance prop at this very draw (callback 0x8338EC00): its 4 colours, read where the game hands them to the GPU (one word when the switch is off)
   }
   return !ours;
 }

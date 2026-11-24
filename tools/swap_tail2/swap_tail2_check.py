@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane R25-A gate check (offline, 0 game runs): wwe2k14_rdr_swap_tail2 bit 1 (the reader join moved from the swap thread's hook to the timing thread).
+"""S102 lane R25-A check (offline, 0 game runs): wwe2k14_rdr_swap_tail2 bit 1 (the reader join moved from the swap thread's hook to the timing thread).
 
   py -I tools\\swap_tail2\\swap_tail2_check.py [--root DIR] [--syntax]
 

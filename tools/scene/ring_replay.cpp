@@ -12,6 +12,7 @@
 // rule never hides one), cover_drop (corner 2 dropped): each must make the comparison fail.
 #define main ring_unit_main
 #include "ring_recompute_unit.cpp"
+#include "../../src/renderer_scene/rows_ring.h"
 #undef main
 
 #include <algorithm>

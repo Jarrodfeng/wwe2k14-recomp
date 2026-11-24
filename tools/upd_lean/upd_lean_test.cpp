@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "../../src/renderer_adapter/origin_intern.h"
+#include "../../src/renderer_scene/rows_arena_world.h"
+#include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_adapter/prov_map.h"
 #include "../../src/renderer_adapter/upd_lean.h"
 #include "../../src/scene_live/arena_world_hook.h"

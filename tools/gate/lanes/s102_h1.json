@@ -1,8 +1,0 @@
-{
-  "claim": {"scene": "bryan", "side": "none (instrument: names threads, no work moves)", "ms": [0, 0]},
-  "checks": [
-    {"name": "s102_h1.lint_selftest", "cmd": ["py", "-I", "tools/perf/thread_names_lint.py", "--selftest"], "timeout_s": 60},
-    {"name": "s102_h1.lint_src", "cmd": ["py", "-I", "tools/perf/thread_names_lint.py"], "timeout_s": 60},
-    {"name": "s102_h1.readback", "cmd": ["pwsh", "-NoProfile", "-File", "tools/tests/thread_names_test.ps1"], "timeout_s": 180}
-  ]
-}

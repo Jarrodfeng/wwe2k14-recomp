@@ -1,5 +1,4 @@
 # harness: flags --wwe2k14_launch=sixpack --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_arena=4 --wwe2k14_launch_participants=343,324,342,107,364,335 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true
-# harness: realtime (the wrestler roster is built on a worker thread in WALL time; a fast-forwarded run would outrun it, run 7087)
 # Session 101 lane 158: the ROSTER-WIDE wrestler route, leg 1 of 3 (Jarrod: "prove the roster-wide wrestler path live, not just the test scenes' people").
 # Six DIFFERENT roster wrestlers in ONE match, all six in the ring at once: the 6-Pack Challenge (match type 37, the `sixpack` scenario of Session 27), launched the
 # way scenes\s101_owner_match_long.txt launches Bryan v Lesnar: the launcher replaces the captured participants (ids, db\ids\characters.json), all CPU (no PAD) so

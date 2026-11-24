@@ -31,7 +31,7 @@
 #include <vector>
 
 #include "../renderer_scene/ring_keys.h"   // S103 CRR: the alt ring's post call -> angle table (shared with the key rule)
-#include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_ring.h"
 #include "arena_world.h"   // RowsFromMatrix
 
 namespace rdr_scene::live::ringrecompute {

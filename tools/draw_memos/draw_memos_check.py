@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S102 lane T14 gate check (offline, 0 game runs): wwe2k14_rdr_note_memo, wwe2k14_rdr_shader_memo, wwe2k14_rdr_pin_hash.
+"""S102 lane T14 check (offline, 0 game runs): wwe2k14_rdr_note_memo, wwe2k14_rdr_shader_memo, wwe2k14_rdr_pin_hash.
 
   py -I tools\\draw_memos\\draw_memos_check.py [--root DIR] [--syntax]
 

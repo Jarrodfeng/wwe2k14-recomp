@@ -27,6 +27,9 @@
 
 #include "../renderer_scene/light_state_rows.h"   // BuildCasterRows (lane 221 CrossCheckExtras)
 #include "../renderer_scene/scene_record.h"
+#include "../renderer_scene/rows_caster.h"   // S106 G4-2
+#include "../renderer_scene/rows_lights.h"
+#include "../renderer_scene/bone_tag_rows.h"
 #include "light_state_hook.h"   // kGlobalWord, kRecordSize, kUsed*, kKeyBytes, HashKey, DecodeRecord, SameState
 
 namespace rdr_scene::live::casters {

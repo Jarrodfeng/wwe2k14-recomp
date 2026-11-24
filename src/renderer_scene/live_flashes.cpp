@@ -1,5 +1,6 @@
 // Lane C (Session 103): see live_flashes.h. Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "live_flashes.h"
+#include "rows_stage_fx.h"   // S106 G4-2
 
 #include <cmath>
 #include <cstring>
@@ -50,21 +51,28 @@ bool ApplyFlashes(BuildCtx& ctx) {
     return true;
   }
   const FamilyModel& fm = as->part[size_t(Part::Flash)];
-  uint32_t drawn = 0;
+  uint32_t given = 0, own_colour = 0, file_colour = 0, light_set = 0;
   for (const StageFxRow& r : ctx.t.stage_fx) {
     if (r.kind != kFxFlash) continue;
     float p[3];
     PointToViewer(r.pos, p);
     const assets::Matrix w = FlashWorld(p, FlashFactor(r, fm.radius), ctx.t.camera.eye);
-    Object o;
-    o.asset = uint32_t(fm.model);
-    std::memcpy(o.world.m, w.data(), sizeof o.world.m);
-    o.tint[3] = r.alpha;  // c185.x of the draw (crowd_flash.md [C]); the colour table is not fed [U]
-    ctx.frame.objects.push_back(o);
-    ++drawn;
+    // S110 CUTGREY: a flash is a sprite of its own, drawn AFTER the post chain (FrontEnd::DrawFlashesAfterPost; the game draws it after its combine, crisp), never a scene object: our far blur,
+    // haze and sepia must not run over it. Its colour is the row's (the game's colour block of this flash, kFxfColorUnread = the block was not readable: the file's own colour, white,
+    // counted), its alpha the row's (c185.x). No arena light set (the game's light is colour x (1 + abs(n.x)), applied by the draw).
+    FlashSprite s;
+    s.model = fm.model;
+    std::memcpy(s.world, w.data(), sizeof s.world);
+    std::memcpy(s.centre, p, sizeof s.centre);
+    const bool unread = (r.flags & kFxfColorUnread) != 0;
+    for (int i = 0; i < 3; ++i) s.rgb[i] = unread ? 1.f : r.color[i];
+    s.alpha = r.alpha;
+    own_colour += unread ? 0u : 1u, file_colour += unread ? 1u : 0u, light_set += (r.flags & kFxfLightSet) ? 1u : 0u;
+    ctx.frame.flashes.push_back(s);
+    ++given;   // S110 RDRPREP F3: sprites GIVEN to the frame (FrontEnd::DrawFlashesAfterPost may skip some: behind the camera, no mesh, no sampled depth; FrontEnd::FlashLine counts what it drew)
   }
-  ctx.frame.model_lights.push_back(LightsFor(ctx.t, fm, uint32_t(fm.model)));
-  Report(ctx, Family::Flashes, rows, drawn, rows - drawn, "");
+  Report(ctx, Family::Flashes, rows, given, rows - given,
+         "given to the after-post draw (not counted as drawn here: see the flashes census line); colour from the row " + std::to_string(own_colour) + ", file colour (unread) " + std::to_string(file_colour) + ", light set 500 rows (colour is the manager's block, a stand-in) " + std::to_string(light_set));
   return true;
 }
 

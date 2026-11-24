@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Gate check, Session 103 lane P2 (landing 1: our record-drawn frame's post). 0 game runs; offline (frame_rig.exe + the case zip).
+r"""Check, Session 103 lane P2 (landing 1: our record-drawn frame's post). 0 game runs; offline (frame_rig.exe + the case zip).
 
   py -I tools\scene\post_p2_check.py --root . [--case out\s103\run27_case.zip] [--frame 500]
 
