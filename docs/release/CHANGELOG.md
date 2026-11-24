@@ -13,19 +13,21 @@ Report a problem.
 
 - **Imported superstars live in a library, at about half the size.**
   What you saw: every import was built into a fixed, numbered slot of one big pack, about 9 to 10 MB per superstar. Now each superstar is
-  kept once in the importer's library (about 4 to 6 MB each), and the game seats your superstars when it starts.
+  kept once in the importer's library (about 4 to 6 MB each), and the game puts them on the roster when it starts.
   Your existing imports are converted the first time you press PLAY in the launcher with USE MY SUPERSTARS on: the launcher says so and builds
   them once more (nothing is lost). The old pack is kept as a backup until the game has run once on the library; the importer removes it at a
   later build. The importer no longer keeps a second copy of each pac you imported (the superstar's own library file holds his model), so keep
   your downloads if you want the original files. I tested the conversion through the launcher on a copy of my own imports, and loaded a save
   made in v0.4.1 with an edited entrance afterwards: the superstars and the edit were intact.
-- **More imported superstars than the game has seats.** The game has about 100 seats for imports. When your library holds more superstars,
-  the rest appear on further pages of the DOWNLOADED SUPERSTARS tab: LB / RB turn the page ("DOWNLOADED SUPERSTARS (LB) 1/2 (RB)"), and a
-  superstar picked from a later page plays his own entrance with his own name plate.
-- **An imported superstar keeps his own move set, entrance and Superstar Threads colours** when seats change hands between superstars.
-  Titles, teams, rivalries and Universe stay with your save.
-- **Universe: when an imported superstar's seat goes to another superstar, the one who left is taken off his booked matches.** The game
-  rebuilds that day's card without him, and the newcomer does not stand in for him. (A Royal Rumble or battle royal is the exception: see
+- **No fixed limit on imported wrestlers any more (theoretically unlimited).** The game itself can show about 100 imported wrestlers at
+  a time. Before, that was the limit. Now your library can hold more than that: the first 100 or so are on the roster as before, and the rest
+  appear on further pages of the DOWNLOADED SUPERSTARS tab: LB / RB turn the page ("DOWNLOADED SUPERSTARS (LB) 1/2 (RB)"), and a wrestler
+  picked from a later page plays his own entrance with his own name plate. There is no set maximum that I know of. Honest note: I have
+  played with small libraries and built a 500-wrestler library in the importer's tests; I have not yet played with hundreds in the game.
+- **An imported wrestler keeps his own move set, entrance and Superstar Threads colours,** whichever page he is on and whenever you add or
+  remove other imports. Titles, teams, rivalries and Universe stay with your save.
+- **Universe: when you replace or remove an imported wrestler, he is taken off his booked matches.** The game
+  rebuilds that day's card without him, and the wrestler who took his place does not stand in for him. (A Royal Rumble or battle royal is the exception: see
   the known issues.)
 - **Jump by letter on the select screen.** LT / RT jump to the previous / next letter in every tab of the superstar select screen, turning
   the page when needed. A small box in the game's own menu style beside each picking panel shows the letters around the current one
