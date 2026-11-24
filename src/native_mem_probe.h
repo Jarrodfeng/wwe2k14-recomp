@@ -45,6 +45,18 @@ inline constexpr uint32_t kLocks = 0x836EE430u + 12u;  // lis -31889 / addi -712
 inline constexpr uint32_t kLockCount = 255, kLockStride = 40;
 inline constexpr uint32_t k1MB = 0x100000u, k64KB = 0x10000u;
 inline constexpr uint32_t kMaxUnits = 481u * 16u;  // 480 MB + the 1 MB refinement, in 64 KB units
+// S110 CASCRASH: true on the thread that is inside a free-memory probe (ours or, with the switch off, the game's own linear one). An
+// allocation that fails then is the probe's own question; one that fails outside it is a request the game needed (kernel_overrides.h
+// logs those apart: report 046 died on one with no line in the log). Both probes run all their allocations on the calling thread and
+// call no other allocator. Set for the whole hook body by InProbe below, so every exit clears it.
+inline thread_local bool t_in_probe = false;
+
+struct InProbe {
+  InProbe() { t_in_probe = true; }
+  ~InProbe() { t_in_probe = false; }
+  InProbe(const InProbe&) = delete;
+  InProbe& operator=(const InProbe&) = delete;
+};
 
 struct Probe {
   bool ranged = false;
@@ -157,6 +169,7 @@ inline uint32_t Ld32(uint8_t* base, uint32_t at) {
 
 // sub_8225EB58 (r3 protect, r4 the result block).
 REX_HOOK_RAW(sub_8225EB58) {
+  const wwe2k14::native_mem_probe::InProbe in_probe;  // S110 CASCRASH: the original's ~440 failures too (switch off)
   if (!REXCVAR_GET(wwe2k14_native_mem_probe)) {
     __imp__sub_8225EB58(ctx, base);
     return;
@@ -170,6 +183,7 @@ REX_HOOK_RAW(sub_8225EB58) {
 
 // sub_8225ED80 (r3 min, r4 max, r5 protect, r6 the result block).
 REX_HOOK_RAW(sub_8225ED80) {
+  const wwe2k14::native_mem_probe::InProbe in_probe;  // S110 CASCRASH: the original's ~470 failures per load too (switch off)
   if (!REXCVAR_GET(wwe2k14_native_mem_probe)) {
     __imp__sub_8225ED80(ctx, base);
     return;

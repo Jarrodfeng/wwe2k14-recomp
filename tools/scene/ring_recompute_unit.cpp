@@ -755,6 +755,127 @@ int main(int argc, char** argv) {
       }
       Check(got[0] == 0 && got[1] == 39 && got[2] == 0, "ring.clock_plus_one", "rows for notes 299 / 300 / 301: " + std::to_string(got[0]) + " " + std::to_string(got[1]) + " " + std::to_string(got[2]));
     }
+    {   // S110 RINGBREAK: the ring in motion posing (bit 0 of 0x837632FA): rows from the per-slot palettes the hook copied right after each pose call (ring_rids_pose.h); the canvas row
+      namespace ri = rdr_scene::live::ringrids;
+      constexpr uint32_t kRopeM = 0x40500000, kTbM = 0x40620000;
+      const uint32_t cmodel[4] = {kPm, kTbM, kCm, kRopeM};   // posts 5..8, turnbuckles 9..20, covers 21..32, ropes 33..44 (the slot switch's models: G+48, G+44, G+36, G+20)
+      const uint32_t cnodes[4] = {3, 4, 3, 5};
+      const uint32_t cbase[4] = {5, 9, 21, 33}, clast[4] = {8, 20, 32, 44};
+      const uint8_t cklass[4] = {kRcPostHi, kRcTurnbuckle, kRcCoverHi, kRcRopeHi};
+      auto cls_of = [](uint32_t k) { return k < 9 ? 0u : k < 21 ? 1u : k < 33 ? 2u : 3u; };
+      auto mkslot = [&](uint32_t k, uint32_t src) {   // slot k holding the palette of pose `src` (per slot: translation (100 src + node, 0.5 + node / 100, -src))
+        ri::Slot s;
+        s.k = k, s.model = cmodel[cls_of(k)], s.n = cnodes[cls_of(k)], s.palette = 0x41000000u + 0x1000u * k;
+        s.pal.assign(size_t(s.n) * 16, 0.f);
+        for (uint32_t j = 0; j < s.n; ++j) {
+          float* m = &s.pal[size_t(j) * 16];
+          m[0] = m[5] = m[10] = m[15] = 1.f;
+          m[12] = 100.f * float(src) + float(j), m[13] = 0.5f + float(j) / 100.f, m[14] = -float(src);
+        }
+        return s;
+      };
+      auto publish = [&]() {
+        ri::Set set;
+        set.frame = 300;
+        for (uint32_t k = 5; k <= 44; ++k) {
+          uint32_t src = k;
+          if (Plant("rids_latch_read")) src = clast[cls_of(k)];   // the shared model read once at the latch: every instance of a class holds the LAST instance's pose
+          ri::Slot s = mkslot(k, src);
+          if (Plant("rids_table")) {                              // the RIDS recorder table: the ropes are not copied there, and rows of two slots can overlap
+            if (cls_of(k) == 3) s.n = 0, s.pal.clear();
+            if (k == 6) s = mkslot(6, 5);
+          }
+          set.slots.push_back(std::move(s));
+        }
+        ri::The().Publish(std::move(set));
+      };
+      auto latch = [&](rr::RingRecomputeContributor& c, SceneTables& tt) {
+        c.SetReader(ReadThunk);
+        c.SetStampSink(StampSink);
+        c.NoteRing(kX, 300);
+        FrameInfo fr;
+        fr.guest_frame = 300;
+        c.Latch(fr);
+        Counters cc2;
+        c.Emit(fr, tt, cc2);
+      };
+      auto find = [](const SceneTables& tt, uint8_t klass, uint32_t call) -> const RingRows* {
+        for (const RingRows& r : tt.ring_rows)
+          if (r.klass == klass && r.call == call) return &r;
+        return nullptr;
+      };
+      BuildGuest(false);
+      g_guest.Put(rr::kRidsByteWord, 0x00000100u);
+      publish();
+      const uint64_t stamps0 = g_stamp_calls;
+      rr::RingRecomputeContributor rc;
+      SceneTables tr;
+      latch(rc, tr);
+      {
+        uint32_t n[4] = {};
+        bool ok = true;
+        std::string why;
+        for (uint32_t c = 0; c < 4; ++c)
+          for (uint32_t call = 0; call < (c == 0 ? 4u : 12u); ++call) {
+            const RingRows* e = find(tr, cklass[c], call);
+            if (!e) { ok = false, why += " missing " + std::to_string(c) + "/" + std::to_string(call); continue; }
+            ++n[c];
+            const uint32_t k = cbase[c] + call;
+            ok = ok && (e->flags & kRrRecomputed) && e->n_nodes == cnodes[c] && e->object == cmodel[c] && e->r5 == 0x41000000u + 0x1000u * k && e->frame == 300;
+            ok = ok && T3(tr.ring_nodes, e, 0, 100.f * float(k), 0.5f, -float(k), &why) && T3(tr.ring_nodes, e, cnodes[c] - 1, 100.f * float(k) + float(cnodes[c] - 1), 0.5f + float(cnodes[c] - 1) / 100.f, -float(k), &why);
+          }
+        Check(ok && n[0] == 4 && n[1] == 12 && n[2] == 12 && n[3] == 12 && rc.Stats().rids_rows == 40 && rc.Stats().rids_refused == 0, "ring.rids_values", why + " rows " + std::to_string(n[0]) + "/" + std::to_string(n[1]) + "/" + std::to_string(n[2]) + "/" + std::to_string(n[3]));
+      }
+      Check(rc.Stats().whole_clean == 1 && g_stamp_calls == stamps0 + 1 && rc.Stats().whole_unclean == 0, "ring.rids_clean", "clean " + std::to_string(rc.Stats().whole_clean) + " unclean " + std::to_string(rc.Stats().whole_unclean) + " stamps " + std::to_string(g_stamp_calls - stamps0));
+      {   // refusals: a model below 0x10000, a node count above the class's, and a slot past 44 give no row and are counted; the rest stay
+        ri::Set set;
+        set.frame = 300;
+        for (uint32_t k = 5; k <= 44; ++k) set.slots.push_back(mkslot(k, k));
+        set.slots[0].model = 0x8000;                                    // slot 5: not a model
+        set.slots[1].n = 200, set.slots[1].pal.assign(200u * 16u, 0.f); // slot 6: a post with 200 nodes
+        set.refused = 1;                                                // a slot 45 that still named a model
+        ri::The().Publish(std::move(set));
+        rr::RingRecomputeContributor rf;
+        SceneTables tf;
+        latch(rf, tf);
+        size_t posts = 0;
+        for (const RingRows& r : tf.ring_rows) posts += r.klass == kRcPostHi;
+        Check(posts == 2 && rf.Stats().rids_refused == 3 && rf.Stats().rids_rows == 38 && rf.Stats().whole_clean == 0 && rf.Stats().unclean_post == 1, "ring.rids_refused", "posts " + std::to_string(posts) + " refused " + std::to_string(rf.Stats().rids_refused));
+      }
+      {   // no copies published for this frame: no rows, counted, never clean
+        ri::Set none;
+        none.frame = 299;
+        ri::The().Publish(std::move(none));
+        rr::RingRecomputeContributor rn;
+        SceneTables tn;
+        latch(rn, tn);
+        Check(rn.Stats().rids_rows == 0 && rn.Stats().rids_no_set == 1 && rn.Stats().whole_clean == 0, "ring.rids_no_set", "no_set " + std::to_string(rn.Stats().rids_no_set));
+      }
+      {   // the canvas: [G + 56]'s palette as it stands, one row, in a normal frame (bit clear) too
+        constexpr uint32_t kCv = 0x40A00000, kCvVt = 0x40A10000, kCvPal = 0x40A20000;
+        BuildGuest(false);
+        if (!Plant("canvas_rest")) {   // the canvas left at rest = the game's model is not read: no row
+          g_guest.Put(kG + 56, kCv);
+          g_guest.Put(kCv, kCvVt);
+          g_guest.Put(kCvVt + 8, 0x82BD3AB8u);
+          g_guest.Put(kCv + 296, 1);
+          g_guest.Put(kCv + 300, 2);
+          g_guest.Put(kCv + 200, kCvPal);
+          for (uint32_t k = 0; k < 2; ++k)
+            for (uint32_t w = 0; w < 16; ++w) g_guest.PutF(kCvPal + 64 * k + 4 * w, w == 12 ? 321.f + float(k) : w == 13 ? 4.f : w == 14 ? 5.f : (w % 5 == 0 ? 1.f : 0.f));
+        }
+        rr::RingRecomputeContributor rcv;
+        SceneTables tcv;
+        latch(rcv, tcv);
+        size_t canv = 0;
+        for (const RingRows& r : tcv.ring_rows) canv += r.klass == kRcCanvas;
+        const RingRows* e = find(tcv, kRcCanvas, 0);
+        std::string why;
+        const bool ok = canv == 1 && e && e->n_nodes == 2 && e->object == kCv && e->r5 == kCvPal && (e->flags & kRrRecomputed) && T3(tcv.ring_nodes, e, 1, 322.f, 4.f, 5.f, &why) && tcv.ring_rows.size() == 40 && rcv.Stats().canvas_rows == 1;
+        Check(ok, "ring.canvas_row", why + " canvas rows " + std::to_string(canv) + " total " + std::to_string(tcv.ring_rows.size()));
+      }
+      BuildGuest(false);
+    }
     g_mode = Plant("mode_ignored") ? 2 : 0;
     rr::RingRecomputeContributor off;
     off.SetReader(ReadThunk);

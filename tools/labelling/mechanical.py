@@ -92,7 +92,7 @@ def main():
     ap.add_argument('--list', type=int, default=0, help='print N sample entries')
     args = ap.parse_args()
 
-    con = sqlite3.connect(census.INDEX)
+    con = sqlite3.connect(census.newest_index())
     funcs = {a: (s, n) for a, s, n in con.execute('select addr, size, insns from funcs where has_body = 1')}
     with open(census.IMAGE, 'rb') as f:
         img = f.read()

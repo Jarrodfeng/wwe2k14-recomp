@@ -35,6 +35,7 @@
 #include <thread>
 
 #include "decode_probe.h"  // Ticks, TicksPerMs, HostTid, GuestPtr
+#include "det_loads.h"  // S110 DETLOADS: FastLoaderBudgetApplies
 #include "flight_recorder.h"  // FlightDump (loader stall dump, S103)
 #include "frame_stats.h"
 #include "load_stall.h"
@@ -615,7 +616,8 @@ REX_HOOK_RAW(sub_82C37B98) {
     const double budget_ms = REXCVAR_GET(wwe2k14_fast_loader_budget_ms);
     const int32_t max_steps = REXCVAR_GET(wwe2k14_fast_loader_max_steps);
     while (int32_t(steps) < max_steps) {
-      if (double(Ticks() - t0) / TicksPerMs() >= budget_ms) {
+      // S110 DETLOADS: no host-time budget under det + fast replay loads (max_steps bounds the pass).
+      if (wwe2k14::det_loads::FastLoaderBudgetApplies() && double(Ticks() - t0) / TicksPerMs() >= budget_ms) {
         budget_hit = true;
         break;
       }

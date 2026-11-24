@@ -66,7 +66,7 @@ struct FlashState {
 // Reasons an item or a frame gives no row (all counted).
 struct FlashCensus {
   uint64_t frames = 0, rows = 0, no_manager = 0, no_pass = 0, no_loop = 0, empty_slots = 0, unreadable = 0, not_item = 0, bad_values = 0, unspawned = 0;
-  uint64_t pending = 0, invisible = 0, done = 0, last_frame = 0, not_drawn = 0,  light_set_frames = 0, color_unread = 0;
+  uint64_t pending = 0, invisible = 0, done = 0, last_frame = 0, not_drawn = 0,  light_set_frames = 0, color_unread = 0, held = 0;   // held: rows shown from the hold, not from the game this frame (flash_hold_core.h)
 };
 
 using ReadFn = ::wwe2k14::feedseen::ReadFnT;   // S110 FEEDREC: the plain pointer outside coverage (feed_seen.h)

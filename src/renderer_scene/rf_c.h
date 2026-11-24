@@ -77,7 +77,7 @@ struct FamilyModel {
   std::vector<int> mesh_slot;              // per front-end source mesh: the stage slot number it came from (-1 = none, e.g. a prop)
   std::vector<int> mesh_set_file;          // per front-end source mesh: the light set index it was built with (the choice when the record names none)
   std::vector<assets::LightSet> sets;      // the model's light sets as the file has them (the per-frame ModelLights starts from these)
-  struct Screen { int slot = 0; size_t texture = 0; uint32_t w = 0, h = 0, seq = 0xFFFFFFFFu; uint64_t no_row_gf = 0, last_gf = 0; bool black = false; };   // S103 HN: no_row_gf / black = the idle-black rule for a slot with no sized row (screen_idle_rows.h NoRowGoesBlack)
+  struct Screen { int slot = 0; size_t texture = 0; uint32_t w = 0, h = 0, seq = 0xFFFFFFFFu; bool black = false; };   // black = the ENTRANCE look painted this live texture black (no sized row); only that path sets it (S110 MINITRON: the match look has no black state)
   std::vector<Screen> screens;             // the live textures of the stage screens (kFxScreen rows update them by slot)
   int page_tex = -1;                       // S103 L: the model's stage light-map page (a live RGBA8 texture, the model's own copy); -1 = none
   uint64_t page_key = 0;                   // S103 L: which page the texture holds now: 0 = the match page (as built), 1 = the entrance base page, else the composed page's PoolsHash

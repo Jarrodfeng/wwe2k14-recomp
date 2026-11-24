@@ -736,7 +736,9 @@ def workers():
 
 
 def _index_con():
+    import qpublish
     p = os.environ.get('WWE_Q_INDEX') or os.path.join(IDX, 'index.db')      # WWE_Q_INDEX = another index file (a builder working beside the shared one)
+    p = qpublish.newest(p)      # S110 QREBUILD review: a copy waiting beside a held index.db is the one to read
     if not os.path.exists(p):
         raise XError(f'the code index {p} is missing: py tools\\q\\build_index.py')
     c = sqlite3.connect(f'file:{p}?mode=ro', uri=True)

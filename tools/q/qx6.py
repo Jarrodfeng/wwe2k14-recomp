@@ -682,7 +682,8 @@ def generated_decls(main, names):
 
 def func_range(main, addr):
     """-> (start, end, name) of the game function containing addr, from the q index; None when no index"""
-    db = os.path.join(main, 'out', 'harness', 'index', 'index.db')
+    import qpublish
+    db = qpublish.newest(os.path.join(main, 'out', 'harness', 'index', 'index.db'))      # S110 QREBUILD review: a copy beside a held index.db is the one to read
     if not os.path.exists(db):
         return None
     try:

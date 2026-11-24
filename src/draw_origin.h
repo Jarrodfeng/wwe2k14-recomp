@@ -49,6 +49,7 @@
 #include "scene_live/scene_skip_nodes.h"  // S103 H: the scene skips (--wwe2k14_rdr_scene=2): the cvar, the frame clock and the hooks the scene tasks did not have
 #include "scene_live/quads2d_tap.h"  // S103 I1: the 2D layer's record (--wwe2k14_rdr_2d_record, default off; read only): the scope on the T_Rect / movie leaves, the vertices at the op-19 recorder below
 #include "scene_live/own_node_hook.h"  // S102 P4P5: the node switch on the shadow module's (sub_827E9740) and the rim map's (sub_827EA7B8) draw nodes; compiled and reviewed, not run
+#include "scene_live/walk_single.h"  // S110 WALKSINGLE: the game's single-worker walk (the setter sub_82BB4128 stores a null range table for the manager) + the caption detectors
 
 REXCVAR_DEFINE_BOOL(wwe2k14_draw_origin, true, "wwe2k14",
                     "S101: tag every draw record with the code that submitted it (renderer names, docs\\renderer\\NAMES.md); false = all draws unnamed");
@@ -531,6 +532,9 @@ REX_HOOK_RAW(sub_82C3B200) {
 REX_HOOK_RAW(sub_82C3B218) {
   __imp__sub_82C3B218(ctx, base);
   wwe2k14::q2d_tap::OnWalkEnd();
+#if !WWE2K14_STREAM()
+  wwe2k14::walk1::Census(base);   // S110 WALKSINGLE: the [walk1] census line every 600 guest frames (scene_live/walk_single.h): this hook runs every frame, captions or not
+#endif
 }
 REX_HOOK_RAW(sub_82BCBB68) {
   wwe2k14::q2d_tap::OnSetViewport(ctx, base);

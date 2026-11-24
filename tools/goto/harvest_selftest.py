@@ -76,6 +76,8 @@ def carried(tmp):
     exe = compile_test('replay_carried_test.cpp', src_inc, os.path.join(tmp, 'carried.exe'))
     rc, out = run(exe, 'roundtrip')
     check(rc == 0 and out.strip() == PLACE_ROUNDTRIP_OK, 'CarriedSetting round trip (the four place cvars + det_frames survive, the others do not): %r' % out)
+    rc, out = run(exe, 'loads')   # S110 DETLOADS: the carried loads choice (absent = slow)
+    check(rc == 0 and out.strip() == 'OK loads', 'wwe2k14_replay_loads is carried; a recording without the line is slow: %r' % out)
     hdr = os.path.join(tmp, 'new.rec')
     run(exe, 'write', hdr)
     text = open(hdr, encoding='utf-8').read()

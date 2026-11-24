@@ -6,15 +6,14 @@
 #pragma once
 #include <cstdint>
 
+#include "char_model_desc.h"   // S110 DESCKEY: ValidKey, CharModelDesc, CharModelKey (the character's own descriptor)
+
 namespace wwe2k14::slotkey {
 
 constexpr uint32_t kSlotTable = 0x836F38D0;   // 9 character pointers
 constexpr uint32_t kMatchCtx = 0x83924734;    // the match request context word (descriptors at +864, 80 bytes each)
 constexpr uint32_t kRowsRoot = 0x8376AAF0;    // participant rows: +148 + 56 x row, key at +16
 constexpr uint32_t kRemapTable = 0x8392475C;  // the slot remap word table (non-empty = table index != slot; the desc rule does not use it)
-
-// The same validity test the row rule always had (a model key = character * 100 + attire * 10 + kind).
-inline bool ValidKey(uint32_t k) { return k != 0 && k != 0xFFFFFFFFu && k != 51200u && k / 100 < 500; }
 
 // Is the slot remap active? The game's own test: [[0x8392475C] + 0] != 0 (sub_8251DEA0 0x8251DF64, sub_8251E928 0x8251EA90).
 template <class Read>
@@ -37,7 +36,8 @@ inline int DescIndex(Read&& read, uint32_t ch, bool* remap = nullptr) {
   return int(s);
 }
 
-// The desc rule for the character `ch` already matched to its slot. 0 = no key (unreadable, index out of range, invalid key).
+// CENSUS ONLY since S110 DESCKEY (the hook's key is CharModelKey, char_model_desc.h): the match-record key. [ch+1224] indexes records every scene build re-lays, so it can read an empty record.
+// 0 = no key (unreadable, index out of range, invalid key).
 template <class Read>
 inline uint32_t DescKey(Read&& read, uint32_t ch) {
   const int s = DescIndex(read, ch);
@@ -50,13 +50,17 @@ inline uint32_t DescKey(Read&& read, uint32_t ch) {
 // S110 MGRFINGERS (docs\research\s110\MGRFINGERS.md): the body scale of the character `ch`: the float at D+12 of the SAME record DescKey reads the key from (D_s, s = DescIndex).
 // D+12 is written by sub_823BB0C8 (k/4096 of the character data, 1.0 outside 0.789..1.211). Indexing it by the slot-table position instead is wrong under the remap (another body's record).
 // false = no scale (s < 0, unreadable ctx, invalid key at D_s+0, unreadable word). `index` (optional) gets s.
+// S110 DESCKEY: also false when D_s+0 / 100 != [CharModelDesc(ch)+92] / 100: the record is another character's (a scene build re-laid it). The caller (body_scale.h SetLatch) holds the
+// last scale across a refusal while the identity (descriptor x character, ModelIdentity) is unchanged.
+// The compare is on the CHARACTER (key / 100), not the whole key: the scale belongs to the character, and a kept model's chosen key can differ from the new request's (sub_8258C288 keeps on desc+28 alone).
 template <class Read>
 inline bool DescScale(Read&& read, uint32_t ch, float& out, int* index = nullptr) {
   const int s = DescIndex(read, ch);
   if (index) *index = s;
   uint32_t ctx = 0, key = 0, bits = 0;
   if (s < 0 || !read(kMatchCtx, ctx) || !ctx) return false;
-  if (!read(ctx + 864 + 80 * uint32_t(s), key) || !ValidKey(key) || !read(ctx + 864 + 80 * uint32_t(s) + 12, bits)) return false;
+  const uint32_t mk = CharModelKey(read, ch);
+  if (!read(ctx + 864 + 80 * uint32_t(s), key) || !ValidKey(key) || !mk || key / 100 != mk / 100 || !read(ctx + 864 + 80 * uint32_t(s) + 12, bits)) return false;
   static_assert(sizeof(float) == 4, "float word");
   __builtin_memcpy(&out, &bits, 4);
   return true;
@@ -65,20 +69,16 @@ inline bool DescScale(Read&& read, uint32_t ch, float& out, int* index = nullptr
 // S103 HPF (docs\agents\s103\HPR.md): the 192-byte slot-manager descriptor the game pairs with the character `ch` [C listings 0x827E4660-0x827E4674, recomp.151.cpp:10331-10370]:
 //   s = DescIndex (the manager index); D = [0x83924734] + 864 + 80 s; b7 = byte D+7 (the low byte of the big-endian word at D+4); idx = b7 != 255 ? b7 : s;
 //   desc = [[0x837635A4] + 8] + 192 idx (sub_8258B910). A character slot load never writes desc+4 (the body), so the body can not find its descriptor: this index rule does.
-// 0 = unknown (unreadable, idx >= 12, manager / array pointers out of range). `info` (optional) gets s, b7 and idx for the hook's log line (-1 = not reached).
+// S110 DESCKEY: the index rule above re-derived the index from the match record (D+4 byte 7), which a scene build re-lays (same staleness as DescKey). It is now CharModelDesc: the game's own
+// lookup, [[0x837635A4] + 8] + 192 x [ch + 3760] (char_model_desc.h). `info`: s = the manager index (log only), b7 = idx = [ch+3760] (-1 = not reached).
 struct SlotDescInfo { int s = -1; int b7 = -1; int idx = -1; };
 template <class Read>
 inline uint32_t SlotDescriptor(Read&& read, uint32_t ch, SlotDescInfo* info = nullptr) {
-  constexpr uint32_t kSlotMgr = 0x837635A4, kDescSlotsN = 12;
-  const int s = DescIndex(read, ch);
-  if (info) info->s = s;
-  uint32_t ctx = 0, w = 0, mgr = 0, arr = 0;
-  if (s < 0 || !read(kMatchCtx, ctx) || !ctx || !read(ctx + 864 + 80 * uint32_t(s) + 4, w)) return 0;
-  const uint32_t b7 = w & 0xFFu;
-  const uint32_t idx = b7 != 255 ? b7 : uint32_t(s);
-  if (info) info->b7 = int(b7), info->idx = int(idx);
-  if (idx >= kDescSlotsN || !read(kSlotMgr, mgr) || mgr < 0x10000 || !read(mgr + 8, arr) || arr < 0x10000) return 0;
-  return arr + 192 * idx;
+  if (info) info->s = DescIndex(read, ch);
+  CharModelDescInfo ci;
+  const uint32_t d = CharModelDesc(read, ch, &ci);
+  if (info) info->b7 = ci.idx, info->idx = ci.idx;
+  return d;
 }
 
 // CENSUS ONLY (not a gate yet): the key the character's own constructor stored, [ch + 44] (sub_825A20A0 0x825A21C8; sub_827E4448 0x827E44B8-C0 compares it with D+0). 0 = unreadable.
@@ -108,7 +108,7 @@ inline uint32_t RowKey(Read&& read, int slot, bool& usable) {
 template <class Read>
 inline uint32_t SlotKeyOf(Read&& read, int slot, uint32_t ch, bool desc_rule) {
   if (slot < 0 || slot > 8) return 0;
-  if (desc_rule) return DescKey(read, ch);
+  if (desc_rule) return CharModelKey(read, ch);
   bool usable = false;
   const uint32_t k = RowKey(read, slot, usable);
   return usable ? k : 0u;

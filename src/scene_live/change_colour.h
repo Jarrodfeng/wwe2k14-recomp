@@ -40,6 +40,18 @@ constexpr int kColours = 16, kColourBytes = 48;
 
 // The sampler slot of each mask (Mask1..Mask4), as the callback binds them; -1 = not a mask slot.
 inline int MaskIndexOfSlot(int slot) { return slot == 7 ? 0 : slot == 4 ? 1 : slot == 14 ? 2 : slot == 2 ? 3 : -1; }
+// S110 ARMBAND (review): the stages that take the callback's mask sampler (point / clamp, level 0: sampler_table.h ChangeMaskSampler) = a WRESTLER change-colour bind's
+// 7 / 4 / 14 / 2, where BindMaterial's character path binds the masks. An entrance prop's cc_mask bind (S108 THB: change_colour set, not a character bind) has its one mask
+// at 12 and its normal map at 4 (yProp_BumpMap *_cc_mask_*): none of its stages is a Threads mask.
+inline bool TakesMaskSampler(bool character_bind, bool change_colour_bind, int slot) { return character_bind && change_colour_bind && MaskIndexOfSlot(slot) >= 0; }
+// S110 LOGOSAMP (docs\research\s110\LOGOSAMP.md): the stages that take the Create a Superstar logo sampler (clamp, trilinear: sampler_table.h CawLogoSampler). The logo
+// callback sub_822E6CC8 (kCallbackCawLogo) binds "logo" at 7 and "logo2" at 4 and sets each to address code 2 / filter code 2. Ours binds the logos where BindMaterial's
+// role is Logo7 / Logo4: a character bind that is not change-colour (there 7 / 4 are Mask1 / Mask2) and, for slot 4, not wet (there 4 is the sweat bump).
+inline bool TakesLogoSampler(bool character_bind, bool change_colour_bind, bool wet_bind, int slot) { return character_bind && !change_colour_bind && (slot == 7 || (slot == 4 && !wet_bind)); }
+// S110 LOGOSAMP (review): the stage that takes the Threads editor's ENTRANCE PROP mask sampler (clamp, trilinear: sampler_table.h EditorPropMaskSampler) = slot 12 (the prop's mask: BindMaterial's
+// `slotn == 12 && b->change_colour`) of a recoloured prop draw whose row was read under the editor's callback sub_8338EC00 (kCcEditor). A saved set's draw in a match keeps its old sampler: there the
+// game installs no callback and paints the colours into the prop's texture 0 (T_SSComp, prop_colour.h), so it never fetches the mask at the draw.
+inline bool TakesPropMaskSampler(bool prop_cc_draw, bool editor_row, int slot) { return prop_cc_draw && editor_row && slot == 12; }
 
 enum class Read {
   kOff,              // model+604 == 0: the game draws the +384 row (no change colour)

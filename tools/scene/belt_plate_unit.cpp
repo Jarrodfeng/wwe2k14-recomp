@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+extern "C" int stbi_zlib_decode_buffer(char*, int, const char*, int) { return -1; }   // pac.h's decoder hook (belt_plate.h -> jboy.h -> pac.h): this unit reads no pac, never called
 #include "../../src/scene_live/belt_plate.h"
 #include "../../src/scene_live/weapon_rows_core.h"   // RawHookEntry: the production entry (the weapon rows' raw hook runs it first, before the OURS test)
 
@@ -118,7 +119,7 @@ static weaponrows::CallResult Hook(World& wd, weaponrows::Tracker& tr, uint32_t 
 int main(int argc, char** argv) {
   std::string plant;
   if (argc > 2 && std::string(argv[1]) == "--plant") plant = argv[2];
-  beltplate::g_plate_plant = plant == "name_dropped" ? 1 : plant == "wrong_t" ? 2 : plant == "silent_white" ? 3 : plant == "shared_pool" ? 4 : plant == "make_no_drop" ? 5 : plant == "free_no_drop" ? 6 : 0;
+  beltplate::g_plate_plant = plant == "name_dropped" ? 1 : plant == "wrong_t" ? 2 : plant == "silent_white" ? 3 : plant == "shared_pool" ? 4 : plant == "make_no_drop" ? 5 : plant == "free_no_drop" ? 6 : plant == "share_unset" ? 7 : 0;
 
   // 1. the plate resolves: its key is found by the wrapper's name, t is its index, shape and bytes are the game's.
   {
@@ -192,6 +193,49 @@ int main(int argc, char** argv) {
     beltplate::Store st2;
     const uint32_t n2 = beltplate::BindPlate(m2, nullptr, st2);
     Check(n2 == 0 && m2.materials[0].diffuse < 0 && st2.Counts().missing == 1, "a belt with no plate stays unbound AND is counted (never silent white)", "missing " + std::to_string(st2.Counts().missing));
+    // S110 BELTPLATE: the bound material carries the loader's alpha fact for the late texture: an all-zero BC3 plate (the 5009 canvas) = 1.0, a fully opaque plate = 0.
+    {
+      Belt z(10);
+      z.src.assign(z.src.size(), 0);
+      z.wd.px[0x18F00000u] = Stored(z.src);
+      beltplate::Store sz;
+      z.Call(sz);
+      assets::Model mz;
+      mz.materials = {plate_mat};
+      float shz = -1.f;
+      beltplate::BindPlate(mz, sz.Get(z.model), sz, &shz);
+      Check(mz.materials[0].diffuse >= 0 && mz.materials[0].diffuse_alpha_clear == 1.0f && shz == 1.0f, "an all-zero BC3 plate (the 5009 canvas) gives the bound material diffuse_alpha_clear 1.0", "share " + std::to_string(mz.materials[0].diffuse_alpha_clear));
+      // S110 PLATEINK: share 1.0 does not mean empty. Alpha 0 / 108 only (the 5009 name: black ink at alpha <= 108): share 1.0 AND ink > 0, max 108. An all-zero plate: share 1.0, ink 0.
+      {
+        Belt k(10);
+        for (size_t i = 0; i < k.src.size(); i += 16) std::memset(&k.src[i], 0, 16), k.src[i] = 108, k.src[i + 1] = 0, k.src[i + 2] = (i % 32 == 0) ? 0x09 : 0;   // a0 108, a1 0; indices 0 (=108) or, in every other block, texels 0 and 1 = a1 (0)
+        k.wd.px[0x18F00000u] = Stored(k.src);
+        beltplate::Store sk;
+        k.Call(sk);
+        assets::Model mk;
+        mk.materials = {plate_mat};
+        float shk = -1.f;
+        beltplate::Ink ik, iz;
+        beltplate::BindPlate(mk, sk.Get(k.model), sk, &shk, &ik);
+        Check(shk == 1.0f && ik.texels > 0 && ik.max_alpha == 108, "a plate with alpha 0 / 108 only: below-255 share 1.0 AND ink > 0, max alpha 108", "share " + std::to_string(shk) + " ink " + std::to_string(ik.texels) + " max " + std::to_string(ik.max_alpha));
+        float shz2 = -1.f;
+        beltplate::Store sz2;
+        z.Call(sz2);
+        assets::Model mz2;
+        mz2.materials = {plate_mat};
+        beltplate::BindPlate(mz2, sz2.Get(z.model), sz2, &shz2, &iz);
+        Check(shz2 == 1.0f && iz.texels == 0 && iz.max_alpha == 0, "an all-zero plate: share 1.0, ink 0", "share " + std::to_string(shz2) + " ink " + std::to_string(iz.texels));
+      }
+      Belt o(10);
+      for (size_t i = 0; i < o.src.size(); i += 16) std::memset(&o.src[i], 0, 16), o.src[i] = o.src[i + 1] = 255;   // alpha0 = alpha1 = 255, indices 0: every texel alpha 255
+      o.wd.px[0x18F00000u] = Stored(o.src);
+      beltplate::Store so;
+      o.Call(so);
+      assets::Model mo;
+      mo.materials = {plate_mat};
+      beltplate::BindPlate(mo, so.Get(o.model), so);
+      Check(mo.materials[0].diffuse >= 0 && mo.materials[0].diffuse_alpha_clear == 0.0f, "a fully opaque plate gives diffuse_alpha_clear 0", "share " + std::to_string(mo.materials[0].diffuse_alpha_clear));
+    }
   }
   // 6. a rewrite in place (the unlock flush) is re-read; a freed model address is dropped.
   {

@@ -128,10 +128,21 @@ struct FlashSprite {
   float centre[3] = {0, 0, 0};
   float rgb[3] = {1, 1, 1};
   float alpha = 0.5f;
+  // S110 FLASHOCC (census only, never drawn from): the game row this sprite is, for the near-flash log line (front_end_flashes.h)
+  uint64_t guest_frame = 0;
+  uint32_t seq = 0;
+  uint16_t slot = 0xFFFF;
+  bool held = false;   // shown from the flash hold (kFxfHeld)
+  float scale = 0.f;   // the row's scale (item +40)
 };
+// S110 FLASHOCC: a flash whose centre is nearer than this (view z, game units) cannot be a crowd flash seen from inside the ring: the spawners place them 1900+ (inner ring) / |x| + |z| >= 1650 from
+// the ring centre (FLASHDEPTH.md a5), so from a camera inside the ring (radius < ~400) the nearest crowd flash is ~1200-1500 units away. Counted and logged (FrontEnd::FlashLine), never acted on.
+inline constexpr float kFlashNearViewZ = 1500.f;
 // TEST ONLY (tools\scene\cutgrey_unit.cpp): the planted twins of the flash draw. pre_post = the flashes are drawn into the scene colour BEFORE the post chain (the old order: the far blur, haze and sepia run
 // over them); file_colour = the sprite's own colour is ignored (white); v_flip = the centre's depth texel is read with the picture's rows upside down (the centre test reads the wrong place). The game never sets them.
 inline std::atomic<bool> g_plant_flash_pre_post{false}, g_plant_flash_file_colour{false}, g_plant_flash_v_flip{false};
+// TEST ONLY (S110 FLASHOCC, cutgrey_unit [OCC]): the centre's depth is fetched from the picture's row 0 (the sky's far plane), not the centre's own row: a body in front of the centre no longer hides the sprite.
+inline std::atomic<bool> g_plant_flash_fetch_row0{false};
 
 // A frame request: what to draw, from where.
 struct SceneFrame {
@@ -502,6 +513,8 @@ class FrontEnd {
   std::string ReflectLine() const;
   // S110 RDRPREP F3: the crowd camera flashes (after the post chain): sprites GIVEN to the frame (the arena's rows, one per flash), sprites DRAWN (not behind the camera, with a mesh), sprites skipped for want of a sampled depth. One string, no newline.
   std::string FlashLine() const;
+  uint64_t flash_near() const { return flash_near_; }          // S110 FLASHOCC (tests)
+  float flash_nearest() const { return flash_nearest_; }
   uint64_t reflect_draws() const { return reflect_draws_; }
   uint32_t reflect_fallbacks() const { return reflect_fallbacks_; }
   uint32_t reflect_cubes() const { return reflect_cubes_; }
@@ -540,6 +553,7 @@ class FrontEnd {
   uint32_t DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuilder& fb, rdr::ImageId colour, rdr::ImageId depth, const StageCtx& sctx);
   bool flash_made_ = false, flash_nodepth_logged_ = false;
   uint64_t flash_given_ = 0, flash_drawn_ = 0, flash_nodepth_ = 0;   // S110 RDRPREP F3: sprites given to the after-post draw / drawn by it / skipped because the depth was not sampled
+  uint64_t flash_near_ = 0; float flash_nearest_ = 0.f; uint32_t flash_near_lines_ = 0;   // S110 FLASHOCC: drawn sprites with centre view z < kFlashNearViewZ, the smallest centre view z seen (0 = none), near lines logged (cap 32)
   uint16_t flash_program_ = 0, flash_layout_ = 0;
 
   rdr::Renderer& renderer_;

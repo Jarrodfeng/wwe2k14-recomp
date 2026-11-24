@@ -29,6 +29,9 @@ import sqlite3
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qpublish  # noqa: E402  (S110 QREBUILD: publish beside a held fact.db; read the newest complete copy)
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 INDEX = os.path.join(ROOT, 'out', 'harness', 'index', 'fact.db')
 VERSION = 2
@@ -233,9 +236,9 @@ def _tmps(path):
 
 
 def build(path=INDEX, files=None, sig=None):
-    """Build into a per-process tmp and move it over `path`. -> (seconds, the path to read). When `path` cannot be
-    replaced (another process has it open: WinError 5 / 32) after 5 tries 100 ms apart, the tmp itself is served
-    (kept; a later build removes it once old)."""
+    """Build into a per-process tmp and put it in place. -> (seconds, the path to read). S110 QREBUILD: when another process holds `path` open
+    (Windows refuses the replace), the new file waits beside it as `<path>.pending-*` (qpublish.publish) and connect() reads it from there until it can
+    replace `path`: one rebuild, never one per call."""
     t0 = time.time()
     files = files if files is not None else source_files()
     sig = sig or signature(files)
@@ -256,14 +259,7 @@ def build(path=INDEX, files=None, sig=None):
             _fill(con, files, sig)
         finally:
             con.close()
-        for _ in range(5):
-            try:
-                os.replace(tmp, path)
-                return time.time() - t0, path
-            except OSError:
-                time.sleep(0.1)
-        keep = True
-        return time.time() - t0, tmp
+        return time.time() - t0, qpublish.publish(tmp, path)
     finally:
         if not keep and os.path.exists(tmp):
             try:
@@ -279,12 +275,14 @@ def _open(path):
 
 
 def connect(rebuild=False):
-    """The index, rebuilt first when a source changed. -> (con, {'rebuilt_s': seconds or None, 'note': str or None})."""
+    """The index, rebuilt first when a source changed. -> (con, {'rebuilt_s': seconds or None, 'note': str or None}). S110 QREBUILD: the index read is
+    the newest complete one (qpublish.newest: a copy a build left beside a held fact.db counts), so a held file costs one rebuild, never one per call."""
     files = source_files()
     sig = signature(files)
-    if os.path.exists(INDEX) and not rebuild:
+    cur = qpublish.newest(INDEX)
+    if os.path.exists(cur) and not rebuild:
         try:
-            con = _open(INDEX)
+            con = _open(cur)
             row = con.execute("SELECT value FROM meta WHERE key = 'signature'").fetchone()
             if row and row[0] == sig:
                 return con, {'rebuilt_s': None, 'note': None}
@@ -296,7 +294,7 @@ def connect(rebuild=False):
         except (sqlite3.Error, OSError):
             pass
     took, served = build(INDEX, files, sig)
-    note = None if served == INDEX else '(index file locked by another process: served from a fresh copy)'
+    note = None if served == INDEX else '(fact.db is held open by another process: the new index waits beside it and is read from there)'
     return _open(served), {'rebuilt_s': took, 'note': note}
 
 

@@ -72,7 +72,9 @@ ATTACH = {   # method -> the hooked node that calls it through a vtable (each fr
 
 def reach_report(sites, site_class, unnamed_pairs, pairs_tagged):
     import sqlite3
-    db = os.path.join(MAIN, 'out', 'harness', 'index', 'index.db')
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'q'))
+    import qpublish
+    db = qpublish.newest(os.path.join(MAIN, 'out', 'harness', 'index', 'index.db'))      # S110 QREBUILD review: a copy beside a held index.db
     con = sqlite3.connect('file:%s?mode=ro' % db, uri=True)
     hooked = set(HOOKED)
 

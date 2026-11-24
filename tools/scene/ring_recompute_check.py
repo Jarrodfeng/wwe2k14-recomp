@@ -22,6 +22,8 @@ PLANTS = {
     # S103 RLB: the rope LOD rule (RLD.md): the 500 distance, the 20 degree angle
     # S105 C4: the post / cover far test reads [0x82012B14] (3000): a guest value of 1e9 means nothing is far, so the far-test check must fail
     'lod_dist': 'ring.lod_far_test',
+    # S110 RINGBREAK: the ring in motion posing (rows = the per-slot copies taken right after each pose call) and the canvas row
+    'rids_latch_read': 'ring.rids_values', 'rids_table': 'ring.rids_values', 'canvas_rest': 'ring.canvas_row',
     'lod_dist50': 'ring.lod_distance', 'lod_no_angle': 'ring.lod_angle', 'lod_nan_low': 'ring.lod_nan', 'lod_pair_call': 'ring.lod_pairs',
 }
 

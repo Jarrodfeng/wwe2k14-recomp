@@ -233,6 +233,42 @@ def main():
         outs = [pr.communicate(timeout=300)[0].strip() for pr in procs]
         ok(all(o and not o.startswith('NONE') for o in outs) and outs[0] == outs[1] and not list((TMP / 'store' / 'pch').glob('*.tmp')),
            '10 two processes building the same key at once both get the one .pch and leave no temp file (%s)' % ' / '.join(o[-40:] for o in outs))
+        # 15 S110 SYNTAXPCH: main.cpp through a PCH of src/pch_main.h (job flags carry the plain `-include pch_main.h` as with_pch adds it)
+        MM = tree('wtMain')
+        (MM / 'src' / 'pch_main.h').write_text('#pragma once\n#include <vector>\n#include "h.h"\n')
+        (MM / 'src' / 'only_main.h').write_text('#pragma once\ninline int only_main_val() { return 3; }\n')
+        mroot = str(MM).replace('\\', '/')
+        mflags = ARGS(MM) + ['-include', mroot + '/src/pch_main.h']
+        ref_m = lambda: gs.main_pch_ref(mroot, mroot, ARGS(MM))
+
+        def run_main(body, refs, flags=None):
+            up = unit(MM, 'main.cpp', body)
+            r_ = gs.run_jobs([('src/main.cpp [on]', flags or mflags, up)], mroot, mroot, workers=1, pch_refs=refs)[0]
+            return r_[1], r_[2]
+        body = '#include "only_main.h"\nint m1() { std::vector<int> v; return pch_val() + only_main_val() + (int)v.size(); }\n'
+        for k_ in (st.store_dir(),):
+            for f_ in Path(k_).glob('*.json'):
+                f_.unlink()
+        used0, rm = gs.PCH_STATS['used'], ref_m()
+        rc1, tx1 = run_main(body, [rm])
+        ok(rc1 == 0 and rm['builds'] == 1 and gs.PCH_STATS['used'] == used0 + 1, '15 main.cpp parses through the PCH, built on the first run (builds %d, rc %d)' % (rm['builds'], rc1))
+        rm2 = ref_m()
+        rc2, _t = run_main(body + 'int m2() { return 2; }\n', [rm2])
+        ok(rc2 == 0 and rm2['builds'] == 0 and rm2['path'], '15 the second run (new main.cpp text) reuses the .pch: no build')
+        rc3, _t = run_main(body + 'int m3() { return 3; }\n', [])
+        ok(rc3 == rc1 == 0, '15 --no-pch twin (no refs, plain-text pch_main.h): the same verdict')
+        bad_body = body + 'int m4() { return no_such_main_symbol(); }\n'
+        rc4, tx4 = run_main(bad_body, [ref_m()])
+        rc5, tx5 = run_main(bad_body + '\n', [])
+        ok(rc4 != 0 and 'no_such_main_symbol' in tx4 and rc5 != 0, '15 an error in main.cpp is reported through the PCH path and by the plain parse')
+        (MM / 'src' / 'only_main.h').write_text('#pragma once\ninline int only_main_val() { return nope_planted; }\n')
+        rc6, tx6 = run_main(body + 'int m5() { return 5; }\n', [ref_m()])
+        ok(rc6 != 0 and 'nope_planted' in tx6, '15 planted syntax error in a header only main.cpp includes is REPORTED through the PCH path')
+        (MM / 'src' / 'only_main.h').write_text('#pragma once\ninline int only_main_val() { return 3; }\n')
+        (MM / 'src' / 'pch_main.h').write_text('#pragma once\n#include <vector>\n#include "h.h"\ninline int extra_v() { return 2; }\n')
+        rme = ref_m()
+        rc7, tx7 = run_main(body + 'int m6() { return extra_v(); }\n', [rme])
+        ok(rc7 == 0 and rme['builds'] == 1 and rme['path'] != rm['path'] and os.path.isfile(rme['path']), '15 a change of pch_main.h itself rebuilds the PCH (the unit sees extra_v; builds %d)' % rme['builds'])
         # 7 no cache
         shutil.rmtree(TMP / 'store' / 'pch', ignore_errors=True)
         os.environ['GAME_SYNTAX_NO_CACHE'] = '1'

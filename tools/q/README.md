@@ -30,17 +30,31 @@ py tools\q\build_index.py
 ```
 
 About 10-13 s (16 worker processes at below-normal priority; 345 generated files, 363 MB). Writes
-`out\harness\index\index.db` (~135 MB). It records what it was built from (`py tools\q\q.py info`): codegen
-fingerprint (`generated\default\codegen.stamp`), size/mtime/SHA-256 of `wwe2k14_init.cpp`, the image dump and the
-map, and the map's link timestamp and section extents. Every `q` call compares those with the files on disk and
-prints `q: WARNING ...` on stderr when codegen, the map or the image changed since: rebuild then.
+`out\harness\index\index.db`. It records what it was built from (`py tools\q\q.py info`): codegen
+fingerprint (`generated\default\codegen.stamp`), size/mtime/SHA-256 of `wwe2k14_init.cpp` and the image dump.
+The linker map is NOT an input (S110 QREBUILD: it changes with every relink and made every `addr` / `fn` call
+rebuild): `q addr --host` and the host RVA in `addr` / `fn` read it through `tools\q\qhostmap.py`, one small
+`hostmap.<size>.<mtime>.db` per map version, parsed on the first call after a relink.
+
+A stale index (codegen or image changed) never blocks a lookup: the call answers at once from the newest complete
+index with ONE line `q: WARNING stale: this answer is from the index built ...; <what is being done>` and starts at
+most one background build (log `out\harness\index\build_index.log`). Or it says `a rebuild is running (pid N)`, or
+`the last rebuild for these inputs FAILED at T (...); no automatic retry before T+10 min` (the attempt record
+`index.db.attempt.json`). `WWE_Q_NO_AUTOUPDATE=1`: no background build; the line still prints.
 
 The build does not take the run lock (it would wait behind every queued game run). Instead:
 - it runs below normal priority, so a rebuild during someone's perf-measured game run does not take CPU from it;
-- it stats the generated files, `init.cpp`, the map and the image before and after, and if any changed meanwhile
-  (another agent's `build.ps1` reran codegen or relinked) it retries (up to 3 times, 15 s apart) and otherwise
+- one build at a time (`index.db.lock`, holding the pid; a dead holder's lock is taken over);
+- it stats the generated files, `init.cpp` and the image before and after, and if any changed meanwhile
+  (another agent's `build.ps1` reran codegen) it retries (up to 3 times, 15 s apart) and otherwise
   leaves the old index in place. A torn index is never installed;
-- the temporary `.tmp` database is removed whatever happens.
+- a reader holding `index.db` open (Windows refuses to replace an open file) never fails or delays the build: the
+  new file waits beside it as `index.db.pending-<ns>-<pid>`, q reads it from there, and the first q call that finds
+  nobody holding `index.db` puts it in place (`tools\q\qpublish.py`; every tool that opens `index.db` by name reads
+  that copy too: `qnames.ro` / `stamp`, qx7, qcopier, qx6, qfield, qmenu, triage, labelling, validate);
+- the background build is started through a launcher that exits at once, so it is not in the starting q call's
+  process tree (q's 120 s watchdog kills that tree), and it uses 6 workers (a build by hand keeps the default);
+- the temporary `.tmp` database is removed whatever happens (a killed build's by the next build).
 
 Options: `--gen DIR` (another generated tree, e.g. a scratch codegen `out\harness\codegen_repro\<stamp>\default`;
 without `--out` this writes `out\harness\index\index_<stamp>.db`, never the main index, and `q --index THAT.db`

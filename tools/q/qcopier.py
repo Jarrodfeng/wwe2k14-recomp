@@ -67,7 +67,9 @@ class Index:
 
     @classmethod
     def open(cls, path=None):
-        path = path or INDEX_DB
+        sys.path.insert(0, HERE)
+        import qpublish
+        path = qpublish.newest(path or INDEX_DB)      # S110 QREBUILD review: a copy waiting beside a held index.db is the one to read
         if not os.path.exists(path):
             return None
         con = sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)

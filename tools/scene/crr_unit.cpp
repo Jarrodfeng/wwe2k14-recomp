@@ -114,6 +114,12 @@ int main(int argc, char** argv) {
     bool normal = rk::KeyOf(Row(rdr_scene::kRcCoverHi, 7), true, false) == 964 && rk::KeyOf(Row(rdr_scene::kRcPostHi, 3, 1075), false, false) == 951 && rk::KeyOf(Row(rdr_scene::kRcRopeLo, 0), true, false) == 980 &&
                   rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 1), true, false) == 973 && rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 0), true, false) == 974 && rk::Need(3, false) == 4 && rk::Need(3, true) == 8;
     Check(normal, "keys.normal_unchanged", "a normal arena keeps 951-982 and 4 posts; pad2 never names a key there");
+    {   // S110 RINGBREAK: the canvas is group 5 (one call; key 953 / alt 1017; its own rest key list), ours AND the game's rows
+      const RingRows cv = Row(rdr_scene::kRcCanvas, 0);
+      const bool ck = rk::GroupOf(cv) == 5 && rk::Need(5, false) == 1 && rk::Need(5, true) == 1 && rk::KeyOf(cv, true, false) == 953 && rk::KeyOf(cv, false, false) == 953 && rk::KeyOf(cv, true, true) == 1017 &&
+                      rk::GroupKeys(5, false) == std::vector<int>{953} && rk::GroupKeys(5, true) == std::vector<int>{1017} && rk::RankOfKey(953).tok != nullptr && rk::RankOfKey(1017).tok != nullptr && rk::GroupOf(Row(rdr_scene::kRcSkirt, 0)) == 4;
+      Check(ck, "keys.canvas", "canvas: group 5, Need 1, key 953 (alt 1017), GroupKeys {953} / {1017}; the skirt stays group 4");
+    }
     // every key the alt rule can produce belongs to its group's key list and has a rank / the low twins pair up
     std::set<int> produced;
     for (uint8_t k : {rdr_scene::kRcRopeHi, rdr_scene::kRcRopeLo, rdr_scene::kRcCoverHi, rdr_scene::kRcCoverLo, rdr_scene::kRcTurnbuckle, rdr_scene::kRcPostHi, rdr_scene::kRcPostLo, rdr_scene::kRcSkirt})

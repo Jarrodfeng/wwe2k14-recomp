@@ -703,7 +703,9 @@ class CodeIndex:
         self.starts = []
         if not self.ok:
             return
-        self.db = sqlite3.connect(f'file:{INDEX}?mode=ro', uri=True)
+        sys.path.insert(0, os.path.join(REPO, 'tools', 'q'))
+        import qpublish
+        self.db = sqlite3.connect(f'file:{qpublish.newest(INDEX)}?mode=ro', uri=True)      # S110 QREBUILD review: a copy beside a held index.db
         self.funcs = self.db.execute(
             'select addr, name, size, insns, file, line, has_body from funcs order by addr').fetchall()
         self.starts = [f[0] for f in self.funcs]

@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXE = ROOT / 'out' / 'tools' / 'vintage_look_test.exe'
-PLANTS = ['ignore_flag', 'always_skip']
+PLANTS = ['ignore_flag', 'always_skip', 'no_swap']
 if not EXE.exists():
     print(f'FAIL: {EXE} does not exist (build it: tools/vintage/build_vintage_look_test.ps1)')
     sys.exit(2)

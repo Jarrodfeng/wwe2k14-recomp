@@ -37,6 +37,7 @@ inline int KeyOf(const RingRows& e, bool ours, bool alt) {
       case kRcCoverHi: return 964;
       case kRcCoverLo: return 982;
       case kRcTurnbuckle: return 952;
+      case kRcCanvas: return 953;   // S110 RINGBREAK: the mat's palette is posed (the bounce, the break): one row, call 0
       case kRcPostHi: return 951;
       case kRcPostLo: return 981;
       case kRcSkirt: return ours ? ((e.pad2 & 1u) == 0 ? 974 : 973) : 0;   // G[332 .. 344] = 974, 973, 974, 973 (ring.md section 1 table)
@@ -53,6 +54,7 @@ inline int KeyOf(const RingRows& e, bool ours, bool alt) {
       return hi ? 1070 : 1074;                                              // the game's base slots G+36 / G+40
     }
     case kRcTurnbuckle: return 952;
+    case kRcCanvas: return 1017;   // S110 RINGBREAK
     case kRcPostHi: case kRcPostLo: {
       const bool hi = e.klass == kRcPostHi;
       if (!ours && IsExplicitKey(e.pad2)) return int(e.pad2);   // the game's G+92..+112 slots
@@ -71,12 +73,13 @@ inline int GroupOf(const RingRows& e) {
     case kRcTurnbuckle: return 2;
     case kRcPostHi: case kRcPostLo: return 3;
     case kRcSkirt: return 4;
+    case kRcCanvas: return 5;   // S110 RINGBREAK
     default: return -1;
   }
 }
-// The calls that make a group whole (rope, cover, turnbuckle, post, skirt): the alt ring draws its posts 2 + 6 times (CRK section 2), not 4.
+// The calls that make a group whole (rope, cover, turnbuckle, post, skirt, canvas): the alt ring draws its posts 2 + 6 times (CRK section 2), not 4.
 inline uint32_t Need(int g, bool alt) {
-  static constexpr uint32_t k[5] = {12, 12, 12, 4, 3};
+  static constexpr uint32_t k[6] = {12, 12, 12, 4, 3, 1};
   return g == 3 && alt ? kAltPostCalls : k[g];
 }
 // The keys a group owns (each high key and its low twin): the at-rest models of a complete group are not drawn.
@@ -87,6 +90,7 @@ inline std::vector<int> GroupKeys(int g, bool alt) {
       case 1: return {964, 982};
       case 2: return {952};
       case 3: return {951, 981};
+      case 5: return {953};   // S110 RINGBREAK
       default: return {973, 974};
     }
   }
@@ -95,6 +99,7 @@ inline std::vector<int> GroupKeys(int g, bool alt) {
     case 1: return {1070, 1071, 1072, 1073, 1074, 1075, 1076, 1077};
     case 2: return {952};
     case 3: return {1050, 1051, 1052, 1053, 1080, 1081, 1082, 1083};
+    case 5: return {1017};   // S110 RINGBREAK
     default: return {1064, 1065};
   }
 }

@@ -113,7 +113,8 @@ def build(verbose=True):
     atlas = json.load(open(_find(ATLAS), encoding='utf-8'))
     scr = json.load(open(_find(SCREENS), encoding='utf-8'))
     tab = _string_table()
-    con = sqlite3.connect(_index_file('index.db'))
+    import qpublish
+    con = sqlite3.connect(qpublish.newest(_index_file('index.db')))      # S110 QREBUILD review: a copy beside a held index.db is the one to read
     by_norm = {}
     for k, v in tab.items():
         by_norm.setdefault(_norm(v), []).append(k)

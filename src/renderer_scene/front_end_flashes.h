@@ -56,6 +56,7 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   const float* vp = sctx.view_proj;
   const bool plant_file_colour = g_plant_flash_file_colour.load(std::memory_order_relaxed);   // TEST ONLY: the row's colour ignored (the old behaviour)
   const bool plant_v_flip = g_plant_flash_v_flip.load(std::memory_order_relaxed);             // TEST ONLY: the centre's depth row read upside down
+  const bool plant_row0 = g_plant_flash_fetch_row0.load(std::memory_order_relaxed);           // TEST ONLY (S110 FLASHOCC): the centre's depth read from row 0
 
   rdr::TargetsOp t;
   t.color[0].image = colour;
@@ -111,8 +112,21 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
     for (int k = 0; k < 4; ++k) c[k] = s.centre[0] * vp[0 * 4 + k] + s.centre[1] * vp[1 * 4 + k] + s.centre[2] * vp[2 * 4 + k] + vp[3 * 4 + k];
     if (!(c[3] > 1e-6f)) continue;   // behind the camera: nothing of it is on screen
     const float ndc_x = c[0] / c[3], ndc_y = c[1] / c[3], ndc_z = c[2] / c[3];
+    // S110 FLASHOCC (FLASHOCC.md): the census that tells a flash really in front of a body (b-live) from a wrong compare (x). c[3] = the centre's view z.
+    if (flash_nearest_ == 0.f || c[3] < flash_nearest_) flash_nearest_ = c[3];
+    if (c[3] < kFlashNearViewZ) {
+      ++flash_near_;
+      if (flash_near_lines_ < 32) {
+        ++flash_near_lines_;
+        const float* e = frame.camera.eye;   // viewer space: x and z are the game's, so the radii from the ring centre (the world origin) are the game's
+        const float factor = std::sqrt(s.world[0] * s.world[0] + s.world[1] * s.world[1] + s.world[2] * s.world[2]);
+        rdr::Log("[scene][flashes] near flash: frame %llu slot %u seq %u centre view-z %.1f ndc %.3f %.3f scale %.4f factor %.4f eye radius %.1f (height %.1f) flash radius %.1f (height %.1f) held %d (threshold %.0f)",
+                 (unsigned long long)s.guest_frame, unsigned(s.slot), s.seq, double(c[3]), double(ndc_x), double(ndc_y), double(s.scale), double(factor), double(std::sqrt(e[0] * e[0] + e[2] * e[2])), double(e[1]),
+                 double(std::sqrt(s.centre[0] * s.centre[0] + s.centre[2] * s.centre[2])), double(s.centre[1]), int(s.held), double(kFlashNearViewZ));
+      }
+    }
     // clip y reaches the picture flipped (dynamic.system[1] = -1): row 0 = ndc y +1. The game's fetch clamps at the picture's edge.
-    const float u = std::min(std::max(0.5f * ndc_x + 0.5f, 0.f), 0.99999994f), v = std::min(std::max(plant_v_flip ? 0.5f + 0.5f * ndc_y : 0.5f - 0.5f * ndc_y, 0.f), 0.99999994f);
+    const float u = std::min(std::max(0.5f * ndc_x + 0.5f, 0.f), 0.99999994f), v = plant_row0 ? 0.f : std::min(std::max(plant_v_flip ? 0.5f + 0.5f * ndc_y : 0.5f - 0.5f * ndc_y, 0.f), 0.99999994f);
     const float fcb[4] = {u, v, ndc_z, 1.f};
     float vsb[44] = {};
     for (int k = 0; k < 4; ++k)

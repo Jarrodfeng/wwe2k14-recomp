@@ -18,13 +18,16 @@
 #include <vector>
 
 #include "../assets/asset_model.h"
+#include "../assets/jboy.h"   // assets::AlphaClearShare (the loader's own rule for Material::diffuse_alpha_clear)
 #include "guest_tex_dirty.h"
 #include "guest_texture.h"
+#include "plate_ink.h"
 
 namespace rdr_scene::live::beltplate {
 
 // Test only (tools\scene\belt_plate_unit.cpp): 1 = the name test is dropped (the first key is taken); 2 = the wrong t (the key after the named one); 3 = a belt with no plate falls back to white without a
-// counter; 4 = the plate hash is left out of the pool key (two holders share a pool); 5 = OnMake does not Drop (make_no_drop); 6 = the free / prune / scene-clear paths do not Drop (free_no_drop).
+// counter; 4 = the plate hash is left out of the pool key (two holders share a pool); 5 = OnMake does not Drop (make_no_drop); 6 = the free / prune / scene-clear paths do not Drop (free_no_drop);
+// 7 = the plate's alpha share is not set on the bound material (share_unset: the S110 BELTPLATE black bar).
 inline int g_plate_plant = 0;
 
 inline constexpr uint32_t kModelKeyCount = 256, kModelKeys = 260, kWrapperName = 16, kMaxKeys = 256, kMaxPlateBytes = 64 * 1024;
@@ -233,9 +236,13 @@ inline void ClearOnScene() { if (g_plate_plant != 6) TheStore().Clear(); }
 
 // Bind the plate to every material whose diffuse sampler is named `nameplate` and has no texture (the model file's name table does not hold it: the plate is the game's, made at run time). Returns the
 // number bound; a named material with no plate is counted `missing` (it would draw white).
-inline uint32_t BindPlate(assets::Model& bound, const std::shared_ptr<const Plate>& p, Store& st = TheStore()) {
+// S110 BELTPLATE: the loader computes Material::diffuse_alpha_clear only for a texture the file holds; the plate is bound later, so the same fact (assets::AlphaClearShare) is set here, once per plate texture;
+// `share_out` (optional) receives it.
+inline uint32_t BindPlate(assets::Model& bound, const std::shared_ptr<const Plate>& p, Store& st = TheStore(), float* share_out = nullptr, Ink* ink_out = nullptr) {
   uint32_t named = 0, n = 0;
   int tex = -1;
+  float share = 0.f;
+  Ink ink;
   for (assets::Material& m : bound.materials) {
     if (m.diffuse >= 0 || !NameIs(m.diffuse_name)) continue;
     ++named;
@@ -244,10 +251,15 @@ inline uint32_t BindPlate(assets::Model& bound, const std::shared_ptr<const Plat
       assets::Texture t;
       t.name = kPlateName, t.format = assets::TexFormat::kBC3, t.width = p->width, t.height = p->height, t.mips = 1, t.data = *p->blocks;
       tex = int(bound.textures.size());
+      share = assets::AlphaClearShare(t);
+      ink = PlateInk(t);
       bound.textures.push_back(std::move(t));
     }
     m.diffuse = tex, ++n;
+    if (g_plate_plant != 7) m.diffuse_alpha_clear = share;
   }
+  if (share_out) *share_out = share;
+  if (ink_out) *ink_out = ink;
   st.CountBound(n, (p && p->blocks) ? 0u : named);
   return n;
 }

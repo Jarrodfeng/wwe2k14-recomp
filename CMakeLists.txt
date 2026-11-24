@@ -31,6 +31,11 @@ message(STATUS "wwe2k14 version ${WWE2K14_VERSION}")
 # Sources
 set(WWE2K14_SOURCES
     src/main.cpp
+    src/scene/spirv/scene_spirv_data_0.cpp  # S110 SPIRVDATA: our scene shaders' SPIR-V words (the headers only declare them; tools/shaders/spv_emit.py writes the units), 4 shards so they compile in parallel; both builds, Android too
+    src/scene/spirv/scene_spirv_data_1.cpp
+    src/scene/spirv/scene_spirv_data_2.cpp
+    src/scene/spirv/scene_spirv_data_3.cpp
+    src/post/spirv/post_spirv_data.cpp  # S110 SPIRVDATA: the post-effect shaders' SPIR-V words
     src/build_stamp.cpp  # S101 lane 19 review: the only file that includes the generated stamp header (a new commit recompiles just this one)
     src/dev_build.cpp  # S103 L33F: IsDevBuild() / VersionString() for every TU (it gets the WWE2K14_VERSION define below; no other TU does)
     src/blood_keep.cpp  # S108 EXEB-B1: GBF-1 (the blood-keeping game fix), a unit of its own so a change to it does not recompile main.cpp; both builds, Android too

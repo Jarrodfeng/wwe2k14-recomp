@@ -5,9 +5,20 @@
 #pragma once
 #include "arena_contrib.h"
 #include "inputs_glue.h"      // ReadChecked
+#include "../frame_word.h"    // S110 FLASHHOLD: g_frame_word
+#include "../lever_scene.h"   // S110 FLASHHOLD: g_lever_scene, HoldFactor
+#include "../step_rate.h"     // S110 FLASHHOLD F2: g_game_word, g_applied_hz (already in this TU via kernel_overrides.h; #pragma once)
 #include "flash_fx_contrib.h"   // S103 C3: the flash writer
 #include "ring_recompute_contrib.h"   // S103 C3: the ring rope rows
 #include "stage_fx_contrib.h"
+
+namespace wwe2k14 {
+// S110 FLASHHOLD (FLASH60, review F2): the flash hold factor from the live values (lever_scene.h HoldFactor), read at the frame's latch.
+inline uint32_t LeverHoldFactor() {
+  return HoldFactor(g_lever_scene.load(std::memory_order_relaxed), step_rate::g_game_word.load(std::memory_order_relaxed), g_frame_word.load(std::memory_order_relaxed),
+                    step_rate::g_applied_hz.load(std::memory_order_relaxed));
+}
+}  // namespace wwe2k14
 
 namespace wwe2k14::scene_stagefx_glue {
 
@@ -29,6 +40,7 @@ inline void Register() {
   rdr_scene::live::stagefx::RegisterStageFx();
   // S103 C3: the crowd flashes' writer (flash_fx_core.h): registered after the stage-fx contributor, same reader.
   rdr_scene::live::flashfx::FlashFx().SetReader(&wwe2k14::scene_inputs_glue::ReadChecked);
+  rdr_scene::live::flashfx::FlashFx().SetHoldFn(&wwe2k14::LeverHoldFactor);   // S110 FLASHHOLD (FLASH60)
   rdr_scene::live::flashfx::RegisterFlashFx();
   // S103 C3: the ring ropes' node rows, recomputed from the rope grid (ring_recompute_core.h); the ring object arrives from the ring callback's hook (scene_skip_nodes.h).
   rdr_scene::live::ringrecompute::RingRecompute().SetReader(&wwe2k14::scene_inputs_glue::ReadChecked);

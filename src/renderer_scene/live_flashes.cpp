@@ -1,27 +1,12 @@
 // Lane C (Session 103): see live_flashes.h. Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "live_flashes.h"
+#include "flash_sprite.h"    // S110 FLASHOCC: FlashWorld / FlashSpriteFacing
 #include "rows_stage_fx.h"   // S106 G4-2
 
 #include <cmath>
 #include <cstring>
 
 namespace rdr_scene::rf::c {
-
-assets::Matrix FlashWorld(const float pos[3], float scale, const float eye[3]) {
-  float f[3] = {eye[0] - pos[0], eye[1] - pos[1], eye[2] - pos[2]};  // toward the eye
-  float len = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
-  if (!(len > 1e-6f)) f[0] = 0, f[1] = 0, f[2] = 1, len = 1.f;
-  for (float& v : f) v /= len;
-  float up[3] = {0.f, 1.f, 0.f};
-  if (std::fabs(f[1]) > 0.999f) up[1] = 0.f, up[2] = 1.f;
-  float r[3] = {up[1] * f[2] - up[2] * f[1], up[2] * f[0] - up[0] * f[2], up[0] * f[1] - up[1] * f[0]};  // up x f
-  const float rl = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
-  for (float& v : r) v /= rl;
-  const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]};  // f x r
-  assets::Matrix m = assets::Identity();
-  for (int i = 0; i < 3; ++i) m[size_t(i)] = r[i] * scale, m[size_t(4 + i)] = u[i] * scale, m[size_t(8 + i)] = f[i] * scale, m[size_t(12 + i)] = pos[i];
-  return m;
-}
 
 // S103 C3: the uniform factor that multiplies the sprite model's own coordinates. A live row (kFxfGameScale) carries the game's multiplier (item +40, flash_fx_core.h) and is used as is;
 // an older / synthetic row carries a world half-size, divided by the model's extent.
@@ -56,14 +41,12 @@ bool ApplyFlashes(BuildCtx& ctx) {
     if (r.kind != kFxFlash) continue;
     float p[3];
     PointToViewer(r.pos, p);
-    const assets::Matrix w = FlashWorld(p, FlashFactor(r, fm.radius), ctx.t.camera.eye);
+    // S110 FLASHOCC (FLASHDEPTH.md b8): the sprite faces the FRAME's eye (the viewer's: y negated at record_frame.cpp:400 before any applier), never the record's game-space eye.
+    FlashSprite s = FlashSpriteFacing(ctx.frame, p, FlashFactor(r, fm.radius), fm.model);
     // S110 CUTGREY: a flash is a sprite of its own, drawn AFTER the post chain (FrontEnd::DrawFlashesAfterPost; the game draws it after its combine, crisp), never a scene object: our far blur,
     // haze and sepia must not run over it. Its colour is the row's (the game's colour block of this flash, kFxfColorUnread = the block was not readable: the file's own colour, white,
     // counted), its alpha the row's (c185.x). No arena light set (the game's light is colour x (1 + abs(n.x)), applied by the draw).
-    FlashSprite s;
-    s.model = fm.model;
-    std::memcpy(s.world, w.data(), sizeof s.world);
-    std::memcpy(s.centre, p, sizeof s.centre);
+    s.guest_frame = uint64_t(ctx.t.header.guest_frame), s.seq = r.seq, s.slot = r.slot, s.held = (r.flags & kFxfHeld) != 0, s.scale = r.scale;   // S110 FLASHOCC: census only
     const bool unread = (r.flags & kFxfColorUnread) != 0;
     for (int i = 0; i < 3; ++i) s.rgb[i] = unread ? 1.f : r.color[i];
     s.alpha = r.alpha;

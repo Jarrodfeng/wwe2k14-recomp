@@ -59,10 +59,17 @@ class BodyScaleTable {
   // The float the game keeps in the character's own descriptor record ([[0x83924734] + 864 + 80 x DescIndex(char)] + 12, slot_key.h DescScale; S110 MGRFINGERS: not the slot-table
   // position, wrong under the slot remap; docs\systems\wrestler_pose.md "S103 W2 follow-up"), read at the scene latch, by the skeleton object address. A finite value is stored; `unreadable` counts the rest:
   // REFUSED reads (since MGRFINGERS also a record whose key at D+0 is not valid: DescScale false), not only unreadable memory.
-  void SetLatch(uint32_t object_addr, int slot, float v, bool readable) {
+  // S110 DESCKEY: `identity` = the model's identity (descriptor address << 32 | key; 0 = unknown). A refused read erases the latch only when the stored identity differs: the scale is baked
+  // into the model at its build, so while the same descriptor holds the same key a refused read (a scene build re-laying the match records) HOLDS the last scale.
+  void SetLatch(uint32_t object_addr, int slot, float v, bool readable, uint64_t identity = 0) {
     std::lock_guard<std::mutex> g(mu_);
-    if (!readable || !(v == v) || v > 1e6f || v < -1e6f) { ++latch_unreadable_; latch_.erase(object_addr); return; }   // S103 W3: an unreadable record leaves no stale value
-    latch_[object_addr] = Latch{slot, v};
+    if (!readable || !(v == v) || v > 1e6f || v < -1e6f) {
+      ++latch_unreadable_;
+      auto it = latch_.find(object_addr);
+      if (it != latch_.end() && !(identity != 0 && it->second.identity == identity)) latch_.erase(it);   // S103 W3: an unreadable record leaves no stale value (another model: erased)
+      return;
+    }
+    latch_[object_addr] = Latch{slot, v, identity};
   }
   // S103 W3: the latch is now the SOURCE of the scale (BodyScaleFor). A latch entry is the float of the object's CURRENT slot record: an object that is not slot-matched this update
   // (an address the game reused) must not keep the old occupant's value (run 28, frame 12049: object 0xA89AA220 latch 0.894531 = the old occupant, stream 0.910400 = the new one).
@@ -111,7 +118,7 @@ class BodyScaleTable {
 
  private:
   mutable std::mutex mu_;
-  struct Latch { int slot; float value; };
+  struct Latch { int slot; float value; uint64_t identity; };
   std::unordered_map<uint32_t, float> map_;
   std::unordered_map<std::string, float> by_name_;
   std::unordered_map<uint32_t, Latch> latch_;

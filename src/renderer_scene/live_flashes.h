@@ -9,10 +9,8 @@
 
 namespace rdr_scene::rf::c {
 
-// The world of a flash sprite at `pos` (viewer space) of size `scale`, facing `eye`: rows right, up, toward-eye, position (row vectors), `up_hint` = the world's up.
 // S103 C3: the factor a flash row scales the sprite model by (kFxfGameScale rows: the row's scale as is; others: scale / model radius).
+// (The sprite's world, FlashWorld / FlashSpriteFacing, is in flash_sprite.h since S110 FLASHOCC.)
 float FlashFactor(const StageFxRow& r, float model_radius);
-
-assets::Matrix FlashWorld(const float pos[3], float scale, const float eye[3]);
 
 }  // namespace rdr_scene::rf::c

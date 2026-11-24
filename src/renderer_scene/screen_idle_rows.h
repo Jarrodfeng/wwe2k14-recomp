@@ -22,24 +22,13 @@ inline size_t DropIdleScreens(std::map<int, std::pair<uint32_t, uint32_t>>& scre
   return n;
 }
 
-// S103 HN (ONF review M1, bit 14): a SHOWN screen (a live texture in the set) whose slot has no sized row this frame keeps its last picture: the previous entrant's, or the previous match's frozen tron frame.
-// The game draws such a screen BLACK at once (sub_827F9D88 hands back the controller's default plane pair unless the record is open; docs\systems\screens.md "Idle screens (S103 SCN)": run 38 f5401 (1,1,1)).
-// A spurious one-frame hole in the rows must not blink the screen, so black follows after kNoRowBlackAfter guest frames without a sized row (no_row_gf = the first such frame, 0 = none yet).
-// Returns true = the live texture goes to idle black now. `enabled` false = the old rule (the planted twin stale_movie_kept: the last picture stays).
-inline constexpr uint64_t kNoRowBlackAfter = 2;
-// Opus review (LOW): `last_gf` = the guest frame this screen was last checked at. A look that was not drawn for a while (the other look's screens are checked only while it shows) or a frame counter that went
-// backwards leaves `no_row_gf` from an older stretch: a jump of anything but +0 (Warm and DrawLive of one frame) / +1 / +2 starts the count again.
-inline bool NoRowGoesBlack(bool sized_row, uint64_t guest_frame, uint64_t& no_row_gf, uint64_t& last_gf, bool enabled = true) {
-  if (last_gf && (guest_frame < last_gf || guest_frame > last_gf + 2)) no_row_gf = 0;
-  last_gf = guest_frame;
-  if (sized_row) return no_row_gf = 0, false;
-  if (!no_row_gf) no_row_gf = guest_frame ? guest_frame : 1;
-  // render-clock: lookup - [U] screen idle is a guest-frame gap; the game's movie playing / ended state is not looked up yet
-  return enabled && guest_frame >= no_row_gf + kNoRowBlackAfter;
-}
+// S110 MINITRON [C, SCM.md A; docs\research\s110\MINITRON.md]: the game's rule per shown screen per frame: its channel's movie when a row (a playing movie) exists, else the live frame grab (sub_8276AEF8 -> sub_8276A928,
+// else sub_8276A808). No frame counting: the store keeps a row for 90 guest frames after a movie's last flush, so a one-frame row hole cannot happen, and a debounce that restarted on every guest-frame jump (a phone
+// dropping ticks) kept the screen on its own texture, which the entrance had painted black.
+inline bool IdleNow(bool shown, bool sized_row) { return shown && !sized_row; }
 
-// S103 SCF [C, SCM.md sub_8276AEF8]: what a SHOWN movie-key screen with no movie (`idle`: no sized row, past NoRowGoesBlack's debounce) is drawn with. MATCH look: the live frame grab (FrontEnd::SetIdleScreens), never black.
-// ENTRANCE look: the measured black (run 38 f5401; the game's mechanism there is [U]). `plant_black` = the pre-SCF twin (every idle screen black).
+// What a SHOWN movie-key screen with no movie (`idle` = IdleNow) is drawn with. MATCH look: the live frame grab (FrontEnd::SetIdleScreens), never black.
+// ENTRANCE look: the measured black (run 38 f5401; the game's mechanism there is [U]; the game's code says the grab: the SECOND, STILL-OPEN path, its own probe). `plant_black` = the pre-SCF twin (every idle screen black).
 enum class IdleDraw : uint8_t { Own, FrameGrab, Black };
 inline IdleDraw IdleDrawFor(bool entrance, bool idle, bool plant_black = false) {
   if (!idle) return IdleDraw::Own;

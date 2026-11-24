@@ -70,7 +70,6 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 import sys
 
 ROUTING = """WHICH q COMMAND ANSWERS YOUR QUESTION (q -h = every command)
@@ -105,6 +104,12 @@ def h(a):
 
 
 def connect(path):
+    if os.path.abspath(path) == os.path.abspath(DB):
+        # S110 QREBUILD: the newest COMPLETE index: a rebuild that found index.db held open by a reader left its file beside it (tools/q/qpublish.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qpublish
+        p = qpublish.newest(path)
+        path = p if os.path.exists(p) else path      # another reader put that copy in place a moment ago: it is index.db now
     if not os.path.exists(path):
         raise QError(f'no index at {path}: build it with  py tools\\q\\build_index.py')
     con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
@@ -116,8 +121,9 @@ def meta(con):
     return {r['key']: json.loads(r['value']) for r in con.execute('SELECT key, value FROM meta')}
 
 
-def staleness(m, keys=('init_cpp', 'map', 'image')):
-    """Warnings when the sources changed after the index was built (cheap: size/mtime + codegen fingerprint)."""
+def staleness(m, keys=('init_cpp', 'image')):
+    """Warnings when the sources changed after the index was built (cheap: size/mtime + codegen fingerprint). S110 QREBUILD: the linker map is not
+    one of them (it changes with every relink; host symbols: tools/q/qhostmap.py); an old index's recorded map is ignored."""
     warn = []
     gen = m.get('gen_dir') or os.path.join(REPO, 'generated', 'default')
     try:
@@ -533,6 +539,48 @@ def parse_host(s, sections):
     return v
 
 
+def host_map(strict):
+    """S110 QREBUILD: the linker map's symbols, from their own file per map version (tools/q/qhostmap.py; never an input of index.db). -> (con or None, info)"""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import qhostmap
+    con, info = qhostmap.open_map(os.path.dirname(DB))
+    if con is None and strict:
+        raise QError(info['error'])
+    return con, info
+
+
+def host_rva(name):
+    """the host RVA of a guest function's symbol in the current map, or None (no map, or the map is being written)"""
+    if not name:
+        return None
+    con, _ = host_map(False)
+    if con is None:
+        return None
+    try:
+        r = con.execute('SELECT rva FROM syms WHERE name = ?', (name,)).fetchone()
+    finally:
+        con.close()
+    return r[0] if r else None
+
+
+def stale_line(m, st):
+    """S110 QREBUILD: a lookup never rebuilds the index and never waits for a rebuild. It answers from the newest complete index and says so in ONE line,
+    and starts at most ONE background build (tools/q/qpublish.kick: the build lock, and an attempt record so a failed build is not repeated by every call)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import build_index
+    import qpublish
+    gen = m.get('gen_dir') or build_index.GEN
+    image = os.path.join(os.path.dirname(DB), 'image.bin')
+    # S110 review: 6 workers, not build_index's default of up to 16: this build starts by itself on a PC shared by several agents, builds and game runs (it
+    # also runs below normal priority). A build by hand keeps the default.
+    cmd = [sys.executable, '-I', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build_index.py'), '--gen', gen, '--image', image, '--out', DB,
+           '-j', '6']
+    what = qpublish.kick(DB, build_index.index_key(gen, image), cmd, os.path.join(os.path.dirname(DB), 'build_index.log'),
+                         spawn=os.environ.get('WWE_Q_NO_AUTOUPDATE') != '1')
+    why = '; '.join(w for w in st if not w.startswith('rebuild:'))
+    return f'stale: this answer is from the index built {m.get("built_at")} ({why}); {what}'
+
+
 def cmd_addr(con, s, args, m):
     if args.host:
         if args.map:
@@ -557,14 +605,18 @@ def cmd_addr(con, s, args, m):
             map_path = args.map
         else:
             if s.strip().lower().startswith('wwe2k14_v3.exe'):
-                raise QError(f'{s}: the index holds wwe2k14.exe\'s map; pass --map with wwe2k14_v3.map')
-            sections = m.get('map_sections') or []
-            rva = parse_host(s, sections)
-            r = con.execute('SELECT rva, name, obj FROM hostsyms WHERE rva <= ? ORDER BY rva DESC LIMIT 1', (rva,)).fetchone()
-            if not r:
-                raise QError('no host symbol at or below that RVA (is the map indexed?)')
-            nxt = con.execute('SELECT rva FROM hostsyms WHERE rva > ? ORDER BY rva LIMIT 1', (r['rva'],)).fetchone()
-            map_path, map_ts = (m.get('map') or {}).get('path'), (m.get('map') or {}).get('timestamp')
+                raise QError(f'{s}: q reads wwe2k14.exe\'s map; pass --map with wwe2k14_v3.map')
+            hm, hinfo = host_map(True)
+            try:
+                sections = hinfo['sections']
+                rva = parse_host(s, sections)
+                r = hm.execute('SELECT rva, name, obj FROM syms WHERE rva <= ? ORDER BY rva DESC LIMIT 1', (rva,)).fetchone()
+                if not r:
+                    raise QError('no host symbol at or below that RVA')
+                nxt = hm.execute('SELECT rva FROM syms WHERE rva > ? ORDER BY rva LIMIT 1', (r['rva'],)).fetchone()
+            finally:
+                hm.close()
+            map_path, map_ts = hinfo['path'], hinfo['timestamp']
         sec = next((x for x in sections if x[0] <= rva < x[1]), None)
         if nxt is None and sec is None:
             raise QError(f'RVA 0x{rva:X} is past the last map symbol ({r["name"]} at 0x{r["rva"]:X}) and the map gives '
@@ -616,9 +668,9 @@ def cmd_addr(con, s, args, m):
     hidden = n_hidden_unsure(con, 'imms', "value = ? AND op LIKE 'lis+%'", (a,), args)
     if hidden:
         out['uncertain_hidden'] = hidden
-    host = con.execute('SELECT rva FROM hostsyms WHERE name = ?', (out.get('function', ''),)).fetchone()
-    if host:
-        out['host_rva_of_function'] = f'0x{host["rva"]:X}'
+    host = host_rva(out.get('function', ''))
+    if host is not None:
+        out['host_rva_of_function'] = f'0x{host:X}'
     if len(out) == 1:
         out['note'] = 'not in any function, string, vtable or indexed data word'
     if how != 'hex':
@@ -752,7 +804,7 @@ def cmd_fn(con, a, args):
     cvals = {}
     for c in consts:
         cvals.setdefault((c['value'], c['op'].startswith('lis+')), []).append(c['op'])
-    host = con.execute('SELECT rva FROM hostsyms WHERE name = ?', (f['name'],)).fetchone()
+    host = host_rva(f['name'])
     dbe = cmd_db(con, a, args)
     try:   # S103 QD: fields read / written + calls, from the decomp cache (never builds, never fails fn)
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -763,7 +815,7 @@ def cmd_fn(con, a, args):
     return {'decomp': decomp_lines,
         'func': f['name'], 'addr': h(a), 'size': f['size'], 'insns': f['insns'],
         'where': f'generated/default/{f["file"]}:{f["line"]}' if f['file'] else None,
-        'host_rva': f'0x{host["rva"]:X}' if host else None,
+        'host_rva': f'0x{host:X}' if host is not None else None,
         'callers': {'n_sites': callers['n_sites'], 'n_funcs': callers['n_callers'],
                     'list': [c['func'] for c in callers['callers']]},
         'data_pointers': callers['data_pointers'], 'vtable_slots': callers['vtable_slots'],
@@ -1166,19 +1218,12 @@ def main(argv=None):
     try:
         con = connect(args.index)
         m = meta(con)
-        # the map changes with every relink: only warn about it where host addresses are used
-        keys = ('init_cpp', 'map', 'image') if args.cmd in ('addr', 'fn', 'info') else ('init_cpp', 'image')
-        st = staleness(m, keys)
-        if st and args.cmd != 'info' and os.path.abspath(args.index) == os.path.abspath(DB) and os.environ.get('WWE_Q_NO_AUTOUPDATE') != '1':
-            # S103: stale indexes were read for hours (agents saw the warning and fell back to grep). A stale index rebuilds itself
-            # (~13 s) before it answers; image.bin (needs a game run) cannot, so an `image` warning still prints.
-            print(f'q: index stale ({"; ".join(st[:-1])}); rebuilding first (~13 s) ...', file=sys.stderr, flush=True)
-            con.close()
-            subprocess.run([sys.executable, '-I', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build_index.py')],
-                           stdout=sys.stderr, stderr=sys.stderr)
-            con = connect(args.index)
-            m = meta(con)
-            st = staleness(m, keys)
+        # S110 QREBUILD: the linker map is no input of index.db any more (it changed with every relink and made every addr / fn call rebuild); host symbols:
+        # host_map(). S103's rule kept (never stale silently), without the cost: a stale index answers AT ONCE with one `stale:` line and at most one
+        # background build (stale_line); the lookup never rebuilds and never waits.
+        st = staleness(m, ('init_cpp', 'image'))
+        if st and args.cmd != 'info' and os.path.abspath(args.index) == os.path.abspath(DB):
+            st = [stale_line(m, st)]
         for w in st:
             print(f'q: WARNING {w}', file=sys.stderr)
         if m.get('default_gen') is False:

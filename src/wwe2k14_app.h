@@ -31,6 +31,7 @@
 #include "low_ram.h"  // --wwe2k14_low_ram (Session 94)
 #include "d3d_owned.h"  // --wwe2k14_d3d_owned (Session 87, the D3D-layer stack in one switch, default off)
 #include "pacing_hooks.h"
+#include "replay_fx_skip.h"  // S110 TABLEFIRE: GBF-3, the skipped replay's effect stops (no toggle)
 #include "tiling_hooks.h"
 #include "kernel_overrides.h"
 #include "missing_function_scan.h"

@@ -60,7 +60,10 @@ def main() -> None:
     ap.add_argument("--min-share", type=float, default=0.6)
     a = ap.parse_args()
     page = int(a.page, 0)
-    con = sqlite3.connect(INDEX)
+    import sys
+    sys.path.insert(0, str(REPO / "tools" / "q"))
+    import qpublish
+    con = sqlite3.connect(qpublish.newest(str(INDEX)))  # S110 QREBUILD review: a copy beside a held index.db is the one to read
     funcs = sorted(r[0] for r in con.execute("SELECT addr FROM funcs WHERE has_body = 1"))
     votes: dict[int, collections.Counter] = collections.defaultdict(collections.Counter)
     kinds: dict[int, set] = collections.defaultdict(set)

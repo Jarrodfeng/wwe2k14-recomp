@@ -244,7 +244,7 @@ constexpr uint32_t kMaxNodes = 1024;
 
 // S103 SKY: name every slot body from the game's character descriptor (slot_key.h), not the participant row. Off = the old row rule (slot < 6, rows 6..39 empty).
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_key_desc, true, "wwe2k14",
-                    "Stream-free wrestlers: the slot model key comes from the game's character descriptor [[0x83924734]+864+80*[char+1220]] (right in a Royal Rumble and after a slot swap); false = the participant-row guess (slot < 6, rows 6..39 empty)");
+                    "Stream-free wrestlers: the slot model key comes from the character's own model descriptor [[0x837635A4]+8]+192*[char+3760], +92 (S110 DESCKEY; right in a Royal Rumble, after a slot swap and across a scene build); false = the participant-row guess (slot < 6, rows 6..39 empty)");
 namespace sky_census {   // desc key vs the old row key, slots 0..5 (the first live sighting of a swap / remap / Rumble is differ / row_unusable)
 inline std::atomic<uint64_t> agree{0}, differ{0}, row_unusable{0};
 inline std::atomic<uint32_t> occupant_char[9] = {}, occupant_key[9] = {};
@@ -252,6 +252,7 @@ inline std::atomic<uint32_t> occupant_lines{0};
 inline std::atomic<uint64_t> remap_active{0};                                   // slots seen while the slot remap is active (descriptor indexed by char+1224)
 inline std::atomic<uint64_t> scale_moved{0};                                    // S110 MGRFINGERS: latches whose scale record index != the slot position (each was read from another body's record before the fix)
 inline std::atomic<uint64_t> ctor_agree{0}, ctor_differ{0};                      // [ch+44] vs the key used (census only, not a gate)
+inline std::atomic<uint64_t> model_vs_desc_agree{0}, model_vs_desc_differ{0};    // S110 DESCKEY: the character's own descriptor key (+3760) vs the match-record key (+1224); differ = a re-laid record
 inline std::atomic<uint64_t> hi_link_agree{0}, hi_link_differ{0}, hi_link_verified{0}, hi_named_by_key{0}, hi_nokey{0};   // slots 6..8 (referee, role-4 people): key vs the declared link
 }  // namespace sky_census
 
@@ -297,7 +298,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
                   guest_frame, w.LinkBodies(), w.LinkKind(0), w.LinkKind(1), w.LinkKind(2), w.LinkKind(3), w.LinkKind(4), w.LinkKind(5), w.LinkKind(6), w.LinkKind(7), w.LinkKind(8), w.LinkKind(9),
                   w.LinkEmptyKey(), w.LinkNoBody(), w.LinkUnreadable(), w.LinkCountRefused(), w.LinkedSeenAsSkeleton(), w.KnownCount(), w.SkippedSmall(), w.CapRefused(), w.ListedFull(), w.Wanted(), w.WantedFull(),
                   w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch(), w.PieceLinksMade(), w.PieceWhyText(), w.RingLeftOut(), w.BodyLinkCount(), w.BodyLinkText(), w.Released());   // S103 NRB / PZ F5; S108 RDS: ModelsDestroyed = the sub_82BD3B40 hook's ForgetModel calls
-      REXLOG_INFO("[scene][live] frame {}: slot key (desc rule {}): agree {} differ {} row_unusable {} occupant changes {} remap_active {} scale index moved {} ctor44 agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, REXCVAR_GET(wwe2k14_rdr_slot_key_desc) ? "on" : "off", sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::scale_moved.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
+      REXLOG_INFO("[scene][live] frame {}: slot key (desc rule {}): agree {} differ {} row_unusable {} occupant changes {} remap_active {} scale index moved {} ctor44 agree {} differ {} model_vs_desc agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, REXCVAR_GET(wwe2k14_rdr_slot_key_desc) ? "on" : "off", sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::scale_moved.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::model_vs_desc_agree.load(), sky_census::model_vs_desc_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
       REXLOG_INFO("[scene][live] frame {}: guest page checks calls {} page lookups {} of which cache hits {} (per-frame cache) refused {}; unreadable: track act reads {} node-count delegate reads {}", guest_frame, g_page_check_calls.load(std::memory_order_relaxed), g_page_check_pages.load(std::memory_order_relaxed), g_page_check_hits.load(std::memory_order_relaxed), g_page_check_refused.load(std::memory_order_relaxed), scene_inputs::g_track_act_unreadable.load(std::memory_order_relaxed), scene_inputs::g_delegate_unreadable.load(std::memory_order_relaxed));   // S103 PC1 / S108 GAVF: the phone's cost of the page-checked readers
       REXLOG_INFO("[scene][live] frame {}: {}", guest_frame, rdr_scene::BodyScaleTable::CensusText(rdr_scene::BodyScaleTable::Get().Census()));   // S103 W2: latch vs the stream-learned scale (census only)
       REXLOG_INFO("{}", rdr_scene::SpringHairCensusText());   // S103 W2B: [scene][wrestlers] hair rows N, bodies with extras drawn N / refused N (tags / count / unreadable)
@@ -324,7 +325,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
     int si = -1;
     float v = 0.f;
     const bool ok = slotkey::DescScale(rd, slot_ch, v, &si);
-    rdr_scene::BodyScaleTable::Get().SetLatch(self, slot, v, ok);
+    rdr_scene::BodyScaleTable::Get().SetLatch(self, slot, v, ok, slotkey::ModelIdentity(rd, slot_ch));   // S110 DESCKEY: the scale's identity (descriptor x character), char_model_desc.h
     if (ok && si != slot) sky_census::scale_moved.fetch_add(1, std::memory_order_relaxed);
   } else if (slot < 0) {
     rdr_scene::BodyScaleTable::Get().ClearLatch(self);   // S103 W3: not a slot wrestler now (the address may have been reused): no stale latch value
@@ -341,6 +342,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
         bool remap = false;
         slotkey::DescIndex(rd, slot_ch, &remap);
         if (remap) sky_census::remap_active.fetch_add(1, std::memory_order_relaxed);
+        (slotkey::CharModelKey(rd, slot_ch) == slotkey::DescKey(rd, slot_ch) ? sky_census::model_vs_desc_agree : sky_census::model_vs_desc_differ).fetch_add(1, std::memory_order_relaxed);   // S110 DESCKEY
         if (key) { const uint32_t c44 = slotkey::CtorKey(rd, slot_ch); if (c44 == key) sky_census::ctor_agree.fetch_add(1, std::memory_order_relaxed); else sky_census::ctor_differ.fetch_add(1, std::memory_order_relaxed); }
       }
       if (slot >= 6) {   // census: slots 6..8 now get a key too; how it sits beside the declared link (read before SubmitSlotKey, which drops a link of another character)
@@ -363,9 +365,16 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
           sky_census::occupant_char[slot].store(slot_ch, std::memory_order_relaxed);
           sky_census::occupant_key[slot].store(desc, std::memory_order_relaxed);
           if (sky_census::occupant_lines.fetch_add(1, std::memory_order_relaxed) < 64) {
-            uint32_t s1220 = 0xFFFFFFFFu;
+            uint32_t s1220 = 0xFFFFFFFFu, s1224 = 0xFFFFFFFFu, d0raw = 0xFFFFFFFFu, d4raw = 0xFFFFFFFFu, ctx = 0;
             ReadWord(slot_ch + 1220, s1220);
-            REXLOG_INFO("[scene][live] slot {} occupant char 0x{:08X} skel 0x{:08X} +1220 {} desc key {} row key {}{} frame {}", slot, slot_ch, self, int32_t(s1220), desc, row, usable ? "" : " (row rule unusable)", guest_frame);
+            ReadWord(slot_ch + 1224, s1224);
+            if (s1224 <= 8 && ReadWord(slotkey::kMatchCtx, ctx) && ctx) ReadWord(ctx + 864 + 80 * s1224, d0raw), ReadWord(ctx + 864 + 80 * s1224 + 4, d4raw);   // S110 DESCKEY: raw words, before ValidKey
+            slotkey::CharModelDescInfo ci;
+            slotkey::CharModelDesc(rd, slot_ch, &ci);
+            uint32_t r3760 = 0xFFFFFFFFu;
+            ReadWord(slot_ch + 3760, r3760);
+            REXLOG_INFO("[scene][live] slot {} occupant char 0x{:08X} skel 0x{:08X} +1220 {} desc key {} row key {}{} frame {} | raw: +1224 {} D+0 {} D+4 0x{:08X} +3760 {} desc 0x{:08X} desc+92 {} desc+52 {}", slot, slot_ch, self, int32_t(s1220), desc, row, usable ? "" : " (row rule unusable)", guest_frame,
+                        int32_t(s1224), d0raw, d4raw, int32_t(r3760), ci.desc, ci.key92, ci.loaded);
           }
         }
       } else if (slot_ch && sky_census::occupant_char[slot].load(std::memory_order_relaxed) != slot_ch) {
@@ -394,7 +403,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
         char obs[48] = "none";
         if (ob_found) std::snprintf(obs, sizeof obs, "0x%08X%s", ob, ob == d ? " (agrees)" : " (DIFFERS)");
         const char* const names[] = {"tag", "no_desc", "key_mismatch", "mode_base"};
-        REXLOG_INFO("[attire_build] slot {} key {}: D index {}, D+7 {}, desc 0x{:08X} (+92 {}, +44 {}), DescriptorOfBody {}, verdict {}", slot, key, si.s, si.b7, d, c92, m44,
+        REXLOG_INFO("[attire_build] slot {} key {}: D index {}, +3760 {}, desc 0x{:08X} (+92 {}, +44 {}), DescriptorOfBody {}, verdict {}", slot, key, si.s, si.b7, d, c92, m44,
                     obs, names[int(why)]);
       }
     }

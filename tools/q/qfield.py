@@ -107,7 +107,8 @@ def fname(f):
 def rtti_names(index_db_dir):
     """vtable address -> RTTI class name from index.db (optional)."""
     out = {}
-    p = os.path.join(index_db_dir, 'index.db')
+    import qpublish
+    p = qpublish.newest(os.path.join(index_db_dir, 'index.db'))      # S110 QREBUILD review: a copy beside a held index.db is the one to read
     if not os.path.exists(p):
         return out
     try:

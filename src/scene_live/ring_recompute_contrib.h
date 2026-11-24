@@ -20,6 +20,7 @@
 #include "../feed_seen.h"   // S110 FEEDREC
 #include "ring_recompute_core.h"
 #include "ring_rows_core.h"   // ringrows::NodeCount (the palette node count rule)
+#include "ring_rids_pose.h"   // S110 RINGBREAK: the RIDS slot copies -> rows, the canvas row
 #include "tail_latch.h"   // LatchMark
 
 namespace rdr_scene::live::ringrecompute {
@@ -84,7 +85,7 @@ inline void ReadInputs(ReadFn read, uint32_t x, Inputs& in, RingCensus& cn) {
   if (!ReadWord(read, kRingGlobal, g) || !g || !ReadWord(read, g + 20, g20) || !g20) { ++cn.no_ring; return; }   // [G + 20] = the rope model (0x825CF354-0x825CF370)
   if (!ReadWord(read, x + kGateOff, gate) || !gate) { ++cn.gate_closed; return; }                                 // [X + 96] (0x825CF30C)
   if (ReadWord(read, kModelGate, mg) && mg && ReadWord(read, mg + 368, mg368) && mg368 == 1) { ++cn.gate_closed; return; }   // 0x825CF338-0x825CF350
-  if (RidsPlayback(read)) { ++cn.rope_rids; return; }   // the ropes are submitted from RIDS: no grid fill (review 2)
+  if (RidsPlayback(read)) { ++cn.rope_rids; in.rids |= ringrids::kBitRope; return; }   // the ropes are posed from their RIDS slots (S110 RINGBREAK: the rows are the slot copies, Take appends them): no grid fill (review 2)
   if (!ReadGrid(read, x, in, cn)) return;
   (void)alt;
   if (ReadWord(read, kOverrideGate, og) && og) { in.override_gate = true; ++cn.override_gate_set; }
@@ -123,7 +124,7 @@ inline void ReadTurnbuckleInputs(ReadFn read, uint32_t x, Inputs& in, TbInputs& 
   if (!ReadWord(read, g + kTbModelOff, model) || !model) { ++cn.tb_gate; return; }
   if (!ReadWord(read, x + kTbIdxA, ia) || !ReadWord(read, x + kTbIdxB, ib)) { ++cn.tb_unreadable; return; }
   if (ia == 0xFFFFFFFFu || ib == 0xFFFFFFFFu) { ++cn.tb_gate; return; }
-  if (RidsPlayback(read)) { ++cn.tb_rids; return; }
+  if (RidsPlayback(read)) { ++cn.tb_rids; in.rids |= ringrids::kBitTb; return; }   // S110 RINGBREAK: the rows are the slot copies (Take)
   if (!ReadGrid(read, x, in, cn)) { ++cn.tb_unreadable; return; }
   if (in.alt) { ++cn.tb_table_mode; return; }
   if (!ReadWord(read, model + kPaletteOff, pal) || !pal || !ReadWord(read, model + kInvBindOff, invp) || !invp) { ++cn.tb_unreadable; return; }
@@ -171,14 +172,14 @@ inline bool ReadModelPal(ReadFn read, uint32_t model, bool need_inv, ModelPal& m
 }
 // The gates the covers and the posts share. false = no rows from either this frame; `why` counter bumped. `in` carries the grid after this (read here when the rope gates were closed).
 // S103 CRR: a created arena (the alt ring) no longer ends the read: `alt_ring` (when given) is set and `alt_counter` counts it; the covers keep the normal rule (only the model per corner differs: ring_keys.h) and the posts emit the alt set.
-inline bool ReadPieceGates(ReadFn read, uint32_t x, uint32_t g, Inputs& in, RingCensus& cn, uint64_t RingCensus::*gate_counter, uint64_t RingCensus::*unreadable_counter, uint64_t RingCensus::*table_counter, uint64_t RingCensus::*alt_counter, uint64_t RingCensus::*rids_counter, bool* alt_ring = nullptr) {
+inline bool ReadPieceGates(ReadFn read, uint32_t x, uint32_t g, Inputs& in, RingCensus& cn, uint64_t RingCensus::*gate_counter, uint64_t RingCensus::*unreadable_counter, uint64_t RingCensus::*table_counter, uint64_t RingCensus::*alt_counter, uint64_t RingCensus::*rids_counter, bool* alt_ring = nullptr, uint32_t rids_bit = 0) {
   uint32_t model = 0, ia = 0, ib = 0, mg = 0, mg368 = 0, arena = 0;
   if (!x || !g) { ++(cn.*gate_counter); return false; }
   if (ReadWord(read, kModelGate, mg) && mg && ReadWord(read, mg + 368, mg368) && mg368 == 1) { ++(cn.*gate_counter); return false; }
   if (!ReadWord(read, g + kTbModelOff, model) || !model) { ++(cn.*gate_counter); return false; }   // [G + 44] != 0 (0x825D0384-0x825D0394, and 0x825CE6B4-0x825CE6C8)
   if (!ReadWord(read, x + kTbIdxA, ia) || !ReadWord(read, x + kTbIdxB, ib)) { ++(cn.*unreadable_counter); return false; }
   if (ia == 0xFFFFFFFFu || ib == 0xFFFFFFFFu) { ++(cn.*gate_counter); return false; }
-  if (RidsPlayback(read)) { ++(cn.*rids_counter); return false; }
+  if (RidsPlayback(read)) { ++(cn.*rids_counter); in.rids |= rids_bit; return false; }   // S110 RINGBREAK: gates passed; the rows are the slot copies (Take)
   if (ReadWord(read, kArenaIdWord, arena) && int32_t(arena) >= 200 && int32_t(arena) <= 249) {   // sub_822AA2F8: the alt ring (CRK section 2)
     ++(cn.*alt_counter);
     if (alt_ring) *alt_ring = true;
@@ -191,7 +192,7 @@ inline void ReadCoverInputs(ReadFn read, uint32_t x, Inputs& in, CvInputs& cv, R
   cv = CvInputs{};
   uint32_t g = 0;
   if (!ReadWord(read, kRingGlobal, g) || !g) { ++cn.cv_gate; return; }
-  if (!ReadPieceGates(read, x, g, in, cn, &RingCensus::cv_gate, &RingCensus::cv_unreadable, &RingCensus::cv_table_mode, &RingCensus::cv_alt_ring, &RingCensus::cv_rids, &cv.alt)) return;
+  if (!ReadPieceGates(read, x, g, in, cn, &RingCensus::cv_gate, &RingCensus::cv_unreadable, &RingCensus::cv_table_mode, &RingCensus::cv_alt_ring, &RingCensus::cv_rids, &cv.alt, ringrids::kBitCover)) return;
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kCvModelHi, hi) || !hi || !ReadWord(read, g + kCvModelLo, lo)) { ++cn.cv_gate; return; }
   if (!ReadModelPal(read, hi, true, cv.models[0])) { ++cn.cv_unreadable; return; }
@@ -241,7 +242,7 @@ inline void ReadPostInputs(ReadFn read, uint32_t x, Inputs& in, PostInputs& po, 
   uint32_t g = 0;
   if (!ReadWord(read, kRingGlobal, g) || !g) { ++cn.post_unreadable; return; }
   uint64_t RingCensus::*none = &RingCensus::post_unreadable;
-  if (!ReadPieceGates(read, x, g, in, cn, none, none, none, &RingCensus::post_alt_ring, none, &po.alt)) return;
+  if (!ReadPieceGates(read, x, g, in, cn, none, none, none, &RingCensus::post_alt_ring, &RingCensus::post_rids, &po.alt, ringrids::kBitPost)) return;
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kPostModelHi, hi) || !hi || !ReadWord(read, g + kPostModelLo, lo)) { ++cn.post_unreadable; return; }
   if (!ReadModelPal(read, hi, false, po.models[0])) { ++cn.post_unreadable; return; }
@@ -363,7 +364,7 @@ class RingRecomputeContributor final : public Contributor {
     }
     auto n = [](uint64_t v) { return std::to_string((unsigned long long)v); };
     out += "[ring_recompute frames " + n(c.frames) + ", ropes " + n(c.ropes) + ", rows " + n(c.rows) + ", nodes " + n(c.nodes_total) + ", no_ring " + n(c.no_ring) + ", gate_closed " + n(c.gate_closed) +
-           ", unreadable " + n(c.unreadable) + ", bad_count " + n(c.bad_count) + ", bad_index " + n(c.bad_index) + ", tb_rows " + n(c.tb_rows) + " (bad_index " + n(c.tb_bad_index) + " table_mode " + n(c.tb_table_mode) + " unreadable " + n(c.tb_unreadable) + "), tb_gate " + n(c.tb_gate) + " tb_rids " + n(c.tb_rids) + " tb_nopose " + n(c.tb_nopose) + " rope_rids " + n(c.rope_rids) + ", no_call " + n(c.no_call) + ", noted_calls " + n(c.noted_calls) + ", delta[-3..3,other,never] " + n(c.delta[0]) + " " + n(c.delta[1]) + " " + n(c.delta[2]) + " " + n(c.delta[3]) + " " + n(c.delta[4]) + " " + n(c.delta[5]) + " " + n(c.delta[6]) + " " + n(c.delta[7]) + " " + n(c.delta[8]) + (mm.empty() ? std::string() : "; " + mm) + ", alt_frames " + n(c.alt_frames) + ", override_gate_set " + n(c.override_gate_set) + ", covers " + n(c.cv_rows) + " (hidden " + n(c.cv_hidden) + " bad " + n(c.cv_bad) + " unreadable " + n(c.cv_unreadable) + " gate " + n(c.cv_gate) + " table " + n(c.cv_table_mode) + " alt_ring " + n(c.cv_alt_ring) + " rids " + n(c.cv_rids) + " lod_both " + n(c.cv_lod_both) + "), posts " + n(c.post_rows) + " (unreadable " + n(c.post_unreadable) + " lod_both " + n(c.post_lod_both) + " alt_ring " + n(c.post_alt_ring) + "), skirts " + n(c.skirt_rows) + " (unreadable " + n(c.skirt_unreadable) + " vis_unreadable " + n(c.skirt_vis_unreadable) + " none_visible " + n(c.skirt_vis_none) + "), ring_rows whole clean " + n(c.whole_clean) + " unclean " + n(c.whole_unclean) + " [rope " + n(c.unclean_rope) + " tb " + n(c.unclean_tb) + " cover " + n(c.unclean_cover) + " post " + n(c.unclean_post) + " skirt " + n(c.unclean_skirt) + " override " + n(c.unclean_override) + "]]";
+           ", unreadable " + n(c.unreadable) + ", bad_count " + n(c.bad_count) + ", bad_index " + n(c.bad_index) + ", tb_rows " + n(c.tb_rows) + " (bad_index " + n(c.tb_bad_index) + " table_mode " + n(c.tb_table_mode) + " unreadable " + n(c.tb_unreadable) + "), tb_gate " + n(c.tb_gate) + " tb_rids " + n(c.tb_rids) + " tb_nopose " + n(c.tb_nopose) + " rope_rids " + n(c.rope_rids) + ", no_call " + n(c.no_call) + ", noted_calls " + n(c.noted_calls) + ", delta[-3..3,other,never] " + n(c.delta[0]) + " " + n(c.delta[1]) + " " + n(c.delta[2]) + " " + n(c.delta[3]) + " " + n(c.delta[4]) + " " + n(c.delta[5]) + " " + n(c.delta[6]) + " " + n(c.delta[7]) + " " + n(c.delta[8]) + (mm.empty() ? std::string() : "; " + mm) + ", alt_frames " + n(c.alt_frames) + ", override_gate_set " + n(c.override_gate_set) + ", covers " + n(c.cv_rows) + " (hidden " + n(c.cv_hidden) + " bad " + n(c.cv_bad) + " unreadable " + n(c.cv_unreadable) + " gate " + n(c.cv_gate) + " table " + n(c.cv_table_mode) + " alt_ring " + n(c.cv_alt_ring) + " rids " + n(c.cv_rids) + " lod_both " + n(c.cv_lod_both) + "), posts " + n(c.post_rows) + " (unreadable " + n(c.post_unreadable) + " lod_both " + n(c.post_lod_both) + " alt_ring " + n(c.post_alt_ring) + "), skirts " + n(c.skirt_rows) + " (unreadable " + n(c.skirt_unreadable) + " vis_unreadable " + n(c.skirt_vis_unreadable) + " none_visible " + n(c.skirt_vis_none) + "), ring_rows whole clean " + n(c.whole_clean) + " unclean " + n(c.whole_unclean) + " [rope " + n(c.unclean_rope) + " tb " + n(c.unclean_tb) + " cover " + n(c.unclean_cover) + " post " + n(c.unclean_post) + " skirt " + n(c.unclean_skirt) + " override " + n(c.unclean_override) + "]" + ", rids rows " + n(c.rids_rows) + " (refused " + n(c.rids_refused) + " no_set " + n(c.rids_no_set) + " post_frames " + n(c.post_rids) + "), canvas " + n(c.canvas_rows) + " (unreadable " + n(c.canvas_unreadable) + ")]";
     out += " [ring_lod ours lo " + n(c.lod_lo) + " hi " + n(c.lod_hi) + " nocam " + n(c.lod_nocam) + "]" + " [ring_lod2 cover low " + n(c.cv_low) + " post low " + n(c.post_low) + " dist_unreadable " + n(c.lod_dist_unreadable) + " cover_lo_unreadable " + n(c.cv_lo_unreadable) + " post_lo_unreadable " + n(c.post_lo_unreadable) + "]";   // S105 C4
   }
   struct Out {
@@ -438,6 +439,24 @@ class RingRecomputeContributor final : public Contributor {
       if (mi == 1) census_.post_low += out.rows.size() - before;
     }
     whole.posts = uint32_t(out.rows.size() - mark), whole.posts_expected = PostCalls(po);
+    if (in.rids) {   // S110 RINGBREAK: the ring is in motion posing: the rows of the classes whose gates passed are the game's own per-slot pose, copied at the hook (ring_rids_pose.h)
+      ringrids::Set rs;
+      ringrows::RingTable table;
+      auto rw = [&](uint32_t a, uint32_t& v) { return ReadWord(read_, a, v); };
+      if (ringrids::The().Get(frame, rs) && ringrows::ReadRingTable(rw, table)) {
+        const ringrids::Counts k = ringrids::AppendRidsRows(rs, stamp, in.rids, table, out.rows, out.pool, census_);
+        whole.ropes += k.rope, whole.turnbuckles += k.tb, whole.covers += k.cover, whole.posts += k.post;
+      } else {
+        ++census_.rids_no_set;   // the hook did not publish for this frame (or the table is unreadable): no rows, the frame is not clean
+      }
+    }
+    {   // S110 RINGBREAK: the canvas, every frame: [G + 56]'s palette as it stands (the mat bounce; the break's motion). Not part of the whole-ring verdict.
+      uint32_t cg = 0, cm = 0;
+      if (ReadWord(read_, kRingGlobal, cg) && cg && ReadWord(read_, cg + ringrids::kCanvasSlot, cm) && cm) {
+        ModelPal cp;
+        if (!ReadModelPal(read_, cm, false, cp) || !ringrids::AppendCanvas(cp, stamp, out.rows, out.pool, census_)) ++census_.canvas_unreadable;
+      }
+    }
     // S103 C5: only the skirts the game poses for the camera quadrant (3 of 4 in the usual view), and the whole-ring test wants EXACTLY that many
     SkirtVisIn svis;
     ReadSkirtVisibility(read_, Ring(), svis, census_);

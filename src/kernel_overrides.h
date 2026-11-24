@@ -29,6 +29,7 @@
 #include "file_trace.h"  // --wwe2k14_file_trace (Session 8 task 7, default off)
 #include "load_watch.h"  // S105 A6W: the loader watch counters
 #include "native_mem_probe.h"  // Session 100 strip-360 D2: the game's free-memory probes by binary search (--wwe2k14_native_mem_probe)
+#include "mem_plan.h"  // S110 REPLAN: one boot plan for the game's per-slot memory budgets (--wwe2k14_mem_plan)
 #include "guest_peek.h"  // --wwe2k14_peek (Session 8 task 7 menu/UI, default off)
 #include "frame_hash.h"  // --wwe2k14_det_hash (Session 8 task 8b, default off)
 #include "flight_recorder.h"  // --wwe2k14_flight_recorder (Session 8 task 11, default off)
@@ -102,6 +103,65 @@ inline std::atomic<uint32_t> g_phys_alloc_failures{0};
 inline std::atomic<uint32_t> g_phys_alloc_offset_ignored{0};
 inline std::atomic<uint32_t> g_phys_alloc_failure_streak{0};  // consecutive failures since the last success
 inline std::atomic<bool> g_phys_heap_map_dumped{false};
+inline std::atomic<uint32_t> g_phys_alloc_real_failures{0};  // S110 CASCRASH: failures outside the game's free-memory probes
+
+// S110 CASCRASH: what occupies the physical range [lo, hi], read from the parent physical heap's page table (every physical view,
+// 4 KB / 64 KB / 16 MB pages, allocates through it: PhysicalHeap::AllocRange). One clause for the failure line. Failure path only.
+inline std::string PhysRangeCensus(uint32_t lo, uint32_t hi) {
+  auto* heap = REX_KERNEL_MEMORY()->GetPhysicalHeap();
+  if (!heap || !heap->heap_size()) return "census: no physical heap";
+  const uint32_t first = heap->heap_base(), last = first + (heap->heap_size() - 1);
+  lo &= ~0xFFFu;
+  if (lo < first) lo = first;
+  if (hi > last) hi = last;
+  if (hi < lo) return "census: empty range";
+  uint64_t used = 0, free_bytes = 0, largest_free = 0, largest_used = 0;
+  uint32_t used_regions = 0, free_runs = 0;
+  for (uint64_t at = lo; at <= hi;) {
+    rex::memory::HeapAllocationInfo info{};
+    if (!heap->QueryRegionInfo(uint32_t(at), &info) || !info.region_size) break;
+    uint64_t len = info.region_size;
+    if (at + len > uint64_t(hi) + 1) len = uint64_t(hi) + 1 - at;
+    if (info.state) {
+      used += len;
+      ++used_regions;
+      if (len > largest_used) largest_used = len;
+    } else {
+      free_bytes += len;
+      ++free_runs;
+      if (len > largest_free) largest_free = len;
+    }
+    at += len;
+  }
+  return fmt::format("census of {:08X}-{:08X}: used {} KB in {} regions (largest {} KB), free {} KB in {} runs (largest free run {} KB)",
+                     lo, hi, used >> 10, used_regions, largest_used >> 10, free_bytes >> 10, free_runs, largest_free >> 10);
+}
+
+// S110 CASCRASH review: who asked for the failing request: the guest thread, the lr its import call site set (0x82261704 = the
+// pool allocator sub_822616C0), then the guest return addresses above it, innermost first (the pool path: 0x8225F6E4 in
+// sub_8225F650, then its requester's chain). The walk is FlightGuestThreads' guarded one (guest_stack_walk.h: every word
+// table-checked, bounded by the thread's KPCR stack range); a bad word ends it with a marker. Failure path only.
+inline std::string GuestCallerForLog() {
+  auto* thread = rex::system::XThread::GetCurrentThread();
+  auto* ts = thread ? thread->thread_state() : nullptr;
+  const PPCContext* c = ts ? ts->context() : nullptr;
+  if (!c) return "caller: no guest thread";
+  std::string s = fmt::format("guest_thread=0x{:X} lr=0x{:08X}", thread->thread_id(), uint32_t(c->lr));
+  auto* memory = REX_KERNEL_MEMORY();
+  auto* pcr = thread->pcr_ptr() ? memory->TranslateVirtual<rex::system::X_KPCR*>(thread->pcr_ptr()) : nullptr;
+  if (!pcr || !GuestWordReadable(thread->pcr_ptr() & ~3u, pcr)) return s + " (KPCR unreadable)";
+  const uint32_t stack_high = pcr->stack_base_ptr, stack_low = pcr->stack_end_ptr;
+  auto read = [&](uint32_t a, uint32_t* v) {
+    if ((a & 3) != 0 || a < 0x1000) return false;
+    const void* host = memory->TranslateVirtual(a);
+    if (!host || !GuestWordReadable(a, host) || !GuestWordCommitted(a)) return false;
+    return GuestLoadBe32Guarded(host, v);
+  };
+  const GuestWalkResult walk = WalkGuestStack(c->r1.u32, stack_low, stack_high, 8, read);
+  for (uint32_t ret : walk.callers) s += fmt::format(" <- 0x{:08X}", ret);
+  if (*walk.end) s += fmt::format(" <- ({})", walk.end);
+  return s;
+}
 
 inline uint32_t MmAllocatePhysicalMemoryExOverride(uint32_t flags, uint32_t region_size,
                                                    uint32_t protect_bits, uint32_t min_addr,
@@ -162,6 +222,20 @@ inline uint32_t MmAllocatePhysicalMemoryExOverride(uint32_t flags, uint32_t regi
   if (!result) {
     uint32_t n = ++g_phys_alloc_failures;
     ++g_phys_alloc_failure_streak;
+    // S110 CASCRASH (report 046): a failure outside the game's free-memory probe is a request the game needed. sub_8225F650 hands
+    // the 0 on and callers such as the model vertex-buffer build (sub_82BD7790) use it untested: a guest null read a few
+    // instructions later. The budget below was spent by probe failures in the first load, so that failure had no line. These have
+    // their own count and are always logged (the first 64, then every 64th), with what occupies the range that was searched.
+    if (!native_mem_probe::t_in_probe) {
+      const uint32_t r = ++g_phys_alloc_real_failures;
+      if (r <= 64 || r % 64 == 0) {
+        REXLOG_ERROR("[wwe2k14][mem] MmAllocatePhysicalMemoryEx REAL failure #{} (outside a free-memory probe; the game may use "
+                     "the 0 untested): size=0x{:X} protect=0x{:X} min=0x{:X} max=0x{:X} align=0x{:X} flags=0x{:X} "
+                     "offset_ignored={} fast_failed={} frame={}; {}; {}",
+                     r, region_size, protect_bits, min_addr, max_addr, alignment, flags, call_min != min_addr, fast_failed,
+                     g_guest_frame.load(std::memory_order_relaxed), GuestCallerForLog(), PhysRangeCensus(call_min, call_max));
+      }
+    }
     if (n <= 40 || n % 500 == 0) {
       REXLOG_WARN("[wwe2k14][mem] MmAllocatePhysicalMemoryEx failed #{} (of {} calls): size=0x{:X} "
                   "protect=0x{:X} min=0x{:X} max=0x{:X} align=0x{:X} flags=0x{:X} offset_ignored={} "
@@ -329,7 +403,9 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
 
 }  // namespace wwe2k14
 
-REX_HOOK(__imp__MmAllocatePhysicalMemoryEx, wwe2k14::MmAllocatePhysicalMemoryExOverride)
+#include "heap_alloc_log.h"  // S110 PAC176CRASH diagnostic: --wwe2k14_heap_alloc_log (DEV ONLY, default off); needs GuestCallerForLog above
+
+REX_HOOK(__imp__MmAllocatePhysicalMemoryEx,wwe2k14::MmAllocatePhysicalMemoryExOverride)
 REX_HOOK(__imp__NtCreateFile, wwe2k14::NtCreateFileOverride)
 REX_HOOK(__imp__NtOpenFile, wwe2k14::NtOpenFileOverride)
 REX_HOOK(__imp__VdSwap, wwe2k14::VdSwapOverride)

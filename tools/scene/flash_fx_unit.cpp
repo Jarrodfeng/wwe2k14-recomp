@@ -22,6 +22,7 @@
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/scene_live/flash_fx_contrib.h"
+#include "../../src/lever_scene.h"   // S110 FLASHHOLD F2: HoldFactor (pure)
 
 using namespace rdr_scene;
 using rdr_scene::live::Counters;
@@ -126,6 +127,185 @@ static const StageFxRow* RowOf(const std::vector<StageFxRow>& v, uint16_t slot) 
   for (const StageFxRow& r : v)
     if (r.kind == kFxFlash && r.slot == slot) return &r;
   return nullptr;
+}
+
+// S110 FLASHHOLD (flash_hold_core.h): the hold of each flash row for k guest frames. A game flash is two rows on two guest frames: counter 2 (0.5), counter 3 (0.15).
+// The plant "hold_never_releases" is a fault in the output (the last shown row stays after the hold ended): the k = 2 sequence check must catch it.
+static StageFxRow GameRow(uint16_t slot, uint32_t counter, float scale) {
+  StageFxRow r;
+  r.kind = kFxFlash;
+  r.slot = slot;
+  r.seq = counter;
+  r.scale = scale;
+  return r;
+}
+static std::vector<StageFxRow> g_prev_out;
+static std::vector<StageFxRow> Hold(ffx::HoldState& st, uint64_t f, uint32_t k, std::vector<StageFxRow> in) {
+  std::vector<StageFxRow> out;
+  ffx::HoldRows(in, f, k, st, out);
+  if (Plant("hold_never_releases") && out.empty()) out = g_prev_out;   // the fault: nothing releases the last row
+  g_prev_out = out;
+  return out;
+}
+// a string of the scales shown on a slot per frame, "-" for none
+static std::string Scales(const std::vector<std::vector<StageFxRow>>& frames, uint16_t slot) {
+  std::string s;
+  for (const auto& fr : frames) {
+    const StageFxRow* r = RowOf(fr, slot);
+    s += r ? (Near(r->scale, 0.5f) ? "5 " : Near(r->scale, 0.15f) ? "1 " : "? ") : "- ";
+  }
+  return s;
+}
+static void RunHoldCases() {
+  const StageFxRow a0 = GameRow(3, 2, 0.5f), a1 = GameRow(3, 3, 0.15f);
+  {   // k = 2: the game gives row 0 at f0, row 1 at f1, nothing after: 0.5 0.5 0.15 0.15 then nothing
+    ffx::HoldState st;
+    g_prev_out.clear();
+    std::vector<std::vector<StageFxRow>> fr;
+    fr.push_back(Hold(st, 100, 2, {a0}));
+    fr.push_back(Hold(st, 101, 2, {a1}));
+    for (uint64_t f = 102; f < 106; ++f) fr.push_back(Hold(st, f, 2, {}));
+    const std::string got = Scales(fr, 3);
+    Check(got == "5 5 1 1 - - ", "hold.k2_sequence", got);
+  }
+  {   // k = 1: byte-for-byte pass-through, also the same row twice; and it resets the state
+    ffx::HoldState st;
+    std::vector<StageFxRow> in = {a0, GameRow(5, 2, 0.5f)}, out;
+    ffx::HoldRows({a0}, 100, 2, st, out);   // arm a hold
+    out.clear();
+    const uint32_t held = ffx::HoldRows(in, 101, 1, st, out);
+    bool ok = held == 0 && out.size() == in.size() && std::memcmp(out.data(), in.data(), in.size() * sizeof(StageFxRow)) == 0;
+    std::vector<StageFxRow> after;
+    ffx::HoldRows({}, 102, 2, st, after);   // the hold was reset: nothing of the old flash comes back
+    Check(ok && after.empty(), "hold.k1_passthrough", "held " + std::to_string(held) + " after " + std::to_string(after.size()));
+  }
+  {   // the same guest frame asked twice gives the same output and does not advance the hold (Emit's re-take)
+    ffx::HoldState st;
+    std::vector<StageFxRow> o1, o2, o3, o4;
+    ffx::HoldRows({a0}, 100, 2, st, o1);
+    ffx::HoldRows({a1}, 101, 2, st, o2);
+    ffx::HoldRows({}, 101, 2, st, o3);   // the re-take: the game rows are not given again
+    ffx::HoldRows({}, 102, 2, st, o4);
+    const bool ok = o2.size() == 1 && o3.size() == 1 && std::memcmp(&o2[0], &o3[0], sizeof(StageFxRow)) == 0 && o4.size() == 1 && Near(o4[0].scale, 0.15f);
+    Check(ok, "hold.same_frame_twice", "o3 " + std::to_string(o3.size()) + " o4 " + std::to_string(o4.size()));
+  }
+  {   // a respawn in the slot mid-hold restarts the hold: the new flash's row 0 at f2 shows f2, f3 (the old row 1 is dropped)
+    ffx::HoldState st;
+    g_prev_out.clear();
+    std::vector<std::vector<StageFxRow>> fr;
+    fr.push_back(Hold(st, 100, 2, {a0}));
+    fr.push_back(Hold(st, 101, 2, {a1}));
+    fr.push_back(Hold(st, 102, 2, {a0}));   // respawn: counter 2 again
+    fr.push_back(Hold(st, 103, 2, {a1}));
+    for (uint64_t f = 104; f < 107; ++f) fr.push_back(Hold(st, f, 2, {}));
+    const std::string got = Scales(fr, 3);
+    Check(got == "5 5 5 5 1 1 - ", "hold.respawn_mid_hold", got);
+  }
+  {   // two slots at different phases are independent
+    ffx::HoldState st;
+    g_prev_out.clear();
+    const StageFxRow b0 = GameRow(8, 2, 0.5f), b1 = GameRow(8, 3, 0.15f);
+    std::vector<std::vector<StageFxRow>> fr;
+    fr.push_back(Hold(st, 100, 2, {a0}));
+    fr.push_back(Hold(st, 101, 2, {a1, b0}));
+    fr.push_back(Hold(st, 102, 2, {b1}));
+    for (uint64_t f = 103; f < 106; ++f) fr.push_back(Hold(st, f, 2, {}));
+    const std::string sa = Scales(fr, 3), sb = Scales(fr, 8);
+    Check(sa == "5 5 1 1 - - " && sb == "- 5 5 1 1 - ", "hold.two_slots", sa + "| " + sb);
+  }
+  {   // the flag clears mid-flash (k 2 -> 1): the game's rows pass through, the held row does not stick
+    ffx::HoldState st;
+    g_prev_out.clear();
+    std::vector<std::vector<StageFxRow>> fr;
+    fr.push_back(Hold(st, 100, 2, {a0}));
+    fr.push_back(Hold(st, 101, 2, {a1}));
+    fr.push_back(Hold(st, 102, 1, {}));   // cleared: the game shows nothing now
+    fr.push_back(Hold(st, 103, 1, {}));
+    Check(Scales(fr, 3) == "5 5 - - ", "hold.flag_clears_no_stuck_row", Scales(fr, 3));
+    ffx::HoldState s2;   // and a flash begun after the clear starts clean
+    std::vector<StageFxRow> o;
+    ffx::HoldRows({a0}, 110, 2, s2, o);
+    ffx::HoldRows({}, 111, 1, s2, o);
+    o.clear();
+    ffx::HoldRows({a0}, 112, 2, s2, o);
+    Check(o.size() == 1 && Near(o[0].scale, 0.5f), "hold.restart_after_clear");
+  }
+  {   // the held count: rows from the hold, not from the game this frame (f0: 0, f1: row 0 held while the game gives row 1 -> the row shown is the held row 0: 1)
+    ffx::HoldState st;
+    std::vector<StageFxRow> o;
+    const uint32_t h0 = ffx::HoldRows({a0}, 100, 2, st, o);
+    const uint32_t h1 = ffx::HoldRows({a1}, 101, 2, st, o);
+    const uint32_t h2 = ffx::HoldRows({}, 102, 2, st, o);
+    Check(h0 == 0 && h1 == 1 && h2 == 1, "hold.held_count", std::to_string(h0) + std::to_string(h1) + std::to_string(h2));
+    Check(o.size() == 3 && !(o[0].flags & kFxfHeld) && (o[1].flags & kFxfHeld) && (o[2].flags & kFxfHeld), "hold.held_flag");   // S110 FLASHOCC: a held row says so (the near-flash census line)
+  }
+}
+
+// S110 FLASHHOLD review F2: the hold factor k = round(presented updates per second / the game's own rate for the scene), as one table.
+// The plant "factor_word60" is the first build's rule (k = 2 only when the lever flag is set and the word is 60): the 120 rows must fail it.
+static uint32_t Factor(bool lever, uint32_t game_word, uint32_t frame_word, int32_t applied_hz) {
+  if (Plant("factor_word60")) return lever && frame_word == 60 ? 2u : 1u;
+  return wwe2k14::HoldFactor(lever, game_word, frame_word, applied_hz);
+}
+static void RunFactorAndContribHoldCases() {
+  {
+    struct Row { bool lever; uint32_t game_word, frame_word; int32_t applied_hz; uint32_t want; const char* what; };
+    const Row rows[] = {
+        {true, 60, 60, 0, 2, "our skip at 60"},
+        {true, 60, 120, 120, 4, "our skip at step 120"},
+        {false, 30, 60, 120, 2, "a stock 30 scene scaled to 60"},
+        {false, 60, 120, 120, 2, "a real 60 match at step 120"},
+        {false, 60, 60, 0, 1, "a plain 60 match"},
+        {false, 30, 30, 0, 1, "word 30 unscaled"},
+        {false, 60, 30, 30, 1, "a match at step 30 (word kept 60, 30 a second)"},
+        {true, 30, 30, 0, 1, "our flag with a real halve (word 30)"},
+        {false, 0, 0, 0, 1, "nothing seen yet"},
+    };
+    bool ok = true;
+    std::string why;
+    for (const Row& r : rows) {
+      const uint32_t k = Factor(r.lever, r.game_word, r.frame_word, r.applied_hz);
+      if (k != r.want) ok = false, why += std::string(" ") + r.what + ": k " + std::to_string(k) + " want " + std::to_string(r.want) + ";";
+    }
+    Check(ok, "hold.factor_table", why);
+  }
+  {   // k = 4 (our skip at step 120): each game row 4 guest frames, then nothing
+    ffx::HoldState st;
+    g_prev_out.clear();
+    const StageFxRow a0 = GameRow(3, 2, 0.5f), a1 = GameRow(3, 3, 0.15f);
+    std::vector<std::vector<StageFxRow>> fr;
+    fr.push_back(Hold(st, 100, 4, {a0}));
+    fr.push_back(Hold(st, 101, 4, {a1}));
+    for (uint64_t f = 102; f < 110; ++f) fr.push_back(Hold(st, f, 4, {}));
+    const std::string got = Scales(fr, 3);
+    Check(got == "5 5 5 5 1 1 1 1 - - ", "hold.k4_sequence", got);
+  }
+  {   // the production order: Latch -> Take -> BuildFlashRows -> HoldRows with the glue's factor (SetHoldFn), one flash in slot 10 (life 3: drawn at counter 2, then 3 + done)
+    struct Step { uint32_t done, counter; float scale; };
+    const Step steps[] = {{0, 2, 0.5f}, {1, 3, 0.15f}, {1, 3, 0.15f}, {1, 3, 0.15f}, {1, 3, 0.15f}};
+    ffx::FlashFxContributor con;
+    con.SetReader(ReadThunk);
+    if (!Plant("hold_fn_unwired")) con.SetHoldFn(+[]() -> uint32_t { return 2u; });
+    std::vector<std::vector<StageFxRow>> fr;
+    uint64_t frame = 900;
+    for (const Step& s : steps) {
+      BuildGuest();
+      const uint32_t arr = kM + ffx::kItemArray;
+      for (uint32_t i = 0; i < ffx::kItemCount; ++i) g_guest.Put(arr + 4 * i, 0);   // only slot 10
+      PutItem({10, 5.f, -5.f, 5.f, s.scale, s.done, s.counter, 3, 1, 0, 1, 0, ffx::kItemVtable});
+      g_guest.Put(arr + 40, ItemAddr(10));
+      FrameInfo f;
+      f.guest_frame = frame++;
+      con.Latch(f);
+      SceneTables t;
+      Counters c;
+      con.Emit(f, t, c);
+      fr.push_back(t.stage_fx);
+    }
+    BuildGuest();
+    const std::string got = Scales(fr, 10);
+    Check(got == "5 5 1 1 - ", "hold.contrib_take", got + " held " + std::to_string(con.Stats().held));
+  }
 }
 
 int main(int argc, char** argv) {
@@ -261,6 +441,8 @@ int main(int argc, char** argv) {
     Check(ok, "record.roundtrip", err);
     std::remove(path.c_str());
   }
+  RunHoldCases();
+  RunFactorAndContribHoldCases();
   std::printf("%s: %d checks, %d failed\n", g_fail ? "FAIL" : "OK", g_checks, g_fail);
   return g_fail ? 1 : 0;
 }

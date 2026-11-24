@@ -183,6 +183,7 @@ struct Inputs {
   std::vector<float> rest[kSides];    // the buffer's matrices as they stand: 16 floats per row, rows 0 .. max row + 1 (host order)
   RopeView view;                      // S103 RLB: the draw thread's camera at the ring hook (the rope LOD rule's eye and forward)
   LodParams lod;                      // the game's T block (defaults = the game's; a unit test plants a fault here)
+  uint32_t rids = 0;                  // S110 RINGBREAK: the classes (ringrids::kBit*) whose own gates passed while the ring is in motion posing (bit 0 of 0x837632FA): their rows come from the RIDS slot copies
 };
 
 struct RingCensus {
@@ -193,6 +194,7 @@ struct RingCensus {
   uint64_t cv_low = 0, post_low = 0, lod_dist_unreadable = 0, cv_lo_unreadable = 0, post_lo_unreadable = 0;   // (S105 C4 fix F4: cv_lo / post_lo_unreadable = a named low model that could not be read: the high one stands in)   // S105 C4: the low cover / post rows chosen by the distance test; the threshold read failed (the high model stands in, counted)
   uint64_t lod_lo = 0, lod_hi = 0, lod_nocam = 0;   // S103 RLB: our rope LOD class counts (the game/ours compare is offline: PairLod, tools\\scene\\ring_compare.cpp)
   uint64_t delta[9] = {};   // noted hook frame - the latched hook frame: -3..+3 in 0..6, other 7, never noted 8 (the clock question of run 13)
+  uint64_t rids_rows = 0, rids_refused = 0, rids_no_set = 0, post_rids = 0, canvas_rows = 0, canvas_unreadable = 0;   // S110 RINGBREAK: rows from the RIDS slot copies; refused slots (model < 0x10000, no class, bad node count, a slot past 44); frames whose copies were not published; posts' RIDS frames; the canvas row
 };
 
 // P(a, b, r): the rope's rest point on the ring edge (sub_826C81D8). Single precision in the game's operation order.
@@ -394,7 +396,8 @@ inline void AppendTurnbuckle(const TbInputs& in, uint32_t c, uint32_t h, uint32_
 //     else [model + 252] = min(f0, 1). Grid mode: vtable +84 (the pose: skin = inverse bind x world, ring.md 2.1) then +52 (the submit, which is what the game's RingRows copy at the call).
 //   Run 16 (tools\scene\ring_cover_fit_check.py): cover node 2's skin translation = grid record + inv.t * R(angle) with ONE constant inv.t (284.997, -0.0001, 285.0) to 1e-4 for all 12 instances, record side
 //     (r25 + 1) % 4, c = 0, angle 0 / pi/2 / pi / -pi/2 for r25 = 0..3; nodes 0 / 1 identity.
-// NOT replicated, counted: table mode ([X + 100] != 0: RIDS copy), RIDS playback (byte 0x837632FA bit 0), the alt ring, the cover LOD's far test (both models' entries are given when [G + 40] != 0: cv_lod_both).
+// NOT replicated, counted: table mode ([X + 100] != 0: RIDS copy), the alt ring, the cover LOD's far test (both models' entries are given when [G + 40] != 0: cv_lod_both). RIDS playback (byte 0x837632FA bit 0) IS
+// replicated since S110 RINGBREAK: the hook runs the game's own sub_82595CB0 per slot and the rows come from ring_rids_pose.h (the grid rule above is not used in that mode).
 // ======================================================================================================================================================================================================
 inline constexpr uint32_t kCvCountOff = 127728, kCvDescOff = 127584, kCvDescStride = 12, kCvAlphaOff = 9368, kCvOvrFlagOff = 9456, kCvOvrVecOff = 9392, kCvModelHi = 36, kCvModelLo = 40;
 inline constexpr uint32_t kCvAngBase = 0x8201D4D0, kCvAngStep = 0x82000ADC, kCvPi = 0x82118560, kCvNegPi = 0x82000A94, kCvTwoPi = 0x82000A98;
@@ -513,7 +516,7 @@ inline void AppendCover(const CvInputs& in, const Inputs& grid, uint32_t mi, uin
 // POSTS = sub_825CCFE0 loop 1 (i = 0..3), model [G + 48] (high) or [G + 52] (low, far from the view; the test is the same view-distance rule as the covers, [U]).
 // [C listing: docs\systems\ring.md section 2 (0x825CD088-0x825CD230): sub_82C32DE0(model + 32, i * [0x82000ADC]) writes the Y rotation into the model's ROOT matrix, vtable +84 poses]. The palette of every node
 // is then that rotation (run 16: 4 calls a frame, 3 nodes, all three rows equal RotY(i pi/2), zero translation, for all 383 records; tools\scene\ring_post_static_check.py compares them with this rule bit for bit).
-// So the post rows have NO input from the game: the angle table alone. Counted not replicated: table mode (X + 100: RIDS copy), RIDS playback, the alt ring (2 posts).
+// So the post rows have NO input from the game: the angle table alone. Counted not replicated: table mode (X + 100: RIDS copy), the alt ring (2 posts). RIDS playback: S110 RINGBREAK, the rows are the slot copies (ring_rids_pose.h).
 // ======================================================================================================================================================================================================
 inline constexpr uint32_t kPostModelHi = 48, kPostModelLo = 52, kPostCorners = 4, kPostModels = 2;
 struct PostInputs {
@@ -637,7 +640,8 @@ inline void AppendSkirt(const ModelPal& m, uint32_t idx, uint32_t frame, std::ve
 
 // ======================================================================================================================================================================================================
 // THE WHOLE RING (input bit 6, ring_rows): clean = every piece the colour callback writes has its rows for THIS record: 12 ropes, 12 turnbuckles, 12 covers, 4 posts, 3-4 skirts, and none of the not-replicated
-// paths was taken (override gate, table mode, RIDS, alt ring). The canvas is not posed by anything under OURS and never changes (run 16, tools\scene\ring_post_static_check.py): it is drawn at rest and has no rows.
+// paths was taken (override gate, table mode, alt ring). S110 RINGBREAK: RIDS playback counts through the slot copies like any other row source. The canvas IS posed (the mat bounce in every match, sub_82608CB0 +0x1F0..+0x214,
+// and the motion in the break): its palette is read at the latch into one kRcCanvas row (ring_rids_pose.h AppendCanvas); run 16 only saw it still. The verdict does not wait for it (it has its own group in the renderer).
 // ======================================================================================================================================================================================================
 struct WholeRing {
   uint32_t ropes = 0, turnbuckles = 0, covers = 0, covers_hidden = 0, posts = 0, skirts = 0;

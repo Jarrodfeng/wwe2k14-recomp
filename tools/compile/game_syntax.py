@@ -214,6 +214,7 @@ def norm_args(args, roots):
     return out
 
 
+NO_MAIN_PCH = False   # S110 SYNTAXPCH: --no-pch
 KEY_SALT = 'syntax-v2:-w'   # S105 CC: the parse now runs with -w (not -Wno-everything, which also hid clang's default-error diagnostics such as -Wc++11-narrowing): old stored passes must not be served
 FAIL_RX = re.compile(r':\d+:\d+: (?:fatal )?error:')
 CRASH_RX = re.compile(r'PLEASE submit a bug report|Stack dump|LLVM ERROR|out of memory|bad_alloc|Assertion|Segmentation|frontend command failed|error in backend|timed out')
@@ -290,17 +291,43 @@ PCH_SKIPS = []   # (unit, reason) of units that were PCH candidates (a reference
 PCH_STATS = {'used': 0, 'fallback': 0, 'rebuilt': 0}
 
 
+def _strip_main_inc(args, header):
+    """`args` without the `-include <header>` pair with_pch added (main.cpp's plain-text pch_main.h), or None when it holds none."""
+    h = header.replace('\\', '/').lower()
+    for i in range(len(args) - 1):
+        if args[i] == '-include' and args[i + 1].replace('\\', '/').lower() == h:
+            return args[:i] + args[i + 2:]
+    return None
+
+
+def main_pch_ref(root, main, flags):
+    """S110 SYNTAXPCH: main.cpp's PCH reference for one build = src/pch_main.h (the file the real build precompiles) built with main.cpp's own flags + -fpch-instantiate-templates (as CMake's
+    PCH_INSTANTIATE_TEMPLATES does). One per build: clang refuses to share one across WWE2K14_KEEP_STREAM values. Same key rule as every PCH (syntax_pch._key): the expanded closure of the header
+    (-E -P -dD) + the flags + the build-only extra flag + clang + tree root; clang's own input check (mtime / size) rejects a touched one and the existing rebuild-once / loud-fallback rules apply."""
+    ref = _pch.make_ref(root, _clean(tree_args(root, main, flags)), header=os.path.abspath(os.path.join(root, 'src', 'pch_main.h')).replace('\\', '/'))
+    ref['extra'] = ['-fpch-instantiate-templates']
+    ref['main'] = True
+    return ref
+
+
 def assign_pch(jobs, args, pch_refs):
-    """[ref or None] per job: the PCH reference whose flag list the unit's flags equal and whose unit text allows it. A unit that cannot use one is recorded in PCH_SKIPS (quiet reasons are not)."""
+    """[ref or None] per job: the PCH reference whose flag list the unit's flags equal and whose unit text allows it. A unit that cannot use one is recorded in PCH_SKIPS (quiet reasons are not).
+    A main.cpp reference matches a job whose flags carry the plain `-include pch_main.h` (with_pch) and equal the reference's without it; that pair is then removed from args[i] (the PCH supplies it)."""
     out = [None] * len(jobs)
     if not pch_refs or os.environ.get('GAME_SYNTAX_NO_CACHE'):
         return out
     for i, j in enumerate(jobs):
         reasons = []
         for ref in pch_refs:
-            good, why = _pch.unit_ok(args[i], ref['args'], j[2], force=_forced(j[2]))
+            a = args[i]
+            if ref.get('main'):
+                a = _strip_main_inc(a, ref['header'])
+                if a is None:
+                    continue
+            good, why = _pch.unit_ok(a, ref['args'], j[2], force=_forced(j[2]))
             if good:
                 out[i] = ref
+                args[i] = a
                 break
             reasons.append(why)
         loud = [r for r in reasons if not r.startswith('-')]
@@ -353,6 +380,8 @@ def syntax_run(args, unit_path, roots, key, pch=None):
         if r is None:
             PCH_STATS['fallback'] += 1
             print('PCH FALLBACK: %s parsed without the PCH (%s)' % (unit_path, pch['note'] or 'the PCH was evicted by another run or lost a build race'), flush=True)
+            if pch.get('main'):
+                args = args + ['-include', pch['header']]   # the plain parse of today: pch_main.h as text (a main.cpp PCH never drops the header from the parse)
             k2, hit = syntax_lookup(args, unit_path, roots)
             if hit is not None:
                 return hit
@@ -740,6 +769,12 @@ def run_changed(a, root, main_dir):
     bad = 0
     refs = []
     set_force(root, [u for u in units if u != 'src/main.cpp'])   # S106 G4-4 / 4F: every GAME unit (not the launcher target, not main.cpp) parses with the build's force-include (PCH or plain text)
+    if jobs and not NO_MAIN_PCH and not os.environ.get('GAME_SYNTAX_NO_CACHE') and os.path.isfile(os.path.join(root, 'src', 'pch_main.h')):
+        for b in builds:   # S110 SYNTAXPCH: main.cpp parses through a PCH of src/pch_main.h (one per build), like the real build; --no-pch = the plain-text parse
+            try:
+                refs.append(main_pch_ref(root, main_dir, flags_for(build_lines[b], main_dir.replace('\\', '/'), 'src/main.cpp')))
+            except RuntimeError:
+                pass   # a build that does not compile main.cpp
     if jobs and not os.environ.get('GAME_SYNTAX_NO_CACHE') and os.path.isfile(_pch.header_path(root)):
         for b in builds:   # S105 PCH: one reference per build = start_settings.cpp's flags (every plain game unit has them); launcher / importer units and main.cpp differ and skip the PCH
             refs.append(_pch.make_ref(root, _clean(tree_args(root, main_dir, flags_for(build_lines[b], main_dir.replace('\\', '/'), 'src/start_settings.cpp')))))
@@ -757,6 +792,9 @@ def run_changed(a, root, main_dir):
         if refs:
             print('PCH: %d units parsed with it, %d rebuilt after a clang rejection, %d fell back, %d PCH builds (%s)' % (
                 PCH_STATS['used'], PCH_STATS['rebuilt'], PCH_STATS['fallback'], sum(r['builds'] for r in refs), '+'.join(builds)))
+            for r in (r for r in refs if r.get('main')):
+                print('main.cpp PCH (pch_main.h, %s build): %s' % ('on' if '-DWWE2K14_KEEP_STREAM=1' in r['args'] else 'off',
+                      ('built in %.1f s' % r['build_s']) if r['builds'] else ('reused' if r['path'] else 'not needed (store hit) or not built')))
             for r in refs:
                 if r['note']:
                     print('PCH NOTE: %s' % r['note'])
@@ -798,7 +836,10 @@ def main():
     ap.add_argument('--files', default='')
     ap.add_argument('--no-twin', action='store_true')
     ap.add_argument('--no-cache', action='store_true', help='neither read nor write the result store: every unit is parsed')
+    ap.add_argument('--no-pch', action='store_true', help='main.cpp is parsed with pch_main.h as plain text (no PCH for it), as before S110 SYNTAXPCH')
     a = ap.parse_args()
+    global NO_MAIN_PCH
+    NO_MAIN_PCH = a.no_pch
     if a.no_cache:
         os.environ['GAME_SYNTAX_NO_CACHE'] = '1'
     root = os.path.abspath(a.root)

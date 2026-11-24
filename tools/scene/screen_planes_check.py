@@ -12,7 +12,7 @@ CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {
     'swap_channels': 'bind.key_to_movie',            # a screen bound to the WRONG MOVIE SLOT (the reversed / wrong-surface class)
     'wrong_buffer': 'copy.display_buffer', 'ignore_pitch': 'copy.pitch', 'swap_chroma': 'copy.chroma_order',
-    'lazy_copy': 'copy.stable', 'size_ignored': 'bind.expected_size', 'stamp_always': 'screens.complete_gate', 'gate_800': 'screens.complete_gate', 'stage_ignored': 'copy.needs_stage', 'banner_to_ch5': 'bind.default_table', 'panels_ch2': 'bind.panels_channel1', 'ignore_state': 'bind.not_ready_not_copied', 'unbound_falls_back': 'bind.unbound_none', 'ignore_serial': 'serial.exact', 'mode_ignored': 'mode.off_no_work', 'idle_off': 'screens.idle_gate', 'idle_window0': 'screens.idle_gate', 'idle_ignores_channels': 'screens.idle_gate', 'idle_keeps_texture': 'screens.idle_drops_texture', 'stale_movie_kept': 'screens.no_row_black',   # S103 HN
+    'lazy_copy': 'copy.stable', 'size_ignored': 'bind.expected_size', 'stamp_always': 'screens.complete_gate', 'gate_800': 'screens.complete_gate', 'stage_ignored': 'copy.needs_stage', 'banner_to_ch5': 'bind.default_table', 'panels_ch2': 'bind.panels_channel1', 'ignore_state': 'bind.not_ready_not_copied', 'unbound_falls_back': 'bind.unbound_none', 'ignore_serial': 'serial.exact', 'mode_ignored': 'mode.off_no_work', 'idle_off': 'screens.idle_gate', 'idle_window0': 'screens.idle_gate', 'idle_ignores_channels': 'screens.idle_gate', 'idle_keeps_texture': 'screens.idle_drops_texture', 'gap_reset': 'screens.idle_frame_jump',   # S110 MINITRON (the old debounce that restarted on a guest-frame jump > 2)
       # S103 E7
     'sheet_512': 'default.accepts_shim_sheet',   # S110 TRONSHEET: the shim's pre-fix sheet texture (width >= 512) is refused by the store
     'stale_screen_pic': 'screens.pic_refresh',   # S103 SCN: the 805 picture never refreshes (run 38)
@@ -71,7 +71,7 @@ def main():
         ('src/renderer_scene/live_scene_draw.cpp', 'InvalidateLiveScreen(', 'S103 SCX (was N3): the slot-800 live screen is dropped only on a scene change (stageless record) or another arena; a drawn-frame gap keeps it'),
         ('src/renderer_scene/rf_screens.cpp', 'holes += 1', "N1: a look whose screen set is missing while the other look's exists is a hole, never open"),
         ('src/scene_live/stage_fx_contrib.h', 's800_required_tron', 'N4: the census counts 800 required because a tron is live'),
-        ('src/renderer_scene/rf_screens.cpp', 'NoRowGoesBlack(', 'S103 HN: a shown screen with no sized row goes to the idle black, never keeps the last picture'),
+        ('src/renderer_scene/rf_screens.cpp', 'IdleNow(', 'S110 MINITRON: a shown screen with no sized row is idle at once (the grab in a match), no frame debounce'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

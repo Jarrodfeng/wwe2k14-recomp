@@ -6,11 +6,16 @@
 //   row_rule   the hook names bodies from the participant row   -> "swap.desc_follows_body", "rumble.rows_full_named", "rumble.seat_reoccupied" (it passes the real remap case)
 //   desc_1220  the first SKY rule: the descriptor indexed by +1220 even with the remap active -> "remap.follows_1224"
 //   scale_by_slot  S110 MGRFINGERS: the old scale read, D[slot-table position] + 12 -> "scale.follows_1224", "scale.not_from_slot_record" (no remap: "scale.inactive_equals_slot" still passes)
+//   desc_index  S110 DESCKEY: the old key (D indexed by +1224, DescKey) and the old latch (D_s+12 with no identity) -> "relay.key_follows_model_desc", "relay.scale_held"
+//   no_key_check  S110 DESCKEY review: DescScale without its D_s+0 == desc+92 check (the shipped identity kept) -> "relay.scale_not_from_other_record"
+//   no_loaded_check  S110 DESCKEY review: CharModelDesc without its desc+52 refusal (a freed descriptor, +92 = -1, or a stale key) -> "bad.freed_descriptor"
+//   whole_key  S110 DESCKEY review: the scale check and identity on the whole key, not the character -> "kept.scale_latched_across_attire"
 #include <cstdio>
 #include <cstring>
 #include <map>
 #include <string>
 
+#include "../../src/renderer_scene/body_scale.h"
 #include "../../src/scene_live/slot_key.h"
 #include "../../src/scene_live/wrestler_contrib.h"
 
@@ -38,13 +43,17 @@ struct Guest {
   void W(uint32_t a, uint32_t v) { m[a] = v; }
   bool Read(uint32_t a, uint32_t& v) const { auto it = m.find(a); if (it == m.end()) return false; v = it->second; return true; }
   uint32_t Desc(uint32_t s) const { return ctx + 864 + 80 * s; }
-  void Init() { W(kRowsRoot, rows); W(kMatchCtx, ctx); for (uint32_t r = 0; r < 43; ++r) W(rows + 148 + 56 * r + 16, 0); }
+  // S110 DESCKEY: the character's own 192-byte model descriptor, [[0x837635A4] + 8] + 192 i (+52 loaded, +92 chosen key), found through char+3760
+  static constexpr uint32_t kMgr = 0x44000000, kArr = 0x45000000;
+  static uint32_t MDesc(uint32_t i) { return kArr + 192 * i; }
+  void Model(uint32_t ch, uint32_t i, uint32_t key) { W(ch + 3760, i); W(MDesc(i) + 52, 1); W(MDesc(i) + 92, key); }
+  void Init() { W(kRowsRoot, rows); W(kMatchCtx, ctx); W(kSlotMgrWord, kMgr); W(kMgr + 8, kArr); for (uint32_t r = 0; r < 43; ++r) W(rows + 148 + 56 * r + 16, 0); }
   void Row(uint32_t r, uint32_t key) { W(rows + 148 + 56 * r + 16, key); }
   // sub_82314128 for manager index i: descriptor key, +1220, slot table entry (no remap)
-  void Seat(uint32_t i, uint32_t key, uint32_t table_index) { W(Desc(i), key); W(Char(int(i)) + 1220, i); W(kSlotTable + 4 * table_index, Char(int(i))); }
+  void Seat(uint32_t i, uint32_t key, uint32_t table_index) { W(Desc(i), key); W(Char(int(i)) + 1220, i); W(kSlotTable + 4 * table_index, Char(int(i))); Model(Char(int(i)), i, key); }
 };
 
-static bool g_plant_row = false, g_plant_1220 = false, g_plant_scale_slot = false;
+static bool g_plant_row = false, g_plant_1220 = false, g_plant_scale_slot = false, g_plant_desc_index = false, g_plant_no_key_check = false, g_plant_no_loaded = false, g_plant_whole_key = false;
 // S110 MGRFINGERS: the body scale of the slot's body: the shipped DescScale, or (planted) the old read D[slot position] + 12. ok=false = no scale.
 static float F(uint32_t bits) { float f; std::memcpy(&f, &bits, 4); return f; }
 static uint32_t Bits(float f) { uint32_t b; std::memcpy(&b, &f, 4); return b; }
@@ -70,12 +79,46 @@ static uint32_t Name(const Guest& g, int slot) {
     if (slot < 0 || slot > 8 || !ch || !rd(ch + 1220, s) || s > 8 || !rd(kMatchCtx, ctx) || !rd(ctx + 864 + 80 * s, key) || !ValidKey(key)) return 0;
     return key;
   }
+  if (g_plant_desc_index) return slot < 0 || slot > 8 ? 0u : DescKey(rd, ch);   // planted twin: the key read through the match record (+1224), before S110 DESCKEY
+  if (g_plant_no_loaded) {   // planted twin: CharModelDesc with no desc+52 refusal
+    uint32_t i = 0, mgr = 0, arr = 0, key = 0;
+    if (slot < 0 || slot > 8 || !ch || !rd(ch + 3760, i) || i >= kDescCount || !rd(kSlotMgrWord, mgr) || !rd(mgr + 8, arr) || !rd(arr + 192 * i + 92, key) || !ValidKey(key)) return 0;
+    return key;
+  }
   return SlotKeyOf(rd, slot, ch, !g_plant_row);
+}
+
+// The hook's scale-latch step (wrestler_hook.h OnSkelExit): DescScale, then SetLatch with the model identity (descriptor x key). The plant is the old step: the record read with no key check, no identity.
+static void LatchStep(const Guest& g, int slot, uint32_t obj) {
+  uint32_t ch = 0;
+  g.Read(kSlotTable + 4 * uint32_t(slot), ch);
+  auto rd = [&](uint32_t a, uint32_t& v) { return g.Read(a, v); };
+  float v = 0.f;
+  bool ok = false;
+  uint64_t id = 0;
+  if (g_plant_desc_index || g_plant_no_key_check) {
+    const int s = DescIndex(rd, ch);
+    uint32_t ctx = 0, key = 0, bits = 0;
+    ok = s >= 0 && rd(kMatchCtx, ctx) && ctx && rd(ctx + 864 + 80 * uint32_t(s), key) && ValidKey(key) && rd(ctx + 864 + 80 * uint32_t(s) + 12, bits);
+    if (ok) v = F(bits);
+    if (g_plant_no_key_check) id = ModelIdentity(rd, ch);   // the shipped identity: only the record's key check is dropped
+  } else if (g_plant_whole_key) {   // planted twin: the record's whole key must equal desc+92, identity descriptor x whole key
+    const int s = DescIndex(rd, ch);
+    const uint32_t mk = CharModelKey(rd, ch), d = CharModelDesc(rd, ch);
+    uint32_t ctx = 0, key = 0, bits = 0;
+    ok = s >= 0 && rd(kMatchCtx, ctx) && ctx && rd(ctx + 864 + 80 * uint32_t(s), key) && ValidKey(key) && key == mk && rd(ctx + 864 + 80 * uint32_t(s) + 12, bits);
+    if (ok) v = F(bits);
+    id = d && mk ? (uint64_t(d) << 32) | mk : 0u;
+  } else {
+    ok = DescScale(rd, ch, v);
+    id = ModelIdentity(rd, ch);
+  }
+  rdr_scene::BodyScaleTable::Get().SetLatch(obj, slot, v, ok, id);
 }
 
 int main(int argc, char** argv) {
   for (int i = 1; i + 1 < argc; ++i)
-    if (!std::strcmp(argv[i], "--plant")) { g_plant_row = !std::strcmp(argv[i + 1], "row_rule"); g_plant_1220 = !std::strcmp(argv[i + 1], "desc_1220"); g_plant_scale_slot = !std::strcmp(argv[i + 1], "scale_by_slot"); }
+    if (!std::strcmp(argv[i], "--plant")) { g_plant_row = !std::strcmp(argv[i + 1], "row_rule"); g_plant_1220 = !std::strcmp(argv[i + 1], "desc_1220"); g_plant_scale_slot = !std::strcmp(argv[i + 1], "scale_by_slot"), g_plant_desc_index = !std::strcmp(argv[i + 1], "desc_index"), g_plant_no_key_check = !std::strcmp(argv[i + 1], "no_key_check"), g_plant_no_loaded = !std::strcmp(argv[i + 1], "no_loaded_check"), g_plant_whole_key = !std::strcmp(argv[i + 1], "whole_key"); }
 
   {   // 1v1 build layout: rows 0..1 occupied, 2..5 empty
     Guest g; g.Init();
@@ -116,6 +159,7 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < 6; ++i) g.Seat(i, (100 + i) * 100 + 2, i);
     Check(Name(g, 3) == 10302, "rumble.rows_full_named: seat 3 holds entry 3 (the row rule has no key here: rows 6..39 are filled)");
     g.W(g.Desc(3), g.m[g.rows + 148 + 56 * 9 + 16]);   // entry 9 takes seat 3: D+0 = row 9's key, +1220 stays 3
+    g.W(Guest::MDesc(3) + 92, g.m[g.rows + 148 + 56 * 9 + 16]);   // the character's model descriptor takes the new model too
     Check(Name(g, 3) == 10902, "rumble.seat_reoccupied: seat 3 re-occupied by entry 9 names entry 9's key");
     auto rd = [&](uint32_t a, uint32_t& v) { return g.Read(a, v); };
     bool u = true;
@@ -149,6 +193,7 @@ int main(int argc, char** argv) {
       g.W(Guest::Char(int(j)) + 1220, table[j]);
       g.W(Guest::Char(int(j)) + 1224, j);
       g.W(kSlotTable + 4 * table[j], Guest::Char(int(j)));   // slot = table[j]
+      g.Model(Guest::Char(int(j)), j, orig[table[j]]);        // the character's own descriptor j holds its model
     }
     bool ok = true;
     for (uint32_t j = 0; j < 3; ++j) ok = ok && Name(g, int(table[j])) == orig[table[j]];
@@ -176,6 +221,7 @@ int main(int argc, char** argv) {
     g.W(g.Desc(3), 24902); g.W(g.Desc(3) + 12, Bits(s0));            // D_3 = O0
     g.W(Guest::Char(0) + 1220, 1); g.W(Guest::Char(0) + 1224, 0); g.W(kSlotTable + 4 * 1, Guest::Char(0));   // O1's body
     g.W(Guest::Char(3) + 1220, 0); g.W(Guest::Char(3) + 1224, 3); g.W(kSlotTable + 4 * 0, Guest::Char(3));   // O0's body
+    g.Model(Guest::Char(0), 0, 10402); g.Model(Guest::Char(3), 3, 24902);
     float a = 0.f, b = 0.f;
     const bool ok1 = ScaleOf(g, 1, a) && a == s1, ok0 = ScaleOf(g, 0, b) && b == s0;
     Check(ok1 && ok0, "scale.not_from_slot_record: the body at a reset record's slot gets its own scale, not 1.0; the body at another's record's slot gets its own, not the other's");
@@ -190,14 +236,54 @@ int main(int argc, char** argv) {
     float s = 0.f;
     Check(ScaleOf(g, 0, s) && s == 3664.f / 4096.f, "scale.inactive_equals_slot: no remap, the record index is the slot position, same value");
   }
+  {   // S110 DESCKEY: the real re-lay (Hogan, 30 Years pre-match). Remap on; Hogan = char 5 (+1224 = 5, +3760 = 5), model 10912 in descriptor 5, the participant request said 10912 too.
+      // A scene build then re-lays the match records: D_5 is reset (key 51200, +12 = 1.0) and 10902 lands at D_2. The game still draws descriptor 5's model: the key stays 10912 and the scale is held.
+    Guest g; g.Init();
+    const uint32_t ptr = 0x43000000, obj = 0xA8A6ABE0;
+    const uint32_t ch = Guest::Char(5);
+    g.W(kRemapTable, ptr); g.W(ptr, 1);
+    g.W(ch + 1220, 0); g.W(ch + 1224, 5); g.W(kSlotTable + 0, ch);
+    g.Model(ch, 5, 10912);
+    const float hs = 4139.f / 4096.f;
+    g.W(g.Desc(5), 10912); g.W(g.Desc(5) + 12, Bits(hs));
+    rdr_scene::BodyScaleTable::Get().Clear();
+    LatchStep(g, 0, obj);
+    Check(Name(g, 0) == 10912 && rdr_scene::BodyScaleTable::Get().FindLatch(obj) == hs, "relay.before: key and scale from the build");
+    g.W(g.Desc(5), 51200); g.W(g.Desc(5) + 12, Bits(1.0f)); g.W(g.Desc(2), 10902); g.W(g.Desc(2) + 12, Bits(hs));   // the re-lay
+    Check(Name(g, 0) == 10912, "relay.key_follows_model_desc: the key is the character's own descriptor's, not the re-laid record's");
+    LatchStep(g, 0, obj);
+    Check(rdr_scene::BodyScaleTable::Get().FindLatch(obj) == hs, "relay.scale_held: the refused record read holds the last scale while descriptor x key are unchanged");
+    const float os = 3664.f / 4096.f;   // review: a later re-lay puts ANOTHER person's valid record (24902, another scale) at D_5 (the plain-mode +1220 case, or the remap's D_j)
+    g.W(g.Desc(5), 24902); g.W(g.Desc(5) + 12, Bits(os));
+    LatchStep(g, 0, obj);
+    Check(rdr_scene::BodyScaleTable::Get().FindLatch(obj) == hs, "relay.scale_not_from_other_record: another body's valid record at the index is refused (D+0 != desc+92), the scale held");
+    g.W(g.Desc(5), 51200); g.W(g.Desc(5) + 12, Bits(1.0f));   // back to the reset record for the next case
+    g.W(Guest::MDesc(5) + 92, 24902);   // the descriptor now holds another CHARACTER's model: nothing to hold
+    LatchStep(g, 0, obj);
+    Check(rdr_scene::BodyScaleTable::Get().FindLatch(obj) == 0.f, "relay.scale_erased_for_other_model: another character's key in the descriptor erases the latch");
+    rdr_scene::BodyScaleTable::Get().Clear();
+  }
+  {   // review F3: a KEPT model (sub_8258C288 keeps on desc+28 alone): match A chose 10914 (loaded 10904), match B asks 10904. desc+92 stays 10914, D+0 = 10904: same character, same scale.
+    Guest g; g.Init();
+    const uint32_t obj = 0xA8A6ABE0;
+    const float hs = 4139.f / 4096.f;
+    g.Seat(0, 10904, 0);
+    g.W(Guest::MDesc(0) + 92, 10914); g.W(g.Desc(0) + 12, Bits(hs));
+    rdr_scene::BodyScaleTable::Get().Clear();
+    LatchStep(g, 0, obj);
+    Check(rdr_scene::BodyScaleTable::Get().FindLatch(obj) == hs, "kept.scale_latched_across_attire: D+0 10904 vs desc+92 10914 (one character) latches the character's scale");
+    rdr_scene::BodyScaleTable::Get().Clear();
+  }
   {   // bad values
     Guest g; g.Init();
     g.Seat(0, 24902, 0);
-    g.W(Guest::Char(0) + 1220, 9);
-    Check(Name(g, 0) == 0 || g_plant_row, "bad.s_out_of_range: +1220 > 8 gives no key");
-    g.W(Guest::Char(0) + 1220, 0);
-    g.W(g.Desc(0), 51200);
+    g.W(Guest::Char(0) + 1220, 9); g.W(Guest::Char(0) + 3760, 12);
+    Check(Name(g, 0) == 0 || g_plant_row, "bad.s_out_of_range: +1220 > 8 and a descriptor index >= 12 give no key");
+    g.W(Guest::Char(0) + 1220, 0); g.W(Guest::Char(0) + 3760, 0);
+    g.W(g.Desc(0), 51200); g.W(Guest::MDesc(0) + 92, 51200);
     Check(Name(g, 0) == 0 || g_plant_row, "bad.invalid_key: 51200 gives no key");
+    g.W(g.Desc(0), 24902); g.W(Guest::MDesc(0) + 92, 24902); g.W(Guest::MDesc(0) + 52, 0);   // review: a freed (or not yet loaded) descriptor whose +92 still holds a key
+    Check(Name(g, 0) == 0 || g_plant_row, "bad.freed_descriptor: desc+52 == 0 gives no key (the model is not there)");
     Check(Name(g, 9) == 0, "bad.slot_9: not a slot");
   }
   std::printf("%s\n", g_fail ? "SKY UNIT FAILED" : "SKY UNIT PASSED");

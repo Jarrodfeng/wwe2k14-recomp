@@ -54,6 +54,7 @@
 #include "owner_hires_wait.h"
 #include "owner_timing_core.h"
 #include "guest_gpu_only.h"
+#include "owner_timing_det.h"  // S110 DETBOOT: the thread takes turns under det_serial
 #include "load_turbo.h"  // S102 H2: g_load_turbo_ingame_window
 #include "keep_stream.h"  // S103 P9: WWE2K14_KEEP_STREAM
 #if WWE2K14_STREAM()  // S103 P9 (A18)
@@ -165,6 +166,7 @@ inline void RunGuestInterrupt(uint8_t* base, uint32_t source, uint32_t cpu, uint
   const uint32_t pcr = uint32_t(ctx.r13.u64);
   const uint32_t old_tls = dl::Ld32(base, pcr);
   dl::St32(base, pcr, 0);
+  rex::det::GuestCallbackScope guest_callback;  // S110 DETBOOT: guest code on this host thread reads the virtual clocks (det_time_constant), as the SDK's interrupt path
   sub_82CB5758(ctx, base);
   dl::St32(base, pcr, old_tls);
 }
@@ -269,7 +271,10 @@ struct GuestEnv {
     wait_value = value;
   }
   bool Sleep() {
-    if (VblankOurs() && g_hires.Available()) g_hires.Until(NowNs() + 200000, 0, false);
+    // S110 DETBOOT: under det_serial the word changes only in another turn or at a det vblank: give the baton up (the 5 s line below still
+    // names a wait that never ends: the game keeps getting vblanks then, so no det_serial stall line would)
+    if (owner_det::On()) owner_det::SleepStep([this] { return Ld32(wait_at) == wait_value; });
+    else if (VblankOurs() && g_hires.Available()) g_hires.Until(NowNs() + 200000, 0, false);
     else std::this_thread::sleep_for(std::chrono::microseconds(200));
     if (!wait_logged && std::chrono::steady_clock::now() - wait_t0 > std::chrono::seconds(5)) {
       wait_logged = true;
@@ -340,7 +345,39 @@ inline void JoinForItem(const Item& it, GuestEnv& env) {
 #endif
 }
 
+// One turn of the thread: the vblanks that fell due (ours only), then the gate; then the item, if any (S110 DETBOOT: both loops).
+inline void ServeTurn(GuestEnv& env, const Item* it) {
+  g_core.Turn(env);
+  if (!it) return;
+  if (it->boot_writes) {  // 3a: the boot segment's scratch write-backs, in stream order
+    for (const auto& w : g_t.boot_scratch) env.St32(w.first, w.second);
+    env.Release();
+  } else {
+    JoinForItem(*it, env);  // S102 R25-A: the reader jobs the item covers are finished before the guest can see it
+    g_core.Process(env, *it);
+  }
+}
+
 inline int Loop() {
+  if (owner_det::On()) {  // S110 DETBOOT: under det_serial a scheduler slot: work only in our turns
+    GuestEnv denv;
+    denv.base = g_t.base;
+    return owner_det::Loop<Item>(
+        [](Item& out) {
+          std::lock_guard lock(g_t.mu);
+          if (g_t.q.empty()) return false;
+          out = g_t.q.front();
+          g_t.q.pop_front();
+          return true;
+        },
+        [&denv](const Item* p) { ServeTurn(denv, p); },
+        [] {  // called by the scheduler under its lock (lock order: scheduler, then g_t.mu; Push takes g_t.mu alone)
+          std::lock_guard lock(g_t.mu);
+          return owner_det::Ready(!g_t.q.empty(), g_stop.load(std::memory_order_relaxed), g_core.gate_open,
+                                  g_core.gate_open ? dl::Ld32(g_t.base, g_core.flip_at) : 1u);
+        },
+        [] { return g_stop.load(std::memory_order_relaxed); });
+  }
   auto last_log = std::chrono::steady_clock::now();
   int64_t last_wake_ns = 0;  // S102 H2: the previous idle wake (the batched load wait)
   owner_wait::CpuMeter cpu_meter;  // lane 306: this thread's CPU in each 10 s window (the spin check)
@@ -391,16 +428,7 @@ inline int Loop() {
         have = true;
       }
     }
-    core.Turn(env);  // the vblanks that fell due (ours only), then the gate
-    if (have) {
-      if (it.boot_writes) {  // 3a: the boot segment's scratch write-backs, in stream order
-        for (const auto& w : g_t.boot_scratch) env.St32(w.first, w.second);
-        env.Release();
-      } else {
-        JoinForItem(it, env);  // S102 R25-A: the reader jobs the item covers are finished before the guest can see it (ticket 0 = the hook already waited)
-        core.Process(env, it);
-      }
-    }
+    ServeTurn(env, have ? &it : nullptr);  // the vblanks that fell due (ours only), then the gate, then the item
     static census_flush::Site cf_owner;   // S102 CEN1: a flip phase end prints the [owner] census lines (swap_tail2, vblank, ring) now
     if (census_flush::Due(cf_owner) || std::chrono::steady_clock::now() - last_log > std::chrono::seconds(10)) {
       const auto now_log = std::chrono::steady_clock::now();
@@ -447,6 +475,7 @@ inline void Start(uint8_t* base) {
   std::call_once(g_t.once, [base] {
     g_t.base = base;
     if (VblankOurs()) g_hires.Init();  // (the queue event must exist before any Push)
+    owner_det::Register();  // S110 DETBOOT: the det slot in the creator's (guest) turn, before the thread exists
     g_t.thread = rex::system::object_ref<rex::system::XHostThread>(
         new rex::system::XHostThread(REX_KERNEL_STATE(), 128 * 1024, 0, [] { return Loop(); }));
     g_t.thread->set_name("Owner timing");

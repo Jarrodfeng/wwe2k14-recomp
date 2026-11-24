@@ -1,6 +1,6 @@
 """Build the code index (SQLite) that tools/q/q.py queries. Session 8, task 5.
 
-    py tools/q/build_index.py [--image FILE] [--map FILE] [--gen DIR] [--out FILE] [-j N]
+    py tools/q/build_index.py [--image FILE] [--gen DIR] [--out FILE] [-j N]
 
 Sources (all local; nothing here is committed):
   generated/default/*_recomp.*.cpp   every function body; each PPC instruction is a `// mnemonic operands` comment.
@@ -9,7 +9,7 @@ Sources (all local; nothing here is committed):
   generated/default/codegen.stamp    codegen fingerprint (q warns when it changes after the index was built)
   out/harness/index/image.bin        guest image 0x82000000.. as loaded (app setting --wwe2k14_dump_image, see
                                       src/image_dump.h): printable strings, data pointers, MSVC RTTI
-  out/build/win-amd64-release/wwe2k14.map   host symbol -> RVA (host offset -> guest function)
+  (not the linker map: since S110 QREBUILD its host symbols live in their own file per map version, tools/q/qhostmap.py)
 Output: out/harness/index/index.db (game-derived metadata: gitignored folder, never commit).
 
 Method notes (what the data does and does not mean):
@@ -36,8 +36,10 @@ Method notes (what the data does and does not mean):
     inside a run ('split'; not when every use of the built address is a float/vector load or store) or a 2-3 char
     string ('short'; not when any use is a float/vector access, nor 'XY' + two zero bytes that read as a float
     such as 1000.0f). A reference whose address register feeds a float/vector access gets how '...,fpvec'.
-  - The build runs below normal priority and checks that the generated code, init.cpp, map and image did not change
-    while it ran (a codegen or relink by another agent): it retries up to 3 times, else leaves the old index.
+  - The build runs below normal priority and checks that the generated code, init.cpp and image did not change
+    while it ran (a codegen by another agent): it retries up to 3 times, else leaves the old index. One build at a
+    time (<out>.lock); the attempt is recorded (<out>.attempt.json); a reader holding the old file never blocks or
+    fails the swap: the new file waits beside it (<out>.pending-*) and q reads it from there (tools/q/qpublish.py).
   - RTTI: MSVC layout, big-endian. TypeDescriptor = ".?AV/.?AU" name - 8; Complete Object Locator (COL) =
     word pointing at the TypeDescriptor, at COL+12, with signature 0 at COL+0; vtable = (word pointing at the COL) + 4;
     slots = following words that are registered function starts. Base classes from the COL's class hierarchy
@@ -55,6 +57,9 @@ import sqlite3
 import struct
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qpublish  # noqa: E402  (S110 QREBUILD: the build lock, the attempt record, publishing beside a held file)
 
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 GEN = os.path.join(REPO, 'generated', 'default')
@@ -608,12 +613,26 @@ def codegen_fingerprint(gen):
         return ''
 
 
-def source_sig(gen, prefix, map_path, image_path):
+def index_key(gen, image_path):
+    """S110 QREBUILD: the identity of the inputs q's staleness check compares (codegen fingerprint; *_init.cpp and image.bin: size + whole-second
+    mtime). The attempt record (qpublish.record) carries it, so a lookup knows whether the last build was for the inputs on disk now."""
+    parts = [codegen_fingerprint(gen)]
+    for p in sorted(glob.glob(os.path.join(gen, '*_init.cpp'))) + [image_path]:
+        try:
+            st = os.stat(p)
+            parts.append(f'{os.path.basename(p)}:{st.st_size}:{int(st.st_mtime)}')
+        except OSError:
+            parts.append(f'{os.path.basename(p)}:none')
+    return hashlib.sha1('|'.join(parts).encode('utf-8')).hexdigest()[:16]
+
+
+def source_sig(gen, prefix, image_path):
     """Everything the index is built from, cheaply (stat only + the codegen fingerprint). Taken before and after a
-    build: a codegen or relink that ran in between (other agents' build.ps1) would leave a torn index."""
+    build: a codegen that ran in between (other agents' build.ps1) would leave a torn index. S110 QREBUILD: not the
+    linker map (a relink no longer touches the index)."""
     sig = [codegen_fingerprint(gen)]
     paths = [os.path.join(gen, f'{prefix}_init.cpp')] + sorted(glob.glob(os.path.join(gen, f'{prefix}_recomp.*.cpp')))
-    paths += [map_path, image_path]
+    paths += [image_path]
     for p in paths:
         try:
             st = os.stat(p)
@@ -782,8 +801,9 @@ def build(args, prefix, mapping, files, tmp):
         print(f'build_index: no image at {args.image}: strings/RTTI/data pointers skipped '
               f'(dump it with --wwe2k14_dump_image, see tools/q/README.md)', file=sys.stderr)
 
-    sections = []
-    syms = parse_map(args.map, sections) if os.path.exists(args.map) else []
+    # S110 QREBUILD: the linker map is NOT read: it changes with every relink, the game's code does not (host symbols: tools/q/qhostmap.py). The empty
+    # hostsyms table and map = None stay in the file, so an older q.py reading a new index answers "no host symbol" instead of failing.
+    sections, syms = [], []
 
     # write
     con = sqlite3.connect(tmp)
@@ -869,7 +889,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--gen', default=GEN)
     ap.add_argument('--image', default=IMAGE)
-    ap.add_argument('--map', default=MAP)
     ap.add_argument('--out', default=None,
                     help='default out/harness/index/index.db; with a --gen other than generated/default: '
                          'out/harness/index/index_<scratch name>.db (never overwrites the main index by accident)')
@@ -888,41 +907,54 @@ def main():
 
     t0 = time.time()
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    # S110 QREBUILD (tools/q/qpublish.py): ONE build at a time; the attempt is recorded (a q lookup backs off from a failed one instead of repeating it); the
+    # finished index is never forced over a file a reader holds open (the old 30 s replace loop failed, threw the build away, and the next lookup started over):
+    # it waits beside it under its own name and q reads it from there.
+    lk = qpublish.acquire(args.out)
+    if lk is None:
+        print(f'build_index: another build of {args.out} is running (pid {qpublish.holder(args.out)}): not starting a second one', file=sys.stderr)
+        raise SystemExit(3)
     tmp = f'{args.out}.{os.getpid()}.tmp'
+    # S110 review: the record carries the key of the inputs the build READ (taken after sig0: a change after it fails the check below and retries), never
+    # the inputs on disk when the record is written: a codegen landing after the last check was recorded as built, and every lookup then backed off for
+    # 10 min ("it finished, yet the index still reads stale") instead of building it.
+    key0 = index_key(args.gen, args.image)
+    qpublish.record(args.out, key0, 'running')
     try:
+        qpublish.sweep(args.out)
         for attempt in range(1, 4):
             prefix, mapping = load_mapping(args.gen)
-            sig0 = source_sig(args.gen, prefix, args.map, args.image)
+            sig0 = source_sig(args.gen, prefix, args.image)
+            key0 = index_key(args.gen, args.image)
             files = sorted(glob.glob(os.path.join(args.gen, f'{prefix}_recomp.*.cpp')),
                            key=lambda p: int(re.search(r'\.(\d+)\.cpp$', p).group(1)))
             if os.path.exists(tmp):
                 os.remove(tmp)
             meta, image_info = build(args, prefix, mapping, files, tmp)
-            if source_sig(args.gen, prefix, args.map, args.image) == sig0:
+            if source_sig(args.gen, prefix, args.image) == sig0:
                 break
-            print(f'build_index: the generated code, map or image changed while building (a codegen or relink ran); '
+            print(f'build_index: the generated code or image changed while building (a codegen ran); '
                   f'{"retrying" if attempt < 3 else "giving up"} (attempt {attempt} of 3)', file=sys.stderr)
             if attempt < 3:
                 time.sleep(15)
         else:
             raise SystemExit('build_index: sources kept changing during the build; the old index is left in place. '
-                             'Rebuild once the codegen/relink has finished.')
-        # a q.py reading the old index holds it open (Windows: no replace while open); queries take < 1 s, so retry
-        for attempt in range(60):
-            try:
-                os.replace(tmp, args.out)
-                break
-            except PermissionError:
-                if attempt == 59:
-                    raise
-                time.sleep(0.5)
+                             'Rebuild once the codegen has finished.')
+        where = qpublish.publish(tmp, args.out)
+        qpublish.record(args.out, key0, 'ok', file=where)
+    except BaseException as e:
+        qpublish.record(args.out, key0, 'failed', note=(str(e) or repr(e))[:300])
+        raise
     finally:
+        qpublish.release(lk)
         if os.path.exists(tmp):
             try:
                 os.remove(tmp)
             except OSError:
                 pass
-    print(f'index: {args.out}')
+    print(f'index: {where}')
+    if where != args.out:
+        print(f'  {args.out} is held open by a reader: the new index waits beside it; q reads it from there and puts it in place once nobody holds the old one')
     print(f'  built in {round(time.time() - t0, 1)} s (last attempt {meta["build_seconds"]} s, parse '
           f'{meta["parse_seconds"]} s, {args.j} workers, below-normal priority)')
     print('  ' + ', '.join(f'{k} {v}' for k, v in meta['counts'].items()))

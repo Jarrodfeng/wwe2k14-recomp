@@ -3,6 +3,8 @@
 # Session 80: and our scene materials (src\scene\*.frag / *.vert -> src\scene\spirv\, SCENE_SHADERS_PLAN.md).
 # Run after editing a shader; the headers are committed, so the game build needs no shader compiler.
 #   pwsh -File tools\post\build_shaders.ps1 [-Name match_combine_enhanced]
+# S110 SPIRVDATA: a header only DECLARES its array (extern const uint32_t <id>_spv[COUNT]); the words go to <stem>_data.inc, and the data units
+# (src\scene\spirv\scene_spirv_data_<k>.cpp, src\post\spirv\post_spirv_data.cpp; tools\shaders\spv_emit.py --refresh) are the only units that parse them.
 # Session 93 (idea 8): the shaders listed in $MediumpShaders get a second compile with -DMEDIUMP (hand-placed mediump colour maths,
 # out\s93\b8_mediump_notes.md) into <id>_mp.h (array <id>_mp_spv); the base header is compiled exactly as before (byte-identical).
 param([string]$Name = '')
@@ -18,6 +20,20 @@ $R = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $glslang = Get-ChildItem 'C:\VulkanSDK\*\Bin\glslangValidator.exe' -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $glslang) { $glslang = Get-Command glslangValidator -ErrorAction SilentlyContinue }
 if (-not $glslang) { throw 'glslangValidator not found (Vulkan SDK)' }
+$py = Get-Command py -ErrorAction SilentlyContinue
+if (-not $py) { throw 'py not found (the data units: tools\shaders\spv_emit.py; the multiview variants: tools\shaders\build_multiview_ps.py)' }
+
+# Compile one shader (with optional -D defines) and write <stem>.h (the declaration) + <stem>_data.inc (the words), as tools\shaders\spv_emit.py does.
+function Write-SpvPair([string]$Out, [string]$Stem, [string[]]$Comments, [string]$Ident, [string]$Spv) {
+  $bytes = [IO.File]::ReadAllBytes($Spv)
+  $words = for ($i = 0; $i -lt $bytes.Length; $i += 4) { '0x{0:X8}' -f [BitConverter]::ToUInt32($bytes, $i) }
+  $lines = for ($i = 0; $i -lt $words.Count; $i += 8) { '    ' + (($words[$i..([Math]::Min($i + 7, $words.Count - 1))]) -join ', ') + ',' }
+  $hdr = @('#pragma once') + $Comments + @('#include <cstdint>', '', "extern const uint32_t $Ident[$($words.Count)];", '')
+  Set-Content -Path (Join-Path $Out "$Stem.h") -Value ($hdr -join "`r`n") -NoNewline
+  $inc = @("const uint32_t $Ident[$($words.Count)] = {") + $lines + @('};', '')
+  Set-Content -Path (Join-Path $Out "${Stem}_data.inc") -Value ($inc -join "`r`n") -NoNewline
+}
+
 foreach ($dir in @(@{ Path = 'src\post'; Session = 'Session 72' }, @{ Path = 'src\scene'; Session = 'Session 80' })) {
   $src = Join-Path $R $dir.Path
   if (-not (Test-Path $src)) { continue }
@@ -29,46 +45,25 @@ foreach ($dir in @(@{ Path = 'src\post'; Session = 'Session 72' }, @{ Path = 'sr
     $id = if ($stage -eq 'vert') { "$($f.BaseName)_vert" } else { $f.BaseName }  # (a .vert and a .frag may share a name)
     # Session 93: one compile per shader (Session 92's split variants _s2 / _s4 are gone): xenos_vs.glsl reads the shared memory
     # through the per-draw window base, which is 0 whenever the SDK's window mode is off.
-    $variants = @(@{ Suffix = ''; Defs = @() })
-    $body = @()
-    foreach ($variant in $variants) {
-      $spv = Join-Path $env:TEMP "$id$($variant.Suffix).spv"
-      & $glslang.FullName -V --target-env vulkan1.0 @($variant.Defs) -S $stage -o $spv $f.FullName
-      if ($LASTEXITCODE -ne 0) { throw "glslangValidator failed on $($f.Name) $($variant.Defs)" }
-      # Session 95 (vertex input, Lane A review): the plain vertex modules stay glslang output. spirv-opt -O runs only on the _vi twins (tools\shaders\build_vertex_input_vs.py),
-      # so gpu_native_vertex_input=0 leaves the shader bytes as before the lane (the escape hatch and the vinput A/B arm stay a clean control).
-      $bytes = [IO.File]::ReadAllBytes($spv)
-      $words = for ($i = 0; $i -lt $bytes.Length; $i += 4) { '0x{0:X8}' -f [BitConverter]::ToUInt32($bytes, $i) }
-      $lines = for ($i = 0; $i -lt $words.Count; $i += 8) { '    ' + (($words[$i..([Math]::Min($i + 7, $words.Count - 1))]) -join ', ') + ',' }
-      $body += @("inline constexpr uint32_t ${id}_spv$($variant.Suffix)[] = {") + $lines + @('};', '')
-      Remove-Item $spv
-    }
-    $header = @(
-        '#pragma once'
+    # Session 95 (vertex input, Lane A review): the plain vertex modules stay glslang output. spirv-opt -O runs only on the _vi twins (tools\shaders\build_vertex_input_vs.py),
+    # so gpu_native_vertex_input=0 leaves the shader bytes as before the lane (the escape hatch and the vinput A/B arm stay a clean control).
+    $spv = Join-Path $env:TEMP "$id.spv"
+    & $glslang.FullName -V --target-env vulkan1.0 -S $stage -o $spv $f.FullName
+    if ($LASTEXITCODE -ne 0) { throw "glslangValidator failed on $($f.Name)" }
+    Write-SpvPair $out $id @(
         "// $($dir.Session): generated from ../$($f.Name) by tools\post\build_shaders.ps1"
         "// (glslangValidator -V --target-env vulkan1.0 -S $stage). Do not edit: edit the .$stage and run the script."
-        '#include <cstdint>'
-        ''
-    ) + $body
-    $path = Join-Path $out "$id.h"
-    Set-Content -Path $path -Value ($header -join "`r`n") -NoNewline
-    "{0}: {1} variant(s) -> {2}" -f $f.Name, $variants.Count, $path
+    ) "${id}_spv" $spv
+    Remove-Item $spv
+    "{0}: 1 variant(s) -> {1}" -f $f.Name, (Join-Path $out "$id.h")
     if ($stage -eq 'frag' -and $LeanShaders -contains $f.BaseName) {
       $spv = Join-Path $env:TEMP "${id}_lean.spv"
       & $glslang.FullName -V --target-env vulkan1.0 -DLEAN -S $stage -o $spv $f.FullName
       if ($LASTEXITCODE -ne 0) { throw "glslangValidator failed on $($f.Name) -DLEAN" }
-      $bytes = [IO.File]::ReadAllBytes($spv)
-      $words = for ($i = 0; $i -lt $bytes.Length; $i += 4) { '0x{0:X8}' -f [BitConverter]::ToUInt32($bytes, $i) }
-      $lines = for ($i = 0; $i -lt $words.Count; $i += 8) { '    ' + (($words[$i..([Math]::Min($i + 7, $words.Count - 1))]) -join ', ') + ',' }
-      $leanHeader = @(
-          '#pragma once'
+      Write-SpvPair $out "${id}_lean" @(
           "// Session 95: generated from ../$($f.Name) by tools\post\build_shaders.ps1 with -DLEAN (exact early-outs, wrestler_lean.glsl;"
           "// selected by gpu_native_wrestler_lean). Do not edit: edit the .$stage and run the script."
-          '#include <cstdint>'
-          ''
-          "inline constexpr uint32_t ${id}_lean_spv[] = {"
-      ) + $lines + @('};', '')
-      Set-Content -Path (Join-Path $out "${id}_lean.h") -Value ($leanHeader -join "`r`n") -NoNewline
+      ) "${id}_lean_spv" $spv
       Remove-Item $spv
       "{0}: lean variant" -f $f.Name
     }
@@ -76,18 +71,10 @@ foreach ($dir in @(@{ Path = 'src\post'; Session = 'Session 72' }, @{ Path = 'sr
       $spv = Join-Path $env:TEMP "${id}_pow.spv"
       & $glslang.FullName -V --target-env vulkan1.0 -DPOWLEAN -S $stage -o $spv $f.FullName
       if ($LASTEXITCODE -ne 0) { throw "glslangValidator failed on $($f.Name) -DPOWLEAN" }
-      $bytes = [IO.File]::ReadAllBytes($spv)
-      $words = for ($i = 0; $i -lt $bytes.Length; $i += 4) { '0x{0:X8}' -f [BitConverter]::ToUInt32($bytes, $i) }
-      $lines = for ($i = 0; $i -lt $words.Count; $i += 8) { '    ' + (($words[$i..([Math]::Min($i + 7, $words.Count - 1))]) -join ', ') + ',' }
-      $powHeader = @(
-          '#pragma once'
+      Write-SpvPair $out "${id}_pow" @(
           "// Session 95: generated from ../$($f.Name) by tools\post\build_shaders.ps1 with -DPOWLEAN (whole-exponent powers as multiplies, wrestler_pow.glsl;"
           "// selected by gpu_native_wrestler_pow). Do not edit: edit the .$stage and run the script."
-          '#include <cstdint>'
-          ''
-          "inline constexpr uint32_t ${id}_pow_spv[] = {"
-      ) + $lines + @('};', '')
-      Set-Content -Path (Join-Path $out "${id}_pow.h") -Value ($powHeader -join "`r`n") -NoNewline
+      ) "${id}_pow_spv" $spv
       Remove-Item $spv
       "{0}: pow variant" -f $f.Name
     }
@@ -95,28 +82,20 @@ foreach ($dir in @(@{ Path = 'src\post'; Session = 'Session 72' }, @{ Path = 'sr
       $spv = Join-Path $env:TEMP "${id}_mp.spv"
       & $glslang.FullName -V --target-env vulkan1.0 -DMEDIUMP -S $stage -o $spv $f.FullName
       if ($LASTEXITCODE -ne 0) { throw "glslangValidator failed on $($f.Name) -DMEDIUMP" }
-      $bytes = [IO.File]::ReadAllBytes($spv)
-      $words = for ($i = 0; $i -lt $bytes.Length; $i += 4) { '0x{0:X8}' -f [BitConverter]::ToUInt32($bytes, $i) }
-      $lines = for ($i = 0; $i -lt $words.Count; $i += 8) { '    ' + (($words[$i..([Math]::Min($i + 7, $words.Count - 1))]) -join ', ') + ',' }
-      $mpHeader = @(
-          '#pragma once'
+      Write-SpvPair $out "${id}_mp" @(
           "// Session 93: generated from ../$($f.Name) by tools\post\build_shaders.ps1 with -DMEDIUMP (hand-placed mediump colour maths,"
           "// out\s93\b8_mediump_notes.md; selected by --wwe2k14_shader_mediump). Do not edit: edit the .$stage and run the script."
-          '#include <cstdint>'
-          ''
-          "inline constexpr uint32_t ${id}_mp_spv[] = {"
-      ) + $lines + @('};', '')
-      $mpPath = Join-Path $out "${id}_mp.h"
-      Set-Content -Path $mpPath -Value ($mpHeader -join "`r`n") -NoNewline
+      ) "${id}_mp_spv" $spv
       Remove-Item $spv
-      "{0}: mediump variant -> {1}" -f $f.Name, $mpPath
+      "{0}: mediump variant -> {1}" -f $f.Name, (Join-Path $out "${id}_mp.h")
     }
   }
+  # S110 SPIRVDATA: the data units of this folder follow the *_data.inc files.
+  & $py.Source -I (Join-Path $R 'tools\shaders\spv_emit.py') --refresh $out
+  if ($LASTEXITCODE -ne 0) { throw 'spv_emit.py --refresh failed' }
 }
 # Session 95 (gpu_d3d_decouple phase 2): the layer-true (multiview) variants of the pixel shaders that read a multiview target, and the own crowd vertex shaders
 # that read view 1's camera (<id>_mv.h / <id>_mv_vert.h): rebuilt here so a changed .frag / .glsl never leaves a stale variant (the tool writes nothing when it fails).
-$py = Get-Command py -ErrorAction SilentlyContinue
-if (-not $py) { throw 'py not found (the multiview variants: tools\shaders\build_multiview_ps.py)' }
 & $py.Source (Join-Path $R 'tools\shaders\build_multiview_ps.py')
 if ($LASTEXITCODE -ne 0) { throw 'build_multiview_ps.py failed' }
 # Session 95 (vertex input, Lane A): the vertex-input twins of ALL of our vertex shaders (<id>_vi_vert.h), rebuilt here so a changed include never leaves a stale one.

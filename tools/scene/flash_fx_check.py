@@ -11,7 +11,8 @@ import sys
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {
     'swapped_yz': 'flash.position', 'array_early': 'flash.array', 'all_pending': 'flash.live_rule', 'scale_off': 'flash.scale', 'color_off': 'flash.color', 'not_drawn': 'flash.live_rule', 'test_drawn': 'flash.lifecycle',
-    'mode_ignored': 'mode.off_reads_nothing', 'lose_flags': 'record.roundtrip',
+    'mode_ignored': 'mode.off_reads_nothing', 'lose_flags': 'record.roundtrip', 'hold_never_releases': 'hold.k2_sequence',
+    'factor_word60': 'hold.factor_table', 'hold_fn_unwired': 'hold.contrib_take',
 }
 
 
@@ -49,6 +50,10 @@ def main():
         ('src/scene_live/stage_fx_glue.h', 'RegisterFlashFx()', 'the glue registers the flash contributor (OnPostSetup already calls scene_stagefx_glue::Register)'),
         ('src/scene_live/stage_fx_glue.h', 'FlashFx().SetReader(&wwe2k14::scene_inputs_glue::ReadChecked)', 'the flash writer reads guest memory through the page-checked reader'),
         ('src/wwe2k14_app.h', 'scene_stagefx_glue::Register()', 'OnPostSetup registers the stage-fx glue'),
+        ('src/scene_live/stage_fx_glue.h', 'SetHoldFn(&wwe2k14::LeverHoldFactor)', 'the glue wires the flash hold factor (S110 FLASHHOLD)'),
+        ('src/pacing_hooks.h', 'g_lever_scene.store(true)', 'the entrance skip sets the lever-scene flag'),
+        # review FLASHHOLD F1: EVERY restore call (not 3 named sites) puts the game back at 60, so the shared Restore<> clears the flag (unless the lock flag makes the call a no-op)
+        ('src/pacing_hooks.h', '  OnRateCall<kSite>(Kind::kRestore, caller);\n  if (ReadGuestU32(kLockFlag) == 0) g_lever_scene.store(false);', 'every restore call clears the lever-scene flag'),
         ('src/renderer_scene/live_flashes.cpp', 'kFxfGameScale', 'the applier honours the game-scale flag'),
     ]
     for rel, needle, what in need:

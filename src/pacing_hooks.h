@@ -47,6 +47,7 @@
 #include <cstdint>
 
 #include "frame_stats.h"
+#include "lever_scene.h"   // S110 FLASHHOLD
 
 REXCVAR_DEFINE_BOOL(wwe2k14_pacing_log, true, "wwe2k14",
                     "Log [wwe2k14][pacing] lines: frame-rate word changes, the game's calls that halve or restore "
@@ -126,9 +127,13 @@ void Halve(uint32_t caller) {
   OnRateCall<kSite>(Kind::kHalve, caller);
 }
 
+// S110 FLASHHOLD (review F1): every restore call puts the game back at 60 (30 -> 60 even where ours already is 60), so the scene is no longer one the game runs at
+// 30: the lever-scene flag clears here, at all 15 sites, not at three named ones (the sequence exit takes the HALVE 0x82330BC0 when it began at 30, and the
+// Create-a-Story screen restores at 0x82A49C58 every frame). The lock flag makes the game's call a no-op: then the game stays where it was and so does the flag.
 template <uint32_t kSite>
 void Restore(uint32_t caller) {
   OnRateCall<kSite>(Kind::kRestore, caller);
+  if (ReadGuestU32(kLockFlag) == 0) g_lever_scene.store(false);
 }
 
 }  // namespace wwe2k14::pacing
@@ -210,6 +215,7 @@ bool wwe2k14_pacing_halve_82331778() {
   if (!REXCVAR_GET(wwe2k14_entrance_60fps)) return false;
   REXLOG_INFO("[wwe2k14][pacing] entrance 60 fps experiment: skipping the halve call at 0x82331778 (frame {})",
               wwe2k14::g_guest_frame.load());
+  wwe2k14::g_lever_scene.store(true);   // S110 FLASHHOLD: the game would be at 30 here; the crowd flash rows hold 2 guest frames per step (FLASH60)
   return true;
 }
 void wwe2k14_pacing_halve_82330BC0() { wwe2k14::pacing::Halve<0x82330BC0>(0x82330B50); }

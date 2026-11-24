@@ -50,8 +50,11 @@ inline constexpr uint32_t kOffExtra = 232, kOffTexCount = 256, kOffTexKeys = 260
 // 0x82C09810; it reads composer = [E+2608], buf = [composer+100], set = [composer+116+4*buf], arr = [set+4] and binds the picture of arr+0 at fetch slot 7 and of arr+8 at slot 4 (each entry: word 0 = the registry handle, word 1).
 inline constexpr uint32_t kOffLogoCb = 324, kOffLogoArg = 328, kEditComposer = 2608, kCompBuf = 100, kCompLogoSet = 116, kLogoCb = 0x822E6CC8u, kLogoSetArr = 4, kLogoEntry = 8;
 inline constexpr uint32_t kDescStride = 184, kDescVertices = 0, kDescPalCount = 8, kDescPal = 12, kDescExtraIndex = 96, kDescEffect = 124, kDescParamCount = 148, kDescParams = 152;
-inline constexpr uint32_t kMaxParts = 64, kMaxVertices = 1u << 20, kMaxStride = 256, kMaxVertexBytes = 32u << 20, kMaxIndices = 1u << 20, kMaxNodes = 20, kMaxParams = 64, kMaxSamplers = 6, kMaxOverrides = 64, kNameBytes = 16, kOvDump = 12;
+inline constexpr uint32_t kMaxParts = 64, kMaxVertices = 1u << 20, kMaxStride = 256, kMaxVertexBytes = 32u << 20, kMaxIndices = 1u << 20, kMaxNodes = 20, kMaxSamplers = 6, kMaxOverrides = 64, kNameBytes = 16, kOvDump = 12;
 inline constexpr uint32_t kParamSampler = 15;
+// S110 WHITEFACE: NOT a limit. The parameter walk only SCANS (each parameter is read, tested for being a sampler, then dropped; the kept samplers are bounded by kMaxSamplers), so the game's own count `pc` needs no cap
+// of ours. This is a guard against a GARBAGE count read from freed / reused guest memory (no real part has more than 68): a count above it is an unreadable parameter list, counted in param_unreadable.
+inline constexpr uint32_t kParamCountGarbage = 4096;
 
 // Test only (tools\scene\guest_model_unit.cpp): each plant puts back one fault a forged-memory check must catch. 0 = none.
 //   1 stride from [..+8p] (the wrong word)   2 data address not masked (the fetch-type bits stay)   3 the byte count not masked (bit 28 stays)
@@ -61,6 +64,7 @@ inline constexpr uint32_t kParamSampler = 15;
 // S105 A5c, test only: 1 = the callback word is not checked (any model's [m+328] is followed); 2 = the composer's buffer index is not bounded (buf >= 2 is read); 3 = a logo key whose word 0 is 0 is accepted.
 inline int g_gm_logo_plant = 0;
 inline int g_gm_plant = 0;   // 14 (WC R3): the [m+824] == 0 path is not taken (a model whose descriptors live in the data object is NoDesc again)
+                             // 17 (S110 WHITEFACE): the old all-or-nothing guard `pc <= 64` is back (a part with 68 parameters keeps no sampler: the white face)
 
 enum class Why : uint8_t { Ok = 0, NoModel, NoDesc, NoParts, Unreadable, BadSize, BadIndexBuffer, AltStream, BadFlags, Count };
 inline const char* WhyText(Why w) {
@@ -153,6 +157,7 @@ struct PartRead {
   char effect[kNameBytes] = {};            // [desc+124]
   std::vector<SamplerRead> samplers;       // every kind-15 parameter with a usable key (up to kMaxSamplers)
   uint32_t sampler_overflow = 0;           // kind-15 parameters beyond kMaxSamplers
+  uint32_t param_unreadable = 0;           // 1 = the parameter count [desc+148] is a garbage value (> kParamCountGarbage): the part's parameters are not read
   uint32_t vdata = 0, idata = 0;           // the guest data addresses (the unlock log's keys)
   std::shared_ptr<const std::vector<uint8_t>> vtx;   // vertex_count * stride bytes, dwords in HOST order (the 8-in-32 swap applied): little-endian values
   std::vector<uint16_t> idx;               // n0 + n1 host indices
@@ -187,7 +192,7 @@ struct ModelRead {
   uint64_t hash = 0;                       // over the readable parts' hashes in part order (and the unreadable parts' numbers)
   uint64_t layout_key = 0;                 // over every word the layout pass read (no byte content): equal = same declaration
   uint32_t parts_ok = 0, parts_unreadable = 0, parts_extra_streams = 0, parts_alt = 0, parts_bad_flags = 0, bad_indices = 0;
-  uint32_t samplers = 0, sampler_overflow = 0, ov_entries = 0, ov_matched = 0, ov_matched_ci = 0;   // ov_matched_ci: entries that equal a sampler name only when the case is ignored (CTX2: the lead for "0 of 11")
+  uint32_t samplers = 0, sampler_overflow = 0, param_unreadable = 0, ov_entries = 0, ov_matched = 0, ov_matched_ci = 0;   // ov_matched_ci: entries that equal a sampler name only when the case is ignored (CTX2: the lead for "0 of 11")
   uint32_t ov_array = 0, ov_count = 0;     // CTX2: the override block's entry array and count (0 = none); ReadModelBytes dumps up to kOvDump entries
   uint8_t ov_dump_n = 0;                   // CTX2: how many override entries ov_names / ov_handle0 hold (at most kOvDump)
   char ov_names[kOvDump][kNameBytes + 1] = {};
@@ -302,8 +307,10 @@ inline void ReadPartLayout(detail::Rd<M>& rd, uint32_t model, uint32_t p, uint32
   }
   if (!rd.Name(desc + kDescEffect, r.effect)) { r.why = Why::Unreadable; return; }
   uint32_t pc = 0, parr = 0;
-  if (rd.Word(desc + kDescParamCount, pc) && rd.Word(desc + kDescParams, parr) && pc && pc <= kMaxParams && parr) {
-    for (uint32_t i = 0; i < pc; ++i) {
+  if (rd.Word(desc + kDescParamCount, pc) && rd.Word(desc + kDescParams, parr) && pc && parr) {
+    const uint32_t garbage = (g_gm_plant == 17) ? 64u : kParamCountGarbage;   // plant 17: the old cap
+    if (pc > garbage) r.param_unreadable = 1;
+    for (uint32_t i = 0; i < (pc > garbage ? 0 : pc); ++i) {
       uint32_t po = 0, kind = 0, tv = 0;
       if (!rd.Word(parr + 4 * i, po) || !po || !rd.Half(po + 16, kind)) break;
       if (kind != kParamSampler) continue;
@@ -439,7 +446,7 @@ inline ModelRead ReadModelLayout(const M& m, uint32_t model) {
     if (r.Ok()) {
       ++out.parts_ok;
       if (r.flags & kPartExtraStreams) ++out.parts_extra_streams;
-      out.samplers += uint32_t(r.samplers.size()), out.sampler_overflow += r.sampler_overflow;
+      out.samplers += uint32_t(r.samplers.size()), out.sampler_overflow += r.sampler_overflow, out.param_unreadable += r.param_unreadable;
     } else {
       ++out.parts_unreadable;
       if (r.why == Why::AltStream) ++out.parts_alt;

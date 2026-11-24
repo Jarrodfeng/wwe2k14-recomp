@@ -151,8 +151,8 @@ bool ApplyScreens(BuildCtx& ctx) {
     flush();
     // S103 SCF [C, SCM.md sub_8276AEF8 -> sub_8276A808]: a SHOWN screen with no movie draws the live frame grab, never black. A shown movie-key screen with no SIZED row this frame (no row at all, or an idle row) is marked in the
     // model's idle mask (FrontEnd::SetIdleScreens): the front end binds the one pre-post scene copy it already makes every frame (the 360's on-demand resolve is a dropped 360 habit: no extra copy) in place of its own picture. A spurious
-    // one-frame hole in the rows must not blink the screen, so a screen that HAS a live texture goes idle only after kNoRowBlackAfter guest frames without a sized row (S103 HN); one with none (never sized) is idle at once.
-    // The ENTRANCE look keeps the measured black (run 38 f5401, S103 SCN: the game's pixels there were (1,1,1); the mechanism is [U] in SCM.md): its idle screen is still painted black after those frames. OFF only.
+    // S110 MINITRON: idle = IdleNow(shown, sized row) at once, in every frame, no debounce (the store keeps a row 90 guest frames after a movie's last flush; the old two-frame count restarted on every guest-frame jump and a phone
+    // dropping ticks never passed it). The ENTRANCE look keeps the measured black (run 38 f5401, S103 SCN: the game's pixels there were (1,1,1); the mechanism is [U] in SCM.md) = the second, still-open path (own probe). OFF only.
     {
       static std::vector<uint8_t> black;
       uint16_t idle_mask = 0;
@@ -160,14 +160,11 @@ bool ApplyScreens(BuildCtx& ctx) {
         FamilyModel::Screen* sc = nullptr;
         for (FamilyModel::Screen& sx : fm.screens)
           if (sx.slot == k) sc = &sx;
-        if (!drawn_key(k) || !present[size_t(k - 800)]) {
-          if (sc) sc->no_row_gf = 0, sc->last_gf = 0;   // not shown: a later show starts the count again
-          continue;
-        }
+        if (!drawn_key(k) || !present[size_t(k - 800)]) continue;
         bool sized = false;
         for (const StageFxRow& r : ctx.t.stage_fx)
           if (r.kind == kFxScreen && int(r.slot) == k && !(r.flags & kFxfScreenIdle) && r.w && r.h) sized = true;
-        const bool goes = sc ? NoRowGoesBlack(sized, ctx.t.header.guest_frame, sc->no_row_gf, sc->last_gf, enabled) : enabled;   // no live texture yet (a first movie's row is coming): idle = the frame grab, never the file's 1x1 black
+        const bool goes = enabled && IdleNow(true, sized);   // no live texture yet (a first movie's row is coming): idle = the frame grab, never the file's 1x1 black
         const IdleDraw how = IdleDrawFor(entrance, goes);
         if (how == IdleDraw::FrameGrab) {
           if (k != 800) idle_mask = uint16_t(idle_mask | 1u << (k - 800)), ++idle_grab;   // (800 is the front end's own camera feed: it always binds the grab in the match look)
@@ -178,7 +175,7 @@ bool ApplyScreens(BuildCtx& ctx) {
         for (size_t q = 3; q < black.size(); q += 4) black[q] = 255;
         if (ctx.models.front_end().UpdateTexture(fm.model, sc->texture, sc->w, sc->h, black.data(), TexTag::Screen)) sc->black = true, sc->seq = 0xFFFFFFFFu, ++idle_black;   // (a batch of one: the black picture is the same bytes for every size-equal screen, so the share finds it)
       }
-      ctx.models.front_end().SetIdleScreens(fm.model, entrance ? uint16_t(0) : idle_mask);
+      ctx.models.front_end().SetIdleScreens(fm.model, idle_mask);   // (idle_mask is empty in the entrance look: its idle screens take the black paint above)
     }
   }
   Report(ctx, Family::Screens, objects, objects, kept, (reason.empty() ? std::to_string(updated) + " pictures updated" : reason) + (idle_black ? "; " + std::to_string(idle_black) + " to idle black (no row, entrance)" : "") + (idle_grab ? "; " + std::to_string(idle_grab) + " on the frame grab (no movie)" : ""));

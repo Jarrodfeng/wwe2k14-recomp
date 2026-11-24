@@ -71,11 +71,13 @@ constexpr uint32_t kChar = 0x70000, kCtx = 0x80000, kMgr = 0x90000, kArr = kDesc
 static void PlantSlot(Mem& m, uint32_t s, uint32_t b7) {
   m.w[0x83924734u] = kCtx, m.w[0x837635A4u] = kMgr, m.w[kMgr + 8] = kArr;
   m.w[kChar + 1220] = s;   // the remap table word 0x8392475C is unmapped here: RemapActive false, [ch + 1220] is the index
+  m.w[kChar + 3760] = b7 != 255 ? b7 : s;   // S110 DESCKEY: the hook's slot chain now reads the character's own descriptor index (the one it plants as D+7 / the manager index), CharModelDesc
+  m.w[kDesc + 52] = 1;                      // desc+52 = loaded (CharModelDesc refuses a freed descriptor)
   for (uint32_t i = 0; i < 9; ++i) m.w[kCtx + 864 + 80 * i + 4] = 255;
   m.w[kCtx + 864 + 80 * s + 4] = b7;   // the word's low byte is D+7 (big-endian)
   for (uint32_t j = 0; j < 12; ++j) {
     if (kArr + 192 * j == kDesc) continue;
-    m.w[kArr + 192 * j + 44] = 1, m.w[kArr + 192 * j + 92] = 51200 + j, m.w[kArr + 192 * j + 4] = 0;
+    m.w[kArr + 192 * j + 44] = 1, m.w[kArr + 192 * j + 92] = 51200 + j, m.w[kArr + 192 * j + 4] = 0, m.w[kArr + 192 * j + 52] = 1;
   }
 }
 

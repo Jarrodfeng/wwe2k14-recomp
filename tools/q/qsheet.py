@@ -43,6 +43,7 @@ class SheetError(Exception):
 
 
 def ro(path):
+    path = path and qnames.newest(path)      # S110 QREBUILD review: a copy waiting beside a held file is the one to read
     if not path or not os.path.exists(path):
         raise SheetError('no file %s' % path)
     return sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)

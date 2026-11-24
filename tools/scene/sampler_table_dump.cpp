@@ -30,6 +30,28 @@ int main(int argc, char** argv) {
     st::Apply(s, p, false);
     if (p.max_anisotropy != 1) { std::printf("codes FAIL STANDARD is 1x\n"); rc = 1; }
   }
+  {  // S110 ARMBAND: the Threads editor's mask stages (sub_8339F0E0: address code 2, filter code 1) = clamp, point / point / point, 1x, level 0, whatever the setting
+    struct D { uint8_t mag_filter, min_filter, mip_mode, address_u, address_v, address_w, max_anisotropy; float max_lod; } d{1, 1, 1, 0, 0, 0, 8, 1000.f};
+    st::g_aniso_override.store(4);
+    st::ChangeMaskSampler(d);
+    st::g_aniso_override.store(-1);
+    if (d.mag_filter != 0 || d.min_filter != 0 || d.mip_mode != 0 || d.address_u != 2 || d.address_v != 2 || d.address_w != 2 || d.max_anisotropy != 1 || d.max_lod != 0.f) { std::printf("codes FAIL change-mask sampler\n"); rc = 1; }
+  }
+  {  // S110 LOGOSAMP: the Create a Superstar logo stages (sub_822E6CC8: address code 2, filter code 2) = clamp, trilinear; the player's level as on every trilinear stage; the image bounds the level
+    struct D { uint8_t mag_filter, min_filter, mip_mode, address_u, address_v, address_w, max_anisotropy; float max_lod; } d{0, 0, 0, 0, 0, 0, 1, 0.f}, s{0, 0, 0, 0, 0, 0, 8, 0.f};
+    st::g_aniso_override.store(4);
+    st::CawLogoSampler(d);
+    st::g_aniso_override.store(-1);
+    st::CawLogoSampler(s);
+    if (d.mag_filter != 1 || d.min_filter != 1 || d.mip_mode != 1 || d.address_u != 2 || d.address_v != 2 || d.address_w != 2 || d.max_anisotropy != 8 || d.max_lod != 1000.f || s.max_anisotropy != 1) { std::printf("codes FAIL caw-logo sampler\n"); rc = 1; }
+  }
+  {  // S110 LOGOSAMP (review): the Threads editor's prop mask stage (sub_8338EC00: address code 2, filter code 2) = the logo stages' state: clamp, trilinear, the player's level
+    struct D { uint8_t mag_filter, min_filter, mip_mode, address_u, address_v, address_w, max_anisotropy; float max_lod; } d{0, 0, 0, 0, 0, 0, 1, 0.f};
+    st::g_aniso_override.store(4);
+    st::EditorPropMaskSampler(d);
+    st::g_aniso_override.store(-1);
+    if (d.mag_filter != 1 || d.min_filter != 1 || d.mip_mode != 1 || d.address_u != 2 || d.address_v != 2 || d.address_w != 2 || d.max_anisotropy != 8 || d.max_lod != 1000.f) { std::printf("codes FAIL editor-prop-mask sampler\n"); rc = 1; }
+  }
   if (!rc) std::printf("codes ok\n");
   st::Table table;
   uint32_t conflicts = 0;

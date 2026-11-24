@@ -56,6 +56,7 @@
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
 
+#include "det_loads.h"  // S110 DETLOADS: the det rules for the wall cap / throttle
 #include "frame_stats.h"
 #include "guest_read.h"
 
@@ -169,6 +170,11 @@ class LoadTurbo {
       if (match_by_scene_ && !m3_seen_ && frame > start_frame_ + 240) return Stop(frame, "no match scene file");
     }
     if (hold_only_) return;  // no wall-clock cap for a hold-only window (replay mode: same frames every run)
+    // S110 DETLOADS: under det + fast replay loads the cap is in guest frames, not host time (the same frames every run).
+    if (!det_loads::WallCapApplies()) {
+      if (frame >= start_frame_ + det_loads::GuestFrameCap(REXCVAR_GET(wwe2k14_load_turbo_cap_ms))) return Stop(frame, "cap");
+      return;
+    }
     const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time_).count();
     if (ms >= double(REXCVAR_GET(wwe2k14_load_turbo_cap_ms))) return Stop(frame, "cap");
   }
@@ -340,7 +346,9 @@ REX_EXTERN(__imp__sub_82BBEC18);
 REX_HOOK_RAW(sub_82BBEC18) {
   using namespace wwe2k14;
   if (g_ui_anim_hold().load(std::memory_order_relaxed)) return;  // Session 36: frozen scene, hold the pose
-  if (!g_load_turbo_active_flag().load(std::memory_order_relaxed) || !REXCVAR_GET(wwe2k14_load_turbo_ui_real_time)) {
+  // S110 DETLOADS: under det + fast replay loads every step runs (guest speed), no host-time throttle.
+  if (!g_load_turbo_active_flag().load(std::memory_order_relaxed) || !REXCVAR_GET(wwe2k14_load_turbo_ui_real_time) ||
+      !det_loads::UiThrottleApplies()) {
     if (g_ui_anim_throttle.dirty.exchange(false, std::memory_order_relaxed)) {
       std::lock_guard<std::mutex> lock(g_ui_anim_throttle.mutex);
       if (g_ui_anim_throttle.allowed || g_ui_anim_throttle.skipped) {

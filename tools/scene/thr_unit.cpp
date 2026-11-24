@@ -309,6 +309,37 @@ void Handoff() {
   read_rule::PublishEffectTable(nullptr), read_rule::PublishStsEffectTable(nullptr);
 }
 
+// S110 LOGOSAMP: the logo-sampler rule (change_colour.h TakesLogoSampler) against BindMaterial's role switch (front_end.cpp:1402: change-colour -> RoleOfChangeSlot, wet ->
+// RoleOfWetSlot, else RoleOfSlot): it must hold exactly where a character bind's role is Logo7 / Logo4. Returns the mismatching (character, change-colour, wet, slot) cases.
+// `plant` "logo_any_bind" = the planted twin (every character bind's 7 / 4, no change-colour / wet exclusion): must be caught.
+int LogoSamplerMismatches(const std::string& plant) {
+  int bad = 0;
+  for (int chr = 0; chr < 2; ++chr)
+    for (int ccb = 0; ccb < 2; ++ccb)
+      for (int wet = 0; wet < 2; ++wet)
+        for (int s = 0; s < 16; ++s) {
+          const CharSlot role = ccb ? RoleOfChangeSlot(s) : wet ? RoleOfWetSlot(s) : RoleOfSlot(s);
+          const bool want = chr && (role == CharSlot::Logo7 || role == CharSlot::Logo4);
+          const bool got = plant == "logo_any_bind" ? (chr != 0 && (s == 7 || s == 4)) : cc::TakesLogoSampler(chr != 0, ccb != 0, wet != 0, s);
+          bad += got != want ? 1 : 0;
+        }
+  return bad;
+}
+
+// S110 LOGOSAMP (review): the prop-mask sampler rule (change_colour.h TakesPropMaskSampler) against the game's cases, written out: only the Threads editor's callback sub_8338EC00 sets stage 12
+// (clamp, trilinear); a saved set's match draw has no callback (the game paints texture 0); a prop's other stages and a draw that is not a recoloured prop keep their sampler.
+// `plant` "prop_any_row" = the planted twin (every recoloured prop draw's slot 12, the editor test dropped): must be caught.
+int PropMaskSamplerMismatches(const std::string& plant) {
+  struct Case { bool draw, editor; int slot; bool want; };
+  static const Case kCases[] = {{true, true, 12, true}, {true, false, 12, false}, {false, true, 12, false}, {false, false, 12, false}, {true, true, 4, false}, {true, true, 0, false}, {true, true, 7, false}};
+  int bad = 0;
+  for (const Case& c : kCases) {
+    const bool got = plant == "prop_any_row" ? (c.draw && c.slot == 12) : cc::TakesPropMaskSampler(c.draw, c.editor, c.slot);
+    bad += got != c.want ? 1 : 0;
+  }
+  return bad;
+}
+
 int Selftest() {
   uint8_t a[48], b[48];
   Colours(a, 10), Colours(b, 77);
@@ -390,6 +421,18 @@ int Selftest() {
   }
   {   // 7. The mask slots as the callback binds them (Mask1..Mask4 -> samplers 7, 4, 14, 2).
     Check(cc::MaskIndexOfSlot(7) == 0 && cc::MaskIndexOfSlot(4) == 1 && cc::MaskIndexOfSlot(14) == 2 && cc::MaskIndexOfSlot(2) == 3 && cc::MaskIndexOfSlot(0) == -1, "mask slots 7 / 4 / 14 / 2");
+    // S110 ARMBAND (review): the mask sampler reaches a wrestler change-colour bind's mask stages only; an entrance prop's cc_mask bind keeps its normal map (slot 4) as it was
+    Check(cc::TakesMaskSampler(true, true, 7) && cc::TakesMaskSampler(true, true, 4) && cc::TakesMaskSampler(true, true, 14) && cc::TakesMaskSampler(true, true, 2) && !cc::TakesMaskSampler(true, true, 0)
+          && !cc::TakesMaskSampler(true, false, 4) && !cc::TakesMaskSampler(false, true, 4) && !cc::TakesMaskSampler(false, true, 12), "mask sampler: a wrestler change-colour bind's 7 / 4 / 14 / 2 only (not a prop's cc_mask normal map)");
+  }
+  {   // 8. S110 LOGOSAMP: the CAW logo sampler (sub_822E6CC8) reaches exactly the slots BindMaterial binds as Logo7 / Logo4.
+    Check(cc::TakesLogoSampler(true, false, false, 7) && cc::TakesLogoSampler(true, false, false, 4) && cc::TakesLogoSampler(true, false, true, 7) && !cc::TakesLogoSampler(true, false, true, 4)
+          && !cc::TakesLogoSampler(true, true, false, 7) && !cc::TakesLogoSampler(true, true, false, 4) && !cc::TakesLogoSampler(false, false, false, 7) && !cc::TakesLogoSampler(true, false, false, 0),
+          "logo sampler: a character bind's 7 / 4, not a change-colour bind's masks, not a wet bind's sweat bump, not a prop");
+    Check(LogoSamplerMismatches(g_plant) == 0, "logo sampler = the bind's Logo7 / Logo4 role, every (character, change-colour, wet, slot 0..15)");
+  }
+  {   // 9. S110 LOGOSAMP (review): the Threads editor's prop mask sampler (sub_8338EC00) reaches slot 12 of an editor prop draw only.
+    Check(PropMaskSamplerMismatches(g_plant) == 0, "prop mask sampler: slot 12 of a recoloured prop drawn under the editor's callback; not a saved set's match draw, not another slot");
   }
   Handoff();
   std::printf("%s\n", cc::Bodies().CensusLine().c_str());
@@ -408,6 +451,12 @@ int main(int argc, char** argv) {
     if (!g_plant.empty()) std::printf("planted twin: %s (this run must FAIL)\n", g_plant.c_str());
     return Selftest();
   }
-  std::fprintf(stderr, "usage: thr_unit.exe selftest [old_zero|no_switch|state_not_10|foreign_callback|no_wiring]\n");
+  if (mode == "plantcheck") {   // S110 LOGOSAMP: one planted twin of the logo-sampler rule, run alone; exit 0 = its check caught it (prove.py reads the exit code)
+    const std::string plant = argc > 2 ? argv[2] : "";
+    const int bad = plant.empty() ? 0 : plant == "prop_any_row" ? PropMaskSamplerMismatches(plant) : LogoSamplerMismatches(plant);
+    std::printf("plantcheck %s: %d mismatching cases -> %s\n", plant.c_str(), bad, bad ? "caught" : "NOT CAUGHT");
+    return bad ? 0 : 1;
+  }
+  std::fprintf(stderr, "usage: thr_unit.exe selftest [old_zero|no_switch|state_not_10|foreign_callback|no_wiring|logo_any_bind|prop_any_row] | thr_unit.exe plantcheck logo_any_bind|prop_any_row\n");
   return 2;
 }

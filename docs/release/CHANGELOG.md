@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.4.3
+
+**v0.4.3: fixes for what you reported since v0.4.2, and bigger imported superstars load.**
+
+A small update made of your reports. Everything below is in the PC build and the phone build. Several fixes were made from the game's code
+and reviewed without my seeing them in the game yet; each entry says so. If something still looks wrong, please send it with Report a problem.
+
+### Fixed
+
+- **30 Years of WrestleMania cutscenes: the white flashes no longer strobe.**
+  What you saw: the crowd's camera flashes flickered on and off very fast in the story cutscenes. Cause: those scenes run the game at half
+  speed, and my renderer decided each flash again on every picture it drew. Fix: a flash is held for as long as the game holds it. Checked
+  on PC by counting the flashes; the old-film grain in the same scenes now also moves at the game's speed (not seen by me yet).
+- **Captions and the star-shaped lens flares no longer jump every other frame.**
+  What you saw (on phones): in a 30 Years cutscene inside a match the captions, their dark backing and the six-point flares bounced up and
+  to the left and back. Cause: the game's flat layer was built at two sizes in turn. Fix: one size. Checked on PC by counter (54 wrong
+  frames before, 0 after); I could not make the bounce show on my PC, so a phone is the real test.
+- **White faces (Hulk Hogan, some downloaded and imported superstars).**
+  Cause: my renderer read a fixed number of a face's material settings, and faces that carry more lost the rest; a second fault picked the
+  wrong superstar's record in story scenes. Fix: it reads as many as the game stores, by the superstar's own id. Checked on Hogan.
+- **The OMG corner move with super heavyweights breaks the whole ring.**
+  What you saw: the apron broke but the ring itself did not follow. Cause: my renderer read the ring's shape once, not every frame. Fix:
+  it follows the game's ring every frame. Honest note: made from the game's code; I have not played the move yet.
+- **Title belts: the name plate shows its lettering.** What you saw: a black plate. Cause: the plate's letters were drawn, then covered
+  by a layer my renderer treated as solid. Checked on a champion's belt.
+- **The arena's mini screens and wall screens no longer go black during a match.** Cause: my test for "this screen is idle" switched them
+  off too eagerly. Honest note: fixed from the code; reported on phones and not seen on one by me yet.
+- **Arm bands, shirt writing and Create a Superstar logos are sharp in the right way** (John Cena's bands were the report). Cause: these
+  layers were drawn with the wrong texture filter. Fix: the game's own filter for each layer. Checked on one superstar's bands on PC; the
+  logos were not seen in the editor yet.
+- **A flaming table goes out when you skip the replay after breaking it (a fix of the original game).** In the original game the fire
+  is put out by the replay, so skipping it left the table burning. Honest note: made from the game's code, not played.
+
+### Imported superstars
+
+- **Bigger imported models load.**
+  What you saw: an imported superstar with a much more detailed model crashed the game when his entrance loaded. Cause: the game gives each
+  wrestler fixed amounts of memory sized for its own models. Fix: larger amounts for every wrestler, in every mode, set once when the game
+  starts. Checked on PC with a model about twice the usual size: his entrance and a whole match. Create a Superstar with such a model is
+  not checked yet.
+
+### Reports
+
+- **A crash from the game running out of memory now writes what asked for the memory and how full each area was,** so a report tells me
+  much more. A Create a Superstar crash one of you sent is of this kind; its cause is not found yet, and the next report will say more.
+
+### Android
+
+- **Everything above is in the phone build too.**
+
 ## v0.4.2
 
 **v0.4.2: a library for your imported superstars, a letter jump on the select screen, custom titantrons, and fixes for what you reported since v0.4.1.**

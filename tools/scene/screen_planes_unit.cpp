@@ -698,23 +698,35 @@ int main(int argc, char** argv) {
       live_tex[805] = {kW, kH};
       const size_t dropped = rdr_scene::rf::c::DropIdleScreens(live_tex, rows200, !Plant("idle_keeps_texture"));
       Check(dropped == 1 && live_tex.count(805) == 0, "screens.idle_drops_texture", "idle rows at +200: dropped " + std::to_string((unsigned long long)dropped) + ", live texture of 805 " + (live_tex.count(805) ? "kept" : "gone"));
-      // S103 HN (ONF review M1): a shown screen with no sized row keeps the previous entrant's picture; it goes to the idle black after kNoRowBlackAfter frames without one, and a row coming back ends it
+      // S110 MINITRON: a shown screen with no sized row is idle AT ONCE (IdleNow), in every frame; no frame counting. A row coming back ends it.
       {
-        const bool on = !Plant("stale_movie_kept");
-        uint64_t nr = 0, lg = 0;
-        const bool f1 = rdr_scene::rf::c::NoRowGoesBlack(false, 1000, nr, lg, on);                 // the first frame with no row: still the last picture (a one-frame hole must not blink)
-        const bool f2 = rdr_scene::rf::c::NoRowGoesBlack(false, 1001, nr, lg, on);
-        const bool f3 = rdr_scene::rf::c::NoRowGoesBlack(false, 1000 + rdr_scene::rf::c::kNoRowBlackAfter, nr, lg, on);   // two frames on: black
-        const bool back = rdr_scene::rf::c::NoRowGoesBlack(true, 1010, nr, lg, on);                // a sized row: a picture, the count restarts
-        const bool again = rdr_scene::rf::c::NoRowGoesBlack(false, 1011, nr, lg, on);
-        // Opus review: the look-switch return and a backwards frame jump start the count again (a stale no_row_gf must not black a screen at once)
-        uint64_t nr2 = 0, lg2 = 0;
-        rdr_scene::rf::c::NoRowGoesBlack(false, 2000, nr2, lg2, on);                                // look A: no row since 2000
-        const bool ret = rdr_scene::rf::c::NoRowGoesBlack(false, 2500, nr2, lg2, on);              // back at the look 500 frames later: the old count is stale, so NOT black yet
-        const bool back_jump = rdr_scene::rf::c::NoRowGoesBlack(false, 100, nr2, lg2, on);         // the counter went backwards: counted again from here
-        // a row coming back with the SAME serial after the black must repaint the texture
+        const bool a = rdr_scene::rf::c::IdleNow(true, false), b = rdr_scene::rf::c::IdleNow(true, true), c = rdr_scene::rf::c::IdleNow(false, false);
+        Check(a && !b && !c, "screens.idle_now", std::string("shown, no row ") + (a ? "idle" : "NOT idle") + "; shown, row " + (b ? "IDLE" : "movie") + "; not shown " + (c ? "IDLE" : "skipped"));
+        // the frame jump (a phone dropping ticks): no sized row at guest frames 1000 / 1003 / 1006 / 1009 in a MATCH look; the key is in the idle mask (the grab) on EVERY one. Twin gap_reset = the old two-frame
+        // debounce that started again on a jump > 2 (NoRowGoesBlack of S103 HN): never reaches the second frame, so the mask is empty.
+        uint64_t old_nr = 0, old_lg = 0;
+        const auto decide = [&](uint64_t gf) {
+          if (Plant("gap_reset")) {
+            if (old_lg && (gf < old_lg || gf > old_lg + 2)) old_nr = 0;
+            old_lg = gf;
+            if (!old_nr) old_nr = gf;
+            return gf >= old_nr + 2;
+          }
+          return rdr_scene::rf::c::IdleNow(true, false);
+        };
+        int in_mask = 0;
+        std::string pat;
+        for (uint64_t gf = 1000; gf <= 1009; gf += 3) {
+          const bool idle = decide(gf);
+          const bool grab = rdr_scene::rf::c::IdleDrawFor(false, idle) == rdr_scene::rf::c::IdleDraw::FrameGrab;   // MATCH look
+          in_mask += grab, pat += grab ? 'G' : '-';
+        }
+        // the ENTRANCE look is unchanged: an idle screen is painted black, never marked (the second, still-open path)
+        const bool ent_black = rdr_scene::rf::c::IdleDrawFor(true, rdr_scene::rf::c::IdleNow(true, false)) == rdr_scene::rf::c::IdleDraw::Black && rdr_scene::rf::c::IdleDrawFor(true, rdr_scene::rf::c::IdleNow(true, true)) == rdr_scene::rf::c::IdleDraw::Own;
+        Check(in_mask == 4 && ent_black, "screens.idle_frame_jump", "no row at guest frames 1000 / 1003 / 1006 / 1009 (match look): " + pat + " (want GGGG), entrance idle black " + (ent_black ? "ok" : "CHANGED"));
+        // a row coming back with the SAME serial after the entrance black must repaint the texture
         const bool skip_plain = rdr_scene::rf::c::SameSerialSkips(7, 7, false), skip_black = rdr_scene::rf::c::SameSerialSkips(7, 7, true);
-        Check(!f1 && !f2 && f3 && !back && !again && nr == 1011 && !ret && !back_jump && nr2 == 100 && skip_plain && !skip_black, "screens.no_row_black", std::string("frames 0/1/2 without a row: ") + (f1 ? "B" : "-") + (f2 ? "B" : "-") + (f3 ? "B" : "-") + ", row back " + (back ? "B" : "-") + ", gap restarts " + (again ? "B" : "-"));
+        Check(skip_plain && !skip_black, "screens.same_serial_repaint", std::string("same serial, plain ") + (skip_plain ? "skipped" : "UPLOADED") + ", after the black " + (skip_black ? "SKIPPED" : "repainted"));
       }
     }
   }

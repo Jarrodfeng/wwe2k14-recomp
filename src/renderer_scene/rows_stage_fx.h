@@ -48,6 +48,7 @@ enum StageFxFlashFlags : uint32_t {
   kFxfDrawDone = 2,     // the item's done flag was set by the draw's own last-frame mark (counter == life)
   kFxfLightSet = 4,     // the game takes the flash colour from light set 500 (the row colour is the manager's block, a stand-in)
   kFxfColorUnread = 8,  // the colour block was not readable: white
+  kFxfHeld = 16,        // S110 FLASHOCC: shown from the flash hold (flash_hold_core.h), not the row the game gave this frame (census only)
 };
 
 }  // namespace rdr_scene

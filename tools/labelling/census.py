@@ -99,12 +99,19 @@ def fingerprint(img, addr, size, mask_data):
     return h.hexdigest()
 
 
+def newest_index():
+    """S110 QREBUILD review: the newest complete code index (a rebuild that found index.db held open left its file beside it: tools/q/qpublish.py)"""
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'q'))
+    import qpublish
+    return qpublish.newest(INDEX)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--json', help='write the buckets (addresses only) here (out\\ only)')
     args = ap.parse_args()
 
-    con = sqlite3.connect(INDEX)
+    con = sqlite3.connect(newest_index())
     funcs = {a: (s, n) for a, s, n in con.execute('select addr, size, insns from funcs where has_body = 1')}
     with open(IMAGE, 'rb') as f:
         img = f.read()

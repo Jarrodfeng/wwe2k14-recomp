@@ -1866,7 +1866,9 @@ std::string FrontEnd::ReflectLine() const {
 }
 
 std::string FrontEnd::FlashLine() const {   // S110 RDRPREP F3
-  return "flashes (S110): given " + std::to_string((unsigned long long)flash_given_) + " drawn " + std::to_string((unsigned long long)flash_drawn_) + " nodepth " + std::to_string((unsigned long long)flash_nodepth_);
+  char near_txt[96];   // S110 FLASHOCC: near = a centre nearer than any crowd flash seen from inside the ring (kFlashNearViewZ); nearest = the smallest centre view z drawn
+  std::snprintf(near_txt, sizeof near_txt, " near(view z < %.0f) %llu nearest %.0f", double(kFlashNearViewZ), (unsigned long long)flash_near_, double(flash_nearest_));
+  return "flashes (S110): given " + std::to_string((unsigned long long)flash_given_) + " drawn " + std::to_string((unsigned long long)flash_drawn_) + " nodepth " + std::to_string((unsigned long long)flash_nodepth_) + near_txt;
 }
 
 // S101 lane 257 (dev diagnostics, off unless the variable is set): WWE_RDR_SKIP_EFFECT=a,b leaves those effect classes out of the frame; WWE_RDR_ONLY_EFFECT=a,b draws only them.
@@ -3060,6 +3062,9 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       sd.max_anisotropy = sampler_table::AnisoWanted();   // S103 B1: kAnisoFollowsSetting (false: 8x as before)
       sd.max_lod = 1000.f;
       TableSampler(b.samp, b.choice, slot, b.cube_slot[slot] == 4 || b.cube_slot[slot] == 5, false, sd);   // S103 B1
+      if (live::change_colour::TakesMaskSampler(b.chr, b.change_colour, slot)) sampler_table::ChangeMaskSampler(sd);   // S110 ARMBAND: the Threads masks: point / clamp, one level (sub_8339F0E0); a prop's cc_mask bind is not one
+      if (live::change_colour::TakesLogoSampler(b.chr, b.change_colour, b.wet, slot)) sampler_table::CawLogoSampler(sd);   // S110 LOGOSAMP: the CAW logos (Logo7 / Logo4): clamp, trilinear (sub_822E6CC8)
+      if (live::change_colour::TakesPropMaskSampler(prop_cc_draw, prop_cc_draw && (prop_cc_entry->flags & kCcEditor) != 0, slot)) sampler_table::EditorPropMaskSampler(sd);   // S110 LOGOSAMP review: the Threads editor's prop mask (12): clamp, trilinear (sub_8338EC00); a saved set's match draw is not one
       if (d2_on) d2_sd.push_back({slot, sd});
       set.slots[slot].image = b.cube_slot[slot] == 1 ? (cube ? cube->image : b.slot_image[slot]) : (b.cube_slot[slot] == 4 && rd_map) ? rd_map->image : (b.cube_slot[slot] == 5 && plane_map) ? plane_map->image : (b.cube_slot[slot] == 2 && b.chr && rim_map) ? rim_map->image : b.slot_image[slot];  // the ambient cube is per object; S103 L6: slot 12 = the frame's shadow map
       if (b.cube_slot[slot] == 4 && !b.chr && !b.props_reader && rd_map && props_on && set.slots[slot].image == rd_map->image) ++pms_site_[5], pms_slot12_ = rd_map->image;   // site 5: slot 12 of a floor draw is the props map's image
@@ -3082,7 +3087,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       set.slots[slot].kind = vv.samplers[s].kind;
       set.slots[slot].vertex = 1;
     }
-    // S103 SCF [C, SCM.md sub_8276AEF8 / sub_8276A808]: a shown screen with no movie draws the live frame grab, never black: slot 800 always (match look), every other movie key the applier marked idle (SetIdleScreens; match look only)
+    // S103 SCF [C, SCM.md sub_8276AEF8 / sub_8276A808]: a shown screen with no movie draws the live frame grab, never black: slot 800 always (match look), every other movie key the applier marked idle (SetIdleScreens; no look test here; the entrance look's idle screens are painted black by the applier and never marked)
     // WGS PAR1 (TEST ONLY): a primed grab (PrimeGrabForTest, the offline arena sheet) stands in for the live copy through this same binding; the game never primes it
     const rdr::ImageId grab_img = grab_prime_ != rdr::kNoImage ? grab_prime_ : live_screen_;
     if ((live_valid_ || grab_prime_ != rdr::kNoImage) && (me.part == "slot 800" || (me.slot_no >= 801 && me.slot_no <= 809 && (m.idle_screens >> (me.slot_no - 800) & 1u))) && grab_img != rdr::kNoImage && fv.sampler_count && set.slots[0].image != rdr::kNoImage) set.slots[0].image = grab_img;  // S101 lane 257

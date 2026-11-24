@@ -211,4 +211,48 @@ inline void Apply(const Stage& s, Desc& sd, bool map_slot) {
   sd.max_lod = 1000.f;   // our images' own chain bounds it
 }
 
+// S110 ARMBAND (docs\research\s110\ARMBAND.md): the Superstar Threads editor's mask stages. Its draw callback sub_8339F0E0 binds Mask1..4 at pixel samplers
+// 7 / 4 / 14 / 2 and after each bind calls the slot-28 wrapper with code 2 and the slot-30 wrapper with code 1 (+1E8 / +1F8, +284 / +294, +320 / +330,
+// +3BC / +3CC): clamp / clamp, point / point / point. The model draw calls it after its parameter loop (sub_82C04DF0 +4A20), and the STS effects' pass
+// blocks (edit.pac p9/0) name none of those stages, so this is the state the change-colour shader fetches the masks with. A linear fetch blends a channel
+// into its neighbour's and the shader's first-non-zero test then hands a thin print's texels to the cloth channel. max_lod 0: the game's masks have one level.
+template <class Desc>
+inline void ChangeMaskSampler(Desc& sd) {
+  const Addr a = AddrFromCode(2);
+  const Filter f = FilterFromCode(1);
+  sd.address_u = VkAddress(a.u);
+  sd.address_v = VkAddress(a.v);
+  sd.address_w = VkAddress(a.u);
+  sd.mag_filter = f.mag == 1;
+  sd.min_filter = f.min == 1;
+  sd.mip_mode = f.mip == 1 ? 1 : 0;
+  sd.max_anisotropy = 1;
+  sd.max_lod = 0.f;
+}
+
+// S110 LOGOSAMP (docs\research\s110\LOGOSAMP.md): the Create a Superstar logo stages. Its draw callback sub_822E6CC8 binds "logo" at pixel sampler 7 and "logo2" at 4 and
+// after each bind calls the slot-28 wrapper with code 2 and the slot-30 wrapper with code 2 (0x822E6D60 / 0x822E6D70, 0x822E6DCC / 0x822E6DDC): clamp / clamp, linear /
+// linear / linear mip. The model draw calls it after its parameter loop (sub_82C04DF0 0x82C09810), and no logo effect of the editor's table (edit.pac p7/0) names
+// stage 4, nor stage 7 but yCh_Ls. Trilinear: the player's level applies as on every trilinear stage (Apply's rule); our logo pictures are one level, max_lod as Apply.
+template <class Desc>
+inline void CawLogoSampler(Desc& sd) {
+  const Addr a = AddrFromCode(2);
+  const Filter f = FilterFromCode(2);
+  sd.address_u = VkAddress(a.u);
+  sd.address_v = VkAddress(a.v);
+  sd.address_w = VkAddress(a.u);
+  sd.mag_filter = f.mag == 1;
+  sd.min_filter = f.min == 1;
+  sd.mip_mode = f.mip == 1 ? 1 : 0;
+  const bool linear = sd.mag_filter && sd.min_filter && sd.mip_mode == 1;
+  sd.max_anisotropy = linear ? AnisoWanted() : uint8_t(1);
+  sd.max_lod = 1000.f;
+}
+
+// S110 LOGOSAMP (review): the Superstar Threads editor's ENTRANCE PROP mask stage. Its draw callback sub_8338EC00 (installed only by the editor gear object's render node sub_8338ED08) binds the
+// prop's mask ([G+108]; nothing when [G+100] is 0) at pixel sampler 12, then calls the slot-28 wrapper with (12, 2) and the slot-30 wrapper with (12, 2) (0x8338ECDC / 0x8338ECEC): clamp / clamp,
+// linear / linear / linear mip = the logo callback's codes, so the same state (the player's level as on every trilinear stage).
+template <class Desc>
+inline void EditorPropMaskSampler(Desc& sd) { CawLogoSampler(sd); }
+
 }  // namespace rdr_scene::sampler_table

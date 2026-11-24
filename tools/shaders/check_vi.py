@@ -13,6 +13,8 @@ Also a cross-check that the module's input locations are within the rule of vert
 Exit 1 on any failure.
 """
 import glob, os, re, subprocess, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import spv_emit  # S110 SPIRVDATA: the words live in <stem>_data.inc, not in the header
 
 R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPV = os.path.join(R, 'src', 'scene', 'spirv')
@@ -26,9 +28,7 @@ def tool(name):
 
 
 def words_of(header):
-    text = open(header, encoding='utf-8').read()
-    body = text[text.index('= {'):]
-    return [int(x, 16) for x in re.findall(r'0x[0-9A-Fa-f]{8}', body)]
+    return spv_emit.read_words(header)
 
 
 def check(header, dis, val, plain):

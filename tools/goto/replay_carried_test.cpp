@@ -77,6 +77,17 @@ int main(int argc, char** argv) {
     }
     return 1;
   }
-  std::cout << "usage: write FILE | read FILE | roundtrip\n";
+  if (mode == "loads") {  // S110 DETLOADS: wwe2k14_replay_loads is carried; a recording without the line = slow
+    using wwe2k14::replay::FlagsChooseFastLoads;
+    const std::string fast_line = HeaderLine("wwe2k14_replay_loads", "fast", false);
+    std::istringstream a("# wwe2k14 replay v2\nflag det_frames true\n" + fast_line);
+    std::istringstream b("# wwe2k14 replay v2\nflag det_frames true\n");  // an old recording
+    std::istringstream c("# wwe2k14 replay v2\n" + HeaderLine("wwe2k14_replay_loads", "slow", false));
+    const bool ok = CarriedSetting("wwe2k14_replay_loads") && fast_line == "flag wwe2k14_replay_loads fast\n" &&
+                    FlagsChooseFastLoads(Read(a)) && !FlagsChooseFastLoads(Read(b)) && !FlagsChooseFastLoads(Read(c));
+    std::cout << (ok ? "OK loads" : "DIFF loads") << "\n";
+    return ok ? 0 : 1;
+  }
+  std::cout << "usage: write FILE | read FILE | roundtrip | loads\n";
   return 2;
 }

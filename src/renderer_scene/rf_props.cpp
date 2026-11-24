@@ -26,6 +26,12 @@
 #include "splat_state.h"   // S108 BLD2: the splat's object flags
 #include "pose_rows_report.h"   // S108 AL1: ReportWeaponRows (the shared draw_shortfall)
 #include "load_order.h"   // S105 SKB fix F3: PropAskGatesReady
+#if __has_include("stb_image.h")
+#include "stb_image.h"
+#else
+#include "../../thirdparty/rexglue-sdk-src/thirdparty/stb/stb_image.h"
+#endif
+// declarations only (S110 BELTPLATE: belt_plate.h now includes assets/jboy.h -> pac.h, which needs stbi_zlib_decode_buffer declared first; the program defines the implementation once)
 #include "../scene_live/belt_plate.h"   // S105 PLATE: the belt nameplate store (pure)
 #include "../scene_live/prop_colour.h"   // S108 THB: the entrance props' colours (the shortfalls the hooks queued)
 #include "change_colour_draw.h"   // S108 THB: CarryChangeColour (the prop's row -> the frame)
@@ -251,10 +257,12 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
       if (it.event) {   // S105 PLATE: the material whose diffuse sampler is `nameplate` gets the game's own plate (BC3 256 x 128); a belt with no plate is counted and said once, never silent white
         auto& pst = live::beltplate::TheStore();
         const uint64_t miss0 = pst.Counts().missing;
-        const uint32_t nb = live::beltplate::BindPlate(bound, plate);
+        float plate_share = 0.f;
+        live::beltplate::Ink plate_ink;
+        const uint32_t nb = live::beltplate::BindPlate(bound, plate, pst, &plate_share, &plate_ink);
         static std::set<std::pair<int32_t, uint64_t>> said;
         if (nb && plate && said.insert({it.id, plate->hash}).second)
-          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: plate bound (hash %016llx, %ux%u, t %u)", it.id, w.object, static_cast<unsigned long long>(plate->hash), plate->width, plate->height, plate->t);
+          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: plate bound (hash %016llx, %ux%u, t %u, below-255 share %.3f, ink %u texels, max alpha %u)", it.id, w.object, static_cast<unsigned long long>(plate->hash), plate->width, plate->height, plate->t, double(plate_share), plate_ink.texels, plate_ink.max_alpha);
         else if (pst.Counts().missing != miss0 && said.insert({it.id, 0}).second)
           rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: NO plate read for a nameplate material (draws white); last refusal: %s", it.id, w.object, pst.LastRefusal().c_str());   // S105 PLATE review 2: WHY
       }

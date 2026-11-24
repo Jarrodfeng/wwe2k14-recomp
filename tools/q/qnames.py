@@ -47,7 +47,18 @@ class NamesError(Exception):
     pass
 
 
+def newest(path):
+    """S110 QREBUILD review: the newest complete copy of an index file. A rebuild that found it held open by a reader left its file beside it
+    (`<path>.pending-*`, tools/q/qpublish.py) until nobody holds either; every opener reads that copy, not only q.connect (else names, units, sheets and
+    the rest answered from the old index beside q's new one, for as long as anyone held the old file). A file with no copy beside it is itself."""
+    if HERE not in sys.path:        # ro() runs once per open: never grow sys.path per call
+        sys.path.insert(0, HERE)
+    import qpublish
+    return qpublish.newest(path)
+
+
 def ro(path):
+    path = newest(path)
     if not os.path.exists(path):
         raise NamesError('no index at %s: build it with py tools\\q\\build_index.py' % path)
     return sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)
@@ -213,7 +224,7 @@ def name_table(img, con, funcs):
 
 
 def stamp():
-    st = os.stat(INDEX_DB)
+    st = os.stat(newest(INDEX_DB))
     return '%d:%d' % (st.st_size, int(st.st_mtime))
 
 

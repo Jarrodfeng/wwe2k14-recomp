@@ -36,6 +36,7 @@ LEAD_NOTE = ('# NEIGHBOURS (EARLIER MODEL READINGS of the units around this one:
 
 
 def ro(path):
+    path = qnames.newest(path)      # S110 QREBUILD review: a copy waiting beside a held file is the one to read
     return sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)
 
 

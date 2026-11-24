@@ -252,6 +252,9 @@ def label_status(text):
 
 def load_functions_from_index(path):
     """{addr: (size, has_body)}, code range, image size, staleness warnings. None when the index is missing."""
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'q'))
+    import qpublish
+    path = qpublish.newest(path)      # S110 QREBUILD review: a copy waiting beside a held index.db is the one to read
     if not os.path.exists(path):
         return None
     try:

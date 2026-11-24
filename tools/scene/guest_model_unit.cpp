@@ -3,6 +3,7 @@
 //   usage: guest_model_unit.exe [--plant N]    N = 1..13 reader / planner plants (guest_model_reader.h), 21..27 = decoder plants (guest_model_draw.h: N - 20). Exit 0 = every check passed; with a plant: exit 1 = caught.
 // The vertex forges are built from the game's PACKER rules (sub_82BD4BE0, CW2_review bug 5: the byte stores of the skin block, the 10:11:11 words, the half2 uv dwords), NOT from the decoder's own layout table.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1538,11 +1539,71 @@ static void CheckRecordAndConsumer() {
   std::printf("note: merged SceneTables size = base 1568 + PW 80 + guest_models %zu = %zu (this tree: 1568 + %zu = %zu)\n", sizeof(GuestModelTables), merged, sizeof(GuestModelTables), 1568 + sizeof(GuestModelTables));
 }
 
+// S110 WHITEFACE (docs\research\s110\WHITEFACE.md): a wrestler's face parts carry 68 material parameters; the reader once refused every texture of a part with more than 64 (`pc <= 64`), so the face bound white.
+// The reader now walks the game's own count; only a garbage count (> kParamCountGarbage) is refused and counted. Plant 17 = the old `pc <= 64` guard.
+static void CheckWhiteFace() {
+  live::guest_model::ByteStore::Process().Clear();
+  struct Out { bool built = false; uint32_t no_diffuse = 99, param_unreadable = 99; std::vector<bool> has_diffuse; };
+  // one forged model of `n_params`-parameter parts; each entry = {total params, index of the diffuse among them (-1 = none), extra sampler params right after it}. Every sampler shares texture #0.
+  const auto run = [](const std::vector<std::array<int, 3>>& specs, uint32_t garbage_part) {
+    TexWorld w;
+    const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21);
+    ModelSpec spec;
+    spec.two_ranges = true;
+    spec.tex_keys = {hA};
+    for (const auto& s : specs) {
+      PartSpec p0;
+      p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+      p0.vcount = 4, p0.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p0.n0 = 4, p0.n1 = 4, p0.palette = {20, 30, 40, 50}, p0.effect = "yCh_skin";
+      Vtx vx;
+      vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+      for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+      static const char* const kExtra[] = {"sampNormalPrm", "g_mMaskPrm", "g_mSpecPrm", "g_mEnvPrm", "g_mWrinklePrm", "g_mSweatPrm"};
+      for (int k = 0; k < s[0]; ++k) p0.samplers.push_back({"g_fFiller", 0, 3});   // kind 3: not a sampler
+      if (s[1] >= 0) p0.samplers[size_t(s[1])] = {"g_mDiffusePrm", 0, 15};
+      for (int k = 0; k < s[2]; ++k) p0.samplers[size_t(s[1] + 1 + k)] = {kExtra[k], 0, 15};
+      spec.parts.push_back(p0);
+    }
+    const uint32_t model = BuildModel(w.m, spec);
+    if (garbage_part != 0xFFFFFFFFu) {
+      uint32_t desc = 0;
+      w.m.u32(model + 824, desc);
+      w.m.put32(desc + 184 * garbage_part + 148, 0x7FFFFFFFu);   // [desc+148] = the parameter count
+    }
+    gm::ModelRead r = gm::ReadModel(w.m, model);
+    gm::TexResolver res;
+    res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10);
+    SceneTables t;
+    gm::BlobSender blobs;
+    gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+    const std::vector<uint8_t> bytes = SerializeRecord(t);
+    SceneTables back;
+    std::string err;
+    guestmodel::Store store;
+    assets::Model mdl;
+    guestmodel::BuildStats bs;
+    Out o;
+    if (ParseRecord(bytes.data(), bytes.size(), back, err)) store.Absorb(back), o.built = guestmodel::BuildModel(back, store, model, mdl, bs);
+    o.no_diffuse = uint32_t(bs.no_diffuse), o.param_unreadable = r.param_unreadable;
+    for (const assets::Mesh& me : mdl.meshes) o.has_diffuse.push_back(mdl.materials[me.material].diffuse >= 0);
+    return o;
+  };
+  // 1: a 45-parameter part and a 68-parameter part (diffuse first, 7 samplers: diffuse + 6 more; the 7th is past kMaxSamplers) share texture #0: BOTH build with their diffuse
+  const Out a = run({{45, 0, 0}, {68, 0, 6}}, 0xFFFFFFFFu);
+  Check(a.built && a.has_diffuse.size() == 2 && a.has_diffuse[0] && a.has_diffuse[1] && a.no_diffuse == 0 && a.param_unreadable == 0, "WHITEFACE: a 68-parameter part (diffuse first, 7 samplers, sharing texture #0 with a 45-parameter part) builds WITH its diffuse: no_diffuse " + std::to_string(a.no_diffuse));
+  // 2: the diffuse is the LAST of 300 parameters: the walk has no cap of ours
+  const Out b = run({{300, 299, 0}}, 0xFFFFFFFFu);
+  Check(b.built && b.has_diffuse.size() == 1 && b.has_diffuse[0] && b.no_diffuse == 0 && b.param_unreadable == 0, "WHITEFACE: a 300-parameter part with the diffuse as its LAST parameter builds with its diffuse (the game's count is walked whole)");
+  // 3: a garbage count (0x7FFFFFFF) is refused and counted; the model still builds, that part without a diffuse
+  const Out c = run({{45, 0, 0}, {45, 0, 0}}, 1);
+  Check(c.built && c.has_diffuse.size() == 2 && c.has_diffuse[0] && !c.has_diffuse[1] && c.no_diffuse == 1 && c.param_unreadable == 1, "WHITEFACE: a garbage parameter count (0x7FFFFFFF) refuses that part's parameters and is counted (params unreadable 1); the other part is untouched");
+}
+
 int main(int argc, char** argv) {
   int plant = 0;
   for (int i = 1; i + 1 < argc; ++i)
     if (!std::strcmp(argv[i], "--plant")) plant = std::atoi(argv[i + 1]);
-  if (plant >= 1 && plant <= 16) gm::g_gm_plant = plant;   // 15 / 16 = S108 RDS: the layout line copy's window unaligned / no line copy
+  if (plant >= 1 && plant <= 17) gm::g_gm_plant = plant;   // 17 = S110 WHITEFACE: the old `pc <= 64` guard   // 15 / 16 = S108 RDS: the layout line copy's window unaligned / no line copy
   if (plant >= 21 && plant <= 30) guestmodel::g_draw_plant = plant - 20;   // 30 (draw plant 10, CAWS P3): every decoded node + 200   // 29 (draw plant 9, CTX2): the actors_drawn increment is left out
   if (plant == 41) guestmodel::g_draw_plant = 11;                           // 41 (draw plant 11, CAWH): the file-space -> viewer-space mirror is skipped
   if (plant == 42) guestmodel::g_draw_plant = 12;                           // 42 (draw plant 12, S105 A5b): no guest part blends (the old rule)
@@ -1562,6 +1623,7 @@ int main(int argc, char** argv) {
   CheckLineCopy();   // S108 RDS
   CheckTextures();
   CheckCtf();
+  CheckWhiteFace();   // S110 WHITEFACE
   CheckBlend();
   CheckCawd();
   CheckLogo();

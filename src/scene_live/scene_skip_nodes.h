@@ -173,7 +173,10 @@ REX_HOOK_RAW(sub_825D0438) {
   rdr_scene::live::ringrecompute::RopeView view;   // S103 RLB: the draw thread's camera as the game's classifier (sub_827405F8) asks for it, read before the skip test (RLV.md rows 2, 14)
   if (rdr_scene::live::ringrecompute::RingViewWanted()) wwe2k14::scene_skip_nodes::ReadRingView(ctx, base, view);
   rdr_scene::live::ringrecompute::NoteRing(ctx.r3.u32 - 24, wwe2k14::scene_skip::HookFrame(), &view);   // S103 C3: the ring object X (ring.md section 4: r3 - 24), in every mode, before the skip test
-  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::RingColour)) return;
+  if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::RingColour)) {
+    rdr_scene::live::ringrids::PoseRidsRing(ctx, base, wwe2k14::scene_skip::HookFrame());   // S110 RINGBREAK: the game's own per-slot pose of the ring pieces while the ring is broken (bit 0 of 0x837632FA); a byte read otherwise
+    return;
+  }
   __imp__sub_825D0438(ctx, base);
 }
 REX_HOOK_RAW(sub_825D01F0) {

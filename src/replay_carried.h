@@ -19,6 +19,7 @@ inline bool CarriedSetting(const std::string& n) {
                                     "wwe2k14_fast_guest_reads", "wwe2k14_det_inline_motion",
                                     "wwe2k14_det_boot_alloc", "det_frames", "det_serial", "wwe2k14_s6_defaults",
                                     "wwe2k14_s7_defaults", "wwe2k14_quick_",  // Session 27: @quick's type / pace
+                                    "wwe2k14_replay_loads",  // S110 DETLOADS: slow / fast; a recording without the line = slow
                                     "wwe2k14_fix_secondary_motion",  // Session 27.5: can change root motion
                                     "wwe2k14_replay_time_follows_step",  // Session 27.5: guest time per frame
                                     "wwe2k14_step_",  // Session 77: the update step (the phone's FRAME RATE 30)
@@ -65,6 +66,14 @@ inline void AddOldRecordingDefaults(std::vector<std::pair<std::string, std::stri
   for (const auto& kv : flags)
     if (kv.first == kCrowdFillWide) return;
   flags.emplace_back(kCrowdFillWide, "off");
+}
+
+// S110 DETLOADS: does a recording's flag list choose fast loads? A recording without the line (every one made before it) = slow.
+inline bool FlagsChooseFastLoads(const std::vector<std::pair<std::string, std::string>>& flags) {
+  bool fast = false;
+  for (const auto& kv : flags)
+    if (kv.first == "wwe2k14_replay_loads") fast = kv.second == "fast";
+  return fast;
 }
 
 // The header line of one setting: "flag NAME VALUE\n" when carried, else the "# modified:" comment line.

@@ -6,7 +6,7 @@
 //  * POSED (S103 lane C4): the record carries the ring's per-call node rows (kScRingRows / kScRingNodes: ours from src\scene_live\ring_recompute_*.h with kRrRecomputed, or the game's own; PER CLASS, ours when the
 //    record has any of that class, so a mode-1 record that holds both is drawn from ours). Every call is one instance of one key's model, its mesh skinned on the CPU with the call's rows (ring_pose.h) and written into a per-instance front-end model in place
 //    (ModelCache::PosedModel: slots after the first share the images). A class whose rows are all there (ropes 12, covers 12, turnbuckles 12, posts 4, skirts 3-4) is drawn from them and its keys are NOT drawn at
-//    rest; the canvas and the rope plane-shadow proxy have no rows (the canvas never changes, run 16) and are always drawn at rest.
+//    rest; the canvas and the rope plane-shadow proxy have no rows (the canvas never changes, run 16) and are always drawn at rest.   [S110 RINGBREAK: the canvas HAS rows now (group 5, key 953 / 1017: the mat bounce, the break); the rope proxy still has none.]
 //    S103 RGP: by default (cvar wwe2k14_rdr_ring_gpu_skin, rdr_scene::g_ring_gpu_skin) a key whose effects are all yProp_* and not alpha-blended is drawn GPU-skinned instead: ONE static model per key (rf_c_core.cpp
 //    RingPiece::gpu, every mesh `skinned`), each call an object with kObjSkinned and the call's node rows as its bones (RingPalette); the game's own skinned yProp variant poses it, nothing is posed or uploaded on the CPU.
 //    The CPU pose below is the A/B arm and the fallback for any other key.
@@ -117,13 +117,13 @@ bool RingRun(BuildCtx& ctx, int run) {
   const bool alt = ringkeys::IsAltArena(as->arena);   // S103 CRR: a created arena draws the ALT ring keys (ring_keys.h)
   // The rows to pose with, PER CLASS: ours (kRrRecomputed) when the record has any entry of that class, else the game's own (a mode-1 record holds both for the classes ours covers; a record from before a class was
   // recomputed holds the game's only).
-  bool ours_g[5] = {};
+  bool ours_g[6] = {};
   for (const RingRows& e : t.ring_rows) {
     const int g = GroupOf(e);
     if (g >= 0 && (e.flags & kRrRecomputed)) ours_g[g] = true;
   }
   std::vector<const RingRows*> use;
-  uint32_t have[5] = {};
+  uint32_t have[6] = {};
   // S105 C4: ours emit ONE model per cover / post by the game's own distance test (ring_recompute_core.h CornerIsLow), so a recomputed low row is drawn. Only a record that still holds BOTH LODs of the same call
   // (made before this) draws the high one: its low row is skipped when a recomputed high row of the same class and call is there.
   std::vector<uint64_t> hi_calls;
@@ -142,9 +142,9 @@ bool RingRun(BuildCtx& ctx, int run) {
     ++have[g];
   }
   const bool posed_ok = !PlantsRef().ring_at_rest && !use.empty() && !as->ring_piece.empty();
-  bool covered[5] = {};
+  bool covered[6] = {};
   if (posed_ok)
-    for (int g = 0; g < 5; ++g) covered[g] = have[g] >= ringkeys::Need(g, alt);
+    for (int g = 0; g < 6; ++g) covered[g] = have[g] >= ringkeys::Need(g, alt);
   bool any_covered = false;
   for (bool c : covered) any_covered = any_covered || c;
   // S103 FOB (review 2): at rest the per-key ring_rest models go through the same run / rank list as the posed path (canvas, skirts, arena, screens, posts, turnbuckles, covers, ropes) when they add up to the whole ring set;
@@ -163,7 +163,7 @@ bool RingRun(BuildCtx& ctx, int run) {
     std::string why_rows;
     if (!t.ring_rows.empty()) {
       uint32_t c = 0;
-      for (int g = 0; g < 5; ++g) c += have[g];
+      for (int g = 0; g < 6; ++g) c += have[g];
       why_rows = std::to_string(t.ring_rows.size()) + " ring row calls in the record, " + (posed_ok ? "no class complete" : PlantsRef().ring_at_rest ? "at rest (planted)" : "none usable") + " (" + std::to_string(c) + " usable): ring at rest";
     }
     RingReport(ctx, run, fm.meshes, fm.meshes, 0, why_rows);
@@ -172,7 +172,7 @@ bool RingRun(BuildCtx& ctx, int run) {
 
   // Posed: the keys no complete class draws, at rest (per key), then every instance of the complete classes.
   std::vector<int> posed_keys;
-  for (int g = 0; g < 5; ++g)
+  for (int g = 0; g < 6; ++g)
     if (covered[g])
       for (int k : ringkeys::GroupKeys(g, alt))
         if (k) posed_keys.push_back(k);
@@ -350,8 +350,8 @@ bool RingRun(BuildCtx& ctx, int run) {
     for (const auto& kv : census) census_note += " key " + std::to_string(kv.first) + " x" + std::to_string(kv.second.first) + " verts " + std::to_string(kv.second.second) + ";";
   }
   std::string note = "posed, classes";
-  static const char* const kName[5] = {"rope", "cover", "turnbuckle", "post", "skirt"};
-  for (int g = 0; g < 5; ++g) note += std::string(" ") + kName[g] + "=" + std::to_string(have[g]) + (ours_g[g] ? "(ours)" : "(game)") + (covered[g] ? "" : "(rest)");
+  static const char* const kName[6] = {"rope", "cover", "turnbuckle", "post", "skirt", "canvas"};   // S110 RINGBREAK review: the canvas group (5) is reported too (the normal-match read of the canvas row)
+  for (int g = 0; g < 6; ++g) note += std::string(" ") + kName[g] + "=" + std::to_string(have[g]) + (ours_g[g] ? "(ours)" : "(game)") + (covered[g] ? "" : "(rest)");
   note += run == 0 ? " [run 1: canvas, skirts]" : " [run 2: posts, turnbuckles, covers, ropes]";
   if (!reason.empty()) note += "; " + reason;
   if (!census_bounds.empty()) census_note += " low_bounds:" + census_bounds + ";";

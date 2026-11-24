@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
+PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
 
 # ---- lints, over a {relative path: text} map so a twin can add a synthetic file --------------------------------------------------------------------------------------------------------------------------
 STRIDE_ONLY = [re.compile(r'\bLayoutOfStride\b'), re.compile(r'switch\s*\(\s*\w*stride\w*\s*/\s*4\s*\)')]
@@ -81,9 +81,15 @@ def lint_win_guard(files):
     if w is not None:
         m = re.search(r'inline bool ReadGuest\s*\([^)]*\)\s*\{(.*?)\n\}\n', w, re.S)
         body = m.group(1) if m else None
-        # S108 RDS: ReadGuest may serve a pass's line copy whose every read is ReadGuestDirect; then ReadGuestDirect must keep the check, and ReadGuest must not copy guest memory itself
-        if body is not None and 'GuestRangeReadable' not in body and 'ReadGuestDirect' in body and 'SafeCopy' not in body:
-            d = re.search(r'inline bool ReadGuestDirect\s*\([^)]*\)\s*\{(.*?)\n\}\n', w, re.S)
+        # S108 RDS: ReadGuest may serve a pass's line copy whose every read is ReadGuestDirect; then ReadGuestDirect must keep the check, and ReadGuest must not copy guest memory itself.
+        # S110 FEEDREC (3c8d0bd62) put ReadGuestNoNote between them (ReadGuest -> ReadGuestNoNote -> ReadGuestDirect): a body that neither checks nor copies is followed to the reader it calls, to the end of the chain.
+        seen = set()
+        while body is not None and 'GuestRangeReadable' not in body and 'SafeCopy' not in body:
+            inner = next((f for f in ('ReadGuestNoNote', 'ReadGuestDirect') if f not in seen and re.search(r'\b%s\s*\(' % f, body)), None)
+            if inner is None:
+                break
+            seen.add(inner)
+            d = re.search(r'inline bool %s\s*\([^)]*\)\s*\{(.*?)\n\}\n' % inner, w, re.S)
             body = d.group(1) if d else ''
         if body is None:
             bad.append('src/scene_live/wrestler_hook.h: ReadGuest not found')
@@ -158,7 +164,11 @@ TWINS = {
     'L3 section ids unique': {'synthetic/dup_ids.h': 'inline constexpr uint32_t kScGuestModelDup = 62;\n'},
     'L4 no stride-only vertex decode': {'synthetic/old_decode.h': 'switch (stride_bytes / 4) { case 8: return Layout::Plain8; }\n'},
     'L5 no function-local static containers in rf_*.cpp': {'synthetic/rf_new.cpp': 'int F() {\n  static std::unordered_map<std::string, uint64_t> hashes;\n  return 0;\n}\n'},
-    'L6 bulk ReadGuest is page-checked': {'src/scene_live/wrestler_hook.h': 'inline bool ReadGuest(uint32_t guest, void* dst, size_t n) {\n  return SafeCopy(dst, host, n);\n}\n'},
+    'L6 bulk ReadGuest is page-checked': [{'src/scene_live/wrestler_hook.h': 'inline bool ReadGuest(uint32_t guest, void* dst, size_t n) {\n  return SafeCopy(dst, host, n);\n}\n'},
+                                          # S110: the FEEDREC chain with the page check dropped at its END (ReadGuestDirect): only a lint that follows the chain to the end fires
+                                          {'src/scene_live/wrestler_hook.h': 'inline bool ReadGuestDirect(uint32_t guest, void* dst, size_t n) {\n  auto* host = T(guest);\n  return host && SafeCopy(dst, host, n);\n}\n'
+                                                                             'inline bool ReadGuestNoNote(uint32_t guest, void* dst, size_t n) {\n  return ReadGuestDirect(guest, dst, n);\n}\n'
+                                                                             'inline bool ReadGuest(uint32_t guest, void* dst, size_t n WWE_FEED_LOC_PARAM) {\n  WWE_FEED_NOTE(guest, (uint32_t)n);\n  return ReadGuestNoNote(guest, dst, n);\n}\n'}],
     'L7 static_assert on SceneTables members': {'src/renderer_scene/record_io.h': 'struct SceneTables {\n  FooTables foo;\n};\n'},
     'L8 gate predicates have product setters': {'synthetic/guest_model_gate.h': 'inline bool (*g_orphan)(uint32_t model) = nullptr;\n'},
     'L10 PipelineEffect kFx = fx_registry yCh_* = char_effects kEffects': {'src/renderer_scene/guest_model_draw.h': 'static const char* const kFx[] = {"yCh_skin"};\n'},
@@ -187,7 +197,7 @@ namespace wwe2k14 { inline std::atomic<uint64_t> g_guest_frame{777}; namespace s
 namespace rdr_scene::live::guestmodel { inline int g_calls = 0; inline uint32_t g_model = 0; inline uint64_t g_frame = 0;
   inline void OnModelEntry(uint32_t m, uint64_t f) { ++g_calls, g_model = m, g_frame = f; } }
 namespace wwe2k14::weaponrows { inline uint8_t ShadowKindHook(bool, uint32_t, uint64_t) { return 0; } inline bool RawEntry(bool ours, uint32_t, uint32_t, uint64_t, float, uint32_t, bool (*)(void*), void*, uint8_t) { return !ours; } }   // the weapons' raw entry (PWI2; S103 CGF added MdlAlpha, the caller lr, the GBR pass test): returns false when the frame is OURS
-namespace wwe2k14::wrestlers { inline bool ReadWord(uint32_t, uint32_t&) { return false; } }   // S103 DRL: the hook's draw-ask line passes it on
+namespace wwe2k14::wrestlers { inline bool ReadWord(uint32_t, uint32_t&) { return false; } inline bool ReadWordNoNote(uint32_t, uint32_t&) { return false; } }   // S103 DRL: the hook's draw-ask line passes it on (S110 FEEDREC 3c8d0bd62: as ReadWordNoNote)
 namespace rdr_scene::live { inline bool WrestlersRegistered() { return false; } inline bool Enabled() { return false; }
   struct WrestlerStub { template <class F> void NoteDrawAsked(uint32_t, uint64_t, F) {} }; inline WrestlerStub& Wrestlers() { static WrestlerStub w; return w; } }   // S103 DRL: not registered in the unit, so the line is a no-op
 namespace wwe2k14::drawcam { inline int g_calls = 0; inline uint32_t g_r13 = 0; inline void NoteDraw(uint32_t r13, uint64_t) { ++g_calls, g_r13 = r13; } }   // WC R5: the draw-thread camera call
@@ -304,10 +314,11 @@ def main():
     for name, fn in LINTS:
         v = fn(files)
         need(not v, '%s%s' % (name, ('' if not v else ': ' + '; '.join(v))))
-        tw = dict(files)
-        tw.update(TWINS[name])
-        vt = fn(tw)
-        need(bool(vt), '%s: the planted twin fires' % name)
+        for twin in (TWINS[name] if isinstance(TWINS[name], list) else [TWINS[name]]):
+            tw = dict(files)
+            tw.update(twin)
+            vt = fn(tw)
+            need(bool(vt), '%s: the planted twin fires' % name)
     n62 = sum(len(re.findall(r'kScGuestModel\w+\s*=\s*6[2-4]\s*;', t)) for p, t in files.items() if p == 'src/renderer_scene/guest_model_rows.h')
     need(n62 == 3, 'L9 section ids 62 / 63 / 64 are defined once each (guest_model_rows.h)')
     for rel in ('src/scene_live/guest_model_reader.h', 'src/scene_live/guest_model_contrib.h', 'src/scene_live/guest_model_tex.h', 'src/scene_live/guest_model_emit.h', 'src/scene_live/guest_model_store.h',

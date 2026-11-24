@@ -14,7 +14,7 @@ import threading
 import time
 
 SALT = 'syntax-pch-v2'
-BAD_RX = re.compile(r'precompiled header|PCH file|AST file|has been modified since|malformed or corrupted|module file|was compiled with|different (?:target|language|command)', re.I)
+BAD_RX = re.compile(r'precompiled header|precompiled file|between the precompiled|PCH file|AST file|has been modified since|malformed or corrupted|module file|was compiled with|different (?:target|language|command)', re.I)
 _DIRECTIVE = re.compile(r'^\s*#\s*(\w+)')
 
 
@@ -54,7 +54,7 @@ def unit_ok(args, ref_args, unit_path, force=False):
 
 def make_ref(root, ref_args, header=None):
     return {'args': list(ref_args), 'header': header or header_path(root), 'root': os.path.abspath(root).replace('\\', '/'),
-            'path': None, 'tried': False, 'note': '', 'lock': threading.RLock(), 'builds': 0, 'gen': 0, 'dead': False}
+            'path': None, 'tried': False, 'note': '', 'lock': threading.RLock(), 'builds': 0, 'gen': 0, 'dead': False, 'extra': [], 'build_s': 0.0}   # extra = flags of the PCH BUILD only (S110 SYNTAXPCH: -fpch-instantiate-templates for main.cpp's)
 
 
 def _key(ref, run, clang, clang_id, norm, roots, timeout):
@@ -62,7 +62,7 @@ def _key(ref, run, clang, clang_id, norm, roots, timeout):
     if pp.returncode != 0:
         return None, 'preprocess of %s failed: %s' % (ref['header'], (pp.stderr or b'')[:300] if isinstance(pp.stderr, str) else '')
     d = hashlib.sha256(pp.stdout)
-    d.update(('\0'.join(norm(ref['args'], roots)) + '\0' + clang_id + '\0' + SALT + '\0' + ref['root']).encode())
+    d.update(('\0'.join(norm(ref['args'], roots)) + '\0' + clang_id + '\0' + SALT + '\0' + ref['root'] + '\0' + ' '.join(ref['extra'])).encode())   # extra is in the key only when set: the unit PCHs' keys do not move
     return d.hexdigest(), ''
 
 
@@ -121,8 +121,10 @@ def _ensure(ref, store_dir, run, clang, clang_id, norm, roots, timeout, force=Fa
         except OSError as e:
             ref['note'] = 'cannot create %s: %s' % (d, e)
             return None
-        r = run([clang] + ref['args'] + ['-w', '-x', 'c++-header', ref['header'], '-o', tmp], timeout=timeout)
+        t_b = time.time()
+        r = run([clang] + ref['args'] + ref['extra'] + ['-w', '-x', 'c++-header', ref['header'], '-o', tmp], timeout=timeout)
         ref['builds'] += 1
+        ref['build_s'] += time.time() - t_b
         if r.returncode != 0 or getattr(r, 'timed_out', False) or not os.path.isfile(tmp):
             ref['note'] = 'PCH build failed (rc %s): %s' % (r.returncode, ((r.stdout or '') + (r.stderr or ''))[:400].replace('\n', ' | '))
             _rm(tmp)

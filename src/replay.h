@@ -77,6 +77,7 @@
 
 #include "frame_stats.h"
 #include "crowd_wide_core.h"  // lane 176 round 3: RecordValue
+#include "det_loads.h"       // S110 DETLOADS: wwe2k14_replay_loads
 #include "replay_carried.h"  // S101 lane 111: CarriedSetting, HeaderLine, ParseFlagLine
 #include "replay_verbs.h"    // S101 lane 111: live verbs as E events
 #include "xdet_check.h"  // Session 77 (P7): the check profile's pins (Want)
@@ -179,11 +180,19 @@ class Replay {
       }
     }
     // The preset, then the recording's own settings (same rule: only if left at default).
-    std::vector<std::pair<std::string, std::string>> wanted = {
-        {"det_frames", "true"},           {"det_serial", "true"},
-        {"wwe2k14_load_turbo", "false"},  {"wwe2k14_load_turbo_menu", "false"},
-        {"wwe2k14_load_turbo_boot", "false"}, {"wwe2k14_fast_loader", "false"},
-        {"wwe2k14_skip_boot_screens", "false"}};
+    std::vector<std::pair<std::string, std::string>> wanted = {{"det_frames", "true"}, {"det_serial", "true"}};
+    // S110 DETLOADS: with fast replay loads (the command line's choice, else the recording's; no line = slow) the three load
+    // entries are not forced off: their wall-clock rules are the guest-time ones of src/det_loads.h.
+    const bool loads_fast = rex::cvar::GetFlagSource("wwe2k14_replay_loads") == rex::cvar::Source::kDefault
+                                ? FlagsChooseFastLoads(file_flags_)
+                                : REXCVAR_GET(wwe2k14_replay_loads) == "fast";
+    if (!loads_fast) {
+      for (auto& kv : std::initializer_list<std::pair<const char*, const char*>>{
+               {"wwe2k14_load_turbo", "false"}, {"wwe2k14_load_turbo_menu", "false"}, {"wwe2k14_load_turbo_boot", "false"},
+               {"wwe2k14_fast_loader", "false"}, {"wwe2k14_skip_boot_screens", "false"}})
+        wanted.push_back({kv.first, kv.second});
+    }
+    if (loads_fast) wanted.push_back({"wwe2k14_replay_loads", "fast"});
     // Session 82 (P2): same guest frame, same picture (src/input_script.h: the screenshot's capture on the guest thread;
     // pipelines awaited, not skipped). The recording's own flags and an explicit setting still win (Want).
     wanted.push_back({"wwe2k14_replay_exact_shots", "true"});
@@ -196,6 +205,8 @@ class Replay {
       for (auto& kv : flags) wanted.push_back(kv);
     }
     for (auto& [name, value] : wanted) Want(name, value);
+    notes_.push_back(std::string("loads ") + (loads_fast ? "fast" : "slow") + " (det " +
+                     (rex::cvar::GetFlagByName("det_frames") == "true" ? "on" : "off") + ")");  // read after Want set det_frames
     // Seed: the command line's, else the recording's, else one from the host clock (ms of the day, so every value
     // is a distinct time of day: docs/systems/rng.md).
     if (rex::cvar::GetFlagSource("wwe2k14_fixed_seed") == rex::cvar::Source::kDefault) {
