@@ -1,0 +1,38 @@
+# harness: flags --wwe2k14_launch=@cas --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true
+# intent: launch @cas
+# S110 CASENTRY (docs\research\s110\CASENTRY.md): the Create a Superstar editor with NO menu input. --wwe2k14_launch=@cas (src\cas_launch.h) sends
+# the main menu's exit action 8 at the idle main menu (what CREATIONS > SUPERSTAR > NEW sends after its save task), so the game builds sequence 76
+# (a NEW superstar). The route only boots, waits for sequence 76 and looks: no press after the title, so nothing in the editor is changed or saved
+# (and the run uses the per-run copy of the frozen user data anyway). The editor's first page is the template pick (nav\creations_to_new_caw.txt:
+# "seq 76 -> A = the SUPERSTAR template"); its menu_page / menu_row words are logged so a later route can sync a press on them.
+# Dump the editor's flow table (holder slot 1) with -Extra '--wwe2k14_cas_flow_dump=<abs path under out\>' and read it with
+# py -I tools\menus\flow_graph.py --records <that path> --text
+# Marks: 1 main menu, 2 sequence 76, 3 editor settled, 4 end. on_fail quit.
+on_fail quit
+log bench: start scene cas_launch
+include boot_to_menu
+mark 1 menu
+wait_state seq 76 3600 2
+log scene=cas_seq76
+mark 2 cas_seq76
+# optional: whether the editor's pages dispatch a menu mixin (menu_ready) is not known yet; the shots and the state lines below are wanted either way
+wait_state menu_ready 1 3600 30 optional
+log scene=cas_editor
+log_state seq
+log_state menu_page
+log_state menu_row
+log_text 8
+screenshot sc_s110_cas_first_page
+mark 3 cas_editor
+# run 225: the first shot (79 frames after sequence 76) was still the loading picture and a shot 300 frames later was black, so the editor is
+# watched for longer: a shot every 300 frames over 2400
+screenshot_every 300 sc_s110_cas_watch
+wait_frames 2400
+screenshot_every 0
+log_state menu_page
+log_state menu_row
+log_text 8
+screenshot sc_s110_cas_first_page_later
+mark 4 end
+log bench: done
+quit

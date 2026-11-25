@@ -11,8 +11,11 @@ by hand when written, plus the hand-written assertions below):
   resync     a counter jump over 40, a counter that drops (a new match), the entered counter jumping, a spawn slot word of -1 (signed)
   type0      the same words with type 0: nothing
   cap        an entrant whose character is never built: entered_id with id -1 after 600 frames
-  move       a finisher on Brock's character, a repeat with no clear in between (the documented LIMIT: one line), a recycled character holding a
-             STALE finisher (no line on first sight), then its own finisher (a line)
+  move       S110 BUSMOVE fix 2: move-log calls (rumble::MoveLog) and motion-start latches (rumble::MoveLatch): one line per latch of a logged
+             move; the grapple-start offer loop's log (none, also when the next motion latches it), the real pick after it (a line), a
+             continuation (re-logged, latched again: none), run 002's Yes Lock logged twice before its one latch (one line, f13937), the same
+             finisher after a motion of nothing (a second line), a new character's first play (a line), a non-ring slot (none); moveall adds
+             the normal moves (f10, f20)
 PLANTED TWINS (a text replacement in a copy of the header, must hit exactly once, must change the output) are listed in `twins` below. Two
 TEXT CHECKS (not twins) pin that src/event_bus.h calls this header and keeps its filters. The syntax-only compile of event_bus.h
 (tools/bus/syntax_check.py) runs here too, with a planted syntax error that it must catch.
@@ -98,13 +101,19 @@ def main():
     check(sum('"eliminated"' in x for x in r) == 3 and not any('"starter"' in x for x in r if '"f": 107' in x), 'a same-frame double emits 2 events (+1); the flapping clock re-emits nothing')
     check(sum('"starter"' in x for x in r) == 2 and all('"slot": %d' % i in x for i, x in enumerate([y for y in r if '"starter"' in y])), 'two starters, from the active characters of slots 0 and 1')
     check(got['type0'] == [], 'type 0 emits nothing from this branch')
-    check(len([x for x in got['move'] if '"finisher"' in x]) == 2 and not any('"f": 13' in x or '"f": 14' in x for x in got['move']),
-          'move: the no-clear repeat (f13) and the stale recycled finisher (f14) emit nothing; its own finisher (f15) does')
+    frames = lambda lines: [x.split('"f": ')[1].split(',')[0] for x in lines]
+    check(frames(got['move']) == ['31', '38', '13937', '40000', '50000'] and frames(got['moveall']) == ['10', '20', '31', '38', '13937', '40000', '50000'],
+          'move: one line per latch of a logged move: the offer (f36) and the continuations (f11, f32) emit nothing; run 002\'s two logs of one '
+          'Yes Lock give one line (f13937); the same finisher after a motion of nothing (f40000) and a new character\'s first play (f50000) do')
     check(any('"f": 302' in x and '"slot": -1' in x for x in got['resync']), 'a spawn slot word 0xFFFFFFFF is read as -1')
 
     twins = [
-        ('the first sight of a new char pointer does not reseed the move key', [("      st.ptr[slot] = c;\n      st.seen[slot] = key;\n      continue;", "      st.ptr[slot] = c;\n      continue;")]),
-        ('a stale finisher is emitted on first sight', [("      st.seen[slot] = key;\n      continue;\n    }\n    if (cleared) {", "      st.seen[slot] = -2;\n    }\n    if (cleared) {")]),
+        ('an offer latched by the next motion counted as a play', [('  if (offer) {  // what the offer loop left', '  if (false) {  // what the offer loop left')]),
+        ('a play log does not clear the offer mark (the real pick after the offer lost)', [('st.offer_ptr[slot] = offer ? Char(m, slot) : 0;', 'if (offer) st.offer_ptr[slot] = Char(m, slot);')]),
+        ('a continuation of the move the character is in emitted', [('  if (idx == st.prev[slot]) return;  // a continuation', '  if (false) return;  // a continuation')]),
+        ('a motion of nothing does not end the move (the same finisher again folded)', [('  if (idx == 0xFFFF || mv == 0) {  // the log\'s own "none" (sub_825A14A8 +38 / +3C, sub_823CA4B0 +12C / +130): a motion of no logged move\n    st.prev[slot] = kMoveNone;\n',
+                                                                                       '  if (idx == 0xFFFF || mv == 0) {  // the log\'s own "none" (sub_825A14A8 +38 / +3C, sub_823CA4B0 +12C / +130): a motion of no logged move\n')]),
+        ('a new character inherits the previous character\'s latch', [('    st.ptr[slot] = c;\n    st.prev[slot] = kMoveNone;\n', '    st.ptr[slot] = c;\n')]),
         ('remaining off by one', [('st.entrants - k : -1', 'st.entrants - k + 1 : -1')]),
         ('only the last of a same-frame group emitted', [('for (int64_t k = p + 1; k <= n; ++k) {', 'for (int64_t k = n; k <= n; ++k) {')]),
         ('victims paired by position (the review\'s wrong pairing)', [("      if (last) v = last_v;\n      else if (count == 2 && rest.size() == 1) v = rest[0];\n",
@@ -136,11 +145,20 @@ def main():
     bus = open(os.path.join(REPO, 'src', 'event_bus.h'), encoding='utf-8').read().replace('\r\n', '\n')
     i = bus.index('inline void MatchTick')
     mt = bus[i:bus.index('// The owner update')]
-    check('#include "event_bus_rumble.h"' in bus and 'rumble::Tick(g_rumble, mem, frame,' in mt and 'rumble::MoveTick(g_moves' in mt,
-          'TEXT CHECK: src/event_bus.h MatchTick calls rumble::Tick and rumble::MoveTick from the shipped header')
+    check('#include "event_bus_rumble.h"' in bus and 'rumble::Tick(g_rumble, mem, frame,' in mt and 'MoveTick' not in bus,
+          'TEXT CHECK: src/event_bus.h MatchTick calls rumble::Tick from the shipped header and no longer polls the move log')
+    hook = open(os.path.join(REPO, 'src', 'move_log_hook.h'), encoding='utf-8').read()
+    ko = open(os.path.join(REPO, 'src', 'kernel_overrides.h'), encoding='utf-8').read()
+    check('REX_HOOK_RAW(sub_825A14A8)' in hook and 'REX_HOOK_RAW(sub_826BB6F0)' in hook and 'REX_HOOK_RAW(sub_823CA4B0)' in hook
+          and 'rumble::MoveLog(' in hook and 'rumble::MoveLatch(' in hook and hook.count('Emit(') == 1 and ko.count('#include "move_log_hook.h"') == 1,
+          'TEXT CHECK: src/move_log_hook.h hooks the move log, the offer loop and the motion start, emits only from the latch; kernel_overrides.h includes it once')
     check('&& !is_rumble) {' in mt and 'if (id == 255) continue;' in mt and 'clock_on' not in bus,
           'TEXT CHECK: the per-slot path skips Rumbles and id 255, with no clock gate (elimination tag / chamber still emit)')
     check('g_rumble.Reset();' in bus and 'R16(' in bus and 'wwe2k14_events_moves' in bus, 'TEXT CHECK: the match leave resets the state; R16 and the cvar exist')
+    # S110 BUSMOVE review: the move hook runs only on move-log calls (none outside a match), so the match leave in Tick resets its state, under its mutex
+    tk = bus[bus.index('inline void Tick(uint64_t frame)'):]
+    check('std::lock_guard<std::mutex> lock(g_moves_mutex);\n      g_moves = {};' in tk and 'g_moves_mutex' in hook and 'g_mutex' not in hook,
+          'TEXT CHECK: Tick resets g_moves when the match is left, under g_moves_mutex, the mutex the move hook takes')
 
     # the syntax-only compile of the shipped event_bus.h, and its planted syntax error
     sc = os.path.join(HERE, 'syntax_check.py')

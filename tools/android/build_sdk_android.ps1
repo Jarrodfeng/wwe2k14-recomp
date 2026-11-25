@@ -10,6 +10,7 @@ param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12,
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"
+. "$ProjectRoot\tools\harness\folderlock.ps1"
 
 $sdk   = "$ProjectRoot\thirdparty\rexglue-sdk-src"
 $build = if ($BuildDir) { $BuildDir } elseif ($SourceRoot) { "$($AndroidDirs.SdkBuild)-wt" } else { $AndroidDirs.SdkBuild }
@@ -23,6 +24,10 @@ if ($branch -ne 'android' -and $branch -ne $AllowBranch) { "build_sdk_android.ps
 
 # Session 92: BUILD class (like fast_build): this writes only under out\android, so it shares the PC with untimed runs.
 $lock = Enter-RunLock -Name "build_sdk_android.ps1 $Run" -Mode Build
+# S110 BUILDLOCK (docs\research\s110\BUILDLOCK.md): the BUILD hold stays (the SDK source checkout is switched by EXCLUSIVE SDK work). The install folder's WRITER
+# lock (tools\harness\folderlock.ps1): build_apk.ps1 (no run lock since S110) and build_game_android.ps1 read it.
+try { $dirLock = Enter-FolderLocks -Write @($inst) -Name "build_sdk_android.ps1 $Run" }
+catch { Exit-RunLock $lock; "build_sdk_android.ps1: REFUSED, nothing built: $($_.Exception.Message)"; exit 6 }
 try {
 $t0 = Get-Date
 "== SDK android build $Run, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), SDK $(git -C $sdk log --oneline -1)" | Out-File $log
@@ -59,4 +64,4 @@ $sdkCommit = (git -C $sdk rev-parse HEAD).Trim()
 $sdkDirty = @(git -C $sdk status --porcelain --untracked-files=no --ignore-submodules=all).Count
 @("commit=$sdkCommit", "branch=$branch", "dirty_tracked_files=$sdkDirty", "built=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "run=$Run") | Set-Content "$inst\sdk_commit.txt"
 "stamp: $inst\sdk_commit.txt  commit=$sdkCommit dirty=$sdkDirty"
-} finally { Exit-RunLock $lock }
+} finally { Exit-FolderLocks $dirLock; Exit-RunLock $lock }

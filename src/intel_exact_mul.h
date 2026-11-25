@@ -16,12 +16,7 @@
 
 #include "gpu_pick.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_intel_exact_mul, 1, "wwe2k14",
-                     "Session 76: 1 = on an Intel GPU, NATIVE keeps the 360's multiply rule exact "
-                     "(gpu_native_ps_mul_mode 0, gpu_native_vs_mul_mode 0, gpu_native_vs_mul_fetch_finite false, "
-                     "whatever the command line says; an Intel tester's black eyes in entrances); 0 = the flags as "
-                     "given; 2 = on any GPU (tests)")
-    .range(0, 2);
+REXCVAR_DECLARE(int32_t, wwe2k14_intel_exact_mul);
 
 namespace wwe2k14::intel_exact_mul {
 

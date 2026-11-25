@@ -58,37 +58,20 @@
 #include "kernel_overrides.h"  // g_vdswap_hook
 #include "tron_shim.h"         // Ld32 / St32, the Bink function symbols, MF startup
 
-REXCVAR_DEFINE_STRING(wwe2k14_tron_export, "", "wwe2k14",
-                      "Tron previews (Session 17): decode every titantron with the game's Bink into DIR (NNN.png first "
-                      "frame + NNN.mp4 preview + index.json), then quit. See src/tron_export.h");
-REXCVAR_DEFINE_STRING(wwe2k14_tron_export_only, "", "wwe2k14", "Tron previews: only these tron numbers (a,b,c)");
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_export_debug, false, "wwe2k14",
-                    "Tron previews: log the first frames' buffer bookkeeping (index before / after, mean Y of each buffer)");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_export_frame, 900, "wwe2k14", "Tron previews: start at this guest frame");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_export_seconds, 0, "wwe2k14",
-                     "Tron previews: length in seconds (0 = the whole video, the default since Jarrod's 'faithful')");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_export_fps, 0, "wwe2k14",
-                     "Tron previews: frame rate (0 = the file's own, every frame: the default)");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_export_max_width, 0, "wwe2k14",
-                     "Tron previews: halve the picture until it is at most this wide (0 = the original size: default)");
+REXCVAR_DECLARE(std::string, wwe2k14_tron_export);
+REXCVAR_DECLARE(std::string, wwe2k14_tron_export_only);
+REXCVAR_DECLARE(bool, wwe2k14_tron_export_debug);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_export_frame);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_export_seconds);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_export_fps);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_export_max_width);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_export_trons, true, "wwe2k14",
-                    "Tron previews: export the loose titantrons (false = only the stage movies below)");
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_export_media, true, "wwe2k14",
-                    "Tron previews (Session 97): also decode the stage movies in pac/evt/evtmov*.pac (tron screens, "
-                    "arena header / name plate art) into DIR/evtmov/GROUP_Mnnn.png. Skipped when "
-                    "--wwe2k14_tron_export_only names trons and no media_only list is given");
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_export_media_mp4, false, "wwe2k14",
-                    "Tron previews (Session 98): also write every multi-frame stage movie as DIR/evtmov/GROUP_Mnnn.mp4 (the whole "
-                    "movie; alpha ones flattened over black), which the asset viewer plays on the walls / pillars / mini-tron. "
-                    "Default false (harness / census / reference runs only want the stills); the launcher's Build previews passes true");
-REXCVAR_DEFINE_STRING(wwe2k14_tron_export_media_only, "", "wwe2k14",
-                      "Tron previews: only these stage movies (GROUP_Mnnn,GROUP_Mnnn e.g. MOVL_M005,MOVN_M005)");
+REXCVAR_DECLARE(bool, wwe2k14_tron_export_trons);
+REXCVAR_DECLARE(bool, wwe2k14_tron_export_media);
+REXCVAR_DECLARE(bool, wwe2k14_tron_export_media_mp4);
+REXCVAR_DECLARE(std::string, wwe2k14_tron_export_media_only);
 
-REXCVAR_DEFINE_STRING(wwe2k14_tron_export_media_at, "", "wwe2k14",
-                      "Tron previews (Session 97): extra frames at these times in seconds (a,b,c e.g. 2,5.5), written as "
-                      "NNN_tNN.png / GROUP_Mnnn_tNN.png (NN = whole seconds, 02; a fraction adds p and the tenths: 02p5), so an "
-                      "A/B can pick the frame of the game's moment. Applies to the trons and to every stage movie");
+REXCVAR_DECLARE(std::string, wwe2k14_tron_export_media_at);
 
 REX_EXTERN(sub_83599C58);  // BinkSetIOSize
 REX_EXTERN(sub_83599C68);  // BinkSetIO

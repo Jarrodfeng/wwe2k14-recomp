@@ -633,7 +633,7 @@ FrontEnd::~FrontEnd() {
   for (size_t i = 0; i < models_.size(); ++i) ReleaseModel(int(i));
   for (ModelData* m : models_) delete m;
   post_pass_.reset();  // S101 lane 34 (its images go first)
-  for (rdr::ImageId id : {white_, grey_, color_, depth_, black_, neutral_normal_, black_cube_, post_out_})
+  for (rdr::ImageId id : {white_, grey_, color_, depth_, black_, neutral_normal_, black_cube_, post_out_, flash_depth_})   // (S110 FLASHFRONT: flash_depth_)
     if (id != rdr::kNoImage) renderer_.DestroyImage(id);
   if (grab_prime_ != rdr::kNoImage) renderer_.DestroyImage(grab_prime_), grab_prime_ = rdr::kNoImage;   // WGS PAR1: the TEST-ONLY primed grab (teardown)
   for (auto& kv : cubes_)

@@ -87,30 +87,15 @@
 #include "android_frame_rate.h"  // Session 73: the screen's refresh rate set for a 60 fps source
 #endif
 
-REXCVAR_DEFINE_INT32(wwe2k14_frame_summary_seconds, 5, "wwe2k14",
-                     "Log a guest frame-time summary every N seconds (0 = off)");
-REXCVAR_DEFINE_INT32(wwe2k14_hitch_ms, 100, "wwe2k14",
-                     "Log every guest frame that takes at least this many milliseconds (0 = off)");
-REXCVAR_DEFINE_BOOL(wwe2k14_frame_csv, true, "wwe2k14",
-                    "Write every guest frame's time to logs/frames_NNN.csv");
-REXCVAR_DEFINE_INT32(wwe2k14_slow_frame_ms, 33, "wwe2k14",
-                     "Session 73: every guest frame at least this long gets a 'slow frame' line with what happened in "
-                     "it (0 = off)");
-REXCVAR_DEFINE_BOOL(wwe2k14_frame_gpu_time, true, "wwe2k14",
-                    "Session 73: measure each frame's GPU time (two timestamp queries per submission) for the "
-                    "per-frame CSV and the slow-frame lines");
-REXCVAR_DEFINE_BOOL(wwe2k14_gpu_keep_warm, false, "wwe2k14",
-                    "Session 73: GPU busy work in light in-game frames (loads), so a phone's GPU clock stays up for "
-                    "the next scene (src/frame_stats.h; the phone launcher turns it on)");
-REXCVAR_DEFINE_BOOL(wwe2k14_frame_split, false, "wwe2k14",
-                    "S102 H3: seven more columns at the END of frames_NNN.csv (fs_*_ms): where the game's swap thread spends each guest frame (our reader's draws and "
-                    "present, the scene-live EndFrame, the replay dispatch, the GPU-fence wait, the update-thread barrier wait, the rest; src/frame_split_math.h). "
-                    "Read when the csv opens (frame 1). The Surface bench turns it on");
-REXCVAR_DEFINE_INT32(wwe2k14_gpu_keep_warm_mb, 768, "wwe2k14",
-                     "Session 73: the most keep-warm work per 1/60 s, MB of GPU buffer fill")
-    .range(16, 1024);
-REXCVAR_DEFINE_DOUBLE(wwe2k14_gpu_keep_warm_target_ms, 10.0, "wwe2k14",
-                      "Session 73 (b78): keep-warm aims the GPU at this many ms of work per 1/60 s");
+REXCVAR_DECLARE(int32_t, wwe2k14_frame_summary_seconds);
+REXCVAR_DECLARE(int32_t, wwe2k14_hitch_ms);
+REXCVAR_DECLARE(bool, wwe2k14_frame_csv);
+REXCVAR_DECLARE(int32_t, wwe2k14_slow_frame_ms);
+REXCVAR_DECLARE(bool, wwe2k14_frame_gpu_time);
+REXCVAR_DECLARE(bool, wwe2k14_gpu_keep_warm);
+REXCVAR_DECLARE(bool, wwe2k14_frame_split);
+REXCVAR_DECLARE(int32_t, wwe2k14_gpu_keep_warm_mb);
+REXCVAR_DECLARE(double, wwe2k14_gpu_keep_warm_target_ms);
 
 namespace wwe2k14 {
 

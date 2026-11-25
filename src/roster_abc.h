@@ -24,10 +24,7 @@
 #include "roster_abc_core.h"
 #include "seats.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_roster_abc, true, "wwe2k14",
-                    "S110 DLCRANK: the DOWNLOADED SUPERSTARS tab of the select screens lists the game's DLC wrestlers and the imported superstars together in one "
-                    "alphabetical order (the order of the select lists only; no roster row and nothing in the save is written). Off = the stock order (DLC in pack "
-                    "order, then imports) at the next list build. See src/roster_abc.h");
+REXCVAR_DECLARE(bool, wwe2k14_roster_abc);
 
 REX_EXTERN(__imp__sub_82924E00);
 

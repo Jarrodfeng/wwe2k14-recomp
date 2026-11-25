@@ -25,7 +25,7 @@ inline bool SafeRead32(uint32_t a, uint32_t* o) { auto it = g_mem.find(a); if (i
 namespace wwe2k14::safe_pages {
 inline bool PlausibleGuestPtr(uint32_t p, uint32_t) { return p != 0 && p != g_ptrBad; }
 }
-#define REXCVAR_DEFINE_BOOL(name, def, cat, help) static bool& cvh_##name = cv_##name;
+#define REXCVAR_DECLARE(type, name) static type& cvh_##name = cv_##name;   // (S110 CVARSHARD: the header only declares; the definitions are in src/cvars/cvars_<n>.cpp, checked below)
 #define REXCVAR_GET(name) (cvh_##name)
 #define REXLOG_INFO(...) (++g_logs)
 #define REXLOG_WARN(...) (++g_warns)
@@ -146,9 +146,13 @@ int main(int argc, char** argv) {
   // Source checks: default false, test-only help text, no Win32 in the hook, included in the app after load_probe.h and outside the #if.
   const std::string h = Slurp(root + "/src/loader_cache_skip.h");
   CHECK(!h.empty());
-  CHECK(h.find("REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_copy, false") != std::string::npos);
-  CHECK(h.find("TEST ONLY") != std::string::npos);
-  CHECK(h.find("REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_hits, false") != std::string::npos);
+  std::string shards;   // S110 CVARSHARD: the definitions (default, help text) live in the generated shards
+  for (int i = 0; i < 6; ++i) shards += Slurp(root + "/src/cvars/cvars_" + std::to_string(i) + ".cpp");
+  CHECK(h.find("REXCVAR_DECLARE(bool, wwe2k14_loader_cache_copy)") != std::string::npos);
+  CHECK(h.find("REXCVAR_DECLARE(bool, wwe2k14_loader_cache_hits)") != std::string::npos);
+  CHECK(shards.find("REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_copy, false") != std::string::npos);
+  CHECK(shards.find("TEST ONLY") != std::string::npos);
+  CHECK(shards.find("REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_hits, false") != std::string::npos);
   CHECK(h.find("_WIN32") == std::string::npos && h.find("windows.h") == std::string::npos);
   const std::string app = Slurp(root + "/src/wwe2k14_app.h");
   const size_t inc = app.find("#include \"loader_cache_skip.h\"");

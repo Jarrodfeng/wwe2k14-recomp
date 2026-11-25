@@ -106,13 +106,9 @@
 #include "exe_name.h"
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_watch_stacks_per_site, 4, "wwe2k14",
-                     "watch script command: hits logged (with call stacks) per distinct writing instruction; later "
-                     "hits from that instruction are only counted");
-REXCVAR_DEFINE_INT32(wwe2k14_watch_lines_per_second, 20, "wwe2k14",
-                     "watch script command: at most this many hit lines per watch per 60 guest frames");
-REXCVAR_DEFINE_INT32(wwe2k14_watch_summary_frames, 600, "wwe2k14",
-                     "watch script command: log a per-site summary this often (guest frames) while hits go unlogged");
+REXCVAR_DECLARE(int32_t, wwe2k14_watch_stacks_per_site);
+REXCVAR_DECLARE(int32_t, wwe2k14_watch_lines_per_second);
+REXCVAR_DECLARE(int32_t, wwe2k14_watch_summary_frames);
 
 namespace wwe2k14 {
 

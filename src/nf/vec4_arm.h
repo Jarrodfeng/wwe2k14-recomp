@@ -11,10 +11,8 @@
 #include "../native_fn.h"
 #include "vec4_lean.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_vec4_mat4_inplace, "off", "wwe2k14",
-                      "Session 95: native sub_82C32A88 (vec4 times mat4, in place): off | verifylean | lean");
-REXCVAR_DEFINE_STRING(wwe2k14_nf_vec4_mat4_row, "off", "wwe2k14",
-                      "Session 95: native sub_82C32BC0 (row vector times mat4): off | verifylean | lean");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_vec4_mat4_inplace);
+REXCVAR_DECLARE(std::string, wwe2k14_nf_vec4_mat4_row);
 
 REX_EXTERN(__imp__sub_82C32A88);
 REX_EXTERN(__imp__sub_82C32BC0);

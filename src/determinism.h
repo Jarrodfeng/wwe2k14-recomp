@@ -58,11 +58,7 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_INT64(wwe2k14_fixed_seed, -1, "wwe2k14",
-                     "Pin the game's clock-seeded random sources to this seed (decimal, 0..4294967295): boot time "
-                     "of day (MT #1, MT #2, random-table cursor A, main-thread srand), the audio LCG's time() seed "
-                     "and clock-derived script randomseed values. -1 = off (normal behaviour). See "
-                     "docs/systems/rng.md");
+REXCVAR_DECLARE(int64_t, wwe2k14_fixed_seed);
 
 namespace wwe2k14::determinism {
 

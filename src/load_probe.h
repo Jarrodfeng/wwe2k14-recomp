@@ -51,9 +51,7 @@
 #include "scene_live/model_file_note.h"    // S110 SEATREL: ReaderScope (the real read's window for the pac-answer note)
 #include "scene_live/safe_guest_pages.h"   // BH3-2: PlausibleGuestPtr
 
-REXCVAR_DEFINE_BOOL(wwe2k14_load_probe, false, "wwe2k14",
-                    "Log every pac load request (sub_82C37E48) and its completion (sub_82C37C08) with host time, frame "
-                    "and thread (Session 12 load-time profiling; log only)");
+REXCVAR_DECLARE(bool, wwe2k14_load_probe);
 
 REX_EXTERN(__imp__sub_82C37E48);
 REX_EXTERN(__imp__sub_82C37C08);
@@ -221,9 +219,7 @@ REX_HOOK_RAW(sub_82C37E48) {
 // sub_82260310) "PacLoader", and (sub-second loads) the thread that runs the read-end completions and their callbacks
 // (sub_82C37C08; run 1182: a different host thread, e.g. the arena's 191 ms callback) "PacComplete", so
 // --wwe2k14_profile_threads=PacLoader,PacComplete can sample them. Default off.
-REXCVAR_DEFINE_BOOL(wwe2k14_name_loader, false, "wwe2k14",
-                    "Debug (Session 15): name the pac loader thread 'PacLoader' and its completion thread "
-                    "'PacComplete' (host thread descriptions) so --wwe2k14_profile_threads can sample them");
+REXCVAR_DECLARE(bool, wwe2k14_name_loader);
 REX_HOOK_RAW(sub_82C37C08) {
 #ifdef _WIN32
   if (REXCVAR_GET(wwe2k14_name_loader)) {
@@ -286,13 +282,9 @@ WWE2K14_LOAD_TIMED_HOOK(sub_82C36090, 1000)
 // event): deliver pending read completions (the game's own 0 ms alertable sleep, sub_82261FD0, which runs the I/O
 // APCs), check for work (sub_82C36090, the loop's own check) and step again, until there is no work, the budget
 // (wwe2k14_fast_loader_budget_ms, measured from the start of the pass's first step) is used or max_steps is reached.
-REXCVAR_DEFINE_BOOL(wwe2k14_fast_loader, true, "wwe2k14",
-                    "Let the pac loader thread run several state-machine steps per frame window instead of one every "
-                    "two frames (default ON since Session 12, Jarrod 2026-10-11 after the 95/95 roster sweep; =false = the game's pacing)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_fast_loader_budget_ms, 8.0, "wwe2k14",
-                      "wwe2k14_fast_loader: time budget per loader pass (ms)");
-REXCVAR_DEFINE_INT32(wwe2k14_fast_loader_max_steps, 256, "wwe2k14",
-                     "wwe2k14_fast_loader: most state-machine steps per loader pass");
+REXCVAR_DECLARE(bool, wwe2k14_fast_loader);
+REXCVAR_DECLARE(double, wwe2k14_fast_loader_budget_ms);
+REXCVAR_DECLARE(int32_t, wwe2k14_fast_loader_max_steps);
 
 // Session 14 (Track B): the fast loader steps aside in the game sequences listed here, so the game's own pacing
 // applies. 76 = Create a Superstar (Create-a-Wrestler): run 992 (defaults on) shows the sequence id 75 -> 76 at
@@ -303,23 +295,15 @@ REXCVAR_DEFINE_INT32(wwe2k14_fast_loader_max_steps, 256, "wwe2k14",
 // read-end callback (sub_82A97D10 -> sub_82BAA6F8) on MENUHD.PAC writing through a null object; intermittent (runs
 // 912 / 1045 passed). The editor runs in the in-game sequence 9 entered from the story menus 11 (run 1045 peek:
 // 75 -> 11 -> 9), hence "9<11".
-REXCVAR_DEFINE_STRING(wwe2k14_fast_loader_off_sequences, "76,9<11", "wwe2k14",
-                      "wwe2k14_fast_loader: comma-separated game sequence ids (chain 0x839400F8>0>48) in which the "
-                      "fast loader is suspended and the game's own pacing applies; N<M = sequence N entered from M. "
-                      "Session 14: 76 = Create-a-Wrestler, 9<11 = Create-a-Story's scene editor (both crash with it). "
-                      "Empty = never suspended");
+REXCVAR_DECLARE(std::string, wwe2k14_fast_loader_off_sequences);
 
 // Session 15 (A1): where the fast loader runs. "turbo" = only while the load turbo's in-game windows are open (the
 // pre-entrance load "ingame" and the match load "match", load_turbo.h; the loads it was measured on in Sessions 12 /
 // 14), so boot, menus and the creation modes keep the game's own pacing; with --wwe2k14_load_turbo=false there are no
 // windows, so no fast loader either. "all" = every load (Sessions 12-14). The sequence list above applies in both.
-REXCVAR_DEFINE_STRING(wwe2k14_fast_loader_scope, "turbo", "wwe2k14",
-                      "wwe2k14_fast_loader: 'turbo' = only inside the load turbo's in-game windows (pre-entrance load, "
-                      "match load; Session 15), 'all' = every load (Sessions 12-14)");
+REXCVAR_DECLARE(std::string, wwe2k14_fast_loader_scope);
 
-REXCVAR_DEFINE_INT32(wwe2k14_load_watch_seconds, 5, "wwe2k14",
-                     "S105 A6W: the loader watch (own thread, always on) logs a WATCH line and dumps the guest stacks when a pac "
-                     "request is current and the loader made no progress for this many seconds while guest frames advanced; 0 = off");
+REXCVAR_DECLARE(int32_t, wwe2k14_load_watch_seconds);
 
 namespace wwe2k14::load_probe {
 // Fault-safe guest word read (sequence chain read from the loader thread; same checks as load_turbo.h Read).
@@ -663,9 +647,7 @@ REX_HOOK_RAW(sub_82C37B98) {
 // sizing that probes MmAllocatePhysicalMemoryEx, run 849), the same sequence runs with a wait of
 // wwe2k14_fast_loader_wait_ms instead of a whole frame. Other callers
 // (sub_82C3D490) and an idle loader keep the game's wait.
-REXCVAR_DEFINE_INT32(wwe2k14_fast_loader_wait_ms, 1, "wwe2k14",
-                     "wwe2k14_fast_loader: while the loader has work, its frame waits time out after this many ms "
-                     "(-1 = keep the game's whole-frame wait)");
+REXCVAR_DECLARE(int32_t, wwe2k14_fast_loader_wait_ms);
 REX_EXTERN(__imp__sub_82C2F878);
 REX_EXTERN(__imp__RtlLeaveCriticalSection);
 REX_EXTERN(__imp__RtlEnterCriticalSection);

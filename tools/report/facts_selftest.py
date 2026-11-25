@@ -297,7 +297,8 @@ def case_big(exe):
 
 
 def lint_table(table, roots):
-    """Every row's writer holds its marker; every mod / switch row's cvar is defined (REXCVAR_DEFINE_*(NAME,) in its writer file."""
+    """Every row's writer holds its marker; every mod / switch row's cvar is in its writer file (REXCVAR_DEFINE_*(NAME, or, since S110 CVARSHARD, REXCVAR_DECLARE(type, NAME))
+    and is defined there or in a generated unit src\\cvars\\*.cpp (tools\\compile\\cvar_shard.py moved the header definitions there)."""
     bad = []
     for kind, arg, text, writer in table:
         if writer == "-":
@@ -305,9 +306,10 @@ def lint_table(table, roots):
         path, _sep, lit = writer.partition(" @ ")
         if kind in ("mod", "switch"):
             name = arg if kind == "mod" else text
-            rx = re.compile(r"REXCVAR_DEFINE_\w+\(\s*%s\s*," % re.escape(name))
+            rx = re.compile(r"REXCVAR_(?:DEFINE_\w+\(\s*%s\s*,|DECLARE\(\s*[^,()]+,\s*%s\s*\))" % (re.escape(name), re.escape(name)))
+            defrx = re.compile(r"REXCVAR_DEFINE_\w+\(\s*%s\s*," % re.escape(name))
         else:
-            rx = None
+            rx = defrx = None
             lit = lit or arg
         for root in roots:
             fp = Path(root) / path.strip()
@@ -315,6 +317,9 @@ def lint_table(table, roots):
                 body = fp.read_text(encoding="utf8", errors="replace")
                 if (rx and not rx.search(body)) or (not rx and lit not in body):
                     bad.append("%s %s: %s does not hold %s" % (kind, arg, path, rx.pattern if rx else repr(lit)))
+                elif rx and not defrx.search(body) and not any(defrx.search(p.read_text(encoding="utf8", errors="replace"))
+                                                               for p in sorted((Path(root) / "src" / "cvars").glob("*.cpp"))):
+                    bad.append("%s %s: %s declares %s, but no src\\cvars unit defines it" % (kind, arg, path, name))
                 break
         else:
             bad.append("%s %s: %s not found under any root" % (kind, arg, path))
@@ -330,6 +335,12 @@ def case_table():
     check(len(lint_table(renamed, roots)) == 1, "a renamed switch fails the lint (planted: wwe2k14_quick_pace_renamed)")
     moved = [(k, a, t, (w.replace("src/wwe2k14_app.h", "src/session_log.h") if a == "[wwe2k14] version" else w)) for k, a, t, w in table]
     check(len(lint_table(moved, roots)) == 1, "a marker whose writer file no longer holds it fails the lint (planted)")
+    row = [r for r in table if r[0] == "switch" and r[1] == "quick_pace"]
+    with tempfile.TemporaryDirectory() as td:   # S110 CVARSHARD: the writer alone (its REXCVAR_DECLARE), no src\cvars unit beside it
+        w = row[0][3].partition(" @ ")[0].strip() if row else "src/scenario.h"
+        (Path(td) / w).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / w, Path(td) / w)
+        check(len(row) == 1 and len(lint_table(row, [td])) == 1, "a switch whose writer only declares it and no src\\cvars unit defines it fails the lint (planted)")
 
 
 def case_setup_writer():

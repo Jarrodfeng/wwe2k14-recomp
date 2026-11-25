@@ -69,25 +69,12 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_precise_sleep, false, "wwe2k14",
-                    "Guest non-alertable relative sleeps of >= 1 ms wait on a high-resolution timer for the exact "
-                    "requested time instead of host Sleep(whole ms) (Session 8 task B)");
-REXCVAR_DEFINE_INT32(wwe2k14_precise_sleep_spin_us, 2000, "wwe2k14",
-                     "With wwe2k14_precise_sleep: requests up to this many microseconds spin on the host counter "
-                     "instead of the timer (0 = timer only)");
-REXCVAR_DEFINE_BOOL(wwe2k14_sleep_stats, false, "wwe2k14",
-                    "Log guest KeDelayExecutionThread requested vs measured time every ~5 s ([wwe2k14][sleep])");
+REXCVAR_DECLARE(bool, wwe2k14_precise_sleep);
+REXCVAR_DECLARE(int32_t, wwe2k14_precise_sleep_spin_us);
+REXCVAR_DECLARE(bool, wwe2k14_sleep_stats);
 // Session 95 (Wwise and small threads piece): idle polling loops that wake every few ms to find nothing to do.
-REXCVAR_DEFINE_STRING(wwe2k14_idle_poll_stretch, "", "wwe2k14",
-                      "Session 95: comma-separated ENTRY=MAXMS, ENTRY = hex guest start address of a thread that "
-                      "polls with a short non-alertable relative sleep (e.g. 827DFA18=16, the movie thread; a thread START address, as the [idle] log prints it). Once "
-                      "the thread has slept wwe2k14_idle_poll_after times in a row with next to no work between "
-                      "the sleeps, each sleep lasts MAXMS instead; the first sleep after any real work is the "
-                      "game's own again. Off when empty (the default) and in replay (det) mode. Read at the "
-                      "first sleep of the run. Log: [wwe2k14][idle]");
-REXCVAR_DEFINE_INT32(wwe2k14_idle_poll_after, 100, "wwe2k14",
-                     "With wwe2k14_idle_poll_stretch: consecutive near-work-free sleeps before a thread's sleeps "
-                     "are stretched (100 = ~0.3 s of a 3 ms poll)");
+REXCVAR_DECLARE(std::string, wwe2k14_idle_poll_stretch);
+REXCVAR_DECLARE(int32_t, wwe2k14_idle_poll_after);
 
 namespace rex::kernel::xboxkrnl {
 // ReXGlue's implementation (also declared in flight_recorder.h; same signature, from xboxkrnl_threading.cpp).

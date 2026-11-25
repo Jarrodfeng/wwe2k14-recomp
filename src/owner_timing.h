@@ -62,43 +62,19 @@
 #endif
 #include "renderer_adapter/swap_tail2.h"  // S102 R25-A
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_timing, true, "wwe2k14",
-                    "Session 100 (strip-360 B4/B5): in owner mode the game's fences, interrupts and flips are answered by our own guest thread "
-                    "(no packets for the old command processor); false: the old path's packets as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_timing);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_no_ring, true, "wwe2k14",
-                    "Session 100 (strip-360 B6): in owner mode (with --wwe2k14_owner_timing) the library's ring submit is skipped: the old command "
-                    "processor gets no work and idles; false: segments still submitted (and parsed, drawing nothing)");
+REXCVAR_DECLARE(bool, wwe2k14_owner_no_ring);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_boot_submit_ours, false, "wwe2k14",
-                    "Session 101 lane 231 (LEAVE_THE_COMMAND_STREAM 3a, owner mode with --wwe2k14_owner_no_ring): the boot's one ring submit is answered by us "
-                    "(src/owner_boot_submit.h: the first segment is scanned; if it holds nothing the game needs from the processor, the ring read pointer word "
-                    "is set and the submit is skipped like every other) instead of reaching the SDK's command processor; a packet the scan cannot vouch for "
-                    "hands the submit to the original. false: the boot submit runs in the SDK as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_boot_submit_ours);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_guest_gpu_only, false, "wwe2k14",
-                    "Session 101 lane 241 (LEAVE_THE_COMMAND_STREAM 3b, owner mode with --wwe2k14_owner_boot_submit_ours): the SDK builds no graphics provider, no "
-                    "command processor and no presenter (SDK patch 113, RuntimeConfig::guest_gpu_only: the GPU MMIO range and the VSync thread only): no second "
-                    "VkDevice, no 'GPU Commands' thread. Refused with a log line unless owner mode, owner timing, owner_no_ring and owner_boot_submit_ours are on. "
-                    "A path that still needs the processor (the boot scan refusing, a tiling / recording / predication fallback, a raw ring write) is logged as "
-                    "[owner][gpu-only] ERROR and cannot be served. false: the SDK keeps its command processor as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_guest_gpu_only);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_vblank_ours, false, "wwe2k14",
-                    "Session 101 lane 260 (LEAVE_THE_COMMAND_STREAM 3e, owner mode with --wwe2k14_owner_guest_gpu_only): the guest's vblank comes from OUR clock: the 'Owner timing' "
-                    "thread dispatches the game's interrupt dispatcher (source 0, cpu 2) at 60 Hz (vsync on; --gpu_vblank_rate_override_hz honoured) or 1 kHz / "
-                    "--gpu_vblank_unthrottled_hz (vsync off) exactly as the SDK's VSync thread did, and the SDK starts no VSync thread (SDK patch 114, "
-                    "RuntimeConfig::guest_vblank_ours). Refused with a log line when det_frames / det_serial are on, when guest_gpu_only is not on, or when the "
-                    "SDK build lacks patch 114. false: the SDK's VSync thread as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_vblank_ours);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_load_batch, false, "wwe2k14",
-                    "S102 H2 (R5 item 6): with our vblank, the load-turbo windows' 4-16 kHz vblank no longer makes the 'Owner timing' thread spin (60-97 % of a core for 3-4 s at every match load "
-                    "on a 4-core machine): the thread, while the in-game load window is open and no flip is pending, sleeps on the timer between wakes (about 1 ms apart) and dispatches the vblanks that fell due together (same count, each at most a wake late; src\\owner_hires_wait.h "
-                    "PlanWaitBatched, tools\\h2\\h2_waits_test.cpp). Read every loop turn; false = as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_load_batch);
 
-REXCVAR_DEFINE_DOUBLE(wwe2k14_owner_scene_timing_fixed_ms, 0.0, "wwe2k14",
-                      "Session 101 lane 260 (LEAVE_THE_COMMAND_STREAM 3e): > 0: the scene-timing pair 0x82C16978 / 0x82C16980 (the only GPU timing the game reads; it picks a quality "
-                      "state, ADAPTER_CALLS.md section 5) reports this many milliseconds for every scene instead of the time our thread took between the two items. "
-                      "0: as before (our thread's own elapsed time). Logged as [owner][scene-timing]");
+REXCVAR_DECLARE(double, wwe2k14_owner_scene_timing_fixed_ms);
 
 REX_EXTERN(__imp__sub_82CB3300);
 REX_EXTERN(__imp__sub_82CB5560);

@@ -99,42 +99,17 @@
 #include "frame_stats.h"
 #include "native_bpe.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_decode_probe, false, "wwe2k14",
-                    "Time every call of the game's BPE (sub_82C41918) and zlib (sub_82C41738) block decoders and log "
-                    "[wwe2k14][decode] lines (Session 8 task 3; log only)");
-REXCVAR_DEFINE_BOOL(wwe2k14_decode_probe_shadow, false, "wwe2k14",
-                    "With wwe2k14_decode_probe: also decode each BPE block natively into a host buffer, time it and "
-                    "compare with the game's output (never writes guest memory)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_decode_probe_call_ms, 0.25, "wwe2k14",
-                      "wwe2k14_decode_probe: log one line per BPE call at least this long (ms)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_decode_probe_frame_ms, 1.0, "wwe2k14",
-                      "wwe2k14_decode_probe: log a per-thread per-frame total when its decode time is at least this "
-                      "(ms)");
-REXCVAR_DEFINE_BOOL(wwe2k14_bpe_corpus, false, "wwe2k14",
-                    "Record every call of the BPE decoder (sub_82C41918): input, parameters and output to "
-                    "out/harness/bpe/corpus/<hash>.bpe (one file per distinct input) plus one CSV row per call in "
-                    "out/harness/bpe/calls/calls_NNN.csv (Session 11; game data, stays in out/)");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe, true, "wwe2k14",
-                    "Native BPE decoder (default on since Session 11, Jarrod 2026-10-10): replace the game's decoder "
-                    "(sub_82C41918) with src/native_bpe.h, falling back to the game's own whenever a bound trips; "
-                    "=false restores the game's decoder");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_verify, false, "wwe2k14",
-                    "Run both BPE decoders, compare, keep the game's output; log [wwe2k14][native_bpe] mismatches and "
-                    "save their inputs to out/harness/bpe/mismatch (Session 11; default off)");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_menus, false, "wwe2k14",
-                    "Session 58: the native BPE decoder also outside the in-game sequence (menus, select screens, 30 "
-                    "Years of WrestleMania). Off (default): the game's own decoder there, at the speed the game "
-                    "expects (a menu preview built with the fast one left Bobby Heenan red in the match)");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_debug, false, "wwe2k14",
-                    "Session 58 (diagnostic): with _verify, log [s58][bpe_tail] when the game's decoder changes bytes "
-                    "in the 4 KB after what it produced");
-REXCVAR_DEFINE_INT32(wwe2k14_native_bpe_debug_slow, 0, "wwe2k14",
-                     "Session 58 (diagnostic): native BPE calls spin until they took N times their decode time (the "
-                     "game's decoder takes ~5.5x); 0 / 1 = off")
-    .range(0, 100);
-REXCVAR_DEFINE_BOOL(wwe2k14_native_bpe_debug_regs, false, "wwe2k14",
-                    "Session 58 (diagnostic): with _verify, the registers after the game's decoder are put back as the "
-                    "native path leaves them (r3-r6 set, the rest as before the call)");
+REXCVAR_DECLARE(bool, wwe2k14_decode_probe);
+REXCVAR_DECLARE(bool, wwe2k14_decode_probe_shadow);
+REXCVAR_DECLARE(double, wwe2k14_decode_probe_call_ms);
+REXCVAR_DECLARE(double, wwe2k14_decode_probe_frame_ms);
+REXCVAR_DECLARE(bool, wwe2k14_bpe_corpus);
+REXCVAR_DECLARE(bool, wwe2k14_native_bpe);
+REXCVAR_DECLARE(bool, wwe2k14_native_bpe_verify);
+REXCVAR_DECLARE(bool, wwe2k14_native_bpe_menus);
+REXCVAR_DECLARE(bool, wwe2k14_native_bpe_debug);
+REXCVAR_DECLARE(int32_t, wwe2k14_native_bpe_debug_slow);
+REXCVAR_DECLARE(bool, wwe2k14_native_bpe_debug_regs);
 
 REX_EXTERN(__imp__sub_82C41918);
 REX_EXTERN(__imp__sub_82C41738);

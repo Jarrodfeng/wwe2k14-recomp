@@ -30,8 +30,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_component_find_by_tag, "off", "wwe2k14",
-                      "Session 66: native version of sub_82C31CB0 (find a component node by tag): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_component_find_by_tag);
 
 namespace wwe2k14::nf_component_find_by_tag {
 

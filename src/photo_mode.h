@@ -73,21 +73,12 @@
 #include "guest_read.h"
 #include "input_script.h"  // SavePngWic, g_pad_filter
 
-REXCVAR_DEFINE_BOOL(wwe2k14_photo_mode, false, "wwe2k14",
-                    "Session 33: photo mode in a match (F10, or L3 + R3 held on the controller): the scene "
-                    "freezes, a free camera, no HUD, depth of field, A / Enter saves a PNG to Pictures\\WWE 2K14. Turns "
-                    "the CineCam on. Default off. See src/photo_mode.h");
-REXCVAR_DEFINE_STRING(wwe2k14_photo_dir, "", "wwe2k14",
-                      "Session 33: where photo mode saves its pictures; empty = Pictures\\WWE 2K14");
-REXCVAR_DEFINE_BOOL(wwe2k14_photo_mode_on, false, "wwe2k14",
-                    "Session 33 (scripts): true / false enters / leaves photo mode (in a match)");
-REXCVAR_DEFINE_INT32(wwe2k14_photo_save, 0, "wwe2k14", "Session 33 (scripts): set to 1 to save a photo (photo mode on)");
-REXCVAR_DEFINE_BOOL(wwe2k14_photo_pause_test_moment, false, "wwe2k14",
-                    "Session 33 (test): make a normal match's pause list look like 30 Years of WrestleMania's (NEXT "
-                    "MOMENT before QUIT MATCH) before the PHOTO MODE row is placed; do not pick NEXT MOMENT then");
-REXCVAR_DEFINE_BOOL(wwe2k14_photo_pause_item, true, "wwe2k14",
-                    "Session 33: with --wwe2k14_photo_mode, a PHOTO MODE row in the match's pause menu (before QUIT "
-                    "MATCH); false = the keys only");
+REXCVAR_DECLARE(bool, wwe2k14_photo_mode);
+REXCVAR_DECLARE(std::string, wwe2k14_photo_dir);
+REXCVAR_DECLARE(bool, wwe2k14_photo_mode_on);
+REXCVAR_DECLARE(int32_t, wwe2k14_photo_save);
+REXCVAR_DECLARE(bool, wwe2k14_photo_pause_test_moment);
+REXCVAR_DECLARE(bool, wwe2k14_photo_pause_item);
 
 REX_EXTERN(__imp__sub_82391928);
 REX_EXTERN(__imp__sub_823839D0);

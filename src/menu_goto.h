@@ -26,10 +26,7 @@
 #include "menu_home.h"
 #include "scenario.h"      // U32, Guest, Frame, SequenceId, kSmartMenuWord, g_page_tick
 
-REXCVAR_DEFINE_BOOL(wwe2k14_menu_goto_list, false, "wwe2k14",
-                    "S110 GOTO: log every menu flow record once per table, at the first frame with a front end "
-                    "([wwe2k14][menu_goto] rec N menu M item I code C label L parent P enterable yes|no(reason)), so the ids "
-                    "for `!page rec=N` and the script line `page N` can be read from the run log. Log only. See src/menu_goto.h");
+REXCVAR_DECLARE(bool, wwe2k14_menu_goto_list);
 
 namespace wwe2k14::menu_goto {
 

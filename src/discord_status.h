@@ -44,13 +44,8 @@
 #include "match_type_names.h"
 #include "native_zlib.h"  // stb_image's zlib decoder (stbi_zlib_decode_malloc_guesssize_headerflag)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_discord, false, "wwe2k14",
-                    "Session 33: show what you are playing in your Discord status (the wrestlers, the match type and "
-                    "the match time; \"In the menus\" otherwise), through the Discord app on this PC. Needs "
-                    "--wwe2k14_discord_app_id. Default off");
-REXCVAR_DEFINE_STRING(wwe2k14_discord_app_id, "", "wwe2k14",
-                      "Session 33: the Discord application id the status is shown under (its name is what Discord "
-                      "shows as the game). Empty = nothing is sent");
+REXCVAR_DECLARE(bool, wwe2k14_discord);
+REXCVAR_DECLARE(std::string, wwe2k14_discord_app_id);
 
 namespace wwe2k14::discord {
 

@@ -55,14 +55,11 @@
 #include "renderer_adapter/tail_release.h"  // S102 U1: a tail still pending finishes before the walk
 
 #if defined(__ANDROID__)
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_guard, true, "wwe2k14",
-                    "Session 73: end a render-command list the game's replay walks past its end (src/replay_watch.h)");
+REXCVAR_DECLARE(bool, wwe2k14_replay_guard);
 #else
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_guard, false, "wwe2k14",
-                    "Session 73: end a render-command list the game's replay walks past its end (src/replay_watch.h)");
+REXCVAR_DECLARE(bool, wwe2k14_replay_guard);
 #endif
-REXCVAR_DEFINE_INT32(wwe2k14_replay_guard_test_frame, 0, "wwe2k14",
-                     "Session 73: test - the replay guard ends list 0 on purpose at this guest frame (0 = off)");
+REXCVAR_DECLARE(int32_t, wwe2k14_replay_guard_test_frame);
 
 #include "replay_guard.h"  // S102 W3 (review F5): the ring, the guard and the per-record hook body, moved out unchanged in behaviour
 
@@ -88,11 +85,8 @@ inline uint32_t FakeRecords(uint8_t* base) {
 // (src/nf/replay_native.h; proved against the recompiled functions by tools/w3/diff). Both PerFrame, default off (the table is
 // src/renderer_adapter/rdr_switches.h): the sub_82BB5BE8 hook reads them ONCE per replay through rdr_sw::BoolSeen with the guest frame and latches the
 // dispatcher's value in a thread_local for that replay; the per-record hook never reads a cvar for them (tools/w3/hook_lint.py).
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_replay_loop, false, "wwe2k14",
-                    "Session 102 W3: the render-command replay loop (sub_82BB5BE8) as native code (src/nf/replay_native.h); read once per replay");
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_render_dispatch, false, "wwe2k14",
-                    "Session 102 W3: the render-command interpreter (sub_82BB53D0) as native code for the ops whose case is one call; the others run "
-                    "the recompiled one (src/nf/replay_native.h); read once per replay");
+REXCVAR_DECLARE(bool, wwe2k14_nf_replay_loop);
+REXCVAR_DECLARE(bool, wwe2k14_nf_render_dispatch);
 namespace wwe2k14::replay_watch {
 inline thread_local bool t_native_dispatch = false;  // this replay's dispatcher switch (latched by the sub_82BB5BE8 hook)
 // Every 600 replays while a native switch is on: what the native code took (the census line the Surface reads to tell "no gain" from "did nothing").
@@ -147,9 +141,7 @@ REX_HOOK_RAW(sub_82BB5BE8) {
 // crash: a "record" whose length is a code address). Before an op 81 runs, its target is checked: up to kCallCheckRecords records must have
 // opcodes the replay knows (<= 105) and lengths that fit (< 4096 slots) until the list's own return (82). A target that fails is not
 // called: the replay loop's own step moves past the 81 (the model misses that frame). --wwe2k14_replay_call_check (default on).
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_call_check, true, "wwe2k14",
-                    "Session 100: skip a render-command call (opcode 81) whose cached list is not a valid record list (freed memory) "
-                    "instead of jumping into it (src/replay_watch.h)");
+REXCVAR_DECLARE(bool, wwe2k14_replay_call_check);
 
 REX_HOOK_RAW(sub_82BB53D0) {
   namespace rw = wwe2k14::replay_watch;

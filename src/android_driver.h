@@ -48,23 +48,13 @@ using VulkanLoaderOverride = void* (*)();
 void SetVulkanLoaderOverride(VulkanLoaderOverride override_fn);
 }  // namespace rex::ui::vulkan
 
-REXCVAR_DEFINE_STRING(wwe2k14_android_driver, "", "wwe2k14",
-                      "Session 72 (Android): a bundled custom Vulkan driver's file name (e.g. libvulkan_freedreno.so); "
-                      "empty = the phone's own driver (src/android_driver.h)");
-REXCVAR_DEFINE_STRING(wwe2k14_android_lib_dir, "", "wwe2k14",
-                      "Session 72 (Android): the app's native library folder with a trailing / (GameActivity sets it)");
-REXCVAR_DEFINE_STRING(wwe2k14_android_driver_dir, "", "wwe2k14",
-                      "Session 72 part 8 (Android): the folder (trailing /) of a driver the player imported in the "
-                      "launcher; empty = the driver is in the library folder (bundled)");
-REXCVAR_DEFINE_STRING(wwe2k14_android_tmp_dir, "", "wwe2k14",
-                      "Session 72 (Android): a writable folder with a trailing / for libadrenotools on Android 9");
-REXCVAR_DEFINE_STRING(wwe2k14_android_driver_trial, "", "wwe2k14",
-                      "Session 72 (Android): the launcher's trial file for the chosen driver; deleted once the game has "
-                      "drawn a few hundred frames with it");
+REXCVAR_DECLARE(std::string, wwe2k14_android_driver);
+REXCVAR_DECLARE(std::string, wwe2k14_android_lib_dir);
+REXCVAR_DECLARE(std::string, wwe2k14_android_driver_dir);
+REXCVAR_DECLARE(std::string, wwe2k14_android_tmp_dir);
+REXCVAR_DECLARE(std::string, wwe2k14_android_driver_trial);
 
-REXCVAR_DEFINE_STRING(wwe2k14_boot_trial, "", "wwe2k14",
-                      "Session 95 (Android, LADDER): the launcher's boot trial file; deleted once the game has drawn 600 frames (or when the "
-                      "player quits). One still there at the next launcher start = the game never got going");
+REXCVAR_DECLARE(std::string, wwe2k14_boot_trial);
 
 namespace wwe2k14::android_driver {
 

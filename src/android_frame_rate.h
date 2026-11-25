@@ -30,9 +30,7 @@
 #include "blackbox.h"
 #include "renderer/surface_lifecycle.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_android_frame_rate, true, "wwe2k14",
-                    "Session 73 (Android): tell the phone the game is a fixed 60 fps source, so a 90 / 120 Hz screen "
-                    "runs at 60 or 120 Hz (src/android_frame_rate.h)");
+REXCVAR_DECLARE(bool, wwe2k14_android_frame_rate);
 
 namespace wwe2k14::android_frame_rate {
 

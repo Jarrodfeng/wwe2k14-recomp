@@ -39,14 +39,8 @@
 #include "scene_live/plane_glue.h"  // lane 139: the plane shadow chain's constants (read only)
 #include "scene_live/circle_glue.h"  // lane 136: the circle blob shadows' constants (read only), seen by the same game-wide op-21 recorder
 
-REXCVAR_DEFINE_INT32(wwe2k14_scene_crowd, 0, "wwe2k14",
-                     "Session 50: the crowd drawn from its members' matrices (SCENE_MAP.md section 7): 0 off; 1 each crowd "
-                     "group's first member recorded, the others queued to the command processor, which draws them; 2 "
-                     "verify (every member recorded as always and queued; the command processor checks the queue)");
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_crowd_cards, false, "wwe2k14",
-                    "Session 87 (with wwe2k14_scene_crowd): the crowd's flat cards (sub_82512F70, ~1,400 draws a frame in "
-                    "the entrances) queued as the 3D crowd's members are: each block's first card recorded, the others "
-                    "drawn by the command processor at that draw");
+REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);
+REXCVAR_DECLARE(bool, wwe2k14_scene_crowd_cards);
 
 namespace wwe2k14::scene_crowd {
 

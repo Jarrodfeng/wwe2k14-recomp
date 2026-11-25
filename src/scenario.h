@@ -66,17 +66,9 @@
 #include "launch_participant.h"  // S105 T3: the launch participant token parser (pure)
 #include "build_spec.h"  // S109 ENT: the match builder's spec parser (pure; moved out of this file)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_scenario_observe, false, "wwe2k14",
-                    "Log the match-setup calls (mode / match type / arena / participant setters, exhibition "
-                    "finalize, apply, launch, main-menu dispatcher, sequence switch) with their arguments and caller, "
-                    "and snapshot the match description, settings struct and participant slots to "
-                    "logs/scenario_NNN_*.bin. Log only. See src/scenario.h");
-REXCVAR_DEFINE_STRING(wwe2k14_scenario_capture, "", "wwe2k14",
-                      "Capture the matches set up in the menus as scenario NAME (letters, digits, _ and -, up to 64): "
-                      "NAME.toml + NAME.m.bin / .g.bin / .a.bin in --wwe2k14_scenario_dir, written when the menus "
-                      "apply the match. Never overwrites (NAME_2, NAME_3 ...). Empty = off. See src/scenario.h");
-REXCVAR_DEFINE_STRING(wwe2k14_scenario_dir, "../../scenarios", "wwe2k14",
-                      "Folder for scenario files; relative paths are from the exe folder (default = out/scenarios)");
+REXCVAR_DECLARE(bool, wwe2k14_scenario_observe);
+REXCVAR_DECLARE(std::string, wwe2k14_scenario_capture);
+REXCVAR_DECLARE(std::string, wwe2k14_scenario_dir);
 
 namespace wwe2k14::scenario {
 
@@ -89,6 +81,8 @@ inline void (*g_wm30_boot_tick)(PPCContext&, uint8_t*) = nullptr;
 inline void (*g_page_tick)(PPCContext&, uint8_t*) = nullptr;
 // S110 SEAT3: the seat bind's tick (src/seat_bind.h fills this at start-up: the select screen's DOWNLOADED pages are bound here, on the game thread). Same call site.
 inline void (*g_seat_tick)(PPCContext&, uint8_t*) = nullptr;
+// S110 CASENTRY: --wwe2k14_launch=@cas and --wwe2k14_cas_flow_dump (src/cas_launch.h fills this at start-up; null when that header is not built in). Same call site.
+inline void (*g_cas_tick)(PPCContext&, uint8_t*) = nullptr;
 
 constexpr uint32_t kMatchDescPtr = 0x836F2D88;  // word: M
 constexpr uint32_t kSettings = 0x8376AAF4;      // G (static)
@@ -619,68 +613,22 @@ void wwe2k14_scn_switch(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5) {
 // owner update's own body has not started yet, so it sees its entry registers). lr is 0 during the calls, so the
 // observe hooks show the caller as 00000000 (= this launcher). One launch per run.
 
-REXCVAR_DEFINE_STRING(wwe2k14_launch, "", "wwe2k14",
-                      "Launch scenario NAME (from --wwe2k14_scenario_dir) once the main menu is idle: restores the "
-                      "captured match description, applies it and leaves the main menu the game's own way "
-                      "(exit action 1). Empty = off. See src/scenario.h");
-REXCVAR_DEFINE_INT64(wwe2k14_launch_idle_frames, 60, "wwe2k14",
-                     "Guest frames the root main menu must stay idle before --wwe2k14_launch fires");
-REXCVAR_DEFINE_INT64(wwe2k14_launch_arena, -1, "wwe2k14",
-                     "Launch the scenario in arena N instead (the arena setter's value = pac/bg/BGnn.PAC, "
-                     "db/ids/arenas.json), set through the game's arena setter sub_822C9748; -1 = the captured arena");
-REXCVAR_DEFINE_STRING(wwe2k14_launch_participants, "", "wwe2k14",
-                      "Replace the scenario's participants: comma-separated ID[:PAD[:ATTIRE]] for slots 0, 1, ... (character "
-                      "ids, db/ids/characters.json; PAD = controller 0-3, default / empty = -1 = CPU), set through the game's "
-                      "participant setter sub_822C89F8 like the demo launcher does. ATTIRE (S105 T3) = N (attire 0-9) | "
-                      "N/S (attire N, Threads colour set S, -1..3) | tS (attire 0, set S) | s (the superstar's saved "
-                      "defaults, through the select screen's own copy); the set goes through sub_822C6808. No third "
-                      "part = attire 0, no set call. Empty = the captured ones");
+REXCVAR_DECLARE(std::string, wwe2k14_launch);
+REXCVAR_DECLARE(int64_t, wwe2k14_launch_idle_frames);
+REXCVAR_DECLARE(int64_t, wwe2k14_launch_arena);
+REXCVAR_DECLARE(std::string, wwe2k14_launch_participants);
 // Session 27 item 8: Quick Match without a captured setup.
-REXCVAR_DEFINE_INT64(wwe2k14_quick_type, 0, "wwe2k14",
-                     "With --wwe2k14_launch=@quick: the match type id for the game's type setter (0 1v1, 3 tag, 23 Royal "
-                     "Rumble, 37 six-man, 39 Elimination Chamber, 49 Hell in a Cell; docs/systems/match_setup.md)");
-REXCVAR_DEFINE_STRING(wwe2k14_quick_compare, "", "wwe2k14",
-                      "Check only: with --wwe2k14_launch=@quick, log how the built match description (M) and, after apply, "
-                      "the settings (G) and slots (A) differ from scenario NAME's capture");
-REXCVAR_DEFINE_INT64(wwe2k14_quick_pace, 0, "wwe2k14",
-                     "With --wwe2k14_launch=@quick: match pace 0 Normal, 1 Quick, 2 Epic");
-REXCVAR_DEFINE_STRING(wwe2k14_quick_rules, "", "wwe2k14",
-                      "Session 30: with --wwe2k14_launch=@quick: rule bytes of the match description M to set after the "
-                      "type setter, before apply: OFF=BYTE,... (OFF 12..75, M byte offsets; apply copies M+12..75 to "
-                      "G+0..63). Empty = the menus' values for the types checked (60 steel cage: M+21=3; 81 Inferno: "
-                      "M+71=3); 'none' = the type's bare defaults");
-REXCVAR_DEFINE_BOOL(wwe2k14_quick_menu_options, true, "wwe2k14",
-                    "Session 55 (Quick Match matches that never ended: no pinfalls): with --wwe2k14_launch=@quick, give "
-                    "the type setter the options record the menus build (the game's default options with the type's "
-                    "own merged in, as sub_82924658 / sub_82922138 do). false = no options record (Sessions 27-54: "
-                    "rule byte G+1 stays 0 and CPU matches run on without a decision)");
-REXCVAR_DEFINE_BOOL(wwe2k14_launch_restore_ga, true, "wwe2k14",
-                    "After the launcher's apply, write the captured settings struct G and participant slots A back "
-                    "when they differ (e.g. a Royal Rumble's entry order, drawn during apply). false = keep what "
-                    "this apply produced");
-REXCVAR_DEFINE_BOOL(wwe2k14_launch_sync_slot_copy, false, "wwe2k14",
-                    "Launcher (Session 13): after apply, copy the participant slots A (P+148, 43 x 56 bytes) to the "
-                    "second copy right after them (P+2556), as the menus leave it (runs 978 / 979: both copies equal "
-                    "A at launch; a launch leaves the second one stale). Default off: it did not fix the Rumble "
-                    "entrants #1 / #2 (runs 981 / 985); menu-equivalent state, Jarrod's call to make it default");
-REXCVAR_DEFINE_BOOL(wwe2k14_launch_restore_pblock, false, "wwe2k14",
-                    "Launcher (Session 13): restore the P block the menus' finalize fills (NAME.pblock.bin, "
-                    "P+0x2934..+0x2D3F) when the scenario has one. Default off: restoring it did not fix the Rumble "
-                    "entrants #1 / #2 (run 985)");
-REXCVAR_DEFINE_BOOL(wwe2k14_launch_refill_participants, true, "wwe2k14",
-                    "Launcher (Session 14): when the captured participant slots are written back (a Royal Rumble's "
-                    "entry order), rebuild the per-participant array [0x836F2D98] from them the way apply does, so "
-                    "entrants #1 / #2 get their entrances. Launches only; false = Session 13 behaviour");
-REXCVAR_DEFINE_BOOL(wwe2k14_launch_skip_entrances, false, "wwe2k14",
-                    "Test tool (Session 13): launch straight into the match without entrances by skipping the wrestler "
-                    "list build (sub_822CBD28) after apply, as in run 472 (match loaded, no EVT / ENTRANCE / titantron "
-                    "files). Side effects of the empty P wrestler list (P+73488..) are unconfirmed; for match-only "
-                    "tests");
-REXCVAR_DEFINE_STRING(wwe2k14_launch_poke, "", "wwe2k14",
-                      "Debug (step 3 diagnosis): guest words to write after the launcher's apply and before its exit "
-                      "request, comma-separated ADDR=VALUE; ADDR = 0x... or P+OFFSET (P = the game data object, word "
-                      "at 0x8376AAF0) or S+OFFSET (the SmartMenu, word at 0x8392945C); numbers decimal or 0x-hex; "
-                      "big-endian 32-bit words. Empty = none");
+REXCVAR_DECLARE(int64_t, wwe2k14_quick_type);
+REXCVAR_DECLARE(std::string, wwe2k14_quick_compare);
+REXCVAR_DECLARE(int64_t, wwe2k14_quick_pace);
+REXCVAR_DECLARE(std::string, wwe2k14_quick_rules);
+REXCVAR_DECLARE(bool, wwe2k14_quick_menu_options);
+REXCVAR_DECLARE(bool, wwe2k14_launch_restore_ga);
+REXCVAR_DECLARE(bool, wwe2k14_launch_sync_slot_copy);
+REXCVAR_DECLARE(bool, wwe2k14_launch_restore_pblock);
+REXCVAR_DECLARE(bool, wwe2k14_launch_refill_participants);
+REXCVAR_DECLARE(bool, wwe2k14_launch_skip_entrances);
+REXCVAR_DECLARE(std::string, wwe2k14_launch_poke);
 
 REX_EXTERN(__imp__sub_82C302A0);  // per-frame owner update (the original body)
 REX_EXTERN(sub_822CA740);         // apply M to G and the participant slots
@@ -706,23 +654,10 @@ REX_EXTERN(sub_822CEDF8);         // Session 55: options record merge (dst, the 
 // derived field (roles, teams, costume variants, titles held / contested, the Rumble draw) and runs apply, the wrestler
 // list and the G+472 reset itself. Readers: out/harness/atlas/readers/c_review.md ("mechanism A", the field table and
 // call order, each with its listing address), c_rules.md, d_participant.md, b_select.md.
-REXCVAR_DEFINE_STRING(wwe2k14_match, "", "wwe2k14",
-                      "Session 91 match builder spec (numbers; tools/atlas/match.py makes it from names): "
-                      "type=T;p=ID:PAD,ID:PAD,...;arena=A;pace=P;o=K:V,...;title=T0/T1;rumble=ID,ID,... "
-                      "(PAD -1 = CPU; o = option-block bytes R+8+K after the defaults; no arena = 300, the type's "
-                      "default; seats not given keep the defaults' wrestlers; rumble = the first picks over the "
-                      "type's own CPU roster). S109 ENT: p=ID:PAD:ATTIRE (ATTIRE N 0-9 or s, empty PAD = CPU; colour "
-                      "sets are launcher only); entrances=0 skips the entrances (src/build_spec.h). Fired by "
-                      "--wwe2k14_match_go (or `cvar wwe2k14_match_go N` with a new N) at the idle main menu");
-REXCVAR_DEFINE_INT64(wwe2k14_match_go, 0, "wwe2k14",
-                     "Session 91: set to a new non-zero value to build and launch --wwe2k14_match at the next idle main "
-                     "menu (live: `cvar wwe2k14_match_go N`, a fresh N each match)");
-REXCVAR_DEFINE_STRING(wwe2k14_match_compare, "", "wwe2k14",
-                      "Session 91 check: log how the built match's M (apply entry), G and A (apply exit) differ from "
-                      "the menu capture NAME in --wwe2k14_scenario_dir");
-REXCVAR_DEFINE_BOOL(wwe2k14_match_dry, false, "wwe2k14",
-                    "Session 91 check: build the match through finalize (and --wwe2k14_match_compare) but do not "
-                    "launch it: the main menu stays, so several builds can be compared in one game");
+REXCVAR_DECLARE(std::string, wwe2k14_match);
+REXCVAR_DECLARE(int64_t, wwe2k14_match_go);
+REXCVAR_DECLARE(std::string, wwe2k14_match_compare);
+REXCVAR_DECLARE(bool, wwe2k14_match_dry);
 REX_EXTERN(sub_82269F48);  // the menu state object S: get or create (0x839294C0; 30,064 bytes; ctor sub_82928038)
 REX_EXTERN(sub_82928268);  // the type's defaults (S, type, options pointer 0, flag 0, a7 0)
 REX_EXTERN(sub_82922D68);  // S+11020 = r4 (the setup screen's tail)
@@ -1372,10 +1307,24 @@ inline void LaunchTick(PPCContext& ctx, uint8_t* base) {
     const std::string name = REXCVAR_GET(wwe2k14_launch);
     if (name.empty()) return;
     g_launch_name = name;
+    if (name == "@cas" || name.rfind("@mode:", 0) == 0) {  // S110 CASENTRY / EXITMAP: @cas and @mode:<name> are src/mode_launch.h's (run from g_cas_tick); no scenario files, no match
+      g_launch_state = LaunchState::kDone;
+      return;
+    }
     if (name == "@quick") {  // Session 27 item 8: build the match from our numbers (FireLaunch, build = true)
       g_launch_m.clear(), g_launch_g.clear(), g_launch_a.clear(), g_launch_x.clear(), g_launch_pblock.clear();
       if (REXCVAR_GET(wwe2k14_launch_participants).empty()) {
         REXLOG_WARN("[wwe2k14][scenario] quick: --wwe2k14_launch_participants is empty; not launching");
+        g_launch_state = LaunchState::kFailed;
+        return;
+      }
+      // S110 RUMBLECRASH (docs\research\s110\RUMBLECRASH.md): a Royal Rumble (types 20..23, sub_822BA578) gets its entrant count and entry list
+      // from the menus' finalize (sub_829263B0 0x82926980-0x82926AF0: sub_822C5428 + sub_822C6948 per pick from S+11024), which a quick launch
+      // never runs: every entry row stays 51200 and the first walk-in (sub_826D3E80 -> sub_826D2FE0 -> sub_822CDE68) copies from a null record.
+      // A GUARD (rule 6): the structural form is the quick launch running the game's own finalize for these types.
+      if (const int64_t qt = REXCVAR_GET(wwe2k14_quick_type); qt >= 20 && qt <= 23) {
+        REXLOG_WARN("[wwe2k14][scenario] quick: type {} is a Royal Rumble: a quick launch cannot fill its entry list (the menus' finalize does); "
+                    "use --wwe2k14_match \"type={};rumble=ID,...\" or a saved setup; not launching", qt, qt);
         g_launch_state = LaunchState::kFailed;
         return;
       }
@@ -1645,13 +1594,8 @@ inline void BuildCompare() {
 // (the same __try pattern as guest_watch.h); a chunk that faults is written as zeros and counted. The game stops for
 // the time the 517 MB take to write (about a second). Default empty = off (one string read every 30 frames).
 // ---------------------------------------------------------------------------------------------------------------
-REXCVAR_DEFINE_STRING(wwe2k14_snapshot_trigger, "", "wwe2k14",
-                      "Debug: path of a trigger file; when it appears, its first line names a snapshot of the static "
-                      "data and all 512 MB of physical memory (logs/snap_NNN_NAME_D.bin / _H.bin), then it is deleted. "
-                      "Empty = off. See src/scenario.h");
-REXCVAR_DEFINE_STRING(wwe2k14_snapshot_now, "", "wwe2k14",
-                      "Debug (Session 27.5): set to a NAME (e.g. `cvar wwe2k14_snapshot_now belt_a` in an input "
-                      "script) to write the same two snapshots at the next per-frame update; cleared after. Empty = off");
+REXCVAR_DECLARE(std::string, wwe2k14_snapshot_trigger);
+REXCVAR_DECLARE(std::string, wwe2k14_snapshot_now);
 
 namespace wwe2k14::scenario {
 
@@ -1764,6 +1708,7 @@ REX_HOOK_RAW(sub_82C302A0) {
   if (wwe2k14::scenario::g_director_tick) wwe2k14::scenario::g_director_tick(ctx, base);  // S101 lane 32: the scene director (!scene)
   if (wwe2k14::scenario::g_page_tick) wwe2k14::scenario::g_page_tick(ctx, base);  // S110 GOTO: !page (a flow record opened through the game's own mailbox)
   if (wwe2k14::scenario::g_seat_tick) wwe2k14::scenario::g_seat_tick(ctx, base);  // S110 SEAT3: the seat bind (src/seat_bind.h)
+  if (wwe2k14::scenario::g_cas_tick) wwe2k14::scenario::g_cas_tick(ctx, base);  // S110 CASENTRY: --wwe2k14_launch=@cas, the editor's flow dump (src/cas_launch.h)
   wwe2k14::events::Tick(wwe2k14::scenario::Frame());  // Session 91 step 7: the event bus (--wwe2k14_events)
   wwe2k14::freeze::RunnerEnter(ctx, base);  // Session 36: the true freeze (step fields, single tasks)
   __imp__sub_82C302A0(ctx, base);

@@ -16,7 +16,9 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: 'oldest_wins', 5: 'curve_lost', 6: 'hold_without_last3d', 7: 'take_after_stop', 8: 'idle_never', 9: 'repeat_ignores_holds', 10: 'no_row_cache', 11: 'tween_ignores_waiting', 12: 'tween_ignores_cut', 13: 'tween_ignores_cold', 14: 'tween_ignores_scene_change', 15: 'draw_unfed', 16: 'menu_hook_is_3d', 17: 'any_stamp_is_3d', 18: 'rate_draws_all', 19: 'rate_debt_unpaid', 20: 'rate_carry_lost', 21: 'rate_debt_unbounded', 22: 'rate_contentless_pays', 23: 'feed_counts_calls', 24: 'repeat_raw_key', 25: 'key_wiring_dropped', 26: 'no_cam_ignored', 27: 'unanimated_phase_only', 28: 'overrides_unread', 29: 'no_sticky_hold', 30: 'shown0_ignores_seen3d', 31: 'a4_stamp_kept', 32: 'a4_no_k_guard', 33: 'hold_cap_30', 34: 'hold_ignores_bit3', 35: 'scene_on_f_hold'}
+PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: 'oldest_wins', 5: 'curve_lost', 6: 'hold_without_last3d', 7: 'take_after_stop', 8: 'idle_never', 9: 'repeat_ignores_holds', 10: 'no_row_cache', 11: 'tween_ignores_waiting', 12: 'tween_ignores_cut', 13: 'tween_ignores_cold', 14: 'tween_ignores_scene_change', 15: 'draw_unfed', 16: 'menu_hook_is_3d', 17: 'any_stamp_is_3d', 18: 'rate_draws_all', 19: 'rate_debt_unpaid', 20: 'rate_carry_lost', 21: 'rate_debt_unbounded', 22: 'rate_contentless_pays', 23: 'feed_counts_calls', 24: 'repeat_raw_key', 25: 'key_wiring_dropped', 26: 'hidden_drawn', 27: 'stage_word_ignored', 28: 'chars_ignored', 31: 'a4_stamp_kept', 32: 'a4_no_k_guard', 35: 'scene_on_f_hold', 37: 'no_scene_sticky', 38: 'load_follow_any_pac',
+          39: 'start_no_wait', 40: 'start_old_build', 41: 'start_stall_holds', 42: 'start_script_waits', 43: 'start_match_in_entrance', 44: 'start_arm_kept', 45: 'start_story_class_only', 46: 'start_card_down_holds', 47: 'start_stale_host_shut',
+          48: 'start_card_pending_only', 49: 'start_bodies_no_restamp', 50: 'start_bodies_card_down', 51: 'start_bodies_kept'}   # 29, 30, 33, 34 retired with the S105 A3 camera gate (S110 ENTRBLACK); 39-48 S110 ENTRWAIT2; 49-51 S110 ENTRBODIES
 
 
 def read(root, rel):
@@ -133,6 +135,11 @@ def lints(texts):
     ld_raw = texts['src/renderer_scene/live_scene_draw.cpp']
     mf = re.search(r'scene_kind::StampMakes3D\(', ld_raw)
     need(mf is not None and any(re.fullmatch(r'#\s*if\s+!\s*WWE2K14_STREAM\(\).*', x) for x in if_depth_of(ld_raw, mf.start())), 'live_scene_draw.cpp: FlatFacts3D counts a Scene3D stamp through scene_kind::StampMakes3D under #if !WWE2K14_STREAM()')
+    # S110 ENTRBODIES review: DrawLive draws the frame its BuildFrame made AFTER PublishStartWait; the held start's crowd prefetch (LiveCrowd::PrefetchArena -> SetArena) releases the old arena's crowd
+    # models when the arena differs (Release: WaitIdle, then ReleaseModel), so it must never run on a frame that is about to draw: DrawLive says drew = true and StartCrowdIn returns before the prefetch.
+    ldc = strip_comments(ld_raw)
+    need(re.search(r'PublishStartWait\(rec\.header\.guest_frame,\s*true,\s*true\)', ldc) is not None, 'live_scene_draw.cpp: DrawLive publishes with drew = true (the held start\'s crowd prefetch never switches the arena under a frame about to draw)')
+    need(re.search(r'bool\s+LiveSceneDraw::StartCrowdIn\(bool\s+drew\)\s*\{.*?if\s*\(\s*drew\s*\|\|.*?PrefetchArena', ldc, re.S) is not None, 'live_scene_draw.cpp: StartCrowdIn returns before PrefetchArena on a drawing frame')
     return bad
 
 
@@ -205,6 +212,9 @@ def selftest_lints(root):
     t = dict(base)   # F1 twin: any stamp makes the frame 3D again
     t['src/renderer_scene/live_scene_draw.cpp'] = base['src/renderer_scene/live_scene_draw.cpp'].replace('scene_kind::StampMakes3D(', 'scene_kind::StampMakes3D_(')
     twins['stamp_any'] = t
+    t = dict(base)   # S110 ENTRBODIES review twin: DrawLive publishes like Warm again (the crowd prefetch may release the arena its frame is about to draw)
+    t['src/renderer_scene/live_scene_draw.cpp'] = base['src/renderer_scene/live_scene_draw.cpp'].replace('PublishStartWait(rec.header.guest_frame, true, true)', 'PublishStartWait(rec.header.guest_frame)')
+    twins['crowd_prefetch_while_drawing'] = t
     for name, tx in twins.items():
         if tx == base:
             print('FAIL: lint twin %s did not change the sources (the planted edit no longer applies)' % name)

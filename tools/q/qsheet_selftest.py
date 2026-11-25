@@ -118,7 +118,10 @@ def main():
         r = qsheet.Ctx()
         u1 = r.unit_of(0x82BDB460)
         s1, _ = qsheet.build(r, u1, 12)
-        check('callers 19 ' in s1 and s1.index('82BDB460') < s1.index('callers 19 ') < s1.index('\n82BDD108') if '\n82BDD108' in s1 else 'callers 19 ' in s1, 'real: sub_82BDB460 shows its 19 observed indirect callers')
+        # The count comes from seen.s1.db, which grows with every recorded run (19 when this was written, 20 since 2026-11-24): at least 19.
+        import re as _re
+        m1 = _re.search(r'\n82BDB460[^\n]*\n(?: [^\n]*\n)*? obs callers (\d+) ', s1)   # the function's own block (its indented lines)
+        check(bool(m1) and int(m1.group(1)) >= 19, 'real: sub_82BDB460 shows its observed indirect callers (at least 19)')
         u2 = r.unit_of(0x826D44A0)
         s2, _ = qsheet.build(r, u2, 12)
         check('yGame.SetMotion' in s2, 'real: the unit of sub_826D44A0 shows yGame.SetMotion')

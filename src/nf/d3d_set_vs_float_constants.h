@@ -35,8 +35,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_d3d_set_vs_float_constants, "off", "wwe2k14",
-                      "Session 66: native version of sub_82CB0658 (SetVertexShaderConstantF): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_d3d_set_vs_float_constants);
 
 namespace wwe2k14::nf_d3d_set_vs_float_constants {
 

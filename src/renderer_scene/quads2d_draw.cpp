@@ -200,7 +200,9 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
     // ndc scale (1, -1, 1): the row programs make the game's clip space (y UP, rdr_uiquad.vert: 1 - y); our targets are upright images, so y is negated here exactly as every own pass does
     // (front_end.cpp: "clip y is up; the viewport is Vulkan's"). S103 P7 H2: the host's first pixel proof of this drawer found it +1 (the whole 2D layer upside down on F).
     dyn.system[0] = 1.0f, dyn.system[1] = -1.0f, dyn.system[2] = 1.0f;
-    if (z_test) dyn.system[2] = -1.0f, dyn.system[6] = 1.0f;   // S103 SCS: z' = w - z (the game's reversed depth -> our forward depth; the program adds ndc_offset.z * w)
+    // S110 STARFRONT (docs\research\s110\STARFRONT.md): a z-tested row keeps its clip z as the game computed it. The game's depth is reversed by its VIEWPORT (min depth 1, max 0: capture c2d_entrance_s15 f60),
+    // not in the row's z: the lens element's z 0.996094 is FAR in the game's buffer (1 - 0.996) and must be far (0.996) in our forward one. The old flip z' = w - z put it at the near plane: never hidden by a wrestler.
+    if (z_test && Q2D_PLANT(74)) dyn.system[2] = -1.0f, dyn.system[6] = 1.0f;   // (plant scene_z_flipped: the old S103 SCS flip)
     // ndc offset (1/w, 1/h, 0): the half pixel of the game's 2D convention. The stream's 2D draws carry (1/1280, 1/720, 0) in every captured frame (c2d_menu frame 7: 0.00078 / 0.00139); the rows' own
     // "position - 0.5" only lands on pixel edges with it. (system[3] is the scale's w, system[6..7] the offset's z / w: left 0.)
     dyn.system[4] = 1.0f / float(ctx.width), dyn.system[5] = 1.0f / float(ctx.height);   // (the rows' own pixel space, also for a full-view row drawn over the whole target)

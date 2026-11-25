@@ -29,21 +29,13 @@
 
 #include "gpu_pick.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_light_renderer, false, "wwe2k14",
-                    "Session 37: the light renderer for integrated graphics / weak GPUs: the host render target path "
-                    "(render_target_path_vulkan=fbo) with its black-frame and depth fixes. Default off (accurate path)");
-REXCVAR_DEFINE_BOOL(wwe2k14_fbo_fallback_fix, true, "wwe2k14",
-                    "Session 37: on a graphics card without fragment shader interlock (the SDK then uses the host "
-                    "render target path itself, e.g. older AMD drivers), apply the light renderer's fixes. Default on "
-                    "(Jarrod, 2026-10-20); no effect on cards with interlock");
+REXCVAR_DECLARE(bool, wwe2k14_light_renderer);
+REXCVAR_DECLARE(bool, wwe2k14_fbo_fallback_fix);
 
 // Session 54 (part B: NATIVE without interlock, tested on this PC's 4090): the game treats the chosen card as one without
 // fragment shader interlock - the SDK's host render target path (fbo) and the fixes such a card gets
 // (--wwe2k14_fbo_fallback_fix), as an AMD card on a driver before Adrenalin 24.12.1 gets them. Test only.
-REXCVAR_DEFINE_BOOL(wwe2k14_test_no_interlock, false, "wwe2k14",
-                    "Session 54 (test): treat the graphics card as one without fragment shader interlock (the host "
-                    "render target path and its fixes, as a card without it gets); for testing that path on a card "
-                    "that has it. Default off");
+REXCVAR_DECLARE(bool, wwe2k14_test_no_interlock);
 
 namespace wwe2k14::light {
 

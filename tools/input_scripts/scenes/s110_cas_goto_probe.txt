@@ -1,0 +1,27 @@
+# harness: flags --wwe2k14_launch=@cas --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true
+# intent: launch @cas
+# S110 CASSWEEP (tools\scene\cas_sweep.py): the short route for one go-to run. --wwe2k14_launch=@cas enters the Create a Superstar editor on a
+# new superstar with no menu input (src\cas_launch.h); the caller passes --wwe2k14_cas_goto=<record id> (src\cas_goto.h), which drives the
+# editor's own A / B / tab handlers to that record and logs `arrived at record R` or `STOPPED: ...`. The route only boots, waits for sequence 76,
+# watches long enough for the deepest path (run 231: ~1000 guest frames from the exit action to arrival at depth 2) and shoots the page.
+# S110 SCENESRC review: an item page's arrival now waits for its parts panel, bounded 900 frames from the page's settle (src\cas_goto.h
+# ArrivalPanelReady): a fixed 1800 frames from sequence 76 ended the run before such a stop was logged (sweep logs: the settle comes up to ~1180
+# frames after the exit action, the quit ~1830), so the end waits for the go-to's end (arrived / stopped / refused) instead, optional.
+# Marks: 1 main menu, 2 sequence 76, 3 end. on_fail quit.
+on_fail quit
+log bench: start scene cas_goto_probe
+include boot_to_menu
+mark 1 menu
+wait_state seq 76 3600 2
+log scene=cas_seq76
+mark 2 cas_seq76
+wait_frames 1200
+screenshot sc_s110_cas_goto_mid
+wait_state cas_goto >=2 2400 2 optional
+log_state cas_goto
+log_state menu_page
+log_state menu_row
+screenshot sc_s110_cas_goto_end
+mark 3 end
+log bench: done
+quit

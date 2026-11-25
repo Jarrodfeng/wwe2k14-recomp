@@ -35,16 +35,9 @@
 #include "renderer_adapter/announce.h"  // S101 lane 271: g_announced_arena
 #include "renderer_game/fallback_census.h"  // S103 L2b: SceneChange (the census flushes its window under the old scene)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_session_log, true, "wwe2k14",
-                    "Session 58: [scene] lines for every sequence / scene change and [match] card lines (who, where, "
-                    "which match) in the log, for Report a problem. See src/session_log.h");
-REXCVAR_DEFINE_INT32(wwe2k14_session_snapshots, 60, "wwe2k14",
-                     "Session 58: at most this many small JPEG snapshots per run (captures/NNN_scene_K.jpg): after each "
-                     "scene change and every 3600 frames in the ring; 0 = none (off in harness runs unless set)")
-    .range(0, 1000);
-REXCVAR_DEFINE_INT32(wwe2k14_session_snapshot_width, 640, "wwe2k14",
-                     "Session 58: the scene snapshots' largest width in pixels")
-    .range(160, 3840);
+REXCVAR_DECLARE(bool, wwe2k14_session_log);
+REXCVAR_DECLARE(int32_t, wwe2k14_session_snapshots);
+REXCVAR_DECLARE(int32_t, wwe2k14_session_snapshot_width);
 
 namespace wwe2k14::session_log {
 

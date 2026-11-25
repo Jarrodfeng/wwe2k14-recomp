@@ -60,23 +60,12 @@
 #include "frame_stats.h"
 #include "native_lzx.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_lzx_probe, false, "wwe2k14",
-                    "Time every call of the game's XCTD/LZX chunk decoder (sub_82CA4088) and log [wwe2k14][lzx] "
-                    "lines (Session 12; log only)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_lzx_probe_call_ms, 0.0, "wwe2k14",
-                      "wwe2k14_lzx_probe: log one line per call at least this long (ms; 0 = every call)");
-REXCVAR_DEFINE_BOOL(wwe2k14_lzx_corpus, false, "wwe2k14",
-                    "Record every call of the LZX chunk decoder (sub_82CA4088): input block, parameters and output to "
-                    "out/harness/lzx/corpus plus one CSV row per call in out/harness/lzx/calls/calls_NNN.csv "
-                    "(Session 12; game data, stays in out/)");
+REXCVAR_DECLARE(bool, wwe2k14_lzx_probe);
+REXCVAR_DECLARE(double, wwe2k14_lzx_probe_call_ms);
+REXCVAR_DECLARE(bool, wwe2k14_lzx_corpus);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_native_lzx, true, "wwe2k14",
-                    "Native XCTD/LZX decoder (default on since Session 12, Jarrod 2026-10-10): replace the game's "
-                    "chunk decoder (sub_82CA4088) with src/native_lzx.h, falling back to the game's own on any error; "
-                    "=false restores the game's decoder");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_lzx_verify, false, "wwe2k14",
-                    "Run both LZX decoders, compare, keep the game's output; log [wwe2k14][native_lzx] mismatches and "
-                    "save them to out/harness/lzx/mismatch (Session 12; default off)");
+REXCVAR_DECLARE(bool, wwe2k14_native_lzx);
+REXCVAR_DECLARE(bool, wwe2k14_native_lzx_verify);
 
 REX_EXTERN(__imp__sub_82CA4088);
 

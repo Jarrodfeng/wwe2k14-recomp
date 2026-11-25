@@ -54,28 +54,13 @@
 #include "seats.h"  // S110 SEAT-B: MountLibrary (sslib:), the residents' library folders as overlay items
 #include "superstars.h"  // Session 98: the Superstar Importer's pack (<mods>\superstars\frame since S110 SEAT-B), one more pack when switched on
 
-REXCVAR_DEFINE_BOOL(wwe2k14_dlc, false, "wwe2k14",
-                    "Session 32: give the game the DLC packs in the DLC folder (one folder per pack with "
-                    "info\\catalog.dlc), read-only and licensed. Off = ReXGlue's own content handling only");
-REXCVAR_DEFINE_STRING(wwe2k14_dlc_dir, "", "wwe2k14",
-                      "Session 32: the DLC folder (empty = 'dlc' next to the game data folder or disc image, e.g. "
-                      "game_data\\dlc, else 'dlc' next to the exe)");
-REXCVAR_DEFINE_STRING(wwe2k14_dlc_off, "", "wwe2k14",
-                      "Session 32: pack ids switched off, comma separated (e.g. 3,5); the launcher's DLC switches");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlc_reverse_order, false, "wwe2k14",
-                    "Session 98, TEST ONLY (Superstar Importer run 1): offer the DLC packs to the game in reverse "
-                    "pack-id order (highest first) instead of ascending; logs '[wwe2k14][dlc] reverse order'");
-REXCVAR_DEFINE_STRING(wwe2k14_dlc_extra_dir, "", "wwe2k14",
-                      "Session 98, TEST ONLY (Superstar Importer run 2): a second folder scanned for packs (e.g. a test "
-                      "pack built by tools\\importer\\build_mod_pack.py under out\\), offered with the DLC folder's "
-                      "packs. Empty = none");
-REXCVAR_DEFINE_INT32(wwe2k14_dlc_gate_extra, 0, "wwe2k14",
-                     "Session 98, TEST ONLY (Superstar Importer run 2): let the game accept DLC pack id N (6..65535) by "
-                     "writing (N << 16) | 1 over word 0 (pack id 1, which no real pack uses) of the game's pack-id gate "
-                     "table at 0x82035E9C before the first catalog parse. 0 = the game's own table");
-REXCVAR_DEFINE_BOOL(wwe2k14_log_content_calls, true, "wwe2k14",
-                    "Session 32: log the game's content calls (enumerate / open / close: saves and DLC) with the "
-                    "answers");
+REXCVAR_DECLARE(bool, wwe2k14_dlc);
+REXCVAR_DECLARE(std::string, wwe2k14_dlc_dir);
+REXCVAR_DECLARE(std::string, wwe2k14_dlc_off);
+REXCVAR_DECLARE(bool, wwe2k14_dlc_reverse_order);
+REXCVAR_DECLARE(std::string, wwe2k14_dlc_extra_dir);
+REXCVAR_DECLARE(int32_t, wwe2k14_dlc_gate_extra);
+REXCVAR_DECLARE(bool, wwe2k14_log_content_calls);
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not in the public headers; signatures checked against the
@@ -144,6 +129,24 @@ inline void ApplyLauncherSettings(const fs::path& settings_file) {
   if (unset("wwe2k14_dlc_off") && gfxs::GetString(json, "dlc_off", off) && !off.empty()) {
     rex::cvar::SetFlagByName("wwe2k14_dlc_off", off);
     applied += " dlc_off=" + off;
+  }
+  // S110 HELPERSTART (LOGOIMPORT review F4): the imported superstars' pack (USE MY SUPERSTARS) is one of the packs a save can need: a game
+  // started by hand with such a save got the missing-content notice although the pack was built. Only the switch and its folder: the game
+  // never builds the pack (the launcher does before every start); one that is not built, old or no longer fitting is left out by Install
+  // below, as before (src\superstars.h Load). An empty mods_dir = the launcher's own default (review: in a release folder that is
+  // <launcher folder>\mods, not the game's <game data>\..\mods: dlc_catalog.h LauncherModsDefault).
+  bool stars = false;
+  if (unset("wwe2k14_mods_superstars") && gfxs::GetBool(json, "superstars", stars)) {
+    rex::cvar::SetFlagByName("wwe2k14_mods_superstars", stars ? "true" : "false");
+    applied += std::string(" superstars=") + (stars ? "true" : "false");
+    std::string mods;
+    if (stars && unset("wwe2k14_mods_dir")) {
+      if (!gfxs::GetString(json, "mods_dir", mods) || mods.empty()) mods = PathUtf8(LauncherModsDefault(rex::filesystem::GetExecutableFolder()));
+      if (!mods.empty()) {
+        rex::cvar::SetFlagByName("wwe2k14_mods_dir", mods);
+        applied += " mods_dir=" + mods;
+      }
+    }
   }
   if (!applied.empty()) REXLOG_INFO("[wwe2k14][dlc] from the settings file:{}", applied);
 }

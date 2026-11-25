@@ -31,6 +31,13 @@ message(STATUS "wwe2k14 version ${WWE2K14_VERSION}")
 # Sources
 set(WWE2K14_SOURCES
     src/main.cpp
+    src/cvars/cvars_0.cpp  # S110 CVARSHARD (step 1 of the main.cpp split): every cvar DEFINITION of the headers (tools/compile/cvar_shard.py writes these 6 shards; the headers only REXCVAR_DECLARE), so main.cpp no longer builds the cvar machinery; both builds, Android too
+    src/cvars/cvars_1.cpp
+    src/cvars/cvars_2.cpp
+    src/cvars/cvars_3.cpp
+    src/cvars/cvars_4.cpp
+    src/cvars/cvars_5.cpp
+    src/cvars/cvars_hand.cpp  # S110 CVARSHARD: the case ring's five cvars, defined by hand (src/cvars/cvars_hand.cpp says why)
     src/scene/spirv/scene_spirv_data_0.cpp  # S110 SPIRVDATA: our scene shaders' SPIR-V words (the headers only declare them; tools/shaders/spv_emit.py writes the units), 4 shards so they compile in parallel; both builds, Android too
     src/scene/spirv/scene_spirv_data_1.cpp
     src/scene/spirv/scene_spirv_data_2.cpp

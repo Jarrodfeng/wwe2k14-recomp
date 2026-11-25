@@ -4,7 +4,7 @@
 
 Reads a run's event-bus file (out\\build\\...\\logs\\events_NNNN.jsonl; the same lines are in the run log as `[wwe2k14][event] {...}`; pass the .log as
 EVENTS and it reads those) and flags every pinfall in which the pinned wrestler gave the game no sign of a player:
-  * the bus saw a `pin` (pinning_slot P) followed by a `finish` pinfall (winner W, loser L);
+  * the bus saw a `pin` (pinning_slot P) followed by a `finish` pinfall (winner W, loser L), or a `fall` pinfall in a multi-fall rule (S110 ELIMFIN);
   * between the pin and the finish there was no `kickout` (a defender who mashes escapes at least sometimes), and
   * the loser L made no `move` in the WINDOW guest frames before the pin (default 1800 = 30 s) or during it (the bus `move` lines, src/event_bus_rumble.h).
 The verdict is `no_defender`: a pinfall nobody defended, exactly Check J3, run 7092 (the CPU Andre pinned an idle Hogan after the 600-frame hold), and the situation the
@@ -60,7 +60,8 @@ def analyse(events, passive=(), window=WINDOW_DEFAULT):
     for i, p in enumerate(pins):
         fp = p['f']
         nxt = pins[i + 1]['f'] if i + 1 < len(pins) else 10 ** 12
-        fin = next((e for e in events if e.get('kind') == 'match' and e.get('what') == 'finish' and fp < e['f'] <= nxt and e.get('finish_type') == 1), None)
+        # S110 ELIMFIN: in a multi-fall rule a pinfall the match goes on past is said `fall` (the finish's fields): it is this pin's pinfall too
+        fin = next((e for e in events if e.get('kind') == 'match' and e.get('what') in ('finish', 'fall') and fp < e['f'] <= nxt and e.get('finish_type') == 1), None)
         rec = {'pin_frame': fp, 'pinner': p.get('pinning_slot'), 'loser': None, 'winner': None, 'finish_frame': None}
         if not fin:
             rec.update(verdict='unfinished', why='no pinfall finish followed this pin (a kick-out, or the run ended)')

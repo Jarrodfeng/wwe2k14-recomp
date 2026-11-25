@@ -52,17 +52,11 @@ uint32_t NtReadFileScatter_entry(uint32_t file_handle, uint32_t event_handle, ma
                                  mapped_u64 byte_offset_ptr);
 }  // namespace rex::kernel::xboxkrnl
 
-REXCVAR_DEFINE_BOOL(wwe2k14_file_trace, false, "wwe2k14",
-                    "Log host backtraces of matching file opens and their first reads ([wwe2k14][ftrace])");
-REXCVAR_DEFINE_STRING(wwe2k14_file_trace_filter, ".PAC", "wwe2k14",
-                      "Substring (case-insensitive) a file path must contain to be traced");
-REXCVAR_DEFINE_INT32(wwe2k14_file_trace_per_path, 2, "wwe2k14",
-                     "Maximum traced opens per distinct path");
-REXCVAR_DEFINE_INT32(wwe2k14_file_trace_reads, 4, "wwe2k14",
-                     "Reads logged per traced handle (after each traced open)");
-REXCVAR_DEFINE_STRING(wwe2k14_file_trace_scan, "", "wwe2k14",
-                      "Path substring: on the first game read of a matching traced file, scan guest memory "
-                      "once for the read's offset / sector / length (empty = never)");
+REXCVAR_DECLARE(bool, wwe2k14_file_trace);
+REXCVAR_DECLARE(std::string, wwe2k14_file_trace_filter);
+REXCVAR_DECLARE(int32_t, wwe2k14_file_trace_per_path);
+REXCVAR_DECLARE(int32_t, wwe2k14_file_trace_reads);
+REXCVAR_DECLARE(std::string, wwe2k14_file_trace_scan);
 
 namespace wwe2k14 {
 

@@ -41,9 +41,7 @@
 #include "../crowd_wide.h"  // lane 176: the test follows the displayed aspect (same scale as the midasm hooks)
 #include "../native_skin.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_frustum_cull, "off", "wwe2k14",
-                      "Session 66: native sub_8250E110 view-volume classification loop (src/nf/frustum_cull.h): "
-                      "off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_frustum_cull);
 
 namespace wwe2k14::nf_frustum_cull {
 

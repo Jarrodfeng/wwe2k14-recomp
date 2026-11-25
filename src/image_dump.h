@@ -33,8 +33,7 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
-REXCVAR_DEFINE_STRING(wwe2k14_dump_image, "", "wwe2k14",
-                      "Write the loaded guest image (0x82000000 + image size) to this file once at launch (empty = off)");
+REXCVAR_DECLARE(std::string, wwe2k14_dump_image);
 
 namespace wwe2k14 {
 

@@ -56,12 +56,8 @@
 #include "frame_stats.h"
 #include "renderer_adapter/tail_release.h"  // S102 U1: the barrier window (arrival .. release)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_barrier_probe, false, "wwe2k14",
-                    "Write logs/barrier_NNN.csv: per frame, when each frame-barrier client thread was released and "
-                    "arrived, and how long the render thread waited for them (Session 8 task B; log only)");
-REXCVAR_DEFINE_BOOL(wwe2k14_barrier_names, false, "wwe2k14",
-                    "Name the frame-barrier client host threads bclient_<lr>_<tid> so wwe2k14_profile_threads can "
-                    "sample them (host thread description only)");
+REXCVAR_DECLARE(bool, wwe2k14_barrier_probe);
+REXCVAR_DECLARE(bool, wwe2k14_barrier_names);
 
 namespace wwe2k14::barrier {
 
@@ -185,8 +181,7 @@ void wwe2k14_barrier_render_wait_begin() {
 // to 6 callbacks from barrier+3880 (bctrl at 0x82C3BA38, r11 = callback, r3 = its context from slot+24; the loop
 // continues at 0x82C3BA3C, also the target of the null-slot branch at 0x82C3BA2C). With the probe on, any of these
 // calls that takes at least wwe2k14_barrier_slow_ms logs one "[wwe2k14][barrier] slow" line (frame, what, ms).
-REXCVAR_DEFINE_DOUBLE(wwe2k14_barrier_slow_ms, 5.0, "wwe2k14",
-                      "Barrier probe: log render-thread post-barrier calls taking at least this many ms");
+REXCVAR_DECLARE(double, wwe2k14_barrier_slow_ms);
 
 namespace wwe2k14::barrier {
 inline thread_local int64_t t_post_start = 0;

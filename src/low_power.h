@@ -37,18 +37,9 @@
 #define WWE2K14_SPIN_PAUSE() YieldProcessor()  // Session 63 (Android): ARM's yield (compat.h)
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_low_power, true, "wwe2k14",
-                    "Session 37: the game's GPU waits (gpu_wait_poll_step) give the CPU core back instead of "
-                    "busy-spinning (pause, then short timer sleeps), and the GPU command / UI threads stop spinning "
-                    "(present_ui_idle_wait, gpu_wait_reg_mem_sleep_us). Default on (Jarrod, 2026-10-20); false = spin")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_INT32(wwe2k14_low_power_spin_us, 100, "wwe2k14",
-                     "Session 37: with --wwe2k14_low_power, how long a GPU wait spins (pause hint) before it sleeps")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_INT32(wwe2k14_low_power_sleep_us, 250, "wwe2k14",
-                     "Session 37: with --wwe2k14_low_power, the length of each sleep in a long GPU wait (high-resolution "
-                     "timer)")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DECLARE(bool, wwe2k14_low_power);
+REXCVAR_DECLARE(int32_t, wwe2k14_low_power_spin_us);
+REXCVAR_DECLARE(int32_t, wwe2k14_low_power_sleep_us);
 
 namespace wwe2k14::low_power {
 

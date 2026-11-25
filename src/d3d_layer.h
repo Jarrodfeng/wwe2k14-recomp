@@ -54,16 +54,9 @@
 #include "d3d_shader_bind.h"  // F3: Plan / Commit, the shader bind read from the device
 #include "frame_stats.h"  // g_guest_frame
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_layer, false, "wwe2k14",
-                    "Session 87 (D3D layer F1, experimental): the library's indexed-draw writer is replaced by a record "
-                    "built from the device object (register runs, shader identity, the draw) that the command processor "
-                    "applies directly; needs an SDK build with gpu_d3d_layer_abi, a counted, logged fallback runs the "
-                    "original writer");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_layer);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);  // (renderer_adapter/reader.h)
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_layer_owner_null, true, "wwe2k14",
-                    "Session 100 (speed): in owner mode (--wwe2k14_rdr_owner, the old path draws nothing) the library's indexed draw "
-                    "(or the layer's) is replaced by the device bookkeeping it leaves (the shader bind's device words, the dirty masks and "
-                    "flush flags cleared as the flush does): no packets or record for a command processor that would not draw them");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_layer_owner_null);
 
 REX_EXTERN(__imp__sub_82CB19E0);
 REX_EXTERN(sub_82CB70E0);

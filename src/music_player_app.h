@@ -48,18 +48,10 @@
 #include "music_player.h"
 #include "music_player_mf.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_music_mix_into_game, true, "wwe2k14",  // S101 2026-11-13: default ON (Jarrod, after the live hands-on runs 7212 / 7213)
-                    "Lane 288: play custom music (entrance themes, preview, playlist) through the SDK's audio inject hook, "
-                    "added to the game's own mix: it obeys --audio_mute, shows in --wwe2k14_audio_capture and pauses with "
-                    "the game. Default ON since S101 (live runs 7212 / 7213); false = the old Media Foundation player. See src/music_player_app.h");
+REXCVAR_DECLARE(bool, wwe2k14_music_mix_into_game);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_music_arena_fx, true, "wwe2k14",
-                    "Lane 298: custom songs played through --wwe2k14_music_mix_into_game get the stock themes' arena sound: the "
-                    "RoomVerb reverb and the two EQs of the game's own music chain (parameters read from your own "
-                    "Game_Sound_E_S.pck), in the level a stock theme gets. Entrance and Preview songs only; the "
-                    "playlist stays dry. false = dry. Only active while the player is (mix_into_game). See src/music_arena_fx.h");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_music_arena_fx_trim_db, 0.0, "wwe2k14",
-                      "Lane 298: level trim of the arena effects in dB (-12..12), for tuning by ear. Read once when the effects are prepared: restart to change");
+REXCVAR_DECLARE(bool, wwe2k14_music_arena_fx);
+REXCVAR_DECLARE(double, wwe2k14_music_arena_fx_trim_db);
 
 namespace wwe2k14::music_app {
 
@@ -143,9 +135,7 @@ inline void UpdateArenaFx(music::MusicPlayer& player) {
 // it), which scales FL / FR by StereoFold::scale = 1 / (1 + 0.707) = 0.586 (-4.6 dB, include\rex\audio\downmix.h). Our song is
 // already a finished stereo mix, so the fold must not touch it: it gets 1 / scale back here. Phones always fold; a PC with a 5.1 /
 // 7.1 endpoint does not (the SDK then passes the channels through) and gets the song 4.6 dB louder [U: no such endpoint measured].
-REXCVAR_DEFINE_BOOL(wwe2k14_music_fold_comp, true, "wwe2k14",
-                    "S101: give custom songs back the 4.6 dB the SDK's 5.1 -> stereo fold takes from the guest's FL / FR (our song is "
-                    "added before the fold). false = the old level. See src/music_player_app.h");
+REXCVAR_DECLARE(bool, wwe2k14_music_fold_comp);
 inline constexpr float kFoldComp = 1.0f + 0.70710678f;  // 1 / StereoFold::scale (the SDK default fold)
 inline constexpr uint32_t kInjectBlock = 1024;
 inline bool InjectComp(void* user, float* l, float* r, uint32_t n, uint32_t rate) {

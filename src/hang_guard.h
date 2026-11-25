@@ -60,20 +60,13 @@
 #endif
 
 #if defined(__ANDROID__)
-REXCVAR_DEFINE_BOOL(wwe2k14_hang_guard, true, "wwe2k14",
-                    "Session 95: names freezes, black pictures and memory in logs/startup.txt, hang.txt and mem_NNN.csv "
-                    "(src\\hang_guard.h). Off for precompile and diagnostic runs");
+REXCVAR_DECLARE(bool, wwe2k14_hang_guard);
 #else
-REXCVAR_DEFINE_BOOL(wwe2k14_hang_guard, false, "wwe2k14",
-                    "Session 95: names freezes, black pictures and memory in logs/startup.txt, hang.txt and mem_NNN.csv "
-                    "(src\\hang_guard.h). Off on the PC by default");
+REXCVAR_DECLARE(bool, wwe2k14_hang_guard);
 #endif
-REXCVAR_DEFINE_BOOL(wwe2k14_hang_exit, false, "wwe2k14",
-                    "Session 95: after a HANG: line ask for the launcher and end the process (exit code 3). Off until the "
-                    "phone list passes");
-REXCVAR_DEFINE_STRING(wwe2k14_test_hang, "", "wwe2k14",
-                      "Session 95 (test only): guest, paint or fence: that side stops for good at --wwe2k14_test_hang_at");
-REXCVAR_DEFINE_INT32(wwe2k14_test_hang_at, 600, "wwe2k14", "Session 95 (test only): the guest frame --wwe2k14_test_hang acts at");
+REXCVAR_DECLARE(bool, wwe2k14_hang_exit);
+REXCVAR_DECLARE(std::string, wwe2k14_test_hang);
+REXCVAR_DECLARE(int32_t, wwe2k14_test_hang_at);
 
 namespace wwe2k14::hang_guard {
 

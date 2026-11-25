@@ -16,7 +16,7 @@ inline constexpr uint32_t kSceneVersion = 1;
 // S103 SVO: SceneHeader::flags bit 0. The record was made on the guest thread while goto's `scene:` stage push was playing (stage_view::g_playing, stamped only when the OFF host switch --wwe2k14_rdr_stage_view is on: stage_view::g_host_enabled, never the stream build's g_enabled). The OFF host
 // then leaves the 2D rows out of the picture: the game puts the Create a Story editor's full-screen red background over the scene in program mode 2 (docs\agents\s103\CSC.md). The host reads this stamp, never the live flag.
 inline constexpr uint32_t kSceneStagePlaying = 1u;
-// S105 A3: SceneHeader::flags bits 1 / 2 = the game shows a scene camera (cam_gate.h: kCamGateRead / kCamGateShown). Append-only: an older record has both 0 (= not read = drawn as before).
+// S110 ENTRBLACK (was S105 A3): SceneHeader::flags bits 1 / 2 = the game draws scene geometry this frame (cam_gate.h: kSceneFactRead / kSceneDrawn). Append-only: an older record has both 0 (= not read = drawn as before).
 // S102 T19: a record that carries crowd run markers (kScCrowdRuns / kScCrowdMembers) is written as version 2; a record without them is still version 1, byte for byte
 // as before. A reader accepts both (ParseRecord expands the markers into the plain member objects at once; docs\formats\scene_record_crowd_runs.md).
 inline constexpr uint32_t kSceneVersionRuns = 2;

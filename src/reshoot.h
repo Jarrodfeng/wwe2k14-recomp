@@ -30,13 +30,10 @@
 #include "input_script.h"  // g_request_quit
 #include "replay.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_reshoot, "", "wwe2k14",
-                      "Re-shoot (Session 16): replay out/replays/NAME.rec with --wwe2k14_reshoot_shot as the camera and "
-                      "capture it as a frame-locked clip into out/reshoots/NAME, then quit. See src/reshoot.h");
-REXCVAR_DEFINE_STRING(wwe2k14_reshoot_shot, "", "wwe2k14",
-                      "Re-shoot: the CineCam shot path to play (relative = out/harness/cinecam/paths/)");
-REXCVAR_DEFINE_STRING(wwe2k14_reshoot_label, "", "wwe2k14", "Re-shoot: clip name (default: the shot file's stem)");
-REXCVAR_DEFINE_INT32(wwe2k14_reshoot_fps, 60, "wwe2k14", "Re-shoot: clip playback rate (60 = real speed)");
+REXCVAR_DECLARE(std::string, wwe2k14_reshoot);
+REXCVAR_DECLARE(std::string, wwe2k14_reshoot_shot);
+REXCVAR_DECLARE(std::string, wwe2k14_reshoot_label);
+REXCVAR_DECLARE(int32_t, wwe2k14_reshoot_fps);
 
 namespace wwe2k14::reshoot {
 

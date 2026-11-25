@@ -113,90 +113,37 @@
 #include "platform/compat.h"  // VirtualQuery (path chains, Session 14)
 #include <climits>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam, false, "wwe2k14",
-                    "CineCam free camera: install it (F8 toggles it in game; keyboard + mouse). Read once at startup");
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_on, false, "wwe2k14",
-                    "CineCam: the free camera on / off (needs --wwe2k14_cinecam=true); F8 toggles it without "
-                    "changing this setting");
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_panel, true, "wwe2k14",
-                    "CineCam: show the CineCam panel (readout, speed) while the free camera is on");
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_test_camwrite, false, "wwe2k14",
-                    "CineCam test: while the free camera is on, also write its last matrix and FOV into the game "
-                    "camera's own view block right after the game camera's update (sub_8257D8E8)");
-REXCVAR_DEFINE_INT32(wwe2k14_cinecam_test_dof, -1, "wwe2k14",
-                     "CineCam test: set the panel's depth of field mode (0 game, 1 off, 2 on) from a script; -1 = leave");
-REXCVAR_DEFINE_INT32(wwe2k14_cinecam_test_full_arena, -1, "wwe2k14",
-                     "CineCam test: set the panel's full arena checkbox from a script (0 off, 1 on); -1 = leave");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_dof_values, "", "wwe2k14",
-                      "CineCam test: A,B,C,D,STRENGTH[,FOCUS] for the depth of field 'on' values (+84, +88, +92, +96, "
-                      "+172; FOCUS > 0 = manual focus in cm); applied once when set. Empty = none");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_poke, "", "wwe2k14",
-                      "CineCam test: while the free camera is on, write 32-bit words into the shown camera at every "
-                      "hand-off: OFF=VALUE,... (decimal or 0x hex). The original words are restored when the "
-                      "setting changes or is cleared. Empty = none");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_pose, "", "wwe2k14",
-                      "CineCam test: X,Y,Z,YAW,PITCH,FOV (world Y down, degrees) applied once to the free camera "
-                      "when set (it must be on); for scripted checks without the mouse. Empty = none");
-REXCVAR_DEFINE_INT32(wwe2k14_cinecam_dump_view, 0, "wwe2k14",
-                     "CineCam diagnosis: set to N > 0 to log the composed view slot (272 bytes, words and floats) "
-                     "at the next hand-off, labelled N, and the one after as N + 10, and save the slot, the scene manager (4 KB) and the "
-                     "shown camera (4 KB), the globals 0x83500000.. and the director (key 10) to "
-                     "out/harness/cinecam/<run>_N_{slot,mgr,cam,data,dir}.bin (game memory: local "
-                     "only); it resets itself to 0");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_cinecam_test_fov, 0.0, "wwe2k14",
-                      "CineCam step 1a test: after the game camera's update (sub_8257D8E8) write this field of view "
-                      "(degrees) to the camera's +144. 0 = off");
+REXCVAR_DECLARE(bool, wwe2k14_cinecam);
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_on);
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_panel);
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_test_camwrite);
+REXCVAR_DECLARE(int32_t, wwe2k14_cinecam_test_dof);
+REXCVAR_DECLARE(int32_t, wwe2k14_cinecam_test_full_arena);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_test_dof_values);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_test_poke);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_test_pose);
+REXCVAR_DECLARE(int32_t, wwe2k14_cinecam_dump_view);
+REXCVAR_DECLARE(double, wwe2k14_cinecam_test_fov);
 
-REXCVAR_DEFINE_INT32(wwe2k14_cinecam_test_stage, 0, "wwe2k14",
-                     "CineCam tests: where the test FOV / offset are applied. 0 = after the game camera's update "
-                     "(step 1), 1 = the composer's output slot at the hand-off to the renderer, sub_823C79A8's entry "
-                     "(step 2, every camera)");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_offset, "", "wwe2k14",
-                      "CineCam step 1b test: after the game camera's update add X,Y,Z to its matrix row 3 and commit "
-                      "it through the game's setter sub_82280108. Empty = off");
+REXCVAR_DECLARE(int32_t, wwe2k14_cinecam_test_stage);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_test_offset);
 
 // Paths (Session 14, stretch goal S2: playback plumbing only; no panel or key changes). All default off.
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_path_record, "", "wwe2k14",
-                      "CineCam path: record the free camera (position, yaw, pitch, roll, FOV, depth of field settings) "
-                      "once per guest frame from the anchor on, to FILE (relative = out/harness/cinecam/paths/). "
-                      "Never overwrites (FILE_2, ...). Empty = off. See the Paths section in src/cinecam.h");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_path_play, "", "wwe2k14",
-                      "CineCam path: replay FILE (as recorded) from the anchor on: turns the free camera on at the "
-                      "anchor and sets its pose every frame from the record for that anchor-relative frame. Empty = off");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_path_anchor, "step5:0", "wwe2k14",
-                      "CineCam path: time origin. step5:N = entrance slot N's step byte reaches 5 (states.toml "
-                      "entrance_step_N), clock = the match clock word 0x836F3928 becomes non-zero, frame = guest frame 0, "
-                      "frame:N = guest frame N (Session 16: replays are frame-exact)");
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_path_record);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_path_play);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_path_anchor);
 // Freeze cam (Session 16 item 6). Default off.
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_freeze, false, "wwe2k14",
-                    "CineCam freeze cam (Session 16): once the match is decided and the scene has stopped handing its "
-                    "view to the renderer (the post-match freeze), drive the hand-off from VdSwap every frame while "
-                    "the free camera is on, so the camera moves around the frozen scene");
-REXCVAR_DEFINE_INT32(wwe2k14_cinecam_freeze_after, 120, "wwe2k14",
-                     "CineCam freeze cam: frames without a hand-off (match decided) before the freeze cam takes over");
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_path_log, false, "wwe2k14",
-                    "CineCam path: log every recorded / replayed frame's view (matrix rows, FOV) and the entrance "
-                    "step bytes of slots 0-5 when they change, relative to the anchor");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_shot, "", "wwe2k14",
-                      "CineCam shots from a script: record / stop / NN (play shot_NN), the same as the panel's shot "
-                      "buttons. Set it with `cvar wwe2k14_cinecam_shot ...` in an input script");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_test_move, "", "wwe2k14",
-                      "CineCam test (S2): VX,VY,VZ,VYAW per second (world units, degrees) added to the free camera "
-                      "every frame, for a scripted move without the keyboard. Empty = none");
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_freeze);
+REXCVAR_DECLARE(int32_t, wwe2k14_cinecam_freeze_after);
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_path_log);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_shot);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_test_move);
 
 // Keyframed shots (Session 35; the "Keyframed shots" section below). Default: nothing happens until a shot is used.
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_timeline, true, "wwe2k14",
-                    "CineCam: show the keyframe timeline panel while the free camera is on");
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_timeline_cmd, "", "wwe2k14",
-                      "CineCam keyframed shots from a script: commands separated by ';' (key [TRACK], time S, preview "
-                      "[start], take, stop, rate R, loop 0|1, length S, constant 0|1, follow S, target aim|move|focus "
-                      "none|slot N|pin X Y Z|here, ease TRACK I E, curve TRACK I smooth|linear|hold, set|add TRACK I "
-                      "DIM VALUE, clear, save NAME, "
-                      "load NAME, freeze 0|1). Set it with `cvar wwe2k14_cinecam_timeline_cmd ...`");
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_timeline);
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_timeline_cmd);
 
-REXCVAR_DEFINE_STRING(wwe2k14_cinecam_dir, "", "wwe2k14",
-                      "CineCam: the folder for shots (shots\\*.shot) and recorded paths (paths\\shot_NN.txt). Empty = "
-                      "out/harness/cinecam in a +dev build, Documents\\WWE 2K14\\CineCam in a release");
+REXCVAR_DECLARE(std::string, wwe2k14_cinecam_dir);
 
 REX_EXTERN(sub_82280108);  // view block matrix setter (view block, matrix)
 
@@ -2458,9 +2405,7 @@ REX_HOOK_RAW(sub_827F14C0) {
 REX_EXTERN(__imp__sub_82C2BBE8);
 // The post-effect blur chain (depth of field; see the header). Diagnosis only (--wwe2k14_cinecam_dof_log): logs the
 // settings it reads, at most once a second.
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_dof_log, false, "wwe2k14",
-                    "CineCam diagnosis: log the post-effect settings the depth-of-field chain (sub_82C2BBE8) reads, "
-                    "at most once a second");
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_dof_log);
 REX_HOOK_RAW(sub_82C2BBE8) {
   using namespace wwe2k14::cinecam;
   if (REXCVAR_GET(wwe2k14_cinecam_dof_log)) {

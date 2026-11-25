@@ -28,9 +28,7 @@
 #include "../renderer_adapter/thumb_defer_core.h"
 #include "readback_ours.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_thumb_timeout, 180, "wwe2k14",
-                     "S103 RBC: the replay-clip thumbnail job waits at most this many guest frames for its scene picture, then runs on the memory as it is (0 = never wait: run at once)")
-    .range(0, 100000);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_thumb_timeout);
 
 REX_EXTERN(__imp__sub_8274FA70);
 REX_EXTERN(__imp__sub_8274FC60);

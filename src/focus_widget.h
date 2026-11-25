@@ -34,9 +34,7 @@
 #include "game_state.h"   // g_host_state: where the menu_* states read from
 #include "menu_focus.h"
 
-REXCVAR_DEFINE_INT64(wwe2k14_focus_dump, 0, "wwe2k14",
-                     "Session 91: set to a new value to log the input widgets that took the input in the last two "
-                     "guest frames (src/focus_widget.h; the navigator's game_where)");
+REXCVAR_DECLARE(int64_t, wwe2k14_focus_dump);
 
 namespace wwe2k14::focus {
 

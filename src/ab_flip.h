@@ -10,10 +10,7 @@
 #include "ab_flip_anchor.h"
 #include "ab_flip_math.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_ab_flip, "", "wwe2k14",
-                      "S102 M7: an in-run A/B on the Surface: flip PerFrame switches on a fixed schedule, e.g. period=100/settle=15/anchor=2/off=wwe2k14_nf_replay_loop=0+wwe2k14_nf_render_dispatch=0/"
-                      "on=wwe2k14_nf_replay_loop=1+wwe2k14_nf_render_dispatch=1 (format and rules: src/ab_flip_math.h). Only per-frame switches of the rdr_switches.h table are allowed; "
-                      "anything else refuses the whole spec. Read at the first frame; tools/surface/flip_line.py compares the phases");
+REXCVAR_DECLARE(std::string, wwe2k14_ab_flip);
 
 namespace ab_flip {
 

@@ -55,8 +55,7 @@
 #include "../native_fn.h"
 #include "vec4_lean.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_vec4_mat4_row, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
-                      "Session 66: native sub_82C32BC0 (vec4 times mat4 into an output): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_vec4_mat4_row);
 
 namespace wwe2k14::nf_vec4_mat4_row {
 

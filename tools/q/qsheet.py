@@ -28,6 +28,7 @@ import qseen  # noqa: E402
 import qread  # noqa: E402
 import qreadverify  # noqa: E402
 import qpattern  # noqa: E402
+import qpattern_rules2  # noqa: E402
 
 SRC = os.path.dirname(os.path.dirname(HERE))
 RANK = {'high': 3, 'medium': 2, 'low': 1, 'unknown': 0}
@@ -145,6 +146,7 @@ class Ctx:
             self.idxname[a] = n
         self.n_units = self.units.execute('select count(*) from unit').fetchone()[0]
         self.pat = qpattern.labels(pattern) if (pattern or not index) else {}     # a test (own index) gets no real labels
+        self.prel = qpattern_rules2.relations_of(pattern) if (pattern or not index) else {}   # S110 RULES2: clone relations ([~rel ADDR])
 
     def hooks(self):
         """-> (hook funcs {func: ['file:line']}, midasm [(addr, name)] sorted); the source scan runs once and only when asked"""
@@ -303,6 +305,8 @@ def build(c, uid, max_kb=MAXKB):
         if f in rd_names:
             nm_parts.append('read %s [r:%s]%s' % (rd_names[f] + (qreadverify.tag(fv.get(f)),)))
         ptag = qpattern.tag(c.pat, f)            # S110 PATTERN: a shape label, after the names; never a name
+        if f in c.prel and c.db.get(f, ('', ''))[1] != 'high':      # S110 RULES2: a clone relation, only where no HIGH db name stands
+            ptag = (ptag + ' ' + qpattern_rules2.rel_tag(c.prel, f)).strip()
         hdr = '%08X %dB %di %s' % (f, sz, ni, ' ; '.join(nm_parts) + ((' ' if nm_parts else '') + ptag if ptag else ''))
         if f not in rd_names and f in fv:        # a probe's verdict on the function itself (no read name to hang it on)
             hdr = hdr.rstrip() + qreadverify.tag(fv[f])

@@ -29,9 +29,7 @@
 #include "dev_build.h"         // wwe2k14::IsDevBuild
 #include "native_mem_probe.h"  // wwe2k14::native_mem_probe::Ld32
 
-REXCVAR_DEFINE_BOOL(wwe2k14_heap_alloc_log, false, "wwe2k14",
-                    "DEV ONLY (S110 PAC176CRASH diagnostic): log every game heap allocation that returns 0, and the big ones "
-                    "(>= 64 KB) in the character heaps 22..42, with the heap's free / used census and the caller (default off)");
+REXCVAR_DECLARE(bool, wwe2k14_heap_alloc_log);
 
 REX_EXTERN(__imp__sub_82C2DCD8);  // CYMem allocate (r3 = bytes, r4 = tag) -> r3 block or 0
 REX_EXTERN(__imp__sub_82C2F5A8);  // CYMem allocate (r3 = 16-byte units, r4 = tag) -> r3 block or 0
@@ -42,6 +40,7 @@ namespace wwe2k14::heap_alloc_log {
 inline constexpr uint32_t kHeapTablePtr = 0x8392FFE4u;  // [this] = the 36-byte heap descriptors (sub_82C2E2F8 +12C: 0x8392ED70)
 inline constexpr uint32_t kDescStride = 36;
 inline constexpr uint32_t kBigBytes = 64u * 1024u;
+inline constexpr uint32_t kLoaderObject = 0x839400ACu;  // the file loader's heap object; its +76 = the loader's heap id (sub_82C36298)
 inline constexpr uint32_t kMaxFailLines = 64, kMaxOkLines = 200;
 
 struct Census {
@@ -123,6 +122,10 @@ inline void After(PPCContext& ctx, uint8_t* base, char path, uint32_t bytes, uin
   if (got && bytes < kBigBytes) return;
   const uint32_t heap = CurrentHeap(ctx, base);
   if (got && (heap < 22 || heap > 42)) return;
+  // A 0 in the file loader's own heap is one turn of sub_82C54BB0's evict-and-retry (it never returns 0; HEAP13): not a failure, so
+  // not logged and not counted against the 64 FAILED lines a real failure needs.
+  const uint32_t loader = wwe2k14::native_mem_probe::Ld32(base, kLoaderObject);
+  if (!got && loader && heap == wwe2k14::native_mem_probe::Ld32(base, loader + 76)) return;
   static std::atomic<uint32_t> fails{0}, oks{0};
   static std::atomic<bool> layout_logged{false};
   if (got ? oks.fetch_add(1) >= kMaxOkLines : fails.fetch_add(1) >= kMaxFailLines) return;

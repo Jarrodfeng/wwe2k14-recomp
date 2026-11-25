@@ -16,8 +16,7 @@
 #include "wrestler_hook.h"    // wwe2k14::wrestlers::ReadGuest (the bounds- and fault-checked guest reader)
 #include "movie_planes.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_movie_planes, false, "wwe2k14",
-                    "S103 P4 (DEV ONLY, not a player setting): copy the movie planes from guest memory at the game's plane flush, for MovieOurs to upload into its own images (so it never reads a stream image). Default off = no change; start-only");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_movie_planes);
 
 namespace wwe2k14::movie_planes_tap {
 

@@ -1,75 +1,59 @@
-// S105 A3: the game's "shows a scene camera" facts, carried in SceneHeader::flags (append-only: bits 1-4; an old record has all 0 = not read = drawn as before).
+// S110 ENTRBLACK (docs\research\s110\ENTRBLACK.md "Round 3"): the game's own "this frame has scene geometry" decision, carried in SceneHeader::flags bits 1 / 2 (append-only: an old record has both 0 =
+// not read = drawn as before). The file keeps its S105 A3 name; A3's camera words (the shown camera, the motion camera's anim, the phase) are gone: they were a proxy for this decision.
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause. No game or SDK includes.
 //
-// Why (docs\research\s105\A3.md, [C] stream-build captures + the second-bit run; review_A3.md): at the start of the FIRST entrance after a load the game draws NO scene while
-//   (1) its shown camera is 0: [[0x836F3AA8] + 1392] == 0 and neither override camera ([mgr + 1412], [[0x83767B74] + 340]) is set, or
-//   (2) the entrance load window runs: phase [0x836F3940] == 4, sequence [[[0x839400F8]] + 48] == 9 and the motion camera cur = [0x836F3ABC] is not yet animated ([cur + 1440] == 0).
-// The stream-free host drew the arena there because READY was its only gate. The latch (scene_live\inputs_contrib.h Take / Emit) reads the words and stamps the facts into the record; the host
-// (renderer_host\host_core.h CamGate / Decide, scene_host.cpp Handle) puts black under the 2D rows on a frame that carries them. Bit (1) applies only before the first 3D picture of a scene
-// (host: !State::seen3d: the evidenced load window; the same word reads 0 between entrances and at a match opening, where the game still draws). Bit (4) lets the host hold the black after
-// bit (1) ends while the motion camera is still not animated (a bounded hold, kCamHoldMax), which closes the gap between the shown camera and the phase word.
-//
-// Layout: kCamGateRead = every word of the shown test was readable (the latch thread, a scene manager); kCamGateShown = the game shows a camera; kCamGateUnanimated = the load window (2);
-// kCamGateAnimPending = [seq == 9, cur valid, anim == 0], no phase test (the sticky hold's condition). A record that did not read a word never blackens for it (no manager: the CAW editor;
-// an unreadable word; the fallback take, which runs with the game threads running; an older record).
+// What the game does [C listings]:
+//   * the stage: the loaded stage S = [0x83763544] is shown or hidden by sub_824EBF48(S, on): [S + 1176] = on (+10; its only writer: q field 1176 --writes) and, in the same call, the enable word +8 of its
+//     draw nodes found by tag in S + 1184 ('SDL0' = the stage group of render category 22, 'SDTA', 'SDTR', 'CSDP', 'SDPC') and of [0x83924784]. The render walk sub_82C2FA10 skips a node whose +8 is 0.
+//     The stage is built hidden (sub_824EDDB0 +310) and shown by the scene flow through sub_82577D30 -> sub_824EBF48: the entrance (sub_82330340 +1E8; sub_82327B78 -> sub_82314640(1)), the match flow
+//     (sub_827B1ED8 +48, sub_827BD2A8 +30), the editors and the event scenes; hidden again by sub_82314640(0), match_state_reinit and the editors' exits.
+//   * a character: drawn only when [char + 1208] (its opaque node's +8, sub_8251E510), [char + 224] and [char + 232] are non-zero (sub_823CBC50; inputs_contrib.h reads the same predicate per slot).
+// So the game submits NO scene geometry on a frame whose stage word is 0 and whose characters are all hidden. Read on the latch thread, before the walk the game would make for this frame: the same
+// frame. The camera composer is not part of it: sub_823C8548 hands its output slot on to the renderer every frame, stale or not (ENTRBLACK R1).
 #pragma once
 #include <cstdint>
 
 namespace rdr_scene {
 
-inline constexpr uint32_t kCamGateRead = 2u;           // SceneHeader::flags bit 1 (bit 0 = kSceneStagePlaying, scene_record.h)
-inline constexpr uint32_t kCamGateShown = 4u;          // bit 2: a camera is shown at the latch
-inline constexpr uint32_t kCamGateUnanimated = 8u;     // bit 3: the load window (UnanimatedWindow)
-inline constexpr uint32_t kCamGateAnimPending = 16u;   // bit 4: sequence 9, a valid motion camera, not yet animated (AnimPending)
-inline constexpr uint32_t kCamGateMask = kCamGateRead | kCamGateShown | kCamGateUnanimated | kCamGateAnimPending;
+inline constexpr uint32_t kSceneFactRead = 2u;   // SceneHeader::flags bit 1 (bit 0 = kSceneStagePlaying, scene_record.h): a stage object exists and its show word was read at the latch
+inline constexpr uint32_t kSceneDrawn = 4u;      // bit 2: the game draws scene geometry this frame (the stage is shown, or a character is)
+inline constexpr uint32_t kSceneFactMask = kSceneFactRead | kSceneDrawn;   // (bits 3 / 4 were S105 A3's camera words: never written again)
 
 #ifdef WWE2K14_HOST_PLANTS
-inline int g_cam_gate_plant = 0;   // test only (tools\renderer\host_core_unit.cpp): 1 = the load-window test looks at the phase word only; 2 = the shown test ignores the override cameras
-#define CAM_GATE_PLANT(n) (::rdr_scene::g_cam_gate_plant == (n))
+inline int g_scene_fact_plant = 0;   // test only (tools\renderer\host_core_unit.cpp): 1 = the reader ignores the stage word (always shown); 2 = the reader ignores the characters
+#define SCENE_FACT_PLANT(n) (::rdr_scene::g_scene_fact_plant == (n))
 #else
-#define CAM_GATE_PLANT(n) false
+#define SCENE_FACT_PLANT(n) false
 #endif
 
+inline constexpr uint32_t kLoadedStage = 0x83763544u, kStageShownOff = 1176u;   // S, [S + 1176]
+inline constexpr uint32_t kCharTable = 0x836F38D0u, kCharSlotsN = 9u;          // the 9 character words (lightlatch::kCharSlotTable)
+inline constexpr uint32_t kCharNodeOn = 1208u, kCharGateA = 224u, kCharGateB = 232u;
+
 // The writer's bits for one latch.
-inline constexpr uint32_t CamGateBits(bool read, bool shown, bool unanimated = false, bool anim_pending = false) {
-  return (read ? (kCamGateRead | (shown ? kCamGateShown : 0u)) : 0u) | (unanimated ? kCamGateUnanimated : 0u) | (anim_pending ? kCamGateAnimPending : 0u);
-}
-// The host's questions.
-inline constexpr bool NoShownCamera(uint32_t header_flags) { return (header_flags & kCamGateRead) != 0 && (header_flags & kCamGateShown) == 0; }
-inline constexpr bool CamUnanimated(uint32_t header_flags) { return (header_flags & kCamGateUnanimated) != 0; }
-inline constexpr bool CamAnimPending(uint32_t header_flags) { return (header_flags & kCamGateAnimPending) != 0; }
+inline constexpr uint32_t SceneFactBits(bool read, bool drawn) { return read ? (kSceneFactRead | (drawn ? kSceneDrawn : 0u)) : 0u; }
+// The host's question: the record says the game submits no scene geometry this frame. A record that did not read the fact never says so.
+inline constexpr bool GameDrawsNoScene(uint32_t header_flags) { return (header_flags & kSceneFactRead) != 0 && (header_flags & kSceneDrawn) == 0; }
 
-// A guest pointer worth following (src\step_rate.h:255-257: 0x40000000 .. 0xE0000000).
-inline constexpr bool CamPtrValid(uint32_t a) { return a >= 0x40000000u && a < 0xE0000000u; }
+inline constexpr bool ScenePtrValid(uint32_t a) { return a >= 0x40000000u && a < 0xE0000000u; }
 
-// The shown test over a word reader rw(guest address, uint32_t& value) -> bool (false = unreadable). read = every word read (the manager exists and is a valid pointer); shown = the shown camera word, or
-// the composer's override camera word [mgr + 1412], or [[0x83767B74] + 340] is non-zero (a null override object counts as no override). Any unreadable word: read = false (never black on a failed read).
+// The reader over rw(guest address, uint32_t& value) -> bool (false = unreadable). read = a stage object exists and [S + 1176] was readable; no stage (0: the menus, an editor with none), a wild pointer or
+// an unreadable word: read = false (never black on a failed read). drawn = the stage word is non-zero, or a character's predicate is true; a character whose words cannot be read counts as drawn.
 template <class RW>
-inline void ReadShown(RW rw, bool& read, bool& shown) {
-  read = shown = false;
-  uint32_t mgr = 0, w = 0, ov = 0, obj = 0, ow = 0;
-  if (!rw(0x836F3AA8u, mgr) || !CamPtrValid(mgr) || !rw(mgr + 1392u, w) || !rw(mgr + 1412u, ov) || !rw(0x83767B74u, obj)) return;
-  if (obj != 0) {
-    if (!CamPtrValid(obj) || !rw(obj + 340u, ow)) return;
-  }
+inline void ReadSceneFact(RW rw, bool& read, bool& drawn) {
+  read = drawn = false;
+  uint32_t s = 0, w = 0;
+  if (!rw(kLoadedStage, s) || !ScenePtrValid(s) || !rw(s + kStageShownOff, w)) return;
   read = true;
-  shown = w != 0 || (!CAM_GATE_PLANT(2) && (ov != 0 || ow != 0));
-}
-
-// Sequence 9, a valid motion camera, not yet animated (no phase test).
-template <class RW>
-inline bool AnimPending(RW rw) {
-  uint32_t p1 = 0, p2 = 0, seq = 0, cur = 0, anim = 0;
-  if (!rw(0x839400F8u, p1) || !CamPtrValid(p1) || !rw(p1, p2) || !CamPtrValid(p2) || !rw(p2 + 48u, seq) || seq != 9) return false;
-  if (!rw(0x836F3ABCu, cur) || !CamPtrValid(cur) || !rw(cur + 1440u, anim)) return false;
-  return anim == 0;
-}
-// The load window: phase 4 and AnimPending. phase_ok = the phase word was read.
-template <class RW>
-inline bool UnanimatedWindow(RW rw, bool phase_ok, uint32_t phase) {
-  if (!phase_ok || phase != 4) return false;
-  if (CAM_GATE_PLANT(1)) return true;   // plant 1: the phase alone
-  return AnimPending(rw);
+  drawn = w != 0 || SCENE_FACT_PLANT(1);
+  if (drawn || SCENE_FACT_PLANT(2)) return;
+  for (uint32_t i = 0; i < kCharSlotsN && !drawn; ++i) {
+    uint32_t ch = 0, a = 0, b = 0, c = 0;
+    if (!rw(kCharTable + 4u * i, ch)) { drawn = true; break; }
+    if (ch < 0x10000u) continue;   // an empty slot
+    if (!rw(ch + kCharNodeOn, a) || !rw(ch + kCharGateA, b) || !rw(ch + kCharGateB, c)) { drawn = true; break; }
+    drawn = a != 0 && b != 0 && c != 0;
+  }
 }
 
 }  // namespace rdr_scene

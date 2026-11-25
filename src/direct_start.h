@@ -33,10 +33,7 @@
 #include "gfx_menu.h"      // IsDevBuild, SettingsFile
 #include "gfx_settings.h"  // ReadFile, GetString
 
-REXCVAR_DEFINE_BOOL(wwe2k14_direct_handoff, true, "wwe2k14",
-                    "Session 53: a release started with no game flags (a double-click, a shortcut) hands over to the "
-                    "launcher next to it (wwe2k14_launcher.exe --start-game: the player's Play settings, its window "
-                    "hidden). =false takes only the game files and save folders from the launcher's settings file");
+REXCVAR_DECLARE(bool, wwe2k14_direct_handoff);
 
 namespace wwe2k14::direct_start {
 

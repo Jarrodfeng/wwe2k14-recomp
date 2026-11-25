@@ -104,6 +104,16 @@ class ModelCache {
   struct NoPositional { explicit NoPositional() = default; };
   struct Missed { NoPositional no_positional_{}; std::string pac, entry; uint32_t variant = 0; std::string key; bool stored = false; bool bulk = false; /* S105 SKB fix F3: the evtobj.pac prewarm: runs after every other job (it blocks the one loader for ~1.7 s) */ bool gates = true; /* S105 SKB: a counted miss holds READY: the loader runs it before the non-gating (prop) asks */ };
   std::vector<Missed> TakeMisses();
+  // S110 ENTRBODIES (start_bodies.h): ask for a model by NAME before any record names it (a body of the game's characters, behind the held loading card). The key is the one Get() looks up
+  // (AssetKey: pac|entry|variant) and it goes into pending_, so the record's later Get finds it resident or pending (never queued twice). false = resident, failed, already pending, or a loading
+  // (offline) cache. `out` = the job for the caller's loader (not put on missed_: the caller queues it at once; a gating job, not stored).
+  bool Want(const std::string& pac, const std::string& entry, uint32_t variant, Missed& out) {
+    if (load_on_miss_) return false;
+    std::string key = pac + "|" + entry + "|" + std::to_string(variant);
+    if (models_.count(key) || failed_.count(key) || !pending_.insert(key).second) return false;
+    out = Missed{.pac = pac, .entry = entry, .variant = variant, .key = std::move(key), .stored = false, .gates = true};
+    return true;
+  }
   // The loader gave up on it: remembered as failed (never queued again until ClearFailed).
   void MissFailed(const Missed& m, const std::string& error = std::string());
   void ClearFailed() { failed_.clear(); rdr_scene::namedfail::Clear(); attire_build::Latch::Instance().Clear(); }   // S103 ARM2 F2: + the build-step colours captured under the old files   // S103 DLW: a new game folder also forgets which named wrestlers failed

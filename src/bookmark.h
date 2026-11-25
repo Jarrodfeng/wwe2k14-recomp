@@ -46,7 +46,7 @@
 #include <thread>
 #include <vector>
 
-#define WWE2K14_CASE_CVARS  // S101 lane 5: the case ring's cvars are defined here (this header is included once)
+#define WWE2K14_CASE_CVARS  // S101 lane 5: this includer reads the case ring's cvars (case_hook.h declares them for it; S110: DEFINED in src\cvars\cvars_hand.cpp)
 #include "case/case_hook.h"
 #include "case/case_jni.h"  // the phone's corner button (Android only)
 #include "build_stamp.h"    // S101 lane 19: git hash / dirty / SDK pin / APK number of this build, for the case zip's manifest
@@ -62,13 +62,9 @@
 REXCVAR_DECLARE(bool, wwe2k14_scene_records);  // S101 lane 26 (renderer_adapter/reader.h): the live scene writer's records go to the capture folder and the case ring
 REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);  // S101 lane 11 (renderer_adapter/reader.h): a PC +dev build in owner mode turns the case ring on
 
-REXCVAR_DEFINE_INT32(wwe2k14_bookmark_auto_ms, 0, "wwe2k14",
-                     "Session 29: automatic bookmark when a frame takes >= N ms during steady play (0 = off; harness "
-                     "runs only)");
-REXCVAR_DEFINE_INT32(wwe2k14_bookmark_clip_fps, 0, "wwe2k14",
-                     "Session 29: keep the last seconds of the guest output at this rate (640 px wide) for bookmark "
-                     "clips (0 = off; each grab is a GPU read-back)");
-REXCVAR_DEFINE_INT32(wwe2k14_bookmark_clip_s, 10, "wwe2k14", "Session 29: seconds kept for bookmark clips");
+REXCVAR_DECLARE(int32_t, wwe2k14_bookmark_auto_ms);
+REXCVAR_DECLARE(int32_t, wwe2k14_bookmark_clip_fps);
+REXCVAR_DECLARE(int32_t, wwe2k14_bookmark_clip_s);
 
 namespace wwe2k14::bookmark {
 

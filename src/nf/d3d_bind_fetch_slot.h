@@ -49,8 +49,7 @@
 #include "../native_fn.h"
 #include "observers.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_d3d_bind_fetch_slot, "off", "wwe2k14",
-                      "Session 66: native version of sub_82CA8B40 (bind a fetch slot): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_d3d_bind_fetch_slot);
 
 REX_EXTERN(__imp__sub_82CA8B40);
 

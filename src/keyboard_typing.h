@@ -65,16 +65,8 @@
 
 #include "input_script.h"  // g_typing_pad_filter
 
-REXCVAR_DEFINE_BOOL(wwe2k14_keyboard_typing, true, "wwe2k14",
-                    "Session 55: type on the PC keyboard into the game's on-screen keyboard (name fields: Create a "
-                    "Story, championships, ...): each key typed moves the on-screen cursor to that key and presses it "
-                    "(the game's own red highlight); Backspace / Enter / Escape / Space / Left / Right = X / START / B / "
-                    "Y / LB / RB. While the keyboard is up those keys do not reach the keyboard-as-pad mapping");
-REXCVAR_DEFINE_STRING(wwe2k14_keyboard_typing_test, "", "wwe2k14",
-                      "Test (Session 55, scripts / live: `cvar wwe2k14_keyboard_typing_test TEXT`): types TEXT as if "
-                      "typed on the PC keyboard (needs --wwe2k14_keyboard_typing); <BS> = Backspace, <ENTER> = Enter, "
-                      "<ESC> = Escape, _ = a space")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DECLARE(bool, wwe2k14_keyboard_typing);
+REXCVAR_DECLARE(std::string, wwe2k14_keyboard_typing_test);
 
 namespace wwe2k14::typing {
 

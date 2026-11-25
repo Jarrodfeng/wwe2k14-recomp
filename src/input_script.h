@@ -136,6 +136,22 @@
 //                                 'optional' a warning; roster_ready also fails at once when the roster build failed. src/render_signal.h;
 //                                 background_ended (S109 FF): the test background (--wwe2k14_test_background_at, src/android_lifecycle.h) is over and the app is back in front;
 //                                 the event bus (when on) also logs it as kind render
+//   wait_event KIND [WORD] [KEY=VALUE ...] [TIMEOUT] [until KIND [WORD] [KEY=VALUE ...]] [optional]   (S110 BUSWAIT) wait until the event bus (src/event_bus.h: its kinds and fields
+//                                 are the table at its top) emits an event of KIND whose fields all hold: KEY=V, KEY!=V, KEY>=N, <=, >, < (numbers
+//                                 compare as numbers; words without case, '_' = a space: finish_name=last_one_left; an absent field never matches).
+//                                 A match "what" may be the kind (`wait_event finish` = `wait_event match what=finish`); one bare WORD after match /
+//                                 break is what=WORD, after replay state=WORD. Counts the events after the mark: the last input (press / set), the
+//                                 last matched wait_event, a live batch's start; so an event that fired between two frames or during a press is
+//                                 seen, and none is matched twice (src/event_wait_core.h). TIMEOUT (default 1800) and optional as wait_state
+//                                 (failure screenshot event_fail_l<line>). A script with a bus wait turns the bus on for the run: no
+//                                 --wwe2k14_events needed. e.g. wait_event finish finish_name=pinfall 20000 / wait_event entrance slot=1 step=5
+//                                 S110 SCENESRC: `until KIND ...` ENDS the wait at the first event after the mark that matches it and not the
+//                                 wait's own fields (an event matching both is the match): the step FAILS (optional: a warning) with the ending
+//                                 event's fields (`ended by match what=finish ...: "finish_name": "submission", ...`); the mark stays where it
+//                                 was. e.g. wait_event finish finish_name=pinfall 72000 until finish / wait_event pin 72000 until finish
+//   log_event KIND [WORD]         (S110 BUSWAIT) log the newest bus event of KIND, or of KIND's what / state = WORD (`log_event finish`,
+//                                 `log_event replay start`), however old. A wait_event whose unread events the record (the newest 512) dropped
+//                                 FAILS (optional: a warning): the event may have been among them, so it is never reported as "not seen".
 //   bleed SLOT LEVEL              (S105 T1, DEV builds only) the situation director verb: the blood option on, then wrestler SLOT bleeds at LEVEL 1-3 (like passive / momentum / stock, queued and
 //                                 retried until the bell and the blood pool exist; src/situation_director.h)
 //   assert_state NAME VALUE       check NAME against VALUE now (one read, no frames); a mismatch or an unreadable
@@ -219,6 +235,7 @@
 #include "guest_watch.h"
 #include "game_state.h"
 #include "render_signal.h"  // lane 147: wait_event render
+#include "event_wait_core.h"  // S110 BUSWAIT: wait_event KIND ... / log_event (the bus's record; src/event_bus.h fills it)
 #include "screen_text.h"  // Session 30: log_text / wait_text / assert_text
 #include "structs.h"      // Session 30: dump_struct  // Session 8 task 9a: wait_state / assert_state / log_state
 #include "coverage.h"  // Session 8 task 6: no-op macros unless built with the coverage preset
@@ -247,22 +264,12 @@ uint32_t XamInputGetKeystrokeEx_entry(mapped_u32 user_index_ptr, uint32_t flags,
                                       ppc_ptr_t<rex::input::X_INPUT_KEYSTROKE> keystroke);
 }  // namespace rex::kernel::xam
 
-REXCVAR_DEFINE_STRING(wwe2k14_screenshot_format, "png", "wwe2k14",
-                      "Screenshot files: png (default since Session 17, Jarrod: lossless, ~4x smaller) or bmp (before)");
-REXCVAR_DEFINE_BOOL(wwe2k14_input_record_scripted, false, "wwe2k14",
-                    "Session 30: --wwe2k14_input_record also records what an input script presses (tests of "
-                    "tools/input_scripts/recording_to_route.py); default: the real controller only");
-REXCVAR_DEFINE_STRING(wwe2k14_input_record, "", "wwe2k14",
-                      "Record controller 1 to this script file (relative paths: the exe folder)");
-REXCVAR_DEFINE_STRING(wwe2k14_input_result, "", "wwe2k14",
-                      "Session 27: write one line to this file when the input script ends: ok or failed (line, the "
-                      "last log step). For the launcher's scripted runs");
-REXCVAR_DEFINE_STRING(wwe2k14_input_script, "", "wwe2k14",
-                      "Drive controller 1 from this input script (see src/input_script.h)");
-REXCVAR_DEFINE_BOOL(wwe2k14_input_fail_quit, false, "wwe2k14",
-                    "S106 0a: every failure of the main input script quits the game (as on_fail quit) whatever the route's "
-                    "on_fail says; a script that fails to load quits too. Live batches and --wwe2k14_diag_hold keep their own "
-                    "rule. tools\\bench\\run_list.ps1 sets it");
+REXCVAR_DECLARE(std::string, wwe2k14_screenshot_format);
+REXCVAR_DECLARE(bool, wwe2k14_input_record_scripted);
+REXCVAR_DECLARE(std::string, wwe2k14_input_record);
+REXCVAR_DECLARE(std::string, wwe2k14_input_result);
+REXCVAR_DECLARE(std::string, wwe2k14_input_script);
+REXCVAR_DECLARE(bool, wwe2k14_input_fail_quit);
 REXCVAR_DECLARE(std::string, wwe2k14_live);  // S106 0aF: live_control.h; a live session ignores the force switch above
 
 namespace wwe2k14 {
@@ -772,6 +779,7 @@ class InputScript {
     quit_on_fail_ = false;  // a failed wait ends the batch, not the game (a batch can still say `on_fail quit`)
     batch_failed_ = false;
     sync_mark_ = frame_;
+    event_mark_ = event_wait::Global().Newest();  // S110 BUSWAIT: a batch's bus waits count events from its start
     opens_.clear();
     pad_ = {};
     ++packet_;
@@ -825,6 +833,7 @@ class InputScript {
     kCvar, kMark, kFailIfFile, kClearFailIf, kPressUntilFile, kPressUntilState,
     kWaitState, kAssertState, kLogState,
     kWaitRender,            // lane 147: wait_event render WHAT [TIMEOUT] [optional] (text = WHAT, frames = timeout, src/render_signal.h)
+    kWaitEvent, kLogEvent,  // S110 BUSWAIT: wait_event KIND ... (filter, frames = timeout, text = the filter as logged) / log_event (text = the Last key)
     kWatchCmd,  // watch / unwatch / snap / unsnap (text = command, value = its arguments; src/guest_watch.h)
     kClipStart, kClipStop,  // src/clip_capture.h (text = NAME; value = "FPS SCALE")
     kScreenshotEvery,       // Session 10: frames = interval (0 = stop), text = label
@@ -871,6 +880,8 @@ class InputScript {
     uint32_t dwell = 30;         // ... dwell=N frames in the preview before exit
     std::vector<PadState> keys;  // lane 303: press_until_preview ... keys=A,B,C: candidate PREVIEW buttons (walk mode)
     int64_t want = 0;    // lane 303: press_until_preview: the music id wanted, or -1 = any new song slot (6001..6999)
+    event_wait::Filter filter;  // S110 BUSWAIT: wait_event KIND ... (src/event_wait_core.h)
+    event_wait::Filter until;   // S110 SCENESRC: wait_event ... until KIND ... (kind "" = none)
   };
 
   // Session 30: a step's line for messages ("5", or "5 (boot_to_menu.txt:12)" for an included step) and for file
@@ -892,6 +903,16 @@ class InputScript {
 
   static void ToLower(std::string& text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
+  }
+
+  // S110 BUSWAIT: the next word of the line without taking it ("" at the end).
+  static std::string PeekWord(std::stringstream& words) {
+    const auto at = words.tellg();
+    std::string w;
+    words >> w;
+    words.clear();
+    words.seekg(at);
+    return w;
   }
 
   // The rest of the line, without surrounding whitespace.
@@ -1157,6 +1178,26 @@ class InputScript {
       if (cmd == "wait_frames") {
         ok = OptionalNumber(words, n, -1) && n >= 0;
         step.frames = uint64_t(n);
+      } else if ((cmd == "wait_event" && PeekWord(words) != "render") || cmd == "log_event") {   // S110 BUSWAIT: the bus (src/event_wait_core.h)
+        std::vector<std::string> args;
+        for (std::string w; words >> w;) args.push_back(w);
+        event_wait::Spec spec;
+        ok = event_wait::ParseSpec(args, spec, why);
+        if (ok && cmd == "log_event") {
+          step.op = Op::kLogEvent;
+          step.text = event_wait::LastKey(spec.filter);
+          ok = spec.timeout < 0 && !spec.optional && spec.until.kind.empty() && spec.filter.conds.size() <= 1 &&
+               (spec.filter.conds.empty() || spec.filter.conds[0].key == "what" || spec.filter.conds[0].key == "state");
+          if (!ok) why = "log_event takes KIND [WORD] only (it logs the newest event of that kind)";
+        } else if (ok) {
+          step.op = Op::kWaitEvent;
+          step.frames = uint64_t(spec.timeout > 0 ? spec.timeout : 1800);
+          step.optional = spec.optional;
+          step.filter = spec.filter;
+          step.until = spec.until;
+          step.text = spec.filter.text + (spec.until.kind.empty() ? std::string() : " until " + spec.until.text);
+        }
+        if (ok) event_wait::g_wanted.store(true);  // this run needs the bus: src/event_bus.h On() is true from now on
       } else if (cmd == "wait_event") {   // lane 147: wait_event render WHAT [TIMEOUT] [optional]
         step.op = Op::kWaitRender;
         std::string kind;
@@ -1733,6 +1774,11 @@ class InputScript {
           REXLOG_INFO("[wwe2k14][input] line {}: waiting for a file containing '{}' (frame {})", L(step),
                       step.text, frame_);
         }
+        if (step.op == Op::kWaitEvent) {  // S110 BUSWAIT
+          event_scan_ = event_mark_;  // the wait reads every event after its mark once, from here on (event_wait_core.h Poll)
+          REXLOG_INFO("[wwe2k14][input] line {}: waiting for event {} (after bus seq {}, frame {})", L(step), step.text,
+                      event_mark_, frame_);
+        }
       }
       switch (step.op) {
         case Op::kWaitFrames:
@@ -2085,7 +2131,10 @@ class InputScript {
         }
         case Op::kSet:
           if (!(pad_ == step.pad)) {
-            if (!(step.pad == PadState{})) sync_mark_ = frame_;  // a new input, not a release
+            if (!(step.pad == PadState{})) {  // a new input, not a release
+              sync_mark_ = frame_;
+              event_mark_ = event_wait::Global().Newest();  // S110 BUSWAIT: a bus wait counts events from the last input too
+            }
             pad_ = step.pad;
             ++packet_;
           }
@@ -2380,6 +2429,65 @@ class InputScript {
           REXLOG_INFO("[wwe2k14][input] line {}: state {} {} reached after {} frames ({}, held {} frames)",
                       L(step), state.name, step.compare.text, frame_ - step_start_frame_,
                       DescribeState(state, true, raw), step.hold);
+          break;
+        }
+        case Op::kWaitEvent: {   // S110 BUSWAIT: the first bus event after the mark that matches (src/event_wait_core.h)
+          event_wait::Event ev;
+          uint64_t lost = 0;
+          // S110 SCENESRC: one scan reads each event once, against the wait and its until clause (step.until.kind "" = none)
+          const event_wait::Log::Hit hit =
+              event_wait::Global().Poll(event_scan_, step.filter, step.until.kind.empty() ? nullptr : &step.until, ev, lost);
+          const bool found = hit == event_wait::Log::Hit::kMatch;
+          if (lost) {  // events after the mark this wait never read were dropped from the record: the event may have been among them
+            if (step.optional) {
+              REXLOG_WARN("[wwe2k14][input] line {}: wait_event {}: {} bus events after the mark were dropped unread (the record keeps the newest "
+                          "{}; optional: going on, frame {})", L(step), step.text, lost, event_wait::Log::kRing, frame_);
+              if (found) event_mark_ = ev.seq;
+              break;
+            }
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: wait_event {}: {} bus events after the mark were dropped unread (the record "
+                         "keeps the newest {}): the event may have been among them; wait nearer the event (frame {})", L(step), step.text, lost,
+                         event_wait::Log::kRing, frame_);
+            FailWithScreenshot(fmt::format("event_fail_l{}", Tag(step)));
+            return;
+          }
+          if (found) {
+            REXLOG_INFO("[wwe2k14][input] line {}: event {} after {} frames (seq {}, bus frame {}, frame {}): {}", L(step), step.text,
+                        frame_ - step_start_frame_, ev.seq, ev.frame, frame_, ev.fields);
+            event_mark_ = ev.seq;
+            break;
+          }
+          if (hit == event_wait::Log::Hit::kEnd) {  // S110 SCENESRC: the until event came first: what this waits for can no longer come
+            // The mark stays: the ending event is not consumed (a later `wait_event finish` still sees it).
+            if (step.optional) {
+              REXLOG_WARN("[wwe2k14][input] line {}: wait_event {}: ended by {} after {} frames (seq {}, bus frame {}; optional: going on, "
+                          "frame {}): {}", L(step), step.text, step.until.text, frame_ - step_start_frame_, ev.seq, ev.frame, frame_, ev.fields);
+              break;
+            }
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: wait_event {}: ended by {} after {} frames (seq {}, bus frame {}, frame {}): "
+                         "{}", L(step), step.text, step.until.text, frame_ - step_start_frame_, ev.seq, ev.frame, frame_, ev.fields);
+            FailWithScreenshot(fmt::format("event_fail_l{}", Tag(step)));
+            return;
+          }
+          if (frame_ - step_start_frame_ < step.frames) return;
+          if (step.optional) {
+            REXLOG_WARN("[wwe2k14][input] line {}: wait_event {} not seen within {} frames (optional: going on, frame {})", L(step),
+                        step.text, step.frames, frame_);
+            break;
+          }
+          REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: wait_event {} not seen within {} frames ({} bus events since the mark)",
+                       L(step), step.text, step.frames, event_wait::Global().Newest() - event_mark_);
+          FailWithScreenshot(fmt::format("event_fail_l{}", Tag(step)));
+          return;
+        }
+        case Op::kLogEvent: {   // S110 BUSWAIT: the newest bus event filed under a kind (src/event_wait_core.h Log::Last)
+          event_wait::Event ev;
+          if (event_wait::Global().Last(step.text, ev)) {
+            REXLOG_INFO("[wwe2k14][input] line {}: last event {}: seq {}, bus frame {}: {} (frame {})", L(step), step.text, ev.seq,
+                        ev.frame, ev.fields, frame_);
+          } else {
+            REXLOG_INFO("[wwe2k14][input] line {}: last event {}: none yet (frame {})", L(step), step.text, frame_);
+          }
           break;
         }
         case Op::kWaitRender: {   // lane 147: the renderer's ready signal (src/render_signal.h), read directly (no event bus needed)
@@ -2703,6 +2811,8 @@ class InputScript {
   PadState keystroke_view_;                                // pad state as last reported via keystrokes
   std::vector<std::pair<uint64_t, std::string>> opens_;    // (frame, lowercase path) while a script runs
   uint64_t sync_mark_ = 0;  // wait_file counts opens from here: the last input or the last wait_file
+  uint64_t event_mark_ = 0;  // S110 BUSWAIT: wait_event counts bus events after this seq: the last input, the last matched wait_event
+  uint64_t event_scan_ = 0;  // S110 BUSWAIT review: the running wait_event has read every bus event up to this seq (starts at event_mark_)
   uint32_t preview_step_calls_ = 0, preview_press_calls_ = 0;  // lane 303 press_until_preview: SetSong call counts at the step / press start
   bool preview_seen_ = false;                                   // ... a SetSong came during this step (the music pane is active)
   int preview_phase_ = 0, preview_cycles_ = 0;                 // ... walk mode: 0 press MOVE, 1 MOVE held, 2 settle, 3 key held, 4 wait for SetSong, 5 tab held, 6 after tab

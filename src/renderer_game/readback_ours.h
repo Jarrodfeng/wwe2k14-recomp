@@ -466,13 +466,9 @@ inline readback_tile::Why ServeThumb(int site, const uint32_t w[6], PhysFn phys,
 #include "../d3d_layer.h"   // Ld32
 #include "../shown_frame.h"  // g_scene_capture_owner / g_scene_request_owner
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readbacks, true, "wwe2k14",
-                    "S103 RBC: in the stream-free build the game's GPU-to-CPU read-backs (the replay-clip thumbnail, the Create an Arena screenshot) are served: our 3D scene (no 2D, no HUD, no display curve) is written into the "
-                    "texture's memory when the game reads it. Off = the lock reads whatever memory held (black / stale), as before. The other read-back sites are only counted (readback_unserved)");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_readbacks);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_reel_readbacks, true, "wwe2k14",
-                    "S103 RBH: in the stream-free build the Create a Highlight reel save's two read-backs are served: the reel picture (R9: a copy of our 3D scene, at the size of its texture; the game then makes a 512x256 DXT1 of it) and the 128x128 thumbnail "
-                    "(R8: cropped from R9's picture, never waits). With no picture they write black. Off = the locks read whatever memory held (garbage into the reel save), as before. Needs wwe2k14_rdr_readbacks");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_reel_readbacks);
 
 namespace wwe2k14::readback_ours {
 

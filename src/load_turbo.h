@@ -60,44 +60,30 @@
 #include "frame_stats.h"
 #include "guest_read.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_load_turbo, true, "wwe2k14",
-                    "Run the guest frame clock unthrottled (vsync off) during in-game loading screens: in-game "
-                    "sequence start -> titantron / entrance / match, and M3.PAC -> match clock (Session 12)");
-REXCVAR_DEFINE_BOOL(wwe2k14_load_turbo_boot, true, "wwe2k14",
-                    "Load turbo from the first frame to the title screen data (fast-forwards the logos and the title "
-                    "movie too)");
-REXCVAR_DEFINE_BOOL(wwe2k14_load_turbo_menu, true, "wwe2k14",
-                    "Load turbo from the title press (save data load) to the main menu");
-REXCVAR_DEFINE_INT32(wwe2k14_load_turbo_cap_ms, 8000, "wwe2k14",
-                     "Load turbo: longest a window may run (wall-clock ms)");
+REXCVAR_DECLARE(bool, wwe2k14_load_turbo);
+REXCVAR_DECLARE(bool, wwe2k14_load_turbo_boot);
+REXCVAR_DECLARE(bool, wwe2k14_load_turbo_menu);
+REXCVAR_DECLARE(int32_t, wwe2k14_load_turbo_cap_ms);
 // Session 15 (sub-second loads): with vsync off ReXGlue's guest vblank runs at a fixed 1 kHz on Sleep(1) polling, and
 // each loading-screen frame waits for ~2 vblanks (the CP's WAIT_REG_MEM on the game's vblank-driven pacing word
 // 0x137FE006 ends at a vblank; run 1152: CP busy 0.5 ms, wrm 1.2 ms, frame 2.1 ms). With this > 0 a window turns vsync
 // off as before and also sets the SDK's gpu_vblank_unthrottled_hz (patch 0008) to this rate, so the vblanks come on
 // the precise timer at that rate. 0 = 1 kHz (Session 12). (First try, build s15_vbl: vsync on + the vsync rate
 // override: no gain, the host present waits took over.) DEFAULT 16000 since Session 15b (Jarrod, 2026-10-13); 0 = 1 kHz.
-REXCVAR_DEFINE_DOUBLE(wwe2k14_load_turbo_vblank_hz, 16000.0, "wwe2k14",
-                      "Load turbo: > 0 = inside a window also run the vsync-off guest vblank at this rate (Hz, SDK "
-                      "gpu_vblank_unthrottled_hz) instead of 1 kHz; 0 = 1 kHz (Session 12)");
+REXCVAR_DECLARE(double, wwe2k14_load_turbo_vblank_hz);
 // Session 15 (sub-second loads): with the vblank floor gone (above), the host GPU bounds the in-game windows (run
 // 1178: GPU busy 1.88 ms per frame, 77% of wall; a loading-screen frame = ~406 small draws + 23 resolves), yet at
 // ~400 guest frames per second only about one frame in seven can reach the screen. N > 1 = inside the in-game
 // windows set the SDK's gpu_skip_frame_draws (patch 0009) to N: the GPU work of N-1 of every N frames is skipped
 // (memexport draws excepted). The SDK logs any resolve destination written only in skipped frames (a possible lost
 // one-off render) when the window ends. 0 = off.
-REXCVAR_DEFINE_INT32(wwe2k14_load_turbo_skip_draws, 0, "wwe2k14",
-                     "Load turbo: N > 1 = inside the in-game windows draw only 1 of every N frames (SDK "
-                     "gpu_skip_frame_draws); 0 = off (Session 15 experiment)");
+REXCVAR_DECLARE(int32_t, wwe2k14_load_turbo_skip_draws);
 // Session 95 (resolves, GPU energy audit row 9; OFF by default): the "boot" and "menu" windows run the guest vblank at 1 kHz (vsync off, no rate), so the
 // logos, the title movie and the menu loads draw ~290 / ~145 / ~125 frames a second of trivial content - about 20 s a launch of full GPU on a fanless chip
 // that the match then inherits warm. > 0 = those two windows also run the vblank at this rate (Hz, SDK gpu_vblank_unthrottled_hz; 240 = about a quarter of
 // the frames, the loads still several times faster than at 60 Hz). Costs load seconds (frame-counted waits), saves heat: unmeasured, needs a Surface A/B.
-REXCVAR_DEFINE_DOUBLE(wwe2k14_load_turbo_boot_menu_hz, 0.0, "wwe2k14",
-                      "Session 95: > 0 = the boot and menu load-turbo windows run the guest vblank at this rate (Hz) instead of 1 kHz (less heat on an iGPU, longer "
-                      "boot / menu loads); 0 = 1 kHz as before");
-REXCVAR_DEFINE_BOOL(wwe2k14_load_turbo_ui_real_time, true, "wwe2k14",
-                    "Load turbo: keep 2D layout animations (the loading screen's spinning logo, menu sprites) at their "
-                    "normal speed while a turbo window runs");
+REXCVAR_DECLARE(double, wwe2k14_load_turbo_boot_menu_hz);
+REXCVAR_DECLARE(bool, wwe2k14_load_turbo_ui_real_time);
 
 // Session 27.5: the step rate's settings (defined in step_rate.h), for the hold-only windows.
 REXCVAR_DECLARE(int32_t, wwe2k14_step_hz);

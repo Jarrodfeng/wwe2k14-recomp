@@ -40,8 +40,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_d3d_flush_fetch_constants, "off", "wwe2k14",
-                      "Session 66: native version of sub_82CBD668 (flush dirty fetch constants): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_d3d_flush_fetch_constants);
 
 REX_EXTERN(__imp__sub_82CBD668);
 

@@ -21,6 +21,12 @@ struct ShimRange { ShimRange range(int, int) const { return *this; } };
 #define REXCVAR_DEFINE_INT32(name, def, cat, desc) inline int cvar_##name = def; inline ShimRange shim_##name = ShimRange{}
 #define REXCVAR_DEFINE_DOUBLE(name, def, cat, desc) inline double cvar_##name = def
 #define REXCVAR_GET(name) cvar_##name
+// S110 CVARSHARD: the header only DECLARES its cvars now (the definitions are in src/cvars/cvars_<n>.cpp); the shim holds each one's default (as the shard defines it)
+#define REXCVAR_DECLARE(type, name) inline type cvar_##name = SHIM_DEFAULT_##name
+#define SHIM_DEFAULT_wwe2k14_dynamic_res false
+#define SHIM_DEFAULT_wwe2k14_dynamic_res_min_percent 60
+#define SHIM_DEFAULT_wwe2k14_dynamic_res_owned true
+#define SHIM_DEFAULT_wwe2k14_dynamic_res_target_ms 0.0
 '@
 Set-Content -Encoding ascii "$d\shim\rex\logging.h" @'
 #pragma once

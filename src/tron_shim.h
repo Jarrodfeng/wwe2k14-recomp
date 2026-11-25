@@ -93,23 +93,12 @@
 #include "tron_sheet_core.h"  // S110 TRONSHEET: the sheet constants + TronTextureSize
 #include "tron_slots_core.h"  // S110 TRONSLOT: IsSlotId
 
-REXCVAR_DEFINE_STRING(wwe2k14_tron_max_size, "1280x720", "wwe2k14",
-                      "Tron shim (MP4 trons): largest texture; bigger videos are scaled down to fit, keeping their "
-                      "shape. Session 17");
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_shim_log, false, "wwe2k14",
-                    "Tron shim: log every Bink call it answers (debug)");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_shim_width, 0, "wwe2k14",
-                     "Tron shim debug: force the texture width (multiple of 8; 0 = automatic)");
-REXCVAR_DEFINE_BOOL(wwe2k14_tron_sheet, true, "wwe2k14",
-                    "Tron shim (MP4 trons): keep the 320x320 tron sheet's layout (video on the big screen, banner "
-                    "strips from NNN.banner.txt / NNN.banner.mp4, default the original's); false = the video fills the "
-                    "whole sheet (Session 17). Session 18");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_test_id, -1, "wwe2k14",
-                     "Tron test (Session 18): every entrance requests this tron id instead of its own (e.g. 500 = the "
-                     "WWE Championship reveal, so it plays with the game's alpha flag); -1 = off");
-REXCVAR_DEFINE_INT32(wwe2k14_tron_shim_dump, 0, "wwe2k14",
-                     "Tron shim debug: write the guest Y / cR / cB planes of decoded frame N (1-based count) to "
-                     "out\trons\dump_<tron>_{y,r,b}.raw (rows at the registered pitch); 0 = off");
+REXCVAR_DECLARE(std::string, wwe2k14_tron_max_size);
+REXCVAR_DECLARE(bool, wwe2k14_tron_shim_log);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_shim_width);
+REXCVAR_DECLARE(bool, wwe2k14_tron_sheet);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_test_id);
+REXCVAR_DECLARE(int32_t, wwe2k14_tron_shim_dump);
 
 REX_EXTERN(__imp__sub_8359E140);  // BinkOpen
 REX_EXTERN(__imp__sub_8359BA60);  // BinkSetSpeakerVolumes

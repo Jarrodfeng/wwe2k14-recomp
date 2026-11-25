@@ -60,6 +60,8 @@ class LiveSceneDraw {
   // OURS, on a frame the game walks (not stamped ours): builds the frame only (no draw) so the misses reach the loader and READY is learned.
   // Without it READY could never turn on (only an OURS frame would ever ask, and none is OURS until READY).
   void Warm(const SceneTables& rec, uint32_t w, uint32_t h);
+  // S110 ENTRWAIT2 (scene_start_wait.h): are our loads done? Warm / DrawLive call it after their build; the host calls it with built = false on a handled frame that built nothing.
+  void PublishStartWait(uint64_t guest_frame, bool built = true, bool drew = false);   // review: drew = DrawLive (the frame is drawn after the call: StartCrowdIn does not prefetch)
   bool LastBuildHadStage() const { return stage_; }   // S103 HN: the last Warm / DrawLive build had a stage (false = a scene boundary: loading, flat, scene change)
   bool Ready() const { return ready_; }   // the last live build found every asset resident (FRAME_CONTRACT 3 item 2)
   // S103 L2d (scene_kind.h): the 3D half of the FLAT frame verdict for `rec`, from the build Warm / DrawLive made of that same record (call after it): no stage, no 3D object, no
@@ -136,6 +138,12 @@ class LiveSceneDraw {
   bool bulk_ok_ = false;   // S105 SKB2: guarded by mu_: the scene's roster is in (first OURS frame drawn); bulk jobs (the evtobj prewarm) start only then
   void SetBulkOk(bool v);
   bool prewarm_queued_ = false;   // S105 SKB fix F3: an evtobj.pac prewarm job is queued or running (render thread only)
+  bool asked_now_ = false;        // S110 ENTRWAIT2: the last QueueMisses asked for a non-bulk asset (render thread only)
+  uint64_t start_bodies_seen_ = 0;   // S110 ENTRBODIES: the start_bodies board version AskStartBodies took last (render thread only)
+  int game_arena_ = -1;              // S110 ENTRBODIES: the arena pac the game opened last (QueueMisses), for the crowd's classes while a start is held (render thread only)
+  bool AskStartBodies();             // S110 ENTRBODIES: the game's characters' bodies -> the loader (PublishStartWait); true = a body was queued now
+  bool StartCrowdIn(bool drew);      // S110 ENTRBODIES: the arena's crowd classes asked while a start is held; true = none still loading (drew: not asked, true)
+  uint32_t in_flight_ = 0;        // S110 ENTRWAIT2: guarded by mu_: non-bulk jobs the loader thread is loading now
   struct Loaded { rf::ModelCache::Missed m; int arena = -1; assets::Model model; bool ok = false; std::string error; std::string car_key; };
   void QueueMisses();          // the live cache's misses and lane C's arena misses -> the loader
   std::vector<std::pair<uint64_t, int>> retired_held_;   // S103 L31A: (guest frame retired, model): released two frames later

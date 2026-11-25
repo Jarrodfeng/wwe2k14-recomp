@@ -100,10 +100,7 @@ inline void _mm_setcsr(uint32_t) {}
 #include "frame_stats.h"
 #include "feed_seen.h"   // S110 FEEDREC
 
-REXCVAR_DEFINE_BOOL(wwe2k14_fp_probe, false, "wwe2k14",
-                    "Determinism probe: log every pairwise character distance the game computes (sub_82666310 / "
-                    "sub_82C327C8) with its inputs, the thread, MXCSR and a recompute check, to "
-                    "out/harness/determinism/fp_NNN.tsv (default off; see src/fp_probe.h)");
+REXCVAR_DECLARE(bool, wwe2k14_fp_probe);
 
 namespace wwe2k14::fpprobe {
 
@@ -261,9 +258,7 @@ void wwe2k14_fp_probe_dist(PPCRegister& r3, PPCRegister& r4, PPCRegister& r30, P
 // Output: out/harness/determinism/alloc_NNN.tsv (frame, host thread, guest thread, path, size, r4, caller), and
 // at the first traced call at or after frame N one [wwe2k14][alloctrace] line with the words at 0x836F3A54,
 // 0x836F3A98 and 0x836F3AAC (the boot heap pointers that vary), after which tracing stops.
-REXCVAR_DEFINE_INT32(wwe2k14_alloc_trace_frames, 0, "wwe2k14",
-                     "Determinism probe: log every allocation request (sub_82C2DCD8 / sub_82C2F5A8) during the first "
-                     "N guest frames to out/harness/determinism/alloc_NNN.tsv (0 = off; see src/fp_probe.h)");
+REXCVAR_DECLARE(int32_t, wwe2k14_alloc_trace_frames);
 
 namespace wwe2k14::fpprobe {
 
@@ -358,11 +353,7 @@ inline void AllocTraceHit(int path, uint32_t size, uint32_t arg, uint32_t caller
 // request (at most 8). The hold is given up for the rest of the run (one warning line) on the first timeout, or
 // if the marker has not been seen by guest frame kBootAllocMaxFrame. Other boot-time races (other threads, path 2)
 // are not changed.
-REXCVAR_DEFINE_BOOL(wwe2k14_det_boot_alloc, false, "wwe2k14",
-                    "Determinism experiment: hold one known racing boot allocation (guest thread 10's 52-byte request) "
-                    "until the boot thread's 0x836F3AAC object is allocated, so that one pointer word is the same "
-                    "every boot (only that word: the request still interleaves at varying points after it; default "
-                    "off; see src/fp_probe.h)");
+REXCVAR_DECLARE(bool, wwe2k14_det_boot_alloc);
 
 namespace wwe2k14::fpprobe {
 
@@ -466,10 +457,7 @@ inline void LogHeapMarkers(uint64_t frame) {
 // placed by guest frame kBootAllocMaxFrame, the placement is given up for the run (one warning line). One
 // [wwe2k14][detplace] line per wait. Other threads' boot requests (and path 2) are not ordered by this.
 // Takes precedence over --wwe2k14_det_boot_alloc when both are set.
-REXCVAR_DEFINE_INT32(wwe2k14_det_boot_alloc_place, -1, "wwe2k14",
-                     "Determinism experiment: place guest thread 10's racing 52-byte boot allocation just before the "
-                     "boot thread's Nth allocation request after its 0x836F3AAC request (0 = just before that "
-                     "request); each thread waits for the other at most 1 s (-1 = off, default; see src/fp_probe.h)");
+REXCVAR_DECLARE(int32_t, wwe2k14_det_boot_alloc_place);
 
 namespace wwe2k14::fpprobe {
 
@@ -650,15 +638,9 @@ void wwe2k14_alloc_trace_b(PPCRegister& r3, PPCRegister& r4, PPCRegister& r12) {
 // the 7,252 frames that had any (about 134 per frame; about 137 per frame in the match), 3 or 4 hooks each (the
 // offset hook only runs when r27 != 0), so at most about 550 cvar reads per frame (each a call returning a static
 // bool), plus the rare sub_82BD3620 hook.
-REXCVAR_DEFINE_BOOL(wwe2k14_skel_probe, false, "wwe2k14",
-                    "Determinism probe: hash the inputs and outputs of every skeleton update call (sub_82BD30E8, "
-                    "sub_82BD3620) with MXCSR to out/harness/determinism/skel_NNN.tsv (default off; see "
-                    "src/fp_probe.h)");
-REXCVAR_DEFINE_INT32(wwe2k14_skel_probe_dump_from, -1, "wwe2k14",
-                     "With --wwe2k14_skel_probe: also dump the raw input/output bytes of every call from this guest "
-                     "frame on to skel_NNN.bin (-1 = off)");
-REXCVAR_DEFINE_INT32(wwe2k14_skel_probe_dump_frames, 300, "wwe2k14",
-                     "With --wwe2k14_skel_probe_dump_from: number of frames to dump");
+REXCVAR_DECLARE(bool, wwe2k14_skel_probe);
+REXCVAR_DECLARE(int32_t, wwe2k14_skel_probe_dump_from);
+REXCVAR_DECLARE(int32_t, wwe2k14_skel_probe_dump_frames);
 
 namespace wwe2k14::fpprobe {
 
@@ -982,9 +964,7 @@ inline const bool g_d3_wentry_installed = (wwe2k14::d3hook::g_wentry = [](uint32
 inline const bool g_d3_probe_installed = (wwe2k14::d3hook::g_state_probe = [](uint32_t model, uint32_t r13, uint64_t frame, uint32_t& table_states, uint32_t& ordinal) { return wwe2k14::lights::ModelEntryProbe(model, r13, frame, table_states, ordinal); }, true);
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_attire_compose, true, "wwe2k14",
-                    "S103 CMB: the stream-free build composes a composite attire (30 Years legends, Heenan, Jericho a1 / a2, Hogan, CM Punk, Elizabeth, Macho Man ...: base + recolour masks with the "
-                    "colours the game chose) on the host at the load, as the game does on its GPU. Off = the plain uncoloured base (the pre-CMB look). The stream build ignores it (its pack hook supplies the atlas).");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_attire_compose);
 
 // S101 lane43: sub_82720658 (the char model reader) at 0x827207F0, just before it clears reader+100 / +96: r31 = the reader. Read only.
 void wwe2k14_model_link(PPCRegister& r31) {
@@ -1075,10 +1055,7 @@ void wwe2k14_skel_shift(PPCRegister& r3, PPCRegister& r4) {
 // At most kSyncMotionWaitMs per post; the first 4 timeouts are logged and the setting keeps trying on later posts.
 // Log: one line at the first post, then a summary every kSyncMotionLogFrames guest frames while posts happen
 // (posts seen, posts that had to wait, spins, total and longest wait, timeouts; counts are for the whole run).
-REXCVAR_DEFINE_BOOL(wwe2k14_det_inline_motion, false, "wwe2k14",
-                    "Determinism experiment: make motion decompression synchronous: after the update thread posts a "
-                    "character to the decompression worker, wait until the worker has finished it (default off; see "
-                    "src/fp_probe.h)");
+REXCVAR_DECLARE(bool, wwe2k14_det_inline_motion);
 
 namespace wwe2k14::fpprobe {
 constexpr int kSyncMotionWaitMs = 100;

@@ -125,6 +125,9 @@ def route_lint():
     for fn in os.listdir(os.path.join(ROOT, 'src')):
         if fn.endswith(('.h', '.cpp')):
             srcs += open(os.path.join(ROOT, 'src', fn), encoding='utf-8', errors='replace').read()
+    for fn in sorted(os.listdir(os.path.join(ROOT, 'src', 'cvars'))):   # S110 CVARSHARD: the header cvars' definitions (tools\compile\cvar_shard.py)
+        if fn.endswith('.cpp'):
+            srcs += open(os.path.join(ROOT, 'src', 'cvars', fn), encoding='utf-8', errors='replace').read()
     states = open(os.path.join(ROOT, 'tools', 'input_scripts', 'states.toml'), encoding='utf-8').read()
     scenes = os.path.join(ROOT, 'tools', 'input_scripts', 'scenes')
     nav = os.path.join(ROOT, 'tools', 'input_scripts', 'nav')

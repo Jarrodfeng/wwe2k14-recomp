@@ -44,9 +44,7 @@
 
 #include <rex/cvar.h>
 
-REXCVAR_DEFINE_STRING(wwe2k14_trace, "", "wwe2k14",
-                      "Coverage build (Session 29): trace guest functions at run time, 0xADDR[/N][*rK...],... (N calls "
-                      "each, default 20; *rK also dumps 8 guest words at register K); also live (cvar); empty = off");
+REXCVAR_DECLARE(std::string, wwe2k14_trace);
 
 #if defined(WWE2K14_COVERAGE)
 
@@ -90,10 +88,8 @@ REXCVAR_DEFINE_STRING(wwe2k14_trace, "", "wwe2k14",
 #include "store_watch.h"    // S110 FEEDREC: host half (cvar wwe2k14_feedrec, watch set, storewatch::Write -> stores.tsv)
 #include "feed_seen.h"      // S110 FEEDREC: feedseen::Write -> feed_reads.tsv
 
-REXCVAR_DEFINE_BOOL(wwe2k14_coverage, false, "wwe2k14",
-                    "Coverage build: record which guest functions run between input-script marks");
-REXCVAR_DEFINE_STRING(wwe2k14_coverage_dir, "../../harness/coverage", "wwe2k14",
-                      "Coverage build: output root (a relative path is taken from the exe's folder); one subfolder per run");
+REXCVAR_DECLARE(bool, wwe2k14_coverage);
+REXCVAR_DECLARE(std::string, wwe2k14_coverage_dir);
 
 // Read by every generated function's prologue (src/coverage_prologue.h). 0 = not recording. Only this file's single
 // host translation unit (main.cpp) defines it.

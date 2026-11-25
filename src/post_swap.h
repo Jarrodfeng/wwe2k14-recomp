@@ -26,28 +26,11 @@
 #include "post/spirv/match_combine_probe.h"
 #include "pixel_multiview.h"  // Session 95 (gpu_d3d_decouple phase 2): the layer-true variants
 
-REXCVAR_DEFINE_BOOL(wwe2k14_post_enhanced, false, "wwe2k14",
-                    "Session 72 (with gpu_native_shader_swap, on in NATIVE's list; read at start): our Enhanced post "
-                    "effects (the background depth of field as a lens-like disc blur; the launcher's POST EFFECTS: "
-                    "ENHANCED); false = our cheaper copy of the game's own pass, step for step (Jarrod, 2026-10-28: the "
-                    "default)");
-REXCVAR_DEFINE_BOOL(wwe2k14_post_lite, false, "wwe2k14",
-                    "Session 95 (read at start; with gpu_native_shader_swap; ignored with Enhanced / the probe): the post chain on the "
-                    "LOW tier: our ORIGINAL combines with exact early-outs (no blur fetch where its weight is 0) and the SDK's "
-                    "drop of post passes the last combine did not use (gpu_native_post_lite_drop: star glare, bloom chain, depth of "
-                    "field; its copies are skipped, one stale frame when a strength turns on). false = as before");
-REXCVAR_DEFINE_BOOL(wwe2k14_post_lite_fxaa, false, "wwe2k14",
-                    "Session 95 (r3gpu, default off, read at start; with wwe2k14_post_lite): the lite combines also skip the console FXAA's four taps along the edge on pixels where they all stay in "
-                    "the pixel's own texel: 5 fetches in place of 9 on flat pixels. A LOOK lever, not exact: the scene sampler is linear, so a tap inside the texel can still blend a neighbour (s89b_b measured over the tolerance, 0.36% of pixels, p99.9 9)");
-REXCVAR_DEFINE_BOOL(wwe2k14_shader_mediump, false, "wwe2k14",
-                    "Session 93 (idea 8; read at start; with gpu_native_shader_swap): the second compile of the ALU-heavy arena "
-                    "materials (src/scene_swap.h: 9 shaders) and of the ORIGINAL post combines (src/post_swap.h: 2) whose colour "
-                    "maths is hand-placed mediump (RelaxedPrecision; out\s93\b8_mediump_notes.md) - ALU and registers on Mali / "
-                    "Adreno / iGPUs; NVIDIA usually ignores it. false = the full-precision shaders, exactly as before");
-REXCVAR_DEFINE_INT32(wwe2k14_post_swap_probe, 0, "wwe2k14",
-                     "Session 72 (diagnostic, needs gpu_native_shader_swap; read at start): 1 = in place of the match and "
-                     "entrance combines, probes that paint the passes' inputs and constants for a screenshot "
-                     "(tools\\post\\read_probe.py)");
+REXCVAR_DECLARE(bool, wwe2k14_post_enhanced);
+REXCVAR_DECLARE(bool, wwe2k14_post_lite);
+REXCVAR_DECLARE(bool, wwe2k14_post_lite_fxaa);
+REXCVAR_DECLARE(bool, wwe2k14_shader_mediump);
+REXCVAR_DECLARE(int32_t, wwe2k14_post_swap_probe);
 
 namespace wwe2k14::post_swap {
 

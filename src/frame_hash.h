@@ -123,28 +123,13 @@
 #include "guest_read.h"
 #include "xdet_check.h"  // Session 77 (P7): the identity line
 
-REXCVAR_DEFINE_STRING(wwe2k14_det_hash, "", "wwe2k14",
-                      "Debug (determinism tests): hash guest memory regions once per frame and write "
-                      "out/harness/determinism/det_NNN.csv. 'default' = built-in pointer-free set (RNG states, match "
-                      "globals, characters' value fields, judge, camera), 'objects' / 'legacy' = other built-in sets, "
-                      "or NAME=0xADDR[>OFF...]:LEN[+KEEP/LEN...][~MASK/LEN...], comma-separated. Empty = off");
-REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_every, 0, "wwe2k14",
-                     "Debug: with --wwe2k14_det_hash, also dump the (masked) region bytes every N frames to "
-                     "det_NNN.bin (0 = off)");
-REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_from, 0, "wwe2k14",
-                     "Session 77: with --wwe2k14_det_hash_raw_every, dump only from this guest frame on (0 = from the "
-                     "start)");
-REXCVAR_DEFINE_INT32(wwe2k14_det_hash_raw_to, 0, "wwe2k14",
-                     "Session 77: with --wwe2k14_det_hash_raw_every, dump only up to this guest frame (0 = to the end)");
-REXCVAR_DEFINE_STRING(wwe2k14_det_hash_dir, "", "wwe2k14",
-                      "Session 77: folder for det_NNN.csv / .bin (default: out/harness/determinism on Windows, "
-                      "<working folder>/logs/det elsewhere)");
-REXCVAR_DEFINE_BOOL(wwe2k14_det_hash_v2, false, "wwe2k14",
-                    "Session 77 (cross-device): '0' = null pointer in a region's chain, '!' = not readable (instead "
-                    "of '-' for both), and '# xdet' platform / build lines after line 1");
-REXCVAR_DEFINE_STRING(wwe2k14_det_poke, "", "wwe2k14",
-                      "Session 77, test only: FRAME:ADDR[>OFF...]:XOR = at guest frame FRAME, before the hash, XOR "
-                      "the big-endian word there (the comparers' sensitivity check)");
+REXCVAR_DECLARE(std::string, wwe2k14_det_hash);
+REXCVAR_DECLARE(int32_t, wwe2k14_det_hash_raw_every);
+REXCVAR_DECLARE(int32_t, wwe2k14_det_hash_raw_from);
+REXCVAR_DECLARE(int32_t, wwe2k14_det_hash_raw_to);
+REXCVAR_DECLARE(std::string, wwe2k14_det_hash_dir);
+REXCVAR_DECLARE(bool, wwe2k14_det_hash_v2);
+REXCVAR_DECLARE(std::string, wwe2k14_det_poke);
 
 namespace wwe2k14 {
 

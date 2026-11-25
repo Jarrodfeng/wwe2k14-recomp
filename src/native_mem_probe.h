@@ -27,9 +27,7 @@
 #include <rex/ppc/context.h>
 #include <rex/system/xmemory.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_native_mem_probe, true, "wwe2k14",
-                    "Session 100 (strip-360 D2): the game's free-memory probes (sub_8225EB58 / sub_8225ED80) find the largest block by binary "
-                    "search (same answer, ~13 allocation tries instead of ~440 failing ones); off: the original linear search");
+REXCVAR_DECLARE(bool, wwe2k14_native_mem_probe);
 
 REX_EXTERN(__imp__sub_8225EB58);
 REX_EXTERN(__imp__sub_8225ED80);

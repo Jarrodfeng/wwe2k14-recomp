@@ -31,9 +31,7 @@
 #include "../scene_live/wrestler_hook.h"   // GuestRangeReadable, ReadGuest, ReadWord
 #include "caw_portrait_core.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_caw_portrait, true, "wwe2k14",
-                    "S103 CPB: the stream-free build draws the Create a Superstar roster portrait itself (the edited wrestler, the game's portrait camera, 736x1280, transparent background) and hands it to the game's "
-                    "own crop / encode / save. Off = a transparent portrait (zeros): never the old garbage the game used to read from memory nothing wrote.");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_caw_portrait);
 
 REX_EXTERN(__imp__sub_82CFA318);
 REX_EXTERN(__imp__sub_82BA86B8);

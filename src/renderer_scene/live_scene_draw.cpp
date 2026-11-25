@@ -27,14 +27,21 @@
 #include "guest_model_draw.h"   // S103 DLF: guestmodel::Counters (roster signal)
 #include "rf_c.h"   // S103 S (integration): lane C's arena seam (TakeArenaMisses / PutLoadedArena / FailArena / SetOfflineLoad / TakeRetired)
 #include "model_load_report.h"   // S108 AL1: ReportLoadedModel / LoadCensus (the one reader of what the loader could not give)
+#include "game_load_follow.h"   // S110 ENTRBLACK round 5: the arena the game just opened is asked for now
+#include "scene_start_wait.h"   // S110 ENTRWAIT2: the game's scene start waits for these loads (PublishStartWait)
+#include "start_bodies.h"   // S110 ENTRBODIES: the game's characters' bodies, asked while the start is held (AskStartBodies)
 
 namespace rdr_scene {
 
 LiveSceneDraw::LiveSceneDraw(rdr::Renderer& renderer) : renderer_(renderer), source_(std::make_unique<GameFilesSource>()) {
   loader_ = std::thread([this] { wwe2k14::NameThread(L"live_scene_load"); LoaderLoop(); });
+#if !WWE2K14_STREAM()
+  startwait::g_host_on.store(true, std::memory_order_relaxed);   // S110 ENTRWAIT2: the game's scene start may wait for this drawer's loads (scene_start_wait.h)
+#endif
 }
 
 LiveSceneDraw::~LiveSceneDraw() {
+  startwait::g_host_on.store(false, std::memory_order_relaxed);   // S110 ENTRWAIT2: no drawer, nothing for the game to wait for
   {
     std::lock_guard<std::mutex> lock(mu_);
     stop_ = true;
@@ -100,6 +107,7 @@ void LiveSceneDraw::LoaderLoop() {
       const size_t at = PickJob(want_, bulk_ok_);   // S105 SKB: gating jobs first (load_order.h)
       job = std::move(want_[at]);
       want_.erase(want_.begin() + std::ptrdiff_t(at));
+      if (!job.m.bulk) ++in_flight_;   // S110 ENTRWAIT2: a load the game's scene start waits for is running
     }
     Loaded l;
     l.m = job.m;
@@ -113,8 +121,66 @@ void LiveSceneDraw::LoaderLoop() {
       l.ok = src.Load(job.m.pac, job.m.entry, job.m.variant, l.model, l.error);
     }
     std::lock_guard<std::mutex> lock(mu_);
+    if (!l.m.bulk && in_flight_) --in_flight_;
     done_.push_back(std::move(l));
   }
+}
+
+// S110 ENTRWAIT2 (scene_start_wait.h): after each handled frame, tell the game's scene start whether our loads are done: nothing new asked by this frame's build (`built`), the arena the
+// game opened handed to the loader, no non-bulk job queued, running or waiting to be adopted. A frame that built nothing (the host's stale-OURS / no-record frames) publishes the loader's
+// state only, so a host that cannot learn more opens the wait by state. The bulk evtobj prewarm is not counted (it waits for the roster, which needs the scene).
+void LiveSceneDraw::PublishStartWait(uint64_t guest_frame, bool built, bool drew) {
+  const bool asked_bodies = AskStartBodies();   // S110 ENTRBODIES: queued before the queue is read below
+  const bool crowd_in = StartCrowdIn(drew);      // S110 ENTRBODIES: the arena's crowd classes (the record carries the crowd only from the start's first frame)
+  bool undelivered = false, queued = false;
+  uint32_t running = 0;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    running = in_flight_, undelivered = !done_.empty();
+    for (const Job& j : want_) queued = queued || !j.m.bulk;
+  }
+  const bool idle = crowd_in && startwait::HostIdle((built && asked_now_) || asked_bodies, loadfollow::g_game_arena.load(std::memory_order_acquire) >= 0, running, undelivered, queued);
+  if (built) startwait::NoteHostBuild(guest_frame, idle);
+  else startwait::NoteHostNoBuild(guest_frame, idle);
+}
+
+// S110 ENTRBODIES (start_bodies.h): the bodies the game's characters will need, asked now (the record names a body only once the game poses it, after the start): each goes to the loader under the
+// key the record's Get looks up (ModelCache::Want), so the first frame that names it finds it resident. true = a body was queued by this call (this frame is not idle).
+bool LiveSceneDraw::AskStartBodies() {
+#if WWE2K14_STREAM()
+  return false;
+#else
+  if (!live_cache_) return false;   // no front end yet: the board is taken by the first build that has one
+  std::vector<startbodies::Body> bodies;
+  if (!startbodies::TheBoard().TakeIfNew(start_bodies_seen_, bodies)) return false;
+  bool any = false;
+  for (const startbodies::Body& b : bodies) {
+    rf::ModelCache::Missed m;
+    if (!live_cache_->Want(b.pac, b.entry, b.variant, m)) continue;   // resident, failed or already asked
+    roster_signal_.Ask(m.pac);
+    NoteLoadLine(true, "pac " + m.pac + " entry " + m.entry + " variant " + std::to_string(m.variant) + " (gates; a body of the game's characters, asked while the start is held)", m.key, -1);
+    std::lock_guard<std::mutex> lock(mu_);
+    want_.push_back(Job{std::move(m), -1});
+    any = true;
+  }
+  if (any) cv_.notify_all();
+  return any;
+#endif
+}
+
+// S110 ENTRBODIES: while a start is held (scene_start_wait.h StartPending), every crowd class of the arena the game opened is asked now (rf_crowd.h PrefetchArena): the record carries the crowd only
+// from the start's first frame, and a Warm frame keeps READY false while any class is loading (rf_crowd.cpp ApplyCrowd). true = nothing to wait for: no start held, no front end or arena yet,
+// a created arena (its crowd arena id is the record's), or every class resident or failed.
+// Review: never on a frame about to draw (`drew`, DrawLive): a prefetch for another arena than the crowd holds releases the held arena's class models (LiveCrowd::SetArena -> Release), and DrawLive draws the
+// frame its BuildFrame made, with those models, after this call. A drawing frame's own Prefetch (ApplyCrowd) already asked what its record needs.
+bool LiveSceneDraw::StartCrowdIn(bool drew) {
+#if WWE2K14_STREAM()
+  (void)drew;
+  return true;
+#else
+  if (drew || !fe_ || game_arena_ < 0 || assets::car::IsCustomId(game_arena_) || !startwait::StartPending()) return true;
+  return rf::crowd::PrefetchArena(*fe_, game_arena_);
+#endif
 }
 
 void LiveSceneDraw::SetBulkOk(bool v) {   // S105 SKB2
@@ -123,8 +189,14 @@ void LiveSceneDraw::SetBulkOk(bool v) {   // S105 SKB2
 }
 
 void LiveSceneDraw::QueueMisses() {
+  {   // S110 ENTRBLACK round 5: the arena pac the game just opened is asked for now, with the game's own load, not when a record first names it
+    const int ga = loadfollow::TakeGameArena();
+    if (ga >= 0) rf::c::WantArenaFromGame(ga), game_arena_ = ga;   // S110 ENTRBODIES: + kept for the crowd's classes (StartCrowdIn)
+  }
   std::vector<rf::ModelCache::Missed> missed = live_cache_->TakeMisses();
   const std::vector<int> arenas = rf::c::TakeArenaMisses();
+  asked_now_ = !arenas.empty();   // S110 ENTRWAIT2: this build asked for something (PublishStartWait); the bulk prewarm is not counted
+  for (const rf::ModelCache::Missed& m : missed) asked_now_ = asked_now_ || !m.bulk;
   if (missed.empty() && arenas.empty()) return;
 #if !WWE2K14_STREAM()   // RRS: the stream build posts roster_ready / roster_failed from its roster worker (wrestler_ours.cpp)
   for (const rf::ModelCache::Missed& m : missed) roster_signal_.Ask(m.pac);
@@ -292,6 +364,7 @@ void LiveSceneDraw::Warm(const SceneTables& rec, uint32_t w, uint32_t h) {
   std::string error;
   const bool built = rf::BuildFrame(rec, *live_cache_, rf::kAllFamilies, w, h, frame, reports, error, rf::kBuildWarm);   // (D2 review 7: ask only, no posing / Put / objects)
   QueueMisses();
+  PublishStartWait(rec.header.guest_frame);   // S110 ENTRWAIT2
   NoteStage(rec, built, reports);   // S103 L2d
   // READY (FRAME_CONTRACT 3 item 2): built, every asset resident, no hole (an object we cannot draw: R review 6), and a stage in the record
   // S103 NR (3): the SAME rule DrawLive applies (BuildTerms + the maps input's hole), so a frame READY here is not then refused there (the entrance light-set / follow-spot holes, the crowd's light holes
@@ -438,6 +511,7 @@ bool LiveSceneDraw::DrawLive(const SceneTables& rec, rdr::FrameBuilder& fb, uint
     built = rf::BuildFrame(rec, *live_cache_, rf::kAllFamilies, w, h, frame, reports, error);
   }
   QueueMisses();
+  PublishStartWait(rec.header.guest_frame, true, true);   // S110 ENTRWAIT2 (review: drew = true, this frame is drawn below: no crowd arena switch here)
   {   // S103 SCX (SCG.md): another arena than the last built frame's = another scene: the grab is forgotten. A gap in drawn frames is not (the game never blanks its grab)
     const uint64_t ep = rf::c::ArenaEpoch();
     LiveScreenFacts lf;

@@ -54,15 +54,10 @@
 #include <rex/perf/hang_beats.h>
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_perf_mem, true, "wwe2k14",
-                    "Lane 249: a [perf][mem] log line every wwe2k14_perf_mem_seconds and one at exit (working set, private bytes, GPU "
-                    "memory of this process, threads, GPU threads), plus a [perf][boot] line (src/perf_mem.h)");
-REXCVAR_DEFINE_BOOL(wwe2k14_perf_heat, true, "wwe2k14",
-                    "S102 S0-2: the [perf][sys] line carries perf_pct / perf_limit / limit_flags / pkg_w (Windows PDH counters, one read per window); off = no PDH call");
-REXCVAR_DEFINE_BOOL(wwe2k14_perf_threads, true, "wwe2k14",
-                    "S105 A10: a [perf][threads] line every wwe2k14_perf_mem_seconds: the busiest threads of this process (name#tid, % of one core, wakes per second), SPINNING in the phone report (src/thread_cpu.h)");
-REXCVAR_DEFINE_INT32(wwe2k14_perf_mem_seconds, 10, "wwe2k14", "Lane 249: seconds between [perf][mem] lines")
-    .range(1, 600);
+REXCVAR_DECLARE(bool, wwe2k14_perf_mem);
+REXCVAR_DECLARE(bool, wwe2k14_perf_heat);
+REXCVAR_DECLARE(bool, wwe2k14_perf_threads);
+REXCVAR_DECLARE(int32_t, wwe2k14_perf_mem_seconds);
 
 namespace wwe2k14::perf_mem {
 

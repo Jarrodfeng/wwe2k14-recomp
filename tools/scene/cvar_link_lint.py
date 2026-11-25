@@ -14,10 +14,10 @@ read no unit of the build defines), `duplicate` (two units of one build define i
   py -I tools\\scene\\cvar_link_lint.py [--root .]     judge the tree (exit 1 on a finding, 2 when a unit or the whole judge is BLOCKED)
   py -I tools\\scene\\cvar_link_lint.py --selftest      the planted twins (clang VFS overlays on the real tree: nothing is written to src\\; each MUST be caught) and the real tree
                                                       (MUST be clean):
-      1 the four LNK switches' stream definitions dropped from reader.h (their pre-fix state): exactly their four ON link findings
+      1 the four LNK switches' stream definitions dropped (S110: from their src\\cvars shards; before, from reader.h; their pre-fix state): exactly their four ON link findings
       2 ... moved into a header that reader.h includes only under `#ifdef LNK_NEVER_DEFINED`: the same four ON link findings
       3 ... moved into a header only host_start.cpp (an OFF unit) includes: the four ON link findings and OFF duplicates of the same four
-      4 live.cpp (a second ON unit) includes reader.h: ON duplicates of every cvar reader.h defines, the four among them
+      4 live.cpp (a second ON unit) includes a header that defines the four again: their four ON duplicates
 """
 # entry: cvar_findings
 import argparse
@@ -45,31 +45,37 @@ def _read(root, rel):
 
 
 def _split_four(root):
-    """(reader.h without the four LNK definitions, the four definition lines)."""
-    text = _read(root, LNK_HOME)
-    keep, four = [], []
-    for ln in text.splitlines(True):
-        if re.match(r'\s*REXCVAR_DEFINE_\w+\(\s*(%s)\s*,' % '|'.join(LNK_FOUR), ln):
-            four.append(ln)
-        else:
-            keep.append(ln)
+    """({generated shard path: its text without the four LNK definitions}, the four definitions' text). S110 CVARSHARD: reader.h only declares them; they sit in src\\cvars\\cvars_<n>.cpp."""
+    sys.path.insert(0, os.path.join(HERE, '..', 'compile'))
+    import cvar_shard
+    shards, four = {}, []
+    for i in range(cvar_shard.SHARDS):
+        rel = cvar_shard.shard_path(i)
+        text = _read(root, rel)
+        spans = [(s.start, s.end, s.text) for s in cvar_shard.scan_text(text)[1] if s.name in LNK_FOUR and not s.skip]
+        for a, b, t in reversed(spans):
+            text = text[:a] + text[b:]
+        four += [t + '\n' for _a, _b, t in spans]
+        shards[rel] = text
     if len(four) != 4:
-        raise SystemExit('selftest: reader.h does not hold the four LNK definitions on one line each (%d found): the twins need updating' % len(four))
-    return ''.join(keep), ''.join(four)
+        raise SystemExit('selftest: the shards do not hold the four LNK definitions once each (%d found): the twins need updating' % len(four))
+    return shards, ''.join(four)
 
 
 def twins(root):
-    rest, four = _split_four(root)
+    shards, four = _split_four(root)
+    reader = _read(root, LNK_HOME)
     host = _read(root, 'src/renderer_host/host_start.cpp')
     live = _read(root, 'src/renderer_adapter/live.cpp')
+    planted = '#pragma once\n#include <rex/cvar.h>\n' + four
     return [
-        ('the four LNK switches without their stream definitions', {LNK_HOME: rest}, 'link', LNK_FOUR),
+        ('the four LNK switches without their stream definitions', dict(shards), 'link', LNK_FOUR),
         ('their definitions in a header reader.h includes only under #ifdef LNK_NEVER_DEFINED',
-         {LNK_HOME: rest + '\n#ifdef LNK_NEVER_DEFINED\n#include "lnk_planted.h"\n#endif\n', PLANTED: '#pragma once\n#include <rex/cvar.h>\n' + four}, 'link', LNK_FOUR),
+         dict(shards, **{LNK_HOME: reader + '\n#ifdef LNK_NEVER_DEFINED\n#include "lnk_planted.h"\n#endif\n', PLANTED: planted}), 'link', LNK_FOUR),
         ('their definitions in a header only host_start.cpp (an OFF unit) includes',
-         {LNK_HOME: rest, PLANTED: '#pragma once\n#include <rex/cvar.h>\n' + four, 'src/renderer_host/host_start.cpp': host + '\n#include "renderer_adapter/lnk_planted.h"\n'},   # (a `..` path does not cross the VFS overlay)
+         dict(shards, **{PLANTED: planted, 'src/renderer_host/host_start.cpp': host + '\n#include "renderer_adapter/lnk_planted.h"\n'}),   # (a `..` path does not cross the VFS overlay)
          'link', LNK_FOUR, ('OFF', 'duplicate')),
-        ('live.cpp (a second ON unit) includes reader.h', {'src/renderer_adapter/live.cpp': live + '\n#include "reader.h"\n'}, 'duplicate', None),
+        ('live.cpp (a second ON unit) defines the four again (a header it includes)', {PLANTED: planted, 'src/renderer_adapter/live.cpp': live + '\n#include "lnk_planted.h"\n'}, 'duplicate', LNK_FOUR),
     ]
 
 

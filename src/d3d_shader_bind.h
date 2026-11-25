@@ -51,19 +51,10 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_bind_verify, false, "wwe2k14",
-                    "Session 87 (D3D layer shader bind): compare each patched vertex-shader copy with the shader object's own "
-                    "microcode when the library's slot cache says it holds the same patch (declaration id and strides equal), "
-                    "and count / log differences ([d3d] bind verify)");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_bind_verify);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_record_lean, false, "wwe2k14",
-                    "Session 94 (idea 5, game-thread cost of TRUE NATIVE's record building): per-call trims in the D3D layer that "
-                    "cannot change a record's bytes - the texture slot walk visits only the dirty slots (no shadow reads of the "
-                    "clean ones) and the patched vertex-shader copy is found by a per-thread cache validated by comparing the "
-                    "source bytes instead of hashing them ([d3d][rec] lines)");
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_rec_timer, false, "wwe2k14",
-                    "Session 94: time the game thread's D3D record building on 1 guest frame in 8 and print [d3d][rec] every 600 "
-                    "frames (diagnostic; off = no clock reads, no line; a bench pair passes it in both arms)");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_record_lean);
+REXCVAR_DECLARE(bool, wwe2k14_d3d_rec_timer);
 
 REX_EXTERN(sub_82CBD910);
 

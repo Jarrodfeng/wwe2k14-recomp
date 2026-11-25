@@ -55,27 +55,15 @@
 #include "d3d_layer.h"  // F1: Ld32 / St32 / Ld64 / St64, the layer switch, g_guest_frame
 #include "guest_view.h"  // S100 strip-360 tier C: the 0xE0000000 view rule, one place
 
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring, 0, "wwe2k14",
-                     "Session 87 (D3D layer stage 2, experimental): 0 = off; 1 = segments through a host queue instead of the "
-                     "ring; 2 = also the fences, flip handshake, scene timing and the present as typed items; 3 = also the F1-F3 "
-                     "record tokens (needs the half2 attribution decision). Needs an SDK build with gpu_d3d_noring_abi")
-    .range(0, 3);
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_from_frame, 0, "wwe2k14",
-                     "Session 87 (D3D layer stage 2): the first guest frame the no-ring mode may start at (the hand-over from the "
-                     "ring happens at a frame boundary: the open segment is kicked and the GPU idled first)");
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_verify, 0, "wwe2k14",
-                     "Session 87 (D3D layer stage 2, diagnostic): for the first N flip handshakes run the ORIGINAL 0x82CB3300 and "
-                     "compare the argument word our transcription computes with the one it passes to the interrupt emitter (logged)");
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_noring);
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_noring_from_frame);
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_noring_verify);
 
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_defer, 1, "wwe2k14",
-                     "Session 87 (D3D layer stage 2): 1 = the queue releases entries at the moment the library kicks a segment (the ring's own visibility to the command thread; keeps the replay's time-driven content equal to the ring path), 0 = at once");
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_noring_defer);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_drop_coher, false, "wwe2k14",
-                    "Session 92 (M5b): at noring level 3 the kick's coherency handshake 0x82CB61C0 (COHER_STATUS_HOST / SIZE / BASE + WAIT_REG_MEM on 0xA31, "
-                    "a segment piece every frame, no guest code reads 0xA31) is not emitted; counted in the block's coher_dropped. Default off = unchanged");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_drop_coher);
 
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_noring_scissor, 1, "wwe2k14",
-                     "Session 87 (D3D layer stage 2): 1 = the library's window scissor setter 0x82CA8CD0 (~160 calls a frame) is a typed register item, 0 = the original writer (its packets travel in the segment pieces)");
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_noring_scissor);
 
 REX_EXTERN(__imp__sub_82CB3300);
 REX_EXTERN(__imp__sub_82CB6510);

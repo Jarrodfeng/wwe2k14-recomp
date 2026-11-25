@@ -24,18 +24,13 @@
 #include "case_ring.h"
 #include "case_writer.h"
 
-#ifdef WWE2K14_CASE_CVARS
+#ifdef WWE2K14_CASE_CVARS   // S110 CVARSHARD: now only "this includer reads the cvars" (the game exe); the five are DEFINED, always, in src\cvars\cvars_hand.cpp (not generated: the macro kept them out of the standalone builds)
 #include <rex/cvar.h>
-#if defined(__ANDROID__)
-inline constexpr int32_t kCaseMbDefault = 192;  // phones
-#else
-inline constexpr int32_t kCaseMbDefault = 512;
-#endif
-REXCVAR_DEFINE_BOOL(wwe2k14_case, false, "wwe2k14", "Session 101: keep the last seconds in memory for the bug button (case zip). Off by default; on by itself for a +dev PC build with --wwe2k14_rdr_owner");
-REXCVAR_DEFINE_BOOL(wwe2k14_case_auto, false, "wwe2k14", "Session 101: an automatic hitch bookmark also writes a case zip (needs the case ring on). Default off");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_case_window_s, 5.0, "wwe2k14", "Session 101: seconds of frames the case ring keeps");
-REXCVAR_DEFINE_INT32(wwe2k14_case_mb, kCaseMbDefault, "wwe2k14", "Session 101: the case ring's byte cap in MB (phones: 192)");
-REXCVAR_DEFINE_STRING(wwe2k14_case_dir, "", "wwe2k14", "Session 101: where case zips go (default: out\\cases in a +dev build, cases\\ beside the exe otherwise; phone: the app's files folder cases\\)");
+REXCVAR_DECLARE(bool, wwe2k14_case);
+REXCVAR_DECLARE(bool, wwe2k14_case_auto);
+REXCVAR_DECLARE(double, wwe2k14_case_window_s);
+REXCVAR_DECLARE(int32_t, wwe2k14_case_mb);
+REXCVAR_DECLARE(std::string, wwe2k14_case_dir);
 #endif
 
 namespace case_hook {

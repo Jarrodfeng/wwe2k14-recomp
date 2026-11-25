@@ -32,10 +32,7 @@
 #include "bake_skip_core.h"
 #include "scene_skip.h"   // S103 H: the scene decision is the first test of the pass hook
 
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_bake_skip, 0, "wwe2k14",
-                     "Session 101 lane 155: the crowd card bake's invisible cut. 0 off; 1 census (decide and count what would be skipped, touch nothing); 2 skip the bake of person types whose far cards "
-                     "were not asked for lately (the game's own skip condition, the model count, is set to 0 for the pass and restored). As built 2 behaves as 1 until the census has been read from a "
-                     "milestone run. A skipped type is still baked once in 4 passes: a card that reappears reads a picture at most 4 passes old (docs/renderer/SKIP_GAME_WORK_MAP.md 12)");
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_bake_skip);
 
 REX_EXTERN(__imp__sub_827FD698);
 REX_EXTERN(__imp__sub_827FD4C8);

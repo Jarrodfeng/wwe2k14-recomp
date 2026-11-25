@@ -51,8 +51,7 @@
 #include "scene_live/own_node_hook.h"  // S102 P4P5: the node switch on the shadow module's (sub_827E9740) and the rim map's (sub_827EA7B8) draw nodes; compiled and reviewed, not run
 #include "scene_live/walk_single.h"  // S110 WALKSINGLE: the game's single-worker walk (the setter sub_82BB4128 stores a null range table for the manager) + the caption detectors
 
-REXCVAR_DEFINE_BOOL(wwe2k14_draw_origin, true, "wwe2k14",
-                    "S101: tag every draw record with the code that submitted it (renderer names, docs\\renderer\\NAMES.md); false = all draws unnamed");
+REXCVAR_DECLARE(bool, wwe2k14_draw_origin);
 
 namespace wwe2k14::draw_origin {
 

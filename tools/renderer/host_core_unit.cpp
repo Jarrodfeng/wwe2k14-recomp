@@ -16,9 +16,12 @@
 //    16 menu_hook_is_3d    S103 FLAT: the old stamp rule (scene_stamp_rule.h plant 1): a menu backdrop particle call asks the scene decision, so the menu frame is stamped 3D, is never flat and holds the last arena picture
 //    18 rate_draws_all       the 30 fps mode draws every tick;  19 rate_debt_unpaid  the vblank debt is never paid;  20 rate_carry_lost  a dropped tick's vblanks are lost (RateArm)
 //    21 rate_debt_unbounded  22 rate_contentless_pays  23 feed_counts_calls (RateArm / FeedArm)
-//    27 unanimated_phase_only S105 A3: the load-window test looks at the phase word only (cam_gate.h plant; NoCamArm (b) / (c));  28 overrides_unread: the override cameras are not read;  29 no_sticky_hold;  30 shown0_ignores_seen3d
-//    33 hold_cap_30 S105 A3H: the old 30-frame sticky cap;  34 hold_ignores_bit3: the sticky hold runs through the load window and is not ended by it
-//    26 no_cam_ignored     S105 A3: Decide ignores Facts::no_scene_camera (NoCamArm)
+//    27 stage_word_ignored  S110 ENTRBLACK: the scene-fact reader ignores the stage's show word (cam_gate.h plant; SceneFactArm);  28 chars_ignored: the reader ignores the characters (SceneFactArm)
+//    26 hidden_drawn        S110 ENTRBLACK: Decide ignores Facts::game_draws_no_scene (SceneFactArm);  37 no_scene_sticky: the black outlives the fact by one frame, a hold (SceneFactArm)
+//    (29, 30, 33, 34 retired with the S105 A3 camera gate)
+//    39-48 S110 ENTRWAIT2 (StartWaitArm, scene_start_wait.h plants 1-10): 39 start_no_wait, 40 start_old_build, 41 start_stall_holds, 42 start_script_waits, 43 start_match_in_entrance,
+//          44 start_arm_kept, 45 start_story_class_only, 46 start_card_down_holds, 47 start_stale_host_shut, 48 start_card_pending_only (review: the landed G+8-only card test)
+//    49-51 S110 ENTRBODIES (StartWaitArm, scene_start_wait.h plants 11-13): 49 start_bodies_no_restamp, 50 start_bodies_card_down, 51 start_bodies_kept
 //    15 draw_unfed          S103 HN: SceneFeed holds nothing: a required input never stamped in this scene is drawn anyway (the old ONF rule, run 003's half-built first entrance frames)
 #define WWE2K14_FRAME_TICK_CORE_ONLY 1
 #define WWE2K14_HOST_PLANTS 1
@@ -27,6 +30,9 @@
 #include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_host/host_planes.h"
 #include "../../src/renderer_scene/cam_gate.h"   // S105 A3
+#include "../../src/renderer_scene/game_load_follow.h"   // S110 ENTRBLACK round 5
+#include "../../src/renderer_scene/scene_start_wait.h"   // S110 ENTRWAIT2
+#include "../../src/renderer_scene/start_bodies.h"   // S110 ENTRBODIES
 #include "../../src/renderer_game/scene_kind.h"
 #include "../../src/renderer_game/scene_stamp_rule.h"
 #include "../../src/renderer_game/frame_tick.h"
@@ -279,127 +285,223 @@ static sh::Facts F(bool ours, sh::DrawResult d, bool loading = false, bool flat 
   return f;
 }
 
-// S105 A3 (entry: sh::Decide, sh::CamGate, rdr_scene::CamGateBits / ReadShown / AnimPending / UnanimatedWindow): the game draws no scene yet -> black under the rows. Production order: the latch's reads (the cam_gate.h
-// readers over a fake guest) -> the writer's header bits (CamGateBits, as Emit stamps them) -> the host's facts (NoShownCamera / CamUnanimated / CamAnimPending of the header flags, as SceneHost::Handle sets them on an
-// OURS frame; Handle skips the 3D draw when CamGate says black: draw = Miss) -> Decide. Planted 26 (Decide ignores the verdict), 27 (the load window looks at the phase only), 28 (the override cameras are not read),
-// 29 (no sticky hold), 30 (shown0 ignores seen3d) must each fail it.
+// S110 ENTRBLACK (entry: rdr_scene::ReadSceneFact / SceneFactBits / GameDrawsNoScene, sh::Decide): an OURS frame is black exactly when the game submits no scene geometry for it. Production order: the
+// latch's read (cam_gate.h over a fake guest) -> the writer's header bits (SceneFactBits, as Emit stamps them) -> the host's fact (GameDrawsNoScene of the header flags, as SceneHost::Handle sets it on an
+// OURS frame; Handle skips the 3D draw then: draw = Miss) -> Decide. Planted 26 (Decide ignores the fact), 27 (the reader ignores the stage word), 28 (the reader ignores the characters), 37 (a one-frame
+// hold) must each fail it.
 namespace {
-struct FakeGuest {   // a tiny guest memory for the cam_gate readers
+struct FakeGuest {   // a tiny guest memory for the reader
   std::vector<std::pair<uint32_t, uint32_t>> w;
   void Put(uint32_t a, uint32_t v) { for (auto& p : w) if (p.first == a) { p.second = v; return; } w.emplace_back(a, v); }
   bool Read(uint32_t a, uint32_t& v) const { for (const auto& p : w) if (p.first == a) { v = p.second; return true; } return false; }
 };
-constexpr uint32_t kMgr = 0x40004000u, kOvObj = 0x40006000u, kP1 = 0x40001000u, kP2 = 0x40002000u, kCur = 0x40003000u;
-// the guest of one situation: shown = [mgr+1392], phase, seq, anim (the entrance words); override words 0
-static FakeGuest Guest(uint32_t shown, uint32_t seq, uint32_t anim) {
+constexpr uint32_t kStage = 0x40004000u, kChar0 = 0x40008000u;
+// the guest of one frame: the stage's show word, and character 0's three predicate words (all 1 = shown, all 0 = hidden); slots 1..8 empty
+static FakeGuest Guest(uint32_t stage_on, uint32_t char_on) {
   FakeGuest g;
-  g.Put(0x836F3AA8u, kMgr), g.Put(kMgr + 1392, shown), g.Put(kMgr + 1412, 0), g.Put(0x83767B74u, kOvObj), g.Put(kOvObj + 340, 0);
-  g.Put(0x839400F8u, kP1), g.Put(kP1, kP2), g.Put(kP2 + 48, seq), g.Put(0x836F3ABCu, kCur), g.Put(kCur + 1440, anim);
+  g.Put(0x83763544u, kStage), g.Put(kStage + 1176, stage_on);
+  g.Put(0x836F38D0u, kChar0), g.Put(kChar0 + 1208, char_on), g.Put(kChar0 + 224, char_on), g.Put(kChar0 + 232, char_on);
+  for (uint32_t i = 1; i < 9; ++i) g.Put(0x836F38D0u + 4 * i, 0);
   return g;
 }
-// what the latch stamps for this guest + phase, then what Handle sets on the Facts of an OURS frame (draw = Miss when the verdict is black), then Decide
-static sh::Plan Frame(const FakeGuest& g, uint32_t phase, sh::State& s, sh::Counters& c, bool drawable = true) {
-  const auto rw = [&g](uint32_t a, uint32_t& v) { return g.Read(a, v); };
-  bool read = false, shown = false;
-  rdr_scene::ReadShown(rw, read, shown);
-  const uint32_t flags = rdr_scene::CamGateBits(read, shown, rdr_scene::UnanimatedWindow(rw, true, phase), rdr_scene::AnimPending(rw));   // the record's header flags
-  sh::Facts f = F(true, drawable ? sh::DrawResult::Ok : sh::DrawResult::Miss);
-  f.no_scene_camera = rdr_scene::NoShownCamera(flags), f.cam_unanimated = rdr_scene::CamUnanimated(flags), f.cam_anim_pending = rdr_scene::CamAnimPending(flags);
-  if (sh::CamGate(s, f).black) f.draw = sh::DrawResult::Miss;   // Handle: no DrawLive on such a frame
+// what the latch stamps for this guest, then what Handle sets on the Facts of an OURS frame (draw = Miss when the game draws nothing), then Decide
+static sh::Plan Frame(const FakeGuest& g, sh::State& s, sh::Counters& c) {
+  bool read = false, drawn = false;
+  rdr_scene::ReadSceneFact([&g](uint32_t a, uint32_t& v) { return g.Read(a, v); }, read, drawn);
+  const uint32_t flags = rdr_scene::SceneFactBits(read, drawn);   // the record's header flags
+  sh::Facts f = F(true, sh::DrawResult::Ok);
+  f.game_draws_no_scene = rdr_scene::GameDrawsNoScene(flags);
+  if (f.game_draws_no_scene) f.draw = sh::DrawResult::Miss;   // Handle: no DrawLive on such a frame
   return sh::Decide(s, f, c);
 }
 }  // namespace
-static void NoCamArm() {
-  rdr_scene::g_cam_gate_plant = sh::g_plant == 27 ? 1 : sh::g_plant == 28 ? 2 : 0;
-  {   // shown0 (bit 1): applies only before the first 3D picture of a scene
-    sh::State s;
-    sh::Counters c;
-    sh::Plan p = Frame(Guest(0, 0, 0), 1, s, c);   // READY, no shown camera, nothing drawn yet: the load window
-    Check(p.source == sh::Source::Black && p.reason == sh::Reason::NoSceneCamera && !p.strike && c.no_scene_camera_frames == 1 && c.strikes == 0 && c.ours == 0, "S105 A3: READY but no shown camera, before any 3D: black under the rows, no 3D, no strike");
-    Check(s.f_valid && !s.f_is_3d && !s.last3d_valid && !s.seen3d, "S105 A3: the black holds no 3D picture and is not mid-match");
-    p = Frame(Guest(1, 0, 0), 1, s, c);
-    Check(p.source == sh::Source::Draw3D && c.ours == 1, "S105 A3: a frame with a shown camera draws the 3D as today");
-    p = Frame(Guest(0, 0, 0), 1, s, c);   // shown reads 0 AGAIN after a 3D picture was drawn (between entrances, a match opening: run 027 6616-6694, 11188-11328): the game still draws there
-    Check(p.source == sh::Source::Draw3D && c.no_scene_camera_frames == 1, "S105 A3 review 2: shown 0 after a 3D picture of the scene is NOT black (the gate is the first load window only)");
-    FakeGuest unread;   // no manager word at all (the CAW editor, an unreadable word, the fallback take): nothing read, drawn as today
-    sh::State s2; sh::Counters c2;
-    p = Frame(unread, 1, s2, c2);
-    Check(p.source == sh::Source::Draw3D && c2.no_scene_camera_frames == 0, "S105 A3: a record that did not read the gate is drawn as today");
-    Check(sh::CensusLine(c).find("shown0 1, sticky 0, unanimated 0") != std::string::npos, "S105 A3: the [host] line carries shown0 / sticky / unanimated apart");
+// S110 ENTRBLACK round 5 (entry: rdr_scene::loadfollow::ArenaOfGamePath / NoteGameOpen / TakeGameArena): the arena pac the game opens is handed to the host once.
+// Planted 38 (the parser accepts any .pac) must fail it.
+static void LoadFollowArm() {
+  namespace lf = rdr_scene::loadfollow;
+  lf::g_plant = sh::g_plant == 38 ? 1 : 0;
+  Check(lf::ArenaOfGamePath("D:\\PAC\\BG\\BG04.PAC") == 4 && lf::ArenaOfGamePath("game:/pac/bg/bg57.pac") == 57, "ENTRBLACK r5: the arena pac the game opens names its arena");
+  Check(lf::ArenaOfGamePath("D:\\PAC\\BG\\BGETC.PAC") == -1 && lf::ArenaOfGamePath("D:\\PAC\\CH\\CH153.PAC") == -1 && lf::ArenaOfGamePath("bg04.pac") == -1, "ENTRBLACK r5: other pacs name no arena");
+  lf::TakeGameArena();
+  lf::NoteGameOpen("D:\\PAC\\CH\\CH139.PAC");
+  Check(lf::TakeGameArena() == -1, "ENTRBLACK r5: a character pac hands no arena");
+  lf::NoteGameOpen("D:\\PAC\\BG\\BG04.PAC");
+  lf::NoteGameOpen("D:\\PAC\\BG\\BG12.PAC");
+  Check(lf::TakeGameArena() == 12 && lf::TakeGameArena() == -1, "ENTRBLACK r5: the newest open is handed once, nothing kept after the take");
+  lf::g_plant = 0;
+}
+// S110 ENTRWAIT2 (entry: rdr_scene::startwait::Poll; WaitOn / PartStartPoint / MatchStartPoint / LoadFirstStep / CardUp / HostIdle / MayStart / Arm / NoteHostBuild / NoteHostNoBuild, applied
+// by src\scene_start_wait_hooks.h at sub_8232E1E8, sub_82331BC0, sub_8273D0C0 and sub_82331DD8): an armed start behind the loading card waits until a host frame from after its first poll
+// found every load done; both points of one start pass together; a start with no card up, and every later start, never waits. Planted 39-48 must each fail.
+static void StartWaitArm() {
+  namespace sw = rdr_scene::startwait;
+  sw::g_plant = sh::g_plant >= 39 && sh::g_plant <= 51 ? sh::g_plant - 38 : 0;
+  Check(sw::WaitOn(-1, false, false) && !sw::WaitOn(-1, true, false) && sw::WaitOn(1, true, true) && !sw::WaitOn(0, false, false), "ENTRWAIT2: normal play waits; det / replay does not unless =1; =0 never");
+  Check(!sw::WaitOn(-1, false, true) && sw::WaitOn(1, false, true), "ENTRWAIT2: a scripted run does not wait unless =1 (exact guest frames)");
+  Check(sw::PartStartPoint(0x8200A4BCu, 0) && sw::PartStartPoint(0x8200A3C0u, 0) && sw::PartStartPoint(0x8200A410u, 0) && !sw::PartStartPoint(0x8200A4BCu, 1),
+        "ENTRWAIT2: every part class's first update is a start point (an exhibition part is the base class 0x8200A4BC, Season 0x8200A3C0)");
+  Check(sw::MatchStartPoint(0, 3, 1) && !sw::MatchStartPoint(1, 3, 1) && !sw::MatchStartPoint(0, 2, 1), "ENTRWAIT2: step 3 at delay 0 is the no-entrance start");
+  Check(!sw::MatchStartPoint(0, 3, 4), "ENTRWAIT2: step 3 with the entrance word is no start (the FADE hold)");
+  Check(sw::LoadFirstStep(0, 0) && !sw::LoadFirstStep(1, 0) && !sw::LoadFirstStep(0, 3), "ENTRWAIT2: the match load's first step (each load, a rematch too) arms");
+  // review: the requester G takes a posted request (G+8 = 1) on its next update and clears +8 while the screen is SHOWN (sub_827E67C0 +88..+94: build, +8 = 0, +4 = 1); G+84 holds the
+  // screen until the close finishes (+240..+2A8). So a shown card is +4 != 0 / +84 != 0 with +8 == 0 (the CASREADY rule, cas_goto_core.h:206-213).
+  Check(sw::CardUp(0x40001000u, 0, 1, 0) && sw::CardUp(0x40001000u, 1, 0, 0x40002000u) && sw::CardUp(0x40001000u, 2, 0, 0x40002000u) && !sw::CardUp(0x40001000u, 0, 0, 0) &&
+            !sw::CardUp(0, 1, 1, 0x40002000u),
+        "ENTRWAIT2: the card is up while it is posted, shown or closing (G+8, G+4 or G+84 non-zero), down when the requester is idle or absent");
+  Check(sw::HostIdle(false, false, 0, false, false) && !sw::HostIdle(true, false, 0, false, false) && !sw::HostIdle(false, true, 0, false, false) && !sw::HostIdle(false, false, 1, false, false) &&
+            !sw::HostIdle(false, false, 0, true, false) && !sw::HostIdle(false, false, 0, false, true),
+        "ENTRWAIT2: idle = nothing asked, the game's arena handed over, nothing running / undelivered / queued");
+  sw::Facts f;
+  f.host_on = true, f.asked_at = 101, f.host_frame = 120, f.host_idle = false;
+  Check(!sw::MayStart(f), "ENTRWAIT2: a load still queued / running at the newest host frame: wait");
+  f.host_frame = 90, f.host_idle = true;
+  Check(!sw::MayStart(f), "ENTRWAIT2: an idle frame from before the ask does not count");
+  f.host_frame = 102;
+  Check(sw::MayStart(f), "ENTRWAIT2: the first idle frame after the ask starts the scene");
+  sw::Facts s = f;
+  s.host_idle = false, s.host_on = false;
+  const bool no_drawer = sw::MayStart(s);
+  s.host_on = true, s.host_frame = 0;
+  const bool never_built = sw::MayStart(s);
+  s.host_frame = 120, s.device_lost = true;
+  const bool lost = sw::MayStart(s);
+  Check(no_drawer && never_built && lost, "ENTRWAIT2: a stalled host opens the wait by state (no drawer / nothing handled / device lost)");
+  {   // an exhibition entrance: armed by the match load; each frame the part (task group 1) then the card item (group 33) poll with the card up; the host frames: idle but old, busy, busy, idle
+    sw::g_host_frame.store(0), sw::g_host_idle.store(false);
+    sw::Arm();
+    int part_holds = 0, card_holds = 0;
+    bool part_started = false, card_dropped = false;
+    const struct { uint64_t f; bool idle; } builds[] = {{99, true}, {101, false}, {130, false}, {131, true}};
+    uint64_t now = 100;
+    for (const auto& b : builds) {
+      sw::NoteHostBuild(b.f, b.idle);
+      const bool part_hold = sw::PartStartPoint(0x8200A4BCu, 0) && sw::Poll(now, true, false, true);
+      const bool card_hold = sw::Poll(now, true, false, true);
+      part_holds += part_hold ? 1 : 0, card_holds += card_hold ? 1 : 0;
+      if (!part_hold) {
+        part_started = true, card_dropped = !card_hold;
+        break;
+      }
+      now += 30;
+    }
+    Check(part_started && card_dropped && part_holds == 3 && card_holds == 3, "ENTRWAIT2: an exhibition's part and card wait together for the first idle frame after the ask and pass in the same frame",
+          "part holds " + std::to_string(part_holds) + ", card holds " + std::to_string(card_holds));
+    Check(!sw::g_armed.load() && sw::g_asked_at.load() == 0, "ENTRWAIT2: the pass spends the arm and forgets the ask");
+    sw::NoteHostBuild(now + 5, false);
+    Check(!sw::Poll(now + 10, true, false, true), "ENTRWAIT2: a later part (the next wrestler, a mid-match entrant) is never held, even with our host busy and a card up");
   }
-  {   // the sticky hold (review 1): shown0 ends, the motion camera is still not animated: the black stays until it animates
-    sh::State s;
-    sh::Counters c;
-    Frame(Guest(0, 9, 0), 1, s, c);                                  // 3528-3565: shown 0
-    sh::Plan p = Frame(Guest(1, 9, 0), 1, s, c);                     // 3565-3580: shown set, phase still 1, anim 0
-    Check(p.source == sh::Source::Black && c.cam_sticky_frames == 1 && c.no_scene_camera_frames == 1, "S105 A3 review 1: after shown0 ends, an unanimated motion camera keeps the black (the 15-frame arena flash)");
-    p = Frame(Guest(1, 9, 1), 4, s, c);                              // the entrance proper: anim 1
-    Check(p.source == sh::Source::Draw3D, "S105 A3 review 1: the entrance proper (anim 1) draws");
-    p = Frame(Guest(1, 9, 0), 1, s, c);                              // a match: an idle camera with anim 0, no hold any more
-    Check(p.source == sh::Source::Draw3D && c.cam_sticky_frames == 1, "S105 A3 review 1: the hold ended with the first drawn frame: an idle anim-0 camera in a match is never black");
-    sh::State m; sh::Counters cm;   // a match that never had shown0: anim 0 (idle camera) must never hold
-    Frame(Guest(1, 9, 0), 1, m, cm);
-    Check(Frame(Guest(1, 9, 0), 1, m, cm).source == sh::Source::Draw3D && cm.cam_sticky_frames == 0, "S105 A3 review 1: no shown0 first, no sticky hold");
-    sh::State b; sh::Counters cb;   // bounded: an anim that never comes holds at most kCamHoldMax handled frames
-    Frame(Guest(0, 9, 0), 1, b, cb);
-    uint32_t held = 0;
-    for (uint32_t i = 0; i < 200; ++i) if (Frame(Guest(1, 9, 0), 1, b, cb).source == sh::Source::Black) ++held;
-    Check(held == sh::kCamHoldMax && cb.cam_sticky_frames == sh::kCamHoldMax, "S105 A3 review 1: the hold is bounded by kCamHoldMax", std::to_string(held));
+  {   // a start reached with the card down (a mid-match entrant, a start whose card already went): no wait, and the start is spent
+    sw::Arm();
+    sw::NoteHostBuild(500, false);
+    const bool held = sw::Poll(600, true, false, false);
+    Check(!held && !sw::g_armed.load(), "ENTRWAIT2: no loading card up: no wait, the arm is spent");
+    sw::g_armed.store(false);
   }
-  {   // S105 A3H: the hold follows the game's signal; the cap is only the no-entrance safety (A3C runs 085 / 086: shown set 35 handled frames before phase 4)
-    sh::State g; sh::Counters cg;
-    Frame(Guest(0, 9, 0), 1, g, cg);
-    bool all_black = true;
-    for (uint32_t i = 0; i < 35; ++i) all_black = all_black && Frame(Guest(1, 9, 0), 1, g, cg).source == sh::Source::Black;
-    Check(all_black && cg.cam_sticky_frames == 35, "S105 A3H: the 35-frame gap (shown0 -> 35 frames -> phase 4) stays black end to end", std::to_string(cg.cam_sticky_frames));
-    for (uint32_t i = 0; i < 5; ++i) all_black = all_black && Frame(Guest(1, 9, 0), 4, g, cg).source == sh::Source::Black;   // the load window itself
-    Check(all_black && cg.cam_unanimated_frames == 5 && cg.cam_sticky_frames == 35, "S105 A3H: phase 4 (bit 3) blacks the frames itself, not the hold", std::to_string(cg.cam_unanimated_frames));
-    Check(Frame(Guest(1, 9, 0), 1, g, cg).source == sh::Source::Draw3D, "S105 A3H: bit 3 ended the hold: an anim-0 frame after the load window is not held");
-    sh::State n; sh::Counters cn;   // no entrance: the cap ends the hold
-    Frame(Guest(0, 9, 0), 1, n, cn);
-    uint32_t held2 = 0, drawn_at = 0;
-    for (uint32_t i = 0; i < 300 && !drawn_at; ++i) { if (Frame(Guest(1, 9, 0), 1, n, cn).source == sh::Source::Black) ++held2; else drawn_at = i + 1; }
-    Check(held2 == sh::kCamHoldMax && drawn_at == sh::kCamHoldMax + 1, "S105 A3H: an idle camera (no entrance) is black for exactly the safety cap, then drawn", std::to_string(held2));
+  {   // the stale host: its frames build nothing (stale OURS inputs, no record); once its loader is empty such a frame opens the wait by state
+    sw::g_host_frame.store(0), sw::g_host_idle.store(false);
+    sw::Arm();
+    sw::NoteHostBuild(700, false);   // the last build asked the arena
+    const bool held = sw::Poll(710, true, false, true);
+    sw::NoteHostNoBuild(720, sw::HostIdle(false, false, 0, false, false));   // the loader delivered it; the host's frames now build nothing
+    const bool opened = !sw::Poll(730, true, false, true);
+    Check(held && opened, "ENTRWAIT2: a host whose frames build nothing opens the wait by state (its loader empty)");
+    sw::g_armed.store(false);
   }
-  {   // bit 2 (the load window), the four situations
+  {   // an abandoned load: a stale ask from a start that never passed is forgotten by the next arm
+    sw::g_asked_at.store(55);
+    sw::Arm();
+    Check(sw::g_asked_at.load() == 0 && sw::g_armed.load(), "ENTRWAIT2: a new arm forgets a stale ask");
+    sw::g_armed.store(false);
+  }
+  {   // S110 ENTRBODIES: the bodies of the game's characters, asked while the start is held (src\scene_start_bodies.h -> start_bodies.h -> LiveSceneDraw::AskStartBodies): a body asked after the
+      // start's first poll holds it until a host frame from after that ask finds the loader settled; a failed load settles too (ModelCache::MissFailed: never queued again)
+    namespace sb = rdr_scene::startbodies;
+    sw::g_host_frame.store(0), sw::g_host_idle.store(false);
+    sw::Arm();
+    sb::TheBoard().Reset();
+    sw::NoteHostBuild(99, true);
+    const bool held0 = sw::Poll(100, true, false, true);   // the first poll stamps the ask (101)
+    const bool grew = sb::TheBoard().Add(std::vector<sb::Body>{sb::Body{"pac\\ch\\ch187.pac", "model_key:18700", 0}});
+    if (grew && sw::AskBodiesNow(sw::g_armed.load(), true)) sw::NoteAsked(105);
+    sw::NoteHostBuild(104, true);   // an idle host frame from before the body was asked
+    const bool held1 = sw::Poll(106, true, false, true);
+    sw::NoteHostBuild(110, false);   // the body is loading
+    const bool held2 = sw::Poll(111, true, false, true);
+    sw::NoteHostBuild(140, sw::HostIdle(false, false, 0, false, false));   // adopted, or failed: nothing queued, running or undelivered
+    const bool opened = !sw::Poll(141, true, false, true);
+    Check(held0 && grew && held1 && held2 && opened, "ENTRBODIES: a body of the game's characters asked during the hold keeps the start until a host frame after its ask finds it settled (loaded or failed)",
+          std::string("held ") + (held0 ? "1" : "0") + (held1 ? "1" : "0") + (held2 ? "1" : "0") + " opened " + (opened ? "1" : "0"));
+    Check(sw::g_bodies_at.load() == 0 && sw::g_asked_at.load() == 0, "ENTRBODIES: the pass forgets the body ask");
+    sw::g_armed.store(false);
+    Check(!sw::StartPending(), "ENTRBODIES: no start pending after the pass (the crowd's classes are asked only while one is)");
+  }
+  Check(!sw::AskBodiesNow(true, false) && !sw::AskBodiesNow(false, true) && sw::AskBodiesNow(true, true),
+        "ENTRBODIES: the bodies are asked only while a start is armed AND the loading card is up (a mid-match entrant asks nothing and is never held)");
+  {   // the board: one set per start, grown once per new body, taken once per change; a new start asks again (a body an arena change retired is asked again)
+    namespace sb = rdr_scene::startbodies;
+    sb::Board& b = sb::TheBoard();
+    b.Reset();
+    const sb::Body a{"pac\\ch\\ch150.pac", "model_key:15006", 0}, c{"pac\\ch\\ch153.pac", "model_key:15306", 0};
+    uint64_t seen = 0;
+    std::vector<sb::Body> got;
+    b.TakeIfNew(seen, got);
+    const bool g1 = b.Add(std::vector<sb::Body>{a}), g2 = b.Add(std::vector<sb::Body>{a}), g3 = b.Add(std::vector<sb::Body>{a, c});
+    const bool t1 = b.TakeIfNew(seen, got) && got.size() == 2 && b.Size() == 2, t2 = !b.TakeIfNew(seen, got);
+    b.Reset();
+    const bool g4 = b.Add(std::vector<sb::Body>{a});
+    Check(g1 && !g2 && g3 && t1 && t2 && g4, "ENTRBODIES: a start's body set grows once per new body, is taken once per change, and a new start asks its bodies again");
+    b.Reset();
+  }
+  sw::g_host_frame.store(0), sw::g_host_idle.store(false), sw::g_asked_at.store(0), sw::g_bodies_at.store(0);
+  sw::g_plant = 0;
+}
+static void SceneFactArm() {
+  rdr_scene::g_scene_fact_plant = sh::g_plant == 27 ? 1 : sh::g_plant == 28 ? 2 : 0;
+  {   // an entrance start: the stage and the entrants hidden while the game loads (no geometry), then shown by the entrance's start: black until that frame, drawn FROM that frame
     sh::State s; sh::Counters c;
-    sh::Plan q = Frame(Guest(1, 9, 0), 1, s, c);
-    Check(q.source == sh::Source::Draw3D && c.cam_unanimated_frames == 0, "S105 A3 bit 2 (a): the match (phase 1, anim 0) is never black");
-    q = Frame(Guest(1, 76, 0), 4, s, c);
-    Check(q.source == sh::Source::Draw3D && c.cam_unanimated_frames == 0, "S105 A3 bit 2 (b): the Create a Superstar editor (phase 4, sequence 76) is never black");
-    q = Frame(Guest(1, 9, 1), 4, s, c);
-    Check(q.source == sh::Source::Draw3D && c.cam_unanimated_frames == 0, "S105 A3 bit 2 (c): the entrance proper (anim 1) is never black");
-    q = Frame(Guest(1, 9, 0), 4, s, c);
-    Check(q.source == sh::Source::Black && q.reason == sh::Reason::NoSceneCamera && !q.strike && c.cam_unanimated_frames == 1 && c.no_scene_camera_frames == 0, "S105 A3 bit 2 (d): the load window (phase 4, sequence 9, anim 0) is black, counted as unanimated");
-    Check(!s.seen3d, "S105 A3 review 6: the black after a 3D picture clears seen3d (a later miss is no black_mid_match)");
-    sh::Facts miss = F(true, sh::DrawResult::Miss);
-    sh::Decide(s, miss, c);
-    Check(c.black_mid_match == 0, "S105 A3 review 6: no black_mid_match after NoSceneCamera");
-    const auto bad = [](uint32_t, uint32_t&) { return false; };
-    Check(!rdr_scene::UnanimatedWindow(bad, true, 4) && !rdr_scene::UnanimatedWindow(bad, false, 4) && !rdr_scene::AnimPending(bad), "S105 A3 bit 2: an unreadable word leaves the bits unset (never black on a failed read)");
-    FakeGuest wrap = Guest(1, 9, 0);   // review 7: cur must be a valid pointer (cur + 1440 can wrap)
-    wrap.Put(0x836F3ABCu, 0xFFFFFFF0u);
-    wrap.Put(0xFFFFFFF0u + 1440u, 0);
-    Check(!rdr_scene::AnimPending([&wrap](uint32_t a, uint32_t& v) { return wrap.Read(a, v); }), "S105 A3 review 7: a wild motion-camera pointer leaves the bit unset");
+    bool black = true;
+    for (int i = 0; i < 40; ++i) black = black && Frame(Guest(0, 0), s, c).source == sh::Source::Black;
+    Check(black && c.game_no_scene_frames == 40 && c.ours == 0 && c.strikes == 0, "ENTRBLACK entrance: black (no strike) while the game draws no geometry", std::to_string(c.game_no_scene_frames));
+    const sh::Plan p = Frame(Guest(1, 1), s, c);
+    Check(p.source == sh::Source::Draw3D && c.ours == 1, "ENTRBLACK entrance: the first frame the game shows its stage is drawn (its 8-frame FADE then runs over a drawn scene)");
+    bool drawn = true;
+    for (int i = 0; i < 8; ++i) drawn = drawn && Frame(Guest(1, 1), s, c).source == sh::Source::Draw3D;
+    Check(drawn && c.ours == 9, "ENTRBLACK entrance: every frame of the fade is drawn");
   }
-  {   // review 3: the composer's override cameras count as shown
-    const auto shown_of = [](FakeGuest g) { bool r = false, sw = false; rdr_scene::ReadShown([&g](uint32_t a, uint32_t& v) { return g.Read(a, v); }, r, sw); return r && sw; };
-    FakeGuest g = Guest(0, 9, 0);
-    Check(!shown_of(g), "S105 A3 review 3: shown word 0, no override: not shown");
-    g.Put(kMgr + 1412, 5);
-    Check(shown_of(g), "S105 A3 review 3: [mgr + 1412] set counts as shown");
-    g = Guest(0, 9, 0), g.Put(kOvObj + 340, 7);
-    Check(shown_of(g), "S105 A3 review 3: [[0x83767B74] + 340] set counts as shown");
-    g = Guest(0, 9, 0), g.Put(0x83767B74u, 0);
-    bool r = false, sw = true;
-    rdr_scene::ReadShown([&g](uint32_t a, uint32_t& v) { return g.Read(a, v); }, r, sw);
-    Check(r && !sw, "S105 A3 review 3: a null override object is no override");
-    g = Guest(0, 9, 0), g.w.erase(g.w.begin() + 4);   // the override word unreadable
-    rdr_scene::ReadShown([&g](uint32_t a, uint32_t& v) { return g.Read(a, v); }, r, sw);
-    Check(!r && !sw, "S105 A3 review 3: an unreadable override word: not read (never black on a failed read)");
+  {   // a match with no entrance: the stage is shown from the scene's first frame: drawn from the first frame (the game's 30-frame fade from black runs over it)
+    sh::State s; sh::Counters c;
+    Check(Frame(Guest(1, 1), s, c).source == sh::Source::Draw3D && c.game_no_scene_frames == 0, "ENTRBLACK no-entrance start: drawn from the first frame");
   }
-  Check(rdr_scene::CamGateBits(true, true) == (rdr_scene::kCamGateRead | rdr_scene::kCamGateShown) && rdr_scene::CamGateBits(false, true) == 0 && !rdr_scene::NoShownCamera(0) && !rdr_scene::NoShownCamera(1u),
-        "S105 A3: the header bits (bit 0 = the stage push is not touched, an unread gate is never 'no camera')");
+  {   // no camera input at all: a scene whose motion camera never animates is drawn on every frame it is shown, right after a black one (no hold, no cap)
+    sh::State s; sh::Counters c;
+    Frame(Guest(0, 0), s, c);
+    uint32_t drawn = 0;
+    for (int i = 0; i < 300; ++i) drawn += Frame(Guest(1, 0), s, c).source == sh::Source::Draw3D ? 1u : 0u;
+    Check(drawn == 300, "ENTRBLACK: after a black frame, every shown frame is drawn at once (no hold)", std::to_string(drawn));
+  }
+  {   // the characters: the stage hidden but a character shown (an editor's preview): the game draws geometry, so it is drawn
+    sh::State s; sh::Counters c;
+    Check(Frame(Guest(0, 1), s, c).source == sh::Source::Draw3D, "ENTRBLACK: stage hidden, a character shown: drawn");
+  }
+  {   // the reader: no stage object, a wild pointer, an unreadable word: nothing read, never black
+    bool r = true, d = true;
+    FakeGuest none;
+    none.Put(0x83763544u, 0);
+    rdr_scene::ReadSceneFact([&none](uint32_t a, uint32_t& v) { return none.Read(a, v); }, r, d);
+    Check(!r && !rdr_scene::GameDrawsNoScene(rdr_scene::SceneFactBits(r, d)), "ENTRBLACK reader: no stage object: not read, never black");
+    FakeGuest wild = Guest(0, 0);
+    wild.Put(0x83763544u, 0xFFFFFFF0u);
+    rdr_scene::ReadSceneFact([&wild](uint32_t a, uint32_t& v) { return wild.Read(a, v); }, r, d);
+    Check(!r, "ENTRBLACK reader: a wild stage pointer: not read");
+    FakeGuest hole = Guest(0, 0);
+    hole.w.erase(hole.w.begin() + 3);   // character 0's +1208 unreadable
+    rdr_scene::ReadSceneFact([&hole](uint32_t a, uint32_t& v) { return hole.Read(a, v); }, r, d);
+    Check(r && d, "ENTRBLACK reader: an unreadable character word counts as drawn (never black on a failed read)");
+    sh::Counters c0;
+    Check(sh::CensusLine(c0).find("shown0") == std::string::npos && sh::CensusLine(c0).find("game_no_scene") == std::string::npos, "ENTRBLACK: no camera-gate counts in the [host] line, no scene count when none happened");
+  }
+  Check(rdr_scene::SceneFactBits(true, true) == (rdr_scene::kSceneFactRead | rdr_scene::kSceneDrawn) && rdr_scene::SceneFactBits(false, false) == 0 && !rdr_scene::GameDrawsNoScene(0) && !rdr_scene::GameDrawsNoScene(1u),
+        "ENTRBLACK: the header bits (bit 0 = the stage push is not touched, an unread fact never hides)");
 }
 // S103 HN: the never-fed rule (host_core.h SceneFeed + Decide's NeverFed branch).
 static void FeedArm() {
@@ -764,7 +866,9 @@ int main(int argc, char** argv) {
   ThreadArm();
   DecideArm();
   FeedArm();
-  NoCamArm();   // S105 A3
+  SceneFactArm();   // S110 ENTRBLACK (was S105 A3's NoCamArm)
+  LoadFollowArm();   // S110 ENTRBLACK round 5
+  StartWaitArm();   // S110 ENTRWAIT2
   SizeArm();
   TweenArm();
   FlatArm();

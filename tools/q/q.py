@@ -37,6 +37,7 @@
   name ADDR|WORD               the names the GAME carries for a function (Lua bindings, name tables) / functions whose name has WORD (tools/q/qnames.py)
   seen [ADDR]                  indirect call pairs OBSERVED in coverage runs: totals / observed callers + targets of a function (tools/q/qseen.py)
   lib UNIT | --stats | --build  is a unit third-party library code (Havok, Wwise, Lua, Bink, zlib, LZX, CRT)? by strings or by range (tools/q/qlib.py)
+  fnfacts FUNC | --stats | --build  per-function STRUCTURAL facts of the listing: loops + inductions, switches + case values, compare chains, entry-arg bit tests, clone hashes (tools/q/qfnfacts.py)
   unit ADDR | cover [--json]  the unit (call cluster, K=32) of a function / the mechanical + meaning coverage numbers (tools/q/qunits.py, qcover.py)
   feed [FILE[:LINE]] [--unread]  the scene feed's field table (every field our renderer reads) with struct key + the game's writers (tools/q/qfeedkey.py)
   field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
@@ -901,7 +902,7 @@ def bare_ours(argv):
 
 VERBS = ('find', 'multi', 'switch', 'text', 'csdt', 'decomp', 'field', 'ours', 'save', 'menu', 'map', 'fact', 'show', 'note', 'py', 'sdk', 'asset',
          'missed', 'asm', 'vcall', 'nodes', 'runlog', 'const', 'vtable', 'callers', 'callees', 'str', 'imm', 'rtti', 'addr', 'db', 'fn', 'info',
-         'outline', 'body', 'refs', 'def', 'lit', 'name', 'unit', 'cover', 'seen', 'sheet', 'feed', 'read', 'rendermd', 'pattern', 'lib')
+         'outline', 'body', 'refs', 'def', 'lit', 'name', 'unit', 'cover', 'seen', 'sheet', 'feed', 'read', 'rendermd', 'pattern', 'lib', 'fnfacts')
 
 
 def _edits(a, b):
@@ -1160,6 +1161,10 @@ def main(argv=None):
         except (qread.ReadError, qread.qnames.NamesError) as e:
             print(f'q: {e}', file=sys.stderr)
             return 2
+    if argv and argv[0] == 'fnfacts':        # S110 IDXFACTS: per-function structural facts of the listing (tools/q/qfnfacts.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qfnfacts
+        return qfnfacts.main(argv[1:])
     # S110 NAMES: `q.py name ADDR|WORD`, `q.py unit ADDR`, `q.py cover [--json]` = tools/q/qnames.py, qunits.py, qcover.py.
     if argv and argv[0] in ('name', 'unit', 'cover'):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

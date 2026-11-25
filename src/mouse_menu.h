@@ -51,17 +51,9 @@
 #include "input_script.h"  // g_mouse_pad_filter
 #include "music_picker_ui.h"  // lane 292: PickerIsOpen
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mouse_menus, true, "wwe2k14",
-                    "Session 67: the mouse in the game's list menus (main menu, PLAY, CREATIONS, OPTIONS, ...): "
-                    "pointing at an item moves the menu's cursor to it, a left click selects it (A), the wheel moves "
-                    "up / down, a right click goes back (B; also on the screens opened from the lists)");
-REXCVAR_DEFINE_BOOL(wwe2k14_mouse_menus_log, false, "wwe2k14",
-                    "Session 67: log each pointer move onto an item and each press --wwe2k14_mouse_menus makes")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_BOOL(wwe2k14_mouse_menus_dump, false, "wwe2k14",
-                    "Session 67 (debug): set it (live: cvar wwe2k14_mouse_menus_dump true) to log, once, every text "
-                    "element on screen with its text id, text, box and parent (for mapping a new screen)")
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DECLARE(bool, wwe2k14_mouse_menus);
+REXCVAR_DECLARE(bool, wwe2k14_mouse_menus_log);
+REXCVAR_DECLARE(bool, wwe2k14_mouse_menus_dump);
 
 namespace wwe2k14::mouse_menu {
 

@@ -197,7 +197,8 @@ def main():
     need(lint_import(sl), 'shader_list.h: Import takes the list path from ListPath (one rule for the seed and the importer)')
     need(not lint_import(sl.replace('ListPath(setting)', 'Other(setting)')), 'wiring twin: an Import with its own path rule IS caught')
     # S106 PSEED fix round: the tools' own selftests, and the wiring of F6 / F7
-    for tool, what in (('pseed_proof.py', 'the proof: known misses by full key, the 780 cold names, P2 per key'), ('pipeline_census.py', 'the census: every job starts on an empty store')):
+    for tool, what in (('pseed_proof.py', 'the proof: known misses by full key, the 780 cold names, P2 per key'), ('pipeline_census.py', 'the census: every job starts on an empty store'),
+                      ('pseed_stale_check.py', 'the release stale-seed test: a planted stale key is found, exit 1')):
         pr = run([sys.executable, '-I', os.path.join(root, 'tools', 'renderer', tool), '--selftest'])
         print(pr.stdout.rstrip())
         need(pr.returncode == 0, tool + ' selftest: ' + what)

@@ -30,15 +30,8 @@
 #include "input_script.h"     // g_pipeline_wait_frame_hook
 #include "load_turbo.h"       // g_load_turbo_ingame_window
 
-REXCVAR_DEFINE_BOOL(wwe2k14_load_pipeline_wait, true, "wwe2k14",
-                    "Session 57: no draw is skipped while its pipeline is made during the in-game loads (the "
-                    "pre-entrance and match loading screens) and shortly after: the screen-wide skip is raised to "
-                    "never, then put back. See src/load_pipeline_wait.h");
-REXCVAR_DEFINE_INT32(wwe2k14_load_pipeline_wait_hold_frames, 240, "wwe2k14",
-                     "Session 57: frames after an in-game load window closes during which draws still wait (the load "
-                     "window closes just before the loading screen fades out; the first scene frames make most of the "
-                     "new pipelines)")
-    .range(0, 3600);
+REXCVAR_DECLARE(bool, wwe2k14_load_pipeline_wait);
+REXCVAR_DECLARE(int32_t, wwe2k14_load_pipeline_wait_hold_frames);
 
 namespace wwe2k14::load_pipeline_wait {
 

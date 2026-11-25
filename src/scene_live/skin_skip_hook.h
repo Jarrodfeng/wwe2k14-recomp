@@ -9,9 +9,7 @@
 
 #include <cstdint>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_skip_skin, false, "wwe2k14",
-                    "Session 101 lane 50 (P2c of the crowd's promotion): with --wwe2k14_rdr_crowd_ours drawing the crowd, the game's CPU skin loops of the crowd manager do not run "
-                    "for a group nothing else reads (the palette copy ours reads stays). Only after 3 frames in a row in which ours drew with no stream draw kept. Off by default");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_skip_skin);
 
 namespace wwe2k14::crowd_skip {
 // r3 = the manager, r6 = the destination buffer of the call. True = do not run the loop (and report no writes).

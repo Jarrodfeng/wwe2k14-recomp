@@ -24,9 +24,7 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_crowd_hype, -1, "wwe2k14",
-                     "Prototype (Session 14, S4): pin the crowd excitement level 0x835E1988 (and its base 0x836F3A84) "
-                     "to N = 0..5 once per frame; -1 = off (the game's own level). See src/crowd_hype.h");
+REXCVAR_DECLARE(int32_t, wwe2k14_crowd_hype);
 
 namespace wwe2k14::crowd {
 

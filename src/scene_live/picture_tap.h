@@ -21,8 +21,7 @@
 #include "picture_global.h"
 #include "../renderer_scene/stream_hash_tap.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_picture_source, false, "wwe2k14",
-                    "S103 PN3 DEV ONLY (ignored by a release build; docs\\renderer\\PICTURES_NO_STREAM.md): feed the stream-free picture source from the game's texture handle birth / death and the 2D rows' first sight; read only, off = no change, start-only");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_picture_source);
 
 namespace wwe2k14::picture_tap {
 

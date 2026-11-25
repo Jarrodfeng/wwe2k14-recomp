@@ -167,6 +167,7 @@ const live::LiveCrowdCounts* LastCounts(const FrontEnd& fe) {
   auto it = r.by_fe.find(&fe);
   return it == r.by_fe.end() ? nullptr : &it->second->crowd().counts();
 }
+bool PrefetchArena(FrontEnd& fe, int arena) { return HookFor(fe, true).crowd().PrefetchArena(arena); }   // S110 ENTRBODIES (the live drawer's crowd: Attach made it async)
 }  // namespace crowd
 
 bool ApplyCrowd(BuildCtx& ctx) {

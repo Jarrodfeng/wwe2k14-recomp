@@ -243,8 +243,7 @@ constexpr uint32_t kSlotTable = 0x836F38D0;  // 9 character pointers (match_stat
 constexpr uint32_t kMaxNodes = 1024;
 
 // S103 SKY: name every slot body from the game's character descriptor (slot_key.h), not the participant row. Off = the old row rule (slot < 6, rows 6..39 empty).
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_key_desc, true, "wwe2k14",
-                    "Stream-free wrestlers: the slot model key comes from the character's own model descriptor [[0x837635A4]+8]+192*[char+3760], +92 (S110 DESCKEY; right in a Royal Rumble, after a slot swap and across a scene build); false = the participant-row guess (slot < 6, rows 6..39 empty)");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_slot_key_desc);
 namespace sky_census {   // desc key vs the old row key, slots 0..5 (the first live sighting of a swap / remap / Rumble is differ / row_unusable)
 inline std::atomic<uint64_t> agree{0}, differ{0}, row_unusable{0};
 inline std::atomic<uint32_t> occupant_char[9] = {}, occupant_key[9] = {};

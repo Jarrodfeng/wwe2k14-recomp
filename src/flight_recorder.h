@@ -124,27 +124,14 @@
 // __imp__KeDelayExecutionThread calls wwe2k14::sleep::Delay with the recorder on or off). Keep that call if the
 // hook is ever changed or removed.
 
-REXCVAR_DEFINE_BOOL(wwe2k14_flight_recorder, false, "wwe2k14",
-                    "Flight recorder: per-thread rings of recent kernel calls, file opens, frames and script steps, "
-                    "dumped to logs/flight_NNN.txt on crash, abort or hang");
-REXCVAR_DEFINE_INT32(wwe2k14_flight_hang_seconds, 10, "wwe2k14",
-                     "Flight recorder: hang dump when no frame is presented for this many seconds (0 = off)");
-REXCVAR_DEFINE_INT32(wwe2k14_flight_hang_samples, 3, "wwe2k14",
-                     "Flight recorder: stack samples per thread in a hang dump (300 ms apart)");
-REXCVAR_DEFINE_INT32(wwe2k14_flight_dump_events, 32, "wwe2k14",
-                     "Flight recorder: newest events written per thread in a dump (main thread: 4x)");
-REXCVAR_DEFINE_INT32(wwe2k14_flight_gpu_dump_records, 48, "wwe2k14",
-                     "Flight recorder: newest GPU checkpoint records in a dump (needs vulkan_flight_gpu_records)");
-REXCVAR_DEFINE_INT32(wwe2k14_flight_max_hang_dumps, 5, "wwe2k14",
-                     "Flight recorder: at most this many hang dumps per run (0 = no limit)");
-REXCVAR_DEFINE_BOOL(wwe2k14_cache_trace, false, "wwe2k14",
-                    "Session 89 (the phone pinfall freeze): trace the cache: partition's files (MATCH HIGHLIGHTS' "
-                    "Spectacular.rps): every read / write / seek / query / flush / close on them ([wwe2k14][cachefile], "
-                    "with start lines), the kernel waits of the threads that use them ([wwe2k14][cachewait]) and every "
-                    "set / release / clear of the objects those threads wait on ([wwe2k14][cachesignal]). Noisy");
-REXCVAR_DEFINE_STRING(wwe2k14_flight_test, "", "wwe2k14",
-                      "Debug: forced failures for the flight recorder, comma-separated: hang@FRAME[:SECONDS], "
-                      "crash@FRAME, abort@FRAME, dump@FRAME, bench@FRAME (time the recording cost)");
+REXCVAR_DECLARE(bool, wwe2k14_flight_recorder);
+REXCVAR_DECLARE(int32_t, wwe2k14_flight_hang_seconds);
+REXCVAR_DECLARE(int32_t, wwe2k14_flight_hang_samples);
+REXCVAR_DECLARE(int32_t, wwe2k14_flight_dump_events);
+REXCVAR_DECLARE(int32_t, wwe2k14_flight_gpu_dump_records);
+REXCVAR_DECLARE(int32_t, wwe2k14_flight_max_hang_dumps);
+REXCVAR_DECLARE(bool, wwe2k14_cache_trace);
+REXCVAR_DECLARE(std::string, wwe2k14_flight_test);
 
 namespace rex::kernel::xboxkrnl {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in the public headers). Signatures copied

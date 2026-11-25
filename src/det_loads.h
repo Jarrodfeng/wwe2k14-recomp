@@ -33,10 +33,7 @@ inline constexpr uint64_t GuestFrameCap(int64_t cap_ms, int hz = 60) {
 
 #include <string>
 
-REXCVAR_DEFINE_STRING(wwe2k14_replay_loads, "slow", "wwe2k14",
-                      "S110 DETLOADS: loads in a replay recording / playback. slow = the load turbo, the fast loader and the "
-                      "boot-screen skip are forced off (today). fast = they stay as set, with their wall-clock rules replaced by "
-                      "guest-time rules (src/det_loads.h). The recording carries the value");
+REXCVAR_DECLARE(std::string, wwe2k14_replay_loads);
 
 namespace wwe2k14::det_loads {
 inline bool LoadsFast() { return REXCVAR_GET(wwe2k14_replay_loads) == "fast"; }

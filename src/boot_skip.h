@@ -50,12 +50,8 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_skip_boot_screens_black, true, "wwe2k14",
-                    "With wwe2k14_skip_boot_screens: keep the two screens black (they are not drawn) while "
-                    "their setup runs (Session 12, Jarrod)");
-REXCVAR_DEFINE_BOOL(wwe2k14_skip_boot_screens, true, "wwe2k14",
-                    "Skip the legal and 'Please do not try this at home' screens at boot: go from the startup load "
-                    "straight to the title (default ON since Session 12, Jarrod 2026-10-11 after the 95/95 roster sweep; =false restores them)");
+REXCVAR_DECLARE(bool, wwe2k14_skip_boot_screens_black);
+REXCVAR_DECLARE(bool, wwe2k14_skip_boot_screens);
 
 namespace wwe2k14 {
 

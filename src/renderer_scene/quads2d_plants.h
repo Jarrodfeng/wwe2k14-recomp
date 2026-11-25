@@ -60,7 +60,8 @@ inline int g_plant = 0;
 // 53 frame_reset_skipped OnFrameBoundary does not reset the thread's target / scissor at a new guest frame (the match's sticky pass_offscreen, a fresh thread's 100 % unknown)          -> [SC FRAME]   (sc_unit; PFR)
 // 54 save_ignored        the op-46 save table is neither written nor consulted (an op-45 restore reads the guest's empty / stale holder: the null-holder hole)                            -> [SC SAVE]   (sc_unit; PFR)
 // 52 seed_off            SeedTargetIfUnseen does nothing (a thread that never ran op 45 / 47 keeps an unknown target: every boot / title / menu row is a hole)   -> [SC SEED]   (sc_unit; PBS)
-// 60 scene_z_ignored    Append with Context::scene_depth takes no depth state from the row (test / write off, z not flipped)                                          -> [SCS DEPTH]
+// 60 scene_z_ignored    Append with Context::scene_depth takes no depth state from the row (test / write off)                                                        -> [SCS DEPTH]
+// 74 scene_z_flipped    a z-tested scene row's clip z is flipped z' = w - z (the S103 SCS rule: the lens star lands at the near plane and draws over the wrestlers)  -> [SCS DEPTH]   (scs_unit; S110 STARFRONT)
 // 65 rectcolor_leaf_hole  T_RectColor (0x82BC4404) is a Leaf2D hole again (the old table: the 30 Years narration caption's dark box never draws)  -> [A8 SITE] / [A8 TAP]   (a8_unit; the S105 A8 past-bug re-find)
 // 66 vcol_alpha_dropped   BlocksOf makes every corner of a T_RectColor row opaque (the 30 / 180 alpha gradient is lost)  -> [A8 BLOCKS]
 // 67 vcol_prim_any      BlocksOf / Quad2DRowProblem accept a T_RectColor row whatever its primitive (the strip too: laid out as a quad list)  -> [A8 PRIM]   (a8_unit; S105 A8 review F1)

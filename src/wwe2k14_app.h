@@ -48,6 +48,7 @@
 #include "lzx_probe.h"      // --wwe2k14_native_lzx (default on) / _verify / _lzx_probe / _corpus (Session 12)
 #include "load_probe.h"     // --wwe2k14_load_probe (Session 12, default off)
 #include "loader_cache_skip.h"  // S105 A6S: skip the loader RAM-cache copy (--wwe2k14_loader_cache_copy, test only)
+#include "scene_start_wait_hooks.h"   // S110 ENTRWAIT2: the game's scene start waits for our scene behind its loading card (sub_8232E1E8 / sub_82331BC0 / sub_8273D0C0 / sub_82331DD8)
 #include "scenario.h"       // --wwe2k14_scenario_observe (Session 9 Goal 1 step 1, default off)
 #include "cinecam.h"        // --wwe2k14_cinecam_* (Session 13, M6 CineCam, default off)
 #include "keep_stream.h"     // S103 P9: WWE2K14_KEEP_STREAM
@@ -91,9 +92,7 @@
 #include "scene_live/plane_contrib.h"  // lane 139: RegisterPlane (the plane shadow chain's constants), wired in OnPostSetup
 #include "scene_live/circle_contrib.h"  // lane 136: RegisterCircles (the circle blob shadows' constants), wired in OnPostSetup
 #include "scene_live/liquid_contrib.h"  // S103 SWF: RegisterLiquid (the wrestlers' liquid maps: sweat / blood items at the sweat node's entry), wired in OnPostSetup
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the guestmodel / weapons pattern)
-                    "S103 SWF (src/renderer_scene/liquid_switch.h, docs/systems/liquid_map.md): the wrestlers' sweat / blood liquid map is recorded at the sweat node's entry (the game's own items) and our renderer paints it and the skin reads it. "
-                    "Off by default in a build with the command stream (the stream draws its own); the stream-free build records it always (its own drawer needs it), whatever this says. Needs --wwe2k14_scene_records. Page-checked readers only");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_liquid_map);
 #include "logo_import.h"    // --wwe2k14_logo_import (Session 18, logo importer v0, default off)
 #include "audio_capture.h"  // --wwe2k14_audio_capture (Session 18, sound for re-shoots, default off)
 #include "precompile.h"     // --wwe2k14_precompile (Session 70: the launcher's precompile, default off)
@@ -128,6 +127,7 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 #include "situation_director.h"  // S101 lane 161: !director passive / momentum / stock (the situation director's first verbs; live channel + input script, default off)
 #include "wm30_boot.h"       // S103 lane WMB: --wwe2k14_wm30_direct (a 30 Years match with no 30 Years menus; owner-update tick, default off)
 #include "menu_goto.h"       // S110 GOTO: !page rec=N (a front-end flow record opened through the game's own mailbox; live channel, test / tooling path, off until used)
+#include "cas_launch.h"      // S110 CASENTRY: --wwe2k14_launch=@cas (Create a Superstar, no menu input) and --wwe2k14_cas_flow_dump (dev; owner-update tick, default off)
 #include "wm30_fire.h"     // S101 lane 108: !wm30 fire BANK (a 30 Years scene fired through the game's own Lua call 1003; live channel, default off)
 #include "upscale_guard.h"  // Session 37: a failed FSR turns itself off with a notice (with --wwe2k14_fsr)
 #include "direct_start.h"   // Session 53: a release started without the launcher (hand-off, settings file, message)
@@ -169,14 +169,12 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_liquid_map, false, "wwe2k14",   // S103 SWF (the
 
 // Debug: log big-endian guest words at launch, e.g. --wwe2k14_dump_words=0x835A97E4:11,0x82000000:4
 // (used to read jump tables and pointer tables that live inside the encrypted XEX).
-REXCVAR_DEFINE_STRING(wwe2k14_dump_words, "", "wwe2k14",
-                      "Comma-separated addr:count pairs of guest words to log at launch");
+REXCVAR_DECLARE(std::string, wwe2k14_dump_words);
 
 // Xenia's known-good 2K14 setting is gpu = "vulkan" (CLAUDE.md); its D3D12 path faults on this title
 // (PLAYBOOK: nvlddmkm event 153 -> "Graphics device lost"). Needs an SDK built with REXGLUE_USE_VULKAN=ON;
 // falls back to "any" if the plugin lacks the requested backend.
-REXCVAR_DEFINE_STRING(wwe2k14_gpu_backend, "vulkan", "wwe2k14",
-                      "GPU backend for the xenos plugin: vulkan, d3d12 or any");
+REXCVAR_DECLARE(std::string, wwe2k14_gpu_backend);
 
 // ReXGlue deliberately leaves cache: (the 360 HDD cache partition) unmounted (system/runtime.cpp SetupVfs),
 // so 2K14's opens of cache:\EditEx.cac and cache:\CAR.cac fail. Experiment for the Create a Logo ->
@@ -184,126 +182,63 @@ REXCVAR_DEFINE_STRING(wwe2k14_gpu_backend, "vulkan", "wwe2k14",
 // Session 7 prep: the same for the defaults added after Session 6 (see OnPreSetup).
 // Session 22 (2026-10-15, Jarrod: "ready to default" after his flicker check of the 165 bundle): the GPU winners of
 // Sessions 21-22 (see OnPreSetup).
-REXCVAR_DEFINE_BOOL(wwe2k14_s22_defaults, true, "wwe2k14",
-                    "Apply the Session 21-22 GPU defaults (no-op draw skip, upload hoist, one present per game frame, "
-                    "early texture loads, direct depth texture loads); false = Session 20 behaviour");
+REXCVAR_DECLARE(bool, wwe2k14_s22_defaults);
 // Session 23 (2026-10-15, Jarrod: make them defaults after reading SESSION23_SUMMARY.md): repeat draws (see OnPreSetup).
-REXCVAR_DEFINE_BOOL(wwe2k14_s23_defaults, true, "wwe2k14",
-                    "Apply the Session 23 GPU defaults (repeat draws: fast path + instanced merge of the crowd "
-                    "shaders); false = Session 22 behaviour");
+REXCVAR_DECLARE(bool, wwe2k14_s23_defaults);
 // Session 95: the CPU / upload power set, one switch, OFF until its check passes (each part is its own SDK flag and still
 // works alone; gpu_hot_pages_frames left the set in the review, `became hot` 0 in every log: vulkan_upload_hoist_merge, vulkan_hoist_tight_barrier, kernel_cs_spin_pause,
 // kernel_timestamp_tick_ms, present_ui_idle_wait_ms, wwe2k14_low_power_spin_us / _sleep_us, wwe2k14_load_turbo_vblank_hz).
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_light_states, false, "wwe2k14",
-                    "Session 101 lane 109: the per-draw light state (the render camera record R read at every model call) and the arena worlds (the palette matrix of every model call + the stage clock, lane 130) join the scene records. Needs --wwe2k14_scene_records. Off by default: it costs about 0.5 us per model call and nothing reads the tables live yet; the milestone capture turns it on");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_guestmodel, false, "wwe2k14",   // S103 LNT
-                    "S103 CW-2 (the guest model reader, the CAW bodies): reads the game's finished geometry for a model no record can name. Needs --wwe2k14_scene_records. Off by default in a build with the command stream "
-                    "(the stream draws those models itself: the reader would only cost time every frame); the stream-free build reads it always (its own drawer needs it), whatever this says. Page-checked readers only (never on a non-4 KB page kernel).");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_weapons, false, "wwe2k14",   // S103 PW
-                    "S103 PW (the weapons' rows): the weapon manager's slots (record section 59) and the per-call weapon rows (60 / 61) join the scene records. Needs --wwe2k14_scene_records. "
-                    "Off by default in a build with the command stream (it already draws the weapons: the readers would only cost time every frame); the stream-free build reads them always "
-                    "(its own drawer needs them), whatever this says. PW-2's per-call rows are never on Android (SafeCopy is not fault-safe there).");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_structs, true, "wwe2k14",   // S103 CGF review 1
-                    "S103 CGF: the match structures (steel cage, Hell in a Cell, Elimination Chamber, Inferno ring) are recorded from the game's holder and drawn by the stream-free build. On by default (without them the structures are missing). "
-                    "Off = no holder read and no structure rows (a diagnostic switch).");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gm_sets, true, "wwe2k14",   // S103 GBR
-                    "S103 GBR (docs\\research\\s103\\GMS.md): the Create-a-Story backstage set / Elimination Chamber extras (GMSK set objects of gm.pac) and the blood splats on the mat are recorded at the model-draw hook and drawn by the stream-free build. "
-                    "On by default (without them the story set is a bare room and blood never shows). Off = no set-object membership read and no splat read (a diagnostic switch).");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_stage_struct_family, "own", "wwe2k14",   // S103 CGF
-                      "S103 CGF (docs\\research\\s103\\CAGE.md): which of the stage structures' two submit families the drawer draws, never both: own = the category-26 own submit (slot 13, alpha [model+252]; the default), "
-                      "slot32 = the category-36 explicit-palette submit (alpha = the call's f1). The steel cage's two draw nodes submit the same models; which one reaches the colour picture is read in the step check (the census line "
-                      "'stage type ...'). A structure with only one family (the chamber, the Inferno) draws that one whatever this says.");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_fixed_props, false, "wwe2k14",   // S103 LDR
-                    "S103 LDR (docs\\research\\s103\\COV10_match_objects.md C1): draw the arena loader's FIXED copies of the ring steps (always variant 32) AND the commentary desk even when the record has weapon rows, as before (both come back; with the rows the old double desk and doubled steps). Off by default: a record with weapon rows "
-                    "the weapon manager's own rows draw the steps (the arena's own colour, 29 / 32 / 35) and the desk, once each, where the game puts them. A diagnostic switch (the two drawn together = the old double desk).");
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_arena_clock_dev, false, "wwe2k14",   // S103 RCL
-                    "S103 RCL (DEV ONLY): the arena worlds contributor also writes the kAwClock row (frame - the MotionSetup origin). That clock is the hypothesis Check J1 disproved (c186 is never frame - origin; the real clock is the part clock, kScPartClocks): only the d3 proof compare (the clock_origin plant) reads it. Needs --wwe2k14_scene_light_states. Off by default and never fed to a picture");
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_circles, false, "wwe2k14",   // lane 136
-                    "Session 101 lane 136: the circle blob shadows' constants (c0 ShadowParam, ViewProj, the 21 body points) and their disc mesh join the scene records, read at the game's own upload (sub_82812E90). "
-                    "Needs --wwe2k14_scene_records. Also switched on by --wwe2k14_rdr_circles_ours. Off by default: three compares per constant upload, a few reads on the four a frame that match");
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_plane, false, "wwe2k14",   // lane 139
-                    "Session 101 lane 139: the plane shadow chain's vertex constants (the mask's PlaneInv, camera, ShadowDistance, PlanePos, EyePos, palette; the blur's matrix) join the scene records, read at the game's own "
-                    "uploads (sub_82BF22C8 / sub_827ECD10) and snapshot at the draws. Needs --wwe2k14_scene_records. Also switched on by --wwe2k14_rdr_plane_shadow_ours. Off by default: a range compare per constant upload");
-REXCVAR_DEFINE_BOOL(wwe2k14_s95_lean, false, "wwe2k14",
-                    "Session 95: turn on the CPU / upload power set (merged hoisted copies, tight "
-                    "hoist barriers, critical section PAUSE spin, 4 ms kernel timer, 8 ms UI idle wait, no render-thread spin, "
-                    "load turbo at 4 kHz). Each flag below still wins when set on the command line.");
-REXCVAR_DEFINE_BOOL(wwe2k14_s7_defaults, true, "wwe2k14",
-                    "Apply the Session 7 GPU command-processor optimisation defaults (false = Session 6 behaviour)");
+REXCVAR_DECLARE(bool, wwe2k14_scene_light_states);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_guestmodel);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_weapons);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_structs);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_gm_sets);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_stage_struct_family);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_fixed_props);
+REXCVAR_DECLARE(bool, wwe2k14_scene_arena_clock_dev);
+REXCVAR_DECLARE(bool, wwe2k14_scene_circles);
+REXCVAR_DECLARE(bool, wwe2k14_scene_plane);
+REXCVAR_DECLARE(bool, wwe2k14_s95_lean);
+REXCVAR_DECLARE(bool, wwe2k14_s7_defaults);
 
 // Session 7b: one switch for 1440p 60 fps (see OnPreSetup).
 // Session 8 (2026-10-09): ON by default, Jarrod's decision after his visual check of review batch 1 (edges, crowd,
 // motion, menus, Create a Wrestler all clean at 1440p/4K). =false restores the original look (720p, the game's 4x MSAA,
 // 30 fps entrances). Later: follow the monitor's native resolution.
-REXCVAR_DEFINE_BOOL(wwe2k14_preset_1440p60, true, "wwe2k14",
-                    "1440p 60 fps (default on): no MSAA, resolution_scale=2, 60 fps entrances, skip unchanged "
-                    "re-uploads; =false restores the original 720p / 4x MSAA / 30 fps entrance look");
+REXCVAR_DECLARE(bool, wwe2k14_preset_1440p60);
 // Session 7c: the same at 4K (resolution_scale=3).
-REXCVAR_DEFINE_BOOL(wwe2k14_preset_4k60, false, "wwe2k14",
-                    "4K 60 fps: as wwe2k14_preset_1440p60, but resolution_scale=3");
+REXCVAR_DECLARE(bool, wwe2k14_preset_4k60);
 // Session 41 (low-spec step 2, docs\native\LOWSPEC_PLAN.md): one switch for integrated graphics (see OnPreSetup).
-REXCVAR_DEFINE_BOOL(wwe2k14_preset_low, false, "wwe2k14",
-                    "Session 41: the LOW preset for integrated graphics: 720p (resolution_scale=1, no MSAA), the "
-                    "native renderer (gpu_native=2; the SDK turns it off without the interlock path, where the light "
-                    "renderer's fixes apply), exact cheap clears (gpu_fast_clear), 30 fps (game step 30 in matches, "
-                    "stock 30 fps entrances), a shorter vblank spin. Default off; "
-                    "the launcher's LOW choice and its first-run wizard on integrated graphics set it");
+REXCVAR_DECLARE(bool, wwe2k14_preset_low);
 // Session 43 (stretch S4, docs\native\STEAM_DECK.md): groundwork for a Steam Deck preset (see OnPreSetup). Default
 // off; nothing detects the Deck yet. Untested on a Deck.
-REXCVAR_DEFINE_BOOL(wwe2k14_preset_deck, false, "wwe2k14",
-                    "Session 43 (groundwork, untested on a Deck): the Steam Deck preset - 1280x720 (resolution_scale=1, "
-                    "no MSAA; letterboxed in the Deck's 1280x800), the native renderer (gpu_native=2; RADV under Proton "
-                    "has fragment shader interlock), exact cheap clears, 60 fps entrances and matches (the game's own "
-                    "steps), a shorter vblank spin. Default off");
+REXCVAR_DECLARE(bool, wwe2k14_preset_deck);
 // Session 22 item 1: one switch for a 165 Hz monitor (default off until Jarrod's flicker check; see OnPreSetup).
-REXCVAR_DEFINE_BOOL(wwe2k14_preset_165, false, "wwe2k14",
-                    "165 Hz setup (experiment, default off): Session 21's GPU winners, the match at 165 game steps "
-                    "per second and entrances at 144 (step_vblank), mailbox presentation");
+REXCVAR_DECLARE(bool, wwe2k14_preset_165);
 
 // Session 95 (item F6, gpu_d3d_decouple phase 2): 120 presented pictures a second at logic 60, in place of 120 whole game steps a second.
-REXCVAR_DEFINE_BOOL(wwe2k14_decouple_120, false, "wwe2k14",
-                    "Session 95 (EXPERIMENTAL, default off; read at start): the 120FPS mode as two pictures per game step - sets gpu_d3d_decouple=9 and "
-                    "gpu_d3d_decouple_word=0 (the owned passes render 2 views, the second a half tick on; SDK decouple_blend.cpp) when those are left at "
-                    "default. The game steps at its own 60 (no wwe2k14_step_hz / step_vblank); the launcher's mapping (gfx_settings.h, "
-                    "mobile_settings.h) pushes the same pair for FRAME RATE 120 when WWE2K14_DECOUPLE_120=1 is in its environment"); 
+REXCVAR_DECLARE(bool, wwe2k14_decouple_120); 
 
 // Session 6: one switch for all of this session's command-processor optimisation defaults (see OnPreSetup).
-REXCVAR_DEFINE_BOOL(wwe2k14_s6_defaults, true, "wwe2k14",
-                    "Apply the Session 6 GPU command-processor optimisation defaults (false = Session 5 behaviour)");
+REXCVAR_DECLARE(bool, wwe2k14_s6_defaults);
 
 // Session 101 (Jarrod 2026-11-13 02:4x stretch interview, DECISIONS): where a class passed its Check K rows, its promotion goes DEFAULT ON on the
 // session branch only (unreleased; a release decides it again). PC and phone (the phone since 2026-11-13 11:1x, Jarrod: the night APK must show tonight's work).
 // Bundle 2 DEFAULT ON since 2026-11-13 15:2x (Jarrod: "I want everything on"; DECISIONS), PC and phone (the RC APK playtest is its first phone run).
-REXCVAR_DEFINE_BOOL(wwe2k14_s101_promotions2, true, "wwe2k14",
-                    "Session 101, bundle 2 (default on, PC and phone): --wwe2k14_rdr_readback_async + _defer (replay thumbnail, run 7164), "
-                    "--wwe2k14_owner_boot_submit_ours + --wwe2k14_owner_guest_gpu_only (no emulated 360 GPU, 7163), --wwe2k14_owner_vblank_ours "
-                    "(our own vblank, 7184 / 7185 / 7188). The D3 skips (caster / ring / plane / crowd member / arena) are proven but off for this "
-                    "release (Surface: they cost the render thread more than they save). Each only if left at default; false = all of them off.");
+REXCVAR_DECLARE(bool, wwe2k14_s101_promotions2);
 // S102 bundle 3 (Jarrod 2026-11-15 08:1x, DECISIONS): every renderer lever the Surface measured and kept (tools\surface\base_flags.txt minus the bench-fidelity and diagnostic lines) is a player default, PC and phone.
-REXCVAR_DEFINE_BOOL(wwe2k14_s102_bundle3, true, "wwe2k14",
-                    "S102 bundle 3 (default on, PC and phone): the renderer levers the Surface measured and kept (src/bundle3.h, docs/renderer/BUNDLE3.md), plus the stale-image fix --wwe2k14_rdr_run_end_keep. "
-                    "Each only if left at default (the command line, a +dev APK's dev_flags.txt and a launcher file win). Needs --wwe2k14_s101_promotions. false = v0.3.2's defaults.");
-REXCVAR_DEFINE_BOOL(wwe2k14_s101_promotions, true, "wwe2k14",
-                    "Session 101 branch: start the PC in owner mode with every renderer promotion that passed Check K (the J+ set: crowd, cards, floor, "
-                    "arena, ring, wrestlers, props, flashes, particles, UI, UI text / quads, casters, shadows, rim + rim chain, screens, post, movie, small "
-                    "passes, circles; scene records + light states, which they read). Each only if left at default; false = the old PC defaults in one flag. "
-                    "Not the plane shadow (it needs casters off), not the cuts (arena / ring / caster D3, bake skip, card thin, copy alias). PC and phone");
+REXCVAR_DECLARE(bool, wwe2k14_s102_bundle3);
+REXCVAR_DECLARE(bool, wwe2k14_s101_promotions);
 
 #if defined(__ANDROID__)
-REXCVAR_DEFINE_INT32(wwe2k14_android_pin_cpu, -1, "wwe2k14",
-                     "Session 63 (Android, diagnosis): run the game on this CPU core only (-1 = off)");
+REXCVAR_DECLARE(int32_t, wwe2k14_android_pin_cpu);
 #endif
 
 // Session 83 (GitHub #61 / #80): default on. MATCH HIGHLIGHTS needs it: sub_8260AC58 checks cache:\ for 157 MB free
 // (2400 x 64 KB), creates cache:\Spectacular.rps at that size and only then sets the replay flag 0x83767CF8; without
 // cache: the post-match menu's MATCH HIGHLIGHTS was off in every build. The game also creates CAR.cac / EditEx.cac.
-REXCVAR_DEFINE_BOOL(wwe2k14_present_mailbox, false, "wwe2k14",
-                    "Session 83 (GitHub #79): with vsync on, present MAILBOX instead of the SDK's IMMEDIATE (no tearing "
-                    "on screens without G-SYNC / FreeSync). Off by default: it made entrances choppier in the v0.2.17 "
-                    "release check");
-REXCVAR_DEFINE_BOOL(wwe2k14_mount_cache, true, "wwe2k14",
-                    "Mount <user data>/cache_partition as the Xbox 360 HDD cache partition (cache:); MATCH HIGHLIGHTS "
-                    "needs it (the game keeps its replay file there)");
+REXCVAR_DECLARE(bool, wwe2k14_present_mailbox);
+REXCVAR_DECLARE(bool, wwe2k14_mount_cache);
 
 // Session 95 (flat guest memory): the generated code's offset (the codegen template) and the SDK header's must agree, or our
 // hooks and the recompiled code read the 0xE0000000 range 4 KB apart. An SDK update without a fresh codegen stops here.

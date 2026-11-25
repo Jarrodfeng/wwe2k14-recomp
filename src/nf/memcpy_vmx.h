@@ -42,8 +42,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_memcpy_vmx, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
-                      "Session 66: native version of sub_82261340 (vector-unit memcpy): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_memcpy_vmx);
 
 REX_EXTERN(__imp__sub_82261340);
 

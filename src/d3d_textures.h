@@ -62,14 +62,8 @@
 #include "scene_live/movie_planes_tap.h"  // S103 P4: the movie planes from guest memory at this flush (default off)
 #include "scene_live/screen_planes_hook.h"  // S103 M: the stage screens' live pictures are copied at this flush (a pointer call, free with --wwe2k14_rdr_scene = 0)
 
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_textures, 0, "wwe2k14",
-                     "Session 87 (D3D layer stage 4, textures): 0 = off; 1 = registry + trace logging only; 2 = the cut: texture "
-                     "objects registered from the create / destroy hooks, a slot's object id carried to the SDK, whose texture "
-                     "cache binds by the object's identity (needs the layer, no-ring level 3 and gpu_d3d_tex_abi)")
-    .range(0, 2);
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_textures_log_max, 6000, "wwe2k14",
-                     "Session 87 (D3D layer stage 4, textures): at most N create / destroy / flush lines in the trace mode (the rest "
-                     "are counted in the census)");
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_textures);
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_textures_log_max);
 
 REX_EXTERN(__imp__sub_82CA87C0);
 REX_EXTERN(__imp__sub_82CAD760);

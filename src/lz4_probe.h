@@ -20,9 +20,7 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_lz4_probe, false, "wwe2k14",
-                    "Log every call of the game's LZ4 block decoder (sub_82C50408) with its sizes and time "
-                    "(Session 15 extension, E1)");
+REXCVAR_DECLARE(bool, wwe2k14_lz4_probe);
 
 namespace wwe2k14::lz4_probe {
 inline std::atomic<uint64_t> g_calls{0}, g_us{0}, g_bytes{0};

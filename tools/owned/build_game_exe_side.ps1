@@ -10,6 +10,8 @@
 # the main build's other objects (read only) into <Out>\wwe2k14.exe (+ .map). The rex*.dll next to it are NOT copied (fast_build
 # stages the SDK worktree's DLLs next to the exe). Takes the BUILD class of the run lock like fast_build.
 # Not for releases (the main build with its pinned SDK is the only release path).
+# S110 CVARSHARD: the cvar DEFINITIONS are in src\cvars\*.cpp (tools\compile\cvar_shard.py), not in main.cpp's headers: they are compiled here too (their
+# main-build commands, objects in -Out) and take their objects' places. A main build without them (older than CVARSHARD) is refused (exit 3).
 param([Parameter(Mandatory)][string]$Out, [double]$LockWaitMinutes = 30)
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
@@ -25,13 +27,22 @@ $cmds = @(ninja -t commands wwe2k14.exe)
 Pop-Location
 $compile = $cmds | Where-Object { $_ -match '-c C:/Users/Jarrod/wwe2k14-recomp/src/main\.cpp$' } | Select-Object -First 1
 if (-not $compile) { 'build_game_exe_side: no main.cpp compile command in the main build'; exit 3 }
+$shardCmds = @($cmds | Where-Object { $_ -match '-c C:/Users/Jarrod/wwe2k14-recomp/src/cvars/[\w.]+\.cpp$' })
+$shardSrc = @(Get-ChildItem -LiteralPath "$R\src\cvars" -Filter '*.cpp' -File -ErrorAction SilentlyContinue)
+if ($shardSrc.Count -ne $shardCmds.Count) { "build_game_exe_side: REFUSED: src\cvars has $($shardSrc.Count) unit(s), the main build compiles $($shardCmds.Count) (built before S110 CVARSHARD, or a unit was added since): rebuild it first (tools\build.ps1)"; exit 3 }
+$shardMap = @{}
+$shardCmds = @(foreach ($c in $shardCmds) {
+    if ($c -notmatch '-o (CMakeFiles/wwe2k14\.dir/src/cvars/([\w.]+)\.obj)') { "build_game_exe_side: no object in the command: $c"; exit 3 }
+    $shardMap[$Matches[1]] = "$Out\$($Matches[2]).obj"
+    $c -replace ' -MD -MT \S+ -MF \S+', '' -replace [regex]::Escape("-o $($Matches[1])"), "-o `"$Out\$($Matches[2]).obj`""
+})
 # the compile command with its outputs moved: no dep file, object in -Out
 $compile = $compile -replace ' -MD -MT \S+ -MF \S+', '' -replace '-o CMakeFiles/wwe2k14\.dir/src/main\.cpp\.obj', "-o `"$Out\main.obj`""
 # the link: the object list is the build statement's explicit inputs (relative to the main build folder)
 $line = $ninja | Where-Object { $_ -like 'build wwe2k14.exe: CXX_EXECUTABLE_LINKER__wwe2k14_Release *' } | Select-Object -First 1
 $inputs = ($line -replace '^build wwe2k14\.exe: CXX_EXECUTABLE_LINKER__wwe2k14_Release ', '') -split ' \| ' | Select-Object -First 1
 $outFwd = $Out.Replace([string][char]92, '/'); $bFwd = $B.Replace([string][char]92, '/')
-$objs = $inputs -split ' ' | Where-Object { $_ } | ForEach-Object { if ($_ -like '*src/main.cpp.obj') { "`"$outFwd/main.obj`"" } else { "`"$bFwd/$_`"" } }  # (forward slashes: a response file takes a backslash as an escape)
+$objs = $inputs -split ' ' | Where-Object { $_ } | ForEach-Object { if ($_ -like '*src/main.cpp.obj') { "`"$outFwd/main.obj`"" } elseif ($shardMap.ContainsKey($_)) { "`"$($shardMap[$_].Replace([string][char]92, '/'))`"" } else { "`"$bFwd/$_`"" } }  # (forward slashes: a response file takes a backslash as an escape)
 $libsLine = $ninja | Where-Object { $_ -like '  LINK_LIBRARIES = *' } | Select-Object -First 1
 $libs = $libsLine -replace '^  LINK_LIBRARIES = ', ''
 $rsp = "$Out\wwe2k14.rsp"
@@ -45,6 +56,10 @@ try {
     cmd /c "$compile 2>&1"
     if ($LASTEXITCODE -ne 0) { "build_game_exe_side: main.cpp failed ($LASTEXITCODE)"; exit 5 }
     "main.cpp compiled in $([int]((Get-Date) - $t0).TotalSeconds) s"
+    foreach ($c in $shardCmds) {
+      cmd /c "$c 2>&1"
+      if ($LASTEXITCODE -ne 0) { "build_game_exe_side: a src\cvars unit failed ($LASTEXITCODE)"; exit 5 }
+    }
     cmd /c "$link 2>&1"
     if ($LASTEXITCODE -ne 0) { "build_game_exe_side: link failed ($LASTEXITCODE)"; exit 6 }
   } finally { Pop-Location }

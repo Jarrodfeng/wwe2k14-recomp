@@ -28,6 +28,7 @@
 #include "sampling_profiler.h"
 #include "file_trace.h"  // --wwe2k14_file_trace (Session 8 task 7, default off)
 #include "load_watch.h"  // S105 A6W: the loader watch counters
+#include "renderer_scene/game_load_follow.h"  // S110 ENTRBLACK round 5: the arena pac the game opens is asked for at once (pure header)
 #include "native_mem_probe.h"  // Session 100 strip-360 D2: the game's free-memory probes by binary search (--wwe2k14_native_mem_probe)
 #include "mem_plan.h"  // S110 REPLAN: one boot plan for the game's per-slot memory budgets (--wwe2k14_mem_plan)
 #include "guest_peek.h"  // --wwe2k14_peek (Session 8 task 7 menu/UI, default off)
@@ -68,14 +69,11 @@ void VdSwap_entry(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped_void unk
                   mapped_u32 color_space_ptr, mapped_u32 width, mapped_u32 height);
 }  // namespace rex::kernel::xboxkrnl
 
-REXCVAR_DEFINE_BOOL(wwe2k14_log_file_opens, true, "wwe2k14",
-                    "Log every file the game opens or creates, with the result");
+REXCVAR_DECLARE(bool, wwe2k14_log_file_opens);
 
 // Port of Xenia's ignore_offset_for_ranged_allocations (CLAUDE.md known-good setting for 2K14).
 // ReXGlue v0.10.0 deliberately left it out (see the NOTE in src/kernel/xboxkrnl/xboxkrnl_memory.cpp).
-REXCVAR_DEFINE_BOOL(wwe2k14_ignore_offset_for_ranged_allocations, true, "wwe2k14",
-                    "Xenia's ignore_offset_for_ranged_allocations: don't apply the heap's physical "
-                    "address offset when a physical allocation passes both min and max addresses");
+REXCVAR_DECLARE(bool, wwe2k14_ignore_offset_for_ranged_allocations);
 
 // Session 15 (A3): the game sizes its memory pools by asking for a block, then 1 MB less, ... until one fits (~480
 // tries per pool, 5-8 pools per load; run 1089). Most tries ask for more than their whole min..max range (e.g. 0x1BA00000
@@ -84,15 +82,9 @@ REXCVAR_DEFINE_BOOL(wwe2k14_ignore_offset_for_ranged_allocations, true, "wwe2k14
 // 9,740 of a run's 11,889 lines, ~6 ms per pool. With this on, a ranged request whose page-rounded size exceeds the
 // range plus every rounding the SDK can add (alignment + page size + 64 KB) returns 0 at once: the same result, no
 // SDK call. _verify: call the SDK anyway and log any request it would have satisfied (never expected).
-REXCVAR_DEFINE_BOOL(wwe2k14_phys_alloc_fast_fail, false, "wwe2k14",
-                    "Return 0 at once for a ranged MmAllocatePhysicalMemoryEx that cannot fit its range (the game's "
-                    "pool-size probing; skips ReXGlue's two error lines per try). Session 15, default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_phys_alloc_fast_fail_verify, false, "wwe2k14",
-                    "wwe2k14_phys_alloc_fast_fail: still call ReXGlue for each skipped request and log a mismatch if "
-                    "it succeeds (the allocation is then kept and returned)");
-REXCVAR_DEFINE_BOOL(wwe2k14_cache_all_files, false, "wwe2k14",
-                    "Session 88: let the game open cache:\\CAR.cac and cache:\\EditEx.cac (refused by default: suspected "
-                    "cause of v0.2.17's endless loading screens; only MATCH HIGHLIGHTS' file uses cache:)");
+REXCVAR_DECLARE(bool, wwe2k14_phys_alloc_fast_fail);
+REXCVAR_DECLARE(bool, wwe2k14_phys_alloc_fast_fail_verify);
+REXCVAR_DECLARE(bool, wwe2k14_cache_all_files);
 
 namespace wwe2k14 {
 
@@ -275,6 +267,7 @@ inline void LogFileOpen(const char* call, ppc_ptr_t<rex::system::X_OBJECT_ATTRIB
   g_frame_file_opens.fetch_add(1, std::memory_order_relaxed);  // Session 73 (frame_stats.h)
   load_probe::NoteOpen(path.data(), path.size(), result, handle_out ? uint32_t(*handle_out) : 0);  // S105 A6W: PAC opens only, before the log switch below
   if (result == 0) g_input_script.OnFileOpened(path);  // wait_file sync points / recording comments
+  if (result == 0) rdr_scene::loadfollow::NoteGameOpen(path);  // S110 ENTRBLACK round 5: pac\bg\bgNN.pac -> our arena load starts with the game's
   if (result == 0) bookmark::NoteFileOpen(g_guest_frame);  // Session 29: no automatic bookmark right after a load
   if (result == 0) g_load_turbo.OnFileOpened(path);    // no-op unless --wwe2k14_load_turbo*
   if (result == 0 && g_readback_file_hook) g_readback_file_hook(path, g_guest_frame.load());  // --wwe2k14_readback_loads
@@ -404,6 +397,9 @@ inline void VdSwapOverride(mapped_void buffer_ptr, mapped_void fetch_ptr, mapped
 }  // namespace wwe2k14
 
 #include "heap_alloc_log.h"  // S110 PAC176CRASH diagnostic: --wwe2k14_heap_alloc_log (DEV ONLY, default off); needs GuestCallerForLog above
+#include "table_act_log.h"   // S110 TABLEACTLOG diagnostic: --wwe2k14_table_act_log (DEV ONLY, default off); needs GuestCallerForLog above
+#include "table_break.h"     // S110 TABLEEVENT / TABLELATCH: the bus's `break what=table`, from the hooks of the latch writers sub_825DDEC0 / sub_825DDFA0
+#include "move_log_hook.h"   // S110 BUSMOVE: the bus's `move` line, from the hooks of the move log sub_825A14A8 and the offer loop sub_826BB6F0
 
 REX_HOOK(__imp__MmAllocatePhysicalMemoryEx,wwe2k14::MmAllocatePhysicalMemoryExOverride)
 REX_HOOK(__imp__NtCreateFile, wwe2k14::NtCreateFileOverride)

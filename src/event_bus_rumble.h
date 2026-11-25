@@ -178,48 +178,67 @@ bool Tick(State& st, M& m, uint64_t frame, bool clock_running, E&& emit) {
   return true;
 }
 
-// ---- the move event (lane 113): char+2486 = the waza slot, char+2488 = the move id, ring slots 0..5
+// ---- the move event (lane 113; S110 BUSMOVE + fix 2, docs/research/s110/BUSMOVE.md): one line when a LOGGED move's motion starts.
+// The game logs a pick with sub_825A14A8 (slot, waza, move: char+2486 / +2488, the pending log; several writers may log one pick: run 002's
+// Yes Lock was logged by the chooser sub_826056E0 +7F0 and again 10 frames later by its executor sub_82602DE0 +1994, the same record's
+// +88 / +92, the hold branch +18E0 / +19EC), and the motion start latches the pending log into the character's current move:
+// sub_823CA4B0 (vslot 9 of the animated objects) on [obj+24] == 4 (a character) copies +2484..+2488 to +2490..+2494 and clears the log
+// (+104..+130). src/move_log_hook.h hooks it and calls MoveLatch after it with the latched words; one latch = at most one line, however
+// many log calls came before it. A latch is a play unless:
+//   - none: the log was empty (waza 0xFFFF or move 0: every motion start after the first of a move);
+//   - offer: the pending log was written last by the grapple-start offer loop sub_826BB6F0 (+C0: moveset slots 14..18 logged in turn right
+//     after the grapple's motion starts, sub_826BB818 +8EC / +8F4, sub_826BD750 +1268 / +1298; nothing is picked, but the next motion
+//     start latches what it left). A GUARD for that one writer, fed by the log hook's MoveLog;
+//   - a continuation: the slot's previous latch was a play of this same waza (a re-log writer passed r4 = u16 [char+2492], the move it is
+//     in, and the move's next motion latched it again: sub_8253E380, sub_82685640, sub_826DBFF0, sub_82759070, sub_8277FD40, sub_82606B68,
+//     sub_823F8F70, sub_826C6828 +CC..+E4).
+// So the same finisher played again after a motion of anything else is a second line. Ring slots 0..5. Reads only.
 struct MoveState {
-  std::array<int64_t, 6> seen{-2, -2, -2, -2, -2, -2};
-  std::array<uint32_t, 6> ptr{};
+  std::array<int64_t, 6> prev{-2, -2, -2, -2, -2, -2};  // the slot's previous latch: a play's waza, kMoveNone, kMoveOffer
+  std::array<uint32_t, 6> ptr{};                         // the character that latch was on (a new character has no previous latch)
+  std::array<uint32_t, 6> offer_ptr{};                   // the character whose pending log the offer loop wrote last (0: none)
 };
+
+constexpr uint32_t kMoveNowWaza = 2492, kMoveNowMove = 2494;  // char+2492 / +2494 (u16): the latched waza / move (sub_823CA4B0 +120 / +124)
+constexpr int64_t kMoveNone = -2, kMoveOffer = -3;
 
 // [L] the slot-to-class naming is unconfirmed (sub_825FE118 may reverse it): 15-16 signature, 17-19 finisher, else normal.
 inline const char* MoveClass(int waza) { return waza >= 15 && waza <= 16 ? "signature" : (waza >= 17 && waza <= 19 ? "finisher" : "normal"); }
 
-// emit(fields) with the kind "move". all = also normal moves.
-// LIMIT (documented, pinned by the tests): the game's logger sub_825A14A8 clears and rewrites the halfwords inside one call, so this poll never
-// sees the clear: the SAME (waza, move) twice in a row on one character (a repeat after a reversal) is one line, not two. A real fix needs a
-// hook on sub_825A14A8 (a [[midasm_hook]], which means regenerating the recompiled code: not offline-verifiable, left out).
-// A character first seen (a new pointer) only stores its key: its halfwords may be stale from the recycled object.
+// One call of the move log sub_825A14A8 (r3 = slot): who wrote the pending log last (offer = inside the offer loop sub_826BB6F0).
+template <class M>
+void MoveLog(MoveState& st, M& m, uint32_t slot, bool offer) {
+  if (slot >= 6) return;
+  st.offer_ptr[slot] = offer ? Char(m, slot) : 0;
+}
+
+// One latch (sub_823CA4B0 has just run on character c, [c+24] == 4): emit(fields) with the kind "move" when it is a play. all = also
+// normal moves.
 template <class M, class E>
-void MoveTick(MoveState& st, M& m, bool all, E&& emit) {
-  for (uint32_t slot = 0; slot < 6; ++slot) {
-    const uint32_t c = Char(m, slot);
-    if (!c) {
-      st.seen[slot] = -2;
-      st.ptr[slot] = 0;
-      continue;
-    }
-    const int64_t idx = m.r16(c + 2486), mv = m.r16(c + 2488);
-    const bool cleared = idx == 0xFFFF || mv == 0;
-    const int64_t key = cleared ? -2 : ((idx << 16) | mv);
-    if (c != st.ptr[slot]) {  // first sight of this character: remember, never emit
-      st.ptr[slot] = c;
-      st.seen[slot] = key;
-      continue;
-    }
-    if (cleared) {
-      st.seen[slot] = -2;
-      continue;
-    }
-    if (key == st.seen[slot]) continue;
-    st.seen[slot] = key;
-    const char* cls = MoveClass(int(idx));
-    if (!all && cls[0] == 'n') continue;
-    emit(std::string("\"slot\": ") + S(slot) + ", \"id\": " + S(CharacterId(m, c)) + ", \"waza\": " + S(idx) + ", \"move\": " + S(mv) +
-         ", \"class\": \"" + cls + "\"");
+void MoveLatch(MoveState& st, M& m, uint32_t c, bool all, E&& emit) {
+  const uint32_t slot = m.r32(c + 1220);
+  if (slot >= 6 || Char(m, slot) != c) return;
+  if (c != st.ptr[slot]) {
+    st.ptr[slot] = c;
+    st.prev[slot] = kMoveNone;
   }
+  const bool offer = st.offer_ptr[slot] == c;
+  st.offer_ptr[slot] = 0;  // the latch cleared the log (sub_823CA4B0 +128..+130)
+  const int64_t idx = int64_t(m.r16(c + kMoveNowWaza)), mv = int64_t(m.r16(c + kMoveNowMove));
+  if (idx == 0xFFFF || mv == 0) {  // the log's own "none" (sub_825A14A8 +38 / +3C, sub_823CA4B0 +12C / +130): a motion of no logged move
+    st.prev[slot] = kMoveNone;
+    return;
+  }
+  if (offer) {  // what the offer loop left, latched by the next motion: not a play
+    st.prev[slot] = kMoveOffer;
+    return;
+  }
+  if (idx == st.prev[slot]) return;  // a continuation: re-logged as the move it is in, latched by its next motion
+  st.prev[slot] = idx;
+  const char* cls = MoveClass(int(idx));
+  if (!all && cls[0] == 'n') return;
+  emit(std::string("\"slot\": ") + S(slot) + ", \"id\": " + S(CharacterId(m, c)) + ", \"waza\": " + S(idx) + ", \"move\": " + S(mv) +
+       ", \"class\": \"" + cls + "\"");
 }
 
 }  // namespace wwe2k14::events::rumble

@@ -609,6 +609,10 @@ struct LiveCrowd::Impl {
       asset_info[i] = ParseAsset(t, t.assets[i]);
       if (a < 0 && asset_info[i].valid && asset_info[i].arena >= 0) a = asset_info[i].arena;
     }
+    SetArena(a);
+  }
+  // S110 ENTRBODIES: the arena half of SyncArena (LiveCrowd::PrefetchArena names the arena before any record carries the crowd). a < 0 = none named: nothing changes.
+  void SetArena(int a) {
     // S103 CAR fix 5: a created arena whose parts changed (another save slot, the editor) is a new arena for the crowd: the old selection's bodies go the same way
     const std::string car_key = a >= 0 && assets::car::IsCustomId(a) ? assets::car::Current().Key() : std::string();
     if (a >= 0 && (a != arena || (!car_key.empty() && car_key != car_key_seen))) {
@@ -1066,6 +1070,18 @@ LiveCrowd::PrefetchResult LiveCrowd::Prefetch(const SceneTables& t) {
     if (r.why.empty()) r.why = s.card_model < 0 ? "no card quad model" : "DrawInstanced would refuse the card quad";
   }
   return r;
+}
+
+bool LiveCrowd::PrefetchArena(int arena) {   // S110 ENTRBODIES: Prefetch's background loop (every class of the arena) with the arena the game named
+  Impl& s = *impl_;
+  if (arena < 0) return true;
+  s.SetArena(arena);
+  s.adopted = 0;
+  LiveCrowdCounts tmp;
+  bool all = true;
+  for (uint32_t k = 0; k < kClasses; ++k)
+    if (s.Resolve(k / kTypes, k % kTypes, tmp) == nullptr && !s.classes[k].failed) all = false;
+  return all;
 }
 
 void LiveCrowd::SetRecord(const SceneTables* record) { impl_->record = record; }

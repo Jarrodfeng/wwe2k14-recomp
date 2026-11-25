@@ -50,6 +50,9 @@ def build(header_text, tmp, tag, verb_text=None, place_text=None):
         f.write(verb_text if verb_text is not None else open(os.path.join(REPO, 'src', 'situation_state_verb.h'), encoding='utf-8').read())
     with open(os.path.join(inc, 'situation_place_verb.h'), 'w', encoding='utf-8') as f:   # S110 PLACE: the core includes this one too
         f.write(place_text if place_text is not None else open(os.path.join(REPO, 'src', 'situation_place_verb.h'), encoding='utf-8').read())
+    for extra in ('situation_fire_verb.h', 'table_fire_core.h', 'chooser_press_core.h'):   # S110 FIRETABLE: the core includes these (shipped copies)
+        with open(os.path.join(inc, extra), 'w', encoding='utf-8') as f:
+            f.write(open(os.path.join(REPO, 'src', extra), encoding='utf-8').read())
     exe = os.path.join(inc, 'director_test.exe')
     r = subprocess.run([find_clang(), '-std=c++17', '-I', inc, os.path.join(HERE, 'director_test.cpp'), '-o', exe], capture_output=True, text=True, timeout=180)
     if r.returncode != 0 or not os.path.isfile(exe):
@@ -148,6 +151,17 @@ PLANTS = [
     ('place_wrong_yaw_offset', r'kYawOff = 148;', 'kYawOff = 152;', 'place'),
     ('place_wrong_place_offset', r'kPlaceOff = 70;', 'kPlaceOff = 71;', 'place'),
     ('place_wrong_ctrl_angle_offset', r'kCtrlAngOff = 32;', 'kCtrlAngOff = 36;', 'place'),
+    # S110 FIRETABLE review twins (the core): the skip behind the match gate (refused once the match is decided, when the replay plays), fire not routed
+    ('skip_replay_behind_the_match_gate', r'  if \(c\.verb == Verb::SkipReplay\) return SkipReplay\(e\);[^\n]*\n', ''),
+    ('fire_not_routed_by_run', r'case Verb::Fire: return FireTable\(e, c\.slot\);', 'case Verb::Fire: return "refused: no verb";'),
+    # S110 FINPICK `finisher SLOT hold|nohold|any` twins (the core): each must FAIL the unit test
+    ('finisher_not_routed_by_run', r'case Verb::Finisher: return Finisher\(e, c\.slot, c\.value\);', 'case Verb::Finisher: return "refused: no verb";'),
+    ('finisher_hold_is_nohold', r'else if \(w\[2\] == "hold"\) out\.value = 1;', 'else if (w[2] == "hold") out.value = 2;'),
+    ('finisher_slot_not_guarded', r'const std::string r = SlotChar\(e, slot, ch\);\n  if \(!r\.empty\(\)\) \{', 'const std::string r = SlotChar(e, slot, ch);\n  if (false) {'),
+    # S110 OMGVERB `omg SLOT ring|off` twins (the core): each must FAIL the unit test
+    ('omg_not_routed_by_run', r'case Verb::Omg: return Omg\(e, c\.slot, c\.on\);', 'case Verb::Omg: return "refused: no verb";'),
+    ('omg_ring_is_off', r'if \(w\[2\] == "ring"\) out\.on = true;', 'if (w[2] == "ring") out.on = false;'),
+    ('omg_slot_not_guarded', r'const std::string refused = SlotChar\(e, slot, ch\);\n  if \(!refused\.empty\(\)\) \{', 'const std::string refused = SlotChar(e, slot, ch);\n  if (false) {'),
 ]
 
 
@@ -304,6 +318,9 @@ def detector():
     mv_far = ev + [{'f': 1000, 'kind': 'move', 'slot': 0, 'class': 'strike'}]
     check(D.analyse(mv_far)[0]['verdict'] == 'no_defender', 'a move 18000 frames before the pin must be outside the window')
     check(D.analyse([e for e in ev if e.get('what') != 'finish' or e.get('finish_type') != 1])[0]['verdict'] == 'unfinished', 'a pin with no finish is not reported unfinished')
+    # S110 ELIMFIN review: in a multi-fall rule a pinfall the match goes on past is a `fall` line (same fields), not a `finish`: still this pin's pinfall
+    fall = [dict(e, what='fall') if e.get('what') == 'finish' else e for e in ev]
+    check(D.analyse(fall)[0]['verdict'] == 'no_defender', 'a pinfall the bus says as `fall` (a multi-fall rule) is not read as this pin\'s pinfall: %s' % D.analyse(fall))
     # the real run logs, when they still exist (the disk tidies itself after 24 h: the fixtures above carry the same lines)
     real = glob.glob(r'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\logs\events_7092.jsonl')
     real5910 = glob.glob(r'C:\Users\Jarrod\wwe2k14-recomp\out\build\win-amd64-release\logs\events_5910.jsonl')

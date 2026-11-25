@@ -27,12 +27,8 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_fast_guest_reads, true, "wwe2k14",
-                    "Per-frame probes (load turbo, fast loader sequence check, script states) check guest words with "
-                    "ReXGlue's guest page table instead of VirtualQuery (Session 15; VirtualQuery cost ~1.4 ms per "
-                    "frame on the game's main thread)");
-REXCVAR_DEFINE_BOOL(wwe2k14_fast_guest_reads_verify, false, "wwe2k14",
-                    "wwe2k14_fast_guest_reads: run both checks, log disagreements, use the VirtualQuery answer");
+REXCVAR_DECLARE(bool, wwe2k14_fast_guest_reads);
+REXCVAR_DECLARE(bool, wwe2k14_fast_guest_reads_verify);
 
 namespace wwe2k14 {
 

@@ -2,12 +2,14 @@
 // are drawn by OUR scene hook inside the scene pass, not dropped:
 //   [SCS HOOK]   LiveScene2D (frame_hooks.h) keeps exactly the scene-colour rows of the record, in seq order, and records them at Stage::AfterBlended only; a record whose 2D tap did not run gives it nothing
 //   [SCS DRAW]   a planted scene-colour flash row (T_Rect, additive, z off) is drawn as one additive draw with no depth test, no depth write
-//   [SCS DEPTH]  a lens flare row (T_Sprite, matrix-placed, additive, z test on, z write off) takes the game's depth state: test on, write off, our forward LEQUAL, the game's reversed z flipped (system z scale -1, offset w);
+//   [SCS DEPTH]  a lens flare row (T_Sprite, matrix-placed, additive, z test on, z write off) takes the game's depth state: test on, write off, our forward LEQUAL, the row's clip z kept as it is (system z scale 1,
+//                offset 0: S110 STARFRONT, the game's reversal is its viewport's, so the lens element's z 0.996 stays far);
 //                Append WITHOUT Context::scene_depth (the final-image path) keeps every depth test off (the F rows are unchanged)
 // Planted twin (RDR_Q2D_PLANTS, --plant scene_z_ignored): the depth state / flip is not taken -> [SCS DEPTH] must fail. The old FateOf drop is the text lint scs_lint.py's twin (scene_host.cpp is not unit-testable here).
 // S105 A4B adds [SCS EARLY] (the pre-3D split at BeforeOpaque / AfterBlended), [WALK] (the main walk's begin / end and the kQhPre3DCat mark), [SCS FLAT] (the flat-frame scene rows on F), each with a planted twin.
 // entry: rdr_scene::LiveScene2D::Record (the stage hook the live frame calls), rdr_scene::walkcat::Walk::Begin / End / Mark (what the sub_82C3B200 / sub_82C3B218 hooks and the op-19 recorder call), rdr_scene::q2d::Append (the in-scene lambda's draw), wwe2k14::scene_host::FateOf (DrawRows' per-row decision). The helpers Flash / Lens / Final / SetRows only build the planted rows the entries are fed: production rows come from the tap (src\caw_text.h is a different Flash).
-// Usage: out\tools\scs_unit.exe [--plant scene_z_ignored | scene_dropped_on_flat | walk_bit_never_set | walk_end_ignored]
+// Planted twin scene_z_flipped (S110 STARFRONT, plant 74): the old flip z' = w - z of a z-tested row -> [SCS DEPTH] must fail.
+// Usage: out\tools\scs_unit.exe [--plant scene_z_ignored | scene_z_flipped | scene_dropped_on_flat | walk_bit_never_set | walk_end_ignored]
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -221,7 +223,34 @@ static void DepthChecks() {
       Check(l.program == 77 && l.depth_test == 1 && l.depth_write == 0 && l.depth_compare == 3 && l.blend[0].dst_color == 1, "SCS DEPTH",
             "the lens: the matrix sprite program, additive, depth test ON, depth write OFF, compare LESS_OR_EQUAL (the game's z enable 16 / z write 32 from the row's state)");
       Check(f.blend[0].write_mask == 0x7 && l.blend[0].write_mask == 0x7, "SCS DEPTH", "fix 4: scene rows write rgb only (mask 0x7): the post reads the scene's alpha");
-      Check(ld.system[2] == -1.0f && ld.system[6] == 1.0f, "SCS DEPTH", "a z-tested row's clip z is flipped to our forward depth: z' = w - z (scale -1, offset 1 x w)");
+      Check(ld.system[2] == 1.0f && ld.system[6] == 0.0f, "SCS DEPTH", "a z-tested row keeps its clip z (scale 1, offset 0): the game reverses its depth in the viewport, so the lens element's z 0.996 is far in both (S110 STARFRONT)");
+      {   // S110 STARFRONT: the number. The lens element's z 0.996094 (capture c2d_entrance_s15 f60 draw 981) through the row's ndc z scale / offset lands at our forward depth 0.996 (far): a body at forward 0.9 hides it
+        const float z_game = 0.996094f, ours = z_game * ld.system[2] + ld.system[6];
+        Check(std::fabs(ours - z_game) < 1e-6f && 0.9f <= ours, "SCS DEPTH", "the lens element's depth in ours is " + std::to_string(ours) + ": behind a body at forward depth 0.9 (LESS_OR_EQUAL fails), as the game's far 0.0039 behind its reversed 0.1");
+      }
+      {   // S110 STARFRONT review: the depth DECISION, game vs ours, per scene depth (not only the mapped number). Game: clip z / w through its viewport depth range min 1, max 0 (window = 1 - ndc: capture
+          // c2d_entrance_s15 f60, every draw), GEQUAL (6) against its reversed scene depth (1 - the scene's ndc, cleared to 0). Ours: the row program's z' = z * system[2] + system[6] * w (rdr_uiquad*.vert),
+          // / w, through OUR viewport depth range (viewport[4] .. [5]), the row's own test / compare against our forward scene depth (the scene's ndc, cleared to 1). Both scenes' ndc from the D3D projection
+          // record_frame.cpp:392 builds (n 10, f 300000; the game's c56-c59 factor to the same near / far, record_frame.cpp:385). Expected: hidden where anything nearer than the row is in front, drawn elsewhere.
+        const float n = 10.f, f = 300000.f;
+        const auto ndc_at = [&](float view_z) { return f / (f - n) - n * f / ((f - n) * view_z); };
+        const auto cmp = [](int op, float a, float b) { return op == 1 ? a < b : op == 3 ? a <= b : op == 4 ? a > b : op == 6 ? a >= b : op == 7; };
+        // the row's clip z / w: the element outside arena 33 (sub_827D5840's 16777215 = 2^32 / 256: clip z 1 - 1/256), pixel-placed (w 1) and through a matrix (w 2560); arena 33's (0.9995 x the light's ndc, light at 3000)
+        struct RowZ { const char* what; float z, w; } rowz[] = {{"the element (pixel-placed)", 0.996094f, 1.f}, {"the element (matrix-placed, w 2560)", 0.996094f * 2560.f, 2560.f},
+                                                                {"the arena-33 element (light at 3000)", 0.9995f * ndc_at(3000.f), 1.f}};
+        struct Scene { const char* what; float view_z; bool cleared; } scenes[] = {{"a body at 500 units", 500.f, false}, {"the set at 2000", 2000.f, false}, {"the set at 10000", 10000.f, false}, {"the cleared background", 0.f, true}};
+        for (const RowZ& r : rowz) {
+          const float row_ndc = r.z / r.w, row_view = n * f / ((f - n) * (f / (f - n) - row_ndc));   // the row's depth as a view distance (ndc_at inverted)
+          for (const Scene& s : scenes) {
+            const bool game = cmp(6, 1.f - row_ndc, s.cleared ? 0.f : 1.f - ndc_at(s.view_z));
+            const float ours_ndc = (r.z * ld.system[2] + ld.system[6] * r.w) / r.w, ours_win = ld.viewport[4] + ours_ndc * (ld.viewport[5] - ld.viewport[4]);
+            const bool ours = !l.depth_test || cmp(l.depth_compare, ours_win, s.cleared ? 1.f : ndc_at(s.view_z));
+            const bool expect = s.cleared || s.view_z > row_view;
+            Check(game == expect && ours == expect, "SCS DEPTH", std::string(r.what) + " (" + std::to_string(int(row_view)) + " units) against " + s.what + ": game " + (game ? "drawn" : "hidden") +
+                                                                 ", ours " + (ours ? "drawn" : "hidden") + ", expected " + (expect ? "drawn" : "hidden"));
+          }
+        }
+      }
     }
   }
   {   // the final-image path: unchanged
@@ -262,6 +291,7 @@ int main(int argc, char** argv) {
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant = argv[++i];
 #ifdef RDR_Q2D_PLANTS
   if (plant == "scene_z_ignored") q2d::g_plant = 60;
+  else if (plant == "scene_z_flipped") q2d::g_plant = 74;           // S110 STARFRONT: [SCS DEPTH]
   else if (plant == "scene_dropped_on_flat") q2d::g_plant = 71;     // S105 A4B: [SCS FLAT]
   else if (plant == "walk_bit_never_set") q2d::g_plant = 72;        // S105 A4B: [WALK]
   else if (plant == "walk_end_ignored") q2d::g_plant = 73;          // S105 A4B: [WALK]

@@ -35,10 +35,7 @@
 #include <jni.h>
 #endif
 
-REXCVAR_DEFINE_INT32(wwe2k14_perf_overlay, 0, "wwe2k14",
-                     "Session 80: the frame rate, frame time and (Android) the phone's temperature in the top-left "
-                     "corner: 1 = light (the numbers only), 2 = verbose (in a box, with a graph of the last 2 seconds "
-                     "of frame times). The phone launcher's LOGS AND UPDATES -> PERFORMANCE OVERLAY. Read at start");
+REXCVAR_DECLARE(int32_t, wwe2k14_perf_overlay);
 
 namespace wwe2k14::perf_overlay {
 

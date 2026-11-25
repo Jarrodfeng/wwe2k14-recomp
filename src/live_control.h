@@ -49,9 +49,7 @@
 #include "frame_stats.h"
 #include "input_script.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_live, "", "wwe2k14",
-                      "Session 29: live control channel: listen on the named pipe \\\\.\\pipe\\wwe2k14_live_NAME for "
-                      "batches of input-script lines (src/live_control.h, tools/live/live.py); empty = off");
+REXCVAR_DECLARE(std::string, wwe2k14_live);
 
 namespace wwe2k14::live {
 

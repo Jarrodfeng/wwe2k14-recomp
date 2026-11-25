@@ -653,6 +653,22 @@ inline fs::path DefaultDir(const fs::path& game_data_root, const fs::path& exe_d
   return c.empty() ? fs::path() : c.front();
 }
 
+// S110 HELPERSTART review: the mods folder the launcher uses when its settings file names none (src\launcher\launcher_core.h FindPaths), for a
+// game started by hand that takes USE MY SUPERSTARS from that file (src\dlc.h ApplyLauncherSettings). The launcher's rule: in the dev layout
+// (game_data\extracted\default.xex in the launcher's folder or any folder above it) <game data>\..\mods, which is the game's own default
+// (src\mods.h Install): returned empty, the game's default stays; in a release folder <launcher folder>\mods, which the game's default
+// (<game data>\..\mods, beside the player's game files) is not. The launcher and the game exe sit in one folder (src\direct_start.h
+// HandOffToLauncher), so `exe_dir` is the launcher's. Unit: tools\launcher\s110_tests\run_mods_default.py.
+inline fs::path LauncherModsDefault(const fs::path& exe_dir) {
+  if (exe_dir.empty()) return {};
+  std::error_code ec;
+  for (fs::path d = exe_dir; !d.empty(); d = d.parent_path()) {
+    if (fs::exists(d / "game_data" / "extracted" / "default.xex", ec)) return {};
+    if (d == d.parent_path()) break;
+  }
+  return exe_dir / "mods";
+}
+
 // From a catalog's file list: the character ids (pac\ch\chNNN_dlcPP.pac) and the string file (pac\string_dlcPP.pac).
 inline void NoteCatalogFiles(const std::vector<std::string>& files, Pack& pk) {
   for (std::string f : files) {

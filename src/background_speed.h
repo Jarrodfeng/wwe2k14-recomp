@@ -21,10 +21,7 @@
 #endif
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_background_full_speed, false, "wwe2k14",
-                    "Session 32: opt the process out of Windows' background power throttling (EcoQoS, and the coarse "
-                    "timer for occluded windows), so a game behind other windows runs as fast as a focused one. "
-                    "run_list turns it on for test runs");
+REXCVAR_DECLARE(bool, wwe2k14_background_full_speed);
 
 #ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
 #define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4

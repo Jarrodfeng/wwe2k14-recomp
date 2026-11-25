@@ -35,9 +35,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_owner_null_copy, true, "wwe2k14",
-                    "Session 100 (strip-360 B3): in owner mode the library's clears and resolves leave only their device bookkeeping (no "
-                    "packets for the old command processor); false: the originals run as before");
+REXCVAR_DECLARE(bool, wwe2k14_owner_null_copy);
 
 namespace wwe2k14::owner_null_copy {
 

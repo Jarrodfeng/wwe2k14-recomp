@@ -48,10 +48,8 @@
 
 #include "mods.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_logo_import, false, "wwe2k14",
-                    "Logo importer v0 (Session 18): the open Create-a-Logo editor gets mods\\logos\\import.png (or "
-                    "--wwe2k14_logo_import_file) when armed (setting on / file changed). See src/logo_import.h");
-REXCVAR_DEFINE_STRING(wwe2k14_logo_import_file, "", "wwe2k14", "Logo importer: the PNG (default mods\\logos\\import.png)");
+REXCVAR_DECLARE(bool, wwe2k14_logo_import);
+REXCVAR_DECLARE(std::string, wwe2k14_logo_import_file);
 
 REX_EXTERN(__imp__sub_833A8730);
 

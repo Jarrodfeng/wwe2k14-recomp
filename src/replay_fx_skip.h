@@ -21,6 +21,8 @@
 #include <cstring>
 
 #include "replay_fx_skip_core.h"
+#include "event_bus.h"  // S110 BUSWAIT: events::Replay (the replay start / skipped / end events; on only with the bus)
+#include "table_fire_core.h"  // S110 FIRETABLE fix 2: ExpireSkip (a skip_replay wish a replay's end finds still armed was never served)
 
 REX_EXTERN(__imp__sub_8271AA48);  // the PRTI track's end-playback method (r3 = the track)
 REX_EXTERN(__imp__sub_8271A630);  // the PRTI track's begin-playback method (r3 = the track)
@@ -81,10 +83,17 @@ REX_HOOK_RAW(sub_8271AA48) {
   {
     using namespace wwe2k14::replay_fx_skip;
     const GuestMem mem(base);
-    const Walk w = SkippedStops(mem, ctx.r3.u32, g_gate.TakeAtEnd());   // read before the original: it sets [track+168] to -1
+    const bool skipped = g_gate.TakeAtEnd();
+    const Walk w = SkippedStops(mem, ctx.r3.u32, skipped);   // read before the original: it sets [track+168] to -1
     if (w.ran) {
       SendStops(ctx, base, w);
       REXLOG_INFO("[wwe2k14][replay_fx_skip] replay_fx_skip: stops sent {} (frames walked {}, refused {})", w.stops.size(), w.frames, w.refused);
+    }
+    wwe2k14::events::Replay("end", skipped ? "\"skipped\": true" : "\"skipped\": false");  // S110 BUSWAIT
+    if (wwe2k14::table_fire::ExpireSkip()) {  // S110 FIRETABLE fix 2: one load when no wish; a served skip cleared it before this end
+      REXLOG_ERROR("[wwe2k14][table_fire] skip_replay NOT served: a replay ended while the wish was armed. The game's skip sub_826071F8 exists "
+                   "only in the in-match instant replay (IARP, sub_82608758 state 3), which did not play; the replay after a finish is another "
+                   "player (the wish is dropped)");
     }
   }
   __imp__sub_8271AA48(ctx, base);
@@ -92,6 +101,7 @@ REX_HOOK_RAW(sub_8271AA48) {
 
 REX_HOOK_RAW(sub_8271A630) {
   wwe2k14::replay_fx_skip::g_gate.OnBegin();
+  wwe2k14::events::Replay("start");  // S110 BUSWAIT: the replay's particle track begins playback
   __imp__sub_8271A630(ctx, base);
 }
 
@@ -99,5 +109,9 @@ REX_HOOK_RAW(sub_826071F8) {
   using namespace wwe2k14::replay_fx_skip;
   const uint32_t ctrl = ctx.r3.u32;
   __imp__sub_826071F8(ctx, base);
-  if (PtrOk(ctrl)) g_gate.OnSkip(GuestMem(base).U32(ctrl + kCtrlState));   // state 4 after it = the skip went through
+  if (PtrOk(ctrl)) {
+    const uint32_t state = GuestMem(base).U32(ctrl + kCtrlState);
+    g_gate.OnSkip(state);   // state 4 after it = the skip went through
+    if (state == kStateSkipFade) wwe2k14::events::Replay("skipped");  // S110 BUSWAIT
+  }
 }

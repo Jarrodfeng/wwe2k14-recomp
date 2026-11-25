@@ -62,14 +62,9 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_thread_placement, "", "wwe2k14",
-                      "Thread placement rules NAME=LP[,NAME=LP...]: thread-name prefix, or 'main' for the VdSwap "
-                      "thread, -> logical processor or range, e.g. \"GPU Commands=2,main=8\". Read at startup");
-REXCVAR_DEFINE_BOOL(wwe2k14_thread_placement_on, false, "wwe2k14",
-                    "Apply wwe2k14_thread_placement (can be flipped mid-run, e.g. by an input script)");
-REXCVAR_DEFINE_STRING(wwe2k14_thread_placement_mode, "affinity", "wwe2k14",
-                      "Thread placement: affinity (SetThreadAffinityMask) or ideal (SetThreadIdealProcessorEx, a "
-                      "hint). Read at startup");
+REXCVAR_DECLARE(std::string, wwe2k14_thread_placement);
+REXCVAR_DECLARE(bool, wwe2k14_thread_placement_on);
+REXCVAR_DECLARE(std::string, wwe2k14_thread_placement_mode);
 
 namespace wwe2k14 {
 

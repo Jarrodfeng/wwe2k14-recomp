@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "table_fire_core.h"  // S110 FIRETABLE: the fire / skip wishes' store (pure; src/situation_fire_verb.h uses it inside the namespace)
+
 namespace wwe2k14::situation {
 
 // ---- the numbers (each from a listing; see docs/systems/situation_director.md) ----
@@ -55,7 +57,7 @@ constexpr uint32_t kBrightOff = 452;
 constexpr uint32_t kBrightOne = 0x3F800000;
 constexpr uint64_t kDimSceneSize = 136;        // sub_82250050(136) (0x8266278C)
 
-enum class Verb { None, Passive, Momentum, Stock, PassiveCpu, Bleed, LightsOut, State, Place };
+enum class Verb { None, Passive, Momentum, Stock, PassiveCpu, Bleed, LightsOut, State, Place, Finisher, Omg, Fire, SkipReplay };
 
 struct Cmd {
   Verb verb = Verb::None;
@@ -82,7 +84,7 @@ inline std::vector<std::string> Words(const std::string& s) {
   return w;
 }
 
-inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu" || first == "bleed" || first == "lightsout" || first == "state" || first == "place"; }
+inline bool IsVerb(const std::string& first) { return first == "passive" || first == "momentum" || first == "stock" || first == "passive_cpu" || first == "bleed" || first == "lightsout" || first == "state" || first == "place" || first == "finisher" || first == "omg" || first == "fire" || first == "skip_replay"; }
 
 constexpr float kPlaceCoordMaxParse = 2000.0f;  // S110 PLACE: parse bounds on |X|, |Z| (a typo guard, not an arena size) and the facing in degrees
 constexpr float kPlaceDegMaxParse = 360.0f;
@@ -114,7 +116,7 @@ inline bool DigitsOnly(const std::string& s, size_t max_len) {
 // (`passive 1 on`).
 inline std::string Parse(const std::string& text, Cmd& out) {
   out = Cmd{};
-  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off | bleed SLOT LEVEL (dev builds; LEVEL 1-3) | lightsout SLOT (dev builds) | state SLOT NAME (dev builds; the game's own state name; it is only QUEUED and takes effect on a later tick) | place SLOT X Z [FACING_DEG] (dev builds; the game's own warp of a live wrestler to the point; |X|, |Z| <= 2000, FACING -360..360) (SLOT 0-8, PCT 0-100, N 0-9)";
+  const std::string usage = "usage: passive SLOT|all on|off | momentum SLOT PCT | stock SLOT N | passive_cpu on|off | bleed SLOT LEVEL (dev builds; LEVEL 1-3) | lightsout SLOT (dev builds) | state SLOT NAME (dev builds; the game's own state name; it is only QUEUED and takes effect on a later tick) | place SLOT X Z [FACING_DEG] (dev builds; the game's own warp of a live wrestler to the point; |X|, |Z| <= 2000, FACING -360..360) | finisher SLOT hold|nohold|any (the CPU finisher pair 17 / 18: keep the slot whose move is / is not a hold; any = the game's own choice) | omg SLOT ring|off (the OMG ring break: press for the seat when the game's own ring-break test passes every gate; the seat must be a super heavyweight) | fire SLOT (the seat sets a standing table on fire the next time the game's own table step allows it; once) | skip_replay (the playing replay is skipped through the game's own skip; served after the finish too) (SLOT 0-8, PCT 0-100, N 0-9)";
   const std::vector<std::string> w = Words(text);
   if (w.empty() || !IsVerb(w[0])) return "error: " + usage;
   auto slot_of = [&](const std::string& t) {
@@ -163,6 +165,32 @@ inline std::string Parse(const std::string& text, Cmd& out) {
       if (!SignedDecimal(w[4], kPlaceDegMaxParse, out.deg)) return "error: place facing '" + w[4] + "' is not a decimal within +-360 degrees; " + usage;
       out.has_facing = true;
     }
+    return "";
+  }
+  if (w[0] == "finisher") {  // S110 FINPICK: `finisher SLOT hold|nohold|any` (value: any 0, hold 1, nohold 2 = src/finisher_pick_core.h Wish)
+    out.verb = Verb::Finisher;
+    if (w.size() != 3 || !slot_of(w[1])) return "error: finisher needs a slot and hold, nohold or any; " + usage;
+    if (w[2] == "any") out.value = 0;
+    else if (w[2] == "hold") out.value = 1;
+    else if (w[2] == "nohold") out.value = 2;
+    else return "error: finisher '" + w[2] + "' is not hold, nohold or any; " + usage;
+    return "";
+  }
+  if (w[0] == "omg") {  // S110 OMGVERB: `omg SLOT ring|off` (on = ring)
+    out.verb = Verb::Omg;
+    if (w.size() != 3 || !slot_of(w[1])) return "error: omg needs a slot and ring or off; " + usage;
+    if (w[2] == "ring") out.on = true;
+    else if (w[2] != "off") return "error: omg '" + w[2] + "' is not ring or off; " + usage;
+    return "";
+  }
+  if (w[0] == "fire") {  // S110 FIRETABLE: `fire SLOT` (src/situation_fire_verb.h)
+    out.verb = Verb::Fire;
+    if (w.size() != 2 || !slot_of(w[1])) return "error: fire needs a slot; " + usage;
+    return "";
+  }
+  if (w[0] == "skip_replay") {  // S110 FIRETABLE: no argument
+    out.verb = Verb::SkipReplay;
+    if (w.size() != 1) return "error: skip_replay takes no argument; " + usage;
     return "";
   }
   if (w.size() != 3 || !slot_of(w[1])) return "error: " + usage;
@@ -282,6 +310,7 @@ std::string SlotChar(E& e, int slot, uint32_t& ch) {
 
 #include "situation_state_verb.h"  // S110 OMGROUTE: QueueState (new code lives there; it needs SlotChar / Hex / Fn above)
 #include "situation_place_verb.h"  // S110 PLACE: PlaceWrestler (same recipe)
+#include "situation_fire_verb.h"   // S110 FIRETABLE: FireTable / SkipReplay (same recipe)
 
 // The health component's data pointer (the game's own path: a lookup by tag in the character's component list, then [comp+24]).
 template <class E>
@@ -489,6 +518,41 @@ std::string LightsOut(E& e, int slot) {
   return "ok: " + tag;
 }
 
+// S110 FINPICK `finisher SLOT hold|nohold|any` (docs/research/s110/FINPICK.md; value 0 any, 1 hold, 2 nohold = src/finisher_pick_core.h Wish): the
+// seat's wish for the CPU finisher pair (slots 17 / 18). The glue (E::FinisherWish) stores it for the hook of sub_825FDE00 (src/finisher_pick.h)
+// and answers the fit of the slots' moves as they read now; the hook tests the live ids again at every offer. Nothing in the game is written here.
+template <class E>
+std::string Finisher(E& e, int slot, int wish) {
+  const char* kind = wish == 1 ? "hold" : (wish == 2 ? "nohold" : "any");
+  const std::string tag = "finisher " + std::to_string(slot) + " " + kind;
+  uint32_t ch = 0;
+  const std::string r = SlotChar(e, slot, ch);
+  if (!r.empty()) {
+    e.Log("director: " + tag + ": refused (" + r + ") clock " + e.Clock());
+    return r;
+  }
+  const std::string fit = e.FinisherWish(slot, ch, wish);
+  e.Log("director: " + tag + " (" + fit + "; char " + Hex(ch) + ") clock " + e.Clock());
+  return "ok: " + tag + " (" + fit + ")";
+}
+
+// S110 OMGVERB `omg SLOT ring|off` (docs/research/s110/OMGVERB.md): the seat's wish for the OMG ring break. The glue (E::OmgWish) reads the
+// game's own per-match gates (class / rules / ring / latch / stock), arms the wish only when they all pass and answers which do; the hook of
+// sub_825FCEB8 (src/omg_wish.h) then presses for the seat only when the game's own test passes every gate. Nothing in the game is written here.
+template <class E>
+std::string Omg(E& e, int slot, bool on) {
+  const std::string tag = "omg " + std::to_string(slot) + (on ? " ring" : " off");
+  uint32_t ch = 0;
+  const std::string refused = SlotChar(e, slot, ch);
+  if (!refused.empty()) {
+    e.Log("director: " + tag + ": refused (" + refused + ") clock " + e.Clock());
+    return refused;
+  }
+  const std::string gates = e.OmgWish(slot, ch, on);
+  e.Log("director: " + tag + " (" + gates + "; char " + Hex(ch) + ") clock " + e.Clock());
+  return "ok: " + tag + " (" + gates + ")";
+}
+
 // The one entry: every verb, with the match guard. `passive_cpu` only sets the latch (no match needed). "ok..." / "failed..." / "refused..." / "busy...".
 template <class E>
 std::string Run(E& e, State& st, const Cmd& c) {
@@ -513,6 +577,7 @@ std::string Run(E& e, State& st, const Cmd& c) {
     e.Log("director: place: refused, a dev-build verb clock " + e.Clock());
     return "refused: place is a dev-build verb";
   }
+  if (c.verb == Verb::SkipReplay) return SkipReplay(e);  // S110 FIRETABLE: the in-game sequence only (src/situation_fire_verb.h)
   const Gate g = e.GetGate();
   const bool restore = c.verb == Verb::Passive && !c.on;  // S5: giving a wrestler back needs a match program, not an undecided, scene-free match (the results flow needs him active)
   const std::string gate = restore ? (g.seq == kSeqInGame ? std::string() : GateVerdict(g)) : GateVerdict(g);
@@ -528,6 +593,9 @@ std::string Run(E& e, State& st, const Cmd& c) {
     case Verb::LightsOut: return LightsOut(e, c.slot);
     case Verb::State: return QueueState(e, c.slot, c.name);
     case Verb::Place: return PlaceWrestler(e, c.slot, c.x, c.z, c.has_facing, c.deg);
+    case Verb::Finisher: return Finisher(e, c.slot, c.value);
+    case Verb::Omg: return Omg(e, c.slot, c.on);
+    case Verb::Fire: return FireTable(e, c.slot);
     default: return "refused: no verb";
   }
 }

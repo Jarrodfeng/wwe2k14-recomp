@@ -23,8 +23,7 @@
 #include <rex/ppc/context.h>
 #include <rex/system/xmemory.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_reg_save, false, "wwe2k14",
-                    "Session 95: native register save / restore helpers (__savegprlr, __restgprlr, __savefpr, __restfpr)");
+REXCVAR_DECLARE(bool, wwe2k14_nf_reg_save);
 
 namespace wwe2k14::nf_reg_save {
 

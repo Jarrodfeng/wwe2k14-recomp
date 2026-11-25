@@ -187,11 +187,16 @@ def ff_step_findings(path, root, flags):
         if c in SYNC_STEPS:
             name = step_state_name(st)
             a = st.args.lower()
+            # S110 BUSWAIT review: `wait_event KIND ...` (src/event_wait_core.h) syncs on what its kind names: `load` is an archive open (as
+            # wait_file), `entrance` an entrance step, `screen` / `seq` / `msgbox` / `exit` a page change; match / move / render / break / replay
+            # events are syncs of their own
+            ev = a.split()[0] if c == 'wait_event' and a.split() else ''
+            filelike = c in ('wait_file', 'press_until_file') or ev == 'load'
             if name in ('menu_ready', 'menu_count'):
                 continue   # menu_ready is 1 on nearly every menu frame (docs/research/s108/MENU_route_values.md section 3.1): it never reports a page change, so it syncs nothing
-            if c in ('wait_file', 'press_until_file') and any(m in a for m in MATCH_FILES):
+            if filelike and any(m in a for m in MATCH_FILES):
                 ctx = None   # the match loaded: it is stepped per frame
-            elif (c in ('wait_file', 'press_until_file') and any(m in a for m in ENTRANCE_FILES)) or (name and 'entrance' in name.lower()):
+            elif (filelike and any(m in a for m in ENTRANCE_FILES)) or (name and 'entrance' in name.lower()) or ev == 'entrance':
                 ctx = 'ent'
             elif c == 'wait_file' and 'savedata.dat' in a and not title_seen:
                 # S109 FF2: the title block (`wait_file SaveData.Dat`, a frame count, START as `press START` or `set 0x0010`) is SAFE fast-forwarded, for both verbs: the boot turbo window
@@ -199,7 +204,7 @@ def ff_step_findings(path, root, flags):
                 # fast-forwarded, and S108's fast-forwarded runs 35 / 36 passed it. (Confirmed by the main session in the check round.) Only the FIRST SaveData.Dat sync is the title.
                 ctx = 'title'
                 title_seen = True
-            elif c in ('wait_file', 'press_until_file', 'wait_text', 'press_until_text') or name in ('menu', 'seq'):
+            elif filelike or c in ('wait_text', 'press_until_text') or name in ('menu', 'seq') or ev in ('screen', 'seq', 'msgbox', 'exit'):
                 ctx = 'page'
             elif name == 'cursor' or name.startswith('menu_'):
                 ctx = 'cur'   # a menu page the route is synced on; a plain confirm press from here may open the next page (S109 FF2)
@@ -724,6 +729,13 @@ def selftest(root):
     speed('FF2 INGAMELUA.PAC then a match sync (match_clock) then a shot passes', 'owner on', 'wait_file INGAMELUA.PAC 1800\nwait_frames 600\nwait_state match_clock >0 3000\nscreenshot sc_a\n', False)
     speed('FF2 INGAMELUA.PAC then M3.PAC then frames and a shot passes', 'owner on', 'wait_file INGAMELUA.PAC 1800\nwait_file M3.PAC 1800\nwait_frames 300\nscreenshot sc_a\n', False)
     speed('FF2 INGAMELUA.PAC + frames + shot in replay mode passes', 'owner on', 'wait_file INGAMELUA.PAC 1800\nwait_frames 600\nscreenshot sc_a\n', False, flags=hs + ' --wwe2k14_replay_mode=true')
+    # S110 BUSWAIT review: a bus wait syncs on what its KIND names: an entrance step is the entrance shape, a screen / seq / msgbox / exit
+    # change or an archive load is a page change, a match / move / render / break / replay event is a sync of its own
+    speed('BUSWAIT wait_event entrance + frames + screenshot is the entrance shape: refused', 'owner on', 'wait_event entrance slot=1 step=5 3000\nwait_frames 120\nscreenshot sc_a\n', True, msg='entrance / movie sync')
+    speed('BUSWAIT wait_event load file=INGAMELUA.PAC + frames + screenshot is the entrance shape: refused', 'owner on', 'wait_event load file=GAME:\\INGAMELUA.PAC 1800\nwait_frames 600\nscreenshot sc_a\n', True, msg='entrance / movie sync')
+    speed('BUSWAIT wait_event screen + frames + press is a page change: refused', 'owner on', 'wait_event screen 600\nwait_frames 60\npress DOWN\n', True, msg='after a page change')
+    speed('BUSWAIT a press timed after wait_event clock_started (a match event) counts as synced: passes', 'owner on', 'wait_file INGAMELUA.PAC 1800\nwait_frames 600\nwait_event clock_started 30000\nwait_frames 90\npress A\nwait_frames 60\nscreenshot sc_a\n', False)
+    speed('BUSWAIT wait_event render roster_ready keeps its meaning (a sync of its own): passes', 'owner on', 'wait_file MNUIHD.PAC 1800\nwait_frames 150\nwait_event render roster_ready 2400\nwait_frames 30\npress DOWN\n', False)
     gf = 'wait_state cursor 3 300 20\npress A\nwait_frames 240\npress DOWN\nwait_frames 30\npress DOWN\n'
     speed('FF2 a confirm press after a cursor sync opens a page, then frame-counted presses: refused (gfx_rows_probe / s54_gfx_res_change)', 'owner on', gf, True, msg='after a page change')
     speed('FF2 cursor moves on an in-memory page (no confirm press) stay safe', 'owner on', 'wait_state cursor 3 300 20\nwait_frames 30\npress DOWN\nwait_frames 30\npress DOWN\n', False)

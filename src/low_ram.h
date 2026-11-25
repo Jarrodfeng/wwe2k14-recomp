@@ -18,9 +18,7 @@
 #include <windows.h>
 #endif
 
-REXCVAR_DEFINE_STRING(wwe2k14_low_ram, "auto", "wwe2k14",
-                      "Session 94: smaller up-front sizes on a phone with under 6 GB of RAM: owned frame budget 384 MB, "
-                      "texture cache 192/384 MB, keep-warm buffer 8 MB, upload pool kept to 32 MB, readbacks 64. auto = Android and total RAM < 6144 MB; on = force; off = never");
+REXCVAR_DECLARE(std::string, wwe2k14_low_ram);
 
 namespace wwe2k14::low_ram {
 

@@ -621,6 +621,10 @@ WrestlerContributor::Link WrestlerContributor::KeyLink(uint32_t key, const std::
   return l;
 }
 
+WrestlerContributor::Link WrestlerContributor::SlotKeyLink(uint32_t key, uint32_t slot_desc, uint32_t model_desc) {   // S110 ENTRBODIES: the slot-key route's one rule (Collect, src\scene_start_bodies.h)
+  return KeyLink(key, BuildTagOfSlotKey(key, slot_desc), model_desc);
+}
+
 std::string WrestlerContributor::PieceWhyText() const {   // S103 NRBF
   std::string out;   // (the names come from the ONE table in slot_piece.h: SCENE_PIECE_WHY_LIST)
   for (size_t i = 0; i < size_t(scene_inputs::PieceWhy::kCount); ++i) out += (i ? " " : "") + std::string(scene_inputs::kPieceWhyNames[i]) + " " + std::to_string((unsigned long long)piece_why_[i].load(std::memory_order_relaxed));
@@ -920,7 +924,7 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
           link = KeyLink(model_key, BuildTagOfLink(bl->second.info), bl->second.info.desc);   // S110 SEATREL: + the descriptor whose build note names the file. S103 CMB: a composite attire's tag rides in the body's own link; a composite attire never falls back to the plain slot key (below)
         } else if (!link.known && kn->second.slot_key && !(bl != body_links_.end() && !bl->second.info.tag.empty())) {   // S103 CMB: a body whose link carries a composite tag (verification pending / failed this latch) goes out unnamed: a hole, never the stock attire
           // S103 B: no declared link: the participant slot key
-          link = KeyLink(kn->second.slot_key, BuildTagOfSlotKey(kn->second.slot_key, kn->second.slot_desc), kn->second.model_desc);   // S110 SEATREL: + the slot's descriptor. S103 ARM2: + the build step's colours when the game composed this attire
+          link = SlotKeyLink(kn->second.slot_key, kn->second.slot_desc, kn->second.model_desc);   // S110 SEATREL: + the slot's descriptor. S103 ARM2: + the build step's colours when the game composed this attire. S110 ENTRBODIES: the rule the start's early ask shares
         }
         // S108 THR2: a body the game draws recoloured (the Threads editor) is named with the `/m` tag: the loader keeps its PACH's four masks (change_mask.h), a load cached apart
         // from the plain one. Before the failed-load test below, so that test asks about the entry this record really names. A refusal entry ("/r") is never tagged (it stays a hole).

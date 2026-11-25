@@ -1,0 +1,22 @@
+# harness: flags --wwe2k14_launch=@quick --wwe2k14_quick_type=68 --wwe2k14_launch_participants=343,324 --wwe2k14_launch_skip_entrances=true --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_table_act_log=true
+# intent: owner on
+# S110 TABLEACTLOG (docs\research\s110\TABLEACTLOG.md; TABLEBREAK2.md section 7): a TABLE match (type 68, db\ids\match_types.json:658-668),
+# CPU vs CPU (343 / 324, no PAD = CPU: src\scenario.h wwe2k14_launch_participants). No passive side and no finish recipe: the CPUs fight
+# normally and a Tables match ends when one goes through a table, so the `finish` event IS the break moment. Needs a +dev exe: read every
+# [wwe2k14][tableact] line up to the finish frame against the tbl_NN stills. Fast-forwarded (no speed term): every wait is an event.
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_event clock_started 30000
+log_event clock_started
+screenshot_every 600 tbl
+# S110 TABLEEVENT: the finish, then the bus's table break (one line, its frame before the finish's). The wait is on the finish so a break
+# the event misses shows as no break line (log_event logs the newest one, however old) instead of ending the route before the finish.
+wait_event finish 120000
+log_event break table
+log_event finish
+screenshot tbl_finish
+wait_frames 300
+screenshot tbl_after
+screenshot_every 0
+quit

@@ -44,34 +44,13 @@
 #include "renderer_game/scene_kind.h"  // S103 NR: g_phase_entrance
 #include "renderer_game/scene_skip_core.h"  // S103 WB: the walk log (OFF build)
 
-REXCVAR_DEFINE_INT32(wwe2k14_step_hz, 0, "wwe2k14",
-                     "Session 19 item 10 (experiment, default 0 = the game's own rate): game updates per game second. "
-                     "N >= 60 (or exactly 30: the game's own 30 fps mode, for faster fast-forward) makes each update "
-                     "step 1/N s (matches) or 2/N s (stock 30 fps entrances). Pair with "
-                     "gpu_vblank_rate_override_hz=N for real time; at a 60 Hz vblank it is N/60x slow motion. "
-                     "Live-switchable. See src/step_rate.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_step_hz_hold_loads, true, "wwe2k14",
-                    "Session 19 item 10: with wwe2k14_step_hz, keep the game's own rate while an in-game loading window "
-                    "is open (the load turbo's ingame / match windows; needs --wwe2k14_load_turbo, default on). The "
-                    "match arena is black when the end of the in-game load runs at 120 (runs 1414-1422)");
-REXCVAR_DEFINE_INT32(wwe2k14_step_hz_entrance, 0, "wwe2k14",
-                     "Session 19 item 10: with wwe2k14_step_hz, use this rate instead while the entrances run (scene "
-                     "word 0x836F3940 == 4 in the in-game sequence); 0 = the same as wwe2k14_step_hz. E.g. 165 in matches, 120 in entrances "
-                     "(heavy entrance shots could not hold 144 / 165, runs 1431 / 1432)");
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_time_follows_step, true, "wwe2k14",
-                    "Session 27.5: in replay mode (det_frames) the guest's time per frame follows the update rate (SDK "
-                    "det_frames_time_hz), so videos, sound and timed waits stay in step with the scene at any step "
-                    "rate; false = 1/60 s per frame as in Session 15 (videos run N/60x ahead at step N)");
-REXCVAR_DEFINE_BOOL(wwe2k14_step_vblank, false, "wwe2k14",
-                    "Session 19 item 10: with wwe2k14_step_hz, set the SDK's gpu_vblank_rate_override_hz to the scaled "
-                    "rate whenever the step is applied (and back to 0 = the video mode's 60 Hz while it is held or "
-                    "off), so N fps runs in real time; false = leave the vblank alone (N/60x slow motion at 60 Hz)");
+REXCVAR_DECLARE(int32_t, wwe2k14_step_hz);
+REXCVAR_DECLARE(bool, wwe2k14_step_hz_hold_loads);
+REXCVAR_DECLARE(int32_t, wwe2k14_step_hz_entrance);
+REXCVAR_DECLARE(bool, wwe2k14_replay_time_follows_step);
+REXCVAR_DECLARE(bool, wwe2k14_step_vblank);
 
-REXCVAR_DEFINE_DOUBLE(wwe2k14_ff_vblank_hz, 4000.0, "wwe2k14",
-                      "Session 60: with vsync off (fast-forward), during the match (in game, not the entrances, not a "
-                      "load window, not replay mode) run the guest vblank at this rate on the precise timer (SDK "
-                      "gpu_vblank_unthrottled_hz) instead of 1 kHz Sleep(1) polling: the command thread waited ~25% "
-                      "of its time for the next vblank (profile 4082); match 284 -> 365 fps (4076 / 4084). 0 = off");
+REXCVAR_DECLARE(double, wwe2k14_ff_vblank_hz);
 
 REX_EXTERN(__imp__sub_82BB6BB0);
 REX_EXTERN(__imp__sub_82BB6D50);

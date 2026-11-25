@@ -222,6 +222,18 @@ std::vector<int> TakeArenaMisses() {
   g_wanted.clear();
   return out;
 }
+void WantArenaFromGame(int arena) {   // S110 ENTRBLACK round 5: the game's own arena load just started; ours starts with it (TakeArenaMisses dedupes against g_asked)
+  if (arena < 0) return;
+  const auto it = States().find(arena);
+  const bool resident = it != States().end() && (it->second.pristine || it->second.set);
+  std::lock_guard<std::mutex> lk(g_mu);
+  for (auto d = g_delivered.begin(); d != g_delivered.end();) {   // the game moved to another arena: a model delivered for an arena that never got built is dropped (and may be asked again later)
+    if (d->first != arena && States().find(d->first) == States().end()) g_asked.erase(d->first), d = g_delivered.erase(d);
+    else ++d;
+  }
+  if (resident || g_failed.count(arena) || g_delivered.count(arena)) return;
+  g_wanted.insert(arena);
+}
 void PutLoadedArena(int arena, std::unique_ptr<assets::Model> model) {
   std::lock_guard<std::mutex> lk(g_mu);
   g_delivered[arena] = std::move(model);

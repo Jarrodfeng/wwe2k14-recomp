@@ -74,7 +74,8 @@ def main():
         ('src/replay_fx_skip.h', 'REX_HOOK_RAW(sub_8271AA48)', 'the hook on the PRTI track end method'),
         ('docs/GAME_BUG_FIXES.md', '| GBF-3 |', 'the fix has its GBF-3 row'),
         ('src/replay_fx_skip.h', 'GBF-3', 'the site comment points to GBF-3'),
-        ('src/replay_fx_skip.h', 'SkippedStops(mem, ctx.r3.u32, g_gate.TakeAtEnd());   // read before the original', 'the walk runs before the original, gated on the skip'),
+        ('src/replay_fx_skip.h', 'const bool skipped = g_gate.TakeAtEnd();\n    const Walk w = SkippedStops(mem, ctx.r3.u32, skipped);   // read before the original',
+         'the walk runs before the original, gated on the skip (S110 BUSWAIT split the gate read into `skipped`; FIRETABLE fix 2 re-pinned it)'),
         ('src/replay_fx_skip.h', 'REX_HOOK_RAW(sub_826071F8)', 'the skip hook sets the gate'),
         ('src/replay_fx_skip.h', 'REX_HOOK_RAW(sub_8271A630)', 'begin clears the gate (the hook on the begin method)'),
     ]

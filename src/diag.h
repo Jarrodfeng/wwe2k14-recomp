@@ -46,20 +46,10 @@
 
 #include "diag_jpeg.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_diag, "", "wwe2k14",
-                      "Session 95 (the diagnostic run): the run folder; results are written to <folder>/arm<ID>/ as the "
-                      "run goes. Empty = off (the default). Set by the launchers' DIAGNOSTIC RUN button")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_STRING(wwe2k14_diag_arm, "0", "wwe2k14", "Session 95 (the diagnostic run): this run's arm id")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(wwe2k14_diag_hold, false, "wwe2k14",
-                    "Session 95 (the diagnostic run, phone): the route never quits the game itself; the launcher's activity "
-                    "ends it (a process exit would beat its poll). A failed route writes hang.txt instead")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_INT32(wwe2k14_diag_arm_s, 120, "wwe2k14",
-                     "Session 95 (the diagnostic run): the arm's deadline in seconds; the watchdog ends the process then")
-    .range(10, 1200)
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DECLARE(std::string, wwe2k14_diag);
+REXCVAR_DECLARE(std::string, wwe2k14_diag_arm);
+REXCVAR_DECLARE(bool, wwe2k14_diag_hold);
+REXCVAR_DECLARE(int32_t, wwe2k14_diag_arm_s);
 
 namespace wwe2k14::diag {
 

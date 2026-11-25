@@ -33,9 +33,7 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
-REXCVAR_DEFINE_STRING(wwe2k14_peek, "", "wwe2k14",
-                      "Debug: log guest words when they change, once per frame: NAME=0xADDR[>OFF...] comma-separated "
-                      "(each >OFF dereferences the value and adds OFF). Empty = off");
+REXCVAR_DECLARE(std::string, wwe2k14_peek);
 
 namespace wwe2k14 {
 

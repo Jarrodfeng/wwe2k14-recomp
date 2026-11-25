@@ -6,6 +6,9 @@
 # build's exact defines, flags and precompiled header (read from its build.ninja) and links it with the main build's objects into
 # <worktree>\out\exe\ (exe, map, the rex DLLs of -DllSource, the launcher and the other files a run needs next to the exe).
 # Nothing in out\build\win-amd64-release is written. Holds a BUILD slot of the run lock while it reads the objects.
+# S110 CVARSHARD: the cvar DEFINITIONS are in src\cvars\*.cpp (tools\compile\cvar_shard.py), not in main.cpp's headers: they are compiled from the worktree
+# too (a changed default, a new cvar) and take the main build's objects' places. A main build without them (older than CVARSHARD), or a worktree without
+# them (older than CVARSHARD) does not fit this main.cpp: refused before compiling (exit 2), with the fix named. -BuildDir: another configured build folder.
 # Limits: the worktree's generated declarations must be the main build's (no change to config\*.toml / the manifest, no NEW hooked
 # function: REX_HOOK_RAW on a function the main build does not hook needs a real build); the launcher is the main build's, so a
 # change to src\launcher or src\diag_plan.h is NOT in it.
@@ -14,7 +17,7 @@
 # Output ends with "FAST_GAME_EXE <path>". Exit: 0 ok, 2 bad arguments, 3 compile failed, 4 link failed, 1 lock wait over -LockWaitMinutes (or any error before the script ran inside the lock).
 # -SdkInclude DIR: an SDK worktree's include folder, searched before the main build's (a change to an SDK header the game uses;
 # give the same worktree's DLLs with -DllSource; no precompiled header then).
-param([Parameter(Mandatory)][string]$Worktree, [string]$DllSource = '', [string]$SdkInclude = '', [switch]$Locked, [double]$LockWaitMinutes = 15, [string]$SdkWorktree = '', [string]$NewSdkHeaders = '')
+param([Parameter(Mandatory)][string]$Worktree, [string]$DllSource = '', [string]$SdkInclude = '', [switch]$Locked, [double]$LockWaitMinutes = 15, [string]$SdkWorktree = '', [string]$NewSdkHeaders = '', [string]$BuildDir = '')
 $ErrorActionPreference = 'Continue'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 $Worktree = [System.IO.Path]::GetFullPath($Worktree).TrimEnd('\')
@@ -28,10 +31,11 @@ if (-not $Locked) {
     if ($DllSource) { $lockArgs += @('-DllSource', $DllSource) }
     if ($SdkInclude) { $lockArgs += @('-SdkInclude', $SdkInclude) }
     if ($SdkWorktree) { $lockArgs += @('-SdkWorktree', $SdkWorktree, '-NewSdkHeaders', $NewSdkHeaders) }
+    if ($BuildDir) { $lockArgs += @('-BuildDir', $BuildDir) }
     & pwsh @lockArgs
     exit $LASTEXITCODE
 }
-$B = "$R\out\build\win-amd64-release"
+$B = if ($BuildDir) { [System.IO.Path]::GetFullPath($BuildDir).TrimEnd('\') } else { "$R\out\build\win-amd64-release" }
 if (-not $DllSource) { $DllSource = $B }
 . "$R\tools\env.ps1" *> $null
 $ErrorActionPreference = 'Continue'
@@ -53,6 +57,18 @@ function Get-Statement([string]$prefix) {
 }
 $cc = Get-Statement 'build CMakeFiles/wwe2k14.dir/src/main.cpp.obj:'
 $ln = Get-Statement 'build wwe2k14.exe:'
+$inputs = ($ln['_line'] -split ':\s*', 2)[1]
+$inputs = ($inputs -split '\s+\|\s*')[0]
+$items = @($inputs -split '\s+' | Where-Object { $_ -and $_ -ne 'CXX_EXECUTABLE_LINKER__wwe2k14_Release' })
+# S110 CVARSHARD: the cvar units of the worktree and of the main build's link must be the same list (see the header)
+$wtShards = @(Get-ChildItem -LiteralPath "$Worktree\src\cvars" -Filter '*.cpp' -File -ErrorAction SilentlyContinue | ForEach-Object { "src/cvars/$($_.Name)" } | Sort-Object)
+$bShards = @($items | Where-Object { $_ -like 'CMakeFiles/wwe2k14.dir/src/cvars/*.cpp.obj' } | ForEach-Object { $_ -replace '^CMakeFiles/wwe2k14\.dir/', '' -replace '\.obj$', '' } | Sort-Object)
+if (($wtShards -join ' ') -ne ($bShards -join ' ')) {
+    if ($bShards.Count -eq 0) { "fast_game_exe: REFUSED: $B links no src\cvars units (built before S110 CVARSHARD) but the worktree's headers only declare their cvars: rebuild that build first (tools\build.ps1), or build the worktree's commit with tools\exe\lane_exe.ps1" }
+    elseif ($wtShards.Count -eq 0) { "fast_game_exe: REFUSED: the worktree has no src\cvars units (older than S110 CVARSHARD: its headers define every cvar) but $B links them (a duplicate definition of every cvar): merge main into the worktree, or use tools\exe\lane_exe.ps1" }
+    else { "fast_game_exe: REFUSED: the worktree's src\cvars units ($($wtShards -join ', ')) are not the ones $B links ($($bShards -join ', ')): rebuild that build first" }
+    exit 2
+}
 $clang = 'C:\PROGRA~1\LLVM\bin\CLANG_~1.EXE'
 $wtFwd = $Worktree -replace '\\', '/'
 $rFwd = $R -replace '\\', '/'
@@ -84,13 +100,25 @@ if ($SdkInclude) { $flags = $flags -replace '-Xclang -include-pch -Xclang \S+', 
 & $clang "@$rsp" 2>&1 | Select-Object -Last 30
 if ($LASTEXITCODE) { "fast_game_exe: compile failed ($LASTEXITCODE)"; exit 3 }
 "compiled in {0:N0} s" -f ((Get-Date) - $t0).TotalSeconds
+$shardObj = @{}
+foreach ($s in $wtShards) {
+    $st = Get-Statement "build CMakeFiles/wwe2k14.dir/$s.obj:"
+    $so = "$Out\obj\$((Split-Path $s -Leaf) -replace '\.cpp$', '.cpp.obj')"
+    $sflags = $st['FLAGS']
+    if ($SdkInclude) { $sflags = $sflags -replace '-Xclang -include-pch -Xclang \S+', '' }
+    $srsp = "$Out\obj\$((Split-Path $s -Leaf) -replace '\.cpp$', '.rsp')"
+    $sinc = "-I$wtFwd -I$wtFwd/src " + $(if ($SdkInclude) { "-I$($SdkInclude -replace '\\', '/') " } else { '' }) + $st['INCLUDES']
+    [System.IO.File]::WriteAllText($srsp, (($st['DEFINES'] + ' ' + $sinc + ' ' + $sflags + " -o `"$($so -replace '\\','/')`" -c `"$wtFwd/$s`"") -replace '\\"', '\"'))
+    & $clang "@$srsp" 2>&1 | Select-Object -Last 30
+    if ($LASTEXITCODE) { "fast_game_exe: compile of $s failed ($LASTEXITCODE)"; exit 3 }
+    $shardObj["CMakeFiles/wwe2k14.dir/$s.obj"] = $so -replace '\\', '/'
+}
+if ($wtShards.Count) { "compiled $($wtShards.Count) cvar unit(s) from the worktree" }
 
-# Link: the main build's inputs with our main.cpp.obj in the place of its own.
-$inputs = ($ln['_line'] -split ':\s*', 2)[1]
-$inputs = ($inputs -split '\s+\|\s*')[0]
-$items = @($inputs -split '\s+' | Where-Object { $_ -and $_ -ne 'CXX_EXECUTABLE_LINKER__wwe2k14_Release' })
+# Link: the main build's inputs with our main.cpp.obj (and the cvar units) in the place of its own.
 $objs = foreach ($it in $items) {
     if ($it -eq 'CMakeFiles/wwe2k14.dir/src/main.cpp.obj') { $obj -replace '\\', '/' }
+    elseif ($shardObj.ContainsKey($it)) { $shardObj[$it] }
     elseif ($it -match '^[A-Za-z]\$:') { $it -replace '\$:', ':' }
     else { "$($B -replace '\\','/')/$it" }
 }

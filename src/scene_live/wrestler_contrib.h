@@ -293,6 +293,9 @@ class WrestlerContributor final : public Contributor {
   // S103 DLW: the AssetRef of a model key (the one rule the emitter and RecordCanName share). S103 CMB: `composite_tag` is appended to `entry`, so a composite attire caches apart from the stock attire of the same loaded key.
   // S110 SEATREL: `model_desc` = the slot descriptor whose model the body is: the file is the one that descriptor's model was BUILT from (model_file_note.h), while it still holds `key`; 0 = the id rule.
   static Link KeyLink(uint32_t key, const std::string& composite_tag = std::string(), uint32_t model_desc = 0);
+  // S110 ENTRBODIES: the AssetRef of a body named by its participant slot key (Collect's slot-key route): KeyLink(key, the build-step colours of THIS slot's descriptor, model_desc). The one rule
+  // for the record and for the scene start's early ask (src\scene_start_bodies.h), so the early ask loads exactly the model the record will name.
+  static Link SlotKeyLink(uint32_t key, uint32_t slot_desc, uint32_t model_desc);
   // S103 B: the participant slot's key (entrant_slots A: P + 148 + 56 * slot, +16; match_setup.md, R1_wrestler_assets.md section 2): character * 100 + attire * 10 + kind, the model the
   // game builds for that character slot. The declared route (SubmitModelLink) never linked a wrestler in any capture; this names the model of a slot-matched skeleton from the setup table.
   // [U live: participant row == character slot is the R1 open point. Known to FAIL for slots 6-8 (referee / role-4 people are rows 40-42, db\ids\characters.json ch255, match_state.md) and in a

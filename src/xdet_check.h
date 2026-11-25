@@ -41,9 +41,7 @@
 
 #include "game_files.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_xdet_check, false, "wwe2k14",
-                    "Session 77: the tester determinism check's profile - the as-played values, the hash and every "
-                    "tester-dependent input pinned over any other source (src/xdet_check.h)");
+REXCVAR_DECLARE(bool, wwe2k14_xdet_check);
 
 namespace wwe2k14::xdet_check {
 

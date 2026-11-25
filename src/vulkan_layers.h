@@ -25,11 +25,7 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
-REXCVAR_DEFINE_STRING(wwe2k14_vulkan_disable_layers, "DISABLE_VULKAN_OW_OVERLAY_LAYER,DISABLE_VULKAN_OW_OBS_CAPTURE",
-                      "wwe2k14",
-                      "Session 36 (GitHub issue 1): comma-separated Vulkan layer off switches (environment variables) "
-                      "set to 1 before the game starts Vulkan. Default: Overwolf's overlay layers, which crashed the "
-                      "game at start. Empty = none. See src/vulkan_layers.h");
+REXCVAR_DECLARE(std::string, wwe2k14_vulkan_disable_layers);
 
 namespace wwe2k14::vulkan_layers {
 

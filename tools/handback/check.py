@@ -306,6 +306,8 @@ TAG = re.compile(r'\[[a-z0-9_]+\](?:\[[a-z0-9_.]+\])*')
 def changed_tags(ch):
     """{tag: 'file:line'} of the `[tag]` log / census literals whose format string changed (an existing line whose text moved)."""
     out = {}
+    per = {}
+    added_anywhere = {}   # tag -> every literal any src file of the diff adds: a literal removed in one file and added unchanged in another MOVED (S110 CVARSHARD: cvar help text to src\cvars), it did not change
     for p in ch.hunks:
         if not p.startswith('src/'):
             continue
@@ -316,8 +318,12 @@ def changed_tags(ch):
                     for tag in TAG.findall(lit):
                         side.setdefault(tag, set()).add(lit)
                         at.setdefault(tag, n)
+        per[p] = (rem, add, at)
+        for tag, lits in add.items():
+            added_anywhere.setdefault(tag, set()).update(lits)
+    for p, (rem, add, at) in per.items():
         for tag in set(rem) | set(add):
-            if tag in rem and rem.get(tag, set()) != add.get(tag, set()):
+            if tag in rem and rem.get(tag, set()) != add.get(tag, set()) and rem[tag] - added_anywhere.get(tag, set()):
                 out.setdefault(tag, '%s:%s' % (p, at[tag]))
     return out
 
@@ -402,6 +408,7 @@ LINT_ROWS = [
     lint_row('build_list', 'tools/lint/build_list_lint.py', 'src\\ and tools\\ sources and scripts against the build lists, CMakeLists.txt'),
     lint_row('cvar_link', 'tools/scene/cvar_link_lint.py', 'every game unit of both builds through clang -E (cache: main checkout out\\cvar_pp), the build lists, tools build*.ps1 / .bat', timeout=600),
     lint_row('one_definition', 'tools/lint/one_definition_lint.py', 'every game unit of both builds through clang -E (the cvar_pp cache): each hooked guest function defined by one unit; src\\ headers: no namespace-scope mutable static / static function / anonymous namespace', timeout=600),
+    lint_row('cvar_shard', 'tools/lint/cvar_shard_lint.py', 'every src\\ header (no REXCVAR_DEFINE_*: a new cvar is moved by tools\\compile\\cvar_shard.py), src\\cvars\\cvars_<n>.cpp against what the tool writes'),   # S110 CVARSHARD
     # the former orphans (no runner before S108)
     lint_row('aniso', 'tools/lint/aniso_lint.py', 'src\\renderer_scene\\'),
     lint_row('mask', 'tools/lint/mask_lint.py', 'src\\renderer_scene\\'),

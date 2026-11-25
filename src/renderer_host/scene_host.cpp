@@ -27,7 +27,7 @@
 #include "../renderer_game/fallback_census.h"
 #include "../renderer_game/scene_frame.h"
 #include "../renderer_game/scene_kind.h"
-#include "../renderer_scene/cam_gate.h"   // S105 A3
+#include "../renderer_scene/cam_gate.h"   // S110 ENTRBLACK: the game's scene-geometry fact (header bits 1 / 2)
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
 #include "../renderer_scene/yuv_rgba.h"   // S103 CPU1: YuvPathName (the [host][cpu] census field)
 #include "../renderer_scene/post_pass.h"   // S103 SLV: g_post_dconv_passes
@@ -970,16 +970,11 @@ void SceneHost::Handle(Msg& m) {
       }
     }
     if (seam_.force_ours) ours = true;
-    if (!seam_.cam_ignore) {   // S105 A3: the record's camera-gate facts (cam_gate.h); the rig's planted twin leaves them unread
-      f.no_scene_camera = rdr_scene::NoShownCamera(rec.header.flags);
-      f.cam_unanimated = rdr_scene::CamUnanimated(rec.header.flags);
-      f.cam_anim_pending = rdr_scene::CamAnimPending(rec.header.flags);
-    }
-    const CamVerdict cam_v = CamGate(st_, f);   // the same rule Decide applies (host_core.h)
-    if (ours && cam_v.black) {   // S105 A3: the game draws no scene yet (no shown camera / the entrance load window): no 3D draw; the build still runs so the loader gets the misses and READY is learned
+    if (!seam_.noscene_ignore) f.game_draws_no_scene = rdr_scene::GameDrawsNoScene(rec.header.flags);   // S110 ENTRBLACK: the game's own decision for this frame (cam_gate.h); the rig's planted twin leaves it unread
+    if (ours && f.game_draws_no_scene) {   // S110 ENTRBLACK: the game submits no scene geometry this frame (its stage and every character hidden): no 3D draw; the build still runs so the loader gets the misses and READY is learned
       f.ours = true;
       f.draw = DrawResult::Miss;
-      why = cam_v.shown0 ? "the game shows no scene camera" : cam_v.sticky ? "the motion camera is not animated yet (held after the shown-camera gap)" : "the entrance load window (motion camera not animated)";
+      why = "the game draws no scene geometry (stage and characters hidden)";
       draw_->Warm(rec, f.width, f.height);
       built_this = built_this_frame = true;
     } else if (ours && never_fed) {   // S103 HN: no draw; the build still runs so the loader gets the misses and READY is learned
@@ -1030,6 +1025,7 @@ void SceneHost::Handle(Msg& m) {
     if (f.ours && f.draw != DrawResult::Ok) fallback_census::NoteRenderWhy(j, why, f.loading);
     scene_frame::SetReady(draw_->Ready());
   } else if (f.have_record) fallback_census::NoteRender(j, f.no_picture ? "no_picture" : "no_size");
+  if (!built_this_frame) draw_->PublishStartWait(j, /*built=*/false);   // S110 ENTRWAIT2: a frame that built nothing (stale OURS inputs, no record / picture / size): the game's held start learns the loader's state
 
   const Plan plan = Decide(st_, f, core_.counters());
   Counters& c = core_.counters();

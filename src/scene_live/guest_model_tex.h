@@ -35,6 +35,7 @@ struct WordMem {
 // CTF: test only. 31 = a sampler with key 0 is not counted as its own reason (the old blind spot); 32 = no re-ask of a retryable miss (TexDue); 33 = tex_checked re-set on every call (TexCallStep).
 // CTX2: 34 = the 8888 shape is not allowed (allow_8888 off: the CAW model's linear BGRA pictures are refused as format again).
 // S105 A5c: 36 = a flushed (dirty) picture is not refreshed at once (the 61-frame guard only); 37 = the model's logo keys are not resolved.
+// S110 WHITEEYES: 38 = a deferred refresh returns the held hash WITHOUT its bytes (the read names a picture its rows do not carry: the part builds white).
 inline int g_gm_tex_plant = 0;
 // why[] slot for "the sampler has no key at all" (key word 0 == 0); 0..8 are guest_tex::Why.
 inline constexpr uint32_t kWhyNoKey = 9;
@@ -246,6 +247,15 @@ class TexResolver {
     uint8_t why = 0;   // guest_tex::Why of the last read (0 = ok)
     uint32_t header = 0, flush_gen = 0;   // S105 A5c review F5-F7: the texture header read and its guest_tex_dirty::Gen taken just before the last good read
   };
+  // The held picture of `e` rides in this call's result (once per hash). Every hash a read names must have its bytes beside it: the rows writer emits picture rows only from `o.textures`, and a part
+  // row whose hash has no picture row builds with no picture (S110 WHITEEYES: the white eyes).
+  static void Keep(const Entry& e, TexOut& o) {
+    for (const TexRead& t : o.textures)
+      if (t.hash == e.hash) return;
+    TexRead t;
+    t.hash = e.hash, t.width = e.width, t.height = e.height, t.format = e.format, t.bytes = e.bytes;
+    o.textures.push_back(std::move(t));
+  }
   template <class M, class P>
   uint64_t One(const WordMem<M>& wm, P& phys, uint32_t handle, bool override_src, uint64_t frame, uint32_t& reads, uint32_t max_reads, TexOut& o, bool& deferred) {
     guest_tex::Resolved r;
@@ -298,7 +308,10 @@ class TexResolver {
         deferred = true;
         ++st_.deferred;
         if (dirty) ++st_.dirty_deferred;   // (the dirty mark stays set: the next call reads it)
-        return e.hash;   // an older read of the same identity stays valid until refreshed
+        // An older read of the same identity stays valid until refreshed, its BYTES with it (S110 WHITEEYES): the result names e.hash, so the rows must carry its picture. Without them the consumer builds
+        // the part with no picture under a model key that equals the completed read's key whenever the re-read finds the same content, and keeps that build. (g_gm_tex_plant 38 = the old exit.)
+        if (e.hash && g_gm_tex_plant != 38) e.last_use = frame, Keep(e, o);
+        return e.hash;
       }
       ++reads, ++st_.byte_reads;
       if (is8888) ++reads8888_;
@@ -328,11 +341,7 @@ class TexResolver {
       ++st_.cache_hits;
     }
     e.last_use = frame;
-    for (const TexRead& t : o.textures)
-      if (t.hash == e.hash) return e.hash;
-    TexRead t;
-    t.hash = e.hash, t.width = e.width, t.height = e.height, t.format = e.format, t.bytes = e.bytes;
-    o.textures.push_back(std::move(t));
+    Keep(e, o);
     return e.hash;
   }
   // CAWD kind 1 / CTX2 review 4: is the registry's texture object for `handle` a CUBE? The wrapper's mode word ([wrapper+52]) picks the header word: 0 -> +80, 1 -> +84, 2 -> +88 (sub_82BD4600 slot 7, E_inline_callbacks.md:142);

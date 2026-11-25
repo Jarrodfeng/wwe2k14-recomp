@@ -56,14 +56,9 @@
 #include "android_perf_hint_retry.h"  // Session 95: createSession retry plan
 #include "frame_word.h"  // Session 73: TargetFrameMs
 
-REXCVAR_DEFINE_BOOL(wwe2k14_android_perf_hint, true, "wwe2k14",
-                    "Session 64 (Android): an APerformanceHint session for the game's busy threads (src/android_perf_hint.h)");
-REXCVAR_DEFINE_INT32(wwe2k14_android_perf_hint_target_us, 0, "wwe2k14",
-                     "Session 64 (Android): the performance hint's target frame time in microseconds (16667 = 60 fps); "
-                     "0 = the game's frame rate (33333 with --wwe2k14_step_hz=30, Session 73)");
-REXCVAR_DEFINE_BOOL(wwe2k14_android_big_cores, false, "wwe2k14",
-                    "Session 73 (Android): keep the busy game threads off the phone's slowest CPU cluster "
-                    "(src/android_perf_hint.h)");
+REXCVAR_DECLARE(bool, wwe2k14_android_perf_hint);
+REXCVAR_DECLARE(int32_t, wwe2k14_android_perf_hint_target_us);
+REXCVAR_DECLARE(bool, wwe2k14_android_big_cores);
 
 namespace wwe2k14::perf_hint {
 

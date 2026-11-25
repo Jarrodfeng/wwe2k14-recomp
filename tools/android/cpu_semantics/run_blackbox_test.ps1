@@ -14,6 +14,8 @@ Set-Content -Encoding ascii "$bb\shim\rex\cvar.h" @'
 // Session 73 test shim: just enough of rex/cvar.h for src/blackbox.h.
 #define REXCVAR_DEFINE_BOOL(name, def, cat, desc) inline bool cvar_##name = def
 #define REXCVAR_GET(name) cvar_##name
+// S110 CVARSHARD: the header only DECLARES its cvar now (the definition is in src/cvars/cvars_<n>.cpp, true on Android)
+#define REXCVAR_DECLARE(type, name) inline type cvar_##name = true
 '@
 $ndk = Get-ChildItem "$env:LOCALAPPDATA\Android\Sdk\ndk" -Directory | Sort-Object Name | Select-Object -Last 1
 $clang = Join-Path $ndk.FullName 'toolchains\llvm\prebuilt\windows-x86_64\bin\clang++.exe'

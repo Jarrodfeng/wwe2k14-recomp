@@ -94,28 +94,15 @@
 
 #include "frame_stats.h"  // CurrentLogNumber (the run's log number: file name prefix)
 
-REXCVAR_DEFINE_STRING(wwe2k14_clip_dir, "", "wwe2k14",
-                      "In-game clip capture: folder for the input-script clip_start/clip_stop clips (empty = off; "
-                      "relative = exe folder). See src/clip_capture.h");
-REXCVAR_DEFINE_STRING(wwe2k14_clip_ffmpeg, "ffmpeg", "wwe2k14",
-                      "In-game clip capture: ffmpeg executable (name on PATH or full path)");
-REXCVAR_DEFINE_STRING(wwe2k14_clip_codec, "h264_nvenc", "wwe2k14",
-                      "In-game clip capture: ffmpeg video encoder (h264_nvenc, hevc_nvenc, libx264 ...)");
-REXCVAR_DEFINE_INT32(wwe2k14_clip_cq, 19, "wwe2k14", "In-game clip capture: NVENC constant-quality level (-cq)");
-REXCVAR_DEFINE_INT32(wwe2k14_clip_workers, 3, "wwe2k14", "In-game clip capture: capture threads (1-8)");
-REXCVAR_DEFINE_BOOL(wwe2k14_clip_frame_locked, false, "wwe2k14",
-                    "In-game clip capture (Session 16): one video frame per guest frame, the game waits for every "
-                    "capture (for replay mode / re-shoots). See src/clip_capture.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_clip_hash_log, false, "wwe2k14",
-                    "In-game clip capture (Session 21): also hash every captured frame in full (64-bit, all pixels "
-                    "at the clip's scale) and write DIR/NNN_clip_NAME.hashes.csv (guest_frame,hash) when the clip "
-                    "ends. For setting-off vs on comparisons of replay runs (tools\\perf\\hash_compare.py)");
-REXCVAR_DEFINE_STRING(wwe2k14_clip_png, "", "wwe2k14",
-                      "In-game clip capture (Session 24): also save these guest frames of a clip as lossless PNG, "
-                      "DIR/NNN_clip_NAME_fGUEST.png: ranges A-B/STEP (or A, A-B), comma-separated; for exact "
-                      "replay comparisons (tools\\dlss\\compare.py). Empty = off");
-REXCVAR_DEFINE_INT32(wwe2k14_clip_queue, 8, "wwe2k14",
-                     "In-game clip capture: most captured frames waiting for ffmpeg before new ones are dropped");
+REXCVAR_DECLARE(std::string, wwe2k14_clip_dir);
+REXCVAR_DECLARE(std::string, wwe2k14_clip_ffmpeg);
+REXCVAR_DECLARE(std::string, wwe2k14_clip_codec);
+REXCVAR_DECLARE(int32_t, wwe2k14_clip_cq);
+REXCVAR_DECLARE(int32_t, wwe2k14_clip_workers);
+REXCVAR_DECLARE(bool, wwe2k14_clip_frame_locked);
+REXCVAR_DECLARE(bool, wwe2k14_clip_hash_log);
+REXCVAR_DECLARE(std::string, wwe2k14_clip_png);
+REXCVAR_DECLARE(int32_t, wwe2k14_clip_queue);
 
 namespace wwe2k14 {
 

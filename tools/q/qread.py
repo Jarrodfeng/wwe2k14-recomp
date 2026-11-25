@@ -4,6 +4,7 @@ r"""q read (S110 lane READSTORE): what a model reader settled about a cluster of
     py tools/q/q.py read store ANSWER_FILE [--batch NAME] [--model NAME]     parse a sheet-reader answer into read.s1.db
     py tools/q/q.py read show [UNIT|ADDR]                      the stored answers of a unit (newest first); no argument: every unit read
     py tools/q/q.py read verify unit UNIT|func ADDR --verdict V --source PATH --note T | --file TSV | --stats   (tools/q/qreadverify.py)
+    py tools/q/q.py read claims --build | --stats | UNIT|ADDR | --promote [--out TSV]   the mechanical claim check (tools/q/qreadclaim.py)
     py tools/q/q.py read stats                               totals (and units per system)
     py tools/q/q.py read pick --reread [--n N] --out DIR       sheets of units answered but with no `system` yet (to be re-asked)
     py tools/q/q.py read system NAME [--out FILE]              the bundle a system-writer reads: every stored reading of that system
@@ -461,6 +462,9 @@ def main(argv):
             print('  SKIPPED "%s": %s' % (lb, why))
         print('listing needed: yes for %d unit(s)%s' % (len(r['listing']), ': ' + ' '.join(map(str, r['listing'])) if r['listing'] else ''))
         return 0
+    if cmd == 'claims':
+        import qreadclaim      # VERIFYMECH: the claims of every reading checked against the index (claim_read)
+        return qreadclaim.main(rest)
     if cmd == 'verify':
         import qreadverify
         return qreadverify.main(rest)
@@ -470,7 +474,7 @@ def main(argv):
     if cmd == 'stats':
         stats()
         return 0
-    raise ReadError('q read: pick | store | verify | show | stats | system | systems | store-system')
+    raise ReadError('q read: pick | store | verify | claims | show | stats | system | systems | store-system')
 
 
 if __name__ == '__main__':

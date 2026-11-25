@@ -49,10 +49,7 @@
 #include "renderer_adapter/stage_view.h"  // S101 lane 59: SetPlaying (no SDK includes)
 #include "scene_stage_logic.h"    // S101 lane 38: the stage push (ready test, the fake story bytes)
 
-REXCVAR_DEFINE_STRING(wwe2k14_scene_victory, "", "wwe2k14",
-                      "S101 lane 32: arm the victory scene ID[/LAYOUT], applied once, when the main menu is first up; refused (WARN) if /EVP/ID is not in "
-                      "the pac index. The same as the live directive `!scene victory ID[/LAYOUT]` but independent of the live channel's request "
-                      "order (a long batch holds the pipe). Empty = off. See src/scene_director.h");
+REXCVAR_DECLARE(std::string, wwe2k14_scene_victory);
 
 REX_EXTERN(__imp__sub_827C18E0);  // match-end step chooser: G+468 != 0 => next flow step 25
 REX_EXTERN(__imp__sub_8225E620);  // starts the cutscene startup sequence, mode word := 0

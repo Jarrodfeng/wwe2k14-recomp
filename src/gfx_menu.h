@@ -56,70 +56,28 @@ constexpr bool IsDevBuild() {
 // Session 61 (Jarrod, 2026-10-25: "remove the renderer option entirely, with light and accurate as advanced flags
 // only"): the renderer is no setting any more; this advanced flag picks LIGHT or ACCURATE for troubleshooting (the
 // launcher reads it from its Extra flags and builds that renderer's flags; the settings file's path here applies it).
-REXCVAR_DEFINE_STRING(wwe2k14_renderer, "", "wwe2k14",
-                      "Session 61 (advanced, troubleshooting): native (the default), light or accurate. Through the "
-                      "launcher: Settings -> Advanced -> Extra flags. S105: only in the stream build; the stream-free "
-                      "player build pins the renderer and ignores it");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfx_menu, true, "wwe2k14",
-                    "Session 28: a GRAPHICS entry after GAMEPLAY in the main menu's OPTIONS list (a settings screen "
-                    "in the game's own style). Default on (Jarrod, 2026-10-18); =false leaves the list stock. See "
-                    "src/gfx_menu.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_quit_item, true, "wwe2k14",
-                    "Session 28: a QUIT TO DESKTOP item at the end of the main menu's list (asks first, then closes the "
-                    "game the way Alt+F4 does). Default on (Jarrod, 2026-10-18); =false leaves the list stock. See "
-                    "src/gfx_menu.h");
-// S105 ADEV: Android has no settings file (the phone launcher passes its choices as flags), so the default is off there even in a release
-// (a release APK is !IsDevBuild(); an args.txt run would otherwise read a file that does not exist).
-#ifdef __ANDROID__
-#define WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT false
-#else
-#define WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT (!wwe2k14::gfx_menu::IsDevBuild())
-#endif
-REXCVAR_DEFINE_BOOL(wwe2k14_use_launcher_settings, WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT, "wwe2k14",
-                    "Session 28: at start, apply the graphics settings in the launcher's settings.json (upscaling, "
-                    "resolution, frame rate) to settings the command line left alone. Default: on in a PC release, off in "
-                    "a +dev build (test runs would pick up the player's own file) and off on Android (no settings file: the "
-                    "phone launcher passes its choices as flags)");
-REXCVAR_DEFINE_STRING(wwe2k14_settings_file, "", "wwe2k14",
-                      "Session 28: the settings file the GRAPHICS menu and --wwe2k14_use_launcher_settings read and "
-                      "write; empty = %APPDATA%\\wwe2k14-launcher\\settings.json (the launcher's)");
-REXCVAR_DEFINE_BOOL(wwe2k14_low_shadows, false, "wwe2k14",
-                    "Session 95 (item K, default false until the milestone): in the LOW tier, draw the wrestlers' shadow maps on alternate "
-                    "frames (gpu_shadow_half_rate), the 8-bit maps at half size (gpu_native_owned_shadow_half) and skip the passes that read only "
-                    "those maps (gpu_native_owned_shadow_skip). Read by the game's settings-file path only; the launcher does not pass it");
-REXCVAR_DEFINE_STRING(wwe2k14_quality_note, "", "wwe2k14",
-                      "Session 93: the quality tier a launcher resolved for this start, as text for the game log "
-                      "('LOW (auto: integrated GPU ...)'). The launcher builds the flags itself; this only carries the "
-                      "reason into the log (no effect on the game)");
-REXCVAR_DEFINE_INT32(wwe2k14_gfxmenu_msg_type, 3, "wwe2k14",
-                     "Debug (Session 28): the message box type of the restart message (2 = YES / NO as the game's own "
-                     "question; 3..5 tried in run 2108+)");
-REXCVAR_DEFINE_INT32(wwe2k14_gfxmenu_msg_arg, 0, "wwe2k14",
-                     "Debug (Session 28): the restart message event's word at +28 (the button layout for types 3 / 4)");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_no_rtx, false, "wwe2k14",
-                    "Debug (Session 28): pretend there is no RTX card (the GRAPHICS menu offers upscaling OFF only)");
-REXCVAR_DEFINE_INT32(wwe2k14_gfxmenu_test_refuse, 0, "wwe2k14",
-                     "Test (Session 28): 1 = expect an OPTIONS list of 6 items, 2 = expect another first label: the "
-                     "flow table must be left stock and the reason logged (the safety rule of items 1 and 3)");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_mgr, false, "wwe2k14",
-                    "Debug (Session 28): log every change of the message manager object's words (per frame)");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe, false, "wwe2k14",
-                    "Debug (Session 28): log the Options / VISUAL PRESENTATION screen's calls (text ids, frame "
-                    "methods, SmartMenu fields). Log only. See src/gfx_menu.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text_all, false, "wwe2k14",
-                    "Debug (Session 28): with probe_text on, log every call (not only new ids) with its caller");
+REXCVAR_DECLARE(std::string, wwe2k14_renderer);
+REXCVAR_DECLARE(bool, wwe2k14_gfx_menu);
+REXCVAR_DECLARE(bool, wwe2k14_quit_item);
+// (S110: its default, WWE2K14_USE_LAUNCHER_SETTINGS_DEFAULT, is in src\cvars\cvar_defaults.h: the definition is in a generated shard)
+REXCVAR_DECLARE(bool, wwe2k14_use_launcher_settings);
+REXCVAR_DECLARE(std::string, wwe2k14_settings_file);
+REXCVAR_DECLARE(bool, wwe2k14_low_shadows);
+REXCVAR_DECLARE(std::string, wwe2k14_quality_note);
+REXCVAR_DECLARE(int32_t, wwe2k14_gfxmenu_msg_type);
+REXCVAR_DECLARE(int32_t, wwe2k14_gfxmenu_msg_arg);
+REXCVAR_DECLARE(bool, wwe2k14_gfxmenu_no_rtx);
+REXCVAR_DECLARE(int32_t, wwe2k14_gfxmenu_test_refuse);
+REXCVAR_DECLARE(bool, wwe2k14_gfxmenu_probe_mgr);
+REXCVAR_DECLARE(bool, wwe2k14_gfxmenu_probe);
+REXCVAR_DECLARE(bool, wwe2k14_gfxmenu_probe_text_all);
 // Session 33 (item 2): TEXTURE FILTERING. The SDK forces 4x anisotropic filtering on every eligible texture by default
 // (anisotropic_override 3); 8 / 16 raise it (anisotropic_override 4 / 5; it can change while the game runs).
 // Session 80 (Jarrod, 2026-11-01, the review sheets: "I can barely tell the difference", for everyone): STANDARD is the
 // game's own filtering (anisotropic_override -1), not the forced 4x - on Intel's Gen9 anisotropic filtering runs at a
 // fraction of the bilinear rate.
-REXCVAR_DEFINE_INT32(wwe2k14_texture_filter, 0, "wwe2k14",
-                     "Session 33: anisotropic texture filtering: 0 = standard (the game's own filtering since Session "
-                     "80; the SDK's forced 4x before), 8 = 8x, 16 = 16x (sharper floors, ramps and mats at an angle). "
-                     "Sets anisotropic_override if left at default");
-REXCVAR_DEFINE_BOOL(wwe2k14_gfxmenu_probe_text, false, "wwe2k14",
-                    "Debug (Session 28): with the probe on, log every new text id the text manager is asked for "
-                    "(set from a script with `cvar` right before the screen of interest)");
+REXCVAR_DECLARE(int32_t, wwe2k14_texture_filter);
+REXCVAR_DECLARE(bool, wwe2k14_gfxmenu_probe_text);
 
 REX_EXTERN(__imp__sub_822563F8);
 REX_EXTERN(__imp__sub_83424808);

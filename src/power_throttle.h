@@ -71,24 +71,13 @@
 #include "frame_stats.h"
 #include "gpu_pick.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_eco_qos, "", "wwe2k14",
-                      "Session 95: Windows EcoQoS (power throttling): '' off, 'process', 'process_keep' (keep threads opt "
-                      "out), 'threads' (helper threads only); only on integrated GPUs unless wwe2k14_power_igpu_only=false");
-REXCVAR_DEFINE_STRING(wwe2k14_eco_keep, "GPU Commands,GPU Submit,GPU VSync,GPU Jobs,GPU Upload Hash,Vulkan Pipelines,wwe2k14 UI,main", "wwe2k14",
-                      "Session 95: thread-name prefixes (or 'main') that EcoQoS (process_keep / threads) leaves at full speed");
-REXCVAR_DEFINE_STRING(wwe2k14_eco_only, "AK,Bink,Audio Worker,XMA Decoder,Kernel Dispatch,Shader Translation", "wwe2k14",
-                      "Session 95: thread-name prefixes the 'threads' EcoQoS mode and 'helpers' packing act on ('*' = every "
-                      "thread outside the keep list)");
-REXCVAR_DEFINE_INT32(wwe2k14_pack_cores, 0, "wwe2k14",
-                     "Session 95: > 0 = confine the game to the first N physical cores (all their logical processors); "
-                     "0 = off");
-REXCVAR_DEFINE_STRING(wwe2k14_pack_mode, "all", "wwe2k14",
-                      "Session 95: 'all' = the whole process in the packed cores, 'helpers' = only the wwe2k14_eco_only "
-                      "helper threads");
-REXCVAR_DEFINE_BOOL(wwe2k14_power_igpu_only, true, "wwe2k14",
-                    "Session 95: EcoQoS and core packing only when the chosen GPU is integrated");
-REXCVAR_DEFINE_BOOL(wwe2k14_power_on, true, "wwe2k14",
-                    "Session 95: EcoQoS / packing applied (flip mid-run with an input script for an in-run A/B)");
+REXCVAR_DECLARE(std::string, wwe2k14_eco_qos);
+REXCVAR_DECLARE(std::string, wwe2k14_eco_keep);
+REXCVAR_DECLARE(std::string, wwe2k14_eco_only);
+REXCVAR_DECLARE(int32_t, wwe2k14_pack_cores);
+REXCVAR_DECLARE(std::string, wwe2k14_pack_mode);
+REXCVAR_DECLARE(bool, wwe2k14_power_igpu_only);
+REXCVAR_DECLARE(bool, wwe2k14_power_on);
 
 namespace wwe2k14 {
 

@@ -58,13 +58,9 @@
 #pragma clang diagnostic pop
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_native_zlib, true, "wwe2k14",
-                    "Replace the game's zlib_decompress_buffer (sub_82C41738, zlib 1.2.3 inflate) with a native "
-                    "inflate (stb); falls back to the game's on anything unusual (Session 15)");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_zlib_verify, false, "wwe2k14",
-                    "wwe2k14_native_zlib: run both, keep the game's output, log mismatches");
-REXCVAR_DEFINE_BOOL(wwe2k14_zlib_probe, false, "wwe2k14",
-                    "Log zlib_decompress_buffer calls (sizes, time) and a summary every 600 frames (Session 15)");
+REXCVAR_DECLARE(bool, wwe2k14_native_zlib);
+REXCVAR_DECLARE(bool, wwe2k14_native_zlib_verify);
+REXCVAR_DECLARE(bool, wwe2k14_zlib_probe);
 
 namespace wwe2k14::native_zlib {
 

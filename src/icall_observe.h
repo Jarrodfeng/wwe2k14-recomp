@@ -84,9 +84,7 @@ static_assert(wwe2k14_icall_guard::Same(WWE_ICALL_STR(REX_CALL_INDIRECT_FUNC(wwe
 
 #if defined(WWE2K14_COVERAGE)
 #include <rex/cvar.h>
-REXCVAR_DEFINE_BOOL(wwe2k14_icalls, false, "wwe2k14",
-                    "Coverage build (S110): record every (call site, target) pair of indirect calls into icalls.tsv "
-                    "(needs --wwe2k14_coverage=true for the folder; read once at startup)");
+REXCVAR_DECLARE(bool, wwe2k14_icalls);
 #endif
 
 extern "C" {

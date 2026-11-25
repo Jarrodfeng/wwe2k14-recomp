@@ -115,13 +115,8 @@
 #include "../renderer_game/frame_tick.h"     // S103 P6: that boundary (SceneEnd / SceneLatch / SceneEmit) and the display table, kept in every build
 #include "../renderer_scene/live_sinks.h"   // S101 lane 26: the capture folder's scene\ sink
 
-REXCVAR_DEFINE_BOOL(wwe2k14_cost_counters, false, "wwe2k14",
-                    "S101 lane 83 (dev; docs\\renderer\\SKIP_GAME_WORK_MAP.md 1.3): passive cost counters: the game thread's recording time per class (sub_82C04DF0, "
-                    "sub_82BDED40, the crowd loops), the render thread's replay time per record, our reader's time per class and the replace checks' time per class; "
-                    "one [cost] line every 600 frames and one at the end. Off = one relaxed load per hook");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_provenance, false, "wwe2k14",
-                    "S101 lane17: record who wrote each page (file reads, copies, decoders) and label every texture bind (frame section 66, the [rdr][names] provenance lines). "
-                    "Off for players (nothing is hooked, nothing is paid); on by itself with the bug button's case ring, a +dev PC owner-mode build, or a capture armed at start");
+REXCVAR_DECLARE(bool, wwe2k14_cost_counters);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_provenance);
 REXCVAR_DECLARE(std::string, wwe2k14_low_ram);   // lane 126 (src\low_ram.h)
 REXCVAR_DECLARE(std::string, wwe2k14_gpu);       // S102 U1 (src\gpu_pick.h): the launcher's graphics card choice, now also read by the new renderer's device pick
 REXCVAR_DECLARE(bool, wwe2k14_case);  // (case/case_hook.h)
@@ -129,665 +124,239 @@ REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);   // lane 295 (6): the legacy que
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_bake_skip);  // lane 190 (S1): scene_live/bake_skip_hook.h
 REXCVAR_DECLARE(bool, wwe2k14_scene_plane);  // lane 268 (the plane tables the caster plane cut needs; defined in wwe2k14_app.h)
 REXCVAR_DECLARE(bool, wwe2k14_scene_light_states);  // lane 138 (D3 needs the light-state record; defined in wwe2k14_app.h)
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_live, false, "wwe2k14",
-                    "Session 100 (new renderer, docs\\renderer\\LIVE_ADAPTER.md stage A): every frame the reader describes is drawn by the new renderer, "
-                    "headless, next to the old one (the mirror). Needs --wwe2k14_rdr_capture (the reader). Not at the same time as a capture");
-// Session 100 (Jarrod 2026-11-11 07:2x: "we're probably due a new phone build anyway it's not seen the new owners renderer"): phone builds
-// of this branch start in owner mode, PC builds do not (yet). Not a player default: an Android release decides it again.
-#if defined(__ANDROID__)
-inline constexpr bool kRdrOwnerDefault = true;
-#else
-inline constexpr bool kRdrOwnerDefault = false;
-#endif
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_owner, kRdrOwnerDefault, "wwe2k14",
-                    "Session 100 (LIVE_ADAPTER.md stage B): the new renderer OWNS THE WINDOW: the SDK's presentation is detached (since strip-360 B6 "
-                    "its ring submits are skipped: only the boot write runs; fences / interrupts / flips are answered by our own thread - "
-                    "docs\\renderer\\LEAVE_THE_COMMAND_STREAM.md), and the live renderer presents every frame it draws. Turns on --wwe2k14_rdr_capture and --wwe2k14_rdr_live. "
-                    "Default on in phone builds of the Session 100 branch (a test of the new renderer), off on the PC");
-REXCVAR_DEFINE_BOOL(wwe2k14_film_grain, true, "wwe2k14",
-                    "Settings parity S3 (Jarrod 2026-11-11 08:1x; read at start; the new renderer): false = the retro WrestleMania arenas "
-                    "draw clean: no sepia, darkening, film grain or dark edges (S103 VTG2; vintage_look.h). The launcher's VINTAGE LOOK (RETRO ARENAS)");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_streamline_dir, "", "wwe2k14",
-                      "Settings parity S10b (owner mode): NVIDIA Streamline's runtime folder for the new renderer's DLSS / DLAA (src\\dlaa.h sets it in "
-                      "place of the SDK's vulkan_streamline_dir, so the SDK's idle device never loads Streamline)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_lod0, false, "wwe2k14",
-                    "S100 diagnosis (Cena's seam lines, runs 7024 / 7025): every sampler of the new renderer reads only the first mip of its "
-                    "range (max LOD = min LOD). Lines gone with it = our mip chains. Default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_no_aniso, false, "wwe2k14",
-                    "S100 diagnosis (Cena's seam lines, run 7027): no anisotropic filtering on any sampler of the new renderer, the game's own "
-                    "fetch-constant anisotropy included. Lines gone with it = anisotropy reaching across UV borders. Default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wide_legacy, false, "wwe2k14",
-                    "lane 171 diagnosis: the S5 screen-shape rule (the scene's draws end at the first scene depth copy), the one that drew a two-layer "
-                    "entrance's wrestlers unsqueezed at 21:9. Default off = the scene's draws run until the post chain's last pass (src/renderer_adapter/wide_rule.h)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_dlss_jitter_legacy, false, "wwe2k14",
-                    "lane 185 diagnosis: the S10b DLSS jitter window (the camera jitter and the wrestler velocity draws end at the frame's first scene depth copy), the one that "
-                    "left a two-layer entrance's layer-2 wrestlers / props and every particle unjittered. Default off = they run until the post chain's last pass "
-                    "(src/renderer_adapter/jitter_rule.h, docs/renderer/WIDE_OURS.md section 7)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wide_no_fullview, false, "wwe2k14",
-                    "lane 177 diagnosis: a full-screen fade / flash / tint rectangle (found by its corners reaching the view's four edges, wide_rule.h FullViewQuad) is squeezed "
-                    "like any scene draw again, so at 21:9 it covers only the middle of the frame. Default off = it stays unsqueezed and covers the whole displayed width");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scale_all, false, "wwe2k14",
-                    "S100 diagnosis (the Undertaker's blocks, run 7030): every game image follows the render scale again (the rule before "
-                    "commit 5754509b); default off = only 16:9 screen images scale");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_display_hz, 0, "wwe2k14",
-                     "Settings parity S9b (set by the reader, not a player switch): the display rate the new renderer's pictures want (120 with "
-                     "the decoupled 120); src/android_frame_rate.h asks the phone's screen for it");
-REXCVAR_DEFINE_BOOL(wwe2k14_pump_follow_display, true, "wwe2k14",
-                    "lane 168 (GATE_FAULTS row 4): the decoupled 120 follows the display's refresh (display_rate.h): on a panel under 120 Hz the game "
-                    "pumps at 60, no halfway pictures. false = always keep the request (the old behaviour; harness routes that test the tween on a "
-                    "60 Hz test PC set it)");
-REXCVAR_DEFINE_INT32(wwe2k14_panel_peak_hz, 0, "wwe2k14",
-                     "lane 168 (set by GameActivity.java on Android, not a player switch): the fastest refresh the panel offers at its current "
-                     "size; 0 = not known (the 120 request is kept)");
-REXCVAR_DEFINE_BOOL(wwe2k14_vsync, true, "wwe2k14",
-                    "Settings parity S13 (Jarrod 2026-11-11 08:1x: an explicit V-SYNC toggle; read at start): the launcher's V-SYNC. Only how "
-                    "pictures reach the screen, never the game's pace (the SDK's vsync, which fast-forwards when false). New renderer: true "
-                    "= FIFO, false = mailbox / immediate. Old renderer: gfx_settings.h maps it to its present modes");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_live_png, "", "wwe2k14",
-                      "Session 100: guest frames (comma-separated) whose new-renderer picture the mirror writes to <captures>\\live\\live_<frame>.png");
-REXCVAR_DEFINE_STRING(wwe2k14_dump_stage_page, "", "wwe2k14",
-                      "Session 103 L12 (dev diagnosis): guest frames (comma-separated) at which the image the arena draws bind at vertex slot 16 (the stage light-map page, 512x512) is read back "
-                      "(the first drawn frame at or after each) and written to out\\s103\\stage_page\\stage_page_f<frame>.png + .rgba8. Empty = off: nothing is read, nothing changes");
-REXCVAR_DEFINE_STRING(wwe2k14_dump_targets, "", "wwe2k14",
-                      "Session 103 T7 (dev diagnosis, the STAGE MIRROR): guest frames (comma-separated) at which EVERY in-between render target of the game's frame is read back by role (shadow map and blurs, rim chain, plane mask, pre-light strips, bloom / glare / DoF chain, final combine, present, the stage page) and, with --wwe2k14_rdr_scene=1, OUR maps by role beside them; written to out\\s103\\stage_mirror\\ (game_<role>.<n>_f<frame>, ours_<role>.<n>_f<frame>, stage_mirror_f<frame>.txt), paired by tools\\scene\\stage_mirror.py. Empty = off: nothing is read, nothing changes");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_live_picture, "", "wwe2k14",
-                      "Session 100: settable live (an input-script 'cvar' line): the mirror writes the NEXT frame's picture as live_<this>.png, "
-                      "then the switch empties itself. Pair it with the script's screenshot of the old renderer");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_live_picture_isolates, "", "wwe2k14",
-                      "Session 100: with each named live picture, also write the same frame drawn with only the draws whose program name contains "
-                      "each comma-separated NAME (\"!NAME\": all but those): live_<picture>_<NAME>.png");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_live_png_every, 0, "wwe2k14", "Session 100: also write the mirror's picture every N drawn frames (0 off)");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_format_caps_mask, "", "wwe2k14",
-                      "Session 101 lane 200 (dev only): hex bit mask of format features to pretend are missing, to run the format-capability fallbacks on a full-feature GPU (src\\renderer\\format_caps.h; 80000000 = fallbacks off, the re-find). Empty = the device as it is");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_bc_decode, 1, "wwe2k14",
-                     "S102 lane U1 (docs\\renderer\\TITLE_CARD_MALI.md): block-compressed textures (BC1-BC5) on a graphics chip that cannot sample them (Mali, Xclipse, Adreno 6xx phones) are decoded on the CPU into plain textures when they are uploaded. 1 = automatic (only where the chip lacks BC: no change anywhere else), 0 = off (the v0.3.2 behaviour: every such texture is refused and the title card and menus are missing), 2 = always (diagnosis)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_timestamps, true, "wwe2k14",
-                    "Lane 269: two Vulkan timestamps around every submitted frame of the new renderer, read a few frames late without stalling: the CSV gpu_ms, the slow-frame GPU field and the [rdr][gpu] lines. Two timestamps a frame, negligible");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_stamps, false, "wwe2k14",  // S102 S0-3: an instrument (claim 0 ms), read every frame
-                    "S102 S0-3: a GPU timestamp after each step of every frame, so the [rdr][gpu] line gives milliseconds per surface role (colour, shadow, rim, plane, cards, post, output, other) and the wait for the display apart from the work, and the frames CSV gets render_thread_ms and gpu_work_ms. Off = lane 269's two timestamps only");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_pass_stamps, false, "wwe2k14",  // S102 R24-B: an instrument, read every frame
-                    "S102 R24-B (docs\\renderer\\GPU_STAMPS.md): a GPU timestamp after EVERY pass and copy step (it forces wwe2k14_rdr_gpu_stamps on), and one [rdr][gpu][passes] table at 600 frames and every 600 after: per step the role, kind, image, size, format and the mean / p90 GPU microseconds. The stamps drain the pipe a little more than the run-level ones: read the table as a ranking. Off = today's stamps");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gpu_outside, false, "wwe2k14",  // S102 G5: an instrument, read every frame
-                    "S102 G5 (docs\\renderer\\GPU_OUTSIDE.md): meter the GPU work outside the frame's command buffer: each frame's fence is waited on right after the submit, so the submit-to-signal wall time less the stamped work is logged as [rdr][outside] with the CPU time of every outside point. Serialises CPU and GPU: an instrument, off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_upload_batch, false, "wwe2k14",  // S102 G5, read every frame
-                    "S102 G5: record a frame's texture uploads as three groups (every layout change to copy-destination in one barrier, all the copies, every change back in one barrier) instead of two barriers per upload. The picture is byte-equal");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_props_budget, false, "wwe2k14",  // S102 T17, read every frame
-                    "S102 T17 (docs\\systems\\props_budget.md): the props hook (commentary table, steps, microphone) makes its GPU buffers and images under a per-frame budget (wwe2k14_rdr_props_budget_bytes / _us); a draw past it keeps the stream's draw for that frame and is made on a later one, so the frame that first uses the 223 prop meshes no longer pays for all of them. The worker also prepares the file hashes and widened texels. Needs wwe2k14_rdr_props_ours. The picture is the same");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_props_budget_bytes, 2097152, "wwe2k14", "S102 T17: bytes of buffers + images the props hook may make in one frame (the first creation of a frame is always allowed). Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_props_budget_us, 1000, "wwe2k14", "S102 T17: microseconds of making the props hook may spend in one frame. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_counts, false, "wwe2k14",  // S102 M1
-                    "S102 M1: count the calls the new renderer records (draws, binds, barriers, ring bytes, area bound; src\\renderer\\counts.h) and log the per-frame means every 600 frames as [rdr][counts]. Integer increments only; off by default");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_live_validation, 0, "wwe2k14", "Session 100: the mirror renderer's Vulkan validation (0 off, 1 core + sync, 2 + best practices)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pipeline_store, true, "wwe2k14",  // default ON since 2026-11-13 15:5x (Jarrod: everything on; live pair 7195 / 7196)
-                    "Lane 276 (SKIP_GAME_WORK_MAP 19.10): keep a list of the pipelines the new renderer built and the driver's pipeline cache on disk (cache folder renderer_pipelines, header-checked, made on this machine, never shipped), and build the listed pipelines in the menus before a scene needs them. Off until the live check");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_pipeline_store_dir, "", "wwe2k14",
-                      "Lane 276: the pipeline store's folder; empty = <cache_root>/renderer_pipelines (players). For tests whose cache folder is mirrored fresh per run.");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_pipeline_prebuild_slice_us, 2000, "wwe2k14",
-                     "Lane 276: the listed pipelines are built in slices of about this many microseconds (at least one) at the start of each frame; 0 = never (only an explicit prebuild)")
-    .range(0, 100000);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_live);
+// (S110: kRdrOwnerDefault, the default below, is in src\cvars\cvar_defaults.h with its comment: the definition is in a generated shard)
+REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);
+REXCVAR_DECLARE(bool, wwe2k14_film_grain);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_streamline_dir);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_lod0);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_no_aniso);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wide_legacy);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_dlss_jitter_legacy);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wide_no_fullview);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_scale_all);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_display_hz);
+REXCVAR_DECLARE(bool, wwe2k14_pump_follow_display);
+REXCVAR_DECLARE(int32_t, wwe2k14_panel_peak_hz);
+REXCVAR_DECLARE(bool, wwe2k14_vsync);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_live_png);
+REXCVAR_DECLARE(std::string, wwe2k14_dump_stage_page);
+REXCVAR_DECLARE(std::string, wwe2k14_dump_targets);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_live_picture);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_live_picture_isolates);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_live_png_every);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_format_caps_mask);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_bc_decode);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_gpu_timestamps);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_gpu_stamps);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_gpu_pass_stamps);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_gpu_outside);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_upload_batch);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_props_budget);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_props_budget_bytes);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_props_budget_us);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_counts);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_live_validation);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pipeline_store);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_pipeline_store_dir);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_pipeline_prebuild_slice_us);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_capture, false, "wwe2k14",
-                    "Session 100 (new renderer, adapter reader): observe the game's D3D calls and decode them into our own frame description "
-                    "(passive: the old renderer keeps drawing); needed from boot for complete registries. Prints the [rdr][census] lines; "
-                    "--wwe2k14_rdr_capture_frames=N captures. Off: one branch per hook");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_capture_frames, 0, "wwe2k14",
-                     "Session 100: capture the next N whole frames into out\\captures\\<label> (settable live: an input-script 'cvar' line works; reset to 0 "
-                     "when the capture starts; needs --wwe2k14_rdr_capture)");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_capture_label, "capture", "wwe2k14",
-                      "Session 100: the capture's folder name under out\\captures (a number is added if the folder exists)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_capture_budget_mb, 4096, "wwe2k14",
-                     "Session 100: disk budget of one capture in MB; past it the capture stops with a logged line (default 4 GB)");
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_records, false, "wwe2k14",
-                    "Session 101 lane 26: a capture also writes the live scene writer's records beside its frames (scene\\frame_NNNNNN.rsc; needs "
-                    "--wwe2k14_rdr_capture_frames), and the case ring (bug button) keeps them for its zip. Off by default (timed / speed runs refuse it); a class's records exist only once its contributor is registered");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_fb_fast, false, "wwe2k14",  // S102 T4
-                    "Session 102 lane T4 (docs/research/part2/R3_render_thread_path.md cut 5): the frame builder de-duplicates states, dynamics, samplers and texture sets with a word-wise hash "
-                    "into open-addressing tables that keep their storage across frames, instead of a byte-wise hash into node tables freed every frame. The same ids and the same frame either way. "
-                    "Read every frame. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pack_once, false, "wwe2k14",  // S102 T5
-                    "Session 102 lane T5 (R3 cut 6): the binder packs a draw's constants once, straight into the frame builder's block (no stack block copied in afterwards). "
-                    "The same bytes in the same places either way. Read every frame. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_ours, false, "wwe2k14",
-                    "Session 101 lane 35 (the crowd's first promotion, docs/renderer/CROWD_PROMOTION.md): owner mode draws the stands crowd (blocks + far cards) with our "
-                    "scene front-end from the live scene record instead of replaying the game's draws. Needs --wwe2k14_scene_records and the new renderer (owner mode). A frame "
-                    "with no record keeps the game's draws. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_post_ours, false, "wwe2k14",
-                    "Session 101 lane PO (PO1 of the post chain's promotion, docs/renderer/POST_OURS.md): owner mode records the post chain (depth of field, bloom, star glare, the combine, the 30 Years film pass) with "
-                    "our own pass from the last dof draw, reading the images that draw declares and writing the image the stream's combine writes; the stream's chain draws and the copies they feed are dropped, "
-                    "dead work (bloom / glare at strength 0) is not drawn. Frames are recognised by structure; a chain it cannot read stays the game's draws (counted by reason in the [rdr][post] line). "
-                    "Needs the new renderer (owner mode), no scene record. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_floor, false, "wwe2k14",
-                    "Session 101 lane 82 (the crowd family at 0x8276ED60, docs/renderer/CROWD_FAMILY_8276ED60.md): with --wwe2k14_rdr_crowd_ours, the seated floor people (the ringside crowd "
-                    "drawn by sub_8276EAA0, about 5% of a match picture) are drawn by ours too, as LOD 0 crowd members through the same seam; the game's draws of them are dropped. Needs "
-                    "--wwe2k14_rdr_crowd_ours (and so --wwe2k14_scene_records). Off by default on PC and phone; a person whose type has no LOD 0 palette keeps the game's draw");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_capture);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_capture_frames);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_capture_label);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_capture_budget_mb);
+REXCVAR_DECLARE(bool, wwe2k14_scene_records);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_fb_fast);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pack_once);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_post_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_floor);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_card_cut);   // S102 T2 (scene_live/card_thin_hook.h)
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_card_thin);  // lane 175 (scene_live/card_thin_hook.h)
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_member_thin);  // lane 272 (scene_live/member_thin_hook.h)
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_cards, false, "wwe2k14",
-                    "Session 101 lane CD (the far cards, docs/renderer/CROWD_CARDS.md): with --wwe2k14_rdr_crowd_ours, the stands' far cards (the flat 164 x 250 figures: about 17-21% of a "
-                    "match picture on the far-stands camera) are drawn by ours from the scene record, one instanced draw per person type with the game's own pictures of the people, in place of "
-                    "up to ~1,800 card draws a frame; a frame whose record does not pair exactly with the game's card draws keeps the game's cards, and so does any card ours cannot account for. "
-                    "Needs --wwe2k14_rdr_crowd_ours (and so --wwe2k14_scene_records). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_stage_view, false, "wwe2k14",
-                    "Session 101 lane 59 (stage_view.h): while a `!scene play` (the stage push) is playing, the owner renderer presents the scene's own target (the SceneColor surface "
-                    "the frame drew into) instead of the Create a Story editor's background. The frame is stamped while a `!scene play` is playing; no effect otherwise. Off by default (the live tools pass it where they push a scene)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_lmpage, true, "wwe2k14",   // S103 lane L8, StartOnly (rdr_switches.h)
-                    "Session 103 lane L8 (docs/formats/arena_lightmap.md \"S103 L8\", src/renderer_scene/stage_lmpage.h): the stage light-map page of a match is our own page built like the game's page pass: "
-                    "the arena's page 00, page 01 faded over it by the page clock (600 frames), then page 01 held, instead of page 01 from the first frame. Needs --wwe2k14_rdr_arena_ours. Off by default until a mirror sheet proves it");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_cards);
+REXCVAR_DECLARE(bool, wwe2k14_stage_view);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_lmpage);
 // LNK (2026-11-20): the stream build's definitions of four switches start_settings.cpp ApplyStartSettings reads in BOTH builds. Until now only the stream-free copy (start_settings.cpp, under
 // `#if !WWE2K14_STREAM()`) existed and the stream block there only DECLAREd them: the stream build had a use and no definition (an unresolved symbol at link). Same name, type, default and
 // description as the stream-free copy (tools\scene\start_parity_lint.py R8).
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_hide_stage_slot, -1, "wwe2k14", "S103 CAWB DEV ONLY (ignored by a release build): hide every stage mesh copy whose slot_no equals this (3 = CAS_moya, so a shot shows the body behind it). -1 = off (rdr_scene::g_hide_stage_slot)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_spring_hair_rows, true, "wwe2k14", "S103 W2B: a wrestler attire's spring-hair piece nodes (kami_b*, map word -1) are drawn from the rows the game's spring-hair simulation writes (rdr_scene::g_spring_hair_rows, docs\\agents\\s103\\W2.md). false = the old picture: such an attire is a hole and the frame goes to the game (the loader's old by-name node merge and the old entry list too: pac entries 28 / 29 are not loaded, piece_keys.h WrestlerEntryIsModelOld). Start-only");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_detached_pieces, true, "wwe2k14", "S103 DTP: a wrestler piece the game detaches from its owner (SUBM copy flag 0: the People's Elbow pad) is skipped by the owner's mesh and drawn from its own rows (rdr_scene::g_detached_pieces). false = the old picture (the pad stays on the arm). Start-only");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_guest_flat, false, "wwe2k14", "S103 CAWD DEV ONLY (ignored by a release build): a guest part with no diffuse picture is drawn flat magenta (rf::WrestlerPlants::guest_flat)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_ours, false, "wwe2k14",
-                    "Session 101 lane 41 (the in-place replace seam, src/renderer_adapter/draw_replace_hook.h): owner mode draws the arena's stage parts with our scene front-end "
-                    "in place of the game's own draws, one draw at a time, each checked against its stream draw. Needs --wwe2k14_scene_records and the new renderer (owner mode). "
-                    "A frame or draw ours cannot serve keeps the game's. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_thin, false, "wwe2k14",  // lane 122
-                    "Session 101 lane 122 (D1 thin draws, docs/renderer/SKIP_GAME_WORK_MAP.md 2.3, src/renderer_adapter/thin_draw.h): with --wwe2k14_rdr_arena_ours, the arena's draws whose key the "
-                    "binder pinned skip the reader's geometry build; the binder draws the key's proven template with the stream draw's own banks, slots and state. Proof frames re-prove every key "
-                    "on the full path. Needs --wwe2k14_rdr_arena_ours; off with DLSS. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_d3, false, "wwe2k14",  // lane 138
-                    "Session 101 lane 138 (D3 skip the object, docs/renderer/SKIP_GAME_WORK_MAP.md 8.3, src/renderer_adapter/d3_arena.h): for an arena object whose ledger is complete the game never builds its draws: one 0-primitive "
-                    "marker record and a packet stand in, and our binder draws the object from its descriptors, the pass bank and the scene record. Needs --wwe2k14_rdr_arena_ours, --wwe2k14_rdr_arena_thin, --wwe2k14_scene_records and "
-                    "--wwe2k14_scene_light_states; owner mode; off with DLSS. Off by default on PC and phone; needs owner mode; the gate latches D3 off after 3 resets in 10 s. The record route is built (D1-checked on J1, offline); its first live run is the milestone check");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_d3_verify, false, "wwe2k14",  // lane 152 (D3-F item 10)
-                    "Session 101 lane 152 (D3-F, docs/renderer/SKIP_GAME_WORK_MAP.md 11): the VERIFY arm of --wwe2k14_rdr_arena_d3. The hook writes the marker and the packet for every object it would skip but never skips: the game still records "
-                    "the object in full, and our binder compares the stream's draws with the marker's sequence (the proof compare on every marker). Nothing is dropped, the picture is the game's. Needs --wwe2k14_rdr_arena_d3. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_d3, false, "wwe2k14",  // lane 194 (Ring D3 R0-R2)
-                    "Session 101 lane 194 (Ring D3, docs/renderer/SKIP_GAME_WORK_MAP.md 16.7): the INERT first pieces of the ring's D3 cut. The hook on sub_82C04DF0 recognises the ring's model calls (the table at [0x836F4C74]) and records "
-                    "their node rows at the call (scene record sections RingRows / RingNodeRows) and logs how many ring calls the record covers ([ring_rows ...] census line). Nothing is skipped and nothing the game does changes: no skipping "
-                    "is built for the ring yet. Needs --wwe2k14_scene_records and --wwe2k14_scene_light_states. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_d3_verify, false, "wwe2k14",  // lane 194
-                    "Session 101 lane 194 (Ring D3, SKIP_GAME_WORK_MAP.md 16.6): the verify arm of --wwe2k14_rdr_ring_d3. Today every mode of the ring switch is verify (the skip is not built), so this only labels the run in its log; once a skip exists "
-                    "it will mean 'record and compare, never skip'. Needs --wwe2k14_rdr_ring_d3. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_d3_live, false, "wwe2k14",  // lane 246 (Ring D3 live seam)
-                    "Session 101 lane 246 (Ring D3 live seam, docs/renderer/SKIP_GAME_WORK_MAP.md 16.9): the LIVE chain of the ring's D3 cut. The hook on sub_82C04DF0 claims the ring's model calls (the table at [0x836F4C74]), decides each with the "
-                    "ring's own ledger / packets / marks / gate / tally, and writes a marker for a proven call; a call on cache path 1 whose ring-rows record is complete is REPLACED by the marker (our binder draws its parts), every other call is recorded in "
-                    "full. NOT implied by --wwe2k14_rdr_ring_d3 (that switch is only the R2 record: this one needs it too, with --wwe2k14_rdr_ring_ours, --wwe2k14_rdr_ring_thin, --wwe2k14_scene_records, --wwe2k14_scene_light_states and owner mode). "
-                    "Off with DLSS. Not on Android. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_d3_live_verify, false, "wwe2k14",  // lane 246
-                    "Session 101 lane 246 (Ring D3 live seam, SKIP_GAME_WORK_MAP.md 16.9): the verify arm of --wwe2k14_rdr_ring_d3_live: the hook writes the marker and the packet but the original call ALWAYS runs (nothing is dropped); our binder compares "
-                    "the stream's draws with the marker's sequence ([rdr][d3][ring] lines). Needs --wwe2k14_rdr_ring_d3_live. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_caster_d3, false, "wwe2k14",  // lane 202 (Caster D3 E0-E2)
-                    "Session 101 lane 202 (Caster D3, docs/renderer/SKIP_GAME_WORK_MAP.md 17.7): the INERT first pieces of the caster passes' D3 cut. Hooks on the three caster pass entries (the shadow maps sub_82C01FE0, the plane mask "
-                    "sub_82BF22C8, the rim light map sub_82BF9878) record, per entry, the render camera as read at the entry, the pass key, the palette pointer / count / hash and the map-A collapse flag (scene record sections "
-                    "CasterCall / CasterState) and log how the entries compare with the colour calls' ([casters ...] census line). Lane 228 (17.12): with --wwe2k14_rdr_shadow_casters_ours, --wwe2k14_rdr_rim_ours and owner mode the hooks also "
-                    "SKIP a proven pass on cache path 1 (a marker replaces it; our binder draws the parts); --wwe2k14_rdr_caster_d3_verify makes it record-and-compare only. "
-                    "Needs --wwe2k14_scene_records and --wwe2k14_scene_light_states. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_caster_d3_plane, false, "wwe2k14",  // lane 268
-                    "Session 101 lane 268 (Caster D3, SKIP_GAME_WORK_MAP.md 17.13): the PLANE mask pass (the ring and wrestler proxies: 43 % of the caster calls, 14 of the 44 objects) joins the caster cut. Without it the plane is never marked live and "
-                    "never skipped. Needs --wwe2k14_rdr_caster_d3 and --wwe2k14_scene_plane (or --wwe2k14_rdr_plane_shadow_ours) (the c0-c16 tables). Lane 299: with --wwe2k14_rdr_caster_d3_verify it only writes markers and compares (run 7199 passed); without it the game's plane-shadow recording is SKIPPED for marked plane objects (our plane shadow pass draws them; the skipped call replays its PlaneDraw entries to the plane tracker); a call with no learned part list, in a proof frame or with a mismatch is recorded in full. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_caster_d3_verify, false, "wwe2k14",  // lane 202
-                    "Session 101 lane 202 / 228 (Caster D3, SKIP_GAME_WORK_MAP.md 17.6 / 17.12): the verify arm of --wwe2k14_rdr_caster_d3: the hooks write the marker and the packet but the original pass ALWAYS runs (nothing is dropped); "
-                    "our binder compares the stream's draws with the marker's sequence (markers, holes, proof mismatches in the [rdr][d3][casters] line). Needs --wwe2k14_rdr_caster_d3. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wrestlers_d3, false, "wwe2k14",  // lane 227 (Wrestlers D3 H2)
-                    "Session 101 lane 227 (Wrestlers D3, docs/renderer/SKIP_GAME_WORK_MAP.md 18.7): the INERT wrestlers' D3 cut. The binder has the wrestler class's own chain (markers, sequences, the colour call's record route: lights and ShadowPrm from "
-                    "the light state, TexProjLight / LightEye / RimLightDepth from the caster map and rim entries, the palette from the wrestler record) and it is proven offline on captures; the game side is NOT built: no hook skips a wrestler call "
-                    "(d3_guest_core.h / d3_arena_hook.h decide for the arena only). Today the switch only turns on the records the cut will read (the light states and the caster pass entries) and logs it. "
-                    "Lane 245 (18.9): with --wwe2k14_rdr_wrestlers_ours, --wwe2k14_rdr_wrestlers_thin and owner mode the hook on the colour call (sub_82C04DF0) also SKIPS a proven wrestler call on cache path 1 (a marker replaces it; our binder draws the parts); "
-                    "--wwe2k14_rdr_wrestlers_d3_verify makes it record-and-compare only. "
-                    "Needs --wwe2k14_scene_records and --wwe2k14_scene_light_states. Off by default on PC and phone; not on Android");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wrestlers_d3_verify, false, "wwe2k14",  // lane 227
-                    "Session 101 lane 227 / 245 (Wrestlers D3, SKIP_GAME_WORK_MAP.md 18.7 / 18.9): the verify arm of --wwe2k14_rdr_wrestlers_d3: the hook writes the marker and the packet but the original colour call ALWAYS runs (nothing is dropped); "
-                    "our binder compares the stream's draws with the marker's sequence (markers, holes, proof mismatches in the [rdr][d3][wrestlers] line). Needs --wwe2k14_rdr_wrestlers_d3. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_thin, false, "wwe2k14",  // lane 129 (KC)
-                    "Session 101 lane 129 (D1 thin draws for the ring, docs/renderer/THIN_DRAWS.md): with --wwe2k14_rdr_ring_ours, the ring's draws whose key the binder pinned skip the reader's geometry build "
-                    "(the key's ordinal carries the instance); the binder draws the key's proven template with the stream's own banks, slots and state. Proof frames re-prove every key. Off with DLSS. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wrestlers_thin, false, "wwe2k14",  // lane 129 (KC)
-                    "Session 101 lane 129 (D1 thin draws for the wrestlers, docs/renderer/THIN_DRAWS.md): with --wwe2k14_rdr_wrestlers_ours, the wrestlers' replaced draws skip the reader's geometry build; the binder "
-                    "draws the key's proven template with the stream's OWN palette rows (the bank). Cloth and refused parts stay on the full path. Proof frames re-prove every key. Off with DLSS. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_caw_ours, false, "wwe2k14",   // lane 153 (N3)
-                    "Session 101 lane 153 (docs/renderer/CAW_OURS.md): owner mode draws the Create a Superstar editor's wrestler (and a created wrestler wherever its parts are the edit pacs' leaves) with our geometry in place, part by part "
-                    "from pac/edit/edNN.pac, confirmed byte for byte against the stream on every draw. Needs the new renderer (owner mode); no scene record. A part the editor's morph moved beyond tolerance keeps the game's. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_wrestlers_ours, false, "wwe2k14",
-                    "Session 101 lane 41 (the in-place replace seam): owner mode draws the wrestlers' main-pass parts with our scene front-end in place of the game's own draws "
-                    "(skin palette from the scene record). Needs --wwe2k14_scene_records and the new renderer (owner mode). A frame or draw ours cannot serve keeps the game's. "
-                    "Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ring_ours, false, "wwe2k14",
-                    "Session 101 (ring contract, docs/renderer/RING_PROMOTION_MAP.md): owner mode draws the ring, ropes, turnbuckles, covers and skirts with our scene front-end "
-                    "in place of the game's own draws, one draw at a time, each checked against its stream draw. Needs --wwe2k14_scene_records and the new renderer (owner mode). "
-                    "A frame or draw ours cannot serve keeps the game's. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ui_ours, false, "wwe2k14",
-                    "Session 101 (UI contract, docs/renderer/UI_PROMOTION_MAP.md): owner mode binds the menus' and the HUD's pictures and glyph sheets from our own uploads "
-                    "of the game's files in place of the game's textures, each joined and checked per draw. Needs the new renderer (owner mode). A draw ours cannot serve "
-                    "keeps the game's. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ui_quads_ours, false, "wwe2k14",   // S101 lane 148
-                    "Session 101 lane 148 (docs/renderer/UI_QUADS_OURS.md): with --wwe2k14_rdr_ui_ours, the UI's sprites and flat rectangles (the fades) are drawn with our own quad and our own 2D "
-                    "program in the stream draw's place, each checked against the stream draw (shape, program, constants); a draw ours cannot match keeps the game's. Needs no scene record. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ui_text_ours, false, "wwe2k14",
-                    "Session 101 lane 89 (UT, docs/renderer/UI_TEXT_OURS.md): owner mode lays out the game's text with our pen rule (advance, kerning, per-font trim from the font file) and "
-                    "replaces each glyph quad of a run in place, every quad checked against its stream draw to 0.005 px; a run ours cannot match keeps the game's quads. Needs the new renderer "
-                    "(owner mode); the run strings come from the labels, which this switch keeps on for the whole session (the cost of labels live is unmeasured). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_movie_ours, false, "wwe2k14",
-                    "Session 101 lane 131 (docs/renderer/MOVIE_OURS.md): owner mode draws the movie planes (the entrance titantron, the menu backdrop video: the game's T_SpriteYUVAlpha quad) with our own quad and our own "
-                    "YUV-to-colour shader, from the planes the game's Bink 2 decoder wrote this frame; each draw checked against the stream's. Needs no scene record and no game file, only the new renderer (owner mode). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_flash_ours, false, "wwe2k14",
-                    "Session 101 (flash contract, docs/renderer/PARTICLES_PROMOTION_MAP.md): owner mode draws the crowd's camera flashes from the arena file's own flash model "
-                    "in place of the game's draws, each checked per draw. Needs --wwe2k14_scene_records and the new renderer (owner mode). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_screens_ours, false, "wwe2k14",
-                    "Session 101 lane 115 (docs/renderer/UNCLAIMED_MODEL_PARTS.md 3.3): owner mode draws the stage screens' geometry (the ribbon band, the wall behind the stage, the mini-tron; keys 801-807 of the arena pac) from "
-                    "the game's own arena file in place of the game's draws, each checked per draw; the video planes stay the game's. Needs --wwe2k14_scene_records and the new renderer (owner mode). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_density_track, true, "wwe2k14",   // S101 lane 234
-                    "Session 101 lane 234 (docs/renderer/CROWD_WIDE.md): the CROWD DENSITY rank of owner mode follows a member that moves (a waved sign / foam hand) from frame to frame instead of "
-                    "re-rolling with its exact position (which made the signs flicker in and out below density 100: the phone's own 70). Default on. false = the rank of the exact position (the plant).");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_props_ours, false, "wwe2k14",
-                    "Session 101 lane 133 (docs/renderer/CROWD_PROMOTION.md N4): owner mode draws the crowd's sign / foam-hand props (the draws of the crowd's two per-member loops, 34 and 140 vertices) from the "
-                    "arena pac's audience set in place of the game's draws, each checked byte for byte against the game's. Needs --wwe2k14_scene_records (for the arena) and the new renderer (owner mode). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_props_ours, false, "wwe2k14",
-                    "Session 101 lane 84 (docs/renderer/UNCLAIMED_MODEL_PARTS.md 3.2): owner mode draws the commentary table, the ring steps and the ring announcer's microphone from the "
-                    "game's own evtobj / bgEtc / m2 files in place of the game's draws, each checked per draw. Needs --wwe2k14_scene_records and the new renderer (owner mode). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shadow_casters_ours, false, "wwe2k14",   // S101 lane 99
-                    "Session 101 lane 99 (docs/renderer/SHADOW_PROMOTION_MAP.md sections 3-5): owner mode draws the shadow passes' casters (the wrestlers' parts in the wrestler maps, the ring's rope proxy and the "
-                    "wrestlers' plane-shadow proxy in the plane mask) from the game's own files in place of the game's geometry, each checked byte for byte. Every constant, palette row, target and the chain stay the game's. "
-                    "Needs --wwe2k14_scene_records, the new renderer (owner mode) and --wwe2k14_rdr_wrestlers_ours and / or --wwe2k14_rdr_ring_ours (their joins). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_rim_ours, false, "wwe2k14",   // lane 124
-                    "Session 101 lane 124 (docs/renderer/RIM_MAP_OURS.md, SHADOW_PROMOTION_MAP.md 9): owner mode draws the rim light map's casters (T_RimLightMap, the 512x256 target the wrestler materials read in "
-                    "slot 15) from the game's own files in place of the game's geometry, each checked byte for byte. Every constant, palette row, target, the reductions and the blur stay the game's. "
-                    "Needs --wwe2k14_scene_records, the new renderer (owner mode) and --wwe2k14_rdr_wrestlers_ours (its joins). Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_circles_ours, false, "wwe2k14",   // lane 136
-                    "Session 101 lane 136 (SH3 slice 1, docs/renderer/SHADOW_CIRCLES.md): owner mode draws the circle blob shadows (T_CircleShadow, call 0x828131E4) from the scene record: the body points, ShadowParam "
-                    "and ViewProj the game uploaded (read at its own upload), and the disc mesh, checked against the stream draw's own constants; a draw that does not verify stays the game's. Needs --wwe2k14_scene_records "
-                    "and the new renderer (owner mode); also switches the record's circle writer on. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_plane_shadow_ours, false, "wwe2k14",   // lane 139
-                    "Session 101 lane 139 (SH3 slice 2, docs/renderer/SHADOW_PLANE.md): owner mode draws the plane shadow chain (the mask's T_PlaneShadowMap parts and the T_PlaneShadowBlur draws) with the vertex "
-                    "constants the game uploaded, read from the scene record (PlaneInv, CameraViewProj, ShadowDistance, PlanePos, EyePos, the palette rows; the blur's matrix and weight), each draw checked against the "
-                    "stream's own constants; a draw that does not verify stays the game's. Geometry, targets, clears and copies stay the stream's (SH2 re-targets them). Needs --wwe2k14_scene_records and the new renderer "
-                    "(owner mode); also switches the record's plane writer on. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_small_passes_ours, false, "wwe2k14",   // lane 135
-                    "Session 101 lane 135 (docs/renderer/SMALL_PASSES.md): owner mode draws the wrestlers' sweat map (yLiquidMap, the 1024x512 map the skin and gear materials read in slot 14, fed back each frame) and the "
-                    "skin pre-light (yPreLight, the 64x64x6 cube maps they read in slot 13) with meshes of our own, each draw checked against the game's; the program, constants, textures, targets and copies stay "
-                    "the game's. Needs the new renderer (owner mode); no scene record or game file needed. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_rim_chain_ours, false, "wwe2k14",   // lane 151
-                    "Session 101 lane 151 (docs/renderer/RIM_MAP_OURS.md): owner mode draws the rim light map's two coverage reductions (128x64 and 32x16) and its 13-tap blur (the maps the wrestler materials read in slot 15) "
-                    "with programs of our own on the game's draws; the constants, targets, copies and the readers' images stay the game's. Needs the new renderer (owner mode); no scene record or game file needed. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_particles_ours, false, "wwe2k14",
-                    "Session 101 lane 67 (particles P2a, docs/renderer/PARTICLES_PROMOTION_MAP.md, src/renderer_adapter/particle_runs.h): owner mode draws each run of particle draws "
-                    "(adjacent, same state, only the per-particle LocalWorld differing) as ONE draw of our own vertex stage in the stream's place. Needs the new renderer (owner mode); "
-                    "no scene record needed. A run of one draw, the soft and third methods keep the game's draw. Off by default on PC and phone");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shadows_ours, false, "wwe2k14",
-                    "Session 101 lane 123 (SH2, docs/renderer/SHADOWS_OURS.md, src/renderer_adapter/shadows_ours.h): owner mode makes the shadow maps images of our own (size: --wwe2k14_rdr_shadow_map_size) and "
-                    "re-targets the stream's caster and chain draws into them with the viewport scaled; copies out of them are whole; every reader is bound to our final image. Needs draw origins "
-                    "(names). Off by default on PC and phone");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_copy_alias, 0, "wwe2k14",
-                     "Session 101 lane 190 (docs/renderer/SKIP_GAME_WORK_MAP.md 14.6, src/renderer_adapter/copy_alias.h): owner mode drops the resolve copies whose destination only draws read, "
-                     "after the copy, whole and in the same format, and lets those draws sample the source target for the rest of the frame. 0 off (default), 1 census (counts what would be "
-                     "dropped, drops nothing), 2 drop. Needs the new renderer (owner mode); no scene record needed");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_copy_alias_classes, 1, "wwe2k14",
-                     "Session 101 lane 190: with --wwe2k14_rdr_copy_alias=2 which kinds of copy are dropped (bit mask: 1 crowd bake, 2 shadow, 4 rim, 8 post, 16 scene colour, 32 other). Default 1");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_alias_small, 0, "wwe2k14",  // S102 G12, read every frame
-                     "Session 102 lane G12 (docs/renderer/COPIES_LEFT.md, src/renderer_adapter/copy_alias.h): read EVERY frame, 0-2. Lifts lane 190's class mask and copy-alias mode for the copies its strict rule already admits: "
-                     "1 = classes crowd bake (not while --wwe2k14_rdr_crowd_bake_skip=2), shadow, rim and post (the rim class is unexercised: no capture has a rim copy the rule admits yet) ; 2 = also scene colour and other (held back until `read-backs of aliased destinations (small)` is counted 0 live). The readers sample the source target for the rest of the frame. Default 0 (off)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shadow_direct, false, "wwe2k14",  // S102 C3, read every frame
-                    "Session 102 lane C3 (docs/renderer/COPIES_LEFT.md, src/renderer_adapter/copy_alias.h): with shadows_ours on, the whole copies of one of our shadow images into another of the same size are not made: the readers sample our map image (a per-segment alias of the texture to the map). With the half-rate shadows (every tier's default) a destination is left alone when a copy into it has a source the half rate skips, and everything is left alone until the shadow maps are learned; also not with a D3 marker frame, a turn or the plane blank skip (all counted). Default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_direct, false, "wwe2k14",  // S102 C3, read every frame
-                    "Session 102 lane C3 (docs/renderer/COPIES_LEFT.md, FRAME_CLASS.md): G8's full-size alias at level 3 (segments, depth, the Present), under its own switch and census line. The frame buffer's resolve copies and the Present's copy are not made; the readers sample the source target. Not with DLSS, a velocity pass or a D3 marker frame. Default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stencil_dead, false, "wwe2k14",  // S102 R24-C, read every frame
-                    "Session 102 lane R24-C (docs/renderer/DEPTH_NOSTENCIL.md, src/renderer/depth_nostencil.h): stencil liveness. A stencil clear (the pass's load op or a clear inside it), a stencil load / store, and the stencil aspect of a depth copy are not done when no draw of the pass tests stencil and no later pass or copy of the frame reads it (the game clears depth + stencil together in every depth pass and mostly never reads the stencil). Read every frame. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_copy_batch, false, "wwe2k14",  // S102 G12, read every frame
-                    "Session 102 lane G12 (docs/renderer/COPIES_LEFT.md, src/renderer/copy_batch.h): record adjacent copies of one source into distinct layers / mips of one destination (the six faces of a light cube) as ONE vkCmdCopyImage with several regions and one barrier flush. The picture is byte-equal. Default off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_breadcrumbs, true, "wwe2k14",  // S102 D1, read every frame
-                    "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md, src/renderer/breadcrumbs.h): keep a small record of the last 8 frames' steps (passes, copies, the present: their images, draws, programs) and the last pipelines built, and log it once if the Vulkan device is ever lost, with the GPU marker words when those are on. A few stores a step, no per-draw work, no GPU work. Default on");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_frame_top_barrier, 0, "wwe2k14",  // S102 D1 round 6, read every frame
-                     "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md section 13): the lost-device test on Intel UHD 620. 1 = one full memory barrier at the top of every frame's command buffer (all earlier GPU work finishes and its writes are visible before the frame starts: no overlap between frames); 2 = also one before the present. Costs the overlap between frames. Default 0 (off: nothing changes)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_marker, 0, "wwe2k14",  // S102 D1, read every frame
-                     "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md): write a frame / step marker word into a host-visible buffer as the GPU reaches each point, so a lost device's log names the step the GPU stopped at. 0 off, 1 the first step of each run of one GPU class and the present, 2 every pass and the first copy of each run of copies, 3 every step (diagnosis; each END word behind a barrier pair, which serialises the GPU), 4 every step with BEGIN words only (no barriers: the front end's reach, approximate, for a race the barriers might hide). It costs GPU time (any marker about +0.35 ms a frame on an RTX 4090; unmeasured on the Surface). Default 0 (off)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_device_lost_message, true, "wwe2k14",  // S102 D1, read every frame
-                    "Session 102 lane D1 / S105 A9 (docs/renderer/DEVICE_LOST.md): when the graphics driver drops the game's GPU device (VK_ERROR_DEVICE_LOST: the picture freezes for good), tell the player: a box on the PC (the game keeps running behind it), the launcher's toast on a phone. Default ON (S105: it was off and only this stream build had the switch, so no player ever saw it; start_settings.cpp holds the stream-free copy). Tests that must not show a box pass false");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_combine_lite, 0, "wwe2k14",  // S102 R18-B2, read every frame
-                     "Session 102 lane R18-B2 (docs/renderer/COMBINE_LITE.md, src/renderer/combine_lite.h): read EVERY frame, 0-2. Our own post combine does less per pixel. 1 = the exact early-outs: the permutation without bloom when the bloom and glare are not recorded (their images are black), and a depth-of-field blur whose weight is 0 or a bloom / star image whose scale is 0 not fetched (byte-equal on NVIDIA; exact up to floating-point contraction elsewhere; the fog mix is unchanged). 2 = also FXAA 3.11's flat-pixel exit (the four smoothing taps are not made where the five taps are flat): a LOOK lever, not byte-equal, judged by Jarrod's eyes. Needs the post chain to be ours (--wwe2k14_rdr_post_ours). Default 0 (off)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_small, 0, "wwe2k14",  // S102 R24-E, read every frame
-                     "Session 102 lane R24-E (docs/renderer/GPU_SMALL.md, src/renderer/gpu_small.h): read EVERY frame, a bit mask. 1 = our post pass leaves out the quarter-size depth-of-field chain (two 320x180 passes) when nothing reads it: the combine's near-blur weight is 0 for every pixel (DOFParam2.x <= 0), the far blur is an earlier layer's own image and no bloom or glare reads the chain. A removal, the picture is byte-equal. Bits 2 and 4 are reserved and do nothing. Default 0 = the same passes as before.");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_gpu_group_stamps, 0, "wwe2k14",  // S102 R24-F: an instrument, read every frame
-                     "S102 R24-F (docs\\renderer\\GPU_STAMPS.md, src/renderer/group_stamps.h): GPU timestamps at the change of draw GROUP (arena, wrestler, ring, props, crowd, particles, 2D, ...) inside the colour and frame passes, and one [rdr][gpu][groups] table at 600 frames and every 600 after: per pass and group the mean / p90 GPU microseconds, the draws and the share of the pass. 0 = off (default). N >= 1: a stamp is written only when the segment before it holds at least N draws (1 = every change; 4 is a good cut); it forces the per-step stamps on. A stamp inside a pass drains it, so the table is a ranking, not the shipped cost: an instrument for the Surface, never on for players. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_fast, false, "wwe2k14",  // S102 R21-C, read every frame
-                    "Session 102 lane R21-C (docs/renderer/CROWD_RANK_FAST.md, src/renderer_adapter/crowd_rank.h): read EVERY frame. The crowd's rank work done once and flat: whether a program is a crowd one comes from a table made once (not two string compares on each of the frame's ~1,300 draws), and the density rank's memory of positions is an open-addressing table instead of a node map (the same ranks and counters, bit for bit). false = as before. Pictures are byte-equal");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_sign_file_pictures, true, "wwe2k14",  // S103 CSF, read every frame (live.cpp)
-                    "Session 103 lane CSF (src/scene_live/sign_file_keys.h, docs/renderer/360_HABITS.md H-CS1): read EVERY frame. A crowd sign or foam hand whose picture is a FILE picture (signs: pac/audience.pac keyed by the slot file key; hands: the arena set entry 42000 + h - 1) is never read back from the guest texture; the live crowd draws it from the player's own file. The reader and the applier both follow this one switch. Off = the pre-CSF rule (every picture read back from the guest).");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_workers, 0, "wwe2k14",  // S102 R21-C step 3, read every frame
-                     "Session 102 lane R21-C step 3 (src/renderer_scene/crowd_workers.h): read EVERY frame, 0-2. Worker threads pose and pack the crowd members' classes (the per-class work of the members' injection) in parallel; they are joined before the geometry is pushed. 0 = on the render thread. Pictures are byte-equal");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_copy_direct, false, "wwe2k14",  // S102 C5, read every frame
-                    "Session 102 lane C5 (docs/renderer/COPIES_LEFT.md section 6, src/renderer_adapter/copy_alias.h): read EVERY frame. A copy the strict alias rule admits (the crowd card bake, small sprite / post stand-ins of at most 128 pixels a side) is REMOVED: its pass renders straight into the copy's destination, so the readers sample the destination itself and no copy, alias or source layout change exists. Needs the destination to be made with target usage (images made while the switch is on). Default off");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_alias_fullsize, 0, "wwe2k14",
-                     "Session 102 lane G8 (docs/renderer/ALIAS_FULLSIZE.md, src/renderer_adapter/copy_alias.h): read EVERY frame, 0-3. Drops the full-size (screen-sized, 1280x720-class) resolve copies the strict alias "
-                     "rule keeps; the readers sample the source target for the rest of the frame. 1 (safest): only a copy that a later whole copy into the same destination follows. 2: also the last copy "
-                     "into a destination, and depth copies. 3: also a destination only the Present reads (needs a live run with violations 0 first). It takes its copies WHATEVER --wwe2k14_rdr_copy_alias "
-                     "(any mode, census 1 included) and --wwe2k14_rdr_copy_alias_classes say, scene colour and other classes included; it refuses a destination the CPU ever read back and counts every read-back "
-                     "of one it aliased ([rdr][copy_alias] full-size line). Needs the new renderer (owner mode); not with DLSS");
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_hide_stage_slot);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_spring_hair_rows);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_detached_pieces);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_guest_flat);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_thin);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_d3);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_d3_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_d3);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_d3_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_d3_live);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_d3_live_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_caster_d3);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_caster_d3_plane);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_caster_d3_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wrestlers_d3);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wrestlers_d3_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_thin);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wrestlers_thin);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_caw_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_wrestlers_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ring_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ui_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ui_quads_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ui_text_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_movie_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_flash_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_screens_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_density_track);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_props_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_props_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_shadow_casters_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_rim_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_circles_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_plane_shadow_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_small_passes_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_rim_chain_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_particles_ours);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_shadows_ours);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_copy_alias);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_copy_alias_classes);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_alias_small);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_shadow_direct);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_frame_direct);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stencil_dead);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_copy_batch);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_breadcrumbs);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_frame_top_barrier);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_gpu_marker);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_device_lost_message);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_combine_lite);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_gpu_small);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_gpu_group_stamps);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_fast);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_sign_file_pictures);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_workers);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_copy_direct);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_alias_fullsize);
 // S102 lane G4 (docs/renderer/DEAD_WORK.md, src/renderer_adapter/dead_work.h): read every frame (LiveSendImages), never copied once at start.
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_match_card_bake, false, "wwe2k14",
-                    "Session 102 lane G4: the binder leaves out the crowd card bake's passes (SetTargets, Clear, draw, copy) of a frame in which nothing reads their pictures (a match: no far cards). "
-                    "Off by default. The game still records them (P1 removes that); this saves the GPU work. Needs draw origins (names)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_dead_prelight, false, "wwe2k14",
-                    "Session 102 lane G4: CENSUS ONLY. Counts the pre-light cube bake's slot passes whose cube nothing reads in the frame (entrances: most slots) and cuts nothing: the game re-bakes a slot only when "
-                    "its lights change, so a plain cut would leave stale cubes (docs/renderer/DEAD_WORK.md, the lazy re-bake). Off by default. Needs draw origins (names)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_selfblit, false, "wwe2k14",   // S102 lane G11, PerFrame (rdr_switches.h)
-                    "Session 102 lane G11 (docs/renderer/FRAME_CLASS.md, src/renderer_adapter/frame_cuts.h): the binder leaves out the full-screen sprite draw that writes a whole copy of the frame buffer back into it "
-                    "(the 360 resolves a target into a texture and draws the texture back; here the target already holds those pixels). Exact: the draw is left out only when the frame shows the texture is an unchanged whole copy of the target. "
-                    "Off by default. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_frame_roundtrip, 0, "wwe2k14",   // S102 lane R18-B1, PerFrame (rdr_switches.h)
-                     "Session 102 lane R18-B1 (docs/renderer/FRAME_ROUNDTRIP.md, src/renderer_adapter/frame_roundtrip.h), 0-2, read every frame: the frame buffer's round trip. 1: a colour + depth restore whose sources are exactly what its "
-                     "targets already hold (a whole copy of the colour target, a depth source equal to the depth target, nothing written to either since, by the frame's own ops) is left out, and so is the self blit (no pass, no copies). "
-                     "Exact. 2: also (step 2) the scene target and the frame buffer are one image for the span. Off by default. Not with DLSS or a velocity pass");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_restore, false, "wwe2k14",   // S102 lane G11, PerFrame (rdr_switches.h)
-                    "Session 102 lane G11 (docs/renderer/FRAME_CLASS.md, src/renderer_adapter/frame_cuts.h): the binder turns the colour + depth restore pass of the frame buffer (a full-screen shader pass, "
-                    "the 360 putting two textures back into its EDRAM) into two image copies of the same bits. Off by default. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_plane_bake, false, "wwe2k14",   // S102 lane L2, PerFrame (rdr_switches.h)
-                    "Session 102 lane L2 (docs/renderer/SHADOWS_OURS.md \"S102 L2\", src/renderer_adapter/plane_bake.h): the ring mat's rope shadow is baked once into a world-plane map (re-baked when the rope proxy's constants move more "
-                    "than a quarter unit) and composited per frame into a bigger map the ring mat reads; the rope draws of the game's plane mask pass are left out, the wrestlers' contact shadow stays the game's. A LOOK lever "
-                    "(sharper, steady rope shadow); about 0.1-0.3 ms in a match, 0 in Bryan's entrance (blank chain). Needs the plane hook (wwe2k14_rdr_plane_shadow_ours) and draw origins (names). Off by default. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_plane_bake_size, 1024, "wwe2k14",   // S102 lane L2
-                     "Session 102 lane L2: with --wwe2k14_rdr_plane_bake the bake's edge in texels (256 to 2048; the composite is half of it). 1024 default; 512 for low-spec");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_blank_plane, false, "wwe2k14",   // S102 lane G4b, PerFrame (rdr_switches.h)
-                    "Session 102 lane G4b (docs/renderer/DEAD_WORK.md, src/renderer_adapter/plane_blank.h): the binder leaves out the ring-mat plane shadow chain (4 passes, the mask draws, 3 clears, a downscale, 2 blurs, 4 copies) "
-                    "of a frame in which its own constants say it draws nothing (the weight is 0 AND no corner of the blur's ground square projects: Bryan's entrance; S103 SLV2: the weight alone is not enough, it is also 0 for a real shadow that fills the screen height), after one executed run that writes the picture back to zero. Off by default. "
-                    "The game still records the chain; this saves the GPU work. Needs draw origins (names). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_analytic, false, "wwe2k14",   // S102 lane L1, PerFrame (rdr_switches.h)
-                    "Session 102 lane L1 (docs/renderer/PRELIGHT_DIRECT.md section 8, src/renderer_adapter/prelight_analytic.h): the pre-light cube bake (five slots a frame: a strip pass, a draw and six copies each) is not "
-                    "drawn; the wrestlers' skin / gear / transparent shaders evaluate the bake's four lights per pixel at the surface normal instead of sampling the cube. The look is the cube's function without its 64x64 "
-                    "quantisation. Off by default. A slot with a reader that cannot be twinned, another planner's op, or an unusual shape keeps the stream's bake. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_compute, false, "wwe2k14",   // S102 lane L1b, PerFrame (rdr_switches.h)
-                    "Session 102 lane L1b (docs/renderer/PRELIGHT_DIRECT.md section 9, src/renderer_adapter/prelight_compute.h): the pre-light cube bake (five slots a frame: a strip pass, a draw and six copies each) is replaced by ONE compute "
-                    "dispatch that writes all the taken cubes (storage images) from the slots' own constants: no strips, no render passes, no copies. Every reader samples the cubes exactly as before. Off by default. A slot with an "
-                    "unusual shape, another planner's op, a cube read between the dispatch and its slot, or a cube made without storage usage keeps the stream's bake. Read every frame; light cubes made while it is off cannot "
-                    "be written by the dispatch (the census counts them)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_prelight_layered, false, "wwe2k14",   // S102 lane C1, PerFrame (rdr_switches.h)
-                    "Session 102 lane C1 (docs/renderer/PRELIGHT_DIRECT.md section 7, src/renderer_adapter/prelight_layered.h): with --wwe2k14_rdr_small_passes_ours, the pre-light strips (five 384x64 targets a frame) are not made: "
-                    "each light cube's six faces are drawn in ONE render pass over the cube's six layers (VK_KHR_multiview, Vulkan 1.1 core), and the 30 strip-to-cube copies a frame are left out. Off by default. A slot the "
-                    "owned pre-light did not draw, a dead slot, a strip anything else reads, or a device without multiview keeps the stream's strip and copies. Read every frame; light cubes made while it is off cannot be drawn into "
-                    "(the census counts them)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_shadow_map_size, 512, "wwe2k14",
-                     "Session 101 lane 123: with --wwe2k14_rdr_shadows_ours the shadow maps' edge in texels (64 to 4096). 512 = the Xbox 360's look; 256 low-spec; 1024 / 2048 PC presets");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_shadow_small, false, "wwe2k14",   // S102 G1 lever 1
-                    "Session 102 lane G1 (low_levers.h): under the LOW tier (and with --wwe2k14_rdr_shadows_ours) the shadow maps are 256 texels, not --wwe2k14_rdr_shadow_map_size. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_present_noclear, false, "wwe2k14",   // S102 G1 lever 2
-                    "Session 102 lane G1 (low_levers.h): under the LOW tier the present no longer clears the whole panel every frame, only the bars around the picture. Off by default");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_low_output_cap, 0, "wwe2k14",   // S102 G2 (b), PerFrame
-                     "Session 102 lane G2 (low_levers.h): under the LOW tier the output is drawn at most N pixels tall (360 to 8192; the width follows the panel's shape) and a bilinear blit stretches it over the panel, "
-                     "so a high-resolution panel is not filled by the upscaling shader. 0 = off (the default). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_present_bilinear, false, "wwe2k14",   // S102 G2 (c), PerFrame
-                    "Session 102 lane G2 (low_levers.h): under the LOW tier the upscaling present is a plain bilinear sample instead of SGSR. Off by default. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_present_fetch, false, "wwe2k14",   // S102 R24-A, PerFrame
-                    "Session 102 lane R24-A (docs/renderer/PRESENT_COPY.md, renderer.cpp TryPresentFetch): when the picture is shown 1:1 on the panel and the game's display curve is the identity, the present is a copy of the picture into the swapchain image "
-                    "instead of the full-screen draw (no look change: the draw would write the values it reads). Declined, counted by reason in the [rdr][present_fetch] line, whenever the draw does something else (a curve, a stretch, an overlay, DLSS, the output cap). Off by default. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_arena_fragments, 0, "wwe2k14",   // S102 R18-B3, PerFrame
-                     "Session 102 lane R18-B3 (docs/renderer/ARENA_FRAGMENTS.md, src/renderer/arena_fragments.h): a bit mask of cuts to the arena's shaded fragments, no look change. 1 = the arena draws proven to have an output alpha of exactly 1 "
-                     "are drawn with the alpha blend switched off (it equals the source colour there, and the destination is no longer read). 2 = the prepass also takes the families the census found opaque in effect. 0 = off (the default). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_frame_facts, false, "wwe2k14",   // S102 R21-A, PerFrame
-                    "Session 102 lane R21-A (docs/renderer/FRAME_FACTS.md, src/renderer/frame_facts.h): facts our render thread re-derived every frame are derived once: the arena record's object ids classified by a byte test (no std::string / sscanf per object), the blend keys of the 120 Hz tween / DLSS motion path not made while neither is on, the thin draws' key counts in a flat table. The picture is byte-identical.");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_overdraw, false, "wwe2k14",   // S102 C4, PerFrame
-                    "Session 102 lane C4 (docs/renderer/COLOUR_PASS.md): the scene colour pass's depth prepass (as wwe2k14_rdr_low_colour_cuts bit 1) also takes the arena draws whose diffuse texture is PROVEN to have no alpha (the slot's swizzle, the format, "
-                    "a scan of the texture's content), so the light-mapped arena shades the visible surface only. No look change. Off by default. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_arena_scan_hold, false, "wwe2k14",   // S102 R24-D, PerFrame
-                    "Session 102 lane R24-D (docs/renderer/COLOUR_CUTS_FLIP.md): the texture-alpha scan that wwe2k14_rdr_arena_overdraw needs (binder.h ScanImageAlpha) runs on every texture load, also while arena_overdraw is off, so a mid-run flip of arena_overdraw finds the textures proven. A flip test arms it at the start. Costs the scan once per texture load; no look change. Off by default. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_half_transparents, false, "wwe2k14",   // S102 C4, PerFrame
-                    "Session 102 lane C4 (docs/renderer/COLOUR_PASS.md, src/renderer/half_trans.h): under the LOW tier the tail of additive scene draws (the arena's light glows and shadow overlays that write no depth) is drawn into a half-size target against a "
-                    "half-size depth and added back with a depth-aware upsample. A look lever (the approved half-size transparents): off by default. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_low_colour_cuts, 0, "wwe2k14",   // S102 G10, PerFrame
-                     "Session 102 lane G10 (docs/renderer/COLOUR_PASS.md, src/renderer/colour_cuts.h): under the LOW tier, a bit mask of cuts to the scene colour pass. 1 = a depth-only prepass of the opaque light-mapped arena draws, "
-                     "whose normal draws then shade the visible surface only (the draws keep the game's order). 0 = off (the default). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_robust_buffers, false, "wwe2k14",   // S102 D1, StartOnly
-                    "Session 102 lane D1 (docs/renderer/DEVICE_LOST.md, job C): the Vulkan device is made with robustBufferAccess, so a read past the end of a buffer returns zeros or in-range data instead of faulting the GPU. A diagnosis switch for the lost device on Intel UHD 620: if the losses stop with it on, the cause is an out-of-range buffer read. May cost GPU time. Off by default. Read once at start");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_exclusive_fullscreen, false, "wwe2k14",   // S102 G2b, StartOnly
-                    "Session 102 lane G2b (exclusive_policy.h): Windows only. The window's swapchain asks for VK_EXT_full_screen_exclusive at the panel's own current mode (no display-mode change), so Windows can present it by independent flip with no compositing by the desktop. Losing it (alt-tab) falls back to the normal path with one log line. The line `[gfx][present] exclusive <on|off|lost|unsupported> mode WxH@Hz` says what happened. Off by default. Read once at start");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_low_no_fullsize_copies, false, "wwe2k14",   // S102 G1 lever 3
-                    "Session 102 lane G1 (low_levers.h): under the LOW tier the resolve copies the alias rule admits (copy_alias.h, every class) are dropped: --wwe2k14_rdr_copy_alias=2 with all classes. Off by default");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_shadow_plane_scale, 100, "wwe2k14",
-                     "Session 101 lane 123: with --wwe2k14_rdr_shadows_ours the ring mat's plane shadow mask (a screen-space picture) as a percent of the 360's size; 0 follows the render scale");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_debug_spin_us, 0, "wwe2k14", "Session 100 (diagnosis only, WM30 crash): a busy pause of N microseconds per recorded draw");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_debug_live_skip, 0, "wwe2k14",
-                     "Session 100 (diagnosis only, WM30 crash): bits leave parts of the live path out: 1 vertex / index conversion, 2 constant banks, "
-                     "4 frames handed to the new renderer, 8 the literal constant tables");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_full_texture_reads, false, "wwe2k14",
-                    "Session 100 (diagnosis only): read every bound texture in full every frame (no sampled change check)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_no_content, false, "wwe2k14",
-                    "Session 100 (diagnosis only): the reader never reads texture contents (pictures then wrong)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_keep_crowd_shortcut, false, "wwe2k14",
-                    "Session 100 (diagnosis only): keep the old renderer's crowd shortcuts on while the reader runs (fans then missing)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_no_patch, false, "wwe2k14",
-                    "Session 100 (diagnosis only): the reader never calls the game's vertex-shader patch routine (plain copies; vertex layouts then wrong)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_bind_trace, 0, "wwe2k14",
-                     "Session 100 (visual parity): log every SetTexture, fetch flush and draw (slots as the device and as our GPU copy hold them) "
-                     "for the next N whole frames ([rdr][trace] lines; settable live, reset to 0 when it starts; needs --wwe2k14_rdr_capture)");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_capture_dir, "", "wwe2k14",
-                      "Session 100: parent folder of captures (default: <repo>\\out\\captures, two folders above the exe when it is out\\build\\<preset>)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_readback_png, false, "wwe2k14",
-                    "Session 100 (diagnosis only): every picture read back for a CPU lock is also written as <captures>\\live\\readback_<n>_<address>.png "
-                    "(colour, alpha shown as 255) and _alpha.png");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_reader_workers, 2, "wwe2k14",
-                     "Session 100 (speed): worker threads that read texture contents off the game's render thread (joined when the frame is "
-                     "serialized); 0 = on the game thread as before");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_geo_worker_bytes, 8192, "wwe2k14",
-                     "Session 100 (speed): a geometry build whose guest bytes (vertex range + indices) reach this goes to the reader workers "
-                     "(the bytes copied at the draw, converted on a worker, joined with the frame); smaller ones stay on the game thread "
-                     "(a hand-off costs more than they do); negative = none (needs --wwe2k14_rdr_reader_workers above 0)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_announce_arena, true, "wwe2k14",
-                    "S101 lane 271: the per-arena loads (arena, ring, crowd, flash, props, screens, crowd props) start when the in-game sequence's match card names the arena "
-                    "(~1.5 s before the first record that draws it) instead of at that record; false = the old start (docs\\renderer\\SKIP_GAME_WORK_MAP.md 19.8)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pace_game, false, "wwe2k14",
-                    "Session 100 (strip-360 A1, checks only): the game waits for our renderer to take its frames (at most 1 s), so an outrun "
-                    "fast-forward draws every frame and its pictures compare exactly; never for players (a GPU that cannot keep up drops frames)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_keeps_state, false, "wwe2k14",
-                    "Session 100 (strip-360 A1): a skipped frame also keeps per-frame copies that carry state (read before written in their frame); "
-                    "exact state, but the skip then saves little (run 6953)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_wrestler, false, "wwe2k14",   // S102 lane G3 (map_turns.h), PerFrame, only under LOW
-                    "S102 G3: under LOW the wrestler shadow maps A / B and their blur steps are drawn on even drawn frames and left out on odd ones (age at most one drawn frame). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_rim, false, "wwe2k14",
-                    "S102 G3: under LOW the rim light map and its blur steps are drawn with the wrestler chain's turn (even drawn frames). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_turn_props, false, "wwe2k14",
-                    "S102 G3: under LOW the props map, the circle blobs and the ring plane mask are drawn on odd drawn frames and left out on even ones. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_half_rate_drawn_clock, false, "wwe2k14",   // S102 G3 step 1, PerFrame, default OFF (Jarrod decides after a Surface A/B)
-                    "S102 G3: the LOW half rate (gpu_shadow_half_rate) alternates on DRAWN frames instead of binds (a lasting-only bind of a skipped frame no longer moves the parity). false = the old per-bind count. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_fence_friendly, false, "wwe2k14",
-                    "S102 H2 (R5 item 4): the render thread waits for its frame slot's fence by polling vkGetFenceStatus and sleeping in short slices (src\\renderer\\fence_wait.h) instead of one blocking vkWaitForFences, "
-                    "so an Intel driver that spins inside the wait cannot burn a core (up to 0.5 ms later to see the fence); false = the blocking wait. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_split, false, "wwe2k14",   // S102 R21-B, PerFrame, default OFF
-                    "S102 R21-B (docs\\renderer\\STAGE_SPLIT.md): the two-stage render thread: frame N+1 is bound on rdr_render while rdr_record records, submits and presents frame N "
-                    "(a frame costs max(bind, record), not bind + record, when a core is free). Frames that read the renderer's result (pictures, read-backs, photo mode, tween, DLSS) "
-                    "run on the one-thread path. false = one thread, as before. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lazy_banks, false, "wwe2k14",
-                    "S102 T1: the render thread resolves a draw's shader constants (bank defs + patches) only when it packs them, into pooled memory reused frame to frame, "
-                    "instead of expanding every bank of every frame at parse time (up to ~18 MB a frame); false = the old expansion. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_bank_blocks, false, "wwe2k14",
-                    "S102 T1b: constants by block map: each bank def is a 64-entry map (256 B) of 64-byte blocks, and the packers copy the register ranges a variant reads block by block, "
-                    "so a bank is never assembled for them (implies lazy banks; whole-bank readers still assemble on first read). false = lazy_banks / the old expansion. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_bank_dirty, false, "wwe2k14",
-                    "S102 T12 (R13 cut 4): constant-bank change detection on the render-command thread without the C runtime memcmp: the dirty-block compares are inline SSE2, and an emit builds only blocks that can differ from the last bank sent (not dirty with the same literals = skipped; dirty with no literal = a patch with no compare). Banks are byte-identical to off. false = the old compares. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_tail_release, false, "wwe2k14",
-                    "S102 U1 (docs\\renderer\\SWAP_TAIL.md): the present's own work (the scene record's formatting and sinks, the frame's hand-off to the render thread, the geometry forget, "
-                    "the census lines) runs right AFTER the game releases its update thread at the frame barrier, not before: the inputs are latched first (the contributors' snapshots, "
-                    "the frame's tables), the game's own order is unchanged. Live mirror only (not a capture, not with the case ring). false = all of it before the release, as before. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_handoff_memory, false, "wwe2k14",
-                    "S102 T8: the reader hands each live frame to the render thread as its tables (frame_handoff.h), no serialise on the swap thread and no parse on the render thread; "
-                    "false = the frame's bytes as before. The case ring and a capture still serialise. Read every frame, at record time");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_members_instanced, false, "wwe2k14",
-                    "S102 T6: the crowd's members (with --wwe2k14_rdr_crowd_ours) are one instanced draw per group of members that share their material and constants (the world rows per instance) instead of one draw each; "
-                    "false = one draw per member. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_ids_once, false, "wwe2k14",
-                    "S102 T11: the crowd contributor (with --wwe2k14_rdr_crowd_ours, or any sink that makes the live record) builds each member's id string once and reuses it, "
-                    "interns the ids with no heap string per member, and reuses its member / palette copies across frames; the record's bytes are the same. false = a formatted string and two heap strings per member per frame. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_strings_once, false, "wwe2k14",
-                    "S102 T11b (R20 cut 1): the live scene record's repeated strings (the crowd's member ids, the arena's slot ids and names) are made once, in one pool that every frame's table starts as a copy of; "
-                    "a contributor writes a pool field with no hashing, no formatting and no heap string. The record names the same strings (Str of every field is equal; field numbers differ; files are written with only the strings used). "
-                    "false = every string interned again every frame. Read every frame, at the record's start");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_fx_log, false, "wwe2k14",
-                    "S103 LNT: diagnostic. The scene host logs the first post-params row of each frame (the post / flare / tonemap words) for the flicker question (FXP.md). false = no log. Read every frame by the sink thread");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_cue_post, true, "wwe2k14",
-                    "S103 FXH: the highlight-reel cue post effects (defocus + hue S+560, emboss S+592, retro film S+604) are drawn by the scene host's post pass (post_from_record.cpp); the words are 0 in normal play. "
-                    "false = named unsupported, not drawn. Read every frame by the scene host");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_vis, false, "wwe2k14",
-                    "S103 V1: the arena of the new renderer draws only the stage slots whose visibility box (pac entry 50020: the game's own tree) meets the camera's stage frustum, built from OUR camera and aspect (no 16:9 limit); "
-                    "a slot with no confirmed box, a moving slot and the screens are always drawn. false = every slot the record lists is drawn (today). Read every frame by the arena applier");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_custom_arena, true, "wwe2k14",
-                    "S103 CAR (BCA G1): a Create-an-Arena venue (arena ids 200-249) is drawn by the new renderer: its scenery is the game's own parts (pac\\car\\parts_studium / parts_ent / parts_ring / car_light, the part indices the game's stage carries) "
-                    "merged into one arena. false = nothing is drawn for those ids (before: the loader opened the missing pac\\bg\\bg2xx.pac). Read every frame by the arena applier");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_attire_remap, true, "wwe2k14",
-                    "S103 ARM (docs\\agents\\s103\\HNN.md): a composite attire the character pac has no model of (Bobby Heenan 30 Years 24912, Jericho a1 / a2, CM Punk a1, Elizabeth, Macho Man ...) loads the model the game remaps it to "
-                    "(pac\\misc01_Start.pac p0/600: attire 0's mesh / base / masks). false = the old load (the named key, then the kind-2 model; a miss goes to the guest rows). Read at each wrestler load");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_borrow_textures, true, "wwe2k14",
-                    "S103 WMB (docs\\research\\s103\\WMB.md): an arena texture name the arena's own pac lacks (beam_moya01 in arenas 15 / 56: the game binds nothing and draws a stale slot) takes the byte-identical shared texture from another arena's pac (bg00). "
-                    "false = the name stays missing (a white sheet). Read at each arena load");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_cull, true, "wwe2k14",
-                    "SCU (a LOOK: the picture follows the game; docs/research/harness/SCU_contract.md): an arena stage mesh whose record word +0x8C has bit 0x2 is drawn one-sided (back faces culled) and its mirrored `r` copy with the "
-                    "winding swapped, as the game's sub_82C04DF0 does. false = every stage mesh two-sided (the draw before); screens and crowd keep their own cull. Read every frame by the scene front end");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_family_cull, true, "wwe2k14",
-                    "S105 C3 (a LOOK: the picture follows the game; docs/research/s105/C3.md): every model family (ring, props, weapons, structures, entrance props, gm objects, characters / attires, the ladder light) is drawn with back faces culled where its mesh record's word +0x8C has bit 0x2, "
-                    "as the game's sub_82C04DF0 does; a translucent character mesh with the bit clear is drawn twice (front, back), one with it set once. false = those families two-sided, the two-pass on the hair effect names (the draw before). Read every frame by the scene front end");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_zwrite, true, "wwe2k14",
-                    "S105 SZW (a LOOK: the picture follows the game; docs/research/harness/SZW_contract.md): the arena's see-through stage slots (`s` / `a` in entry 50001) write depth unless they carry `z`, every stage draw is alpha-tested "
-                    "(GEQUAL 1/255; a draw whose pixel variant has no alpha twin writes no depth), a `z`-only slot draws blended with no depth write, and the `s` / `a` groups draw in the game's slot order (light-set runs) instead of far to near. "
-                    "false = the draw before (no depth write, far to near). Read every frame by the scene front end");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_look, true, "wwe2k14",
-                    "S103 WSL (COV6 G5): the new renderer's arena hides the stage slots the game's own look gate skips (sub_824E7190: `w` slots in the game look unless [0x836F3A34] / [0x836F394C] say otherwise, `e` slots outside phase 4, the "
-                    "65-70 / 110-126 / 140-156 hide ranges, `g` slots outside the game look), read from the game's words and slot records at the latch. false = only the loader's old rule (events-only slots hidden in the match, game-only slots in the entrance). Read every frame by the arena applier");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_page_per_caller, false, "wwe2k14",
-                    "S103 UP (+dev, TEST ONLY): the stage light-map page is sent once per CALLER (every arena / moving model of the set, in the same shared image) instead of once per key change: the old per-model byte cost, exactly, with the shared image. "
-                    "The Surface flips it within one run (--wwe2k14_ab_flip) to price the shared page. false = one upload per key change (shipped). Read every frame by FrontEnd::UpdatePage");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_particle_lite, false, "wwe2k14",
-                    "S102 T18 (R15 Brock's pyro burst): a run of the game's particle draws (adjacent, the same recorder call site, program pair, layout and strides, nothing but float constants set between them) is recorded with a lite path: "
-                    "the fixed / dynamic state records, the texture slot records and the vertex layout are copied from the run's previous draw instead of derived again; the bank delta, the inline vertices and the origin are still taken per draw. "
-                    "The recorded frame is byte-equal. false = the full path for every draw. Read every frame, at the present");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_draw_lite, 0, "wwe2k14",
-                     "S102 SW2 (R23 cut 5), a bit mask (only bit 1 is used): 1 = every draw (not only the particle runs) may take the lite record path: when its shader pair, primitive, strides and declaration equal the previous recorded draw's and the device state, the texture slots "
-                     "and the registry did not move, the fixed / dynamic state records, the texture slot records and the layout (and the origin record, when the origin key is equal too) are copied from that draw instead of derived again; "
-                     "The recorded frame is byte-equal. 0 = the full path. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_run_markers, false, "wwe2k14",
-                    "S102 T19: the crowd contributor (with --wwe2k14_rdr_crowd_ours, or any sink that makes the live record) writes one marker object per run of same-type stands members (their worlds and indices, no id string or Object each), "
-                    "and our renderer expands the markers into the same member list on the render thread. false = one Object and one id string per member. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_debug_particle_marks, 0, "wwe2k14",
-                     "S102 T18 (diagnosis only): log the first N particle candidates whose C7 marks were set: the device's main (+16), fetch (+24, low and high word) and misc (+32) masks at the draw's entry, "
-                     "whether the previous draw had bound shaders, and which setters the set bits name");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_content_skip, false, "wwe2k14",
-                    "S102 T15 (R13 section 7): AddTextureSlot's hit path skips the EnsureContent call when the image was already checked this record frame (the call's own first return, taken before it). false = the call every slot of every draw. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_ways, false, "wwe2k14",
-                    "S102 T15: the reader keeps 4 records per texture slot (round-robin) instead of 1, so draws that alternate two textures or two shaders on a slot hit. false = one record per slot. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_sampler_memo, false, "wwe2k14",
-                    "S102 T15: the sampler table index of a slot's descriptor inputs is remembered within the frame tables' generation (no descriptor build, hash or map find for a repeat). false = built and deduped at every slot miss. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_geo_hash_once, false, "wwe2k14",
-                    "S102 T15: a small vertex stream's full hash is made once per draw (the memo check) and handed to the content key, instead of up to three times. false = hashed again at each use. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_origin_memo, false, "wwe2k14",
-                    "S102 T11 (R13 cut 5): a one-entry memo of the last draw-origin tag in front of the thread-local map, so the several lookups a draw makes for one replay record cost one map find. "
-                    "false = a map find per lookup. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_note_memo, false, "wwe2k14",
-                    "S102 T14 (R13 per-draw cost): the census add of a note the reader has counted before (a name it writes on many draws, e.g. viewport_z_inverted) goes to cached cells instead of a std::string and two std::map finds; "
-                    "the census window and the seen set are the same. false = the map path. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shader_memo, false, "wwe2k14",
-                    "S102 T14 (R13 per-draw cost): a table of the vertex / pixel shaders already resolved, found by object, declaration, strides and microcode address and checked against a kept copy of the whole microcode, "
-                    "in front of the microcode hash and the map find the one-entry last-shader memo falls back to; the same shader info comes out. false = hash and find. Read every frame, at the present");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_swap_once, 0, "wwe2k14",
-                     "S102 SW1 (SWAP_TAIL.md section 5, R20 4b / 5c): bit mask of work the game's swap thread did every frame whose answer does not change, now done once: 1 the live scene record's tables are recycled (cleared, capacity kept: "
-                     "no allocation and no fresh pages a frame), 2 the crowd contributor writes a member's id by the pool field it kept (no id cache lookup, no id string touched), 4 the dev overlay's paint request is posted to the UI thread only while a dialog "
-                     "is open. The same records (byte-equal) and the same pictures. 0 = off. Read every frame (the record's start / the present)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_plan_memo, 0, "wwe2k14",
-                     "S102 R23-P (docs/renderer/PLAN_MEMO.md, src/renderer_adapter/plan_memo.h): bit mask of the render thread's planner work done every frame whose answer does not change, removed: 1 the post chain read (the pixel shader looked up first "
-                     "and cached, the written-by-another-draw mark made once a pass), 2 the copy alias planner's event list (a counting sort by image, the site marks once a pass), "
-                     "4 the props' match evidence (the scan stops at the first crowd member or second actor). The same plans, the same pictures. 0 = off. Read every frame (the bind's start)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_upd_lean, 0, "wwe2k14",
-                     "S102 U2 (R22 cuts 2-6): bit mask of our per-frame work taken off the game's update thread: 1 the host-write page marks (the census-only 'notified' marks, 2 of the 4 fetch_or per word, are made only while a census is on), "
-                     "2 the draw-origin writer lookup (a last-key memo and a direct-mapped cache), 16 (S102 U3) model-entry round 2 (guest memory resolved once, the consumer palette written in place, the arena frame buffers swapped), 8 the game-wide op-21 recorder hook goes straight to the original from any other site, 4 the model-entry contributors (the light state compared in place, the arena world's per-frame memo, the wrestlers' unknown-model counters skipped). "
-                     "Same reader inputs with it off or on (tools\\upd_lean). 0 = off. Read every frame, at the present");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_swap_tail2, 0, "wwe2k14",
-                     "S102 R25-A (docs\\renderer\\SWAP_TAIL.md section 9): bit mask of waits on the game's swap thread that were ours: 1 the fence / interrupt / flip hooks no longer wait for the reader's worker jobs "
-                     "(owner_timing.h JoinReader): they take a ticket and the 'Owner timing' thread waits for it right before it answers the item (the guest sees the fence only after the jobs queued before it are done). "
-                     "The reader's output is the same. 0 = off (the hook waits itself, as before). Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_origin_index, false, "wwe2k14",
-                    "S102 T14b (R20 brief C): the draw-origin lookup answers by the id the tag carries (a lock-free chunk array the writer fills) instead of the one-entry memo and the thread-local map; the same key comes out. "
-                    "false = the memo / map path. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_shader_serial, false, "wwe2k14",
-                    "PARKED (weakens the check; not for players): S102 T14b (R20 brief C): a shader table entry whose whole microcode was compared in this frame part answers its next hits with the head compare only (no whole-microcode compare per draw); "
-                    "implies the shader table (wwe2k14_rdr_shader_memo's) and keeps its census. false = a whole compare at every hit. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pin_hash, false, "wwe2k14",
-                    "S102 T14 (R13 per-draw cost): the thin-draw pin set answers key / triple membership from a hash table built when it is published, not a binary search over a sorted vector; the same answers. "
-                    "false = the binary search. Read every frame, at the present");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_draw, false, "wwe2k14",
-                    "S102 T3 (a): a frame the sink would skip, whose lasting bind keeps more than wwe2k14_rdr_lasting_draw_pct percent of its draws, is drawn and shown "
-                    "instead (lasting_draw.h); the 30 fps rate skip is never overridden. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_lasting_draw_pct, 50, "wwe2k14",
-                    "S102 T3 (a): the share of a skipped frame's draws (percent, 1..100) a lasting bind may keep before the frame is drawn instead (the fraction 0.5 = 50). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_guard_decay, false, "wwe2k14",
-                    "S102 K1 (R16 piece B): the state guard of the lasting-copy classifier decays: an image counts as carrying content between frames only while it was read before its copy (or in a frame with no copy into it) in one of the last "
-                    "16 frames handled, so the match's moving shadow copies stop making every skipped frame a near-full lasting bind (lasting_prune.h). false = the guard is insert-only (v0.3.2). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_lean, false, "wwe2k14",
-                    "S102 K1 (R16 piece A): the per-frame bookkeeping every handled frame does for the lasting-copy classifier (the state-guard walk of lasting_prune.h) runs on flat arrays instead of hash maps; the same results, "
-                    "a smaller cost for a frame that is handled but not drawn. false = the maps (v0.3.2). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skips_auto, false, "wwe2k14",
-                    "S102 K3 (R16 lane K3, skips_auto.h): the five D3 skips (caster map + rim, ring, caster plane, crowd member, arena) are active only while our render thread keeps up: they are armed as the start-only switches say "
-                    "(wwe2k14_rdr_caster_d3 ..., armed by the app when this is on at start and they were left at their defaults) and a controller turns them on after the thread has kept up (busy, queue behind, skipped share, 100 ms guard) "
-                    "for a dwell, and off again, with hysteresis, the moment it falls behind. A change happens at a guest frame boundary only (the call is recorded in full: SwitchOff). false = the skips are whatever the start-only switches armed. Read every frame");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_skips_auto_force, 0, "wwe2k14",
-                     "S102 K3 review F3 (TEST ONLY): with wwe2k14_rdr_skips_auto on, 1 = the five D3 skips are held OFF whatever the controller says (the A/B arm 'K3 armed, forced off': the cost of being armed), 2 = held ON. 0 = the controller decides. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_nogroup, false, "wwe2k14",
-                    "S102 K2 (R16 piece C): a skipped frame's lasting bind keeps only the passes that feed its lasting copies. The model-part group rule (every pass holding an engine-object draw is kept when one is) is gone: the D3 / thin "
-                    "call ordinals and the call-count guards are counted over the whole frame's ops, so a dropped object pass shifts nothing (lasting_prune.h, binder.h). false = the group rule (v0.3.2). Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_lasting_nogroup_targets, false, "wwe2k14",
-                    "S102 K2 (review F4): with wwe2k14_rdr_lasting_nogroup on, a skipped frame's lasting bind also keeps every object pass that draws to a lasting render target (a bake whose product a later frame reads straight from the target). Off = only the passes that feed a lasting copy. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_run_end_keep, false, "wwe2k14",
-                    "S102 K2 round 2: when the sink skips a frame because the queue is behind, the next frame is already queued: a copy this frame leaves out as per-frame work, whose destination the next frame does not copy into, is kept (the copy run ended on this skipped frame: nothing would ever write the image again and it stays one frame older than the game's). The 30 fps rate skips have no next frame and are unchanged. Read every frame");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_skip_prune, true, "wwe2k14",
-                    "Lane 307: a skipped frame binds only the passes that feed its lasting copies (lasting_prune.h); false = every op but the per-frame copies (the bind before lane 307): the A/B handle");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_perframe_by_image, true, "wwe2k14",
-                    "Lane 307: a copy into an image that a copy wrote in each of the last 3 frames with overlapping rectangles is per-frame work a skipped frame leaves to the drawn frame "
-                    "(the match's three moving-rectangle copies made every skipped frame re-bind the whole frame); false = the exact-rectangle rule only");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_state_by_marks, true, "wwe2k14",
-                    "Session 100 (strip-360 C7): in owner mode a draw takes the last draw's render state when the library's own dirty marks say "
-                    "no setter ran since it (and the last draw ran no shader bind), without reading the device");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_marks_verify, false, "wwe2k14",
-                    "Session 100 (strip-360 C7, diagnosis): every draw the marks call unchanged is read from the device anyway and compared "
-                    "(misses counted and the first ones logged with the word that differed); the pictures still follow the marks");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_catch_up_state, true, "wwe2k14",
-                    "Session 100 (strip-360 A1b): the frame drawn after skipped ones repeats the small state passes (exposure / adaptation) "
-                    "they left out, once per game frame: those effects follow the game's frames, not the frames drawn");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_match_card_bake);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_dead_prelight);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_frame_selfblit);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_frame_roundtrip);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_frame_restore);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_plane_bake);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_plane_bake_size);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_blank_plane);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_prelight_analytic);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_prelight_compute);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_prelight_layered);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_shadow_map_size);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_low_shadow_small);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_low_present_noclear);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_low_output_cap);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_low_present_bilinear);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_present_fetch);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_arena_fragments);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_frame_facts);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_overdraw);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_scan_hold);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_low_half_transparents);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_low_colour_cuts);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_robust_buffers);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_exclusive_fullscreen);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_low_no_fullsize_copies);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_shadow_plane_scale);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_debug_spin_us);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_debug_live_skip);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_full_texture_reads);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_no_content);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_keep_crowd_shortcut);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_no_patch);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_bind_trace);
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_capture_dir);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_readback_png);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_reader_workers);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_geo_worker_bytes);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_announce_arena);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pace_game);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_keeps_state);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_turn_wrestler);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_turn_rim);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_turn_props);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_half_rate_drawn_clock);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_fence_friendly);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_split);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_lazy_banks);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_bank_blocks);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_bank_dirty);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_tail_release);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_handoff_memory);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_members_instanced);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_ids_once);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_scene_strings_once);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_fx_log);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_cue_post);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_vis);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_custom_arena);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_attire_remap);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_borrow_textures);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_cull);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_family_cull);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_zwrite);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_slot_look);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_page_per_caller);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_particle_lite);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_draw_lite);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_run_markers);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_debug_particle_marks);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_slot_content_skip);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_slot_ways);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_sampler_memo);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_geo_hash_once);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_origin_memo);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_note_memo);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_shader_memo);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_swap_once);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_plan_memo);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_upd_lean);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_swap_tail2);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_origin_index);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_shader_serial);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pin_hash);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_lasting_draw);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_lasting_draw_pct);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_guard_decay);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_lean);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skips_auto);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_skips_auto_force);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_lasting_nogroup);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_lasting_nogroup_targets);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_run_end_keep);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_skip_prune);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_perframe_by_image);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_state_by_marks);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_marks_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_catch_up_state);
 // S102 lane KO (knockouts.h): test-only knock-outs for the Surface, default off, read per frame through the S0-4 table.
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_draw_none, false, "wwe2k14", "S102 KO (test only): our renderer records no scene draws and no copies; parse and bind still run, the present still runs");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_render_drop, false, "wwe2k14", "S102 KO (test only): our render thread drops every frame at once (no parse, bind, record or present); the reader still serialises");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_ko_reader_none, false, "wwe2k14", "S102 KO (test only): the reader hooks on the swap thread read nothing (taken at the present hook); use ON from boot");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_max_queued, 2, "wwe2k14",
-                     "Session 100 (strip-360 A1): our renderer skips a frame (keeping only its lasting work) when this many newer frames wait "
-                     "(latest wins; was 4: up to 4 frames of latency, and a renderer slower than the game starved the screen)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_bank_marks, true, "wwe2k14",
-                    "Session 100 (speed): compare only the constant blocks the library marked dirty since the last draw (its flushes' masks "
-                    "and the device's), with a full compare at each frame part's first draw; false = a full compare every draw");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_bank_verify, false, "wwe2k14",
-                    "Session 100 (speed diagnosis): a full constant compare every draw, counting blocks that changed without a dirty mark "
-                    "(census case bank_change_unmarked)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_fine_times, false, "wwe2k14",
-                    "Session 100 (speed diagnosis): split the reader's per-draw parts further ([rdr][time][fine]: shader lookups, the constant "
-                    "banks' compare / literal tables / emit, state decode / dedupe) and count draws that repeat the last draw's shaders");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_content_census, false, "wwe2k14",
-                    "Session 100 (diagnosis only): per 600 guest frames, the textures whose contents were read and sent most ([rdr][content] lines)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_watch_texture_pages, true, "wwe2k14",
-                    "Session 100 (speed): a texture is read again only when the CPU wrote one of its pages since the last read (the SDK's physical "
-                    "write watches) or the game flushed it; off: a 64-point sample of its bytes and a full read every 60 frames");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_pack_png, false, "wwe2k14",
-                    "Session 100 (diagnosis only): each attire packed on our GPU is also written as <captures>\\live\\pack_<frame>_<texture>.png "
-                    "(level 0, for tools\\assets\\attire_check.py)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_pack_on_gpu, true, "wwe2k14",
-                    "Session 100: an attire the game builds on the GPU and packs into its texture on the CPU (CEditExSSCompositTexture) is copied "
-                    "into that texture on our renderer's GPU from the build's own atlas; the CPU's packed bytes are not read");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readback, true, "wwe2k14",
-                    "Session 100 (owner mode): when the CPU locks a texture our renderer made (a copy destination: the create modes' saved pictures), "
-                    "the frame so far is drawn and that level written into guest memory before the lock goes on. Nothing else is read back");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readback_async, false, "wwe2k14",
-                    "Lane 232 (LEAVE_THE_COMMAND_STREAM 3d; default off until checked): a read-back lock from a NAMED site (sub_8274FA70's 0x8274FADC, run 7146: 52-89 ms each on the game's thread) is answered "
-                    "from the render thread's newest finished copy of that picture (read back after it draws a frame holding a copy into it) without waiting; the first lock of a picture, "
-                    "a copy older than the bounds below, and every unnamed site keep the blocking read");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_async_lag, 0, "wwe2k14",
-                     "Lane 232: the async read-back answers with a copy at most this many guest frames older than the newest copy the game made into the picture (older: the blocking read). Default 0: the game likely issued the newest copy and waits for it, so only the newest copy, already finished, is served; a copy made in the lock's own frame (not drawn yet) falls back");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_async_age, 30, "wwe2k14",
-                     "Lane 232: ... and at most this many guest frames old at the lock (older: the blocking read)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readback_defer, false, "wwe2k14",
-                    "Lane 232 (default off until checked): the replay-thumbnail job (sub_8274FA70, lock site 0x8274FADC) is not run when entered: it returns at once with its ready word left at 4, our renderer reads "
-                    "the picture back from the frame that carries it (no drain), and when the bytes have landed the game's thread writes them into the texture's memory and runs the job itself, on the same object. "
-                    "Needs --wwe2k14_rdr_owner. After --wwe2k14_rdr_readback_defer_timeout guest frames without a picture the job runs on what the memory holds");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_defer_timeout, 30, "wwe2k14",
-                     "Lane 232: guest frames a deferred replay-thumbnail job waits for its picture before it runs on what is in memory");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_async_lag_thumb, 30, "wwe2k14",
-                     "Lane 232 / 236: the lag allowance (guest frames) of the replay thumbnail site 0x8274FADC ONLY (the picture is stored in the Spectacular replay clip file, nothing computes from it [L]): "
-                     "a copy up to this many frames older than the newest is served. Every other site uses ..._async_lag (0)");
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_readback_async_every, 4, "wwe2k14",
-                     "Lane 232: the render thread reads a watched picture back at most once in this many guest frames (a read-back waits for the frame's GPU work)");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ko_draw_none);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ko_render_drop);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_ko_reader_none);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_max_queued);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_bank_marks);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_bank_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_fine_times);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_content_census);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_watch_texture_pages);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_pack_png);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_pack_on_gpu);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_readback);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_readback_async);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_async_lag);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_async_age);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_readback_defer);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_defer_timeout);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_async_lag_thumb);
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_async_every);
 
 namespace wwe2k14::rdr_reader {
 
@@ -3114,12 +2683,8 @@ inline void* g_write_watch = nullptr;
 // LZX decompressor), exact ranges. g_notified_* keep only these, for the verify / census split (what the page watch alone would have seen).
 inline std::atomic<uint64_t> g_notified_pages[(kPhysBytes >> 12) / 64];
 inline std::atomic<uint64_t> g_notified_pages_geo[(kPhysBytes >> 12) / 64];
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_page_watch, false, "wwe2k14",
-                    "Session 100 (strip-360 E2 / E3): also protect the pages of textures and geometry the reader read (the SDK's write "
-                    "faults); off: their changes come from the game's own flush calls and the host writers' reports only");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_notify_verify, false, "wwe2k14",
-                    "Session 100 (strip-360 E2 / E3, diagnosis): protect pages as well and count, in the [rdr][source] census, every change "
-                    "the page watch saw that no flush or host write report announced");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_page_watch);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_notify_verify);
 inline bool PageWatchOn() { return REXCVAR_GET(wwe2k14_rdr_page_watch) || REXCVAR_GET(wwe2k14_rdr_debug_notify_verify); }
 
 template <class Op>
@@ -3330,9 +2895,7 @@ inline ReaderWorkers g_workers;
 // For every texture read and every rebuild of a watched geometry entry: was it new, unchanged (the watch's 64 KB granule or an unchanged
 // rewrite), changed after one of the game's own calls named it (an unlock flush, a movie plane flush), or changed with only the page watch
 // to tell? The last kind is what the watches are still needed for: those resources are listed by size and address every 600 frames.
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_source_census, false, "wwe2k14",
-                    "Session 100 (strip-360 E1, diagnosis): count texture and geometry content changes by what announced them (a game call or "
-                    "only the page watch) and list the unannounced ones every 600 frames");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_source_census);
 struct SourceCensus {
   uint64_t tex_first = 0, tex_same = 0, tex_named = 0, tex_unnamed = 0;
   uint64_t geo_first = 0, geo_same = 0, geo_changed = 0, geo_rewritten = 0, geo_named = 0, geo_small_changed = 0, geo_small_same = 0;
@@ -3381,12 +2944,9 @@ inline void CensusSourceLog(uint64_t from, uint64_t to);  // (below EnsureConten
 // becomes flush-driven: read after each flush, never by page watch (the watch's 64 KB granules made the planes re-read whenever the decoder
 // wrote the neighbouring decode set). `--wwe2k14_rdr_debug_plane_verify` reads a flush-driven plane at its binds anyway and counts any
 // change that arrived without a flush.
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_planes_by_flush, true, "wwe2k14",
-                    "Session 100 (strip-360 D8): the movie display planes are read when the game's movie present flushes them, not by page watch");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_debug_plane_verify, false, "wwe2k14",
-                    "Session 100 (strip-360 D8, diagnosis): flush-driven planes are also read at their binds and compared (misses counted and logged)");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_plane_repoint_legacy, false, "wwe2k14",
-                    "lane 195 (GATE_FAULTS row 1, A/B): the old sticky flush-driven plane (a re-pointed plane object keeps serving its old bytes until a flush names it); default off = a moved binding is read again");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_planes_by_flush);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_debug_plane_verify);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_plane_repoint_legacy);
 inline std::map<uint32_t, uint32_t> g_plane_by_base;  // physical base of a linear 8-bit texture -> image id (EnsureContent)
 
 inline void VerifyPlane(uint32_t id, const uint32_t w[6]) {
@@ -5064,9 +4624,7 @@ inline void ResetGeoMemoForNewStore() { rdr_adapter::geostore::BeginNewStore(g_r
 // use (exact whoever writes it: the crowd's ~3 KB skinned streams, ~0.15 us each); larger geometry by the host writers' reports and the
 // game's vertex-buffer unlock (src\vb_unlock_report.h; verify run 6990: every change announced). Page protection only on request.
 inline constexpr uint32_t kSmallGeoBytes = 8192;
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_geo_protect_large, false, "wwe2k14",
-                    "Session 100 (strip-360 E3): also page-protect geometry above 8 KB (a safety net for a writer that does not report); off "
-                    "since the vertex-buffer unlock reports (verify run 6990: no change unannounced): no page protection in the reader at all");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_geo_protect_large);
 
 // S100 speed: memo entries unused for kLiveGeometryKeepFrames are dropped every 600 recorded frames (half-way between LiveForgetGeometry's
 // sweeps). Before, entries went only when the map reached 262,144 and was cleared whole: dynamic buffers make new keys every frame, so the

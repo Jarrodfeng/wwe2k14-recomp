@@ -41,16 +41,9 @@
 #include "renderer_host/store_progress.h"   // S105 B3: the stream-free store's counts and the owner-mode done rule (no renderer includes)
 #include "kernel_overrides.h"  // g_vdswap_hook
 
-REXCVAR_DEFINE_STRING(wwe2k14_precompile, "", "wwe2k14",
-                      "Session 70: the precompile - every stored pipeline made before the game is played, progress "
-                      "written to this file (JSON), then quit. The launcher runs it. See src/precompile.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_precompile_optimise, false, "wwe2k14",
-                    "Session 70: the precompile also optimises every shader (SPIRV-Tools, exact) into the player's "
-                    "cache and the game uses that code (a second precompile pass). Off: no measurable gain on the "
-                    "4090; for integrated graphics");
-REXCVAR_DEFINE_INT32(wwe2k14_precompile_timeout_s, 600, "wwe2k14",
-                     "Session 70: the precompile gives up after this many seconds")
-    .range(10, 7200);
+REXCVAR_DECLARE(std::string, wwe2k14_precompile);
+REXCVAR_DECLARE(bool, wwe2k14_precompile_optimise);
+REXCVAR_DECLARE(int32_t, wwe2k14_precompile_timeout_s);
 
 namespace wwe2k14::precompile {
 

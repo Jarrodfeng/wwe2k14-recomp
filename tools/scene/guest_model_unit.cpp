@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../../src/renderer_scene/guest_model_draw.h"
+#include "../../src/renderer_scene/guest_model_absent.h"   // S110 STOREABSENT
 #include "../../src/renderer_scene/logo_bool.h"        // S105 A5c
 #include "../../src/renderer_scene/piece_row_rule.h"   // S105 A5b
 #include "../../src/renderer_scene/record_io.h"
@@ -1599,6 +1600,201 @@ static void CheckWhiteFace() {
   Check(c.built && c.has_diffuse.size() == 2 && c.has_diffuse[0] && !c.has_diffuse[1] && c.no_diffuse == 1 && c.param_unreadable == 1, "WHITEFACE: a garbage parameter count (0x7FFFFFFF) refuses that part's parameters and is counted (params unreadable 1); the other part is untouched");
 }
 
+// S110 WHITEEYES (docs\research\s110\WHITEEYES.md): after a Create a Superstar pick the composer recopies its pictures (each copy ends in the unlock flush); the resolver reads one 8888 picture a call,
+// so a flushed picture it already holds is DEFERRED and keeps its old hash in the read. The read must carry that picture's bytes: the rows name the hash, and when the re-read finds the same content (the
+// eyes did not change) the model key is the same, so the consumer keeps the build made on the deferred frame. Plant 60 (g_gm_tex_plant 38) = the old exit: the hash without its bytes, the eye part white.
+static void CheckWhiteEyes() {
+  live::guest_model::ByteStore::Process().Clear();
+  const uint32_t kBgra = 0xC14u;
+  TexWorld w;
+  std::vector<uint8_t> pat_face, pat_eye;
+  const uint32_t idF = Add8888(w, Phys::kBase, 64, 64, 0, kBgra, false, 5, pat_face), idE = Add8888(w, Phys::kBase + 0x4000u, 64, 64, 0, kBgra, false, 77, pat_eye);
+  ModelSpec spec;
+  for (int k = 0; k < 2; ++k) {   // part 0 = the face (its picture changes with the pick), part 1 = the eye (its picture does not)
+    PartSpec p;
+    p.vcount = 4, p.host_dwords = Dwords(4, 8, uint32_t(1 + k)), p.idx = {0, 1, 2, 3}, p.n0 = 4, p.palette = {1, 2};
+    p.effect = k == 0 ? "ych_skin" : "ych_reflect";
+    p.samplers = {{"g_mDiffusePrm", k, 15}};
+    spec.parts.push_back(p);
+  }
+  spec.tex_keys = {idF, idE};
+  const uint32_t model = BuildModel(w.m, spec);
+  gm::ModelRead r = gm::ReadModel(w.m, model);
+  if (r.parts_ok != 2) { Check(false, "WHITEEYES: the forged two-part model did not read"); return; }
+  const auto phys = [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); };
+  gm::TexResolver res;
+  res.born_of = &UnitBorn;
+  Born(true, kCreatorLoader, 0x82BAA6C0u);
+  // the eye part's model key (the rows writer's own: geometry + every sampler's hash and state)
+  const auto key_of = [](const gm::ModelRead& m) { GuestModelTables g; gm::BlobSender b; gm::AppendModelRows(m, g, b, 1); return g.parts.size() == 2 ? g.parts[1].model_hash : uint64_t(0); };
+  res.Resolve(w.m, phys, r, 100);   // one 8888 read a call: the face first, the eye next call
+  const gm::ModelRead first = r;
+  for (uint64_t f = 101; f < 104 && r.tex_incomplete; ++f) res.Resolve(w.m, phys, r, f);
+  if (r.tex_incomplete || r.tex_state[0][0] != kGtBound || r.tex_state[1][0] != kGtBound || !PicOf(r, r.tex_hash[1][0])) { Check(false, "WHITEEYES: the two pictures did not settle"); return; }
+  const uint64_t hFace = r.tex_hash[0][0], hEye = r.tex_hash[1][0];
+  const std::vector<uint8_t> eye_bytes = *PicOf(r, hEye);
+  // review: the FIRST sight of the eye is put off too (no held bytes to carry): it names no hash and no picture (state missing), so that frame's white build sits under a key that says so, and the key
+  // moves when the eye's bytes arrive (a rebuild, never the permanent case)
+  Check(first.tex_incomplete && first.tex_state[1][0] == kGtMissing && first.tex_hash[1][0] == 0 && first.textures.size() == 1 && key_of(first) != 0 && key_of(first) != key_of(r),
+        "WHITEEYES: a first-sight eye put off names no hash and no picture (state missing); its model key differs from the settled read's");
+  // the pick: the face picture changes, the eye picture does not; the composer's copy flushes both
+  for (size_t i = 0; i < 64; ++i) w.phys.b[i] ^= 0x5A;
+  live::guest_tex_dirty::NoteFlush(w.header_of[idF & 63]);
+  live::guest_tex_dirty::NoteFlush(w.header_of[idE & 63]);
+  gm::TexOut o;
+  res.ResolveTo(w.m, phys, r, o, 120);
+  gm::ModelRead mid = r;
+  gm::ApplyTex(mid, std::move(o));
+  Check(mid.tex_incomplete && mid.tex_hash[0][0] != hFace && mid.tex_hash[1][0] == hEye && mid.tex_state[1][0] == kGtBound && res.stats().dirty_deferred >= 1,
+        "WHITEEYES: on the flush the face is re-read (new hash) and the eye is deferred (one 8888 read a call): it keeps its held hash, state bound, the read incomplete");
+  Check(PicOf(mid, hEye) && *PicOf(mid, hEye) == eye_bytes, "WHITEEYES: the deferred eye's held bytes ride in the read with the hash it names");
+  // the consumer on the deferred frame: the rows -> the record -> the build; the eye part keeps its picture
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(mid, t.guest_models, blobs, 120);
+  guestmodel::Store store;
+  store.Absorb(t);
+  assets::Model mdl;
+  guestmodel::BuildStats bs;
+  const bool built = guestmodel::BuildModel(t, store, model, mdl, bs);
+  bool eye_ok = built && mdl.meshes.size() == 2 && mdl.meshes[1].material >= 0 && mdl.materials[size_t(mdl.meshes[1].material)].diffuse >= 0;
+  if (eye_ok) eye_ok = mdl.textures[size_t(mdl.materials[size_t(mdl.meshes[1].material)].diffuse)].data == eye_bytes;
+  Check(eye_ok && bs.no_diffuse == 0 && bs.tex_missing == 0, "WHITEEYES: the model built on the deferred frame has the eye's picture (no_diffuse " + std::to_string(bs.no_diffuse) + ", missing " + std::to_string(bs.tex_missing) + ")");
+  // why that frame's build must be whole: the next call re-reads the eye, finds the same bytes, and the model key does not move (the consumer keeps the deferred frame's build)
+  gm::TexOut o2;
+  res.ResolveTo(w.m, phys, mid, o2, 121);
+  gm::ModelRead done = mid;
+  gm::ApplyTex(done, std::move(o2));
+  GuestModelTables g_mid, g_done;
+  gm::BlobSender b1, b2;
+  gm::AppendModelRows(mid, g_mid, b1, 120);
+  gm::AppendModelRows(done, g_done, b2, 121);
+  Check(!done.tex_incomplete && done.tex_hash[1][0] == hEye && g_mid.parts.size() == 2 && g_done.parts.size() == 2 && g_mid.parts[1].model_hash == g_done.parts[1].model_hash,
+        "WHITEEYES: the completed read (eye re-read, same bytes) has the SAME model key as the deferred one: the build on the deferred frame is the one that stays");
+  // review: an eye whose bytes DID change while put off: the deferred read carries the OLD bytes under the OLD hash (key and content agree), and the re-read names the new picture: a new key, a rebuild
+  for (size_t i = 0; i < 64; ++i) w.phys.b[i] ^= 0x33, w.phys.b[0x4000u + i] ^= 0x33;
+  live::guest_tex_dirty::NoteFlush(w.header_of[idF & 63]);
+  live::guest_tex_dirty::NoteFlush(w.header_of[idE & 63]);
+  gm::TexOut o3, o4;
+  res.ResolveTo(w.m, phys, done, o3, 130);
+  gm::ModelRead put_off = done;
+  gm::ApplyTex(put_off, std::move(o3));
+  Check(put_off.tex_incomplete && put_off.tex_hash[0][0] != done.tex_hash[0][0] && put_off.tex_hash[1][0] == hEye && PicOf(put_off, hEye) && *PicOf(put_off, hEye) == eye_bytes,
+        "WHITEEYES: an eye changed while put off rides with its OLD bytes under its OLD hash");
+  res.ResolveTo(w.m, phys, put_off, o4, 131);
+  gm::ModelRead after = put_off;
+  gm::ApplyTex(after, std::move(o4));
+  Check(!after.tex_incomplete && after.tex_hash[1][0] != hEye && after.tex_hash[1][0] != 0 && PicOf(after, after.tex_hash[1][0]) && *PicOf(after, after.tex_hash[1][0]) != eye_bytes && key_of(after) != key_of(put_off),
+        "WHITEEYES: its re-read names the new picture with its bytes: a new model key (the put-off frame's build is replaced)");
+}
+
+// S110 STOREABSENT (docs\research\s110\STOREABSENT.md): a build made while a picture its rows NAME has no bytes in either store is provisional: drawn, not final. The cache's gate (guest_model_absent.h,
+// the rule GuestModelFor runs: KeptBuildStands before reuse, NoteBuild after a build) rebuilds it only when one of those pictures arrives; and neither store refuses a new picture at its cap (the least
+// recently named go instead). Plants: 61 (draw 15) a provisional build is final, 62 (draw 16) a provisional build is rebuilt every call, 63 (draw 17) the cache's Store refuses at its cap,
+// 64 (store 1) the process ByteStore refuses at its cap.
+static void CheckStoreAbsent() {
+  live::guest_model::ByteStore::Process().Clear();
+  TexWorld w;
+  uint32_t model = 0;
+  const gm::ModelRead r = BodyWithTextures(w, model);
+  if (r.parts_ok != 2 || r.textures.size() != 2) { Check(false, "STOREABSENT: the forged body did not read"); return; }
+  SceneTables carried;   // geometry and pictures carried
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, carried.guest_models, blobs, 1000);
+  SceneTables named = carried;   // the pictures NAMED, their bytes in no record (the carrying record was missed) and not in the process store
+  for (GuestModelTexture& x : named.guest_models.textures) x.off = kGmNoBytes;
+  const std::string key = "guest:storeabsent";
+  // one cache's frames, as GuestModelFor runs them: a kept build stands unless the gate says a picture it lacked has arrived
+  struct Run { std::shared_ptr<void> slot; bool kept = false; int builds = 0; assets::Model shown; guestmodel::BuildStats last; };
+  const auto frame = [&](Run& run, const SceneTables& rec) {
+    guestmodel::CacheState& cs = guestmodel::StateIn(run.slot);
+    guestmodel::AbsorbRecord(cs, rec);
+    if (run.kept && guestmodel::KeptBuildStands(cs, rec, key.c_str())) return;
+    assets::Model m;
+    guestmodel::BuildStats bs;
+    if (!guestmodel::BuildModel(rec, cs.store, model, m, bs)) return;
+    guestmodel::NoteBuild(cs, key.c_str(), bs);
+    run.shown = std::move(m), run.last = bs, run.kept = true, ++run.builds;
+  };
+  const auto diffuse_on = [](const assets::Model& m) {
+    if (m.meshes.size() != 2) return false;
+    for (const assets::Mesh& me : m.meshes)
+      if (me.material < 0 || m.materials[size_t(me.material)].diffuse < 0) return false;
+    return true;
+  };
+  // 1: absent at build: the model builds (geometry whole), every named picture counted absent: provisional
+  Run a;
+  frame(a, named);
+  Check(a.builds == 1 && a.last.tex_absent == 3 && a.last.tex_missing == 3 && a.last.absent.size() == 2 && a.last.no_diffuse == 2 && !diffuse_on(a.shown),
+        "STOREABSENT: a build whose named pictures have no bytes is made (geometry whole) with 3 samplers absent and 2 distinct pictures listed: provisional");
+  // 2: the pictures stay absent: the kept build stands (no rebuild a frame)
+  for (int f = 0; f < 50; ++f) frame(a, named);
+  Check(a.builds == 1, "STOREABSENT: a permanently absent picture does not rebuild every frame (builds " + std::to_string(a.builds) + " after 51 frames)");
+  // 3: the bytes arrive in the process store (the writer's read): the next frame rebuilds once and the pictures are ON
+  for (const gm::TexRead& tx : r.textures) live::guest_model::ByteStore::Process().PutShared(tx.hash, tx.bytes, 2000);
+  frame(a, named);
+  Check(a.builds == 2 && diffuse_on(a.shown) && a.last.tex_absent == 0 && a.last.absent.empty() && a.shown.textures.size() == 2,
+        "STOREABSENT: when the bytes arrive the provisional build is rebuilt once: every part's picture is ON (builds " + std::to_string(a.builds) + ")");
+  for (int f = 0; f < 20; ++f) frame(a, named);
+  Check(a.builds == 2, "STOREABSENT: the whole rebuild is final (no further builds)");
+  // 4: the bytes arrive in a record (the resend): the cache's Store takes them and the provisional build is rebuilt the same way
+  live::guest_model::ByteStore::Process().Clear();
+  Run b;
+  for (int f = 0; f < 5; ++f) frame(b, named);
+  frame(b, carried);
+  Check(b.builds == 2 && diffuse_on(b.shown), "STOREABSENT: a record that carries the bytes (the resend) rebuilds the provisional build with its pictures ON");
+  // 4b (review): N absent pictures, ONE arrives: one rebuild, the other keeps the build provisional (it stands while that one stays away), and its own arrival makes the build whole
+  live::guest_model::ByteStore::Process().Clear();
+  Run c;
+  frame(c, named);
+  live::guest_model::ByteStore::Process().PutShared(r.textures[0].hash, r.textures[0].bytes, 3000);
+  frame(c, named);
+  const size_t left_after_one = c.last.absent.size();
+  for (int f = 0; f < 20; ++f) frame(c, named);
+  const int builds_after_one = c.builds;
+  live::guest_model::ByteStore::Process().PutShared(r.textures[1].hash, r.textures[1].bytes, 3001);
+  for (int f = 0; f < 6; ++f) frame(c, named);
+  Check(builds_after_one == 2 && left_after_one == 1 && c.builds == 3 && c.last.absent.empty() && diffuse_on(c.shown),
+        "STOREABSENT: one of two absent pictures arrives: one rebuild, the other keeps it provisional with no rebuild a frame, its arrival makes it whole (builds " + std::to_string(builds_after_one) + " then " + std::to_string(c.builds) + ", left " + std::to_string(left_after_one) + ")");
+  // 5: the cache's Store over its cap takes the new picture and drops the least recently named
+  live::guest_model::ByteStore::Process().Clear();
+  const auto pics = [](const std::vector<uint64_t>& hs) {
+    SceneTables s;
+    for (size_t i = 0; i < hs.size(); ++i) {
+      GuestModelTexture x;
+      x.hash = hs[i], x.width = 4, x.height = 4, x.format = 20, x.nbytes = 16, x.off = uint32_t(16 * i);
+      s.guest_models.textures.push_back(x);
+    }
+    s.guest_models.blobs.assign(16 * hs.size(), 7);
+    return s;
+  };
+  {
+    guestmodel::Store s(32);   // room for two pictures
+    s.Absorb(pics({0xA1}));
+    s.Absorb(pics({0xA2}));
+    s.Absorb(pics({0xA3}));
+    const bool new_in = s.Tex(0xA3) != nullptr, mid_in = s.Tex(0xA2) != nullptr, old_out = s.Tex(0xA1) == nullptr;
+    Check(new_in && mid_in && old_out && s.bytes() == 32 && s.counts().dropped == 1, "STOREABSENT: the cache's Store at its cap takes the new picture and drops the least recently named (it no longer refuses the new one)");
+    guestmodel::Store one(32);
+    one.Absorb(pics({0xB1, 0xB2, 0xB3}));
+    Check(one.Tex(0xB1) != nullptr && one.Tex(0xB2) != nullptr && one.Tex(0xB3) != nullptr && one.bytes() == 48, "STOREABSENT: what one record names stays even over the cap (it is drawn now)");
+  }
+  // 6: the process ByteStore at its cap: the same rule by the writer's frame
+  {
+    gm::ByteStore bs(32);
+    bs.Put(0xC1, std::vector<uint8_t>(16, 1), 1);
+    bs.Put(0xC2, std::vector<uint8_t>(16, 2), 2);
+    bs.Put(0xC3, std::vector<uint8_t>(16, 3), 3);
+    Check(bs.Peek(0xC3) != nullptr && bs.Peek(0xC2) != nullptr && bs.Peek(0xC1) == nullptr && bs.bytes() == 32 && bs.full() == 0, "STOREABSENT: the process ByteStore at its cap takes the new picture and drops the least recently put (it no longer refuses the new one)");
+    gm::ByteStore now(32);
+    now.Put(0xD1, std::vector<uint8_t>(16, 1), 5);
+    now.Put(0xD2, std::vector<uint8_t>(16, 2), 5);
+    now.Put(0xD3, std::vector<uint8_t>(16, 3), 5);
+    Check(now.Peek(0xD1) != nullptr && now.Peek(0xD2) != nullptr && now.Peek(0xD3) != nullptr && now.full() == 1, "STOREABSENT: what this frame put stays even over the cap (counted in full)");
+  }
+  live::guest_model::ByteStore::Process().Clear();
+}
+
 int main(int argc, char** argv) {
   int plant = 0;
   for (int i = 1; i + 1 < argc; ++i)
@@ -1612,6 +1808,9 @@ int main(int argc, char** argv) {
   if (plant == 51 || plant == 52 || plant == 53 || plant == 54) gm::g_gm_logo_plant = plant - 50;   // S105 A5c: 51 the callback word is not checked, 52 buf unbounded, 53 key 0 accepted, 54 kGmDiffuseT0 never set
   if (plant == 55) gm::g_gm_tex_plant = 36;                                  // S105 A5c: a flushed picture is not refreshed at once
   if (plant == 56) gm::g_gm_tex_plant = 37;                                  // S105 A5c: the logo keys are not resolved
+  if (plant == 60) gm::g_gm_tex_plant = 38;                                  // S110 WHITEEYES: a deferred refresh names the held hash without its bytes
+  if (plant == 61 || plant == 62 || plant == 63) guestmodel::g_draw_plant = plant - 46;   // S110 STOREABSENT: 61 (draw 15) a provisional build is final, 62 (draw 16) rebuilt every call, 63 (draw 17) the Store refuses at its cap
+  if (plant == 64) gm::g_store_plant = 1;                                    // S110 STOREABSENT: the process ByteStore refuses at its cap (the old rule)
   if (plant == 57) guestmodel::g_draw_plant = 14;                            // S105 A5c: the logo pictures are not put on the material
   if (plant == 58) g_logo_bool_plant = 1;                                    // S105 A5c: bit 150 never set
   if (plant == 59) g_logo_bool_plant = 2;                                    // S105 A5c: bit 150 always set
@@ -1624,6 +1823,8 @@ int main(int argc, char** argv) {
   CheckTextures();
   CheckCtf();
   CheckWhiteFace();   // S110 WHITEFACE
+  CheckWhiteEyes();   // S110 WHITEEYES
+  CheckStoreAbsent();   // S110 STOREABSENT
   CheckBlend();
   CheckCawd();
   CheckLogo();

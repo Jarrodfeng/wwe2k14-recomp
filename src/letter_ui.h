@@ -42,15 +42,9 @@
 #include "letter_ui_core.h"
 #include "seats.h"  // Plausible / Readable / P / Alloc / PutBe32
 
-REXCVAR_DEFINE_BOOL(wwe2k14_letter_ui, true, "wwe2k14",  // ON for players (Jarrod, 2026-11-24 16:3x: "All three on as defuslts": the strip, the letter jump, the alphabetical tab; docs\DECISIONS.md)
-                    "S110 LETTERUI: draw a letter strip (LT / RT glyphs, the previous / current / next letter) with the game's own menu drawing beside each picking panel of the "
-                    "exhibition SELECT SUPERSTAR screen (needs --wwe2k14_letter_jump). Off = the screen as it was. See src/letter_ui.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_letter_ui_dump, false, "wwe2k14",
-                    "S110 LETTERUI: log, per select panel, its layout entry / side / box size, its name bar's group element, the bar node's children and the sources the layout table "
-                    "resolved to, at each screen entry and tab change (dev: the numbers the strip's box is tuned from)");
-REXCVAR_DEFINE_STRING(wwe2k14_letter_ui_layout, "", "wwe2k14",
-                      "S110 LETTERUI: override the strip's layout numbers for this run, \"key=value,key=value\" (keys: the BoxLayout fields of src/letter_ui_core.h, e.g. reg_w=120,reg_cy=-52,"
-                      "box_src=panel_waku01,use_pills=1)");
+REXCVAR_DECLARE(bool, wwe2k14_letter_ui);
+REXCVAR_DECLARE(bool, wwe2k14_letter_ui_dump);
+REXCVAR_DECLARE(std::string, wwe2k14_letter_ui_layout);
 
 REX_EXTERN(__imp__sub_82860CF0);
 REX_EXTERN(__imp__sub_823C54C8);

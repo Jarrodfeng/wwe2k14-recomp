@@ -35,17 +35,9 @@
 #include "scenario.h"      // U32, SequenceId, the main-menu constants
 #include "wm30_args.h"     // S101 goto: ParseArmArgs, PackArm (the !wm30 argument rule)
 
-REXCVAR_DEFINE_INT32(wwe2k14_wm30, -1, "wwe2k14",
-                     "Session 34: jump into 30 Years of WrestleMania match N (0-45, py tools\\wm30\\list.py) the first "
-                     "time a 30 Years match is picked; -1 = off. See src/wm30_jump.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_wm30_auto, true, "wwe2k14",
-                    "Session 34: with --wwe2k14_wm30, drive the menus from the idle main menu to the first 30 Years "
-                    "match by itself (false = pick it yourself). Ignored when --wwe2k14_wm30_direct is on");
-REXCVAR_DEFINE_BOOL(wwe2k14_wm30_direct, false, "wwe2k14",
-                    "S103 WMB: with --wwe2k14_wm30=N, start match N from the idle root main menu with NO 30 Years menus "
-                    "(no mode intro, era screen or match list): the game's own menu-free entry (exit action 3) after the "
-                    "selection of match N is written as the match list's pick writes it. No menu is driven; the getter hook "
-                    "stays as the fallback. False = today's menu drive. See src/wm30_boot.h");
+REXCVAR_DECLARE(int32_t, wwe2k14_wm30);
+REXCVAR_DECLARE(bool, wwe2k14_wm30_auto);
+REXCVAR_DECLARE(bool, wwe2k14_wm30_direct);
 
 REX_EXTERN(__imp__sub_82A9DFB8);
 REX_EXTERN(__imp__sub_82A9E7B8);  // S103 GTF: the caption-table loader (logging hook only)

@@ -65,12 +65,36 @@ struct GuestState {
   bool is_signed = false;
   std::string meaning;
   uint32_t host_field = 0;  // Session 108: != 0 = a built-in menu_* state read by the host (menu_focus::Field), not a chain
+  uint32_t host_source = 0;  // S110 CASARRIVE: 0 = the menu_* reader g_host_state; k = g_host_sources[k - 1] (host_field is then its own code)
 };
 
 // Session 108 (lane MENU): where the built-in menu_* states read from. src/focus_widget.h registers its reader here at
 // static init (null = no reader: the state is unreadable). `field` is a menu_focus::Field.
 using HostStateReader = bool (*)(uint32_t field, uint32_t* out);
 inline HostStateReader g_host_state = nullptr;
+
+// S110 CASARRIVE: more producers of built-in states beside the menu_* one (which stays as it was). A producer registers at static init, from its
+// own header, a name lookup and a reader; its field codes are its own (the source index picks the reader, so they never meet menu_focus::Field).
+// The table is written only during static init and read afterwards. First user: the CAS go-to (src/cas_goto.h: cas_goto, cas_record, ...).
+using HostStateLookup = bool (*)(const std::string& name, uint32_t* field, bool* is_signed, const char** meaning);
+struct HostStateSource {
+  HostStateLookup lookup = nullptr;
+  HostStateReader read = nullptr;
+};
+// S110: 4 -> 16. Four producers register today (cas_goto, mode_pick, cas_pick, finisher_pick), which filled the old table. Still a fixed
+// size (a band-aid for a table that grows): a 17th producer's AddHostStateSource returns false and the route loader refuses its names.
+inline constexpr size_t kHostStateSources = 16;
+inline HostStateSource g_host_sources[kHostStateSources];
+// False when every slot is taken (the producer's names then stay unknown: the script loader refuses them by name).
+inline bool AddHostStateSource(HostStateLookup lookup, HostStateReader read) {
+  for (HostStateSource& s : g_host_sources) {
+    if (s.lookup) continue;
+    s.lookup = lookup;
+    s.read = read;
+    return true;
+  }
+  return false;
+}
 
 // The built-in state NAME (menu_ready, menu_page, menu_row, menu_rows, menu_col, menu_cols, menu_count) as a GuestState.
 inline bool MakeHostState(const std::string& name, GuestState& out) {
@@ -82,6 +106,21 @@ inline bool MakeHostState(const std::string& name, GuestState& out) {
     out.host_field = uint32_t(h.field);
     out.is_signed = h.is_signed;
     out.meaning = h.meaning;
+    return true;
+  }
+  for (size_t i = 0; i < kHostStateSources; ++i) {  // S110 CASARRIVE: the registered sources
+    const HostStateSource& s = g_host_sources[i];
+    uint32_t field = 0;
+    bool is_signed = false;
+    const char* meaning = "";
+    if (!s.lookup || !s.lookup(name, &field, &is_signed, &meaning) || field == 0) continue;
+    out = {};
+    out.name = name;
+    out.chain = "(host)";
+    out.host_field = field;
+    out.host_source = uint32_t(i + 1);
+    out.is_signed = is_signed;
+    out.meaning = meaning ? meaning : "";
     return true;
   }
   return false;
@@ -198,7 +237,13 @@ inline bool ReadGuestBytes(uint32_t guest, uint32_t size, uint32_t* out) {
 // Follows the chain; the final read uses state.size. The raw (zero-extended) value goes to *out. A pointer read as 0
 // anywhere in the chain makes the state unreadable (without this, 0 + a large offset would read low guest memory).
 inline bool ReadGuestState(const GuestState& state, uint32_t* out) {
-  if (state.host_field) return g_host_state && g_host_state(state.host_field, out);  // a built-in menu_* state
+  if (state.host_field) {
+    if (state.host_source) {  // S110 CASARRIVE: a registered source (MakeHostState keeps host_source <= kHostStateSources)
+      const HostStateSource& s = g_host_sources[state.host_source - 1];
+      return s.read && s.read(state.host_field, out);
+    }
+    return g_host_state && g_host_state(state.host_field, out);  // a built-in menu_* state
+  }
   const bool chained = !state.offsets.empty();
   uint32_t v = 0;
   if (!ReadGuestBytes(state.address, chained ? 4 : state.size, &v)) return false;
@@ -289,7 +334,8 @@ inline bool LoadGuestStates(const std::string& path, std::vector<GuestState>& ou
       if (!finish_entry()) return false;
       const std::string name = Trim(line.substr(1, line.size() - 2));
       if (GuestState builtin; MakeHostState(name, builtin)) {
-        error = where + ": '" + name + "' is a built-in state (src/menu_focus.h kHostNames), not a states.toml entry";
+        error = where + ": '" + name + "' is a built-in state (src/menu_focus.h kHostNames, or a host state source such as "
+                "src/cas_goto_core.h kStateNames), not a states.toml entry";
         return false;
       }
       for (const GuestState& s : out) {

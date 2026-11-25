@@ -46,6 +46,12 @@ struct Fake {
   bool alloc_fails = false;
   std::vector<std::vector<uint64_t>> state_calls;  // S110 OMGROUTE: every QueueState call's (r3, r4, r5)
   std::vector<std::string> order;  // S105 T1: the writes and the call, in the order they happened
+  struct WishCall { int slot; uint32_t ch; int wish; };
+  std::vector<WishCall> wishes;  // S110 FINPICK: every FinisherWish call (the glue stores the wish for the hook)
+  std::string FinisherWish(int slot, uint32_t ch, int wish) { wishes.push_back({slot, ch, wish}); return "fake fit"; }
+  struct OmgCall { int slot; uint32_t ch; bool on; };
+  std::vector<OmgCall> omgs;  // S110 OMGVERB: every OmgWish call (the glue reads the gates and arms the hook)
+  std::string OmgWish(int slot, uint32_t ch, bool on) { omgs.push_back({slot, ch, on}); return "fake gates"; }
   uint32_t Call3(Fn f, uint64_t r3, uint64_t r4, uint64_t r5) {
     calls.push_back({int(f), r3});
     if (f == Fn::DimSceneCtor) { ctor_args.push_back({r3, r4, r5}); mem[uint32_t(r3) + 80] = 0x1234; mem[uint32_t(r3) + 84] = 0x5678; mem[uint32_t(r3) + 88] = 0x9ABC; order.push_back("ctor"); return uint32_t(r3); }
@@ -674,6 +680,102 @@ int main(int argc, char** argv) {
     Check(Starts(r, "refused: place is a dev-build verb") && f.calls.empty() && f.mem == before, "place.player_build_refused_no_calls", r);
     f.gate.clock_started = false;
     Check(Starts(Do(f, st, "place 1 540 545 225"), "refused: place is a dev-build verb"), "place.player_build_refused_before_the_match_gate");
+  }
+  // ---- fire / skip_replay (S110 FIRETABLE review): parse; `fire` arms the seat behind the match gate; `skip_replay` is served after the
+  // finish (the post-match replay plays while G+472 != 0, in sequence 9) and is busy outside the in-game sequence ----
+  {
+    Cmd c;
+    bool ok = Parse("fire 0", c).empty() && c.verb == Verb::Fire && c.slot == 0 && IsVerb("fire");
+    ok = ok && Parse("fire 8", c).empty() && c.verb == Verb::Fire && c.slot == 8;
+    ok = ok && Parse("skip_replay", c).empty() && c.verb == Verb::SkipReplay && IsVerb("skip_replay");
+    Check(ok, "fire.parse_good", "fire 0, fire 8, skip_replay");
+    bool bad = true;
+    for (const char* t : {"fire", "fire 9", "fire x", "fire 0 1", "skip_replay 1", "skip_replay now"})
+      bad = bad && !Parse(t, c).empty();
+    Check(bad, "fire.parse_bad", "6 bad forms are all errors");
+  }
+  {
+    namespace tf = ::wwe2k14::table_fire;
+    tf::Clear();
+    Fake f = Match(); State st;
+    const std::string r = Do(f, st, "fire 1");
+    Check(Starts(r, "ok: fire 1 (armed") && tf::FireState(1) == 0 && tf::FireState(0) == -1, "fire.arms_the_seat", r);
+    Check(Last(f).find("director: fire 1: armed") != std::string::npos, "fire.logged", Last(f));
+    Fake g = Match();
+    Check(Starts(Do(g, st, "fire 6"), "refused") && tf::FireState(6) == -1, "fire.referee_refused");
+    Check(Starts(Do(g, st, "fire 5"), "refused") && tf::FireState(5) == -1, "fire.empty_slot_refused");
+    Fake b = Match(); b.gate.clock_started = false;
+    Check(Starts(Do(b, st, "fire 2"), "busy") && tf::FireState(2) == -1, "fire.before_the_bell_is_busy");
+    Fake d = Match(); d.gate.g472 = 2;  // decided: the post-match replay plays now
+    const std::string s = Do(d, st, "skip_replay");
+    Check(Starts(s, "ok: skip_replay") && tf::g_skip.load(), "skip_replay.served_after_the_finish", s);
+    tf::Clear();
+    Fake m = Match(); m.gate.seq = 75;
+    const std::string u = Do(m, st, "skip_replay");
+    Check(Starts(u, "busy: no match is running") && !tf::g_skip.load(), "skip_replay.busy_outside_the_match", u);
+    tf::Clear();
+  }
+  {  // S110 FIRETABLE fix 2: the game's replay lock [[0x8376AAF0]+0x129A8] != 0 (IARP never starts, its skip refuses): skip_replay says so, nothing armed
+    namespace tf = ::wwe2k14::table_fire;
+    tf::Clear();
+    Fake k = Match(); State st;
+    k.mem[0x8376AAF0u] = 0x40000000u;
+    k.mem[0x40000000u + 0x129A8u] = 1;
+    const std::string r = Do(k, st, "skip_replay");
+    Check(Starts(r, "refused: the game's replay lock") && !tf::g_skip.load(), "skip_replay.refused_while_the_game_locks_replays", r);
+    k.mem[0x40000000u + 0x129A8u] = 0;
+    Check(Starts(Do(k, st, "skip_replay"), "ok: skip_replay") && tf::g_skip.load(), "skip_replay.served_when_the_lock_is_clear");
+    tf::Clear();
+  }
+  // ---- finisher (S110 FINPICK): parse; the wish reaches the glue with the slot's character; the refusals and the bell call nothing ----
+  {
+    Cmd c;
+    bool ok = Parse("finisher 0 hold", c).empty() && c.verb == Verb::Finisher && c.slot == 0 && c.value == 1 && IsVerb("finisher");
+    ok = ok && Parse("finisher 8 nohold", c).empty() && c.verb == Verb::Finisher && c.slot == 8 && c.value == 2;
+    ok = ok && Parse("finisher 1 any", c).empty() && c.verb == Verb::Finisher && c.value == 0;
+    Check(ok, "finisher.parse_good", "hold 1, nohold 2, any 0");
+    bool bad = true;
+    for (const char* t : {"finisher", "finisher 0", "finisher 9 hold", "finisher x hold", "finisher 0 Hold", "finisher 0 17", "finisher 0 hold extra"})
+      bad = bad && !Parse(t, c).empty();
+    Check(bad, "finisher.parse_bad", "7 bad forms are all errors");
+  }
+  {
+    Fake f = Match(); State st;
+    const std::string r = Do(f, st, "finisher 1 nohold");
+    Check(Starts(r, "ok: finisher 1 nohold (fake fit)") && f.wishes.size() == 1 && f.wishes[0].slot == 1 && f.wishes[0].ch == f.ChOf(1) && f.wishes[0].wish == 2,
+          "finisher.wish_reaches_the_glue_with_the_character", r);
+    Check(Last(f).find("director: finisher 1 nohold (fake fit; char ") != std::string::npos, "finisher.logged", Last(f));
+    Check(Starts(Do(f, st, "finisher 2 hold"), "ok") && f.wishes.size() == 2 && f.wishes[1].wish == 1, "finisher.hold_is_1");
+    Check(Starts(Do(f, st, "finisher 2 any"), "ok") && f.wishes.size() == 3 && f.wishes[2].wish == 0, "finisher.any_reaches_the_glue");
+    Fake g = Match();
+    Check(Starts(Do(g, st, "finisher 6 hold"), "refused") && g.wishes.empty(), "finisher.referee_refused");
+    Check(Starts(Do(g, st, "finisher 5 hold"), "refused") && g.wishes.empty() && Last(g).find("refused") != std::string::npos, "finisher.empty_slot_refused");
+    Fake b = Match(); b.gate.clock_started = false;
+    Check(Starts(Do(b, st, "finisher 1 hold"), "busy") && b.wishes.empty(), "finisher.before_the_bell_is_busy");
+  }
+  // ---- omg (S110 OMGVERB): parse; the wish reaches the glue with the slot's character; the refusals and the bell call nothing ----
+  {
+    Cmd c;
+    bool ok = Parse("omg 0 ring", c).empty() && c.verb == Verb::Omg && c.slot == 0 && c.on && IsVerb("omg");
+    ok = ok && Parse("omg 8 off", c).empty() && c.verb == Verb::Omg && c.slot == 8 && !c.on;
+    Check(ok, "omg.parse_good", "ring on, off");
+    bool bad = true;
+    for (const char* t : {"omg", "omg 0", "omg 9 ring", "omg x ring", "omg 0 Ring", "omg 0 on", "omg 0 ring extra"})
+      bad = bad && !Parse(t, c).empty();
+    Check(bad, "omg.parse_bad", "7 bad forms are all errors");
+  }
+  {
+    Fake f = Match(); State st;
+    const std::string r = Do(f, st, "omg 1 ring");
+    Check(Starts(r, "ok: omg 1 ring (fake gates)") && f.omgs.size() == 1 && f.omgs[0].slot == 1 && f.omgs[0].ch == f.ChOf(1) && f.omgs[0].on,
+          "omg.wish_reaches_the_glue_with_the_character", r);
+    Check(Last(f).find("director: omg 1 ring (fake gates; char ") != std::string::npos, "omg.logged", Last(f));
+    Check(Starts(Do(f, st, "omg 1 off"), "ok: omg 1 off") && f.omgs.size() == 2 && !f.omgs[1].on, "omg.off_reaches_the_glue");
+    Fake g = Match();
+    Check(Starts(Do(g, st, "omg 6 ring"), "refused") && g.omgs.empty(), "omg.referee_refused");
+    Check(Starts(Do(g, st, "omg 5 ring"), "refused") && g.omgs.empty(), "omg.empty_slot_refused");
+    Fake b = Match(); b.gate.clock_started = false;
+    Check(Starts(Do(b, st, "omg 1 ring"), "busy") && b.omgs.empty(), "omg.before_the_bell_is_busy");
   }
   std::printf("SUMMARY %d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;

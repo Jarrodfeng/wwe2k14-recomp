@@ -18,6 +18,7 @@ param([Parameter(Mandatory)][string]$Run, [switch]$Reconfigure, [int]$Jobs = 12,
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Continue'
 . "$ProjectRoot\tools\runlock.ps1"
+. "$ProjectRoot\tools\harness\folderlock.ps1"
 
 $build = if ($BuildDir) { $BuildDir } elseif ($StreamFree) { "$($AndroidDirs.Game)-off" } else { $AndroidDirs.Game }
 $streamOpts = @()
@@ -73,7 +74,12 @@ $pcRexglue = @("$ProjectRoot\thirdparty\rexglue-sdk-vulkan\bin\rexglue.exe", "$P
 
 # Session 92: BUILD class (like fast_build): this writes only under out\android (+ codegen, which PC builds - exclusive
 # holders - never overlap), so it shares the PC with untimed runs instead of waiting for every game to close.
+# S110 BUILDLOCK (docs\research\s110\BUILDLOCK.md): the BUILD hold stays (this compiles the main checkout's generated\default, which a PC build or a release
+# rewrites under EXCLUSIVE). The folders are guarded by folder locks (tools\harness\folderlock.ps1), since build_apk.ps1 and build_launcher.ps1 android hold no
+# run lock: this build's folder written, the SDK install read (build_sdk_android.ps1 writes it). Two game builds into different folders still overlap.
 $lock = Enter-RunLock -Name "build_game_android.ps1 $Run" -Mode Build
+try { $dirLock = Enter-FolderLocks -Read @($AndroidDirs.SdkInstall) -Write @($build) -Name "build_game_android.ps1 $Run" }
+catch { Exit-RunLock $lock; "build_game_android.ps1: REFUSED, nothing built: $($_.Exception.Message)"; exit 6 }
 try {
 $t0 = Get-Date
 "== game android build $Run, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $(git -C $ProjectRoot log --oneline -1)" | Out-File $log
@@ -113,4 +119,4 @@ if ($so) {
         "libmain.so: {0:N1} MB  {1} (copy in {2})" -f ($so.Length / 1MB), $so.FullName, $symDest
     }
 } else { "libmain.so: not found under $build" }
-} finally { Exit-RunLock $lock }
+} finally { Exit-FolderLocks $dirLock; Exit-RunLock $lock }

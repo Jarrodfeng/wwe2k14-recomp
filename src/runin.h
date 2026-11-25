@@ -58,28 +58,14 @@
 #include "kernel_overrides.h"  // g_vdswap_hook
 #include "replay.h"            // run-in events in recordings (Session 17)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_runin, false, "wwe2k14",
-                    "Run-ins (Session 16 experiment): turn on the game's run-in setting for its enable check "
-                    "(sub_825999F8), so its interference manager exists in every match the game's own rules allow "
-                    "(simple 1v1s, not Rumbles). See src/runin.h");
-REXCVAR_DEFINE_INT32(wwe2k14_runin_now, 0, "wwe2k14",
-                     "Run-ins: set to 1 (cvar in a script) to call the game's trigger once at the next frame");
-REXCVAR_DEFINE_INT32(wwe2k14_runin_char, -1, "wwe2k14",
-                     "Run-ins: character id that runs in (replaces the target's run-in list for the trigger); -1 = the "
-                     "game's own choice");
-REXCVAR_DEFINE_INT32(wwe2k14_runin_target, -1, "wwe2k14",
-                     "Run-ins: character slot (0..5) the run-in targets; -1 = a wrestler the game's team check accepts");
+REXCVAR_DECLARE(bool, wwe2k14_runin);
+REXCVAR_DECLARE(int32_t, wwe2k14_runin_now);
+REXCVAR_DECLARE(int32_t, wwe2k14_runin_char);
+REXCVAR_DECLARE(int32_t, wwe2k14_runin_target);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_runin_force, false, "wwe2k14",
-                    "Run-ins (Session 17): skip the game's chance roll (50% in exhibition) for our triggers, so a "
-                    "trigger always starts a run-in when the game would allow one at all");
-REXCVAR_DEFINE_INT32(wwe2k14_runin_second, -1, "wwe2k14",
-                     "Run-ins (Session 17): the second character who comes out after the interferer (the game takes "
-                     "one from the interferer's own rivals list): -1 = the game's choice, 0 = none, ID = this one");
-REXCVAR_DEFINE_BOOL(wwe2k14_runin_probe, false, "wwe2k14",
-                    "Run-ins (Session 17 diagnosis): log every call into the game's run-in functions (trigger "
-                    "sub_8259B1E8 / sub_8259A5A0, controller path sub_8259A268, entry setup sub_8259CA88) with the "
-                    "guest caller, the wrestler's character id and the two 48-byte records the entry is built from");
+REXCVAR_DECLARE(bool, wwe2k14_runin_force);
+REXCVAR_DECLARE(int32_t, wwe2k14_runin_second);
+REXCVAR_DECLARE(bool, wwe2k14_runin_probe);
 
 REX_EXTERN(__imp__sub_825999F8);
 REX_EXTERN(__imp__sub_8259B1E8);

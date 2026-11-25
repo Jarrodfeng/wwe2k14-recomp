@@ -290,10 +290,7 @@ inline __attribute__((always_inline)) bool wwe2k14_stw_go(const uint64_t* last, 
 
 #if defined(WWE2K14_COVERAGE)
 #include <rex/cvar.h>
-REXCVAR_DEFINE_BOOL(wwe2k14_feedrec, false, "wwe2k14",
-                    "Coverage build (S110 FEEDREC): record every guest address our scene-feed code reads (feed_reads.tsv) "
-                    "and which game function stores to those addresses (stores.tsv); needs --wwe2k14_coverage=true for "
-                    "the folder; read once at startup");
+REXCVAR_DECLARE(bool, wwe2k14_feedrec);
 #endif
 
 extern "C" {

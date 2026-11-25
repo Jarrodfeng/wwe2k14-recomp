@@ -28,25 +28,11 @@
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_bake_skip);
 REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);   // S102 T2: the legacy runs path (scene_crowd.h)
 
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_card_thin, 0, "wwe2k14",
-                     "Session 101 lane 175: the far cards' thin record. 0 off; 1 census (decide and count what would be dropped, touch nothing); 2 drop the op-15 draw of every far card except the first "
-                     "of each person type's loop while the binder has proved ours draws the cards from the scene record (one run in 32 is recorded in full as the proof). 2 behaves as 1 (the cut itself is "
-                     "--wwe2k14_rdr_card_cut). Needs --wwe2k14_rdr_crowd_cards (and so --wwe2k14_rdr_crowd_ours and --wwe2k14_scene_records). Docs: docs/renderer/SKIP_GAME_WORK_MAP.md 13");
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_card_thin);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_card_cut, false, "wwe2k14",
-                    "Session 102 lane T2: never send the far crowd cards the new renderer draws itself. On: the game does not record the op-15 draw of every far card except the first of each person type's loop, "
-                    "while the binder has proved ours draws the cards from the scene record (the gate of card_thin_core.h: 3 clean frames, one run in 32 recorded in full as the proof, a hole unproves it, 3 holes "
-                    "in 10 s latch it off). A thinned frame ours has no usable record for takes the last good record when the tally proves it holds this frame's cards, else it is a hole. Read once per crowd draw run (rdr_sw table, per-frame), so it can be flipped inside a route. Needs --wwe2k14_rdr_crowd_cards (so crowd_ours and "
-                    "scene records); inert (census) with the legacy --wwe2k14_scene_crowd or --wwe2k14_rdr_crowd_bake_skip=2. Not for a determinism run. Claim: 2-4 ms of our render thread in Bryan's entrance. "
-                    "Docs: docs/renderer/SKIP_GAME_WORK_MAP.md 13, 13.8");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_card_cut);
 
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_record_skip, 0, "wwe2k14",
-                     "Session 102 lane UQ1 (R22 cut 6): do not record what the new renderer never uses, at the source, on the game's update thread. A bit mask (PerFrame, read once per crowd draw run); default 0 = "
-                     "byte for byte as before. Bit 1 = the crowd: the op-21 (the card's constants c76-c78) of every far card whose op-15 the card cut drops is not recorded either (the observer that feeds the scene record "
-                     "reads the card's world before the recorder would run, so ours gets everything it read before; the first card of each type, a proof run, an unproven frame and a tiled frame record in full). "
-                     "Needs --wwe2k14_rdr_card_cut doing its work (inert otherwise, counted as declined). Not for a determinism run. Claim: 0.4-0.55 ms of the update thread in Bryan's entrance (R22 profile share). "
-                     "Bits 2 (stands members) and 4 (floor members) = the same for the stands / floor members whose op-15 the MEMBER CUT drops (member_thin_hook.h; need --wwe2k14_rdr_member_cut, inert otherwise). Bit 256 (0x100) = TEST ONLY, THE PICTURE IS WRONG (our renderer draws no crowd): our own observers on the update thread (crowd_live::OnOp21, OnPalettes) return at once and the game still records everything; one Surface flip measures what the observers cost. Bit 128 (0x80) = TEST ONLY, THE PICTURE IS WRONG: no crowd card, stands member or floor member record (op 21 + op 15 at 0x825130AC/C4, 0x82518554/74, 0x8276ED38/60) is made, whatever our renderer needs; it exists so one Surface flip measures the ceiling of removing all crowd recording from the update thread. "
-                     "Docs: docs/renderer/RECORD_SKIP.md");
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_record_skip);
 
 namespace wwe2k14::card_thin {
 

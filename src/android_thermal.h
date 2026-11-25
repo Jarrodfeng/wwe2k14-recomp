@@ -25,10 +25,7 @@
 
 #include "dynamic_res.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_android_thermal, false, "wwe2k14",
-                    "Session 93 (Android): read the phone's thermal headroom (ADPF thermal) once a second, log it, and hold "
-                    "dynamic resolution from probing back up while it stays above 0.85 (Session 95: heat no longer steps it down; "
-                    "src/android_thermal.h). Default off");
+REXCVAR_DECLARE(bool, wwe2k14_android_thermal);
 
 #if defined(__ANDROID__)
 #include <dlfcn.h>

@@ -38,8 +38,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_atan2_d, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
-                      "Session 66 (native function factory): off | verify | on for the native atan2 sub_82C7A898");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_atan2_d);
 
 namespace wwe2k14::nf_atan2_d {
 

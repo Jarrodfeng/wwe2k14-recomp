@@ -93,10 +93,7 @@
 #include "guest_read.h"
 #include "mods.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_lighting_entrance, -1, "wwe2k14",
-                     "Session 98: which <mods>\\lighting\\entrance_NNN.json the entrance lighting uses (NNN = the wrestler's "
-                     "bank id). -1 = the lowest NNN present. The game side cannot tell the wrestler yet (unconfirmed). Needs "
-                     "--wwe2k14_mods_lighting");
+REXCVAR_DECLARE(int32_t, wwe2k14_lighting_entrance);
 
 REX_EXTERN(__imp__sub_827F7BA0);
 REX_EXTERN(__imp__sub_827F70D0);

@@ -45,9 +45,7 @@
 #include "seats.h"
 #include "slot_handover.h"
 
-REXCVAR_DEFINE_INT32(wwe2k14_seat_pool_cap, 0, "wwe2k14",
-                     "S110 SEAT3 (dev / test): at most this many library characters are bound at once (the first N free frame seats); 0 = no cap (every free "
-                     "frame seat). A test value of 2 makes pages of two, so three library characters need a page flip. See src/seat_bind.h");
+REXCVAR_DECLARE(int32_t, wwe2k14_seat_pool_cap);
 
 REX_EXTERN(sub_8285C948);  // the select panel's list rebuild (r3 = the panel): re-sorts the lists and re-seats the cursor
 REX_EXTERN(sub_82923AB8);  // r3 = the menu state object: is the selected 1100-byte block's first word 20..23 (a Royal Rumble)

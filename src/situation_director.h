@@ -35,6 +35,9 @@
 #include "scene_director.h"  // Caller, kG, g_situation_tick
 #include "situation_director_core.h"
 #include "dev_build.h"  // S105 T1: IsDevBuild
+#include "finisher_pick.h"  // S110 FINPICK: the finisher wish (its hook of sub_825FDE00 and the finisher_fit_S states; this is its ONE includer)
+#include "omg_wish.h"       // S110 OMGVERB: the ring-break wish (its hook of sub_825FCEB8 and the omg_fit_S states; this is its ONE includer)
+#include "table_fire.h"     // S110 FIRETABLE: the fire / skip wishes (hooks of sub_825FB230 / sub_82607778, the table_fire_S states; its ONE includer)
 
 REX_EXTERN(sub_823C8FB8);  // stw r4,100(r3): the COM component's "CPU drives this wrestler" word
 REX_EXTERN(sub_825E7168);  // team-shared momentum / stock rules on? (no argument)
@@ -78,6 +81,14 @@ struct GameEnv {
   uint32_t CallF(Fn f, uint64_t r3, double f1) { return f == Fn::SetYaw ? call.withf(sub_822FB578, {r3}, f1) : 0; }
   double CallRetF(Fn f, uint64_t r3, uint64_t r4) { return f == Fn::FloorY ? call.retf(sub_82612BF8, {r3, r4}) : 0.0; }
   uint32_t CallF3(Fn f, uint64_t r3, double f1, double f2, double f3) { return f == Fn::Warp ? call.withf3(sub_829C0EE8, {r3}, f1, f2, f3) : 0; }
+  // S110 FINPICK: `finisher SLOT ...`: the wish for the hook, with the live ids of slots 17 / 18 (the game's lookup sub_8253AD80) -> the answer's text
+  std::string FinisherWish(int slot, uint32_t ch, int wish) {
+    return finisher_pick::WishNow(call, slot, ch, wish);
+  }
+  // S110 OMGVERB: `omg SLOT ring|off`: the wish for the hook of sub_825FCEB8, with the gates as the game's own functions answer now -> the answer's text
+  std::string OmgWish(int slot, uint32_t ch, bool on) {
+    return omg_wish::WishNow(call, slot, ch, on);
+  }
   float F32(uint32_t a) const {
     const uint32_t u = U32(a);
     float f;
@@ -171,6 +182,9 @@ inline void Tick(PPCContext& ctx, uint8_t* base) {
     Gate g;
     g.seq = seq;
     Housekeeping(g_state, g);
+    finisher_pick::Clear();  // S110 FINPICK: a wish is one match's (the next match's seats are other wrestlers); free when none is set
+    omg_wish::Clear();       // S110 OMGVERB: the same for the ring-break wish and its omg_fit_S state
+    table_fire::Clear();     // S110 FIRETABLE: the same for the fire / skip wishes; free when none was set
     if (!g_retry.empty() && seq == scenario::kSeqMainMenu) g_retry.clear();  // a script verb waiting for a match that never comes
   }
   // The passive_cpu latch: only looks at the game while it is on (or until it re-armed).

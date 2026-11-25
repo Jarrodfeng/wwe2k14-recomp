@@ -58,10 +58,39 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   const bool plant_v_flip = g_plant_flash_v_flip.load(std::memory_order_relaxed);             // TEST ONLY: the centre's depth row read upside down
   const bool plant_row0 = g_plant_flash_fetch_row0.load(std::memory_order_relaxed);           // TEST ONLY (S110 FLASHOCC): the centre's depth read from row 0
 
+  // S110 FLASHFRONT (docs\research\s110\FLASHFRONT.md): the scene depth is ATTACHED to this pass and tested per pixel (LESS_OR_EQUAL, never written), so no sprite pixel lands on a nearer body. v0.4.1 drew the
+  // flashes as scene objects under this test; CUTGREY kept only the centre read and the flashes reached the wrestlers. The game's whole-sprite centre read stays, on a COPY of the depth: the renderer refuses a
+  // pass that samples its own attachment (Problem sampled_while_attached). The copy is taken before the pass opens (a copy ends a pass), at the scene depth's size class (as LiveParticles' soft copy).
+  uint32_t depth_w = 0, depth_h = 0;
+  bool depth_scaled = false;
+  if (!renderer_.ImageExtent(depth, depth_w, depth_h, depth_scaled)) depth_scaled = false;
+  if (flash_depth_ == rdr::kNoImage || flash_depth_w_ != sctx.width || flash_depth_h_ != sctx.height || flash_depth_scaled_ != depth_scaled) {
+    if (flash_depth_ != rdr::kNoImage) renderer_.DestroyImage(flash_depth_), flash_depth_ = rdr::kNoImage;   // (deferred past the frames in flight)
+    rdr::ImageDesc dd;
+    dd.width = uint16_t(sctx.width), dd.height = uint16_t(sctx.height);
+    dd.format = rdr::Format::Depth;
+    dd.usage = uint8_t(rdr::kUsageTarget | rdr::kUsageSampled | (depth_scaled ? rdr::kUsageScaled : 0));
+    flash_depth_ = renderer_.CreateImage(dd);
+    flash_depth_w_ = sctx.width, flash_depth_h_ = sctx.height, flash_depth_scaled_ = depth_scaled;
+  }
+  if (flash_depth_ == rdr::kNoImage) {
+    flash_nodepth_ += frame.flashes.size();
+    if (!flash_nodepth_logged_) flash_nodepth_logged_ = true, rdr::Log("[scene][flashes] %zu flash sprite(s) not drawn: the scene depth's copy for the centre read could not be made", frame.flashes.size());
+    return 0;
+  }
+  {
+    rdr::CopyOp cp{};
+    cp.source.image = depth, cp.dest.image = flash_depth_;
+    cp.source_rect = {0, 0, sctx.width, sctx.height};
+    cp.dest_rect = cp.source_rect;
+    fb.Copy(cp);
+  }
+
   rdr::TargetsOp t;
   t.color[0].image = colour;
   t.color_count = 1;
-  fb.SetTargets(t);   // (no clear: the post output / the scene colour is loaded as it is)
+  t.depth.image = depth;   // S110 FLASHFRONT: loaded, tested, never written
+  fb.SetTargets(t);   // (no clear: the post output / the scene colour and the scene depth are loaded as they are)
 
   rdr::DrawState state{};
   state.program = flash_program_;
@@ -69,7 +98,8 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   state.topology = 3;
   state.cull = 0;       // two-sided: the sprite's winding is our matrix's
   state.front_face = 1;
-  state.depth_test = 0, state.depth_write = 0;
+  state.depth_test = g_plant_flash_no_ztest.load(std::memory_order_relaxed) ? 0 : 1, state.depth_write = 0;   // S110 FLASHFRONT: per pixel against the attached scene depth (the plant: CUTGREY's test-off)
+  state.depth_compare = 3;   // VK_COMPARE_OP_LESS_OR_EQUAL: our forward depth, as the scene's own draws
   state.blend[0].enable = 1;
   state.blend[0].src_color = 6;   // SRC_ALPHA
   state.blend[0].dst_color = 1;   // ONE
@@ -140,7 +170,7 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
       std::memcpy(vsb + 36, me.dif, 16);
       rdr::TextureSet set{};
       set.slots[0].image = me.map, set.slots[0].sampler = map_sampler, set.slots[0].kind = 0;
-      set.slots[3].image = depth, set.slots[3].sampler = depth_sampler, set.slots[3].kind = 0;
+      set.slots[3].image = flash_depth_, set.slots[3].sampler = depth_sampler, set.slots[3].kind = 0;   // S110 FLASHFRONT: the copy (the scene depth itself is this pass's attachment)
       rdr::DrawOp op{};
       op.state = fb.State(state);
       op.dynamic = fb.Dynamic(dynamic);

@@ -104,7 +104,7 @@ struct TestSeam {
   int direct_plant = 0;     // (RIG-ONLY, see below)     // S103 CHS C6 planted faults (the rig; each must FAIL): 1 = present `out` directly even when a row needs F (the HUD is lost), 2 = the direct present shows the stale F instead of `out` (no copy was made: the picture is lost), 3 = a shot reads F while it is stale, 4 = a fault always blacks a stale F (the rule before the review fix: out_ok_ ignored)
   bool rows_first = false;  // planted fault (H2 rig): the 2D rows are drawn BEFORE the copy of the 3D picture (the order twin: the copy covers them)
   bool rows_never = false;  // planted fault (H2 rig): no 2D step runs (the rows twin)
-  bool cam_ignore = false;     // planted fault (S105 A3 rig): the record's camera-gate bits are not read (the host draws the 3D on a frame the game draws no scene for); the A3 rig check must FAIL on it
+  bool noscene_ignore = false;   // planted fault (S110 ENTRBLACK rig): the record's scene-fact bits are not read (the host draws the 3D on a frame the game draws no geometry for); cam_gate_check.py must FAIL on it
   bool stage_plant = false;   // planted fault (S103 SVO rig): a stage-stamped record still draws its 2D rows (the stamp is ignored); the SVO check must FAIL on it
   bool overlay_never = false;  // planted fault (S103 AIM rig): the overlay mailbox is never emptied onto the renderer (the dialogs stay off the picture)
   // H2 rig: the planes of a movie row, instead of the P4 store (the rig has no guest memory to run the plane flush on). Null = the real path (movieplanes::Store + ServeGuest).

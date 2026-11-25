@@ -44,51 +44,25 @@
 #include "frame_stats.h"  // g_guest_frame
 
 
-REXCVAR_DEFINE_BOOL(wwe2k14_dlaa_jitter, false, "wwe2k14",
-                    "DLAA step 1: sub-pixel jitter of the scene draws (SDK gpu_dlaa_jitter). Session 18");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlaa, false, "wwe2k14",
-                    "DLAA step 3: NVIDIA DLSS in DLAA mode on the scene colour the post passes sample (jitter + depth "
-                    "+ camera motion vectors), through the user's own Streamline runtime (--wwe2k14_dlaa_dir). Session 18");
-REXCVAR_DEFINE_STRING(wwe2k14_dlaa_dir, "", "wwe2k14",
-                      "DLAA: folder with the Streamline runtime (sl.interposer.dll, sl.common.dll, sl.dlss.dll, "
-                      "nvngx_dlss.dll); empty = the exe's folder if sl.interposer.dll is there. Nothing is downloaded");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlaa_motion, false, "wwe2k14",
-                    "DLAA step 2: camera motion vectors from the scene depth (SDK gpu_dlaa_motion). Session 18");
-REXCVAR_DEFINE_STRING(wwe2k14_dlaa_debug, "", "wwe2k14",
-                      "DLAA debug view: mv = motion vectors as colour, depth = scene depth as grey (in the scene, "
-                      "under the HUD); empty = off");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_dlaa_near, 10.0, "wwe2k14",
-                      "DLAA: the camera's near plane (match camera: 10, render view +500; docs\\research\\"
-                      "dlss_feasibility.md)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_dlaa_far, 300000.0, "wwe2k14", "DLAA: the camera's far plane (match camera: 300000)");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlaa_game_near_far, false, "wwe2k14",
-                    "DLAA / DLSS (Session 24): the camera's near / far from the game's render view (+500 / +504) "
-                    "instead of --wwe2k14_dlaa_near / _far (those stay the fallback); on with --wwe2k14_dlss");
+REXCVAR_DECLARE(bool, wwe2k14_dlaa_jitter);
+REXCVAR_DECLARE(bool, wwe2k14_dlaa);
+REXCVAR_DECLARE(std::string, wwe2k14_dlaa_dir);
+REXCVAR_DECLARE(bool, wwe2k14_dlaa_motion);
+REXCVAR_DECLARE(std::string, wwe2k14_dlaa_debug);
+REXCVAR_DECLARE(double, wwe2k14_dlaa_near);
+REXCVAR_DECLARE(double, wwe2k14_dlaa_far);
+REXCVAR_DECLARE(bool, wwe2k14_dlaa_game_near_far);
 // Session 24: DLSS Super Resolution at the end of the frame (SDK gpu_dlss: the swap's picture goes through DLSS with
 // the scene depth, camera motion and jitter; the presenter, screenshots and clips get the output size).
-REXCVAR_DEFINE_BOOL(wwe2k14_dlss, false, "wwe2k14",
-                    "DLSS Super Resolution (Session 24): render at a lower scale, upscale with NVIDIA DLSS at the end of "
-                    "the frame (the user's own Streamline runtime, --wwe2k14_dlaa_dir); --wwe2k14_dlss_mode picks both");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlss_objmv, true, "wwe2k14",
-                    "DLSS / DLAA (Session 24 rung 2b): motion vectors for the wrestlers and referee (their positions "
-                    "this frame and last frame, captured with Vulkan transform feedback). Session 28: on by default "
-                    "and only used while DLAA or DLSS is on (the game looks worse without them); =false is a "
-                    "debugging switch (camera motion only)");
-REXCVAR_DEFINE_BOOL(wwe2k14_dlss_bias, false, "wwe2k14",
-                    "DLSS (Session 24 rung 2a): tell DLSS to trust this frame's colour on the wrestlers (their mask "
-                    "as its bias-current-colour hint; turns --wwe2k14_dlss_objmv's capture on for the mask)");
-REXCVAR_DEFINE_STRING(wwe2k14_dlss_mode, "performance", "wwe2k14",
-                      "DLSS mode: performance (720p -> 1440p), quality (1440p -> 4K), ultra_performance (720p -> 4K), "
-                      "balanced (720p -> 2207x1241), ultra_quality (1440p -> 3328x1872); sets resolution_scale (if left "
-                      "at default) and the jitter length");
+REXCVAR_DECLARE(bool, wwe2k14_dlss);
+REXCVAR_DECLARE(bool, wwe2k14_dlss_objmv);
+REXCVAR_DECLARE(bool, wwe2k14_dlss_bias);
+REXCVAR_DECLARE(std::string, wwe2k14_dlss_mode);
 
 // Session 33: AMD FSR 3 at the same spot as DLSS (same inputs: the picture without the HUD, depth, camera + wrestler
 // motion, jitter), on any graphics card (amd_fidelityfx_vk.dll next to the exe; no Streamline). Upscaling only.
-REXCVAR_DEFINE_BOOL(wwe2k14_fsr, false, "wwe2k14",
-                    "AMD FSR 3 upscaling (Session 33): like --wwe2k14_dlss but with AMD's FSR 3 on any graphics card "
-                    "(amd_fidelityfx_vk.dll next to the exe); --wwe2k14_fsr_mode picks the sizes. Wins over --wwe2k14_dlss");
-REXCVAR_DEFINE_STRING(wwe2k14_fsr_mode, "quality", "wwe2k14",
-                      "FSR mode: native (1440p, anti-aliasing only), quality (1440p -> 4K), performance (720p -> 1440p)");
+REXCVAR_DECLARE(bool, wwe2k14_fsr);
+REXCVAR_DECLARE(std::string, wwe2k14_fsr_mode);
 
 namespace wwe2k14::dlaa {
 

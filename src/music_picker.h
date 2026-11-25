@@ -61,14 +61,9 @@
 #include "music_picker_ui.h"  // lane 292: the launcher-style view, its dialog, texture uploader and pad feed
 #include "user_playlist.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_music_picker, true, "wwe2k14",
-                    "Lane 291: choosing USER PLAYLIST in the entrance MUSIC list opens a song picker over the mods folder's music "
-                    "library (<mods>\\music\\library\\) instead of the console's Dashboard hint. Needs --wwe2k14_mods and "
-                    "--wwe2k14_user_playlist. See src/music_picker.h");
+REXCVAR_DECLARE(bool, wwe2k14_music_picker);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_music_picker_trace, false, "wwe2k14",
-                    "Lane 291 diagnostics: dump the MUSIC row's select handler, its record and the music manager's USER PLAYLIST track (the "
-                    "wrestler KEY trace of docs/systems/music.md). Off by default: the hooks run for every player when the game asks.");
+REXCVAR_DECLARE(bool, wwe2k14_music_picker_trace);
 
 REX_EXTERN(__imp__sub_82268C10);
 REX_EXTERN(__imp__sub_83353F30);

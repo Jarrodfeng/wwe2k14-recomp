@@ -50,11 +50,7 @@
 #include "d3d_shader_bind.h"  // Plan / Commit: the shader bind read from the device (shared with F1)
 #include "frame_stats.h"    // g_guest_frame
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_inline, true, "wwe2k14",
-                    "Session 87 (D3D layer F3, experimental, active only with wwe2k14_d3d_layer): the library's inline-vertex draw pair "
-                    "(BeginVertices / EndVertices: HUD, sprites, particles, post-effect quads) becomes one record + token "
-                    "executed by the command processor; a draw with a flush block that is not a plain shadow read is counted "
-                    "and left to the original pair");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_inline);
 
 REX_EXTERN(sub_82CB70E0);
 

@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
   int fault_kind = 1;            // --fault-kind 1 (the failed draw recorded nothing into `out`) / 2 (it spoiled `out`)
   int direct_plant = 0;          // S103 CHS C6 (--direct-plant N)
   bool stage_stamp = false;      // S103 SVO (--stage-stamp): every posted record carries kSceneStagePlaying (what live_scene.cpp stamps on the guest thread while a stage push plays); --plant stage_ignore = the host ignores the stamp (the twin)
-  uint32_t cam_gate_bits = 0;    // S105 A3 (--cam-gate N): the record carries the camera-gate header bits N (what the latch stamps); --plant cam_gate_ignore = the host does not read them
+  uint32_t cam_gate_bits = 0;    // S110 ENTRBLACK (--cam-gate N): the record carries the scene-fact header bits N (what the latch stamps, cam_gate.h); --plant noscene_ignore = the host does not read them
   long long cut_frame = -1;
   float wide_k = 1.f, tall_t = 1.f;   // S105 A2 (--wide K / --tall T): the screen-shape factors; the host widens the scene and F during play (every posted message is an in-game one, Msg::fill_now)
   float a1_scale = 1.f;   // S105 A1 review F3 (--scale S): the renderer's render_scale through the real SceneHost (the stream-free host's live path: LiveSceneDraw sets the scaled targets from it); --a1-plant unscaled = the scene targets left unscaled (the bug)
@@ -314,7 +314,7 @@ int main(int argc, char** argv) {
     else if (a == "--present-direct") present_direct = std::atoi(next().c_str()) != 0;   // S103 CHS C6: the host's present_direct option (a frame with no 2D row presents `out` itself)
     else if (a == "--direct-plant") direct_plant = std::atoi(next().c_str());              // S103 CHS C6 planted faults (scene_host.h TestSeam::direct_plant)
     else if (a == "--stage-stamp") stage_stamp = true;   // S103 SVO
-    else if (a == "--cam-gate") cam_gate_bits = uint32_t(std::strtoul(next().c_str(), nullptr, 0));   // S105 A3: SceneHeader::flags bits (cam_gate.h) OR-ed into every posted record
+    else if (a == "--cam-gate") cam_gate_bits = uint32_t(std::strtoul(next().c_str(), nullptr, 0));   // S110 ENTRBLACK: SceneHeader::flags bits (cam_gate.h) OR-ed into every posted record
     else if (a == "--real") real = true;   // S103 PN4: the host's pictures from the REAL PictureResolver (forged guest memory, the player's file index) and its movie planes from the plane store (forged display sets), not the capture stand-ins
     else if (a == "--tween") tween = true;
     else if (a == "--wide") wide_k = std::strtof(next().c_str(), nullptr);   // S105 A2
@@ -570,7 +570,7 @@ int main(int argc, char** argv) {
   seam.rows_first = plant == "rows_first";
   seam.rows_never = plant == "rows_never";
   seam.stage_plant = plant == "stage_ignore";   // S103 SVO twin: a stamped record still draws its rows
-  seam.cam_ignore = plant == "cam_gate_ignore";   // S105 A3 twin: the host ignores the camera-gate bits
+  seam.noscene_ignore = plant == "noscene_ignore";   // S110 ENTRBLACK twin: the host ignores the scene-fact bits
   host_rig_2d::CapSource cap2d;
   const bool have_cap = !capture.empty();
   if (have_cap) {
@@ -685,7 +685,7 @@ int main(int argc, char** argv) {
     }
     if (cut_frame >= 0 && uint64_t(cut_frame) == n && rec->has_camera) rec->camera.cut = 1;   // --cut: a camera cut on this record
     if (stage_stamp) rec->header.flags |= rdr_scene::kSceneStagePlaying;   // S103 SVO: the guest thread's stamp (live_scene.cpp), set here on the record the host is posted
-    rec->header.flags = (rec->header.flags & ~rdr_scene::kCamGateMask) | (cam_gate_bits & rdr_scene::kCamGateMask);   // S105 A3: the latch's camera-gate facts, set here on the record the host is posted
+    rec->header.flags = (rec->header.flags & ~(rdr_scene::kSceneFactMask | 24u)) | (cam_gate_bits & (rdr_scene::kSceneFactMask | 24u));   // S110 ENTRBLACK: the latch's scene fact (and, for cam_gate_check's arm X, the retired bits 3 / 4), set on the record the host is posted
     if (reintern && pass == 1) {   // review F1: same object names, other string-blob offsets (the pooled live record's offsets move between ticks): each id gets its own fresh copy of its text, appended in reverse order
       rec->strings.append(size_t(n * 7919u % 251u) + 1u, 'x'), rec->strings.push_back('\0');   // a decoy of a tick-dependent length first: two ticks never land on the same offsets by chance
       for (size_t oi = rec->objects.size(); oi-- > 0;) {

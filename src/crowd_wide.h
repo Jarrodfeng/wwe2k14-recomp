@@ -25,10 +25,7 @@
 
 #include "crowd_wide_core.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_crowd_fill_wide, "auto", "wwe2k14",
-                      "Session 101 lane 176: the stands crowd's screen test follows the displayed aspect. auto (default) = widened when the display "
-                      "is wider / taller than 16:9 (gpu_wide_factor / gpu_tall_factor from --wwe2k14_aspect), the game's own 16:9 test otherwise; "
-                      "off = always the game's own; k=<wide>,t=<tall> = explicit factors (what a recording carries). See src/crowd_wide.h");
+REXCVAR_DECLARE(std::string, wwe2k14_crowd_fill_wide);
 
 namespace wwe2k14::crowd_wide {
 

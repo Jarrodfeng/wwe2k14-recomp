@@ -436,7 +436,11 @@ bool BuildFrame(const SceneTables& t, ModelCache& models, uint32_t families, uin
   ctx.fam_ptr = &fam;
   bool ok = true;
   for (const ClassEntry& e : Classes())
-    if (!e.apply(ctx)) { error = std::string("class ") + e.name + " could not build the frame"; ok = false; break; }
+    if (!e.apply(ctx)) {
+      if (ok) error = std::string("class ") + e.name + " could not build the frame";
+      ok = false;
+      if (!warm) break;   // S110 ENTRBLACK round 5: a warm build (ask only) asks EVERY class's assets in the same build, so the props / wrestlers / crowd are not asked only after the arena arrives
+    }
   models.EndRecord();
   if (!ok) return false;
   for (size_t f = 0; f < size_t(Family::Count); ++f) {

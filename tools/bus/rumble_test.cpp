@@ -2,8 +2,10 @@
 // Built and run by tools/bus/rumble_selftest.py (clang++ -std=c++17 -I src -DHDR=\"...\" tools/bus/rumble_test.cpp). No game, no SDK.
 //   rumble_test SCENARIO   prints one line a bus event: {"f": F, "kind": K, <fields>}
 // scenarios: rumble (type 23, G+80=38, G+81=2, counter 0 -> 1 -> 3, [0x835E1928] 0 -> 1, a clock that flaps), type0 (the same words, type 0),
-//            cap (an entrant never built), resync (a counter that jumps > 40, one that drops), move / moveall (Brock's finisher, a stale
-//            recycled character, a repeat with no clear in between), twinorder (the last slot's character has the LOWER participant index)
+//            cap (an entrant never built), resync (a counter that jumps > 40, one that drops), move / moveall (S110 BUSMOVE fix 2: move-log
+//            calls and motion-start latches: a normal move and its continuation, the grapple-start offer loop and the real pick after it, an
+//            offer latched by the next motion, run 002's Yes Lock logged twice before its one latch, the same finisher again after a motion
+//            of nothing, a new character, a non-ring slot), twinorder (the last slot's character has the LOWER participant index)
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -43,28 +45,56 @@ int main(int argc, char** argv) {
   if (sc.rfind("move", 0) == 0) {
     MoveState ms;
     const bool all = sc == "moveall";
-    auto tick = [&](uint64_t f) { MoveTick(ms, m, all, [&](const std::string& s) { Line(f, "move", s); }); };
-    const uint32_t a = 0x50000000u, b = 0x50100000u;
+    // one call of the move log sub_825A14A8 (slot, waza, move) as the game makes it: the pending log char+2486 / +2488 written;
+    // offer = made inside the grapple-start offer loop sub_826BB6F0
+    auto log = [&](uint32_t slot, uint32_t waza, uint32_t mv, bool offer) {
+      const uint32_t c = m.r32(kSlotsTable + 4 * slot);
+      m.w16(c + 2486, uint16_t(waza));
+      m.w16(c + 2488, uint16_t(mv));
+      MoveLog(ms, m, slot, offer);
+    };
+    // one motion start sub_823CA4B0 on character c ([c+24] == 4): the log latched into +2492 / +2494 and cleared, then the rule
+    auto latch = [&](uint64_t f, uint32_t c) {
+      m.w16(c + kMoveNowWaza, m.r16(c + 2486));
+      m.w16(c + kMoveNowMove, m.r16(c + 2488));
+      m.w16(c + 2486, 0xFFFF);
+      m.w16(c + 2488, 0);
+      MoveLatch(ms, m, c, all, [&](const std::string& s) { Line(f, "move", s); });
+    };
+    const uint32_t a = 0x50000000u, b = 0x50100000u, c6 = 0x50200000u;
     m.Char(0, a, 0, 343);  // Brock Lesnar
-    m.w16(a + 2486, 0xFFFF);
-    tick(9);  // first sight: remembered, nothing emitted
-    m.w16(a + 2486, 3);
-    m.w16(a + 2488, 100);  // a normal move
-    tick(10);
-    m.w16(a + 2486, 17);
-    m.w16(a + 2488, 50413);  // a finisher
-    tick(11);
-    tick(12);  // unchanged: nothing
-    m.w16(a + 2486, 17);
-    m.w16(a + 2488, 50413);  // written again with no clear the poll could see (the logger clears and rewrites in one call): LIMIT, nothing
-    tick(13);
-    m.Char(0, b, 0, 343);  // the slot's character is replaced by a recycled one holding a STALE finisher
-    m.w16(b + 2486, 18);
-    m.w16(b + 2488, 777);
-    tick(14);  // first sight of the new pointer: remembered, no line
-    m.w16(b + 2486, 17);
-    m.w16(b + 2488, 50413);  // its own finisher, equal to the OLD character's last key: a line only if the key was reseeded on the pointer change
-    tick(15);
+    m.w16(a + 2486, 0xFFFF);  // nothing logged
+    log(0, 3, 100, false);  // a normal move, its motion: a line only with all
+    latch(10, a);
+    log(0, 3, 999, false);  // a re-log of the move it is in (r4 = [char+2492], r5 the act now playing), its next motion: nothing
+    latch(11, a);
+    latch(12, a);  // a motion of no logged move
+    log(0, 72, 7000, false);  // the grapple (sub_826BB818 +1B4 logs 72), its motion: a line only with all
+    latch(20, a);
+    log(0, 14, 700, true);  // the offer loop right after it: slots 14..18 in one pass, slot 18 last
+    log(0, 17, 50413, true);
+    log(0, 18, 42060, true);
+    log(0, 18, 42060, false);  // the real pick of slot 18, the same key the offer left, then its motion: a finisher line (f31)
+    latch(31, a);
+    log(0, 18, 42061, false);  // re-logged while in it, the next motion: nothing
+    latch(32, a);
+    log(0, 18, 42060, true);  // an offer left pending and latched by the next motion (no pick between): nothing
+    latch(36, a);
+    log(0, 18, 42060, false);  // the real pick of the same key after that: a line (f38)
+    latch(38, a);
+    latch(39, a);  // a motion of nothing
+    log(0, 17, 58010, false);  // run 002 f13927: the chooser's pick of the Yes Lock (sub_826056E0 +7F0)
+    log(0, 17, 58010, false);  // run 002 f13937: its executor logs the same record again (sub_82602DE0 +1994) ...
+    latch(13937, a);           // ... then the hold's motion starts: ONE line
+    latch(13940, a);  // a motion of nothing
+    log(0, 17, 58010, false);  // the same finisher again: a second line
+    latch(40000, a);
+    m.Char(0, b, 0, 343);  // the slot's character replaced by a recycled object
+    log(0, 17, 58010, false);  // its first play, the same waza as the other character's last: a line
+    latch(50000, b);
+    m.Char(6, c6, 1, 77);  // a character in slot 6 (not a ring slot)
+    log(6, 17, 50413, false);
+    latch(60000, c6);  // nothing
     return 0;
   }
   m.w8(kG, sc == "type0" ? 0 : 23);

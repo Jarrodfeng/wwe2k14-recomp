@@ -1,5 +1,5 @@
 # Package the Android APK (ANDROID_PLAN.md step 4.3): our Java + SDL's Java (javac -> d8), the manifest (aapt2), the
-# native libraries (stripped of debug info), zipalign, apksigner with the debug key. No Gradle. Holds the run lock.
+# native libraries (stripped of debug info), zipalign, apksigner with the debug key. No Gradle. Holds folder locks, not the run lock (S110 BUILDLOCK).
 #   pwsh -File tools\android\build_apk.ps1              -> out\android\apk\wwe2k14-android-dev.apk
 #   pwsh -File tools\android\build_apk.ps1 -Install     ... then adb install -r on the connected phone
 # Inputs: out\android\sdk-install-arm64\lib (build_sdk_android.ps1), out\android\game-arm64\libmain.so
@@ -24,24 +24,9 @@ if ($Release -and -not $Stream) { $StreamFree = [switch]$true }
 # versionName + '-streamfree' (dev only: with -Release the stream-free APK keeps the plain name and versionName) (same package and key: it installs over the stream APK and keeps the saves).
 . "$PSScriptRoot\env.ps1"
 $ErrorActionPreference = 'Stop'
-if ($Release) {
-    $NoDebuggable = [switch]$true
-    $pins = (Get-Content "$PSScriptRoot\..\sdk_pins.json" -Raw | ConvertFrom-Json).pins
-    $pinCommit = $pins[-1].sdk_commit
-    $stampFile = "$($AndroidDirs.SdkInstall)\sdk_commit.txt"
-    if (-not (Test-Path $stampFile)) {
-        "build_apk.ps1 -Release: no $stampFile (the Android SDK install predates the stamp). Rebuild: pwsh -File tools\android\build_sdk_android.ps1 -Run NAME [-AllowBranch wwe2k14-local]; the PC pin is $($pins[-1].id) = $pinCommit"; exit 2
-    }
-    $stamp = @{}; Get-Content $stampFile | ForEach-Object { if ($_ -match '^(\w+)=(.*)$') { $stamp[$Matches[1]] = $Matches[2] } }
-    if ($stamp['commit'] -ne $pinCommit) {
-        "build_apk.ps1 -Release: the Android SDK install was built from $($stamp['commit']), the PC pin $($pins[-1].id) is $pinCommit. Rebuild the Android SDK from the pinned commit (build_sdk_android.ps1) and the game library (build_all.ps1)."; exit 2
-    }
-    if ([int]$stamp['dirty_tracked_files'] -ne 0) {
-        "build_apk.ps1 -Release: the Android SDK install was built with $($stamp['dirty_tracked_files']) uncommitted tracked edits in the SDK checkout; rebuild from a clean tree."; exit 2
-    }
-    "release pin check: Android SDK install = $pinCommit (pin $($pins[-1].id)), clean"
-}
-. "$ProjectRoot\tools\runlock.ps1"
+# S110 BUILDLOCK (docs\research\s110\BUILDLOCK.md): no run-lock hold (no PC game run loads anything under out\android): folder locks + the compile queue, below.
+. "$ProjectRoot\tools\harness\folderlock.ps1"
+. "$ProjectRoot\tools\admit\Admit.ps1"
 
 # Session 98 (phone port stage C): in a git worktree (.claude\worktrees\<name>: no thirdparty folder, no SDK / game build) the inputs
 # other than this worktree's own launcher + viewer come from the main checkout (its thirdparty and out\android).
@@ -78,6 +63,33 @@ $libs = [ordered]@{
     # Session 72 (Android drivers, src\android_driver.h): libadrenotools' hook libraries, built with the game.
     'libhook_impl.so'    = (In "$gameDir\adrenotools\src\hook\libhook_impl.so")
     'libmain_hook.so'    = (In "$gameDir\adrenotools\src\hook\libmain_hook.so")
+}
+# S110 BUILDLOCK: READ locks on the three folders packed here (the SDK install, this APK's game library folder, the launcher folder: their builds take the
+# WRITER lock, so none is rebuilt mid-pack; a worktree packs the main checkout's folders, as In() picked them) and the WRITER lock on apk-obj (deleted and
+# refilled below; two APK builds share it). Taken BEFORE the checks below (BUILDLOCK review): all or nothing means this script holds nothing while it waits on
+# any one folder, so a stamp or cache read before the lock could be stale by the time it packs. Two compile slots from the compile queue, so an -Alone
+# run's pause holds this back too. v0.4.3 night: it waited 159.7 s on a timed run for a 14.8 s pack.
+function InDir([string]$dir, [string]$file) { if ($file.StartsWith("$AndroidOut\", [StringComparison]::OrdinalIgnoreCase)) { $dir } else { $dir.Replace($AndroidOut, "$deps\out\android") } }
+$readDirs = @((InDir $AndroidDirs.SdkInstall $libs['librexruntime.so']), (InDir $gameDir $libs['libmain.so']), "$AndroidOut\launcher-arm64")
+try { $lock = Enter-FolderLocks -Read $readDirs -Write @($obj) -Name 'build_apk.ps1' }
+catch { "build_apk.ps1: REFUSED, nothing packed: $($_.Exception.Message)"; exit 6 }
+try {
+if ($Release) {
+    $NoDebuggable = [switch]$true
+    $pins = (Get-Content "$PSScriptRoot\..\sdk_pins.json" -Raw | ConvertFrom-Json).pins
+    $pinCommit = $pins[-1].sdk_commit
+    $stampFile = "$($AndroidDirs.SdkInstall)\sdk_commit.txt"
+    if (-not (Test-Path $stampFile)) {
+        "build_apk.ps1 -Release: no $stampFile (the Android SDK install predates the stamp). Rebuild: pwsh -File tools\android\build_sdk_android.ps1 -Run NAME [-AllowBranch wwe2k14-local]; the PC pin is $($pins[-1].id) = $pinCommit"; exit 2
+    }
+    $stamp = @{}; Get-Content $stampFile | ForEach-Object { if ($_ -match '^(\w+)=(.*)$') { $stamp[$Matches[1]] = $Matches[2] } }
+    if ($stamp['commit'] -ne $pinCommit) {
+        "build_apk.ps1 -Release: the Android SDK install was built from $($stamp['commit']), the PC pin $($pins[-1].id) is $pinCommit. Rebuild the Android SDK from the pinned commit (build_sdk_android.ps1) and the game library (build_all.ps1)."; exit 2
+    }
+    if ([int]$stamp['dirty_tracked_files'] -ne 0) {
+        "build_apk.ps1 -Release: the Android SDK install was built with $($stamp['dirty_tracked_files']) uncommitted tracked edits in the SDK checkout; rebuild from a clean tree."; exit 2
+    }
+    "release pin check: Android SDK install = $pinCommit (pin $($pins[-1].id)), clean"
 }
 foreach ($k in $libs.Keys) { if (-not (Test-Path $libs[$k])) { "build_apk.ps1: missing $k ($($libs[$k]))"; exit 2 } }
 # S105 A1b: the launcher in this APK must be the one built for the same game library (src\stream_free_target.h): a stream-free game with a stream launcher
@@ -120,8 +132,8 @@ function Run([string]$What, [scriptblock]$Cmd) {
     if ($LASTEXITCODE -ne 0) { "build_apk.ps1: $What failed (exit $LASTEXITCODE)"; $out | Select-Object -Last 30; exit 1 }
 }
 
-$lock = Enter-RunLock -Name "build_apk.ps1"
-try {
+try { $null = Request-BuildParallel -Want 2 -Kind cc.tool }
+catch { "build_apk.ps1: NOT PACKED: $($_.Exception.Message)"; exit 75 }   # (the finally below gives the folder locks back)
 $t0 = Get-Date
 if (Test-Path $obj) { Remove-Item $obj -Recurse -Force }
 foreach ($d in 'classes', 'dex', 'zip\lib\arm64-v8a', 'assets', 'res') { [void](New-Item -ItemType Directory -Force "$obj\$d") }
@@ -210,7 +222,7 @@ if ($LASTEXITCODE -ne 0) {
     "build_apk.ps1: the APK check failed (exit $LASTEXITCODE)"; exit 1
 }
 "apk: {0:N1} MB  {1}  ({2} s)" -f ((Get-Item $apk).Length / 1MB), $apk, [int]((Get-Date) - $t0).TotalSeconds
-} finally { Exit-RunLock $lock }
+} finally { Release-BuildParallel; Exit-FolderLocks $lock }
 
 if ($Install) {
     "installing on the phone (confirm on the phone if ColorOS asks)..."

@@ -39,16 +39,8 @@
 #endif
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_display_720p, false, "wwe2k14",
-                    "Session 95: in fullscreen, switch the display to wwe2k14_display_720p_mode while the game has focus "
-                    "(a temporary mode: restored on close, alt-tab and crash), so the final paint is a 1:1 copy with no "
-                    "scale to the panel's native size. For integrated graphics. Windows only; default off");
-REXCVAR_DEFINE_STRING(wwe2k14_display_720p_mode, "1280x720", "wwe2k14",
-                      "Session 95: the WIDTHxHEIGHT wwe2k14_display_720p switches to (it must be a mode the display "
-                      "lists; the log names the list and the nearest panel-aspect mode when it is missing). S102 G2c: auto:N = "
-                      "the listed mode with the panel's aspect (square pixels), at the current refresh, whose height is the "
-                      "smallest at or above N and below the panel's own (e.g. auto:912 on a 2736x1824 panel: 1368x912), so the "
-                      "panel's own scaler does the upscale; none listed = no change, one log line");
+REXCVAR_DECLARE(bool, wwe2k14_display_720p);
+REXCVAR_DECLARE(std::string, wwe2k14_display_720p_mode);
 
 namespace wwe2k14::display_mode {
 

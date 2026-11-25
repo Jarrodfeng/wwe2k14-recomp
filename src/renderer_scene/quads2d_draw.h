@@ -39,7 +39,8 @@ struct Context {
   uint32_t target_w = 0, target_h = 0;
   // S103 SCS: the rows are drawn INSIDE the scene pass (the in-scene flashes / lens flares, RFF part B), onto a colour target that has our scene depth attached. Each row then takes the game's own depth state
   // (row.state: z enable 16 -> depth test, z write 32 -> depth write; the compare is our forward LEQUAL, the game's GEQUAL on its reversed depth), and a depth-tested row's clip z is flipped to our forward depth (a z-written row with the test off writes no depth on Vulkan: S105 A4B review F1; CAF's black rect works because it is drawn early, before the 3D)
-  // (z' = w - z: the game's depth is the mirror 1 - z of ours, pass_state.h; the lens flare's z is the game's own projected depth, sub_827D5E98 +10C..+1A8 [L: the exact near / far equality is unconfirmed]).
+  // (S110 STARFRONT: the row's clip z is used as it is. The game's depth is the mirror 1 - z of ours, but the mirror is made by the game's VIEWPORT (min depth 1, max 0), not by the row's z: the lens element's
+  // z 0.996 is far in both. The S103 flip z' = w - z put it at the near plane; docs\research\s110\STARFRONT.md).
   // Off (the default): the final-image F has no depth, every row's depth test stays off (as before).
   bool scene_depth = false;
   // The plane `slot` (0..3) of a movie row as a texture slot (image, view format, swizzle); the sampler is the drawer's. image == kNoImage: the row is refused as Refuse::Planes.

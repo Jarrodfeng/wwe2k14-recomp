@@ -53,6 +53,7 @@
 #include "../tron_slots_ui_core.h"  // S110 TRON-B: the custom-tron screens' decisions
 #include "tab_strip.h"
 #include "bench_button.h"  // S102 U4: the benchmark button's numbers and results writer
+#include "stars_start.h"   // S110 HELPERSTART: the superstars pack before every start that loads the save
 
 #include <d3d11.h>
 #include <d3d11_4.h>  // ID3D11Multithread
@@ -2484,8 +2485,8 @@ class App {
     return settings_path == SettingsPath() ? "" : "--wwe2k14_settings_file=" + Quote(PathStr(settings_path));
   }
   // A helper run of the game (Build previews, a logo import): where the game files and the save are, as GameFlags
-  // gives them to PLAY GAME, the DLC packs (Session 57, tester bug 2: the save may need them) and this launcher's
-  // settings file; each ends with a space.
+  // gives them to PLAY GAME, the DLC packs (Session 57, tester bug 2: the save may need them; S110 LOGOIMPORT: with the
+  // imported superstars' pack, through DlcFlags) and this launcher's settings file; each ends with a space.
   std::string HelperPathFlags() const {
     std::string a;
     if (!s.game_data_dir.empty()) a += "--game_data_root=" + Quote(s.game_data_dir) + " ";
@@ -2515,11 +2516,9 @@ class App {
       Status("Your songs are being converted: the game starts when that is done");
       return;
     }
-    if (stars_job_) {  // Session 101: the superstars pack is being built for this start
-      Status("Your superstars are being built into the game: the game starts when that is done");
-      return;
-    }
-    if (StarsBeforeStart(cmd, ok_msg)) return;  // Session 101 (lane 199): the imported superstars' pack is brought up to date first
+    // Session 101 (lane 199): the imported superstars' pack is brought up to date first (S110 HELPERSTART: the step every start that loads
+    // the save takes; a build already running makes this start wait, as before)
+    if (StarsBeforeStart(cmd, ok_msg)) return;
     // Session 70: the precompile first, when this build / card / driver / pipeline settings have not had one.
     if (cmd.exe == paths_.game_exe.wstring() && s.precompile && !s.harness && perf_step_ < 0 && bench_step_ < 0 /* S102 U4 */ && !check_running_ && !diag_running_ &&
         !importing_ &&
@@ -2724,22 +2723,37 @@ class App {
   Command stars_next_;
   std::string stars_next_msg_, stars_ok_for_, stars_why_, stars_fail_;
   bool want_stars_popup_ = false, stars_in_start_ = false;
+  stars_start::Then stars_then_ = stars_start::Then::kPlay;  // S110 HELPERSTART: the start the build is for (StartAfterStars asks it again)
   std::string StarsDlcDir() const { return s.dlc ? PathStr(paths_.dlc) : std::string(); }  // (DlcFlags' rule: off = no folder)
-  // true = this start waits (a build runs, then StartGame again); false = start now.
-  bool StarsBeforeStart(const Command& cmd, const std::string& ok_msg) {
-    if (cmd.exe != paths_.game_exe.wstring() || cmd.display.find("--wwe2k14_mods_superstars=true") == std::string::npos) return false;
-    if (cmd.display == stars_ok_for_) return false;  // (built for this start)
+  // true = this start waits (a build runs, then the same start again: StartAfterStars; or a build already runs: said); false = start now.
+  // S110 HELPERSTART: PLAY and the logo import both come here (`then` = which one), just before their process starts, so every start that
+  // loads the save gets the superstars pack in a state the game takes in (the decision: src\launcher\stars_start.h, its unit
+  // tools\launcher\s110_tests\run_stars_start.py). Build previews does not (review F-3: the tron export never reaches the save, stars_start.h).
+  bool StarsBeforeStart(const Command& cmd, const std::string& ok_msg, stars_start::Then then = stars_start::Then::kPlay) {
+    stars_start::Ask a;
+    a.build_running = stars_job_ != nullptr;
+    a.game_exe = cmd.exe == paths_.game_exe.wstring();
+    a.stars_flag = stars_start::HasStarsFlag(cmd.display);
+    a.built_for_this = cmd.display == stars_ok_for_;  // (built for this start)
     // (review S2) the precompile's exclusions: a test run (harness, performance test, determinism check, diagnostic run, logo
     // import) never waits on a build - it would abort the test and start an orphan game run later
-    if (s.harness || perf_step_ >= 0 || bench_step_ >= 0 /* S102 U4 */ || check_running_ || diag_running_ || importing_) return false;
+    a.test_run = s.harness || perf_step_ >= 0 || bench_step_ >= 0 /* S102 U4 */ || check_running_ || diag_running_ || importing_;
     const std::string mods = PathStr(paths_.mods);
-    const importer::PlayCheck c = importer::CheckBeforePlay(mods, StarsDlcDir(), s.dlc_off);
-    if (!c.build) return false;
+    importer::PlayCheck c;
     importer::PackState st;
-    std::string err;
-    if (!importer::LoadPack(mods, st, err)) return false;
+    const stars_start::Step step = stars_start::Decide(a, [&] {
+      c = importer::CheckBeforePlay(mods, StarsDlcDir(), s.dlc_off);
+      std::string err;
+      return c.build && importer::LoadPack(mods, st, err);
+    });
+    if (step == stars_start::Step::kWait) {
+      if (then == stars_start::Then::kLogoImport) logo_result_ = stars_start::WaitText(then);
+      Status(stars_start::WaitText(then));
+      return true;
+    }
+    if (step == stars_start::Step::kStart) return false;
     Log("superstars: " + c.why + " Building the pack before the game starts (" + std::to_string(st.stars.size()) + " superstar(s))");
-    stars_next_ = cmd, stars_next_msg_ = ok_msg, stars_why_ = c.why, stars_fail_.clear();
+    stars_next_ = cmd, stars_next_msg_ = ok_msg, stars_why_ = c.why, stars_fail_.clear(), stars_then_ = then;
     auto j = stars_job_ = std::make_shared<StarsJob>();
     const std::string game = s.game_data_dir.empty() ? PathStr(paths_.game_data) : s.game_data_dir, dlc = StarsDlcDir(), off = s.dlc_off;
     std::thread([j, st, mods, game, dlc, off] { wwe2k14::NameThread(L"lnch_import");
@@ -2781,6 +2795,8 @@ class App {
     if (!ok) {
       stars_fail_ = err.empty() ? std::string("the build stopped") : err;
       Log("superstars: the build failed: " + stars_fail_);
+      if (stars_then_ == stars_start::Then::kLogoImport)  // S110 HELPERSTART: said on the logo page too (nothing was backed up or written)
+        logo_result_ = "Your superstars could not be built into the game: " + stars_fail_ + ". " + stars_start::FailText(stars_then_);
       want_stars_popup_ = true;
       return;
     }
@@ -2809,6 +2825,14 @@ class App {
     return c;
   }
   void StartAfterStars() {
+    // S110 HELPERSTART: the logo import is asked again from its start (the same command: stars_ok_for_ lets the step through). Its re-ask
+    // starts or stops at once (no precompile after it, unlike PLAY's), so the memo ends with it (review): a re-ask that stopped before its
+    // start (the game opened meanwhile, the backup failed) must not let a later start of the same command past the check.
+    if (stars_then_ == stars_start::Then::kLogoImport) {
+      StartLogoImport();
+      stars_ok_for_.clear();
+      return;
+    }
     StartGame(stars_next_, stars_next_msg_);
     if (direct_after_precompile_ && game_proc_) {  // a direct / quick start: hidden with the game, as after the precompile
       direct_after_precompile_ = false;
@@ -2821,7 +2845,8 @@ class App {
     if (want_stars_popup_) ImGui::OpenPopup("stars"), want_stars_popup_ = false;
     if (!BeginGameModal("stars", "YOUR SUPERSTARS", 640 * Dpi())) return;
     if (stars_job_) {
-      ImGui::TextWrapped("%s Building your superstars into the game from your own files before it starts...", stars_why_.c_str());
+      ImGui::TextWrapped("%s Building your superstars into the game from your own files %s...", stars_why_.c_str(),
+                         stars_start::BeforeText(stars_then_));
       ImGui::Dummy(ImVec2(0, 8 * Dpi()));
       std::string ph;
       {
@@ -2832,9 +2857,14 @@ class App {
       ImGui::Dummy(ImVec2(0, 12 * Dpi()));
     } else if (!stars_fail_.empty()) {
       ImGui::TextWrapped("Your superstars could not be built into the game: %s.", stars_fail_.c_str());
-      ImGui::TextWrapped("Open the Superstar Importer (MODS > SUPERSTARS) to fix it, or play without them this time.");
+      ImGui::TextWrapped("%s", stars_start::FailText(stars_then_));
       ImGui::Dummy(ImVec2(0, 12 * Dpi()));
-      if (ModalMainButton("PLAY WITHOUT THEM")) {
+      if (!stars_start::OffersWithout(stars_then_)) {  // S110 HELPERSTART: a helper run without the pack meets the save's notice: no start
+        if (ModalMainButton("OK")) {
+          stars_fail_.clear();
+          ImGui::CloseCurrentPopup();
+        }
+      } else if (ModalMainButton("PLAY WITHOUT THEM")) {
         stars_fail_.clear();
         stars_next_ = WithoutStars(stars_next_);  // (review S1: the old pack must not load either)
         ImGui::CloseCurrentPopup();
@@ -5457,18 +5487,12 @@ class App {
                      "open CREATIONS -> LOGO in the game once.";
       return;
     }
-    if (std::string e = MakeBackup(logo_.title_dir, "before logo import"); !e.empty()) {
-      logo_result_ = "Not imported: the backup failed (" + e + ").";
-      return;
-    }
-    logo_before_ = logo_;
-    std::error_code ec;
-    fs::create_directories(LocalDataDir(), ec);
+    // S110 HELPERSTART: the command first (it names the script and the result file, written below), then the imported superstars' pack
+    // brought up to date for it as PLAY does (StarsBeforeStart: a build runs first and this import is asked again when it is done). Nothing
+    // is backed up or written before that.
     const fs::path script = LocalDataDir() / "logo_import_script.txt";
-    std::ofstream(script, std::ios::trunc) << LogoImportScript(logo_jobs_, s.logo_legacy_route, fs::exists(logo_.file, ec));
     // Session 27: the script writes where it ended (ok / failed + the stage) here; read in FinishLogoImport.
     logo_result_file_ = LocalDataDir() / "logo_import_result.txt";
-    fs::remove(logo_result_file_, ec);
     Command c;
     c.exe = paths_.game_exe.wstring(), c.workdir = paths_.launcher_dir.wstring();
     std::string a = HelperPathFlags();
@@ -5476,12 +5500,22 @@ class App {
     a += " --wwe2k14_use_launcher_settings=false";  // a helper run keeps the default look, whatever the Play settings are
     a += " --wwe2k14_input_result=" + Quote(PathStr(logo_result_file_));
     c.args = Widen(a), c.display = Quote(PathStr(paths_.game_exe)) + " " + a;
+    if (StarsBeforeStart(c, std::string(), stars_start::Then::kLogoImport)) return;
+    if (std::string e = MakeBackup(logo_.title_dir, "before logo import"); !e.empty()) {
+      logo_result_ = "Not imported: the backup failed (" + e + ").";
+      return;
+    }
+    logo_before_ = logo_;
+    std::error_code ec;
+    fs::create_directories(LocalDataDir(), ec);
+    std::ofstream(script, std::ios::trunc) << LogoImportScript(logo_jobs_, s.logo_legacy_route, fs::exists(logo_.file, ec));
+    fs::remove(logo_result_file_, ec);
     HANDLE h = nullptr;
     if (std::string e = StartProcess(c, &h); !e.empty()) {
       logo_result_ = "Could not start the game: " + e;
       return;
     }
-    game_proc_ = h, last_cmd_ = c, importing_ = true;
+    game_proc_ = h, last_cmd_ = c, importing_ = true, stars_ok_for_.clear();  // (the memo is for one start, as StartGame clears it)
     logo_result_.clear();
     Log("logo import: " + std::to_string(logo_jobs_.size()) + " job(s), " + c.display);
     backups_ = ListBackups(logo_.title_dir);
@@ -5501,10 +5535,11 @@ class App {
       logo_result_ += "The import stopped at an unexpected screen (" + stage +
                       "); the game closed without saving there. Nothing else was changed.\n";
       // Session 57 (tester bug 2): before the main menu, the likely screen is the game's notice that the save needs
-      // DLC packs it does not see (a pack switched off, or the DLC folder moved).
+      // DLC packs it does not see (a pack switched off, or the DLC folder moved). S110 LOGOIMPORT review: the imported
+      // superstars' pack is one of them (USE MY SUPERSTARS); S110 HELPERSTART: the import brings it up to date itself.
       if (stage == "start" || stage == "waiting for the main menu")
-        logo_result_ += "If the game said your save needs downloadable content: turn on its DLC packs in Settings -> "
-                        "GAME (USE MY DLC and every pack the save was made with), then import again.\n";
+        logo_result_ += "If the game said your save needs downloadable content: turn on in Settings -> GAME everything the "
+                        "save was made with (USE MY DLC and its packs, USE MY SUPERSTARS), then import again.\n";
     } else if (line.empty() && r.failed) {
       logo_result_ += "The game closed before the import finished.\n";
     }

@@ -94,10 +94,7 @@
 #include <mutex>
 #include <string>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_force_no_msaa, false, "wwe2k14",
-                    "Build the 3D scene without MSAA: 1 tile instead of 4 predicated-tiling strips (less GPU command "
-                    "processor work; loses the game's 4x MSAA). Applies at the next scene-target rebuild (main scene: "
-                    "next frame)");
+REXCVAR_DECLARE(bool, wwe2k14_force_no_msaa);
 
 namespace wwe2k14::tiling {
 

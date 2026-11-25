@@ -30,9 +30,7 @@
 #include "frame_stats.h"
 #include "wm30_fire_watch.h"  // S101 lane 108: the `!wm30 fire` proof lines ride on these two hooks
 
-REXCVAR_DEFINE_BOOL(wwe2k14_flow_probe, false, "wwe2k14",
-                    "Log the in-game flow's state changes (sub_827A9AE0) and the entrance states' next-state choice "
-                    "(sub_827BDA68) with its inputs (Session 14, Rumble diagnosis; log only). See src/flow_probe.h");
+REXCVAR_DECLARE(bool, wwe2k14_flow_probe);
 
 REX_EXTERN(__imp__sub_827A9AE0);
 REX_EXTERN(__imp__sub_827BDA68);
@@ -91,9 +89,7 @@ REX_HOOK_RAW(sub_827BDA68) {
 // Session 14 (S1, entrance-transition stall): name the HavokBackThread's host thread so the sampling profiler can
 // sample it (--wwe2k14_profile_threads=...,HavokBackThread). Its guest entry is sub_82506A50 (thread table name word
 // 0x82001990 = 'HavokBackThread', Session 8; host stack of guest thread 27 in flight_1053.txt dump #3). Default off.
-REXCVAR_DEFINE_BOOL(wwe2k14_name_havok_back, false, "wwe2k14",
-                    "Debug (Session 14): set the host thread description of the game's HavokBackThread (guest entry "
-                    "sub_82506A50) to 'HavokBackThread' so --wwe2k14_profile_threads can sample it");
+REXCVAR_DECLARE(bool, wwe2k14_name_havok_back);
 REX_EXTERN(__imp__sub_82506A50);
 REX_HOOK_RAW(sub_82506A50) {
 #ifdef _WIN32
@@ -111,9 +107,8 @@ REX_HOOK_RAW(sub_82506A50) {
 // load and entrances). Logs each call that takes >= wwe2k14_havok_probe_min_us (and the first 8 of each): frame,
 // duration, r3 / r4, r3's first word (vtable), the slot word r3+1092 (sub_82647C00 indexes tables with it), caller.
 // Default off, log only.
-REXCVAR_DEFINE_BOOL(wwe2k14_havok_probe, false, "wwe2k14",
-                    "Debug (Session 15 S1): log slow calls of sub_82647C00 / sub_826455D0 (HavokBackThread setup)");
-REXCVAR_DEFINE_INT32(wwe2k14_havok_probe_min_us, 1000, "wwe2k14", "wwe2k14_havok_probe: shortest call logged (us)");
+REXCVAR_DECLARE(bool, wwe2k14_havok_probe);
+REXCVAR_DECLARE(int32_t, wwe2k14_havok_probe_min_us);
 namespace wwe2k14::flow_probe {
 inline void HavokProbe(const char* name, std::atomic<uint32_t>& count, uint32_t r3, uint32_t r4, uint32_t lr,
                        uint8_t* base, int64_t us) {

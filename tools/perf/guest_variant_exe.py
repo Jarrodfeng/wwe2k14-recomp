@@ -207,6 +207,7 @@ def main():
         return 0
     extra_objs = []
     main_obj = ''
+    shard_objs = {}
     if a.wt:
         # src\main.cpp from the worktree, with a PCH of its own: the plain macro and --overlay reach our hooks too (Session 95)
         wt = fwd(os.path.abspath(a.wt))
@@ -236,6 +237,27 @@ def main():
         if rc:
             print(err)
             return 3
+        # S110 CVARSHARD: the cvar DEFINITIONS are in src\cvars\*.cpp (tools\compile\cvar_shard.py), not in main.cpp's headers: they come from the worktree
+        # too (compiled like main.cpp) and take the build's objects' places. A build or a worktree from before CVARSHARD does not fit: refused.
+        wt_shards = sorted(f'src/cvars/{os.path.basename(p)}' for p in glob.glob(os.path.join(a.wt, 'src', 'cvars', '*.cpp')))
+        link_in = ln['_line'].split(':', 1)[1].strip().split(' | ')[0].split()
+        b_shards = sorted(x[len('CMakeFiles/wwe2k14.dir/'):-len('.obj')] for x in link_in if x.startswith('CMakeFiles/wwe2k14.dir/src/cvars/'))
+        if wt_shards != b_shards:
+            print(f'REFUSED: the worktree\'s src\\cvars units {wt_shards} are not the ones the build links {b_shards} (one side is older than S110 CVARSHARD): '
+                  'rebuild the build folder, or merge main into the worktree')
+            return 2
+        for s in wt_shards:
+            st = statement(ninja, f'build CMakeFiles/wwe2k14.dir/{s}.obj:')
+            so = fwd(os.path.join(obj, os.path.basename(s) + '.obj'))
+            sflags = st['FLAGS'].replace(fwd(os.path.join(mdir, 'cmake_pch.hxx.pch')), mpch).replace(mhxx_old, fwd(mhxx))
+            rc, dt, err = run(' '.join([st['DEFINES'], f'{over}-I{wt} -I{wt}/src ' + st['INCLUDES'], sflags, '-o', f'"{so}"', '-c', f'"{wt}/{s}"']),
+                              os.path.join(obj, os.path.basename(s) + '.rsp'))
+            if rc:
+                print(f'{s}: rc {rc}')
+                print(err)
+                return 3
+            shard_objs[f'CMakeFiles/wwe2k14.dir/{s}.obj'] = so
+        print(f'src/cvars: {len(wt_shards)} unit(s) from the worktree')
         rex_app_obj = ''
         rex_app_key = 'CMakeFiles/wwe2k14.dir/thirdparty/rexglue-sdk-vulkan/share/rexglue/rex_app.cpp.obj'
         if a.rex_app:
@@ -262,6 +284,7 @@ def main():
     mine = {f'CMakeFiles/wwe2k14_recomp.dir/generated/default/wwe2k14_recomp.{n}.cpp.obj': os.path.join(obj, f'recomp.{n}.obj') for n in nums}
     if main_obj:
         mine['CMakeFiles/wwe2k14.dir/src/main.cpp.obj'] = main_obj
+        mine.update(shard_objs)
         if rex_app_obj:
             mine[rex_app_key] = rex_app_obj
     objs = []

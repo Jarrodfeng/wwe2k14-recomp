@@ -36,8 +36,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_d3d_flush_register_runs, "off", "wwe2k14",
-                      "Session 66: native version of sub_82CBD428 (flush dirty register runs): off | verify | on");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_d3d_flush_register_runs);
 
 REX_EXTERN(__imp__sub_82CBD428);
 

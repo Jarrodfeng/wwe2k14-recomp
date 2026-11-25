@@ -134,6 +134,7 @@ public class GameActivity extends SDLActivity {
             return;
         }
         if (new File(new File(files, "logs"), "exit_request.txt").delete()) Log.i(TAG, "removed an old exit request");
+        if (!fromArgsFile) installShaderList(files);  // S110 ANDROIDREADY: the shipped list where the native side reads it, before SDL starts it
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -266,6 +267,49 @@ public class GameActivity extends SDLActivity {
         } catch (UnsatisfiedLinkError e) {
             // (The game's library not loaded yet: nothing is running to tell.)
         }
+    }
+
+    // S110 ANDROIDREADY (docs/research/s110/ANDROIDREADY.md): the shipped list (db/shaders/shader_list.txt: shader hashes and masks and our
+    // renderer's pipeline seed, no shader code), which build_apk.ps1 packs into the APK's assets, goes where the native side reads it:
+    // shader_list.txt next to the "exe", which is the files folder (src/platform/compat.h GetModuleFileNameW, src/shader_list_path.h ListPath).
+    // Before this nothing copied it, so a player's phone read no list. It is written only when the APK's copy differs (an update brings a new
+    // list). A failure leaves the old file or none, and the native side then logs "seed: ... not readable (no seed)" as before.
+    private void installShaderList(File files) {
+        byte[] shipped;
+        try (java.io.InputStream in = getAssets().open("shader_list.txt")) {
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream(1 << 20);
+            byte[] chunk = new byte[1 << 16];
+            for (int n; (n = in.read(chunk)) > 0; ) buf.write(chunk, 0, n);
+            shipped = buf.toByteArray();
+        } catch (java.io.IOException e) {
+            Log.i(TAG, "shader list: the APK carries none");
+            return;
+        }
+        File dst = new File(files, "shader_list.txt");
+        if (dst.isFile() && dst.length() == shipped.length) {
+            try (FileInputStream in = new FileInputStream(dst)) {
+                byte[] have = new byte[shipped.length];
+                int got = 0;
+                for (int n; got < have.length && (n = in.read(have, got, have.length - got)) > 0; ) got += n;
+                if (got == have.length && java.util.Arrays.equals(have, shipped)) return;
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "shader list: could not read the installed copy", e);
+            }
+        }
+        File tmp = new File(files, "shader_list.txt.tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp, false)) {
+            out.write(shipped);
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "shader list: could not write " + tmp, e);
+            tmp.delete();
+            return;
+        }
+        if (!tmp.renameTo(dst)) {
+            Log.w(TAG, "shader list: could not move it to " + dst);
+            tmp.delete();
+            return;
+        }
+        Log.i(TAG, "shader list: installed " + shipped.length + " bytes");
     }
 
     // The game is landscape only. SDL asks for an orientation from the game's window when it is made: a resizable window

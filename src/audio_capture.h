@@ -31,11 +31,8 @@
 #include "frame_stats.h"   // g_guest_frame
 #include "input_script.h"  // g_request_quit
 
-REXCVAR_DEFINE_STRING(wwe2k14_audio_capture, "", "wwe2k14",
-                      "Write the game's final audio mix (stereo 48 kHz 16-bit) to FILE.wav + FILE.stamps.csv (guest "
-                      "frame of each audio frame). Session 18; see src/audio_capture.h");
-REXCVAR_DEFINE_INT32(wwe2k14_audio_capture_until, 0, "wwe2k14",
-                     "Audio capture: stop at this guest frame and quit the game (0 = until exit)");
+REXCVAR_DECLARE(std::string, wwe2k14_audio_capture);
+REXCVAR_DECLARE(int32_t, wwe2k14_audio_capture_until);
 
 namespace wwe2k14::audio_capture {
 

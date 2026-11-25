@@ -6,6 +6,8 @@ name and never a `q cover` anchor. q sheet prints it after the names of a functi
     py tools/q/q.py pattern --stats         per kind: count + 5 sample functions (+ the helper names that did not resolve)
     py tools/q/q.py pattern --build         compute every label and write out/harness/index/pattern.s1.db (table pattern_fn)
     py tools/q/q.py pattern --precision     agreement of the labels with HIGH / MEDIUM db names containing dtor / thunk / ctor / getter
+    py tools/q/q.py pattern --count         labelled functions before round one / after it / after round two (qpattern_rules.py, qpattern_rules2.py),
+                                            all + loners; per round-two kind and clone relation: precision against the HIGH db names
 
 Facts used: index.db (size, direct call/tail edges, vtable slots from ptrs + tables), units.s1.db (the unit of a function),
 fields.s2.db (field reads / writes / address-takes on this = root a0, and reads of a call result = root r:SITE), seen.s1.db
@@ -26,6 +28,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qnames  # noqa: E402
+import qpattern_rules  # noqa: E402  (S110 PATRULES: the second rule set; build() calls its extend(), stats / --count list its kinds)
+import qpattern_rules2  # noqa: E402  (S110 RULES2: the third set over fnfacts.s1.db; build() calls its extend(), write() its write_rel())
 
 SRC = os.path.dirname(os.path.dirname(HERE))
 PATTERN_DB = os.path.join(qnames.IDX, 'pattern.s1.db')
@@ -212,16 +216,20 @@ def write(out, f, p, path=None):
     w.executescript('create table pattern_fn(func integer, kind text, evidence text); create index pf_func on pattern_fn(func);'
                     'create index pf_kind on pattern_fn(kind); create table meta(key text primary key, value text);')
     w.executemany('insert into pattern_fn values (?,?,?)', [(a, k, e) for a in sorted(out) for k, e in out[a]])
-    w.executemany('insert into meta values (?,?)', [('unresolved', json.dumps(f.unresolved)), ('kinds', ','.join(KINDS))])
+    w.executemany('insert into meta values (?,?)', [('unresolved', json.dumps(f.unresolved)), ('kinds', ','.join(KINDS + qpattern_rules.KINDS + qpattern_rules2.KINDS))])
+    qpattern_rules2.write_rel(w, f)           # S110 RULES2: clone relations in their own table pattern_rel (never a purpose)
     w.commit()
     w.close()
-    os.replace(tmp, path)
+    import qpublish                           # S110 PATRULES review: the QREBUILD publish rule; a reader holding pattern.s1.db open
+    qpublish.publish(tmp, path)               # made os.replace raise and lost the build (readers already open qpublish.newest)
 
 
 def build(p=None, verbose=True):
     p = p or paths()
     f = load(p)
     out = classify(f)
+    qpattern_rules.extend(f, out, p)          # S110 PATRULES: the second rule set adds its labels to the same table
+    qpattern_rules2.extend(f, out, p)         # S110 RULES2: the third set (fnfacts flag tests, link loops, compare chains; clone relations -> f.prel)
     write(out, f, p)
     if verbose:
         print('pattern.s1.db: %d labels on %d functions -> %s' % (sum(len(v) for v in out.values()), len(out), p['out']))
@@ -260,9 +268,10 @@ def stats(path=None):
         rows[k].append(a)
     meta = dict(c.execute('select key,value from meta'))
     lines = ['%-18s %7s  sample' % ('kind', 'count')]
-    for k in KINDS:
+    for k in KINDS + qpattern_rules.KINDS + qpattern_rules2.KINDS:
         v = rows.get(k, [])
         lines.append('%-18s %7d  %s' % (k, len(v), ' '.join('%08X' % a for a in v[:5]) or '-'))
+    lines.extend(qpattern_rules2.rel_stats(path or PATTERN_DB))
     un = json.loads(meta.get('unresolved', '[]'))
     for alias, ns in un:
         lines.append('helper %s did not resolve (%s): the rules that need it report 0' % (alias, ' | '.join(ns)))
@@ -328,9 +337,11 @@ def show_one(q, path=None):
         raise qnames.NamesError('no pattern db: run py tools\\q\\q.py pattern --build')
     c = ro(path or PATTERN_DB)
     rows = c.execute('select kind,evidence from pattern_fn where func=? order by kind', (a,)).fetchall()
-    if not rows:
+    c.close()
+    lines = ['sub_%08X [p:%s] %s' % (a, k, e) for k, e in rows] + qpattern_rules2.show_rel(a, path or PATTERN_DB)   # S110 RULES2: + clone relations
+    if not lines:
         return 'sub_%08X: no pattern label (a shape rule did not match; says nothing else about the function)' % a
-    return '\n'.join('sub_%08X [p:%s] %s' % (a, k, e) for k, e in rows)
+    return '\n'.join(lines)
 
 
 def main(argv):
@@ -342,6 +353,9 @@ def main(argv):
         return 0
     if '--precision' in argv:
         print(precision())
+        return 0
+    if '--count' in argv:
+        print(qpattern_rules2.count(paths()))
         return 0
     pos = [x for x in argv if not x.startswith('--')]
     if not pos:

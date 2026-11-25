@@ -27,9 +27,7 @@
 #include "crowd_skip_core.h"
 #include "skin_skip_hook.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_crowd_drop_draws, false, "wwe2k14",
-                    "Session 101 lane 50 (P2b of the crowd's promotion): REFUSED, the switch does nothing (logs once): it needs a record-driven crowd Inject first "
-                    "(docs/systems/crowd.md 'P2b is refused')");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_drop_draws);
 
 REX_EXTERN(__imp__sub_82512E80);
 

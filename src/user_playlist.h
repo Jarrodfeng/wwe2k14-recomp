@@ -63,10 +63,7 @@
 #include "mods.h"
 #include "user_playlist_core.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_user_playlist, true, "wwe2k14",
-                    "Lane 282: USER PLAYLIST (the first row of the entrance MUSIC list) plays the songs of "
-                    "<mods>\\music\\library\\ (else the new entrance songs of <mods>\\music\\new\\), one after the "
-                    "other. Needs --wwe2k14_mods. See src/user_playlist.h");
+REXCVAR_DECLARE(bool, wwe2k14_user_playlist);
 
 REX_EXTERN(__imp__sub_82E1A138);
 REX_EXTERN(__imp__sub_82E1A6F0);

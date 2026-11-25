@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 51, 52, 53, 54, 55, 56, 57, 58, 59, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped)
+PLANTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 44]   # 42 / 43 = S105 A5b (no guest part blends; every src_kind 2 mesh answers the piece-row lookup); 41 = draw plant 11 (CAWH: the file -> viewer space mirror skipped); 60 = S110 WHITEEYES (a deferred refresh names its hash without the bytes); 61-64 = S110 STOREABSENT (a provisional build final / rebuilt every call; the Store / the ByteStore refuses at its cap)
 
 # ---- lints, over a {relative path: text} map so a twin can add a synthetic file --------------------------------------------------------------------------------------------------------------------------
 STRIDE_ONLY = [re.compile(r'\bLayoutOfStride\b'), re.compile(r'switch\s*\(\s*\w*stride\w*\s*/\s*4\s*\)')]
@@ -322,9 +322,24 @@ def main():
     n62 = sum(len(re.findall(r'kScGuestModel\w+\s*=\s*6[2-4]\s*;', t)) for p, t in files.items() if p == 'src/renderer_scene/guest_model_rows.h')
     need(n62 == 3, 'L9 section ids 62 / 63 / 64 are defined once each (guest_model_rows.h)')
     for rel in ('src/scene_live/guest_model_reader.h', 'src/scene_live/guest_model_contrib.h', 'src/scene_live/guest_model_tex.h', 'src/scene_live/guest_model_emit.h', 'src/scene_live/guest_model_store.h',
-                'src/scene_live/buffer_unlock_log.h', 'src/renderer_scene/guest_model_draw.h', 'src/renderer_scene/guest_model_rows.h'):
+                'src/scene_live/buffer_unlock_log.h', 'src/renderer_scene/guest_model_draw.h', 'src/renderer_scene/guest_model_rows.h', 'src/renderer_scene/guest_model_absent.h'):
         need('getenv' not in files.get(rel, ''), '%s reads no environment variable' % rel)
     need('sub_82CACF10' in files.get('src/vb_unlock_report.h', ''), 'the IB unlock sub_82CACF10 is hooked beside the VB one (buffer_unlock_log.h is told by both)')
+    rw = files.get('src/renderer_scene/rf_wrestlers.cpp', '')
+    need('guestmodel::KeptBuildStands(cs, t, key)' in rw and 'guestmodel::NoteBuild(cs, key, bs);' in rw, 'S110 STOREABSENT: GuestModelFor asks the provisional-build gate before reusing a kept build and notes every build it keeps')
+
+    # S110 STOREABSENT review: the unit runs the gate's own functions in a frame of its own, so the ORDER in GuestModelFor is pinned here: the 16-key retire's memo clear comes BEFORE NoteBuild
+    # (swapped, a provisional build made on the retiring frame is forgotten and stays white for good), and the rebuild retires the old build under its key before PutGuest.
+    def storeabsent_order_ok(src):
+        b = src.find('static int GuestModelFor(')
+        clear = src.find('cs.absent_of.clear();', b)
+        note = src.find('guestmodel::NoteBuild(cs, key, bs);', b)
+        retire = src.find('if (rebuild) ctx.models.RetireOther(key, "\\x01");', b)
+        put = src.find('ctx.models.PutGuest(key, m,', b)
+        return b >= 0 and 0 <= clear < note < put and 0 <= retire < put
+    need(storeabsent_order_ok(rw), 'S110 STOREABSENT: in GuestModelFor the retire memo clear comes before NoteBuild, and the rebuild retires its old build before PutGuest')
+    sw = rw.replace('guestmodel::NoteBuild(cs, key, bs);', '', 1).replace('const bool retired = hashes.size() >= 16;', 'guestmodel::NoteBuild(cs, key, bs); const bool retired = hashes.size() >= 16;', 1)
+    need(sw != rw and not storeabsent_order_ok(sw), 'S110 STOREABSENT order twin (NoteBuild moved above the retire clear) is caught')
     print('guest_model_unit: %s' % ('FAIL (%d)' % len(bad) if bad else 'all passed'))
     return 1 if bad else 0
 

@@ -162,6 +162,9 @@ class LiveCrowd final : public rdr_scene::StageHook {
   // arena is still loading (a Warm frame keeps READY false until then, so a later frame never meets an unloaded class).
   struct PrefetchResult { uint32_t handled = 0, unhandled = 0, foreign = 0, misses = 0, failures = 0; bool all_resident = true; std::string why; };
   PrefetchResult Prefetch(const SceneTables& record);
+  // S110 ENTRBODIES (docs\research\s110\ENTRBODIES.md): the background half of Prefetch for an arena the game named before any record carries its crowd (a scene start held behind the loading
+  // card): every class of `arena` is asked (at most adopt_per_frame uploaded a call). true = no class is still loading (each resident or failed).
+  bool PrefetchArena(int arena);
   // S103 L4: BUILD time: how many resident models (bodies, card quad, props) are lit by a set the record cannot supply (no provider, record unreadable, id absent). Each is a HOLE: an OURS frame
   // never draws a silently wrong light.
   uint32_t LightHoles(const SceneTables& record) const;

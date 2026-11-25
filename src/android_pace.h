@@ -24,9 +24,7 @@
 #include "native_fn.h"  // RefreshModes
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_android_pace_gate, false, "wwe2k14",
-                    "Session 93 (Android): with TRUE NATIVE (--wwe2k14_d3d_owned) set the SDK's gpu_d3d_pace_gate (Session 92 "
-                    "M5c: the flip handshake does not wait for the flip word; src/android_pace.h). Default off");
+REXCVAR_DECLARE(bool, wwe2k14_android_pace_gate);
 
 namespace wwe2k14::android_pace {
 

@@ -29,18 +29,10 @@
 
 #include "frame_word.h"  // TargetFrameMs
 
-REXCVAR_DEFINE_BOOL(wwe2k14_dynamic_res, false, "wwe2k14",
-                    "Session 73: dynamic resolution - the NATIVE truth passes draw a step smaller while frames run over "
-                    "their time, bigger again with time to spare (src\\dynamic_res.h). Needs NATIVE truth frames");
-REXCVAR_DEFINE_INT32(wwe2k14_dynamic_res_min_percent, 60, "wwe2k14",
-                     "Session 73: dynamic resolution's lowest step, in percent of the chosen resolution's height")
-    .range(50, 100);
-REXCVAR_DEFINE_BOOL(wwe2k14_dynamic_res_owned, true, "wwe2k14",
-                    "Session 94: with TRUE NATIVE (--wwe2k14_d3d_owned) dynamic resolution (--wwe2k14_dynamic_res) steps the SDK's gpu_native_owned_draw_ratio "
-                    "(the owned frame's scene pass drawn smaller and blitted up at its copies). On by default since Session 94 M2b (Jarrod: it should be on, behind its toggle): the toggle is --wwe2k14_dynamic_res (the launcher's DYNAMIC RESOLUTION)");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_dynamic_res_target_ms, 0.0, "wwe2k14",
-                      "Session 73: dynamic resolution's frame time target in ms (0 = 16.7, or 33.3 with "
-                      "--wwe2k14_step_hz=30); a test may set it low to force steps");
+REXCVAR_DECLARE(bool, wwe2k14_dynamic_res);
+REXCVAR_DECLARE(int32_t, wwe2k14_dynamic_res_min_percent);
+REXCVAR_DECLARE(bool, wwe2k14_dynamic_res_owned);
+REXCVAR_DECLARE(double, wwe2k14_dynamic_res_target_ms);
 
 namespace wwe2k14::dynres {
 

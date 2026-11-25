@@ -746,13 +746,12 @@ inline bool ReadCamera(ReadFn read, rdr_scene::Camera& out, CameraInfo& info, ui
 // to mgr +1488 (the 4x4 world -> view matrix, row-vector, the camera object's +240, the view) and +1552 (FOV, degrees: CineCam writes 60 there)
 // every frame on the update side, before any walk. The projection is built by the reader from the FOV (kCamProjFromFov).
 inline constexpr uint32_t kCamMgrPtr = 0x836F3AA8, kCamMgrView = 1488, kCamMgrFov = 1552;
-// S105 A3 (docs\research\s105\A3.md, [C] two stream-build captures): the game draws no scene while its shown camera [[0x836F3AA8] + 1392] is 0. read = the manager exists (>= 0x10000) and the word was readable;
-// shown = the word is non-zero. No manager / an unreadable word: read = false (the record then never blackens: the CAW editor has no manager).
-// S105 A3 review: the composer's override cameras count as shown too (cam_gate.h ReadShown reads all three words).
-inline void ReadShownCameraGate(ReadFn rd, bool& read, bool& shown) {
-  read = shown = false;
+// S110 ENTRBLACK (cam_gate.h ReadSceneFact): the game submits scene geometry this frame (the stage's show word [[0x83763544] + 1176], else a character's draw predicate). read = a stage exists and
+// its word was readable; no stage / an unreadable word: read = false (the record then never blackens).
+inline void ReadSceneFactAtLatch(ReadFn rd, bool& read, bool& drawn) {
+  read = drawn = false;
   if (!rd) return;
-  rdr_scene::ReadShown([rd](uint32_t a, uint32_t& v) { return ReadWord(rd, a, v); }, read, shown);
+  rdr_scene::ReadSceneFact([rd](uint32_t a, uint32_t& v) { return ReadWord(rd, a, v); }, read, drawn);
 }
 // S110 CUTCROWD (handed_camera.h): the scene camera is the block the game HANDED to its renderer, [[0x83929A68] + 256] (view +240, FOV radians +512), read here at the latch: the crowd's cull / LOD, the floor
 // seats' screen test and the plane module use that block, and on a gated cut +1488 is already the next shot. The live +1488 / +1552 only when the block is not the main manager's (none yet, a sub-view, another

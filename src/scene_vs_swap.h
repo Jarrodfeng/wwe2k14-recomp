@@ -96,10 +96,7 @@
 #include "scene/spirv/vs_skin_shadow_rigid9_vert.h"
 #include "scene/spirv/vs_sprite_vert.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_vs_swap, false, "wwe2k14",
-                    "Session 87 (stage 4; read at start): our own vertex shaders for the arena background in place of "
-                    "the game's translated ones (src\\scene_vs_swap.h; sets gpu_native_vs_swap when that is left at its "
-                    "default). Off by default");
+REXCVAR_DECLARE(bool, wwe2k14_vs_swap);
 
 namespace wwe2k14::scene_vs_swap {
 

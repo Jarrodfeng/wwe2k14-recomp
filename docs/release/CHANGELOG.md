@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.4.4
+
+**v0.4.4: no more black screen at the start of entrances, lights that stay behind the wrestlers, and fixes for Create a Superstar and the logo importer.**
+
+Another update made of your reports. Each entry says how I checked it. If something still looks wrong, please send it with Report a problem.
+
+### Fixed
+
+- **The black screen at the start of an entrance (and of a match with entrances off) is gone.**
+  What you saw: after the loading screen, one or two seconds of black, then the entrance cut in already running. Cause: on a PC the game
+  finishes loading much faster than an Xbox 360 did and started the entrance before my renderer had the arena, the crowd and the wrestlers
+  ready; the game's own fade from black played behind my black. Fix: my renderer starts loading when the game does, and the loading
+  screen now waits for it. What changes for you: the loading screen stays up about two seconds longer, then the entrance comes in.
+  Measured on my PC: about a tenth of a second of black left at an entrance (it was 0.9 s), three tenths with entrances off (it was 1.5 s).
+- **The six-point star of the stage lights no longer shows through the wrestlers.**
+  What you saw: the star-shaped flare of a light stayed on top of a wrestler standing in front of it (since v0.4.0). Cause: my renderer
+  placed that flare at the very front of the scene. Fix: it sits at the light's own distance, as in the game. Checked in a 30 Years
+  entrance: stars in the wide shots, none over the wrestler.
+- **The crowd's camera flashes stay behind the wrestlers.**
+  What you saw: flashes from the crowd drawn over the wrestlers (since v0.4.2). Fix: a flash is cut where a body is in front of it. Honest
+  note: in my check no flash happened to sit behind the wrestler, so I have not seen the cut itself yet.
+- **Create a Superstar: the eyes no longer turn white after you accept a part.**
+  What you saw: after choosing a mustache, a top or another part, the superstar's eyes went blank white and stayed white. This was my
+  renderer, not the game. Checked by picking parts in the editor.
+- **Mods -> Logos (importing a picture as a custom logo) works again with USE MY SUPERSTARS on.**
+  What you saw: the game closed shortly after the title screen (v0.3.1 to v0.4.3). Cause: the import started the game without telling it
+  about your imported superstars, which your save expects. Fix: the import starts the game the way PLAY does, and builds your superstar
+  library first if it has to. Checked through the launcher with an old library: the logo was imported and saved.
+- **Less hitching the first time you see an entrance.**
+  What you saw: the picture freezing for a moment in a first entrance while the graphics driver prepared things. The list of what
+  "Preparing shaders" builds ahead of time grew from 15 entries to 341. Checked on PC at one first entrance: 145 things built during
+  the entrance before, none after. Other superstars, arenas and match types can still hitch once.
+
 ## v0.4.3
 
 **v0.4.3: fixes for what you reported since v0.4.2, and bigger imported superstars load.**

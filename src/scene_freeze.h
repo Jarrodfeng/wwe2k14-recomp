@@ -95,22 +95,11 @@
 #include "guest_read.h"  // GuestWordReadableFast (the auto freeze's slot reads)
 #include "step_rate.h"  // LoadU32 / StoreU32, the timing block, g_in_game
 
-REXCVAR_DEFINE_BOOL(wwe2k14_freeze, false, "wwe2k14",
-                    "Session 36: freeze the scene now (scripts, the live channel). Photo mode and CineCam's 'freeze "
-                    "scene' ask for the same freeze themselves. See src/scene_freeze.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_freeze_true, true, "wwe2k14",
-                    "Session 36: photo mode / CineCam freeze = a true freeze (nothing moves, carries on from the same "
-                    "moment); false = Session 33's step at 1000 Hz (about 17x slower, time keeps moving)");
-REXCVAR_DEFINE_BOOL(wwe2k14_cinecam_auto_freeze, false, "wwe2k14",
-                    "Session 36: freeze the scene at the start of every entrance (the wrestler's first entrance frame; "
-                    "videos and sound held too), for repeatable CineCam shots. Also a checkbox in CineCam's panels "
-                    "(F8, also outside a match)");
-REXCVAR_DEFINE_BOOL(wwe2k14_freeze_audio, true, "wwe2k14",
-                    "Session 36: pause the game's sound with a true freeze (and resume it on release)");
-REXCVAR_DEFINE_BOOL(wwe2k14_freeze_exact, false, "wwe2k14",
-                    "Session 95: a true freeze that really stops, for frames compared hash by hash: the step is 1e-10 s "
-                    "instead of 1e-6 and the view handed to the renderer is held. Set by the diagnostic run (src/diag.h); "
-                    "off = the freeze as it always was. See src/scene_freeze.h");
+REXCVAR_DECLARE(bool, wwe2k14_freeze);
+REXCVAR_DECLARE(bool, wwe2k14_freeze_true);
+REXCVAR_DECLARE(bool, wwe2k14_cinecam_auto_freeze);
+REXCVAR_DECLARE(bool, wwe2k14_freeze_audio);
+REXCVAR_DECLARE(bool, wwe2k14_freeze_exact);
 
 REX_EXTERN(__imp__sub_824F5C38);
 REX_EXTERN(__imp__sub_8359FBD0);

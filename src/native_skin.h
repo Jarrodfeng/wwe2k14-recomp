@@ -44,16 +44,10 @@
 
 #include "native_fn.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_native_skin, true, "wwe2k14",
-                    "Session 64: the game's vertex-skinning loop sub_82508738 runs natively (src/native_skin.h; "
-                    "Session 66: every platform)");
-REXCVAR_DEFINE_BOOL(wwe2k14_native_skin_verify, false, "wwe2k14",
-                    "Session 64 (diagnostic): run the native skinning loop and the recompiled one, compare every output "
-                    "byte and log [wwe2k14][nf] skin counts");
+REXCVAR_DECLARE(bool, wwe2k14_native_skin);
+REXCVAR_DECLARE(bool, wwe2k14_native_skin_verify);
 // Session 66: on by default (verify run 4261: 230,362 + 53,915 calls, 0 mismatching bytes; 2.56x / 1.87x the recompiled loops).
-REXCVAR_DEFINE_BOOL(wwe2k14_native_skin_simd, true, "wwe2k14",
-                    "Session 66: the skinning loops (sub_82508738 here, sub_82508958 in src/nf/skin_3bone.h) use the SSE4.1 "
-                    "lane-wise version (same bits as the scalar loop; off = the scalar loop)");
+REXCVAR_DECLARE(bool, wwe2k14_native_skin_simd);
 
 #if defined(__SSE4_1__)
 #include <smmintrin.h>

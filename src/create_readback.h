@@ -49,75 +49,35 @@
 #include "load_probe.h"    // CurrentSequence, g_seq_from, SequenceListed
 #include "load_turbo.h"    // g_load_turbo_ingame_window
 
-REXCVAR_DEFINE_STRING(wwe2k14_readback_sequences, "28,29,76", "wwe2k14",
-                      "Session 57: game sequence ids in which every resolve is read back for the CPU at once (SDK "
-                      "readback_resolve_override 3): the create modes that keep GPU-drawn pictures (28 Create an "
-                      "Arena's menu screenshot, 29 Create a Title's export - Session 61, 76 Create a Superstar's "
-                      "render). Empty = never. See src/create_readback.h");
-REXCVAR_DEFINE_BOOL(wwe2k14_readback_loads, true, "wwe2k14",
-                    "Session 58: every resolve is also read back while a match loads (the in-game load windows) and "
-                    "shortly after a character file loads: some attires are drawn on the GPU and read back by the CPU "
-                    "(30 Years of WrestleMania's Bobby Heenan came out as noise without it). See "
-                    "src/create_readback.h");
-REXCVAR_DEFINE_INT32(wwe2k14_readback_loads_mode, 3, "wwe2k14",
-                     "Session 58: the SDK readback mode (readback_resolve_override) during the loads and character "
-                     "windows: 1 fast (previous frame, every resolve), 2 some (previous frame, on a cache miss), 3 full "
-                     "(at once, a GPU wait each). The create modes always use 3")
-    .range(1, 3);
+REXCVAR_DECLARE(std::string, wwe2k14_readback_sequences);
+REXCVAR_DECLARE(bool, wwe2k14_readback_loads);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_loads_mode);
 // Session 71 (a v0.2.9 player's garbled Superstar Threads outfit): 4 -> 32. A saved Threads attire is built over more
 // frames than a stock one: Cena's recoloured shirt wrote its 2048-wide build target 5 frames in a row (run 4488,
 // 0x1E257000 frames 4806-4810), so the 5th - the finished outfit - was skipped as "recurring" and the CPU kept the
 // stale texture (stock yellow here; noise for the player). Stock builds: 1-3 frames (runs 4488, the tester's six
 // wrestlers); the frame's own copies run 136-181 frames, still skipped after 32. --wwe2k14_readback_skip_recurring=0
 // fixed it too (run 4497, the shirt black in the close-up); 32 keeps Session 59's speed-up for the long copies.
-REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring, 32, "wwe2k14",
-                     "Session 59: in the load and character windows (not the create modes), resolves whose destination "
-                     "was also resolved in this many earlier frames in a row are not read back (SDK "
-                     "readback_resolve_override_skip_recurring): the frame's own copies, which the CPU never reads; the "
-                     "one-off attire builds still are (run 4034: both 2048-wide attire builds of Session 58 read back 4 / 4). 0 = every resolve (4: a character's "
-                     "first 300 frames no longer run at half speed, A/B 3975). Session 71: 32 (a Superstar Threads "
-                     "attire builds over 5+ frames; with 4 its finished texture was skipped and came out stale)")
-    .range(0, 60);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_skip_recurring);
 // Session 79 (HD 520 arc): the 32 above made each character window's first ~32 frames read back the frame's own
 // screen-size copies too (Bryan's entrance: 14 copies a frame, pitch 1280, until their streak passed 32 - about a
 // second at ~23 fps on the 4090 PC, run 5083; 10-27 with 4: a 4-frame hitch, 4461). The attire builds that need 32 are
 // 2048 wide (the Threads shirt, 0x1E257000), so copies narrower than that can keep a lower limit (Threads outfit still
 // right, 5094 / 5126). Session 80 (Jarrod, 2026-11-01: "Yes, default for all"): 4, with the gap rule below.
-REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring_narrow, 4, "wwe2k14",
-                     "Session 79: in the load and character windows, copies narrower than 2048 texels (the attire "
-                     "builds are 2048 wide) are not read back once their destination was resolved in this many earlier "
-                     "frames in a row (SDK readback_resolve_override_skip_recurring_narrow; when lower than "
-                     "wwe2k14_readback_skip_recurring). 0 = off (one limit for every copy)")
-    .range(0, 60);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_skip_recurring_narrow);
 // Session 79 (04:15): with the narrow rule on, most of what was still read back each frame were the reflection cubes'
 // 64x64 faces (run 5123: 2,504-3,494 of 2,606-3,693 per window): a cube is copied 5 frames, then not for 2, and a gap
 // over 2 frames restarted its run, so 4 of every 7 frames read it back. Session 80 (Jarrod, 2026-11-01): 4 by default.
-REXCVAR_DEFINE_INT32(wwe2k14_readback_skip_recurring_narrow_gap, 4, "wwe2k14",
-                     "Session 79: with wwe2k14_readback_skip_recurring_narrow, a narrow copy's frames in a row survive "
-                     "gaps of up to this many frames (SDK readback_resolve_override_skip_recurring_narrow_gap; the "
-                     "reflection cubes skip 2 frames in 7). 0 = off (gaps over 2 frames restart the run)")
-    .range(0, 16);
-REXCVAR_DEFINE_INT32(wwe2k14_readback_create_skip_recurring, 4, "wwe2k14",
-                     "Session 61 (players: CAW very slow): in the create modes too, resolves whose destination was "
-                     "also resolved in this many earlier frames in a row are not read back - the editor's per-frame "
-                     "copies; the pictures the mode keeps (a one-off copy) still are. 0 = every resolve (Session 57)")
-    .range(0, 60);
-REXCVAR_DEFINE_INT32(wwe2k14_readback_char_hold_frames, 300, "wwe2k14",
-                     "Session 58: frames after a character file (PAC\\CH\\CHnnn.PAC) opens during which every resolve "
-                     "is read back (--wwe2k14_readback_loads)")
-    .range(0, 3600);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_skip_recurring_narrow_gap);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_create_skip_recurring);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_char_hold_frames);
 
 // Session 95 (Lane E): the character window by the load, not by a frame count. 300 frames is 5 s at 60 fps and 15 s at 20: a phone's window
 // ends after, or well before, the load it exists for. With this on the window is open while an in-game load window is open (load_turbo.h),
 // and for a wall-clock minimum after the later of that load's end and the newest character file's open (a character file that opens with
 // no load window around it gets just the minimum). Off: the 300 frames above, exactly as before. Meant on for class phone.
-REXCVAR_DEFINE_BOOL(wwe2k14_readback_char_window_by_load, false, "wwe2k14",
-                    "Session 95: the character read-back window (wwe2k14_readback_char_hold_frames) closes when the in-game load ends "
-                    "plus wwe2k14_readback_char_min_ms of wall-clock time, not after a frame count");
-REXCVAR_DEFINE_INT32(wwe2k14_readback_char_min_ms, 3000, "wwe2k14",
-                     "Session 95: with wwe2k14_readback_char_window_by_load, milliseconds the character window stays open after the "
-                     "load window closes (or after the character file opened, when no load window was open)")
-    .range(0, 60000);
+REXCVAR_DECLARE(bool, wwe2k14_readback_char_window_by_load);
+REXCVAR_DECLARE(int32_t, wwe2k14_readback_char_min_ms);
 
 namespace wwe2k14::create_readback {
 

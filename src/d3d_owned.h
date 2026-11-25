@@ -12,11 +12,7 @@
 #include <string>
 #include <utility>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_owned, false, "wwe2k14",
-                    "Session 87 (experimental): the whole D3D-layer stack in one switch - the game's Direct3D calls go "
-                    "to our own renderer (no command ring, no register file, our own shaders, textures by game object, "
-                    "the crowd by our program, the owned-frame chains). Sets each of its switches only if left at its "
-                    "default (src\\d3d_owned.h). Default off");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_owned);
 
 namespace wwe2k14::d3d_owned {
 

@@ -145,6 +145,7 @@ void ResetForJob();  // TEST ONLY (frame_rig --serve, before each job): forgets 
 std::vector<int> TakeArenaMisses();
 void PutLoadedArena(int arena, std::unique_ptr<assets::Model> model);
 void FailArena(int arena, const std::string& why, bool recoverable, const std::string& car_key = std::string());   // car_key (S103 CAR fix 7): a created arena's selection key the failed load was made for; a failure of another key than the current one is ignored  // recoverable ("no game files yet") is never cached: the arena is asked for again
+void WantArenaFromGame(int arena);   // S110 ENTRBLACK round 5 (render thread): the game opened pac\bg\bgNN.pac: queue arena NN now unless it is built, delivered or failed; drops another arena's delivered, never-built model
 // S103 UP (up_check.py): the live arena sets' page carriers: models with a stage page texture (parts + moving slots), how many of them sit on their set's page group, and the ring-at-rest models that carry a page
 // and are NOT on it (marked `// no page group` in rf_c_core.cpp: a look-check follow-up). One set live: carriers == on_group.
 void PageCensus(const FrontEnd& fe, uint32_t& carriers, uint32_t& on_group, uint32_t& ring_rest_carriers);

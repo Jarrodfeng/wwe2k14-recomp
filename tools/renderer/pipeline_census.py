@@ -150,7 +150,7 @@ def main():
         return selftest()
     arenas = choice_ours.MATCH_ARENAS if a.arenas == 'all' else [int(x) for x in a.arenas.split(',')]
     chars = [c for c in a.chars.split(',') if c]
-    template = a.template or os.path.join(choice_ours.main_checkout(), 'out', 'captures', 'brock_losswin', 'scene', 'frame_109.rsc')
+    template = a.template or os.path.join(choice_ours.main_checkout(), 'out', 'captures', 'brock_losswin', 'scene', 'frame_000109.rsc')   # S110 PIPEHARVEST: the capture names its frames with 6 digits (frame_109.rsc never existed: arm d was skipped)
     js = jobs(arenas, a.looks.split(','), [int(x) for x in a.maps.split(',')], chars, template if os.path.exists(template) else '')
     if chars and not os.path.exists(template):
         print('note: no template record at %s: the roster arm (d) is skipped (pass --template RSC)' % template)

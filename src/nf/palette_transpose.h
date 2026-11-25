@@ -29,8 +29,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_palette_transpose, "off", "wwe2k14",
-                      "Session 95: native sub_82BD7630 (transposed matrix copy): off | verifylean | lean");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_palette_transpose);
 
 REX_EXTERN(__imp__sub_82BD7630);
 

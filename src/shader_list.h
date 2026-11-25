@@ -41,10 +41,7 @@
 #include "native_bpe.h"
 #include "xctd_file.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_shader_list, "", "wwe2k14",
-                      "Session 61: the shader list added to the shader storage before it loads (shaders rebuilt from "
-                      "the player's own game files, pipeline descriptions); empty = shader_list.txt next to the exe, "
-                      "'off' = none");
+REXCVAR_DECLARE(std::string, wwe2k14_shader_list);
 
 namespace wwe2k14::shader_list {
 

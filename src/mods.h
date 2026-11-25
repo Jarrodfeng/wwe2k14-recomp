@@ -33,22 +33,12 @@
 
 #include "tron_slots_core.h"  // kTronExts (S110 TRONSLOT review: one list for the game, the launcher and the viewer)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mods, false, "wwe2k14",
-                    "Mods folder: a titantron in <mods>\\titantron\\NNN.bik2 replaces movies\\titantron\\NNN.bik2 "
-                    "(NNN.mp4 / .mov / .mkv need the tron shim). Session 17, default off");
-REXCVAR_DEFINE_STRING(wwe2k14_mods_dir, "", "wwe2k14",
-                      "Mods folder (empty = 'mods' next to the game data folder or disc image, e.g. "
-                      "game_data\\mods)");
+REXCVAR_DECLARE(bool, wwe2k14_mods);
+REXCVAR_DECLARE(std::string, wwe2k14_mods_dir);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mods_lighting, false, "wwe2k14",
-                    "Session 98: lighting mods: <mods>\\lighting\\arena_NN.json replaces an arena's light colours / "
-                    "directions, entrance_NNN.json an entrance's (src\\lighting_mod.h, docs\\systems\\lighting_mod.md). "
-                    "Independent of --wwe2k14_mods (the trons / music switch): works with or without it. Default off");
+REXCVAR_DECLARE(bool, wwe2k14_mods_lighting);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mods_superstars, false, "wwe2k14",
-                    "Session 98: imported superstars (the Superstar Importer's pack in <mods>\\superstars\\pack6) join the "
-                    "game as one more DLC pack (src\\superstars.h, src\\dlc.h; needs --wwe2k14_dlc). Independent of "
-                    "--wwe2k14_mods. Off = vanilla. Default off (the launchers pass it: USE MY SUPERSTARS)");
+REXCVAR_DECLARE(bool, wwe2k14_mods_superstars);
 
 namespace wwe2k14::mods {
 

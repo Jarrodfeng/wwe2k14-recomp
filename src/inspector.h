@@ -91,18 +91,11 @@
 #include "coverage.h"
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_inspector, false, "wwe2k14",
-                    "Debug: ImGui live inspector (memory viewer, settings, coverage); F6 shows/hides it");
-REXCVAR_DEFINE_BOOL(wwe2k14_inspector_show, false, "wwe2k14",
-                    "Inspector (needs wwe2k14_inspector): show it at boot; set in-run: true shows, false hides");
-REXCVAR_DEFINE_STRING(wwe2k14_inspector_addr, "", "wwe2k14",
-                      "Inspector: memory viewer start address or chain 0xADDR[>OFF...] (empty = none)");
-REXCVAR_DEFINE_STRING(wwe2k14_inspector_test_set, "", "wwe2k14",
-                      "Inspector self-test: NAME=VALUE applied once through the settings panel's apply path when the "
-                      "panel first draws, then read back and logged (empty = off)");
-REXCVAR_DEFINE_STRING(wwe2k14_inspector_dump_labels, "", "wwe2k14",
-                      "Inspector self-test: write every label and named chain (with the chain's value read then) to "
-                      "this TSV file when the labels load (relative = to the working folder; empty = off)");
+REXCVAR_DECLARE(bool, wwe2k14_inspector);
+REXCVAR_DECLARE(bool, wwe2k14_inspector_show);
+REXCVAR_DECLARE(std::string, wwe2k14_inspector_addr);
+REXCVAR_DECLARE(std::string, wwe2k14_inspector_test_set);
+REXCVAR_DECLARE(std::string, wwe2k14_inspector_dump_labels);
 
 namespace wwe2k14::inspector {
 

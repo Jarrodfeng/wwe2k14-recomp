@@ -37,14 +37,9 @@
 #include <jni.h>
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_android_park, false, "wwe2k14",
-                    "Session 95: the guest waits at the frame boundary while the app is out of front (Android). Off until the "
-                    "phone list passes; skipped for precompile and diagnostic runs");
-REXCVAR_DEFINE_INT32(wwe2k14_test_background_at, 0, "wwe2k14",
-                     "Session 95 (test only): at this guest frame send SDL's real background event through the event watcher, "
-                     "block the UI thread for --wwe2k14_test_background_ms, then send the foreground event. 0 = off");
-REXCVAR_DEFINE_INT32(wwe2k14_test_background_ms, 90000, "wwe2k14",
-                     "Session 95 (test only): how long --wwe2k14_test_background_at keeps the UI thread blocked");
+REXCVAR_DECLARE(bool, wwe2k14_android_park);
+REXCVAR_DECLARE(int32_t, wwe2k14_test_background_at);
+REXCVAR_DECLARE(int32_t, wwe2k14_test_background_ms);
 
 namespace wwe2k14::android_lifecycle {
 

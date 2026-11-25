@@ -24,6 +24,7 @@ Preprocessor: `#if !WWE2K14_STREAM()` regions count for OFF only, `#if WWE2K14_S
 """
 import argparse
 import fnmatch
+import itertools
 import os
 import re
 import subprocess
@@ -38,6 +39,30 @@ LIT = re.compile(r'"((?:wwe2k14_|gpu_|present_)\w+|vsync|resolution_scale|anisot
 FLAGSTR = re.compile(r'(?:GetFlagByName|GetFlagInfo|flag|flag_text|Query<\w+>|SetFlagByName|num|FlagText|FlagNum)\s*\(\s*"(\w+)"')
 DEFINE = re.compile(r'REXCVAR_DEFINE_(\w+)\s*\(\s*(\w+)\s*,\s*([^,]+?)\s*,')
 INCLUDE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.M)
+SHARD = re.compile(r'^src/cvars/cvars_\d+\.cpp$')   # S110 CVARSHARD: generated (tools\compile\cvar_shard.py); each group starts with `//@ header | namespace | condition`
+SHARD_MARK = re.compile(r'^//@ [^|\n]*\| [^|\n]* \| (.*)$', re.M)
+
+
+def shard_group_in_off(text, pos):
+    """True when the shard group holding the definition at `pos` is compiled by the stream-free (OFF) build: its condition holds with WWE2K14_STREAM() = 0 for some value of the other defined() tests."""
+    ms = list(SHARD_MARK.finditer(text, 0, pos))
+    cond = ms[-1].group(1).strip() if ms else '-'
+    if cond in ('-', ''):
+        return True
+    atoms = sorted(set(re.findall(r'defined\(\s*(\w+)\s*\)', cond)))[:6]
+    for bits in itertools.product((0, 1), repeat=len(atoms)):
+        e = cond.replace('WWE2K14_STREAM()', '0')
+        for a, b in zip(atoms, bits):
+            e = re.sub(r'defined\(\s*%s\s*\)' % re.escape(a), str(b), e)
+        e = e.replace('&&', ' and ').replace('||', ' or ').replace('!', ' not ')
+        if not re.fullmatch(r'[\d\s()a-z]*', e):
+            return True   # a condition this does not model: judged kept (the old behaviour)
+        try:
+            if eval(e, {'__builtins__': {}}, {}):   # noqa: S307 (digits, parentheses, and / or / not only: checked above)
+                return True
+        except (SyntaxError, NameError):
+            return True
+    return False
 
 
 def strip(text):
@@ -382,7 +407,8 @@ def main():
     r8_exempt = set()
     for rel, text in src.items():
         for m in DEFINE.finditer(text):
-            defs.setdefault(m.group(2), []).append(rel)
+            # S110 CVARSHARD: the definitions sit in src\cvars\cvars_<n>.cpp, each group under the condition its header was included under: a group the stream-free build does not compile is not "defined" there
+            defs.setdefault(m.group(2), []).append(rel if not SHARD.match(rel) or shard_group_in_off(text, m.start()) else rel + '#stream')
             defaults.setdefault(m.group(2), []).append((rel, m.group(1), m.group(3).strip()))
             eol = text.find('\n', m.end())
             if 'R8-OFF-DEFAULT' in text[m.start():len(text) if eol < 0 else eol]:   # S103 UPL: a stream-free copy that ships another default on purpose (the marker names why, on the definition's last line)

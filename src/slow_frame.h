@@ -48,28 +48,16 @@
 #include "frame_stats.h"
 #include "sampling_profiler.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_slowframe_flight_dump, false, "wwe2k14",
-                    "Session 14 (S1): with --wwe2k14_flight_recorder=true, also write a flight-recorder dump "
-                    "(reason 'requested', every thread's recent kernel events) for each reported slow frame");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_slowframe_ms, 0.0, "wwe2k14",
-                      "Slow-frame report: any guest frame at least this many ms long gets a stack sample, its "
-                      "timeline data and an anatomy capture from the next CP frame in out/harness/slowframes/NNN "
-                      "(0 = off; report: tools/slowframe/slowframe_report.py)");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_max, 20, "wwe2k14", "Slow-frame report: at most this many reports per run");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_gap_ms, 1000, "wwe2k14",
-                     "Slow-frame report: at least this many ms between two reports");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_slowframe_ignore_ms, 0.0, "wwe2k14",
-                      "Slow-frame report: frames at least this long are not reported (loading screens; 0 = none)");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_from_frame, 60, "wwe2k14",
-                     "Slow-frame report: frames before this guest frame are not reported (boot)");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_anatomy, 2, "wwe2k14",
-                     "Slow-frame report: frames of anatomy capture (sparse GPU marks) from the command processor's "
-                     "next frame boundary after a slow frame (0 = none)");
-REXCVAR_DEFINE_STRING(wwe2k14_slowframe_dir, "", "wwe2k14",
-                      "Slow-frame report output folder (default <exe>/../../harness/slowframes = out/harness/...)");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_force_every, 0, "wwe2k14",
-                     "Debug: sleep wwe2k14_slowframe_force_ms on the main thread every N guest frames (0 = off)");
-REXCVAR_DEFINE_INT32(wwe2k14_slowframe_force_ms, 60, "wwe2k14", "Debug: length of a forced stall in ms");
+REXCVAR_DECLARE(bool, wwe2k14_slowframe_flight_dump);
+REXCVAR_DECLARE(double, wwe2k14_slowframe_ms);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_max);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_gap_ms);
+REXCVAR_DECLARE(double, wwe2k14_slowframe_ignore_ms);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_from_frame);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_anatomy);
+REXCVAR_DECLARE(std::string, wwe2k14_slowframe_dir);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_force_every);
+REXCVAR_DECLARE(int32_t, wwe2k14_slowframe_force_ms);
 
 namespace wwe2k14 {
 

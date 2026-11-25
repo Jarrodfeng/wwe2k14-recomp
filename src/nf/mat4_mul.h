@@ -24,8 +24,7 @@
 #include "../native_fn.h"
 #include "vec4_lean.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_mat4_mul, "off", "wwe2k14",
-                      "Session 95: native sub_82296630 (4x4 matrix product): off | verifylean | lean");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_mat4_mul);
 
 namespace wwe2k14::nf_mat4_mul {
 

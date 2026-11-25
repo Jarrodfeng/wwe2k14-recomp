@@ -29,8 +29,7 @@
 #include "wrestler_hook.h"  // wwe2k14::wrestlers::ReadGuest
 #include "picture_tap.h"   // S103 PN3: the first sight of a row's picture key (the stream-free picture source; dev only, default off)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_2d_record, false, "wwe2k14",
-                    "S103 I1 DEV ONLY (ignored by a release build; REMNANT_MAP.md): record the 2D layer (T_Rect fades / panels, the movie YUV quad) as Quad2D rows (scene record section 58) at the recorders; read only, off = no change");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_2d_record);
 
 namespace wwe2k14::q2d_tap {
 

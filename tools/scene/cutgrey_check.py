@@ -24,7 +24,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 EXE = os.path.join(ROOT, 'out', 'tools', 'cutgrey_unit.exe')
-TWINS = (('flash_pre_post', '[ORDER]'), ('flash_file_colour', '[COLOUR]'), ('flash_v_flip', '[MAP]'), ('flash_fetch_row0', '[OCC]'))
+TWINS = (('flash_pre_post', '[ORDER]'), ('flash_file_colour', '[COLOUR]'), ('flash_v_flip', '[MAP]'), ('flash_fetch_row0', '[OCC]'), ('flash_no_ztest', '[PIX]'))   # S110 FLASHFRONT: flash_no_ztest
 
 
 def run(cmd, timeout):

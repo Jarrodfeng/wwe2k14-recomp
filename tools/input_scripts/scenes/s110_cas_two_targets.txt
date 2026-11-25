@@ -1,0 +1,29 @@
+# harness: flags --wwe2k14_launch=@cas --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true
+# intent: launch @cas
+# S110 CASARRIVE (docs\research\s110\CASARRIVE.md): TWO Create a Superstar pages in ONE boot. --wwe2k14_launch=@cas enters the editor on a new
+# superstar; the route then gives the go-to (src\cas_goto.h) a target with the `cvar` line and waits on its ROUTE STATE `cas_record` (the
+# record arrived at), never on a frame count. Record 76 = CLOTHING > UPPER BODY > TOPS (tab 2, an item page with its part picker); record 36 =
+# HEAD > FACIAL HAIR > MUSTACHE (tab 0, depth 2, an item page). Leaving 76 for 36 sends B to the part picker (which puts the parts back), B to
+# the list, two previous-tab steps, then two A's. Nothing is accepted or saved. Marks: 1 main menu, 2 sequence 76, 3 first page, 4 second page.
+on_fail quit
+log bench: start scene cas_two_targets
+include boot_to_menu
+mark 1 menu
+wait_state seq 76 3600 2
+mark 2 cas_seq76
+cvar wwe2k14_cas_goto 76
+wait_state cas_record 76 3000
+log_state cas_goto
+log_state cas_level
+screenshot sc_s110_casarrive_tops
+mark 3 tops
+cvar wwe2k14_cas_goto 36
+wait_state cas_record 36 3000
+log_state cas_goto
+log_state cas_level
+log_state cas_reason
+wait_frames 120
+screenshot sc_s110_casarrive_second
+mark 4 mustache
+log bench: done
+quit

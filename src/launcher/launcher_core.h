@@ -1132,14 +1132,25 @@ inline int AutoLanguage() {
 // Session 32: the player's DLC packs (the switched-off ones by pack id). Session 57 (tester bug 2): the helper runs
 // (logo import, Build previews) get them too: they load the same save, and the game refuses a save made with packs it
 // does not see ("missing or damaged downloadable content").
-inline std::vector<std::string> DlcFlags(const Settings& s, const Paths& p) {
+// S110 LOGOIMPORT: the imported superstars' pack (pack 6, USE MY SUPERSTARS) is one of those packs. A save written while it was
+// offered keeps bit 6 in its pack mask, and a start without it gets the same notice (docs\systems\dlc.md, S105 IMP-B): the logo
+// import stopped there and closed the game. So it is sent from here, where every start that loads the save takes its packs.
+// mods_dir_given: the caller has already sent --wwe2k14_mods_dir (PLAY with USE MY VIDEOS / USE MY LIGHTING); a helper run has not.
+inline std::vector<std::string> DlcFlags(const Settings& s, const Paths& p, bool mods_dir_given = false) {
   std::vector<std::string> f;
-  if (!s.dlc) return f;
-  f.push_back("--wwe2k14_dlc=true");
-  f.push_back("--wwe2k14_dlc_dir=" + Quote(PathStr(p.dlc)));
-  std::string off;  // rebuilt from the ids: a hand-edited settings file cannot add other flags (review)
-  for (int id : wwe2k14::dlc::ParseIdList(s.dlc_off)) off += (off.empty() ? "" : ",") + std::to_string(id);
-  if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
+  if (s.dlc) {
+    f.push_back("--wwe2k14_dlc=true");
+    f.push_back("--wwe2k14_dlc_dir=" + Quote(PathStr(p.dlc)));
+    std::string off;  // rebuilt from the ids: a hand-edited settings file cannot add other flags (review)
+    for (int id : wwe2k14::dlc::ParseIdList(s.dlc_off)) off += (off.empty() ? "" : ",") + std::to_string(id);
+    if (!off.empty()) f.push_back("--wwe2k14_dlc_off=" + off);
+  }
+  // Session 98 (Superstar Importer; Jarrod: "as simple as an on and off switch, similar to our custom music and Trons"): its own
+  // switch, like USE MY LIGHTING. The game side (the flag's cvar, reading <mods>\superstars) is the importer core's.
+  if (s.superstars) {
+    f.push_back("--wwe2k14_mods_superstars=true");
+    if (!mods_dir_given && (!s.mods_dir.empty() || !p.repo_found)) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
+  }
   return f;
 }
 
@@ -1184,13 +1195,9 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
     f.push_back("--wwe2k14_mods_lighting=true");
     if (!s.mods && (!s.mods_dir.empty() || !p.repo_found)) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
   }
-  // Session 98 (Superstar Importer; Jarrod: "as simple as an on and off switch, similar to our custom music and Trons"): its own
-  // switch, like USE MY LIGHTING. The game side (the flag's cvar, reading <mods>\superstars) is the importer core's.
-  if (s.superstars) {
-    f.push_back("--wwe2k14_mods_superstars=true");
-    if (!s.mods && !s.lighting && (!s.mods_dir.empty() || !p.repo_found)) f.push_back("--wwe2k14_mods_dir=" + Quote(PathStr(p.mods)));
-  }
-  for (auto& x : DlcFlags(s, p)) f.push_back(std::move(x));
+  // The DLC packs and (S110 LOGOIMPORT) the imported superstars' pack, USE MY SUPERSTARS: DlcFlags, shared with the helper runs. The mods
+  // folder was already sent above when USE MY VIDEOS or USE MY LIGHTING is on.
+  for (auto& x : DlcFlags(s, p, s.mods || s.lighting)) f.push_back(std::move(x));
   if (s.cinecam) f.push_back("--wwe2k14_cinecam=true");
   if (s.photo_mode) f.push_back("--wwe2k14_photo_mode=true");  // Session 33
   // Session 33: Discord status (the project's application id, or one the player set in Settings -> Game).

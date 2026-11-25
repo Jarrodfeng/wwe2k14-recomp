@@ -58,11 +58,7 @@
 #include "seats.h"  // S110 SEAT-B: LsdAppend (the residents' rows in the /ENEX/LSD lists)
 #include "tron_slots.h"  // S110 TRONSLOT: the MOVIE list's rows are added in this file's sub_82928B08 hook
 
-REXCVAR_DEFINE_BOOL(wwe2k14_music_slots, true, "wwe2k14",
-                    "Session 75: songs in <mods>\\music\\new\\ (mp3, m4a, wav, flac, wma, aac) are added as new entries "
-                    "at the end of the game's MUSIC list (Create-an-Entrance), named after the file; a wrestler given "
-                    "one plays it at his entrance. Needs --wwe2k14_mods. Ids are kept in <mods>\\music\\new\\slots.txt. "
-                    "See src/music_slots.h");
+REXCVAR_DECLARE(bool, wwe2k14_music_slots);
 
 REX_EXTERN(__imp__sub_82928B08);
 

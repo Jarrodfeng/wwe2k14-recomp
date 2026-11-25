@@ -31,8 +31,7 @@
 #include "../native_fn.h"
 #include "rope_spring.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_rope_grid, "off", "wwe2k14",
-                      "Session 95: native sub_824FB290 (rope integration step): off | verifylean | lean");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_rope_grid);
 
 REX_EXTERN(__imp__sub_824FB290);
 

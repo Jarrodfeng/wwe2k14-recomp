@@ -19,10 +19,7 @@
 #include "screen_planes_hook.h"
 #include "stage_fx_contrib.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_screen_bind, "", "wwe2k14",
-                      "S103 lane M (DEV ONLY, not a player setting): which titan movie channel (0-5) each stage screen key (800-809) shows and the picture size it expects, e.g. 804:0@320x320,805:2@256x128. Empty (the default) = the built-in "
-                      "table (803/804/807 -> channel 0 @320x320, 805 -> channel 2 @256x128; the other keys unbound). 'none' = every screen unbound. Any other text REPLACES the built-in table; a malformed text changes nothing (the "
-                      "built-in table stays). Read once at start; only used with --wwe2k14_rdr_scene (docs\\renderer\\STAGE_LIVE_WRITERS.md 2b)");
+REXCVAR_DECLARE(std::string, wwe2k14_rdr_screen_bind);
 
 namespace wwe2k14::scene_screens_glue {
 

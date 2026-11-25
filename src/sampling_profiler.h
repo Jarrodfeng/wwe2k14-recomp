@@ -84,25 +84,16 @@
 
 #include "frame_stats.h"
 
-REXCVAR_DEFINE_BOOL(wwe2k14_profile_main, false, "wwe2k14",
-                    "Sample the game's main thread ~1000x/s and log its hottest functions every few seconds");
-REXCVAR_DEFINE_BOOL(wwe2k14_profile_gpu_commands, false, "wwe2k14",
-                    "Sample the ReXGlue threads named in wwe2k14_profile_threads (default \"GPU Commands\") "
-                    "the same way");
-REXCVAR_DEFINE_STRING(wwe2k14_profile_threads, "GPU Commands", "wwe2k14",
-                      "With wwe2k14_profile_gpu_commands: comma-separated thread-name prefixes to sample, "
-                      "e.g. \"GPU Commands,GPU Submit\"");
-REXCVAR_DEFINE_BOOL(wwe2k14_profile_stacks, false, "wwe2k14",
-                    "With a profiler on: write every sample's call stack to logs/stacks_NNN.txt");
-REXCVAR_DEFINE_BOOL(wwe2k14_profile_lines, true, "wwe2k14",
-                    "With wwe2k14_profile_stacks: also write each stack frame's source file:line (DbgHelp + PDBs)");
-REXCVAR_DEFINE_INT32(wwe2k14_profile_interval_ms, 1, "wwe2k14",
-                     "Profiler sampling period in ms (1 = ~1000 samples/s per thread; higher = less overhead)");
-REXCVAR_DEFINE_INT32(wwe2k14_profile_report_seconds, 5, "wwe2k14", "Seconds per profiler report");
-REXCVAR_DEFINE_INT32(wwe2k14_profile_top, 12, "wwe2k14", "Functions listed per profiler report");
+REXCVAR_DECLARE(bool, wwe2k14_profile_main);
+REXCVAR_DECLARE(bool, wwe2k14_profile_gpu_commands);
+REXCVAR_DECLARE(std::string, wwe2k14_profile_threads);
+REXCVAR_DECLARE(bool, wwe2k14_profile_stacks);
+REXCVAR_DECLARE(bool, wwe2k14_profile_lines);
+REXCVAR_DECLARE(int32_t, wwe2k14_profile_interval_ms);
+REXCVAR_DECLARE(int32_t, wwe2k14_profile_report_seconds);
+REXCVAR_DECLARE(int32_t, wwe2k14_profile_top);
 // Session 95: every game thread at once (a match has ~15 busy ones) needs more than the old fixed 8.
-REXCVAR_DEFINE_INT32(wwe2k14_profile_max_named, 8, "wwe2k14",
-                     "Session 95: most named threads the profiler samples (default 8, the old fixed cap)");
+REXCVAR_DECLARE(int32_t, wwe2k14_profile_max_named);
 
 namespace wwe2k14 {
 

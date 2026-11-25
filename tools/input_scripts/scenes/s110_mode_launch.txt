@@ -1,0 +1,29 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true
+# intent: fixed_seed 1, audio_mute on
+# S110 EXITMAP (docs\research\s110\EXITMAP.md): any mode of src\mode_table.h with NO menu input. The mode comes from run_list
+# -Extra '--wwe2k14_launch=@mode:<name>' (names: cas cas_edit threads entrance moveset finisher_grapple finisher_toprope finisher_corner arena logo wm30 shop;
+# cas_edit needs a save with a created superstar: run_list -Data userdata_caw_s105, S110 CASEDIT).
+# src\mode_launch.h sends the row's exit action at the idle main menu, after the menu path's own refusals, and logs
+# "[wwe2k14][launch] @mode:<name>: exit N sent at frame F" then "sequence S is current". The route boots, waits for the sequence to leave the main
+# menu (75) and watches 2400 frames with a shot every 300: no press after the title, so nothing in the mode is changed or saved (and the run uses
+# the per-run copy of the frozen user data). A refused launch (a WARN "refused, ...") stays in 75: the wait below fails and the run quits.
+# Marks: 1 main menu, 2 left the main menu, 3 end. on_fail quit.
+on_fail quit
+log bench: start scene mode_launch
+include boot_to_menu
+mark 1 menu
+wait_state seq !=75 3600 2
+log scene=mode_left_menu
+mark 2 mode_left_menu
+log_state seq
+screenshot_every 300 sc_s110_mode_watch
+wait_frames 2400
+screenshot_every 0
+log_state seq
+log_state menu_page
+log_state menu_row
+log_text 8
+screenshot sc_s110_mode_end
+mark 3 end
+log bench: done
+quit

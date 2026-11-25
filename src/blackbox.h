@@ -31,13 +31,9 @@
 #endif
 
 #if defined(__ANDROID__)
-REXCVAR_DEFINE_BOOL(wwe2k14_blackbox, true, "wwe2k14",
-                    "Session 73: logs/startup.txt - each start-up step, low-memory warnings and (Android / Linux) "
-                    "what crashed, written at once (src\\blackbox.h)");
+REXCVAR_DECLARE(bool, wwe2k14_blackbox);
 #else
-REXCVAR_DEFINE_BOOL(wwe2k14_blackbox, false, "wwe2k14",
-                    "Session 73: logs/startup.txt - each start-up step, low-memory warnings and (Android / Linux) "
-                    "what crashed, written at once (src\\blackbox.h). Off on the PC by default (shared logs folder)");
+REXCVAR_DECLARE(bool, wwe2k14_blackbox);
 #endif
 
 namespace wwe2k14::blackbox {

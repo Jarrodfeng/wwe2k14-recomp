@@ -30,9 +30,7 @@
 #include "frame_stats.h"
 #include "input_script.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_matte, "", "wwe2k14",
-                      "Matte passes with every screenshot (Session 16): 'depth' = the frame's depth buffer (dump + "
-                      "near / far; tools/matte/depth.py makes the 16-bit PNG). Empty = off. See src/matte.h");
+REXCVAR_DECLARE(std::string, wwe2k14_matte);
 
 namespace wwe2k14::matte {
 

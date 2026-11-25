@@ -49,10 +49,7 @@
 #include "frame_stats.h"
 #include "lever_scene.h"   // S110 FLASHHOLD
 
-REXCVAR_DEFINE_BOOL(wwe2k14_pacing_log, true, "wwe2k14",
-                    "Log [wwe2k14][pacing] lines: frame-rate word changes, the game's calls that halve or restore "
-                    "the frame rate, and the late-frame threshold (log only; the timeline events need "
-                    "--wwe2k14_timeline=true)");
+REXCVAR_DECLARE(bool, wwe2k14_pacing_log);
 
 namespace wwe2k14::pacing {
 
@@ -174,10 +171,7 @@ void wwe2k14_pacing_fps_word(PPCRegister& r9, PPCRegister& r10) {
 // ms) instead of at the next vblank (33.3 ms); the entrance start's first 0.5 s 0.82-0.86 -> 0.95 of real time, frames
 // of 30-40 ms over a run 34-36 -> 9. The presenter shows whole frames, so no tearing. Replay mode (det) keeps the
 // game's 0: its flips are on the det vblank grid, and the replays' picture references were taken that way.
-REXCVAR_DEFINE_INT32(wwe2k14_late_frame_threshold, 100, "wwe2k14",
-                     "Session 73: the D3D late-frame threshold (percent, 0-127) instead of the game's own 0, so a "
-                     "slightly late frame flips at once instead of a whole vblank later; -1 = the game's "
-                     "(src/pacing_hooks.h)");
+REXCVAR_DECLARE(int32_t, wwe2k14_late_frame_threshold);
 
 // sub_82CAA838 at its first instruction: r3 = D3D device, r4 = new late-frame threshold (percent, low 7 bits).
 void wwe2k14_pacing_threshold(PPCRegister& r3, PPCRegister& r4) {
@@ -208,8 +202,7 @@ void wwe2k14_pacing_halve_825BF048() { wwe2k14::pacing::Halve<0x825BF048>(0x825B
 // --wwe2k14_entrance_60fps=true the hook returns true and the generated code jumps over the call
 // (jump_address_on_true = 0x8233177C in config/s7_pacing_hooks.toml), so the word stays 60: the game's own 60 fps
 // mode (step 1/60 s, present interval 1). Read when the call is about to run (entrance start). Default off.
-REXCVAR_DEFINE_BOOL(wwe2k14_entrance_60fps, false, "wwe2k14",
-                    "Experiment: skip the entrance's switch to 30 fps (call site 0x82331778), so entrances run at 60");
+REXCVAR_DECLARE(bool, wwe2k14_entrance_60fps);
 bool wwe2k14_pacing_halve_82331778() {
   wwe2k14::pacing::Halve<0x82331778>(0x82331628);
   if (!REXCVAR_GET(wwe2k14_entrance_60fps)) return false;

@@ -20,7 +20,8 @@ def need(cond, msg):
         fails.append(msg)
 
 
-need(re.search(r'REXCVAR_DEFINE_STRING\(wwe2k14_dump_stage_page,\s*""', reader) is not None, 'cvar wwe2k14_dump_stage_page defaults to ""')
+shards = ''.join(open(os.path.join(ROOT, 'src', 'cvars', 'cvars_%d.cpp' % i), encoding='utf-8').read() for i in range(6))   # S110 CVARSHARD: the definitions are in the generated shards
+need(re.search(r'REXCVAR_DEFINE_STRING\(wwe2k14_dump_stage_page,\s*""', shards) is not None, 'cvar wwe2k14_dump_stage_page defaults to ""')
 need(len(re.findall(r'REXCVAR_GET[(]wwe2k14_dump_stage_page[)]', reader)) == 1, 'reader.h reads the cvar once (the list)')
 m = re.search(r'void QueueStagePage\([^)]*\) \{\s*if \(!StagePageDue\(guest_frame\)\) return;', live)
 need(m is not None, 'QueueStagePage returns first thing when the list is empty / not reached')

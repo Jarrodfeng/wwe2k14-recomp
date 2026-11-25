@@ -36,13 +36,8 @@
 
 #include "input_script.h"  // g_title_pad_filter, g_mouse_user
 
-REXCVAR_DEFINE_BOOL(wwe2k14_keyboard_own_player, true, "wwe2k14",
-                    "Session 76: with KEYBOARD CONTROLS on, the keyboard is a player of its own (the first player no "
-                    "controller holds: P2 with one controller, P1 with none; P1 if it presses Start first on the title "
-                    "screen); =false: the keyboard and controller 1 are one player (ReXGlue's rule)");
-REXCVAR_DEFINE_INT32(wwe2k14_keyboard_test_pads, 0, "wwe2k14",
-                     "Session 76, tests without a controller: act as if N controllers hold P1..PN (slots only, no "
-                     "device; an input script drives P1), so the keyboard takes P(N+1)");
+REXCVAR_DECLARE(bool, wwe2k14_keyboard_own_player);
+REXCVAR_DECLARE(int32_t, wwe2k14_keyboard_test_pads);
 
 namespace wwe2k14::keyboard_player {
 

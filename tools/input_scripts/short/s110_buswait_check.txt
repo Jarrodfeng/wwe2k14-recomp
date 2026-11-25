@@ -1,0 +1,26 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_skip_entrances=true --wwe2k14_launch_participants=139,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S110 BUSWAIT check (docs\research\s110\BUSWAIT.md 8): no --wwe2k14_events; the wait_event lines turn the bus on. K4's finish: slot 1 passive, slot 0 momentum + stock.
+# The replay lines are optional. A `replay state=start` in this match (no fire, no table) also settles that start is not fire-gated (review).
+on_fail quit
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+wait_event clock_started 30000
+log_event clock_started
+momentum 0 100
+stock 0 1
+passive 1 on
+wait_event pin 72000
+wait_event count count=1 600 optional
+wait_event finish 72000
+log_event finish
+log_event pin
+wait_event replay start 3000 optional
+wait_frames 90
+press A
+wait_event replay skipped 300 optional
+wait_event replay end 900 optional
+log_event replay
+log_event replay start
+wait_frames 60
+quit

@@ -1,2 +1,5 @@
-{"f": 11, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}
-{"f": 15, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}
+{"f": 31, "kind": "move", "slot": 0, "id": 343, "waza": 18, "move": 42060, "class": "finisher"}
+{"f": 38, "kind": "move", "slot": 0, "id": 343, "waza": 18, "move": 42060, "class": "finisher"}
+{"f": 13937, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}
+{"f": 40000, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}
+{"f": 50000, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}

@@ -55,19 +55,10 @@
 #include "music_slots.h"  // Session 75: new songs in the MUSIC list (their ids play through this player)
 #include "superstars.h"   // Session 98: imported superstars' music ids
 
-REXCVAR_DEFINE_BOOL(wwe2k14_entrance_music, false, "wwe2k14",
-                    "Session 33: custom entrance music from the mods folder (<mods>\\music\\ID.mp3, .m4a, .wav, .flac, "
-                    ".wma: the wrestler's id as for the trons): the game's own theme for that wrestler is muted and "
-                    "yours plays in its place. Needs --wwe2k14_mods. Default off. See src/entrance_music.h");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_entrance_music_volume, 1.0, "wwe2k14",
-                      "Session 33: the volume of custom entrance music, 0..1, times the game's own EntranceMusicVolume "
-                      "option when --wwe2k14_music_game_volume_addr is set (lane 283; unset = 1)");
-REXCVAR_DEFINE_STRING(wwe2k14_music_game_volume_addr, "", "wwe2k14",
-                      "Lane 283: guest address (hex, e.g. 83xxxxxx) of the byte holding the game's EntranceMusicVolume option (0..10, "
-                      "the options screen's slider). Custom songs play at level/10 of --wwe2k14_entrance_music_volume. Empty = "
-                      "not applied (the address is not confirmed yet: docs/systems/music.md, Volume option)");
-REXCVAR_DEFINE_BOOL(wwe2k14_music_probe, false, "wwe2k14",
-                    "Session 33 (debug): log every music event name the game builds (Play_MUS_...), with the caller");
+REXCVAR_DECLARE(bool, wwe2k14_entrance_music);
+REXCVAR_DECLARE(double, wwe2k14_entrance_music_volume);
+REXCVAR_DECLARE(std::string, wwe2k14_music_game_volume_addr);
+REXCVAR_DECLARE(bool, wwe2k14_music_probe);
 
 namespace wwe2k14::music_app {
 // ONE volume rule (lane 288): the game's music volume x the player's cvar (see src\music_player_app.h).

@@ -17,10 +17,7 @@
 #include "mem_plan_core.h"
 #include "native_mem_probe.h"  // wwe2k14::native_mem_probe::Ld32 / St32 (guest big-endian words)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_mem_plan, true, "wwe2k14",
-                    "S110 REPLAN: one boot plan for the game's per-slot memory budgets (model data heaps 22..33 -> 2560 KB, "
-                    "vertex-buffer windows 34..42 -> 2048 KB in every layout table; the heap block and the window span grown by the "
-                    "same amount), so heavier imported models load; off: the game's sizes");
+REXCVAR_DECLARE(bool, wwe2k14_mem_plan);
 
 REX_EXTERN(__imp__sub_8225F0F0);
 

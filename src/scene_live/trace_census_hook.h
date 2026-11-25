@@ -17,8 +17,7 @@
 #include "trace_census_core.h"
 #include "light_index_hook.h"   // S103 A3 (bit 4)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_scene_census, false, "wwe2k14",
-                    "S103 lane T (dev only): log the [wwe2k14][census] lines of seven scene functions (callers, arguments) while --wwe2k14_rdr_scene is not 0. Off by default");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_scene_census);
 
 REX_EXTERN(__imp__sub_827F10C8);
 REX_EXTERN(__imp__sub_82815840);

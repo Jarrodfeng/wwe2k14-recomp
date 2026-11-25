@@ -150,6 +150,30 @@ def check_libraries(apk: str) -> list:
     return [f'lib/arm64-v8a/{n} is not in the APK' for n in LIBRARIES if f'lib/arm64-v8a/{n}' not in names]
 
 
+SHADER_LIST = 'assets/shader_list.txt'   # S110 ANDROIDREADY: build_apk.ps1 packs db\shaders\shader_list.txt here; GameActivity.installShaderList puts it in the files folder
+
+
+def shader_list_fails(names, packed, tree) -> list:
+    """S110 ANDROIDREADY: pure part. `names` = the APK's entry names, `packed` = assets/shader_list.txt's bytes (None = absent), `tree` = this
+    tree's db/shaders/shader_list.txt bytes (None = the tree has none). The APK must carry the tree's list byte for byte: the phone's pipeline
+    seed and shader import read only that copy."""
+    if tree is None:
+        return []
+    if SHADER_LIST not in names or packed is None:
+        return [f'{SHADER_LIST} is not in the APK (build_apk.ps1 packs db\\shaders\\shader_list.txt): the phone would read no pipeline seed']
+    if packed != tree:
+        return [f'{SHADER_LIST} ({len(packed)} bytes) is not db\\shaders\\shader_list.txt ({len(tree)} bytes): the APK was packed from another list']
+    return []
+
+
+def check_shader_list(apk: str, tree_path: Path) -> list:
+    tree = tree_path.read_bytes() if tree_path.is_file() else None
+    with zipfile.ZipFile(apk) as z:
+        names = set(z.namelist())
+        packed = z.read(SHADER_LIST) if SHADER_LIST in names else None
+    return shader_list_fails(names, packed, tree)
+
+
 def check_signature(apk: str, tools: Path) -> list:
     out = subprocess.run([str(tools / 'apksigner.bat'), 'verify', '--print-certs', apk], capture_output=True, text=True, shell=False)
     m = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', out.stdout)
@@ -183,6 +207,7 @@ def main() -> int:
     version = Path(args.version_file).read_text(encoding='ascii').strip()
     fails = check_manifest(dump.stdout, version, args.release)
     fails += check_libraries(args.apk)
+    fails += check_shader_list(args.apk, ROOT / 'db' / 'shaders' / 'shader_list.txt')   # S110 ANDROIDREADY
     if args.release:
         fails += check_release_version(args.apk, (ROOT / 'VERSION').read_text(encoding='ascii').splitlines()[0])
     if args.stream_free:
@@ -195,7 +220,7 @@ def main() -> int:
         with zipfile.ZipFile(args.apk) as z:
             kind = 'dev (+dev)' if b'+dev\0' in z.read('lib/arm64-v8a/libmain.so') else 'release (no +dev)'
         print(f'check_apk: ok ({version}, versionCode {version_code(version)}, configChanges and hasFragileUserData as asked, '
-              f'{len(LIBRARIES)} native libraries present, libmain {kind})')
+              f'{len(LIBRARIES)} native libraries present, {SHADER_LIST} as in the tree, libmain {kind})')
     return 1 if fails else 0
 
 

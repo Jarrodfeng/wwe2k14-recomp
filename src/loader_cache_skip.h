@@ -8,9 +8,7 @@
 #include "load_probe.h"  // SafeRead32
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_copy, false, "wwe2k14",
-                    "TEST ONLY (S105 A6S, for a Surface A/B): true = the game's own loader RAM-cache copy (a 360 habit that can "
-                    "deadlock the read-end thread on slow machines); false (default) = skipped, the move path is kept");
+REXCVAR_DECLARE(bool, wwe2k14_loader_cache_copy);
 
 REX_HOOK_RAW(sub_82C54DE0) {
   using namespace wwe2k14::loader_cache;
@@ -49,9 +47,7 @@ REX_HOOK_RAW(sub_82C54DE0) {
                 g_moved.load(std::memory_order_relaxed), g_fallback.load(std::memory_order_relaxed));
 }
 
-REXCVAR_DEFINE_BOOL(wwe2k14_loader_cache_hits, false, "wwe2k14",
-                    "TEST ONLY (S110 CACHEHIT, for A / B runs): true = the game's own name-keyed loader RAM-cache hit (a bound seat then shows "
-                    "its previous occupant's picture); false (default) = every read goes through the pac list");
+REXCVAR_DECLARE(bool, wwe2k14_loader_cache_hits);
 
 // S110 CACHEHIT: drop the loader's cache NAME HIT (360 habit, docs\renderer\360_HABITS.md row 20; docs\research\s110\GUESTRENDER.md).
 // The game: the worker (sub_82C37070 +218, the only caller) asks sub_82C54A00(cache, request) first; it matches the request's entry NAME

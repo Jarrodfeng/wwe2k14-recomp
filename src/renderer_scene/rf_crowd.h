@@ -15,6 +15,8 @@ void SetSkipInPlace(FrontEnd& fe, bool on);
 void Detach(FrontEnd& fe);
 // The counts of the last frame the crowd recorded for this front-end (null when it has none): the rig prints them.
 const live::LiveCrowdCounts* LastCounts(const FrontEnd& fe);
+// S110 ENTRBODIES: every crowd class of `arena` asked now (LiveCrowd::PrefetchArena), for a scene start held behind the loading card. true = none still loading. Render thread only.
+bool PrefetchArena(FrontEnd& fe, int arena);
 
 // Test only (tools\scene frame_rig --plant-crowd): a planted fault of LiveCrowdOptions by name (palettes | cards_black | hidden | cards_back | inst_first); "" = none. Set before the crowd is made.
 void SetFaultForTest(const char* name);

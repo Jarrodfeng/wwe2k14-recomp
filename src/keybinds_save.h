@@ -17,10 +17,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_save_keybinds, true, "wwe2k14",
-                    "Session 53: keep the keyboard binds (F4 overlay, Input/Keybinds) between starts: each change is "
-                    "written to <user data>\\keybinds.toml and read back at start (=false: the SDK's behaviour, only "
-                    "\"Save to config\" keeps them)");
+REXCVAR_DECLARE(bool, wwe2k14_save_keybinds);
 
 namespace wwe2k14::keybinds_save {
 

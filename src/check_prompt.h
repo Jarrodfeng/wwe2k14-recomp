@@ -38,13 +38,9 @@
 #include "platform/compat.h"  // <windows.h> on Windows (Session 63)
 #endif
 
-REXCVAR_DEFINE_INT32(wwe2k14_check_timeout_s, 300, "wwe2k14",
-                     "Session 29: input-script `check TEXT`: seconds (wall clock) to wait for an answer key (F1 pass, "
-                     "F2 fail, F5 skip) before logging TIMEOUT and going on");
+REXCVAR_DECLARE(int32_t, wwe2k14_check_timeout_s);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_check_focus, true, "wwe2k14",
-                    "Session 30: a `check` question brings the game window to the front with the keyboard focus (false: "
-                    "to the top without the focus, taskbar button flashing)");
+REXCVAR_DECLARE(bool, wwe2k14_check_focus);
 
 namespace wwe2k14::check {
 

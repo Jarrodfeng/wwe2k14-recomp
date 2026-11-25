@@ -25,9 +25,7 @@
 
 #include "vk_devices.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_gpu, "", "wwe2k14",
-                      "Graphics card: part of its name (e.g. 'RTX 4090'). Empty = the dedicated GPU with the most memory "
-                      "(Session 31: the SDK's auto choice can take an integrated GPU). Ignored when --vulkan_device is set");
+REXCVAR_DECLARE(std::string, wwe2k14_gpu);
 
 namespace wwe2k14::gpu_pick {
 

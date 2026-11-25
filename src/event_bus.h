@@ -11,7 +11,7 @@
 //              match_events.md): pin (the referee's pin count started), count 1..3, kickout (the count stopped below
 //              3 with no finish; the kickout line also has stopped_f = the frame the count stopped, emitted late: S101 lane 102),
 //              dq_count / count_out_count, eliminated (slot, id, over the top), finish (type + name:
-//              1 pinfall, 2 count-out, 3 DQ, 6 submission, 7 last one left, 9 time limit, 10 Inferno; winner / loser
+//              1 pinfall, 2 count-out (or table: FinishName), 3 DQ, 6 submission, 7 last one left, 9 time limit, 10 Inferno; winner / loser
 //              slot and character id; emitted once the triple held 2 reads, again when it changes)
 //   state      on request (--wwe2k14_match_state_dump N): the match snapshot (clock, referee, finish, wrestlers)
 //   entrance   an entrance step changed for a slot ([0x836F38D0 + 4 * slot] + 28 > +2: 0 intro, 5 his segment)
@@ -22,6 +22,54 @@
 // number): {"f": guest frame, "t": seconds since start, "kind": ..., fields}. tools/live/events.py follows the file;
 // MCP game_events reads it. The memory words are the atlas's states (tools/input_scripts/states.toml, each with its
 // evidence); the per-frame tick reads ~16 words (main thread, the owner update) - negligible.
+//
+// S110 BUSWAIT: the vocabulary (docs/research/s110/BUSWAIT.md 3). A route waits on these with `wait_event KIND [WORD] [KEY=VALUE ...]`
+// (src/input_script.h, src/event_wait_core.h); a route that does turns the bus on (On()); every Emit is also kept for it (event_wait::Global()).
+//   kind      what / fields                                              emitted at                      game state
+//   seq       seq, from                                                  Tick                            [[0x839400F8]+0]+48
+//   screen    menu, screen_mode, from_menu, from_mode                    Tick (seq 75)                   [0x8392945C]+364, [[0x8392945C]+11412]+32
+//   exit      action                                                     Tick                            0x83929434 (non-zero)
+//   msgbox    state, from                                                Tick                            [0x839294BC]+16
+//   match     what=clock_started: clock                                  Tick                            0x836F3928 0 -> > 0
+//   match     what=finish: finish_type, finish_name, winner_slot,        Tick (held 2 reads)             0x8376ACCC, 0x8376E3EC / 0x8376E3ED
+//             winner_id, loser_slot, loser_id, clock, table_rule,                                        table_rule: rule bytes G+18 / G+39 (bits 0 / 1)
+//             count_out_rule                                                                             count_out_rule: rule byte G+26
+//   match     what=scene: g472, clock                                    Tick                            0x8376ACCC = 15 (a 30 Years scene)
+//   match     what=fall: scorer_slot, scorer_id, falls, then the         Tick (the tally rose;           rule byte G+13 / G+22 (0x8376AB01 / 0x8376AB0A)
+//             finish's fields as read then; a fall scored in a rule the  S110 ELIMFIN fix 2,             != 0; the tally int16 G+14588 + 2*slot; the finish
+//             game may go on past (falls); that rule's finish is said    event_bus_finish_core.h)        then waits for the finish time G+14580 = 0x8376E3E8
+//             once the game commits the end (+ winner_falls, loser_falls)                                != 0
+//   match     what=pin: pinning_slot                                     MatchTick (seq 9)               judge [0x83767B6C]+72 -> 1, +92
+//   match     what=count: count (1..3)                                   MatchTick                       judge +80 in mode 1
+//   match     what=kickout: at_count, stopped_f (20 frames late)         MatchTick                       mode 1 -> 0 below 3, no finish
+//   match     what=dq_count | count_out_count                            MatchTick                       judge mode 3 | 5
+//   match     what=eliminated: slot, id, over_the_top                    MatchTick (not a Rumble)        char+1020 -> 4 | 5
+//   match     what=eliminated (Rumble): n, slot, id, over_the_top,       event_bus_rumble.h Tick         0x836F3924
+//             by_idx, victim_idx, remaining [, same_frame]
+//   match     what=entered: n, slot, id [, starter | same_frame];        event_bus_rumble.h Tick         G+81 + [0x835E1928]
+//             what=entered_id: n, slot, id; what=resync: counter, from, to
+//   move      slot, id, waza, move, class (signature | finisher;         move_log_hook.h, at each motion char+2490..+2494 latched
+//             normal too with --wwe2k14_events_moves=all): one line a    start that latches a logged     by sub_823CA4B0 from the
+//             logged move whose motion starts (S110 BUSMOVE fix 2: not   move; the rule is               log sub_825A14A8 writes
+//             what the grapple-start offer loop left, not a continuation event_bus_rumble.h MoveLatch
+//             of the move the character is in)
+//   entrance  slot, step, from                                           Tick (seq 9)                    [[0x836F38D0+4*slot]+28]+2
+//   state     clock, referee_mode, referee_count, finish, finish_name,   Tick, on request                SnapshotJson (--wwe2k14_match_state_dump)
+//             winner, loser, wrestlers[] (or in_match: false)
+//   render    what=roster_ready (pacs, models, seconds) | roster_failed  Tick (render_signal.h queue)    the renderer's posts
+//             | background_ended (ms)
+//   load      file                                                       OnFileOpened                    a *.PAC opened
+//   break     what=ring, byte                                            MatchTick, once a match         0x837632FA bit 0 (sub_825957A8)
+//   break     what=table: obj, act, previous, track, weapon_kind, on_fire, via   table_break.h's hooks of the    [w+1464] 0 -> 1 on a table
+//             (hit | other) [, body_slot, body_id when via=hit]           latch writers, once a table     (kind 5 / 9) across one write
+//             per break: slot +88 sub_825DDEC0 / slot +84 sub_825DDFA0 (the broken-model swap), whatever calls them (a motion start,
+//             sub_825DF030's mid-motion break, sub_82684948's 15378 / 15379). act / previous / track = the table's at the write.
+//             Not a break: sub_825E0B38's direct 1 (an out-of-bounds removal: the table shows broken while it fades out) and the
+//             replay's restores. A second table that only plays a motion (15229 / 15356) writes no latch.
+//   replay    state=start                                                Replay(): hook sub_8271A630     the PRTI track begins playback
+//             state=skipped                                              Replay(): hook sub_826071F8     [ctrl+48] = 4 after the skip
+//             state=end, skipped (true | false)                          Replay(): hook sub_8271AA48     the PRTI track ends playback
+// S110 TABLEEVENT / TABLELATCH (docs/research/s110/TABLELATCH.md): the table break is the weapon's latch, emitted where it is written (replaces BUSWAIT.md 4a).
 
 #include <algorithm>
 #include <array>
@@ -37,25 +85,21 @@
 
 #include "event_bus_rumble.h"  // S101 lane 120
 #include "render_signal.h"  // lane 147
+#include "event_wait_core.h"  // S110 BUSWAIT: every event kept for the route's wait_event (no SDK)
+#include "table_break_core.h"  // S110 TABLEEVENT: finish type 2's name by the rule bits (no SDK)
+#include "event_bus_finish_core.h"  // S110 ELIMFIN: which decision line a read makes: finish | fall | scene (no SDK)
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
 #include <rex/system/kernel_state.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_events, false, "wwe2k14",
-                    "Session 91: the event bus - log the game's transitions (mode, screen, exit action, message box, "
-                    "match start / end, entrance steps, archive loads) as [wwe2k14][event] lines and "
-                    "logs/events_NNN.jsonl (src/event_bus.h)");
+REXCVAR_DECLARE(bool, wwe2k14_events);
 
-REXCVAR_DEFINE_INT64(wwe2k14_match_state_dump, 0, "wwe2k14",
-                     "Session 91: set to a new value for one 'state' event: the match snapshot (clock, referee mode / "
-                     "count, finish, every wrestler's id, team, role, state, health); needs --wwe2k14_events");
+REXCVAR_DECLARE(int64_t, wwe2k14_match_state_dump);
 
 // S101 lane 113 / lane 120: "" = the move event emits signature + finisher moves only; "all" adds the normal moves.
-REXCVAR_DEFINE_STRING(wwe2k14_events_moves, "", "wwe2k14",
-                      "S101 lane 113: --wwe2k14_events_moves=all also emits normal moves as 'move' bus lines (default: signature "
-                      "and finisher only); needs --wwe2k14_events");
+REXCVAR_DECLARE(std::string, wwe2k14_events_moves);
 
 namespace wwe2k14::events {
 
@@ -79,7 +123,8 @@ inline int RunNumber() {  // this run's log number (wwe2k14_NNN.log), as the sna
   return best;
 }
 
-inline bool On() { return REXCVAR_GET(wwe2k14_events); }
+// S110 BUSWAIT: also on when the route parser saw a bus wait (wait_event / log_event), so a route never needs the flag.
+inline bool On() { return REXCVAR_GET(wwe2k14_events) || ::wwe2k14::event_wait::g_wanted.load(std::memory_order_relaxed); }
 
 inline std::string Esc(const std::string& s) {
   std::string o;
@@ -96,6 +141,7 @@ inline void Emit(uint64_t frame, const char* kind, const std::string& fields) {
   const std::string line = fmt::format("{{\"f\": {}, \"t\": {:.3f}, \"kind\": \"{}\"{}{}}}", frame, t, kind,
                                        fields.empty() ? "" : ", ", fields);
   REXLOG_INFO("[wwe2k14][event] {}", line);
+  ::wwe2k14::event_wait::Global().Add(frame, kind, fields);  // S110 BUSWAIT: the route's record (its own mutex; any emitting thread)
   std::lock_guard<std::mutex> lock(g_mutex);
   if (!g_file_tried) {
     g_file_tried = true;
@@ -147,13 +193,15 @@ struct Last {
   uint64_t frame = 0;
   // Session 91 step 8 (match state; out/harness/atlas/readers/match_events.md, listings cited there)
   int64_t ref_mode = -2, ref_count = -2, ref_last_count = 0;
-  int64_t fin_seen = 0, fin_type = 0, fin_win = -1, fin_lose = -1, fin_emitted = 0;  // the finish held 2 reads
-  int64_t fin_emitted_key = -1;
+  finish_core::State fin;  // S110 ELIMFIN: the decision record's lines (src/event_bus_finish_core.h): held 2 reads; fall / finish
   std::array<int64_t, 6> part{-2, -2, -2, -2, -2, -2};  // char+1020 per slot: 0 active, 1 apron, 4 out, 5 over the top
 };
 inline Last g_last;
+inline std::atomic<uint64_t> g_frame_now{0};  // S110 BUSWAIT: Tick's frame, the stamp of the events emitted off the owner update (Replay)
+inline int g_ring_break = 0;                  // S110 BUSWAIT: 0 not armed, 1 armed (bit 0 seen clear in this match), 2 said
 inline rumble::State g_rumble;          // S101 lane 120
-inline rumble::MoveState g_moves;       // S101 lane 113
+inline rumble::MoveState g_moves;       // S101 lane 113; S110 BUSMOVE: written by src/move_log_hook.h (each move-log call) and Tick (the match leave)
+inline std::mutex g_moves_mutex;        // S110 BUSMOVE review: guards g_moves (the move hook and Tick's match leave)
 
 // Match state words (match_events.md): the referee ("judge") [0x83767B6C]: +72 mode (0 watch, 1 pin count, 3 5-count
 // to a DQ, 4 a count over all slots, 5 10-count count-out), +80 count, +92 the pinning slot (inferred); the finish
@@ -164,11 +212,19 @@ inline rumble::MoveState g_moves;       // S101 lane 113
 constexpr uint32_t kJudge = 0x83767B6C, kFinish = 0x8376ACCC, kWinner = 0x8376E3EC, kLoser = 0x8376E3ED;
 constexpr uint32_t kSlots = 0x836F38D0, kClock = 0x836F3928, kMatchDesc = 0x836F2D88;
 
-constexpr int64_t kSceneFinishType = 15;  // lane 150: see the emit below
-inline const char* FinishName(int64_t t) {
+constexpr uint32_t kFinishTime = 0x8376E3E8;  // G+14580: the clock, written when the game commits the match end (S110 ELIMFIN, finish_core)
+// S110 TABLEEVENT: finish type 2 is decision kind 1 (the table 0x8201EB58 read by sub_825B0EA0). The referee's 10-count (sub_825B5780,
+// mode 5) records kind 1, and so does the table-hit decision sub_827B5B98 (+188 / +1AC, against the hit command's [cmd+36]) when rule
+// byte G+39 or G+18 is set (G = 0x8376AAF4, the match's rule bytes G+0..63). The 10-count runs only under the count-out rule byte G+26
+// (sub_825B3CF0 +414): type 2 is named "table" under a table rule with G+26 clear, else "count-out" (table_break_core.h Kind1Name).
+constexpr uint32_t kRules = 0x8376AAF4;
+inline int TableRules() {
+  return table_break::TableRuleBits(R8(kRules + 18), R8(kRules + 39)) | (R8(kRules + 26) ? table_break::kCountOutRule : 0);
+}
+inline const char* FinishName(int64_t t, int table_rules = 0) {
   switch (t) {
     case 1: return "pinfall";
-    case 2: return "count-out";
+    case 2: return table_break::Kind1Name(table_rules);
     case 3: return "disqualification";
     case 6: return "submission";
     case 7: return "last one left";
@@ -223,7 +279,7 @@ inline std::string SnapshotJson() {
   return fmt::format("\"clock\": {}, \"referee_mode\": {}, \"referee_count\": {}, \"finish\": {}, \"finish_name\": "
                      "\"{}\", \"winner\": {}, \"loser\": {}, \"wrestlers\": [{}]",
                      int32_t(R32(kClock)), Readable(judge) ? int32_t(R32(judge + 72)) : -1,
-                     Readable(judge) ? int32_t(R32(judge + 80)) : -1, fin, fin ? FinishName(fin) : "",
+                     Readable(judge) ? int32_t(R32(judge + 80)) : -1, fin, fin ? FinishName(fin, TableRules()) : "",
                      int(int8_t(R8(kWinner))), int(int8_t(R8(kLoser))), ws);
 }
 
@@ -288,9 +344,18 @@ inline void MatchTick(uint64_t frame) {
                                        st == 5 ? "true" : "false"));
     }
   }
-  // S101 lane 113: the move log (waza slot char+2486, move id char+2488), emitted on change
-  rumble::MoveTick(g_moves, mem, REXCVAR_GET(wwe2k14_events_moves) == "all",
-                   [&](const std::string& f) { Emit(frame, "move", f); });
+  // S101 lane 113 / S110 BUSMOVE: the move line is emitted at each call of the move log sub_825A14A8 (src/move_log_hook.h), not polled here
+  // S110 BUSWAIT: the OMG ring break. sub_825957A8 writes byte 0x837632FA = 3 at 0x825957E8 when the RIDS rig starts the break; the rest
+  // value is 0 or 2 (sub_82597120 0x8259715C). A replay saves the byte and forces 2 (sub_82711CA8 +20..+38) and puts it back at its end
+  // (sub_82711D38 +1C), so bit 0 rises again after a replay of the break: one line a match, armed once bit 0 was seen clear in it.
+  constexpr uint32_t kRingBreak = 0x837632FA;
+  const uint8_t ring = R8(kRingBreak);
+  if (g_ring_break == 0 && !(ring & 1)) {
+    g_ring_break = 1;
+  } else if (g_ring_break == 1 && (ring & 1)) {
+    g_ring_break = 2;
+    Emit(frame, "break", fmt::format("\"what\": \"ring\", \"byte\": {}", int(ring)));
+  }
 }
 
 
@@ -298,6 +363,7 @@ inline void MatchTick(uint64_t frame) {
 inline void Tick(uint64_t frame) {
   if (!On() || frame == g_last.frame) return;
   g_last.frame = frame;
+  g_frame_now.store(frame, std::memory_order_relaxed);
   render_signal::Drain([&](const std::string& what, const std::string& fields) {   // lane 147: the render side's ready signals, queued by its thread, emitted here on the guest frame
     Emit(frame, "render", fmt::format("\"what\": \"{}\"{}{}", what, fields.empty() ? "" : ", ", fields));
   });
@@ -326,34 +392,55 @@ inline void Tick(uint64_t frame) {
   const int64_t clock = int64_t(int32_t(R32(0x836F3928)));
   if (changed(g_last.clock_running, clock > 0 ? 1 : 0) && clock > 0)
     Emit(frame, "match", fmt::format("\"what\": \"clock_started\", \"clock\": {}", clock));
-  // The finish: the type, winner and loser are written in different orders by different paths, multi-fall rules reset
-  // them, and the time limit fills the winner a frame later (match_events.md section 5): emit once the triple has held
-  // for 2 reads, again whenever it changes to another non-zero triple.
+  // The decision record: the type, winner and loser are written in different orders by different paths, multi-fall rules reset
+  // them, and the time limit fills the winner a frame later (match_events.md section 5): a line once the triple has held for 2
+  // reads, again whenever it changes to another non-zero triple. S110 ELIMFIN (docs/research/s110/ELIMFIN.md): in a rule the game
+  // may go on past a decision (rule byte G+13 or G+22, sub_827C3660 +A8..+18C) that line is `fall`, and `finish` is said once the
+  // game commits the end (G+14580 written: sub_827C30B0 +BC, sub_82679710). src/event_bus_finish_core.h decides which.
   const int64_t finish = int64_t(int32_t(R32(kFinish)));
   const int64_t win = int8_t(R8(kWinner)), lose = int8_t(R8(kLoser));
-  const int64_t key = finish ? (finish << 16) | ((win & 0xFF) << 8) | (lose & 0xFF) : 0;
-  if (key != g_last.fin_seen) {
-    g_last.fin_seen = key;
-  } else if (key != 0 && key != g_last.fin_emitted_key) {
-    g_last.fin_emitted_key = key;
-    auto who = [](int64_t slot) {
-      const uint32_t c = slot >= 0 && slot < 9 ? Char(uint32_t(slot)) : 0;
-      return c ? CharacterId(c) : -1;
-    };
-    if (finish == kSceneFinishType) {  // lane 150: G+472 = 15 is the value a playing 30 Years scene leaves there (run 7092), not a match end: never a `finish`
-      Emit(frame, "match", fmt::format("\"what\": \"scene\", \"g472\": {}, \"clock\": {}", finish, clock));
-    } else
-    Emit(frame, "match", fmt::format("\"what\": \"finish\", \"finish_type\": {}, \"finish_name\": \"{}\", \"winner_slot\": "
-                                     "{}, \"winner_id\": {}, \"loser_slot\": {}, \"loser_id\": {}, \"clock\": {}",
-                                     finish, FinishName(finish), win, who(win), lose, who(lose), clock));
-  } else if (key == 0) {
-    g_last.fin_emitted_key = -1;  // reset (a new fall / match): the next finish is emitted again
+  finish_core::Read fr;
+  fr.type = finish;
+  fr.win = win;
+  fr.lose = lose;
+  fr.multi = finish_core::MultiDecision(R8(kRules + 13), R8(kRules + 22));
+  fr.ended = R32(kFinishTime) != 0;
+  for (int s = 0; s < finish_core::kTallySlots; ++s) fr.falls[s] = int16_t(R16(kRules + finish_core::kTallyOffset + 2 * uint32_t(s)));
+  const finish_core::Scored scored = finish_core::Falls(g_last.fin, fr);  // S110 ELIMFIN fix 2: a fall is a tally rise (run 293)
+  const finish_core::Line fin_line = finish_core::Step(g_last.fin, fr);
+  auto who = [](int64_t slot) {
+    const uint32_t c = slot >= 0 && slot < 9 ? Char(uint32_t(slot)) : 0;
+    return c ? CharacterId(c) : -1;
+  };
+  auto record = [&]() {  // the decision record's fields as this read sees them (the finish line's text since Session 91)
+    return fmt::format("\"finish_type\": {}, \"finish_name\": \"{}\", \"winner_slot\": {}, \"winner_id\": {}, \"loser_slot\": {}, "
+                       "\"loser_id\": {}, \"clock\": {}, \"table_rule\": {}, \"count_out_rule\": {}",
+                       finish, FinishName(finish, TableRules()), win, who(win), lose, who(lose), clock, TableRules() & 3,
+                       int(R8(kRules + 26)));
+  };
+  for (int i = 0; i < scored.n; ++i) {  // before the finish: a fall that ends the match rises in the read the end may also show
+    const int s = scored.slot[size_t(i)];
+    Emit(frame, "match", fmt::format("\"what\": \"fall\", \"scorer_slot\": {}, \"scorer_id\": {}, \"falls\": {}, {}", s, who(s),
+                                     fr.falls[size_t(s)], record()));
+  }
+  if (fin_line == finish_core::Line::kScene) {  // lane 150: G+472 = 15 is the value a playing 30 Years scene leaves there (run 7092), not a match end: never a `finish`
+    Emit(frame, "match", fmt::format("\"what\": \"scene\", \"g472\": {}, \"clock\": {}", finish, clock));
+  } else if (fin_line != finish_core::Line::kNone) {
+    auto tally = [&](int64_t slot) { return slot >= 0 && slot < finish_core::kTallySlots ? fr.falls[size_t(slot)] : int64_t(-1); };
+    // S110 ELIMFIN fix 2: a multi-decision rule's finish carries the falls (an Iron Man time-limit win is type 1 by the tally,
+    // sub_827C2BE8 +2C8); a one-fall line keeps its text
+    const std::string falls = fr.multi ? fmt::format(", \"winner_falls\": {}, \"loser_falls\": {}", tally(win), tally(lose)) : "";
+    Emit(frame, "match", fmt::format("\"what\": \"{}\", {}{}", finish_core::What(fin_line), record(), falls));
   }
   if (seq == 9) {
     MatchTick(frame);
   } else {  // S101 lane 120: leaving the match ends the Rumble / move tracking
     g_rumble.Reset();
-    g_moves = {};
+    {  // S110 BUSMOVE review: the move hook (src/move_log_hook.h) runs only on move-log calls, which a menu never makes: the reset is here
+      std::lock_guard<std::mutex> lock(g_moves_mutex);
+      g_moves = {};
+    }
+    g_ring_break = 0;  // S110 BUSWAIT: the next match arms again
   }
   if (const int64_t ask = REXCVAR_GET(wwe2k14_match_state_dump); ask != g_state_dump_seen) {
     g_state_dump_seen = ask;
@@ -381,6 +468,14 @@ inline void OnFileOpened(const std::string& path, uint64_t frame) {
   g_load_frame = frame;
   g_load_last = low;
   Emit(frame, "load", fmt::format("\"file\": \"{}\"", Esc(path)));
+}
+
+// S110 BUSWAIT: the replay's moments, from the existing hooks in src/replay_fx_skip.h (a guest thread; Emit is thread-safe). The frame is
+// the owner update's last one (g_frame_now). extra = more fields (a JSON fragment) or "".
+inline void Replay(const char* state, const char* extra = "") {
+  if (!On()) return;
+  Emit(g_frame_now.load(std::memory_order_relaxed), "replay",
+       fmt::format("\"state\": \"{}\"{}{}", state, extra[0] ? ", " : "", extra));
 }
 
 }  // namespace wwe2k14::events

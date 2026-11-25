@@ -143,6 +143,8 @@ inline constexpr float kFlashNearViewZ = 1500.f;
 inline std::atomic<bool> g_plant_flash_pre_post{false}, g_plant_flash_file_colour{false}, g_plant_flash_v_flip{false};
 // TEST ONLY (S110 FLASHOCC, cutgrey_unit [OCC]): the centre's depth is fetched from the picture's row 0 (the sky's far plane), not the centre's own row: a body in front of the centre no longer hides the sprite.
 inline std::atomic<bool> g_plant_flash_fetch_row0{false};
+// TEST ONLY (S110 FLASHFRONT, cutgrey_unit [PIX]): the after-post flash pass keeps its depth test off (CUTGREY's state): a sprite whose centre is visible paints over a nearer body.
+inline std::atomic<bool> g_plant_flash_no_ztest{false};
 
 // A frame request: what to draw, from where.
 struct SceneFrame {
@@ -555,6 +557,9 @@ class FrontEnd {
   uint64_t flash_given_ = 0, flash_drawn_ = 0, flash_nodepth_ = 0;   // S110 RDRPREP F3: sprites given to the after-post draw / drawn by it / skipped because the depth was not sampled
   uint64_t flash_near_ = 0; float flash_nearest_ = 0.f; uint32_t flash_near_lines_ = 0;   // S110 FLASHOCC: drawn sprites with centre view z < kFlashNearViewZ, the smallest centre view z seen (0 = none), near lines logged (cap 32)
   uint16_t flash_program_ = 0, flash_layout_ = 0;
+  rdr::ImageId flash_depth_ = rdr::kNoImage;   // S110 FLASHFRONT: the scene depth's copy the centre read samples (the scene depth itself is the flash pass's attachment)
+  uint32_t flash_depth_w_ = 0, flash_depth_h_ = 0;
+  bool flash_depth_scaled_ = false;
 
   rdr::Renderer& renderer_;
   FrontEndOptions options_;

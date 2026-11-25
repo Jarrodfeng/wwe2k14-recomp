@@ -15,10 +15,8 @@ REXCVAR_DECLARE(bool, wwe2k14_rdr_owner);
 
 namespace wwe2k14::rdr_reader {
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_start_failure_dialog, true, "wwe2k14",
-                    "S102 lane U1: when the new renderer cannot start (graphics driver refused the card, window or swapchain), say so in a plain message (a box on the PC; a line in the phone's start-up file and the launcher is asked to come back) instead of a black window for ever. Tests turn the box off");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_test_fail_start, false, "wwe2k14",
-                    "S102 lane U1 (+dev builds only): make the new renderer's start fail on purpose, to see the message and the report's verdict line");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_start_failure_dialog);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_test_fail_start);
 
 
 // S102 U1 (R9 finding 1): the message. On the PC a box, then the process ends (the game would otherwise run on behind a black window); on a phone the start-up file

@@ -28,7 +28,8 @@ def need(cond, msg):
         fails.append(msg)
 
 
-need(re.search(r'REXCVAR_DEFINE_STRING\(wwe2k14_dump_targets,\s*""', reader) is not None, 'cvar wwe2k14_dump_targets defaults to ""')
+shards = ''.join(rd('src', 'cvars', 'cvars_%d.cpp' % i) for i in range(6))   # S110 CVARSHARD: the definitions are in the generated shards
+need(re.search(r'REXCVAR_DEFINE_STRING\(wwe2k14_dump_targets,\s*""', shards) is not None, 'cvar wwe2k14_dump_targets defaults to ""')
 need(len(re.findall(r'REXCVAR_GET[(]wwe2k14_dump_targets[)]', reader)) == 1, 'reader.h reads the cvar once (the list)')
 need('if (!options.dump_targets_frames.empty()) StageMirrorNote(m, guest_frame);' in live, 'StageMirrorNote is called only behind the empty-list test (NoteScene)')
 need(len(re.findall(r'StageMirrorNote\(', live)) == 2, 'StageMirrorNote: the definition and the one call')

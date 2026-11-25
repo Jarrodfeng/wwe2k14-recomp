@@ -18,10 +18,7 @@
 #include <rex/hook.h>
 #include <rex/logging.h>
 
-REXCVAR_DEFINE_DOUBLE(wwe2k14_crowd_card_distance, 1.0, "wwe2k14",
-                      "Session 100: the stands crowd's 3D-body distance as a multiple of the game's own (its near distance N and step S, "
-                      "recomputed each frame by sub_825132A8, times this; past N + 3 S a member is a flat 2D card). 1 = the game's own; "
-                      "large = 3D bodies everywhere (src/crowd_cards.h)");
+REXCVAR_DECLARE(double, wwe2k14_crowd_card_distance);
 
 namespace wwe2k14::crowd_cards {
 

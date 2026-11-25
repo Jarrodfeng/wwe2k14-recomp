@@ -82,29 +82,14 @@
 #include "replay_verbs.h"    // S101 lane 111: live verbs as E events
 #include "xdet_check.h"  // Session 77 (P7): the check profile's pins (Want)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_mode, false, "wwe2k14",
-                    "Replay mode (Session 16): det_frames + det_serial on, load turbo / fast loader / boot-screen "
-                    "skip off, fixed seed (picked and logged if not given). Each only if left at default");
-REXCVAR_DEFINE_STRING(wwe2k14_replay_record, "", "wwe2k14",
-                      "Replay mode + record every controller call per guest frame to <replay dir>/NAME.rec");
-REXCVAR_DEFINE_STRING(wwe2k14_replay_play, "", "wwe2k14",
-                      "Replay mode + play <replay dir>/NAME.rec back (its seed and settings, then its inputs)");
-REXCVAR_DEFINE_STRING(wwe2k14_replay_dir, "", "wwe2k14",
-                      "Folder for .rec files (default: <repo>/out/replays next to out/build)");
-REXCVAR_DEFINE_INT32(wwe2k14_replay_until, 0, "wwe2k14",
-                     "S101 lane31: with replay_play, hand over at this guest frame instead of the recording's last frame "
-                     "(0 = off)");
-REXCVAR_DEFINE_STRING(wwe2k14_replay_hold, "", "wwe2k14",
-                      "S101 lane31: after a replay_until hand-over: pause[:MS] (wait for <replay dir>/RESUME, at most MS ms, "
-                      "default 600000) or slow:MS (sleep MS ms in every later swap)");
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_exact_shots, false, "wwe2k14",
-                    "Session 82: in replay mode, take a screenshot's capture on the guest thread at the settled frame "
-                    "(not on a worker thread that may start after the next swap) and wait for pipelines instead of "
-                    "skipping / holding draws, so the same guest frame always gives the same picture. Replay mode "
-                    "sets it");
-REXCVAR_DEFINE_BOOL(wwe2k14_replay_dlc_box, false, "wwe2k14",
-                    "Session 32: when a playback stops because its DLC packs are not on, also say so in a message box "
-                    "(the launcher sets it; harness runs only log it, so nothing waits on a click)");
+REXCVAR_DECLARE(bool, wwe2k14_replay_mode);
+REXCVAR_DECLARE(std::string, wwe2k14_replay_record);
+REXCVAR_DECLARE(std::string, wwe2k14_replay_play);
+REXCVAR_DECLARE(std::string, wwe2k14_replay_dir);
+REXCVAR_DECLARE(int32_t, wwe2k14_replay_until);
+REXCVAR_DECLARE(std::string, wwe2k14_replay_hold);
+REXCVAR_DECLARE(bool, wwe2k14_replay_exact_shots);
+REXCVAR_DECLARE(bool, wwe2k14_replay_dlc_box);
 
 namespace wwe2k14::replay {
 

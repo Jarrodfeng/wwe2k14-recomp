@@ -28,9 +28,7 @@
 #include "letter_jump_core.h"
 #include "seats.h"  // Plausible / Readable / P / Alloc (the guest memory helpers)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_letter_jump, true, "wwe2k14",
-                    "S110 LETTER: in the exhibition SELECT SUPERSTAR screen the right / left trigger moves your cursor to the first character of the next / "
-                    "previous letter present in the list you are looking at (every tab, wrapping). Off = the triggers do what they did. See src/letter_jump.h");
+REXCVAR_DECLARE(bool, wwe2k14_letter_jump);
 
 REX_EXTERN(sub_8285A160);  // cursor to row N (r3 = the panel, r4 = N)
 REX_EXTERN(sub_8285BD18);  // the game's "cursor moved" (r3 = the panel, r4 = 0)

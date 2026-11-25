@@ -41,9 +41,7 @@
 #include "kernel_overrides.h"  // g_vdswap_hook
 #include "replay.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_director, "", "wwe2k14",
-                      "Director script (Session 17): out/director/NAME.txt (or a path): scenario, seed, settings and "
-                      "timed events (run-ins, crowd hype, any setting), run in replay mode. See src/director.h");
+REXCVAR_DECLARE(std::string, wwe2k14_director);
 
 namespace wwe2k14::director {
 

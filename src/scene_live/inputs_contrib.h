@@ -306,7 +306,7 @@ class InputsContributor final : public Contributor {
       f = &scratch;
     }
     if (f->disabled) return;
-    t.header.flags = (t.header.flags & ~rdr_scene::kCamGateMask) | rdr_scene::CamGateBits(f->cam_gate_read, f->cam_gate_shown, f->cam_unanimated, f->cam_anim_pending);   // S105 A3: the game shows a scene camera (header bits 1 / 2, cam_gate.h)
+    t.header.flags = (t.header.flags & ~rdr_scene::kSceneFactMask) | rdr_scene::SceneFactBits(f->scene_fact_read, f->scene_drawn);   // S110 ENTRBLACK: the game draws scene geometry this frame (header bits 1 / 2, cam_gate.h)
     if (f->have_camera) {   // K1: the render camera, from the engine's slot-0 camera object (kScCamera)
       t.has_camera = true;
       t.camera = f->camera;
@@ -420,8 +420,7 @@ class InputsContributor final : public Contributor {
     bool ent_ok = false, is_entrance = false, entrance_known = false, phase_readable = false, clock_ok = false;   // S103 PHS: entrance_known = the stage-page object's entrance word [obj+88] was read (this latch, or the last latch-thread one for the fallback take)   // S103 FD: clock_ok = the page-clock row below was read
     StageLookRow lm_row;                  // S103 B3: the card factor row (kSlCardFactor) of THIS latch frame; lm_ok = the word was read
     bool lm_ok = false;
-    bool cam_unanimated = false, cam_anim_pending = false;   // S105 A3: the load-window test / sequence 9 + an unanimated motion camera (cam_gate.h UnanimatedWindow / AnimPending)
-    bool cam_gate_read = false, cam_gate_shown = false;  // S105 A3: [[0x836F3AA8] + 1392] read / != 0 at this latch (cam_gate.h)
+    bool scene_fact_read = false, scene_drawn = false;   // S110 ENTRBLACK: the stage's show word read / the game draws scene geometry at this latch (cam_gate.h ReadSceneFact)
     StageLookRow clr_row;                 // S103 CLRB: the scene clear colour row (kSlClearColor) of THIS latch frame; clr_ok = all five reads succeeded
     bool clr_ok = false;
     StageLookRow page_clock;              // S103 FD: the stage-page pass object's own clock (inputs_core.h ReadStagePageClock)
@@ -429,7 +428,7 @@ class InputsContributor final : public Contributor {
     int32_t plane_module = -1;                   // S103 RML (F3 / F4): 0 = the plane module singleton is null, 1 = it exists, -1 = unread (read every latch, independent of the plane pass's `why`)
     int32_t participants = -1, ring_gate = -1;   // S103 MBC: read every latch (-1 = unknown): the participant count (slot-loop path only) and [0x836F39A0]
     uint32_t models_unreadable = 0;
-    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, cam_gate_read = cam_gate_shown = cam_unanimated = cam_anim_pending = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
+    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, scene_fact_read = scene_drawn = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
   };
   void Take(uint64_t frame, Frame& f, bool latch_thread = true) {
     wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: this pass's line copy (the game's ReadGuest serves this thread's reads through it until return)
@@ -455,7 +454,7 @@ class InputsContributor final : public Contributor {
       f.have_camera = scene_inputs::ReadSceneCameraOrDraw(read_, frame, &drawcam::GetForLatch, f.camera, f.cam_info, &from_draw);
       if (from_draw) drawcam_used_.fetch_add(1, std::memory_order_relaxed);
     }
-    if (latch_thread) scene_inputs::ReadShownCameraGate(read_, f.cam_gate_read, f.cam_gate_shown);   // S105 A3: the game shows a scene camera (the record's header fact, Emit). The fallback take (game threads running) leaves the bits clear (review 5)
+    if (latch_thread) scene_inputs::ReadSceneFactAtLatch(read_, f.scene_fact_read, f.scene_drawn);   // S110 ENTRBLACK: the game's own "scene geometry this frame" (the record's header fact, Emit). The fallback take (game threads running) leaves the bits clear (review 5)
     if (f.have_camera) scene_inputs::Capture(scene_inputs::kInCamera, hook);   // no clear winner / unreadable: no camera, no stamp
     else {
       no_camera_.fetch_add(1, std::memory_order_relaxed);
@@ -695,11 +694,6 @@ class InputsContributor final : public Contributor {
       // The pool / spot VALUES are not read here: they are the light object's block (id 32, read just above into f.lights), the game's CURRENT values (stage_pool_words.h). Only the entering slot is read (entrance-step states).
       uint32_t phase = 0;
       f.phase_readable = read_ && scene_inputs::ReadWord(read_, kPhaseWord, phase);
-      if (latch_thread && read_) {   // S105 A3: the entrance load window + the sticky hold's condition, read here on the latch thread (never g_phase_entrance; the fallback take leaves them clear)
-        const auto rw = [this](uint32_t a, uint32_t& v) { return scene_inputs::ReadWord(read_, a, v); };
-        f.cam_unanimated = rdr_scene::UnanimatedWindow(rw, f.phase_readable, phase);
-        f.cam_anim_pending = rdr_scene::AnimPending(rw);
-      }
       if (latch_thread) {   // S103 FD (F1): page_obj_ / page_misses_ belong to the latch thread; an object mid-construction (vtable stored before +108) is read only there, between frames
         task_walk::GroupInfo gi;
         f.clock_ok = scene_inputs::ReadStagePageClock(read_, page_obj_, page_misses_, f.page_clock, &gi);

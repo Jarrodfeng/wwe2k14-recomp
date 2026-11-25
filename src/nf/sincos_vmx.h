@@ -41,8 +41,7 @@
 
 #include "../native_fn.h"
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_sincos_vmx, WWE2K14_NF_VERIFIED_DEFAULT, "wwe2k14",
-                      "Session 66 (native function factory): off | verify | on for the native sin / cos sub_825D0618");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_sincos_vmx);
 
 namespace wwe2k14::nf_sincos_vmx {
 

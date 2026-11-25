@@ -78,19 +78,10 @@
 #include "renderer_adapter/reader.h"  // Session 100: the adapter reader (the one guarded call in each hook below)
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_copy, true, "wwe2k14",
-                    "Session 87 (D3D layer F2): with --wwe2k14_d3d_layer, the library's Clear (one colour target + depth + "
-                    "stencil, no rectangles) and Resolve go to the SDK as records and the GPR split is dropped "
-                    "(needs an SDK build whose gpu_d3d_copy_abi matches; anything else runs the original function, counted)");
-REXCVAR_DEFINE_INT32(wwe2k14_d3d_copy_verify, 0, "wwe2k14",
-                     "Session 87 (D3D layer F2, diagnostic): for the first N resolves, build the record, run the original "
-                     "resolve and compare the device shadows it leaves with the record (logged); no record is sent for them");
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_copy_depthonly, false, "wwe2k14",
-                    "Session 87 (D3D layer F2): take depth / stencil-only Clears as records too (drawn by the SDK's clear_stock). Off (the "
-                    "default): the original writer, whose packets the owned frame holds as a pass start");
-REXCVAR_DEFINE_BOOL(wwe2k14_d3d_copy_mip, false, "wwe2k14",
-                    "Session 87 (D3D layer F2): take Resolves with a mip level / slice / cube face as records (the transcription of "
-                    "0x82CA78F8 in d3d_resolve_mip.h); off: the original resolve. The verify mode computes them either way");
+REXCVAR_DECLARE(bool, wwe2k14_d3d_copy);
+REXCVAR_DECLARE(int32_t, wwe2k14_d3d_copy_verify);
+REXCVAR_DECLARE(bool, wwe2k14_d3d_copy_depthonly);
+REXCVAR_DECLARE(bool, wwe2k14_d3d_copy_mip);
 
 REX_EXTERN(__imp__sub_82CB52B8);
 REX_EXTERN(__imp__sub_82CAFB88);

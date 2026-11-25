@@ -38,8 +38,7 @@
 #include "frame_stats.h"
 #include "low_power.h"  // Session 37: --wwe2k14_low_power (the poll step below)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_timeline, false, "wwe2k14",
-                    "Write a per-event CPU/GPU timeline to logs/timeline_NNN.csv (frame-pacing analysis)");
+REXCVAR_DECLARE(bool, wwe2k14_timeline);
 
 namespace wwe2k14 {
 

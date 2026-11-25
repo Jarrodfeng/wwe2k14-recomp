@@ -122,23 +122,10 @@
 #include "scene/spirv/arena_prop_spec_mask.h"
 
 REXCVAR_DECLARE(bool, wwe2k14_shader_mediump);  // (src\post_swap.h)
-REXCVAR_DEFINE_BOOL(wwe2k14_scene_shaders, false, "wwe2k14",
-                    "Session 80 (with gpu_native_shader_swap, on in NATIVE's list; read at start): our own shaders for "
-                    "every pixel shader of the match and the entrances (OWN_RENDERER_PLAN.md) in place of the game's "
-                    "translated ones; false = the game's own. Off by itself; on under wwe2k14_native_frame");
-REXCVAR_DEFINE_BOOL(gpu_native_wrestler_lean, false, "GPU/Native",
-                    "Session 95 (read at start; needs wwe2k14_scene_shaders): the materials of the wrestlers (gear, body skin, skin plain / decal, "
-                    "head, hair; the hair also in the entrances) from their LEAN compiles (src/scene/wrestler_lean.glsl): exact early-outs - no shadow fetch at strength 0, no shadow pows "
-                    "where the first filter pair is lit, no highlight / lighting-map fetch at rim strength 0, no reflection cube fetch at zero weights, "
-                    "no area / detail / second-normal fetch where its mask or weight is 0. Same picture (exact in the offline proof except where the plain code makes a NaN); off = the plain ones");
-REXCVAR_DEFINE_BOOL(gpu_native_wrestler_pow, false, "GPU/Native",
-                    "Session 95 (r3gpu, read at start; needs wwe2k14_scene_shaders): the entrance materials of the wrestlers (gear, skin, skin plain / decal, head) from their POWLEAN compiles "
-                    "(src/scene/wrestler_pow.glsl): the powers whose exponent is 1, 2, 4 or 20 (uniform branch) as multiplies in place of log2 + exp2. Same picture to float rounding; off = the plain ones");
-REXCVAR_DEFINE_INT32(wwe2k14_scene_shaders_probe, 0, "wwe2k14",
-                     "Session 80 (diagnostic, pictures wrong; needs gpu_native_shader_swap; read at start): 1 = a flat "
-                     "grey in place of the wrestlers' body material; 2 = in place of every wrestler pixel shader (src\\scene\\probe_flat.frag): the GPU time it saves is "
-                     "the most our own shader for it could save on its pixel side; 3 = in place of the side passes' "
-                     "shaders (blurs, lighting cubes, sweat / rim light / shadow maps, the crowd atlas copy)");
+REXCVAR_DECLARE(bool, wwe2k14_scene_shaders);
+REXCVAR_DECLARE(bool, gpu_native_wrestler_lean);
+REXCVAR_DECLARE(bool, gpu_native_wrestler_pow);
+REXCVAR_DECLARE(int32_t, wwe2k14_scene_shaders_probe);
 
 namespace wwe2k14::scene_swap {
 

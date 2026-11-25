@@ -14,11 +14,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k14_native_frame, true, "wwe2k14",
-                    "Session 79 (HD 520 arc): the native frame and its exact parts (gpu_native_frame, the lean answers "
-                    "side, the dead star glare, crowd members outside the view not drawn), and since v0.2.15 our own "
-                    "scene shaders and crowd. On by default where NATIVE's truth frames run (the NATIVE renderer, no "
-                    "DLSS / DLAA / FSR); =true forces it anywhere, =false turns it off. Read at start");
+REXCVAR_DECLARE(bool, wwe2k14_native_frame);
 
 namespace wwe2k14::native_frame {
 

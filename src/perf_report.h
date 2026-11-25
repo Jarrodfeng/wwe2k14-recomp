@@ -56,9 +56,7 @@
 #include "load_turbo.h"   // g_load_turbo_ingame_window
 #include "sequence_name.h"  // S105 E: session_log::SequenceName (a load is named by its sequence)
 
-REXCVAR_DEFINE_BOOL(wwe2k14_perf_report, false, "wwe2k14",
-                    "Session 20: when the window closes, write logs/perf_report_NNN.txt (hardware, settings, frame "
-                    "times per scene, GPU / thread busy time, load times) for playtesters");
+REXCVAR_DECLARE(bool, wwe2k14_perf_report);
 
 namespace wwe2k14::perf_report {
 

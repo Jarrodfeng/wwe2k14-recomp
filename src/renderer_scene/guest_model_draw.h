@@ -187,8 +187,10 @@ class Store {
  public:
   using Bytes = live::guest_model::ByteStore::Bytes;
   static constexpr uint32_t kKeepRecords = 600;
-  static constexpr size_t kCapBytes = size_t(256) << 20;
-  struct Counts { uint64_t absorbed_vtx = 0, absorbed_idx = 0, absorbed_tex = 0, dropped = 0, full = 0, records = 0, from_process = 0; };
+  static constexpr size_t kCapBytes = size_t(256) << 20;   // S110 STOREABSENT: a cap on HISTORY: over it the least recently named entries go after each record (MakeRoom), never the bytes a record carries
+  struct Counts { uint64_t absorbed_vtx = 0, absorbed_idx = 0, absorbed_tex = 0, dropped = 0, full = 0, records = 0, from_process = 0; };   // (full: carried bytes taken over the cap)
+  Store() = default;
+  explicit Store(size_t cap) : cap_(cap) {}   // (the unit's small stores)
   void Absorb(const SceneTables& t) {
     ++now_, ++counts_.records;
     const auto& g = t.guest_models;
@@ -198,6 +200,7 @@ class Store {
     }
     for (const GuestModelTexture& r : g.textures) Put(tex_, r.hash, r.off, r.nbytes, g.blobs, counts_.absorbed_tex);
     if ((now_ & 63) == 0) Sweep();
+    if (bytes_ > cap_) MakeRoom();   // S110 STOREABSENT: after the whole record, so every entry it names has this record's age (last == now_) and none of them goes
   }
   Bytes Vtx(uint64_t h) { return Get(vtx_, h); }
   Bytes Idx(uint64_t h) { return Get(idx_, h); }
@@ -213,7 +216,7 @@ class Store {
     if (it != m.end()) { it->second.last = now_; return; }   // known: nothing to copy (the bytes are content-addressed)
     if (off == kGmNoBytes) return;                           // named, not carried: the process byte store answers at lookup (or it is a hole until the writer resends)
     if (uint64_t(off) + n > blobs.size()) return;
-    if (bytes_ + n > kCapBytes) { ++counts_.full; return; }
+    if (bytes_ + n > cap_) { ++counts_.full; if (g_draw_plant == 17) return; }   // S110 STOREABSENT: over the cap the carried bytes are still taken (this record names them); Absorb's MakeRoom drops the least recently named. Plant 17 (unit 63) = the old refusal
     E e;
     e.b = std::make_shared<const std::vector<uint8_t>>(blobs.begin() + off, blobs.begin() + off + n);
     e.last = now_;
@@ -235,9 +238,26 @@ class Store {
         else ++it;
       }
   }
+  // S110 STOREABSENT: over the cap, the entries named longest ago go first (never one the record just absorbed named: last == now_) until the store fits; what one record names stays even over the cap
+  // (it is drawn now). Runs only over the cap (one sort of the entries then; nothing in the normal case).
+  void MakeRoom() {
+    struct Old { uint64_t last; Map* m; uint64_t h; };
+    std::vector<Old> old;
+    for (Map* m : {&vtx_, &idx_, &tex_})
+      for (const auto& kv : *m)
+        if (kv.second.last < now_) old.push_back({kv.second.last, m, kv.first});
+    std::sort(old.begin(), old.end(), [](const Old& a, const Old& b) { return a.last < b.last; });
+    for (const Old& o : old) {
+      if (bytes_ <= cap_) break;
+      const auto it = o.m->find(o.h);
+      bytes_ -= it->second.b->size(), ++counts_.dropped;
+      o.m->erase(it);
+    }
+  }
   Map vtx_, idx_, tex_;
   uint64_t now_ = 0;
   size_t bytes_ = 0;
+  size_t cap_ = kCapBytes;
   Counts counts_;
 };
 
@@ -247,6 +267,8 @@ struct BuildStats {
   uint32_t blended = 0;    // S105 A5b: parts built with alpha_blend (an effect whose name holds "trans": yCh_trans eyelid layer, yCh_Aniso_trans hair ...)
   uint32_t max_node = 0;   // S103 CAWS: (highest node any vertex uses) + 1, over all parts; compared with the actor's palette size (NoteActorPalette)
   uint32_t tex_bound = 0, tex_missing = 0, tex_override = 0, no_diffuse = 0, tex_default_cube = 0;
+  uint32_t tex_absent = 0;        // S110 STOREABSENT: of tex_missing, the samplers whose row NAMES a picture (state bound / override, a hash) with no bytes in reach (no row in the record, or in neither store)
+  std::vector<uint64_t> absent;   // S110 STOREABSENT: those pictures' hashes and absent logo rows', each once; non-empty = the build is PROVISIONAL (guest_model_absent.h: rebuilt when one arrives)
   uint32_t logo_parts = 0, logo_missing = 0, diffuse_t0 = 0;   // S105 A5c: parts that carry a logo picture / whose logo row could not be built (a hole in the record or the store) / with the game's bool 150
   uint64_t vertices = 0, triangles = 0;
   std::string part_palettes;   // S103 CAWS (CAWG row 6): per part "p<i>: <palette size>, nodes <palette[slot]-1 ...>" (<= 8 listed), so a run says whether the values are skeleton nodes (up to ~130) or a piece's own small table (<= ~20)
@@ -261,6 +283,7 @@ struct CacheState {
   std::unordered_map<int, uint32_t> max_node_of;      // S103 CAWS: model id -> BuildStats::max_node (set where the model is put; the per-actor palette check reads it)
   std::unordered_set<std::string> join_seen;          // CTX2: the `guest join miss` pairs already printed (capped at kMaxJoinLines)
   static constexpr uint32_t kMaxJoinLines = 16;
+  std::unordered_map<std::string, std::vector<uint64_t>> absent_of;   // S110 STOREABSENT: model key -> the pictures its PROVISIONAL build lacked (guest_model_absent.h); a whole build has no entry
 };
 // The state in a ModelCache's slot (shared_ptr<void>& from ModelCache::GuestStateSlot).
 inline CacheState& StateIn(std::shared_ptr<void>& slot) {
@@ -352,7 +375,11 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
       if (tx.state == kGtMissing || !tx.hash) { ++st.tex_missing; continue; }
       const GuestModelTexture* tr = t.guest_models.FindTexture(tx.hash);
       const Store::Bytes tb = tr ? store.Tex(tx.hash) : nullptr;
-      if (!tr || !tb || tb->size() != tr->nbytes) { ++st.tex_missing; continue; }
+      if (!tr || !tb || tb->size() != tr->nbytes) {   // S110 STOREABSENT: named (state bound / override, a hash) but no bytes in reach: the build is provisional
+        ++st.tex_missing, ++st.tex_absent;
+        if (std::find(st.absent.begin(), st.absent.end(), tx.hash) == st.absent.end()) st.absent.push_back(tx.hash);
+        continue;
+      }
       int ti;
       auto f = tex_of.find(tx.hash);
       if (f != tex_of.end()) ti = f->second;
@@ -385,7 +412,11 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
         if (!rowi) continue;
         const GuestModelTexture* tr = rowi <= t.guest_models.textures.size() ? &t.guest_models.textures[rowi - 1] : nullptr;
         const Store::Bytes tb = tr ? store.Tex(tr->hash) : nullptr;
-        if (!tr || !tb || tb->size() != tr->nbytes) { ++st.logo_missing; continue; }
+        if (!tr || !tb || tb->size() != tr->nbytes) {
+          ++st.logo_missing;
+          if (tr && std::find(st.absent.begin(), st.absent.end(), tr->hash) == st.absent.end()) st.absent.push_back(tr->hash);   // S110 STOREABSENT: a logo row whose bytes are in neither store: provisional too
+          continue;
+        }
         int ti;
         const auto f = tex_of.find(tr->hash);
         if (f != tex_of.end()) ti = f->second;

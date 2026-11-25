@@ -38,19 +38,9 @@ REXCVAR_DECLARE(bool, wwe2k14_rdr_crowd_ours);   // S102 T13 review F6 (renderer
 REXCVAR_DECLARE(bool, wwe2k14_scene_records);
 REXCVAR_DECLARE(int32_t, wwe2k14_scene_crowd);   // the legacy queue path (scene_crowd.h): same sites, exclusive
 
-REXCVAR_DEFINE_INT32(wwe2k14_rdr_crowd_member_thin, 0, "wwe2k14",
-                     "Session 101 lane 272: the crowd members' thin record (SKIP_GAME_WORK_MAP 20). 0 off; 1 census (decide and count what would be dropped, touch nothing); 2 drop the op-15 draw of every "
-                     "stands / floor member except the first of each mesh run while the binder has proved ours draws the members from the scene record (one run in 32 is recorded in full as the proof). "
-                     "Lane 295 built 2 (default stays 0). Needs --wwe2k14_rdr_crowd_ours (and so --wwe2k14_scene_records); the floor site also "
-                     "--wwe2k14_rdr_crowd_floor. Docs: docs/renderer/SKIP_GAME_WORK_MAP.md 20");
+REXCVAR_DECLARE(int32_t, wwe2k14_rdr_crowd_member_thin);
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_member_cut, false, "wwe2k14",
-                    "Session 102 lane T13 (R13 cut 3): never send the crowd members the new renderer draws itself. On: the game does not record the op-15 draw of every stands / floor member except the first of each mesh run "
-                    "(the run's anchor carries the class's bank and picture; every op 21 stays), while the binder has proved ours draws the members from the scene record (the gate of member_thin_core.h: 3 clean frames, "
-                    "one run in 32 recorded in full as the proof, the stamp proof, a hole unproves it, 3 holes in 10 s latch it off; a class ours cannot draw, a tiled frame, a refused / unpaired frame stay recorded). "
-                    "Read once per crowd draw run through the per-frame switch table, so it can be flipped live. Needs --wwe2k14_rdr_crowd_ours (+ --wwe2k14_rdr_crowd_floor for the floor site) and --wwe2k14_scene_records; "
-                    "census only with the legacy --wwe2k14_scene_crowd. The old --wwe2k14_rdr_crowd_member_thin=2 still means the same cut. Inert (logged once) without --wwe2k14_rdr_crowd_ours and --wwe2k14_scene_records. Not for a determinism run. Claim (R13 cut 3, counts x 4.5-7 us a recorded draw, NOT measured): the game's render-command thread saves about 0.4-0.65 ms in Bryan's light stretch (92 member draws a thin frame in the capture) and 1.3-2.0 ms in his heavy stretch (about 290 a thin frame in the live log), and our render thread pays +1.1-1.4 ms a drawn frame (BENCHMARKS.md, the run 178 reading). "
-                    "Docs: docs/renderer/SKIP_GAME_WORK_MAP.md 20");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_member_cut);
 
 namespace wwe2k14::member_thin {
 

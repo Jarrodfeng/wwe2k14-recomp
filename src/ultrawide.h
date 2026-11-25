@@ -34,10 +34,7 @@
 #include "guest_read.h"
 #include "ultrawide_state.h"   // S105 A2: g_fill_now / FillNow()
 
-REXCVAR_DEFINE_STRING(wwe2k14_aspect, "16:9", "wwe2k14",
-                      "Session 33: screen shape. 16:9 = the game's own (default); auto = the monitor's (or the window's "
-                      "when windowed); 21:9 / 32:9. Wider than 16:9 shows more of the scene at the sides (Hor+), the "
-                      "HUD and menus stay a centred 16:9. See src/ultrawide.h");
+REXCVAR_DECLARE(std::string, wwe2k14_aspect);
 
 namespace wwe2k14::ultrawide {
 

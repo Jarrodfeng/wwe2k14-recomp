@@ -9,6 +9,7 @@
 #include "crowd_fast.h"   // S103 CPU1: fast::ParseUInt
 #include "shadow_fit_record.h"   // S103 E8: the shared key test and the frame's stamp
 #include "guest_model_draw.h"   // S103 CW-2: the GuestModel rows -> a model (an actor the record cannot name)
+#include "guest_model_absent.h"   // S110 STOREABSENT: a build made with a named picture's bytes absent is provisional (rebuilt when they arrive)
 #include "guest_piece_fade.h"
 #include "piece_alpha.h"   // S103 EYF: the piece's [model+252] row
 #include "detached_piece.h"   // S103 DTP: the owner-mesh row of a piece the game detached
@@ -238,11 +239,13 @@ static int GuestModelFor(BuildCtx& ctx, size_t obj_index, std::string_view id) {
   char key[40];
   std::snprintf(key, sizeof key, "guest:%016llx", (unsigned long long)mh);
   const int have = ctx.models.Find(key);
-  if (have >= 0) return have;
+  const bool rebuild = have >= 0 && !guestmodel::KeptBuildStands(cs, t, key);   // S110 STOREABSENT: a provisional build (a named picture's bytes were absent) is rebuilt once one of them is in reach
+  if (have >= 0 && !rebuild) return have;
   assets::Model m;
   guestmodel::BuildStats bs;
   guestmodel::DrawCounters& cnt = guestmodel::Counters();
   if (!guestmodel::BuildModel(t, store, addr, m, bs, flat)) {
+    if (rebuild) return have;   // S110 STOREABSENT: the rebuild met a hole (geometry gone meanwhile): the kept provisional build stands this frame
     ++cnt.models_holes;
     ctx.models.LogOnce("guest-hole:" + bs.why, "[rdr][caw] guest model hole: " + bs.why + " (the editor frame stays the game's while it lasts)");
     return why_text = bs.why, -1;
@@ -255,7 +258,12 @@ static int GuestModelFor(BuildCtx& ctx, size_t obj_index, std::string_view id) {
   if (retired) {
     ctx.models.RetireOther("guest:", key);
     hashes.clear();
+    cs.absent_of.clear();   // S110 STOREABSENT: the retired keys' provisional memos go with them
   }
+  if (rebuild) ctx.models.RetireOther(key, "\x01");   // S110 STOREABSENT: the provisional build under this key goes (deferred release; its pictures stay in the cache's shared map: front_end.cpp images_external)
+  guestmodel::NoteBuild(cs, key, bs);
+  if (!bs.absent.empty())
+    ctx.models.LogOnce("guest-absent", "[rdr][caw] guest model built with " + std::to_string(bs.absent.size()) + " named pictures whose bytes are in neither store (provisional: drawn, rebuilt when one arrives; S110 STOREABSENT)");
   hashes[key] = mh;
   // CTX2: pictures are shared by content across builds (a slider drag rebuilds the model with the same 6.5 MB of pictures: one upload, not one a build); the ones no model still uses are released when the old models retire
   const int model_id = ctx.models.PutGuest(key, m, rdr::kGrpWrestler);   // S103 GSTP group + CTX2 shared pictures

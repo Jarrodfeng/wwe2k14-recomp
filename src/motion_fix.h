@@ -46,20 +46,10 @@
 #include "pacing_hooks.h"  // wwe2k14_entrance_60fps
 #include "step_rate.h"     // g_entrances, g_game_word, g_applied_hz
 
-REXCVAR_DEFINE_BOOL(wwe2k14_fix_secondary_motion, true, "wwe2k14",
-                    "Session 27.5: odd-frame keys of motion translation tracks (Cena's title at 60 fps) that stray "
-                    "from their even neighbours are replaced by the line between those (even frames, i.e. the 30 fps "
-                    "entrances, are never changed). Default on (Jarrod, 2026-10-18). See src/motion_fix.h");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_fix_secondary_motion_min, 0.5, "wwe2k14",
-                      "Session 27.5: with wwe2k14_fix_secondary_motion, replace a sample only if it is more than this "
-                      "many units (cm) from the line between the even frames around it");
-REXCVAR_DEFINE_DOUBLE(wwe2k14_fix_secondary_motion_ratio, 0.25, "wwe2k14",
-                      "Session 27.5: with wwe2k14_fix_secondary_motion, replace a sample only if it is also farther from "
-                      "the segment than this fraction of the segment's length (real motion turning up to ~110 degrees "
-                      "in 1/30 s stays below 0.25)");
-REXCVAR_DEFINE_BOOL(wwe2k14_fix_secondary_motion_log, false, "wwe2k14",
-                    "Session 27.5: log what wwe2k14_fix_secondary_motion did every 300 guest frames (samples checked, "
-                    "replaced, the five largest strays and where; a period is logged by the first check after it ends)");
+REXCVAR_DECLARE(bool, wwe2k14_fix_secondary_motion);
+REXCVAR_DECLARE(double, wwe2k14_fix_secondary_motion_min);
+REXCVAR_DECLARE(double, wwe2k14_fix_secondary_motion_ratio);
+REXCVAR_DECLARE(bool, wwe2k14_fix_secondary_motion_log);
 
 REX_EXTERN(__imp__sub_823D91C8);
 REX_EXTERN(__imp__sub_823D9608);

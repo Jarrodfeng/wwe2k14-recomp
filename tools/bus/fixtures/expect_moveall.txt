@@ -1,3 +1,7 @@
 {"f": 10, "kind": "move", "slot": 0, "id": 343, "waza": 3, "move": 100, "class": "normal"}
-{"f": 11, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}
-{"f": 15, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 50413, "class": "finisher"}
+{"f": 20, "kind": "move", "slot": 0, "id": 343, "waza": 72, "move": 7000, "class": "normal"}
+{"f": 31, "kind": "move", "slot": 0, "id": 343, "waza": 18, "move": 42060, "class": "finisher"}
+{"f": 38, "kind": "move", "slot": 0, "id": 343, "waza": 18, "move": 42060, "class": "finisher"}
+{"f": 13937, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}
+{"f": 40000, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}
+{"f": 50000, "kind": "move", "slot": 0, "id": 343, "waza": 17, "move": 58010, "class": "finisher"}

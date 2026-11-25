@@ -48,12 +48,8 @@
 #include "trace_census_hook.h"   // S103 T: the census hooks on five more functions + Note, called by the first line of the hook below
 #include "scene_skip.h"   // S103 H: the scene decision (Ours(Hook)) is the first test of both hooks below
 
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_own_shadow_module, false, "wwe2k14",
-                    "Session 102 lane P4: the shadow module (props map, maps A / B, coverage reductions, min blurs, circle blobs) owned at the draw node: when on, and the render side is ready, and every input "
-                    "the pass needs is captured for this frame, the game does not walk the node (its R camera install still runs). Until the inputs are captured the game walks it. Read every frame. Off by default");
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_own_rim_map, false, "wwe2k14",
-                    "Session 102 lane P5: the rim light map (its caster pass, two reductions, blur) owned at the draw node: when on, the render side is ready and every input is captured for this frame, the "
-                    "game does not walk the node. Until the inputs are captured the game walks it. Read every frame. Off by default");
+REXCVAR_DECLARE(bool, wwe2k14_rdr_own_shadow_module);
+REXCVAR_DECLARE(bool, wwe2k14_rdr_own_rim_map);
 
 REX_EXTERN(__imp__sub_827E9740);
 REX_EXTERN(__imp__sub_827EA7B8);

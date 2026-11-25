@@ -54,23 +54,11 @@
 #include "scene_live/skin_skip_hook.h"  // S101 lane 50
 #include "host_write.h"  // Session 100 strip-360 E2 / E3: declared guest writes reported to the new renderer's reader
 
-REXCVAR_DEFINE_STRING(wwe2k14_nf_all, "", "wwe2k14",
-                      "Session 66 (native function factory): off | verify | on for EVERY native function (empty = each "
-                      "function's own cvar)");
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_verify_strict, true, "wwe2k14",
-                    "Session 66: verify also compares every volatile register (r0, r4-r12, f0-f13, v0-v31, CR, CTR, XER) and the "
-                    "512 bytes below the stack pointer (what the original leaves there)");
-REXCVAR_DEFINE_INT32(wwe2k14_nf_log_s, 5, "wwe2k14",
-                     "Session 66: seconds between [wwe2k14][nf] count lines (0 = never)");
+REXCVAR_DECLARE(std::string, wwe2k14_nf_all);
+REXCVAR_DECLARE(bool, wwe2k14_nf_verify_strict);
+REXCVAR_DECLARE(int32_t, wwe2k14_nf_log_s);
 
-// The default of a function verified with 0 mismatches over a launched match and both entrances (twice) and faster in
-// an in-run A/B: on where it was verified (x86-64: runs 4187 / 4197; A/B 4259: main game thread -11.5% CPU, skinning
-// thread -16.2%), off elsewhere until a run there verifies it (Android: the FP mode handling differs).
-#if 0  // Session 66 02:15: off again - with them on the determinism replay diverged (check_item nf_on, 4269 / 4270)
-#define WWE2K14_NF_VERIFIED_DEFAULT "on"
-#else
-#define WWE2K14_NF_VERIFIED_DEFAULT "off"
-#endif
+// (S110 CVARSHARD: WWE2K14_NF_VERIFIED_DEFAULT, the default of a verified native function's cvar, moved to src\cvars\cvar_defaults.h with its comment: the definitions are in generated shards.)
 
 // Session 66 (03:30): on for x86-64 only, per function: strict verify 0 mismatches (4313), determinism identical
 // (4316-4319) and a gain in the in-run A/B with the strict-clean version (skin_3bone: skinning thread -15%).
@@ -82,12 +70,8 @@ REXCVAR_DEFINE_INT32(wwe2k14_nf_log_s, 5, "wwe2k14",
 #define WWE2K14_NF_X86_ON "off"
 #endif
 
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_lean, false, "wwe2k14",
-                    "Session 95: every native function with a lean version runs it (a function whose own cvar is off); "
-                    "settable live");
-REXCVAR_DEFINE_BOOL(wwe2k14_nf_poison, false, "wwe2k14",
-                    "Session 95, proof only: after each lean call, garbage over the volatile registers it does not "
-                    "promise and the 512 bytes below r1");
+REXCVAR_DECLARE(bool, wwe2k14_nf_lean);
+REXCVAR_DECLARE(bool, wwe2k14_nf_poison);
 namespace wwe2k14::native_fn {
 
 enum class Mode : uint8_t { kOff, kVerify, kOn, kLean, kLeanPoison, kVerifyLean };
