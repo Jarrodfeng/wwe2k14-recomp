@@ -124,6 +124,30 @@ static int Unit(const std::string& plant) {
     wlight::Apply(t, st, true, c, fp);
     CHECK("A8 SYNTH flag", t.light_states.size() == 1 && (t.light_states[0].flags & kLsSynthetic));
   }
+  {   // U8 (S111 CUTREACH review): LatchFromRecord labels a record's rows by the latch they were READ at (row frame f -> hook f - 1), never by the header. Since CUTREACH record 101 carries latch 100's rows
+      // (hook 99 = the hook its own Apply asks, HookOfRecord); a record written before CUTREACH (or a record at the boundary: the latch's own read) carries latch 101's rows (hook 100).
+    const auto mk = [](SceneTables& t, uint32_t header, uint64_t read_at) {
+      MkRecord(t, header, 3, 0xB0000001u);
+      const wlight::Entry e = MkEntry(3, 2);
+      CircleShadow cs;
+      cs.slot = 3, cs.character = e.character;
+      t.circle_shadows.push_back(cs);
+      LightObjectRow m;
+      m.kind = kLoManager, m.frame = read_at;
+      t.light_objects.push_back(m);
+      LightObjectRow n;
+      n.kind = kLoNodeObject, n.frame = read_at, n.object = e.character + 3936u + 48u, n.flags = kLoBlockRead;
+      std::memcpy(n.words, e.block, sizeof n.words);
+      t.light_objects.push_back(n);
+    };
+    SceneTables a, b;
+    mk(a, 101, 100);
+    mk(b, 101, 101);
+    wlight::Latch la, lb;
+    wlight::LatchFromRecord(a, la);
+    wlight::LatchFromRecord(b, lb);
+    CHECK("A8 LABEL", la.hook == wlight::HookOfRecord(a) && la.hook == 99 && lb.hook == 100 && la.entries.size() == 1 && lb.entries.size() == 1);
+  }
   std::printf("%s\n", g_bad ? "FAIL: a8 unit" : "PASS: a8 unit");
   return g_bad ? 1 : 0;
 }
@@ -180,8 +204,9 @@ int main(int argc, char** argv) {
       {
         wlight::Latch L;
         wlight::LatchFromRecord(r0, L);
-        std::vector<wlight::Entry> ents = L.entries;
-        // the record's latch is stored BEFORE its own Apply (the writer applies record j with the hook j - 2 latch, which an earlier record put there)
+        // the record's latch is stored BEFORE its own Apply (S111 CUTREACH review): record j asks hook j - 2 (HookOfRecord), and since CUTREACH it carries that latch itself (latch j - 1, labelled by its rows' frame);
+        // a record written before CUTREACH carries latch j (hook j - 1), which record j + 1 asks.
+        store.Put(L.hook, std::vector<wlight::Entry>(L.entries));
         SceneTables a = r0;
         wlight::Apply(a, store, false, cen, fp);
         SceneTables b = r0;
@@ -202,7 +227,6 @@ int main(int argc, char** argv) {
             (same ? syn_eq : syn_diff)++;
           }
         }
-        store.Put(L.hook, std::move(ents));
       }
       // ---- SOURCES ----
       const LightObjectRow* m = LightManagerRow(r0.light_objects);

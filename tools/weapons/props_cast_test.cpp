@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
   }
   {
     const auto stage = [&](uint32_t flags) { W::Item it; it.stage = true, it.id = 7; W::WeaponCall w{}; w.slot_flags = flags; return cast(it, w); };
-    const uint32_t own_other = W::kCallStageOwn | W::kCallStageStruct | (W::kStageLrOther << W::kStageLrShift);
+    const uint32_t own_other = W::kCallStageOwn | W::kCallStageStruct | W::kCallStageCaster | (W::kStageLrOther << W::kStageLrShift);   // S111 CHAMBERSHADOW: a CWeapon piece's own row carries the recorder's caster bit
     const uint32_t own_cage = W::kCallStageOwn | W::kCallStageStruct | (W::kStageLrCage << W::kStageLrShift);
     const uint32_t slot32 = W::kCallStageStruct;
     const bool ok = stage(own_other) && !stage(own_cage) && !stage(slot32);

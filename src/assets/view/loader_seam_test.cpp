@@ -17,6 +17,7 @@ using namespace assets;
 
 static std::string g_game;
 void ViewerInit(const std::string& game_path) { g_game = game_path; }
+launcher::GameFiles* ViewerGameFiles() { return nullptr; }   // S111 OLDCHAIN: the test seam has no game files
 std::string ViewerSetDlc(bool, const std::string&, const std::string&) { return "DLC: the test seam has no game files"; }
 std::string ViewerDlcJson() { return "[]"; }
 std::vector<std::string> ViewerDlcMotionFiles() { return {}; }

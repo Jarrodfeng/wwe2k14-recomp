@@ -1,4 +1,4 @@
-"""qcensus_selftest: proves the S103 QCF work (`q ours census FIELD`, `q runlog field FIELD [--run RUN]`) on fixtures in a TEMP folder (no clang, no game, 0 runs).
+"""qcensus_selftest: proves the S103 QCF work (`q ours census FIELD`) on fixtures in a TEMP folder (no clang, no game, 0 runs).
   printf    the Nth %-spec after the field is the Nth argument (adjacent literals over two lines, `%%`, `*` widths, a PRIu64 macro); the counter is the member of the
             argument (`(unsigned long long)c.black_no_3d` -> black_no_3d) and every write is listed: ++x, x++, x += n, x = n, x[i]++, .fetch_add / .store.
   concat    `" field " + std::to_string(x.load(...))`, `+ n(c.f)`, `<< expr`.
@@ -10,7 +10,7 @@
   PLANTED   (stale twins) a counter RENAMED (format now prints c.holes_new while an old `++o.holes` of an unrelated struct and a commented-out old format line stay):
             the census names holes_new's writers and NOT the old holes / holes_old lines; a longer name (`black_no_3d_old`), a comment, and a string literal naming the
             counter are never writers; a #define literal is reported as unexpanded.
-  runlog    `field_values` pulls per-window values (a number with its parenthesis / `of N`, a [bracket list], the rest of the line for a [tag] field).
+  parsers   `type_of_var` accepts declarations only; `%o %a %A %n %L` are specs.
 Run:  py -I tools/q/qcensus_selftest.py
 """
 import json
@@ -299,45 +299,11 @@ def test_all(d):
     check('format:' in out and 'prints:' in out and 'counter: black_no_3d' in out and 'writers (2)' in out, 'the printout shows field -> format -> counter -> writers', out)
 
 
-def test_runlog(d):
-    import qrunlog
-    p = os.path.join(d, 'wwe2k14_999.log')
-    lines = [
-        '[2026-11-19 08:21:02.391] [info] [core] [t1] [host] frames 510, black_no_3d 0 (mid_match 0), ticks_dropped 2998 of 3508, holes 0',
-        '[2026-11-19 08:21:03.001] [info] [core] [t1] [host] frames 600, black_no_3d 0 (mid_match 0), ticks_dropped 2998 of 3598, holes 0',
-        '[2026-11-19 08:21:04.001] [info] [core] [t1] [host] frames 700, black_no_3d 12 (mid_match 3), ticks_dropped 2998 of 3698, holes 0',
-        '[2026-11-19 08:21:05.001] [info] [core] [t1] [scene][live] frames 0-600: pic_why [ok 5 size 2], holes 7',
-        '[2026-11-19 08:21:06.001] [info] [core] [t1] [scene][ours_missing] decision: bit 9:84; record: -',
-        '[2026-11-19 08:21:07.001] [info] [core] [t1] [host] black_no_3d_old 4 and a long unrelated line',
-    ]
-    with open(p, 'w', encoding='utf-8', newline='\n') as f:
-        f.write('\n'.join(lines) + '\n')
-    r = qrunlog.field_values('black_no_3d', path=p)
-    check([x['value'] for x in r['rows']] == ['0 (mid_match 0)', '0 (mid_match 0)', '12 (mid_match 3)'] and [x['window'] for x in r['rows']] == ['510', '600', '700'],
-          'runlog field: a number with its parenthesis per window; black_no_3d_old is not the field', r)
-    r = qrunlog.field_values('ticks_dropped', path=p)
-    check(r['rows'][0]['value'] == '2998 of 3508', 'runlog field: `N of M` kept whole', r)
-    r = qrunlog.field_values('pic_why', path=p)
-    check(r['rows'][0]['value'] == '[ok 5 size 2]' and r['rows'][0]['window'] == '0-600', 'runlog field: a [bracket list] and the frame window', r)
-    r = qrunlog.field_values('ours_missing', path=p)
-    check(r['rows'][0]['value'].startswith('decision: bit 9:84'), 'runlog field: a field that is part of the [tag] takes the rest of the line', r)
-    r = qrunlog.field_values('holes', path=p)
-    check([x['value'] for x in r['rows']] == ['0', '0', '0', '7'], 'runlog field: a plain number', r)
-    # B4: RUN only via --run (a number among the words belongs to the field); the CLI reads the log path
-    r = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'q.py'), 'runlog', 'field', 'holes', '--run', p], capture_output=True, text=True, env=ENV, timeout=120, errors='replace')
-    check('4 line(s)' in r.stdout and 'wwe2k14_999.log' in r.stdout, 'B4: `q runlog field holes --run PATH` reads that log', r.stdout + r.stderr)
+def test_parsers(d):
     import qcensus
     check(qcensus.type_of_var('const Obs& q = z; x = a * q;', 'q') == 'Obs' and qcensus.type_of_var('y = a * q;', 'q') is None and qcensus.type_of_var('return q;', 'q') is None,
           'B4: type_of_var accepts declarations only (`a * q`, `return q` are not)', '')
     check([m.group(3) for m in qcensus.SPEC_RX.finditer('%o %a %A %n %Lf %lu')] == ['o', 'a', 'A', 'n', 'f', 'u'], 'B4: %o %a %A %n %L are specs', '')
-    # the printout collapses identical values and shows the delta
-    import io
-    import contextlib
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        qrunlog.print_field_values(qrunlog.field_values('black_no_3d', path=p))
-    out = buf.getvalue()
-    check('(+12)' in out and 'same value' not in out or '(... ' in out, 'runlog field: the printout shows the change between windows', out)
 
 
 def main():
@@ -345,7 +311,7 @@ def main():
     try:
         os.makedirs(os.path.join(d, 'fx'))
         test_all(os.path.join(d, 'fx'))
-        test_runlog(d)
+        test_parsers(d)
     except Fail as e:
         print('FAIL ' + str(e))
         return 1

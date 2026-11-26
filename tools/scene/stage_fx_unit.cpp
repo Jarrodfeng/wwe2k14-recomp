@@ -17,6 +17,8 @@
 //   lose_section       the round trip loses the stage rows                                  -> "record.roundtrip"
 //   join_shift         the record's arena-world entry for a model is 1.0 off in x           -> "join.arena_worlds"
 //   feed_no_cache      the feed names every frame with a new content id                     -> "feed.shared"
+//   slot_worlds_lead   S111 CUTREACH2: the record takes its own latch's slot worlds          -> "cutreach2.record_takes_previous_latch_slot_worlds"
+//   stage_look_lead    S111 CUTREACH2 review: the record takes its own latch's show / vis set -> "cutreach2.record_takes_previous_latch_stage_look"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -350,10 +352,13 @@ int main(int argc, char** argv) {
       for (const StageFxRow& r : t4.stage_fx) n += r.kind == kFxSlotWorld;
       const bool cleared = con.Stage() == 0 && n == 0;
       con.SetStage(kStage);   // the new arena's MotionSetup
+      FrameInfo f5a;
+      f5a.guest_frame = 504;   // S111 CUTREACH2: record r carries latch r - 1's slot rows (latch_period.h), so the new stage's rows reach record 505
+      con.Latch(f5a);
       SceneTables t5;
       Counters c5;
       FrameInfo f5;
-      f5.guest_frame = 504;
+      f5.guest_frame = 505;
       con.Latch(f5);
       con.Emit(f5, t5, c5);
       size_t n5 = 0;
@@ -367,7 +372,7 @@ int main(int argc, char** argv) {
       g_arena = 0;
       con.SetStage(kStage);
       FrameInfo f6;
-      f6.guest_frame = 505;
+      f6.guest_frame = 506;
       con.Latch(f6);
       const bool kept = con.Stage() == kStage;
       g_guest.Put(kStage + 1216, 7);   // the object now names another arena
@@ -389,7 +394,7 @@ int main(int argc, char** argv) {
       con.OnStageFreed(kStage);
       g_arena = 5;   // G+64 changes after the free (the next match's arena): the freed block still says 4
       FrameInfo f7;
-      f7.guest_frame = 506;
+      f7.guest_frame = 507;
       con.Latch(f7);
       SceneTables t7;
       Counters c7;
@@ -436,6 +441,16 @@ int main(int argc, char** argv) {
       Check(cn.disagree.load() == 1 && cn.from_stage.load() == 2 && cn.from_word.load() == 2 && cn.unknown.load() == 1 && line.find("stage id 66, published word 0, disagreements 1") == 0, "arena.disagreement_census", line);
       ra::g_arena_id_plant = 0;
     }
+    {   // S111 CACBG: the record names an arena only while the game holds a stage ([0x83763544]; the loader zeroes it when it frees one). Create a Title frees the CAS editor's BG66 and builds none:
+        // the stale 66 (or G+64) must become "no arena"; a held stage keeps its id; an unreadable holder keeps the old rule.
+      namespace ra = rdr_scene::live::arena;
+      ra::g_arena_id_plant = Plant("arena_without_stage") ? 3 : 0;
+      const int32_t freed = ra::ArenaWhileStageHeld(ra::GameHoldsNoStage(true, 0u), 66);
+      const int32_t held = ra::ArenaWhileStageHeld(ra::GameHoldsNoStage(true, 0x40004000u), 66);
+      const int32_t unread = ra::ArenaWhileStageHeld(ra::GameHoldsNoStage(false, 0u), 9);
+      Check(freed == -1 && held == 66 && unread == 9, "arena.none_without_stage", "freed " + std::to_string(freed) + " held " + std::to_string(held) + " unread " + std::to_string(unread));
+      ra::g_arena_id_plant = 0;
+    }
     if (!write_rows.empty()) {   // the driver's input (c_driver --rows): the rows this writer made, raw
       FILE* fp = std::fopen(write_rows.c_str(), "wb");
       if (fp) {
@@ -462,6 +477,83 @@ int main(int argc, char** argv) {
     off.Emit(f2, t, c);
     Check(latched && t.stage_fx.empty() && off.SlotStats().frames == 0, "mode.off_reads_nothing", "rows " + std::to_string(t.stage_fx.size()) + " frames " + std::to_string(off.SlotStats().frames));
     g_mode = 2;
+  }
+  {   // S111 CUTREACH2 (docs\research\s111\CUTREACH2.md): record r carries the slot worlds read at latch r - 1 (the slot models are posed by update tasks before the walk, sub_82C302A0 +120 then +1AC, and that
+      // walk's draws land in stream r). The real Latch / Emit over latches 600, 601, 602 and 604 (after a skipped 603: the record's own read).
+    scene_inputs::period::g_plant = Plant("slot_worlds_lead") ? 1 : 0;
+    const Guest keep = g_guest;
+    sfx::StageFxContributor sp;
+    sp.SetReader(ReadThunk);
+    sp.SetMoving(kMovingFn);
+    sp.SetArenaFn(ArenaNow);
+    sp.SetStage(kStage);
+    const auto slot101_tx = [&](uint64_t frame, float& tx) {
+      FrameInfo fx;
+      fx.guest_frame = frame;
+      sp.Latch(fx);
+      SceneTables tt;
+      Counters cx;
+      sp.Emit(fx, tt, cx);
+      const StageFxRow* r = RowOf(tt.stage_fx, 101);
+      if (!r) return false;
+      tx = r->world[3];
+      return true;
+    };
+    float x1 = 0, x2 = 0, x3 = 0, x5 = 0;
+    const bool h1 = slot101_tx(600, x1);         // the first latch: the record's own read (slot 101 at tx 100)
+    g_guest.PutF(WorldArrOf(101) + 48, 300.f);   // the slot moves in period 601 (node 1's m[12] = tx)
+    const bool h2 = slot101_tx(601, x2);         // record 601: latch 600's world
+    const bool h3 = slot101_tx(602, x3);         // record 602: latch 601's world, the new place
+    g_guest.PutF(WorldArrOf(101) + 48, 700.f);
+    const bool h5 = slot101_tx(604, x5);         // after a skipped latch: the record's own read
+    Check(h1 && h2 && h3 && h5 && Near(x1, 100.f) && Near(x2, 100.f) && Near(x3, 300.f) && Near(x5, 700.f), "cutreach2.record_takes_previous_latch_slot_worlds",
+          "slot 101 tx 600 " + std::to_string(x1) + " 601 " + std::to_string(x2) + " 602 " + std::to_string(x3) + " 604 " + std::to_string(x5) + " (want 100 100 300 700)");
+    scene_inputs::period::g_plant = 0;
+    g_guest = keep;
+  }
+  {   // S111 CUTREACH2 review (docs\research\s111\CUTREACH2.md "Review"): the show bits (the screens' draw sub_8276AEF8 and the look gate sub_824E7190 read them in the walk), the vis marker (the generation the posed /
+      // world appliers join the slot rows on, stage_posed.h) and the slot rows are ONE period: record r carries latch r - 1's set. Latch 600 shows 801; 801 goes off before latch 601; the stage object changes before 602.
+    scene_inputs::period::g_plant = Plant("stage_look_lead") ? 1 : 0;
+    const Guest keep = g_guest;
+    for (uint32_t k = 0; k < 10; ++k)   // the ten screen-key records (stage + 6008 + 12 key) and the four art-slot records (stage + 1220 + 12 slot), stage_show.h
+      for (uint32_t w = 0; w < 12; w += 4) g_guest.Put(kStage + 6008 + 12 * k + w, 0);
+    for (uint32_t s = 301; s <= 304; ++s)
+      for (uint32_t w = 0; w < 12; w += 4) g_guest.Put(kStage + 1220 + 12 * s + w, 0);
+    g_guest.Put(kStage + 6008 + 12 * 1 + 8, 0x00800000u);   // key 801: byte +9 bit 0x80 (the word's second big-endian byte)
+    sfx::StageFxContributor sl;
+    sl.SetReader(ReadThunk);
+    sl.SetMoving(kMovingFn);
+    sl.SetArenaFn(ArenaNow);
+    sl.SetStage(kStage);
+    const uint32_t gen_a = sl.StageGen();
+    struct Got { bool show_known = false, shown801 = false, marker = false; uint32_t gen = 0, stage = 0; size_t slot_rows = 0; };
+    const auto take = [&](uint64_t frame) {
+      FrameInfo fx;
+      fx.guest_frame = frame;
+      sl.Latch(fx);
+      SceneTables tt;
+      Counters cx;
+      sl.Emit(fx, tt, cx);
+      Got g;
+      StageShow s;
+      g.show_known = ShowFromRows(tt.stage_fx, s), g.shown801 = s.KeyShown(801);
+      StageVis v;
+      bool valid = false;
+      g.marker = VisFromRows(tt.stage_fx, v, valid), g.gen = v.gen, g.stage = v.stage;
+      for (const StageFxRow& r : tt.stage_fx) g.slot_rows += r.kind == kFxSlotWorld;
+      return g;
+    };
+    const Got a = take(600);                          // the first latch: the record's own read (801 shown)
+    g_guest.Put(kStage + 6008 + 12 * 1 + 8, 0);       // 801 goes off in period 601
+    const Got b = take(601);                          // record 601: latch 600's bits (801 still shown: the walk of 600 drew it)
+    sl.SetStage(kStage + 0x1000);                     // a new stage object (a new generation) in period 602
+    const Got c = take(602);                          // record 602: latch 601's set: the old stage, its generation AND its slot rows
+    const bool ok = a.show_known && a.shown801 && b.show_known && b.shown801 && c.show_known && !c.shown801 && c.marker && c.stage == kStage && c.gen == gen_a && c.slot_rows == 4;
+    Check(ok, "cutreach2.record_takes_previous_latch_stage_look",
+          std::string("801 shown: 600 ") + (a.shown801 ? "on" : "off") + " 601 " + (b.shown801 ? "on" : "off") + " 602 " + (c.shown801 ? "on" : "off") + " (want on on off); record 602 marker stage " +
+              (c.stage == kStage ? "old" : "NEW") + " gen " + std::to_string(c.gen) + " (want " + std::to_string(gen_a) + "), slot rows " + std::to_string(c.slot_rows) + " (want 4)");
+    scene_inputs::period::g_plant = 0;
+    g_guest = keep;
   }
 
   // ---------------------------------------------------------------- 3. the record round trip (the rows survive the file the offline applier reads)

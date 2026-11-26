@@ -188,8 +188,11 @@ def kind_of(text):
     return m.group(0) if m else (text or '?')[:3]
 
 
-def build(c, uid, max_kb=MAXKB):
-    """-> (text, flags). flags: has_name, has_anchor, has_observed, size_full (bytes before the cap), dropped"""
+def build(c, uid, max_kb=MAXKB, earlier=True):
+    """-> (text, flags). flags: has_name, has_anchor, has_observed, size_full (bytes before the cap), dropped.
+    earlier=False: the sheet a READER is given (q read pick, pick --reread, qlsheet_todo): no earlier model reading of the unit (the `read:`
+    line with its confidence), no reader-proposed name `read NAME [r:..]` and no probe verdict tag. S111 FOLD: a reading shown them took part
+    of its answer and its confidence from them (the same rule that removed the listing sheets' # NEIGHBOURS part); `q sheet` keeps them."""
     u = c.units.execute('select lo,hi,n_funcs from unit where unit_id=?', (uid,)).fetchone()
     if not u:
         raise SheetError('no unit %s (0..%d)' % (uid, c.n_units - 1))
@@ -279,8 +282,8 @@ def build(c, uid, max_kb=MAXKB):
     sites_total = sites_seen = 0
     n_vslot = 0
     conflicts = []
-    fv = qreadverify.func_verdicts(lo, hi)        # VERIFYMARK: [v:..], the newest probe verdict on the newest reading
-    rd_names = qread.proposed_names(lo, hi)      # reader candidates: tagged [r:..], never counted as a name
+    fv = qreadverify.func_verdicts(lo, hi) if earlier else {}        # VERIFYMARK: [v:..], the verdict on the newest reading
+    rd_names = qread.proposed_names(lo, hi) if earlier else {}      # reader candidates: tagged [r:..], never counted as a name
     for f in members:
         sz, ni = size.get(f, (0, 0))
         gn =c.game.get(f, [])
@@ -405,7 +408,7 @@ def build(c, uid, max_kb=MAXKB):
             'game names: ' + (lst(allg, 8) if allg else 'none'),
             'db names: ' + (lst(sorted(set(dnames)), 8) if dnames else 'none') +
             ('  systems: ' + ' '.join('%s=%d' % kv for kv in sysc.most_common(6)) if sysc else '')] + conflicts
-    rl = qread.read_line(uid)
+    rl = qread.read_line(uid) if earlier else None
     if rl:
         head.append(rl + qreadverify.tag(qreadverify.unit_verdict(uid)))
     # footer: only the counts that are not zero
@@ -448,8 +451,8 @@ def build(c, uid, max_kb=MAXKB):
     return out, flags
 
 
-def sheet(uid, max_kb=MAXKB, ctx=None):
-    return build(ctx or Ctx(), uid, max_kb)[0]
+def sheet(uid, max_kb=MAXKB, ctx=None, earlier=True):
+    return build(ctx or Ctx(), uid, max_kb, earlier)[0]
 
 
 def stats(c, max_kb=MAXKB, outdir=None):

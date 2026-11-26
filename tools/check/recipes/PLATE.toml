@@ -26,9 +26,12 @@ agg = "max"
 role = "mechanism"
 fixed = ">= 1"
 
+# S111 CACMATCHTEX review: `missing` = a diffuse slot of ANY event prop whose key the game's draw binds (the key resolves: sub_82294F20 non-zero, sub_82C04DF0 0x82C0570C) and ours drew white. A key the
+# game resolves to nothing is the game's own empty slot: printed as `game_none N` at the line's end, never a miss. The line: read R reread R no_plate N bad_shape N unreadable N dropped N bound N missing N
+# pending N other_unbound N game_none N.
 [[readout]]
 name = "plate census missing"
-line = '\[wwe2k14\]\[belt_plate\] read .* missing (?P<v>\d+)'
+line = '\[wwe2k14\]\[belt_plate\] read .* missing (?P<v>\d+) pending'
 agg = "max"
 role = "mechanism"
 fixed = "== 0"

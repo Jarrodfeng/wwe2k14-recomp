@@ -5,7 +5,7 @@ in-ring, pause menu, replay, ...). Everything derived from the game goes to `out
 
 ## How it works
 
-- **Separate build preset `win-amd64-coverage`** (`CMakePresets.json`, `-DWWE2K14_COVERAGE=ON`). Only there,
+- **Separate build preset `win-amd64-coverage-off`** (`CMakePresets.json`, `-DWWE2K14_COVERAGE=ON`, scene host, stream-free; the old stream-flavour `win-amd64-coverage` preset was deleted in S111). Only there,
   `CMakeLists.txt` adds `src/coverage_prologue.h` to the generated code's precompiled header, after
   `generated/default/wwe2k14_pch.h`. It redefines `REX_FUNC_PROLOGUE()` (the first statement of every generated
   function) as: the original alignment assumption + a per-function `static uint32_t` "epoch seen" compared with a
@@ -41,8 +41,8 @@ in-ring, pause menu, replay, ...). Everything derived from the game goes to `out
 ## Use
 
     pwsh -NoProfile -File tools\runlock.ps1 run -Name cov-configure -- pwsh -NoProfile -File tools\coverage\configure.ps1
-    pwsh -NoProfile -File tools\build.ps1 -Preset win-amd64-coverage -Run cov_001
-    pwsh -NoProfile -File tools\coverage\run_coverage.ps1                    (all routes; or -Routes cov_logo,cov_caw)
+    pwsh -NoProfile -File tools\build.ps1 -Preset win-amd64-coverage-off -Run cov_001
+    (run any input script with `mark` lines on that exe; S111: the generated cov_* routes and run_coverage.ps1 are gone)
     py tools\coverage\cov.py build                                           (coverage.json + summary.txt)
     py tools\coverage\cov.py sets
     py tools\coverage\cov.py unique caw
@@ -53,14 +53,12 @@ in-ring, pause menu, replay, ...). Everything derived from the game goes to `out
     py tools\coverage\cov.py show 012:in_ring.first60
     py tools\coverage\cov.py unique 012:pause_menu.first60     (a window against every scenario but its own)
 
-Routes: `py tools\coverage\make_routes.py` regenerates `tools\coverage\routes\cov_*.txt` from the existing routes
-(marks only, timing unchanged; the match route gets a pause-menu + replay tail; the story route is its own tail
-on the Create a Wrestler route's start). Never edit the generated routes or the source routes for coverage: edit
-`make_routes.py`. `run_coverage.ps1` stops if `make_routes.py` fails or a named route does not exist, and uses a
-run only if it exited with code 0, logged no failure and wrote its `quit` window; any other run's folder is
+Routes (S111): the generated `cov_*` routes, their generator and `run_coverage.ps1` were deleted. The route list below
+describes the runs already stored under `out\harness\coverage\` (made from those routes in Session 8). A run is
+used only if it exited with code 0, logged no failure and wrote its `quit` window; any other run's folder is
 renamed `<run>_failed` (not read by `cov.py`).
 
-Screenshot checks: the BMPs stay in `out\build\win-amd64-coverage\captures`; any converted copies (PNG) go to
+Screenshot checks: the BMPs stay in `out\build\win-amd64-coverage-off\captures`; any converted copies (PNG) go to
 `out\harness\coverage\shots\`, never to a temp or scratch folder (hard rule: game-derived files only under
 `out\harness`).
 
@@ -100,5 +98,5 @@ frame was not measured directly (frames are capped at 60 so it does not show up 
 - Window edges are approximate by microseconds (a first call racing the mark lands in the next window).
 - Coverage says a function ran, not what it did, nor how often.
 - The instrumented build is slower (see the overhead numbers in the task result / PLAYBOOK); don't use it for perf.
-- After codegen changes, rebuild the coverage preset (`tools\build.ps1 -Preset win-amd64-coverage`): it compiles
+- After codegen changes, rebuild the coverage preset (`tools\build.ps1 -Preset win-amd64-coverage-off`): it compiles
   the same `generated/default` sources, so it follows the manifest automatically.

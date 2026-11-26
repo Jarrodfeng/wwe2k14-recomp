@@ -72,7 +72,8 @@ struct Sample {
 };
 
 // Planted faults for the offline proof; never set in the game.
-enum class Fault { kNone, kIgnoreSwitch /* recolour without the switch */, kIgnoreState /* a non-10 state reads E+92 as fresh */, kAnyCallback /* any callback read as the Threads editor's */ };
+enum class Fault { kNone, kIgnoreSwitch /* recolour without the switch */, kIgnoreState /* a non-10 state reads E+92 as fresh */, kAnyCallback /* any callback read as the Threads editor's */,
+                   kNewestState /* S111 PERIODALL twin: Get returns the newest draw's state whatever its period (the old store) */ };
 inline Fault& PlantForTest() {   // the unit's planted rule, applied by the hook's call (never set in the game)
   static Fault f = Fault::kNone;
   return f;
@@ -162,34 +163,46 @@ class Store {
     }
     if (s.read == Read::kOff || s.read == Read::kForeignCallback || s.read == Read::kNoCallback || s.read == Read::kUnreadable || s.read == Read::kCawLogo) {
       // Not ours to draw recoloured this frame: the body draws its plain row. A switch-off body forgets its colours (a later switch-on starts afresh).
+      // S111 PERIODALL: written as THIS draw's period state, never erased at once: the record of the period before still takes that period's state (Get).
       auto it = bodies_.find(model);
       if (it == bodies_.end()) return Body{};
-      if (s.read == Read::kOff) { bodies_.erase(it); return Body{}; }
-      it->second.on = false, it->second.unsettled = false, it->second.frame = frame;
-      return it->second;
+      Body* b = StateOfDrawLocked(it->second, frame);
+      if (!b) return Body{};
+      b->on = false, b->unsettled = false;
+      if (s.read == Read::kOff) {
+        b->have_colours = false;
+        std::memset(b->colours, 0, kColourBytes);
+        if (!it->second.cur.on && !(it->second.has_prev && it->second.prev.on)) { bodies_.erase(it); return Body{}; }   // no period it holds is drawn recoloured: nothing to keep
+      }
+      return *b;
     }
-    Body& b = bodies_[model];
-    b.frame = frame;
+    Body* b = StateOfDrawLocked(bodies_[model], frame);
+    if (!b) return Body{};
     if (s.read == Read::kFresh) {
-      std::memcpy(b.colours, s.colours, kColourBytes);
-      b.have_colours = true, b.on = true, b.unsettled = false;
+      std::memcpy(b->colours, s.colours, kColourBytes);
+      b->have_colours = true, b->on = true, b->unsettled = false;
     } else {   // kUnsettled: the colours of the last state-10 read, counted; with none yet the body draws plain
-      b.on = b.have_colours, b.unsettled = true;
+      b->on = b->have_colours, b->unsettled = true;
     }
-    return b;
+    return *b;
   }
   // The record side: the body's state, or nothing (off / never drawn recoloured / aged out at `now`).
+  // S111 PERIODALL (docs\research\s111\PERIODALL.md): `now` = the record's hook (record r: r - 1). A draw of period p reads the clock p (NoteDrawAsked; sub_8339F0E0 reads the colours at the draw)
+  // and lands in stream p + 1, and record r carries period r - 1's palette and visibility (WrestlerContributor::AskedFor), so it takes the newest state at or before `now`. Was: the newest state
+  // whatever its period (one record ahead of the body on the frame a colour changes). Fault::kNewestState = the old rule (the twin).
   bool Get(uint32_t model, uint64_t now, Body& out) {
     std::lock_guard<std::mutex> l(mu_);
     auto it = bodies_.find(model);
     if (it == bodies_.end()) return false;
-    if (now > it->second.frame + kAgeFrames) {
+    const Entry& e = it->second;
+    if (now > e.cur.frame + kAgeFrames) {
       bodies_.erase(it);
       ++c_.aged;
       return false;
     }
-    if (!it->second.on) return false;
-    out = it->second;
+    const Body* b = (PlantForTest() == Fault::kNewestState || e.cur.frame <= now) ? &e.cur : (e.has_prev && e.prev.frame <= now) ? &e.prev : nullptr;
+    if (!b || !b->on) return false;
+    out = *b;
     return true;
   }
   // The game destroyed this model (the wrestlers' model-release hook): its address may be reused by another object, so the entry goes at once.
@@ -256,8 +269,23 @@ class Store {
     if (!reported_.insert(std::string(kind) + '\n' + object).second) return;
     pending_.push_back(Shortfall{kind, object, detail});
   }
+  // S111 PERIODALL: a body's state by period: the newest draw's period and the one before it (record r takes period r - 1's while period r's draws are already in; the two-deep history of
+  // WrestlerContributor::NoteAsk).
+  struct Entry { Body cur, prev; bool any = false, has_prev = false; };
+  // The state a draw of period `frame` writes: a newer period starts its state from the newest one (colours and have_colours carry, as before); the same period updates it; a late draw of the
+  // period before updates that one; an older draw changes nothing (null).
+  static Body* StateOfDrawLocked(Entry& e, uint64_t frame) {
+    if (!e.any || frame > e.cur.frame) {
+      if (e.any) e.prev = e.cur, e.has_prev = true;
+      e.any = true, e.cur.frame = frame;
+      return &e.cur;
+    }
+    if (frame == e.cur.frame) return &e.cur;
+    if (e.has_prev && frame == e.prev.frame) return &e.prev;
+    return nullptr;
+  }
   std::mutex mu_;
-  std::map<uint32_t, Body> bodies_;
+  std::map<uint32_t, Entry> bodies_;
   Census c_;
   std::set<std::string> reported_;
   std::vector<Shortfall> pending_;

@@ -18,7 +18,7 @@ import sys
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: 'oldest_wins', 5: 'curve_lost', 6: 'hold_without_last3d', 7: 'take_after_stop', 8: 'idle_never', 9: 'repeat_ignores_holds', 10: 'no_row_cache', 11: 'tween_ignores_waiting', 12: 'tween_ignores_cut', 13: 'tween_ignores_cold', 14: 'tween_ignores_scene_change', 15: 'draw_unfed', 16: 'menu_hook_is_3d', 17: 'any_stamp_is_3d', 18: 'rate_draws_all', 19: 'rate_debt_unpaid', 20: 'rate_carry_lost', 21: 'rate_debt_unbounded', 22: 'rate_contentless_pays', 23: 'feed_counts_calls', 24: 'repeat_raw_key', 25: 'key_wiring_dropped', 26: 'hidden_drawn', 27: 'stage_word_ignored', 28: 'chars_ignored', 31: 'a4_stamp_kept', 32: 'a4_no_k_guard', 35: 'scene_on_f_hold', 37: 'no_scene_sticky', 38: 'load_follow_any_pac',
           39: 'start_no_wait', 40: 'start_old_build', 41: 'start_stall_holds', 42: 'start_script_waits', 43: 'start_match_in_entrance', 44: 'start_arm_kept', 45: 'start_story_class_only', 46: 'start_card_down_holds', 47: 'start_stale_host_shut',
-          48: 'start_card_pending_only', 49: 'start_bodies_no_restamp', 50: 'start_bodies_card_down', 51: 'start_bodies_kept'}   # 29, 30, 33, 34 retired with the S105 A3 camera gate (S110 ENTRBLACK); 39-48 S110 ENTRWAIT2; 49-51 S110 ENTRBODIES
+          48: 'start_card_pending_only', 49: 'start_bodies_no_restamp', 50: 'start_bodies_card_down', 51: 'start_bodies_kept', 52: 'cause_dropped'}   # 29, 30, 33, 34 retired with the S105 A3 camera gate (S110 ENTRBLACK); 39-48 S110 ENTRWAIT2; 49-51 S110 ENTRBODIES; 52 S111 BLACKFRAME
 
 
 def read(root, rel):

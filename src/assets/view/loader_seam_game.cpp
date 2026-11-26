@@ -37,6 +37,8 @@ void ViewerInit(const std::string& game_path) {
   g_ready = g_files.Exists("pac\\ch") || g_files.Exists("default.xex");
 }
 
+launcher::GameFiles* ViewerGameFiles() { return g_ready ? &g_files : nullptr; }   // S111 OLDCHAIN
+
 std::string ViewerSetDlc(bool on, const std::string& dir, const std::string& off) {
   ForgetEvtTables();
   if (!g_ready) on = false;

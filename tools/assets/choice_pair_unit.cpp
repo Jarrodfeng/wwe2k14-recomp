@@ -171,7 +171,20 @@ int main(int argc, char** argv) {
     std::printf("%s: the planted (loose) pairing %s\n", ok ? "PASS" : "FAIL", planted_disagrees ? "is caught: the planted case pairs across FX_SPECULAR" : "was NOT caught");
     return ok ? 0 : 1;
   }
-  const bool ok = pc.Ok() && !planted_disagrees && bad == 0 && tech_bad == 0 && moved_bad == 0;
+  // S111 UNIFY5 review (front_end.cpp HasSkinnedProgram): the chunking rule asks the registry for a FX_SKINNED vertex program. Against the name list it replaced (yCh_ / yProp_ / yDefault) it may differ
+  // only on effects no loader puts on a skinned mesh (the crowd / flash materials and the caster effects: arena meshes are never skinned, jboy.h); any other difference is a change of what is posed.
+  size_t skin_diff = 0;
+  for (const std::string& e : effects) {
+    const bool old_rule = e.rfind("yCh_", 0) == 0 || e.rfind("yProp_", 0) == 0 || e == "yDefault";
+    const bool now = e.rfind("yCh_", 0) == 0 || HasSkinnedProgram(e);   // (front_end.cpp's IsCharEffect || HasSkinnedProgram; IsCharEffect lives in char_effects.cpp, not linked here)
+    static const std::set<std::string> kNeverSkinnedMeshes = {"yAudDefault", "yFlashDefault", "yShadowMap", "yPlaneShadowMap", "yRimLightMap"};
+    if (old_rule != now && !kNeverSkinnedMeshes.count(e)) {
+      if (skin_diff++ < 12) std::printf("SKINNED RULE MOVED %s: name list %d, registry %d\n", e.c_str(), int(old_rule), int(now));
+    }
+  }
+  const bool skin_ok = skin_diff == 0 && HasSkinnedProgram("yDefault") && HasSkinnedProgram("yProp_BumpMap") && !HasSkinnedProgram("yBG_Default") && !HasSkinnedProgram("yProp_Bump");
+  std::printf("%s skinned-program rule: %zu effects moved against the name list; yDefault / yProp_BumpMap skinned, yBG_Default / a bare prefix not\n", skin_ok ? "PASS" : "FAIL", skin_diff);
+  const bool ok = pc.Ok() && !planted_disagrees && bad == 0 && tech_bad == 0 && moved_bad == 0 && skin_ok;
   std::printf("%s\n", ok ? "PASS: every pick agrees on FX_SPECULAR; the guard moves no pick without a renamed slot; the planted case pairs an agreeing VS / PS" : "FAIL");
   return ok ? 0 : 1;
 }

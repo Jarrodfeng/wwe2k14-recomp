@@ -203,9 +203,8 @@ def main():
     c.close()
     ok(qc.promote(db, fx, pdb) == [], 'promote: a reading made after the tag was on the sheet is not independent of it')
     c = sqlite3.connect(db)
-    c.executescript(qreadverify.TABLE)
     rid = c.execute('select max(id) from name_read where func=?', (C,)).fetchone()[0]
-    c.execute("insert into verify_read(target_kind,target,verdict,note,source,when_,read_id) values ('func',?,'confirmed','probe says so','docs/X.md [C]','t',?)", (C, rid))
+    c.execute("update name_read set verdict='confirmed', v_note='probe says so', v_source='docs/X.md [C]', v_when='t' where id=?", (rid,))
     c.commit()
     c.close()
     rows = qc.promote(db, fx, pdb)

@@ -19,7 +19,9 @@ CAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'out'
 
 
 def load(run, label):
-    return np.asarray(Image.open(os.path.join(CAP, f'{int(run):03d}_{label}.png')).convert('RGB'), dtype=np.int16)
+    base = os.path.join(CAP, f'{int(run):03d}_{label}')
+    path = next((base + e for e in ('.webp', '.png') if os.path.exists(base + e)), base + '.png')   # S111 SHOTDIET: WebP is the default format
+    return np.asarray(Image.open(path).convert('RGB'), dtype=np.int16)
 
 
 def compare(run, a, b):

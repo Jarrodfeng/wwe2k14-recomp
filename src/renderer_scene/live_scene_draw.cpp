@@ -313,7 +313,8 @@ static bool DevForce() { return scene_frame::ForceInputs(); }
 // picture for good (holes -> not ready -> Hold3D forever). Skip the object instead, as the forced A/B runs (7309) did, and count it (NoteTerms / the ready census still see the terms).
 static bool SkipHoles() { return DevForce() || !WWE2K14_STREAM(); }
 
-// S103 S (lane H review, contract): only a frame with a stage is ever ours (menus with a 3D preview, CAW, character select stay the game's).
+// S103 S (lane H review, contract): only a frame with a stage is ever ours (menus with a 3D preview, CAW, character select stay the game's). S111 STAGELESS2: or a scene the game draws with NO stage held
+// (header bit 6 AND a model walk, stageless_scene.h StagelessGate, NoStageBlocks in BuildTerms); a no-stage record with no walk (a menu) is still never ours.
 // S103 L2d: that is the rule for a 3D (Scene3D) frame. A frame with NO stage, no 3D object and no Scene3D stamp is a FLAT frame (menus, select, title, boot, load: 2D list + movie +
 // backdrop particles, claims_Q78 Q8), exempt from this test and from the 3D inputs: scene_kind::FlatVerdict decides it from FlatFacts3D below + the 2D drawer's census.
 static bool HasStage(const std::vector<rf::ClassReport>& reports) {
@@ -323,8 +324,15 @@ static bool HasStage(const std::vector<rf::ClassReport>& reports) {
 }
 
 void LiveSceneDraw::NoteStage(const SceneTables& rec, bool built, const std::vector<rf::ClassReport>& reports) {
+  const bool new_record = rec.header.guest_frame != stage_gf_;   // S111 STAGELESS2: the gate steps once per record (a record built twice is one record)
   stage_gf_ = rec.header.guest_frame;
   stage_ = !built || HasStage(reports);   // a frame not built is never judged flat (fail closed)
+  if (new_record) {   // S111 STAGELESS2 (stageless_scene.h): the game holds no stage (header bit 6) AND a model-class hook asked this record (the Scene3D stamp's walk bit; never set in the stream build)
+    bool walked = false;
+    for (const OwnedStamp& s : rec.owned_passes)
+      if (s.pass == uint8_t(rdr_own::Pass::Scene3D)) walked = walked || scene_kind::WalkOfPad(s.pad);
+    stageless_ = stageless_gate_.Step(rec.header.flags, walked);
+  }
   uint32_t n = 0;
   for (const rf::ClassReport& r : reports) n += r.objects;
   stage_objects_ = n;
@@ -395,7 +403,7 @@ uint32_t LiveSceneDraw::BuildTerms(bool built, const std::vector<rf::ClassReport
   uint32_t t = 0;
   if (live_cache_->misses_this_frame() != 0) t |= kTermMisses;
   if (rf::TotalHoles(reports) != 0) t |= kTermHoles;
-  if (!HasStage(reports)) t |= kTermNoStage;
+  if (rdr_scene::stageless::NoStageBlocks(HasStage(reports), stageless_)) t |= kTermNoStage;   // S111 STAGELESS2: no stage blocks READY unless the game draws this scene with none (stageless_scene.h)
   return t;
 }
 
@@ -807,7 +815,7 @@ std::string LiveSceneDraw::Census() const {
   if (fe_) s += " " + fe_->WrkCensusLine();   // S103 WRK
   if (fe_) s += " " + fe_->ReflectLine();   // S103 RFL: cubes loaded (name, size), reflect draws, fallbacks
   if (fe_) s += " " + fe_->FlashLine();   // S110 RDRPREP F3: flash sprites given / drawn / skipped for want of a depth
-  if (fe_) s += " plane_bound " + std::to_string((unsigned long long)fe_->plane_bound()) + " plane_wanted_plain " + std::to_string((unsigned long long)fe_->plane_wanted_plain()) + " props_mat_bound " + std::to_string((unsigned long long)fe_->props_mat_bound()) + " char_table_picked " + std::to_string((unsigned long long)fe_->char_table_picked()) + " char_cube_analytic " + std::to_string((unsigned long long)fe_->char_cube_analytic()) + " char_wrinkle_blocked " + std::to_string((unsigned long long)fe_->char_wrinkle_blocked()) + " char_nontable_fallback " + std::to_string((unsigned long long)fe_->char_nontable_fallback()) + " char_mode_unknown " + std::to_string((unsigned long long)fe_->char_mode_unknown()) + " wet_unknown " +std::to_string((unsigned long long)fe_->wet_unknown()) + " wet_bound " + std::to_string((unsigned long long)fe_->wet_bound()) + " wet_no_variant " + std::to_string((unsigned long long)fe_->wet_no_variant()) + " wet_lost_shadow " + std::to_string((unsigned long long)fe_->wet_lost_shadow()) + " time_frozen " + std::to_string((unsigned long long)fe_->time_frozen())
+  if (fe_) s += " plane_bound " + std::to_string((unsigned long long)fe_->plane_bound()) + " plane_wanted_plain " + std::to_string((unsigned long long)fe_->plane_wanted_plain()) + " props_mat_bound " + std::to_string((unsigned long long)fe_->props_mat_bound()) + " char_table_picked " + std::to_string((unsigned long long)fe_->char_table_picked()) + " char_cube_analytic " + std::to_string((unsigned long long)fe_->char_cube_analytic()) + " char_wrinkle_blocked " + std::to_string((unsigned long long)fe_->char_wrinkle_blocked()) + " char_hole_no_table " + std::to_string((unsigned long long)fe_->char_hole_no_table()) + " char_hole_no_row " + std::to_string((unsigned long long)fe_->char_hole_no_row()) + " char_hole_draws " + std::to_string((unsigned long long)fe_->char_hole_draws()) + " char_mode_unknown " + std::to_string((unsigned long long)fe_->char_mode_unknown()) + " time_frozen " + std::to_string((unsigned long long)fe_->time_frozen())   // S111 OLDCHAIN: the holes (char_effects.h CharHoleCounter names these words); wet_unknown is gone (every such draw is a hole, char_hole_draws)
     + " card_factor_missing " + std::to_string((unsigned long long)fe_->card_factor_missing()) + " lm_param [clamped " + std::to_string((unsigned long long)assets::arena_lm::g_clamped.load(std::memory_order_relaxed)) + ", no_table " + std::to_string((unsigned long long)assets::arena_lm::g_no_table.load(std::memory_order_relaxed)) + ", zero_record " + std::to_string((unsigned long long)assets::arena_lm::g_zero.load(std::memory_order_relaxed)) + "]";   // S103 L9 / B3c
   if (lists_) s += " " + lists_->Census();   // S103 G2: the lists' census on the same line (no newline inside)
   if (live_hooks_) s += " " + live_hooks_->CensusLine();   // S103 R2: the live frame's hooks (order, maps, particles)

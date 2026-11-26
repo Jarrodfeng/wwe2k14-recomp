@@ -26,6 +26,11 @@
 namespace rdr_scene::live::propcolour {
 
 constexpr uint32_t kCallbackEditorProp = 0x8338EC00u;   // sub_8338EC00: the Threads editor's draw callback of the entrance prop (installed by its render node sub_8338ED08, every frame)
+// S111 CACBUILD (docs\research\s111\CACBUILD.md 2): the Create a Championship belt's draw callback (installed by sub_833449E0 / sub_83344760 on [[0x836F4B40]+1228], arg = the CAB object C).
+// For a created belt id ([C+228]) it binds at sampler 12 C's own 1x1 texture, zero-filled by the ctor sub_83344240 and never written, and C+236 (samplers 14 / 4) is never set: the game recolours
+// nothing, so the plain row IS its picture. Any other id binds its loaded /CBPM mask, which ours does not load: still a shortfall.
+constexpr uint32_t kCallbackCabBelt = 0x833445D0u, kOffCabPropId = 228;
+inline bool IsCreatedBeltPropId(int32_t id) { return (id >= 2926 && id <= 2930) || (id >= 3926 && id <= 3930) || (id >= 5059 && id <= 5063); }   // sub_83328A48's 15 ids
 constexpr uint32_t kSkinnedModelVtable = 0x8206AF90u;   // the model class of MakeWeapon's models (= weapons::kSkinnedModelVtable; the unit asserts the two equal)
 constexpr uint32_t kOffSwitch = 604, kOffCallback = 324, kOffCallbackArg = 328;   // model words (as change_colour.h)
 constexpr uint32_t kOffState = 20, kOffMaskLoaded = 100, kOffColours = 128;       // gear object G
@@ -34,13 +39,13 @@ constexpr int kColours = 4, kColourBytes = 12;
 constexpr uint32_t kBlockModel = 0, kBlockId = 4, kBlockColours = 16, kBlockStride = 16;   // the match block (sub_833A1758's r4)
 
 // ---- the editor: one draw's read ------------------------------------------------------------------------------------------------------------------------------------------------------------
-enum class Read { kOff, kFresh, kNotReady, kForeignCallback, kNoCallback, kUnreadable };
+enum class Read { kOff, kFresh, kNotReady, kForeignCallback, kNoCallback, kUnreadable, kCabPlain /* S111 CACBUILD: the CAB belt callback on a created id: no recolour (counted, quiet) */ };
 struct EditorSample {
   Read read = Read::kOff;
   uint32_t callback = 0, gear = 0, state = 0, mask_loaded = 0;
   uint8_t colours[kColourBytes] = {};
 };
-enum class Fault { kNone, kIgnoreState /* recolour with the gear object not in state 2 */, kAnyCallback /* any callback read as the editor's */, kIgnoreSwitch };
+enum class Fault { kNone, kIgnoreState /* recolour with the gear object not in state 2 */, kAnyCallback /* any callback read as the editor's */, kIgnoreSwitch, kCabAsForeign /* S111 CACBUILD twin: the CAB callback read as foreign */ };
 inline Fault& PlantForTest() {
   static Fault f = Fault::kNone;
   return f;
@@ -54,6 +59,12 @@ inline EditorSample ReadEditor(ReadWordFn rw, uint32_t model, Fault fault = Plan
   if (!rw(model + kOffCallback, cb) || !rw(model + kOffCallbackArg, g)) return s.read = Read::kUnreadable, s;
   s.callback = cb;
   if (cb == 0) return s.read = Read::kNoCallback, s;
+  if (cb == kCallbackCabBelt && fault != Fault::kCabAsForeign) {   // S111 CACBUILD: decided by the prop id the CAB object holds
+    uint32_t id = 0;
+    if (g < 0x10000u || !rw(g + kOffCabPropId, id)) return s.read = Read::kUnreadable, s;
+    s.gear = g;
+    return s.read = IsCreatedBeltPropId(int32_t(id)) ? Read::kCabPlain : Read::kForeignCallback, s;
+  }
   if (cb != kCallbackEditorProp && fault != Fault::kAnyCallback) return s.read = Read::kForeignCallback, s;
   if (g < 0x10000u) return s.read = Read::kUnreadable, s;
   s.gear = g;
@@ -130,7 +141,7 @@ inline void ToConstants(const uint8_t colours[kColourBytes], float out[kColours 
 }
 
 struct Census {
-  uint64_t latched = 0, editor = 0, editor_off = 0, not_ready = 0, foreign = 0, no_callback = 0, unreadable = 0;
+  uint64_t latched = 0, editor = 0, editor_off = 0, not_ready = 0, foreign = 0, no_callback = 0, unreadable = 0, cab_plain = 0;
   uint64_t refused[6] = {};          // by Refusal
   uint64_t rows = 0, no_mask = 0, no_row = 0, drawn = 0, forgotten = 0, aged = 0;
 };
@@ -169,6 +180,7 @@ class Store {
       case Read::kForeignCallback: ++c_.foreign; break;
       case Read::kNoCallback: ++c_.no_callback; break;
       case Read::kUnreadable: ++c_.unreadable; break;
+      case Read::kCabPlain: ++c_.cab_plain; break;
     }
     // A foreign callback or an unreadable read: the game recolours this prop and we cannot, said once per (model, reason). The switch set
     // with NO callback is not one: the gear object's update clears +324 / +328 every pass and its render node re-installs them only in
@@ -217,7 +229,7 @@ class Store {
   void NoteRow() { std::lock_guard<std::mutex> l(mu_); ++c_.rows; }
   void NoteDrawn() { std::lock_guard<std::mutex> l(mu_); ++c_.drawn; }
   void NoteNoRow() { std::lock_guard<std::mutex> l(mu_); ++c_.no_row; }   // the STS table has no bindable cc_mask row for this material's effect / technique: drawn stock
-  void NoteNoMask() { std::lock_guard<std::mutex> l(mu_); ++c_.no_mask; }   // a prop draw the record recolours whose material has no mask loaded (no /SPMT row, or the file lacks it)
+  void NoteNoMask() { std::lock_guard<std::mutex> l(mu_); ++c_.no_mask; }   // a prop draw the record recolours whose material has no mask loaded (no /SPMT row, or the file lacks it; S111 STOCKBELT: a belt material not on `color`, which R5 leaves alone)
   void TakeShortfalls(std::vector<change_colour::Shortfall>& out) {
     std::lock_guard<std::mutex> l(mu_);
     out.swap(pending_);
@@ -230,10 +242,10 @@ class Store {
     uint64_t refused = 0;
     for (int i = 1; i < 6; ++i) refused += c.refused[i];
     char b[560];
-    std::snprintf(b, sizeof b, "[prop_colour] latched %llu, editor %llu (off %llu, not ready %llu), drawn %llu (rows %llu), no mask %llu, no row %llu, shortfall %llu (foreign %llu, no callback %llu, unreadable %llu, blocks refused %llu), held %zu, forgotten %llu, aged %llu",
+    std::snprintf(b, sizeof b, "[prop_colour] latched %llu, editor %llu (off %llu, not ready %llu), drawn %llu (rows %llu), no mask %llu, no row %llu, shortfall %llu (foreign %llu, no callback %llu, unreadable %llu, blocks refused %llu), held %zu, forgotten %llu, aged %llu, cab plain %llu",
                   (unsigned long long)c.latched, (unsigned long long)c.editor, (unsigned long long)c.editor_off, (unsigned long long)c.not_ready, (unsigned long long)c.drawn, (unsigned long long)c.rows,
                   (unsigned long long)c.no_mask, (unsigned long long)c.no_row, (unsigned long long)(c.foreign + c.no_callback + c.unreadable + refused), (unsigned long long)c.foreign, (unsigned long long)c.no_callback,
-                  (unsigned long long)c.unreadable, (unsigned long long)refused, Size(), (unsigned long long)c.forgotten, (unsigned long long)c.aged);
+                  (unsigned long long)c.unreadable, (unsigned long long)refused, Size(), (unsigned long long)c.forgotten, (unsigned long long)c.aged, (unsigned long long)c.cab_plain);
     return b;
   }
   void ResetForTest() {

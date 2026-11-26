@@ -612,6 +612,10 @@ def cmd_body(idx, name, args, root):
     for m in d['matches']:
         if m['kind'] not in ('function', 'method', 'class'):
             continue
+        if getattr(args, 'in_path', None):      # S111 QGAPS: --in FILE picks the definitions BEFORE the 3-body cap (the cap hid the one in FILE)
+            import qcap
+            if not qcap.in_scope(m['file'], args.in_path):
+                continue
         try:
             with open(os.path.join(root, m['file']), encoding='utf-8', errors='replace') as f:
                 ls = f.read().split('\n')

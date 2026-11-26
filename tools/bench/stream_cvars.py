@@ -21,8 +21,32 @@ INCLUDE_RX = re.compile(r'^\s*include\s+("?)([^"#\r\n]+?)\1\s*(?:#.*)?$', re.M)
 _CACHE = {}
 
 
+def _own_keep_stream(exe):
+    """S111: what the exe's OWN folder says it was built as: 'OFF' / 'ON' from exe_info.json options (a lane exe) or CMakeCache.txt (an out\\build folder), else ''. Never the folder's name: Jarrod's
+    play folder out\\build\\win-amd64-release is stream-free since 2026-11-26 and a name test called it the stream build."""
+    d = os.path.dirname(os.path.abspath(exe))
+    try:
+        with open(os.path.join(d, 'exe_info.json'), encoding='utf-8') as fh:
+            v = str(((json.load(fh) or {}).get('options') or {}).get('WWE2K14_KEEP_STREAM', '')).upper()
+        if v in ('ON', 'OFF'):
+            return v
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        with open(os.path.join(d, 'CMakeCache.txt'), encoding='utf-8', errors='replace') as fh:
+            m = re.search(r'^WWE2K14_KEEP_STREAM:BOOL=(\w+)', fh.read(), re.M)
+        return m.group(1).upper() if m else ''
+    except OSError:
+        return ''
+
+
 def is_stream_free_exe(exe):
-    return bool(exe) and bool(STREAM_FREE_EXE_RX.search(exe))
+    if not exe:
+        return False
+    own = _own_keep_stream(exe)
+    if own:
+        return own == 'OFF'
+    return bool(STREAM_FREE_EXE_RX.search(exe))
 
 
 def _fingerprint(root):

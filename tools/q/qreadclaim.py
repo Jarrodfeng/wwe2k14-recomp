@@ -660,7 +660,7 @@ def promote(path=None, fx=None, pattern=None):
     vc = qreadverify._ro(path)
     if vc is not None:
         try:
-            for t, s, n in vc.execute("select target,source,note from verify_read where target_kind='func' and verdict='confirmed' order by id"):
+            for t, s, n in vc.execute("select func,v_source,v_note from name_read where verdict='confirmed' order by id"):
                 vnote[t] = (s, n)
         finally:
             vc.close()

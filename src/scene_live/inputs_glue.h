@@ -92,14 +92,14 @@ inline void Register() {
       [](uint32_t skel, uint32_t n, const rdr_scene::Mat4* skin, uint64_t f) { return rdr_scene::live::Wrestlers().SubmitLatchConsumer(skel, n, skin, f); });
   // S103 L31B: the targets come from the character table (every occupied slot's skeleton [char + 48], every latch), not from the update hook's liveness; the guard's count rides along. Replaces the
   // TargetsFn above (kept as the fallback when this is unset, and as the unit's planted twin).
-  c.SetOffLatch([](bool v) { rdr_scene::live::WrestlerContributor::SetOffLatchThread(v); });   // S103 AUSF review 1
   c.SetSlotPalettes(
       [](uint64_t hook, uint64_t record, const rdr_scene::live::inputs::InputsContributor::SlotTable& slots, std::vector<rdr_scene::live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing,
          uint32_t* stale_visible, bool count) {
         static thread_local std::vector<rdr_scene::live::WrestlerContributor::PaletteTarget> t;   // the caller's thread's scratch
         static thread_local rdr_scene::live::WrestlerContributor::SlotTable s;
         s.skels.clear();
-        for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr, x.game_shown});
+        for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr, x.game_shown, x.draw_pos, x.drtr_on, x.trans_gates});   // S111 CAT33: + the category-33 draw place; S111 OWNERLESS review: + the DRTR node's enable; S111 PIECEROUTE: + slot 22's gate
+        s.far_layer = slots.far_layer;   // S111 OWNERLESS review: the depth-sorted far layer may draw DRTR nodes whatever their enable (inputs_contrib.h StampFarLayer)
         static_assert(std::is_same_v<decltype(s.pieces), decltype(slots.pieces)>, "the piece list is ONE shared type (slot_piece.h)");   // S103 NRBF
         s.pieces.clear();
         s.pieces_view = &slots.pieces;   // S103 NRB; S103 HGF (XLB 3): a view of the latch's own list, no deep copy of every piece's vectors (LatchTargets reads pieces_view)
@@ -153,18 +153,12 @@ inline void Register() {
   c.SetMeshKnown([]() { return rdr_scene::live::circles::CirclesRegistered() && rdr_scene::live::circles::The().tracker.has_mesh(); });   // bit-8 review 4
   c.SetPaletteCensus([]() {
     auto& w = rdr_scene::live::Wrestlers();
-    return "latch_same " + std::to_string((unsigned long long)w.LatchSame()) + " latch_differs " + std::to_string((unsigned long long)w.LatchDiffers()) + " derived_mismatch " + std::to_string((unsigned long long)w.DerivedMismatch()) +
-           " derived_unchecked " + std::to_string((unsigned long long)w.DerivedUnchecked()) + " mismatch_walk_same " + std::to_string((unsigned long long)w.MismatchWalkSame()) + " mismatch_walk_differs " + std::to_string((unsigned long long)w.MismatchWalkDiffers()) + " mismatch_submitted " + std::to_string((unsigned long long)w.MismatchSubmitted()) + " mismatch_not_present " + std::to_string((unsigned long long)w.MismatchNotPresent()) + " mismatch_no_evidence " + std::to_string((unsigned long long)w.MismatchNoEvidence()) + " " + w.DerivedDeltaStr() + ", " + w.SlotCensus();   // S103 L31B
+    return "latch_same " + std::to_string((unsigned long long)w.LatchSame()) + " latch_differs " + std::to_string((unsigned long long)w.LatchDiffers()) + ", " + w.SlotCensus();   // S103 L31B (S111 HEADGUARD: the derived-head counters went with the guard)
   });
   rdr_scene::live::stagefx::StageFx().SetStageChanged([]() { rdr_scene::live::lightidx::The().Clear(); });   // F2: a new stage / arena starts a new table
   rdr_scene::live::lightidx::RegisteredFlag().store(true, std::memory_order_relaxed);   // S103 A3 (bit 4): the install / model hooks start learning
   rdr_scene::live::planeproxy::RegisteredFlag().store(true, std::memory_order_relaxed);   // S103 A3 (S8): the plane node's entry hook starts copying the proxy list
-  rdr_scene::live::Wrestlers().SetPreLatch([](uint64_t record_frame, bool latch_thread) { rdr_scene::live::inputs::Inputs().LatchPalettes(record_frame, latch_thread); });
-  // S103 S (2026-11-16, run 20 = wwe2k14_7273, mode 1, Brock's entrance) [C]: palette latch_same 17437 / latch_differs 0, and the derived head
-  // that matches sits at hook - head = -1 on 15760 of 17724 records (0: 320 = still poses, where the -1 head is equal too; +1: 17; other: 51).
-  // Settled: only the -1 head is accepted for the bit-3 guard (A3 re-review must 7).
-  // S103 W1: the same -1, written as what it is: the latch at hook H reads the content tagged H + kPaletteLead (wrestler_contrib.h), so the equal derived head is at H - head = -kPaletteLead (tagging change: no new value; unit w1.guard_*).
-  rdr_scene::live::Wrestlers().SetAcceptedHeadDelta(-int64_t(rdr_scene::live::WrestlerContributor::kPaletteLead));
+  rdr_scene::live::Wrestlers().SetPreLatch([](uint64_t record_frame) { rdr_scene::live::inputs::Inputs().LatchPalettes(record_frame); });
   rdr_scene::live::crowd::The().SetLatchReader(&CrowdLatchRead);   // S103 D3b: the walk-free crowd snapshot (an OURS frame), compared with the walk's on a walked frame
   rdr_scene::live::inputs::RegisterInputs();
   rdr_scene::live::SetEmitStampFill(&::scene_inputs::FillEmitStamps);   // S103 L1C review B1: bit 14 is stamped at Emit

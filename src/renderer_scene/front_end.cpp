@@ -44,6 +44,8 @@
 #include "shader_reload.h"  // S101 lane24
 #include "upload_check.h"   // S108 AL1: the pure upload refusals + their draw_shortfall report
 #include "change_colour_draw.h"   // S108 THR2: the Threads editor's live colours (the bind's masks, ChangeColor)
+#include "muscle_map.h"   // S111 MUSCLEMAP: slot 2 of an FX_MUSCLE fragment = the material's muscle map
+#include "env_cube.h"   // S111 ENVCUBE: slot 10 of a character draw = the material's g_mEnvLPrm cube
 #include "../renderer/shaders/spv/rdr_flash_vert.h"   // S110 CUTGREY (front_end_flashes.h)
 #include "../renderer/shaders/spv/rdr_flash_frag.h"
 #include "../scene_live/prop_colour.h"   // S108 THB: the entrance props' colours (ChangeColor of a prop draw, the census)
@@ -174,9 +176,6 @@ int SearchLightPlanar(const assets::Material& m) {
 // S103 L9: the materials whose game draw is the screen-shadow one: the ring mat (yProp_PSM, "Prop Plane Shadow Mat": MAT_SHADOW.md section 1) and its light-map twin.
 bool IsPlaneReaderEffect(const std::string& shader) { return shader == "yProp_PSM" || shader == "yProp_PSMLM"; }
 
-// S101 lane 15: a skinned yProp_* piece (a belt, a held prop: the viewer poses it with a bone palette) is cut into skin chunks like a character piece.
-bool IsSkinnableProp(const std::string& effect) { return effect.rfind("yProp_", 0) == 0; }
-
 // S101 lane 15: the materials the game draws with their light-map ("LM") variant in an entrance (viewer renderer.cpp GpuMaterial::ent_lm; the yBG_* families are off by default).
 bool EntranceLmClass(const assets::Material& m, bool bg) {
   if (m.crowd || m.lightmap >= 0) return false;
@@ -233,6 +232,20 @@ void Collect(const std::string& effect, std::vector<int>& vertex, std::vector<in
     if (EndsWith(name, "_vertex")) vertex.push_back(i);
     else if (EndsWith(name, "_fragment")) fragment.push_back(i);
   }
+}
+
+// S101 lane 15 / S111 UNIFY5 review: a skinned mesh is cut into skin chunks (each posed by its own palette) when its effect has a SKINNED vertex program in the registry (FX_SKINNED: today the yCh_*,
+// yProp_*, yDefault, yAudDefault and yFlashDefault families); any other effect stays rigid at rest (ring_pose.h). Asked of the registry, not a name list: the yProp_* / yDefault list it replaces named the
+// same set for every skinned mesh the loaders give (arena, crowd and flash meshes are never skinned: jboy.h `mesh.skinned = !o.arena`). A created superstar's yDefault part is one (the game draws it with
+// its table row T1 p1 = yDefault_skinned_vertex: UNIFY5.md review).
+bool HasSkinnedProgram(const std::string& effect) {
+  for (int i = 0; i < kVariantCount; ++i) {
+    const char* n = kVariants[i].name;
+    const fxt::VariantTable* t = T().by_index[size_t(i)];
+    if (!n || !t || std::strncmp(n, effect.c_str(), effect.size()) != 0 || n[effect.size()] != '_') continue;
+    if (EndsWith(n, "_vertex") && HasDefine(*t, "FX_SKINNED")) return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -418,6 +431,11 @@ FxChoice ChooseEffect(const std::string& effect, const MaterialWants& w) {
     }
     if (best.vs < 0) why = cand_why;
   }
+  if (!best.Ok() && tech_active && w.change_colour) {  // S111 BELTMASKNAME review: the EDIT/STS table has no bindable row for this prop (the m2 belts' yProp_Default T0): the plain draw is the material's own pick WITHOUT the recolour (the startup table's row), never the sampler stand-in below (stockbelt_unit real.cbwm.no_row_draws_plain_pick)
+    MaterialWants plain = w;
+    plain.change_colour = false;
+    return ChooseEffect(effect, plain);
+  }
   if (!best.Ok() && tech_active) {  // S103 TQF: the table's variant is not bindable for this material (a spec-map technique on a material with no spec sampler, an input not fed ...) or not in the table: the sampler scoring, counted (docs\research\s103\TQF.md)
     MaterialWants plain = w;
     plain.technique = -1;
@@ -542,7 +560,7 @@ struct FrontEnd::ModelData {
     int slot_no = -1;                 // S103 E5: the stage slot of an arena mesh ("slot N"), -1 = not one
     int src_record = -1;              // S103 E5: the mesh record's index in its JBOY = the game's draw part (assets::Mesh::src_record)
     std::string node, src_pac;        // S103 CAWS: the source mesh's first node name / pac (assets::Mesh::node / src_pac), for the [scene][blended] line
-    bool answers_piece_row = false;   // S105 A5b F4: MeshAnswersPieceRow(src_kind, src_pac), decided once at AddModelImpl (the Record loop runs per mesh per frame)
+    bool answers_piece_row = false;   // S105 A5b F4: MeshAnswersPieceRow(src_kind) (S111 GUESTKEY: no pac test), decided once at AddModelImpl (the Record loop runs per mesh per frame)
     bool piece_cut = false;           // S108 HAIR: piece_draw::PieceCut (a stock piece's translucent mesh outside sub_8259E488's ref-1 list): alpha test GEQUAL 128/255 + depth write, blended; decided once at AddModelImpl
     int src_kind = 0, src_key = -1;   // S103 PZF2 (EB): the source mesh's pac entry kind / key (assets::Mesh::src_kind / src_key): kind 2 + key = a wrestler's piece id (0 body, 10000+ hair ...)
     bool uv_scroll = false;           // S103 E5: its material's shader is an UV-scroll class (reads VS c186 Time)
@@ -561,6 +579,7 @@ struct FrontEnd::ModelData {
   uint16_t idle_screens = 0;        // S103 SCF: bit k = the movie-key slot 800 + k is shown and plays no movie this frame: it draws the live frame grab (live_screen_), the game's sub_8276A808 (SetIdleScreens)
   std::vector<assets::LightSet> light_sets;
   uint32_t node_count = 0;  // S103 B: the model's skeleton nodes (assets::Model::bones), for ModelNodeCount
+  bool skinned_model = false;   // S111 OLDCHAIN review: the model has a skin chunk (a skinned character model: the game's model +540 == 1, technique_pick.h CharPassOf's base); set at AddModelImpl, never from a frame's palette
   uint32_t main_node_count = 0;                           // S103 W2B: the body entry's own nodes (0 = the model has no piece nodes); node_count - main_node_count = extra_tags.size()
   std::vector<uint32_t> extra_piece_nodes;                // S103 W2B (review G): parallel to extra_tags: the piece entry's node count
   std::vector<FrontEnd::ModelExtraInfo> extra_info;       // S103 W2B (review D / F): parallel to extra_tags
@@ -579,7 +598,7 @@ struct FrontEnd::ModelData {
   std::unordered_map<uint64_t, rdr::BufferId> cloth_bufs;  // posed cloth vertices, by (object, mesh)
   rdr::BufferId vb = rdr::kNoBuffer, ib = rdr::kNoBuffer, svb = rdr::kNoBuffer;  // (svb: the skin stream of the character chunks)
   std::vector<std::unique_ptr<Bound>> bound;  // per material (x2: rigid / skinned, S101 lane 13)
-  std::vector<uint8_t> char_class;   // S103 YCB (review P2-5): per material, bit 0 = computed, 1 = E+12, 2 = E+4, 3 = hair (technique_pick.h CharClassOf)
+  std::vector<uint8_t> char_class;   // S103 YCB (review P2-5): per material, bit 0 = computed, 1 = E+12, 2 = E+4, 3 = hair, 4 = E+20 (S111 TECHPASS) (technique_pick.h CharClassOf)
   std::unordered_map<uint64_t, std::unique_ptr<Bound>> char_bound;   // S103 YCB: the wrestler table pick's cache, by (material, skinned, pass) (BindMaterial's char_pass); cleared with `bound`
   bool live = true;
   bool images_shared = false;  // S103 R: the images belong to another model (AddModelSharing): ReleaseModel leaves them
@@ -633,7 +652,7 @@ FrontEnd::~FrontEnd() {
   for (size_t i = 0; i < models_.size(); ++i) ReleaseModel(int(i));
   for (ModelData* m : models_) delete m;
   post_pass_.reset();  // S101 lane 34 (its images go first)
-  for (rdr::ImageId id : {white_, grey_, color_, depth_, black_, neutral_normal_, black_cube_, post_out_, flash_depth_})   // (S110 FLASHFRONT: flash_depth_)
+  for (rdr::ImageId id : {white_, grey_, color_, depth_, black_, neutral_normal_, black_cube_, post_out_})
     if (id != rdr::kNoImage) renderer_.DestroyImage(id);
   if (grab_prime_ != rdr::kNoImage) renderer_.DestroyImage(grab_prime_), grab_prime_ = rdr::kNoImage;   // WGS PAR1: the TEST-ONLY primed grab (teardown)
   for (auto& kv : cubes_)
@@ -1001,13 +1020,6 @@ bool FrontEnd::ModelHasPieceMesh(int model, uint32_t piece_id) const {   // S103
   return false;
 }
 
-bool FrontEnd::ModelHasAnyPieceMesh(int model) const {   // S103 SMF (review A4)
-  if (model < 0 || size_t(model) >= models_.size() || !models_[size_t(model)]) return false;
-  for (const ModelData::Mesh& m : models_[size_t(model)]->meshes)
-    if (m.src_kind == 2 && m.src_key >= 0) return true;
-  return false;
-}
-
 int FrontEnd::AddModel(const assets::Model& model, std::vector<std::string>& warnings, std::unordered_map<std::string, rdr::ImageId>* shared) {
   return AddModelImpl(model, warnings, -1, shared);
 }
@@ -1151,7 +1163,7 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
         if (std::sscanf(me.part.c_str(), "slot %d", &sn) == 1 && sn >= 0) mm.slot_no = sn;
         mm.src_record = me.src_record;
         mm.src_kind = me.src_kind, mm.src_key = me.src_key, mm.node = me.node, mm.src_pac = me.src_pac;
-        mm.answers_piece_row = MeshAnswersPieceRow(me.src_kind, me.src_pac);   // S103 PZF2
+        mm.answers_piece_row = MeshAnswersPieceRow(me.src_kind);   // S103 PZF2; S111 GUESTKEY: a guest mesh carries the stock key (guest_model_draw.h BuildModel), so no pac test
         mm.piece_cut = piece_draw::PieceCut(mm.answers_piece_row, me.src_key, material >= 0 && size_t(material) < m->materials.size() && m->materials[size_t(material)].alpha_blend);   // S108 HAIR
         mm.lid_layer = me.src_kind == 2 && me.src_key >= 20000 && me.src_key < 40000 && material >= 0 && size_t(material) < m->materials.size() &&
                        m->materials[size_t(material)].shader.find("trans") != std::string::npos && me.palette.find("mabuta") != std::string::npos;   // S103 EYF
@@ -1159,6 +1171,7 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
       }
       if (chunk) {
         mm.chunk = true;
+        m->skinned_model = true;   // S111 OLDCHAIN review: the pass rule's model-skinned bit (CharPassOf)
         mm.nodes = chunk->nodes;
         mm.extra_pieces = src_extra;   // S103 W2B (review F2): the SOURCE mesh's pieces, on every chunk of it: a partial hair mesh never draws
         if (IsClothEffect(m->materials[size_t(material)].shader)) mm.cloth = true, mm.cpu = chunk->vertices;
@@ -1174,7 +1187,7 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
       for (int k = 0; k < 3; ++k) mm.center[k] = mn[k] <= mx[k] ? (mn[k] + mx[k]) * 0.5f : 0.f;
       m->meshes.push_back(mm);
     };
-    if (me.skinned && material >= 0 && (IsCharEffect(m->materials[size_t(material)].shader) || IsSkinnableProp(m->materials[size_t(material)].shader))) {
+    if (me.skinned && material >= 0 && (IsCharEffect(m->materials[size_t(material)].shader) || HasSkinnedProgram(m->materials[size_t(material)].shader))) {
       // S101 lane 13: a character piece is cut into chunks of at most 21 bones (the effects hold 21 bone matrices), each with its own bone stream.
       std::vector<SkinChunk> chunks;
       if (!BuildSkinChunks(me, chunks)) { warnings.push_back("mesh '" + me.part + "': a triangle needs more than 21 bones, skipped"), upload::ReportUploadRefusal("mesh_upload", model.label, "mesh '" + me.part + "'", "a triangle needs more than 21 bones, skipped"); continue; }   // S108 AL1
@@ -1353,31 +1366,35 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
   if (IsCharEffect(mat.shader)) {  // S101 lane 13: the wrestlers' effects
     b->chr = true;
     b->hair = IsHairEffect(mat.shader);
+    const auto cube_of = [&](int i) { return env_cube::CubeAt(m.images, m.img_info, i, rdr::kNoImage); };   // S111 ENVCUBE: a six-face image of the model (slot 10's cube), else none
     b->alpha_test = mat.alpha_test;
-    // S103 YCB (YCH.md): with a pass the pair is the game's table row for (technique, pass) (ChooseCharEffectTable); shadow / wet are then read from the picked pair. A row that cannot be bound as is falls back to the old
-    // min-define pick (counted), with the pass's own shadow bit and no wet reader (the call sites no longer ask for wet on this path).
+    // S103 YCB (YCH.md) / S111 OLDCHAIN: the pair is the game's table row for (technique, pass) (ChooseCharEffectTable), the ONLY pick of a wrestler material; shadow / wet are read from the picked pair.
+    // A row that cannot be bound as is (no effect table, no row, a blocked row) is a HOLE: no pair (the unbound branch below: debug, Record draws nothing), counted here per distinct bind by its reason
+    // (CharHoleOf: the census line's char_hole_no_table / char_hole_no_row / char_wrinkle_blocked) and per draw by Record (char_hole_draws); each one a bug lane. A wrestler material bound without a pass gets no pair either.
     CharChoice cc;
-    if (char_pass >= 0 && g_char_table_pick.load(std::memory_order_relaxed)) {
+    if (char_pass >= 0) {
       cc = ChooseCharEffectTable(mat.shader, skinned, mat.alpha_test, mat.technique, char_pass, mat.logo7 >= 0 || mat.logo4 >= 0, change_colour);   // S105 A5c fix F1: a logo material takes the editor table's row   // S108 THR2: a recoloured body the STS row
       b->change_colour = cc.Ok() && cc.change_colour_table;
       if (cc.no_table) b->no_table = true;   // rebuilt once the table exists (BindMaterial's char cache check); one table snapshot, taken inside the pick (review F4)
-      else if (cc.Ok()) {
-        ++char_table_picked_, b->char_table = true, b->cube_analytic = cc.cube_analytic;
-        if (cc.cube_analytic) ++char_cube_analytic_;
-      } else {
-        if (cc.blocked_wrinkles) ++char_wrinkle_blocked_; else ++char_nontable_fallback_;
-        static int lines = 0;
-        if (lines < 24) ++lines, rdr::Log("[scene][front_end] char table fallback: %s technique %u pass %d: %s", mat.shader.c_str(), unsigned(mat.technique), char_pass, cc.why_not.c_str());
+      const CharHole hole = CharHoleOf(cc);
+      switch (hole) {
+        case CharHole::None:
+          ++char_table_picked_, b->char_table = true, b->cube_analytic = cc.cube_analytic;
+          if (cc.cube_analytic) ++char_cube_analytic_;
+          break;
+        case CharHole::NoTable: ++char_hole_no_table_; break;
+        case CharHole::NoRow: ++char_hole_no_row_; break;
+        case CharHole::Wrinkles: ++char_wrinkle_blocked_; break;
       }
-      if (!cc.Ok()) {   // review P2-4: no table pair = no Bound built; the draw takes the old chain (BindMaterial without a pass), and this marker (no program, not char_table) only remembers the answer
-        b->debug = true;
-        std::unique_ptr<Bound>& cslot = m.char_bound[CharBoundKey(material, skinned, char_pass, change_colour)];
-        cslot = std::move(b);
-        return *cslot;
+      if (hole != CharHole::None) {   // S111 OLDCHAIN review: ONE line per distinct hole (the row and its reason), naming the first material that hit it: each line is a bug lane (no line cap: the distinct rows are few)
+        static std::set<std::string> hole_said;
+        if (hole_said.insert(mat.shader + '|' + std::to_string(mat.technique) + '|' + std::to_string(char_pass) + (skinned ? "|s|" : "|r|") + (mat.alpha_test ? "a|" : "|") + cc.why_not).second)
+          rdr::Log("[scene][front_end] char table HOLE (%s): %s technique %u pass %d %s%s (material %d, diffuse '%s'): %s", CharHoleCounter(hole), mat.shader.c_str(), unsigned(mat.technique), char_pass,
+                   skinned ? "skinned" : "rigid", mat.alpha_test ? " alpha-tested" : "", material, mat.diffuse_name.c_str(), cc.why_not.c_str());
       }
       shadow = cc.shadow, wet = cc.wet;
     } else {
-      cc = shadow ? ChooseCharEffectShadow(mat.shader, skinned, mat.alpha_test, wet, mat.logo7 >= 0 || mat.logo4 >= 0) : ChooseCharEffect(mat.shader, skinned, mat.alpha_test, wet, mat.logo7 >= 0 || mat.logo4 >= 0);   // S105 A5c: + logo   // S103 L6; S103 SWF: wet
+      cc.why_not = "a wrestler material is bound only by its pass (the effect table's row)";
     }
     b->shadow = shadow && cc.Ok();
     b->wet = wet && cc.Ok();
@@ -1396,10 +1413,11 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
         }
       b->reads_wrinkles = std::strstr(kVariants[cc.ps].name, "_wrinkles") != nullptr, b->reads_idmap = std::strstr(kVariants[cc.vs].name, "id_map") != nullptr;   // S103 XLF
       const rdr::fx::Variant& fv = kVariants[cc.ps];
+      const bool reads_muscle = T().by_index[size_t(cc.ps)] && muscle_map::ReadsMuscle(T().by_index[size_t(cc.ps)]->defines);   // S111 MUSCLEMAP: the fragment's FX_MUSCLE
       for (uint32_t s = 0; s < fv.sampler_count; ++s) {
         const int slotn = fv.samplers[s].slot;
         rdr::ImageId image = white_;
-        switch (b->change_colour ? RoleOfChangeSlot(slotn) : wet ? RoleOfWetSlot(slotn) : RoleOfSlot(slotn)) {   // S108 THR2: a change-colour bind's 7 / 4 / 14 / 2 are the masks
+        switch (muscle_map::Role(slotn, b->change_colour, wet, reads_muscle)) {   // S108 THR2: a change-colour bind's 7 / 4 / 14 / 2 are the masks; S111 MUSCLEMAP: an FX_MUSCLE fragment's 2 is the muscle map
           case CharSlot::ChangeMask1: case CharSlot::ChangeMask2: case CharSlot::ChangeMask3: case CharSlot::ChangeMask4: {   // S108 THR2: Mask1..4 (sub_8339F0E0), the model's own (change_mask.h); none = black (that mask does nothing)
             const int mi = change_colour_draw::MaskTextureOfSlot(mat, slotn);
             image = tex(mi) != rdr::kNoImage ? tex(mi) : black_;
@@ -1407,6 +1425,7 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
           }
           case CharSlot::LiquidMap: image = black_, b->liquid_slot = uint8_t(slotn); break;   // S103 SWF: the wrestler's liquid map, set at the draw (black = an empty map)
           case CharSlot::SweatBump: image = tex(mat.sweat_bump) != rdr::kNoImage ? tex(mat.sweat_bump) : neutral_normal_; break;   // (a missing bump is the neutral normal, never black: black reads as a full-strength tilt, review SWF-10)   // S103 SWF: the material's own bump map
+          case CharSlot::MuscleMap: image = muscle_map::Image(mat, tex, rdr::kNoImage, black_); break;   // S111 MUSCLEMAP: the material's g_mMusclePrm map (black = alpha 0: the plain normal map)
           case CharSlot::Diffuse: image = tex(mat.diffuse) != rdr::kNoImage ? tex(mat.diffuse) : white_; break;
           case CharSlot::Normal: image = tex(mat.normal) != rdr::kNoImage ? tex(mat.normal) : (b->hair ? grey_ : neutral_normal_); break;
           case CharSlot::NoiseTile: image = tex(mat.detail) != rdr::kNoImage ? tex(mat.detail) : grey_; break;
@@ -1420,11 +1439,12 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
             break;
           }
           case CharSlot::RimMap: image = black_, b->cube_slot[slotn] = 2; break;
-          case CharSlot::FlatGrey: image = grey_; break;
+          case CharSlot::HairNoise: image = tex(mat.hair_noise_map) != rdr::kNoImage ? tex(mat.hair_noise_map) : grey_; break;   // S111 HAIRMAPS: the material's noise map (slot 8); grey = the old even half-strength second highlight
+          case CharSlot::HairShift: image = tex(mat.hair_shift_map) != rdr::kNoImage ? tex(mat.hair_shift_map) : grey_; break;   // S111 HAIRMAPS: the material's shift map (slot 9); grey = no per-strand shift
           case CharSlot::FlatBlack: image = black_; break;
           case CharSlot::Logo7: image = tex(mat.logo7) != rdr::kNoImage ? tex(mat.logo7) : black_; break;   // S105 A5c: the CAW logo (fetch slot 7), black = the layer does nothing
           case CharSlot::Logo4: image = tex(mat.logo4) != rdr::kNoImage ? tex(mat.logo4) : black_; break;   // S105 A5c: logo2 (slot 4)
-          case CharSlot::FlatBlackCube: image = black_cube_; b->cube_slot[slotn] = 3; break;
+          case CharSlot::EnvCube: image = cube_of(mat.env_cube) != rdr::kNoImage ? cube_of(mat.env_cube) : black_cube_; b->cube_slot[slotn] = 3; break;   // S111 ENVCUBE: the material's g_mEnvLPrm cube (CUBEMAP_eyes / CUBEMAP, chCommon); black = no environment light
           case CharSlot::ShadowMap: image = white_, b->cube_slot[slotn] = 4; break;   // S103 L6: the frame's shadow map, set at the draw
         }
         if (!options_.textures && image != black_ && !b->cube_slot[slotn]) image = grey_;  // the planted fault: no textures
@@ -1596,8 +1616,8 @@ struct Ctx {
 // direction = right * d.x + down * d.y + forward * d.z, the frame camera's axes (forward = the clip-w column, down = minus the clip-y column orthonormalised, right =
 // the clip-x column orthonormalised: char_effects.cpp KeyLightWorld's rule). The axes are taken from the draw's own ViewProj, so they are already in the draw's space
 // (viewer space: no further Y flip; game space: as is). Game side: the flag words reach the light object at +1056 + 4 i (sub_827F70D0 0x827F717C-0x827F7184 and
-// sub_827F8808 0x827F895C-0x827F8960 copy them from the source's +8960 + 4 i through sub_82417248) and the effect setter sub_82BE06B8 binds +1056 (0x82BE4BE0-0x82BE4C20)
-// next to the directions +960 (0x82BE226C) [C listings]; where the CPU turns the flagged directions is not traced [U]; the rule is lane 33's measurement (V^T d,
+// sub_827F8808 0x827F895C-0x827F8960 copy them from the source's +8960 + 4 i through sub_82417248); the model effect setter sub_82BE06B8 uploads DifLghVec from the installed record's +16
+// (= object +64) as stored (S111 LIGHTS: its +960 / +1056 are slots of the model's [+832] block, not the light's) [C listings]; where the flagged directions are turned is not traced [U]; the rule is lane 33's measurement (V^T d,
 // every flagged light 0.00 deg, docs\renderer\LIGHT_MATCH.md). The planted twin (the old fault, the stored direction unturned) is rf::c::Plants::no_arena_follow: LightsFor then leaves follow_view false.
 void FollowCamera(const Ctx& c, const float* d, float* o) {
   if (!c.view_proj) return;
@@ -2199,6 +2219,10 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     int32_t order = -1;            // S105 SZW: the game's list position inside its `s` / `a` group (see_through_order.h SeeKey::order); -1 = none
     bool mirrored = false;         // SCU: a copy of a placement whose 3x3 determinant is negative = the arena's `r` copy (the only such placement our loader makes, YCP / CUL_ADV D); never `[0] < 0` (true for a turn too)
     bool piece_cut = false;        // S108 HAIR: ModelData::Mesh::piece_cut (not under the old-rule plant): GEQUAL 128/255 alpha test + depth write, still blended and drawn twice
+    int32_t place = -1;            // S111 PROPORDER (draw_place_rows.h StampItems): the running category-33 place of a character-rank item (Game order only); -1 = none
+    bool place_block = false;      // S111 PROPORDER: the object is an entrance prop pass a CWeapon category-33 node draws (its draws, alpha or additive, take the character rank)
+    bool late_body = false;        // S111 CATORDER (draw_place_rows.h TakeLateBodies): an opaque mesh of a body the game draws after see-through categories (42), moved into the blended list at its body place
+    bool late_node = false;        // S111 PODGLASS review (splat_state.h LateNodeOf): the object's node is of a category after 33 (the chamber's 35 / 36): its alpha draws come after the character rank
   };
   struct ObjInfo {                 // per drawn object: its palette (skeleton node -> viewer-space matrix, world included) and light set
     assets::Matrix world;
@@ -2246,7 +2270,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
   std::set<std::pair<const void*, bool>> d2_seen;   // S103 WGD (dev, WWE_RDR_FEATURE_DUMP): the (mesh, mirrored copy) pairs this Record already wrote a "d2" line for (SCU: an `r` mesh writes its base and its mirrored copy; empty without the dump)
   for (const Object& obj : frame.objects) {
     const uint32_t obj_no = uint32_t(&obj - frame.objects.data());   // S103 EYF: the index SceneFrame::piece_alphas names
-    if (!(obj.flags & kObjVisible)) continue;
+    if (!(obj.flags & kObjVisible) && !(obj.flags & kObjPiecesOnly)) continue;   // S111 PIECEROUTE: a pieces-only owner is drawn here (its piece meshes, below) and nowhere else
     if (crowd_hook && obj.klass == rdr_adapter::DrawClass::Crowd) continue;  // S103 lane D
     if (obj.asset >= models_.size() || !models_[obj.asset]->live || models_[obj.asset]->hook_owned) continue;  // (hook_owned: S103 lane D)
     ModelData& m = *models_[obj.asset];
@@ -2264,10 +2288,11 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     for (const ModelData::Mesh& me : m.meshes) {
       // S101 lane 13: which of the model's first 64 meshes are shown (attire pieces, the eyelid layer)
       if (me.src < 32 ? !((obj.mesh_mask_lo >> me.src) & 1u) : (me.src < 64 && !((obj.mesh_mask_hi >> (me.src - 32)) & 1u))) continue;
+      if ((obj.flags & kObjPiecesOnly) && !PiecesOnlyMeshDrawn(me.answers_piece_row, me.src_key)) continue;   // S111 PIECEROUTE (piece_row_rule.h): the game drew this owner's pieces, not its body
       // S103 EYF: the game fades each own-skeleton piece with ITS model's alpha (VS c185.x = [model+252]; 0 in an entrance for the eyelid / lash layer 20002): the record's piece row for this owner + piece id.
       // A lid-layer mesh with no row (its piece has no object of its own: a palette borrowed from the body) is not drawn: the viewer's rule (view\renderer.cpp lid_layer), a stand-in [L].
       float piece_alpha = 1.f;
-      if (me.answers_piece_row) {   // S105 A5b (MeshAnswersPieceRow, decided at AddModelImpl): a guest part (src_key = part index) never answers a piece row
+      if (me.answers_piece_row) {   // S105 A5b (MeshAnswersPieceRow, decided at AddModelImpl); S111 GUESTKEY: a guest body mesh's src_key is 0, a guest piece model's its piece id (the stock keys)
         bool have_row = false;
         for (const SceneFrame::PieceAlpha& pa : frame.piece_alphas)
           if (pa.object == obj_no && int(pa.piece) == me.src_key) { piece_alpha = pa.alpha, have_row = true; break; }
@@ -2328,21 +2353,26 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
           it.mirrored = p[0] * (p[5] * p[10] - p[6] * p[9]) - p[1] * (p[4] * p[10] - p[6] * p[8]) + p[2] * (p[4] * p[9] - p[5] * p[8]) < 0.f;
         }
         const bool force_blend = (obj.flags & kObjForceBlend) != 0 && !sorted && mt;   // S103 CGF: an opaque mesh of a slot-32 stage structure is blended by the object's alpha (MdlAlpha); depth write stays the material's (opaque: on)
-        it.blend = !mt ? 0 : sorted ? (mt->additive ? 2 : 1) : (mt->blend_inline || force_blend) ? 1 : 0;
+        const uint8_t node_blend = mt ? splat_state::NodeBlendOf(obj.flags) : uint8_t(0);   // S111 PROPORDER review (splat_state.h): a mesh a CWeapon category-33 node draws is blended by the NODE's code (1 alpha, 2 additive) whatever its material; its z write off rides on kObjNoDepthWrite
+        it.blend = !mt ? 0 : node_blend ? node_blend : sorted ? (mt->additive ? 2 : 1) : (mt->blend_inline || force_blend) ? 1 : 0;
         it.depth_write = splat_state::DepthWriteOf(obj.flags, sorted, see_order == SeeOrder::Game && mt && mt->cutout_blend == 1);  // S103 F: a prop cut-out drawn as blended keeps its depth write in Game order; S108 BLD2: the object's own z-write-off (floor splats)
         // S108 HAIR (piece_draw_rule.h): the game draws a stock piece's translucent mesh (hair 10000 ...) alpha-tested GEQUAL 128/255, blended AND writing depth (sub_8259E488 +0x74 / +0x1B4); emit binds the alpha twin, and a pair
         // with no twin keeps depth write off (a draw_shortfall). The planted twin g_plant_piece_cut_old (TEST ONLY) is the draw before S108: blended, untested, no depth write.
+        // S111 GUESTKEY: a guest-built piece model (a created superstar's hair 10000, accessories 10030-10033) carries its piece id in src_key like a stock piece mesh (guest_model_draw.h BuildModel), so
+        // me.piece_cut (PieceCut by src_key, decided at AddModelImpl) is the one rule for both; the S108 plant turns it off.
         it.piece_cut = me.piece_cut && !g_plant_piece_cut_old.load(std::memory_order_relaxed);
         if (it.piece_cut) it.depth_write = true;
         it.zw = mt ? mt->stage_zw : uint8_t(0);
         bool zw_blended = false;
-        if (zw_on && (it.zw & 3) && !force_blend) {   // S105 SZW (SZW_contract.md rule 3: depth write, alpha test and order land together): an `s` / `a` slot writes depth unless `z`; a `z`-only slot is blended, drawn in the opaque list, with no depth write
+        if (zw_on && (it.zw & 3) && !force_blend && !node_blend) {   // S105 SZW (SZW_contract.md rule 3: depth write, alpha test and order land together): an `s` / `a` slot writes depth unless `z`; a `z`-only slot is blended, drawn in the opaque list, with no depth write
           if (it.zw & 1) { if (sorted) it.depth_write = !(it.zw & 2); }
           else it.blend = it.blend ? it.blend : uint8_t(1), it.depth_write = false, zw_blended = true;   // z only: into the BLENDED list at rank 0 (ahead of the `s` items): the game's bodies (categories 13-21) draw before group 0 (22), so a wrestler behind such a piece must not paint over it (review B2 item 6); the cutout_blend == 1 edge too
         }
-        it.cutout = mt ? mt->cutout_blend : 0;
-        it.sorted = sorted || force_blend || zw_blended;
+        it.cutout = (mt && !node_blend) ? mt->cutout_blend : 0;   // (a node's pass is the game's own blend, no loader cut-out: it sorts by its category-33 place)
+        it.sorted = sorted || force_blend || zw_blended || node_blend != 0;
+        it.late_node = node_blend != 0 && splat_state::LateNodeOf(obj.flags);
         it.alpha = obj.tint[3] * piece_alpha;   // S103 EYF
+        if (!splat_state::ApplyOwnNode(obj.flags, it.alpha, mt != nullptr, it.blend)) continue;   // S111 OWNNODEZ (+ review): an own-node / CWDA model below its node's reference is dropped whole (GEQUAL 1/255 / 128/255); else every mesh is blended by code 0, in its material's list with its depth write
         it.light_override = -1;
         it.ml = model_sets[obj.asset];
         it.object = object_index;
@@ -2391,9 +2421,19 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         }
       }
     }
+    if (game_order) {   // S111 PROPORDER (draw_place_rows.h StampItems): each item's object's place in the game's category-33 list (SceneFrame::draw_places); the character rank takes the running place
+      // S111 CATORDER (draw_place_rows.h TakeLateBodies): a body whose opaque node draws after see-through categories (42 in a re-keyed entrance) leaves the opaque list for its body place
+      draw_place::TakeLateBodies(frame.draw_places, frame.objects.size(), opaque, blended, [&objs](const Item& i) { return i.object < objs.size() ? objs[i.object].frame_object : ~0u; });
+      draw_place::StampItems(frame.draw_places, frame.objects.size(), blended, [&objs](const Item& i) { return i.object < objs.size() ? objs[i.object].frame_object : ~0u; }, [](const Item& i) {
+        SeeKey k;
+        k.blend = i.blend, k.place_block = i.place_block, k.late_node = i.late_node;
+        k.character = i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);
+        return SeeRank(k);
+      });
+    }
     SortSeeThrough(see_order, blended, [game_order](const Item& i) {
       SeeKey k;
-      k.blend = i.blend, k.dist2 = i.dist2, k.cutout = i.cutout, k.order = i.order;
+      k.blend = i.blend, k.dist2 = i.dist2, k.cutout = i.cutout, k.order = i.order, k.place = i.place, k.place_block = i.place_block, k.late_node = i.late_node;
       if (game_order) k.character = i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);  // (only Game mode reads it: Distance = today)
       return k;
     });
@@ -2627,25 +2667,24 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     if (rule_bound && rule_bound->plane && !plane_map) rule_bound = nullptr;   // (a plane reader with no plane map this frame: the old path, as L9)
     LmMode lm_mode = LmMode::Own;
     // S103 YCB (YCH.md section 4): a wrestler material takes the game's own (technique, pass) row (the pass: technique_pick.h CharPass: skinned model + part, the model's mode word, the shadow map, the spec-power record).
-    // Only a successful table pick is used (char_b); every other case (switch off, no row, a blocked row) draws exactly as before through the old shadow / wet / plain chain below.
+    // S111 OLDCHAIN: the table pick is the only pick. A successful one is char_b; every other answer (no table, no row, a blocked row) is char_hole: the draw is a counted HOLE (drawn nothing), never another variant.
     const Bound* char_b = nullptr;
+    const Bound* char_hole = nullptr;   // S111 OLDCHAIN: the failed table bind (debug, no pair): Record's unbound exit draws nothing for it; counted char_hole_draws
     const float* char_cc = nullptr;   // S108 THR2: char_b is a change-colour bind: the body's 16 ChangeColor constants
-    bool char_hair = false;   // the table pick is on and this is the hair class: no shadow map on ANY path (review P2-3)
-    if (is_char && g_char_table_pick.load(std::memory_order_relaxed)) {
+    if (is_char) {
       const assets::Material& cm = m.materials[size_t(me.material)];
       if (m.char_class.size() != m.materials.size()) m.char_class.assign(m.materials.size(), 0);   // review P2-5: the class flags once per material, not per draw
       uint8_t& cls8 = m.char_class[size_t(me.material)];
       if (!(cls8 & 1)) {
         const technique_pick::CharClass cl = technique_pick::CharClassOf(read_rule::Lower(cm.shader));
-        cls8 = uint8_t(1 | (cl.e12 ? 2 : 0) | (cl.e4 ? 4 : 0) | (cl.hair ? 8 : 0));
+        cls8 = uint8_t(1 | (cl.e12 ? 2 : 0) | (cl.e4 ? 4 : 0) | (cm.translucent_draw ? 8 : 0) | (cl.e20 ? 16 : 0));   // S111 LAYERS: bit 3 = the part is drawn in the character's TRANSLUCENT draw (Material::translucent_draw, the game's split: assets\char_draw_layer.h; not alpha_blend, which a texel cut-out also sets), which zeroes the shadow slot (sub_8259FAE8 +0x18C): no +2 on any path; was the hair NAME class
       }
       technique_pick::CharClass cl;
-      cl.e12 = (cls8 & 2) != 0, cl.e4 = (cls8 & 4) != 0, cl.hair = (cls8 & 8) != 0;
-      char_hair = cl.hair;
+      cl.e12 = (cls8 & 2) != 0, cl.e4 = (cls8 & 4) != 0, cl.hair = (cls8 & 8) != 0, cl.e20 = (cls8 & 16) != 0;
       if (eng_obj != it.object) eng_obj = it.object, eng_mode = options_.census_char_mode >= 0 ? options_.census_char_mode : CharModeOf(frame, objs[it.object].frame_object), eng_row = ObjectEngineRowOf(frame, objs[it.object].frame_object);   // the FRAME index (liquid_join.h)
       const int mode = eng_mode;
       char_mode_unknown_ += mode < 0;   // counted per wrestler DRAW (a record that carries the mode makes it 0)
-      if (wrk::Live()) {   // S103 WRK census: the pass mode (+616: 0 / 2 picks; +620 and the part's E+20 are recorded and counted, never used for the pick: WRK_ADV 5b / 5c)
+      if (wrk::Live()) {   // S103 WRK census: the pass mode (+616: 0 / 2 picks; +620 picks the +16 term below since S111 TECHPASS; the part's E+20 any-word is recorded and counted only)
         const SceneFrame::ObjectEngine* oe = eng_row;
         ++(mode == 0 ? wrk_.m0 : mode == 2 ? wrk_.m2 : mode < 0 ? wrk_.m_unknown : wrk_.m_other);
         const int m620 = oe ? oe->char_mode620 : -1;
@@ -2653,20 +2692,21 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         wrk_.e20_set += oe && oe->e20_any == 1, wrk_.e20_clear += oe && oe->e20_any == 0, wrk_.e20_unknown += !oe || oe->e20_any < 0;
         wrk_.e20_would_fire += oe && oe->e20_any == 1 && m620 == 1;   // the +16 pass of sub_82BD5EE0 would fire on some part
       }
-      const int pass = technique_pick::CharPassOf(cl, objs[it.object].skin != nullptr, shadow_map && !cl.hair, mode, cm.spec_pow_prm);
+      // S111 TECHPASS (docs\research\s111\TECHPASS.md section B): the +16 term keys on the game's own model +620 of this body (latched: inputs_core.h ReadModelRuntimeT, carried by wrk_join.h CarryBody);
+      // -1 = no row / not latched (the switch off): no term, as before. A guest-routed SUBM piece (a created superstar's hair, kObjOwnRowsPiece) has a row of its own: it is a latch target and the game copies the word into every SUBM piece model (sub_825A1E38 +0xCC). The wrk census block above still counts the word.
+      const int model620 = eng_row ? eng_row->char_mode620 : -1;
+      const int pass = technique_pick::CharPassOf(cl, m.skinned_model, shadow_map && !cl.hair, mode, cm.spec_pow_prm, model620);   // S111 OLDCHAIN review: "model is skinned" (the game's model +540) is the model's own flag, not this frame's palette
       // S108 THR2: a body the game draws recoloured this frame (the record's section 67 -> SceneFrame::change_colours) whose material has its masks binds the STS row (change_colour_draw.h)
       const float* ccol = frame.change_colours.empty() ? nullptr : change_colour_draw::ConstantsOf(frame.change_colours, objs[it.object].frame_object);   // the FRAME index (as the liquid map's join)
       const bool want_cc = change_colour_draw::WantsChangeColour(ccol, cm);
       const Bound& cb = BindMaterial(m, me.material, me.skinned && me.chunk, LmMode::Own, false, false, pass, false, want_cc);
       if (cb.char_table && !cb.debug) char_b = &cb;
+      else char_hole = &cb, ++char_hole_draws_;   // S111 OLDCHAIN: a hole (BindMaterial counted its reason per bind)
       if (want_cc) {
         if (char_b && char_b->change_colour) char_cc = ccol, change_colour_draw::Draws().draws.fetch_add(1, std::memory_order_relaxed);
-        else change_colour_draw::Draws().no_row.fetch_add(1, std::memory_order_relaxed);   // no STS row for the effect / not bindable: the startup row, plain
+        else change_colour_draw::Draws().no_row.fetch_add(1, std::memory_order_relaxed);   // no STS row for the effect / not bindable: the startup row, plain (a hole: not drawn)
       }
-    } else if (is_char && !frame.change_colours.empty() && change_colour_draw::ConstantsOf(frame.change_colours, objs[it.object].frame_object)) {
-      change_colour_draw::Draws().no_table_pick.fetch_add(1, std::memory_order_relaxed);   // S108 THR2: the table pick is off: no STS row, drawn plain
     }
-    const Bound* shadow_bound = nullptr;
     const Bound* plane_bound = nullptr;
     const Bound* light_bound = nullptr;   // S103 RML
     if (!rule_bound) {
@@ -2684,8 +2724,6 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         if (ArenaMatchVertexPage(me.part, am)) lm_mode = LmMode::MatchVertexPage;
         else if (ArenaMatchNoPage(me.part, am)) lm_mode = LmMode::MatchNoPage;
       }
-      // S103 L6: a character material of a frame whose maps hold the shadow map is bound to the shadow-reader variant (lit = 1 - shadow: the game's skin / gear / cloth all carry it), else the plain one
-      shadow_bound = (!char_b && !char_hair && shadow_map && is_char) ? &BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, true) : nullptr;   // (lm_mode is Own / EntranceLm for characters)
       const bool is_plane_mat = plane_map && me.material >= 0 && IsPlaneReaderEffect(m.materials[size_t(me.material)].shader);   // S103 L9
       plane_bound = is_plane_mat ? &BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, true) : nullptr;
       // S103 RML (RMP.md 1.4 item 6): the game's ring-mat draw (sub_82608CB0) takes the props-map pass (light_shadow) when sub_827ECB60 == 0 (no plane module, or [0x836F39A0] != 0): the soft contact blob under every wrestler on the mat.
@@ -2693,26 +2731,17 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       const bool is_light_mat = !plane_map && props_on && props_img && me.material >= 0 && IsPlaneReaderEffect(m.materials[size_t(me.material)].shader) && frame.plane_game_off == 1 && !options_.plant_mat_plain_when_no_module;   // (the plant = today's binding: no shadow at all)
       light_bound = is_light_mat ? &BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, true, false, -1, true) : nullptr;
     }
-    // S103 SWF: a skin material of a wrestler that has a liquid map this frame (MapRole::SweatMap, keyed by the body's engine object) is bound to the wet variant (the shadow-reader pair first when the frame has a shadow map);
-    // no map for it, or no wet pair for the material: the draw is exactly what it was (dry).
-    // S103 YCB (review P2-1): a table-picked skin pair binds the body's liquid map where ITS pixel variant reads slot 14; wet / dry is the pass's. Gear keeps the black stand-in: the game's gear slot 14 is the body map on only 4 draws a frame and
-    // separate images (source unsettled, YCH.md) on the rest.
-    const MapImage* liquid = (is_char && me.material >= 0 && m.materials[size_t(me.material)].shader.rfind("yCh_skin", 0) == 0 && (!char_b || char_b->liquid_slot != 0xFF)) ? liquid_of(objs[it.object].frame_object) : nullptr;   // the FRAME index, not the dense one (review SWF-1)
-    const Bound* wet_bound = nullptr;
-    if (liquid && !char_b) {
-      if (shadow_map) { const Bound& wb = BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, true, true); if (wb.wet && wb.shadow && !wb.debug) wet_bound = &wb; }
-      // No wet pair WITH the shadow reader: the draw stays dry + shadow (the game's skin always takes the shadow reader when the frame has a shadow map; losing the shadow costs more than the sweat shows), counted (review SWF-11).
-      if (!wet_bound && !shadow_map) { const Bound& wb = BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, false, true); if (wb.wet && !wb.debug) wet_bound = &wb; }
-      if (wet_bound) ++wet_bound_; else if (shadow_map) ++wet_lost_shadow_; else ++wet_no_variant_;
-    }
+    // S103 YCB (review P2-1): a table-picked skin pair binds the body's liquid map (MapRole::SweatMap, keyed by the body's engine object) where ITS pixel variant reads slot 14; wet / dry is the pass's. Gear keeps the black stand-in: the game's
+    // gear slot 14 is the body map on only 4 draws a frame and separate images (source unsettled, YCH.md) on the rest. S111 OLDCHAIN: there is no other wet bind (the table pick is the only pick).
+    const MapImage* liquid = (is_char && me.material >= 0 && m.materials[size_t(me.material)].shader.rfind("yCh_skin", 0) == 0 && char_b && char_b->liquid_slot != 0xFF) ? liquid_of(objs[it.object].frame_object) : nullptr;   // the FRAME index, not the dense one (review SWF-1)
     // S108 THB: an entrance PROP the game draws recoloured this frame (the record's section 67 row of kCcProp -> SceneFrame::change_colours, carried by rf_props.cpp): its plain bind is the STS cc_mask row with the prop's mask at slot 12.
     // A material with no mask loaded (the id has no SPMT row / the file lacks it) draws plain and is counted; a row the STS table cannot bind draws plain too (`no row`).
     const SceneFrame::ChangeColour* prop_cc_entry = (!is_char && me.material >= 0 && !frame.change_colours.empty()) ? change_colour_draw::EntryOf(frame.change_colours, objs[it.object].frame_object) : nullptr;
     if (prop_cc_entry && !change_colour_draw::IsPropEntry(prop_cc_entry->flags)) prop_cc_entry = nullptr;   // (a wrestler body's row: not ours)
-    const bool prop_cc_want = prop_cc_entry && !char_b && !wet_bound && !rule_bound && !(shadow_bound && shadow_bound->shadow) && !(plane_bound && plane_bound->plane) && !(light_bound && light_bound->props_reader);
-    if (prop_cc_want && !change_colour_draw::PropHasMask(m.materials[size_t(me.material)])) live::propcolour::TheStore().NoteNoMask();
+    const bool prop_cc_want = prop_cc_entry && !char_b && !rule_bound && !(plane_bound && plane_bound->plane) && !(light_bound && light_bound->props_reader);
+    if (prop_cc_want && !change_colour_draw::PropHasMask(m.materials[size_t(me.material)]) && (prop_cc_entry->flags & kCcBeltMask) == 0) live::propcolour::TheStore().NoteNoMask();   // S111 BELTMASKNAME review (F4): a belt row's materials off key 0 never take a mask and a pending one is counted by [belt_colour] (masks asked / not resident): not a THB `no mask`
     const bool prop_cc_ask = prop_cc_want && change_colour_draw::PropHasMask(m.materials[size_t(me.material)]);
-    const Bound& b = char_b ? *char_b : wet_bound ? *wet_bound : rule_bound ? *rule_bound : (shadow_bound && shadow_bound->shadow) ? *shadow_bound : (plane_bound && plane_bound->plane) ? *plane_bound : (light_bound && light_bound->props_reader) ? *light_bound : BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, false, false, -1, false, prop_cc_ask);
+    const Bound& b = char_b ? *char_b : char_hole ? *char_hole : rule_bound ? *rule_bound : (plane_bound && plane_bound->plane) ? *plane_bound : (light_bound && light_bound->props_reader) ? *light_bound : BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, false, false, -1, false, prop_cc_ask);   // S111 OLDCHAIN: a wrestler draw is char_b or char_hole, never a pass -1 bind
     const bool prop_cc_draw = prop_cc_ask && b.change_colour && !b.chr;   // the bind is the STS row (a fallback pick leaves change_colour false: drawn stock, `no row` would be the finding)
     if (prop_cc_draw) live::propcolour::TheStore().NoteDrawn();
     else if (prop_cc_ask) live::propcolour::TheStore().NoteNoRow();
@@ -2734,7 +2763,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     if (pc_twin && !b.zw_program) b.zw_program = ProgramFor(b.choice.vs, b.choice.ps, true);
     const bool pc_discard = pc_twin && !plant_pc_no_test;
     const bool at_on = !plant_strip && (b.alpha_test || zw_discard || pc_discard);                                    // the draw's alpha test as the state / dynamic / dump see it
-    const rdr::ImageId liquid_image = (wet_bound || (char_b && liquid)) ? liquid->image : rdr::kNoImage;
+    const rdr::ImageId liquid_image = liquid ? liquid->image : rdr::kNoImage;   // (liquid is set only for a table-picked skin pair that reads slot 14)
     // S103 WGD (dev, WWE_RDR_FEATURE_DUMP; docs\agents\choice_diff.md): ONE "d2" line per mesh and look = what this chunk REALLY drew with, read where the draw is final (the pick
     // order of the line above, the blend / alpha test / depth write / cull of the draw state below): tools\harvest\choice_ours.py joins it with the game's rule. Read-only: changes no draw.
     // One line per mesh per Record (d2_seen); none from the seed frame's Record (in_seed_: RenderToPixels' extra no-post frame, before the frame the tool reads).
@@ -2751,7 +2780,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
               std::to_string(int(s.mag_filter)) + "," + std::to_string(int(s.min_filter)) + "," + std::to_string(int(s.mip_mode)) + "]";
       }
       sj += "}";
-      const char* path = b.debug ? "unbound" : char_b ? "char" : wet_bound ? "wet" : rule_bound ? "rule" : (shadow_bound && shadow_bound->shadow) ? "shadow" : (plane_bound && plane_bound->plane) ? "plane" : (light_bound && light_bound->props_reader) ? "light" : "plain";
+      const char* path = b.debug ? "unbound" : char_b ? "char" : rule_bound ? "rule" : (plane_bound && plane_bound->plane) ? "plane" : (light_bound && light_bound->props_reader) ? "light" : "plain";
       const assets::Material* dm = me.material >= 0 ? &m.materials[size_t(me.material)] : nullptr;
       const bool at = st && at_on;
       char abuf[200];
@@ -2813,7 +2842,6 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     if (prop_cc_draw) FeedPropColour(ctx, prop_cc_entry->constants, prop_cc_entry->flags);   // S108 THB: g_fChangeColor of an entrance prop (the 4 colours), MatDifCol 1 under the editor's callback
     if (((rule_bound && b.shadow) || b.props_reader) && floor_map) ctx.shadow_m = shadow_bg_m, ctx.shadow_prm = &floor_map->prm[0][0], props_bound_ += props_on, pms_site_[4] += props_on;   // site 4: matrix and prm from the props map
       // S103 D1; S103 PMS: the floor's map
-    if (b.chr && !b.char_table && !b.wet && (mat.shader.rfind("yCh_skin", 0) == 0 || mat.shader.rfind("yCh_gear", 0) == 0)) ++wet_unknown_;   // S103 L9: the game draws these with FX_SWEAT / FX_BLOOD / FX_BSS variants reading the liquid map (slot 14); the record carries no sweat amount and no liquid map is made (LIVE_MAPS.md Lane L9), so today's variant stays, counted (S103 YCB: a table-picked pair is the game's own row: not counted)
     if (static const bool dump = std::getenv("WWE_RDR_DUMP_MATS") != nullptr; dump && !b.debug && me.material >= 0) {  // S101 lane 257 (dev): one line per distinct material: what the draw is fed
       static std::set<const void*> seen;
       if (seen.insert(&me).second) {
@@ -2891,7 +2919,16 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       if (wrk_deg) ++wrk_.uv_degenerate;
       wrk::JoinDraw(frame.wrinkle_levels, objs[it.object].frame_object, me.src_record >= 0 ? uint32_t(me.src_record) : kParamModelWide, wrk_deg, wrk_wkl, wrk_idmap, cc.wkl, cc.idmap);
     }
+    // S111 MATFEED: the body's live g_fHdLigLvl / g_f4MuscleParam rows (wrk_join.h MergeLive: the model-wide over the part's own, as the walk; HdLig.x only for a material naming g_fHdLigLvl) for HdLig.x (c156)
+    // and MuscleParam (c249); none = the file values. (A draw whose material does not name it then neither takes nor stamps the body's value.)
+    float live_hd_lig = 0.f, live_muscle[4] = {0.f, 0.f, 0.f, 0.f};
+    if (b.chr && !b.debug && wrk::Live() && wrk::JoinsBodyLevels(me.src_key)) {
+      const uint32_t got = wrk::MergeLive(frame.wrinkle_levels, objs[it.object].frame_object, me.src_record >= 0 ? uint32_t(me.src_record) : kParamModelWide, mat.has_hd_lig_lvl, live_hd_lig, live_muscle);
+      if (got & 1u) cc.hd_lig_lvl = &live_hd_lig;
+      if (got & 2u) cc.muscle = live_muscle;
+    }
     if (b.shadow && rd_map) cc.shadow_matrix = rd_map->matrix, cc.shadow_params = rd_map->params, cc.shadow_prm = &rd_map->prm[0][0], shadow_raw_bound_ += rd_map->raw;   // S103 L6; S103 PMS: rd_map
+    if (b.chr && !b.debug) cc.sphere_occ = sphere_join::Of(frame.body_spheres, objs[it.object].frame_object);   // S111 SPHEREOCC: the body's recorded spheres (FRAME index), null = strength 0
 
     const int vs = b.debug ? debug_vs_ : b.choice.vs, ps = b.debug ? debug_ps_ : b.choice.ps;
     const rdr::fx::Variant& vv = kVariants[vs];
@@ -2913,6 +2950,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       Stamps st;
       st.h[0] = HashBytes(it.world.data(), sizeof(float) * 16, frame.viewer_space ? 1u : 2u);  // (+ the record's space rule: the characters' mirror)
       st.h[1] = slots.empty() ? 0 : HashBytes(slots.data(), slots.size() * sizeof(assets::Matrix));
+      if (cc.sphere_occ) st.h[1] = HashBytes(cc.sphere_occ, sizeof(float) * 16, st.h[1]);   // S111 SPHEREOCC: the spheres move SphereOccP / SphereOccV (kStPalette, draw_lists.cpp)
       st.h[2] = cam_stamp;
       st.h[3] = item_time == frame.time_s ? time_stamp : HashBytes(&item_time, sizeof(double));   // S103 E5: the mesh's own clock
       st.h[4] = light_stamp(b.chr && char_light ? char_light : &ls);
@@ -2923,6 +2961,8 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       const float mv[4] = {it.alpha, m.lm_xy[0], m.lm_xy[1], m.lm_gain};
       st.h[5] = HashBytes(mv, sizeof mv, (uint64_t(uintptr_t(&m)) << 1) ^ uint64_t(me.material + 2));
       st.h[5] = wrk::StampLevels(cc.wkl, cc.idmap, st.h[5], [](const void* d, size_t n, uint64_t h) { return HashBytes(d, n, h); });   // (each pointer on its own: XLF review B2)   // S103 WRK: the levels move the WklLvLst / IdMapLvLst fields (kStMaterial)
+      if (cc.hd_lig_lvl) st.h[5] = HashBytes(cc.hd_lig_lvl, sizeof(float), st.h[5]);   // S111 MATFEED: a live g_fHdLigLvl / g_f4MuscleParam moves HdLig / MuscleParam (kStMaterial, draw_lists.cpp)
+      if (cc.muscle) st.h[5] = HashBytes(cc.muscle, sizeof(float) * 4, st.h[5]);
       if (cc.change_color) st.h[5] = HashBytes(cc.change_color, sizeof(float) * change_colour_draw::kFloats, st.h[5]);   // S108 THR2: a picked colour moves ChangeColor (kStMaterial, draw_lists.cpp)
       if (ctx.change_color) st.h[5] = HashBytes(ctx.change_color, sizeof(float) * 4 * live::propcolour::kColours, st.h[5] ^ (ctx.dif_one ? 0x9E3779B97F4A7C15ull : 0ull));   // S108 THB: a picked / latched prop colour (and the editor's MatDifCol 1) moves ChangeColor / MatDifCol
       kept_changed = DrawLists::Diff(*kept, st, kept_fresh);

@@ -95,7 +95,7 @@ param([string]$Exe = '', [string]$GameData = '', [string]$UserData = '', [string
 # S105 SRJ: Only=route runs ONE input-script route (Route=<file in Routes>, e.g. s103_moveset_stall.txt) Repeats times (1-9), with the job's GameFlags added to the
 # step's own flags (GameFlags=a=b,c=d in bench_args.txt, no leading --, comma separated; the route's '# harness: flags' header is NOT read here: put them in GameFlags).
 # Steps route, route_r2 .. route_rN, each with the frozen user data copied fresh, TimeoutSeconds as the hard per-run kill, the game's logs (log / csv / txt, so
-# flight_*.txt too) and its new captures\*.png (screenshots) copied into the step folder; Front=true puts the window in front as before.
+# flight_*.txt too) and its new captures\*.webp / *.png (screenshots) copied into the step folder; Front=true puts the window in front as before.
 [string]$Route = '')
 # (-Levers a,b: only those levers / probes and their base run, e.g. -Only levers -Levers no_alias_direct,aniso_4x.)
 $ErrorActionPreference = 'Stop'
@@ -307,10 +307,10 @@ function Invoke-Step([string]$name, [string]$route, [string[]]$flags, [bool]$fre
   if ($pwr -and -not $pwr.WaitForExit(30000)) { Stop-Process -Id $pwr.Id -Force }
   Get-ChildItem $logs | Where-Object { $before -notcontains $_.Name -and $_.LastWriteTime -ge $t0 } |
     Where-Object { $_.Extension -in '.log', '.csv', '.txt' } | Copy-Item -Destination $dest
-  if ($name -like 'route*') {   # S105 SRJ: the route's screenshots (the game writes captures\NNN_label.png next to the exe)
+  if ($name -like 'route*') {   # S105 SRJ: the route's screenshots (the game writes captures\NNN_label.webp next to the exe; .png before S111)
     $capDir = Join-Path $exeDir 'captures'
     if (Test-Path $capDir) {
-      $shots = @(Get-ChildItem $capDir -File | Where-Object { $_.LastWriteTime -ge $t0 -and $_.Extension -in '.png', '.jpg' })
+      $shots = @(Get-ChildItem $capDir -File | Where-Object { $_.LastWriteTime -ge $t0 -and $_.Extension -in '.webp', '.png', '.jpg' })
       if ($shots.Count) { $sd = Join-Path $dest 'captures'; New-Item -ItemType Directory -Force $sd | Out-Null; $shots | Copy-Item -Destination $sd }
       Write-Host "[surface] $name : $($shots.Count) screenshots copied"
     }

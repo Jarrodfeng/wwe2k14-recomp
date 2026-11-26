@@ -180,8 +180,7 @@ inline bool ReadDescriptorPieces(ReadWordFn rw, uint32_t desc, std::vector<DescP
 // PZ F2: NotDeferred is returned only when everything else passed (special, copy, map, every node mapped); the caller upgrades it with UpgradeNotDeferred.
 // S103 W2B: `free_out` non-null = a node whose map word is -1 is no longer Unmapped by itself: its index goes to `free_out` (ascending) and the proof goes on. The caller then reads those nodes' finished rows
 // (ReadPieceRows) and the draw side checks them against the model's tags; null = the old rule (any -1 word = Unmapped).
-// S105 A5a: `probe` non-null = also read inst +20 and remember the LAST mapped node (j, map[j]) for the own-rows copy proof (OwnRowsProbe); the proof's return value is unchanged (a -1 word is still Unmapped; with a probe the scan
-// just reads on to the last word first).
+// S105 A5a: `probe` non-null = also hand back inst +8 / +20 / +24 as read (OwnRowsProbe) for the own-rows rule; the proof's return value is unchanged.
 inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t* copy_out = nullptr, std::vector<uint32_t>* free_out = nullptr, OwnRowsProbe* probe = nullptr) {   // copy_out (S103 DTP fix): the raw +24 word when it was read
   if (free_out) free_out->clear();
   if (probe) *probe = OwnRowsProbe{};
@@ -200,24 +199,16 @@ inline PieceWhy ProvePiece(ReadFn read, uint32_t inst, uint32_t nodes, uint32_t*
   if (special != 0) return PieceWhy::Special;
   if (copy == 0) return PieceWhy::NoCopy;
   if (map < 0x10000) return PieceWhy::MapNull;
-  bool unmapped = false;
   static thread_local GuestBlock<4 * kSubmMaxNodes> mw;   // S108 RDS: the node map's `nodes` words as one block (<= 4 KB: at most two pages); thread-local (4 KB), reloaded every call
   mw.Load(read, map, uint64_t(map) + 4ull * nodes);
   for (uint32_t i = 0; i < nodes; ++i) {
     uint32_t w = 0;
     if (!mw.Word(read, map + 4 * i, w)) return PieceWhy::MapUnreadable;
     if (w == 0xFFFFFFFFu) {
-      if (!free_out) {
-        if (!probe) return PieceWhy::Unmapped;
-        unmapped = true;
-        continue;
-      }
+      if (!free_out) return PieceWhy::Unmapped;
       free_out->push_back(i);
-    } else if (probe) {
-      probe->piece_node = i, probe->owner_node = w;   // the last mapped node wins
     }
   }
-  if (unmapped) return PieceWhy::Unmapped;
   if (free_out && !free_out->empty()) {   // S103 W2B (W2_ADV.md 3b): the -1 rows are computed by sub_8259D390's mode 1 (inst + 37 == 1: world = local x the PIECE's parent world). Mode 0 computes only a node whose parent is mapped: not proved
     uint32_t w36 = 0;
     if (!ReadWord(read, inst + kSubmMode, w36) || ((w36 >> 16) & 0xFFu) != 1u) return free_out->clear(), PieceWhy::Unmapped;
@@ -297,6 +288,7 @@ inline bool ReadCharacterPieces(ReadFn read, uint32_t ch, std::vector<CharPiece>
     if (model < 0x10000) continue;   // an instance with no model (a hole): nothing to link
     CharPiece p;
     p.model = model, p.id = idw >> 16;   // the id is a u16 stored with sth at +16: the high half of the big-endian word
+    p.owner = owner_skel;                // S111 KEPTPIECES: the character whose list this is owns the piece (sub_825A3908 draws its own component's pieces)
     // PZ F3: the scene core's wanted count (0 until the stream core joined this piece's draws) or, when it has none, the game's own count read here; both known and different = the draw object is not
     // the model we counted (CountMismatch)
     const uint32_t wanted = count_of ? count_of(model) : 0u, game = GameNodeCount(read, model);

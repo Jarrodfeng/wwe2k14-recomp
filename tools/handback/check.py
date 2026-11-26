@@ -357,6 +357,31 @@ def check_log_readers(ch):
     return Result('log_readers', 'PASS', '%d changed [tag] literal(s) in src\\; %d reader selftest(s) ran' % (len(tags), ran), notes=notes)
 
 
+def check_seam(ch):
+    """S111 SEAMDIFF: the seam index (db\\seams) rows whose file is in the diff must still hold their anchor (a deleted / rewritten line the index points at is fixed in
+    the same change); a moved row is a NOTE; rows of files outside the diff are not judged. A direct read of the entries: no index build."""
+    qdir = os.path.join(REPO, 'tools', 'q')
+    if qdir not in sys.path:
+        sys.path.append(qdir)
+    import qseam_diff
+    fails, moved, judged = qseam_diff.judge(ch.root, ch.status)
+    if fails:
+        return Result('seam', 'FAIL', fails[0][:260], notes=moved, details=fails)
+    return Result('seam', 'PASS', '%d seam row(s) point into the diff: none STALE, %d moved' % (judged, len(moved)), notes=moved)
+
+
+def check_marks(ch):
+    """S111 QMARKS: the trend of the marks (claims, seam game rows, open items) of THIS tree's db\\; never fails (a read error is a PASS that says so)."""
+    qdir = os.path.join(REPO, 'tools', 'q')
+    if qdir not in sys.path:
+        sys.path.append(qdir)
+    try:
+        import qmarks
+        return Result('marks', 'PASS', qmarks.totals_line(qmarks.totals(qmarks.collect(ch.root))).replace('marks: ', '', 1))
+    except Exception as e:   # a trend row: never a FAIL
+        return Result('marks', 'PASS', 'not counted: %s: %s' % (type(e).__name__, e))
+
+
 # ----------------------------------------------------------------------------------------------------------------------------- the rows
 
 class Row:
@@ -417,7 +442,11 @@ LINT_ROWS = [
     lint_row('cache_state', 'tools/lint/cache_state_lint.py', 'src\\renderer_scene\\'),
     lint_row('fview_csv', 'tools/lint/fview_csv_lint.py', 'tools\\ .py'),
     lint_row('light_stamp', 'tools/lint/light_stamp_lint.py', 'src\\renderer_scene\\'),
-    lint_row('own_catalog', 'tools/renderer/own_catalog_lint.py', 'src\\ program blobs (vertex_spirv / fragment_spirv, ProgramDesc brace lists), fx_spv_data.cpp kOwnShaders, pipeline_catalog.h and its three callers'),   # S110 RDRPREP
+    lint_row('plant_number', 'tools/lint/plant_number_lint.py', 'tools\\scene\\guest_model_unit.cpp plant dispatch and guest_model_unit.py PLANTS: each twin number and each product plant value used once'),   # S111 LAYERS review
+    lint_row('flag_bit', 'tools/lint/flag_bit_lint.py', 'src\\ every enum { kX = N } body and every constexpr kXyz = N prefix group: no two members share a power-of-two bit'),   # S111 FLAGLINT
+    lint_row('frame_tick', 'tools/renderer/frame_tick_unit.py', 'src\\renderer_game\\frame_tick.h (built and run with its planted twins), the wiring of reader.h / half2_hooks.h / tail_release_hook.h; its planted-twin runs print FAIL lines by design', timeout=300),   # S111 FRAMETICK
+    lint_row('own_catalog','tools/renderer/own_catalog_lint.py', 'src\\ program blobs (vertex_spirv / fragment_spirv, ProgramDesc brace lists), fx_spv_data.cpp kOwnShaders, pipeline_catalog.h and its three callers'),   # S110 RDRPREP
+    lint_row('lodge', 'tools/handback/lodge_lint.py', 'git-tracked docs\\research\\ notes with a ```claims block against their db\\claims\\ files (a missing file, or one edited by hand: the note is the only source; prints both sides\' last commit and the commands)'),   # S111 INDEX_PLAN lane B
 ]
 
 ROWS = [
@@ -425,6 +454,8 @@ ROWS = [
     Row('game_text', 'added lines of published files (the diff)', check_game_text),
     Row('new_src', 'added / renamed .cpp files (the diff) against the build lists', check_new_src),
     Row('log_readers', "changed [tag] literals of src\\ (the diff); runs the readers' --selftest", check_log_readers),
+    Row('seam', 'db\\seams rows whose file is in the diff: STALE / refused = FAIL, moved = NOTE (the diff)', check_seam),
+    Row('marks', 'db\\claims + db\\seams: the C / L / U totals and open items (a trend, never fails)', check_marks),
 ] + LINT_ROWS
 
 

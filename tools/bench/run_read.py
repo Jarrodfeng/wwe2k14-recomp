@@ -11,7 +11,10 @@ WHOLE log, line by line (a log of hundreds of MB is never held in memory), and p
   A long run's log rotates: wwe2k14_NNN.K.log are its older parts (the highest K is the oldest and holds the run's start), wwe2k14_NNN.log the
   newest (src\\launcher_mobile\\mobile_main.cpp, part 8). Every part of the run is read, oldest first, and RUN says how many.
 
-Sections, in order: RUN, FLAGS, RENDERER, PROBLEMS, ERROR-LEVEL LINES, LOADED, SHORTFALLS, SHOTS, then EXPECTED / ZERO / UNSORTED.
+Sections, in order: RUN, FLAGS, RENDERER, PROBLEMS, ERROR-LEVEL LINES, LOADED, SHORTFALLS, SHOTS, BLACK FRAMES, then EXPECTED / ZERO / UNSORTED.
+BLACK FRAMES (S111 BLACKFRAME): the host's `[host] black frames` lines (src\\renderer_host\\black_spans.h), one per run of black frames: the branch that chose
+black <- the input that asked for it, the inputs and the why, timed from frames_NNN.csv beside the log when it is there. 2d_only runs (black under the game's
+2D rows: menus / loads) are counted, --full lists them. Never decides the exit code.
 The default output fits a screen (lists are wrapped, runtime / default flags are counted, shots are first / last); --full prints every item;
 --json always carries everything.
 Exit: 0 clean; 1 a PROBLEM, a route that did not reach `bench: done`, an unmet --expect / --zero, or (--strict-errors) an error-level group not
@@ -90,6 +93,9 @@ MARKERS = [("crash", re.compile(r"\[wwe2k14\]\[crash\]")), ("device lost", re.co
            ("script FAILED", re.compile(r"\]\[input\] script FAILED")), ("FATAL", re.compile(r"\[FATAL\]"))]
 ECHO = re.compile(r"modified: |\(source: [^)]*\)|\]\[input\] line \d+: ")
 LOGNAME = re.compile(r"^wwe2k14_(\d+)(?:\.(\d+))?\.log$")
+# S111 BLACKFRAME (src\renderer_host\black_spans.h): one line per run of black frames, and the exit total
+BLACK = re.compile(r"\[host\] black frames (\d+)-(\d+) \(n (\d+), held (\d+)\): (.*?) \| inputs: (.*?) \| why: (.*)$")
+BLACK_SUM = re.compile(r"\[host\] black spans (\d+) \(frames black (\d+), held (\d+)\), lines printed (\d+)")
 BURST_MIN = 3
 
 
@@ -168,7 +174,7 @@ class Reader:
     def __init__(self, expects):
         self.F = {"lines": 0, "ts_first": None, "ts_last": None, "version": [], "route": [], "done": None, "quit": None, "start_seen": False,
                   "last_scene": None, "flags": [], "renderer": {}, "problems": {}, "errors": {}, "props": {}, "made": {}, "chars": {},
-                  "arenas": {}, "banks": {}, "dlc": {}, "counters": {}, "expect": {e: None for e in expects}}
+                  "arenas": {}, "banks": {}, "dlc": {}, "counters": {}, "expect": {e: None for e in expects}, "black": [], "black_sum": None}
         self.last_tag = None
         self.cur_ts = None     # the last timestamp seen: a continuation line (no timestamp) belongs to it
         self.run = []          # the current run of consecutive error-level lines: [(ln, ts, thread, msg)]
@@ -284,6 +290,15 @@ class Reader:
             dm = re.search(r"\[dlc\] (pack \d+ .*)", line)
             if dm:
                 F["dlc"][dm.group(1)] = F["dlc"].get(dm.group(1), 0) + 1
+        # --- BLACK FRAMES (S111 BLACKFRAME: one line per run of black frames, written when the run ended; the exit total)
+        if "[host] black " in line:
+            bm = BLACK.search(line)
+            if bm:
+                F["black"].append({"first": int(bm.group(1)), "last": int(bm.group(2)), "n": int(bm.group(3)), "held": int(bm.group(4)), "what": bm.group(5).strip(),
+                                   "inputs": bm.group(6).strip(), "why": bm.group(7).strip(), "ts": ts or self.cur_ts, "line_no": ln})
+            sm = BLACK_SUM.search(line)
+            if sm:
+                F["black_sum"] = {"spans": int(sm.group(1)), "black": int(sm.group(2)), "held": int(sm.group(3)), "printed": int(sm.group(4))}
         # --- census blocks (every physical line, whole; continuation lines carry the previous line's last tag)
         marks = list(CENSUS_TAG.finditer(line))
         segs = []
@@ -365,9 +380,38 @@ def shots(folder, num):
     pref = (num + "_") if num else ""
     out = []
     for n in sorted(os.listdir(cap)):
-        if os.path.isfile(os.path.join(cap, n)) and (not pref or n.startswith(pref)) and n.lower().endswith((".png", ".jpg", ".jpeg", ".bmp")):
+        if os.path.isfile(os.path.join(cap, n)) and (not pref or n.startswith(pref)) and n.lower().endswith((".webp", ".png", ".jpg", ".jpeg", ".bmp")):   # S111 SHOTDIET: WebP is the default
             out.append((n, os.path.getsize(os.path.join(cap, n))))
     return cap, out
+
+
+def black_times(parts, num, spans):
+    """S111 BLACKFRAME: each black run's first / last guest frame -> t_seconds from frames_NNN.csv beside the log (src\\frame_stats.h: its frame column is
+    g_guest_frame, the number the [host] lines carry). Sets span["t0"] / span["t1"] where the row exists. -> the CSV path read, why none, or None (no run)."""
+    if not spans:
+        return None
+    p = os.path.join(os.path.dirname(os.path.abspath(parts[-1])), "frames_%s.csv" % num) if num else None
+    if not p or not os.path.isfile(p):
+        return "no frames_%s.csv beside the log: the runs are not timed" % (num or "NNN")
+    want = {}
+    for s in spans:
+        want.setdefault(s["first"], []).append((s, "t0"))
+        want.setdefault(s["last"], []).append((s, "t1"))
+    try:
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            head = fh.readline().strip().split(",")
+            if "frame" not in head or "t_seconds" not in head:
+                return "%s has no frame / t_seconds column: the runs are not timed" % p
+            fi, ti = head.index("frame"), head.index("t_seconds")
+            for row in fh:
+                c = row.split(",")
+                if len(c) <= max(fi, ti) or not c[fi].isdigit():
+                    continue
+                for s, k in want.get(int(c[fi]), ()):
+                    s[k] = float(c[ti])
+    except (OSError, ValueError) as e:
+        return "%s not read (%s): the runs are not timed" % (p, e)
+    return p
 
 
 def analyse(F, a):
@@ -538,6 +582,25 @@ def render(F, R, a):
         P("SHOTS: %d in %s" % (len(sh), cap))
         P("  sheet: %s; %s" % (", ".join(os.path.join(cap, n) for n in sheets) or "none",
                                ("first %s, last %s" % (rest[0], rest[-1]) if len(rest) > 1 else (rest[0] if rest else "no other picture"))))
+    P("BLACK FRAMES (the host's runs of black frames: the branch that chose black <- the input that asked for it; src\\renderer_host\\black_spans.h; never the exit code)")
+    bl = F["black"]
+    menus = [b for b in bl if b["what"].startswith("2d_only")]
+    listed = bl if full else [b for b in bl if not b["what"].startswith("2d_only")]
+    for b in (listed if full else listed[:40]):
+        t = " t %.2f-%.2f s (%.2f s)" % (b["t0"], b["t1"], b["t1"] - b["t0"]) if "t0" in b and "t1" in b else ""
+        P("  frames %d-%d (n %d, held %d)%s: %s | %s | why: %s" % (b["first"], b["last"], b["n"], b["held"], t, b["what"], b["inputs"], b["why"] if full else b["why"][:120]))
+    if not full and len(listed) > 40:
+        P("  ... %d more run(s) (--full lists every one)" % (len(listed) - 40))
+    if menus and not full:
+        P("  plus %d 2d_only run(s), %d frames: black under the game's 2D rows (menus / loads); --full lists them" % (len(menus), sum(b["n"] for b in menus)))
+    bs = F["black_sum"]
+    if bs:
+        P("  total: %d run(s), %d black frames, %d held%s" % (bs["spans"], bs["black"], bs["held"],
+                                                              "" if bs["printed"] >= bs["spans"] else "; only the first %d runs have a line (black_spans.h kMaxLines)" % bs["printed"]))
+    if bl and F.get("black_csv"):
+        P("  times: %s" % F["black_csv"])
+    if not bl and not bs:
+        P("  none (no `[host] black frames` line: no black frame, or a build before S111 BLACKFRAME)")
     if a.expect:
         P("EXPECTED: %d of %d found%s" % (len(R["expect_found"]), len(a.expect),
                                           " (%s)" % ", ".join("line %d" % v for v in R["expect_found"].values()) if R["expect_found"] else ""))
@@ -595,6 +658,7 @@ def main(argv=None):
     F["parts"], F["note"] = parts, note
     F["save_options"] = save_row(parts, num)
     F["shots"] = shots(os.path.dirname(os.path.abspath(parts[-1])), num)
+    F["black_csv"] = black_times(parts, num, F["black"])   # S111 BLACKFRAME
     R = analyse(F, a)
     if a.json:
         out = {"log": parts[-1], "parts": parts, "note": note, "lines": F["lines"], "start_seen": F["start_seen"], "ts_first": F["ts_first"],
@@ -605,6 +669,7 @@ def main(argv=None):
                "loaded": {"event_props": F["props"], "event_props_made": F["made"], "characters": F["chars"], "arenas": F["arenas"],
                           "banks": F["banks"], "dlc": F["dlc"]},
                "shortfalls": R["shortfalls"], "unsorted": R["unsorted"],
+               "black_spans": F["black"], "black_total": F["black_sum"], "black_csv": F["black_csv"],
                "shots": {"dir": F["shots"][0], "files": [{"name": n, "bytes": s} for n, s in F["shots"][1]]},
                "expect_found": R["expect_found"], "expect_missing": R["expect_missing"], "zero_failed": R["zero_failed"], "zero_ok": R["zero_ok"],
                "exit": R["exit"]}

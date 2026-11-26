@@ -72,6 +72,15 @@ def parse_ninja(bd):
     return [x for x in ins if not x.startswith('||')], libs, flags
 
 
+def main_keep_stream(bd):
+    """'ON' / 'OFF' from the WWE2K14_KEEP_STREAM entry of the build folder's own CMakeCache.txt, '' when unknown."""
+    try:
+        m = re.search(r'^WWE2K14_KEEP_STREAM:BOOL=(\w+)', open(os.path.join(bd, 'CMakeCache.txt'), encoding='utf-8', errors='replace').read(), re.M)
+    except OSError:
+        return ''
+    return m.group(1).upper() if m else ''
+
+
 def compile_lines(ninja, bd):
     r = run([ninja, '-C', bd, '-t', 'commands', 'wwe2k14.exe'])
     if r.returncode:
@@ -113,6 +122,10 @@ def main():
     drop = stream_only(root) if a.keep == 0 else set()
     only = {x.strip().replace('\\', '/') for x in a.only.split(',') if x.strip()}
     objs, libs, lflags = parse_ninja(bd)
+    main_free = main_keep_stream(bd) == 'OFF'   # S111: main's folder is the stream-FREE player build: its object list is the OFF one, normalised to the ON list below
+    if main_free:
+        off_listed = {ln.strip() for ln in open(os.path.join(root, 'tools', 'scene', 'keep_stream_off_sources.txt'), encoding='utf-8') if ln.strip().startswith('src/')}
+        objs = [o for o in objs if not (re.match(r'CMakeFiles/wwe2k14\.dir/(src/.*)\.obj$', o.replace('\\', '/')) and re.match(r'CMakeFiles/wwe2k14\.dir/(src/.*)\.obj$', o.replace('\\', '/')).group(1) in off_listed)]
     cmds = None
     if a.syntax:   # S106 GSN N14: the flags of the CHECKED tree's own configure (game_syntax.build_lines_for = syntax_cfg), not main's out\build; the object list above stays main's (a new unit is added below)
         try:
@@ -188,7 +201,7 @@ def main():
         jobs.append((os.path.abspath(ex_src).replace('\\', '/'), mtmpl.replace(mfwd + '/src/main.cpp', ex_src)))
     sources_expected = {re.match(r'CMakeFiles/wwe2k14\.dir/(src/.*)\.obj$', o.replace('\\', '/')).group(1) for o in objs if re.match(r'CMakeFiles/wwe2k14\.dir/(src/.*)\.obj$', o.replace('\\', '/'))}
     for d in drop:
-        if d not in sources_expected:
+        if d not in sources_expected and not main_free:   # a stream-free main never compiled the dropped units: they are absent from its list by design
             print('FAIL: keep_stream_sources.txt names %s which the exe does not compile' % d)
             return 1
 

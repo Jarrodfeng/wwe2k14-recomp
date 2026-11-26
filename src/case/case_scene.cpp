@@ -47,7 +47,8 @@ class CaseSceneSink : public rdr_scene::live::Sink {
                               r.input_stamps.size() * sizeof(rdr_scene::InputStampRow) + r.param_overrides.size() * sizeof(rdr_scene::ParamOverrideRow) +
                               r.light_objects.size() * sizeof(rdr_scene::LightObjectRow) +
                               r.liquid_maps.size() * sizeof(rdr_scene::LiquidMapRow) + r.liquid_items.size() * sizeof(rdr_scene::LiquidItemRow) + r.liquid_pictures.size() * sizeof(rdr_scene::LiquidPictureRow) +   // S103 SWF
-                              r.body_scales.size() * sizeof(rdr_scene::BodyScaleRow) + r.liquid_images.size() * sizeof(rdr_scene::LiquidImageRow) + r.liquid_image_bytes.size();   // S108 SHOT (68-70)
+                              r.body_scales.size() * sizeof(rdr_scene::BodyScaleRow) + r.liquid_images.size() * sizeof(rdr_scene::LiquidImageRow) + r.liquid_image_bytes.size() + r.guest_models.params.size() * sizeof(rdr_scene::GuestModelParam) +   // S108 SHOT (68-70); S111 GUESTHAIR (71)
+                              r.guest_models.mats.size() * sizeof(rdr_scene::GuestModelMat) + r.guest_models.tex_names.size() * sizeof(rdr_scene::GuestModelTexName);   // S111 EYECUBE (72 / 73)
     // S102 T19 F1: the file is the plain list (version 1, what every reader of a case folder reads): a marker record is expanded here, on the ring's thread, never on the game's
     case_hook::OnScene(f.guest_frame, estimate, [t] {
       if (t->crowd_runs.empty()) return rdr_scene::SerializeRecord(*t);

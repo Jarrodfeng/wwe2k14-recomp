@@ -20,12 +20,14 @@
 #include "../renderer/renderer.h"
 #include "scene_record.h"
 #include "wrk_join.h"   // S103 WRK
+#include "sphere_join.h"   // S111 SPHEREOCC: SceneFrame::body_spheres
 #include "char_effects.h"  // S101 lane 13: the character path
 #include "post_pass.h"     // S101 lane 34: the post pass
 #include "stage_hook.h"    // S103 lane S: stage hooks, live targets, maps by role
 #include "live_screen_rule.h"   // S103 SCX: LiveScreenWhy (the grab invalidation reasons)
 #include "draw_lists.h"    // S103 lane G: the kept draw lists
 #include "see_through_order.h"  // S103 lane F: the see-through order
+#include "draw_place_rows.h"    // S111 PROPORDER: SceneFrame::draw_places (the game's category-33 places)
 #include "particle_tables.h"    // S103 lane F: the particle tables (record ids 50-51)
 
 namespace rdr_scene {
@@ -143,8 +145,9 @@ inline constexpr float kFlashNearViewZ = 1500.f;
 inline std::atomic<bool> g_plant_flash_pre_post{false}, g_plant_flash_file_colour{false}, g_plant_flash_v_flip{false};
 // TEST ONLY (S110 FLASHOCC, cutgrey_unit [OCC]): the centre's depth is fetched from the picture's row 0 (the sky's far plane), not the centre's own row: a body in front of the centre no longer hides the sprite.
 inline std::atomic<bool> g_plant_flash_fetch_row0{false};
-// TEST ONLY (S110 FLASHFRONT, cutgrey_unit [PIX]): the after-post flash pass keeps its depth test off (CUTGREY's state): a sprite whose centre is visible paints over a nearer body.
-inline std::atomic<bool> g_plant_flash_no_ztest{false};
+// TEST ONLY (S111 FLASHGAME, cutgrey_unit [RAYS]): the after-post flash pass attaches the scene depth and tests it per pixel (S110 FLASHFRONT's margin, removed): the rays of a sprite whose centre is visible
+// are cut at a nearer body. The game draws them over it (its z test is off, sub_823B27F0 +354). The game never sets this.
+inline std::atomic<bool> g_plant_flash_pixel_ztest{false};
 
 // A frame request: what to draw, from where.
 struct SceneFrame {
@@ -165,6 +168,16 @@ struct SceneFrame {
   // Filled by rf_wrestlers from the record's section 67; a body with no entry draws its plain row.
   struct ChangeColour { uint32_t object = 0, flags = 0; float constants[64] = {}; };
   std::vector<ChangeColour> change_colours;
+  // S111 SPHEREOCC (sphere_join.h): the wrestler bodies' VS c168-c171 (the game's sphere occluders, the record's newest row of the body's skeleton): (index in `objects`, 16 floats).
+  // Filled by rf_wrestlers beside the engine join; a body with no entry draws strength 0.
+  std::vector<sphere_join::Body> body_spheres;
+  // S111 PROPORDER (draw_place_rows.h): a drawn object's place in the game's category-33 list (index in `objects`): a character body / its guest-routed piece (the skeleton's place) or an entrance prop model a
+  // CWeapon node draws (block = its draws, alpha or additive, take the character rank; additive = the WATR node: rf_props sets the node's state on the object, splat_state.h NodeObjectFlags). Filled by
+  // rf_wrestlers / rf_props from the record's kSlDrawPlace rows; an object with no entry keeps its rank and record order.
+  // S111 REKEYORDER: material_state = a CWeapon's own node re-keyed to 41 / 43 (block set: ordered by its place; rf_props puts no node state on it: its material's, as in its category 26).
+  // S111 CATORDER: body_place = the place of the character's opaque node when the game draws it after see-through categories (42 in a re-keyed entrance; draw_place_rows.h TakeLateBodies), -1 = none.
+  struct DrawPlace { uint32_t object = 0; int32_t place = -1; bool block = false; bool additive = false; bool material_state = false; int32_t body_place = -1; };
+  std::vector<DrawPlace> draw_places;
   std::vector<ParamValue> params;       // Object::params_first / count index this (names are strings: resolved by the caller into ParamNames)
   std::vector<std::string> param_names;  // parallel to params
   // S101 lane 13 (wrestlers): the skin palettes (Object::bones_first / bones_count index this; one matrix per skeleton node, viewer space, row vectors,
@@ -281,9 +294,6 @@ inline std::atomic<bool> g_reflections{true};   // BOTH-BUILDS: a LOOK, ON in bo
 // (technique_pick.h AllFamily), like TQF's yProp class and RFL's yBG_Reflect. ON by default (the start-time switch wwe2k14_rdr_table_pick_all; the rigs' WWE_RDR_TABLE_PICK_ALL=0 is the "before" arm). false = those families
 // keep the sampler scoring + the L5 / P1 fits, and the SearchLight (yBG_UVScroll T8..T11) planar pair is refused too (UVS.md; front_end.cpp UvLayers / SearchLightPlanar / Resolve SL_Scale), exactly as before the lane.
 inline std::atomic<bool> g_table_pick_all{true};   // BOTH-BUILDS: a LOOK (header comment above), ON in both builds; the cvar exists only in the OFF build, the stream build keeps the default true (start_settings.cpp:270)
-// S103 YCB (docs\research\s103\YCH.md; LOOK: the picture follows the game): the vertex + pixel variants of a wrestler (yCh_*) material are the effect table's row for (technique word, the game's pass rule CharPass), not our
-// min-define pick. ON by default (the start-time switch wwe2k14_rdr_char_table_pick; the rigs' WWE_RDR_CHAR_TABLE_PICK=0 is the "before" arm). false = the old pick (shadow / wet bits), exactly as before the lane.
-inline std::atomic<bool> g_char_table_pick{true};   // BOTH-BUILDS: a LOOK (header comment above), ON in both builds; the cvar exists only in the OFF build (start_settings.cpp:93), the stream build keeps the default true
 inline bool g_wrk_plant_grey = false;   // S103 WRK: the rig's twin (the no-map fallback is the flat grey: alpha 255 tilts the normal by the full level)
 // S103 UPL U2: screen pictures are uploaded once per distinct picture and the screens that show the same pixels share ONE image (FrontEnd::UpdateScreens). ON by default (invisible: the same picture). false = the old
 // one image per screen, one upload per changed screen (the start-time switch wwe2k14_rdr_screen_share in the stream-free build; the rig's WWE_RDR_SCREEN_SHARE=0 is the "before" arm).
@@ -361,7 +371,6 @@ class FrontEnd {
   bool ModelBounds(int model, float bmin[3], float bmax[3]) const;   // S103 CAWB: the model's bounds (census only)
   // S103 PZF2 (EB): does this registered model hold a drawable mesh of the wrestler piece entry `piece_id` (src_kind 2, src_key == id)? rf_wrestlers' draw-time check of a piece the owner is said to draw.
   bool ModelHasPieceMesh(int model, uint32_t piece_id) const;
-  bool ModelHasAnyPieceMesh(int model) const;   // S103 SMF (review A4): the model holds a mesh of some wrestler piece (src_kind 2): a body that could own an unlinked own-skeleton piece (a referee / manager model holds none)
   void ReleaseModel(int model);  // the GPU must be idle (the caller waits)
   static std::string ImageKey(const assets::Texture& t);   // S103 CTX2: AddModel's `shared` map key of a texture (name | size | format | bytes)
   void ReleaseImage(rdr::ImageId id);                      // S103 CTX2: destroy one image the caller owns (an AddModel `shared` entry); the renderer defers it
@@ -478,15 +487,15 @@ class FrontEnd {
     bool operator==(const HairCutCensus& o) const { return draws == o.draws && cut == o.cut && notwin == o.notwin && nodisc == o.nodisc; }
   };
   const HairCutCensus& hair_cut_census() const { return hc_; }   // the last Record's (the offline proof reads it)
-  uint64_t wet_bound() const { return wet_bound_; }   // S103 SWF
-  uint64_t wet_lost_shadow() const { return wet_lost_shadow_; }
-  uint64_t wet_no_variant() const { return wet_no_variant_; }
-  // S103 YCB: the wrestler materials' table pick (char_effects.h ChooseCharEffectTable), counted per distinct bind: table picks / cube rows bound as their `pass | 8` sibling (the interim until the slot-11 term) /
-  // rows blocked for the wrinkle map (slot 5 unsettled) / every other no-table fallback (the old min-define pick); WRESTLER DRAWS (not distinct binds) whose model+616 mode the record did not carry (mode 0 assumed).
+  // S103 YCB / S111 OLDCHAIN: the wrestler materials' table pick (char_effects.h ChooseCharEffectTable, the only pick), counted per distinct bind: table picks / cube rows bound as their non-cube twin (CUB.md) /
+  // HOLES by reason (char_effects.h CharHoleOf: a row blocked for the wrinkle map with the WRK switch off / no effect table published / any other row that cannot be bound); char_hole_draws = WRESTLER DRAWS
+  // that were a hole (drawn nothing); WRESTLER DRAWS (not distinct binds) whose model+616 mode the record did not carry (mode 0 assumed).
   uint64_t char_table_picked() const { return char_table_picked_; }
   uint64_t char_cube_analytic() const { return char_cube_analytic_; }
   uint64_t char_wrinkle_blocked() const { return char_wrinkle_blocked_; }
-  uint64_t char_nontable_fallback() const { return char_nontable_fallback_; }
+  uint64_t char_hole_no_table() const { return char_hole_no_table_; }
+  uint64_t char_hole_no_row() const { return char_hole_no_row_; }
+  uint64_t char_hole_draws() const { return char_hole_draws_; }
   uint64_t char_mode_unknown() const { return char_mode_unknown_; }
   // S103 WRK census (per wrestler DRAW unless noted): pass mode, wrinkle draws and whether their live levels arrived. One line, printed by live_scene_draw.cpp.
   struct WrkCensus {
@@ -498,7 +507,6 @@ class FrontEnd {
   };
   const WrkCensus& wrk_census() const { return wrk_; }
   std::string WrkCensusLine() const;
-  uint64_t wet_unknown() const { return wet_unknown_; }   // S103 L9: skin / gear draws the game draws with its sweat / blood variants whose amount the record does not carry (kept on today's variant)
   uint64_t card_factor_missing() const { return card_factor_missing_; }   // S103 B3: Records with no card factor (no row, or the word 0): the card quad drew unscaled
   uint64_t identity_nodes_total() const { return identity_nodes_total_ + identity_nodes_frame_; }   // S103 CAWS (read by the unit / rig)
   uint64_t time_frozen() const { return time_frozen_; }   // S103 RCL: draws of a Time-reading (UVScroll) material with no clock row; their VS c186 Time stays 0 (the live record sets no scene time)
@@ -534,7 +542,7 @@ class FrontEnd {
   struct Bound;
   ModelData& Mod(int id);
   int AddModelImpl(const assets::Model& model, std::vector<std::string>& warnings, int image_owner, std::unordered_map<std::string, rdr::ImageId>* shared);  // S103 R + D
-  const Bound& BindMaterial(ModelData& m, int material, bool skinned, LmMode lm_mode = LmMode::Own, bool shadow = false, bool wet = false, int char_pass = -1, bool light = false, bool change_colour = false);   // S108 THR2: change_colour = a recoloured body's draw (char_pass >= 0 only): the STS row + the masks (change_colour_draw.h)   // S103 YCB: char_pass >= 0 = a wrestler material bound to the game's table row for (technique, pass) (technique_pick.h CharPass; the cache key is the pass, `shadow` / `wet` are then read from the pick); !Ok falls back to the old pick  // S103 SWF: wet = the liquid-map reader of a skin material (char_effects.h ChooseCharEffect)  // S103 L10: lm_mode 0 = the material own rule, 1 = the entrance LM variant (was the bool ent_lm), 2 = a MATCH arena mesh the game gives the page in the VERTEX stage only (Material::vertex_lm), 3 = a MATCH arena mesh with no page at all  // S103 L6: shadow = the FX_SHADOW reader variant of a character material  // (S101 lane 13: skinned picks the vertex variant of a character)
+  const Bound& BindMaterial(ModelData& m, int material, bool skinned, LmMode lm_mode = LmMode::Own, bool shadow = false, bool wet = false, int char_pass = -1, bool light = false, bool change_colour = false);   // S108 THR2: change_colour = a recoloured body's draw (char_pass >= 0 only): the STS row + the masks (change_colour_draw.h)   // S103 YCB: char_pass >= 0 = a wrestler material bound to the game's table row for (technique, pass) (technique_pick.h CharPass; the cache key is the pass, `shadow` / `wet` are then read from the pick); S111 OLDCHAIN: !Ok is a HOLE (no pair, counted: char_effects.h CharHoleOf), and a wrestler material without a pass gets no pair  // S103 SWF: wet / shadow = the liquid-map / FX_SHADOW reader asked by a non-wrestler bind (a wrestler's are its row's)  // S103 L10: lm_mode 0 = the material own rule, 1 = the entrance LM variant (was the bool ent_lm), 2 = a MATCH arena mesh the game gives the page in the VERTEX stage only (Material::vertex_lm), 3 = a MATCH arena mesh with no page at all  // (S101 lane 13: skinned picks the vertex variant of a character)
   void EnsureTargets(uint32_t w, uint32_t h, bool wait_idle = true);   // S103 P: wait_idle = false on the live path (the renderer's deferred DestroyImage covers the old images)
   rdr::ImageId MakeTexture(const assets::Texture& t, std::string& warning);
   uint16_t ProgramFor(int vs, int ps, bool alpha);
@@ -557,9 +565,6 @@ class FrontEnd {
   uint64_t flash_given_ = 0, flash_drawn_ = 0, flash_nodepth_ = 0;   // S110 RDRPREP F3: sprites given to the after-post draw / drawn by it / skipped because the depth was not sampled
   uint64_t flash_near_ = 0; float flash_nearest_ = 0.f; uint32_t flash_near_lines_ = 0;   // S110 FLASHOCC: drawn sprites with centre view z < kFlashNearViewZ, the smallest centre view z seen (0 = none), near lines logged (cap 32)
   uint16_t flash_program_ = 0, flash_layout_ = 0;
-  rdr::ImageId flash_depth_ = rdr::kNoImage;   // S110 FLASHFRONT: the scene depth's copy the centre read samples (the scene depth itself is the flash pass's attachment)
-  uint32_t flash_depth_w_ = 0, flash_depth_h_ = 0;
-  bool flash_depth_scaled_ = false;
 
   rdr::Renderer& renderer_;
   FrontEndOptions options_;
@@ -656,10 +661,8 @@ class FrontEnd {
   PieceMeshStats piece_stats_;   // S103 EYF
   uint64_t identity_nodes_frame_ = 0, identity_nodes_total_ = 0, identity_lines_ = 0;  // S103 CAWS: skin-node lookups >= the palette size (drawn with identity), this frame / all frames / lines printed
   WrkCensus wrk_;   // S103 WRK
-  uint64_t char_table_picked_ = 0, char_cube_analytic_ = 0, char_wrinkle_blocked_ = 0, char_nontable_fallback_ = 0, char_mode_unknown_ = 0;   // S103 YCB
-  uint64_t wet_unknown_ = 0;       // S103 L9
-  uint64_t wet_lost_shadow_ = 0;   // S103 SWF: a skin with a map and a shadow map but no wet+shadow pair: drawn dry + shadow
-  uint64_t wet_bound_ = 0, wet_no_variant_ = 0;   // S103 SWF: skin draws bound to the wet variant (the wrestler had a liquid map) / skin draws that had a map and no wet pair of the material's effect (drawn dry, counted)
+  uint64_t char_table_picked_ = 0, char_cube_analytic_ = 0, char_wrinkle_blocked_ = 0, char_mode_unknown_ = 0;   // S103 YCB
+  uint64_t char_hole_no_table_ = 0, char_hole_no_row_ = 0, char_hole_draws_ = 0;   // S111 OLDCHAIN: holes per distinct bind by reason (CharHoleOf), and per wrestler draw
   std::map<std::string, EffectCoverage> coverage_;
   std::set<std::string> missing_fields_;
   rdr::FrameBuilder builder_;

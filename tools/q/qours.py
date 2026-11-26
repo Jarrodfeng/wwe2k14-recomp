@@ -20,8 +20,9 @@
   includes FILE / includers FILE   the direct #include lines of a C++ file / every file that includes it (.inc too, a quoted glob or several files in one walk)
   runs FILE|EXE       the tools / config script lines that mention it (marked invoke); env NAME  every read / set of an environment variable
   cvar NAME           a cvar: every REXCVAR_DEFINE_* (ours + the SDK's), every REXCVAR_GET / SET / by-name string use, every `--NAME=value` in tools / routes
-  glsl NAME / fxreg [--dupes] / str LITERAL / census FIELD [--in PATH] [--run N] / hooks [ADDR|NAME]   (qgl.py, qcensus.py, qx6.py)
-  text W1 W2 [--any] [-E] [--docs] [--branch REF]   words on one line (OR, a regex, the docs instead of code, a git revision)
+  glsl NAME / fxreg [--dupes] / str LITERAL / census FIELD [--in PATH] / hooks [ADDR|NAME]   (qgl.py, qcensus.py, qx6.py)
+  text W1 W2 [--and] [-E|--re] [--docs] [--branch REF] [--in PATH]   lines with ANY of the words (S111: --and = all on one line; a quoted argument is one phrase;
+                      a regex; the docs instead of code; a git revision; --in an existing file / folder searches exactly that path)
 
 NAME: a name or `Scope::name`. The tail is matched as a whole word, CASE-SENSITIVE (Hold is not hold). `Scope::name` keeps the hits whose line, enclosing
 namespace / class / function qualifier, or file names Scope; the others are counted ("N lines ... not shown"), not hidden. A common name (Read, Get) is noisy:
@@ -88,6 +89,14 @@ def again_call(args, extra='--all'):
     if not cmd or arg is None:
         return None
     inn = f' --in {qcap.requote([args.in_path])}' if getattr(args, 'in_path', None) else ''
+    if cmd == 'text':       # S111 review: each word stays its own argument (a joined "W1 W2" is ONE phrase since QGAPS) and the flags that change the answer ride along
+        words = list(getattr(args, 'words', None) or [arg])
+        flags = [f for f, on in (('--and', getattr(args, 'and_', False)), ('--any', getattr(args, 'any_', False)), ('-E', getattr(args, 'regex', False)),
+                                 ('--docs', getattr(args, 'docs', False))) if on] + (['--branch', args.rev] if getattr(args, 'rev', None) else [])
+        opts = ' '.join(flags + [extra]) + inn
+        if any(w.startswith('-') for w in words):      # a word that looks like a switch goes after --
+            return f'q ours text {opts} -- {qcap.requote(words)}'
+        return f'q ours text {qcap.requote(words)} {opts}'
     return f'q ours {cmd} {qcap.requote([arg])} {extra}{inn}'
 
 
@@ -118,10 +127,18 @@ def text_cmd_x6(args):
         elif args.cmd == 'text':
             # S108: lane D's qx6.cmd_text takes rev (a git revision), docs (docs / root *.md / .claude / CMake text instead of code), regex (-E), any_ (OR);
             # they are passed only when asked, so a checkout without lane D's qx6 still answers the plain form
+            # S111 QGAPS: each argument is one word (a quoted phrase stays one phrase); several words = ANY of them (--and: all on one line); --in naming an
+            # existing file or folder (db/seams, a root *.md, one doc) searches exactly that path, whatever the code / docs split
+            words = [w for w in (getattr(args, 'words', None) or re.split(r'\s+', args.arg.strip())) if w.strip()]
+            any_ = getattr(args, 'any_', False) or (len(words) > 1 and not getattr(args, 'and_', False))
+            inp = getattr(args, 'in_path', None)
+            paths = [inp.replace('\\', '/')] if inp and os.path.exists(os.path.join(args.root, inp)) else None
             kw = {k: v for k, v in (('rev', getattr(args, 'rev', None)), ('docs', getattr(args, 'docs', False)), ('regex', getattr(args, 'regex', False)),
-                                    ('any_', getattr(args, 'any_', False))) if v}
-            r = _with_kw(qx6.cmd_text, 'ours text', kw, args.root, [w for w in re.split(r'\s+', args.arg.strip()) if w], limit_files=args.limit, allhits=args.all)
+                                    ('any_', any_), ('paths', paths)) if v}
+            r = _with_kw(qx6.cmd_text, 'ours text', kw, args.root, words, limit_files=args.limit, allhits=args.all)
             scope_answer(r, getattr(args, 'in_path', None))
+            if paths:
+                r['in_only'] = True     # S111 review: git grep searched only that path, so there is no "N more outside it" to count
             r['again'] = again_call(args, '--all')
             pr = lambda r, a: qx6.print_text(r)
     except qx6.XError as e:
@@ -168,6 +185,10 @@ def scope_answer(r, spec):
             m['summary'] = _summary(m['sites'])
         if 'sites' in m and 'n' in m:
             m['n'] = sum(len(s.get('lines', [])) for s in m['sites'])
+    if isinstance(r.get('bodies'), list):        # body: S111 QGAPS: only the definitions in PATH (the python index answered every file's `run`)
+        keep = [b for b in r['bodies'] if qcap.in_scope(b.get('file', ''), spec)]
+        cut += len(r['bodies']) - len(keep)
+        r['bodies'] = keep
     if isinstance(r.get('sites'), list):         # the tools python / ps1 index
         keep = [s for s in r['sites'] if qcap.in_scope(s.get('file', ''), spec)]
         cut += len(r['sites']) - len(keep)
@@ -185,7 +206,9 @@ def scope_answer(r, spec):
 
 
 def print_outside(r, args):
-    if isinstance(r, dict) and r.get('in'):
+    if isinstance(r, dict) and r.get('in') and r.get('in_only'):
+        print(f'  (--in {r["in"]}: only that path was searched)')
+    elif isinstance(r, dict) and r.get('in'):
         print(f'  (--in {r["in"]}: {r.get("outside_in", 0)} more outside it, not shown)')
 
 
@@ -211,10 +234,9 @@ def text_cmd_gl(args):
 def text_cmd_census(args):
     """S103 QCF: census FIELD (tools/q/qcensus.py): the format literal -> the counter it prints -> every write to it; this checkout's own files, no index"""
     import qcensus
-    import qrunlog
     try:
-        r = qcensus.cmd_census(args.root, args.arg, only_in=getattr(args, 'in_path', None), run=getattr(args, 'run', None))
-    except (qcensus.CError, qrunlog.RunlogError) as e:
+        r = qcensus.cmd_census(args.root, args.arg, only_in=getattr(args, 'in_path', None))
+    except qcensus.CError as e:
         raise QOError(str(e))
     if args.json:
         print(json.dumps(r, indent=1, default=str))
@@ -329,12 +351,12 @@ def main(argv=None, root=ROOT, db=None):
     for n, lim in (('body', 400), ('outline', 300), ('enclosing', 30)):
         p = sub.add_parser(n, parents=[common]); p.add_argument('arg'); p.set_defaults(limit=lim)
     p = sub.add_parser('census', parents=[common]); p.add_argument('arg', nargs='+')
-    p.add_argument('--run', default=None, help='census: also print the field\'s values per window from this run log (number or path)')
     p = sub.add_parser('hooks', parents=[common]); p.add_argument('arg', nargs='?', default='')
     p = sub.add_parser('fxreg', parents=[common]); p.add_argument('arg', nargs='?', default=''); p.add_argument('--dupes', action='store_true')
     p = sub.add_parser('text', parents=[common]); p.add_argument('arg', nargs='+')
-    p.add_argument('--any', dest='any_', action='store_true', help='any of the words on a line (OR); default: all of them')
-    p.add_argument('-E', dest='regex', action='store_true', help='the words are regular expressions')
+    p.add_argument('--any', dest='any_', action='store_true', help='any of the words on a line (OR; the default for several words)')
+    p.add_argument('--and', dest='and_', action='store_true', help='several words: all of them on one line (default: any of them)')
+    p.add_argument('-E', '--re', dest='regex', action='store_true', help='the words are regular expressions (PCRE: \\d, (?:a|b), [45])')
     p.add_argument('--docs', action='store_true', help='search docs, root *.md, .claude, CMakeLists.txt and cmake instead of the code')
     p = sub.add_parser('rows', parents=[common]); p.add_argument('arg', nargs='?', default='')
     p = sub.add_parser('diff', parents=[common]); p.add_argument('arg', nargs='?', default='')
@@ -344,6 +366,7 @@ def main(argv=None, root=ROOT, db=None):
         import qcap
         args.in_path = qcap.scope_spec(args.in_path, args.root)
     if isinstance(getattr(args, 'arg', None), list):
+        args.words = list(args.arg)        # S111 QGAPS: text keeps each argument whole (a quoted phrase is one word)
         args.arg = ' '.join(args.arg)
     if isinstance(getattr(args, 'arg', None), str) and args.arg.startswith('$') and args.cmd in TOOLS_CMDS + ('body',):
         args.arg = args.arg.lstrip('$')   # a PowerShell variable written with its sigil: the text holds the bare name

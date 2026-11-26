@@ -60,7 +60,7 @@ inline ArenaIdCensus& ArenaIdCensusOf() {
 }
 
 // Test only (tools\scene\stage_fx_unit.cpp): 1 = G+64 only (the old rule; the stage's id is never asked).
-inline int g_arena_id_plant = 0;   // 2: SlotsReady keyed on the published arena only (the pre-F2 rule)
+inline int g_arena_id_plant = 0;   // 2: SlotsReady keyed on the published arena only (the pre-F2 rule); 3: the game's stage holder is never asked (the pre-CACBG rule)
 
 // The slot table counts as ready for the stage's take only when it is the table of THIS stage's arena: the stage's own arena equals the published one, and that table is loaded (review F2: with the editor's stage
 // 66 and a stale published 0, "the published arena's table is loaded" said ready for the wrong arena). Plant 2 (unit only): the old rule, the published arena only.
@@ -86,5 +86,17 @@ inline int32_t ResolveArenaId(bool stage_ok, uint32_t stage_id, bool word_ok, ui
   c.resolved.fetch_add(1, std::memory_order_relaxed);
   return id;
 }
+
+// S111 CACBG (docs\research\s111\CACBG.md): the record names an arena only while the GAME holds a stage. [0x83763544] is the game's stage holder: sub_825E6078 (+100) and the
+// created-arena loader sub_8342A598 store a new stage there; the stage loader zeroes it when it frees one (sub_827E4FC8, 0x827E51CC, right after the deleting destructor) [C: its three
+// writers]. Create a Title's state 1 (sub_83328CA8 -> sub_827E41E0, loader step 2) frees the stage the previous creation mode left and builds none: without this rule the record kept
+// naming that arena (the last published id, or the stale G+64), our cached copy was READY and the belt's walk made the frame OURS (the CAS editor's set behind the title editor).
+// `holder_ok`: the word was readable (unreadable = not known: the old rule applies). The G+64 fallback of ResolveArenaId stays for a stage the game holds that StageFx has not seen set up.
+// Plant 3 (unit only): the holder is never asked.
+inline bool GameHoldsNoStage(bool holder_ok, uint32_t holder) {
+  if (g_arena_id_plant == 3) return false;
+  return holder_ok && holder == 0;
+}
+inline int32_t ArenaWhileStageHeld(bool no_stage, int32_t resolved) { return no_stage ? -1 : resolved; }
 
 }  // namespace rdr_scene::live::arena

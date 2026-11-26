@@ -2,9 +2,10 @@
 """S105 A5a lint (text, 0 game runs): kObjOwnRowsPiece must never enter the EYF pre-pass of rf_wrestlers.cpp.
   py -I tools\\scene\\own_rows_prepass_lint.py --root .        the tree
   py -I tools\\scene\\own_rows_prepass_lint.py --selftest      the planted twin must fire
-Why: the pre-pass pushes a (owner slot, piece id, alpha) row for every flagged piece; on a GUEST owner those rows are matched by the front end against guest parts, whose src_key is the PART INDEX, not a piece id (piece id 1
-exists): a row for an own-rows piece would hide or fade the body's guest part with the same number. The pre-pass condition is the line that tests `kObjDrawnByOwner | kObjDetachedPiece` right after `kObjVisible`;
-the new flag may appear in the file (the route branch) but never on that line. Also: the flag is defined once (scene_record.h) with its own bit.
+Why: the pre-pass pushes a (owner slot, piece id, alpha) row for every flagged piece onto its OWNER, so the owner's merged mesh fades or skips that piece. An own-rows piece is never drawn by its owner (a
+guest-row body, whose meshes carry src_key 0 since S111 GUESTKEY): it is drawn as its own model and its fade rides on its own tint (rf_wrestlers.cpp guest_alpha), so it has no business in that mask (before
+S111 GUESTKEY a guest part's src_key was its part index, and such a row hid or faded the body's guest part with the same number). The pre-pass condition is the line that tests `kObjDrawnByOwner |
+kObjDetachedPiece` right after `kObjVisible`; the new flag may appear in the file (the route branch) but never on that line. Also: the flag is defined once (scene_record.h) with its own bit.
 Exit 0 = clean, 1 = violation."""
 import argparse
 import os
@@ -24,7 +25,7 @@ def check(files):
         bad.append('rf_wrestlers.cpp: the EYF pre-pass condition line was not found exactly once (%d): the lint must be updated with the code' % len(lines))
     for ln in lines:
         if 'kObjOwnRowsPiece' in ln:
-            bad.append('rf_wrestlers.cpp: kObjOwnRowsPiece is in the EYF pre-pass condition (a piece-id row would hit guest part N): %s' % ln.strip()[:120])
+            bad.append('rf_wrestlers.cpp: kObjOwnRowsPiece is in the EYF pre-pass condition (its owner never draws it: the row would fade nothing of ours): %s' % ln.strip()[:120])
     sr = files.get('src/renderer_scene/scene_record.h', '')
     m = re.findall(r'kObjOwnRowsPiece\s*=\s*(\d+)', sr)
     if len(m) != 1:
@@ -33,7 +34,7 @@ def check(files):
         bits = [int(v) for v in re.findall(r'\bkObj\w+\s*=\s*(\d+)\s*[,;]', sr)]
         if bits.count(int(m[0])) != 1:
             bad.append('scene_record.h: the bit of kObjOwnRowsPiece (%s) is shared with another ObjectFlags member' % m[0])
-    fe = files.get('src/renderer_scene/front_end.cpp', '')   # S105 A5b F5: the piece-row lookup of a model's meshes is guarded by MeshAnswersPieceRow (a guest part is never a piece)
+    fe = files.get('src/renderer_scene/front_end.cpp', '')   # S105 A5b F5: the piece-row lookup of a model's meshes is guarded by MeshAnswersPieceRow, decided once at AddModelImpl (S111 GUESTKEY: src_kind 2, guest meshes included)
     if 'answers_piece_row = MeshAnswersPieceRow(' not in fe or 'if (me.answers_piece_row) {' not in fe:
         bad.append('front_end.cpp: the EYF piece-row loop is not guarded by MeshAnswersPieceRow (answers_piece_row)')
     if re.search(r'if \(me\.src_kind == 2\)\s*\{', fe):

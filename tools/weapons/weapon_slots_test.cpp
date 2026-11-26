@@ -13,6 +13,8 @@
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/renderer_scene/weapon_rows.h"
 #include "../../src/scene_live/weapon_contrib.h"
+#include "../../src/scene_live/latch_period.h"      // S111 CUTREACH2 review: the period plant (g_plant = 1: the record takes its own latch's table)
+#include "../../src/renderer_scene/weapon_plan.h"   // S111 CUTREACH2 review: the draw-side gate (ArenaFixedPropsDrawn / DrawSlotRows) and the load hint (Prefetch)
 
 using namespace rdr_scene;
 using rdr_scene::weapons::WeaponSlot;
@@ -248,6 +250,40 @@ int main() {
     g_mem = &f;
   }
 
+  {   // S111 CUTREACH2 review (docs\research\s111\CUTREACH2.md "Review"): section 59 split by use. The table is filled in period 11 (a match load); the walk of 10 drew no manager steps / desk, and record 11 carries
+      // that walk, so record 11 still draws the arena's fixed props (the draw side = latch 10's empty table) while its prefetch already asks for the new models (the load hint = latch 11's rows); record 12 hides them.
+    namespace W = rdr_scene::weapons;
+    struct Got { bool fixed11 = false, fixed12 = true; size_t hint11 = 0, draw12 = 0; };
+    const auto run = [&](int plant) {
+      scene_inputs::period::g_plant = plant;
+      Fake r = Forge();
+      r.put(kMgr + 580, 0);   // period 10: the manager has no slots yet
+      g_mem = &r;
+      wl::WeaponContributor wc;
+      wc.SetReader(&ReadFn);
+      live::FrameInfo a, b, c;
+      a.guest_frame = 10, b.guest_frame = 11, c.guest_frame = 12;
+      SceneTables ta, tb, tc;
+      live::Counters k;
+      wc.Latch(a), wc.Emit(a, ta, k);
+      r.put(kMgr + 580, 5);   // the load fills the table in period 11
+      wc.Latch(b), wc.Emit(b, tb, k);
+      wc.Latch(c), wc.Emit(c, tc, k);
+      Got g;
+      g.fixed11 = W::ArenaFixedPropsDrawn(W::DrawSlotRows(W::WeaponViewOf(tb)));
+      g.hint11 = W::Prefetch(W::WeaponViewOf(tb), W::Plants{}).size();
+      g.draw12 = W::DrawSlotRows(W::WeaponViewOf(tc));
+      g.fixed12 = W::ArenaFixedPropsDrawn(g.draw12);
+      scene_inputs::period::g_plant = 0;
+      g_mem = &f;
+      return g;
+    };
+    const Got g = run(0);
+    Check(g.fixed11 && g.hint11 == 6 && g.draw12 == 3 && !g.fixed12, "section 59 by use: record 11 keeps the fixed props (its period's table is empty) and prefetches the 6 new models; record 12 draws from the 3 rows (fixed " +
+                                                                          std::string(g.fixed11 ? "drawn" : "HIDDEN") + ", prefetch " + std::to_string(g.hint11) + ", record 12 draw rows " + std::to_string(g.draw12) + ")");
+    const Got p = run(1);
+    Check(!p.fixed11 && g.fixed11, "planted twin: the gate on the record's own latch's table (one record early at a load) is caught");
+  }
   const std::vector<uint8_t> bytes = SerializeRecord(t);
   SceneTables back;
   std::string err;

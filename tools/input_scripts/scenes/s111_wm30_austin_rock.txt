@@ -1,0 +1,37 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_wm30=18 --wwe2k14_wm30_direct
+# intent: owner on
+# S111 WM30STAR: 30 Years match 18 (Austin vs The Rock, record 201): direct start as check_wm30_cutscene, A to the bell, then fire its three mid-match banks 1500 / 1510 / 1520 (AE15_SCN_1A/1B/1C) in turn, a shot every 15 frames.
+on_fail quit
+log bench: start scene wm30_austin_rock
+include boot_to_menu
+wait_file EVTDSC 1200
+wait_state 0x83924744>80>0 0x820353E0 6000 2
+wait_state 0x83924744>4 3 9000 2
+wait_state 0x83924744>80>352 2 120 2
+wait_state 0x836F3AA4 <=0 600 1
+press_until_state A 0x83924744>80>16 !=2 4 30 6 unreadable
+wait_state match_clock >0 30000
+screenshot c_box
+press_until_state A match_clock >120 5 60 5 if_needed
+screenshot c_bell
+wait_frames 60
+log_state match_clock
+screenshot_every 15 s1500
+wm30_fire 1500 force
+log bench: fired 1500
+wait_frames 900
+screenshot_every 0
+log_state match_clock
+screenshot_every 15 s1510
+wm30_fire 1510 force
+log bench: fired 1510
+wait_frames 900
+screenshot_every 0
+screenshot_every 15 s1520
+wm30_fire 1520 force
+log bench: fired 1520
+wait_frames 900
+screenshot_every 0
+log bench: done
+wait_frames 60
+quit

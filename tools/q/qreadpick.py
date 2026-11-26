@@ -249,7 +249,7 @@ def main(rest):
         rows = rows[:n]
     ctx.hooks()
     if '--count' in rest:
-        sizes = {r['unit']: qsheet.build(ctx, r['unit'])[1]['bytes'] for r in rows}
+        sizes = {r['unit']: qsheet.build(ctx, r['unit'], earlier=False)[1]['bytes'] for r in rows}
         _tab, lines = count_table(rows, sizes)
         by_rule = collections.Counter(r['reason'].split(':')[0] for r in rows)
         print('\n'.join(lines))
@@ -261,7 +261,7 @@ def main(rest):
     total = 0
     batch = []
     for r in rows:
-        text, fl = qsheet.build(ctx, r['unit'])
+        text, fl = qsheet.build(ctx, r['unit'], earlier=False)       # a reader's sheet: no earlier reading (S111 FOLD)
         total += fl['bytes']
         if outdir:
             with open(os.path.join(outdir, '%d.txt' % r['unit']), 'w', encoding='utf-8') as fh:

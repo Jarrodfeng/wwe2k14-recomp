@@ -295,7 +295,7 @@ float4 ps(VSOut i) : SV_Target {
         specLight = mask * wspec.x * lobesA * gainA + mask * wspec.z * lobesB;
       }
       float skyUp = max(-R.y * pow(max(1.0 + nv, 1e-6), refc.w), 0.0);
-      float3 env = (specLight + skyUp * refc.rgb * mask) * (1.0 + detailLight) * lit;  // c144 = 1; the gear's detail lightens / darkens it
+      float3 env = (specLight * spec.rgb + skyUp * refc.rgb * mask) * (1.0 + detailLight) * lit;  // c144 = spec.rgb = the material's g_f4SpecCol (S111 SPECCOL: the lobes only, as the game's shine line); the gear's detail lightens / darkens it
       if (flags2.w > 0.5) env = skyUp * refc.rgb * mask * lit;               // hair / translucent: no lobes in this port
       float3 col = body * (1.0 - min(env, 1.0)) + env;
       float a = flags.w > 0.5 ? alphaSrc * i.c.a * matAmb.w * matDif.w : 1.0;

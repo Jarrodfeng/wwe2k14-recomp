@@ -2546,6 +2546,7 @@ class App {
       launch_graphics_.draw_height = s.draw_height;  // Session 54 (review of a tester's report: it was dropped)
       launch_graphics_.frame_rate = s.frame_rate, launch_graphics_.original_look = s.original_look;
       launch_graphics_.texture_filter = s.texture_filter;
+      launch_ramp_camera_ = s.ramp_camera;  // S111 RAMPMENU: the pause menu's RAMP CAMERA writes the same file
       launch_graphics_set_ = true;
     }
   }
@@ -2908,6 +2909,10 @@ class App {
     if (p.frame_rate && c.frame_rate != launch_graphics_.frame_rate) s.frame_rate = c.frame_rate;
     if (p.original_look && c.original_look != launch_graphics_.original_look) s.original_look = c.original_look;
     if (p.texture_filter && c.texture_filter != launch_graphics_.texture_filter) s.texture_filter = c.texture_filter;
+    // S111 RAMPMENU: the pause menu's RAMP CAMERA (src\ramp_menu.h writes the key ramp_camera).
+    bool ramp = false;
+    if (wwe2k14::gfxs::GetBool(wwe2k14::gfxs::ReadFile(settings_path), "ramp_camera", ramp) && ramp != launch_ramp_camera_)
+      s.ramp_camera = ramp;
     // Session 37: the game turned FSR off after a failure (src\upscale_guard.h): take its note too.
     std::string note;
     if (wwe2k14::gfxs::GetString(wwe2k14::gfxs::ReadFile(settings_path), "fsr_note", note) && !note.empty() &&
@@ -2917,6 +2922,7 @@ class App {
   }
   wwe2k14::gfxs::Choice launch_graphics_;  // the graphics choices as the game was started with them
   bool launch_graphics_set_ = false;
+  bool launch_ramp_camera_ = false;  // S111 RAMPMENU: RAMP CAMERA as the game was started with it (ReloadGraphicsSettings)
 
   // Once per frame: the game (or a logo import) finished?
   void PollGame() {
@@ -3425,6 +3431,7 @@ class App {
     t.quality_tier = 2;  // Session 93: the test runs STANDARD whatever the card (AUTO would pick LOW on integrated graphics)
     t.true_native = true;  // Session 87: the performance test runs the default renderer (Session 93: TRUE NATIVE)
     t.mods = false, t.cinecam = t.photo_mode = t.runin = false, t.perf_report = 0;
+    t.ramp_camera = false;  // S111 RAMPMENU review: the hard cam's own side (the ramp camera draws another view: numbers like with like)
     t.scenario = "@quick", t.quick_type = 0, t.quick_ids = "343,324", t.quick_cpu_only = true, t.quick_arena = -1;
     t.skip_entrances = false;
     // (Session 60: without the match's faster fast-forward vblank - the numbers stay comparable with earlier builds'
@@ -5815,6 +5822,8 @@ class App {
     OptionToggle("PHOTO MODE", s.photo_mode, true,
                  "F10 (or both sticks clicked, held) in a match: the scene nearly stops, a free camera, no HUD, depth "
                  "of field; A / Enter saves a PNG to Pictures\\WWE 2K14.");
+    OptionToggle("RAMP CAMERA", s.ramp_camera, true,
+                 "The match camera from the side facing the stage. In a match: pause, VISUAL PRESENTATION, RAMP CAMERA.");
     // Session 33: Discord status (the Discord app on this PC; only the wrestlers, the match type and the time).
     OptionToggle("DISCORD STATUS", s.discord, true,
                  "Your Discord status shows the match: the wrestlers, the match type and the time (\"In the menus\" "

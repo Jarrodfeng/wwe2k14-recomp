@@ -1,0 +1,28 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_wm30=18 --wwe2k14_wm30_direct
+# intent: owner on
+# S111 WM30STAR dense: as s111_wm30_austin_rock.txt (match 18, Austin vs The Rock), a shot every 3 frames through mid-match banks 1500 and 1510 (1520 is refused: 1510 ends the match), to catch any frame where the stage-light star crosses a wrestler.
+on_fail quit
+log bench: start scene wm30_austin_rock_dense
+include boot_to_menu
+wait_file EVTDSC 1200
+wait_state 0x83924744>80>0 0x820353E0 6000 2
+wait_state 0x83924744>4 3 9000 2
+wait_state 0x83924744>80>352 2 120 2
+wait_state 0x836F3AA4 <=0 600 1
+press_until_state A 0x83924744>80>16 !=2 4 30 6 unreadable
+wait_state match_clock >0 30000
+press_until_state A match_clock >120 5 60 5 if_needed
+wait_frames 60
+screenshot_every 3 d1500
+wm30_fire 1500 force
+log bench: fired 1500
+wait_frames 900
+screenshot_every 0
+screenshot_every 3 d1510
+wm30_fire 1510 force
+log bench: fired 1510
+wait_frames 900
+screenshot_every 0
+log bench: done
+wait_frames 60
+quit

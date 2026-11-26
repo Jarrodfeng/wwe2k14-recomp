@@ -34,7 +34,7 @@ void LiveMapsHook::CollectPropCasters(const SceneFrame& frame, const MapsInput& 
   for (const Object& obj : frame.objects) {
     if (!(obj.flags & kObjVisible)) continue;
     if (!(obj.flags & kObjCastsProps)) {
-      if (obj.flags & kObjMapBPiece43) ++counts_.props_skipped_piece43;   // ids 2064 / 2556: category 43, drawn by map B outside scene word 1, never by the props pass
+      if (obj.flags & kObjMapBPiece43) ++counts_.props_skipped_piece43;   // categories 33 / 43 (ids 2064 / 2556 re-keyed to 43; S111 WATRSHADOW: an entrance prop's CWDT / CWDS entries 4 / 9): drawn by map B outside scene word 1, never by the props pass
       continue;
     }
     const CasterModel* pm = CasterOf(obj.asset, true);
@@ -71,8 +71,8 @@ uint32_t LiveMapsHook::DrawPropCasters(const SceneFrame& frame, const MapsInput&
   state.program = prog_single_;
   state.vertex_layout = layout_single_;
   state.topology = 3;
-  state.cull = 0;
-  state.front_face = 1;
+  state.cull = kCasterCull;                  // S111 CASTCULL: the shadow frame's cull on, mode 6 (sub_827E95D8 +88), as map B's casters
+  state.front_face = kCasterFrontShadow;
   state.depth_test = 1, state.depth_write = 1, state.depth_compare = 3;   // as map B's casters
   state.depth_clamp = 1;   // a prop between the light and the near plane is clamped onto it, not clipped away (as map B's props)
   state.blend[0].write_mask = 0xF;

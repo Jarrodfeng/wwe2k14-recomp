@@ -23,13 +23,22 @@ enum StageLookKind : uint8_t { kSlEntrance = 1, kSlRigSlot = 2, kSlPool = 3, kSl
                                 // dir[0] = x, dir[1] = z, dir[2] = y of [[0x836F38D0 + 4 slot] + 176] (the game's own position, sub_825BACE0 0x825BAECC). A per-frame word, not route data. Absent = the track is not bound (or no read): the rig's own row.
                                 kSlTrackBind = 8,
                                 // S103 CLRB (docs\agents\s103\CLR.md 3): the game's main-scene clear colour [[0x83929A68] + 240 / 244 / 248 / 252] (R, G, B, A, each 0..255) read at the latch: flags bit 0 = read, col[0..3] = R, G, B, A / 255; one row a frame, absent = not read (record_frame: black)
-                                kSlClearColor = 9 };   // S103 B3: the game's card factor word [0x8376383C] read at the latch: dir[0] = (float)word * 0.001 (sub_827F22C8 applies it to the card technique's c184.z only when > 0); flags bit 0 = the word was read; one row a frame, absent = not read (the front end counts it)
+                                kSlClearColor = 9,   // S103 B3: the game's card factor word [0x8376383C] read at the latch: dir[0] = (float)word * 0.001 (sub_827F22C8 applies it to the card technique's c184.z only when > 0); flags bit 0 = the word was read; one row a frame, absent = not read (the front end counts it)
+                                // S111 PROPORDER (draw_place_rows.h): one row per drawn place of the game's category-33 list at the latch (scene_live\cat33_places.h): flags = the guest address (a character's skeleton, or the entrance prop model a CWeapon node draws), rig_slot = the place + 1, dir[0] = 1 for a CWeapon alpha node (CWDT / CWDS), 2 for its additive node (WATR). Per-frame words, not route data; absent = not listed / not read.
+                                // S111 CATORDER: dir[1] = 1 for a character's opaque-node place (its body drawn after see-through categories), 0 otherwise.
+                                kSlDrawPlace = 10,
+                                // S111 PAGEPOOLS (docs\research\s111\PAGEPOOLS.md): the stage PAGE of the record's OWN latch (walk-time: the page node sub_825BB0E0 runs on the record frame's clock). One row a frame from the
+                                // live latch: flags kSlfPageEntrance = the page is the entrance's (the stage-page object's entrance word [obj+88] != 0 at THAT latch: sub_825BB0E0's own test, not the look's remap
+                                // rule), kSlfPageRefused = Derive refused that latch's pool block; the
+                                // record's kSlPool / kSlSpot rows are then that latch's pools / spot (none = none drawn). Absent = an older or offline record: stage_look.h derives the page from the light objects.
+                                kSlPage = 11 };
 // S103 B3c: the last known kind (record_io.cpp skips kinds above it) and the route kinds (the rows that carry the entrance's light route; the others are per-frame words: phase, page clock, card factor).
-inline constexpr uint8_t kSlLast = kSlClearColor;
-static_assert(kSlLast == 9, "a new stage-look row kind: set kSlLast and decide in IsRouteKind whether it is route data (record_io.cpp, stage_look.h read both)");
+inline constexpr uint8_t kSlLast = kSlPage;
+static_assert(kSlLast == 11, "a new stage-look row kind: set kSlLast and decide in IsRouteKind whether it is route data (record_io.cpp, stage_look.h read both)");
 inline constexpr bool IsRouteKind(uint8_t k) { return k >= kSlEntrance && k <= kSlSpot; }
 static_assert(kSlSpot < kSlPhase, "route kinds come first; the per-frame words follow");
-enum StageLookFlags : uint32_t { kSlfEntrance = 1, kSlfEntrancePage = 2, kSlfAtEntrant = 1 };  // (kSlfAtEntrant is a kSlSpot row's own bit 0)
+enum StageLookFlags : uint32_t { kSlfEntrance = 1, kSlfEntrancePage = 2, kSlfAtEntrant = 1 };  // flag-alias: kSlfAtEntrant (a kSlSpot row's own bit 0)
+enum StagePageFlags : uint32_t { kSlfPageEntrance = 1, kSlfPageRefused = 2 };   // S111 PAGEPOOLS: a kSlPage row's flags
 struct StageLookRow {
   uint8_t kind = 0;      // StageLookKind
   uint8_t layout = kStageLookLayout;

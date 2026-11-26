@@ -1039,14 +1039,14 @@ static void LatchTests(crowd::Contributor& c, int p) {
     c.NoteOursSkip();
     Record(c, 101, true);
     Check(g_stamps == 1 && g_last_stamp == 100, "latch.partial_ok_stamps");
-    Record(c, 102, true);   // no walk and no skip (a menu): no read; the crowd is empty and whole (the previous latch was active: armed)
+    Record(c, 103, true);   // no walk and no skip (a menu): no read; the crowd is empty and whole (the previous latch was active: armed) (S111 CUTCROWD2: 2 ahead, the record takes THIS latch's snapshot)
     Check(c.LatchCensus().installed == 1 && c.LatchCensus().absent == 1 && g_stamps == 2, "latch.absent_is_empty_whole", "stamps " + std::to_string(g_stamps));
     // review F5: the FIRST active latch has no history: "not reached" proves nothing yet
     Fresh(c, p);
     c.SetLatchReader(&ForgeRead);
     Record(c, 100, true);
     Check(g_stamps == 0 && c.LatchCensus().absent_unarmed == 1, "latch.absent_needs_history", "stamps " + std::to_string(g_stamps));
-    Record(c, 101, true);
+    Record(c, 102, true);   // (S111 CUTCROWD2: 2 ahead, the record takes THIS latch's snapshot, not 100's)
     Check(g_stamps == 1 && c.LatchCensus().absent == 1, "latch.absent_armed_stamps");
     // review F5: under ObserverKnockOut the walk's snapshot is not a witness: no stamp
     Fresh(c, p);
@@ -1073,7 +1073,7 @@ static void LatchTests(crowd::Contributor& c, int p) {
     SceneTables t2;
     live::Counters cnt2;
     live::FrameInfo fi2;
-    fi2.guest_frame = 101;
+    fi2.guest_frame = 102;   // (S111 CUTCROWD2: 2 ahead, the record takes the declined latch's own snapshot, not 100's install)
     c.Latch(fi2);
     c.Emit(fi2, t2, cnt2);
     g_forge = saved;
@@ -1697,7 +1697,7 @@ static void LatchTests(crowd::Contributor& c, int p) {
         SceneTables tbd;
         live::Counters cnd;
         live::FrameInfo fid;
-        fid.guest_frame = 101;
+        fid.guest_frame = 102;   // (S111 CUTCROWD2: 2 ahead, the record takes the declined latch's own snapshot, not 100's install)
         c.Latch(fid);
         c.Emit(fid, tbd, cnd);
         g_forge = keep;

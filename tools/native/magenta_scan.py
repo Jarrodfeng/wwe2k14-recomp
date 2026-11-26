@@ -16,7 +16,9 @@ if '--dir' in args:
 bad = 0
 missing = 0
 for run in args:
-    files = sorted(CAPTURES.glob(f'{run}_*.png')) or sorted(CAPTURES.glob(f'{int(run):03d}_*.png'))
+    files = sorted(p for ext in ('webp', 'png') for p in CAPTURES.glob(f'{run}_*.{ext}'))   # S111 SHOTDIET review: WebP is the default screenshot format
+    if not files:
+        files = sorted(p for ext in ('webp', 'png') for p in CAPTURES.glob(f'{int(run):03d}_*.{ext}'))
     if not files:
         print(f'run {run}: no shots in {CAPTURES}')
         missing += 1

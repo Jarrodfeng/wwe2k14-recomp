@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import qdecomp_phi  # noqa: E402  what flowed into a join; the audit
+import qfactcard  # noqa: E402  S111 FACTCARD: the settled claims printed in this output
 REPO = r'C:\Users\Jarrod\wwe2k14-recomp'
 GEN = os.path.join(REPO, 'generated', 'default')
 IMAGE = os.path.join(REPO, 'out', 'harness', 'index', 'image.bin')
@@ -854,6 +855,11 @@ def is_reg_kind(r):
     return bool(REG_RE.match(r))
 
 
+def reg_vals(c):
+    """S111 QARGS: every argument register's value at a call, as fmt text (`q args` keeps those the callee reads; a value passed through is `in_rN`)"""
+    return {f'r{i}': fmt(c.g(f'r{i}')) for i in range(3, 11) if c.g(f'r{i}')[0] != 'undef'}
+
+
 def do_call(c, ins, t, ctr):
     site = ins.addr
     st = c.st
@@ -863,11 +869,11 @@ def do_call(c, ins, t, ctr):
             c.fn.helpers.append(name)
             return
         args = arg_list(c)
-        c.events.append({'k': 'C', 'site': site, 'target': t, 'name': name, 'args': args})
+        c.events.append({'k': 'C', 'site': site, 'target': t, 'name': name, 'args': args, 'regs': reg_vals(c)})
     else:
         tgt = fmt(ctr) if ctr else '?'
         args = arg_list(c)
-        c.events.append({'k': 'V', 'site': site, 'target': tgt, 'args': args, 'af': ctr})
+        c.events.append({'k': 'V', 'site': site, 'target': tgt, 'args': args, 'af': ctr, 'regs': reg_vals(c)})
     volatile_after_call(c, site)
 
 
@@ -902,7 +908,7 @@ def do_branch(c, ins):
         c.fn.helpers.append(name)
         c.term = {'k': 'ret'}
         return
-    c.events.append({'k': 'TAIL', 'site': site, 'target': t, 'name': name, 'args': arg_list(c, True)})
+    c.events.append({'k': 'TAIL', 'site': site, 'target': t, 'name': name, 'args': arg_list(c, True), 'regs': reg_vals(c)})
     c.term = {'k': 'ret'}
 
 
@@ -994,6 +1000,7 @@ def render_func(fn, db_head, listing_name, first_line):
     reads, writes = {}, {}
     calls = {}
     sites = {}
+    vsites = []
     consts = []
     out = []
     ev_cache = {}
@@ -1045,10 +1052,11 @@ def render_func(fn, db_head, listing_name, first_line):
             elif k in ('C', 'TAIL'):
                 calls[e['name']] = calls.get(e['name'], 0) + 1
                 sites.setdefault(e['target'], []).append({'site': e['site'], 'args': e['args'],
-                                                         'tail': k == 'TAIL'})
+                                                         'tail': k == 'TAIL', 'regs': e.get('regs')})
                 counts['C'] += 1
             elif k in ('V', 'TAILV'):
                 calls['*indirect'] = calls.get('*indirect', 0) + 1
+                vsites.append({'site': e['site'], 'target': e['target'], 'regs': e.get('regs'), 'tail': k == 'TAILV'})
     # constants: immediates in compares
     seen = set()
     for b in blocks:
@@ -1178,7 +1186,7 @@ def render_func(fn, db_head, listing_name, first_line):
     summary = {
         'reads': [{'addr': a, 'w': w, 'n': n} for (a, w), n in reads.items()],
         'writes': [{'addr': a, 'w': w, 'n': n} for (a, w), n in writes.items()],
-        'calls': calls, 'sites': {f'{k:08X}': v for k, v in sites.items()}, 'consts': consts[:24],
+        'calls': calls, 'sites': {f'{k:08X}': v for k, v in sites.items()}, 'vsites': vsites, 'consts': consts[:24],
         'consts_total': len(consts), 'globals_total': len(lis_addrs), 'simplified': n_simplified,
         'globals': [f'0x{a:08X}' for a in lis_addrs[:16]], 'frame': fn.frame, 'saves': sorted(fn.saves),
         'helpers': sorted(set(fn.helpers)), 'counts': counts, 'converged': fn.converged,
@@ -1411,10 +1419,13 @@ def run(con, addr, args):
     if getattr(args, 'json', False):
         return json.dumps(r, indent=1)
     dbi = {} if getattr(args, 'raw_names', False) else db_index()
-    out = head_lines(r, dbi) + [_names_overlay(dbi, l) for l in summary_lines(r['summary'])]
+    fm = qfactcard.mode_of(args)     # S111 FACTCARD: the settled claims print in this output (header + `; [C]` comments), --facts none|all
+    body = None if getattr(args, 'fields', False) else [db_overlay({a: e for a, e in dbi.items()}, l) for l in r['lines']]
+    hdr, body = qfactcard.apply(body, qfactcard.collect(addr, con, r['size'], 'decomp', fm), fm) if fm != 'none' else ([], body)
+    out = head_lines(r, dbi) + hdr + [_names_overlay(dbi, l) for l in summary_lines(r['summary'])]
     if not getattr(args, 'fields', False):
         out.append('')
-        out += [db_overlay({a: e for a, e in dbi.items()}, l) for l in r['lines']]
+        out += body
     if getattr(args, 'callers', 0):
         out.append('')
         out += callers_summary(con, addr, args.callers, dbi)
@@ -1450,6 +1461,7 @@ def main(argv, con, resolve):
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--no-cache', action='store_true', help='rebuild this function ignoring the cache')
     ap.add_argument('--raw-names', action='store_true', help='no db overlay (names / labels)')
+    qfactcard.add_arg(ap)
     a = ap.parse_args(argv)
     addr, note = resolve(con, a.func)
     if note:

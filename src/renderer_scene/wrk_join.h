@@ -25,9 +25,11 @@ inline bool Live() { return assets::g_wrk_live.load(std::memory_order_relaxed); 
 struct Levels {
   uint32_t object = 0;                 // the body's index in SceneFrame::objects
   uint32_t part = kParamModelWide;     // the mesh record index, or kParamModelWide
-  uint16_t have = 0;                   // bits 0..5 = wkl[i] named, 6..13 = idmap[i] named
+  uint16_t have = 0;                   // bits 0..5 = wkl[i] named, 6..13 = idmap[i] named, 14 = hd_lig, 15 = muscle (S111 MATFEED)
   float wkl[6] = {};
   float idmap[8] = {};
+  float hd_lig = 0.f;                  // S111 MATFEED: the live g_fHdLigLvl (HdLig.x, PS c156)
+  float muscle[4] = {};                // S111 MATFEED: the live g_f4MuscleParam (PS c249)
 };
 
 // Which level a parameter name is: 0..5 = g_fWklLv0..5, 6..13 = g_fIdMapLv0..7, -1 = none.
@@ -36,6 +38,17 @@ inline int LevelIndexOfName(const char* name) {
   if (std::strncmp(name, "g_fIdMapLv", 10) == 0 && name[10] >= '0' && name[10] <= '7' && !name[11]) return 6 + (name[10] - '0');
   return -1;
 }
+
+// S111 MATFEED (docs\research\s111\MATFEED.md): two more names of the same override tables (sub_82BD6780 builds g_fHdLigLvl's with the wrinkle names: model-wide [B+1132] only, from the first part naming it,
+// 0x82BD6FA8..0x82BD6FE4; g_f4MuscleParam's per part [B+1140] only, its one-name loop 0x82BD7020). g_fHdLigLvl (PS c156.x): the 'HRLG'
+// component sub_826E1CA0 binds every part to one body-wide record, its tick sub_826E1E20 may lerp it each frame. g_f4MuscleParam (PS c249): the muscle controllers sub_826E1200 / sub_826E1010
+// relink it per g_iMuscleId to their own record. A row's value is the live source the latch read. 0 = g_fHdLigLvl, 1 = g_f4MuscleParam, -1 = neither (Levels::have bits 14 / 15).
+inline int LiveParamOfName(const char* name) {
+  if (std::strcmp(name, "g_fHdLigLvl") == 0) return 0;
+  if (std::strcmp(name, "g_f4MuscleParam") == 0) return 1;
+  return -1;
+}
+inline constexpr uint32_t kHaveHdLig = 1u << 14, kHaveMuscle = 1u << 15;
 
 inline Levels* FindOrAdd(std::vector<Levels>& out, uint32_t object, uint32_t part) {
   for (Levels& l : out)
@@ -50,10 +63,19 @@ inline void AddLevels(const std::vector<ParamOverrideRow>& rows, uint32_t model,
   for (const ParamOverrideRow& r : rows) {
     if (r.model != model || !(r.flags & kPoNameRead) || !(r.flags & kPoValueRead)) continue;
     const int li = LevelIndexOfName(r.name);
-    if (li < 0) continue;
+    const int lp = LiveParamOfName(r.name);   // S111 MATFEED
+    if (li < 0 && lp < 0) continue;
     float v;
     std::memcpy(&v, &r.value[0], 4);
     Levels* l = FindOrAdd(out, object, r.part);
+    if (lp == 0) {
+      l->have = uint16_t(l->have | kHaveHdLig), l->hd_lig = v;
+      continue;
+    }
+    if (lp == 1) {
+      l->have = uint16_t(l->have | kHaveMuscle), std::memcpy(l->muscle, &r.value[0], sizeof l->muscle);
+      continue;
+    }
     l->have = uint16_t(l->have | (1u << li));
     if (li < 6) l->wkl[li] = v; else l->idmap[li - 6] = v;
   }
@@ -72,6 +94,22 @@ inline bool Merge(const std::vector<Levels>& rows, uint32_t object, uint32_t par
       for (int i = 0; i < 8; ++i) if (l.have & (1u << (6 + i))) idmap[i] = l.idmap[i];
     }
   return any;
+}
+
+// S111 MATFEED: the live g_fHdLigLvl / g_f4MuscleParam of (object, part) as the game's walk takes them (sub_82C04DF0 0x82C0799C..0x82C07AF4): the MODEL-WIDE entry when one has the name, else the part's
+// own (the reverse of Merge's order; for these two names it never decides, since sub_82BD6780 builds g_fHdLigLvl model-wide only and g_f4MuscleParam per part only). The walk looks up the part's OWN parameter
+// names (0x82C07984), so g_fHdLigLvl is taken only when the draw's material names it (`names_hd_lig`, Material::has_hd_lig_lvl; `plant_ignore_names` = the unit's twin). Returns bit 0 = hd_lig written,
+// bit 1 = muscle written; an output whose bit is clear is left as the caller set it (the caller then feeds the material's file value).
+inline uint32_t MergeLive(const std::vector<Levels>& rows, uint32_t object, uint32_t part, bool names_hd_lig, float& hd_lig, float muscle[4], bool plant_ignore_names = false) {
+  uint32_t got = 0;
+  const bool take_hd = names_hd_lig || plant_ignore_names;
+  for (int pass = 0; pass < 2; ++pass)   // pass 0 = the part, pass 1 = model-wide (written last: it wins)
+    for (const Levels& l : rows) {
+      if (l.object != object || l.part != (pass == 0 ? part : kParamModelWide)) continue;
+      if (take_hd && (l.have & kHaveHdLig)) hd_lig = l.hd_lig, got |= 1u;
+      if (l.have & kHaveMuscle) std::memcpy(muscle, l.muscle, sizeof l.muscle), got |= 2u;
+    }
+  return got;
 }
 
 // S103 XLF: what a draw takes from the record. A degenerate wrinkle rectangle drops ONLY the wrinkle depth (out_wkl null: the shader would divide by zero); the id-map tint levels do not depend on the

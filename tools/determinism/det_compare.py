@@ -481,12 +481,12 @@ def main():
             pa = '%03d_' % args.a  # Session 16: run numbers past 999 have 4 digits
             shot = {}  # label -> file (Session 17: PNG by default, BMP before)
             for fn in os.listdir(cap):
-                if fn.startswith(pa) and fn.endswith(('.bmp', '.png')):
-                    shot.setdefault(fn[len(pa):-4], set()).add(fn[-4:])
+                if fn.startswith(pa) and fn.endswith(('.bmp', '.png', '.webp')):   # S111 SHOTDIET: WebP by default
+                    shot.setdefault(fn[len(pa):fn.rindex('.')], set()).add(fn[fn.rindex('.'):])
             labels = sorted(shot)
 
             def shot_file(run, label):
-                for ext in ('.png', '.bmp'):
+                for ext in ('.webp', '.png', '.bmp'):
                     f = os.path.join(cap, '%03d_%s%s' % (run, label, ext))
                     if os.path.exists(f):
                         return f

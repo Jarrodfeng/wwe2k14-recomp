@@ -36,7 +36,7 @@
 //   String settings are replaced without a lock (rex::cvar has none for strings): a thread reading one at that
 //   moment (wwe2k14_peek every frame, wwe2k14_file_trace_filter per file open) could read a freed buffer. Unlikely;
 //   the input script's `cvar` command has the same race. A real fix belongs in the cvar layer.
-// Window "wwe2k14 coverage" (coverage build only, preset win-amd64-coverage, with --wwe2k14_coverage=true): the
+// Window "wwe2k14 coverage" (coverage build only, preset win-amd64-coverage-off, with --wwe2k14_coverage=true): the
 //   current coverage window's counts and its newest first-called functions (src/coverage.h keeps "first call per
 //   window", not call counts), with db names, and a lookup "did 0x... run in this window / this run".
 // Each window logs one "[wwe2k14][inspector] panel ... drawn" line the first time it is drawn.

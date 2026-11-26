@@ -14,7 +14,7 @@
 //   drop_missing     the decision ignores a missing input                                              -> "decide.missing_input"
 //   lose_section     the round trip loses the model rows                                               -> "record.roundtrip"
 //   cam_slot1        the main camera sits in slot 1 of the real 2-slot table, the shadow camera in slot 0 -> "camera.eye"
-//   deferred_read    a deferred (unlatched) Emit is allowed to read guest memory                        -> "emit.deferred_no_read"
+//   unlatched_reads  the unit makes the old fallback read (a take of the frame: here its Latch) before an inputs Emit with no latch of its own -> "contrib.unlatched_writes_nothing"
 //   sentinel0        a never-stamped input starts at 0 (a lag-1 input then passes at frame 1)           -> "stamp.fresh_not_satisfied"
 //   mode_ignored     the latch ignores --wwe2k14_rdr_scene = 0                                           -> "mode.off_reads_nothing"
 //   pal_decoy        [skeleton+200] holds the decoy palette's address (the reader must follow +200)     -> "palette.values"
@@ -32,7 +32,7 @@
 //   param_name_hash  the reader treats entry word 2 as the name itself, not a pointer to it                  -> "params.names"
 //   param_models_list the contributor reads the models list, not the live targets (a dead model's tables are read) -> "params.liveness_list"
 //   param_half_null  a half-null part table (tables null, counts set) is skipped as "no tables"             -> "params.half_null"
-//   a3_no_prelatch   the wrestlers contributor does not run the palette read on the record path with no latch   -> "a3.palette_no_latch"
+//   a3_no_prelatch   the unit makes the old S103 A3 read (the pre-latch palette read) right before the wrestlers' Emit with no latch   -> "a3.palette_no_latch"
 //   a3_slot_off      the fake stage keeps its slot models 4 bytes further on (the reader: stage + 6164)       -> "a3.arena_models"
 //   a3_stamp_lag     the arena input is stamped from the inputs side, one frame behind the stage take                  -> "a3.arena_same_frame"
 //   a3_cache_off     the fake character's component cache [char+3112] is empty and the list holds a decoy    -> "a3.circle_cache"
@@ -57,7 +57,7 @@
 //   a5_offscreen_asked the off-screen model is asked too                                                               -> "a5.offscreen_not_asked"
 //   a5_default_filled a model drawn with no install is given one                                                       -> "a5.no_install_stays_hole"
 //   a3_light_no_hold the planned refresh hold is not set before the oldest entry expires                                -> "a3.light_planned_hold"
-//   a3_no_derived_head the update hook reported no derived palette (nothing to compare: the mismatch cannot be seen)       -> "a3.palette_derived_mismatch_withholds"
+//   headguard_old    the unit makes the old derived-head refusal (a read unlike the update-exit head, of a body no table holds, is not submitted) -> "headguard.untabled_body_latch_read_submitted"
 //   a3_piece_unowned  the piece is not linked to its owner body (so it falls back to "any body alive")                   -> "a3.piece_owner_dead_not_fed"
 //   a3_walked_as_ours the stored decision of the record's hook frame is Ours while the walk recorded nothing             -> "a3.circle_latch_only_frames"
 //   a3_light_direct_ignored the model is attached under another slot than the one whose direct install it follows       -> "a3.light_direct_install_object"
@@ -73,14 +73,16 @@
 //   b4x_f3_no_row_none S103 B4X F3: a slot < 399 with no row has no default                                                    -> "b4x.f3_no_row_default"
 //   lh_old_hold      S103 LH: a default-100 slot whose learned entry equals the computed one is NOT re-dated (the old rule: it ages, plans a refresh walk) -> "lh.default_equal_entry_plans_no_hold"
 //   b4x_f5_oldest_all S103 B4X F5: an entry nobody asked about gates the refresh plan                                           -> "b4x.f5_unasked_entry_plans_no_hold"
-//   l33_strict_derived S103 L33F: the old strict derived guard (every mismatch withholds bit 3)                  -> "l33.mismatch_walk_equal_accepted"
 //   unrequire_ignored S103 L33F: --wwe2k14_rdr_scene_unrequire applies nothing                                    -> "unrequire.drops_named_bits_only"
-//   l33_no_evidence  S103 L33F review F3: an OURS-frame mismatch is submitted without the walk evidence for that body  -> "l33.mismatch_ours_no_evidence_refused"
 //   handed_ignored   S110 CUTCROWD: the scene camera is always the composer's copy +1488 / +1552 (the old read)          -> "handed.gated_takes_block"
 //   handed_any_block S110 CUTCROWD: any non-zero engine block is taken (not only the main manager's two)               -> "handed.other_block_live"
 //   handed_mirror_taken S110 CUTCROWD: a mirrored block (negative determinant) is taken                                 -> "handed.mirror_live"
 //   handed_fov_derived S110 CUTCROWD: the FOV is always derived from the block's radians (never the live word)          -> "handed.equal_is_live"
 //   handed_invalid_taken S110 CUTCROWD: a block that fails the record's tests is taken (no camera instead of the live)   -> "handed.invalid_block_live"
+//   camera_leads     S111 CUTSTUTTER: the record takes its own latch's camera (one period ahead of its palettes)        -> "period.record_takes_previous_latch_camera"
+//   lights_lead      S111 CUTREACH: the record takes its own latch's light objects (one period ahead of its palettes)   -> "cutreach.record_takes_previous_latch_lights"
+//   model_rows_lead  S111 CUTREACH: the record takes its own latch's model run-time rows                                -> "cutreach.record_takes_previous_latch_model_rows"
+//   props_light_leads S111 CUTREACH2: the record takes its own latch's props light (one period ahead of its palettes)  -> "cutreach2.record_takes_previous_latch_props_light"
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -114,6 +116,7 @@
 #include "../../src/scene_live/plane_contrib.h"   // S103 A2: the walk's plane contributor (the emit order and the merge)
 #include "../../src/scene_live/wrestler_contrib.h"   // S103 A2: the REAL wrestlers contributor (liveness, mirror compare)
 #include "../../src/scene_live/model_release.h"   // S108 RDS: what the sub_82BD3B40 hook runs
+#include "../../src/scene_live/char_release.h"    // S111 FREEHOOK: what the sub_825A1510 hook runs
 
 using namespace rdr_scene;
 using rdr_scene::live::Counters;
@@ -170,6 +173,7 @@ static Guest g_guest;
 static size_t submitted_union = 0;
 static std::vector<uint32_t> g_raw;   // the palette reader's scratch
 static bool ReadThunk(uint32_t a, void* d, size_t n) { return g_guest.Read(a, d, n); }
+static uint32_t g_freed_lo = 0, g_freed_hi = 0, g_freed_reads = 0;   // S111 FREEHOOK: a guest block the game freed ([lo, hi), 0 = none): the KEPTPIECES case's inputs reader counts reads of it
 
 static constexpr uint32_t kS = 0x40001000;                     // where the fake S lives
 static constexpr uint32_t kM0 = 0x40002000, kM1 = 0x40002400;  // two fake models
@@ -427,10 +431,13 @@ int main(int argc, char** argv) {
     Counters cn2;
     c2.Emit(f2, t2, cn2);
     Check(rdr_scene::GameDrawsNoScene(t2.header.flags), "entrblack.scene_fact_hidden_written", "flags " + std::to_string(t2.header.flags));
-    {   // review 5: the fallback take (game threads running) leaves the bits clear
-      live::inputs::InputsContributor::Frame ff;
-      c2.Take(300, ff, false);
-      Check(!ff.scene_fact_read && !ff.scene_drawn, "entrblack.scene_fact_fallback_take_clear");
+    {   // S111 HEADGUARD: an Emit with no latch of its own frame reads nothing (no production Emit runs without its Latch): no header bits, counted stale
+      SceneTables tf;
+      Counters cf;
+      FrameInfo f3;
+      f3.guest_frame = 301;
+      c2.Emit(f3, tf, cf);
+      Check((tf.header.flags & rdr_scene::kSceneFactMask) == 0 && cf.stale == 1, "entrblack.unlatched_emit_no_bits", "flags " + std::to_string(tf.header.flags) + " stale " + std::to_string(cf.stale));
     }
     g_guest.Put(0x40004000u + 1176, 1);   // the stage shown
     c2.Latch(f2);
@@ -479,7 +486,7 @@ int main(int argc, char** argv) {
         if (with_targets) rc.SetPalettes([](uint64_t, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing) { out = {{kM0, 3}}; missing = 0; }, [](uint32_t, uint32_t, const Mat4*, uint64_t) { return 0; });
         rel_reads = 0;
         live::inputs::InputsContributor::Frame fr;
-        rc.Take(800, fr, true);
+        rc.Take(800, fr);
         objs.clear();
         for (const ModelRuntimeRow& r : fr.models) objs.push_back(r.object);
       };
@@ -504,7 +511,7 @@ int main(int argc, char** argv) {
         sc.LatchPalettes(800);
         rel_reads = 0;
         live::inputs::InputsContributor::Frame fr;
-        sc.Take(800, fr, true);
+        sc.Take(800, fr);
         g_mode = keep_mode;
         objs.clear();
         for (const ModelRuntimeRow& r : fr.models) objs.push_back(r.object);
@@ -521,24 +528,20 @@ int main(int argc, char** argv) {
       const auto plant = [&] {
         wc.SubmitWorld(kGone, -1, 3, mats.data(), mats.data(), 10);
         live::lightidx::The().OnLatchEntry(kGone, 0x40600000, 0, 0, 10);
-        live::inputs::Inputs().SetSnapForTest({{0x40510000u, 3}, {kGone, 3}}, 10);   // RDS review: the last latch's target copy the off-latch fallback reads
-        return wc.NamesModel(kGone) && live::lightidx::The().Has(kGone) && live::inputs::Inputs().SnapNames(kGone);
+        return wc.NamesModel(kGone) && live::lightidx::The().Has(kGone);
       };
       const auto gone = [&] {
         std::vector<uint32_t> kept;
         wc.KeptSkeletons(kept);
-        return !wc.NamesModel(kGone) && !live::lightidx::The().Has(kGone) && !live::inputs::Inputs().SnapNames(kGone) && std::find(kept.begin(), kept.end(), kGone) == kept.end();
+        return !wc.NamesModel(kGone) && !live::lightidx::The().Has(kGone) && std::find(kept.begin(), kept.end(), kGone) == kept.end();
       };
       const bool before = plant();
       wwe2k14::model_release::OnModelDestroyed(kGone);   // the release, between latch 10 and latch 11
       const bool after = gone();
       Check(before && after, "rds.release_forgets_address", std::string("named before ") + (before ? "yes" : "no (the plant did not register)") + ", after " + (after ? "none" : "STILL NAMED"));
-      const bool tw_ok = plant() && (wwe2k14::model_release::OnModelDestroyed<true, false>(kGone), !gone()) && plant() && (wwe2k14::model_release::OnModelDestroyed<false, true>(kGone), !gone()) &&
-                         plant() && (wwe2k14::model_release::OnModelDestroyed<false, false, true>(kGone), !gone());   // RDS review: + the snapshot's erase left out
+      const bool tw_ok = plant() && (wwe2k14::model_release::OnModelDestroyed<true, false>(kGone), !gone()) && plant() && (wwe2k14::model_release::OnModelDestroyed<false, true>(kGone), !gone());
       wwe2k14::model_release::OnModelDestroyed(kGone);   // leave the singletons clean
-      const bool other_kept = live::inputs::Inputs().SnapNames(0x40510000u);   // only the destroyed address leaves the copy
-      live::inputs::Inputs().SetSnapForTest({}, ~0ull);
-      Check(tw_ok && gone() && other_kept, "rds.release_twins_keep_address", std::string("twins (the wrestlers' erase / the light erase left out) ") + (tw_ok ? "still name the address: caught" : "FORGOT IT ANYWAY (the check cannot see a missing erase)"));
+      Check(tw_ok && gone(), "rds.release_twins_keep_address", std::string("twins (the wrestlers' erase / the light erase left out) ") + (tw_ok ? "still name the address: caught" : "FORGOT IT ANYWAY (the check cannot see a missing erase)"));
     }
     {   // S108 RDS phase 1: the per-object copy reads the hull once and keeps the per-field verdicts; at a mapped page end the exact hull reads, the one-byte-wider twin is refused. Page-granular fake (an unset word reads 0).
       static std::set<uint32_t> pages_ok;
@@ -571,20 +574,21 @@ int main(int argc, char** argv) {
     }
     Check(has_post && sorted, "contrib.stamp_row_post");
   }
-  {   // a second Emit without a latch for its frame reads now (not latched) and still produces the rows
+  {   // S111 HEADGUARD: an Emit with no latch for its frame reads nothing and writes nothing, counted stale (every production Emit follows its own Latch). Twin unlatched_reads: the unit makes the old read first
     SceneTables t2;
     Counters c2;
     FrameInfo f2;
     f2.guest_frame = 201;
+    if (Plant("unlatched_reads")) con.Latch(f2);   // the old fallback: a take of this frame (no fault bit in the contributor)
     con.Emit(f2, t2, c2);
-    Check(t2.post_params.size() == 1 && t2.post_params[0].frame == 201, "contrib.unlatched_reads_now");
+    Check(t2.post_params.empty() && t2.model_runtime.empty() && t2.input_stamps.empty() && c2.stale == 1, "contrib.unlatched_writes_nothing", "post rows " + std::to_string(t2.post_params.size()) + " stale " + std::to_string(c2.stale));
   }
-  {   // a DEFERRED emit with no latch for its frame must not read guest memory (lane A review 5): it counts stale and writes nothing
+  {   // a DEFERRED emit with no latch for its frame must not read guest memory (lane A review 5): it counts stale and writes nothing (the same branch as any Emit with no latch since S111 HEADGUARD)
     SceneTables t3;
     Counters c3;
     FrameInfo f3;
     f3.guest_frame = 202;
-    live::tail_detail::t_deferred_emit = !Plant("deferred_read");
+    live::tail_detail::t_deferred_emit = true;
     con.Emit(f3, t3, c3);
     live::tail_detail::t_deferred_emit = false;
     Check(t3.post_params.empty() && t3.model_runtime.empty() && !t3.has_camera && t3.input_stamps.empty() && c3.stale == 1, "emit.deferred_no_read", "stale " + std::to_string(c3.stale));
@@ -694,7 +698,7 @@ int main(int argc, char** argv) {
                      for (const auto& x : t) out.push_back({x.skel, x.count});
                    },
                    [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) { return W->SubmitLatchConsumer(m, n, skin, f); });
-    w.SetPreLatch([](uint64_t rf, bool) { (void)rf; });   // (the unit drives the pre-latch itself, below)
+    w.SetPreLatch([](uint64_t rf) { (void)rf; });   // (the unit drives the pre-latch itself, below)
     std::vector<Mat4> derived(kCount);
     for (size_t di = 0; di < derived.size(); ++di) for (int dj = 0; dj < 16; ++dj) derived[di].m[dj] = 100.f * float(di) + float(dj) + 0.25f;   // = the guest block: nodes 0-58 agree (audit item 2)
     auto frame = [&](uint64_t rec, bool update_hook, bool walk) {
@@ -803,11 +807,12 @@ int main(int argc, char** argv) {
                            },
                            [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) { ++reads; return W->SubmitLatchConsumer(m, n, skin, f); });
       }
-      w.SetPreLatch([](uint64_t, bool) {});   // the unit drives the pre-latch itself
+      w.SetPreLatch([](uint64_t) {});   // the unit drives the pre-latch itself
       if (Plant("l31b_guard_off")) w.SetStaleGuardForTest(false);
       w.SetFaultsForTest((Plant("l31b_pointer_presence") ? live::WrestlerContributor::kFaultPointerPresence : 0u) | (Plant("l31b_drop_invisible") ? live::WrestlerContributor::kFaultDropInvisible : 0u) |
                          (Plant("l31b_no_walk_gate") ? live::WrestlerContributor::kFaultNoWalkGate : 0u) | (Plant("l31b_keep_gone") ? live::WrestlerContributor::kFaultKeepGoneTargets : 0u) |
-                         (Plant("cam_upd_shows") ? live::WrestlerContributor::kFaultUpdShows : 0u));   // S107 CAM twin: the old stream-free rule (a posed, un-asked body shows)
+                         (Plant("cam_upd_shows") ? live::WrestlerContributor::kFaultUpdShows : 0u) |   // S107 CAM twin: the old stream-free rule (a posed, un-asked body shows)
+                         (Plant("vis_leads") ? live::WrestlerContributor::kFaultVisLeads : 0u));   // S111 VISLATCH twin: the old pairing (visibility one record early)
     };
     struct Out { size_t objects = 0; uint32_t stale = 0; float bone0 = -1.f; uint64_t stamp = 0; uint64_t reads = 0; bool visible = false; size_t invisible = 0; };
     // walk = the game's draw read the body this frame (the consumer hook sub_82C04DF0: SubmitConsumer). In mode Ours the walk does not run; review C shows a hook-quiet body only while a walk saw it lately.
@@ -856,18 +861,17 @@ int main(int argc, char** argv) {
       live::inputs::InputsContributor pc;
       setup(w, pc);
       ResetStamps();
-      for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true);   // posed and drawn
+      for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true, true);   // posed and drawn (asked)
       bool fresh = true, counted = true, stamped = true;
       uint32_t stale = 0;
       Out o;
-      // (records 110..115: the bit-3 guard still holds the quiet hook's last derived heads, which differ from the moving [skel+200]: those reads are refused, the stamp withheld and, in mode Ours, the body
-      // dropped, fail-closed; from 116 the heads are out of the window and the latch read stands alone)
+      // (records 110..115: the hook is quiet and the latch read [skel+200] stands alone: S111 HEADGUARD removed the derived-head guard that refused these reads while the quiet hook's last heads were in its window)
       for (uint64_t r = 110; r < 116; ++r) {
-        o = frame(w, pc, r, false, false);
+        o = frame(w, pc, r, false, false, true);
         if (o.objects && !Near(o.bone0, float(r - 1))) fresh = false;   // never an OLD palette, even here
       }
       for (uint64_t r = 116; r < 150; ++r) {
-        o = frame(w, pc, r, false, r % 30 == 0);   // mode Ours: the game walks only now and then (a sentinel / a hole frame) and sees him then; review C keeps him visible in between
+        o = frame(w, pc, r, false, r % 30 == 0, true);   // mode Ours: the game walks only now and then (a sentinel / a hole frame); it DRAWS him every frame (the draw ask, both builds: S111 CAWTPOSE one rule)
         fresh = fresh && o.objects == 1 && o.visible && Near(o.bone0, float(r - 1));   // the latch of record r - 1 read [skel+200] = frame r - 1's palette (kPaletteLead: record r takes tag <= r - 1)
         counted = counted && o.reads == o.objects;
         stamped = stamped && o.stamp == r - 1;
@@ -892,14 +896,14 @@ int main(int argc, char** argv) {
       live::inputs::InputsContributor pc;
       setup(w, pc);
       ResetStamps();
-      for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true);   // posed and drawn
+      for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true, true);   // posed and drawn (asked)
       Out o;
       bool hidden = true;
       for (uint64_t r = 110; r < 200; ++r) {
         o = frame(w, pc, r, false, false);
         if (r - 1 > 108 + live::WrestlerContributor::kQuietSeenWindow && r >= 116) hidden = hidden && o.objects == 1 && !o.visible && o.invisible == 1;   // past the window: kept, invisible
       }
-      o = frame(w, pc, 200, false, true);   // a walk sees him (this frame walked)
+      o = frame(w, pc, 200, false, true, true);   // the game draws him again (this frame walked, and the draw asks: the ask is what counts, both builds)
       o = frame(w, pc, 201, false, false);
       const bool back = o.objects == 1 && o.visible;
       Check(hidden && back && w.QuietUnseen() > 0, "l31b.quiet_unseen_is_hole", "hidden " + std::to_string(hidden) + " back " + std::to_string(back) + " quiet_unseen " + std::to_string((unsigned long long)w.QuietUnseen()));
@@ -916,7 +920,8 @@ int main(int argc, char** argv) {
         live::inputs::InputsContributor pc;
         setup(w, pc);
         ResetStamps();
-        for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true);   // live match: update hook + walk
+        for (uint64_t r = 100; r < 110; ++r) frame(w, pc, r, true, true, true);   // live match: update hook + walk + the game's draw ask
+        const uint64_t unseen0 = w.QuietUnseen(), asked0 = w.DrawAsked();   // the verdicts below are the freeze's own (from record 110)
         visible_all = true;
         hidden_all = true;
         for (uint64_t r = 110; r < 260; ++r) {   // the freeze: nothing updates him; the game keeps asking to draw him
@@ -930,8 +935,8 @@ int main(int argc, char** argv) {
             hidden_all = hidden_all && o.objects == 1 && !o.visible && o.invisible == 1;
           }
         }
-        unseen = w.QuietUnseen();
-        asked = w.DrawAsked();
+        unseen = w.QuietUnseen() - unseen0;
+        asked = w.DrawAsked() - asked0;
       };
       bool vis = false, hid = false, tv = false, th = false, hv = false, hh = false;
       uint64_t unseen = 0, asked = 0, tunseen = 0, tasked = 0, hunseen = 0, hasked = 0;
@@ -1067,7 +1072,8 @@ int main(int argc, char** argv) {
           if (hide_from != 0 && r == hide_from) g_guest.Put(kCh + 1208, 0u);   // the game hides him: sub_823CBC50 ([char+1208] && [char+224] && [char+232]) goes false (+232 stays unset-or-set: the ask path alone would not catch it)
           const Out o = frame(w, pc, r, true, false, ask);   // the skeleton update runs EVERY frame; the draw ask only when asked
           if (r >= 120 && (hide_from == 0 || r < hide_from)) vis_late = vis_late && o.objects == 1 && o.visible, hid_late = hid_late && o.objects == 1 && !o.visible && o.invisible == 1;
-          if (hide_from != 0 && r == hide_from) vis_before = o.objects == 1 && o.visible;   // the record of the very frame he was hidden in
+          if (hide_from != 0 && r == hide_from) vis_before = o.objects == 1 && o.visible;   // S111 VISLATCH: the record of the very frame he was hidden in pairs with the walk BEFORE the hide (stream r = walk r - 1): still drawn
+        if (hide_from != 0 && r == hide_from + 1) vis_before = vis_before && o.objects == 1 && !o.visible && o.invisible == 1;   // ... and the next record (the walk of the hide's own period) no longer
         }
         unseen = w.QuietUnseen();
       };
@@ -1078,7 +1084,7 @@ int main(int argc, char** argv) {
       run(true, 150, gv, gh, gb, gunseen);   // posed and asked, then the game hides him at 150 ([char+1208] = 0) while the asks go on: hidden AT ONCE (not after kConsumerFresh records)
       Check(h && !v && unseen > 0, "cam.posed_unasked_is_hidden", "hidden " + std::to_string(h) + " visible " + std::to_string(v) + " quiet_unseen " + std::to_string((unsigned long long)unseen) + " (a posed body the game never asks to draw is a hole)");
       Check(tv && !th && tunseen == 0, "cam.posed_and_asked_visible", "visible " + std::to_string(tv) + " quiet_unseen " + std::to_string((unsigned long long)tunseen));
-      Check(gv && !gb && gunseen > 0, "cam.game_hidden_is_hidden", "visible before the hide " + std::to_string(gv) + " visible in the record of the hide frame " + std::to_string(gb) + " quiet_unseen " + std::to_string((unsigned long long)gunseen) + " (the shown predicate false = hidden at once)");
+      Check(gv && gb && gunseen > 0, "cam.game_hidden_is_hidden", "visible before the hide " + std::to_string(gv) + " drawn in the record of the hide frame and hidden from the next " + std::to_string(gb) + " quiet_unseen " + std::to_string((unsigned long long)gunseen) + " (the shown predicate false at latch r = hidden from record r + 1: S111 VISLATCH)");
     }
     {   // review A: presence by SLOT. The body is stale (its block unreadable) and the table's slot 0 holds (a) another pointer (a wrong [char+48] [L]), (b) an unreadable word: in both he is still
         // present: the frame walks (no stamp), never ours without him. Twin l31b_pointer_presence (the pointer rule) gives the stamp.
@@ -1144,7 +1150,7 @@ int main(int argc, char** argv) {
         bool held_visible = true, held_kept_palette = true;   // review: a held body is VISIBLE and carries the KEPT palette (the last fresh read), never a zero / bind pose
         bool back_to_zero_stays = true, seen_zero = false;
         for (uint64_t r = 410; r < 440; ++r) {
-          if (variant == 1 && r == 412) table(false);
+          if (variant == 1 && r == 412) table(false), g_guest.Put(kCh + live::lightlatch::kCharSkeletonOff, 0u);   // released, then destroyed (sub_823CCDD0 +108 clears [char+48]): the game no longer draws him
           const Out o = frame(w, pc, r, false);
           if (o.objects == 1 && o.stale > 0) ++held_records, held_visible = held_visible && o.visible, held_kept_palette = held_kept_palette && o.bone0 == fresh.bone0 && fresh.bone0 != -1.f;
           else if (o.objects == 1 && o.stale == 0) fresh = o;
@@ -1198,9 +1204,6 @@ int main(int argc, char** argv) {
         else Check(w.StaleHeld() >= 1 && w.HeldWithExtras() == w.StaleHeld(), "l33_ausf.held_keeps_hair_rows", why);
       }
     }
-    {   // S103 AUSF Opus review 1: an OFF-latch mismatch (Emit's missed-latch read, game threads running) is refused even with no walk. Twin ausf_offlatch submits it.
-      // (driven in the l33 block below through SetOffLatchThread)
-    }
     {   // review D: a hook-quiet slot body whose block stays unreadable leaves the targets once it has left the record (kPruneAfter): the stamp comes back (counted slot_gone), never held for
         // kKnownAge records. Twin l31b_keep_gone keeps it a target: the stamp never returns.
       BuildGuest();
@@ -1240,27 +1243,40 @@ int main(int argc, char** argv) {
       Check(o.objects == 1 && o.stale == 1, "l31b.mirror_unchanged", "objects " + std::to_string(o.objects) + " stale " + std::to_string(o.stale));
       g_mode = 2;
     }
-    {   // 3. the character leaves the table (hook quiet too): dropped in mode Ours, and NOT a reason to walk (the game no longer draws it)
-      BuildGuest();
-      g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
-      table(true);
-      live::WrestlerContributor w;
-      live::inputs::InputsContributor pc;
-      setup(w, pc);
-      ResetStamps();
-      for (uint64_t r = 300; r < 310; ++r) frame(w, pc, r, true);
-      table(false);
-      Out o;
-      bool ok = true;
-      o = frame(w, pc, 310, false);   // record 310 still takes latch 309's good read
-      for (uint64_t r = 311; r < 330; ++r) {   // gone from the table: never read again, never emitted, and the frame is still ours
-        o = frame(w, pc, r, false);
-        // (until its update hook's liveness window closes, hook 308 + kConsumerFresh, the old rule still reads it and the bit-3 guard refuses the moved block: those frames walk, fail-closed)
-        const bool want_stamp = r - 1 > 308 + live::WrestlerContributor::kConsumerFresh;
-        if (ok && !(o.objects == 0 && (!want_stamp || o.stamp == r - 1))) std::printf("  l31b left_table first bad: record %llu objects %zu stamp %llu\n", (unsigned long long)r, o.objects, (unsigned long long)o.stamp);
-        ok = ok && o.objects == 0 && (!want_stamp || o.stamp == r - 1);
+    {   // 3. the character leaves the table (hook quiet too) the way the game does it: released from the table, then destroyed (the base destructor sub_823CCDD0 +108 clears [char+48]). While in the table
+        // the game draws him (asks: visible). From his departure: never drawn again, dropped once its update hook's liveness window closes, and NOT a reason to walk (the game no longer draws it).
+        // drawn_slots names the undrawn departure hidden once (S111 CAWTPOSE), so no ask stamp outlives it. The plant cam_upd_shows (the older update rule: a quiet body that left keeps its Known::slot and
+        // shows from its update stamp) fails it, in both arms (S111 HEADGUARD F1: one draw-ask rule in both builds).
+      for (int stream = 0; stream < 2; ++stream) {
+        BuildGuest();
+        g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
+        table(true);
+        live::WrestlerContributor w;
+        live::inputs::InputsContributor pc;
+        setup(w, pc);
+        w.SetNoWalk(stream == 0);
+        ResetStamps();
+        bool shown_in_table = true;
+        for (uint64_t r = 300; r < 310; ++r) {
+          const Out in = frame(w, pc, r, true, false, true);   // posed and asked (the game draws him)
+          if (r >= 302) shown_in_table = shown_in_table && in.objects == 1 && in.visible;
+        }
+        table(false);
+        g_guest.Put(kCh + live::lightlatch::kCharSkeletonOff, 0u);   // destroyed: the character no longer owns the skeleton
+        Out o;
+        bool ok = true;
+        o = frame(w, pc, 310, false);   // record 310 still takes latch 309's good read
+        for (uint64_t r = 311; r < 330; ++r) {   // gone from the table: never visible, never emitted once the window has closed, and the frame is still ours
+          o = frame(w, pc, r, false);
+          // (S111 HEADGUARD: inside the update hook's liveness window, hook 308 + kConsumerFresh, the latch still reads it and the read is submitted as it stands (the old guard refused it): the body is an
+          // invisible object drawn only if the game draws it (the guest route), until the last such read is collected; then it is dropped)
+          const bool in_window = r <= 310 + live::WrestlerContributor::kConsumerFresh;
+          const bool good = (o.objects == 0 || (in_window && o.objects == 1 && !o.visible)) && (in_window || o.stamp == r - 1);
+          if (ok && !good) std::printf("  l31b left_table (%s) first bad: record %llu objects %zu visible %d stamp %llu\n", stream ? "stream" : "player", (unsigned long long)r, o.objects, int(o.visible), (unsigned long long)o.stamp);
+          ok = ok && good;
+        }
+        Check(shown_in_table && ok, stream ? "l31b.left_table_dropped_not_withheld_stream" : "l31b.left_table_dropped_not_withheld", "shown while in the table " + std::to_string(shown_in_table) + " objects " + std::to_string(o.objects) + " stamp " + std::to_string((unsigned long long)o.stamp));
       }
-      Check(ok, "l31b.left_table_dropped_not_withheld", "objects " + std::to_string(o.objects) + " stamp " + std::to_string((unsigned long long)o.stamp));
     }
     {   // 4. a piece whose owner body is a slot skeleton is alive with it, though the body's update hook is quiet (the old rule: the owner is dead, the piece is not fed)
       BuildGuest();
@@ -1417,6 +1433,35 @@ int main(int argc, char** argv) {
       off.Emit(fo, to, co);
       Check(to.light_objects.empty(), "lights.off_reads_nothing");
       g_mode = 2;
+      {   // S111 CUTREACH (docs\research\s111\CUTREACH.md): record r carries the light objects read at latch r - 1 (model-class: the model draw installs them in the walk whose stream is r)
+        scene_inputs::period::g_plant = Plant("lights_lead") ? 1 : 0;
+        const Guest keepl = g_guest;
+        const uint32_t w7 = kObj0 + 0x2000 + 48 + 4 * 7;   // set 2's block word 7 (the game's block offset)
+        live::inputs::InputsContributor lp;
+        lp.SetReader(ReadThunk);
+        const auto set2_w7 = [&](uint64_t frame, float& v) {
+          FrameInfo fx;
+          fx.guest_frame = frame;
+          lp.Latch(fx);
+          SceneTables tx;
+          Counters cx;
+          lp.Emit(fx, tx, cx);
+          if (tx.light_objects.empty() || tx.light_objects[0].kind != kLoManager) return false;
+          const uint32_t row = tx.light_objects[0].words[kLmRefBase + 2];
+          if (row == kLightNoRow || row >= tx.light_objects.size()) return false;
+          v = wf(tx.light_objects[row], 7);
+          return true;
+        };
+        float v1 = 0, v2 = 0, v3 = 0;
+        const bool h1 = set2_w7(600, v1);   // the first latch: the record's own read (the boundary)
+        g_guest.PutF(w7, 3007.5f);          // the light changes in period 601
+        const bool h2 = set2_w7(601, v2);   // record 601: latch 600's block
+        const bool h3 = set2_w7(602, v3);   // record 602: latch 601's block, the new value
+        Check(h1 && h2 && h3 && !Near(v1, 3007.5f) && Near(v2, v1) && Near(v3, 3007.5f), "cutreach.record_takes_previous_latch_lights",
+              "set 2 word 7: 600 " + std::to_string(v1) + " 601 " + std::to_string(v2) + " 602 " + std::to_string(v3) + " (want old old 3007.5)");
+        scene_inputs::period::g_plant = 0;
+        g_guest = keepl;
+      }
     }
     BuildGuest();
   }
@@ -1758,7 +1803,7 @@ int main(int argc, char** argv) {
 
   // ---------------------------------------------------------------- 3a5. S103 A3: W1 on the record path with no latch, the arena object list + input, the clock under OURS, the circle points (S6)
   {
-    // ---- W1 with no latch (run 9: "latched 0"): the wrestlers contributor's Emit must run the palette read itself
+    // ---- W1 with no latch (S111 LATCHMISS): the wrestlers contributor's Emit with no latch of its frame must NOT read the palettes (every production Emit has its latch; the old read ran with the game running)
     {
       constexpr uint32_t kPal = 0x40005000, kCount = 3;
       for (uint32_t i = 0; i < kCount; ++i)
@@ -1778,7 +1823,7 @@ int main(int argc, char** argv) {
                        for (const auto& x : t) out.push_back({x.skel, x.count});
                      },
                      [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) { return W->SubmitLatchConsumer(m, n, skin, f); });
-      if (!Plant("a3_no_prelatch")) w.SetPreLatch([](uint64_t rf, bool lt) { PC->LatchPalettes(rf, lt); });
+      w.SetPreLatch([](uint64_t rf) { PC->LatchPalettes(rf); });   // wired as the game wires it (inputs_glue.h): Emit with no latch must still not call it
       std::vector<Mat4> derived(kCount);
       for (size_t di = 0; di < derived.size(); ++di) for (int dj = 0; dj < 16; ++dj) derived[di].m[dj] = 100.f * float(di) + float(dj) + 0.25f;   // = the guest block: nodes 0-58 agree (audit item 2)
       ResetStamps();
@@ -1787,9 +1832,10 @@ int main(int argc, char** argv) {
       fi.guest_frame = 904;
       SceneTables t;
       Counters c;
-      w.Emit(fi, t, c);   // NO Latch: the record path of run 9
+      if (Plant("a3_no_prelatch")) PC->LatchPalettes(fi.guest_frame);   // the planted twin, made here (no fault bit in the contributor): the old S103 A3 read, the pre-latch run on the no-latch record path
+      w.Emit(fi, t, c);   // NO Latch: a caller that skipped the latch (no production path does)
       const uint64_t st = rdr_own::S(rdr_own::Pass::Scene3D).input_frame[scene_inputs::kInWrestlerPalette].load();
-      Check(w.ConsumerSubmits() >= 1 && st == 903, "a3.palette_no_latch", "submits " + std::to_string((unsigned long long)w.ConsumerSubmits()) + " stamp " + std::to_string((unsigned long long)st));
+      Check(w.ConsumerSubmits() == 0 && st != 903, "a3.palette_no_latch", "submits " + std::to_string((unsigned long long)w.ConsumerSubmits()) + " stamp " + std::to_string((unsigned long long)st));
     }
     // ---- the arena object list (the stage object's slot models), its MdlAlpha / override rows (bit 16), and the arena input (bit 5, stamped by stage_fx's own take: audit item 1)
     {
@@ -2657,82 +2703,331 @@ int main(int argc, char** argv) {
       scene_inputs::g_light_map_consumer = false;
       BuildGuest();
     }
-    // ---- review F3: the derived-palette guard (bit 3) and piece liveness
+    // ---- S111 KEPTPIECES (docs\research\s111\KEPTPIECES.md): a Create a Superstar item change through the latch's own path (ReadSlotSkeletons -> drawn_slots -> LatchTargets -> Collect / Emit). The
+    // editor's worker names the NEW character B in slot 0 (sub_822E7570 +B0) while the game keeps updating and drawing the OLD one A, A's SUBM pieces inside A's own draw node (sub_825A3908 +3D8 / +478),
+    // until the flip sub_822E7CA0 turns A off and B on. A's hair is drawn, linked to A's body, on every record before the flip; B's hair is never drawn before it and follows B's body after it.
+    // Plants (the old rules, made in the unit's glue; no fault bit in the contributors): kept_pieces_unread = only the table occupants' pieces are read (a kept body's are dropped); piece_owner_by_slot =
+    // a piece's owner is the first skeleton of its slot (the table's new character).
+    {
+      static constexpr uint32_t kKN = 3, kChA = 0x40900000, kChB = 0x40910000, kSA = 0x40920000, kSB = 0x40930000, kHA = 0x40940000, kHB = 0x40950000, kIdA = 10001, kIdB = 10002;
+      static constexpr uint32_t kPalSA = 0x40960000, kPalSB = 0x40961000, kPalHA = 0x40962000, kPalHB = 0x40963000;
+      static constexpr uint64_t kStore = 110, kFlip = 120;
+      static live::WrestlerContributor* KW;
+      static int kp_plant;
+      kp_plant = Plant("kept_pieces_unread") ? 1 : Plant("piece_owner_by_slot") ? 2 : 0;
+      BuildGuest();
+      for (uint32_t i = 0; i < 9; ++i) g_guest.Put(live::lightlatch::kCharSlotTable + 4 * i, i == 0 ? kChA : 0u);
+      const auto put_char = [](uint32_t ch, uint32_t skel, uint32_t hair, uint32_t id, uint32_t pal_skel, uint32_t pal_hair) {   // [char+48] = the skeleton; the SUBM chain (char+1152 list, node 'SUBM', comp +72 / +80) with ONE clean hair instance
+        const uint32_t node = ch + 0x1000, comp = ch + 0x2000, arr = ch + 0x3000, map = ch + 0x4000;
+        g_guest.Put(ch + live::lightlatch::kCharSkeletonOff, skel);
+        g_guest.Put(ch + 1152 + 20, node), g_guest.Put(node + 4, scene_inputs::kSubmTag), g_guest.Put(node + 20, 0), g_guest.Put(node + 24, comp);
+        g_guest.Put(comp + 72, arr), g_guest.Put(comp + 80, arr + 48);
+        g_guest.Put(arr + 0, hair), g_guest.Put(arr + 8, 0), g_guest.Put(arr + 12, map), g_guest.Put(arr + 16, id << 16), g_guest.Put(arr + 20, 1), g_guest.Put(arr + 24, 1), g_guest.Put(arr + 28, 1), g_guest.Put(arr + 36, 0);
+        for (uint32_t i = 0; i < kKN; ++i) g_guest.Put(map + 4 * i, i);
+        g_guest.Put(skel + scene_inputs::kPaletteOff, pal_skel), g_guest.Put(hair + scene_inputs::kPaletteOff, pal_hair);
+      };
+      const auto shown = [](uint32_t ch, uint32_t node_on, uint32_t words) { g_guest.Put(ch + 1208, node_on), g_guest.Put(ch + 224, words), g_guest.Put(ch + 232, words); };   // sub_823CBC50's three words
+      put_char(kChA, kSA, kHA, kIdA, kPalSA, kPalHA);
+      shown(kChA, 1, 1);
+      live::WrestlerContributor w;
+      KW = &w;
+      w.SetNoWalk(true);   // the player build
+      w.SetFaultsForTest((Plant("vis_leads") ? live::WrestlerContributor::kFaultVisLeads : 0u) | (Plant("links_lead") ? live::WrestlerContributor::kFaultLinksLead : 0u) |
+                         (Plant("name_leads") ? live::WrestlerContributor::kFaultNameLeads : 0u) |
+                         (Plant("freed_no_keep") ? live::WrestlerContributor::kFaultFreedNoKeep : 0u));   // S111 VISLATCH twin: the old pairing; S111 PERIODALL twins: the old links; the old name (review R3); S111 MATCHFREE twin: the old erase-and-forget
+      w.SetPreLatch([](uint64_t) {});   // the unit drives the pre-latch itself
+      live::inputs::InputsContributor pc;
+      pc.SetReader([](uint32_t a, void* d, size_t n) {
+        if (g_freed_hi && uint64_t(a) + n > g_freed_lo && a < g_freed_hi) ++g_freed_reads;   // S111 FREEHOOK: a read of a block the game freed
+        for (size_t i = 0; i < n; i += 4) {
+          auto it = g_guest.words.find(a + uint32_t(i));
+          const uint32_t be = it == g_guest.words.end() ? 0u : scene_inputs::Swap32(it->second);   // an unset guest word reads 0 (as the HGF case below)
+          std::memcpy(static_cast<uint8_t*>(d) + i, &be, n - i < 4 ? n - i : 4);
+        }
+        return true;
+      });
+      pc.SetPieceNodeCount([](uint32_t m) -> uint32_t { return (m == kHA || m == kHB) ? kKN : 0u; });
+      pc.SetBodyIdentity(   // S111 PERIODALL review R3: the glue's wiring (inputs_glue.h): each latch verifies a body's model link against the game's descriptors (VerifyBodyIdentity)
+          [](uint32_t skel) {
+            const auto i = KW->BodyKeyFor(skel);
+            scene_inputs::BodyDesc d;
+            d.known = i.known, d.desc = i.desc, d.key = i.key;
+            return d;
+          },
+          [](uint32_t skel, bool ok) { return KW->VerifyBodyLink(skel, ok); },
+          [](uint32_t skel, const std::vector<scene_inputs::DescPiece>& pieces) {
+            std::vector<live::WrestlerContributor::PieceRef> v;
+            for (const auto& p : pieces) v.push_back({p.model, p.id});
+            KW->RelistPieces(skel, std::move(v));
+          });
+      pc.SetSlotPalettes([](uint64_t hook, uint64_t record, const live::inputs::InputsContributor::SlotTable& slots, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing,
+                            uint32_t* stale_visible, bool count) {   // the game's wiring (inputs_glue.h: the pieces ride with the table)
+                           live::WrestlerContributor::SlotTable s;
+                           for (const auto& x : slots.skels) s.skels.push_back({x.skel, x.slot, x.shown_addr, x.game_shown});
+                           for (int i = 0; i < 9; ++i) s.state[i] = slots.state[i];
+                           std::set<uint32_t> occupants;   // the table's own bodies at this latch ([0x836F38D0 + 4 s] -> [char+48])
+                           for (uint32_t i = 0; i < 9; ++i) {
+                             auto c = g_guest.words.find(live::lightlatch::kCharSlotTable + 4 * i);
+                             if (c == g_guest.words.end() || c->second < 0x10000) continue;
+                             if (auto k = g_guest.words.find(c->second + live::lightlatch::kCharSkeletonOff); k != g_guest.words.end()) occupants.insert(k->second);
+                           }
+                           for (scene_inputs::CharPiece p : slots.pieces) {
+                             if (kp_plant == 1 && !occupants.count(p.owner)) continue;   // the old reader: a kept body's pieces were never read
+                             if (kp_plant == 2)   // the old owner lookup: the slot's first skeleton (the table's new character while the old one is kept)
+                               for (const auto& x : slots.skels)
+                                 if (x.slot == p.slot) { p.owner = x.skel; break; }
+                             s.pieces.push_back(std::move(p));
+                           }
+                           std::vector<live::WrestlerContributor::PaletteTarget> t;
+                           KW->LatchTargets(hook, &s, t, missing, count);
+                           if (stale_visible) *stale_visible = KW->StaleVisibleAt(record, &s);
+                           out.clear();
+                           for (const auto& x : t) out.push_back({x.skel, x.count});
+                         },
+                         [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) { return KW->SubmitLatchConsumer(m, n, skin, f); });
+      g_mode = 2;
+      ResetStamps();
+      struct Rec { uint32_t body0 = 0; float bone0 = -1.f; bool ha = false, hb = false; std::string name; uint32_t rows = 0; };   // S111 PERIODALL review R3: name = the slot-0 body's asset (pac / entry; empty = unnamed)   // S111 PIECECARRY: rows = the slot-0 body's spring-hair rows (bones after its own kKN)
+      const auto rw = [](uint32_t a, uint32_t& v) { auto it = g_guest.words.find(a); if (it == g_guest.words.end()) return false; v = it->second; return true; };
+      const auto linked = [](const SceneTables& t, uint32_t hair, uint32_t id) {   // written with its owner: drawn by the slot-0 body (or its own-rows route), pad = its id, layer = slot 0 + 1
+        for (size_t k = 0; k < t.objects.size() && k < t.engine_objects.size(); ++k)
+          if (t.engine_objects[k] == hair) return (t.objects[k].flags & (kObjDrawnByOwner | kObjOwnRowsPiece)) != 0 && t.objects[k].pad == id && t.objects[k].layer == 1;
+        return false;
+      };
+      // drawn_skel = the body whose update task runs and whose opaque node draws this frame (A until the flip, B from it). b_built = B is built but not flipped (S111 VISLATCH): the build's bake ran B's
+      // world update (sub_825A20A0 +218 -> sub_822FA298 -> sub_82307EA0 -> sub_82307A50 vslot +84 -> sub_82BD30E8), so the update hook reports B, un-asked, and its +200 holds the build's pose (marker 0)
+      const auto frame = [&](uint64_t rec, uint32_t drawn_skel, bool b_built) {
+        const uint64_t hook = rec - 1;
+        for (uint32_t i = 0; i < kKN; ++i)
+          for (uint32_t j = 0; j < 16; ++j) {
+            const float v = float(rec) + float(i) * 0.01f + float(j) * 0.0001f;
+            g_guest.PutF(kPalSA + 64 * i + 4 * j, v), g_guest.PutF(kPalSB + 64 * i + 4 * j, b_built ? 0.f : v + 0.5f), g_guest.PutF(kPalHA + 64 * i + 4 * j, v + 0.25f), g_guest.PutF(kPalHB + 64 * i + 4 * j, v + 0.75f);
+          }
+        std::vector<Mat4> d(kKN);
+        for (uint32_t i = 0; i < kKN; ++i)
+          for (uint32_t j = 0; j < 16; ++j) d[i].m[j] = float(rec) + float(i) * 0.01f;
+        if (drawn_skel) w.SubmitSkin(drawn_skel, 0, kKN, d.data(), hook);   // the update hook (sub_82BD30E8 exit), slot 0 by the hook's match (the kept one through KeptCharOfGame); S111 PERIODALL: 0 = none
+        if (b_built) {
+          std::vector<Mat4> bind(kKN);
+          for (auto& m : bind) std::memset(m.m, 0, sizeof m.m);
+          w.SubmitSkin(kSB, 0, kKN, bind.data(), hook);   // B's world update from the build's bake: reported, never asked
+        }
+        if (drawn_skel) w.NoteDrawAsked(drawn_skel, rec, rw);   // the game's draw ask (sub_82C04DF0) of the body it draws, on the game's clock: the walk of period rec reads g_guest_frame = rec (draw_origin.h:393) and lands in stream rec + 1
+        pc.LatchPalettes(rec);
+        FrameInfo fi;
+        fi.guest_frame = rec;
+        w.Latch(fi);
+        SceneTables t;
+        Counters c;
+        w.Emit(fi, t, c);
+        Rec r;
+        for (size_t k = 0; k < t.objects.size() && k < t.engine_objects.size(); ++k)
+          if (t.Str(t.objects[k].id) == "actor:slot:0" && (t.objects[k].flags & kObjVisible)) {
+            r.body0 = t.engine_objects[k];
+            if (t.objects[k].bones_count) r.bone0 = t.bones[t.objects[k].bones_first].m[0];
+            r.rows = t.objects[k].bones_count > kKN ? t.objects[k].bones_count - kKN : 0u;   // S111 PIECECARRY
+            if (t.objects[k].asset < t.assets.size()) r.name = std::string(t.Str(t.assets[t.objects[k].asset].pac)) + "/" + std::string(t.Str(t.assets[t.objects[k].asset].entry));
+          }
+        r.ha = linked(t, kHA, kIdA), r.hb = linked(t, kHB, kIdB);
+        return r;
+      };
+      std::string bad;
+      const auto note = [&](const char* what, uint64_t rec, const Rec& r) {
+        if (bad.empty()) bad = std::string(what) + ": record " + std::to_string((unsigned long long)rec) + " slot-0 body " + std::to_string(r.body0) + " old hair linked " + std::to_string(int(r.ha)) + " new hair linked " + std::to_string(int(r.hb));
+      };
+      bool old_ok = true, new_ok = true, old_gone = true;
+      for (uint64_t rec = 100; rec < kStore; ++rec) {   // A alone in slot 0, updated and drawn
+        const Rec r = frame(rec, kSA, false);
+        if (rec >= 102 && !(r.body0 == kSA && r.ha && !r.hb)) old_ok = false, note("before the change", rec, r);
+      }
+      g_guest.Put(live::lightlatch::kCharSlotTable, kChB);   // the worker's slot store (sub_822E7570 +B0): B named in slot 0, its body built
+      put_char(kChB, kSB, kHB, kIdB, kPalSB, kPalHB);
+      // S111 PERIODALL review R3: B is a NAMED body: its build's model link (SubmitModelLink, read at the build: model_hooks.h) and the game's slot descriptor naming it
+      // ([[0x837635A4] + 8] + 192 i: +4 = the body, +28 = the key, piece_link.h DescriptorOfBody), so every latch that holds B verifies it (SetBodyIdentity above).
+      constexpr uint32_t kKeyB = 2401, kMgr = 0x40970000, kDescs = 0x40971000;
+      g_guest.Put(scene_inputs::kSlotMgrPtr, kMgr), g_guest.Put(kMgr + scene_inputs::kMgrDescArray, kDescs);
+      g_guest.Put(kDescs + scene_inputs::kDescBody, kSB), g_guest.Put(kDescs + scene_inputs::kDescKey, kKeyB);
+      w.SubmitModelLink(kSB, kKeyB, 0, 0, kDescs, {}, 0, std::string(), kKeyB);
+      shown(kChB, 0, 1);   // B: opaque node off (sub_823CC4B8), shown words on (sub_822E7570 +4F8..+51C), update task off: the game neither updates nor opaque-draws it
+      for (uint64_t rec = kStore; rec < kFlip; ++rec) {   // the build window: the game still updates and draws A, and A's hair through A's draw node
+        const Rec r = frame(rec, kSA, true);
+        if (!(r.body0 == kSA && r.ha && !r.hb)) old_ok = false, note("in the build window", rec, r);
+      }
+      shown(kChA, 0, 0), shown(kChB, 1, 1);   // the flip sub_822E7CA0: A off, B on, in one call
+      uint64_t first_body = 0, first_hair = 0;
+      bool flip_old = false, b_posed = true;   // S111 VISLATCH
+      float b_first_bone = -1.f;
+      std::string after, flip_why;
+      for (uint64_t rec = kFlip; rec < kFlip + 20; ++rec) {
+        const Rec r = frame(rec, kSB, false);
+        if (rec == kFlip) {
+          flip_old = r.body0 == kSA && r.ha && !r.hb;
+          flip_why = "record " + std::to_string((unsigned long long)rec) + " slot-0 body " + std::to_string(r.body0) + " bone " + std::to_string(r.bone0) + " old hair linked " + std::to_string(int(r.ha)) + " new hair linked " + std::to_string(int(r.hb));
+        }
+        if (r.body0 == kSB && !first_body) first_body = rec, b_first_bone = r.bone0;
+        if (r.body0 == kSB && r.bone0 == 0.f) b_posed = false;   // B drawn with the build's palette (the T-pose)
+        if (r.hb && !first_hair) first_hair = rec;
+        if (first_hair && !r.hb) new_ok = false;
+        if (rec > kFlip && r.ha) old_gone = false;
+        if (after.empty() && ((rec > kFlip && r.ha) || (first_hair && !r.hb))) after = "record " + std::to_string((unsigned long long)rec) + " old hair linked " + std::to_string(int(r.ha)) + " new hair linked " + std::to_string(int(r.hb));
+      }
+      Check(old_ok, "kept.old_hair_linked_until_flip", bad.empty() ? std::string("A's hair is drawn by A's body on every record before the flip") : bad);
+      Check(flip_old, "kept.flip_record_draws_old_body", flip_why + " (the flip record pairs with the walk before the flip: A with its hair, never B)");
+      Check(b_posed && first_body == kFlip + 1 && Near(b_first_bone, float(kFlip) + 0.5f), "kept.new_body_posed_from_the_next_record",
+            "B's body from record " + std::to_string((unsigned long long)first_body) + " first bone " + std::to_string(b_first_bone) + " (want " + std::to_string(float(kFlip) + 0.5f) + ": latch " + std::to_string((unsigned long long)kFlip) + "'s read, after the flip period's update) build palette drawn " + std::to_string(int(!b_posed)));
+      Check(new_ok && first_body >= kFlip && first_body <= kFlip + live::WrestlerContributor::kPaletteLead && first_hair == first_body, "kept.new_hair_from_the_flip",
+            "B's body from record " + std::to_string((unsigned long long)first_body) + ", B's hair from record " + std::to_string((unsigned long long)first_hair) + " (flip " + std::to_string((unsigned long long)kFlip) + ") " + after);
+      Check(old_gone, "kept.old_hair_unlinked_after_flip", after);
+      // S111 PERIODALL (docs\research\s111\PERIODALL.md): B is destroyed in the period right after its last draw (sub_823CCDD0 clears [char+48] (+108); the table word goes):
+      // no update, no ask. The latch of that period builds the record of B's last walk: B's body with period kGone - 1's palette, and B's hair linked to it by the links of the same latch as that
+      // palette (kGone - 1's, which read B's SUBM list). The record after has no B. Twin links_lead = the links of the record's own latch (period kGone's: B's pieces are not read any more).
+      // Review R3: B's NAME on that record is the descriptor check of the same latch (kGone - 1's, which held B), not of the record's own latch (which cannot verify a body whose character no longer
+      // owns it). Twin name_leads = the old rule (a body is named only by its own latch's check). S111 MATCHFREE (docs\research\s111\MATCHFREE.md, closes review R4): the game's deleting destructor
+      // of the character (sub_8251E928 +84, in the post-barrier tick sub_8225FE68 of that period, before its latch) frees B's hair and [char+48] (sub_823CCDD0 +100), each through the release hook
+      // (sub_82BD3B40 -> ForgetModel). The record still shows them from the copy (FreedRevive), no list a guest reader walks names them after the free, and the record after drops the copy.
+      // Twin freed_no_keep = the old erase-and-forget (B and its hair vanish on that record).
+      {
+        constexpr uint64_t kGone = kFlip + 21;
+        const Rec named = frame(kGone - 1, kSB, false);   // B's last drawn period: verified and named by its own latch
+        g_guest.Put(live::lightlatch::kCharSlotTable, 0u);
+        g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, 0u);
+        w.ForgetModel(kHB), w.ForgetModel(kSB);   // S111 MATCHFREE: the destructor's frees (its piece objects, then [char+48]), each through the release hook's erase
+        std::vector<uint32_t> kept_after_free;
+        w.KeptSkeletons(kept_after_free);
+        const bool unlisted = !w.NamesModel(kSB) && !w.NamesModel(kHB) && std::find(kept_after_free.begin(), kept_after_free.end(), kSB) == kept_after_free.end() &&
+                              std::find(kept_after_free.begin(), kept_after_free.end(), kHB) == kept_after_free.end();
+        const Rec last = frame(kGone, 0u, false);
+        const bool unlisted_after = !w.NamesModel(kSB) && !w.NamesModel(kHB);
+        const Rec gone = frame(kGone + 1, 0u, false);
+        Check(unlisted && unlisted_after && w.FreedHeld() == 0 && w.FreedServed() == 1 && w.FreedUnposed() == 0, "matchfree.freed_body_unlisted_and_copy_dropped",
+              "named after the free " + std::to_string(int(!unlisted)) + ", after its record " + std::to_string(int(!unlisted_after)) + ", copies left " + std::to_string(w.FreedHeld()) +
+                  ", records served " + std::to_string((unsigned long long)w.FreedServed()) + ", unposed " + std::to_string((unsigned long long)w.FreedUnposed()) + " (want 0, 0, 0, 1, 0)");
+        Check(last.body0 == kSB && last.hb && gone.body0 != kSB, "periodall.destroyed_pieces_linked_on_last_record",
+              "record " + std::to_string((unsigned long long)kGone) + " slot-0 body " + std::to_string(last.body0) + " its hair linked " + std::to_string(int(last.hb)) + "; record " + std::to_string((unsigned long long)(kGone + 1)) +
+                  " slot-0 body " + std::to_string(gone.body0) + " (want B with its hair, then no B)");
+        Check(!named.name.empty() && last.body0 == kSB && last.name == named.name, "periodall.destroyed_body_named_on_last_record",
+              "record " + std::to_string((unsigned long long)(kGone - 1)) + " names B '" + named.name + "'; record " + std::to_string((unsigned long long)kGone) + " slot-0 body " + std::to_string(last.body0) + " named '" + last.name + "' (want B under the same name)");
+      }
+      // S111 MATCHFREE review: a new body at B's addresses (the copy above is gone), then a free that FOLLOWS the game's draw of the same period (a release task after the period's draw, or a released
+      // character the walk still draws): the walk of period kAgain asks B, the tick frees it before latch kAgain. Record kAgain (the walk of kAgain - 1) shows B posed from the copy; record kAgain + 1
+      // pairs with the walk that drew B too, but no palette of period kAgain exists (latch kAgain cannot read a freed model): the copy comes back unposed, counted (FreedUnposed: the census line settles
+      // whether a match path does this), and the copy is still dropped once no walk asks.
+      {
+        constexpr uint64_t kAgain = kFlip + 40;
+        g_guest.Put(live::lightlatch::kCharSlotTable, kChB);
+        g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, kSB);
+        Rec pre;
+        for (uint64_t rec = kFlip + 23; rec < kAgain; ++rec) pre = frame(rec, kSB, false);
+        w.NoteDrawAsked(kSB, kAgain, rw);   // the walk of period kAgain draws B
+        g_guest.Put(live::lightlatch::kCharSlotTable, 0u);
+        g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, 0u);
+        w.ForgetModel(kHB), w.ForgetModel(kSB);   // then the post-barrier tick frees it
+        const Rec r0 = frame(kAgain, 0u, false);
+        const uint64_t unposed_at_r0 = w.FreedUnposed();
+        frame(kAgain + 1, 0u, false);
+        const uint64_t unposed_at_r1 = w.FreedUnposed();
+        frame(kAgain + 2, 0u, false);
+        Check(pre.body0 == kSB && r0.body0 == kSB && unposed_at_r0 == 0 && unposed_at_r1 == 1 && w.FreedHeld() == 0, "matchfree.free_after_same_period_draw_counted_unposed",
+              "B before the free " + std::to_string(int(pre.body0 == kSB)) + ", on record " + std::to_string((unsigned long long)kAgain) + " " + std::to_string(int(r0.body0 == kSB)) + ", unposed " +
+                  std::to_string((unsigned long long)unposed_at_r0) + " then " + std::to_string((unsigned long long)unposed_at_r1) + ", copies left " + std::to_string(w.FreedHeld()) + " (want 1, 1, 0 then 1, 0)");
+      }
+      // S111 FREEHOOK (docs\research\s111\FREEHOOK.md): the same free through the CHARACTER destructor's hook (sub_825A1510 entry, char_release.h OnCharacterFreed), which runs before the model
+      // release sub_82BD91B0 frees [skel+200] (+1E8): it reads B's palette of period kFree (what the walk of kFree drew) and submits it as latch kFree's read, and tells the departure reader to
+      // forget B. Record kFree + 1 (paired with the walk that drew B) shows B posed with period kFree's palette; no read touches B's character block after the free (sub_825A2A30 +34).
+      // Twins: freed_no_pose = the hook keeps no palette (B unposed on that record, FreedUnposed); freed_char_read = the departure reader not told (the next latch reads the freed block).
+      // S111 PIECECARRY (docs\research\s111\PIECECARRY.md): the hook also makes latch kFree's other reads of B (the descriptor check, the SUBM pieces with their spring-hair rows, the hair's palette):
+      // record kFree + 1 shows B whole from that one read (its hair linked, its spring row, its name), as record kFree does from latch kFree - 1's. Twin freed_no_last = the FREEHOOK hook (palette only).
+      {
+        constexpr uint64_t kFree = kFlip + 60;
+        const uint32_t plants = (Plant("freed_no_pose") ? wwe2k14::char_release::kPlantNoPose : 0u) | (Plant("freed_char_read") ? wwe2k14::char_release::kPlantNoForget : 0u) |
+                                (Plant("freed_no_last") ? wwe2k14::char_release::kPlantNoLast : 0u);
+        g_guest.Put(live::lightlatch::kCharSlotTable, kChB);
+        g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, kSB);
+        // S111 PIECECARRY: B's hair carries one spring-hair node (its map word -1, the mode byte inst +37 = 1: sub_8259D390's mode 1), so every latch that reads B's SUBM list keeps one row for B
+        // (piece_link.h ProvePiece / ReadPieceRows: the row is [[hair+200] + 64 * (kKN - 1)], which frame() writes)
+        g_guest.Put(kChB + 0x4000 + 4 * (kKN - 1), 0xFFFFFFFFu), g_guest.Put(kChB + 0x3000 + 36, 0x00010000u);
+        Rec pre;
+        for (uint64_t rec = kFlip + 43; rec < kFree; ++rec) pre = frame(rec, kSB, false);
+        for (uint32_t i = 0; i < kKN; ++i)
+          for (uint32_t j = 0; j < 16; ++j) g_guest.PutF(kPalSB + 64 * i + 4 * j, float(kFree) + float(i) * 0.01f + float(j) * 0.0001f + 0.5f);   // the update of period kFree poses B
+        w.NoteDrawAsked(kSB, kFree, rw);   // the walk of period kFree draws B (the group-1 release hides nothing: B's own node draws in group 33)
+        g_guest.Put(live::lightlatch::kCharSlotTable, 0u);   // the release's table word (sub_8251ECA0 +E4)
+        const uint64_t unposed0 = w.FreedUnposed();
+        wwe2k14::char_release::OnCharacterFreed(w, &pc, kChB, kFree, &ReadThunk, plants);   // the post-barrier tick: the destructor body's entry, before any free
+        g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, 0u);   // sub_823CCDD0 +108
+        w.ForgetModel(kHB), w.ForgetModel(kSB);   // its piece objects and [char+48], each through the model release hook
+        g_freed_lo = kChB, g_freed_hi = kChB + 0x1000u, g_freed_reads = 0;   // then sub_825A2A30 +34 frees the block (the words a departure reader reads: +48 .. +1208)
+        const Rec r0 = frame(kFree, 0u, false);
+        const Rec r1 = frame(kFree + 1, 0u, false);
+        const Rec r2 = frame(kFree + 2, 0u, false);
+        const uint32_t freed_reads = g_freed_reads;
+        g_freed_lo = g_freed_hi = 0;
+        Check(pre.body0 == kSB && r0.body0 == kSB && r1.body0 == kSB && Near(r1.bone0, float(kFree) + 0.5f) && w.FreedUnposed() == unposed0 && r2.body0 != kSB && w.FreedHeld() == 0,
+              "freehook.freed_body_posed_on_its_last_walk_record",
+              "B on records " + std::to_string((unsigned long long)kFree) + " / +1 / +2: " + std::to_string(int(r0.body0 == kSB)) + " " + std::to_string(int(r1.body0 == kSB)) + " " +
+                  std::to_string(int(r2.body0 == kSB)) + ", record +1 first bone " + std::to_string(r1.bone0) + " (want " + std::to_string(float(kFree) + 0.5f) + "), unposed +" +
+                  std::to_string((unsigned long long)(w.FreedUnposed() - unposed0)) + ", copies left " + std::to_string(w.FreedHeld()) + " (want 1 1 0, the period's palette, +0, 0)");
+        Check(freed_reads == 0, "freehook.freed_character_never_read", "reads of B's freed character block by the inputs latch: " + std::to_string(freed_reads) + " (want 0)");
+        Check(!pre.name.empty() && pre.hb && pre.rows == 1 && r0.hb && r0.rows == 1 && r1.hb && r1.rows == 1 && r1.name == pre.name, "piececarry.freed_body_last_record_whole",
+              "B's hair linked / spring rows / name: record " + std::to_string((unsigned long long)(kFree - 1)) + " " + std::to_string(int(pre.hb)) + " " + std::to_string(pre.rows) + " '" + pre.name +
+                  "', record " + std::to_string((unsigned long long)kFree) + " " + std::to_string(int(r0.hb)) + " " + std::to_string(r0.rows) + " '" + r0.name + "', record " +
+                  std::to_string((unsigned long long)(kFree + 1)) + " " + std::to_string(int(r1.hb)) + " " + std::to_string(r1.rows) + " '" + r1.name + "' (want 1 1 and the same name on all three)");
+      }
+      BuildGuest();
+    }
+    // ---- S111 VISLATCH (docs\research\s111\VISLATCH.md): a body shows in the record whose stream the game's walk drew it in. The walk of period p asks with the clock p (sub_82C04DF0, draw_origin.h:393)
+    // and lands in stream p + 1; the palette tagged p is that stream's. So a body first asked in period kAsk (an entrance model the game posed before it drew it) shows from record kAsk + 1 with the
+    // palette tagged kAsk, and a body the latch of period kHide reads hidden (sub_823CBC50 false) shows in record kHide (the walk of kHide - 1 drew him) and not from kHide + 1. Twin vis_leads = the old
+    // pairing (one record early at both).
+    {
+      live::WrestlerContributor w;
+      w.SetNoWalk(true);
+      if (Plant("vis_leads")) w.SetFaultsForTest(live::WrestlerContributor::kFaultVisLeads);
+      constexpr uint32_t kE = 0x40990000, kEN = 3;
+      constexpr uint64_t kAsk = 205, kHide = 220;
+      bool entrance_ok = true, hide_ok = true;
+      std::string ewhy, hwhy;
+      for (uint64_t p = 200; p < 230; ++p) {   // period p: the update hook poses him (tag p); the walk asks to draw him from kAsk; from kHide the latch reads him hidden and no walk asks
+        std::vector<Mat4> d(kEN);
+        for (uint32_t i = 0; i < kEN; ++i)
+          for (uint32_t j = 0; j < 16; ++j) d[i].m[j] = float(p);
+        w.SubmitSkin(kE, 2, kEN, d.data(), p);
+        if (p >= kAsk && p < kHide) w.StampDrawForTest(kE, p);
+        if (p >= kHide) {
+          live::WrestlerContributor::SlotTable st;
+          st.skels.push_back({kE, 2, 0u, false});
+          st.state[2] = live::WrestlerContributor::kSlotOccupied;
+          std::vector<live::WrestlerContributor::PaletteTarget> tg;
+          uint32_t missing = 0;
+          w.LatchTargets(p - 1, &st, tg, missing);   // latch p reads hook p - 1: the shown predicate false
+        }
+        FrameInfo fi;
+        fi.guest_frame = p;
+        w.Latch(fi);
+        SceneTables t;
+        Counters c;
+        w.Emit(fi, t, c);
+        bool visible = false;
+        float bone0 = -1.f;
+        for (size_t k = 0; k < t.objects.size() && k < t.engine_objects.size(); ++k)
+          if (t.engine_objects[k] == kE && t.objects[k].bones_count) visible = (t.objects[k].flags & kObjVisible) != 0, bone0 = t.bones[t.objects[k].bones_first].m[0];
+        const bool want = p > kAsk && p <= kHide;   // drawn in streams kAsk + 1 .. kHide
+        const bool good = visible == want && (!want || Near(bone0, float(p - 1)));   // record p carries the palette tagged p - 1
+        const std::string why = "record " + std::to_string((unsigned long long)p) + " visible " + std::to_string(int(visible)) + " bone " + std::to_string(bone0) + " (want visible " + std::to_string(int(want)) + ")";
+        if (p > 200 && p < 212 && !good && entrance_ok) entrance_ok = false, ewhy = why;
+        if (p >= 212 && !good && hide_ok) hide_ok = false, hwhy = why;
+      }
+      Check(entrance_ok, "vislatch.entrance_first_drawn_record", entrance_ok ? std::string("first asked in period 205: shown from record 206 with the palette tagged 205") : ewhy);
+      Check(hide_ok, "vislatch.hide_from_next_record", hide_ok ? std::string("read hidden at latch 220: shown in record 220, hidden from 221") : hwhy);
+    }
+    // ---- S111 HEADGUARD (docs\research\s111\HEADGUARD.md): the derived-head guard is gone. The latch reads [skel+200] with the game parked after every writer of the period (the skin component, CHIK
+    // 0x82403D50 after the group-26 wait, the shifts 0x82BD3620): the palette the game's draw 0x82C04DF0 reads, submitted as it stands, whatever the update-exit head held (that head is older by construction).
     {
       constexpr uint32_t kPal = 0x40005000, kCount = 3;
       for (uint32_t i = 0; i < kCount; ++i)
         for (uint32_t j = 0; j < 16; ++j) g_guest.PutF(kPal + 64 * i + 4 * j, 100.f * i + j + 0.25f);
       g_guest.Put(kM0 + scene_inputs::kPaletteOff, kPal);
-      static live::WrestlerContributor* W;
-      static live::inputs::InputsContributor* PC;
-      static int64_t g_accept = live::WrestlerContributor::kDeltaUnsettled;
-      // S103 L33F: the guard-machinery checks below (which head is evidence, the accepted delta, the shift) were written for the strict rule (a mismatch withholds by itself) and run under it (the test fault
-      // kFaultStrictDerived); the shipped rule (a mismatch falls through to the walk copy; no walk copy = submitted) has its own checks after them (l33.*). g_walk: 0 no walk copy, 1 equal to the latch read, 2 differs.
-      static uint32_t g_faults = live::WrestlerContributor::kFaultStrictDerived;
-      static int g_walk = 0;
-      static bool g_slot = false;   // S103 L33F: the targets come from the character table (slot 0 holds kM0), as the game's glue does (SetSlotPalettes)
-      static uint64_t g_walk_same = 0, g_walk_differs = 0, g_submitted = 0, g_no_evidence = 0, g_nowalk_sub = 0;
-      static bool g_nowalk = false;   // S103 AUSF: the contributor runs as the stream-free build
-      static std::vector<int> g_pre;   // S103 L33F review F3: earlier WALKED latches of the same body under the same mismatch, each with its walk copy: 1 equal to the latch read, 2 differs
-      auto run = [&](bool derived_equal_older, bool updates_in_off_mode, uint64_t& st, uint64_t& mismatch, uint64_t& unchecked, uint64_t only_head_tag = 0, bool head_bad = false, float shift = 0.f, bool apply_shift = true) {   // S103 W1: only_head_tag != 0 = ONE equal derived head at that tag
-        live::WrestlerContributor w;
-        W = &w;
-        w.SetFaultsForTest(g_faults);   // S103 L33F
-        w.SetNoWalk(g_nowalk);          // S103 AUSF
-        if (g_accept != live::WrestlerContributor::kDeltaUnsettled) w.SetAcceptedHeadDelta(g_accept);
-        live::inputs::InputsContributor pc;
-        PC = &pc;
-        pc.SetReader(ReadThunk);
-        pc.SetPalettes([](uint64_t hook, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing) {
-                         std::vector<live::WrestlerContributor::PaletteTarget> t;
-                         if (g_slot) {
-                           live::WrestlerContributor::SlotTable st;
-                           st.skels.push_back({kM0, 0});
-                           st.state[0] = live::WrestlerContributor::kSlotOccupied;
-                           W->LatchTargets(hook, &st, t, missing);
-                         } else {
-                           W->LatchTargets(hook, t, missing);
-                         }
-                         out.clear();
-                         for (const auto& x : t) out.push_back({x.skel, x.count});
-                       },
-                       [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) { return W->SubmitLatchConsumer(m, n, skin, f); });
-        std::vector<Mat4> good(kCount), bad(kCount);
-        for (size_t i = 0; i < kCount; ++i)
-          for (int j = 0; j < 16; ++j) good[i].m[j] = 100.f * float(i) + float(j) + 0.25f, bad[i].m[j] = 7.f;
-        uint64_t pre_mm = 0, pre_sub = 0;
-        if (!g_pre.empty()) {   // S103 L33F review F3: the walked latches (hooks 999, 1000, ...) that give (or take back) this body's evidence
-          g_mode = 2;
-          for (size_t k = 0; k < g_pre.size(); ++k) {
-            const uint64_t ph = 999 + k;
-            w.SubmitSkin(kM0, 0, kCount, bad.data(), ph);   // the derived head of that hook: garbage (the mismatch)
-            w.SubmitConsumer(kM0, kCount, (g_pre[k] == 1 ? good : bad).data(), ph + live::WrestlerContributor::kPaletteLead);
-            pc.LatchPalettes(ph + 1);
-          }
-          pre_mm = w.DerivedMismatch(), pre_sub = w.MismatchSubmitted();
-        }
-        ResetStamps();
-        g_mode = updates_in_off_mode ? 0 : 2;   // F7: in mode Off the update hook keeps no derived head
-        if (only_head_tag) {
-          std::vector<Mat4> head = head_bad ? bad : good;   // S103 W1: shift != 0 = the update-exit palette is BEFORE a sub_82BD3620 shift of (shift, shift, shift) the latch read already has
-          for (Mat4& m : head) m.m[12] -= shift, m.m[13] -= shift, m.m[14] -= shift;
-          w.SubmitSkin(kM0, 0, kCount, head.data(), only_head_tag);
-          if (shift != 0.f && apply_shift) w.ApplyDelta(kM0, shift, shift, shift);   // the existing wwe2k14_skel_shift hook
-        } else if (derived_equal_older) {
-          w.SubmitSkin(kM0, 0, kCount, good.data(), 1000);   // three frames back: equal
-          w.SubmitSkin(kM0, 0, kCount, bad.data(), 1001);    // the newer derived palettes: garbage
-          w.SubmitSkin(kM0, 0, kCount, bad.data(), 1002);
-        } else {
-          w.SubmitSkin(kM0, 0, kCount, bad.data(), 1002);
-        }
-        g_mode = 2;
-        if (g_walk) w.SubmitConsumer(kM0, kCount, (g_walk == 1 ? good : bad).data(), 1003 + live::WrestlerContributor::kPaletteLead);   // S103 L33F: the walk's own copy of the same content (a walked frame)
-        pc.LatchPalettes(1004);   // hook frame 1003
-        st = rdr_own::S(rdr_own::Pass::Scene3D).input_frame[scene_inputs::kInWrestlerPalette].load();
-        mismatch = w.DerivedMismatch() - pre_mm, unchecked = w.DerivedUnchecked();
-        g_walk_same = w.MismatchWalkSame(), g_walk_differs = w.MismatchWalkDiffers(), g_submitted = w.MismatchSubmitted() - pre_sub, g_no_evidence = w.MismatchNoEvidence(), g_nowalk_sub = w.MismatchSubmittedNoWalk();
-      };
-      {  // S103 HGF (XLB items 3 and 4): the latch reads a spring piece's rows ONCE (LatchPalettes' targets are reused by Take for the param targets); the off-latch fallback take reads no table / piece rows and asks no slot targets
+      {  // S103 HGF (XLB item 3): the latch reads a spring piece's rows ONCE (LatchPalettes' targets are reused by Take for the param targets)
         constexpr uint32_t kCh2 = 0x40800000, kNode = 0x40801000, kComp = 0x40802000, kArr = 0x40803000, kMap = 0x40804000, kModel = 0x70002000, kPalB = 0x40805000, kSk2 = 0x70001000;
         const Guest saved_guest = g_guest;
         rdr_scene::g_spring_hair_rows.store(true);
@@ -2746,7 +3041,7 @@ int main(int argc, char** argv) {
         g_guest.Put(kModel + 200, kPalB);
         for (uint32_t k = 0; k < 16; ++k) g_guest.PutF(kPalB + 64 * 3 + 4 * k, 7.f + float(k));
         static uint32_t slot_calls, table_reads;
-        const auto latch_once = [&](uint32_t faults, uint64_t rec, uint64_t& rows_latch, uint64_t& rows_off, uint32_t& calls_latch, uint32_t& calls_off, uint32_t& tbl_latch, uint32_t& tbl_off) {
+        const auto latch_once = [&](uint32_t faults, uint64_t rec, uint64_t& rows_latch, uint32_t& calls_latch, uint32_t& tbl_latch) {
           live::inputs::InputsContributor pc;
           pc.SetReader([](uint32_t a, void* d, size_t n) { if (a == live::lightlatch::kCharSlotTable) ++table_reads; for (size_t i = 0; i < n; i += 4) if (!g_guest.Read(a + uint32_t(i), static_cast<uint8_t*>(d) + i, n - i < 4 ? n - i : 4)) std::memset(static_cast<uint8_t*>(d) + i, 0, n - i < 4 ? n - i : 4); return true; });   // S108 RDS: word by word (an unset word reads 0, its set neighbours keep their bytes: a block read of one object must see what the field reads saw)   // an unset guest word reads 0 (like wrestler_emit's fake)
           pc.SetPieceNodeCount([](uint32_t) { return 11u; });
@@ -2767,128 +3062,78 @@ int main(int argc, char** argv) {
           fi.guest_frame = rec;
           pc.Latch(fi);
           rows_latch = scene_inputs::g_piece_rows_reads.load() - r0, calls_latch = slot_calls, tbl_latch = table_reads;
-          slot_calls = table_reads = 0;
-          const uint64_t r1 = scene_inputs::g_piece_rows_reads.load();
-          FrameInfo other;
-          other.guest_frame = rec + 5;   // never latched: Emit takes the off-latch fallback
-          SceneTables t;
-          Counters c;
-          pc.Emit(other, t, c);
-          pc.LatchPalettes(rec + 9, false);   // review 2: the Wrestlers emit fallback's pre-latch, off the latch thread: palettes only (no slot table, no piece rows, no LatchTargets(slots))
-          rows_off = scene_inputs::g_piece_rows_reads.load() - r1, calls_off = slot_calls, tbl_off = table_reads;
         };
-        uint64_t rl = 0, ro = 0;
-        uint32_t cl = 0, co = 0, tl = 0, to = 0;
-        latch_once(0, 500, rl, ro, cl, co, tl, to);
+        uint64_t rl = 0;
+        uint32_t cl = 0, tl = 0;
+        latch_once(0, 500, rl, cl, tl);
         Check(rl == 1 && cl == 1, "hgf.latch_reads_each_piece_once", "ReadPieceRows " + std::to_string((unsigned long long)rl) + " slot-target calls " + std::to_string(cl) + " (table reads " + std::to_string(tl) + ")");
-        Check(ro == 0 && co == 0, "hgf.off_latch_take_and_prelatch_read_no_pieces", "ReadPieceRows " + std::to_string((unsigned long long)ro) + " slot-target calls " + std::to_string(co) + " (table reads " + std::to_string(to) + ")");
-        latch_once(live::inputs::InputsContributor::kHgfNoTargetReuse, 510, rl, ro, cl, co, tl, to);   // planted twin: the old double read
+        latch_once(live::inputs::InputsContributor::kHgfNoTargetReuse, 510, rl, cl, tl);   // planted twin: the old double read
         Check(rl == 2 && cl == 2, "hgf.twin_double_read_is_seen", "ReadPieceRows " + std::to_string((unsigned long long)rl) + " (the old rule reads twice: the first check above is what stops it)");
-        latch_once(live::inputs::InputsContributor::kHgfOffLatchReads, 520, rl, ro, cl, co, tl, to);   // planted twin: the old fallback re-read
-        Check(ro == 2 && co == 2, "hgf.twin_off_latch_read_is_seen", "ReadPieceRows " + std::to_string((unsigned long long)ro) + " slot-target calls " + std::to_string(co) + " (the old fallback, Take and the pre-latch, reads and replaces the piece state: the second check above is what stops it)");
         g_guest = saved_guest;
       }
-      uint64_t st = 0, mm = 0, un = 0;
-      run(false, Plant("a3_no_derived_head"), st, mm, un);   // the planted fault: the update hook's heads never got made, so the mismatch cannot be seen
-      Check(st != 1003 && mm == 1, "a3.palette_derived_mismatch_withholds", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      if (!Plant("a3_no_derived_head")) {   // F7: updates seen in mode Off leave no head: nothing is compared (unchecked), no false mismatch
-        run(false, true, st, mm, un);
-        Check(mm == 0 && un == 1, "a3.derived_head_off_mode", "mismatch " + std::to_string((unsigned long long)mm) + " unchecked " + std::to_string((unsigned long long)un));
-      }
-      run(true, false, st, mm, un);   // the older head (frame 1000, 3 hook frames back = outside the window of 4?) kConsumerFresh = 4: matched through the ring
-      Check(mm == 0 && st == 1003, "a3.palette_derived_older_head_matches", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      g_accept = 1;   // review must 7: the mirror run settled delta +1; the equal head is at delta 3, so it no longer passes
-      run(true, false, st, mm, un);
-      Check(st != 1003 && mm == 1, "a3.palette_accepted_delta_only", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      g_accept = 3;
-      run(true, false, st, mm, un);
-      Check(st == 1003 && mm == 0, "a3.palette_accepted_delta_matches");
-      // S103 W1: the shipped value (inputs_glue.h): the latch at hook H reads the content tagged H + kPaletteLead, so its equal derived head sits at H - head = -kPaletteLead (run 20 measured -1). The latch's own
-      // tagging (hook + lead) leaves this delta alone: the guard compares the PARAM hook with the update hook's tag.
-      const int64_t lead = int64_t(live::WrestlerContributor::kPaletteLead);
-      g_accept = -lead;
-      run(true, false, st, mm, un, 1003 + uint64_t(lead));   // the equal head at the accepted delta: compared, matched
-      Check(mm == 0 && un == 0 && st == 1003, "w1.guard_accepts_minus_lead_head", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm) + " unchecked " + std::to_string((unsigned long long)un));
-      run(true, false, st, mm, un, 1003 + uint64_t(lead), true);   // a GARBAGE head at the accepted delta: the guard sees it and withholds the stamp
-      Check(st != 1003 && mm == 1, "w1.guard_catches_bad_head", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      run(true, false, st, mm, un, 1003, true);   // a stale head (tag = hook, delta 0), garbage: refused as evidence (not compared, counted unchecked): it cannot withhold a good frame
-      Check(mm == 0 && un == 1, "w1.guard_ignores_stale_head", "mismatch " + std::to_string((unsigned long long)mm) + " unchecked " + std::to_string((unsigned long long)un));
-      // S103 W1 (option a): a sub_82BD3620 shift after the update exit. The latch read (the guest block) already has it; the derived head gets it from ApplyDelta (the wwe2k14_skel_shift hook).
-      run(true, false, st, mm, un, 1003 + uint64_t(lead), false, 12.5f, true);
-      Check(mm == 0 && un == 0 && st == 1003, "w1.shifted_frame_passes_with_delta", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      run(true, false, st, mm, un, 1003 + uint64_t(lead), false, 12.5f, false);   // planted twin: the old guard (no delta on the head) refuses the same good frame
-      Check(st != 1003 && mm == 1, "w1.twin_shifted_frame_without_delta_refused", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      // a stale latch read (the guest block holds the palette of frame j - 5) against the fresh derived head still withholds; the delta cannot launder it
-      run(true, false, st, mm, un, 1003 + uint64_t(lead), true, 12.5f, true);
-      Check(st != 1003 && mm == 1, "w1.stale_latch_palette_withheld_after_delta", "stamp " + std::to_string((unsigned long long)st) + " mismatch " + std::to_string((unsigned long long)mm));
-      run(true, false, st, mm, un, 1003 + uint64_t(lead) - 5, false);   // the head of frame j - 5 is not accepted as evidence (delta -1 only): unchecked, never a pass by itself
-      Check(mm == 0 && un == 1, "w1.head_j_minus_5_is_not_evidence", "mismatch " + std::to_string((unsigned long long)mm) + " unchecked " + std::to_string((unsigned long long)un));
-      g_accept = lead;   // planted twin: the sign taken the other way round never sees the real head's garbage
-      run(true, false, st, mm, un, 1003 + uint64_t(lead), true);
-      Check(mm == 0 && un == 1, "w1.twin_wrong_sign_misses_bad_head", "mismatch " + std::to_string((unsigned long long)mm) + " unchecked " + std::to_string((unsigned long long)un));
-      g_accept = live::WrestlerContributor::kDeltaUnsettled;
-      {   // S103 L33F (run 32: kDerivedMismatch for both wrestlers every match frame, all walked): the shipped rule. A garbage derived head at 1002, the guest block = the good palette.
-        const auto S = [](uint64_t v) { return std::to_string((unsigned long long)v); };
-        g_faults = Plant("l33_strict_derived") ? live::WrestlerContributor::kFaultStrictDerived : 0u;   // the twin: the old strict rule
-        g_walk = 1;   // a walked frame whose walk copy equals the latch read: accepted, stamped, the mismatch counted
-        run(false, false, st, mm, un);
-        Check(st == 1003 && mm == 1 && g_walk_same == 1 && g_submitted == 0, "l33.mismatch_walk_equal_accepted", "stamp " + S(st) + " mismatch " + S(mm) + " walk_same " + S(g_walk_same));
-        g_walk = 0;   // an OURS frame (no walk copy), a body the character table holds, AND an earlier walked frame showed its latch read equal to the walk copy under the mismatch: submitted, stamped, census only
-        g_slot = true;
-        g_pre = {1};
-        run(false, false, st, mm, un);
-        Check(st == 1003 && mm == 1 && g_submitted == 1, "l33.mismatch_ours_submitted_counted", "stamp " + S(st) + " mismatch " + S(mm) + " submitted " + S(g_submitted));
-        g_pre.clear();   // review F3: no such walked frame yet (no evidence for this body): refused
-        if (Plant("l33_no_evidence")) g_faults |= live::WrestlerContributor::kFaultNoMismatchEvidence;   // the twin: submit without the evidence
-        run(false, false, st, mm, un);
-        Check(st != 1003 && mm == 1 && g_submitted == 0 && g_no_evidence == 1, "l33.mismatch_ours_no_evidence_refused", "stamp " + S(st) + " submitted " + S(g_submitted) + " no_evidence " + S(g_no_evidence));
-        g_faults &= ~live::WrestlerContributor::kFaultNoMismatchEvidence;
-        g_pre = {1, 2};   // the evidence, then a walked frame whose walk copy DIFFERS: the flag is cleared, the OURS read is refused
-        run(false, false, st, mm, un);
-        Check(st != 1003 && mm == 1 && g_submitted == 0, "l33.mismatch_evidence_cleared_by_differs", "stamp " + S(st) + " submitted " + S(g_submitted));
-        g_pre = {1};
-        g_slot = false;   // the evidence, but no character table behind the target (hook-liveness only: e.g. a body that left the table): refused, fail closed (the l31b.left_table case)
-        run(false, false, st, mm, un);
-        Check(st != 1003 && mm == 1 && g_submitted == 0, "l33.mismatch_ours_not_in_table_refused", "stamp " + S(st) + " submitted " + S(g_submitted));
-        g_pre.clear();
-        g_slot = true;
-        g_faults = 0;
-        g_walk = 2;   // the walk copy differs too: both references disagree with the latch read: withheld
-        run(false, false, st, mm, un);
-        Check(st != 1003 && mm == 1 && g_walk_differs == 1, "l33.mismatch_walk_differs_withheld", "stamp " + S(st) + " walk_differs " + S(g_walk_differs));
-        g_faults = live::WrestlerContributor::kFaultStrictDerived;   // the strict rule itself, run on purpose: it rejects both accepted cases above
-        g_walk = 1;
-        run(false, false, st, mm, un);
-        const bool strict_walk = st != 1003;
-        g_walk = 0;
-        run(false, false, st, mm, un);
-        Check(strict_walk && st != 1003 && mm == 1, "l33.strict_rule_rejects_both", "stamp " + S(st));
-        // S103 AUSF (AUS2 fix 1): the stream-free build (no walk, so no walk evidence EVER). A mismatch with no walk copy for a body the table holds is SUBMITTED (the draw's own source), counted apart; a body not in
-        // the table is still refused. Twin ausf_refuse = today's refusal in that build ("l33_ausf.nowalk_mismatch_submitted" fails: the body leaves the record). The stream build (g_nowalk false) is the l33.* above, unchanged.
-        g_nowalk = true;
-        g_walk = 0;
-        g_pre.clear();
-        g_slot = true;
-        g_faults = Plant("ausf_refuse") ? live::WrestlerContributor::kFaultNoWalkRefuse : 0u;
-        run(false, false, st, mm, un);
-        Check(st == 1003 && mm == 1 && g_nowalk_sub == 1 && g_no_evidence == 0 && g_submitted == 0, "l33_ausf.nowalk_mismatch_submitted", "stamp " + S(st) + " nowalk_submitted " + S(g_nowalk_sub) + " no_evidence " + S(g_no_evidence));
-        g_slot = false;   // not held by the table: refused even with no walk (fail closed)
-        run(false, false, st, mm, un);
-        Check(st != 1003 && g_nowalk_sub == 0, "l33_ausf.nowalk_not_in_table_refused", "stamp " + S(st) + " nowalk_submitted " + S(g_nowalk_sub));
-        g_slot = true;   // review 1: the same read made OFF the latch thread: refused
-        g_faults = Plant("ausf_offlatch") ? live::WrestlerContributor::kFaultHoldOffLatch : 0u;
-        live::WrestlerContributor::SetOffLatchThread(true);
-        run(false, false, st, mm, un);
-        live::WrestlerContributor::SetOffLatchThread(false);
-        Check(st != 1003 && g_nowalk_sub == 0 && g_no_evidence == 1, "l33_ausf.offlatch_mismatch_refused", "stamp " + S(st) + " nowalk_submitted " + S(g_nowalk_sub) + " no_evidence " + S(g_no_evidence));
-        g_faults = 0;
-        g_nowalk = false;   // the stream build: the old refusal, unchanged
-        g_faults = 0;
-        g_slot = true;
-        run(false, false, st, mm, un);
-        Check(st != 1003 && g_nowalk_sub == 0 && g_no_evidence == 1, "l33_ausf.stream_build_refusal_unchanged", "stamp " + S(st) + " nowalk_submitted " + S(g_nowalk_sub) + " no_evidence " + S(g_no_evidence));
-        g_slot = false;
-      }
+      static live::WrestlerContributor* W;
+      static bool g_slot = false, g_old_guard = false;
+      static std::vector<Mat4> g_head;   // the update-exit head the old guard compared with
+      struct Got { uint64_t submits = 0, stamp = 0; float bone0 = -1.f; };
+      const auto run = [&](bool slot, bool nowalk, bool old_guard) {
+        Got g;
+        live::WrestlerContributor w;
+        W = &w;
+        w.SetNoWalk(nowalk);
+        g_slot = slot, g_old_guard = old_guard;
+        live::inputs::InputsContributor pc;
+        pc.SetReader(ReadThunk);
+        pc.SetPalettes([](uint64_t hook, std::vector<live::inputs::InputsContributor::PaletteTarget>& out, uint32_t& missing) {
+                         std::vector<live::WrestlerContributor::PaletteTarget> t;
+                         if (g_slot) {
+                           live::WrestlerContributor::SlotTable st;
+                           st.skels.push_back({kM0, 0});
+                           st.state[0] = live::WrestlerContributor::kSlotOccupied;
+                           W->LatchTargets(hook, &st, t, missing);
+                         } else {
+                           W->LatchTargets(hook, t, missing);   // no table holds it: a hook-alive body (the referee, a manager, an entrance model), the old guard's mismatch_not_present population
+                         }
+                         out.clear();
+                         for (const auto& x : t) out.push_back({x.skel, x.count});
+                       },
+                       [](uint32_t m, uint32_t n, const Mat4* skin, uint64_t f) {
+                         if (g_old_guard && !g_slot) {   // the planted twin, made here (no fault bit in the contributor): the old rule, a read unlike the update-exit head of a body no table holds is refused
+                           bool same = n >= g_head.size();
+                           for (size_t i = 0; same && i < g_head.size(); ++i)
+                             for (int j = 0; j < 16; ++j) same = same && std::fabs(skin[i].m[j] - g_head[i].m[j]) <= 1e-3f;
+                           if (!same) return 3;
+                         }
+                         return W->SubmitLatchConsumer(m, n, skin, f);
+                       });
+        std::vector<Mat4> head(kCount);
+        for (Mat4& hm : head)
+          for (int j = 0; j < 16; ++j) hm.m[j] = 7.f;   // the update-exit head: CHIK / the shifts rewrote +200 after it, so the parked guest block (the good palette) differs from it
+        g_head = head;
+        ResetStamps();
+        g_mode = 2;
+        w.SubmitSkin(kM0, slot ? 0 : -1, kCount, head.data(), 1002);
+        pc.LatchPalettes(1004);   // hook frame 1003: reads the guest block
+        g.stamp = rdr_own::S(rdr_own::Pass::Scene3D).input_frame[scene_inputs::kInWrestlerPalette].load();
+        g.submits = w.ConsumerSubmits();
+        FrameInfo fi;
+        fi.guest_frame = 1005;   // record 1005 takes the newest tag <= 1004: this latch's read (hook 1003 + kPaletteLead)
+        w.Latch(fi);
+        SceneTables t;
+        Counters c;
+        w.Emit(fi, t, c);
+        for (size_t k = 0; k < t.objects.size(); ++k)
+          if (t.engine_objects.size() > k && t.engine_objects[k] == kM0 && t.objects[k].bones_count) g.bone0 = t.bones[t.objects[k].bones_first].m[0];
+        return g;
+      };
+      const auto S = [](uint64_t v) { return std::to_string((unsigned long long)v); };
+      const auto ok = [](const Got& g) { return g.submits == 1 && g.stamp == 1003 && Near(g.bone0, 0.25f); };
+      const auto why = [&](const Got& g) { return "submits " + S(g.submits) + " stamp " + S(g.stamp) + " bone0 " + std::to_string(g.bone0); };
+      const Got in_table = run(true, true, false);
+      Check(ok(in_table), "headguard.table_body_latch_read_submitted", why(in_table));
+      const Got no_table = run(false, true, Plant("headguard_old"));
+      Check(ok(no_table), "headguard.untabled_body_latch_read_submitted", why(no_table) + " (the old guard refused it, mismatch_not_present: the body was drawn from an older palette)");
+      const Got stream = run(false, false, false);
+      Check(ok(stream), "headguard.stream_build_same_rule", why(stream));
     }
     {   // piece liveness: a piece is fed only while ITS OWNER body is alive (not merely while some body is)
       live::WrestlerContributor w;
@@ -3194,6 +3439,156 @@ int main(int argc, char** argv) {
         g_guest = keep3;
     }
 
+    // ---- S111 CUTSTUTTER (docs\research\s111\CUTSTUTTER.md; src\scene_live\latch_period.h): record r takes the camera read at latch r - 1, the latch whose palettes it takes (wrestler_contrib.h PickLimit).
+    // The hand-off of period r (update group 5) is already in the block at latch r, but the walk that drew record r's palettes ran in period r - 1 with that period's block. The real Latch / Emit; forged:
+    // the manager, the engine object and its main block (an ungated pass each period: the live copy +1488 / +1552 equal to the block), the image's degrees -> radians float.
+    {
+        scene_inputs::period::g_plant = Plant("camera_leads") ? 1 : 0;
+        constexpr uint32_t kMgr = 0x40003000, kEng = 0x40005000;
+        const float kDeg = 0.017453292f;
+        Guest keep4 = g_guest;
+        g_guest.Put(scene_inputs::kCamMgrPtr, kMgr);
+        g_guest.Put(0x83929A68u, kEng);
+        g_guest.PutF(0x82004D70u, kDeg);
+        const auto put_shot = [&](float eye_x) {   // one period's hand-off: identity rotation, eye (eye_x, 0, 0), FOV 50, in the manager's first block and the live copy
+            const uint32_t fw = scene_inputs::handed::WordOf(50.f);
+            for (int i = 0; i < 16; ++i) {
+                const float v = (i == 0 || i == 5 || i == 10 || i == 15) ? 1.f : i == 12 ? -eye_x : 0.f;
+                g_guest.PutF(kMgr + 48 + 240 + 4 * i, v), g_guest.PutF(kMgr + 1488 + 4 * i, v);
+            }
+            g_guest.Put(kMgr + 48 + 512, scene_inputs::handed::RadWordOf(fw, scene_inputs::handed::WordOf(kDeg)));
+            g_guest.Put(kMgr + 1552, fw);
+            g_guest.Put(kEng + 256, kMgr + 48);
+        };
+        live::inputs::InputsContributor cp;
+        cp.SetReader(ReadThunk);
+        const auto record_eye = [&](uint64_t frame, float& eye_x) {
+            FrameInfo fi;
+            fi.guest_frame = frame;
+            cp.Latch(fi);
+            SceneTables t;
+            Counters k;
+            cp.Emit(fi, t, k);
+            eye_x = t.camera.eye[0];
+            return t.has_camera;
+        };
+        float e1 = 0, e2 = 0, e3 = 0, e5 = 0;
+        put_shot(100.f);
+        const bool h1 = record_eye(400, e1);   // the first latch: no latch of 399 kept, the record's own read (the boundary)
+        put_shot(500.f);                        // a cut: the hand-off of period 401 is the new shot
+        const bool h2 = record_eye(401, e2);    // record 401 takes latch 400's camera: the old shot, with latch 400's palettes
+        put_shot(510.f);
+        const bool h3 = record_eye(402, e3);    // record 402: latch 401's camera, the new shot
+        put_shot(900.f);
+        const bool h5 = record_eye(404, e5);    // after a skipped latch (403): no latch of 403 kept, the record's own read
+        Check(h1 && h2 && h3 && h5 && Near(e1, 100.f) && Near(e2, 100.f) && Near(e3, 500.f) && Near(e5, 900.f), "period.record_takes_previous_latch_camera",
+              "record eyes 400 " + std::to_string(e1) + " 401 " + std::to_string(e2) + " 402 " + std::to_string(e3) + " 404 " + std::to_string(e5) + " (want 100 100 500 900)");
+        scene_inputs::period::g_plant = 0;
+        g_guest = keep4;
+    }
+
+    // ---- S111 CUTREACH (docs\research\s111\CUTREACH.md): record r carries the model run-time rows (MdlAlpha, [model+252]) read at latch r - 1, the latch whose palettes it takes; the parameter overrides
+    // ride the same pick (Frame::ModelClass). The real Latch / Emit over latches 400, 401, 402 and 404 (after a skipped 403: the record's own read).
+    {
+        scene_inputs::period::g_plant = Plant("model_rows_lead") ? 1 : 0;
+        const Guest keep5 = g_guest;
+        live::inputs::InputsContributor cm;
+        cm.SetReader(ReadThunk);
+        cm.SetModels(ModelsThunk);
+        const auto record_alpha = [&](uint64_t frame, float& alpha) {
+            FrameInfo fi;
+            fi.guest_frame = frame;
+            cm.Latch(fi);
+            SceneTables t;
+            Counters k;
+            cm.Emit(fi, t, k);
+            for (const ModelRuntimeRow& r : t.model_runtime)
+                if (r.object == kM1) { alpha = r.alpha; return true; }
+            return false;
+        };
+        float a1 = 0, a2 = 0, a3 = 0, a5 = 0;
+        g_guest.PutF(kM1 + scene_inputs::kModelAlphaOff, 0.25f);
+        const bool h1 = record_alpha(400, a1);   // the first latch: the record's own read
+        g_guest.PutF(kM1 + scene_inputs::kModelAlphaOff, 0.5f);
+        const bool h2 = record_alpha(401, a2);   // record 401: latch 400's alpha
+        g_guest.PutF(kM1 + scene_inputs::kModelAlphaOff, 0.75f);
+        const bool h3 = record_alpha(402, a3);   // record 402: latch 401's alpha
+        g_guest.PutF(kM1 + scene_inputs::kModelAlphaOff, 1.0f);
+        const bool h5 = record_alpha(404, a5);   // after a skipped latch: the record's own read
+        Check(h1 && h2 && h3 && h5 && Near(a1, 0.25f) && Near(a2, 0.25f) && Near(a3, 0.5f) && Near(a5, 1.0f), "cutreach.record_takes_previous_latch_model_rows",
+              "alpha 400 " + std::to_string(a1) + " 401 " + std::to_string(a2) + " 402 " + std::to_string(a3) + " 404 " + std::to_string(a5) + " (want 0.25 0.25 0.5 1)");
+        scene_inputs::period::g_plant = 0;
+        g_guest = keep5;
+    }
+
+    // ---- S111 CUTREACH2 (docs\research\s111\CUTREACH2.md): record r carries the props light read at latch r - 1 (the fit task sub_827E8158, group 24, fits light 1 before the walk whose colour calls land in
+    // stream r). A forged shadow module (light-1 record words, props_light_read.h); the real Latch / Emit over latches 700, 701, 702 and 704 (after a skipped 703: the record's own read).
+    {
+        scene_inputs::period::g_plant = Plant("props_light_leads") ? 1 : 0;
+        const Guest keep6 = g_guest;
+        constexpr uint32_t kPm = 0x40060000;   // the forged module
+        g_guest.Put(scene_inputs::kPropsModulePtr, kPm);
+        for (uint32_t o = 192; o <= 260; o += 4) g_guest.PutF(kPm + o, 1.0f);
+        g_guest.PutF(kPm + 2304, 5000.f);   // far (R+1112)
+        g_guest.PutF(kPm + 2308, 10.f);     // near (R+1108): far > near, a depth range
+        g_guest.PutF(scene_inputs::kPropsZeroWord, 0.f);
+        g_guest.PutF(scene_inputs::kPropsOneWord, 1.f);
+        for (uint32_t i = 0; i < 16; ++i) g_guest.PutF(kPm + rdr_scene::kPropsVpOff + 4 * i, 0.f);
+        const uint32_t w3 = kPm + rdr_scene::kPropsVpOff + 12;   // vp_row3[0] = m[3]
+        live::inputs::InputsContributor cp;
+        cp.SetReader(ReadThunk);
+        const auto record_vp = [&](uint64_t frame, float& v) {
+            FrameInfo fi;
+            fi.guest_frame = frame;
+            cp.Latch(fi);
+            SceneTables t;
+            Counters k;
+            cp.Emit(fi, t, k);
+            for (const PropsLight& p : t.props_light)
+                if ((p.flags & kPlHaveVp) != 0) { v = p.vp_row3[0]; return true; }
+            return false;
+        };
+        float v1 = 0, v2 = 0, v3 = 0, v5 = 0;
+        g_guest.PutF(w3, 0.25f);
+        const bool h1 = record_vp(700, v1);   // the first latch: the record's own read
+        g_guest.PutF(w3, 0.5f);               // the light moves in period 701
+        const bool h2 = record_vp(701, v2);   // record 701: latch 700's light
+        g_guest.PutF(w3, 0.75f);
+        const bool h3 = record_vp(702, v3);   // record 702: latch 701's light
+        g_guest.PutF(w3, 1.0f);
+        const bool h5 = record_vp(704, v5);   // after a skipped latch: the record's own read
+        Check(h1 && h2 && h3 && h5 && Near(v1, 0.25f) && Near(v2, 0.25f) && Near(v3, 0.5f) && Near(v5, 1.0f), "cutreach2.record_takes_previous_latch_props_light",
+              "vp_row3[0] 700 " + std::to_string(v1) + " 701 " + std::to_string(v2) + " 702 " + std::to_string(v3) + " 704 " + std::to_string(v5) + " (want 0.25 0.25 0.5 1)");
+        scene_inputs::period::g_plant = 0;
+        g_guest = keep6;
+    }
+
+    // ---- S111 CUTREACH review: the post node's and the stage page's clock (latch_period.h NodeClock; log only). The buckets on a local clock, then the real Take: record 800's latch (hook 799) buckets the
+    // post node's note at 800 (the particle node's draw-half clock: +1) and the page's at 799 (the model draws' clock: 0), and the census line names both.
+    {
+        namespace pd = scene_inputs::period;
+        pd::NodeClock nc;
+        nc.AtLatch(699);                  // no call yet
+        nc.Note(699), nc.AtLatch(699);    // noted at the latch's hook: 0
+        nc.Note(701), nc.AtLatch(700);    // noted one later: +1
+        nc.AtLatch(702);                  // no call since: before
+        const pd::NodeClock::Counts k = nc.Read();
+        live::inputs::InputsContributor cn;
+        cn.SetReader(ReadThunk);
+        const pd::NodeClock::Counts p0 = pd::g_post_node_clock.Read(), g0 = pd::g_page_node_clock.Read();
+        pd::g_post_node_clock.Note(800), pd::g_page_node_clock.Note(799);
+        FrameInfo fi;
+        fi.guest_frame = 800;
+        cn.Latch(fi);
+        const pd::NodeClock::Counts p1 = pd::g_post_node_clock.Read(), g1 = pd::g_page_node_clock.Read();
+        std::string cen;
+        cn.Census(cen);
+        const bool named = cen.find("post_node_clock: 0 ") != std::string::npos && cen.find("page_node_clock: 0 ") != std::string::npos;
+        Check(k.never == 1 && k.b0 == 1 && k.b1 == 1 && k.before == 1 && k.other == 0 && p1.b1 == p0.b1 + 1 && p1.b0 == p0.b0 && g1.b0 == g0.b0 + 1 && g1.b1 == g0.b1 && named, "cutreach.node_clock_census",
+              "local never/0/+1/before/other " + std::to_string(k.never) + "/" + std::to_string(k.b0) + "/" + std::to_string(k.b1) + "/" + std::to_string(k.before) + "/" + std::to_string(k.other) +
+                  " post +1 " + std::to_string(p1.b1 - p0.b1) + " page 0 " + std::to_string(g1.b0 - g0.b0) + (named ? "" : " (census names missing)"));
+    }
+
     // ---- S103 WC R5 (WNCC_adversary.md R5): the draw thread's camera, read as sub_82BA7748 does: slot = [[[r13]+1048]+32] (0 when [[r13]+1048] is 0), cam = [0x83929A40 + 4 slot], view +240, proj +176
     {
         using live::drawcam::Cam;
@@ -3391,6 +3786,119 @@ int main(int argc, char** argv) {
     float kf[rdr_scene::kLsLightFloats];
     std::memcpy(kf, keyed.block, sizeof kf);
     Check(rdr_scene::LightStateUsable(st) && !rdr_scene::HasKey(st) && rdr_scene::LightStateUsable(kf) && rdr_scene::HasKey(kf), "ce.draw_rule_shared", "LightStateUsable / HasKey (light_install.h)");
+  }
+
+  // ---- S111 DARKDIP (docs\research\s111\DARKDIP.md): a body is lit with the block ITS character's draw node installs (sub_825A3908 +160 / sub_8259FAE8 +100: sub_82620488(char + 3936, 0)), read at
+  // the latch its palette is from. The editor names its new character B in slot 0 at the worker's store (sub_822E7570 +B0) while it still draws the old A until the flip (B's update task off: B's object
+  // is not A's). Latch of hook 98: A in the table. Hook 99: B in the table, A drawn (kept by drawn_slots). Hook 100: the flip, A named hidden. Record 101 is still A and must carry the block record 100
+  // carried (A's); record 102 is B with B's block. Twin darkdip_by_slot = the old read (no kept characters: the table occupant's block for whatever body the slot draws).
+  {
+    namespace wl = rdr_scene::live::wlatch;
+    constexpr uint32_t kChA = 0x40A00000, kChB = 0x40A10000, kSkA = 0x40A20000, kSkB = 0x40A30000;
+    g_guest = Guest{};
+    const auto put_block = [](uint32_t ch, float seed) {
+      for (uint32_t i = 0; i < kLsLightFloats; ++i) g_guest.PutF(ch + live::lightlatch::kCharEmbeddedOff + live::lightlatch::kBlockOffset + 4 * i, seed + float(i) * 0.001f);
+    };
+    const auto block_of = [](float seed) {
+      std::vector<uint32_t> v(kLsLightFloats);
+      for (uint32_t i = 0; i < kLsLightFloats; ++i) {
+        const float f = seed + float(i) * 0.001f;
+        std::memcpy(&v[i], &f, 4);
+      }
+      return v;
+    };
+    const auto table = [](uint32_t slot0) {
+      for (uint32_t s = 0; s < live::lightlatch::kCharSlots; ++s) g_guest.Put(live::lightlatch::kCharSlotTable + 4 * s, s == 0 ? slot0 : 0u);
+    };
+    put_block(kChA, 0.25f), put_block(kChB, 0.75f);
+    g_guest.Put(kChA + live::lightlatch::kCharSkeletonOff, kSkA), g_guest.Put(kChB + live::lightlatch::kCharSkeletonOff, kSkB);
+    LightObjectRow mgr;
+    mgr.kind = kLoManager, mgr.flags = kLoBlockRead;
+    mgr.words[kLmOverrideMode0] = 0xFFFFFFFFu;   // sub_82620488 mode 0: the override word < 0 = the node's own embedded object
+    const std::vector<LightObjectRow> rows = {mgr};
+    wl::Wl w;
+    const bool by_slot = Plant("darkdip_by_slot");
+    uint32_t kept[rdr_scene::wlight::kSlots] = {};
+    table(kChA);
+    w.OnLatch(ReadThunk, rows, 98, by_slot ? nullptr : kept);    // before the store: A in the table
+    table(kChB);
+    kept[0] = kChA;
+    w.OnLatch(ReadThunk, rows, 99, by_slot ? nullptr : kept);    // the build window: B in the table, A drawn
+    kept[0] = 0;
+    w.OnLatch(ReadThunk, rows, 100, by_slot ? nullptr : kept);   // the flip's latch: A named hidden, no longer kept
+    const auto sv_ours = wl::g_ours_fn;
+    const bool sv_on = wl::g_on;
+    wl::g_ours_fn = [](uint64_t) { return true; };   // an OURS frame: the synthesis writes the state
+    wl::g_on = true;
+    const auto state_of = [&w](uint32_t header, uint32_t body, std::vector<uint32_t>& out) {   // record `header`: actor:slot:0 = `body`; the state Apply writes for it
+      SceneTables t;
+      t.header.guest_frame = header;
+      Object o;
+      o.id = uint32_t(t.strings.size()) + 1;
+      t.strings += "actor:slot:0";
+      t.strings.push_back('\0');
+      t.objects.push_back(o);
+      t.engine_objects.push_back(body);
+      w.OnEmit(t);
+      out.clear();
+      for (const LightRef& r : t.light_refs)
+        if (r.object == body && r.state < t.light_states.size()) {
+          const uint32_t* p = reinterpret_cast<const uint32_t*>(t.light_states[r.state].light);
+          out.assign(p, p + kLsLightFloats);
+        }
+      return !out.empty();
+    };
+    std::vector<uint32_t> s100, s101, s102;
+    const bool h100 = state_of(100, kSkA, s100), h101 = state_of(101, kSkA, s101), h102 = state_of(102, kSkB, s102);
+    wl::g_ours_fn = sv_ours, wl::g_on = sv_on;
+    const std::vector<uint32_t> la = block_of(0.25f), lb = block_of(0.75f);
+    Check(h100 && h101 && s100 == la && s101 == s100, "darkdip.kept_body_keeps_its_light",
+          std::string("record 100 A's block ") + std::to_string(int(h100 && s100 == la)) + ", record 101 (B in the table, A drawn) A's block " + std::to_string(int(h101 && s101 == la)) + " B's block " + std::to_string(int(h101 && s101 == lb)));
+    Check(h102 && s102 == lb, "darkdip.new_body_takes_its_light", std::string("record 102 (after the flip) B's block ") + std::to_string(int(h102 && s102 == lb)));
+    BuildGuest();
+  }
+
+  {   // S111 OWNERLESS review: the latch reads the depth-sorted far layer's split (sub_827FC798 draws the characters' DRTR nodes from sorted place [[eHsC + 24] + 56] on, whatever their enable)
+    namespace cdl = scene_inputs::char_draw_list;
+    const Guest keep = g_guest;
+    live::inputs::InputsContributor fc;
+    fc.SetReader(ReadThunk);
+    if (Plant("far_layer_ignored")) fc.SetHgfFaultsForTest(live::inputs::InputsContributor::kHgfFarLayerIgnored);
+    constexpr uint32_t kObj = 0x40780000u, kComp = 0x40780100u, kEff = 0x40780200u;
+    auto far = [&](uint32_t obj, bool split_readable, uint32_t split) {
+      g_guest.Put(cdl::kFarSceneObj, obj);
+      g_guest.Put(kObj + cdl::kFarCompList + 20, kComp);   // the list head's [+20] chain: the component node
+      g_guest.Put(kComp + 4, cdl::kFarLayerTag);
+      g_guest.Put(kComp + cdl::kFarCompObj, kEff);
+      if (split_readable) g_guest.Put(kEff + cdl::kFarSplit, split);
+      else g_guest.words.erase(kEff + cdl::kFarSplit);
+      live::inputs::InputsContributor::SlotTable t;
+      fc.StampFarLayer(t);
+      return t.far_layer;
+    };
+    {   // S111 OWNERLESS review: the DRTR node's own enable, read from the character (sub_822E7008), whatever list the node is in now (the entrance re-key moves it to 43)
+      constexpr uint32_t kCh = 0x40790000u, kDc = 0x40790100u, kNode = 0x40790200u;
+      g_guest.Put(kCh + scene_inputs::kCharCompList + 20, kDc);   // the character's component list: the DRTR component
+      g_guest.Put(kDc + 4, cdl::kDrtrTag);
+      g_guest.Put(kDc + cdl::kDrtrCompNode, kNode);
+      g_guest.Put(kNode + 4, 43);   // re-keyed: category 43 (S111 PROPREKEY), in no list-33 place
+      if (Plant("drtr_by_list")) fc.SetHgfFaultsForTest(live::inputs::InputsContributor::kHgfDrtrByList);
+      g_guest.Put(kNode + cdl::kNodeEnable, 1);
+      Check(fc.DrtrEnableOf(kCh) == 1, "ownerless.drtr_on_read_from_node", "a re-keyed DRTR node (category 43) read enabled from its own +8");
+      g_guest.Put(kNode + cdl::kNodeEnable, 0);
+      const int8_t off = fc.DrtrEnableOf(kCh);
+      g_guest.words.erase(kNode + cdl::kNodeEnable);
+      const int8_t unread = fc.DrtrEnableOf(kCh);
+      g_guest.Put(kDc + 4, 0x12345678u);
+      const int8_t none = fc.DrtrEnableOf(kCh);
+      Check(off == 0 && unread == -1 && none == -1, "ownerless.drtr_off_unread_none", std::string("off ") + std::to_string(off) + ", unread " + std::to_string(unread) + ", no node " + std::to_string(none));
+      fc.SetHgfFaultsForTest(Plant("far_layer_ignored") ? live::inputs::InputsContributor::kHgfFarLayerIgnored : 0u);
+    }
+    Check(far(kObj, true, 3), "ownerless.far_layer_split_set", "a split of 3 (an effect of type 103): the far layer may draw DRTR nodes");
+    Check(!far(kObj, true, 0), "ownerless.far_layer_split_zero", "split 0: the draw skips its character loops");
+    Check(!far(0, true, 3), "ownerless.far_layer_no_scene_object", "[0x837631D4] = 0: no component, no far layer");
+    Check(far(kObj, false, 0), "ownerless.far_layer_unread_fails_closed", "an unreadable split may draw");
+    g_guest = keep;
   }
 
   std::printf("%d checks, %d failed\n", g_checks, g_fail);

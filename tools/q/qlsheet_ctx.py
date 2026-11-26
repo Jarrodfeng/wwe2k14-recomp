@@ -1,38 +1,29 @@
 r"""Context for the listing sheets (S110 LSHEET2), used by qlsheet.py:
 
-  neighbours(uid)            the units that call INTO a unit and the units it calls OUT to (direct edges + OBSERVED indirect pairs), top 6
-                             each way by edge count, each with its newest model reading (system, confidence, purpose cut to 160). A
-                             neighbour whose newest purpose is "unknown" or whose confidence is low is skipped unless fewer than 3 would
-                             remain (then the best of the skipped fill up to 3); a neighbour with no reading at all is never listed.
-  format_neighbours(nb)      the `# NEIGHBOURS` part, one line per neighbour; it says plainly these are earlier readings (leads), not facts.
   pick_connected(uid, n)     the unit's functions by connectivity: (callers inside the unit + callers outside + observed callers), unnamed
                              first, functions under 40 bytes ignored, ties by size; at most n addresses.
 
-Edge count = the number of distinct (calling function, called function) pairs between the two units (a direct pair and an observed pair
-of the same two functions count once). Every source is opened read-only; nothing is written.
+S111 FOLD: the `# NEIGHBOURS` part (the earlier readings of the units around a unit, shown to the reader of the listing sheet) is gone. A
+reading took part of its confidence from those lines, so a confidence in the store was not its own evidence; a sheet now carries only what the
+tools measured.
+
+Edge count = the number of distinct (calling function, called function) pairs. Every source is opened read-only; nothing is written.
 """
 import collections
 import glob
 import json
 import os
-import re
 import sqlite3
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qnames  # noqa: E402
-import qread  # noqa: E402
 import qseen  # noqa: E402
 import qunits  # noqa: E402
 
 SRC = os.path.dirname(os.path.dirname(HERE))
-TOP = 6
-MIN_KEEP = 3
 MIN_BYTES = 40
-PURPOSE_CUT = 160
-LEAD_NOTE = ('# NEIGHBOURS (EARLIER MODEL READINGS of the units around this one: leads, NOT facts; they may be wrong; the sheet and the '
-             'listings above and below are what the tool measured)')
 
 
 def ro(path):
@@ -41,13 +32,12 @@ def ro(path):
 
 
 class Data:
-    """the read-only sources, opened once. A test passes its own connections (index, units, seen, read, names)."""
+    """the read-only sources, opened once. A test passes its own connections (index, units, seen, names)."""
 
-    def __init__(self, ix=None, un=None, seen=None, rd=None, nm=None, dbdir=None):
+    def __init__(self, ix=None, un=None, seen=None, nm=None, dbdir=None):
         self.ix = ix or ro(qnames.INDEX_DB)
         self.un = un or ro(qunits.UNITS_DB)
         self.seen = seen if seen is not None else ro(qseen.SEEN_DB)
-        self.rd = rd if rd is not None else qread.open_ro()
         self.nm = nm if nm is not None else ro(qnames.NAMES_DB)
         self.dbdir = dbdir or os.path.join(SRC, 'db')
         self.fu = dict(self.un.execute('select func,unit_id from units'))
@@ -74,80 +64,6 @@ class Data:
                         s.add(a)
             self._dbnames = s
         return self._dbnames
-
-    def reading(self, uid):
-        """newest answer of a unit: (system, confidence, purpose) or None"""
-        if self.rd is None:
-            return None
-        r = self.rd.execute('select system,confidence,purpose from unit_read where unit_id=? order by id desc limit 1', (uid,)).fetchone()
-        return r
-
-
-def unit_edges(d, uid):
-    """-> (callers {unit: set of (src, dst)}, callees {unit: set of (src, dst)}) over direct + observed pairs"""
-    lo, hi = d.span(uid)
-    ins, outs = collections.defaultdict(set), collections.defaultdict(set)
-    for s, t in d.ix.execute("select src,dst from edges where dst between ? and ? and kind in ('call','tail')", (lo, hi)):
-        u = d.fu.get(s)
-        if u is not None and u != uid and d.fu.get(t) == uid:
-            ins[u].add((s, t))
-    for s, t in d.ix.execute("select src,dst from edges where src between ? and ? and kind in ('call','tail')", (lo, hi)):
-        u = d.fu.get(t)
-        if u is not None and u != uid and d.fu.get(s) == uid:
-            outs[u].add((s, t))
-    for s, t in d.seen.execute('select func,target from seen where target between ? and ?', (lo, hi)):
-        u = d.fu.get(s)
-        if u is not None and u != uid and d.fu.get(t) == uid:
-            ins[u].add((s, t))
-    for s, t in d.seen.execute('select func,target from seen where func between ? and ?', (lo, hi)):
-        u = d.fu.get(t)
-        if u is not None and u != uid and d.fu.get(s) == uid:
-            outs[u].add((s, t))
-    return ins, outs
-
-
-def clean_purpose(p):
-    return re.sub(r'\s+', ' ', p or '').strip()
-
-
-def is_weak(rd):
-    return clean_purpose(rd[2]).lower().startswith('unknown') or (rd[1] or '').lower() == 'low' or not clean_purpose(rd[2])
-
-
-def choose(d, edges):
-    """-> [dict(unit, n, system, confidence, purpose)] top TOP by edge count, weak readings only to fill up to MIN_KEEP"""
-    rows = []
-    for u, pairs in edges.items():
-        rd = d.reading(u)
-        if rd is not None:
-            rows.append((len(pairs), u, rd))
-    rows.sort(key=lambda r: (-r[0], r[1]))
-    good = [r for r in rows if not is_weak(r[2])]
-    if len(good) < MIN_KEEP:
-        good += [r for r in rows if is_weak(r[2])][:MIN_KEEP - len(good)]
-        good.sort(key=lambda r: (-r[0], r[1]))
-    out = []
-    for n, u, (sy, cf, pu) in good[:TOP]:
-        p = clean_purpose(pu)
-        out.append({'unit': u, 'n': n, 'system': sy or '?', 'confidence': cf or '?',
-                    'purpose': p if len(p) <= PURPOSE_CUT else p[:PURPOSE_CUT - 1] + '~'})
-    return out
-
-
-def neighbours(uid, d=None):
-    """-> {'in': [...], 'out': [...]} (see choose)"""
-    d = d or Data()
-    ins, outs = unit_edges(d, uid)
-    return {'in': choose(d, ins), 'out': choose(d, outs)}
-
-
-def format_neighbours(nb):
-    """the `# NEIGHBOURS` part, or '' when the unit has none to show"""
-    lines = []
-    for key, verb in (('in', 'called by'), ('out', 'calls')):
-        for x in nb[key]:
-            lines.append('%s unit %d (x%d) [%s, %s]: %s' % (verb, x['unit'], x['n'], x['system'], x['confidence'], x['purpose']))
-    return (LEAD_NOTE + '\n' + '\n'.join(lines) + '\n') if lines else ''
 
 
 def connectivity(d, uid):

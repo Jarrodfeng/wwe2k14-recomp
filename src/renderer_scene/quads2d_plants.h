@@ -62,6 +62,10 @@ inline int g_plant = 0;
 // 52 seed_off            SeedTargetIfUnseen does nothing (a thread that never ran op 45 / 47 keeps an unknown target: every boot / title / menu row is a hole)   -> [SC SEED]   (sc_unit; PBS)
 // 60 scene_z_ignored    Append with Context::scene_depth takes no depth state from the row (test / write off)                                                        -> [SCS DEPTH]
 // 74 scene_z_flipped    a z-tested scene row's clip z is flipped z' = w - z (the S103 SCS rule: the lens star lands at the near plane and draws over the wrestlers)  -> [SCS DEPTH]   (scs_unit; S110 STARFRONT)
+// 75 scene_by_pass_off  walkcat::SceneByGamePass does nothing: a z-tested lens row the target model put on the frame stays Final (drawn on F, no depth: over the wrestlers)  -> [ZFINAL]   (scs_unit; S111 ZFINAL)
+// 76 scene_end_ignored  walkcat::Walk::SceneEnd does not close the bracket: a z-tested row after the game's op 74 (category 57) is reclassed into the scene  -> [ZFINAL RULE]   (scs_unit; S111 ZFINAL review)
+// 77 scene_pass_two_sites walkcat::SceneByGamePass keeps the old ZFINAL test (z on, the flash / lens sites only): a z-off flash or a glyph inside the bracket stays Final, on F over the post  -> [ZFINAL2]   (scs_unit; S111 ZFINAL2)
+// 78 after_post_in_scene walkcat::AfterGamePost is never true: a row of states 7 / 8's bracket (53..69, after the post node 52) is reclassed into the scene, a scene-colour one stays there (under our post)  -> [ZFINAL2 POST]   (scs_unit; S111 ZFINAL2 review)
 // 65 rectcolor_leaf_hole  T_RectColor (0x82BC4404) is a Leaf2D hole again (the old table: the 30 Years narration caption's dark box never draws)  -> [A8 SITE] / [A8 TAP]   (a8_unit; the S105 A8 past-bug re-find)
 // 66 vcol_alpha_dropped   BlocksOf makes every corner of a T_RectColor row opaque (the 30 / 180 alpha gradient is lost)  -> [A8 BLOCKS]
 // 67 vcol_prim_any      BlocksOf / Quad2DRowProblem accept a T_RectColor row whatever its primitive (the strip too: laid out as a quad list)  -> [A8 PRIM]   (a8_unit; S105 A8 review F1)

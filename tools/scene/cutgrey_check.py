@@ -12,6 +12,8 @@ Builds out\tools\cutgrey_unit.exe (tools\scene\build_cutgrey_unit.ps1: the REAL 
                        flash_file_colour  (the row's colour ignored)                                                    -> [COLOUR]
                        flash_v_flip       (the centre's depth row read upside down)                                     -> [MAP]
                        flash_fetch_row0   (the centre's depth read from row 0)                                          -> [OCC]
+                       flash_pixel_ztest  (S110 FLASHFRONT's per-pixel depth test, the removed margin: rays cut at a body) -> [RAYS]
+  [RAYS] (S111 FLASHGAME): a body over PART of a sprite whose centre is visible: the whole sprite is drawn, over the body too (the game's z test is off)
   [OCC] (S110 FLASHOCC): a REAL opaque draw (an arena quad, and a skinned character quad) between a cutscene camera (viewer space, made as the live record frame makes it) and a flash centre 3600 units out,
   at render scale 1, 1.5 and 2 (scaled targets, the post chain on): the picture equals the one without the flash; the same flash with the body moved aside is drawn. [FACE]: the sprite faces the frame's viewer eye
   [MAP] (review): the top half of the scene depth is nearer; a flash centred in the top half is hidden whole, the same flash centred in the bottom half is drawn
@@ -24,7 +26,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 EXE = os.path.join(ROOT, 'out', 'tools', 'cutgrey_unit.exe')
-TWINS = (('flash_pre_post', '[ORDER]'), ('flash_file_colour', '[COLOUR]'), ('flash_v_flip', '[MAP]'), ('flash_fetch_row0', '[OCC]'), ('flash_no_ztest', '[PIX]'))   # S110 FLASHFRONT: flash_no_ztest
+TWINS = (('flash_pre_post', '[ORDER]'), ('flash_file_colour', '[COLOUR]'), ('flash_v_flip', '[MAP]'), ('flash_fetch_row0', '[OCC]'), ('flash_pixel_ztest', '[RAYS]'))   # S111 FLASHGAME: flash_pixel_ztest
 
 
 def run(cmd, timeout):

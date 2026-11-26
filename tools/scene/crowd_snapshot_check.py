@@ -69,6 +69,8 @@ PLANTS = {
     'single_entity_unchecked': 'latch.single_entity_class',      # review fix 5
     'hand_map_ignored': 'rows.hand_mesh_key',                    # S103 SG: the hand mesh is 40999 + h of its type (sub_8250B1E8), not 41016
     'hand_attire_ignored': 'latch.hand_map',                     # S103 SG: the attire index table sub_82506E30
+    'crowd_leads': 'period.crowd_takes_previous_latch',          # S111 CUTCROWD2: the crowd takes its own latch's snapshot, one period ahead of the record camera
+    'crowd_pairs_off': 'period.mode_switch_pairs_with_camera',   # S111 CUTCROWD2 review: a mode-Off latch feeds the crowd's pairing (the camera's only with the mode on)
 }
 
 
@@ -122,7 +124,7 @@ def main():
         ('src/scene_live/crowd_hooks.h', 'NoteOursSkip(node', 'the skipped crowd entry says so (the latch then reads the manager)'),
         ('src/scene_live/scene_skip_nodes.h', 'stands_pass', 'the classifier is served only under the entry gates (review item 1)'),
         ('src/scene_live/crowd_hooks.h', 'NoteUnobserved()', 'floor people the observer is off for are counted unread (review F1)'),
-        ('src/scene_live/crowd_contrib.cpp', 'NoteVerdict(snap_verdict_, f.guest_frame)', 'the stamp is made at the latch (review F2)'),
+        ('src/scene_live/crowd_contrib.cpp', 'NoteVerdict(l.judged, f.guest_frame, &l.presence)', 'the stamp is made at the latch (review F2), with the carried snapshot\'s verdict (S111 CUTCROWD2)'),
         ('src/renderer_scene/live_scene.cpp', 'LatchImpl(guest_frame, capture_frame, /*allow_defer=*/false', 'EndFrame takes the tail latch route (S103 D7)'),
         ('src/scene_live/inputs_core.h','{kInCrowdSnapshot, "crowd_snapshot", 2, true,', 'bit 10 is flagged moved (its stamp lives in its owner)'),
     ]

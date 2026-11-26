@@ -31,12 +31,14 @@
 #include "../renderer_scene/stage_census.h"   // S103 CPU1
 #include "../scene_live/movie_planes.h"
 #include "host_core.h"
+#include "black_spans.h"   // S111 BLACKFRAME: the runs of black frames, with the branch and the input (one line per run)
 #include "scene_rules.h"   // S103 RBC fix2: the scene read-back rules (freshness, shot priority, retries)
 #include "host_planes.h"
 #include "portrait_mailbox.h"   // S103 CPB
 #include "../renderer_game/scene_kind.h"   // S105 A4: WalkGate
 #include "refused_row_note.h"   // S105 A4 piece 3
 #include "../renderer_game/caw_portrait_core.h"
+#include "../cut_shot.h"   // S111 SHOTDIET review: CutLatch (std only, like this header)
 
 namespace wwe2k14::scene_host {
 
@@ -213,6 +215,7 @@ class SceneHost {
   void MakeF(uint32_t w, uint32_t h);
   // lane SHOT (host thread): QueueShot = the readback joins the frame about to be rendered; PollShot = a finished one is published; ServeShotSync = the drain, only when no frame is coming
   void QueueShot(uint64_t guest_frame);
+  void QueueCutShot(uint64_t guest_frame);   // S111 SHOTDIET (host thread): while screenshot_on_cut is on (cut_shot.h g_watch), this drawn tick's picture is read back too (one copy in flight; a tick that finds one still in flight is counted cut_watch_skipped_)
   void QueueRecordSave(uint64_t host_frame, const Msg& m, bool drew);   // S108 SHOT-A (host thread): see RequestRecordSave
   void FinishRecordSave();                                                // S108 SHOT-A (host thread): every image read back (or refused): the writer thread takes the job
   void ExpireRecordRequests();                                            // S108 SHOT review (host thread): requests older than 10 s answered NOT saved (idle poll and every Handle)
@@ -283,6 +286,7 @@ class SceneHost {
   std::string last_why_;
   mutable std::mutex why_mu_;
   std::atomic<uint8_t> last_source_{uint8_t(Source::Black)}, last_reason_{0};
+  BlackSpans black_spans_;   // S111 BLACKFRAME (host thread only; LogFinal runs after the thread stopped or on it)
   bool stopped_ = false;
   // H2
   std::atomic<bool> hide_hud_{false};
@@ -290,7 +294,7 @@ class SceneHost {
   bool q2d_registered_ = false;
   // S103 SCS: the scene hook's last report (the host thread writes it while DrawLive records, DrawRows reads it after): the guest frame it drew, the rows it was given, the drawer's report
   rdr_scene::q2d::Report scene2d_rep_;
-  uint64_t scene2d_frame_ = uint64_t(-1), scene2d_rows_ = 0, scene2d_early_ = 0;   // (scene2d_early_: the early rows of that report, counted when it is consumed)
+  uint64_t scene2d_frame_ = uint64_t(-1), scene2d_rows_ = 0, scene2d_early_ = 0, scene2d_j_ = 0;   // (scene2d_early_: the early rows of that report, counted when it is consumed; S111 ZFINAL2: scene2d_j_ = the record index DrawLive draws, for the hook's movie planes)
   std::unique_ptr<rdr_scene::live::movieplanes::PlaneImages<PlaneSink>> plane_images_;   // destroyed before the renderer
   // The tween (host thread only): the previous drawn tick's keys / ranges / constants, its camera, the scene class and the size it was drawn at.
   rdr::TickBlender tween_;
@@ -328,6 +332,11 @@ class SceneHost {
   uint64_t shot_tag_ = 0, shot_inflight_covers_ = 0, shot_inflight_frame_ = 0;
   std::array<uint8_t, 1024> shot_inflight_curve_{};
   bool shot_inflight_curve_set_ = false;
+  // S111 SHOTDIET (host thread only): the camera cut watch. cur_cut_ = this tick's camera jumped (CameraJumped against the previous tick that had a camera); shot_inflight_cut_ = the copy in flight is of such a tick.
+  TweenCam cut_cam_;
+  bool cur_cut_ = false, shot_inflight_cut_ = false;
+  uint64_t cut_watch_skipped_ = 0;
+  cut_shot::CutLatch cut_latch_;   // S111 SHOTDIET review: the cut of a tick that was not read back (a copy still in flight), carried to the next tick that is
   // S108 SHOT-A: the record-save requests (rec_mu_) and the one save in flight (host thread only). rec_active_ = a request waits for a drawn frame, or a save's read-backs are in flight.
   struct RecJob {
     std::vector<std::string> paths;

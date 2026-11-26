@@ -12,7 +12,7 @@ run, label = sys.argv[1], sys.argv[2]
 cols = int(sys.argv[3]) if len(sys.argv) > 3 else 6
 w = int(sys.argv[4]) if len(sys.argv) > 4 else 320
 root = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
-files = sorted(f for ext in ('png', 'bmp')
+files = sorted(f for ext in ('webp', 'png', 'bmp')   # S111 SHOTDIET review: WebP is the default format
                for f in glob.glob(os.path.join(root, 'out/build/win-amd64-release/captures', f'{run}_{label}_*.{ext}')))
 if not files:
     sys.exit('no screenshots')

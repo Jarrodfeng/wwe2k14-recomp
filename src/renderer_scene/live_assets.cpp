@@ -36,15 +36,19 @@
 #include "../assets/attire_remap.h"       // S103 ARM: the game's attire remap (pac\misc01_Start.pac p0/600)
 #include "../assets/attire_build.h"       // S103 ARM2: the colours the game painted with (build-step latch); the census counts
 #include "../assets/change_mask.h"        // S108 THR2: the `/m` tag, the Threads editor's masks as model textures
+#include "../assets/belt_mask.h"          // S111 STOCKBELT / BELTMASKNAME: the stock belts R5 masks (pac\cab\CAB.pac, by blocks)
+#include "../scene_live/belt_colour.h"   // S111 BELTMASKNAME: the mask name (ParseMaskEntry, MaskSection, kMaskPac)
 #include "named_load_fail.h"              // S103 ARM: MarkHole (a failed composite / remapped attire stays a hole)
 #include "../assets/crowd_body.h"
 #include "../assets/particle_sprites.h"   // S103 F5
 #include "../renderer/problem.h"          // S103 BLF: rdr::Log (the run log)
 #include "weapon_draw_core.h"             // S103 BLF: g_evtobj_release
 #include "read_rule.h"                    // S103 D1
+#include "effect_table_build.h"           // S111 OLDCHAIN: read_rule::BuildEffectTable (shared with the Arena Viewer's rdr backend)
 #include "../renderer_adapter/rdr_switches.h"   // S103 WMB: wwe2k14_rdr_borrow_textures (no game or SDK includes)
 #include "wrestler_src.h"                 // S103 DLW: the game's DLC packs for the live loader + the census word
 #include "sampler_table.h"                // S103 B1
+#include "guest_env_cube_load.h"          // S111 GUESTCUBE: chCommon's cubes for created superstars' slot 10
 
 #ifndef XXH_INLINE_ALL
 #define XXH_INLINE_ALL
@@ -57,59 +61,7 @@
 
 namespace rdr_scene {
 
-namespace read_rule {
-// S103 D1: the effect technique table from the player's pac\_startup.pac (the effect-table leaf: tools\shaders\effect_table.py load_all's rule, every top-level entry
-// holding a shader container whose head parses as the table; the first effect of a name wins). Built once per process; a failure leaves the old heuristics in force.
-static void BuildEffectTable(launcher::GameFiles& files) {
-  if (EffectTableNow()) return;
-  static std::mutex build_mu;
-  std::lock_guard<std::mutex> l(build_mu);
-  if (EffectTableNow()) return;
-  assets::pac::Pac p;
-  std::string err;
-  if (!assets::pac::Open(files, "pac\\_startup.pac", p, err)) { std::fprintf(stderr, "[read_rule] no effect table: %s\n", err.c_str()); return; }
-  auto table = std::make_shared<EffectTable>();
-  auto samplers = std::make_shared<sampler_table::Table>();   // S103 B1: the effect passes' sampler state, from the same leaf
-  uint32_t sampler_conflicts = 0;
-  const auto hash = [](const uint8_t* d, size_t n) { return uint64_t(XXH3_64bits(d, n)); };
-  for (const assets::pac::Pach& pach : p.pachs)
-    for (const assets::pac::Ent& e : pach.ents) {
-      const assets::Bytes dec = assets::pac::Decode(p.bytes.data() + e.off, e.size);
-      static const uint8_t kMagic[3] = {0x10, 0x2A, 0x11};
-      if (dec.size() < 16 || std::search(dec.begin(), dec.end(), kMagic, kMagic + 3) == dec.end()) continue;
-      EffectTable part;
-      if (!ParseEffectLeaf(dec.data(), dec.size(), hash, part)) continue;
-      for (auto& kv : part) table->emplace(kv.first, std::move(kv.second));
-      sampler_table::Table sp;
-      if (sampler_table::ParseLeaf(dec.data(), dec.size(), sp, &sampler_conflicts))
-        for (auto& kv : sp) samplers->emplace(kv.first, std::move(kv.second));
-    }
-  if (table->empty()) { std::fprintf(stderr, "[read_rule] pac\\_startup.pac: no effect table parsed\n"); return; }
-  std::fprintf(stderr, "[read_rule] effect technique table: %zu effects from pac\\_startup.pac\n", table->size());
-  size_t with_samplers = 0;
-  for (const auto& kv : *samplers) with_samplers += kv.second.any;
-  std::fprintf(stderr, "[read_rule] sampler table: %zu effects with a sampler block, %u pass disagreements\n", with_samplers, sampler_conflicts);
-  sampler_table::Publish(std::move(samplers));
-  PublishEffectTable(std::move(table));
-  // S105 A5c fix F1: the editor's table, pac\edit\edit.pac leaf p7/0 (tools\shaders\effect_table.py names it "p7/0": top-level PACH 7, entry 0). Its yCh rows are the logo variants (and drop bss / sweat); a CAW material
-  // with a logo takes its row from here. A failure leaves the startup row in force (no logo drawn, as before).
-  assets::pac::Pac ep;
-  std::string eerr;
-  if (!assets::pac::Open(files, "pac\\edit\\edit.pac", ep, eerr)) { rdr::Log("[read_rule] no editor effect table: %s", eerr.c_str()); return; }
-  // S108 THR2: the editors' tables share one reader: top-level PACH `pach`, entry 0 (p7/0 = /EDIT/CSS, the CAW logo rows; p9/0 = /EDIT/STS, the Threads change-colour rows).
-  const auto editor_leaf = [&](size_t pach, const char* what) -> std::shared_ptr<EffectTable> {
-    if (ep.pachs.size() <= pach || ep.pachs[pach].ents.empty()) { rdr::Log("[read_rule] edit.pac: no top-level entry p%zu/0 (%s)", pach, what); return nullptr; }
-    const assets::pac::Ent& le = ep.pachs[pach].ents[0];
-    const assets::Bytes ldec = assets::pac::Decode(ep.bytes.data() + le.off, le.size);
-    auto ltable = std::make_shared<EffectTable>();
-    if (!ParseEffectLeaf(ldec.data(), ldec.size(), hash, *ltable)) { rdr::Log("[read_rule] edit.pac p%zu/0: no effect table parsed (%s)", pach, what); return nullptr; }
-    rdr::Log("[read_rule] editor (%s) effect table: %zu effects from pac\\edit\\edit.pac p%zu/0", what, ltable->size(), pach);
-    return ltable;
-  };
-  if (auto lt = editor_leaf(7, "logo")) PublishLogoEffectTable(std::move(lt));
-  if (auto st = editor_leaf(9, "threads change colour")) PublishStsEffectTable(std::move(st));   // a failure: no body is drawn recoloured (the startup rows, as before)
-}
-}  // namespace read_rule
+// S111 OLDCHAIN: read_rule::BuildEffectTable (the effect technique tables, the loud no-table line) is effect_table_build.h, shared with the Arena Viewer's rdr backend.
 
 struct GameFilesSource::Impl {
   launcher::GameFiles files;
@@ -129,7 +81,11 @@ bool GameFilesSource::SetRoot(const std::string& game_root) {
   rdr_scene::wrestler_src::ApplyOverlays(impl_->files, &impl_->overlay_gen);   // S103 DLW: the packs the game was offered (src\dlc.h), so a DLC wrestler's pac\ch\ch385.pac opens
   ready_ = impl_->files.Exists("pac\\ch") || impl_->files.Exists("default.xex");
   if (ready_) assets::crowd_body::Init(game_root);
-  if (ready_) read_rule::BuildEffectTable(impl_->files);   // S103 D1: the read rule's technique table (once per process)
+  if (ready_) read_rule::BuildEffectTable(impl_->files, [](const std::string& s) { rdr::Log("%s", s.c_str()); });   // S103 D1: the read rule's technique table (once per process); S111 OLDCHAIN: a failure is ONE loud line in the run log, every wrestler draw a counted hole
+  if (ready_) {   // S111 GUESTCUBE: chCommon's CUBEMAP_eyes / CUBEMAP for created superstars' slot 10 (guest_env_cube_load.h; once a process)
+    std::string why;
+    if (!guest_env_cube::LoadAndPublish(impl_->files, why)) rdr::Log("[rdr][caw] guest env cubes not loaded: %s (created superstars' slot 10 stays the black cube)", why.c_str());
+  }
   return ready_;
 }
 
@@ -214,12 +170,14 @@ static void ApplyChangeMasks(launcher::GameFiles& files, const std::string& rel,
 
 // S108 THB (change_mask.h KeepPropMask): an entrance prop whose id has a /SPMT/<id> row in evtobj.pac (the caps, hats, T-shirts and scarf the Threads gear colours recolour) keeps that row's Mask1 as a model texture; every material's
 // change_mask[0] names it. Loader thread, once per distinct entry (the model cache), under the load lock. An id with no SPMT row draws as before (the game does not recolour it either); a mask that cannot be read is said once per id.
+// S111 BELTMASKNAME: a stock belt's R5 mask is NOT baked in here (S111 STOCKBELT kept /CBPM/<id> on every stock belt model, 512 KB each, created title or not): the drawer asks for the ONE mask a created title's
+// block names, by name ("beltmask:<mode>/<id>", the branch at the end of Load; scene_live\belt_colour.h).
 static void ApplyPropMask(launcher::GameFiles& files, int pid, int k, assets::Model& m) {
+  static std::set<int> told;   // (the loader runs under one lock: no second thread here)
   const int ord = assets::PropMaskPachEvt(files, uint32_t(pid));
   if (ord < 0) return;
   assets::Texture t;
   std::string why;
-  static std::set<int> told;   // (the loader runs under one lock: no second thread here)
   if (!assets::LoadPropMask(files, ord, t, why)) {
     if (told.insert(pid).second) rdr::Log("[prop_colour] prop %d (entry %d): SPMT mask not loaded: %s: the prop draws in its file colours", pid, k, why.c_str());
     return;
@@ -393,6 +351,23 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
     int e = 0;   // "p0/1000/<id>" = the main model; "p0/1000/<id>/<1|2>" = its secondary model k = 0 / 1 (weapon_draw_core.h EntryOf)
     const int n = std::sscanf(entry.c_str(), "p0/1000/%d/%d", &id, &e);
     if (n >= 1) return assets::LoadM2Weapon(impl_->files, id, out, error, 10, n == 2 && e >= 1 && e <= 2 ? uint32_t(e) : 0u);
+  }
+  // S111 BELTMASKNAME (scene_live\belt_colour.h): the R5 mask a created title's block names: pac\cab\CAB.pac entry "beltmask:<mode>/<id>" = /CBPM (mode 0), /CBWM (1) or /CBLM (2) /<id> Mask1, read by blocks
+  // (belt_mask.h). A STORED model holding that one texture and no mesh: the drawer (rf_props.cpp) binds it on the belt's bound copy; nothing is uploaded for it. A row the directory lacks is a failed load (asked once).
+  {
+    uint32_t bmode = 0, bid = 0;
+    if (norm == rdr_scene::live::beltcolour::kMaskPac && rdr_scene::live::beltcolour::ParseMaskEntry(entry, bmode, bid)) {
+      const char* sec = rdr_scene::live::beltcolour::MaskSection(bmode);
+      assets::Texture t;
+      if (assets::TheBeltMasks().Get(impl_->files, sec, bid, t, error) != assets::BeltMaskCache::Got::kMask) {
+        if (error.empty()) error = std::string("/") + sec + "/" + std::to_string(bid) + ": no such row in CAB.pac (or CAB.pac unreadable: said once)";
+        return false;
+      }
+      rdr::Log("[belt_colour] /%s/%04u Mask1 %ux%u read for a created title's stock belt (R5 mode %u)", sec, unsigned(bid), unsigned(t.width), unsigned(t.height), unsigned(bmode));
+      out.label = "belt mask " + entry;
+      out.textures.push_back(std::move(t));
+      return true;
+    }
   }
   error = "no loader for pac \"" + pac + "\" entry \"" + entry + "\"";
   return false;

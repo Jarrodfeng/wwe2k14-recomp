@@ -362,7 +362,14 @@ class Tree:
             for target, c in self.scan(rel)[0]:
                 r = self.resolve(rel, target)
                 if r:
-                    work.append((r, conds + c))
+                    # a condition already on the route adds nothing (a route is an AND): so an include cycle repeats a (header, route) and ends (S111 CACTHUMB:
+                    # `#if !defined(X)` around an include back into the includer grew the route by one term per lap until MemoryError). First-seen order is kept,
+                    # which is the order cond_expr's own de-duplication kept, so no shard text changes.
+                    nc = conds
+                    for x in c:
+                        if x not in nc:
+                            nc += (x,)
+                    work.append((r, nc))
         return seen
 
 
@@ -706,6 +713,33 @@ def selftest():
         rc = run(base, check=True, say=msgs.append)
         ok('non-literal default: skipped, listed, --check fails', rc == 1 and any('skipped' in m and 'wwe2k14_nonlit' in m for m in msgs))
         ok('...and the header is untouched', 'REXCVAR_DEFINE_INT32(wwe2k14_nonlit, kDefault' in get('src/nonlit.h'))
+        # S111 CACTHUMB: an include cycle under a condition (a includes b, b includes a back under `#if !defined(X)`) ends the walk. Before, every lap added the
+        # condition again, so (header, route) never repeated and the walk grew until MemoryError. The walk here is bounded by a scan count (never unbounded in a test).
+        put('src/nonlit.h', '#pragma once\nREXCVAR_DEFINE_INT32(wwe2k14_nonlit, 3, "wwe2k14", "x");\n')
+        put('src/cyc_a.h', '#pragma once\n#include "cyc_b.h"\nREXCVAR_DEFINE_BOOL(wwe2k14_cyc, true, "wwe2k14", "c");\n')
+        put('src/cyc_b.h', '#pragma once\n#if !defined(CORE_ONLY_X)\n#include "cyc_a.h"\n#endif\n')
+        put('src/app.h', get('src/app.h') + '#include "cyc_a.h"\n')
+        t = Tree(base)
+        scans = [0]
+        plain_scan = t.scan
+
+        def bounded_scan(rel):
+            scans[0] += 1
+            if scans[0] > 2000:
+                raise RuntimeError('the include walk does not end')
+            return plain_scan(rel)
+        t.scan = bounded_scan
+        try:
+            r = t.reach()
+            ended = True
+        except RuntimeError:
+            r, ended = {}, False
+        ok('an include cycle under a condition ends the walk', ended, '%d scans' % scans[0])
+        ok('...and its routes keep each condition once', ended and ('!defined(CORE_ONLY_X)',) in r.get('src/cyc_a.h', set()) and all(len(p) == len(set(p)) for p in r.get('src/cyc_a.h', set())),
+           repr(r.get('src/cyc_a.h')))
+        if ended:
+            run(base, say=lambda *a: None)
+            ok('...and the cycle header\'s define moves unconditional (one route has no condition)', re.search(r'//@ src/cyc_a.h \| - \| -\nREXCVAR_DEFINE_BOOL\(wwe2k14_cyc', get(shard_path(shard_of('wwe2k14_cyc')))) is not None)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print('PASS: cvar_shard selftest' if not bad else 'FAIL: %d selftest case(s)' % bad)

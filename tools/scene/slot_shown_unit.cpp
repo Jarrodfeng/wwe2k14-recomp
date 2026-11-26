@@ -45,6 +45,13 @@ static bool ReadRecords(uint8_t* out, size_t n) {
   return true;
 }
 
+// S111 ONERULE: one "is this body drawn" rule in both builds = the game's draw ask (draw_frame + kConsumerFresh >= hook). SubmitSkinDrawn = the update hook's submit AND the game's draw ask
+// (draw_origin.h sub_82C04DF0 -> NoteDrawAsked), in production order. A body the game does not draw is submitted with plain SubmitSkin.
+static void SubmitSkinDrawn(live::WrestlerContributor& w, uint32_t skel, int slot, uint32_t count, const Mat4* skin, uint64_t tag) {
+  w.SubmitSkin(skel, slot, count, skin, tag);
+  w.StampDrawForTest(skel, tag);
+}
+
 static ar::SlotSnap Slot(uint16_t s) {
   ar::SlotSnap x;
   x.slot = s;
@@ -129,10 +136,10 @@ int main(int argc, char** argv) {
     constexpr uint32_t kA = 0x40001000, kB = 0x40002000, kC = 0x40003000, kD = 0x40004000;
     std::vector<Mat4> skin(3);
     for (auto& m : skin) m = IdentityMat4();
-    w.SubmitSkin(kA, 0, 3, skin.data(), 99);    // slot 0
-    w.SubmitSkin(kB, -1, 3, skin.data(), 99);   // no slot (a manager / waiting entrance model): kept, emitted invisible
-    w.SubmitSkin(kC, 1, 3, skin.data(), 99);    // slot 1
-    w.SubmitSkin(kD, 1, 3, skin.data(), 99);    // slot 1 again: the second claim is emitted invisible too
+    SubmitSkinDrawn(w, kA, 0, 3, skin.data(), 99);    // slot 0
+    w.SubmitSkin(kB, -1, 3, skin.data(), 99);         // no slot (a manager / waiting entrance model): kept, emitted invisible
+    SubmitSkinDrawn(w, kC, 1, 3, skin.data(), 99);    // slot 1
+    SubmitSkinDrawn(w, kD, 1, 3, skin.data(), 99);    // slot 1 again: the second claim is emitted invisible too (drawn, so only the duplicate claim hides it)
     FrameInfo fi;
     fi.guest_frame = 100;
     w.Latch(fi);
@@ -158,7 +165,7 @@ int main(int argc, char** argv) {
     std::vector<Mat4> skin(3);
     for (auto& m : skin) m = IdentityMat4();
     w.SubmitSkin(kE, 1, 3, skin.data(), 10);
-    w.SubmitSkin(kC, 1, 3, skin.data(), 99);
+    SubmitSkinDrawn(w, kC, 1, 3, skin.data(), 99);   // the game draws kC; kE (plain SubmitSkin above) is never asked
     FrameInfo fi;
     fi.guest_frame = 100;
     w.Latch(fi);
@@ -172,6 +179,59 @@ int main(int argc, char** argv) {
     if (Plant("all_skeletons")) w.KeptSkeletons(asked);
     Check(t.objects.size() == 2 && visible == 1 && asked.size() == 1 && asked[0] == kC, "wrestler.quiet_unseen_claim",
           "objects " + std::to_string(t.objects.size()) + " visible " + std::to_string(visible) + " asked " + std::to_string(asked.size()) + (asked.empty() ? "" : " first " + std::to_string(asked[0])));
+  }
+
+  // S111 ONERULE: a body the update hook poses every frame but the game never asks to draw (Create a Moveset's two extra slot bodies) is emitted invisible and not asked for light, in BOTH builds. The
+  // planted twin kFaultUpdShows (the older rule: a posed body shows) draws it: the check must fail.
+  {
+    live::WrestlerContributor w;
+    if (Plant("upd_shows")) w.SetFaultsForTest(live::WrestlerContributor::kFaultUpdShows);
+    constexpr uint32_t kA = 0x40001000, kX = 0x40005000;
+    std::vector<Mat4> skin(3);
+    for (auto& m : skin) m = IdentityMat4();
+    SubmitSkinDrawn(w, kA, 0, 3, skin.data(), 99);   // the game draws slot 0
+    w.SubmitSkin(kX, 1, 3, skin.data(), 99);         // posed this frame, never asked to draw: not drawn
+    FrameInfo fi;
+    fi.guest_frame = 100;
+    w.Latch(fi);
+    SceneTables t;
+    Counters cn;
+    w.Emit(fi, t, cn);
+    size_t visible = 0;
+    for (const Object& o : t.objects) visible += (o.flags & kObjVisible) ? 1 : 0;
+    std::vector<uint32_t> asked;
+    w.EmittedSkeletons(asked);
+    Check(t.objects.size() == 2 && visible == 1 && asked.size() == 1 && asked[0] == kA, "wrestler.posed_not_drawn_hidden",
+          "objects " + std::to_string(t.objects.size()) + " visible " + std::to_string(visible) + " asked " + std::to_string(asked.size()));
+    size_t undrawn = 0, marked_right = 0;   // S111 PIECEHOLES: the body the game never asked to draw carries kObjGameUndrawn (the draw side: not drawn, never a hole); the drawn one does not
+    for (const Object& o : t.objects) {
+      const bool u = (o.flags & kObjGameUndrawn) != 0;
+      undrawn += u ? 1 : 0;
+      marked_right += (u == ((o.flags & kObjVisible) == 0)) ? 1 : 0;
+    }
+    Check(undrawn == 1 && marked_right == t.objects.size(), "wrestler.not_asked_marked_undrawn", "undrawn " + std::to_string(undrawn) + " of " + std::to_string(t.objects.size()));
+  }
+
+  // S111 STAGELESS: a frame naming NO arena still emits the frame's light sets (Create a Title holds no stage: the hook publishes arena -1 with the light manager's sets, CACBG). The twin sets_need_arena (the old
+  // rule: the sets are dropped with the slots) must fail. No slot / screen object is emitted for -1.
+  {
+    ar::PlantSetsNeedArena(Plant("sets_need_arena"));
+    ar::SetSnap s10;
+    s10.set_id = 10;
+    for (int k = 0; k < 4; ++k) s10.col[k][0] = 0.5f, s10.dir[k][2] = -1.f;
+    std::vector<ar::SetSnap> sets{s10};
+    ar::PublishSets(-1, 1.f, std::move(sets), 0, 0);
+    FrameInfo fi;
+    fi.guest_frame = 700;
+    auto* c = ar::Instance();
+    c->Latch(fi);
+    SceneTables t;
+    Counters cn;
+    c->Emit(fi, t, cn);
+    size_t of10 = 0;
+    for (const Light& l : t.lights) of10 += l.set == 10 ? 1 : 0;
+    Check(t.objects.empty() && of10 == 6, "arena.sets_without_arena", "objects " + std::to_string(t.objects.size()) + ", lights of set 10 " + std::to_string(of10) + " (want 4 directional + 2 ambient)");
+    ar::PlantSetsNeedArena(false);
   }
 
   std::printf("%d checks, %d failed\n", g_checks, g_fail);

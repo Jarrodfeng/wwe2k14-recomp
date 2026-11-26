@@ -127,7 +127,7 @@ struct MapsCounts {   // per frame (reset by Record at the Maps stage). RENDER T
   bool mapb_ring_gate = false;       // [0x836F39A0] was set this frame: the game's map B would also cast category 24 (the ring): NOT built, a counted hole
   const char* mapb_mode = "";        // "0" / "1" / "hole: ..." / "off"
   // S103 PM2: the props map's prop casters (live_map_props.cpp DrawPropCasters; PMC.md). cast = tagged objects drawn (meshes apart); by family (unsure = ids 59 / 68 / 71 / 96); skipped_no_model = the posed copy is not resident;
-  // skipped_piece43 = ids 2064 / 2556 (category 43: the props pass never draws it); near_clip = a caster whose nearest sample is nearer the light than the map's near distance (the depth clamp takes it onto the near plane);
+  // skipped_piece43 = category 33 / 43 objects (per node: ids 2064 / 2556, an entrance prop's CWDT / CWDS entries) left to map B, the props pass never draws them (map B's own mapb_skipped_piece43 = the same objects skipped at scene word 1); near_clip = a caster whose nearest sample is nearer the light than the map's near distance (the depth clamp takes it onto the near plane);
   // skipped_no_light = casters existed but no props light / map was made this frame (a counted hole, the PropsMap hole's reason is in props_skip). why = "" when drawn, or the reason none were.
   uint32_t props_cast = 0, props_meshes = 0, props_fam_weapon = 0, props_fam_event = 0, props_fam_stage = 0, props_fam_unsure = 0, props_skipped_no_model = 0, props_skipped_piece43 = 0, props_near_clip = 0, props_skipped_no_light = 0;
   const char* props_cast_why = "";
@@ -187,6 +187,8 @@ class LiveMapsHook final : public StageHook {
     bool chunk = false;             // skinned chunk: `nodes` + the skin stream are valid
     std::vector<uint16_t> nodes;    // palette slot -> skeleton node
     uint32_t sample_first = 0, sample_count = 0;   // S103 E3: this piece's bounds samples in CasterModel::samples
+    bool translucent = false;       // S111 LAYERS review: a wrestler part of the character's translucent node (wrestler_caster.h): cast only by a pass that walks category 33
+    bool piece = false;             // S111 PIECEROUTE review: a SUBM piece mesh of a wrestler entry (piece_row_rule.h PiecesOnlyMeshDrawn): the only meshes a kObjPiecesOnly owner casts (wrestler_caster.h MeshCastsFor)
   };
   struct SamplePt { float p[3]; uint16_t slot; };   // S103 E3: a bind-space vertex and the palette slot of its first bone (the bounds are measured with the dominant bone only)
   struct CasterModel {

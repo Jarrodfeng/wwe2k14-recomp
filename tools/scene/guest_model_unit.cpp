@@ -15,6 +15,11 @@
 #include "../../src/renderer_scene/guest_model_absent.h"   // S110 STOREABSENT
 #include "../../src/renderer_scene/logo_bool.h"        // S105 A5c
 #include "../../src/renderer_scene/piece_row_rule.h"   // S105 A5b
+#include "../../src/renderer_scene/piece_draw_rule.h"  // S111 GUESTKEY: the piece cut of a guest piece model
+#include "../../src/renderer_scene/guest_piece_key.h"  // S111 GUESTKEY
+#include "../../src/renderer_scene/wrk_join.h"         // S111 GUESTKEY: the live body levels by src_key / src_record
+#include "../../src/renderer_scene/family_cull.h"      // S111 UNIFY3: the draw's cull of a guest part
+#include "../../src/renderer_scene/wrestler_caster.h"  // S111 UNIFY5 review: the caster set of a guest part
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/scene_live/guest_model_emit.h"
 #include "../../src/scene_live/guest_model_reader.h"
@@ -101,6 +106,7 @@ static std::vector<uint32_t> Pack(uint32_t F, const Vtx& v) {
 
 // ---- the forged model ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 struct Samp { std::string name; int32_t t = -1; uint32_t kind = 15; };
+struct FloatRow { std::string name; uint32_t kind = 10; float f[4] = {0, 0, 0, 0}; };   // S111 GUESTHAIR: one float parameter (kind 10 = f[0], kind 13 = f[0..3])
 struct PartSpec {
   uint32_t F = 0x156, vcount = 0;
   std::vector<uint32_t> host_dwords;   // vcount * stride/4 values (host order); the image holds them big-endian
@@ -110,6 +116,7 @@ struct PartSpec {
   std::string effect = "yCh_skin";
   std::vector<Samp> samplers;
   uint32_t stride_override = 0;        // 0 = dwords * 4
+  std::vector<FloatRow> floats;        // S111 GUESTHAIR: float parameter rows, written after the samplers in the same list
 };
 struct Ov { std::string name; uint32_t value_key = 0; };
 struct ModelSpec {
@@ -117,6 +124,7 @@ struct ModelSpec {
   bool two_ranges = false, extra_streams = false;
   std::vector<uint32_t> tex_keys;   // the model's texture table: word 0 of each 8-byte key
   std::vector<Ov> overrides;
+  std::vector<std::string> tex_names;   // S111 EYECUBE review: the model's texture-name table [m+268] (16 bytes a name, count [m+264]); empty = [m+268] stays 0
 };
 
 static uint32_t BuildModel(Mem& m, const ModelSpec& spec) {
@@ -146,6 +154,11 @@ static uint32_t BuildModel(Mem& m, const ModelSpec& spec) {
     m.put32(obj + 1132, ents), m.put32(obj + 1136, uint32_t(spec.overrides.size()));
     m.put32(model + 832, obj);
   }
+  if (!spec.tex_names.empty()) {   // S111 EYECUBE review: the copy sub_82BDB460 makes of the file's +36 table
+    const uint32_t tab = m.alloc(16 * uint32_t(spec.tex_names.size()));
+    for (size_t i = 0; i < spec.tex_names.size(); ++i) m.putstr(tab + 16 * uint32_t(i), spec.tex_names[i]);
+    m.put32(model + 268, tab), m.put32(model + 264, uint32_t(spec.tex_names.size()));
+  }
   for (uint32_t p = 0; p < n; ++p) {
     const PartSpec& s = parts[p];
     const uint32_t stride = s.stride_override ? s.stride_override : uint32_t(s.host_dwords.size() / std::max<uint32_t>(1, s.vcount)) * 4;
@@ -153,15 +166,23 @@ static uint32_t BuildModel(Mem& m, const ModelSpec& spec) {
     m.put32(d + 0, s.vcount), m.put32(d + 8, uint32_t(s.palette.size()));
     for (size_t k = 0; k < s.palette.size(); ++k) m.put32(d + 12 + 4 * uint32_t(k), s.palette[k]);
     m.putstr(d + 124, s.effect);
-    if (!s.samplers.empty()) {
-      const uint32_t arr = m.alloc(4 * uint32_t(s.samplers.size() + 1));
+    if (!s.samplers.empty() || !s.floats.empty()) {
+      const uint32_t np = uint32_t(s.samplers.size() + s.floats.size());
+      const uint32_t arr = m.alloc(4 * (np + 1));
       for (size_t i = 0; i < s.samplers.size(); ++i) {
         const uint32_t po = m.alloc(32);
         m.putstr(po, s.samplers[i].name);
         m.put16(po + 16, s.samplers[i].kind), m.put16(po + 18, 4), m.put32(po + 20, uint32_t(s.samplers[i].t));
         m.put32(arr + 4 * uint32_t(i), po);
       }
-      m.put32(d + 148, uint32_t(s.samplers.size())), m.put32(d + 152, arr);
+      for (size_t i = 0; i < s.floats.size(); ++i) {   // S111 GUESTHAIR: name, (kind << 16 | size), the value(s) at +20
+        const uint32_t po = m.alloc(40);
+        m.putstr(po, s.floats[i].name);
+        m.put16(po + 16, s.floats[i].kind), m.put16(po + 18, s.floats[i].kind == 13 ? 16 : 4);
+        for (uint32_t c = 0; c < (s.floats[i].kind == 13 ? 4u : 1u); ++c) m.put32(po + 20 + 4 * c, FBits(s.floats[i].f[c]));
+        m.put32(arr + 4 * uint32_t(s.samplers.size() + i), po);
+      }
+      m.put32(d + 148, np), m.put32(d + 152, arr);
     }
     const uint32_t vstreams = m.alloc(8), vh = m.alloc(32), vdata = m.alloc(s.vcount * stride);
     m.put32(vbs_arr + 4 * p, vstreams), m.put32(vstreams, vh);
@@ -313,7 +334,7 @@ static void CheckVariants() {
       if ((F & 0xF00) >= 0x100) uv_ok = uv_ok && o.uv0[0] == vx[i].uv[0][0] && o.uv0[1] == vx[i].uv[0][1];
       if (F & 0x10) nrm_ok = nrm_ok && Near(o.normal[0], 0.5f, 1.0f / 511.f) && Near(o.normal[1], -0.25f, 1.0f / 1023.f) && Near(o.normal[2], 1.0f, 1.0f / 1023.f);
       if (F & 0x10000) tan_ok = tan_ok && Near(o.tangent[0], -1.0f, 1.0f / 511.f) && Near(o.tangent[1], 0.5f, 1.0f / 1023.f) && Near(o.tangent[2], 0.f);
-      if (F & 0x40) col_ok = col_ok && o.color == vx[i].colour;
+      if (F & 0x40) col_ok = col_ok && o.color == assets::vdecode::GameColour(vx[i].colour);   // S111 GUESTVTX: the fetch's order, not the host dword
       // expected bones / weights from the PACKER's inputs and the shader rule: the last present bone takes 1 - sum
       uint16_t eb[4] = {0, 0, 0, 0};
       float ew[4] = {0, 0, 0, 0};
@@ -329,7 +350,7 @@ static void CheckVariants() {
     Check(uv_ok, nm + ": uv0 = (u, v): half(u) is the HIGH half of the host dword (the packer's +0), the jboy loader's order");
     Check(nrm_ok, nm + ": normal 10:11:11 (x low)");
     Check(tan_ok, nm + ": tangent 10:11:11 (only when F says so)");
-    Check(col_ok, nm + ": colour dword raw (only when F says so)");
+    Check(col_ok, nm + ": colour = the copied word in the game's fetch order, R = file byte 25 (only when F says so)");
     Check(bone_ok, nm + ": palette slot -> node = palette[slot] - 1; the last present bone gets 1 - sum (2 / 3 / 4 pairs)");
   }
   // the 2- and 3-pair cases through the reader's whole path with a partial set: explicit numbers (a planted "partial weights dropped" fails here)
@@ -648,14 +669,16 @@ static void CheckTextures() {
 }
 
 // ---- CTF (S103, docs\research\s103\CTEX.md sites 1-5): the game's lower-case effect / parameter names, the printed refusal reasons, the retry of a late texture ------------------------------------------------
-// S105 A5b: the created superstar's eyelid layer (guest part 11, yCh_trans) must be built BLENDED (the file loader's `*trans*` rule), a skin / anisotropic part must not; and a guest part never answers the front
-// end's per-piece row lookup (its src_key is a part index, not a piece id). entry: guestmodel::BuildModel (production order: forged guest memory -> ReadModel -> AppendModelRows -> record bytes -> ParseRecord -> Absorb -> BuildModel)
-// then the front end's rule on the built meshes (MeshAnswersPieceRow, called by front_end.cpp's EYF lookup). Planted twins: draw plant 12 (42) = the old no-blend rule, plant 13 (43) = every src_kind 2 mesh answers.
+// S105 A5b: the created superstar's eyelid layer (guest part 11, yCh_trans) must be built BLENDED (the file loader's `*trans*` rule), a skin / anisotropic part must not; S111 GUESTKEY: a trans part with no
+// normal picture blends too (F4), a guest body mesh carries the stock keys (src_key 0, src_record = the part index: part 2 takes its own live rows, F1), and a guest piece model carries its piece id (a
+// kObjDrawnByOwner piece is cut by it, F2 / F3). entry: guestmodel::BuildModel (production order: forged guest memory -> ReadModel -> AppendModelRows -> record bytes -> ParseRecord -> Absorb -> BuildModel)
+// then the front end's rules on the built meshes (MeshAnswersPieceRow, PieceCut, JoinsBodyLevels / JoinDraw / MergeLive). Planted twins: 42 (draw 12) no part blends, 44 (draw 13) the old normal gate,
+// 43 (draw 19) the old part-index stamp, 68 (g_guest_key_plant 1) the old CAWHAIR piece mask without kObjDrawnByOwner, 69 (g_guest_key_plant 2) the piece id as a cache-key suffix.
 static void CheckBlend() {
   live::guest_model::ByteStore::Process().Clear();
   TexWorld w;
   const uint32_t hNormal = w.AddTexture(0, 0x1C100000u, 21);
-  // the 7th part is a trans part with NO normal picture (review F1: its opacity would be the stand-in's: stays opaque, counted)
+  // the 7th part is a trans part with NO normal picture (S111 GUESTKEY F4: it blends like a stock trans part, its opacity the front end's stand-in; counted in blended_no_normal)
   const char* const effects[] = {"ych_trans", "ych_aniso_trans", "ych_skin", "ych_anisotropic", "ych_transtiling", "ych_cloth_trans", "ych_trans"};
   ModelSpec spec;
   spec.tex_keys = {hNormal};
@@ -685,24 +708,76 @@ static void CheckBlend() {
   guestmodel::BuildStats bbs;
   bool built = false;
   if (ParseRecord(bytes.data(), bytes.size(), back, err)) blend_store.Absorb(back), built = guestmodel::BuildModel(back, blend_store, model, bmdl, bbs);
-  if (!built || bmdl.meshes.size() != 7) { Check(false, "CBL: the forged 6-part model did not build"); return; }
+  if (!built || bmdl.meshes.size() != 7) { Check(false, "CBL: the forged 7-part model did not build"); return; }
   const auto blends = [&](size_t i) { return bmdl.materials[bmdl.meshes[i].material].alpha_blend; };
-  Check(blends(0) && blends(1) && !blends(2) && !blends(3) && blends(4) && blends(5) && !blends(6) && bbs.blended == 4 && bbs.blended_no_normal == 1 && bbs.effect_fallback == 0,
-        "CBL: yCh_trans / yCh_Aniso_trans / yCh_TransTiling / yCh_cloth_trans parts build blended (like the file loader's `*trans*` rule), yCh_skin and yCh_Anisotropic do not, and a trans part with no normal picture stays opaque and is counted (blended " + std::to_string(bbs.blended) + ")");
-  // the front end's piece-row lookup (front_end.cpp EYF): a guest part carries src_kind 2 + src_key = the part index; no piece row may match it, a stock mesh of the same kind still does
-  bool any_guest = false, shape = true;
+  Check(blends(0) && blends(1) && !blends(2) && !blends(3) && blends(4) && blends(5) && blends(6) && bbs.blended == 5 && bbs.blended_no_normal == 1 && bbs.hole_effect == 0,
+        "CBL: yCh_trans / yCh_Aniso_trans / yCh_TransTiling / yCh_cloth_trans parts build blended (like the file loader's `*trans*` rule), yCh_skin and yCh_Anisotropic do not, and a trans part with no normal picture blends too (S111 GUESTKEY F4; blended " + std::to_string(bbs.blended) + ", of them without a normal " + std::to_string(bbs.blended_no_normal) + ")");
+  // S111 GUESTKEY (F1): a guest BODY mesh carries the stock keys: src_key 0 (the body entry), src_record = its part index (the game's draw part, [m+372])
+  bool body_keys = true;
   for (size_t i = 0; i < bmdl.meshes.size(); ++i) {
     const assets::Mesh& me = bmdl.meshes[i];
-    shape = shape && me.src_kind == 2 && me.src_key == int(i) && me.src_pac == "guest";
-    any_guest = any_guest || rdr_scene::MeshAnswersPieceRow(me.src_kind, me.src_pac);
+    body_keys = body_keys && me.src_kind == 2 && me.src_key == 0 && me.src_record == int(i) && rdr_scene::MeshAnswersPieceRow(me.src_kind);
   }
-  Check(shape && !any_guest && rdr_scene::MeshAnswersPieceRow(2, "ch100.pac") && !rdr_scene::MeshAnswersPieceRow(1, "ch100.pac"),
-        "CBL: a guest part (src_kind 2, src_key = part index 0..5, so piece id 1 could collide with part 1) never answers the piece-row lookup; a stock piece mesh still does");
+  Check(body_keys && !rdr_scene::MeshAnswersPieceRow(1), "GUESTKEY: every guest body part has src_key 0 and src_record = its part index (the stock keys); a pac entry mesh answers the piece-row lookup by that key, nothing else does");
+  // ... and the front end's live-level join (front_end.cpp Record: JoinsBodyLevels(src_key), then JoinDraw / MergeLive at src_record) gives guest part 2 its OWN per-part rows
+  {
+    std::vector<wrk::Levels> lv(2);
+    lv[0].object = 0, lv[0].part = kParamModelWide, lv[0].have = uint16_t((1u << 1) | wrk::kHaveHdLig), lv[0].wkl[1] = 0.25f, lv[0].hd_lig = 0.5f;
+    lv[1].object = 0, lv[1].part = 2, lv[1].have = uint16_t((1u << 1) | wrk::kHaveMuscle), lv[1].wkl[1] = 0.75f, lv[1].muscle[0] = 0.625f;
+    const assets::Mesh& p2 = bmdl.meshes[2];
+    bool joined = false;
+    float wkl1 = -1.f, hd = -1.f, mus0 = -1.f;
+    if (wrk::JoinsBodyLevels(p2.src_key)) {
+      const uint32_t part = p2.src_record >= 0 ? uint32_t(p2.src_record) : kParamModelWide;
+      float w6[6], im[8], m4[4] = {0.f, 0.f, 0.f, 0.f};
+      const float* ow = nullptr;
+      const float* oi = nullptr;
+      joined = wrk::JoinDraw(lv, 0, part, false, w6, im, ow, oi) && ow != nullptr;
+      if (ow) wkl1 = ow[1];
+      const uint32_t got = wrk::MergeLive(lv, 0, part, true, hd, m4);
+      joined = joined && got == 3u;
+      mus0 = m4[0];
+    }
+    Check(joined && Near(wkl1, 0.75f) && Near(hd, 0.5f) && Near(mus0, 0.625f),
+          "GUESTKEY: guest part 2 takes the live levels: its own wrinkle row (" + std::to_string(wkl1) + " == 0.75), the model-wide HdLig (" + std::to_string(hd) + " == 0.5) and its own muscle row (" + std::to_string(mus0) + " == 0.625)");
+  }
+  // S111 GUESTKEY (F2 / F3): a guest PIECE model (a kObjDrawnByOwner piece routed to its guest rows, id 10000): src_key = the object's piece id, so the stock piece cut covers it and the body levels do not
+  {
+    const int pk = GuestPieceKey(kObjDrawnByOwner, 10000);
+    assets::Model pmdl;
+    guestmodel::BuildStats pbs;
+    const bool pb = guestmodel::BuildModel(back, blend_store, model, pmdl, pbs, false, pk);
+    bool piece_keys = pb && pmdl.meshes.size() == 7;
+    for (size_t i = 0; piece_keys && i < pmdl.meshes.size(); ++i) piece_keys = pmdl.meshes[i].src_key == 10000 && pmdl.meshes[i].src_record == int(i) && !wrk::JoinsBodyLevels(pmdl.meshes[i].src_key);
+    const auto cut = [&](size_t i) { return piece_draw::PieceCut(rdr_scene::MeshAnswersPieceRow(pmdl.meshes[i].src_kind), pmdl.meshes[i].src_key, pmdl.materials[pmdl.meshes[i].material].alpha_blend); };
+    const bool cut0 = piece_keys && cut(0), cut2 = piece_keys && cut(2);
+    Check(pk == 10000 && piece_keys && cut0 && !cut2 && GuestPieceKey(kObjOwnRowsPiece, 10032) == 10032 && GuestPieceKey(kObjDetachedPiece, 26) == 26 && GuestPieceKey(kObjVisible | kObjSkinned, 7) == 0,
+          "GUESTKEY: a kObjDrawnByOwner guest piece (id 10000) is built with src_key 10000 on every part (no body levels); its translucent part is cut by that id (GEQUAL 128 + depth write), its opaque part is not; own-rows / detached pieces take their pad, a body object (no piece flag) takes 0");
+  }
+  // S111 GUESTKEY review: the cache key (rf_wrestlers.cpp GuestModelFor via FormatGuestModelKey). ModelCache::RetireOther drops by PREFIX and keeps by SUBSTRING (record_frame.cpp) and the 16-key retire's
+  // TrimGuestImages releases every picture the kept model does not use: no key of one content hash may contain another (a piece object unlinked one frame, key 0, and linked the next builds two models of one hash).
+  {
+    const uint64_t h = 0x0123456789ABCDEFull;
+    const int ids[] = {0, 26, 1000, 10000, 10001, 20002, 65535};
+    std::vector<std::string> keys;
+    for (int id : ids) {
+      char k[48];
+      FormatGuestModelKey(k, sizeof k, h, id);
+      keys.push_back(k);
+    }
+    bool apart = true;
+    for (size_t i = 0; i < keys.size(); ++i)
+      for (size_t j = 0; j < keys.size(); ++j)
+        if (i != j && keys[j].find(keys[i]) != std::string::npos) apart = false;
+    Check(apart && keys[0] == "guest:0123456789abcdef" && keys[3] == "guest:p10000:0123456789abcdef",
+          "GUESTKEY: no guest model key is a prefix or a substring of another (a body and its piece models of one hash, piece ids 1000 / 10000): RetireOther never keeps or drops the wrong one (" + keys[3] + ")");
+  }
 }
 
 static void CheckCtf() {
   live::guest_model::ByteStore::Process().Clear();
-  // P1 case: the game's names are lower case in memory ("ych_gear", "sampdiffuseprm"); the part must get the gear pipeline and a Diffuse slot
+  // P1 case: the game's EFFECT names are lower case in memory ("ych_gear"); its parameter names are the file's ("sampDiffusePrm": the name table compares them exactly, sub_82BAAEE8
+  // 0x82BADF6C, and the reader's refused-sampler line prints them mixed case). The part must get the gear pipeline and a Diffuse slot (S111 UNIFY2 review)
   {
     TexWorld w;
     const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21);
@@ -712,7 +787,7 @@ static void CheckCtf() {
     Vtx vx;
     vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
     for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
-    p0.samplers = {{"sampdiffuseprm", 0, 15}};
+    p0.samplers = {{"sampDiffusePrm", 0, 15}};
     ModelSpec spec;
     spec.parts = {p0};
     spec.two_ranges = true;
@@ -732,14 +807,15 @@ static void CheckCtf() {
     guestmodel::BuildStats bs;
     bool built = false;
     if (ParseRecord(bytes.data(), bytes.size(), back, err)) store.Absorb(back), built = guestmodel::BuildModel(back, store, model, mdl, bs);
-    Check(built && mdl.meshes.size() == 1 && mdl.materials[mdl.meshes[0].material].shader == "yCh_gear" && bs.effect_fallback == 0 && mdl.materials[mdl.meshes[0].material].diffuse >= 0 && bs.no_diffuse == 0,
-          "CTF case: the game's lower-case 'ych_gear' + 'sampdiffuseprm' get the gear pipeline (not the skin fallback) and a Diffuse slot");
+    Check(built && mdl.meshes.size() == 1 && mdl.materials[mdl.meshes[0].material].shader == "yCh_gear" && bs.hole_effect == 0 && mdl.materials[mdl.meshes[0].material].diffuse >= 0 && bs.no_diffuse == 0,
+          "CTF case: the game's lower-case 'ych_gear' + 'sampDiffusePrm' get the gear pipeline (not the skin fallback) and a Diffuse slot");
   }
   // the pipeline-name map itself: the game's lower case -> our mixed case, and an unknown name is not mapped
   const auto fx = [](const char* n) { const char* e = guestmodel::PipelineEffect(n); return std::string(e ? e : "(none)"); };
   Check(fx("ych_reflect") == "yCh_Reflect" && fx("YCH_LS") == "yCh_Ls" && fx("ych_skin_flex") == "yCh_skin_flex" &&
-            guestmodel::PipelineEffect("notAnEffect") == nullptr && guestmodel::SlotOfParam("G_MDIFFUSEPRM") == guestmodel::TexSlot::Diffuse,
-        "CTF case: effect names map case-insensitively to the pipeline's names; unknown names stay unknown");
+            guestmodel::PipelineEffect("notAnEffect") == nullptr &&
+            [] { assets::Material m; return assets::matsamp::SlotOf(m, "g_mDiffusePrm", assets::matsamp::Ctx{}) == &m.diffuse && assets::matsamp::SlotOf(m, "G_MDIFFUSEPRM", assets::matsamp::Ctx{}) == nullptr; }(),
+        "CTF case: effect names map case-insensitively to the pipeline's names; unknown names stay unknown; a sampler NAME is compared exactly, as the game's name table does (S111 UNIFY2 review)");
   // P2 reasons: a forged NoHandle, Format (game format 49) and key 0 print exactly 1 / 1 / 1, missing 3
   {
     TexWorld w;
@@ -1093,7 +1169,7 @@ static void CheckCawd() {
     Vtx vx;
     vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
     for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p.F, vx); p.host_dwords.insert(p.host_dwords.end(), d.begin(), d.end()); }
-    p.samplers = {{"g_mSpecPowPrm", 0, 15}, {"g_mDiffusePrm", 1, 15}};
+    p.samplers = {{"g_mEnvLPrm", 0, 15}, {"g_mDiffusePrm", 1, 15}};   // S111 UNIFY2: a cube the material table takes (the row writer no longer carries g_mSpecPowPrm: no Material field takes it)
     ModelSpec spec;
     spec.parts = {p};
     spec.two_ranges = true;
@@ -1357,7 +1433,7 @@ static gm::ModelRead BodyWithTextures(TexWorld& w, uint32_t& model_out) {
   for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
   p0.samplers = {{"sampDiffusePrm", 0, 15}, {"sampNormalPrm", 1, 15}};
   PartSpec p1 = p0;
-  p1.effect = "notAnEffect";
+  p1.effect = "ych_skin";   // (S111 UNIFY5 review: was an unknown name, which the yCh_skin fallback took; an unknown effect is now a hole of the whole model, CheckUnify5 (3))
   p1.samplers = {{"sampDiffusePrm", 0, 15}};
   ModelSpec spec;
   spec.parts = {p0, p1};
@@ -1480,7 +1556,7 @@ static void CheckRecordAndConsumer() {
     for (size_t i = 0; tex_ok && i < 2; ++i) tex_ok = mdl.textures[i].format == assets::TexFormat::kBC1 && mdl.textures[i].width == 64 && (mdl.textures[i].data == w.pattern[0] || mdl.textures[i].data == w.pattern[1]);
     Check(tex_ok && built && mdl.materials.size() == 2 && mdl.materials[mdl.meshes[0].material].diffuse >= 0 && mdl.materials[mdl.meshes[0].material].normal >= 0 && mdl.materials[mdl.meshes[1].material].normal < 0,
           "consumer: each part's material binds the game's own pictures by parameter name (diffuse, normal), as BC1");
-    Check(built && mdl.materials[mdl.meshes[0].material].shader == "yCh_skin_flex" && mdl.materials[mdl.meshes[1].material].shader == "yCh_skin" && bs.effect_fallback == 1, "consumer: the effect NAME is the material's shader; an unknown name falls back to yCh_skin (counted)");
+    Check(built && mdl.materials[mdl.meshes[0].material].shader == "yCh_skin_flex" && mdl.materials[mdl.meshes[1].material].shader == "yCh_skin" && bs.hole_effect == 0, "consumer: the effect NAME is the material's shader (the game's lower-case name -> the pipeline's)");
     Check(built && mdl.meshes[0].vertices[0].bones[0] == 19 && mdl.meshes[0].vertices[0].bones[3] == 49 && mdl.meshes[0].skinned, "consumer: palette slots became skeleton nodes (slot 0 -> palette[0] - 1 = 19)");
     // S103 CAWS (CAWG rows 3-5; P3 = plant 30: every node + 200): the model's highest node + 1 (BuildStats::max_node) is checked against the actor's palette; the forged nodes sit inside the stock 131-matrix palette
     {
@@ -1598,6 +1674,136 @@ static void CheckWhiteFace() {
   // 3: a garbage count (0x7FFFFFFF) is refused and counted; the model still builds, that part without a diffuse
   const Out c = run({{45, 0, 0}, {45, 0, 0}}, 1);
   Check(c.built && c.has_diffuse.size() == 2 && c.has_diffuse[0] && !c.has_diffuse[1] && c.no_diffuse == 1 && c.param_unreadable == 1, "WHITEFACE: a garbage parameter count (0x7FFFFFFF) refuses that part's parameters and is counted (params unreadable 1); the other part is untouched");
+}
+
+// S111 HAIRMAPS (docs\research\s111\HAIRMAPS.md): a created superstar's hair part names g_mHairNoisePrm / g_mHairShiftPrm (the CAW composer's run-time hair_noise / hair_shift,
+// sub_822F68C8 / sub_822F66C0); the consumer puts both on the material (Material::hair_noise_map / hair_shift: pixel slots 8 / 9), in the file's mixed case and the game's lower case.
+static void CheckHairMaps() {
+  live::guest_model::ByteStore::Process().Clear();
+  // -> which picture {diffuse, hair_noise, hair_shift} of the one part's material holds: k = the blocks of texture table entry k (0 diffuse, 1 noise, 2 shift), -1 = none, 9 = another
+  // picture, -2 = not built. Review (S111 HAIRMAPS): three DISTINCT pictures, so a noise / shift swap in SlotOfParam or BuildModel's switch fails (one shared picture passed it).
+  const auto run = [](const char* noise, const char* shift) {
+    TexWorld w;
+    const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21), hN = w.AddTexture(1, 0x1C110000u, 77), hS = w.AddTexture(2, 0x1C120000u, 133);
+    ModelSpec spec;
+    spec.two_ranges = true;
+    spec.tex_keys = {hA, hN, hS};
+    PartSpec p0;
+    p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+    p0.vcount = 4, p0.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p0.n0 = 4, p0.n1 = 4, p0.palette = {20, 30, 40, 50}, p0.effect = "yCh_Aniso_trans";
+    Vtx vx;
+    vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+    for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+    p0.samplers.push_back({"g_mDiffusePrm", 0, 15});
+    p0.samplers.push_back({noise, 1, 15});
+    p0.samplers.push_back({shift, 2, 15});
+    spec.parts.push_back(p0);
+    const uint32_t model = BuildModel(w.m, spec);
+    gm::ModelRead r = gm::ReadModel(w.m, model);
+    gm::TexResolver res;
+    res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10, 3);   // 3 byte reads: the three pictures in one call (the default 2 defers the third)
+    SceneTables t;
+    gm::BlobSender blobs;
+    gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+    const std::vector<uint8_t> bytes = SerializeRecord(t);
+    SceneTables back;
+    std::string err;
+    guestmodel::Store store;
+    assets::Model mdl;
+    guestmodel::BuildStats bs;
+    std::array<int, 3> out = {-2, -2, -2};
+    if (ParseRecord(bytes.data(), bytes.size(), back, err)) {
+      store.Absorb(back);
+      if (guestmodel::BuildModel(back, store, model, mdl, bs) && !mdl.meshes.empty()) {
+        const assets::Material& mt = mdl.materials[mdl.meshes[0].material];
+        const auto src = [&](int ti) {
+          if (ti < 0) return -1;
+          if (size_t(ti) >= mdl.textures.size()) return 9;
+          for (int k = 0; k < 3; ++k)
+            if (mdl.textures[size_t(ti)].data == w.pattern[k]) return k;
+          return 9;
+        };
+        out = {src(mt.diffuse), src(mt.hair_noise_map), src(mt.hair_shift_map)};
+      }
+    }
+    return out;
+  };
+  const std::array<int, 3> a = run("g_mHairNoisePrm", "g_mHairShiftPrm");
+  Check(a[0] == 0 && a[1] == 1 && a[2] == 2, "HAIRMAPS: a hair part's g_mHairNoisePrm / g_mHairShiftPrm land on the material, each its own picture (diffuse " + std::to_string(a[0]) + ", hair_noise " + std::to_string(a[1]) + ", hair_shift " + std::to_string(a[2]) + "; want 0 / 1 / 2)");
+  const std::array<int, 3> b = run("g_mhairnoiseprm", "g_mhairshiftprm");
+  Check(b[0] == 0 && b[1] == -1 && b[2] == -1, "HAIRMAPS: a lower-case spelling takes no slot: the game's name table compares the parameter name exactly (sub_82BAAEE8 0x82BADF6C), as the stock loader does (S111 UNIFY2 review)");
+  const std::array<int, 3> c = run("g_mHairNoiseXX", "g_mHairShiftXX");
+  Check(c[0] == 0 && c[1] == -1 && c[2] == -1, "HAIRMAPS: a sampler name no slot takes leaves both fields -1 (grey at the draw)");
+}
+
+// S111 GUESTHAIR (docs\research\s111\GUESTHAIR.md): a created superstar's part names its material's FLOAT parameters in the file's own spelling (S111 UNIFY3: the game copies the names as is and its table compares exactly; the hair highlight: SpeCol1 / SpeCol2, the
+// two shifts and exponents, the tiles; the specular level and colour ...). The byte pass reads them, the writer keeps the rows the one table takes (section 71), and BuildModel puts them on the part's
+// Material by the file loader's own table (assets\material_floats.h). Plant 65 (draw plant 18) = the old fresh Material: every value stays the default (no highlight colour: both hair lobes black).
+static void CheckGuestFloats() {
+  live::guest_model::ByteStore::Process().Clear();
+  TexWorld w;
+  const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21);
+  ModelSpec spec;
+  spec.two_ranges = true;
+  spec.tex_keys = {hA};
+  PartSpec p0;
+  p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+  p0.vcount = 4, p0.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p0.n0 = 4, p0.n1 = 4, p0.palette = {20, 30, 40, 50}, p0.effect = "ych_aniso_trans";
+  Vtx vx;
+  vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+  for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+  p0.samplers.push_back({"g_mDiffusePrm", 0, 15});
+  p0.floats = {{"g_f4SpeCol1", 13, {1.5f, 1.25f, 1.f, 7.f}}, {"g_f4SpeCol2", 13, {0.5f, 0.25f, 0.125f, 7.f}}, {"g_fPrimaryShift", 10, {0.375f, 0, 0, 0}}, {"g_fSecondShift", 10, {-0.25f, 0, 0, 0}},
+               {"g_SpecExp1", 10, {64.f, 0, 0, 0}}, {"g_SpecExp2", 10, {16.f, 0, 0, 0}}, {"g_fHairTileU", 10, {3.f, 0, 0, 0}}, {"g_fHairTileV", 10, {2.f, 0, 0, 0}},
+               {"g_fSpecLev", 10, {0.75f, 0, 0, 0}}, {"g_f4SpecCol", 13, {0.5f, 0.5f, 0.5f, 1.f}}, {"g_fNotAName", 10, {5.f, 0, 0, 0}}};
+  PartSpec p1 = p0;
+  p1.floats[0].f[0] = 0.f;   // the same pictures, another highlight colour
+  spec.parts = {p0, p1};
+  const uint32_t model = BuildModel(w.m, spec);
+  gm::ModelRead r = gm::ReadModel(w.m, model);
+  gm::TexResolver res;
+  res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10, 2);
+  Check(r.p.size() == 2 && r.p[0].floats.size() == 11 && r.p[0].float_overflow == 0 && r.p[0].floats[0].kind == gm::kParamVec4 && Near(r.p[0].floats[0].v[1], 1.25f),
+        "GUESTHAIR: the byte pass reads every float row of the part (11: the 10 the table takes and one it does not), the vec4's four values in order");
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  Check(t.guest_models.params.size() == 20, "GUESTHAIR: the row writer keeps the rows the table takes (10 a part, 2 parts), not the unknown name (" + std::to_string(t.guest_models.params.size()) + " rows)");
+  const auto build = [&](const SceneTables& rec, assets::Model& mdl) {
+    const std::vector<uint8_t> bytes = SerializeRecord(rec);
+    SceneTables back;
+    std::string err;
+    if (!ParseRecord(bytes.data(), bytes.size(), back, err)) return false;
+    guestmodel::Store store;
+    store.Absorb(back);
+    guestmodel::BuildStats bs;
+    return guestmodel::BuildModel(back, store, model, mdl, bs) && mdl.meshes.size() == 2;
+  };
+  assets::Model mdl;
+  const bool built = build(t, mdl);
+  const assets::Material* m0 = built ? &mdl.materials[size_t(mdl.meshes[0].material)] : nullptr;
+  const assets::Material* m1 = built ? &mdl.materials[size_t(mdl.meshes[1].material)] : nullptr;
+  Check(m0 && Near(m0->hair_col1[0], 1.5f) && Near(m0->hair_col1[1], 1.25f) && Near(m0->hair_col1[2], 1.f) && Near(m0->hair_col2[0], 0.5f) && Near(m0->hair_col2[2], 0.125f) &&
+            Near(m0->hair_shift[0], 0.375f) && Near(m0->hair_shift[1], -0.25f) && Near(m0->hair_exp[0], 64.f) && Near(m0->hair_exp[1], 16.f) && Near(m0->hair_tile[0], 3.f) && Near(m0->hair_tile[1], 2.f) &&
+            Near(m0->spec_lev, 0.75f) && Near(m0->spec_col[0], 0.5f),
+        "GUESTHAIR: the record's rows put the part's hair highlight (SpeCol1 / SpeCol2 rgb, shifts, exponents, tiles U / V) and its specular level / colour on the built Material, by the file's names");
+  Check(m0 && m1 && m0 != m1 && Near(m1->hair_col1[0], 0.f) && Near(m1->hair_col1[1], 1.25f), "GUESTHAIR: two parts with the same pictures and other values are two materials (the key holds the values)");
+  SceneTables old = t;
+  old.guest_models.params.clear();   // a record written before section 71
+  assets::Model mo;
+  const bool built_old = build(old, mo);
+  Check(built_old && mo.materials.size() == 1 && Near(mo.materials[0].hair_col1[0], 0.f) && Near(mo.materials[0].hair_tile[0], 10.f) && Near(mo.materials[0].spec_lev, 0.f),
+        "GUESTHAIR: a record without section 71 still builds, with the fresh Material (the defaults, as before)");
+  // S111 BODYSPEC (material_floats.h BeginRecord): the part's effect "ych_aniso_trans" goes through the game's yCh name table, and it names no g_fSpecPow: the yCh missing power is 1
+  // (the bake's 0 -> 1), not Material's 300, with and without the float rows (the family is the game's effect name, not a row).
+  Check(m0 && built_old && Near(m0->spec_pow, 1.f) && Near(mo.materials[0].spec_pow, 1.f),
+        "BODYSPEC: a guest yCh part that names no power draws power 1 (" + std::to_string(m0 ? m0->spec_pow : -1.f) + " / " + std::to_string(built_old ? mo.materials[0].spec_pow : -1.f) + ")");
+  assets::Material ma, mc;
+  const float v[4] = {1.5f, 1.25f, 1.f, 7.f};
+  const bool ta = assets::matfloat::ApplyFloat(ma, "g_f4SpeCol1", 13, v), tc = assets::matfloat::ApplyFloat(mc, "g_f4specol1", 13, v);
+  Check(ta && !tc && Near(ma.hair_col1[1], 1.25f) && Near(mc.hair_col1[1], 0.f) && !assets::matfloat::IsFloatParam("g_fNotAName", 10) && !assets::matfloat::IsFloatParam("g_f4specol1", 13),
+        "GUESTHAIR: one table, one exact compare (every path, S111 UNIFY3): the file's name lands the field, the lower-case spelling binds nothing");
+  live::guest_model::ByteStore::Process().Clear();
 }
 
 // S110 WHITEEYES (docs\research\s110\WHITEEYES.md): after a Create a Superstar pick the composer recopies its pictures (each copy ends in the unlock flush); the resolver reads one 8888 picture a call,
@@ -1795,22 +2001,486 @@ static void CheckStoreAbsent() {
   live::guest_model::ByteStore::Process().Clear();
 }
 
+// S111 UNIFY2 (docs\research\s111\UNIFY2.md): ONE sampler table for both builders (assets\material_samplers.h SlotOf). Every name the file loader's table knows, named by a created superstar's part in the
+// game's memory (the file's own spelling: the game's name table compares it exactly), goes through the real reader, row writer, record and BuildModel onto the SAME Material field the stock loader's call gives (a field = its byte offset in Material; -1 = none). The planted
+// twin: the deleted guest chain (TexSlot / SlotOfParam and BuildModel's switch, frozen below) must be caught: it maps 8 of these names to nothing (g_mSweatPrm among them).
+static const char* const kSamplerNames[] = {"g_mDiffusePrm", "sampDiffusePrm", "texDiffuse", "g_mNormalFxPrm", "sampNormalPrm", "g_mMaskPrm", "sampLightMapPrm", "sampSpecularPrm", "sampCubeRefPrm",
+                                            "sampRefMapPrm", "sampDiffuse1Prm", "sampDiffuse2Prm", "sampDiffuse3Prm", "sampNoisePrm", "g_mNoiseTilePrm", "g_mSweatPrm", "g_mMusclePrm",
+                                            "g_mHairNoisePrm", "g_mHairShiftPrm", "g_mEnvLPrm", "g_mNormalWklPrm"};
+static int FieldOff(const assets::Material& m, const int* f) { return f ? int(reinterpret_cast<const char*>(f) - reinterpret_cast<const char*>(&m)) : -1; }
+// the stock loader's answer for `name` (jboy.h's call: the file's mixed case, exact compare, a wrestler's context) on a part of effect `shader`
+static int StockOff(const char* name, const char* shader) {
+  assets::Material m;
+  m.shader = shader;
+  return FieldOff(m, assets::matsamp::SlotOf(m, name, assets::matsamp::Ctx{}));
+}
+static std::string LowerName(const char* n) {
+  std::string s(n);
+  for (char& c : s) c = guestmodel::AsciiLower(c);
+  return s;
+}
+static PartSpec SkinPart(const std::vector<Samp>& samplers) {
+  PartSpec p0;
+  p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+  p0.vcount = 4, p0.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p0.n0 = 4, p0.n1 = 4, p0.palette = {20, 30, 40, 50}, p0.effect = "ych_skin";
+  Vtx vx;
+  vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+  for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+  p0.samplers = samplers;
+  return p0;
+}
+// one ych_skin part through the real reader / resolver / row writer / record / BuildModel; `t` = the written record, `mdl` = the built model (false = not built)
+static bool BuildSkinPart(TexWorld& w, const std::vector<Samp>& samplers, gm::ModelRead& r, SceneTables& t, assets::Model& mdl) {
+  live::guest_model::ByteStore::Process().Clear();
+  const uint32_t hA = w.AddTexture(0, 0x1C100000u, 21);
+  ModelSpec spec;
+  spec.two_ranges = true;
+  spec.tex_keys = {hA};
+  spec.parts.push_back(SkinPart(samplers));
+  const uint32_t model = BuildModel(w.m, spec);
+  r = gm::ReadModel(w.m, model);
+  gm::TexResolver res;
+  res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10);
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  SceneTables back;
+  std::string err;
+  if (!ParseRecord(bytes.data(), bytes.size(), back, err)) return false;
+  guestmodel::Store store;
+  store.Absorb(back);
+  guestmodel::BuildStats bs;
+  return guestmodel::BuildModel(back, store, model, mdl, bs) && !mdl.meshes.empty();
+}
+// the guest path's answer for `name`: the field of the built material that holds the part's one picture (-1 = none, -2 = not built, -3 = two fields)
+static int GuestOff(const char* name) {
+  TexWorld w;
+  gm::ModelRead r;
+  SceneTables t;
+  assets::Model mdl;
+  if (!BuildSkinPart(w, {{name, 0, 15}}, r, t, mdl)) return -2;
+  const assets::Material& mt = mdl.materials[size_t(mdl.meshes[0].material)];
+  int found = -1;
+  for (const char* sh : {"yCh_skin", "yBG_UVScroll", "yDefault"})   // every field any name of the table reaches, whatever the effect
+    for (const char* n : kSamplerNames) {
+      const int off = StockOff(n, sh);
+      if (off < 0) continue;
+      const int ti = *reinterpret_cast<const int*>(reinterpret_cast<const char*>(&mt) + off);
+      if (ti < 0 || size_t(ti) >= mdl.textures.size() || mdl.textures[size_t(ti)].data != w.pattern[0]) continue;
+      if (found >= 0 && found != off) return -3;
+      found = off;
+    }
+  return found;
+}
+static void CheckSamplerTable() {
+  // the old guest chain (deleted by S111 UNIFY2): SlotOfParam's names and BuildModel's switch (EnvCube had no case for a picture), frozen here as the planted twin
+  const auto old_off = [](const char* name) {
+    assets::Material m;
+    const std::string n = LowerName(name);
+    const int* f = (n == "g_mdiffuseprm" || n == "sampdiffuseprm") ? &m.diffuse : (n == "g_mnormalfxprm" || n == "sampnormalprm") ? &m.normal : n == "g_mmaskprm" ? &m.mask
+                   : n == "sampspecularprm" ? &m.specular : n == "g_mnoisetileprm" ? &m.detail : n == "g_mhairnoiseprm" ? &m.hair_noise_map : n == "g_mhairshiftprm" ? &m.hair_shift_map : nullptr;
+    return FieldOff(m, f);
+  };
+  const auto diverging = [](auto guest) {
+    std::string out;
+    for (const char* n : kSamplerNames)
+      if (guest(n) != StockOff(n, "yCh_skin")) out += std::string(out.empty() ? "" : ", ") + n;
+    return out;
+  };
+  const std::string real = diverging(GuestOff);
+  Check(real.empty(), "UNIFY2: every sampler name the file loader's table knows (" + std::to_string(std::size(kSamplerNames)) + ") puts a created superstar's picture on the same Material field as a stock wrestler's (differ: " + (real.empty() ? std::string("none") : real) + ")");
+  const std::string twin = diverging(old_off);
+  Check(twin.find("g_mSweatPrm") != std::string::npos && twin.find("g_mMusclePrm") != std::string::npos && twin.find("g_mNormalWklPrm") != std::string::npos,
+        "UNIFY2 planted twin: the deleted guest chain (TexSlot / SlotOfParam) is caught: it differs at " + twin);
+  // S111 UNIFY2 review: the game's name table compares a parameter name exactly (sub_82BAAEE8 0x82BADF6C..0x82BADF84, two 8-byte compares; the model build passes the record's name
+  // unlowered, sub_82BDB460 0x82BDC88C..0x82BDC898), so a lower-case spelling binds nothing in the game; the stock loader's exact compare and the guest path must agree (the old folded compare is the twin)
+  std::string folded;
+  for (const char* n : kSamplerNames) {
+    const std::string lo = LowerName(n);
+    if (GuestOff(lo.c_str()) != StockOff(lo.c_str(), "yCh_skin")) folded += std::string(folded.empty() ? "" : ", ") + lo;
+  }
+  Check(folded.empty(), "UNIFY2 review: a lower-case spelling of every table name gets the same answer on the guest path as on the stock loader (none: the game's exact compare) (differ: " + (folded.empty() ? std::string("none") : folded) + ")");
+  // the 7-sampler CAW face (12 edit-pac yCh_skin parts: g_mCubeLPrm, g_mSpecPowPrm and the 5 the table takes): the reader keeps all 7, the row carries the 5, the part has its sweat bump
+  {
+    TexWorld w;
+    gm::ModelRead r;
+    SceneTables t;
+    assets::Model mdl;
+    const bool built = BuildSkinPart(w, {{"g_mCubeLPrm", 0, 15}, {"g_mDiffusePrm", 0, 15}, {"g_mMaskPrm", 0, 15}, {"g_mNoiseTilePrm", 0, 15}, {"g_mNormalFxPrm", 0, 15}, {"g_mSpecPowPrm", 0, 15}, {"g_mSweatPrm", 0, 15}}, r, t, mdl);
+    const GuestModelPart* row = t.guest_models.parts.empty() ? nullptr : &t.guest_models.parts[0];
+    Check(r.p.size() == 1 && r.p[0].samplers.size() == 7 && row && row->tex_count == 5 && row->tex_overflow == 0,
+          "UNIFY2: a 7-sampler CAW face part: the reader keeps all 7 (the game's own count), the row carries the 5 the table takes (" + std::to_string(row ? row->tex_count : 0) + ")");
+    const assets::Material* mt = built ? &mdl.materials[size_t(mdl.meshes[0].material)] : nullptr;
+    Check(mt && mt->sweat_bump >= 0 && mt->diffuse >= 0 && mt->mask >= 0 && mt->detail >= 0 && mt->normal >= 0, "UNIFY2: that part builds with its g_mSweatPrm picture (sweat_bump) and the other four");
+  }
+  // 7 samplers the table takes (no CAW file has more than 5): section 62's row holds 6 and counts the 7th
+  {
+    TexWorld w;
+    gm::ModelRead r;
+    SceneTables t;
+    assets::Model mdl;
+    BuildSkinPart(w, {{"g_mDiffusePrm", 0, 15}, {"g_mNormalFxPrm", 0, 15}, {"g_mMaskPrm", 0, 15}, {"g_mNoiseTilePrm", 0, 15}, {"g_mSweatPrm", 0, 15}, {"g_mMusclePrm", 0, 15}, {"g_mHairNoisePrm", 0, 15}}, r, t, mdl);
+    const GuestModelPart* row = t.guest_models.parts.empty() ? nullptr : &t.guest_models.parts[0];
+    Check(row && row->tex_count == 6 && row->tex_overflow == 1, "UNIFY2: 7 taken samplers fill the row's 6 and count the 7th (tex_overflow 1): the format's size, named, never reached by a CAW file");
+  }
+  live::guest_model::ByteStore::Process().Clear();
+}
+
+// S111 EYECUBE review: the REAL reader (ReadModel: layout pass, then byte pass) reads each kept sampler's texture NAME ([m+268]+16t; when [m+268] is 0, the data block's +36 table through the +60
+// getter sub_827C17B8) and the part's record words; the writer carries them (sections 72 / 73) through the record; the consumer's join finds each name by the part row's parameter name.
+// Plant 66 (reader plant 18: the byte pass reads none) must fail it.
+static void CheckEyeCubeNames() {
+  const auto n16 = [](const char* s) { return std::string(s, strnlen(s, 16)); };
+  Mem m;
+  PartSpec p0;
+  p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+  p0.vcount = 4, p0.idx = {0, 1, 2, 3}, p0.n0 = 4, p0.palette = {20}, p0.effect = "ych_reflect";
+  Vtx vx;
+  vx.n[2] = 1.f;
+  for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+  p0.samplers.push_back({"g_mDiffusePrm", 0, 15});
+  p0.samplers.push_back({"g_mEnvLPrm", 1, 15});
+  ModelSpec spec;
+  spec.parts = {p0};
+  spec.tex_keys = {0x11110000u, 0x22220000u};
+  spec.tex_names = {"body_d", "cubemap_eyes"};
+  const uint32_t model = BuildModel(m, spec);
+  uint32_t desc = 0;
+  m.u32(model + 824, desc);
+  m.put32(desc + 144, 3), m.put32(desc + 140, 2);   // the record's technique / cull words
+  const gm::ModelRead r = gm::ReadModel(m, model);
+  const bool read = r.why == gm::Why::Ok && r.p.size() == 1 && r.p[0].samplers.size() == 2;
+  Check(read && n16(r.p[0].samplers[0].tex_name) == "body_d" && n16(r.p[0].samplers[1].tex_name) == "cubemap_eyes" && r.p[0].technique == 3 && r.p[0].cull == 2,
+        "EYECUBE: the byte pass reads each sampler's texture name [m+268]+16t and the record's technique / cull words (desc+144 / +140)");
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  SceneTables back;
+  std::string err;
+  const bool parsed =ParseRecord(bytes.data(), bytes.size(), back, err) && back.guest_models.parts.size() == 1 && back.guest_models.parts[0].tex_count == 2 && back.guest_models.mats.size() == 2;
+  Check(parsed && guestmats::NameOf(back.guest_models, model, 0, back.guest_models.parts[0].tex[1].name).name == "cubemap_eyes" &&
+            guestmats::NameOf(back.guest_models, model, 0, back.guest_models.parts[0].tex[0].name).name == "body_d" && back.guest_models.mats[0].technique == 3 && back.guest_models.mats[1].cull == 2,
+        "EYECUBE: sections 72 / 73 carry the names through the record and the consumer joins them to the part row's samplers by parameter name");
+  ModelSpec spec2 = spec;
+  spec2.tex_names.clear();   // [m+268] == 0: the data block's table, through the +220 object's +60 getter
+  const uint32_t model2 = BuildModel(m, spec2);
+  const uint32_t D = m.alloc(16), VT = m.alloc(64), H = m.alloc(64), tab = m.alloc(32);
+  m.put32(model2 + 220, D), m.put32(D, VT), m.put32(VT + 60, 0x827C17B8u), m.put32(D + 12, H), m.put32(H + 36, tab);
+  m.putstr(tab, "body_d"), m.putstr(tab + 16, "CUBEMAP");
+  const gm::ModelRead r2 = gm::ReadModel(m, model2);
+  Check(r2.why == gm::Why::Ok && r2.p.size() == 1 && r2.p[0].samplers.size() == 2 && n16(r2.p[0].samplers[1].tex_name) == "CUBEMAP",
+        "EYECUBE: with [m+268] == 0 the byte pass reads the data block's +36 table (sub_82BD9A60's fallback)");
+}
+
+// ---- S111 LAYERS (docs\research\s111\LAYERS.md): a created superstar's part blends by the game's draw rule (the part's tag [[m+368]+4p], the model's predicate [m+620]), not its effect name -----------------
+// entry: production order (forged memory -> ReadModel -> AppendModelRows -> SerializeRecord -> ParseRecord -> Absorb -> BuildModel). Planted twins: 74 (draw plant 20) = the consumer's name rule,
+// 75 (reader plant 19) = the draw words not read (both fail the blend check); 72 (draw plant 21) = the parts built in part order (the order check, CAWPASS folded in); 73 (reader plant 20) = the draw
+// words not in the model key (the key check).
+static void CheckLayers() {
+  live::guest_model::ByteStore::Process().Clear();
+  TexWorld w;
+  const uint32_t hNormal = w.AddTexture(0, 0x1C100000u, 21);
+  const char* const effects[] = {"ych_aniso_trans", "ych_trans", "ych_skin", "ych_gear"};
+  const uint32_t tags[] = {7, 2, 6, 5};   // a layer-7 hair part (class key 9), an opaque-layer trans part (key 14 -> T 2), a layer-6 skin part (key 13), a layer-5 gear part (key 3, ed22): part order is not draw order
+  constexpr uint32_t kN = 4;
+  ModelSpec spec;
+  spec.tex_keys = {hNormal};
+  for (const char* e : effects) {
+    PartSpec p;
+    p.F = 0x0C | 0x10 | 0x40 | 0x100;
+    p.vcount = 4, p.idx = {0, 1, 2, 3, 3, 2, 1, 0}, p.n0 = 4, p.n1 = 4, p.palette = {20, 30, 40, 50}, p.effect = e;
+    Vtx vx;
+    vx.pos[0] = 2.f, vx.w[0] = 0.5f, vx.s[0] = 0, vx.n[2] = 1.f, vx.uv[0][0] = 0.25f, vx.uv[0][1] = 0.75f;
+    for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p.F, vx); p.host_dwords.insert(p.host_dwords.end(), d.begin(), d.end()); }
+    p.samplers = {{"g_mNormalFxPrm", 0, 15}};
+    spec.parts.push_back(p);
+  }
+  spec.two_ranges = true;
+  const uint32_t model = BuildModel(w.m, spec);
+  const uint32_t tag_arr = w.m.alloc(16);
+  for (uint32_t i = 0; i < kN; ++i) w.m.put32(tag_arr + 4 * i, tags[i]);
+  w.m.put32(model + gm::kOffPartTags, tag_arr), w.m.put32(model + gm::kOffDimPred, 1);   // the composer's tags (sub_822FA298) and sub_825A1E38's +620 = 1 (a created superstar)
+  gm::ModelRead r = gm::ReadModel(w.m, model);
+  gm::TexResolver res;
+  res.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r, 10);
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  SceneTables back;
+  std::string err;
+  guestmodel::Store store;
+  assets::Model mdl;
+  guestmodel::BuildStats bs;
+  bool built = false;
+  if (ParseRecord(bytes.data(), bytes.size(), back, err)) store.Absorb(back), built = guestmodel::BuildModel(back, store, model, mdl, bs);
+  if (!built || mdl.meshes.size() != kN) { Check(false, "LAYERS: the forged 4-part model did not build"); return; }
+  bool blend_of[kN] = {};
+  std::vector<int> built_order;
+  for (const assets::Mesh& me : mdl.meshes) {
+    built_order.push_back(me.src_record);
+    if (me.src_record >= 0 && me.src_record < int(kN)) blend_of[me.src_record] = mdl.materials[size_t(me.material)].alpha_blend && mdl.materials[size_t(me.material)].translucent_draw;   // (review: the casters' key rides with it)
+  }
+  Check(blend_of[0] && !blend_of[1] && blend_of[2] && blend_of[3] && bs.blended == 3,
+        "LAYERS: the opaque-layer yCh_trans part (tag 2) builds OPAQUE; the layer-7 hair, the layer-6 yCh_skin and the layer-5 yCh_gear parts BLEND (the game's draw split, not the effect name; blended " + std::to_string(bs.blended) + ")");
+  Check(built_order == std::vector<int>({1, 3, 2, 0}),
+        "LAYERS (CAWPASS folded in): the parts are built in the game's draw order: the opaque part, then layer 5 (gear), 6 (skin), 7 (hair) (sub_8259FAE8 +0x248..+0x27C); built order " +
+            [&] { std::string s; for (int v : built_order) s += std::to_string(v) + " "; return s; }());
+  bool rows = back.guest_models.parts.size() == kN;
+  for (size_t i = 0; rows && i < kN; ++i) {
+    const uint32_t f = back.guest_models.parts[i].flags;
+    rows = (f & kGmDrawWords) && (f & kGmCreated) && ((f & kGmTagMask) >> kGmTagShift) == tags[back.guest_models.parts[i].part];
+  }
+  Check(rows, "LAYERS: every part row carries the draw words through the record (kGmDrawWords, kGmCreated, its tag in bits 8..11)");
+  // a stock owner (predicate 0): the body's parts are opaque whatever their tag, a piece model's parts all blend
+  live::guest_model::ByteStore::Process().Clear();
+  w.m.put32(model + gm::kOffDimPred, 0);
+  for (uint32_t i = 0; i < kN; ++i) w.m.put32(tag_arr + 4 * i, 0);
+  gm::ModelRead r0 = gm::ReadModel(w.m, model);
+  gm::TexResolver res0;
+  res0.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r0, 10);
+  SceneTables t0;
+  gm::BlobSender blobs0;
+  gm::AppendModelRows(r0, t0.guest_models, blobs0, 2000);
+  const std::vector<uint8_t> bytes0 = SerializeRecord(t0);
+  SceneTables back0;
+  guestmodel::Store store0;
+  assets::Model body, piece;
+  guestmodel::BuildStats bs0, bs1;
+  bool ok0 = ParseRecord(bytes0.data(), bytes0.size(), back0, err);
+  if (ok0) store0.Absorb(back0), ok0 = guestmodel::BuildModel(back0, store0, model, body, bs0) && guestmodel::BuildModel(back0, store0, model, piece, bs1, false, 10500);   // (a piece key: the stock cloth piece id of LAYERS.md section C)
+  bool stock = ok0 && body.meshes.size() == kN && piece.meshes.size() == kN;
+  for (size_t i = 0; stock && i < kN; ++i)
+    stock = !body.materials[body.meshes[i].material].alpha_blend && piece.materials[piece.meshes[i].material].alpha_blend && body.meshes[i].src_record == int(i) && piece.meshes[i].src_record == int(i);
+  Check(stock, "LAYERS: a stock owner's body parts build opaque (yCh_trans included) and its piece model's parts all blend (yCh_skin included), both in part order (a stock piece is drawn whole)");
+  // the model key: the same geometry with other draw words is another build (a [m+620] or tag change is never served from the old build); a model with no tag array keeps the key it had before LAYERS
+  const bool same_geom = r.hash == r0.hash && !t.guest_models.parts.empty() && !t0.guest_models.parts.empty();
+  Check(same_geom && t.guest_models.parts[0].model_hash != t0.guest_models.parts[0].model_hash,
+        "LAYERS: the created and the stock reading of one geometry are two model keys (the draw words are in the key: emit.h DrawWordsSignature)");
+  live::guest_model::ByteStore::Process().Clear();
+  w.m.put32(model + gm::kOffPartTags, 0);
+  gm::ModelRead r2 = gm::ReadModel(w.m, model);
+  gm::TexResolver res2;
+  res2.Resolve(w.m, [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); }, r2, 10);
+  SceneTables t2;
+  gm::BlobSender blobs2;
+  gm::AppendModelRows(r2, t2.guest_models, blobs2, 3000);
+  const uint64_t sig2 = gm::TexSignature(r2);
+  Check(!t2.guest_models.parts.empty() && !(t2.guest_models.parts[0].flags & kGmDrawWords) && t2.guest_models.parts[0].model_hash == gm::Hash64(&sig2, 8, r2.hash),
+        "LAYERS: a model with no tag array ([m+368] = 0) has no draw words and keeps the model key of before LAYERS");
+}
+
+// S111 UNIFY3 (docs\research\s111\UNIFY3.md): a created superstar's part takes its technique word and cull word through the stock loader's own function (assets\material_record.h ApplyRecordWords).
+// The REAL reader reads [desc+144] / [desc+140] (the game's byte copy of the jboy record's +0x90 / +0x8C, sub_82BDB460 +0x308), the writer carries them (section 72) through the record, BuildModel puts
+// them on the Material; the draw's cull (family_cull::Cull) then culls the bit-set part and keeps the bit-clear one two-sided. Plant 70 (draw plant 32: the words carried, not applied) must fail it.
+static void CheckRecordWords() {
+  live::guest_model::ByteStore::Process().Clear();
+  Mem m;
+  PartSpec p0;
+  p0.F = 0x0C | 0x10 | 0x40 | 0x100;
+  p0.vcount = 4, p0.idx = {0, 1, 2, 3}, p0.n0 = 4, p0.palette = {20}, p0.effect = "ych_skin";
+  Vtx vx;
+  vx.n[2] = 1.f;
+  for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p0.F, vx); p0.host_dwords.insert(p0.host_dwords.end(), d.begin(), d.end()); }
+  ModelSpec spec;
+  spec.parts = {p0, p0};   // the same effect and (no) pictures: only the record words tell the two parts apart
+  const uint32_t model = BuildModel(m, spec);
+  uint32_t desc = 0;
+  m.u32(model + 824, desc);
+  m.put32(desc + 144, 3), m.put32(desc + 140, 0x116);             // part 0: technique 3, cull bit 0x2 set (a skin record's word)
+  m.put32(desc + 184 + 144, 1), m.put32(desc + 184 + 140, 0x4);   // part 1: technique 1, the bit clear (a two-sided record)
+  const gm::ModelRead r = gm::ReadModel(m, model);
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const auto build = [&](const SceneTables& rec, assets::Model& mdl) {
+    const std::vector<uint8_t> bytes = SerializeRecord(rec);
+    SceneTables back;
+    std::string err;
+    if (!ParseRecord(bytes.data(), bytes.size(), back, err)) return false;
+    guestmodel::Store store;
+    store.Absorb(back);
+    guestmodel::BuildStats bs;
+    return guestmodel::BuildModel(back, store, model, mdl, bs) && mdl.meshes.size() == 2;
+  };
+  assets::Model mdl;
+  const bool built = r.why == gm::Why::Ok && r.p.size() == 2 && build(t, mdl);
+  const assets::Material* m0 = built ? &mdl.materials[size_t(mdl.meshes[0].material)] : nullptr;
+  const assets::Material* m1 = built ? &mdl.materials[size_t(mdl.meshes[1].material)] : nullptr;
+  Check(m0 && m1 && m0 != m1 && m0->technique == 3 && m0->cull_word == 0x116u && m0->cull_back && m0->cull_from_record && m1->technique == 1 && m1->cull_word == 0x4u && !m1->cull_back &&
+            !m1->cull_from_record,
+        "UNIFY3: the part's record words (desc+144 / +140) reach the built Material: technique 3 / 1, the cull bit 0x2 on part 0 only, two materials");
+  assets::Material s0, s1;   // the stock loader's answer for the same two words (jboy.h calls the same function with the file record's +0x90 / +0x8C)
+  assets::matrec::ApplyRecordWords(s0, 3, 0x116), assets::matrec::ApplyRecordWords(s1, 1, 0x4);
+  Check(m0 && m1 && m0->technique == s0.technique && m0->cull_word == s0.cull_word && m0->cull_back == s0.cull_back && m0->cull_from_record == s0.cull_from_record && m1->technique == s1.technique &&
+            m1->cull_word == s1.cull_word && m1->cull_back == s1.cull_back && m1->cull_from_record == s1.cull_from_record,
+        "UNIFY3: the guest Material's four record fields equal the stock loader's for the same words");
+  Check(m0 && m1 && family_cull::Cull(m0, false, true) == 2 && family_cull::Cull(m1, false, true) == 0 && family_cull::Cull(m0, false, false) == 0 && family_cull::FrontFace(m0, 2, false, false, false) == 1,
+        "UNIFY3: the draw culls the bit-set guest part's back faces (front clockwise) with the family switch on, keeps the bit-clear one two-sided, and the switch off makes it two-sided again");
+  SceneTables old = t;
+  old.guest_models.mats.clear();   // a record written before section 72
+  assets::Model mo;
+  const bool built_old = build(old, mo);
+  Check(built_old && mo.materials.size() == 1 && mo.materials[0].technique == 0 && mo.materials[0].cull_word == 0 && !mo.materials[0].cull_back && !mo.materials[0].cull_from_record,
+        "UNIFY3: a record without section 72 still builds, with the defaults (technique 0, two-sided, one material)");
+}
+
+// S111 UNIFY3 (the UNIFY2 review): the game's parameter-name lookup compares EXACTLY (sub_82BAAEE8 0x82BADF6C..: two 8-byte compares per 32-byte row) and the model build copies the file's names as is,
+// so a guest float row binds by the file's spelling only; a lower-case spelling binds nothing (the effect name's fold stays). Both the row writer (AppendRows) and the consumer (ApplyRows) are checked.
+// Plant 71 (assets::matfloat::g_fold_plant 1: the table's old folded compare) must fail it.
+template <size_t N>
+static void PutName(char (&dst)[N], const char* s) {   // NUL padded, at most N bytes (the unit is built with -Werror: no strncpy)
+  std::memset(dst, 0, N);
+  std::memcpy(dst, s, std::min(std::strlen(s), N));
+}
+static void CheckFloatNamesExact() {
+  std::vector<live::guest_model::FloatParamRead> fl(2);
+  PutName(fl[0].name, "g_f4SpeCol1"), fl[0].kind = 13;
+  PutName(fl[1].name, "g_f4specol2"), fl[1].kind = 13;
+  for (live::guest_model::FloatParamRead& f : fl)
+    for (float& x : f.v) x = 0.5f;
+  std::vector<GuestModelParam> rows;
+  const uint32_t kept = guestfloats::AppendRows(7, 0, fl, rows);
+  GuestModelTables g;
+  g.params = rows;
+  GuestModelParam low{};   // a lower-case row that reaches the consumer anyway (the writer of an older build kept it)
+  low.model = 7, low.part = 0, low.kind = 13;
+  PutName(low.name, "g_f4specol2");
+  for (float& x : low.v) x = 0.25f;
+  g.params.push_back(low);
+  assets::Material mt;
+  assets::matfloat::BeginRecord(mt, "ych_aniso_trans");   // (the effect name stays lower case: its fold is the game's, YchTable)
+  const std::string key = guestfloats::ApplyRows(g, 7, 0, mt);
+  Check(kept == 1 && Near(mt.hair_col1[0], 0.5f) && Near(mt.hair_col2[0], 0.f) && !key.empty(),
+        "UNIFY3: a guest float row binds by the file's exact name (g_f4SpeCol1); the lower-case g_f4specol2 is not kept by the writer and binds nothing in the consumer (kept " + std::to_string(kept) +
+            ", hair_col2 " + std::to_string(mt.hair_col2[0]) + ")");
+}
+
+// S111 UNIFY5 (docs\research\s111\UNIFY5.md): the record header and the sampler facts through the file loader's own steps (assets\material_record.h BeginMaterial, assets\material_samplers.h
+// ApplySamplerFacts), through the REAL reader, row writer, record and BuildModel. (1) A created superstar's yDefault part (the 9 edit-pac records: technique 1, cull word 6) gets the stock yDefault
+// material (effect yDefault, its words, the non-yCh family), not the yCh_skin stand-in with yCh_skin's technique 1; plant 76 (draw plant 33: yDefault not mapped) must fail it. (2) A part's
+// g_mSpecPowPrm with t 1 sets spec_pow_prm and its g_mDiffusePrm the diffuse name from section 73, as the stock loader's step does; t 0 sets none (the game's E+16 is null). Plant 77 (draw plant 34:
+// the section-72 samplers not put through the step) must fail it.
+static void CheckUnify5() {
+  live::guest_model::ByteStore::Process().Clear();
+  const auto part = [](const char* effect, std::vector<Samp> samplers) {
+    PartSpec p;
+    p.F = 0x0C | 0x10 | 0x40 | 0x100;
+    p.vcount = 4, p.idx = {0, 1, 2, 3}, p.n0 = 4, p.palette = {20}, p.effect = effect;
+    Vtx vx;
+    vx.n[2] = 1.f;
+    for (int i = 0; i < 4; ++i) { const std::vector<uint32_t> d = Pack(p.F, vx); p.host_dwords.insert(p.host_dwords.end(), d.begin(), d.end()); }
+    p.samplers = std::move(samplers);
+    return p;
+  };
+  Mem m;
+  ModelSpec spec;
+  spec.parts = {part("ydefault", {}), part("ych_skin", {{"g_mDiffusePrm", 0, 15}, {"g_mSpecPowPrm", 1, 15}}), part("ych_skin", {{"g_mSpecPowPrm", 0, 15}})};
+  spec.tex_keys = {0x11110000u, 0x22220000u};
+  spec.tex_names = {"body_d", "body_spw"};
+  const uint32_t model = BuildModel(m, spec);
+  uint32_t desc = 0;
+  m.u32(model + 824, desc);
+  m.put32(desc + 144, 1), m.put32(desc + 140, 6);   // part 0: the yDefault records' words (technique 1, the cull bit 0x2 set)
+  const gm::ModelRead r = gm::ReadModel(m, model);
+  SceneTables t;
+  gm::BlobSender blobs;
+  gm::AppendModelRows(r, t.guest_models, blobs, 1000);
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  SceneTables back;
+  std::string err;
+  guestmodel::Store store;
+  assets::Model mdl;
+  guestmodel::BuildStats bs;
+  bool built = false;
+  if (ParseRecord(bytes.data(), bytes.size(), back, err)) store.Absorb(back), built = guestmodel::BuildModel(back, store, model, mdl, bs);
+  const auto mat_of = [&](int part_index) -> const assets::Material* {   // by the game's part (src_record): the meshes are built in the game's draw order (S111 LAYERS)
+    if (!built) return nullptr;
+    for (const assets::Mesh& me : mdl.meshes)
+      if (me.src_record == part_index && me.material >= 0 && size_t(me.material) < mdl.materials.size()) return &mdl.materials[size_t(me.material)];
+    return nullptr;
+  };
+  const assets::Material* const y = mat_of(0);
+  const assets::Material* const s1 = mat_of(1);
+  const assets::Material* const s0 = mat_of(2);
+  assets::Material stock;   // the stock loader's header for the same record (jboy.h: the file's effect name, the same two words)
+  assets::matrec::BeginMaterial(stock, "yDefault", 1, 6);
+  Check(r.why == gm::Why::Ok && r.p.size() == 3 && y && y->shader == stock.shader && y->technique == stock.technique && y->cull_word == stock.cull_word && y->cull_back && y->ych_table == stock.ych_table &&
+            y->spec_pow == stock.spec_pow && bs.hole_effect == 0,
+        "UNIFY5: a created superstar's yDefault part takes the stock yDefault material (effect yDefault, technique 1, culled, the non-yCh family), not the yCh_skin stand-in (shader " +
+            (y ? y->shader : std::string("none")) + ", effect holes " + std::to_string(bs.hole_effect) + ")");
+  assets::Material f1, f0;   // the stock loader's facts for the same samplers (jboy.h runs the same step with the file's t and name)
+  f1.shader = f0.shader = "yCh_skin";
+  assets::matsamp::ApplySamplerFacts(f1, "g_mDiffusePrm", 0, true, "body_d", assets::matsamp::Ctx{});
+  assets::matsamp::ApplySamplerFacts(f1, "g_mSpecPowPrm", 1, true, "body_spw", assets::matsamp::Ctx{});
+  assets::matsamp::ApplySamplerFacts(f0, "g_mSpecPowPrm", 0, true, "body_d", assets::matsamp::Ctx{});
+  Check(s1 && s0 && s1 != s0 && s1->spec_pow_prm && s1->diffuse_name == "body_d" && !s0->spec_pow_prm && s0->diffuse_name.empty() && s1->spec_pow_prm == f1.spec_pow_prm && s1->diffuse_name == f1.diffuse_name &&
+            s0->spec_pow_prm == f0.spec_pow_prm,
+        "UNIFY5: a guest part's g_mSpecPowPrm (t 1) sets spec_pow_prm and its g_mDiffusePrm the diffuse name from section 73, as the stock loader's step; t 0 sets none (the game's E+16 is null)");
+  // (4) S111 UNIFY5 review: every guest part is a character part (Material::char_part), so the yDefault part casts in map A / map B / the rim map as the yCh_skin part does (wrestler_caster.h Casts,
+  // the real BuildModel material). The planted twin: the old key (a yCh_ effect name) drops it.
+  {
+    namespace wc = rdr_scene::wrestler_caster;
+    bool casts_alike = y && s1 && y->char_part && s1->char_part;
+    for (const bool walks : {false, true}) casts_alike = casts_alike && wc::Casts(*y, walks) && wc::Casts(*y, walks) == wc::Casts(*s1, walks);
+    const bool old_key = y && y->shader.compare(0, 4, "yCh_") == 0;   // the old Casts test (IsCharEffect) on the yDefault part
+    Check(casts_alike && !old_key, "UNIFY5 review: a guest yDefault part is a character part and casts in every caster pass like the guest yCh_skin part; the old effect-name key would drop it");
+  }
+  // (3) S111 UNIFY5 review: an effect no pipeline of ours draws is a HOLE, named: the model is refused (never half a body, never yCh_skin's look on another effect's part), and the refusal names the
+  // effect (rf_wrestlers.cpp logs BuildStats::why once). The old yCh_skin stand-in built it (the planted twin: the unfixed code builds this model).
+  {
+    live::guest_model::ByteStore::Process().Clear();
+    Mem hm;
+    ModelSpec hs;
+    hs.parts = {part("ych_skin", {}), part("notAnEffect", {})};
+    const uint32_t hmodel = BuildModel(hm, hs);
+    const gm::ModelRead hr = gm::ReadModel(hm, hmodel);
+    SceneTables ht;
+    gm::BlobSender hblobs;
+    gm::AppendModelRows(hr, ht.guest_models, hblobs, 1000);
+    const std::vector<uint8_t> hbytes = SerializeRecord(ht);
+    SceneTables hback;
+    std::string herr;
+    guestmodel::Store hstore;
+    assets::Model hmdl;
+    guestmodel::BuildStats hbs;
+    bool hparsed = false, hbuilt = true;
+    if ((hparsed = ParseRecord(hbytes.data(), hbytes.size(), hback, herr))) hstore.Absorb(hback), hbuilt = guestmodel::BuildModel(hback, hstore, hmodel, hmdl, hbs);
+    Check(hr.why == gm::Why::Ok && hparsed && !hbuilt && hbs.hole_effect == 1 && hbs.why.find("'notAnEffect'") != std::string::npos,
+          "UNIFY5 review: a part whose effect no pipeline draws makes the model a hole whose reason names the effect (built " + std::to_string(int(hbuilt)) + ", why '" + hbs.why + "')");
+  }
+}
+
 int main(int argc, char** argv) {
   int plant = 0;
   for (int i = 1; i + 1 < argc; ++i)
     if (!std::strcmp(argv[i], "--plant")) plant = std::atoi(argv[i + 1]);
   if (plant >= 1 && plant <= 17) gm::g_gm_plant = plant;   // 17 = S110 WHITEFACE: the old `pc <= 64` guard   // 15 / 16 = S108 RDS: the layout line copy's window unaligned / no line copy
+  if (plant == 66) gm::g_gm_plant = 18;                     // S111 EYECUBE review: the byte pass reads no texture names / record words
   if (plant >= 21 && plant <= 30) guestmodel::g_draw_plant = plant - 20;   // 30 (draw plant 10, CAWS P3): every decoded node + 200   // 29 (draw plant 9, CTX2): the actors_drawn increment is left out
   if (plant == 41) guestmodel::g_draw_plant = 11;                           // 41 (draw plant 11, CAWH): the file-space -> viewer-space mirror is skipped
   if (plant == 42) guestmodel::g_draw_plant = 12;                           // 42 (draw plant 12, S105 A5b): no guest part blends (the old rule)
-  if (plant == 44) guestmodel::g_draw_plant = 13;                           // 44 (draw plant 13, S105 A5b review F1): a trans part blends even with no normal picture
-  if (plant == 43) rdr_scene::g_piece_row_plant = 1;                        // 43 (S105 A5b): every src_kind 2 mesh answers the piece-row lookup, guest parts included
+  if (plant == 44) guestmodel::g_draw_plant = 13;                           // 44 (draw plant 13, S111 GUESTKEY F4): the old A5b gate (a trans part with no normal picture is built opaque)
+  if (plant == 43) guestmodel::g_draw_plant = 19;                           // 43 (draw plant 19, S111 GUESTKEY F1): the old stamp (src_key = the part index, src_record -1)
+  if (plant == 68) rdr_scene::g_guest_key_plant = 1;                        // 68 (S111 GUESTKEY F3): the old CAWHAIR piece mask (no kObjDrawnByOwner: such a piece gets key 0)
+  if (plant == 69) rdr_scene::g_guest_key_plant = 2;                        // 69 (S111 GUESTKEY review): the piece id as a suffix of the cache key (the body key is a prefix / substring of it)
   if (plant == 51 || plant == 52 || plant == 53 || plant == 54) gm::g_gm_logo_plant = plant - 50;   // S105 A5c: 51 the callback word is not checked, 52 buf unbounded, 53 key 0 accepted, 54 kGmDiffuseT0 never set
   if (plant == 55) gm::g_gm_tex_plant = 36;                                  // S105 A5c: a flushed picture is not refreshed at once
   if (plant == 56) gm::g_gm_tex_plant = 37;                                  // S105 A5c: the logo keys are not resolved
   if (plant == 60) gm::g_gm_tex_plant = 38;                                  // S110 WHITEEYES: a deferred refresh names the held hash without its bytes
   if (plant == 61 || plant == 62 || plant == 63) guestmodel::g_draw_plant = plant - 46;   // S110 STOREABSENT: 61 (draw 15) a provisional build is final, 62 (draw 16) rebuilt every call, 63 (draw 17) the Store refuses at its cap
   if (plant == 64) gm::g_store_plant = 1;                                    // S110 STOREABSENT: the process ByteStore refuses at its cap (the old rule)
+  if (plant == 65) guestmodel::g_draw_plant = 18;                            // S111 GUESTHAIR: the part's float rows are not put on the material (the old fresh Material)
+  if (plant == 67) guestmodel::g_draw_plant = 31;                            // S111 GUESTVTX: the colour stays the host-order dword (R = file byte 27)
+  if (plant == 74) guestmodel::g_draw_plant = 20;                            // S111 LAYERS: the consumer keeps the effect-name blend rule (68 / draw 19 at landing, 70 after GUESTKEY; 74 after UNIFY3 took 70 / 71)
+  if (plant == 75) gm::g_gm_plant = 19;                                      // S111 LAYERS: the reader reads no draw words (69, then 71; now 75)
+  if (plant == 72) guestmodel::g_draw_plant = 21;                            // S111 LAYERS review (CAWPASS folded in): the parts are built in part order, not the game's draw order
+  if (plant == 73) gm::g_gm_plant = 20;                                      // S111 LAYERS review: the draw words are not folded into the model key
+  if (plant == 70) guestmodel::g_draw_plant = 32;                            // S111 UNIFY3: the record words are carried but not put on the material (technique 0, two-sided)
+  if (plant == 71) assets::matfloat::g_fold_plant = 1;                       // S111 UNIFY3: the float table compares names ignoring case (the old rule)
+  if (plant == 76) guestmodel::g_draw_plant = 33;                            // S111 UNIFY5: yDefault is not mapped (the old yCh_skin stand-in)
+  if (plant == 77) guestmodel::g_draw_plant = 34;                            // S111 UNIFY5: the section-72 samplers are not put through the facts step
   if (plant == 57) guestmodel::g_draw_plant = 14;                            // S105 A5c: the logo pictures are not put on the material
   if (plant == 58) g_logo_bool_plant = 1;                                    // S105 A5c: bit 150 never set
   if (plant == 59) g_logo_bool_plant = 2;                                    // S105 A5c: bit 150 always set
@@ -1823,9 +2493,17 @@ int main(int argc, char** argv) {
   CheckTextures();
   CheckCtf();
   CheckWhiteFace();   // S110 WHITEFACE
+  CheckHairMaps();   // S111 HAIRMAPS
+  CheckGuestFloats();   // S111 GUESTHAIR
+  CheckSamplerTable();   // S111 UNIFY2
+  CheckEyeCubeNames();   // S111 EYECUBE review
+  CheckRecordWords();   // S111 UNIFY3
+  CheckFloatNamesExact();   // S111 UNIFY3
+  CheckUnify5();   // S111 UNIFY5
   CheckWhiteEyes();   // S110 WHITEEYES
   CheckStoreAbsent();   // S110 STOREABSENT
   CheckBlend();
+  CheckLayers();   // S111 LAYERS
   CheckCawd();
   CheckLogo();
   CheckRecordAndConsumer();

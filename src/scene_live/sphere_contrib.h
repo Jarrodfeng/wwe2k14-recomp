@@ -9,6 +9,7 @@
 
 #include "../renderer_scene/live_scene.h"
 #include "../renderer_scene/rows_sphere.h"   // S106 G4-2
+#include "../renderer_scene/sphere_join.h"   // S111 SPHEREOCC review: the join's census (Joins)
 #include "sphere_hook.h"
 #include "tail_latch.h"  // S102 U1
 
@@ -38,7 +39,7 @@ class SphereContributor : public Contributor {
     out += "[spheres calls " + std::to_string(s.calls) + ", recorded " + std::to_string(s.recorded) + ", replaced " + std::to_string(s.replaced) + ", early_out " + std::to_string(s.early_out) +
            ", unreadable " + std::to_string(s.unreadable) + ", bad_count " + std::to_string(s.bad_count) + ", no_skeleton " + std::to_string(s.no_skeleton) + ", skipped_sphere " +
            std::to_string(s.skipped_sphere) + ", overflow " + std::to_string(s.overflow) + ", late " + std::to_string(s.late) + ", frames " + std::to_string(s.frames) + ", emitted " +
-           std::to_string(frames_emitted_) + "]";
+           std::to_string(frames_emitted_) + ", " + rdr_scene::sphere_join::Joins().Text() + "]";   // S111 SPHEREOCC review: the draw side's join
   }
   Tracker tracker;
   const TrackerLatch<FrameBuffer, kRing>& Latched() const { return latch_; }   // S102 U1 (tests)

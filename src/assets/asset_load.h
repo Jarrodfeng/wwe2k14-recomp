@@ -265,7 +265,7 @@ inline int OrdinalOfModelKeyAt(launcher::GameFiles& files, const std::string& re
 inline int OrdinalOfModelKey(launcher::GameFiles& files, int id, int key) { return OrdinalOfModelKeyAt(files, load_detail::WrestlerRel(id), key); }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
-                            bool prop_slots = false);  // (Session 99: prop_slots = also the PACH's model slots 1..9, LoadProp)
+                            bool prop_slots = false, bool character = true);  // (Session 99: prop_slots = also the PACH's model slots 1..9, LoadProp; S111 UNIFY5 review: character = false for LoadProp's event props)
 
 namespace load_detail {
 // Session 98 (wrestler fix 3): the texture directories every wrestler shares (pac\ch\chCommon.pac: `noise2`, the gear shader's tiled
@@ -486,7 +486,7 @@ inline bool LoadProp(launcher::GameFiles& files, int pach, Model& m, std::string
       if (0x4000 + size_t(st) * 0x800 == p->pachs[size_t(at)].base) { belt = sec == "BOBJ"; break; }
     }
   }
-  return LoadWrestlerPac(p, lab, name, index, m, err, !belt);  // (Session 99: + model slots 1..9, not for belts)
+  return LoadWrestlerPac(p, lab, name, index, m, err, !belt, false);  // (Session 99: + model slots 1..9, not for belts; S111 UNIFY5 review: an event prop is no character part)
 }
 
 // S103 BLF (docs\research\s103\BELT.md Adversary 1; docs\formats\evtobj_pac.md): ONE model of an entrance's event prop, for the POSED draw: entry `k` (0..9) of evtobj.pac PACH `pach` (DLC numbering as LoadProp). MakeWeapon
@@ -1046,7 +1046,7 @@ inline bool LoadWrestlerFile(const std::string& path_u8, int label_id, int attir
 }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
-                            bool prop_slots) {
+                            bool prop_slots, bool character) {
   using namespace load_detail;
   const double t0 = NowMs();
   m = {};
@@ -1103,6 +1103,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
     o.part = pid == 0 ? "body" : "piece " + std::to_string(pid);
     o.kind = 2, o.key = int(pid), o.pac = pacname;  // Session 98 (step 16)
     o.prop_slot = prop_slots && pid >= 1 && pid <= 9;  // Session 99 (scene objects): JboyOptions::prop_slot
+    o.char_part = character && !o.prop_slot;   // S111 UNIFY5 review: a character's body / piece (Material::char_part: the caster set); an event prop is not
     o.tex = &tex;
     std::string e2;
     if (!LoadJboy(blob, o, m, e2)) {
@@ -1112,6 +1113,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
     }
     ++pieces;
   }
+  if (!prop_slots) OrderPieceMeshes(m.meshes);   // S111 CHARORDER (piece_keys.h): the merged model draws its pieces in the game's SUBM descriptor order, not the id order of the load
   FinishModel(m);
   if (m.meshes.empty()) return err = lab + ": no meshes loaded", false;
   m.load_ms = NowMs() - t0;

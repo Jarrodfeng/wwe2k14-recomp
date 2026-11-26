@@ -39,7 +39,7 @@ def main(argv):
     os.makedirs(os.path.join(out, 'sheets'), exist_ok=True)
     paths, total = [], 0
     for u in todo:
-        text = qsheet.sheet(u)
+        text = qsheet.sheet(u, earlier=False)       # S111 FOLD: the reader is not shown the unit's earlier reading or names
         p = os.path.join(out, 'sheets', '%d.txt' % u)
         with open(p, 'w', encoding='utf-8', newline='\n') as f:
             f.write(text if text.endswith('\n') else text + '\n')

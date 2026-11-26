@@ -557,6 +557,8 @@ constexpr uint32_t kTextQuit = kTextBase + 6;        // the main menu list label
 constexpr uint32_t kTextQuitAsk = kTextBase + 0x41;  // its confirmation question
 constexpr uint32_t kTextPhoto = kTextBase + 0x60;    // Session 33: PHOTO MODE in the pause menu (src/photo_mode.h)
 inline bool g_photo_pause_item = false;              // set by photo_mode.h when that row is in use
+constexpr uint32_t kTextRamp = kTextBase + 0x61;     // S111 RAMPMENU: RAMP CAMERA in the pause menu's VISUAL PRESENTATION (src/ramp_menu.h)
+inline bool g_ramp_pause_item = false;               // set by ramp_menu.h (ApplyAtStart) when that row is in use
 
 struct TextEntry {
   uint32_t id;
@@ -602,6 +604,7 @@ inline TextEntry g_texts[] = {
     {kTextQuit, "QUIT TO DESKTOP", 0},
     {kTextQuitAsk, "Quit to desktop?", 0},
     {kTextPhoto, "PHOTO MODE", 0},
+    {kTextRamp, "RAMP CAMERA", 0},
     {50303, "Pick a song from your Mods > Music folder.", 0},  // lane 291: the game's own text id of the USER PLAYLIST hint, answered only while g_music_hint_on
 };
 
@@ -1007,7 +1010,7 @@ REX_HOOK_RAW(sub_822563F8) {
       return;
     }
   }
-  if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item) || g_photo_pause_item) {
+  if (REXCVAR_GET(wwe2k14_gfx_menu) || REXCVAR_GET(wwe2k14_quit_item) || g_photo_pause_item || g_ramp_pause_item) {
     uint32_t want = id;
     if (id >= kTextBase && id < kTextBase + 0x100) {
       want = id;

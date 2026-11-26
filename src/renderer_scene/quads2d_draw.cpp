@@ -179,7 +179,7 @@ Report Append(rdr::FrameBuilder& builder, const Programs& programs, const Contex
       state.depth_test = z_test ? 1 : 0;
       state.depth_write = ((row.have & kQhState) && (row.state & 32) != 0) ? 1 : 0;
       state.depth_compare = 3;   // VK_COMPARE_OP_LESS_OR_EQUAL: the game's GEQUAL on its reversed depth, pass_state.h ForwardZ
-      state.blend[0].write_mask = 0x7;   // rgb only: the scene's alpha is read by the post (the game's category-36 draw leaves alpha alone [U: no capture shows an alpha write there])
+      // (no write mask of its own: BlendOf's 0xF stands, the game's inherited mask; neither post reads the scene's alpha: S111 RSTCOVER-B review)
     }
     rdr::DynamicState dyn{};
     // S105 A2: the viewport is the game box at (origin_x, origin_y) of the target (the 2D layer is a centred 16:9 on a wider / taller F); a full-view flat row (a fade / flash / tint) takes the whole target.

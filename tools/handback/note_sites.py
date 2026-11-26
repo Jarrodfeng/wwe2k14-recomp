@@ -28,6 +28,15 @@ a site heading ends the current site. The carried text has no trailing newline o
 NOTHING TO CHANGE: a probe whose honest answer is "no edits" writes, inside the section, ONE line `No sites: <reason>` (case-insensitive, column
   0, a non-empty reason) and no `### Site` heading. --check prints `note_sites: 0 sites: OK (no sites: <reason>)` and exits 0; --apply changes
   nothing and exits 0; land_note.py refuses it (exit 7: nothing to land). An empty reason, or that line together with a site heading, is an error.
+CLAIMS (S111 LODGE): a note may carry ONE fenced block opened by "```claims" (column 0, anywhere in the note), one row per line:
+  ADDRESS | MARK | CLAIM | evidence: WHAT YOU READ [| KIND KEY [NAME]] [| seam=TOPIC ours=PATH:LINE verdict=match|replace|repeat] [| system=render]
+  e.g.  0x82331BC0 | C | the loading card's release waits for the load task to report done | evidence: decomp sub_82331BC0 +0x40 | site sub_82331BC0+0x40
+  The optional TYPE column `KIND KEY [NAME]` (tools\q\qfactkey.py: site sub_X+OFF, role sub_X, field vt:VT+OFF | g:ADDR[+OFF] | ctor:sub_X+OFF,
+  embed vt:A+OFF => vt:B, enum arg:sub_X.rN=V, when sub_X) is checked by --check: it must parse and resolve (a site is an instruction of that
+  function); an embed row is [C] only when a constructor stores the vptr at that offset.
+--check also validates that block (tools\handback\claims.py): every address resolves through the code index (`q addr`), the mark is C / L / U,
+  no game code (no instruction text) in the claim or the evidence. tools\handback\lodge_note.py writes the rows to the note's own file
+  db\claims\<sNNN>_<NOTE>.json (never an existing db file); land_note.py runs it.
 Stdlib only; reads the note and the files it names; 0 game runs."""
 import argparse
 import difflib
@@ -66,6 +75,15 @@ int main() { return 0; }
 ```
 
 Nothing to change? Replace the sites by ONE line at column 0 (and no "### Site" heading): No sites: <the reason, not empty>
+
+The claims (optional, anywhere in the note; written to db\\claims\\<sNNN>_<NOTE>.json by tools/handback/lodge_note.py, which land_note.py runs): ONE ```claims block, one row per
+[C] / [L] / [U] claim that has a game address, in OUR words, never a listing: ADDRESS | MARK | CLAIM | evidence: WHAT YOU READ  [| seam=TOPIC ours=PATH:LINE verdict=match|replace|repeat] [| system=render]
+```claims
+0x82331BC0 | C | the loading card is released only when the load task reports done | evidence: decomp sub_82331BC0 +0x40
+0x836F38D0 | L | table of the game's character objects, one word per slot | evidence: inputs_contrib.h:146-158 | system=match
+0x825A21E0 | C | the created flag char+5076 is 1 when the info id is <=u 9999 | evidence: asm sub_825A20A0 0x825A21C0..0x825A21E0 | field vt:0x8201E6E8+5076 created_flag
+```
+The optional TYPE column after the evidence is `KIND KEY [NAME]` (site sub_X+OFF | role sub_X | field vt:VT+OFF | embed vt:A+OFF => vt:B | enum arg:sub_X.rN=V): docs/agents/note_sites.md.
 
 The proof (optional; tools/handback/land_note.py runs it): ONE ```proof block, prove.py's file format, one command per line:
 ```proof
@@ -306,12 +324,44 @@ def write_text(path, text, eol):
         f.write(data)
 
 
+def claims_check(text, root=None, table=None):
+    """S111 LODGE: validate the note's ```claims block (tools\\handback\\claims.py). -> 0 OK (or no block), 1 problems. Prints one line per problem."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("claims", os.path.join(os.path.dirname(os.path.abspath(__file__)), "claims.py"))
+    cl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cl)
+    try:
+        rows = cl.parse_claims(text)
+    except cl.ClaimsError as e:
+        print("note_sites: claims: ERROR: %s" % e)
+        return 1
+    if not rows:
+        return 0   # no block: silent (lodge_note.py says "no claims block" when it runs)
+    try:
+        if table:   # selftest: a fixed address table instead of the code index (land_note.py --lodge-resolver-table)
+            import json
+            with open(table, encoding="utf-8") as f:
+                t = json.load(f)
+            resolver = cl.TableResolver(t.get("funcs", {}), t.get("data", []), t.get("facts"))
+        else:
+            resolver = cl.QResolver(root)
+    except Exception as e:   # noqa: BLE001 (no code index in this checkout)
+        resolver = None
+        print("note_sites: claims: no code index (%s: %s)" % (type(e).__name__, e))
+    errs = cl.check_rows(rows, resolver)
+    for x in errs:
+        print("note_sites: claims: ERROR: " + x)
+    print("note_sites: claims: %d rows: %s" % (len(rows), "OK" if not errs else "FAIL"))
+    return 1 if errs else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="check / apply the 'Sites the build will touch' section of a note")
     ap.add_argument("--check", metavar="NOTE")
     ap.add_argument("--apply", metavar="NOTE")
     ap.add_argument("--template", action="store_true")
     ap.add_argument("--root", default=".", help="repo root the site paths are relative to (default: the current folder)")
+    ap.add_argument("--resolver-table", default=None, help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.template:
         sys.stdout.write(TEMPLATE)
@@ -322,12 +372,14 @@ def main(argv=None):
     root = os.path.abspath(a.root)
     try:
         with open(note, "rb") as f:
-            sites = parse_note(f.read().decode("utf-8", "replace"))
+            note_text = f.read().decode("utf-8", "replace")
+        sites = parse_note(note_text)
     except NoSites as e:
         print("note_sites: 0 sites: OK (no sites: %s)" % e.reason)
         if a.apply:
             print("note_sites: nothing to apply, nothing changed")
-        return 0
+            return 0
+        return claims_check(note_text, root, a.resolver_table)
     except (NoteError, OSError) as e:
         print("note_sites: ERROR: %s" % e)
         print("note_sites: 0 sites, 0 edits, 0 new files: FAIL")
@@ -335,7 +387,8 @@ def main(argv=None):
     results, plans = check_sites(sites, root)
     ok = report(sites, results)
     if a.check:
-        return 0 if ok else 1
+        crc = claims_check(note_text, root, a.resolver_table)
+        return 0 if ok and not crc else 1
     all_ok = ok
     if not all_ok:  # TWIN:refuse
         print("note_sites: apply REFUSED, nothing changed")

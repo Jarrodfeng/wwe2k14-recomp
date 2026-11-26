@@ -112,4 +112,34 @@ inline void EventWeaponFreed(uint32_t weapon) {
   }
 }
 
+// S111 STAGELESS2 (src\renderer_scene\prop_light_id.h): the raw hook on the event CWeapon's ctor sub_8272BCD0 (its only caller MakeWeapon 0x8272E534; r3 = the CWeapon, the original runs first,
+// draw_origin.h). It only records the pointer: the tracker reads the light-set id [cw + 1468] once a frame. Until the weapon rows are registered: one relaxed load.
+inline void EventWeaponMade(uint32_t weapon) {
+  namespace wr = rdr_scene::live::weaponrows;
+  if (weapon == 0 || !wr::WeaponRowsRegistered()) return;
+  wr::Rows().tracker.EventWeapon(weapon);
+}
+
+// S111 PROPSPEC (src\scene_live\prop_spec.h): the raw hooks on sub_82335070 (bind: r4 = the CWeapon, r5 = the name, r7 = &value) and sub_82334AB8 (release: r3 = the override), draw_origin.h. They only record
+// into propspec's store: nothing is written to the guest, no register changes, no call skipped. Until the weapon rows are registered: one relaxed load.
+inline void PropSpecBind(uint32_t weapon, uint32_t name_ptr, uint32_t value_ptr) {
+  namespace ps = rdr_scene::live::propspec;
+  if (!rdr_scene::live::weaponrows::WeaponRowsRegistered()) return;
+  ps::BindSeen seen;
+  const bool ok = ps::OnBind(
+      ps::TheStore(), [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); }, [](uint32_t a, void* d, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, d, n); }, weapon, name_ptr, value_ptr, &seen);
+  static std::atomic<int> logged{0};
+  if (ok && logged.fetch_add(1, std::memory_order_relaxed) < 60)   // the step check reads the bank-104 belt (a 2xxx / 3xxx prop, values 0) and the steps (prop 32, 0.3 / 40 / 0.3) here
+    REXLOG_INFO("[wwe2k14][prop_spec] bind: weapon 0x{:08X} prop {} model 0x{:08X} {} = {} (set now {})", weapon, seen.prop_id, seen.model,
+                seen.name == ps::kLev ? "g_fSpecularLev" : seen.name == ps::kPow ? "g_iSpecularPow" : "g_fReflectAlpha", seen.value, seen.code);
+}
+inline void PropSpecRelease(uint32_t ovr) {
+  namespace ps = rdr_scene::live::propspec;
+  if (!rdr_scene::live::weaponrows::WeaponRowsRegistered()) return;
+  const bool ok = ps::OnRelease(
+      ps::TheStore(), [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); }, [](uint32_t a, void* d, size_t n) { return wwe2k14::wrestlers::ReadGuest(a, d, n); }, ovr);
+  static std::atomic<int> logged{0};
+  if (ok && logged.fetch_add(1, std::memory_order_relaxed) < 60) REXLOG_INFO("[wwe2k14][prop_spec] release: override 0x{:08X} ({} model(s) still under a set)", ovr, ps::TheStore().Count().live);
+}
+
 }  // namespace wwe2k14::weaponrows

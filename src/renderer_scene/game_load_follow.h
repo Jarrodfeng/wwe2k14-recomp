@@ -1,7 +1,7 @@
 // S110 ENTRBLACK round 5 (docs\research\s110\ENTRBLACK.md "Round 5"): our scene loads start when the GAME's loads start, never later; the game never waits for them.
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause. No game or SDK includes (the unit tools\renderer\host_core_unit.cpp drives it).
 //
-// The arena pac the game opens during its loading screen (pac\bg\bgNN.pac, kernel_overrides.h LogFileOpen, game thread) is handed to the host, which asks the
+// The arena pac the game opens during its loading screen (pac\bg\bgNN.pac, kernel_overrides.h LogFileOpen, the pac worker thread) is handed to the host, which asks the
 // loader for that arena through the existing ask path (LiveSceneDraw::QueueMisses -> rf::c::WantArenaFromGame -> g_wanted -> TakeArenaMisses). One slot: the newest open
 // wins; a slot the host never takes is overwritten by the next open (no "asked" state is kept here: the loader's own g_asked / FailArena bookkeeping is the only one).
 #pragma once
@@ -35,7 +35,7 @@ inline int ArenaOfGamePath(std::string_view p) {
   return (s[6] - '0') * 10 + (s[7] - '0');
 }
 
-// Game thread (kernel_overrides.h LogFileOpen, a successful open).
+// The pac worker thread (kernel_overrides.h LogFileOpen, a successful open; S111 PILOT review: sub_82C37070's open runs on the thread of sub_82260310's loop).
 inline void NoteGameOpen(std::string_view path) {
   const int a = ArenaOfGamePath(path);
   if (a >= 0) g_game_arena.store(a, std::memory_order_release);

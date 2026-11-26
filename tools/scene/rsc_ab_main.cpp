@@ -32,6 +32,15 @@ static uint64_t Fnv64(const std::vector<uint8_t>& b) {
   return h;
 }
 
+// S111 GUESTHAIR review: a table an older BASE tree does not have yet is counted through a template (no such member = 0 rows), so the one driver still builds
+// against that base (a plain C(guest_models.params) did not: "no member named 'params'", rsc_ab exit 2). A base without the table drops its section, so a record
+// that carries it differs, as it should.
+template <class G>
+static size_t GuestParamRows(const G& g) {
+  if constexpr (requires { g.params.size(); }) return g.params.size();
+  else return 0;
+}
+
 static std::string Describe(const SceneTables& t) {
   char buf[4096];
   int n = 0;
@@ -47,6 +56,7 @@ static std::string Describe(const SceneTables& t) {
   C(light_objects) C(crowd_runs) C(crowd_members) C(model_lights) C(stage_fx) C(stage_look) C(crowd_props) C(crowd_pictures) C(crowd_singles)
   C(owned_passes) C(quads2d) C(weapon_slots) C(particles.batches) C(particles.particles) C(particles.status) C(particles.screen)
   C(guest_models.parts) C(guest_models.blobs) C(guest_models.textures)
+  n += snprintf(buf + n, sizeof buf - n, ",guest_models.params%zu", GuestParamRows(t.guest_models));   // S111 GUESTHAIR (section 71): through the template above
 #undef C
   if (n < 0) n = 0;   // S106 G4-1AF: snprintf returns the length it WOULD have written: clamp to the buffer
   if (n > int(sizeof buf) - 1) n = int(sizeof buf) - 1;

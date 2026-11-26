@@ -47,10 +47,14 @@ import admit_py as _admit   # the machine-wide compile queue
 
 T_GIT, T_CFG, T_NINJA, T_VER = 60, 300, 120, 30
 PRESETS = {'on': 'win-amd64-release', 'off': 'win-amd64-release-off'}
+# What makes a variant that variant: set last, over main's cache AND the preset. Main's play folder (out\build\win-amd64-release) is Jarrod's stream-free player build since
+# S111 (2026-11-26), so its cache says KEEP_STREAM=OFF; without this the 'on' check configured stream-free. Main's cache still supplies compilers / SDK / the other options.
+VARIANT = {'on': {'WWE2K14_KEEP_STREAM': 'ON'},
+           'off': {'WWE2K14_KEEP_STREAM': 'OFF', 'WWE2K14_KEEP_STREAM_RUN': 'ON'}}
 OVERRIDE_ENV = 'SYNTAX_CFG_OVERRIDE_JSON'   # selftest planted twins: {"CMakeLists.txt": "<path of a file holding its replacement bytes>"} (part of the key)
 # the in-repo files configure READS (build.ninja's RERUN_CMAKE deps + the two file(STRINGS) / presets readers, GSMAIN E5): real copies, everything else is an empty placeholder
 REAL_INPUTS = ('CMakeLists.txt', 'CMakePresets.json', 'VERSION', 'generated/rexglue.cmake', 'third_party/audio/opus/opus_sources.cmake',
-               'third_party/audio/opus/sources.txt', 'tools/scene/keep_stream_sources.txt', 'tools/scene/keep_stream_off_sources.txt')
+               'third_party/audio/opus/sources.txt', 'third_party/libwebp/libwebp.cmake', 'tools/scene/keep_stream_sources.txt', 'tools/scene/keep_stream_off_sources.txt')
 LIST_DIRS = ('src', 'assets', 'third_party', 'probes', 'game_logo.ico')   # probes/: the wwe2k14_probes target's sources (CMakeLists.txt add_library)
 SOURCES_CMAKE = 'generated/default/sources.cmake'
 SL_H = 'thirdparty/streamline/sdk/include/sl.h'
@@ -235,6 +239,7 @@ def plan(tree, main_dir, build):
         if k in ('CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER') and k in args:
             continue
         args[k] = v
+    args.update(VARIANT[build])   # S111: the variant's own identity, never main's cache (the play folder became stream-free on 2026-11-26 and its OFF reached the 'on' flags)
     sdk = args.get('rexglue_DIR', '')
     sdk_bytes = [(os.path.basename(p), _read(p) or b'') for p in sorted(glob.glob(os.path.join(sdk, '*.cmake')))] if sdk else []
     h = hashlib.sha256()
@@ -646,6 +651,7 @@ def reference_args(pl):
         if k in ('CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER') and k in args:
             continue
         args[k] = v
+    args.update(VARIANT[pl['build']])   # S111: the same variant identity as plan(), or the reference inherits the play folder's stream-free cache
     return args
 
 

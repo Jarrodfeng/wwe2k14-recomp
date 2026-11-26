@@ -30,7 +30,9 @@ inline bool CarriedSetting(const std::string& n) {
                                     // the tester check's constant clocks / file answers (include/rex/det.h)
                                     "wwe2k14_scene_crowd", "det_time_constant", "det_fs_constant",
                                     // Lane 176: an explicit off keeps the 16:9 crowd tests (guest memory differs with it on)
-                                    "wwe2k14_crowd_fill_wide"};
+                                    "wwe2k14_crowd_fill_wide",
+                                    // S111 RAMPCAM: the pad turns with the camera's side, so a recording plays back on its own camera side
+                                    "wwe2k14_ramp_camera"};
   // S101 lane 111 (go-anywhere L-2): the place cvars, EXACT names (a prefix would pull in other wwe2k14_match_*
   // options that are not the place): a harvest recording must rebuild the same match, the 30 Years jump and the
   // forced victory scene when it is played back.
@@ -62,11 +64,29 @@ inline bool CarriedSetting(const std::string& n) {
 // carry, so a recording always writes the RESOLVED switch (off, or k=..,t=.. explicit: crowd_wide_core.h RecordValue), and a recording with no such line
 // (every one made before lane 176) plays back as off: it ran the game's 16:9 test.
 inline constexpr const char* kCrowdFillWide = "wwe2k14_crowd_fill_wide";
+// S111 RAMPCAM (main session, from the RAMPMENU review F2): the ramp camera changes gameplay (the game turns the stick by the shown camera's
+// heading, sub_82610680 / sub_82610738), so a recording decides it: always written, a recording without the line (every one made before
+// it) plays OFF, and on playback the recording's value wins over a given one (RecordingWins).
+inline constexpr const char* kRampCamera = "wwe2k14_ramp_camera";
+// Written in every recording's header even at their default (src/replay.h OpenRecord): nf_skin_3bone's default differs by platform (Session
+// 77: "on" on x86-64 is not "modified" there, "off" on ARM; a PC recording played on a phone ran it off; keep in step with det_cross.py
+// PLATFORM_DEFAULTS), the crowd switch and the ramp camera must be decided by the recording.
+inline constexpr const char* kAlwaysWritten[] = {"wwe2k14_nf_skin_3bone", kCrowdFillWide, kRampCamera};
 inline void AddOldRecordingDefaults(std::vector<std::pair<std::string, std::string>>& flags) {
-  for (const auto& kv : flags)
-    if (kv.first == kCrowdFillWide) return;
-  flags.emplace_back(kCrowdFillWide, "off");
+  bool crowd = false, ramp = false;
+  for (const auto& kv : flags) {
+    crowd = crowd || kv.first == kCrowdFillWide;
+    ramp = ramp || kv.first == kRampCamera;
+  }
+  if (!crowd) flags.emplace_back(kCrowdFillWide, "off");
+  if (!ramp) flags.emplace_back(kRampCamera, "false");  // S111 RAMPCAM: it ran the default camera side
 }
+
+// S111 RAMPCAM: the settings whose RECORDED value wins on playback over the command line and the settings file (they decide what the
+// recorded pad does); every other carried setting keeps a value the player gave (src/replay.h Want, with a "kept as given" warning).
+inline bool RecordingWins(const std::string& n) { return n == kRampCamera; }
+// Does replay mode set a carried setting to the recording's value? given = the player set it (command line, settings file).
+inline bool ReplaySets(const std::string& n, bool given) { return !given || RecordingWins(n); }
 
 // S110 DETLOADS: does a recording's flag list choose fast loads? A recording without the line (every one made before it) = slow.
 inline bool FlagsChooseFastLoads(const std::vector<std::pair<std::string, std::string>>& flags) {

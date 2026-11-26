@@ -120,6 +120,7 @@ void Contributor::Reset() {
   snap_verdict_ = SnapWhy::kCount;
   draw_ring_ = 0;
   arena_ = -1;
+  period_.emplace();   // S111 CUTCROWD2: a new pairing (the first latch after a Reset takes its own read; its census restarts)
 }
 
 
@@ -185,13 +186,14 @@ SnapWhy Contributor::JudgeLocked(bool fresh) const {
   return EvaluateSnapshot(fresh, arena_, unread, published_, published_palettes_, kTypes, kLods, kUnknown, policy_, plant, snap_latch_built_, latch_ok_);
 }
 
-void Contributor::NoteVerdict(SnapWhy w, uint64_t record_frame) {
+void Contributor::NoteVerdict(SnapWhy w, uint64_t record_frame, const Presence* shown) {
   if (w == SnapWhy::kCount) return;   // not judged (Mode Off)
   snap_judged_.fetch_add(1, std::memory_order_relaxed);
   snap_why_[uint32_t(w)].fetch_add(1, std::memory_order_relaxed);
   if (w == SnapWhy::HolderPresent) {   // S103 S2: what made the frame not whole
+    const Presence& pr = shown ? *shown : presence_;   // S111 CUTCROWD2: the latch of the snapshot being stamped (the latch before this one in steady state)
     pres_frames_.fetch_add(1, std::memory_order_relaxed);
-    pres_props_.fetch_add(presence_.props, std::memory_order_relaxed), pres_singles_.fetch_add(presence_.singles, std::memory_order_relaxed), pres_pictures_.fetch_add(presence_.pictures, std::memory_order_relaxed);
+    pres_props_.fetch_add(pr.props, std::memory_order_relaxed), pres_singles_.fetch_add(pr.singles, std::memory_order_relaxed), pres_pictures_.fetch_add(pr.pictures, std::memory_order_relaxed);
   }
   if (w != SnapWhy::Whole) return;
   uint64_t hook = SnapHookFrame(record_frame);
@@ -282,6 +284,7 @@ void Contributor::Census(std::string& out) {
   out += std::string(" presence (switch ") + (presence::g_crowd.load(std::memory_order_relaxed) ? "on" : "off") + ") holder_frames " + std::to_string((unsigned long long)pres_frames_.load(std::memory_order_relaxed)) +   // S103 S2
          " (shown props " + std::to_string((unsigned long long)pres_props_.load(std::memory_order_relaxed)) + ", holders " + std::to_string((unsigned long long)pres_singles_.load(std::memory_order_relaxed)) +
          ", pictures " + std::to_string((unsigned long long)pres_pictures_.load(std::memory_order_relaxed)) + ") stamped_by_presence " + std::to_string((unsigned long long)pres_stamped_.load(std::memory_order_relaxed));
+  out += " " + period_->CensusLine("crowd_period");   // S111 CUTCROWD2: records that took the snapshot of the latch before theirs (previous) and the boundary (own_first / own_gap; latch_period.h)
 }
 
 // S103 D3b. Called by Latch with mu_ held, game threads parked (the same precondition as every latch read).
@@ -516,36 +519,59 @@ void Contributor::NotePropCensusLocked(bool ours) {
 bool Contributor::Latch(const FrameInfo& f) {
   std::lock_guard<std::mutex> lock(mu_);
   LatchFeedLocked();   // S103 D3b
-  SnapLocked(latch_.skip, latch_.count_stale, latch_.members, latch_.palettes, latch_.arena, latch_.other);
-  latch_.props.clear();   // S103 D5: rows only for a snapshot BUILT at the latch (an OURS frame); a walked frame's props are the stream's
-  latch_.in_place = false;
-  if (!latch_.skip && snap_latch_built_) latch_.props = published_props_;
-  else if (!latch_.skip && latch_ok_ && walked_valid_) latch_.props = walked_props_, latch_.in_place = true;   // S103 SG2: a walked frame's reader props
-  latch_.singles.clear(), latch_.pictures.clear();   // S103 D6
-  if (!latch_.skip && snap_latch_built_) latch_.singles = published_singles_, latch_.pictures = published_pictures_;
-  else if (!latch_.skip && latch_ok_ && walked_valid_) latch_.pictures = walked_pictures_;   // S103 SG2 (the holders stay held back)
-  NoteVerdict(snap_verdict_, f.guest_frame);   // S103 D3 F2: the stamp is made HERE, at the latch (the game threads parked), not at a deferred Emit
-  latch_.verdict = SnapWhy::kCount;           // TakeInputs must not count / stamp it again
-  latch_.mark.Set(f.guest_frame);
+  // S111 CUTCROWD2 (crowd_contrib.h slots_): THIS latch's snapshot (period f.guest_frame: what walk f drew, or the reader's lists at the skipped entry f) goes into the slot the previous record took;
+  // slots_[held_] still holds latch f - 1's, the one record f carries.
+  const uint8_t w = uint8_t(held_ ^ 1u);
+  InputLatch& b = slots_[w];
+  SnapLocked(b.skip, b.count_stale, b.members, b.palettes, b.arena, b.other);
+  b.props.clear();   // S103 D5: rows only for a snapshot BUILT at the latch (an OURS frame); a walked frame's props are the stream's
+  b.in_place = false;
+  if (!b.skip && snap_latch_built_) b.props = published_props_;
+  else if (!b.skip && latch_ok_ && walked_valid_) b.props = walked_props_, b.in_place = true;   // S103 SG2: a walked frame's reader props
+  b.singles.clear(), b.pictures.clear();   // S103 D6
+  if (!b.skip && snap_latch_built_) b.singles = published_singles_, b.pictures = published_pictures_;
+  else if (!b.skip && latch_ok_ && walked_valid_) b.pictures = walked_pictures_;   // S103 SG2 (the holders stay held back)
+  b.judged = snap_verdict_, b.presence = presence_;   // judged on THIS snapshot (SnapLocked, mu_ held); stamped for the record that carries it
+  // The pairing (latch_period.h Pick, the scene camera's rule), fed under the camera's own condition: the camera is picked only on a latch with the mode on (inputs_contrib.h Latch runs Take only then), and
+  // SnapActive() is that test here (the sink's active() is CurrentMode() != Off, crowd_hooks.h RegisterCrowd). Record f carries latch f - 1's snapshot; at the first latch or after a gap (a mode-Off latch is one:
+  // it does not feed the pairing), its own, copied into the other slot so slots_[w] stays whole for record f + 1. A mode-Off latch: its own, not copied (the next active latch sees a gap; Off judges nothing).
+  uint8_t take = w;
+  bool paired = SnapActive();
+#ifdef RDR_CROWD_SNAP_PLANTS
+  if (snap_plant == 17) paired = true;   // planted (crowd_pairs_off): a mode-Off latch feeds the pairing too, where the camera's is not fed
+#endif
+  if (paired) {
+    take = period_->Pick(f.guest_frame, w);
+#ifdef RDR_CROWD_SNAP_PLANTS
+    if (snap_plant == 16) take = w;   // planted (crowd_leads): the record takes its own latch's snapshot, one period ahead of its camera
+#endif
+    if (take == w) slots_[w ^ 1u] = b, take = uint8_t(w ^ 1u);
+  }
+  held_ = w, hand_ = take;
+  InputLatch& l = slots_[hand_];
+  NoteVerdict(l.judged, f.guest_frame, &l.presence);   // S103 D3 F2: the stamp is made HERE, at the latch (the game threads parked), not at a deferred Emit (S111 CUTCROWD2: the carried snapshot's verdict, this record's hook frame)
+  l.verdict = SnapWhy::kCount;           // TakeInputs must not count / stamp it again
+  l.mark.Set(f.guest_frame);
   return true;
 }
 
 bool Contributor::TakeInputs(const FrameInfo& f, Counters& c, std::vector<MemberObs>& members, Palettes& palettes, int& arena, uint32_t& other) {
   bool skip = false, count_stale = false;
   SnapWhy verdict = SnapWhy::kCount;   // S103 D3
-  if (latch_.mark.Use(f.guest_frame, Name())) {
-    skip = latch_.skip, count_stale = latch_.count_stale;
-    verdict = latch_.verdict;
+  InputLatch& l = slots_[hand_];   // S111 CUTCROWD2: the snapshot this record carries (Latch chose it)
+  if (l.mark.Use(f.guest_frame, Name())) {
+    skip = l.skip, count_stale = l.count_stale;
+    verdict = l.verdict;
     took_props_.clear(), took_singles_.clear(), took_pictures_.clear();
-    took_in_place_ = latch_.in_place;   // S103 SG2
+    took_in_place_ = l.in_place;   // S103 SG2
     if (!skip) {
-      took_props_.swap(latch_.props);   // S103 D5
-      took_singles_.swap(latch_.singles);   // S103 D6
-      took_pictures_.swap(latch_.pictures);
-      members.swap(latch_.members);   // (capacity cycles between the latch and the caller's kept storage)
-      for (size_t i = 0; i < palettes.size(); ++i) palettes[i].swap(latch_.palettes[i]);
-      arena = latch_.arena;
-      other = latch_.other;
+      took_props_.swap(l.props);   // S103 D5
+      took_singles_.swap(l.singles);   // S103 D6
+      took_pictures_.swap(l.pictures);
+      members.swap(l.members);   // (capacity cycles between the latch and the caller's kept storage)
+      for (size_t i = 0; i < palettes.size(); ++i) palettes[i].swap(l.palettes[i]);
+      arena = l.arena;
+      other = l.other;
     }
   } else {
     std::lock_guard<std::mutex> lock(mu_);

@@ -4,10 +4,11 @@
 
 cmake_minimum_required(VERSION 3.25)
 project(wwe2k14 LANGUAGES CXX)
+enable_language(C)  # lane 283: libopus (third_party/audio/opus) is C; S111 SHOTDIET: libwebp (third_party/libwebp) is C, on the PC and the phone
 if(WIN32)
-    enable_language(C)  # lane 283: libopus (third_party/audio/opus) is C
     include(third_party/audio/opus/opus_sources.cmake)
 endif()
+include(third_party/libwebp/libwebp.cmake)   # S111 SHOTDIET: wwe2k14_add_webp(<target>), the lossless WebP screenshot writer
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -227,6 +228,7 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k14 GPU_PLUGINS xenos)
+wwe2k14_add_webp(wwe2k14)   # S111 SHOTDIET: libwebp (static, C) for src/webp_shot.h; the phone library gets it the same way (this file builds both)
 # S103 P9: an explicit 0 / 1 for every unit of the exe (never undefined); the generated guest code (wwe2k14_recomp) does not see it.
 target_compile_definitions(wwe2k14 PRIVATE WWE2K14_KEEP_STREAM=$<BOOL:${WWE2K14_KEEP_STREAM}>)
 # S106 FU1: the MSVC UCRT marks std::getenv / fopen ... "deprecated" (a warning only: no code changes). The game target never defined this (the launcher and the tools
@@ -503,7 +505,7 @@ if(WIN32)
                                                    MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
-# Session 8 task 6: scenario coverage build (preset win-amd64-coverage only; OFF everywhere else, where nothing
+# Session 8 task 6: scenario coverage build (preset win-amd64-coverage-off only; OFF everywhere else, where nothing
 # below applies). Adds src/coverage_prologue.h to the generated code's precompiled header after wwe2k14_pch.h, so
 # every guest function's REX_FUNC_PROLOGUE() records its first call per input-script window (src/coverage.h).
 option(WWE2K14_COVERAGE "Instrumented coverage build (see src/coverage.h)" OFF)

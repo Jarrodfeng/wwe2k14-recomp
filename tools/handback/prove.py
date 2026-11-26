@@ -13,7 +13,8 @@ PROOFFILE (a small text file written with the Write tool: no shell quoting) hold
   - `# comment` and blank lines (ignored)
   - the prefix `serial:` = a BARRIER in file order: every command above it has ended before it starts, it runs alone, the commands below it
     start after it ends (a build step, then below it the test that runs what it built); `timeout N:` = N seconds instead of the default
-    1200; the two prefixes may be combined (`serial: timeout 60: py -I x.py`)
+    1200; `expect-fail:` = the command runs a PLANTED FAULT and must report it (below); the prefixes combine in any order
+    (`serial: timeout 60: py -I x.py`, `expect-fail: .\out\tools\cs1b_unit.exe --plant no_guest_cpu`)
   - the word `compile` = `py -I tools\compile\game_syntax.py --changed --build both`; the word `lints` = `py -I tools\handback\check.py`
   - a line `base REF` = pass `--base REF` to `lints` and the REF to `compile --changed` (the only two shorthands that take a base)
 This tool holds NO list of which checks belong to which files: the agent names the commands, the tool only runs them together and reports.
@@ -25,6 +26,10 @@ nothing new after the first failure (the rest are SKIP); the default is --keep-g
 PASS / FAIL come from the EXIT CODE. The one exception: an exit 0 whose summary line says a non-zero failure count (`failures: 2`,
 `3 FAIL`, `1 failed`, `selftest: FAIL`) is `FAIL (exit 0, but its summary says failures)`. TIMEOUT = killed after its limit.
 NONE = exit 0 but its own line STARTS with `NOTHING CHECKED` (game_syntax --changed on a diff that reaches no game unit): not a pass, not a fail.
+EXPECT-FAIL (S111 PIECELINK review: a unit whose plant run exits 0 "= caught" while printing `FAIL (3 failed)` read as a FAIL): an
+`expect-fail:` command PASSes, whatever its exit code, only when its output names a failing check (a failure count as above, or a line
+that starts with FAIL) and holds no Traceback; anything else is `FAIL (expect-fail: ...)` (a twin seen only through a crash is not caught).
+A unit with its own --expect-fail switch (it inverts its exit code itself) needs no prefix.
 The summary line of a command, by generic rules in this order (the last line of the first rule that matches): `NOTHING CHECKED`,
 `selftest: OK|PASS|FAIL`, `failures: N`, `total: N PASS, N FAIL`, `PASS: N unit-builds`, `N checks, N failed`, else the last non-empty line.
 
@@ -66,11 +71,12 @@ FAIL_COUNTS = (
     re.compile(r'selftest:\s*(FAIL)'),
 )
 FAIL_LINE = re.compile(r'\bFAIL|(?i:error)|PROBLEM|Traceback')
+CHECK_FAIL = re.compile(r'^\s*FAIL\b')   # expect-fail: a check's own FAIL line ("FAIL  <check>", "FAIL  5 check(s) failed")
 
 
 class Cmd:
-    def __init__(self, raw, line, serial, timeout, lineno, shorthand):
-        self.raw, self.line, self.serial, self.timeout, self.lineno, self.shorthand = raw, line, serial, timeout, lineno, shorthand
+    def __init__(self, raw, line, serial, timeout, lineno, shorthand, expect_fail=False):
+        self.raw, self.line, self.serial, self.timeout, self.lineno, self.shorthand, self.expect_fail = raw, line, serial, timeout, lineno, shorthand, expect_fail
         self.verdict, self.secs, self.rc, self.log, self.summary, self.excerpt = 'SKIP', 0.0, None, None, '', []
 
 
@@ -80,7 +86,7 @@ def two_commands(line):
 
 
 def parse_proof(text):
-    """-> (cmds, base, bad line numbers). A line's prefixes (serial:, timeout N:) in any order, then a command or a shorthand word."""
+    """-> (cmds, base, bad line numbers). A line's prefixes (serial:, timeout N:, expect-fail:) in any order, then a command or a shorthand word."""
     cmds, base, rows, bad = [], None, [], []
     for no, ln in enumerate(text.splitlines(), 1):
         s = ln.strip()
@@ -90,10 +96,13 @@ def parse_proof(text):
         if m:
             base = m.group(1)
             continue
-        serial, timeout, rest = False, DEFAULT_TIMEOUT, s
+        serial, timeout, expect, rest = False, DEFAULT_TIMEOUT, False, s
         while True:
             if re.match(r'serial:\s*', rest):
                 serial, rest = True, re.sub(r'^serial:\s*', '', rest)
+                continue
+            if re.match(r'expect-fail:\s*', rest):
+                expect, rest = True, re.sub(r'^expect-fail:\s*', '', rest)
                 continue
             m = re.match(r'timeout\s+(\d+)\s*:\s*', rest)
             if m:
@@ -103,8 +112,8 @@ def parse_proof(text):
         if rest and two_commands(rest):
             bad.append(no)
         elif rest:
-            rows.append((s, rest, serial, timeout, no))
-    for raw, rest, serial, timeout, no in rows:
+            rows.append((s, rest, serial, timeout, no, expect))
+    for raw, rest, serial, timeout, no, expect in rows:
         short = rest if rest in ('compile', 'lints') else None
         if rest == 'compile':
             line = SHORTHAND_COMPILE % (' ' + base if base else '')
@@ -112,7 +121,7 @@ def parse_proof(text):
             line = SHORTHAND_LINTS % (' --base ' + base if base else '')
         else:
             line = rest
-        cmds.append(Cmd(raw, line, serial, timeout, no, short))
+        cmds.append(Cmd(raw, line, serial, timeout, no, short, expect))
     return cmds, base, bad
 
 
@@ -180,6 +189,15 @@ def summarize(c):
     if found is None:
         found = nonempty[-1] if nonempty else '(no output)'
     c.summary = found.strip()[:160]
+    if c.expect_fail and c.verdict != 'TIMEOUT':   # a planted fault: caught = a failing check in its output, never a crash
+        crashed = any(x.startswith('Traceback') for x in lines)
+        caught = not crashed and any(r.search(x) for x in nonempty for r in FAIL_COUNTS + (CHECK_FAIL,))
+        if caught:
+            c.verdict, c.summary = 'PASS', ('planted fault caught (exit %s): %s' % (c.rc, c.summary))[:160]
+        else:
+            c.verdict = 'FAIL (expect-fail: %s)' % ('it crashed: a twin seen only through a crash is not caught' if crashed else 'the planted fault was NOT caught: no failing check in its output')
+            c.excerpt = [x[:200] for x in nonempty[-5:]]
+        return
     if c.verdict == 'PASS' and NOTHING_CHECKED.search(c.summary):
         c.verdict = 'NONE'
         c.excerpt = ['NOT A PASS: its own line says it checked nothing (drop it from this proof, or name a check that reaches what changed)']
@@ -283,7 +301,7 @@ def main(argv):
     proof_abs = os.path.abspath(a.proof)
     if a.dry:
         for c in cmds:
-            print('%s%s%s' % ('serial: ' if c.serial else '', 'timeout %d: ' % c.timeout if c.timeout != DEFAULT_TIMEOUT else '', c.line))
+            print('%s%s%s%s' % ('serial: ' if c.serial else '', 'timeout %d: ' % c.timeout if c.timeout != DEFAULT_TIMEOUT else '', 'expect-fail: ' if c.expect_fail else '', c.line))
         return 0
     pdir = os.path.join(root, 'out', 'prove')
     note = rerun = ''

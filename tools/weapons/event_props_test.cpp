@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
   std::string plant_name;
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant_name = argv[++i];
-  if (!plant_name.empty() && plant_name != "event_no_free" && plant_name != "event_instance0" && plant_name != "shadow_as_colour") {
+  if (!plant_name.empty() && plant_name != "event_no_free" && plant_name != "event_instance0" && plant_name != "shadow_as_colour" && plant_name != "asked_light_lost") {
     std::printf("unknown plant %s\n", plant_name.c_str());
     return 2;
   }
@@ -288,6 +288,70 @@ int main(int argc, char** argv) {
     st.cache[key] = assets::pac::Pac();   // a new entrance prop's open (OpenDlcProps on a miss) puts it back; the next retire closes it again
     W::ReleaseEvtobjSlot();
     Check(kept && closed && st.releases == 2 && st.cache.count(key) == 0, "evt.slot_release", std::string("viewer keeps it: ") + (kept ? "yes" : "NO") + ", live retire closes it: " + (closed ? "yes" : "NO") + ", releases " + std::to_string(st.releases));
+  }
+  // S111 PROPSPEC review: the game binds its entrance specular set by MODEL ([CWeapon + 48], sub_82335070 +170..+17C). The entrance's steps object (sub_825E2DE0(-1, 32) -> sub_825E0F60 -> base ctor sub_83422628 +F8) keeps the
+  // weapon manager's slot main model ([mgr + 848 + 4i], the slot whose id is 32), the very model our slot row names, and the weapon drawer draws ids 29 / 32 / 35 from those rows (weapon_plan.h Plants::draw_steps). So the set
+  // rides that slot row as well as an event row, through the SHIPPED tracker. The planted twin is the lane's first landing: only the event row carried the code (the steps row 0).
+  {
+    namespace ps = rdr_scene::live::propspec;
+    Rig q;
+    const uint32_t kMgr = 0x70000000, kSteps = 0xA0300000, kStepsBuf = 0xB0300000, kEvt = 0xA0310000, kEvtBuf = 0xB0310000, kPlain = 0xA0320000, kPlainBuf = 0xB0320000;
+    q.g.MakeModel(kSteps, 1), q.g.MakeModel(kEvt, 1), q.g.MakeModel(kPlain, 1);
+    q.g.words[W::kMgrGlobal] = kMgr, q.g.words[kMgr + W::kOffSlotCount] = 2;
+    q.g.words[kMgr + W::kOffSlotId] = 32, q.g.words[kMgr + W::kOffSlotMain] = kSteps;        // slot 0: the ring steps (id 32)
+    q.g.words[kMgr + W::kOffSlotId + 4] = 7, q.g.words[kMgr + W::kOffSlotMain + 4] = kPlain;  // slot 1: a chair no set names
+    for (uint32_t i = 0; i < 2; ++i)
+      for (uint32_t k = 0; k < W::kMaxSecondary; ++k) q.g.words[kMgr + W::kOffSlotSecondary + 16 * i + 4 * k] = 0;
+    q.t.EventMake(kEvt, 2004, 0);
+    ps::Store& s = ps::TheStore();
+    s.Bind(kSteps, ps::kLev, 0.3f), s.Bind(kSteps, ps::kPow, 40.f), s.Bind(kSteps, ps::kRefl, 0.3f);   // the steps set (sub_82335268 +114..+120)
+    s.Bind(kEvt, ps::kLev, 0.f), s.Bind(kEvt, ps::kPow, 0.f), s.Bind(kEvt, ps::kRefl, 0.f);           // the bank-104 belt (+258..+260)
+    q.g.WriteNodes(kStepsBuf, 1, 61), q.g.WriteNodes(kEvtBuf, 1, 62), q.g.WriteNodes(kPlainBuf, 1, 63);
+    const uint64_t P = 400;
+    q.Call(kSteps, kStepsBuf, P), q.Call(kEvt, kEvtBuf, P), q.Call(kPlain, kPlainBuf, P), q.Call(kSteps, kStepsBuf, P + 1);
+    FrameBuffer fbp;
+    uint32_t steps_code = 9, evt_code = 9, plain_code = 9;
+    int32_t steps_id = -1;
+    bool steps_slot_row = false;
+    while (q.t.TakeNext(fbp))
+      for (const W::WeaponCall& c : fbp.calls) {
+        if (c.frame != uint32_t(P)) continue;
+        if (c.object == kSteps) steps_code = ps::SpecCodeOf(c.slot_flags), steps_id = c.id, steps_slot_row = !W::IsEventCall(c.slot_flags) && W::CallSlot(c.slot_flags) == 0;
+        if (c.object == kEvt) evt_code = ps::SpecCodeOf(c.slot_flags);
+        if (c.object == kPlain) plain_code = ps::SpecCodeOf(c.slot_flags);
+      }
+    s.Clear();
+    Check(steps_code == ps::kSpecSteps && steps_id == 32 && steps_slot_row && evt_code == ps::kSpecOff && plain_code == ps::kSpecNone, "propspec.rows_by_model",
+          "steps slot row code " + std::to_string(steps_code) + " (id " + std::to_string(steps_id) + "), bank-104 belt event row code " + std::to_string(evt_code) + ", unbound chair code " + std::to_string(plain_code) + " (want 1 / 2 / 0)");
+  }
+  // S111 STAGELESS2 (src\renderer_scene\prop_light_id.h): Create a Title's belt asks the light manager for set 10 ([cw + 1468], sub_83344760 0x8334487C). The SHIPPED chain: the ctor hook hands the CWeapon to the
+  // tracker, the once-a-frame read puts the id on its models, the section-59 row carries it (+ 1), the drawer's pick lights the belt by set 10 when the record holds it and keeps its older rule when not.
+  // The planted twin asked_light_lost is the rule before (the row carries nothing: the belt keeps the arena props / file sets).
+  {
+    if (plant_name == "asked_light_lost") W::g_plant_asked_light = 1;
+    Rig q;
+    const uint32_t kBelt = 0xA0400000, kBeltBuf = 0xB0400000, kCw = 0x90400000;
+    q.g.MakeModel(kBelt, 1);
+    q.t.EventMake(kBelt, 4000, 0);
+    q.t.EventWeapon(kCw);
+    q.g.MakeWeapon(kCw, {kBelt});
+    q.g.words[kCw + W::kOffAskedLightSet] = 10;
+    q.g.WriteNodes(kBeltBuf, 1, 71);
+    q.Call(kBelt, kBeltBuf, 600), q.Call(kBelt, kBeltBuf, 601);   // a model call of a new frame runs the once-a-frame read
+    std::vector<W::WeaponSlot> rows;
+    for (const auto& ev : q.t.events.Snapshot()) {   // the contributor's section-59 event rows (weapon_rows_contrib.h Emit)
+      W::WeaponSlot s;
+      s.id = ev.second.id, s.slot = ev.second.k, s.main = ev.first, s.flags = W::kSlotFlagEvent;
+      s.reserved[0] = W::PackAskedLightSet(ev.second.light_set);
+      rows.push_back(s);
+    }
+    const int32_t asked = W::AskedLightSet(rows, kBelt);
+    const int lit = W::PropLightKey(asked, [](int32_t id) { return id == 10; });       // the record holds set 10 (Create a Title's key)
+    const int miss = W::PropLightKey(asked, [](int32_t) { return false; });            // a record without it: the older rule
+    const uint32_t freed = q.Free(kCw);
+    W::g_plant_asked_light = 0;
+    Check(asked == 10 && lit == 10 && miss == -1 && freed == 1, "prop.asked_light_set",
+          "asked " + std::to_string(asked) + ", lit by " + std::to_string(lit) + ", without the set " + std::to_string(miss) + ", models freed " + std::to_string(freed) + " (want 10 / 10 / -1 / 1)");
   }
   std::printf("%s (%d failed)\n", g_fail ? "FAILED" : "ALL PASS", g_fail);
   return g_fail ? 1 : 0;

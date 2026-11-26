@@ -95,8 +95,11 @@ def run_id(x):
 
 def capture_path(captures, run, label):
     # Session 17: screenshots are PNG by default; older runs have BMPs.
-    png = os.path.join(captures, '%s_%s.png' % (run, label))
-    return png if os.path.exists(png) else os.path.join(captures, '%s_%s.bmp' % (run, label))
+    for ext in ('webp', 'png'):   # S111 SHOTDIET: WebP is the default now
+        p = os.path.join(captures, '%s_%s.%s' % (run, label, ext))
+        if os.path.exists(p):
+            return p
+    return os.path.join(captures, '%s_%s.bmp' % (run, label))
 
 
 def run_settings(logs, run):
@@ -365,7 +368,7 @@ def cmd_build(args):
         route['exclude'] = sorted(set(x.strip() for x in args.exclude.split(',') if x.strip()))
     exclude = set(route.get('exclude') or [])
     labels = [x.strip() for x in args.labels.split(',') if x.strip()] if args.labels else sorted(
-        os.path.basename(p)[len(ref_run) + 1:-4] for ext in ('bmp', 'png')
+        os.path.basename(p)[len(ref_run) + 1:p.rindex('.') - len(p)] for ext in ('bmp', 'png', 'webp')
         for p in glob.glob(os.path.join(args.captures, ref_run + '_*.' + ext)))
     if exclude:
         skipped = [x for x in labels if x in exclude]

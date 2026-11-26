@@ -28,9 +28,12 @@ OUT = REPO / "out" / "harness" / "review" / "roster6"
 
 
 def _shot(stem):
-    """Session 17: screenshots are PNG by default; older runs have BMPs."""
-    png = CAPS / (stem + ".png")
-    return png if png.exists() else CAPS / (stem + ".bmp")
+    """Session 17: screenshots are PNG by default; older runs have BMPs. S111 SHOTDIET: WebP by default."""
+    for ext in (".webp", ".png"):
+        p = CAPS / (stem + ext)
+        if p.exists():
+            return p
+    return CAPS / (stem + ".bmp")
 
 def main() -> int:
     paths = [Path(a) for a in sys.argv[1:]] or [sorted(RUNS.glob("roster6_*.json"))[-1]]

@@ -8,7 +8,7 @@ LIST_FILE: one existing sheet file path per line (the sheets `q read pick` wrote
 OUT_DIR\batch.lst (the new paths), and prints one line per unit plus the total bytes.
 
 Each output file is: [a `library: Havok (range: between A and B)` line when the unit is third-party library code (qlib.py)], the sheet,
-a `# NEIGHBOURS` part (the units calling in / called out to, with their EARLIER model readings as leads, qlsheet_ctx.py), then the listings.
+then the listings. (S111 FOLD: the part with the neighbouring units' earlier readings is gone: it lent a reading its confidence.)
 
 Which functions (--pick, default connected): `connected` = by callers (inside the unit + outside + observed), unnamed first, functions under
 40 bytes ignored, ties by size (qlsheet_ctx.pick_connected); `size` = by size, unnamed ones first (a function line of the sheet with
@@ -129,10 +129,7 @@ def main(argv):
                 print('%s  library %s (%s) but the reader says %s: KEPT (the two signals disagree)' % (os.path.basename(src), lr[0], lr[1], rs))
                 nlib -= 1
                 libs[lr[0]] -= 1
-        nb = qlsheet_ctx.format_neighbours(qlsheet_ctx.neighbours(uid, data)) if uid is not None else ''
         parts = [(lib_line(lr) + '\n' if lr else '') + text.rstrip('\n')]
-        if nb:
-            parts += ['', nb.rstrip('\n')]
         parts += ['', '# LISTINGS (the tool-made decompiled view of this unit\'s biggest functions; `[x]` = a memory load; a line the tool'
                   ' could not keep exact says so)']
         used, shown = 0, []
@@ -157,8 +154,8 @@ def main(argv):
             f.write(data_out)
         paths.append(os.path.abspath(dst))
         total += len(data_out.encode('utf-8'))
-        print('%s  sheet %d B  + %d neighbour lines + listings %s  = %d B%s' % (
-            os.path.basename(src), len(text.encode('utf-8')), nb.count('\n') - 1 if nb else 0, ' '.join(shown) or 'none',
+        print('%s  sheet %d B  + listings %s  = %d B%s' % (
+            os.path.basename(src), len(text.encode('utf-8')), ' '.join(shown) or 'none',
             len(data_out.encode('utf-8')), '  [library %s]' % lr[0] if lr else ''))
     with open(os.path.join(out_dir, 'batch.lst'), 'w', encoding='utf-8', newline='\n') as f:
         f.write('\n'.join(paths) + '\n')

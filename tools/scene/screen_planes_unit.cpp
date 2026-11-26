@@ -924,24 +924,29 @@ int main(int argc, char** argv) {
         for (const StageFxRow& r : tt.stage_fx) show_rows += r.kind == kFxShow;
         return rdr_own::S(rdr_own::Pass::Scene3D).input_frame[bit].load();
       };
+      // S111 CUTREACH2 review: the show bits are model-class (the screens' draw sub_8276AEF8 reads them in the walk), so record r carries latch r - 1's bits (stage_fx_contrib.h Latch): a branch read at latch r
+      // decides record r + 1; the first latch is its own.
       set_bits(kOff, 0xF);
-      const uint64_t g_off = run(2200);
+      const uint64_t g_off = run(2200);                             // the first latch: its own bits (OFF: only 800) = complete
       const size_t rows_off = show_rows;
       set_bits(kOn, 0x0);
-      const uint64_t g_on = run(2201);
+      const uint64_t g_edge = run(2201);                            // record 2201: latch 2200's OFF bits (the walk of 2200 drew the OFF set) = still complete
+      const uint64_t g_on = run(2202);                              // record 2202: latch 2201's ON bits, 801 shown with no row = NOT complete
       set_bits(kOff, 0xF);
-      run(2202);                                                    // read: the last bits are now the OFF branch
+      run(2203);                                                    // read: the last bits are now the OFF branch
       g_guest.words.erase(kSt + 6008 + 8);                         // the key block stops reading
-      const uint64_t g_keep = run(2203);                           // fail closed: the LAST bits (800 only) still decide = complete; the fixed match set would wait for 801
+      run(2204);                                                    // record 2204: latch 2203's OFF read
+      const uint64_t g_keep = run(2205);                           // record 2205: latch 2204's take, fail closed: the LAST bits (800 only) still decide = complete; the fixed match set would wait for 801
       const size_t rows_keep = show_rows;
       Check(g_keep != 0 && rows_keep == 14, "show.writer_keeps_last", "unreadable bits: stamp " + std::to_string((unsigned long long)g_keep) + " (want set: the last bits kept), rows " + std::to_string(rows_keep));
       set_bits(kOn, 0x0);
-      run(2204);
+      run(2206);
       std::string cen;
       con.Census(cen);
       const bool census_ok = cen.find("[stage_show art 301:0 302:0 303:0 304:0, keys 800:1 801:1 802:0 803:0 804:0 805:1 806:1 807:0 808:1 809:0,") != std::string::npos;
-      Check(g_off != 0 && g_on == 0 && (Plant("show_unread") || (rows_off == 14 && census_ok)), "show.gate_follows_bits",
-            "screens-off branch stamp " + std::to_string((unsigned long long)g_off) + " (want set), screens-on branch with no 801 row " + std::to_string((unsigned long long)g_on) + " (want 0), show rows " + std::to_string(rows_off) + ", census " + (census_ok ? "ok" : "MISSING: " + cen.substr(cen.find("[stage_show") == std::string::npos ? 0 : cen.find("[stage_show"))));
+      Check(g_off != 0 && g_edge != 0 && g_on == 0 && (Plant("show_unread") || (rows_off == 14 && census_ok)), "show.gate_follows_bits",
+            "screens-off branch stamp " + std::to_string((unsigned long long)g_off) + " (want set), the record after the switch " + std::to_string((unsigned long long)g_edge) + " (want set: its period's OFF bits), screens-on branch with no 801 row " +
+                std::to_string((unsigned long long)g_on) + " (want 0), show rows " + std::to_string(rows_off) + ", census " + (census_ok ? "ok" : "MISSING: " + cen.substr(cen.find("[stage_show") == std::string::npos ? 0 : cen.find("[stage_show"))));
     }
     Check(LegacyShow(false, false).art == 0xF && LegacyShow(false, true).art == 4 && !LegacyShow(false, true).known && LegacyShow(true, true).KeyShown(804) && !LegacyShow(true, true).KeyShown(800), "show.legacy_art",
           "an arena with no 801 / 802 draws every art slot; with them only 303 (the old loader's rule)");

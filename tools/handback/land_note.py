@@ -16,7 +16,13 @@ For a probe (which runs in the MAIN checkout and must never edit it) or the main
      Main's HEAD moving or other paths changing is one informational line, never an error (the main session works while a landing runs)
   3. the note is copied into the worktree (an uncommitted note in the main checkout is the normal case), then note_sites.py --check and
      --apply with --root = the worktree. A site that is not OK: its lines are printed, the worktree stays, exit 2
-  4. when a path under src\ changed: `game_syntax.py --changed --build on` in the worktree. Fail: <= 40 error lines, exit 3
+  3b. S111: the note's ```claims rows are lodged as the note's own file db\claims\<sNNN>_<NOTE>.json in the worktree (tools\handback\lodge_note.py,
+     rewritten whole; no other db file is touched; a note with no claims block lodges nothing and says so); the file is committed with the rest.
+     A refused claim row: nothing lodged, the worktree stays, exit 2 (fix the row in the note, run again with --amend)
+  3c. S111 LANDRECITE (tools\handback\land_seam.py): seam rows the note's own edits moved are re-cited (q seam --recite), rows it rewrote
+     one-for-one are re-anchored (marked `re-anchored by landing <note>`), a row whose anchor line it deleted stops the landing (exit 2)
+     with the topic, row, old anchor and site; the seam files written are committed with the landing
+  4. when a path under src\ changed: this checkout's `game_syntax.py --root <worktree> --changed --build on`. Fail: <= 40 error lines, exit 3
   5. commit on the branch: ONLY the files the note touched + the note (checked: a staged file the note did not name fails, exit 6)
      message `S110 LAND <NAME>: <the note's first heading>` + the Co-Authored-By trailer
   6. the proof: --proof FILE, else the note's ```proof block (prove.py's file format), run with prove.py in the worktree.
@@ -24,9 +30,10 @@ For a probe (which runs in the MAIN checkout and must never edit it) or the main
   7. ONE final block: branch + sha + worktree, applied counts, quick compile, prove's last line, the log path of each failed command.
      Exit 0 only when everything passed (1 = the proof did not pass).
 --amend: re-land a corrected note onto the existing worktree of --branch (the touched paths go back to the base with a plain
-`git checkout BASE -- path`; nothing is removed outside the worktree), a new commit, the proof again.
+`git checkout BASE -- path`; nothing is removed outside the worktree), a new commit, the proof again. S111 LANDAMEND: every db/seams/ and
+db/claims/ file that differs from the base goes back too (a stopped first landing leaves re-cited seam files; the re-run rewrites them).
 FULL COMPILE: a `compile` line of the proof (both variants) is NOT run by prove.py: after the commit it is started DETACHED (survives the
-caller's shell), output to <worktree>\out\land\full_compile.log with a last line `full compile: PASS|FAIL exit N`; the final block prints
+caller's shell), output to <worktree>\out\land\full_compile.<sha8>.log (one per landed commit; identical code reuses the older log, no second compile) with a last line `full compile: PASS|FAIL exit N`; the final block prints
 `full compile: running in background, log <path>`. `--full-compile block` waits for it instead. Read it later with
   py -I tools\handback\land_note.py --full-compile-status --branch NAME     (exit 0 PASS, 1 FAIL + first error lines, 2 running, 3 never started)
 A step longer than 20 s prints a progress line every 20 s. Stdlib only; 0 game runs.
@@ -42,6 +49,7 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+GAME_SYNTAX = os.path.join(os.path.dirname(HERE), "compile", "game_syntax.py")   # this checkout's copy, run with --root <worktree>
 TRAILER = "Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>"
 HEARTBEAT_S = 20
 
@@ -51,6 +59,10 @@ def say(msg=""):
     sys.stdout.flush()
 
 
+AMEND_PLANT = ""  # selftest only: "old_reset" = the old amend (resets only the note's own paths)
+SEAM_PLANT = ""   # selftest only: "no_recite" / "no_reanchor" switch one step of land_seam.reconcile off
+LOG_PLANT = ""    # selftest only: "fixed" = the old single log name, deleted before each compile (the WinError 32 twin)
+CODE_PATHS = ("src", "tools", "generated/rexglue.cmake")   # what the full compile covers: identical here = identical compile result
 MAIN_ROOT = None  # set by main(): the main checkout; git() runs nothing but `worktree add` and read-only queries there
 MAIN_READ_ONLY = {"rev-parse", "status", "cat-file", "hash-object", "check-ref-format", "show", "log", "diff", "config", "ls-files"}
 
@@ -91,7 +103,11 @@ def run(cmd, cwd, label):
 
 
 def load_note_sites():
-    spec = importlib.util.spec_from_file_location("note_sites", os.path.join(HERE, "note_sites.py"))
+    return load_module("note_sites")
+
+
+def load_module(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, name + ".py"))
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
@@ -107,6 +123,26 @@ def forbidden(rel):
 def check_commit_files(actual, expected):
     """-> the staged files the note did not name (empty = fine). The planted-twin (b) of the selftest feeds this a stray file."""
     return sorted(set(actual) - set(expected))
+
+
+def stage_files(wt, files):
+    """Stages exactly the named files (never `add -A`): the note's sites, the note, and every file the lodge reported as `changed:`
+    (the claims json and each db/seams json seam_wire wrote). The planted twin of the selftest replaces this with a no-op."""
+    for p in files:
+        git(wt, "add", "--", p)
+
+
+def uncommitted(wt):
+    """-> the paths `git status --porcelain` still lists in the worktree after the commit (empty = the landing is whole)."""
+    return [x[3:].strip() for x in git(wt, "status", "--porcelain", "-uall").stdout.splitlines() if x.strip()]
+
+
+def amend_leftovers(wt, base):
+    """-> the files under db/seams/ and db/claims/ (the ones land_seam / lodge_note write) that differ from `base` in the worktree,
+    committed, modified or untracked: what a landing that stopped half-way left behind. --amend puts them back to the base."""
+    names = git(wt, "diff", "--name-only", base, "--", "db/seams", "db/claims").stdout.splitlines()
+    names += git(wt, "ls-files", "--others", "--exclude-standard", "--", "db/seams", "db/claims").stdout.splitlines()
+    return sorted({x.strip() for x in names if x.strip().startswith(("db/seams/", "db/claims/"))})
 
 
 def main_state(main_root):
@@ -162,8 +198,47 @@ def first_heading(text):
     return "(note has no heading)"
 
 
-def full_log_path(wt):
-    return os.path.join(wt, "out", "land", "full_compile.log")
+def full_log_path(wt, sha):
+    """One log per compiled commit: a re-land never touches (or fights a running compile for) an older commit's log."""
+    if LOG_PLANT == "fixed":
+        return os.path.join(wt, "out", "land", "full_compile.log")
+    return os.path.join(wt, "out", "land", "full_compile.%s.log" % sha[:8])
+
+
+def log_result(log):
+    """-> (state, lines): state 'pass' / 'fail' / 'running' (no verdict line yet, or the log is held by the compile and unreadable)."""
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return "running", []
+    last = [x for x in lines if x.startswith("full compile: ")]
+    if not last:
+        return "running", lines
+    return ("fail" if " FAIL " in last[-1] else "pass"), lines
+
+
+def equivalent_log(root, wt, sha):
+    """The log a compile of `sha` needs: its own, else the newest older commit's log whose code (CODE_PATHS) is identical.
+    -> (path, exact) or (None, False)."""
+    own = full_log_path(wt, sha)
+    if os.path.isfile(own):
+        return own, True
+    d = os.path.join(wt, "out", "land")
+    older = []
+    if os.path.isdir(d):
+        for nm in os.listdir(d):
+            m = re.match(r"^full_compile\.([0-9a-f]{8})\.log$", nm)
+            if m:
+                older.append((os.path.getmtime(os.path.join(d, nm)), m.group(1), os.path.join(d, nm)))
+    for _t, osha, path in sorted(older, reverse=True):
+        r = git(root, "diff", "--quiet", osha, sha, "--", *CODE_PATHS)
+        if r.returncode == 0:
+            return path, False
+    legacy = os.path.join(d, "full_compile.log")   # S111 LANDLOG (main session): a landing made before per-commit logs wrote this one name
+    if LOG_PLANT != "fixed" and os.path.isfile(legacy):
+        return legacy, False
+    return None, False
 
 
 def wrapper_main(cmd):
@@ -178,10 +253,12 @@ def wrapper_main(cmd):
     return rc
 
 
-def start_full_compile(cmd, wt, block):
+def start_full_compile(cmd, wt, block, sha):
     """Starts the both-variants compile DETACHED (survives the caller's shell; stdin DEVNULL, output to the log). Never polls busily:
     --full-compile block waits on the process. -> (log path, rc or None)."""
-    log = full_log_path(wt)
+    log = full_log_path(wt, sha)
+    if LOG_PLANT == "fixed" and os.path.exists(log):
+        os.remove(log)
     os.makedirs(os.path.dirname(log), exist_ok=True)
     kw = {}
     if sys.platform == "win32":
@@ -206,18 +283,20 @@ def start_full_compile(cmd, wt, block):
 def full_compile_status(a, main_root):
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", a.branch)
     wt = os.path.join(main_root, "out", "wt", "land_" + safe)
-    log = full_log_path(wt)
-    if not os.path.isfile(log):
-        say("full compile: no log for branch %s (%s): none was started" % (a.branch, log))
+    head = git(main_root, "rev-parse", "--verify", "-q", a.branch + "^{commit}").stdout.strip()
+    log, exact = equivalent_log(main_root, wt, head) if head else (None, False)
+    if not log:
+        say("full compile: no log for branch %s (head %s, folder %s): none was started" % (a.branch, head[:8], os.path.dirname(full_log_path(wt, head or "0" * 8))))
         return 3
-    with open(log, encoding="utf-8", errors="replace") as f:
-        lines = f.read().splitlines()
-    last = [x for x in lines if x.startswith("full compile: ")]
-    if not last:
+    if not exact:
+        say("full compile: no log for head %s; the log of an older commit with identical code is used" % head[:8])
+    state, lines = log_result(log)
+    if state == "running":
         say("full compile: running (no verdict line yet), log %s" % log)
         return 2
+    last = [x for x in lines if x.startswith("full compile: ")]
     say("%s, log %s" % (last[-1], log))
-    if " FAIL " in last[-1]:
+    if state == "fail":
         errs = [x for x in lines if re.search(r"error|FAIL|fatal", x, re.I) and not x.startswith("full compile: ")] or lines
         for x in errs[:40]:
             say("  " + x)
@@ -247,6 +326,7 @@ def main(argv=None):
     ap.add_argument("--repo", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--compile-cmd", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--prove-cmd", default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--lodge-resolver-table", default=None, help=argparse.SUPPRESS)   # selftest: lodge_note.py's fixed address table (no code index)
     a = ap.parse_args(argv)
     if not a.full_compile_status and not a.note:
         ap.error("NOTE is required (except with --full-compile-status)")
@@ -319,7 +399,8 @@ def land(a, src_root, main_root, ctx):
         return 4
     # what this tool could damage in the main checkout: the touched paths and the note (hash + modified, before anything is created)
     ctx["head"] = git(main_root, "rev-parse", "HEAD").stdout.strip()
-    ctx["watch"] = snap_paths(main_root, list(touched) + [note_rel])
+    claims_path = load_module("lodge_note").claims_rel(note_rel)   # S111 LODGE: the claims file the lodge writes (in the worktree, never in main)
+    ctx["watch"] = snap_paths(main_root, list(touched) + [note_rel, claims_path])
 
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)
     wt = os.path.join(main_root, "out", "wt", "land_" + safe)
@@ -347,8 +428,14 @@ def land(a, src_root, main_root, ctx):
         if a.base:
             base = git(main_root, "rev-parse", a.base, check=True).stdout.strip()
         old_paths = [x for x in git(wt, "diff", "--name-only", base, "HEAD").stdout.splitlines() if x]
-        say("land_note: amend: resetting %d path(s) to %s in %s" % (len(set(old_paths) | set(touched)), base[:10], wt))
-        for p in sorted(set(old_paths) | set(touched)):
+        # S111 LANDAMEND: the files the pipeline can write are fixed by what it may touch, not by what one run printed: a first landing
+        # that stopped after its seam recite left db/seams/*.json and db/claims/*.json modified (uncommitted); they go back to the base too
+        leftover = amend_leftovers(wt, base) if AMEND_PLANT != "old_reset" else []
+        if leftover:
+            say("land_note: amend: also resetting %d pipeline file(s) a stopped landing left in the worktree: %s" % (len(leftover), ", ".join(leftover)))
+        reset_set = set(old_paths) | set(touched) | set(leftover)
+        say("land_note: amend: resetting %d path(s) to %s in %s" % (len(reset_set), base[:10], wt))
+        for p in sorted(reset_set):
             if p == note_rel:
                 continue
             if git(wt, "cat-file", "-e", "%s:%s" % (base, p)).returncode == 0:
@@ -390,7 +477,9 @@ def land(a, src_root, main_root, ctx):
         f.write(data)
     ns_py = os.path.join(HERE, "note_sites.py")
     for mode in ("--check", "--apply"):
-        rc, lines = run([sys.executable, "-I", ns_py, mode, dst, "--root", wt], wt, "note_sites " + mode)
+        ncmd = [sys.executable, "-I", ns_py, mode, dst, "--root", wt]
+        ncmd += ["--resolver-table", os.path.abspath(a.lodge_resolver_table)] if a.lodge_resolver_table else []
+        rc, lines = run(ncmd, wt, "note_sites " + mode)
         for ln in lines:
             say(ln)
         if rc:
@@ -398,13 +487,36 @@ def land(a, src_root, main_root, ctx):
                 "again with --amend --branch %s." % (mode, wt, name))
             return 2
 
+    # --- S111 LODGE: the note's ```claims rows become its own db/claims/<sNNN>_<NOTE>.json in this worktree (travels in the same commit)
+    lcmd = [sys.executable, "-I", os.path.join(HERE, "lodge_note.py"), dst, "--root", wt, "--note-as", note_rel]
+    lcmd += ["--resolver-table", os.path.abspath(a.lodge_resolver_table)] if a.lodge_resolver_table else []
+    rc, lines = run(lcmd, wt, "lodge_note")
+    for ln in lines:
+        say(ln)
+    if rc:
+        say("land_note: the note's claims were not lodged (lodge_note exit %d); the worktree stays: %s. Next: fix the claim rows above in the note, then "
+            "run again with --amend --branch %s." % (rc, wt, name))
+        return 2
+    lodged = [x[len("changed: "):].strip() for x in lines if x.startswith("changed: ")]
+    touched = list(touched) + [p for p in lodged if p not in touched]
+
+    # --- S111 LANDRECITE: the seam rows this note's own edits moved are re-cited, the ones it rewrote re-anchored, the ones it deleted stop us
+    lseam = load_module("land_seam")
+    stops, seam_files = lseam.reconcile(wt, lseam.edits_by_path(sites), note_rel, say, SEAM_PLANT)
+    if stops:
+        for s in stops:
+            say(s)
+        return 2
+    touched += [p for p in seam_files if p not in touched]
+
     # --- the quick compile
     compiled = "skipped (no src)"
     if any(p.startswith("src/") for p in touched):
         if a.compile_cmd:
             cmd = [sys.executable, "-I", os.path.abspath(a.compile_cmd)]
         else:
-            cmd = [sys.executable, "-I", os.path.join(wt, "tools", "compile", "game_syntax.py"), "--changed", "--build", "on"]
+            # S111: MAIN's compile tool on the worktree's tree (--root), like every other tool here: a lane cut before a fix to the tool must not run the old one
+            cmd = [sys.executable, "-I", GAME_SYNTAX, "--root", wt, "--changed", "--build", "on"]
         rc, lines = run(cmd, wt, "quick compile")
         if rc:
             errs = [x for x in lines if re.search(r"error|FAIL|fatal", x, re.I)] or lines
@@ -419,8 +531,7 @@ def land(a, src_root, main_root, ctx):
     # --- commit
     files = sorted(set(touched) | {note_rel})
     expected = set(files) | set(old_paths)
-    for p in files:
-        git(wt, "add", "--", p)
+    stage_files(wt, files)
     for p in old_paths:
         if p not in files:
             git(wt, "add", "-A", "--", p)
@@ -451,6 +562,12 @@ def land(a, src_root, main_root, ctx):
             return 6
     else:
         say("land_note: nothing new to commit (the worktree already holds this landing)")
+    left = uncommitted(wt)
+    if left:
+        say("land_note: FATAL: the landing left %d file(s) uncommitted in the worktree: %s. Next: a tool wrote a file the commit did not take "
+            "(the lodge reports each file it writes as `changed: PATH`): fix that in tools\\handback, then `git -C %s add` the file(s) and commit."
+            % (len(left), ", ".join(left[:8]), wt))
+        return 6
     sha = git(wt, "rev-parse", "HEAD").stdout.strip()
 
     # --- the proof
@@ -480,20 +597,27 @@ def land(a, src_root, main_root, ctx):
         with open(proof_file, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(rest) + "\n")
     full_line, full_rc, full_log = "skipped (no src)", None, None
-    if os.path.exists(full_log_path(wt)):
-        os.remove(full_log_path(wt))
     if any(p.startswith("src/") for p in touched):
         full_line = "skipped (the proof has no `compile` line)"
         if want_full:
             if a.full_compile_cmd:
                 fcmd = [sys.executable, "-I", os.path.abspath(a.full_compile_cmd)]
             else:
-                fcmd = [sys.executable, "-I", os.path.join(wt, "tools", "compile", "game_syntax.py"), "--changed"]
-                fcmd += ["--base", base_ref] if base_ref else []
+                # S111: the base is --changed's own value (game_syntax has no --base: a proof `base X` line made the full compile exit 2)
+                fcmd = [sys.executable, "-I", GAME_SYNTAX, "--root", wt, "--changed"] + ([base_ref] if base_ref else [])
                 fcmd += ["--build", "both"]
-            full_log, full_rc = start_full_compile(fcmd, wt, a.full_compile == "block")
-            full_line = ("running in background, log %s" % full_log) if full_rc is None else \
-                        ("%s (exit %d), log %s" % ("PASS" if full_rc == 0 else "FAIL", full_rc, full_log))
+            same, exact = (None, False) if LOG_PLANT == "fixed" else equivalent_log(wt, wt, sha)
+            if same:
+                # identical code already compiled (or compiling): no second compile
+                full_log = same
+                state, _l = log_result(same)
+                full_rc = {"pass": 0, "fail": 1, "running": None}[state]
+                full_line = "%s, log %s (%s)" % ({"pass": "PASS", "fail": "FAIL", "running": "still running"}[state], same,
+                                                 "this commit's own log" if exact else "an older commit with identical code: no new compile")
+            else:
+                full_log, full_rc = start_full_compile(fcmd, wt, a.full_compile == "block", sha)
+                full_line = ("running in background, log %s" % full_log) if full_rc is None else \
+                            ("%s (exit %d), log %s" % ("PASS" if full_rc == 0 else "FAIL", full_rc, full_log))
     proof_summary, failed_logs, proof_rc = None, [], 0
     if full_rc:
         proof_rc = 1
@@ -513,6 +637,7 @@ def land(a, src_root, main_root, ctx):
     say("")
     say("land_note: branch %s at %s, worktree %s" % (name, sha[:10], wt))
     say("applied: %d sites (%d edits, %d new files)" % (len(sites), n_edits, n_files))
+    say("lodged: %s" % (", ".join(lodged) if lodged else "no change (no claims block, or the claims file already holds these rows)"))
     say("quick compile: %s" % compiled)
     say("full compile: %s" % full_line)
     if not has_proof:

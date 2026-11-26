@@ -21,10 +21,18 @@ inline bool AlphaRefIsOne(int id) {
 
 inline constexpr float kPieceCutRef = 128.f / 255.f;   // sub_8259FAE8 +0x328 r6 = 128 -> sub_8259E488 +0x74 (the register holds value / 255)
 
-// A mesh of a stock wrestler piece (answers_piece_row: src_kind 2 and not a guest part, piece_row_rule.h), not the body (src_key 0), drawn in the translucent (sorted) pass, whose id keeps the reference 128:
+// THE rule, by piece id: a translucent (sorted) mesh of a SUBM piece whose id keeps the reference 128 is alpha-tested GEQUAL 128/255, blended and writes depth. Id 0 = the body (its own path, ref 1); < 0 = no id.
+inline bool PieceCutById(int piece_id, bool sorted) {
+  return sorted && piece_id > 0 && !AlphaRefIsOne(piece_id);
+}
+
+// A mesh of a wrestler piece (answers_piece_row: src_kind 2, piece_row_rule.h), not the body (src_key 0), drawn in the translucent (sorted) pass, whose id keeps the reference 128:
 // the game alpha-tests it GEQUAL 128/255, blends it and writes depth. `answers_piece_row` / `src_key` are the mesh's (ModelData::Mesh), `sorted` = its material is blended (Material::alpha_blend).
+// S111 GUESTKEY: a SUBM piece drawn as a model of its own from its guest rows (a created superstar's hair 10000 / accessories 10030-10033, a detached stock piece) stamps its piece id in src_key
+// (guest_model_draw.h BuildModel, guest_piece_key.h), so this is its rule too: the game draws it in the same sub_8259E488 loop as every piece, by the instance id. (S111 CAWHAIR's GuestPieceCut, the id read
+// from Object::pad beside a part-index key, is gone with that key.)
 inline bool PieceCut(bool answers_piece_row, int src_key, bool sorted) {
-  return answers_piece_row && sorted && src_key > 0 && !AlphaRefIsOne(src_key);
+  return answers_piece_row && PieceCutById(src_key, sorted);
 }
 
 }  // namespace rdr_scene::piece_draw

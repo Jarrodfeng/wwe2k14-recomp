@@ -134,7 +134,7 @@ try:
     del os.environ['WWE2K14_EXE_DIR']
     check(same_dir(live.exe_folder_of(os.path.join(off, 'wwe2k14.exe')), off), 'exe_folder_of(path) is the exe folder')
     check(same_dir(live.exe_folder_of(''), live.EXE_DIR), "exe_folder_of('') is the stream build")
-    check(live.exe_folder_of('coverage').endswith('win-amd64-coverage'), "exe_folder_of('coverage') is the trace build")
+    check(live.exe_folder_of('coverage').endswith('win-amd64-coverage-off'), "exe_folder_of('coverage') is the trace build")
     check(live.exe_defines(os.path.join(stream, 'wwe2k14.exe'), 'wwe2k14_stage_view'), 'B4: a stream exe holding the cvar gets the stage-view flag')
     check(not live.exe_defines(os.path.join(off, 'wwe2k14.exe'), 'wwe2k14_stage_view'), 'B4: an OFF exe without it does not')
     check(live.exe_defines(os.path.join(off_sv, 'wwe2k14.exe'), 'wwe2k14_rdr_stage_view') and not live.exe_defines(os.path.join(off_sv, 'wwe2k14.exe'), 'wwe2k14_stage_view') and not live.exe_defines(os.path.join(stream, 'wwe2k14.exe'), 'wwe2k14_rdr_stage_view'), 'SVO: the OFF host cvar is told apart from the stream build one (neither name is a substring of the other)')

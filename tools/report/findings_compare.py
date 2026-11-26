@@ -57,7 +57,7 @@ FAILS = []
 
 def compare(name, exe, tmp, files, source, tri_arg):
     rc, want, err = triage_text(tri_arg)
-    if rc != 0:
+    if rc not in (0, 1):      # S111: exit 1 = a RUN failed (a crash / hang line, no end marker ...): a verdict on the run, the text is still compared
         FAILS.append(name)
         print("FAIL  %s: triage.py exit %d: %s" % (name, rc, err.strip()))
         return
@@ -127,6 +127,13 @@ def custom_cases():
                                                      (22, "[hang] HANG: guest side, no guest frame for 60 s, guest frame 1234"), (23, "[hang] HANG over: guest frames and presents go on, guest frame 1300"),
                                                      (23, "[hang] picture 30 s in: fine, 20 of 24 points bright, 5 ms"), (23, "[hang] BLACK over: presents came back")])}
     cs["WATCH detail only"] = {"wwe2k14_001.log": T.custom([(21, d) for d in wdet])}
+    # S111 BLACKFRAME: the black_no_3d finding quotes its mode's `[host] black frames` runs (no_last3d / draw_fault / fault_black only; at most 6, then "+K more")
+    bf = "[host] black frames %d-%d (n %d, held 0): %s | inputs: ours 1 flat 0 no_scene 0 loading 0 never_fed - | why: twin"
+    runs = [(21.1 + 0.01 * k, bf % (5000 + 10 * k, 5005 + 10 * k, 6, "no_last3d <- never_fed" if k % 2 else "no_last3d <- miss_loading, mid_match")) for k in range(7)]
+    runs += [(21.3, bf % (5100, 5103, 4, "2d_only")), (21.31, bf % (5104, 5104, 1, "resize <- miss")), (21.32, bf % (5105, 5105, 1, "game_draws_no_scene")),
+             (24.2, bf % (6100, 6100, 1, "miss, fault_black")), (24.3, bf % (6101, 6101, 1, "draw_fault, mid_match"))]
+    cs["S111 black frames runs (per mode, the filter, the cap)"] = {"wwe2k14_001.log": T.custom([(21, T.hl(1000, 0)), (22, T.hl(1100, 44)), (23.5, T.hl(1200, 44)), (25, T.hl(1300, 46))] + runs)}
+    cs["S111 black frames runs on a straddling window"] = {"wwe2k14_001.log": T.custom([(15, T.hl(1000, 0)), (21.5, bf % (5000, 5030, 30, "no_last3d <- never_fed")), (25, T.hl(1100, 31))])}
     cs["CRLF log"] = {"wwe2k14_002.log": T.gen(plant=("holes", "black_no_3d")).replace("\n", "\r\n")}
     cs["two logs in one report"] = {"wwe2k14_001.log": T.gen(plant=("holes",)), "wwe2k14_002.log": T.gen(plant=("problem", "strikes"))}
     cs["problem + every plant"] = {"wwe2k14_003.log": T.gen(plant=tuple(list(T.PLANTS) + list(T.HOST_PLANTS)))}

@@ -8,6 +8,9 @@ any window. Pipelines are created on background threads (async_shader_compilatio
 start, not how long each one takes.
 
 Usage: py tools\\lzx\\pipelines_in_windows.py 1089 1090 ...
+       py tools\\lzx\\pipelines_in_windows.py --selftest
+A run may hold several windows of one name: S111 WM30LOAD re-opens "ingame" after a 30 Years season video (the video's
+open ends the first one; "the 30 Years season card is over ..." then "ingame on" again), so such a run has two.
 """
 import datetime as dt
 import re
@@ -20,48 +23,96 @@ ON = re.compile(r"\[wwe2k14\]\[turbo\] (\w+) on at frame (\d+)")
 OFF = re.compile(r"\[wwe2k14\]\[turbo\] (\w+) off at frame (\d+) \((.*?);")
 
 
-def scan(run):
-    path = LOGS / f"wwe2k14_{run:03d}.log"
+def scan_lines(lines):
     windows, cur, outside, startup = [], None, {"pipe": 0, "shader": 0}, {"pipe": 0, "shader": 0}
     seen_window = False
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            m = STAMP.match(line)
-            if not m:
-                continue
-            t = dt.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f").timestamp()
-            on = ON.search(line)
-            if on:
-                cur = {"name": on.group(1), "t0": t, "f0": int(on.group(2)), "pipe": 0, "shader": 0,
-                       "first_pipe": None, "last_pipe": None}
-                seen_window = True
-                continue
-            off = OFF.search(line)
-            if off and cur:
-                cur.update(t1=t, f1=int(off.group(2)), why=off.group(3))
-                windows.append(cur)
-                cur = None
-                continue
-            kind = None
-            if "Creating graphics pipeline state" in line:
-                kind = "pipe"
-            elif "[gpu]" in line and re.search(r"Translat|translat", line):
-                kind = "shader"
-            if not kind:
-                continue
-            if cur:
-                cur[kind] += 1
-                if kind == "pipe":
-                    cur["first_pipe"] = cur["first_pipe"] or t
-                    cur["last_pipe"] = t
-            elif not seen_window:
-                startup[kind] += 1
-            else:
-                outside[kind] += 1
+    for line in lines:
+        m = STAMP.match(line)
+        if not m:
+            continue
+        t = dt.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f").timestamp()
+        on = ON.search(line)
+        if on:
+            cur = {"name": on.group(1), "t0": t, "f0": int(on.group(2)), "pipe": 0, "shader": 0,
+                   "first_pipe": None, "last_pipe": None}
+            seen_window = True
+            continue
+        off = OFF.search(line)
+        if off and cur:
+            cur.update(t1=t, f1=int(off.group(2)), why=off.group(3))
+            windows.append(cur)
+            cur = None
+            continue
+        kind = None
+        if "Creating graphics pipeline state" in line:
+            kind = "pipe"
+        elif "[gpu]" in line and re.search(r"Translat|translat", line):
+            kind = "shader"
+        if not kind:
+            continue
+        if cur:
+            cur[kind] += 1
+            if kind == "pipe":
+                cur["first_pipe"] = cur["first_pipe"] or t
+                cur["last_pipe"] = t
+        elif not seen_window:
+            startup[kind] += 1
+        else:
+            outside[kind] += 1
     return windows, startup, outside
 
 
+def scan(run):
+    path = LOGS / f"wwe2k14_{run:03d}.log"
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return scan_lines(f)
+
+
+# S111 WM30LOAD: a season-video run (the shape of run 9e72826b8/011): "ingame" cut by the video, re-opened when the
+# card's flow state is left, ended by the titantron, then "match". One pipeline before any window, one per span.
+_SELFTEST_LOG = [
+    "[2026-11-26 10:00:00.000] [info] Creating graphics pipeline state with VS 0 (startup)",
+    "[2026-11-26 10:00:01.000] [info] [wwe2k14][turbo] ingame on at frame 4064",
+    "[2026-11-26 10:00:01.010] [info] Creating graphics pipeline state with VS 1",
+    "[2026-11-26 10:00:01.037] [info] [wwe2k14][turbo] ingame off at frame 4092 (movie GAME:\\movies\\season\\0412.bik2; 28 frames, 37 ms)",
+    "[2026-11-26 10:00:30.000] [info] Creating graphics pipeline state with VS 2 (during the video)",
+    "[2026-11-26 10:01:31.000] [info] [wwe2k14][turbo] the 30 Years season card is over (flow state 30 left at frame 185050): the in-game load window opens again",
+    "[2026-11-26 10:01:31.000] [info] [wwe2k14][turbo] ingame on at frame 185050",
+    "[2026-11-26 10:01:31.100] [info] Creating graphics pipeline state with VS 3",
+    "[2026-11-26 10:01:31.200] [info] Creating graphics pipeline state with VS 4",
+    "[2026-11-26 10:01:32.000] [info] [wwe2k14][turbo] ingame off at frame 185300 (movie GAME:\\movies\\titantron\\344.bik2; 250 frames, 1000 ms)",
+    "[2026-11-26 10:02:00.000] [info] [wwe2k14][turbo] match on at frame 186000",
+    "[2026-11-26 10:02:00.100] [info] Creating graphics pipeline state with VS 5",
+    "[2026-11-26 10:02:01.000] [info] [wwe2k14][turbo] match off at frame 186100 (slot 0 motion; 100 frames, 1000 ms)",
+]
+
+
+def selftest():
+    fails = []
+    windows, startup, outside = scan_lines(_SELFTEST_LOG)
+    got = [(w["name"], w["f0"], w["f1"], w["pipe"], w["why"]) for w in windows]
+    want = [("ingame", 4064, 4092, 1, "movie GAME:\\movies\\season\\0412.bik2"),
+            ("ingame", 185050, 185300, 2, "movie GAME:\\movies\\titantron\\344.bik2"),
+            ("match", 186000, 186100, 1, "slot 0 motion")]
+    if got != want:
+        fails.append(f"two ingame windows: got {got}, want {want}")
+    if startup["pipe"] != 1 or outside["pipe"] != 1:
+        fails.append(f"startup / outside pipelines: got {startup['pipe']} / {outside['pipe']}, want 1 / 1")
+    # Twin: the same log without the re-open's "ingame on" (today's build): the post-card load's pipelines are outside.
+    twin = [ln for ln in _SELFTEST_LOG if "ingame on at frame 185050" not in ln]
+    windows, startup, outside = scan_lines(twin)
+    if [w["name"] for w in windows] != ["ingame", "match"] or outside["pipe"] != 3:
+        fails.append(f"twin (no re-open): got windows {[w['name'] for w in windows]}, outside {outside['pipe']}; "
+                     "want ['ingame', 'match'], 3")
+    for f in fails:
+        print("FAIL", f)
+    print("pipelines_in_windows selftest:", "PASS" if not fails else f"{len(fails)} failed")
+    return 1 if fails else 0
+
+
 def main():
+    if sys.argv[1:] == ["--selftest"]:
+        sys.exit(selftest())
     for arg in sys.argv[1:]:
         run = int(arg)
         windows, startup, outside = scan(run)

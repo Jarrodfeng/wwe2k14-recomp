@@ -11,8 +11,10 @@
 #include "../renderer_scene/live_scene.h"
 #include "../renderer_scene/rows_change_colour.h"   // S108 THB: section 67 (the entrance props' colours)
 #include "../renderer_scene/weapon_rows.h"   // S106 G4-2
+#include "../renderer_scene/prop_light_id.h"   // S111 STAGELESS2: PackAskedLightSet
 #include "tail_latch.h"  // S102 U1
 #include "weapon_rows_core.h"
+#include "belt_colour.h"   // S111 STOCKBELT / BELTMASKNAME: the R5 belt rows (RowOf) and their census
 
 namespace rdr_scene::live::weaponrows {
 
@@ -32,6 +34,7 @@ class WeaponRowsContributor : public Contributor {
     for (const auto& ev : tracker.events.Snapshot()) {   // S103 BLF review 4: every live event prop model is a section-59 row (flag kSlotFlagEvent) so its load starts before its first draw
       rdr_scene::weapons::WeaponSlot s;
       s.id = ev.second.id, s.slot = ev.second.k, s.main = ev.first, s.flags = rdr_scene::weapons::kSlotFlagEvent;
+      s.reserved[0] = rdr_scene::weapons::PackAskedLightSet(ev.second.light_set);   // S111 STAGELESS2: the light set its CWeapon asks for (+ 1; 0 = not read)
       t.weapon_slots.push_back(s);
     }
     {   // S103 CGF: every live stage structure model (the holder's members as of the last pull) is a section-59 row (flag kSlotFlagStage; id = PACH, slot = k) so its bgEtc.pac load starts before its first draw
@@ -49,11 +52,16 @@ class WeaponRowsContributor : public Contributor {
     for (rdr_scene::weapons::WeaponCall r : newest_.calls) {
       r.node_first += base;
       t.weapon_calls.push_back(r);
-      if (!rdr_scene::weapons::IsEventCall(r.slot_flags)) continue;
-      // S108 THB: the entrance prop's colours (the Threads editor's live ones, or the saved set's latched at the recolour block): ONE section-67 row per prop model, keyed by the model address (= the call's object).
+      // S108 THB: ONE section-67 row per prop model, keyed by the model address (= the call's object).
       bool have_row = false;
       for (size_t i = prop_rows_first; i < t.change_colours.size(); ++i) have_row = have_row || t.change_colours[i].object == r.object;
       if (have_row) continue;
+      {   // S111 BELTMASKNAME (belt_colour.h RowOf): a stock belt the game recolours for a created title (R5: the entrance belt, the match weapon belt, the ladder belt): its colours + the mask's NAME
+        rdr_scene::ChangeColourRow brow;
+        if (beltcolour::RowOf(r, brow)) { t.change_colours.push_back(brow); continue; }
+      }
+      if (!rdr_scene::weapons::IsEventCall(r.slot_flags)) continue;
+      // S108 THB: the entrance prop's colours (the Threads editor's live ones, or the saved set's latched at the recolour block).
       propcolour::Out pc;
       if (!propcolour::TheStore().Get(r.object, fi.guest_frame, pc)) continue;
       rdr_scene::ChangeColourRow row;
@@ -86,6 +94,7 @@ class WeaponRowsContributor : public Contributor {
            std::to_string(evp) + " pub_overflow " + std::to_string(evo);
     // S103 LDR (93db71f17): the stage path latch's counters: requests seen, of those a ladder PACH, a ladder-looking path with no PACH (the step check reads them; the lint counter_reader wants a reader)
     out += "; " + propcolour::TheStore().CensusLine();   // S108 THB: the entrance props' colours (the editor's reads, the saved sets' latches, the rows, the draws)
+    out += "; " + beltcolour::CensusLine();   // S111 STOCKBELT / BELTMASKNAME: the R5 blocks by mode, latched / refused, the rows, the masks the drawer asked for, the drops
     out += "; stage paths " + std::to_string(tracker.stage_paths.load(std::memory_order_relaxed)) + " ladder " + std::to_string(tracker.stage_paths_ladder.load(std::memory_order_relaxed)) + " unmapped " + std::to_string(tracker.stage_paths_unmapped.load(std::memory_order_relaxed));
   }
   Tracker tracker;

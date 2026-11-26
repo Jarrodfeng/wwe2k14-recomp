@@ -1,11 +1,9 @@
-"""qx7_selftest: proves the QX4 verbs (q vcall, q nodes, q runlog, q ours refs ADDRESS) on a fixture in a TEMP folder, with PLANTED misses (no game, 0 runs):
+"""qx7_selftest: proves the QX4 verbs (q vcall, q nodes, q ours refs ADDRESS) on a fixture in a TEMP folder, with PLANTED misses (no game, 0 runs):
   vcall    a listing with: a `this` virtual call (+52) in a vtable-slot function (class known from the slot table), a callback-field call (not a vtable load: hidden
            unless --all), a call whose class is known from a vtable constant stored in the same function (+76), a virtual call on a call result (class unknown:
            --class must COUNT it as unresolved, never list it), and a PLANTED miss: `lwz r10,52(r11)` whose `mtctr` comes after a call (the register died: no site);
   nodes    a registration `bl 0x82C30A10` with `li r4,36` and a vtable constant stored at +16 of the object (the node is r31+16): category, vtable, class and slot 1 found;
            a registration with a category in a register is listed as unresolved, not guessed;
-  runlog   two fixture logs (route, flags, census lines, pac opens): words, --exe / --route filters, `which --mode` (a pac opened by only one route; a PLANTED
-           name no run opened answers none), incremental update (a changed log is re-read) and a deleted log keeps its rows (`log gone`);
   refs     `q ours refs 0x836F38D0` finds the constexpr names (a multi-declarator line, a #define) and NOT a string literal or another address.
 Then the real tree (skipped when generated\\ or the index is absent): COV1's misses (slot-13 site 0x82697C0C in sub_826979F8, slot-19 site of sub_827C9BC8), categories 23 / 26 /
 36 of the node registry, the address-held constants.
@@ -23,7 +21,6 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import qrunlog  # noqa: E402
 import qx6  # noqa: E402
 import qx7  # noqa: E402
 
@@ -97,7 +94,8 @@ def build_fixture(tmp):
         CREATE TABLE rtti_slot(vt INTEGER, idx INTEGER, func INTEGER);
         CREATE TABLE rtti_base(cls TEXT, idx INTEGER, base TEXT);
         CREATE TABLE tables(start INTEGER PRIMARY KEY, rule TEXT, len INTEGER);
-        CREATE TABLE imms(func INTEGER, site INTEGER, value INTEGER, op TEXT);''')      # S110 ICALL: the tables the indirect-call build reads (empty here)
+        CREATE TABLE imms(func INTEGER, site INTEGER, value INTEGER, op TEXT);
+        CREATE TABLE ptrs(at INTEGER, value INTEGER, kind TEXT);''')      # S110 ICALL: the tables the indirect-call build reads (empty here); ptrs: qclassflow.world_from_index (S110 CLASSFLOW review)
     lines = listing().split('\n')
     for a in (F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16):
         ln = next((i + 1 for i, l in enumerate(lines) if l.startswith(f'DEFINE_REX_FUNC(sub_{a:08X})')), 0)
@@ -194,81 +192,6 @@ LOG = '''[2026-11-18 10:00:00.100] [info] [core] [t1] [wwe2k14] run log number: 
 '''
 
 
-def test_runlog(tmp):
-    logs = os.path.join(tmp, 'out', 'build', 'bldA', 'logs')
-    logs2 = os.path.join(tmp, 'out', 'build', 'bldB', 'logs')
-    os.makedirs(logs)
-    os.makedirs(logs2)
-    p1 = os.path.join(logs, 'wwe2k14_005.log')
-    p2 = os.path.join(logs2, 'wwe2k14_005.log')
-    with open(p1, 'w', encoding='utf-8', newline='\n') as f:
-        f.write(LOG.format(r='bryan', pac='BG04'))
-    with open(p2, 'w', encoding='utf-8', newline='\n') as f:
-        f.write(LOG.format(r='cage', pac='BG07'))
-    exe2 = os.path.join(tmp, 'out', 'build', 'bldB', 'wwe2k14.exe')       # an exe whose file time is AFTER the run (2030)
-    with open(exe2, 'wb') as f:
-        f.write(b'MZ')
-    os.utime(exe2, (1893456000, 1893456000))
-    dbp = os.path.join(tmp, 'runlog.db')
-    qrunlog.update(dbp, logs=[p1, p2], quiet=True)
-
-    def go(*args):
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            qrunlog.main(list(args) + ['--db', dbp])
-        return buf.getvalue()
-    qrunlog.find_logs = lambda: [p for p in (p1, p2) if os.path.exists(p)]     # main() calls update() on the REAL log folders: point it at the fixture
-    out = go('scene', 'ready', 'holes', '--json')
-    j = json.loads(out)
-    check(j['n'] == 4 and {x['which'] for x in j['results']} == {'first', 'last'} and all(x['times'] == 2 for x in j['results']),
-          'runlog words: the census line of both runs (digits differ: one shape) is stored as its FIRST and LAST text, each says x2', out)
-    out = go('weapons', '--route', 'bryan', '--json')
-    j = json.loads(out)
-    check(j['n'] == 1 and 'route_bryan' in j['results'][0]['route'], '  --route keeps only the matching run', out)
-    out = go('which', '--mode', 'BG04', '--json')
-    j = json.loads(out)
-    check(j['runs'] == 1 and list(j['routes'])[0].endswith('route_bryan.txt'), 'runlog which --mode BG04: only the route that opened that pac', out)
-    check(json.loads(go('which', '--mode', 'BG99', '--json'))['runs'] == 0, '  PLANTED name no run opened (BG99): none', out)
-    for words in (['wwe2k14_rdr_owner'], ['rdr_owner'], ['rdr', 'owner'], ['rdr_own']):
-        out = go(*words, '--json')
-        check(json.loads(out)['n'] == 2, f'  REVIEW 3: flag searchable as {" ".join(words)} (a_b is the phrase "a b", prefix on the last part)', out)
-    j = json.loads(go('wwe2k14_foo_switch', '--json'))
-    check(j['n'] == 2 and '=7@runtime/code' in j['results'][0]['text'], '  REVIEW 4: a runtime / code `modified:` line is indexed with its source (k=v@runtime/code)', j)
-    j = json.loads(go('wwe2k14_bar_switch', '--json'))
-    check(j['n'] == 2 and '=1@default' in j['results'][0]['text'], '  REVIEW 4: a default-sourced line too', j)
-    j = json.loads(go('--exe', 'bldB', '--json'))
-    check(j['results'][0]['exe_note'].find('REBUILT AFTER') >= 0, '  REVIEW 5: an exe file newer than the run says it was rebuilt after the run', j)
-    j = json.loads(go('--exe', 'bldA', '--json'))
-    check('REBUILT' not in j['results'][0]['exe_note'] or j['results'][0]['exe_note'] == 'exe gone', '  (no exe file: `exe gone`, never a made-up build time)', j)
-    j = json.loads(go('sub_82ABCDEF', '--json'))
-    check(j['n'] == 2 and all(x['times'] == 1 for x in j['results']), '  REVIEW 7: sub_82ABCDEF and sub_82ABCD00 differ in hex: two shapes (only STANDALONE decimals are normalised)', j)
-    # capped: parse in-process with a cap of 1 shape per kind
-    old_cap = qrunlog.MAX_PER_TAG
-    qrunlog.MAX_PER_TAG = 1
-    try:
-        r = qrunlog.parse_log(p2)
-    finally:
-        qrunlog.MAX_PER_TAG = old_cap
-    check(r['capped'].get('census') == 1, '  REVIEW 7: a shape past the per-kind cap is counted in `capped` (and the output prints a capped note)', r['capped'])
-    # incremental: a changed log is re-read; a deleted log keeps its rows
-    with open(p1, 'a', encoding='utf-8', newline='\n') as f:
-        f.write('[2026-11-18 10:00:09.000] [info] [core] [t2] [wwe2k14][census] sub_82FFFFFF call 1 NEW KEY\n')
-    out = go('sub_82FFFFFF', '--json')
-    check(json.loads(out)['n'] == 1, '  a changed log is re-read (the appended line is found)', out)
-    os.remove(p1)
-    out = go('which', '--mode', 'BG04', '--json')
-    j = json.loads(out)
-    check(j['runs'] == 1 and list(j['routes'].values())[0][0]['log_gone'] is True, '  a deleted log keeps its rows, marked log_gone', out)
-    # REVIEW 8: a VERSION bump MIGRATES: the rows of a gone log survive, a log still on disk is re-parsed
-    con = sqlite3.connect(dbp, isolation_level=None)
-    con.execute("UPDATE meta SET value = '1' WHERE key = 'version'")
-    con.close()
-    out = go('which', '--mode', 'BG04', '--json')
-    j = json.loads(out)
-    check(j['runs'] == 1 and list(j['routes'].values())[0][0]['log_gone'] is True, '  REVIEW 8: after a version bump the gone log\'s rows are still there (migrated, not dropped)', out)
-    check(json.loads(go('wwe2k14_rdr_owner', '--json'))['n'] == 2, '  and the log still on disk was re-parsed into the new tables', out)
-
-
 def test_refs(tmp):
     root = os.path.join(tmp, 'rt')
     os.makedirs(os.path.join(root, 'src'))
@@ -359,7 +282,6 @@ def main():
     os.environ['WWE_QVCALL_DB'] = os.path.join(tmp, 'real_vcall.db')      # S105 D (F-3): the real-tree proofs build a TEMP table, never the shared index of any checkout
     try:
         test_vcall(tmp)
-        test_runlog(tmp)
         test_refs(tmp)
         test_map_entry()
         real_tree()

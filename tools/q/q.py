@@ -9,13 +9,16 @@
   rtti NAME [--slots]          RTTI classes whose name contains NAME -> vtables -> slot functions, base classes
   addr ADDR | --host X         guest address -> function + offset (+ string/data info); --host wwe2k14.exe+0x..
                                or a host RVA -> host symbol -> guest function (needs the map of THAT build)
-  db FUNC                      db/*.json entry + system + docs/systems|modules mentions (read live; FUNC may also
-                               be a data address or name that has a db entry)
+  db FUNC                      db/*.json entry + system + the probe notes' lodged claims (db/claims/*.json) + docs/systems|modules
+                               mentions (read live; FUNC may also be a data address or name that has a db entry or a claim)
   fn FUNC                      one-screen summary: size, callers/callees, strings, constants, RTTI, db, coverage
   vcall OFF [--class VT] [--all]  every virtual call site with that vtable slot byte offset (0x34 = slot 13), receiver / class where the code shows it (qx7.py)
+                               vcall OFF --reg rN [--value V] = the value of that argument register at every site, folded (histogram)
+  args F [--reg rN] [--value V] [--in CALLER]  one line per call site of F: the argument registers F reads, folded (constant / image address + string / in_rN / expression) (qargs.py)
   nodes [CATEGORY]             the draw-node registry: sub_82C30A10 registration sites -> category -> node vtable -> slot 1 (qx7.py)
-  runlog WORDS | which --mode X  index of our run logs: exe, route, flags, census lines; which runs reached a scene / pac (qrunlog.py)
   asm FUNC|ADDR [FROM TO] [--into FROM TO]  per-address instruction window of the generated listing, branch targets marked; --into = which branches enter a range from outside (qx6.py)
+                               asm FUNC --at OFF[..OFF2] [--ctx N] (or FUNC+OFF) = a window of a long function by offset from its start
+                               asm FUNC [FROM TO] --writes|--reads rN|sp+D = every instruction that writes / reads the register or stack slot (qregs.py)
   decomp FUNC [--fields] [--callers N]   a compact mechanical view of one function: blocks with loads / stores / calls /
                                branches, provenance folded (tools/q/qdecomp.py; cache out/harness/index/decomp/;
                                docs/agents/q_decomp.md)
@@ -32,20 +35,47 @@
   map ...                      the harness knowledge map (tools/q/qmap.py)
   const N|--name NAME|--setters  which game code writes shader constant register N, and from what (tools/q/qconst.py;
                                cache out/harness/index/qconst/; docs/agents/q_const.md)
+  constdiff [--effect E] [--kind LITERAL|OURS|GAME|UNFED] [--diff]  per shader input our resolvers feed: the GAME's source (name table,
+                               descriptor list, material records) beside OURS (the resolver branch's kind + line); DIFF = game-fed, ours
+                               literal / unfed (tools/q/qconstdiff.py; docs/research/s111/CONSTDIFF.md)
+  texdiff [--effect E] [--flag DIFF|UNSETTLED|MAPREC|HABIT|UNUSED|OK] [--ref REF]  per texture slot a game shader samples: what the GAME
+                               binds (name-table sampler row, the records naming it whose technique samples the slot, code naming it) beside
+                               what OURS binds (role / chain arm + line); DIFF = game-fed, ours a stand-in / nothing / another name; UNUSED =
+                               the game never samples it (tools/q/qtexdiff.py; docs/research/s111/TEXDIFF.md)
+  guestdiff [--field F] [--verdict V ...] [--all] [--ref REF]  per Material field: what the STOCK loader (jboy.h) fills by parameter name
+                               against what the GUEST (created superstar) build fills, who reads it for a guest effect, and whether the
+                               CAW edit-pac records carry it; LOOK = stock-only, read, carried non-default (tools/q/qguestdiff.py; GUESTDIFF.md)
+  rstdiff [--kind K] [--flag DIFF|UNSETTLED|PASS-NEVER|OK] [--ref REF]  per draw kind, the render state the GAME's recorder calls
+                               set (depth test / write / compare, blend, cull, colour mask, stencil) beside the DrawState OURS builds
+                               (file:line); the game's reversed compares mirrored first (tools/q/qrstdiff.py; docs/research/s111/RSTDIFF.md)
+  variantdiff [--effect E] [--pac P] [--flag DIFF|HOLE|UNSETTLED|HABIT|OK]  per wrestler material record group: the shader the GAME
+                               draws in each pass (sub_82BDA038's pass flags + the _startup.pac row) beside the one OURS binds (the table
+                               pick, the cube twin, a hole when the row does not bind; file:line) (tools/q/qvariantdiff.py; docs/research/s111/VARIANTDIFF.md)
   vtable ADDR [--slot K]|--of FUNC  the slots of a vtable (index, word, target, db name, decomp summary); --of = which
                                vtable slots point at FUNC (tools/q/qvtable.py)
   name ADDR|WORD               the names the GAME carries for a function (Lua bindings, name tables) / functions whose name has WORD (tools/q/qnames.py)
   seen [ADDR]                  indirect call pairs OBSERVED in coverage runs: totals / observed callers + targets of a function (tools/q/qseen.py)
+  order [FUNC]                 one frame of the game in run order (the runner's phases, the 35 task groups computed from the sub_82C307B0 sites) / which task
+                               runs FUNC, its group, what runs before / after it, what it waits on (tools/q/qorder.py; annotations db/order/frame.json)
   lib UNIT | --stats | --build  is a unit third-party library code (Havok, Wwise, Lua, Bink, zlib, LZX, CRT)? by strings or by range (tools/q/qlib.py)
   fnfacts FUNC | --stats | --build  per-function STRUCTURAL facts of the listing: loops + inductions, switches + case values, compare chains, entry-arg bit tests, clone hashes (tools/q/qfnfacts.py)
+  sort --stats | FUNC | --left  the functions outside every call cluster of 3+ sorted by tools only: DB / GAME-NAMED / LIB / PATTERN / THUNK / LEAF-TRIVIAL / CLONE / LEFT (tools/q/qsort.py)
   unit ADDR | cover [--json]  the unit (call cluster, K=32) of a function / the mechanical + meaning coverage numbers (tools/q/qunits.py, qcover.py)
   feed [FILE[:LINE]] [--unread]  the scene feed's field table (every field our renderer reads) with struct key + the game's writers (tools/q/qfeedkey.py)
+  seam [TOPIC] | --check       the seam index: a topic's GAME rule (addresses, marks, the note) beside OUR lines (match / replace / repeat), stale rows flagged (tools/q/qseam.py; db/seams/)
+  seam --diffs [--files]       where ours departs from the game: every replace / repeat row of every topic, with the game row it stands against (--topic T, --verdict V, --json)
+  seam --cites FILE[:LINE]     which seam rows and db/claims rows cite a file (or file:line), by our path or by a file:line in their text (qseam_cites.py)
+  marks [--mark U|L|C] [--seam T] [--note N] [--addr A]  the [U] / [L] rows of db/claims + db/seams and the seams' open items, with what settles each; totals first (qmarks.py)
+  words ADDR [N] [--as u32|u16|u8|f32|str]  data words of the game image at an address (pointer -> the string it names, floats); ADDR..ADDR2 = a range (qwords.py)
+  shader HASH|VARIANT [--effect E] --reads  the constant lanes (c#.xyzw), samplers and fetches a game shader reads, from the SDK's disassembly (qshader.py)
+  callers FUNC --in CALLER     only the call sites inside one function (--in)
+  show FILE:N-M --ref REF      the lines as they were at a git ref (a branch, tag or commit)
   field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
                                a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.s<SCHEMA>.db; `q field -h`)
   sdk def|refs|callers NAME [--part sdl3|imgui|sdk|...] | info   the ReXGlue SDK source + the SDK's SDL3 / imgui / VMA / spdlog / fmt / ... as a read-only index (tools/q/qsdk.py; builds and refreshes ITSELF on every call, 7 s cold, 0.4 s warm; each hit tagged [sdk] / [sdl3] / ...; the header says the index age)
   asset find|pac|tex|mat|id|slot|info|update   the index of the game's FILES: every pac -> PACH (+ virtual path /STG/CAGE) -> entry -> model nodes / meshes / material
-                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.s4.db, built
-                               from the player's own files, refreshes ITSELF; `q asset -h`)
+                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.s6.db, built
+                               from the player's own files AND his mods folder (rows tagged game / mod:NAME, --source), refreshes ITSELF; `q asset -h`)
   show FILE:N-M [...]         exact numbered lines of one of our files (FILE:N, FILE:N+-C, FILE:A-B,C-D; a unique basename works; tools/q/qshow.py)
   note [NAME] [--verdict|--sites|--section HEADING]   one section of a docs/research|systems|formats note, not the file (tools/q/qnote.py)
   ours body FUNC | outline FILE | enclosing FILE:LINE   a function's lines | a file's functions / types (no bodies) | the function holding a line (tools/q/qsym.py, text)
@@ -79,11 +109,16 @@ ROUTING = """WHICH q COMMAND ANSWERS YOUR QUESTION (q -h = every command)
 - several questions in one call: q multi "ours callers F" "show FILE:10-40" "decomp sub_X --fields" (each answered whole, with its exit code)
 - who calls / refs / writes / reads a C++ or python name: ours refs|callers|writes|reads NAME (python: py refs NAME; importers: py refs MODULE)
 - where defined / one screen: ours def|fn NAME; a file's functions: ours outline FILE; a function's lines: ours body NAME; lines: show FILE:N-M
-- who names a script / exe: ours runs FILE; a path / string / number in src+tools: ours lit VALUE; words on one line: ours text W1 W2 [--any] [-E regex]
+- who names a script / exe: ours runs FILE; a path / string / number in src+tools: ours lit VALUE; any of several words: ours text W1 W2 [--and] [-E regex] [--in FILE]
   (a word in docs / briefs / CMake: ours text WORD --docs; at a branch: ours text WORD --branch REF)
 - who prints / parses a log line: ours line "LINE"; a census field: ours census FIELD; env var: ours env NAME; cvar: ours cvar NAME
 - includes: ours includes|includers FILE; SDK / SDL source: sdk def|refs NAME; lodged: fact WORDS; a note's section: note NAME --section H
 - game code: decomp sub_X [--fields|--callers N]; field OFF [--writes|--stores]; callers|fn|addr|str|imm X; asm FUNC
+- the game's rule beside our lines for a topic (depth, ...): seam TOPIC; every topic: seam; lint: seam --check; rows citing a file: seam --cites FILE[:LINE]
+- what is still [U] / [L] (claims, seam rows, open items) and what settles it: marks --mark U|L [--seam T] [--note N]
+- a data table / float / name list of the game image: words ADDR [N] [--as f32|str]; the constant lanes / samplers a game shader reads: shader HASH|VARIANT --reads
+- a window inside one long game function: asm FUNC --at OFF (or FUNC+OFF); the call sites of X inside one function: callers X --in FUNC; a file at a git ref: show FILE:N-M --ref REF
+- when in a frame game code runs, after what, waiting on what: order FUNC (its task, group, chain, the frame's known points in run order); order = the frame
 (bare outline / body / refs / def / lit / text WORD mean `ours` ...)
 Not answered by any of these? `q missed "<the question>"` logs the gap (voluntary; the list of what to build next), then use grep.
 """
@@ -179,6 +214,46 @@ def load_db_entries():
     return out
 
 
+_CLAIMS_CACHE = []
+
+
+def load_claims():
+    """S111 LODGE: [claim row + {'file'}] from db/claims/*.json (one file per lodged probe note, tools/handback/lodge_note.py), read live and
+    cached per process; an unparsable file is reported on stderr like a db file."""
+    if _CLAIMS_CACHE:
+        return _CLAIMS_CACHE[0]
+    out = []
+    for p in sorted(glob.glob(os.path.join(REPO, 'db', 'claims', '*.json'))):
+        try:
+            with open(p, encoding='utf-8') as f:
+                d = json.load(f)
+        except (OSError, ValueError) as e:
+            print(f'q: WARNING cannot parse {os.path.relpath(p, REPO)} ({e}): its claims are missing from this answer', file=sys.stderr)
+            continue
+        for r in d if isinstance(d, list) else []:
+            if isinstance(r, dict):
+                out.append({'file': 'claims/' + os.path.basename(p), **r})
+    _CLAIMS_CACHE.append(out)
+    return out
+
+
+def _claim_addr(r, key):
+    try:
+        return int(str(r.get(key)), 16)
+    except ValueError:
+        return None
+
+
+def claims_for(a):
+    """The lodged claims on `a`: rows whose address is `a` or whose function is `a` (a claim inside the function)."""
+    return [r for r in load_claims() if a in (_claim_addr(r, 'address'), _claim_addr(r, 'function'))]
+
+
+def claim_line(r):
+    where = f'+{r.get("offset")} ' if r.get('function') and r.get('offset') not in (None, '0x0') else ''
+    return f'[{r.get("mark")}] {where}{r.get("claim")} (evidence: {r.get("evidence")}; note {r.get("note")})'
+
+
 def resolve(con, s, allow_inside=True, allow_data=False):
     """FUNC argument -> (addr, note). allow_data: also accept an address that only a db entry names (a global or
     table, not a function: `q db` of a data entry)."""
@@ -193,6 +268,8 @@ def resolve(con, s, allow_inside=True, allow_data=False):
             return a, None
         if allow_data and any(x == a for x, _, _ in load_db_entries()):
             return a, f'{h(a)} is a db data address, not a function'
+        if allow_data and any(_claim_addr(r, 'address') == a and r.get('function') is None for r in load_claims()):
+            return a, f'{h(a)} is a data address a lodged claim names (db/claims), not a function'
         if allow_inside:
             r = containing(con, a)
             if r:
@@ -227,6 +304,9 @@ def fname(con, a, cache={}):
 
 def cmd_callers(con, a, args):
     rows = con.execute('SELECT src, target, site, kind FROM edges WHERE dst = ? ORDER BY src, site', (a,)).fetchall()
+    if getattr(args, 'in_func', None):      # S111 QGAPS: `callers X --in FUNC` = the call sites of X inside one function
+        inside, _note = resolve(con, args.in_func)
+        rows = [r for r in rows if r['src'] == inside]
     by = {}
     for r in rows:
         by.setdefault(r['src'], []).append({'site': h(r['site']), 'kind': r['kind'],
@@ -281,12 +361,33 @@ def print_indirect(r):
               + f'; {ind["n_open"]} with CTR unknown')
 
 
+def qfactcard_caller_fact(c, args, shown):
+    """S111 FACTCARD: one settled fact under a caller (the claim that cites its call site, else its heaviest); at most MAX_CALLER_FACTS in all; returns the running count"""
+    import qfactcard
+    fm = qfactcard.mode_of(args)
+    if fm == 'none' or (fm == 'card' and shown >= qfactcard.MAX_CALLER_FACTS):
+        return shown
+    ca = int(c['addr'], 16)
+    facts = qfactcard.collect(ca, None, None, 'callers', fm)
+    line = None
+    for s in c['sites']:     # the fact is the CALLER's: at its call site, else the caller's own line
+        so = int(s['site'], 16) - ca
+        line = line or qfactcard.site_fact(facts, so, fm, f'caller +0x{so:X}: ')
+    line = line or qfactcard.fn_fact(facts, fm, 'caller: ')
+    if line:
+        print('      ' + line)
+        shown += 1
+    return shown
+
+
 def print_callers(r, args):
+    shown = 0
     print(f'{r["func"]}: {r["n_sites"]} call sites in {r["n_callers"]} functions')
     for c in r['callers'][:args.limit]:
         sites = ', '.join(f'{s["site"]} {s["kind"]}' + (f' (into {s["target"]})' if s['target'] else '') for s in c['sites'])
         ran = f'  [ran: {",".join(c["ran_in"]) or "never seen"}]' if 'ran_in' in c else ''
         print(f'  {c["func"]:<28} {sites}{ran}')
+        shown = qfactcard_caller_fact(c, args, shown)
     if len(r['callers']) > args.limit:
         print(f'  ... {len(r["callers"]) - args.limit} more (--limit)')
     if r['data_pointers']:
@@ -713,7 +814,7 @@ def documented_in(a):
 
 def cmd_db(con, a, args):
     entries = [{'file': fn, **e} for x, fn, e in load_db_entries() if x == a]
-    return {'func': fname(con, a), 'addr': h(a), 'entries': entries, 'docs': docs_mentions(a),
+    return {'func': fname(con, a), 'addr': h(a), 'entries': entries, 'claims': claims_for(a), 'docs': docs_mentions(a),
             'documented_in': documented_in(a)}
 
 
@@ -725,6 +826,10 @@ def print_documented(r, indent='  '):
 def print_db(r, args):
     if not r['entries']:
         print(f'{r["func"]}: no db entry')
+    if r.get('claims'):   # S111 LODGE: the probe notes' lodged claims (db/claims/*.json)
+        print(f'{r["func"]}: {len(r["claims"])} lodged claim(s):')
+        for c in r['claims'][:args.limit]:
+            print(f'  claim {claim_line(c)}  ({c["file"]})')
     for e in r['entries']:
         print(f'{r["func"]} = {e.get("name")}  [{e.get("system")}, confidence {e.get("confidence")}]  ({e["file"]})')
         print(f'  {e.get("summary")}')
@@ -826,7 +931,7 @@ def cmd_fn(con, a, args):
                      **({'uncertain': True} if s['op'].endswith('?') else {})} for s in strs],
         'addresses': [{'value': h(v), 'ops': sorted(set(o))} for (v, isaddr), o in cvals.items() if isaddr],
         'constants': [{'value': h(v), 'ops': sorted(set(o))} for (v, isaddr), o in cvals.items() if not isaddr],
-        'db': dbe['entries'], 'docs': dbe['docs'], 'documented_in': dbe['documented_in'], 'coverage': coverage_for(a),
+        'db': dbe['entries'], 'claims': dbe['claims'], 'docs': dbe['docs'], 'documented_in': dbe['documented_in'], 'coverage': coverage_for(a),
         **({'uncertain_hidden': hidden} if hidden else {}),
     }
 
@@ -837,6 +942,8 @@ def print_fn(r, args):
           + (f'  host RVA {r["host_rva"]}' if r['host_rva'] else ''))
     for e in r['db']:
         print(f'  db: {e.get("name")} [{e.get("system")}, {e.get("confidence")}] ({e["file"]}): {e.get("summary", "")[:160]}')
+    for c in r.get('claims', [])[:L]:
+        print(f'  claim: {claim_line(c)[:200]}  ({c["file"]})')
     print_documented(r)
     for d in r['docs']:
         print(f'  doc: {d["doc"]} lines {", ".join(map(str, d["lines"][:8]))}')
@@ -901,8 +1008,9 @@ def bare_ours(argv):
 
 
 VERBS = ('find', 'multi', 'switch', 'text', 'csdt', 'decomp', 'field', 'ours', 'save', 'menu', 'map', 'fact', 'show', 'note', 'py', 'sdk', 'asset',
-         'missed', 'asm', 'vcall', 'nodes', 'runlog', 'const', 'vtable', 'callers', 'callees', 'str', 'imm', 'rtti', 'addr', 'db', 'fn', 'info',
-         'outline', 'body', 'refs', 'def', 'lit', 'name', 'unit', 'cover', 'seen', 'sheet', 'feed', 'read', 'rendermd', 'pattern', 'lib', 'fnfacts')
+         'missed', 'asm', 'vcall', 'nodes', 'const', 'vtable', 'callers', 'callees', 'str', 'imm', 'rtti', 'addr', 'db', 'fn', 'info',
+         'outline', 'body', 'refs', 'def', 'lit', 'name', 'unit', 'cover', 'seen', 'sheet', 'feed', 'read', 'pattern', 'lib', 'fnfacts', 'sort',
+         'seam', 'order', 'constdiff', 'texdiff', 'rstdiff', 'variantdiff', 'guestdiff', 'words', 'shader', 'args', 'marks')
 
 
 def _edits(a, b):
@@ -1047,15 +1155,24 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfield
         return qfield.main(argv[1:])
-    if argv and argv[0] == 'rendermd':      # S110 RENDERMD: writes docs/RENDERER.md from the index (tools/q/qrendermd.py)
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import qgamemd      # one document per category of the game (S110 GAMEMD); qrendermd.py holds the section renderers
-        return qgamemd.main(argv[1:])
     # S110 FEEDKEY: `q.py feed [FILE[:LINE]] [--unread]` = the scene feed's field table with struct key + game writers (tools/q/qfeed.py, qfeedkey.py).
     if argv and argv[0] == 'feed':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qfeed
         return qfeed.verb(argv[1:])
+    if argv and argv[0] == 'marks':      # S111 QMARKS: every [U] / [L] row + open item (tools/q/qmarks.py)
+        import qmarks
+        return qmarks.main(argv[1:])
+    # S111 SEAM: `q.py seam [TOPIC] | --check` = the game's rule beside our lines, per topic (tools/q/qseam.py; db/seams/).
+    if argv and argv[0] == 'seam':
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qseam
+        return qseam.main(argv[1:])
+    if argv and argv[0] in ('words', 'shader'):      # S111 QGAPS: image data words / the lanes a game shader reads (tools/q/qwords.py, qshader.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qshader
+        import qwords
+        return (qwords if argv[0] == 'words' else qshader).main(argv[1:])
     # S103 QD: `q.py decomp FUNC [--callers N] [--fields]` = a compact mechanical view of one function (tools/q/qdecomp.py;
     # cache out/harness/index/decomp/, keyed by the generated source's hash).
     # S103: `q.py missed "QUESTION"` = log a question q could not answer (out/harness/q_missed.log): voluntary (S108: the q-first hook that
@@ -1084,17 +1201,25 @@ def main(argv=None):
             return 2
         except BrokenPipeError:
             return 0
+    if argv and argv[0] == 'args':      # S111 QARGS: `q args F [--reg rN] [--value V] [--in CALLER]` = call-site argument values (tools/q/qargs.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qargs
+        import qdecomp
+        try:
+            return qargs.args_main(argv[1:], connect(DB), resolve)
+        except (QError, qargs.ArgsError, qdecomp.DecompError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
     # S103 QX4: `q.py vcall OFF [--class VT]` (virtual call sites by slot offset), `q.py nodes [CAT]` (the draw-node registry) = tools/q/qx7.py;
-    # `q.py runlog WORDS|which --mode X` = the run-log index, tools/q/qrunlog.py. All three build their own table in out/harness/index on first use.
-    if argv and argv[0] in ('vcall', 'nodes', 'runlog'):
+    # Both build their own table in out/harness/index on first use.
+    if argv and argv[0] in ('vcall', 'nodes'):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qx7
-        import qrunlog
         try:
-            if argv[0] == 'runlog':
-                return qrunlog.main(argv[1:])
             return qx7.main(argv, connect(DB))
-        except (QError, qx7.XError, qrunlog.RunlogError) as e:
+        except (QError, qx7.XError) as e:
             print(f'q: {e}', file=sys.stderr)
             return 2
         except BrokenPipeError:
@@ -1117,6 +1242,63 @@ def main(argv=None):
         try:
             return qconst.main(argv[1:], connect(DB), resolve)
         except (QError, qconst.ConstError, qconst.qdecomp.DecompError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'constdiff':     # S111 CONSTDIFF: the game's source of each shader input beside ours (tools/q/qconstdiff.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qconstdiff
+        try:
+            return qconstdiff.main(argv[1:], connect(DB))
+        except (QError, qconstdiff.DiffError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'texdiff':       # S111 TEXDIFF: what the game binds at each texture slot beside ours (tools/q/qtexdiff.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qtexdiff
+        try:
+            return qtexdiff.main(argv[1:], connect(DB))
+        except (QError, qtexdiff.TexDiffError, qtexdiff.CD.DiffError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'rstdiff':       # S111 RSTDIFF: the render state the game sets per draw kind beside ours (tools/q/qrstdiff.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qrstdiff
+        try:
+            return qrstdiff.main(argv[1:], connect(DB))
+        except (QError, qrstdiff.RstDiffError, qrstdiff.CD.DiffError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'guestdiff':     # S111 GUESTDIFF: every Material field the stock loader fills against the guest build (tools/q/qguestdiff.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qguestdiff
+        try:
+            return qguestdiff.main(argv[1:])
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'variantdiff':   # S111 VARIANTDIFF: which shader each wrestler material draws with, game vs ours (tools/q/qvariantdiff.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qvariantdiff
+        try:
+            return qvariantdiff.main(argv[1:], connect(DB))
+        except (QError, qvariantdiff.VariantDiffError, qvariantdiff.CD.DiffError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+        except BrokenPipeError:
+            return 0
+    if argv and argv[0] == 'order':         # S111 ORDER: where a game function sits in one frame (tools/q/qorder.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qorder
+        try:
+            return qorder.main(argv[1:], connect(DB))
+        except (QError, qorder.OrderError, qorder.qx7.XError) as e:
             print(f'q: {e}', file=sys.stderr)
             return 2
         except BrokenPipeError:
@@ -1151,6 +1333,14 @@ def main(argv=None):
         try:
             return qlib.main(argv[1:])
         except (qlib.LibError, qlib.qnames.NamesError) as e:
+            print(f'q: {e}', file=sys.stderr)
+            return 2
+    if argv and argv[0] == 'sort':           # S111 SORT40: the unclustered functions sorted by tools only (tools/q/qsort.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import qsort
+        try:
+            return qsort.main(argv[1:])
+        except (qsort.SortError, qsort.qnames.NamesError) as e:
             print(f'q: {e}', file=sys.stderr)
             return 2
     if argv and argv[0] == 'read':           # S110 READSTORE: reader answers store / batch picker (tools/q/qread.py)
@@ -1198,6 +1388,9 @@ def main(argv=None):
     ap.add_argument('--index', dest='top_index', default=None)
     sub = ap.add_subparsers(dest='cmd', required=True)
     p = sub.add_parser('callers', parents=[common]); p.add_argument('func')
+    p.add_argument('--in', dest='in_func', default=None, metavar='CALLER', help='only the call sites inside this function')
+    import qfactcard
+    qfactcard.add_arg(p)
     p = sub.add_parser('callees', parents=[common]); p.add_argument('func')
     p.add_argument('--depth', type=int, default=1); p.add_argument('--all', action='store_true')
     maybe = argparse.ArgumentParser(add_help=False)

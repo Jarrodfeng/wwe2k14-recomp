@@ -15,7 +15,7 @@ DIRS = ('src/renderer_scene', 'src/scene_live')
 # file -> (cap, reason). Every entry is an existing print that is rig-, dev- or env-gated, or a boot line that has not been moved yet (a candidate: it needs problem.cpp linked into the tools that build the file).
 ALLOW = {
     'src/renderer_scene/front_end.cpp': (12, 'dev dumps behind WWE_RDR_DUMP_MATS / reload / order prints (pre-existing)'),
-    'src/renderer_scene/live_assets.cpp': (4, '[read_rule] boot lines; the file is also built into rigs that do not link problem.cpp (candidate: move to rdr::Log)'),
+
     'src/renderer_scene/live_map_rope.cpp': (8, '[B2F] rope dump, env-gated debugging'),
     'src/renderer_scene/live_scene_selftest.cpp': (1, 'the selftest tool\'s usage line'),
     'src/renderer_scene/promotion_rig.h': (2, 'the replay rig only'),

@@ -14,7 +14,7 @@ Each X is one question ("a phrase" in quotes = one question). What is tried (doc
   path literal        X with / or \\: the lines holding it (/ and \\ match as one)
   cvar / env var      REXCVAR_DEFINE_*(X, ...) lines; environment reads / sets of X
   log line            "[tag] words": the printf / Log sites and the tools that parse it (q ours line)
-  game                sub_X / 0x8XXXXXXX / a mapped or db name: the function, its db name, callers; a data address: its db entry
+  game                sub_X / 0x8XXXXXXX / a mapped or db name: the function, its db name, callers (next: `q vtable --of FUNC` = which vtable / class holds it); a data address: its db entry
   sdk                 the SDK index as last built (never refreshed here)
   text in code / docs one git grep over src tools config probes android + root scripts / docs, root *.md, .claude, CMake
   fact                the knowledge library (q fact)
@@ -398,6 +398,19 @@ def show_block(root, x):
         return None
 
 
+def seam_block(root, x, spec):
+    """S111 SEAM: the seam entries (db/seams, tools/q/qseam.py) the question names: its topic, a word of an entry's summary, or `seam`.
+    None when none. Never raises: a broken seam file must not break q find (q seam --check reports it)."""
+    try:
+        import qseam
+        b = qseam.find_block(root, x)
+    except Exception:    # noqa: BLE001
+        return None
+    if b and spec:
+        b = {'topics': [t for t in b['topics'] if qcap.in_scope(t['file'], spec)]}
+    return b if b and b['topics'] else None
+
+
 # ---------------------------------------------------------------- one question
 
 def answer(x, root, db=None, spec=None, qmod=None, index=None, structural=True, full=False):
@@ -440,6 +453,9 @@ def answer(x, root, db=None, spec=None, qmod=None, index=None, structural=True, 
     db_ = text_block(docs, x, pr.needle, spec)
     put('docs', db_ if db_['lines'] else None)
     put('fact', fb)
+    sb = seam_block(root, x, spec)
+    if sb:
+        kinds['seam'] = sb
     return {'question': x, 'needle': pr.needle, 'kinds': kinds, 'no_hit': [k for k in tried if k not in kinds], 'labels': labels,
             'outside_in': {'code': tb['outside_in'], 'docs': db_['outside_in']} if spec else {}, 'took_s': round(time.time() - t0, 2)}
 
@@ -477,6 +493,13 @@ def print_answer(r, a):
         import qshow
         qshow.print_show(k['lines'])
         return
+    if 'seam' in k:
+        ts = k['seam']['topics']
+        sh, cut = qcap.cap(ts, CAP_SYMS, all_)
+        for t in sh:
+            print(f'seam entry: {t["topic"]}  {t["summary"]}  ({t["file"]}; next: q seam {t["topic"]})')
+        if cut:
+            print(f'  {qcap.trim_line(len(sh), len(ts), "seam entries", "q seam", narrow=False)}')
     if 'C++ symbol' in k:
         ms = k['C++ symbol']['matches']
         print(f'C++ symbol: {len(ms)} match{"es" if len(ms) != 1 else ""}  ({r["labels"].get("C++ symbol", "")})')
@@ -551,7 +574,8 @@ def print_answer(r, a):
             off = f' (+0x{g["offset"]:X} inside it)' if g.get('offset') else ''
             print(f'game function {g["func"]} {g["func_addr"]}{off}' + (f' = {d.get("name")} [{d.get("system")}, {d.get("confidence")}] ({d.get("file")})' if d else ' (no db entry)')
                   + f'  size {g["size"]}; {g["call_sites"]} call sites in {g["callers"]} functions' + (': ' + ', '.join(g['first_callers']) + (' ...' if g['callers'] > len(g['first_callers']) else '') if g['first_callers'] else ''))
-            print(f'  next: q fn {g["func_addr"]} | q decomp {g["func_addr"]} | q callers {g["func_addr"]}')
+            print(f'  next: q fn {g["func_addr"]} | q decomp {g["func_addr"]} | q callers {g["func_addr"]} | q order {g["func_addr"]} (when it runs in a frame)'
+                  f' | which vtable / class holds it: q vtable --of {g["func_addr"]}')
     if 'sdk' in k:
         s = k['sdk']
         print(f'sdk (index as last built): {len(s["defs"])} definition(s), {s["refs"]} reference lines; next: q sdk refs {q}')

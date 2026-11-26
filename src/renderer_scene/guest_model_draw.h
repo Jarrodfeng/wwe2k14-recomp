@@ -24,9 +24,16 @@
 #include <vector>
 
 #include "../assets/asset_model.h"
+#include "../assets/char_draw_layer.h"   // S111 LAYERS: which part blends (the game's draw split)
+#include "../assets/material_record.h"   // S111 UNIFY3: the record's technique / cull words -> Material (the file loader's own function)
+#include "../assets/vertex_decode.h"   // S111 GUESTVTX: vdecode::GameColour, the colour rule the stock loader uses too
+#include "guest_model_float_rows.h"   // S111 GUESTHAIR: the part's float parameter rows -> Material (the file loader's table)
+#include "../assets/material_samplers.h"   // S111 UNIFY2: the part's sampler rows -> Material (the file loader's own table)
 #include "../scene_live/guest_model_reader.h"
 #include "../scene_live/guest_model_store.h"
 #include "record_io.h"
+#include "guest_env_cube.h"   // S111 GUESTCUBE: a created superstar's g_mEnvLPrm cube (chCommon's CUBEMAP_eyes / CUBEMAP, read once a process)
+#include "guest_model_mat_rows.h"   // S111 EYECUBE: the texture name a sampler names (sections 72 / 73)
 #include "../scene_live/draw_camera_core.h"   // S103 CAWB: Cam().NoteBodyDraw (the draw-camera census carries last_body_draw)
 
 namespace rdr_scene::guestmodel {
@@ -35,6 +42,10 @@ namespace rdr_scene::guestmodel {
 // reader's plant 5 is the live fault); 4 = the uv halves are exchanged (u low, v high: the CW-2 fault); 5 = the palette slot is used as the node (the CW-2 fault); 6 = the vertex is decoded from the STRIDE (CW-2's
 // LayoutOfStride: F ignored); 7 = an unknown F bit is accepted (no refusal); 11 = the file-space -> viewer-space mirror of the built vertices is skipped (CAWH: the strands).
 // S105 A5c: 14 = the logo pictures are not put on the material (the old black layers).
+// S111 GUESTHAIR: 18 = the part's float parameter rows are not put on the material (the old fresh Material: no hair highlight colour).
+// S111 GUESTKEY: 13 = a trans part with no normal picture is built opaque (the old A5b gate); 19 = the old stamp (src_key = the part index, src_record -1).
+// S111 EYECUBE: 26 = the slot-10 cube is picked by effect even when the record carries the part's texture name (the old rule).
+// S111 UNIFY5: 33 = PipelineEffect does not map yDefault (the old yCh_skin stand-in); 34 = the part's section-72 samplers are not put through the facts step (no spec_pow_prm / diffuse_name).
 inline int g_draw_plant = 0;
 
 inline float HalfToFloat(uint16_t h) {
@@ -97,7 +108,9 @@ inline bool DecodeVertices(const uint8_t* bytes, uint32_t count, uint32_t stride
       Unpack1011(d[lay.tangent_at], t);
       o.tangent[0] = t[0], o.tangent[1] = t[1], o.tangent[2] = t[2];
     }
-    o.color = lay.colour_at >= 0 ? d[lay.colour_at] : 0xFFFFFFFFu;
+    // S111 GUESTVTX: the copied word as the game's fetch reads it (R G B A = file bytes 25, 26, 27, 24: vertex_decode.h, the stock loader's rule);
+    // draw plant 31 = the old host-order dword (R = byte 27).
+    o.color = lay.colour_at >= 0 ? (g_draw_plant == 31 ? d[lay.colour_at] : assets::vdecode::GameColour(d[lay.colour_at])) : 0xFFFFFFFFu;
     if (lay.uv_at >= 0) {   // the packer's half2: half(u) at +0, half(v) at +2 -> the host dword is (u << 16) | v (sub_82C148F8; CW2_review bug 2)
       const uint32_t uv = d[lay.uv_at];
       const uint16_t hu = g_draw_plant == 4 ? uint16_t(uv & 0xFFFFu) : uint16_t(uv >> 16), hv = g_draw_plant == 4 ? uint16_t(uv >> 16) : uint16_t(uv & 0xFFFFu);
@@ -148,8 +161,6 @@ inline bool DecodeVertices(const uint8_t* bytes, uint32_t count, uint32_t stride
   return true;
 }
 
-// The material slot a sampler parameter fills (the jboy read rule, src\assets\jboy.h 645-653; `skinned`: a skinned model's light-map slot is ignored there too).
-enum class TexSlot : uint8_t { None = 0, Diffuse, Normal, Mask, Specular, Detail };
 // CTF: the game's own names are lower case in memory ("ych_skin", log run 011), the file stores mixed case: compare ASCII case-insensitively (g_draw_plant 8 = the old case-sensitive compare).
 inline char AsciiLower(char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; }
 inline bool NameEq16(const char* a, const char* b) {
@@ -161,24 +172,21 @@ inline bool NameEq16(const char* a, const char* b) {
   return true;
 }
 // The pipeline's effect name for the game's [desc+124] name (case-insensitive; kFx = the 13 yCh_* pipelines of src\renderer\shaders\spv\fx_registry.h = char_effects.cpp kEffects, held equal by the unit's lint L10).
-// The game's own literal list (sub_82BDA038) is NOT the same set: it has "ych_trans_tiling" (kAlias below), the misspellings "ych_grar" / "ych_grar_flex" (not mapped: unconfirmed that any data file carries them) and no "ych_cloth_trans" (we keep the pipeline). nullptr = not a character effect we have.
+// The game's own literal list (sub_82BDA038) is NOT the same set: it has "ych_trans_tiling" (kAlias below), the misspellings "ych_grar" / "ych_grar_flex" (not mapped: unconfirmed that any data file carries them) and no "ych_cloth_trans" (we keep the pipeline).
+// S111 UNIFY5: kOther = the registry's effects that are no character pipeline but that a created superstar's record names: yDefault (9 edit-pac records: ed10 x4, ed25 x2, ed31, ed32, ed35; asset index). Such a part
+// draws by the stock path for that effect (front_end.cpp BindMaterial's non-character branch: the yDefault table / technique / samplers), as a stock yDefault mesh does. nullptr = an effect we have no pipeline for.
 inline const char* PipelineEffect(const char* name) {
   static const char* const kFx[] = {"yCh_skin", "yCh_skin_flex", "yCh_gear", "yCh_gear_flex", "yCh_trans", "yCh_Reflect", "yCh_Ls", "yCh_cloth", "yCh_cloth_flex", "yCh_cloth_trans", "yCh_TransTiling", "yCh_Anisotropic", "yCh_Aniso_trans"};
   static const char* const kAlias[][2] = {{"ych_trans_tiling", "yCh_TransTiling"}};
+  static const char* const kOther[] = {"yDefault"};
   for (const char* fx : kFx)
     if (NameEq16(name, fx)) return fx;
   for (const auto& al : kAlias)
     if (NameEq16(name, al[0])) return al[1];
+  if (g_draw_plant != 33)
+    for (const char* fx : kOther)
+      if (NameEq16(name, fx)) return fx;
   return nullptr;
-}
-inline TexSlot SlotOfParam(const char* name) {
-  const auto eq = [&](const char* n) { return NameEq16(name, n); };
-  if (eq("g_mDiffusePrm") || eq("sampDiffusePrm")) return TexSlot::Diffuse;
-  if (eq("g_mNormalFxPrm") || eq("sampNormalPrm")) return TexSlot::Normal;
-  if (eq("g_mMaskPrm")) return TexSlot::Mask;
-  if (eq("sampSpecularPrm")) return TexSlot::Specular;
-  if (eq("g_mNoiseTilePrm")) return TexSlot::Detail;
-  return TexSlot::None;
 }
 
 // Bytes by content hash, PER ModelCache. A hash the records carried is kept (shared pointers: a hash absorbed twice is one copy); one a record names without carrying is asked of the writer's process byte
@@ -262,8 +270,10 @@ class Store {
 };
 
 struct BuildStats {
-  uint32_t parts = 0, parts_in_record = 0, hole_bytes = 0, hole_layout = 0, hole_parts = 0, extra_streams = 0, effect_fallback = 0, bad_triangles = 0, degenerate = 0, bad_slots = 0, bad_nodes = 0, unskinned = 0;
-  uint32_t blended_no_normal = 0;   // S105 A5b F1: trans parts left opaque because their normal picture is not bound
+  uint32_t parts = 0, parts_in_record = 0, hole_bytes = 0, hole_layout = 0, hole_parts = 0, extra_streams = 0, bad_triangles = 0, degenerate = 0, bad_slots = 0, bad_nodes = 0, unskinned = 0;
+  uint32_t hole_effect = 0;        // S111 UNIFY5 review: parts whose effect no pipeline of ours draws (PipelineEffect nullptr): the model is a hole (why names them), never the old yCh_skin stand-in
+  std::string hole_effect_names;   // those effects, each once, quoted ('ych_grar', ...)
+  uint32_t blended_no_normal = 0;   // S111 GUESTKEY: blended trans parts with no normal picture bound (the front end's stand-in gives their opacity, as for a stock part)
   uint32_t blended = 0;    // S105 A5b: parts built with alpha_blend (an effect whose name holds "trans": yCh_trans eyelid layer, yCh_Aniso_trans hair ...)
   uint32_t max_node = 0;   // S103 CAWS: (highest node any vertex uses) + 1, over all parts; compared with the actor's palette size (NoteActorPalette)
   uint32_t tex_bound = 0, tex_missing = 0, tex_override = 0, no_diffuse = 0, tex_default_cube = 0;
@@ -314,7 +324,9 @@ inline bool EffectBlends(const std::string& shader) {
 }
 
 // Builds the CPU model of the guest model at `model` from the record's rows + the store's bytes. False (stats.why says why) = a hole: never half a body.
-inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, assets::Model& out, BuildStats& st, bool flat_diffuseless = false) {
+// `piece_key` = the src_key every mesh gets: 0 for a body, the piece id for a SUBM piece's own model (guest_piece_key.h GuestPieceKey; S111 GUESTKEY). S111 LAYERS: a non-zero key is also what makes the
+// model a SUBM piece for the draw split (assets\char_draw_layer.h Translucent: a stock owner's pieces are drawn in its translucent draw).
+inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, assets::Model& out, BuildStats& st, bool flat_diffuseless = false, int piece_key = 0) {
   st = BuildStats{};
   const GuestModelPart* by_part[64] = {};
   uint32_t parts = 0;
@@ -329,7 +341,17 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
   std::unordered_map<std::string, int> mat_of;
   std::unordered_map<uint64_t, int> tex_of;
   bool first = true;
-  for (uint32_t p = 0; p < parts; ++p) {
+  // S111 LAYERS (CAWPASS folded in: assets\char_draw_layer.h DrawRank): the parts are built in the game's draw order inside this model, the opaque node's parts first, then a created character's
+  // translucent layers 5, 6, 7, each stable in part order; with SeeOrder::Game the build order is the draw order of the blended parts. A row without draw words keeps its place. Draw plant 21 = the part order.
+  const auto rank = [&](uint32_t p) {
+    const GuestModelPart* r = p < 64 ? by_part[p] : nullptr;
+    if (!r || !(r->flags & kGmDrawWords) || g_draw_plant == 20) return 0;
+    return assets::char_layer::DrawRank((r->flags & kGmCreated) != 0, piece_key != 0, int((r->flags & kGmTagMask) >> kGmTagShift));
+  };
+  std::vector<uint32_t> order(parts);
+  for (uint32_t p = 0; p < parts; ++p) order[p] = p;
+  if (g_draw_plant != 21) std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return rank(a) < rank(b); });
+  for (const uint32_t p : order) {
     const GuestModelPart* r = by_part[p];
     if (!r) { ++st.hole_parts; continue; }
     ++st.parts_in_record;
@@ -356,22 +378,53 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
     // the material: the game's effect name (the jboy record's +0x7C), the sampler pictures by parameter name
     char eff[kGmNameBytes + 1] = {};
     std::memcpy(eff, r->effect, kGmNameBytes);
-    std::string shader(eff);
-    if (g_draw_plant == 8) {
-      if (shader.compare(0, 4, "yCh_") != 0) shader = "yCh_skin", ++st.effect_fallback;   // (plant 8: the old case-sensitive test)
-    } else if (const char* fx = PipelineEffect(eff)) {
-      shader = fx;   // CTF: the game's lower-case name -> the pipeline's mixed-case one; a gear part keeps the gear pipeline
-    } else {
-      shader = "yCh_skin", ++st.effect_fallback;   // an effect the character path does not know (or an unread name): the plain skin
+    // S111 UNIFY5: the record's header through the file loader's own first step (assets\material_record.h BeginMaterial): the effect by the GAME's name, mapped to the registry's (PipelineEffect: CTF,
+    // the game's lower-case name -> the pipeline's mixed-case one; a gear part keeps the gear pipeline; a yDefault part takes yDefault, drawn as stock yDefault is), its name table, and the record words
+    // (S111 UNIFY3: section 72's [desc+144] technique / [desc+140] cull word, the game's byte copy of the jboy record's +0x90 / +0x8C, sub_82BDB460 +0x308: the char table pick reads the technique, the cull
+    // bit 0x2 culls back faces). A record without section 72 gives words 0 / 0 (= the defaults: technique 0, two-sided). g_draw_plant 32 = the words carried but not put on the material (before UNIFY3).
+    const char* const fx = g_draw_plant == 8 ? (std::strncmp(eff, "yCh_", 4) == 0 ? eff : nullptr) : PipelineEffect(eff);   // (plant 8: the old case-sensitive test)
+    // S111 UNIFY5 review: an effect we have no pipeline for (or an unread name) is a HOLE, named: the model is refused below (never half a body), and the refusal line names the effect, so a future
+    // case is a bug lane, never a part drawn with another effect's look (the old yCh_skin stand-in). No created superstar's file names one (edit pacs: kFx + yDefault only, UNIFY5.md).
+    if (!fx) {
+      ++st.hole_effect;
+      const std::string quoted = "'" + std::string(eff) + "'";
+      if (st.hole_effect_names.find(quoted) == std::string::npos) st.hole_effect_names += (st.hole_effect_names.empty() ? "" : ", ") + quoted;
+      continue;
     }
+    const guestmats::RecordWords words = guestmats::WordsOf(t.guest_models, model, p);
+    const bool apply_words = words.carried && g_draw_plant != 32;
     assets::Material mat;
-    mat.shader = shader;
-    std::string mkey = shader;
+    assets::matrec::BeginMaterial(mat, fx, apply_words ? words.technique : 0u, apply_words ? words.cull : 0u);
+    mat.char_part = true;   // S111 UNIFY5 review: every guest part is a created superstar's, drawn by its character nodes (the caster set, wrestler_caster.h)
+    const std::string shader = mat.shader;
+    std::string mkey = shader + (mat.ych_table ? "" : "|nY");    // (the family changes what the rows mean and the missing power: two families are two materials)
+    if (g_draw_plant != 18) mkey += guestfloats::ApplyRows(t.guest_models, model, p, mat);   // S111 GUESTHAIR: the part's float rows by name (the hair highlight colours and the rest); the values join the key
+    if (apply_words) mkey += "|W" + std::to_string(words.technique) + ":" + std::to_string(words.cull);   // (the words join the key)
+    // S111 UNIFY5: every sampler the part's record names (section 72: its name and t; section 73: the model's name at t) through the file loader's own facts step (assets\material_samplers.h
+    // ApplySamplerFacts): spec_pow_prm (g_mSpecPowPrm with t > 0: the char pass rule), diffuse_name. The reader keeps only samplers with 0 <= t < the model's count, so every t here is in the table.
+    // The facts join the key. g_draw_plant 34 = skipped (the build before UNIFY5).
+    if (g_draw_plant != 34)
+      for (const GuestModelMat& row72 : t.guest_models.mats)
+        if (row72.model == model && row72.part == p && row72.sampler != kGmMatNoSampler)
+          assets::matsamp::ApplySamplerFacts(mat, guestfloats::NameOf(row72.param), row72.t, row72.t >= 0, guestmats::TexNameOf(t.guest_models, model, row72.t), assets::matsamp::Ctx{});
+    if (mat.spec_pow_prm) mkey += "|P";
+    if (!mat.diffuse_name.empty()) mkey += "|N" + mat.diffuse_name;
     bool have_diffuse = false;
     for (uint32_t i = 0; i < r->tex_count && i < kGmMaxTex; ++i) {
       const GuestModelTex& tx = r->tex[i];
-      const TexSlot slot = SlotOfParam(tx.name);
-      if (tx.state == kGtEngineDefault) { ++st.tex_default_cube; continue; }   // CTX2: the reader saw a cube dimension (3): the engine's default stands, not a missing picture (by the row's state, never by name)
+      int* const slot = assets::matsamp::SlotOf(mat, guestfloats::NameOf(tx.name), assets::matsamp::Ctx{});   // S111 UNIFY2: the file loader's own sampler table, a wrestler's context; the parameter name compared exactly, as the game's name table does (S111 UNIFY5: the effect too)
+      if (tx.state == kGtEngineDefault) {   // CTX2: the reader saw a cube dimension (3): no picture carried, not a missing picture (by the row's state, never by name)
+        ++st.tex_default_cube;
+        if (slot == &mat.env_cube && g_draw_plant != 25) {   // S111 GUESTCUBE: that cube is chCommon's file cube the part's record names (guest_env_cube.h); draw plant 25 = the old chain (black)
+          // S111 EYECUBE: by the NAME the record carries (sections 72 / 73: [m+268]+16t, what sub_82BD9A60 resolves); a miss = the black cube. No 72 row or no name read: the old pick (LegacyName)
+          const guestmats::SamplerName sn = guestmats::NameOf(t.guest_models, model, p, tx.name);
+          const bool by_name = sn.carried && !sn.name.empty() && g_draw_plant != 26;
+          const std::string_view want = by_name ? std::string_view(sn.name) : std::string_view(guest_env_cube::LegacyName(shader));
+          const int ci = guest_env_cube::Attach(out, guest_env_cube::CubeByName(guest_env_cube::Now().get(), want));
+          if (ci >= 0) mat.env_cube = ci, mkey += "|E:" + std::to_string(ci);
+        }
+        continue;
+      }
       if (tx.state == kGtMissing || !tx.hash) { ++st.tex_missing; continue; }
       const GuestModelTexture* tr = t.guest_models.FindTexture(tx.hash);
       const Store::Bytes tb = tr ? store.Tex(tx.hash) : nullptr;
@@ -394,15 +447,9 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
       }
       if (tx.state == kGtOverride) ++st.tex_override;
       else ++st.tex_bound;
-      mkey += "|" + std::to_string(int(slot)) + ":" + std::to_string(ti);
-      switch (slot) {
-        case TexSlot::Diffuse: mat.diffuse = ti, have_diffuse = true; break;
-        case TexSlot::Normal: mat.normal = ti; break;
-        case TexSlot::Mask: mat.mask = ti; break;
-        case TexSlot::Specular: mat.specular = ti; break;
-        case TexSlot::Detail: mat.detail = ti; break;
-        default: break;
-      }
+      mkey += "|" + std::to_string(slot ? int(reinterpret_cast<const char*>(slot) - reinterpret_cast<const char*>(&mat)) : -1) + ":" + std::to_string(ti);   // (the field's offset in Material: its id in the key)
+      if (slot) *slot = ti;   // S111 UNIFY2: every field the table names, as for a stock wrestler (sweat_bump, muscle, wrinkle_normal, ... included)
+      if (slot == &mat.diffuse) have_diffuse = true;
     }
     // S105 A5c (A5c.md items 2 / 3): the model's logo pictures (the row indices the writer put in logo7_tex / logo4_tex) go on the material, and the game's bool-150 rule (the diffuse sampler's table index is 0) rides with it.
     if (r->flags & kGmDiffuseT0) mat.diffuse_t0 = true, ++st.diffuse_t0, mkey += "|T0";
@@ -433,12 +480,20 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
         mkey += "|L" + std::to_string(li == 0 ? 7 : 4) + ":" + std::to_string(ti);
         ++st.logo_parts;
       }
-    // S105 A5b (review F1): the layer's opacity IS the normal map's w (fx_trans_ps.glsl): with no normal picture bound the stand-in is opaque (grey_: the old dark rims) or half transparent (neutral_normal_: a garment
-    // showing the body), so a trans part blends only when its normal texture is bound; one without is counted (blended_no_normal) and keeps the old opaque build. The material key holds the normal slot: no dedup change.
-    if (EffectBlends(shader)) {
-      if (mat.normal >= 0 || g_draw_plant == 13) mat.alpha_blend = true, ++st.blended;   // (plant 13 = the first rule: blend with no normal picture)
-      else ++st.blended_no_normal;
+    // S111 LAYERS (src\assets\char_draw_layer.h, docs\research\s111\LAYERS.md): a part whose row carries the game's draw words is blended exactly when the game draws it in the character's translucent draw
+    // (the owner's predicate, piece or body, the part's tag), not by its effect name; the verdict joins the material key (one effect and pictures can fall on both sides). Draw plant 20 = the rule before.
+    // A row written before LAYERS (no draw words) keeps the name rule below: a band-aid that lives only for old records.
+    if ((r->flags & kGmDrawWords) && g_draw_plant != 20) {
+      mat.alpha_blend = assets::char_layer::Translucent((r->flags & kGmCreated) != 0, piece_key != 0, int((r->flags & kGmTagMask) >> kGmTagShift));
+      if (mat.alpha_blend) ++st.blended, mkey += "|B";
+    } else if (EffectBlends(shader)) {
+      // S111 GUESTKEY (F4): the stock rule. Every `trans` part blends, as the file loader (jboy.h `*trans*`) and the game do (sub_8259FAE8 +0x15C turns blend on for the created body's translucent parts; no
+      // normal-picture test). With no normal picture the game binds nothing to that slot (sub_82C04DF0 0x82C056E4 / 0x82C056EC / 0x82C0570C skip the bind: the slot keeps an earlier draw's texture), so ours binds the
+      // front end's stand-in as for a stock part (front_end.cpp CharSlot::Normal); such a part is counted (blended_no_normal). g_draw_plant 13 = the old A5b gate (opaque without a normal picture).
+      if (mat.normal < 0) ++st.blended_no_normal;
+      if (mat.normal >= 0 || g_draw_plant != 13) mat.alpha_blend = true, ++st.blended;
     }
+    mat.translucent_draw = mat.alpha_blend;   // S111 LAYERS review: the node that draws the part (wrestler_caster.h keys the caster passes on it): the draw split above, or the name rule of an old row
     if (!have_diffuse) {
       ++st.no_diffuse;
       if (flat_diffuseless) {   // CAWD debug plant: flat bright magenta (whether the yCh shader multiplies MatDifCol with its white stand-in is read off the shot)
@@ -454,7 +509,10 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
     mesh.material = mi->second;
     mesh.skinned = true;
     mesh.part = "guest part " + std::to_string(p);
-    mesh.src_kind = 2, mesh.src_pac = "guest", mesh.src_key = int(p);
+    // S111 GUESTKEY (F1-F3): the stock keys. src_key = the pac entry (0 = the body; a piece model = its piece id, `piece_key`), src_record = the game's draw part ([m+372] parts, sub_82BDB460 0x82BDB4D8),
+    // the index the per-part override rows use. Every rule keyed on them (piece rows, the piece cut, the live body levels) then gives a guest mesh the stock answer. g_draw_plant 19 = the old stamp.
+    if (g_draw_plant == 19) mesh.src_kind = 2, mesh.src_pac = "guest", mesh.src_key = int(p);
+    else mesh.src_kind = 2, mesh.src_pac = "guest", mesh.src_key = piece_key, mesh.src_record = int(p);
     mesh.strip_indices = r->index_count;
     st.vertices += r->vertex_count;
     if (r->flags & kGmExtraStreams) ++st.extra_streams;
@@ -466,8 +524,9 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
       }
     out.meshes.push_back(std::move(mesh));
   }
-  if (st.hole_parts || st.hole_bytes || st.hole_layout) {
+  if (st.hole_parts || st.hole_bytes || st.hole_layout || st.hole_effect) {
     st.why = std::to_string(st.hole_parts) + " parts not in the record, " + std::to_string(st.hole_bytes) + " without bytes, " + std::to_string(st.hole_layout) + " with a vertex flag word / stride the decoder does not accept";
+    if (st.hole_effect) st.why += ", " + std::to_string(st.hole_effect) + " with an effect no pipeline of ours draws (" + st.hole_effect_names + ")";   // S111 UNIFY5 review
     return false;
   }
   return true;
@@ -477,7 +536,7 @@ inline bool BuildModel(const SceneTables& t, Store& store, uint32_t model, asset
 // CTX2 (CAWD Q1): the fields are atomics (the live_scene census thread reads what the drawing thread counts), and the line is re-printed every census window with the window's DELTA (WindowCensusLine), so `actors drawn`
 // is read at the END of a window, never at print time of the first model build (the old one-shot line printed `actors drawn 0` before any actor was drawn).
 struct DrawCounters {
-  std::atomic<uint64_t> models_built{0}, models_holes{0}, actors_drawn{0}, tex_bound{0}, tex_override{0}, tex_missing{0}, no_diffuse{0}, extra_streams{0}, bad_nodes{0}, effect_fallback{0};
+  std::atomic<uint64_t> models_built{0}, models_holes{0}, actors_drawn{0}, tex_bound{0}, tex_override{0}, tex_missing{0}, no_diffuse{0}, extra_streams{0}, bad_nodes{0};   // (S111 UNIFY5 review: an unknown effect is a model hole now, counted in models_holes)
   std::atomic<uint64_t> logo_parts{0}, logo_missing{0};                    // S105 A5c: guest parts built with a logo picture / whose logo row was a hole
   std::atomic<uint64_t> blended{0}, blended_no_normal{0};                  // S105 A5b: guest parts built with alpha_blend (a "trans" effect)
   std::atomic<uint64_t> bad_slots{0}, unskinned{0};  // S103 CAWS (CAWG row 5): vertices with an absent slot (255 -> bone 0) / with no skin at all, summed at model build
@@ -504,7 +563,7 @@ inline void NoteActorDrawn(uint64_t guest_frame) {
 }
 // A plain copy of the totals (for deltas).
 struct DrawTotals {
-  uint64_t models_built = 0, models_holes = 0, actors_drawn = 0, tex_bound = 0, tex_override = 0, tex_missing = 0, no_diffuse = 0, extra_streams = 0, bad_nodes = 0, effect_fallback = 0, actors_skipped_palette = 0, skel_holes = 0, bad_slots = 0, unskinned = 0, nodes_ge_palette = 0,
+  uint64_t models_built = 0, models_holes = 0, actors_drawn = 0, tex_bound = 0, tex_override = 0, tex_missing = 0, no_diffuse = 0, extra_streams = 0, bad_nodes = 0, actors_skipped_palette = 0, skel_holes = 0, bad_slots = 0, unskinned = 0, nodes_ge_palette = 0,
            engine_default_cube = 0, last_draw_frame = 0, blended = 0, blended_no_normal = 0, logo_parts = 0, logo_missing = 0;   // (S105 A5c: the last two)
   // (skel_holes is NOT here: it counts every wrestler's own-skeleton piece holes, stock ones too; it must not start the CAW lines in a match)
   bool Any() const { return models_built || models_holes || actors_drawn || actors_skipped_palette || tex_bound || tex_missing; }
@@ -513,14 +572,14 @@ inline DrawTotals Totals() {
   const DrawCounters& c = Counters();
   DrawTotals t;
   t.models_built = c.models_built, t.models_holes = c.models_holes, t.actors_drawn = c.actors_drawn, t.tex_bound = c.tex_bound, t.tex_override = c.tex_override, t.tex_missing = c.tex_missing, t.no_diffuse = c.no_diffuse,
-  t.extra_streams = c.extra_streams, t.bad_nodes = c.bad_nodes, t.effect_fallback = c.effect_fallback, t.actors_skipped_palette = c.actors_skipped_palette, t.skel_holes = c.skel_holes, t.engine_default_cube = c.engine_default_cube,
+  t.extra_streams = c.extra_streams, t.bad_nodes = c.bad_nodes, t.actors_skipped_palette = c.actors_skipped_palette, t.skel_holes = c.skel_holes, t.engine_default_cube = c.engine_default_cube,
   t.last_draw_frame = c.last_draw_frame, t.bad_slots = c.bad_slots, t.unskinned = c.unskinned, t.nodes_ge_palette = c.nodes_ge_palette, t.blended = c.blended, t.blended_no_normal = c.blended_no_normal, t.logo_parts = c.logo_parts, t.logo_missing = c.logo_missing;
   return t;
 }
 inline std::string CensusLine(const DrawTotals& c) {
   return "[rdr][caw] guest draw: models built " + std::to_string(c.models_built) + ", holes " + std::to_string(c.models_holes) + ", actors drawn from them " + std::to_string(c.actors_drawn) + " (last at frame " + std::to_string(c.last_draw_frame) +
          ", skipped: palette mismatch " + std::to_string(c.actors_skipped_palette) + ", own-skeleton piece holes of ALL wrestlers " + std::to_string(c.skel_holes) + "), textures bound " + std::to_string(c.tex_bound) + " from override " + std::to_string(c.tex_override) +
-         " missing " + std::to_string(c.tex_missing) + " engine_default_cube " + std::to_string(c.engine_default_cube) + " (parts without a diffuse " + std::to_string(c.no_diffuse) + "), effect fallbacks " + std::to_string(c.effect_fallback) + ", blended parts " + std::to_string(c.blended) + " (trans parts left opaque for a missing normal picture " + std::to_string(c.blended_no_normal) + ")" +
+         " missing " + std::to_string(c.tex_missing) + " engine_default_cube " + std::to_string(c.engine_default_cube) + " (parts without a diffuse " + std::to_string(c.no_diffuse) + "), blended parts " + std::to_string(c.blended) + " (of them with no normal picture: the stand-in's opacity " + std::to_string(c.blended_no_normal) + ")" +
          ", bad palette nodes " + std::to_string(c.bad_nodes) + ", bad slots " + std::to_string(c.bad_slots) + ", unskinned vertices " + std::to_string(c.unskinned) + ", actor draws with a node >= the palette " + std::to_string(c.nodes_ge_palette) + ", parts with extra streams (HOLE) " + std::to_string(c.extra_streams) + ", parts with a logo picture " + std::to_string(c.logo_parts) + " (logo rows missing " + std::to_string(c.logo_missing) + ")";
 }
 inline std::string CensusLine() { return CensusLine(Totals()); }

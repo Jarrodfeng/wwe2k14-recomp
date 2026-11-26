@@ -72,6 +72,7 @@ uint32_t ParticleContributor::WriteTables(const ParticleSnapshot& s, uint32_t fr
       }
       b.texture = asset_of[e.key];
       b.blend = k.blend, b.soft = k.soft, b.site = k.site, b.addr = k.addr;
+      b.depth_always = k.depth_always;   // S111 PARTZ
       b.zoffset = k.zoffset, b.use_normal = k.use_normal;
       for (int i = 0; i < 4; ++i) b.light[i] = k.light[i];
       b.frame = frame_stamp;

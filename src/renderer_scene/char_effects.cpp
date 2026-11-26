@@ -18,6 +18,7 @@
 #include "logo_bool.h"        // S105 A5c: bit 150
 #include "../assets/load_plants.h"   // S103 LNT: EyaOldParam1Plant
 #include "../scene_live/change_colour.h"   // S108 THR2: MaskIndexOfSlot, kColours (pure)
+#include "sphere_join.h"            // S111 SPHEREOCC: kNeutral (the block a body with no row is fed)
 
 namespace rdr_scene {
 namespace {
@@ -109,94 +110,20 @@ CharSlot RoleOfSlot(int slot) {
     case 1: return CharSlot::Normal;
     case 3: return CharSlot::NoiseTile;
     case 6: return CharSlot::Mask;
-    case 10: return CharSlot::FlatBlackCube;
+    case 10: return CharSlot::EnvCube;   // S111 ENVCUBE: g_mEnvLPrm (every yCh fragment that samples 10 defines FX_ENV_LIGHT: envcube_unit)
     case 12: return CharSlot::ShadowMap;   // S103 L6
     case 13: return CharSlot::LightCube;
     case 15: return CharSlot::RimMap;
     case 5: return CharSlot::WrinkleNormal;   // S103 WRK: g_mNormalWklPrm (name-table row 0x8392AB60, register 5)
-    case 8: case 9: return CharSlot::FlatGrey;
+    case 8: return CharSlot::HairNoise;   // S111 HAIRMAPS: g_mHairNoisePrm (row 0x8392ABC0, register 8)
+    case 9: return CharSlot::HairShift;   // S111 HAIRMAPS: g_mHairShiftPrm (row 0x8392ABE0, register 9)
     case 4: return CharSlot::Logo4;   // S105 A5c
     case 7: return CharSlot::Logo7;
     default: return CharSlot::FlatBlack;  // 2, 14: team-colour masks
   }
 }
 
-// ---- the choice ----------------------------------------------------------------------------------------------------------------
-
-namespace {
-CharChoice ChooseCharEffectImpl(const std::string& effect, bool skinned, bool alpha_test, bool shadow, bool wet, bool logo) {   // S103 L6: `shadow` = the FX_SHADOW reader (see char_effects.h); S103 SWF: `wet`
-  CharChoice best;
-  best.effect = effect;
-  double best_score = -1e9;
-  bool any_vertex = false, any_fragment = false;
-  for (int f = 0; f < kVariantCount; ++f) {
-    const char* fn = kVariants[f].name;
-    if (!fn || !T().by_index[size_t(f)] || !EndsWith(fn, "_fragment") || OwnerOf(fn) != effect) continue;
-    any_fragment = true;
-    const fxt::VariantTable& ft = *T().by_index[size_t(f)];
-    const std::vector<std::string> fdef = Defines(ft);
-    // Options with a stand-in that does nothing: all-zero team-colour masks and logo layers (black textures), a muscle / wrinkle map at its neutral value.
-    if (wet) {   // S103 SWF: the liquid-map reader of the skin: all four wet options (BSS reads the map, the tint and the sweat / blood terms read its channels); no team-colour / logo layer (they are not real option sets with BSS)
-      if (!Subset(fdef, {"FX_MUSCLE", "FX_WRINKLES", "FX_ENV_LIGHT", "FX_SHADOW", "FX_BSS", "FX_BLOOD_TINT", "FX_SWEAT", "FX_BLOOD"})) continue;
-      if (!Has(fdef, "FX_BSS") || !Has(fdef, "FX_BLOOD_TINT") || !Has(fdef, "FX_SWEAT") || !Has(fdef, "FX_BLOOD")) continue;
-    } else if (!Subset(fdef, {"FX_CHANGE_COLOR", "FX_LOGO", "FX_MUSCLE", "FX_WRINKLES", "FX_ENV_LIGHT", "FX_SHADOW"})) continue;
-    if (Has(fdef, "FX_SHADOW") != shadow) continue;   // S103 L6: the shadow reader chooses only shadow fragments, the plain choice none
-    const rdr::fx::Variant& fv = kVariants[f];
-    bool slots_ok = true;
-    for (uint32_t s = 0; s < fv.sampler_count; ++s) {
-      const int slot = fv.samplers[s].slot, kind = fv.samplers[s].kind;
-      const bool known = slot == 0 || slot == 1 || slot == 2 || slot == 3 || slot == 4 || slot == 5 || slot == 6 || slot == 7 || slot == 8 || slot == 9 || slot == 10 || slot == 12 || slot == 13 || slot == 14 || slot == 15;
-      if (!known || (kind != 0 && !((slot == 13 || slot == 10) && kind == 1))) slots_ok = false;
-      if (slot == 12 && !shadow) slots_ok = false;
-    }
-    if (!slots_ok) continue;
-    if (alpha_test && !fv.spirv_alpha) continue;
-    for (int v = 0; v < kVariantCount; ++v) {
-      const char* vn = kVariants[v].name;
-      if (!vn || !T().by_index[size_t(v)] || !EndsWith(vn, "_vertex") || OwnerOf(vn) != effect) continue;
-      const fxt::VariantTable& vt = *T().by_index[size_t(v)];
-      const std::vector<std::string> vdef = Defines(vt);
-      if (!Subset(vdef, {"FX_SKINNED", "FX_VIEW_NORMAL", "FX_SHADOW", "FX_SPHERE_OCC"}) || Has(vdef, "FX_SKINNED") != skinned) continue;   // S103 L6: + the shadow reader's vertex options
-      if (Has(vdef, "FX_SHADOW") != shadow) continue;
-      any_vertex = true;
-      if (kVariants[v].sampler_count) continue;
-      bool inputs_ok = true;
-      for (uint32_t k = 0; k < vt.input_count; ++k) inputs_ok = inputs_ok && SupportedCharInput(vt.inputs[k].name);
-      if (!inputs_ok) continue;
-      bool match = true;
-      int renamed = 0;
-      for (uint32_t k = 0; k < ft.interp_count && match; ++k) {
-        bool found = false;
-        for (uint32_t j = 0; j < vt.interp_count; ++j) {
-          if (vt.interps[j].location != ft.interps[k].location) continue;
-          found = true;
-          renamed += std::strcmp(vt.interps[j].name, ft.interps[k].name) != 0;
-        }
-        match = found;
-      }
-      if (!match) continue;
-      const double score = -2.0 * renamed - 1.0 * double(fdef.size()) - 0.1 * double(vdef.size()) + (logo && !wet && Has(fdef, "FX_LOGO") ? 8.0 : 0.0);   // S105 A5c: a material with a CAW logo takes an FX_LOGO fragment (never with the wet reader: FX_LOGO is not a real set with FX_BSS)
-      if (score > best_score) {
-        best_score = score;
-        best.vs = v;
-        best.ps = f;
-      }
-    }
-  }
-  if (!best.Ok()) {
-    best.vs = best.ps = -1;
-    best.why_not = !any_fragment ? "no effect '" + effect + "' in the registry yet"
-                  : !any_vertex  ? "no " + std::string(skinned ? "skinned" : "rigid") + " vertex variant of '" + effect + "'"
-                                 : "every variant of '" + effect + "' needs a runtime pass not fed yet (shadow map, cube reflection, blood, sweat, debug)";
-  }
-  return best;
-}
-}  // namespace
-
-CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet, bool logo) { return ChooseCharEffectImpl(effect, skinned, alpha_test, false, wet, logo); }
-CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet, bool logo) { return ChooseCharEffectImpl(effect, skinned, alpha_test, true, wet, logo); }
-
-// ---- S103 YCB: the table pick ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// ---- S103 YCB: the table pick (S111 OLDCHAIN: the only pick; the min-define chooser that stood behind it is gone) ------------------------------------------------------------------------------
 
 namespace {
 // The registry variant of `effect` (owner test, not a name prefix: yCh_skin_ must not take a yCh_skin_flex_ variant) with microcode hash `h` and name suffix `suffix` ("_vertex" / "_fragment"); -1 = none.
@@ -278,7 +205,7 @@ CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool a
     const auto lt = read_rule::LogoEffectTableNow();
     if (lt && lt->count(read_rule::Lower(effect))) table = lt, out.logo_table = true;
   }
-  if (pass < 0 || pass > 11) return out.why_not = "pass outside the table's 12", out;
+  if (pass < 0) return out.why_not = "no pass", out;   // S111 OLDCHAIN review: no upper cap of ours: RowOf bounds the pass by the technique's own rows (TECHPASS's +16 passes p17 / p19 bind their row or are a counted hole)
   {
     const int p = pass;
     const read_rule::PassShaders* row = technique_pick::RowOf(*table, effect, technique, uint32_t(p));
@@ -583,6 +510,10 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
     if (name == "Blood") { set4(0, mt.blood_prm[0], mt.blood_prm[1], 0.f, 0.f); return true; }
     if (name == "BSSBldClr") { set4(0, mt.bss_bld_clr[0], mt.bss_bld_clr[1], mt.bss_bld_clr[2], mt.bss_bld_clr[3]); return true; }
   }
+  // S111 SPHEREOCC: VS c168-c169 SphereOccP = (centre xyz, radius), c170-c171 SphereOccV = (axis xyz, strength) = the game's own sphere occluders of THIS body, computed by its draw node
+  // right before it draws (sub_826DFCC8 -> sub_826DF8E0 -> sub_82BCC888) and uploaded by sub_82BE7AC0 whether a shadow map is read or not. c.sphere_occ = the record's newest row of the body's
+  // skeleton (sphere_join.h, 16 floats P0 P1 V0 V1); none, or a sphere the game did not install = strength 0 (kNeutral).
+  if (name == "SphereOccP" || name == "SphereOccV") { std::memcpy(out, (c.sphere_occ ? c.sphere_occ : sphere_join::kNeutral) + (name == "SphereOccP" ? 0 : 8), sizeof(float) * 4 * std::min<uint32_t>(vec4s, 2)); return true; }
   // S103 L6: the shadow reader's rows (the plain variants never name them). TexProjLight = MapImage::matrix (register layout): XY = c68 / c69, W = c71 (the same row as ViewLightDepth: [C] the game's
   // wrestler draw brock_losswin f110 op 377 has TexProjLightW == ViewLightDepth bit for bit). ShadowPrm = the three rows the map was made with (MapImage::prm = CasterRows::shadow_prm: the record's on the stream route, shadow_fit.h's on the fit path).
   if (c.shadow_matrix && c.shadow_params && c.shadow_prm) {
@@ -592,13 +523,11 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
       for (uint32_t k = 0; k < 3; ++k) set4(k, c.shadow_prm[4 * k], c.shadow_prm[4 * k + 1], c.shadow_prm[4 * k + 2], c.shadow_prm[4 * k + 3]);   // from the record, nothing hard-coded
       return true;
     }
-    if (name == "SphereOccP") { set4(0, 0.f, 0.f, 0.f, 1.f), set4(1, 0.f, 0.f, 0.f, 1.f); return true; }   // neutral: strength 0 (the rows of kScSphereOcc are not joined to the record's actors yet [U])
-    if (name == "SphereOccV") { set4(0, 0.f, 1.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f); return true; }
   }
-  // S103 L7: RimLightDepth = (near, far, (far - near) / 1000, 0): the rim pass's depth range (MapImage::params[2..3]); the z term [C] equals (far - near) / 1000 in the game's wrestler draws of
-  // brock_losswin f110 (597.354, 776.737 -> 0.1794), f200 (823.496, 986.160 -> 0.1627) and brock_tron f5 (1250.609, 1366.783 -> 0.1162). Without a rim map: the neutral (0, 1, 1, 0).
+  // S103 L7 / S111 RIMGAME: RimLightDepth = (near, far, z, 0) from the rim pass's depth range (MapImage::params[2..3]); z = the game's G+308 [C sub_827E9D90 +BC..+E4: far - near > 0 ? min((far - near) / 1000, 1) : 1,
+  // 1000 = the rim object's +72 (sub_827EA7F0 +1C4)], carried into the model's block + 32 by sub_82BD7B50 +590..+5BC (0x82BDD108's by-reference path). Captured: brock_losswin f110 -> 0.1794. No rim map: (0, 1, 1, 0).
   if (name == "RimLightDepth") {
-    if (c.rim_params) set4(0, c.rim_params[2], c.rim_params[3], (c.rim_params[3] - c.rim_params[2]) * 0.001f, 0.f);
+    if (c.rim_params) { const float d = c.rim_params[3] - c.rim_params[2]; set4(0, c.rim_params[2], c.rim_params[3], d > 0.f ? std::min(d / 1000.f, 1.f) : 1.f, 0.f); }
     else set4(0, 0.f, 1.f, 1.f, 0.f);
     return true;
   }
@@ -607,7 +536,7 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (b3f_old && (name == "HairSpeParam" || name == "SpeCol1" || name == "SpeCol2")) return true;
   if (b3f_old && name == "RimLightParam3") { set4(0, 500.f, 2500.f, 1.f, 0.4f); return true; }
   if (name == "RimLightParam3") { set4(0, mt.rim_atn[0], mt.rim_atn[1], mt.rim_atn[2], mt.rim_atn[3]); return true; }  // S103 B3F: c174 = (g_fRimAtnDsMin, DsMax, RtMin, RtMax) per material [C: sub_82BAAEE8 0x82BAC0C8-0x82BAC170]
-  if (name == "RimLightParam") { set4(0, 1.f, 0.83f, 1.f, 0.f); return true; }       // c161 = (1, 0.83, 1)
+  if (name == "RimLightParam") { set4(0, 1.f, 0.83f, 1.f, 0.f); return true; }       // c161 = the rim object's constants [C RIMGAME: sub_827EA7F0 +1B4..+1CC sets +64 = 1, +68 = 1, +76 = 0.83 (0x82033C18) once; sub_827E9D90 copies (+64, +76, +68, 0) to G+320 each frame]
   float key_world[3] = {ls.hl_dir[0], ls.hl_dir[1], ls.hl_dir[2]};
   KeyLightWorld(c, ls.hl_dir, key_world);   // S103 L7: the key light is authored in view space; the game rotates it by the camera every frame
   if (name == "KeyLightColor") { set4(0, ls.hl_col[0], ls.hl_col[1], ls.hl_col[2], 1.f); return true; }
@@ -619,7 +548,7 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
     return true;
   }
   if (name == "NoiseLodParam") { set4(0, mt.noise_dist[0], mt.noise_dist[1], 0.f, 0.f); return true; }
-  if (name == "Level") { set4(0, 0.f, 0.f, 0.f, -1.f); return true; }  // c201 = g_f4TexBis_Dif, w = -1 LOD bias of the diffuse (SKM, run 6816)
+  if (name == "Level") { set4(0, 0.f, 0.f, 0.f, mt.tex_bis_dif); return true; }  // c201.w = the material's g_f4TexBis_Dif, the diffuse LOD bias (S111 UNIFY5: row 0x8392A480; -1 in every file, SKM run 6816); y / z (g_f4FaceLv_Wud / _Bld) no yCh shader reads
   if (name == "SkyDir") { set4(0, 0.f, 1.f, 0.f, 0.f); return true; }
   if (name == "SkyCol") { set4(0, ls.sky[0], ls.sky[1], ls.sky[2], 1.f); return true; }
   if (name == "GroundCol") { set4(0, ls.ground[0], ls.ground[1], ls.ground[2], 1.f); return true; }
@@ -640,12 +569,14 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "DifLghMax") { set4(0, c.cube_scale[0], c.cube_scale[1], c.cube_scale[2], 1.f); return true; }
   if (name == "DifLghMaxA") { set4(0, c.cube_scale[3], 0.f, 0.f, 0.f); return true; }
   if (name == "LightLimit" || name == "fvLightLimit") { std::memcpy(out, mt.light_limit, 16); return true; }
-  if (name == "SSS") { set4(0, mt.sss_col[0], mt.sss_col[1], mt.sss_col[2], mt.has_sss ? mt.sss_col[3] : 0.f); return true; }
+  if (name == "SSS") { set4(0, mt.sss_col[0], mt.sss_col[1], mt.sss_col[2], mt.sss_sin_lvl); return true; }   // c155 = (g_f3SSSSinCol.xyz, g_fSSSSinLvl) (S111 UNIFY5: rows 0x8392A2E0 / 0x8392A300)
   if (name == "SSSSinCol2") { std::memcpy(out, mt.sss_col2, 16); return true; }
-  if (name == "HdLig") { set4(0, 0.f, 1.f, 0.f, 0.f); return true; }  // the blow-out knee is 0 in the game's draws (viewer_hlsl.h)
+  // S111 MATFEED: c156 = (g_fHdLigLvl, g_fHdLigSt, 0, 0) [C: sub_82BAAEE8 rows 0x8392A320 / 0x8392A340, register 156 lanes x / y]; x = the body's live g_fHdLigLvl row when the record carries one
+  // (CharCtx::hd_lig_lvl: the 'HRLG' record sub_826E1CA0 binds, its tick sub_826E1E20), else the file value; none named = (0, 1): no blow-out (the game keeps the last draw's c156: a 360 habit, not reproduced).
+  if (name == "HdLig") { set4(0, c.hd_lig_lvl ? *c.hd_lig_lvl : mt.hd_lig[0], mt.hd_lig[1], 0.f, 0.f); return true; }
   if (name == "Reflect") { set4(0, mt.ref_col[0], mt.ref_col[1], mt.ref_col[2], mt.ref_col[3]); return true; }
   if (name == "SpecCubPrm1") { set4(0, mt.spec_lev, bake_pow(mt.spec_pow), mt.spec_lv_base, bake_pow(mt.spec_pw_base)); return true; }
-  if (name == "SpecCubPrm3") { set4(0, 1.f, 1.f, 1.f, 0.f); return true; }
+  if (name == "SpecCubPrm3") { set4(0, mt.spec_col[0], mt.spec_col[1], mt.spec_col[2], mt.spec_col[3]); return true; }   // S111 SPECCOL: c144 = the material's g_f4SpecCol, the whole vec4 [C: sub_82BAAEE8 0x82BAC634..0x82BAC668]; none named = Material's white (the game keeps the last draw's c144: a 360 habit, not reproduced)
   // S103 B3F: the hair highlight constants [C: sub_82BAAEE8 0x82BAD42C-0x82BAD5A0]: c249 = (PrimaryShift, SecondShift, SpecExp1, SpecExp2), c250 = (SpeCol1.rgb, HairTileU), c251 = (SpeCol2.rgb, HairTileV).
   if (name == "HairSpeParam") { set4(0, mt.hair_shift[0], mt.hair_shift[1], mt.hair_exp[0], mt.hair_exp[1]); return true; }
   if (name == "SpeCol1") { set4(0, mt.hair_col1[0], mt.hair_col1[1], mt.hair_col1[2], mt.hair_tile[0]); return true; }
@@ -653,8 +584,10 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "NoiseTile") { set4(0, 50.f, mt.noise_near[0], mt.noise_near[1], mt.noise_near[2]); return true; }   // c206 = (50, bump, diffuse, light)
   if (name == "NoiseTileF") { set4(0, 50.f, mt.noise_far[0], mt.noise_far[1], mt.noise_far[2]); return true; }
   if (name == "View") { set4(0, 1.f, 0.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f), set4(2, 0.f, 0.f, 1.f, 0.f); return true; }  // (the reflection cube is black: the view matrix is not read)
-  if (name == "MuscleParam") { set4(0, 1.f, 0.f, 0.f, 0.f); return true; }
-  if (name == "MuscleUV") { set4(0, 0.f, 0.f, 1.f, 1.f); return true; }
+  // S111 MATFEED: c249 = g_f4MuscleParam (whole vec4, row 0x8392B000) = the body's live row first (CharCtx::muscle: the muscle controller's record, sub_826E1010 relinks it per g_iMuscleId),
+  // else the file value; c250 = (g_f4MuscleUV_x, _y, _z, _w) (rows 0x8392B020..0x8392B080, lanes x..w). None named = (1, 0, 0, 0) / (0, 0, 1, 1): the muscle map off.
+  if (name == "MuscleParam") { if (c.muscle) set4(0, c.muscle[0], c.muscle[1], c.muscle[2], c.muscle[3]); else set4(0, mt.muscle_prm[0], mt.muscle_prm[1], mt.muscle_prm[2], mt.muscle_prm[3]); return true; }
+  if (name == "MuscleUV") { set4(0, mt.muscle_uv[0], mt.muscle_uv[1], mt.muscle_uv[2], mt.muscle_uv[3]); return true; }
   // S103 WRK (WRK.md 1a [C]): PS c230 = the material's g_f4WrinkUV_* (a file value; an all-zero rect divides by zero in the shader exactly as the game's does: the level then decides); (0,0,1,1) only when the material names none.
   // A degenerate rectangle (z == x or w == y: the x4 face group's zeros) is fed (0,0,1,1) so the shader's 1 / (zw - xy) stays finite (review F2); with the switch off the old constant.
   if (name == "WrinkUV") {
@@ -669,10 +602,12 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "WklLvLst") { if (c.wkl) set4(0, c.wkl[0], c.wkl[1], c.wkl[2], c.wkl[3]), set4(1, c.wkl[4], c.wkl[5], 0.f, 0.f); return true; }
   // S108 THR2: g_fChangeColor[0..15] = the Threads editor's colours (sub_8339F0E0: (R, G, B, 1) / 255), only on a change-colour draw (CharCtx::change_color); every other draw keeps zero.
   if (name == "ChangeColor") { if (c.change_color) std::memcpy(out, c.change_color, sizeof(float) * 4 * std::min<uint32_t>(vec4s, uint32_t(live::change_colour::kColours))); return true; }
+  // S111 MATFEED: hair c243 = (g_fSSLevel, g_fSSStart, g_fSSEnd, 0) [C: rows 0x8392ADA0 / 0x8392ADC0 / 0x8392ADE0, register 243 lanes x / y / z], c244 = g_f4SSColor (whole vec4, row 0x8392AE00): file values; none named = zero (the glow off).
+  if (name == "SS") { set4(0, mt.ss[0], mt.ss[1], mt.ss[2], 0.f); return true; }
+  if (name == "SSColor") { set4(0, mt.ss_col[0], mt.ss_col[1], mt.ss_col[2], mt.ss_col[3]); return true; }
   // Zero is the neutral value: the option that reads these is not chosen, or the file carries no value (hair highlights: unconfirmed).
   if (name == "FogColor" || name == "Blood" || name == "BSSBldClr" || name == "Sweat" || name == "DebugPS0" || name == "DebugPS1" ||
-      name == "ShadowPrm" || name == "ViewLightDepth" || name == "TexProjLightXY" || name == "TexProjLightW" || name == "ConvScreen" ||
-      name == "SSColor" || name == "SS" || name == "SphereOccP" || name == "SphereOccV")
+      name == "ShadowPrm" || name == "ViewLightDepth" || name == "TexProjLightXY" || name == "TexProjLightW" || name == "ConvScreen")
     return true;
   return false;
 }

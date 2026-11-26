@@ -287,6 +287,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_post_lite_fxaa, false, "wwe2k14",
                     "Session 95 (r3gpu, default off, read at start; with wwe2k14_post_lite): the lite combines also skip the console FXAA's four taps along the edge on pixels where they all stay in "
                     "the pixel's own texel: 5 fetches in place of 9 on flat pixels. A LOOK lever, not exact: the scene sampler is linear, so a tap inside the texel can still blend a neighbour (s89b_b measured over the tolerance, 0.36% of pixels, p99.9 9)");
 
+//@ src/ramp_camera.h | - | -
+REXCVAR_DEFINE_BOOL(wwe2k14_ramp_camera, false, "wwe2k14",
+                    "S111 RAMPCAM (a mod, default off; read live): the match camera stands on the side of the ring opposite the entrance stage and "
+                    "looks along the ramp at it; everything else is the game's own hard cam. The pause menu's RAMP CAMERA row sets it. See src/ramp_camera.h");
+
 //@ src/renderer_adapter/reader.h | - | WWE2K14_STREAM()
 #if WWE2K14_STREAM()
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_live, false, "wwe2k14",

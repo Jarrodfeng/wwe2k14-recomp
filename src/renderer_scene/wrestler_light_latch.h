@@ -33,6 +33,7 @@ struct Entry {
   uint32_t slot = 0;        // the character slot 0..8 (the word at 0x836F38D0 + 4 * slot)
   uint32_t character = 0;   // the word
   uint32_t source = 0;      // the block's guest address (char + 3984 on the embedded path)
+  uint32_t skel = 0;        // S111 DARKDIP: the character's skeleton [char + 48] (the body its draw node draws and lights); 0 = not read (an offline replay row): joined by slot
   uint32_t block[kLsLightFloats] = {};
 };
 
@@ -77,6 +78,14 @@ struct Latch {
     for (const Entry& e : entries)
       if (e.slot == slot) return &e;
     return nullptr;
+  }
+  // S111 DARKDIP (docs\research\s111\DARKDIP.md): the block of the body the slot DRAWS. The game's draw node lights a body with its own character's object (sub_825A3908 +160 / sub_8259FAE8 +100:
+  // sub_82620488(char + 3936, 0)), and a slot can draw a character the table no longer names (the editor's old one until its flip, drawn_slots.h). Entries without a skeleton join by slot as before.
+  const Entry* FindBody(uint32_t slot, uint32_t body) const {
+    if (body)
+      for (const Entry& e : entries)
+        if (e.slot == slot && e.skel == body) return &e;
+    return Find(slot);
   }
 };
 
@@ -149,7 +158,7 @@ inline uint32_t Apply(SceneTables& t, const Store& store, bool synthesize, Censu
     uint32_t slot = 0;
     if (!t.engine_objects[i] || !ActorSlot(t.Str(t.objects[i].id), slot)) continue;
     if (ft && ft->wrong_slot) slot = (slot + 1) % kSlots;
-    const Entry* e = have ? cur.Find(slot) : nullptr;
+    const Entry* e = have ? cur.FindBody(slot, t.engine_objects[i]) : nullptr;   // S111 DARKDIP: the drawn body's own block
     ++actors;
     if (e) ++with_entry;
     const LightRef* walked = nullptr;
@@ -165,7 +174,7 @@ inline uint32_t Apply(SceneTables& t, const Store& store, bool synthesize, Censu
     if (walked && !(synthesize && ft && ft->no_walk_guard)) {
       const uint32_t* w = reinterpret_cast<const uint32_t*>(t.light_states[walked->state].light);
       const bool same = std::memcmp(w, e->block, sizeof e->block) == 0 || (ft && ft->always_equal);
-      const Entry* pe = have_prev ? prev.Find(slot) : nullptr;
+      const Entry* pe = have_prev ? prev.FindBody(slot, t.engine_objects[i]) : nullptr;
       const bool is_changed = pe && std::memcmp(pe->block, e->block, sizeof e->block) != 0;
       ++c.walked;
       (same ? c.eq : c.differ)++;
@@ -203,7 +212,10 @@ inline uint32_t Apply(SceneTables& t, const Store& store, bool synthesize, Censu
 inline void LatchFromRecord(const SceneTables& t, Latch& out) {
   out = Latch{};
   out.valid = true;
-  out.hook = uint32_t(t.header.guest_frame) - 1u;
+  // S111 CUTREACH review: the label is the hook of the latch the rows were READ at (every row carries that latch's frame f; latch f stamps hook f - 1), never one derived from the header. Record r carries latch r - 1's
+  // rows (hook r - 2, the hook its own Apply asks: HookOfRecord), at the boundary (the first latch, after a skipped one) the latch's own (hook r - 1), and a record written before CUTREACH its own latch's (hook r - 1).
+  const uint64_t read_at = t.light_objects.empty() ? t.header.guest_frame : t.light_objects[0].frame;
+  out.hook = read_at >= 1 ? uint32_t(read_at) - 1u : 0u;
   std::map<uint32_t, uint32_t> seen;
   for (const CircleShadow& cs : t.circle_shadows) {
     if (cs.slot >= kSlots || !cs.character || seen.count(cs.slot)) continue;

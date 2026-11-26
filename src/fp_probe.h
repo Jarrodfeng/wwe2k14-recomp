@@ -62,6 +62,7 @@
 #include "scene_live/arena_world_glue.h"  // lane 130: the arena's evaluated object worlds, read at the model call
 #include "scene_live/ring_rows_glue.h"  // lane 194: the ring's per-call node rows (Ring D3 R1), read at the model call (read only, default off)
 #include "scene_live/weapon_rows_glue.h"  // S103 PW-2: the weapons' per-call rows (read only), at the model call
+#include "scene_live/belt_colour.h"  // S111 STOCKBELT / BELTMASKNAME: the R5 block of a created title on a stock belt (the hooks on sub_83327660, sub_82590ED8, sub_825771E8 below)
 
 #include <algorithm>
 #include <atomic>
@@ -938,6 +939,35 @@ REX_HOOK_RAW(sub_833A1758) {
       [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t model, int32_t& id) { wr::EventProps::Entry e; if (!wr::Rows().tracker.events.Find(model, e)) return false; return id = e.id, true; }, ctx.r4.u32);
   __imp__sub_833A1758(ctx, base);
+}
+
+// S111 STOCKBELT + BELTMASKNAME (docs\research\s111\BELTMASKNAME.md): the R5 composer's block of a CREATED title on a STOCK belt. sub_83327660(r3 = the composer object, r4 = the 96-byte block: +0 model, +4 id,
+// +8 mode, colour k = words +16 + 16 k / +20 / +24) copies it into the object and arms the recolour; its 3 callers are mode 0 (the entrance belt, sub_83324840), 1 (the match weapon belt, sub_8258DC70), 2 (the ladder
+// belt, sub_82576B98). Every mode is latched per model (belt_colour.h OnBeltBlock: the model checked against its owner = r3 minus the composer's place in it) and drawn with the cc_mask row and the mask its block
+// names. Read only, then the original runs.
+REX_EXTERN(__imp__sub_83327660);
+REX_HOOK_RAW(sub_83327660) {
+  namespace wr = rdr_scene::live::weaponrows;
+  rdr_scene::live::beltcolour::OnBeltBlock(
+      [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
+      [](uint32_t model, int32_t& id) { wr::EventProps::Entry e; if (!wr::Rows().tracker.events.Find(model, e)) return false; return id = e.id, true; }, ctx.r3.u32, ctx.r4.u32);
+  __imp__sub_83327660(ctx, base);
+}
+
+// S111 BELTMASKNAME: the weapon manager's slot free sub_82590ED8 (r3 = the manager; it frees every slot's main and secondary models; 9 callers, among them the weapon data load sub_825910D8 +44, which then
+// re-makes the slots and sends R5 mode 1's block at +C8): the match weapon belts' latches go with their models. Then the original runs unchanged.
+REX_EXTERN(__imp__sub_82590ED8);
+REX_HOOK_RAW(sub_82590ED8) {
+  rdr_scene::live::beltcolour::DropOnSlotFree();
+  __imp__sub_82590ED8(ctx, base);
+}
+
+// S111 BELTMASKNAME: the stage holder's member make sub_825771E8 (r3 = [0x837631C4], its one caller sub_825778F8 +74; it makes every member model [H+76+4k] and, for a ladder rig (type 4), sends R5 mode 2's
+// block for member 1 at +F4): the ladder belts' latches go first (a member at a reused address must not keep the last rig's colours). Then the original runs unchanged.
+REX_EXTERN(__imp__sub_825771E8);
+REX_HOOK_RAW(sub_825771E8) {
+  rdr_scene::live::beltcolour::DropOnMemberMake();
+  __imp__sub_825771E8(ctx, base);
 }
 
 // lane 138 (D3): when the hook on sub_82C04DF0 skips a call, the mid-asm hook above does not run (it sits inside the function), so the D3 glue calls the same two read-only readers itself.

@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Lane 6 acceptance test (offline, 0 game runs): the Arena Viewer's "rdr" backend against its own "vk" backend.
+"""Lane 6 acceptance test (offline, 0 game runs): the Arena Viewer's "rdr" backend, the in-game renderer's own path (our renderer + the scene
+front-end, with the game's effect tables the backend publishes from the player's files).
 
   py -I tools\\scene\\selftest.py [--root DIR] [--arena 5] [--size 640x360] [--keep]
 
-Runs the viewer headless (--hidden) on one arena with the same camera on both backends, writes both shots and a side-by-side sheet to
-out\\s101\\scene\\ (of --root), and compares them per tile (loose: "looks right", not byte-equal). Then the planted-fault twin: the rdr
-backend with textures off (WWE_RDR_NO_TEXTURES=1) must FAIL the same comparison. Also checks the rdr run reported 0 validation errors
-(WWE_RDR_VALIDATION=1) and that every effect line of the coverage list is either "bound to our effect" or "no effect yet".
-Exit 0 only when: rdr passes, the faulty rdr fails, validation errors are 0, the coverage list is present.
-S101 lane 13 (wrestlers): then three wrestlers in arena 5 in their fixed idle stance (one with cloth, one with gear, one with transparency),
-vk vs rdr, compared over the wrestler's own region with the same tile bar; validation 0; the coverage of every yCh_* class counted (bound to our
-effect, or listed "no effect yet" and drawn magenta); the planted fault (the palette off = the bind pose) must FAIL the same check for each; and
-a labelled sheet out\\s101\\scene\\wrestlers_sheet.png (vk | rdr per wrestler).
+S111 VIEWERREF (docs\\research\\s111\\VIEWERREF.md): the reference of every comparison is the CLEAN rdr picture (the in-game path), never the
+viewer's old vk backend (Jarrod, 2026-11-26: the Arena Viewer's own renderers are a recreation from before the command-free work, not a
+reference for anything). What is checked is that each planted fault CHANGES that picture past the bar, plus validation, coverage and the
+game's effect table.
+Runs the viewer headless (--hidden) on one arena with one camera, writes the shots and a sheet to out\\s101\\scene\\ (of --root). The
+planted-fault twin: the rdr backend with textures off (WWE_RDR_NO_TEXTURES=1) must FAIL the tile comparison against the clean rdr picture.
+Also checks the rdr run reported 0 validation errors (WWE_RDR_VALIDATION=1) and that every effect line of the coverage list is either
+"bound to our effect" or "no effect yet".
+Exit 0 only when: the faulty rdr fails, validation errors are 0, the coverage list is present.
+S101 lane 13 (wrestlers): then three wrestlers in arena 5 in their fixed idle stance (one with cloth, one with gear, one with transparency):
+validation 0; the game's effect table published; the coverage of every yCh_* class counted (bound to our effect, or listed "no effect yet" and
+drawn magenta); the planted fault (the palette off = the bind pose) must FAIL the tile check against the clean rdr picture over the wrestler's
+own region; and a labelled sheet out\\s101\\scene\\wrestlers_sheet.png (rdr | planted fault, per wrestler).
 A check that cannot read its input fails loudly (no shots / no viewer = FAIL, never a pass)."""
 import argparse
 import json
@@ -271,7 +276,7 @@ def run_wrestlers(exe, game, outdir, size, fails):
         tag = f'w{wid}_{attire}'
         cmds = wrestler_cmds(wid, attire, size)
         got = {}
-        for name, backend, env in ((f'{tag}_vk', 'vk', {}), (f'{tag}_rdr', 'rdr', {'WWE_RDR_VALIDATION': '1'}), (f'{tag}_nopal', 'rdr', {'WWE_RDR_VALIDATION': '1', 'WWE_RDR_NO_PALETTE': '1'})):
+        for name, backend, env in ((f'{tag}_rdr', 'rdr', {'WWE_RDR_VALIDATION': '1'}), (f'{tag}_nopal', 'rdr', {'WWE_RDR_VALIDATION': '1', 'WWE_RDR_NO_PALETTE': '1'})):
             try:
                 shot, log, code = run_scene(exe, backend, game, outdir, name, env, cmds)
             except subprocess.TimeoutExpired:
@@ -284,15 +289,12 @@ def run_wrestlers(exe, game, outdir, size, fails):
                 break
             with open(log, errors='replace') as f:
                 got[name] = (np.asarray(Image.open(shot).convert('RGB')), f.read())
-        if len(got) < 3:
+        if len(got) < 2:
             continue
-        ref, rdr, nopal = got[f'{tag}_vk'][0], got[f'{tag}_rdr'], got[f'{tag}_nopal'][0]
-        ok, notes = compare_crop(np, ref, rdr[0])
-        print(('PASS' if ok else 'FAIL') + f'  wrestler {wid}/{attire} ({kind}) rdr vs vk: ' + '; '.join(notes))
-        if not ok:
-            fails.append(f'wrestler {wid}/{attire}: rdr differs from vk')
+        rdr, nopal = got[f'{tag}_rdr'], got[f'{tag}_nopal'][0]
+        ref = rdr[0]   # S111 VIEWERREF: the reference is the clean rdr picture (the in-game path), never vk
         twin_ok, twin_notes = compare_crop(np, ref, nopal)
-        print(('PASS' if not twin_ok else 'FAIL') + f'  wrestler {wid}/{attire} planted fault (palette off = bind pose) is caught: ' + '; '.join(twin_notes))
+        print(('PASS' if not twin_ok else 'FAIL') + f'  wrestler {wid}/{attire} planted fault (palette off = bind pose) is caught against the clean rdr picture: ' + '; '.join(twin_notes))
         if twin_ok:
             fails.append(f'wrestler {wid}/{attire}: the planted fault passed the check')
         errs = [int(m) for m in re.findall(r'validation errors(?: so far)?: (\d+)', rdr[1])]
@@ -301,6 +303,11 @@ def run_wrestlers(exe, game, outdir, size, fails):
             fails.append(f'wrestler {wid}/{attire}: validation')
         else:
             print(f'PASS  wrestler {wid}/{attire}: rdr validation errors: 0')
+        if '[read_rule] effect technique table:' not in rdr[1]:   # S111 OLDCHAIN: the rdr backend draws a wrestler only with the game's table row, from the table it publishes
+            print(f'FAIL  wrestler {wid}/{attire}: the rdr log has no "[read_rule] effect technique table:" line (the viewer did not publish the game\'s effect table: every wrestler draw is a hole)')
+            fails.append(f'wrestler {wid}/{attire}: no effect table')
+        else:
+            print(f'PASS  wrestler {wid}/{attire}: the viewer published the game\'s effect table (the wrestlers take its rows)')
         cls, tot = parse_coverage(rdr[1])
         if not cls or tot is None:
             print(f'FAIL  wrestler {wid}/{attire}: no yCh_* coverage list in the rdr log')
@@ -315,7 +322,7 @@ def run_wrestlers(exe, game, outdir, size, fails):
                 fails.append(f'wrestler {wid}/{attire}: coverage classes')
             else:
                 print(f'PASS  wrestler {wid}/{attire} coverage: {bound} character draws bound to our effect, {unbound} listed "no effect yet" (magenta): {line}')
-        panels.append((f'{wid}/{attire} {kind}', ref, rdr[0]))
+        panels.append((f'{wid}/{attire} {kind}', ref, nopal))
     if panels:
         label_h, gap = 16, 4
         h, w = panels[0][1].shape[:2]
@@ -323,13 +330,13 @@ def run_wrestlers(exe, game, outdir, size, fails):
         d = ImageDraw.Draw(sheet)
         for i, (label, a, b) in enumerate(panels):
             y = i * (h + label_h)
-            d.text((4, y + 2), f"vk  (the viewer's own picture)  wrestler {label}", fill=(255, 255, 255))
-            d.text((w + gap + 4, y + 2), f"rdr (our renderer, the game's own effects)  wrestler {label}", fill=(255, 255, 255))
+            d.text((4, y + 2), f"rdr (the in-game renderer's path: the reference)  wrestler {label}", fill=(255, 255, 255))
+            d.text((w + gap + 4, y + 2), f"planted fault (palette off)  wrestler {label}", fill=(255, 255, 255))
             sheet.paste(Image.fromarray(a), (0, y + label_h))
             sheet.paste(Image.fromarray(b), (w + gap, y + label_h))
         path = os.path.join(outdir, 'wrestlers_sheet.png')
         sheet.save(path)
-        print(f'sheet: {path}  (left: vk, right: rdr; one row per wrestler)')
+        print(f'sheet: {path}  (left: rdr, right: the planted fault; one row per wrestler)')
 
 
 def main():
@@ -351,7 +358,7 @@ def main():
     fails = []
 
     shots = {}
-    for name, backend, env in (('vk', 'vk', {}), ('rdr', 'rdr', {'WWE_RDR_VALIDATION': '1'}), ('rdr_notex', 'rdr', {'WWE_RDR_VALIDATION': '1', 'WWE_RDR_NO_TEXTURES': '1'})):
+    for name, backend, env in (('rdr', 'rdr', {'WWE_RDR_VALIDATION': '1'}), ('rdr_notex', 'rdr', {'WWE_RDR_VALIDATION': '1', 'WWE_RDR_NO_TEXTURES': '1'})):
         try:
             shot, log, code = run_viewer(exe, backend, game, outdir, args.arena, size, name, env)
         except subprocess.TimeoutExpired:
@@ -362,17 +369,13 @@ def main():
             return 1
         shots[name] = (read_png(shot), log)
 
-    ref = shots['vk'][0]
-    ok, notes = compare(ref, shots['rdr'][0])
-    print(('PASS' if ok else 'FAIL') + '  rdr vs vk: ' + '; '.join(notes))
-    if not ok:
-        fails.append('rdr differs from vk')
+    ref = shots['rdr'][0]   # S111 VIEWERREF: the reference is the clean rdr picture (the in-game path), never vk
     twin_ok, twin_notes = compare(ref, shots['rdr_notex'][0])
-    print(('PASS' if not twin_ok else 'FAIL') + '  planted fault (textures off) is caught: ' + '; '.join(twin_notes))
+    print(('PASS' if not twin_ok else 'FAIL') + '  planted fault (textures off) is caught against the clean rdr picture: ' + '; '.join(twin_notes))
     if twin_ok:
         fails.append('the planted fault passed the check')
 
-    # validation + coverage from the rdr run's stderr
+    # validation + coverage + the game's effect table from the rdr run's stderr
     with open(shots['rdr'][1], errors='replace') as f:
         text = f.read()
     errs = [int(m) for m in re.findall(r'validation errors(?: so far)?: (\d+)', text)]
@@ -384,6 +387,11 @@ def main():
         fails.append('validation errors')
     else:
         print('PASS  rdr validation errors: 0')
+    if '[read_rule] effect technique table:' not in text:   # S111 VIEWERREF: the arena's materials take the game's table rows only when the backend published the table
+        print('FAIL  the arena rdr log has no "[read_rule] effect technique table:" line (the viewer did not publish the game\'s effect table: the arena is not on the in-game path)')
+        fails.append('arena: no effect table')
+    else:
+        print('PASS  arena: the viewer published the game\'s effect table')
     cov = re.findall(r'^  (\S+)\s+(bound to our effect|no effect yet)', text, re.M)
     summary = re.findall(r'^effects: (\d+) of (\d+) bound to our effect', text, re.M)
     if not cov or not summary:
@@ -392,8 +400,8 @@ def main():
     else:
         print(f'PASS  coverage list: {summary[-1][0]} of {summary[-1][1]} effects bound to our effect')
 
-    # the sheet: vk | rdr side by side
-    a, b = shots['vk'][0], shots['rdr'][0]
+    # the sheet: rdr | the planted fault side by side
+    a, b = shots['rdr'][0], shots['rdr_notex'][0]
     rows = []
     for y in range(a[1]):
         ra = bytearray(a[2][y][i] for i in range(a[0] * a[3]) if a[3] == 3 or i % 4 != 3)
@@ -401,7 +409,7 @@ def main():
         rows.append(ra + bytearray(b'\xff\xff\xff' * 4) + rb)
     sheet = os.path.join(outdir, 'arena_sheet.png')
     write_png(sheet, a[0] * 2 + 4, a[1], rows)
-    print(f'sheet: {sheet}  (left: vk, right: rdr)')
+    print(f'sheet: {sheet}  (left: rdr, right: the planted fault)')
     run_wrestlers(exe, game, outdir, size, fails)  # S101 lane 13
     if fails:
         print('FAIL  ' + '; '.join(fails))

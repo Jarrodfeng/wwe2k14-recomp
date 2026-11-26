@@ -219,6 +219,16 @@ void Handoff() {
   s.skels.push_back({kSkel, 0, 0u, true});
   std::vector<WrestlerContributor::PaletteTarget> targets;
   uint32_t missing = 0;
+  {   // S111 PERIODALL review: the latch before (record `hook`), in production order (the descriptor check, the table latch, the record): it publishes the body for the ask below, and the
+      // record built next takes its piece links and its check (WrestlerContributor::RecordLatchL; a record with no latch before it has neither)
+    w.VerifyBodyLink(kSkel, true);
+    w.LatchTargets(hook - 1, &s, targets, missing);
+    SceneTables t0;
+    Counters c0;
+    FrameInfo f0;
+    f0.guest_frame = hook;
+    w.Emit(f0, t0, c0);
+  }
   w.LatchTargets(hook, &s, targets, missing);
   w.VerifyBodyLink(kSkel, true);
   const uint64_t record_frame = hook + WrestlerContributor::kPaletteLead;
@@ -434,6 +444,48 @@ int Selftest() {
   {   // 9. S110 LOGOSAMP (review): the Threads editor's prop mask sampler (sub_8338EC00) reaches slot 12 of an editor prop draw only.
     Check(PropMaskSamplerMismatches(g_plant) == 0, "prop mask sampler: slot 12 of a recoloured prop drawn under the editor's callback; not a saved set's match draw, not another slot");
   }
+  {   // 10. S111 PERIODALL (docs\research\s111\PERIODALL.md): on the game's clock. In period p the update poses the body (tag p), the walk asks to draw it with the clock p and the callback
+    //     reads E+92 at that draw (sub_8339F0E0), and latch p (hook p - 1) builds record p. Record p carries period p - 1's palette and visibility, so its colours must be period p - 1's too:
+    //     a colour the player picks in period kChange shows from record kChange + 1, on the record whose palette is kChange's. Twin newest_state = the old store (record kChange already has it).
+    //     Review: the switch the game clears in period kOff (model+604 = 0: sub_82C04DF0 draws the +384 row, no callback) is the same: record kOff still carries period kOff - 1's colours, record
+    //     kOff + 1 is plain (the old store erased the body at the switch-off draw: record kOff plain, one early). Two periods drawn off: the store holds nothing for the body.
+    WrestlerContributor w;
+    w.SetNoWalk(true);
+    cc::Bodies().ResetForTest();
+    constexpr uint64_t kFirst = 300, kChange = 305, kOff = 308, kEnd = 314;
+    bool ok = true;
+    std::string why;
+    for (uint64_t p = kFirst; p < kEnd; ++p) {
+      LayEditor(p < kOff ? 1u : 0u, cc::kCallbackThreads, cc::kStateEditing, p < kChange ? a : b);
+      std::vector<Mat4> d(kCount);
+      for (uint32_t i = 0; i < kCount; ++i)
+        for (uint32_t j = 0; j < 16; ++j) d[i].m[j] = float(p);
+      w.SubmitSkin(kSkel, 0, kCount, d.data(), p);   // the update of period p (sub_82BD30E8 exit)
+      w.NoteDrawAsked(kSkel, p, Rw);                 // the walk of period p: the ask and the colour read, with the clock p
+      WrestlerContributor::SlotTable s;
+      s.skels.push_back({kSkel, 0, 0u, true});
+      std::vector<WrestlerContributor::PaletteTarget> tg;
+      uint32_t missing = 0;
+      w.LatchTargets(p - 1, &s, tg, missing);        // latch p reads hook p - 1 (and publishes the body for the next ask)
+      SceneTables t;
+      Counters c;
+      FrameInfo f;
+      f.guest_frame = p;
+      w.Emit(f, t, c);                               // record p
+      if (p < kFirst + 2) continue;                  // the first ask came before the first publish: record kFirst + 2 is the first drawn one
+      bool visible = false;
+      float bone0 = -1.f;
+      for (size_t k = 0; k < t.objects.size() && k < t.engine_objects.size(); ++k)
+        if (t.engine_objects[k] == kSkel && t.objects[k].bones_count) visible = (t.objects[k].flags & kObjVisible) != 0, bone0 = t.bones[t.objects[k].bones_first].m[0];
+      const uint8_t* want = p - 1 < kChange ? a : p - 1 < kOff ? b : nullptr;   // nullptr = plain (no section-67 row)
+      const bool good = visible && bone0 == float(p - 1) && (want ? t.change_colours.size() == 1 && std::memcmp(t.change_colours[0].colours, want, 48) == 0 : t.change_colours.empty());
+      if (!good && ok)
+        ok = false, why = " (record " + std::to_string((unsigned long long)p) + ": visible " + std::to_string(int(visible)) + " palette of period " + std::to_string(bone0) + " rows " + std::to_string(t.change_colours.size()) +
+                          " colours " + (t.change_colours.empty() ? std::string("none") : std::memcmp(t.change_colours[0].colours, a, 48) == 0 ? std::string("old") : std::string("new")) + ", want " + (want == a ? "old" : want == b ? "new" : "none") + ")";
+    }
+    Check(ok, ("period: record r carries the colours of period r - 1, the period of its palette (a colour change and a switch-off show on the record whose palette is that period's)" + why).c_str());
+    Check(cc::Bodies().Size() == 0, "period: a body drawn with the switch off in two periods running holds no change-colour state (a switch-off is kept only while the period before it was recoloured)");
+  }
   Handoff();
   std::printf("%s\n", cc::Bodies().CensusLine().c_str());
   std::printf("%s\n", rdr_scene::change_colour_draw::Draws().Text().c_str());
@@ -447,7 +499,7 @@ int main(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "selftest";
   if (mode == "selftest") {
     g_plant = argc > 2 ? argv[2] : "";
-    cc::PlantForTest() = g_plant == "no_switch" ? cc::Fault::kIgnoreSwitch : g_plant == "state_not_10" ? cc::Fault::kIgnoreState : g_plant == "foreign_callback" ? cc::Fault::kAnyCallback : cc::Fault::kNone;
+    cc::PlantForTest() = g_plant == "no_switch" ? cc::Fault::kIgnoreSwitch : g_plant == "state_not_10" ? cc::Fault::kIgnoreState : g_plant == "foreign_callback" ? cc::Fault::kAnyCallback : g_plant == "newest_state" ? cc::Fault::kNewestState : cc::Fault::kNone;   // S111 PERIODALL: + newest_state
     if (!g_plant.empty()) std::printf("planted twin: %s (this run must FAIL)\n", g_plant.c_str());
     return Selftest();
   }
@@ -457,6 +509,6 @@ int main(int argc, char** argv) {
     std::printf("plantcheck %s: %d mismatching cases -> %s\n", plant.c_str(), bad, bad ? "caught" : "NOT CAUGHT");
     return bad ? 0 : 1;
   }
-  std::fprintf(stderr, "usage: thr_unit.exe selftest [old_zero|no_switch|state_not_10|foreign_callback|no_wiring|logo_any_bind|prop_any_row] | thr_unit.exe plantcheck logo_any_bind|prop_any_row\n");
+  std::fprintf(stderr, "usage: thr_unit.exe selftest [old_zero|no_switch|state_not_10|foreign_callback|no_wiring|logo_any_bind|prop_any_row|newest_state] | thr_unit.exe plantcheck logo_any_bind|prop_any_row\n");
   return 2;
 }

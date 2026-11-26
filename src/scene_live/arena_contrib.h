@@ -117,6 +117,7 @@ inline bool SlotShown(const uint8_t* rec) { return (rec[9] & 0x80) && !(rec[8] &
 using SlotRecordReadFn = bool (*)(uint8_t* out, size_t n);   // reads kStageSlotRecords * 12 bytes at stage + 1220 (the glue wires stagefx); false = no stage / unreadable
 void SetSlotRecordReader(SlotRecordReadFn fn);               // null = the old behaviour (nothing hidden)
 void PlantIgnoreShown(bool on);                              // unit only: the pre-V1 twin (the bit is read but ignored)
+void PlantSetsNeedArena(bool on);                            // unit only: S111 STAGELESS twin (a frame naming no arena drops its light sets: the old rule)
 uint32_t SlotLightSet(uint16_t slot, int32_t stage_arena, bool* is_explicit = nullptr);   // S103 A7 / B4X: the slot text's l(N), or the loader default 100 for a row without one and for a slot below 399 with no row (sub_824E8E38 fills slot words 0..398); *is_explicit = the text names it (a default never replaces a fresh learned entry); kNone (0xFFFFFFFF) for a row with an le( / lg( token, a slot >= 399 with no row, no published table, or a table of another arena
 void MovingSlots(std::vector<uint16_t>& out);                         // S103 C2: fills `out` with the published slots that have an m(N) motion
 int32_t PublishedArena();                                             // S103 C2: the published arena id, -1 unknown

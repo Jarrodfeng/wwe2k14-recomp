@@ -11,6 +11,7 @@
 //   stage.address_reuse     a slot freed after the frame's pull (the address reused by another model) records nothing at the call                                                           <- stage_no_recheck
 //   stage.family_one        both families of the cage recorded and tagged; the plan draws ONE family per PACH (default own); slot32 on request; a structure with one family draws that one       <- stage_both
 //   stage.entry16           k = 16 (the cell's 17th key) round-trips through a recorded call and the row bits; the LR classes are tagged (cage / cell / other / own)
+//   stage.caster_bit        S111 CHAMBERSHADOW review: through the tracker, only the own row of a CWeapon-node caller carries kCallStageCaster (not the cage node's, no caller's, a slot-32 row's)
 //   stage.prefetch          a section-59 stage row asks for (PACH, k | kWantStage); not an m2 weapon, not an event prop
 //   stage.not_member        a model that is not in the holder is not a stage row (and the weapon / event paths still ignore it)
 #define STB_IMAGE_IMPLEMENTATION
@@ -395,7 +396,9 @@ int main(int argc, char** argv) {
     float a_other = -1.f;
     bool other_flag = true;
     uint32_t c1 = 99, c2 = 99, c3 = 99;
+    bool caster2 = false, caster_else = false;   // S111 CHAMBERSHADOW review: the recorder's bit, read from the rows it wrote
     for (const W::WeaponCall& c : fb.calls) {
+      ((c.object == kM2) ? caster2 : caster_else) |= (c.slot_flags & W::kCallStageCaster) != 0;
       if (c.object == kM0) a_other = c.alpha, other_flag = (c.slot_flags & W::kCallAlphaFromF1) != 0;
       if (c.object == kM1) c1 = W::StageLrClass(c.slot_flags);
       if (c.object == kM2) c2 = W::StageLrClass(c.slot_flags);
@@ -404,6 +407,7 @@ int main(int argc, char** argv) {
     Check(got && a_other > 0.69f && a_other < 0.71f && !other_flag, "stage.alpha_other_lr", "unknown-caller slot-32 alpha " + std::to_string(a_other) + " (need [model+252] 0.7, not f1 0.5), flagged " + (other_flag ? "YES" : "no"));
     Check(got && c1 == W::kStageLrCage && c2 == W::kStageLrOther && c3 == W::kStageLrNone, "stage.own_caller", "own callers: cage node " + std::to_string(c1) + " (need 1), other " + std::to_string(c2) + " (need 3), none " + std::to_string(c3) + " (need 0); census own-cage " +
           std::to_string(r.t.GetStats().stage_own_cage) + " own-other " + std::to_string(r.t.GetStats().stage_own_other));
+    Check(got && caster2 && !caster_else, "stage.caster_bit", std::string("the CWeapon-node own row carries kCallStageCaster: ") + (caster2 ? "yes" : "NO") + "; any other row (cage node, no caller, slot-32): " + (caster_else ? "YES" : "no"));
   }
 
   // ---- stage.switch_off (review 1): --wwe2k14_rdr_stage_structs = off: no holder pull, no stage row

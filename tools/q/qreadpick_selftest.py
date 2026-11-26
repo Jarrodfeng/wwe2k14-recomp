@@ -80,6 +80,86 @@ def main():
     check(lines[-1].split()[1] == str(len(rows)), 'count: total line (%s)' % lines[-1])
     check([t[0] for t in tab] == list(P.GROUPS), 'count: group order')
 
+    sys.path.insert(0, HERE)
+    import qreadfrom as F  # noqa: E402
+
+    def graph(edges, uof):
+        return F.make_graph(edges, uof)
+    # --from: chain E(1,unit 1) -> 2 (u2) -> 3 (u3) -> 4 (u4) -> 5 (u5); unit 9 (func 90) is called from 2 and 3
+    uof = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 90: 9, 91: 9}
+    base = [(1, 2), (2, 3), (3, 4), (4, 5), (2, 90), (3, 90), (90, 91)]
+    g = graph(base, uof)
+    g.expand = 'none'
+    r = F.run(g, [1], 3, 25)
+    check([u for u, _d in r['units']] == [1, 2, 9, 3, 4] or [u for u, _d in r['units']] == [1, 2, 3, 9, 4],
+          'from: depth 3 reaches units 1-4 and 9, not 5 (got %s)' % r['units'])
+    check(5 not in [u for u, _d in r['units']] and dict(r['units'])[4] == 3, 'from: depth is a hard stop (unit 4 at 3, unit 5 absent)')
+    check(dict(F.run(g, [1], 4, 25)['units']).get(5) == 4, 'from: depth 4 reaches unit 5')
+    check(r['units'][0] == (1, 0), 'from: the entry unit comes first')
+    check(r['funcs'][91] == 3 and 91 in r['funcs'], 'from: a size-1/2 unit (9: 2 funcs, 91 reached by the walk) is included')
+    # library cut: 30 other units call func 90; K 25 cuts unit 9, and what is only behind it (91) with it
+    lib = base + [(100 + i, 90) for i in range(30)]
+    uof2 = dict(uof)
+    uof2.update({100 + i: 100 + i for i in range(30)})
+    g = graph(lib, uof2)
+    g.expand = 'none'
+    r = F.run(g, [1], 3, 25)
+    names = [u for u, _d in r['units']]
+    check(9 not in names and r['cut'] == [9] and 91 not in r['funcs'], 'library: unit 9 (30 outside callers > K 25) is cut and not walked through')
+    check(2 in names and 3 in names, 'library: the chain itself stays')
+    r = F.run(g, [1], 3, 40)
+    check(9 in [u for u, _d in r['units']], 'library: K 40 keeps it (30 callers is not more than 40)')
+    # callers INSIDE the reach do not count: the same fan-in from units the reach holds
+    check(sorted(graph(base + [(2, 90)], uof).ucallers[9]) == [2, 3], 'library: callers count as distinct UNITS (a repeated edge and a same-unit call add none)')
+
+    def lib_ok(res):
+        return 9 not in [u for u, _d in res['units']] and res['cut'] == [9]
+    # the planted twin: no library cut at all. The library check must PASS the real walk and FAIL the twin
+    check(lib_ok(F.run(g, [1], 3, 25)), 'library check passes the real walk')
+    check(not lib_ok(F.run(g, [1], 3, None)), 'library check FAILS the planted twin (no cut: unit 9 listed, nothing cut)')
+    # expand all: a unit joining the reach walks with all its functions (unit 2 has a second function 20 that calls 6)
+    uof3 = {1: 1, 2: 2, 20: 2, 6: 6}
+    g = graph([(1, 2), (20, 6)], uof3)
+    g.expand = 'none'
+    check(6 not in F.run(g, [1], 3, 25)['funcs'], 'expand none: the unit sibling is not walked')
+    g.expand = 'all'
+    check(6 in F.run(g, [1], 3, 25)['funcs'], 'expand all: the unit sibling walks and reaches 6')
+    # SYSPICK2 classes: entry 1 (unit 1) calls ctor 2 (unit 2) which builds a table whose slots are funcs 30 (unit 30) and 40 (unit 40); nobody calls them
+    uofc = {1: 1, 2: 2, 30: 30, 31: 31, 40: 40}
+    gc = graph([(1, 2), (30, 31)], uofc)
+    gc.expand = 'none'
+    gc.cls = {2: [30, 40]}
+
+    def cls_ok(res):
+        us = dict(res['units'])
+        return us.get(30) == 1 and us.get(40) == 1 and 31 not in res['funcs']
+    check(cls_ok(F.run(gc, [1], 1, 25)), 'classes: the ctor (depth 1) brings its vtable slots 30, 40 in at the same depth')
+    check(dict(F.run(gc, [1], 1, 25)['units']).get(30) == 1 and F.run(gc, [1], 2, 25)['funcs'].get(31) == 2, 'classes: a slot walks on (its callee 31 at depth 2)')
+    gc.use_cls = False
+    check(not cls_ok(F.run(gc, [1], 2, 25)), 'classes check FAILS the planted twin (classes off: slots never reached)')
+    # a unit first entered by a slot (only that function) is brought in whole when a call reaches it later: unit 30 has sibling 32
+    gp = graph([(1, 2), (1, 30)], {1: 1, 2: 2, 30: 30, 32: 30})
+    gp.expand = 'all'
+    gp.cls = {1: [30]}
+    check(32 in F.run(gp, [1], 2, 25)['funcs'], 'classes: a slot unit later reached by a call walks with all its functions')
+    # caller-only stray: unit 7 calls reached function 2 but nothing reached calls 7
+    gs = graph([(1, 2), (7, 2), (2, 3)], {1: 1, 2: 2, 3: 3, 7: 7})
+    gs.expand = 'none'
+
+    def stray_ok(res):
+        return 7 not in [u for u, _d in res['units']] and {1, 2, 3} <= {u for u, _d in res['units']}
+
+    def two_way(g, seeds, depth):                # the planted twin: callers are walked too
+        rev = {}
+        for f, cs in g.inn.items():
+            for c in cs:
+                rev.setdefault(c, set()).add(f)
+        return F.reach(seeds, {f: set(g.out.get(f, ())) | set(g.inn.get(f, ())) for f in set(g.out) | set(g.inn)}, g.uof, g.ucallers, g.members, depth, 25, 'none')
+    check(stray_ok(F.run(gs, [1], 3, 25)), 'direction: unit 7 (only a caller of reached 2) is not reached')
+    check(F.direction_strays(gs, F.run(gs, [1], 3, 25)) == 1, 'direction: the report counts 1 unit cut by direction')
+    check(not stray_ok(two_way(gs, [1], 3)), 'direction check FAILS the planted twin (a two-way walk reaches caller unit 7)')
+    check(F.parse_entries('0x82866D80, sub_83328D40 8333BF78') == [0x82866D80, 0x83328D40, 0x8333BF78], 'entries parse')
+
     if not os.path.exists(qnames.INDEX_DB):
         print('SKIP  real-index part (no index)')
     else:

@@ -33,6 +33,9 @@ struct WrestlerStats {
   uint32_t pieces_alpha_missing = 0;      // S103 EYF: ... with no readable row: carried as alpha 0 (not drawn; fail closed)
   uint32_t pieces_unobserved = 0;        // S103 NRBF (F1): of pieces_by_owner, the ones on a frame with no walked evidence (OURS): hiding cannot be seen there; counted apart
   uint32_t pieces_hidden_owner_drawn = 0; // S103 NRBF (review F5): linked pieces the game did NOT draw this frame (no light ref at the stamp) while the owner body is drawn: the owner body would show them: HOLES (fail closed)
+  uint32_t own_rows_refused = 0;          // S111 PIECELINK: created superstars' SUBM pieces with no fresh latch palette of this frame (kObjOwnRowsRefused, owner link carried): not drawn, counted, never holes (also in skel_not_hole)
+  uint32_t game_undrawn = 0;              // S111 PIECEHOLES: invisible slot bodies the game did not ask to draw this period (kObjGameUndrawn) on a frame with no walk: not drawn by the game, not holes (also in skel_not_hole)
+  uint32_t pieces_only_owners = 0;        // S111 PIECEROUTE: slot bodies the game did not draw whose slot 22 drew their SUBM pieces (kObjPiecesOnly): drawn as their piece meshes only (also in drawn)
   uint32_t own_skeleton_pieces = 0;       // invisible skel: objects with a palette (own-skeleton pieces: hair, caps, glasses): not drawn yet, counted (review B6)
   uint32_t skel_not_hole = 0;             // S103 NR (A): of those, the ones that are NOT holes (the game did not draw them this frame, or the ring family draws them)
   uint32_t skipped_not_resident = 0;  // the ModelCache could not give the model (live: not loaded yet; offline: the load failed)
@@ -67,6 +70,8 @@ struct WrestlerPlants {
   bool ignore_detached_flag = false;   // S103 DTP twin: kObjDetachedPiece is ignored (the owner's mesh keeps drawing a piece the game detached: the pad stays on the arm); set by wrestler_emit's selftest, never by the game
   bool refuse_body_on_absent_piece = false;   // S103 W2B twin: one piece the record cannot prove (no rows) refuses the whole body (the rule W2_ADV R2 rejected); set by w2b / wrestler_emit units, never by the game
   bool old_hole_rule = false; // S103 NR twin (review F2): every unlinked own-skeleton piece is a hole (the rule before NR); set by nr_unit, never by the game
+  bool warm_stops_at_miss = false;   // S110 ENTRBLACK round 6 twin: a warm build stops at the first class that misses (the rule before round 5: nothing after the arena is asked); set by nr_unit, never by the game
+  bool game_undrawn_is_hole = false;   // S111 PIECEHOLES twin: kObjGameUndrawn is ignored (a body the game did not draw is counted a hole again, the rule before); set by nr_unit, never by the game
 };
 WrestlerPlants& Plants();
 

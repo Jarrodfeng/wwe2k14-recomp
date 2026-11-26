@@ -19,8 +19,8 @@
 // character path) and SCALED targets (render scale 1, 1.5, 2; the post chain on). A body 520 units in front of the camera covers the centre of a flash 3600 units out: the picture with the flash equals the one
 // without it; with the body moved aside the same flash is drawn. [FACE]: FlashSpriteFacing (flash_sprite.h) turns the sprite toward the frame's viewer eye. [NEAR]: the census counts a flash nearer than
 // kFlashNearViewZ (600 units: near 1) and not the far ones (3600 units), and the flashes line says so.
-// [PIX] (S110 FLASHFRONT, docs\research\s110\FLASHFRONT.md): a body covering PART of a sprite whose centre is visible: the sprite is drawn around the body and no sprite pixel lands on it (the after-post pass tests
-// the attached scene depth per pixel). Planted twin flash_no_ztest (the depth test off, CUTGREY's state) -> [PIX].
+// [RAYS] (S111 FLASHGAME, docs\research\s111\FLASHGAME.md): a body covering PART of a sprite whose centre is visible: the WHOLE sprite is drawn, around the body and over it (the game's z test is off for the
+// flash draw, sub_823B27F0 +354; its only hide is the centre read, [OCC] / [HIDE] / [MAP]). Planted twin flash_pixel_ztest (S110 FLASHFRONT's per-pixel test, the removed margin) -> [RAYS].
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -237,7 +237,7 @@ OccPic DrawOcc(rdr::Renderer& renderer, FrontEnd& fe, int flash_model, int occ_m
   std::memcpy(sf.camera.eye, cam.eye, sizeof cam.eye);
   PostParams pp = DefaultPostParams(W, H, false);
   pp.depth_from_viewer = true, pp.proj_q = cam.q, pp.proj_nq = cam.nq;
-  sf.post = with_post ? &pp : nullptr;   // ([PIX] draws without the post chain: its body mask is exact, no blur halo)
+  sf.post = with_post ? &pp : nullptr;   // ([RAYS] draws without the post chain: its body mask is exact, no blur halo)
   const assets::Matrix ow = FlashWorld(occ_v, 70.f, cam.eye);
   Mat4 om;
   std::memcpy(om.m, ow.data(), sizeof om.m);
@@ -324,7 +324,7 @@ uint32_t RunOcc(float scale) {
     Check(drawn_px > need, "OCC", what + ": the same flash with the body aside is drawn (" + std::to_string(drawn_px) + " pixels lit)");
     Check(hidden_diff == 0, "OCC", what + ": a body in front of the flash centre hides the whole sprite (the picture equals the one without it): " + std::to_string(hidden_diff) + " channel values differ");
   }
-  {   // [PIX] (S110 FLASHFRONT): a body 520 units out covering PART of the sprite but not its centre. The centre read passes (the sprite is drawn around the body) and no sprite pixel lands on the body.
+  {   // [RAYS] (S111 FLASHGAME): a body 520 units out covering PART of the sprite but not its centre. The centre read passes, so the whole sprite is drawn: around the body AND over it (the game's z test is off).
     float fw[3] = {look_g[0] - eye_g[0], look_g[1] - eye_g[1], look_g[2] - eye_g[2]};
     Norm3(fw);
     const float down[3] = {0.f, 1.f, 0.f};
@@ -352,10 +352,10 @@ uint32_t RunOcc(float scale) {
         body_px += is_body, on_body += is_body && lit, off_body += !is_body && lit;
       }
     const int need_pix = int(100.f * scale * scale);
-    std::printf("info: [PIX] %s: body %d pixels, sprite pixels on the body %d, sprite pixels around it %d\n", tag, body_px, on_body, off_body);
-    Check(body_px > need_pix, "PIX", std::string(tag) + ": the body is drawn (" + std::to_string(body_px) + " pixels)");
-    Check(off_body > need_pix, "PIX", std::string(tag) + ": the flash whose centre is visible is drawn around the body (" + std::to_string(off_body) + " pixels)");
-    Check(on_body == 0, "PIX", std::string(tag) + ": no sprite pixel lands on the nearer body (" + std::to_string(on_body) + " pixels do)");
+    std::printf("info: [RAYS] %s: body %d pixels, sprite pixels on the body %d, sprite pixels around it %d\n", tag, body_px, on_body, off_body);
+    Check(body_px > need_pix, "RAYS", std::string(tag) + ": the body is drawn (" + std::to_string(body_px) + " pixels)");
+    Check(off_body > need_pix, "RAYS", std::string(tag) + ": the flash whose centre is visible is drawn around the body (" + std::to_string(off_body) + " pixels)");
+    Check(on_body > need_pix, "RAYS", std::string(tag) + ": the flash whose centre is visible is drawn OVER the nearer body, as the game (no per-pixel depth test): " + std::to_string(on_body) + " sprite pixels on the body");
   }
   if (scale == 1.f) {   // [NEAR] (S110 FLASHOCC census): the far flashes above are not near; one 600 units out is, and `nearest` is its view z
     const uint64_t near0 = fe.flash_near();
@@ -403,10 +403,10 @@ int main(int argc, char** argv) {
       else if (p == "flash_file_colour") g_plant_flash_file_colour.store(true);
       else if (p == "flash_v_flip") g_plant_flash_v_flip.store(true);
       else if (p == "flash_fetch_row0") g_plant_flash_fetch_row0.store(true);
-      else if (p == "flash_no_ztest") g_plant_flash_no_ztest.store(true);
+      else if (p == "flash_pixel_ztest") g_plant_flash_pixel_ztest.store(true);
       else return std::fprintf(stderr, "unknown plant %s\n", p.c_str()), 2;
     } else if (a == "--expect-fail") expect_fail = true;
-    else return std::fprintf(stderr, "usage: cutgrey_unit [--plant flash_pre_post | flash_file_colour | flash_v_flip | flash_fetch_row0 | flash_no_ztest] [--expect-fail]\n"), 2;
+    else return std::fprintf(stderr, "usage: cutgrey_unit [--plant flash_pre_post | flash_file_colour | flash_v_flip | flash_fetch_row0 | flash_pixel_ztest] [--expect-fail]\n"), 2;
   }
   std::string err;
   rdr::RendererOptions ro;

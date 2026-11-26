@@ -172,10 +172,13 @@ function Get-LaneCacheStrings([string]$Cache) {
     return $o
 }
 # F4: one symbols recipe for every lane exe (the main session's decision, S106 11:4x): symbols OFF, guest lines OFF, whatever main's cache says.
-function Get-LaneWantedOptions($MainOptions) {
+# S111: and the preset's own identity, never main's cache (main's out\build\win-amd64-release is the stream-FREE player build since 2026-11-26; tip_exe's tip-stream exe is built from that preset and must keep the stream).
+function Get-LaneWantedOptions($MainOptions, [string]$Preset = '') {
     $w = [ordered]@{}
     foreach ($k in $MainOptions.Keys) { $w[$k] = $MainOptions[$k] }
     $w['WWE2K14_EXE_SYMBOLS'] = 'OFF'; $w['WWE2K14_EXE_SYMBOLS_GUEST_LINES'] = 'OFF'
+    if ($Preset -eq 'win-amd64-release') { $w['WWE2K14_KEEP_STREAM'] = 'ON'; $w['WWE2K14_KEEP_STREAM_RUN'] = 'OFF' }
+    elseif ($Preset -eq 'win-amd64-release-off') { $w['WWE2K14_KEEP_STREAM'] = 'OFF'; $w['WWE2K14_KEEP_STREAM_RUN'] = 'ON' }
     return $w
 }
 # The wanted keys whose value in $Have differs or is absent.

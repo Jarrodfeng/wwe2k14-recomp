@@ -329,9 +329,11 @@ void BuildItem(FakeMem& m, uint32_t item, const ItemSpec& s, uint32_t base = 0) 
   for (int i = 0; i < 4; ++i) m.F(tr + 32 + 16 * uint32_t(i), uvs[i][0]), m.F(tr + 36 + 16 * uint32_t(i), uvs[i][1]);
 }
 
-void BuildEntry(FakeMem& m, uint32_t entry, const std::vector<ItemSpec>& items, bool gate_open, uint32_t idx = 0, uint32_t e64 = 0, uint32_t f132 = 1) {
+// `ztest` = the sub-record's word +220 (the start record's +8: 1 for every start but the 7 GMEV rows; 0 = the game draws the entry with depth ALWAYS, S111 PARTZ).
+void BuildEntry(FakeMem& m, uint32_t entry, const std::vector<ItemSpec>& items, bool gate_open, uint32_t idx = 0, uint32_t e64 = 0, uint32_t f132 = 1, uint32_t ztest = 1) {
   m.w[entry + 56] = idx;
   m.w[entry + 176 * idx + 208] = gate_open ? 1 : 0;
+  m.w[entry + 176 * idx + 220] = ztest;
   m.w[entry + 176 * idx + 80 + 132] = f132;
   m.w[entry + 64] = e64;
   m.w[entry + 40] = 0x100, m.w[0x100] = 0x110, m.w[0x110 + 12] = uint32_t(items.size());
@@ -511,6 +513,58 @@ void TestReader(const std::string& fault) {
     ReadEntry(fm, 0x3000, cam, full, rf);
     Check(full.entries.size() == kMaxParticlesPerFrame && full.dropped >= 1, "reader: the per-frame particle cap holds and the drop is counted");
   }
+  g_reader_plant = 0;
+}
+
+// ---- 3b1. S111 PARTZ: the entry's word +220 (sub_82A0AED8 +6C / +78: 0 = the game draws every item of the entry with depth ALWAYS, +84) ----------------------------------------
+// The fault `reader_depth` (reader plant 9) ignores the word: the first and the last check must then fail.
+void TestReaderDepth(const std::string& fault) {
+  using namespace rdr_scene::live::particles;
+  g_reader_plant = fault == "reader_depth" ? 9 : 0;
+  const float view[16] = {0.8f, 0.1f, 0.5916f, 0, 0.0f, 0.9864f, -0.1644f, 0, -0.6f, 0.1315f, 0.7893f, 0, 0, 0, 0, 1};
+  const CameraBasis cam = BasisFromView(view);
+  ItemSpec a;
+  // Two entries with the same item (same texture, blend, soft, address, zoffset), +220 = 0 and 1, read into ONE snapshot: two keys, never merged.
+  FakeMem m0, m1;
+  BuildEntry(m0, 0x3000, {a}, true, 0, 0, 1, /*ztest=*/0);
+  BuildEntry(m1, 0x3000, {a}, true, 0, 0, 1, /*ztest=*/1);
+  ParticleSnapshot s;
+  ReaderStats st;
+  ReadEntry(m0, 0x3000, cam, s, st);
+  ReadEntry(m1, 0x3000, cam, s, st);
+  const bool split = s.entries.size() == 2 && s.keys.size() == 2 && s.entries[0].key != s.entries[1].key && s.keys[s.entries[0].key].depth_always == 1 && s.keys[s.entries[1].key].depth_always == 0;
+  Check(split, "reader: an entry whose +220 word is 0 draws ALWAYS, one whose word is 1 draws tested (two keys, not merged)",
+        std::to_string(s.entries.size()) + " sprites, " + std::to_string(s.keys.size()) + " keys");
+  // The word is the CURRENT sub-record's (+56 = 1: entry + 176 + 220), not the entry's first one.
+  {
+    FakeMem m;
+    BuildEntry(m, 0x3000, {a}, true, /*idx=*/1, 0, 1, /*ztest=*/1);
+    m.w[0x3000 + 220] = 0;   // sub-record 0's word: not the one the game tests
+    ParticleSnapshot si;
+    ReaderStats sti;
+    ReadEntry(m, 0x3000, cam, si, sti);
+    Check(si.entries.size() == 1 && si.keys.size() == 1 && si.keys[0].depth_always == 0, "reader: the +220 word is read from the entry's current sub-record (entry + 176 * [entry + 56] + 220)");
+  }
+  // The game reads the word only past its two gates: a gated entry is gated, not unreadable, whatever its +220 holds.
+  {
+    FakeMem g;
+    BuildEntry(g, 0x3000, {a}, false);
+    g.w.erase(0x3000 + 220);
+    ReaderStats rg;
+    ParticleSnapshot sg;
+    ReadEntry(g, 0x3000, cam, sg, rg);
+    Check(sg.entries.empty() && rg.entries_gated == 1 && rg.unreadable == 0, "reader: a gated entry is gated before its +220 word is read (the game's order)");
+  }
+  // The flag reaches the record's batches and their draw compare: 7 = ALWAYS, 3 = LESS_OR_EQUAL (VkCompareOp numbers).
+  SceneTables t;
+  ParticleContributor::WriteTables(s, 9, t);
+  SceneTables back;
+  std::string err;
+  const std::vector<uint8_t> bytes = SerializeRecord(t);
+  const bool parsed = ParseRecord(bytes.data(), bytes.size(), back, err);
+  const auto& bb = back.particles.batches;
+  const bool through = parsed && t.particles.batches.size() == 2 && bb.size() == 2 && bb[0].depth_always == 1 && bb[1].depth_always == 0 && ParticleDepthCompare(bb[0]) == 7 && ParticleDepthCompare(bb[1]) == 3;
+  Check(through, "depth: the flag rides the record's batches, compare 7 (ALWAYS) for the +220 == 0 entry, 3 (LEQUAL) for the other", err + " " + std::to_string(bb.size()) + " batches");
   g_reader_plant = 0;
 }
 
@@ -1242,6 +1296,7 @@ int main(int argc, char** argv) {
   TestRecord(fault == "bad_index");
   TestContributor(fault == "stale_snapshot");
   TestReader(fault);
+  TestReaderDepth(fault);
   TestReaderF3(fault);
   TestNamerF4(fault);
   TestSource(fault);

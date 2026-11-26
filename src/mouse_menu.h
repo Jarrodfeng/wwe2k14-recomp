@@ -474,7 +474,6 @@ inline void GridPadFilter(rex::input::X_INPUT_STATE* state, uint64_t frame) {
 // row), one press at a time, looking again after each.
 constexpr uint32_t kParticipantManagerPtr = 0x839294C0, kParticipantBlockOffset = 11000, kParticipantStride = 156,
                    kParticipantBlockStride = 1100, kParticipantControllerOffset = 60, kPanelParticipantOffset = 276;
-constexpr uint16_t kPadUpDir = 0x0001, kPadDownDir = 0x0002;
 
 struct SlotPos {
   float x0, x1, y;  // the slot's bar (x) and its label row's centre (y)
@@ -591,7 +590,7 @@ inline void OnSlotFrame() {
     const SlotPos &a = layout->slot[cur], &b = layout->slot[target];
     const float ax = (a.x0 + a.x1) / 2, bx = (b.x0 + b.x1) / 2;
     if ((ax < 640) != (bx < 640)) press = bx < ax ? kPadLeft : kPadRight;  // the other column
-    else if (std::fabs(b.y - a.y) > 4) press = b.y < a.y ? kPadUpDir : kPadDownDir;
+    else if (std::fabs(b.y - a.y) > 4) press = b.y < a.y ? kPadUp : kPadDown;
     else press = bx < ax ? kPadLeft : kPadRight;
   }
   if (!press) return;

@@ -68,14 +68,16 @@ inline bool VsHash(const read_rule::EffectTable& table, const std::string& effec
 //   base = 1 when the model is skinned (model+540 == 1), else 0.
 //   A = sub_82BD4F88 (part entry E = [model+480] + 24 * part): E+12 == 0 -> base; else by mode = model+616 (= char +5056): 0 -> (spec-power record absent / negative) ? base+8 : base; 1 -> base+4 (dry);
 //   2 -> base+8 (wet); 3 -> base (cube always); > 3 -> base.
-//   B = sub_82BD5EE0: +2 when E+4 and the pass's shadow map exists; +4 when E+8 (ybg_psm / yprop_psm: never a wrestler); +16 when E+20 && model+620 == 1 (ych_aniso_trans only; model+620 is not read: never seen in a
-//   capture, not modelled). B's bit-0 clear (E+0 == 0 on a skinned model) never fires for a wrestler: the game sets E+0 = 1 for every wrestler part and clears it only for 7 ybg_* names (sub_82BDB460 loop at
+//   B = sub_82BD5EE0: +2 when E+4 and the pass's shadow map exists; +4 when E+8 (ybg_psm / yprop_psm: never a wrestler); +16 when E+20 && model+620 == 1 (ych_aniso_trans only; S111 TECHPASS: model+620 = the
+//   character's dim predicate, latched per body and handed in as `model620`). B's bit-0 clear (E+0 == 0 on a skinned model) never fires for a wrestler: the game sets E+0 = 1 for every wrestler part and clears it only for 7 ybg_* names (sub_82BDB460 loop at
 //   0x82BDBFA0, review YCB F2), so the game's rigid parts draw the SKINNED row. CharPass returns that game pass; OUR rigid stream needs the rigid vertex variant (ChooseCharEffectTable takes the VS of row `p & ~1`
 //   for a rigid part and the PS of row `p`: our adaptation, not the game's).
 // The E fields are set by sub_82BDA038 from the part's effect NAME (16-byte compares against lower-case copies; strings by `q addr`): E+12 = 1 for the names below (NOT ych_aniso_trans, NOT ych_cloth_trans, NOT
 // ych_transtiling: the game truncates the name to 15 characters, "ych_trans_tilin", so that compare never matches, review YCB F1), E+20 = 1 for ych_aniso_trans, E+4 = 1 for every E+12 name plus ych_aniso_trans.
 // `lower` = the lower-cased effect name. hair = the class the game draws without the shadow bit and our front end draws twice: exactly ych_trans / ych_aniso_trans (review YCB P2-2).
-struct CharClass { bool e12 = false, e4 = false, hair = false; };
+// S111 TECHPASS (docs\research\s111\TECHPASS.md section A): the game's +2 follows the part's DRAW LAYER (class key -> table 0x82007F60; layers 5..7 = the translucent draw sub_8259FAE8, which zeroes the
+// shadow slot), not a class; `hair` stands in for it until the class key is carried. e20 = E+20 (the +16 term's part side).
+struct CharClass { bool e12 = false, e4 = false, hair = false, e20 = false; };
 inline CharClass CharClassOf(const std::string& lower) {
   static const char* const kNames[] = {"ych_skin", "ych_skin_flex", "ych_trans", "ych_grar", "ych_grar_flex", "ych_gear", "ych_gear_flex",
                                        "ych_cloth", "ych_cloth_flex", "ych_anisotropic", "ych_reflect", "ych_ls"};
@@ -83,11 +85,13 @@ inline CharClass CharClassOf(const std::string& lower) {
   for (const char* n : kNames) c.e12 = c.e12 || lower == n;
   c.e4 = c.e12 || lower == "ych_aniso_trans";
   c.hair = lower == "ych_trans" || lower == "ych_aniso_trans";
+  c.e20 = lower == "ych_aniso_trans";   // S111 TECHPASS: sub_82BDA038 +0xD10 sets E+20 for this one name
   return c;
 }
 // mode616 < 0 = not read (the record does not carry it yet): the per-material mode 0. spec_pow_ok = the material names g_mSpecPowPrm with a texture index > 0 (E+16 non-null) [L: the runtime value's sign test ([[E+16]] < 0) is not settled].
 // shadow_ok = this pass has a shadow map the class reads (the caller clears it for the hair class: the game never sets the bit there, YCH.md capture).
-inline int CharPassOf(const CharClass& c, bool model_skinned, bool shadow_ok, int mode616, bool spec_pow_ok) {
+// model620 = the game's model +620 of the drawn body (S111 TECHPASS: char +5064 = the dim predicate sub_8259F0E0, written by sub_825A1E38 before every draw), -1 = not latched: no +16 term.
+inline int CharPassOf(const CharClass& c, bool model_skinned, bool shadow_ok, int mode616, bool spec_pow_ok, int model620 = -1) {
   const int base = model_skinned ? 1 : 0;
   int pass = base;
   if (c.e12) {
@@ -98,9 +102,10 @@ inline int CharPassOf(const CharClass& c, bool model_skinned, bool shadow_ok, in
     else pass = base;
   }
   if (c.e4 && shadow_ok) pass += 2;
+  if (c.e20 && model620 == 1) pass += 16;   // S111 TECHPASS: sub_82BD5EE0 +0xA4..+0xB4 (a created wrestler's hair: the ss_ rows p17 / p19)
   return pass;
 }
-inline int CharPass(const std::string& lower, bool model_skinned, bool shadow_ok, int mode616, bool spec_pow_ok) { return CharPassOf(CharClassOf(lower), model_skinned, shadow_ok, mode616, spec_pow_ok); }
+inline int CharPass(const std::string& lower, bool model_skinned, bool shadow_ok, int mode616, bool spec_pow_ok, int model620 = -1) { return CharPassOf(CharClassOf(lower), model_skinned, shadow_ok, mode616, spec_pow_ok, model620); }
 
 // Does the variant's output alpha carry the DIFFUSE texture's alpha? [C: fx_prop.glsl 603-606 / 674 / 780-783, and the game's translated shaders PAS section 2]: every yProp fragment multiplies the diffuse alpha
 // in (cut-out + soft edge) except the gloss techniques (FX_ALPHA_GLOSS, FX_NORMAL_GLOSS), whose diffuse alpha is the gloss mask and whose output alpha is the colour alpha alone.

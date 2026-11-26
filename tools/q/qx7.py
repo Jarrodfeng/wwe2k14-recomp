@@ -1,4 +1,4 @@
-r"""qx7: two whole-game indexes over the generated listing (S103 lane QX4): virtual call sites and the draw-node registry (the run-log index is qrunlog.py).
+r"""qx7: two whole-game indexes over the generated listing (S103 lane QX4): virtual call sites and the draw-node registry.
 
     py tools/q/q.py vcall SLOT_OFFSET [--class VT] [--all] [--json] [--limit N]
         every VIRTUAL call site in the generated listing with that vtable slot offset: the `lwz rX,OFF(rY)` + `mtctr rX` + `bctrl` pattern (a tail `bctr` too).
@@ -915,6 +915,8 @@ def vcall_main(argv, con=None):
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--limit', type=int, default=60)
     ap.add_argument('--db', default=None)
+    ap.add_argument('--reg', default=None, metavar='rN', help='S111 QARGS: the value of that argument register at every listed site (histogram; qargs.py)')
+    ap.add_argument('--value', default=None, metavar='V', help='with --reg: only the sites passing V')
     a = ap.parse_args(argv)
     off = parse_num(a.offset)
     if off % 4 or off < 0:
@@ -961,6 +963,12 @@ def vcall_main(argv, con=None):
                 continue
         res.append({'site': hx(r['site']), 'func': f"sub_{r['func']:08X}", 'name': names.get(r['func'], ''), 'kind': r['kind'], 'via_vtable': bool(r['via_vt']),
                     'receiver': r['recv'], 'r3_is_receiver': bool(r['r3ok']), 'classes': [{'vt': hx(c), 'name': cnames.get(c, '?')} for c in cl]})
+    if a.reg or a.value:
+        import qargs
+        try:
+            return qargs.vcall_regs(icon, res, a.reg, a.value, a.json, a.limit, off)
+        except qargs.ArgsError as e:
+            raise XError(str(e))
     if a.json:
         print(json.dumps({'offset': off, 'slot': off // 4, 'sites_at_offset': total, 'non_vtable_hidden': 0 if a.all else nonvt,
                           'unresolved_omitted': unresolved if sel_vt is not None else None, 'sites': res}, indent=1))

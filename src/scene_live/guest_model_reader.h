@@ -32,6 +32,8 @@
 #include <vector>
 
 #include "buffer_unlock_log.h"
+#include "guest_model_floats.h"   // S111 GUESTHAIR: a part's float parameter rows (read in the byte pass)
+#include "guest_model_mat.h"      // S111 EYECUBE: the texture-name table and the record words (read in the byte pass)
 #include "safe_guest_pages.h"   // S108 RDS: LineCopy (the layout pass's line copy)
 #include "skin_data.h"   // S103 WC R3: kSkinData* (the +220 data object, shared)
 
@@ -46,13 +48,14 @@ using skin::kSkinForwardOff;
 
 inline constexpr uint32_t kOffExtra = 232, kOffTexCount = 256, kOffTexKeys = 260, kOffVB = 336, kOffAltOn = 348, kOffAltMask = 352, kOffIB = 344, kOffStride = 360, kOffPartCount = 372, kOffN0 = 376, kOffN1 = 380,
                           kOffRangeTwo = 548, kOffDesc = 824, kOffOverride = 832, kOvArray = 1132, kOvCount = 1136;
+inline constexpr uint32_t kOffPartTags = 368, kOffDimPred = 620;   // S111 LAYERS: [m+368] the per-part draw tags (sub_82BDB460 +0xBA8 / +0xD48, set by sub_82BD4FF0), [m+620] the owner's dim predicate (sub_825A1E38 +0x68 / +0xCC)
 // S105 A5c (docs\research\s105\A5c.md items 1-2 [C]): the CAW model's logo callback. sub_822E6DE8 stores the callback sub_822E6CC8 at [model+324] and the editor object E at [model+328]; the model draw sub_82C04DF0 calls it at
 // 0x82C09810; it reads composer = [E+2608], buf = [composer+100], set = [composer+116+4*buf], arr = [set+4] and binds the picture of arr+0 at fetch slot 7 and of arr+8 at slot 4 (each entry: word 0 = the registry handle, word 1).
 inline constexpr uint32_t kOffLogoCb = 324, kOffLogoArg = 328, kEditComposer = 2608, kCompBuf = 100, kCompLogoSet = 116, kLogoCb = 0x822E6CC8u, kLogoSetArr = 4, kLogoEntry = 8;
 inline constexpr uint32_t kDescStride = 184, kDescVertices = 0, kDescPalCount = 8, kDescPal = 12, kDescExtraIndex = 96, kDescEffect = 124, kDescParamCount = 148, kDescParams = 152;
-inline constexpr uint32_t kMaxParts = 64, kMaxVertices = 1u << 20, kMaxStride = 256, kMaxVertexBytes = 32u << 20, kMaxIndices = 1u << 20, kMaxNodes = 20, kMaxSamplers = 6, kMaxOverrides = 64, kNameBytes = 16, kOvDump = 12;
+inline constexpr uint32_t kMaxParts = 64, kMaxVertices = 1u << 20, kMaxStride = 256, kMaxVertexBytes = 32u << 20, kMaxIndices = 1u << 20, kMaxNodes = 20, kMaxOverrides = 64, kNameBytes = 16, kOvDump = 12;
 inline constexpr uint32_t kParamSampler = 15;
-// S110 WHITEFACE: NOT a limit. The parameter walk only SCANS (each parameter is read, tested for being a sampler, then dropped; the kept samplers are bounded by kMaxSamplers), so the game's own count `pc` needs no cap
+// S110 WHITEFACE: NOT a limit. The parameter walk only SCANS (each parameter is read, tested for being a sampler and kept or dropped; S111 UNIFY2: every sampler is kept, the old 6 is gone), so the game's own count `pc` needs no cap
 // of ours. This is a guard against a GARBAGE count read from freed / reused guest memory (no real part has more than 68): a count above it is an unreadable parameter list, counted in param_unreadable.
 inline constexpr uint32_t kParamCountGarbage = 4096;
 
@@ -65,6 +68,7 @@ inline constexpr uint32_t kParamCountGarbage = 4096;
 inline int g_gm_logo_plant = 0;
 inline int g_gm_plant = 0;   // 14 (WC R3): the [m+824] == 0 path is not taken (a model whose descriptors live in the data object is NoDesc again)
                              // 17 (S110 WHITEFACE): the old all-or-nothing guard `pc <= 64` is back (a part with 68 parameters keeps no sampler: the white face)
+                             // 18 (S111 EYECUBE review): the byte pass reads no record words and no texture names (the reader before EYECUBE)
 
 enum class Why : uint8_t { Ok = 0, NoModel, NoDesc, NoParts, Unreadable, BadSize, BadIndexBuffer, AltStream, BadFlags, Count };
 inline const char* WhyText(Why w) {
@@ -73,7 +77,7 @@ inline const char* WhyText(Why w) {
   return uint32_t(w) < uint32_t(Why::Count) ? t[uint32_t(w)] : "?";
 }
 
-enum PartFlags : uint32_t { kPartN1 = 1, kPartExtraStreams = 2 };
+enum PartFlags : uint32_t { kPartN1 = 1, kPartExtraStreams = 2, kPartDrawWords = 4 };   // kPartDrawWords (S111 LAYERS): draw_tag / created were read
 
 // A word-wide hash (8 bytes a step; the byte-serial FNV was ~2 ms a frame for a whole cast, CW2_review bug 1).
 inline uint64_t Hash64(const void* p, size_t n, uint64_t h = 0x9E3779B97F4A7C15ull) {
@@ -142,6 +146,7 @@ struct SamplerRead {
   uint32_t key = 0, key1 = 0;       // the model's own key (word 0 = the registry handle)
   uint32_t ov_key = 0;              // the override block's handle for this name, 0 = none
   bool has_override = false;
+  char tex_name[kNameBytes] = {};   // S111 EYECUBE: the model's texture name of t ([m+268]+16t, guest_model_mat.h), read in the byte pass; empty = not read
 };
 
 struct PartRead {
@@ -151,13 +156,17 @@ struct PartRead {
   uint32_t vflags = 0;                     // F
   uint32_t n0 = 0, n1 = 0;                 // the draw's index ranges: [0, n0) and, when kPartN1, [n0, n0 + n1)
   uint32_t flags = 0;
+  uint32_t draw_tag = 0, created = 0;      // S111 LAYERS (with kPartDrawWords): the part's tag [[m+368]+4p] and the model's dim predicate [m+620] == 1
   uint32_t desc_extra = 0;                 // [desc+96]: the extra-stream remap object index (census)
   uint32_t node_count = 0;
   uint16_t nodes[kMaxNodes] = {};          // slot -> node ([desc+12+4k] - 1), 0xFFFF = none
   char effect[kNameBytes] = {};            // [desc+124]
-  std::vector<SamplerRead> samplers;       // every kind-15 parameter with a usable key (up to kMaxSamplers)
-  uint32_t sampler_overflow = 0;           // kind-15 parameters beyond kMaxSamplers
+  std::vector<SamplerRead> samplers;       // every kind-15 parameter with a usable key (S111 UNIFY2: all of them, the game's own count)
   uint32_t param_unreadable = 0;           // 1 = the parameter count [desc+148] is a garbage value (> kParamCountGarbage): the part's parameters are not read
+  uint32_t param_arr = 0, param_n = 0;     // S111 GUESTHAIR: [desc+152] / [desc+148] as the layout pass read them (0 = unread / a garbage count): where the byte pass reads the float rows
+  std::vector<FloatParamRead> floats;      // S111 GUESTHAIR: every kind 0x0A / 0x0D parameter (up to kMaxFloatParams), read in the byte pass (guest_model_floats.h): in no key
+  uint32_t float_overflow = 0;
+  uint32_t desc = 0, technique = 0, cull = 0;   // S111 EYECUBE: the descriptor address (layout pass) and its [desc+144] / [desc+140] words (byte pass; carried, not used yet)
   uint32_t vdata = 0, idata = 0;           // the guest data addresses (the unlock log's keys)
   std::shared_ptr<const std::vector<uint8_t>> vtx;   // vertex_count * stride bytes, dwords in HOST order (the 8-in-32 swap applied): little-endian values
   std::vector<uint16_t> idx;               // n0 + n1 host indices
@@ -192,7 +201,7 @@ struct ModelRead {
   uint64_t hash = 0;                       // over the readable parts' hashes in part order (and the unreadable parts' numbers)
   uint64_t layout_key = 0;                 // over every word the layout pass read (no byte content): equal = same declaration
   uint32_t parts_ok = 0, parts_unreadable = 0, parts_extra_streams = 0, parts_alt = 0, parts_bad_flags = 0, bad_indices = 0;
-  uint32_t samplers = 0, sampler_overflow = 0, param_unreadable = 0, ov_entries = 0, ov_matched = 0, ov_matched_ci = 0;   // ov_matched_ci: entries that equal a sampler name only when the case is ignored (CTX2: the lead for "0 of 11")
+  uint32_t samplers = 0, param_unreadable = 0, ov_entries = 0, ov_matched = 0, ov_matched_ci = 0;   // ov_matched_ci: entries that equal a sampler name only when the case is ignored (CTX2: the lead for "0 of 11")
   uint32_t ov_array = 0, ov_count = 0;     // CTX2: the override block's entry array and count (0 = none); ReadModelBytes dumps up to kOvDump entries
   uint8_t ov_dump_n = 0;                   // CTX2: how many override entries ov_names / ov_handle0 hold (at most kOvDump)
   char ov_names[kOvDump][kNameBytes + 1] = {};
@@ -213,6 +222,7 @@ struct ModelRead {
   uint64_t logo_hash[2] = {};              // S105 A5c: the resolver's picture hash of each logo (0 = none); the pictures themselves are in `textures`
   uint8_t logo_state[2] = {};              // S105 A5c: kGtMissing / kGtBound
   bool tex_incomplete = false;             // some sampler has a key the resolver has not answered yet (deferred by its per-call budget): the next call asks again
+  uint32_t tex_names = 0;                  // S111 EYECUBE: the model's texture-name table (guest_model_mat.h TexNameTable; 0 = none), byte pass
 };
 
 namespace detail {
@@ -268,7 +278,7 @@ template <class M>
 inline void ReadPartLayout(detail::Rd<M>& rd, uint32_t model, uint32_t p, uint32_t desc, bool two_ranges, uint32_t extra_array, uint32_t ov_entries, uint32_t ov_count, uint32_t tex_count, uint32_t tex_keys,
                            PartRead& r, ModelRead& mr) {
   using namespace detail;
-  r.part = p;
+  r.part = p, r.desc = desc;   // S111 EYECUBE: the byte pass reads the record words there
   uint32_t vbs_arr = 0, hdr0 = 0, stride_arr = 0, vbs = 0, vcount = 0, stride = 0, bytes_raw = 0, F = 0;
   uint32_t alt_on = 0, alt_mask = 0;
   if (!rd.Word(model + kOffAltOn, alt_on) || !rd.Word(model + kOffAltMask, alt_mask)) { r.why = Why::Unreadable; return; }
@@ -310,6 +320,7 @@ inline void ReadPartLayout(detail::Rd<M>& rd, uint32_t model, uint32_t p, uint32
   if (rd.Word(desc + kDescParamCount, pc) && rd.Word(desc + kDescParams, parr) && pc && parr) {
     const uint32_t garbage = (g_gm_plant == 17) ? 64u : kParamCountGarbage;   // plant 17: the old cap
     if (pc > garbage) r.param_unreadable = 1;
+    r.param_arr = parr, r.param_n = pc > garbage ? 0u : pc;   // S111 GUESTHAIR: where the byte pass reads the float rows (guest_model_floats.h); a garbage count reads none
     for (uint32_t i = 0; i < (pc > garbage ? 0 : pc); ++i) {
       uint32_t po = 0, kind = 0, tv = 0;
       if (!rd.Word(parr + 4 * i, po) || !po || !rd.Half(po + 16, kind)) break;
@@ -341,8 +352,7 @@ inline void ReadPartLayout(detail::Rd<M>& rd, uint32_t model, uint32_t p, uint32
           if (vp && rd.Word(vp, h) && h) s.ov_key = h, s.has_override = true;
           break;
         }
-      if (r.samplers.size() < kMaxSamplers) r.samplers.push_back(s);
-      else ++r.sampler_overflow;
+      r.samplers.push_back(s);   // S111 UNIFY2: no cap of ours (the row writer keeps the ones the material table takes)
     }
   }
   // indices (words)
@@ -442,11 +452,20 @@ inline ModelRead ReadModelLayout(const M& m, uint32_t model) {
   out.parts = parts;
   out.p.resize(parts);
   for (uint32_t p = 0; p < parts; ++p) ReadPartLayout(rd, model, p, desc_base + p * kDescStride, range_two != 0, extra, ov_entries, ov_count, tex_count, tex_keys, out.p[p], out);
+  {   // S111 LAYERS (src\assets\char_draw_layer.h): the game's own draw words of every readable part: its tag [[m+368]+4p] (0 from the build; set only by the composer's tag setup) and the model's dim
+      // predicate [m+620] (sub_825A1E38, before every draw). They join the layout key. Reader plant 19 = not read (the rows before LAYERS).
+    uint32_t tags = 0, pred = 0;
+    if (g_gm_plant != 19 && rd.Word(model + kOffPartTags, tags) && tags && rd.Word(model + kOffDimPred, pred))
+      for (uint32_t p = 0; p < parts; ++p) {
+        uint32_t tag = 0;
+        if (out.p[p].Ok() && rd.Word(tags + 4 * p, tag)) out.p[p].draw_tag = tag, out.p[p].created = pred == 1 ? 1u : 0u, out.p[p].flags |= kPartDrawWords;
+      }
+  }
   for (const PartRead& r : out.p) {
     if (r.Ok()) {
       ++out.parts_ok;
       if (r.flags & kPartExtraStreams) ++out.parts_extra_streams;
-      out.samplers += uint32_t(r.samplers.size()), out.sampler_overflow += r.sampler_overflow, out.param_unreadable += r.param_unreadable;
+      out.samplers += uint32_t(r.samplers.size()), out.param_unreadable += r.param_unreadable;
     } else {
       ++out.parts_unreadable;
       if (r.why == Why::AltStream) ++out.parts_alt;
@@ -476,10 +495,16 @@ inline void ReadModelBytes(const M& m, ModelRead& out) {
     if (vp) m.u32(vp, hw);
     out.ov_handle0[j] = hw, out.ov_dump_n = uint8_t(j + 1);
   }
+  out.tex_names = TexNameTable(m, out.model);   // S111 EYECUBE: plain reads, in no key (guest_model_mat.h)
   for (PartRead& r : out.p) {
     ReadPartBytes(m, r, out.bytes_read);
     if (r.Ok()) {
       ++out.parts_ok;
+      ReadFloatParams(m, r.param_arr, r.param_n, r.floats, r.float_overflow);   // S111 GUESTHAIR: plain reads, in no key (guest_model_floats.h)
+      if (g_gm_plant != 18) {   // S111 EYECUBE (plant 18: none read)
+        ReadMatWords(m, r.desc, r.technique, r.cull);
+        for (SamplerRead& s : r.samplers) ReadTexName(m, out.tex_names, s.t, s.tex_name);
+      }
       out.vertices += r.vertex_count, out.indices += r.n0 + r.n1;
       if (r.flags & kPartExtraStreams) ++out.parts_extra_streams;
       if (r.vertex_count && r.max_index >= r.vertex_count) ++out.bad_indices;

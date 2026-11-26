@@ -62,6 +62,7 @@
 #include "crowd_cards.h"    // --wwe2k14_crowd_card_distance (Session 100, default 1 = the game's own)
 #include "crowd_wide.h"     // lane 176: --wwe2k14_crowd_fill_wide (auto = the stands crowd's screen test follows the displayed aspect; config/crowd_wide_hooks.toml)
 #include "flow_probe.h"     // --wwe2k14_flow_probe (Session 14, Rumble diagnosis, default off)
+#include "load_turbo_preload.h"  // S111 MENULOAD: the 30 Years menu's preload wait opens a load turbo window (hook sub_82851888)
 #include "reshoot.h"        // --wwe2k14_reshoot (Session 16 item 2, default off)
 #include "runin.h"          // --wwe2k14_runin (Session 16 item 9 experiment, default off)
 #include "director.h"       // --wwe2k14_director (Session 17 Track 3, default off)
@@ -425,6 +426,7 @@ class Wwe2k14App : public rex::ReXApp {
     wwe2k14::reshoot::PreSetup();  // sets --wwe2k14_replay_play etc. first (no-op unless --wwe2k14_reshoot)
     wwe2k14::director::PreSetup();  // Session 17: scenario / seed / replay mode from a director script (if any)
     wwe2k14::replay::g_replay.PreSetup();
+    wwe2k14::ramp_menu::ApplyAtStart();  // S111 RAMPMENU: the row's text; the ramp switch's start value (after the replay's settings: ramp_menu_core.h StartDecision)
 #if !WWE2K14_STREAM()
     // S103 P9 (F4): pinned AGAIN after the launcher's settings file, the reshoot / director scripts and a replay's recorded settings had their say (the pin at the top ran before them).
     REXCVAR_SET(wwe2k14_rdr_scene, 2);
@@ -865,7 +867,7 @@ class Wwe2k14App : public rex::ReXApp {
     REXLOG_INFO("[wwe2k14] version {}", WWE2K14_VERSION);  // Session 25: VERSION (CMakeLists.txt)
 #endif
 #ifdef _WIN32
-    {   // S103 QX4 review 5: the exe's own file time in every run log (q runlog says which build a run used; the exe on disk may be a later build)
+    {   // S103 QX4 review 5: the exe's own file time in every run log (says which build a run used; the exe on disk may be a later build)
       wchar_t exe_path[MAX_PATH] = {};
       WIN32_FILE_ATTRIBUTE_DATA exe_attr = {};
       if (GetModuleFileNameW(nullptr, exe_path, MAX_PATH) != 0 && GetFileAttributesExW(exe_path, GetFileExInfoStandard, &exe_attr)) {
@@ -1034,6 +1036,9 @@ class Wwe2k14App : public rex::ReXApp {
       if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_weapons)) { rdr_scene::live::weaponrows::RegisterWeaponRows(); rdr_scene::weapons::g_force_arena_fixed_props = REXCVAR_GET(wwe2k14_rdr_arena_fixed_props); } }  // S103 LDR: per record the rows draw the steps / desk; the switch forces the old fixed copies  // S103 PW-2: the weapons' per-call rows -> kScWeaponCalls / kScWeaponNodes (read only)
       wwe2k14::scene_stagefx_glue::Register();               // S103 C2: the stage's live writers (moving slot worlds, screen rows), read at the latch; AFTER the arena contributor (its Targets / Movies) and the arena worlds (the cross-check reads them)
       if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_liquid_map)) rdr_scene::live::liquid::RegisterLiquid(); }   // S103 SWF: the wrestlers' liquid maps (--wwe2k14_rdr_liquid_map, default on): the sweat node's items recorded at its entry (liquid_glue.h); the record's rows feed the host's map pass (live_map_sweat.cpp)
+      // OFF: true (our wrestler draws read the game's sphere occluders); ON: rides the wrestler promotion (--wwe2k14_rdr_wrestlers_ours). The sphere input bit is NOT required here (the D3 block below requires it
+      // with its own registration): a body with no row draws strength 0. The reads are page-checked off Windows (wrestler_hook.h ReadWord), as the liquid maps above.
+      if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_wrestlers_ours)) rdr_scene::live::spheres::RegisterSpheres(); }   // S111 SPHEREOCC: the CCSO update's spheres -> record section 27 -> the body's VS c168-c171 (sphere_join.h); read only
       wwe2k14::scene_screens_glue::Register();               // S103 M: the stage screens' live PlaneSource / ScreenSource (copies at the movie flush; the built-in key -> channel table, STAGE_LIVE_WRITERS.md 2b; --wwe2k14_rdr_screen_bind is a dev override)
 #if defined(__ANDROID__)
       // Lane 202 review SF1: the ring / caster D3 readers copy guest memory with SafeCopy, a plain memcpy off Windows: a stale pointer

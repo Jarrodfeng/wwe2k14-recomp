@@ -317,8 +317,8 @@ inline bool ReadModelRuntimeT(ReadFn read, uint32_t model, uint64_t frame, rdr_s
   if ((pass & kReadPassMode) && ReadWord(read, model + 616, m616) && ReadWord(read, model + 620, m620) && m616 <= 3 && m620 <= 3) {
     out.reserved = m616 | (m620 << 8);
     out.flags |= rdr_scene::kMrPassModeRead;
-    // WRK_ADV 5b [C]: sub_82BD5EE0 adds +16 to a part's pass when [[model+480] + 24 * part + 20] != 0 and model+620 == 1. Latched for the census only (the pick on +620 stays off until a milestone run settles
-    // the hair conflict): byte 2 = any part's E+20 word is non-zero, byte 3 = the part table was read (0 = unknown). The table is one block of 24 bytes per part, parts = [model+372].
+    // WRK_ADV 5b [C]: sub_82BD5EE0 adds +16 to a part's pass when [[model+480] + 24 * part + 20] != 0 and model+620 == 1. Since S111 TECHPASS the +620 byte above picks that term (technique_pick.h CharPassOf);
+    // the E+20 bytes stay census only: byte 2 = any part's E+20 word is non-zero, byte 3 = the part table was read (0 = unknown). The table is one block of 24 bytes per part, parts = [model+372].
     uint32_t tab = 0, parts = 0;
     if ((pass & kReadPartE20) && ReadWord(read, model + 480, tab) && ReadWord(read, model + 372, parts) && tab >= 0x10000 && parts && parts <= 64) {
       uint32_t blk[64 * 6];

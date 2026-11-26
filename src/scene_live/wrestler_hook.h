@@ -51,6 +51,7 @@
 #include "../guest_read.h"   // GuestWordReadableFast (the off-Windows page check)
 #include "../renderer_scene/body_scale.h"   // S103 W2 (census only)
 #include "../renderer_game/scene_frame.h"   // S103 S: the slot-key read only while the scene switch is on
+#include "drawn_slots.h"   // S111 CAWTPOSE: the slot's kept departed character (the latch's drawn_slots::Step)
 
 namespace wwe2k14::wrestlers {
 
@@ -293,10 +294,11 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
     static census_flush::Site cf_site;   // S102 CEN1: a flip phase end prints the census now
     const bool cf_due = census_flush::Due(cf_site);
     if ((guest_frame >= due || cf_due) && next_log.compare_exchange_strong(due, guest_frame + 600)) {
-      REXLOG_INFO("[scene][live] wrestlers frame {}: LinkBodies {} LinkKind {} {} {} {} {} {} {} {} {} {} LinkEmptyKey {} LinkNoBody {} LinkUnreadable {} LinkCountRefused {} LinkedSeenAsSkeleton {} KnownCount {} SkippedSmall {} CapRefused {} ListedFull {} Wanted {} WantedFull {} EntryPiecesByDescriptor {} EntryUnknownModel {} EntryPieces {} EntryPtrMismatch {} EntryUnreadable {} OwnSkelConsumer {} OwnSkelPtrMismatch {} PieceLinks {} PieceWhy [{}] RingLeftOut {} BodyLinks {} [{}] ModelsDestroyed {}",
+      REXLOG_INFO("[scene][live] wrestlers frame {}: LinkBodies {} LinkKind {} {} {} {} {} {} {} {} {} {} LinkEmptyKey {} LinkNoBody {} LinkUnreadable {} LinkCountRefused {} LinkedSeenAsSkeleton {} KnownCount {} SkippedSmall {} CapRefused {} ListedFull {} Wanted {} WantedFull {} EntryPiecesByDescriptor {} EntryUnknownModel {} EntryPieces {} EntryPtrMismatch {} EntryUnreadable {} OwnSkelConsumer {} OwnSkelPtrMismatch {} PieceLinks {} PieceWhy [{}] RingLeftOut {} BodyLinks {} [{}] ModelsDestroyed {} FreedServed {} FreedUnposed {}",
                   guest_frame, w.LinkBodies(), w.LinkKind(0), w.LinkKind(1), w.LinkKind(2), w.LinkKind(3), w.LinkKind(4), w.LinkKind(5), w.LinkKind(6), w.LinkKind(7), w.LinkKind(8), w.LinkKind(9),
                   w.LinkEmptyKey(), w.LinkNoBody(), w.LinkUnreadable(), w.LinkCountRefused(), w.LinkedSeenAsSkeleton(), w.KnownCount(), w.SkippedSmall(), w.CapRefused(), w.ListedFull(), w.Wanted(), w.WantedFull(),
-                  w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch(), w.PieceLinksMade(), w.PieceWhyText(), w.RingLeftOut(), w.BodyLinkCount(), w.BodyLinkText(), w.Released());   // S103 NRB / PZ F5; S108 RDS: ModelsDestroyed = the sub_82BD3B40 hook's ForgetModel calls
+                  w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch(), w.PieceLinksMade(), w.PieceWhyText(), w.RingLeftOut(), w.BodyLinkCount(), w.BodyLinkText(), w.Released(),
+                  w.FreedServed(), w.FreedUnposed());   // S103 NRB / PZ F5; S108 RDS: ModelsDestroyed = the sub_82BD3B40 hook's ForgetModel calls; S111 MATCHFREE review: records that showed a freed body from its copy, and freed bodies a record revived with no palette of its period
       REXLOG_INFO("[scene][live] frame {}: slot key (desc rule {}): agree {} differ {} row_unusable {} occupant changes {} remap_active {} scale index moved {} ctor44 agree {} differ {} model_vs_desc agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, REXCVAR_GET(wwe2k14_rdr_slot_key_desc) ? "on" : "off", sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::scale_moved.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::model_vs_desc_agree.load(), sky_census::model_vs_desc_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
       REXLOG_INFO("[scene][live] frame {}: guest page checks calls {} page lookups {} of which cache hits {} (per-frame cache) refused {}; unreadable: track act reads {} node-count delegate reads {}", guest_frame, g_page_check_calls.load(std::memory_order_relaxed), g_page_check_pages.load(std::memory_order_relaxed), g_page_check_hits.load(std::memory_order_relaxed), g_page_check_refused.load(std::memory_order_relaxed), scene_inputs::g_track_act_unreadable.load(std::memory_order_relaxed), scene_inputs::g_delegate_unreadable.load(std::memory_order_relaxed));   // S103 PC1 / S108 GAVF: the phone's cost of the page-checked readers
       REXLOG_INFO("[scene][live] frame {}: {}", guest_frame, rdr_scene::BodyScaleTable::CensusText(rdr_scene::BodyScaleTable::Get().Census()));   // S103 W2: latch vs the stream-learned scale (census only)
@@ -314,6 +316,11 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
   for (int s = 0; s < 9 && slot < 0; ++s) {
     uint32_t ch = 0, pos = 0;
     if (ReadWord(kSlotTable + 4 * s, ch) && ch && ReadWord(ch + 176, pos) && pos == world_ptr + 2 * 64 + 48) { slot = s; slot_ch = ch; }
+  }
+  for (int s = 0; s < 9 && slot < 0; ++s) {   // S111 CAWTPOSE: a departed occupant the game still draws keeps its slot (drawn_slots.h; the same char+176 test)
+    const uint32_t ch = scene_inputs::drawn_slots::KeptCharOfGame(uint32_t(s));
+    uint32_t pos = 0;
+    if (ch && ReadWord(ch + 176, pos) && pos == world_ptr + 2 * 64 + 48) { slot = s; slot_ch = ch; }
   }
   w.SubmitWorld(self, slot, c.count, t_world.data(), t_inv.data(), guest_frame);
   const auto rd = [](uint32_t a, uint32_t& v) { return ReadWord(a, v); };
@@ -440,12 +447,11 @@ inline const bool g_known_erase_log_installed = (rdr_scene::live::Wrestlers().Se
   REXLOG_INFO("[scene][live] known erased, link kept: body 0x{:08X} model_key {} (character {} kind {}) age {} collects, {} collects since the link", body, key, key / 100, key % 10, age, since_link);
 }), true);
 
-// S103 AUSF (AUS2 log lines 1-3): the stream-free build names a body it leaves out of the record: kind 0 stale drop, 1 latch read refused (once per run of refusals), 2 quiet hide; at most 64 lines each a run
+// S103 AUSF (AUS2 log lines 1-3): the stream-free build names a body it leaves out of the record: kind 0 stale drop, 2 quiet hide; at most 64 lines each a run (kind 1, the latch read refused, went with the derived-head guard: S111 HEADGUARD)
 inline const bool g_wrestler_event_log_installed = (rdr_scene::live::Wrestlers().SetWrestlerEventLog([](int kind, uint64_t frame, uint32_t skel, int32_t slot, uint64_t a, uint64_t b, uint64_t c) {
   static std::atomic<int> n[3];
   if (kind < 0 || kind > 2 || n[kind].fetch_add(1, std::memory_order_relaxed) >= 64) return;
   if (kind == 0) REXLOG_INFO("[scene][wrestlers] stale drop frame {} skel 0x{:08X} slot {} age {} last tag {} (hold allowed up to {} records; the body left the table or is older)", frame, skel, slot, a, b, c);
-  else if (kind == 1) REXLOG_INFO("[scene][wrestlers] latch read refused frame {} skel 0x{:08X} slot {} (mismatch, no walk evidence)", frame, skel, slot);
-  else REXLOG_INFO("[scene][wrestlers] quiet hide frame {} skel 0x{:08X} slot {} upd {} draw {}", frame, skel, slot, a, b);
+  else if (kind == 2) REXLOG_INFO("[scene][wrestlers] quiet hide frame {} skel 0x{:08X} slot {} upd {} draw {}", frame, skel, slot, a, b);
 }), true);
 }  // namespace wwe2k14::wrestlers

@@ -42,10 +42,13 @@ static int RunCases(CutFn cut, RefOneFn ref_one, bool print) {
   c(!cut(true, 20002, true), "the lid / lash layer 20002 is not cut (ref 1)");
   c(!cut(true, 21011, true), "a 21000-range face piece is not cut (ref 1)");
   c(!cut(true, 0, true), "the body's own translucent mesh (src_key 0) is not cut (the body path, ref 1)");
-  c(!cut(false, 10000, true), "a guest part (a created superstar's part index, not a piece id) is not cut");
+  c(!cut(false, 10000, true), "a mesh that answers no piece row (not a wrestler pac entry, src_kind != 2) is not cut; a guest piece model carries its id in src_key (S111 GUESTKEY): the cases above are its cases");
   c(!cut(true, 10000, false), "an opaque piece mesh is not cut (the opaque node sets no alpha test)");
   return bad;
 }
+
+// S111 GUESTKEY: the S111 CAWHAIR guest route (GuestPieceCut: the id read from Object::pad beside a part-index key) is gone. A guest piece model carries its piece id in src_key, so RunCases is its rule;
+// tools\scene\guest_model_unit.cpp CheckBlend builds one (a kObjDrawnByOwner piece, id 10000) and asks PieceCut, with the planted twins of the old stamp (43) and the old mask (66).
 
 int main() {
   RunCases([](bool a, int k, bool s) { return pd::PieceCut(a, k, s); }, [](int id) { return pd::AlphaRefIsOne(id); }, true);

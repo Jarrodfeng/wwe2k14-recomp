@@ -1,8 +1,8 @@
 // The rim light map from the scene record (Session 103, lane E2; live_maps.h, live_maps_e2.h). Our pass: the casters of the record (the same meshes, skin palettes and bone rows as the shadow map)
 // are drawn from the MAIN camera into a 512x256 RGBA8 map with the generated yRimLightMap effect (the shader the game's T_RimLightMap pass runs): red 0, green the depth fade
-// clamp((w - near) / (far - near)), alpha 1; cleared to (1,0,1,1) like the game's map off the casters (run 30 dump: R=B=A=255 where no wrestler drew; the skin shader's rim = pow(max(G - z, 0) * k + R, p) needs R = 1 there; [U] where the game sets that clear is not read). The inputs are the rim pass entry's: the camera = the thread slot's current camera product as the entry read it (CasterExtra::product,
+// clamp((w - near) / (far - near)), alpha 1; cleared to (1,0,1,1) like the game's map off the casters (the skin shader's rim = pow(max(G - z, 0) * k + R, p) needs R = 1 there; [C] the game's clear: sub_827EA098 +E8, packed 0xFFFF00FF = (R 1, G 0, B 1, A 1) with depth 0.0, S111 LIGHTS). The inputs are the rim pass entry's: the camera = the thread slot's current camera product as the entry read it (CasterExtra::product,
 // OWN_SHADOW_RIM / SKIP_GAME_WORK_MAP 17.10; ApplyCasterExtra), RimLightDepth = (near, far) (CasterExtra::depth). Nothing here reads the stream.
-// What it does NOT do (the blur / min-pair chain that turns this map into the readers' texture is lane E's follow-up, rim_chain_ours.*): the readers get the raw map.
+// This pass makes the RAW map only: the game's one 13-tap blur that turns it into the readers' texture runs after it, in live_map_chain.cpp ChainMaps (LiveMapsHook::Record calls RecordRim, then ChainMaps; the readers bind the blurred map).
 #include <algorithm>
 #include <cstring>
 
@@ -12,6 +12,7 @@
 #include "front_end.h"
 #include "live_maps.h"
 #include "live_maps_internal.h"
+#include "wrestler_caster.h"   // S111 PIECEROUTE review: ObjectMayCast / MeshCastsFor
 
 namespace rdr_scene {
 namespace md = maps_detail;
@@ -179,7 +180,8 @@ bool LiveMapsHook::RecordRim(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   uint32_t draws = 0;
   if (!faults_.no_casters)
     for (const Object& obj : frame.objects) {
-      if (!(obj.flags & kObjVisible)) continue;
+      const bool visible = (obj.flags & kObjVisible) != 0, pieces_only = !visible && (obj.flags & kObjPiecesOnly) != 0;   // S111 PIECEROUTE review: the rim map walks the translucent node always
+      if (!wrestler_caster::ObjectMayCast(visible, pieces_only, wrestler_caster::WalksTranslucent(wrestler_caster::Pass::Rim, false, frame.phase_word))) continue;
       const CasterModel* cm = CasterOf(obj.asset);
       if (!cm || cm->meshes.empty()) continue;
       assets::Matrix world;
@@ -189,6 +191,7 @@ bool LiveMapsHook::RecordRim(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       if ((obj.flags & kObjSkinned) && obj.bones_count && size_t(obj.bones_first) + obj.bones_count <= frame.bones.size()) skin = &frame.bones[obj.bones_first], skin_count = obj.bones_count;
       bool any = false;
       for (const CasterMesh& m : cm->meshes) {
+        if (!wrestler_caster::MeshCastsFor(visible, pieces_only, m.piece)) continue;   // S111 PIECEROUTE review: a pieces-only owner casts its piece meshes, never its body
         if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
         if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
         std::vector<assets::Matrix>& slots = slots_scratch_;

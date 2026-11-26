@@ -78,5 +78,18 @@ inline bool& C2lNoisePlant() {
   static bool v = false;
   return v;
 }
+// S111 VERTEXSEAM planted twin (tools\assets\skin_vertex_colour_unit only; the game exe never sets it): a yCh_skin vertex's colour alpha back to the old 255
+// (skin_vertex_colour.h) instead of the file's byte 24 (the packed ID-map / wrinkle slot).
+inline bool& VcolOldAlphaPlant() {
+  static bool v = false;
+  return v;
+}
+// S111 GUESTVTX planted twin (tools\assets\vertex_decode_unit only; the game exe never sets it): the stock loader's two old vertex lines
+// (vertex_decode.h): a 1-pair vertex keeps its file weight (a weight 0 fell to palette[0]), and a skin vertex's rgb is file byte 25 three times;
+// the review's third: the skin-pair count from the S1 stride / 8 instead of the record's +0x5C.
+inline bool& VdecOldPlant() {
+  static bool v = false;
+  return v;
+}
 }  // namespace load_detail
 }  // namespace assets

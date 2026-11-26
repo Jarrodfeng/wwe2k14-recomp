@@ -116,6 +116,9 @@ def main():
     dropped = [ln.strip() for ln in open(os.path.join(root, 'tools', 'scene', 'keep_stream_sources.txt'), encoding='utf-8') if ln.strip().startswith('src/')]
     off_only = [ln.strip() for ln in open(os.path.join(root, 'tools', 'scene', 'keep_stream_off_sources.txt'), encoding='utf-8') if ln.strip().startswith('src/')]
     ref_objs, _ = objs_and_defines(os.path.join(main_dir, BUILD_DIR))
+    mk = re.search(r'^WWE2K14_KEEP_STREAM:BOOL=(\w+)', open(os.path.join(main_dir, BUILD_DIR, 'CMakeCache.txt'), encoding='utf-8', errors='replace').read(), re.M)
+    if mk and mk.group(1).upper() == 'OFF':   # S111: main's folder is the stream-FREE player build; the ON reference is its list with the OFF-only units out and the stream units in
+        ref_objs = (set(ref_objs) - set(off_only)) | set(dropped)
     # S103 SPB: a new .cpp this tree's CMakeLists.txt lists that the main checkout's configured build.ninja does not know yet (it re-configures at its next build; same rule as keep_stream_off_link.py's
     # "new unit" pass) belongs to the reference list: the check is about the OPTION, not about whether main has re-configured.
     cm = open(os.path.join(root, 'CMakeLists.txt'), encoding='utf-8').read()
@@ -139,7 +142,7 @@ def main():
         wrong = [s for s, d in defs.items() if '-DWWE2K14_KEEP_STREAM=0' not in d or '-DWWE2K14_KEEP_STREAM_LINK_TEST=1' not in d]
         need(bool(defs) and not wrong, 'OFF: every wwe2k14 compile line (%d) carries -DWWE2K14_KEEP_STREAM=0 and the link-test define (wrong: %s)' % (len(defs), ', '.join(wrong[:5]) or 'none'))
         need(objs == (ref_objs - set(dropped)) | set(off_only), 'OFF: the object list (%d) is the main build\'s minus the dropped units plus the OFF-only units' % len(objs))
-    r = configure(tree, os.path.join(out, 'on'), main_dir, [])
+    r = configure(tree, os.path.join(out, 'on'), main_dir, ['-DWWE2K14_KEEP_STREAM=ON'])   # explicit: the ON variant's own identity
     need(r.returncode == 0, 'ON (default) configures' + ('' if r.returncode == 0 else '\n' + (r.stdout + r.stderr)[-1500:]))
     if r.returncode == 0:
         objs, defs = objs_and_defines(os.path.join(out, 'on'))

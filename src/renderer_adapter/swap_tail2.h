@@ -12,7 +12,7 @@
 
 namespace wwe2k14::swap_tail2 {
 
-enum Bits : uint32_t { kJoinLater = 1, kAll = 1 };
+enum Bits : uint32_t { kJoinLater = 1, kAll = 1 };  // flag-alias: kAll (the bits that do something)
 
 inline std::atomic<uint32_t> g_mask{0};  // set once a guest frame by the reader (PerFrame switch wwe2k14_rdr_swap_tail2)
 inline bool On(uint32_t bit) { return (g_mask.load(std::memory_order_relaxed) & bit) != 0; }

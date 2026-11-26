@@ -40,9 +40,8 @@ struct FrameHooksOptions {
 // sub_827D5E98; docs\research\s103\RFF.md part B) drawn in OUR scene colour at Stage::AfterBlended, after the maps and BEFORE the particles (the game's category 36 runs before the particle node's 47).
 // The hook only filters the record's rows and hands them to the owner's draw function (the host's q2d::Append lambda: no link dependency here); no SetTargets, the scene pass is open.
 // The function must draw at `ctx.width x ctx.height` (the scene target) with the scene's depth attached (quads2d_draw.h Context::scene_depth).
-// The two row sites the scene hook takes (RFF B2 [C]): 0x82BC3EE8 = the T_Rect screen flash, 0x82BC5688 = the T_Sprite lens flare element. Any other scene-colour site is NOT drawn here (it keeps the host's
-// DropPass and is counted by site in the tap's census, quads2d_tap.h), so a third thing in the scene pass shows up instead of being drawn on a guess.
-constexpr bool Scene2DSite(uint32_t site) { return site == 0x82BC3EE8u || site == 0x82BC5688u; }
+// S111 ZFINAL2 (docs\research\s111\ZFINAL2.md): the hook takes EVERY scene-colour row, whatever its site. A row is scene colour when the game recorded it inside its scene pass (the op 73 .. op 74 bracket: the
+// target op 73 bound, or walk_cat.h SceneByGamePass); the old two-site list (the flash and the lens only, any third site dropped) is gone: a glyph, a vertex-colour rect or a movie row the game draws there is drawn here.
 
 class LiveScene2D final : public StageHook {
  public:
@@ -61,7 +60,7 @@ class LiveScene2D final : public StageHook {
     guest_frame_ = uint64_t(rec.header.guest_frame);
     if (rec.quad2d_holes == kQuad2DNotTaken) return;
     for (const Quad2D& q : rec.quads2d)
-      if (q.pass == kQpSceneColour && Scene2DSite(q.site)) (IsEarly(q) ? early_ : rows_).push_back(q);   // both in record order
+      if (q.pass == kQpSceneColour) (IsEarly(q) ? early_ : rows_).push_back(q);   // both in record order; S111 ZFINAL2: every scene-colour row, whatever its site (the game's scene pass is the op 73 .. op 74 bracket: walk_cat.h SceneByGamePass)
   }
   size_t rows() const { return rows_.size() + early_.size(); }
   size_t early_rows() const { return early_.size(); }

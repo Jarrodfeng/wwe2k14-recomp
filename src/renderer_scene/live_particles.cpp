@@ -204,7 +204,7 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
     state.front_face = 1;
     state.depth_test = 1;
     state.depth_write = 0;
-    state.depth_compare = 3;  // less or equal
+    state.depth_compare = ParticleDepthCompare(b);  // S111 PARTZ: the game's per-entry ALWAYS (sub_82A0AED8 +84) stays ALWAYS; its reversed GEQUAL is our forward LEQUAL (live_particles.h)
     state.blend[0].write_mask = 0xF;
     state.blend[0].enable = 1;
     state.blend[0].src_color = 6;  // src alpha

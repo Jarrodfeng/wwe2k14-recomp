@@ -16,7 +16,8 @@
 // R2 (Create an Arena screenshot, sub_822A61C8, lock return 0x822A635C, 1280x720 or 640x480 by [0x8392DC3C] == 1): a menu save, blocking up to ~0.5 s for one scene copy.
 //   [L] whether the Create an Arena preview is an OURS 3D frame in the stream-free build (COV5 2e: never run stream-free). If it is not (or the last OURS frame is older than 2 guest frames), there is no scene,
 //   R2 is counted unserved and nothing is written: the last match's arena is never saved as the player's custom arena.
-// R3 (CAW portrait) is the CPB lane's, served at the untile that follows the lock (hook G3): `at_untile`. R4 / R6 (composite attires) are composed on the host (CMB): `composed`, nothing written. R5 / R7: unserved, counted.
+// R3 (CAW portrait) is the CPB lane's, served at the untile that follows the lock (hook G3): `at_untile`. R4 / R6 (composite attires) are composed on the host (CMB): `composed`, nothing written. R5: unserved, counted.
+// R7 (the Create a Title thumbnail, sub_833438B0, lock return 0x8334398C, 256x128 8888; render thread) is DEFERRED by title_thumb_off.h (S111 CACTHUMB); its lock writes the delivered picture or BLACK (title_thumb_core.h).
 // R9 (Create a Highlight reel picture, sub_8228F2F8, lock return 0x8228F3FC; docs\agents\s103\RBQ.md) runs on a WORKER job (sub_8228FF80, queued by sub_82C3C078 on the 0x8394012C pool), never the render thread: it is served like R2 (a scene copy, blocking
 //   up to 0.5 s) into [this+88] at the screen size [[0x83929A68]+300 / +304]. With no 3D scene it writes BLACK (the picture goes into the player's CAHS save: never garbage). The picture, at the texture's size, is kept for R8.
 // R8 (the 128x128 reel thumbnail, sub_822959C0, lock return 0x82295A2C) runs on the RENDER thread (op-68 callback): it NEVER waits. It crops R9's kept picture by the rect the game keeps at obj + 64 .. + 76 (obj = [0x836F2BD0]; left, top, right, bottom;
@@ -40,7 +41,7 @@
 
 namespace wwe2k14::readback_ours {
 
-enum class Kind : uint8_t { Thumb, ArenaShot, Unserved, Composed, ServedAtUntile, ReelPicture, ReelThumb };   // ReelPicture = R9 (worker, scene copy), ReelThumb = R8 (render thread, never waits)   // ServedAtUntile: served by another lane at the untile that follows the lock (R3: hook G3 on sub_82CFA318 at lr 0x8341B780)
+enum class Kind : uint8_t { Thumb, ArenaShot, Unserved, Composed, ServedAtUntile, ReelPicture, ReelThumb, TitleShot };   // ReelPicture = R9 (worker, scene copy), ReelThumb = R8 (render thread, never waits)   // ServedAtUntile: served by another lane at the untile that follows the lock (R3: hook G3 on sub_82CFA318 at lr 0x8341B780)   // TitleShot = R7 (render thread; deferred to a present by title_thumb_off.h)
 struct Site {
   uint32_t lr;
   Kind kind;
@@ -60,7 +61,7 @@ inline constexpr Site kSites[] = {
     {0x83327B20, Kind::Unserved, "R5a", "sub_83327A08 Create a Title composite"},
     {0x83327B78, Kind::Unserved, "R5b", "sub_83327A08 Create a Title composite"},
     {0x83327B90, Kind::Unserved, "R5c", "sub_83327A08 Create a Title composite"},
-    {0x8334398C, Kind::Unserved, "R7", "sub_833438B0 Create a Title 16-bit belt data"},
+    {0x8334398C, Kind::TitleShot, "R7", "sub_833438B0 Create a Title thumbnail, 256x128 (render thread: deferred to a present, title_thumb_off.h)"},
     {0x82295A2C, Kind::ReelThumb, "R8", "sub_822959C0 Create a Highlight reel thumbnail, 128x128 (render thread: crops R9's picture, never waits)"},
     {0x8228F3FC, Kind::ReelPicture, "R9", "sub_8228F2F8 Create a Highlight reel picture (worker job: a scene copy)"},
 };
@@ -91,6 +92,7 @@ struct Counters {
   std::atomic<uint64_t> other_n[kOtherSlots] = {};
   std::atomic<uint64_t> lock_other{0};               // every lock from a return address the table does not name (uploads, inits)
   std::atomic<uint64_t> thumb_deferred{0}, thumb_delivered{0}, thumb_no_scene{0}, thumb_before_write{0}, thumb_dropped{0}, thumb_timed_out{0}, thumb_refused{0};   // R1 (thumb_defer_off.h)
+  std::atomic<uint64_t> title_deferred{0}, title_delivered{0}, title_no_scene{0}, title_timed_out{0}, title_dropped{0}, title_refused{0};   // R7 (title_thumb_off.h, S111 CACTHUMB)
 };
 inline Counters g_counters;
 inline thread_local bool t_thumb_replay = false;   // thumb_defer_off.h is running the thumbnail job itself on a delivered picture: its lock reads memory, nothing is served
@@ -126,6 +128,7 @@ inline Action Classify(uint32_t lr, uint64_t* n = nullptr) {
     case Kind::Thumb:
     case Kind::ArenaShot:
     case Kind::ReelPicture:
+    case Kind::TitleShot:
     case Kind::ReelThumb: return Action::Serve;
     case Kind::Composed: c.composed.fetch_add(1, std::memory_order_relaxed); return Action::Composed;
     case Kind::ServedAtUntile: c.at_untile.fetch_add(1, std::memory_order_relaxed); return Action::AtUntile;
@@ -188,6 +191,15 @@ inline std::string CensusLine() {
     std::snprintf(b, sizeof b, " %s served %llu zeros %llu refused %llu", kSites[i].id, static_cast<unsigned long long>(sv), static_cast<unsigned long long>(z), static_cast<unsigned long long>(un >= z ? un - z : 0));
     s += b;
   }
+  for (uint32_t i = 0; i < kSiteCount; ++i) {   // R7 (Create a Title thumbnail): written, black written, refused; then its deferral
+    if (kSites[i].kind != Kind::TitleShot) continue;
+    const uint64_t sv = g_counters.served[i].load(std::memory_order_relaxed), z = g_counters.zeros[i].load(std::memory_order_relaxed), un = g_counters.unserved[i].load(std::memory_order_relaxed);
+    std::snprintf(b, sizeof b, "; title: %s served %llu zeros %llu refused %llu deferred %llu delivered %llu no_scene %llu timed_out %llu dropped %llu not_deferred %llu", kSites[i].id, static_cast<unsigned long long>(sv),
+                  static_cast<unsigned long long>(z), static_cast<unsigned long long>(un >= z ? un - z : 0), static_cast<unsigned long long>(g_counters.title_deferred.load()), static_cast<unsigned long long>(g_counters.title_delivered.load()),
+                  static_cast<unsigned long long>(g_counters.title_no_scene.load()), static_cast<unsigned long long>(g_counters.title_timed_out.load()), static_cast<unsigned long long>(g_counters.title_dropped.load()),
+                  static_cast<unsigned long long>(g_counters.title_refused.load()));
+    s += b;
+  }
   std::snprintf(b, sizeof b, "; R1 deferred %llu delivered %llu no_scene %llu before_write %llu dropped %llu timed_out %llu refused %llu; composed %llu; at_untile %llu; lock_other %llu",
                 static_cast<unsigned long long>(g_counters.thumb_deferred.load()), static_cast<unsigned long long>(g_counters.thumb_delivered.load()), static_cast<unsigned long long>(g_counters.thumb_no_scene.load()),
                 static_cast<unsigned long long>(g_counters.thumb_before_write.load()), static_cast<unsigned long long>(g_counters.thumb_dropped.load()), static_cast<unsigned long long>(g_counters.thumb_timed_out.load()),
@@ -221,6 +233,7 @@ inline void ResetCountersForTest() {
   c.composed = 0, c.at_untile = 0, c.lock_other = 0;
   for (uint32_t i = 0; i < Counters::kOtherSlots; ++i) c.other_lr[i] = 0, c.other_n[i] = 0;
   c.thumb_deferred = c.thumb_delivered = c.thumb_no_scene = c.thumb_before_write = c.thumb_dropped = c.thumb_timed_out = c.thumb_refused = 0;
+  c.title_deferred = c.title_delivered = c.title_no_scene = c.title_timed_out = c.title_dropped = c.title_refused = 0;
 }
 inline bool LogDue(uint64_t n) { return n != 0 && (n <= 4 || (n & (n - 1)) == 0); }
 
@@ -465,8 +478,9 @@ inline readback_tile::Why ServeThumb(int site, const uint32_t w[6], PhysFn phys,
 
 #include "../d3d_layer.h"   // Ld32
 #include "../shown_frame.h"  // g_scene_capture_owner / g_scene_request_owner
+#include "title_thumb_core.h"  // S111 CACTHUMB: R7's lock (ServeTitleShot, t_delivered)
 
-REXCVAR_DECLARE(bool, wwe2k14_rdr_readbacks);
+#include "readbacks_start.h"   // S111 RBSWITCH: wwe2k14_rdr_readbacks is start-only; every reader calls readbacks_start::On()
 
 REXCVAR_DECLARE(bool, wwe2k14_rdr_reel_readbacks);
 
@@ -547,9 +561,34 @@ inline void ServeReelThumb(uint8_t* base, int i, uint32_t lr, uint32_t tex, uint
                 g_counters.zeros[i].load(std::memory_order_relaxed) > z0 ? "black written" : "memory left as it was", src_w, src_h, rect[0], rect[1], rect[2], rect[3], obj ? Ld32(base, obj) : 0u, w[0], w[1], w[2], w[3], level);
 }
 
+// R7 (render thread): the Create a Title thumbnail's lock. Inside title_thumb_off.h's re-run the delivered picture (or black) is written; a lock outside it (the callback ran un-deferred) writes BLACK. Never waits.
+inline void ServeTitleLock(uint8_t* base, int i, uint32_t lr, uint32_t tex, uint32_t level, uint64_t n) {
+  const Site& site = kSites[i];
+  const uint64_t z0 = g_counters.zeros[i].load(std::memory_order_relaxed);
+  uint32_t w[6];
+  FetchWords(base, tex, w);
+  Guard g;
+  g.want_w = title_thumb::kW, g.want_h = title_thumb::kH;
+  g.writable = &HostWritable;
+  const title_thumb::Delivered d = title_thumb::t_delivered;
+  readback_tile::Why why;
+  if (level != 0) {
+    why = readback_tile::Why::Level;
+    NoteUnserved(i, why);
+  } else {
+    why = title_thumb::ServeTitleShot(i, w, &PhysHost, g, d.active ? d.rgba : nullptr, d.active ? readback_tile::Why::NoScene : readback_tile::Why::NoPicture);
+  }
+  if (!LogDue(n)) return;
+  if (why == readback_tile::Why::Ok)
+    REXLOG_INFO("[rdr][readback] lock {} from {:08X} ({}): texture {:08X} 256x128 written from the 3D scene's top-left (the resolve rect)", n, lr, site.id, tex);
+  else
+    REXLOG_WARN("[rdr][readback] lock {} from {:08X} ({}): texture {:08X} NOT served: {} ({}; {}; fetch {:08X} {:08X} {:08X} {:08X}, level {})", n, lr, site.id, tex, readback_tile::WhyText(why),
+                g_counters.zeros[i].load(std::memory_order_relaxed) > z0 ? "black written" : "memory left as it was", d.active ? "deferred" : "the callback ran un-deferred", w[0], w[1], w[2], w[3], level);
+}
+
 // The OFF build's lock body (d3d_textures.h REX_HOOK_RAW(sub_82CA7EB8), before the original runs): r3 = the texture, r6 = the level, lr = the caller of LockRect.
 inline void OnLock(PPCContext& ctx, uint8_t* base) {
-  if (!REXCVAR_GET(wwe2k14_rdr_readbacks)) return;
+  if (!readbacks_start::On()) return;
   const uint32_t lr = uint32_t(ctx.lr), tex = ctx.r3.u32, level = ctx.r6.u32;
   uint64_t n = 0;
   const Action a = Classify(lr, &n);
@@ -562,6 +601,10 @@ inline void OnLock(PPCContext& ctx, uint8_t* base) {
   const Site& site = kSites[i];
   if (a == Action::Unserved) {
     if (LogDue(n)) REXLOG_INFO("[rdr][readback] lock {} from {:08X} ({}): NOT served in this build{}", n, lr, site.id, n > 4 ? "; " + CensusLine() : std::string());
+    return;
+  }
+  if (site.kind == Kind::TitleShot) {   // R7 (S111 CACTHUMB): the Create a Title thumbnail; render thread, never waits
+    ServeTitleLock(base, i, lr, tex, level, n);
     return;
   }
   if (site.kind == Kind::ReelPicture || site.kind == Kind::ReelThumb) {   // R9 (worker) / R8 (render thread, never waits): the Create a Highlight reel save

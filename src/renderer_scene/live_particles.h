@@ -35,6 +35,11 @@ struct ParticleFaults {
   bool Any() const { return additive_off || ignore_stamp || no_mirror; }
 };
 
+// S111 PARTZ: a batch's depth compare, in VkCompareOp numbers (renderer.cpp hands depth_compare to VkCompareOp unchanged: 3 = LESS_OR_EQUAL, 7 = ALWAYS). The game draws an entry whose word +220 is 0 with
+// ALWAYS (sub_82A0AED8 +84: recorder code 1, which sub_82C237D8 records as hardware compare 7); every other entry with its reversed GEQUAL, our forward LEQUAL (pass_state.h ForwardZ). Depth write stays off for both.
+inline constexpr uint8_t kParticleCompareLessOrEqual = 3, kParticleCompareAlways = 7;
+inline uint8_t ParticleDepthCompare(const ParticleBatch& b) { return b.depth_always ? kParticleCompareAlways : kParticleCompareLessOrEqual; }
+
 struct LiveParticlesStats {
   uint64_t frames = 0;              // frames the hook drew particles in
   uint64_t batches = 0, particles = 0, draws = 0;

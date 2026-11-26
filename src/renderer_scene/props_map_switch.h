@@ -37,10 +37,5 @@ namespace game_clear {
 inline std::atomic<bool> g_on{false};
 inline bool On() { return g_on.load(std::memory_order_relaxed); }
 }  // namespace game_clear
-// S103 CS1B: --wwe2k14_rdr_guest_casters (default TRUE; start_settings.cpp, stream-free build only). On = a guest model (the Create-a-Superstar body, mods, created superstars: ModelCache::PutGuest) keeps a CPU copy,
-// so the shadow maps' caster pass takes it like a file wrestler (docs\agents\s103\CS1.md: the game casts the editor body into its maps). Off = a guest casts nothing, as before.
-namespace guest_casters {   // (F4: the cvar exists only in the stream-free build; the stream (ON) build has no control, so its default is OFF and its guests keep casting nothing, as before)
-inline std::atomic<bool> g_on{!WWE2K14_STREAM()};
-inline bool On() { return g_on.load(std::memory_order_relaxed); }
-}  // namespace guest_casters
+// (S111 PIECELINK F6: the S103 CS1B guest_casters switch is deleted: a guest model casts whenever a file wrestler does, record_frame.cpp ModelCache::PutGuest.)
 }  // namespace rdr_scene

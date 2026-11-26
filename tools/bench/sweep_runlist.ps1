@@ -3,7 +3,7 @@
 # Base flags and the line's flags are MERGED BY NAME (the line wins), so no switch is ever passed twice (LESSONS: a repeated string switch makes
 # CLI11 drop every later switch). Relative paths in a flag value that start with game_data\ or out\ are made absolute (LESSONS: relative flag
 # paths resolve against the exe folder). Prints one line per run (run number, route, verdict) and writes <List>.runs.tsv (index, route, run, verdict, why, flags).
-# S106 0F / 0FF F5: the verdict is triage.py's (PASS | KNOWN rows | FAIL why, tools\report\triage_accepted.json), via sweep_verdict.ps1: FAIL (run) for a failed run line, FAIL (no run line) without one, FAIL (no verdict) when the log gave none; ends with a count line and exits 1 when any row is not PASS or KNOWN.
+# S106 0F / 0FF F5 (S111: no accepted list): the verdict word comes from sweep_verdict.ps1: PASS (no triage finding) | FINDINGS (triage.py's findings listed in the why, not judged) | FAIL (run) for a failed run line | FAIL (log) when triage.py says the run failed (a crash / hang line, script FAILED, no quit line, no end marker) | FAIL (no run line) without one | FAIL (no verdict) when the log gave none; ends with a count line and exits 1 only when a row is a FAIL.
 # Game runs: each line is one game run (rule 7: the caller logs the question first).
 param([Parameter(Mandatory)][string]$List, [Parameter(Mandatory)][string]$Exe, [string]$Base = '', [int]$Parallel = 3, [int[]]$Only = @(),
       [int]$WaitSeconds = 900)
@@ -43,7 +43,7 @@ for ($b = 0; $b -lt $jobs.Count; $b += $Parallel) {
     $leaf = Split-Path -Leaf $j.Route
     $hit = $runLines | Where-Object { "$_".StartsWith("$leaf ->") } | Select-Object -First 1
     $runLines = @($runLines | Where-Object { $_ -ne $hit })
-    # S106 0F / 0FF F5: the verdict comes from the run's own log (triage.py --accepted --verdict, every sub-reason of every mode against tools\report\triage_accepted.json),
+    # S106 0F / 0FF F5 (S111): the verdict comes from the run line and the run's own log (triage.py --json: its run_failures FAIL (log), its findings are listed, not judged),
     # via tools\bench\sweep_verdict.ps1: no run line = FAIL (no run line), a missing / unreadable log = FAIL (no verdict), a failed run line = FAIL (run). A route's own PASS stays a note.
     $run = if ("$hit" -match 'wwe2k14_(\d+)') { $Matches[1] } else { '?' }
     $rv = Get-RunVerdict "$hit" $run (Join-Path (Split-Path -Parent $Exe) "logs\wwe2k14_$run.log") $R

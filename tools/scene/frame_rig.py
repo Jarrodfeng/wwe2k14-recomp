@@ -603,7 +603,7 @@ def mapb_run(cmd, env, prefix, extra):
 
 
 def mapb_census(text):
-    m = re.search(r'\[scene\]\[maps\]\[mapb\] mode (.+?), props cast (\d+) objects / (\d+) meshes \(weapons (\d+), event props (\d+), structure pieces (\d+), ids 59/68/71/96 (\d+)\), skipped: mode 1 (\d+), gate unknown (\d+), no model (\d+), piece 43 (\d+); out of the fit (\d+)', text)
+    m = re.search(r'\[scene\]\[maps\]\[mapb\] mode (.+?), props cast (\d+) objects / (\d+) meshes \(weapons (\d+), event props (\d+), structure pieces (\d+), ids 59/68/71/96 (\d+)\), skipped: mode 1 (\d+), gate unknown (\d+), no model (\d+), categories 33 / 43 at scene word 1 (\d+); out of the fit (\d+)', text)
     if not m:
         return None
     return dict(mode=m.group(1), cast=int(m.group(2)), meshes=int(m.group(3)), weapons=int(m.group(4)), event=int(m.group(5)), stage=int(m.group(6)), unsure=int(m.group(7)),

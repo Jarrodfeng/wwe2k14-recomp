@@ -50,7 +50,7 @@ bool BuildPart(const assets::ring_gs::RingMesh& m, std::vector<float>& pos, std:
     sv.w[0] = 1.f;
     skin[v] = sv;
   }
-  // the strip groups (joined by one restart) -> a triangle list (no culling in the mask draw: the winding does not matter)
+  // the strip groups (joined by one restart) -> a triangle list in D3D's strip order (the mask pass culls: S111 CASTCULL, the winding matters)
   const std::vector<uint16_t> strip = assets::ring_gs::BuildIndices(m);
   list.clear();
   uint32_t run = 0;
@@ -227,8 +227,8 @@ uint32_t LiveMapsHook::DrawRopeProxies(rdr::FrameBuilder& fb, const E2Input& in,
       state.program = s.plane_prog;
       state.vertex_layout = rp.layout;
       state.topology = 3;
-      state.cull = 0;
-      state.front_face = 1;
+      state.cull = kCasterCull;                  // S111 CASTCULL: the ropes draw inside the mask pass (sub_825CF2F8 +318 -> sub_827EE190): its mode 2
+      state.front_face = kCasterFrontPlane;
       state.depth_test = 1, state.depth_write = 1, state.depth_compare = 3;
       state.blend[0].write_mask = 0xF;
       rdr::DrawOp op{};

@@ -58,39 +58,15 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   const bool plant_v_flip = g_plant_flash_v_flip.load(std::memory_order_relaxed);             // TEST ONLY: the centre's depth row read upside down
   const bool plant_row0 = g_plant_flash_fetch_row0.load(std::memory_order_relaxed);           // TEST ONLY (S110 FLASHOCC): the centre's depth read from row 0
 
-  // S110 FLASHFRONT (docs\research\s110\FLASHFRONT.md): the scene depth is ATTACHED to this pass and tested per pixel (LESS_OR_EQUAL, never written), so no sprite pixel lands on a nearer body. v0.4.1 drew the
-  // flashes as scene objects under this test; CUTGREY kept only the centre read and the flashes reached the wrestlers. The game's whole-sprite centre read stays, on a COPY of the depth: the renderer refuses a
-  // pass that samples its own attachment (Problem sampled_while_attached). The copy is taken before the pass opens (a copy ends a pass), at the scene depth's size class (as LiveParticles' soft copy).
-  uint32_t depth_w = 0, depth_h = 0;
-  bool depth_scaled = false;
-  if (!renderer_.ImageExtent(depth, depth_w, depth_h, depth_scaled)) depth_scaled = false;
-  if (flash_depth_ == rdr::kNoImage || flash_depth_w_ != sctx.width || flash_depth_h_ != sctx.height || flash_depth_scaled_ != depth_scaled) {
-    if (flash_depth_ != rdr::kNoImage) renderer_.DestroyImage(flash_depth_), flash_depth_ = rdr::kNoImage;   // (deferred past the frames in flight)
-    rdr::ImageDesc dd;
-    dd.width = uint16_t(sctx.width), dd.height = uint16_t(sctx.height);
-    dd.format = rdr::Format::Depth;
-    dd.usage = uint8_t(rdr::kUsageTarget | rdr::kUsageSampled | (depth_scaled ? rdr::kUsageScaled : 0));
-    flash_depth_ = renderer_.CreateImage(dd);
-    flash_depth_w_ = sctx.width, flash_depth_h_ = sctx.height, flash_depth_scaled_ = depth_scaled;
-  }
-  if (flash_depth_ == rdr::kNoImage) {
-    flash_nodepth_ += frame.flashes.size();
-    if (!flash_nodepth_logged_) flash_nodepth_logged_ = true, rdr::Log("[scene][flashes] %zu flash sprite(s) not drawn: the scene depth's copy for the centre read could not be made", frame.flashes.size());
-    return 0;
-  }
-  {
-    rdr::CopyOp cp{};
-    cp.source.image = depth, cp.dest.image = flash_depth_;
-    cp.source_rect = {0, 0, sctx.width, sctx.height};
-    cp.dest_rect = cp.source_rect;
-    fb.Copy(cp);
-  }
-
+  // S111 FLASHGAME (docs\research\s111\FLASHGAME.md): the game's depth rule and no other. The flash item turns the depth test OFF for this draw (sub_823B27F0 +354) and hides a sprite only by the vertex stage's
+  // read of the scene depth at its centre (yFlashDefault.vert:85-90, :111; ours: rdr_flash.frag): a body over the centre hides the whole sprite, a body over its rays only has the rays drawn OVER it. S110
+  // FLASHFRONT's per-pixel test (its margin) is gone: no depth attachment, the scene depth itself is sampled. TEST ONLY: flash_pixel_ztest puts that test back (cutgrey_unit [RAYS] must catch it).
+  const bool plant_pixel_z = g_plant_flash_pixel_ztest.load(std::memory_order_relaxed);
   rdr::TargetsOp t;
   t.color[0].image = colour;
   t.color_count = 1;
-  t.depth.image = depth;   // S110 FLASHFRONT: loaded, tested, never written
-  fb.SetTargets(t);   // (no clear: the post output / the scene colour and the scene depth are loaded as they are)
+  if (plant_pixel_z) t.depth.image = depth;   // TEST ONLY: FLASHFRONT's attached, tested scene depth
+  fb.SetTargets(t);   // (no clear: the post output / the scene colour is loaded as it is)
 
   rdr::DrawState state{};
   state.program = flash_program_;
@@ -98,8 +74,8 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   state.topology = 3;
   state.cull = 0;       // two-sided: the sprite's winding is our matrix's
   state.front_face = 1;
-  state.depth_test = g_plant_flash_no_ztest.load(std::memory_order_relaxed) ? 0 : 1, state.depth_write = 0;   // S110 FLASHFRONT: per pixel against the attached scene depth (the plant: CUTGREY's test-off)
-  state.depth_compare = 3;   // VK_COMPARE_OP_LESS_OR_EQUAL: our forward depth, as the scene's own draws
+  state.depth_test = plant_pixel_z ? 1 : 0, state.depth_write = 0;   // S111 FLASHGAME: the game's z test is OFF for this draw (sub_823B27F0 +354); the plant arm is FLASHFRONT's per-pixel test (TEST ONLY)
+  state.depth_compare = plant_pixel_z ? 3 : 0;   // (read only under the plant: LESS_OR_EQUAL, our forward depth)
   state.blend[0].enable = 1;
   state.blend[0].src_color = 6;   // SRC_ALPHA
   state.blend[0].dst_color = 1;   // ONE
@@ -157,7 +133,7 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
     }
     // clip y reaches the picture flipped (dynamic.system[1] = -1): row 0 = ndc y +1. The game's fetch clamps at the picture's edge.
     const float u = std::min(std::max(0.5f * ndc_x + 0.5f, 0.f), 0.99999994f), v = plant_row0 ? 0.f : std::min(std::max(plant_v_flip ? 0.5f + 0.5f * ndc_y : 0.5f - 0.5f * ndc_y, 0.f), 0.99999994f);
-    const float fcb[4] = {u, v, ndc_z, 1.f};
+    const float fcb[4] = {u, v, ndc_z, plant_pixel_z ? 0.f : 1.f};
     float vsb[44] = {};
     for (int k = 0; k < 4; ++k)
       for (int i = 0; i < 4; ++i) vsb[4 * k + i] = vp[i * 4 + k];
@@ -170,7 +146,7 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
       std::memcpy(vsb + 36, me.dif, 16);
       rdr::TextureSet set{};
       set.slots[0].image = me.map, set.slots[0].sampler = map_sampler, set.slots[0].kind = 0;
-      set.slots[3].image = flash_depth_, set.slots[3].sampler = depth_sampler, set.slots[3].kind = 0;   // S110 FLASHFRONT: the copy (the scene depth itself is this pass's attachment)
+      set.slots[3].image = plant_pixel_z ? white_ : depth, set.slots[3].sampler = depth_sampler, set.slots[3].kind = 0;   // the scene depth, read at the centre (the plant: attached, so not sampled)
       rdr::DrawOp op{};
       op.state = fb.State(state);
       op.dynamic = fb.Dynamic(dynamic);

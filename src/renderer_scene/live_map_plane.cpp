@@ -19,6 +19,7 @@
 #include "../renderer/shaders/spv/rdr_plane_mask_vert.h"
 #include "char_effects.h"
 #include "bone_tag_rows.h"   // S106 G4-C: SkinChunkAbsent
+#include "wrestler_caster.h"   // S111 LAYERS review
 #include "front_end.h"
 #include "live_maps.h"
 #include "live_maps_internal.h"
@@ -176,6 +177,7 @@ bool LiveMapsHook::RecordPlane(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     if ((obj.flags & kObjSkinned) && obj.bones_count && size_t(obj.bones_first) + obj.bones_count <= frame.bones.size()) skin = &frame.bones[obj.bones_first], skin_count = obj.bones_count;
     for (const CasterMesh& m : cm->meshes) {
       if (!m.chunk) continue;   // the mask's program is the skinned one
+      if (m.translucent && !wrestler_caster::WalksTranslucent(wrestler_caster::Pass::Plane, false, frame.phase_word)) continue;   // S111 LAYERS review: the plane pass's categories are not read [U]: the opaque node's parts, as before
       if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
       if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
       std::vector<assets::Matrix>& slots = slots_scratch_;
@@ -203,8 +205,8 @@ bool LiveMapsHook::RecordPlane(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       state.program = s.plane_prog;
       state.vertex_layout = s.plane_layout_skinned;
       state.topology = 3;
-      state.cull = 0;
-      state.front_face = 1;
+      state.cull = kCasterCull;                  // S111 CASTCULL: the mask pass's cull on with winding 1, mode 2 (sub_827EEF80 +80 / +8C)
+      state.front_face = kCasterFrontPlane;
       state.depth_test = 1, state.depth_write = 1, state.depth_compare = 3;
       state.blend[0].write_mask = 0xF;
       rdr::DrawOp op{};

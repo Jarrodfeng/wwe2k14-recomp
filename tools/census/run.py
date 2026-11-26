@@ -180,7 +180,7 @@ def do_recording(g, item, extra):
     else:
         raise Stuck('the recording did not finish in time (last events kept)')
     extra['recording_exited'] = True
-    for p in sorted(glob.glob(os.path.join(g.caps, '%03d_cen_%s_*.png' % (g.run, item['id'])))):
+    for p in sorted(q for ext in ('webp', 'png') for q in glob.glob(os.path.join(g.caps, '%03d_cen_%s_*.' % (g.run, item['id']) + ext))):   # S111 SHOTDIET review: '_*.webp' is the default
         base = os.path.splitext(os.path.basename(p))[0][len('%03d_' % g.run):]
         g.shots.append({'label': base, 'file': base, 'phase': 'other', 'path': p})
 

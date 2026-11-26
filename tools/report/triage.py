@@ -10,9 +10,12 @@ Call (S105 C0; docs\\agents\\report_triage.md):
   PATH = a report .zip (PC launcher or phone), a wwe2k14_NNN.log, or a folder of logs. Read in place, never copied.
   Rotated parts wwe2k14_NNN.K.log are joined oldest first (highest K first), counters and the current mode carried across.
   --baseline = a reference `--json` output (a clean run): only classes / reasons / birth sites NOT in the same mode of it are reported.
-  --accepted FILE --verdict [--brief] (S106 0F) = one `VERDICT PASS | KNOWN (rows) | FAIL` per log: every sub-reason of every mode judged against the
-  hand-written tools\\report\\triage_accepted.json; exit 0 PASS / KNOWN, 1 FAIL, 2 unreadable (the file included). --baseline is NOT a verdict.
-Exit 0 = read fine (findings or not); exit 2 = could not read an input (loud, never a silent "no findings").
+  (S111: the hand-written accepted list and its `--accepted --verdict` PASS / KNOWN / FAIL are gone: triage lists findings, it does not judge them.)
+Exit 0 = read fine and no RUN failed (findings or not: a picture / census / loader finding alone never fails a run);
+exit 1 = a RUN failed in some log (S111, def run_failures: a [crash] or [hang] line, the route's `script FAILED`, a route with no `quit` line, no end
+marker in the newest part): one `triage: RUN FAILED <log>: why` line per such log on stderr (the text on stdout stays the report the launcher's C++ twin
+writes too), JSON `logs[].run_failures` ([] = the run did not fail; computed before --baseline hides any finding);
+exit 2 = could not read an input (loud, never a silent "no findings").
 A class whose line is present but whose format did not parse is UNPARSED; a class whose line never appears is listed "not read" (never "0").
 
 Nothing from a report is written anywhere but stdout / --out.
@@ -120,7 +123,7 @@ CLASSES.append(dict(name="hang", prio=0, marker=("[hang] HANG?", "[hang] HANG:",
                     regex=r"\[hang\] (?P<why>(?:HANG\?|HANG:|BLACK:) .*)$", fields={"n": "one", "why": "first"}, finding="n", text="{n} [hang] line(s) (the hang guard fired: HANG / BLACK)"))
 CLASSES.append(dict(name="crash", prio=0, marker="[wwe2k14][crash]", writer="src/crash_handler.h", lit="[wwe2k14][crash] unhandled exception 0x{:08X}",
                     regex=r"\[wwe2k14\]\[crash\] (?P<why>.*)$", fields={"n": "one", "why": "first"}, finding="n", text="{n} [crash] line(s) (the game crashed)"))
-# S106 0FF F7: the [host] frames counters that had no class (host_core.h:526-527). All 0 in a clean run; none has an accepted entry, so a rise FAILs.
+# S106 0FF F7: the [host] frames counters that had no class (host_core.h:526-527). All 0 in a clean run; a rise is a finding.
 for _ctr, _ln in (("no_record", 526), ("no_picture", 526), ("no_size", 526), ("resize_black", 526), ("repeat_full", 526), ("particles_not_drawn", 527)):
     CLASSES.append(dict(name=_ctr, prio=4, marker="[host] frames", writer="src/renderer_host/host_core.h", lit="%s %%llu" % _ctr, periodic=True,
                         regex=r"\[host\] frames \d+,.*? %s (?P<n>\d+)" % _ctr, fields={"n": "delta"}, finding="n",
@@ -132,6 +135,7 @@ EXTRA_WRITERS = [
     ("file open", "src/kernel_overrides.h", "[wwe2k14][file] {} '{}'{} {} access=0x{:X}"),
     ("report condensed marker", "src/launcher/launcher_main.cpp", "[report] lines left out after their first 30 copies"),
     ("report cut marker", "src/launcher/launcher_main.cpp", "[report] ... "),
+    ("black frames run line", "src/renderer_host/black_spans.h", "[host] black frames %llu-%llu (n %llu, held %llu): "),   # S111 BLACKFRAME (RX_BLACK)
 ]
 for _c in CLASSES:
     _c["rx"] = re.compile(_c["regex"])
@@ -145,6 +149,7 @@ RX_SEQ = re.compile(r"\[wwe2k14\]\[scene\] sequence (?P<a>\d+) -> (?P<b>\d+) \((
 RX_FILE = re.compile(r"\[wwe2k14\]\[file\] Nt(?:Create|Open)File '(?P<path>[^']*)'(?: \(relative to handle 0x[0-9A-Fa-f]+\))? \S+ access=\S+ -> 0x(?P<st>[0-9A-Fa-f]+)")
 # src\kernel_overrides.h:215-223 (NtCreateFile / NtOpenFile, optional "(relative to handle 0x..)")
 RX_HOSTFRAMES = re.compile(r"\[host\] frames (?P<f>\d+),")
+RX_BLACK = re.compile(r"\[host\] black frames (?P<a>\d+-\d+) \(n (?P<n>\d+), held \d+\): (?P<what>.*?) \| inputs: ")   # S111 BLACKFRAME: one run of black frames (src\renderer_host\black_spans.h)
 RX_LOGSTART = re.compile(r"\[wwe2k14\] (?:version (?P<ver>.*)|run log number: (?P<num>\d+).*|quality tier: (?P<tier>.*))$")
 RX_GPU = re.compile(r"\[wwe2k14\]\[gpu\] device 0: (?P<gpu>.*)$")
 RX_SCENE = re.compile(r"; in scene (?P<scene>[A-Za-z0-9_]+)")
@@ -184,10 +189,11 @@ class Span:
         self.last = {}      # (class, field) -> last cumulative value seen in this span
         self.carry = {}     # (class, field) -> rise banked before a counter fell mid-span
         self.unparsed = {}  # class -> (count, first loc)
-        self.tally = {}     # S106 0F: (class, sub-reason token) -> count, EVERY sub-reason of every rising line (not only the first): what the verdict judges
+        self.tally = {}     # S106 0F: (class, sub-reason token) -> count, EVERY sub-reason of every rising line (not only the first): the JSON `reasons`
         self.opens = []     # (t, host_frames) of file opens
         self.frames_at_start = None
         self.frames_at_end = None
+        self.black = []     # S111 BLACKFRAME: the `[host] black frames` runs black_no_3d counts, logged in this span: "frames A-B WHAT (n N)"
 
 
 def pair_diff(prev, cur_text):
@@ -275,6 +281,7 @@ def tokens_of(c, g, diff, dl, amount):
 
 RX_ORPHAN = re.compile(r"orphan notes (\d+), pending dropped (\d+)")
 END_MARKERS = ("Execution complete", "Title terminated")   # the last lines of a finished run (src\rex app exit); a log without them was cut, killed or crashed
+RUN_FAIL_CLASSES = ("crash", "hang")   # S111: a line of these classes means the run itself failed (def run_failures), whatever else the log holds
 
 
 def census_checks(body):
@@ -461,6 +468,10 @@ def read_log(name, parts):
                 if mh:
                     host_frames = int(mh.group("f"))
                     cur.frames_at_end = host_frames
+            if "[host] black frames " in line:   # S111 BLACKFRAME: the runs black_no_3d counts (no_last3d / draw_fault / fault_black; not 2d_only, resize, no_record, game_draws_no_scene)
+                mb = RX_BLACK.search(line)
+                if mb and (mb.group("what").startswith(("no_last3d", "draw_fault")) or "fault_black" in mb.group("what")):
+                    cur.black.append("frames %s %s (n %s)" % (mb.group("a"), mb.group("what"), mb.group("n")))
             for marker, c in markers:
                 if marker not in line:
                     continue
@@ -530,7 +541,7 @@ def read_log(name, parts):
                 t_first=t_first, t_last=t_last, failed_opens=sum(fails.values()), failed_open_paths=len(fails), crossings=crossings,
                 modes_read=modes_read, ended=ended, classes_not_read=not_read, condensed=condensed, cut=cut, quit_seen=quit_seen, script_failed=script_failed, route_seen=route_seen,
                   head_seen=bool(parts) and "[wwe2k14] run log number:" in parts[0][1],
-                span_seqs=[s.seq for s in spans], facts=facts)
+                span_seqs=[s.seq for s in spans], facts=facts, marker_lines=dict(seen))
 
 
 def mode_table(res, gap_s):
@@ -586,6 +597,12 @@ def span_label(res, i0, i1):
     return " / ".join(names)
 
 
+def black_why(res, seqs, cap=6):
+    """S111 BLACKFRAME: the black_no_3d finding's WHY, from the run lines logged in these modes: ' | why: frames A-B no_last3d <- never_fed (n N); ...' ('' = none)."""
+    runs = [b for sp in res["spans"] if sp.seq in seqs for b in sp.black]
+    return (" | why: " + "; ".join(runs[:cap]) + (" (+%d more run(s))" % (len(runs) - cap) if len(runs) > cap else "")) if runs else ""
+
+
 def findings_for(res, modes, gap_s):
     out = []
     has_watch = False
@@ -603,6 +620,8 @@ def findings_for(res, modes, gap_s):
                     has_watch = True
                 out.append(dict(mode="%d %s" % (md["seq"], md["name"]), mode_seq=md["seq"], cls=c["name"], count=n, prio=c["prio"], crossing=False,
                                 text=c["text"].format(**vals), reason=reason[0] or c.get("why_const") or "", line=reason[1] or line[1], at=reason[2] or line[2]))
+                if c["name"] == "black_no_3d":
+                    out[-1]["text"] += black_why(res, {md["seq"]})
         if md["trail"] is not None:
             g, fr, ta = md["trail"]
             out.append(dict(mode="%d %s" % (md["seq"], md["name"]), mode_seq=md["seq"], cls="no_file_open", count=int(g), prio=1, crossing=False,
@@ -627,11 +646,34 @@ def findings_for(res, modes, gap_s):
         out.append(dict(mode="mode not known: " + label, mode_seq=None, cls=cn, count=cr["amount"], prio=c["prio"], crossing=True,
                         text=c["text"].format(**vals) + " [rise between census lines that straddle a mode change]", reason=cr["reason"] or "", line=cr["loc"], at=cr["hm"],
                         toks=cr["toks"], straddles=sorted({sp.seq for sp in res["spans"][cr["from_idx"]:cr["to_idx"] + 1]})))
+        if cn == "black_no_3d":
+            out[-1]["text"] += black_why(res, set(out[-1]["straddles"]))
     for cn, (n, loc, _l) in res["unparsed"].items():
         if cn == "sequence":
             out.append(dict(mode="(whole log)", mode_seq=None, cls="sequence", count=n, prio=-1, crossing=False,
                             text="UNPARSED: %d line(s) of the sequence format present, not read" % n, reason="the sequence line's format changed: update RX_SEQ", line=loc, at=""))
     out.sort(key=lambda f: (f["prio"], -f["count"]))
+    return out
+
+
+def run_failures(res, finds):
+    """S111 (the main session's rule after the accepted list went): why this log's RUN failed, [] when it did not. What was hand-ACCEPTED is gone (no
+    list of findings that may appear and still pass); what is a run failure fails: a [crash] / [hang] line (every marker line counts, parsed or
+    UNPARSED, placed or not), the route's `script FAILED`, a route (input script) that never logged its `quit` line, no end marker in the newest part.
+    Picture / census / loader findings (black_no_3d, 2D holes, problem, load_watch, ...) never fail a run by themselves: they are listed as findings.
+    finds = the findings BEFORE --baseline (a reference run that crashed too never hides a crash)."""
+    out = []
+    for cn in RUN_FAIL_CLASSES:
+        n = res["marker_lines"].get(cn, 0)
+        if n:
+            f = next((x for x in finds if x["cls"] == cn), None)
+            out.append("[%s] %d line(s)%s" % (cn, n, (": " + re.sub(r"\s+", " ", f["reason"] or f["text"])[:160]) if f else ""))
+    if res.get("script_failed"):
+        out.append("route: script FAILED (the route did not finish)")
+    if res.get("route_seen") and not res.get("quit_seen"):
+        out.append("route: no quit line (the run ended before the route finished)")
+    if not res.get("ended"):
+        out.append("log: no end marker (Execution complete / Title terminated in the newest part): the run was cut, killed or crashed")
     return out
 
 
@@ -650,201 +692,6 @@ def baseline_keys(path):
         for f in lg["findings"]:
             keys.add((f["mode_seq"] if f["mode_seq"] is not None else f["mode"], f["cls"], norm_reason(f["reason"])))
     return keys
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# S106 0F: the VERDICT (docs\research\s106\0F.md). `--baseline` above compares a log to a run's own JSON by the FIRST reason of a mode: it hides a
-# second reason behind an accepted first one and copies whatever the reference run got wrong, so it is not a verdict. The verdict judges EVERY
-# sub-reason token of every mode against the hand-written list tools\report\triage_accepted.json.
-# ---------------------------------------------------------------------------------------------------------------------
-# classes whose finding can never be accepted (the loader refuses an entry for them); 'sequence' / UNPARSED are format faults
-NEVER_CLASSES = {"problem", "load_stall", "load_watch", "sequence", "UNPARSED", "crash", "hang"}
-# class -> probe tokens an entry's `sub` regex must NOT match (a named 2D hole site, a mid-match black frame, an idle with no quit are never normal)
-NEVER_PROBES = {"holes_2d": ["site 0x82BC69D0", "no site, over the load-window fallback frames: 5 > 3", "no site, over the load-window fallback frames: 100 > 0", "no site",
-                             "no site, within the load-window fallback frames: 5 > 3", "2d holes"],
-                "black_no_3d": ["mid_match %d" % k for k in range(1, 1001)], "no_file_open": ["trail, no quit"], "fallback_2d": ["hole 0x82BC69D0", "hole 0x00000000"]}
-HOLES_2D_OK = "no site, within the load-window fallback frames"
-# tokens the verdict reads by class (any other finding class with a finding has no rule: FAIL, never a quiet pass)
-TALLIED = {"fallback_2d", "rows_not_drawn", "pic_refusals", "holes", "hole_skip", "strikes", "technique_fallback", "reflect_fallback", "black_no_3d",
-           "holes_2d", "caw_holes"}
-
-
-def load_accepted(path):
-    """Read triage_accepted.json -> list of entries (dict: modes, class, rx, verdict, row, why, max, derived_from, limit). ValueError on a bad file or a
-    never-acceptable entry (a lint, not a convention)."""
-    j = json.loads(Path(path).read_text(encoding="utf8"))
-    out = []
-    for i, e in enumerate(j["entries"]):
-        where = "%s entry %d" % (Path(path).name, i)
-        cls, sub, v = e.get("class"), e.get("sub"), e.get("verdict")
-        if not cls or sub is None or v not in ("normal", "known", "derived"):
-            raise ValueError("%s: needs class, sub and verdict normal|known|derived" % where)
-        if cls in NEVER_CLASSES:
-            raise ValueError("%s: class %s can never be accepted" % (where, cls))
-        modes = e.get("modes", ["*"])
-        if modes != ["*"] and not (isinstance(modes, list) and all(isinstance(m, int) for m in modes)):
-            raise ValueError("%s: modes must be [\"*\"] or a list of mode ids" % where)
-        try:
-            rx = re.compile(sub)
-        except re.error as ex:
-            raise ValueError("%s: bad sub regex: %s" % (where, ex))
-        for probe in NEVER_PROBES.get(cls, []):
-            if rx.search(probe):
-                raise ValueError("%s: sub %r would accept %r, which is never acceptable for %s" % (where, sub, probe, cls))
-        if v == "known" and not e.get("row"):
-            raise ValueError("%s: a known entry names its row" % where)
-        if v == "derived" and not (e.get("derived_from") and e.get("limit") in ("count", "all_accepted")):
-            raise ValueError("%s: a derived entry names derived_from and limit count|all_accepted" % where)
-        if cls == "holes_2d" and not rx.search(HOLES_2D_OK):
-            raise ValueError("%s: a holes_2d entry must match the exact text %r" % (where, HOLES_2D_OK))
-        out.append(dict(modes=modes, cls=cls, rx=rx, verdict=v, row=e.get("row"), why=e.get("why", ""), max=e.get("max"),
-                        derived_from=e.get("derived_from"), limit=e.get("limit")))
-    return out
-
-
-def _entry(acc, seq, cls, tok):
-    for e in acc:
-        if e["cls"] == cls and (e["modes"] == ["*"] or seq in e["modes"]) and e["rx"].search(tok):
-            e["hits"] = e.get("hits", 0) + 1
-            return e
-    return None
-
-
-def verdict_of(res, modes, finds, acc, extra_notes=()):
-    """-> dict(verdict PASS|KNOWN|FAIL, bad [text], known [row ids]). Every tallied sub-reason of every mode, and every straddle (accepted in EVERY
-    mode it names), is judged; a finding no rule covers FAILs."""
-    bad, known = [], set()
-    used = {}      # (entry, mode) -> the count every token that entry accepted added up to: a `max` is a size per mode, not per distinct text
-
-    def judge(seqs, cls, tok, n, where, pic_acc):
-        """One (class, token, count) against every mode in seqs. A straddle names several: all must accept (the safe direction)."""
-        for q in seqs:
-            e = _entry(acc, q, cls, tok)
-            if e is None:
-                bad.append("[%s] %s x%d (%s)" % (cls, tok, n, where))
-                return
-            k = (id(e), q)
-            used[k] = used.get(k, 0) + n
-            if e["max"] is not None and used[k] > e["max"]:
-                bad.append("[%s] %s x%d is over the accepted %d (%s; %d counted for row %s in this mode)" % (cls, tok, n, e["max"], where, used[k], e["row"]))
-                return
-            if e["verdict"] == "derived":
-                if e["limit"] == "count" and n > pic_acc:
-                    bad.append("[%s] %s x%d is over the %d accepted %s (%s): uncounted drops" % (cls, tok, n, pic_acc, e["derived_from"], where))
-                    return
-                if e["limit"] == "all_accepted" and pic_acc < 0:
-                    bad.append("[%s] %s x%d while a %s is not accepted (%s)" % (cls, tok, n, e["derived_from"], where))
-                    return
-            elif e["verdict"] == "known":
-                known.add(e["row"])
-
-    def derived_base(seqs, tallies):
-        """The accepted pic_refusals count over the modes (>= 0), or -1 when some pic_refusals token is not accepted."""
-        total = 0
-        for q in seqs:
-            for (cls, tok), n in tallies.items():
-                if cls == "pic_refusals":
-                    e = _entry(acc, q, cls, tok)
-                    if e is None or e["verdict"] == "derived":
-                        return -1
-                    total += n
-        return total
-
-    if res.get("script_failed"):
-        bad.append("route: script FAILED (the route did not finish)")
-    # S106 0FF B1 / F9: a log that is not a whole run is never normal
-    if not res["modes_read"]:
-        bad.append("log: no sequence line read (a cut or empty log): no mode to judge")
-    if "frames_census" in res["classes_not_read"]:
-        bad.append("log: no [host] frames census line (a cut or empty log)")
-    if not res.get("head_seen", True):
-        bad.append("log head missing: the oldest part read has no `[wwe2k14] run log number:` line (its first part was lost)")
-    if res.get("route_seen") and not res.get("quit_seen"):
-        bad.append("route: no quit line (the run ended before the route finished)")
-    if not res.get("ended"):
-        bad.append("log: no end marker (Execution complete / Title terminated): the run was cut, killed or crashed")
-    if res.get("cut") or res.get("condensed") or any("PARTS MISSING" in n for n in extra_notes):
-        bad.append("log incomplete: %s" % ", ".join(w for w, on in (("cut by the launcher", res.get("cut")), ("condensed by the launcher", res.get("condensed")),
-                                                                 ("parts missing", any("PARTS MISSING" in n for n in extra_notes))) if on))
-    for md in modes:
-        seq, T = md["seq"], md["tally"]
-        where = "mode %d %s" % (seq, md["name"])
-        pic = derived_base([seq], T)
-        sites = [(tok, n) for (cls, tok), n in T.items() if cls == "fallback_2d" and tok.startswith("hole ")]
-        for (cls, tok), n in sorted(T.items()):
-            if cls == "holes_2d":
-                continue
-            if cls == "fallback_2d" and tok.startswith("hole "):
-                continue      # a named 2D hole site is judged below, as holes_2d
-            judge([seq], cls, tok, n, where, pic)
-        if any(cls == "black_no_3d" for (cls, _t) in T) and md["vals"].get(("frames_census", "ours"), 0) == 0:
-            bad.append("[black_no_3d] black frames in a mode where we drew no 3D frame of ours (frames_census ours +0): the mode never had a picture (%s)" % where)
-        n2 = T.get(("holes_2d", "2d holes"), 0)
-        if sites:
-            bad.append("[holes_2d] %d 2D holes; sites named by the census: %s (%s)" % (n2, ", ".join("%s:%d" % (t[5:], n) for t, n in sites), where))
-        elif n2:
-            lf = sum(n for (cls, tok), n in T.items() if cls == "fallback_2d" and not tok.startswith("refused")
-                     and (_entry(acc, seq, cls, tok) or {}).get("verdict") == "normal")
-            tok = HOLES_2D_OK if n2 <= lf else "no site, over the load-window fallback frames: %d > %d" % (n2, lf)
-            judge([seq], "holes_2d", tok, n2, where, 0)
-    for f in finds:
-        cls = f["cls"]
-        if f["prio"] < 0:
-            bad.append("[%s] UNPARSED: %s" % (cls, f["text"]))
-        elif cls in NEVER_CLASSES:
-            bad.append("[%s] %s (%s; %s)" % (cls, f["text"], f["mode"], (f["reason"] or "")[:90]))
-        elif cls == "no_file_open":
-            judge([f["mode_seq"]], cls, "trail after script quit" if (res.get("quit_seen") and not res.get("script_failed")) else "trail, no quit", f["count"], f["mode"], 0)
-        elif cls not in TALLIED:
-            bad.append("[%s] %s (%s): no rule reads this class" % (cls, f["text"], f["mode"]))
-        elif f.get("crossing"):
-            seqs = f.get("straddles") or []
-            tallies = {(cls2, tk): n for md in modes if md["seq"] in seqs for (cls2, tk), n in md["tally"].items()}
-            pic = derived_base(seqs, tallies)
-            if not f["toks"]:
-                bad.append("[%s] %s: no sub-reason read on the straddling line (%s)" % (cls, f["text"], f["mode"]))
-            for tk, n in f["toks"]:
-                if cls == "fallback_2d" and tk.startswith("hole "):
-                    bad.append("[holes_2d] straddling window names site %s x%d (%s)" % (tk[5:], n, f["mode"]))
-                elif cls == "holes_2d":
-                    # the straddled modes' load-window fallback frames carry them; a named site in any of them is never normal
-                    # S106 0FFN N3: each load-window fallback frame counts where it was tallied, when THAT mode accepts it (the caps are per mode now: a token seen in one
-                    # mode of the straddle is not accepted in the other, and `all modes accept it` made the allowance 0)
-                    lf = sum(m for md2 in modes if md2["seq"] in seqs for (c2, t2), m in md2["tally"].items() if c2 == "fallback_2d" and not t2.startswith(("refused", "hole "))
-                             and (_entry(acc, md2["seq"], c2, t2) or {}).get("verdict") == "normal")
-                    named = [t2 for (c2, t2) in tallies if c2 == "fallback_2d" and t2.startswith("hole ")]
-                    if named:
-                        bad.append("[holes_2d] %d 2D holes on a straddling window; sites named in the modes it crosses: %s (%s)" % (n, ", ".join(t[5:] for t in named), f["mode"]))
-                    else:
-                        judge(seqs, cls, HOLES_2D_OK if n <= lf else "no site, over the load-window fallback frames: %d > %d" % (n, lf), n, f["mode"], 0)
-                else:
-                    judge(seqs, cls, tk, n, f["mode"], pic)
-        else:
-            md = next((m for m in modes if m["seq"] == f["mode_seq"]), None)
-            if md is None or not any(k[0] == cls for k in md["tally"]):
-                bad.append("[%s] %s (%s): no sub-reason read, so nothing to accept" % (cls, f["text"], f["mode"]))
-    bad = sorted(set(bad))
-    return dict(verdict="FAIL" if bad else ("KNOWN" if known else "PASS"), bad=bad, known=sorted(known))
-
-
-def stale_rows(acc):
-    """S106 0FF F8: accepted rows no log matched (the rows of a class with no finding are never judged and not listed)."""
-    judged = {c["name"] for c in CLASSES if c["finding"] is not None} | {"no_file_open"}
-    live = {e["row"] or e["cls"] for e in acc if e.get("hits")}      # S106 0FFN: a row is stale only when NONE of its entries matched
-    return sorted({e["row"] or e["cls"] for e in acc if not e.get("hits") and e["cls"] in judged} - live)
-
-
-def verdict_text(name, v, brief, many):
-    head = "VERDICT %s" % v["verdict"]
-    if v["known"]:
-        head += " (%s)" % ",".join(v["known"])
-    if many:
-        head += "  " + name
-    if brief:
-        if v["bad"]:
-            head += " | " + "; ".join(v["bad"][:3]) + (" (+%d more)" % (len(v["bad"]) - 3) if len(v["bad"]) > 3 else "")
-        return head
-    return "\n".join([head] + ["  UNACCEPTED " + b for b in v["bad"]])
 
 
 def machine_from_zip(zf):
@@ -1009,7 +856,7 @@ def to_json(results, baseline_hidden):
                                   visit_gap_s=m["visit_gaps"], unparsed={k: v[0] for k, v in m["unparsed"].items()},
                                   reasons={c: {t: n for (c2, t), n in sorted(m["tally"].items()) if c2 == c} for c in sorted({k[0] for k in m["tally"]})})
                              for m in r["modes"]],
-                      findings=r["findings"], in_play=res["facts"].to_json(res["lines"]), **({"verdict": r["verdict"]} if r.get("verdict") else {})))
+                      findings=r["findings"], run_failures=r.get("run_failures", []), in_play=res["facts"].to_json(res["lines"])))
     return dict(tool="triage", version=2, baseline_hidden=baseline_hidden, problems_note=PROBLEM_NOTE, logs=j)
 
 
@@ -1019,18 +866,11 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true", help="print one JSON object instead of the text")
     ap.add_argument("--out", help="also write the output to this file (under out\\)")
     ap.add_argument("--gap-s", type=float, default=10.0, help="report a span with frames advancing and no file open longer than this (default 10)")
-    ap.add_argument("--baseline", help="a reference --json output: report only classes / reasons / birth sites not in the same mode of it (NOT a verdict: use --accepted)")
-    ap.add_argument("--accepted", help="S106 0F: the hand-written accepted list (tools\\report\\triage_accepted.json); with --verdict every sub-reason of every mode is judged against it")
-    ap.add_argument("--verdict", action="store_true", help="print VERDICT PASS | KNOWN | FAIL per log (needs --accepted); exit 1 when any log FAILs, 2 when unreadable")
-    ap.add_argument("--brief", action="store_true", help="with --verdict: only the verdict line per log (the first reasons on the same line)")
+    ap.add_argument("--baseline", help="a reference --json output: report only classes / reasons / birth sites not in the same mode of it (a comparison, not a verdict)")
     a = ap.parse_args(argv)
-    if a.verdict and not a.accepted:
-        print("triage: CANNOT READ: --verdict needs --accepted FILE", file=sys.stderr)
-        return 2
     try:
         items = gather(a.paths)
         bkeys = baseline_keys(a.baseline) if a.baseline else None
-        acc = load_accepted(a.accepted) if a.accepted else None
     except (ValueError, OSError, KeyError, json.JSONDecodeError) as e:
         print("triage: CANNOT READ: %s" % e, file=sys.stderr)
         return 2
@@ -1044,27 +884,21 @@ def main(argv=None):
             return 2
         modes = mode_table(res, a.gap_s)
         finds = findings_for(res, modes, a.gap_s)
+        rfail = run_failures(res, finds)      # S111: before --baseline, so a crash the reference run also had still fails this run
         if bkeys is not None:
             keep = [f for f in finds if f["prio"] < 0 or (f["mode_seq"] if f["mode_seq"] is not None else f["mode"], f["cls"], norm_reason(f["reason"])) not in bkeys]
             hidden += len(finds) - len(keep)
             finds = keep
-        results.append(dict(source=it["source"], res=res, modes=modes, machine_lines=it["machine"], notes=it["notes"], findings=finds,
-                            verdict=(verdict_of(res, modes, finds, acc, it["notes"]) if acc is not None else None)))
-    if a.verdict and a.brief and not a.json:
-        text = "\n".join(verdict_text(r["res"]["name"], r["verdict"], True, len(results) > 1) for r in results)
-    else:
-        text = json.dumps(to_json(results, hidden), indent=1) if a.json else render(results, hidden)
-        if a.verdict and not a.json:
-            text += "\n" + "\n".join(verdict_text(r["res"]["name"], r["verdict"], False, len(results) > 1) for r in results)
-    if a.verdict and len(results) > 1 and not a.json:
-        st = stale_rows(acc)
-        if st:
-            text += "\nSTALE accepted rows (no log of these %d matched them: a fixed fault, or a row to delete): %s" % (len(results), ", ".join(st))
+        results.append(dict(source=it["source"], res=res, modes=modes, machine_lines=it["machine"], notes=it["notes"], findings=finds, run_failures=rfail))
+    text = json.dumps(to_json(results, hidden), indent=1) if a.json else render(results, hidden)
     print(text)
+    for r in results:
+        if r["run_failures"]:
+            print("triage: RUN FAILED %s: %s" % (r["res"]["name"], "; ".join(r["run_failures"])), file=sys.stderr)
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(text + "\n", encoding="utf8")
-    return 1 if (a.verdict and any(r["verdict"]["verdict"] == "FAIL" for r in results)) else 0
+    return 1 if any(r["run_failures"] for r in results) else 0
 
 
 if __name__ == "__main__":

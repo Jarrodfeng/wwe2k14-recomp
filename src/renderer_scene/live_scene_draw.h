@@ -27,6 +27,7 @@
 #include "record_frame.h"
 #include "post_from_record.h"   // S103 FXF: Info (NoteFx)
 #include "../renderer_game/scene_kind.h"   // S103 L2d: the flat frame's facts
+#include "stageless_scene.h"   // S111 STAGELESS2: a scene the game draws with no stage (READY, the scene boundary)
 
 namespace rdr_scene {
 
@@ -62,7 +63,7 @@ class LiveSceneDraw {
   void Warm(const SceneTables& rec, uint32_t w, uint32_t h);
   // S110 ENTRWAIT2 (scene_start_wait.h): are our loads done? Warm / DrawLive call it after their build; the host calls it with built = false on a handled frame that built nothing.
   void PublishStartWait(uint64_t guest_frame, bool built = true, bool drew = false);   // review: drew = DrawLive (the frame is drawn after the call: StartCrowdIn does not prefetch)
-  bool LastBuildHadStage() const { return stage_; }   // S103 HN: the last Warm / DrawLive build had a stage (false = a scene boundary: loading, flat, scene change)
+  bool LastBuildHadStage() const { return stage_ || stageless_; }   // S103 HN: the last Warm / DrawLive build had a stage (false = a scene boundary: loading, flat, scene change); S111 STAGELESS2: a scene the game draws with no stage is no boundary
   bool Ready() const { return ready_; }   // the last live build found every asset resident (FRAME_CONTRACT 3 item 2)
   // S103 L2d (scene_kind.h): the 3D half of the FLAT frame verdict for `rec`, from the build Warm / DrawLive made of that same record (call after it): no stage, no 3D object, no
   // Scene3D stamp = a flat frame (exempt from HasStage and the 3D inputs; its 2D / movie / particle half comes from the 2D drawer's census). A record this drawer did not build last,
@@ -124,6 +125,8 @@ class LiveSceneDraw {
   uint64_t stage_gf_ = ~0ull;   // S103 L2d: the guest frame of the record the stage facts below describe
   bool stage_ = true;           // its HasStage (true when the frame was not built: never judged flat)
   uint32_t stage_objects_ = 1;  // objects over every class report
+  bool stageless_ = false;      // S111 STAGELESS2: the last record built is a scene the game draws with no stage (stageless::StagelessGate, stepped once per record in NoteStage)
+  stageless::StagelessGate stageless_gate_;
   rdr::ImageId fault_color_ = rdr::kNoImage; bool fault_scene_drawn_ = false;   // S103 CHS (review fix 1): the last failed Record: the scene colour image, and whether any scene op was recorded into it before it failed
   uint64_t arena_epoch_seen_ = 0;   // S103 SCX: rf::ArenaEpoch at the last build
   uint64_t last_drawn_gf_ = 0; bool have_drawn_gf_ = false;   // S103 M (N3): the guest frame of the last frame DrawLive recorded (the front end's slot-800 live screen is only valid right after it)

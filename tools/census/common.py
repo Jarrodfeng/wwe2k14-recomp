@@ -583,7 +583,7 @@ class Game:
         label = 'cen_%s_%03d' % (self.item['id'], k)
         self.batch(['screenshot %s' % label], timeout=60)
         rec = {'label': '%s%s' % (tag, '') if tag else label, 'file': label, 'phase': self.tr.phase,
-               'path': os.path.join(self.caps, '%03d_%s.png' % (self.run, label))}
+               'path': os.path.join(self.caps, '%03d_%s.webp' % (self.run, label))}   # S111 SHOTDIET review: the game's default format (the census runs it with no format flag)
         self.shots.append(rec)
         return rec
 

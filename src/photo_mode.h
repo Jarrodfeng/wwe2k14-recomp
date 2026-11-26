@@ -70,6 +70,7 @@
 #include "cinecam.h"
 #include "scene_freeze.h"  // Session 36: the shared true freeze
 #include "gfx_menu.h"  // text ids, guest word helpers (the pause menu row)
+#include "ramp_menu.h"  // S111 RAMPMENU: the RAMP CAMERA row (its hook line is in sub_82391928 below; its own hooks are in that file)
 #include "guest_read.h"
 #include "input_script.h"  // SavePngWic, g_pad_filter
 
@@ -425,6 +426,8 @@ REX_HOOK_RAW(sub_82391928) {
     if (ctx.r5.u32 == 7 && AddPauseRow(base, ctx.r3.u32)) ctx.r5.u64 = 8;
     else if (ctx.r5.u32 == 8) SwapControlsRow(base, ctx.r3.u32);
   }
+  // S111 RAMPMENU: the VISUAL PRESENTATION page's rows (page 3's filler sub_82385340): RAMP CAMERA after the seven (src/ramp_menu.h).
+  if (uint32_t(ctx.lr) == wwe2k14::ramp_menu::kVpFillerRet) wwe2k14::ramp_menu::OnVpRows(ctx, base);
   __imp__sub_82391928(ctx, base);
 }
 

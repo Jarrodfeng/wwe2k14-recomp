@@ -1,0 +1,127 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true
+# Session 111 lane CACROUTE: boot -> CREATIONS -> CHAMPIONSHIP (1506, a 2D list of title slots) -> a new title -> the Create a Title editor (sequence 29).
+# Path (run 7333, all synced on states): CREATIONS target 1506 -> A -> slot list (menu_page 0x8203D920, 40 rows) -> A on slot 0 -> seq 29 (Title Design menu, page 0x821B3E68)
+# -> A: belt picker (0x821B3FA0) -> A: belt 0, the editor (0x821B4E68, text FRONT PLATE / ACCEPT; 8 rows, ACCEPT = row 7) -> DOWN x7, A -> FINALIZE page (0x821B4FA0, 7 rows, ACCEPT = row 6,
+# defaults CUSTOM / ACTION are kept) -> A -> load (~530 frames) -> main menu (seq 75, menu 1) -> CREATIONS -> CHAMPIONSHIP again: slot 0 now holds the title with its thumbnail.
+# Writes only the per-run copy of the frozen save. No right-stick press exists in the input grammar (src/input_script.h press targets), so no camera turn of the belt.
+# Shots: sc_cac_list (empty list), sc_cac_a1/a2/a3 (seq 29 load, Title Design), sc_cac_b1/b2 (belt picker), sc_cac_ed1..ed4 (editor, 6 / 6 / 120 frames apart), sc_cac_accept, sc_cac_save1/2 + sc_cac_fin_accept
+# (FINALIZE), sc_cac_post1 (after ACCEPT), sc_cac_list_after1/2 (slot list with the new title and thumbnail).
+on_fail quit
+log bench: start scene s111_cac_editor
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN target 1506 40 30 8
+assert_state 0x8392945C>368 1506
+press_until_state A menu 1506 8 120 5
+wait_state menu_ready 1 1200 10
+wait_state menu_page 0x8203D920 1200 20
+wait_state menu_rows 40 600 10
+log scene=cac_list
+log_state seq
+log_state menu
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_col
+log_state menu_cols
+log_state menu_count
+screenshot sc_cac_list
+press_until_state A seq 29 6 120 5
+log scene=cac_loading
+log_state 0x839400F8>0>72
+log_state 0x839400F8>0>76
+log_state 0x839400F8>256
+wait_frames 120
+log_state 0x839400F8>0>72
+log_state 0x839400F8>0>76
+screenshot sc_cac_a1
+wait_frames 240
+log_state 0x839400F8>0>72
+log_state 0x839400F8>0>76
+log_state msgbox
+screenshot sc_cac_a2
+wait_frames 480
+log_state 0x839400F8>0>72
+log_state 0x839400F8>0>76
+log_state msgbox
+log_state menu_count
+screenshot sc_cac_a3
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_col
+log_state menu_cols
+wait_state menu_page 0x821B3E68 600 10
+press_until_state A menu_page !=0x821B3E68 6 120 5
+wait_state menu_ready 1 600 20
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_col
+log_state menu_cols
+log_state menu_count
+log_state msgbox
+screenshot sc_cac_b1
+wait_frames 240
+screenshot sc_cac_b2
+press_until_state A menu_page !=0x821B3FA0 6 120 5
+wait_text "FRONT PLATE" 1800
+wait_text ACCEPT 600
+wait_state menu_ready 1 600 20
+log scene=cac_editor_up
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_count
+log_state msgbox
+screenshot sc_cac_ed1
+wait_frames 6
+screenshot sc_cac_ed2
+wait_frames 6
+screenshot sc_cac_ed3
+wait_frames 120
+screenshot sc_cac_ed4
+press_until_state DOWN menu_row >=7 12 30 5
+log_state menu_row
+log_state menu_rows
+screenshot sc_cac_accept
+press_until_state A menu_page !=0x821B4E68 4 120 5
+log_state menu_page
+log_state menu_count
+log_state msgbox
+screenshot sc_cac_save1
+wait_frames 240
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+log_state menu_col
+log_state menu_cols
+screenshot sc_cac_save2
+press_until_state DOWN menu_row >=6 8 30 5
+log_state menu_row
+screenshot sc_cac_fin_accept
+press_until_state A menu_page !=0x821B4FA0 4 120 5
+log_state menu_page
+log_state msgbox
+log_state msgbox_kind
+log_state msgbox_text
+log_state seq
+screenshot sc_cac_post1
+wait_state seq 75 7200 10
+wait_state menu 1 3600 30
+log scene=cac_back_at_main_menu
+include menu_to_creations
+press_until_state DOWN target 1506 40 30 8
+assert_state 0x8392945C>368 1506
+press_until_state A menu 1506 8 120 5
+wait_state menu_page 0x8203D920 1200 20
+wait_state menu_rows 40 600 10
+log scene=cac_list_after_save
+log_state menu
+log_state menu_row
+screenshot sc_cac_list_after1
+wait_frames 120
+screenshot sc_cac_list_after2
+log bench: done
+quit

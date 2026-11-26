@@ -276,6 +276,35 @@ def main(argv=None):
         rc, out, _ = run(tool, [p, "--full"])
         check("D3: --full lists every flag and shot", "knob_05" in out and "001_sc_x_15.png" in out, out[-500:])
 
+        # 18 (S111 BLACKFRAME) the host's runs of black frames: each [host] black frames line is listed with its branch, cause and inputs, in order, timed from
+        #    frames_NNN.csv beside the log; a 2d_only run (menus) is counted and listed only with --full; the lines never decide the exit; no such line -> none.
+        bl = [L(160, "[host] black frames 5000-5030 (n 30, held 1): no_last3d <- never_fed | inputs: ours 1 flat 0 no_scene 0 loading 0 never_fed [5 6] | why: never_fed: required record input(s) not stamped since this scene began (first: bit 5)"),
+              L(161, "[host] black frames 5031-5086 (n 56, held 0): no_last3d <- miss_loading | inputs: ours 1 flat 0 no_scene 0 loading 56 never_fed - | why: not resident: 2 asset(s) loading"),
+              L(162, "[host] black frames 6000-6400 (n 401, held 0): 2d_only | inputs: ours 0 flat 1 no_scene 0 loading 0 never_fed - | why: flat frame"),
+              L(163, "[host] black spans 3 (frames black 487, held 1), lines printed 3")]
+        p = write_log(root, "black", BASE + bl + END)
+        with open(os.path.join(root, "black", "logs", "frames_001.csv"), "w") as fh:
+            fh.write("frame,t_seconds,frame_ms\n" + "".join("%d,%.3f,16.7\n" % (f, f / 60.0) for f in range(4990, 5100)))
+        rc, out, _ = run(tool, [p])
+        sec = out.split("BLACK FRAMES")[1].split("UNSORTED")[0] if "BLACK FRAMES" in out else ""
+        check("BLACK: black runs never decide the exit (exit 0)", rc == 0, "rc %d\n%s" % (rc, out[-600:]))
+        check("BLACK: the two runs are listed in order with branch <- cause and their CSV times",
+              0 <= sec.find("frames 5000-5030 (n 30, held 1) t 83.33-83.83 s (0.50 s): no_last3d <- never_fed") < sec.find("frames 5031-5086 (n 56, held 0) t 83.85-84.77 s (0.92 s): no_last3d <- miss_loading"), sec)
+        check("BLACK: the inputs and the why are kept", "never_fed [5 6]" in sec and "loading 56" in sec and "why: not resident: 2 asset(s) loading" in sec, sec)
+        check("BLACK: a 2d_only run is counted, not listed, by default; the total is said",
+              "6000-6400" not in sec and "plus 1 2d_only run(s), 401 frames" in sec and "total: 3 run(s), 487 black frames, 1 held" in sec, sec)
+        rc, out, _ = run(tool, [p, "--full"])
+        check("BLACK: --full lists the 2d_only run", "frames 6000-6400 (n 401, held 0): 2d_only" in out, out[-800:])
+        rc, out, _ = run(tool, [p, "--json"])
+        try:
+            j = json.loads(out)
+            check("BLACK: --json carries the runs with their times", len(j["black_spans"]) == 3 and abs(j["black_spans"][0]["t0"] - 83.333) < 0.01
+                  and j["black_spans"][1]["what"] == "no_last3d <- miss_loading" and j["black_total"]["spans"] == 3, out[:400])
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            check("BLACK: --json carries the runs", False, "%s %s" % (e, out[:300]))
+        rc, out, _ = run(tool, [os.path.join(root, "clean")])
+        check("BLACK: a run with no black line says none", "none (no `[host] black frames` line" in (out.split("BLACK FRAMES")[1] if "BLACK FRAMES" in out else ""), out[-600:])
+
         rc, out, _ = run(tool, [os.path.join(root, "nothing_here")])
         check("unreadable path exits 2", rc == 2)
         rc, out, _ = run(tool, [os.path.join(root, "m_crash"), "--json"])

@@ -40,7 +40,7 @@ RX_STATE = re.compile(r"\[wwe2k14\]\[input\] line (\d+)(?: \([^)]*\))?: state (\
 RX_INPUT_LOG = re.compile(r"\[wwe2k14\]\[input\] line (\d+)(?: \([^)]*\))?: (sweep|full): (.*) \(frame (\d+)\)")
 RX_OPT = re.compile(r"\[wwe2k14\]\[input\] line (\d+)(?: \([^)]*\))?: (.*optional: going on, frame (\d+)\))")
 RX_FAIL = re.compile(r"\[wwe2k14\]\[input\] script FAILED(.*)")
-RX_SHOT = re.compile(r"\[wwe2k14\]\[input\] screenshot saved: (.*\.(?:bmp|png)) \((\d+)x(\d+)\)")
+RX_SHOT = re.compile(r"\[wwe2k14\]\[input\] screenshot saved: (.*\.(?:bmp|png|webp)) \((\d+)x(\d+)\)")   # S111 SHOTDIET review: WebP is the default format
 RX_QUIT = re.compile(r"\[wwe2k14\]\[input\] line \d+(?: \([^)]*\))?: quit \(frame (\d+)\)")
 RX_FRAMES = re.compile(r"\[wwe2k14\]\[frames\] t=(\d+) s, frames (\d+)-(\d+): ([\d.]+) fps, avg ([\d.]+) ms, "
                        r"p95 ([\d.]+) ms, worst (\d+) ms, hitches (\d+)")

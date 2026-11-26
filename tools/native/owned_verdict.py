@@ -113,7 +113,7 @@ def read_run(run):
     info = {'run': run, 'scale': '1', 'steps': '', 'route': '', 'replay': '', 'pauses': [], 'census': [],
             'validation': False, 'validation_errors': 0, 'owned_frame': False, 'frame_summaries': [],
             'frame_lines': 0, 'truth_work': [], 'summaries': [], 'flips': [], 'shot_frames': [], 'log_cvar_frame': None, 'frame_passes': {}, 'match_frame': None,
-            'prefix': str(run) if list(CAPTURES.glob(f'{run}_*.png')) else f'{run:03d}'}
+            'prefix': str(run) if (list(CAPTURES.glob(f'{run}_*.webp')) or list(CAPTURES.glob(f'{run}_*.png'))) else f'{run:03d}'}
     with open(log, encoding='utf-8', errors='replace') as f:
         for line in f:
             m = MODIFIED.search(line)
@@ -173,7 +173,7 @@ def read_run(run):
                 info['census'].append((float(m.group(1)), float(m.group(2)), float(m.group(3))))
     info['on'] = info['steps'] not in ('', '0') or info['owned_frame']
     pre = info['prefix'] + '_'
-    info['shots'] = sorted(p.name[len(pre):] for p in CAPTURES.glob(f'{pre}*.png'))
+    info['shots'] = sorted(p.name[len(pre):] for ext in ('webp', 'png') for p in CAPTURES.glob(f'{pre}*.{ext}'))   # S111 SHOTDIET: the names keep their extension, so pairs compare the same format
     return info
 
 

@@ -121,7 +121,7 @@ def selftest_lints(root):
     t = dict(base)   # the old present hook: the reader only
     t['src/half2_hooks.h'] = t['src/half2_hooks.h'].replace('\n  else wwe2k14::frame_tick::StreamFreePresent(base, ctx.r3.u32, ctx.r4.u32);', '')
     twins['hook_reader_only'] = t
-    thumb = "  if (REXCVAR_GET(wwe2k14_rdr_readbacks)) wwe2k14::thumb_off::OnPresent(ctx, base);\n"   # S103 RBC (thumb_defer_off.h): the no-stream branch also posts the replay thumbnails
+    thumb = "  if (wwe2k14::readbacks_start::On()) wwe2k14::thumb_off::OnPresent(ctx, base);   // S111 RBSWITCH: the start value\n"   # S103 RBC (thumb_defer_off.h): the no-stream branch also posts the replay thumbnails
     off_line = "  wwe2k14::frame_tick::StreamFreePresent(base, ctx.r3.u32, ctx.r4.u32);\n" + thumb + "#endif\n  rex::graphics::CommandProcessor* cp = Cp();"
     t = dict(base)   # the no-stream branch loses its boundary (a build with no stream would post no tick)
     t['src/half2_hooks.h'] = t['src/half2_hooks.h'].replace('\r\n', '\n').replace(off_line, thumb + "#endif\n  rex::graphics::CommandProcessor* cp = Cp();")

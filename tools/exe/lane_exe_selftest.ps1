@@ -260,6 +260,9 @@ Run-Row {
     Check 'options: a cache file gives its BOOL options and the non-empty STRING / FILEPATH ones' ($o['WWE2K14_EXE_SYMBOLS'] -eq 'ON' -and $o['WWE2K14_KEEP_STREAM_RUN'] -eq 'ON' -and $st.Count -eq 1 -and $st['WWE2K14_GUEST_ISA'] -eq 'avx2' -and $sk.Count -eq 1) "$($o | Out-String) $($st | Out-String)"
     $w = Get-LaneWantedOptions $o
     Check 'options: the wanted recipe pins EXE_SYMBOLS and GUEST_LINES OFF (main said ON / $gl) and keeps the rest' ($w['WWE2K14_EXE_SYMBOLS'] -eq 'OFF' -and $w['WWE2K14_EXE_SYMBOLS_GUEST_LINES'] -eq 'OFF' -and $w['WWE2K14_KEEP_STREAM_RUN'] -eq 'ON')
+    $ws = Get-LaneWantedOptions ([ordered]@{ WWE2K14_KEEP_STREAM = 'OFF'; WWE2K14_KEEP_STREAM_RUN = 'ON' }) 'win-amd64-release'
+    $wo = Get-LaneWantedOptions ([ordered]@{ WWE2K14_KEEP_STREAM = 'ON'; WWE2K14_KEEP_STREAM_RUN = 'OFF' }) 'win-amd64-release-off'
+    Check 'S111 options: a preset pins its own KEEP_STREAM identity over main cache (the play folder is stream-free: tip-stream stays ON, the -off preset stays OFF)' ($ws['WWE2K14_KEEP_STREAM'] -eq 'ON' -and $ws['WWE2K14_KEEP_STREAM_RUN'] -eq 'OFF' -and $wo['WWE2K14_KEEP_STREAM'] -eq 'OFF' -and $wo['WWE2K14_KEEP_STREAM_RUN'] -eq 'ON' -and $w['WWE2K14_KEEP_STREAM_RUN'] -eq 'ON')
     $diff = @(Get-LaneOptionDiff $o $w)
     Check 'options: a cache that differs from the wanted recipe names the differing keys (the slot is re-configured); an equal one names none' ($diff.Count -eq 2 -and @(Get-LaneOptionDiff $w $w).Count -eq 0) ($diff -join ',')
 }

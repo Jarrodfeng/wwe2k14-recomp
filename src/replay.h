@@ -550,12 +550,18 @@ class Replay {
       return;
     }
     const std::string cur = rex::cvar::GetFlagByName(name);
-    if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) {
-      if (cur != value) {
-        if (rex::cvar::SetFlagByName(name, value)) applied_.push_back(name + "=" + value);
-        else notes_.push_back("WARNING: could not set " + name + "=" + value + " (unknown setting?)");
+    if (cur == value) return;
+    const bool given = rex::cvar::GetFlagSource(name) != rex::cvar::Source::kDefault;
+    if (ReplaySets(name, given)) {  // S111 RAMPCAM: src/replay_carried.h (the recording decides the ramp camera even over a given value)
+      if (rex::cvar::SetFlagByName(name, value)) {
+        applied_.push_back(name + "=" + value);
+        if (given)
+          notes_.push_back("WARNING: " + name + "=" + cur + " was given (command line or settings file); OVERRIDDEN for this playback: " +
+                           name + "=" + value + ", the recording decides it (src/replay_carried.h RecordingWins)");
+      } else {
+        notes_.push_back("WARNING: could not set " + name + "=" + value + " (unknown setting?)");
       }
-    } else if (cur != value) {
+    } else {
       notes_.push_back("WARNING: " + name + "=" + cur + " given explicitly; replay mode wants " + value +
                        " (kept as given: the run may not repeat)");
     }
@@ -583,10 +589,9 @@ class Replay {
     std::fprintf(record_, "seed %s\n", rex::cvar::GetFlagByName("wwe2k14_fixed_seed").c_str());
     std::fprintf(record_, "dlc %s\n", g_dlc_offered.empty() ? "none" : g_dlc_offered.c_str());  // Session 32
     std::vector<std::string> names = rex::cvar::ListModifiedFlags();
-    // Session 77 (phone session): carried settings whose compiled default differs by platform are written even at
-    // this platform's default (nf_skin_3bone: "on" on x86-64 = not "modified" there, "off" on ARM; a PC recording
-    // played on a phone ran it off). Keep in step with det_cross.py PLATFORM_DEFAULTS.
-    for (const char* n : {"wwe2k14_nf_skin_3bone", "wwe2k14_crowd_fill_wide"}) {
+    // Session 77 (phone session) / lane 176 / S111 RAMPCAM: carried settings written even at their default (src/replay_carried.h
+    // kAlwaysWritten says why each one).
+    for (const char* n : kAlwaysWritten) {
       if (rex::cvar::GetFlagInfo(n) && std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
     }
     for (const std::string& name : names) {

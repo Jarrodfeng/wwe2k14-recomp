@@ -162,6 +162,12 @@ def main():
           'store-system: one block stored, the unknown-system and the explain-less blocks skipped, a bad fact line counted (%s)' % r)
     c = qread.open_ro(db)
     st = qreadsys.system_state(c)
+    import qcurios      # the fun-facts lookup (`q read curiosities`): the writer's medium fact, never the low one, none for another system
+    lines = []
+    check(qcurios.run('engine', path=db, out=lines.append) == 1 and any('math cluster carries no strings' in x and 'writer: medium' in x for x in lines)
+          and not any('A low one' in x for x in lines), 'curiosities: system engine -> the writer\'s medium fact, not the low one (%s)' % lines)
+    check(qcurios.run('engine', low=True, path=db, out=lambda s: None) == 2 and qcurios.run('ai', path=db, out=lambda s: None) == 0,
+          'curiosities: --low adds the low one; another system has none')
     ex = st['engine']['written'][0]
     check(st['engine']['written'][1] == 'writerM' and ex.startswith('The engine layer') and 'Not known yet' in ex and 'Next to read or observe:\n- the callers of unit 101' in ex
           and not st['engine']['stale'], 'store-system round trip: explanation, model, open lines kept; not stale')

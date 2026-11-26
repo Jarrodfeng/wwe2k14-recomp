@@ -20,10 +20,23 @@
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
 
+#include "../frame_stats.h"   // wwe2k14::g_guest_frame
+#include "char_release.h"
 #include "model_release.h"
+#include "wrestler_hook.h"    // wwe2k14::wrestlers::ReadGuestNoNote
 
 REX_EXTERN(__imp__sub_82BD3B40);
 REX_HOOK_RAW(sub_82BD3B40) {
   wwe2k14::model_release::OnModelDestroyed(ctx.r3.u32);
   __imp__sub_82BD3B40(ctx, base);
+}
+
+// S111 FREEHOOK (docs\research\s111\FREEHOOK.md, char_release.h): the CHARACTER destructor body sub_825A1510, r3 = the character, at its entry: nothing of it is freed yet ([char+48] and
+// [[char+48]+200] intact: `q decomp sub_825A1510 --fields` writes only [[char+48]+204] / +208 before the base sub_823CCDD0 +170). Callers: sub_825A2A30 (slot 0 of both slot-character vtables
+// 0x8201E6E8 / 0x82027988; +1C, then the block's free +34), sub_829D29C0, sub_83367E28, sub_83368BB0. The model hook above runs later, after sub_82BD91B0 freed the palette. Read only; the
+// original runs unchanged right after. Cost: one call per destroyed character (loads, not frames). `q find sub_825A1510`: no other hook of ours names it.
+REX_EXTERN(__imp__sub_825A1510);
+REX_HOOK_RAW(sub_825A1510) {
+  wwe2k14::char_release::OnCharacterDestroyed(ctx.r3.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed), &wwe2k14::wrestlers::ReadGuestNoNote);
+  __imp__sub_825A1510(ctx, base);
 }

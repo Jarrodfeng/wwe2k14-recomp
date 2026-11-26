@@ -258,6 +258,7 @@ struct Span {
   std::vector<std::pair<std::string, std::pair<long long, std::string>>> unparsed;  // class -> (count, first loc), insertion ordered
   std::vector<std::pair<double, long long>> opens;
   std::optional<long long> frames_at_start, frames_at_end;
+  std::vector<std::string> black;  // S111 BLACKFRAME: the `[host] black frames` runs black_no_3d counts, logged in this span: "frames A-B WHAT (n N)" (triage.py Span.black)
   Span(long long s, std::string n, long long f, double t, std::string hm) : seq(s), name(std::move(n)), frame0(f), t0(t), t1(t), hm0(std::move(hm)) {}
 };
 
@@ -498,6 +499,7 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
   static const std::regex rxGpu(R"(\[wwe2k14\]\[gpu\] device 0: (.*)$)");
   static const std::regex rxScene(R"(; in scene ([A-Za-z0-9_]+))");
   static const std::regex rxHostFrames(R"(\[host\] frames (\d+),)");
+  static const std::regex rxBlack(R"(\[host\] black frames (\d+-\d+) \(n (\d+), held \d+\): (.*?) \| inputs: )");   // S111 BLACKFRAME (src\renderer_host\black_spans.h; triage.py RX_BLACK)
   std::vector<Cls>& classes = Classes();
   Result res;
   res.name = name;
@@ -607,6 +609,11 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
           host_frames = ToInt(*mh[1]);
           res.spans[cur].frames_at_end = host_frames;
         }
+      }
+      if (Has(line, "[host] black frames ")) {  // S111 BLACKFRAME: the runs black_no_3d counts (no_last3d / draw_fault / fault_black; not 2d_only, resize, no_record, game_draws_no_scene)
+        Match mb;
+        if (Rx(rxBlack, line, mb) && mb[1] && mb[2] && mb[3] && (mb[3]->rfind("no_last3d", 0) == 0 || mb[3]->rfind("draw_fault", 0) == 0 || Has(*mb[3], "fault_black")))
+          res.spans[cur].black.push_back("frames " + *mb[1] + " " + *mb[3] + " (n " + *mb[2] + ")");
       }
       for (const auto& mk : markers) {
         const Cls& c = *mk.second;
@@ -820,6 +827,19 @@ inline std::string SpanLabel(const Result& res, size_t i0, size_t i1) {
   return o;
 }
 
+// S111 BLACKFRAME: the black_no_3d finding's WHY, from the run lines logged in these modes: " | why: frames A-B no_last3d <- never_fed (n N); ..." ("" = none; triage.py black_why)
+inline std::string BlackWhy(const Result& res, const std::set<long long>& seqs, size_t cap = 6) {
+  std::vector<const std::string*> runs;
+  for (const Span& sp : res.spans)
+    if (seqs.count(sp.seq))
+      for (const std::string& b : sp.black) runs.push_back(&b);
+  if (runs.empty()) return {};
+  std::string o = " | why: ";
+  for (size_t i = 0; i < runs.size() && i < cap; ++i) o += (i ? "; " : "") + *runs[i];
+  if (runs.size() > cap) o += " (+" + I((long long)(runs.size() - cap)) + " more run(s))";
+  return o;
+}
+
 inline std::vector<Finding> FindingsFor(const Result& res, const std::vector<Mode>& modes) {
   std::vector<Finding> out;
   for (const Mode& md : modes) {
@@ -840,6 +860,7 @@ inline std::vector<Finding> FindingsFor(const Result& res, const std::vector<Mod
       f.count = n;
       f.prio = c.prio;
       Template(c.text, vals, f.text);
+      if (c.name == "black_no_3d") f.text += BlackWhy(res, {md.seq});
       f.reason = reason.text ? *reason.text : c.why_const;
       f.line = reason.loc ? reason.loc : line.loc;
       f.at = !reason.hm.empty() ? reason.hm : line.hm;
@@ -892,6 +913,11 @@ inline std::vector<Finding> FindingsFor(const Result& res, const std::vector<Mod
     f.prio = c->prio;
     Template(c->text, vals, f.text);
     f.text += " [rise between census lines that straddle a mode change]";
+    if (c->name == "black_no_3d") {  // the modes the window straddles (triage.py `straddles`: the first crossing's spans)
+      std::set<long long> st;
+      for (size_t i = m.second.from_idx; i <= m.second.to_idx && i < res.spans.size(); ++i) st.insert(res.spans[i].seq);
+      f.text += BlackWhy(res, st);
+    }
     f.reason = m.second.reason ? *m.second.reason : std::string();
     f.line = m.second.loc;
     f.at = m.second.hm;

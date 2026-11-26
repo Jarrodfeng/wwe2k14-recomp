@@ -34,6 +34,7 @@
 #include "part_clock_read.h"   // S103 E5
 #include "stage_clock_flag.h"   // S103 E5
 #include "tail_latch.h"   // LatchMark
+#include "latch_period.h"   // S111 CUTREACH2: OfPalette (record r takes latch r - 1's model-class set: slot rows, vis, show, CAR, part clocks)
 
 namespace rdr_scene::live::stagefx {
 
@@ -126,6 +127,21 @@ class StageFxContributor final : public Contributor {
       latched_.disabled = true;
     } else {
       Take(fi.guest_frame, latched_);
+      // S111 CUTREACH2 (docs\research\s111\CUTREACH2.md, and its Review): everything this take reads that the walk DRAWS with is MODEL-class (written by update tasks before the walk, sub_82C302A0 +120 then
+      // +1AC; the walk's draws land in the next stream), so record r carries latch r - 1's set, as ONE value: the slot worlds and posed palettes (the slot models' own draw), the vis rows (the look gate
+      // sub_824E7190 runs in the group draw pass sub_825B9970 and writes nothing), the show bits (the screens' draw sub_8276AEF8 and that gate read them), the CAR indices (keyed on the vis stage / arena) and
+      // the part clocks (c186: written by the model update sub_82BD5A98 from update tasks, read by the colour pass; E7 measured the stream's c186 = the latch before the record's, lag_finder.py). The appliers
+      // join them (stage_posed.h: the posed rows only under the marker of their arena), so they are never split across two latches. The latch's own read at the boundary (the first latch, a skipped one,
+      // after mode Off). The unreadable count follows the rows it counts (Emit's c.unknown, as the inputs contributor's). The screens (our movie feed), the idle flag and the stamps (decision health, on the hook
+      // clock) stay THIS latch's; Take's CAR publish stays the newest (a load hint).
+      {
+        ModelClass now;
+        now.slot_rows = std::move(latched_.slot_rows), now.vis = std::move(latched_.vis), now.show = latched_.show, now.car_present = latched_.car_present, now.car_ok = latched_.car_ok, now.car = latched_.car,
+        now.clocks = std::move(latched_.clocks), now.unreadable = latched_.unreadable;
+        ModelClass rec = model_period_.Pick(fi.guest_frame, std::move(now));
+        latched_.slot_rows = std::move(rec.slot_rows), latched_.vis = std::move(rec.vis), latched_.show = rec.show, latched_.car_present = rec.car_present, latched_.car_ok = rec.car_ok, latched_.car = rec.car,
+        latched_.clocks = std::move(rec.clocks), latched_.unreadable = rec.unreadable;
+      }
       // S103 L1C review B1: bit 17 is stamped HERE, at the latch (the record's stamp snapshot is taken at the end of the latch, before Emit). Latch call only: the Emit fallback never stamps it.
       if constexpr (stageclock::kStampStageClock) {
         if (latched_.clocks_clean) scene_inputs::Capture(scene_inputs::kInStageClock, scene_inputs::HookFrameOfRecord(fi.guest_frame));
@@ -253,6 +269,7 @@ class StageFxContributor final : public Contributor {
              ", unreadable " + std::to_string((unsigned long long)clock_census_.unreadable) + ", absurd " + std::to_string((unsigned long long)clock_census_.absurd) + ", non_finite " + std::to_string((unsigned long long)clock_census_.non_finite) +
              ", duplicates " + std::to_string((unsigned long long)clock_census_.duplicates) + ", overflow " + std::to_string((unsigned long long)clock_census_.overflow) + "]";
     }
+    out += "[" + model_period_.CensusLine("stage_fx_period") + "]";   // S111 CUTREACH2 review: records that took the slot / vis / show / CAR / clock set of the latch before theirs (latch_period.h)
     if (extra_census_) extra_census_(out);   // S103 M
   }
 
@@ -269,6 +286,16 @@ class StageFxContributor final : public Contributor {
     assets::car::Sel car;            // S103 CAR: CAEN / CASD ([stage + 21184 / 21188]), CARL (the sub_8342A8D8 pre-hook), the real bg id ([stage + 21192])
     StageVis vis;                    // S103 WSL: the game's slot look gate (stage_slot_vis.h), read at the latch; known = false when a word / the records did not read (the applier keeps the last mask of the same generation)
     void Clear() { disabled = false, slot_rows.clear(), screens.clear(), clocks.clear(), clocks_clean = false, screens_idle = false, unreadable = 0, show = StageShow(), vis.marker = false, vis.known = false, vis.gen = vis.stage = 0, vis.arena = kVisArenaUnread, vis.skipped.clear(), car_present = car_ok = false, car = assets::car::Sel(); }
+  };
+  // S111 CUTREACH2 review: the part of a take the walk draws with (Latch: record r carries latch r - 1's, latch_period.h).
+  struct ModelClass {
+    std::vector<StageFxRow> slot_rows;
+    StageVis vis;
+    StageShow show;
+    bool car_present = false, car_ok = false;
+    assets::car::Sel car;
+    std::vector<PartClock> clocks;
+    uint32_t unreadable = 0;   // the slots of that take whose rows could not be read (Emit's c.unknown)
   };
   // One frame's take (public for the unit).
   void Take(uint64_t frame, Frame& f) {
@@ -482,6 +509,7 @@ class StageFxContributor final : public Contributor {
   ChangedFn changed_ = nullptr;
   LatchMark mark_;
   Frame latched_;
+  scene_inputs::period::OfPalette<ModelClass> model_period_;   // S111 CUTREACH2: record r takes latch r - 1's model-class set (latch thread only)
   std::vector<uint16_t> moving_buf_;   // reused (the latch / a non-deferred Emit: one thread at a time)
   mutable std::mutex cmu_;             // census_ (the census line is read from another thread)
   SlotCensus census_;

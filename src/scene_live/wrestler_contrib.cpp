@@ -5,6 +5,7 @@
 #include "../renderer_scene/bone_tag_rows.h"
 #include "piece_link.h"   // S105 CAWP fix F5: kSubmMaxNodes
 #include "model_file_note.h"   // S110 SEATREL (was PACANS' pac_answer.h table): the file each slot descriptor's model was built from
+#include "emit_order.h"   // S111 CHARORDER: the record's object order (EmitItems, StoreVisible)
 
 #include "../renderer_adapter/upd_lean.h"   // S102 U3 (the plant macro, the census)
 #include "../renderer_game/scene_frame.h"   // S103 A3 (F7: the mode gate)
@@ -122,9 +123,8 @@ void WrestlerContributor::Put(uint32_t skel, int32_t slot, uint64_t frame, std::
       if (slot < 0) slot = k->slot;  // the consumer hook cannot match a slot; the update hook did
     } else {
       if (k->max_count != 0 && k->max_count != uint32_t(skin.size()) && !(faults_ & kFaultKeepStaleKnown)) {   // BHF1 G1: another node count at a known address = another object: nothing of the old body's liveness / consumer / slot facts carries over
-        k->palette_ptr = 0, k->has_consumer = false, k->consumer_frame = 0, k->mismatch_walk_ok = false, k->slot_key = 0;
-        k->walk_frame = k->draw_frame = 0;
-        for (Known::Head& h : k->heads) h.m.clear(), h.frame = ~0ull;   // BHF1 fix: the old body's last three derived palettes must not match the new object's guard read
+        k->palette_ptr = 0, k->has_consumer = false, k->consumer_frame = 0, k->slot_key = 0;
+        k->walk_frame = k->draw_frame = k->draw_prev = k->hide_frame = k->hide_prev = 0;   // S111 VISLATCH: the ask / hide history goes with the old object too
         reuse_reset_.fetch_add(1, std::memory_order_relaxed);
       }
       if (!(faults_ & kFaultKeepStaleKnown)) k->slot = slot;   // BHF1 G1: unconditional: an unmatched update (-1) clears the slot, so a reused address cannot keep the old wrestler's character slot (the old `if (slot >= 0)` never cleared it)
@@ -138,14 +138,6 @@ void WrestlerContributor::Put(uint32_t skel, int32_t slot, uint64_t frame, std::
         }
       }
       k->upd_frame = std::max(k->upd_frame, frame);   // S103 A2: liveness, set before the consumer-fresh return below
-      k->shift[0] = k->shift[1] = k->shift[2] = 0.f;   // S105 A5a F5: a new update rebuilds the world: the shifts start again
-      if (scene_frame::CurrentMode() != scene_frame::Mode::Off) {   // F7: the guard's copy is only made when the scene records are on (a default player pays one load)
-        Known::Head& h = k->heads[k->head_next];
-        k->head_next = (k->head_next + 1) % 3;
-        h.frame = frame;
-        const size_t n = std::min<size_t>(skin.size(), kGuardNodes);
-        h.m.assign(skin.begin(), skin.begin() + n);
-      }
       // The two hooks tag frames from different threads, so source priority must not depend on equal tags: while a consumer read for this skeleton
       // is fresh, a derived palette is bookkeeping only (slot and count above).
       if (k->has_consumer && frame <= k->consumer_frame + kConsumerFresh) return;
@@ -236,7 +228,7 @@ void WrestlerContributor::StampDrawForTest(uint32_t skel, uint64_t frame) {   //
   std::lock_guard<std::mutex> lock(mutex_);
   auto kn = known_.find(skel);   // find, never create: only a body the update hook has met is a body
   if (kn == known_.end()) { draw_unknown_.fetch_add(1, std::memory_order_relaxed); return; }
-  kn->second.draw_frame = std::max(kn->second.draw_frame, frame);
+  NoteAsk(kn->second, frame);   // S111 VISLATCH: the stamp NoteDrawAsked makes
   draw_asked_.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -274,7 +266,7 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
     for (const SlotSkel& s : slots->skels) {
       if (slot_set.count(s.skel)) continue;   // two slots, one skeleton: read once
       auto kn = known_.find(s.skel);
-      if (kn != known_.end() && !s.game_shown) HideLiveness(kn->second);   // S107 CAM: the game's own shown predicate (sub_823CBC50) is false: it hid him; no ask stamp outlives that (the ask stops, this clears the linger at once)
+      if (kn != known_.end() && !s.game_shown) HideLiveness(kn->second, hook_frame + kPaletteLead);   // S107 CAM: the game's own shown predicate (sub_823CBC50) is false: it hid him. S111 VISLATCH: labelled with the period this latch reads (hook + kPaletteLead, its palette read's tag), so the record built now (the walk before the hide) still shows him and the next does not
       if (kn == known_.end() || !kn->second.max_count) { note(slot_no_count_); continue; }
       // render-clock: lookup - freshness of the update hook's report, how old our own input is
       const bool quiet = kn->second.upd_frame + kConsumerFresh < hook_frame;
@@ -291,6 +283,26 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
     }
   if (slots) slot_present_.assign(slot_set.begin(), slot_set.end());   // S103 L33F: the slot skeletons of THIS latch (sorted: std::set), for SubmitLatchConsumer's mismatch rule
   else slot_present_.clear();
+  draw_pos_.clear();   // S111 CAT33 (char_draw_list.h): each table skeleton's place in the game's category-33 list, replaced whole every latch (no table = none: slot order)
+  if (slots)
+    for (const SlotSkel& s : slots->skels)
+      if (s.draw_pos >= 0) draw_pos_.emplace_back(s.skel, s.draw_pos);
+  if (slots) {   // S111 OWNERLESS: this latch's DRTR nodes read off, for the record that shows the walk after it (labelled like the hide above)
+    const uint64_t label = hook_frame + kPaletteLead;
+    if (drtr_off_[0].label != label) std::swap(drtr_off_[0], drtr_off_[1]);
+    DrtrOff& d = drtr_off_[0];
+    d.label = label, d.off.clear(), d.on.clear(), d.pieces.clear();
+    const bool no_doubt = (faults_ & kFaultDrtrNoDoubt) != 0;   // the planted twin
+    if (no_doubt || !slots->far_layer)   // S111 OWNERLESS review: the far layer draws DRTR nodes whatever their enable: then "off" is no evidence
+      for (const SlotSkel& s : slots->skels)
+        if (s.drtr_on == 0 || (no_doubt && s.drtr_on < 0)) d.off.push_back(s.skel);   // an unread node is no evidence of "off"
+    if (!slots->far_layer)   // S111 PIECEROUTE: the node's own enable read ON (an unread node is no route); none while the far layer may draw (fail closed)
+      for (const SlotSkel& s : slots->skels)
+        if (s.drtr_on == 1) {
+          d.on.push_back(s.skel);
+          if (s.trans_gates) d.pieces.push_back(s.skel);   // its DRTR node is on AND its slot 22 draws the pieces
+        }
+  }
   if (slots) {   // S103 NRBF (review F1): the ring family draws these models (the apron skirts among them): they are no wrestler objects, so no light-ref evidence is ever needed to exempt them
     ring_models_ = slots->ring_models;
     std::sort(ring_models_.begin(), ring_models_.end());
@@ -299,27 +311,22 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
     std::unordered_map<uint32_t, PieceLink> links;
     if (piece_rows_frame_ != hook_frame) {   // S103 HGF (review 1): a new latch: the rows of the one before are kept beside them (Collect pairs a body palette with the rows of ITS latch); a second ask of the same hook only rebuilds the current set
       piece_rows_prev_.swap(piece_rows_);
+      piece_links_prev_.swap(piece_links_);   // S111 PERIODALL: the links of the latch before go with its rows (Collect's LinksOfRecordL)
       piece_rows_prev_frame_ = piece_rows_frame_;
+      piece_seq_prev_ = piece_seq_;   // S111 PERIODALL review R3: and the seq of its descriptor checks (Collect's VerdictSeqOfRecordL)
     }
     piece_rows_.clear();   // S103 W2B: replaced whole, like the links
     piece_rows_frame_ = hook_frame;   // S103 HGF: the latch these rows are read in
+    piece_seq_ = collect_seq_;   // S111 PERIODALL review R3: this latch's checks (ReadSlotSkeletons ran them before this call, with this seq)
     for (const scene_inputs::CharPiece& p : (slots->pieces_view ? *slots->pieces_view : slots->pieces)) {
-      uint32_t owner = 0;
-      for (const SlotSkel& s : slots->skels)
-        if (s.slot == p.slot) { owner = s.skel; break; }
-      if (!owner || p.model == owner) continue;
-      links[p.model] = PieceLink{p.slot, p.id, owner, p.why, p.build, p.kind, p.probe, p.nodes <= scene_inputs::kSubmMaxNodes ? p.nodes : 0u};   // S105 A5a: + the copy probe
+      // S111 KEPTPIECES: the owner is the one the reader named (the character whose SUBM list holds the piece), never "the slot's first skeleton": the editor's slot 0 holds the table's new character AND the
+      // kept old one (drawn_slots.h) until the flip, and the game draws each one's pieces with its own body (sub_825A3908). The owner must be a body of this latch at the piece's slot (none: no link).
+      const uint32_t owner = p.owner;
+      if (!owner || p.model == owner || std::none_of(slots->skels.begin(), slots->skels.end(), [&](const SlotSkel& s) { return s.skel == owner && s.slot == p.slot; })) continue;
+      links[p.model] = PieceLinkOf(p, p.slot);   // S105 A5a: + the copy probe (S111 PIECECARRY: the one rule; NoteFreedLast makes the same link)
       if (p.rows_unposed && count) rdr_scene::g_spring_census.rows_unposed.fetch_add(1, std::memory_order_relaxed);   // S103 HGF: the piece's rows were still the bind palette (identity): dropped, the piece is absent this latch
       if (p.rows_bad && count) rdr_scene::g_spring_census.refused_unreadable.fetch_add(1, std::memory_order_relaxed);   // S103 W2B: the piece is MapUnreadable (a hole): its rows could not be read
-      if (p.why == scene_inputs::PieceWhy::Ok && !p.free_nodes.empty() && p.rows.size() == p.free_nodes.size() * 16) {   // S103 W2B: the piece's spring-hair rows, kept with the owner
-        std::vector<ExtraRow>& er = piece_rows_[owner];
-        for (size_t k = 0; k < p.free_nodes.size(); ++k) {
-          ExtraRow row;
-          row.piece_id = p.id, row.node = p.free_nodes[k], row.piece_nodes = p.nodes;
-          std::memcpy(row.m.m, p.rows.data() + 16 * k, sizeof row.m.m);
-          er.push_back(row);
-        }
-      }
+      if (PieceHasRows(p)) AppendPieceRows(p, piece_rows_[owner]);   // S103 W2B: the piece's spring-hair rows, kept with the owner (S111 PIECECARRY: the one rule, shared with NoteFreedLast)
       if (count) {
         auto lg = piece_link_logged_.find(p.model);
         if (lg == piece_link_logged_.end() || lg->second != p.why) {   // once per model and proof (NoCount -> Ok when the piece is recorded later logs again)
@@ -338,8 +345,7 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
       }
     }
     for (const auto& kv : test_rows_) piece_rows_[kv.first] = kv.second;   // tests only (empty in the game)
-    for (auto& kv : piece_rows_)   // S103 W2B: canonical order = piece id ascending, then node ascending (the front end's model order); stable, so two instances of one piece id stay in reader order and never match the model's tags
-      std::stable_sort(kv.second.begin(), kv.second.end(), [](const ExtraRow& a, const ExtraRow& b) { return rdr_scene::ExtraKeyLess({a.piece_id, a.node}, {b.piece_id, b.node}); });
+    for (auto& kv : piece_rows_) SortExtraRows(kv.second);   // S103 W2B: canonical order = piece id ascending, then node ascending (the front end's model order); stable, so two instances of one piece id stay in reader order and never match the model's tags
     for (auto it = piece_link_logged_.begin(); it != piece_link_logged_.end();) it = links.count(it->first) ? std::next(it) : piece_link_logged_.erase(it);
     for (auto it = piece_copy_logged_.begin(); it != piece_copy_logged_.end();) it = links.count(it->first) ? std::next(it) : piece_copy_logged_.erase(it);   // S103 DTP fix
     piece_links_.swap(links);
@@ -430,7 +436,7 @@ std::string WrestlerContributor::SlotCensus() const {
     return std::string(", ") + name + " by slot [" + r + "]";
   };
   return "want_lock " + want_lock_.Text() + ", reuse_reset " + u(reuse_reset_) + ", slot_targets " + u(slot_targets_) + " (hook quiet " + u(slot_hook_quiet_) + "), slot_no_count " + u(slot_no_count_) + ", slot join agree " + u(slot_join_agree_) + " differ " + u(slot_join_differ_) +
-         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + ", stale_held " + u(stale_held_) + ", mismatch_submitted_nowalk " + u(mismatch_submitted_nowalk_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) + bins("mismatch_no_evidence", by_slot_no_evidence_) +
+         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + ", stale_held " + u(stale_held_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) +
          "; " + change_colour::Bodies().CensusLine() + "; " + rdr_scene::change_colour_draw::Draws().Text();   // S108 THR2: the Threads editor's live colours (the hook's reads, the rows, the draws)
 }
 
@@ -438,101 +444,17 @@ int WrestlerContributor::SubmitLatchConsumer(uint32_t skel, uint32_t count, cons
   if (!skin || count == 0) { NoteUnreadable(); return kSubmitted; }
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    // audit item 2: nodes 0-58 of the latch's [skel+200] read must equal the update hook's derived palette of (about) the same frame, or the stamp is withheld. The derived palette is the exit of sub_82BD30E8
-    // (+ the delta), the latch read is what the draw would read: for nodes 0-58 they agree (WRESTLER_PROMOTION_MAP: only Brock's nodes 59-108 differ). Compared within 1e-3 absolute / 1e-4 relative.
-    // S103 L33F (run 32 = wwe2k14_7293, claims_L33 L33-6..8): from match start this mismatched for BOTH wrestlers EVERY frame (all frames walked, no skip ran), so bit 3 never stamped in the match. The draw
-    // reads [model+200] (sub_82C04DF0 r5, wrestler_pose.md), i.e. the latch read; the derived palette (update-hook exit) is the stale reference there (a second writer of +200 is [U]). So a mismatch is no
-    // longer a veto by itself: it falls through to the walk-copy compare below, and the latch read is ACCEPTED when it equals the walk's consumer copy of the same frame (kSame, counted
-    // mismatch_walk_same); when it differs from that copy too, it is refused (kDerivedMismatch: both references disagree). With NO walk copy (an OURS frame: nothing walked) the latch read is SUBMITTED,
-    // the draw's own source, and the mismatch stays a census count only (mismatch_submitted), ONLY with evidence (Opus review F3): the skeleton's Known::mismatch_walk_ok, set by the last mismatch that HAD a
-    // walk copy when that copy equalled the latch read and cleared when it differed (so "the derived palette is the stale reference" was seen for THIS body), and the body is slot-present. Otherwise
-    // kDerivedMismatch (counted mismatch_no_evidence / mismatch_not_present). Twin: kFaultStrictDerived (the old rule: every mismatch withholds); kFaultNoMismatchEvidence (submit without the flag).
-    bool mismatch = false;
-    auto kn = known_.find(skel);
-    if (kn != known_.end()) {
-      bool any_head = false, matched = false;
-      int64_t delta = 0;
-      for (const Known::Head& h : kn->second.heads) {
-        // render-clock: lookup - freshness of the update hook's report, how old our own input is
-        if (h.m.empty() || h.frame == ~0ull || h.frame + kConsumerFresh < hook_frame || h.frame > hook_frame + kConsumerFresh) continue;
-        const int64_t acc = accepted_delta_.load(std::memory_order_relaxed);
-        if (acc != kDeltaUnsettled && int64_t(hook_frame) - int64_t(h.frame) != acc) continue;   // the settled delta only (review must 7)
-        any_head = true;
-        bool same = count >= h.m.size();
-        for (size_t i = 0; same && i < h.m.size(); ++i)
-          for (int j = 0; j < 16; ++j) {
-            const float a = skin[i].m[j], b = h.m[i].m[j];
-            if (!(std::fabs(a - b) <= 1e-3f + 1e-4f * std::fabs(b))) { same = false; break; }
-          }
-        if (same && (!matched || std::llabs(int64_t(hook_frame) - int64_t(h.frame)) < std::llabs(delta))) matched = true, delta = int64_t(hook_frame) - int64_t(h.frame);
-      }
-      if (any_head) {
-        derived_checked_.fetch_add(1, std::memory_order_relaxed);
-        if (!matched) {
-          derived_mismatch_.fetch_add(1, std::memory_order_relaxed);
-          if (faults_ & kFaultStrictDerived) return kDerivedMismatch;   // the planted twin: the old strict rule
-          mismatch = true;
-        } else {
-          derived_delta_.Note(delta);
-        }
-      } else {
-        derived_unchecked_.fetch_add(1, std::memory_order_relaxed);   // no derived palette near this frame: cannot check, counted
-      }
-    }
+    // S111 HEADGUARD (docs\research\s111\HEADGUARD.md): no derived-head compare. The latch reads [skel+200] with the game parked after every writer of the period (the skin component, CHIK 0x82403D50
+    // after the group-26 wait, the shifts 0x82BD3620), so the read IS the palette the game's draw 0x82C04DF0 takes for this body; the update-exit copy (+192 x +224) is older by construction. The game never
+    // holds or refuses a palette, so neither do we: a body the character table does not hold (a hook-alive body: the referee, a manager, an entrance model) is submitted like a slot body.
     auto pc = cur_.find(skel);
     if (pc != cur_.end())
       for (const Upd& x : pc->second.upds)
-        if (x.consumer && x.frame == hook_frame + kPaletteLead) {   // S103 W1: the walk copy of the SAME content (tag hook + kPaletteLead): keep it, compare ours
+        if (x.consumer && x.frame == hook_frame + kPaletteLead) {   // S103 W1: the walk copy of the SAME content (tag hook + kPaletteLead): keep it, compare ours (a walked frame: the stream build's mirror, or in either build a frame the decision did not make OURS, scene_frame.h DecideNow: hold / not ready, where the original sub_82C04DF0 and its mid-asm copy run)
           const bool same = x.skin.size() == count && std::memcmp(x.skin.data(), skin, size_t(count) * sizeof(Mat4)) == 0;
           (same ? latch_same_ : latch_differs_).fetch_add(1, std::memory_order_relaxed);
-          if (mismatch) {   // S103 L33F: the walk's copy decides, and is remembered as this body's evidence (review F3)
-            (same ? mismatch_walk_same_ : mismatch_walk_differs_).fetch_add(1, std::memory_order_relaxed);
-            kn->second.mismatch_walk_ok = same;
-            return same ? kSame : kDerivedMismatch;
-          }
           return same ? kSame : kDiffers;
         }
-    if (mismatch) {   // S103 L33F: no walk copy (OURS). Submitted only for a body the character table HOLDS at this latch (a slot target): the gate's l31b.left_table twin showed that a body which left the table,
-      // still read for kConsumerFresh frames by the hook-liveness rule, would otherwise be refreshed and drawn after the game stopped drawing it. Not held = refused as before (fail closed), counted.
-      const auto note_refusal = [&]() {   // S103 AUSF review 6: named once per run of refusals of this skeleton, from either refusal branch (a body not in the table is the production case: the table's skeleton did not match)
-        if (!no_walk_) return;
-        uint64_t& last = refuse_last_[skel];
-        if (last == 0 || hook_frame > last + kConsumerFresh || hook_frame < last) EventLog(1, hook_frame, skel, kn->second.slot, hook_frame, 0, 0);   // render-clock: dev - a log run boundary only (a gap in latch hook frames), never a lookup
-        last = hook_frame;
-      };
-      // S105 A5a (A5a_ADV.md site 4): a SUBM-linked piece is no slot skeleton, and the game rewrites its [model+200] AFTER the update hook (the owner-row copy sub_8259D230 + the spring sub_8259D390), so the derived
-      // head of the update exit is the stale reference for it, never evidence (the mismatch census: 64 refusals, every one a CAW piece). Its latch read is accepted when its OWNER is slot-present at THIS latch (piece_links_ /
-      // slot_present_ are both of this latch and are read under the lock we hold: nothing here may call a function that takes mutex_), on the latch thread only (the game parked). Acceptance is no proof of the pose:
-      // EmitItems' copy proof (own_rows_rule.h) decides per record whether the palette is the game's copy, and a record that fails it keeps the hole.
-      const auto own_link = piece_links_.find(skel);
-      const bool own_piece_ok = !(faults_ & kFaultNoPieceLatch) && own_link != piece_links_.end() && own_link->second.slot >= 0 && !std::binary_search(slot_present_.begin(), slot_present_.end(), skel) &&
-                                std::binary_search(slot_present_.begin(), slot_present_.end(), own_link->second.owner) && (!t_off_latch_ || (faults_ & kFaultHoldOffLatch));
-      if (!own_piece_ok && !std::binary_search(slot_present_.begin(), slot_present_.end(), skel)) {
-        mismatch_not_present_.fetch_add(1, std::memory_order_relaxed);
-        note_refusal();
-        return kDerivedMismatch;
-      }
-      if (own_piece_ok) piece_latch_submitted_.fetch_add(1, std::memory_order_relaxed);
-      bool submitted_nowalk = false;
-      if (!own_piece_ok && !kn->second.mismatch_walk_ok && !(faults_ & kFaultNoMismatchEvidence)) {   // review F3: no walked frame has shown this body's latch read equal to the walk's copy under a mismatch
-        // S103 AUSF (AUS2 fix 1): in a build with NO walk (no_walk_) no walked frame can ever give that evidence, so the rule refused EVERY mismatch there and, with the update hook's palettes of the same frames withheld
-        // (Put), a visible body left the record whole (Austin's entrance, 19 drops). The draw reads [model+200] = the latch read: it is submitted there, counted apart. The stream build keeps the refusal.
-        if (no_walk_ && !(faults_ & kFaultNoWalkRefuse) && (!t_off_latch_ || (faults_ & kFaultHoldOffLatch))) {   // review 1: latch thread only (the game parked)
-          submitted_nowalk = true;
-          mismatch_submitted_nowalk_.fetch_add(1, std::memory_order_relaxed);
-        } else {
-          mismatch_no_evidence_.fetch_add(1, std::memory_order_relaxed);
-          by_slot_no_evidence_[SlotBin(kn->second.slot)].fetch_add(1, std::memory_order_relaxed);
-          note_refusal();
-          return kDerivedMismatch;
-        }
-      }
-      if (!submitted_nowalk && !own_piece_ok) mismatch_submitted_.fetch_add(1, std::memory_order_relaxed);   // the latch read is submitted (the draw's own source), the mismatch is census only
-    }
-  }
-  if (t_off_latch_ && !(faults_ & kFaultHoldOffLatch) && piece_links_.count(skel) && !std::binary_search(slot_present_.begin(), slot_present_.end(), skel)) {   // S105 CAWP F3: a piece target read off the latch thread (the game running) may be torn: refused
-    piece_offlatch_refused_.fetch_add(1, std::memory_order_relaxed);
-    return kDerivedMismatch;
   }
   consumer_submits_.fetch_add(1, std::memory_order_relaxed);
   if (PutConsumerInPlace(skel, hook_frame + kPaletteLead, skin, count)) return kSubmitted;   // S103 W1: the latch read is the content of stream hook + 2 = tag hook + kPaletteLead
@@ -636,7 +558,6 @@ std::string WrestlerContributor::PieceWhyText() const {   // S103 NRBF
 std::string WrestlerContributor::OwnRowsText() const {   // S105 A5a: the names come from the ONE table in own_rows_rule.h
   std::string out;
   for (size_t i = 0; i < size_t(scene_inputs::OwnRowsWhy::kCount); ++i) out += (i ? " " : "") + std::string(scene_inputs::kOwnRowsNames[i]) + " " + std::to_string((unsigned long long)own_rows_[i].load(std::memory_order_relaxed));
-  out += " piece_latch_submitted " + std::to_string((unsigned long long)piece_latch_submitted_.load(std::memory_order_relaxed));
   return out;
 }
 
@@ -701,11 +622,15 @@ bool WrestlerContributor::VerifyBodyLink(uint32_t skel, bool ok) {
   BodyLink& bl = it->second;
   if (!ok) {
     if (bl.verified_seq != ~0ull) body_link_unverified_.fetch_add(1, std::memory_order_relaxed);   // counted on the change, not per latch
+    if (bl.verified_seq != ~0ull && bl.verified_seq != collect_seq_) bl.verified_prev = bl.verified_seq;   // S111 PERIODALL review R3: an earlier latch's pass stays (the record built now takes that latch's check)
     bl.verified_seq = ~0ull;
     if (!bl.info.pieces.empty()) DropPiecesLocked(skel);   // fail closed: not named, no pieces listed or proven for a body the game's descriptors no longer name this way
     return false;
   }
-  bl.verified_seq = collect_seq_;
+  if (bl.verified_seq != collect_seq_) {   // (a second check of the same latch changes nothing)
+    if (bl.verified_seq != ~0ull) bl.verified_prev = bl.verified_seq;   // S111 PERIODALL review R3: the pass before (the record built now takes the check of the latch before)
+    bl.verified_seq = collect_seq_;
+  }
   return bl.pieces_dropped;
 }
 
@@ -766,14 +691,7 @@ void WrestlerContributor::ApplyDelta(uint32_t skel, float dx, float dy, float dz
   std::lock_guard<std::mutex> lock(mutex_);
   // S103 W1 (docs\systems\wrestler_pose.md "The guard's head and sub_82BD3620"): the game adds (dx,dy,dz) to the translation of every node of +192 AND +200 (listing 0x82BD3634-0x82BD36DC and the loop to 0x82BD3834:
   // fadds into +48..+64 of each 64-byte matrix; r4 = the vector, read by the existing wwe2k14_skel_shift hook). skin = inv_bind x world and inv_bind's last column is (0,0,0,1), so a world shift is
-  // exactly +d on the skin's row 3: the palette the latch reads is the update-exit one PLUS every shift applied after it. The bit-3 guard's head (nodes 0-58 of the update-exit palette) gets the same add,
-  // or every shifted frame (grapples, whips, hit reactions) is a false mismatch (run 26: 7226, the stamp stuck at 3999). Only the newest head: the next update rebuilds the world from its locals.
-  if (auto kn = known_.find(skel); kn != known_.end()) {
-    kn->second.shift[0] += dx, kn->second.shift[1] += dy, kn->second.shift[2] += dz;   // S105 A5a F5
-    Known::Head& h = kn->second.heads[(kn->second.head_next + 2) % 3];
-    if (h.frame != ~0ull)
-      for (Mat4& m : h.m) m.m[12] += dx, m.m[13] += dy, m.m[14] += dz;
-  }
+  // exactly +d on the skin's row 3: a pending derived palette gets the same add below. (S111 HEADGUARD: the guard's head it also shifted is gone; S111 PIECELINK review: so is the summed shift of the own-rows row compare.)
   std::vector<Mat4>* skin = nullptr;
   auto p = cur_.find(skel);
   if (p != cur_.end() && !p->second.upds.empty()) {
@@ -787,7 +705,7 @@ void WrestlerContributor::ApplyDelta(uint32_t skel, float dx, float dy, float dz
 
 // S102 U1: the latch (tail_latch.h): the item list and the light set, taken while the game threads are parked; Emit then formats only these.
 bool WrestlerContributor::Latch(const FrameInfo& f) {
-  if (PreLatchFn pre = pre_latch_.load(std::memory_order_relaxed)) pre(f.guest_frame, true);   // S103 A2 (W1)
+  if (PreLatchFn pre = pre_latch_.load(std::memory_order_relaxed)) pre(f.guest_frame);   // S103 A2 (W1)
   latch_items_.clear();
   latch_counts_ = Counters{};
   Collect(f, latch_items_, latch_counts_);
@@ -807,9 +725,10 @@ void WrestlerContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) 
     c.unknown += latch_counts_.unknown;
     light = latch_light_;
   } else {
-    // S103 A3 (W1): the record path with no latch (run 9: "latched 0"): the palettes must still be read at the latch point, or the wrestler_palette input is never stamped. Never in a deferred emit (no guest reads there).
-    if (!InDeferredEmit())
-      if (PreLatchFn pre = pre_latch_.load(std::memory_order_relaxed)) pre(f.guest_frame, false);   // S103 HGF (review 2): off the latch thread, the game threads running: palettes only
+    // S111 LATCHMISS (docs\research\s111\LATCHMISS.md): no palette read here. Every production Emit follows its own Latch (live_scene.cpp LatchImpl: each contributor's Latch, then
+    // BuildFrame; EndFrame takes that route since S103 D7; EmitLatched is the deferred half of the same latch), so only a caller that skipped the latch (a unit) reaches this branch.
+    // The old S103 A3 read here ran with the game threads running (a torn +200): a read the game never makes. Collect uses the parked reads already submitted; the palette input
+    // is not stamped (inputs_unit a3.palette_no_latch; its planted twin a3_no_prelatch makes the old read from the unit, so no fault bit lives here).
     Collect(f, items, c);
     StoreVisible(items);
     light = light_set_.load(std::memory_order_relaxed);
@@ -818,23 +737,128 @@ void WrestlerContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) 
   EmitItems(f, t, c, items, light);
 }
 
-// S103 V1F F1: EmitItems' claimant rule on the collected items (sort: slot-matched first by slot, then address; the first claim of each slot >= 0 is the visible one).
+// S103 V1F F1: EmitItems' claimant rule on the collected items (sorted by EmitItems' own key, emit_order.h; the first claim of each slot >= 0 is the visible one: the lowest address).
 void WrestlerContributor::StoreVisible(const std::vector<EmitItem>& items) {
   std::vector<const EmitItem*> v;
   v.reserve(items.size());
   for (const EmitItem& i : items) v.push_back(&i);
-  std::sort(v.begin(), v.end(), [](const EmitItem* a, const EmitItem* b) {
-    const bool sa = a->slot >= 0, sb = b->slot >= 0;
-    if (sa != sb) return sa;
-    if (sa && a->slot != b->slot) return a->slot < b->slot;
-    return a->skel < b->skel;
-  });
+  std::sort(v.begin(), v.end(), [](const EmitItem* a, const EmitItem* b) { return EmitBefore(EmitOrderOf(*a), EmitOrderOf(*b)); });   // S111 CHARORDER: the one key
   std::vector<uint32_t> out;
   std::set<int32_t> claimed;
   for (const EmitItem* i : v)
-    if (i->slot >= 0 && claimed.insert(i->slot).second) out.push_back(i->skel);
+    if (i->slot >= 0 && !i->pieces_only && claimed.insert(i->slot).second) out.push_back(i->skel);   // S111 PIECEROUTE: a pieces-only owner is no drawn body
   std::lock_guard<std::mutex> lock(mutex_);
   visible_skels_.swap(out);
+}
+
+// S111 PIECECARRY (docs\research\s111\PIECECARRY.md): LatchTargets' rule for one SUBM piece, shared with NoteFreedLast.
+WrestlerContributor::PieceLink WrestlerContributor::PieceLinkOf(const scene_inputs::CharPiece& p, int32_t slot) {
+  return PieceLink{slot, p.id, p.owner, p.why, p.build, p.kind, p.probe, p.nodes <= scene_inputs::kSubmMaxNodes ? p.nodes : 0u};   // S105 A5a: + the copy probe
+}
+
+bool WrestlerContributor::PieceHasRows(const scene_inputs::CharPiece& p) {   // S103 W2B: a proven piece whose -1 nodes' rows were read
+  return p.why == scene_inputs::PieceWhy::Ok && !p.free_nodes.empty() && p.rows.size() == p.free_nodes.size() * 16;
+}
+
+void WrestlerContributor::AppendPieceRows(const scene_inputs::CharPiece& p, std::vector<ExtraRow>& er) {   // S103 W2B: the piece's spring-hair rows, in reader order (SortExtraRows makes the canonical order)
+  for (size_t k = 0; k < p.free_nodes.size(); ++k) {
+    ExtraRow row;
+    row.piece_id = p.id, row.node = p.free_nodes[k], row.piece_nodes = p.nodes;
+    std::memcpy(row.m.m, p.rows.data() + 16 * k, sizeof row.m.m);
+    er.push_back(row);
+  }
+}
+
+void WrestlerContributor::SortExtraRows(std::vector<ExtraRow>& v) {
+  std::stable_sort(v.begin(), v.end(), [](const ExtraRow& a, const ExtraRow& b) { return rdr_scene::ExtraKeyLess({a.piece_id, a.node}, {b.piece_id, b.node}); });
+}
+
+// S111 PIECECARRY: the freed body's last record (wrestler_contrib.h NoteFreedLast). The links are made as LatchTargets makes them, with the body's own Known::slot (the slot Collect gives its item, so
+// EmitItems pairs each piece with it); `targets` follows LatchTargets' push rule for a linked piece of a table owner (a count, drawn by the game, an emit route that can use the palette).
+void WrestlerContributor::NoteFreedLast(uint32_t skel, uint64_t hook_frame, const std::vector<scene_inputs::CharPiece>& pieces, std::vector<PaletteTarget>& targets) {
+  targets.clear();
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto kn = known_.find(skel);
+  if (kn == known_.end() || kn->second.slot < 0) return;   // not a slot body: its pieces have no owner item to pair with
+  if (freed_last_pending_.size() >= kMaxSkeletons && !freed_last_pending_.count(skel)) return;   // bounded (Collect empties it)
+  const int32_t slot = kn->second.slot;
+  FreedLast& fl = freed_last_pending_[skel];
+  fl = FreedLast{};
+  fl.hook = hook_frame;
+  for (const scene_inputs::CharPiece& p : pieces) {
+    if (p.owner != skel || p.model == skel || p.model < 0x10000) continue;
+    const PieceLink pl = PieceLinkOf(p, slot);
+    fl.links[p.model] = pl;
+    if (PieceHasRows(p)) AppendPieceRows(p, fl.rows);
+    if (pl.count && pl.probe.drawn != 0 && (pl.why == scene_inputs::PieceWhy::Ok || pl.why == scene_inputs::PieceWhy::NoCopy || !RecordCanNameL(skel)))
+      targets.push_back(PaletteTarget{p.model, std::min<uint32_t>(pl.count, 1024)});
+  }
+  SortExtraRows(fl.rows);
+}
+
+// S111 MATCHFREE (docs\research\s111\MATCHFREE.md): the freed bodies this record still shows. A body comes back when its copy's newest draw ask is of this record's period or later and AskedFor
+// holds (the walk this record pairs with drew it); a piece when the links of this record's latch name a revived body as its owner. A copy whose address holds a live entry again yields (a new
+// model there). Every other copy is dropped: after its free the game never asks for it again, so no later record can show it.
+// S111 PIECECARRY (docs\research\s111\PIECECARRY.md): a revived body whose copy carries its last record (char_release.h: the reads latch X would have made of it) labelled with the latch this record
+// takes its links and rows from (RecordLatchHookL: latch X for record X + 1) is served WHOLE from it: its pieces' links join the record's (`serve.links`; a link the record's latch read itself wins)
+// and its spring-hair rows are the body's (`serve.rows`, attached in Collect when its palette is that latch's read). One read, one label: a piece pairs with its owner within it.
+std::vector<uint32_t> WrestlerContributor::FreedRevive(uint64_t record_frame, FreedServe& serve) {
+  std::vector<uint32_t> revived;
+  freed_last_pending_.clear();   // S111 PIECECARRY: a record no ForgetModel took before this Collect is no freed body's: dropped (a model the character destructor did not delete, sub_825A1510 +160 / sub_823CCDD0 +4C, and that no later free of the same tick took: the descriptor pass sub_8258C4E8 runs after the character deletes, sub_82512B80 +30 then +44)
+  if (freed_copies_.empty()) return revived;
+  const uint64_t hook = record_frame ? record_frame - 1 : 0;
+  std::set<uint32_t> bodies;
+  for (const auto& kv : freed_copies_)
+    if (kv.second.has_known && kv.second.known.draw_frame >= hook && AskedFor(kv.second.known, hook)) bodies.insert(kv.first);
+  const uint64_t latch_hook = RecordLatchHookL(record_frame);
+  for (uint32_t b : bodies) {
+    const FreedCopy& fc = freed_copies_.find(b)->second;
+    if (!fc.has_last || latch_hook == ~0ull || fc.last.hook != latch_hook) continue;
+    if (!serve.on) {
+      serve.on = true;
+      serve.hook = latch_hook;
+      serve.links = LinksOfRecordL(record_frame);
+    }
+    for (const auto& kv : fc.last.links) serve.links.emplace(kv.first, kv.second);
+    if (!fc.last.rows.empty()) serve.rows[b] = fc.last.rows;
+  }
+  const auto& links = *(serve.on ? &serve.links : &LinksOfRecordL(record_frame));
+  for (auto it = freed_copies_.begin(); it != freed_copies_.end();) {
+    const uint32_t m = it->first;
+    const auto pl = links.find(m);
+    const bool want = bodies.count(m) || (pl != links.end() && bodies.count(pl->second.owner));
+    if (!want || (faults_ & kFaultFreedNoKeep) || last_.count(m) || cur_.count(m) || known_.count(m)) { it = freed_copies_.erase(it); continue; }
+    FreedCopy& fc = it->second;
+    if (bodies.count(m)) {   // S111 MATCHFREE review: a body the record shows with no palette of its period (FreedUnposed)
+      bool posed = false;
+      for (const Upd& u : fc.pend.upds) posed = posed || u.frame <= PickLimit(record_frame);
+      if (!posed) freed_unposed_.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (fc.has_kept) last_[m] = fc.kept;
+    if (!fc.pend.upds.empty()) cur_[m] = fc.pend;
+    if (fc.has_known) known_[m] = fc.known;
+    if (!fc.extra.empty()) last_extra_[m] = fc.extra;
+    revived.push_back(m);
+    ++it;
+  }
+  if (!revived.empty()) freed_served_.fetch_add(1, std::memory_order_relaxed);
+  return revived;
+}
+
+void WrestlerContributor::FreedStow(const std::vector<uint32_t>& revived) {
+  for (uint32_t m : revived) {
+    auto it = freed_copies_.find(m);
+    if (it == freed_copies_.end()) continue;
+    FreedCopy& fc = it->second;
+    if (auto k = last_.find(m); k != last_.end()) fc.kept = std::move(k->second), fc.has_kept = true, last_.erase(k);
+    else fc.has_kept = false;
+    if (auto p = cur_.find(m); p != cur_.end()) fc.pend = std::move(p->second), cur_.erase(p);
+    else fc.pend.upds.clear();
+    if (auto kn = known_.find(m); kn != known_.end()) fc.known = kn->second, fc.has_known = true, known_.erase(kn);
+    if (auto e = last_extra_.find(m); e != last_extra_.end()) fc.extra = std::move(e->second), last_extra_.erase(e);
+    else fc.extra.clear();
+    quiet_last_.erase(m);
+  }
 }
 
 // Emit's two locked blocks (unchanged; S102 U1 moved them here so the latch can run them before the update thread is released).
@@ -842,6 +866,8 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
   using Item = EmitItem;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    FreedServe freed_serve;   // S111 PIECECARRY: the revived bodies' last records served with their copies (links, rows)
+    const std::vector<uint32_t> freed_revived = FreedRevive(f.guest_frame, freed_serve);   // S111 MATCHFREE: a body freed after the walk this record pairs with drew it, back for this block only
     std::set<uint32_t> refreshed;
     for (auto it = cur_.begin(); it != cur_.end();) {
       auto& u = it->second.upds;
@@ -850,10 +876,6 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
         if (u[i].frame <= PickLimit(f.guest_frame)) pick =  /* S103 W1: record j takes the palette of stream j (tag <= j - kPaletteLead), not stream j + 1 */ (pick < 0 || u[i].frame >= u[size_t(pick)].frame) ? int(i) : pick;
       if (pick >= 0) {
         Kept& k = last_[it->first];
-        k.prev_skin = std::move(k.skin), k.prev_consumer = k.consumer;   // S105 A5a F5: the palette this one replaces (the owner's previous latch read)
-        std::memcpy(k.prev_shift, k.shift, sizeof k.shift);
-        if (auto kk = known_.find(it->first); kk != known_.end()) std::memcpy(k.shift, kk->second.shift, sizeof k.shift);
-        else k.shift[0] = k.shift[1] = k.shift[2] = 0.f;
         k.slot = u[size_t(pick)].slot;
         k.consumer = u[size_t(pick)].consumer;
         k.skin = std::move(u[size_t(pick)].skin);
@@ -866,6 +888,8 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       it = u.empty() ? cur_.erase(it) : std::next(it);
     }
     const uint64_t hook = f.guest_frame ? f.guest_frame - 1 : 0;   // the record's hook frame (record j carries hook j - 1: inputs_core.h kHookToRecord)
+    const auto& links = *(freed_serve.on ? &freed_serve.links : &LinksOfRecordL(f.guest_frame));   // S111 PERIODALL: the piece links of the latch whose palettes this record takes (S111 PIECECARRY: + a served freed body's own)
+    const uint64_t name_seq = VerdictSeqOfRecordL(f.guest_frame);   // S111 PERIODALL review R3: and the descriptor check of that latch (a body link names its body by it)
     std::set<int32_t> fresh_slots;  // S103 AUSF review 4: the slots a FRESH body of this Collect resolves to: a held stale body never shares one (it would take the slot from the fresh body)
     if (no_walk_)
       for (const auto& kv : last_)
@@ -891,25 +915,32 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       int32_t slot = it->second.slot;
       change_colour::Body cc_body;   // S108 THR2: the body's change-colour state as the game's draw left it (NoteDrawAsked); on = the game draws it recoloured
       bool cc_on = false;
+      bool game_undrawn = false;   // S111 PIECEHOLES: the quiet gate below hid this body (the game did not ask to draw it in the record's period): EmitItems writes kObjGameUndrawn, so the draw side never counts it a hole
+      int32_t hid_slot = -1;   // S111 PIECEROUTE: the slot the quiet gate took (Collect may give it back, pieces only)
       if (auto kn = known_.find(it->first); kn != known_.end()) {
         kn->second.age = 0;
         if (kn->second.slot >= 0) slot = kn->second.slot;  // the slot the update hook matched wins (a consumer palette carries none)
         // S103 L31B review C: a hook-quiet body is shown only while the game's own draw saw it lately; else emitted invisible = a hole (the frame goes to the game), the palette still in the record
         // (only a REFRESHED body: a stale visible one is the guard's, below, so a body that left the table is dropped, not turned into a 120-record hole)
-        // S107 CAM: the stream-free (player) build shows a body only while the game ASKED to draw it (draw_frame: the sub_82C04DF0 hook): the editor's extra slots are posed by the skeleton update but never asked, and lay on the mat.
-        // The STREAM (ON) build is dev-only: it keeps the older rule (update / walk / ask), its un-asked commentators would be skel holes every frame otherwise. kFaultUpdShows = the old rule in the stream-free build (the twin).
-        const bool seen = (no_walk_ && !(faults_ & kFaultUpdShows)) ? kn->second.draw_frame + kConsumerFresh >= hook
-                                                                     : (kn->second.upd_frame + kConsumerFresh >= hook || kn->second.walk_frame + kQuietSeenWindow >= hook || kn->second.draw_frame + kConsumerFresh >= hook);   // review 1b: a draw ask comes every guest frame while drawn, so its window is short (a hidden body the game stops asking about goes quiet within kConsumerFresh)   // S103 DRL: the game's draw ask
+        // S107 CAM: a body shows only while the game ASKED to draw it (draw_frame: the sub_82C04DF0 hook): the editor's extra slots are posed by the skeleton update but never asked, and lay on the mat.
+        // S111 CAWTPOSE (HEADGUARD F1): ONE rule in both builds. The draw ask is taken in either build, before the Ours test (draw_origin.h REX_HOOK_RAW(sub_82C04DF0)), so the stream build's older
+        // update / walk rule (kept for "un-asked commentators": a slot character is drawn through the same character node and model draw, so it is asked) only let a body that left the table, its hook
+        // quiet, draw again as actor:slot:N from its old Known::slot. kFaultUpdShows = that older rule (the twin).
+        const bool seen = !(faults_ & kFaultUpdShows) ? AskedFor(kn->second, hook)   // S111 VISLATCH: the asks / hides of the period this record's palette is from (record f pairs with stream f = the walk of period f - 1)
+                                                      : (kn->second.upd_frame + kConsumerFresh >= hook || kn->second.walk_frame + kQuietSeenWindow >= hook || AskedFor(kn->second, hook));   // review 1b: a draw ask comes every guest frame while drawn, so its window is short (a hidden body the game stops asking about goes quiet within kConsumerFresh)   // S103 DRL: the game's draw ask
         if (!stale && slot >= 0 && !(faults_ & kFaultNoWalkGate) && !seen) {
           by_slot_quiet_unseen_[SlotBin(slot)].fetch_add(1, std::memory_order_relaxed);   // S103 AUSF
           if (uint64_t& ql = quiet_last_[it->first]; ql == 0 || f.guest_frame != ql + 1) EventLog(2, f.guest_frame, it->first, slot, kn->second.upd_frame, kn->second.draw_frame, 0);   // on change: the first record of a run of hides
           quiet_last_[it->first] = f.guest_frame;
+          hid_slot = slot;   // S111 PIECEROUTE
           slot = -1;
+          game_undrawn = true;
           quiet_unseen_.fetch_add(1, std::memory_order_relaxed);
         }
         auto bl = body_links_.find(it->first);   // S103 PZ F5: the body's declared link (outlives the Known record)
-        // PZF2 A1: the link names the body only while this latch's descriptor check passed (inputs_contrib.h ReadSlotSkeletons -> VerifyBodyLink): links never age, so identity is re-proven every latch
-        const bool has_link = bl != body_links_.end() && bl->second.info.known && (bl->second.verified_seq == collect_seq_ || (faults_ & kFaultLinkInKnown));
+        // PZF2 A1: the link names the body only while a descriptor check passed (inputs_contrib.h ReadSlotSkeletons -> VerifyBodyLink): links never age, so identity is re-proven every latch.
+        // S111 PERIODALL review R3: the check of the latch whose palettes this record takes (name_seq), not this latch's: the walk of that period drew the body this record shows.
+        const bool has_link = bl != body_links_.end() && bl->second.info.known && (VerifiedAtSeq(bl->second, name_seq) || (faults_ & kFaultLinkInKnown));
         if (has_link) bl->second.touch = ++touch_seq_;
         if (has_link && !kn->second.seen_as_skeleton) {
           kn->second.seen_as_skeleton = true;  // desc+4 (the body model) turned up as a skeleton the pose hooks update: the identity holds for this body
@@ -944,7 +975,7 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       if (stale && stale_guard_ && scene_frame::CurrentMode() == scene_frame::Mode::Ours && (slot >= 0 || (faults_ & kFaultDropInvisible))) {
         // review 3: only a LIVE body is held (the negation of the quiet gate: in the stream-free build only the game's draw ask counts (S107 CAM); the stream build also counts an update / walk); review 4: never over a fresh body's slot
         const auto kh = known_.find(it->first);
-        const bool live_body = (faults_ & kFaultHoldAny) || (kh != known_.end() && (no_walk_ && !(faults_ & kFaultUpdShows) ? kh->second.draw_frame + kConsumerFresh >= hook : (kh->second.draw_frame + kConsumerFresh >= hook || kh->second.upd_frame + kConsumerFresh >= hook || kh->second.walk_frame + kQuietSeenWindow >= hook)));   // S107 CAM: stream-free = the game's ask only
+        const bool live_body = (faults_ & kFaultHoldAny) || (kh != known_.end() && (!(faults_ & kFaultUpdShows) ? AskedFor(kh->second, hook) : (AskedFor(kh->second, hook) || kh->second.upd_frame + kConsumerFresh >= hook || kh->second.walk_frame + kQuietSeenWindow >= hook)));   // S107 CAM / S111 CAWTPOSE: the game's ask only, both builds; S111 VISLATCH: of this record's period
         if (no_walk_ && !(faults_ & kFaultNoWalkRefuse) && slot >= 0 && it->second.age <= kConsumerFresh && live_body && ((faults_ & kFaultHoldNoSlotCheck) || !fresh_slots.count(slot)) && std::binary_search(slot_present_.begin(), slot_present_.end(), it->first)) {
           stale_held_.fetch_add(1, std::memory_order_relaxed);
         } else {
@@ -957,13 +988,11 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       }
       items.push_back(Item{it->first, slot, it->second.consumer, link, it->second.skin});
       items.back().stale = stale;   // S103 NRB
+      items.back().game_undrawn = game_undrawn;   // S111 PIECEHOLES
+      items.back().hid_slot = hid_slot;   // S111 PIECEROUTE
       if (cc_on) {   // S108 THR2: the colours ride with the body to EmitItems (section 67)
         items.back().cc_on = true, items.back().cc_unsettled = cc_body.unsettled;
         std::memcpy(items.back().cc_colours, cc_body.colours, sizeof items.back().cc_colours);
-      }
-      if (slot >= 0) {   // S105 A5a F5: an owner carries its previous palette and the shifts for the own-rows copy proof
-        items.back().prev_skin = it->second.prev_skin, items.back().prev_consumer = it->second.prev_consumer;
-        std::memcpy(items.back().shift, it->second.shift, sizeof it->second.shift), std::memcpy(items.back().prev_shift, it->second.prev_shift, sizeof it->second.prev_shift);
       }
       items.back().tag = it->second.frame;   // S105 A5a: the palette's frame tag (the own-rows rule pairs a piece with its owner only within one latch)
       if (!stale) {   // S103 W2B: the body's spring-hair rows
@@ -974,6 +1003,7 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
         const Kept& kp = it->second;
         if ((faults_ & kFaultHairAnyFrame) || !kp.consumer) set = &piece_rows_;
         else if (faults_ & kFaultHairCurrentSet) set = kp.frame == piece_rows_frame_ + kPaletteLead ? &piece_rows_ : nullptr;
+        else if (freed_serve.rows.count(it->first) && kp.frame == freed_serve.hook + kPaletteLead) set = &freed_serve.rows;   // S111 PIECECARRY: a freed body's own last record (read at its destructor, labelled with the latch it stands in for)
         else if (kp.frame == piece_rows_prev_frame_ + kPaletteLead) set = &piece_rows_prev_;
         else if (kp.frame == piece_rows_frame_ + kPaletteLead) set = &piece_rows_;
         if (set) {
@@ -988,21 +1018,22 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       } else if (no_walk_ && !(faults_ & kFaultHoldNoExtras)) {
         if (auto le = last_extra_.find(it->first); le != last_extra_.end()) items.back().extra = le->second, held_with_extras_.fetch_add(1, std::memory_order_relaxed);   // a held stale body keeps its spring-hair rows (else the hair snaps to bind pose for the hold)
       }
-      if (auto pl = piece_links_.find(it->first); pl != piece_links_.end() && slot < 0) items.back().piece_slot = pl->second.slot, items.back().piece_owner = pl->second.owner, items.back().piece_why = pl->second.why, items.back().piece_id = pl->second.id, items.back().probe = pl->second.probe;   // S105 A5a: + the copy probe
+      if (auto pl = links.find(it->first); pl != links.end() && slot < 0) items.back().piece_slot = pl->second.slot, items.back().piece_owner = pl->second.owner, items.back().piece_why = pl->second.why, items.back().piece_id = pl->second.id, items.back().probe = pl->second.probe;   // S105 A5a: + the copy probe; S111 PERIODALL: the links of the palette's latch
       ++it;
     }
     // S103 DTP fix (review): the owner-mesh skip follows the latch's link proof (copy word == 0), not the piece object's palette. After the ELBW ends the game sets only +20 = 0 (the SUBM draw loop skips it) and
     // never puts +24 back, so the pad's palette stops, goes stale and is pruned: the merged owner mesh must not draw it on the arm again. A NoCopy link with no item of its own is written link-only (no palette).
-    if (!piece_links_.empty() && !(faults_ & kFaultDetachNeedsFresh)) {
+    if (!links.empty() && !(faults_ & kFaultDetachNeedsFresh)) {   // S111 PERIODALL: the same links as the pieces above
       std::set<uint32_t> have;
       for (const Item& it2 : items) have.insert(it2.skel);
-      for (const auto& pl : piece_links_) {
+      for (const auto& pl : links) {
         if (pl.second.why != scene_inputs::PieceWhy::NoCopy || pl.second.slot < 0 || have.count(pl.first) || std::binary_search(ring_models_.begin(), ring_models_.end(), pl.first)) continue;
         Item li{pl.first, -1, false, Link(), {}};
         li.piece_slot = pl.second.slot, li.piece_owner = pl.second.owner, li.piece_why = pl.second.why, li.piece_id = pl.second.id, li.link_only = true, li.stale = true;
         items.push_back(std::move(li));
       }
     }
+    FreedStow(freed_revived);   // S111 MATCHFREE: out of every list a guest reader walks again, before the lock goes
   }
   {  // bookkeeping of skeletons that are in neither cur_ nor last_ ages out (a reused address must not inherit a stale count / link)
     std::lock_guard<std::mutex> lock(mutex_);
@@ -1023,6 +1054,29 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       }
     }
   }
+  {   // S111 CAT33: each slot claimant's place in the game's category-33 list (LatchTargets' draw_pos_; -1 = not listed), for EmitItems' order
+    std::lock_guard<std::mutex> lock(mutex_);
+    const uint64_t rec_hook = f.guest_frame ? f.guest_frame - 1 : 0;   // S111 OWNERLESS: the walk this record shows = the latch labelled with the record's hook
+    const DrtrOff* shown = nullptr;
+    for (const DrtrOff& d : drtr_off_)
+      if (d.label != 0 && d.label == rec_hook) shown = &d;
+    if (faults_ & kFaultDrtrNewest) shown = drtr_off_[0].label != 0 ? &drtr_off_[0] : nullptr;   // the planted twin: the newest latch decides
+    const auto has = [](const std::vector<uint32_t>& v, uint32_t k) { return std::find(v.begin(), v.end(), k) != v.end(); };
+    for (Item& i : items) {   // S111 PIECEROUTE (slot22_pieces.h): a quiet-hidden named body whose slot 22 drew its SUBM pieces in the walk this record shows is its slot's body again, pieces only
+      if (i.hid_slot < 0) continue;
+      ::rdr_scene::live::slot22::OwnerCase oc;
+      oc.hid_slot = i.hid_slot, oc.shown_read = shown != nullptr, oc.drtr_on = shown && has(shown->on, i.skel), oc.gates = shown && has(shown->pieces, i.skel), oc.named = i.link.known && !i.link.pac.empty();
+      for (const Item& o2 : items) oc.slot_taken = oc.slot_taken || (&o2 != &i && o2.slot == i.hid_slot);
+      if (::rdr_scene::live::slot22::PiecesOnly(oc, (faults_ & kFaultPiecesNoGates) != 0)) i.slot = i.hid_slot, i.pieces_only = true;
+    }
+    for (Item& i : items) {
+      i.draw_pos = -1;
+      if (i.slot >= 0)
+        for (const auto& d : draw_pos_)
+          if (d.first == i.skel) { i.draw_pos = d.second; break; }
+      i.owner_trans_off = i.piece_slot >= 0 && i.piece_owner != 0 && shown && has(shown->off, i.piece_owner);   // S111 OWNERLESS
+    }
+  }
   c.unknown += uint32_t(unreadable_.exchange(0, std::memory_order_relaxed));
 }
 
@@ -1030,13 +1084,10 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
 void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters& c, std::vector<EmitItem>& items, uint32_t light) {
   (void)f;
   using Item = EmitItem;
-  // Slot-matched skeletons first (slot order), then the rest by address: a deterministic order.
-  std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
-    const bool sa = a.slot >= 0, sb = b.slot >= 0;
-    if (sa != sb) return sa;
-    if (sa && a.slot != b.slot) return a.slot < b.slot;
-    return a.skel < b.skel;
-  });
+  // S111 CHARORDER (emit_order.h): character by character (S111 CAT33: in the order of the game's own category-33 list, SlotDrawRanksOf; the unlisted after, in slot order); inside a slot each
+  // claimant (by address) followed by its own pieces (piece_owner; the game's SUBM order), then the skeletons of no slot by address. The colour pass keeps this order for the translucent parts.
+  const SlotDrawRanks ranks = SlotDrawRanksOf(items);
+  std::sort(items.begin(), items.end(), [&ranks](const Item& a, const Item& b) { return EmitBefore(EmitOrderOf(a, ranks), EmitOrderOf(b, ranks)); });
 
   // One placeholder AssetRef for "asset unknown" (pac 0 = none): the record's reader requires every Object::asset to be in range.
   // A drawer skips an AssetRef with pac 0 (rsc_draw does).
@@ -1070,7 +1121,8 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
     Object o;
     o.asset = unknown_asset;
     const Link& link = s.link;
-    bool by_owner = false, detached = false, own_rows = false;   // S105 A5a: own_rows = kObjOwnRowsPiece (below)
+    bool by_owner = false, detached = false, own_rows = false, own_refused = false;   // S105 A5a: own_rows = kObjOwnRowsPiece (below); S111 PIECELINK: own_refused = kObjOwnRowsRefused
+    bool piece_undrawn = false;   // S111 OWNERLESS: written with kObjGameUndrawn (below)
     if (!slot_ok && s.piece_slot >= 0) {   // S103 NRBF
       scene_inputs::PieceWhy why = s.piece_why;
       const auto ow = owner_of.find(s.piece_slot);
@@ -1087,7 +1139,7 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
       if (detached) piece_detached_.fetch_add(1, std::memory_order_relaxed);
       piece_why_[size_t(why)].fetch_add(1, std::memory_order_relaxed);
       if (hidden_nocopy) continue;
-      if (!by_owner && !detached && !s.link_only) {   // S105 A5a (A5a_ADV.md site 7): a linked own-skeleton piece of a GUEST-ROW owner (a created superstar's hair / necklace / braces) is drawn from its own latch-read palette, but only with the copy proof
+      if (!by_owner && !detached && !s.link_only) {   // S105 A5a (A5a_ADV.md site 7): a linked own-skeleton piece of a GUEST-ROW owner (a created superstar's hair / necklace / braces) is drawn from its own latch-read palette (own_rows_rule.h: a fresh read of its owner's latch)
         scene_inputs::OwnRowsCase oc;
         oc.probe = s.probe;
         oc.owner_found = ow != owner_of.end();
@@ -1096,22 +1148,23 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
           oc.owner_skel_matches = own.skel == s.piece_owner;
           oc.owner_named = own.link.known && !own.link.pac.empty();   // the value this record writes for the owner's asset (pac 0 = unnamed): a guest body
           oc.owner_consumer = own.consumer, oc.owner_tag = own.tag;
-          oc.owner_rows = own.skin.empty() ? nullptr : own.skin[0].m, oc.owner_count = own.skin.size();
-          oc.prev_owner_rows = own.prev_skin.empty() || !own.prev_consumer ? nullptr : own.prev_skin[0].m, oc.prev_owner_count = own.prev_skin.size();   // S105 A5a F5
-          for (int a = 0; a < 3; ++a) oc.shift_tol[a] = std::fabs(own.shift[a]) + std::fabs(own.prev_shift[a]);
-          if (faults_ & kFaultNoPrevRows) oc.prev_owner_rows = nullptr;
-          if (faults_ & kFaultRotationOnly) oc.shift_tol[0] = oc.shift_tol[1] = oc.shift_tol[2] = 1e9f;
         }
         oc.piece_consumer = s.consumer, oc.piece_stale = s.stale, oc.piece_tag = s.tag;
-        oc.piece_rows = s.skin.empty() ? nullptr : s.skin[0].m, oc.piece_count = s.skin.size();
         const scene_inputs::OwnRowsWhy ow_why = scene_inputs::JudgeOwnRows(oc, (faults_ & kFaultNoCopyProof) != 0);
         own_rows_[size_t(ow_why)].fetch_add(1, std::memory_order_relaxed);
         if (ow_why == scene_inputs::OwnRowsWhy::Hidden) continue;   // the game's SUBM loop skips this instance (inst +20 == 0): no object, not a hole
         own_rows = ow_why == scene_inputs::OwnRowsWhy::Ok;
+        own_refused = scene_inputs::OwnRowsRefusalCarried(ow_why) && !(faults_ & kFaultRefusedUnlinked);   // S111 PIECELINK: a guest-row owner's piece the proof refused keeps its owner link (pad / layer below): counted on the draw side, never a hole
       }
       // S108 THR2: a piece of a recoloured owner drawn as its own object has no colours on the draw side (only the owner's merged model draws with them): counted + reported
       // (change_colour_piece) until the piece path carries them (lane RDS's files).
       if ((detached || own_rows) && ow != owner_of.end() && ow->second->cc_on) change_colour::Bodies().NotePieceApart(s.skel, ow->second->skel);
+      // S111 OWNERLESS (docs\research\s111\OWNERLESS.md): the owner is no slot item because the quiet gate hid it (no draw ask in this record's period: no opaque node drew it, and with it the pieces that node
+      // draws), AND its translucent DRTR node was off for that walk (no slot-22 piece draw). The game drew none of these pieces: not a hole. With the DRTR node on the game draws them without the body
+      // (sub_829D2750 / sub_833683F8 / sub_8259FAE8 read no char+1208): that stays a counted hole (no route draws pieces of a hidden owner).
+      if (ow == owner_of.end() && s.owner_trans_off)
+        for (const Item& own : items)
+          if (own.skel == s.piece_owner && own.game_undrawn) { piece_undrawn = true; break; }
     }
     if (s.link_only && !detached) continue;   // S103 DTP fix: a link-only entry is written only as a detached piece (its owner is drawn); nothing else to say about a model with no palette
     const bool no_palette = detached && (s.stale || s.link_only);   // S103 DTP fix: the piece's own palette is gone or old: the flag (the owner's skip) stays, no bones are written, rf_wrestlers never guest-routes it
@@ -1132,8 +1185,8 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
     o.klass = rdr_adapter::DrawClass::ModelPart;
     // A skeleton that matches no character slot (managers, waiting entrance models, extras; size filter only) is not shown: visible only with a slot. (S103 NRBF: a proven linked piece stays
     // invisible, with kObjDrawnByOwner: its owner's body draws it.)
-    o.flags = (no_palette ? 0u : uint32_t(kObjSkinned)) | (slot_ok ? uint32_t(kObjVisible) : 0u) | (by_owner ? uint32_t(kObjDrawnByOwner) : 0u) | (detached ? uint32_t(kObjDetachedPiece) : 0u) | (own_rows ? uint32_t(kObjOwnRowsPiece) : 0u);   // S105 A5a
-    if (by_owner || detached || own_rows) o.pad = uint16_t(s.piece_id), o.layer = uint8_t(s.piece_slot + 1);   // PZF2 B-1 / EB: the draw side asks the owner's resident model for a mesh of THIS piece id (scene_record.h kObjDrawnByOwner)
+    o.flags = (no_palette ? 0u : uint32_t(kObjSkinned)) | ((slot_ok && !s.pieces_only) ? uint32_t(kObjVisible) : 0u) | ((slot_ok && s.pieces_only) ? uint32_t(kObjPiecesOnly) : 0u) | (by_owner ? uint32_t(kObjDrawnByOwner) : 0u) | (detached ? uint32_t(kObjDetachedPiece) : 0u) | (own_rows ? uint32_t(kObjOwnRowsPiece) : 0u) | (own_refused ? uint32_t(kObjOwnRowsRefused) : 0u) | ((s.game_undrawn || piece_undrawn) ? uint32_t(kObjGameUndrawn) : 0u);   // S105 A5a; S111 PIECELINK; S111 PIECEHOLES; S111 OWNERLESS; S111 PIECEROUTE (kObjPiecesOnly: the owner's merged model draws only its pieces)
+    if (by_owner || detached || own_rows || own_refused) o.pad = uint16_t(s.piece_id), o.layer = uint8_t(s.piece_slot + 1);   // PZF2 B-1 / EB: the draw side asks the owner's resident model for a mesh of THIS piece id (scene_record.h kObjDrawnByOwner); S111 PIECELINK: a refused own-rows piece carries its owner the same way
     o.id = t.AddString(id);
     o.world = IdentityMat4();  // the palette is already in world space (the root matrix is folded in by sub_82BD30E8); unconfirmed against the front-end
     o.bones_first = uint32_t(t.bones.size());

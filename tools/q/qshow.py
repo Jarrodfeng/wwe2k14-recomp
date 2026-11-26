@@ -6,6 +6,7 @@
     py tools/q/q.py show foo.h:40-60,200-210        several ranges of one file
     py tools/q/q.py show a.h:10-20 b.py:5-9         several files
     py tools/q/q.py show foo.h:120-160 --root DIR   another checkout / worktree
+    py tools/q/q.py show foo.h:120-160 --ref REF    the same lines as they were at a git ref (branch, tag, commit; a file that is gone now works)
 
 Default root: the git checkout of the WORKING DIRECTORY (a worktree reads its own files), else this script's checkout. The header names the root when
 it is not the checkout this script lives in.
@@ -126,14 +127,42 @@ def enclosing_name(rel, lines, ln):
     return ''
 
 
-def cmd_show(root, specs):
+def ref_file(root, ref, name):
+    """S111 QGAPS: -> (repo-relative path, text) of a file at a git ref. name = a repo-relative path or a unique basename (searched in the ref's tree)"""
+    if ref.startswith('-'):
+        raise ShowError(f'--ref {ref!r}: a REF starting with - would reach git as an option')
+    n = name.replace('\\', '/')
+    rel = refuse_if_game(root, n if os.path.isabs(n) else os.path.join(root, n))
+
+    def cat(path):
+        p = subprocess.run(['git', '-C', root, 'show', f'{ref}:{path}'], capture_output=True, timeout=60)
+        return p.stdout.decode('utf-8', 'replace') if p.returncode == 0 else None
+    t = cat(rel)
+    if t is not None:
+        return rel, t
+    ls = subprocess.run(['git', '-C', root, 'ls-tree', '-r', '--name-only', ref, '--'] + list(TOPS), capture_output=True, text=True, timeout=60)
+    if ls.returncode:
+        raise ShowError(f'--ref {ref}: git cannot read that revision: {ls.stderr.strip()[:200]}')
+    hits = [x for x in ls.stdout.splitlines() if x == n or x.endswith('/' + n)]
+    if len(hits) == 1:
+        return hits[0], cat(hits[0]) or ''
+    if not hits:
+        raise ShowError(f'{name}: no such file at {ref} under {", ".join(TOPS)}')
+    raise ShowError(f'{name}: ambiguous at {ref}: ' + ', '.join(hits[:6]) + (' ...' if len(hits) > 6 else ''))
+
+
+def cmd_show(root, specs, ref=None):
     res = []
     for sp in specs:
         m = SPEC.match(sp.strip())
         if not m:
             raise ShowError(f'{sp}: give FILE:N, FILE:N-M, FILE:N+-C or FILE:N-M,P-Q')
-        rel = find_file(root, m.group('file'))
-        lines = read_lines(os.path.join(root, rel))
+        if ref:
+            rel, text = ref_file(root, ref, m.group('file'))
+            lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        else:
+            rel = find_file(root, m.group('file'))
+            lines = read_lines(os.path.join(root, rel))
         if lines and lines[-1] == '':
             lines = lines[:-1]
         for a, b in parse_ranges(m.group('rng'), len(lines)):
@@ -156,7 +185,7 @@ def print_show(res, root=None):
     if root and os.path.realpath(root) != os.path.realpath(ROOT):
         print(f'-- root: {root} (not the checkout of this q.py: {ROOT})')
     for r in res:
-        print(f'== {r["file"]}:{r["a"]}-{r["b"]}  ({r["n"]} lines in the file)' + (f'  nearest def above: {r["func"]}' if r['func'] else '') + (f'  [{r["note"]}]' if r['note'] else ''))
+        print(f'== {r["file"]}:{r["a"]}-{r["b"]}' + (f' @ {r["ref"]}' if r.get('ref') else '') + f'  ({r["n"]} lines in the file)' + (f'  nearest def above: {r["func"]}' if r['func'] else '') + (f'  [{r["note"]}]' if r['note'] else ''))
         w = len(str(r['b']))
         for i, l in r['rows']:
             print(f'{i:>{w}}  {l}')
@@ -170,16 +199,27 @@ def main(argv=None):
         except Exception:
             pass
     root = None
+    ref = None
     if '--root' in argv:
         k = argv.index('--root')
         root = os.path.abspath(argv[k + 1])
+        del argv[k:k + 2]
+    if '--ref' in argv:
+        k = argv.index('--ref')
+        if k + 1 >= len(argv):
+            print('q show: --ref needs a git ref', file=sys.stderr)
+            return 2
+        ref = argv[k + 1]
         del argv[k:k + 2]
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__)
         return 0
     root = root or checkout_of_cwd()
     try:
-        print_show(cmd_show(root, argv), root)
+        res = cmd_show(root, argv, ref)
+        for r_ in res:
+            r_['ref'] = ref
+        print_show(res, root)
     except ShowError as e:
         print(f'q show: {e}', file=sys.stderr)
         return 2

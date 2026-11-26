@@ -11,6 +11,8 @@
 
 #include "char_effects.h"
 #include "bone_tag_rows.h"   // S106 G4-C: SkinChunkAbsent
+#include "wrestler_caster.h"   // S111 LAYERS review: which wrestler parts each caster pass draws
+#include "piece_row_rule.h"   // S111 PIECEROUTE review: CasterMesh::piece
 #include "front_end.h"
 #include "live_maps.h"
 #include "live_maps_internal.h"
@@ -58,7 +60,8 @@ const LiveMapsHook::CasterModel* LiveMapsHook::CasterOf(uint32_t asset, bool pro
       ++src_index;
       if (me.material < 0 || size_t(me.material) >= model->materials.size()) continue;
       const assets::Material& mat = model->materials[size_t(me.material)];
-      if (prop ? (mat.alpha_blend || mat.additive) : (!IsCharEffect(mat.shader) || mat.alpha_blend)) continue;   // a wrestler's opaque pieces cast; hair / translucent layers do not. S103 MBC: a prop's opaque meshes of any effect cast (a glow / additive layer does not)
+      if (prop ? (mat.alpha_blend || mat.additive) : !wrestler_caster::Casts(mat, true)) continue;   // S111 LAYERS review: every wrestler part some pass casts (the translucent node's marked: each pass gates it, wrestler_caster.h). S103 MBC: a prop's opaque meshes of any effect cast (a glow / additive layer does not)
+      const bool translucent = !prop && wrestler_caster::InTranslucentNode(mat);
       const auto add_piece = [&](const std::vector<assets::Vertex>& verts, const std::vector<uint32_t>& indices, const SkinChunk* chunk) {
         CasterMesh cmesh;
         cmesh.vb_offset = uint32_t((vb.size() + 15) & ~size_t(15));
@@ -68,6 +71,8 @@ const LiveMapsHook::CasterModel* LiveMapsHook::CasterOf(uint32_t asset, bool pro
         ib.insert(ib.end(), reinterpret_cast<const uint8_t*>(indices.data()), reinterpret_cast<const uint8_t*>(indices.data() + indices.size()));
         cmesh.index_count = uint32_t(indices.size());
         cmesh.src = src_index;
+        cmesh.translucent = translucent;
+        cmesh.piece = !prop && PiecesOnlyMeshDrawn(MeshAnswersPieceRow(me.src_kind), me.src_key);   // S111 PIECEROUTE review
         cmesh.sample_first = uint32_t(cm->samples.size());   // S103 E3: every 8th vertex, for the bounds
         for (size_t vi = 0; vi < verts.size(); vi += 8) {
           SamplePt sp;
@@ -130,6 +135,7 @@ bool LiveMapsHook::MeasureCasters(const SceneFrame& frame, float center[3], floa
     for (const CasterMesh& m : cm->meshes) {
       if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
       if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
+      if (m.translucent) continue;   // S111 LAYERS review: the fit keeps the opaque node's parts (the set it had); the translucent node's lie on the body
       std::vector<assets::Matrix>& slots = slots_scratch_;
       slots.clear();
       if (m.chunk) {
@@ -357,6 +363,7 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     props_cast = true;
   }
   counts_.mapb_ring_gate = frame.ring_gate > 0;
+  const bool walks33 = wrestler_caster::WalksTranslucent(wrestler_caster::Pass::MapB, props_cast, frame.phase_word);   // S111 LAYERS review: map B mode 0 walks the translucent node (category 33) unless the scene word is 1
   // S103 MBC: one mesh drawn into map B (the wrestlers' and the props' share it): `slots` = the palette slot -> world rows; a chunk mesh is the skinned program, anything else the rigid one
   const auto draw_mesh = [&](const CasterModel& cm_, const CasterMesh& m, const std::vector<assets::Matrix>& slots, bool is_prop) {
     const bool skinned = m.chunk;
@@ -384,8 +391,8 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     state.program = skinned ? prog_skinned_ : prog_single_;
     state.vertex_layout = skinned ? layout_skinned_ : layout_single_;
     state.topology = 3;
-    state.cull = 0;
-    state.front_face = 1;
+    state.cull = kCasterCull;                  // S111 CASTCULL: the shadow frame's cull on, mode 6 (sub_827E95D8 +88): open casters cast from their front only
+    state.front_face = kCasterFrontShadow;
     state.depth_test = 1, state.depth_write = 1, state.depth_compare = 3;
     state.depth_clamp = is_prop ? 1 : 0;   // S103 MBC review 4: a prop between the light and the near plane is clamped onto it, not clipped away (caps_.depth_clamp is on); wrestlers keep the game's state
     state.blend[0].write_mask = 0xF;
@@ -406,7 +413,8 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   uint32_t draws = 0;
   if (!faults_.no_casters && !skip_draw)
     for (const Object& obj : frame.objects) {
-      if (!(obj.flags & kObjVisible)) {
+      const bool visible = (obj.flags & kObjVisible) != 0, pieces_only = !visible && (obj.flags & kObjPiecesOnly) != 0;   // S111 PIECEROUTE review (wrestler_caster.h ObjectMayCast): map B walks the node that drew its pieces when walks33
+      if (!wrestler_caster::ObjectMayCast(visible, pieces_only, walks33)) {
         ++counts_.casters_skipped_hidden;
         continue;
       }
@@ -482,6 +490,8 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       bool any = false;
       for (const CasterMesh& m : cm->meshes) {
         if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
+        if (m.translucent && !walks33) continue;   // S111 LAYERS review (wrestler_caster.h): a translucent-node part casts into map B only when the map walks category 33
+        if (!wrestler_caster::MeshCastsFor(visible, pieces_only, m.piece)) continue;   // S111 PIECEROUTE review: a pieces-only owner casts its piece meshes, never its body
         // the piece's bone rows: palette slot -> (skin, then the object's place), Y row mirrored for a viewer-space record (char_effects.cpp ResolveChar WorldMatrixArray)
         if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
         std::vector<assets::Matrix>& slots = slots_scratch_;

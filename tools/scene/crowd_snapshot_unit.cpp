@@ -8,6 +8,8 @@
 //   record_frame_clock the stamp is for the record's frame, not its hook frame -> "snap.hook_clock"
 //   mode_off_stamps   Mode Off judges and stamps anyway                 -> "snap.off_costs_nothing"
 //   palette_ignored   a member's missing palette is ignored             -> "snap.palette_required"
+//   crowd_leads       the crowd takes its own latch's snapshot (one period ahead of the record's camera) -> "period.crowd_takes_previous_latch" (S111 CUTCROWD2)
+//   crowd_pairs_off   a mode-Off latch feeds the crowd's pairing (the camera's is fed only with the mode on) -> "period.mode_switch_pairs_with_camera" (S111 CUTCROWD2 review)
 #ifndef RDR_CROWD_SNAP_PLANTS
 #error "build with -DRDR_CROWD_SNAP_PLANTS (crowd_snapshot_check.py does): the contributor and this test must agree on the class layout"
 #endif
@@ -86,6 +88,7 @@ static void Record(crowd::Contributor& c, uint64_t frame, bool latch) {
 #include "crowd_snapshot_latch_part.h"
 #include "../../src/scene_live/presence_rules.h"   // S103 S2
 #include "crowd_snapshot_s2_part.h"                 // S103 S2: hold by presence
+#include "crowd_snapshot_period_part.h"             // S111 CUTCROWD2: record r carries latch r - 1's snapshot
 
 int main(int argc, char** argv) {
   std::string plant;
@@ -151,6 +154,8 @@ int main(int argc, char** argv) {
   else if (plant == "presence_ignored") crowd::g_presence_plant = 1;   // S103 S2
   else if (plant == "presence_lod_absent") crowd::g_presence_plant = 2;
   else if (plant == "presence_partial_kept") crowd::g_presence_plant = 3;
+  else if (plant == "crowd_leads") p = 16;   // S111 CUTCROWD2
+  else if (plant == "crowd_pairs_off") p = 17;   // S111 CUTCROWD2 review: a mode-Off latch feeds the crowd's pairing
   else if (!plant.empty()) { std::printf("unknown plant %s\n", plant.c_str()); return 2; }
 
   crowd::Contributor& c = crowd::The();
@@ -268,7 +273,7 @@ int main(int argc, char** argv) {
   Fresh(c, p);
   c.SetArena(-1);
   Record(c, 100, true);   // the first active latch: no history, no stamp
-  Record(c, 101, true);   // no walk, no skip: the crowd entry was not reached (a menu): empty and whole, with no arena
+  Record(c, 102, true);   // no walk, no skip: the crowd entry was not reached (a menu): empty and whole, with no arena (S111 CUTCROWD2: 2 ahead, so the record takes THIS latch's snapshot, not 100's)
   Check(g_stamps == 1 && c.LatchCensus().absent == 1, "snap.absent_crowd_is_whole");
   Fresh(c, p);
   Draw(c, {}, 2);
@@ -315,6 +320,7 @@ int main(int argc, char** argv) {
 
   LatchTests(c, p);   // S103 D3b
   S2PresenceTests(c, p);   // S103 S2
+  PeriodTests(c, p);   // S111 CUTCROWD2
 
   // ---- J: the census line
   Fresh(c, p);

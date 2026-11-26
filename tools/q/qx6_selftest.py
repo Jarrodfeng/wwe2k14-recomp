@@ -216,8 +216,9 @@ def main():
         con = index_con(root)
         # ---- asm
         o = run_asm(root, con, 'sub_82000100', '0x82000114', '0x82000120')
-        check('82000114  lwz r11,0(r3)   <= 82000108,82000130' in o, 'asm: the branch target 82000114 lists its sources (beq at 82000108, bdnz at 82000130)', o)
-        check('8200011C  bne cr6,0x8200012C   => 8200012C' in o and '82000124' not in o, 'asm: a branch shows its target; the window stops at TO', o)
+        # (S111 QGAPS: print_asm gained the [:line] column; the old one-string check was red at HEAD)
+        check('82000114  lwz r11,0(r3)' in o and '<= 82000108,82000130' in o, 'asm: the branch target 82000114 lists its sources (beq at 82000108, bdnz at 82000130)', o)
+        check('8200011C  bne cr6,0x8200012C' in o and '=> 8200012C' in o and '82000124' not in o, 'asm: a branch shows its target; the window stops at TO', o)
         o = run_asm(root, con, 'sub_82000100', '--into', '0x82000114', '0x8200012C')
         check('beq cr6,0x82000114' in o and 'bdnz 0x82000114' in o and '(2)' in o and '[cond]' in o, 'asm --into: both PLANTED outside branches (beq 82000108, bdnz 82000130) into 82000114 found', o)
         check('fall-through: YES' in o, 'asm --into: the fall-through from the instruction before FROM is reported as entering', o)
@@ -298,7 +299,10 @@ def main():
         o = q('ours', 'hooks', 'wwe2k14_model_entry')
         check('0x82C04E1C' in o, 'real: q ours hooks by callback name', o)
         o = q('ours', 'hooks', '__savegprlr_14')
-        check('src/nf/reg_save.h:98' in o, 'real: q ours hooks __savegprlr_14 finds the nested ## macro hook (src/nf/reg_save.h)', o)
+        # (review S111: the line is read from the file, not written in: S110 CVARSHARD moved the invocation from :98 to :97 and left this check red)
+        with open(os.path.join(os.path.dirname(os.path.dirname(HERE)), 'src', 'nf', 'reg_save.h'), encoding='utf-8') as f_:
+            ln_ = next((i for i, l_ in enumerate(f_, 1) if l_.strip() == 'WWE2K14_REG_HOOKS(14)'), None)
+        check(ln_ is not None and f'src/nf/reg_save.h:{ln_} ' in o, f'real: q ours hooks __savegprlr_14 finds the nested ## macro hook at its invocation line (src/nf/reg_save.h:{ln_})', o)
         o = q('ours', 'hooks', 'wwe2k14_pacing_halve_82331778')
         check('declares it' in o and 'not declared' not in o, 'real: a `bool` / `void` callback declared in generated is found (pacing_halve)', o)
         o = q('ours', 'def', 'Param1')
@@ -307,7 +311,7 @@ def main():
         check(e.returncode == 0 and ' at main' in e.stdout, 'real: --branch on a text verb searches that revision (S108 lanes C + D)', e.stdout + e.stderr)
         e = subprocess.run([sys.executable, Q, 'ours', 'text', '--branch', '-x', 'foo'], capture_output=True, text=True, env=env, timeout=120)
         check(e.returncode == 2 and 'is not a revision' in e.stderr, 'real: a --branch REF starting with - is refused (it would reach git as an option)', e.stderr)
-        o = q('ours', 'text', '82C1E840', 'post')
+        o = q('ours', 'text', '82C1E840', 'post', '--and')      # S111 QGAPS: several words = ANY by default; this check means both on one line
         check('scene_skip_core.h' in o or 'post_settings.h' in o, 'real: q ours text finds addresses written in comments', o)
     else:
         print('SKIP  real-tree proofs (generated\\ or the q index is absent)')

@@ -337,7 +337,7 @@ def run_job(batch, route, arm, cfg):
                     if m and m.group(1) in active:
                         active.pop(m.group(1)).stop(line_time(line))
                         print(f'  clip_stop {m.group(1)}', flush=True)
-                    m = re.search(r'screenshot saved: (.+\\(\d+)_(rv_[^\\]+)\.(?:bmp|png)) \((\d+)x(\d+)\)', line)
+                    m = re.search(r'screenshot saved: (.+\\(\d+)_(rv_[^\\]+)\.(?:bmp|png|webp)) \((\d+)x(\d+)\)', line)
                     if m:
                         stills.append({'bmp': m.group(1), 'label': m.group(3), 'w': int(m.group(4)),
                                        'h': int(m.group(5))})

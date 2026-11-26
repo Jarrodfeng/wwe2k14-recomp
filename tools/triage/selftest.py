@@ -276,7 +276,7 @@ def test_event_identity(fails):
     own = ev(t0 + dt.timedelta(seconds=60), t0 - dt.timedelta(seconds=0.2))
     prev = ev(t0 - dt.timedelta(seconds=2), t0 - dt.timedelta(seconds=70))           # previous run's crash, 2 s before
     cov = ev(t0 + dt.timedelta(seconds=30), t0 - dt.timedelta(seconds=0.1),
-             exe.replace('win-amd64-release', 'win-amd64-coverage'))                    # coverage build, same moment
+             exe.replace('win-amd64-release', 'win-amd64-coverage-off'))                    # coverage build, same moment
     other = ev(t0 + dt.timedelta(seconds=20), t0 + dt.timedelta(seconds=5), r'C:\x\iruka.exe')
     mine, rest = T.match_app_events([own, prev, cov, other], exe, t0, t0 + dt.timedelta(seconds=59))
     check(mine == [own] and len(rest) == 3, 'synthetic: only the entry of this exe whose process started 0.2 s '

@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <rex/cvar.h>
+#include "readbacks_start.h"   // S111 RBSWITCH: the start value of wwe2k14_rdr_readbacks
 #include <rex/hook.h>
 #include <rex/logging.h>
 
@@ -27,6 +28,7 @@
 #include "../frame_stats.h"   // g_guest_frame
 #include "../renderer_adapter/thumb_defer_core.h"
 #include "readback_ours.h"
+#include "title_thumb_off.h"   // S111 CACTHUMB: R7, the Create a Title thumbnail (its own board; delivered from OnPresent below)
 
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_readback_thumb_timeout);
 
@@ -93,7 +95,7 @@ inline void Deliver(PPCContext& ctx, uint8_t* base, const rdr_adapter::ThumbEntr
 // The job's hook, at its entry (r3 = the object). true: deferred, do not run it (obj+44 stays 4).
 inline bool OnJobEnter(PPCContext& ctx, uint8_t* base) {
   using namespace wwe2k14::readback_ours;
-  if (t_thumb_replay || !REXCVAR_GET(wwe2k14_rdr_readbacks) || !wwe2k14::g_scene_request_owner) return false;
+  if (t_thumb_replay || !wwe2k14::readbacks_start::On() || !wwe2k14::g_scene_request_owner) return false;
   const uint32_t obj = ctx.r3.u32;
   if (!obj || wwe2k14::d3d_layer::Ld32(base, obj + 44) != 4) return false;   // the job would do nothing: let it
   const uint32_t texture = wwe2k14::d3d_layer::Ld32(base, obj + 52);
@@ -153,6 +155,7 @@ inline bool TakeEntry(uint32_t obj, rdr_adapter::ThumbEntry& e, Mail& mail, bool
 
 // Called from the present hook (the game's thread; a present on another thread delivers nothing: the board filters by ctx.r13).
 inline void OnPresent(PPCContext& ctx, uint8_t* base) {
+  wwe2k14::title_thumb::OnPresent(ctx, base);   // S111 CACTHUMB: deferred R7 callbacks whose picture landed (or timed out); before R1's early return
   struct Item {
     rdr_adapter::ThumbEntry e;
     Mail mail;

@@ -31,12 +31,11 @@ struct DrawCensus {
   std::atomic<uint64_t> draws{0};        // wrestler draws bound to the change-colour row (masks bound, ChangeColor fed)
   std::atomic<uint64_t> no_masks{0};     // a recoloured body's draw whose material has no masks (the PACH has none: the game's [E+80] = 0 rule) -> plain
   std::atomic<uint64_t> no_row{0};       // the STS table has no row for the effect / it could not be bound -> the startup row, plain
-  std::atomic<uint64_t> no_table_pick{0};   // the wrestler table pick is off (wwe2k14_rdr_char_table_pick): no change colour at all
   std::atomic<uint64_t> unnamed{0};      // a recoloured body the record could not name (guest rows: no masks can be loaded)
   std::string Text() const {
     const auto u = [](const std::atomic<uint64_t>& a) { return std::to_string((unsigned long long)a.load(std::memory_order_relaxed)); };
     return "[scene][change_colour] drawn: rows carried " + u(carried) + " (not in the frame " + u(no_engine) + "), draws " + u(draws) + "; plain: no masks " + u(no_masks) + ", no STS row " + u(no_row) +
-           ", table pick off " + u(no_table_pick) + ", unnamed body " + u(unnamed);
+           ", unnamed body " + u(unnamed);
   }
 };
 inline DrawCensus& Draws() {

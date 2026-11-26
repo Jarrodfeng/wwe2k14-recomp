@@ -12,6 +12,9 @@
 //   ldr.wpbs_ids         the brawl-only ids (17, 51-58, 61, 62, 64, 68, 69) are weapon calls the plan draws and the census counts as wpbs; a normal id is not
 //   ldr.coverage_line    the companion census line: recorded / planned / drawn per class
 //   ldr.plan_range       a ladder PACH above 15 (56, 61) is a known stage structure for the plan, the latch and the held rows (the arrays are sized kStagePachCap)
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>   // S111 CHAMBERSHADOW review: weapon_rows_core.h reaches assets\pac.h (stbi_zlib_decode_buffer), as in stage_struct_test.cpp; the build passes -I<sdk stb>
+
 #include <cstdio>
 #include <cstring>
 #include <map>

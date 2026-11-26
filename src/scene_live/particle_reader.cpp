@@ -97,7 +97,7 @@ void AddCorners(Particle& p, const PivotShift& pv, float sx, float sy, float cs,
 
 }  // namespace
 
-static void ReadItem(const GuestMem& mem, uint32_t item, const CameraBasis& cam, const TextureNamer* namer, ParticleSnapshot& out, ReaderStats& st) {
+static void ReadItem(const GuestMem& mem, uint32_t item, const CameraBasis& cam, const TextureNamer* namer, ParticleSnapshot& out, ReaderStats& st, bool depth_always) {
   uint32_t vt = 0, count = 0, base = 0;
   if (!Rd(mem, item, vt) || !Rd(mem, item + 40, count) || !Rd(mem, item + 68, base)) return void(++st.unreadable);
   const bool quad = vt == kQuadItemVtable, third = vt == kThirdItemVtable;   // S103 PRT: the third class is read as a sprite with roll 0 [L]
@@ -131,6 +131,7 @@ static void ReadItem(const GuestMem& mem, uint32_t item, const CameraBasis& cam,
 
   ItemKeys ik{out, st, namer, BatchKey(), p_tex, {}};
   ik.base.site = quad ? kParticleQuad : kParticleSprite;
+  ik.base.depth_always = depth_always ? 1 : 0;   // S111 PARTZ [C sub_82A0AED8 +78 / +84]: the entry's word +220 == 0 -> the game draws its items with depth ALWAYS
   ik.base.soft = st.soft;   // S103 PRT: the global soft switch at the node's call (BatchKey::soft had no writer)
   ik.base.blend = BlendOfCode(bcode);
   ++st.blend_read;
@@ -213,11 +214,14 @@ static void ReadItem(const GuestMem& mem, uint32_t item, const CameraBasis& cam,
 
 void ReadEntry(const GuestMem& mem, uint32_t entry, const CameraBasis& cam, ParticleSnapshot& out, ReaderStats& st, const TextureNamer* namer) {
   ++st.entries;
-  uint32_t idx = 0, gate = 0, f132 = 0, e64 = 0, obj = 0, arr = 0;
+  uint32_t idx = 0, gate = 0, f132 = 0, e64 = 0, obj = 0, arr = 0, ztest = 1;
   if (!Rd(mem, entry + 56, idx) || idx > 1) return void(++st.unreadable);  // two 176-byte sub-records fill the entry
   const uint32_t sub = entry + 176 * idx;
   if (!Rd(mem, sub + 208, gate) || !Rd(mem, sub + 80 + 132, f132) || !Rd(mem, entry + 64, e64)) return void(++st.unreadable);
   if (g_reader_plant != 2 && (gate == 0 || (f132 == 0 && e64 != 0))) return void(++st.entries_gated);  // [C: sub_82A0AED8's own two early outs]
+  // S111 PARTZ [C]: past the two gates (the game's order), sub_82A0AED8 +6C reads sub + 220 (the start record's +8, sub_82A0B308 +38); 0 = depth compare ALWAYS for every item of the entry
+  // (+84: recorder code 1 -> hardware ALWAYS through sub_82C237D8; +120 puts the cached compare back). GMEV floats[12] != 0 gives 0: effect 0 of 7 banks.
+  if (!Rd(mem, sub + 220, ztest)) return void(++st.unreadable);
   uint32_t p = 0, count = 0;
   if (!Rd(mem, entry + 44, arr)) return void(++st.unreadable);
   if (!arr) return void(++st.entries_no_items);  // [C: 0x82A0AEE4] a null item array is a normal no-draw
@@ -227,7 +231,7 @@ void ReadEntry(const GuestMem& mem, uint32_t entry, const CameraBasis& cam, Part
     uint32_t item = 0;
     if (!Rd(mem, arr + 4 * i, item)) { ++st.unreadable; continue; }
     if (!item) continue;  // [C: 0x82A0AF74] a null item pointer is skipped
-    ReadItem(mem, item, cam, namer, out, st);
+    ReadItem(mem, item, cam, namer, out, st, ztest == 0 && g_reader_plant != 9);   // (plant 9: the word is ignored, every entry tested)
   }
 }
 

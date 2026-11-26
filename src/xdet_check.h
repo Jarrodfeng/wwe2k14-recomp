@@ -67,6 +67,7 @@ inline constexpr Pin kPins[] = {
     {"wwe2k14_nf_skin_3bone", "on"},
     {"wwe2k14_scene_crowd", "1"},
     {"wwe2k14_crowd_fill_wide", "off"},  // lane 176: the display's aspect must not change the crowd tests
+    {"wwe2k14_ramp_camera", "false"},    // S111 RAMPCAM: the camera's side reaches the director and the pad
     {"occlusion_query_enable", "false"},  // (GPU library: set once it is loaded)
     {"resolution_scale", "1"},            // (GPU library)
     // what else a tester's machine or settings could change (the map above)

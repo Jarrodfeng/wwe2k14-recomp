@@ -47,6 +47,7 @@
 #include "scene_live/arena_id_core.h"  // S103 CAE: the arena id from the stage object
 #include "scene_live/arena_provider.h"
 #include "scene_live/page_skip_core.h"  // S103 EPS: the unused stage-page pass rule
+#include "scene_live/latch_period.h"  // S111 CUTREACH review: the stage page's clock census (NodeClock)
 #include "keep_stream.h"  // S103 EPS: WWE2K14_STREAM()
 #include "scene_live/stage_fx_contrib.h"  // S103 CAE: StageFx().Stage()
 #include "scene_live/crowd_contrib.h"  // S101 lane 1: the crowd's arena comes from this hook's read of G+64
@@ -59,6 +60,7 @@ namespace rl = rdr_scene::live;
 namespace ra = rdr_scene::live::arena;
 
 inline constexpr uint32_t kArenaIdWord = 0x8376AB34;  // G+64, see the header
+inline constexpr uint32_t kLoadedStageWord = 0x83763544;  // S111 CACBG: the game's stage holder (0 = the game holds no stage: arena_id_core.h GameHoldsNoStage)
 
 // The census line (once per change of the (stage id, published word) pair, which is rare), with the guest frame: `[arena_id] frame F: stage id N, published word M, disagreements K ...`.
 inline void LogArenaIdOnChange(bool stage_ok, uint32_t stage_id, bool word_ok, uint32_t word) {
@@ -106,9 +108,13 @@ inline bool RdF3(const uint8_t* base, uint32_t a, float out[3]) {
 inline void OnLightSets(const uint8_t* base, uint32_t mgr) {
   static std::atomic<uint32_t> bad_reads{0};
   if (!Readable(base, mgr, 0) || !Readable(base, mgr, 452)) return;
+  // S111 CACBG: the record names an arena only while the game holds a stage (arena_id_core.h GameHoldsNoStage): read once per frame, used by both publishes below.
+  const bool holder_ok = Readable(base, kLoadedStageWord, 0);
+  const bool no_stage = ra::GameHoldsNoStage(holder_ok, holder_ok ? Rd32(base, kLoadedStageWord) : 0u);
   const uint32_t n = Rd32(base, mgr + 124), objs = Rd32(base, mgr + 112), ids = Rd32(base, mgr + 116);
   if (n == 0 || n > 64 || !Readable(base, objs, 4 * n - 4) || !Readable(base, ids, 4 * n - 4)) {
     bad_reads.fetch_add(1, std::memory_order_relaxed);
+    if (no_stage) ra::PublishSets(-1, 1.f, {}, 0, 0);   // S111 CACBG: no sets and no stage: the last published arena must not stay named (the slot table is kept, PublishSets review F4)
     return;
   }
   std::vector<ra::SetSnap> sets;
@@ -127,7 +133,7 @@ inline void OnLightSets(const uint8_t* base, uint32_t mgr) {
       ++dropped;
       continue;
     }
-    if (Readable(base, obj, 1056) && Readable(base, obj, 1056 + 12)) {   // S103 RL F2: the camera-attached words of lights 0-3 (== 1: view space), next to the +64 directions [C: sub_82BE06B8 binds +1056 beside +960]
+    if (Readable(base, obj, 1056) && Readable(base, obj, 1056 + 12)) {   // S103 RL F2: the camera-attached words of lights 0-3 (== 1: view space), next to the +64 directions [C: sub_827F70D0 +AC / +B4 writes them at +1056 + 4k in the loop that copies the directions to +64 and +960]
       s.has_follow = true;
       for (uint32_t k = 0; k < 4; ++k) s.follow[k] = Rd32(base, obj + 1056 + 4 * k) == 1u;
     }
@@ -144,7 +150,7 @@ inline void OnLightSets(const uint8_t* base, uint32_t mgr) {
     scene_inputs::gsf::NoteStage(stage_ok, stage_id);   // BHF4 (BH2 G4): a new stage forgets the previous arena's gGsf row
     const bool word_ok = Readable(base, kArenaIdWord, 0);
     if (word_ok) word = Rd32(base, kArenaIdWord);
-    arena = ra::ResolveArenaId(stage_ok, stage_id, word_ok, word, ra::ArenaIdCensusOf());
+    arena = ra::ArenaWhileStageHeld(no_stage, ra::ResolveArenaId(stage_ok, stage_id, word_ok, word, ra::ArenaIdCensusOf()));   // S111 CACBG: no stage held = no arena
     if (ra::ArenaIdCensusOf().NoteWord(word_ok, word, rdr_scene::live::stagefx::StageFx().CleanTakes()))   // G+64 changed: a window opens until the next stage set-up
       REXLOG_INFO("[arena_id] frame {}: G+64 changed to {} (stage id {}), clean stage_fx takes so far {}", wwe2k14::g_guest_frame.load(std::memory_order_relaxed), word, stage_ok ? int64_t(stage_id) : -1, rdr_scene::live::stagefx::StageFx().CleanTakes());
     LogArenaIdOnChange(stage_ok, stage_id, word_ok, word);
@@ -256,6 +262,7 @@ REX_HOOK_RAW(sub_8342A8D8) {
 REX_EXTERN(__imp__sub_825BB0E0);
 REX_EXTERN(sub_82BCC510);
 REX_HOOK_RAW(sub_825BB0E0) {
+  scene_inputs::period::g_page_node_clock.Note(wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S111 CUTREACH review: the clock the page pass runs on (log only; both builds), noted before the skip test
 #if !WWE2K14_STREAM()
   namespace ps = wwe2k14::pageskip;
   ps::g_called.fetch_add(1, std::memory_order_relaxed);

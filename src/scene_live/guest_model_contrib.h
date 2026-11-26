@@ -159,7 +159,7 @@ class GuestModelContributor final : public Contributor {
     const guest_model::TexStats& t = tex_.stats();
     out += " | guest models calls " + std::to_string(s.calls) + ", named (not read) " + std::to_string(s.skipped_named) + ", named by the record (skipped before the planner) " + std::to_string(named_skips_.load(std::memory_order_relaxed)) + ", layout reads " + std::to_string(s.layout_reads) + ", byte reads " + std::to_string(s.byte_reads) + " (" +
            std::to_string(s.bytes_read >> 10) + " KB), reused " + std::to_string(s.reused) + ", forced " + std::to_string(s.forced) + " (missed unlock " + std::to_string(s.missed_unlock) + "), unreadable parts " + std::to_string(unreadable_) +
-           ", bad flags " + std::to_string(bad_flags_) + ", params unreadable " + std::to_string(param_unreadable_) + ", sampler overflow " + std::to_string(sampler_overflow_) + ", no descriptor " + std::to_string(no_desc_) + " (D of another class " + std::to_string(d_other_class_) + "), via D " + std::to_string(via_d_) + " (H+16 != m+372: " + std::to_string(parts_mismatch_) + ")" + ", extra-stream parts (HOLE) " + std::to_string(extra_) + ", textures: samplers " + std::to_string(t.samplers) + " bound " +
+           ", bad flags " + std::to_string(bad_flags_) + ", params unreadable " + std::to_string(param_unreadable_) + ", no descriptor " + std::to_string(no_desc_) + " (D of another class " + std::to_string(d_other_class_) + "), via D " + std::to_string(via_d_) + " (H+16 != m+372: " + std::to_string(parts_mismatch_) + ")" + ", extra-stream parts (HOLE) " + std::to_string(extra_) + ", textures: samplers " + std::to_string(t.samplers) + " bound " +
            std::to_string(t.bound) + " override " + std::to_string(t.from_override) + " missing " + std::to_string(t.missing) + " deferred " + std::to_string(t.deferred) + ", refused: " + guest_model::WhySummary(t) + ", override refused " + std::to_string(t.override_refused) + ", byte reads " + std::to_string(t.byte_reads) + ", retry calls " + std::to_string(t.retry_calls) +
            ", override block entries " + std::to_string(ov_entries_) + " matched " + std::to_string(ov_matched_) + " (equal only ignoring case " + std::to_string(ov_ci_) + "), 8888 pictures " + std::to_string(t.tex8888) + " (creator unknown " + std::to_string(t.tex8888_by_creator[0]) + " loader " +
            std::to_string(t.tex8888_by_creator[1]) + " movie " + std::to_string(t.tex8888_by_creator[2]) + " gpu " + std::to_string(t.tex8888_by_creator[3]) + "), logos bound " + std::to_string(t.logo_bound) + " missing " + std::to_string(t.logo_missing) + ", flush re-reads " + std::to_string(t.dirty_rereads) + " (deferred " + std::to_string(t.dirty_deferred) + ", unwatched " + std::to_string(t.unwatched) + "), 8888 guard unchanged " + std::to_string(t.tex8888_guard_same) + " re-read " + std::to_string(t.tex8888_rereads) + ", engine default cube " + std::to_string(t.engine_default_cube) + ", store " + std::to_string(guest_model::ByteStore::Process().bytes() >> 20) + " MB, run_lock " + run_lock_.Text();
@@ -199,7 +199,7 @@ class GuestModelContributor final : public Contributor {
     if (r.why == guest_model::Why::NoDesc && r.d_vtable) ++d_other_class_;
     if (r.why == guest_model::Why::NoDesc) ++no_desc_;
     ov_entries_ += r.ov_entries, ov_matched_ += r.ov_matched, ov_ci_ += r.ov_matched_ci;
-    unreadable_ += r.parts_unreadable, extra_ += r.parts_extra_streams, bad_flags_ += r.parts_bad_flags, param_unreadable_ += r.param_unreadable, sampler_overflow_ += r.sampler_overflow;
+    unreadable_ += r.parts_unreadable, extra_ += r.parts_extra_streams, bad_flags_ += r.parts_bad_flags, param_unreadable_ += r.param_unreadable;
   }
   // the process byte store: everything the rows will name by hash (the in-process consumer asks here)
   void PutBytes(const ModelRead& m, uint64_t frame) {
@@ -252,7 +252,7 @@ class GuestModelContributor final : public Contributor {
   uint64_t ov_entries_ = 0, ov_matched_ = 0, ov_ci_ = 0;
   std::unordered_map<uint32_t, bool> ov_dumped_;   // models whose override entries were printed (CTX2; at most kMaxOvDumpLines)
   static constexpr size_t kMaxOvDumpLines = 8;
-  uint64_t unreadable_ = 0, no_desc_ = 0, extra_ = 0, bad_flags_ = 0, param_unreadable_ = 0, sampler_overflow_ = 0;
+  uint64_t unreadable_ = 0, no_desc_ = 0, extra_ = 0, bad_flags_ = 0, param_unreadable_ = 0;
   uint64_t via_d_ = 0, parts_mismatch_ = 0, d_other_class_ = 0;   // S103 WC R3: models whose descriptors came from the data object; [H+16] != [m+372]; [m+824] == 0 with a D that is not the expected class
 };
 

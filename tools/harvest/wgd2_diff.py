@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools', 'wm30'))
 SAMPLER_SLOT = {'g_mDiffusePrm': 'd', 'sampDiffusePrm': 'd', 'g_mNormalFxPrm': 'n', 'sampNormalPrm': 'n', 'g_mMaskPrm': 'm', 'sampLightMapPrm': 'l', 'sampSpecularPrm': 's',
                 'sampCubeRefPrm': 'c', 'sampRefMapPrm': 'f', 'sampDiffuse1Prm': 'y0', 'sampDiffuse2Prm': 'y1', 'sampDiffuse3Prm': 'y2',
                 'texDiffuse': 'd', 'sampNoisePrm': 'z'}   # S105 C2L: yDefault's texDiffuse (jboy.h: effect yDefault only) and the yProp_PSM grain
-NONARENA_SLOTS = ('g_mNoiseTilePrm', 'g_mSweatPrm', 'g_mNormalWklPrm')   # read only by non-arena (wrestler) models (jboy.h: `!o.arena`)
+NONARENA_SLOTS = ('g_mNoiseTilePrm', 'g_mSweatPrm', 'g_mNormalWklPrm', 'g_mMusclePrm', 'g_mHairNoisePrm', 'g_mHairShiftPrm', 'g_mEnvLPrm')   # read only by non-arena (wrestler) models (jboy.h: `!o.arena`)
 GAME_STRUCT_PACHS = list(range(0, 8)) + list(range(11, 62))   # S105 C2L: p8 (/STG/SNCE) is never asked for (sub_82576DD8 names 11 other paths; C2L.md verdict 4 [C]), so it is left out. docs\formats\bgetc_stg_structures.md "The directory" [C]: 0-7 the structures, 9 / 10 the weapon sets, 11-61 the per-arena ladder rigs
 FAMILIES = ('struct', 'weapon', 'event', 'char', 'crowd')
 
@@ -483,10 +483,10 @@ def selftest():
     P.load = staticmethod(lambda p: None)
     P.entries = staticmethod(lambda data: [('p0/20000/21100', txt)])
     check(crowd_seats(99, P) == (2, 1), 'crowd seat grammar: 2 people + 1 child object on invented text')
-    # the sampler-name table against src\assets\jboy.h (lint: a renamed sampler cannot go unseen)
-    jb = open(os.path.join(ROOT, 'src', 'assets', 'jboy.h'), encoding='utf-8', errors='replace').read()
+    # the sampler-name table against the loader's (src\assets\material_samplers.h since S111 UNIFY2, which jboy.h calls; lint: a renamed sampler cannot go unseen)
+    jb = ''.join(open(os.path.join(ROOT, 'src', 'assets', f), encoding='utf-8', errors='replace').read() for f in ('jboy.h', 'material_samplers.h'))
     miss = [n for n in list(SAMPLER_SLOT) + list(NONARENA_SLOTS) if '"%s"' % n not in jb]
-    check(not miss, 'sampler table is in jboy.h (missing: %s)' % ', '.join(miss))
+    check(not miss, 'sampler table is in jboy.h / material_samplers.h (missing: %s)' % ', '.join(miss))
     print('FAIL %d' % bad if bad else 'PASS selftest')
     return 1 if bad else 0
 

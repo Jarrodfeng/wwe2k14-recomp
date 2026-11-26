@@ -36,14 +36,21 @@
 #include "frame_delta.h"       // S103 A3 (F1)
 #include "../renderer_scene/stage_pool_words.h"   // S103 L2
 #include "inputs_core.h"
+#include "latch_period.h"   // S111 CUTSTUTTER: the record's camera from the latch whose palettes it takes
 #include "gsf_latch.h"   // S103 FXF
 #include "../renderer_scene/cam_gate.h"   // S105 A3
+#include "slot22_pieces.h"   // S111 PIECEROUTE: SlotSkel::trans_gates
+#include "../renderer_scene/stageless_scene.h"   // S111 STAGELESS2: header bit 6 (the game holds no stage)
 #include "draw_camera_core.h"   // S103 WC R5: the draw thread's camera, the fallback for no scene manager
 
 #include "plane_eye_read.h"   // S103 E5
 #include "props_light_read.h"   // S103 KS1
 #include "../renderer_scene/props_map_switch.h"   // S103 KS1: the read is behind --wwe2k14_rdr_props_map
 #include "tail_latch.h"   // LatchMark
+#include "drawn_slots.h"   // S111 CAWTPOSE: a departed slot occupant the game still draws stays its slot's body
+#include "char_draw_list.h"   // S111 CAT33: the game's category-33 draw list (each table skeleton's draw place)
+#include "cat33_places.h"     // S111 PROPORDER: every drawn place of that list (characters and the entrance props' CWeapon nodes)
+#include "../renderer_scene/draw_place_rows.h"   // S111 PROPORDER: their kSlDrawPlace rows
 
 namespace rdr_scene::live::inputs {
 
@@ -85,36 +92,24 @@ class InputsContributor final : public Contributor {
   // S103 A3 (bit-8 review 4): the circle rows can only be drawn when the disc mesh is known (circles contributor registered AND its tracker read the mesh once)
   using MeshKnownFn = bool (*)();
   void SetMeshKnown(MeshKnownFn f) { mesh_known_ = f; }
-  using CensusFn = std::string (*)();   // S103 A3 (F3): the wrestlers' palette counters (latch_same / differs, the derived-palette guard and its delta census)
+  using CensusFn = std::string (*)();   // S103 A3 (F3): the wrestlers' palette counters (latch_same / differs against the walk's copy, then the slot census)
   void SetPaletteCensus(CensusFn f) { palette_census_ = f; }   // (bit 5 is stamped by stage_fx's own take, audit item 1)
-  // S103 HGF planted twins (tests only): 1 = the old fallback (an off-latch take re-reads the slot table and replaces the piece state), 2 = the old double read (Take asks the table again after LatchPalettes)
-  static constexpr uint32_t kHgfOffLatchReads = 1, kHgfNoTargetReuse = 2;
+  // S103 HGF planted twin (tests only): 2 = the old double read (Take asks the table again after LatchPalettes). (1, the old off-latch fallback re-read, went with that fallback: S111 HEADGUARD.)
+  static constexpr uint32_t kHgfNoTargetReuse = 2;
+  static constexpr uint32_t kHgfFarLayerIgnored = 4;   // S111 OWNERLESS review twin: the landed rule, the far layer is never read (only the category-33 walk draws the DRTR nodes)
+  static constexpr uint32_t kHgfDrtrByList = 8;   // S111 OWNERLESS review twin: no node read (the landed rule took the enable from list 33 only)
   void SetHgfFaultsForTest(uint32_t f) { hgf_faults_ = f; }
   struct PaletteTarget { uint32_t skel = 0, count = 0; };
-  // S108 RDS review (the class closure, model_release.h): the game destroyed this model. The last latch's target copy (snap_targets_) is read by the OFF-latch fallback (Take's ResolveModelList,
-  // LatchPalettes' palette reads) for as long as no latch replaces it, so it must stop naming the address. Its own lock only (the hook thread holds nothing else).
-  void ForgetModel(uint32_t model) {
-    std::lock_guard<std::mutex> lock(snap_mu_);
-    snap_targets_.erase(std::remove_if(snap_targets_.begin(), snap_targets_.end(), [model](const PaletteTarget& t) { return t.skel == model; }), snap_targets_.end());
-  }
-  bool SnapNames(uint32_t model) {   // test / census
-    std::lock_guard<std::mutex> lock(snap_mu_);
-    return std::any_of(snap_targets_.begin(), snap_targets_.end(), [model](const PaletteTarget& t) { return t.skel == model; });
-  }
-  void SetSnapForTest(std::vector<PaletteTarget> v, uint64_t hook) {
-    std::lock_guard<std::mutex> lock(snap_mu_);
-    snap_targets_ = std::move(v), snap_hook_ = hook;
-  }
   using TargetsFn = void (*)(uint64_t hook_frame, std::vector<PaletteTarget>& out, uint32_t& missing);
   using SubmitFn = int (*)(uint32_t skel, uint32_t count, const Mat4* skin, uint64_t hook_frame);
   void SetPalettes(TargetsFn t, SubmitFn s) { targets_ = t, submit_ = s; }
   // S103 L31B: the targets from the CHARACTER TABLE (wrestler_contrib.h LatchTargets(slots)). When set it is used instead of TargetsFn: the latch reads the table itself (ReadSlotSkeletons: character
   // [0x836F38D0 + 4 * slot], skeleton [char + 48]) and passes (skeleton, slot) per occupied slot plus each slot's state (review A: empty / occupied / unreadable). `stale_visible` non-null = also ask
   // WrestlerContributor::StaleVisibleAt for this record (the guard: > 0 in mode Ours = no stamp); null = do not ask. `count` = false: no census counted (Take's second ask of the same latch, review E).
-  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; bool game_shown = true; };   // S103 DRL: shown_addr = [char + 232] (the game's shown flag)   // S107 CAM: game_shown = the game's own predicate sub_823CBC50 ([char+1208] && [char+224] && [char+232]); an unreadable word counts as shown (never a guessed hide)
+  struct SlotSkel { uint32_t skel = 0; int32_t slot = -1; uint32_t shown_addr = 0; bool game_shown = true; int32_t draw_pos = -1; int8_t drtr_on = -1; bool trans_gates = false; };   // S111 OWNERLESS review: drtr_on = DrtrEnableOf (1 / 0 / -1 unread)   // S111 PIECEROUTE: trans_gates = slot 22 of this character draws its SUBM pieces when its DRTR node is on (slot22_pieces.h Gates); a failed read = false   // S103 DRL: shown_addr = [char + 232] (the game's shown flag)   // S107 CAM: game_shown = the game's own predicate sub_823CBC50 ([char+1208] && [char+224] && [char+232]); an unread word counts as shown (never a guessed hide)   // S111 CAT33: draw_pos = the place of this skeleton's character in the game's category-33 list (char_draw_list.h; -1 = not listed / unread)
   enum SlotState : uint8_t { kSlotEmpty = 0, kSlotOccupied = 1, kSlotUnreadable = 2 };
   // S103 NRBF (review F1): ring_models = the ring's model pointers (class table at G, ring_rows_core.h): the ring family draws them, so they are no wrestler objects (the skirts were the "ring-drawn" exemption).
-  struct SlotTable { std::vector<SlotSkel> skels; uint8_t state[9] = {}; std::vector<scene_inputs::CharPiece> pieces; std::vector<uint32_t> ring_models; };   // S103 NRB: pieces = the slot characters' SUBM instances (piece_link.h; the ONE shared type, slot_piece.h)
+  struct SlotTable { std::vector<SlotSkel> skels; uint8_t state[9] = {}; std::vector<scene_inputs::CharPiece> pieces; std::vector<uint32_t> ring_models; bool far_layer = false; };   // S103 NRB: pieces = the slot characters' SUBM instances (piece_link.h; the ONE shared type, slot_piece.h)   // S111 OWNERLESS review: far_layer = StampFarLayer
   // S103 NRBF: the node count the scene core recorded for a piece model (0 = none), set by the glue; the node-map proof reads exactly that many words.
   void SetPieceNodeCount(scene_inputs::PieceCountFn f) { piece_count_ = f; }
   void SetPieceHookCount(scene_inputs::PieceCountFn f) { piece_hook_count_ = f; }   // S105 A5a F1
@@ -127,9 +122,16 @@ class InputsContributor final : public Contributor {
   void SetBodyIdentity(scene_inputs::BodyDescFn raw, BodyVerifyFn verify, BodyRelistFn relist) { body_raw_ = raw, body_verify_ = verify, body_relist_ = relist; }
   using SlotTargetsFn = void (*)(uint64_t hook_frame, uint64_t record_frame, const SlotTable& slots, std::vector<PaletteTarget>& out, uint32_t& missing, uint32_t* stale_visible, bool count);
   void SetSlotPalettes(SlotTargetsFn t, SubmitFn s) { slot_targets_ = t, submit_ = s; }
-  // S103 AUSF review 1: called with true / false around the off-latch fallback's reads (game threads running), so the submit callback knows a mismatch there is not a parked-game read. Optional.
-  using OffLatchFn = void (*)(bool);
-  void SetOffLatch(OffLatchFn f) { off_latch_ = f; }
+  // S103 NRB / S111 KEPTPIECES: the SUBM pieces of character `ch` (skeleton `skel`, the body drawn in `slot`), appended to out.pieces, each named with `skel` as its owner (CharPiece::owner, set by the reader).
+  // An unreadable component is counted and gives no links (the pieces then stay holes: never guessed).
+  void ReadPiecesOf(uint32_t ch, uint32_t skel, int32_t slot, SlotTable& out, bool count) {
+    static thread_local std::vector<scene_inputs::CharPiece> piece_buf;   // the caller's thread's scratch
+    if (scene_inputs::ReadCharacterPieces(read_, ch, piece_buf, piece_count_, piece_body_, skel, 0, rdr_scene::g_spring_hair_rows.load(std::memory_order_relaxed), piece_hook_count_)) {   // S105 A5a F1: + the hook-count fallback   // S103 W2B: -1 nodes = spring-hair rows read here, not Unmapped
+      for (scene_inputs::CharPiece& p : piece_buf) p.slot = slot, out.pieces.push_back(std::move(p));   // S103 HGF (XLB 3): moved out of the scratch (it is cleared by the next read), never copied
+    } else if (count) {
+      slot_pieces_unreadable_.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
   // Reads the 9 words of the character table and each occupied character's skeleton. An unreadable table word, or a character whose +48 is null / unreadable, is state UNREADABLE (counted, never guessed;
   // review A: it is never "left").
   void ReadSlotSkeletons(SlotTable& out, bool count = true) {
@@ -143,6 +145,7 @@ class InputsContributor final : public Contributor {
         for (uint32_t i = 0; i < ringrows::kClassTableCount; ++i)
           if (rt.ptr[i] >= 0x10000) out.ring_models.push_back(rt.ptr[i]);
     }
+    scene_inputs::drawn_slots::Kept occ[scene_inputs::drawn_slots::kSlots]{};   // S111 CAWTPOSE: this latch's table occupants, for drawn_slots::Step below
     for (uint32_t s = 0; s < lightlatch::kCharSlots; ++s) {
       uint32_t ch = 0, skel = 0;
       out.state[s] = kSlotEmpty;
@@ -150,19 +153,32 @@ class InputsContributor final : public Contributor {
       if (ch < 0x10000) continue;   // empty slot
       if (!scene_inputs::ReadWord(read_, ch + lightlatch::kCharSkeletonOff, skel) || skel < 0x10000) { out.state[s] = kSlotUnreadable; if (count) slot_no_skel_.fetch_add(1, std::memory_order_relaxed); continue; }
       out.state[s] = kSlotOccupied;
+      if (s < scene_inputs::drawn_slots::kSlots) occ[s] = scene_inputs::drawn_slots::Kept{ch, skel};   // S111 CAWTPOSE
       bool shown = true;   // S107 CAM: sub_823CBC50 = [char+1208] != 0 && [char+224] != 0 && [char+232] != 0 (listing); a read that fails leaves "shown"
+      bool trans_gates = false;   // S111 PIECEROUTE (slot22_pieces.h): the class word [char+0] and slot 22's gate words; a read that fails = false (no pieces-only route, the hole as before)
       {
         uint32_t w1208 = 0, w224 = 0, w232 = 0;
         if (scene_inputs::ReadWord(read_, ch + 1208, w1208) && scene_inputs::ReadWord(read_, ch + 224, w224) && scene_inputs::ReadWord(read_, ch + 232, w232)) shown = w1208 != 0 && w224 != 0 && w232 != 0;
+        uint32_t vt = 0, w3888 = 0, g224 = 0, g232 = 0;
+        trans_gates = scene_inputs::ReadWord(read_, ch, vt) && scene_inputs::ReadWord(read_, ch + 3888, w3888) && scene_inputs::ReadWord(read_, ch + 224, g224) && scene_inputs::ReadWord(read_, ch + 232, g232) &&
+                      ::rdr_scene::live::slot22::Gates(vt, w3888, g224, g232);
       }
-      out.skels.push_back(SlotSkel{skel, int32_t(s), ch + 232, shown});
+      out.skels.push_back(SlotSkel{skel, int32_t(s), ch + 232, shown, -1, DrtrEnableOf(ch), trans_gates});   // S111 OWNERLESS review: + the DRTR node's own enable; S111 PIECEROUTE: + slot 22's gate
       VerifyBodyIdentity(skel);   // PZF2 A1: BEFORE the pieces are read (their proof asks for the verified link) and before Collect names the body
-      // S103 NRB: the character's own pieces (SUBM component). An unreadable component is counted and gives no links (the pieces then stay holes: never guessed).
-      static thread_local std::vector<scene_inputs::CharPiece> piece_buf;   // the caller's thread's scratch
-      if (scene_inputs::ReadCharacterPieces(read_, ch, piece_buf, piece_count_, piece_body_, skel, 0, rdr_scene::g_spring_hair_rows.load(std::memory_order_relaxed), piece_hook_count_)) {   // S105 A5a F1: + the hook-count fallback   // S103 W2B: -1 nodes = spring-hair rows read here, not Unmapped
-        for (scene_inputs::CharPiece& p : piece_buf) p.slot = int32_t(s), out.pieces.push_back(std::move(p));   // S103 HGF (XLB 3): moved out of the scratch (it is cleared by the next read), never copied
-      } else if (count) {
-        slot_pieces_unreadable_.fetch_add(1, std::memory_order_relaxed);
+      ReadPiecesOf(ch, skel, int32_t(s), out, count);   // S103 NRB: the character's own pieces (SUBM component), each named with its owner (S111 KEPTPIECES)
+    }
+    {   // S111 CAWTPOSE (drawn_slots.h): an occupant that left the table while the game still draws it (the editor's old character, until its flip sub_822E7CA0) stays its slot's body; a departure the game does not draw = named once hidden
+      scene_inputs::drawn_slots::Out dep[scene_inputs::drawn_slots::kSlots];
+      const auto rd = [this](uint32_t a, uint32_t& v) { return scene_inputs::ReadWord(read_, a, v); };
+      const uint32_t nd = departed_.Step(rd, occ, dep);
+      for (uint32_t k = 0; k < nd; ++k) {
+        out.skels.push_back(SlotSkel{dep[k].skel, dep[k].slot, dep[k].ch + 232, dep[k].shown});
+        // S111 VISLATCH: the latch that names it hidden still builds the record of the walk BEFORE the hide (record r pairs with stream r = walk r - 1, wrestler_contrib.h AskedFor). S111 PERIODALL (+ review
+        // R3): that record takes its piece links and its name from the latch before (wrestler_contrib.h RecordLatchL), which read and verified it, so a departure named hidden is read no more.
+        if (dep[k].shown) {
+          VerifyBodyIdentity(dep[k].skel);
+          ReadPiecesOf(dep[k].ch, dep[k].skel, dep[k].slot, out, count);   // S111 KEPTPIECES: the game draws the kept character's pieces with it (its own node, sub_825A3908 +3D8 / +478) until the flip: read and named like an occupant's
+        }
       }
     }
   }
@@ -180,87 +196,94 @@ class InputsContributor final : public Contributor {
       if (scene_inputs::ReadDescriptorPieces(rw, link.desc, pieces)) body_relist_(skel, pieces);   // unreadable: the pieces stay dropped (holes), tried again next latch
     }
   }
+  // S111 CAT33 (char_draw_list.h): each table skeleton's place in the game's category-33 draw list (SlotSkel::draw_pos). An unread list leaves every place -1 (the record keeps the slot order), counted.
+  void StampCharDrawOrder(SlotTable& t, bool count) {
+    static thread_local std::vector<uint32_t> order;   // the latch thread's scratch
+    const auto rd = [this](uint32_t a, uint32_t& v) { return read_ && scene_inputs::ReadWord(read_, a, v); };
+    const bool ok = scene_inputs::char_draw_list::ReadSkeletonOrder(rd, order);
+    if (!ok) order.clear();
+    if (count) (ok ? cat33_read_ : cat33_unread_).fetch_add(1, std::memory_order_relaxed);
+    scene_inputs::char_draw_list::StampDrawPos(order, t.skels);
+  }
+  // S111 OWNERLESS review: the enable word of character `ch`'s DRTR node (char_draw_list.h kDrtrTag): 1 = on, 0 = off, -1 = no node or a word that cannot be read (never "off"). The latch thread only.
+  int8_t DrtrEnableOf(uint32_t ch) const {
+    namespace cdl = scene_inputs::char_draw_list;
+    if (!read_) return -1;
+    bool unreadable = false;
+    const uint32_t comp = scene_inputs::FindByTag(read_, ch + scene_inputs::kCharCompList, cdl::kDrtrTag, unreadable);
+    uint32_t node = 0, en = 0;
+    if (unreadable || comp == 0 || !scene_inputs::ReadWord(read_, comp + cdl::kDrtrCompNode, node) || !cdl::Ptr(node) || !scene_inputs::ReadWord(read_, node + cdl::kNodeEnable, en)) return -1;
+    if (hgf_faults_ & kHgfDrtrByList) return -1;   // planted twin: the landed evidence (list 33 only), which a re-keyed node never reaches
+    return en != 0 ? 1 : 0;
+  }
+  // S111 OWNERLESS review (docs\research\s111\OWNERLESS.md, Review): a SECOND drawer of the characters' DRTR nodes. The depth-sorted scene draw sub_827FC798 (slot 1 of vtable 0x82034230 via sub_827FCB28; its
+  // category-38 node is built and registered enabled at boot: sub_827E1AB8 -> sub_827FBD88 +7C / +90) sorts the slot characters by distance (sub_827FC460) and, from sorted place s on, draws each one's opaque node
+  // (+1B8, no char+1208 test) and its DRTR node found by tag (+200..+218, no node+8 test). s = [[eHsC + 24] + 56] (char_draw_list.h kFar*) is set only by a camera / move effect of type 100-110 (sub_825DB0A8 ->
+  // sub_82741178: s = type - 100, so 100 clears it) and stays until the next. far_layer = s may be non-zero: a DRTR node read off is then no evidence that its pieces are not drawn (wrestler_contrib.cpp
+  // LatchTargets). No scene object, no component, no object or s == 0: the draw skips its character loops (+154 / +164 / +170). An unreadable word = may draw (fail closed). The latch thread only.
+  void StampFarLayer(SlotTable& t) {
+    namespace cdl = scene_inputs::char_draw_list;
+    t.far_layer = true;
+    if (hgf_faults_ & kHgfFarLayerIgnored) { t.far_layer = false; return; }
+    if (!read_) return;
+    uint32_t obj = 0, comp_obj = 0, split = 0;
+    if (!scene_inputs::ReadWord(read_, cdl::kFarSceneObj, obj)) return;
+    if (obj == 0) { t.far_layer = false; return; }
+    bool unreadable = false;
+    const uint32_t comp = scene_inputs::FindByTag(read_, obj + cdl::kFarCompList, cdl::kFarLayerTag, unreadable);
+    if (unreadable) return;
+    if (comp == 0) { t.far_layer = false; return; }
+    if (!scene_inputs::ReadWord(read_, comp + cdl::kFarCompObj, comp_obj)) return;
+    if (comp_obj == 0) { t.far_layer = false; return; }
+    if (!scene_inputs::ReadWord(read_, comp_obj + cdl::kFarSplit, split)) return;
+    t.far_layer = split != 0;
+  }
   // The targets of this latch: the character table's (slot path) when set, else the old liveness rule. `stale_visible` is 0 on the old path (it has no table to ask).
   void Targets(uint64_t hook, uint64_t record_frame, SlotTable& scratch, std::vector<PaletteTarget>& out, uint32_t& missing, uint32_t* stale_visible = nullptr, bool count = true) {
     if (stale_visible) *stale_visible = 0;
     if (slot_targets_) {
       ReadSlotSkeletons(scratch, count);
+      StampCharDrawOrder(scratch, count);   // S111 CAT33
+      StampFarLayer(scratch);   // S111 OWNERLESS review
       slot_targets_(hook, record_frame, scratch, out, missing, stale_visible, count);
     } else if (targets_) {
       targets_(hook, out, missing);
     }
   }
   // S108 RDS part A: Take's one list of the models the game names at this latch (S103 L31B's parameter-target rule, moved here unchanged so the runtime rows and the node-light filter share it). list = null:
-  // no target function is set (units): the caller falls back to the kept set. this_hook = false: the off-latch fallback's copy belongs to an older latch (its stamps are withheld).
+  // no target function is set (units): the caller falls back to the kept set. (S111 HEADGUARD: Take runs on the latch thread only, so the list is always this latch's.)
   struct MemoList {
     const std::vector<PaletteTarget>* list = nullptr;
-    bool this_hook = true, done = false;
+    bool done = false;
   };
-  void ResolveModelList(uint64_t hook, uint64_t frame, bool latch_thread, MemoList& out) {
+  void ResolveModelList(uint64_t hook, uint64_t frame, MemoList& out) {
     out = MemoList{};
     out.done = true;
     if (!targets_ && !slot_targets_) return;
-    if (slot_targets_ && !latch_thread && !(hgf_faults_ & kHgfOffLatchReads)) {
-      // S103 HGF (XLB 4): the fallback take runs off the latch thread with the game threads running: it must not read the slot table or any piece rows, and must not replace the wrestlers' piece state
-      // (piece_rows_ / piece_links_): it asks about the LAST latch's targets (a copy; the same rule as the page clock and gsf::Fill). Review 3: the stamp is only given when that latch is THIS hook's.
-      uint64_t last_hook = ~0ull;
-      {
-        std::lock_guard<std::mutex> lock(snap_mu_);
-        off_targets_ = snap_targets_, last_hook = snap_hook_;
-      }
-      out.list = &off_targets_, out.this_hook = last_hook == hook;
-    } else if (slot_targets_ && pal_targets_hook_ == hook && !(hgf_faults_ & kHgfNoTargetReuse)) {
+    if (slot_targets_ && pal_targets_hook_ == hook && !(hgf_faults_ & kHgfNoTargetReuse)) {
       out.list = &pal_targets_;   // S103 HGF (XLB 3): this latch's own targets (LatchPalettes just built them): no second ReadSlotSkeletons / ReadPieceRows / VerifyBodyIdentity
     } else {
       uint32_t missing = 0;
-      SlotTable local;   // (no slot targets: the old liveness rule reads no table; or the latch thread without this hook's LatchPalettes: its own scratch)
-      SlotTable& sc = (latch_thread && slot_targets_ && !(hgf_faults_ & kHgfNoTargetReuse)) ? slot_buf_ : local;
+      SlotTable local;   // (no slot targets: the old liveness rule reads no table; or a latch without this hook's LatchPalettes: its own scratch)
+      SlotTable& sc = (slot_targets_ && !(hgf_faults_ & kHgfNoTargetReuse)) ? slot_buf_ : local;
       Targets(hook, frame, sc, param_targets_, missing, nullptr, false);   // review E: the latch's ask already counted; no StaleVisibleAt, no census
       out.list = &param_targets_;
     }
   }
+  // S111 FREEHOOK (docs\research\s111\FREEHOOK.md): the game is destroying character `ch` (char_release.h): the departure reader forgets it (drawn_slots.h Departed::Forget), so no later latch reads its
+  // block, and the update hook's slot match (g_kept_char) and the light latch (KeptChar) drop it at once. Any thread.
+  void ForgetCharacter(uint32_t ch) { departed_.Forget(ch); }
   // S103 A2 (W1): called at the START of the wrestlers' latch (wrestler_contrib.cpp Latch calls the pre-latch pointer), so the palettes it submits are in the items that latch collects. Reads each live skeleton's
   // [skel+200] block (inputs_core.h ReadPalette), submits it as the consumer palette tagged with the hook frame, stamps kInWrestlerPalette only when EVERY kept skeleton was read (an unreadable one, or one with no
   // count, is no stamp). Mode Off = nothing read, nothing stamped (as Latch). One thread (the latch); no allocation once the scratch has grown.
-  void LatchPalettes(uint64_t record_frame, bool latch_thread = true) {
+  // S111 LATCHMISS: the latch thread only (the S103 HGF off-latch branch for Emit's missed-latch read is gone with that read).
+  void LatchPalettes(uint64_t record_frame) {
     if (!read_ || (!targets_ && !slot_targets_) || !submit_ || scene_frame::CurrentMode() == scene_frame::Mode::Off) return;
     wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: this pass's line copy (the game's ReadGuest serves this thread's reads through it until return)
     const uint64_t hook = scene_inputs::HookFrameOfRecord(record_frame);
     uint32_t missing = 0, stale_visible = 0;
-    if (!latch_thread && slot_targets_ && !(hgf_faults_ & kHgfOffLatchReads)) {
-      // S103 HGF (review 2): Emit's fallback (a missed latch) runs with the game threads running. It reads PALETTES only, of the last latch's targets: no slot table, no piece rows, no LatchTargets(slots) rebuild, no
-      // pal_targets_ / slot_buf_ writes (latch-thread state). The stamp needs the targets to be of THIS hook (never true for a missed latch: the frame goes to the game, fail-closed).
-      std::vector<PaletteTarget> last;
-      uint64_t last_hook = ~0ull;
-      {
-        std::lock_guard<std::mutex> lock(snap_mu_);
-        last = snap_targets_, last_hook = snap_hook_;
-      }
-      bool all_off = last_hook == hook;
-      std::vector<Mat4> buf;
-      std::vector<uint32_t> raw;
-      if (off_latch_) off_latch_(true);
-      for (const PaletteTarget& t : last) {
-        if (scene_inputs::ReadPalette(read_, t.skel, t.count, buf, raw)) {
-          const int r = submit_(t.skel, t.count, buf.data(), hook);
-          palettes_.fetch_add(1, std::memory_order_relaxed);
-          if (r == 3) all_off = false, palette_mismatch_.fetch_add(1, std::memory_order_relaxed);
-        } else {
-          all_off = false;
-          palette_unreadable_.fetch_add(1, std::memory_order_relaxed);
-        }
-      }
-      if (off_latch_) off_latch_(false);
-      if (all_off) scene_inputs::Capture(scene_inputs::kInWrestlerPalette, hook);
-      return;
-    }
     Targets(hook, record_frame, slot_buf_, pal_targets_, missing, &stale_visible);
     pal_targets_hook_ = hook;   // S103 HGF (XLB 3): Take's param targets of this latch are THESE (no second table / piece read)
-    {   // S103 HGF (XLB 4): a copy (with its hook) the off-latch fallback may read (it must not re-read the table)
-      std::lock_guard<std::mutex> lock(snap_mu_);
-      snap_targets_ = pal_targets_;
-      snap_hook_ = hook;
-    }
     bool all = missing == 0;
     if (missing) palette_nocount_.fetch_add(missing, std::memory_order_relaxed);
     if (stale_visible && scene_frame::CurrentMode() == scene_frame::Mode::Ours) {   // S103 L31B: a body the game still holds in its table would be dropped from this record (no fresh palette): the STREAM build walks the frame. A build with no walk (!WWE2K14_STREAM()) has no such fallback: there Collect HOLDS the body with its kept palette for up to kConsumerFresh records instead (S103 AUSF), and this withheld bit only stamps nothing (unstamped frames are drawn by us anyway)
@@ -269,12 +292,8 @@ class InputsContributor final : public Contributor {
     }
     for (const PaletteTarget& t : pal_targets_) {
       if (scene_inputs::ReadPalette(read_, t.skel, t.count, pal_buf_, pal_raw_)) {
-        const int r = submit_(t.skel, t.count, pal_buf_.data(), hook);
+        submit_(t.skel, t.count, pal_buf_.data(), hook);   // S111 HEADGUARD: submitted as it stands (no derived-head veto, so no withheld stamp for a palette the game's draw reads)
         palettes_.fetch_add(1, std::memory_order_relaxed);
-        if (r == 3) {   // WrestlerContributor::kDerivedMismatch: the latch read disagrees with the update hook's palette for nodes 0-58 (audit item 2) AND with the walk's copy of the frame (S103 L33F): withhold the stamp
-          all = false;
-          palette_mismatch_.fetch_add(1, std::memory_order_relaxed);
-        }
       } else {
         all = false;
         palette_unreadable_.fetch_add(1, std::memory_order_relaxed);
@@ -297,16 +316,15 @@ class InputsContributor final : public Contributor {
     return true;
   }
   void Emit(const FrameInfo& fi, SceneTables& t, Counters& c) override {
-    Frame scratch;
-    const Frame* f = &latched_;
     if (!mark_.Use(fi.guest_frame, Name())) {   // not latched for this frame
       if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return;
-      if (InDeferredEmit() || !read_) { ++c.stale; return; }   // a deferred emit must not read guest memory (review 5): it claimed to latch and did not (counted by Use as a violation)
-      Take(fi.guest_frame, scratch, false);   // S103 FD review F1: the fallback runs off the latch thread with the game threads running: no page-clock read (no row this frame)
-      f = &scratch;
+      ++c.stale;   // S111 HEADGUARD (the LATCHMISS review's list): no read here. Every production Emit follows its own Latch (live_scene.cpp LatchImpl / EmitLatched), so only a unit reaches this line
+      return;      // (the old fallback Take ran with the game threads running: a read the game never makes)
     }
+    const Frame* f = &latched_;
     if (f->disabled) return;
     t.header.flags = (t.header.flags & ~rdr_scene::kSceneFactMask) | rdr_scene::SceneFactBits(f->scene_fact_read, f->scene_drawn);   // S110 ENTRBLACK: the game draws scene geometry this frame (header bits 1 / 2, cam_gate.h)
+    t.header.flags = (t.header.flags & ~rdr_scene::stageless::kSceneNoStageHeld) | rdr_scene::stageless::NoStageHeldBits(f->no_stage_held);   // S111 STAGELESS2: the game holds no stage at this latch (bit 6, stageless_scene.h)
     if (f->have_camera) {   // K1: the render camera, from the engine's slot-0 camera object (kScCamera)
       t.has_camera = true;
       t.camera = f->camera;
@@ -315,30 +333,36 @@ class InputsContributor final : public Contributor {
       t.post_params.push_back(f->post);
       if (!(f->post.flags & kPpRead)) ++c.unknown;   // S not readable: the row says so, the frame's post inputs are missing
     }
-    t.model_runtime.insert(t.model_runtime.end(), f->models.begin(), f->models.end());
-    if (f->have_props) t.props_light.push_back(f->props);
-    else if (f->light_degenerate) { PropsLight d; d.frame = uint32_t(f->degenerate_frame), d.flags = kPlDegenerate; t.props_light.push_back(d); }   // S103 PMC2: the light is degenerate THIS frame (the game draws no blobs): a row that says so, never a ShadowPrm (PrmFromRecord needs kPlRead | kPlHaveVp)
+    t.model_runtime.insert(t.model_runtime.end(), f->rec.models.begin(), f->rec.models.end());   // S111 CUTREACH: the model-class rows of the latch whose palettes the record takes (Take: model_period_)
+    if (f->rec.have_props) t.props_light.push_back(f->rec.props);   // S111 CUTREACH2: latch r - 1's props light (the shadow fit task, group 24, fits it before the walk whose colour calls land in this record)
+    else if (f->rec.props_degenerate || f->light_degenerate) { PropsLight d; d.frame = uint32_t(f->rec.props_degenerate ? f->rec.props_degenerate_frame : f->degenerate_frame), d.flags = kPlDegenerate; t.props_light.push_back(d); }   // S103 PMC2: the light is degenerate (the game draws no blobs): a row that says so, never a ShadowPrm (PrmFromRecord needs kPlRead | kPlHaveVp). S111 CUTREACH2: the props read's state of latch r - 1, the circle module's of THIS latch (walk-time)
     //   // S103 KS1: the props light's ShadowPrm from the shadow module's light-1 record (props_light_read.h); behind --wwe2k14_rdr_props_map
     if (f->have_eyes) t.plane_eyes.push_back(f->eyes);   // S103 E5: EyePos per proxy kind + PlanePos, recomputed from the plane module's tables at the latch (plane_eye_read.h)
     t.circle_shadows.insert(t.circle_shadows.end(), f->circles.begin(), f->circles.end());   // S103 A3 (S6): the latch's rows; circle_contrib.h compares and replaces them with the walk's
     t.plane_draws.insert(t.plane_draws.end(), f->plane_draws.begin(), f->plane_draws.end());   // S103 A3 (S8)
     if (f->have_plane) t.plane_frames.push_back(f->plane);   // S103 A2 (S7): the latch's block. The plane contributor emits AFTER us (registration order): where the walk's recorder wrote the same stamp it compares and replaces this block (plane_contrib.h Emit)
-    t.param_overrides.insert(t.param_overrides.end(), f->params.begin(), f->params.end());   // S103 A2 (W4 / A4)
-    t.light_objects.insert(t.light_objects.end(), f->lights.begin(), f->lights.end());   // S103 A2 (W2): the light objects and the selection words
-    if (f->ent_ok) t.stage_look.push_back(f->ent);
-    t.stage_look.insert(t.stage_look.end(), f->tbinds.begin(), f->tbinds.end());   // S103 TNB: the bound tracks' character positions of THIS latch frame (kSlTrackBind; empty on a match frame / the switch off)
+    t.param_overrides.insert(t.param_overrides.end(), f->rec.params.begin(), f->rec.params.end());   // S103 A2 (W4 / A4); S111 CUTREACH: latch r - 1's
+    t.light_objects.insert(t.light_objects.end(), f->rec.lights.begin(), f->rec.lights.end());   // S103 A2 (W2): the light objects and the selection words; S111 CUTREACH: latch r - 1's
+    if (f->ent_ok) t.stage_look.push_back(f->ent);   // S111 PAGEPOOLS: the entrance row, the binds and the page are THIS latch's (the stage page sub_825BB0E0 is walk-time: page_node_clock +1); the light objects above are latch r - 1's
+    t.stage_look.insert(t.stage_look.end(), f->tbinds.begin(), f->tbinds.end());   // S103 TNB: the bound tracks' character positions (kSlTrackBind; empty on a match frame / the switch off)
+    t.stage_look.push_back(f->page);   // S111 PAGEPOOLS: the kSlPage row (stage_look.h LivePage: the page's gate) and its pools / spot (kSlPool / kSlSpot), derived in Take from THIS latch's light objects
+    t.stage_look.insert(t.stage_look.end(), f->page_rows.begin(), f->page_rows.end());
     //   // S103 L2: the entrance row of THIS latch frame (the entering slot); no rows on match frames. The pool / spot VALUES travel as the light object (id 32): stage_look.h derives them
     if (f->phase_readable) { StageLookRow ph; ph.kind = kSlPhase, ph.flags = f->phase; ph.rig_slot = f->participants >= 0 ? uint16_t(f->participants + 1) : uint16_t(0), ph.dir[0] = f->ring_gate >= 0 ? float(f->ring_gate + 1) : 0.f, ph.dir[1] = f->plane_module >= 0 ? float(f->plane_module + 1) : 0.f; t.stage_look.push_back(ph); }   // S103 MBC: the same row carries the participant count + 1 and the ring gate word + 1 (scene_record.h kSlPhase)   // S103 D1: the phase word of THIS latch frame (the read rule's selector / shadow bit)
     if (f->lm_ok) t.stage_look.push_back(f->lm_row);   // S103 B3: the game's card factor word of THIS latch frame; absent = not read, counted at the latch (card_factor unread)
     if (f->clr_ok) t.stage_look.push_back(f->clr_row);   // S103 CLRB: the game's scene clear colour of THIS latch frame; absent = not read (the front end clears black)
     if (f->clock_ok) t.stage_look.push_back(f->page_clock);   // S103 FD: the game's own stage-page clock of THIS latch frame (UpdatePages takes the fade alpha from it)
-    c.objects += uint32_t(f->models.size());
-    c.unknown += f->models_unreadable;
+    t.stage_look.insert(t.stage_look.end(), f->places.begin(), f->places.end());   // S111 PROPORDER: the category-33 places of THIS latch frame (kSlDrawPlace; none = unread)
+    c.objects += uint32_t(f->rec.models.size());
+    c.unknown += f->rec.models_unreadable;   // S111 CUTREACH review: the unread models of the latch whose rows the record carries
     t.input_stamps.insert(t.input_stamps.end(), f->stamps.begin(), f->stamps.end());   // the snapshot Take made (review 4): never the live counters
   }
   void Census(std::string& out) override {
     out += " " + scene_inputs::CensusLine() + " models_unreadable " + std::to_string((unsigned long long)unreadable_.load(std::memory_order_relaxed)) + " no_camera " + std::to_string((unsigned long long)no_camera_.load(std::memory_order_relaxed));
     out += " " + scene_inputs::handed::CensusLine();   // S110 CUTCROWD: the handed camera's census (handed_camera.h)
+    out += " " + cam_period_.CensusLine("camera_period");   // S111 CUTSTUTTER: records that took the camera of the latch before theirs (latch_period.h)
+    out += " " + model_period_.CensusLine("model_class_period");   // S111 CUTREACH: records that took the light / model / parameter rows of the latch before theirs
+    out += " " + scene_inputs::period::g_post_node_clock.CensusLine("post_node_clock") + " " + scene_inputs::period::g_page_node_clock.CensusLine("page_node_clock");   // S111 CUTREACH review: 0 = model-class, +1 = walk-time (latch_period.h NodeClock)
     out += " camera_source scene_manager (" + std::to_string((unsigned long long)drawcam_used_.load(std::memory_order_relaxed)) + " frames from the draw thread)" + drawcam::Cam().CensusText();   // S103 WC R5
     if (no_camera_.load(std::memory_order_relaxed)) {   // S103 S: camera diagnosis
       out += " [camera reasons mgr:";
@@ -352,9 +376,11 @@ class InputsContributor final : public Contributor {
       out += "]";
     }
     out += " palettes " + std::to_string((unsigned long long)palettes_.load(std::memory_order_relaxed)) + " palette_unreadable " + std::to_string((unsigned long long)palette_unreadable_.load(std::memory_order_relaxed)) +
-           " palette_nocount " + std::to_string((unsigned long long)palette_nocount_.load(std::memory_order_relaxed)) + " palette_vs_derived_mismatch " + std::to_string((unsigned long long)palette_mismatch_.load(std::memory_order_relaxed)) +
+           " palette_nocount " + std::to_string((unsigned long long)palette_nocount_.load(std::memory_order_relaxed)) +
            " palette_stale_withheld " + std::to_string((unsigned long long)palette_stale_withheld_.load(std::memory_order_relaxed)) + " slot_table " + (slot_targets_ ? "on" : "off") +   // S103 L31B
-           " slot_unreadable " + std::to_string((unsigned long long)slot_unreadable_.load(std::memory_order_relaxed)) + " slot_no_skeleton " + std::to_string((unsigned long long)slot_no_skel_.load(std::memory_order_relaxed)) + " slot_pieces_unreadable " + std::to_string((unsigned long long)slot_pieces_unreadable_.load(std::memory_order_relaxed));
+           " slot_unreadable " + std::to_string((unsigned long long)slot_unreadable_.load(std::memory_order_relaxed)) + " slot_no_skeleton " + std::to_string((unsigned long long)slot_no_skel_.load(std::memory_order_relaxed)) + " slot_pieces_unreadable " + std::to_string((unsigned long long)slot_pieces_unreadable_.load(std::memory_order_relaxed)) +
+           " cat33_read " + std::to_string((unsigned long long)cat33_read_.load(std::memory_order_relaxed)) + " cat33_unread " + std::to_string((unsigned long long)cat33_unread_.load(std::memory_order_relaxed)) +   // S111 CAT33
+           " draw_places_read " + std::to_string((unsigned long long)places_read_.load(std::memory_order_relaxed)) + " draw_places_unread " + std::to_string((unsigned long long)places_unread_.load(std::memory_order_relaxed));   // S111 PROPORDER
     if (palette_census_) out += " [palette " + palette_census_() + "]";
     out += " [plane_proxies rows " + std::to_string((unsigned long long)proxy_rows_.load(std::memory_order_relaxed)) + ", no_copy " + std::to_string((unsigned long long)proxy_missing_.load(std::memory_order_relaxed)) + ", " + proxy_delta_.Str() + ", noted " + std::to_string((unsigned long long)planeproxy::The().Noted()) + ", dropped " + std::to_string((unsigned long long)planeproxy::The().Dropped()) + "]";
     out += " [plane read " + std::to_string((unsigned long long)plane_why_[0].load(std::memory_order_relaxed)) + ", no_module " + std::to_string((unsigned long long)plane_why_[1].load(std::memory_order_relaxed)) + ", disabled " + std::to_string((unsigned long long)plane_why_[2].load(std::memory_order_relaxed)) +
@@ -413,48 +439,74 @@ class InputsContributor final : public Contributor {
     bool have_eyes = false;               // S103 E5
     PropsLight props;                     // S103 KS1
     bool have_props = false;              // S103 KS1
-    bool light_degenerate = false;        // S103 PMC2: the circle read found module+2240 non-finite, or the props light read NonFinite / NoRange
+    bool light_degenerate = false;        // S103 PMC2: the circle read found module+2240 non-finite (S111 CUTREACH2: the props read's own NonFinite / NoRange is props_degenerate below)
     uint64_t degenerate_frame = 0;
+    bool props_degenerate = false;        // S111 CUTREACH2: the props light read NonFinite / NoRange at THIS latch (carried to the record through ModelClass)
+    uint64_t props_degenerate_frame = 0;
     std::vector<StageLookRow> tbinds;     // S103 TNB: kSlTrackBind rows of THIS latch frame (entrance frames only)
     StageLookRow ent;                     // S103 L2: the entrance row (flags + the entering slot + 1) of THIS latch frame; no per-latch vector
     bool ent_ok = false, is_entrance = false, entrance_known = false, phase_readable = false, clock_ok = false;   // S103 PHS: entrance_known = the stage-page object's entrance word [obj+88] was read (this latch, or the last latch-thread one for the fallback take)   // S103 FD: clock_ok = the page-clock row below was read
     StageLookRow lm_row;                  // S103 B3: the card factor row (kSlCardFactor) of THIS latch frame; lm_ok = the word was read
     bool lm_ok = false;
     bool scene_fact_read = false, scene_drawn = false;   // S110 ENTRBLACK: the stage's show word read / the game draws scene geometry at this latch (cam_gate.h ReadSceneFact)
+    bool no_stage_held = false;   // S111 STAGELESS2: [0x83763544] was read at this latch and is 0 (stageless_scene.h kSceneNoStageHeld); unreadable = false
     StageLookRow clr_row;                 // S103 CLRB: the scene clear colour row (kSlClearColor) of THIS latch frame; clr_ok = all five reads succeeded
     bool clr_ok = false;
+    std::vector<StageLookRow> places;     // S111 PROPORDER: the kSlDrawPlace rows of THIS latch frame (Take fills them every latch; empty = the list unread)
     StageLookRow page_clock;              // S103 FD: the stage-page pass object's own clock (inputs_core.h ReadStagePageClock)
+    StageLookRow page;                    // S111 PAGEPOOLS: the kSlPage row of THIS latch (the stage page is walk-time: Emit writes it, never through ModelClass)
+    std::vector<StageLookRow> page_rows;  // S111 PAGEPOOLS: the page's kSlPool / kSlSpot rows of THIS latch (stage_pool_words::Derive, the rule stage_look::Pools runs on a record)
   uint32_t phase = 0;                   // S103 D1: the phase word when phase_readable
     int32_t plane_module = -1;                   // S103 RML (F3 / F4): 0 = the plane module singleton is null, 1 = it exists, -1 = unread (read every latch, independent of the plane pass's `why`)
     int32_t participants = -1, ring_gate = -1;   // S103 MBC: read every latch (-1 = unknown): the participant count (slot-loop path only) and [0x836F39A0]
     uint32_t models_unreadable = 0;
-    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, scene_fact_read = scene_drawn = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
+    // S111 CUTREACH (docs\research\s111\CUTREACH.md): the MODEL-CLASS rows (FRAME_CONTRACT 3: consumed by the model draw sub_82C04DF0, whose walk of period g lands in stream g + 1), as Emit writes them:
+    // the light objects, the model run-time rows and the parameter overrides of the latch whose palettes the record takes (latch r - 1; the latch's own read at the boundary). The fields above stay THIS
+    // latch's reads: the stamps and the latch's own logic use them. S111 PAGEPOOLS: the entrance row, the track binds and the page are NOT here: the stage page is walk-time (page_node_clock +1).
+    struct ModelClass {
+      std::vector<ModelRuntimeRow> models;
+      std::vector<LightObjectRow> lights;
+      std::vector<ParamOverrideRow> params;
+      uint32_t models_unreadable = 0;   // S111 CUTREACH review: the named models whose run-time row that latch could not read (Emit's c.unknown)
+      PropsLight props;                   // S111 CUTREACH2 (docs\research\s111\CUTREACH2.md): the props light (light 1 of the shadow module) and its read's degenerate state
+      bool have_props = false, props_degenerate = false;
+      uint64_t props_degenerate_frame = 0;
+    };
+    ModelClass rec;
+    void Clear() { have_post = have_camera = disabled = have_plane = false, have_eyes = false, have_props = false, light_degenerate = false, props_degenerate = false, stamps.clear(), models.clear(), lights.clear(), tbinds.clear(), params.clear(), circles.clear(), plane_draws.clear(), models_unreadable = 0, participants = ring_gate = plane_module = -1, lm_ok = false, clr_ok = false, scene_fact_read = scene_drawn = no_stage_held = false, ent_ok = is_entrance = entrance_known = phase_readable = clock_ok = false; }
   };
-  void Take(uint64_t frame, Frame& f, bool latch_thread = true) {
+  void Take(uint64_t frame, Frame& f) {   // the latch thread only (S111 HEADGUARD: Emit's off-latch fallback take is gone)
     wwe2k14::safe_pages::PassLines pass_lines;   // S108 RDS: this pass's line copy (the game's ReadGuest serves this thread's reads through it until return)
     f.Clear();
     const uint64_t hook = scene_inputs::HookFrameOfRecord(frame);   // every stamp is in the hook clock (review 7)
+    scene_inputs::period::g_post_node_clock.AtLatch(hook), scene_inputs::period::g_page_node_clock.AtLatch(hook);   // S111 CUTREACH review: which clock the post node / the stage page ran on (latch_period.h NodeClock; log only)
     // S108 RDS (docs\research\s108\RDS_plan.md part A): the models the GAME names at this latch (the palette / parameter targets: the character table's skeletons, their SUBM pieces, the hook-alive rest), resolved once per
     // Take and used by every reader below that dereferences a model. The kept set (models_) outlives a released model by up to 120 Emits (a match load freed the old bodies, their blocks were reused: [model+480] read
     // as 0x41700001), so it is never the list of a guest read here; it stays the list of membership-only uses and of the unit fallback (no target function set).
     MemoList ml;
     const auto model_list = [&]() -> const MemoList& {
-      if (!ml.done) ResolveModelList(hook, frame, latch_thread, ml);
+      if (!ml.done) ResolveModelList(hook, frame, ml);
       return ml;
     };
     f.post = scene_inputs::ReadPostSettings(read_, frame);
-    if (latch_thread) scene_inputs::gsf::Fill(f.post);   // S103 FXF: the gGsf node's classification (review 7: the latch thread only changes its state; the fallback take reads the last result)
-    else scene_inputs::gsf::Peek(f.post);
+    scene_inputs::gsf::Fill(f.post);   // S103 FXF: the gGsf node's classification (review 7: the latch thread changes its state)
     f.have_post = true;
     if (f.post.flags & kPpRead) scene_inputs::Capture(scene_inputs::kInPostSettings, hook);   // an unreadable S is NOT a stamp: the decision stays at InputsMissing
     {   // S103 CAE: the shared read (inputs_core.h ReadSceneCameraOrDraw): the handed block, else the composer's copy (S110 CUTCROWD; S103 S: run 7259, the camera table holds the HUD camera at the latch), else, with no scene manager (the CAW editor,
         // S103 WC R5), the draw thread's camera the game's own draw reads (S103 CCF: Get on the RECORD clock; the kInCamera stamp below stays on the hook clock).
-      if (latch_thread) scene_inputs::HandedCensusLatch(read_);   // S110 CUTCROWD: the handed camera's census (source taken, differ / longest_differ, the reach words)
-      bool from_draw = false;
-      f.have_camera = scene_inputs::ReadSceneCameraOrDraw(read_, frame, &drawcam::GetForLatch, f.camera, f.cam_info, &from_draw);
-      if (from_draw) drawcam_used_.fetch_add(1, std::memory_order_relaxed);
+      scene_inputs::HandedCensusLatch(read_);   // S110 CUTCROWD: the handed camera's census (source taken, differ / longest_differ, the reach words)
+      // S111 CUTSTUTTER (latch_period.h): this latch's read is the camera of period `frame` (its hand-off already ran); the record takes the one of the latch whose palettes it takes (latch frame - 1).
+      LatchCamera now{};
+      now.have = scene_inputs::ReadSceneCameraOrDraw(read_, frame, &drawcam::GetForLatch, now.camera, now.info, &now.from_draw);
+      const LatchCamera rec = cam_period_.Pick(frame, now);
+      f.have_camera = rec.have, f.camera = rec.camera, f.cam_info = rec.info;
+      if (rec.from_draw) drawcam_used_.fetch_add(1, std::memory_order_relaxed);
     }
-    if (latch_thread) scene_inputs::ReadSceneFactAtLatch(read_, f.scene_fact_read, f.scene_drawn);   // S110 ENTRBLACK: the game's own "scene geometry this frame" (the record's header fact, Emit). The fallback take (game threads running) leaves the bits clear (review 5)
+    scene_inputs::ReadSceneFactAtLatch(read_, f.scene_fact_read, f.scene_drawn);   // S110 ENTRBLACK: the game's own "scene geometry this frame" (the record's header fact, Emit)
+    {   // S111 STAGELESS2 (stageless_scene.h): the game's stage holder at this latch; 0 = the game holds no stage (Create a Title frees it and builds none). Unreadable: not said.
+      uint32_t holder = 0;
+      f.no_stage_held = read_ && scene_inputs::ReadWord(read_, rdr_scene::kLoadedStage, holder) && holder == 0;
+    }
     if (f.have_camera) scene_inputs::Capture(scene_inputs::kInCamera, hook);   // no clear winner / unreadable: no camera, no stamp
     else {
       no_camera_.fetch_add(1, std::memory_order_relaxed);
@@ -488,7 +540,10 @@ class InputsContributor final : public Contributor {
         if (!rdr_scene::entrance_tracks::On() && !f.lights.empty()) f.lights[0].flags &= ~kLoTracksRead;   // S103 TNB F1: the switch off writes the old record on EVERY frame (no track words: the consumer takes the old rule)
         if (!lightlatch::The().HasHook(uint32_t(hook))) {   // S103 A6 (bit 4 / bit 7 from memory): once per hook frame (Emit's own Take after a missed latch must not store / count it twice); the install each wrestler / ring model follows, read from the nodes' own data (light_latch.h). Compared with the walk-learned table BEFORE anything is fed to it
           // (census `light_index latch==walk`), and with the walk's LightState by the lights contributor's Emit (`light_state latch==walk`). Fed to the table only behind lightlatch::kLatchEntries (off).
-          wlatch::The().OnLatch(read_, f.lights, uint32_t(hook));   // S103 A8: each character's light block at this hook (embedded object char + 3984, or the manager's override object); read-only
+          static_assert(rdr_scene::wlight::kSlots == scene_inputs::drawn_slots::kSlots, "one slot count");
+          uint32_t kept_chars[rdr_scene::wlight::kSlots] = {};   // S111 DARKDIP: the departed characters the game still draws (this latch's Departed::Step: the wrestlers' latch ran it first, LatchPalettes)
+          for (uint32_t s = 0; s < rdr_scene::wlight::kSlots; ++s) kept_chars[s] = departed_.KeptChar(s);
+          wlatch::The().OnLatch(read_, f.lights, uint32_t(hook), kept_chars);   // S103 A8: each character's light block at this hook (embedded object char + 3984, or the manager's override object); read-only. S111 DARKDIP: + the kept bodies' own blocks
           std::vector<lightlatch::Pred> preds;
           preds.reserve(21);
           lightlatch::Stats ps, cmp;
@@ -694,7 +749,7 @@ class InputsContributor final : public Contributor {
       // The pool / spot VALUES are not read here: they are the light object's block (id 32, read just above into f.lights), the game's CURRENT values (stage_pool_words.h). Only the entering slot is read (entrance-step states).
       uint32_t phase = 0;
       f.phase_readable = read_ && scene_inputs::ReadWord(read_, kPhaseWord, phase);
-      if (latch_thread) {   // S103 FD (F1): page_obj_ / page_misses_ belong to the latch thread; an object mid-construction (vtable stored before +108) is read only there, between frames
+      {   // S103 FD (F1): page_obj_ / page_misses_ belong to the latch thread (Take runs only there); an object mid-construction (vtable stored before +108) is read only there, between frames
         task_walk::GroupInfo gi;
         f.clock_ok = scene_inputs::ReadStagePageClock(read_, page_obj_, page_misses_, f.page_clock, &gi);
         if (gi.base) clock_gptr_.store(gi.base, std::memory_order_relaxed), clock_gcount_.store(gi.count, std::memory_order_relaxed), clock_gtasks_.store(gi.tasks, std::memory_order_relaxed);   // S103 FDP: what the last rescan saw of the group array
@@ -704,9 +759,7 @@ class InputsContributor final : public Contributor {
       {   // S103 PHS (docs\research\s103\PHS.md 3 / 4): an ENTRANCE (the pools are required) is exactly when the game runs the pool draw sub_825BACE0: the stage-page pass object's entrance word [obj+88] != 0
           // (ReadStagePageClock flags bit 1). NOT the scene phase word: 4 is the game's generic "not the match" word, written by the editor (seq 76, 0x83397CA0) and the menu sequences as well; the page object's
           // word stays 0 there. An unreadable page object = unknown = no stamp (the decision walks), as an unreadable word was. The phase word still drives every LOOK test (== 1 match look, the game's own rule).
-        int ps = 0;
-        if (latch_thread) page_state_.store(ps = scene_inputs::PageEntranceState(f.clock_ok, f.page_clock.flags, f.phase_readable, phase), std::memory_order_relaxed);   // kept for the off-thread fallback take
-        else ps = page_state_.load(std::memory_order_relaxed);
+          const int ps = scene_inputs::PageEntranceState(f.clock_ok, f.page_clock.flags, f.phase_readable, phase);
         f.entrance_known = ps != 0, f.is_entrance = ps == 2;
       }
       {   // S103 B3 (T3b): the card factor word [0x8376383C] (sub_827F22C8 0x827F23B8: the card technique's c184.z = the gain x (float)word * 0.001 when > 0). A run-time word of the game, so it is read here;
@@ -719,7 +772,7 @@ class InputsContributor final : public Contributor {
       {   // S103 CLRB (docs\agents\s103\CLR.md 3): the game's main-scene clear colour, [[0x83929A68] + 240 / 244 / 248 / 252] = R, G, B, A (0..255, sub_82C224A0 packs them as a D3DCOLOR). A run-time global (black everywhere we have
           // seen; 77 white / 79 green in a story sequence), so it is read here. A row only when the pointer and all four words read; otherwise no row (the front end clears black), counted.
         uint32_t blk = 0, w[4] = {};
-        bool ok = latch_thread && read_ && scene_inputs::ReadWord(read_, kClearBlockPtr, blk) && blk >= 0x10000;
+        bool ok = read_ && scene_inputs::ReadWord(read_, kClearBlockPtr, blk) && blk >= 0x10000;
         for (uint32_t k = 0; ok && k < 4; ++k) ok = scene_inputs::ReadWord(read_, blk + 240 + 4 * k, w[k]);
         f.clr_ok = ok;
         if (ok) {
@@ -727,7 +780,18 @@ class InputsContributor final : public Contributor {
           for (int k = 0; k < 4; ++k) f.clr_row.col[k] = float(w[k] & 0xFFu) / 255.f;
           clr_last_.store((uint64_t(w[0] & 0xFF) << 24) | (uint64_t(w[1] & 0xFF) << 16) | (uint64_t(w[2] & 0xFF) << 8) | (w[3] & 0xFF), std::memory_order_relaxed);
           clr_fed_.fetch_add(1, std::memory_order_relaxed);
-        } else if (latch_thread) clr_unfed_.fetch_add(1, std::memory_order_relaxed);   // (an off-thread fallback take never reads: no row, not counted)
+        } else clr_unfed_.fetch_add(1, std::memory_order_relaxed);
+      }
+      {   // S111 PROPORDER (cat33_places.h, draw_place_rows.h): every drawn place of the game's category-33 list (the characters' skeletons, the entrance props' CWeapon models) as kSlDrawPlace rows of THIS latch; unread = no rows (the colour pass keeps the order before), counted
+        static thread_local std::vector<scene_inputs::cat33_places::Place> scratch;   // the latch thread's scratch
+        const auto rd = [this](uint32_t a, uint32_t& v) { return read_ && scene_inputs::ReadWord(read_, a, v); };
+        f.places.clear();
+        if (scene_inputs::cat33_places::ReadPlaces(rd, scratch)) {
+          for (const scene_inputs::cat33_places::Place& q : scratch) f.places.push_back(rdr_scene::draw_place::Pack(q.addr, q.place, q.prop, q.additive, q.material_state, q.body));
+          places_read_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          places_unread_.fetch_add(1, std::memory_order_relaxed);
+        }
       }
       f.phase = phase;   // S103 D1
       {   // S103 MBC (RMP.md 2.3 site 2): map B's mode gate needs the participant count and the ring gate word EVERY frame (the old read ran on a NoModule latch only). Pure guest reads; unknown stays -1.
@@ -738,11 +802,18 @@ class InputsContributor final : public Contributor {
         uint32_t modw = 0;   // S103 RML (F3): the module singleton, read directly (the game's sub_827ECB60 reads [0x83924758] and [0x836F39A0] only, never module+40, so Disabled / ReadFail of the plane pass must not mask it)
         if (read_ && scene_inputs::ReadWord(read_, scene_inputs::kPlaneModulePtr, modw)) f.plane_module = modw >= 0x10000 ? 1 : 0;
       }
-      if (rdr_scene::entrance_tracks::On() && !f.lights.empty() && f.phase_readable && phase == 4) {   // S103 TNB F1: the bound characters' positions on EVERY phase-4 frame that read the manager (the consumer's Entrance(t) is the remap, which can hold on a frame the page object does not call an entrance)
+      if (rdr_scene::entrance_tracks::On() && !f.lights.empty() && f.phase_readable && phase == 4) {   // S103 TNB F1: the bound characters' positions on EVERY phase-4 frame that read the manager (the old record path's Entrance(t) is the remap, which can hold on a frame the page object does not call an entrance)
         scene_inputs::TrackBindInfo tbi;
         scene_inputs::ReadTrackBinds(read_, f.lights[0], f.tbinds, tbi);
         tb_unresolved_.fetch_add(tbi.unresolved + tbi.nonfinite, std::memory_order_relaxed);
       }
+      // S111 PAGEPOOLS (docs\research\s111\PAGEPOOLS.md, review): the stage PAGE of THIS latch (kSlPage + its kSlPool / kSlSpot rows; Emit writes them, never through ModelClass). The page node sub_825BB0E0 runs
+      // on the record frame's clock (walk-time: census page_node_clock +1 324 of 324), so record r draws latch r's page, while the light objects ride latch r - 1 (ModelClass, the model draws). Its gate is the
+      // GAME's: the page object's entrance word [obj+88] (0x825BB21C: [this+72], this = obj+16; != 0 = page 00 at t 0 + the track sprites sub_825BACE0, 0 = the fade by the clock [obj+108]) = f.is_entrance,
+      // NOT "some set is remapped" (the look's rule, stage_look::Entrance; tnb_unit F / I hold frames where the two differ). Its rows are the Derive below, the one the decision runs.
+      f.page = StageLookRow();
+      f.page.kind = kSlPage;
+      f.page_rows.clear();
       if (f.is_entrance) {
         uint32_t slot = 0, n = 0;
         StageLookRow rows[rdr_scene::stage_pool_words::kMaxRows];
@@ -755,6 +826,8 @@ class InputsContributor final : public Contributor {
         const bool slot_ok = have_tracks || scene_inputs::ReadEntranceSlot(read_, slot);
         const bool derive_ok = blk && rdr_scene::stage_pool_words::Derive(blk, rows, n, have_tracks ? &tr : nullptr, &ds);
         f.ent_ok = slot_ok && derive_ok;
+        f.page.flags = kSlfPageEntrance | (blk && !derive_ok ? uint32_t(kSlfPageRefused) : 0u);   // S111 PAGEPOOLS: no pool block = no rows (the base page, as the record derive gave); a refused block = said (Pools: incomplete)
+        if (derive_ok) f.page_rows.assign(rows, rows + n);
         if (f.ent_ok) {
           f.ent = StageLookRow();
           f.ent.kind = kSlEntrance, f.ent.flags = kSlfEntrancePage, f.ent.rig_slot = have_tracks ? (tr.has_pos[0] ? uint16_t(tr.bind[0] + 1) : uint16_t(0)) : uint16_t(slot + 1);   // NOT kSlfEntrance: Entrance() keeps the "some set is remapped" rule (review N1). With the track words: track 0's bound slot + 1 (0 = unbound: the offline fallback's slot 0, never read by the draw)
@@ -826,11 +899,11 @@ class InputsContributor final : public Contributor {
       f.have_eyes = ew == scene_inputs::EyeWhy::Ok;
       eye_why_[uint32_t(ew)].fetch_add(1, std::memory_order_relaxed);
     }
-    if (latch_thread && rdr_scene::props_map::On()) {   // S103 KS1 (latch thread only, like gsf::Fill; Default ON is intended: Jarrod kept tonight's fixes on, this rides --wwe2k14_rdr_props_map): the props light, read from the module's light-1 record (the install under OURS is overwritten by light 2 before any model call, so R never holds it). Census: props_light read / no_module / unreadable / bad
+    if (rdr_scene::props_map::On()) {   // S103 KS1 (latch thread only, like gsf::Fill; Default ON is intended: Jarrod kept tonight's fixes on, this rides --wwe2k14_rdr_props_map): the props light, read from the module's light-1 record (the install under OURS is overwritten by light 2 before any model call, so R never holds it). Census: props_light read / no_module / unreadable / bad
       const scene_inputs::PropsWhy pw = scene_inputs::ReadPropsLight(read_, frame, f.props);
       f.have_props = pw == scene_inputs::PropsWhy::Ok;
       props_why_[uint32_t(pw)].fetch_add(1, std::memory_order_relaxed);
-      if (scene_inputs::PropsDegenerate(pw)) f.light_degenerate = true, f.degenerate_frame = frame;   // S103 PMC2
+      if (scene_inputs::PropsDegenerate(pw)) f.props_degenerate = true, f.props_degenerate_frame = frame;   // S103 PMC2; S111 CUTREACH2: its own flag (it rides ModelClass to the record of the next latch)
     }
     if (const MemoList& l = model_list(); l.list || models_) {   // S108 RDS part A: the runtime rows of the models the game names at THIS latch (was: the kept set, which read a released model)
       if (!l.list) models_(addrs_);   // the unit fallback (no target function set): the kept set, as before
@@ -838,7 +911,7 @@ class InputsContributor final : public Contributor {
         addrs_.clear();
         for (const PaletteTarget& t : *l.list) addrs_.push_back(t.skel);
       }
-      bool all = l.this_hook;   // off the latch thread: the last latch's targets stamp only when they are of this hook (the parameter rule, review 3 of S103 HGF)
+      bool all = true;   // every named model read (S111 HEADGUARD: the targets are always this latch's)
       for (uint32_t m : addrs_) {
         ModelRuntimeRow row;
         if (scene_inputs::ReadModelRuntime(read_, m, frame, row, rdr_scene::wrk::Live() ? (scene_inputs::kReadPassMode | scene_inputs::kReadPartE20) : 0u)) {   // S103 WRK: wrestlers only, the switch on
@@ -865,7 +938,6 @@ class InputsContributor final : public Contributor {
         }
       };
       if (const MemoList& l = model_list(); l.list) {   // S103 L31B: the same targets as the palettes (the character table's when set); S108 RDS: resolved once per Take (ResolveModelList), shared with the runtime rows
-        if (!l.this_hook) pall = false;
         for (const PaletteTarget& t : *l.list) one(t.skel);
       } else if (models_) {
         models_(addrs_);
@@ -904,13 +976,20 @@ class InputsContributor final : public Contributor {
       // Take decided for THIS latch frame (f.ent_ok = one unique entering slot AND the pool block derivable from the light objects it just read: no NaN, a block present); a stamp is never carried over.
       if (scene_inputs::PoolsStamp(f.entrance_known ? (f.is_entrance ? 2 : 1) : 0, scene_inputs::kStagePoolRowsExist, f.ent_ok)) scene_inputs::Capture(scene_inputs::kInStagePools, hook);
     }
+    {   // S111 CUTREACH: the model-class rows the record carries (latch_period.h, the camera's rule). Review: ONE copy a latch (the Frame's own fields stay this latch's reads, the units read them); the pick
+        // moves the copy in and the kept value out.
+      Frame::ModelClass now;
+      now.models = f.models, now.lights = f.lights, now.params = f.params;
+      now.models_unreadable = f.models_unreadable;
+      now.props = f.props, now.have_props = f.have_props, now.props_degenerate = f.props_degenerate, now.props_degenerate_frame = f.props_degenerate_frame;   // S111 CUTREACH2
+      f.rec = model_period_.Pick(frame, std::move(now));
+    }
     scene_inputs::FillStamps(f.stamps);   // the snapshot Emit writes (review 4)
   }
 
  private:
   scene_inputs::ReadFn read_ = nullptr;
-  std::atomic<int> page_state_{0};   // S103 PHS: 0 unknown, 1 page object read with entrance word 0, 2 with entrance word != 0 (latch thread writes; the off-thread fallback take reads)
-  uint32_t page_obj_ = 0, page_misses_ = 0;   // S103 FD: the stage-page pass object found last time and the rescan counter (latch thread only: Take(..., latch_thread = false) never touches them)
+  uint32_t page_obj_ = 0, page_misses_ = 0;   // S103 FD: the stage-page pass object found last time and the rescan counter (latch thread only: Take runs only there)
   std::atomic<uint64_t> lm_zero_{0};   // S103 B3: reads that found the word 0 (the game then draws the cards unscaled)
   std::atomic<uint64_t> clr_fed_{0}, clr_unfed_{0}, clr_last_{0};   // S103 CLRB: latches with / without the scene clear colour row
   std::atomic<uint64_t> lm_fed_{0}, lm_unfed_{0};   // S103 B3: latches with / without a LightMapParam row (unread = no row: the cards draw unscaled)
@@ -923,13 +1002,20 @@ class InputsContributor final : public Contributor {
   std::vector<uint32_t> addrs_;
   std::atomic<uint64_t> unreadable_{0}, no_camera_{0};
   std::atomic<uint64_t> cam_reason_[8] = {}, slot1_reason_[8] = {}, slot1_ok_{0}, slot0_reason_[8] = {}, slot0_ok_{0}, drawcam_used_{0};   // S103 WC R5: drawcam_used_ = frames whose camera came from the draw thread   // S103 S: camera diagnosis (census only)
+  struct LatchCamera {   // S111 CUTSTUTTER: one latch's scene camera read, as Take keeps it for the next record
+    bool have = false, from_draw = false;
+    Camera camera{};
+    scene_inputs::CameraInfo info{};
+  };
+  scene_inputs::period::OfPalette<LatchCamera> cam_period_;   // S111 CUTSTUTTER: record r takes latch r - 1's camera (latch_period.h)
+  scene_inputs::period::OfPalette<Frame::ModelClass> model_period_;   // S111 CUTREACH: record r takes latch r - 1's light / model / parameter rows
   std::mutex diag_mu_;
   std::string cam_dump_[8];
   std::vector<std::pair<uint64_t, uint64_t>> off_bursts_;   // S103 PB: first 16 offscreen_fit frame ranges (diag_mu_)
   std::atomic<uint64_t> plane_struct_{0}, plane_struct_changes_{0}, plane_struct_unreadable_{0};   // S103 PLF: the packed gate bytes (0 = never read on a NoModule latch), its changes, failed reads
   std::string plane_struct_text_;   // S103 PLF: `structure a/b/c, participants N` of the last NoModule latch (diag_mu_)
   std::string plane_bad_[3];   // S103 CE: the first non-finite block per reason (fade, camera, fit)
-  std::atomic<uint64_t> palettes_{0}, palette_unreadable_{0}, palette_nocount_{0}, palette_mismatch_{0}, plane_why_[scene_inputs::kPlaneWhyCount] = {}, eye_why_[4] = {}, props_why_[uint32_t(scene_inputs::PropsWhy::Count)] = {}, circle_mod_why_[uint32_t(scene_inputs::CircleModuleWhy::Count)] = {}, param_last_rows_{0}, param_unreadable_{0}, param_overflow_{0}, arena_unreadable_{0}, arena_overflow_{0}, arena_rows_{0}, light_last_rows_{0}, light_null_{0}, light_unreadable_{0}, light_missing_{0}, light_nosets_{0}, light_models_{0}, light_node_objects_{0}, light_node_unread_{0}, light_expired_{0}, light_missing_models_{0}, light_planned_holds_{0}, light_planned_by_[2] = {}, light_stale_models_{0}, light_hole_first_[8] = {};
+  std::atomic<uint64_t> palettes_{0}, palette_unreadable_{0}, palette_nocount_{0}, plane_why_[scene_inputs::kPlaneWhyCount] = {}, eye_why_[4] = {}, props_why_[uint32_t(scene_inputs::PropsWhy::Count)] = {}, circle_mod_why_[uint32_t(scene_inputs::CircleModuleWhy::Count)] = {}, param_last_rows_{0}, param_unreadable_{0}, param_overflow_{0}, arena_unreadable_{0}, arena_overflow_{0}, arena_rows_{0}, light_last_rows_{0}, light_null_{0}, light_unreadable_{0}, light_missing_{0}, light_nosets_{0}, light_models_{0}, light_node_objects_{0}, light_node_unread_{0}, light_expired_{0}, light_missing_models_{0}, light_planned_holds_{0}, light_planned_by_[2] = {}, light_stale_models_{0}, light_hole_first_[8] = {};
   std::atomic<uint64_t> light_lapsed_{0}, light_never_{0}, light_wrestler_holes_{0};   // S103 A5
   std::atomic<uint32_t> light_hole_slot_[8] = {};                                      // S103 A5: stage slot + 1, 0 = none
   ArenaSlotsFn arena_slots_fn_ = nullptr;
@@ -1044,8 +1130,11 @@ class InputsContributor final : public Contributor {
   TargetsFn targets_ = nullptr;
   SlotTargetsFn slot_targets_ = nullptr;   // S103 L31B
   SlotTable slot_buf_;                     // S103 L31B: the latch thread's scratch
+  scene_inputs::drawn_slots::Departed departed_{scene_inputs::drawn_slots::g_kept_char};   // S111 CAWTPOSE: this latch's departed occupants (per contributor; published for the update hook, cleared when it goes)
   std::atomic<uint64_t> palette_stale_withheld_{0}, slot_unreadable_{0}, slot_no_skel_{0};   // S103 L31B
   std::atomic<uint64_t> slot_pieces_unreadable_{0};   // S103 NRB
+  std::atomic<uint64_t> cat33_read_{0}, cat33_unread_{0};   // S111 CAT33: latches whose category-33 list was read / could not be read (the record then keeps the slot order)
+  std::atomic<uint64_t> places_read_{0}, places_unread_{0};   // S111 PROPORDER: latches whose category-33 places were read / could not be read (no kSlDrawPlace rows: the colour pass keeps the order before)
   scene_inputs::PieceCountFn piece_hook_count_ = nullptr;   // S105 A5a F1
   scene_inputs::PieceCountFn piece_count_ = nullptr;   // S103 NRBF
   scene_inputs::BodyDescFn piece_body_ = nullptr;      // S103 PZ F2
@@ -1054,13 +1143,8 @@ class InputsContributor final : public Contributor {
   BodyRelistFn body_relist_ = nullptr;
   SubmitFn submit_ = nullptr;
   std::vector<PaletteTarget> pal_targets_, param_targets_;   // param_targets_: Take (S103 A2 W4)
-  std::vector<PaletteTarget> off_targets_;   // S108 RDS: the off-latch fallback take's copy of the last latch's targets (ResolveModelList; the take's thread only, one take at a time)
   uint32_t hgf_faults_ = 0;   // S103 HGF planted twins (tests only)
   uint64_t pal_targets_hook_ = ~0ull;           // S103 HGF: the hook frame pal_targets_ was built for (latch thread only)
-  std::mutex snap_mu_;
-  uint64_t snap_hook_ = ~0ull;                  // S103 HGF (review 3): the hook frame snap_targets_ was built for
-  OffLatchFn off_latch_ = nullptr;   // S103 AUSF review 1
-  std::vector<PaletteTarget> snap_targets_;     // S103 HGF: pal_targets_ as of the last latch, for the off-latch fallback take
   std::vector<Mat4> pal_buf_;
   std::vector<uint32_t> pal_raw_;
 };

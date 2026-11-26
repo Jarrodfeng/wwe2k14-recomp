@@ -42,7 +42,7 @@ def name16(s):
     return s.encode().ljust(16, b'\0')
 
 
-def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nmesh=1, words=None, tech=0x1):
+def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nmesh=1, words=None, tech=0x1, extra=(), vc=None):
     """a minimal JBOY: 1 mesh (3 vertices), the nodes, 2 texture names, params g_fDifAmbLevel 1.0 and sampDiffusePrm -> texture 0. words = the cull word of each mesh (record +0x8C; the
     shifted layout +0x88; default 0x4 = two-sided), tech = the technique word (+0x90; shifted +0x8C)"""
     nn = len(nodes)
@@ -50,18 +50,27 @@ def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nm
     mtab, ntab = 0x40, 0x40 + stride * nmesh
     ttab = ntab + 80 * nn
     plist = ttab + 32
-    prec = plist + 8
-    body = bytearray(prec + 48)
+    # S111 ASSETCOV: extra = [(parameter name, float)] more parameters; vc = per mesh None or 3 vertices' 4 colour bytes (file bytes 24..27 of each 28-byte S0 vertex)
+    names = [('sampDiffusePrm', None)] + ([('g_fDifAmbLevel', 1.0)] if with_amb else []) + list(extra)
+    prec = plist + 4 * len(names)
+    sbase = prec + 24 * len(names)
+    body = bytearray(sbase + sum(4 + 28 * len(v) for v in (vc or []) if v))
     body[0x10:0x14] = be(nmesh)
     body[0x14:0x18] = be(mtab)
     body[0x18:0x1C] = be(nn)
     body[0x1C:0x20] = be(2)
     body[0x20:0x24] = be(ntab)
     body[0x24:0x28] = be(ttab)
-    npar = 2 if with_amb else 1
+    npar = len(names)
     for mi in range(nmesh):
         rec = mtab + mi * stride
         body[rec:rec + 4] = be(3)
+        if vc and vc[mi]:
+            s0 = sbase + sum(4 + 28 * len(v) for v in vc[:mi] if v)
+            body[rec + 0x68:rec + 0x6C] = be(s0)
+            body[rec + 0x6C:rec + 0x70] = be(s0 + 4 + 28 * len(vc[mi]))
+            for vi, c4 in enumerate(vc[mi]):
+                body[s0 + 4 + 28 * vi + 24:s0 + 4 + 28 * vi + 28] = bytes(c4)
         if variant == 'std':
             body[rec + 0x7C:rec + 0x8C] = name16(effect)
             body[rec + 0x8C:rec + 0x90] = be(words[mi] if words else 0x4)
@@ -80,15 +89,16 @@ def jboy(effect, with_amb=True, tex='fixtex', nodes=('root',), variant='std', nm
         body[ntab + 80 * i:ntab + 80 * i + 16] = name16(n)
     body[ttab:ttab + 16] = name16(tex)
     body[ttab + 16:ttab + 32] = name16('unused')
-    p1, p2 = prec, prec + 24
-    body[plist:plist + 4] = be(p1)
-    body[plist + 4:plist + 8] = be(p2)
-    body[p1:p1 + 16] = name16('sampDiffusePrm')
-    body[p1 + 16:p1 + 20] = be(0x000F0000 | 4)
-    body[p1 + 20:p1 + 24] = be(0)
-    body[p2:p2 + 16] = name16('g_fDifAmbLevel')
-    body[p2 + 16:p2 + 20] = be(0x000A0000 | 4)
-    body[p2 + 20:p2 + 24] = struct.pack('>f', 1.0)
+    for i, (pn, pv) in enumerate(names):
+        po = prec + 24 * i
+        body[plist + 4 * i:plist + 4 * i + 4] = be(po)
+        body[po:po + 16] = name16(pn)
+        if pv is None:
+            body[po + 16:po + 20] = be(0x000F0000 | 4)
+            body[po + 20:po + 24] = be(0)
+        else:
+            body[po + 16:po + 20] = be(0x000A0000 | 4)
+            body[po + 20:po + 24] = struct.pack('>f', pv)
     return b'JBOY' + be(len(body)) + bytes(body)
 
 
@@ -205,7 +215,9 @@ def write_fixture(game, dxt_a0=40):
 # ----------------------------------------------------------------------------------------------------------------------------------------------- running q
 
 def run(args, env_extra=None, timeout=240):
-    env = dict(os.environ)
+    # (S111 ASSETCOV review) never the caller's WWE_QASSET_* (the README asks a builder to set WWE_QASSET_DB on every call): a fixture call that drops WWE_QASSET_DB to test the
+    # default path (the seed blocks' e3) inherited it, built that REAL index against the fixture game folder and deleted every real pac as gone (measured: 473 pacs -> 3)
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith('WWE_QASSET_')}
     env.update(env_extra or {})
     r = subprocess.run([sys.executable, '-I', Q, 'asset'] + args, capture_output=True, text=True, timeout=timeout, env=env)
     return r.returncode, (r.stdout or '') + (r.stderr or '')

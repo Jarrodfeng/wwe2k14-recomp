@@ -113,7 +113,7 @@ inline void RingPalette(const Node* nodes, uint32_t first_node, uint32_t n_nodes
 
 // ---- S103 RGP: which bound ring keys the GPU skin draws (docs\research\s103\RGS.md option 1) ------------------------------------------------------------------------------------------------------------
 // A key is drawn GPU-skinned only when EVERY mesh has a material whose effect is a yProp_* (the front end cuts a skinned mesh into palette chunks for the character effects and the yProp_* ones only: front_end.cpp
-// IsSkinnableProp; any other effect would stay rigid at rest and the piece would not move) and none of them is alpha-blended (a blended mesh sorts by its rest centre: UpdateModelVertices used to recompute it from the
+// HasSkinnedProgram; any other effect would stay rigid at rest and the piece would not move) and none of them is alpha-blended (a blended mesh sorts by its rest centre: UpdateModelVertices used to recompute it from the
 // posed vertices). A key that fails stays on the CPU pose. false is also the answer for a mesh with no material.
 inline bool GpuSkinnable(const assets::Model& m) {
   if (m.meshes.empty()) return false;

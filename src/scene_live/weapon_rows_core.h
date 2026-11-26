@@ -33,6 +33,9 @@
 #include "lock_stats.h"  // BHF1: the tracker lock cost counters
 #include "belt_plate.h"  // S105 PLATE: the belt nameplate store (a model leaving the event list drops its plate)
 #include "prop_colour.h"  // S108 THB: the entrance props' colours (a model leaving the event list drops them; the editor's read at the draw ask)
+#include "prop_spec.h"  // S111 PROPSPEC: the game's run-time specular / reflection set of an entrance prop model (the row's code; a model leaving the event list drops it)
+#include "belt_colour.h"  // S111 BELTMASKNAME: the R5 belt latches (a model leaving the event list drops its own; the scene clear drops the entrance belts only)
+#include "../renderer_scene/prop_light_id.h"  // S111 STAGELESS2: the light set an event prop's CWeapon asks for ([cw + 1468])
 
 namespace rdr_scene::live::weaponrows {
 
@@ -105,13 +108,47 @@ class EventProps {
   struct Entry {
     int32_t id = -1;     // the prop id (u32 [r1+2348] in MakeWeapon: the entrance's already-rewritten id)
     uint32_t k = 0;      // the PACH entry this model was built from (r29 at the hook = the loop counter [r1+80])
+    int32_t light_set = -1;   // S111 STAGELESS2 (prop_light_id.h): the set id its CWeapon asks the light manager for ([cw + 1468]), read once a frame; -1 = not read
   };
+  // S111 STAGELESS2: the CWeapon MakeWeapon builds (the raw hook on its ctor sub_8272BCD0, draw_origin.h). Kept until its free (OnFree) or a scene change (Clear); a pointer whose vtable word is no longer
+  // the event CWeapon's is dropped by ReadLightSets.
+  void OnWeapon(uint32_t weapon) {
+    if (weapon == 0) return;
+    std::lock_guard<std::mutex> lk(mu_);
+    weapons_.push_back(weapon);
+  }
+  // Once a frame (Tracker::NoteScene, after Prune): each live CWeapon's [cw + 1468] onto every model of it the list holds ([cw + 48] and [cw + 1228 + 4i]). Returns the models stamped.
+  template <class ReadWordFn>
+  uint32_t ReadLightSets(ReadWordFn&& read_word) {
+    std::lock_guard<std::mutex> lk(mu_);
+    uint32_t n = 0;
+    for (size_t i = 0; i < weapons_.size();) {
+      const uint32_t cw = weapons_[i];
+      uint32_t vt = 0, set = 0;
+      if (!read_word(cw, vt) || vt != w::kEventWeaponVtable) { weapons_[i] = weapons_.back(), weapons_.pop_back(); continue; }
+      const bool have = read_word(cw + w::kOffAskedLightSet, set);
+      uint32_t models[w::kMaxEventModels + 1] = {};
+      read_word(cw + 48u, models[0]);
+      for (uint32_t k = 0; k < w::kMaxEventModels; ++k) read_word(cw + w::kOffEventModels + 4 * k, models[k + 1]);
+      for (uint32_t m : models) {
+        if (m == 0) continue;
+        auto it = map_.find(m);
+        if (it == map_.end()) continue;
+        it->second.light_set = have ? int32_t(set) : -1;
+        ++n;
+      }
+      ++i;
+    }
+    return n;
+  }
   static constexpr uint32_t kPubSlots = 128;   // S103 GBR (BH4 item 3): the lock-free lookup's published slots (a match holds a handful of props x <= 10 models)
   void OnMake(uint32_t model, uint32_t prop_id, uint32_t k) {
     if (model == 0) return;   // the allocation failed (0x82BD41B0); the game tests it later (0x8272E044), the hook tests it itself
     std::lock_guard<std::mutex> lk(mu_);
     beltplate::DropOnMake(model);   // S105 PLATE review 1: a free the destructor hook missed leaves the old model's plate verdict at this address (lock order EventProps::mu_ then the Store's, as OnFree / Prune / Clear)
     propcolour::DropOnMake(model);  // S108 THB: ... and the old model's prop colours (the same stale-address rule)
+    propspec::DropOnMake(model);    // S111 PROPSPEC: ... and the old model's specular set
+    beltcolour::DropOnMake(model);  // S111 BELTMASKNAME: ... and the old model's R5 belt latch (any mode: a reused address)
     map_[model] = Entry{int32_t(prop_id), k};
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     ++made_;
@@ -127,9 +164,11 @@ class EventProps {
     uint32_t n = 0;
     std::lock_guard<std::mutex> lk(mu_);
     ++frees_;
+    for (size_t i = 0; i < weapons_.size(); ++i)   // S111 STAGELESS2: the CWeapon is gone
+      if (weapons_[i] == weapon) { weapons_[i] = weapons_.back(), weapons_.pop_back(); break; }
     if (!drop) return 0;
     for (uint32_t m : models)
-      if (m != 0) n += uint32_t(map_.erase(m)), beltplate::DropOnFree(m), propcolour::DropOnFree(m);   // S105 PLATE: a freed model address reused by another belt must not keep the old name   // S108 THB: nor the old prop's colours
+      if (m != 0) n += uint32_t(map_.erase(m)), beltplate::DropOnFree(m), propcolour::DropOnFree(m), propspec::DropOnFree(m), beltcolour::DropOnFree(m);   // S105 PLATE: a freed model address reused by another belt must not keep the old name   // S108 THB: nor the old prop's colours   // S111 PROPSPEC: nor its specular set   // S111 BELTMASKNAME: nor its R5 latch
     dropped_ += n;
     live_.store(uint32_t(map_.size()), std::memory_order_relaxed);
     Publish();
@@ -141,7 +180,8 @@ class EventProps {
   uint32_t Clear() {
     std::lock_guard<std::mutex> lk(mu_);
     const uint32_t n = uint32_t(map_.size());
-    map_.clear(), beltplate::ClearOnScene(), propcolour::ClearOnScene();   // S105 PLATE   // S108 THB
+    map_.clear(), beltplate::ClearOnScene(), propcolour::ClearOnScene(), propspec::ClearOnScene(), beltcolour::ClearOnScene();   // S105 PLATE   // S108 THB   // S111 PROPSPEC   // S111 BELTMASKNAME (entrance belts only)
+    weapons_.clear();   // S111 STAGELESS2: their models just left the list
     cleared_ += n;
     live_.store(0, std::memory_order_relaxed);
     Publish();
@@ -155,7 +195,7 @@ class EventProps {
     for (auto it = map_.begin(); it != map_.end();) {
       uint32_t vt = 0;
       if (read_word(it->first, vt) && vt == w::kSkinnedModelVtable) { ++it; continue; }
-      beltplate::DropOnFree(it->first), propcolour::DropOnFree(it->first), it = map_.erase(it), ++n;   // S105 PLATE   // S108 THB
+      beltplate::DropOnFree(it->first), propcolour::DropOnFree(it->first), propspec::DropOnFree(it->first), beltcolour::DropOnFree(it->first), it = map_.erase(it), ++n;   // S105 PLATE   // S108 THB   // S111 PROPSPEC
     }
     if (n) {
       pruned_ += n;
@@ -210,6 +250,7 @@ class EventProps {
   }
   mutable std::mutex mu_;
   std::unordered_map<uint32_t, Entry> map_;
+  std::vector<uint32_t> weapons_;   // S111 STAGELESS2: the live event CWeapons (OnWeapon), mu_ held
   std::atomic<uint32_t> live_{0};
   std::atomic<uint64_t> pub_[kPubSlots] = {};
   uint64_t made_ = 0, frees_ = 0, dropped_ = 0, cleared_ = 0, pruned_ = 0, pub_overflow_ = 0;
@@ -368,6 +409,7 @@ class Tracker {
   }
   EventProps events;   // S103 BLF: the event prop models (pushed by the MakeWeapon hooks); consulted when r3 is not in the slot table
   void EventMake(uint32_t model, uint32_t prop_id, uint32_t k) { events.OnMake(model, prop_id, k); }
+  void EventWeapon(uint32_t weapon) { events.OnWeapon(weapon); }   // S111 STAGELESS2: the CWeapon ctor's hook (weapon_rows_glue.h EventWeaponMade)
   uint64_t BeltKeyReads() const { return belt_keys_.reads; }   // S103 LDR: sub-key reads so far (one per belt object)
   template <class ReadWordFn>
   uint32_t EventFree(uint32_t weapon, ReadWordFn&& read_word) { return events.OnFree(weapon, read_word, plant != Plant::EventNoFree); }
@@ -464,7 +506,7 @@ class Tracker {
         // an own call is tagged by who called the slot-13 dispatcher (review 3); a slot-32 / other call by its own LR. The alpha comes from f1 only for the cage / cell LR classes (review 4): an unknown caller's f1 is not MdlAlpha
         const uint32_t lr_class = own_submit ? w::OwnCallerClass(own_caller) : w::LrClassOf(lr);
         const bool alpha_f1 = !own_submit && (lr_class != w::kStageLrOther || plant == Plant::StageAlphaAlways);
-        ev.object = model, ev.id = w::StageId(stage_.pach), ev.slot_flags = w::PackStageFlags(sm->k, own_submit, alpha_f1, lr_class);
+        ev.object = model, ev.id = w::StageId(stage_.pach), ev.slot_flags = w::PackStageFlags(sm->k, own_submit, alpha_f1, lr_class) | w::stg_nodes::CasterBit(own_submit, own_caller);   // S111 CHAMBERSHADOW: + bit 31 when the submitting node is one the game's shadow passes draw (a CWeapon piece, stage_struct_nodes.h)
         is_stage = true;
         res.stage = true, res.lr = lr, res.f1 = f1;
       } else {
@@ -488,7 +530,7 @@ class Tracker {
       is_gm ? ++stats_.gm_calls : ++stats_.blood_calls;   // S103 GBR: one row per call, each its own instance (a set object once a frame; the n-th splat)
     } else if (is_stage) {
       ++stats_.stage_calls, own_submit ? ++stats_.stage_own : ++stats_.stage_slot32;
-      if (own_submit) w::StageLrClass(ev.slot_flags) == w::kStageLrCage ? ++stats_.stage_own_cage : w::StageLrClass(ev.slot_flags) == w::kStageLrOther ? ++stats_.stage_own_other : 0u;
+      if (own_submit) w::StageLrClass(ev.slot_flags) == w::kStageLrCage ? ++stats_.stage_own_cage : w::OwnOtherCaller(w::StageLrClass(ev.slot_flags)) ? ++stats_.stage_own_other : 0u;   // S111 PODGLASS: own-other = class 3 or the own-node class 2
     } else if (is_event) {
       // Which of the model's submits (slot 13 / 19 / 32: all reach sub_82C04DF0 with r3 = the model, all of vtable 0x8206AF90) an event prop uses is [U], so the first call of a model in a frame is its row and later passes of the SAME
       // model in that frame are counted, never a second copy (a prop is drawn once; a shadow / extra pass is not a second belt).
@@ -533,6 +575,7 @@ class Tracker {
     e.id = plant == Plant::NoIdAtCall ? -1 : hit.id;                 // the id of this object in THIS frame's table (an event prop: its prop id)
     e.slot_flags = (is_event || is_stage || is_gm || is_blood) ? hit.slot_flags : w::PackSlotFlags(hit.slot_flags & 0xFFu, (hit.slot_flags & w::kCallSecondary) != 0, (hit.slot_flags & w::kCallVtableOk) != 0, w::CallSecondaryIndex(hit.slot_flags));
     if (shadow_call) e.slot_flags |= w::kCallShadowPass | (shadow == 1 ? w::kCallShadowProps : 0u);
+    if (!is_stage && !is_gm && !is_blood) e.slot_flags |= propspec::PackSpec(propspec::TheStore().CodeFor(model));   // S111 PROPSPEC: the game's run-time set on this MODEL (0 = none), on an event row AND a weapon-manager slot row: the steps' entrance object keeps the slot's main model (sub_825E2DE0 -> sub_825E0F60 -> sub_83422628 +F8)
     e.node_first = uint32_t(cur_.nodes.size());
     e.node_count = 0;
     uint32_t aw = 0;
@@ -668,6 +711,7 @@ class Tracker {
     }
     scene_sig_ = sig, scene_sig_valid_ = true, scene_h_ = h, scene_mgr_ = mgr;
     if (plant != Plant::EventNoPrune) stats_.ev_pruned += events.Prune(read_word);
+    events.ReadLightSets(read_word);   // S111 STAGELESS2 (prop_light_id.h): the set each live event CWeapon asks for, onto its models (the section-59 rows carry it)
   }
 
   // The gm set objects' model set (GMS.md (A)): L = [0x8376A9A0] is a plain array of 12 controller words; each controller holds a 512-word object table at +2120; an object's model is [obj+48] and its key [obj+44].

@@ -44,8 +44,8 @@ def main():
     twins = len(re.findall(r'^PASS planted twin', text, re.M))
     if r.returncode != 0 or fails or 'all checks passed' not in text:
         return fail('weapon_slots_test exit %d, %d FAIL lines' % (r.returncode, fails))
-    if passes < 20 or twins != 9:
-        return fail('expected >= 20 PASS lines and 9 planted twins caught, got %d and %d (a check that reads nothing proves nothing)' % (passes, twins))
+    if passes < 20 or twins != 10:   # S111 CUTREACH2 review: + the section-59 gate period twin
+        return fail('expected >= 20 PASS lines and 10 planted twins caught, got %d and %d (a check that reads nothing proves nothing)' % (passes, twins))
     print('PASS: weapon_slots_test: %d checks, %d planted twins caught, exit 0' % (passes, twins))
     return 0
 

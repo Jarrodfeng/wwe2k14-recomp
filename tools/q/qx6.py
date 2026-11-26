@@ -11,7 +11,8 @@
         [[midasm_hook]] rows of config\\*.toml (address, name, registers, toml file:line, the src file:line that DEFINES the callback, and whether the generated
         code declares / calls it: `extern void NAME(`). ARG = a function (also lists mid-asm hooks INSIDE it), an address, or a hook / callback name; none = all.
     py tools/q/q.py ours text WORDS...
-        lines of src / tools / config / probes / android (code, comments, strings, shaders) holding ALL the words, case-insensitive; an address word (82C1E840,
+        lines of src / tools / config / probes / android (code, comments, strings, shaders) holding ANY of the words (S111 QGAPS; --and = ALL of them on one
+        line; this module's cmd_text keeps any_=False = ALL for python callers), case-insensitive; an address word (82C1E840,
         0x82C1E840, sub_82C1E840) matches every spelling. C++ / py / ps1 hits are marked comment / string / code.
     q ours def|refs NAME on a name that is no C++ symbol falls back to the shader text (src\\**\\*.glsl / .frag / .vert / .hlsl / .fx.json): where a block field
         (Param1) is declared and used.
@@ -276,6 +277,27 @@ def parse_addr(s):
     return int(m.group(1), 16)
 
 
+def at_window(spec, start, size, ctx):
+    """S111 QGAPS: `--at OFF` / `OFF..OFF2` (hex byte offsets from the function start, a leading + and 0x allowed) -> the [FROM, TO] address strings asm_answer takes.
+    OFF alone = the instruction there +-ctx instructions, kept inside the function."""
+    def off(s):
+        m = re.fullmatch(r'\+?(?:0[xX])?([0-9A-Fa-f]+)', s.strip())
+        if not m:
+            raise XError(f'--at {spec}: not a hex offset (e.g. E00, +0xE00 or E00..E40)')
+        v = int(m.group(1), 16) & ~3      # review S111: an unaligned offset = the instruction holding that byte
+        if size and v >= size:
+            raise XError(f'--at {spec}: +0x{v:X} is past the end of the function (size 0x{size:X}; its last instruction is +0x{max(size - 4, 0):X})')
+        return v
+    if '..' in spec:
+        lo, hi = (off(x) for x in spec.split('..', 1))
+        if hi < lo:
+            raise XError('--at: the second offset must not be below the first')
+    else:
+        c = off(spec)
+        lo, hi = max(0, c - 4 * ctx), min(max(size - 4, 0), c + 4 * ctx)
+    return [f'{start + lo:X}', f'{start + hi:X}']
+
+
 def asm_main(argv, con, resolve, root=None):
     import argparse
     import qdecomp
@@ -285,7 +307,18 @@ def asm_main(argv, con, resolve, root=None):
     ap.add_argument('--into', nargs=2, metavar=('FROM', 'TO'), help='branches that enter [FROM,TO) from outside it')
     ap.add_argument('--limit', type=int, default=400)
     ap.add_argument('--json', action='store_true')
+    ap.add_argument('--at', default=None, metavar='OFF[..OFF2]', help='S111 QGAPS: a window by hex byte offset from the function start: OFF = that instruction +-CTX, OFF..OFF2 = that range (`FUNC+OFF` = --at OFF)')
+    ap.add_argument('--ctx', type=int, default=12, help='--at OFF: instructions either side (default 12)')
+    import qfactcard
+    qfactcard.add_arg(ap)
+    ap.add_argument('--writes', default=None, metavar='rN|sp+D', help='S111 QARGS: only the instructions that write that register / store to that stack slot (qregs.py)')
+    ap.add_argument('--reads', default=None, metavar='rN|sp+D', help='S111 QARGS: only the instructions that read that register / load that stack slot')
     a = ap.parse_args(argv)
+    mo = re.fullmatch(r'(.+?)\+((?:0[xX])?[0-9A-Fa-f]+(?:\.\.\+?(?:0[xX])?[0-9A-Fa-f]+)?)', a.func.strip())
+    if mo and a.at is None:      # FUNC+OFF
+        a.func, a.at = mo.group(1), mo.group(2)
+    if a.at is None and len(a.range) == 1 and a.range[0].startswith('+'):      # FUNC +OFF  /  FUNC +OFF..+OFF2 as separate words
+        a.at, a.range = a.range[0], []
     fl = re.fullmatch(r'(wwe2k14_recomp\.\d+\.cpp):(\d+)', a.func.strip())
     if fl:       # a listing FILE:LINE -> the function whose body holds that line (the last DEFINE at or above it)
         hit = con.execute('SELECT name FROM funcs WHERE file = ? AND line <= ? ORDER BY line DESC LIMIT 1',
@@ -305,7 +338,16 @@ def asm_main(argv, con, resolve, root=None):
     if not os.path.exists(path):
         raise XError(f'generated source {path} is missing (generated\\ is local only)')
     insns, labels, first, last = qdecomp.read_listing(path, f['line'], f['name'], f['addr'])
+    if a.at is not None:
+        if a.range or a.into:
+            raise XError('--at / FUNC+OFF does not combine with FROM TO or --into')
+        a.range = at_window(a.at, f['addr'], f['size'], a.ctx)
+    if a.writes or a.reads:
+        import qregs
+        return qregs.main(a, f, insns, con)
     r = asm_answer(f['name'], f['addr'], f['size'], f['file'], insns, labels, a.func, a.range, a.into, a.limit)
+    if 'window' in r and qfactcard.mode_of(a) != 'none':      # S111 FACTCARD: the settled claims that cite an offset inside the window
+        r['facts'] = qfactcard.window_marks(qfactcard.collect(f['addr'], con, f['size'], 'asm', qfactcard.mode_of(a)), r['window'][0] - f['addr'], r['window'][1] - f['addr'], qfactcard.mode_of(a))
     if a.json:
         print(json.dumps(r, indent=1))
     else:
@@ -427,6 +469,8 @@ def print_asm(r):
         print(s)
     if r.get('truncated'):
         print(f'... {r["truncated"]} more (--limit N)')
+    for _off, text in r.get('facts', []):
+        print(text)
 
 
 # ================================================================= q ours hooks
@@ -827,10 +871,10 @@ def _word_pat(w, regex):
     if regex:
         return w
     m = WORD_ADDR.match(w)
-    return m.group(1) if (m and re.search(r'[0-9]', m.group(1))) else re.sub(r'([^A-Za-z0-9_])', lambda mm: chr(92) + mm.group(1), w)
+    return m.group(1) if (m and re.search(r'[0-9]', m.group(1))) else re.sub(r'([^A-Za-z0-9_ ])', lambda mm: chr(92) + mm.group(1), w)     # a space stays a space (a quoted phrase)
 
 
-def _git_grep_lines(root, rxs, words, rev=None, docs=False, regex=False, any_=False):
+def _git_grep_lines(root, rxs, words, rev=None, docs=False, regex=False, any_=False, paths=None):
     """-> [(rel, line no, text)] of lines holding ALL words (ANY with any_), from `git grep` (tracked + untracked, never ignored files: a C++ line scan of 88 MB per call
     x many agents on the shared PC was the cost of the Python walk), or None when git cannot answer. The exact word rules are applied afterwards in Python.
     rev: search that revision (a branch / tag / commit; committed files only, `--untracked` does not combine with a revision); docs: the docs path set;
@@ -847,7 +891,7 @@ def _git_grep_lines(root, rxs, words, rev=None, docs=False, regex=False, any_=Fa
         args += ['-e', _word_pat(w, regex)]
     if rev:
         args.append(rev)
-    args += ['--'] + list(DOCS_PATHS if docs else CODE_PATHS)
+    args += ['--'] + list(paths or (DOCS_PATHS if docs else CODE_PATHS))     # paths: S111 QGAPS, `--in FILE|FOLDER` searched whatever the code / docs split
     try:
         p = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
     except (OSError, subprocess.SubprocessError):
@@ -871,9 +915,9 @@ def _git_grep_lines(root, rxs, words, rev=None, docs=False, regex=False, any_=Fa
     return out
 
 
-def cmd_text(root, words, limit_files=60, per_file=4, allhits=False, rev=None, docs=False, regex=False, any_=False):
+def cmd_text(root, words, limit_files=60, per_file=4, allhits=False, rev=None, docs=False, regex=False, any_=False, paths=None):
     if not words:
-        raise XError('text: give the words to look for (all must be on one line; --any: any of them), e.g. q ours text PartsBlur   or   q ours text 82C1E840')
+        raise XError('text: give the words to look for (several words = any of them; --and: all on one line), e.g. q ours text PartsBlur   or   q ours text 82C1E840')
     if regex:
         try:
             rxs = [re.compile(w, re.I) for w in words]
@@ -887,7 +931,7 @@ def cmd_text(root, words, limit_files=60, per_file=4, allhits=False, rev=None, d
         return ms if (ms if any_ else len(ms) == len(rxs)) else None
 
     hits = []
-    got = _git_grep_lines(root, rxs, words, rev=rev, docs=docs, regex=regex, any_=any_)
+    got = _git_grep_lines(root, rxs, words, rev=rev, docs=docs, regex=regex, any_=any_, paths=paths)
     if got is None and rev:
         raise XError(f'text: git cannot answer for revision {rev!r}')
     if got is not None:
@@ -918,6 +962,9 @@ def print_text(r):
     per = {}
     for h in r['hits']:
         per[h['file']] = per.get(h['file'], 0) + 1
+    if not r['n'] and not r.get('regex'):
+        print('  (whole-identifier match, any case; several words = ANY of them, --and = all on one line; -E = a regex such as viewport\\[[45]\\]; --docs = docs / root *.md / CMake; '
+              '--in FILE|FOLDER searches that path whatever its type)')
     cur, shown, nf = None, 0, 0
     for h in r['hits']:
         if h['file'] != cur:

@@ -83,7 +83,7 @@ def exe_folder_of(exe):
     if not exe:
         return EXE_DIR
     if exe == 'coverage':
-        return os.path.join(REPO, 'out', 'build', 'win-amd64-coverage')
+        return os.path.join(REPO, 'out', 'build', 'win-amd64-coverage-off')
     return os.path.dirname(os.path.abspath(exe))
 
 
@@ -254,9 +254,13 @@ def bookmark(name='main', width=1280):
         return 'bookmark: %s' % fields.get('bookmark', '?'), None
     with open(m.group(1), encoding='utf-8', errors='replace') as f:
         text = f.read()
-    png = m.group(1)[:-4] + '.png'
+    png = m.group(1)[:-4] + '.webp'   # S111 SHOTDIET: WebP is the default; a PNG / BMP run is found below
     for _ in range(100):  # the screenshot is written on its own thread
         if os.path.exists(png):
+            break
+        alt = [m.group(1)[:-4] + e for e in ('.png', '.bmp') if os.path.exists(m.group(1)[:-4] + e)]
+        if alt:
+            png = alt[0]
             break
         time.sleep(0.05)
     look = thumbnail(png, width) if os.path.exists(png) else None
@@ -327,7 +331,7 @@ def start(name='main', script='menu', launch='', fast=False, extra='', wait_s=72
     except OSError:
         pass
     if exe == 'coverage':  # Session 29: the trace build (--wwe2k14_trace)
-        exe = os.path.join(REPO, 'out', 'build', 'win-amd64-coverage', 'wwe2k14.exe')
+        exe = os.path.join(REPO, 'out', 'build', 'win-amd64-coverage-off', 'wwe2k14.exe')
     win = {'visible': ' -Visible', 'windowed': ' -Visible -Windowed',  # Session 30: run_list's window
            'foreground': ' -Foreground'}.get(window, '')
     # S109 FF: normal speed has ONE door, the script's `# intent: watch` (live/menu.txt, live/idle.txt carry it); --fast says --vsync=false.

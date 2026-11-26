@@ -15,6 +15,17 @@
 //                 movie opens (any path with \movies\: titantrons, cutscene videos), slot 0's act becomes the
 //                 entrance act 25000 (cutscene_motion.md, chain 0x836F38D0>28>0, high 16 bits), M3.PAC opens
 //                 (-> "match"), the match clock runs ([0x836F3928] != 0).
+//                 S111 WM30LOAD: a 30 Years season video (movies\season\, the card of flow state 30) plays BEFORE the
+//                 match load; it ends the window, and leaving flow state 30 opens "ingame" again (OnFlowStateLeft, called
+//                 by the SetState hook in flow_probe.h), so the load after the video is not run at 60 Hz.
+//                 S111 MENULOAD: also ends when the 30 Years card's READY is armed (the screen requester [0x83924744] in
+//                 state 3 (+4) with the intro screen, vtable 0x820353E0, at +80): the entrance code has released the
+//                 loading screen, the load is over and the game waits for the player's A.
+//       "preload": S111 MENULOAD / PRELOADGATE: the 30 Years menu sequence (31) is leaving and its exit step sub_82851888
+//                 answers 0 (keep waiting: the pac loader's queue, the preload task [[0x839295F0]+24] or the UI system
+//                 teardown; hook in load_turbo_preload.h, rule in load_turbo_preload_gate.h) -> the step answers 1 or the
+//                 sequence changes ("ingame" then opens when the sequence becomes 9). One window per exit wait: a window
+//                 the cap ended is not opened again by the same wait.
 //       "match":  the scene word goes 4 -> 1 in the in-game sequence (entrances over, the match loading screen comes
 //                 up; [0x836F3940], run 859) or, as a fallback, M3.PAC opens -> slot 0's first real motion (act word
 //                 not 0 / -1: just before the loading screen fades out), else the match clock, a movie, leaving the
@@ -59,6 +70,7 @@
 #include "det_loads.h"  // S110 DETLOADS: the det rules for the wall cap / throttle
 #include "frame_stats.h"
 #include "guest_read.h"
+#include "load_turbo_preload_gate.h"  // S111 PRELOADGATE: when the 30 Years menu's exit-wait window opens / closes
 
 REXCVAR_DECLARE(bool, wwe2k14_load_turbo);
 REXCVAR_DECLARE(bool, wwe2k14_load_turbo_boot);
@@ -124,11 +136,17 @@ class LoadTurbo {
     uint32_t v = 0;
     const bool seq_ok = Chain(0x839400F8u, {0, 48}, &v);
     const uint32_t seq = seq_ok ? v : 0;
+    // S111 MENULOAD / PRELOADGATE: the 30 Years menu's exit-wait window ends at the exit step's answer 1
+    // (OnSequenceExitAnswer) or here when the sequence changes, BEFORE the "ingame" start below, so the in-game window
+    // still opens on the frame the sequence becomes 9. A sequence change also ends the exit wait's latch.
+    if (seq_ok && seq != last_seq_) preload_gate_.OnSequenceChanged();
+    if (window_ == "preload" && seq_ok && seq != window_seq_) Stop(frame, "left the menu sequence");
     if (InGameWindows() && seq_ok && seq == 9 && last_seq_ != 9 && window_.empty()) {
       Start("ingame", frame);
       window_seq_ = seq;   // S105 E: last_seq_ is only updated below
     }
     if (seq_ok) last_seq_ = seq;
+    if (seq_ok && seq != 9) season_cut_ = false;  // S111 WM30LOAD: a season-video cut belongs to this in-game sequence only
     if (seq_ok) g_in_game_sequence.store(seq == 9, std::memory_order_relaxed);  // Session 73 (keep-warm)
     // scene word (states.toml [scene_word]): 1 -> 4 while the entrances are set up, 4 -> 1 when they are over and the
     // match loading screen comes up (run 859: frame 3546, loading screen visible 3536-3650, M3.PAC 3598).
@@ -144,6 +162,16 @@ class LoadTurbo {
     if (window_.empty()) return;
     if (window_ == "ingame") {
       if (Chain(0x836F38D0u, {28, 0}, &v) && (v >> 16) == 25000) return Stop(frame, "entrance act");
+      // S111 MENULOAD: the 30 Years in-game intro screen (ctor sub_8280E7B8, vtable 0x820353E0) at the screen requester
+      // G = [0x83924744] +80 with G in state 3 (+4) = READY armed. The entrance code released the loading screen
+      // (sub_82331BC0 -> sub_827E62A8; G sub_827E67C0 1 -> 2 -> 3, docs\research\s105\T2b.md), so the load is over and the
+      // game waits for the player. Before this, a match with no titantron kept the window (vsync off) to the cap over the card.
+      if (Read(0x83924744u, &v) && v != 0) {
+        uint32_t state = 0, screen_vt = 0;
+        if (Read(v + 4, &state) && state == 3 && Chain(v + 80, {0}, &screen_vt) && screen_vt == 0x820353E0u) {
+          return Stop(frame, "the 30 Years card is ready");
+        }
+      }
     }
     if (window_ == "ingame" || window_ == "match") {
       if (Read(0x836F3928u, &v) && v != 0) return Stop(frame, "match clock");
@@ -184,7 +212,12 @@ class LoadTurbo {
       menu_done_ = true;
       return Stop(frame, "main menu");
     }
-    if (movie && (window_ == "ingame" || window_ == "match")) return Stop(frame, "movie " + path);
+    if (movie && (window_ == "ingame" || window_ == "match")) {
+      // S111 WM30LOAD: a 30 Years season video opens 28 frames into the in-game sequence, BEFORE the match load (run
+      // 9e72826b8/011); remember it so leaving its card's flow state re-opens the window (OnFlowStateLeft).
+      if (window_ == "ingame" && Contains(path, "\\movies\\season\\")) season_cut_ = true;
+      return Stop(frame, "movie " + path);
+    }
     if (Contains(path, "M3.PAC") && InGameWindows()) {
       m3_seen_ = true;
       if (window_ == "ingame") Stop(frame, "match scene file");
@@ -192,6 +225,45 @@ class LoadTurbo {
         Start("match", frame);  // fallback start (no scene-word transition seen, e.g. a match without entrances)
         match_by_scene_ = false;
       }
+    }
+  }
+
+  // S111 WM30LOAD: the in-game flow leaves state `old_id` (flow_probe.h, the SetState hook sub_827A9AE0). State 30 is the
+  // 30 Years season card (ctor sub_827AA458 writes id 30; enter sub_827AA598 builds the card sub_82844500 with its
+  // movies\season video; update sub_827AA480 waits for the card's state 5, after the video's last frame). The next state, 29
+  // (the start machine), runs the match load. The video cut the "ingame" window (OnFileOpened), so without this the whole load
+  // after it ran at the game's own 60 Hz with the fast loader idle (run 9e72826b8/011: 475 frames from the card's end to the
+  // entrances). Re-open the window once, only in the in-game sequence and with no window open.
+  void OnFlowStateLeft(int32_t old_id, uint64_t frame) {
+    if (old_id != 30 || !InGameWindows()) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!season_cut_ || !window_.empty() || last_seq_ != 9) return;
+    season_cut_ = false;
+    REXLOG_INFO("[wwe2k14][turbo] the 30 Years season card is over (flow state 30 left at frame {}): the in-game load window opens again",
+                frame);
+    Start("ingame", frame);
+  }
+
+  // S111 MENULOAD / PRELOADGATE: the 30 Years menu sequence (31, CRTWBeginSequence) leaves through sub_82851888 (hook in
+  // load_turbo_preload.h), which its update sub_82826700 +38 calls every frame until it answers 1. It answers 0 while the
+  // pac loader has work (sub_82C36840), while the preload task D = [[0x839295F0]+24] is busy (D+16 != 0) and while the UI
+  // system [0x839294B8] it tears down has not reached its state 9: loads and a teardown, run at the game's own 60 Hz with
+  // the fast loader idle before (run release-off-v3/042: the reads BG28 .. COM.PAC at frames 4634-4737, sequence 9 at
+  // 4755). The window follows the answer (load_turbo_preload_gate.h): open on 0, closed on 1.
+  void OnSequenceExitAnswer(uint32_t answer, uint64_t frame) {
+    if (!InGameWindows()) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    switch (preload_gate_.OnAnswer(answer, window_ == "preload", !window_.empty())) {
+      case preload_gate::Act::kOpen:
+        REXLOG_INFO("[wwe2k14][turbo] the 30 Years menu is leaving and its exit step waits (frame {}): the preload window opens",
+                    frame);
+        Start("preload", frame);
+        break;
+      case preload_gate::Act::kClose:
+        Stop(frame, "the 30 Years menu's exit step is done");
+        break;
+      case preload_gate::Act::kNone:
+        break;
     }
   }
 
@@ -206,6 +278,9 @@ class LoadTurbo {
            REXCVAR_GET(wwe2k14_step_hz_hold_loads);
   }
   static bool InGameWindows() { return REXCVAR_GET(wwe2k14_load_turbo) || HoldOnly(); }
+  // S111 MENULOAD: the windows that run a load at the turbo's rate with the in-game window flag set (fast loader, readback,
+  // load_wait, owner batch): the two in-game ones and the 30 Years menu's preload wait.
+  static bool LoadWindow(const std::string& w) { return w == "ingame" || w == "match" || w == "preload"; }
   static bool Contains(const std::string& s, const char* needle) {
     const size_t n = std::char_traits<char>::length(needle);
     if (s.size() < n) return false;
@@ -241,7 +316,7 @@ class LoadTurbo {
     window_seq_ = last_seq_;   // S105 E: the sequence the window started in
     start_frame_ = frame;
     start_time_ = std::chrono::steady_clock::now();
-    hold_only_ = (window_ == "ingame" || window_ == "match") && HoldOnly();
+    hold_only_ = LoadWindow(window_) && HoldOnly();  // S111 MENULOAD: + "preload"
     if (hold_only_) {
       restore_vsync_ = false;
       restore_rate_.clear();
@@ -257,7 +332,7 @@ class LoadTurbo {
     restore_rate_.clear();
     // In-game windows only: in "boot" the faster frames ran out the scripts' frame-counted waits before the title
     // screen loaded (runs 1171-1173), and the goal is the in-game loads.
-    if (restore_vsync_ && hz > 0.0 && (window_ == "ingame" || window_ == "match")) {
+    if (restore_vsync_ && hz > 0.0 && LoadWindow(window_)) {  // S111 MENULOAD: + "preload"
       restore_rate_ = rex::cvar::GetFlagByName("gpu_vblank_unthrottled_hz");
       rex::cvar::SetFlagByName("gpu_vblank_unthrottled_hz", std::to_string(hz));
     }
@@ -277,7 +352,7 @@ class LoadTurbo {
       skip_draws_set_ = true;
     }
     g_load_turbo_active_flag().store(restore_vsync_, std::memory_order_relaxed);
-    g_load_turbo_ingame_window().store(window_ == "ingame" || window_ == "match", std::memory_order_relaxed);
+    g_load_turbo_ingame_window().store(LoadWindow(window_), std::memory_order_relaxed);  // S111 MENULOAD: + "preload"
     REXLOG_INFO("[wwe2k14][turbo] {} on at frame {}{}", window_, frame,
                 restore_vsync_ ? "" : " (vsync was already off: nothing to do)");
   }
@@ -312,6 +387,8 @@ class LoadTurbo {
   uint32_t last_seq_ = 0, last_scene_ = 0;
   uint32_t window_seq_ = 0;   // S105 E: last_seq_ when the open window started
   bool match_by_scene_ = false, m3_seen_ = false;
+  bool season_cut_ = false;  // S111 WM30LOAD: "ingame" was cut by a 30 Years season video; re-opened when flow state 30 is left
+  preload_gate::Gate preload_gate_;  // S111 PRELOADGATE: one "preload" window per 30 Years menu exit wait
   uint64_t first_save_frame_ = 0;
 };
 

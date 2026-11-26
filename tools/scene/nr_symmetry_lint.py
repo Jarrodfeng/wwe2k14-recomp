@@ -49,7 +49,7 @@ def main():
     crowd = (rs / "rf_crowd.cpp").read_text(encoding="utf-8", errors="replace")
     draw = (rs / "live_scene_draw.cpp").read_text(encoding="utf-8", errors="replace")
     if "--plant" in sys.argv:   # twin: the old Warm guards back
-        arena = arena.replace("  if (stage_look::Entrance(ctx.t)) {", "  if (!ctx.warm() && stage_look::Entrance(ctx.t)) {", 1)
+        arena = arena.replace("  if (stage_look::PageEntrance(ctx.t)) {", "  if (!ctx.warm() && stage_look::PageEntrance(ctx.t)) {", 1)   # S111 PAGEPOOLS: the page-hole block asks PageEntrance
         crowd = crowd.replace("if (pre.misses || pre.failures) return true;", "if (ctx.warm() || pre.misses || pre.failures) return true;", 1)
         draw = draw.replace("terms |= skipped;", "", 1)   # S103 HN twin: a skipped hole that is not counted
     bad = lint(arena, crowd, draw)

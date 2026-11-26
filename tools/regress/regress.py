@@ -309,8 +309,11 @@ def check_pass_line(ctx):
 def shot_path(captures, run, label):
     """Session 17: screenshots are PNG by default (src/input_script.h); older runs / --wwe2k14_screenshot_format=bmp
     give BMPs."""
-    png = os.path.join(captures, '%s_%s.png' % (run, label))
-    return png if os.path.exists(png) else os.path.join(captures, '%s_%s.bmp' % (run, label))
+    for ext in ('webp', 'png'):   # S111 SHOTDIET: WebP is the default now
+        p = os.path.join(captures, '%s_%s.%s' % (run, label, ext))
+        if os.path.exists(p):
+            return p
+    return os.path.join(captures, '%s_%s.bmp' % (run, label))
 
 
 def bmp_problem(p):
@@ -319,6 +322,13 @@ def bmp_problem(p):
     if not os.path.exists(p):
         return 'missing'
     size = os.path.getsize(p)
+    if p.lower().endswith('.webp'):   # S111 SHOTDIET: a RIFF container whose size field matches the file (the game renames NAME.webp.part when complete)
+        with open(p, 'rb') as f:
+            head = f.read(12)
+        if len(head) < 12 or head[:4] != b'RIFF' or head[8:12] != b'WEBP':
+            return 'not a WebP'
+        want = int.from_bytes(head[4:8], 'little') + 8
+        return None if want == size else 'truncated WebP (%d of %d bytes)' % (size, want)
     if p.lower().endswith('.png'):
         with open(p, 'rb') as f:
             head = f.read(8)

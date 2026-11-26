@@ -57,14 +57,19 @@
 //                                 produces a SetSong; that one is kept for the rest of the script; tab=KEY is pressed after a full cycle without any answer
 //   set BUTTONS LT RT LX LY RX RY set the full pad state until the next set/press (what recordings use);
 //                                 settings are changed with `cvar`, not `set`
-//   screenshot LABEL              save the current guest output to captures/NNN_LABEL.png
+//   screenshot LABEL              save the current guest output to captures/NNN_LABEL.webp (S111; .png / .bmp with --wwe2k14_screenshot_format)
 //   shot SUBJECT N [LABEL]        (S108 SHOT) a screenshot of this frame AND the scene record the host draws for it (the host state a one-frame record lacks goes with it: body scales,
 //                                 liquid maps, created-superstar bytes), saved to captures/NNN_pPID/LABEL.rsc for the offline rig (frame_rig --subject SUBJECT:N). SUBJECT =
 //                                 face | wrestler | stage | prop, N = slot / stage slot / prop id; LABEL defaults to SUBJECT_N. Stream-free build only (no scene host: the step fails)
 //   record LABEL                  (S108 SHOT) the record only, no screenshot
-//   screenshot_every N [LABEL]    (Session 10) from now on, a screenshot every N frames in the background while
-//                                 the script runs, captures/NNN_LABEL_01.png, _02, ...; `screenshot_every 0` stops
-//                                 it. Runs alongside the other steps (e.g. a long wait_state for a match's end)
+//   screenshot_every N LABEL [dup] (Session 10) from now on, a screenshot every N frames in the background while
+//                                 the script runs, captures/NNN_LABEL_01.webp, _02, ...; `screenshot_every 0` stops
+//                                 it. Runs alongside the other steps (e.g. a long wait_state for a match's end).
+//                                 S111 SHOTDIET: a shot whose picture is the same GUEST frame as the last periodic shot is skipped (logged;
+//                                 the file numbers then skip: _01, _03), so every file is a distinct guest frame; `dup` writes them all
+//   screenshot_on_cut [N] PREFIX  (S111 SHOTDIET) from now on, only around camera cuts: the frame BEFORE each cut, the cut's own frame and the
+//                                 frame N distinct frames later (N default 3, 0 = none), as captures/NNN_PREFIX_cutCC_before / _at / _plusN.webp;
+//                                 one log line per cut with the guest frame. Needs the scene host (stream-free build; the stream build fails the step). `screenshot_on_cut off` stops
 //   clip_start NAME [FPS] [SCALE] / clip_stop [NAME]
 //                                 record the guest output (internal resolution) to
 //                                 <--wwe2k14_clip_dir>/NNN_clip_NAME.mp4 (NNN = run log number; FPS default 60,
@@ -253,6 +258,8 @@
 #include "case/case_script_hook.h"  // S101: a route's quit takes the black box (filled by bookmark.h)
 #include "renderer/overlay.h"  // S103 GT round 3: rdr::GpuWindowMark (the route windows of the per-role GPU block)
 #include "script_fail_policy.h"  // S106 0a
+#include "webp_shot.h"           // S111 SHOTDIET: the lossless WebP screenshot writer
+#include "cut_shot.h"            // S111 SHOTDIET: screenshot_on_cut (the trigger's state machine + the host's picture sink)
 
 namespace rex::kernel::xam {
 // ReXGlue's implementations (exported by rexruntime.dll, not declared in public headers).
@@ -367,7 +374,92 @@ inline bool SavePngWic(const std::filesystem::path& path, const rex::ui::RawImag
 }
 #endif  // _WIN32
 
-inline void SaveScreenshot(const std::string& label) {
+// S111 SHOTDIET: the file write of one picture, shared by `screenshot` / `screenshot_every` (SaveScreenshot) and `screenshot_on_cut` (cut_shot.h's driver); runs on a worker thread. The format is
+// --wwe2k14_screenshot_format: webp (default: LOSSLESS, src/webp_shot.h, the same pixels as the PNG at about half the size), png (lossless, WIC / stb) or bmp. Each is written to NAME.ext.part and renamed
+// when complete, so a file with its final name is always whole. An unknown value is webp. A WebP write that fails falls back to PNG (logged), so a shot is never lost to the encoder.
+inline void WriteScreenshotFile(const std::string& label, const rex::ui::RawImage& image, const std::string& shown_note) {
+#if defined(_WIN32)
+  constexpr bool kPhone = false;
+#else
+  constexpr bool kPhone = true;
+#endif
+  if (!shot_policy::MayWrite(kPhone, diag::On())) {   // S111 SHOTDIET review N1 (src/shot_policy.h): the phone writes screenshots only with diagnostics on, as before S111
+    REXLOG_INFO("[wwe2k14][input] screenshot '{}' not written: the phone writes screenshots only with diagnostics on (--wwe2k14_diag)", label);
+    return;
+  }
+  const auto dir = std::filesystem::current_path() / "captures";
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  char prefix[16];
+  std::snprintf(prefix, sizeof(prefix), "%03d_", std::max(CurrentLogNumber(), 0));
+  const std::string format = REXCVAR_GET(wwe2k14_screenshot_format);
+  if (format != "bmp") {
+    if (format != "png") {
+      const auto path = dir / (prefix + label + ".webp");
+      auto part = path;
+      part += ".part";
+      if (webp_shot::SaveLosslessRgbx(part.string(), image.data.data(), image.width, image.height, image.stride) && (std::filesystem::rename(part, path, ec), !ec)) {
+        REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
+        return;
+      }
+      REXLOG_WARN("[wwe2k14][input] screenshot '{}': WebP write failed ({}); writing a PNG instead", label, ec ? ec.message() : "libwebp");
+      std::filesystem::remove(part, ec);
+    }
+    const auto path = dir / (prefix + label + ".png");
+    auto part = path;
+    part += ".part";
+    if (SavePngWic(part, image) && (std::filesystem::rename(part, path, ec), !ec)) {
+      REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
+    } else {
+      REXLOG_WARN("[wwe2k14][input] screenshot '{}': PNG write failed ({})", label, ec ? ec.message() : "WIC");
+    }
+    return;
+  }
+  const auto path = dir / (prefix + label + ".bmp");
+  std::ofstream out(path, std::ios::binary);
+  const uint32_t row = (image.width * 3 + 3) & ~3u, size = 54 + row * image.height;
+  auto put32 = [&](uint32_t v) { out.write(reinterpret_cast<const char*>(&v), 4); };
+  auto put16 = [&](uint16_t v) { out.write(reinterpret_cast<const char*>(&v), 2); };
+  out.write("BM", 2);
+  put32(size), put32(0), put32(54), put32(40), put32(image.width), put32(image.height);
+  put16(1), put16(24), put32(0), put32(row * image.height), put32(2835), put32(2835), put32(0), put32(0);
+  std::vector<char> line(row, 0);
+  for (uint32_t y = image.height; y-- > 0;) {  // BMP rows go bottom-up; RawImage is R8 G8 B8 X8
+    const uint8_t* src = image.data.data() + size_t(y) * image.stride;
+    for (uint32_t x = 0; x < image.width; ++x) {
+      line[x * 3 + 0] = char(src[x * 4 + 2]);
+      line[x * 3 + 1] = char(src[x * 4 + 1]);
+      line[x * 3 + 2] = char(src[x * 4 + 0]);
+    }
+    out.write(line.data(), row);
+  }
+  REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
+}
+
+// S111 SHOTDIET: the guest frame of the last picture a REPEAT-SKIPPING shot (screenshot_every without `dup`) wrote; a shot whose picture is that same guest frame is not written (the host presents a guest frame
+// more than once when it runs ahead of the display; today's 1,019 shots held 252 distinct ones). Unknown frames (not owner mode) are never skipped. Reset by `screenshot_every` (each run starts clean).
+inline std::atomic<uint64_t> g_last_written_guest_frame{~0ull};
+
+// S111 SHOTDIET review N2 (src/shot_policy.h): a PERIODIC shot or a cut picture asked while kMaxWrites writes are in flight is dropped. The first drop is said at once; the run's total when the script
+// ends (InputScript, script end). A NAMED shot never drops: SaveScreenshot holds its caller (the script step) until a slot frees.
+inline void NoteShotDropped(const std::string& label) {
+  if (shot_policy::g_write_gate.dropped.load(std::memory_order_relaxed) == 1)
+    REXLOG_WARN("[shot] 1 screenshot(s) dropped: {} writes in flight (the first: '{}'; the total is said when the script ends)", shot_policy::kMaxWrites, label);
+}
+
+// `periodic` = a `screenshot_every` shot (may drop at the write cap); every other caller is a NAMED shot (`screenshot`, `shot`, retry / fail pictures, bookmarks): it holds, never drops.
+inline void SaveScreenshot(const std::string& label, bool skip_repeat = false, bool periodic = false) {
+  // S111 SHOTDIET review N2 (src/shot_policy.h): at most 2 writes in flight (the slot is left by the worker's InFlight)
+  if (periodic) {
+    if (!shot_policy::g_write_gate.TryEnter()) return NoteShotDropped(label);
+  } else if (!shot_policy::g_write_gate.TakeSlot()) {
+    REXLOG_INFO("[wwe2k14][input] screenshot '{}' waits for a write slot ({} writes in flight; a named shot is never dropped)", label, shot_policy::kMaxWrites);
+    g_frame_time_ignore_next.store(true, std::memory_order_relaxed);   // the hold is not a hitch (bookmark.h)
+    const shot_policy::WriteGate::Entered e = shot_policy::g_write_gate.EnterWait(std::chrono::milliseconds(shot_policy::kNamedWaitMs));
+    if (e == shot_policy::WriteGate::Entered::Dropped) return NoteShotDropped(label);   // (plant 3 only)
+    if (e == shot_policy::WriteGate::Entered::Forced && shot_policy::g_write_gate.forced.load(std::memory_order_relaxed) == 1)
+      REXLOG_WARN("[shot] screenshot '{}' written past the cap: no write slot freed in {} s (said once per run)", label, shot_policy::kNamedWaitMs / 1000);
+  }
   if (g_screenshot_hook) g_screenshot_hook(label);
   g_screenshots_in_flight.fetch_add(1);
   // Session 82: the capture on this (guest) thread in replay mode, see wwe2k14_replay_exact_shots.
@@ -383,9 +475,9 @@ inline void SaveScreenshot(const std::string& label) {
     early_taken = true;
     early_ok = wwe2k14::CaptureShownFrame(*early);   // lane SHOT: owner mode takes our renderer's last presented picture
   }
-  std::thread([label, early, early_ok, early_taken] { wwe2k14::NameThread(L"input_shot");
+  std::thread([label, early, early_ok, early_taken, skip_repeat] { wwe2k14::NameThread(L"input_shot");
     struct InFlight {
-      ~InFlight() { g_screenshots_in_flight.fetch_sub(1); }
+      ~InFlight() { g_screenshots_in_flight.fetch_sub(1), shot_policy::g_write_gate.Leave(); }
     } in_flight;
     rex::ui::RawImage image;
     uint64_t shown_frame = wwe2k14::kShownFrameUnknown;   // S103 FLAT: the guest frame of the picture the owner answered (owner mode), for the log line
@@ -400,44 +492,69 @@ inline void SaveScreenshot(const std::string& label) {
       REXLOG_WARN("[wwe2k14][input] screenshot '{}': no guest output to capture", label);
       return;
     }
-    const auto dir = std::filesystem::current_path() / "captures";
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    char prefix[16];
-    std::snprintf(prefix, sizeof(prefix), "%03d_", std::max(CurrentLogNumber(), 0));
-    // Session 17 (Jarrod): PNG by default (lossless, ~4x smaller than the 14 MB 1440p BMPs). Written to NAME.png.part
-    // and renamed when complete, so a file named .png is always whole. --wwe2k14_screenshot_format=bmp = the old way.
-    if (REXCVAR_GET(wwe2k14_screenshot_format) != "bmp") {
-      const auto path = dir / (prefix + label + ".png");
-      auto part = path;
-      part += ".part";
-      if (SavePngWic(part, image) && (std::filesystem::rename(part, path, ec), !ec)) {
-        REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
-      } else {
-        REXLOG_WARN("[wwe2k14][input] screenshot '{}': PNG write failed ({})", label, ec ? ec.message() : "WIC");
-      }
+    if (skip_repeat && shown_frame != wwe2k14::kShownFrameUnknown && g_last_written_guest_frame.exchange(shown_frame) == shown_frame) {
+      REXLOG_INFO("[wwe2k14][input] screenshot '{}' skipped: the same guest frame {} as the last periodic shot (screenshot_every ... dup writes it anyway)", label, (unsigned long long)shown_frame);
       return;
     }
-    const auto path = dir / (prefix + label + ".bmp");
-    std::ofstream out(path, std::ios::binary);
-    const uint32_t row = (image.width * 3 + 3) & ~3u, size = 54 + row * image.height;
-    auto put32 = [&](uint32_t v) { out.write(reinterpret_cast<const char*>(&v), 4); };
-    auto put16 = [&](uint16_t v) { out.write(reinterpret_cast<const char*>(&v), 2); };
-    out.write("BM", 2);
-    put32(size), put32(0), put32(54), put32(40), put32(image.width), put32(image.height);
-    put16(1), put16(24), put32(0), put32(row * image.height), put32(2835), put32(2835), put32(0), put32(0);
-    std::vector<char> line(row, 0);
-    for (uint32_t y = image.height; y-- > 0;) {  // BMP rows go bottom-up; RawImage is R8 G8 B8 X8
-      const uint8_t* src = image.data.data() + size_t(y) * image.stride;
-      for (uint32_t x = 0; x < image.width; ++x) {
-        line[x * 3 + 0] = char(src[x * 4 + 2]);
-        line[x * 3 + 1] = char(src[x * 4 + 1]);
-        line[x * 3 + 2] = char(src[x * 4 + 0]);
-      }
-      out.write(line.data(), row);
-    }
-    REXLOG_INFO("[wwe2k14][input] screenshot saved: {} ({}x{}){}", path.string(), image.width, image.height, shown_note);
+    WriteScreenshotFile(label, image, shown_note);
   }).detach();
+}
+
+// S111 SHOTDIET: `screenshot_on_cut` (src/cut_shot.h). The scene host reads back each drawn tick's picture while cut_shot::g_watch is on and calls this sink on the HOST thread with (guest frame, cut flag,
+// pixels); the machine picks the frames, the pictures are written on worker threads (the same writer as `screenshot`). One driver at a time; the host never blocks on a write.
+struct CutShotDriver {
+  std::mutex mu;
+  cut_shot::Machine machine;
+  std::string prefix;
+  cut_shot::Picture prev;   // the last distinct picture, kept for the "frame before" (one frame; the shared pixels are released as the next one replaces it)
+  CutShotDriver(uint32_t after, std::string p) : machine(after), prefix(std::move(p)) {}
+};
+
+inline void WriteCutPicture(const std::string& label, const cut_shot::Picture& pic) {
+  if (!pic.rgba || !pic.w || !pic.h || pic.rgba->size() < size_t(pic.w) * pic.h * 4) return;
+  if (!shot_policy::g_write_gate.TryEnter()) return NoteShotDropped(label);   // S111 SHOTDIET review N2: at most 2 writes in flight
+  g_screenshots_in_flight.fetch_add(1);
+  std::thread([label, pic] { wwe2k14::NameThread(L"input_shot3");
+    struct InFlight {
+      ~InFlight() { g_screenshots_in_flight.fetch_sub(1), shot_policy::g_write_gate.Leave(); }
+    } in_flight;
+    rex::ui::RawImage image;
+    wwe2k14::FillRawImage(image, pic.rgba->data(), pic.w, pic.h);
+    if (pic.curve_set) {   // the display curve, as SceneHost::CaptureShown applies it for `screenshot`
+      for (size_t i = 0; i + 3 < image.data.size(); i += 4)
+        for (uint32_t ch = 0; ch < 3; ++ch) image.data[i + ch] = pic.curve[4 * image.data[i + ch] + ch];
+    }
+    WriteScreenshotFile(label, image, " guest frame " + std::to_string((unsigned long long)pic.frame));
+  }).detach();
+}
+
+inline std::shared_ptr<CutShotDriver> g_cut_driver;   // the script thread's handle (the sink holds its own)
+
+inline void StopCutShots() {
+  cut_shot::g_watch.store(false);
+  cut_shot::SetSink(nullptr);
+  g_cut_driver.reset();
+}
+
+inline void StartCutShots(uint32_t after, const std::string& prefix) {
+  StopCutShots();
+  auto d = std::make_shared<CutShotDriver>(after, prefix);
+  g_cut_driver = d;
+  cut_shot::SetSink(std::make_shared<cut_shot::Sink>([d](const cut_shot::Picture& p) {
+    std::lock_guard<std::mutex> lock(d->mu);
+    std::vector<cut_shot::Out> outs;
+    const cut_shot::Fed f = d->machine.Feed(p.frame, p.cut, outs);
+    if (f.repeat) return;   // the same guest frame again: not a new picture
+    if (f.cut) REXLOG_INFO("[wwe2k14][input] screenshot_on_cut {}: cut {} at guest frame {} (the frame before: {})", d->prefix, (unsigned long long)f.cut_no, (unsigned long long)p.frame, (unsigned long long)f.prev_frame);
+    for (const cut_shot::Out& o : outs) {
+      const char* kind = o.kind == cut_shot::Out::kBefore ? "before" : o.kind == cut_shot::Out::kAt ? "at" : "plus";
+      std::string label = fmt::format("{}_cut{:02d}_{}", d->prefix, (unsigned long long)o.cut_no, kind);
+      if (o.kind == cut_shot::Out::kAfter) label += std::to_string(o.offset);
+      WriteCutPicture(label, o.kind == cut_shot::Out::kBefore ? d->prev : p);
+    }
+    d->prev = p;
+  }));
+  cut_shot::g_watch.store(true);
 }
 
 // Session 58: a small JPEG of the guest output (box-filtered down to at most `max_width` pixels wide) as
@@ -548,7 +665,7 @@ class InputScript {
       ++periodic_count_;
       const std::string label = fmt::format("{}_{:02d}", periodic_label_, periodic_count_);
       REXLOG_INFO("[wwe2k14][input] periodic screenshot '{}' (frame {})", label, frame_);
-      SaveScreenshot(label);
+      SaveScreenshot(label, !periodic_dup_, true);   // S111 SHOTDIET: a repeated guest frame is skipped unless the line said `dup`; a periodic shot may drop at the write cap (review N2)
       periodic_next_ = frame_ + periodic_every_;
     }
     ClipOnFrame(frame);  // in-game clip trigger (one atomic load unless a clip_start is running)
@@ -852,7 +969,8 @@ class InputScript {
     kDirector,                         // S101 lane 161: passive / momentum / stock / passive_cpu (text = the verb's full text; src/situation_director_core.h)
     kPage,                             // S110 GOTO: `page N [back]` (frames = record id, hold = back; src/menu_goto_core.h)
     kHome,                             // S110 HOMESTEP: `home` (B one page at a time to the settled main menu; src/menu_home.h)
-    kWm30Fire, kWm30Step               // S110 FIRELINE: text = the verb's arguments (value = "fire" / "step"; src/wm30_script_core.h)
+    kWm30Fire, kWm30Step,              // S110 FIRELINE: text = the verb's arguments (value = "fire" / "step"; src/wm30_script_core.h)
+    kScreenshotOnCut                   // S111 SHOTDIET: frames = N after the cut, text = PREFIX, value = "off" to stop
   };
   struct Step {
     Op op;
@@ -1373,8 +1491,35 @@ class InputScript {
         step.frames = uint64_t(n);
         if (ok && n > 0) {
           ok = bool(words >> step.text);
-          if (!ok) why = "screenshot_every N LABEL";
+          if (!ok) why = "screenshot_every N LABEL [dup]";
+          std::string dup;
+          if (ok && (words >> dup)) {   // S111 SHOTDIET: `dup` = write repeated guest frames too (hold = 1)
+            ok = dup == "dup";
+            step.hold = ok ? 1 : 0;
+            if (!ok) why = "screenshot_every N LABEL [dup]";
+          }
         }
+      } else if (cmd == "screenshot_on_cut") {  // S111 SHOTDIET: screenshot_on_cut [N] PREFIX | off
+        step.op = Op::kScreenshotOnCut;
+        std::string first;
+        ok = bool(words >> first);
+        if (ok && first == "off") {
+          step.value = "off";
+        } else if (ok) {
+          char* end = nullptr;
+          const long v = std::strtol(first.c_str(), &end, 10);
+          if (end && *end == 0) {
+            step.frames = uint64_t(v);
+            ok = v >= 0 && v <= 60 && bool(words >> step.text);
+          } else {
+            step.frames = 3, step.text = first;
+          }
+          if (ok && (step.text.empty() || step.text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)) {
+            ok = false;
+            why = "the prefix names files: letters, digits, _ - only";
+          }
+        }
+        if (!ok && why.empty()) why = "screenshot_on_cut [N] PREFIX | screenshot_on_cut off";
       } else if (cmd == "clip_start" || cmd == "clip_stop") {
         step.op = cmd == "clip_start" ? Op::kClipStart : Op::kClipStop;
         words >> step.text;  // clip_stop: optional
@@ -2163,11 +2308,26 @@ class InputScript {
           periodic_label_ = step.text;
           periodic_next_ = frame_ + step.frames;
           periodic_count_ = 0;
+          periodic_dup_ = step.hold != 0;
+          g_last_written_guest_frame.store(~0ull);   // S111 SHOTDIET: each periodic run starts with no frame written
           if (step.frames) {
             REXLOG_INFO("[wwe2k14][input] line {}: screenshot_every {} '{}' (frame {})", L(step), step.frames,
                         step.text, frame_);
           } else {
             REXLOG_INFO("[wwe2k14][input] line {}: screenshot_every 0 (stopped, frame {})", L(step), frame_);
+          }
+          break;
+        case Op::kScreenshotOnCut:   // S111 SHOTDIET: the host reads the watch once per drawn tick (cut_shot.h)
+          if (step.value == "off") {
+            StopCutShots();
+            REXLOG_INFO("[wwe2k14][input] line {}: screenshot_on_cut off (frame {})", L(step), frame_);
+          } else if (!wwe2k14::g_record_save_owner) {   // (review) no scene host reads the watch (the stream build: the owner is set only by the stream-free host start, as for `record`): fail, never a silent run with no shots
+            REXLOG_ERROR("[wwe2k14][input] script FAILED at line {}: screenshot_on_cut '{}': no scene host (the stream build has none; the watch would never fire) (frame {})", L(step), step.text, frame_);
+            FailWithScreenshot(fmt::format("cut_fail_l{}", Tag(step)));
+            return;
+          } else {
+            StartCutShots(uint32_t(step.frames), step.text);
+            REXLOG_INFO("[wwe2k14][input] line {}: screenshot_on_cut {} '{}' (frame {}): shots at the frame before each camera cut, the cut and +{} distinct frames", L(step), step.frames, step.text, frame_, step.frames);
           }
           break;
         case Op::kLog:
@@ -2721,6 +2881,9 @@ class InputScript {
                   frame_, frame_ - live_start_frame_);
     }
     periodic_every_ = 0;  // Session 10: screenshot_every ends with the script
+    StopCutShots();       // S111 SHOTDIET: so does screenshot_on_cut
+    if (const uint64_t dropped = shot_policy::g_write_gate.dropped.exchange(0))   // S111 SHOTDIET review N2: the run's total of shots dropped at the write cap, never silent
+      REXLOG_WARN("[shot] {} screenshot(s) dropped: {} writes in flight", (unsigned long long)dropped, shot_policy::kMaxWrites);
     pad_ = {};
     keystroke_view_ = {};
     forbidden_.clear();
@@ -2830,6 +2993,7 @@ class InputScript {
   uint64_t periodic_every_ = 0;          // Session 10: screenshot_every interval (0 = off)
   uint64_t periodic_next_ = 0;           // ... frame of the next one
   uint32_t periodic_count_ = 0;          // ... taken so far (label suffix)
+  bool periodic_dup_ = false;            // S111 SHOTDIET: `dup`: repeated guest frames are written too
   std::string periodic_label_;           // ... label
   std::vector<std::string> forbidden_;   // armed fail_if_file patterns (lowercase)
   bool forbidden_hit_ = false;           // a forbidden file was opened; the next frame applies on_fail

@@ -7,11 +7,14 @@
 // bound to a slot 0..8 is drawn at [[0x836F38D0 + 4 b] + 176] x / z when the phase word is 4, else at its own rig row), never from the code's own tables. Exit 1 on a failure.
 // A plant is a fault in the thing under test; each must make a NAMED check fail:
 //   entrant_only   the switch is off (the old rule: one entering slot gates the stamp, the spot sits on the entrant)  -> "tnb.partner_disk_at_bound"
-//   bind_ignored   the consumer is handed a phase that is not 4 (the bindings never move a track)                       -> "tnb.phase4_disks_at_bound"
-//   key_ignored    the keys are dropped (a partner's track is a plain 375 pool)                                         -> "tnb.partner_is_disk_by_key"
+//   bind_ignored   the latch is handed a phase that is not 4 (the bindings never move a track)                          -> "tnb.phase4_disks_at_bound"
+//   key_ignored    the keys are dropped at the latch (a partner's track is a plain 375 pool)                            -> "tnb.partner_is_disk_by_key"
+//   page_from_lights  S111 PAGEPOOLS: the record without its page rows (the page derived from the model-class light objects, latch r - 1) -> "pagepools.page_of_own_latch"
+// (S111 PAGEPOOLS: the page is derived at the LATCH from its own reads and rides the record as kSlPage / kSlPool / kSlSpot rows, so the plants hand the fault to the latch, not to the parsed record.)
 //   size_ignored   CODE: Derive drops the size ints (a disk falls to the default 375 pool)                                -> "tnb.disk_half_from_size"
 //   pos_first      CODE: Derive checks a track's position before its tint (the old order)                                -> "tnb.dark_track_bad_position_ok"
 //   size_words     the guest keeps the size ints at +184 (the latch reads +188)                                         -> "tnb.size_words_carried"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -105,7 +108,7 @@ static void BuildGuest(bool size_at_184) {
   // the character table: slot 2 = the leader (act 25000 = 0x61A8, step 5), slot 4 = the partner (act 25004); each [char + 176] points at the skeleton's node-2 translation
   for (uint32_t b = 0; b < 9; ++b) {
     const uint32_t ch = 0x40200000u + 0x1000 * b, ar = 0x40800000u + 0x100 * b, pos = 0x40400000u + 0x100 * b;
-    g.Put(kCharTable + 4 * b, ch), g.Put(ch + 28, ar), g.Put(ch + 176, pos);
+    g.Put(::kCharTable + 4 * b, ch), g.Put(ch + 28, ar), g.Put(ch + 176, pos);   // the file's own constant: rdr_scene::kCharTable (cam_gate.h:30, same address) is in scope through `using namespace rdr_scene` and made the name ambiguous
     g.Put(ar, b == 2 ? 0x61A80500u : b == 4 ? 0x61AC0500u : 0u);
     g.PutF(pos, b == 2 ? 440.f : b == 4 ? -880.f : 10.f * float(b)), g.PutF(pos + 4, 10.f), g.PutF(pos + 8, b == 2 ? 2200.f : b == 4 ? 1760.f : 5.f * float(b)), g.PutF(pos + 12, 1.f);
   }
@@ -163,6 +166,9 @@ int main(int argc, char** argv) {
   // ---- A. phase 4: track 0 -> slot 2 (the leader), track 7 -> slot 4 (the partner); the leader's act is 25000, the partner's 25004. The gate no longer needs ONE entering slot: slot 2 alone is in act 25000 here, so that stays true;
   // scenario D below makes it false.
   BuildGuest(Plant("size_words"));
+  if (Plant("bind_ignored")) g.Put(kPhaseW, 3);   // S111 PAGEPOOLS: the page is derived at the latch, so the fault is handed to the latch
+  if (Plant("key_ignored"))
+    for (uint32_t i = 0; i < 10; ++i) g.Put(kMgr + 268 + 8 * i, 0), g.Put(kMgr + 268 + 8 * i + 4, 0);
   Run a = Go(300);
   Check(a.parse_ok && a.emitted.light_objects.size() >= 2 && a.parsed.light_objects.size() == a.emitted.light_objects.size(), "tnb.record_roundtrip", "latch -> Emit -> record -> parse");
   const LightObjectRow* m = a.parsed.light_objects.empty() ? nullptr : &a.parsed.light_objects[0];
@@ -176,15 +182,7 @@ int main(int argc, char** argv) {
   Check(a.pools_stamp == 299 || Plant("entrant_only"), "tnb.pools_stamped_on_the_derive", "kInStagePools stamp " + std::to_string((unsigned long long)a.pools_stamp));
   std::vector<Pool> pv;
   bool inc = false;
-  {
-    SceneTables t = a.parsed;
-    if (Plant("bind_ignored"))
-      for (StageLookRow& r : t.stage_look)
-        if (r.kind == kSlPhase) r.flags = 3;
-    if (Plant("key_ignored") && !t.light_objects.empty())
-      for (uint32_t i = 0; i < 20; ++i) t.light_objects[0].words[kLmTrackKey + i] = 0;
-    stage_look::Pools(t, pv, &inc);
-  }
+  stage_look::Pools(a.parsed, pv, &inc);
   // the page: track 0 the leader's disk at slot 2 (440, 2200), track 1 a pool at its own row (the 5 rigs that key it; drawn now), tracks 2 and 3 pools at their rig rows, track 7 a DISK at slot 4 (-880, 1760)
   const bool shape = pv.size() == 5 && pv[0].disk && !pv[1].disk && !pv[2].disk && !pv[3].disk && pv[4].disk;
   Check(!inc && shape && Near(pv[0].x, Snap(440.f)) && Near(pv[0].z, Snap(2200.f)) && Near(pv[4].x, Snap(-880.f)) && Near(pv[4].z, Snap(1760.f)), "tnb.partner_disk_at_bound", Desc(pv));
@@ -288,6 +286,52 @@ int main(int argc, char** argv) {
       std::string er;
       Check(ParseRecord(by.data(), by.size(), back, er) && back.light_objects.empty() && back.light_errors == 1, "tnb.layout2_with_flag_refused", er);
     }
+  }
+  // ---- I. S111 PAGEPOOLS (docs\research\s111\PAGEPOOLS.md): the stage PAGE is walk-time (the page node sub_825BB0E0 runs on the record frame's clock: page_node_clock +1 324 of 324), the light objects
+  // model-class (CUTREACH: record r carries latch r - 1's). ONE contributor over latches 400..403: track 2's pool moves in period 401. Record 401's page shows 401's pool while its light objects still carry
+  // 400's block. Plant page_from_lights: the record without its page rows (the page derived from the model-class light objects, the CUTREACH pairing) -> "pagepools.page_of_own_latch".
+  // The page's GATE (S111 PAGEPOOLS review): sub_825BB0E0 draws page 00 + the track sprites exactly when the page object's entrance word [obj+88] != 0 (0x825BB21C: [this+72], this = obj+16), not when "some
+  // set is remapped" (the look's rule: tnb F above is a frame with the remap and the word 0). Period 402: the word ends, the remap stays -> the base / match page; period 403: the word is set again, the remap
+  // ends -> the entrance page with that latch's pools -> "pagepools.page_gate_is_entrance_word" (the remap rule fails it in both directions).
+  {
+    BuildGuest(false);
+    live::inputs::InputsContributor pc;
+    pc.SetReader(ReadThunk);
+    const auto rec = [&](uint64_t frame) {
+      ResetStamps();
+      FrameInfo fi;
+      fi.guest_frame = frame;
+      pc.Latch(fi);
+      SceneTables e, p;
+      Counters cn;
+      pc.Emit(fi, e, cn);
+      std::vector<uint8_t> by = SerializeRecord(e);
+      std::string er;
+      if (!ParseRecord(by.data(), by.size(), p, er)) p = SceneTables();
+      if (Plant("page_from_lights"))
+        p.stage_look.erase(std::remove_if(p.stage_look.begin(), p.stage_look.end(), [](const StageLookRow& r) { return r.kind == kSlPage || r.kind == kSlPool || r.kind == kSlSpot; }), p.stage_look.end());
+      return p;
+    };
+    const SceneTables r400 = rec(400);
+    g.PutF(kPoolObj + 48 + 416 + 16 * 2, -700.f);   // period 401: track 2's pool moves (its rig row x)
+    const SceneTables r401 = rec(401);
+    g.Put(kPage + 88, 0);                           // period 402: the page object's entrance word ends; the remap stays (the look still says entrance)
+    const SceneTables r402 = rec(402);
+    g.Put(kPage + 88, 1), g.Put(kRemapArr, 0xFFFFFFFFu);   // period 403: the word is set again, the remap ends (-1 = no remap)
+    const SceneTables r403 = rec(403);
+    std::vector<Pool> p400, p401, p402, p403;
+    bool i0 = false, i1 = false, i2 = false, i3 = false;
+    stage_look::Pools(r400, p400, &i0), stage_look::Pools(r401, p401, &i1), stage_look::Pools(r402, p402, &i2), stage_look::Pools(r403, p403, &i3);
+    const uint32_t* blk401 = stage_pool_words::PoolBlock(r401.light_objects);
+    float lx = 0.f;
+    if (blk401) std::memcpy(&lx, &blk401[stage_pool_words::kPosWord0 + 4 * 2], 4);
+    Check(blk401 && Near(lx, -480.f) && stage_look::Entrance(r403), "pagepools.lights_stay_model_class",
+          "record 401 light block track 2 x " + std::to_string(lx) + " (want latch 400's -480), record 403 Entrance " + std::to_string(int(stage_look::Entrance(r403))) + " (want 1: latch 402's remap)");
+    Check(!i0 && !i1 && p400.size() == 5 && p401.size() == 5 && Near(p400[2].x, -480.f) && Near(p401[2].x, -700.f) && stage_look::PageEntrance(r401),
+          "pagepools.page_of_own_latch", "record 400 " + Desc(p400) + ", 401 " + Desc(p401) + " (want track 2 at -700)");
+    Check(!i2 && !i3 && p402.empty() && !stage_look::PageEntrance(r402) && stage_look::PageEntrance(r403) && p403.size() == 5 && Near(p403[2].x, -700.f), "pagepools.page_gate_is_entrance_word",
+          "record 402 (word 0, remapped) " + Desc(p402) + " page " + std::to_string(int(stage_look::PageEntrance(r402))) + " (want 0: the base page), 403 (word 1, no remap) " + Desc(p403) + " page " +
+              std::to_string(int(stage_look::PageEntrance(r403))) + " (want 5, track 2 at -700)");
   }
   std::printf("%s  tnb_unit: %d check(s), %d failure(s)\n", g_fail ? "FAIL" : "PASS", g_checks, g_fail);
   return g_fail ? 1 : 0;

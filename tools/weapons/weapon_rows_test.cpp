@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+extern "C" int stbi_zlib_decode_buffer(char*, int, const char*, int) { return -1; }   // pac.h's decoder hook (weapon_rows_contrib.h -> weapon_rows_core.h -> belt_plate.h -> jboy.h -> pac.h, since S110 BELTPLATE): this test reads no pac, never called
 #include "../../src/renderer_scene/record_io.h"
 #include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/rows_ring.h"

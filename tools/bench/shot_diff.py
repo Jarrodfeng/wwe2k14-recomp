@@ -122,7 +122,7 @@ def line(label, res, animated, ok):
 
 def captures_of(captures, run):
     out = {}
-    for ext in ('.bmp', '.png'):  # Session 17: PNG by default (a label in both: the PNG wins)
+    for ext in ('.bmp', '.png', '.webp'):  # Session 17: PNG by default; S111 SHOTDIET: WebP by default (a label in several: the later one in this list wins)
         for p in glob.glob(os.path.join(captures, '%s_*%s' % (run, ext))):
             out[os.path.basename(p)[len(run) + 1:-len(ext)]] = p
     return out

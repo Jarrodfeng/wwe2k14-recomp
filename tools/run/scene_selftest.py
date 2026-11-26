@@ -97,7 +97,7 @@ def fandango_expected(gold):
     b = sem.index('screenshot sc_fan_13')
     # difference 2: 14 hand-copied shots (at +0 .. +520) = the route's `screenshot_every`, 14 shots at +40 .. +560. The wait is N x K + 1: the runner stops the
     # periodic shot in the same frame the wait ends, before that frame's shot (src\input_script.h OnFrame :516-537, wait_frames :1714), so N x K gave K - 1 shots.
-    return sem[:a] + ['screenshot_every 40 sc_fan', 'wait_frames 561', 'screenshot_every 0'] + sem[b + 1:]
+    return sem[:a] + ['screenshot_every 40 sc_fan dup', 'wait_frames 561', 'screenshot_every 0'] + sem[b + 1:]
 
 
 def golden_requests():
@@ -128,10 +128,10 @@ PINS = [
     ('2bc3bbf59eac644b0de9abb62c5afbb384f4412a', 'scene Cena vs Lesnar; arena=5; blood=on // at bell+120f: passive 1 on // at bell+420f: momentum 0 100; stock 0 1; bleed 0 1 // at finish: // at finish+1900f: shot face 0 after_1900'),
     ('3409dcda58463d61d4265d3066fb49e1e9e7094b', 'scene Undertaker vs Lesnar; arena=53; entrances=off // at roster: passive 1 on // at roster+300f: shot stage 114 band'),
     ('6329018e216621af595e42acb9e4bdca7116a515', 'scene #210/0 vs #103/2; player=0; entrances=off // at roster: passive 1 on // at roster+240f: screenshot hair_a0'),
-    ('c32f18a029081498fa249c97442c22dc94177e10', 'scene Fandango vs Daniel Bryan; dlc=on // at entrance:0:1: every 40f x14 sc_fan'),
+    ('0addd33844589948e4af39509fa26c6a2eda4b83', 'scene Fandango vs Daniel Bryan; dlc=on // at entrance:0:1: every 40f x14 sc_fan'),
     ('bc38cb02c297efd0727c2e2de467011443ac765e', 'scene ; arena=200; entrances=off // at bell: screenshot caa_m_00 // at roster: passive 1 on'),
     ('981329329c7203211b07996f150774eba4c23919', 'scene Cena vs Lesnar; blood=on // at bell+120f: passive 1 on // at finish: // at victory+600f: shot face 0 v1'),
-    ('0dd7c14702c4d91231acead7810216902d5d4f79', 'scene Cena vs Lesnar; entrances=off; arena=5 // at clock:600: record r1 // at clock:900: every 30f x4 ev'),
+    ('5a22963fb50fa83b8718aabedf3b9db96220644e', 'scene Cena vs Lesnar; entrances=off; arena=5 // at clock:600: record r1 // at clock:900: every 30f x4 ev'),
     ('b31071a53e73f364cb618149bf0695d11117c361', 'scene Cena vs Lesnar; type=one on one > normal; entrances=off // at roster: log match_clock'),
     ('9350c44dd0002fe186d866e97c71c48c2d90ac7d', 'scene #385 vs Daniel Bryan/3; dlc=on; arena=53; type=one on one > normal; pace=quick; entrances=off; player=1 // at bell+10f: screenshot z'),
     ('5ca452881965e6a4a1b8f25b5648796350d543b5', 'scene Cena/2 vs Lesnar; arena=5; blood=on; entrances=off // at bell+120f: passive 1 on // at finish: // at victory+600f: shot face 0 v1'),
@@ -748,7 +748,7 @@ def main(argv):
         try:   # every Nf xK = K shots: the wait outlasts the K-th periodic shot by one frame (fandango_expected, difference 2)
             te, _, _ = S.lower('scene Cena vs Lesnar; entrances=off\nat bell: every 30f x4 ev\nat bell+200f: screenshot after')
             se = semantic(te)
-            i = se.index('screenshot_every 30 ev')
+            i = se.index('screenshot_every 30 ev dup')
             check('every 30f x4: wait 121 then stop, the next offset counts from there', se[i + 1:i + 5] == ['wait_frames 121', 'screenshot_every 0', 'wait_frames 79', 'screenshot after'], str(se[i:]))
         except (S.Refused, ValueError) as x:
             check('every 30f x4: wait 121 then stop, the next offset counts from there', False, str(x))

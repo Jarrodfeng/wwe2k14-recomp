@@ -17,6 +17,9 @@ std::string ViewerCheckCharacterFile(const std::string& path_u8, std::string& wa
 int ViewerEntranceAttire(int id, int game_attire);
 // Called once at start with --game PATH ("" when not given).
 void ViewerInit(const std::string& game_path);
+// S111 OLDCHAIN: the game files ViewerInit opened (the rdr backend builds the game's effect tables from them: renderer_rdr.cpp); null = none (no --game, or the test seam).
+namespace launcher { class GameFiles; }
+launcher::GameFiles* ViewerGameFiles();
 // Session 98 (DLC, src\assets\dlc_files.h): which DLC packs every later read also searches, in the game's order. `on` false = none;
 // `dir` "" = the usual folder (`dlc` beside the game data); `off` = pack ids switched off ("3,5"). Returns a one-line summary.
 std::string ViewerSetDlc(bool on, const std::string& dir, const std::string& off);

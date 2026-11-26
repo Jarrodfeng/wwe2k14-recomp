@@ -136,6 +136,16 @@ inline void OnOp19(const PPCContext& ctx, const uint8_t* base) {   // q2d-lint: 
   q::SeedTargetIfUnseen(t_target, GuestMem{}, g_counters);   // PBS: a thread with no target op yet draws into the default back buffer (boot / title / menu screens)
   q::OnOp19(t_scope, GuestMem{}, TheStore(), Frame(), uint32_t(ctx.lr) - 4, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, g_counters, &t_shadow, ctx.r13.u32, &t_scissor, &t_target);   // (S103 I3: &t_shadow; S103 L2a: r13 -> the state object's blend / alpha test; S103 SC: + the state object's scissor enable and this thread's last rect)
   if (t_scope.drawn) rdr_scene::walkcat::Mark(t_scope.cur, t_walk);   // S105 A4B: a scene-colour row recorded below the first wrestler category gets kQhPre3DCat (before the census key and the CloseScope commit)
+  if (t_scope.drawn && (t_scope.cur.have & rdr_scene::kQhSceneByPass)) {   // S111 ZFINAL / ZFINAL2: a row (any site, any z) our target model put on the frame, inside the game's scene pass (op 73 .. op 74): named at 1, 2, 4, ... rows (which route put it on the frame is a run's answer)
+    static std::atomic<uint64_t> by_pass{0};
+    const uint64_t n = by_pass.fetch_add(1, std::memory_order_relaxed) + 1;
+    if ((n & (n - 1)) == 0) REXLOG_INFO("[q2d] scene pass row {}: a row the target model put on the frame, recorded inside the game's scene pass (op 73 .. op 74) at walk category {} (site 0x{:08X}, kind {}, z test {}, frame {}), drawn in the scene pass with its own state", n, t_walk.cat, t_scope.cur.site, unsigned(t_scope.cur.kind), unsigned((t_scope.cur.state >> 4) & 1u), Frame());
+  }
+  if (t_scope.drawn && (t_scope.cur.have & rdr_scene::kQhAfterPost)) {   // S111 ZFINAL2 review: a row our target model classed scene colour, recorded at or after the game's post node (category 52): the frame's (walk_cat.h FrameAfterGamePost); named at 1, 2, 4, ... rows (states 7 / 8's copy pair or op 74's skipped bind-back: which, a run's answer)
+    static std::atomic<uint64_t> after_post{0};
+    const uint64_t n = after_post.fetch_add(1, std::memory_order_relaxed) + 1;
+    if ((n & (n - 1)) == 0) REXLOG_INFO("[q2d] after-post row {}: a row the target model classed scene colour, recorded at walk category {} (at or after the game's post node, 52; game scene pass open {}), drawn on the frame over our post (site 0x{:08X}, kind {}, frame {})", n, t_walk.cat, unsigned(t_walk.scene), t_scope.cur.site, unsigned(t_scope.cur.kind), Frame());
+  }
   if (t_scope.drawn && t_scope.cur.pass == rdr_scene::kQpSceneColour) {   // PFR review 6: the FIRST scene-colour row's site, once (the host drops these rows: this says what is lost)
     static std::atomic<bool> logged{false};
     if (!logged.exchange(true)) REXLOG_INFO("[q2d] first scene-colour 2D row (op 73 target): frame {}, op-19 site 0x{:08X}, row site 0x{:08X}, kind {}", Frame(), uint32_t(ctx.lr) - 4, t_scope.cur.site, unsigned(t_scope.cur.kind));
@@ -208,11 +218,13 @@ inline void OnGetRenderTarget(const PPCContext& ctx, const uint8_t* base) {
 }
 // S103 PFR: op 73 (sub_82BB6FC8, recorder of sub_82BA7488: binds the scene colour surface when [engine+292] == 0 and [engine+312] != 0) and op 74 (sub_82BB7078, executor sub_82BA74D8: resolves and binds the DEFAULT again, like op 47).
 inline void OnSceneBegin(const PPCContext& ctx, const uint8_t* base) {
+  t_walk.SceneBegin();   // S111 ZFINAL review: the game's scene pass is open on this thread whatever op 73 binds (walk_cat.h SceneByGamePass); a thread_local store, before the Active() test
   if (!Active()) return;
   EnsureFrame();
   q::OnSceneBeginOp(t_target, t_scissor, GuestMem{}, &g_counters);
 }
 inline void OnSceneEnd(const PPCContext& ctx, const uint8_t* base) {
+  t_walk.SceneEnd();   // S111 ZFINAL review: the game's op 74 closes the scene pass on this thread
   if (!Active()) return;
   EnsureFrame();
   q::OnSceneEndOp(t_target, t_scissor, GuestMem{}, &g_counters);

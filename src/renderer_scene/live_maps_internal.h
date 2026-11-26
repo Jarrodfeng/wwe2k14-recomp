@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../renderer/shaders/spv/fx_registry.h"
+#include "caster_cull.h"   // S111 CASTCULL: the caster passes' face cull (kCasterCull, kCasterFrontShadow / kCasterFrontPlane)
 
 namespace rdr_scene::maps_detail {
 

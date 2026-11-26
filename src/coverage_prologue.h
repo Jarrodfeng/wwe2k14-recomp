@@ -1,7 +1,7 @@
 // wwe2k14 - scenario coverage, guest side (Session 8 task 6). COVERAGE PRESET ONLY.
 //
 // CMakeLists.txt adds this header to the recompiled-code target's precompiled header, after
-// generated/default/wwe2k14_pch.h, only when WWE2K14_COVERAGE=ON (the win-amd64-coverage preset). The normal
+// generated/default/wwe2k14_pch.h, only when WWE2K14_COVERAGE=ON (the win-amd64-coverage-off preset). The normal
 // presets never see it, so their generated code compiles exactly as before.
 //
 // It replaces REX_FUNC_PROLOGUE(), which every generated guest function runs first, with: the original alignment

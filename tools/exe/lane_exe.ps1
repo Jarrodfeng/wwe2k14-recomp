@@ -62,7 +62,7 @@ $folder = Join-Path $exeRoot $Name
 $skipped = @()
 $mainCache = Join-Path $Main "out\build\$Preset\CMakeCache.txt"
 $mainOpts = Get-LaneCacheOptions $mainCache ([ref]$skipped)
-$options = Get-LaneWantedOptions $mainOpts          # F4: symbols pinned OFF, guest lines OFF
+$options = Get-LaneWantedOptions $mainOpts $Preset  # F4: symbols pinned OFF, guest lines OFF; S111: the preset's KEEP_STREAM identity pinned
 $skipped = @($skipped | Where-Object { $_ -notmatch '^WWE2K14_EXE_SYMBOLS(_GUEST_LINES)?=' })
 $mainStrings = Get-LaneCacheStrings $mainCache       # F3: non-empty STRING / FILEPATH options are not carried: refused below
 # S108: only options the project DECLARES count. A cache entry no CMakeLists.txt names (e.g. WWE2K14_PY, left in main's cache by a

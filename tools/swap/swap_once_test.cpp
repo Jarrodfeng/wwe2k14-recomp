@@ -23,7 +23,7 @@
 namespace {
 
 using rdr_scene::TablesPool;
-constexpr size_t kExpectedSceneTablesSize = 1976;  /* S108 SHOT: +80 (body_scales, liquid_images, liquid_image_bytes vectors 72 + snapshot_seen / snapshot_errors 8; Recycle clears them: record_io.cpp; measured by sizeof) */  /* S108 THR2: +24 (change_colours vector for record section 67; Recycle clears it: record_io.cpp; measured by sizeof) */  /* S103 W2B: +24 (bone_tags vector for record section 66; Recycle clears it: record_io.cpp; the size moved for section 66, measured by sizeof) */  /* S103 KS1: +24 (props_light vector; Recycle clears it: record_io.cpp; measured by sizeof) */  /* S103 SWF: +80 (liquid_maps, liquid_items, liquid_pictures vectors 72 + liquid_errors 4, padded; Recycle clears them: record_io.cpp; measured by sizeof) */  /* S103 CPU1: +16 (ArenaMemo gained lights_key + lights_n: the light rows' key made once per record; Recycle / ExpandInto reset it; measured by sizeof with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS) */  /* S103 CW-2b: +80 (guest_models, static_assert in guest_model_rows.h); merged with the weapons +80: sizeof(SceneTables) = 1728 with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS, computed by sizeof at the merge */  /* S103 PW-2: +56 (weapon_calls, weapon_nodes, weapon_call_errors) */  /* S103 PW-1: +24 (weapon_slots vector) */  /* S103 MP: +24 (ParticleTables::screen vector; MPBF fix 1) */  /* S103 I1: +32 (quads2d vector 24 + quad2d_errors 4, padded) */  /* S103 D6: +24 (crowd_pictures) */  /* S103 E5: +48 (plane_eyes, part_clocks) */  /* S103 D4: +48 (crowd_props, crowd_singles) */  // S103 L: 1344 (the session branch) + lane L stage_look 24 (the vector); S103 S + A + A2 + C + F (1072 + owned_passes 24 + lane A 88 + lane A2 56 + lane C 56 + lane F 48; computed at the merge)   // this test build (clang for Windows x64, MSVC STL, release, with the plant members of record_io.h) // S103 F2: +24 (ParticleTables::status vector), measured
+constexpr size_t kExpectedSceneTablesSize = 2048;  /* S111 EYECUBE: +48 (GuestModelTables::mats / tex_names for record sections 72 / 73; GuestModelTables::Clear clears them; static_assert 152 in guest_model_rows.h) */  /* S111 GUESTHAIR: +24 (GuestModelTables::params for record section 71; GuestModelTables::Clear clears it, Recycle calls it: record_io.cpp; static_assert 104 in guest_model_rows.h) */  /* S108 SHOT: +80 (body_scales, liquid_images, liquid_image_bytes vectors 72 + snapshot_seen / snapshot_errors 8; Recycle clears them: record_io.cpp; measured by sizeof) */  /* S108 THR2: +24 (change_colours vector for record section 67; Recycle clears it: record_io.cpp; measured by sizeof) */  /* S103 W2B: +24 (bone_tags vector for record section 66; Recycle clears it: record_io.cpp; the size moved for section 66, measured by sizeof) */  /* S103 KS1: +24 (props_light vector; Recycle clears it: record_io.cpp; measured by sizeof) */  /* S103 SWF: +80 (liquid_maps, liquid_items, liquid_pictures vectors 72 + liquid_errors 4, padded; Recycle clears them: record_io.cpp; measured by sizeof) */  /* S103 CPU1: +16 (ArenaMemo gained lights_key + lights_n: the light rows' key made once per record; Recycle / ExpandInto reset it; measured by sizeof with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS) */  /* S103 CW-2b: +80 (guest_models, static_assert in guest_model_rows.h); merged with the weapons +80: sizeof(SceneTables) = 1728 with -DRDR_SWAP_PLANTS -DRDR_CROWD_IDS_PLANTS, computed by sizeof at the merge */  /* S103 PW-2: +56 (weapon_calls, weapon_nodes, weapon_call_errors) */  /* S103 PW-1: +24 (weapon_slots vector) */  /* S103 MP: +24 (ParticleTables::screen vector; MPBF fix 1) */  /* S103 I1: +32 (quads2d vector 24 + quad2d_errors 4, padded) */  /* S103 D6: +24 (crowd_pictures) */  /* S103 E5: +48 (plane_eyes, part_clocks) */  /* S103 D4: +48 (crowd_props, crowd_singles) */  // S103 L: 1344 (the session branch) + lane L stage_look 24 (the vector); S103 S + A + A2 + C + F (1072 + owned_passes 24 + lane A 88 + lane A2 56 + lane C 56 + lane F 48; computed at the merge)   // this test build (clang for Windows x64, MSVC STL, release, with the plant members of record_io.h) // S103 F2: +24 (ParticleTables::status vector), measured
 namespace so = rdr_scene::swap_once;
 
 // ---- 1 / 2: the writer's path ---------------------------------------------------------------------------------------------------------------
@@ -232,7 +232,9 @@ std::vector<int> OverlayShown(bool skip_idle, size_t* posted) {
 }
 
 // ---- 7: cost ----------------------------------------------------------------------------------------------------------------------------------
-struct Cost { double ns = 0, allocs = 0, allocs_take = 0, allocs_arena = 0, ns_crowd = 0, members = 0; size_t seeded = 0; };
+// S111 EYECUBE review: the checks below compare WORK COUNTS (allocations; members the crowd fast path wrote: swap_once::g_count), never wall time. Two ns timings taken one after the other move with
+// the PC's load (a proof run of three commands at once had "recycled" 51622 ns vs "fresh" 50658 ns, alone 39067 vs 45994): the ns are printed, not checked (CLAUDE.md: timing tests are load-independent).
+struct Cost { double ns = 0, allocs = 0, allocs_take = 0, allocs_arena = 0, ns_crowd = 0, members = 0, crowd_fast = 0, crowd_slow = 0; size_t seeded = 0; };
 Cost MeasureTables(const std::vector<Frame>& fs, bool recycled, uint32_t mask, int warm) {
   crowd::Contributor c;
   c.SetPoseObjects(true);
@@ -261,14 +263,17 @@ Cost MeasureTables(const std::vector<Frame>& fs, bool recycled, uint32_t mask, i
     arena::Instance()->Emit(info, *h, ca);
     const uint64_t a_arena = g_allocs.load() - a_take0 - a_take;
     const auto t1 = Clk::now();
+    const uint64_t fast0 = so::g_count.crowd_fast.load(), slow0 = so::g_count.crowd_slow.load();
     c.Emit(info, *h, cc);
     const auto t2 = Clk::now();
+    const uint64_t fast_n = so::g_count.crowd_fast.load() - fast0, slow_n = so::g_count.crowd_slow.load() - slow0;   // members written by the kept pool field / through the id cache (counted only with bit 2)
     g_count = false;
     if (i >= size_t(warm)) {
       cost.ns += double(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t0).count());
       cost.ns_crowd += double(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count());
       cost.allocs += double(g_allocs.load());
       cost.allocs_take += double(a_take), cost.allocs_arena += double(a_arena);
+      cost.crowd_fast += double(fast_n), cost.crowd_slow += double(slow_n);
       cost.seeded += seeded;
       cost.members += fs[i].drawn ? double(fs[i].members.size()) : 0;
     }
@@ -277,6 +282,7 @@ Cost MeasureTables(const std::vector<Frame>& fs, bool recycled, uint32_t mask, i
   }
   in_flight.clear();
   cost.ns /= double(measured), cost.allocs /= double(measured), cost.allocs_take /= double(measured), cost.allocs_arena /= double(measured), cost.ns_crowd /= double(measured), cost.members /= double(measured);
+  cost.crowd_fast /= double(measured), cost.crowd_slow /= double(measured);
   crowd::g_crowd_ids_once.store(false);
   so::g_mask.store(0);
   return cost;
@@ -437,8 +443,11 @@ int main(int argc, char** argv) {
     std::printf("[swap_once_test]   ns, take + seed + arena + crowd: fresh %.0f, recycled %.0f (%.0f saved), recycled + fast ids %.0f;  crowd Emit alone: fresh %.0f, recycled %.0f, fast ids on fresh tables %.0f, recycled + fast %.0f\n",
                 fresh.ns, recycled.ns, fresh.ns - recycled.ns, recycled_fast.ns, fresh.ns_crowd, recycled.ns_crowd, fresh_fast.ns_crowd, recycled_fast.ns_crowd);
     Check(recycled.allocs < fresh.allocs * 0.5, "recycled tables: allocations a frame fall by more than half (steady crowd)", std::to_string(recycled.allocs) + " vs " + std::to_string(fresh.allocs));
-    Check(recycled.ns < fresh.ns, "recycled tables: the frame's table work is cheaper");
-    Check(fresh_fast.ns_crowd < fresh.ns_crowd, "crowd fast path: the crowd Emit alone is cheaper on identical tables");
+    Check(recycled.allocs_take + recycled.allocs_arena < (fresh.allocs_take + fresh.allocs_arena) * 0.5, "recycled tables: the frame's table work is cheaper: the seed and the arena Emit allocate less than half (counted; the ns above are not checked)",
+          std::to_string(recycled.allocs_take + recycled.allocs_arena) + " vs " + std::to_string(fresh.allocs_take + fresh.allocs_arena));
+    Check(fresh_fast.crowd_fast > 0.9 * (fresh_fast.crowd_fast + fresh_fast.crowd_slow) && fresh_fast.crowd_fast > 0 && fresh.crowd_fast == 0,
+          "crowd fast path: the crowd Emit alone is cheaper on identical tables: most members are written by their kept pool field, with no id cache lookup and no id string (counted; none without bit 2)",
+          std::to_string(fresh_fast.crowd_fast) + " fast vs " + std::to_string(fresh_fast.crowd_slow) + " through the id cache a frame; without bit 2: " + std::to_string(fresh.crowd_fast));
     if (!records.empty()) {
       const auto real = LoadRecords(records, 120);
       Check(!real.empty(), "real records read", records);
@@ -446,7 +455,7 @@ int main(int argc, char** argv) {
         const int w2 = std::min<int>(20, int(real.size()) / 3);
         const Cost f2 = Best(real, false, 0, w2), r2 = Best(real, true, so::kTables | so::kCrowdIds, w2);
         std::printf("[swap_once_test] real frames (%.0f members): allocations fresh %.1f recycled+fast %.1f; ns fresh %.0f recycled+fast %.0f (%.0f saved)\n", f2.members, f2.allocs, r2.allocs, f2.ns, r2.ns, f2.ns - r2.ns);
-        Check(r2.allocs < f2.allocs && r2.ns < f2.ns, "real frames: recycled tables + fast ids are cheaper in allocations and ns");
+        Check(r2.allocs < f2.allocs && r2.crowd_fast > 0, "real frames: recycled tables + fast ids are cheaper: fewer allocations, members written by the fast path (counted; the ns are printed, not checked)");
         // records equal on real frames through live::EndFrame, all bits
         const LiveOut base = Live(real, LiveCfg{0, true, false}), on = Live(real, LiveCfg{7, true, false});
         std::string why;

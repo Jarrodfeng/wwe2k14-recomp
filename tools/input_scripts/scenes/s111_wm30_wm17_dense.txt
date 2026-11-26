@@ -1,0 +1,39 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_wm30=20 --wwe2k14_wm30_direct
+# intent: owner on
+# S111 WM30STAR WM17: 30 Years match 20 (record 203, the WM17 main event), as s111_wm30_austin_rock_dense.txt; a shot every 3 frames through mid-match banks 1580 / 1590 / 1600 (AE17_SCN_1A/1B/1C): Jarrod says the stage-light star over the wrestlers is in this match.
+on_fail quit
+log bench: start scene wm30_wm17_dense
+include boot_to_menu
+wait_file EVTDSC 1200
+# match 20 plays the pre-match season video movies/season/0411.bik2 first (90 s; match 18 does not). NO press ends it (S111 MOVIESKIP,
+# docs/research/s111/MOVIESKIP.md): the card sub_82844500 (vtable 0x82037B68) has no live skip input (card+400 / +404 are only ever 0);
+# it ends after the video's last frame, and its end step (slot 17 sub_82843870, called every frame by the base dispatcher, no input) also
+# waits for the preload task D = [[0x839295F0]+24] when the card started it (D+16 != 0). sub_8342E888 is the Bink read-buffer fill %, not a
+# frame count. So: wait for the in-game intro screen (vtable 0x820353E0), no presses.
+wait_state 0x83924744>80>0 0x820353E0 60000 2
+wait_state 0x83924744>80>0 0x820353E0 6000 2
+wait_state 0x83924744>4 3 9000 2
+wait_state 0x83924744>80>352 2 120 2
+wait_state 0x836F3AA4 <=0 600 1
+press_until_state A 0x83924744>80>16 !=2 4 30 6 unreadable
+wait_state match_clock >0 30000
+press_until_state A match_clock >120 5 60 5 if_needed
+wait_frames 60
+screenshot_every 3 e1580
+wm30_fire 1580 force
+log bench: fired 1580
+wait_frames 900
+screenshot_every 0
+screenshot_every 3 e1590
+wm30_fire 1590 force
+log bench: fired 1590
+wait_frames 900
+screenshot_every 0
+screenshot_every 3 e1600
+wm30_fire 1600 force
+log bench: fired 1600
+wait_frames 900
+screenshot_every 0
+log bench: done
+wait_frames 60
+quit

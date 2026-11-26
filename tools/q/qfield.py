@@ -223,17 +223,28 @@ def cmd_off(con, a, out):
     return out
 
 
-def print_off(out, js):
+def print_off(out, js, fm='card'):
     if js:
         print(json.dumps(out, indent=1))
         return
+    import qfactcard
     cur = None
+    cards = {}
+    nf = 0
     for r in out['rows']:
         if r['func'] != cur:
             cur = r['func']
             print(fname(int(cur[4:], 16)))
         t = ('  ' + '; '.join(r['types'])) if r['types'] else ''
         print(f"  {r['addr']}  {r['rw']} w{r['width']}{'f' if r['float'] else ''} +{r['off']}  root {r['root']}{t}")
+        if fm != 'none' and (fm == 'all' or nf < qfactcard.MAX_CALLER_FACTS):      # S111 FACTCARD: the claim that cites this access site
+            fa = int(cur[4:], 16)
+            if fa not in cards:
+                cards[fa] = qfactcard.collect(fa, None, None, 'field', fm)
+            line = qfactcard.site_fact(cards[fa], int(r['addr'], 16) - fa, fm)
+            if line:
+                print('      ' + line)
+                nf += 1
     print(f"-- {out['count']} accesses in {out['functions']} functions" + (' (truncated: --limit)' if out['truncated'] else ''),
           file=sys.stderr)
 
@@ -333,9 +344,12 @@ def main(argv=None):
     ap.add_argument('--writes', action='store_true'); ap.add_argument('--reads', action='store_true')
     ap.add_argument('--lea', action='store_true')
     ap.add_argument('--strict', action='store_true', help='drop what is only inferred from callers (how=callarg, via callers)')
-    ap.add_argument('--func'); ap.add_argument('--width', type=int)
+    ap.add_argument('--func', '--in', dest='func', help='only the accesses inside this function (S111 QGAPS: --in = --func; it used to abbreviate --int and print every function)')
+    ap.add_argument('--width', type=int)
     ap.add_argument('--float', action='store_true'); ap.add_argument('--int', action='store_true')
     ap.add_argument('--limit', type=int, default=500); ap.add_argument('--json', action='store_true')
+    import qfactcard
+    qfactcard.add_arg(ap)
     ap.add_argument('--rebuild', action='store_true')
     ap.add_argument('--root'); ap.add_argument('--gen'); ap.add_argument('--image'); ap.add_argument('--db')
     ap.add_argument('--no-rebuild', dest='no_rebuild', action='store_true')
@@ -366,7 +380,7 @@ def main(argv=None):
             a.arg = a.arg2 or ap.error('type needs T')
             print_type(cmd_type(con, a, out), a.json)
             return 0
-        print_off(cmd_off(con, a, out), a.json)
+        print_off(cmd_off(con, a, out), a.json, qfactcard.mode_of(a))
         return 0
     except FieldError as e:
         if a.json:

@@ -14,14 +14,15 @@ enum ChangeColourFlags : uint32_t {
   kCcUnsettled = 1,   // this frame's draw had no colours sent (editor state != 10): the colours are the last state-10 read (change_colour.h UNSETTLED)
   kCcProp = 2,        // S108 THB: the row is an entrance PROP's (object = the prop model's address; colours[0..11] = 4 RGB triples, the rest 0; the mask = the prop's /SPMT/<id> Mask1), not a wrestler body's
   kCcEditor = 4,      // S108 THB (with kCcProp): read from the Threads editor's draw callback: the game feeds MatDifCol (1, 1, 1, 1) with it; clear = a saved set's colours (the match hook), MatDifCol of the file
+  kCcBeltMask = 8,    // S111 BELTMASKNAME (with kCcProp): a STOCK belt the game recolours for a created title (R5, scene_live\belt_colour.h): `reserved` = the mask's NAME, mode << 16 | id (/CBPM, /CBWM or /CBLM of pac\cab\CAB.pac)
 };
-inline constexpr uint32_t kCcKnownFlags = kCcUnsettled | kCcProp | kCcEditor;
+inline constexpr uint32_t kCcKnownFlags = kCcUnsettled | kCcProp | kCcEditor | kCcBeltMask;
 struct ChangeColourRow {   // 64 bytes
   uint32_t layout = kChangeColourLayout;
   uint32_t object = 0;          // the body's engine object (the skeleton = model address the game drew: the key of every wrestler row)
   uint32_t flags = 0;           // ChangeColourFlags
   uint8_t colours[48] = {};     // 16 RGB triples in the game's order: mask 1 r, g, b, a, mask 2 ... (g_fChangeColor[i] = byte / 255)
-  uint32_t reserved = 0;
+  uint32_t reserved = 0;       // kCcBeltMask: the belt mask's name (belt_colour.h MaskName); else 0
 };
 static_assert(sizeof(ChangeColourRow) == 64, "ChangeColourRow is a flat POD table");
 

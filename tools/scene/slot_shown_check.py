@@ -11,6 +11,7 @@ import sys
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {
     'ignore_bit': 'arena.hidden_not_emitted', 'no_reader': 'arena.hidden_not_emitted', 'stale_latch': 'arena.flip_picked_up', 'all_skeletons': 'wrestler.non_slot_not_asked',
+    'upd_shows': 'wrestler.posed_not_drawn_hidden', 'sets_need_arena': 'arena.sets_without_arena',
 }
 
 
@@ -49,6 +50,7 @@ def main():
         ('src/scene_live/inputs_glue.h', 'SetSlotRecordReader', 'the glue wires the slot-record reader to the stage contributor'),
         ('src/scene_live/stage_fx_contrib.h', 'ReadSlotRecords', 'the stage contributor reads the records at stage + 1220'),
         ('src/scene_live/arena_contrib.cpp', 'SlotHidden(g_snap, sl.slot)', 'EmittedSlots drops a hidden slot'),
+        ('src/scene_live/arena_contrib.cpp', 'if (!s.sets.empty() && !g_sets_need_arena.load(std::memory_order_relaxed)) emit_sets();', 'S111 STAGELESS: a frame naming no arena still emits its light sets'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

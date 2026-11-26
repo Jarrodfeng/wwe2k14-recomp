@@ -1,11 +1,11 @@
-// S103 YCB: the wrestler table pick vs the old min-define pick, per (effect, technique) family, from the player's own chNNN pacs (read-only, 0 game runs). docs\research\s103\YCH.md.
-// The REAL code runs: this unit #includes src\renderer_scene\char_effects.cpp (ChooseCharEffect / ChooseCharEffectTable, the registry, the effect table from pac\_startup.pac) and uses technique_pick.h's CharPass for the
+// S103 YCB: the wrestler table pick against the game's row, per (effect, technique) family, from the player's own chNNN pacs (read-only, 0 game runs). docs\research\s103\YCH.md.
+// The REAL code runs: this unit #includes src\renderer_scene\char_effects.cpp (ChooseCharEffectTable, the only pick since S111 OLDCHAIN; the registry, the effect table from pac\_startup.pac) and uses technique_pick.h's CharPass for the
 // game's pass rule. Two states per mesh (YCH.md section 2): S0 = the match / entrance state (model mode 0: per material, the cube-specular row when the material names g_mSpecPowPrm, shadow map present) and
 // S8 = the brock_losswin state (mode 2: the wet / no-cube row). "game row" = the table's (VS, PS) of (technique, CharPass) by hash; "bindable" = that row's PS has no FX_WRINKLES (slot 5 source unsettled).
 //   ych_census --game DIR --ych [--plant] [--ids A,B-C] [--verbose]
-//     per family and state: meshes, BEFORE (the old pick, dry / wet-liquid-map skin only) matching the game row, AFTER (ChooseCharEffectTable) matching it / cube sibling / counted fallback / MISMATCH.
+//     per family and state: meshes, AFTER (ChooseCharEffectTable) matching the game row / cube sibling / counted hole / MISMATCH.
 //     Bar (exit 0): in both states every mesh whose game row is bindable is AFTER == the game row; every cube row binds its `pass | 8` sibling and that sibling is the table's row for it; no MISMATCH (a table pick that is
-//     not the row it names). --plant = the AFTER arm is the old min-define pick (the planted twin): exits 0 only when the check then FAILS (the plant is caught).
+//     not the row it names). --plant = the AFTER arm binds the registry's next pixel variant after the row's (the planted twin: a pick that is not the row it names): exits 0 only when the check then FAILS (the plant is caught).
 // Build: tools\assets\build_ych_census.ps1. Exit 0 = pass / printed, 1 = failed, 2 = usage / cannot read.
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -47,8 +47,7 @@ bool BuildTable(launcher::GameFiles& files) {   // = technique_census.cpp BuildT
 size_t g_zero_pow = 0, g_zero_base = 0, g_zero_sweat = 0, g_zero_any = 0;   // F3: cube-row (analytic) mesh-states whose material carries a lobe power of 0 (S0 and S8 together)
 struct State {
   size_t n = 0, norow = 0, bindable = 0;
-  size_t before_dry = 0, before_wet = 0, before_wet_n = 0, before_vs_too = 0;  // the old pick (dry; wet = the liquid-map reader, skin classes) equal to the game row
-  size_t after_match = 0, cube_fb = 0, cube_fb_ok = 0, fallback_wrinkle = 0, fallback_other = 0, mismatch = 0, bindable_missed = 0;
+  size_t after_match = 0, cube_fb = 0, cube_fb_ok = 0, fallback_wrinkle = 0, fallback_other = 0, mismatch = 0, bindable_missed = 0;   // fallback_* = the holes (S111 OLDCHAIN: drawn nothing)
   std::map<std::string, size_t> why;
 };
 struct Fam { State s[2]; };   // 0 = S0 (mode 0), 1 = S8 (mode 2)
@@ -130,19 +129,8 @@ int main(int argc, char** argv) {
           const int gps = rdr_scene::OwnVariantOfHash(row->ps, mat.shader, "_fragment"), gvs = rdr_scene::OwnVariantOfHash(vrow->vs, mat.shader, "_vertex");
           const bool bindable = gps >= 0 && gvs >= 0 && (assets::g_wrk_live.load() || !PsWrinkles(gps));   // S103 WRK: a wrinkle row binds (slot 5 = wrinkles_n) while the switch is on (the game's value: the row IS the game's pick)   // a cube row binds its non-cube twin (CUB.md Route A)
           S.bindable += bindable;
-          // The OLD arm = the front end before this lane: a frame with a shadow map binds EVERY character material to the shadow-reader pair (hair included), the skin classes to the wet pair when the wrestler has a liquid map.
-          // Compared on the PIXEL variant, as the probe's tables (YCH.md section 2); `vs_too` also counts the vertex variant equal (the game's skin rows use FX_ID_MAP vertex variants the old filter refuses).
-          const auto old_pick = [&](bool wet) { return rdr_scene::ChooseCharEffectShadow(mat.shader, skinned, mat.alpha_test, wet); };
-          const rdr_scene::CharChoice od = old_pick(false);
-          S.before_dry += od.Ok() && od.ps == gps;
-          S.before_vs_too += od.Ok() && od.ps == gps && od.vs == gvs;
-          if (lower.rfind("ych_skin", 0) == 0) {   // the old wet pick: the skin classes with a liquid map
-            ++S.before_wet_n;
-            const rdr_scene::CharChoice ow = old_pick(true);
-            S.before_wet += ow.Ok() && ow.ps == gps;
-          }
-          rdr_scene::CharChoice nc = plant ? od : rdr_scene::ChooseCharEffectTable(mat.shader, skinned, mat.alpha_test, mat.technique, pass);
-          if (plant && nc.Ok()) nc.tech_picked = true;   // the planted twin claims to be a table pick: the check must see it is not the row
+          rdr_scene::CharChoice nc = rdr_scene::ChooseCharEffectTable(mat.shader, skinned, mat.alpha_test, mat.technique, pass);
+          if (plant && nc.Ok() && !nc.cube_analytic) nc.ps = (nc.ps + 1) % rdr_scene::kVariantCount;   // the planted twin: a table pick that binds the registry's next pixel variant, not the row: the check must see it
           if (nc.Ok() && nc.tech_picked) {
             if (nc.cube_analytic) {   // CUB.md Route A: the row's cube pixel variant -> the same owner's variant with the same defines minus FX_CUBE_SPECULAR and the same samplers minus slot 11; the row's own vertex stage
               ++S.cube_fb;
@@ -163,7 +151,7 @@ int main(int argc, char** argv) {
             else ++S.mismatch, ++S.why["table pick != the row's hashes"];
           } else {
             if (nc.blocked_wrinkles) ++S.fallback_wrinkle; else ++S.fallback_other;
-            ++S.why[nc.why_not.empty() ? "(planted old pick)" : nc.why_not];
+            ++S.why[nc.why_not];
             if (bindable) ++S.bindable_missed;
           }
           if (verbose && st == 1) std::printf("[mesh] id %d at %d %-16s T%u pass %d game ps %s | after %s\n", id, at, mat.shader.c_str(), unsigned(mat.technique), pass, rdr_scene::kVariants[gps].name, nc.Ok() ? rdr_scene::kVariants[nc.ps].name : "(none)");
@@ -171,25 +159,24 @@ int main(int argc, char** argv) {
       }
     }
   }
-  std::printf("wrestler files %zu, models (attires) %zu%s\n", files_seen, models, plant ? "  [PLANTED TWIN: the AFTER arm is the old min-define pick]" : "");
+  std::printf("wrestler files %zu, models (attires) %zu%s\n", files_seen, models, plant ? "  [PLANTED TWIN: the AFTER arm binds the next registry variant, not the row]" : "");
   State tot[2];
   int bad = 0;
   for (int st = 0; st < 2; ++st) {
-    std::printf("\n== %s ==\n%-26s %6s %6s %5s | before dry %6s wet %9s | after: table==row %6s cube-sib %6s fb(wrinkle) %5s fb(other) %5s MISMATCH %4s | bindable-missed\n",
-                st == 0 ? "S0 (match / entrance: mode 0, cube rows)" : "S8 (brock_losswin: mode 2, wet / no-cube rows)", "family", "meshes", "norow", "bindbl", "match", "match", "", "", "", "", "");
+    std::printf("\n== %s ==\n%-26s %6s %6s %5s | after: table==row %6s cube-sib %6s hole(wrinkle) %5s hole(other) %5s MISMATCH %4s | bindable-missed\n",
+                st == 0 ? "S0 (match / entrance: mode 0, cube rows)" : "S8 (brock_losswin: mode 2, wet / no-cube rows)", "family", "meshes", "norow", "bindbl", "", "", "", "", "");
     for (const auto& kv : fams) {
       const State& S = kv.second.s[st];
-      std::printf("%-26s %6zu %6zu %5zu | before dry %6zu wet %4zu/%-4zu | after: %6zu %6zu %5zu %5zu %4zu | %zu\n", kv.first.c_str(), S.n, S.norow, S.bindable, S.before_dry, S.before_wet, S.before_wet_n, S.after_match, S.cube_fb, S.fallback_wrinkle, S.fallback_other, S.mismatch,
+      std::printf("%-26s %6zu %6zu %5zu | after: %6zu %6zu %5zu %5zu %4zu | %zu\n", kv.first.c_str(), S.n, S.norow, S.bindable, S.after_match, S.cube_fb, S.fallback_wrinkle, S.fallback_other, S.mismatch,
                   S.bindable_missed);
       if (verbose) for (const auto& w : S.why) std::printf("      %5zu  %s\n", w.second, w.first.c_str());
-      tot[st].before_vs_too += S.before_vs_too;
-      tot[st].n += S.n, tot[st].norow += S.norow, tot[st].bindable += S.bindable, tot[st].before_dry += S.before_dry, tot[st].before_wet += S.before_wet, tot[st].before_wet_n += S.before_wet_n;
+      tot[st].n += S.n, tot[st].norow += S.norow, tot[st].bindable += S.bindable;
       tot[st].after_match += S.after_match, tot[st].cube_fb += S.cube_fb, tot[st].cube_fb_ok += S.cube_fb_ok, tot[st].fallback_wrinkle += S.fallback_wrinkle, tot[st].fallback_other += S.fallback_other;
       tot[st].mismatch += S.mismatch, tot[st].bindable_missed += S.bindable_missed;
     }
     const State& T = tot[st];
-    std::printf("%-26s %6zu %6zu %5zu | before dry %6zu wet %4zu/%-4zu | after: %6zu %6zu %5zu %5zu %4zu | %zu\n", "TOTAL", T.n, T.norow, T.bindable, T.before_dry, T.before_wet, T.before_wet_n, T.after_match, T.cube_fb, T.fallback_wrinkle, T.fallback_other, T.mismatch, T.bindable_missed);
-    std::printf("  game-row matches: BEFORE (old pick, dry: pixel variant equal %zu, vertex too %zu; old wet pick %zu of %zu skin) of %zu; AFTER %zu (table==row) + %zu cube row -> non-cube twin (analytic) of %zu\n", T.before_dry, T.before_vs_too, T.before_wet, T.before_wet_n, T.n - T.norow, T.after_match, T.cube_fb_ok, T.n - T.norow);
+    std::printf("%-26s %6zu %6zu %5zu | after: %6zu %6zu %5zu %5zu %4zu | %zu\n", "TOTAL", T.n, T.norow, T.bindable, T.after_match, T.cube_fb, T.fallback_wrinkle, T.fallback_other, T.mismatch, T.bindable_missed);
+    std::printf("  game-row matches: %zu (table==row) + %zu cube row -> non-cube twin (analytic) of %zu\n", T.after_match, T.cube_fb_ok, T.n - T.norow);
     if (T.mismatch) ++bad, std::printf("FAIL %zu table picks that are not the row they name\n", T.mismatch);
     if (T.bindable_missed) ++bad, std::printf("FAIL %zu meshes whose game row is bindable were not given it\n", T.bindable_missed);
   }

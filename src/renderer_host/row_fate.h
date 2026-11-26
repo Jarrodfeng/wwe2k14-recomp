@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstdint>
 
-#include "../renderer_scene/frame_hooks.h"   // Scene2DSite
 #include "../renderer_scene/quads2d_plants.h"
 #include "../renderer_scene/rows_quad2d.h"
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
@@ -21,8 +20,8 @@ inline bool Near(float v, float want) { return std::isfinite(v) && std::fabs(v -
 // (plant 71 scene_dropped_on_flat: the flag is ignored, the rows are dropped `pass` as before.)
 inline Fate FateOf(const rdr_scene::Quad2D& r, bool draw_unknown, uint32_t w, uint32_t h, bool scene_hook, bool page_ctx, bool scene_on_f = false) {
   if (r.pass == rdr_scene::kQpFinal) return Fate::Draw;
-  if (scene_on_f && !Q2D_PLANT(71) && r.pass == rdr_scene::kQpSceneColour && rdr_scene::Scene2DSite(r.site)) return Fate::Draw;
-  if (r.pass == rdr_scene::kQpSceneColour && scene_hook && rdr_scene::Scene2DSite(r.site)) return Fate::InScene;   // S103 SCS: not drawn on F (the scene hook has them), counted in DrawRows from the hook's own report
+  if (scene_on_f && !Q2D_PLANT(71) && r.pass == rdr_scene::kQpSceneColour) return Fate::Draw;
+  if (r.pass == rdr_scene::kQpSceneColour && scene_hook) return Fate::InScene;   // S103 SCS: not drawn on F (the scene hook has them), counted in DrawRows from the hook's own report. S111 ZFINAL2: any site (the game's scene pass, not a site list)
   if (rdr_scene::IsStagePageRow(r, rdr_scene::stage_lmpage::On(), page_ctx)) return Fate::PageRow;
   if (r.pass != rdr_scene::kQpUnknown) return Fate::DropPass;
   if (draw_unknown) return Fate::Draw;

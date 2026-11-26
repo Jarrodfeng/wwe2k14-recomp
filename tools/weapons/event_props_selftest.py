@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-PLANTS = {"event_no_free": "event.reused_address", "event_instance0": "event.two_models_two_slots", "shadow_as_colour": "shadow.event_colour_kept"}
+PLANTS = {"event_no_free": "event.reused_address", "event_instance0": "event.two_models_two_slots", "shadow_as_colour": "shadow.event_colour_kept", "asked_light_lost": "prop.asked_light_set"}
 
 
 def run(exe, *args):
@@ -15,7 +15,7 @@ def run(exe, *args):
 
 
 def main():
-    root = "."
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # S111 STAGELESS2: the checkout this script is in (a proof runner's cwd may be another checkout)
     if "--root" in sys.argv:
         root = sys.argv[sys.argv.index("--root") + 1]
     exe = os.path.join(root, "out", "weapons", "event_props_test.exe")

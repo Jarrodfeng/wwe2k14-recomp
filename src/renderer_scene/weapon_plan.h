@@ -20,7 +20,9 @@
 
 #include "scene_record.h"
 #include "weapon_rows.h"
+#include "event_prop_nodes.h"   // S111 WATRSHADOW: the node that draws an event prop's entry k (CastsMapB / CastsPropsMap / Plan)
 #include "rows_ring.h"   // S106 G4-C: RingNodeRows (sizeof in WeaponViewOf)
+#include "rows_change_colour.h"   // S111 BELTMASKNAME review (F2): a held structure's belt rows (ChangeColourRow, kCcBeltMask)
 
 namespace rdr_scene::weapons {
 
@@ -43,6 +45,7 @@ struct HeldStage {
   std::vector<float> nodes;        // 12 floats per node
   uint32_t age = 0;                // frames the rows have been held in a row
   uint64_t sig = 0;                // review 10: the structure's member set (section-59 stage rows of this PACH: slot k + model address) when the snapshot was taken; a hold needs the SAME set now
+  std::vector<ChangeColourRow> rows;   // S111 BELTMASKNAME review (F2): the snapshot calls' belt rows (kCcBeltMask: the ladder belt R5 recolours), held with them so a held frame draws the masked pool of the frame it holds
 };
 struct StageFamilyLatch {
   int32_t fam[kStagePachCap];
@@ -69,6 +72,12 @@ struct View {
   size_t n_nodes = 0;
   bool empty() const { return n_calls == 0 || !calls || !nodes || n_nodes == 0; }
 };
+// S111 CUTREACH2 review: the section-59 rows of the record's own period (every row but the newest latch's load hints, weapon_rows.h kSlotFlagHint): what the draw-side gates count.
+inline size_t DrawSlotRows(const View& v) {
+  size_t n = 0;
+  for (size_t i = 0; v.slots && i < v.n_slots; ++i) n += (v.slots[i].flags & kSlotFlagHint) ? 0u : 1u;
+  return n;
+}
 
 // The record's three weapon tables as a View. A template on the table type so a unit can hand it the real SceneTables; the member names and element types are checked at COMPILE time (a rename in the contributors
 // breaks this build, never silently draws nothing: the PW-3 draft detected them with a `requires` and an empty View).
@@ -98,6 +107,7 @@ struct Plants {
   bool stage_both = false;       // twin (S103 CGF): both submit families of a structure are drawn (the cage drawn twice, once opaque and once at MdlAlpha)
   bool hold_ignore_sig = false;  // twin (S103 GBR review 10): a structure is held across a frame where its member set (holder) changed
   bool no_hold = false;          // twin (S103 GBR): a latched family with no rows draws nothing (the old behaviour: the structure blinks out for the frame)
+  bool hold_no_rows = false;     // twin (S111 BELTMASKNAME review F2): a held frame carries the calls but not their belt rows (the landed head: the ladder belt drawn plain on a held frame)
   bool stage_id_plain_ok = false;   // twin (S103 SMX): a stage id without the stage flag goes to the m2 weapon path (one failed m2.pac load per structure run)
   bool gm_dead_alpha = false;    // twin (S103 GBR): a gm set object / blood splat row with alpha not > 0 is drawn (opaque) instead of skipped
 };
@@ -170,6 +180,7 @@ struct Item {
   bool stage = false;      // S103 CGF: a STAGE STRUCTURE piece (cage / cell / chamber / Inferno): `id` = the bgEtc PACH, `entry` = k, the key of nested key 1 (StgEntryOf in weapon_draw_core.h)
   bool gm = false;         // S103 GBR: a GMSK set object: `id` = `entry` = its key in the arena's gm.pac bank (GmEntryOf)
   bool blood = false;      // S103 GBR: one blood splat: `id` = kBloodIdBase + bfloat16 colour, `entry` = the texture index (key 32010's list)
+  uint32_t event_main = 0; // S111 WATRSHADOW: an event prop's first made entry (the CWeapon's own model [cw+48]; evt_nodes::MainEntry, set by Plan): `entry` == this = the own node, else entry 4 / 5 / 6 / 9 = CWDT / WATR / CWDA / CWDS
 };
 
 // The m2.pac leaf entry of a call's model: 0 = the slot's main model, 1 + k = its secondary model k [L: k -> key k+1].
@@ -178,7 +189,7 @@ inline uint32_t EntryOfCall(const WeaponCall& w) { return (w.slot_flags & kCallS
 // S103 MBC (RMP.md 2.3 site 1, PMC.md section 1 / 4): does the game cast this item into the wrestlers' shadow map (map B, mode 0)? Categories 26 / 41 hold every CWeapon-class object; each node decides per object (the
 // per-id skips below, asm 0x825DDE38..E9C for manager weapons and sub_8272D378 +48..+78 for event props [C PMC]). Ids 59 / 68 / 71 / 96 (parked in 32 until a weapon method moves them to 26) and 'BKIE' weapons are CAST and counted
 // (`cast_unsure`: our row knows the model, not the weapon's current category [PMC missing 2]); id 135 casts: its extra test on [0x836F394C] (sub_825DFA78 +B0..+C8) sits OUTSIDE the flag-A branch, so a recorded row already means the word was non-zero [C MBC review 2].
-// Ids 2064 / 2556 are moved to category 43 by sub_827FBFE0 (entrances): they cast like any prop but NOT when the scene word is 1 (piece43, the family bit kObjMapBPiece43; RecordShadow skips them then).
+// Category 33 / 43 draws (per node, S111 WATRSHADOW: ids 2064 / 2556 re-keyed to 43 by sub_827FBFE0, and an entrance prop's CWDT / CWDS entries) cast like any prop but NOT when the scene word is 1 (family bit kObjMapBPiece43, set per node by evt_nodes::SceneWordGated; RecordShadow skips them then).
 // Never: gm sets (categories 23 / 36), blood splats (the node returns under flag A), a flag-A shadow row, a stage row that is not the piece's own CWeapon submit of the "other" class (slot-32 rows and the cage node do not run under flag A).
 inline constexpr bool IsMapBWeaponSkipId(int32_t id) {
   return id == 6 || id == 7 || id == 29 || id == 31 || id == 32 || id == 34 || id == 35 || id == 37 || (id >= 104 && id <= 107);
@@ -188,18 +199,22 @@ inline constexpr bool IsMapBPiece43Id(int32_t id) { return id == 2064 || id == 2
 inline constexpr bool IsMapBUnsureId(int32_t id) { return id == 59 || id == 68 || id == 71 || id == 96; }
 inline bool CastsMapB(const Item& it, const WeaponCall& w, bool plant_cast_gm = false) {   // plant_cast_gm: the planted twin `mapb_casts_gm` (gm sets and blood cast): tools only
   if (IsShadowCall(w.slot_flags)) return false;
+  if (it.stage && !stg_nodes::g_plant_node_blind && (w.slot_flags & kCallStageCaster) == 0) return false;   // S111 CHAMBERSHADOW (stage_struct_nodes.h): only a draw of a node the passes walk under the flag (the CWeapon pieces); never the chamber / rope / Inferno / cell / cage nodes
   if (!plant_cast_gm && (it.gm || it.blood || IsGmCall(w.slot_flags) || IsBloodCall(w.slot_flags))) return false;
-  if (it.stage) return IsStageOwn(w.slot_flags) && StageLrClass(w.slot_flags) == kStageLrOther;
-  if (it.event) return !IsMapBEventSkipId(it.id);
+  if (it.stage) return IsStageOwn(w.slot_flags) && OwnOtherCaller(StageLrClass(w.slot_flags));   // (with the caster bit above, only a CWeapon piece's own row (class 3) reaches here set; the chamber's own-node class 2 rows carry no bit: S111 CHAMBERSHADOW)
+  if (it.event) {   // S111 WATRSHADOW (event_prop_nodes.h): the node that draws entry k decides: WATR (5) never casts; the six-id skip is the own node's and CWDT's (4), CWDA (6) / CWDS (9) have none
+    const evt_nodes::Node n = evt_nodes::NodeOf(it.entry, it.event_main);
+    return evt_nodes::DrawsUnderFlag(n) && !(evt_nodes::HonoursSkipIds(n) && IsMapBEventSkipId(it.id));
+  }
   return !IsMapBWeaponSkipId(it.id);
 }
 
 // S103 PM2 (PMC.md 1 / 3 / 4, PMW.md, RMP.md 2): does the game cast this item into the PROPS map (the floor's shadow map, sub_827E7F00)? The pass draws render categories 24 (gated by [0x836F39A0]: never in normal play),
 // 26 and 41 (both gates constant), under flag A, so each node applies the same per-object skips as in map B (CastsMapB: weapon / event skip ids, stage own + "other" class, never gm / blood / a flag-A row). It differs from
 // map B in exactly two ways [C PMC]: (1) it is NOT mode-gated (map B's mode 1 = scene word 1 with >= 3 participants casts no props; the props pass always draws 26 + 41), and (2) it never draws category 33 / 43:
-// ids 2064 / 2556 are re-keyed to 43 by sub_827FBFE0 (entrances), so they cast into map B (outside scene word 1) but NOT into the props map. Pure; map B's filter is not bent (this calls it, then removes the piece-43 ids).
+// per node (evt_nodes::InPropsPass), an entrance prop's CWDT / WATR / CWDS entries and the ids 2064 / 2556 (re-keyed to 43 by sub_827FBFE0) cast into map B (outside scene word 1) but NOT into the props map. Pure; map B's filter is not bent (the node test runs first, then this calls it).
 inline bool CastsPropsMap(const Item& it, const WeaponCall& w, bool plant_cast_gm = false) {
-  if (it.event && IsMapBPiece43Id(it.id)) return false;
+  if (it.event && !evt_nodes::InPropsPass(evt_nodes::NodeOf(it.entry, it.event_main), IsMapBPiece43Id(it.id))) return false;   // S111 WATRSHADOW: CWDT / WATR / CWDS are category 33 (43): never in the props pass; CWDA (26) is
   return CastsMapB(it, w, plant_cast_gm);
 }
 
@@ -253,7 +268,9 @@ inline uint32_t NewestFrame(const View& v) {
 // the census `held N` says how often it happens; `held 0` over a match = the hold is dead code and goes. If a latched family has no rows (and a snapshot exists), the snapshot's rows are appended to a COPY of the view (stamped
 // with the newest frame) for up to kStageHoldMax frames in a row, counted in Census::Stage::held; past that the snapshot is dropped (the structure really has no rows). Returns `in` itself when nothing was held (no copy),
 // else a View over calls_buf / nodes_buf (the caller keeps both alive for the frame). A null latch or a twin (ignore_latch / no_hold / stage_both) = no hold and no snapshot.
-inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCall>& calls_buf, std::vector<float>& nodes_buf, Census& c) {
+// S111 BELTMASKNAME review (F2): `rows_in` = the record's section-67 rows; the snapshot keeps the belt rows (kCcBeltMask) of its calls, and a held frame APPENDS them to `rows_out` (the drawer merges them with the record's).
+inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCall>& calls_buf, std::vector<float>& nodes_buf, Census& c, const std::vector<ChangeColourRow>* rows_in = nullptr,
+                          std::vector<ChangeColourRow>* rows_out = nullptr) {
   if (!p.latch || p.ignore_latch || p.no_hold || p.stage_both) return in;
   StageFamilyLatch& L = *p.latch;
   bool any_latched = false;
@@ -285,16 +302,20 @@ inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCal
     HeldStage& h = L.held[pach];
     if (!p.hold_ignore_sig && !h.calls.empty() && h.sig != member_sig[pach]) h = HeldStage();   // the structure changed (or is no longer listed): nothing is held across that frame
     if (!usable[pach].empty()) {   // snapshot
-      h.calls.clear(), h.nodes.clear(), h.age = 0, h.sig = member_sig[pach];
+      h.calls.clear(), h.nodes.clear(), h.rows.clear(), h.age = 0, h.sig = member_sig[pach];
       for (uint32_t i : usable[pach]) {
         WeaponCall w = in.calls[i];
         const float* src = in.nodes + size_t(w.node_first) * 12;
         w.node_first = uint32_t(h.nodes.size() / 12);
         h.nodes.insert(h.nodes.end(), src, src + size_t(w.node_count) * 12);
         h.calls.push_back(w);
+        bool have_row = false;
+        for (const ChangeColourRow& r : h.rows) have_row = have_row || r.object == w.object;
+        for (size_t ri = 0; rows_in && !p.hold_no_rows && !have_row && ri < rows_in->size(); ++ri)
+          if ((*rows_in)[ri].object == w.object && ((*rows_in)[ri].flags & kCcBeltMask) != 0) h.rows.push_back((*rows_in)[ri]), have_row = true;
       }
     } else if (!h.calls.empty()) {
-      if (h.age >= kStageHoldMax) { h.calls.clear(), h.nodes.clear(); continue; }   // held long enough: the structure really has no rows
+      if (h.age >= kStageHoldMax) { h.calls.clear(), h.nodes.clear(), h.rows.clear(); continue; }   // held long enough: the structure really has no rows
       ++h.age;
       ++c.stage.held;
       const uint32_t base = uint32_t(in.n_nodes + add_nodes.size() / 12);   // this structure's snapshot indexes start at 0: shifted past the view's own nodes and the nodes added before it
@@ -304,6 +325,7 @@ inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCal
         add_calls.push_back(w);
       }
       add_nodes.insert(add_nodes.end(), h.nodes.begin(), h.nodes.end());
+      if (rows_out) rows_out->insert(rows_out->end(), h.rows.begin(), h.rows.end());
     }
   }
   if (add_calls.empty()) return in;
@@ -371,7 +393,7 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
       if (own) {
         const uint32_t oc = StageLrClass(w.slot_flags);   // review 3: the slot-13 caller's class
         if (oc == kStageLrCage) ++st.own_cage;
-        else if (oc == kStageLrOther) ++st.own_other;
+        else if (OwnOtherCaller(oc)) ++st.own_other;   // S111 PODGLASS: + the own-node class (2): the census line is unchanged
       } else {
         st.f1_min = st.slot32 == 1 ? w.alpha : std::min(st.f1_min, w.alpha), st.f1_max = st.slot32 == 1 ? w.alpha : std::max(st.f1_max, w.alpha);
         if (StageLrClass(w.slot_flags) == kStageLrOther) ++st.other_lr;
@@ -406,6 +428,7 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
     if (event) {   // one item per call, never merged / deduped on the id (two models of one prop = two calls); its model is evtobj.pac PACH-of(id) entry k
       ++c.event_items;
       out.push_back({id, uint32_t(i), w.instance, EventEntry(w.slot_flags), true});
+      out.back().event_main = evt_nodes::MainEntry(v.slots, v.n_slots, id);   // S111 WATRSHADOW: which node draws this entry (CastsMapB / CastsPropsMap)
       continue;
     }
     if (p.merge_instances) {

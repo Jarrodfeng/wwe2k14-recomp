@@ -96,7 +96,7 @@ static void BuildItem(FakeMem& m, uint32_t item, float x) {
 }
 // A particle node object at `node` with one live entry (one sprite item). `a` / `b` = its words +3084 / +3088.
 static void BuildNode(FakeMem& m, uint32_t node, uint32_t entry, float x, uint32_t a = 1, uint32_t b = 1) {
-  m.w[entry + 56] = 0, m.w[entry + 208] = 1, m.w[entry + 80 + 132] = 1, m.w[entry + 64] = 0;
+  m.w[entry + 56] = 0, m.w[entry + 208] = 1, m.w[entry + 80 + 132] = 1, m.w[entry + 64] = 0, m.w[entry + 220] = 1;   // +220 = 1: the start's depth-tested word (S111 PARTZ)
   const uint32_t item = 0x100000 + entry * 0x10;   // (one item list per entry, so two nodes do not share one)
   m.w[entry + 40] = entry + 0x200, m.w[entry + 0x200] = entry + 0x210, m.w[entry + 0x210 + 12] = 1, m.w[entry + 44] = entry + 0x230, m.w[entry + 0x230] = item;
   BuildItem(m, item, x);

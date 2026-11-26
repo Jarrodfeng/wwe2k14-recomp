@@ -116,7 +116,18 @@ def build_lines_for(root, main_dir, b, why=None):
         print('note: syntax_cfg unavailable (%s): FALLING BACK to the main checkout\'s out\\build flags for the %s build (they may not describe this tree: exit 4 NEEDS-MAIN when they differ)' % (e, b))
         if why is not None:
             why.extend(w for w in cmake_state(root, main_dir, [b]) if w not in why)
+        _check_folder_variant(main_dir, b)
         return build_commands(main_dir, BUILD_DIRS[b])
+
+
+def _check_folder_variant(main_dir, b):
+    """S111: the fallback reads main's folder as build `b`; refuse when that folder's own cache says it is the other variant (out\\build\\win-amd64-release is the stream-FREE player build since 2026-11-26,
+    so it is no 'on' reference). RuntimeError = the same channel as a missing build.ninja."""
+    cache = _cfg.parse_cache(os.path.join(main_dir, BUILD_DIRS[b], 'CMakeCache.txt'))
+    got = (cache or {}).get('WWE2K14_KEEP_STREAM', (None, None))[1]
+    want = _cfg.VARIANT[b]['WWE2K14_KEEP_STREAM']
+    if got is not None and got != want:
+        raise RuntimeError('main\'s %s is configured WWE2K14_KEEP_STREAM=%s, not the %s build\'s %s: it is no reference for the %s build' % (BUILD_DIRS[b], got, b, want, b))
 
 
 def flags_for(lines, main, tu_rel):

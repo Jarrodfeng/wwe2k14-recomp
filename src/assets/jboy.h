@@ -38,10 +38,16 @@
 #include <vector>
 
 #include "asset_model.h"
+#include "char_draw_layer.h"   // S111 LAYERS: which character parts blend (the game's draw split)
+#include "material_floats.h"   // S111 GUESTHAIR: the float parameters' one name -> field table (shared with the created-superstar build)
+#include "material_record.h"   // S111 UNIFY3: the record's technique / cull words -> Material (shared with the created-superstar build)
+#include "material_samplers.h"   // S111 UNIFY2: the sampler parameters' one name -> field table (shared with the created-superstar build)
 #include "dds.h"
 #include "load_plants.h"   // S103 W2B (review B): load_detail::SpringNodes
 #include "node_alias.h"   // S103 W2B
 #include "pac.h"
+#include "skin_vertex_colour.h"   // S111 VERTEXSEAM: the skin vertex keeps the file's byte 24 (ID-map / wrinkle slot) as its alpha
+#include "vertex_decode.h"   // S111 GUESTVTX: the vertex rules this loader shares with the created-superstar decoder (colour, 1-pair weight)
 
 namespace assets {
 
@@ -260,6 +266,8 @@ struct JboyOptions {
   // alpha cuts out (AlphaCutsOut) are drawn alpha-blended: Fandango 2591's slot-5 "beamglow02 / 03" light beams drew as opaque dark
   // cones. [U] the game's blend state for prop materials is not decoded (judged by the picture; slot 0 pieces keep the old rule).
   bool prop_slot = false;
+  // S111 UNIFY5 review: the model is a character's (a wrestler pac's body / pieces through LoadWrestlerPac; not an event prop through LoadProp, not a prop slot): Material::char_part on every material.
+  bool char_part = false;
 };
 
 namespace jboy_detail {
@@ -488,6 +496,13 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       m.warnings.push_back("mesh stream past the end of the body: mesh skipped");
       continue;
     }
+    // S111 GUESTVTX review: the skin-pair count is the record's (+0x5C, vdecode::GamePairCount), the count the game's packer reads S1 by. A skinned
+    // body whose count is above 4 or runs past its S1 stream cannot be read as the game reads it (no mesh on the disc has one).
+    const uint32_t pairs = vdecode::GamePairCount(r.u32(rec + 0x5C), st1, nnode);
+    if (pairs > 4 || uint64_t(pairs) * 8 > st1) {
+      m.warnings.push_back("skin pair count (mesh record +0x5C) above 4 or past the S1 stream: mesh skipped");
+      continue;
+    }
     if (!r.ok(ib, 12)) {
       m.warnings.push_back("index block past the end of the body: mesh skipped");
       continue;
@@ -553,6 +568,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       skin_streams = slot0 < 256 && w0 >= 0.f && w0 <= 1.0001f;
     }
     if (dc) dc->s1_skin = !o.arena || skin_streams;  // S101 atlas
+    const bool skin_fx = !o.arena && CString(r.b + rec + 0x7C, 16).rfind("yCh_skin", 0) == 0;   // S111 VERTEXSEAM: the effects that read the colour as inExtra
     for (uint32_t v = 0; v < N; ++v) {
       Vertex& vx = mesh.vertices[v];
       const uint8_t* p0 = r.b + s0d + 28ull * v;
@@ -562,8 +578,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       // byte picks a material index; multiplying by it turned Batista's skin teal and his blue trunk lettering red) ->
       // white.
       if (o.arena) {
-        const uint8_t c4[4] = {p0[25], p0[26], p0[27], p0[24]};
-        std::memcpy(&vx.color, c4, 4);
+        vx.color = vdecode::GameColour(Be32(p0 + 24));   // S111 GUESTVTX: bytes 25, 26, 27, 24 (the game's fetch order, the one rule)
       } else {
         // Session 98 (wrestler fix 3): bytes 1-3 of the word are one grey value (ch161: 50 on the body skin, 128 / 254 on head and
         // face pieces, 255 on gear [C: byte histograms, all 50 meshes]); the skin vertex shaders pass the colour's third byte on as
@@ -572,7 +587,8 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         // multiplies a wrestler's colour by it). [U: that the GPU vertex word equals the file's S0 word; bytes 1-3 being equal makes
         // the byte order moot.]
         const uint8_t g = p0[25];
-        const uint8_t c4[4] = {g, g, g, 0xFF};
+        uint8_t c4[4] = {g, g, g, 0xFF};
+        if (skin_fx) SkinVertexColour(p0 + 24, c4);   // S111 VERTEXSEAM: A = file byte 24, the packed ID-map / wrinkle slot the skin shader reads as inExtra.w
         std::memcpy(&vx.color, c4, 4);
       }
       if (!std::isfinite(vx.pos[0] + vx.pos[1] + vx.pos[2])) ++nan_count;
@@ -594,12 +610,12 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         uint32_t pnode[4] = {0, 0, 0, 0};
         float sum = 0;
         for (int k = 0; k < 4; ++k) vx.bones[k] = 0, vx.weights[k] = 0;
-        for (uint32_t pr = 0; pr < st1 / 8 && nb < 4; ++pr) {
-          const uint8_t* q = r.b + s1 + uint64_t(st1) * v + 8ull * pr;
+        for (uint32_t pr = 0; pr < pairs && nb < 4; ++pr) {
+          const uint8_t* q = r.b + s1 + 8ull * pairs * v + 8ull * pr;   // the packer's S1 index: 8 bytes a pair of the record's count
           uint32_t slot;
           std::memcpy(&slot, q, 4);  // LE
-          const float w = BeF(q + 4);
-          if (pr < 4) raw_slot[pr] = slot < 255 ? uint8_t(slot) : uint8_t(255), raw_w[pr] = w;
+          const float w_file = BeF(q + 4), w = vdecode::GamePairWeight(pairs, w_file);   // S111 GUESTVTX: a 1-pair vertex weighs 1.0 (the packer stores its slot alone)
+          if (pr < 4) raw_slot[pr] = slot < 255 ? uint8_t(slot) : uint8_t(255), raw_w[pr] = w_file;
           if (slot == 255) {
             ++unused_slot;
             continue;
@@ -634,7 +650,7 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         }
         if (o.arena && skin_streams) {  // S101 lane 49
           for (int k = 0; k < 4; ++k) mesh.src_skin_slots.push_back(raw_slot[k]), mesh.src_skin_weights.push_back(raw_w[k]);
-          mesh.src_skin_pairs = st1 / 8;
+          mesh.src_skin_pairs = pairs;
         }
         if (nb == 0 || !(sum > 0.f)) {
           ++zero_w;
@@ -676,18 +692,19 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
 
     // Material.
     Material mat;
-    mat.shader = CString(r.b + rec + 0x7C, 16);
-    mat.technique = r.u32(rec + 0x90);   // S103 D1: the technique index (PLAN.md skeleton R0: sub_82C04DF0 0x82C05AF8)
-    mat.vertex_lm = o.arena && mat.shader.compare(0, 4, "yBG_") == 0 && (r.u32(rec + 0x90) & 9u) == 1u && !L10PlantPerPixel();  // S103 L10: record word +0x90 (bit 0 set, bit 3 clear) = the game's vertex-LM program (docs/formats/arena_lightmap.md "S103 L10")
+    // S111 UNIFY5: the record's header through the ONE first step the created-superstar build runs too (material_record.h BeginMaterial): the effect +0x7C, its name table (S111 BODYSPEC: the family
+    // and the yCh missing-power default, before the parameter walk below), the technique word +0x90 (S103 D1: the technique index, PLAN.md skeleton R0: sub_82C04DF0 0x82C05AF8) and the cull word
+    // +0x8C (the SCU / C3 rule below) -> technique, cull_word, cull_from_record (bit 0x2), cull_back.
+    matrec::BeginMaterial(mat, CString(r.b + rec + 0x7C, 16), r.u32(rec + 0x90), r.u32(rec + 0x8C));
+    mat.char_part = o.char_part;   // S111 UNIFY5 review: drawn by a character's nodes (the caster set, wrestler_caster.h)
+    mat.vertex_lm = o.arena && mat.shader.compare(0, 4, "yBG_") == 0 && (mat.technique & 9u) == 1u && !L10PlantPerPixel();  // S103 L10: record word +0x90 (bit 0 set, bit 3 clear) = the game's vertex-LM program (docs/formats/arena_lightmap.md "S103 L10")
     // SCU (docs/research/harness/SCU_contract.md, CUL_ADV.md A / E [C]): the game's model draw sub_82C04DF0 reads record word +0x8C (BE u32) in its cull block
     // 0x82C0A880-0x82C0A914: bit 0x2 set = ONE sub-pass, cull on with the entry winding (2 for a normal camera = cull back, front clockwise); clear (model word t = 0 for every
     // stage model) = one sub-pass, cull off. The word is the file's (no writer in the model code). Only the stage slots 0..399 of an arena load (kind 1) take it here: the crowd,
     // props, weapons, the ring keys, the screens 800-809 (their own rule, rf_c_core.cpp) and characters keep their own cull (not audited for this bit: CUL U4).
-    mat.cull_word = r.u32(rec + 0x8C);
     // S105 C3 (docs/research/s105/C3.md): the same block serves EVERY family (stage, ring, props, weapons, structures, entrance props, gm objects, characters / attires): bit set = back faces culled, for every JBOY mesh.
     // The `r` copy's winding swap stays with the stage slots (stage_slot). The screens (rf_c_core.cpp), the crowd (live_crowd.cpp) and the flash sprite (rf_c_core.cpp) set their own rule after the load.
     mat.stage_slot = o.arena && o.kind == 1 && o.key >= 0 && o.key < 400;
-    mat.cull_from_record = (mat.cull_word & 0x2u) != 0, mat.cull_back = mat.cull_from_record;
     const uint32_t nparam = r.u32(rec + 0x94), plist = r.u32(rec + 0x98);
     if (nparam > 512 || !r.ok(plist, uint64_t(nparam) * 4)) {
       m.warnings.push_back("material parameter list out of range");
@@ -702,114 +719,24 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
         const uint32_t kind = r.u32(po + 16) >> 16;
         if (kind == 0x0F) {  // sampler: index into the texture-name table
           const int32_t ti = int32_t(r.u32(po + 20));
-          int* slot = nullptr;
-          // (Session 96: both name sets everywhere - the arena's skinned models may use either)
-          const bool uv_layers = mat.shader.rfind("yBG_UVScroll", 0) == 0 || (mat.shader.rfind("yProp_UVScrol", 0) == 0 && !load_detail::C2lPropUvPlant());   // S105 C2L: yProp_UVScroll (+ the LM spelling) takes the layers too (C2L.md 3c [C])
-          if (pname == "g_mDiffusePrm" || pname == "sampDiffusePrm" || (pname == "texDiffuse" && mat.shader == "yDefault" && !load_detail::C2lTexDiffusePlant())) slot = &mat.diffuse;   // S105 C2L: yDefault's own diffuse name (sign boards 40-45, 79; C2L.md 3a [C])
-          else if (pname == "g_mNormalFxPrm" || pname == "sampNormalPrm") slot = &mat.normal;
-          else if (pname == "g_mMaskPrm") slot = &mat.mask;
-          else if (pname == "sampLightMapPrm" && !skin_streams) slot = &mat.lightmap;
-          else if (pname == "sampSpecularPrm") slot = &mat.specular;
-          else if (pname == "sampCubeRefPrm") slot = &mat.cube;     // S103 RFL: the reflection cube (a file DDS, 6 faces: RFF.md section A)
-          else if (pname == "sampRefMapPrm") slot = &mat.refmap;    // S103 RFL: the 2D reflection-amount map (pixel slot 9 of the reflect_map / reflect_mask variants)
-          else if (pname == "sampDiffuse1Prm" && uv_layers) slot = &mat.layer[0];   // S103 LAY: the UVScroll layers 2..4 (SP_stage_faults.md 1)
-          else if (pname == "sampDiffuse2Prm" && uv_layers) slot = &mat.layer[1];
-          else if (pname == "sampDiffuse3Prm" && uv_layers) slot = &mat.layer[2];
-          else if (pname == "sampNoisePrm" && !load_detail::C2lNoisePlant()) slot = &mat.noise;   // S105 C2L: the yProp_PSM grain picture (fetch slot 6; the ring mat + evtobj stage mats; C2L.md 3b [C])
-          else if (pname == "g_mNoiseTilePrm" && !o.arena) slot = &mat.detail;  // Session 98 (wrestler fix 3): the gear's tiled detail
-          else if (pname == "g_mSweatPrm" && !o.arena) slot = &mat.sweat_bump;   // S103 SWF: the wet skin's bump (fetch slot 4)
-          else if (pname == "g_mNormalWklPrm" && !o.arena && g_wrk_live.load(std::memory_order_relaxed)) slot = &mat.wrinkle_normal;   // S103 WRK: the face wrinkle normal map (name-table row 0x8392AB60, register 5 [C: WRK.md 1a])
-          if (pname == "sampLightMapPrm" && !skin_streams) mat.has_lm_slot = true;  // (Session 97: the LM family)
-          if (pname == "g_mSpecPowPrm" && !o.arena && ti > 0) mat.spec_pow_prm = true;   // (review F6: the game E+16 is null when [rec+20] == 0)   // S103 YCB (YCH.md section 4.7 file-side fallback of the game's E+16)
+          const matsamp::Ctx sctx{o.arena, skin_streams};
+          const bool in_table = ti >= 0 && uint32_t(ti) < ntex;
+          const std::string tname = in_table ? CString(r.b + tex_tab + 16ull * uint32_t(ti), 16) : std::string();
+          int* slot = matsamp::SlotOf(mat, pname, sctx);   // S111 UNIFY2: the ONE sampler table (material_samplers.h: the old chain, moved), shared with the created-superstar build (exact compare: the file's names)
+          matsamp::ApplySamplerFacts(mat, pname, ti, in_table, tname, sctx);   // S111 UNIFY5: spec_pow_prm, has_lm_slot, lm_stage_page, cube_name, diffuse_name: the ONE step the created-superstar build runs on its section-72 rows (material_samplers.h)
           if (!slot || ti < 0) continue;
           if (uint32_t(ti) >= ntex) {
             m.warnings.push_back("sampler index beyond the texture-name table");
             continue;
           }
-          if (slot == &mat.lightmap) {   // S103 L13b (asset_model.h Material::lm_stage_page): a stage page texture named here is the runtime page's stand-in
-            const std::string lm_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);
-            mat.lm_stage_page = lm_name == "fade_lightmap00" || lm_name == "fade_lightmap01" || lm_name == "lightmap00";
-          }
-          if (slot == &mat.cube) mat.cube_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);   // S103 RFL
           if (!o.tex) continue;
-          if (slot == &mat.noise && CString(r.b + tex_tab + 16ull * uint32_t(ti), 16).empty()) continue;   // S105 C2LA F5: an empty sampNoisePrm name is no texture (no warning)
-          *slot = o.tex->Get(m, CString(r.b + tex_tab + 16ull * uint32_t(ti), 16));
-          if (slot == &mat.diffuse) mat.diffuse_name = CString(r.b + tex_tab + 16ull * uint32_t(ti), 16);
-        } else if (kind == 0x0D && r.ok(po + 20, 16)) {
-          float* dst = pname == "g_f4MatAmbCol"    ? mat.ambient
-                       : pname == "g_f4MatDifCol"  ? mat.diffuse_color
-                       : pname == "g_fvLightLimit" ? mat.light_limit
-                       : (pname == "g_f4SpecularCol" || pname == "g_f4SpecCol") ? mat.spec_col
-                       : pname == "g_f4Ref_COL"    ? mat.ref_col
-                       : pname == "g_f3SSSSinCol"  ? mat.sss_col
-                       : pname == "g_f3SSSSinCol2" ? mat.sss_col2
-                       : pname == "g_f4SpeCol1"    ? mat.hair_col1   // S103 B3F: rgb only (3 floats; the w is the tile)
-                       : pname == "g_f4SpeCol2"    ? mat.hair_col2
-                       : pname == "g_f4BSSBldClr"  ? mat.bss_bld_clr   // S103 SWF
-                                                   : nullptr;
-          if (dst == mat.bss_bld_clr) mat.has_wet = true;
-          if (dst)
-            for (int c = 0; c < ((dst == mat.ref_col || dst == mat.hair_col1 || dst == mat.hair_col2) ? 3 : 4); ++c) dst[c] = r.f32(po + 20 + 4ull * uint32_t(c));  // (Ref_COL's w is g_f4Ref_DOT's)
-          if (dst == mat.sss_col) mat.has_sss = true;
-          if (pname == "g_f4IdMapCol") {   // S103 WRK: PS c145, a whole vec4 FILE value (WRK.md 1a [C])
-            for (int c = 0; c < 4; ++c) mat.idmap_col[c] = r.f32(po + 20 + 4ull * uint32_t(c));
-            mat.has_idmap_col = true;
-          }
-        } else if (kind == 0x0A && r.ok(po + 20, 4)) {  // scalar floats (g_iSpecularPow is stored as a float too)
-          if (load_detail::C2lNoisePlant() && (pname == "g_fNoiseLvl" || pname == "g_iNoiseTileX" || pname == "g_iNoiseTileY")) {}   // the twin drops only the three noise values
-          else if (pname == "g_fNoiseLvl") mat.noise_lvl = r.f32(po + 20);   // S105 C2L: c207.z (the game's name entry, asset_model.h Material::noise)
-          else if (pname == "g_iNoiseTileX") mat.noise_tile[0] = r.f32(po + 20);   // c207.x
-          else if (pname == "g_iNoiseTileY") mat.noise_tile[1] = r.f32(po + 20);   // c207.y
-          else if (pname == "g_fSpecularLev" || pname == "g_fSpecLev") mat.spec_lev = r.f32(po + 20);
-          else if (pname == "g_iSpecularPow" || pname == "g_fSpecPow") mat.spec_pow = r.f32(po + 20);
-          else if (pname == "g_fReflectAlpha") mat.reflect_alpha = r.f32(po + 20);   // S103 RFL: PS c208.x [C: RFF.md section A: the capture's c208.x equals the file's value in every Reflect draw read]
-          else if (pname == "g_fSpeLodNear") mat.spe_lod[0] = r.f32(po + 20);   // S103 D1: SpeLodParam.x (FX_SPEC_FADE) [C value match: run29 f500, the game's SpeLodParam.y 6000 = the barricade's g_fSpeLodFar]
-          else if (pname == "g_fSpeLodFar") mat.spe_lod[1] = r.f32(po + 20);    // S103 D1: SpeLodParam.y
-          else if (pname == "g_fSpecLvBase") mat.spec_lv_base = r.f32(po + 20);  // Session 98 (skin fix): see asset_model.h Material
-          else if (pname == "g_fSpecPwBase") mat.spec_pw_base = r.f32(po + 20);
-          else if (pname == "g_f4Ref_DOT") mat.ref_col[3] = r.f32(po + 20);
-          else if (pname == "g_fFairy") mat.fairy = r.f32(po + 20);
-          else if (pname == "g_fFairyEdge") mat.fairy_edge = r.f32(po + 20);
-          else if (pname == "g_fPrimaryShift") mat.hair_shift[0] = r.f32(po + 20);   // S103 B3F: asset_model.h Material::hair_* / rim_atn
-          else if (pname == "g_fSecondShift") mat.hair_shift[1] = r.f32(po + 20);
-          else if (pname == "g_SpecExp1") mat.hair_exp[0] = r.f32(po + 20);
-          else if (pname == "g_SpecExp2") mat.hair_exp[1] = r.f32(po + 20);
-          else if (pname == "g_fHairTileU") mat.hair_tile[0] = r.f32(po + 20);
-          else if (pname == "g_fHairTileV") mat.hair_tile[1] = r.f32(po + 20);
-          else if (pname == "g_fFurLevel") mat.fur_level = r.f32(po + 20);        // EYA: Param1.x
-          else if (pname == "g_fDifAmbLevel") mat.dif_amb_level = r.f32(po + 20);  // EYA: Param1.z (the eyeball's ambient scale)
-          else if (pname == "g_fRimAtnDsMin") mat.rim_atn[0] = r.f32(po + 20);
-          else if (pname == "g_fRimAtnDsMax") mat.rim_atn[1] = r.f32(po + 20);
-          else if (pname == "g_fRimAtnRtMin") mat.rim_atn[2] = r.f32(po + 20);
-          else if (pname == "g_fRimAtnRtMax") mat.rim_atn[3] = r.f32(po + 20);
-          // Session 98 (wrestler fix 3): the detail sets (asset_model.h Material::noise_*); stored as scalars (kind 0x0A) in ch161
-          else if (pname == "g_f4NoiseTBump") mat.noise_near[0] = r.f32(po + 20);
-          else if (pname == "g_f4NoiseTDiff") mat.noise_near[1] = r.f32(po + 20);
-          else if (pname == "g_f4NoiseTSpec") mat.noise_near[2] = r.f32(po + 20);
-          else if (pname == "g_f4NoiseTBumpF") mat.noise_far[0] = r.f32(po + 20);
-          else if (pname == "g_f4NoiseTDiffF") mat.noise_far[1] = r.f32(po + 20);
-          else if (pname == "g_f4NoiseTSpecF") mat.noise_far[2] = r.f32(po + 20);
-          else if (pname == "g_fNoiseTNear") mat.noise_dist[0] = r.f32(po + 20);
-          else if (pname == "g_fNoiseTFar") mat.noise_dist[1] = r.f32(po + 20);
-          else if (pname == "g_fSL_Scale") mat.sl_scale = r.f32(po + 20);   // S103 TQ2 (UVS.md)
-          // S103 WRK: PS c230 = (g_f4WrinkUV_x, _y, _z, _w), four scalars, name-table rows 0x8392A940..9A0 [C: WRK.md 1a]
-          else if (pname.size() == 13 && pname.rfind("g_f4WrinkUV_", 0) == 0 && pname[12] >= 'x' && pname[12] <= 'z') mat.wrink_uv[pname[12] - 'x'] = r.f32(po + 20), mat.has_wrink_uv = true;
-          else if (pname == "g_f4WrinkUV_w") mat.wrink_uv[3] = r.f32(po + 20), mat.has_wrink_uv = true;   // (a material naming only some components keeps those and the (0,0,1,1) default for the rest)
-          else if (pname == "g_f4IdMapCol") m.warnings.push_back("g_f4IdMapCol stored as a scalar (kind 0x0A), not a vec4: left at 0 (WRK review R4: ch100 stores it as kind 0x0D)");
-          else if (pname == "g_fBSSSwtMax") mat.bss_swt[0] = r.f32(po + 20), mat.has_wet = true;   // S103 SWF: asset_model.h Material::bss_swt / sweat_prm / blood_prm
-          else if (pname == "g_fBSSSwtMin") mat.bss_swt[1] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f4SweatSpeLv") mat.sweat_prm[0] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f4SweatSpePw") mat.sweat_prm[1] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f4SweatBpCnt") mat.sweat_prm[2] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f4SweatLevel") mat.sweat_prm[3] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f2BloodSpecLv") mat.blood_prm[0] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname == "g_f2BloodSpecPw") mat.blood_prm[1] = r.f32(po + 20), mat.has_wet = true;
-          else if (pname.rfind("g_fScroll", 0) == 0) {  // S103 E6: the UV-scroll speeds (asset_model.h Material::scroll)
-            const std::string rest = pname.substr(9);
-            const int layer = rest.size() == 1 ? 0 : (rest.size() == 2 && rest[1] >= '2' && rest[1] <= '4') ? rest[1] - '1' : -1;
-            const int comp = rest.empty() ? -1 : rest[0] == 'U' ? 0 : rest[0] == 'V' ? 1 : -1;
-            if (layer >= 0 && comp >= 0) mat.scroll[2 * layer + comp] = r.f32(po + 20), mat.scroll_have = true;
-          }
+          if (slot == &mat.noise && tname.empty()) continue;   // S105 C2LA F5: an empty sampNoisePrm name is no texture (no warning)
+          *slot = o.tex->Get(m, tname);
+        } else if ((kind == 0x0D && r.ok(po + 20, 16)) || (kind == 0x0A && r.ok(po + 20, 4))) {   // S111 GUESTHAIR: the float rows by name through ONE table (material_floats.h: the old chain, moved), shared with the created-superstar build
+          float v[4] = {0, 0, 0, 0};
+          for (uint32_t c = 0; c < (kind == 0x0D ? 4u : 1u); ++c) v[c] = r.f32(po + 20 + 4ull * c);
+          if (!(kind == 0x0A && load_detail::C2lNoisePlant() && (pname == "g_fNoiseLvl" || pname == "g_iNoiseTileX" || pname == "g_iNoiseTileY")))   // the C2L twin drops only the three noise values
+            matfloat::ApplyFloat(mat, pname, kind, v, &m.warnings);   // (exact compare: the file's names)
         }
       }
     }
@@ -818,7 +745,8 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
     if (o.arena && TqfClass(sl)) {   // S103 TQF: any vertex colour alpha < 255 (the S0 colour word's byte 0, stored as the Vertex::color alpha byte): the game's yProp draw blends at it (Material::vertex_alpha_lt255)
       for (const Vertex& vx : mesh.vertices) if ((vx.color >> 24) < 255u) { mat.vertex_alpha_lt255 = true; break; }
     }
-    if (sl.find("trans") != std::string::npos) mat.alpha_blend = true;
+    if (o.kind == 2 && !o.prop_slot && sl.rfind("ych_", 0) == 0) mat.translucent_draw = mat.alpha_blend = assets::char_layer::FileTranslucent(o.pac, o.key, r.u32(rec + 0x78));   // S111 LAYERS (char_draw_layer.h): a character part blends when the game draws it in the translucent draw (a stock piece; a created part of layer 5..7: record +0x78 through 0x82007F60), not by its effect name
+    else if (sl.find("trans") != std::string::npos) mat.alpha_blend = true, mat.translucent_draw = true;   // (S111 LAYERS review: no draw split known here: the name rule stands for the node too)
     if (o.arena && mat.diffuse >= 0 && !mat.alpha_blend) {
       const TexFormat f = m.textures[size_t(mat.diffuse)].format;  // first rule: alpha-carrying DXT -> cut-out (unconfirmed)
       // Session 97 (props2): only when the alpha really cuts shapes out: a texture whose alpha never goes (nearly) transparent carries a

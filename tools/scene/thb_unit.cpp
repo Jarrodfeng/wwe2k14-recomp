@@ -305,7 +305,7 @@ bool Equals(const Fed& f, const uint8_t want[12]) {
 }
 
 void Synthetic() {
-  pc::PlantForTest() = g_plant == "ignore_state" ? pc::Fault::kIgnoreState : g_plant == "any_callback" ? pc::Fault::kAnyCallback : pc::Fault::kNone;
+  pc::PlantForTest() = g_plant == "ignore_state" ? pc::Fault::kIgnoreState : g_plant == "any_callback" ? pc::Fault::kAnyCallback : g_plant == "cab_foreign" ? pc::Fault::kCabAsForeign : pc::Fault::kNone;
   pc::BlockPlantForTest() = g_plant == "no_checks" ? pc::BlockFault::kNoChecks : pc::BlockFault::kNone;
   pc::DropPlantForTest() = g_plant == "make_no_drop" ? pc::Plant::kMakeNoDrop : g_plant == "free_no_drop" ? pc::Plant::kFreeNoDrop : pc::Plant::kNone;
   static_assert(pc::kSkinnedModelVtable == W::kSkinnedModelVtable, "the store's model vtable is the weapon rows' (0x8206AF90)");
@@ -358,6 +358,22 @@ void Synthetic() {
     sf.clear();
     pc::TheStore().TakeShortfalls(sf);
     Check(r.Chain(101) == nullptr && sf.empty(), "editor.switch_off_is_quiet", "model+604 == 0: no row, no shortfall");
+  }
+  // 3b. S111 CACBUILD: the Create a Championship belt callback (0x833445D0). A CREATED belt id at [C+228]: its sampler-12 mask is C's zero 1x1 texture, so the game recolours nothing: no row,
+  //     counted cab_plain, NO shortfall (twin: cab_foreign, the old rule). A STOCK id there binds its /CBPM mask, which ours does not load: still the foreign shortfall.
+  {
+    Rig r;
+    LayEditor(r.g, 1, pc::kCallbackCabBelt, 0, 0, kEdit);
+    r.g.words[kGear + pc::kOffCabPropId] = 2926;
+    r.Draw(kCap, 100);
+    std::vector<live::change_colour::Shortfall> sf;
+    pc::TheStore().TakeShortfalls(sf);
+    Check(r.Chain(100) == nullptr && sf.empty() && pc::TheStore().Counts().cab_plain == 1 && pc::TheStore().Counts().foreign == 0, "editor.cab_created_belt_is_plain", sf.empty() ? "no shortfall" : sf[0].object);
+    r.g.words[kGear + pc::kOffCabPropId] = 2004;
+    r.Draw(kCap, 101);
+    sf.clear();
+    pc::TheStore().TakeShortfalls(sf);
+    Check(r.Chain(101) == nullptr && sf.size() == 1 && pc::TheStore().Counts().foreign == 1, "editor.cab_stock_belt_shortfall", sf.empty() ? "no shortfall" : sf[0].object);
   }
   // 4. THE MATCH: the block of sub_833A1758 latched; the prop's draws carry the saved set's colours with the FILE's MatDifCol.
   {
@@ -473,7 +489,7 @@ int main(int argc, char** argv) {
     else if (a == "--plant" && i + 1 < argc) g_plant = argv[++i];
     else return std::fprintf(stderr, "usage: thb_unit [--game DIR] [--plant NAME]\n"), 2;
   }
-  static const std::set<std::string> known = {"", "ignore_state", "any_callback", "no_checks", "make_no_drop", "free_no_drop", "no_carry", "zero_constants", "no_hook", "no_sts"};
+  static const std::set<std::string> known = {"", "ignore_state", "any_callback", "no_checks", "make_no_drop", "free_no_drop", "no_carry", "zero_constants", "no_hook", "no_sts", "cab_foreign"};
   if (!known.count(g_plant)) return std::fprintf(stderr, "unknown plant %s\n", g_plant.c_str()), 2;
   Synthetic();
   int real_rc = 0;

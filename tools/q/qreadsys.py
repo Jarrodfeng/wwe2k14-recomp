@@ -76,7 +76,7 @@ def pick_reread(n, outdir, ctx=None, path=None):
     for u in todo:
         nbytes = 0
         if outdir:
-            text, fl = qsheet.build(ctx, u)
+            text, fl = qsheet.build(ctx, u, earlier=False)       # a re-read is a new reading, not shown the earlier one (S111 FOLD)
             nbytes = fl['bytes']
             with open(os.path.join(outdir, '%d.txt' % u), 'w', encoding='utf-8') as fh:
                 fh.write(text)
@@ -127,6 +127,42 @@ def bundle(system, c, units, bar_row=None, writer_counts=None):
     return '\n'.join(o) + '\n'
 
 
+def bar_table(rows, seen):
+    """per family and ALL: [sites, reached, static, observed, either, copier_only, unknown] (the q feed OBSERVED table)"""
+    import qfeedseen
+    sites_t = {}
+    for r in rows:
+        if r['kind'] == 'reg':
+            continue
+        e = sites_t.setdefault((r['file'], r['line']), [r['family'], False])
+        e[1] = e[1] or r.get('result') in ('known', 'image')
+    reached = qfeedseen.sites(seen)
+    named = qfeedseen.named_sites(seen)
+    co_only = qfeedseen.copier_only_sites(seen)
+    out = {}
+    for f in list(FEED_FAMS) + ['ALL']:
+        ks = [k for k, v in sites_t.items() if f == 'ALL' or v[0] == f]
+        rc = [k for k in ks if k in reached]
+        st = sum(1 for k in rc if sites_t[k][1])
+        ob = sum(1 for k in rc if k in named)
+        ei = sum(1 for k in rc if sites_t[k][1] or k in named)
+        co = sum(1 for k in rc if k in co_only and not (sites_t[k][1] or k in named))
+        out[f] = [len(ks), len(rc), st, ob, ei, co, len(rc) - ei - co]
+    return out, sites_t
+
+
+def unit_family_sites(sites_t, seen, units):
+    """{unit: {family: read sites its functions were seen writing}} over every unit (any size)"""
+    uof = dict(units.execute('select func,unit_id from units'))
+    acc = collections.defaultdict(lambda: collections.defaultdict(set))
+    for fl, ln, fn in seen.execute('select file,line,func from writers where func<>0 and nocaller=0'):
+        k = (fl, ln)
+        u = uof.get(fn)
+        if k in sites_t and u is not None:
+            acc[u][sites_t[k][0]].add(k)
+    return {u: {f: len(s) for f, s in d.items()} for u, d in acc.items()}
+
+
 def real_feed_context(units):
     """-> (bar {family: row}, {unit: {family: sites}}) from the real index, or ({}, None) without a field index"""
     import contextlib
@@ -134,15 +170,14 @@ def real_feed_context(units):
     import qfeed
     import qfeedkey
     import qfeedseen
-    import qrendermd
     seen = qfeedseen.open_db()
     W, _ix = qfeedkey.load_index()
     if W is None:
         return {}, None
     with contextlib.redirect_stdout(io.StringIO()):
         rows, _files, _p, _W = qfeed.collect(W)
-    bar, sites_t = qrendermd.bar_table(rows, seen)
-    return bar, qrendermd.unit_family_sites(sites_t, seen, units)
+    bar, sites_t = bar_table(rows, seen)
+    return bar, unit_family_sites(sites_t, seen, units)
 
 
 # ---------------------------------------------------------------- store-system

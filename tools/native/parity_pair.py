@@ -24,8 +24,8 @@ def shots(captures, run, prefix):
     out = {}
     tag = f'{run}_'
     for f in os.listdir(captures):
-        if f.startswith(tag) and f.endswith('.png') and f[len(tag):].startswith(prefix):
-            out[f[len(tag):-4]] = os.path.join(captures, f)
+        if f.startswith(tag) and f.endswith(('.webp', '.png')) and f[len(tag):].startswith(prefix):   # S111 SHOTDIET: WebP is the default format
+            out[f[len(tag):f.rindex('.')]] = os.path.join(captures, f)
     return out
 
 

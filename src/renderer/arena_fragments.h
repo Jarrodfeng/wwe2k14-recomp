@@ -12,7 +12,7 @@
 
 namespace rdr::arena_fragments {
 
-enum Bits : uint32_t { kBlendOff = 1, kWiden = 2 /* reserved, not built */, kOrder = 4 /* reserved, not built */, kAll = 1 /* the bits that do something */ };
+enum Bits : uint32_t { kBlendOff = 1, kWiden = 2 /* reserved, not built */, kOrder = 4 /* reserved, not built */, kAll = 1 /* the bits that do something */ };  // flag-alias: kAll
 
 inline std::atomic<uint32_t> g_mask{0};  // tools set it (FrameBuilder::Begin latches it); the game's live.cpp overrides per frame with SetArenaFragments
 // TEST ONLY (rplay --arena-fragments-plant N): 1 = af_blend_off_all (blend off for EVERY arena draw, translucent overlays too: the picture must go wrong), 2 = af_widen_translucent (blend off also for

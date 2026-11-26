@@ -34,7 +34,12 @@
 // declarations only (S110 BELTPLATE: belt_plate.h now includes assets/jboy.h -> pac.h, which needs stbi_zlib_decode_buffer declared first; the program defines the implementation once)
 #include "../scene_live/belt_plate.h"   // S105 PLATE: the belt nameplate store (pure)
 #include "../scene_live/prop_colour.h"   // S108 THB: the entrance props' colours (the shortfalls the hooks queued)
+#include "../scene_live/prop_spec.h"   // S111 PROPSPEC: the run-time specular / reflection set of an event prop call (pure)
+#include "../scene_live/belt_colour.h"   // S111 BELTMASKNAME: the R5 belt rows (the mask by name, the key-0 bind)
 #include "change_colour_draw.h"   // S108 THB: CarryChangeColour (the prop's row -> the frame)
+#include "stage_node_state.h"   // S111 PODGLASS: the chamber's category-35 / 36 node state for its stage rows
+#include "gm_node_state.h"   // S111 PODDOOR: the gm manager's category-36 node state for its set objects (the chamber's pod glass chem_glass02_ma)
+#include "prop_light_id.h"   // S111 STAGELESS2: an event prop's light set by the id its CWeapon asks for
 
 namespace rdr_scene::rf::c {
 
@@ -62,6 +67,7 @@ struct WeaponState {
   bool cov_printed = false;
   uint32_t cov_ticks = 0;
   std::map<std::string, uint32_t> rows_needed;   // S108 FAN: per bound copy (its aux key), weapons::RowsNeeded: the rows its vertices name
+  live::beltplate::PoolTrack ev_pools;           // S111 CACMATCHTEX review: one live pool per event model (a set hash change retires the model's previous pool at the next frame's start)
 };
 
 // S108 FAN -> AL1: a skinned call that gives fewer rows than the bound model's vertices name (the tassel "explosion" of the old 96 cut) is said by weapons::ReportWeaponRows (pose_rows_report.h: the shared
@@ -83,11 +89,28 @@ static bool WeaponLights(const BuildCtx& ctx, const FamilyModel* props, uint32_t
   return true;
 }
 
-// S103 CGF: the light set of a stage structure piece, BY ID from the record's evaluated sets (CAGE.md section 2 + Adversary 5): the cage / cell resolve key set 100, the Inferno key set 31 [C ids]; the chamber's is [U]: the caller falls
-// back to the arena props set ([L], marked). A record without the set also falls back (a LightsFor on an unknown id would leave an all-zero set: a black structure).
+// S103 CGF: the light set of a stage structure piece, BY ID from the record's evaluated sets (CAGE.md section 2 + Adversary 5): the cage / cell resolve key set 100, the Inferno key set 31 [C ids]; S111 CHAMBERMAP: the chamber
+// k 0 / 1 set 35, k 2..8 set 36 (35 when the record lacks 36) [C ids, weapon_rows.h StageLightKeyOf; no retail arena key carries 35 / 36, so the chamber takes the props set in practice: CHAMBERMAP review]. A record without the set
+// falls back to the arena props set (a LightsFor on an unknown id would leave an all-zero set: a black structure).
 static bool StageLights(const BuildCtx& ctx, int32_t pach, uint32_t k, size_t n_meshes, uint32_t fe_model, ModelLights& out) {   // S103 LDR: + k: the ladder rig's rope (k 0) is lit with key set 500 [C: sub_825DB710 installs it, COV10 B1]; its belt / briefcase pieces (k >= 1) are a CWeapon's own light [U]: the arena props set (fallback)
-  const int key = (pach >= 0 && pach <= 3) ? 100 : pach == 7 ? 31 : weapons::LadderLightKey(pach, k);
-  if (key < 0 || n_meshes == 0 || !RecordHasLightSet(ctx.t, key)) return false;
+  const int key = weapons::StageLightKeyOf(pach, k, [&](int32_t id) { return RecordHasLightSet(ctx.t, id); });   // S111 CHAMBERMAP: the pick (unit tools\weapons\chamber_light_test.cpp)
+  if (key < 0 || n_meshes == 0) return false;
+  FamilyModel wfm;
+  assets::LightSet ls;
+  ls.id = key;
+  wfm.sets.push_back(ls);
+  wfm.mesh_set_file.assign(n_meshes, 0);
+  wfm.mesh_slot.assign(n_meshes, -1);
+  out = LightsFor(ctx.t, wfm, fe_model);
+  return true;
+}
+
+// S111 STAGELESS2 (prop_light_id.h): an EVENT PROP's light set BY ID, the one its CWeapon asks the light manager for ([cw + 1468], carried on its section-59 row): every node that draws it looks the id
+// up and installs that set on a hit (own 0x8272D3F8, CWDT 0x8272C7B4, 0x8272C31C, CWDA 0x8272D264). Create a Title's belt asks 10, with no arena in the record. A record without the set: false (the game installs nothing
+// on a miss; the caller keeps its older rule, the arena props set, else the file's sets).
+static bool PropLights(const BuildCtx& ctx, uint32_t model, size_t n_meshes, uint32_t fe_model, ModelLights& out) {
+  const int key = weapons::PropLightKey(weapons::AskedLightSet(ctx.t.weapon_slots, model), [&](int32_t id) { return RecordHasLightSet(ctx.t, id); });
+  if (key < 0 || n_meshes == 0) return false;
   FamilyModel wfm;
   assets::LightSet ls;
   ls.id = key;
@@ -117,15 +140,16 @@ static void DropGbr(BuildCtx& ctx, WeaponState& w) {
 // S105 PLATE review 2: the plate store's census, printed where the entrance's event props retire (the step check reads it).
 static void LogPlateCensus() {
   const live::beltplate::Counters c = live::beltplate::TheStore().Counts();
-  rdr::Log("[wwe2k14][belt_plate] read %llu reread %llu no_plate %llu bad_shape %llu unreadable %llu dropped %llu bound %llu missing %llu", static_cast<unsigned long long>(c.read), static_cast<unsigned long long>(c.reread),
+  rdr::Log("[wwe2k14][belt_plate] read %llu reread %llu no_plate %llu bad_shape %llu unreadable %llu dropped %llu bound %llu missing %llu pending %llu other_unbound %llu game_none %llu", static_cast<unsigned long long>(c.read), static_cast<unsigned long long>(c.reread),
            static_cast<unsigned long long>(c.no_plate), static_cast<unsigned long long>(c.bad_shape), static_cast<unsigned long long>(c.unreadable), static_cast<unsigned long long>(c.dropped), static_cast<unsigned long long>(c.bound),
-           static_cast<unsigned long long>(c.missing));
+           static_cast<unsigned long long>(c.missing), static_cast<unsigned long long>(c.pending), static_cast<unsigned long long>(c.other_unbound), static_cast<unsigned long long>(c.game_none));   // S111 CACMATCHTEX: + pending, other_unbound, game_none (at the END: PLATE.toml's regexes hold)
 }
 
 void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint32_t& objects, uint32_t& drawn) {
   {   // S108 THB: the entrance props the game recolours and we cannot (a foreign callback, an unreadable gear object) / a saved set's block that failed a check: said once each through the shared draw_shortfall (queued by the hooks, drained here on the render side)
     std::vector<live::change_colour::Shortfall> got;   // (a local: guest_model_unit L5 forbids function-local static containers in rf_*.cpp)
     live::propcolour::TheStore().TakeShortfalls(got);
+    live::beltcolour::TheStore().TakeShortfalls(got);   // S111 BELTMASKNAME: the R5 belt blocks that failed a check (appended)
     for (const live::change_colour::Shortfall& s : got) rdr::DrawShortfall(s.kind, s.object.c_str(), 1, 0, "%s", s.detail.c_str());
   }
   const weapons::View view0 = weapons::WeaponViewOf(ctx.t);   // weapon_plan.h: the record's sections 59 / 60 / 61 (member names checked at compile time)
@@ -138,6 +162,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
         LogPlateCensus();   // S105 PLATE
         w0.release_pending = true;   // S103 GBR (BH4 4): tried just below, retried every frame while the loader's lock is busy
         w0.asked_ev.clear();
+        w0.ev_pools.Clear();   // S111 CACMATCHTEX review: the pools went whole above
       }
       weapons::RetryRelease(w0.release_pending);
       if (!w0.asked_gb.empty() && ++w0.gb_idle >= 120) DropGbr(ctx, w0);   // S103 GBR (review 6): the same 120-frame grace as the main path (a frame with no section 59-61 at all is not the end of the scene)
@@ -179,6 +204,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
       if (std::find(want_ev.begin(), want_ev.end(), pr) == want_ev.end()) ctx.models.DropStored(weapons::EvtPacOf(), weapons::EvtEntryOf(pr.first, pr.second & ~weapons::kWantEvent), 0);
     if (want_ev.empty() && !ws.asked_ev.empty()) LogPlateCensus();   // S105 PLATE
     if (want_ev.empty() && !ws.asked_ev.empty()) ctx.models.RetireOther("weapon:ev", "\x01"), ctx.models.RetireOther("weapon:bound:ev", "\x01"), ws.release_pending = true;   // the last event model: the loader's 160 MB evtobj.pac unpack goes too (S103 GBR BH4 4: tried below, retried while the loader's lock is busy)
+    if (want_ev.empty()) ws.ev_pools.Clear();   // S111 CACMATCHTEX review: no event model left (their pools went whole just above)
     ws.asked_ev = want_ev;
     std::set<int32_t> dropped_pach;
     for (const auto& pr : ws.asked_stg)   // S103 CGF: the stage structure models nothing asks for any more (the structure was freed or the match changed) are dropped; review 9: with them, every pool / posed copy of that PACH
@@ -211,7 +237,15 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
   }
   std::vector<weapons::WeaponCall> hold_calls;   // S103 GBR (CGF follow-up): the plan's view = the record's rows + the latched structures' held rows (a latched family with no rows this frame is drawn from its last frame, up to 30 frames)
   std::vector<float> hold_nodes;
-  const weapons::View view = ctx.warm() ? view0 : weapons::HoldStageRows(view0, plants, hold_calls, hold_nodes, census);
+  std::vector<rdr_scene::ChangeColourRow> hold_rows;   // S111 BELTMASKNAME review (F2): the held structure calls' belt rows (weapon_plan.h HoldStageRows): a held frame draws the same masked pool as the frame it holds
+  const weapons::View view = ctx.warm() ? view0 : weapons::HoldStageRows(view0, plants, hold_calls, hold_nodes, census, &ctx.t.change_colours, &hold_rows);
+  std::vector<rdr_scene::ChangeColourRow> cc_merged;   // the record's section-67 rows + the held belt rows it lacks (empty = none held: the record's own vector is used)
+  if (!hold_rows.empty()) {
+    cc_merged = ctx.t.change_colours;
+    for (const rdr_scene::ChangeColourRow& r : hold_rows)
+      if (!change_colour_draw::RowOfEngine(cc_merged, r.object)) cc_merged.push_back(r);
+  }
+  const std::vector<rdr_scene::ChangeColourRow>& cc_rows = hold_rows.empty() ? ctx.t.change_colours : cc_merged;
   const std::vector<weapons::Item> items = weapons::Plan(view, plants, census);
   weapons::Coverage cov;   // S103 LDR: recorded = the record's own rows (view0: never the held ones), planned = the plan's items, drawn = counted below
   weapons::CountRecorded(view, cov);
@@ -221,6 +255,12 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
   std::vector<std::pair<int32_t, uint32_t>> gb_now;   // S103 GBR: the gm / blood models asked for this frame
   std::map<std::string, uint32_t> pool_next;          // S103 GBR (review 5): the next pose slot of each blood pool this frame
   struct SplatProbe { bool have = false; float centre[3] = {}, half[3] = {}, normal_y = 0.f, alpha = 0.f; } splat_probe;   // S108 BLD2 F1: the first live splat of this frame (census line below)
+  if (!ctx.warm())   // S111 CACMATCHTEX review: the pools event models left last frame (a new set hash: a key read after the first frame, a reread plate, an editor recomposite), before anything of this frame is drawn
+    for (const std::string& old : ws.ev_pools.TakeRetire()) {
+      const std::string old_bound = "weapon:bound:" + old.substr(7);
+      ctx.models.RetireOther(old, "\x01"), ctx.models.RetireOther(old_bound, "\x01");   // (the pool, its posed copies and memos; the bound copy: PoolSuffix's fixed width makes the name a prefix of nothing live)
+      ws.rows_needed.erase(old_bound);
+    }
   for (const weapons::Item& it : items) {
     std::string why;
     // S103 BLF: an event prop (entrance belt / mic / cap / stage prop) is pac\evt\evtobj.pac entry "evtprop:<id>/<k>" (the loader resolves the PACH from the prop id); a weapon is m2.pac p0/1000/<id>
@@ -230,6 +270,7 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
     if (gb && arena_id < 0) { ++census.no_model; continue; }   // no arena in the record: the bank / bg pac cannot be named
     const weapons::WeaponCall& w = view.calls[it.call];
     const uint32_t blevel = it.blood ? weapons::BloodColourLevel(weapons::ColourOfBloodId(w.id)) : 0u;
+    const uint32_t spec_code = (it.stage || gb) ? 0u : live::propspec::SpecCodeOf(w.slot_flags);   // S111 PROPSPEC: the set the game bound on this model (an event prop, or an m2 weapon: the ring steps 32; 1 steps, 2 off; 3 = other values: drawn as the file)
     const std::string entry = it.gm ? weapons::GmEntryOf(arena_id, it.entry) : it.blood ? weapons::BloodEntryOf(it.entry) : it.stage ? weapons::StgEntryOf(it.id, it.entry) : it.event ? weapons::EvtEntryOf(it.id, it.entry) : weapons::EntryOf(it.id, it.entry);
     const std::string stored_pac = it.gm ? std::string(weapons::GmPacOf()) : it.blood ? weapons::BloodPacOf(arena_id) : it.stage ? std::string(weapons::StgPacOf()) : it.event ? std::string(weapons::EvtPacOf()) : std::string(weapons::PacOf());
     if (gb) {
@@ -240,32 +281,54 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
     if (!stored) { ++census.no_model; continue; }   // not resident / failed: counted, the frame goes on (it is not a hole or a loading miss)
     if (ctx.warm()) continue;
     auto& aux = ctx.models.Aux();
-    const auto plate = it.event ? live::beltplate::TheStore().Get(w.object) : nullptr;   // S105 PLATE: the belt's own nameplate picture (null: not a belt / not read)
+    const uint64_t keys_mask = it.event ? live::beltplate::WantMask(*stored) : 0u;
+    const live::beltplate::Ask keys_ask = it.event ? live::beltplate::TheStore().Want(w.object, keys_mask, live::beltplate::HoldMask(*stored)) : live::beltplate::Ask{};   // S111 CACMATCHTEX: the live model's keys at the name-table indices the file leaves empty (a nameplate, a created belt's plates), by index
+    if (keys_ask.pending) { ++census.no_model; continue; }   // a wanted DIFFUSE key the hook never tried yet: drawn from the next frame (the hook reads it at the model's next call), like a model not yet resident; an unread normal / specular never holds the prop (review)
+    const auto& plate = keys_ask.set;   // (null: nothing wanted / nothing read)
+    // S111 BELTMASKNAME (belt_colour.h): a stock belt the game recolours for a created title (R5: the entrance belt, the match weapon belt or the ladder belt): the record's row names its mask; the loader reads
+    // that ONE mask (pac\cab\CAB.pac by name: a stored, texture-only model) and the belt's bound copy keeps it on its key-0 materials. Not resident yet = drawn plain this frame (counted: masks asked / not resident).
+    // Review F5: a mode no STS row can draw (AsksMask: mode 1) asks nothing and draws in the plain pool (counted `not drawable`). Review F3: the pool name takes `~cb-` while the mask is pending and `~cb<m>.<id>`
+    // once resident, right after (id, k): the pending pool is never a prefix of the masked one, so CACMATCHTEX's PoolTrack (which retires a model's previous pool unless a live pool starts with it) retires it.
+    const rdr_scene::ChangeColourRow* belt_row = live::beltcolour::BeltRowOf(cc_rows, w.object);
+    const bool belt_ask = live::beltcolour::AsksMask(belt_row);
+    std::string belt_why;
+    const assets::Model* belt_mask = belt_ask ? ctx.models.StoredNamed(live::beltcolour::kMaskPac, live::beltcolour::MaskEntryOf(belt_row->reserved), 0, &belt_why, /*count_miss=*/false) : nullptr;
+    const bool belt_masked = belt_mask && !belt_mask->textures.empty();
+    if (belt_ask) live::beltcolour::TheStore().NoteMaskAsk(belt_masked);
+    else if (belt_row) live::beltcolour::TheStore().NoteUndrawable();
+    const std::string belt_sfx = belt_ask ? live::beltcolour::PoolSuffix(belt_row->reserved, belt_masked) : std::string();
     const std::string pool = it.gm ? "weapon:gm" + std::to_string(arena_id) + "/" + std::to_string(it.entry)   // S103 GBR: (arena bank, key): each set object is its own model
                            : it.blood ? "weapon:blood" + std::to_string(it.entry) + "/" + std::to_string(blevel) + "@" + std::to_string(arena_id)   // S103 SMF (review A6): arena_id in the key (a new arena never reuses the old arena's bound copy: blood:<index> names a texture of the arena's own bg pac). (texture, colour level): the splats of one look are the pose slots; the bound copy carries the colour
-                           : it.stage ? "weapon:stg" + std::to_string(it.id) + "/" + std::to_string(it.entry)   // S103 CGF: (PACH, key k): each piece is its own model; its instances (a wall drawn 3 times) are the pose slots
-                           : it.event ? "weapon:ev" + std::to_string(it.id) + "/" + std::to_string(it.entry) + live::beltplate::PoolSuffix(plate)   // S105 PLATE: + the plate hash (two holders never share a pool)   // (prop id, entry k): each entry is its own model with its own pose slots
-                                      : "weapon:m2:" + std::to_string(it.id) + (it.entry ? "/" + std::to_string(it.entry) : std::string());   // (id, main or k): a secondary has its own mesh and its own pose slots
+                           : it.stage ? "weapon:stg" + std::to_string(it.id) + "/" + std::to_string(it.entry) + belt_sfx   // S103 CGF: (PACH, key k): each piece is its own model; its instances (a wall drawn 3 times) are the pose slots
+                           : it.event ? "weapon:ev" + std::to_string(it.id) + "/" + std::to_string(it.entry) + belt_sfx + live::beltplate::PoolSuffix(plate, keys_mask != 0) + live::propspec::PoolSuffix(spec_code)   // S105 PLATE: + the plate hash (two holders never share a pool)   // (prop id, entry k): each entry is its own model with its own pose slots   // S111 PROPSPEC: + the set
+                                      : "weapon:m2:" + std::to_string(it.id) + (it.entry ? "/" + std::to_string(it.entry) : std::string()) + belt_sfx + live::propspec::PoolSuffix(spec_code);   // (id, main or k): a secondary has its own mesh and its own pose slots   // S111 PROPSPEC review: + the set (the ring steps under the entrance's steps set)
     // S103 GBR (review 5): a splat's pose slot is numbered per POOL inside this drawer (a per-frame counter, from 0): the splats of one (texture, colour level) are consecutive slots of one pool, so their images are shared and nothing uploads per splat
     // (the recorder's instance counts per model call, which is the same number for a pool only by luck of the colour level)
     const uint32_t inst = it.blood ? pool_next[pool]++ : it.instance;
     const std::string bkey = "weapon:bound:" + pool.substr(7);
+    if (it.event) ws.ev_pools.Note(w.object, pool);   // S111 CACMATCHTEX review: a new pool for this model retires its old one next frame
     auto bit = aux.find(bkey);
     if (bit == aux.end()) {
       assets::Model bound;
       weapons::BindModel(*stored, bound);
-      if (it.event) {   // S105 PLATE: the material whose diffuse sampler is `nameplate` gets the game's own plate (BC3 256 x 128); a belt with no plate is counted and said once, never silent white
+      if (spec_code) live::propspec::ApplyToModel(spec_code, bound);   // S111 PROPSPEC: the game's g_fSpecularLev / g_iSpecularPow / g_fReflectAlpha for this model now (sub_82335070's bind), in place of the file's
+      if (it.event) {   // S105 PLATE -> S111 CACMATCHTEX: every diffuse / normal / specular slot the file cannot fill gets the live model's key at its name-table index (the nameplate; a created belt's plate, strap and normal map); a diffuse with none is counted and said once, never silent white
         auto& pst = live::beltplate::TheStore();
         const uint64_t miss0 = pst.Counts().missing;
         float plate_share = 0.f;
         live::beltplate::Ink plate_ink;
-        const uint32_t nb = live::beltplate::BindPlate(bound, plate, pst, &plate_share, &plate_ink);
+        const live::beltplate::Plate* shown = nullptr;
+        const uint32_t nb = live::beltplate::BindKeys(bound, plate, pst, &plate_share, &plate_ink, &shown);
         static std::set<std::pair<int32_t, uint64_t>> said;
-        if (nb && plate && said.insert({it.id, plate->hash}).second)
-          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: plate bound (hash %016llx, %ux%u, t %u, below-255 share %.3f, ink %u texels, max alpha %u)", it.id, w.object, static_cast<unsigned long long>(plate->hash), plate->width, plate->height, plate->t, double(plate_share), plate_ink.texels, plate_ink.max_alpha);
-        else if (pst.Counts().missing != miss0 && said.insert({it.id, 0}).second)
-          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: NO plate read for a nameplate material (draws white); last refusal: %s", it.id, w.object, pst.LastRefusal().c_str());   // S105 PLATE review 2: WHY
+        if (nb && plate && said.insert({it.id, plate->hash}).second) {
+          if (shown)
+            rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: plate bound (hash %016llx, %ux%u, t %u, below-255 share %.3f, ink %u texels, max alpha %u, %u slots)", it.id, w.object, static_cast<unsigned long long>(shown->hash), shown->width, shown->height, shown->t, double(plate_share), plate_ink.texels, plate_ink.max_alpha, nb);
+          else
+            rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: %u key slot(s) bound, no diffuse among them (set %016llx)", it.id, w.object, nb, static_cast<unsigned long long>(plate->hash));
+        } else if (pst.Counts().missing != miss0 && said.insert({it.id, 0}).second)
+          rdr::Log("[wwe2k14][belt_plate] prop %d holder 0x%08X: NO key read for a diffuse the file does not hold (draws white); last refusal: %s", it.id, w.object, pst.LastRefusal().c_str());   // S105 PLATE review 2: WHY
       }
+      if (belt_masked) live::beltcolour::BindBeltMask(bound, belt_mask->textures[0]);   // S111 BELTMASKNAME: the named mask as change_mask[0] of the key-0 materials (the texture R5 recolours)
       if (it.stage && weapons::IsLadderLightPiece(it.id, it.entry))   // S103 LDR2 (LDC.md): the ladder's light pool / shaft are the game's blend code 1 (SRC_ALPHA, ONE): the flags make the front end sort them, blend additive and skip the depth write; the vertex alpha (k 3's fade) reaches SRC_ALPHA via arena_vs_bg.vert out_color.a -> arena_bg.frag
         for (assets::Material& mat : bound.materials) mat.alpha_blend = true, mat.additive = true;
       if (it.blood)  // the material's colour scalar (r = g = b, g_f4MatDifCol) of this pool's level [L: the record's float, 16 levels]
@@ -337,15 +400,36 @@ void ApplyWeaponRows(BuildCtx& ctx, const FamilyModel* props, int arena_id, uint
         }
         splat_probe.alpha = o.tint[3], splat_probe.have = true;
       }
-    } else if (it.event && w.alpha >= 0.f && w.alpha < 1.f) o.tint[3] = w.alpha;   // S103 SMF (review A5): an event prop follows the game (EYES.md:105-114): MdlAlpha 0 still draws, only BLENDED materials vanish at 0; the tint carries 0 <= alpha < 1 and the front end fades blended meshes, opaque ones draw
+    } else if (it.event && w.alpha >= 0.f && w.alpha < 1.f) o.tint[3] = w.alpha;   // S103 SMF (review A5): the tint carries 0 <= alpha < 1. S111 OWNNODEZ: an own-node / CWDA model (kObjNodeOwn below) fades as a whole and is dropped below its node's reference (splat_state.h OwnNodeDraw); a node-less entry keeps the material rule (blended meshes fade, opaque ones draw)
     else if (w.alpha > 0.f && w.alpha < 1.f) o.tint[3] = w.alpha;   // [model+252] at the call. alpha == 0 draws opaque: whether 0 means "faded out" or "not set" is [U] (no capture shows a weapon with 0)
+    if (it.stage) {
+      o.flags |= stage_node::StageNodeObjectFlags(w.slot_flags, it.id, it.entry);   // S111 PODGLASS (stage_node_state.h): a piece the chamber's category-35 / 36 node draws takes the node's state (blended, z write 0): the pod glass shows the wrestlers behind it
+      o.tint[3] = stage_node::StageNodeTint(o.flags, w.alpha, o.tint[3]);              // S111 CHAMBERFADE: under that node MdlAlpha 0 is the fade's "nothing" (the front wall k 7 near the camera), not "not set"
+    }
+    if (it.gm) o.flags |= gm_node::GmNodeObjectFlags(it.entry, w.alpha);   // S111 PODDOOR (gm_node_state.h): a set object the gm manager draws in category 36 (key 1500+ or MdlAlpha < 1: the chamber's glass chem_glass02_ma) takes that node's state (blended, z write 0, after the wrestlers)
     if (casts_p) o.flags |= kObjCastsProps;   // S103 PM2: the props map's caster (live_map_props.cpp); the family bits below serve both maps' census
-    if (casts_b || casts_p) o.flags |= (casts_b ? kObjCastsMapB : 0u) | (it.event ? (kObjMapBEvent | (weapons::IsMapBPiece43Id(it.id) ? kObjMapBPiece43 : 0u)) : it.stage ? kObjMapBStage : weapons::IsMapBUnsureId(it.id) ? kObjMapBUnsure : 0u);   // S103 MBC: map B casts it in mode 0 (live_map_shadow.cpp); the PMC filter, pure in weapon_plan.h
+    if (casts_b || casts_p) o.flags |= (casts_b ? kObjCastsMapB : 0u) | (it.event ? (kObjMapBEvent | (weapons::evt_nodes::SceneWordGated(weapons::evt_nodes::NodeOf(it.entry, it.event_main), weapons::IsMapBPiece43Id(it.id)) ? kObjMapBPiece43 : 0u)) : it.stage ? kObjMapBStage : weapons::IsMapBUnsureId(it.id) ? kObjMapBUnsure : 0u);   // S103 MBC: map B casts it in mode 0 (live_map_shadow.cpp); the PMC filter, pure in weapon_plan.h. S111 WATRSHADOW: kObjMapBPiece43 = categories 33 / 43 (CWDT / CWDS entries, a re-keyed own model): map B only outside scene word 1
     const uint32_t frame_index = uint32_t(ctx.frame.objects.size());
     ctx.frame.objects.push_back(o);
-    if (it.event) change_colour_draw::CarryChangeColour(ctx.t.change_colours, ctx.frame, frame_index, w.object);   // S108 THB: an entrance prop's colours (the record's section-67 row of kCcProp, keyed by the model address = the call's object): the draw binds the STS cc_mask row + the prop's mask
+    if (it.event || belt_masked) change_colour_draw::CarryChangeColour(cc_rows, ctx.frame, frame_index, w.object);   // S108 THB: an entrance prop's colours (the record's section-67 row of kCcProp, keyed by the model address = the call's object): the draw binds the STS cc_mask row + the prop's mask (S111 BELTMASKNAME: + an m2 / stage belt's row, its mask bound above; review F2: + a held structure call's belt row)
+    if (it.event) {   // S111 PROPORDER (draw_place_rows.h): an entrance prop model a CWeapon category-33 node draws (entries 4 / 5 / 9) takes that node's list place (its model's kSlDrawPlace row); none = today's order, counted
+      const bool placed = draw_place::Carry(ctx.t.stage_look, ctx.frame, frame_index, w.object);
+      if (placed)   // S111 PROPORDER review (splat_state.h PlacedObjectFlags): the CWeapon node draws this model under ITS state whatever the material: z write 0, blended by code 0 (CWDT / CWDS) or 1 (WATR); S111 REKEYORDER: an own node's place (material_state) only orders it
+        ctx.frame.objects[frame_index].flags |= splat_state::PlacedObjectFlags(ctx.frame.draw_places.back());
+      if (const weapons::evt_nodes::Node nd = weapons::evt_nodes::NodeOf(it.entry, it.event_main); nd == weapons::evt_nodes::Node::Main || nd == weapons::evt_nodes::Node::Cwda)   // S111 OWNNODEZ (+ review: CWDA) (splat_state.h OwnNodeDraw): the own node sub_8272D378 / CWDA sub_8272D0F0 draws this model blended (code 0), tested GEQUAL 1/255 / 128/255, z write 1
+        ctx.frame.objects[frame_index].flags |= splat_state::OwnNodeObjectFlags(nd == weapons::evt_nodes::Node::Cwda);
+      if (weapons::evt_nodes::InCategory33(weapons::evt_nodes::NodeOf(it.entry, it.event_main))) {   // S111 WATRSHADOW review: by node (event_prop_nodes.h), not by k: the first made entry is the own node whatever its k
+        auto& pc = draw_place::PropCounts();
+        const uint64_t n = (placed ? pc.placed : pc.unplaced).fetch_add(1, std::memory_order_relaxed) + 1;
+        static census_flush::Site place_flush;   // S102 CEN1: a flip phase end prints the line now
+        if (!placed && (n == 1 || n % 600 == 0 || census_flush::Due(place_flush)))
+          rdr::Log("[rdr][draw_place] entrance prop %d entry %u: no category-33 place (the list unread or its node not found): drawn in the record order; placed %llu unplaced %llu", int(it.id), unsigned(it.entry), (unsigned long long)pc.placed.load(std::memory_order_relaxed), (unsigned long long)n);
+      }
+    }
     ModelLights ml;
-    if (it.stage ? (StageLights(ctx, it.id, it.entry, bound.meshes.size(), uint32_t(id), ml) || WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml)) : WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml)) ctx.frame.model_lights.push_back(std::move(ml));   // S103 CGF: a stage piece takes its key set by id (cage / cell 100, Inferno 31), else the arena props set [L]
+    if (it.stage ? (StageLights(ctx, it.id, it.entry, bound.meshes.size(), uint32_t(id), ml) || WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml))
+                 : ((it.event && PropLights(ctx, w.object, bound.meshes.size(), uint32_t(id), ml)) || WeaponLights(ctx, props, uint32_t(id), bound.meshes.size(), ml)))
+      ctx.frame.model_lights.push_back(std::move(ml));   // S103 CGF: a stage piece takes its key set by id (cage / cell 100, Inferno 31), else the arena props set [L]; S111 STAGELESS2: an event prop the set its CWeapon asks for, when the record holds it
     if (const int cc = weapons::CovClassOfItem(it); cc >= 0) ++cov.drawn[cc];   // S103 LDR
     if (it.stage && weapons::IsLadderLightPiece(it.id, it.entry)) ++cov.lights_additive;   // S103 LDR2
     if (it.stage) ++census.stage.drawn;
@@ -429,7 +513,7 @@ bool ApplyProps(BuildCtx& ctx) {
   if (ArenaSet* as = EnsureArena(ctx, why, miss)) {  // (1) the arena's props (ring steps, announce desk): drawn here
     const FamilyModel& fm = as->part[size_t(Part::Props)];
     props_fm = &fm, arena_id = as->arena;
-    if (fm.model >= 0 && weapons::ArenaFixedPropsDrawn(weapons::WeaponViewOf(ctx.t).n_slots)) {   // S103 LDR: with the weapon rows on, the weapon manager's own rows draw the steps (the arena's variant) and the desk (once); the fixed copies stay out of the picture
+    if (fm.model >= 0 && weapons::ArenaFixedPropsDrawn(weapons::DrawSlotRows(weapons::WeaponViewOf(ctx.t)))) {   // S103 LDR: with the weapon rows on, the weapon manager's own rows draw the steps (the arena's variant) and the desk (once); the fixed copies stay out of the picture. S111 CUTREACH2 review: the table of the record's own period, never the newest latch's load hints
       Object o;
       o.asset = uint32_t(fm.model);
       o.world = IdentityMat4();

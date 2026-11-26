@@ -34,6 +34,10 @@ Checks (E = error, makes the exit code 1; W = warning, printed separately, exit 
      "needs second label", "A only"). Free-text parsing: a lead, not proof. A per-file table is printed.
   W  docs/systems/*.md without a db file and db files without a docs/systems page
   W  the code index is stale (codegen, map or image changed since it was built)
+  E  db/claims/*.json (S111 LODGE: a probe note's lodged claim rows, written by tools/handback/lodge_note.py; NOT function entries, so
+     no name / label / duplicate rules): a list of rows {address, function, offset, mark, claim, evidence, note [, seam, ours, verdict,
+     system]}; address one 8-digit guest address, function null or one, offset null or 0x hex, mark C|L|U, claim (<= 300) / evidence
+     (<= 200) / note non-empty strings, no game code in claim or evidence (CLAIM_CODE_RE: stricter than the entry warning)
 
 Coverage table (always printed): per db file and per `system` value: entries (function / data / layout), confidence
 mix, % with live evidence (a live run, run/timeline number, trace, memory watch, breakpoint, mid-asm hook, profile or
@@ -95,6 +99,22 @@ _PPC_MNEMONICS = (r'lwz|lwzx|lwzu|lwbrx|stw|stwx|stwu|stwbrx|lis|addi|addis|addi
 DISASM_RE = re.compile(r'(?<![\w.])(?:%s)\s+(?:[rfv]\d{1,3}\s*,|-?(?:0x)?[0-9A-Fa-f]+\(r\d{1,2}\))' % _PPC_MNEMONICS,
                        re.I)
 DISASM_WARN_AT = 3
+# S111 LODGE: game code in a lodged claim row (db/claims/*.json) is an ERROR, and stricter than DISASM_RE: any mnemonic followed by a register,
+# a condition field, a displacement or a branch target ("mtctr r11", "cmplwi cr6,r11,9", "rlwinm. r11,r3,...", "bl sub_82331BC0"), or a bare
+# return / indirect branch. A claim is one sentence in our words; where it was read goes in its evidence ("decomp sub_X +0x40").
+_CLAIM_MNEMONICS = _PPC_MNEMONICS + (r'|lwzux|stwux|lhzu|lbzu|lfsu|stfsu|mfspr|mtspr|mfcr|mtcrf|cntlzw|cntlzd|subfe|subfc|adde|addc|mulhw|'
+                                     r'mulhwu|divd|divdu|extrwi|insrwi|rotlwi|clrrwi|clrldi|sldi|srdi|sradi|fneg|fabs|fsel|fcmpo|fmsubs|'
+                                     r'fnmsubs|fmul|fadd|fsub|fdiv|fmadd|lvlx|lvrx|stvlx|stvrx|vaddfp|vmaddfp|vperm|vspltw')
+_BRANCHES = r'b|bl|ba|bla|beq|bne|blt|bgt|ble|bge|bdnz|bdz|bso|bns|beql|bnel'
+CLAIM_CODE_RE = re.compile(
+    r'(?<![\w.])(?:%s)\.?\s+(?:[rfv]\d{1,3}\b|cr\d\b|-?(?:0x)?[0-9A-Fa-f]+\(r\d{1,2}\))' % _CLAIM_MNEMONICS
+    + r'|(?<![\w.])(?:%s)[+-]?\s+(?:cr\d\s*,\s*)?(?:sub_|loc_|lbl_|0x8[23])' % _BRANCHES
+    + r'|(?<![\w.-])(?:blr|bctr|bctrl|beqlr|bnelr|bltlr|bgtlr|blelr|bgelr)(?![\w-])', re.I)
+CLAIM_FIELDS = ('address', 'function', 'offset', 'mark', 'claim', 'evidence', 'note')
+CLAIM_OPTIONAL = ('seam', 'ours', 'verdict', 'system', 'kind', 'key', 'name', 'site')   # kind / key / name / site: the TYPE column (S111 INDEX_PLAN lane B)
+CLAIM_MAX = 300
+CLAIM_EVIDENCE_MAX = 200
+CLAIM_VERDICTS = ('match', 'replace', 'repeat')
 SINGLE_LABEL_RE = re.compile(r'single label|needs? (?:a )?second label|\b[AB] only\b', re.I)
 NO_LABEL_RE = re.compile(r'not studied by either labell?er|neither labell?er|added by the reconciler', re.I)
 # "labels: ..." evidence items (the db's own convention for key systems).
@@ -375,6 +395,7 @@ def validate(args):
             addr = int(e['address'].strip(), 16) if kind == 'single' else None
             entries.append((stem, i, e, kind, addr, rel, where))
 
+    check_claims(rep, os.path.join(args.db, 'claims'))
     check_addresses(rep, entries, fn_info, starts_sorted, args)
     check_duplicates(rep, entries)
     check_docs(rep, files, args.docs)
@@ -383,6 +404,106 @@ def validate(args):
                                 if kind == 'layout' and isinstance(e.get('address'), str) and e['address'].strip())
     return dict(report=rep, coverage=cov, files=len(files), entries=len(entries),
                 address_forms=dict(forms)), (1 if rep.errors else 0)
+
+
+def claim_code(text):
+    """S111 LODGE: -> the game-code fragment in a claim / evidence text (CLAIM_CODE_RE, GENCODE_RE), else None."""
+    for rx in (CLAIM_CODE_RE, GENCODE_RE):
+        m = rx.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def check_claim_rows(rep, rel, rows):
+    """S111 LODGE: one db/claims file's rows (the parsed JSON). Errors only; no entry rules (they are claims, not function entries)."""
+    if not isinstance(rows, list):
+        rep.err('claims', rel, 'top level is not a list of claim rows')
+        return
+    for i, r in enumerate(rows):
+        where = '%s[%d]' % (rel, i)
+        if not isinstance(r, dict):
+            rep.err('claims', where, 'row is not an object')
+            continue
+        for k in CLAIM_FIELDS:
+            if k not in r:
+                rep.err('claims', where, 'missing field %r' % k)
+        extra = sorted(set(r) - set(CLAIM_FIELDS) - set(CLAIM_OPTIONAL))
+        if extra:
+            rep.err('claims', where, 'unknown field(s) %s' % ', '.join(extra))
+        a = r.get('address')
+        if not (isinstance(a, str) and ADDR_RE.match(a)):
+            rep.err('claims', where, 'address %r is not one 0xXXXXXXXX guest address' % (a,))
+        else:
+            where = '%s[%d] %s' % (rel, i, a)
+        fn = r.get('function')
+        if fn is not None and not (isinstance(fn, str) and ADDR_RE.match(fn)):
+            rep.err('claims', where, 'function %r is not null or one 0xXXXXXXXX address' % (fn,))
+        off = r.get('offset')
+        if off is not None and not (isinstance(off, str) and re.fullmatch(r'0x[0-9A-F]+', off)):
+            rep.err('claims', where, 'offset %r is not null or 0x hex' % (off,))
+        if (fn is None) != (off is None):
+            rep.err('claims', where, 'function and offset are both null (a data address) or both set')
+        if r.get('mark') not in ('C', 'L', 'U'):
+            rep.err('claims', where, 'mark %r is not C, L or U' % (r.get('mark'),))
+        for k, cap in (('claim', CLAIM_MAX), ('evidence', CLAIM_EVIDENCE_MAX), ('note', 400)):
+            v = r.get(k)
+            if not (isinstance(v, str) and v.strip()):
+                rep.err('claims', where, '%s is not a non-empty string' % k)
+                continue
+            if len(v) > cap:
+                rep.err('claims', where, '%s is %d characters (at most %d)' % (k, len(v), cap))
+            if k != 'note':
+                code = claim_code(v)
+                if code:
+                    rep.err('claims', where, '%s carries game code %r (db/ holds summaries only: say it in our own words)' % (k, code))
+        if r.get('verdict') is not None and r.get('verdict') not in CLAIM_VERDICTS:
+            rep.err('claims', where, 'verdict %r is not match|replace|repeat' % (r.get('verdict'),))
+        if r.get('system') is not None and r.get('system') not in SYSTEMS:
+            rep.err('claims', where, 'system %r is not one of %s' % (r.get('system'), '|'.join(SYSTEMS)))
+        for k in ('seam', 'ours'):
+            if r.get(k) is not None and not (isinstance(r.get(k), str) and r.get(k).strip()):
+                rep.err('claims', where, '%s is not null or a non-empty string' % k)
+        check_claim_type(rep, where, r)
+
+
+def check_claim_type(rep, where, r):
+    """S111 INDEX_PLAN lane B: the TYPE column of a lodged row: kind + key parse by the grammar of tools/q/qfactkey.py, the key is canonical, a
+    site row's `site` is the cited instruction. Rows without a kind carry none of the four fields."""
+    if r.get('kind') is None:
+        for k in ('key', 'name', 'site'):
+            if r.get(k) is not None:
+                rep.err('claims', where, '%s without a kind' % k)
+        return
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('qfactkey', os.path.join(REPO, 'tools', 'q', 'qfactkey.py'))
+    fk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fk)
+    try:
+        t = fk.parse_key(r['kind'], r.get('key') or '')
+    except fk.FactKeyError as e:
+        rep.err('claims', where, 'kind / key: %s' % e)
+        return
+    if t['key'] != r.get('key'):
+        rep.err('claims', where, 'key %r is not canonical (%r)' % (r.get('key'), t['key']))
+    if r.get('name') is not None and not (isinstance(r['name'], str) and r['name'].strip() and len(r['name']) <= fk.MAX_NAME):
+        rep.err('claims', where, 'name is not null or a short non-empty string')
+    want = ('0x%08X' % t['addr']) if r['kind'] == 'site' else None
+    if r.get('site') != want:
+        rep.err('claims', where, 'site is %r, the key says %r' % (r.get('site'), want))
+
+
+def check_claims(rep, claims_dir):
+    """S111 LODGE: every db/claims/*.json (one file per lodged note)."""
+    for p in sorted(glob.glob(os.path.join(claims_dir, '*.json'))):
+        rel = os.path.relpath(p, REPO)
+        try:
+            with open(p, encoding='utf-8') as f:
+                rows = json.load(f)
+        except (OSError, ValueError) as e:
+            rep.err('claims', rel, 'does not parse: %s' % e)
+            continue
+        check_claim_rows(rep, rel, rows)
 
 
 def check_entry(rep, where, e):

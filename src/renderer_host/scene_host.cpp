@@ -24,10 +24,12 @@
 #include "../renderer/problem.h"
 #include "../renderer_adapter/census_flush.h"   // S102 CEN1
 #include "overlay_mailbox.h"   // S103 AIM: the app's ImGui dialogs, drained onto the renderer before each presented frame
+#include "../cut_shot.h"   // S111 SHOTDIET: the cut watch + the picture sink
 #include "../renderer_game/fallback_census.h"
 #include "../renderer_game/scene_frame.h"
 #include "../renderer_game/scene_kind.h"
 #include "../renderer_scene/cam_gate.h"   // S110 ENTRBLACK: the game's scene-geometry fact (header bits 1 / 2)
+#include "../renderer_scene/stageless_scene.h"   // S111 STAGELESS2: header bit 6 (no stage held): the stage-only inputs are not required
 #include "../renderer_scene/stage_lmpage.h"   // S103 SMX (IP): the own page switch
 #include "../renderer_scene/yuv_rgba.h"   // S103 CPU1: YuvPathName (the [host][cpu] census field)
 #include "../renderer_scene/post_pass.h"   // S103 SLV: g_post_dconv_passes
@@ -63,8 +65,8 @@ bool SceneHost::Start(const HostOptions& options, std::string& error) {
     Log("[host][pipestore] catalog registered: " + std::to_string(n) + " shaders (" + std::to_string(std::size(rdr::fx::kOwnShaders)) + " of them our own)" + (opts_.precompile_mode ? "; precompile mode: the store builds everything at once" : ""));
   }
   draw_ = std::make_unique<rdr_scene::LiveSceneDraw>(*renderer_);
-  // S103 SCS: the in-scene 2D rows (screen flashes, lens flares: kQpSceneColour) are drawn inside the scene pass by the scene hook (frame_hooks.h LiveScene2D), onto the scene colour with its depth: the same
-  // q2d::Append the F rows use, the same picture resolver, depth from each row's own state (quads2d_draw.h Context::scene_depth). The report is kept for DrawRows (counted there, by guest frame).
+  // S103 SCS: the in-scene 2D rows (kQpSceneColour: every row the game records inside its scene pass, S111 ZFINAL2: any site) are drawn inside the scene pass by the scene hook (frame_hooks.h LiveScene2D), onto the scene colour with its depth: the same
+  // q2d::Append the F rows use, the same picture resolver and movie planes, depth from each row's own state (quads2d_draw.h Context::scene_depth). The report is kept for DrawRows (counted there, by guest frame).
   if (opts_.scene2d) draw_->SetScene2D([this](rdr::FrameBuilder& fb, const rdr_scene::StageCtx& sc, const rdr_scene::Quad2D* rows, size_t n, uint64_t guest_frame, uint8_t phase) {
     namespace q = rdr_scene::q2d;
     if (!q2d_registered_) q2d_programs_ = q::Register(*renderer_, true), q2d_registered_ = true;
@@ -80,6 +82,7 @@ bool SceneHost::Start(const HostOptions& options, std::string& error) {
     const auto resolver = seam_.picture ? seam_.picture : opts_.picture;
     if (resolver) ctx.picture = TrackPictures(resolver);   // S105 A4 F8
     if (seam_.scissor) ctx.scissor = seam_.scissor;
+    ctx.plane = [this](const rdr_scene::Quad2D& row, int slot) { return PlaneOf(row, slot, scene2d_j_); };   // S111 ZFINAL2: a movie row the game draws inside its scene pass takes its planes as on F (the same per-row cache; the record DrawLive draws)
     const q::Report rep = q::Append(fb, q2d_programs_, ctx, rows, n);
     // S105 A4B: with pre-3D rows the hook draws twice (BeforeOpaque = kPhaseEarly, then AfterBlended = kPhaseLate): the frame's report is the sum, the first refused row an index into the early + late rows together
     // (early rows come first in seq: category order), so scene_idx still maps. A kPhaseOnly / kPhaseEarly call starts a new report as before.
@@ -170,6 +173,8 @@ void SceneHost::LogFinal() {
   if (renderer_) renderer_->FlushPipelineStore();
   if (opts_.contributor_census) opts_.contributor_census(census_from_, core_.counters().frames);   // S103 LVF: the last window of every contributor census (prints only when frames came since the last one)
   Log(CensusLine(core_.counters()));
+  if (const std::string bl = black_spans_.Close(); !bl.empty()) Log(bl);   // S111 BLACKFRAME: the run of black frames still open at the end
+  if (const std::string bs = black_spans_.SummaryLine(); !bs.empty()) Log(bs);
   if (const std::string kl = rdr_scene::live::movieplanes::KeyCensusLine(); !kl.empty()) Log(kl);   // N2: the plane-key census
   Log(SourceLine(core_.counters()));   // PBS
   LogDirect();   // S103 CHS C6
@@ -291,7 +296,7 @@ void SceneHost::QueueShot(uint64_t guest_frame) {
     rdr::ImageRef probe;
     probe.image = shown;
     if (!renderer_->QueueReadback(probe, tag)) return;
-    shot_inflight_ = true, shot_inflight_covers_ = covers, shot_inflight_frame_ = guest_frame;
+    shot_inflight_ = true, shot_inflight_covers_ = covers, shot_inflight_frame_ = guest_frame, shot_inflight_cut_ = cur_cut_;
     shot_inflight_curve_ = curve_, shot_inflight_curve_set_ = curve_set_;
     std::lock_guard lock(shot_mu_);
     shot_covered_ = std::max(shot_covered_, covers);
@@ -302,11 +307,29 @@ void SceneHost::QueueShot(uint64_t guest_frame) {
     PublishShot(covers, false, {}, 0, 0, guest_frame);
     return;
   }
-  shot_inflight_ = true, shot_inflight_covers_ = covers, shot_inflight_frame_ = guest_frame;
+  shot_inflight_ = true, shot_inflight_covers_ = covers, shot_inflight_frame_ = guest_frame, shot_inflight_cut_ = cur_cut_;
   shot_inflight_curve_ = curve_, shot_inflight_curve_set_ = curve_set_;
   std::lock_guard lock(shot_mu_);
   shot_covered_ = std::max(shot_covered_, covers);   // (answered when the copy lands; a request after this one waits for the next copy)
   shot_active_.store(true, std::memory_order_relaxed);
+}
+
+// S111 SHOTDIET (host thread, before the RenderFrame whose picture is wanted): while `screenshot_on_cut` is on, every drawn tick asks for its picture like a screenshot request would (the same QueueShot copy, so
+// the curve, the answered guest frame and the one-copy-in-flight rule are the screenshot's own). A tick that finds the previous copy still in flight is not read: the watch then has a gap, counted and logged,
+// and its cut test is kept (cut_latch_, review): the next tick that is read carries it, so a cut is never lost with an unread picture (the "at" picture is then the first one read after the cut).
+void SceneHost::QueueCutShot(uint64_t guest_frame) {
+  if (shot_inflight_ || f_ == rdr::kNoImage || shot_policy::g_write_gate.Full()) {   // (review N2: nor while 2 screenshot writes are in flight: src/shot_policy.h)
+    cut_latch_.Unread(cur_cut_);
+    if (++cut_watch_skipped_ == 1 || cut_watch_skipped_ % 600 == 0) Log("[host] screenshot_on_cut: " + std::to_string((unsigned long long)cut_watch_skipped_) + " tick(s) not read back (the previous copy, or 2 screenshot writes, still in flight; a cut on one is carried to the next tick read)");
+    return;
+  }
+  {
+    std::lock_guard lock(shot_mu_);
+    if (shot_req_ <= shot_covered_) shot_req_ = shot_covered_ + 1;
+  }
+  cur_cut_ = cut_latch_.Read(cur_cut_);   // (QueueShot stores it with the copy: shot_inflight_cut_)
+  QueueShot(guest_frame);
+  if (!shot_inflight_) cut_latch_.Unread(cur_cut_);   // no copy started (a refused read is answered at once): the cut waits for the next tick that is read
 }
 
 // ---- S108 SHOT-A: the subject-shot record save -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -409,7 +432,19 @@ void SceneHost::PollShot() {
     }
     if (!shot_inflight_ || r.tag != shot_tag_) continue;
     shot_inflight_ = false;
-    PublishShot(shot_inflight_covers_, !r.cancelled && r.width && r.height, std::move(r.rgba), r.width, r.height, shot_inflight_frame_);
+    const bool shot_ok = !r.cancelled && r.width && r.height;
+    if (cut_shot::g_watch.load(std::memory_order_relaxed)) {
+      if (shot_ok && r.rgba.size() >= size_t(r.width) * r.height * 4) {   // S111 SHOTDIET: the watch's sink gets this tick's picture (one copy; the writer is on its own thread)
+        cut_shot::Picture p;
+        p.frame = shot_inflight_frame_, p.cut = shot_inflight_cut_, p.w = r.width, p.h = r.height;
+        p.rgba = std::make_shared<const std::vector<uint8_t>>(r.rgba);
+        p.curve = shot_inflight_curve_, p.curve_set = shot_inflight_curve_set_ && !seam_.shot_no_curve;
+        cut_shot::Deliver(p);
+      } else {
+        cut_latch_.Unread(shot_inflight_cut_);   // (review) a cancelled / empty copy of a cut tick: the next tick read carries the cut
+      }
+    }
+    PublishShot(shot_inflight_covers_, shot_ok, std::move(r.rgba), r.width, r.height, shot_inflight_frame_);
   }
 }
 
@@ -704,7 +739,7 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
   if (f_set) fb.SetTargets(t);
   // Runs of drawable rows go to the drawer in one call each (rows keep their seq order); a dropped row ends a run. The first dropped row in row order is named in the census.
   size_t run = 0, first_idx = size_t(-1), in_scene = 0;
-  std::vector<size_t> scene_idx;   // S103 SCS: the record index of each in-scene row, in order (the hook's rows are the same rows: Scene2DSite + pass), to map its first refusal back to a row
+  std::vector<size_t> scene_idx;   // S103 SCS: the record index of each in-scene row, in order (the hook's rows are the same rows: the scene-colour pass, S111 ZFINAL2: any site), to map its first refusal back to a row
   enum class FirstKind : uint8_t { None, Pass, PassUnknown, Refused } first_kind = FirstKind::None;
   const char* first_pass_why = nullptr;
   q::Refuse first_refuse = q::Refuse::None;
@@ -942,7 +977,8 @@ void SceneHost::Handle(Msg& m) {
         uint32_t fed_now = seam_.inject_stale;
         for (const rdr_scene::InputStampRow& r : rec.input_stamps)
           if (r.bit < 32 && r.frame > 0 && r.frame >= feed_.start) fed_now |= 1u << r.bit;
-        const uint32_t req = scene_kind::RequiredFor(scene_kind::Kind(kind), rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed));
+        const uint32_t req = rdr_scene::stageless::RequiredInScene(scene_kind::RequiredFor(scene_kind::Kind(kind), rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed)),
+                                                                   (rec.header.flags & rdr_scene::stageless::kSceneNoStageHeld) != 0);   // S111 STAGELESS2: no stage held = nothing can feed the stage-only inputs
         uint32_t stamped_ever = 0;   // the bits some stamp has hit this session (a bit whose writer never runs here is left out of the rule, counted)
         for (unsigned b = 0; b < 32 && b < unsigned(scene_inputs::kInputCount); ++b)
           if (scene_inputs::g_counters.stamps[b].load(std::memory_order_relaxed)) stamped_ever |= 1u << b;
@@ -987,7 +1023,7 @@ void SceneHost::Handle(Msg& m) {
       f.ours = true;
       built_this = built_this_frame = true;
       bool loading = false;
-      scene2d_frame_ = uint64_t(-1);   // S103 SCS: no hook report for this record until its draw succeeds
+      scene2d_frame_ = uint64_t(-1), scene2d_j_ = j;   // S103 SCS: no hook report for this record until its draw succeeds; S111 ZFINAL2: the record the hook's movie planes are served for
       const int forced_fault = fault_plant_.exchange(0, std::memory_order_relaxed);   // S103 CHS rig: a planted draw: fault (the draw is not made)
       if (forced_fault) why = "draw: planted fault";
       if (!forced_fault && draw_->DrawLive(rec, fb, f.width, f.height, /*post=*/nullptr, out, why, nullptr, &loading) && out != rdr::kNoImage) {
@@ -1043,6 +1079,7 @@ void SceneHost::Handle(Msg& m) {
   } else if (f.ours && f.draw == DrawResult::Miss && f.loading) scene_frame::Miss(j, true);
 
   if (plan.remake_f) MakeF(plan.width, plan.height), f_stale_ = false, out_ok_ = false;   // (a new F: what the plan below puts in it is the picture)
+  ShownKind shown = ShownKind::Unchanged;   // S111 BLACKFRAME: what this frame puts on the screen (set in the switch below; no present = Unchanged)
   if (plan.present && f_ != rdr::kNoImage) {
     const rdr::Rect full{0, 0, out_w_, out_h_};
     scene_serve_ = false;   // S105 A4: the scene-copy sprite row is served `last_out_` only on a frame that presents a 3D picture (set in the switch below)
@@ -1057,6 +1094,7 @@ void SceneHost::Handle(Msg& m) {
       case Source::Draw3D:
       case Source::Hold3D: {
         const rdr::ImageId src = plan.source == Source::Draw3D ? out : last_out_;
+        shown = ShownKind::Picture;   // S111 BLACKFRAME
         if (plan.source == Source::Draw3D) last_out_ = out, out_ok_ = true, last_out_frame_ = j;   // (F1: the frame `out` was drawn for)
         scene_serve_ = src != rdr::kNoImage && (plan.source == Source::Draw3D || out_ok_);   // S105 A4: a current 3D picture (a Hold3D one only while `out` still holds it)
         if (direct_ok && src != rdr::kNoImage && (!rows_f || seam_.direct_plant == 1)) {
@@ -1075,12 +1113,12 @@ void SceneHost::Handle(Msg& m) {
         f_stale_ = false;
         break;
       }
-      case Source::Black: ClearF(fb); f_stale_ = false; break;
+      case Source::Black: ClearF(fb); f_stale_ = false; shown = ShownKind::Black; break;
       case Source::HoldF:
         if (f_stale_) {   // F is older than the picture: the same `out` again (nothing drew it since), or black when a draw fault spoiled `out` (never a stale image)
           if (out_ok_ && last_out_ != rdr::kNoImage && seam_.direct_plant != 4) present_src = last_out_, ++direct_holds_;
           else {   // a fault put ops on the picture F was never given: black, and the frames after it are black frames (not held ones)
-            ClearF(fb), f_stale_ = false, ++direct_fault_black_;
+            ClearF(fb), f_stale_ = false, ++direct_fault_black_, shown = ShownKind::FaultBlack;   // S111 BLACKFRAME
             st_.f_is_3d = false;
             if (core_.counters().repeat_full) --core_.counters().repeat_full;
             ++core_.counters().black_no_3d;
@@ -1096,8 +1134,29 @@ void SceneHost::Handle(Msg& m) {
     fb.Present(present);
     const rdr::Frame built = fb.Finish();
     if (!seam_.overlay_never) overlay_mailbox::Drain(*renderer_);   // S103 AIM: the app's ImGui dialogs (the plain RenderFrame and the tween pair below both draw them in the present pass)
+    // The record's camera as the tween and the cut watch read it (moved out of the tween block unchanged: S111 SHOTDIET).
+    auto cam_of = [&] {
+      TweenCam cam;
+      if (m.record && m.record->has_camera) {
+        const rdr_scene::Camera& rc = m.record->camera;
+        cam.have = true, cam.cut = rc.cut;
+        std::memcpy(cam.eye, rc.eye, sizeof cam.eye);
+        std::memcpy(cam.rot, rc.view.m, sizeof cam.rot);
+        cam.fov_y_deg = rc.fov_y_deg, cam.proj_x = rc.proj.m[0] < 0 ? -rc.proj.m[0] : rc.proj.m[0], cam.proj_y = rc.proj.m[5] < 0 ? -rc.proj.m[5] : rc.proj.m[5];   // (review F5: a zoom is a cut; the y scale is negative in the game's convention)
+      }
+      return cam;
+    };
+    // S111 SHOTDIET: `screenshot_on_cut` (cut_shot.h). The cut signal is the host's own camera test, the one the tween refuses to blend across (CameraJumped), per tick; never an image difference.
+    const bool cut_watch = cut_shot::g_watch.load(std::memory_order_relaxed);
+    cur_cut_ = false;
+    if (cut_watch) {
+      const TweenCam cc = cam_of();
+      cur_cut_ = CameraJumped(cut_cam_, cc);
+      if (cc.have) cut_cam_ = cc;
+    }
     bool shot_queued = false;
     auto shot_before = [&] {
+      if (cut_watch) QueueCutShot(j);
       if (shot_active_.load(std::memory_order_relaxed)) QueueShot(j), shot_queued = true;
       if (rec_active_.load(std::memory_order_relaxed)) QueueRecordSave(j, m, f.draw == DrawResult::Ok && plan.source == Source::Draw3D);   // S108 SHOT-A: the record of a drawn 3D frame, its liquid images read after the frame's paint
       if (scene_active_.load(std::memory_order_relaxed)) QueueScene(j);   // S103 RBC
@@ -1114,14 +1173,7 @@ void SceneHost::Handle(Msg& m) {
       // (DisplayOnly: the in-between redraw, no state work); FIFO shows them a vblank apart at the display's 120 Hz. The 2D rows are not mixed: both pictures carry this tick's (TickBlender mixes vertex
       // constants of keyed 3D draws only). The previous tick is kept whenever this one drew; anything else (a held / black / 2D frame) forgets it, and so does a size or scene change or a camera cut.
       const bool drawn3d = m.record && plan.source == Source::Draw3D && built.presents.count;
-      TweenCam cam;
-      if (m.record && m.record->has_camera) {
-        const rdr_scene::Camera& rc = m.record->camera;
-        cam.have = true, cam.cut = rc.cut;
-        std::memcpy(cam.eye, rc.eye, sizeof cam.eye);
-        std::memcpy(cam.rot, rc.view.m, sizeof cam.rot);
-        cam.fov_y_deg = rc.fov_y_deg, cam.proj_x = rc.proj.m[0] < 0 ? -rc.proj.m[0] : rc.proj.m[0], cam.proj_y = rc.proj.m[5] < 0 ? -rc.proj.m[5] : rc.proj.m[5];   // (review F5: a zoom is a cut; the y scale is negative in the game's convention)
-      }
+      const TweenCam cam = cam_of();
       TweenFacts tf;
       tf.wanted = true, tf.presenting = drawn3d, tf.prev_valid = tween_.valid();
       tf.newer_waiting = core_.Pending(), tf.picture_requested = seam_.picture_requested;
@@ -1171,6 +1223,10 @@ void SceneHost::Handle(Msg& m) {
     if (PollDue()) PollShot();   // (the copy this frame carried may already have landed)
   } else if (f.ours && built_this_frame) {
     renderer_->NoteFrameDropped();   // S103 CB1: an OURS frame was built (the crowd's hook may have kept a card tile as baked) and is not handed to the renderer
+  }
+  if (shown == ShownKind::Black || shown == ShownKind::FaultBlack || black_spans_.Open()) {   // S111 BLACKFRAME: a frame that is not black with no run open costs these tests only
+    const std::string bl = black_spans_.Note(j, shown, plan, f, why);   // the run this frame ended: its branch, cause and inputs (black_spans.h)
+    if (!bl.empty()) Log(bl);
   }
   if (core_.counters().presented == shot_presented0 && scene_active_.load(std::memory_order_relaxed) && !scene_inflight_) ServeSceneSync();   // S103 RBC: a message that presented nothing still answers a scene request from `out`
   if (core_.counters().presented == shot_presented0 && shot_active_.load(std::memory_order_relaxed) && !shot_inflight_) ServeShotSync();   // lane SHOT (review F5): a message that presented nothing (or only a handled hold) still answers the request from F

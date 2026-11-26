@@ -34,6 +34,8 @@ enum Quad2DHave : uint32_t {
   kQhScissor = 16384 /* S103 SC (layout 4): the scissor state of the draw was read (scissor_on / scissor[]). Without it the row is a HOLE (fail closed: an unknown scissor is never drawn as unclipped; Quad2DRowProblem refuses it) */,
   kQhAddress = 32768 /* S103 RFX (layout 5): the pixel sampler 0 address code was read (address); without it the row clamps (the old rule) */,
   kQhPre3DCat = 65536 /* S105 A4B: a scene-colour row recorded at a frame-walk category below 13 (the first wrestler category): the game draws it BEFORE its 3D (CAF's black quad, category 3); drawn at BeforeOpaque. Not in kQhEverything; old captures read 0 */,
+  kQhSceneByPass = 131072 /* S111 ZFINAL / ZFINAL2: the tap's target model put this row on the frame, but it was recorded inside the game's scene pass (op 73 .. op 74 on its thread), any site, any z state: reclassed kQpSceneColour (walk_cat.h SceneByGamePass). Provenance only; not in kQhEverything; old captures read 0 */,
+  kQhAfterPost = 262144 /* S111 ZFINAL2 review: the tap's target model classed this row scene colour, but it was recorded at or after the game's post node (category 52): put back on the frame, kQpFinal (walk_cat.h FrameAfterGamePost). Provenance only; not in kQhEverything; old captures read 0 */,
   kQhEverything = 65535,   // (kQhTarget = 128 is also set by a layout-4 row: the target class, viewport and size were read)
 };
 struct Quad2D {

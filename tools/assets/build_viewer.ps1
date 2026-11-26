@@ -58,7 +58,7 @@ foreach ($f in @('imgui.cpp', 'imgui_draw.cpp', 'imgui_tables.cpp', 'imgui_widge
   $imguiObjs += $obj
 }
 Set-Content -Path $stampFile -Value $stamp
-$inc = @('-I', $stb, '-I', (Join-Path $repo 'src\launcher'), '-I', $imgui, '-I', $sdlInc, '-I', $vkh)
+$inc = @('-I', $stb, '-I', (Split-Path $stb -Parent), '-I', (Join-Path $repo 'src\launcher'), '-I', $imgui, '-I', $sdlInc, '-I', $vkh)   # S111 OLDCHAIN: + the SDK's thirdparty folder (<xxHash/xxhash.h> for renderer_rdr.cpp's effect_table_build.h in a worktree)
 # Session 98 (stance, src\assets\stance_table.h): the retail XEX key, taken from the SDK source at build time (not kept in this repo), so
 # the viewer can read the stance table from the player's own default.xex. Missing = the viewer falls back to one stance for everyone.
 $xexMod = Join-Path (Split-Path (Split-Path $imgui -Parent) -Parent) 'src\system\xex_module.cpp'

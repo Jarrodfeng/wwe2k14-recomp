@@ -1,6 +1,6 @@
 r"""qcensus (S103 lane QCF): which line of OUR code bumps the counter behind a census / log field.
 
-    py tools/q/q.py ours census FIELD [--in PATH] [--run N]
+    py tools/q/q.py ours census FIELD [--in PATH]
         FIELD is the word(s) a log line prints (black_no_3d, pic_why, "named but never drawn", shown_without_row). The chain it prints:
           field -> the format literal that holds it (file:line, the enclosing function)
                 -> the argument expression that literal prints for it (printf: the Nth arg of the format; `" field " + to_string(x)` / `<< x`: the
@@ -10,7 +10,6 @@ r"""qcensus (S103 lane QCF): which line of OUR code bumps the counter behind a c
                 -> every write to that counter in src / probes / tools: ++x, x++, --x, x += ..., x = ..., x[i] ..., .store / .fetch_* / .exchange, with
                    file:line and the enclosing function, and the declaration line(s).
         --in PATH keeps only the writers whose file path contains PATH (a member name like `frames` is declared in many structs: the writers are NAME matches).
-        --run N (a run number, or a log path) also prints the field's values per window from that run log (same as `q runlog field FIELD --run N`).
     Text level, like `q ours str`: this checkout's own files, always current, no index, no worktree remap.
     What it handles: printf-style formats (adjacent literals, a literal split over lines, PRIu64 style macros, %% and `*` widths), string concatenation
       (`" field " + std::to_string(expr)`, `+ n(expr)`, `<< expr`), a multi-line statement, a counter reached through a local, a counter named only inside a
@@ -769,7 +768,7 @@ def _writers_of(root, name, fl, files, only_in=None):
     return sorted(uniq.values(), key=lambda w: (w['file'], w['line'])), sorted({(d['file'], d['line']): d for d in decls}.values(), key=lambda d: (d['file'], d['line']))
 
 
-def cmd_census(root, field, only_in=None, run=None, limit=40):
+def cmd_census(root, field, only_in=None, limit=40):
     field = field.strip()
     if len(field) >= 2 and field[0] == field[-1] == '"':
         field = field[1:-1]
@@ -803,9 +802,6 @@ def cmd_census(root, field, only_in=None, run=None, limit=40):
                                     'counters': [{'chain': field, 'name': field, 'how': 'by name (the field was given as the counter itself)', 'writers': w, 'decls': d,
                                                   'feeders': feeders_of(root, w, fl, files, only_in)}]})
     result['sites'].sort(key=lambda s: (not s['arg'], not s.get('confirmed', True), not s['counters'], s['file'], s['line']))
-    if run is not None:
-        import qrunlog
-        result['run'] = qrunlog.field_values(field, run)
     return result
 
 
@@ -854,7 +850,4 @@ def print_census(r, args):
                 print(f'          ... {len(c["writers"]) - lim * 2} more (--limit / --in)')
     if r.get('more_sites'):
         print(f'  ... {r["more_sites"]} more format literal(s) not analysed (the first {SITE_CAP} are, src first): ' + ', '.join(r['skipped_sites']) + (' ...' if r['more_sites'] > len(r['skipped_sites']) else '') + ' - narrow the field')
-    if r.get('run'):
-        import qrunlog
-        qrunlog.print_field_values(r['run'], getattr(args, 'limit', 30))
     return 0

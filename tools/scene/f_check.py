@@ -19,6 +19,7 @@ FAULTS = {
     'no_mirror': 'draw (viewer space): the same picture',
     'reader_scale': 'reader: the vertices are',
     'reader_gate': 'reader: an entry whose gate word',
+    'reader_depth': 'reader: an entry whose +220 word is 0',   # S111 PARTZ: the entry's depth-ALWAYS word ignored
     'source_sview': 'source: the GAME-space view reaches BasisFromView',
     'reader_pivot': 'reader: the 3x3 pivot grid',   # S103 F3: the pivot grid ignored (every item centred)
     'reader_quad': 'reader: a quad takes its own matrix',   # S103 F3: a quad placed with the camera's axes

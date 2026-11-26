@@ -109,9 +109,16 @@ def disassemble(code, kind='VS'):
     if not os.path.exists(DISASM):
         raise SystemExit('missing %s: run tools\\shaders\\packets\\build_disasm.ps1' % DISASM)
     inp = os.path.join(H, 'dis_in_%d.bin' % os.getpid()); outp = os.path.join(H, 'dis_out_%d.bin' % os.getpid())
-    open(inp, 'wb').write(struct.pack('<II', 0 if kind == 'VS' else 1, len(code) // 4) + code)
-    run([DISASM, inp, outp], 'disassembler')
-    d = open(outp, 'rb').read()
+    try:
+        open(inp, 'wb').write(struct.pack('<II', 0 if kind == 'VS' else 1, len(code) // 4) + code)
+        run([DISASM, inp, outp], 'disassembler')
+        d = open(outp, 'rb').read()
+    finally:      # S111: the pid-named in / out files were never deleted
+        for p in (inp, outp):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
     n = struct.unpack_from('<I', d, 0)[0]
     return d[4:4 + n].decode('utf-8', 'replace')
 

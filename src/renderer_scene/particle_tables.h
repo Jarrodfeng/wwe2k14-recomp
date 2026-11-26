@@ -50,8 +50,10 @@ struct ParticleBatch {
   float light[4] = {0, 0, 0, 0};   // VS c202: the light vector
   uint32_t frame = 0;              // the guest frame (low 32 bits) the contributor captured this batch in: the hook draws a batch only for the record's own frame
   uint32_t row_after_p1 = 0;       // S103 MP (was reserved, always 0): the 2D row count when the node call that made this batch started, + 1 (0 = not noted: a match batch). A flat drawer draws the batch after that 2D row
+  uint8_t depth_always = 0;        // S111 PARTZ: 1 = the game drew this entry's particles with depth compare ALWAYS (entry word +220 == 0, sub_82A0AED8 +84); 0 = its reversed GEQUAL
+  uint8_t reserved_pz[3] = {0, 0, 0};
 };
-static_assert(sizeof(ParticleBatch) == 48, "ParticleBatch is a flat POD");
+static_assert(sizeof(ParticleBatch) == 52, "ParticleBatch is a flat POD");
 
 // Why the frame's particle pass is NOT WHOLE (FRAME_CONTRACT 3: a pass that ran but could not be placed is a missing input: the stamp is withheld, and an already-OURS frame is a hole
 // the render side reports). `reasons` is a bitmask; the counts say how many. Whole = reasons == 0.

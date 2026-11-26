@@ -195,7 +195,13 @@ _PLATES = {}
 
 
 def asset_db():
-    return os.environ.get('WWE_QASSET_DB') or os.path.join(MAIN, 'out', 'harness', 'index', 'asset.s4.db')
+    if os.environ.get('WWE_QASSET_DB'):
+        return os.environ['WWE_QASSET_DB']
+    d = os.path.join(MAIN, 'out', 'harness', 'index')
+    for n in ('asset.s6.db', 'asset.s5.db', 'asset.s4.db'):        # S111 MODINDEX: s5 = s4 + the mods folder's rows (left out below); S111 ASSETCOV: s6 = s5 + vertex colour / pac magic; the older until the first q asset call writes the newer
+        if os.path.isfile(os.path.join(d, n)):
+            return os.path.join(d, n)
+    return os.path.join(d, 'asset.s6.db')
 
 
 def has_plate(bobj):
@@ -209,7 +215,8 @@ def has_plate(bobj):
     con = sqlite3.connect('file:%s?mode=ro' % db.replace('\\', '/'), uri=True)
     try:
         r = con.execute(
-            "select count(*) from pach p where p.vpath=? and exists(select 1 from entry e where e.pach_id=p.id and e.eid=30) "
+            "select count(*) from pach p where p.vpath=? and p.pac_id in (select id from pacs where substr(path, 1, 5) != 'mods/') "
+            "and exists(select 1 from entry e where e.pach_id=p.id and e.eid=30) "
             "and exists(select 1 from entry e join material m on m.entry_id=e.id where e.pach_id=p.id and e.eid=4 and m.samplers like '%nameplate%')",
             ('/BOBJ/%d' % bobj,)).fetchone()[0]
     finally:

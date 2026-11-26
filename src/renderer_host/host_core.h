@@ -37,6 +37,7 @@ namespace wwe2k14::scene_host {
 // 26 = S110 ENTRBLACK hidden_drawn: Decide ignores the game's "no scene geometry" fact (the frame is drawn); 37 = no_scene_sticky: the black outlives the fact by one frame (a hold the rule must not have);
 // 27 / 28 = cam_gate.h plants (the scene-fact reader ignores the stage word / ignores the characters); 29, 30, 33, 34 = retired with the S105 A3 camera gate (not reused);
 // 15 = draw_unfed: SceneFeed::Note holds nothing (the old ONF rule: a required input never stamped in this scene is drawn anyway, counted only).
+// 52 = S111 BLACKFRAME cause_dropped: Decide does not keep the hold's cause when it falls to black (Plan::cause stays Ours: the S110 log, "black_no_3d" and no reason).
 inline int g_plant = 0;
 #define HOST_PLANT(n) (::wwe2k14::scene_host::g_plant == (n))
 #else
@@ -291,6 +292,8 @@ struct Plan {
   bool remake_f = false;       // F must be (re)made at width x height before anything is drawn into it
   bool present = true;         // false: nothing can be shown yet (no F, no size): no present this tick
   bool strike = false;         // a problem-report line (a draw: fault or a real miss of an OURS frame)
+  Reason cause = Reason::Ours; // S111 BLACKFRAME: the branch that ASKED for the hold (never_fed / miss / miss_loading / not_ours), kept when it falls to black (reason no_last3d / resize); Ours = none
+  bool mid_match = false;      // S111 BLACKFRAME: a black with no last picture after a 3D picture of this scene (the frame counted black_mid_match)
   uint32_t width = 0, height = 0;
 };
 
@@ -334,11 +337,12 @@ inline Plan Decide(State& st, const Facts& f, Counters& c) {
     st.f_valid = true, st.f_is_3d = false;
   };
   const auto hold3d = [&](Reason why) {   // R3 / R5: the last complete 3D picture; none: black, never a stale or half-drawn image
+    if (!HOST_PLANT(52)) p.cause = why;   // S111 BLACKFRAME: who asked for the hold, kept when it falls to black below (black_spans.h prints it)
     if (st.last3d_valid || HOST_PLANT(6)) { p.source = Source::Hold3D, p.reason = why, st.f_valid = st.f_is_3d = true; return; }
     if (st.f_valid && st.f_is_3d) { p.source = Source::HoldF, p.reason = why, ++c.repeat_full; return; }   // F holds an older 3D picture at this size (after a draw fault): shown as it was
     if (resized) { ++c.resize_black; black(Reason::Resize); return; }
     ++c.black_no_3d;
-    if (st.seen3d) ++c.black_mid_match;   // S103 OFFT: a 3D picture was drawn earlier in this scene and there is none to hold now
+    if (st.seen3d) ++c.black_mid_match, p.mid_match = true;   // S103 OFFT: a 3D picture was drawn earlier in this scene and there is none to hold now
     black(Reason::NoLast3D);
   };
   if (f.ours && f.game_draws_no_scene && !HOST_PLANT(26)) {   // S110 ENTRBLACK: the game draws no scene geometry this frame (stage and characters hidden): black under the rows. No strike; the scene feed is left as it is
@@ -368,7 +372,7 @@ inline Plan Decide(State& st, const Facts& f, Counters& c) {
         p.strike = true, ++c.strikes;
         if (st.f_valid && st.f_is_3d) { p.source = Source::HoldF, p.reason = Reason::DrawFault, ++c.repeat_full; return p; }
         ++c.black_no_3d;
-        if (st.seen3d) ++c.black_mid_match;
+        if (st.seen3d) ++c.black_mid_match, p.mid_match = true;
         black(Reason::DrawFault);
         return p;
       default:   // Miss / NotTried

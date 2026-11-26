@@ -191,7 +191,7 @@ int main(int argc, char** argv) {
     Check(Is(c, 0, 0, 0, 1), "clrb.unread_row_ignored", Str(c));
   }
 
-  // J2. the off-thread fallback take (latch_thread = false) never reads the colour: no row, and the census does not count it
+  // J2. an Emit with no latch of its frame never reads the colour: no row, and the census does not count it (S111 HEADGUARD: the off-thread fallback take is gone; such an Emit counts stale and returns)
   {
     BuildGuest(true, 255, 255, 255, 255);
     live::inputs::InputsContributor ic;
@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
     ResetStamps();
     SceneTables t;
     Counters cn;
-    ic.Emit(fi, t, cn);   // no Latch for this frame: Emit takes off the latch thread (the fallback)
+    ic.Emit(fi, t, cn);   // no Latch for this frame: Emit reads nothing
     size_t rows = 0;
     for (const StageLookRow& r : t.stage_look) rows += r.kind == kSlClearColor;
     std::string cen;

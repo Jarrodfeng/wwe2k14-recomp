@@ -35,13 +35,13 @@ const NameMask kTable[] = {
     {"SSS", kStMaterial}, {"SSSSinCol2", kStMaterial}, {"Reflect", kStMaterial}, {"SpecCubPrm1", kStMaterial},
     {"NoiseTile", kStMaterial}, {"NoiseTileF", kStMaterial},
     // constants of the effect (written once)
-    {"FogDistance", 0}, {"NormalFlip", 0}, {"RimLightDepth", kStLight}, {"RimLightParam", 0}, {"RimLightParam3", kStMaterial}, {"HdLig", 0}, {"SpecCubPrm3", 0},
-    {"View", 0}, {"MuscleParam", 0}, {"MuscleUV", 0}, {"WrinkUV", kStMaterial}, {"vMin", 0}, {"fvMin", 0}, {"LightMin", 0}, {"UVScroll0", kStMaterial}, {"UVScroll1", kStMaterial},
-    {"MipmapBias", 0}, {"Level", 0},
+    {"FogDistance", 0}, {"NormalFlip", 0}, {"RimLightDepth", kStLight}, {"RimLightParam", 0}, {"RimLightParam3", kStMaterial}, {"HdLig", kStMaterial /* S111 MATFEED: g_fHdLigLvl / St per material, the live row stamped (front_end.cpp) */}, {"SpecCubPrm3", kStMaterial /* S111 SPECCOL: g_f4SpecCol per material */},
+    {"View", 0}, {"MuscleParam", kStMaterial /* S111 MATFEED: per material, the live row stamped */}, {"MuscleUV", kStMaterial /* S111 MATFEED */}, {"WrinkUV", kStMaterial}, {"vMin", 0}, {"fvMin", 0}, {"LightMin", 0}, {"UVScroll0", kStMaterial}, {"UVScroll1", kStMaterial},
+    {"MipmapBias", 0}, {"Level", kStMaterial /* S111 UNIFY5: c201.w = the material's g_f4TexBis_Dif */},
     {"FogColor", 0}, {"ChangeColor", kStMaterial /* S108 THR2: a change-colour draw's colours (hashed into the material stamp, front_end.cpp) */}, {"Blood", kStMaterial}, {"BSSBldClr", kStMaterial}, {"Sweat", kStMaterial},   /* S103 SWF: the wet variant reads the material's own wet constants (like Param0): per material, never written once */ {"DebugPS0", 0}, {"DebugPS1", 0},
     {"ShadowPrm", kStLight}, {"ViewLightDepth", kStLight}, {"TexProjLightXY", kStLight}, {"TexProjLightW", kStLight},   // S103 L6: the shadow reader's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
     {"Param1", kStMaterial}, {"ConvScreen", 0}, {"HairSpeParam", kStMaterial}, {"SpeCol1", kStMaterial},
-    {"SpeCol2", kStMaterial}, {"SSColor", 0}, {"SS", 0}, {"SphereOccP", 0}, {"SphereOccV", 0}, {"IdMapCol", kStMaterial}, {"IdMapLvLst", kStMaterial}, {"WklLvLst", kStMaterial},
+    {"SpeCol2", kStMaterial}, {"SSColor", kStMaterial /* S111 MATFEED */}, {"SS", kStMaterial /* S111 MATFEED */}, {"SphereOccP", kStPalette}, {"SphereOccV", kStPalette /* S111 SPHEREOCC: the body's recorded spheres, hashed into the palette stamp (front_end.cpp) */}, {"IdMapCol", kStMaterial}, {"IdMapLvLst", kStMaterial}, {"WklLvLst", kStMaterial},
     {"ReflectAlpha", kStMaterial /* S103 RFL: the draw's own g_fReflectAlpha (reflect_alpha per material) */}, {"Noise", kStMaterial}, {"NoiseParam", kStMaterial}, {"PlaneInv", kStLight /* S103 L9: the ring mat reads the plane map; hashed into the light stamp */}, {"TexProjLight", kStLight}, {"ViewLight", kStLight}, {"SpeLodParam", kStMaterial},   // S103 D1: the stage FX_SHADOW receiver's rows follow the frame's shadow map (hashed into the light stamp, front_end.cpp)
 };
 }  // namespace

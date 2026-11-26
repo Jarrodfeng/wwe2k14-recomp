@@ -14,3 +14,4 @@ wwe2k14::scene_stagefx_glue::Register | the stage's live writers (S103 C2): the 
 wwe2k14::scene_screens_glue::Register | the stage screens' pictures (S103 M): the screens class is a shipped promotion (screens_ours); baselined
 wwe2k14::crowd_live::RegisterCrowd | the crowd's members / palettes / cards: the crowd promotion (crowd_ours) needs them every frame
 wwe2k14::scene_live::InstallArena | the arena contributor + slot provider (S103 C3, lane 28): the arena class is a shipped promotion and needs it every frame; baselined (found by the PW review: the lint did not match Install*)
+rdr_scene::live::spheres::RegisterSpheres | S111 SPHEREOCC: the wrestler promotion (wrestlers_ours) draws the game's own sphere occluders (VS c168-c171, the contact darkening of carries / pins) every frame; one read-only hook exit per character draw node (about 40 guest words), under page_checked_readers; the D3 call keeps its own switch

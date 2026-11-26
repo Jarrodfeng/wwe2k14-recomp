@@ -13,6 +13,9 @@
 #include "../../renderer_scene/front_end.h"
 #include "../../renderer_scene/shader_reload.h"  // S101 lane24
 #include "renderer.h"
+#include "loader_seam.h"   // S111 OLDCHAIN: ViewerGameFiles (the viewer's own --game files)
+#include "stb_image.h"     // (declarations only: pac.h's zlib; the implementation is the seam's)
+#include "../../renderer_scene/effect_table_build.h"   // S111 OLDCHAIN: the game's effect tables, published from those files
 
 namespace view {
 namespace {
@@ -99,6 +102,10 @@ class RendererRdr final : public Renderer {
 
   bool ShotPixels(const Camera& cam, int w, int h, std::vector<uint8_t>& px, std::string& err) override {
     if (!fe_) { err = "rdr: not initialised"; return false; }
+    if (!table_tried_) {   // S111 OLDCHAIN: the game's effect tables from the viewer's own game files, once, before the first draw: a wrestler is drawn only with its table row (a failure = one loud line, every wrestler draw a counted hole)
+      table_tried_ = true;
+      rdr_scene::read_rule::PublishFromViewerFiles(ViewerGameFiles(), [](const std::string& s) { rdr::Log("%s", s.c_str()); });
+    }
     const FrameCB fcb = MakeFrameCB(cam, w, h);
     rdr_scene::SceneFrame f;
     f.width = uint32_t(w), f.height = uint32_t(h);
@@ -254,6 +261,7 @@ class RendererRdr final : public Renderer {
   std::unique_ptr<rdr_scene::FrontEnd> fe_;
   int nbuf_ = 0;
   bool no_palette_ = false;
+  bool table_tried_ = false;   // S111 OLDCHAIN: ShotPixels asked for the effect tables
 };
 
 }  // namespace

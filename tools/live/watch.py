@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import live  # noqa: E402
 
 REPO = live.REPO
-LOG_DIRS = [os.path.join(REPO, 'out', 'build', p, 'logs') for p in ('win-amd64-release', 'win-amd64-coverage')]
+LOG_DIRS = [os.path.join(REPO, 'out', 'build', p, 'logs') for p in ('win-amd64-release', 'win-amd64-coverage-off')]
 if os.path.isdir(live.logs_dir()) and live.logs_dir() not in LOG_DIRS:   # GTB: the exe a live.start drove (the stream-free build too)
     LOG_DIRS.append(live.logs_dir())
 ALWAYS = re.compile(r'\[wwe2k14\]\[(bookmark|check|crash|scan|live)\]|script FAILED|device lost|Failed to await|'

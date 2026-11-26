@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import recipe as R  # noqa: E402
 
-SHOT_RE = re.compile(r'screenshot saved: (.+?\.png) \((\d+)x(\d+)\)')
+SHOT_RE = re.compile(r'screenshot saved: (.+?\.(?:webp|png|bmp)) \((\d+)x(\d+)\)')   # S111 SHOTDIET: WebP is the default format
 
 
 def read_log(log_path):

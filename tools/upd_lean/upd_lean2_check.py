@@ -62,7 +62,7 @@ LINTS = [
     ('wrestler_hook.h: the guest memory is resolved once behind bit 16; the word read stays the SafeCopy one',
      'src/scene_live/wrestler_hook.h',
      ['inline rex::memory::Memory* GuestMem()', 'if (wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2)) {', 'auto* host = GuestMem()->TranslateVirtual<const uint8_t*>(guest);',
-      'if (!ReadGuest(guest, &raw, 4)) return false;'], []),
+      'if (!ReadGuestNoNote(guest, &raw, 4)) return false;'], []),   # S110 FEEDREC renamed the inner read to the non-recording twin (wrestler_hook.h ReadGuestNoNote): same SafeCopy path
     ('model_hooks.h / fp_probe.h: the in-place flag reaches the contributor',
      'src/scene_live/model_hooks.h', ['bool census = true, bool in_place = false)', 'w.SubmitConsumer(model, want, scratch.data(), frame, in_place);', 'w.SubmitConsumer(model, count, scratch.data(), frame, in_place);'], []),
     ('fp_probe.h: bit 16 is passed', 'src/fp_probe.h', ['wwe2k14::upd_lean::On(wwe2k14::upd_lean::kEntry2));'], []),

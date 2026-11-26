@@ -96,7 +96,7 @@ inline const StageLookRow* EntranceRow(const SceneTables& t) {
   return nullptr;
 }
 
-// An entrance is running: an offline entrance row, or (live) at least one arena set carries a remap into the pool.
+// An entrance is running: an offline entrance row, or (live) at least one arena set carries a remap into the pool. The LOOK of the model draws (the record's light objects: latch r - 1, model-class).
 inline bool Entrance(const SceneTables& t) {
   if (PlantsRef().ignore_entrance) return false;
   if (EntranceRow(t)) return true;
@@ -106,6 +106,22 @@ inline bool Entrance(const SceneTables& t) {
       if ((m->words[kLmSetInfoBase + i] >> 16) != 0) return true;
   }
   return false;
+}
+
+// S111 PAGEPOOLS (docs\research\s111\PAGEPOOLS.md): the record's stage-PAGE row (kSlPage), written by the live latch from ITS OWN reads: the page node sub_825BB0E0 runs on the record frame's clock (walk-time),
+// while the light objects ride latch r - 1 (model-class, CUTREACH). nullptr = an older record, or an offline entrance row (frame_rig --look-entrance) that names the page itself: the page then comes from
+// the light objects / those rows as before.
+inline const StageLookRow* LivePage(const SceneTables& t) {
+  if (EntranceRow(t)) return nullptr;
+  for (const StageLookRow& r : t.stage_look)
+    if (r.kind == kSlPage) return &r;
+  return nullptr;
+}
+// Is the stage PAGE the entrance's (fade_lightmap00 + the pools: rf_arena_live.cpp UpdatePages)? The live page row's flag when the record has one (the page's own latch), else Entrance.
+inline bool PageEntrance(const SceneTables& t) {
+  if (PlantsRef().ignore_entrance) return false;
+  if (const StageLookRow* p = LivePage(t)) return (p->flags & kSlfPageEntrance) != 0;
+  return Entrance(t);
 }
 
 // The rig's values for arena set `id` (`lit` = the set has a light of its own: only the offline slot join uses it). `missing` = the set should be remapped but its values are not in the record.
@@ -172,14 +188,20 @@ inline bool EntrantRoot(const SceneTables& t, float& x, float& z) {
 inline void Pools(const SceneTables& t, std::vector<assets::stage_pools::Pool>& out, bool* incomplete = nullptr) {
   out.clear();
   if (incomplete) *incomplete = false;
-  if (PlantsRef().ignore_pools || !Entrance(t)) return;
-  // The rows: explicit kSlPool / kSlSpot rows (the offline rig injects them from the game's own page), else derived from the record's light object (kScLightObjects pool 2: stage_pool_words.h, the game's CURRENT values).
+  if (PlantsRef().ignore_pools || !PageEntrance(t)) return;
+  const StageLookRow* page = LivePage(t);   // S111 PAGEPOOLS: the page's own latch (walk-time); nullptr = an older / offline record
+  if (page && (page->flags & kSlfPageRefused)) {   // that latch's pool block was refused (a NaN / absurd value): said, as the derive below says it
+    if (incomplete) *incomplete = true;
+    return;
+  }
+  // The rows: explicit kSlPool / kSlSpot rows (the live latch's own page, S111 PAGEPOOLS; or what the offline rig injects from the game's own page), else, on a record without its page row only, derived from
+  // the record's light object (kScLightObjects pool 2: stage_pool_words.h, the game's CURRENT values).
   StageLookRow derived[stage_pool_words::kMaxRows];
   const StageLookRow* rows[stage_pool_words::kMaxRows + 16];
   uint32_t nrows = 0;
   for (const StageLookRow& r : t.stage_look)
     if ((r.kind == kSlPool || r.kind == kSlSpot) && nrows < sizeof rows / sizeof rows[0]) rows[nrows++] = &r;
-  if (nrows == 0)
+  if (nrows == 0 && !page)
     if (const uint32_t* blk = stage_pool_words::PoolBlock(t.light_objects)) {
       uint32_t n = 0;
       stage_pool_words::Tracks tr;

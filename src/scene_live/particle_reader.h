@@ -93,7 +93,7 @@ inline uint8_t SamplerValueOfByte(uint32_t b) { return b == 0 ? 2 : b == 1 ? 5 :
 
 // Test only: 1 = the sprite half-extent is the size itself (the scale fault), 2 = the entry gate is ignored, 3 = the pivot grid is ignored (every item drawn centred),
 // 4 = a quad is placed with the camera's axes instead of its own matrix. S103 PRT: 6 = the old 64-entry cap, 7 = a flat soft sprite is not drawn hard, 8 = the game's entry list is ignored.
-// S103 F4: 5 = every blend code counts as proven (the blend-proof fault).
+// S103 F4: 5 = every blend code counts as proven (the blend-proof fault). S111 PARTZ: 9 = the entry's +220 word is ignored (every entry depth tested).
 inline int g_reader_plant = 0;
 
 struct ReaderStats {

@@ -1,0 +1,6 @@
+libwebp v1.6.0, BSD-3-Clause (COPYING), patent grant (PATENTS), authors (AUTHORS), release notes (NEWS).
+Source: https://github.com/webmproject/libwebp  tag v1.6.0  commit 4fa21912338357f89e4fd51cf2368325b59e9bd9
+Vendored UNMODIFIED, only the folders the lossless encode / decode need: src/{dec,dsp,enc,utils,webp}, sharpyuv (the encoder's
+RGB->YUV code is linked even for lossless). Left out: mux, demux, imageio, examples, tests, the mips / msa dsp files, build files.
+No threads (WEBP_USE_THREAD is not defined). SIMD files are all compiled; each is empty unless the compiler targets that ISA.
+Built by libwebp.cmake: wwe2k14_add_webp(<target>) -> static library <target>_webp, linked into the target (PC and Android).

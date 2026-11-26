@@ -17,6 +17,7 @@
 #include "../../src/renderer_scene/body_scale.h"   // S103 W2
 #include "../../src/renderer_scene/rows_snapshot.h"   // S108 SHOT: sections 68-70 (BodyScaleRow, LiquidImageRow)
 #include "../../src/renderer_scene/record_ids.h"      // S108 SHOT-B: ParseArenaId (--subject stage:S, --pick)
+#include "../../src/renderer_scene/wrestler_caster.h"   // S111 LAYERS review: the casters' set
 #include "subject_cam.h"                              // S108 SHOT-B: the pure subject resolver and the ray
 #include <algorithm>
 #include <cmath>
@@ -650,7 +651,7 @@ static bool SkinnedBox(const assets::Model& m, const Object& o, const SceneFrame
   lo = {1e30, 1e30, 1e30}, hi = {-1e30, -1e30, -1e30}, n = 0;
   EachShownMesh(m, o, [&](const assets::Mesh& me, int) {
     if (!me.skinned) return;
-    if (me.material >= 0 && size_t(me.material) < m.materials.size() && m.materials[size_t(me.material)].alpha_blend) return;
+    if (me.material >= 0 && size_t(me.material) < m.materials.size() && rdr_scene::wrestler_caster::InTranslucentNode(m.materials[size_t(me.material)])) return;   // S111 LAYERS review: MeasureCasters' set (the opaque node's parts)
     for (size_t vi = 0; vi < me.vertices.size(); vi += 8) {
       const assets::Vertex& v = me.vertices[vi];
       uint32_t heavy = 0;
@@ -825,6 +826,20 @@ static SubjectResult RunSubjectPass(SceneTables& t, rf::ModelCache& cache, uint3
     const wgs::Cam cam = subj::CameraOf(sub);
     const bool to_game = live && so.subject_plant != "no_togame";
     const subj::GameCam g = to_game ? subj::ToGameCam(cam) : subj::NoToGame(cam);
+    // S111 RIGFLOOR (docs\research\s111\RIGFLOOR.md): the ring mat reads the plane shadow through a SCREEN lookup (fx_prop.glsl FX_PSM_VERT hands on (u * clip.w, clip.w),
+    // u = the mask's projection M = fit x camera): exact only when M's w row is the DRAWN camera's clip w row, the game's own case (one camera). The record's plane frames
+    // carry the game's camera, so under a subject camera the boots' shadows slid ~60 units across the mat and the bodies looked lifted off it (their soles sit 2 units
+    // over it). The mask is made for the drawn camera: camera = this view-projection in register rows (the transpose of the row-vector g.vp), fit = the identity.
+    {   // (the layout is proven by tools\scene\rigfloor_check.py: the mat draw's PlaneInv row 3 then equals its ViewProj row 3)
+      uint32_t remade = 0;
+      for (PlaneFrame& pf : t.plane_frames) {
+        for (int r = 0; r < 4; ++r)
+          for (int c = 0; c < 4; ++c) pf.camera[4 * r + c] = g.vp[4 * c + r], pf.fit_matrix[4 * r + c] = r == c ? 1.f : 0.f;
+        ++remade;
+      }
+      std::snprintf(b, sizeof b, "subject plane mask: %u plane frame(s) re-made for the subject camera (fit = identity)\n", remade);
+      res.report += b;
+    }
     std::memcpy(t.camera.view.m, g.vp, sizeof g.vp);
     t.camera.proj = IdentityMat4();
     t.camera.flags = kCamViewIsViewProj;
@@ -835,7 +850,7 @@ static SubjectResult RunSubjectPass(SceneTables& t, rf::ModelCache& cache, uint3
                   so.subject.c_str(), sub.target[0], sub.target[1], sub.target[2], sub.radius, sub.normal[0], sub.normal[1], sub.normal[2], sub.source.c_str(), rows_note.c_str(), drawn_rows, light_refs, change_colour, missing, holes,
                   cam.eye[0], cam.eye[1], cam.eye[2], cam.dist, cam.fov);
     res.report += b;
-    res.report += std::string("subject limits: DOF off (--post-dof game keeps the game's), screens = rig feed, game-camera items (crowd LOD, cheap arena, entrance light directions, plane / circle shadow coverage, camera-facing particles) as the game drew them, the camera ") + (to_game ? "built in viewer space and handed in through ToGame" : "handed in UNCONVERTED (planted no_togame, or a non-Live record)") + "\n";
+    res.report += std::string("subject limits: DOF off (--post-dof game keeps the game's), screens = rig feed, game-camera items (crowd LOD, cheap arena, entrance light directions, circle shadow coverage, camera-facing particles) as the game drew them, the camera ") + (to_game ? "built in viewer space and handed in through ToGame" : "handed in UNCONVERTED (planted no_togame, or a non-Live record)") + "\n";
     if (so.subject_plant == "no_togame") res.report += "subject PLANT no_togame: the camera is handed in without ToGame\n";
     fp = SceneFrame();
     if (!rf::BuildFrame(t, cache, rf::kAllFamilies, w, h, fp, reps, err)) { res.report += "subject: FAIL the second build: " + err + "\n"; res.ok = false; return res; }

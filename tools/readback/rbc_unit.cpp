@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "renderer_game/readback_ours.h"
+#include "renderer_game/title_thumb_core.h"
 #include "renderer_game/thumb_scope.h"
 #include "renderer_host/scene_rules.h"
 
@@ -162,17 +163,18 @@ int main(int argc, char** argv) {
     uint64_t n = 0;
     a = ro::Classify(0x8341B75C, &n);
     Expect(a == ro::Action::AtUntile && n == 1 && ro::UnservedTotal() == 0 && ro::g_counters.at_untile.load() == 1, "R3 (the CAW portrait lane's) is served at the untile: counted apart (at_untile), not unserved");
-    for (uint32_t lr : {0x83327B20u, 0x83327B78u, 0x83327B90u, 0x8334398Cu}) Expect(ro::Classify(lr) == ro::Action::Unserved, "R5 / R7 are known unserved sites");
-    Expect(ro::UnservedTotal() == 4, "four unserved locks counted (R5 x3, R7)");
-    Expect(ro::Classify(0x8228F3FC) == ro::Action::Serve && ro::Classify(0x82295A2C) == ro::Action::Serve && ro::UnservedTotal() == 4, "R9 (0x8228F3FC) and R8 (0x82295A2C) are served sites now (RBH): Serve, not unserved");
+    for (uint32_t lr : {0x83327B20u, 0x83327B78u, 0x83327B90u}) Expect(ro::Classify(lr) == ro::Action::Unserved, "R5 is a known unserved site");
+    Expect(ro::Classify(0x8334398Cu) == ro::Action::Serve, "R7 (0x8334398C, the Create a Title thumbnail) is a served site now (CACTHUMB): Serve, not unserved");
+    Expect(ro::UnservedTotal() == 3, "three unserved locks counted (R5 x3)");
+    Expect(ro::Classify(0x8228F3FC) == ro::Action::Serve && ro::Classify(0x82295A2C) == ro::Action::Serve && ro::UnservedTotal() == 3, "R9 (0x8228F3FC) and R8 (0x82295A2C) are served sites now (RBH): Serve, not unserved");
     Expect(ro::SiteIndex(0x8228F3FC) >= 0 && ro::kSites[ro::SiteIndex(0x8228F3FC)].kind == ro::Kind::ReelPicture && ro::kSites[ro::SiteIndex(0x82295A2C)].kind == ro::Kind::ReelThumb, "R9 is the reel picture, R8 the reel thumbnail");
     Expect(ro::Classify(0x83418024) == ro::Action::Composed && ro::Classify(0x833A1BB0) == ro::Action::Composed, "R4 / R6 are composed on the host: nothing written, not unserved");
-    Expect(ro::UnservedTotal() == 4, "composed sites are not unserved");
+    Expect(ro::UnservedTotal() == 3, "composed sites are not unserved");
     n = 0;
     a = ro::Classify(0x12345678, &n);
     Expect(a == ro::Action::Other && n == 1, "an unknown lr is `other`, first sight (an upload / init lock)");
     a = ro::Classify(0x12345678, &n);
-    Expect(n == 2 && ro::UnservedTotal() == 4 && ro::g_counters.lock_other.load() == 2, "an unknown lr is lock_other (twice here) and stays OUT of UnservedTotal (still 4)");
+    Expect(n == 2 && ro::UnservedTotal() == 3 && ro::g_counters.lock_other.load() == 2, "an unknown lr is lock_other (twice here) and stays OUT of UnservedTotal (still 3)");
     const std::string line = ro::CensusLine();
     Expect(line.find("lock_other 2") != std::string::npos && line.find("12345678=2") != std::string::npos && line.find("readback_unserved{8341B75C") == std::string::npos && line.find("at_untile 1") != std::string::npos && line.find("readback_unserved{83327B20 R5a}=1") != std::string::npos, "the census line names every unserved lr, shows R3 as at_untile, and the busiest lock_other one");
     std::set<uint32_t> lrs;
@@ -403,6 +405,70 @@ int main(int argc, char** argv) {
     // (7) the census names the reel sites
     const std::string line = ro::CensusLine();
     Expect(line.find("reel: R8 served 0 zeros 0 refused 0 R9 served 1 zeros 0 refused 0") != std::string::npos, "RBH: the census line carries `reel: R8 served .. zeros .. refused .. R9 ...`");
+  }
+  // -- S111 CACTHUMB: R7, the Create a Title thumbnail. The picture is the resolve rect (0, 0, 256, 128) of the game's frame; the lock writes it into the 256x128 8888 texture (0x00800000), or BLACK with none.
+  {
+    namespace tt = wwe2k14::title_thumb;
+    const int i7 = ro::SiteIndex(0x8334398Cu);
+    Expect(i7 >= 0 && ro::kSites[i7].kind == ro::Kind::TitleShot, "CACTHUMB: R7 (lock return 0x8334398C) is the Create a Title thumbnail site");
+    struct P { static uint8_t* F(uint32_t a) { return Phys2(a); } };
+    uint32_t w7[6];
+    Forge(w7, 256, 128, true, 0, kSwzBgra, 6, 0x00800000u);
+    rt::Plan p7;
+    rt::MakePlan(w7, p7);
+    ro::Guard g7;
+    g7.want_w = 256, g7.want_h = 128;
+    // a W x H frame whose top-left (256 / 1280) x (128 / 720) is red and the rest blue
+    const auto frame = [](uint32_t W, uint32_t H) {
+      std::vector<uint8_t> f(size_t(W) * H * 4, 0);
+      for (uint32_t y = 0; y < H; ++y)
+        for (uint32_t x = 0; x < W; ++x) {
+          uint8_t* t = &f[(size_t(y) * W + x) * 4];
+          const bool corner = uint64_t(x) * 1280 < uint64_t(256) * W && uint64_t(y) * 720 < uint64_t(128) * H;
+          t[0] = corner ? 255 : 0, t[1] = 0, t[2] = corner ? 0 : 255, t[3] = 255;
+        }
+      return f;
+    };
+    const auto all_rgba = [](const std::vector<uint8_t>& px, uint8_t r, uint8_t g, uint8_t b) {
+      if (px.size() != 256u * 128u * 4u) return false;
+      for (size_t k = 0; k < px.size(); k += 4)
+        if (px[k] != r || px[k + 1] != g || px[k + 2] != b || px[k + 3] != 255) return false;
+      return true;
+    };
+    std::vector<uint8_t> pic, back;
+    const std::vector<uint8_t> f720 = frame(1280, 720), f1440 = frame(2560, 1440);
+    Expect(tt::MakePicture(f720.data(), 1280, 720, 1280, 720, pic) && all_rgba(pic, 255, 0, 0), "CACTHUMB: the thumbnail is the frame's top-left 256x128 (the game's resolve rect), not the whole frame");
+    Expect(tt::MakePicture(f1440.data(), 2560, 1440, 1280, 720, pic) && all_rgba(pic, 255, 0, 0), "CACTHUMB: at twice the game's size the same corner (512x256 of our picture) is box-scaled to 256x128");
+    Expect(!tt::MakePicture(nullptr, 0, 0, 1280, 720, pic), "CACTHUMB: no picture makes no thumbnail");
+    tt::MakePicture(f720.data(), 1280, 720, 1280, 720, pic);
+    ro::ResetCountersForTest();
+    g_mem2.assign(size_t(p7.ExtentBytes()) + 64, 0xCD);
+    rt::Why why = tt::ServeTitleShot(i7, w7, &P::F, g7, pic.data(), rt::Why::NoScene);
+    rt::ReadLevel0(p7, g_mem2.data(), back);
+    Expect(why == rt::Why::Ok && back == pic && ro::g_counters.served[i7].load() == 1, "CACTHUMB: the delivered picture is written into the 256x128 texture (tiled, BGRA), counted served");
+    g_mem2.assign(size_t(p7.ExtentBytes()) + 64, 0xCD);
+    why = tt::ServeTitleShot(i7, w7, &P::F, g7, nullptr, rt::Why::NoScene);
+    rt::ReadLevel0(p7, g_mem2.data(), back);
+    Expect(why == rt::Why::NoScene && all_rgba(back, 0, 0, 0) && ro::g_counters.zeros[i7].load() == 1, "CACTHUMB: no picture writes BLACK (never stale memory into the title's save), counted zeros");
+    uint32_t wbad[6];
+    Forge(wbad, 128, 128, true, 0, kSwzBgra, 6, 0x00800000u);
+    g_mem2.assign(size_t(p7.ExtentBytes()) + 64, 0xCD);
+    const std::vector<uint8_t> untouched = g_mem2;
+    why = tt::ServeTitleShot(i7, wbad, &P::F, g7, pic.data(), rt::Why::NoScene);
+    Expect(why == rt::Why::SizeMismatch && g_mem2 == untouched, "CACTHUMB: a texture that is not 256x128 is refused, memory untouched");
+    const std::string line = ro::CensusLine();
+    Expect(line.find("title: R7 served 1 zeros 1 refused 1") != std::string::npos, "CACTHUMB: the census line carries `title: R7 served .. zeros .. refused ..`");
+    // the delivery guard: only the waiting thumbnail object is ever run
+    const uint32_t obj = 0x40001000u;
+    uint32_t g_obj = obj, state = 5, done = 0;
+    const auto ld = [&](uint32_t a) { return a == tt::kObjGlobal ? g_obj : a == obj + 16 ? state : a == obj + 28 ? done : 0u; };
+    Expect(tt::Waiting(obj, ld), "CACTHUMB: a waiting object (the thumbnail global's, state 5, obj+28 = 0) is run");
+    state = 7;
+    Expect(!tt::Waiting(obj, ld), "CACTHUMB: an object the editor moved on (state 7, release) is dropped, its callback never run");
+    state = 5, done = 1;
+    Expect(!tt::Waiting(obj, ld), "CACTHUMB: an object whose picture is already done (obj+28 = 1) is dropped");
+    done = 0, g_obj = 0x40002000u;
+    Expect(!tt::Waiting(obj, ld) && !tt::Waiting(0, ld), "CACTHUMB: an object that is not the thumbnail global's (or none) is never run");
   }
   // -- the thumbnail scope (P2D): the frame restore is counted inside it, the scope nests and closes
   {

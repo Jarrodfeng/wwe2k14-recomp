@@ -12,7 +12,7 @@ struct GuestPieceFade {
   float alpha = 1.f;    // the object's tint alpha when it is drawn
 };
 
-// `want_route`: the owner test passed (owner visible and a guest-row body, or for an unlinked B6 piece every visible owner is one) and the game did not hide the piece this frame.
+// `want_route`: the owner test passed (the piece names its owner and that owner is a visible guest-row body) and the game did not hide the piece this frame.
 // `plant_no_alpha` = the bug (every guest-routed piece at alpha 1, no row test); set by the unit's twin, never by the game.
 inline GuestPieceFade DecideGuestPieceFade(bool want_route, const PieceAlphaValue& row, bool plant_no_alpha = false) {
   GuestPieceFade r;
@@ -24,38 +24,40 @@ inline GuestPieceFade DecideGuestPieceFade(bool want_route, const PieceAlphaValu
   return r;
 }
 
-// S103 SMF (review A4): the owner of an UNLINKED own-skeleton piece (B6: the record names no owner) is unknown, so the guest route is taken when no visible body could own it from its resident model.
-// A referee (slot 6) and a manager are named bodies whose model holds no wrestler-piece mesh (src_kind 2): they cannot own a hair / cap piece, so they do not block the route. The rule is settled from the
-// resident model's meshes (not from slot numbers: slots 7 / 8's roles are unknown, match_state.md); an unreadable resident model fails closed (it may own pieces).
-enum class BodyKind { Guest, NamedWithPieces, NamedNoPieces, NamedUnknown };
-inline bool UnlinkedPieceMayGuestRoute(const BodyKind* bodies, size_t n) {
-  bool any_guest = false;
-  for (size_t i = 0; i < n; ++i) {
-    if (bodies[i] == BodyKind::NamedWithPieces || bodies[i] == BodyKind::NamedUnknown) return false;
-    any_guest = any_guest || bodies[i] == BodyKind::Guest;
-  }
-  return any_guest;
-}
-
-// S105 A5a (A5a_ADV.md sites 10 / 12): a LINKED own-skeleton piece of a guest-row owner (kObjOwnRowsPiece: the contributor proved the owner-row copy). It names its owner (layer = slot + 1), so the unlinked rule above (every visible
-// body must be able to own it: one stock opponent with hair blocked EVERY CAW piece in a match) never applies. Route = the owner is a visible guest-row body and the game did not hide the piece (a walked frame with no ref for it);
-// hidden = not a hole, not drawn. `plant_unlinked_rule` = the old rule (test only): the route follows UnlinkedPieceMayGuestRoute over the visible bodies.
+// S105 A5a (A5a_ADV.md sites 10 / 12): a LINKED own-skeleton piece of a guest-row owner (kObjOwnRowsPiece: the contributor proved the owner-row copy). It names its owner (layer = slot + 1), so it takes the guest route beside
+// whatever other bodies are in the picture. Route = the owner is a visible guest-row body and the game did not hide the piece (a walked frame with no ref for it); hidden = not a hole, not drawn.
+// (S111 PIECELINK: the S103 SMF rule for an UNLINKED piece, UnlinkedPieceMayGuestRoute over the visible body kinds, is deleted: every SUBM piece is linked by the reader, the record keeps the link, and the game has no
+// piece without an owner, sub_825A3908.)
 struct OwnRowsRoute {
   bool hole = false, guest_route = false, not_hole = false;
 };
-inline OwnRowsRoute DecideOwnRowsRoute(bool owner_visible_guest, bool game_hid_it, const BodyKind* bodies, size_t n, bool plant_unlinked_rule = false) {
+inline OwnRowsRoute DecideOwnRowsRoute(bool owner_visible_guest, bool game_hid_it) {
   OwnRowsRoute r;
   if (game_hid_it) { r.not_hole = true; return r; }
   r.hole = true;
-  r.guest_route = plant_unlinked_rule ? UnlinkedPieceMayGuestRoute(bodies, n) : owner_visible_guest;
+  r.guest_route = owner_visible_guest;
   return r;
 }
 
-// S105 A5a (site 12): which engine object's light state a guest-routed piece is lit by. The game installs ONE wrestler light per character draw node and draws the SUBM pieces inside it (sub_825A3908), so a piece that names its
-// owner (layer != 0) is lit with the owner's state; the latch's synthetic refs are one per actor:slot, none for a piece's own address. An unlinked piece (layer 0) or an owner that is not in the record keeps its own address.
-// `plant_own_address` = the old rule (test only): every piece asks for its own address (no state: a hole).
-inline uint32_t PieceLightObject(bool piece_from_guest, uint32_t layer, uint32_t own_object, uint32_t owner_object, bool plant_own_address = false) {
-  if (plant_own_address || !piece_from_guest || layer == 0 || owner_object == 0) return own_object;
+// S111 PIECELINK: an own-skeleton piece with none of the three route flags (own-rows, detached, drawn-by-owner). `refused` = kObjOwnRowsRefused (a created superstar's SUBM piece with no fresh latch palette of this
+// frame, own_rows_rule.h; it carries its owner), `game_draws_it` = SkelPieceIsHole (the game drew it this frame and the ring family does not). A refusal is counted and never a hole (the contributor counted its reason);
+// any other such piece is in no character's SUBM list: drawn by the game = a named hole, never a guess at its owner. `plant_refusal_is_hole` = the old outcome (test only): the refused piece went out unflagged.
+// S111 PIECEHOLES (docs\research\s111\PIECEHOLES.md): `game_undrawn` = kObjGameUndrawn, a slot body the contributor's quiet gate wrote invisible (no draw ask of the record's period stamped: AskedFor). `walked` =
+// the record has walked evidence at the stamp (rf_wrestlers WalkedStamp). With no walk (an OURS frame: synthetic refs only, so `game_draws_it` is true for every such object) the ask is all there is: GameUndrawn,
+// never a hole. On a walked frame (a frame the game walked: in the stream-free build too, NotReady / Hold) the walk decides as before: a walked ref for the body = the game drew it although no ask was stamped
+// (an ask NoteDrawAsked filtered or could not read): a hole, fail closed. `plant_undrawn_is_hole` = the old outcome (test only): the flag ignored.
+enum class UnroutedPiece { Refused, NotHole, Hole, GameUndrawn };
+inline UnroutedPiece DecideUnroutedPiece(bool refused, bool game_draws_it, bool plant_refusal_is_hole = false, bool game_undrawn = false, bool walked = false, bool plant_undrawn_is_hole = false) {
+  if (refused && !plant_refusal_is_hole) return UnroutedPiece::Refused;
+  if (game_undrawn && !walked && !plant_undrawn_is_hole) return UnroutedPiece::GameUndrawn;
+  return game_draws_it ? UnroutedPiece::Hole : UnroutedPiece::NotHole;
+}
+
+// S105 A5a (site 12): which engine object's light state a guest-routed piece is lit by. The game installs ONE wrestler light per character draw node and draws the SUBM pieces inside it (sub_825A3908), so a guest-routed piece
+// (every one names its owner: S111 PIECELINK deleted the unlinked route and its layer-0 case) is lit with the owner's state; the latch's synthetic refs are one per actor:slot, none for a piece's own address. An owner that is
+// not in the record keeps the piece's own address. `plant_own_address` = the old rule (test only): every piece asks for its own address (no state: a hole).
+inline uint32_t PieceLightObject(bool piece_from_guest, uint32_t own_object, uint32_t owner_object, bool plant_own_address = false) {
+  if (plant_own_address || !piece_from_guest || owner_object == 0) return own_object;
   return owner_object;
 }
 

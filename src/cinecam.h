@@ -2330,11 +2330,14 @@ inline void Shutdown() {
 
 }  // namespace wwe2k14::cinecam
 
+#include "ramp_camera.h"  // S111 RAMPCAM: --wwe2k14_ramp_camera holds the game camera's side before its update reads it
+
 REX_EXTERN(__imp__sub_8257D8E8);
-// Game camera per-frame update (see the header): test stage 0.
+// Game camera per-frame update (see the header): test stage 0. S111 RAMPCAM: the ramp camera's side hold runs first.
 REX_HOOK_RAW(sub_8257D8E8) {
   using namespace wwe2k14::cinecam;
   const uint32_t cam = ctx.r3.u32;
+  wwe2k14::ramp_camera::BeforeUpdate(ctx, base, cam);
   __imp__sub_8257D8E8(ctx, base);
   if (!cam) return;
   if (REXCVAR_GET(wwe2k14_cinecam_test_camwrite)) {

@@ -1,6 +1,6 @@
 """Scenario coverage CLI (Session 8 task 6): which guest functions ran in which scenario.
 
-Data: the coverage build (preset win-amd64-coverage, src/coverage.h) writes one folder per run under
+Data: the coverage build (preset win-amd64-coverage-off, src/coverage.h) writes one folder per run under
 out/harness/coverage/<run>/ with NN_<mark text>.txt per window (guest function addresses) and segments.tsv.
 A window's scenario is its mark text up to the first '.', e.g. "in_ring.first60" -> scenario "in_ring".
 Two kinds of windows are kept as windows but belong to no scenario: "quit" (the last frames before a scripted quit)
@@ -76,7 +76,7 @@ def to_addr(token: str, names: dict[str, int]) -> int | None:
 
 
 # Window texts recorded by earlier versions of the probe routes -> the scenario their screenshots showed
-# (Session 8 coverage runs 006 and 009; make_routes.py now writes these names directly).
+# (Session 8 coverage runs 006 and 009; the later routes wrote these names directly).
 ALIASES = {
     "story_probe.p1": "story",          # 006: custom story calendar (RAW / SUPERSTARS / SMACKDOWN shows)
     "story_probe.p2": "story",          # 006: RAW week 1 show page (ADD MOMENT)
@@ -215,7 +215,7 @@ def cmd_build(args) -> int:
         "format": "wwe2k14-coverage/1",
         "built": dt.datetime.now().isoformat(timespec="seconds"),
         "note": "Guest functions (start addresses) that ran at least once per window/scenario. Coverage build "
-                "(preset win-amd64-coverage, src/coverage.h). Derived from the game: out/harness only.",
+                "(preset win-amd64-coverage-off, src/coverage.h). Derived from the game: out/harness only.",
         "total_generated_functions": total,
         "total_note": "instrumented generated functions (those with REX_FUNC_PROLOGUE): the generated table "
                       "minus its import thunks",

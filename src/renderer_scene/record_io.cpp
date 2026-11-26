@@ -20,7 +20,7 @@ int g_run_plant = 0;   // test only (tools/crowd/crowd_run_markers_test.cpp): 1 
 
 namespace {
 
-constexpr uint32_t kMaxSections = 64;
+constexpr uint32_t kMaxSections = 128;   // S111 EYECUBE: a plausibility bound on a corrupt count only (the directory is then checked against the file size); the writer has 66 push sites (64 + sections 72 / 73), so 64 refused a full record
 constexpr uint64_t kAlign = 8;
 
 uint64_t AlignUp(uint64_t v) { return (v + kAlign - 1) & ~(kAlign - 1); }
@@ -125,6 +125,9 @@ const char* SectionName(uint32_t id) {
     case kScGuestModelParts: return "GuestModelPart";  // S103 CW-2
     case kScGuestModelBlobs: return "GuestModelBlob";  // S103 CW-2
     case kScGuestModelTextures: return "GuestModelTexture";  // S103 CW-2b
+    case kScGuestModelParams: return "GuestModelParam";  // S111 GUESTHAIR
+    case kScGuestModelMats: return "GuestModelMat";  // S111 EYECUBE
+    case kScGuestModelTexNames: return "GuestModelTexName";  // S111 EYECUBE
     default: return "unknown";
   }
 }
@@ -495,6 +498,9 @@ std::vector<uint8_t> SerializeRecord(const SceneTables& seeded_or_not) {
   if (!t.guest_models.parts.empty()) secs.push_back(Sec(kScGuestModelParts, t.guest_models.parts));  // S103 CW-2 (62; 59-61 are the weapon rows)
   if (!t.guest_models.blobs.empty()) secs.push_back(Sec(kScGuestModelBlobs, t.guest_models.blobs));  // S103 CW-2 (63)
   if (!t.guest_models.textures.empty()) secs.push_back(Sec(kScGuestModelTextures, t.guest_models.textures));  // S103 CW-2b (64)
+  if (!t.guest_models.params.empty()) secs.push_back(Sec(kScGuestModelParams, t.guest_models.params));  // S111 GUESTHAIR (71; additive: a record without it builds the guest parts with the fresh Material)
+  if (!t.guest_models.mats.empty()) secs.push_back(Sec(kScGuestModelMats, t.guest_models.mats));  // S111 EYECUBE (72; additive: a record without it keeps the old slot-10 pick)
+  if (!t.guest_models.tex_names.empty()) secs.push_back(Sec(kScGuestModelTexNames, t.guest_models.tex_names));  // S111 EYECUBE (73)
   if (!t.props_light.empty()) secs.push_back(Sec(kScPropsLight, t.props_light));  // S103 KS1 (65)
   if (!t.bone_tags.empty()) secs.push_back(Sec(kScBoneTags, t.bone_tags));  // S103 W2B (66; an additive section: a record without it is byte-identical to before, so no header version change: the draw side fails closed on a missing tag)
   if (!t.change_colours.empty()) secs.push_back(Sec(kScChangeColour, t.change_colours));  // S108 THR2 (67; additive: a record without it draws every body with its plain row)
@@ -631,7 +637,7 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         std::vector<ChangeColourRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
         for (size_t ci = 0; good && ci < tmp.size(); ++ci) {
-          good = tmp[ci].layout == kChangeColourLayout && tmp[ci].object != 0 && (tmp[ci].flags & ~kCcKnownFlags) == 0 && ((tmp[ci].flags & kCcEditor) == 0 || (tmp[ci].flags & kCcProp) != 0);   // S108 THB: + kCcProp / kCcEditor (an entrance prop's row, same section); an editor flag without the prop flag is no row of ours
+          good = tmp[ci].layout == kChangeColourLayout && tmp[ci].object != 0 && (tmp[ci].flags & ~kCcKnownFlags) == 0 && ((tmp[ci].flags & kCcEditor) == 0 || (tmp[ci].flags & kCcProp) != 0) && ((tmp[ci].flags & kCcBeltMask) == 0 || (tmp[ci].flags & kCcProp) != 0);   // S108 THB: + kCcProp / kCcEditor (an entrance prop's row, same section); an editor flag (S111 BELTMASKNAME: or a belt mask flag) without the prop flag is no row of ours
           for (size_t cj = 0; good && cj < ci; ++cj) good = tmp[cj].object != tmp[ci].object;
         }
         if (good) out.change_colours = std::move(tmp);
@@ -821,6 +827,9 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
       case kScGuestModelParts: { std::string werr; if (!Load(size, data, e, out.guest_models.parts, werr)) out.guest_models.parts.clear(), ++out.guest_models.errors; ok = true; break; }   // S103 CW-2: a bad section drops the guest-model tables only (row checks below)
       case kScGuestModelBlobs: { std::string werr; if (!Load(size, data, e, out.guest_models.blobs, werr)) out.guest_models.blobs.clear(), ++out.guest_models.errors; ok = true; break; }
       case kScGuestModelTextures: { std::string werr; if (!Load(size, data, e, out.guest_models.textures, werr)) out.guest_models.textures.clear(), ++out.guest_models.errors; ok = true; break; }   // S103 CW-2b
+      case kScGuestModelParams: { std::string werr; if (!Load(size, data, e, out.guest_models.params, werr)) out.guest_models.params.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 GUESTHAIR
+      case kScGuestModelMats: { std::string werr; if (!Load(size, data, e, out.guest_models.mats, werr)) out.guest_models.mats.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 EYECUBE
+      case kScGuestModelTexNames: { std::string werr; if (!Load(size, data, e, out.guest_models.tex_names, werr)) out.guest_models.tex_names.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 EYECUBE
       case kScArenaWorlds: {  // S101 lane 130: a layout / kind this reader does not know drops THIS section only (counted), never the whole record
         std::string werr;
         std::vector<ArenaWorld> tmp;
@@ -935,6 +944,9 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
     bool bad = false;
     for (const GuestModelPart& r : out.guest_models.parts) bad = bad || *GuestModelRowProblem(r, out.guest_models.blobs.size());
     for (const GuestModelTexture& r : out.guest_models.textures) bad = bad || *GuestModelTextureProblem(r, out.guest_models.blobs.size());   // S103 CW-2b
+    for (const GuestModelParam& r : out.guest_models.params) bad = bad || *GuestModelParamProblem(r);   // S111 GUESTHAIR
+    for (const GuestModelMat& r : out.guest_models.mats) bad = bad || *GuestModelMatProblem(r);   // S111 EYECUBE
+    for (const GuestModelTexName& r : out.guest_models.tex_names) bad = bad || *GuestModelTexNameProblem(r);   // S111 EYECUBE
     if (bad) {
       const uint32_t errs = out.guest_models.errors + 1;
       out.guest_models.Clear();

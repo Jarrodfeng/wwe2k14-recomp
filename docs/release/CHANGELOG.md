@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.4.5
+
+**v0.4.5: a new RAMP CAMERA, smooth camera cuts in cutscenes and entrances, and Create a Championship and the Elimination Chamber working properly.**
+
+Another update made of your reports, plus one new feature. Each entry says how I checked it. If something still looks wrong, please send it with Report a problem.
+
+### New
+
+- **RAMP CAMERA.** A new camera angle like the ramp cam of the older wrestling games: during a match the camera stands on the side of the
+  ring opposite the stage and looks straight down the ramp, with the stage and the titantron behind the ring. It is the game's own match
+  camera, only turned around: the same height, the same lens, the same framing, and it still follows the wrestlers (it uses the side the game
+  itself uses for Hell in a Cell and the Elimination Chamber, held on the stage side). Your controls follow it, because the game already turns
+  the stick by the camera you are watching: push up and your wrestler walks toward the stage. It works in Royal Rumbles too, the match the
+  ramp cam was made for in the older games. When the wrestlers fight outside the ring the camera takes the game's own ringside view and then
+  comes back to the ramp side. Turn it on in the pause menu: VISUAL PRESENTATION > RAMP CAMERA (off by default; it remembers your choice;
+  also in the launcher under IN THE GAME). Replays you record remember whether it was on. Checked in game: a normal match, a Royal Rumble,
+  the pause menu row and the controls.
+
+### Fixed
+
+- **Cutscenes and entrances: no more jump at a camera cut.**
+  What you saw: at every camera cut, for one frame the whole picture shifted and things like the crowd's stands, the referee's head or the
+  light on a face blinked out. Cause: my renderer drew the new shot's camera with the previous shot's world for one frame. Fix: the camera
+  and its world now come from the same moment. Checked in a 30 Years cutscene and Daniel Bryan's entrance: no shift and nothing missing at
+  any cut.
+- **Elimination Chamber: wrestlers inside the pods are visible through the glass.**
+  What you saw: a wrestler waiting in a pod was hidden behind the pod's glass, and so was the pod's chain-link floor. Cause: my renderer drew
+  the pods' two kinds of glass as if they were solid for depth, before the wrestlers. Fix: both are drawn the way the game draws them, after
+  the wrestlers and see-through. Checked in game for the first pane; the second pane is fixed from the game's code and not seen yet.
+- **Create a Championship works as in the game.**
+  What you saw: the Create a Superstar arena behind the belt instead of the red background, the title half covered, and a garbled picture
+  for the saved title. Fix: the editor's scene now follows the game (no arena, the red backdrop, the belt lit the way the game lights it),
+  and the saved picture is made the way the game makes it. Checked in game: the red background, the whole title, and the saved picture in
+  its slot. Fixed from the game's code, not seen in game yet: the belt's plate and strap use your design's textures in the editor and in
+  matches, and a created title on a stock belt shows your colours in the entrance and on ladder belts.
+
+### Looks closer to the game
+
+- **Created superstars** are now drawn through the same path as the game's own superstars, so their hair, skin and shine follow the game's
+  rules instead of my own copies of them.
+- **Create a Superstar:** no more T-pose flash or dark frame when you change an item. Checked in the editor.
+
+### Android
+
+- **Everything above is in the phone build too,** made from the same code, RAMP CAMERA included (it remembers your choice on the phone as
+  well). Honest note: I have not run this version on my own phone yet.
+
 ## v0.4.4
 
 **v0.4.4: no more black screen at the start of entrances, lights that stay behind the wrestlers, and fixes for Create a Superstar and the logo importer.**
@@ -32,6 +79,12 @@ Another update made of your reports. Each entry says how I checked it. If someth
   What you saw: the picture freezing for a moment in a first entrance while the graphics driver prepared things. The list of what
   "Preparing shaders" builds ahead of time grew from 15 entries to 341. Checked on PC at one first entrance: 145 things built during
   the entrance before, none after. Other superstars, arenas and match types can still hitch once.
+
+### Android
+
+- **Everything above is in the phone build too,** made from the same code. Honest note: I have not run it on my own phone yet.
+- **The phone now gets the list of what to prepare ahead of time.** Until now the app carried that list but never put it where the game
+  reads it, so phones prepared nothing ahead. From this version the first menus can be a little busy once while the list is built.
 
 ## v0.4.3
 

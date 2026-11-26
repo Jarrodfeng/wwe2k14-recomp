@@ -186,7 +186,7 @@ KEEP_EXTRA = {'logo': re.compile(r'\.(mov|mp4)$', re.I)}     # old videos go; th
 RUNLOG_NUM = re.compile(r'^wwe2k14_(\d+)\.log$', re.I)
 COMPILED = {'.obj', '.o', '.pch', '.pdb', '.lib', '.a', '.exe', '.dll', '.so', '.ilk', '.map', '.exp', '.apk', '.gch', '.idb'}
 CAPTURE = {'.rps', '.rdc', '.bin', '.xtc', '.xsh', '.dat', '.spvopt'}
-IMAGE = {'.png', '.jpg', '.jpeg', '.bmp', '.dds', '.tga'}
+IMAGE = {'.png', '.jpg', '.jpeg', '.bmp', '.dds', '.tga', '.webp'}   # S111 SHOTDIET review: .webp = the game's screenshots
 VIDEO = {'.mp4', '.mov', '.mkv', '.avi', '.bik2'}
 LOW_ORDER = ['timeline', 'bench zips', 'compiled', 'worktree', 'captures', 'run logs', 'frame logs', 'videos', 'images', 'other']
 BUILD_SETUP = {'generated/rexglue.cmake', 'wwe2k14_manifest.toml', 'tools/owned/fast_build.ps1'}

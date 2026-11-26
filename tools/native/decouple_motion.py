@@ -96,7 +96,7 @@ def cmd_differ(a_path, b_path):
 
 
 def cmd_series(folder):
-    files = sorted(f for f in glob.glob(os.path.join(folder, '*')) if f.lower().endswith(('.png', '.bmp', '.jpg')))
+    files = sorted(f for f in glob.glob(os.path.join(folder, '*')) if f.lower().endswith(('.webp', '.png', '.bmp', '.jpg')))
     if len(files) < 3:
         print('need at least 3 frames in', folder)
         return 2

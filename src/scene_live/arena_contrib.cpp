@@ -32,6 +32,7 @@ std::string SelKeyFor(int32_t arena_id) {
 Totals g_totals;
 SlotRecordReadFn g_slot_reader = nullptr;   // S103 V1
 std::atomic<bool> g_ignore_shown{false};    // S103 V1 unit plant
+std::atomic<bool> g_sets_need_arena{false}; // S111 STAGELESS unit plant: the old rule (a frame naming no arena drops its light sets)
 
 // S101 lane 264: what the "unknown" fields of the [scene][live] line are made of, per census window (Emit adds on the writer thread, Census reads and resets).
 struct Window {
@@ -117,12 +118,61 @@ void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
   Totals tot;
   tot.emits = 1;
   tot.stale = stale ? 1 : 0;
-  if (s.arena_id < 0) {  // which arena is live is unknown: nothing to name
+  // ---- light sets ----
+  // S111 STAGELESS (docs\research\s111\STAGELESS.md): the sets are the frame's evaluated lights (the light manager's per-frame loop sub_827F8730, arena_hooks.h OnLightSets), not a part of the arena: they are
+  // emitted whether an arena is named or not (the scene the game draws with no stage, Create a Title's belt, names none: CACBG publishes -1 with the frame's sets). Before, a frame naming no arena dropped them.
+  const auto emit_sets = [&]() {
+    if (s.sets.empty()) {
+      g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
+      ++c.unknown, ++tot.unknown;  // no evaluated light this frame (the hook did not run): lights stay unknown, never guessed
+    }
+    {  // S101 lane28 (review F6): light objects the hook could not read at all / read without their fifth light
+      const uint32_t lost = s.dropped_sets + s.partial_sets;
+      c.unknown += lost, tot.unknown += lost;
+      g_win.lights_unknown.fetch_add(lost, std::memory_order_relaxed);
+    }
+    for (const SetSnap& ls : s.sets) {
+      if (ls.set_id == kNone) {
+        ++c.unknown, ++tot.unknown;
+        g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
+        continue;
+      }
+      bool ok = Finite3(ls.block_a) && Finite3(ls.block_b);
+      for (int k = 0; k < ls.n_lights && k < 5; ++k) ok = ok && Finite3(ls.dir[k]) && Finite3(ls.col[k]);
+      if (!ok) {  // a non-finite value: the set is left out, counted
+        ++c.unknown, ++tot.unknown;
+        g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
+        continue;
+      }
+      for (int k = 0; k < ls.n_lights && k < 5; ++k) {
+        Light l;
+        l.set = ls.set_id;
+        l.kind = uint8_t(LightKind::Directional);
+        l.slot = uint8_t(k);
+        std::memcpy(l.dir_or_pos, ls.dir[k], sizeof l.dir_or_pos);
+        std::memcpy(l.color, ls.col[k], sizeof l.color);
+        l.range = (ls.has_fall && k < 4) ? ls.fall[k] : kUnknownRange;  // review F1: unknown is -1, never 0 (0 is a real falloff)
+        if (ls.has_follow && k < 4) l.pad = uint16_t(kLightPadFollowKnown | (ls.follow[k] ? kLightPadFollowOn : 0));   // S103 RL F2: the game's own camera-attached word of this light
+        t.lights.push_back(l);
+      }
+      for (int a = 0; a < 2; ++a) {
+        Light l;
+        l.set = ls.set_id;
+        l.kind = uint8_t(LightKind::Ambient);
+        l.slot = uint8_t(5 + a);
+        std::memcpy(l.color, a == 0 ? ls.block_a : ls.block_b, sizeof l.color);
+        t.lights.push_back(l);
+      }
+      ++tot.sets;
+    }
+  };
+  if (s.arena_id < 0) {  // which arena is live is unknown: nothing to name (no slots, no screens); the frame's light sets are still the frame's
     ++c.unknown;
     tot.unknown = 1;
     g_win.arena_unknown.fetch_add(1, std::memory_order_relaxed);
+    if (!s.sets.empty() && !g_sets_need_arena.load(std::memory_order_relaxed)) emit_sets();   // S111 STAGELESS (no sets: counted as the unknown arena only, as before)
     std::lock_guard<std::mutex> lk(g_lock);
-    g_totals.emits += tot.emits, g_totals.unknown += tot.unknown, g_totals.stale += tot.stale;
+    g_totals.emits += tot.emits, g_totals.unknown += tot.unknown, g_totals.stale += tot.stale, g_totals.sets += tot.sets;
     return;
   }
   // S102 T11b: with a table seeded from the string pool the strings below are the pool's fields (kept per slot / arena); a string the pool does not hold yet (the first frames, a full pool)
@@ -163,50 +213,7 @@ void ArenaContributor::Emit(const FrameInfo& f, SceneTables& t, Counters& c) {
   });
   const uint32_t none = kNone;
 
-  // ---- light sets ----
-  if (s.sets.empty()) {
-    g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
-    ++c.unknown, ++tot.unknown;  // no evaluated light this frame (the hook did not run): lights stay unknown, never guessed
-  }
-  {  // S101 lane28 (review F6): light objects the hook could not read at all / read without their fifth light
-    const uint32_t lost = s.dropped_sets + s.partial_sets;
-    c.unknown += lost, tot.unknown += lost;
-    g_win.lights_unknown.fetch_add(lost, std::memory_order_relaxed);
-  }
-  for (const SetSnap& ls : s.sets) {
-    if (ls.set_id == kNone) {
-      ++c.unknown, ++tot.unknown;
-      g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
-      continue;
-    }
-    bool ok = Finite3(ls.block_a) && Finite3(ls.block_b);
-    for (int k = 0; k < ls.n_lights && k < 5; ++k) ok = ok && Finite3(ls.dir[k]) && Finite3(ls.col[k]);
-    if (!ok) {  // a non-finite value: the set is left out, counted
-      ++c.unknown, ++tot.unknown;
-      g_win.lights_unknown.fetch_add(1, std::memory_order_relaxed);
-      continue;
-    }
-    for (int k = 0; k < ls.n_lights && k < 5; ++k) {
-      Light l;
-      l.set = ls.set_id;
-      l.kind = uint8_t(LightKind::Directional);
-      l.slot = uint8_t(k);
-      std::memcpy(l.dir_or_pos, ls.dir[k], sizeof l.dir_or_pos);
-      std::memcpy(l.color, ls.col[k], sizeof l.color);
-      l.range = (ls.has_fall && k < 4) ? ls.fall[k] : kUnknownRange;  // review F1: unknown is -1, never 0 (0 is a real falloff)
-      if (ls.has_follow && k < 4) l.pad = uint16_t(kLightPadFollowKnown | (ls.follow[k] ? kLightPadFollowOn : 0));   // S103 RL F2: the game's own camera-attached word of this light
-      t.lights.push_back(l);
-    }
-    for (int a = 0; a < 2; ++a) {
-      Light l;
-      l.set = ls.set_id;
-      l.kind = uint8_t(LightKind::Ambient);
-      l.slot = uint8_t(5 + a);
-      std::memcpy(l.color, a == 0 ? ls.block_a : ls.block_b, sizeof l.color);
-      t.lights.push_back(l);
-    }
-    ++tot.sets;
-  }
+  emit_sets();   // S111 STAGELESS: the light sets (the lambda above: the same rows, at the same place of the record, as before)
 
   // ---- slots ----
   if (s.slots.empty()) {
@@ -458,6 +465,7 @@ bool NeedsSlots(int32_t arena_id) {
 Contributor* Instance() { return &g_instance; }
 void SetSlotRecordReader(SlotRecordReadFn fn) { g_slot_reader = fn; }
 void PlantIgnoreShown(bool on) { g_ignore_shown.store(on); }
+void PlantSetsNeedArena(bool on) { g_sets_need_arena.store(on); }
 
 // S103 C2: the slots of the published arena whose text row names a stage motion m(N) (the moving pieces); empty until the slot table is published.
 void MovingSlots(std::vector<uint16_t>& out) {   // fills the caller's vector (no allocation once it has the capacity)

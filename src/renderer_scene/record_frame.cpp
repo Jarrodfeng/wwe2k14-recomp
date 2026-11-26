@@ -15,11 +15,12 @@
 #include "../renderer/problem.h"   // S103 LVF: rdr::Log
 #include "guest_model_draw.h"  // S103 CW-2b: AbsorbRecord at the top of BuildFrame
 #include "rf_appliers.h"
+#include "rf_wrestlers.h"   // S110 ENTRBLACK round 6: Plants().warm_stops_at_miss (the warm-build twin)
 #include "named_load_fail.h"   // S103 DLW
 #include "stage_look.h"  // S103 L
 #include "card_gain.h"   // S103 B3c
 #include "clear_pick.h"  // S103 CLRB
-#include "props_map_switch.h"   // S103 CS1B: guest_casters::On
+#include "props_map_switch.h"   // S103 CLRB: game_clear::On (S111 PIECELINK: the CS1B guest_casters switch is gone)
 
 namespace rdr_scene::rf {
 
@@ -244,7 +245,7 @@ int ModelCache::PutGuest(const std::string& key, const assets::Model& m, uint8_t
   ++uploads_;
   for (const std::string& w : warnings) LogOnce("warn#" + w, w);
   models_[key] = id;
-  if (keep_cpu_ && id >= 0 && guest_casters::On()) cpu_[id] = CasterCopy(m), guest_cpu_.insert(id);   // S103 CS1B: a guest body casts into the shadow maps like a file wrestler (CS1.md 4.1); RetireOther erases it with the model
+  if (keep_cpu_ && id >= 0) cpu_[id] = CasterCopy(m), guest_cpu_.insert(id);   // S103 CS1B: a guest body casts into the shadow maps like a file wrestler (CS1.md 4.1; the game's map B draws the created body, sub_827E8080); RetireOther erases it with the model. S111 PIECELINK F6: no guest-only switch (the stream build's default was off): the one keep rule of Put / GetNamed
   return id;
 }
 
@@ -363,7 +364,7 @@ bool BuildFrame(const SceneTables& t, ModelCache& models, uint32_t families, uin
   const bool live = t.header.source == uint8_t(Source::Live);
   if (!warm && !t.has_camera) { error = "the record has no camera (a live record carries none yet: the caller supplies one)"; return false; }
   // reset `out` field by field: the vectors keep their capacity from the last frame
-  out.objects.clear(), out.piece_alphas.clear(), out.absent_extras.clear(), out.object_engine.clear(), out.wrinkle_levels.clear(), out.change_colours.clear() /* S108 THR2 */, out.params.clear(), out.param_names.clear(), out.light_sets.clear(), out.model_lights.clear(), out.stage_hooks.clear();
+  out.objects.clear(), out.piece_alphas.clear(), out.absent_extras.clear(), out.object_engine.clear(), out.wrinkle_levels.clear(), out.change_colours.clear() /* S108 THR2 */, out.body_spheres.clear() /* S111 SPHEREOCC */, out.draw_places.clear() /* S111 PROPORDER */, out.params.clear(), out.param_names.clear(), out.light_sets.clear(), out.model_lights.clear(), out.stage_hooks.clear();
   out.entrance = out.entrance_bg = false;
   if (stage_look::Entrance(t)) out.entrance = out.entrance_bg = true;
   out.phase_word = -1;   // S103 D1: the phase word of the frame (the record's kSlPhase row), -1 = none
@@ -439,7 +440,7 @@ bool BuildFrame(const SceneTables& t, ModelCache& models, uint32_t families, uin
     if (!e.apply(ctx)) {
       if (ok) error = std::string("class ") + e.name + " could not build the frame";
       ok = false;
-      if (!warm) break;   // S110 ENTRBLACK round 5: a warm build (ask only) asks EVERY class's assets in the same build, so the props / wrestlers / crowd are not asked only after the arena arrives
+      if (!warm || Plants().warm_stops_at_miss) break;   // S110 ENTRBLACK round 5: a warm build (ask only) asks EVERY class's assets in the same build, so the props / wrestlers / crowd are not asked only after the arena arrives
     }
   models.EndRecord();
   if (!ok) return false;

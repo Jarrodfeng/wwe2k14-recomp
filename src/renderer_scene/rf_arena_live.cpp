@@ -91,7 +91,7 @@ bool ApplyArenaLive(BuildCtx& ctx) {
   std::vector<assets::stage_pools::Pool> pools;  // S103 L2
   bool pools_incomplete = false;
   stage_look::Pools(ctx.t, pools, &pools_incomplete);
-  if (!ctx.warm()) UpdatePages(ctx, *as, stage_look::Entrance(ctx.t), pools);  // S103 L (FRAME_CONTRACT 7 item 6: a warm build only asks for assets)
+  if (!ctx.warm()) UpdatePages(ctx, *as, stage_look::PageEntrance(ctx.t), pools);  // S103 L (FRAME_CONTRACT 7 item 6: a warm build only asks for assets); S111 PAGEPOOLS: the page's own latch (walk-time)
   // S103 RGF: the game's order = the loader's stage array order: the lead static meshes, then for each moving slot (in the order of its first mesh) the slot's piece and the static meshes that follow it
   // (rf_c_core.cpp, as->cuts). With no cut (no slot moves, or the planted twin) the old shape: the whole static model, then the moving slots.
   const FamilyModel& lead = as->part[size_t(Part::Arena)];
@@ -175,7 +175,7 @@ bool ApplyArenaLive(BuildCtx& ctx) {
     const uint32_t missing = stage_look::MissingFor(ctx.t, fm.sets);
     if (missing) ctx.reports.back().holes += missing, ctx.reports.back().why += (ctx.reports.back().why.empty() ? "" : "; ") + std::string("entrance: ") + std::to_string(missing) + " remapped light set(s) without the rig's values (no stage look)";
   }
-  if (stage_look::Entrance(ctx.t)) {  // S103 L2: the entrance page's inputs. A spot row that wants the entrant's root with no entrant in the record is a MISSING input (a hole). An entrance with NO pool rows at all is
+  if (stage_look::PageEntrance(ctx.t)) {  // S103 L2: the entrance page's inputs (S111 PAGEPOOLS: the page's own latch). A spot row that wants the entrant's root with no entrant in the record is a MISSING input (a hole). An entrance with NO pool rows at all is
     // not a render-side hole: "no pool rows on an entrance" is the DECISION's missing input (scene_inputs::kInStagePools has no stamp then, so the frame walks); here it is only said.
     if (pools_incomplete) ctx.reports.back().holes += 1, ctx.reports.back().why += (ctx.reports.back().why.empty() ? "" : "; ") + std::string("entrance page: the follow spot wants the entrant's root and the record has no actor:slot:0");
     else if (pools.empty()) {

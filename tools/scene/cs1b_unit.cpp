@@ -3,10 +3,10 @@
 // Real FrontEnd + ModelCache + LiveMapsHook, one synthetic skinned yCh_skin mesh; 0 game files, 0 game runs (Renderer::Create only, as record_frame_test.cpp).
 //   1. PutGuest -> CpuModel(id) is the guest's copy, IsGuestCaster(id); MeasureCasters over a frame holding that object gives n > 0 (the caster set is not empty).
 //   2. RetireOther drops the copy with the model (CpuModel null, IsGuestCaster false).
-//   3. The switch off (wwe2k14_rdr_guest_casters = false) keeps no copy: n == 0 (the old behaviour; the planted twin).
+//   3. No caster pass (KeepWrestlerCpu off) keeps no copy for a guest, the same rule as a file wrestler. (S111 PIECELINK F6: the guest-only switch wwe2k14_rdr_guest_casters is deleted.)
 //   4. 500 guest-id changes (an editor slider drag makes a new id each): LiveMapsHook::casters_ stays bounded by LIVENESS (an entry whose model the provider dropped is swept), not by age.
 //   5. F1: the kept CPU copy holds no texture data. (F5 census / F4 default are read-only changes, not unit-tested.)
-// Planted faults (--plant NAME; exit 0 = the fault was caught, as record_frame_test): no_guest_cpu = PutGuest keeps nothing (the CS1.md line removed; checks 1 / 3 fail),
+// Planted faults (--plant NAME; exit 0 = the fault was caught, as record_frame_test): no_guest_cpu = no copy is kept (the cache's keep rule off; checks 1 / 4 fail),
 // no_sweep = the sweep is not run (check 4 fails).
 #include <algorithm>
 #include <cstdio>
@@ -86,11 +86,10 @@ int main(int argc, char** argv) {
   if (!renderer) { std::printf("FAIL renderer: %s\n", err.c_str()); return 1; }
   int bad = 0;
   auto check = [&](bool ok, const char* what) { std::printf("%s  %s\n", ok ? "PASS" : "FAIL", what); if (!ok) ++bad; };
-  guest_casters::g_on.store(plant != "no_guest_cpu");
   FrontEnd fe(*renderer);
   NoAssets src;
   rf::ModelCache cache(fe, src, false);
-  cache.KeepWrestlerCpu(true);
+  cache.KeepWrestlerCpu(plant != "no_guest_cpu");   // S111 PIECELINK F6: the one keep rule (no guest-only switch); the plant turns the keep off
   LiveMapsHook hook(*renderer, [&](uint32_t a) -> const assets::Model* { return cache.CpuModel(int(a)); });
   hook.SetGuestPredicate([&](uint32_t a) { return cache.IsGuestCaster(int(a)); });
   const assets::Model body = GuestBody();
@@ -108,13 +107,13 @@ int main(int argc, char** argv) {
     cache.ReleaseRetired();
     check(cache.CpuModel(id) == nullptr && !cache.IsGuestCaster(id), "RetireOther drops the copy with the model");
   }
-  {   // the switch off: the old behaviour (nothing cast)
-    guest_casters::g_on.store(false);
+  {   // no caster pass (KeepWrestlerCpu off: no live maps hook): a guest keeps no copy, as a file wrestler keeps none
+    cache.KeepWrestlerCpu(false);
     const int id = cache.PutGuest("guest|k1k", body, rdr::kGrpWrestler);
     uint32_t n = 0;
     LiveMapsTestAccess::Measure(hook, FrameOf(id), n);
-    check(cache.CpuModel(id) == nullptr && n == 0, "twin: switch off -> no CPU copy, n == 0");
-    guest_casters::g_on.store(plant != "no_guest_cpu");
+    check(cache.CpuModel(id) == nullptr && !cache.IsGuestCaster(id) && n == 0, "no caster pass -> no CPU copy for a guest either, n == 0 (one keep rule)");
+    cache.KeepWrestlerCpu(plant != "no_guest_cpu");
     cache.RetireOther("guest|", "|k2k");
     cache.ReleaseRetired();
   }

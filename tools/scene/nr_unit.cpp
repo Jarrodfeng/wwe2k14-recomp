@@ -20,6 +20,7 @@
 #include "../../src/renderer_scene/rows_lights.h"
 #include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/renderer_scene/rf_wrestlers.h"
+#include "../../src/renderer_scene/rf_c.h"   // S110 ENTRBLACK round 6: TakeArenaMisses
 #include "../../src/renderer_scene/shadow_fit_record.h"
 
 using namespace rdr_scene;
@@ -33,9 +34,14 @@ int main(int argc, char** argv) {
   bool plant_old = false;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--record") && i + 1 < argc) rec_path = argv[++i];
-    else if (!std::strcmp(argv[i], "--plant") && i + 1 < argc) plant_old = !std::strcmp(argv[++i], "old_rule");
+    else if (!std::strcmp(argv[i], "--plant") && i + 1 < argc) {
+      ++i;
+      plant_old = !std::strcmp(argv[i], "old_rule");
+      if (!std::strcmp(argv[i], "warm_break")) rdr_scene::rf::Plants().warm_stops_at_miss = true;   // S110 ENTRBLACK round 6 twin
+      if (!std::strcmp(argv[i], "undrawn_is_hole")) rdr_scene::rf::Plants().game_undrawn_is_hole = true;   // S111 PIECEHOLES twin: kObjGameUndrawn ignored (the rule before)
+    }
   }
-  if (rec_path.empty()) { std::printf("usage: nr_unit --record frame_000622.rsc [--plant old_rule]\n"); return 2; }
+  if (rec_path.empty()) { std::printf("usage: nr_unit --record frame_000622.rsc [--plant old_rule|warm_break|undrawn_is_hole]\n"); return 2; }
   if (plant_old) rdr_scene::rf::Plants().old_hole_rule = true;
   SceneTables base;
   std::string err;
@@ -106,6 +112,34 @@ int main(int argc, char** argv) {
     for (LightState& s : u.light_states) s.flags |= kLsSynthetic;
     check(skel_holes(u) == 8, "twin: synthetic refs only, ring rows kept -> the three ring-drawn skirts are the only exemption (8)");
   }
+  {   // S111 PIECEHOLES (rf_wrestlers.cpp unrouted branch -> guest_piece_fade.h DecideUnroutedPiece), through BuildFrame: kObjGameUndrawn = a slot body the contributor's quiet gate hid (no draw ask of the record's period)
+    auto flag_undrawn = [](SceneTables& t) {
+      bool found = false;
+      for (Object& o : t.objects)
+        if (std::string(t.Str(o.id)) == "skel:AAF7F4B0") o.flags |= kObjGameUndrawn, found = true;
+      return found;
+    };
+    SceneTables t = base;   // OURS-shaped (synthetic refs only, no ring rows): 11 holes above
+    for (LightState& s : t.light_states) s.flags |= kLsSynthetic;
+    t.ring_rows.clear();
+    check(flag_undrawn(t), "skel:AAF7F4B0 is in the record (flagged kObjGameUndrawn)");
+    const int h_ours = skel_holes(t);
+    check(h_ours == 10 && rf::LastWrestlerStats().game_undrawn == 1, "PIECEHOLES: no walk at the stamp -> the flagged body is counted not drawn by the game, never a hole (10 of 11; twin undrawn_is_hole: 11)");
+    SceneTables u = base;   // walked, and the walk names the flagged object (a walked ref at the stamp): the game drew it although no ask was stamped
+    uint32_t stamp = 0;
+    WrestlerLightStamp(u, stamp);
+    for (size_t i = 0; i < u.objects.size() && i < u.engine_objects.size(); ++i)
+      if (std::string(u.Str(u.objects[i].id)) == "skel:AAF7F4B0") {
+        LightRef r;
+        r.object = u.engine_objects[i], r.ordinal = 0, r.state = 0, r.frame = stamp;
+        u.light_refs.push_back(r);
+      }
+    flag_undrawn(u);
+    check(skel_holes(u) == expect_base + 1, "PIECEHOLES review: a walked frame whose walk names the flagged body -> the walk decides, a hole (8; the flag beating the walk: 7)");
+    SceneTables v = base;   // walked, no ref for it: the walk says not drawn
+    flag_undrawn(v);
+    check(skel_holes(v) == expect_base, "PIECEHOLES review: a walked frame with no ref for the flagged body -> not a hole (7)");
+  }
 
   // ---- symmetry: the shadow input hole, asked the way Warm asks it ----
   {
@@ -119,6 +153,20 @@ int main(int argc, char** argv) {
     u.light_states.clear(), u.light_refs.clear(), u.light_objects.clear(), u.caster_calls.clear(), u.caster_states.clear();
     why.clear();
     check(hooks.ShadowInputHole(u, why) && !why.empty(), "twin: no key light in the record -> the shadow input is a hole in Warm too (why named)");
+  }
+  {   // S110 ENTRBLACK round 6 (record_frame.cpp BuildFrame): a WARM build asks every class's assets in the same build, past the arena miss (the classes after ring_early used to be asked only after the arena arrived)
+    rf::ModelCache nl(fe, src, false);   // live-style: misses go to a loader (none here), nothing loads
+    rf::c::TakeArenaMisses();
+    SceneTables t = base;
+    SceneFrame f;
+    std::vector<rf::ClassReport> reports;
+    std::string e;
+    nl.NewFrame();
+    rf::BuildFrame(t, nl, rf::kAllFamilies, 1280, 720, f, reports, e, rf::kBuildWarm);
+    const std::vector<int> arenas = rf::c::TakeArenaMisses();
+    const std::vector<rf::ModelCache::Missed> missed = nl.TakeMisses();
+    check(!arenas.empty(), "warm build: the record's arena is not resident: asked (ring_early misses first)");
+    check(!missed.empty(), "warm build: the classes after the arena miss ask their own assets in the same build (twin warm_break: none asked)");
   }
   std::printf("%s (%d failed)\n", bad ? "FAIL" : "PASS", bad);
   return bad ? 1 : 0;

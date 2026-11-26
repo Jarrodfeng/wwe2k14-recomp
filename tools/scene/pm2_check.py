@@ -58,7 +58,7 @@ def parse(body):
     r["prm"] = np.array([float(x) for x in m.group(1).split()]).reshape(3, 4) if m else None   # PS c168-c170 as the floor reads them
     m = re.search(r"pm2_anchor lo (\S+) (\S+) (\S+) hi (\S+) (\S+) (\S+) viewer_space (\d)", body)
     r["lo"], r["hi"] = (np.array([float(m.group(i)) for i in (1, 2, 3)]), np.array([float(m.group(i)) for i in (4, 5, 6)])) if m else (None, None)
-    m = re.search(r"\[scene\]\[maps\]\[props\] casters (\d+) objects / (\d+) meshes \(weapons (\d+) / event (\d+) / stage (\d+), ids 59/68/71/96 (\d+)\), skipped: no model (\d+), piece 43 assumed (\d+) \(the re-key condition is not recorded\), no props light (\d+); prop min light-depth < near (\d+); (.*)", body)
+    m = re.search(r"\[scene\]\[maps\]\[props\] casters (\d+) objects / (\d+) meshes \(weapons (\d+) / event (\d+) / stage (\d+), ids 59/68/71/96 (\d+)\), skipped: no model (\d+), categories 33 / 43 left to map B (\d+) \(the props pass never draws them\), no props light (\d+); prop min light-depth < near (\d+); (.*)", body)
     r["census"] = dict(objects=int(m.group(1)), meshes=int(m.group(2)), weapons=int(m.group(3)), no_model=int(m.group(7)), no_light=int(m.group(9)), why=m.group(11).strip()) if m else None
     r["tags"] = {int(s): int(t) for s, t in re.findall(r"pm2_fixture slot (\d) \S+(?: \S+)? props_tagged (\d)", body)}
     v = re.search(r"validation_errors (\d+)", body)

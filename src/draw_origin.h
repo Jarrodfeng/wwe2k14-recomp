@@ -358,6 +358,29 @@ REX_HOOK_RAW(sub_82576768) {
   __imp__sub_82576768(ctx, base);
 }
 
+// S111 STAGELESS2 (src\renderer_scene\prop_light_id.h): the event CWeapon's ctor sub_8272BCD0 (sole caller MakeWeapon 0x8272E534; r3 = the 1648-byte object). The original runs first; the pointer is then
+// handed to the tracker, which reads the light-set id its nodes ask the light manager for ([cw + 1468]) once a frame. Read only, no skip, no register change.
+REX_EXTERN(__imp__sub_8272BCD0);
+REX_HOOK_RAW(sub_8272BCD0) {
+  const uint32_t weapon = ctx.r3.u32;
+  __imp__sub_8272BCD0(ctx, base);
+  wwe2k14::weaponrows::EventWeaponMade(weapon);
+}
+
+// S111 PROPSPEC (src\scene_live\prop_spec.h, docs\research\s111\PROPSPEC.md): the entrance prop command's run-time specular / reflection override. sub_82335070 (sole caller sub_82335268, 6 sites) binds one
+// name's value into the prop model's material slots (r4 = the CWeapon, r5 = the name, r7 = &value); sub_82334AB8 (the override's destructor) unbinds it (r3 = the override). Entry hooks, read only, no skip,
+// no register change; the store is propspec's (the event prop row carries its code, rf_props.cpp draws it).
+REX_EXTERN(__imp__sub_82335070);
+REX_HOOK_RAW(sub_82335070) {
+  wwe2k14::weaponrows::PropSpecBind(ctx.r4.u32, ctx.r5.u32, ctx.r7.u32);
+  __imp__sub_82335070(ctx, base);
+}
+REX_EXTERN(__imp__sub_82334AB8);
+REX_HOOK_RAW(sub_82334AB8) {
+  wwe2k14::weaponrows::PropSpecRelease(ctx.r3.u32);
+  __imp__sub_82334AB8(ctx, base);
+}
+
 // S103 GBR: "the thread's shadow flag A (sub_82BA77A8 returns u32 [0x83929A48 + 4 * thread slot], r3 is ignored: PMW.md) is 0" (the colour pass), handed to the weapon rows' tracker as a callback and asked ONLY for a gm set object / a blood splat call; ctx is restored.
 // (A named function, not a lambda in the hook: ours_feed_lint reads any `return` before the RawEntry feed as an early exit.)
 struct GbrPassCtx { PPCContext* ctx; uint8_t* base; };

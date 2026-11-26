@@ -206,7 +206,7 @@ Check 'rig refused by the queue: the exe answer stands (TIP_EXE, exit 0), the ri
 $r = Invoke-Tip $tip $M @('-Preset', 'win-amd64-release')
 $ps = Get-Ptr $M 'tip-stream.json'
 Check 'stream preset: tip-stream.json, folder tipstream-<c9>, preset passed, no rig' ($r.Code -eq 0 -and $ps -and (Split-Path $ps.folder -Leaf) -like 'tipstream-*' -and $r.Lane[0] -match 'win-amd64-release jobs' -and $r.Rig -eq 0) "$($r.Out)"
-$r = Invoke-Tip $tip $M @('-Preset', 'win-amd64-coverage')
+$r = Invoke-Tip $tip $M @('-Preset', 'win-amd64-coverage-off')
 Check 'another preset: exit 2' ($r.Code -eq 2)
 
 # ---- 9. the pointer is written beside and renamed: a failed rename keeps the old file and leaves no .tmp

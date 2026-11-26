@@ -54,6 +54,10 @@ PLANTS = [
     ('rerun_newest_run_only', [(r"        if os\.path\.normcase\(data\.get\('proof', ''\)\) == os\.path\.normcase\(proof_abs\):",
                                 "        if os.path.normcase(data.get('proof', '')) == os.path.normcase(proof_abs) and not last.clear():")]),
     ('rerun_not_said_on_the_total', [(r", rerun, total, wall, code\)", ", '', total, wall, code)")]),
+    # S111 PIECELINK review: expect-fail:
+    ('expect_fail_prefix_ignored', [(r"expect, rest = True, re\.sub", "expect, rest = False, re.sub")]),
+    ('expect_fail_crash_is_caught', [(r"crashed = any\(x\.startswith\('Traceback'\) for x in lines\)", "crashed = False")]),
+    ('expect_fail_any_output_is_caught', [(r"caught = not crashed and any\(r\.search\(x\) for x in nonempty for r in FAIL_COUNTS \+ \(CHECK_FAIL,\)\)", "caught = not crashed")]),
 ]
 
 FIXTURES = {
@@ -226,6 +230,20 @@ def cases(t):
     rc, out = t.run(r, "base abc1234\nlints\ncompile\n", '--print')
     t.check('--print: a `base REF` line goes to compile --changed and to lints --base',
             out.splitlines() == ['py -I tools\\handback\\check.py --base abc1234', 'py -I tools\\compile\\game_syntax.py --changed abc1234 --build both'], out)
+
+    # --- S111 PIECELINK review: expect-fail: a planted fault must be REPORTED (a failing check), whatever the exit code; a clean run or a crash is a FAIL
+    r = t.root()
+    rc, out = t.run(r, "expect-fail: py -I fx\\say.py 0 \"FAIL  PutGuest kept a copy\" \"FAIL (3 failed)\"\n"
+                       "serial: expect-fail: py -I fx\\say.py 1 \"FAIL  a check\" \"FAIL  5 check(s) failed\"\n"
+                       "expect-fail: py -I fx\\ok.py\nexpect-fail: py -I fx\\boom.py\n")
+    t.check('expect-fail: exit 0 with "FAIL (3 failed)" (a unit whose plant exit 0 = caught) is a PASS, said so',
+            re.search(r'^PASS  .*say\.py 0.*\|  planted fault caught \(exit 0\)', line_of(out, 'say.py 0'), re.M) is not None, out)
+    t.check('expect-fail: exit 1 with a check\'s FAIL line is a PASS (prefixes combine with serial:)', line_of(out, 'say.py 1').startswith('PASS  '), out)
+    t.check('expect-fail: a clean run (no failing check) is a FAIL: the plant was not caught', line_of(out, 'ok.py').startswith('FAIL (expect-fail: the planted fault was NOT caught'), out)
+    t.check('expect-fail: a crash (Traceback) is a FAIL, never a caught plant', line_of(out, 'boom.py').startswith('FAIL (expect-fail: it crashed'), out)
+    t.check('expect-fail: counted on the total line', re.search(r'^prove: 2 passed, 2 failed, .*-> exit 1$', out, re.M) is not None and rc == 1, out)
+    rc, out = t.run(r, "serial: expect-fail: timeout 60: py -I x.py\n", '--print')
+    t.check('--print: the expect-fail: prefix is shown', out.splitlines() == ['serial: timeout 60: expect-fail: py -I x.py'], out)
 
     # --- the proof file must hold a command
     rc, out = t.run(t.root(), "# nothing\n\n")

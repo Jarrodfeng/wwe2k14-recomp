@@ -1,16 +1,15 @@
-r"""q read verify (S110 lane VERIFYMARK): a probe CONFIRMED or REFUTED a stored reading; the mark goes into the reading store.
+r"""q read verify (S110 lane VERIFYMARK, S111 lane FOLD): a probe CONFIRMED or REFUTED a stored reading; the verdict is stored ON that reading.
 
     py tools/q/q.py read verify unit UNIT --verdict confirmed|refuted|partly --source PATH[ [C]] --note "TEXT"
     py tools/q/q.py read verify func ADDR --verdict ... --source ... --note ...
-    py tools/q/q.py read verify --file TSV      rows: kind <TAB> target <TAB> verdict <TAB> source <TAB> note   (bad rows reported with line number, skipped)
     py tools/q/q.py read verify --stats         counts per verdict and per kind
 
-Table verify_read(id, target_kind, target, verdict, note, source, when_, read_id) in out/harness/index/read.s2.db, created on first use; rows
-are only appended (a row equal to a stored one is not stored again). read_id pins the verdict to the reading that was newest when it was stored.
-`q read show` prints every verdict after the answers (`(on an earlier reading)` when a newer reading came since); `q sheet` adds [v:..] to the
-`read:` line and to `read NAME [r:..]` only while that reading is the newest, and to the line of a function with no read name.
+The verdict is four columns of the reading row it judges (verdict, v_note, v_source, v_when): the newest unit_read row of the unit (unit) or the
+newest name_read row of the function (func). A unit or function with no stored reading is refused: there is nothing to judge. One verdict per
+reading: a later verdict on the same reading replaces the earlier one (the same verdict, note and source again stores nothing). A re-read is a new
+row and starts without a verdict; `q sheet` adds [v:..] to the `read:` line and to `read NAME [r:..]` only on the newest reading.
 SOUNDNESS: a verdict is a mark in the store. It never writes db/*.json and never turns a reader-proposed name into a db name.
-A store without the table keeps working (every reader here returns nothing then).
+A store made before the verdict columns is read as having no verdicts (qread.add_verdict_cols adds them on the first write).
 """
 import collections
 import os
@@ -28,11 +27,7 @@ import qunits  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(HERE))
 VERDICTS = ('confirmed', 'refuted', 'partly')
 KINDS = ('unit', 'func')
-# read_id: the reading the verdict is about, the newest unit_read id of the unit (unit) or name_read id of the function (func) when it was
-# stored; NULL: there was none. A tag shows only while that reading is still the newest one (a re-read is not carried a verdict it never had).
-TABLE = ('create table if not exists verify_read(id integer primary key autoincrement, target_kind text, target integer, verdict text,'
-         ' note text, source text, when_ text, read_id integer);'
-         'create index if not exists verify_read_t on verify_read(target_kind, target);')
+TABLES = {'unit': ('unit_read', 'unit_id'), 'func': ('name_read', 'func')}     # kind -> (reading table, column the target is matched on)
 EARLIER = ' (on an earlier reading)'
 
 
@@ -116,39 +111,33 @@ def check_row(kind, target, verdict, source, note, chk, root=None):
 
 
 def add_rows(rows, path=None, chk=None, root=None):
-    """rows: [(lineno, kind, target, verdict, source, note)] -> (stored, [(lineno, why)]). Good rows are stored, bad ones skipped."""
+    """rows: [(lineno, kind, target, verdict, source, note)] -> (stored, [(lineno, why)]). Good rows are stored, bad ones refused."""
     chk = chk or Checker()
     good, bad = [], []
     for ln, kind, target, verdict, source, note in rows:
         try:
             k, t, sp = check_row(kind, target, verdict, source, note, chk, root)
-            good.append((k, t, verdict, note.strip(), sp))
+            good.append((ln, k, t, verdict, note.strip(), sp))
         except ValueError as e:
             bad.append((ln, str(e)))
     stored = 0
     if good:
         c = qread.open_rw(path)
-        c.executescript(TABLE)
-        if _rid_col(c) == 'NULL':                # a table made before read_id
-            try:
-                c.execute('alter table verify_read add column read_id integer')
-            except sqlite3.OperationalError:
-                pass                             # another writer added it just now (a lock error shows at the insert)
         c.isolation_level = None                 # explicit transaction below
         now = time.strftime('%Y-%m-%d %H:%M:%S')
         try:
-            # IMMEDIATE: the write lock before the duplicate check, so two writers never both read then both try to upgrade (that fails at
-            # once, without the busy wait); the whole batch is one transaction, all or nothing
+            # IMMEDIATE: the write lock before the read of the newest reading, so two writers never both read then both try to upgrade; the
+            # whole batch is one transaction, all or nothing
             c.execute('begin immediate')
-            for k, t, v, n, s in good:
-                # a TSV run again after its SKIPPED lines were fixed: rows already stored are not stored twice
-                if c.execute('select 1 from verify_read where target_kind=? and target=? and verdict=? and note=? and source=? limit 1',
-                             (k, t, v, n, s)).fetchone():
+            for ln, k, t, v, n, s in good:
+                tab, col = TABLES[k]
+                r = c.execute('select id,verdict,v_note,v_source from %s where %s=? order by id desc limit 1' % (tab, col), (t,)).fetchone()
+                if r is None:
+                    bad.append((ln, 'no stored reading of %s %s to judge' % (k, t if k == 'unit' else '%08X' % t)))
                     continue
-                rid = c.execute('select max(id) from unit_read where unit_id=?' if k == 'unit' else 'select max(id) from name_read where func=?',
-                                (t,)).fetchone()[0]
-                c.execute('insert into verify_read(target_kind,target,verdict,note,source,when_,read_id) values (?,?,?,?,?,?,?)',
-                          (k, t, v, n, s, now, rid))
+                if (r[1], r[2], r[3]) == (v, n, s):
+                    continue
+                c.execute('update %s set verdict=?, v_note=?, v_source=?, v_when=? where id=?' % tab, (v, n, s, now, r[0]))
                 stored += 1
             c.execute('commit')
         except sqlite3.OperationalError as e:
@@ -160,62 +149,42 @@ def add_rows(rows, path=None, chk=None, root=None):
     return stored, bad
 
 
-def parse_tsv(text):
-    rows = []
-    for i, line in enumerate(text.split('\n'), 1):      # not splitlines(): it also cuts at \f, \x1c-\x1e, U+0085, U+2028 inside a note
-        if not line.strip() or line.lstrip().startswith('#'):
-            continue
-        f = line.rstrip('\r\n').split('\t', 4)
-        f += [''] * (5 - len(f))
-        rows.append((i, f[0].strip(), f[1].strip(), f[2].strip(), f[3].strip(), f[4]))
-    return rows
-
-
-# ---------------------------------------------------------------- readers (all tolerate a store without the table)
+# ---------------------------------------------------------------- readers (all tolerate a store without the verdict columns)
 def _ro(path):
     c = qread.open_ro(path)
     if c is None:
         return None
     try:
-        c.execute('select 1 from verify_read limit 1')
+        c.execute('select verdict from unit_read limit 1')
+        c.execute('select verdict from name_read limit 1')
     except sqlite3.Error:
         c.close()
         return None
     return c
 
 
-def _rid_col(c):
-    """'read_id', or 'NULL' for a table made before the column (its rows count as on no reading)"""
-    return 'read_id' if any(r[1] == 'read_id' for r in c.execute('pragma table_info(verify_read)')) else 'NULL'
-
-
 def unit_verdict(uid, path=None):
-    """newest verdict of the unit itself on its newest reading (None: no verdict on that reading)"""
+    """the verdict on the unit's newest reading (None: that reading has none)"""
     c = _ro(path)
     if c is None:
         return None
     try:
-        cur = c.execute('select max(id) from unit_read where unit_id=?', (uid,)).fetchone()[0]
-        r = c.execute("select verdict from verify_read where target_kind='unit' and target=? and %s is ? order by id desc limit 1" % _rid_col(c),
-                      (uid, cur)).fetchone()
+        r = c.execute('select verdict from unit_read where unit_id=? order by id desc limit 1', (uid,)).fetchone()
     finally:
         c.close()
     return r[0] if r else None
 
 
 def func_verdicts(lo, hi, path=None):
-    """{func: newest verdict} for functions between lo and hi, each on the function's newest proposed name (or on none, when it has none)"""
+    """{func: verdict} for functions between lo and hi, each the verdict on the function's newest proposed name (a function with none is absent)"""
     c = _ro(path)
     if c is None:
         return {}
     try:
-        cur = dict(c.execute('select func,max(id) from name_read where func between ? and ? group by func', (lo, hi)))
         out = {}
-        for f, v, r in c.execute("select target,verdict,%s from verify_read where target_kind='func' and target between ? and ? order by id" % _rid_col(c),
-                                 (lo, hi)):
-            if r == cur.get(f):
-                out[f] = v
-        return out
+        for f, v in c.execute('select func,verdict from name_read where func between ? and ? order by id', (lo, hi)):
+            out[f] = v
+        return {f: v for f, v in out.items() if v}
     finally:
         c.close()
 
@@ -225,30 +194,22 @@ def tag(v):
 
 
 def show_lines(uid, path=None, unit_of=None):
-    """VERIFIED lines of the unit and of its functions, newest first; every verdict, the ones on an earlier reading say so"""
+    """VERIFIED lines of the unit's readings and of its functions' names, newest first; the ones on an earlier reading say so"""
     c = _ro(path)
     if c is None:
         return []
     try:
-        rc = _rid_col(c)
         ucur = c.execute('select max(id) from unit_read where unit_id=?', (uid,)).fetchone()[0]
-        rows = [(i, 'unit', t, v, n, s, w, r != ucur) for i, t, v, n, s, w, r in
-                c.execute("select id,target,verdict,note,source,when_,%s from verify_read where target_kind='unit' and target=?" % rc, (uid,))]
-        fr = c.execute("select id,target,verdict,note,source,when_,%s from verify_read where target_kind='func'" % rc).fetchall()
-        ncur = dict(c.execute('select func,max(id) from name_read group by func')) if fr else {}
+        rows = [(w, 'unit', 0, v, n, s, i != ucur) for i, v, n, s, w in
+                c.execute('select id,verdict,v_note,v_source,v_when from unit_read where unit_id=? and verdict is not null', (uid,))]
+        ncur = dict(c.execute('select func,max(id) from name_read group by func'))
+        rows += [(w, 'func', f, v, n, s, i != ncur.get(f)) for i, f, v, n, s, w in
+                 c.execute('select id,func,verdict,v_note,v_source,v_when from name_read where unit_id=? and verdict is not null', (uid,))]
     finally:
         c.close()
-    if fr:
-        unit_of = unit_of or _unit_of_default()
-        rows += [(i, 'func', t, v, n, s, w, r != ncur.get(t)) for i, t, v, n, s, w, r in fr if unit_of(t) == uid]
-    rows.sort(key=lambda r: -r[0])
-    return ['  VERIFIED %s: %s%s (%s, %s)%s' % (v, '' if k == 'unit' else 'sub_%08X: ' % t, n, s, w, EARLIER if old else '')
-            for _i, k, t, v, n, s, w, old in rows]
-
-
-def _unit_of_default():
-    uc = qunits.open_units()
-    return lambda f: (lambda r: r[0] if r else None)(uc.execute('select unit_id from units where func=?', (f,)).fetchone())
+    rows.sort(key=lambda r: r[0] or '', reverse=True)
+    return ['  VERIFIED %s: %s%s (%s, %s)%s' % (v, '' if k == 'unit' else 'sub_%08X: ' % f, n, s, w, EARLIER if old else '')
+            for w, k, f, v, n, s, old in rows]
 
 
 def stats_lines(path=None):
@@ -256,7 +217,8 @@ def stats_lines(path=None):
     if c is None:
         return ['verdicts: none stored']
     try:
-        rows = c.execute('select target_kind,verdict,count(*) from verify_read group by 1,2').fetchall()
+        rows = [('unit', v, n) for v, n in c.execute('select verdict,count(*) from unit_read where verdict is not null group by 1')]
+        rows += [('func', v, n) for v, n in c.execute('select verdict,count(*) from name_read where verdict is not null group by 1')]
     finally:
         c.close()
     bv, bk = collections.Counter(), collections.Counter()
@@ -272,7 +234,7 @@ def main(rest, path=None, chk=None, root=None):
     opts, pos, i = {}, [], 0
     while i < len(rest):
         x = rest[i]
-        if x in ('--verdict', '--source', '--note', '--file'):
+        if x in ('--verdict', '--source', '--note'):
             if i + 1 >= len(rest):
                 raise qread.ReadError('q read verify: %s needs a value' % x)
             opts[x] = rest[i + 1]
@@ -292,19 +254,8 @@ def main(rest, path=None, chk=None, root=None):
         for x in stats_lines(path):
             print(x)
         return 0
-    if '--file' in opts:
-        fn = opt('--file')
-        if not fn or not os.path.isfile(fn):
-            raise qread.ReadError('q read verify --file TSV: file not found: %r' % fn)
-        with open(fn, encoding='utf-8-sig', errors='replace') as fh:
-            rows = parse_tsv(fh.read())
-        n, bad = add_rows(rows, path, chk, root)
-        for ln, why in bad:
-            print('  line %d SKIPPED: %s' % (ln, why))
-        print('stored %d, skipped %d' % (n, len(bad)))
-        return 0 if not bad else 1
     if len(pos) != 2:
-        raise qread.ReadError('q read verify unit UNIT|func ADDR --verdict confirmed|refuted|partly --source PATH --note "TEXT"  |  --file TSV  |  --stats')
+        raise qread.ReadError('q read verify unit UNIT|func ADDR --verdict confirmed|refuted|partly --source PATH --note "TEXT"  |  --stats')
     n, bad = add_rows([(0, pos[0], pos[1], opt('--verdict', ''), opt('--source', ''), opt('--note', ''))], path, chk, root)
     if bad:
         raise qread.ReadError('refused: %s' % bad[0][1])

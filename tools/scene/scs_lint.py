@@ -9,6 +9,8 @@ Checks (text, on the committed sources; each a FAIL when missed):
   accounting DrawRows counts the in-scene rows from the hook's report (scene2d_rep_) and does not treat them as dropped passes while the hook is on
   wiring     SceneHost::Start installs the hook (SetScene2D) with Context::scene_depth = true; the stream build (renderer_adapter\live.cpp) never calls SetScene2D
   walkhook   S105 A4B review F2: draw_origin.h hooks sub_82C3B200 (begin: OnWalkBegin(ctx.r4.u32) BEFORE __imp__) and sub_82C3B218 (end: OnWalkEnd), not the sub-walker sub_82C2F960; quads2d_tap.h OnOp19 calls walkcat::Mark(t_scope.cur, t_walk) AFTER q::OnOp19(t_scope, and before the scene-colour log
+  scenepass  S111 ZFINAL review: draw_origin.h's op-73 hook (sub_82BB6FC8) calls q2d_tap::OnSceneBegin and its op-74 hook (sub_82BB7078) q2d_tap::OnSceneEnd, each before __imp__; quads2d_tap.h OnSceneBegin calls t_walk.SceneBegin() and OnSceneEnd t_walk.SceneEnd(), each BEFORE its Active() test (the game's scene-pass bracket, walk_cat.h SceneByGamePass)
+  sitelist   S111 ZFINAL2: no Scene2DSite call in row_fate.h / frame_hooks.h / walk_cat.h / rows_quad2d.h (the scene pass is the game's bracket, never a site list); the scene hook lambda gives its Context the movie planes (ctx.plane via PlaneOf(row, slot, scene2d_j_))
 Planted twins (the lint must FAIL on each; the unit's own twin is scs_unit --plant scene_z_ignored):
   fate_drop      FateOf drops scene-colour rows again (the pre-SCS rule)
   order_swapped  the particles hook is pushed before the scene-2D hook
@@ -16,6 +18,10 @@ Planted twins (the lint must FAIL on each; the unit's own twin is scs_unit --pla
   walk_end_gone  the sub_82C3B218 hook no longer calls OnWalkEnd
   mark_early     walkcat::Mark runs BEFORE q::OnOp19 (cur is still the previous row)
   mark_gone      the walkcat::Mark call is removed
+  scene_begin_gone  OnSceneBegin no longer opens the bracket (t_walk.SceneBegin() removed)
+  scene_end_late    OnSceneEnd closes the bracket only after its Active() test (a tap switched off mid-walk would leave it open)
+  sitelist_back     FateOf's InScene rule takes only the Scene2DSite sites again (the pre-ZFINAL2 list)
+  scene_plane_gone  the scene hook lambda gives its Context no movie planes (a movie row in the scene pass is refused `planes`)
 Exit 0 = pass."""
 import argparse
 import os
@@ -55,7 +61,31 @@ def run(root, plant):
             tap = tap.replace(m.group(0), '')
             k = tap.find('q::OnOp19(t_scope,')
             tap = tap[:k] + m.group(0) + tap[k:]
+    if plant == 'scene_begin_gone':
+        tap = tap.replace('t_walk.SceneBegin();', '')
+    if plant == 'scene_end_late':
+        tap = re.sub(r'(inline void OnSceneEnd\(const PPCContext& ctx, const uint8_t\* base\) \{\n)([^\n]*t_walk\.SceneEnd\(\);[^\n]*\n)(  if \(!Active\(\)\) return;\n)', r'\1\3\2', tap)
+    if plant == 'sitelist_back':
+        fate_src = fate_src.replace('r.pass == rdr_scene::kQpSceneColour && scene_hook) return Fate::InScene;', 'r.pass == rdr_scene::kQpSceneColour && scene_hook && rdr_scene::Scene2DSite(r.site)) return Fate::InScene;')
+    if plant == 'scene_plane_gone':
+        host = re.sub(r'[^\n]*ctx\.plane = \[this\]\(const rdr_scene::Quad2D& row, int slot\) \{ return PlaneOf\(row, slot, scene2d_j_\); \};[^\n]*\n', '', host)
     bad = []
+    for rel, text in (('src/renderer_host/row_fate.h', fate_src), ('src/renderer_scene/frame_hooks.h', rd(root, 'src/renderer_scene/frame_hooks.h')),
+                      ('src/renderer_scene/walk_cat.h', rd(root, 'src/renderer_scene/walk_cat.h')), ('src/renderer_scene/rows_quad2d.h', rd(root, 'src/renderer_scene/rows_quad2d.h'))):   # S111 ZFINAL2
+        if re.search(r'\bScene2DSite\s*\(', text):
+            bad.append('sitelist: %s calls or defines Scene2DSite again (S111 ZFINAL2: the scene pass is the game\'s op 73 .. op 74 bracket, never a site list)' % rel)
+    ml = re.search(r'SetScene2D\(\[this\](.*?)q::Append\(fb, q2d_programs_, ctx, rows, n\)', host, re.S)   # S111 ZFINAL2: the scene hook lambda's movie planes
+    if not ml or not re.search(r'ctx\.plane = [^\n]*PlaneOf\(row, slot, scene2d_j_\)', ml.group(1)):
+        bad.append('sitelist: the scene hook lambda (SceneHost::Start SetScene2D) must set ctx.plane through PlaneOf(row, slot, scene2d_j_): a movie row the game draws in its scene pass is drawn there, never refused `planes`')
+    for fn, op_fn, call in (('sub_82BB6FC8', 'OnSceneBegin', 'SceneBegin'), ('sub_82BB7078', 'OnSceneEnd', 'SceneEnd')):   # S111 ZFINAL review: the game's scene-pass bracket
+        mh = re.search(r'REX_HOOK_RAW\(' + fn + r'\)\s*\{(.*?)\n\}', origin, re.S)
+        if not mh or not re.search(r'q2d_tap::' + op_fn + r'\(ctx, base\);\s*__imp__' + fn, mh.group(1)):
+            bad.append('scenepass: REX_HOOK_RAW(%s) must call q2d_tap::%s(ctx, base) before __imp__%s' % (fn, op_fn, fn))
+        mt = re.search(r'inline void ' + op_fn + r'\(const PPCContext& ctx, const uint8_t\* base\) \{(.*?)\n\}', tap, re.S)
+        body = mt.group(1) if mt else ''
+        ks, ka = body.find('t_walk.' + call + '();'), body.find('if (!Active()) return;')
+        if ks < 0 or (0 <= ka < ks):
+            bad.append('scenepass: quads2d_tap.h %s must call t_walk.%s() before its Active() test (found offsets %d %d)' % (op_fn, call, ks, ka))
     mb = re.search(r'REX_HOOK_RAW\(sub_82C3B200\)\s*\{(.*?)\n\}', origin, re.S)
     if not mb or not re.search(r'OnWalkBegin\(ctx\.r4\.u32\);\s*__imp__sub_82C3B200', mb.group(1)):
         bad.append('walkhook: REX_HOOK_RAW(sub_82C3B200) must call OnWalkBegin(ctx.r4.u32) before __imp__sub_82C3B200 (r4 = the category)')
@@ -74,7 +104,7 @@ def run(root, plant):
         bad.append('order: AttachFrameHooks must push maps_, then scene2d_, then particles_ (found offsets %d %d %d)' % (pm, ps, pp))
     fate = fate_src[fate_src.find('inline Fate FateOf'):]
     fate = fate[:fate.find('\n}\n')]
-    if not re.search(r'kQpSceneColour\s*&&\s*scene_hook\s*&&\s*rdr_scene::Scene2DSite\(r\.site\)\)\s*return Fate::InScene', fate):
+    if not re.search(r'kQpSceneColour\s*&&\s*scene_hook\)\s*return Fate::InScene', fate):   # S111 ZFINAL2: any site
         bad.append('fate: FateOf has no "kQpSceneColour && scene_hook -> Fate::InScene" rule')
     rows = host[host.find('void SceneHost::DrawRows'):]
     rows = rows[:rows.find('\nvoid SceneHost::Handle')]

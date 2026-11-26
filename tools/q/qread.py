@@ -1,19 +1,25 @@
 r"""q read (S110 lane READSTORE): what a model reader settled about a cluster of game functions goes into the shared index.
 
     py tools/q/q.py read pick --feed [--n 30] [--out DIR]     units to read next for the scene feed (sheets + batch.txt into DIR)
+    py tools/q/q.py read pick --from ENTRY[,ENTRY..] [--depth 3] [--k 25] [--out DIR] [--count] [--with-read] [--recall DB.json] [--classes on|off] [--match W1,W2]
+                                                               every unit a SYSTEM reaches from its entry functions (callees only, + slots of tables a reached function builds (--classes), direct + observed + static
+                                                               indirect, library cut by fan-in K): sheets + batch.txt in reach order (tools/q/qreadfrom.py)
+    py tools/q/q.py read pick --all [--n N] [--out DIR] [--group NAME] [--count]   every unread unit of >= 3 functions, by group (tools/q/qreadpick.py)
     py tools/q/q.py read store ANSWER_FILE [--batch NAME] [--model NAME]     parse a sheet-reader answer into read.s1.db
     py tools/q/q.py read show [UNIT|ADDR]                      the stored answers of a unit (newest first); no argument: every unit read
-    py tools/q/q.py read verify unit UNIT|func ADDR --verdict V --source PATH --note T | --file TSV | --stats   (tools/q/qreadverify.py)
+    py tools/q/q.py read verify unit UNIT|func ADDR --verdict V --source PATH --note T | --stats   (tools/q/qreadverify.py: the verdict is stored ON the reading)
     py tools/q/q.py read claims --build | --stats | UNIT|ADDR | --promote [--out TSV]   the mechanical claim check (tools/q/qreadclaim.py)
     py tools/q/q.py read stats                               totals (and units per system)
     py tools/q/q.py read pick --reread [--n N] --out DIR       sheets of units answered but with no `system` yet (to be re-asked)
     py tools/q/q.py read system NAME [--out FILE]              the bundle a system-writer reads: every stored reading of that system
     py tools/q/q.py read systems                               systems, unit counts, written explanation stored?, stale?
     py tools/q/q.py read store-system ANSWER_FILE [--model NAME]   parse a system-writer's answer (tools/q/qreadsys.py)
+    py tools/q/q.py read curiosities [SYSTEM] [--limit N] [--low]   the one-line curiosities (fun facts) stored per system (tools/q/qcurios.py)
 
 Table file: out/harness/index/read.s2.db (not rebuilt from anything: it IS the store; delete it to forget; made from read.s1.db on first use).
-  unit_read(id, unit_id, purpose, confidence, because, missing, listing_needed, batch, model, when_, system, fun)   one row per answer, never overwritten
-  name_read(id, func, name, evidence, confidence, unit_id, batch, model)      reader-proposed names
+  unit_read(id, unit_id, purpose, confidence, because, missing, listing_needed, batch, model, when_, system, fun, verdict, v_note, v_source, v_when)
+                                                                              one row per answer; the answer is never overwritten, a probe's verdict is stored on it
+  name_read(id, func, name, evidence, confidence, unit_id, batch, model, verdict, v_note, v_source, v_when)   reader-proposed names (only those a probe judged are kept; S111 FOLD)
   pattern_read(id, text, batch, model)
   system_read(id, system, explain, model, when_)                              a system-writer's explanation of one system
   fact_read(id, text, unit_id, confidence, system, source, when_)             one-line curiosities; source = reader | writer
@@ -167,13 +173,15 @@ def parse_answer(text):
 
 
 # ---------------------------------------------------------------- store
+VERDICT_COLS = ('verdict', 'v_note', 'v_source', 'v_when')      # a probe's verdict on THIS reading (S111 FOLD: no separate verdict table)
 SCHEMA = ('create table if not exists unit_read(id integer primary key autoincrement, unit_id integer, purpose text, confidence text, because text,'
-          ' missing text, listing_needed integer, batch text, model text, when_ text, system text default \'\', fun text default \'\');'
+          ' missing text, listing_needed integer, batch text, model text, when_ text, system text default \'\', fun text default \'\','
+          ' verdict text, v_note text, v_source text, v_when text);'
           'create table if not exists system_read(id integer primary key autoincrement, system text, explain text, model text, when_ text);'
           'create table if not exists fact_read(id integer primary key autoincrement, text text, unit_id integer, confidence text, system text,'
           ' source text, when_ text);'
           'create table if not exists name_read(id integer primary key autoincrement, func integer, name text, evidence text, confidence text,'
-          ' unit_id integer, batch text, model text);'
+          ' unit_id integer, batch text, model text, verdict text, v_note text, v_source text, v_when text);'
           'create table if not exists pattern_read(id integer primary key autoincrement, text text, batch text, model text);'
           'create table if not exists wrong_read(id integer primary key autoincrement, func integer, name text, why text, unit_id integer,'
           ' batch text, model text);'
@@ -191,7 +199,7 @@ def migrate(path):
     c.execute('attach database ? as old', (old,))
     c.execute("insert into unit_read(id,unit_id,purpose,confidence,because,missing,listing_needed,batch,model,when_,system,fun) "
               "select id,unit_id,purpose,confidence,because,missing,listing_needed,batch,model,when_,'','' from old.unit_read")
-    c.execute('insert into name_read select * from old.name_read')
+    c.execute('insert into name_read(id,func,name,evidence,confidence,unit_id,batch,model) select id,func,name,evidence,confidence,unit_id,batch,model from old.name_read')
     c.execute('insert into pattern_read select * from old.pattern_read')
     c.commit()
     c.execute('detach database old')
@@ -204,7 +212,21 @@ def open_rw(path=None):
     migrate(path)
     c = sqlite3.connect(path)
     c.executescript(SCHEMA)
+    add_verdict_cols(c)
     return c
+
+
+def add_verdict_cols(c):
+    """a store made before S111 FOLD has no verdict columns on its readings: add them (the old verify_read table is moved by qreadfold.py)"""
+    for t in ('unit_read', 'name_read'):
+        have = {r[1] for r in c.execute('pragma table_info(%s)' % t)}
+        for col in VERDICT_COLS:
+            if col not in have:
+                try:
+                    c.execute('alter table %s add column %s text' % (t, col))
+                except sqlite3.OperationalError:
+                    pass                    # another writer added it just now
+    c.commit()
 
 
 def open_ro(path=None):
@@ -326,7 +348,7 @@ def pick_feed(n, outdir, ctx=None, feed=None, units=None, path=None):
     for u, sites, fs in rank:
         nbytes = 0
         if outdir:
-            text, fl = qsheet.build(ctx, u)
+            text, fl = qsheet.build(ctx, u, earlier=False)       # a reader's sheet: no earlier reading (S111 FOLD)
             nbytes = fl['bytes']
             with open(os.path.join(outdir, '%d.txt' % u), 'w', encoding='utf-8') as fh:
                 fh.write(text)
@@ -370,9 +392,6 @@ def show(arg, path=None, out=print):
     rows = c.execute('select id,purpose,confidence,because,missing,listing_needed,batch,model,when_,system,fun from unit_read where unit_id=? order by id desc', (uid,)).fetchall()
     if not rows:
         out('unit %d: no stored answer' % uid)
-        import qreadverify
-        for x in qreadverify.show_lines(uid, path):
-            out(x)
         return
     for i, p, cf, bc, ms, ln, b, m, w, sy, fu in rows:
         out('unit %d  %s  model %s  batch %s' % (uid, w, m or '?', b or '?'))
@@ -433,9 +452,18 @@ def main(argv):
 
     def opt(flag, default=None):
         return rest[rest.index(flag) + 1] if flag in rest and rest.index(flag) + 1 < len(rest) else default
+    if cmd == 'curiosities':
+        import qcurios
+        return qcurios.main(rest)
     if cmd in ('system', 'systems', 'store-system') or (cmd == 'pick' and '--reread' in rest):
         import qreadsys
         return qreadsys.main(cmd, rest)
+    if cmd == 'pick' and '--from' in rest:
+        import qreadfrom
+        try:
+            return qreadfrom.main(rest)
+        except ValueError as e:
+            raise ReadError(str(e))
     if cmd == 'pick' and '--all' in rest:
         import qreadpick
         try:
@@ -474,7 +502,7 @@ def main(argv):
     if cmd == 'stats':
         stats()
         return 0
-    raise ReadError('q read: pick | store | verify | claims | show | stats | system | systems | store-system')
+    raise ReadError('q read: pick | store | verify | claims | show | stats | system | systems | store-system | curiosities')
 
 
 if __name__ == '__main__':

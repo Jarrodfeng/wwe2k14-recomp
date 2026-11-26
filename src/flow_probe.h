@@ -29,6 +29,7 @@
 #include "decode_probe.h"  // GuestPtr
 #include "frame_stats.h"
 #include "wm30_fire_watch.h"  // S101 lane 108: the `!wm30 fire` proof lines ride on these two hooks
+#include "load_turbo.h"       // S111 WM30LOAD: g_load_turbo.OnFlowStateLeft (the season card's state left)
 
 REXCVAR_DECLARE(bool, wwe2k14_flow_probe);
 
@@ -56,6 +57,12 @@ REX_HOOK_RAW(sub_827A9AE0) {
     using namespace wwe2k14::flow_probe;
     const uint32_t old = W(base, ctx.r3.u32 + 4);
     wwe2k14::wm30_fire::LogFlowSet(old ? int32_t(W(base, old + 4)) : -1, int32_t(ctx.r4.u32), Frame());
+  }
+  {  // S111 WM30LOAD: leaving the 30 Years season card's state (id 30) re-opens the load turbo's in-game window (load_turbo.h).
+     // Reads only (the old state at flow+4, its id at +4); no guest memory or register is changed.
+    using namespace wwe2k14::flow_probe;
+    const uint32_t old = W(base, ctx.r3.u32 + 4);
+    if (old) wwe2k14::g_load_turbo.OnFlowStateLeft(int32_t(W(base, old + 4)), Frame());
   }
   __imp__sub_827A9AE0(ctx, base);
 }

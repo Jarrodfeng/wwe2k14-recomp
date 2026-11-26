@@ -26,7 +26,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LOGS = {'release': os.path.join(REPO, 'out', 'build', 'win-amd64-release', 'logs'),
-        'coverage': os.path.join(REPO, 'out', 'build', 'win-amd64-coverage', 'logs')}
+        'coverage': os.path.join(REPO, 'out', 'build', 'win-amd64-coverage-off', 'logs')}
 
 TRACE_CALL = re.compile(r'\[wwe2k14\]\[trace\] (0x[0-9A-F]{8}) #(\d+) from (0x[0-9A-F]{8}) (r3=.*?) \(frame (\d+), '
                         r'thread \d+\)(?: via (0x[0-9A-F]{8}|\?))?(.*)$')

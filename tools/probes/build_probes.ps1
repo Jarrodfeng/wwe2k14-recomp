@@ -1,12 +1,12 @@
 # Session 30 (#4): build only the probe plugin (probes/ -> wwe2k14_probes.dll next to the game), WHILE a game runs.
-#   pwsh -File tools\probes\build_probes.ps1 [-Preset win-amd64-coverage]
+#   pwsh -File tools\probes\build_probes.ps1 [-Preset win-amd64-coverage-off]
 # then, in the running coverage-build game: live.py run "plugin reload" (or a script's `plugin reload`).
 # No run lock, on purpose (the one exception to "every build queues on the run lock", which exists so a build never
 # replaces the exe or SDK DLLs under a running game): this builds one small DLL that no game holds open (the game loads
 # a copy of it, src/probe_plugin.h), and a hot reload is pointless if it has to wait for the game to quit. If the
 # CMake files changed, ninja re-runs CMake first (that writes only build files). The exe is never touched: the target
 # has no dependency on it.
-param([string]$Preset = 'win-amd64-coverage')
+param([string]$Preset = 'win-amd64-coverage-off')
 $ErrorActionPreference = 'Stop'
 $R = 'C:\Users\Jarrod\wwe2k14-recomp'
 . "$R\tools\env.ps1" | Out-Null

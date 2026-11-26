@@ -23,6 +23,7 @@
 #include "particle_glue.h"  // S103 F2
 #include "quads2d_tap.h"   // S103 MP: RowsThisFrame
 #include "liquid_glue.h"   // S103 SWF: the liquid map's items at the sweat node's entry
+#include "latch_period.h"   // S111 CUTREACH review: the post node's clock census (NodeClock)
 
 REX_EXTERN(__imp__sub_82C13A80);
 REX_EXTERN(__imp__sub_825D0438);
@@ -261,6 +262,7 @@ REX_HOOK_RAW(sub_82C1F728) {
 }
 
 REX_HOOK_RAW(sub_82C1E840) {
+  scene_inputs::period::g_post_node_clock.Note(wwe2k14::scene_skip::HookFrame());   // S111 CUTREACH review: the clock this node runs on (log only), noted before the skip test
   wwe2k14::scene_skip::MaybeLog(::scene_skip::Hook::Post);
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::Post)) return;
   __imp__sub_82C1E840(ctx, base);

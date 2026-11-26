@@ -1,7 +1,7 @@
 // wwe2k14 - scenario coverage, host side (Session 8 task 6): which guest functions ran between input-script marks.
 //
 // Compiled only in the coverage preset (WWE2K14_COVERAGE defined by CMakeLists.txt for -DWWE2K14_COVERAGE=ON, the
-// win-amd64-coverage preset). In every other build this header defines two no-op macros and nothing else.
+// win-amd64-coverage-off preset). In every other build this header defines two no-op macros and nothing else.
 // The guest side is src/coverage_prologue.h (the REX_FUNC_PROLOGUE replacement compiled into the generated code).
 //
 // Settings (coverage build only):
@@ -573,7 +573,7 @@ namespace wwe2k14::coverage {
 inline void TraceNeedsCoverageBuild(const std::string& value) {
   if (value.empty()) return;
   REXLOG_WARN("[wwe2k14][trace] --wwe2k14_trace={} ignored: tracing needs the coverage build (pwsh -File tools\\build.ps1 "
-              "-Preset win-amd64-coverage, exe in out\\build\\win-amd64-coverage)", value);
+              "-Preset win-amd64-coverage-off, exe in out\\build\\win-amd64-coverage-off)", value);
 }
 inline void InitNormal() {
   rex::cvar::RegisterChangeCallback("wwe2k14_trace", [](std::string_view, std::string_view value) {
@@ -587,7 +587,7 @@ inline void InitNormal() {
 #define WWE2K14_COVERAGE_MARK(id, text, frame) ((void)0)
 // Session 30 (#4): probe plugins need the coverage build.
 #define WWE2K14_PROBE_COMMAND(verb, path, msg)                                                                  \
-  ((msg) = "probe plugins need the coverage build (pwsh -File tools\\build.ps1 -Preset win-amd64-coverage; live: " \
+  ((msg) = "probe plugins need the coverage build (pwsh -File tools\\build.ps1 -Preset win-amd64-coverage-off; live: " \
            "py tools\\live\\live.py start --exe coverage)",                                                  \
    false)
 

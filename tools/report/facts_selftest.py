@@ -102,7 +102,7 @@ def both(exe, name, files_text, phone=None):
         if phone is not None:
             phone.append(cpp(exe, sorted(d.iterdir()), "this phone's game log", Path(tmp) / "phone.txt")[0])
         rc, want = py_text(d)
-        same = rc == 0 and want.rstrip("\n") == got.rstrip("\n")
+        same = rc in (0, 1) and want.rstrip("\n") == got.rstrip("\n")      # S111: exit 1 = a RUN failed (no end marker ...), not a read fault
         if not same:
             import difflib
             for ln in list(difflib.unified_diff(want.splitlines(), got.splitlines(), "triage.py", "report_findings.h", lineterm="", n=0))[:30]:

@@ -27,12 +27,14 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "../renderer_scene/live_scene.h"
 #include "tail_latch.h"  // S102 U1
 #include "crowd_snapshot_core.h"  // S103 D3: the completeness rule of required input bit 10
+#include "latch_period.h"   // S111 CUTCROWD2: record r carries latch r - 1's snapshot, the latch whose scene camera it carries
 
 namespace rdr_scene::live::crowd {
 
@@ -358,8 +360,15 @@ class Contributor final : public live::Contributor {
     std::vector<SingleObs> singles;     // S103 D6: the same for the holders (single people)
     std::vector<PictureObs> pictures;   // S103 D6: and the pictures of the shown props
     bool in_place = false;              // S103 SG2: props / pictures are a WALKED frame's reader set (the stream draws them in place): rows get kCpfInPlace
+    SnapWhy judged = SnapWhy::kCount;   // S111 CUTCROWD2: this snapshot's own verdict (SnapLocked's; kCount = not judged), stamped for the record that carries it
+    Presence presence;                  // S111 CUTCROWD2: what its latch saw shown (NoteVerdict's holder census)
   };
-  InputLatch latch_;
+  // S111 CUTCROWD2 (docs\research\s111\CUTCROWD2.md; FRAME_CONTRACT.md 3; latch_period.h): the crowd is a model-class input (walk g lands in stream g + 1), so record r carries the snapshot of latch r - 1, the
+  // latch whose scene camera it carries (inputs_contrib.h Take, cam_period_). Two slots, no history: slots_[held_] = the newest latch's snapshot, kept for the next record; slots_[hand_] = the one this record's
+  // TakeInputs takes (its vectors swapped out, then rebuilt by the next latch). period_ pairs them (the record's own read at the first latch or after a gap); Reset makes a new one.
+  InputLatch slots_[2];
+  uint8_t held_ = 1, hand_ = 0;
+  std::optional<::scene_inputs::period::OfPalette<uint8_t>> period_{std::in_place};
   // ---- S103 D5: the sign / foam-hand rows of a latch-built frame (crowd_prop_rows.h; docs\renderer\CROWD_PROPS_GATES.md) ----
   std::vector<PropObs> walked_props_;         // S103 SG2: mu_: the reader's shown / gated props of the last WALKED frame whose read was used (proven equal to the walk's: props(shown) eq 4643 / 0 / 0)
   std::vector<PictureObs> walked_pictures_;   // S103 SG2: and their pictures
@@ -405,7 +414,7 @@ class Contributor final : public live::Contributor {
   bool SnapActive() const;                  // the sink is attached and the scene mode is not Off
   SnapWhy JudgeLocked(bool fresh) const;   // mu_ held: the verdict of the published snapshot (the one SnapLocked just copied)
   SnapWhy snap_verdict_ = SnapWhy::Stale;   // SnapLocked's (mu_ held)
-  void NoteVerdict(SnapWhy w, uint64_t record_frame);   // counts and stamps
+  void NoteVerdict(SnapWhy w, uint64_t record_frame, const Presence* shown = nullptr);   // counts and stamps (S111 CUTCROWD2: shown = what the carried snapshot's latch saw; null = presence_)
   StampSink sink_;
   SnapPolicy policy_;
   std::atomic<uint64_t> snap_withheld_{0}, snap_stamped_{0}, snap_judged_{0}, snap_last_{0}, snap_why_[uint32_t(SnapWhy::kCount)] = {};

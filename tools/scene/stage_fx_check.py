@@ -12,7 +12,10 @@ CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {
     'transposed_guest': 'slot.rows_values', 'node_off': 'slot.node', 'inv_swapped': 'slot.skin_rule', 'stage_off': 'slot.model_join', 'motion_zero': 'slot.motion_gate',
     'join_shift': 'join.arena_worlds', 'feed_no_cache': 'feed.shared',
+    'slot_worlds_lead': 'cutreach2.record_takes_previous_latch_slot_worlds',   # S111 CUTREACH2: the old pairing (the record's own latch's slot world): record 601 shows period 601's place
+    'stage_look_lead': 'cutreach2.record_takes_previous_latch_stage_look',   # S111 CUTREACH2 review: the show bits / vis marker of the record's own latch (one period ahead of its slot rows)
     'mode_ignored': 'mode.off_reads_nothing', 'swap_uv': 'yuv.values', 'chroma_swapped': 'yuv.chroma_halved', 'lose_section': 'record.roundtrip', 'arena_g64_only': 'arena.id_from_stage', 'stage_free_ignored': 'stage.freed_by_game', 'slots_ready_published_only': 'arena.slots_ready_of_stage', 'phase_is_entrance': 'phase.entrance_from_page',
+    'arena_without_stage': 'arena.none_without_stage',
 }
 
 
@@ -57,6 +60,8 @@ def main():
         ('src/scene_live/stage_fx_glue.h', 'ReadChecked', 'the glue reads guest memory through the page-checked reader'),
         ('src/scene_live/arena_contrib.cpp', 'MovingSlots', 'the arena contributor publishes its moving slots'),
         ('src/renderer_scene/record_io.cpp', 'Sec(kScStageFx, t.stage_fx)', 'the stage-fx section is written'),
+        ('src/scene_live/arena_hooks.h', 'ra::ArenaWhileStageHeld(no_stage, ra::ResolveArenaId(', 'S111 CACBG: the published arena follows the game\'s stage holder'),
+        ('src/scene_live/arena_hooks.h', 'if (no_stage) ra::PublishSets(-1, ', 'S111 CACBG review: a frame with no light sets and no stage also stops naming the last arena (the sticky-id path)'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

@@ -7,6 +7,7 @@ Searches, in one ranked list:
   docs\\systems\\*.md      system pages                                 (weight 1.0)
   docs\\modules\\*.md      module summaries                             (weight 0.85)
   db\\*.json              function db: name, summary, evidence         (weight 0.7)
+  db\\claims\\*.json       the probe notes' lodged claims (S111 LODGE): one section per row: address, mark, claim, evidence, note (weight 0.7)
   SESSION*_SUMMARY.md    session running logs                         (weight 0.35, lowest rank)
 Each hit: file + heading + line, the matching lines of that section (short), and every guest address in the section
 expanded to its db name / confidence / file.
@@ -34,7 +35,7 @@ import qpublish  # noqa: E402  (S110 QREBUILD: publish beside a held fact.db; re
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 INDEX = os.path.join(ROOT, 'out', 'harness', 'index', 'fact.db')
-VERSION = 2
+VERSION = 3   # S111 LODGE: kind 'claim' (db/claims/*.json)
 
 
 def use_root(root):
@@ -49,6 +50,8 @@ SOURCES = (
     ('system', os.path.join('docs', 'systems', '*.md'), 1.0),
     ('module', os.path.join('docs', 'modules', '*.md'), 0.85),
     ('db', os.path.join('db', '*.json'), 0.7),
+    ('claim', os.path.join('db', 'claims', '*.json'), 0.7),   # S111 LODGE: one chunk per lodged claim row (claim_chunks)
+    ('seam', os.path.join('db', 'seams', '*.json'), 0.9),     # S111 SEAM: one chunk per seam entry (tools/q/qseam.py fact_chunk)
     ('session', 'SESSION*_SUMMARY.md', 0.35),
 )
 WEIGHT = {k: w for k, _, w in SOURCES}
@@ -168,6 +171,45 @@ def db_chunks(path):
     return out
 
 
+def _note_title(rel, cache={}):
+    """The first `# ` heading of a note (repo-relative path), '' when it cannot be read: a claim's section carries its note's subject."""
+    if rel not in cache:
+        cache[rel] = ''
+        try:
+            with open(os.path.join(ROOT, *str(rel).replace('\\', '/').split('/')), encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    if line.startswith('# '):
+                        cache[rel] = line[2:].strip()
+                        break
+        except OSError:
+            pass
+    return cache[rel]
+
+
+def claim_chunks(path):
+    """S111 LODGE: [(heading, line, [lines])] per row of a db/claims file (tools/handback/lodge_note.py); line = the row's "address" line.
+    The note line carries the note's title, so a search for the note's subject ("entrance black start") finds its claims (in the body, not the
+    heading: a heading match weighs 4x and would put every claim of a note above the docs on that subject)."""
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            raw = f.read()
+        d = json.loads(raw)
+    except (OSError, ValueError) as e:
+        print(f'q fact: WARNING cannot parse {os.path.relpath(path, ROOT)} ({e}): left out of the index', file=sys.stderr)
+        return []
+    addr_lines = [i for i, line in enumerate(raw.splitlines(), 1) if re.match(r'\s*"address"\s*:', line)]
+    out = []
+    for k, r in enumerate(x for x in (d if isinstance(d, list) else []) if isinstance(x, dict)):
+        a = str(r.get('address', ''))
+        inside = f' (in {r["function"]} +{r.get("offset")})' if r.get('function') and r.get('function') != a else ''
+        title = _note_title(r.get('note', ''))
+        body = [f'{a}{inside} [{r.get("mark", "")}] {r.get("claim", "")}', f'evidence: {r.get("evidence", "")}',
+                f'note: {r.get("note", "")}' + (f' ({title})' if title else '')]
+        body += [f'{x}: {r[x]}' for x in ('seam', 'ours', 'verdict', 'system') if r.get(x)]
+        out.append((f'{a} claim [{r.get("mark", "")}]', addr_lines[k] if k < len(addr_lines) else 0, body))
+    return out
+
+
 CONF_RANK = {'high': 3, 'medium': 2, 'low': 1, 'unknown': 0}
 
 
@@ -196,6 +238,12 @@ def _fill(con, files, sig):
 
     for kind, p in files:
         rel = os.path.relpath(p, ROOT)
+        if kind == 'seam':
+            import qseam
+            heading, body = qseam.fact_chunk(p)
+            if body:
+                add(kind, rel, heading, 1, body)
+            continue
         if kind == 'db':
             for heading, line, body, e in db_chunks(p):
                 add(kind, rel, heading, line, body)
@@ -206,6 +254,10 @@ def _fill(con, files, sig):
                 con.execute('INSERT INTO names VALUES (?,?,?,?,?,?)',
                             (a, e.get('name'), e.get('confidence'), e.get('system'), os.path.basename(p),
                              CONF_RANK.get(e.get('confidence'), 0) + (0 if os.path.basename(p) == 'bulk_sonnet.json' else 10)))
+            continue
+        if kind == 'claim':
+            for heading, line, body in claim_chunks(p):
+                add(kind, rel, heading, line, body)
             continue
         try:
             with open(p, encoding='utf-8', errors='replace') as f:
@@ -347,7 +399,7 @@ def search(con, words, limit=8, kind=None):
         low = (r['heading'] + '\n' + r['text']).lower()
         if mode != 'all':   # partial: how many words the section has counts first
             s *= 1 + sum(1 for p in set(plain) if p in low)
-        if r['kind'] != 'db':   # (db entries are short: bm25 already favours them)
+        if r['kind'] not in ('db', 'claim'):   # (db entries and claim rows are short: bm25 already favours them)
             if phrase and re.search(re.escape(phrase).replace(r'\ ', r'[\s_-]+'), low):
                 s *= 2.0        # the words side by side ("cap swap", "soft-particle"): the section is about that
             last = r['heading'].rsplit(' > ', 1)[-1]
@@ -394,7 +446,7 @@ def _hit(con, r, score, plain, max_lines=4, width=200):
     lines = r['text'].splitlines()
     body = lines[1:] if lines and HEAD_RE.match(lines[0]) else lines
     ranked = sorted(((_matches(x, plain), i) for i, x in enumerate(body) if x.strip()), key=lambda t: (-t[0], t[1]))
-    if r['kind'] == 'db':   # a db entry: always its name line and summary, then the matching evidence lines
+    if r['kind'] in ('db', 'claim'):   # a db entry: always its name line and summary, then the matching evidence lines (a claim: claim + evidence)
         pick = sorted({0, 1} | {i for n, i in ranked[:max_lines] if n > 0 and i > 1})[:max_lines + 1]
         pick = [i for i in pick if i < len(body)]
     else:

@@ -56,7 +56,10 @@ inline bool LatchStamps(const std::vector<rdr_scene::wlight::Entry>& ents, uint3
 class Wl {
  public:
   // At the latch (hook frame `hook`): read each character's block. `rows` = the record's light object rows (manager row first). Unread / unresolved slots are counted, never guessed.
-  void OnLatch(scene_inputs::ReadFn read, const std::vector<rdr_scene::LightObjectRow>& rows, uint32_t hook) {
+  // S111 DARKDIP (docs\research\s111\DARKDIP.md): `kept` (kSlots words, null = none) = each slot's departed character the game still DRAWS (drawn_slots.h Departed, this latch's Step): the editor's old
+  // character from the worker's slot-0 store (sub_822E7570 +B0) to the flip. Its draw node lights it with ITS OWN embedded object (sub_825A3908 +160: char + 1200 + 2736), not the new occupant's, so its
+  // block is read too, and every entry carries its skeleton [char + 48]: the record joins an actor to the block of the body it draws (wlight::Latch::FindBody). Bit 7 counts the table's slots only.
+  void OnLatch(scene_inputs::ReadFn read, const std::vector<rdr_scene::LightObjectRow>& rows, uint32_t hook, const uint32_t* kept = nullptr) {
     std::vector<rdr_scene::wlight::Entry> ents;
     const rdr_scene::LightObjectRow* m = rdr_scene::LightManagerRow(rows);
     if (!m) {
@@ -64,7 +67,25 @@ class Wl {
       ++no_manager_;
       return;
     }
+    const bool embedded = lightlatch::WrestlerUsesEmbedded(*m, nullptr);
+    enum class Got { Ok, Unreadable, Unresolved };
+    const auto read_entry = [&](uint32_t s, uint32_t ch, rdr_scene::wlight::Entry& e) {
+      e.slot = s, e.character = ch;
+      uint32_t skel = 0;
+      if (scene_inputs::ReadWord(read, ch + lightlatch::kCharSkeletonOff, skel) && skel >= 0x10000) e.skel = skel;   // unread = 0: the record joins it by slot
+      if (embedded) {
+        e.source = ch + lightlatch::kCharEmbeddedOff + lightlatch::kBlockOffset;
+        return scene_inputs::ReadLightBlockAt(read, e.source, e.block) ? Got::Ok : Got::Unreadable;
+      }
+      const rdr_scene::LightObjectRow* row = nullptr;
+      const char* why = "";
+      if (!rdr_scene::ResolveInstallRow(rows, 0xFFFFFFFFu, 0, row, why) || !row) return Got::Unresolved;   // sub_82620488 passes -1 and mode 0; sub_826203E8 replaces the index by the override word
+      e.source = row->object + lightlatch::kBlockOffset;
+      std::memcpy(e.block, row->words, sizeof e.block);
+      return Got::Ok;
+    };
     uint64_t unreadable = 0, unresolved = 0;
+    uint32_t table[rdr_scene::wlight::kSlots] = {};
     for (uint32_t s = 0; s < rdr_scene::wlight::kSlots; ++s) {
       uint32_t ch = 0;
       if (!scene_inputs::ReadWord(read, lightlatch::kCharSlotTable + 4 * s, ch)) {
@@ -72,35 +93,30 @@ class Wl {
         break;
       }
       if (ch < 0x10000) continue;   // empty slot
+      table[s] = ch;
       rdr_scene::wlight::Entry e;
-      e.slot = s, e.character = ch;
-      if (lightlatch::WrestlerUsesEmbedded(*m, nullptr)) {
-        e.source = ch + lightlatch::kCharEmbeddedOff + lightlatch::kBlockOffset;
-        if (!scene_inputs::ReadLightBlockAt(read, e.source, e.block)) {
-          ++unreadable;
-          continue;
-        }
-      } else {
-        const rdr_scene::LightObjectRow* row = nullptr;
-        const char* why = "";
-        if (!rdr_scene::ResolveInstallRow(rows, 0xFFFFFFFFu, 0, row, why) || !row) {   // sub_82620488 passes -1 and mode 0; sub_826203E8 replaces the index by the override word
-          ++unresolved;
-          continue;
-        }
-        e.source = row->object + lightlatch::kBlockOffset;
-        std::memcpy(e.block, row->words, sizeof e.block);
-      }
-      ents.push_back(e);
+      const Got g = read_entry(s, ch, e);
+      if (g == Got::Unreadable) ++unreadable;
+      else if (g == Got::Unresolved) ++unresolved;
+      else ents.push_back(e);
     }
     // S103 L1C review B1 / F2 / F3: bit 7 (caster_entries) is stamped HERE, at the latch (the record's stamp snapshot is taken at the end of the latch, before any Emit), for THIS latch's hook: every occupied character
     // slot read and resolved, every one of them has a USABLE entry (EntryUsable), and there is at least one. The key light of the caster maps is this block's dir 4. Held by --wwe2k14_rdr_scene_hold=7 (Capture) or =4 (g_on off).
     // NOT covered (unchecked gap, F3): casters that are not character slots (props, chairs, the referee if he is no slot) cast shadows the game may draw; their light is not read here.
     const uint32_t occupied = uint32_t(ents.size()) + uint32_t(unreadable + unresolved);
     const bool stamp = scene_frame::CurrentMode() != scene_frame::Mode::Off && unreadable == 0 && unresolved == 0 && LatchStamps(ents, occupied);
+    uint64_t kept_unread = 0;   // S111 DARKDIP: after the stamp (bit 7 is the table's); a kept body whose block is not read gets no entry and joins by slot (counted as unreadable)
+    if (kept)
+      for (uint32_t s = 0; s < rdr_scene::wlight::kSlots; ++s) {
+        if (kept[s] < 0x10000 || kept[s] == table[s]) continue;
+        rdr_scene::wlight::Entry e;
+        if (read_entry(s, kept[s], e) == Got::Ok) ents.push_back(e);
+        else ++kept_unread;
+      }
     store_.Put(hook, std::move(ents));
     {
       std::lock_guard<std::mutex> lock(mu_);
-      ++latches_, unreadable_ += unreadable, unresolved_ += unresolved;
+      ++latches_, unreadable_ += unreadable + kept_unread, unresolved_ += unresolved;
       ++(stamp ? caster_stamps_ : caster_unstamped_);
     }
     if (stamp) scene_inputs::Capture(scene_inputs::kInCasterEntries, hook);

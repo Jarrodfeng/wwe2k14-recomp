@@ -87,7 +87,7 @@ def main():
     # history row. Missing = wired builds run unqueued.
     queue = run([sys.executable, '-I', os.path.join(REPO, 'tools', 'admit', 'status.py')])
     print('compile queue: ' + (queue.splitlines()[0][:300] if queue.strip() else 'tools\\admit\\status.py printed nothing'))
-    for build in ('win-amd64-release', 'win-amd64-coverage'):
+    for build in ('win-amd64-release', 'win-amd64-coverage-off'):
         path, num = newest_log(build)
         if not path:
             continue

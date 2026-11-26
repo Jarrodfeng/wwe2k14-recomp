@@ -23,4 +23,8 @@ $exe = Join-Path $repo 'out\tools\nr_unit.exe'
 if ($LASTEXITCODE -ne 0) { throw 'nr_unit failed' }
 & $exe --record $rsc --plant old_rule | Out-Null
 if ($LASTEXITCODE -ne 1) { throw "the planted old rule must exit 1 exactly (a failed check), got $LASTEXITCODE" }   # F6: a crash (any other code) is not a catch
+& $exe --record $rsc --plant warm_break | Out-Null
+if ($LASTEXITCODE -ne 1) { throw "the planted warm_break must exit 1 exactly (a failed check), got $LASTEXITCODE" }   # S110 ENTRBLACK round 6: a warm build that stops at the arena miss asks nothing else
+& $exe --record $rsc --plant undrawn_is_hole | Out-Null
+if ($LASTEXITCODE -ne 1) { throw "the planted undrawn_is_hole must exit 1 exactly (a failed check), got $LASTEXITCODE" }   # S111 PIECEHOLES: kObjGameUndrawn ignored = the flagged body is a hole again
 Write-Host 'PASS nr_check (the planted old rule fails as it must)'

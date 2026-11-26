@@ -59,6 +59,9 @@ struct Material {
   int noise = -1;
   float noise_lvl = 0, noise_tile[2] = {0, 0};
   std::string diffuse_name;  // Session 97: the diffuse sampler's texture name as stored (kept when the name is in no texture directory: stage movies)
+  // S111 CACMATCHTEX (belt_plate.h): the diffuse / normal / specular sampler's name-table index = the live model's texture KEY index ([model+260] + 8 t; the game's vslot +60 sub_82BD4F50 stores key t), -1 = none.
+  // Kept whether or not a texture directory holds the name: a slot the file cannot fill (a nameplate, a created belt's plates) is bound to the live key at this index.
+  int key_diffuse = -1, key_normal = -1, key_specular = -1;
   float ambient[4] = {1, 1, 1, 1};  // g_f4MatAmbCol when present
   float diffuse_color[4] = {1, 1, 1, 1};  // g_f4MatDifCol when present
   // Session 97 (look spec out/runtime/s97/look.md): the rest of the lighting recipe's per-material parameters.
@@ -66,6 +69,7 @@ struct Material {
   float spec_col[4] = {1, 1, 1, 1};        // g_f4SpecularCol (arena) / g_f4SpecCol (wrestler)
   float spec_lev = 0;                      // g_fSpecularLev / g_fSpecLev (0 = highlight off)
   float spec_pow = 300;                    // g_iSpecularPow / g_fSpecPow
+  bool ych_table = false;                  // S111 BODYSPEC (material_floats.h BeginRecord): the record's effect goes through the game's yCh name table (lobe names g_fSpecLev / g_fSpecPow / g_f4SpecCol, no power = 1)
   // Session 98 (skin fix): the wrestler parameters the game packs into the skin draw's constants [C: value match, probe run 6816 /
   // ch161 JBOY]: c142 = (g_fSpecLev, g_fSpecPow, g_fSpecLvBase, g_fSpecPwBase); c204 = (g_f4Ref_COL.rgb, g_f4Ref_DOT);
   // c205.xy = (g_fFairy, g_fFairyEdge); c155 = g_f3SSSSinCol, c158 = g_f3SSSSinCol2 (the skin glow; only the yCh_skin family has it).
@@ -78,11 +82,21 @@ struct Material {
   // S103 B3F: c174 = (g_fRimAtnDsMin, g_fRimAtnDsMax, g_fRimAtnRtMin, g_fRimAtnRtMax) [C: sub_82BAAEE8 0x82BAC0C8-0x82BAC170, ids 3..6 = x..w]; the defaults are the values ours hard-coded before
   // (unconfirmed for a file without them). g_fRimAdjSpcMas has no string reference in the exe (q str), so no constant is known to take it [U].
   float rim_atn[4] = {500.f, 2500.f, 1.f, 0.4f};
+  // S111 MATFEED (docs\research\s111\MATFEED.md): PS c156 = (g_fHdLigLvl, g_fHdLigSt) [rows 0x8392A320 / 0x8392A340, lanes x / y]; c249 = g_f4MuscleParam (whole vec4); c250 = g_f4MuscleUV_x..w
+  // (lanes x..w); hair c243 = (g_fSSLevel, g_fSSStart, g_fSSEnd) (lanes x..z), c244 = g_f4SSColor (whole vec4). Defaults = the values ours fed before (no blow-out, the muscle map off, no glow):
+  // a material that names none gets no write in the game (the register keeps the last draw's value: a 360 habit, not reproduced).
+  float hd_lig[2] = {0.f, 1.f};
+  bool has_hd_lig_lvl = false;   // S111 MATFEED review: the material names g_fHdLigLvl; only such a part takes the body's live value (the walk looks up the part's OWN parameter names: sub_82C04DF0 0x82C07984)
+  float muscle_prm[4] = {1.f, 0.f, 0.f, 0.f}, muscle_uv[4] = {0.f, 0.f, 1.f, 1.f};
+  float ss[3] = {0.f, 0.f, 0.f}, ss_col[4] = {0.f, 0.f, 0.f, 0.f};
   // EYA: c247 = (g_fFurLevel, -, g_fDifAmbLevel, -) [C: sub_82BAAEE8 0x82BAD37C / 0x82BAD3B4, name entries id 3 and id 5, ids 3..6 = x..w as for c174]; y / w have no table entry [U].
   // yCh_Reflect (the eyeball) scales its sky / ground ambient by c247.z. [C: no default; the game writes c247.z only when the material names g_fDifAmbLevel (sub_82BDB460 0x82BDC898, sub_82C04DF0 0x82C05354), otherwise the register keeps the last draw's value; 0 is our choice].
   float fur_level = 0, dif_amb_level = 0;
   float sss_col[4] = {0, 0, 0, 1}, sss_col2[4] = {0, 0, 0, 1};
   bool has_sss = false;
+  // S111 UNIFY5 (UNREADNAMES.md): PS c155.w = the material's g_fSSSSinLvl and PS c201.w = its g_f4TexBis_Dif (the diffuse LOD bias), fed by ResolveChar SSS / Level. Defaults = what ours fed before
+  // (0 / -1; every file record naming them holds 1.0 with its g_f3SSSSinCol.w 1.0 / -1.0): a material naming neither gets no write in the game (the register keeps the last draw's value: a 360 habit).
+  float sss_sin_lvl = 0.f, tex_bis_dif = -1.f;
   // Session 98 (wrestler fix 3): the gear shader's tiled detail (probe run 6816, gear draw 1405: c206 = (50, g_f4NoiseTBump, g_f4NoiseTDiff,
   // g_f4NoiseTSpec) = (50, .08, .08, .5), c208 = (0, ..TBumpF, ..TDiffF, ..TSpecF) = (0, .3, .3, .8), vertex c188 = (g_fNoiseTNear,
   // g_fNoiseTFar) = (250, 1000): the two sets are mixed by the clip depth). `detail` = g_mNoiseTilePrm (texture `noise2`, chCommon.pac).
@@ -96,6 +110,9 @@ struct Material {
   bool has_wrink_uv = false, has_idmap_col = false;
   bool spec_pow_prm = false;   // S103 YCB: the record names g_mSpecPowPrm with a texture index > 0 (the game's part entry E+16 non-null: the per-material spec-power cube, technique_pick.h CharPass; the player's files name it on every yCh material but Aniso_trans / 4 cloth / gear 14 / 1191 [YCH.md])
   int sweat_bump = -1;   // S103 SWF: g_mSweatPrm (the wet skin's bump map, fetch slot 4; SWB S2-3: texture index 7 or 8 of the record)
+  int muscle = -1;       // S111 MUSCLEMAP: g_mMusclePrm (the flex effects' muscle normal map, pixel slot 2: sub_82BAAEE8 0x82BACDEC; a texture of the character's own model, mf01 .. mf14); -1 = none (black)
+  int hair_noise_map = -1, hair_shift_map = -1;   // S111 HAIRMAPS: g_mHairNoisePrm / g_mHairShiftPrm (the hair highlights' noise and per-strand shift maps, pixel slots 8 / 9: rows 0x8392ABC0 / 0x8392ABE0); -1 = none (grey)
+  int env_cube = -1;     // S111 ENVCUBE: g_mEnvLPrm (the soft environment light cube, pixel slot 10: sub_82BAAEE8 0x82BACFC8; CUBEMAP_eyes / CUBEMAP, a 6-face DXT1 file cube of chCommon.pac); -1 = none (the black cube)
   float noise_near[3] = {0, 0, 0}, noise_far[3] = {0, 0, 0};  // bump (normal gain), diffuse gain, light (specular) gain
   float noise_dist[2] = {250, 1000};                          // g_fNoiseTNear / g_fNoiseTFar
   // S103 SWF (docs\systems\liquid_map.md; SWB S2-3 [C: sub_82BAAEE8 "ych" rows, scratch parse + CH324 / CH343 records, 49 of 49]): the skin's wet constants, read by name from the material record. They are fed only to a draw
@@ -112,6 +129,11 @@ struct Material {
   // draws 385 / 386 / 390 / 393 = slots 7 / 10 / 18 / 19) draws them `yBG_Default_vertex_lm_vertex` + `_base_fragment` with slots (0, 16): the vertex-LM class, not the LM pixel pair]
   bool lm_stage_page = false;
   bool alpha_blend = false;  // translucent classes (yCh_trans, yCh_Aniso_trans, ...)
+  bool translucent_draw = false;   // S111 LAYERS review: a character part the game draws in its TRANSLUCENT node (assets\char_draw_layer.h Translucent; the name rule where no draw split is known). The caster passes key on it (renderer_scene\wrestler_caster.h), never on alpha_blend
+  // S111 UNIFY5 review: the part is drawn by a CHARACTER's draw nodes (a stock wrestler's body or piece: jboy.h JboyOptions::char_part from LoadWrestlerPac, never LoadProp; every created superstar part:
+  // guest_model_draw.h BuildModel). The caster passes key on it (renderer_scene\wrestler_caster.h Casts), never on the effect name: the game's caster walks the character nodes and tests only the
+  // part tag (a created superstar's yDefault part casts like its yCh_skin parts).
+  bool char_part = false;
   uint8_t cutout_blend = 0;  // S103 F: a cut-out drawn as blended by the loader: 1 = a prop slot's cut-out texture (jboy.h: keeps depth write in Game order), 2 = an a / s slot (asset_load.h: stays far-to-near in Game order)
   bool alpha_test = false;   // cut-outs (hair cards, crowd cards)
   float diffuse_alpha_clear = 0.f;  // S103 B2: share (0..1) of the diffuse texture's top-mip texels with alpha < 255 (jboy.h AlphaClearShare); set for arena / prop-slot materials, 0 = alpha-free

@@ -23,10 +23,12 @@
 //          44 start_arm_kept, 45 start_story_class_only, 46 start_card_down_holds, 47 start_stale_host_shut, 48 start_card_pending_only (review: the landed G+8-only card test)
 //    49-51 S110 ENTRBODIES (StartWaitArm, scene_start_wait.h plants 11-13): 49 start_bodies_no_restamp, 50 start_bodies_card_down, 51 start_bodies_kept
 //    15 draw_unfed          S103 HN: SceneFeed holds nothing: a required input never stamped in this scene is drawn anyway (the old ONF rule, run 003's half-built first entrance frames)
+//    52 cause_dropped       S111 BLACKFRAME: Decide drops the hold's cause when it falls to black (BlackFrameArm: the run 328 replay prints one run, no reason)
 #define WWE2K14_FRAME_TICK_CORE_ONLY 1
 #define WWE2K14_HOST_PLANTS 1
 #define WWE2K14_STAMP_PLANTS 1
 #include "../../src/renderer_host/host_core.h"
+#include "../../src/renderer_host/black_spans.h"   // S111 BLACKFRAME
 #include "../../src/renderer_scene/rows_quad2d.h"
 #include "../../src/renderer_host/host_planes.h"
 #include "../../src/renderer_scene/cam_gate.h"   // S105 A3
@@ -851,6 +853,70 @@ static void SceneOnFArm() {
   Check(sh::CensusLine(c).find("scene2d_early 3, scene_rows_on_f 5") != std::string::npos, "A4B: the [host] frames line carries scene2d_early and scene_rows_on_f");
 }
 
+// S111 BLACKFRAME (entry: sh::Decide -> sh::BlackSpans::Note / Close / SummaryLine, as SceneHost::Handle and LogFinal call them; the shown kind from the plan as Handle's present switch sets
+// it). Run 328 (S110) showed 0.9 s of black at an entrance start and its log said only "black_no_3d 59 / 86". The replay: the scene's OURS frames arrive before anything the host can draw:
+// first required inputs never fed (arena worlds bit 5, ring rows bit 6), a frame with no record between (F unchanged: still black), then the draw refused while the arena loads, then
+// the first drawn frame; later a flat frame, and a miss with nothing to hold after a picture of this scene (mid-match). Each run of black is ONE line naming the branch (no_last3d)
+// and the input that asked for the hold. Planted 52 (Decide drops the hold's cause: the S110 state) must fail it.
+static void BlackFrameArm() {
+  sh::State st;
+  sh::Counters c;
+  sh::BlackSpans bs;
+  std::vector<std::string> lines;
+  const auto frame = [&](uint64_t j, const sh::Facts& f, const std::string& why) {
+    const sh::Plan p = sh::Decide(st, f, c);
+    const sh::ShownKind shown = !p.present ? sh::ShownKind::Unchanged : p.source == sh::Source::Black ? sh::ShownKind::Black : p.source == sh::Source::HoldF ? sh::ShownKind::Unchanged : sh::ShownKind::Picture;
+    if (shown == sh::ShownKind::Black || bs.Open()) {
+      const std::string l = bs.Note(j, shown, p, f, why);
+      if (!l.empty()) lines.push_back(l);
+    }
+    return p;
+  };
+  uint64_t j = 5000;
+  for (int i = 0; i < 30; ++i, ++j) {
+    sh::Facts f = F(true, sh::DrawResult::Miss);
+    f.never_fed = (1u << 5) | (1u << 6);
+    frame(j, f, "never_fed: required record input(s) not stamped since this scene began (first: bit 5)");
+  }
+  {
+    sh::Facts f = F(false, sh::DrawResult::NotTried);
+    f.have_record = false;
+    frame(j++, f, "");
+  }
+  for (int i = 0; i < 56; ++i, ++j) frame(j, F(true, sh::DrawResult::Miss, /*loading=*/true), "not resident: 2 asset(s) loading");
+  const sh::Plan p = frame(j++, F(true, sh::DrawResult::Ok), "");
+  const std::string want0 = "[host] black frames 5000-5030 (n 30, held 1): no_last3d <- never_fed | inputs: ours 1 flat 0 no_scene 0 loading 0 never_fed [5 6] | why: never_fed: required record input(s) not stamped since this scene began (first: bit 5)";
+  const std::string want1 = "[host] black frames 5031-5086 (n 56, held 0): no_last3d <- miss_loading | inputs: ours 1 flat 0 no_scene 0 loading 56 never_fed - | why: not resident: 2 asset(s) loading";
+  Check(p.source == sh::Source::Draw3D && c.black_no_3d == 86 && lines.size() == 2, "BLACKFRAME run 328: 86 black frames before the first draw are TWO runs (never_fed, then the loading arena)",
+        std::to_string(lines.size()) + " lines, black_no_3d " + std::to_string(c.black_no_3d));
+  Check(lines.size() >= 1 && lines[0] == want0, "BLACKFRAME run 328: the first run names no_last3d <- never_fed, its bits and why", lines.empty() ? "" : lines[0]);
+  Check(lines.size() >= 2 && lines[1] == want1, "BLACKFRAME run 328: the second run names no_last3d <- miss_loading", lines.size() < 2 ? "" : lines[1]);
+  frame(j++, F(false, sh::DrawResult::NotTried, false, /*flat=*/true), "flat frame");   // 5088: a menu frame (2d_only)
+  frame(j++, F(true, sh::DrawResult::Ok), "");                                         // 5089: drawn: ends the 2d_only run
+  st.last3d_valid = false, st.f_is_3d = false;                                            // (no picture left to hold, as after a spoiled `out`)
+  frame(j++, F(true, sh::DrawResult::Miss), "the record has no camera");                // 5090: black, mid-match
+  const std::string last = bs.Close();
+  Check(lines.size() == 3 && lines[2] == "[host] black frames 5088-5088 (n 1, held 0): 2d_only | inputs: ours 0 flat 1 no_scene 0 loading 0 never_fed - | why: flat frame",
+        "BLACKFRAME: a flat frame is its own 2d_only run", lines.size() < 3 ? "" : lines[2]);
+  Check(last == "[host] black frames 5090-5090 (n 1, held 0): no_last3d <- miss, mid_match | inputs: ours 1 flat 0 no_scene 0 loading 0 never_fed - | why: the record has no camera",
+        "BLACKFRAME: the run open at the exit is closed by Close(), mid-match named", last);
+  Check(bs.SummaryLine() == "[host] black spans 4 (frames black 88, held 1), lines printed 4", "BLACKFRAME: the exit summary counts every run", bs.SummaryLine());
+  Check(bs.Close().empty() && !bs.Open(), "BLACKFRAME: nothing open after Close");
+  {   // the line cap: past kMaxLines runs are only counted
+    sh::BlackSpans cap;
+    sh::Plan pb;
+    pb.source = sh::Source::Black, pb.reason = sh::Reason::TwoDOnly;
+    const sh::Facts fb = F(false, sh::DrawResult::NotTried, false, true);
+    uint64_t printed = 0;
+    for (uint64_t k = 0; k < sh::BlackSpans::kMaxLines + 5; ++k) {
+      cap.Note(2 * k, sh::ShownKind::Black, pb, fb, "flat frame");
+      if (!cap.Note(2 * k + 1, sh::ShownKind::Picture, pb, fb, "").empty()) ++printed;
+    }
+    Check(printed == sh::BlackSpans::kMaxLines && cap.SummaryLine() == "[host] black spans 405 (frames black 405, held 0), lines printed 400", "BLACKFRAME: past kMaxLines runs are counted, not printed",
+          cap.SummaryLine());
+  }
+}
+
 int main(int argc, char** argv) {
   if (argc >= 3 && std::string(argv[1]) == "plant") {
     sh::g_plant = std::atoi(argv[2]);
@@ -874,6 +940,7 @@ int main(int argc, char** argv) {
   FlatArm();
   A4Arm();
   SceneOnFArm();   // S105 A4B
+  BlackFrameArm();   // S111 BLACKFRAME
   std::printf("%d checks, %d failed%s\n", g_checks, g_fail, (sh::g_plant || scene_stamp_rule::g_plant || g_f1_plant || g_a4_stamp_old || g_a4_k1) ? " (plant)" : "");
   return g_fail ? 1 : 0;
 }

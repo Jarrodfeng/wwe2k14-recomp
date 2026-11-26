@@ -429,7 +429,7 @@ REX_HOOK_RAW(sub_82CB37C0) {
 #else
   // S103 P9 (A1): no stream in this build: the frame boundary is frame_tick's alone (the record's EndFrame, one Tick for the render thread). The replay thumbnails: S103 RBC fix, thumb_defer_off.h (a landed scene picture is written and the job run here).
   wwe2k14::frame_tick::StreamFreePresent(base, ctx.r3.u32, ctx.r4.u32);
-  if (REXCVAR_GET(wwe2k14_rdr_readbacks)) wwe2k14::thumb_off::OnPresent(ctx, base);
+  if (wwe2k14::readbacks_start::On()) wwe2k14::thumb_off::OnPresent(ctx, base);   // S111 RBSWITCH: the start value
 #endif
   rex::graphics::CommandProcessor* cp = Cp();
   if (!cp || !cp->half2_logging()) {

@@ -35,6 +35,7 @@ DLC (PC) | pc | wwe2k14_dlc,wwe2k14_dlc_dir,wwe2k14_dlc_off | live | | dlc.h
 MODS (PC) | pc | wwe2k14_mods,wwe2k14_mods_dir,wwe2k14_entrance_music,wwe2k14_mods_lighting,wwe2k14_mods_superstars | live | | mods.h
 CINECAM (PC) | pc | wwe2k14_cinecam | live | | cinecam.h
 PHOTO MODE (PC) | pc | wwe2k14_photo_mode | live | | photo_mode.h
+RAMP CAMERA (PC) | pc | wwe2k14_ramp_camera | live | | the camera (lane RAMPCAM) reads it live; src/ramp_menu.h (the pause menu row) writes it
 RUN-INS (PC) | pc | wwe2k14_runin | live | | runin.h
 DISCORD (PC) | pc | wwe2k14_discord,wwe2k14_discord_app_id | live | | discord_status.h
 PERFORMANCE REPORT (PC) | pc | wwe2k14_perf_report | live | | perf_report.h

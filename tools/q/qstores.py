@@ -404,7 +404,7 @@ def main(argv, con_q=None):
     ap.add_argument('--stores', action='store_true')
     ap.add_argument('--global', dest='glob')
     ap.add_argument('--root-name', dest='rootname')
-    ap.add_argument('--func')
+    ap.add_argument('--func', '--in', dest='func')     # S111 QGAPS: --in FUNC = --func
     ap.add_argument('--var-span', type=int, default=0, help='also variable-index stores whose base is up to N bytes below OFF')
     ap.add_argument('--all-copies', action='store_true', help='memcpy rows whose dest range covers OFF for any size (default: exact dest or size <= 4096)')
     ap.add_argument('--limit', type=int, default=25)

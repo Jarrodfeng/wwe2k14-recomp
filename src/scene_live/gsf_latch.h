@@ -74,7 +74,7 @@ inline Result Classify(const State& st, bool fresh, const uint32_t s208[4]) {
   return r;
 }
 
-// The latch thread's call. A latch with no node call since the previous one is "stale" after two repeats (a removed component never leaves a code). The result is cached for Peek.
+// The latch thread's call. A latch with no node call since the previous one is "stale" after two repeats (a removed component never leaves a code). (S111 HEADGUARD review: Peek, the off-latch take's reader of the cached result, went with that take.)
 struct Latcher {
   uint32_t seen = 0;
   int stale = 0;
@@ -99,9 +99,4 @@ inline void Fill(rdr_scene::PostParamsRow& row) {   // LATCH THREAD ONLY (review
   l.last = Classify(g_state, fresh, s208);
   Apply(row, l.last);
 }
-inline void Peek(rdr_scene::PostParamsRow& row) {   // any other thread (the fallback take): the last latch-thread result, no state change
-  std::lock_guard<std::mutex> lk(g_mu);
-  Apply(row, g_latcher.last);
-}
-
 }  // namespace scene_inputs::gsf

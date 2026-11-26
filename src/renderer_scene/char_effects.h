@@ -1,5 +1,5 @@
 // Session 101, lane 13: the scene front-end's character path (docs\renderer\SCENE_FRONTEND.md "Wrestlers"). New file; front_end.cpp calls it.
-//   - which yCh_* effect pair a wrestler material takes (ChooseCharEffect),
+//   - which yCh_* effect pair a wrestler material takes (ChooseCharEffectTable: the game's effect-table row, the only pick; S111 OLDCHAIN),
 //   - the skin: a mesh is cut into chunks of at most 21 bones (the effects hold 63 vec4 = 21 bone matrices), each with its own bone stream,
 //   - the lighting data the effects read from textures (the ambient cube of the four lights, slot 13) and from named constants (ResolveChar).
 // Space: the character effects are written for the game's FILE space (-Y up). The viewer's loader mirrors Y once; the backend of this path
@@ -29,16 +29,16 @@ struct CharChoice {
   std::string why_not;
   // S103 YCB (ChooseCharEffectTable): what the table pick decided. shadow = a picked variant reads the shadow map (FX_SHADOW), wet = the picked pixel variant reads the liquid map (slot 14),
   // tech_picked = the pair is the game's own table row for (technique, pass), cube_analytic = the row's pixel variant reads the cube-specular slot 11 (the 360's bake) and the pair binds the variant with the same defines minus FX_CUBE_SPECULAR (CUB.md Route A: the term is evaluated per pixel; a LOOK computed, the bake dropped),
-  // blocked_wrinkles = the row needs the wrinkle map and the WRK switch is off, so nothing was picked (the caller takes the old no-table pick, counted).
+  // blocked_wrinkles = the row needs the wrinkle map and the WRK switch is off, so nothing was picked (a hole, counted char_wrinkle_blocked).
   bool shadow = false, wet = false, tech_picked = false, cube_analytic = false, blocked_wrinkles = false;
   bool logo_table = false;   // S105 A5c fix F1: the row was taken from the editor's table (edit.pac p7/0)
   bool change_colour_table = false;   // S108 THR2: the row was taken from the Threads editor's table (edit.pac p9/0, the game's model+392 row while model+604 is set): slots 7 / 4 / 14 / 2 are Mask1..4, never the liquid map
   bool no_table = false;   // S103 YCB (review F4): no effect table existed when the pick ran (the caller rebuilds the bind once one does); one snapshot, no second read
   bool Ok() const { return vs >= 0 && ps >= 0; }
 };
-// S103 YCB (docs\research\s103\YCH.md section 4; switch wwe2k14_rdr_char_table_pick): the vertex + fragment pair of the effect table's row for (technique, pass) of this wrestler material, the game's own pick
+// S103 YCB (docs\research\s103\YCH.md section 4): the vertex + fragment pair of the effect table's row for (technique, pass) of this wrestler material, the game's own pick and our only one (S111 OLDCHAIN)
 // (technique_pick.h CharPass makes the pass). A cube-specular row (pixel slot 11) binds its non-cube twin (same defines minus FX_CUBE_SPECULAR, the row's own vertex stage; counted: cube_analytic, a deliberate choice, not a fallback); every other
-// reason leaves the result !Ok with why_not set, and the caller keeps the old min-define pick (ChooseCharEffect*), counted. The vertex stage accepts FX_ID_MAP / FX_WRINKLE_LEVEL (their constants stay the neutral zero:
+// reason leaves the result !Ok with why_not set, and the caller draws nothing for it (a HOLE, counted by CharHoleOf's reason below). The vertex stage accepts FX_ID_MAP / FX_WRINKLE_LEVEL (their constants stay the neutral zero:
 // IdMapLvLst / WklLvLst = the wrestler's live levels (S103 WRK: CharCtx::idmap / wkl, null = 0 = no tint / no wrinkle depth)); a row with FX_WRINKLES binds slot 5 = the material's wrinkles_n (S103 WRK; blocked only with the switch off).
 // S105 A5c fix F1: `logo` = the material carries a CAW logo (Material::logo7 / logo4 >= 0): the row comes from the editor's table (read_rule::LogoEffectTableNow, edit.pac p7/0), the game's own editor rows, which are all logo variants.
 // No editor table or no such effect in it: the startup table's row (nothing is drawn for the logo, as before). CharChoice::logo_table says which table was used.
@@ -47,15 +47,21 @@ struct CharChoice {
 // registry variant of the SAME effect (OwnVariantOfHash: a hash shared with another effect's variant never picks that one). No STS table or no such effect: the startup
 // row (change_colour_table false: the caller binds no masks).
 CharChoice ChooseCharEffectTable(const std::string& effect, bool skinned, bool alpha_test, uint32_t technique, int pass, bool logo = false, bool change_colour = false);
-// The simplest vertex + fragment pair of `effect` that reads only textures the front-end can supply (the ones below), has every fragment
-// interpolator written by the vertex stage, and uses none of the options that need a runtime pass the files do not carry (shadow map,
-// cube reflections, blood, sweat, debug). `skinned`: the FX_SKINNED vertex variant, else the rigid one.
-// S103 SWF: `wet` = the liquid-map reader: only yCh_skin / yCh_skin_flex, only a fragment that has FX_BSS + FX_BLOOD_TINT + FX_SWEAT + FX_BLOOD (reads the wrestler's liquid map at slot 14, the sweat bump at slot 4;
-// the constants c205.zw / c210 / c234 / c246 from the material), simplest such pair. With no map nothing about a draw changes: the caller asks for `wet` only when it has a map for the wrestler.
-CharChoice ChooseCharEffect(const std::string& effect, bool skinned, bool alpha_test, bool wet = false, bool logo = false);   // S105 A5c: logo = the material carries a CAW logo: an FX_LOGO fragment is preferred
-// S103 L6: the same with the shadow-map reader on (FX_SHADOW fragment + FX_SHADOW / FX_SPHERE_OCC vertex): only fragments that HAVE FX_SHADOW are considered. Used when a frame's
-// maps hold a shadow map (frame.maps, MapRole::ShadowMap, not raw); the plain choice above stays the fallback.
-CharChoice ChooseCharEffectShadow(const std::string& effect, bool skinned, bool alpha_test, bool wet = false, bool logo = false);
+// S111 OLDCHAIN (docs\research\s111\OLDCHAIN.md): why a table pick bound no pair. The draw is then a HOLE (front_end.cpp Record draws nothing for it), counted per
+// distinct bind under the census word CharHoleCounter names (live_scene_draw.cpp) and logged: each one is a bug lane (bind that row; never a nearer variant).
+// None = the row is bound. NoTable = no effect table was published (effect_table_build.h said why, once); Wrinkles = the row reads the wrinkle map and the WRK
+// switch is off; NoRow = every other refusal (no row for the pass, a shader not in the registry, a slot or input the front end cannot feed, no alpha twin).
+enum class CharHole : uint8_t { None, NoTable, NoRow, Wrinkles };
+inline CharHole CharHoleOf(const CharChoice& c) { return c.Ok() ? CharHole::None : c.no_table ? CharHole::NoTable : c.blocked_wrinkles ? CharHole::Wrinkles : CharHole::NoRow; }
+inline const char* CharHoleCounter(CharHole h) {
+  switch (h) {
+    case CharHole::NoTable: return "char_hole_no_table";
+    case CharHole::NoRow: return "char_hole_no_row";
+    case CharHole::Wrinkles: return "char_wrinkle_blocked";
+    case CharHole::None: break;
+  }
+  return nullptr;
+}
 
 // What a fragment sampler slot of a character effect holds.
 enum class CharSlot : uint8_t {
@@ -69,12 +75,14 @@ enum class CharSlot : uint8_t {
   FlatBlack,    // team-colour masks (2, 14): all zero = the option does nothing
   Logo7,        // S105 A5c, 7: the CAW logo picture (Material::logo7); black when the material has none
   Logo4,        // S105 A5c, 4: the CAW logo2 picture (Material::logo4); black when the material has none
-  FlatGrey,     // wrinkle map (5), hair noise (8, 9): the neutral value
-  FlatBlackCube,  // 10: the reflection cube of yCh_Reflect (the stage's environment: not fed; black = no reflection layer)
+  HairNoise,    // S111 HAIRMAPS, 8: the material's g_mHairNoisePrm map (Material::hair_noise_map); grey when absent
+  HairShift,    // S111 HAIRMAPS, 9: the material's g_mHairShiftPrm map (Material::hair_shift_map); grey when absent
+  EnvCube,      // S111 ENVCUBE, 10: g_mEnvLPrm, the soft environment light cube of yCh_Reflect / yCh_trans / yCh_TransTiling (FX_ENV_LIGHT): the material's file cube (Material::env_cube, env_cube.h CubeAt); the black cube when it names none
   ShadowMap,    // S103 L6, 12: the wrestlers' shadow map (lane E's MapRole::ShadowMap); a shadow-variant fragment only
   LiquidMap,    // S103 SWF, 14: the wrestler's liquid map (x blood, y sweat, z gloss; set per draw from MapRole::SweatMap); only a wet-variant fragment samples it
   SweatBump,    // S103 SWF, 4: the wet skin's bump map (the material's g_mSweatPrm); only a wet-variant fragment samples it
   ChangeMask1, ChangeMask2, ChangeMask3, ChangeMask4,   // S108 THR2, 7 / 4 / 14 / 2 of a change-colour bind: the Threads editor's Mask1..Mask4 (Material::change_mask[k]); black when absent
+  MuscleMap,    // S111 MUSCLEMAP, 2 of an FX_MUSCLE fragment (not a change-colour bind): the material's g_mMusclePrm map (Material::muscle); black when absent (muscle_map.h Role)
 };
 CharSlot RoleOfSlot(int slot);
 // S103 SWF: the role of a slot of a `wet` fragment (slots 4 and 14 differ from RoleOfSlot's team-colour stand-ins).
@@ -120,6 +128,7 @@ struct CharCtx {
   const float* shadow_matrix = nullptr;
   const float* shadow_params = nullptr;
   const float* shadow_prm = nullptr;   // MapImage::prm: ShadowPrm rows 0-2 (12 floats)
+  const float* sphere_occ = nullptr;   // S111 SPHEREOCC: VS c168-c171 of this body (16 floats: P0, P1, V0, V1; sphere_join.h Body::c); null = kNeutral (strength 0: no row for the body). Fed shadow map or not.
   const float* wkl = nullptr;          // S103 WRK: the six live g_fWklLv0..5 (WklLvLst; null = the record carries none for this body: zeros, counted by the caller)
   const float* idmap = nullptr;        // S103 WRK: the eight live g_fIdMapLv0..7 (IdMapLvLst; null = zeros)
   bool cube_analytic = false;          // S103 YCB (review F3): the draw is a cube row bound as its non-cube twin: a lobe power of 0 is fed as 1, as the 360's bake did
@@ -127,6 +136,8 @@ struct CharCtx {
   bool wet = false;                    // S103 SWF: this draw is bound to the wet variant (a liquid map is bound at slot 14): Param0.zw, Sweat, Blood and BSSBldClr come from the material; else they stay the dry zeros
   const float* change_color = nullptr;   // S108 THR2: a change-colour draw's 16 ChangeColor constants ((R, G, B, 1) / 255, change_colour_draw.h); null = zero (every other draw)
   const float* rim_params = nullptr;   // S103 L7: the frame's filtered rim map (MapImage::params: w, h, near, far; null = none bound: RimLightDepth stays (0, 1, 1, 0) and slot 15 is black)
+  const float* hd_lig_lvl = nullptr;   // S111 MATFEED: the body's live g_fHdLigLvl (HdLig.x, PS c156; wrk_join.h MergeLive); null = the material's file value
+  const float* muscle = nullptr;       // S111 MATFEED: the body's live g_f4MuscleParam (MuscleParam, PS c249, 4 floats); null = the material's file value
 };
 // Fills `out` (vec4s * 4 floats, zeroed by the caller). False = a name this path does not know (reported by the caller).
 // S103 L7: how many key-light resolves rotated a record key light (view space), and how many of those had |d.x| > 1e-3 (the right-axis sign is only testable with those)

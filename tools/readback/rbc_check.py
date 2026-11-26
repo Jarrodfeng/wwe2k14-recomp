@@ -48,7 +48,10 @@ PLANTS = [(1, 'the wrong swap (the fetch swizzle is ignored)'), (2, 'the endian 
           (9, 'a screenshot refused while a scene copy holds the key fails instead of waiting'),
           (10, 'RBH: R8 (the render thread) waits for a scene when it has no R9 picture'), (11, 'RBH: R8 ignores the game\'s crop rect (always the whole picture)'),
           (12, 'RBH: R9 with no scene leaves the memory as it was (garbage into the reel save)'),
-          (13, 'RBH F1: R8 ignores the destination rect (stretches the crop over the whole 128x128 instead of the letterbox)')]
+          (13, 'RBH F1: R8 ignores the destination rect (stretches the crop over the whole 128x128 instead of the letterbox)'),
+          (14, 'CACTHUMB: R7 takes the whole frame instead of the resolve rect (0, 0, 256, 128)'),
+          (15, 'CACTHUMB: R7 runs an object the editor moved on (no delivery guard)'),
+          (16, 'CACTHUMB: R7 with no picture leaves the memory as it was (garbage into the title save)')]
 
 
 def part_unit():
@@ -106,8 +109,40 @@ def part_wiring():
         'the lock hook: the stream build calls OnTextureLock, the stream-free build calls readback_ours::OnLock (the #else branch)')
     say(re.search(r'#else\s*\n#include "renderer_game/readback_ours.h"', tx) is not None, 'readback_ours.h is included only in the stream-free build (the #else of the thumb_defer include)')
     ro = read('src/renderer_game/readback_ours.h')
-    say('REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readbacks, true,' in ro, 'the switch wwe2k14_rdr_readbacks exists with default true')
-    say('if (!REXCVAR_GET(wwe2k14_rdr_readbacks)) return;' in ro, 'the switch off = the lock hook does nothing (today\'s behaviour)')
+    cv_dir = os.path.join(ROOT, 'src', 'cvars')   # S110 CVARSHARD: the definitions live in the generated shards src\cvars\cvars_<n>.cpp, not in the headers
+    cvars = ''.join(read('src/cvars/' + f) for f in sorted(os.listdir(cv_dir)) if f.endswith('.cpp')) if os.path.isdir(cv_dir) else ''
+    say('REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readbacks, true,' in cvars, 'the switch wwe2k14_rdr_readbacks exists with default true')
+    say('if (!readbacks_start::On()) return;' in ro, 'the switch off = the lock hook does nothing (today\'s behaviour)')
+    # S111 RBSWITCH: the switch is START-ONLY. Every reader (lock hook, present hook, R1 / R7 defer) calls readbacks_start::On(); a live REXCVAR_GET of it
+    # anywhere in src outside readbacks_start.h could skip the delivery of a read-back the start value deferred (the game's save then waits forever).
+    def live_readers(files):
+        bad = []
+        for rel, text in files.items():
+            n = rel.replace('\\', '/')
+            if n.endswith('renderer_game/readbacks_start.h') or n.startswith('src/cvars/'):
+                continue
+            for m in re.finditer(r'REXCVAR_GET\(\s*wwe2k14_rdr_readbacks\s*\)', text):
+                bad.append('%s:%d' % (rel, text.count('\n', 0, m.start()) + 1))
+        return bad
+    srcfiles = {}
+    for dp, _dn, fns in os.walk(os.path.join(ROOT, 'src')):
+        for fn in fns:
+            if fn.endswith(('.h', '.cpp', '.inc')):
+                rel = os.path.relpath(os.path.join(dp, fn), ROOT)
+                srcfiles[rel] = read(rel)
+    lr = live_readers(srcfiles)
+    say(lr == [], 'wwe2k14_rdr_readbacks is START-ONLY: no reader uses the live cvar (all call readbacks_start::On())' + ('' if lr == [] else ': ' + ', '.join(lr)))
+    readers = ('src/half2_hooks.h', 'src/renderer_game/readback_ours.h', 'src/renderer_game/title_thumb_off.h', 'src/renderer_game/thumb_defer_off.h')
+    for rel in readers:
+        say('readbacks_start::On()' in srcfiles[os.path.normpath(rel)], '%s reads the switch through readbacks_start::On()' % rel)
+        k = os.path.normpath(rel)
+        twin = dict(srcfiles)
+        twin[k] = twin[k].replace('readbacks_start::On()', 'REXCVAR_GET(wwe2k14_rdr_readbacks)')
+        say(twin[k] != srcfiles[k] and live_readers(twin) != [], 'planted twin (%s reads the live cvar) is caught by the start-only lint' % rel)
+    sh = srcfiles[os.path.normpath('src/renderer_game/readbacks_start.h')]
+    say('g_start' in sh and 'compare_exchange_strong' in sh and sh.count('REXCVAR_GET(wwe2k14_rdr_readbacks)') == 1, 'readbacks_start.h latches the cvar once (one REXCVAR_GET, held in g_start)')
+    i0 = cvars.find('REXCVAR_DEFINE_BOOL(wwe2k14_rdr_readbacks')
+    say('START-ONLY' in cvars[i0:cvars.find('REXCVAR_DEFINE_BOOL(wwe2k14_rdr_reel_readbacks', i0)], 'the cvar\'s help says START-ONLY')
     rd = read('src/renderer_adapter/reader.h')
     say('inline bool WriteCopyBack(' in rd, 'the stream build\'s WriteCopyBack is still in reader.h (not moved)')
     for lr in ('0x8274FADC', '0x822A635C', '0x8341B75C', '0x83327B20', '0x8334398C', '0x82295A2C', '0x8228F3FC'):
@@ -151,7 +186,7 @@ def part_wiring():
     say(reel_rules(ro_text) == [], 'readback_ours.h: R8 (ServeThumb / ServeReelThumb) never captures or waits, R9 drops the old reel picture' + ('' if reel_rules(ro_text) == [] else ': ' + '; '.join(reel_rules(ro_text))))
     mut = ro_text.replace('  const bool four_three = Ld32(base, 0x8392DC3C) != 0;', '  const bool four_three = Ld32(base, 0x8392DC3C) != 0;\n  std::vector<uint8_t> x; wwe2k14::g_scene_capture_owner(x, src_w, src_h, 500, nullptr);', 1)
     say(mut != ro_text and reel_rules(mut) != [], 'planted twin (R8 waits for a scene on the render thread) is caught by the reel lint')
-    say(re.search(r'ReelPicture \|\| site.kind == Kind::ReelThumb\) \{[^}]*wwe2k14_rdr_reel_readbacks', ro_text) is not None and 'REXCVAR_DEFINE_BOOL(wwe2k14_rdr_reel_readbacks, true,' in ro_text, 'the reel read-backs have their own switch wwe2k14_rdr_reel_readbacks, default true')
+    say(re.search(r'ReelPicture \|\| site.kind == Kind::ReelThumb\) \{[^}]*wwe2k14_rdr_reel_readbacks', ro_text) is not None and 'REXCVAR_DEFINE_BOOL(wwe2k14_rdr_reel_readbacks, true,' in cvars, 'the reel read-backs have their own switch wwe2k14_rdr_reel_readbacks, default true')
     td = read('src/renderer_game/thumb_defer_off.h')
     say('g_scene_capture_owner' not in td and 'CaptureScene' not in td and 'g_scene_request_owner(' in td, 'thumb_defer_off.h: R1 only ever posts a request (RequestScene), it never waits for a picture')
     say(all(('REX_HOOK_RAW(sub_%s)' % a) in td for a in ('8274FA70', '8274FC60', '82750580')), 'thumb_defer_off.h hooks the job, the file writer and the destructor')
@@ -163,6 +198,25 @@ def part_wiring():
         'scene_host: the scene read-backs use the pure rules (fresh within 2 frames, shot priority, retries) and stamp last_out_frame_ where last_out_ is set')
     say('VirtualQuery(' not in ro_text and 'GetPhysicalHeap' in ro_text and 'kMemoryProtectWrite' in ro_text, 'readback_ours.h: the writable check is the physical heap\'s own protect table (every platform), not VirtualQuery')
     say('restoreGuestBits(saved.fpscr.csr)' in td and 'ScaleBox(rgba.data(), pw, ph, kSize, kSize' in td and 'Why::TimedOut' in td, 'thumb_defer_off.h: fpscr restored before ctx = saved, the 128x128 scale in the host callback, timeouts have their own census reason')
+    # S111 CACTHUMB: R7 (the Create a Title thumbnail) runs on the RENDER thread and the editor's save waits on it: its deferral never captures or waits, and every
+    # present delivers it (title_thumb::OnPresent is called BEFORE R1's own `if (!g_board.Pending()) return;`, or a present with no R1 entry would never deliver R7).
+    def title_rules(tt, tdf):
+        bad = []
+        if re.search(r'g_scene_capture_owner|CaptureScene|wait_for|\.wait\(|sleep', tt):
+            bad.append('title_thumb_off.h asks for a blocking scene copy or waits (R7 runs on the render thread)')
+        if 'g_scene_request_owner(' not in tt or 'REX_HOOK_RAW(sub_833438B0)' not in tt or 'restoreGuestBits(saved.fpscr.csr)' not in tt:
+            bad.append('title_thumb_off.h: the request, the callback hook or the fpscr restore is missing')
+        a = tdf.find('inline void OnPresent(PPCContext& ctx, uint8_t* base) {')
+        b = tdf.find('wwe2k14::title_thumb::OnPresent(ctx, base);', a)
+        c = tdf.find('if (!g_board.Pending()) return;', a)
+        if not (0 <= a < b < c):
+            bad.append('thumb_off::OnPresent does not deliver R7 before R1\'s early return')
+        return bad
+    tt = read('src/renderer_game/title_thumb_off.h')
+    say(title_rules(tt, td) == [], 'title_thumb_off.h: R7 only posts a request, hooks sub_833438B0, restores fpscr; every present delivers it before R1\'s early return' + ('' if title_rules(tt, td) == [] else ': ' + '; '.join(title_rules(tt, td))))
+    for name, mt, mtd in [('R7 waits for a scene on the render thread', tt.replace('const bool posted = wwe2k14::g_scene_request_owner(', 'std::vector<uint8_t> x; uint32_t xw, xh; wwe2k14::g_scene_capture_owner(x, xw, xh, 500, nullptr);\n  const bool posted = wwe2k14::g_scene_request_owner(', 1), td),
+                          ('R7 delivered after R1\'s early return', tt, td.replace('  wwe2k14::title_thumb::OnPresent(ctx, base);', '', 1).replace('  for (Item& it : items) {', '  wwe2k14::title_thumb::OnPresent(ctx, base);\n  for (Item& it : items) {', 1))]:
+        say((mt != tt or mtd != td) and title_rules(mt, mtd) != [], 'planted twin (%s) is caught by the R7 lint' % name)
     say('REXLOG' in ro and 'readback_unserved' in ro, 'the census names readback_unserved{lr}')
 
 

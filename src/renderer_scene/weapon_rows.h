@@ -16,6 +16,8 @@
 #pragma once
 #include <cstdint>
 
+#include "stage_struct_nodes.h"   // S111 CHAMBERSHADOW: kCallStageCaster + the stage draw node table (weapon_rows_core.h tags, weapon_plan.h CastsMapB reads)
+
 namespace rdr_scene::weapons {
 
 inline constexpr uint32_t kMgrGlobal = 0x837635B4;   // [C] PW_adversary.md 1
@@ -29,7 +31,7 @@ inline constexpr uint32_t kMaxSecondary = 2;         // [C] getter sub_8258CB58 
                                                       // S103 21:52: the first contract said 4 and read slot i+1's data objects)
 inline constexpr uint32_t kSkinnedModelVtable = 0x8206AF90;   // [C] check u32[main] == this before trusting a slot
 
-// Ring steps are ids 29 / 32 / 35 [C remap, L name]; the arena loader draws them today (asset_load.h ~1480-1502): the weapon drawer skips them until that path is retired.
+// Ring steps are ids 29 / 32 / 35 [C remap, L name]; S103 LDR: drawn from the weapon rows (weapon_plan.h Plants::draw_steps, default true); the arena loader's fixed copy only for a record with no weapon table (ArenaFixedPropsDrawn).
 inline constexpr bool IsRingStepsId(int32_t id) { return id == 29 || id == 32 || id == 35; }
 
 // Section ids (scene_record.h's free range; 59-61 belong to this contract).
@@ -42,7 +44,7 @@ struct WeaponSlot {          // 32 bytes
   uint32_t slot = 0;         // i
   uint32_t main = 0;         // guest address of the main model object
   uint32_t secondary[kMaxSecondary] = {};   // guest addresses, 0 = none
-  uint32_t reserved[2] = {};                // keeps the row at 32 bytes; always 0
+  uint32_t reserved[2] = {};                // keeps the row at 32 bytes; 0, except reserved[0] of an EVENT row (kSlotFlagEvent): the light set its CWeapon asks for + 1 (S111 STAGELESS2, prop_light_id.h)
   uint32_t flags = 0;        // bit 0: main's vtable checked == kSkinnedModelVtable
 };
 static_assert(sizeof(WeaponSlot) == 32, "WeaponSlot layout");
@@ -57,7 +59,7 @@ struct WeaponCall {          // 32 bytes
   uint32_t node_first = 0;   // index into kScWeaponNodes (in nodes)
   uint32_t node_count = 0;   // nodes copied from r5 at the call (node 1..N, ring_rows rule)
   float alpha = 1.0f;        // [model+252] at the call (slot-13 submits pass it as f1) [L]
-  uint32_t slot_flags = 0;   // bits 0-7 slot i; bit 8 = a secondary model (kCallSecondary); bit 9 = the slot's main model passed the vtable check (kCallVtableOk); bits 10-11 = k, the secondary's index (0 / 1; meaningful with bit 8); bit 12 = an event prop (kCallEventProp, S103 BLF), bits 16-19 = its entry k; other bits reserved, 0
+  uint32_t slot_flags = 0;   // bits 0-7 slot i; bit 8 = a secondary model (kCallSecondary); bit 9 = the slot's main model passed the vtable check (kCallVtableOk); bits 10-11 = k, the secondary's index (0 / 1; meaningful with bit 8); bit 12 = an event prop (kCallEventProp, S103 BLF), bits 16-19 = its entry k; bits 30-31 = the model's run-time specular set (S111 PROPSPEC, prop_spec.h kCallSpecShift); other bits reserved, 0
 };
 static_assert(sizeof(WeaponCall) == 32, "WeaponCall layout");
 inline constexpr uint32_t kCallSecondary = 0x100;
@@ -73,7 +75,8 @@ inline constexpr uint32_t EventEntry(uint32_t slot_flags) { return (slot_flags >
 // S103 CGF (docs\research\s103\CAGE.md, its Adversary section; docs\formats\bgetc_stg_structures.md): a STAGE STRUCTURE call (steel cage CAGE / CABU / CABA, Hell in a Cell, Elimination Chamber, Inferno): a model of the ONE holder
 // H = [0x837631C4] (slots [H+76+4k], filled from pac\bg\bgEtc.pac). Same row, same 32 bytes (no layout change: only bits that were reserved 0): `id` = the bgEtc PACH (0 CAGE / 1 CABU / 2 CABA / 3 CELL / 6 CHAI / 7 INFE),
 // bit 13 = kCallStageStruct, bits 16-23 = k (the key of nested key 1), bit 14 = kCallAlphaFromF1 (row alpha = the call's f1 = MdlAlpha, the slot-32 submit), bit 15 = kCallStageOwn (the call was the slot-13 own submit; clear = a
-// slot-32 / other pass), bits 24-25 = the guest LR class of a non-own call (kStageLr*). The game has TWO nodes that submit the same cage models, so both families are recorded and the drawer takes ONE per structure per frame.
+// slot-32 / other pass), bits 24-25 = the guest LR class of a non-own call (kStageLr*), bit 31 = kCallStageCaster (stage_struct_nodes.h: the own submit's node is one the game's shadow passes draw; bits 30-31 are the
+// specular code only on event / slot rows). The game has TWO nodes that submit the same cage models, so both families are recorded and the drawer takes ONE per structure per frame.
 inline constexpr uint32_t kCallStageStruct = 0x2000, kCallAlphaFromF1 = 0x4000, kCallStageOwn = 0x8000;
 inline constexpr uint32_t kStageLrShift = 24, kStageLrMask = 0x3;
 inline constexpr uint32_t kStageLrNone = 0, kStageLrCage = 1, kStageLrCell = 2, kStageLrOther = 3;   // kStageLrNone = an own-submit call
@@ -87,9 +90,22 @@ inline constexpr int32_t kStageIdBase = 0x10000;
 inline constexpr int32_t StageId(int32_t pach) { return kStageIdBase + pach; }
 inline constexpr int32_t StagePachOfId(int32_t id) { return id - kStageIdBase; }   // negative / >= 16 = not a stage id
 // Review fix 3: the guest caller of an OWN submit (the lr of the hook on sub_82C13C88 = who called the slot-13 dispatcher): 1 = the cage's category-26 node (sub_826FA0B8 .. before sub_826FA7C8 [L: the function range; the exact call site is
-// not read]), 3 = any other caller (the CWeapon pieces' sub_825DFA78, the chamber, the Inferno: a third family / a double draw shows as an own-other count next to an own-cage one), 0 = the caller was not captured.
-inline constexpr uint32_t kOwnCageNodeLo = 0x826FA0B8, kOwnCageNodeHi = 0x826FA7C8;
-inline constexpr uint32_t OwnCallerClass(uint32_t caller) { return caller == 0 ? kStageLrNone : (caller >= kOwnCageNodeLo && caller < kOwnCageNodeHi) ? kStageLrCage : kStageLrOther; }
+// not read]), 3 = any other caller (the CWeapon pieces' sub_825DFA78, the chamber's category-3 node, the Inferno: a third family / a double draw shows as an own-other count next to an own-cage one), 0 = the caller was not captured.
+// S111 PODGLASS (docs\research\s111\PODGLASS.md; stage_node_state.h): 2 = kStageLrOwnNode, an own call made by a node that draws under ITS OWN state: the Elimination Chamber's category-35 / 36 draw sub_826F8F88
+// (0x826F8F88 .. 0x826F9770, 2024 bytes [C listing]: blend code 0, alpha test GEQUAL 1, z write 0; the fences, the pod frames / doors / front wall at the fade, the pod glass k 5, the k 8 spotlight at code 1).
+// The value 2 is kStageLrCell for a NON-own (slot-32) call; for an own call it is this class. OwnOtherCaller = the own-other family of the census and map B (any own caller but the cage node's): unchanged by the split.
+// S111 CHAMBERSHADOW review: the class is read from the ONE caller -> node table (stage_struct_nodes.h kNodes), not from ranges of its own.
+inline constexpr uint32_t kOwnChamberSeeNodeLo = 0x826F8F88, kOwnChamberSeeNodeHi = 0x826F9770;   // sub_826F8F88's range (podglass_unit's bounds; the table's ChamberSeeNode row, asserted below)
+inline constexpr uint32_t kStageLrOwnNode = 2;
+inline constexpr uint32_t OwnCallerClass(uint32_t caller) {
+  if (caller == 0) return kStageLrNone;
+  const stg_nodes::Node n = stg_nodes::NodeOfCaller(caller);
+  return n == stg_nodes::Node::CageNode ? kStageLrCage : n == stg_nodes::Node::ChamberSeeNode ? kStageLrOwnNode : kStageLrOther;
+}
+static_assert(stg_nodes::NodeOfCaller(kOwnChamberSeeNodeLo) == stg_nodes::Node::ChamberSeeNode && stg_nodes::NodeOfCaller(kOwnChamberSeeNodeHi - 4) == stg_nodes::Node::ChamberSeeNode &&
+                  stg_nodes::NodeOfCaller(kOwnChamberSeeNodeHi) != stg_nodes::Node::ChamberSeeNode,
+              "kOwnChamberSeeNode* is the node table's ChamberSeeNode range");
+inline constexpr bool OwnOtherCaller(uint32_t cls) { return cls == kStageLrOther || cls == kStageLrOwnNode; }
 inline constexpr bool IsStageCall(uint32_t slot_flags) { return (slot_flags & kCallStageStruct) != 0; }
 inline constexpr bool IsStageOwn(uint32_t slot_flags) { return (slot_flags & kCallStageOwn) != 0; }
 inline constexpr uint32_t StageEntry(uint32_t slot_flags) { return (slot_flags >> kCallEntryShift) & kCallEntryMask; }
@@ -104,6 +120,19 @@ inline constexpr bool IsLadderPach(int32_t pach) { return pach == 4 || pach == 5
 inline constexpr bool IsLadderLightPiece(int32_t pach, uint32_t k) { return IsLadderPach(pach) && (k == 2 || k == 3); }
 // The light key set of a ladder piece: the rope (k 0) and both lights (k 2 / 3) install set 500 (sub_825DB710, sub_825DB7B8 [C]); the belt / briefcase (k 1) is a CWeapon's own light [U] -> -1.
 inline constexpr int32_t LadderLightKey(int32_t pach, uint32_t k) { return (IsLadderPach(pach) && (k == 0 || IsLadderLightPiece(pach, k))) ? 500 : -1; }
+// S111 CHAMBERMAP (docs\research\s111\CHAMBERMAP.md, docs\systems\elimination_chamber.md [C]): the light key set of a stage structure piece, as the game's draw nodes install it. Cage / cell 100, Inferno 31, ladder LadderLightKey;
+// the Elimination Chamber (holder type 5 = PACH 6 CHAI) installs set 35 before k 0 / k 1 and set 36 before k 2..8 (sub_826F8958 +0x44 / +0xAC, sub_826F8F88 +0x168 / +0x1CC). A set the manager lacks is not installed
+// (sub_827F6A40 -> -1, the install skipped), so a chamber k >= 2 piece keeps the 35 installed before it: the fallback below. `has(id)` = the record carries set id; -1 = none (the caller's arena-props fallback).
+// S111 CHAMBERMAP review [C listing + files]: the manager's set ids are the acts of the stage key it was given (sub_827F7BA0 +0x33C / +0x5E4; the stage load sub_824E8E38 passes bgNN.pac entry 30000), and no retail
+// arena's key (all 57 bg pacs, no DLC arena) has act 35 or 36: in the shipped game both lookups miss, the chamber keeps whatever set was installed before its nodes [U which], and this pick returns -1 (the arena props set stands in).
+inline constexpr int32_t kChamberPach = 6;
+template <class HasSet>
+constexpr int32_t StageLightKeyOf(int32_t pach, uint32_t k, HasSet has) {
+  const int32_t key = (pach >= 0 && pach <= 3) ? 100 : pach == 7 ? 31 : pach == kChamberPach ? (k <= 1 ? 35 : 36) : LadderLightKey(pach, k);
+  if (key >= 0 && has(key)) return key;
+  const int32_t fallback = (pach == kChamberPach && k >= 2) ? 35 : -1;
+  return (fallback >= 0 && has(fallback)) ? fallback : -1;
+}
 inline constexpr int32_t StageTypeOfPach(int32_t pach) { return pach == 0 ? 0 : pach == 1 ? 1 : pach == 2 ? 2 : pach == 3 ? 3 : pach == 6 ? 5 : pach == 7 ? 7 : IsLadderPach(pach) ? int32_t(kHolderTypeLadder) : -1; }
 // S103 LDR (docs\research\s103\COV10_match_objects.md B1; re-read from the listing of sub_82576DD8, 2026-11-19): the ladder holder's request passes ONE of five path strings in r4 to sub_82576768 (strings 0x8201D5EC .. 0x8201D61C [C q addr]):
 // "/STG/LADM" -> bgEtc PACH 4, "/STG/LADW" -> 5, "/STGL/%04d" (formatted into the caller's stack buffer: "/STGL/0004") -> 11 + row, rows 0000-0045 = PACH 11-56, 0086-0090 = PACH 57-61 [C: the directory, bgetc_stg_structures.md];
@@ -148,6 +177,8 @@ inline constexpr bool IsBloodCall(uint32_t slot_flags) { return (slot_flags & kC
 inline constexpr uint32_t kCallShadowPass = 0x10000000, kCallShadowProps = 0x20000000;
 inline constexpr bool IsShadowCall(uint32_t slot_flags) { return (slot_flags & kCallShadowPass) != 0; }
 inline constexpr bool IsShadowPropsCall(uint32_t slot_flags) { return (slot_flags & kCallShadowProps) != 0; }
+// S111 CHAMBERSHADOW review: the caster bit of a stage row shares no bit with anything a stage row carries (PackStageFlags, the shadow-pass tags, the gm / blood kinds).
+static_assert((kCallStageCaster & (PackStageFlags(kCallEntryMask, true, true, kStageLrMask) | kCallShadowPass | kCallShadowProps | kCallGmSet | kCallBloodSplat | kCallEventProp)) == 0, "kCallStageCaster overlaps a stage row bit");
 inline constexpr int32_t GmId(uint32_t key) { return kGmIdBase + int32_t(key & (kGmIdSpan - 1)); }
 inline constexpr int32_t GmKeyOfId(int32_t id) { return id >= kGmIdBase && id < kGmIdBase + kGmIdSpan ? id - kGmIdBase : -1; }
 inline constexpr uint32_t PackGmFlags() { return kCallGmSet | kCallVtableOk; }
@@ -187,6 +218,10 @@ inline constexpr uint32_t kMaxEventModels = 10;
 // (Section 59 is census / prefetch only: the draw never joins on it.)
 inline constexpr uint32_t kSlotFlagEvent = 2;
 inline constexpr uint32_t kWantEvent = 0x100;   // the drawer's (id, entry) want pairs: entry | kWantEvent = an evtobj.pac event prop entry, not an m2.pac weapon model
+// S111 CUTREACH2 review (docs\research\s111\CUTREACH2.md "Review"): section 59 serves two uses on two clocks. The weapon manager's table of the latch BEFORE the record's (the walk whose calls the record carries,
+// latch_period.h) is the draw side: a plain row (ArenaFixedPropsDrawn counts it). A row of the NEWEST latch's table that the draw side does not hold is a load HINT only (flags bit 3): the drawer's prefetch asks
+// for it so a model's load starts before its first draw; nothing that changes what is drawn counts it.
+inline constexpr uint32_t kSlotFlagHint = 8;
 inline constexpr uint32_t PackEventFlags(uint32_t k) { return kCallEventProp | kCallVtableOk | ((k & kCallEntryMask) << kCallEntryShift); }
 inline constexpr uint32_t CallSlot(uint32_t slot_flags) { return slot_flags & 0xFFu; }
 inline constexpr uint32_t CallSecondaryIndex(uint32_t slot_flags) { return (slot_flags >> kCallKShift) & kCallKMask; }

@@ -21,8 +21,13 @@ pacs; only changed pacs are re-read); `q asset update` forces it.
     py tools/q/q.py asset cull [PATH [PACH [ENTRY]]] [--list] [--set|--clear]  the mesh record's cull word (+0x8C, bit 0x2 = the game draws the mesh one-sided) and technique word (+0x90):
                                                    no PATH = one row per pac family (meshes, bit set / clear, the word values); PATH (a pac) = per PACH, PACH = per entry,
                                                    ENTRY = per mesh; arena bg pacs also split stage slots (keys 0..399) from other keys; --list one line per mesh
-    py tools/q/q.py asset info                     age, counts, pacs that could not be read
+    py tools/q/q.py asset params EFFECT [--has N] [--lacks N] [--values N]  S111 ASSETCOV: an effect's meshes by the parameter names they carry + value histograms (`*` = all effects)
+    py tools/q/q.py asset vcolor PAC [ENTRY] [--mesh N]  per-mesh vertex colour: per channel min / max / distinct / top values (S0 file bytes 24..27)
+    py tools/q/q.py asset info                     age, counts, pacs that could not be read; the mods folder: one row per mod source (pacs, models, materials, textures, ON / off, names)
     py tools/q/q.py asset update [-j N] [--full]   force a refresh
+S111 MODINDEX (schema 5): the player's MODS folder is indexed too (tools\\q\\qasset_mods.py: the folder the launcher hands the game, every .pac in it, read-only), under the path
+mods/<path in the folder>; every mod row is tagged mod:<name> with whether the game reads it now (from the launcher's settings, worked out per query); mat / tex take
+--source all|game|mods|mod:NAME (default all; q constdiff / q texdiff default to game).
 A builder / tester points q at its OWN index file with WWE_QASSET_DB=<a file under your worktree's out\\> (never the shared one); a rebuild prints which file it writes.
 Every answer's first line says how old the index is and how many pacs were re-read just now. At most 4 workers (fewer when free RAM is low), one pac per worker at a
 time. In a worktree the game files and the db are the MAIN checkout's.
@@ -40,8 +45,13 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 for _d in ('wm30', 'arena', 'filecensus'):
     sys.path.insert(0, os.path.join(ROOT, 'tools', _d))
+import qasset_mods      # noqa: E402  S111 MODINDEX: the mods folder (scan, source tags, --source, the s4 seed)
+import qasset_cov       # noqa: E402  S111 ASSETCOV: `params` / `vcolor` verbs, the vertex colour reader, the pac magic (REPLACED?), the s5 -> s6 seed
+import qasset_census    # noqa: E402  S111 QCENSUS: `params` (the census: --by / --sets / --pac / @pseudo-names)
 
-SCHEMA = 4      # 4 (S103 QAC): material rows carry cull_word / technique_word / pal0 (the mesh record's +0x8C / +0x90 words and the first bone-palette node index)
+SCHEMA = 6      # 4 (S103 QAC): material rows carry cull_word / technique_word / pal0 (the mesh record's +0x8C / +0x90 words and the first bone-palette node index); 5 (S111
+#                 MODINDEX): the mods folder's pacs too (rows under mods/; the same tables, so a missing s5 file is seeded from the s4 one: qasset_mods.seed); 6 (S111 ASSETCOV):
+#                 the per-mesh vertex colour histograms (table vcolor) and the pac file magic (pacs.magic; REPLACED?); a missing s6 file is seeded from the s5 one: qasset_cov.seed
 MAX_JOBS = 4
 # pacs whose entries are listed (PACH / key / size) but not decoded: motion / sound / movie data and parameter tables (m3), no models or textures (measured: decoding them is
 # >40 % of the cold build for nothing a probe asks). Their entries show as kind 'raw'. m2.pac IS decoded: it holds the weapon models (p0 key 1000 / id, LoadM2Weapon).
@@ -285,7 +295,8 @@ def parse_model(dec):
             break
     bad, mats, shifted = best[0], best[1], (len(best[1]) if best[2] else 0)
     nvert = None if (bad or nnode > 4096 or ntex > 256) else sum(m[1] for m in mats)
-    return dict(nnode=nnode, nmesh=nmesh, nvert=nvert, ntex=ntex, nodes=nodes, textures=texs, mats=mats, bad=bad, shifted=shifted)
+    vcol = qasset_cov.model_vcolor(body, mtab, 0xB4 if best[2] else 0xB8, mats)      # S111 ASSETCOV
+    return dict(nnode=nnode, nmesh=nmesh, nvert=nvert, ntex=ntex, nodes=nodes, textures=texs, mats=mats, bad=bad, shifted=shifted, vcol=vcol)
 
 
 def pach_positions(data):
@@ -314,7 +325,7 @@ def read_pac(path, rel):
     t0 = time.time()
     data = pac.load(path)
     raw_only = bool(RAW_PACS.search(rel))
-    res = dict(pach=[], entry=[], model=[], mat=[], tex=[], flags=[], errs=0)
+    res = dict(pach=[], entry=[], model=[], mat=[], tex=[], flags=[], vcol=[], errs=0, magic=qasset_cov.file_magic(path))
     arc = read_dir(data) if data[:4] in PAC_MAGICS else []
     by_pos = {0x4000 + sec * 0x800: (tag, nm) for tag, nm, sec, sz in arc}
     pos_list = pach_positions(data)
@@ -369,6 +380,8 @@ def _walk(res, k, epath, eid, raw, depth, raw_only):
             res['model'].append((k, epath, m['nnode'], m['nmesh'], m['nvert'], m['ntex'], ' '.join(m['nodes']), ' '.join(m['textures'])))
             for mesh, verts, eff, params, samp, cull, tech, pal0 in m['mats']:
                 res['mat'].append((k, epath, mesh, verts, eff, json.dumps(params, sort_keys=True), json.dumps(samp, sort_keys=True), cull, tech, pal0))
+            for mesh, nv, ch in m['vcol']:
+                res['vcol'].append((k, epath, mesh, nv, ch))
             if m['bad']:
                 res['errs'] += 1
                 note = 'SUSPECT: %d of %d mesh records read as neither layout (vertex count unknown)' % (m['bad'], m['nmesh'])
@@ -415,7 +428,7 @@ def _worker(job):
 
 DDL = '''
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE pacs(id INTEGER PRIMARY KEY, path TEXT UNIQUE, size INTEGER, mtime_ns INTEGER, nach INTEGER, err TEXT, raw INTEGER, secs REAL, nerr INTEGER);
+CREATE TABLE pacs(id INTEGER PRIMARY KEY, path TEXT UNIQUE, size INTEGER, mtime_ns INTEGER, nach INTEGER, err TEXT, raw INTEGER, secs REAL, nerr INTEGER, magic TEXT);
 CREATE TABLE pach(id INTEGER PRIMARY KEY, pac_id INTEGER, idx INTEGER, off INTEGER, nent INTEGER, vpath TEXT, arc_tag TEXT, arc_name TEXT);
 CREATE TABLE entry(id INTEGER PRIMARY KEY, pach_id INTEGER, path TEXT, eid INTEGER, depth INTEGER, kind TEXT, tag TEXT, size INTEGER, note TEXT);
 CREATE TABLE model(entry_id INTEGER PRIMARY KEY, nnode INTEGER, nmesh INTEGER, nvert INTEGER, ntex INTEGER, nodes TEXT, textures TEXT);
@@ -432,7 +445,7 @@ CREATE INDEX i_mat_e ON material(entry_id);
 CREATE INDEX i_tex ON texture(name_lc);
 CREATE INDEX i_tex_e ON texture(entry_id);
 CREATE INDEX i_pach_v ON pach(vpath);
-'''
+''' + qasset_cov.VCOLOR_DDL
 
 
 def scan():
@@ -450,6 +463,7 @@ def scan():
                     if top == 'dlc':
                         rel = 'dlc/' + rel
                     out[rel] = (fp, st.st_size, st.st_mtime_ns)
+    out.update(qasset_mods.scan(g))     # S111 MODINDEX: every .pac of the mods folder, as mods/<rel>
     return out
 
 
@@ -544,14 +558,14 @@ def _insert(con, rel, st, res, err):
             for chunk in range(0, len(eids), 500):
                 c = eids[chunk:chunk + 500]
                 q = ','.join('?' * len(c))
-                for tb in ('model', 'material', 'texture'):
+                for tb in ('model', 'material', 'texture', 'vcolor'):
                     con.execute('DELETE FROM %s WHERE entry_id IN (%s)' % (tb, q), c)
             con.execute('DELETE FROM entry WHERE pach_id=?', (ph,))
         con.execute('DELETE FROM pach WHERE pac_id=?', (pid,))
         con.execute('DELETE FROM flags WHERE pac_id=?', (pid,))
         con.execute('DELETE FROM pacs WHERE id=?', (pid,))
-    cur = con.execute('INSERT INTO pacs(path,size,mtime_ns,nach,err,raw,secs,nerr) VALUES(?,?,?,?,?,?,?,?)',
-                      (rel, st[1], st[2], res['nach'] if res else 0, err, 1 if RAW_PACS.search(rel) else 0, res['secs'] if res else 0, res['errs'] if res else 0))
+    cur = con.execute('INSERT INTO pacs(path,size,mtime_ns,nach,err,raw,secs,nerr,magic) VALUES(?,?,?,?,?,?,?,?,?)',
+                      (rel, st[1], st[2], res['nach'] if res else 0, err, 1 if RAW_PACS.search(rel) else 0, res['secs'] if res else 0, res['errs'] if res else 0, res['magic'] if res else None))
     pid = cur.lastrowid
     if not res:
         return
@@ -574,6 +588,8 @@ def _insert(con, rel, st, res, err):
     con.executemany('INSERT INTO texture(entry_id,name,name_lc,fmt,w,h,mips,bytes,a_max,a_zero,a_ge224,a_mean,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
                     [(emap[(k, ep)],) + tuple(t) for k, ep, *t in res['tex']])
     con.executemany('INSERT INTO flags(pac_id,slot,tokens) VALUES(?,?,?)', [(pid, s, t) for k, s, t in res['flags']])
+    con.executemany('INSERT INTO vcolor(entry_id,mesh,nvert,ch,vmin,vmax,ndist,top) VALUES(?,?,?,?,?,?,?,?)',      # S111 ASSETCOV
+                    [(emap[(k, ep)], mesh, nv) + tuple(c) for k, ep, mesh, nv, chs in res['vcol'] for c in chs])
 
 
 def file_schema(path):
@@ -601,6 +617,8 @@ def build(jobs=None, full=False, only=None, budget_s=None, out=sys.stderr, lock=
     path = db_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     now = scan()
+    qasset_mods.seed(path, SCHEMA, out)     # S111 MODINDEX: a missing asset.s5.db starts as a copy of the asset.s4.db beside it (the same tables)
+    qasset_cov.seed(path, SCHEMA, out)      # S111 ASSETCOV: a missing asset.s6.db starts as a copy of the asset.s5.db (else s4), every decoded pac marked for a re-read
     sv = file_schema(path)
     if sv is not None and sv != str(SCHEMA):
         raise SystemExit(foreign_text(path, sv))       # never wipe or rebuild a file of another schema
@@ -746,6 +764,7 @@ def connect():
     except ValueError:
         age = '?'
     npacs = con.execute('SELECT COUNT(*) FROM pacs').fetchone()[0]
+    nmods = con.execute('SELECT COUNT(*) FROM pacs WHERE substr(path, 1, ?) = ?', (len(qasset_mods.PREFIX), qasset_mods.PREFIX)).fetchone()[0]
     if state == 'fresh':
         what = '0 pacs changed since (%.1f s check)' % secs
     elif state == 'STALE':
@@ -755,8 +774,10 @@ def connect():
     else:
         what = '%s just now: %d pacs re-read in %.1f s' % (state, nchg, secs)
     oth = other_index_files()
-    note = 'other index file(s) beside this one are left alone (older schema; q never touches them, the tidy clears out\\): %s' % ', '.join(oth) if oth else ''
-    HEADER = '[asset index built %s (%s ago), %d pacs; %s%s]' % (m.get('built', '?'), age, npacs, what, '; NOTE ' + note if note else '')
+    note = ('other index file(s) beside this one are left alone (older schema; q never touches them; the tidy HOLDS out\\harness\\index, so delete one by hand once no '
+            'older worktree\'s q reads it): %s' % ', '.join(oth)) if oth else ''
+    HEADER = '[asset index built %s (%s ago), %d pacs%s; %s%s]' % (m.get('built', '?'), age, npacs, (' (%d from the mods folder)' % nmods) if nmods else '', what,
+                                                                 '; NOTE ' + note if note else '')
     return con
 
 
@@ -769,7 +790,8 @@ def pct(x):
 def pac_rows(con, frag):
     """pacs matching FRAG: an exact stem (ch139, bgEtc) first, then an exact path tail, then a substring"""
     f = frag.lower().replace('\\', '/').strip('/')
-    rows = con.execute('SELECT * FROM pacs ORDER BY path').fetchall()
+    # S111 MODINDEX review: the game's pacs first, then the mods folder's ('mods/' sorts before 'pac/' by path, and `slot` / a single-pac caller takes rows[0])
+    rows = con.execute('SELECT * FROM pacs ORDER BY substr(path, 1, ?) = ?, path', (len(qasset_mods.PREFIX), qasset_mods.PREFIX)).fetchall()
     stem = [r for r in rows if os.path.basename(r['path'])[:-4].lower() == f]
     if stem:
         return stem
@@ -877,7 +899,7 @@ def cmd_pac(con, args):
         return {'error': 'several pacs match "%s": %s' % (args[0], ', '.join(r['path'] for r in prs[:12]))}
     out = {'pacs': []}
     for p in prs[:25]:
-        d = dict(pac=p['path'], size=p['size'], nach=p['nach'], err=p['err'], raw=bool(p['raw']), nerr=p['nerr'],
+        d = dict(pac=p['path'], size=p['size'], nach=p['nach'], err=p['err'], raw=bool(p['raw']), nerr=p['nerr'], magic=p['magic'], replaced=qasset_cov.is_replaced(p['path'], p['magic']),
                  nblob=con.execute('SELECT COUNT(*) FROM entry JOIN pach ON entry.pach_id=pach.id WHERE pach.pac_id=? AND entry.kind="blob"', (p['id'],)).fetchone()[0])
         if len(args) == 1:
             d['pach'] = []
@@ -941,7 +963,7 @@ def print_pac(r, a):
         return
     L = a.limit * 4
     for d in r['pacs']:
-        print('asset pac %s  (%s)  %s' % (d['pac'], '%.1f MB, %d PACH%s%s' % (d['size'] / 1e6, d['nach'], ' + %d non-PACH directory entries' % d['nblob'] if d['nblob'] else '', ', ENTRIES NOT DECODED (motion / sound)' if d['raw'] else '') + ('; READ ERROR ' + d['err'] if d['err'] else '') + ('; %d entry parse errors' % d['nerr'] if d['nerr'] else ''), HEADER))
+        print('asset pac %s  (%s)  %s' % (d['pac'], '%.1f MB, %d PACH%s%s' % (d['size'] / 1e6, d['nach'], ' + %d non-PACH directory entries' % d['nblob'] if d['nblob'] else '', ', ENTRIES NOT DECODED (motion / sound)' if d['raw'] else '') + ('; READ ERROR ' + d['err'] if d['err'] else '') + ('; %d entry parse errors' % d['nerr'] if d['nerr'] else '') + ('; ' + qasset_cov.replaced_text(d['pac'], d['magic']) if d['replaced'] else ''), HEADER))
         if 'pach' in d:
             for x in d['pach'][:L]:
                 print('  PACH %-4d %-14s %4d entries  %s%s' % (x['idx'], x['vpath'] or '-', x['nent'], '%d models ' % x['models'] if x['models'] else '', '%d texture dirs' % x['texdirs'] if x['texdirs'] else ''))
@@ -974,18 +996,21 @@ def fmt_tex(t):
     return '%s  %s %dx%d  %d mips  %d B  %s%s' % (t['name'], t['fmt'], t['w'], t['h'], t['mips'], t['bytes'], al, '  NOTE ' + t['note'] if t.get('note') else '')
 
 
-def cmd_tex(con, name, like):
+def cmd_tex(con, name, like, source='all'):
     n = name.lower()
     where, arg = ('name_lc LIKE ?', '%' + n + '%') if like else ('name_lc = ?', n)
-    rows = con.execute('SELECT texture.*, pacs.path AS pac, pach.idx AS pidx, pach.vpath AS vpath, entry.path AS epath FROM texture JOIN entry ON texture.entry_id = entry.id JOIN pach ON entry.pach_id = pach.id JOIN pacs ON pach.pac_id = pacs.id WHERE texture.' + where + ' ORDER BY pacs.path, pach.idx', (arg,)).fetchall()
+    sw, sa = qasset_mods.where(source)      # S111 MODINDEX: --source
+    rows = con.execute('SELECT texture.*, pacs.path AS pac, pach.idx AS pidx, pach.vpath AS vpath, entry.path AS epath FROM texture JOIN entry ON texture.entry_id = entry.id JOIN pach ON entry.pach_id = pach.id JOIN pacs ON pach.pac_id = pacs.id WHERE texture.' + where + ' AND ' + sw + ' ORDER BY pacs.path, pach.idx', [arg] + sa).fetchall()
     groups = {}
     for r in rows:
-        k = (r['name_lc'], r['fmt'], r['w'], r['h'], r['mips'], r['a_max'], None if r['a_zero'] is None else round(r['a_zero'], 4), None if r['a_ge224'] is None else round(r['a_ge224'], 4))
+        k = (r['name_lc'], r['fmt'], r['w'], r['h'], r['mips'], r['a_max'], None if r['a_zero'] is None else round(r['a_zero'], 4), None if r['a_ge224'] is None else round(r['a_ge224'], 4),
+             qasset_mods.source(r['pac']))
         groups.setdefault(k, []).append(r)
     out = []
     for k, rs in groups.items():
         t = dict(rs[0])
-        out.append(dict(tex={x: t[x] for x in ('name', 'fmt', 'w', 'h', 'mips', 'bytes', 'a_max', 'a_zero', 'a_ge224', 'a_mean', 'note')}, count=len(rs), where=[loc(r) for r in rs]))
+        out.append(dict(tex={x: t[x] for x in ('name', 'fmt', 'w', 'h', 'mips', 'bytes', 'a_max', 'a_zero', 'a_ge224', 'a_mean', 'note')}, count=len(rs), where=[loc(r) for r in rs],
+                        source=qasset_mods.tag(rs[0]['pac'], game_dir())))
     out.sort(key=lambda g: (-g['count'], g['tex']['name']))
     return {'name': name, 'like': like, 'groups': out}
 
@@ -993,7 +1018,7 @@ def cmd_tex(con, name, like):
 def print_tex(r, a):
     print('asset tex %s%s: %d distinct texture(s)  %s' % (r['name'], ' (substring)' if r['like'] else '', len(r['groups']), HEADER))
     for g in r['groups'][:a.limit]:
-        print('  ' + fmt_tex(g['tex']))
+        print('  ' + fmt_tex(g['tex']) + (('  [%s]' % g['source']) if g['source'] != 'game' else ''))
         print('    in %d place(s): %s%s' % (g['count'], '; '.join(g['where'][:4]), ' ...' if g['count'] > 4 else ''))
     if len(r['groups']) > a.limit:
         print('  ... %d more (--limit)' % (len(r['groups']) - a.limit))
@@ -1001,7 +1026,7 @@ def print_tex(r, a):
         print('  none (names are matched case-insensitively; --like for a substring)')
 
 
-def cmd_mat(con, name, pacs, like):
+def cmd_mat(con, name, pacs, like, source='all'):
     n = name.lower()
     cond = 'material.effect_lc ' + ('LIKE ?' if like else '= ?')
     arg = ('%' + n + '%') if like else n
@@ -1014,14 +1039,18 @@ def cmd_mat(con, name, pacs, like):
             return {'error': 'no pac matches %s' % pacs}
         sql += ' AND pacs.id IN (%s)' % ','.join('?' * len(ids))
         args += ids
+    sw, sa = qasset_mods.where(source)      # S111 MODINDEX: --source
+    sql += ' AND ' + sw
+    args += sa
     rows = con.execute(sql + ' ORDER BY pacs.path, pach.idx, entry.id, material.mesh', args).fetchall()
     groups = {}
     for r in rows:
-        k = (r['effect'], r['params'], r['samplers'])
+        k = (r['effect'], r['params'], r['samplers'], qasset_mods.source(r['pac']))      # a mod's material is its own group beside the stock one: the two are diffed
         groups.setdefault(k, []).append(r)
     out = []
     for k, rs in groups.items():
-        out.append(dict(effect=k[0], params=json.loads(k[1]), samplers=json.loads(k[2]), verts=rs[0]['verts'], count=len(rs), where=['%s PACH %d%s entry %s mesh %d' % (r['pac'], r['pidx'], (' ' + r['vpath']) if r['vpath'] else '', r['epath'], r['mesh']) for r in rs[:6]]))
+        out.append(dict(effect=k[0], params=json.loads(k[1]), samplers=json.loads(k[2]), verts=rs[0]['verts'], count=len(rs), where=['%s PACH %d%s entry %s mesh %d' % (r['pac'], r['pidx'], (' ' + r['vpath']) if r['vpath'] else '', r['epath'], r['mesh']) for r in rs[:6]],
+                        source=qasset_mods.tag(rs[0]['pac'], game_dir())))
     out.sort(key=lambda g: -g['count'])
     return {'name': name, 'groups': out, 'total': len(rows)}
 
@@ -1033,6 +1062,8 @@ def print_mat(r, a):
     print('asset mat %s: %d mesh materials in %d distinct (effect, parameters, samplers) groups  %s' % (r['name'], r['total'], len(r['groups']), HEADER))
     for g in r['groups'][:a.limit]:
         print('  x%d  %s' % (g['count'], fmt_mat(dict(g, verts=g['verts']))))
+        if g['source'] != 'game':
+            print('       source: %s' % g['source'])
         print('       e.g. %s%s' % ('; '.join(g['where'][:3]), ' ...' if g['count'] > 3 else ''))
     if len(r['groups']) > a.limit:
         print('  ... %d more groups (--limit, or narrow with a pac)' % (len(r['groups']) - a.limit))
@@ -1120,6 +1151,8 @@ def family(rel):
     stem = os.path.basename(rel)[:-4]
     if parts[0] == 'dlc':
         return 'dlc (' + ('/'.join(parts[1:-1]) or 'root') + ')'
+    if parts[0] == 'mods':
+        return 'mods (' + qasset_mods.source(rel)[4:] + ')'      # S111 MODINDEX
     if ARENA_PAC.match(low):
         return 'bg arena pacs (bgNN)'
     if low == 'pac/bg/bgetc.pac':
@@ -1313,6 +1346,9 @@ def cmd_info(con):
     m['suspect_models'] = con.execute('SELECT COUNT(*) FROM model WHERE nvert IS NULL').fetchone()[0]
     m['shifted_layout_entries'] = con.execute("SELECT COUNT(*) FROM entry WHERE note LIKE '%shifted layout%'").fetchone()[0]
     m['kinds'] = {r[0]: r[1] for r in con.execute('SELECT kind, COUNT(*) FROM entry GROUP BY kind')}
+    m['mods'] = qasset_mods.summary(con, game_dir())     # S111 MODINDEX
+    m['vcolor'] = con.execute("SELECT COUNT(DISTINCT entry_id || '/' || mesh) FROM vcolor").fetchone()[0]       # S111 ASSETCOV: meshes with a vertex colour histogram
+    m['replaced_ch_pacs'] = qasset_cov.replaced_summary(con)
     m['status'] = HEADER
     return m
 
@@ -1320,7 +1356,7 @@ def cmd_info(con):
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog='q asset', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('cmd', choices=['update', 'find', 'pac', 'tex', 'mat', 'id', 'slot', 'cull', 'info'])
+    ap.add_argument('cmd', choices=['update', 'find', 'pac', 'tex', 'mat', 'id', 'slot', 'cull', 'info', 'params', 'vcolor'])
     ap.add_argument('args', nargs='*')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--limit', type=int, default=25)
@@ -1331,6 +1367,14 @@ def main(argv):
     ap.add_argument('--set', action='store_true', help='cull: only meshes with the one-sided bit (0x2) set')
     ap.add_argument('--clear', action='store_true', help='cull: only meshes with the one-sided bit clear (two-sided)')
     ap.add_argument('--redo', action='store_true', help='update FRAG --redo: re-read the pacs matching FRAG even when unchanged')
+    ap.add_argument('--source', type=qasset_mods.arg, default='all', help='mat / tex: ' + qasset_mods.SOURCES + ' (S111 MODINDEX; default all)')
+    ap.add_argument('--has', action='append', default=[], help='params: only meshes that carry this parameter / sampler name (repeatable; its value histogram is printed)')
+    ap.add_argument('--lacks', action='append', default=[], help='params: only meshes that do NOT carry this name (repeatable)')
+    ap.add_argument('--values', action='append', default=[], help='params: also the value histogram of this name (repeatable)')
+    ap.add_argument('--mesh', type=int, default=None, help='vcolor: only this mesh index')
+    ap.add_argument('--by', choices=qasset_census.BY, default=None, help='params: every count and histogram per group (S111 QCENSUS)')
+    ap.add_argument('--sets', action='store_true', help='params: a histogram of each mesh\'s full set of names')
+    ap.add_argument('--all', action='store_true', help='params: no cut line (every list whole)')
     ap.add_argument('-j', type=int, default=MAX_JOBS)
     a = ap.parse_args(argv)
     if a.cmd == 'update':
@@ -1352,7 +1396,11 @@ def main(argv):
     con = connect()
     if a.cmd == 'info':
         m = cmd_info(con)
-        print(json.dumps(m, indent=1) if a.json else '\n'.join('%s: %s' % (k, v) for k, v in m.items()))
+        print(json.dumps(m, indent=1) if a.json else '\n'.join('%s: %s' % (k, v) for k, v in m.items() if k != 'mods') + '\n' + qasset_mods.info_text(m['mods']))
+        rp = m['replaced_ch_pacs']
+        if not a.json:
+            print('REPLACED? game-folder pac\\ch pacs whose magic is not XCTD: %d%s%s' % (rp['count'], (' (%s%s)' % (', '.join(rp['pacs']), ' ...' if rp['more'] else '')) if rp['count'] else '',
+                                                                                  '; %d ch pacs have no magic recorded yet (re-read pending)' % rp['magic_unknown'] if rp['magic_unknown'] else ''))
         return 0
     if not a.args and a.cmd != 'cull':
         print('q asset %s: give an argument (q asset -h)' % a.cmd, file=sys.stderr)
@@ -1363,8 +1411,13 @@ def main(argv):
         r, pr = cmd_pac(con, a.args), print_pac
     elif a.cmd == 'cull':
         r, pr = cmd_cull(con, a.args, a), print_cull
+    elif a.cmd == 'params':
+        a.all = a.all or a.json
+        r, pr = qasset_census.cmd_params(con, a.args, a, family, pac_rows), lambda r_, a_: qasset_census.print_params(r_, a_, HEADER)
+    elif a.cmd == 'vcolor':
+        r, pr = qasset_cov.cmd_vcolor(con, a.args, a, pac_rows), lambda r_, a_: qasset_cov.print_vcolor(r_, a_, HEADER)
     elif a.cmd == 'tex':
-        r, pr = cmd_tex(con, a.args[0], a.like), print_tex
+        r, pr = cmd_tex(con, a.args[0], a.like, a.source), print_tex
     elif a.cmd == 'mat':
         pacs = list(a.pac)
         names = []
@@ -1378,7 +1431,7 @@ def main(argv):
         if not names:
             print('q asset mat: give a material class or a texture name', file=sys.stderr)
             return 2
-        r, pr = cmd_mat(con, names[0], pacs, a.like), print_mat
+        r, pr = cmd_mat(con, names[0], pacs, a.like, a.source), print_mat
     elif a.cmd == 'id':
         if len(a.args) != 2 or not a.args[1].lstrip('-').isdigit():
             print('q asset id: q asset id evtobj|bgetc|weapon N', file=sys.stderr)
