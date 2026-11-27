@@ -22,6 +22,7 @@ static census_flush::Site g_cf_stamp_member, g_cf_stamp_card;  // S102 CEN1
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "crowd_fast.h"  // lane 270
 #include "fx_tables.h"
+#include "../assets/model_create_scale.h"  // S111 MATLIVE review: kCrowdCreateScale (the crowd's model-create scale)
 
 namespace rdr_scene {
 namespace {
@@ -32,7 +33,7 @@ constexpr uint32_t kTypes = 20;
 constexpr uint32_t kClassCount = kCrowdClassCount;
 constexpr uint32_t kMaxMeshes = 4;
 constexpr uint32_t kCardLod = 3;
-constexpr float kBodyScale = 10.0f;  // S101 lane 36: blob position = stored vertex x 10 (file space) x palette
+constexpr float kBodyScale = assets::create_scale::kCrowdCreateScale;  // S101 lane 36: blob position = stored vertex x 10 (file space) x palette; the 10 is the crowd's model-create scale (model_create_scale.h)
 
 // The effect table of a variant by name (the field names and offsets of its vertex block, its input names), cached.
 const fxt::VariantTable* TableOf(int variant) {

@@ -68,8 +68,8 @@ PROMOTIONS = {
     'particles': ('--particles-ours', False),  # needs the draw origins (names), not a scene record
 
     'movie': ('--movie-ours', False),          # S101 lane 131: the movie planes (T_SpriteYUVAlpha, call site 0x82BC7E50) by our quad and YUV shader; needs no scene record; fate movie_ours
-    'ui_text': ('--ui-text-ours', False),      # S101 lane 125: lane 89's menu text laid out by us (fate ui_text_ours); needs no scene record (session.cpp:167)
-    'ui': ('--ui-ours', False),                # S101 lane 125: needs no scene record either (session.cpp:167 exempts ui, ui_text, shadow_casters; lane 73's True was stale). UI contract: probed per run
+    'ui_text': ('--ui-text-ours', False),      # S101 lane 125: lane 89's menu text laid out by us (fate ui_text_ours); needs no scene record (session.cpp)
+    'ui': ('--ui-ours', False),                # S101 lane 125: needs no scene record either (session.cpp exempts ui, ui_text, shadow_casters; lane 73's True was stale). UI contract: probed per run
 }
 ALL_PROMOTIONS = list(PROMOTIONS)
 

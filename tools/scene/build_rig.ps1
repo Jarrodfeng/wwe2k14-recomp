@@ -125,6 +125,15 @@ $cobjs = @($objs | Where-Object { $_ -notmatch 'frame_rig\.cpp\.o$' }) + $cs
 if ($LASTEXITCODE -ne 0) { throw 'cs1b_unit link failed' }
 Write-Host "built $(Join-Path $outDir 'cs1b_unit.exe')"
 
+# S111 SOCKSHADOW: a piece the owner's mesh does not draw (hidden / detached) casts nothing (tools\scene\piece_cast_unit.cpp): rf::OwnerPieceRows + LiveMapsHook MeasureCasters; the same objects, its own main
+$pk = Join-Path $obj 'tools_scene_piece_cast_unit.cpp.o'
+& $cxx0 @cxxRest -O1 -g -std=c++20 -c @defs -Wno-unused-command-line-argument @incRel 'tools\scene\piece_cast_unit.cpp' -o ($pk.Substring($repoLen))
+if ($LASTEXITCODE -ne 0) { throw 'piece_cast_unit compile failed' }
+$kobjs = @($objs | Where-Object { $_ -notmatch 'frame_rig\.cpp\.o$' }) + $pk
+& clang++ -fuse-ld=lld -g @kobjs -o (Join-Path $outDir 'piece_cast_unit.exe') @libs
+if ($LASTEXITCODE -ne 0) { throw 'piece_cast_unit link failed' }
+Write-Host "built $(Join-Path $outDir 'piece_cast_unit.exe')"
+
 # S103 UP: the shared stage page's unit (tools\scene\crowd_page_unit.cpp): CrowdPages + the REAL FrontEnd (AdoptPage / UpdatePage / JoinCurrentPage / the AddModelSharing assert), the same objects, its own main
 $up = Join-Path $obj 'tools_scene_crowd_page_unit.cpp.o'
 & $cxx0 @cxxRest -O1 -g -std=c++20 -c @defs -Wno-unused-command-line-argument @incRel 'tools\scene\crowd_page_unit.cpp' -o ($up.Substring($repoLen))

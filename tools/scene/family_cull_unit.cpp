@@ -18,7 +18,7 @@ static void Check(bool ok, const char* what) {
 }
 
 // planted twins: the rules before C3
-static int OldCull(const assets::Material* mp, bool stage_cull_on) {   // only the stage slots followed the bit; every other family two-sided (jboy.h:703 gate)
+static int OldCull(const assets::Material* mp, bool stage_cull_on) {   // only the stage slots followed the bit; every other family two-sided (jboy.h gate)
   return (mp && mp->cull_back && (!mp->cull_from_record || stage_cull_on)) ? 2 : 0;
 }
 static bool OldTwoPass(bool sorted, bool hair, uint32_t) { return sorted && hair; }   // the hair effect name alone, whatever the bit

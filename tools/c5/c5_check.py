@@ -140,10 +140,11 @@ def lint(fs):
 
 
 def wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
     fs = {}
     for f in FILES:
-        with open(os.path.join(root, f), encoding='utf-8', errors='replace') as h:
-            fs[f] = h.read()
+        fs[f] = read_path(os.path.join(root, f))
     bad = lint(fs)
     line(not bad, 'wiring: every link of copy_direct is in the source%s' % ((' (missing: ' + '; '.join(bad) + ')') if bad else ''))
     plants = [

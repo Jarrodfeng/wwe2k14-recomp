@@ -71,27 +71,24 @@ void AttachFrameHooks(SceneFrame& frame, const SceneTables& rec, FrameHooks& h) 
     frame.stage_hooks.push_back(h.scene2d_.get());
   }
   if (h.particles_) {
-    h.particles_->SetFrame(uint32_t(rec.header.guest_frame));
+    h.AttachParticles(rec);   // S111 TITLESMOKE: the stamp + lookup, shared with the flat frame's draw
     frame.particles = rec.particles.empty() ? nullptr : &rec.particles;
-    // S103 F5: a batch's Texture asset (pac\prtcls.pac + "pBBBB/EEE/1/Name": the namer's result) -> the sprite image; any other asset is not a particle texture (white stand-in, counted)
-    // (the lookup keeps only COPIES of the record's texture names: it stays installed after this frame and `rec` must not be touched then; `h` owns the hook, so it outlives the lookup)
-    auto names = std::make_shared<std::vector<std::pair<std::string, std::string>>>(rec.assets.size());
-    for (size_t i = 0; i < rec.assets.size(); ++i)
-      if (rec.assets[i].kind == uint8_t(AssetKind::Texture)) (*names)[i] = {std::string(rec.Str(rec.assets[i].pac)), std::string(rec.Str(rec.assets[i].entry))};
-    h.particles_->SetTextureLookup([&h, names](uint32_t asset) -> rdr::ImageId {
-      if (asset >= names->size() || (*names)[asset].first.empty() || (*names)[asset].second.empty()) return rdr::kNoImage;
-      return h.ParticleImage((*names)[asset].first, (*names)[asset].second);
-    });
     frame.stage_hooks.push_back(h.particles_.get());
   }
 }
 
-bool FrameHooks::ShadowInputHole(const SceneTables& rec, std::string& why) {
-  if (!maps_) return false;
-  BuildMapsInput(rec, options_.maps_faults, nullptr, scratch_, options_.maps_fit);
-  if (options_.maps_input_patch) options_.maps_input_patch(scratch_);
-  if (scratch_.shadow_hole) why = scratch_.fit_key_why;
-  return scratch_.shadow_hole;
+void FrameHooks::AttachParticles(const SceneTables& rec) {
+  if (!particles_) return;
+  particles_->SetFrame(uint32_t(rec.header.guest_frame));
+  // S103 F5: a batch's Texture asset (pac\prtcls.pac + "pBBBB/EEE/1/Name": the namer's result) -> the sprite image; any other asset is not a particle texture (white stand-in, counted)
+  // (the lookup keeps only COPIES of the record's texture names: it stays installed after this frame and `rec` must not be touched then; this FrameHooks owns the hook, so it outlives the lookup)
+  auto names = std::make_shared<std::vector<std::pair<std::string, std::string>>>(rec.assets.size());
+  for (size_t i = 0; i < rec.assets.size(); ++i)
+    if (rec.assets[i].kind == uint8_t(AssetKind::Texture)) (*names)[i] = {std::string(rec.Str(rec.assets[i].pac)), std::string(rec.Str(rec.assets[i].entry))};
+  particles_->SetTextureLookup([this, names](uint32_t asset) -> rdr::ImageId {
+    if (asset >= names->size() || (*names)[asset].first.empty() || (*names)[asset].second.empty()) return rdr::kNoImage;
+    return ParticleImage((*names)[asset].first, (*names)[asset].second);
+  });
 }
 
 std::string FrameHooks::CensusLine() const {

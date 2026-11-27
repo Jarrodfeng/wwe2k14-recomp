@@ -116,8 +116,11 @@ def unit(root):
 
 
 def wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        return open(os.path.join(root, rel), encoding='utf-8', errors='replace').read()
+        return read_path(os.path.join(root, rel))
     sw, rd, bd = text('src/renderer_adapter/rdr_switches.h'), text('src/renderer_adapter/reader.h'), text('src/renderer_adapter/binder.h')
     fv, rp = text('src/fview/main.cpp'), text('src/renderer/player/rplay.cpp')
     links = [('the switch table row (PerFrame, default 0)', lambda: re.search(r'X\(FrameRoundtrip, "wwe2k14_rdr_frame_roundtrip", PerFrame, 0\)', sw) is not None),

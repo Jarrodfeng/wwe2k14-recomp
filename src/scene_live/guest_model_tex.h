@@ -36,6 +36,7 @@ struct WordMem {
 // CTX2: 34 = the 8888 shape is not allowed (allow_8888 off: the CAW model's linear BGRA pictures are refused as format again).
 // S105 A5c: 36 = a flushed (dirty) picture is not refreshed at once (the 61-frame guard only); 37 = the model's logo keys are not resolved.
 // S110 WHITEEYES: 38 = a deferred refresh returns the held hash WITHOUT its bytes (the read names a picture its rows do not carry: the part builds white).
+// S111 KEYFRESH: 39 = a failed first read erases its record and leaves its watch behind (the old rule); 40 = an entry's old header stays watched when its header changes (the old rule).
 inline int g_gm_tex_plant = 0;
 // why[] slot for "the sampler has no key at all" (key word 0 == 0); 0..8 are guest_tex::Why.
 inline constexpr uint32_t kWhyNoKey = 9;
@@ -198,6 +199,16 @@ class TexResolver {
   }
   const TexStats& stats() const { return st_; }
   size_t cached() const { return cache_.size(); }
+  // Drops the records unused for 600 frames (ResolveTo calls it past kMaxEntries; public for the unit's erase check) and unwatches each dropped record's header unless another record still reads it.
+  void Trim(uint64_t frame) {
+    for (auto it = cache_.begin(); it != cache_.end();) {
+      if (frame > it->second.last_use && frame - it->second.last_use > 600) {
+        const uint32_t hd = it->second.header;
+        it = cache_.erase(it);
+        if (hd) UnwatchIfFree(hd);   // review F5: free the dirty-table slot unless another entry still reads this header
+      } else ++it;
+    }
+  }
   // CTX2 site 8: the birth hook's record of a texture key (picsrc::PictureSource::BirthOf): false = never seen born; true = born at `site`, whose class is `creator` (a kCreator* code; Unknown = a site nobody classified).
   // Null hook = never seen born. Set by the live contributor; the unit sets its own.
   bool (*born_of)(uint32_t key, uint8_t& creator, uint32_t& site) = nullptr;
@@ -295,7 +306,8 @@ class TexResolver {
     bool refresh_due = (override_src || is8888) && e.hash && frame >= e.last_read + kOverrideRefreshFrames;
     // S105 A5c (A5c.md item 4): the game says when a picture changed: the unlock flush 0x82CA6BE0 of its header (guest_tex_dirty.h). A flushed identity is due at once, whatever its format (the match composer's BC pictures
     // were never re-read before), and the sampled guard is skipped for it; the guard stays the fallback for a header the dirty table could not watch.
-    const bool dirty = e.hash && r.header && g_gm_tex_plant != 36 && guest_tex_dirty::Gen(r.header) != e.flush_gen;   // review F6: per entry, so two handles of one header both see a flush
+    // S111 KEYFRESH: a header changed behind the same identity (the handle resolves to another header with the same fetch words) is due too: the record's watch moves to the header resolved now.
+    const bool dirty = e.hash && r.header && g_gm_tex_plant != 36 && (guest_tex_dirty::Gen(r.header) != e.flush_gen || r.header != e.header);   // review F6: per entry, so two handles of one header both see a flush
     if (dirty) refresh_due = true;
     if (refresh_due && is8888 && !dirty) {   // review 2: the 8888 page may be rewritten in place by the editor: a cheap sampled guard first, the whole picture only when it changed
       const auto pg = [&](uint32_t a, uint32_t n, uint8_t* d) { return phys(a, n, d); };
@@ -318,8 +330,15 @@ class TexResolver {
       uint32_t gen_before = 0;
       if (r.header) {
         if (dirty) ++st_.dirty_rereads;
-        if (!guest_tex_dirty::Watch(r.header)) ++st_.unwatched;
+        if (!guest_tex_dirty::Watch(r.header, guest_tex_dirty::kOwnerModelTex)) ++st_.unwatched;
         gen_before = guest_tex_dirty::Gen(r.header);   // taken BEFORE the read: a flush that lands during it is seen next call; a failed read never stores it (review F7)
+      }
+      // S111 KEYFRESH: every Watch has its Unwatch. The record holds the header it watched NOW, whatever the read answers (Trim then unwatches it); the header it held before is unwatched unless another
+      // record still reads it. The stored generation goes with the old header (0: a watched header's is never 0, so a failed re-read is retried at the next call). g_gm_tex_plant 40 = the old rule.
+      if (e.header != r.header && g_gm_tex_plant != 40) {
+        const uint32_t old = e.header;
+        e.header = r.header, e.flush_gen = 0;
+        if (old) UnwatchIfFree(old);
       }
       std::vector<uint8_t> blocks;
       const auto p2 = [&](uint32_t a, uint32_t n, uint8_t* d) { return phys(a, n, d); };
@@ -329,7 +348,11 @@ class TexResolver {
       if (rw != guest_tex::Why::Ok || blocks.size() != GuestTexBytes(sh.width, sh.height, sh.game_format)) {
         last_why_ = uint8_t(rw != guest_tex::Why::Ok ? rw : guest_tex::Why::Size);
         if (!quiet_) ++st_.why[last_why_ & 15];   // (a size mismatch with rw == Ok is Size, never slot 0 = ok)
-        if (!e.hash) cache_.erase(id);
+        // S111 KEYFRESH: a failed first read KEEPS its record (hash 0: read again whenever asked) and so its watch: the game's flush of that header makes the resolver due at once (TexCallStep), not at
+        // the 61-frame retry; Trim drops it (and its watch) once it is 600 frames unused AND the cache holds more than kMaxEntries records (ResolveTo runs Trim only then: until that, the record and its
+        // watch stay, as a read one's do). g_gm_tex_plant 39 = the old erase (its watch was left behind).
+        e.last_use = frame;
+        if (!e.hash && g_gm_tex_plant == 39) cache_.erase(id);
         return 0;
       }
       const uint64_t h = Hash64(blocks.data(), blocks.size(), HashU32(sh.width * 65536u + sh.height, HashU32(sh.game_format, 0x7E57)));
@@ -382,18 +405,12 @@ class TexResolver {
     }
     wm.fail = false;
   }
-  void Trim(uint64_t frame) {
-    for (auto it = cache_.begin(); it != cache_.end();) {
-      if (frame > it->second.last_use && frame - it->second.last_use > 600) {
-        const uint32_t hd = it->second.header;
-        it = cache_.erase(it);
-        if (hd) {   // review F5: free the dirty-table slot unless another entry still reads this header
-          bool held = false;
-          for (const auto& kv : cache_) held = held || kv.second.header == hd;
-          if (!held) guest_tex_dirty::Unwatch(hd);
-        }
-      } else ++it;
-    }
+  // S111 KEYFRESH: the resolver's interest in `hd` ends when no record holds it (two handles of one header: one record's drop must not silence the other's flushes); the table's owner bit keeps any
+  // other reader's watch of the header (guest_tex_dirty.h Unwatch).
+  void UnwatchIfFree(uint32_t hd) {
+    for (const auto& kv : cache_)
+      if (kv.second.header == hd) return;
+    guest_tex_dirty::Unwatch(hd, guest_tex_dirty::kOwnerModelTex);
   }
   std::unordered_map<uint64_t, Entry> cache_;
   TexStats st_;

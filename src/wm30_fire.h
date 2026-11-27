@@ -266,6 +266,7 @@ inline const bool g_registered = (wwe2k14::wm30::g_fire_live = &LiveCommand, wwe
 
 // The Lua argument reads of our call of sub_82736790 are answered here; every other caller (and every other L) goes to the original.
 // The sentinel is compared first (r3 is a plain register read), the atomic only when it matches.
+// SKIP-ORIGINAL: the Lua argument reads of our own call of sub_82736790 are answered here (the comment above); every other caller and every other L goes to the original
 REX_HOOK_RAW(sub_82C4A538) {
   using namespace wwe2k14::wm30_fire;
   if (ctx.r3.u32 == kFakeL && g_fake_active.load(std::memory_order_relaxed)) {

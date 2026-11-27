@@ -11,6 +11,7 @@
 //   color_off        the colour index sits at +52 instead of +56                       -> "flash.color"
 //   mode_ignored     the latch ignores --wwe2k14_rdr_scene = 0                          -> "mode.off_reads_nothing"
 //   lose_flags       the round trip drops the rows' flags                               -> "record.roundtrip"
+//   rows_own_latch   the record takes its OWN latch's flash rows (walk r's flashes over walk r - 1's camera) -> "period.rows_take_record_camera" (S111 FLASHCAM review)
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include "../../src/renderer_scene/rows_stage_fx.h"
 #include "../../src/scene_live/flash_fx_contrib.h"
 #include "../../src/lever_scene.h"   // S110 FLASHHOLD F2: HoldFactor (pure)
+#include "../../src/scene_live/latch_period.h"   // S111 FLASHCAM review: the record camera's pick (InputsContributor cam_period_)
 
 using namespace rdr_scene;
 using rdr_scene::live::Counters;
@@ -280,9 +282,10 @@ static void RunFactorAndContribHoldCases() {
     const std::string got = Scales(fr, 3);
     Check(got == "5 5 5 5 1 1 1 1 - - ", "hold.k4_sequence", got);
   }
-  {   // the production order: Latch -> Take -> BuildFlashRows -> HoldRows with the glue's factor (SetHoldFn), one flash in slot 10 (life 3: drawn at counter 2, then 3 + done)
-    struct Step { uint32_t done, counter; float scale; };
-    const Step steps[] = {{0, 2, 0.5f}, {1, 3, 0.15f}, {1, 3, 0.15f}, {1, 3, 0.15f}, {1, 3, 0.15f}};
+  {   // the production order: Latch -> Take -> BuildFlashRows -> the record's period pick -> HoldRows with the glue's factor (SetHoldFn), one flash in slot 10 (life 3: drawn at counter 2, then 3 + done).
+      // S111 FLASHCAM review: the run starts with a latch without flashes (the period pick's boundary), and record r shows latch r - 1's rows, so the k = 2 sequence starts two records later.
+    struct Step { bool none; uint32_t done, counter; float scale; };
+    const Step steps[] = {{true, 0, 0, 0.f}, {false, 0, 2, 0.5f}, {false, 1, 3, 0.15f}, {false, 1, 3, 0.15f}, {false, 1, 3, 0.15f}, {false, 1, 3, 0.15f}, {false, 1, 3, 0.15f}};
     ffx::FlashFxContributor con;
     con.SetReader(ReadThunk);
     if (!Plant("hold_fn_unwired")) con.SetHoldFn(+[]() -> uint32_t { return 2u; });
@@ -292,8 +295,10 @@ static void RunFactorAndContribHoldCases() {
       BuildGuest();
       const uint32_t arr = kM + ffx::kItemArray;
       for (uint32_t i = 0; i < ffx::kItemCount; ++i) g_guest.Put(arr + 4 * i, 0);   // only slot 10
-      PutItem({10, 5.f, -5.f, 5.f, s.scale, s.done, s.counter, 3, 1, 0, 1, 0, ffx::kItemVtable});
-      g_guest.Put(arr + 40, ItemAddr(10));
+      if (!s.none) {
+        PutItem({10, 5.f, -5.f, 5.f, s.scale, s.done, s.counter, 3, 1, 0, 1, 0, ffx::kItemVtable});
+        g_guest.Put(arr + 40, ItemAddr(10));
+      }
       FrameInfo f;
       f.guest_frame = frame++;
       con.Latch(f);
@@ -304,8 +309,45 @@ static void RunFactorAndContribHoldCases() {
     }
     BuildGuest();
     const std::string got = Scales(fr, 10);
-    Check(got == "5 5 1 1 - ", "hold.contrib_take", got + " held " + std::to_string(con.Stats().held));
+    Check(got == "- - 5 5 1 1 - ", "hold.contrib_take", got + " held " + std::to_string(con.Stats().held));
   }
+}
+
+// S111 FLASHCAM review: ONE RECORD, ONE CLOCK. Two latches in the production order (Latch -> Take -> Emit), each with its own flash (slot 10 at x = 111 on latch 500, x = 222 on latch 501) and its own
+// camera (tag 500 / 501). The record's camera is picked as InputsContributor picks it (cam_period_: scene_inputs::period::OfPalette, latch_period.h; flash_fx_check.py's needle holds the production line).
+// Every record's flash rows must come from the latch whose camera the record carries: the flash is placed with the camera of the walk that drew it.
+static void RunPeriodCase() {
+  ffx::g_plant_rows_own_latch = Plant("rows_own_latch");
+  ffx::FlashFxContributor con;
+  con.SetReader(ReadThunk);
+  scene_inputs::period::OfPalette<uint64_t> cam_period;   // the record camera's pick; the value = the latch whose camera it is
+  bool ok = true;
+  std::string why;
+  const float xs[3] = {111.f, 222.f, 333.f};
+  for (uint64_t i = 0; i < 3; ++i) {
+    const uint64_t frame = 500 + i;
+    BuildGuest();
+    const uint32_t arr = kM + ffx::kItemArray;
+    for (uint32_t s = 0; s < ffx::kItemCount; ++s) g_guest.Put(arr + 4 * s, 0);
+    PutItem({10, xs[i], -5.f, 5.f, 0.5f, 0, 2, 9, 1, 0, 1, 0, ffx::kItemVtable});
+    g_guest.Put(arr + 40, ItemAddr(10));
+    const uint64_t record_camera = cam_period.Pick(frame, frame);   // the camera read at this latch is this latch's
+    FrameInfo f;
+    f.guest_frame = frame;
+    con.Latch(f);
+    SceneTables t;
+    Counters c;
+    con.Emit(f, t, c);
+    const StageFxRow* r = RowOf(t.stage_fx, 10);
+    const float want = xs[record_camera - 500];
+    if (!r || !Near(r->pos[0], want)) {
+      ok = false;
+      why += " record " + std::to_string(frame) + " (camera of latch " + std::to_string(record_camera) + "): flash x " + (r ? std::to_string(r->pos[0]) : std::string("none")) + " want " + std::to_string(want) + ";";
+    }
+  }
+  BuildGuest();
+  ffx::g_plant_rows_own_latch = false;
+  Check(ok, "period.rows_take_record_camera", why);
 }
 
 int main(int argc, char** argv) {
@@ -443,6 +485,7 @@ int main(int argc, char** argv) {
   }
   RunHoldCases();
   RunFactorAndContribHoldCases();
+  RunPeriodCase();
   std::printf("%s: %d checks, %d failed\n", g_fail ? "FAIL" : "OK", g_checks, g_fail);
   return g_fail ? 1 : 0;
 }

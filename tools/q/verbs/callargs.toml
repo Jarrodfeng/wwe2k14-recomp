@@ -1,0 +1,15 @@
+name = "callargs"
+module = "qcallargs"
+needs = "con"
+errors = ["qcallargs.CallArgsError", "qcallargs.qslice.SliceError", "qcallargs.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 62
+text = '''  callargs FUNC REG [REG...] [--json]   the value of each named register at EVERY call site of FUNC: a constant, a value set, or ? with its def (q slice's walk),
+                               joined to the jump-table case and the screen code the decomp compares before the call (tools/q/qcallargs.py)'''
+
+[[route]]
+order = 148
+text = '''- the argument a function gets at each of its call sites (an exit id, a sequence id), with the case / screen it is sent under: callargs FUNC r4; every sequence constructor -> its sequence id: seqids'''

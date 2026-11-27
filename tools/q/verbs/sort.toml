@@ -1,0 +1,10 @@
+name = "sort"
+module = "qsort"
+errors = ["qsort.SortError", "qsort.qnames.NamesError"]
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 90
+text = '''  sort --stats | FUNC | --left  the functions outside every call cluster of 3+ sorted by tools only: DB / GAME-NAMED / LIB / PATTERN / THUNK / LEAF-TRIVIAL / CLONE / LEFT (tools/q/qsort.py)'''

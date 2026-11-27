@@ -554,6 +554,7 @@ REX_HOOK_RAW(sub_82B75228) {
   }
 }
 
+// SKIP-ORIGINAL: inside the Universe roster check a held seat answers valid (KeepHeldSeat) and a handed-over seat answers gone (PendingGone), both with the answer set here; every other ask runs the original
 REX_HOOK_RAW(sub_82B62720) {
   if (wwe2k14::seats::KeepHeldSeat(ctx)) return;
   if (wwe2k14::slot_handover::PendingGone(ctx)) return;

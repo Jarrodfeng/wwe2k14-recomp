@@ -22,6 +22,7 @@
 #endif
 
 #include "api.h"
+#include "dyn_state.h"   // S111 DYNSTATE review: ParseList hands back this device's keys (dyn::KeyState)
 
 namespace rdr::pstore {
 
@@ -29,6 +30,15 @@ constexpr uint32_t kListMagic = 0x4C535057;   // "WPSL"
 constexpr uint32_t kCacheMagic = 0x43535057;  // "WPSC"
 constexpr uint32_t kVersion = 1;         // the cache wrapper
 constexpr uint32_t kListVersion = 2;     // 2: vendor / device / format-caps mask in the header (lane 276 S4)
+// S111 DYNSTATE: the list header's caps word. Bits 24-27 = the dynamic-state set the records' keys were made under (dyn_state.h Group bits: such a record has
+// zeros where a full state has cull / depth / blend), the rest = the format-caps test mask (format_caps.h uses bits 0-6 and 31). ParseList reads a list whose
+// dynamic set is this device's or a part of it (S111 DYNSTATE review): such a record holds every state this device bakes, so dyn::KeyState makes it this device's
+// key, exactly as StoreInit does with the seed's full states. A list written before DYNSTATE (bits 0) is therefore kept on every device, as keys. A list whose set
+// holds a group this device bakes is refused whole: its records lack that state (a driver that lost a group, or the switch turned down). kListVersion is not
+// bumped for it: the seed's H rdr line carries the same number and its records are unchanged.
+constexpr uint32_t kDynShift = 24;
+constexpr uint32_t kDynBits = 0xFu << kDynShift;
+inline uint32_t LimitsWord(uint32_t format_caps_mask, uint32_t dyn_mask) { return (format_caps_mask & ~kDynBits) | ((dyn_mask << kDynShift) & kDynBits); }
 constexpr uint32_t kMaxRecords = 4096;
 constexpr uint32_t kKeepSessions = 12;         // a record unused for this many sessions is dropped at the next save
 constexpr uint64_t kMaxCacheBytes = 256ull << 20;
@@ -327,8 +337,11 @@ inline std::vector<uint8_t> SerialiseList(const std::vector<Record>& records, ui
 }
 
 // Returns an empty string on success, else why the list is refused. A record that fails its range checks (after a good checksum) is dropped alone: `dropped`.
-// `skip_checks` is the lane's test plant (the checksum is not checked).
-inline std::string ParseList(const std::vector<uint8_t>& file, std::vector<Record>& out, uint32_t& session, const DeviceId& id, uint32_t caps_mask, uint32_t& dropped, bool skip_checks) {
+// `skip_checks` is the lane's test plant (the checksum is not checked). `caps_mask` is this device's LimitsWord: every record handed back is a key of ITS
+// dynamic set (dyn::KeyState); `reshaped` (optional) = the list was made under a smaller set, so its file is out of date (two of its records may now be one key).
+inline std::string ParseList(const std::vector<uint8_t>& file, std::vector<Record>& out, uint32_t& session, const DeviceId& id, uint32_t caps_mask, uint32_t& dropped, bool skip_checks,
+                             bool* reshaped = nullptr) {
+  if (reshaped) *reshaped = false;
   out.clear();
   dropped = 0;
   if (file.size() < sizeof(ListHeader)) return "shorter than its header";
@@ -341,7 +354,9 @@ inline std::string ParseList(const std::vector<uint8_t>& file, std::vector<Recor
   const uint8_t* payload = file.data() + sizeof(ListHeader);
   if (!skip_checks && HashBytes(payload, h.payload_bytes) != h.checksum) return "checksum mismatch (corrupt)";
   if (h.vendor != id.vendor || h.device != id.device) return "made on another GPU (vendor/device differ)";
-  if (h.caps_mask != caps_mask) return "made with other format-caps limits";
+  const uint32_t list_dyn = (h.caps_mask & kDynBits) >> kDynShift, own_dyn = (caps_mask & kDynBits) >> kDynShift;   // S111 DYNSTATE (+ review: a smaller set is read as keys)
+  if (list_dyn & ~own_dyn) return "made under another dynamic-state set (its records lack a draw state this device bakes into the pipeline: a driver change or the switch)";
+  if ((h.caps_mask & ~kDynBits) != (caps_mask & ~kDynBits)) return "made with other format-caps limits";
   Reader rd{payload, h.payload_bytes};
   out.reserve(h.count);
   for (uint32_t i = 0; i < h.count; ++i) {
@@ -350,10 +365,15 @@ inline std::string ParseList(const std::vector<uint8_t>& file, std::vector<Recor
       out.clear();
       return "records unreadable";
     }
-    if (Sane(r)) out.push_back(r);
-    else ++dropped;
+    if (!Sane(r)) {
+      ++dropped;
+      continue;
+    }
+    r.state = dyn::KeyState(r.state, own_dyn);   // S111 DYNSTATE review: a key of this device (a no-op for a list of its own set)
+    out.push_back(r);
   }
   session = h.session;
+  if (reshaped) *reshaped = list_dyn != own_dyn;
   return {};
 }
 

@@ -171,7 +171,8 @@ struct E2State {
   rdr::BufferId liquid_disc_vb = rdr::kNoBuffer, liquid_disc_ib = rdr::kNoBuffer, liquid_quad_vb = rdr::kNoBuffer;
   uint32_t liquid_disc_indices = 0;
   int liq_vs_local = -1, liq_vs_base = -1, liq_fs_sweat = -1, liq_fs_sweat_dim = -1, liq_fs_paste = -1, liq_fs_copy = -1, liq_fs_copy_dim = -1;
-  uint16_t liq_prog_sweat = 0, liq_prog_sweat_dim = 0, liq_prog_paste = 0, liq_prog_copy = 0, liq_prog_copy_dim = 0, liq_layout = 0;
+  int liq_fs_copy_q4 = -1;                            // S111 LIQUID4BIT: copy_prev rounding each channel to 1 / 15 (the game's resolve into its k_4_4_4_4 map texture; docs\systems\liquid_map.md section 5a)
+  uint16_t liq_prog_sweat = 0, liq_prog_sweat_dim = 0, liq_prog_paste = 0, liq_prog_copy = 0, liq_prog_copy_dim = 0, liq_prog_copy_q4 = 0, liq_layout = 0;
   bool liquid_ready = false;
   std::unique_ptr<live::PictureCache> liquid_pics;
   // per frame (reset by RecordSweat) and totals (census)

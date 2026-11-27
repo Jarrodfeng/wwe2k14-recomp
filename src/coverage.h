@@ -423,12 +423,31 @@ inline void Mark(uint32_t id, const std::string& text, uint64_t frame) {
 }  // namespace wwe2k14::coverage
 
 #include "probe_plugin.h"  // Session 30 (#4): hot-reload probe plugins (coverage build only)
+#include "equiv/equiv_cov.h"  // S111 EQUIV-A: the equivalence tester's allowlist / stub seam (off unless --wwe2k14_equiv runs)
 
 // Slow path of the generated prologue: the first call of a function in the current window, or (Session 29) any call of
 // an armed function. Returns the context when this call is traced (the prologue's guard then logs the return).
 extern "C" void* wwe2k14_cov_hit(const char* func, uint32_t* seen, void* ctx_ptr, uint8_t* base, uint32_t* call) {
   using namespace wwe2k14::coverage;
   const uint32_t epoch = __atomic_load_n(&wwe2k14_cov_epoch, __ATOMIC_RELAXED);
+  // S111 EQUIV-A: the headless equivalence tester (src\equiv\equiv_host.h) is running: every entered function is checked
+  // against its allowlist (outside = an SEH exception the tester's guarded call turns into -1) and may be stubbed.
+  if (wwe2k14::equiv::Cov().active.load(std::memory_order_relaxed)) {
+    switch (wwe2k14::equiv::OnEntry(FuncAddress(func))) {
+      case wwe2k14::equiv::Entry::kOutside:
+        wwe2k14::equiv::RaiseOutside();
+      case wwe2k14::equiv::Entry::kStubbed:
+        __atomic_store_n(seen, kTraced, __ATOMIC_RELAXED);  // a stubbed function comes here on every call
+        return WWE2K14_COV_STUBBED;
+      case wwe2k14::equiv::Entry::kStubRan:
+        __atomic_store_n(seen, kTraced, __ATOMIC_RELAXED);
+        return nullptr;
+      case wwe2k14::equiv::Entry::kRun:
+        break;
+    }
+    __atomic_store_n(seen, epoch, __ATOMIC_RELAXED);
+    return nullptr;
+  }
   // Session 30 (#4): a function the probe plugin took (src/probe_plugin.h): every call comes here (its word stays at
   // kTraced); enter() runs now, leave() from the prologue guard (call 0 = a plugin call, never a trace number).
   if (wwe2k14::probe::P().any.load(std::memory_order_relaxed)) {

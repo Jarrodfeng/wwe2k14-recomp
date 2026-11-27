@@ -1,0 +1,11 @@
+name = "asset"
+module = "qasset"
+qerror = false
+broken_pipe = false
+usage_slot = "u103"
+
+[[usage]]
+order = 106
+text = '''  asset find|pac|tex|mat|id|slot|info|update   the index of the game's FILES: every pac -> PACH (+ virtual path /STG/CAGE) -> entry -> model nodes / meshes / material
+                               parameters / texture format + alpha stats; evtobj / bgEtc / weapon ids (tools/q/qasset.py; out/harness/index/asset.s6.db, built
+                               from the player's own files AND his mods folder (rows tagged game / mod:NAME, --source), refreshes ITSELF; `q asset -h`)'''

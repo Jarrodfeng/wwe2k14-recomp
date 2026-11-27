@@ -508,11 +508,13 @@ REX_HOOK_RAW(sub_8231B330) {
   __imp__sub_8231B330(ctx, base);
 }
 
+// SKIP-ORIGINAL: OnTextFind answers a seat's name (or the DOWNLOADED page title) with our guest string when the owner is the text manager's; every other lookup runs the original
 REX_HOOK_RAW(sub_82C38588) {
   if (wwe2k14::seats::OnTextFind(ctx, base)) return;
   __imp__sub_82C38588(ctx, base);
 }
 
+// SKIP-ORIGINAL: HideFrameSeat answers 0 (not offered) for a frame seat with no occupant; every other id runs the original
 REX_HOOK_RAW(sub_82817598) {
   if (wwe2k14::seats::HideFrameSeat(ctx)) return;
   __imp__sub_82817598(ctx, base);

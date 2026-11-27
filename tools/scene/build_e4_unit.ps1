@@ -1,4 +1,4 @@
-# Builds lane E4's unit proof (Session 103): out\tools\e4_unit.exe = the light install resolver, the key light from the light objects, the bit 7 decision, the plane constants (headers + the record reader).
+# Builds lane E4's unit proof (Session 103): out\tools\e4_unit.exe = the light install resolver, the bit 7 latch decision, the plane constants (headers + the record reader).
 # Compile only: no game, no run lock, no SDK.   pwsh -NoProfile -File tools\scene\build_e4_unit.ps1
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')

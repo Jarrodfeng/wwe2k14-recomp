@@ -24,6 +24,8 @@
 //   show_unread        S103 SCF: the stage's show bits cannot be read (the fixed sets by look: the gate waits for screens the game switched off)                -> "show.read_bits" + "show.gate_follows_bits"
 //   art_erased         S103 SCF: the live loader erases the art slots 301 / 302 / 304 (the pre-SCF rule: black quads over the art the game shows)               -> "show.loader_keeps_art"
 //   idle_black         S103 SCF: a shown screen with no movie is painted black in the match look (the pre-SCF rule)                                           -> "show.idle_draw"
+//   arena_ignored      S111 TRONKEY: the latch never hands the binding the stage's arena (a created arena keeps the shipped key -> channel table)              -> "bind.arena_table"
+//   tron_by_key        S111 TRONLIVE: "a tron plays" = a row for 804 / 807 (the shipped keys; a created arena's panel / wall movies) instead of the tron's channel  -> "screens.tron_by_channel"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -483,13 +485,13 @@ int main(int argc, char** argv) {
     scr::ScreenBinding b;
     b.LoadDefaults(Plant("banner_to_ch5"), Plant("panels_ch2"));   // the plant binds the banner band 807 to channel 5 (the entrance UI's movie)
     uint32_t ew = 0, eh = 0;
-    const bool sizes = b.ExpectedSize(804, ew, eh) && ew == 320 && eh == 320 && b.ExpectedSize(805, ew, eh) && ew == 256 && eh == 128;
-    const bool table = sizes && b.ChannelOf(800) == -1 && b.ChannelOf(803) == -1 && b.ChannelOf(804) == 0 && b.ChannelOf(807) == 0 && b.ChannelOf(805) == 2 &&
+    const bool sizes = b.ExpectedSize(804, ew, eh) && ew == 320 && eh == 320 && b.ExpectedSize(803, ew, eh) && ew == 320 && eh == 320 && b.ExpectedSize(805, ew, eh) && ew == 256 && eh == 128;
+    const bool table = sizes && b.ChannelOf(800) == -1 && b.ChannelOf(803) == 0 && b.ChannelOf(804) == 0 && b.ChannelOf(807) == 0 && b.ChannelOf(805) == 2 &&   // S111 TRONKEY: 803 on the tron (the game's table)
                        b.ChannelOf(801) == 1 && b.ChannelOf(802) == 1 && b.ChannelOf(806) == 1 && b.ChannelOf(808) == 1 && b.ChannelOf(809) == 1 &&
                        b.ExpectedSize(802, ew, eh) && ew == 256 && eh == 256;   // S103 M2: the panels = channel 1 @ 256x256 (run 18)
     scr::PlaneStore sd;
     sd.binding.LoadDefaults(Plant("banner_to_ch5"), Plant("panels_ch2"));
-    for (uint32_t k : {804u, 807u, 805u, 801u, 802u, 806u, 808u, 809u}) sd.binding.Set(k, sd.binding.ChannelOf(k), kW, kH);   // (the unit's movies are 64x40; the shipped sizes were checked above)
+    for (uint32_t k : {803u, 804u, 807u, 805u, 801u, 802u, 806u, 808u, 809u}) sd.binding.Set(k, sd.binding.ChannelOf(k), kW, kH);   // (the unit's movies are 64x40; the shipped sizes were checked above)
     Decode(3, 0, 40, false);   // channel 0: the titantron
     Decode(4, 1, 41, true);    // channel 2: the mini-tron movie
     Decode(1, 0, 42, false);   // channel 5: the UI movie
@@ -500,7 +502,7 @@ int main(int argc, char** argv) {
     sd.OnFlush(&ReadThunk, SetOfSlot(1), g_now);
     auto f804 = sd.Find(nullptr, 804, 0, g_now), f807 = sd.Find(nullptr, 807, 0, g_now), f803 = sd.Find(nullptr, 803, 0, g_now), f805 = sd.Find(nullptr, 805, 0, g_now);
     std::string w;
-    const bool tron = f804 && f807 && !f803 && f804 == f807 && MatchesFrame(*f804, 3, 0, 40, false, &w);   // ONE frame shared by the centre, the banner band and the sheet quad
+    const bool tron = f804 && f807 && f803 && f804 == f807 && f804 == f803 && MatchesFrame(*f804, 3, 0, 40, false, &w);   // ONE frame shared by the centre, the banner band and the sheet quad
     Check(table && tron && f805 && MatchesFrame(*f805, 4, 1, 41, true), "bind.default_table",
           std::string("table ") + (table ? "ok" : "WRONG") + " tron " + (tron ? "ok" : ("WRONG " + w)));
     // S103 M2: the panels (all five keys) show channel 1's frame: ONE frame shared (the same pooled movie), not the tron's, not the mini-tron's
@@ -621,6 +623,26 @@ int main(int argc, char** argv) {
     con.Census(census);
     Check(s1 == 0 && s2 == 800 && s3 == 0 && s4 == 0 && census.find("of_which_unbound") != std::string::npos, "screens.complete_gate",
           "stamps: match+unbound 801 " + std::to_string((unsigned long long)s1) + ", complete " + std::to_string((unsigned long long)s2) + ", unknown look " + std::to_string((unsigned long long)s3) + ", tron playing " + std::to_string((unsigned long long)s4));
+    // S111 TRONLIVE: "a titantron plays" = a row for a key the binding puts on the tron's channel (stage_channels kTronChannel), never a key list. s4 above is the shipped twin (804 on channel 0).
+    // The created table's twins (stage_channels_core.h StageChannelOfKey, arenas 200..249): the tron on 808 (channel 0 -> slot 3, flushed for s4): 800 required, no stamp; 804 on the panel movie
+    // (channel 1 -> slot 2, flushed here) with no key on channel 0: 800 skipped, stamped. 805 keeps its wall-movie row (slot 4) in both, so 800 alone decides. Plant tron_by_key: rows for 804 / 807.
+    {
+      con.PlantTronByKey(Plant("tron_by_key"));
+      g.binding.Clear();
+      g.binding.Set(805, 2, kW, kH);
+      g.binding.Set(808, 0, kW, kH);                 // created table: the tron on 808
+      const uint64_t c808 = run(804);
+      g.binding.Clear();
+      g.binding.Set(805, 2, kW, kH);
+      g.binding.Set(804, 1, kW, kH);                 // created table: 804 on the panel movie; no key on the tron's channel
+      Decode(2, 0, 64, false);
+      g.OnFlush(&ReadThunk, SetOfSlot(2), g_now);
+      const uint64_t c804 = run(805);
+      con.PlantTronByKey(false);
+      Check(c808 == 0 && c804 == 804, "screens.tron_by_channel",
+            "stamps: created tron on 808 " + std::to_string((unsigned long long)c808) + " (want 0: 800 required), created panel on 804 without a tron " + std::to_string((unsigned long long)c804) +
+                " (want 804: 800 skipped)");
+    }
     sfx::StageFxContributor nogate;
     nogate.SetReader(ReadThunk);
     nogate.SetScreens(&scr::ScreensFnImpl);
@@ -874,6 +896,25 @@ int main(int argc, char** argv) {
     const bool r_on = ReadStageShow(rd, kSt, sn);
     Check(Plant("show_unread") ? false : (r_off && r_on && so.known && so.keys == kOff && so.art == 0xF && sn.keys == kOn && sn.art == 0 && so.ArtShown(303) && !sn.ArtShown(303) && sn.KeyShown(805) && !so.KeyShown(805)),
           "show.read_bits", "off branch keys " + std::to_string(so.keys) + " art " + std::to_string(so.art) + "; on branch keys " + std::to_string(sn.keys) + " art " + std::to_string(sn.art));
+    // S111 CAAVIS [C sub_82C2FA10]: the second gate, the screen object's render-node enable word (object + 32 of [stage + 22916 + 4 (key - 800)]): 0 hides a key whose record bit is set, 1 and a null object leave the
+    // bit; a non-null object whose word cannot be read fails the read (fail closed). The ON branch's records are in place (800 801 805 806 808 shown). Every word put here is erased again (the sections below see none).
+    {
+      constexpr uint32_t kObjOff = 0x47E00000, kObjOn = 0x47E00100, kObjGone = 0x47E00200;
+      for (uint32_t k = 0; k < 10; ++k) g_guest.Put(kSt + 22916 + 4 * k, 0);
+      g_guest.Put(kSt + 22916 + 4 * 8, kObjOff), g_guest.Put(kObjOff + 32, 0);   // 808: a created arena's Titantron switched off (sub_824E6130 writes 0)
+      g_guest.Put(kSt + 22916 + 4 * 1, kObjOn), g_guest.Put(kObjOn + 32, 1);     // 801: its node enabled
+      StageShow sg;
+      const bool r_g = ReadStageShow(rd, kSt, sg);
+      g_guest.Put(kSt + 22916 + 4 * 5, kObjGone);                                 // 805: an object whose enable word is not readable
+      StageShow su;
+      const bool r_u = ReadStageShow(rd, kSt, su);
+      for (uint32_t k = 0; k < 10; ++k) g_guest.words.erase(kSt + 22916 + 4 * k);
+      g_guest.words.erase(kObjOff + 32), g_guest.words.erase(kObjOn + 32);
+      StageShow sb;
+      const bool r_b = ReadStageShow(rd, kSt, sb);                                // the array unreadable again: the record bits alone (the ON branch)
+      Check(Plant("show_unread") || (r_g && sg.known && !sg.KeyShown(808) && sg.KeyShown(801) && sg.KeyShown(800) && sg.KeyShown(805) && sg.KeyShown(806) && !r_u && r_b && sb.keys == kOn),
+            "show.screen_node_gate", "keys with 808's node off " + std::to_string(sg.keys) + " (want " + std::to_string(unsigned(kOn) & ~(1u << 8)) + "), unreadable node read " + std::to_string(int(r_u)) + ", array gone keys " + std::to_string(sb.keys));
+    }
     // the per-frame masks: the OFF branch hides every screen but 800 and shows the art; the ON branch hides the art and shows the screens; 805 is drawn from the Screens model only
     const auto ca = ArtCull(so), cn = ArtCull(sn), cs = ScreenCull(sn, false, false), ce = ScreenCull(sn, true, false), cso = ScreenCull(so, false, false), cse = ScreenCull(sn, true, true), css = ScreenCull(sn, false, true);
     Check(ca[301] == 0 && ca[302] == 0 && ca[303] == 0 && ca[304] == 0 && cn[301] == 3 && cn[302] == 3 && cn[303] == 3 && cn[304] == 3 && cso[801] == 3 && cso[800] == 0 && cs[801] == 0 && cs[802] == 3 && cs[805] == 0 && ce[805] == 3 && cse[805] == 0 && css[805] == 3 && cs[803] == 3,
@@ -958,6 +999,42 @@ int main(int argc, char** argv) {
     const bool pb = Plant("idle_black");
     Check(rf::c::IdleDrawFor(false, true, pb) == rf::c::IdleDraw::FrameGrab && rf::c::IdleDrawFor(true, true, pb) == rf::c::IdleDraw::Black && rf::c::IdleDrawFor(false, false, pb) == rf::c::IdleDraw::Own,
           "show.idle_draw", std::string("match idle -> ") + (rf::c::IdleDrawFor(false, true, pb) == rf::c::IdleDraw::FrameGrab ? "frame grab" : "BLACK"));
+  }
+
+  // ---------------------------------------------------------------- 20. S111 TRONKEY: the game's two key -> channel tables by the arena id (stage_channels_core.h; sub_824EC3C0 +1E0..+290, sub_822AA2F8 200..249),
+  //     the binding refilled when the stage's arena moves to the other table, a dev spec pinning it, and the latch's rows provider handing the binding the arena (ScreensFnImpl -> ForArena)
+  {
+    namespace sc = wwe2k14::stage_channels;
+    static const int kWantShipped[10] = {-1, 1, 1, 0, 0, 2, 1, 0, 1, 1}, kWantCreated[10] = {-1, 1, -1, 0, 1, -1, 2, 2, 0, -1};   // keys 800..809
+    auto table_is = [](const scr::ScreenBinding& x, const int* want) {
+      for (uint32_t k = 0; k < 10; ++k)
+        if (x.ChannelOf(800 + k) != want[k]) return false;
+      return true;
+    };
+    uint32_t w = 0, h = 0;
+    scr::ScreenBinding b;   // a new binding = the shipped table (no arena known yet)
+    const bool shipped = table_is(b, kWantShipped) && b.ExpectedSize(803, w, h) && w == 320 && h == 320 && b.Table() == sc::kShippedTable;
+    const bool kept = !b.ForArena(5) && !b.ForArena(-1) && table_is(b, kWantShipped);   // another shipped arena / no stage: nothing to refill
+    const bool moved = b.ForArena(200) && table_is(b, kWantCreated) && b.Table() == sc::kCreatedTable && b.ExpectedSize(808, w, h) && w == 320 && h == 320 &&
+                       b.ExpectedSize(807, w, h) && w == 256 && h == 128 && b.ExpectedSize(804, w, h) && w == 256 && h == 256 && !b.ExpectedSize(805, w, h);
+    const bool unset_kept = !b.ForArena(-1) && table_is(b, kWantCreated) && b.Table() == sc::kCreatedTable;   // review: no stage between scenes (StageArena -1) keeps the created table, never flips to the shipped one
+    const bool back = b.ForArena(0) && table_is(b, kWantShipped);
+    std::string m;
+    b.ApplySpec("808:3", m);
+    const bool pinned = !b.ForArena(249) && b.ChannelOf(808) == 3 && b.ChannelOf(804) == -1;   // a dev spec is not replaced by the arena's table
+    const bool fn = sc::StageChannelOfKey(200, 811) == 1 && sc::StageChannelOfKey(249, 814) == 1 && sc::StageChannelOfKey(200, 810) == -1 && sc::StageChannelOfKey(199, 808) == 1 &&
+                    sc::StageChannelOfKey(250, 808) == 1 && sc::StageChannelOfKey(249, 808) == 0 && sc::StageChannelOfKey(5, 811) == -1 && sc::StageChannelOfKey(-1, 804) == 0;
+    // the hook: the latch's rows provider hands the store's binding the stage's arena (the glue sets g_arena to StageFx().StageArena())
+    st.binding.LoadDefaults(false);
+    if (!Plant("arena_ignored")) scr::g_arena = +[]() -> int { return 207; };
+    sfx::ScreenSource sbuf[16];
+    scr::ScreensFnImpl(sbuf, 16);
+    const bool hooked = table_is(st.binding, kWantCreated);
+    scr::g_arena = nullptr;
+    st.binding.LoadDefaults(false);
+    Check(shipped && kept && moved && unset_kept && back && pinned && fn && hooked, "bind.arena_table",
+          std::string("shipped ") + (shipped ? "ok" : "WRONG") + ", other shipped / unknown kept " + (kept ? "ok" : "WRONG") + ", arena 200 -> created " + (moved ? "ok" : "WRONG") + ", no stage keeps created " + (unset_kept ? "ok" : "WRONG") + ", back to 0 " +
+              (back ? "ok" : "WRONG") + ", spec pins " + (pinned ? "ok" : "WRONG") + ", table fn " + (fn ? "ok" : "WRONG") + ", latch hands the arena " + (hooked ? "ok" : "NO (the shipped table stays in a created arena)"));
   }
 
   std::printf("%s: %d checks, %d failed\n", g_fail ? "FAIL" : "OK", g_checks, g_fail);

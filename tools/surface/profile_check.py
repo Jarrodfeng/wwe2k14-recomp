@@ -141,7 +141,9 @@ def check_sources(errors):
         errors.append('src\\gfx_menu.h no longer logs the [gfx][applied] line through gfx_applied.h')
     if 'applied_calls == 2' not in menu:
         errors.append('src\\gfx_menu.h logs [gfx][applied] on every call (ApplyLauncherSettings runs twice per boot)')
-    launcher = (ROOT / 'src' / 'launcher' / 'launcher_main.cpp').read_text(encoding='utf-8', errors='replace')
+    sys.path.insert(0, str(ROOT / 'tools' / 'split'))
+    from read_unit import read_text  # launcher_main.cpp is split: read it with its parts expanded (text mode: '\n' line ends)
+    launcher = read_text(ROOT / 'src' / 'launcher' / 'launcher_main.cpp')
     if 'SuggestIntegrated(' not in launcher:
         errors.append('the launcher no longer takes the integrated first-run values from gfx_applied.h')
     bench = (ROOT / 'tools' / 'surface' / 'bench.ps1').read_text(encoding='utf-8', errors='replace')

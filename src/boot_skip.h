@@ -110,10 +110,12 @@ inline void BootSkipOnFrame(uint64_t frame) {
 REX_EXTERN(__imp__sub_82803250);
 REX_EXTERN(__imp__sub_82802DC8);
 // Draw methods of the legal and warning screens (see the header): skipped while the boot screens are skipped black.
+// SKIP-ORIGINAL: the legal / warning screen draw is skipped while the boot screens are skipped black (the comment above)
 REX_HOOK_RAW(sub_82803250) {
   if (REXCVAR_GET(wwe2k14_skip_boot_screens) && REXCVAR_GET(wwe2k14_skip_boot_screens_black)) return;
   __imp__sub_82803250(ctx, base);
 }
+// SKIP-ORIGINAL: the legal / warning screen draw is skipped while the boot screens are skipped black (the comment above)
 REX_HOOK_RAW(sub_82802DC8) {
   if (REXCVAR_GET(wwe2k14_skip_boot_screens) && REXCVAR_GET(wwe2k14_skip_boot_screens_black)) return;
   __imp__sub_82802DC8(ctx, base);

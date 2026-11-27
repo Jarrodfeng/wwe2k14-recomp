@@ -110,6 +110,7 @@ inline const Rule* Rules(size_t& n) {
     {"Ring Steps", "Ring Steps", 4, 29, 35, "", "", "", "", -1},
     {"Ring Steps", "Ring Steps", 0, 0, 0, "", "ar_stair", "", "", -1},
     {"Announce Desk", "Announce Desk", 4, 6, 7, "", "", "", "", -1},
+    {"Announce Desk", "Announce Desk", 4, 104, 107, "", "", "", "", -1},
     {"Announce Desk", "Announce Chair", 0, 0, 0, "ji_chair", "ji_chair", "", "", -1},
     {"Announce Desk", "Announce Desk", 0, 0, 0, "", "ji_desk|ji_mon|ji_top|ji_bl|ji_meta", "", "", -1},
     {"Signage / Banner", "Flag", 0, 0, 0, "flag", "flag", "", "", -1},

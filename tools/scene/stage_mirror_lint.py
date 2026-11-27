@@ -10,8 +10,12 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def rd(*p):
-    return open(os.path.join(ROOT, *p), encoding='utf-8').read()
+    return read_path(os.path.join(ROOT, *p))
 
 
 live = rd('src', 'renderer_adapter', 'live.cpp')

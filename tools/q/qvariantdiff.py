@@ -270,13 +270,13 @@ def load_tables(cache_path=None):
 
 
 EDIT = 'pac/edit/edit.pac'
-EDITOR_LEAVES = ('p7/0', 'p9/0')   # live_assets.cpp:109-110: p7/0 = the CAW logo rows, p9/0 = the Superstar Threads change-colour rows
+EDITOR_LEAVES = ('p7/0', 'p9/0')   # live_assets.cpp: p7/0 = the CAW logo rows, p9/0 = the Superstar Threads change-colour rows
 
 
 def load_editor_tables(cache_path=None):
     """-> ({leaf: {effect lower-case: [[(vs, ps) per pass] per technique]}}, None) of the editors' tables in the player's pac/edit/edit.pac
     (ChooseCharEffectTable takes the p9/0 row for a recoloured body and the p7/0 row for a CAW logo material when the table names the
-    effect, char_effects.cpp:275-282); (None, why) when the file cannot be read. Cached as load_tables."""
+    effect, char_effects.cpp); (None, why) when the file cannot be read. Cached as load_tables."""
     try:
         sys.path.insert(0, os.path.join(REPO, 'tools', 'shaders'))
         import effect_table

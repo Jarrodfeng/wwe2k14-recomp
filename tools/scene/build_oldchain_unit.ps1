@@ -13,7 +13,7 @@ $exe = Join-Path $outDir 'oldchain_unit.exe'
 $main = (Resolve-Path (Join-Path $repo '..\..\..')).Path
 $third = Join-Path $repo 'thirdparty\rexglue-sdk-src\thirdparty'
 if (-not (Test-Path (Join-Path $third 'stb\stb_image.h'))) { $third = Join-Path $main 'thirdparty\rexglue-sdk-src\thirdparty' }
-& clang++ -O1 -g -std=c++20 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -D_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING -Wno-unused-command-line-argument "-I$(Join-Path $third 'stb')" "-I$third" (Join-Path $PSScriptRoot 'oldchain_unit.cpp') (Join-Path $repo 'src\renderer_scene\char_effects.cpp') (Join-Path $repo 'src\renderer\shaders\spv\fx_spv_data.cpp') -I (Join-Path $repo 'src') -o $exe
+& clang++ -O1 -g -std=c++20 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -D_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING -Wno-unused-command-line-argument "-I$(Join-Path $third 'stb')" "-I$third" (Join-Path $PSScriptRoot 'oldchain_unit.cpp') (Join-Path $repo 'src\renderer_scene\char_effects.cpp') -I (Join-Path $repo 'src') -o $exe
 if ($LASTEXITCODE -ne 0) { throw 'oldchain_unit compile failed' }
 Write-Host "built $exe"
 & $exe

@@ -904,6 +904,7 @@ REX_HOOK_RAW(sub_8234B038) {
 }
 
 // The hooks: each passes anything that is not a shim handle to the game's Bink unchanged.
+// SKIP-ORIGINAL: BinkOpen of one of our trons (TryOpen) returns our handle; any other name runs the game's Bink
 REX_HOOK_RAW(sub_8359E140) {  // BinkOpen(name, flags) -> handle
   if (wwe2k14::mods::g_on) {
     if (uint32_t h = wwe2k14::tron_shim::TryOpen(base, ctx.r3.u32, ctx.r4.u32)) {
@@ -913,10 +914,12 @@ REX_HOOK_RAW(sub_8359E140) {  // BinkOpen(name, flags) -> handle
   }
   __imp__sub_8359E140(ctx, base);
 }
+// SKIP-ORIGINAL: BinkSetSpeakerVolumes on a shim handle does nothing; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359BA60) {  // BinkSetSpeakerVolumes
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) return;
   __imp__sub_8359BA60(ctx, base);
 }
+// SKIP-ORIGINAL: BinkGetFrameBuffersInfo on a shim handle is answered by the shim; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359AB88) {  // BinkGetFrameBuffersInfo(handle, block)
   if (auto* m = wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     wwe2k14::tron_shim::FrameBuffersInfo(base, m, ctx.r4.u32);
@@ -924,6 +927,7 @@ REX_HOOK_RAW(sub_8359AB88) {  // BinkGetFrameBuffersInfo(handle, block)
   }
   __imp__sub_8359AB88(ctx, base);
 }
+// SKIP-ORIGINAL: BinkRegisterFrameBuffers on a shim handle is stored by the shim; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359AC90) {  // BinkRegisterFrameBuffers(handle, block)
   if (REXCVAR_GET(wwe2k14_tron_shim_log) && ctx.r4.u32)
     wwe2k14::tron_shim::ProbeRegistered(base, ctx.r3.u32, ctx.r4.u32, wwe2k14::tron_shim::Find(ctx.r3.u32) != nullptr);
@@ -933,6 +937,7 @@ REX_HOOK_RAW(sub_8359AC90) {  // BinkRegisterFrameBuffers(handle, block)
   }
   __imp__sub_8359AC90(ctx, base);
 }
+// SKIP-ORIGINAL: BinkDoFrame on a shim handle is done by the shim (returns 0); any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359E6E8) {  // BinkDoFrame(handle) -> 0
   if (auto* m = wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     wwe2k14::tron_shim::DoFrame(base, m);
@@ -941,6 +946,7 @@ REX_HOOK_RAW(sub_8359E6E8) {  // BinkDoFrame(handle) -> 0
   }
   __imp__sub_8359E6E8(ctx, base);
 }
+// SKIP-ORIGINAL: BinkWait on a shim handle is answered by the shim; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359B430) {  // BinkWait(handle) -> 1 while too early
   if (auto* m = wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     ctx.r3.u64 = wwe2k14::tron_shim::Wait(m);
@@ -948,6 +954,7 @@ REX_HOOK_RAW(sub_8359B430) {  // BinkWait(handle) -> 1 while too early
   }
   __imp__sub_8359B430(ctx, base);
 }
+// SKIP-ORIGINAL: BinkNextFrame on a shim handle is done by the shim; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359E6F0) {  // BinkNextFrame(handle)
   if (auto* m = wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     wwe2k14::tron_shim::NextFrame(base, m);
@@ -955,6 +962,7 @@ REX_HOOK_RAW(sub_8359E6F0) {  // BinkNextFrame(handle)
   }
   __imp__sub_8359E6F0(ctx, base);
 }
+// SKIP-ORIGINAL: BinkGoto on a shim handle sets the shim's frame; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359E8A8) {  // BinkGoto(handle, frame, flags)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     const uint32_t frames = wwe2k14::tron_shim::Ld32(base, ctx.r3.u32 + 8);
@@ -964,6 +972,7 @@ REX_HOOK_RAW(sub_8359E8A8) {  // BinkGoto(handle, frame, flags)
   }
   __imp__sub_8359E8A8(ctx, base);
 }
+// SKIP-ORIGINAL: BinkClose on a shim handle is closed by the shim; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359EBC8) {  // BinkClose(handle)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     wwe2k14::tron_shim::Close(base, ctx.r3.u32);
@@ -971,6 +980,7 @@ REX_HOOK_RAW(sub_8359EBC8) {  // BinkClose(handle)
   }
   __imp__sub_8359EBC8(ctx, base);
 }
+// SKIP-ORIGINAL: BinkGetRealtime on a shim handle answers zeros (the stream throttle then does nothing); any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359B7D8) {  // BinkGetRealtime(handle, out, frames): zeros (the stream throttle then does nothing)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     if (ctx.r4.u32) std::memset(wwe2k14::tron_shim::GP(base, ctx.r4.u32), 0, 52);
@@ -978,6 +988,7 @@ REX_HOOK_RAW(sub_8359B7D8) {  // BinkGetRealtime(handle, out, frames): zeros (th
   }
   __imp__sub_8359B7D8(ctx, base);
 }
+// SKIP-ORIGINAL: BinkControlBackgroundIO on a shim handle answers 0; any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359C1A8) {  // BinkControlBackgroundIO(handle, control)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     ctx.r3.u64 = 0;
@@ -985,6 +996,7 @@ REX_HOOK_RAW(sub_8359C1A8) {  // BinkControlBackgroundIO(handle, control)
   }
   __imp__sub_8359C1A8(ctx, base);
 }
+// SKIP-ORIGINAL: the per-track id on a shim handle answers 0 (never called for us); any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359BFC8) {  // per-track id (never called for us: 0 tracks)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) {
     ctx.r3.u64 = 0;
@@ -992,6 +1004,7 @@ REX_HOOK_RAW(sub_8359BFC8) {  // per-track id (never called for us: 0 tracks)
   }
   __imp__sub_8359BFC8(ctx, base);
 }
+// SKIP-ORIGINAL: the per-track volume on a shim handle does nothing (never called for us); any other handle runs the game's Bink
 REX_HOOK_RAW(sub_8359B9C8) {  // per-track volume (never called for us)
   if (wwe2k14::tron_shim::Find(ctx.r3.u32)) return;
   __imp__sub_8359B9C8(ctx, base);

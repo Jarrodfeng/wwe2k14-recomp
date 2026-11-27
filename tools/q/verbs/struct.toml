@@ -1,0 +1,15 @@
+name = "struct"
+module = "qstruct"
+needs = "con"
+errors = ["qstruct.StructError", "qstruct.qslice.SliceError", "qstruct.qdecomp.DecompError"]
+
+[[usage]]
+order = 90
+text = '''  struct CLASS|ROOT [--range LO-HI] [--json]   an object's layout from every access in the GAME's code: one row per offset (width,
+                               kind / signed / float, R / W / P counts, constants written, the slot functions and callees, array rows
+                               base + stride*k with their index), ctors, alloc size, subobjects, instances; names from lodged field
+                               claims else f_0xOFF_kind. CLASS = 0xVTABLE | vt:ADDR, ROOT = g:ADDR | sub_X | ctor:sub_X (tools/q/qstruct.py)'''
+
+[[route]]
+order = 200
+text = '''- the layout of a game object / class (offsets, widths, who reads / writes each, arrays, subobjects, alloc size): struct 0xVTABLE | g:ADDR | ctor:sub_X'''

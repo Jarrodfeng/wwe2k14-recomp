@@ -53,7 +53,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=ROOT)
     root = ap.parse_args().root
-    binder = open(os.path.join(root, 'src', 'renderer_adapter', 'binder.h'), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # binder.h is split: read it with its parts expanded (tools/split/read_unit.py)
+    binder = read_path(os.path.join(root, 'src', 'renderer_adapter', 'binder.h'))
     body = function_body(binder, 'uint8_t AlphaOpaque(')
     p = f5_problems(body)
     say(not p, 'F5: AlphaOpaque (%d chars) builds no string and takes no lock %s' % (len(body), p))

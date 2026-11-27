@@ -415,7 +415,8 @@ def resolve_cls(cls, chr_, effect, ours, slot=None, ref=None):
     for k in cls['maps']:
         if k == 'liquid':
             lq = ours['liquid']
-            if lq['replace_line'] and any(effect.startswith(p) for p in lq['prefixes']):
+            # S111 GEARLIQUID: a gate with no rfind("X", 0) prefix test (liquid_gate::TakesBodyMap) gives the map to every character effect's wet bind
+            if lq['replace_line'] and (not lq['prefixes'] or any(effect.startswith(p) for p in lq['prefixes'])):
                 maps.append(MAP_NAMES['liquid'])
             continue
         if k == 'lm':

@@ -1065,7 +1065,6 @@ int main(int argc, char** argv) {
         live::WrestlerContributor w;
         live::inputs::InputsContributor pc;
         setup(w, pc);
-        w.SetNoWalk(true);  // the player build: no command-stream walk
         ResetStamps();
         vis_late = true, hid_late = true, vis_before = true;
         for (uint64_t r = 100; r < 250; ++r) {
@@ -1130,79 +1129,25 @@ int main(int argc, char** argv) {
       }
       Check(kept, "l31b.stale_invisible_stays_hole", "invisible " + std::to_string(o.invisible) + " objects " + std::to_string(o.objects));
     }
-    {   // S103 AUSF (AUS2 fix 2): a build with NO walk has no "the frame walks" fallback. A stale VISIBLE body the character table still holds is HELD with its kept palette for up to kConsumerFresh records, then dropped (the table
-        // still holds him, but the hold is bounded); one that left the table is dropped at once; the stream build (SetNoWalk(false)) keeps today's immediate drop. Planted twin ausf_drop (kFaultNoWalkRefuse = today's rule in a no-walk
-        // build): the body vanishes the moment its palette is stale = "l33_ausf.stale_held_bounded" fails.
-      for (int variant = 0; variant < 3; ++variant) {   // 0 = no-walk, stays in the table; 1 = no-walk, leaves the table at 412; 2 = the stream build
-        BuildGuest();
-        g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
-        table(true);
-        live::WrestlerContributor w;
-        live::inputs::InputsContributor pc;
-        setup(w, pc);
-        w.SetNoWalk(variant != 2);
-        if (Plant("ausf_drop")) w.SetFaultsForTest(live::WrestlerContributor::kFaultNoWalkRefuse);
-        ResetStamps();
-        Out fresh;
-        for (uint64_t r = 400; r < 410; ++r) fresh = frame(w, pc, r, true, true, true);   // S107 CAM: the game draws him (asks)
-        g_guest.words.erase(kSkel + scene_inputs::kPaletteOff);   // the palette block goes unreadable: no fresh palette from now on
-        int held_records = 0;
-        bool held_visible = true, held_kept_palette = true;   // review: a held body is VISIBLE and carries the KEPT palette (the last fresh read), never a zero / bind pose
-        bool back_to_zero_stays = true, seen_zero = false;
-        for (uint64_t r = 410; r < 440; ++r) {
-          if (variant == 1 && r == 412) table(false), g_guest.Put(kCh + live::lightlatch::kCharSkeletonOff, 0u);   // released, then destroyed (sub_823CCDD0 +108 clears [char+48]): the game no longer draws him
-          const Out o = frame(w, pc, r, false);
-          if (o.objects == 1 && o.stale > 0) ++held_records, held_visible = held_visible && o.visible, held_kept_palette = held_kept_palette && o.bone0 == fresh.bone0 && fresh.bone0 != -1.f;
-          else if (o.objects == 1 && o.stale == 0) fresh = o;
-          if (o.objects == 0) seen_zero = true;
-          else if (seen_zero) back_to_zero_stays = false;
-        }
-        const Out end = frame(w, pc, 440, false);
-        const std::string why = "variant " + std::to_string(variant) + " held_records " + std::to_string(held_records) + " stale_held " + std::to_string((unsigned long long)w.StaleHeld()) + " stale_dropped " + std::to_string((unsigned long long)w.StaleDropped());
-        if (variant == 0) Check(held_visible && held_kept_palette && held_records >= 1 && held_records <= int(live::WrestlerContributor::kConsumerFresh) && back_to_zero_stays && end.objects == 0 && w.StaleHeld() == uint64_t(held_records), "l33_ausf.stale_held_bounded", why);
-        else if (variant == 1) Check(held_records <= 2 && end.objects == 0 && back_to_zero_stays, "l33_ausf.left_table_dropped", why);   // records 410-411 may still hold him (still in the table); from 412 he is gone
-        else Check(held_records == 0 && w.StaleHeld() == 0 && end.objects == 0, "l33_ausf.stream_build_drops_at_once", why);
+    {   // S111 FOLLOWUPS3 (docs\research\s111\FOLLOWUPS3.md part 3): no pose hold. A stale VISIBLE body the character table still holds, asked to draw until its palette block goes unreadable at 410
+        // (the case the S103 AUSF hold kept for up to kConsumerFresh records in the build with no walk), is left out of every record from then on. Planted twin ausf_guard_off (the L31B guard off: the
+        // stale body goes out with its kept palette, as the hold did) fails "l33_ausf.stale_in_table_dropped"; the old hold failed it too (1-4 records emitted).
+      BuildGuest();
+      g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
+      table(true);
+      live::WrestlerContributor w;
+      live::inputs::InputsContributor pc;
+      setup(w, pc);
+      if (Plant("ausf_guard_off")) w.SetStaleGuardForTest(false);
+      ResetStamps();
+      for (uint64_t r = 400; r < 410; ++r) frame(w, pc, r, true, true, true);   // S107 CAM: the game draws him (asks)
+      g_guest.words.erase(kSkel + scene_inputs::kPaletteOff);   // the palette block goes unreadable: no fresh palette from now on
+      int stale_emitted = 0;
+      for (uint64_t r = 410; r < 440; ++r) {
+        const Out o = frame(w, pc, r, false);
+        if (o.objects >= 1 && o.stale > 0) ++stale_emitted;
       }
-    }
-    {   // S103 AUSF Opus review 2 / 3 / 4: the hold's three limits. variant 0 = a HIDDEN stale body (the game stopped updating / drawing it long ago: not held), 1 = a live stale body whose slot a FRESH body claims (not held: it
-        // would take the slot from him), 2 = a held body keeps its spring-hair rows. Twins: ausf_hold_hidden (kFaultHoldAny), ausf_hold_slot (kFaultHoldNoSlotCheck), ausf_hold_extras (kFaultHoldNoExtras).
-      for (int variant = 0; variant < 3; ++variant) {
-        BuildGuest();
-        g_guest.Put(kSkel + scene_inputs::kPaletteOff, kPal);
-        table(true);
-        live::WrestlerContributor w;
-        live::inputs::InputsContributor pc;
-        setup(w, pc);
-        w.SetNoWalk(true);
-        uint32_t fl = 0;
-        if (variant == 0 && Plant("ausf_hold_hidden")) fl |= live::WrestlerContributor::kFaultHoldAny;
-        if (variant == 1 && Plant("ausf_hold_slot")) fl |= live::WrestlerContributor::kFaultHoldNoSlotCheck;
-        if (variant == 2) fl |= live::WrestlerContributor::kFaultHairAnyFrame | (Plant("ausf_hold_extras") ? live::WrestlerContributor::kFaultHoldNoExtras : 0u);
-        w.SetFaultsForTest(fl);
-        ResetStamps();
-        std::vector<Mat4> d(kCount);
-        for (auto& m : d) std::memset(m.m, 0, sizeof m.m);
-        if (variant == 2) w.SetPieceRowsForTest(kSkel, 7);
-        for (uint64_t r = 400; r < 410; ++r) {
-          if (variant == 1) w.SubmitSkin(kM1, 0, kCount, d.data(), r - 1);   // the fresh claimant of slot 0 is updating all along
-          frame(w, pc, r, true, true, true);   // S107 CAM: asked (the live phase)
-        }
-        if (variant == 0) for (uint64_t r = 410; r < 440; ++r) frame(w, pc, r, false);   // quiet for 30 records, the palette still READ (fresh each latch): the game stopped updating him
-        const uint64_t stale_from = variant == 0 ? 440 : 410;
-        g_guest.words.erase(kSkel + scene_inputs::kPaletteOff);
-        size_t max_objects = 0;
-        int held_records = 0;
-        for (uint64_t r = stale_from; r < stale_from + 4; ++r) {
-          if (variant == 1) w.SubmitSkin(kM1, 0, kCount, d.data(), r - 1);   // a fresh body resolves to slot 0 (the vest-off swap case)
-          const Out o = frame(w, pc, r, false);
-          if (variant != 1 || r > stale_from) max_objects = std::max(max_objects, o.objects);   // variant 1: record stale_from itself still has both bodies fresh
-          if (o.objects >= 1 && o.stale > 0) ++held_records;
-        }
-        const std::string why = "variant " + std::to_string(variant) + " max_objects " + std::to_string((unsigned long long)max_objects) + " held_records " + std::to_string(held_records) + " held_with_extras " + std::to_string((unsigned long long)w.HeldWithExtras());
-        if (variant == 0) Check(held_records == 0 && w.StaleHeld() == 0, "l33_ausf.hidden_stale_not_held", why);
-        else if (variant == 1) Check(max_objects <= 1 && w.StaleHeld() == 0, "l33_ausf.held_never_over_fresh_slot", why);
-        else Check(w.StaleHeld() >= 1 && w.HeldWithExtras() == w.StaleHeld(), "l33_ausf.held_keeps_hair_rows", why);
-      }
+      Check(stale_emitted == 0 && w.StaleDropped() >= 1, "l33_ausf.stale_in_table_dropped", "stale records emitted " + std::to_string(stale_emitted) + ", stale_dropped " + std::to_string((unsigned long long)w.StaleDropped()));
     }
     {   // review D: a hook-quiet slot body whose block stays unreadable leaves the targets once it has left the record (kPruneAfter): the stamp comes back (counted slot_gone), never held for
         // kKnownAge records. Twin l31b_keep_gone keeps it a target: the stamp never returns.
@@ -1254,7 +1199,6 @@ int main(int argc, char** argv) {
         live::WrestlerContributor w;
         live::inputs::InputsContributor pc;
         setup(w, pc);
-        w.SetNoWalk(stream == 0);
         ResetStamps();
         bool shown_in_table = true;
         for (uint64_t r = 300; r < 310; ++r) {
@@ -2731,7 +2675,6 @@ int main(int argc, char** argv) {
       shown(kChA, 1, 1);
       live::WrestlerContributor w;
       KW = &w;
-      w.SetNoWalk(true);   // the player build
       w.SetFaultsForTest((Plant("vis_leads") ? live::WrestlerContributor::kFaultVisLeads : 0u) | (Plant("links_lead") ? live::WrestlerContributor::kFaultLinksLead : 0u) |
                          (Plant("name_leads") ? live::WrestlerContributor::kFaultNameLeads : 0u) |
                          (Plant("freed_no_keep") ? live::WrestlerContributor::kFaultFreedNoKeep : 0u));   // S111 VISLATCH twin: the old pairing; S111 PERIODALL twins: the old links; the old name (review R3); S111 MATCHFREE twin: the old erase-and-forget
@@ -2812,7 +2755,7 @@ int main(int argc, char** argv) {
           for (auto& m : bind) std::memset(m.m, 0, sizeof m.m);
           w.SubmitSkin(kSB, 0, kKN, bind.data(), hook);   // B's world update from the build's bake: reported, never asked
         }
-        if (drawn_skel) w.NoteDrawAsked(drawn_skel, rec, rw);   // the game's draw ask (sub_82C04DF0) of the body it draws, on the game's clock: the walk of period rec reads g_guest_frame = rec (draw_origin.h:393) and lands in stream rec + 1
+        if (drawn_skel) w.NoteDrawAsked(drawn_skel, rec, rw);   // the game's draw ask (sub_82C04DF0) of the body it draws, on the game's clock: the walk of period rec reads g_guest_frame = rec (draw_origin.h) and lands in stream rec + 1
         pc.LatchPalettes(rec);
         FrameInfo fi;
         fi.guest_frame = rec;
@@ -2975,13 +2918,12 @@ int main(int argc, char** argv) {
       }
       BuildGuest();
     }
-    // ---- S111 VISLATCH (docs\research\s111\VISLATCH.md): a body shows in the record whose stream the game's walk drew it in. The walk of period p asks with the clock p (sub_82C04DF0, draw_origin.h:393)
+    // ---- S111 VISLATCH (docs\research\s111\VISLATCH.md): a body shows in the record whose stream the game's walk drew it in. The walk of period p asks with the clock p (sub_82C04DF0, draw_origin.h)
     // and lands in stream p + 1; the palette tagged p is that stream's. So a body first asked in period kAsk (an entrance model the game posed before it drew it) shows from record kAsk + 1 with the
     // palette tagged kAsk, and a body the latch of period kHide reads hidden (sub_823CBC50 false) shows in record kHide (the walk of kHide - 1 drew him) and not from kHide + 1. Twin vis_leads = the old
     // pairing (one record early at both).
     {
       live::WrestlerContributor w;
-      w.SetNoWalk(true);
       if (Plant("vis_leads")) w.SetFaultsForTest(live::WrestlerContributor::kFaultVisLeads);
       constexpr uint32_t kE = 0x40990000, kEN = 3;
       constexpr uint64_t kAsk = 205, kHide = 220;
@@ -3079,7 +3021,6 @@ int main(int argc, char** argv) {
         Got g;
         live::WrestlerContributor w;
         W = &w;
-        w.SetNoWalk(nowalk);
         g_slot = slot, g_old_guard = old_guard;
         live::inputs::InputsContributor pc;
         pc.SetReader(ReadThunk);
@@ -3775,9 +3716,11 @@ int main(int argc, char** argv) {
     const std::vector<Entry> entrance = {keyed, keyed, off, off};   // slots 0, 6 keyed; 7, 8 key-off
     const std::vector<Entry> all_off = {off, off};
     namespace wl = rdr_scene::live::wlatch;
-    const bool old_rule = Plant("ce_old_key_rule"), off_is_keyed = Plant("ce_keyoff_is_keyed");
+    const bool old_rule = Plant("ce_old_key_rule");
     Check(wl::LatchStamps(entrance, 4, true, !old_rule), "ce.entrance_latch_stamps", "{0 keyed, 6 keyed, 7 key-off, 8 key-off}: stamps (the old rule refused: slots 7 / 8 key_not_dir)");
-    Check(!wl::LatchStamps(all_off, 2, true, true, off_is_keyed), "ce.all_keyoff_no_stamp", "every slot key-off: nothing for the shadow fit's key: no stamp");
+    // S111 SHADOWKEY review: the fitted shadow light reads no key light (shadow_light_rule.h: the game's rule follows the camera), so a latch whose every slot is key-off stamps like any other
+    // (the S103 CE rule withheld it: "nothing for the shadow fit's key", the frame then went InputsMissing and the host repeated the last 3D picture)
+    Check(wl::LatchStamps(all_off, 2, true), "ce.all_keyoff_stamps", "every slot key-off: stamps (the fit needs no key light)");
     Check(!wl::EntryUsable(zero_dir_lit, true, Plant("ce_zero_dir_usable")) && !wl::LatchStamps({keyed, zero_dir_lit}, 2, true, true), "ce.zero_dir_lit_key_unusable", "direction 0 with a non-zero key colour stays unusable");
     Check(!wl::LatchStamps(entrance, 5, true) && !wl::LatchStamps(entrance, 4, false), "ce.holes_still_withhold", "an occupied slot with no entry / synthesis off: no stamp");
     // the draw side shares the rule
@@ -3785,7 +3728,7 @@ int main(int argc, char** argv) {
     std::memcpy(st, off.block, sizeof st);
     float kf[rdr_scene::kLsLightFloats];
     std::memcpy(kf, keyed.block, sizeof kf);
-    Check(rdr_scene::LightStateUsable(st) && !rdr_scene::HasKey(st) && rdr_scene::LightStateUsable(kf) && rdr_scene::HasKey(kf), "ce.draw_rule_shared", "LightStateUsable / HasKey (light_install.h)");
+    Check(rdr_scene::LightStateUsable(st) && rdr_scene::LightStateUsable(kf), "ce.draw_rule_shared", "LightStateUsable (light_install.h)");
   }
 
   // ---- S111 DARKDIP (docs\research\s111\DARKDIP.md): a body is lit with the block ITS character's draw node installs (sub_825A3908 +160 / sub_8259FAE8 +100: sub_82620488(char + 3936, 0)), read at

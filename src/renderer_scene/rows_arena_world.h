@@ -23,6 +23,7 @@ struct ArenaWorld {
   float world[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};  // kAwObject: c76..c78 (3 rows of 4); identity by default
 };
 enum ArenaWorldKind : uint8_t { kAwObject = 1, kAwClock = 2 };
+inline constexpr uint8_t kAwLast = kAwClock;   // S111 FXSKIP: the last known kind; record_io.cpp keeps kAwObject..kAwLast and skips (and counts) a newer kind's rows. A new kind: move it.
 enum ArenaWorldObjFlags : uint32_t { kAwForeignPalette = 1,  // r5 was not [model+200] (another caller's array, e.g. sub_82C13EC8): still what the packer read
                                      kAwNodeAssumed = 2 };   // the part descriptor was not readable: node 1 assumed (counted node_assumed)
 static_assert(sizeof(ArenaWorld) == 68, "ArenaWorld is a flat POD table");

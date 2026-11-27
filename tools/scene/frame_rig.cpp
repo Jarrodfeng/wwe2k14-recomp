@@ -83,7 +83,7 @@
 #include "../../src/renderer_scene/rf_c.h"
 #include "../../src/renderer_scene/see_through_order.h"
 #include "../../src/renderer_scene/stage_look.h"  // S103 L
-// entry: wwe2k14::scene_host::RegisterShaderCatalogFrom (S106 PSEED: the rig's seed proof registers the catalog and prebuilds as SceneHost::Start does, scene_host.cpp:54; the rig has no host)
+// entry: wwe2k14::scene_host::RegisterShaderCatalogFrom (S106 PSEED: the rig's seed proof registers the catalog and prebuilds as SceneHost::Start does, scene_host.cpp; the rig has no host)
 #include "../../src/renderer/shaders/spv/fx_registry.h"   // S106 PSEED: rdr::fx::kVariants
 #include "../../src/renderer_host/pipeline_catalog.h"   // S106 PSEED: RegisterShaderCatalogFrom (header-only; the seed proof registers the catalog as scene_host.cpp Start does)
 
@@ -978,7 +978,6 @@ static int RunJob(int argc, char** argv, Shared& sh) {
   std::vector<float> wrk_told;   // S103 WRK: --wrk-told
   std::string liquid_told_path;  // S103 SWF: --liquid-told FILE (see RigInjectLiquid)
   std::string plane_told_path;   // S103 L9: --plane-told FILE: the plane inputs the record does not carry (plane_eye / plane_pos / plane_fade / plane_fit / plane_camera: the game's own draw values), TOLD to the rig
-  std::vector<float> told_key;
   std::string maps_fault_list;
   std::vector<float> prop_fixture, gm_fixture;   // S103 MBC: --prop-fixture x,y,z,half / --gm-fixture (game space)
   int scene_word = -1, participants = -1;        // S103 MBC: --scene-word N / --participants N: the phase row the offline records lack (the mode gate reads them)
@@ -1113,7 +1112,6 @@ static int RunJob(int argc, char** argv, Shared& sh) {
       pl.off = v.find("off") != std::string::npos, pl.unbound = v.find("unbound") != std::string::npos, pl.no_prev = v.find("no_prev") != std::string::npos, pl.mask_white = v.find("mask_white") != std::string::npos;
     }
     else if (a == "--maps-fit") maps_fit_force = true;   // S103 E3: the wrestlers' shadow camera is FITTED (shadow_fit.h) even when the record has a caster state
-    else if (a == "--key-light" && i + 1 < argc) { const std::vector<float> v = ParseFloats(argv[++i]); if (v.size() != 3) { std::fprintf(stderr, "bad --key-light (x,y,z)\n"); return 1; } told_key.assign(v.begin(), v.end()); }   // S103 E3: TOLD (the record carries no light rows)
     else if (a == "--prop-fixture" && i + 1 < argc) { prop_fixture = ParseFloats(argv[++i]); if (prop_fixture.size() != 4) { std::fprintf(stderr, "bad --prop-fixture (x,y,z,half)\n"); return 1; } }
     else if (a == "--gm-fixture" && i + 1 < argc) { gm_fixture = ParseFloats(argv[++i]); if (gm_fixture.size() != 4) { std::fprintf(stderr, "bad --gm-fixture (x,y,z,half)\n"); return 1; } }
     else if (a == "--scene-word" && i + 1 < argc) scene_word = std::atoi(argv[++i]);
@@ -1405,11 +1403,13 @@ static int RunJob(int argc, char** argv, Shared& sh) {
     if (const char* v = std::getenv("WWE_RDR_VALIDATION")) ro.validation = std::atoi(v);
     ro.render_scale = a1_scale;   // S105 A1
     ro.pipeline_seed_path = pipeline_seed_arg;
+    ro.dynamic_state = pipeline_store_arg.empty() ? ~0u : 0u;   // S111 DYNSTATE: a census / seed-proof store must hold FULL states (the seed serves devices that set nothing per draw), so with a store the rig bakes every state
+    if (const char* v = std::getenv("WWE_RDR_DYNAMIC_STATE")) ro.dynamic_state = uint32_t(std::strtoul(v, nullptr, 16));   // (hex override, as WWE_RDR_VALIDATION)
     ro.pipeline_store_dir = pipeline_store_arg;   // S106 PSEED: the renderer's own store (empty = off); saved at the renderer's shutdown (Shutdown -> StoreSave), the census list
     sh.renderer = rdr::Renderer::Create(ro, err);
     if (!sh.renderer) { std::fprintf(stderr, "frame_rig: FAIL renderer: %s\n", err.c_str()); return 3; }
     if (!pipeline_seed_arg.empty() && sh.renderer->pipeline_store_active()) {   // S106 PSEED proof P2: the stream-free host's catalog registration (scene_host.cpp Start), then every pending record built at once (the prepare boot)
-      const size_t n = wwe2k14::scene_host::RegisterShaderCatalogFrom(*sh.renderer, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + own
+      const size_t n = wwe2k14::scene_host::RegisterShaderCatalogFrom(*sh.renderer, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), rdr::fx::Words, std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + own
       const size_t built = sh.renderer->PrebuildPipelines(0);
       std::fprintf(stderr, "frame_rig: seed proof: catalog %zu shaders, %zu pipelines prebuilt before the first frame\n", n, built);
     }
@@ -1557,7 +1557,6 @@ static int RunJob(int argc, char** argv, Shared& sh) {
       };
     }
     ho.maps_input_repeatable = true;           // S103 E3: RenderToPixels may Record twice per attach (the seed frame)
-    if (told_key.size() == 3) ho.maps_fit.have_told_key = true, std::memcpy(ho.maps_fit.told_key, told_key.data(), sizeof ho.maps_fit.told_key);
     { std::string ferr; if (!MapsFaults::Parse(maps_fault_list, ho.maps_faults, ferr)) { std::fprintf(stderr, "frame_rig: %s\n", ferr.c_str()); return 1; } }
     if (std::getenv("WWE_RDR_PARTICLE_FIXTURE") || !t.particles.empty()) { rdr_scene::live::particles::NameIndex sprite_idx; std::string se; if (!BuildParticleSprites(game, sprite_idx, se)) report += "particle sprites: " + se + "\n"; }   // S103 F5: the decoded sprites, built once here (live: on the namer worker)
     FrameHooks hooks(*renderer, cache, ho);   // (made before the first Get: it turns the wrestlers' CPU copies on)
@@ -1620,7 +1619,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
             if (ps == "fog_off" || ps == "all_off") post_store.fog = false;
             if (ps == "glare_off")post_store.glare = false, post_store.dead_glare = true;
           }
-          if ((post_dof_arg.empty() ? !subject_opts.subject.empty() : post_dof_arg == "off") && post_store.dof) {   // S108 SHOT-B: DOF is off in a subject shot (its focus / near / far are the GAME camera's, post_from_record.cpp:112); --post-dof game keeps it
+          if ((post_dof_arg.empty() ? !subject_opts.subject.empty() : post_dof_arg == "off") && post_store.dof) {   // S108 SHOT-B: DOF is off in a subject shot (its focus / near / far are the GAME camera's, post_from_record.cpp); --post-dof game keeps it
             post_store.dof = false;
             report += "post_dof off (subject shot: the game's depth-of-field focus is not this camera's; --post-dof game keeps it)\n";
           }
@@ -1822,7 +1821,7 @@ static int RunJob(int argc, char** argv, Shared& sh) {
           std::snprintf(line, sizeof line, "\n  map_shadow_params %.9g %.9g %.9g %.9g\n", sm->params[0], sm->params[1], sm->params[2], sm->params[3]);
           report += ms + line;
           const MapsCounts& fc = hooks.maps()->counts();
-          std::snprintf(line, sizeof line, "  map_fit fitted %d key_told %d center %.4f %.4f %.4f lo %.4f %.4f %.4f hi %.4f %.4f %.4f samples %u holes %u\n", int(fc.shadow_fitted), int(hooks.input().fit_key_told), fc.fit_center[0], fc.fit_center[1],
+          std::snprintf(line, sizeof line, "  map_fit fitted %d center %.4f %.4f %.4f lo %.4f %.4f %.4f hi %.4f %.4f %.4f samples %u holes %u\n", int(fc.shadow_fitted), fc.fit_center[0], fc.fit_center[1],
                         fc.fit_center[2], fc.fit_lo[0], fc.fit_lo[1], fc.fit_lo[2], fc.fit_hi[0], fc.fit_hi[1], fc.fit_hi[2], fc.fit_samples, fc.holes);
           report += line;
         } else {

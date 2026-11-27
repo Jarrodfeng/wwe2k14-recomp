@@ -215,6 +215,7 @@ inline const bool g_registered = (wwe2k14::live::g_page_live = &LiveCommand, wwe
 }  // namespace wwe2k14::menu_goto
 
 // The one hook: inert unless Tick armed a request of ours (one atomic load, then the game's own function; ServesOurCall for the rest).
+// SKIP-ORIGINAL: a call we armed (Serve) is answered by our own call of the menu item; every other call runs the original (the comment above)
 REX_HOOK_RAW(sub_828426D0) {
   if (wwe2k14::menu_goto::Serve(ctx, base)) return;
   __imp__sub_828426D0(ctx, base);

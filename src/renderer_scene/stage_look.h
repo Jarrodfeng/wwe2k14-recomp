@@ -54,7 +54,7 @@ inline float W2F(uint32_t w) {
   return f;
 }
 // The block of a LightObjectRow as a Tuple: LightState::light's order (kLsDir = 4: 5 directions x 4 floats; kLsCol = 24: 5 colours rgbw; kLsBlockA = 88 = object +400, kLsBlockB = 92 = object +416; the arena
-// contributor's convention: +400 = sky, +416 = ground [U which is which in the game, the same fact the arena hook's SetSnap carries]).
+// contributor's order: +400 = sky, +416 = ground [C: the game's setter sub_82BE06B8 uploads them as g_f3SkyCol / g_f3GroundCol, SKYGROUND.md]).
 inline Tuple FromBlock(const uint32_t* w) {
   Tuple t;
   for (int k = 0; k < 4; ++k)

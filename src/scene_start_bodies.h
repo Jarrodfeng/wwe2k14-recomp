@@ -10,28 +10,22 @@
 #include <vector>
 
 #include "renderer_scene/start_bodies.h"
-#include "scene_live/wrestler_hook.h"   // wrestlers::ReadWordNoNote, slotkey::*, attire_build::*, WrestlerContributor, scene_frame::CurrentMode, wwe2k14_rdr_slot_key_desc
-
-namespace wwe2k14::wrestlers {
-// S110 ENTRBODIES: the slot-key rule switch, read where wrestler_hook.h declares it (its cvar is declared in this namespace)
-inline bool SlotKeyDescRule() { return REXCVAR_GET(wwe2k14_rdr_slot_key_desc); }
-}  // namespace wwe2k14::wrestlers
+#include "scene_live/wrestler_hook.h"   // wrestlers::ReadWordNoNote, slotkey::*, attire_build::*, WrestlerContributor, scene_frame::CurrentMode
 
 namespace wwe2k14::scene_start_bodies {
 
 // Game thread: name every occupied slot's body now and add it to this start's set. true = the set grew (scene_start_wait.h NoteAsked re-stamps the decision).
 inline bool Publish() {
-  if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return false;   // the record names no body then (wrestler_hook.h :335-337)
+  if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return false;   // the record names no body then (wrestler_hook.h OnSkelExit: scene switch off = no reads, key cleared)
   const auto rd = [](uint32_t a, uint32_t& v) { return wrestlers::ReadWordNoNote(a, v); };
-  const bool desc_rule = wrestlers::SlotKeyDescRule();
   std::vector<rdr_scene::startbodies::Body> bodies;
   for (int s = 0; s < 9; ++s) {
     uint32_t ch = 0;
     if (!rd(slotkey::kSlotTable + 4u * uint32_t(s), ch) || !ch) continue;
-    const uint32_t key = slotkey::SlotKeyOf(rd, s, ch, desc_rule);
+    const uint32_t key = slotkey::SlotKeyOf(rd, s, ch);
     if (!key) continue;
     uint32_t slot_desc = 0;
-    if (attire_build::Latch::Instance().HasChosen(key)) {   // wrestler_hook.h :388-392
+    if (attire_build::Latch::Instance().HasChosen(key)) {   // as wrestler_hook.h OnSkelExit (its HasChosen -> SlotDescForChar step)
       attire_build::SlotWhy why = attire_build::SlotWhy::kNoDesc;
       slot_desc = attire_build::SlotDescForChar(rd, ch, key, attire_build::Latch::Instance(), why);
     }

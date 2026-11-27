@@ -33,6 +33,18 @@ template <class Place>
 inline uint32_t PlacedObjectFlags(const Place& p) {
   return p.block && !p.material_state ? NodeObjectFlags(p.additive) : 0u;
 }
+// S111 JBOYBLEND (docs\research\s111\JBOYBLEND.md): an entrance prop model's draw state is its NODE's, placed or not. The game reads no blend, alpha test or z write from the material (the colour pass
+// sub_82C04DF0 sets none of them for its draws: after them it only puts back the words sub_82BD5460 saved on entry); the node sets them (WATR sub_8272C198: blend code 1, z write 0; CWDT / CWDS code 0,
+// z write 0). `place` = the model's CWeapon-node place (null = none found at
+// the latch): it gives the state as before (and an own node's place, material_state, orders only); without one the node that draws the entry (event_prop_nodes.h NodeOf: cat33_node = CWDT / WATR / CWDS,
+// watr = WATR) gives the same state, so a missed place loses only the order. Not a category-33 node (own node, CWDA): 0 (their state is OwnNodeObjectFlags).
+inline bool g_plant_unplaced_material = false;   // TEST ONLY (tools\scene\proporder_unit.cpp --plant-unplaced): an unplaced entry keeps its material's state (the rule before JBOYBLEND). The game never does.
+template <class Place>
+inline uint32_t EventPropObjectFlags(const Place* place, bool cat33_node, bool watr) {
+  if (place && place->block) return PlacedObjectFlags(*place);
+  if (g_plant_unplaced_material) return 0u;
+  return cat33_node ? NodeObjectFlags(watr) : 0u;
+}
 // S111 PODGLASS review: the object's node is of a category after 33 (scene_record.h kObjNodeLate): FrontEnd::Record's see-through key (SeeKey::late_node).
 inline bool LateNodeOf(uint32_t object_flags) { return (object_flags & kObjNodeLate) != 0; }
 // The front end's blend for a mesh of an object a node draws: 1 alpha, 2 additive; 0 = no node (the material decides, as before).
@@ -41,12 +53,12 @@ inline uint8_t NodeBlendOf(uint32_t object_flags) {
 }
 
 // S111 OWNNODEZ (docs\research\s111\OWNNODEZ.md): the CWeapon's OWN node sub_8272D378 draws its model [node-1152] (= [cw+48]) with z enable 1 (+0xB0), blend 1 (+0xBC), alpha test 1 GEQUAL ref 1 (+0xC8..+0xE0)
-// and blend code 0 (+0xEC), and no z write of its own: the category reset's 1 (sub_82C22E88 +0x50) [C]. Every yProp output alpha carries MdlAlpha (fx_prop.glsl:363 / :604-606 / :781-783), so the game fades the whole
+// and blend code 0 (+0xEC), and no z write of its own: the category reset's 1 (sub_82C22E88 +0x50) [C]. Every yProp output alpha carries MdlAlpha (fx_prop.glsl), so the game fades the whole
 // model by it. Ours blends + tests the binds whose own alpha its bind rules see (front_end.cpp GameTestsAlpha + the B2 tested blend, depth write kept); MdlAlpha is an object value no bind sees.
 // S111 OWNNODEZ review: the CWDA node sub_8272D0F0 (entry 6, category 26) sets the same state with alpha ref 128 (+0x198..+0x1D4: z enable 1, blend 1, test 1 GEQUAL ref 128, code 0; no z write) [C]: kObjNodeRef128.
 // So for such an object (the game's code, every mesh): MdlAlpha below the node's reference = nothing (an output alpha is never above MdlAlpha: (diffuse.a or 1) x vertex.a x MatAmbCol.w x MatDifCol.w x MdlAlpha,
 // the w terms 1 on the evtobj meshes [L for the effects not asked]); otherwise blended by code 0, in the material's list with its depth write (the node's z write 1). Where a mesh's output alpha is 1 the
-// blend changes no pixel; where it is not (a part GameTestsAlpha / YbgTestsAlpha leave untested: a vertex alpha of a yProp_PSM / UVScroll / yBG_Default part, a variant without spirv_alpha) it is the game's look.
+// blend changes no pixel; where it is not (a part GameTestsAlpha / YbgTestsAlpha leave untested: a vertex alpha of a yProp_PSM / UVScroll / yBG_Default part, a variant without an alpha-test twin: Variant::bytes_alpha 0) it is the game's look.
 // Not carried: CWDA's per-texel 128/255 test of a tested part (ours tests it at the lit class's 1/255, front_end.cpp B2).
 inline uint32_t OwnNodeObjectFlags(bool cwda = false) { return uint32_t(kObjNodeOwn) | (cwda ? uint32_t(kObjNodeRef128) : 0u); }
 // TEST ONLY (tools\scene\ownnode_unit.cpp --plant): the rule before OWNNODEZ (every mesh keeps its material's draw at any MdlAlpha). Written only by the unit; the game never sets it.

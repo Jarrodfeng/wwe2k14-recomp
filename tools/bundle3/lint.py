@@ -12,6 +12,7 @@ S103 SLV2: WWE2K14_BUNDLE3_OFF_LEVERS (src/bundle3.h) names the levers the STREA
 (not a unit of tools/scene/keep_stream_sources.txt, not a header of keep_stream_headers.txt, and outside any `#if WWE2K14_STREAM()` region): the SLV review found two levers in the bundle for weeks with
 no such cvar in the stream-free build, so the bundle set nothing there. Apply() also reports such a name at run time (bundle3::g_missing, an ERROR line), so it cannot be silent either way.
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -33,7 +34,7 @@ FIXES_OK = {
 START_TIME_OK = {
     'wwe2k14_nf_replay_loop': 'read once per replay through rdr_sw::BoolSeen (replay_watch.h)',
     'wwe2k14_nf_render_dispatch': 'read once per replay through rdr_sw::BoolSeen (replay_watch.h)',
-    # Plain cvar reads in reader.h that run after OnPreSetup: StartLive (reader.h 2490, called from the frame hook at 7017) copies the low_* levers into the
+    # Plain cvar reads in reader.h that run after OnPreSetup: StartLive (reader/start_live.inc, called from the frame hook) copies the low_* levers into the
     # renderer options at renderer start (the tier is resolved by then: ApplyLauncherSettings runs in OnPreSetup, after the bundle), and the three below are
     # stored into atomics each frame (7194 / 7195) or once at start (2279).
     'wwe2k14_rdr_low_shadow_small': 'reader.h StartLive (2754), only under the LOW tier (low_levers.h)',
@@ -163,9 +164,14 @@ def load(root):
         f = r / 'tools/scene' / name
         return {ln.strip().replace('\\', '/') for ln in f.read_text(encoding='utf-8').splitlines() if ln.strip() and not ln.strip().startswith('#')} if f.exists() else set()
     only_units, only_headers = listed('keep_stream_sources.txt'), listed('keep_stream_headers.txt')
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path, part_files  # a split file is read with its parts expanded; its part files are not scanned again
+    parts = part_files(r / 'src')
     for p in (r / 'src').rglob('*'):
         if p.suffix in ('.h', '.cpp', '.inc'):
-            text = p.read_text(encoding='utf-8', errors='replace')
+            if p.resolve() in parts:
+                continue
+            text = read_path(p)
             rel = p.relative_to(r).as_posix()
             if p.suffix in ('.h', '.cpp'):
                 src.append(text)

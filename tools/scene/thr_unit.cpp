@@ -87,7 +87,6 @@ void LayEditor(uint32_t sw, uint32_t cb, uint32_t state, const uint8_t colours[4
 struct Rig {
   WrestlerContributor w;
   explicit Rig() {
-    w.SetNoWalk(true);
     cc::Bodies().ResetForTest();
   }
   // One frame in the production order. `old_rule` = the pre-THR planted twin: the draw ask is stamped and nothing reads the colours.
@@ -207,7 +206,6 @@ void Handoff() {
 
   // 1. The game's editor and a linked slot body; the game's draw asks for the body (the read).
   WrestlerContributor w;
-  w.SetNoWalk(true);
   cc::Bodies().ResetForTest();
   rdr_scene::change_colour_draw::Draws().carried = 0;
   const uint64_t hook = 3;
@@ -319,7 +317,7 @@ void Handoff() {
   read_rule::PublishEffectTable(nullptr), read_rule::PublishStsEffectTable(nullptr);
 }
 
-// S110 LOGOSAMP: the logo-sampler rule (change_colour.h TakesLogoSampler) against BindMaterial's role switch (front_end.cpp:1402: change-colour -> RoleOfChangeSlot, wet ->
+// S110 LOGOSAMP: the logo-sampler rule (change_colour.h TakesLogoSampler) against BindMaterial's role switch (front_end.cpp: change-colour -> RoleOfChangeSlot, wet ->
 // RoleOfWetSlot, else RoleOfSlot): it must hold exactly where a character bind's role is Logo7 / Logo4. Returns the mismatching (character, change-colour, wet, slot) cases.
 // `plant` "logo_any_bind" = the planted twin (every character bind's 7 / 4, no change-colour / wet exclusion): must be caught.
 int LogoSamplerMismatches(const std::string& plant) {
@@ -450,7 +448,6 @@ int Selftest() {
     //     Review: the switch the game clears in period kOff (model+604 = 0: sub_82C04DF0 draws the +384 row, no callback) is the same: record kOff still carries period kOff - 1's colours, record
     //     kOff + 1 is plain (the old store erased the body at the switch-off draw: record kOff plain, one early). Two periods drawn off: the store holds nothing for the body.
     WrestlerContributor w;
-    w.SetNoWalk(true);
     cc::Bodies().ResetForTest();
     constexpr uint64_t kFirst = 300, kChange = 305, kOff = 308, kEnd = 314;
     bool ok = true;

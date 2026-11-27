@@ -64,7 +64,9 @@ def main():
         print(('PASS  ' if caught else 'FAIL  ') + 'planted twin %d (%s): %s' % (plant, what, 'caught' if caught else 'NOT caught (exit %d)' % p.returncode))
         fails += not caught
     # F2: the section lists / FrameTables / ParseFrame lint, clean, and two planted twins (a table dropped from the list; the reader's swap list missing a member)
-    rd = lambda p: open(os.path.join(root, p), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    rd = lambda p: read_path(os.path.join(root, p))
     ho, cr, rr = rd('src/renderer_adapter/frame_handoff.h'), rd('src/renderer_adapter/capture_reader.h'), rd('src/renderer_adapter/reader.h')
     clean = handoff_lint.lint(ho, cr, rr)
     print(('PASS  ' if not clean else 'FAIL  ') + 'lint: hand-over sections == ParseFrame case ids, every table is a FrameTables member' + ('' if not clean else ': ' + '; '.join(clean)))

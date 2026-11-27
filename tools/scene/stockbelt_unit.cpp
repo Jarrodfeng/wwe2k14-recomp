@@ -198,11 +198,11 @@ void Synthetic() {
   // F2 (review): a held structure frame (weapon_plan.h HoldStageRows: a record with no newly closed guest frame, Emit's `if (!any) return`) keeps the ladder belt's row with its held call.
   {
     weapons::Plants pl;
-    weapons::StageFamilyLatch latch;
+    weapons::StageLatch latch;
     pl.latch = &latch;
     pl.hold_no_rows = g_plant == "hold_no_rows";
     const int32_t pach = 11 + int32_t(kTitleRow);
-    latch.fam[pach] = int32_t(weapons::kStageFamilyOwn);
+    latch.latched[pach] = true;
     weapons::WeaponCall sc = Call(kLadderBelt, weapons::StageId(pach), weapons::PackStageFlags(1, true, false, 0));
     sc.frame = 40, sc.node_first = 0, sc.node_count = 1, sc.alpha = 1.f;
     float nodes[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};

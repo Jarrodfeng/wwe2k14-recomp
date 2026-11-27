@@ -5,11 +5,12 @@ r"""Self-test of q seam (S111 lane SEAM; tools/q/qseam.py). 0 game runs; the pla
 a  the real `depth` entry prints both sides: the viewport reversal's address 0x82C224A0 under GAME, the quads2d_draw.cpp line under OURS,
    no STALE row; `--check` of the checkout exits 0; q find's block and q fact's chunk name it.
 b  a planted entry whose game row has no address is REFUSED: by --check (exit 1, "no address") and by the writer add_entry (SeamError).
-c  a planted ours row whose anchor line moved prints `moved -> N`; once its anchor text is gone it prints STALE and --check exits 1.
-f  (lane SEAMDIFF) --diffs / --files / --json, two identical anchor lines (the first one's deletion = STALE, plant no_ctx), a missing
-   source note, a ../ path, --upgrade-anchors.
+c  a planted ours row whose anchor line moved prints the line it is at NOW (no stored line); once its anchor text is gone it prints STALE and
+   --check exits 1.
+f  (lane SEAMDIFF) --diffs / --files / --json, two identical anchor lines (`occurrence`; a row without it is AMBIGUOUS, plant no_occurrence;
+   a row that stores `line` is refused, plant no_line_rule), a missing source note, a ../ path.
 d  (this checkout only) the wiring: `q find depth` prints the seam entry line, `q fact ... --kind seam` finds db/seams/depth.json.
-Every planted case is run again with the rule switched off (WWE_QSEAM_PLANT / qseam.PLANT = no_addr_rule | no_moved | no_stale) and
+Every planted case is run again with the rule switched off (WWE_QSEAM_PLANT / qseam.PLANT = no_addr_rule | no_stale | no_occurrence | no_line_rule) and
 must then FAIL: a case that passes without its rule proves nothing.
 """
 import argparse
@@ -74,9 +75,9 @@ def case_a(root):
     check(head == 'seam depth' and any('0x82C224A0' in x for x in body), 'a: q fact chunk of the entry names 0x82C224A0', '\n'.join(body))
 
 
-def entry(topic, game, line, anchor):
+def entry(topic, game, anchor):
     return {'topic': topic, 'summary': 'A planted entry.', 'game': game,
-            'ours': [{'path': 'src/a.cpp', 'line': line, 'anchor': anchor, 'verdict': 'match', 'why': 'planted'}], 'open': []}
+            'ours': [{'path': 'src/a.cpp', 'anchor': anchor, 'verdict': 'match', 'why': 'planted'}], 'open': []}
 
 
 GOOD_GAME = [{'addr': '0x82000000', 'what': 'planted', 'evidence': 'planted', 'mark': 'C', 'source': 'docs/n.md'}]
@@ -87,7 +88,7 @@ def case_b(tmp):
     root = os.path.join(tmp, 'b')
     write(root, 'docs/n.md', 'note\n')
     write(root, 'src/a.cpp', '// a\nint x = 1;\nint y = 2;\n')
-    write(root, 'db/seams/noaddr.json', json.dumps(entry('noaddr', NOADDR_GAME, 3, 'int y = 2;'), indent=1))
+    write(root, 'db/seams/noaddr.json', json.dumps(entry('noaddr', NOADDR_GAME, 'int y = 2;'), indent=1))
     rc, out = run(['--check'], root)
     check(rc == 1 and 'no address' in out, 'b: --check refuses a game row with no address (exit 1)', out)
     rc_p, out_p = run(['--check'], root, plant='no_addr_rule')
@@ -132,9 +133,8 @@ def case_c(tmp):
     check(rc == 0 and 'src/a.cpp:3  match' in out and 'moved' not in out, 'c: at its line the row prints plain (ok)', out)
     write(root, 'src/a.cpp', '// a\n// new 1\n// new 2\nint x = 1;\nint y = 2;\nint z = 3;\n')
     rc, out = run(['moving'], root)
-    check(rc == 0 and 'moved -> 5' in out, 'c: the anchor two lines lower prints moved -> 5', out)
-    rc_p, out_p = run(['moving'], root, plant='no_moved')
-    check('moved' not in out_p, 'c: without the rule (plant no_moved) it does not: the case catches it', out_p)
+    check(rc == 0 and 'src/a.cpp:5  match' in out and 'src/a.cpp:3' not in out, 'c: the anchor two lines lower prints the line it is at now (5), no stored line to rot', out)
+    check('line' not in qseam.load(qseam.entry_path('moving', root))['ours'][0], 'c: the stored row holds no `line`')
     write(root, 'src/a.cpp', '// a\nint x = 1;\nint y = 7;\nint z = 3;\n')
     rc, out = run(['moving'], root)
     check(rc == 1 and 'STALE' in out, 'c: the anchor text gone prints STALE (exit 1)', out)
@@ -144,7 +144,7 @@ def case_c(tmp):
     check(rc_p == 0 and 'STALE' not in out_p, 'c: without the rule (plant no_stale) --check passes: the case catches it', out_p)
     bad = False
     try:
-        qseam.add_row('moving', 'ours', {'path': 'src/a.cpp', 'line': 3, 'anchor': 'int y = 2;', 'verdict': 'match', 'why': 'x'}, root=root)
+        qseam.add_row('moving', 'ours', {'path': 'src/a.cpp', 'anchor': 'int y = 2;', 'verdict': 'match', 'why': 'x'}, root=root)
     except qseam.SeamError as e:
         bad = 'ours row 2' in str(e) and 'anchor' in str(e)
     check(bad, 'c: the writer add_row refuses a NEW row whose anchor is not its line now (row 2 named)')
@@ -152,7 +152,7 @@ def case_c(tmp):
 
 def case_e(tmp):
     """review (S111 SEAM): the tree moves under the lodging lane. An EXISTING row that moved (or went stale) must not block add_row of
-    a good new row: only the new row's anchor is checked; the moved row keeps its stored line (the lookup shows moved -> N) and a stale
+    a good new row: only the new row's anchor is checked; the lookup shows the moved row at its line now and a stale
     one still fails --check."""
     root = os.path.join(tmp, 'e')
     write(root, 'docs/n.md', 'note\n')
@@ -165,10 +165,10 @@ def case_e(tmp):
     except qseam.SeamError as e:
         err = str(e)
     e = qseam.load(qseam.entry_path('shift', root))
-    check(not err and len(e['ours']) == 2 and e['ours'][0]['line'] == 3,
-          'e: add_row of a good new row is accepted while an existing row has moved (that row keeps its line)', err)
+    check(not err and len(e['ours']) == 2 and 'line' not in e['ours'][0] and 'line' not in e['ours'][1],
+          'e: add_row of a good new row is accepted while an existing row has moved (no row stores a line)', err)
     rc, out = run(['shift'], root)
-    check(rc == 0 and 'moved -> 5' in out, 'e: the lookup still shows the existing row moved -> 5', out)
+    check(rc == 0 and 'src/a.cpp:5' in out, 'e: the lookup shows the existing row at line 5 now', out)
     write(root, 'src/a.cpp', '// a\n// new 1\n// new 2\nint x = 1;\nint y = 9;\nint z = 3;\n')
     err = ''
     try:
@@ -181,7 +181,7 @@ def case_e(tmp):
 
 
 def case_f(tmp):
-    """lane SEAMDIFF: --diffs, identical anchors, the missing source note, a path that leaves the repo, --upgrade-anchors"""
+    """lane SEAMDIFF: --diffs, identical anchors, the missing source note, a path that leaves the repo, occurrence / line / ctx rules"""
     root = os.path.join(tmp, 'f')
     write(root, 'docs/n.md', 'note\n')
     write(root, 'x', 'outside\n')
@@ -193,8 +193,9 @@ def case_f(tmp):
     rows = [ro('src/a.cpp', 3, 'replace', 'WHYREPLACE ours own way', root=root), ro('src/a.cpp', 6, 'match', 'WHYMATCH same', root=root),
             ro('src/b.cpp', 2, 'repeat', 'WHYREPEAT redone', root=root)]
     qseam.add_entry('planted', 'A planted entry.', gm, rows, root=root)
-    check('ctx' in rows[0] and rows[0]['ctx'] == ['void f() {'], 'f: the writer stores the context for a row whose anchor text repeats in its file', json.dumps(rows[0]))
-    check('ctx' not in rows[2], 'f: a unique anchor stores no context')
+    check(rows[0].get('occurrence') == 1 and rows[1].get('occurrence') == 2 and 'line' not in rows[0],
+          'f: the writer stores `occurrence` (which of the lines) for a row whose anchor text repeats in its file, and no line', json.dumps(rows[0]))
+    check('occurrence' not in rows[2] and 'ctx' not in rows[2], 'f: a unique anchor stores no occurrence')
     rc, out = run(['--diffs'], root)
     check(rc == 0 and 'WHYREPLACE' in out and 'WHYREPEAT' in out and 'WHYMATCH' not in out, 'f: --diffs lists the planted replace and repeat rows, not the match row', out)
     check('seam diffs: 2 rows: replace 1, repeat 1' in out and 'planted: replace 1, repeat 1' in out, 'f: --diffs totals per verdict and per topic are right', out)
@@ -218,28 +219,49 @@ def case_f(tmp):
     except ValueError:
         t = {}
     check(t.get('replace') == 1 and t.get('repeat') == 1 and t.get('rows') == 2, 'f: --diffs --json carries the totals', out)
-    # two identical anchor lines: deleting the first one's line makes ITS row STALE (the second line must not stand in for it)
+    # two identical anchor lines: the first one's line deleted -> occurrence 2 is past the last line: ITS row (the second) is STALE
     write(root, 'src/a.cpp', '// a\nvoid f() {\n}\nvoid g() {\n  v[5] = 1;\n}\n')
     rc, out = run(['planted'], root)
-    check(rc == 1 and '!! STALE src/a.cpp:3' in out and 'src/a.cpp:6 moved -> 5' in out,
-          'f: two identical anchor lines: deleting the first makes that row STALE and the second moved -> 5', out)
-    rc_p, out_p = run(['planted'], root, plant='no_ctx')
-    check('STALE src/a.cpp:3' not in out_p and 'moved' in out_p, 'f: without the context (plant no_ctx) the first row only reads moved: the case catches it', out_p)
-    rc, out = run(['--diffs'], root)
-    check(rc == 1 and '!! STALE src/a.cpp:3' in out, 'f: --diffs flags the STALE row too (exit 1)', out)
-    # review (S111 SEAMDIFF): the context only chooses between lines that hold the anchor; an edit of a context line alone never makes a
-    # row STALE (it is a disambiguator, not a second anchor)
-    write(root, 'src/a.cpp', two.replace('void f() {', 'void f(int k) {'))
+    check(rc == 1 and '!! STALE src/a.cpp' in out and 'occurrence 2 asked' in out and 'src/a.cpp:5' in out,
+          'f: two identical anchor lines, one deleted: the occurrence-2 row is STALE, the occurrence-1 row reads the line that is left (5)', out)
+    rc_p, out_p = run(['planted'], root, plant='no_stale')
+    check('STALE' not in out_p, 'f: without the rule (plant no_stale) nothing is STALE: the case catches it', out_p)
+    # lines inserted above both: each row follows its own occurrence
+    write(root, 'src/a.cpp', '// top\n// top2\n' + two)
     rc, out = run(['planted'], root)
-    check(rc == 0 and 'STALE' not in out and 'moved' not in out, 'f: an edit of the line above an anchor (its context) leaves both rows ok', out)
-    write(root, 'src/a.cpp', '// top\n' + two.replace('void f() {', 'void f(int k) {'))
-    rc, out = run(['planted'], root)
-    check(rc == 0 and 'src/a.cpp:3 moved -> 4' in out and 'src/a.cpp:6 moved -> 7' in out,
-          'f: a context edit plus a shift: each row reads moved to its own line (the other row\'s context keeps its line)', out)
-    write(root, 'src/a.cpp', '// a\nvoid g() {\n  v[5] = 1;\n}\nvoid f() {\n  v[5] = 1;\n}\n')
-    rc, out = run(['planted'], root)
-    check(rc == 0 and 'src/a.cpp:3 moved -> 6' in out and 'src/a.cpp:6 moved -> 3' in out,
-          'f: the two functions swapped: each row follows its own context, not its stored line number', out)
+    check(rc == 0 and 'src/a.cpp:5  replace' in out and 'src/a.cpp:8  match' in out, 'f: lines inserted above: each row reads the line its occurrence is at now (5 and 8)', out)
+    # an anchor on two lines with no `occurrence`: AMBIGUOUS (the only case a line number was resolving)
+    write(root, 'src/a.cpp', two)
+    amb = {'topic': 'ambig', 'summary': 'A planted entry.', 'game': GOOD_GAME,
+           'ours': [{'path': 'src/a.cpp', 'anchor': 'v[5] = 1;', 'verdict': 'match', 'why': 'planted'}], 'open': []}
+    write(root, 'db/seams/ambig.json', json.dumps(amb, indent=1))
+    rc, out = run(['--check'], root)
+    check(rc == 1 and 'AMBIGUOUS' in out and 'occurrence' in out, 'f: --check fails an anchor on two lines that has no `occurrence`', out)
+    rc_p, out_p = run(['--check'], root, plant='no_occurrence')
+    check('AMBIGUOUS' not in out_p, 'f: without the rule (plant no_occurrence) it passes: the case catches it', out_p)
+    rc, out = run(['ambig'], root)
+    check(rc == 1 and '!! AMBIGUOUS src/a.cpp' in out, 'f: the lookup prints the AMBIGUOUS row', out)
+    refused = False
+    try:
+        qseam.add_row('ambig', 'ours', {'path': 'src/a.cpp', 'anchor': 'v[5] = 1;', 'verdict': 'match', 'why': 'x'}, root=root)
+    except qseam.SeamError as e:
+        refused = 'AMBIGUOUS' in str(e)
+    check(refused, 'f: the writer add_row refuses a row whose anchor is on two lines and has no occurrence')
+    os.remove(qseam.entry_path('ambig', root))
+    # a row that keeps writing `line` (the twin of the old format) or the retired `ctx`
+    old = {'topic': 'oldrows', 'summary': 'A planted entry.', 'game': GOOD_GAME,
+           'ours': [{'path': 'src/b.cpp', 'line': 2, 'anchor': 'int q = 2;', 'verdict': 'match', 'why': 'planted'}], 'open': []}
+    write(root, 'db/seams/oldrows.json', json.dumps(old, indent=1))
+    rc, out = run(['--check'], root)
+    check(rc == 1 and 'stored `line`' in out, 'f: --check refuses an ours row that stores a `line`', out)
+    rc_p, out_p = run(['--check'], root, plant='no_line_rule')
+    check('stored `line`' not in out_p, 'f: without the rule (plant no_line_rule) it passes: the case catches it', out_p)
+    old['ours'][0].pop('line')
+    old['ours'][0]['ctx'] = ['int p = 1;']
+    write(root, 'db/seams/oldrows.json', json.dumps(old, indent=1))
+    rc, out = run(['--check'], root)
+    check(rc == 1 and '`ctx` is retired' in out, 'f: --check refuses the retired `ctx`', out)
+    os.remove(qseam.entry_path('oldrows', root))
     # a missing source note
     write(root, 'src/a.cpp', two)
     gone = dict(GOOD_GAME[0], source='docs/missing_note.md')
@@ -254,37 +276,12 @@ def case_f(tmp):
         refused = 'never leaves the repo' in str(e)
     check(refused, 'f: ours_row refuses ../x')
     bad = {'topic': 'esc', 'summary': 'A planted entry.', 'game': GOOD_GAME,
-           'ours': [{'path': '../x', 'line': 1, 'anchor': 'outside', 'verdict': 'match', 'why': 'planted'}], 'open': []}
+           'ours': [{'path': '../x', 'anchor': 'outside', 'verdict': 'match', 'why': 'planted'}], 'open': []}
     write(root, 'db/seams/esc.json', json.dumps(bad, indent=1))
     rc, out = run(['--check'], root)
     check(rc == 1 and 'leaves the repo' in out, 'f: --check refuses a stored ../x path', out)
     os.remove(os.path.join(root, 'db', 'seams', 'esc.json'))
     os.remove(os.path.join(root, 'db', 'seams', 'nosrc.json'))
-    # --upgrade-anchors: an old entry (no ctx) gets its context; a row whose line moved is refused and its entry left as it was
-    old = {'topic': 'oldrows', 'summary': 'A planted entry.', 'game': GOOD_GAME,
-           'ours': [{'path': 'src/a.cpp', 'line': 3, 'anchor': 'v[5] = 1;', 'verdict': 'match', 'why': 'planted'},
-                    {'path': 'src/a.cpp', 'line': 6, 'anchor': 'v[5] = 1;', 'verdict': 'match', 'why': 'planted'}], 'open': []}
-    write(root, 'db/seams/oldrows.json', json.dumps(old, indent=1))
-    rc, out = run(['--upgrade-anchors'], root)
-    e = qseam.load(qseam.entry_path('oldrows', root))
-    check(rc == 0 and e['ours'][0].get('ctx') == ['void f() {'] and e['ours'][1].get('ctx') == ['void g() {'],
-          'f: --upgrade-anchors stores each row its own context', out)
-    moved = {'topic': 'movedrow', 'summary': 'A planted entry.', 'game': GOOD_GAME,
-             'ours': [{'path': 'src/b.cpp', 'line': 1, 'anchor': 'int q = 2;', 'verdict': 'match', 'why': 'planted'}], 'open': []}
-    write(root, 'db/seams/movedrow.json', json.dumps(moved, indent=1))
-    before = open(qseam.entry_path('movedrow', root), encoding='utf-8').read()
-    rc, out = run(['--upgrade-anchors'], root)
-    after = open(qseam.entry_path('movedrow', root), encoding='utf-8').read()
-    check(rc == 1 and 'movedrow: ours row 1 src/b.cpp:1' in out and before == after, 'f: --upgrade-anchors refuses and lists a row whose line moved, writes nothing of it', out)
-    os.remove(qseam.entry_path('movedrow', root))
-    # review: an entry the upgrade adds nothing to is left byte for byte (a hand-written compact entry is not re-formatted)
-    compact = {'topic': 'compact', 'summary': 'A planted entry.', 'game': GOOD_GAME,
-               'ours': [{'path': 'src/b.cpp', 'line': 2, 'anchor': 'int q = 2;', 'verdict': 'match', 'why': 'planted'}], 'open': []}
-    write(root, 'db/seams/compact.json', json.dumps(compact))
-    before = open(qseam.entry_path('compact', root), encoding='utf-8', newline='').read()
-    rc, out = run(['--upgrade-anchors'], root)
-    after = open(qseam.entry_path('compact', root), encoding='utf-8', newline='').read()
-    check(rc == 0 and before == after and 'written 0' in out, 'f: --upgrade-anchors leaves an entry it adds no context to as it was (written 0)', out)
 
 
 def git(root, *args):
@@ -294,20 +291,19 @@ def git(root, *args):
 
 
 def case_g(tmp):
-    """check.py's `seam` row on planted diffs: a deleted anchored line FAILs, a shifted one passes (moved = NOTE), an unrelated file passes
-    even when a row of an untouched file is stale (it is not judged)."""
+    """check.py's `seam` row on planted diffs: a deleted anchored line FAILs, a shifted one passes, an unrelated file passes
+    even when a row of an untouched file is stale (it is not judged); a stored `line` / an ambiguous anchor FAILs."""
     chk = os.path.abspath(os.path.join(HERE, '..', 'handback', 'check.py'))
 
-    def repo(name, a_text, entry_row_anchor='int y = 2;', ctx=None, game=GOOD_GAME):
+    def repo(name, a_text, entry_row_anchor='int y = 2;', extra=None, game=GOOD_GAME):
         root = os.path.join(tmp, name)
         os.makedirs(root)
         git(root, 'init', '-q')
         write(root, 'docs/n.md', 'note\n')
         write(root, 'src/a.cpp', a_text)
         write(root, 'src/c.cpp', 'int c = 1;\n')
-        row = {'path': 'src/a.cpp', 'line': 3, 'anchor': entry_row_anchor}
-        if ctx:
-            row['ctx'] = ctx
+        row = {'path': 'src/a.cpp', 'anchor': entry_row_anchor}
+        row.update(extra or {})
         row.update({'verdict': 'replace', 'why': 'planted'})
         ent = {'topic': 'twin', 'summary': 'A planted entry.', 'game': game, 'ours': [row], 'open': []}
         write(root, 'db/seams/twin.json', json.dumps(ent, indent=1))
@@ -323,11 +319,11 @@ def case_g(tmp):
     root, base = repo('g1', base_text)
     write(root, 'src/a.cpp', '// a\nint x = 1;\nint z = 3;\n')
     rc, out = seam_row(root, base)
-    check(rc == 1 and 'seam' in out and 'STALE' in out and 'src/a.cpp:3' in out, 'g: check.py seam row: a diff that deletes the anchored line FAILs', out)
+    check(rc == 1 and 'seam' in out and 'STALE' in out and 'src/a.cpp' in out, 'g: check.py seam row: a diff that deletes the anchored line FAILs', out)
     root, base = repo('g2', base_text)
     write(root, 'src/a.cpp', '// a\n// new\n' + base_text[5:])
     rc, out = seam_row(root, base)
-    check(rc == 0 and 'moved -> 4' in out, 'g: a diff that only shifts the anchored line passes (moved is a NOTE)', out)
+    check(rc == 0 and 'none STALE' in out, 'g: a diff that only shifts the anchored line passes (the anchor locates the row)', out)
     root, base = repo('g3', base_text, entry_row_anchor='int gone = 0;')
     write(root, 'src/c.cpp', 'int c = 2;\n')
     rc, out = seam_row(root, base)
@@ -335,12 +331,22 @@ def case_g(tmp):
     write(root, 'src/a.cpp', base_text + '// touched\n')
     rc, out = seam_row(root, base)
     check(rc == 1 and 'STALE' in out, 'g: the same stale row FAILs once its file is in the diff', out)
-    # review (S111 SEAMDIFF): a row with context: a diff that edits only the context line above the anchor passes
+    # a row with an occurrence: a diff that inserts lines above both identical anchors passes
     twin_text = '// a\nvoid f() {\n  v[5] = 1;\n}\nvoid g() {\n  v[5] = 1;\n}\n'
-    root, base = repo('g4', twin_text, entry_row_anchor='v[5] = 1;', ctx=['void f() {'])
-    write(root, 'src/a.cpp', twin_text.replace('void f() {', 'void f(int k) {'))
+    root, base = repo('g4', twin_text, entry_row_anchor='v[5] = 1;', extra={'occurrence': 2})
+    write(root, 'src/a.cpp', '// top\n' + twin_text)
     rc, out = seam_row(root, base)
-    check(rc == 0 and 'seam' in out, 'g: a diff that edits only the context line above an anchor passes (ctx is not a second anchor)', out)
+    check(rc == 0 and 'seam' in out, 'g: a diff that inserts a line above an anchor with an occurrence passes', out)
+    # the same anchor on two lines with NO occurrence: the change that touches the file FAILs (AMBIGUOUS)
+    root, base = repo('g4b', twin_text, entry_row_anchor='v[5] = 1;')
+    write(root, 'src/a.cpp', '// top\n' + twin_text)
+    rc, out = seam_row(root, base)
+    check(rc == 1 and 'AMBIGUOUS' in out, 'g: an anchor on two lines without `occurrence` FAILs the seam row', out)
+    # a row that stores `line` (the twin of the old format) FAILs
+    root, base = repo('g4c', base_text, extra={'line': 3})
+    write(root, 'src/a.cpp', base_text + '// touched\n')
+    rc, out = seam_row(root, base)
+    check(rc == 1 and 'stored `line`' in out, 'g: a row that stores a `line` FAILs the seam row', out)
     # a missing source note is the index's own problem (q seam --check reports it): it never fails a code change
     root, base = repo('g5', base_text, game=[dict(GOOD_GAME[0], source='docs/missing_note.md')])
     write(root, 'src/a.cpp', base_text + '// touched\n')

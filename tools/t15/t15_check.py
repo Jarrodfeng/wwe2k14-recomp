@@ -187,7 +187,9 @@ def run_wiring(root):
         fp = os.path.join(root, p)
         if not os.path.isfile(fp):
             return fail('missing ' + fp)
-        files[k] = open(fp, encoding='utf8', errors='replace').read().replace('\r\n', '\n')
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+        files[k] = read_path(fp)
     reqs = requirements(files)
     bad = evaluate(reqs)
     for name in bad:

@@ -1,0 +1,11 @@
+name = "constdiff"
+module = "qconstdiff"
+needs = "con"
+errors = ["qconstdiff.DiffError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 41
+text = '''  constdiff [--effect E] [--kind LITERAL|OURS|GAME|UNFED] [--diff]  per shader input our resolvers feed: the GAME's source (name table,
+                               descriptor list, material records) beside OURS (the resolver branch's kind + line); DIFF = game-fed, ours
+                               literal / unfed (tools/q/qconstdiff.py; docs/research/s111/CONSTDIFF.md)'''

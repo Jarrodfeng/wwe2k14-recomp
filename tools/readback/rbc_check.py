@@ -26,9 +26,12 @@ def say(ok, text):
         FAILS.append(text)
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(rel):
-    with open(os.path.join(ROOT, rel), encoding='utf-8', errors='replace') as f:
-        return f.read()
+    return read_path(os.path.join(ROOT, rel))
 
 
 def run(cmd, timeout=900):

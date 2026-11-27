@@ -2,7 +2,8 @@
 // Sweat / liquid accumulation map, pixel stage. See docs\renderer\effects\yLiquidMap.md.
 // Reads the previous map (slot 0) and the source map (slot 1, the new liquid) and writes the updated map.
 // Options: FX_SWEAT (adds new liquid to the previous map), FX_PASTE (pastes one channel), FX_COPY_PREV (copies the previous map),
-//          FX_TINT (writes the source as a coloured amount), FX_LOD (plain read of the source at a chosen mip), FX_DIM (the softer variant of SWEAT, COPY_PREV and TINT).
+//          FX_TINT (writes the source as a coloured amount), FX_LOD (plain read of the source at a chosen mip), FX_DIM (the softer variant of SWEAT, COPY_PREV and TINT),
+//          FX_Q4 (with COPY_PREV, ours only, no game shader: the copy rounds each channel to the nearest of 16 steps, the game's resolve into its k_4_4_4_4 map texture; S111 LIQUID4BIT).
 #extension GL_GOOGLE_include_directive : require
 #include "fx_common.glsl"
 
@@ -43,6 +44,9 @@ void main() {
   vec3 previous = textureLod(textures[0], inUv.zw, 0.0).xyz;
 #ifdef FX_DIM
   previous.yz *= 0.775;
+#endif
+#ifdef FX_Q4
+  previous = floor(previous * 15.0 + 0.5) / 15.0;   // x * 15 + 0.5, truncated: the SDK's emulated 16 bpp resolve; n / 15 lands exactly on 17 n / 255 in the 8-bit map
 #endif
   outColor = vec4(previous, 1.0);
 #elif defined(FX_TINT)

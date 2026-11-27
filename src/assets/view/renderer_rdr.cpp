@@ -115,9 +115,10 @@ class RendererRdr final : public Renderer {
     std::memset(&f.camera.proj, 0, sizeof f.camera.proj);
     std::memcpy(f.camera.view.m, fcb.viewProj.m, sizeof f.camera.view.m);
     for (int i = 0; i < 4; ++i) f.camera.proj.m[i * 5] = 1.f;
+    f.camera.flags = rdr_scene::kCamViewIsViewProj;   // S111 VIEWROWS review: declared (as scene_record_out.cpp does), so View (c52-c54) takes the axes from the product, never this `view` as a world -> view
     f.camera.eye[0] = fcb.cam[0], f.camera.eye[1] = fcb.cam[1], f.camera.eye[2] = fcb.cam[2];
     // S101 lane 34: the display curve, as vk does (WWE_RDR_NO_GAMMA=1 is the planted fault: the old washed-out picture)
-    const bool curve = gamma_ && look_lit_ && debug_ == 0 && !EnvOn("WWE_RDR_NO_GAMMA");  // (review F: debug views show the raw scene, as vk's renderer.cpp:548)
+    const bool curve = gamma_ && look_lit_ && debug_ == 0 && !EnvOn("WWE_RDR_NO_GAMMA");  // (review F: debug views show the raw scene, as vk's renderer.cpp)
     for (int k = 0; k < 3; ++k) f.clear[k] = curve ? DisplayCurveInverse(clear_rgb_[k]) : clear_rgb_[k];
     // S101 lane 15 (entrances): the entrance rule (LM variants on the ring / prop classes) and each model's light sets as the entrance rig rewrote them this frame
     // (GpuModel::lights, the lighting editor's edits applied as MakeDrawCB does). WWE_RDR_NO_ENT_LIGHTS=1: the sets the models were added with (the selftest's planted fault).

@@ -166,7 +166,7 @@ def run_variants(shipped_input, variants, build, run, jobs=None, once=None):
         if sh_done and not todo:
             return sh, outs
     want = max(1, min(jobs, len(todo) + 1))
-    with _admit.hold('cc.tool', want, timeout_s=300) as nj, ThreadPoolExecutor(max_workers=max(1, min(int(nj), want))) as ex:   # the compile queue's count, never more than the want
+    with _admit.hold('cc.tool', want) as nj, ThreadPoolExecutor(max_workers=max(1, min(int(nj), want))) as ex:   # the compile queue's count, never more than the want
         futs = ([] if sh_done else [ex.submit(_one, sh, text, build, run)]) + [ex.submit(_one, o, new, build, run) for o, new in todo]
         for f in futs:
             f.result()

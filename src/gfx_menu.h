@@ -992,6 +992,7 @@ inline void QuitPoll(uint8_t* base) {
 
 // Text lookup (the text manager's GetString): our ids are answered here; while the GRAPHICS screen is open the ids
 // of the stock screen's header and row labels are swapped; everything else is the game's own.
+// SKIP-ORIGINAL: our text ids (new songs, custom trons, the user playlist hint, the graphics screen labels) are answered here with our string; every other id runs the original
 REX_HOOK_RAW(sub_822563F8) {
   using namespace wwe2k14::gfx_menu;
   const uint32_t id = ctx.r4.u32, lr = uint32_t(ctx.lr);
@@ -1152,6 +1153,7 @@ REX_HOOK_RAW(sub_82B1B460) {
 }
 
 // ACCEPT (slot 12): for our screen the settings file, not the game's save.
+// SKIP-ORIGINAL: ACCEPT on our graphics screen commits the settings file instead of the game save (the comment above); every other screen runs the original
 REX_HOOK_RAW(sub_82B1B2B8) {
   using namespace wwe2k14::gfx_menu;
   const uint32_t self = ctx.r3.u32;
@@ -1275,6 +1277,7 @@ REX_HOOK_RAW(sub_82B14FC0) {
 }
 
 // The SmartMenu's "enter the highlighted item" (A on a list item): QUIT TO DESKTOP is ours (item 3).
+// SKIP-ORIGINAL: A on the QUIT TO DESKTOP item is ours (posts the question; the comment above); every other item runs the original
 REX_HOOK_RAW(sub_82841648) {
   using namespace wwe2k14::gfx_menu;
   // Only while our patch of the main menu's list is live: a list that was left stock (another game version, a list

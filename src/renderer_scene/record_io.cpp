@@ -1,6 +1,7 @@
 // The scene record as a file (Session 101, lane 14). See record_io.h and docs\renderer\SCENE_RECORD.md "Files".
 #include "record_io.h"
 #include "record_all.h"   // S106 G4-C: the row families (record_io.h only declares their types)
+#include "record_kinds.h"   // S111 FXSKIP: KeepKnownKinds (a row kind this reader does not know drops that row only)
 #include "../renderer/render_lean.h"   // S102 RT1
 
 #include <algorithm>
@@ -830,23 +831,35 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
       case kScGuestModelParams: { std::string werr; if (!Load(size, data, e, out.guest_models.params, werr)) out.guest_models.params.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 GUESTHAIR
       case kScGuestModelMats: { std::string werr; if (!Load(size, data, e, out.guest_models.mats, werr)) out.guest_models.mats.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 EYECUBE
       case kScGuestModelTexNames: { std::string werr; if (!Load(size, data, e, out.guest_models.tex_names, werr)) out.guest_models.tex_names.clear(), ++out.guest_models.errors; ok = true; break; }   // S111 EYECUBE
-      case kScArenaWorlds: {  // S101 lane 130: a layout / kind this reader does not know drops THIS section only (counted), never the whole record
+      // S111 FXSKIP: in every kind-tagged section below, an unknown LAYOUT (or element size) drops THIS section only (counted), never the record, and a
+      // row KIND this reader does not know drops that row only (counted per row, record_kinds.h KeepKnownKinds): rows are one stride per section, so a
+      // newer writer's kind is skipped and the rest of the section is read. The range ends live beside each enum (kAwLast, kMlLast, kFxLast, kSlLast, kCpLast, kCsLast;
+      // tools\lint\kind_last_lint.py fails when one of them is not its enum's last kind).
+      case kScArenaWorlds: {  // S101 lane 130
         std::string werr;
         std::vector<ArenaWorld> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const ArenaWorld& w : tmp) good = good && w.layout == 1 && (w.kind == kAwObject || w.kind == kAwClock);
-        if (good) out.arena_worlds = std::move(tmp);
-        else ++out.arena_world_errors;
+        for (const ArenaWorld& w : tmp) good = good && w.layout == 1;
+        if (good) {
+          KeepKnownKinds(tmp, kAwObject, kAwLast, out.arena_world_errors);
+          out.arena_worlds = std::move(tmp);
+        } else {
+          ++out.arena_world_errors;
+        }
         ok = true;
         break;
       }
-      case kScModelLights: {  // S103 C: an unknown layout / kind drops THIS section only (counted), never the record
+      case kScModelLights: {  // S103 C
         std::string werr;
         std::vector<ModelLightRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const ModelLightRow& r : tmp) good = good && r.layout == kModelLightsLayout && r.kind <= kMlMesh;
-        if (good) out.model_lights = std::move(tmp);
-        else ++out.c_errors;
+        for (const ModelLightRow& r : tmp) good = good && r.layout == kModelLightsLayout;
+        if (good) {
+          KeepKnownKinds(tmp, kMlSet, kMlLast, out.c_errors);
+          out.model_lights = std::move(tmp);
+        } else {
+          ++out.c_errors;
+        }
         ok = true;
         break;
       }
@@ -854,41 +867,41 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         std::string werr;
         std::vector<StageFxRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const StageFxRow& r : tmp) good = good && r.layout == kStageFxLayout && r.kind >= kFxScreen && r.kind <= kFxSlotPalette;   // S110 BARRICADE (kFxCar = 7, S103 CAR, before it)
-        if (good) out.stage_fx = std::move(tmp);
-        else ++out.c_errors;
+        for (const StageFxRow& r : tmp) good = good && r.layout == kStageFxLayout;
+        if (good) {
+          KeepKnownKinds(tmp, kFxScreen, kFxLast, out.c_errors);
+          out.stage_fx = std::move(tmp);
+        } else {
+          ++out.c_errors;
+        }
         ok = true;
         break;
       }
-      case kScStageLook: {  // S103 L
+      case kScStageLook: {  // S103 L (S103 D1 review: the table only grows; its skip rule is now every kind-tagged section's)
         std::string werr;
         std::vector<StageLookRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
         for (const StageLookRow& r : tmp) good = good && r.layout == kStageLookLayout;
-        // S103 D1 review: tolerant of row kinds this build does not know (a table that only grows): skip and count them, keep the rest.
-        size_t unknown = 0;
         if (good) {
-          std::vector<StageLookRow> known;
-          known.reserve(tmp.size());
-          for (const StageLookRow& r : tmp) {
-            if (r.kind >= kSlEntrance && r.kind <= kSlLast) known.push_back(r);
-            else ++unknown;
-          }
-          tmp.swap(known);
-          out.c_errors += static_cast<uint32_t>(unknown);
+          KeepKnownKinds(tmp, kSlEntrance, kSlLast, out.c_errors);
+          out.stage_look = std::move(tmp);
+        } else {
+          ++out.c_errors;
         }
-        if (good) out.stage_look = std::move(tmp);
-        else ++out.c_errors;
         ok = true;
         break;
       }
-      case kScCrowdProps: {  // S103 D4: an unknown layout / kind drops THIS section only (counted), never the record
+      case kScCrowdProps: {  // S103 D4
         std::string werr;
         std::vector<CrowdPropRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const CrowdPropRow& r : tmp) good = good && r.layout == kCrowdPropLayout && r.kind >= kCpSign && r.kind <= kCpHand;
-        if (good) out.crowd_props = std::move(tmp);
-        else ++out.c_errors;
+        for (const CrowdPropRow& r : tmp) good = good && r.layout == kCrowdPropLayout;
+        if (good) {
+          KeepKnownKinds(tmp, kCpSign, kCpLast, out.c_errors);
+          out.crowd_props = std::move(tmp);
+        } else {
+          ++out.c_errors;
+        }
         ok = true;
         break;
       }
@@ -906,9 +919,13 @@ bool ParseRecord(const uint8_t* data, size_t size, SceneTables& out, std::string
         std::string werr;
         std::vector<CrowdSingleRow> tmp;
         bool good = Load(size, data, e, tmp, werr);
-        for (const CrowdSingleRow& r : tmp) good = good && r.layout == kCrowdSingleLayout && r.kind == 1;
-        if (good) out.crowd_singles = std::move(tmp);
-        else ++out.c_errors;
+        for (const CrowdSingleRow& r : tmp) good = good && r.layout == kCrowdSingleLayout;
+        if (good) {
+          KeepKnownKinds(tmp, kCsBody, kCsLast, out.c_errors);
+          out.crowd_singles = std::move(tmp);
+        } else {
+          ++out.c_errors;
+        }
         ok = true;
         break;
       }

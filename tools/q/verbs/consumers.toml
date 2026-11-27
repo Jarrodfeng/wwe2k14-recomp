@@ -1,0 +1,17 @@
+name = "consumers"
+module = "qconsumers"
+needs = "con"
+errors = ["qconsumers.ConsumersError", "qconsumers.qslice.SliceError", "qconsumers.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 63
+text = '''  consumers --from FUNC [--ret|--arg rN] [--off N] [--depth K] [--json]   every load / store through a pointer that ORIGINATES as FUNC's return (or its argument rN),
+                                 followed through register copies, stack slots, joins and call arguments (K hops, default 1); per offset the reading / writing functions,
+                                 then a coverage line (paths followed, cuts by reason).  consumers --field OFF [--from FUNC ...]: the pointer is loaded from +OFF.
+                                 consumers --stores OFF [--hit 80,81]: every store at +OFF with its value traced by q slice (tools/q/qconsumers.py)'''
+
+[[route]]
+order = 149
+text = '''- who reads / writes +N through the pointer a function returns (a record lookup's result): consumers --from FUNC --off N; which stores at +OFF trace to a constant: consumers --stores OFF --hit V'''

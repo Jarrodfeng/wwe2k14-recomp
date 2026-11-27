@@ -1,0 +1,57 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, replay_mode on
+# S111 REPRO2 probe (CAW): what does a NEW created superstar wear on the torso, and what does the CLOTHING > UPPER BODY page offer (to make a BARE-torso CAW)? Entry as
+# s111_caw_portrait_hair.txt (CREATIONS > SUPERSTAR > NEW > template A > the editor), shots of the CAS preview (front-on), then RB x2 = CLOTHING tab, DOWN x2 + A = UPPER BODY
+# (s105_make_caw.txt editor map), rows probed with DOWN / A. Nothing is saved (the run edits its own copy, never the real save). Presses 60 frames apart.
+# Question: which upper-body rows exist, and is "none" among the items of the row that holds the shirt / tank top?
+on_fail quit
+log bench: start repro2 caw probe
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+include menu_to_creations
+wait_frames 120
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+press A
+wait_frames 500
+log scene=p_caw_landing
+log_text 8
+screenshot p_caw_landing
+wait_frames 200
+screenshot p_caw_landing2
+press RB
+wait_frames 150
+press RB
+wait_frames 270
+log scene=p_clothing
+log_text 8
+screenshot p_clothing
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 300
+log scene=p_upper
+log_text 8
+screenshot p_upper
+press DOWN
+wait_frames 60
+log scene=p_upper_r1
+log_text 8
+screenshot p_upper_r1
+press A
+wait_frames 300
+log scene=p_tops_a
+log_text 8
+screenshot p_tops_a
+press A
+wait_frames 300
+log scene=p_tops_aa
+log_text 8
+screenshot p_tops_aa
+log bench: done
+quit

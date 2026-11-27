@@ -262,9 +262,14 @@ struct JboyOptions {
   int kind = 0;
   std::string pac;
   int key = 0;
-  // Session 99 (scene objects): a prop's model slot 1..9 (asset_load.h LoadWrestlerPac prop_slots). Its yProp_* materials whose diffuse
-  // alpha cuts out (AlphaCutsOut) are drawn alpha-blended: Fandango 2591's slot-5 "beamglow02 / 03" light beams drew as opaque dark
-  // cones. [U] the game's blend state for prop materials is not decoded (judged by the picture; slot 0 pieces keep the old rule).
+  // Session 99 (scene objects): a prop's model slot 1..9 (asset_load.h LoadWrestlerPac prop_slots; LoadPropEntry: an event prop's entry k >= 1). Its yProp_*
+  // materials whose diffuse alpha cuts out (AlphaCutsOut) are kept as a sorted cut-out (Material::texel_cutout bit 1 for the TQF class, applied by
+  // FrontEnd::AddModelImpl; else alpha_blend + cutout_blend 1).
+  // S111 JBOYBLEND [C]: the game reads no blend, alpha test or z write from a prop's material (the colour pass sub_82C04DF0 sets none of them for its
+  // draws: it only puts back, after them, the blend / alpha test / cull words it saved on entry); the CWeapon node that draws the entry sets them
+  // (WATR sub_8272C198 draws entry 5, Fandango 2591's "beamglow02 / 03", additive with z write 0). Ours takes a category-33 node's state from that
+  // node (rf_props.cpp ApplyWeaponRows, splat_state.h EventPropObjectFlags), so this rule no longer decides those entries' blend; an own-node / CWDA
+  // entry (splat_state.h OwnNodeObjectFlags / ApplyOwnNode) keeps it for its list and depth write (slot 0 pieces keep the old rule).
   bool prop_slot = false;
   // S111 UNIFY5 review: the model is a character's (a wrestler pac's body / pieces through LoadWrestlerPac; not an event prop through LoadProp, not a prop slot): Material::char_part on every material.
   bool char_part = false;
@@ -573,19 +578,19 @@ inline bool LoadJboy(const Bytes& blob, const JboyOptions& o, Model& m, std::str
       Vertex& vx = mesh.vertices[v];
       const uint8_t* p0 = r.b + s0d + 28ull * v;
       for (int k = 0; k < 3; ++k) vx.pos[k] = BeF(p0 + 4 * k), vx.normal[k] = BeF(p0 + 12 + 4 * k);
-      // Session 96 integration: the colour word. Arenas: bytes A R G B (0xFF C0 C0 C0 = opaque grey; unconfirmed that
-      // the first byte is alpha) -> stored R G B A for the viewer. Wrestlers: NOT a colour (the research notes: its last
-      // byte picks a material index; multiplying by it turned Batista's skin teal and his blue trunk lettering red) ->
-      // white.
+      // The colour word (S0 +24). The game copies it unchanged into the GPU vertex (sub_82BD4BE0, flag bit 0x40; the buffer's fetch
+      // constant swaps 8-in-32, sub_82CACD88) and its fetch reads (file byte 25, 26, 27, 24) / 255: vdecode::GameColour, the one rule
+      // (arena and yCh_skin meshes take it whole) [C: S111 VTXCOLOUR]. Wrestlers: not a colour the picture multiplies by (Session 96:
+      // multiplying by it turned Batista's skin teal and his blue trunk lettering red).
       if (o.arena) {
         vx.color = vdecode::GameColour(Be32(p0 + 24));   // S111 GUESTVTX: bytes 25, 26, 27, 24 (the game's fetch order, the one rule)
       } else {
-        // Session 98 (wrestler fix 3): bytes 1-3 of the word are one grey value (ch161: 50 on the body skin, 128 / 254 on head and
-        // face pieces, 255 on gear [C: byte histograms, all 50 meshes]); the skin vertex shaders pass the colour's third byte on as
-        // the first lobe set's gain (vs_ch_skin_a.vert interpolator 9 -> wrestler_skin_entrance.frag in_reflect_gain). Byte 0 is
-        // the material-index byte (0 / 8 / 16 / 24 / 40). Kept as RGB = that grey, A = 255 (the viewer reads the gain from R; it never
-        // multiplies a wrestler's colour by it). [U: that the GPU vertex word equals the file's S0 word; bytes 1-3 being equal makes
-        // the byte order moot.]
+        // Session 98 (wrestler fix 3): bytes 25-27 are one grey (ch161: 50 on the body skin, 128 / 254 on head and face pieces, 255 on
+        // gear), the skin shaders' first lobe gain (vs_ch_skin_a.vert). S111 VTXCOLOUR [C]: of the game's yCh_* effects only yCh_skin /
+        // yCh_skin_flex fetch the colour (the .fx.json attribute lists), so on every other yCh_* mesh the word is never read; the 9 yDefault
+        // records of pac\edit carry bytes 25-27 equal and byte 24 = 255 on every vertex, = the game's word. So {grey x3, 255} matches the
+        // game's picture; kept apart from GameColour because the dev viewer's hair / trans alpha (viewer_hlsl.h i.c.a) reads A = 255.
+        // A yCh_skin mesh takes the game's word whole (SkinVertexColour).
         const uint8_t g = p0[25];
         uint8_t c4[4] = {g, g, g, 0xFF};
         if (skin_fx) SkinVertexColour(p0 + 24, c4);   // S111 VERTEXSEAM: A = file byte 24, the packed ID-map / wrinkle slot the skin shader reads as inExtra.w

@@ -71,7 +71,7 @@ namespace assets { namespace particles { struct Bank; struct SceneLights; } }
 bool ViewerParticles(int bank, assets::particles::Bank& out, std::string& err);
 // Session 99 (scene objects): the bank's GMEV screen flashes (type 6) and soft-particle switches (type 11). False when none.
 bool ViewerSceneLights(int bank, assets::particles::SceneLights& out);
-// Session 98 (props general): the title belt PACH of the same title in the left (2) / right (3) / waist (5) run (asset_load.h BeltTwin).
+// Session 98 (props general): the title belt PACH of the same title in the left hand (2) / right hand (3) / at the waist (5), by evtdata.pac table 103 (asset_load.h BeltTwin).
 int ViewerBeltTwin(int pach, int side);
 // Session 98 (attire props): the model key (asset_load.h ModelKey: char * 100 + game attire * 10 + 2 / 4) of wrestler `id`'s viewer
 // attire index, -1 when the pac's directory does not name it (a custom character, no game files).

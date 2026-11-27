@@ -137,9 +137,11 @@ def unit(root):
 
 # ---- wiring ---------------------------------------------------------------------------------------------------------------------------------------------------------
 def wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def rd(p):
-        with open(os.path.join(root, p), encoding='utf-8', errors='replace') as f:
-            return f.read()
+        return read_path(os.path.join(root, p))
     files = {k: rd(k) for k in ('src/renderer_adapter/rdr_switches.h', 'src/renderer_adapter/reader.h', 'src/renderer_adapter/live.cpp', 'src/renderer_adapter/binder.h',
                                 'src/renderer_adapter/copy_alias.h', 'src/fview/main.cpp', 'src/renderer/player/rplay.cpp')}
 

@@ -34,9 +34,12 @@ def find_clang():
     raise RuntimeError("no clang++ found (tools\\env.ps1 puts the project's LLVM on PATH): the unit cannot run")
 
 
+sys.path.insert(0, os.path.join(REPO, 'tools', 'split'))
+from read_unit import read_text  # a split file is read with its parts expanded (tools/split/read_unit.py; text mode: '\n' line ends)
+
+
 def read(*parts):
-    with open(os.path.join(REPO, *parts), encoding='utf-8') as f:
-        return f.read()
+    return read_text(os.path.join(REPO, *parts), errors='strict')
 
 
 def build_and_run(header_text, tmp, tag):

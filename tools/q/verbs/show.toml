@@ -1,0 +1,9 @@
+name = "show"
+module = "qshow"
+qerror = false
+broken_pipe = false
+usage_slot = "u103"
+
+[[usage]]
+order = 109
+text = '''  show FILE:N-M [...]         exact numbered lines of one of our files (FILE:N, FILE:N+-C, FILE:A-B,C-D; a unique basename works; tools/q/qshow.py)'''

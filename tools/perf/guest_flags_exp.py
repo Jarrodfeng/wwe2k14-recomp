@@ -120,7 +120,7 @@ def main():
     tus = a.tus.split(',')
     names = a.variants.split(',')
     res = {n: {} for n in names}
-    with _admit.hold('cc.generated', a.jobs, timeout_s=300) as nj, cf.ThreadPoolExecutor(nj) as ex:   # CQW: generated-code units (a.jobs = the want and the fall-open value)
+    with _admit.hold('cc.generated', a.jobs) as nj, cf.ThreadPoolExecutor(nj) as ex:   # CQW: generated-code units (a.jobs = the want and the fall-open value)
         for name, tu, per, err in ex.map(lambda p: compile_one(*p), [(t, n) for n in names for t in tus]):
             if per is None:
                 print(f'FAIL {name} tu{tu}: {err}')

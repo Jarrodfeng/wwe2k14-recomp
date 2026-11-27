@@ -196,11 +196,25 @@ inline void ReadCoverInputs(ReadFn read, uint32_t x, Inputs& in, CvInputs& cv, R
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kCvModelHi, hi) || !hi || !ReadWord(read, g + kCvModelLo, lo)) { ++cn.cv_gate; return; }
   if (!ReadModelPal(read, hi, true, cv.models[0])) { ++cn.cv_unreadable; return; }
+  bool any_lo = false;
   if (lo) {
-    ++cn.cv_lod_both;   // S103 C5: counted. S105 C4: the low cover IS read now and the game's own distance test picks ONE model per corner (CoverModelIndex: never both)
+    any_lo = true;
     if (!ReadModelPal(read, lo, true, cv.models[1])) cv.models[1] = ModelPal{}, ++cn.cv_lo_unreadable;   // unreadable: the high model stands in (S105 C4 fix F4: counted)
+  }
+  if (cv.alt)   // S111 RINGLOD: a created arena's corners 0..2 pose their own slots (sub_82740550: G[17 + c] near, G[20 + c] far); a zero near slot = no cover at that corner (CoverNodes: no rows)
+    for (uint32_t c = 0; c < 3; ++c) {
+      uint32_t ah = 0, al = 0;
+      if (!ReadWord(read, g + kCvAltHi + 4 * c, ah) || !ReadWord(read, g + kCvAltLo + 4 * c, al)) { ++cn.cv_unreadable; return; }
+      if (ah && !ReadModelPal(read, ah, true, cv.alt_models[c][0])) { ++cn.cv_unreadable; return; }
+      if (al) {
+        any_lo = true;
+        if (!ReadModelPal(read, al, true, cv.alt_models[c][1])) cv.alt_models[c][1] = ModelPal{}, ++cn.cv_lo_unreadable;
+      }
+    }
+  if (any_lo) {
+    ++cn.cv_lod_both;   // S103 C5: counted. S105 C4: the low cover IS read and the game's own distance test picks ONE model per corner (CoverModelIndex: never both)
     std::vector<float> fd;
-    if (ReadFloats(read, kLodDistAddr, 1, fd) && std::isfinite(fd[0])) cv.lod_dist = fd[0], cv.lod_ok = true;
+    if (ReadFloats(read, x + kCoverLodOff, 1, fd) && std::isfinite(fd[0])) cv.lod_dist = fd[0], cv.lod_ok = true;   // S111 RINGLOD: the ring object's word sub_825CE668 hands sub_8273FF58
     else ++cn.lod_dist_unreadable;
   }
   for (uint32_t c = 0; c < kCvCorners; ++c) {
@@ -246,11 +260,25 @@ inline void ReadPostInputs(ReadFn read, uint32_t x, Inputs& in, PostInputs& po, 
   uint32_t hi = 0, lo = 0;
   if (!ReadWord(read, g + kPostModelHi, hi) || !hi || !ReadWord(read, g + kPostModelLo, lo)) { ++cn.post_unreadable; return; }
   if (!ReadModelPal(read, hi, false, po.models[0])) { ++cn.post_unreadable; return; }
+  bool any_lo = false;
   if (lo) {
-    ++cn.post_lod_both;   // S103 C5: counted. S105 C4: read; the distance test picks one model per post (PostModelIndex)
+    any_lo = true;
     if (!ReadModelPal(read, lo, false, po.models[1])) po.models[1] = ModelPal{}, ++cn.post_lo_unreadable;   // S105 C4 fix F4: counted
+  }
+  if (po.alt)   // S111 RINGLOD: a created arena's loop-2 posts (sub_82740480, r5 = h): G[23 + h] near, G[26 + h] far
+    for (uint32_t h = 0; h < 3; ++h) {
+      uint32_t ah = 0, al = 0;
+      if (!ReadWord(read, g + kPostAltHi + 4 * h, ah) || !ReadWord(read, g + kPostAltLo + 4 * h, al)) { ++cn.post_unreadable; return; }
+      if (ah && !ReadModelPal(read, ah, false, po.alt_models[h][0])) { ++cn.post_unreadable; return; }
+      if (al) {
+        any_lo = true;
+        if (!ReadModelPal(read, al, false, po.alt_models[h][1])) po.alt_models[h][1] = ModelPal{}, ++cn.post_lo_unreadable;
+      }
+    }
+  if (any_lo) {
+    ++cn.post_lod_both;   // S103 C5: counted. S105 C4: read; the distance test picks one model per post (PostModelIndex)
     std::vector<float> fd;
-    if (ReadFloats(read, kLodDistAddr, 1, fd) && std::isfinite(fd[0])) po.lod_dist = fd[0], po.lod_ok = true;
+    if (ReadFloats(read, x + kPostLodOff, 1, fd) && std::isfinite(fd[0])) po.lod_dist = fd[0], po.lod_ok = true;   // S111 RINGLOD: the ring object's word sub_825CCFE0 hands sub_8273FF58
     else ++cn.lod_dist_unreadable;
   }
   std::vector<float> f;
@@ -264,31 +292,34 @@ inline void ReadPostInputs(ReadFn read, uint32_t x, Inputs& in, PostInputs& po, 
   po.two_pi = f[0];
   po.ok = true;
 }
-// S103 C5: which skirts the game poses this frame (SkirtVisibleMask, ring_recompute_core.h). Unreadable = no verdict (counted once): the frame is never clean.
-inline void ReadSkirtVisibility(ReadFn read, uint32_t x, SkirtVisIn& v, RingCensus& cn) {
+// S103 C5 / S111 RINGLOD: the inputs of the skirts' DRAW (sub_82609290; SkirtDrawnMask, ring_recompute_core.h), read at the latch. `y` = the ring-SIDE object (RingSide(): the draw's own r3), 0 = not noted
+// yet. Unreadable or not noted = no verdict (counted once): the frame is never clean.
+inline void ReadSkirtVisibility(ReadFn read, uint32_t y, SkirtVisIn& v, RingCensus& cn) {
   v = SkirtVisIn{};
-  uint32_t g = 0, p = 0, p16 = 0, w = 0;
-  if (!x || !ReadWord(read, kRingGlobal, g) || !g) { ++cn.skirt_vis_unreadable; return; }
+  uint32_t g = 0, p = 0, p16 = 0, mg = 0, mg368 = 0;
+  if (!y || !ReadWord(read, kRingGlobal, g) || !g) { ++cn.skirt_vis_unreadable; return; }
+  if (ReadWord(read, kModelGate, mg) && mg && ReadWord(read, mg + 368, mg368) && mg368 == 1) { v.ok = true, v.early_exit = true; return; }   // sub_82609290 +0x14..+0x28: the model gate draws nothing
   for (uint32_t s = 0; s < kSkirtCount; ++s) {
     uint32_t m = 0;
     if (!ReadWord(read, g + kSkirtFirst + 4 * s, m)) { ++cn.skirt_vis_unreadable; return; }
-    if (!m) { v.ok = true, v.early_exit = true; return; }   // 0x82609090-0x826090E0: a missing model ends the function before the loop
+    if (!m) { v.ok = true, v.early_exit = true; return; }   // +0x58..+0x70: a missing model ends the draw before the loop
   }
-  if (!ReadWord(read, kSkirtViewGlobal, p)) { ++cn.skirt_vis_unreadable; return; }
-  if (!p || !ReadWord(read, p + 16, p16) || !p16) { v.ok = true, v.early_exit = true; return; }
-  uint32_t idx = 0, arr = 0;
-  if (!ReadWord(read, p + 32, idx) || !ReadWord(read, p + 24, arr)) { ++cn.skirt_vis_unreadable; return; }
-  const uint32_t cam = arr + 272u * idx + 144u;
-  uint32_t ra = 0, rb = 0, rt = 0;
-  if (!ReadWord(read, cam, ra) || !ReadWord(read, cam + 8, rb) || !ReadWord(read, kQuadThreshold, rt)) { ++cn.skirt_vis_unreadable; return; }
-  float a, b, thr;
-  std::memcpy(&a, &ra, 4), std::memcpy(&b, &rb, 4), std::memcpy(&thr, &rt, 4);
-  v.quad = QuadrantOf(a, b, thr);
-  if (!ReadWord(read, kSkirtDrawWord, v.draw_word)) { ++cn.skirt_vis_unreadable; return; }
   v.rids = RidsPlayback(read);
+  if (!ReadWord(read, kSkirtViewGlobal, p)) { ++cn.skirt_vis_unreadable; return; }
+  if (p && !ReadWord(read, p + 16, p16)) { ++cn.skirt_vis_unreadable; return; }
+  v.cam_ok = p && p16;   // +0x140 / +0x14C: tested per skirt while RIDS is off
+  if (v.cam_ok) {
+    uint32_t idx = 0, arr = 0;
+    if (!ReadWord(read, p + 32, idx) || !ReadWord(read, p + 24, arr)) { ++cn.skirt_vis_unreadable; return; }
+    const uint32_t cam = arr + 272u * idx + 144u;
+    uint32_t ra = 0, rb = 0, rt = 0;
+    if (!ReadWord(read, cam, ra) || !ReadWord(read, cam + 8, rb) || !ReadWord(read, kQuadThreshold, rt)) { ++cn.skirt_vis_unreadable; return; }
+    float a, b, thr;
+    std::memcpy(&a, &ra, 4), std::memcpy(&b, &rb, 4), std::memcpy(&thr, &rt, 4);
+    v.quad = QuadrantOf(a, b, thr);
+  }
   for (uint32_t i = 0; i < 4; ++i)
-    if (!ReadWord(read, x + kSkirtStateOff + 4 * i, v.state[i]) || !ReadWord(read, kSkirtSideTable + 4 * i, v.side[i])) { ++cn.skirt_vis_unreadable; return; }
-  (void)w;
+    if (!ReadWord(read, y + kSkirtStateOff + 4 * i, v.state[i]) || !ReadWord(read, kSkirtSideTable + 4 * i, v.side[i])) { ++cn.skirt_vis_unreadable; return; }
   v.ok = true;
 }
 // The skirt skeletons G[332..344] of the VISIBLE sides (`mask`, bit s = model s): palette + node count each. An invisible or absent model has no entry; a model that fails to read is counted once.
@@ -302,6 +333,18 @@ inline void ReadSkirts(ReadFn read, uint32_t mask, ModelPal out[kSkirtCount], Ri
     if (!ReadModelPal(read, m, false, out[s])) { out[s] = ModelPal{}; ++cn.skirt_unreadable; }
   }
 }
+
+// S111 RINGLOD: the ring-SIDE object Y (the skirts' and the canvas's object, a block of its own beside the ring object X: sub_824EDB50 +0x5C / +0x9C). Noted by the skirts' draw call (ring_side_hook.h: r3 of
+// sub_82609290), read by Take. One per stage; the draw (category 22) runs before the ring's colour callback in the same walk (XFO.md: G1 before G4), so a frame whose X is noted has its Y [L].
+inline std::atomic<uint32_t>& RingSideSlot() {
+  static std::atomic<uint32_t> y{0};
+  return y;
+}
+inline void NoteRingSide(uint32_t y) {   // the hook's one call: a relaxed store (mode 0: nothing stored)
+  if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return;
+  RingSideSlot().store(y, std::memory_order_relaxed);
+}
+inline uint32_t RingSide() { return RingSideSlot().load(std::memory_order_relaxed); }
 
 // kStampRingRows: ring_stamp_flag.h (released by the main session 2026-11-16; the evidence is there).
 
@@ -419,7 +462,8 @@ class RingRecomputeContributor final : public Contributor {
     // S103 C4: covers, posts, skirts (S103 C5: ONE LOD model each: the high one stands in, the low ones are not read), 
     CvInputs cv;
     ReadCoverInputs(read_, Ring(), in, cv, census_);
-    // S105 C4: ONE model per corner / post by the game's own distance test (CoverModelIndex / PostModelIndex: low when the eye is farther than [0x82012B14] from the corner point), as sub_827403E8 / sub_82740350.
+    // S105 C4: ONE model per corner / post by the game's own distance test (CoverModelIndex / PostModelIndex: low when the eye is farther than the ring object's T[0] word from the corner point), as sub_827403E8 /
+    // sub_82740550 (covers, X + 0x1F320) and sub_82740350 / sub_82740480 (posts, X + 0x1F314) (S111 RINGLOD).
     mark = out.rows.size();
     const uint64_t hidden0 = census_.cv_hidden;
     for (uint32_t r25 = 0; r25 < kCvCorners; ++r25) {
@@ -444,8 +488,19 @@ class RingRecomputeContributor final : public Contributor {
       ringrows::RingTable table;
       auto rw = [&](uint32_t a, uint32_t& v) { return ReadWord(read_, a, v); };
       if (ringrids::The().Get(frame, rs) && ringrows::ReadRingTable(rw, table)) {
-        const ringrids::Counts k = ringrids::AppendRidsRows(rs, stamp, in.rids, table, out.rows, out.pool, census_);
-        whole.ropes += k.rope, whole.turnbuckles += k.tb, whole.covers += k.cover, whole.posts += k.post;
+        // S111 TBPAD review: sub_825CE668 tests a corner's pad fade after the RIDS pose too (the pose call at 0x825CE90C, then 0x825CEB38-0x825CEB64): the cover slots read the four fades the grid path reads
+        // (ReadCoverInputs stops at the RIDS gate before it reads them). Unreadable: no cover rows this frame, counted.
+        uint32_t mask = in.rids;
+        float fade[kCvCorners] = {1.f, 1.f, 1.f, 1.f};
+        if (mask & ringrids::kBitCover) {
+          std::vector<float> f;
+          if (ReadFloats(read_, Ring() + kCvAlphaOff, kCvCorners, f))
+            for (uint32_t c = 0; c < kCvCorners; ++c) fade[c] = f[c];
+          else
+            ++census_.cv_unreadable, mask &= ~ringrids::kBitCover;
+        }
+        const ringrids::Counts k = ringrids::AppendRidsRows(rs, stamp, mask, fade, table, out.rows, out.pool, census_);
+        whole.ropes += k.rope, whole.turnbuckles += k.tb, whole.covers += k.cover, whole.covers_hidden += k.cover_hidden, whole.posts += k.post;
       } else {
         ++census_.rids_no_set;   // the hook did not publish for this frame (or the table is unreadable): no rows, the frame is not clean
       }
@@ -459,8 +514,8 @@ class RingRecomputeContributor final : public Contributor {
     }
     // S103 C5: only the skirts the game poses for the camera quadrant (3 of 4 in the usual view), and the whole-ring test wants EXACTLY that many
     SkirtVisIn svis;
-    ReadSkirtVisibility(read_, Ring(), svis, census_);
-    const uint32_t vmask = SkirtVisibleMask(svis);
+    ReadSkirtVisibility(read_, RingSide(), svis, census_);   // S111 RINGLOD: the state words are the ring-SIDE object's (Y), not X's
+    const uint32_t vmask = SkirtDrawnMask(svis);             // S111 RINGLOD: the draw's rule (sub_82609290), not the pose's
     if (svis.ok && !vmask) ++census_.skirt_vis_none;
     ModelPal sk[kSkirtCount];
     ReadSkirts(read_, vmask, sk, census_);

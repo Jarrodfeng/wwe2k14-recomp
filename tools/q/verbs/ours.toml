@@ -1,0 +1,10 @@
+name = "ours"
+module = "qours"
+qerror = false
+broken_pipe = false
+usage_slot = "u114"
+
+[[usage]]
+order = 114
+text = '''  ours ...                     questions about OUR code by plain TEXT search (no index, no compiler; whole word, case-sensitive; same in every worktree): def refs callers callees writes reads fn covers info + line lit includes includers (tools py/ps1 too) + hooks text (qx6.py) + glsl fxreg str (qgl.py)
+                               (tools/q/qours.py + qsym.py; `q ours -h`; `Scope::name` narrows a common name; `q ours rows|diff|--branch` on the symbol verbs are gone)'''

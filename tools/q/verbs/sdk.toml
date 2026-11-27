@@ -1,0 +1,9 @@
+name = "sdk"
+module = "qsdk"
+qerror = false
+broken_pipe = false
+usage_slot = "u103"
+
+[[usage]]
+order = 105
+text = '''  sdk def|refs|callers NAME [--part sdl3|imgui|sdk|...] | info   the ReXGlue SDK source + the SDK's SDL3 / imgui / VMA / spdlog / fmt / ... as a read-only index (tools/q/qsdk.py; builds and refreshes ITSELF on every call, 7 s cold, 0.4 s warm; each hit tagged [sdk] / [sdl3] / ...; the header says the index age)'''

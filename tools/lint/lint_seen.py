@@ -50,12 +50,18 @@ def main():
     n_files = n_calls = 0
     flagged = []
     allowed = []
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path, part_files, line_map  # a split parent is read with its parts expanded (its part files are not read alone); a hit names its part file and line
+    from pathlib import Path
+    parts = part_files(src)
     for d, _, files in os.walk(src):
         for fn in files:
             if not fn.endswith(('.h', '.cpp', '.inc', '.hpp')) or fn in EXEMPT:
                 continue
             path = os.path.join(d, fn)
-            text = open(path, encoding='utf-8', errors='replace').read()
+            if Path(path).resolve() in parts:
+                continue
+            text = read_path(path)
             n_files += 1
             c = list(calls(text))
             n_calls += len(c)
@@ -63,7 +69,8 @@ def main():
                 if any(fn == k[0] and k[1] in a for k in ALLOW):
                     allowed.append('%s:%d  %s' % (fn, ln, ALLOW[next(k for k in ALLOW if fn == k[0] and k[1] in a)]))
                     continue
-                flagged.append('%s:%d  BoolSeen/IntSeen(%s)' % (os.path.relpath(path, root), ln, ' '.join(a.split())[:110]))
+                pf, pn = line_map(path)[ln - 1]
+                flagged.append('%s:%d  BoolSeen/IntSeen(%s)' % (os.path.relpath(str(pf), root), pn, ' '.join(a.split())[:110]))
     if n_calls == 0:
         print('FAIL the lint found no BoolSeen / IntSeen call in %d files (it reads nothing)' % n_files)
         return 1

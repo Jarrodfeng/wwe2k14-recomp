@@ -13,8 +13,9 @@ kind windows (qrstdiff), with three more things tracked: a getter's result (a to
 value saved at the top and restored at the bottom, or saved by one function into a struct and restored by its PAIR from the
 same struct, is recognised. A setter that leaves another value on some path is NAMED, and the state stays UNSETTLED.
 Device value from the words: the mask methods (0x82C23910 slot 13; 0x82C23980 .. 0x82C23B60 slots 14-17) record render
-state 53 = 15 when the all-word and the four channel words are 1 (slot 13: 15 for a non-zero argument; 14-17: one bit per
-channel word, gated by +92); the stencil method 0x82C23490 records render state 27 = its argument.
+state 53 = 15 when the all-word and the four channel words are 1 (slot 13: 15 for a non-zero argument; 14-17: bits 1 / 2 / 4
+for +96 / +100 / +104 while +92 is non-zero, bit 8 for +108 whatever +92 holds: S111 GINHERIT review); the stencil method
+0x82C23490 records render state 27 = its argument.
 A kind whose game window is in a setter's own function draws inside that setter's set section (S111 RSTCOVER-A's circle blobs
 in 0x82813228, which sets the channel words +96 / +100 the kind windows do not read): its field is not filled, the setter is
 named and the row stays UNSETTLED (fill's `fns`). When the kind gives its window's end, a setter that calls none of the state's

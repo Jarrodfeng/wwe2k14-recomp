@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 r"""Hand-back check (S108 rewrite of the lane HBK tool; verdict: docs\research\s108\P2_check_py.md): a thin lint runner. A builder runs it before it hands back.
 
-  py -I tools\handback\check.py [--base REV] [--root DIR] [--only NAMES] [--json FILE] [--list]
+  py -I tools\handback\check.py [--base REV] [--root DIR] [--only NAMES] [--all-rows] [--json FILE] [--list]
 
 The change = BASE -> the working tree of --root (committed work, dirty tree and untracked files). BASE default = the rule of tools\compile\game_syntax.py --changed
 (default_base): in a worktree the merge-base of HEAD with the main checkout's branch (the session branch). The changed-file list is `git diff --name-status --no-renames
 BASE`: a `git mv` is a deletion of the old path plus an addition of the new one (the diff-reading rows see both paths and the moved text), and neither a move nor an intended
 deletion is a finding.
 
-EVERY row runs on every invocation (S108: no per-row path triggers; a trigger narrower than what its lint reads was a false PASS). The rows run side by side (<= 8 at
+Every row runs on every invocation EXCEPT the gated rows (S111 CHECKFAST, tools\handback\check_gates.py: frame_tick, kind_last, cvar_link, one_definition, cvar_shard,
+build_list): a gated row whose own input list holds no file of the diff is SKIP with that reason (the gate is the lint's whole input list, never narrower: S108's false
+PASS was a trigger narrower than the lint; `--all-rows` ignores every gate). The rows run side by side (<= 8 at
 once), so the whole check costs about the slowest lint. The rows that judge the diff itself (control_chars, game_text, new_src, log_readers) read it as their input and
 PASS with a line saying what they looked at when it holds nothing for them. A lint that is red at head is the lane's own: there is no base tree and no "new against base".
   py -I tools\handback\check.py --list      prints the rows and what each reads
 
 Exit 0 = every row passed (--only: the named rows; the output is marked partial); 1 = a FAIL; 2 = no FAIL but a row could not run (BLOCKED, with the reason). One line per row (name, verdict, seconds, reason),
-NOTE lines under it, a total, and a last machine-readable line `HANDBACK {json}`. Compile is NOT here: run `py -I tools\compile\game_syntax.py --changed --build both`.
+NOTE lines under it, a total, and a last machine-readable line `HANDBACK {json}`. Compile is NOT here: run `py -I tools\compile\game_syntax.py --changed` (the off build, the default since S111 COMPILEOFF).
 To add a lint: one `lint_row(...)` line in LINT_ROWS (docs\agents\handback_checks.md). 0 game runs."""
 import argparse
 import json
@@ -26,6 +28,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_gates   # noqa: E402  S111 CHECKFAST: the input list of each gated row
 REPO = os.path.normpath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(REPO, 'tools', 'compile'))
@@ -359,15 +363,41 @@ def check_log_readers(ch):
 
 def check_seam(ch):
     """S111 SEAMDIFF: the seam index (db\\seams) rows whose file is in the diff must still hold their anchor (a deleted / rewritten line the index points at is fixed in
-    the same change); a moved row is a NOTE; rows of files outside the diff are not judged. A direct read of the entries: no index build."""
+    the same change); a row that stores a `line`, or whose anchor is on several lines without an `occurrence`, fails too; rows of files outside the
+    diff are not judged. A direct read of the entries: no index build."""
     qdir = os.path.join(REPO, 'tools', 'q')
     if qdir not in sys.path:
         sys.path.append(qdir)
     import qseam_diff
-    fails, moved, judged = qseam_diff.judge(ch.root, ch.status)
+    fails, judged = qseam_diff.judge(ch.root, ch.status)
     if fails:
-        return Result('seam', 'FAIL', fails[0][:260], notes=moved, details=fails)
-    return Result('seam', 'PASS', '%d seam row(s) point into the diff: none STALE, %d moved' % (judged, len(moved)), notes=moved)
+        return Result('seam', 'FAIL', fails[0][:260], details=fails)
+    return Result('seam', 'PASS', '%d seam row(s) point into the diff: none STALE, none AMBIGUOUS' % judged)
+
+
+def check_codediff(ch):
+    """S111 CODEDIFF: the code diff (tools\\q\\qcodediff.py) of the pairs whose OUR function has a fact in a src file of the diff: a DIFF / GAME-ONLY
+    that no `// DEPARTS:` marker declares fails, so does a DEPARTS marker the row files refuse. Reads files (q ostate, q pairs, the q gstate index)."""
+    qdir = os.path.join(REPO, 'tools', 'q')
+    if qdir not in sys.path:
+        sys.path.append(qdir)
+    import qcodediff
+    fails, judged, what = qcodediff.check(ch.root, [p for p, s in ch.status.items() if s != 'D'], ch.base)
+    if fails:
+        return Result('codediff', 'FAIL', fails[0][:260], details=fails)
+    return Result('codediff', 'PASS', '%s: %d row(s), no DIFF / GAME-ONLY without a DEPARTS marker' % (what, judged))
+
+
+def check_cdf(name):
+    """S111 CDCHECKALL: the row of one code-diff extractor (tools\\handback\\check_cdfields.py): a NEW DIFF / GAME-ONLY (draworder: DIFF) the base tree does not hold fails;
+    one the base already holds does not. Reads files (the q index for the game side)."""
+    def run(ch):
+        import check_cdfields
+        fails, judged, what = check_cdfields.check(name, ch.base)
+        if fails:
+            return Result('cd_' + name, 'FAIL', fails[0][:260], details=fails)
+        return Result('cd_' + name, 'PASS', what)
+    return run
 
 
 def check_marks(ch):
@@ -390,14 +420,14 @@ class Row:
         self.script = None   # a lint row: the script's path in the repo
 
 
-def lint_row(name, rel, reads, rooted=True, timeout=120):
+def lint_row(name, rel, reads, rooted=True, timeout=120, with_base=False):
     """A lint script run as `py -I SCRIPT --root ROOT` (rooted=False: no arguments, cwd = the tree), on every invocation. Exit 0 = PASS; exit 2, a crash, a usage message,
     a timeout or a missing script = BLOCKED; any other exit = FAIL (its lines). `reads` is the one line `--list` prints (what the lint looks at)."""
     def run(ch):
         script = tree_script(ch.root, rel) if rooted else os.path.join(ch.root, rel)
         if not script or not os.path.isfile(script):
             raise Blocked('%s not found' % rel)
-        rc, text = run_script(script, ['--root', ch.root] if rooted else [], ch.root, timeout)
+        rc, text = run_script(script, (['--root', ch.root] if rooted else []) + (['--base', ch.base] if with_base else []), ch.root, timeout)   # with_base: S111 WRITERLINT, the lint reads the diff
         if rc is None:
             raise Blocked(text)
         if rc == 75:   # S109 GATE: the compile queue refused the lint's pool (tools\admit: not admitted within its bound): BLOCKED with the reason, not a finding
@@ -429,7 +459,7 @@ LINT_ROWS = [
     lint_row('census_reach', 'tools/scene/census_reach_lint.py', 'the census lines of src\\, scene_host.cpp, host_start.cpp'),
     lint_row('off_census', 'tools/scene/off_census_lint.py', 'live.cpp, scene_host.cpp, live_scene.cpp, scene_skip.h'),
     lint_row('nrbf_hole', 'tools/scene/nrbf_hole_lint.py', 'src\\renderer_scene\\rf_*.cpp'),
-    lint_row('fallback_census_binder', 'tools/scene/fallback_census_binder_lint.py', 'src\\renderer_adapter\\binder.h', rooted=False),
+    lint_row('fallback_census_binder', 'tools/scene/fallback_census_binder_lint.py', 'src\\renderer_adapter\\binder.h (read with its parts, src\\renderer_adapter\\binder\\*.inc)', rooted=False),
     lint_row('build_list', 'tools/lint/build_list_lint.py', 'src\\ and tools\\ sources and scripts against the build lists, CMakeLists.txt'),
     lint_row('cvar_link', 'tools/scene/cvar_link_lint.py', 'every game unit of both builds through clang -E (cache: main checkout out\\cvar_pp), the build lists, tools build*.ps1 / .bat', timeout=600),
     lint_row('one_definition', 'tools/lint/one_definition_lint.py', 'every game unit of both builds through clang -E (the cvar_pp cache): each hooked guest function defined by one unit; src\\ headers: no namespace-scope mutable static / static function / anonymous namespace', timeout=600),
@@ -444,9 +474,20 @@ LINT_ROWS = [
     lint_row('light_stamp', 'tools/lint/light_stamp_lint.py', 'src\\renderer_scene\\'),
     lint_row('plant_number', 'tools/lint/plant_number_lint.py', 'tools\\scene\\guest_model_unit.cpp plant dispatch and guest_model_unit.py PLANTS: each twin number and each product plant value used once'),   # S111 LAYERS review
     lint_row('flag_bit', 'tools/lint/flag_bit_lint.py', 'src\\ every enum { kX = N } body and every constexpr kXyz = N prefix group: no two members share a power-of-two bit'),   # S111 FLAGLINT
+    lint_row('kind_last', 'tools/lint/kind_last_lint.py', 'src\\ every constexpr kXxLast = kName (a record row family\'s last known kind) against the enum that holds kName: it must be the highest value'),   # S111 FXSKIP review
+    lint_row('shader_flip', 'tools/lint/shader_flip_lint.py', 'src\\renderer\\shaders\\*.vert (our own vertex shaders, compile_plain\'s set): each gl_Position write applies ndc_scale (the renderer flip) or the file carries `// FLIP-EXEMPT: <why>` (planted twins run each time)'),   # S111 SHADERFLIP
+    lint_row('hook_original', 'tools/lint/hook_original_lint.py', 'src\\ every REX_HOOK_RAW(sub_X) body: __imp__sub_X once on each path, or a return before it with `// SKIP-ORIGINAL: <why>`, two calls with `// TWICE-ORIGINAL: <why>`, the call inside a helper with `// ORIGINAL-IN: <Helper>` (a brace-depth path walk; no baseline; planted twins run each time)', timeout=300),   # S111 CDLINTS
+    lint_row('alpha_source', 'tools/lint/alpha_source_lint.py', 'src\\renderer_scene\\ every ProgramFor( call / `x->alpha_test =` that reads Material::alpha_test alone: a pass_state row, InstancedDraw::alpha_test, a game constant or `// ALPHA-SOURCE: <why>` is needed (known rows in tools\\lint\\alpha_source_known.txt; planted twins run each time)'),   # S111 CDLINTS
     lint_row('frame_tick', 'tools/renderer/frame_tick_unit.py', 'src\\renderer_game\\frame_tick.h (built and run with its planted twins), the wiring of reader.h / half2_hooks.h / tail_release_hook.h; its planted-twin runs print FAIL lines by design', timeout=300),   # S111 FRAMETICK
-    lint_row('own_catalog','tools/renderer/own_catalog_lint.py', 'src\\ program blobs (vertex_spirv / fragment_spirv, ProgramDesc brace lists), fx_spv_data.cpp kOwnShaders, pipeline_catalog.h and its three callers'),   # S110 RDRPREP
-    lint_row('lodge', 'tools/handback/lodge_lint.py', 'git-tracked docs\\research\\ notes with a ```claims block against their db\\claims\\ files (a missing file, or one edited by hand: the note is the only source; prints both sides\' last commit and the commands)'),   # S111 INDEX_PLAN lane B
+    lint_row('own_catalog','tools/renderer/own_catalog_lint.py', 'src\\ program blobs (vertex_spirv / fragment_spirv, ProgramDesc brace lists), fx_own_shaders.cpp kOwnShaders, pipeline_catalog.h and its three callers'),   # S110 RDRPREP
+    lint_row('pipeline_seed', 'tools/renderer/pseed_stale_check.py', 'db\\shaders\\shader_list.txt R lines against the catalog of this tree\'s compiled SPIR-V (tools\\renderer\\pseed_catalog.cpp + src\\renderer\\shaders\\spv\\fx_spv_data.cpp + fx_own_shaders.cpp, built with clang): a record whose shader changed since the seed was made FAILS (fix: tools\\renderer\\pseed_rekey.py, 0 game runs)', timeout=300),   # S111 PSEEDSTALE
+    lint_row('spv_split', 'tools/renderer/spv_split_lint.py', 'src\\renderer\\shaders\\spv: no header holds a word array, each array defined once, fx_spv_data.cpp includes every effect with a current sha and no own shader, fx_own_shaders.cpp holds kOwnShaders with current sha lines, fx_registry.h names no kFx_ outside sizeof( (the words only through rdr::fx::Words), no tool build script lists fx_spv_data.cpp for sources that never call Words (spv_readers.py; its planted twins run each time)', timeout=300),   # S111 SPVSPLIT, S111 TOOLLINK, S111 TOOLLINK-D
+    lint_row('cite_line','tools/lint/cite_line_lint.py', 'the live docs (docs\\systems, formats, renderer, ours, STATUS, PLAYBOOK, LESSONS, IDEAS, .claude\\agents) and every src\\ / tools\\ comment: no `<our file>:N` line citation (cite the file and the NAME); exceptions in tools\\lint\\cite_line_allow.txt', timeout=300),   # S111 CITENAME
+    lint_row('caster_loop', 'tools/lint/caster_loop_lint.py', 'src\\ every CasterMeshCasts( / SkinChunkAbsent( call: the wrestler caster loops are the known set and each applies the piece rule (planted twins run each time)'),   # S111 TOOLFIX3
+    lint_row('char_class_key', 'tools/lint/char_class_key_lint.py', 'src\\renderer_scene\\front_end.cpp FrontEnd::Record: every IsCharEffect( call that feeds an order / rank / turn key (SeeKey::character, SeeCharacter, BodyObject / TurnOf, one hop through a local or member) is a test plant\'s input only and the key goes through the class (CharSlotOf / Item::char_slot); shader / variant uses allowed (planted twins run each time)'),   # S111 SEECHAR review
+    lint_row('w2b', 'tools/scene/w2b_lint.py', 'the BodyRowCount( and SkinChunkAbsent( uses of the palette readers and the caster loops (counts)', rooted=False),   # S111 TOOLFIX3
+    lint_row('lodge','tools/handback/lodge_lint.py', 'git-tracked docs\\research\\ notes with a ```claims block against their db\\claims\\ files (a missing file, or one edited by hand: the note is the only source; prints both sides\' last commit and the commands)'),   # S111 INDEX_PLAN lane B
+    lint_row('writers_claim', 'tools/lint/writers_claim_lint.py', 'the docs\\research\\ notes of the diff with a ```claims block: a row that says only writer / flips / alternates about a +N field must name every writer `q field N --global ADDR --writes` lists, or be marked [L] (planted twins run each time; --all sweeps)', with_base=True),   # S111 WRITERLINT
 ]
 
 ROWS = [
@@ -454,7 +495,11 @@ ROWS = [
     Row('game_text', 'added lines of published files (the diff)', check_game_text),
     Row('new_src', 'added / renamed .cpp files (the diff) against the build lists', check_new_src),
     Row('log_readers', "changed [tag] literals of src\\ (the diff); runs the readers' --selftest", check_log_readers),
-    Row('seam', 'db\\seams rows whose file is in the diff: STALE / refused = FAIL, moved = NOTE (the diff)', check_seam),
+    Row('seam', 'db\\seams rows whose file is in the diff: STALE / AMBIGUOUS anchor / a stored line = FAIL (the diff)', check_seam),
+    Row('codediff', 'src files of the diff: q codediff of their functions\' pairs (a DIFF / GAME-ONLY without `// DEPARTS:` = FAIL), their DEPARTS markers; a db\\claims / db\\seams edit: the whole tree\'s new DIFF / GAME-ONLY against the base (the diff)', check_codediff),   # S111 CODEDIFF
+    Row('cd_levels', 'q codediff --field levels (qlevels.py): a NEW DIFF / GAME-ONLY against the base fails; gate: any src code file, the q tools it uses (the diff)', check_cdf('levels')),   # S111 CDCHECKALL
+    Row('cd_targetfmt', 'q targetfmt (qtargetfmt.py): a NEW DIFF / GAME-ONLY against the base fails; gate: the role files of ours, src\\renderer\\shaders\\fx, the q tools it uses (the diff)', check_cdf('targetfmt')),
+    Row('cd_draworder', 'q draworder (qdraworder.py): a NEW DIFF against the base fails; gate: front_end.cpp, body_order.h, see_through_order.h, the record classes, frame_hooks, render_categories.md (the diff)', check_cdf('draworder')),
     Row('marks', 'db\\claims + db\\seams: the C / L / U totals and open items (a trend, never fails)', check_marks),
 ] + LINT_ROWS
 
@@ -475,8 +520,9 @@ def _run_row(ch, row):
     return r
 
 
-def run_checks(root, base, only=None, out=print):
-    """(results in ROWS order, summary dict). Every row (or the --only rows) runs, in a pool of at most MAX_JOBS."""
+def run_checks(root, base, only=None, out=print, all_rows=False):
+    """(results in ROWS order, summary dict). Every row (or the --only rows) runs, in a pool of at most MAX_JOBS; a gated row with no input in the diff is SKIP
+    (check_gates; not with --only naming it, nor all_rows)."""
     t_all = time.time()
     ch = Change(root, base)
     want = [w.strip() for w in (only or '').split(',') if w.strip()]
@@ -487,8 +533,12 @@ def run_checks(root, base, only=None, out=print):
     for row in ROWS:
         if want and row.name not in want:
             skipped[row.name] = Result(row.name, 'SKIP', '(by --only)')
-        else:
+            continue
+        go, why = (True, '') if (want or all_rows) else check_gates.decide(ch, row.name)
+        if go:
             todo.append(row)
+        else:
+            skipped[row.name] = Result(row.name, 'SKIP', why)
     with ThreadPoolExecutor(max_workers=max(1, min(MAX_JOBS, len(todo)))) as ex:
         ran = dict(zip([r.name for r in todo], ex.map(lambda r: _run_row(ch, r), todo)))
     results = []
@@ -509,9 +559,9 @@ def run_checks(root, base, only=None, out=print):
 
 
 def print_list(out=print):
-    out('%-24s %s' % ('row', 'reads (every row runs on every invocation)'))
+    out('%-24s %s' % ('row', 'reads (a row marked * is gated: SKIP when the diff holds none of its inputs, check_gates.py)'))
     for row in ROWS:
-        out('%-24s %s' % (row.name, row.reads))
+        out('%-22s%s %s' % (row.name, ' *' if row.name in check_gates.GATES else '  ', row.reads))
 
 
 def main(argv=None):
@@ -524,6 +574,7 @@ def main(argv=None):
     ap.add_argument('--base', default=None)
     ap.add_argument('--json', default=None)
     ap.add_argument('--only', default=None)
+    ap.add_argument('--all-rows', action='store_true', help='run every row, gated ones too (the forced full run)')
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--root', default='.')
     a = ap.parse_args(argv)
@@ -536,7 +587,7 @@ def main(argv=None):
         if not base:
             raise GitError('--base not given and the merge-base with the main checkout\'s branch could not be found')
         print('hand-back check: %s, base %s%s' % (root, base, ('  [PARTIAL: only %s]' % a.only) if a.only else ''))
-        results, summ = run_checks(root, base, a.only)
+        results, summ = run_checks(root, base, a.only, all_rows=a.all_rows)
     except GitError as e:
         print('BLOCKED: the diff could not be read: %s' % e)
         print('HANDBACK ' + json.dumps({'exit': 2, 'blocked': ['diff'], 'fail': []}))

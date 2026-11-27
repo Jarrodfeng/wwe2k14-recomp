@@ -3,7 +3,7 @@ r"""S103 lane B1: the game's sampler state per (effect, stage), from the player'
 
   py -I tools\scene\sampler_compare.py [--root .] [--captures a04_match,a04_entrance,...] [--frames 3] [--json OUT.json] [--selftest] [--cpp EXE]
 
-For every draw of K frames of each kept capture (read in place under the main checkout's out\captures, never written): the draw's effect (feature_diff's rule: the VS / PS hash through the
+For every draw of K frames of each kept capture (read in place under the main checkout's out\captures, never written): the draw's effect (fx_names.py's rule: the VS / PS hash through the
 fx.json files), and for each bound texture slot the stream's SamplerDesc (capture section 9) against SamplerTable[effect][stage] = {u, v, w, mag, min, mip}
 (tools\shaders\effect_table.py sampler_table: the pass+16 sampler block of the player's own pac\_startup.pac, documented in docs\formats\effect_techniques.md). Compared: address U / V / W,
 mag, min, mip mode. Ignored: anisotropy, LOD (they carry the player's setting and the jitter bias). Report: matches / mismatches per (effect, stage); the mismatch set IS the model draw's
@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 import numpy as np  # noqa: E402
 import capread  # noqa: E402
 import effect_table  # noqa: E402
-import feature_diff  # noqa: E402
+import fx_names  # noqa: E402
 from harness.dataroot import data_root  # noqa: E402
 
 DEFAULT_CAPS = ['a00_entrance', 'a01_entrance', 'a04_entrance', 'a04_match', 'a08_entrance', 'a08_match', 'a09_entrance', 'a09_match', 'a16_entrance', 'a16_match',
@@ -142,7 +142,7 @@ def main():
     res = effect_table.load_all()
     tab, conflicts = effect_table.sampler_table(res)
     print('table: %d effects with a sampler block, %d pass disagreements' % (sum(1 for v in tab.values() if v), conflicts))
-    fx = feature_diff.Fx()
+    fx = fx_names.Fx()
     rows = collect(caps_dir, a.captures.split(','), a.frames, fx)
     print('%d draw-slot rows' % len(rows))
     st, mism, fields = compare(rows, tab)

@@ -44,7 +44,7 @@ inline constexpr TechRole kTechRoles[] = {
     {"T_PlaneShadowMap", "plane_mask"},
     {"T_PlaneShadowBlur", "plane_blur"},
     {"T_RimLightMap", "rim_map"},
-    {"T_GaussianBlur5x5", "rim_node_quad"},      // [U] 0x827EA098 is the rim node's frame function (it sits beside the rim creator row 0x827EA4F0); the rim blur itself draws T_ShadowMapBlur (RIM_MAP_OURS.md:56, rim_chain_ours.h:27)
+    {"T_GaussianBlur5x5", "rim_node_quad"},      // [U] 0x827EA098 is the rim node's frame function (it sits beside the rim creator row 0x827EA4F0); the rim blur itself draws T_ShadowMapBlur (RIM_MAP_OURS.md:56, rim_chain_ours.h (kRimBlurCallSite))
     {"T_CircleShadow", "circles"},
     {"T_EffectMask_DownScale", "effect_mask"},   // [U]
     {"T_Audience_LightMap", "audience_lightmap"},

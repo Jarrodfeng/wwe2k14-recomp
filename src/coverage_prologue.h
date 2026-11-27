@@ -37,6 +37,10 @@ struct wwe2k14_trace_guard {
   }
 };
 
+// S111 EQUIV-A: the equivalence tester's stub answer (src\equiv\equiv_cov.h defines the same token): the slow path ran a
+// stub in place of this function's body, so the prologue returns before the body (the registers are the stub's results).
+#define WWE2K14_COV_STUBBED ((void*)(uintptr_t)1)
+
 #undef REX_FUNC_PROLOGUE
 #if defined(__clang__)
 #define REX_FUNC_PROLOGUE()                                                                   \
@@ -48,6 +52,10 @@ struct wwe2k14_trace_guard {
                              __atomic_load_n(&wwe2k14_cov_epoch, __ATOMIC_RELAXED),           \
                          0)) {                                                                \
       wwe2k14_tg_.ctx = wwe2k14_cov_hit(__func__, &wwe2k14_cov_seen_, &ctx, base, &wwe2k14_tg_.call); \
+      if (__builtin_expect(wwe2k14_tg_.ctx == WWE2K14_COV_STUBBED, 0)) {                      \
+        wwe2k14_tg_.ctx = nullptr;                                                            \
+        return;                                                                               \
+      }                                                                                       \
       wwe2k14_tg_.func = __func__;                                                            \
     }                                                                                         \
   } while (0)

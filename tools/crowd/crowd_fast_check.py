@@ -103,7 +103,9 @@ LINKS = [
 
 def wiring(root):
     for name, path, rx in LINKS:
-        text = open(os.path.join(root, path), encoding='utf-8', errors='replace').read()
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+        text = read_path(os.path.join(root, path))
         m = re.search(rx, text)
         line(m is not None, 'wiring: ' + name)
         if not m:

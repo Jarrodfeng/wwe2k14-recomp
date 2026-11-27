@@ -1,7 +1,7 @@
 // S103 PMS (docs\research\s103\PMF.md section 4, slice 1): the rows the shadowed FLOOR (yBG_* FX_SHADOW, slot 12) reads from the game's props map, from OUR inputs. Pure: no renderer, no game, no SDK.
 //
 // The props map is the game's first shadow pass of a frame (sub_827E7F00): a light straight down, then the circle blobs in the BLUE channel of the same 512 RGBA8 target. The floor shaders read it with
-//   TexProjLight (VS c68-c71) = bias(w, h) x (Trapezoidal x ViewProj of the props light)   [C: shadow_census.py 'bias' check, rows 0 / 1 / 2 / 3 of the stream's floor draws, tools\shadow\shadow_census.py:709-735]
+//   TexProjLight (VS c68-c71) = bias(w, h) x (Trapezoidal x ViewProj of the props light)   [C: shadow_census.py 'bias' check, rows 0 / 1 / 2 / 3 of the stream's floor draws, tools\shadow\shadow_census.py (do_frame)]
 //   ShadowPrm    (PS c168-c170) = the props light's shadow floats                            [C: the same state the props casters read, SKIP_GAME_WORK_MAP 17.2 item 2]
 // and the circle blobs' own c4-c7 ARE Trapezoidal x ViewProj (4e-8, SHADOW_PROMOTION_MAP 2.3), so the floor matrix is the circle entry's rows with the bias applied. In REGISTER layout (register i = four floats
 // of constant c(base + i)), the bias takes the rows: row 0 = 0.5 tv0 + (0.5 + 0.5 / w) tv3, row 1 = -0.5 tv1 + (0.5 - 0.5 / h) tv3 (the y flip takes the half texel with it), rows 2 and 3 = tv2, tv3.

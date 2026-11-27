@@ -40,7 +40,10 @@ inline bool Translucent(bool created, bool piece, int tag) { return created ? ta
 inline int DrawRank(bool created, bool piece, int tag) { return created && Translucent(created, piece, tag) ? tag - kFirstTranslucentLayer + 1 : 0; }
 
 // The file loader's case (jboy.h, a wrestler pac's yCh_ material): an `ed*.pac` (pac\edit: the created-superstar parts) is a created model with the composer's tags; every other character pac is a
-// stock wrestler's (predicate 0, no tags) [L: the stock ids are above 9999 with no CASD file, VARIANTDIFF.md]. entry 0 = the body.
+// stock wrestler's (predicate 0, no tags). entry 0 = the body. [C, S111 CAWPARTS] The game's own test: the constructor sub_825A20A0 sets char+5076 = info id <=u 9999 (sub_822C0998) and char+5072 =
+// a "/CASD/<id>" PACH that resolves for an id above 9999 (sub_822C2AC0); the predicate sub_8259F0E0 is either. A stock key ((id * 10 + attire) * 10 + kind, sub_822C2B20) is above 9999; the
+// /CASD/ keys above 9999 in the player's 473 indexed pacs are chHeads.pac's six (15902, 37202, 37204, 37302, 37402, 37502; `q asset find CASD`): characters 159 / 372..375, drawn the created way,
+// none with a chNNN.pac. So each pac this loader opens in the game (GameFilesSource::Load: chNNN.pac or a library CH497) is predicate 0; a created superstar draws from the guest rows (its own +620).
 // The name is the game's own file set exactly (pac\edit\ed<N>.pac, N = 0..99: wrestler_roster.h), any case: the viewer loads an imported community character by ITS file name
 // (loader_seam_game.cpp ViewerLoad -> LoadWrestlerFile -> BaseName), so a prefix test took "Edge.pac" / "eddie_guerrero.pac" for created parts (LAYERS review).
 inline bool CreatedPartsPac(const std::string& pac) {

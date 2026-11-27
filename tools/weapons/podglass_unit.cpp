@@ -3,6 +3,8 @@
 //   pwsh -NoProfile -File tools\weapons\build_podglass_unit.ps1
 // --plant = the rule before (the material's state for every stage row): it must FAIL. --plant-order = the see-through order before the review (the node's alpha draws in rank 0, before the
 // wrestlers' translucent pieces: a chain fence drawn with no depth write, then a wrestler's hair over it): it must FAIL.
+// S111 CHAMBERGLASS: --plant-stage-a = the ranks before CHAMBERGLASS (the node's alpha draws before every additive piece, the arena's `a` group among them, which the game draws in
+// category 35, before CDTA's 36): it must FAIL.
 #include "../../src/renderer_scene/stage_node_state.h"
 #include "../../src/renderer_scene/see_through_order.h"
 
@@ -26,7 +28,7 @@ namespace sn = rdr_scene::stage_node;
 // The return addresses of the slot-13 submits (bctrl + 4) in the two chamber draws [C listings]: sub_826F8F88 +0x6C4 (the glass, category 36), +0x1C0 (a fence, category 35); sub_826F8958 +0x2E8 (a door, category 3).
 constexpr uint32_t kLrGlass = 0x826F8F88 + 0x6C8, kLrFence = 0x826F8F88 + 0x1C4, kLrCat3 = 0x826F8958 + 0x2EC;
 
-// As the tracker packs an own stage call of piece k made from `lr` (weapon_rows_core.h:467-469).
+// As the tracker packs an own stage call of piece k made from `lr` (weapon_rows_core.h).
 uint32_t OwnRow(uint32_t k, uint32_t lr) { return W::PackStageFlags(k, true, false, W::OwnCallerClass(lr)); }
 
 }  // namespace
@@ -34,6 +36,7 @@ uint32_t OwnRow(uint32_t k, uint32_t lr) { return W::PackStageFlags(k, true, fal
 int main(int argc, char** argv) {
   const bool plant = argc > 1 && std::strcmp(argv[1], "--plant") == 0;
   rdr_scene::g_plant_late_node_off.store(argc > 1 && std::strcmp(argv[1], "--plant-order") == 0);
+  rdr_scene::g_plant_late_before_additive.store(argc > 1 && std::strcmp(argv[1], "--plant-stage-a") == 0);
   const uint32_t kNode = uint32_t(rdr_scene::kObjNoDepthWrite) | uint32_t(rdr_scene::kObjNodeLate);   // the node's z write 0 + its category after 33
   Check(W::OwnCallerClass(kLrGlass) == W::kStageLrOwnNode && W::OwnCallerClass(kLrFence) == W::kStageLrOwnNode, "the chamber's category-35 / 36 submits are the own-node class");
   Check(W::OwnCallerClass(W::kOwnChamberSeeNodeLo) == W::kStageLrOwnNode && W::OwnCallerClass(W::kOwnChamberSeeNodeHi - 4) == W::kStageLrOwnNode && W::OwnCallerClass(W::kOwnChamberSeeNodeHi) == W::kStageLrOther &&
@@ -64,16 +67,23 @@ int main(int argc, char** argv) {
       i.k.blend = ss::NodeBlendOf(f) ? ss::NodeBlendOf(f) : uint8_t(1), i.k.late_node = ss::LateNodeOf(f);
       return i;
     };
-    It hair{"hair", {}}, stage{"stage", {}}, glow{"glow", {}};
+    It hair{"hair", {}}, stage{"stage", {}}, glow{"glow", {}}, beam{"beam", {}};
     hair.k.blend = 1, hair.k.character = true;   // a wrestler's translucent piece (yCh_*): the character rank
     stage.k.blend = 1;                           // the stage's own blended piece (an arena glass / net): rank 0
-    glow.k.blend = 2;                            // an additive light beam: the additive rank
+    glow.k.blend = 2, glow.k.cutout = 2;         // an arena `a` slot piece (bg21 slot 163 beam_glow01: the loader's slot blend, cutout 2): the game's category 35
+    beam.k.blend = 2;                            // an additive piece that is not the loader's slot blend: the same additive rank, before the slot pieces
     std::vector<It> items = {node_item("fence", 3, kLrFence), node_item("glass", 5, kLrGlass), node_item("spot", 8, kLrGlass), hair, stage, glow};   // record order: the chamber's rows first
     rdr_scene::SortSeeThrough(rdr_scene::SeeOrder::Game, items, [](const It& i) { return i.k; });
     std::string got;
     for (const It& i : items) got += (got.empty() ? "" : " ") + i.name;
     std::printf("      order: %s\n", got.c_str());
-    Check(got == "stage hair fence glass spot glow", "Game order: the stage's piece, the wrestler's hair, then the chamber's fence and glass in their record (draw) order, the additives last (spotlight, then the glow)");
+    Check(got == "stage hair glow fence glass spot", "Game order (S111 CHAMBERGLASS): the stage's piece, the wrestler's hair, the arena's `a` piece (category 35), then the chamber's fence and glass in their record (draw) order, the spotlight last (CDTA's additive)");
+    std::vector<It> plain = {glow, beam, hair, stage};   // no late node in the frame: the order before CHAMBERGLASS (the additive rank only changed its number)
+    rdr_scene::SortSeeThrough(rdr_scene::SeeOrder::Game, plain, [](const It& i) { return i.k; });
+    std::string got_plain;
+    for (const It& i : plain) got_plain += (got_plain.empty() ? "" : " ") + i.name;
+    std::printf("      order with no late node: %s\n", got_plain.c_str());
+    Check(got_plain == "stage hair beam glow", "no late node: alpha, character, then the additives (the loader's slot pieces after the others), as before");
   }
   Check(sn::StageNodeObjectFlags(OwnRow(4, kLrCat3), 6, 4, plant) == 0u, "a pod frame the category-3 node draws: no node flags (its material's state)");
   Check(sn::StageNodeObjectFlags(W::PackStageFlags(5, false, true, W::kStageLrCell), 3, 5, plant) == 0u, "a slot-32 cell call (class 2 = cell, not own): no node flags");

@@ -7,10 +7,10 @@ A. Synthetic text (invented, no game code): RoleOfSlot's cases + default, RoleOf
 B. Real data (needs generated/, the q index and the asset index; else SKIP), our code frozen at FROZEN (the S111 tip the two cases
    were stated against): the name table's sampler rows (g_mMusclePrm = slot 2 at row 0x8392AB00, g_mBSSPrm = slot 14 at 0x8392AC80),
    and the two cases RE-FOUND:
-     1. slot 2 (g_mMusclePrm, GAME-MATERIAL) of yCh_skin_flex: DIFF, ours black at front_end.cpp:1424 (RoleOfSlot's default,
-        char_effects.cpp:120 at FROZEN);
+     1. slot 2 (g_mMusclePrm, GAME-MATERIAL) of yCh_skin_flex: DIFF, ours black at front_end.cpp (rdr_scene::FrontEnd::BindMaterial) (RoleOfSlot's default,
+        char_effects.cpp at FROZEN);
      2. slot 14 (g_mBSSPrm) of yCh_gear's wet bind: UNSETTLED (no record and no code names g_mBSSPrm: GAME-NOREC), ours black at
-        front_end.cpp:1408 behind the liquid map's yCh_skin gate (front_end.cpp:2700);
+        front_end.cpp behind the liquid map's yCh_skin gate (front_end.cpp (rdr_scene::FrontEnd::Record));
    with slot 0 of yCh_skin OK and slot 14 of yCh_skin's wet bind OK (the liquid map).
    S111 review: the game side keeps only the records whose own technique samples the slot, and an effect no record names is
    UNUSED: yDefault slot 1 (texSpecularMap, the D5 / D6 false alarm: 5 records name it, under techniques 0 / 1 whose passes never
@@ -34,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qtexdiff as T   # noqa: E402
 
-FROZEN = 'd2195d5fe'      # the S111 session tip the two cases were stated against (front_end.cpp:1424 / :1408 / :2700, char_effects.cpp:121)
+FROZEN = 'd2195d5fe'      # the S111 session tip the two cases were stated against (front_end.cpp, char_effects.cpp)
 FRONT, CHAR = T.FRONT, T.CHAR
 FAILS, CAUGHT = [], []
 
@@ -143,6 +143,15 @@ def part_a():
     gw = T.ours_char('yCh_gear', 14, [('blood', frozenset(['FX_BLOOD']), frozenset([0, 14]))], ours)
     sk = T.ours_char('yCh_skin', 14, [('bss', frozenset(['FX_BSS']), frozenset([0, 14]))], ours)
     check('A the liquid map reaches yCh_skin only', gw[0]['kind'] == 'STANDIN' and sk[0]['kind'] == 'MAP', f'{gw} {sk}')
+    # S111 GEARLIQUID: the gate with no effect-name test (liquid_gate::TakesBodyMap) gives the map to gear's wet bind too
+    syn_open = SYN_FRONT.replace('(is_char && m.materials[size_t(me.material)].shader.rfind("yCh_skin", 0) == 0)',
+                                 '(char_b && liquid_gate::TakesBodyMap(is_char, me.material, char_b->liquid_slot, me.src_key))')
+    _rep2, liquid2 = T.parse_draw(syn_open)
+    ours2 = dict(ours, liquid=liquid2)
+    gw2 = T.ours_char('yCh_gear', 14, [('blood', frozenset(['FX_BLOOD']), frozenset([0, 14]))], ours2)
+    sk2 = T.ours_char('yCh_skin', 14, [('bss', frozenset(['FX_BSS']), frozenset([0, 14]))], ours2)
+    check('A an open liquid gate (no prefix) gives the map to gear and skin', syn_open != SYN_FRONT and liquid2['prefixes'] == [] and
+          gw2[0]['kind'] == 'MAP' and sk2[0]['kind'] == 'MAP', f'{liquid2} {gw2} {sk2}')
     l2 = T.ours_front('yBG_UVScroll', 'ps', 2, [('uv3', frozenset(), frozenset([0, 2]))], ours)
     check('A a range arm binds layer[slot - 1]', l2[0]['fields'] == ['layer[1]'], str(l2))
     l12 = T.ours_front('yBG_Default', 'ps', 12, [('shadow', frozenset(['FX_SHADOW']), frozenset([0, 12]))], ours)
@@ -314,6 +323,10 @@ def part_bc(root):
                 for ctx in ('dry', 'wet'):
                     m = expect(trows, eff, 10, ctx, 'OK')
                     check(f'B tip: D4 {eff} slot 10 {ctx} OK through env_cube (mat.env_cube from g_mEnvLPrm)', m is None, m or '')
+        if os.path.exists(os.path.join(root, 'src', 'renderer_scene', 'liquid_gate.h')):   # S111 GEARLIQUID: every character wet bind takes its body's map
+            for eff in ('yCh_gear', 'yCh_skin'):
+                m = expect(trows, eff, 14, 'wet', 'OK')
+                check(f'B tip: {eff} slot 14 wet = the body liquid map, OK (liquid_gate::TakesBodyMap)', m is None, m or '')
     else:
         print('SKIP B tip checks (no muscle_map.h in this tree)')
 

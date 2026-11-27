@@ -91,7 +91,7 @@ def block(text):
 
 def both(exe, name, files_text, phone=None):
     """Write the files, read them with both twins; identical text required. -> the C++ text (phone = a list that gets the C++ text made with the
-    phone launcher's source label, mobile_main.cpp:2747: the same Build, and the phone's zip has no Redact pass)."""
+    phone launcher's source label, mobile_main.cpp: the same Build, and the phone's zip has no Redact pass)."""
     SCRATCH.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=str(SCRATCH)) as tmp:
         d = Path(tmp) / "logs"

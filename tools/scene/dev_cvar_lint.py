@@ -96,7 +96,9 @@ def scan(root):
     names = {}
     for p in files:
         try:
-            texts[p] = open(p, encoding='utf-8', errors='replace').read()
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+            from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+            texts[p] = read_path(p)
         except OSError:
             continue
         names.update(definitions(texts[p]))

@@ -35,11 +35,15 @@ def fail(msg):
     return 1
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
     p = os.path.join(root, rel.replace('/', os.sep))
     if not os.path.isfile(p):
         raise FileNotFoundError(p)
-    return open(p, encoding='utf-8').read()
+    return read_path(p)
 
 
 def build(root):

@@ -108,7 +108,8 @@ inline std::string CandidatesText(const uint32_t* objs, size_t n, size_t max = 1
   return s;
 }
 
-// D1: the portrait draws ONLY the edited wrestler. An object of the record's copy stays visible to the Wrestlers family when its engine object is the model; the draw must then have drawn exactly one object.
+// D1: the portrait draws ONLY the edited wrestler. An object of the record's copy stays visible to the Wrestlers family when its engine object is the model (and, since S111 PORTRAITHAIR, when it is a
+// linked SUBM piece of that body: renderer_scene\piece_owner.h KeptWithPieces); the draw must then have drawn exactly one BODY (LiveSceneDraw::DrawPortrait passes drawn - ClassReport::pieces_drawn).
 inline bool KeepsObject(uint32_t engine_object, uint32_t model) {
 #if defined(WWE2K14_CAW_PLANT) && WWE2K14_CAW_PLANT == 4   // planted twin 4: every object is kept (the other wrestlers of the record are drawn into the portrait)
   (void)engine_object, (void)model;
@@ -118,6 +119,18 @@ inline bool KeepsObject(uint32_t engine_object, uint32_t model) {
 #endif
 }
 inline bool DrawnCountOk(uint32_t drawn) { return drawn == 1; }
+// S111 PORTRAITCENSUS: the host census line's piece field (SceneHost::ServePortrait): "pieces P (ids I1 I2 ...)", P = the draw's own count (the summed ClassReport::pieces_drawn),
+// then the piece ids it drew (ClassReport::piece_ids; hair 10000); "pieces 0" when none. The count is the authority: an id list of another length is printed as it is.
+inline std::string PiecesText(uint32_t pieces, const uint32_t* ids, size_t n) {
+#if defined(WWE2K14_CAW_PLANT) && WWE2K14_CAW_PLANT == 6   // planted twin 6: the count is the id list's length, not the draw's count
+  pieces = uint32_t(n);
+#endif
+  std::string s = "pieces " + std::to_string(pieces);
+  if (n == 0) return s;
+  s += " (ids";
+  for (size_t i = 0; i < n; ++i) s += " " + std::to_string(ids[i]);
+  return s + ")";
+}
 
 // H1's retry window: a request whose assets are still loading is asked again each host frame. Never longer than G2's wait (kWaitTicks game ticks; the host handles about one present per tick, so the same number of
 // frames is the same ~2 s): when the game gave up and ran the job, a host still drawing is wasted work, and G3 cancels the request anyway. The count restarts for each new request id.

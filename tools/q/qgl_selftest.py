@@ -76,7 +76,7 @@ void main() {
 def registry():
     def v(name, consts):
         c = 'kC_' + name if consts else 'nullptr'
-        return f'  {{"{name}", kFx_{name}, sizeof(kFx_{name}), nullptr, 0, {c}, {consts}, 16, 65535, nullptr, 0, nullptr, 0, 0, 255}}'
+        return f'  {{"{name}", sizeof(kFx_{name}), 0, {c}, {consts}, 16, 65535, nullptr, 0, nullptr, 0, 0, 255}}'
     names = [('yAudDefault_base_fragment', 1), ('yAudience_base_fragment', 1), ('yBG_Default_fragment', 1), ('yBG_Default_pl_fragment', 0),
              ('yProp_Default_fragment', 1), ('yProp_Default_pl_fragment', 1), ('yAlone_quad_vertex', 0), ('yNohash_vertex', 0)]
     vs = ',\n'.join(v(n, c) for n, c in names)

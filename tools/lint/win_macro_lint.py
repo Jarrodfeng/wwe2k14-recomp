@@ -16,6 +16,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+import read_unit as READ_UNIT  # noqa: E402  a split header's parts (tools/split/read_unit.py)
+
 IDENT = re.compile(r'\b(small|near|far|interface|hyper)\b')
 CALL = re.compile(r'(?<![\w:.>(])(min|max)\s*\(')
 
@@ -89,14 +92,22 @@ def scan_dirs(root, dirs, cache_path=None):
                     p = os.path.join(dp, f)
                     nfiles += 1
                     raw = open(p, 'rb').read()
+                    split = b'split:' in raw
+                    if split:   # S111 SPLIT-WIRE review: a split header is read with its parts (.inc, not walked) expanded in place
+                        raw = READ_UNIT.expand_bytes(p)
                     key = hashlib.sha1(raw).hexdigest()
                     hits = cache.get(key)
                     if hits is None:
                         hits = scan_text(raw.decode('utf-8', errors='replace'))
                     fresh[key] = hits
                     rel = os.path.relpath(p, root).replace(chr(92), '/')
+                    lmap = READ_UNIT.line_map(p) if split and hits else None
                     for no, what, why in hits:
-                        allhits.append('%s:%d: %s: %s' % (rel, no, what, why))
+                        at = '%s:%d' % (rel, no)
+                        if lmap and 1 <= no <= len(lmap):
+                            pf, pn = lmap[no - 1]
+                            at = '%s:%d' % (os.path.relpath(str(pf), root).replace(chr(92), '/'), pn)   # the part and its own line
+                        allhits.append('%s: %s: %s' % (at, what, why))
     if cache_path and fresh != cache:
         save_cache(cache_path, fresh)
     return allhits, nfiles
@@ -113,6 +124,17 @@ def selftest(root):
     got = scan_text(clean)
     if got:
         print('FAIL: the lint flagged clean code: %r' % (got,))
+        return False
+    # S111 SPLIT-WIRE review: a header split into parts (tools/split/read_unit.py) is read with its parts; a hit names the part and its own line
+    d = os.path.join(root, 'out', 'win_macro_lint', 'split_twin')
+    os.makedirs(os.path.join(d, 'p'), exist_ok=True)
+    with open(os.path.join(d, 'p.h'), 'w', encoding='utf-8', newline='\n') as f:
+        f.write('#pragma once\nstruct P {\n#include "p/part.inc"  // split: part\n};\n')
+    with open(os.path.join(d, 'p', 'part.inc'), 'w', encoding='utf-8', newline='\n') as f:
+        f.write('  int ok_a;\n  int small;\n')
+    hits, _n = scan_dirs(root, [os.path.relpath(d, root)], None)
+    if not hits or not any('p/part.inc:2: small' in h for h in hits):
+        print('FAIL: a Windows macro in a split part of a header was not caught at the part\'s line (%r)' % (hits,))
         return False
     return True
 

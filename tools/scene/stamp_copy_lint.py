@@ -111,8 +111,9 @@ def main():
         if not p.endswith(('.h', '.cpp')):
             continue
         rel = os.path.relpath(p, root).replace('\\', '/')
-        with open(p, encoding='utf-8', errors='replace') as f:
-            text = f.read().replace('\r\n', '\n')
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+        text = read_path(p)
         n += 1
         bad += rule_a(rel, text)
         if rel.startswith(('src/renderer_adapter/', 'src/renderer_scene/')) or rel == 'src/renderer_game/fallback_census.h':

@@ -46,10 +46,15 @@
 #include "renderer_scene/card_atlas_rule.h"             // S103 CB1: rdr_scene::g_card_atlas (the one-pass card bake; stored here in the stream-free build)
 #include "renderer_scene/sampler_table.h"              // S103 B1: the texture-filtering level the scene draw reads
 #include "renderer_scene/props_map_switch.h"             // S103 PMS: rdr_scene::props_map::g_on (stored here, both builds)
+#include "renderer_scene/floor_blood_switch.h"           // S111 BLOODMOD: rdr_scene::floor_blood::g_on (the permanent blood mod; stored here, both builds)
 #include "renderer_scene/stage_lmpage.h"              // S103 L8: the stage-page fade switch (stored here, both builds)
 
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_soft_particles, true, "wwe2k14",
                     "S103 PRT: soft particles (the game's GMEV type-11 switch): a batch drawn soft fades by the gap to our scene depth (one depth copy a frame that has one). Off = soft batches are drawn hard, no copy. Read once at start");
+
+// S111 BLOODMOD: a MOD (Jarrod: "a fun creative toggle"), the launcher's PERMANENT BLOOD. Defined once, here, both builds; read once at start (ApplyStartSettings below).
+REXCVAR_DEFINE_BOOL(wwe2k14_mods_permanent_blood, false, "wwe2k14",
+                    "S111 BLOODMOD, a MOD (default off; read once at start): the blood splats on the mat and the floor stay for the whole scene instead of fading after about 10 seconds, with no count limit (renderer_scene/floor_blood_keep.h). Off = the game's own splats exactly");
 
 // S105 A9: +dev only (IsDevBuild guards the store below): from this renderer frame serial the renderer behaves as a lost device (the real path: no submit, no present), to see the player's message. -1 = off. Defined once, here, both builds.
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_test_device_lost, -1, "wwe2k14", "S105 A9 DEV ONLY (ignored by a release build): the renderer treats its device as lost from this frame serial (-1 = off), so the player's message and the no-hang guard can be checked on a healthy device");
@@ -246,6 +251,7 @@ const Applied& ApplyStartSettings() {
   a.quality = q;
   // S103 L8 (stage_lmpage.h): the stage-page fade switch, StartOnly, stored here for both builds (reader.h used to copy it inside its stream-only block)
   rdr_scene::stage_lmpage::g_on.store(REXCVAR_GET(wwe2k14_rdr_stage_lmpage), std::memory_order_relaxed);
+  rdr_scene::floor_blood::g_on.store(REXCVAR_GET(wwe2k14_mods_permanent_blood), std::memory_order_relaxed);   // S111 BLOODMOD: the mod (both builds store it; the weapon drawer and the pool hook read it)
 
   // ---- the renderer-option half (SP2 M4 / M6 / M8): the same RendererOptions fields in both builds ----
   a.gpu_timestamps = REXCVAR_GET(wwe2k14_rdr_gpu_timestamps);
@@ -299,7 +305,7 @@ const Applied& ApplyStartSettings() {
     std::memcpy(&bx, &cs.x, 4), std::memcpy(&by, &cs.y, 4);
     rdr_scene::live::crowd::latch::g_screen_sx_bits.store(bx, std::memory_order_relaxed), rdr_scene::live::crowd::latch::g_screen_sy_bits.store(by, std::memory_order_relaxed);
 #if WWE2K14_STREAM()
-    rdr_scene::live::crowd::latch::g_single_screen_scaled.store(false, std::memory_order_relaxed);   // the stream build's walked frames cull the singles with the game's own 16:9 test (no wide hook): the port must agree (crowd F2)   // START-ONLY(ON): the OFF build has no walked frames, its singles port keeps the header default true (crowd_latch_reader.h:794-796)
+    rdr_scene::live::crowd::latch::g_single_screen_scaled.store(false, std::memory_order_relaxed);   // the stream build's walked frames cull the singles with the game's own 16:9 test (no wide hook): the port must agree (crowd F2)   // START-ONLY(ON): the OFF build has no walked frames, its singles port keeps the header default true (crowd_latch_reader.h)
 #endif
   }
 

@@ -104,6 +104,7 @@ inline void StageRequestPath(uint32_t path_ptr) {
 }
 inline void EventWeaponFreed(uint32_t weapon) {
   namespace wr = rdr_scene::live::weaponrows;
+  rdr_scene::live::prop_read_note::Forget(weapon);   // S111 FOLLOWUPS3: the recoloured-read note goes with the CWeapon (a reused address is no recoloured model)
   if (weapon == 0 || !wr::WeaponRowsRegistered()) return;
   const uint32_t n = wr::Rows().tracker.EventFree(weapon, [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); });
   if (n != 0) {

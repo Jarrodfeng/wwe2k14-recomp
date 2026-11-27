@@ -5,8 +5,8 @@ r"""The compile queue's Python helper (lane CQW, 2026-11-20; docs\agents\admit_w
         with multiprocessing.Pool(n) as pool: ...
 
 Every use of admit.exe's command line from Python lives in this file. hold() uses the stdin form of `admit hold` (stdin a real pipe, kept open until the
-with block ends). It asks with --min = a quarter of the want (rounded up) and --timeout timeout_s (admit cuts it to admit.json timeout_s, 180 s: S109
-GATE); admit answers `granted M <word>`:
+with block ends). It asks with --min = a quarter of the want (rounded up) and --timeout timeout_s (S111 ADMITWAIT: admit ignores it and WAITS until
+admitted, at most admit.json timeout_s = 30 min, a stuck machine); admit answers `granted M <word>`:
   held      M workers reserved until the block ends (n.admitted True); a held grant below the minimum is refused (given back): want;
   narrowed  at the bound, below the minimum but above the floor: M workers reserved (an older admit's `forced` is taken the same way);
   nested    under an outer hold: its count, accepted even below the minimum, no reservation of its own;
@@ -18,7 +18,7 @@ Refused, a SystemExit with code 75: the tool stops with exit 75 (a pool's `excep
 Fall-open rules (the pool runs at exactly `want`, today's count), as tools\admit\Admit.ps1:
   1. env WWE_BUILD_PARALLEL set (a manual override; nothing sets it automatically): min(want, that), no hold;
   2. env WWE_NO_ADMIT=1: want, silently; no admit.exe: want, and ONE line per process `[admit] not installed (<path>): this build is not queued`;
-  3. admit's own error (an exit other than 0 / 75, garbage), or admit not answering within ceil(1.1 x timeout_s) + 30 s (that admit is killed with its
+  3. admit's own error (an exit other than 0 / 75, garbage), or admit not answering within ceil(1.1 x admit.json timeout_s) + 30 s (that admit is killed with its
      tree, also when the caller is stopped): want, with one line on stderr.
 Every answer prints one line saying what it is ("held", "narrowed", "observed: not limited", "nested", "not held: why", "REFUSED").
 exe_path() / admit_exe(): env WWE_ADMIT_EXE when set (tests), else the MAIN checkout's out\tools\admit\admit.exe (git's common dir); admit_exe() None when
@@ -240,12 +240,12 @@ def _kill_tree(p):
 
 
 def _cfg_timeout_s():
-    """S106 0CF (review B5): the queue's own wait limit (admit.json timeout_s, 900): env WWE_ADMIT_CONFIG when set, else the file beside this one."""
+    """The queue's own wait cap (admit.json timeout_s, 1800): env WWE_ADMIT_CONFIG when set, else the file beside this one."""
     try:
         with open(os.environ.get('WWE_ADMIT_CONFIG') or os.path.join(HERE, 'admit.json'), encoding='utf-8') as f:
-            return float(json.load(f).get('timeout_s', 900))
+            return float(json.load(f).get('timeout_s', 1800))
     except Exception:
-        return 900.0
+        return 1800.0
 
 
 def _manual():
@@ -263,9 +263,10 @@ def _manual():
 
 
 @contextlib.contextmanager
-def hold(kind, want, timeout_s, interactive=False):
-    """timeout_s: the caller's limit; admit cuts it to the queue's own (admit.json timeout_s, S109 GATE). interactive is kept for the callers' signature
-    (the q overlay); since S109 every caller's limit is passed as given (the S106 0CF raise to the queue's limit served the forced slot, now gone)."""
+def hold(kind, want, timeout_s=None, interactive=False):
+    """S111 ADMITCALLERS: a production caller passes NO timeout_s. admit waits until admitted (only admit.json timeout_s, a stuck-machine cap, ends the
+    wait), so no caller's short limit can refuse a pool that only had to queue. timeout_s is the selftest's (WWE_ADMIT_TEST under TEMP): it is sent as
+    --timeout, which admit.exe refuses loudly (exit 2) anywhere else. interactive is dead (kept for the old selftests' signature)."""
     want = max(1, int(want))
     g = _manual()
     if g is not None:
@@ -281,9 +282,10 @@ def hold(kind, want, timeout_s, interactive=False):
         return
     k = resolve_kind(kind)
     lo = min_of(want)
-    timeout_s = max(1, int(math.ceil(timeout_s)))
-    bound = int(math.ceil(1.1 * min(timeout_s, _cfg_timeout_s()))) + GRACE_S   # admit answers within min(T, the queue's limit) + its last ask: never kill a wait admit is still allowed
-    argv = [exe, 'hold', '--kind', k, '--want', str(want), '--min', str(lo), '--timeout', str(timeout_s)]
+    bound = int(math.ceil(1.1 * _cfg_timeout_s())) + GRACE_S   # admit answers within the queue's cap + its last ask: never kill a wait admit is still allowed (never the caller's T)
+    argv = [exe, 'hold', '--kind', k, '--want', str(want), '--min', str(lo)]
+    if timeout_s is not None:   # selftest only: admit.exe refuses --timeout outside its test mode
+        argv += ['--timeout', str(max(1, int(math.ceil(timeout_s))))]
     p = None
     grant = None
     refused = None
@@ -343,8 +345,8 @@ def hold(kind, want, timeout_s, interactive=False):
                     except subprocess.TimeoutExpired:
                         rc = None
                 if rc == 75:   # S109 GATE: refused (an older admit prints no `refused` line)
-                    refused = ' '.join(parts[1:]) if parts else f'not admitted within {timeout_s} s (exit 75)'
-                why = f'not admitted within {timeout_s} s' if rc == 75 else f'exit {rc}, first line {" ".join(parts)!r}'
+                    refused = ' '.join(parts[1:]) if parts else "not admitted within the queue's wait cap (exit 75)"
+                why = "not admitted within the queue's wait cap" if rc == 75 else f'exit {rc}, first line {" ".join(parts)!r}'
     except Exception as e:
         why = f'{e}'
     if refused is not None:

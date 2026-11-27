@@ -2405,74 +2405,72 @@ inline constexpr Field kF988[] = {{"ScreenScale", 0, 1}, {"WorldParam", 16, 1}, 
 inline constexpr Interp kP989[] = {{0, "Uv"}, {1, "Params"}};
 inline constexpr Interp kP990[] = {{0, "Uv"}, {1, "Params"}};
 inline constexpr Interp kP991[] = {{0, "Uv"}, {1, "Params"}};
-inline constexpr Input kI991[] = {{0, 2, "inPatch"}, {1, 4, "inFade"}};
-inline constexpr Field kF991[] = {{"ScreenScale", 0, 1}, {"WorldParam", 16, 1}, {"ScreenSize", 32, 1}, {"LocalArea", 48, 1}};
 inline constexpr Interp kP992[] = {{0, "Uv"}, {1, "Params"}};
-inline constexpr Field kF992[] = {{"TexParam", 0, 1}};
+inline constexpr Input kI992[] = {{0, 2, "inPatch"}, {1, 4, "inFade"}};
+inline constexpr Field kF992[] = {{"ScreenScale", 0, 1}, {"WorldParam", 16, 1}, {"ScreenSize", 32, 1}, {"LocalArea", 48, 1}};
 inline constexpr Interp kP993[] = {{0, "Uv"}, {1, "Params"}};
-inline constexpr Field kF993[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
-inline constexpr Interp kP994[] = {{0, "Uv"}};
-inline constexpr Input kI994[] = {{0, 2, "inPosition"}, {1, 2, "inUv"}};
-inline constexpr Field kF994[] = {{"ScreenScale", 0, 1}};
-inline constexpr Interp kP995[] = {{0, "Uv"}, {1, "Params"}};
-inline constexpr Field kF995[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
+inline constexpr Field kF993[] = {{"TexParam", 0, 1}};
+inline constexpr Interp kP994[] = {{0, "Uv"}, {1, "Params"}};
+inline constexpr Field kF994[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
+inline constexpr Interp kP995[] = {{0, "Uv"}};
+inline constexpr Input kI995[] = {{0, 2, "inPosition"}, {1, 2, "inUv"}};
+inline constexpr Field kF995[] = {{"ScreenScale", 0, 1}};
 inline constexpr Interp kP996[] = {{0, "Uv"}, {1, "Params"}};
 inline constexpr Field kF996[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
 inline constexpr Interp kP997[] = {{0, "Uv"}, {1, "Params"}};
 inline constexpr Field kF997[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
 inline constexpr Interp kP998[] = {{0, "Uv"}, {1, "Params"}};
 inline constexpr Field kF998[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
-inline constexpr Interp kP999[] = {{0, "vTexCoord"}};
-inline constexpr Field kF999[] = {{"g_fCb", 0, 1}, {"g_fCr", 16, 1}, {"g_fAlpha", 32, 1}};
+inline constexpr Interp kP999[] = {{0, "Uv"}, {1, "Params"}};
+inline constexpr Field kF999[] = {{"SrcChan", 0, 1}, {"DstChan", 16, 1}};
 inline constexpr Interp kP1000[] = {{0, "vTexCoord"}};
 inline constexpr Field kF1000[] = {{"g_fCb", 0, 1}, {"g_fCr", 16, 1}, {"g_fAlpha", 32, 1}};
 inline constexpr Interp kP1001[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1001[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Interp kP1002[] = {{0, "Uv"}, {6, "Color"}};
-inline constexpr Interp kP1003[] = {{0, "Uv"}, {1, "Normal"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
-inline constexpr Field kF1003[] = {{"ShadowPrm", 0, 3}};
-inline constexpr Interp kP1004[] = {{0, "Uv"}, {6, "Color"}};
-inline constexpr Interp kP1005[] = {{0, "Uv"}, {1, "Normal"}, {2, "View"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
-inline constexpr Input kI1005[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}, {2, 3, "inNormal"}, {3, 4, "inColor"}, {4, 2, "inUv"}};
-inline constexpr Field kF1005[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"EyePos", 1072, 1}, {"SkyDir", 1088, 1}, {"SkyCol", 1104, 1}, {"GroundCol", 1120, 1}, {"DifLghCol", 1136, 4}, {"DifLghVec", 1200, 4}, {"MatAmbCol", 1264, 1}, {"MatDifCol", 1280, 1}, {"MdlAlpha", 1296, 1}, {"Min", 1312, 1}, {"Bools", 1328, 2}};
-inline constexpr Interp kP1006[] = {{0, "Uv"}, {1, "Normal"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
-inline constexpr Field kF1006[] = {{"ShadowPrm", 0, 3}};
-inline constexpr Interp kP1007[] = {{0, "Uv"}, {1, "Normal"}, {2, "View"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
-inline constexpr Input kI1007[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}, {2, 3, "inNormal"}, {3, 4, "inColor"}, {4, 2, "inUv"}};
-inline constexpr Field kF1007[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"EyePos", 1072, 1}, {"SkyDir", 1088, 1}, {"SkyCol", 1104, 1}, {"GroundCol", 1120, 1}, {"DifLghCol", 1136, 4}, {"DifLghVec", 1200, 4}, {"MatAmbCol", 1264, 1}, {"MatDifCol", 1280, 1}, {"MdlAlpha", 1296, 1}, {"Min", 1312, 1}, {"Bools", 1328, 2}, {"TexProjLight", 1360, 4}, {"LightPos", 1424, 1}, {"LightDepth", 1440, 2}};
-inline constexpr Interp kP1008[] = {{0, "Uv"}, {1, "Uv2"}, {2, "Color"}};
-inline constexpr Input kI1008[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 2, "inUv2"}, {4, 4, "inLocalWorld0"}, {5, 4, "inLocalWorld1"}, {6, 4, "inLocalWorld2"}, {7, 4, "inLocalWorld3"}};
-inline constexpr Field kF1008[] = {{"ViewProj", 0, 4}, {"ZOffset", 64, 1}, {"UseNormal", 80, 1}, {"LightVector", 96, 1}};
-inline constexpr Interp kP1009[] = {{0, "Uv"}, {2, "Color"}};
-inline constexpr Interp kP1010[] = {{0, "Uv"}, {1, "Uv2"}, {2, "Color"}};
-inline constexpr Input kI1010[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 2, "inUv2"}};
-inline constexpr Field kF1010[] = {{"ViewProj", 0, 4}, {"LocalWorld", 64, 4}, {"ZOffset", 128, 1}, {"UseNormal", 144, 1}, {"LightVector", 160, 1}};
-inline constexpr Interp kP1011[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1011[] = {{"g_avSampleOffsets", 0, 13}, {"g_avSampleWeights", 208, 13}};
+inline constexpr Field kF1001[] = {{"g_fCb", 0, 1}, {"g_fCr", 16, 1}, {"g_fAlpha", 32, 1}};
+inline constexpr Interp kP1002[] = {{0, "vTexCoord"}};
+inline constexpr Input kI1002[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Interp kP1003[] = {{0, "Uv"}, {6, "Color"}};
+inline constexpr Interp kP1004[] = {{0, "Uv"}, {1, "Normal"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
+inline constexpr Field kF1004[] = {{"ShadowPrm", 0, 3}};
+inline constexpr Interp kP1005[] = {{0, "Uv"}, {6, "Color"}};
+inline constexpr Interp kP1006[] = {{0, "Uv"}, {1, "Normal"}, {2, "View"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
+inline constexpr Input kI1006[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}, {2, 3, "inNormal"}, {3, 4, "inColor"}, {4, 2, "inUv"}};
+inline constexpr Field kF1006[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"EyePos", 1072, 1}, {"SkyDir", 1088, 1}, {"SkyCol", 1104, 1}, {"GroundCol", 1120, 1}, {"DifLghCol", 1136, 4}, {"DifLghVec", 1200, 4}, {"MatAmbCol", 1264, 1}, {"MatDifCol", 1280, 1}, {"MdlAlpha", 1296, 1}, {"Min", 1312, 1}, {"Bools", 1328, 2}};
+inline constexpr Interp kP1007[] = {{0, "Uv"}, {1, "Normal"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
+inline constexpr Field kF1007[] = {{"ShadowPrm", 0, 3}};
+inline constexpr Interp kP1008[] = {{0, "Uv"}, {1, "Normal"}, {2, "View"}, {3, "Shadow"}, {4, "ToLight"}, {5, "LightDepth"}, {6, "Color"}};
+inline constexpr Input kI1008[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}, {2, 3, "inNormal"}, {3, 4, "inColor"}, {4, 2, "inUv"}};
+inline constexpr Field kF1008[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"EyePos", 1072, 1}, {"SkyDir", 1088, 1}, {"SkyCol", 1104, 1}, {"GroundCol", 1120, 1}, {"DifLghCol", 1136, 4}, {"DifLghVec", 1200, 4}, {"MatAmbCol", 1264, 1}, {"MatDifCol", 1280, 1}, {"MdlAlpha", 1296, 1}, {"Min", 1312, 1}, {"Bools", 1328, 2}, {"TexProjLight", 1360, 4}, {"LightPos", 1424, 1}, {"LightDepth", 1440, 2}};
+inline constexpr Interp kP1009[] = {{0, "Uv"}, {1, "Uv2"}, {2, "Color"}};
+inline constexpr Input kI1009[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 2, "inUv2"}, {4, 4, "inLocalWorld0"}, {5, 4, "inLocalWorld1"}, {6, 4, "inLocalWorld2"}, {7, 4, "inLocalWorld3"}};
+inline constexpr Field kF1009[] = {{"ViewProj", 0, 4}, {"ZOffset", 64, 1}, {"UseNormal", 80, 1}, {"LightVector", 96, 1}};
+inline constexpr Interp kP1010[] = {{0, "Uv"}, {2, "Color"}};
+inline constexpr Interp kP1011[] = {{0, "Uv"}, {1, "Uv2"}, {2, "Color"}};
+inline constexpr Input kI1011[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 2, "inUv2"}};
+inline constexpr Field kF1011[] = {{"ViewProj", 0, 4}, {"LocalWorld", 64, 4}, {"ZOffset", 128, 1}, {"UseNormal", 144, 1}, {"LightVector", 160, 1}};
 inline constexpr Interp kP1012[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Input kI1012[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inTexCoord"}};
-inline constexpr Field kF1012[] = {{"g_fm44LocalWorld", 0, 4}, {"g_fm44ViewProj", 64, 4}};
-inline constexpr Interp kP1013[] = {{0, "Shadow"}};
+inline constexpr Field kF1012[] = {{"g_avSampleOffsets", 0, 13}, {"g_avSampleWeights", 208, 13}};
+inline constexpr Interp kP1013[] = {{0, "vTexCoord"}, {1, "vColor"}};
+inline constexpr Input kI1013[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inTexCoord"}};
+inline constexpr Field kF1013[] = {{"g_fm44LocalWorld", 0, 4}, {"g_fm44ViewProj", 64, 4}};
 inline constexpr Interp kP1014[] = {{0, "Shadow"}};
-inline constexpr Input kI1014[] = {{0, 4, "inPosition"}};
-inline constexpr Field kF1014[] = {{"TraMovPos", 0, 1}, {"ViewProj", 16, 4}, {"CameraViewProj", 80, 4}, {"PlaneInv", 144, 4}};
 inline constexpr Interp kP1015[] = {{0, "Shadow"}};
+inline constexpr Input kI1015[] = {{0, 4, "inPosition"}};
+inline constexpr Field kF1015[] = {{"TraMovPos", 0, 1}, {"ViewProj", 16, 4}, {"CameraViewProj", 80, 4}, {"PlaneInv", 144, 4}};
 inline constexpr Interp kP1016[] = {{0, "Shadow"}};
-inline constexpr Input kI1016[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
-inline constexpr Field kF1016[] = {{"EyePos", 0, 1}, {"PlanePos", 16, 1}, {"ShadowDistance", 32, 1}, {"ShadowRevision", 48, 1}, {"ShadowMiddleRev", 64, 1}, {"ShadowLeastRev", 80, 1}, {"ShadowDeep", 96, 1}, {"ShadowMiddleDeep", 112, 1}, {"ShadowLeastDeep", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}, {"CameraViewProj", 1184, 4}, {"PlaneInv", 1248, 4}};
 inline constexpr Interp kP1017[] = {{0, "Shadow"}};
-inline constexpr Input kI1017[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 1, "inBoneId4"}};
+inline constexpr Input kI1017[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
 inline constexpr Field kF1017[] = {{"EyePos", 0, 1}, {"PlanePos", 16, 1}, {"ShadowDistance", 32, 1}, {"ShadowRevision", 48, 1}, {"ShadowMiddleRev", 64, 1}, {"ShadowLeastRev", 80, 1}, {"ShadowDeep", 96, 1}, {"ShadowMiddleDeep", 112, 1}, {"ShadowLeastDeep", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}, {"CameraViewProj", 1184, 4}, {"PlaneInv", 1248, 4}};
-inline constexpr Interp kP1018[] = {{0, "vTexCoord"}};
+inline constexpr Interp kP1018[] = {{0, "Shadow"}};
+inline constexpr Input kI1018[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 1, "inBoneId4"}};
+inline constexpr Field kF1018[] = {{"EyePos", 0, 1}, {"PlanePos", 16, 1}, {"ShadowDistance", 32, 1}, {"ShadowRevision", 48, 1}, {"ShadowMiddleRev", 64, 1}, {"ShadowLeastRev", 80, 1}, {"ShadowDeep", 96, 1}, {"ShadowMiddleDeep", 112, 1}, {"ShadowLeastDeep", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}, {"CameraViewProj", 1184, 4}, {"PlaneInv", 1248, 4}};
 inline constexpr Interp kP1019[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1019[] = {{"g_f4FillColor", 0, 1}};
+inline constexpr Interp kP1020[] = {{0, "vTexCoord"}};
 inline constexpr Field kF1020[] = {{"g_f4FillColor", 0, 1}};
-inline constexpr Input kI1021[] = {{0, 3, "inPosition"}};
-inline constexpr Interp kP1022[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1022[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Interp kP1023[] = {{0, "Direction"}};
-inline constexpr Input kI1023[] = {{0, 3, "inPosition"}, {1, 3, "inDirection"}};
-inline constexpr Field kF1023[] = {{"ScreenScale", 0, 1}};
+inline constexpr Field kF1021[] = {{"g_f4FillColor", 0, 1}};
+inline constexpr Input kI1022[] = {{0, 3, "inPosition"}};
+inline constexpr Interp kP1023[] = {{0, "vTexCoord"}};
+inline constexpr Input kI1023[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
 inline constexpr Interp kP1024[] = {{0, "Direction"}};
 inline constexpr Input kI1024[] = {{0, 3, "inPosition"}, {1, 3, "inDirection"}};
 inline constexpr Field kF1024[] = {{"ScreenScale", 0, 1}};
@@ -2480,169 +2478,170 @@ inline constexpr Interp kP1025[] = {{0, "Direction"}};
 inline constexpr Input kI1025[] = {{0, 3, "inPosition"}, {1, 3, "inDirection"}};
 inline constexpr Field kF1025[] = {{"ScreenScale", 0, 1}};
 inline constexpr Interp kP1026[] = {{0, "Direction"}};
+inline constexpr Input kI1026[] = {{0, 3, "inPosition"}, {1, 3, "inDirection"}};
+inline constexpr Field kF1026[] = {{"ScreenScale", 0, 1}};
 inline constexpr Interp kP1027[] = {{0, "Direction"}};
 inline constexpr Interp kP1028[] = {{0, "Direction"}};
-inline constexpr Field kF1028[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}};
 inline constexpr Interp kP1029[] = {{0, "Direction"}};
-inline constexpr Field kF1029[] = {{"DifLghVec", 0, 4}};
+inline constexpr Field kF1029[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}};
 inline constexpr Interp kP1030[] = {{0, "Direction"}};
-inline constexpr Field kF1030[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"SS", 144, 1}};
+inline constexpr Field kF1030[] = {{"DifLghVec", 0, 4}};
 inline constexpr Interp kP1031[] = {{0, "Direction"}};
-inline constexpr Field kF1031[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"SpecPow", 144, 1}};
+inline constexpr Field kF1031[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"SS", 144, 1}};
 inline constexpr Interp kP1032[] = {{0, "Direction"}};
-inline constexpr Field kF1032[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"DifLghPrm", 144, 4}, {"DifLghMaxA", 208, 1}, {"SssLobeA", 224, 3}, {"SssLobeB", 272, 3}};
-inline constexpr Interp kP1033[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1033[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
+inline constexpr Field kF1032[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"SpecPow", 144, 1}};
+inline constexpr Interp kP1033[] = {{0, "Direction"}};
+inline constexpr Field kF1033[] = {{"DifLghVec", 0, 4}, {"DifLghCol", 64, 4}, {"DifLghMaxD", 128, 1}, {"DifLghPrm", 144, 4}, {"DifLghMaxA", 208, 1}, {"SssLobeA", 224, 3}, {"SssLobeB", 272, 3}};
 inline constexpr Interp kP1034[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1034[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
+inline constexpr Field kF1034[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
 inline constexpr Interp kP1035[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1035[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
+inline constexpr Field kF1035[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
 inline constexpr Interp kP1036[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1036[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
-inline constexpr Interp kP1037[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1037[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1037[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
+inline constexpr Field kF1036[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
+inline constexpr Interp kP1037[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Field kF1037[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
 inline constexpr Interp kP1038[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1038[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1038[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
+inline constexpr Input kI1038[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1038[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
 inline constexpr Interp kP1039[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
 inline constexpr Input kI1039[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1039[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}, {"LightMapParam", 1376, 1}};
+inline constexpr Field kF1039[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
 inline constexpr Interp kP1040[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1040[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1040[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}, {"LightMapParam", 384, 1}};
-inline constexpr Interp kP1041[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1041[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
+inline constexpr Input kI1040[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1040[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}, {"LightMapParam", 1376, 1}};
+inline constexpr Interp kP1041[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Input kI1041[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1041[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}, {"LightMapParam", 384, 1}};
 inline constexpr Interp kP1042[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1042[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
-inline constexpr Interp kP1043[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1043[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
+inline constexpr Field kF1042[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"LightMapParam", 288, 1}};
+inline constexpr Interp kP1043[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Field kF1043[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"LightMapParam", 304, 1}};
 inline constexpr Interp kP1044[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1044[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
+inline constexpr Field kF1044[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
 inline constexpr Interp kP1045[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Field kF1045[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1046[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1046[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
+inline constexpr Field kF1046[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1047[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1047[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Field kF1047[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
 inline constexpr Interp kP1048[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1048[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
-inline constexpr Interp kP1049[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Input kI1049[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1049[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
-inline constexpr Interp kP1050[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1050[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
+inline constexpr Field kF1048[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Interp kP1049[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
+inline constexpr Field kF1049[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
+inline constexpr Interp kP1050[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
+inline constexpr Input kI1050[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1050[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
 inline constexpr Interp kP1051[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1051[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
+inline constexpr Field kF1051[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
 inline constexpr Interp kP1052[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1052[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
+inline constexpr Field kF1052[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1053[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1053[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
+inline constexpr Field kF1053[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
 inline constexpr Interp kP1054[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1054[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Field kF1054[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1055[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1055[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
-inline constexpr Interp kP1056[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Input kI1056[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1056[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
+inline constexpr Field kF1055[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Interp kP1056[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
+inline constexpr Field kF1056[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
 inline constexpr Interp kP1057[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Input kI1057[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1057[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
+inline constexpr Input kI1057[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1057[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
 inline constexpr Interp kP1058[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Input kI1058[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1058[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}, {"ConvScreen", 1376, 1}};
+inline constexpr Field kF1058[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
 inline constexpr Interp kP1059[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Input kI1059[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1059[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}};
+inline constexpr Field kF1059[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}, {"ConvScreen", 1376, 1}};
 inline constexpr Interp kP1060[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Input kI1060[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1060[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
+inline constexpr Field kF1060[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"SpeLodParam", 1360, 1}};
 inline constexpr Interp kP1061[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Input kI1061[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1061[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}, {"ConvScreen", 384, 1}};
+inline constexpr Input kI1061[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1061[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
 inline constexpr Interp kP1062[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Input kI1062[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1062[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}};
-inline constexpr Interp kP1063[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1063[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
+inline constexpr Field kF1062[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}, {"ConvScreen", 384, 1}};
+inline constexpr Interp kP1063[] = {{0, "Uv0"}, {1, "View"}, {2, "Normal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
+inline constexpr Input kI1063[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1063[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"SpeLodParam", 368, 1}};
 inline constexpr Interp kP1064[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1064[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
+inline constexpr Field kF1064[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ChangeColor", 288, 4}};
 inline constexpr Interp kP1065[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
 inline constexpr Field kF1065[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1066[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1066[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
+inline constexpr Field kF1066[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}};
 inline constexpr Interp kP1067[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1067[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Field kF1067[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
 inline constexpr Interp kP1068[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
-inline constexpr Field kF1068[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
-inline constexpr Interp kP1069[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
-inline constexpr Field kF1069[] = {{"MipmapBias", 0, 1}, {"LightMapParam", 16, 1}};
-inline constexpr Interp kP1070[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Input kI1070[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1070[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}};
-inline constexpr Interp kP1071[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Field kF1068[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}, {"ChangeColor", 304, 4}};
+inline constexpr Interp kP1069[] = {{0, "Uv0"}, {1, "View"}, {2, "NegNormal"}, {3, "Tangent"}, {4, "Bitangent"}, {5, "Color"}};
+inline constexpr Field kF1069[] = {{"SkyDir", 0, 1}, {"SkyCol", 16, 1}, {"GroundCol", 32, 1}, {"DifLghCol", 48, 4}, {"DifLghVec", 112, 4}, {"fvMin", 176, 1}, {"MatAmbCol", 192, 1}, {"MatDifCol", 208, 1}, {"MipmapBias", 224, 1}, {"SpecularCol", 240, 1}, {"SpecularLev", 256, 1}, {"SpecularPow", 272, 1}, {"ReflectAlpha", 288, 1}};
+inline constexpr Interp kP1070[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Field kF1070[] = {{"MipmapBias", 0, 1}, {"LightMapParam", 16, 1}};
+inline constexpr Interp kP1071[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "LightMapUv"}, {3, "Color"}};
 inline constexpr Input kI1071[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1071[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}};
-inline constexpr Interp kP1072[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Field kF1072[] = {{"MipmapBias", 0, 1}, {"LightMapParam", 16, 1}, {"Noise", 32, 1}};
+inline constexpr Field kF1071[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}};
+inline constexpr Interp kP1072[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Input kI1072[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1072[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}};
 inline constexpr Interp kP1073[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Input kI1073[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1073[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}};
-inline constexpr Interp kP1074[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Field kF1073[] = {{"MipmapBias", 0, 1}, {"LightMapParam", 16, 1}, {"Noise", 32, 1}};
+inline constexpr Interp kP1074[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "LightMapUv"}, {3, "Color"}};
 inline constexpr Input kI1074[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1074[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}};
-inline constexpr Interp kP1075[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Field kF1074[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}};
+inline constexpr Interp kP1075[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
 inline constexpr Input kI1075[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1075[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
+inline constexpr Field kF1075[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}};
 inline constexpr Interp kP1076[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Field kF1076[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}, {"LightMapParam", 80, 1}};
+inline constexpr Input kI1076[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1076[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
 inline constexpr Interp kP1077[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1077[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}, {"LightMapParam", 80, 1}};
 inline constexpr Interp kP1078[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Input kI1078[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1078[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
+inline constexpr Field kF1078[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}, {"LightMapParam", 80, 1}};
 inline constexpr Interp kP1079[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Field kF1079[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}, {"LightMapParam", 80, 1}};
-inline constexpr Interp kP1080[] = {{0, "Uv0"}, {1, "Color"}};
-inline constexpr Field kF1080[] = {{"MipmapBias", 0, 1}};
+inline constexpr Input kI1079[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1079[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
+inline constexpr Interp kP1080[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Field kF1080[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}, {"LightMapParam", 80, 1}};
 inline constexpr Interp kP1081[] = {{0, "Uv0"}, {1, "Color"}};
-inline constexpr Input kI1081[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1081[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}};
+inline constexpr Field kF1081[] = {{"MipmapBias", 0, 1}};
 inline constexpr Interp kP1082[] = {{0, "Uv0"}, {1, "Color"}};
-inline constexpr Field kF1082[] = {{"MipmapBias", 0, 1}};
-inline constexpr Interp kP1083[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
-inline constexpr Field kF1083[] = {{"MipmapBias", 0, 1}, {"Noise", 16, 1}};
+inline constexpr Input kI1082[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1082[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}};
+inline constexpr Interp kP1083[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Field kF1083[] = {{"MipmapBias", 0, 1}};
 inline constexpr Interp kP1084[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
 inline constexpr Field kF1084[] = {{"MipmapBias", 0, 1}, {"Noise", 16, 1}};
 inline constexpr Interp kP1085[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
-inline constexpr Input kI1085[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1085[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}};
+inline constexpr Field kF1085[] = {{"MipmapBias", 0, 1}, {"Noise", 16, 1}};
 inline constexpr Interp kP1086[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
 inline constexpr Input kI1086[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1086[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"ConvScreen", 352, 1}, {"NoiseParam", 368, 1}};
-inline constexpr Interp kP1087[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Field kF1086[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}};
+inline constexpr Interp kP1087[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
 inline constexpr Input kI1087[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1087[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"ConvScreen", 352, 1}};
-inline constexpr Interp kP1088[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
-inline constexpr Input kI1088[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1088[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}};
+inline constexpr Field kF1087[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"ConvScreen", 352, 1}, {"NoiseParam", 368, 1}};
+inline constexpr Interp kP1088[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Input kI1088[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1088[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"ConvScreen", 352, 1}};
 inline constexpr Interp kP1089[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
 inline constexpr Input kI1089[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1089[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"ConvScreen", 1344, 1}, {"NoiseParam", 1360, 1}};
-inline constexpr Interp kP1090[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Field kF1089[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}};
+inline constexpr Interp kP1090[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "Color"}};
 inline constexpr Input kI1090[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1090[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"ConvScreen", 1344, 1}};
-inline constexpr Interp kP1091[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
+inline constexpr Field kF1090[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"ConvScreen", 1344, 1}, {"NoiseParam", 1360, 1}};
+inline constexpr Interp kP1091[] = {{0, "Uv0"}, {1, "Color"}};
 inline constexpr Input kI1091[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1091[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
+inline constexpr Field kF1091[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"ConvScreen", 1344, 1}};
 inline constexpr Interp kP1092[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Input kI1092[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1092[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
-inline constexpr Interp kP1093[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Field kF1092[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
+inline constexpr Interp kP1093[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Input kI1093[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1093[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}};
-inline constexpr Interp kP1094[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1094[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
+inline constexpr Field kF1093[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
+inline constexpr Interp kP1094[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Input kI1094[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1094[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}};
 inline constexpr Interp kP1095[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1095[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
 inline constexpr Interp kP1096[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
@@ -2650,56 +2649,56 @@ inline constexpr Field kF1096[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {
 inline constexpr Interp kP1097[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1097[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
 inline constexpr Interp kP1098[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Input kI1098[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1098[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
+inline constexpr Field kF1098[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
 inline constexpr Interp kP1099[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1099[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
+inline constexpr Input kI1099[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1099[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
 inline constexpr Interp kP1100[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1100[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
 inline constexpr Interp kP1101[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Input kI1101[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1101[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
-inline constexpr Interp kP1102[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1102[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}};
-inline constexpr Interp kP1103[] = {{0, "Uv0"}, {1, "NoiseUv"}, {3, "LightProj"}, {4, "LightFade"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1103[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}, {"ShadowPrm", 32, 3}};
-inline constexpr Interp kP1104[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1104[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1104[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}, {"CameraViewProj", 384, 4}, {"PlaneInv", 448, 4}};
+inline constexpr Field kF1101[] = {{"MipmapBias", 0, 1}, {"DifLghVec", 16, 1}, {"SpecularCol", 32, 1}, {"SpecularLev", 48, 1}, {"SpecularPow", 64, 1}};
+inline constexpr Interp kP1102[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
+inline constexpr Input kI1102[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1102[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
+inline constexpr Interp kP1103[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Field kF1103[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}};
+inline constexpr Interp kP1104[] = {{0, "Uv0"}, {1, "NoiseUv"}, {3, "LightProj"}, {4, "LightFade"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Field kF1104[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}, {"ShadowPrm", 32, 3}};
 inline constexpr Interp kP1105[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Field kF1105[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}};
-inline constexpr Interp kP1106[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1106[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1106[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}, {"CameraViewProj", 384, 4}, {"PlaneInv", 448, 4}, {"ShadowPrm", 512, 2}, {"TexProjLight", 544, 4}, {"ViewLight", 608, 3}};
+inline constexpr Input kI1105[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1105[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}, {"CameraViewProj", 384, 4}, {"PlaneInv", 448, 4}};
+inline constexpr Interp kP1106[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Field kF1106[] = {{"Noise", 0, 1}, {"LightMapParam", 16, 1}};
 inline constexpr Interp kP1107[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "LightMapUv"}, {6, "Color"}};
-inline constexpr Input kI1107[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1107[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}, {"CameraViewProj", 1376, 4}, {"PlaneInv", 1440, 4}, {"ShadowPrm", 1504, 2}, {"TexProjLight", 1536, 4}, {"ViewLight", 1600, 3}};
-inline constexpr Interp kP1108[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Input kI1107[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1107[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"NoiseParam", 368, 1}, {"CameraViewProj", 384, 4}, {"PlaneInv", 448, 4}, {"ShadowPrm", 512, 2}, {"TexProjLight", 544, 4}, {"ViewLight", 608, 3}};
+inline constexpr Interp kP1108[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "LightMapUv"}, {6, "Color"}};
 inline constexpr Input kI1108[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1108[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}, {"CameraViewProj", 1376, 4}, {"PlaneInv", 1440, 4}};
-inline constexpr Interp kP1109[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
-inline constexpr Field kF1109[] = {{"Noise", 0, 1}};
-inline constexpr Interp kP1110[] = {{0, "Uv0"}, {1, "NoiseUv"}, {3, "LightProj"}, {4, "LightFade"}, {5, "Color"}};
-inline constexpr Field kF1110[] = {{"Noise", 0, 1}, {"ShadowPrm", 16, 3}};
-inline constexpr Interp kP1111[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
-inline constexpr Input kI1111[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1111[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}, {"CameraViewProj", 368, 4}, {"PlaneInv", 432, 4}};
+inline constexpr Field kF1108[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}, {"CameraViewProj", 1376, 4}, {"PlaneInv", 1440, 4}, {"ShadowPrm", 1504, 2}, {"TexProjLight", 1536, 4}, {"ViewLight", 1600, 3}};
+inline constexpr Interp kP1109[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "LightMapUv"}, {6, "Color"}};
+inline constexpr Input kI1109[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1109[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"NoiseParam", 1360, 1}, {"CameraViewProj", 1376, 4}, {"PlaneInv", 1440, 4}};
+inline constexpr Interp kP1110[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
+inline constexpr Field kF1110[] = {{"Noise", 0, 1}};
+inline constexpr Interp kP1111[] = {{0, "Uv0"}, {1, "NoiseUv"}, {3, "LightProj"}, {4, "LightFade"}, {5, "Color"}};
+inline constexpr Field kF1111[] = {{"Noise", 0, 1}, {"ShadowPrm", 16, 3}};
 inline constexpr Interp kP1112[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
-inline constexpr Field kF1112[] = {{"Noise", 0, 1}};
-inline constexpr Interp kP1113[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "Color"}};
-inline constexpr Input kI1113[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1113[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}, {"CameraViewProj", 368, 4}, {"PlaneInv", 432, 4}, {"ShadowPrm", 496, 2}, {"TexProjLight", 528, 4}, {"ViewLight", 592, 3}};
+inline constexpr Input kI1112[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1112[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}, {"CameraViewProj", 368, 4}, {"PlaneInv", 432, 4}};
+inline constexpr Interp kP1113[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
+inline constexpr Field kF1113[] = {{"Noise", 0, 1}};
 inline constexpr Interp kP1114[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "Color"}};
-inline constexpr Input kI1114[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1114[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}, {"CameraViewProj", 1360, 4}, {"PlaneInv", 1424, 4}, {"ShadowPrm", 1488, 2}, {"TexProjLight", 1520, 4}, {"ViewLight", 1584, 3}};
-inline constexpr Interp kP1115[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
+inline constexpr Input kI1114[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1114[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"NoiseParam", 352, 1}, {"CameraViewProj", 368, 4}, {"PlaneInv", 432, 4}, {"ShadowPrm", 496, 2}, {"TexProjLight", 528, 4}, {"ViewLight", 592, 3}};
+inline constexpr Interp kP1115[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {3, "LightProj"}, {4, "LightFade"}, {5, "Color"}};
 inline constexpr Input kI1115[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1115[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}, {"CameraViewProj", 1360, 4}, {"PlaneInv", 1424, 4}};
-inline constexpr Interp kP1116[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Field kF1115[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}, {"CameraViewProj", 1360, 4}, {"PlaneInv", 1424, 4}, {"ShadowPrm", 1488, 2}, {"TexProjLight", 1520, 4}, {"ViewLight", 1584, 3}};
+inline constexpr Interp kP1116[] = {{0, "Uv0"}, {1, "NoiseUv"}, {2, "ScreenProj"}, {5, "Color"}};
 inline constexpr Input kI1116[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1116[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
+inline constexpr Field kF1116[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"NoiseParam", 1344, 1}, {"CameraViewProj", 1360, 4}, {"PlaneInv", 1424, 4}};
 inline constexpr Interp kP1117[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Field kF1117[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
+inline constexpr Input kI1117[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1117[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"LightMapParam", 1360, 1}};
 inline constexpr Interp kP1118[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1118[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
 inline constexpr Interp kP1119[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
@@ -2711,257 +2710,259 @@ inline constexpr Field kF1121[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}
 inline constexpr Interp kP1122[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1122[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
 inline constexpr Interp kP1123[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Input kI1123[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1123[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
+inline constexpr Field kF1123[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
 inline constexpr Interp kP1124[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
-inline constexpr Field kF1124[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
+inline constexpr Input kI1124[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1124[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"LightMapParam", 368, 1}};
 inline constexpr Interp kP1125[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1125[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
 inline constexpr Interp kP1126[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1126[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
-inline constexpr Interp kP1127[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Input kI1127[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1127[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
+inline constexpr Interp kP1127[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Field kF1127[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}, {"LightMapParam", 96, 1}};
 inline constexpr Interp kP1128[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Input kI1128[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1128[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
+inline constexpr Field kF1128[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}, {"ConvScreen", 1360, 1}};
 inline constexpr Interp kP1129[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1129[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Input kI1129[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1129[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"EyePos", 1344, 1}};
 inline constexpr Interp kP1130[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1130[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1131[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1131[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1131[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1132[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1132[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1133[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1133[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Field kF1133[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1134[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1134[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1134[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1135[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1135[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Field kF1135[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1136[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1136[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1137[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1137[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1137[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1138[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1138[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1139[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1139[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Field kF1139[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1140[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1140[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1140[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1141[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Input kI1141[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1141[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
+inline constexpr Field kF1141[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1142[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1142[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Input kI1142[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1142[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}, {"ConvScreen", 368, 1}};
 inline constexpr Interp kP1143[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1143[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1144[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1144[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1144[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1145[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
 inline constexpr Field kF1145[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1146[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1146[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
+inline constexpr Field kF1146[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
 inline constexpr Interp kP1147[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Field kF1147[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Field kF1147[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"ChangeColor", 32, 4}, {"DifLghVec", 96, 1}, {"SpecularCol", 112, 1}, {"SpecularLev", 128, 1}, {"SpecularPow", 144, 1}};
 inline constexpr Interp kP1148[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
-inline constexpr Input kI1148[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1148[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
-inline constexpr Interp kP1149[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
-inline constexpr Field kF1149[] = {{"LightMapParam", 0, 1}};
-inline constexpr Interp kP1150[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Input kI1150[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1150[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"Time", 368, 1}, {"UVScroll0", 384, 1}, {"UVScroll1", 400, 1}};
-inline constexpr Interp kP1151[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Field kF1148[] = {{"MipmapBias", 0, 1}, {"ReflectAlpha", 16, 1}, {"DifLghVec", 32, 1}, {"SpecularCol", 48, 1}, {"SpecularLev", 64, 1}, {"SpecularPow", 80, 1}};
+inline constexpr Interp kP1149[] = {{0, "Uv0"}, {1, "Normal"}, {2, "View"}, {3, "Color"}};
+inline constexpr Input kI1149[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1149[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"EyePos", 352, 1}};
+inline constexpr Interp kP1150[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Field kF1150[] = {{"LightMapParam", 0, 1}};
+inline constexpr Interp kP1151[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
 inline constexpr Input kI1151[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1151[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"Time", 368, 1}, {"UVScroll0", 384, 1}, {"UVScroll1", 400, 1}};
-inline constexpr Interp kP1152[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
+inline constexpr Interp kP1152[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Input kI1152[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1152[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"Time", 368, 1}, {"UVScroll0", 384, 1}, {"UVScroll1", 400, 1}};
-inline constexpr Interp kP1153[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Interp kP1153[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
 inline constexpr Input kI1153[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1153[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"Time", 368, 1}, {"UVScroll0", 384, 1}, {"UVScroll1", 400, 1}};
-inline constexpr Interp kP1154[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Input kI1154[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1154[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"Time", 1360, 1}, {"UVScroll0", 1376, 1}, {"UVScroll1", 1392, 1}};
-inline constexpr Interp kP1155[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Interp kP1154[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Input kI1154[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1154[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"LightMapParam", 352, 1}, {"Time", 368, 1}, {"UVScroll0", 384, 1}, {"UVScroll1", 400, 1}};
+inline constexpr Interp kP1155[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
 inline constexpr Input kI1155[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1155[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"Time", 1360, 1}, {"UVScroll0", 1376, 1}, {"UVScroll1", 1392, 1}};
-inline constexpr Interp kP1156[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
+inline constexpr Interp kP1156[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Input kI1156[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1156[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"Time", 1360, 1}, {"UVScroll0", 1376, 1}, {"UVScroll1", 1392, 1}};
-inline constexpr Interp kP1157[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Interp kP1157[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
 inline constexpr Input kI1157[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1157[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"Time", 1360, 1}, {"UVScroll0", 1376, 1}, {"UVScroll1", 1392, 1}};
-inline constexpr Interp kP1158[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
-inline constexpr Field kF1158[] = {{"LightMapParam", 0, 1}};
-inline constexpr Interp kP1159[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
+inline constexpr Interp kP1158[] = {{0, "Uv0"}, {1, "LightMapUv"}, {2, "Color"}};
+inline constexpr Input kI1158[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1158[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"LightMapParam", 1344, 1}, {"Time", 1360, 1}, {"UVScroll0", 1376, 1}, {"UVScroll1", 1392, 1}};
+inline constexpr Interp kP1159[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "LightMapUv"}, {3, "Color"}};
 inline constexpr Field kF1159[] = {{"LightMapParam", 0, 1}};
-inline constexpr Interp kP1160[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
+inline constexpr Interp kP1160[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "LightMapUv"}, {4, "Color"}};
 inline constexpr Field kF1160[] = {{"LightMapParam", 0, 1}};
-inline constexpr Interp kP1161[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Interp kP1161[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "LightMapUv"}, {5, "Color"}};
+inline constexpr Field kF1161[] = {{"LightMapParam", 0, 1}};
 inline constexpr Interp kP1162[] = {{0, "Uv0"}, {1, "Color"}};
-inline constexpr Input kI1162[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1162[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
-inline constexpr Interp kP1163[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Color"}};
-inline constexpr Input kI1163[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1163[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"Time", 1344, 1}, {"UVScroll0", 1360, 1}, {"UVScroll1", 1376, 1}};
-inline constexpr Interp kP1164[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Color"}};
+inline constexpr Interp kP1163[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Input kI1163[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1163[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
+inline constexpr Interp kP1164[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Color"}};
 inline constexpr Input kI1164[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1164[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"Time", 1344, 1}, {"UVScroll0", 1360, 1}, {"UVScroll1", 1376, 1}};
-inline constexpr Interp kP1165[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "Color"}};
+inline constexpr Interp kP1165[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Color"}};
 inline constexpr Input kI1165[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1165[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"Time", 1344, 1}, {"UVScroll0", 1360, 1}, {"UVScroll1", 1376, 1}};
-inline constexpr Interp kP1166[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Interp kP1166[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "Color"}};
 inline constexpr Input kI1166[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
 inline constexpr Field kF1166[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"Time", 1344, 1}, {"UVScroll0", 1360, 1}, {"UVScroll1", 1376, 1}};
-inline constexpr Interp kP1167[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Color"}};
+inline constexpr Interp kP1167[] = {{0, "Uv0"}, {1, "Color"}};
+inline constexpr Input kI1167[] = {{0, 4, "inPosition"}, {1, 4, "inWeights"}, {2, 4, "inBoneIds"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1167[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}, {"SkyDir", 1104, 1}, {"SkyCol", 1120, 1}, {"GroundCol", 1136, 1}, {"DifLghCol", 1152, 4}, {"DifLghVec", 1216, 4}, {"fvMin", 1280, 1}, {"MatAmbCol", 1296, 1}, {"MatDifCol", 1312, 1}, {"MdlAlpha", 1328, 1}, {"Time", 1344, 1}, {"UVScroll0", 1360, 1}, {"UVScroll1", 1376, 1}};
 inline constexpr Interp kP1168[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Color"}};
-inline constexpr Input kI1168[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1168[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
-inline constexpr Interp kP1169[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Color"}};
+inline constexpr Interp kP1169[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Color"}};
+inline constexpr Input kI1169[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1169[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
 inline constexpr Interp kP1170[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Color"}};
-inline constexpr Input kI1170[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1170[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
-inline constexpr Interp kP1171[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "Color"}};
+inline constexpr Interp kP1171[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Color"}};
+inline constexpr Input kI1171[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1171[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
 inline constexpr Interp kP1172[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "Color"}};
-inline constexpr Input kI1172[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
-inline constexpr Field kF1172[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
-inline constexpr Interp kP1173[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1173[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Interp kP1174[] = {{0, "TexCoord"}};
-inline constexpr Field kF1174[] = {{"SampleOffsetArray", 0, 9}, {"SampleWeightArray", 144, 9}};
+inline constexpr Interp kP1173[] = {{0, "Uv0"}, {1, "Uv1"}, {2, "Uv2"}, {3, "Uv3"}, {4, "Color"}};
+inline constexpr Input kI1173[] = {{0, 4, "inPosition"}, {3, 3, "inNormal"}, {4, 4, "inColor"}, {5, 2, "inUv"}};
+inline constexpr Field kF1173[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 3}, {"SkyDir", 112, 1}, {"SkyCol", 128, 1}, {"GroundCol", 144, 1}, {"DifLghCol", 160, 4}, {"DifLghVec", 224, 4}, {"fvMin", 288, 1}, {"MatAmbCol", 304, 1}, {"MatDifCol", 320, 1}, {"MdlAlpha", 336, 1}, {"Time", 352, 1}, {"UVScroll0", 368, 1}, {"UVScroll1", 384, 1}};
+inline constexpr Interp kP1174[] = {{0, "vTexCoord"}};
+inline constexpr Input kI1174[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
 inline constexpr Interp kP1175[] = {{0, "TexCoord"}};
-inline constexpr Field kF1175[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMaxLengthX", 112, 1}, {"BlurRateMaxLengthY", 128, 1}, {"BlurOpenDegree", 144, 1}};
+inline constexpr Field kF1175[] = {{"SampleOffsetArray", 0, 9}, {"SampleWeightArray", 144, 9}};
 inline constexpr Interp kP1176[] = {{0, "TexCoord"}};
-inline constexpr Field kF1176[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMaxLengthX", 112, 1}, {"BlurRateMaxLengthY", 128, 1}};
+inline constexpr Field kF1176[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMaxLengthX", 112, 1}, {"BlurRateMaxLengthY", 128, 1}, {"BlurOpenDegree", 144, 1}};
 inline constexpr Interp kP1177[] = {{0, "TexCoord"}};
-inline constexpr Field kF1177[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMinLengthX", 112, 1}, {"BlurRateMinLengthY", 128, 1}, {"BlurRateLength", 144, 1}, {"BlurOpenDegree", 160, 1}};
+inline constexpr Field kF1177[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMaxLengthX", 112, 1}, {"BlurRateMaxLengthY", 128, 1}};
 inline constexpr Interp kP1178[] = {{0, "TexCoord"}};
-inline constexpr Field kF1178[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMinLengthX", 112, 1}, {"BlurRateMinLengthY", 128, 1}, {"BlurRateLength", 144, 1}};
-inline constexpr Interp kP1179[] = {{0, "First"}};
+inline constexpr Field kF1178[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMinLengthX", 112, 1}, {"BlurRateMinLengthY", 128, 1}, {"BlurRateLength", 144, 1}, {"BlurOpenDegree", 160, 1}};
+inline constexpr Interp kP1179[] = {{0, "TexCoord"}};
+inline constexpr Field kF1179[] = {{"Width", 0, 1}, {"Height", 16, 1}, {"BlurCount", 32, 1}, {"CenterPosX", 48, 1}, {"CenterPosY", 64, 1}, {"SampleDistanceMin", 80, 1}, {"SampleDistanceMax", 96, 1}, {"BlurRateMinLengthX", 112, 1}, {"BlurRateMinLengthY", 128, 1}, {"BlurRateLength", 144, 1}};
 inline constexpr Interp kP1180[] = {{0, "First"}};
-inline constexpr Input kI1180[] = {{0, 3, "inPosition"}};
-inline constexpr Field kF1180[] = {{"PosScale", 0, 1}, {"Color", 16, 1}, {"fUseProjMatrix", 32, 1}, {"matProj", 48, 4}};
-inline constexpr Interp kP1181[] = {{0, "First"}, {1, "Color"}};
-inline constexpr Field kF1181[] = {{"GradationPointNum", 0, 1}, {"GradationPointColors", 16, 12}, {"GradationPointOffsets", 208, 3}};
+inline constexpr Interp kP1181[] = {{0, "First"}};
+inline constexpr Input kI1181[] = {{0, 3, "inPosition"}};
+inline constexpr Field kF1181[] = {{"PosScale", 0, 1}, {"Color", 16, 1}, {"fUseProjMatrix", 32, 1}, {"matProj", 48, 4}};
 inline constexpr Interp kP1182[] = {{0, "First"}, {1, "Color"}};
-inline constexpr Input kI1182[] = {{0, 3, "inPosition"}, {2, 2, "inTexCoord"}};
-inline constexpr Field kF1182[] = {{"PosScale", 0, 1}, {"Color", 16, 1}, {"fUseProjMatrix", 32, 1}, {"matProj", 48, 4}};
-inline constexpr Interp kP1183[] = {{0, "First"}};
-inline constexpr Input kI1183[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}};
+inline constexpr Field kF1182[] = {{"GradationPointNum", 0, 1}, {"GradationPointColors", 16, 12}, {"GradationPointOffsets", 208, 3}};
+inline constexpr Interp kP1183[] = {{0, "First"}, {1, "Color"}};
+inline constexpr Input kI1183[] = {{0, 3, "inPosition"}, {2, 2, "inTexCoord"}};
 inline constexpr Field kF1183[] = {{"PosScale", 0, 1}, {"Color", 16, 1}, {"fUseProjMatrix", 32, 1}, {"matProj", 48, 4}};
-inline constexpr Interp kP1184[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1184[] = {{"g_Time", 0, 1}, {"g_Range", 16, 1}};
+inline constexpr Interp kP1184[] = {{0, "First"}};
+inline constexpr Input kI1184[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}};
+inline constexpr Field kF1184[] = {{"PosScale", 0, 1}, {"Color", 16, 1}, {"fUseProjMatrix", 32, 1}, {"matProj", 48, 4}};
 inline constexpr Interp kP1185[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1185[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Field kF1185[] = {{"g_Time", 0, 1}, {"g_Range", 16, 1}};
 inline constexpr Interp kP1186[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1186[] = {{"g_Time", 0, 1}, {"g_Range", 16, 1}};
-inline constexpr Interp kP1187[] = {{0, "Depth"}};
+inline constexpr Input kI1186[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Interp kP1187[] = {{0, "vTexCoord"}};
+inline constexpr Field kF1187[] = {{"g_Time", 0, 1}, {"g_Range", 16, 1}};
 inline constexpr Interp kP1188[] = {{0, "Depth"}};
-inline constexpr Input kI1188[] = {{0, 3, "inPosition"}};
-inline constexpr Field kF1188[] = {{"ViewProj", 0, 4}, {"RimLightDepth", 64, 1}};
 inline constexpr Interp kP1189[] = {{0, "Depth"}};
-inline constexpr Input kI1189[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
-inline constexpr Field kF1189[] = {{"ViewProj", 0, 4}, {"RimLightDepth", 64, 1}, {"WorldMatrixArray", 80, 63}, {"Bools", 1088, 2}};
+inline constexpr Input kI1189[] = {{0, 3, "inPosition"}};
+inline constexpr Field kF1189[] = {{"ViewProj", 0, 4}, {"RimLightDepth", 64, 1}};
 inline constexpr Interp kP1190[] = {{0, "Depth"}};
-inline constexpr Input kI1190[] = {{0, 4, "inPosition"}, {1, 3, "inWeights"}, {2, 4, "inBoneIds"}};
+inline constexpr Input kI1190[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
 inline constexpr Field kF1190[] = {{"ViewProj", 0, 4}, {"RimLightDepth", 64, 1}, {"WorldMatrixArray", 80, 63}, {"Bools", 1088, 2}};
-inline constexpr Interp kP1191[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1191[] = {{"sampleOffsets", 0, 4}};
+inline constexpr Interp kP1191[] = {{0, "Depth"}};
+inline constexpr Input kI1191[] = {{0, 4, "inPosition"}, {1, 3, "inWeights"}, {2, 4, "inBoneIds"}};
+inline constexpr Field kF1191[] = {{"ViewProj", 0, 4}, {"RimLightDepth", 64, 1}, {"WorldMatrixArray", 80, 63}, {"Bools", 1088, 2}};
 inline constexpr Interp kP1192[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1192[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Field kF1192[] = {{"sampleOffsets", 0, 4}};
 inline constexpr Interp kP1193[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1193[] = {{"sampleOffsets", 0, 4}};
+inline constexpr Input kI1193[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
 inline constexpr Interp kP1194[] = {{0, "vTexCoord"}};
 inline constexpr Field kF1194[] = {{"sampleOffsets", 0, 4}};
 inline constexpr Interp kP1195[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1195[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Interp kP1196[] = {{0, "LowDiagonal"}, {1, "HighDiagonal"}};
+inline constexpr Field kF1195[] = {{"sampleOffsets", 0, 4}};
+inline constexpr Interp kP1196[] = {{0, "vTexCoord"}};
+inline constexpr Input kI1196[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
 inline constexpr Interp kP1197[] = {{0, "LowDiagonal"}, {1, "HighDiagonal"}};
-inline constexpr Input kI1197[] = {{0, 4, "inPosition"}, {1, 2, "inUv"}};
-inline constexpr Field kF1197[] = {{"OffsetTex", 0, 1}};
-inline constexpr Interp kP1198[] = {{0, "Depth"}};
-inline constexpr Field kF1198[] = {{"ShadowPrm", 0, 1}};
+inline constexpr Interp kP1198[] = {{0, "LowDiagonal"}, {1, "HighDiagonal"}};
+inline constexpr Input kI1198[] = {{0, 4, "inPosition"}, {1, 2, "inUv"}};
+inline constexpr Field kF1198[] = {{"OffsetTex", 0, 1}};
 inline constexpr Interp kP1199[] = {{0, "Depth"}};
-inline constexpr Input kI1199[] = {{0, 3, "inPosition"}};
-inline constexpr Field kF1199[] = {{"ViewProj", 0, 4}, {"Trapezoidal", 64, 4}, {"ViewDepth", 128, 1}};
+inline constexpr Field kF1199[] = {{"ShadowPrm", 0, 1}};
 inline constexpr Interp kP1200[] = {{0, "Depth"}};
-inline constexpr Input kI1200[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
-inline constexpr Field kF1200[] = {{"ViewProj", 0, 4}, {"Trapezoidal", 64, 4}, {"ViewDepth", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}};
+inline constexpr Input kI1200[] = {{0, 3, "inPosition"}};
+inline constexpr Field kF1200[] = {{"ViewProj", 0, 4}, {"Trapezoidal", 64, 4}, {"ViewDepth", 128, 1}};
 inline constexpr Interp kP1201[] = {{0, "Depth"}};
-inline constexpr Input kI1201[] = {{0, 4, "inPosition"}, {1, 3, "inWeights"}, {2, 4, "inBoneIds"}};
+inline constexpr Input kI1201[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
 inline constexpr Field kF1201[] = {{"ViewProj", 0, 4}, {"Trapezoidal", 64, 4}, {"ViewDepth", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}};
-inline constexpr Interp kP1202[] = {{0, "Uv"}, {1, "Screen"}, {2, "ViewPos"}, {3, "Color"}};
-inline constexpr Input kI1202[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 4, "inLocalWorld0"}, {4, 4, "inLocalWorld1"}, {5, 4, "inLocalWorld2"}, {6, 4, "inLocalWorld3"}, {7, 4, "inView0"}, {8, 4, "inView1"}, {9, 4, "inView2"}, {10, 4, "inView3"}};
-inline constexpr Field kF1202[] = {{"ViewProj", 0, 4}, {"ZOffset", 64, 1}, {"UseNormal", 80, 1}, {"LightVector", 96, 1}};
+inline constexpr Interp kP1202[] = {{0, "Depth"}};
+inline constexpr Input kI1202[] = {{0, 4, "inPosition"}, {1, 3, "inWeights"}, {2, 4, "inBoneIds"}};
+inline constexpr Field kF1202[] = {{"ViewProj", 0, 4}, {"Trapezoidal", 64, 4}, {"ViewDepth", 128, 1}, {"WorldMatrixArray", 144, 63}, {"Bools", 1152, 2}};
 inline constexpr Interp kP1203[] = {{0, "Uv"}, {1, "Screen"}, {2, "ViewPos"}, {3, "Color"}};
-inline constexpr Field kF1203[] = {{"FadeOutDistance", 0, 1}, {"Proj", 16, 3}};
+inline constexpr Input kI1203[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}, {3, 4, "inLocalWorld0"}, {4, 4, "inLocalWorld1"}, {5, 4, "inLocalWorld2"}, {6, 4, "inLocalWorld3"}, {7, 4, "inView0"}, {8, 4, "inView1"}, {9, 4, "inView2"}, {10, 4, "inView3"}};
+inline constexpr Field kF1203[] = {{"ViewProj", 0, 4}, {"ZOffset", 64, 1}, {"UseNormal", 80, 1}, {"LightVector", 96, 1}};
 inline constexpr Interp kP1204[] = {{0, "Uv"}, {1, "Screen"}, {2, "ViewPos"}, {3, "Color"}};
-inline constexpr Input kI1204[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}};
-inline constexpr Field kF1204[] = {{"ViewProj", 0, 4}, {"LocalWorld", 64, 4}, {"LocalWorldView", 128, 4}, {"ZOffset", 192, 1}, {"UseNormal", 208, 1}, {"LightVector", 224, 1}};
-inline constexpr Interp kP1205[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1205[] = {{"offset_weight", 0, 8}};
+inline constexpr Field kF1204[] = {{"FadeOutDistance", 0, 1}, {"Proj", 16, 3}};
+inline constexpr Interp kP1205[] = {{0, "Uv"}, {1, "Screen"}, {2, "ViewPos"}, {3, "Color"}};
+inline constexpr Input kI1205[] = {{0, 3, "inPosition"}, {1, 4, "inColor"}, {2, 2, "inUv"}};
+inline constexpr Field kF1205[] = {{"ViewProj", 0, 4}, {"LocalWorld", 64, 4}, {"LocalWorldView", 128, 4}, {"ZOffset", 192, 1}, {"UseNormal", 208, 1}, {"LightVector", 224, 1}};
 inline constexpr Interp kP1206[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1206[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}};
+inline constexpr Field kF1206[] = {{"offset_weight", 0, 8}};
 inline constexpr Interp kP1207[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1207[] = {{"offset_weight", 0, 8}};
+inline constexpr Field kF1207[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}};
 inline constexpr Interp kP1208[] = {{0, "vTexCoord"}, {1, "vColor"}};
 inline constexpr Field kF1208[] = {{"offset_weight", 0, 8}};
 inline constexpr Interp kP1209[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1209[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}};
-inline constexpr Interp kP1210[] = {{0, "vTexCoord"}, {1, "vChannelSelect"}, {2, "vColor"}, {3, "vAlphaMaskMode"}};
+inline constexpr Field kF1209[] = {{"offset_weight", 0, 8}};
+inline constexpr Interp kP1210[] = {{0, "vTexCoord"}, {1, "vColor"}};
+inline constexpr Field kF1210[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}};
 inline constexpr Interp kP1211[] = {{0, "vTexCoord"}, {1, "vChannelSelect"}, {2, "vColor"}, {3, "vAlphaMaskMode"}};
-inline constexpr Input kI1211[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Field kF1211[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}, {"XfmChannelSelector", 112, 1}};
-inline constexpr Interp kP1212[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
-inline constexpr Field kF1212[] = {{"offset_weight", 0, 8}, {"GradationPointNum", 128, 1}, {"GradationPointColors", 144, 12}, {"GradationPointOffsets", 336, 3}};
+inline constexpr Interp kP1212[] = {{0, "vTexCoord"}, {1, "vChannelSelect"}, {2, "vColor"}, {3, "vAlphaMaskMode"}};
+inline constexpr Input kI1212[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Field kF1212[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}, {"XfmChannelSelector", 112, 1}};
 inline constexpr Interp kP1213[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
 inline constexpr Field kF1213[] = {{"offset_weight", 0, 8}, {"GradationPointNum", 128, 1}, {"GradationPointColors", 144, 12}, {"GradationPointOffsets", 336, 3}};
 inline constexpr Interp kP1214[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
 inline constexpr Field kF1214[] = {{"offset_weight", 0, 8}, {"GradationPointNum", 128, 1}, {"GradationPointColors", 144, 12}, {"GradationPointOffsets", 336, 3}};
 inline constexpr Interp kP1215[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
-inline constexpr Field kF1215[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}, {"GradationPointNum", 144, 1}, {"GradationPointColors", 160, 12}, {"GradationPointOffsets", 352, 3}};
+inline constexpr Field kF1215[] = {{"offset_weight", 0, 8}, {"GradationPointNum", 128, 1}, {"GradationPointColors", 144, 12}, {"GradationPointOffsets", 336, 3}};
 inline constexpr Interp kP1216[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
 inline constexpr Field kF1216[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}, {"GradationPointNum", 144, 1}, {"GradationPointColors", 160, 12}, {"GradationPointOffsets", 352, 3}};
 inline constexpr Interp kP1217[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
 inline constexpr Field kF1217[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}, {"GradationPointNum", 144, 1}, {"GradationPointColors", 160, 12}, {"GradationPointOffsets", 352, 3}};
 inline constexpr Interp kP1218[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
-inline constexpr Input kI1218[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {3, 2, "inGradientCoord"}};
-inline constexpr Field kF1218[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
+inline constexpr Field kF1218[] = {{"HSL", 0, 1}, {"offset_weight", 16, 8}, {"GradationPointNum", 144, 1}, {"GradationPointColors", 160, 12}, {"GradationPointOffsets", 352, 3}};
 inline constexpr Interp kP1219[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
-inline constexpr Input kI1219[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {2, 4, "inColor"}, {3, 2, "inGradientCoord"}};
-inline constexpr Field kF1219[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}};
-inline constexpr Interp kP1220[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Field kF1220[] = {{"HSL", 0, 1}};
+inline constexpr Input kI1219[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {3, 2, "inGradientCoord"}};
+inline constexpr Field kF1219[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
+inline constexpr Interp kP1220[] = {{0, "vTexCoord"}, {1, "vGradientCoord"}, {2, "vColor"}};
+inline constexpr Input kI1220[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {2, 4, "inColor"}, {3, 2, "inGradientCoord"}};
+inline constexpr Field kF1220[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}};
 inline constexpr Interp kP1221[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Input kI1221[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Field kF1221[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
+inline constexpr Field kF1221[] = {{"HSL", 0, 1}};
 inline constexpr Interp kP1222[] = {{0, "vTexCoord"}, {1, "vColor"}};
+inline constexpr Input kI1222[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Field kF1222[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
 inline constexpr Interp kP1223[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Input kI1223[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {2, 4, "inColor"}};
-inline constexpr Field kF1223[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
 inline constexpr Interp kP1224[] = {{0, "vTexCoord"}, {1, "vColor"}};
 inline constexpr Input kI1224[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {2, 4, "inColor"}};
-inline constexpr Field kF1224[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}};
+inline constexpr Field kF1224[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}, {"Color", 96, 1}};
 inline constexpr Interp kP1225[] = {{0, "vTexCoord"}, {1, "vColor"}};
+inline constexpr Input kI1225[] = {{0, 3, "inPosition"}, {1, 2, "inTexCoord"}, {2, 4, "inColor"}};
+inline constexpr Field kF1225[] = {{"PosScale", 0, 1}, {"fUseProjMatrix", 16, 1}, {"matProj", 32, 4}};
 inline constexpr Interp kP1226[] = {{0, "vTexCoord"}, {1, "vColor"}};
-inline constexpr Interp kP1227[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1227[] = {{"g_avSampleOffsets", 0, 16}};
+inline constexpr Interp kP1227[] = {{0, "vTexCoord"}, {1, "vColor"}};
 inline constexpr Interp kP1228[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1228[] = {{"g_avSampleOffsets", 0, 9}};
+inline constexpr Field kF1228[] = {{"g_avSampleOffsets", 0, 16}};
 inline constexpr Interp kP1229[] = {{0, "vTexCoord"}};
-inline constexpr Field kF1229[] = {{"g_avSampleOffsets", 0, 16}};
+inline constexpr Field kF1229[] = {{"g_avSampleOffsets", 0, 9}};
 inline constexpr Interp kP1230[] = {{0, "vTexCoord"}};
-inline constexpr Input kI1230[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
-inline constexpr Interp kP1231[] = {{14, "fx_vel_now"}, {15, "fx_vel_prev"}};
-inline constexpr Input kI1233[] = {{0, 3, "inPosition"}};
-inline constexpr Field kF1233[] = {{"ViewProj", 0, 4}};
-inline constexpr Field kF1234[] = {{"Depth", 0, 1}};
-inline constexpr Input kI1235[] = {{0, 4, "inPosition"}, {2, 4, "inWeights"}, {3, 4, "inBoneIds"}, {4, 1, "inFifthBoneId"}};
-inline constexpr Field kF1235[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}};
-inline constexpr Input kI1236[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
+inline constexpr Field kF1230[] = {{"g_avSampleOffsets", 0, 16}};
+inline constexpr Interp kP1231[] = {{0, "vTexCoord"}};
+inline constexpr Input kI1231[] = {{0, 4, "inPosition"}, {1, 2, "inTexCoord"}};
+inline constexpr Interp kP1232[] = {{14, "fx_vel_now"}, {15, "fx_vel_prev"}};
+inline constexpr Input kI1234[] = {{0, 3, "inPosition"}};
+inline constexpr Field kF1234[] = {{"ViewProj", 0, 4}};
+inline constexpr Field kF1235[] = {{"Depth", 0, 1}};
+inline constexpr Input kI1236[] = {{0, 4, "inPosition"}, {2, 4, "inWeights"}, {3, 4, "inBoneIds"}, {4, 1, "inFifthBoneId"}};
 inline constexpr Field kF1236[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}};
+inline constexpr Input kI1237[] = {{0, 4, "inPosition"}, {1, 1, "inBoneId"}};
+inline constexpr Field kF1237[] = {{"ViewProj", 0, 4}, {"WorldMatrixArray", 64, 63}, {"Bools", 1072, 2}};
 inline constexpr VariantTable kTables[] = {
   {"yAfterImage_alpha_fragment", nullptr, 0, kF0, 1, kP0, 1, ""},
   {"yAfterImage_quad_vertex", kI1, 2, nullptr, 0, kP1, 1, ""},
@@ -3954,251 +3955,252 @@ inline constexpr VariantTable kTables[] = {
   {"yLiquidMap_base_vertex", kI988, 2, kF988, 3, kP988, 2, ""},
   {"yLiquidMap_copy_prev_dim_fragment", nullptr, 0, nullptr, 0, kP989, 2, "FX_COPY_PREV FX_DIM"},
   {"yLiquidMap_copy_prev_fragment", nullptr, 0, nullptr, 0, kP990, 2, "FX_COPY_PREV"},
-  {"yLiquidMap_local_area_vertex", kI991, 2, kF991, 4, kP991, 2, "FX_LOCAL_AREA"},
-  {"yLiquidMap_lod_fragment", nullptr, 0, kF992, 1, kP992, 2, "FX_LOD"},
-  {"yLiquidMap_paste_fragment", nullptr, 0, kF993, 2, kP993, 2, "FX_PASTE"},
-  {"yLiquidMap_plain_vertex", kI994, 2, kF994, 1, kP994, 1, "FX_PLAIN"},
-  {"yLiquidMap_sweat_dim_fragment", nullptr, 0, kF995, 2, kP995, 2, "FX_SWEAT FX_DIM"},
-  {"yLiquidMap_sweat_fragment", nullptr, 0, kF996, 2, kP996, 2, "FX_SWEAT"},
-  {"yLiquidMap_tint_dim_fragment", nullptr, 0, kF997, 2, kP997, 2, "FX_TINT FX_DIM"},
-  {"yLiquidMap_tint_fragment", nullptr, 0, kF998, 2, kP998, 2, "FX_TINT"},
-  {"yMonotone_clean_fragment", nullptr, 0, kF999, 3, kP999, 1, "CLEAN"},
-  {"yMonotone_monotone_fragment", nullptr, 0, kF1000, 3, kP1000, 1, ""},
-  {"yMonotone_quad_vertex", kI1001, 2, nullptr, 0, kP1001, 1, ""},
-  {"yMovieDefault_alpha_movie_fragment", nullptr, 0, nullptr, 0, kP1002, 2, "FX_ALPHA_MOVIE"},
-  {"yMovieDefault_alpha_movie_shadow_fragment", nullptr, 0, kF1003, 1, kP1003, 6, "FX_ALPHA_MOVIE FX_SHADOW"},
-  {"yMovieDefault_base_fragment", nullptr, 0, nullptr, 0, kP1004, 2, ""},
-  {"yMovieDefault_base_vertex", kI1005, 5, kF1005, 13, kP1005, 7, ""},
-  {"yMovieDefault_shadow_fragment", nullptr, 0, kF1006, 1, kP1006, 6, "FX_SHADOW"},
-  {"yMovieDefault_shadow_vertex", kI1007, 5, kF1007, 16, kP1007, 7, "FX_SHADOW"},
-  {"yParticleRuns_runs_vertex", kI1008, 8, kF1008, 4, kP1008, 3, ""},
-  {"yParticle_base_fragment", nullptr, 0, nullptr, 0, kP1009, 2, ""},
-  {"yParticle_base_vertex", kI1010, 4, kF1010, 5, kP1010, 3, ""},
-  {"yPartsBlur_blur13_fragment", nullptr, 0, kF1011, 2, kP1011, 2, ""},
-  {"yPartsBlur_mesh_vertex", kI1012, 3, kF1012, 2, kP1012, 2, ""},
-  {"yPlaneShadowMap_base_fragment", nullptr, 0, nullptr, 0, kP1013, 1, ""},
-  {"yPlaneShadowMap_flat_vertex", kI1014, 1, kF1014, 4, kP1014, 1, "FX_FLAT"},
-  {"yPlaneShadowMap_readback_fragment", nullptr, 0, nullptr, 0, kP1015, 1, "FX_READBACK"},
-  {"yPlaneShadowMap_rigid_vertex", kI1016, 2, kF1016, 13, kP1016, 1, "FX_RIGID"},
-  {"yPlaneShadowMap_skinned_vertex", kI1017, 4, kF1017, 13, kP1017, 1, "FX_SKINNED"},
-  {"yPostBase_copy_depth_fragment", nullptr, 0, nullptr, 0, kP1018, 1, "COPY_DEPTH"},
-  {"yPostBase_fill_depth_fragment", nullptr, 0, kF1019, 1, kP1019, 1, "FILL_DEPTH"},
-  {"yPostBase_fill_fragment", nullptr, 0, kF1020, 1, nullptr, 0, "FILL"},
-  {"yPostBase_pos_only_vertex", kI1021, 1, nullptr, 0, nullptr, 0, ""},
-  {"yPostBase_uv_vertex", kI1022, 2, nullptr, 0, kP1022, 1, "FX_UV"},
-  {"yPreLight_base_layered_swap_vertex", kI1023, 2, kF1023, 1, kP1023, 1, "FX_LAYERED FX_LAYERED_SWAP"},
-  {"yPreLight_base_layered_vertex", kI1024, 2, kF1024, 1, kP1024, 1, "FX_LAYERED"},
-  {"yPreLight_base_vertex", kI1025, 2, kF1025, 1, kP1025, 1, ""},
-  {"yPreLight_debug_cube_alpha_fragment", nullptr, 0, nullptr, 0, kP1026, 1, "FX_DEBUG_CUBE_ALPHA"},
-  {"yPreLight_debug_cube_fragment", nullptr, 0, nullptr, 0, kP1027, 1, "FX_DEBUG_CUBE"},
-  {"yPreLight_light_color_fragment", nullptr, 0, kF1028, 3, kP1028, 1, "FX_LIGHT_COLOR"},
-  {"yPreLight_light_dot_fragment", nullptr, 0, kF1029, 1, kP1029, 1, "FX_LIGHT_DOT"},
-  {"yPreLight_soft_fragment", nullptr, 0, kF1030, 4, kP1030, 1, "FX_SOFT"},
-  {"yPreLight_spec_pow_fragment", nullptr, 0, kF1031, 4, kP1031, 1, "FX_SPEC_POW"},
-  {"yPreLight_sss_fragment", nullptr, 0, kF1032, 7, kP1032, 1, "FX_SSS"},
-  {"yProp_BumpMapLM_alpha_gloss_lightmap_fragment", nullptr, 0, kF1033, 13, kP1033, 7, "FX_ALPHA_GLOSS FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_alpha_gloss_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1034, 14, kP1034, 7, "FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMapLM_lightmap_normal_gloss_fragment", nullptr, 0, kF1035, 13, kP1035, 7, "FX_LIGHTMAP FX_NORMAL_GLOSS"},
-  {"yProp_BumpMapLM_lightmap_normal_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1036, 14, kP1036, 7, "FX_LIGHTMAP FX_NORMAL_GLOSS FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMapLM_lightmap_vertex", kI1037, 4, kF1037, 13, kP1037, 7, "FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_skinned_lightmap_vertex", kI1038, 6, kF1038, 14, kP1038, 7, "FX_SKINNED FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_skinned_spec_fade_lightmap_vertex", kI1039, 6, kF1039, 15, kP1039, 7, "FX_SKINNED FX_SPEC_FADE FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_spec_fade_lightmap_vertex", kI1040, 4, kF1040, 14, kP1040, 7, "FX_SPEC_FADE FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_spec_map_lightmap_fragment", nullptr, 0, kF1041, 13, kP1041, 7, "FX_SPEC_MAP FX_LIGHTMAP"},
-  {"yProp_BumpMapLM_spec_map_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1042, 14, kP1042, 7, "FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMap_alpha_gloss_cc_mask_fragment", nullptr, 0, kF1043, 13, kP1043, 6, "FX_ALPHA_GLOSS FX_CC_MASK"},
-  {"yProp_BumpMap_alpha_gloss_fragment", nullptr, 0, kF1044, 12, kP1044, 6, "FX_ALPHA_GLOSS"},
-  {"yProp_BumpMap_alpha_gloss_logo_fragment", nullptr, 0, kF1045, 12, kP1045, 6, "FX_ALPHA_GLOSS FX_LOGO"},
-  {"yProp_BumpMap_alpha_gloss_logo_reflect_reflect_map_fragment", nullptr, 0, kF1046, 13, kP1046, 6, "FX_ALPHA_GLOSS FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMap_alpha_gloss_reflect_cc_mask_reflect_map_fragment", nullptr, 0, kF1047, 14, kP1047, 6, "FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK FX_REFLECT_MAP"},
-  {"yProp_BumpMap_alpha_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1048, 13, kP1048, 6, "FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMap_base_vertex", kI1049, 4, kF1049, 12, kP1049, 6, ""},
-  {"yProp_BumpMap_cc_mask_normal_gloss_fragment", nullptr, 0, kF1050, 13, kP1050, 6, "FX_CC_MASK FX_NORMAL_GLOSS"},
-  {"yProp_BumpMap_logo_normal_gloss_fragment", nullptr, 0, kF1051, 12, kP1051, 6, "FX_LOGO FX_NORMAL_GLOSS"},
-  {"yProp_BumpMap_logo_reflect_reflect_map_normal_gloss_fragment", nullptr, 0, kF1052, 13, kP1052, 6, "FX_NORMAL_GLOSS FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMap_normal_gloss_fragment", nullptr, 0, kF1053, 12, kP1053, 6, "FX_NORMAL_GLOSS"},
-  {"yProp_BumpMap_reflect_cc_mask_reflect_map_normal_gloss_fragment", nullptr, 0, kF1054, 14, kP1054, 6, "FX_REFLECT FX_CC_MASK FX_REFLECT_MAP FX_NORMAL_GLOSS"},
-  {"yProp_BumpMap_reflect_reflect_map_normal_gloss_fragment", nullptr, 0, kF1055, 13, kP1055, 6, "FX_REFLECT FX_REFLECT_MAP FX_NORMAL_GLOSS"},
-  {"yProp_BumpMap_screen_convert_vertex", kI1056, 4, kF1056, 13, kP1056, 6, "FX_SCREEN_CONVERT"},
-  {"yProp_BumpMap_skinned_screen_convert_vertex", kI1057, 6, kF1057, 14, kP1057, 6, "FX_SKINNED FX_SCREEN_CONVERT"},
-  {"yProp_BumpMap_skinned_spec_fade_screen_convert_vertex", kI1058, 6, kF1058, 15, kP1058, 6, "FX_SKINNED FX_SPEC_FADE FX_SCREEN_CONVERT"},
-  {"yProp_BumpMap_skinned_spec_fade_vertex", kI1059, 6, kF1059, 14, kP1059, 6, "FX_SKINNED FX_SPEC_FADE"},
-  {"yProp_BumpMap_skinned_vertex", kI1060, 6, kF1060, 13, kP1060, 6, "FX_SKINNED"},
-  {"yProp_BumpMap_spec_fade_screen_convert_vertex", kI1061, 4, kF1061, 14, kP1061, 6, "FX_SPEC_FADE FX_SCREEN_CONVERT"},
-  {"yProp_BumpMap_spec_fade_vertex", kI1062, 4, kF1062, 13, kP1062, 6, "FX_SPEC_FADE"},
-  {"yProp_BumpMap_spec_map_cc_mask_fragment", nullptr, 0, kF1063, 13, kP1063, 6, "FX_SPEC_MAP FX_CC_MASK"},
-  {"yProp_BumpMap_spec_map_fragment", nullptr, 0, kF1064, 12, kP1064, 6, "FX_SPEC_MAP"},
-  {"yProp_BumpMap_spec_map_logo_fragment", nullptr, 0, kF1065, 12, kP1065, 6, "FX_SPEC_MAP FX_LOGO"},
-  {"yProp_BumpMap_spec_map_logo_reflect_reflect_map_fragment", nullptr, 0, kF1066, 13, kP1066, 6, "FX_SPEC_MAP FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_BumpMap_spec_map_reflect_cc_mask_reflect_map_fragment", nullptr, 0, kF1067, 14, kP1067, 6, "FX_SPEC_MAP FX_REFLECT FX_CC_MASK FX_REFLECT_MAP"},
-  {"yProp_BumpMap_spec_map_reflect_reflect_map_fragment", nullptr, 0, kF1068, 13, kP1068, 6, "FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_DefaultLM_lightmap_fragment", nullptr, 0, kF1069, 2, kP1069, 3, "FX_LIGHTMAP"},
-  {"yProp_DefaultLM_lightmap_noise_vertex", kI1070, 4, kF1070, 13, kP1070, 4, "FX_LIGHTMAP FX_NOISE"},
-  {"yProp_DefaultLM_lightmap_vertex", kI1071, 4, kF1071, 12, kP1071, 3, "FX_LIGHTMAP"},
-  {"yProp_DefaultLM_noise_lightmap_fragment", nullptr, 0, kF1072, 3, kP1072, 4, "FX_NOISE FX_LIGHTMAP"},
-  {"yProp_DefaultLM_skinned_lightmap_noise_vertex", kI1073, 6, kF1073, 14, kP1073, 4, "FX_SKINNED FX_LIGHTMAP FX_NOISE"},
-  {"yProp_DefaultLM_skinned_lightmap_vertex", kI1074, 6, kF1074, 13, kP1074, 3, "FX_SKINNED FX_LIGHTMAP"},
-  {"yProp_DefaultLM_skinned_spec_lightmap_vertex", kI1075, 6, kF1075, 14, kP1075, 5, "FX_SKINNED FX_SPEC FX_LIGHTMAP"},
-  {"yProp_DefaultLM_spec_alpha_gloss_lightmap_fragment", nullptr, 0, kF1076, 6, kP1076, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP"},
-  {"yProp_DefaultLM_spec_lightmap_fragment", nullptr, 0, kF1077, 6, kP1077, 5, "FX_SPEC FX_LIGHTMAP"},
-  {"yProp_DefaultLM_spec_lightmap_vertex", kI1078, 4, kF1078, 13, kP1078, 5, "FX_SPEC FX_LIGHTMAP"},
-  {"yProp_DefaultLM_spec_spec_map_lightmap_fragment", nullptr, 0, kF1079, 6, kP1079, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP"},
-  {"yProp_Default_base_fragment", nullptr, 0, kF1080, 1, kP1080, 2, ""},
-  {"yProp_Default_base_vertex", kI1081, 4, kF1081, 11, kP1081, 2, ""},
-  {"yProp_Default_logo_fragment", nullptr, 0, kF1082, 1, kP1082, 2, "FX_LOGO"},
-  {"yProp_Default_logo_noise_fragment", nullptr, 0, kF1083, 2, kP1083, 3, "FX_LOGO FX_NOISE"},
-  {"yProp_Default_noise_fragment", nullptr, 0, kF1084, 2, kP1084, 3, "FX_NOISE"},
-  {"yProp_Default_noise_vertex", kI1085, 4, kF1085, 12, kP1085, 3, "FX_NOISE"},
-  {"yProp_Default_screen_convert_noise_vertex", kI1086, 4, kF1086, 13, kP1086, 3, "FX_SCREEN_CONVERT FX_NOISE"},
-  {"yProp_Default_screen_convert_vertex", kI1087, 4, kF1087, 12, kP1087, 2, "FX_SCREEN_CONVERT"},
-  {"yProp_Default_skinned_noise_vertex", kI1088, 6, kF1088, 13, kP1088, 3, "FX_SKINNED FX_NOISE"},
-  {"yProp_Default_skinned_screen_convert_noise_vertex", kI1089, 6, kF1089, 14, kP1089, 3, "FX_SKINNED FX_SCREEN_CONVERT FX_NOISE"},
-  {"yProp_Default_skinned_screen_convert_vertex", kI1090, 6, kF1090, 13, kP1090, 2, "FX_SKINNED FX_SCREEN_CONVERT"},
-  {"yProp_Default_skinned_spec_screen_convert_vertex", kI1091, 6, kF1091, 14, kP1091, 4, "FX_SKINNED FX_SPEC FX_SCREEN_CONVERT"},
-  {"yProp_Default_skinned_spec_vertex", kI1092, 6, kF1092, 13, kP1092, 4, "FX_SKINNED FX_SPEC"},
-  {"yProp_Default_skinned_vertex", kI1093, 6, kF1093, 12, kP1093, 2, "FX_SKINNED"},
-  {"yProp_Default_spec_alpha_gloss_fragment", nullptr, 0, kF1094, 5, kP1094, 4, "FX_SPEC FX_ALPHA_GLOSS"},
-  {"yProp_Default_spec_alpha_gloss_logo_fragment", nullptr, 0, kF1095, 5, kP1095, 4, "FX_SPEC FX_ALPHA_GLOSS FX_LOGO"},
-  {"yProp_Default_spec_fragment", nullptr, 0, kF1096, 5, kP1096, 4, "FX_SPEC"},
-  {"yProp_Default_spec_logo_fragment", nullptr, 0, kF1097, 5, kP1097, 4, "FX_SPEC FX_LOGO"},
-  {"yProp_Default_spec_screen_convert_vertex", kI1098, 4, kF1098, 13, kP1098, 4, "FX_SPEC FX_SCREEN_CONVERT"},
-  {"yProp_Default_spec_spec_map_fragment", nullptr, 0, kF1099, 5, kP1099, 4, "FX_SPEC FX_SPEC_MAP"},
-  {"yProp_Default_spec_spec_map_logo_fragment", nullptr, 0, kF1100, 5, kP1100, 4, "FX_SPEC FX_SPEC_MAP FX_LOGO"},
-  {"yProp_Default_spec_vertex", kI1101, 4, kF1101, 12, kP1101, 4, "FX_SPEC"},
-  {"yProp_PSMLM_base_fragment", nullptr, 0, kF1102, 2, kP1102, 5, ""},
-  {"yProp_PSMLM_light_shadow_fragment", nullptr, 0, kF1103, 3, kP1103, 6, "FX_LIGHT_SHADOW"},
-  {"yProp_PSMLM_plain_vertex", kI1104, 4, kF1104, 15, kP1104, 5, ""},
-  {"yProp_PSMLM_screen_shadow_fragment", nullptr, 0, kF1105, 2, kP1105, 5, "FX_SCREEN_SHADOW"},
-  {"yProp_PSMLM_shadow_light_vertex", kI1106, 4, kF1106, 18, kP1106, 7, "FX_SHADOW_LIGHT"},
-  {"yProp_PSMLM_skinned_shadow_light_vertex", kI1107, 6, kF1107, 19, kP1107, 7, "FX_SKINNED FX_SHADOW_LIGHT"},
-  {"yProp_PSMLM_skinned_vertex", kI1108, 6, kF1108, 16, kP1108, 5, "FX_SKINNED"},
-  {"yProp_PSM_base_fragment", nullptr, 0, kF1109, 1, kP1109, 4, ""},
-  {"yProp_PSM_light_shadow_fragment", nullptr, 0, kF1110, 2, kP1110, 5, "FX_LIGHT_SHADOW"},
-  {"yProp_PSM_plain_vertex", kI1111, 4, kF1111, 14, kP1111, 4, ""},
-  {"yProp_PSM_screen_shadow_fragment", nullptr, 0, kF1112, 1, kP1112, 4, "FX_SCREEN_SHADOW"},
-  {"yProp_PSM_shadow_light_vertex", kI1113, 4, kF1113, 17, kP1113, 6, "FX_SHADOW_LIGHT"},
-  {"yProp_PSM_skinned_shadow_light_vertex", kI1114, 6, kF1114, 18, kP1114, 6, "FX_SKINNED FX_SHADOW_LIGHT"},
-  {"yProp_PSM_skinned_vertex", kI1115, 6, kF1115, 15, kP1115, 4, "FX_SKINNED"},
-  {"yProp_ReflectLM_skinned_spec_lightmap_vertex", kI1116, 6, kF1116, 14, kP1116, 5, "FX_SKINNED FX_SPEC FX_LIGHTMAP"},
-  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_fragment", nullptr, 0, kF1117, 7, kP1117, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT"},
-  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1118, 7, kP1118, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1119, 7, kP1119, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_ReflectLM_spec_lightmap_reflect_fragment", nullptr, 0, kF1120, 7, kP1120, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT"},
-  {"yProp_ReflectLM_spec_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1121, 7, kP1121, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_ReflectLM_spec_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1122, 7, kP1122, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_ReflectLM_spec_lightmap_vertex", kI1123, 4, kF1123, 13, kP1123, 5, "FX_SPEC FX_LIGHTMAP"},
-  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_fragment", nullptr, 0, kF1124, 7, kP1124, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT"},
-  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1125, 7, kP1125, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1126, 7, kP1126, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_Reflect_skinned_spec_screen_convert_vertex", kI1127, 6, kF1127, 14, kP1127, 4, "FX_SKINNED FX_SPEC FX_SCREEN_CONVERT"},
-  {"yProp_Reflect_skinned_spec_vertex", kI1128, 6, kF1128, 13, kP1128, 4, "FX_SKINNED FX_SPEC"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_cc_mask_fragment", nullptr, 0, kF1129, 7, kP1129, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1130, 7, kP1130, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_fragment", nullptr, 0, kF1131, 6, kP1131, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_add_fragment", nullptr, 0, kF1132, 6, kP1132, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1133, 7, kP1133, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
-  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1134, 6, kP1134, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_Reflect_spec_reflect_cc_mask_fragment", nullptr, 0, kF1135, 7, kP1135, 4, "FX_SPEC FX_REFLECT FX_CC_MASK"},
-  {"yProp_Reflect_spec_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1136, 7, kP1136, 4, "FX_SPEC FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_reflect_fragment", nullptr, 0, kF1137, 6, kP1137, 4, "FX_SPEC FX_REFLECT"},
-  {"yProp_Reflect_spec_reflect_reflect_add_fragment", nullptr, 0, kF1138, 6, kP1138, 4, "FX_SPEC FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1139, 7, kP1139, 4, "FX_SPEC FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
-  {"yProp_Reflect_spec_reflect_reflect_map_fragment", nullptr, 0, kF1140, 6, kP1140, 4, "FX_SPEC FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_Reflect_spec_screen_convert_vertex", kI1141, 4, kF1141, 13, kP1141, 4, "FX_SPEC FX_SCREEN_CONVERT"},
-  {"yProp_Reflect_spec_spec_map_reflect_cc_mask_fragment", nullptr, 0, kF1142, 7, kP1142, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_CC_MASK"},
-  {"yProp_Reflect_spec_spec_map_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1143, 7, kP1143, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_spec_map_reflect_fragment", nullptr, 0, kF1144, 6, kP1144, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT"},
-  {"yProp_Reflect_spec_spec_map_reflect_reflect_add_fragment", nullptr, 0, kF1145, 6, kP1145, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_ADD"},
-  {"yProp_Reflect_spec_spec_map_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1146, 7, kP1146, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
-  {"yProp_Reflect_spec_spec_map_reflect_reflect_map_fragment", nullptr, 0, kF1147, 6, kP1147, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP"},
-  {"yProp_Reflect_spec_vertex", kI1148, 4, kF1148, 12, kP1148, 4, "FX_SPEC"},
-  {"yProp_UVScrolLM_lightmap_fragment", nullptr, 0, kF1149, 1, kP1149, 3, "FX_LIGHTMAP"},
-  {"yProp_UVScrolLM_lightmap_uv2_vertex", kI1150, 4, kF1150, 15, kP1150, 4, "FX_LIGHTMAP FX_UV2"},
-  {"yProp_UVScrolLM_lightmap_uv3_vertex", kI1151, 4, kF1151, 15, kP1151, 5, "FX_LIGHTMAP FX_UV3"},
-  {"yProp_UVScrolLM_lightmap_uv4_vertex", kI1152, 4, kF1152, 15, kP1152, 6, "FX_LIGHTMAP FX_UV4"},
-  {"yProp_UVScrolLM_lightmap_vertex", kI1153, 4, kF1153, 15, kP1153, 3, "FX_LIGHTMAP"},
-  {"yProp_UVScrolLM_skinned_lightmap_uv2_vertex", kI1154, 6, kF1154, 16, kP1154, 4, "FX_SKINNED FX_LIGHTMAP FX_UV2"},
-  {"yProp_UVScrolLM_skinned_lightmap_uv3_vertex", kI1155, 6, kF1155, 16, kP1155, 5, "FX_SKINNED FX_LIGHTMAP FX_UV3"},
-  {"yProp_UVScrolLM_skinned_lightmap_uv4_vertex", kI1156, 6, kF1156, 16, kP1156, 6, "FX_SKINNED FX_LIGHTMAP FX_UV4"},
-  {"yProp_UVScrolLM_skinned_lightmap_vertex", kI1157, 6, kF1157, 16, kP1157, 3, "FX_SKINNED FX_LIGHTMAP"},
-  {"yProp_UVScrolLM_uv2_lightmap_fragment", nullptr, 0, kF1158, 1, kP1158, 4, "FX_UV2 FX_LIGHTMAP"},
-  {"yProp_UVScrolLM_uv3_lightmap_fragment", nullptr, 0, kF1159, 1, kP1159, 5, "FX_UV3 FX_LIGHTMAP"},
-  {"yProp_UVScrolLM_uv4_lightmap_fragment", nullptr, 0, kF1160, 1, kP1160, 6, "FX_UV4 FX_LIGHTMAP"},
-  {"yProp_UVScroll_base_fragment", nullptr, 0, nullptr, 0, kP1161, 2, ""},
-  {"yProp_UVScroll_base_vertex", kI1162, 4, kF1162, 14, kP1162, 2, ""},
-  {"yProp_UVScroll_skinned_uv2_vertex", kI1163, 6, kF1163, 15, kP1163, 3, "FX_SKINNED FX_UV2"},
-  {"yProp_UVScroll_skinned_uv3_vertex", kI1164, 6, kF1164, 15, kP1164, 4, "FX_SKINNED FX_UV3"},
-  {"yProp_UVScroll_skinned_uv4_vertex", kI1165, 6, kF1165, 15, kP1165, 5, "FX_SKINNED FX_UV4"},
-  {"yProp_UVScroll_skinned_vertex", kI1166, 6, kF1166, 15, kP1166, 2, "FX_SKINNED"},
-  {"yProp_UVScroll_uv2_fragment", nullptr, 0, nullptr, 0, kP1167, 3, "FX_UV2"},
-  {"yProp_UVScroll_uv2_vertex", kI1168, 4, kF1168, 14, kP1168, 3, "FX_UV2"},
-  {"yProp_UVScroll_uv3_fragment", nullptr, 0, nullptr, 0, kP1169, 4, "FX_UV3"},
-  {"yProp_UVScroll_uv3_vertex", kI1170, 4, kF1170, 14, kP1170, 4, "FX_UV3"},
-  {"yProp_UVScroll_uv4_fragment", nullptr, 0, nullptr, 0, kP1171, 5, "FX_UV4"},
-  {"yProp_UVScroll_uv4_vertex", kI1172, 4, kF1172, 14, kP1172, 5, "FX_UV4"},
-  {"yRadialBlur_base_vertex", kI1173, 2, nullptr, 0, kP1173, 1, ""},
-  {"yRadialBlur_fixed_taps_fragment", nullptr, 0, kF1174, 2, kP1174, 1, "FX_FIXED_TAPS"},
-  {"yRadialBlur_radial_max_fan_fragment", nullptr, 0, kF1175, 10, kP1175, 1, "FX_RADIAL_MAX FX_FAN"},
-  {"yRadialBlur_radial_max_fragment", nullptr, 0, kF1176, 9, kP1176, 1, "FX_RADIAL_MAX"},
-  {"yRadialBlur_radial_rate_fan_fragment", nullptr, 0, kF1177, 11, kP1177, 1, "FX_RADIAL_RATE FX_FAN"},
-  {"yRadialBlur_radial_rate_fragment", nullptr, 0, kF1178, 10, kP1178, 1, "FX_RADIAL_RATE"},
-  {"yRect_base_fragment", nullptr, 0, nullptr, 0, kP1179, 1, ""},
-  {"yRect_base_vertex", kI1180, 1, kF1180, 4, kP1180, 1, ""},
-  {"yRect_gradation_fragment", nullptr, 0, kF1181, 3, kP1181, 2, "FX_GRADATION"},
-  {"yRect_texcoord_vertex", kI1182, 2, kF1182, 4, kP1182, 2, "FX_TEXCOORD"},
-  {"yRect_vertex_color_vertex", kI1183, 2, kF1183, 4, kP1183, 1, "FX_VERTEX_COLOR"},
-  {"yRetroFilm_clean_fragment", nullptr, 0, kF1184, 2, kP1184, 1, "CLEAN"},
-  {"yRetroFilm_quad_vertex", kI1185, 2, nullptr, 0, kP1185, 1, ""},
-  {"yRetroFilm_retro_fragment", nullptr, 0, kF1186, 2, kP1186, 1, ""},
-  {"yRimLightMap_base_fragment", nullptr, 0, nullptr, 0, kP1187, 1, ""},
-  {"yRimLightMap_base_vertex", kI1188, 1, kF1188, 2, kP1188, 1, ""},
-  {"yRimLightMap_single_bone_vertex", kI1189, 2, kF1189, 4, kP1189, 1, "FX_SINGLE_BONE"},
-  {"yRimLightMap_skinned_vertex", kI1190, 3, kF1190, 4, kP1190, 1, "FX_SKINNED"},
-  {"yScaleDownFB_box4_fragment", nullptr, 0, kF1191, 1, kP1191, 1, ""},
-  {"yScaleDownFB_quad_vertex", kI1192, 2, nullptr, 0, kP1192, 1, ""},
-  {"yScaleDownZ_depth_fragment", nullptr, 0, kF1193, 1, kP1193, 1, "DEPTH_ONLY"},
-  {"yScaleDownZ_frame_depth_fragment", nullptr, 0, kF1194, 1, kP1194, 1, "FRAME_DEPTH"},
-  {"yScaleDownZ_quad_vertex", kI1195, 2, nullptr, 0, kP1195, 1, ""},
-  {"yShadowMapEdge_base_fragment", nullptr, 0, nullptr, 0, kP1196, 2, ""},
-  {"yShadowMapEdge_base_vertex", kI1197, 2, kF1197, 1, kP1197, 2, ""},
-  {"yShadowMap_base_fragment", nullptr, 0, kF1198, 1, kP1198, 1, ""},
-  {"yShadowMap_base_vertex", kI1199, 1, kF1199, 3, kP1199, 1, ""},
-  {"yShadowMap_single_bone_vertex", kI1200, 2, kF1200, 5, kP1200, 1, "FX_SINGLE_BONE"},
-  {"yShadowMap_skinned_vertex", kI1201, 3, kF1201, 5, kP1201, 1, "FX_SKINNED"},
-  {"ySoftParticleRuns_runs_vertex", kI1202, 11, kF1202, 4, kP1202, 4, ""},
-  {"ySoftParticle_base_fragment", nullptr, 0, kF1203, 2, kP1203, 4, ""},
-  {"ySoftParticle_base_vertex", kI1204, 3, kF1204, 6, kP1204, 4, ""},
-  {"ySprite_blur_diagonal_fragment", nullptr, 0, kF1205, 1, kP1205, 2, "FX_BLUR=3 FX_TINT"},
-  {"ySprite_blur_diagonal_hsl_fragment", nullptr, 0, kF1206, 2, kP1206, 2, "FX_BLUR=3 FX_TINT FX_HSL"},
-  {"ySprite_blur_horizontal_fragment", nullptr, 0, kF1207, 1, kP1207, 2, "FX_BLUR=1"},
-  {"ySprite_blur_vertical_fragment", nullptr, 0, kF1208, 1, kP1208, 2, "FX_BLUR=2 FX_TINT"},
-  {"ySprite_blur_vertical_hsl_fragment", nullptr, 0, kF1209, 2, kP1209, 2, "FX_BLUR=2 FX_TINT FX_HSL"},
-  {"ySprite_channel_mask_fragment", nullptr, 0, nullptr, 0, kP1210, 4, "FX_CHANNEL_MASK"},
-  {"ySprite_channel_select_vertex", kI1211, 2, kF1211, 5, kP1211, 4, "FX_CHANNEL_SELECT"},
-  {"ySprite_gradation_blur_diagonal_fragment", nullptr, 0, kF1212, 4, kP1212, 3, "FX_GRADATION FX_BLUR=3"},
-  {"ySprite_gradation_blur_vertical_fragment", nullptr, 0, kF1213, 4, kP1213, 3, "FX_GRADATION FX_BLUR=2"},
-  {"ySprite_gradation_fragment", nullptr, 0, kF1214, 4, kP1214, 3, "FX_GRADATION"},
-  {"ySprite_gradation_hsl_blur_diagonal_fragment", nullptr, 0, kF1215, 5, kP1215, 3, "FX_GRADATION FX_HSL FX_BLUR=3"},
-  {"ySprite_gradation_hsl_blur_vertical_fragment", nullptr, 0, kF1216, 5, kP1216, 3, "FX_GRADATION FX_HSL FX_BLUR=2"},
-  {"ySprite_gradation_hsl_fragment", nullptr, 0, kF1217, 5, kP1217, 3, "FX_GRADATION FX_HSL"},
-  {"ySprite_gradient_vertex", kI1218, 3, kF1218, 4, kP1218, 3, "FX_GRADIENT_COORD"},
-  {"ySprite_gradient_vertex_color_vertex", kI1219, 4, kF1219, 3, kP1219, 3, "FX_GRADIENT_COORD FX_VERTEX_COLOR"},
-  {"ySprite_hsl_fragment", nullptr, 0, kF1220, 1, kP1220, 2, "FX_TINT FX_HSL"},
-  {"ySprite_tint_constant_vertex", kI1221, 2, kF1221, 4, kP1221, 2, ""},
-  {"ySprite_tinted_fragment", nullptr, 0, nullptr, 0, kP1222, 2, "FX_TINT"},
-  {"ySprite_vertex_color_tinted_vertex", kI1223, 3, kF1223, 4, kP1223, 2, "FX_VERTEX_COLOR FX_TINT"},
-  {"ySprite_vertex_color_vertex", kI1224, 3, kF1224, 3, kP1224, 2, "FX_VERTEX_COLOR"},
-  {"ySprite_yuv_alpha_fragment", nullptr, 0, nullptr, 0, kP1225, 2, "FX_YUV FX_YUV_ALPHA"},
-  {"ySprite_yuv_fragment", nullptr, 0, nullptr, 0, kP1226, 2, "FX_YUV"},
-  {"yToneMap_final_fragment", nullptr, 0, kF1227, 1, kP1227, 1, "FINAL"},
-  {"yToneMap_initial_fragment", nullptr, 0, kF1228, 1, kP1228, 1, "INITIAL"},
-  {"yToneMap_iterative_fragment", nullptr, 0, kF1229, 1, kP1229, 1, "ITERATIVE"},
-  {"yToneMap_quad_vertex", kI1230, 2, nullptr, 0, kP1230, 1, ""},
-  {"yVelocity_motion_fragment", nullptr, 0, nullptr, 0, kP1231, 2, ""},
+  {"yLiquidMap_copy_prev_q4_fragment", nullptr, 0, nullptr, 0, kP991, 2, "FX_COPY_PREV FX_Q4"},
+  {"yLiquidMap_local_area_vertex", kI992, 2, kF992, 4, kP992, 2, "FX_LOCAL_AREA"},
+  {"yLiquidMap_lod_fragment", nullptr, 0, kF993, 1, kP993, 2, "FX_LOD"},
+  {"yLiquidMap_paste_fragment", nullptr, 0, kF994, 2, kP994, 2, "FX_PASTE"},
+  {"yLiquidMap_plain_vertex", kI995, 2, kF995, 1, kP995, 1, "FX_PLAIN"},
+  {"yLiquidMap_sweat_dim_fragment", nullptr, 0, kF996, 2, kP996, 2, "FX_SWEAT FX_DIM"},
+  {"yLiquidMap_sweat_fragment", nullptr, 0, kF997, 2, kP997, 2, "FX_SWEAT"},
+  {"yLiquidMap_tint_dim_fragment", nullptr, 0, kF998, 2, kP998, 2, "FX_TINT FX_DIM"},
+  {"yLiquidMap_tint_fragment", nullptr, 0, kF999, 2, kP999, 2, "FX_TINT"},
+  {"yMonotone_clean_fragment", nullptr, 0, kF1000, 3, kP1000, 1, "CLEAN"},
+  {"yMonotone_monotone_fragment", nullptr, 0, kF1001, 3, kP1001, 1, ""},
+  {"yMonotone_quad_vertex", kI1002, 2, nullptr, 0, kP1002, 1, ""},
+  {"yMovieDefault_alpha_movie_fragment", nullptr, 0, nullptr, 0, kP1003, 2, "FX_ALPHA_MOVIE"},
+  {"yMovieDefault_alpha_movie_shadow_fragment", nullptr, 0, kF1004, 1, kP1004, 6, "FX_ALPHA_MOVIE FX_SHADOW"},
+  {"yMovieDefault_base_fragment", nullptr, 0, nullptr, 0, kP1005, 2, ""},
+  {"yMovieDefault_base_vertex", kI1006, 5, kF1006, 13, kP1006, 7, ""},
+  {"yMovieDefault_shadow_fragment", nullptr, 0, kF1007, 1, kP1007, 6, "FX_SHADOW"},
+  {"yMovieDefault_shadow_vertex", kI1008, 5, kF1008, 16, kP1008, 7, "FX_SHADOW"},
+  {"yParticleRuns_runs_vertex", kI1009, 8, kF1009, 4, kP1009, 3, ""},
+  {"yParticle_base_fragment", nullptr, 0, nullptr, 0, kP1010, 2, ""},
+  {"yParticle_base_vertex", kI1011, 4, kF1011, 5, kP1011, 3, ""},
+  {"yPartsBlur_blur13_fragment", nullptr, 0, kF1012, 2, kP1012, 2, ""},
+  {"yPartsBlur_mesh_vertex", kI1013, 3, kF1013, 2, kP1013, 2, ""},
+  {"yPlaneShadowMap_base_fragment", nullptr, 0, nullptr, 0, kP1014, 1, ""},
+  {"yPlaneShadowMap_flat_vertex", kI1015, 1, kF1015, 4, kP1015, 1, "FX_FLAT"},
+  {"yPlaneShadowMap_readback_fragment", nullptr, 0, nullptr, 0, kP1016, 1, "FX_READBACK"},
+  {"yPlaneShadowMap_rigid_vertex", kI1017, 2, kF1017, 13, kP1017, 1, "FX_RIGID"},
+  {"yPlaneShadowMap_skinned_vertex", kI1018, 4, kF1018, 13, kP1018, 1, "FX_SKINNED"},
+  {"yPostBase_copy_depth_fragment", nullptr, 0, nullptr, 0, kP1019, 1, "COPY_DEPTH"},
+  {"yPostBase_fill_depth_fragment", nullptr, 0, kF1020, 1, kP1020, 1, "FILL_DEPTH"},
+  {"yPostBase_fill_fragment", nullptr, 0, kF1021, 1, nullptr, 0, "FILL"},
+  {"yPostBase_pos_only_vertex", kI1022, 1, nullptr, 0, nullptr, 0, ""},
+  {"yPostBase_uv_vertex", kI1023, 2, nullptr, 0, kP1023, 1, "FX_UV"},
+  {"yPreLight_base_layered_swap_vertex", kI1024, 2, kF1024, 1, kP1024, 1, "FX_LAYERED FX_LAYERED_SWAP"},
+  {"yPreLight_base_layered_vertex", kI1025, 2, kF1025, 1, kP1025, 1, "FX_LAYERED"},
+  {"yPreLight_base_vertex", kI1026, 2, kF1026, 1, kP1026, 1, ""},
+  {"yPreLight_debug_cube_alpha_fragment", nullptr, 0, nullptr, 0, kP1027, 1, "FX_DEBUG_CUBE_ALPHA"},
+  {"yPreLight_debug_cube_fragment", nullptr, 0, nullptr, 0, kP1028, 1, "FX_DEBUG_CUBE"},
+  {"yPreLight_light_color_fragment", nullptr, 0, kF1029, 3, kP1029, 1, "FX_LIGHT_COLOR"},
+  {"yPreLight_light_dot_fragment", nullptr, 0, kF1030, 1, kP1030, 1, "FX_LIGHT_DOT"},
+  {"yPreLight_soft_fragment", nullptr, 0, kF1031, 4, kP1031, 1, "FX_SOFT"},
+  {"yPreLight_spec_pow_fragment", nullptr, 0, kF1032, 4, kP1032, 1, "FX_SPEC_POW"},
+  {"yPreLight_sss_fragment", nullptr, 0, kF1033, 7, kP1033, 1, "FX_SSS"},
+  {"yProp_BumpMapLM_alpha_gloss_lightmap_fragment", nullptr, 0, kF1034, 13, kP1034, 7, "FX_ALPHA_GLOSS FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_alpha_gloss_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1035, 14, kP1035, 7, "FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMapLM_lightmap_normal_gloss_fragment", nullptr, 0, kF1036, 13, kP1036, 7, "FX_LIGHTMAP FX_NORMAL_GLOSS"},
+  {"yProp_BumpMapLM_lightmap_normal_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1037, 14, kP1037, 7, "FX_LIGHTMAP FX_NORMAL_GLOSS FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMapLM_lightmap_vertex", kI1038, 4, kF1038, 13, kP1038, 7, "FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_skinned_lightmap_vertex", kI1039, 6, kF1039, 14, kP1039, 7, "FX_SKINNED FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_skinned_spec_fade_lightmap_vertex", kI1040, 6, kF1040, 15, kP1040, 7, "FX_SKINNED FX_SPEC_FADE FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_spec_fade_lightmap_vertex", kI1041, 4, kF1041, 14, kP1041, 7, "FX_SPEC_FADE FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_spec_map_lightmap_fragment", nullptr, 0, kF1042, 13, kP1042, 7, "FX_SPEC_MAP FX_LIGHTMAP"},
+  {"yProp_BumpMapLM_spec_map_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1043, 14, kP1043, 7, "FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMap_alpha_gloss_cc_mask_fragment", nullptr, 0, kF1044, 13, kP1044, 6, "FX_ALPHA_GLOSS FX_CC_MASK"},
+  {"yProp_BumpMap_alpha_gloss_fragment", nullptr, 0, kF1045, 12, kP1045, 6, "FX_ALPHA_GLOSS"},
+  {"yProp_BumpMap_alpha_gloss_logo_fragment", nullptr, 0, kF1046, 12, kP1046, 6, "FX_ALPHA_GLOSS FX_LOGO"},
+  {"yProp_BumpMap_alpha_gloss_logo_reflect_reflect_map_fragment", nullptr, 0, kF1047, 13, kP1047, 6, "FX_ALPHA_GLOSS FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMap_alpha_gloss_reflect_cc_mask_reflect_map_fragment", nullptr, 0, kF1048, 14, kP1048, 6, "FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK FX_REFLECT_MAP"},
+  {"yProp_BumpMap_alpha_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1049, 13, kP1049, 6, "FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMap_base_vertex", kI1050, 4, kF1050, 12, kP1050, 6, ""},
+  {"yProp_BumpMap_cc_mask_normal_gloss_fragment", nullptr, 0, kF1051, 13, kP1051, 6, "FX_CC_MASK FX_NORMAL_GLOSS"},
+  {"yProp_BumpMap_logo_normal_gloss_fragment", nullptr, 0, kF1052, 12, kP1052, 6, "FX_LOGO FX_NORMAL_GLOSS"},
+  {"yProp_BumpMap_logo_reflect_reflect_map_normal_gloss_fragment", nullptr, 0, kF1053, 13, kP1053, 6, "FX_NORMAL_GLOSS FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMap_normal_gloss_fragment", nullptr, 0, kF1054, 12, kP1054, 6, "FX_NORMAL_GLOSS"},
+  {"yProp_BumpMap_reflect_cc_mask_reflect_map_normal_gloss_fragment", nullptr, 0, kF1055, 14, kP1055, 6, "FX_REFLECT FX_CC_MASK FX_REFLECT_MAP FX_NORMAL_GLOSS"},
+  {"yProp_BumpMap_reflect_reflect_map_normal_gloss_fragment", nullptr, 0, kF1056, 13, kP1056, 6, "FX_REFLECT FX_REFLECT_MAP FX_NORMAL_GLOSS"},
+  {"yProp_BumpMap_screen_convert_vertex", kI1057, 4, kF1057, 13, kP1057, 6, "FX_SCREEN_CONVERT"},
+  {"yProp_BumpMap_skinned_screen_convert_vertex", kI1058, 6, kF1058, 14, kP1058, 6, "FX_SKINNED FX_SCREEN_CONVERT"},
+  {"yProp_BumpMap_skinned_spec_fade_screen_convert_vertex", kI1059, 6, kF1059, 15, kP1059, 6, "FX_SKINNED FX_SPEC_FADE FX_SCREEN_CONVERT"},
+  {"yProp_BumpMap_skinned_spec_fade_vertex", kI1060, 6, kF1060, 14, kP1060, 6, "FX_SKINNED FX_SPEC_FADE"},
+  {"yProp_BumpMap_skinned_vertex", kI1061, 6, kF1061, 13, kP1061, 6, "FX_SKINNED"},
+  {"yProp_BumpMap_spec_fade_screen_convert_vertex", kI1062, 4, kF1062, 14, kP1062, 6, "FX_SPEC_FADE FX_SCREEN_CONVERT"},
+  {"yProp_BumpMap_spec_fade_vertex", kI1063, 4, kF1063, 13, kP1063, 6, "FX_SPEC_FADE"},
+  {"yProp_BumpMap_spec_map_cc_mask_fragment", nullptr, 0, kF1064, 13, kP1064, 6, "FX_SPEC_MAP FX_CC_MASK"},
+  {"yProp_BumpMap_spec_map_fragment", nullptr, 0, kF1065, 12, kP1065, 6, "FX_SPEC_MAP"},
+  {"yProp_BumpMap_spec_map_logo_fragment", nullptr, 0, kF1066, 12, kP1066, 6, "FX_SPEC_MAP FX_LOGO"},
+  {"yProp_BumpMap_spec_map_logo_reflect_reflect_map_fragment", nullptr, 0, kF1067, 13, kP1067, 6, "FX_SPEC_MAP FX_LOGO FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_BumpMap_spec_map_reflect_cc_mask_reflect_map_fragment", nullptr, 0, kF1068, 14, kP1068, 6, "FX_SPEC_MAP FX_REFLECT FX_CC_MASK FX_REFLECT_MAP"},
+  {"yProp_BumpMap_spec_map_reflect_reflect_map_fragment", nullptr, 0, kF1069, 13, kP1069, 6, "FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_DefaultLM_lightmap_fragment", nullptr, 0, kF1070, 2, kP1070, 3, "FX_LIGHTMAP"},
+  {"yProp_DefaultLM_lightmap_noise_vertex", kI1071, 4, kF1071, 13, kP1071, 4, "FX_LIGHTMAP FX_NOISE"},
+  {"yProp_DefaultLM_lightmap_vertex", kI1072, 4, kF1072, 12, kP1072, 3, "FX_LIGHTMAP"},
+  {"yProp_DefaultLM_noise_lightmap_fragment", nullptr, 0, kF1073, 3, kP1073, 4, "FX_NOISE FX_LIGHTMAP"},
+  {"yProp_DefaultLM_skinned_lightmap_noise_vertex", kI1074, 6, kF1074, 14, kP1074, 4, "FX_SKINNED FX_LIGHTMAP FX_NOISE"},
+  {"yProp_DefaultLM_skinned_lightmap_vertex", kI1075, 6, kF1075, 13, kP1075, 3, "FX_SKINNED FX_LIGHTMAP"},
+  {"yProp_DefaultLM_skinned_spec_lightmap_vertex", kI1076, 6, kF1076, 14, kP1076, 5, "FX_SKINNED FX_SPEC FX_LIGHTMAP"},
+  {"yProp_DefaultLM_spec_alpha_gloss_lightmap_fragment", nullptr, 0, kF1077, 6, kP1077, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP"},
+  {"yProp_DefaultLM_spec_lightmap_fragment", nullptr, 0, kF1078, 6, kP1078, 5, "FX_SPEC FX_LIGHTMAP"},
+  {"yProp_DefaultLM_spec_lightmap_vertex", kI1079, 4, kF1079, 13, kP1079, 5, "FX_SPEC FX_LIGHTMAP"},
+  {"yProp_DefaultLM_spec_spec_map_lightmap_fragment", nullptr, 0, kF1080, 6, kP1080, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP"},
+  {"yProp_Default_base_fragment", nullptr, 0, kF1081, 1, kP1081, 2, ""},
+  {"yProp_Default_base_vertex", kI1082, 4, kF1082, 11, kP1082, 2, ""},
+  {"yProp_Default_logo_fragment", nullptr, 0, kF1083, 1, kP1083, 2, "FX_LOGO"},
+  {"yProp_Default_logo_noise_fragment", nullptr, 0, kF1084, 2, kP1084, 3, "FX_LOGO FX_NOISE"},
+  {"yProp_Default_noise_fragment", nullptr, 0, kF1085, 2, kP1085, 3, "FX_NOISE"},
+  {"yProp_Default_noise_vertex", kI1086, 4, kF1086, 12, kP1086, 3, "FX_NOISE"},
+  {"yProp_Default_screen_convert_noise_vertex", kI1087, 4, kF1087, 13, kP1087, 3, "FX_SCREEN_CONVERT FX_NOISE"},
+  {"yProp_Default_screen_convert_vertex", kI1088, 4, kF1088, 12, kP1088, 2, "FX_SCREEN_CONVERT"},
+  {"yProp_Default_skinned_noise_vertex", kI1089, 6, kF1089, 13, kP1089, 3, "FX_SKINNED FX_NOISE"},
+  {"yProp_Default_skinned_screen_convert_noise_vertex", kI1090, 6, kF1090, 14, kP1090, 3, "FX_SKINNED FX_SCREEN_CONVERT FX_NOISE"},
+  {"yProp_Default_skinned_screen_convert_vertex", kI1091, 6, kF1091, 13, kP1091, 2, "FX_SKINNED FX_SCREEN_CONVERT"},
+  {"yProp_Default_skinned_spec_screen_convert_vertex", kI1092, 6, kF1092, 14, kP1092, 4, "FX_SKINNED FX_SPEC FX_SCREEN_CONVERT"},
+  {"yProp_Default_skinned_spec_vertex", kI1093, 6, kF1093, 13, kP1093, 4, "FX_SKINNED FX_SPEC"},
+  {"yProp_Default_skinned_vertex", kI1094, 6, kF1094, 12, kP1094, 2, "FX_SKINNED"},
+  {"yProp_Default_spec_alpha_gloss_fragment", nullptr, 0, kF1095, 5, kP1095, 4, "FX_SPEC FX_ALPHA_GLOSS"},
+  {"yProp_Default_spec_alpha_gloss_logo_fragment", nullptr, 0, kF1096, 5, kP1096, 4, "FX_SPEC FX_ALPHA_GLOSS FX_LOGO"},
+  {"yProp_Default_spec_fragment", nullptr, 0, kF1097, 5, kP1097, 4, "FX_SPEC"},
+  {"yProp_Default_spec_logo_fragment", nullptr, 0, kF1098, 5, kP1098, 4, "FX_SPEC FX_LOGO"},
+  {"yProp_Default_spec_screen_convert_vertex", kI1099, 4, kF1099, 13, kP1099, 4, "FX_SPEC FX_SCREEN_CONVERT"},
+  {"yProp_Default_spec_spec_map_fragment", nullptr, 0, kF1100, 5, kP1100, 4, "FX_SPEC FX_SPEC_MAP"},
+  {"yProp_Default_spec_spec_map_logo_fragment", nullptr, 0, kF1101, 5, kP1101, 4, "FX_SPEC FX_SPEC_MAP FX_LOGO"},
+  {"yProp_Default_spec_vertex", kI1102, 4, kF1102, 12, kP1102, 4, "FX_SPEC"},
+  {"yProp_PSMLM_base_fragment", nullptr, 0, kF1103, 2, kP1103, 5, ""},
+  {"yProp_PSMLM_light_shadow_fragment", nullptr, 0, kF1104, 3, kP1104, 6, "FX_LIGHT_SHADOW"},
+  {"yProp_PSMLM_plain_vertex", kI1105, 4, kF1105, 15, kP1105, 5, ""},
+  {"yProp_PSMLM_screen_shadow_fragment", nullptr, 0, kF1106, 2, kP1106, 5, "FX_SCREEN_SHADOW"},
+  {"yProp_PSMLM_shadow_light_vertex", kI1107, 4, kF1107, 18, kP1107, 7, "FX_SHADOW_LIGHT"},
+  {"yProp_PSMLM_skinned_shadow_light_vertex", kI1108, 6, kF1108, 19, kP1108, 7, "FX_SKINNED FX_SHADOW_LIGHT"},
+  {"yProp_PSMLM_skinned_vertex", kI1109, 6, kF1109, 16, kP1109, 5, "FX_SKINNED"},
+  {"yProp_PSM_base_fragment", nullptr, 0, kF1110, 1, kP1110, 4, ""},
+  {"yProp_PSM_light_shadow_fragment", nullptr, 0, kF1111, 2, kP1111, 5, "FX_LIGHT_SHADOW"},
+  {"yProp_PSM_plain_vertex", kI1112, 4, kF1112, 14, kP1112, 4, ""},
+  {"yProp_PSM_screen_shadow_fragment", nullptr, 0, kF1113, 1, kP1113, 4, "FX_SCREEN_SHADOW"},
+  {"yProp_PSM_shadow_light_vertex", kI1114, 4, kF1114, 17, kP1114, 6, "FX_SHADOW_LIGHT"},
+  {"yProp_PSM_skinned_shadow_light_vertex", kI1115, 6, kF1115, 18, kP1115, 6, "FX_SKINNED FX_SHADOW_LIGHT"},
+  {"yProp_PSM_skinned_vertex", kI1116, 6, kF1116, 15, kP1116, 4, "FX_SKINNED"},
+  {"yProp_ReflectLM_skinned_spec_lightmap_vertex", kI1117, 6, kF1117, 14, kP1117, 5, "FX_SKINNED FX_SPEC FX_LIGHTMAP"},
+  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_fragment", nullptr, 0, kF1118, 7, kP1118, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT"},
+  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1119, 7, kP1119, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_ReflectLM_spec_alpha_gloss_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1120, 7, kP1120, 5, "FX_SPEC FX_ALPHA_GLOSS FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_ReflectLM_spec_lightmap_reflect_fragment", nullptr, 0, kF1121, 7, kP1121, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT"},
+  {"yProp_ReflectLM_spec_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1122, 7, kP1122, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_ReflectLM_spec_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1123, 7, kP1123, 5, "FX_SPEC FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_ReflectLM_spec_lightmap_vertex", kI1124, 4, kF1124, 13, kP1124, 5, "FX_SPEC FX_LIGHTMAP"},
+  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_fragment", nullptr, 0, kF1125, 7, kP1125, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT"},
+  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_reflect_add_fragment", nullptr, 0, kF1126, 7, kP1126, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_ReflectLM_spec_spec_map_lightmap_reflect_reflect_map_fragment", nullptr, 0, kF1127, 7, kP1127, 5, "FX_SPEC FX_SPEC_MAP FX_LIGHTMAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_Reflect_skinned_spec_screen_convert_vertex", kI1128, 6, kF1128, 14, kP1128, 4, "FX_SKINNED FX_SPEC FX_SCREEN_CONVERT"},
+  {"yProp_Reflect_skinned_spec_vertex", kI1129, 6, kF1129, 13, kP1129, 4, "FX_SKINNED FX_SPEC"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_cc_mask_fragment", nullptr, 0, kF1130, 7, kP1130, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1131, 7, kP1131, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_fragment", nullptr, 0, kF1132, 6, kP1132, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_add_fragment", nullptr, 0, kF1133, 6, kP1133, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1134, 7, kP1134, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
+  {"yProp_Reflect_spec_alpha_gloss_reflect_reflect_map_fragment", nullptr, 0, kF1135, 6, kP1135, 4, "FX_SPEC FX_ALPHA_GLOSS FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_Reflect_spec_reflect_cc_mask_fragment", nullptr, 0, kF1136, 7, kP1136, 4, "FX_SPEC FX_REFLECT FX_CC_MASK"},
+  {"yProp_Reflect_spec_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1137, 7, kP1137, 4, "FX_SPEC FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_reflect_fragment", nullptr, 0, kF1138, 6, kP1138, 4, "FX_SPEC FX_REFLECT"},
+  {"yProp_Reflect_spec_reflect_reflect_add_fragment", nullptr, 0, kF1139, 6, kP1139, 4, "FX_SPEC FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1140, 7, kP1140, 4, "FX_SPEC FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
+  {"yProp_Reflect_spec_reflect_reflect_map_fragment", nullptr, 0, kF1141, 6, kP1141, 4, "FX_SPEC FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_Reflect_spec_screen_convert_vertex", kI1142, 4, kF1142, 13, kP1142, 4, "FX_SPEC FX_SCREEN_CONVERT"},
+  {"yProp_Reflect_spec_spec_map_reflect_cc_mask_fragment", nullptr, 0, kF1143, 7, kP1143, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_CC_MASK"},
+  {"yProp_Reflect_spec_spec_map_reflect_cc_mask_reflect_add_fragment", nullptr, 0, kF1144, 7, kP1144, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_CC_MASK FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_spec_map_reflect_fragment", nullptr, 0, kF1145, 6, kP1145, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT"},
+  {"yProp_Reflect_spec_spec_map_reflect_reflect_add_fragment", nullptr, 0, kF1146, 6, kP1146, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_ADD"},
+  {"yProp_Reflect_spec_spec_map_reflect_reflect_map_cc_mask_fragment", nullptr, 0, kF1147, 7, kP1147, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP FX_CC_MASK"},
+  {"yProp_Reflect_spec_spec_map_reflect_reflect_map_fragment", nullptr, 0, kF1148, 6, kP1148, 4, "FX_SPEC FX_SPEC_MAP FX_REFLECT FX_REFLECT_MAP"},
+  {"yProp_Reflect_spec_vertex", kI1149, 4, kF1149, 12, kP1149, 4, "FX_SPEC"},
+  {"yProp_UVScrolLM_lightmap_fragment", nullptr, 0, kF1150, 1, kP1150, 3, "FX_LIGHTMAP"},
+  {"yProp_UVScrolLM_lightmap_uv2_vertex", kI1151, 4, kF1151, 15, kP1151, 4, "FX_LIGHTMAP FX_UV2"},
+  {"yProp_UVScrolLM_lightmap_uv3_vertex", kI1152, 4, kF1152, 15, kP1152, 5, "FX_LIGHTMAP FX_UV3"},
+  {"yProp_UVScrolLM_lightmap_uv4_vertex", kI1153, 4, kF1153, 15, kP1153, 6, "FX_LIGHTMAP FX_UV4"},
+  {"yProp_UVScrolLM_lightmap_vertex", kI1154, 4, kF1154, 15, kP1154, 3, "FX_LIGHTMAP"},
+  {"yProp_UVScrolLM_skinned_lightmap_uv2_vertex", kI1155, 6, kF1155, 16, kP1155, 4, "FX_SKINNED FX_LIGHTMAP FX_UV2"},
+  {"yProp_UVScrolLM_skinned_lightmap_uv3_vertex", kI1156, 6, kF1156, 16, kP1156, 5, "FX_SKINNED FX_LIGHTMAP FX_UV3"},
+  {"yProp_UVScrolLM_skinned_lightmap_uv4_vertex", kI1157, 6, kF1157, 16, kP1157, 6, "FX_SKINNED FX_LIGHTMAP FX_UV4"},
+  {"yProp_UVScrolLM_skinned_lightmap_vertex", kI1158, 6, kF1158, 16, kP1158, 3, "FX_SKINNED FX_LIGHTMAP"},
+  {"yProp_UVScrolLM_uv2_lightmap_fragment", nullptr, 0, kF1159, 1, kP1159, 4, "FX_UV2 FX_LIGHTMAP"},
+  {"yProp_UVScrolLM_uv3_lightmap_fragment", nullptr, 0, kF1160, 1, kP1160, 5, "FX_UV3 FX_LIGHTMAP"},
+  {"yProp_UVScrolLM_uv4_lightmap_fragment", nullptr, 0, kF1161, 1, kP1161, 6, "FX_UV4 FX_LIGHTMAP"},
+  {"yProp_UVScroll_base_fragment", nullptr, 0, nullptr, 0, kP1162, 2, ""},
+  {"yProp_UVScroll_base_vertex", kI1163, 4, kF1163, 14, kP1163, 2, ""},
+  {"yProp_UVScroll_skinned_uv2_vertex", kI1164, 6, kF1164, 15, kP1164, 3, "FX_SKINNED FX_UV2"},
+  {"yProp_UVScroll_skinned_uv3_vertex", kI1165, 6, kF1165, 15, kP1165, 4, "FX_SKINNED FX_UV3"},
+  {"yProp_UVScroll_skinned_uv4_vertex", kI1166, 6, kF1166, 15, kP1166, 5, "FX_SKINNED FX_UV4"},
+  {"yProp_UVScroll_skinned_vertex", kI1167, 6, kF1167, 15, kP1167, 2, "FX_SKINNED"},
+  {"yProp_UVScroll_uv2_fragment", nullptr, 0, nullptr, 0, kP1168, 3, "FX_UV2"},
+  {"yProp_UVScroll_uv2_vertex", kI1169, 4, kF1169, 14, kP1169, 3, "FX_UV2"},
+  {"yProp_UVScroll_uv3_fragment", nullptr, 0, nullptr, 0, kP1170, 4, "FX_UV3"},
+  {"yProp_UVScroll_uv3_vertex", kI1171, 4, kF1171, 14, kP1171, 4, "FX_UV3"},
+  {"yProp_UVScroll_uv4_fragment", nullptr, 0, nullptr, 0, kP1172, 5, "FX_UV4"},
+  {"yProp_UVScroll_uv4_vertex", kI1173, 4, kF1173, 14, kP1173, 5, "FX_UV4"},
+  {"yRadialBlur_base_vertex", kI1174, 2, nullptr, 0, kP1174, 1, ""},
+  {"yRadialBlur_fixed_taps_fragment", nullptr, 0, kF1175, 2, kP1175, 1, "FX_FIXED_TAPS"},
+  {"yRadialBlur_radial_max_fan_fragment", nullptr, 0, kF1176, 10, kP1176, 1, "FX_RADIAL_MAX FX_FAN"},
+  {"yRadialBlur_radial_max_fragment", nullptr, 0, kF1177, 9, kP1177, 1, "FX_RADIAL_MAX"},
+  {"yRadialBlur_radial_rate_fan_fragment", nullptr, 0, kF1178, 11, kP1178, 1, "FX_RADIAL_RATE FX_FAN"},
+  {"yRadialBlur_radial_rate_fragment", nullptr, 0, kF1179, 10, kP1179, 1, "FX_RADIAL_RATE"},
+  {"yRect_base_fragment", nullptr, 0, nullptr, 0, kP1180, 1, ""},
+  {"yRect_base_vertex", kI1181, 1, kF1181, 4, kP1181, 1, ""},
+  {"yRect_gradation_fragment", nullptr, 0, kF1182, 3, kP1182, 2, "FX_GRADATION"},
+  {"yRect_texcoord_vertex", kI1183, 2, kF1183, 4, kP1183, 2, "FX_TEXCOORD"},
+  {"yRect_vertex_color_vertex", kI1184, 2, kF1184, 4, kP1184, 1, "FX_VERTEX_COLOR"},
+  {"yRetroFilm_clean_fragment", nullptr, 0, kF1185, 2, kP1185, 1, "CLEAN"},
+  {"yRetroFilm_quad_vertex", kI1186, 2, nullptr, 0, kP1186, 1, ""},
+  {"yRetroFilm_retro_fragment", nullptr, 0, kF1187, 2, kP1187, 1, ""},
+  {"yRimLightMap_base_fragment", nullptr, 0, nullptr, 0, kP1188, 1, ""},
+  {"yRimLightMap_base_vertex", kI1189, 1, kF1189, 2, kP1189, 1, ""},
+  {"yRimLightMap_single_bone_vertex", kI1190, 2, kF1190, 4, kP1190, 1, "FX_SINGLE_BONE"},
+  {"yRimLightMap_skinned_vertex", kI1191, 3, kF1191, 4, kP1191, 1, "FX_SKINNED"},
+  {"yScaleDownFB_box4_fragment", nullptr, 0, kF1192, 1, kP1192, 1, ""},
+  {"yScaleDownFB_quad_vertex", kI1193, 2, nullptr, 0, kP1193, 1, ""},
+  {"yScaleDownZ_depth_fragment", nullptr, 0, kF1194, 1, kP1194, 1, "DEPTH_ONLY"},
+  {"yScaleDownZ_frame_depth_fragment", nullptr, 0, kF1195, 1, kP1195, 1, "FRAME_DEPTH"},
+  {"yScaleDownZ_quad_vertex", kI1196, 2, nullptr, 0, kP1196, 1, ""},
+  {"yShadowMapEdge_base_fragment", nullptr, 0, nullptr, 0, kP1197, 2, ""},
+  {"yShadowMapEdge_base_vertex", kI1198, 2, kF1198, 1, kP1198, 2, ""},
+  {"yShadowMap_base_fragment", nullptr, 0, kF1199, 1, kP1199, 1, ""},
+  {"yShadowMap_base_vertex", kI1200, 1, kF1200, 3, kP1200, 1, ""},
+  {"yShadowMap_single_bone_vertex", kI1201, 2, kF1201, 5, kP1201, 1, "FX_SINGLE_BONE"},
+  {"yShadowMap_skinned_vertex", kI1202, 3, kF1202, 5, kP1202, 1, "FX_SKINNED"},
+  {"ySoftParticleRuns_runs_vertex", kI1203, 11, kF1203, 4, kP1203, 4, ""},
+  {"ySoftParticle_base_fragment", nullptr, 0, kF1204, 2, kP1204, 4, ""},
+  {"ySoftParticle_base_vertex", kI1205, 3, kF1205, 6, kP1205, 4, ""},
+  {"ySprite_blur_diagonal_fragment", nullptr, 0, kF1206, 1, kP1206, 2, "FX_BLUR=3 FX_TINT"},
+  {"ySprite_blur_diagonal_hsl_fragment", nullptr, 0, kF1207, 2, kP1207, 2, "FX_BLUR=3 FX_TINT FX_HSL"},
+  {"ySprite_blur_horizontal_fragment", nullptr, 0, kF1208, 1, kP1208, 2, "FX_BLUR=1"},
+  {"ySprite_blur_vertical_fragment", nullptr, 0, kF1209, 1, kP1209, 2, "FX_BLUR=2 FX_TINT"},
+  {"ySprite_blur_vertical_hsl_fragment", nullptr, 0, kF1210, 2, kP1210, 2, "FX_BLUR=2 FX_TINT FX_HSL"},
+  {"ySprite_channel_mask_fragment", nullptr, 0, nullptr, 0, kP1211, 4, "FX_CHANNEL_MASK"},
+  {"ySprite_channel_select_vertex", kI1212, 2, kF1212, 5, kP1212, 4, "FX_CHANNEL_SELECT"},
+  {"ySprite_gradation_blur_diagonal_fragment", nullptr, 0, kF1213, 4, kP1213, 3, "FX_GRADATION FX_BLUR=3"},
+  {"ySprite_gradation_blur_vertical_fragment", nullptr, 0, kF1214, 4, kP1214, 3, "FX_GRADATION FX_BLUR=2"},
+  {"ySprite_gradation_fragment", nullptr, 0, kF1215, 4, kP1215, 3, "FX_GRADATION"},
+  {"ySprite_gradation_hsl_blur_diagonal_fragment", nullptr, 0, kF1216, 5, kP1216, 3, "FX_GRADATION FX_HSL FX_BLUR=3"},
+  {"ySprite_gradation_hsl_blur_vertical_fragment", nullptr, 0, kF1217, 5, kP1217, 3, "FX_GRADATION FX_HSL FX_BLUR=2"},
+  {"ySprite_gradation_hsl_fragment", nullptr, 0, kF1218, 5, kP1218, 3, "FX_GRADATION FX_HSL"},
+  {"ySprite_gradient_vertex", kI1219, 3, kF1219, 4, kP1219, 3, "FX_GRADIENT_COORD"},
+  {"ySprite_gradient_vertex_color_vertex", kI1220, 4, kF1220, 3, kP1220, 3, "FX_GRADIENT_COORD FX_VERTEX_COLOR"},
+  {"ySprite_hsl_fragment", nullptr, 0, kF1221, 1, kP1221, 2, "FX_TINT FX_HSL"},
+  {"ySprite_tint_constant_vertex", kI1222, 2, kF1222, 4, kP1222, 2, ""},
+  {"ySprite_tinted_fragment", nullptr, 0, nullptr, 0, kP1223, 2, "FX_TINT"},
+  {"ySprite_vertex_color_tinted_vertex", kI1224, 3, kF1224, 4, kP1224, 2, "FX_VERTEX_COLOR FX_TINT"},
+  {"ySprite_vertex_color_vertex", kI1225, 3, kF1225, 3, kP1225, 2, "FX_VERTEX_COLOR"},
+  {"ySprite_yuv_alpha_fragment", nullptr, 0, nullptr, 0, kP1226, 2, "FX_YUV FX_YUV_ALPHA"},
+  {"ySprite_yuv_fragment", nullptr, 0, nullptr, 0, kP1227, 2, "FX_YUV"},
+  {"yToneMap_final_fragment", nullptr, 0, kF1228, 1, kP1228, 1, "FINAL"},
+  {"yToneMap_initial_fragment", nullptr, 0, kF1229, 1, kP1229, 1, "INITIAL"},
+  {"yToneMap_iterative_fragment", nullptr, 0, kF1230, 1, kP1230, 1, "ITERATIVE"},
+  {"yToneMap_quad_vertex", kI1231, 2, nullptr, 0, kP1231, 1, ""},
+  {"yVelocity_motion_fragment", nullptr, 0, nullptr, 0, kP1232, 2, ""},
   {"yZPass_base_fragment", nullptr, 0, nullptr, 0, nullptr, 0, ""},
-  {"yZPass_base_vertex", kI1233, 1, kF1233, 1, nullptr, 0, ""},
-  {"yZPass_depth_override_fragment", nullptr, 0, kF1234, 1, nullptr, 0, "FX_DEPTH_OVERRIDE"},
-  {"yZPass_multi_bone_vertex", kI1235, 4, kF1235, 3, nullptr, 0, "FX_MULTI_BONE"},
-  {"yZPass_single_bone_vertex", kI1236, 2, kF1236, 3, nullptr, 0, "FX_SINGLE_BONE"}
+  {"yZPass_base_vertex", kI1234, 1, kF1234, 1, nullptr, 0, ""},
+  {"yZPass_depth_override_fragment", nullptr, 0, kF1235, 1, nullptr, 0, "FX_DEPTH_OVERRIDE"},
+  {"yZPass_multi_bone_vertex", kI1236, 4, kF1236, 3, nullptr, 0, "FX_MULTI_BONE"},
+  {"yZPass_single_bone_vertex", kI1237, 2, kF1237, 3, nullptr, 0, "FX_SINGLE_BONE"}
 };
 }  // namespace rdr_scene::fxt

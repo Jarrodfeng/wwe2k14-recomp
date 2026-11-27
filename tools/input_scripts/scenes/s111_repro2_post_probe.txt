@@ -1,0 +1,113 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on
+# S111 REPRO2 probe 4: the whole logo flow on the MAT: RING tab > MAT > COLOR (red, as caa_make_arena.txt) > LOGOS > DESIGNS > A picks > A places (the logo lands on the mat centre) >
+# colour page: DOWN = SAMPLE COLORS, A, RIGHT x4, A, DOWN x5 = ACCEPT, A. Probe 3 showed DOWN x5 from the colour page's first row (PREVIOUS COLOR) is DEFAULT, not ACCEPT.
+# Same entry as caa_make_arena.txt (new custom arena in slot 1 of a COPY of the frozen mirror, nothing saved). Presses 250 frames apart (replay mode).
+# Question: where does a finished logo return to (placement view, carousel, mat page) and does the logo show with its colour?
+on_fail quit
+log bench: start repro2 mat logo probe 4
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+wait_frames 300
+press RB
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press A
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press RIGHT
+wait_frames 250
+press RIGHT
+wait_frames 250
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 400
+log scene=s_mat_col
+screenshot s_mat_col
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press A
+wait_frames 400
+press A
+wait_frames 500
+press A
+wait_frames 500
+log scene=s_logo_colour
+screenshot s_logo_colour
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+repeat 4
+press RIGHT
+wait_frames 250
+end_repeat
+press A
+wait_frames 250
+log scene=s_logo_swatch
+screenshot s_logo_swatch
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+log scene=s_logo_accept_row
+screenshot s_logo_accept_row
+press A
+wait_frames 600
+log scene=s_logo_done
+log_text 8
+screenshot s_logo_done
+press B
+wait_frames 400
+log scene=s_b1
+log_text 8
+screenshot s_b1
+press B
+wait_frames 400
+log scene=s_b2
+log_text 8
+screenshot s_b2
+press B
+wait_frames 400
+log scene=s_b3
+log_text 8
+screenshot s_b3
+log bench: done
+quit

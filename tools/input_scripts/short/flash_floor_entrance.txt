@@ -1,0 +1,89 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=343,324 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S111 FLASHRUN (docs\research\s111\FLASHSPACE.md, Not settled): crowd camera flashes, in the ENTRANCES (the CONTROL of flash_floor_match.txt; the ring-cone spawner: 1900 out and 240 up or more, outer 2800-3800): Lesnar v Bryan with entrances, from the first entrance file, quits before the bell.
+# The game turns flashes on through the countdown word 0x835E198C (states.toml flash_countdown, -1 = none; the live values are small: 9..10 ticks).
+# Each time it goes above 0 the route takes a burst of pictures (every guest frame for 14 frames, `dup` = all kept, the write throttle drops the rest) under its own label
+# (fle01..fle12: one label per burst, a repeated label would overwrite the files); 12 bursts, each wait optional.
+# Read: the `[scene][flashes] near flash:` lines (radius / height classes: docs\research\s111\FLASHSPACE.md) and `screenshot saved: ... guest frame N` to pair them with the shots.
+on_fail quit
+log bench: start scene flash_floor_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_file BG04.PAC 900
+log scene=entrances
+mark 1 entrances
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 1)
+screenshot_every 1 fle01 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 2)
+screenshot_every 1 fle02 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 3)
+screenshot_every 1 fle03 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 4)
+screenshot_every 1 fle04 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 5)
+screenshot_every 1 fle05 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 6)
+screenshot_every 1 fle06 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 7)
+screenshot_every 1 fle07 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 8)
+screenshot_every 1 fle08 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 9)
+screenshot_every 1 fle09 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 10)
+screenshot_every 1 fle10 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 11)
+screenshot_every 1 fle11 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+wait_state flash_countdown >0 800 2 optional
+log bench: flash countdown on (burst 12)
+screenshot_every 1 fle12 dup
+wait_frames 14
+screenshot_every 0
+wait_frames 20
+log bench: done
+quit

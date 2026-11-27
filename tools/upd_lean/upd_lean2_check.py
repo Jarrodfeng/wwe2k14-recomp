@@ -27,11 +27,15 @@ def fail(msg):
     return 1
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
     p = os.path.join(root, rel.replace('/', os.sep))
     if not os.path.isfile(p):
         raise FileNotFoundError(p)
-    return open(p, encoding='utf-8').read()
+    return read_path(p)
 
 
 def build(root):
@@ -112,7 +116,7 @@ def run_lints(root):
 # ---- the SEH class (U3 review, blocker 1) ------------------------------------------------------------------------------------------------------------------------------
 # The game target (main.cpp and every header it includes) is NOT built with async exceptions: clang's __try then catches only a fault inside a CALLEE of the try body. So every __try body must
 # call through a `(*volatile name)` function pointer (SafeCopy's pattern) and may not touch guest memory itself. probe_plugin.h belongs to the probes target (built with -fasync-exceptions,
-# CMakeLists.txt:393) and platform/compat.h defines __try away: both allowed.
+# CMakeLists.txt) and platform/compat.h defines __try away: both allowed.
 SEH_ALLOW = ('src/probe_plugin.h', 'src/platform/compat.h')
 
 
@@ -145,7 +149,7 @@ def run_seh_lint(root):
         for fn in fns:
             if fn.endswith(('.h', '.cpp')):
                 p = os.path.join(dp, fn)
-                files.append((os.path.relpath(p, root).replace(os.sep, '/'), open(p, encoding='utf-8', errors='replace').read()))
+                files.append((os.path.relpath(p, root).replace(os.sep, '/'), read_path(p)))
     if not any('__try' in t for _, t in files):
         return fail('SEH lint read no __try at all (a lint that reads nothing proves nothing)')
     bad = seh_offenders(files)

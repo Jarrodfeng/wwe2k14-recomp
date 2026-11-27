@@ -27,7 +27,7 @@ def read_tsv(path):
 
 def attribute(raw, rows):
     """-> ({site: observed targets}, n tail rows given to the one tail site of their function, n rows not placed). The recorder writes (func, ctx.lr, target)
-    (src/icall_observe.h:10): at a bctrl lr - 4 is the site, in func; at a tail bctr lr is the CALLER's return address, so the row belongs to a bctr of func,
+    (src/icall_observe.h): at a bctrl lr - 4 is the site, in func; at a tail bctr lr is the CALLER's return address, so the row belongs to a bctr of func,
     not to the site at lr - 4 (that site's own target only tail-branched there). A tail row goes to func's tail site when it has exactly one."""
     tails = collections.defaultdict(list)
     for site, (func, kind, shape, status) in rows.items():

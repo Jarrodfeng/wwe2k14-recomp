@@ -1,0 +1,10 @@
+name = "lib"
+module = "qlib"
+errors = ["qlib.LibError", "qlib.qnames.NamesError"]
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 88
+text = '''  lib UNIT | --stats | --build  is a unit third-party library code (Havok, Wwise, Lua, Bink, zlib, LZX, CRT)? by strings or by range (tools/q/qlib.py)'''

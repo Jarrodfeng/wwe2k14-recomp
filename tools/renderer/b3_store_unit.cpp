@@ -41,11 +41,9 @@ struct FakeRenderer {
   void RegisterShaderCatalog(const ShaderBlobDesc* b, size_t n) { ++calls, got.assign(b, b + n); }
 };
 
-struct FakeVariant {
+struct FakeVariant {   // rdr::fx::Variant's catalog fields (S111 TOOLLINK: no word address; the words come from FakeWords by row index, as rdr::fx::Words)
   const char* name;
-  const uint32_t* spirv;
   size_t bytes;
-  const uint32_t* spirv_alpha;
   size_t bytes_alpha;
 };
 
@@ -56,13 +54,15 @@ struct FakeOwn {   // rdr::fx::OwnShader
 };
 
 static const uint32_t kW1[4] = {1, 2, 3, 4}, kW2[4] = {5, 6, 7, 8}, kW3[4] = {9, 10, 11, 12}, kW4[4] = {13, 14, 15, 16}, kW5[4] = {17, 18, 19, 20};
-static const FakeVariant kFake[] = {{"vs_a", kW1, 16, nullptr, 0}, {"ps_a", kW2, 16, kW3, 16}, {"vs_b", kW3, 16, nullptr, 0}};
+static const FakeVariant kFake[] = {{"vs_a", 16, 0}, {"ps_a", 16, 16}, {"vs_b", 16, 0}};
+static const uint32_t* const kFakeWords[][2] = {{kW1, nullptr}, {kW2, kW3}, {kW3, nullptr}};
+static const uint32_t* FakeWords(size_t i, bool alpha) { return kFakeWords[i][alpha ? 1 : 0]; }
 static const FakeOwn kFakeOwn[] = {{"rdr_own_vert", kW4, 16}, {"rdr_own_frag", kW5, 16}};
 
 // What SceneHost::Start does after Renderer::Create (the wiring lint in b3_store_unit.py checks the real call is there). `own_range` false = the old variants-only walk (plant 6).
 static size_t FakeStart(FakeRenderer& r, bool call_register, bool own_range = true) {
   if (!call_register) return 0;
-  return sh::RegisterShaderCatalogFrom(r, std::begin(kFake), std::end(kFake), std::begin(kFakeOwn), own_range ? std::end(kFakeOwn) : std::begin(kFakeOwn));
+  return sh::RegisterShaderCatalogFrom(r, std::begin(kFake), std::end(kFake), FakeWords, std::begin(kFakeOwn), own_range ? std::end(kFakeOwn) : std::begin(kFakeOwn));
 }
 
 int main(int argc, char** argv) {

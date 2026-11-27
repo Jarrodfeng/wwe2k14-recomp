@@ -277,13 +277,15 @@ function Invoke-RunListScript([string]$s, [string]$ScriptExtra, $Lock, [string]$
             Write-Host "[run_list] $(Split-Path $s -Leaf): route lint TIMED OUT after 90 s: not refusing the run"
         }
     }
+    if ($HarvestPipelines -and "$Extra" -notmatch 'wwe2k14_rdr_dynamic_state') { $Extra = "$Extra --wwe2k14_rdr_dynamic_state=0" }   # S111 DYNSTATE: a harvested list feeds the shipped seed, which holds FULL states (pipeline_seed.py decode_list refuses a list made with per-draw state)
     $loadStart = Get-LoadSnapshot   # lane 302: what else the PC is running when this run starts
     $out = & "$R\tools\run_and_triage.ps1" -WaitSeconds $WaitSeconds -KillAfterWait:(-not $NoKill) -Exe $Exe -Exclusive:($Lock.Mode -eq 'Exclusive') -ExtraArgs "$flags $Extra" 2>&1
     $loadEnd = Get-LoadSnapshot
     $log = ($out | Select-String '=== log: (wwe2k14_\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) -join ','
     if ($HarvestPipelines) {   # S106 PSEED arm e: the run's list is the real keys of the fixed families (UI, post, maps, particles) the census cannot draw yet; read at the run's end, never during it
         $hp = Get-ChildItem -Path (Join-Path $R "out\bench\$work") -Recurse -Filter pipelines.bin -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'renderer_pipelines' } | Select-Object -First 1
-        if ($hp -and $log) { $hd = Join-Path $R 'out\pipeseed\harvest'; New-Item -ItemType Directory -Force $hd | Out-Null; Copy-Item $hp.FullName (Join-Path $hd (($log -split ',')[0] + '.bin')) -Force; Write-Host "[run_list] harvested the pipeline list of $log" }
+        if ($hp -and $log) { $hd = Join-Path $R 'out\pipeseed\harvest'; New-Item -ItemType Directory -Force $hd | Out-Null; $hx = (Split-Path (Split-Path ([IO.Path]::GetFullPath($Exe)) -Parent) -Leaf) -replace '[^A-Za-z0-9_.-]', '_'; Copy-Item $hp.FullName (Join-Path $hd ($hx + '_' + ($log -split ',')[0] + '.bin')) -Force;   # S111 TOOLFIX3: exe folder + log number (a log number is per exe folder: a bare number let a later tip exe overwrite an earlier run's bin)
+ Write-Host "[run_list] harvested the pipeline list of $log" }
         else { Write-Host '[run_list] -HarvestPipelines: no stored pipeline list found (the store is off, or the run wrote none)' }
     }
     if ($log -match '^wwe2k14_\d+$') {   # S108 OPT: the run's save-options line, for tools\bench\run_read.py (it prints it at the top; second line = the exe folder the log is in)

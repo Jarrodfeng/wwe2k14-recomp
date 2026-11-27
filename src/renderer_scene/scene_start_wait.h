@@ -13,7 +13,7 @@
 //     game's own "not yet" (sub_825C0718 +AC..+B4 polls it again next frame). With the word 4 step 3 only holds the FADE black for the entrance: no start there.
 // ONE decision, latched per start: ARMED at each match load (sub_8273D0C0 step 0) and at each card item (sub_82331DD8). A point holds only while armed AND the loading card is up: the
 // requester G = [0x83924744] is not idle (G+8 a posted request, sub_827E5740 +44; G+4 its state and G+84 the screen while it is shown or closing: sub_827E67C0 takes the request at +88..+94
-// and CLEARS G+8 while the card is on screen, then frees G+84 / G+4 at +240..+2A8; the CASREADY rule, src\cas_goto_core.h:206-213). The first pass, or a start point reached with the card
+// and CLEARS G+8 while the card is on screen, then frees G+84 / G+4 at +240..+2A8; the CASREADY rule, src\cas_goto_core.h). The first pass, or a start point reached with the card
 // down, spends the arm: the other point passes in the same
 // frame, and no later start (the next wrestler's part, a mid-match entrant, a run-in) ever waits; nothing is ever held over a picture the player sees.
 // The decision: the host handled a frame after this start's first poll and, at that frame, had asked for nothing new (a build) and had no non-bulk load queued, running or waiting to be

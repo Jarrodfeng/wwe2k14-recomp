@@ -47,9 +47,11 @@ def main():
         print('twin %-18s %s (%s)' % (plant, 'caught' if ok else 'NOT CAUGHT', ' / '.join(names)))
         bad += 0 if ok else 1
 
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     need = [
         ('src/renderer_adapter/rdr_switches.h', 'X(StageVis, "wwe2k14_rdr_stage_vis", PerFrame, 0)', 'the switch is in the table (default off)'),
         ('src/renderer_adapter/reader.h', 'REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_vis, false', 'the cvar exists, default false'),

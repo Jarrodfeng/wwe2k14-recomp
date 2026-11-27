@@ -2,7 +2,7 @@
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 // Header only. The drawers (rf_props.cpp: weapons / event props / stage pieces / gm sets / blood splats; rf_ring.cpp: the ring pieces, CPU and GPU path) and the offline unit
 // (tools\weapons\al1_sites_unit.cpp) call THESE functions. The test is O(1) a call: `need` is RowsNeeded(bound) (ring_pose.h), computed once per bound model; the report (a lock and a set lookup)
-// runs only when need > given, which is exactly the case where PoseMesh leaves vertices at their file position (ring_pose.h:78 skips an influence with bones[k] >= count).
+// runs only when need > given, which is exactly the case where PoseMesh leaves vertices at their file position (ring_pose.h skips an influence with bones[k] >= count).
 #pragma once
 #include <cstdint>
 #include <cstdio>

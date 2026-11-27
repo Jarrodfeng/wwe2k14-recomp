@@ -39,7 +39,9 @@ def lint(handoff, capture_reader, reader):
 if __name__ == '__main__':
     import os, sys
     root = sys.argv[1] if len(sys.argv) > 1 else '.'
-    rd = lambda p: open(os.path.join(root, p), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    rd = lambda p: read_path(os.path.join(root, p))
     pr = lint(rd('src/renderer_adapter/frame_handoff.h'), rd('src/renderer_adapter/capture_reader.h'), rd('src/renderer_adapter/reader.h'))
     print('\n'.join(pr) or 'lint clean')
     sys.exit(1 if pr else 0)

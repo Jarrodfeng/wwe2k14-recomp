@@ -1,0 +1,9 @@
+name = "save"
+module = "qsave"
+qerror = false
+broken_pipe = false
+usage_slot = "u31"
+
+[[usage]]
+order = 31
+text = '''  save [titles|options|dlc|caw|threads] [--data M]   decode a user-data mirror (tools/save/save_read.py; docs/formats/save_data.md); `save check EXPR...` exits 1 when a precondition is false'''

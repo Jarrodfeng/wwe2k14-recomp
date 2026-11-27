@@ -98,6 +98,10 @@ def scan(files, stream_only=frozenset()):
     return errs, len(names)
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def load(root):
     out = []
     for dp, dn, fn in os.walk(os.path.join(root, 'src')):
@@ -105,7 +109,7 @@ def load(root):
             if f.endswith(('.h', '.cpp', '.inl')):
                 p = os.path.join(dp, f)
                 try:
-                    out.append((os.path.relpath(p, root), open(p, encoding='utf-8', errors='replace').read()))
+                    out.append((os.path.relpath(p, root), read_path(p)))
                 except OSError:
                     pass
     return out

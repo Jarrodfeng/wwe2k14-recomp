@@ -1,7 +1,7 @@
 r"""S110 SCENEMOMENTS (docs\research\s110\SCENEMOMENTS.md section 3): the scene tool's LOG line, told against the error-level groups every clean run
 prints. Read only by tools\scene\go.py's hand-back: tools\bench\run_read.py itself is unchanged for its other callers.
 
-run_read groups error-level lines by err_norm (paths and numbers out, run_read.py:128-134); 3+ mixed error lines in a row on one thread are one
+run_read groups error-level lines by err_norm (paths and numbers out, run_read.py); 3+ mixed error lines in a row on one thread are one
 `burst: FIRST` group (:176-189); the groups never decide its exit without --strict-errors (:17-25). Every clean run of the tip exe printed the same
 four at boot (runs 246-249: out\exe\tip-c9454aa1e\logs\wwe2k14_002..005.log, read 2026-11-25 with run_read --json): KNOWN below. Any other group
 is NEW and named; so is a second memory dump in one run. PROBLEMS (run_read's own verdict) are always counted, and the first is named.

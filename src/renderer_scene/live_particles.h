@@ -20,6 +20,7 @@
 
 #include "front_end.h"
 #include "particle_tables.h"
+#include "rows_quad2d.h"   // S111 FLATSEQ: RecordFlat places the groups by the rows' seq
 #include "stage_hook.h"
 
 namespace rdr_scene {
@@ -51,6 +52,7 @@ struct LiveParticlesStats {
   uint64_t unnamed_skipped = 0;     // CAWH: batches with no texture that were NOT drawn (SetSkipUnnamed); printed as particles_unnamed_skipped
   uint64_t lit_particles = 0;      // particles drawn one at a time (use_normal >= 0.9)
   uint64_t viewer_space_mirrored = 0;  // frames drawn in the viewer's space (the game-space tables are mirrored by S = diag(1, -1, 1))
+  uint64_t flat_groups = 0;         // S111 TITLESMOKE: RecordFlat calls that drew a batch (a flat frame's groups: the title / menu backdrop particles)
 };
 
 struct ParticleDrawVertex {  // the census's stride-32 layout, as the effect's inputs read it
@@ -85,11 +87,22 @@ class LiveParticles final : public StageHook {
   void SetSkipUnnamed(bool s) { skip_unnamed_ = s; }
   const char* Name() const override { return "particles"; }
   void Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& builder) override;
+  // S111 TITLESMOKE (flat_particles.h): a FLAT frame's particle group (the title's and menus' backdrop emitters, which the game's particle node draws with the thread's 2D screen camera:
+  // ParticleTables::screen) onto the target the caller has set (the stream-free host's F, between its 2D rows): only the batches whose row position (flat_particles::PosOf over the record's `nrows` rows `rows`, by their seq)
+  // is `pos`, with the record's screen view-projection, depth test off (F has no depth), in `viewport` (the game's box of F, as the 2D rows) clipped to `scissor`. SetFrame and
+  // SetTextureLookup as for Record (FrameHooks::AttachParticles).
+  struct FlatView {
+    const float* view_proj = nullptr;   // 16 floats, row vectors (ParticleScreen::view_proj)
+    rdr::Rect viewport, scissor;
+  };
+  void RecordFlat(const ParticleTables& pt, const FlatView& v, size_t pos, const Quad2D* rows, size_t nrows, rdr::FrameBuilder& builder);
   const LiveParticlesStats& stats() const { return stats_; }
   // "[scene][particles] frames N, batches B, particles P, draws D, stale S, soft_as_hard H, no_texture T, lit L": the census line (counters only).
   std::string CensusLine() const;
 
  private:
+  // Record and RecordFlat: the batches of `pt` drawn with ctx.view_proj in `dynamic` (flat = only the batches at row position `pos` among the `nrows` rows `rows`, depth test off, counted flat_groups).
+  void Draw(const ParticleTables& pt, const StageCtx& ctx, const rdr::DynamicState& dynamic, bool mirror, bool flat, size_t pos, const Quad2D* rows, size_t nrows, rdr::FrameBuilder& fb);
   bool EnsurePrograms();
   bool EnsureSoftPrograms();
   bool EnsureSoftDepth(uint32_t w, uint32_t h, bool scaled);

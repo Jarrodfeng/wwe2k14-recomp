@@ -1,0 +1,16 @@
+name = "exprdiff"
+module = "qexprdiff"
+needs = "con"
+errors = ["qexprdiff.ExprError", "qexprdiff.CD.DiffError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 62
+text = '''  exprdiff [--effect E] [--input NAME|GLOB] [--flag DIFF|GAME-ONLY|UNSETTLED|OK|PASS-NEVER] [--ref REF] [--all] [--values] [--json|--facts]   per GPU
+                               input lane (constdiff's name-table join + declared draw inputs), the GAME's expression (`q slice --expr`
+                               at the setter; material / code / image-constant leaves) against OURS (the resolver branch parsed lane by
+                               lane), compared in one normal form: DIFF / GAME-ONLY LEAF / UNSETTLED / OK (tools/q/qexprdiff.py).
+                               --input = a glob over effect:stage.cREG.lane, or a constant's name, exact or a prefix (Reflect, Reflect.w,
+                               g_f4Ref), across every effect that binds it. --values = per row whose leaves are material-record values,
+                               both sides evaluated on every record of the covered effects in the asset index (all sources):
+                               `DIFF, N of M records differ` with up to 3 example ids (tools/q/qexprvals.py)'''

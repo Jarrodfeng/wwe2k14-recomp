@@ -20,7 +20,6 @@
 #include "maps_census.h"   // S103 PMC2
 #include "props_map_switch.h"   // S103 MBC
 #include "prop_cache_sweep.h"   // S103 MBC review 3
-#include "shadow_fit_record.h"   // S103 E3: KeyLightFromRecord
 
 namespace rdr_scene {
 
@@ -49,8 +48,9 @@ bool MapsFaults::Parse(const std::string& list, MapsFaults& f, std::string& erro
     else if (w == "props_no_props") f.props_no_props = true;   // S103 PM2
     else if (w == "props_viewdepth_row2") f.props_viewdepth_row2 = true;
     else if (w == "props_casts_gm") f.props_casts_gm = true, props_casters::g_plant_cast_gm.store(true, std::memory_order_relaxed);
+    else if (w == "caster_piece_rows_ignored") f.caster_piece_rows_ignored = true;   // S111 SOCKSHADOW
     else {
-      error = "unknown maps fault '" + w + "' (transpose_light, no_casters, circles_wrong_frame, scale_prm, circles_all_stamps, fit_view_not_light, fit_key_not_negated, fit_no_bounds, circles_no_mesh, props_reader_mapb, props_bias_order, props_no_blobs, mapb_wrestlers_only, mapb_casts_gm, props_no_props, props_casts_gm, props_viewdepth_row2)";
+      error = "unknown maps fault '" + w + "' (transpose_light, no_casters, circles_wrong_frame, scale_prm, circles_all_stamps, fit_view_not_light, fit_key_not_negated, fit_no_bounds, circles_no_mesh, props_reader_mapb, props_bias_order, props_no_blobs, mapb_wrestlers_only, mapb_casts_gm, props_no_props, props_casts_gm, props_viewdepth_row2, caster_piece_rows_ignored)";
       return false;
     }
   }
@@ -108,19 +108,8 @@ void BuildMapsInput(const SceneTables& t, const MapsFaults& faults, const SceneT
     }
   }
 
-  // S103 E3: the fitted light camera's key light, only when it will be used (no game caster state, or forced). TOLD (the rig) wins over the record.
-  if (out.force_fit || !out.have_light) {
-    if (fit.have_told_key) {
-      std::memcpy(out.fit_key, fit.told_key, sizeof out.fit_key);
-      out.fit_key_valid = true, out.fit_key_told = true;
-      out.fit_key_why = "TOLD to the rig (not in the record)";
-    } else {
-      out.fit_key_valid = KeyLightFromRecord(t, out.fit_key, out.fit_key_why);
-    }
-  }
-
-  out.casters_expected = RecordHasWrestler(t);
-  out.shadow_hole = out.casters_expected && (out.force_fit || (!out.have_light && !out.has_caster_records)) && !out.fit_key_valid;   // review 2: decided here, before Record
+  // (S111 SHADOWKEY review: the fitted light camera reads no key light (its direction is the game's rule from the frame's main camera, shadow_light_rule.h), so no key is taken here and a
+  // record without one is not a shadow input hole: the S103 E3 key / hole rule is removed.)
 
   // The circle blobs: ONE stamp's entries, at most one per slot (a catch-up record repeats a character under older stamps).
   const SceneTables& cs = other ? *other : t;

@@ -147,6 +147,11 @@ enum ObjectFlags : uint32_t {
   kObjNodeRef128 = 4194304,   // S111 OWNNODEZ review: with kObjNodeOwn, the node's alpha test reference is 128/255, not 1/255: the CWDA node (sub_8272D0F0 +0x1C8, entry 6; blend 1 code 0, GEQUAL, z write inherited). Set by rf_props.cpp; frame-only.
   kObjNodeLate = 8388608,     // S111 PODGLASS review (see_through_order.h SeeRank): with kObjNodeAlpha / kObjNodeAdditive, the node is of a render category drawn AFTER category 33 (the Elimination Chamber's 35 / 36, sub_826F8F88):
                               // its alpha draws come after the character rank (the wrestlers' translucent pieces), as the game's walk draws them. Set by rf_props.cpp (stage_node_state.h); frame-only.
+  kObjAmbientColour = 16777216,   // S111 CAARING (car_rope_colours.h): tint[0..2] replace the rgb of MatAmbCol in every draw of the object (a created arena's rope: the game's sub_822A7F48). Set by rf_ring.cpp; frame-only.
+  kObjPieceHidden = 33554432,     // S111 SOCKPIECE (piece_hidden.h): an invisible SUBM piece of a NAMED owner that the game hides (instance +20 == 0: the SUBM draw loop sub_8259E488 skips it; Mick Foley's / Santino's sock, entry 28, outside the move).
+                                  // Carries pad (piece id) / layer (owner slot + 1), no bones. rf_wrestlers turns it into an alpha-0 row on the owner (the owner's merged mesh skips the piece) and draws nothing of its own: not a hole.
+  kObjBeforeBodies = 67108864,    // S111 FADEORDER (body_order.h): a model the game draws in a render category before the bodies' 13 + slot (the Elimination Chamber's category-3 node sub_826F8958):
+                                  // FrontEnd::Record's opaque list draws it before every wrestler mesh (OrderOpaque). Set by rf_props.cpp; frame-only.
   kObjDrawnByOwner = 32, // S103 NRBF: an invisible own-skeleton piece (hair, caps, glasses) that its OWNER body model draws (the game copies the owner's rows into it by name): not a hole, no model of its own.
                          // S103 PZF2 (EB): such an object also carries the piece's id in Object::pad (u16) and its owner's character slot + 1 in Object::layer; 0 in either = unknown (an older record): the draw side
                          // treats that as a hole. rf_wrestlers counts it drawn-by-owner only when the owner's resident model has a mesh of that piece id.

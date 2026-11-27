@@ -1,10 +1,10 @@
 r"""S110 SCENEMOMENTS (docs\research\s110\SCENEMOMENTS.md): the match moments a scene request waits on through the EVENT BUS, and the director recipe
 that makes a CPU match reach them. tools\run\scene.py calls parse() for an `at` word whose name is in HEAD, then wait_line(), expect() and recipe().
 
-The route line is `wait_event KIND [WORD] [KEY=VALUE ...] TIMEOUT` (src\input_script.h:139-150, src\event_wait_core.h ParseSpec; the kinds and their
+The route line is `wait_event KIND [WORD] [KEY=VALUE ...] TIMEOUT` (src\input_script.h, src\event_wait_core.h ParseSpec; the kinds and their
 fields are the table at the top of src\event_bus.h). The game prints each bus event as ONE line `[wwe2k14][event] {"f": F, "t": T, "kind": K, FIELDS}`
 (src\event_bus.h Emit :130-134): that line is the `# expect:` text. The runner's own `[input] line N: event ... after` line is not, because
-tools\bench\run_read.py ignores the route's own lines for --expect (ECHO, run_read.py:91).
+tools\bench\run_read.py ignores the route's own lines for --expect (ECHO, run_read.py).
 
     at pin                      wait_event pin                      the referee's count started (judge [0x83767B6C]+72 -> 1)
     at count[=N]                wait_event count [count=N]          count 1..3
@@ -24,7 +24,7 @@ NOT ARRIVED at once instead of a 72000-frame blind wait. replay / replay_end com
 import re
 
 WAIT = 72000   # frames: the bound of every bus moment, the finish word's own (tools\run\scene.py wait_lines 'finish')
-# S110 SCENEMOM2: the end clause of a moment the finish makes impossible (S110 SCENESRC `until`, src\input_script.h:2460-2470). The moments that
+# S110 SCENEMOM2: the end clause of a moment the finish makes impossible (S110 SCENESRC `until`, src\input_script.h). The moments that
 # come AFTER the finish (the replay track: scene.py RANK puts them with the finish) wait without it: the mark does not move on an end, so
 # `until finish` would end them at once on the finish already logged.
 UNTIL = 'until finish'
@@ -45,15 +45,15 @@ FIELDS = {'count': ('count',), 'kickout': ('at_count',), 'finish': ('finish_name
 # src\event_bus.h FinishName :207-217: the route word (a route word has no spaces; '_' matches a space: src\event_wait_core.h Norm) -> the bus spelling
 FINISH_NAMES = {'pinfall': 'pinfall', 'count_out': 'count-out', 'count-out': 'count-out', 'dq': 'disqualification', 'disqualification': 'disqualification',
                 'submission': 'submission', 'last_one_left': 'last one left', 'time_limit': 'time limit', 'inferno': 'inferno',
-                'table': 'table'}   # type 2 under a table rule (src\event_bus.h:206-217, S110 TABLEEVENT)
+                'table': 'table'}   # type 2 under a table rule (src\event_bus.h, S110 TABLEEVENT)
 FINISH_WORDS = 'pinfall | count_out | dq | submission | last_one_left | time_limit | inferno | table'
 # S110 TOOLFIT (docs\research\s110\TOOLFIT.md 1): the bus spelling -> the finish_type its line prints (src\event_bus.h FinishName :220-231; type 2's
 # two names: src\table_break_core.h Kind1Name :71). One type per name, so the finish line's text from "what" to winner_slot is one substring that
 # a multi-fall rule's `fall` line (S110 ELIMFIN, src\event_bus.h :421, the same record after "what": "fall") never holds. scene_selftest pins this
 # table against FinishName's text.
 FINISH_TYPES = {'pinfall': 1, 'count-out': 2, 'table': 2, 'disqualification': 3, 'submission': 6, 'last one left': 7, 'time limit': 9, 'inferno': 10}
-MOVE_CLASSES = ('signature', 'finisher')   # class normal is emitted only with --wwe2k14_events_moves=all (src\event_bus.h:90-93): not offered
-# The finish recipe (docs\research\s110\BUSWAIT.md 8, tools\input_scripts\short\s110_buswait_check.txt:10-12; run 243 reached pin, count, finish and
+MOVE_CLASSES = ('signature', 'finisher')   # class normal is emitted only with --wwe2k14_events_moves=all (src\event_bus.h): not offered
+# The finish recipe (docs\research\s110\BUSWAIT.md 8, tools\input_scripts\short\s110_buswait_check.txt; run 243 reached pin, count, finish and
 # replay start / end with it): the seat S full momentum and one finisher stock, the other seat passive. {s} / {o}: the seat and the other one.
 RECIPE_FINISH = ('momentum {s} 100', 'stock {s} 1', 'passive {o} on')
 # S110 FINPICK (docs\research\s110\FINPICK.md): the seat's finisher wish (src\finisher_pick.h: the hook of the game's pair write sub_825FDE00 keeps
@@ -157,7 +157,7 @@ def expect(moment):
         text += ', "count": %s' % c['count']
     if name == 'kickout' and 'at_count' in c:
         text += ', "at_count": %s' % c['at_count']
-    if name == 'move' and 'slot' in c:   # not eliminated: a Rumble's line prints "n" before "slot" (src\event_bus_rumble.h:142); the wait filters the slot
+    if name == 'move' and 'slot' in c:   # not eliminated: a Rumble's line prints "n" before "slot" (src\event_bus_rumble.h); the wait filters the slot
         text += ', "slot": %s' % c['slot']
     return text
 

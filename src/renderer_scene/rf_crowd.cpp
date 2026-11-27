@@ -52,6 +52,7 @@ class CrowdHook final : public StageHook {
     if (o.fault_no_file_pictures) rdr_scene::live::crowd::g_sign_file_pictures.store(false, std::memory_order_relaxed);   // S103 CSF review 4: the one switch off = guest reads where a reader runs (never holes by themselves)
     o.fault_in_place_drawn_live = has("in_place_drawn_live");   // S103 SG2
     o.fault_props_two_sided = has("props_two_sided"), o.fault_props_cull_front = has("props_cull_front");   // S103 SG / SGF
+    o.fault_cards_two_sided = has("cards_two_sided");   // S111 CARDCULL
     if (has("only_props") || has("only_singles")) o.no_cards = true;
     if (has("only_props")) o.no_members = true;
     if (has("only_singles")) o.only_singles = true;

@@ -23,14 +23,23 @@
 #include <vector>
 
 #include "arena_lm.h"   // S103 B3: the arena's LightMapParam (c184) from the game's own table
+#include "arena_props_table.h"   // S111 ARENAFIX: which arena props the game places and the steps' colour (load_detail::ArenaPropsPlan)
+#include "arena_levels.h"   // S111 ARENALEVELS: the stage / crowd textures' level counts (the 50010 table, the record byte 24 names)
+#include "prop_levels.h"   // S111 PROPLEVELS: the prop builders' level counts (the PACH's entry-100 table over entry 10, entry 20 at 3)
+#include "chcommon_levels.h"   // S111 CHCOMMONCUBE: chCommon's entries 20 / 21 at the common load's 4
+#include "stage_levels.h"   // S111 STAGELEVELS: a bgEtc stage structure's texture set (keys 0 and 10) and its level counts
 #include "asset_model.h"
 #include "car_arena.h"   // S103 CAR: Create-an-Arena venues (ids 200-249): the merged part pac
 #include "crowd_motion.h"
 #include "dds.h"
+#include "belt_twin.h"   // S111 TEXDIRORDER: a title belt's twin by table 103 (BeltTwin)
+#include "tex_dir_order.h"   // S111 TEXDIRORDER: the game's texture directory order per reader (AddTexDirs)
 #include "entrance_light.h"
 #include "jboy.h"
+#include "model_create_scale.h"   // S111 MATLIVE: the game's model-create scale (the blood splat model, LoadBloodEntry)
 #include "piece_keys.h"   // S103 W2B / ENT
 #include "pac.h"
+#include "pac_path_answer.h"   // S111 PACANSWER: the game's own pac-list answer for /BOBJ/ /SOBJ/ /SPMT/ (PropPachAnswered)
 #include "xctd_ranged.h"   // S105 SKB3: the disc evtobj.pac read by blocks (load_detail::EvtRanged)
 #include "stage_key.h"
 #include "stage_media.h"
@@ -265,23 +274,28 @@ inline int OrdinalOfModelKeyAt(launcher::GameFiles& files, const std::string& re
 inline int OrdinalOfModelKey(launcher::GameFiles& files, int id, int key) { return OrdinalOfModelKeyAt(files, load_detail::WrestlerRel(id), key); }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
-                            bool prop_slots = false, bool character = true);  // (Session 99: prop_slots = also the PACH's model slots 1..9, LoadProp; S111 UNIFY5 review: character = false for LoadProp's event props)
+                            bool prop_slots = false, bool character = true,
+                            uint32_t char_levels = level_tag::kStockTexLevels);  // (Session 99: prop_slots = also the PACH's model slots 1..9, LoadProp; S111 UNIFY5 review: character = false for LoadProp's event props; S111 LEVELSBYTE: char_levels = the game's level count of a character's own directories)
 
 namespace load_detail {
 // Session 98 (wrestler fix 3): the texture directories every wrestler shares (pac\ch\chCommon.pac: `noise2`, the gear shader's tiled
 // detail texture g_mNoiseTilePrm, lives there and in no ch pac [C: texlist of ch161 / chCommon]). Read once, decoded; a wrestler's
 // own directories come first, these are the fallback. Empty until LoadWrestler has run once with the game files (a custom pac loaded
 // first gets them from the next load on).
-inline std::vector<Bytes>& CommonTexDirs() {
-  static std::vector<Bytes> d;
+// S111 CHCOMMONCUBE: each directory keeps its PACH entry id, the key of the game's count for it (chcommon_levels.h AddDir).
+struct CommonTexDir {
+  uint32_t key = 0;
+  Bytes dir;
+};
+inline std::vector<CommonTexDir>& CommonTexDirs() {
+  static std::vector<CommonTexDir> d;
   return d;
 }
-// S105 A7: the entries of a model PACH that are texture directories: 10..19 and 39. The game's Factory_Texture (sub_8271FEB8) reads 10, 11, 39, 12 [C: A7.md];
-// ours keeps its wider 10..19 and adds 39 (the game's order is not copied: the first directory still wins a name, and no stock pac has an entry 39).
-inline bool IsTexDirEntry(uint32_t id) { return (id >= 10 && id <= 19) || id == 39; }
-inline void AddTexDirs(TexSet& tex, const Bytes& buf, const pac::Pach& hh) {
-  for (const pac::Ent& e : hh.ents)
-    if (IsTexDirEntry(e.id) && e.size >= 0x30) tex.AddDir(pac::Decode(buf.data() + e.off, e.size));
+// S105 A7 / S111 TEXDIRORDER: the texture directories of a model PACH, added in the order the game's reader lists them (tex_dir_order.h): a character's 10, 11,
+// 39, 12 (Factory_Texture sub_8271FEB8, then the composite's base), an entrance prop's 10, 20 (MakeWeapon sub_8272D710). The first directory wins a name, as the
+// game's lookup. `character` = false for an entrance prop (LoadWrestlerPac's `character`, LoadPropEntry).
+inline void AddTexDirs(TexSet& tex, const Bytes& buf, const pac::Pach& hh, bool character = true, uint32_t char_levels = level_tag::kStockTexLevels) {   // S111 LEVELSBYTE: char_levels = the load request's count (level_tag.h)
+  tex_dir_order::Add(tex, buf, hh, character ? tex_dir_order::Owner::kCharacter : tex_dir_order::Owner::kEventProp, char_levels);
 }
 // S108 AL1: chCommon.pac was tried and gave no texture directory: why (empty = not tried, or it gave some). Every wrestler model then names shared textures (all0, noise, u_body, sweat_bump ...) that
 // no directory holds: a fault, not the game's choice (LoadWrestlerPac says it as a `texture_pac` shortfall).
@@ -298,12 +312,18 @@ inline void LoadCommonTexDirs(launcher::GameFiles& files) {
   if (!pac::Open(files, "pac\\ch\\chCommon.pac", p, e)) { CommonTexError() = e.empty() ? std::string("did not open") : e; return; }
   for (const pac::Pach& h : p.pachs)
     for (const pac::Ent& en : h.ents)
-      if (en.id >= 10 && en.id <= 29 && en.size >= 0x30) CommonTexDirs().push_back(pac::Decode(p.bytes.data() + en.off, en.size));
+      if (en.id >= 10 && en.id <= 29 && en.size >= 0x30) CommonTexDirs().push_back({en.id, pac::Decode(p.bytes.data() + en.off, en.size)});
   if (CommonTexDirs().empty()) CommonTexError() = "opened, but no entry 10..29 is a texture directory";
+}
+// S111 CHCOMMONCUBE (docs\research\s111\CHCOMMONCUBE.md): chCommon's directories into `tex`, each with the game's count for its entry (chcommon_levels.h AddDir: 20 / 21
+// at 4, the cube list included; others the file's chain). The one way both readers add them: LoadWrestlerPac (the shared fallback, last) and guest_env_cube::LoadCubes.
+inline void AddCommonTexDirs(TexSet& tex) {
+  for (const CommonTexDir& c : CommonTexDirs()) chcommon_levels::AddDir(tex, Bytes(c.dir), c.key);
 }
 }  // namespace load_detail
 
-inline bool LoadWrestlerAt(launcher::GameFiles& files, const std::string& rel, int id, int attire, Model& m, std::string& err) {   // S110 LIBSIZE: `rel` = the file (AttireCountAt)
+inline bool LoadWrestlerAt(launcher::GameFiles& files, const std::string& rel, int id, int attire, Model& m, std::string& err,
+                           uint32_t char_levels = level_tag::kStockTexLevels) {   // S110 LIBSIZE: `rel` = the file (AttireCountAt). S111 LEVELSBYTE: char_levels = the game's count (level_tag.h TexLevelsOfEntry)
   using namespace load_detail;
   m = {};
   LoadCommonTexDirs(files);
@@ -312,7 +332,7 @@ inline bool LoadWrestlerAt(launcher::GameFiles& files, const std::string& rel, i
   else std::snprintf(lab, sizeof lab, "wrestler %d (%.80s) attire %d", id, rel.c_str(), attire);   // a library file: every one is CH497, the folder names him
   const pac::Pac* p = OpenCached(files, rel, err);
   if (!p) return false;
-  return LoadWrestlerPac(p, lab, BaseName(rel), attire, m, err);
+  return LoadWrestlerPac(p, lab, BaseName(rel), attire, m, err, false, true, char_levels);
 }
 inline bool LoadWrestler(launcher::GameFiles& files, int id, int attire, Model& m, std::string& err) { return LoadWrestlerAt(files, load_detail::WrestlerRel(id), id, attire, m, err); }
 
@@ -470,8 +490,11 @@ inline bool LoadProp(launcher::GameFiles& files, int pach, Model& m, std::string
   char lab[64];
   std::snprintf(lab, sizeof lab, "prop %d", pach);
   // (Session 99 review) the title belts (the pac directory's "BOBJ" section: 154 of evtobj.pac's PACHs, 349-366, 451-460 ..) keep slot 0
-  // only: their entry 4 is one 20-vertex piece bound to `root` alone (a plate at the bind pose) that would not follow the posed strap;
-  // the game's draw of Cena's 352 (no entry 4) is the only belt reference [U whether the game draws a belt's entry 4].
+  // only HERE: their entry 4 is one 20-vertex piece bound to `root` alone (the plate / nameplate piece) that one merged palette would not pose.
+  // S111 BELTENTRY [C]: the GAME draws a belt's entry 4: MakeWeapon (sub_8272D710) builds a model per present entry 0..9 and the CWDT node
+  // (sub_8272C5F8) draws entry 4, blended, posed by the CWeapon's skeleton (docs\research\s111\PROPORDER.md). The live game takes belts per
+  // entry (live_assets.cpp "evtprop:" -> LoadPropEntry, entry 4 included); this merged read serves the viewer and "prop:N" record objects,
+  // so the viewer still shows a belt without entry 4 (a viewer gap, named in docs\research\s111\BELTENTRY.md).
   bool belt = false;
   if (p->bytes.size() >= 0x4000 && std::memcmp(p->bytes.data(), "EPAC", 4) == 0) {
     std::string sec(reinterpret_cast<const char*>(p->bytes.data() + 0x800), 4);
@@ -492,7 +515,7 @@ inline bool LoadProp(launcher::GameFiles& files, int pach, Model& m, std::string
 // S103 BLF (docs\research\s103\BELT.md Adversary 1; docs\formats\evtobj_pac.md): ONE model of an entrance's event prop, for the POSED draw: entry `k` (0..9) of evtobj.pac PACH `pach` (DLC numbering as LoadProp). MakeWeapon
 // sub_8272D710 builds one CSkinModel per present entry id k of the prop's PACH (loop 0x8272DEAC..0x8272EA58), each posed by its own palette, so the live drawer loads each entry as its own model (LoadProp merges slots 1..9 into
 // one, which only a single palette could pose). Read like LoadM2Weapon's: arena stream layout, each mesh keeps its palette -> node map (Mesh::palette_nodes / rigid_node / src_skin_*) and the vertices stay in the viewer's
-// space (FinishModel), NO placement: the call's node rows pose it (weapon_draw_core.h). Textures: entries 10..19 of the same PACH (the game's key 10 [C: LoadProp's read]).
+// space (FinishModel), NO placement: the call's node rows pose it (weapon_draw_core.h). Textures: entries 10 then 20 of the same PACH (MakeWeapon's list: tex_dir_order.h).
 inline bool LoadPropEntry(launcher::GameFiles& files, int pach, uint32_t k, Model& m, std::string& err) {
   using namespace load_detail;
   m = {};
@@ -519,8 +542,7 @@ inline bool LoadPropEntry(launcher::GameFiles& files, int pach, uint32_t k, Mode
   const Bytes blob = pac::Decode(p->bytes.data() + e->off, e->size);
   if (!IsJboy(blob)) return err = name + " PACH " + std::to_string(ord) + " entry " + std::to_string(k) + " is not a JBOY", false;
   TexSet tex;
-  for (const pac::Ent& t : h.ents)
-    if (((t.id >= 10 && t.id <= 19) || t.id == 20) && t.size >= 0x30) tex.AddDir(pac::Decode(p->bytes.data() + t.off, t.size));   // S103 RFL: + entry 20, the PACH's second texture directory (the reflection cubes: cube_ref / cube_01 ...; census: every named cube of a prop is found there; the m2 weapons read 10 + 20 the same way, LoadM2Weapon)
+  AddTexDirs(tex, p->bytes, h, false);   // S111 TEXDIRORDER: an entrance prop's 10 then 20 (tex_dir_order.h; S103 RFL: entry 20 = the reflection cubes cube_ref / cube_01 ...)
   JboyOptions o;
   o.arena = true;
   o.prop_slot = k >= 1;   // (the slots' cut-out materials are alpha-blended: LoadWrestlerPac's rule for prop slots)
@@ -537,7 +559,9 @@ inline bool LoadPropEntry(launcher::GameFiles& files, int pach, uint32_t k, Mode
 // S103 PW-3 (docs\research\s103\PW_adversary.md 4a, 4b): a WEAPON / prop of the match's weapon manager, from the player's own pac\m2.pac: top-level PACH 0, nested key 1000, nested key `id` = the weapon id
 // (the game's own path: sub_82582D08 finds key 1000, sub_8258FF90 finds key = id [C]); entry 0 = the JBOY model, textures = entries 10..19 of that leaf (the game's key 10; the same read as
 // prop_game_space.cpp AddSource). Read like the arena loader's props (AddProp): arena stream layout, each mesh keeps its palette -> node map (Mesh::palette_nodes / rigid_node), vertices in the viewer's space (FinishModel),
-// NO placement: the call's node rows pose it (src\renderer_scene\weapon_draw_core.h). Id 14 (the belts) is nested one level deeper under a sub-key the game takes from [0x836F2D88] [L]: refused here, counted by the drawer.
+// NO placement: the call's node rows pose it (src\renderer_scene\weapon_draw_core.h). Id 14 (the belts) is nested one level deeper, p0/1000/14/<sub-key> [C, S111 BELTENTRY]: SetWeaponData (sub_8258FF90)
+// takes the title object's +8 when [[0x8376AAF0]+72428] is set, else [[0x836F2D88]+189208], else 1, low 16 bits, and key 0 when the pac lacks it: `belt_sub` (the live caller passes
+// scene_live\weapon_mgr_reader.h BeltSubKey's answer, as "belt:<sub>"); refused only when no sub-key is given.
 // `model_entry` = which leaf entry is the model: 0 = the weapon's main model, 1 / 2 = its SECONDARY models k = 0 / 1 (the game's keys 1 / 2 of the weapon's PACH, sub_8258FF90 loop k < 2 [C]; the k -> key k+1 order [L]; m2 p0 has them for id 89 only);
 // a secondary shares the leaf's textures (key 10 [L]). Textures: key 10 and key 20 (a second texture directory in ids 29-37, read with key 10 by MakeSkinModel sub_8258E270 [C]; same directory layout as key 10, 12464 bytes [C census]).
 // `tex_first` = the first texture entry read (10 = the game's); the offline unit plants 11 to prove the key matters. m2.pac (31 MB) is opened once per program (OpenM2, S105 SKB; the callers hold LoadMutex).
@@ -571,8 +595,7 @@ inline bool LoadM2Weapon(launcher::GameFiles& files, int id, Model& m, std::stri
   const Bytes blob = pac::Get(nb, np, model_entry);
   if (!IsJboy(blob)) return err = "m2.pac p0/1000/" + std::to_string(id) + ": entry " + std::to_string(model_entry) + " is not a JBOY", false;
   TexSet tex;
-  for (const pac::Ent& e : np.ents)
-    if (((e.id >= tex_first && e.id <= 19) || (e.id == 20 && tex_first <= 10)) && e.size >= 0x30) tex.AddDir(pac::Decode(nb.data() + e.off, e.size));
+  prop_levels::AddWeaponDirs(tex, nb, np, tex_first);   // S111 PROPLEVELS: 10..19 and 20, with SetWeaponData's entry-100 table (sub_8258FF90) and the set builder's 3 (sub_8258E270)
   JboyOptions o;
   o.arena = true;
   o.part = "weapon " + std::to_string(id) + (model_entry ? "/" + std::to_string(model_entry) : std::string());
@@ -587,7 +610,7 @@ inline bool LoadM2Weapon(launcher::GameFiles& files, int id, Model& m, std::stri
 
 // S103 CGF (docs\research\s103\CAGE.md section 1 / 3, docs\formats\bgetc_stg_structures.md): ONE model of a STAGE STRUCTURE (steel cage CAGE / CABU / CABA, Hell in a Cell, Elimination Chamber, Inferno) from the player's own
 // pac\bg\bgEtc.pac: top-level PACH `pach` (the game's path row: 0 CAGE, 1 CABU, 2 CABA, 3 CELL, 6 CHAI, 7 INFE), nested key 1 = the models, entry `k` = the model the holder's slot [H+76+4k] was made from (JBOY); textures = the PACH's
-// top-level entries 0 and 10..19 (the game's [H] texture set, sub_82577300). Read like LoadPropEntry's: arena stream layout, each mesh keeps its palette -> node map, vertices in the viewer's space (FinishModel), NO placement (the
+// top-level entries 0 and 10 (the game's [H] texture set, sub_82577300; S111 STAGELEVELS: stage_levels.h AddStructDirs, with the builder's level counts). Read like LoadPropEntry's: arena stream layout, each mesh keeps its palette -> node map, vertices in the viewer's space (FinishModel), NO placement (the
 // call's node rows pose it) and NOT the prop-slot alpha rule (k is a structure part here, not a cut-out slot). bgEtc is opened through OpenProps (the arena loader's static copy: already open in a match, never a second 100+ MB unpack).
 namespace load_detail {
 inline const pac::Pac* OpenProps(launcher::GameFiles& files);   // defined below (the arena loader's static bgEtc copy)
@@ -606,8 +629,7 @@ inline bool LoadStageEntry(launcher::GameFiles& files, int pach, uint32_t k, Mod
   const Bytes blob = pac::Get(nb, np, k);
   if (!IsJboy(blob)) return err = "bgEtc PACH " + std::to_string(pach) + " key 1 entry " + std::to_string(k) + " is not a JBOY", false;
   TexSet tex;
-  for (const pac::Ent& t : h.ents)
-    if ((t.id == 0 || (t.id >= 10 && t.id <= 19)) && t.size >= 0x30) tex.AddDir(pac::Decode(p->bytes.data() + t.off, t.size));
+  stage_levels::AddStructDirs(tex, p->bytes, h, pach);   // S111 STAGELEVELS: keys 0 and 10 at the game's counts (tools\scene\stage_levels_unit.cpp source.stage reads this line)
   JboyOptions o;
   o.arena = true;
   o.prop_slot = false;
@@ -625,7 +647,7 @@ inline bool LoadStageEntry(launcher::GameFiles& files, int pach, uint32_t k, Mod
 // id -> /GMGA/%04d, arena 78 / 80 -> /GMGB/%02dFR). The EPAC directory (header 0x800: records of {name[4], start (0x800 blocks from 0x4000), size}) names the banks: GMGB's are named "78FR" / "80FR", which the digit-only reader of
 // tools\assets\prtc.py takes for section names, so the directory is read here by name. A bank is a PACH whose entry 4 is a nested PACH of JBOY models (keys 1000.. / 1500..); a GMGB (FR) bank wraps it: entry 0 = the bank, entry 1 =
 // the texture set. Textures: FR = the bank's entry-4 key 0 (a texture directory) + every directory of the FR bank's entry 1 (each entry a PACH {PRTC, directory}); GMGA 0021 (the Elimination Chamber's pieces) = the chamber's own
-// bgEtc PACH 6 set, the one its structure uses (entries 0 and 10..19; [L]: the game hands the holder's group [[0x837631C4]] when its settings byte +41 is set).
+// bgEtc PACH 6 set, the one its structure uses (entries 0 and 10 at the structure's counts, stage_levels.h AddStructDirs), only when the game handed the holder's group (S111 GMBORROW, GmBorrowsHolderSet below).
 namespace load_detail {
 inline const pac::Pac* OpenGm(launcher::GameFiles& files) {   // gm.pac is 18 MB unpacked: opened once per program on the first set object asked for
   static pac::Pac gm;
@@ -655,8 +677,13 @@ inline size_t GmBankOffset(const Bytes& b, int arena, bool& fr) {
   }
   return 0;
 }
+// S111 GMBORROW (docs\research\s111\GMBORROW.md) [C]: the texture set the game hands a gm bank's models. sub_827C9190 (the first step of the plain set-up sub_827CB1C0) gives the controller the stage holder's
+// set [[0x837631C4]] when settings byte G+41 is set (match types 39 / 40, the Elimination Chamber), else the stage's own list [[0x83763544]+14452]; a GMGB (FR) bank takes SetModelDataForFR's own path.
+// In a chamber match the holder's set is bgEtc PACH 6's (the CHAI structure). The stage lists hold no name of GMGA/0021 (its one name chemb04 is in bgEtc PACH 6, gm.pac's own entry 6 and evtobj only), so
+// without G+41 ours borrows nothing and the name misses as in the game (ours binds white at the diffuse slot, front_end.cpp BindMaterial, where the game keeps the last draw's texture: docs\formats\guest_model_vertex.md "S105 C2L").
+inline constexpr bool GmBorrowsHolderSet(bool fr, bool holder_tex) { return !fr && holder_tex; }
 }  // namespace load_detail
-inline bool LoadGmEntry(launcher::GameFiles& files, int arena, uint32_t key, Model& m, std::string& err) {
+inline bool LoadGmEntry(launcher::GameFiles& files, int arena, uint32_t key, bool holder_tex, Model& m, std::string& err) {
   using namespace load_detail;
   m = {};
   if (key < 1000 || key > 1755) return err = "gm set object key outside 1000..1755", false;
@@ -692,9 +719,8 @@ inline bool LoadGmEntry(launcher::GameFiles& files, int arena, uint32_t key, Mod
         if (!pac::GetNested(tb, tp, e.id, sb, sp)) continue;
         if (const pac::Ent* d = pac::Find(sp, 1)) tex.AddDir(pac::Decode(sb.data() + d->off, d->size));
       }
-  } else if (const pac::Pac* ep = OpenProps(files); ep && ep->pachs.size() > 6) {   // the chamber's own bgEtc PACH 6 textures (LoadStageEntry's set)
-    for (const pac::Ent& t : ep->pachs[6].ents)
-      if ((t.id == 0 || (t.id >= 10 && t.id <= 19)) && t.size >= 0x30) tex.AddDir(pac::Decode(ep->bytes.data() + t.off, t.size));
+  } else if (const pac::Pac* ep = GmBorrowsHolderSet(fr, holder_tex) ? OpenProps(files) : nullptr; ep && ep->pachs.size() > 6) {   // the chamber's own bgEtc PACH 6 textures (LoadStageEntry's set), only when the game handed the holder's set (S111 GMBORROW)
+    stage_levels::AddStructDirs(tex, ep->bytes, ep->pachs[6], 6);   // S111 STAGELEVELS: the chamber's set at its counts (stage_levels_unit source.gm reads this line)
   }
   JboyOptions o;
   o.arena = true;
@@ -710,8 +736,12 @@ inline bool LoadGmEntry(launcher::GameFiles& files, int arena, uint32_t key, Mod
 }
 
 // S103 GBR (GMS.md (B)): the blood splat model of arena `arena`: its own bgNN.pac, top-level PACH 0 key 32000 (one JBOY, material `blood`) with the texture directory key 32010 (blood01 / 02 / 03, in the directory's order = the
-// game's surface list [P+4] [L: the list is built from the directory in order]). The game binds texture `tex` per splat (model slot 15); here each texture index is its own model: every material's diffuse is that directory
+// game's surface list [P+4] [C, S111 BLOODTEX: the list builder sub_82BAA568 makes entry i from directory element i; the splat draw sub_826979F8 binds entry [record+32]; the spawn sub_82697C28 sets that index to LCG#3 mod the
+// list count; ours reads the same record word in Tracker::PullBloodRecs]). The game binds texture `tex` per splat (model slot 15); here each texture index is its own model: every material's diffuse is that directory
 // entry (the file's own texture name is not in the directory). The colour scalar is applied by the drawer (diffuse_color).
+// S111 MIPLEVELS (docs\research\s111\MIPLEVELS.md): the stage object setup (sub_824ECAD8) sets the loader's level count to 3 around the build of the key-32010 list
+// (engine_convert_surface_list sub_82BAA568) and restores it after: each blood texture has 3 levels whatever its file's chain. The count rides with the directory (TexSet::AddDirLevels; Peek hands it on).
+inline constexpr uint32_t kBloodTexLevels = 3;
 inline bool LoadBloodEntry(launcher::GameFiles& files, int arena, uint32_t tex_index, Model& m, std::string& err) {
   using namespace load_detail;
   m = {};
@@ -724,7 +754,7 @@ inline bool LoadBloodEntry(launcher::GameFiles& files, int arena, uint32_t tex_i
   const Bytes dir = pac::Get(p->bytes, h, 32010);
   TexSet tex;
   Bytes dcopy = dir;
-  if (!tex.AddDir(std::move(dcopy))) return err = rel + " key 32010 is not a texture directory", false;
+  if (!tex.AddDirLevels(std::move(dcopy), kBloodTexLevels)) return err = rel + " key 32010 is not a texture directory", false;   // S111 MIPLEVELS: the game builds this list at 3 levels (sub_824ECAD8)
   const uint32_t count = dir.size() >= 4 ? Le32(dir, 0) : 0;
   if (tex_index >= count) return err = rel + " blood texture index " + std::to_string(tex_index) + " is past the directory's " + std::to_string(count), false;
   char nm[17] = {};
@@ -743,6 +773,7 @@ inline bool LoadBloodEntry(launcher::GameFiles& files, int arena, uint32_t tex_i
   m.textures.clear();
   m.textures.push_back(std::move(t));
   for (Material& mat : m.materials) mat.diffuse = 0;
+  create_scale::ApplyCreateScale(m, create_scale::kDefaultCreateScale);   // S111 MATLIVE (model_create_scale.h): the stage setup sub_824ECAD8 creates this model with the default record, so the game's quad is the file's x 10
   FinishModel(m);
   if (m.meshes.empty()) return err = m.label + ": no meshes loaded", false;
   return true;
@@ -753,6 +784,8 @@ inline bool LoadBloodEntry(launcher::GameFiles& files, int arena, uint32_t tex_i
 // Session 98 (DLC): then each DLC pack's evtobj_dlcPP.pac in the game's pack order (dlc_files.h): Fandango's 2591 / 2592 live in
 // evtobj_dlc04.pac PACHs 0 / 1 (nodes "2591_0", "2592"), numbered 400000 / 400001. The cache key includes the packs in use.
 inline int PropPachIn(const pac::Pac* p, uint32_t prop_id);
+inline int PropDirIn(const pac::Pac* p, uint32_t prop_id, bool bobj_only, bool require_entry0, bool sobj_only);   // (defined below, with its defaults)
+inline int PropPachInPacks(launcher::GameFiles& files, uint32_t prop_id, const char* section);   // S111 MODBELT: defined below PropPachIn
 inline int PropPach(launcher::GameFiles& files, uint32_t prop_id) {
   using namespace load_detail;
   static std::map<std::pair<std::vector<int>, uint32_t>, int> cache;
@@ -760,11 +793,16 @@ inline int PropPach(launcher::GameFiles& files, uint32_t prop_id) {
   if (auto it = cache.find({packs, prop_id}); it != cache.end()) return it->second;
   std::string err;
   int found = -1;
-  {   // S105 SKB3 fix L5: a prop with no disc directory row takes the whole 181 MB open for the node rule: say so once per id
+  const pac::Pac* disc = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err);   // (S103 BLF review 3: the evtobj slot)
+  for (const char* section : {"BOBJ", "SOBJ"}) {   // S111 MODBELT: the game's order (PropPachInPacks): /BOBJ/<id> from the list head (the packs, highest id first, then the disc), else /SOBJ/<id> the same way
+    if (found < 0) found = PropPachInPacks(files, prop_id, section);
+    if (found < 0) found = PropDirIn(disc, prop_id, !std::strcmp(section, "BOBJ"), true, !std::strcmp(section, "SOBJ"));
+  }
+  if (found < 0) {   // S105 SKB3 fix L5: a prop with no directory row takes the whole 181 MB open for the node rule: say so once per id
     static std::set<uint32_t> told;
     if (told.insert(prop_id).second) load_detail::EvtLine("evtobj.pac whole open for prop id " + std::to_string(prop_id) + " (no directory row)");
   }
-  if (const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err)) found = PropPachIn(p, prop_id);   // (S103 BLF review 3: the evtobj slot)
+  if (found < 0) found = PropPachIn(disc, prop_id);   // the node rule (ours, for a pac with no directory row): the disc, then the packs below
   for (size_t k = 0; found < 0 && k < packs.size(); ++k) {
     if (packs[k] <= 0 || packs[k] >= 21000) continue;  // (the PACH number must fit an int)
     const int at = PropPachIn(OpenDlcProps(files, dlc_files::PropFile(packs[k] * dlc_files::kPropPackStride), err), prop_id);
@@ -809,7 +847,7 @@ inline bool PropDirStartIn(const Bytes& b, uint32_t prop_id, const char* section
   return false;
 }
 inline bool PropDirStart(const Bytes& b, uint32_t prop_id, bool bobj_only, bool sobj_only, size_t& at_out) {
-  for (const char* section : {"SOBJ", "BOBJ"}) {
+  for (const char* section : {"BOBJ", "SOBJ"}) {   // S111 MODBELT: BOBJ first, the game's read (sub_825AE720 asks /BOBJ/<id> when it resolves, else /SOBJ/<id>)
     if (bobj_only && std::strcmp(section, "BOBJ") != 0) continue;
     if (sobj_only && std::strcmp(section, "SOBJ") != 0) continue;
     if (PropDirStartIn(b, prop_id, section, at_out)) return true;
@@ -849,62 +887,123 @@ inline int PropPachIn(const pac::Pac* p, uint32_t prop_id) {
   return found;
 }
 
-// The PACH of event prop `prop_id` for the posed draw (S103 BLF review 2 / 6): the game's own directory order (SOBJ then BOBJ: sub_825AE5D8) WITHOUT the entry-0 test of PropDirIn's default (2717's model is entry 5 only: PACH 178 must
-// draw; LoadPropEntry refuses a missing entry k itself), then PropPach's node rule / DLC packs. `*other` = the BOBJ PACH when the id is in BOTH sections with different PACHs (SOBJ wins, as in the game; the caller logs it once), else -1.
-inline int PropPachEvt(launcher::GameFiles& files, uint32_t prop_id, int* other = nullptr) {
+// S111 PACANSWER: the PACH of `prop_id` in directory `section` ("BOBJ" / "SOBJ" / "SPMT") of ONE evtobj file: pack 0 = the disc's evtobj.pac (its ordinal: the ranged directory, else the whole
+// pac), pack pp > 0 = pack pp's evtobj_dlcPP.pac (DLC numbering pp * kPropPackStride + index); no entry-0 test (the game's first match). -1 = that file has no such row, cannot be opened, or pack < 0.
+inline int PropPachInFile(launcher::GameFiles& files, int pack, uint32_t prop_id, const char* section) {
   using namespace load_detail;
-  if (other) *other = -1;
   std::string err;
-  if (EvtRanged* r = OpenEvtRanged(files, err)) {   // S105 SKB3: the disc pac's directory from the ranged header (block 0): the ordinal = the rank of the row's start; no whole-pac open. A prop with no row falls to PropPach as before (its node rule needs the whole pac).
-    auto ordinal_of = [&](bool bobj_only, bool sobj_only) -> int {
-      size_t at = 0;
-      if (!PropDirStart(r->header, prop_id, bobj_only, sobj_only, at)) return -1;
-      const auto it = std::lower_bound(r->rows.begin(), r->rows.end(), std::make_pair(at, size_t(0)));
-      return it != r->rows.end() && it->first == at ? int(it - r->rows.begin()) : -1;
-    };
-    const int s = ordinal_of(false, true), b = ordinal_of(true, false);
-    if (s >= 0 && b >= 0 && s != b && other) *other = b;
-    if (s >= 0) return s;
-    if (b >= 0) return b;
-  } else if (const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err)) {
-    const int s = PropDirIn(p, prop_id, false, false, true), b = PropDirIn(p, prop_id, true, false);
-    if (s >= 0 && b >= 0 && s != b && other) *other = b;
-    if (s >= 0) return s;
-    if (b >= 0) return b;
+  size_t at = 0;
+  if (pack > 0) {
+    if (pack >= 21000) return -1;   // (the PACH number must fit an int)
+    const pac::Pac* p = OpenDlcProps(files, dlc_files::PropFile(pack * dlc_files::kPropPackStride), err);
+    if (!p || !PropDirStartIn(p->bytes, prop_id, section, at)) return -1;   // (a pack with no evtobj is remembered by OpenDlcProps: never re-opened)
+    for (size_t i = 0; i < p->pachs.size(); ++i)
+      if (p->pachs[i].base == at) return pack * dlc_files::kPropPackStride + int(i);
+    return -1;
   }
+  if (pack < 0) return -1;
+  if (EvtRanged* r = OpenEvtRanged(files, err)) {   // S105 SKB3: the disc pac's directory from the ranged header (block 0): the ordinal = the rank of the row's start; no whole-pac open
+    if (!PropDirStartIn(r->header, prop_id, section, at)) return -1;
+    const auto it = std::lower_bound(r->rows.begin(), r->rows.end(), std::make_pair(at, size_t(0)));
+    return it != r->rows.end() && it->first == at ? int(it - r->rows.begin()) : -1;
+  }
+  const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err);
+  if (!p || !PropDirStartIn(p->bytes, prop_id, section, at)) return -1;
+  for (size_t i = 0; i < p->pachs.size(); ++i)
+    if (p->pachs[i].base == at) return int(i);
+  return -1;
+}
+
+// S111 PACANSWER (docs\research\s111\PACANSWER.md, pac_path_answer.h): the PACH the GAME's own pac-list answer names for "/<section>/<prop_id>": that section's row in the one file the game's
+// walk (sub_82C51D20) took, as src\pac_answer_hook.h saw it. -1 = no answer (the viewer, every tool, a path the game has not asked): the caller's derived order. An answer whose pac name we do
+// not map, or whose row our copy of that file lacks, is said once and also gives -1.
+inline int PropPachAnswered(launcher::GameFiles& files, uint32_t prop_id, pac_path_answer::Section s) {
+  pac_path_answer::Answer a;
+  if (!pac_path_answer::PackOf(s, prop_id, a)) return -1;
+  const char* section = pac_path_answer::SectionName(s);
+  const int at = PropPachInFile(files, a.pack, prop_id, section);
+  static std::set<std::pair<int, uint32_t>> told;   // once per path (every live caller holds the load lock)
+  if (told.insert({int(s), prop_id}).second) {
+    char path[16];
+    std::snprintf(path, sizeof path, "/%s/%04u", section, unsigned(prop_id));
+    load_detail::EvtLine(std::string("game answer ") + path + " = " + a.node_path +
+                         (at >= 0 ? " -> PACH " + std::to_string(at) : a.pack < 0 ? std::string(": not an evtobj pac name we map: our derived order") : std::string(": our copy of that file has no such row: our derived order")));
+  }
+  return at;
+}
+
+// S111 MODBELT (docs\research\s111\MODBELT.md; docs\formats\evtobj_pac.md "S111 MODBELT"): the game finds an entrance prop by PATH. Its read (sub_825AE720) asks "/BOBJ/%04d" when that path resolves ANYWHERE, else "/SOBJ/%04d"
+// (the recoloured prop's reader sub_83391F18 asks /SOBJ/ only; the mask is "/SPMT/%04d", sub_825AE6D0); every resolve is pac_path_resolve sub_82C35E30 -> the pac-list walk sub_82C51D20, which takes the FIRST node from the list
+// head. The disc's pacs are appended at the tail at boot; the DLC pass sorts the packs by pack id (sub_827F35E0, key sub_82816418 = pack +160) and registers them in that order, each node inserted at the HEAD (sub_82C51B98):
+// the highest pack id ends first. So a pack whose evtobj carries an id the disc also carries (a modded title belt: BOBJ 2004 / 3004 / 5004) SHADOWS the disc's PACH (MakeWeapon builds the pack's model and the draw call's
+// node rows are that model's), and a /BOBJ/ row anywhere beats a /SOBJ/ row of the same id nearer the head. PropPachInPacks = the PACH of `prop_id` in directory `section` ("BOBJ" / "SOBJ" / "SPMT") of the packs'
+// evtobj_dlcPP.pac, highest pack id first (DLC numbering pack * kPropPackStride + index), no entry-0 test (the game's first match); -1 = no pack's directory names it. The caller asks the disc next, section by section.
+// Directory rows only (the pac's own directory, which the pack's arc copies: tools\importer\build_mod_pack.py; PropPach's node rule is ours, for a pac with no directory row, and stays after the disc).
+// S111 PACANSWER: this re-derived order is the NO-ANSWER path: the live game's loaders ask PropPachAnswered first (the viewer has no game, so it always takes this order).
+inline int PropPachInPacks(launcher::GameFiles& files, uint32_t prop_id, const char* section) {
+  using namespace load_detail;
+  if (PropDiscFirstPlant()) return -1;   // the planted twin: the old order (tools\assets\modbelt_unit only)
+  std::vector<int> packs = dlc_files::PackIds(files);
+  std::sort(packs.rbegin(), packs.rend());   // highest pack id first, whatever order the overlays were given in (the viewer's are ascending, the live loader's descending)
+  for (const int id : packs)
+    if (id > 0)
+      if (const int at = PropPachInFile(files, id, prop_id, section); at >= 0) return at;
+  return -1;
+}
+
+// The PACH of event prop `prop_id` for the posed draw (S103 BLF review 2 / 6): the game's directory order, /BOBJ/<id> through the whole pac list (the packs, highest id first, then the disc), else /SOBJ/<id> the same way
+// (sub_825AE720; PropPachInPacks above), WITHOUT the entry-0 test of PropDirIn's default (2717's model is entry 5 only: PACH 178 must draw; LoadPropEntry refuses a missing entry k itself), then PropPach's node rule / DLC packs.
+// `*other` = the SOBJ PACH when the id resolves in BOTH sections to different PACHs (BOBJ wins, as the game's read; the caller logs it once), else -1.
+// S111 PACANSWER: first the GAME's answer (PropPachAnswered): /BOBJ/<id> when the game's walk resolved it (sub_825AE720 reads BOBJ whenever it resolves), else /SOBJ/<id> (its else branch).
+// PACANSWER review: the entrance prop loader sub_8258C590 probes /BOBJ/<id> (sub_825AE680) for EVERY prop it loads, then reads a recoloured one (record +16 set) through sub_83391F18, /SOBJ/
+// only, even when BOBJ resolved. S111 READANSWER (docs\research\s111\READANSWER.md): so the section the game READ comes first (pac_path_answer::ReadSection: a hit inside a pac request,
+// src\pac_lookup_route.h), then the probes' BOBJ-then-SOBJ answers. READANSWER review: a read whose answer we cannot use (an unmapped pac, a row our copy lacks) keeps the READ section
+// (the game drew from the section it read): our derived order for that one section (PropPachInPacks, then the disc's row); only an id that section has no row for in our files goes on below.
+// The derived order below runs only when the game has given no usable answer.
+// S111 FOLLOWUPS3 (docs\research\s111\FOLLOWUPS3.md; READANSWER review F2): `recoloured` = the model the game built from the recoloured task's read (sub_83391F18 reads /SOBJ/<id> only):
+// its section is SOBJ whatever the plain readers read (weapon_draw_core.h EvtEntryOf's "/s" entry). Otherwise the id's read section is the plain readers' (src\pac_lookup_route.h NotePropHit).
+inline int PropPachEvt(launcher::GameFiles& files, uint32_t prop_id, int* other = nullptr, bool recoloured = false) {
+  if (other) *other = -1;
+  if (pac_path_answer::Section rs = pac_path_answer::Section::kSobj; recoloured || pac_path_answer::ReadSection(prop_id, rs)) {   // S111 READANSWER: the game's READ wins over its probes
+    if (const int g = PropPachAnswered(files, prop_id, rs); g >= 0) return g;
+    const char* sec = pac_path_answer::SectionName(rs);
+    if (const int pk = PropPachInPacks(files, prop_id, sec); pk >= 0) return pk;
+    if (const int d = PropPachInFile(files, 0, prop_id, sec); d >= 0) return d;
+  }
+  if (const int g = PropPachAnswered(files, prop_id, pac_path_answer::Section::kBobj); g >= 0) return g;
+  if (const int g = PropPachAnswered(files, prop_id, pac_path_answer::Section::kSobj); g >= 0) return g;
+  // S105 SKB3: the disc's rows from the ranged header (PropPachInFile); a prop with no row falls to PropPach as before (its node rule needs the whole pac)
+  const int disc_s = PropPachInFile(files, 0, prop_id, "SOBJ"), disc_b = PropPachInFile(files, 0, prop_id, "BOBJ");
+  int b = PropPachInPacks(files, prop_id, "BOBJ"), s = PropPachInPacks(files, prop_id, "SOBJ");   // S111 MODBELT: the packs before the disc (the game's pac list), per section
+  if (b < 0) b = disc_b;
+  if (s < 0) s = disc_s;
+  if (b >= 0 && s >= 0 && b != s && other) *other = s;
+  if (b >= 0) return b;
+  if (s >= 0) return s;
   return PropPach(files, prop_id);
 }
 
 // S108 THB (docs\research\s108\THB_threads_gear.md section 3): the recolour mask of an entrance prop. The disc evtobj.pac's "SPMT" section has one PACH per cap / hat / T-shirt / scarf id (26 ids): its entry 0 is a texture directory
 // holding ONE texture, `Mask1` (a 512 x 512 four-channel mask, one channel per colour of the Threads set's 4 gear colours). The game finds it by the path "/SPMT/%04d" (sub_825AE6D0) and binds it at the recolour shader's sampler 12.
-// PropMaskPachEvt: the PACH ordinal of the id's SPMT row in the disc evtobj.pac (the same ordinal rule as PropPachEvt), -1 = the id has none (not recolourable: Cena's default cap, hat, camo caps ...).
+// PropMaskPachEvt: the PACH of the id's SPMT row, -1 = the id has none (not recolourable: Cena's default cap, hat, camo caps ...). S111 MODBELT: the packs' evtobj_dlcPP.pac first, highest pack id first (DLC numbering, as
+// PropPachEvt: the game's /SPMT/<id> goes through the same pac-list walk, so a pack's mask shadows the disc's), then the disc evtobj.pac (its ordinal: the same rule as PropPachEvt).
 inline int PropMaskPachEvt(launcher::GameFiles& files, uint32_t prop_id) {
-  using namespace load_detail;
-  std::string err;
-  if (EvtRanged* r = OpenEvtRanged(files, err)) {
-    size_t at = 0;
-    if (!PropDirStartIn(r->header, prop_id, "SPMT", at)) return -1;
-    const auto it = std::lower_bound(r->rows.begin(), r->rows.end(), std::make_pair(at, size_t(0)));
-    return it != r->rows.end() && it->first == at ? int(it - r->rows.begin()) : -1;
-  }
-  const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err);
-  size_t at = 0;
-  if (!p || !PropDirStartIn(p->bytes, prop_id, "SPMT", at)) return -1;
-  for (size_t i = 0; i < p->pachs.size(); ++i)
-    if (p->pachs[i].base == at) return int(i);
-  return -1;
+  if (const int g = PropPachAnswered(files, prop_id, pac_path_answer::Section::kSpmt); g >= 0) return g;   // S111 PACANSWER: the game's own /SPMT/<id> answer (sub_825AE6D0) first
+  if (const int pk = PropPachInPacks(files, prop_id, "SPMT"); pk >= 0) return pk;
+  return PropPachInFile(files, 0, prop_id, "SPMT");
 }
-// The `Mask1` texture of SPMT PACH `ordinal` (PropMaskPachEvt), as the file stores it (kB4G4R4A4, one level). False + `err` when the pac / PACH / entry / texture is not what the rule above says.
+// The `Mask1` texture of SPMT PACH `ordinal` (PropMaskPachEvt; DLC numbering as LoadPropEntry: >= kPropPackStride = a pack's evtobj_dlcPP.pac), as the file stores it (kB4G4R4A4, one level). False + `err` when the pac / PACH /
+// entry / texture is not what the rule above says.
 inline bool LoadPropMask(launcher::GameFiles& files, int ordinal, Texture& out, std::string& err) {
   using namespace load_detail;
   if (ordinal < 0) return err = "no SPMT PACH", false;
-  int at = ordinal;
+  int at = dlc_files::PropIndex(ordinal);
   const pac::Pac* p = nullptr;
   std::string slice_err;
-  if ((p = OpenEvtSlice(files, ordinal, slice_err))) at = 0;
+  if (ordinal < dlc_files::kPropPackStride && (p = OpenEvtSlice(files, ordinal, slice_err))) at = 0;   // the disc evtobj.pac: only the blocks this PACH lives in
   if (!p) p = OpenPropFile(files, ordinal, err);
   if (!p) return false;
-  if (size_t(at) >= p->pachs.size()) return err = "evtobj.pac has no PACH " + std::to_string(ordinal), false;
+  if (size_t(at) >= p->pachs.size()) return err = BaseName(dlc_files::PropFile(ordinal)) + " has no PACH " + std::to_string(dlc_files::PropIndex(ordinal)), false;
   const pac::Ent* e = pac::Find(p->pachs[size_t(at)], 0);
   if (!e) return err = "SPMT PACH " + std::to_string(ordinal) + " has no entry 0", false;
   TexSet ts;
@@ -947,39 +1046,23 @@ inline bool PropWorn(launcher::GameFiles& files, int pach) {
   return worn;
 }
 
-// Session 98 (props general): the title belt models come in three runs of evtobj.pac PACHs: LEFT hand 349-398 (nodes 2xxx), RIGHT hand
-// 399-450 (3xxx), WAIST 451-502 (5xxx); one title = one PACH in each run with the SAME texture entry (entry 10): 352 / 402 / 454 the WWE
-// Championship (New_WWE nodes), 357 / 407 / 459 the generic 2009 / 3009 / 5009 [C: out\s98\census\entrances_06_08_belts.csv, every
-// entry-10 twin set]. BeltTwin(pach, side) = that title's PACH in the run of `side` (2 left, 3 right, 5 waist): `pach` itself when it is
-// in that run, else the run's PACH whose entry 10 is byte-identical; several (391-395 share one atlas) = the one of the same rank. -1:
-// none (e.g. 364, 379, 388, 389, 397 have no twin in some run).
-inline int BeltTwin(launcher::GameFiles& files, int pach, int side) {
+// Session 98 (props general) / S111 TEXDIRORDER (B2; belt_twin.h): the PACH of title belt `pach`'s title on `side` (2 left hand, 3 right hand, 5 waist), by the
+// game's data, never by PACH ranges: `pach`'s "/BOBJ/" id in its own evtobj file's directory (DLC numbering as LoadPropEntry), that title's id on `side` from
+// evtdata.pac table 103 (`t103`: columns 3 / 4 / 5 = waist / left / right; belt_twin.h TwinId), and that id's PACH in the game's prop order (PropPachEvt: the
+// packs' evtobj_dlcPP.pac, then the disc). `pach` itself when its id is the side's. -1: `pach` has no BOBJ row, or no row of `t103` gives its title a model on
+// `side` (stock: 2907 / 3907 / 5040 are in no row; 25 rows leave a side empty).
+inline int BeltTwin(launcher::GameFiles& files, const belt_twin::Table& t103, int pach, int side) {
   using namespace load_detail;
-  const int lo = side == 2 ? 349 : side == 3 ? 399 : side == 5 ? 451 : -1, hi = side == 2 ? 398 : side == 3 ? 450 : 502;
-  if (lo < 0) return -1;
-  if (pach >= lo && pach <= hi) return pach;
-  static std::map<std::pair<int, int>, int> cache;
-  if (auto it = cache.find({pach, side}); it != cache.end()) return it->second;
+  if (pach < 0 || belt_twin::Column(side) < 0) return -1;
   std::string err;
-  const pac::Pac* p = OpenDlcProps(files, "pac\\evt\\evtobj.pac", err);
-  if (!p || pach < 349 || pach > 502 || size_t(502) >= p->pachs.size()) return -1;
-  auto tex = [&](int i) -> Bytes {
-    const pac::Ent* en = pac::Find(p->pachs[size_t(i)], 10);
-    if (!en || en->off + en->size > p->bytes.size()) return {};
-    return Bytes(p->bytes.begin() + std::ptrdiff_t(en->off), p->bytes.begin() + std::ptrdiff_t(en->off + en->size));
-  };
-  const Bytes mine = tex(pach);
-  int found = -1;
-  if (!mine.empty()) {
-    const int src_lo = pach <= 398 ? 349 : pach <= 450 ? 399 : 451;
-    int rank = 0;  // how many earlier PACHs of the source run share the texture
-    for (int i = src_lo; i < pach; ++i) if (tex(i) == mine) ++rank;
-    std::vector<int> cand;
-    for (int i = lo; i <= hi; ++i) if (tex(i) == mine) cand.push_back(i);
-    if (!cand.empty()) found = cand[size_t(std::min<int>(rank, int(cand.size()) - 1))];
-  }
-  cache[{pach, side}] = found;
-  return found;
+  const pac::Pac* p = OpenDlcProps(files, dlc_files::PropFile(pach), err);
+  const int at = dlc_files::PropIndex(pach);
+  if (!p || size_t(at) >= p->pachs.size()) return -1;
+  const int32_t id = belt_twin::IdAtStart(p->bytes, p->pachs[size_t(at)].base, "BOBJ");
+  const int32_t twin = belt_twin::TwinId(t103, id, side);
+  if (twin < 0) return -1;
+  if (twin == id) return pach;
+  return PropPachEvt(files, uint32_t(twin));
 }
 
 // Session 98 (custom characters): a community character pac from an arbitrary file (uncompressed EPAC / EPK8, same PACH layout as a
@@ -1046,7 +1129,7 @@ inline bool LoadWrestlerFile(const std::string& path_u8, int label_id, int attir
 }
 
 inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const std::string& pacname, int attire, Model& m, std::string& err,
-                            bool prop_slots, bool character) {
+                            bool prop_slots, bool character, uint32_t char_levels) {
   using namespace load_detail;
   const double t0 = NowMs();
   m = {};
@@ -1065,7 +1148,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
 
   // Texture directories: this attire's first, then attire 0's as a fallback (unconfirmed that attires share textures).
   TexSet tex;
-  auto add_dirs = [&](const pac::Pach& hh) { AddTexDirs(tex, buf, hh); };   // S105 A7: 10..19 and 39
+  auto add_dirs = [&](const pac::Pach& hh) { AddTexDirs(tex, buf, hh, character, char_levels); };   // S111 TEXDIRORDER: the game's order for the owner (a character's 10, 11, 39, 12; an event prop's 10, 20). S111 LEVELSBYTE: + the load's count
   add_dirs(*h);
   if (h != &p->pachs[0]) {
     for (const pac::Pach& c : p->pachs)
@@ -1074,7 +1157,7 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
         break;
       }
   }
-  for (const Bytes& b : CommonTexDirs()) tex.AddDir(Bytes(b));  // (wrestler fix 3: chCommon's shared textures, last)
+  AddCommonTexDirs(tex);  // (wrestler fix 3: chCommon's shared textures, last; S111 CHCOMMONCUBE: each at the game's count for its entry)
   if (!CommonTexError().empty()) NoteDropped(m, "pac\\ch\\chCommon.pac (the shared wrestler textures)", CommonTexError(), "texture_pac");   // S108 AL1
 
   // JBOY pieces: 0 (body), 26, 27, and 10000..39999 (hair, hats, extras). Others are not models.
@@ -1084,7 +1167,11 @@ inline bool LoadWrestlerPac(const pac::Pac* p, const std::string& label, const s
   // 10 lamp heads (4 meshes, 21 nodes), entry 4 = 59 meshes skinned over 638 of its 659 nodes (yProp_Reflect), entry 5 = 3 meshes on the
   // lamp heads. 96 of evtobj.pac's 529 PACHs have an entry 4, 5, 6 or 9 (60 of them title belts, whose entry 4 is one 20-vertex piece;
   // others 2064_1, 2473_1 / 2473_9, 2042_02).
-  // [U] that the game draws every slot at once (slot use after the load is not traced).
+  // S111 GEARSLOTS [C] (docs\research\s111\GEARSLOTS.md): the game draws every PRESENT slot of a prop together, each by its own node of the one CWeapon: the own node the
+  // first made entry, CWDT (sub_8272C5F8) entry 4, WATR (sub_8272C198) entry 5, CWDA (sub_8272D0F0) entry 6, CWDS (sub_8272CCF0) entry 9 (event_prop_nodes.h NodeOf). All
+  // five test the same CWeapon show words (+224 / +232 non-zero, +288 zero), so the slots show and hide together; only the shadow pass differs per node (WATRSHADOW).
+  // No node reads entries 1-3 / 7 / 8 [L], and no disc or DLC evtobj PACH holds one (asset index census), so this merged set is the game's. A CHARACTER's pieces are
+  // all merged here too; the game hides a SUBM piece while its instance word +20 is 0, which the live draw applies per piece (piece_hidden.h OwnerMeshHidesPiece).
   std::vector<uint32_t> ids;
   for (const pac::Ent& e : h->ents)
     if ((!load_detail::SpringNodes() || load_detail::OldEntryFilterPlant()) ? WrestlerEntryIsModelOld(e.id, prop_slots) : WrestlerEntryIsModel(e.id, prop_slots)) ids.push_back(e.id);   // S103 W2B / ENT: the game's own key list (piece_keys.h), not 0 / 26 / 27 / 10000-39999; S103 XLF: with the spring-hair switch OFF the old list too (28 / 29 add nodes the old by-name merge cannot take)
@@ -1131,20 +1218,19 @@ inline Matrix TransFile(float x, float y, float z) { return {1, 0, 0, 0, 0, 1, 0
 
 // Session 97: the ring set's pieces sit at one corner / side in the file and the game draws copies (skeleton.md s.5).
 // [C] posts: RotY(i * pi/2), i = 0..3 (sub_825CCFE0; the angle step is the float at 0x82000ADC = pi/2), canvas as stored.
-// [U] ropes: RotY(s * pi/2) * T(0, y_j, -320) (shape and side distance from the data; the heights are written at run time
-// by the rope simulation, not in the pac: ours below are a guess judged against the game census shots), corner covers
+// ropes: RotY(s * pi/2) * T(0, y_j, -288) (S111 RINGLOD [C]: the rope grid's rest heights, below; the simulation moves them at run time and the posed rows carry that), corner covers
 // and turnbuckles the same way per corner, skirts RotY(s * pi/2) * T(0, 0, -320) alternating 974 / 973.
 // Session 101 lane 275 [C, ring-rows records of the RL1 capture, arena 4, node 2 of each instance = the rest pose; docs\renderer\FILE_CENSUS.md "Lane 275"]: the TURNBUCKLE (952) is NOT the
 // post's RotY copy. Its file mesh sits beside the post at (-324..-283, y, -322..-318); the game's world for corner 0 is RotY(-45 deg) with the translation (-310.015, y, 142.534), so the pad
 // swings onto the corner diagonal and its strap reaches the post (before this, T(0, y, 0) * RotY(corner) left it floating beside the post). Heights y = -154 / -196 / -238 (node 2),
-// the other three corners = RotY(i * pi/2) after it (checked against all 12 instances). The cover (964) world is a pure shift (-2.931, y, -2.928) then RotY(i * pi/2), y = -153.844 / -195.879 / -237.844.
+// the other three corners = RotY(i * pi/2) after it (checked against all 12 instances). The cover (964) world is a pure shift then RotY(i * pi/2) (the rest values: cover_x / cover_y / cover_z below, S111 RINGLOD).
 inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring, Model& m) {
   const float kPi = 3.14159265f;
   const float canvas_y = -111.f;                       // file space: the canvas corner bones (C)
-  // [C, live run 068 2026-11-08] the rope simulation's bone positions (ring context + 104 + 12n and + 5000 + 768 s, read
-  // in a match): y = -154.5 / -195.5 / -237.5 in file space = 43.5 / 84.5 / 126.5 above the canvas, at z = -288 (bones
-  // every 24 units from x -288 to 288).
-  const float rope_above[3] = {43.5f, 84.5f, 126.5f};
+  // S111 RINGLOD [C sub_826C87E0 +0xB0..+0x198 -> sub_824FC040 +0x58..+0xD4]: the rope grid's REST records, built once per ring: layer r = 0 / 1 / 2 at y = -154 / -196 / -238 (the image floats 0x8201D38C /
+  // 0x8201E43C / 0x8201E440), record 24 a + b = (288 - 24 b, y, -288) turned by a quarter turns. A rope node's row is that record less the rope's base point on x (even sides) or z (odd sides), the same
+  // (288 - 24 b, y, -288) turned (sub_826C81D8), so at rest the ropes sit at y = -154 / -196 / -238, z = -288 = 43 / 85 / 127 above the canvas (live run 068's -154.5 / -195.5 / -237.5 were a match's sag).
+  const float rope_above[3] = {43.f, 85.f, 127.f};
   const float rope_z = -288.f;
   auto place = [&](uint32_t key, const std::vector<Matrix>& file_mats, const char* label) {
     auto it = ring.find(key);
@@ -1156,7 +1242,11 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
     for (size_t i = it->second.first; i < it->second.second; ++i) m.meshes[i].placement = int(m.placements.size()) - 1;
   };
   const float buckle_above[3] = {43.f, 85.f, 127.f};                  // lane 275 [C]: turnbuckle node-2 rest heights -154 / -196 / -238
-  const float cover_y[3] = {-153.844f, -195.879f, -237.844f};          // lane 275 [C]: cover node-2 heights (calls 0-2 of the capture)
+  // S111 RINGLOD [C sub_825CE668 + sub_824FC040; the inverse bind: run 16's fit]: a cover's node-2 skin at rest = its inverse-bind translation (284.997, -0.0001, 285) turned by the corner + the rest grid
+  // record of side (corner + 1) % 4, column 0 = (-288, y, -288) at corner 0: the shift T(-3.003, y - 0.0001, -3.000) then RotY(corner * pi/2) (lane 275's (-2.931, -153.844, -2.928) was a capture with the ropes moving).
+  const float kCoverInvT[3] = {284.997f, -0.0001f, 285.f};
+  const float cover_x = kCoverInvT[0] - 288.f, cover_z = kCoverInvT[2] - 288.f;
+  const float cover_y[3] = {-154.f + kCoverInvT[1], -196.f + kCoverInvT[1], -238.f + kCoverInvT[1]};
   std::vector<Matrix> corners, ropes, per_corner_rope, buckles, covers, skirt_a, skirt_b;
   for (int i = 0; i < 4; ++i) {
     const Matrix r = RotYFile(float(i) * kPi * 0.5f);
@@ -1166,7 +1256,7 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
       per_corner_rope.push_back(Mul(TransFile(0, canvas_y - h, 0), r));
     }
     for (float h : buckle_above) buckles.push_back(Mul(Mul(RotYFile(-kPi * 0.25f), TransFile(-310.015f, canvas_y - h, 142.534f)), r));
-    for (float y : cover_y) covers.push_back(Mul(TransFile(-2.931f, y, -2.928f), r));
+    for (float y : cover_y) covers.push_back(Mul(TransFile(cover_x, y, cover_z), r));
     (i % 2 == 0 ? skirt_b : skirt_a).push_back(Mul(TransFile(0, 0, -320.f), r));
   }
   if (ring.count(1050) || ring.count(1017)) {   // S103 CRR: a created arena's ALT ring [C, CRK section 2: sub_825CCFE0 / sub_825CE668 / sub_825CF2F8 in 200..249]
@@ -1180,11 +1270,11 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
     place(1021, ropes, "ring rope");   // (the 960 rule)
     place(952, buckles, "ring turnbuckle");
     // covers: the corner at angle p * pi/2 holds 1070 + p (CRR fix [C]: the alt branch of sub_825CE668 0x825CE848-0x825CE89C poses call corner r25 at angle {pi/2, pi, -pi/2, 0}, so r25 0..3 = 1071, 1072, 1073, 1070 = the corners p = 1, 2, 3, 0).
-    // [L] the shift T(-2.931, y, -2.928) and the three heights are the NORMAL cover 964's node-2 bind (lane 275); 1070-1073 have the same vertex counts and positions among themselves (crr_unit), their own bind vs 964 is not read.
+    // [L] the shift and the three heights are the NORMAL cover 964's node-2 inverse bind (run 16) on the rest grid; 1070-1073 have the same vertex counts and positions among themselves (crr_unit), their own bind vs 964 is not read.
     static const int kCoverKey[4] = {1070, 1071, 1072, 1073};
     for (int i = 0; i < 4; ++i) {
       std::vector<Matrix> cc;
-      for (float y : cover_y) cc.push_back(Mul(TransFile(-2.931f, y, -2.928f), RotYFile(float(i) * kPi * 0.5f)));
+      for (float y : cover_y) cc.push_back(Mul(TransFile(cover_x, y, cover_z), RotYFile(float(i) * kPi * 0.5f)));
       place(uint32_t(kCoverKey[i]), cc, "ring corner cover");
     }
     place(1064, skirt_a, "ring skirt");   // G[332..344] = 1065, 1064, 1065, 1064 = 974, 973, 974, 973's models
@@ -1204,8 +1294,8 @@ inline void PlaceRing(const std::map<uint32_t, std::pair<size_t, size_t>>& ring,
 // and [[-.7071 0 -.7071 328] [0 1 0 0] [.7071 0 -.7071 328]] [C: swaps 6728 / 20911 / 22453, draws 1204-1209 / 1564-1569 /
 // 1140-1145, the world matrix rows c76..c78]. The model is a leaf of `pac\bg\bgEtc.pac` (a shared prop library, not the
 // arena's pac): PACH 9, nested entry 29 / 32 / 35 (three texture variants of the same 181 / 32 / 20 vertex meshes; 30 / 33 / 36 and
-// 31 / 34 / 37 are larger sets of the same family) [C counts and bounds]. Which variant an arena uses is not found (the probe has
-// no textures): [U] we take entry 29 for every arena. Opens bgEtc once per program (its own cache, so the arena pac stays valid).
+// 31 / 34 / 37 are larger sets of the same family) [C counts and bounds]. S111 ARENAFIX [C]: which variant, and whether the arena places steps at all, is the
+// game's per-arena choice read by arena_props_table.h (LoadArena takes it). Opens bgEtc once per program (its own cache, so the arena pac stays valid).
 // S105 SKB: pac\m2.pac opened once per program (same shape as OpenProps; the caller holds LoadMutex, the tools are single-threaded). Only a success is kept: a failure (no root yet) retries on the next call.
 // S105 SKB fix F1: M2Opens counts the successful opens (the unit requires exactly 1); M2ForgetForTest makes the next call reopen (the m2_reopen twin).
 inline int& M2Opens() { static int n = 0; return n; }
@@ -1230,6 +1320,30 @@ inline const pac::Pac* OpenProps(launcher::GameFiles& files) {
     state = pac::Open(files, "pac\\bg\\bgEtc.pac", props, e) && props.pachs.size() > 9 ? 1 : 2;
   }
   return state == 1 ? &props : nullptr;
+}
+
+// S111 ARENALEVELS: pac\misc01_Start.pac p0/2, the arena records (108-byte rows: arena_props_table.h, arena_levels.h), read once per program; only a success is kept (a failure
+// retries on the next call). The caller holds LoadMutex (as OpenProps). Read by ArenaPropsPlan (byte 28) and LoadArena (byte 24).
+inline const std::vector<uint8_t>& ArenaRecordLeaf(launcher::GameFiles& files) {
+  static std::vector<uint8_t> stg;
+  if (stg.empty()) {
+    pac::Pac p;
+    std::string e;
+    if (pac::Open(files, "pac\\misc01_Start.pac", p, e) && !p.pachs.empty())
+      if (const pac::Ent* en = pac::Find(p.pachs[0], 2)) stg = pac::Decode(p.bytes.data() + en->off, en->size);
+  }
+  return stg;
+}
+
+// S111 ARENAFIX (arena_props_table.h): the game's plan of the arena's own props, from pac\misc01_Start.pac p0/2 (the arena records) and pac\bg\bgEtc.pac p10/45010 (the placement
+// table). Each leaf is read once per program; only a success is kept (a failure retries on the next call). The caller holds LoadMutex (as OpenProps).
+inline arena_props::Plan ArenaPropsPlan(launcher::GameFiles& files, int arena) {
+  static std::vector<uint8_t> subh;
+  const std::vector<uint8_t>& stg = ArenaRecordLeaf(files);
+  if (subh.empty())
+    if (const pac::Pac* bp = OpenProps(files); bp && bp->pachs.size() > 10)
+      if (const pac::Ent* en = pac::Find(bp->pachs[10], 45010)) subh = pac::Decode(bp->bytes.data() + en->off, en->size);
+  return arena_props::PlanOf(stg, subh, arena);
 }
 
 // Row-vector matrix (v * M) from the game's column form rows [r0 r1 r2] with translation in the 4th column.
@@ -1302,6 +1416,23 @@ inline size_t AddProp(launcher::GameFiles& files, uint32_t key, const std::vecto
   return m.meshes.size() - first;
 }
 
+// S111 DESKMODEL / DESKSKIN (arena_props_table.h DeskVertexShift): the last `added` meshes (an announce desk or its top, added by AddProp with one placement per mesh, at the
+// place) have each VERTEX moved by the row of its own palette slot's node, as the game draws it (sub_82C04DF0 poses a vertex by its slot's row). The raw pairs are read only when
+// the palette's names line up with the file's slots (Mesh::palette drops a slot whose node is out of range); else every vertex takes slot 0's row. Runs before FinishModel: file space.
+inline void PlaceDeskMeshes(Model& m, size_t added, bool top) {
+  for (size_t k = m.meshes.size() - std::min(added, m.meshes.size()); k < m.meshes.size(); ++k) {
+    Mesh& me = m.meshes[k];
+    const size_t n = me.vertices.size();
+    const size_t names = me.palette.empty() ? 0 : size_t(std::count(me.palette.begin(), me.palette.end(), ';')) + 1;
+    const bool by_pair = !load_detail::DeskSlot0Plant() && me.src_skin_slots.size() == 4 * n && me.src_skin_weights.size() == 4 * n && names == me.palette_nodes.size();
+    for (size_t i = 0; i < n; ++i) {
+      const arena_props::DeskAt d = arena_props::DeskVertexShift(top, me.palette, by_pair ? &me.src_skin_slots[4 * i] : nullptr, by_pair ? &me.src_skin_weights[4 * i] : nullptr,
+                                                                 me.src_skin_pairs);
+      me.vertices[i].pos[0] += d.x, me.vertices[i].pos[1] += d.y, me.vertices[i].pos[2] += d.z;
+    }
+  }
+}
+
 // Session 97: the crowd's pose. The game CPU-skins every crowd body each frame, one pose per person type, from a
 // 17-node skeleton (entry 20200; sub_8250BAF0 / sub_82509CB8, out\runtime\s97\crowd_pose.md). The motions are in the
 // player's own pac\m2.pac (src\assets\crowd_motion.h, out\runtime\s97\m2_motion.md): per person type one key set for each
@@ -1365,7 +1496,7 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
   Bytes sb;
   pac::Pach sp;
   if (!pac::GetNested(buf, h, 20000, sb, sp)) return;
-  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDir(pac::Decode(sb.data() + e->off, e->size));
+  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDirLevels(pac::Decode(sb.data() + e->off, e->size), arena_levels::kCrowdLevels);   // S111 ARENALEVELS: the crowd builder (sub_8250C1D0) builds key 21000 at 3
   const Bytes tb = pac::Get(sb, sp, 21100);
   if (tb.empty()) return;
   // The game's tokeniser: spaces / tabs dropped, ';' ends a line's content, CR / LF split lines.
@@ -1433,11 +1564,15 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
       } else {
         ++no_chair;
       }
-      // Scale: the crowd rig is a 1/10 rig (its shin 4.348 vs a wrestler's calf 43.48: crowd.md s.6, [U] that the game
-      // multiplies by 10: no constant found) times the game's per-person lerp(0.8421, 1.0105, rand) (sub_8250E470); our
-      // "random" is a fixed hash of the seat so shots repeat.
+      // Scale: the crowd rig is a 1/10 rig (its shin 4.348 vs a wrestler's calf 43.48: crowd.md s.6) times the game's per-person
+      // lerp(0.8421, 1.0105, rand) (sub_8250E470); our "random" is a fixed hash of the seat so shots repeat. Where the 10 is
+      // (S111 CROWDVAR): not in the member matrix (sub_8250CA78 scales by the per-member value only) [C]; the skin loops
+      // (sub_825085F8 ...) multiply the model part's vertex copy by the palette with no factor, and that copy is our loaded
+      // vertices x 10 (crowd_live.md, lane 36 fit) [C measured]. S111 MATLIVE review: that x 10 is the model create's scale
+      // (model_create_scale.h): the crowd's creators (sub_8250A200, sub_825074C8, sub_82507408, sub_8250ACA8, sub_8250B1E8)
+      // leave the create record at sub_82BD2068's default 10.0 [C]; ours applies it here and below (kCrowdCreateScale), not through ApplyCreateScale.
       const float rnd = float((uint32_t(r) * 2654435761u ^ uint32_t(k) * 40503u) % 1000u) / 999.f;
-      const float sc = 10.f * (0.8421f + (1.0105f - 0.8421f) * rnd);
+      const float sc = create_scale::kCrowdCreateScale * (0.8421f + (1.0105f - 0.8421f) * rnd);
       const Matrix scale = {sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, 1};
       by_type[type].push_back(Mul(Mul(scale, RotYFile(float(q) * 2 * kPi / 128)), TransFile(x, y, z)));
       if (++people >= 4000) break;  // (S97 review: hostile text must not hang the chair search; bg05 has 379)
@@ -1446,9 +1581,12 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
   // The stands (block crowd, sub_82513D78; crowd.md s.7): zone quads 21201 ("NR") and 21202 ("R"), one per line, 12
   // numbers = 4 corners x (x, z, h) in decimetres -> file (x*10, -h*10, z*10). Rows along edge B (corner 0 -> 2, step
   // 105), members along edge A (0 -> 1, step 92), the row length blending from edge A's count to edge C's (2 -> 3), odd
-  // rows shifted half a step; one yaw per quad. The list is then mirrored (x and yaw negated). [U / ours]: quads that
-  // straddle x = 0 are not mirrored (they would double up); the game's small jitter is left out; bodies are dealt to the
-  // 20 types round-robin with our own fixed shuffle.
+  // rows shifted half a step; one yaw per quad, from corner 0 -> 1 as the file gives them. [C S111 CROWDVAR] a quad whose
+  // four corners all have x > 0 is then laid out from corner 1 (corners 0 <-> 1 and 2 <-> 3 swap); the mirror is by FILE:
+  // every 21202 member is placed twice, the second at -x with yaw (128 - yaw) & 127, and 21201 members once (the game's
+  // flag 0x8000 on the mirrored record is not modelled). [ours]: the game's small jitter is left out; bodies are dealt to
+  // the 20 types round-robin with our own fixed shuffle. (21203 / 21204, which the game takes under some globals bytes, are
+  // byte-equal to 21201 / 21202 in every arena pac.)
   int stands = 0;
   {
     const float kPi = 3.14159265f;
@@ -1470,6 +1608,12 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
         if (!ok) continue;
         float P[4][3];
         for (int k = 0; k < 4; ++k) P[k][0] = q[3 * k] * 10, P[k][1] = -q[3 * k + 2] * 10, P[k][2] = q[3 * k + 1] * 10;
+        // The yaw is taken from corner 0 -> 1 as the file gives them, before the swap below (sub_82513D78 takes it first too).
+        const float yaw = std::atan2(-(P[1][2] - P[0][2]), P[1][0] - P[0][0]);
+        const int qyaw = (int((yaw + 2 * kPi) * 651.8986206f) >> 5) & 0x7F;
+        // [C S111 CROWDVAR, sub_82513D78 both zone loops] a quad wholly at x > 0 is laid out from corner 1.
+        if (P[0][0] > 0.f && P[1][0] > 0.f && P[2][0] > 0.f && P[3][0] > 0.f)
+          for (int a = 0; a < 3; ++a) std::swap(P[0][a], P[1][a]), std::swap(P[2][a], P[3][a]);
         auto len = [](const float* a, const float* b) {
           return std::sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
         };
@@ -1480,11 +1624,8 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
         if (na > 400 || nb > 400) continue;  // (a corrupt line must not explode the count)
         float sa[3], sbv[3];
         for (int k = 0; k < 3; ++k) sa[k] = (P[1][k] - P[0][k]) / la * 92.f, sbv[k] = (P[2][k] - P[0][k]) / lb * 105.f;
-        const float yaw = std::atan2(-(P[1][2] - P[0][2]), P[1][0] - P[0][0]);
-        const int qyaw = (int((yaw + 2 * kPi) * 651.8986206f) >> 5) & 0x7F;
-        const float minx = std::min(std::min(P[0][0], P[1][0]), std::min(P[2][0], P[3][0]));
-        const float maxx = std::max(std::max(P[0][0], P[1][0]), std::max(P[2][0], P[3][0]));
-        const bool mirror = !(minx < 0 && maxx > 0);
+        // [C S111 CROWDVAR] the mirror is by file: every 21202 ("R") member twice (the second mirrored), 21201 ("NR") once.
+        const bool mirror = key == 21202u;
         for (int r = 0; r < nb; ++r) {
           const int cnt = int(float(nb - r) * na / nb + float(r) * nc / nb + 0.5f);
           for (int k = 0; k < cnt && stands < 30000; ++k) {
@@ -1494,7 +1635,7 @@ inline void AddCrowd(const pac::Pach& h, const Bytes& buf, TexSet& tex, const st
               const uint32_t hsh = (deal++ * 2654435761u) ^ 0x9E3779B9u;
               const int type = int((hsh >> 7) % 20u);
               const float rnd = float((hsh >> 3) % 1000u) / 999.f;
-              const float sc = 10.f * (0.8421f + (1.0105f - 0.8421f) * rnd);
+              const float sc = create_scale::kCrowdCreateScale * (0.8421f + (1.0105f - 0.8421f) * rnd);
               const Matrix scale = {sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, 1};
               const float ang = float(side ? (128 - qyaw) & 0x7F : qyaw) * 2 * kPi / 128;
               Matrix mm = Mul(Mul(scale, RotYFile(ang)), TransFile(side ? -p[0] : p[0], p[1], p[2]));
@@ -1618,10 +1759,11 @@ inline void SlotRecordToken(const std::string& t, Model::SlotRecord& r) {
 // S103 RL: the light set the arena's own props (the ring steps, the announce desk and its top: bgEtc entries 32 / 6 / 7) are drawn with = key set 50 when the arena
 // has it, else 100 (the old choice). [C run29 f500 (arena 4, match): every game draw of the steps / desk (yProp_BumpMap / yProp_Default, 4 + 2 + 1 + 1 + 1 + 1 + 3 +
 // 13 + 2 + 1 draws) carries DifLghCol 0.384 / 0.230 / 0.230 / 0.184, sky 0.784, ground 0.392 = the record's evaluated set 50 to 3 digits; set 100 (ours before)
-// has no lights (Q4 claims_Q34.jsonl "ring steps"); docs\formats\light_set.md: 50 is one of the ring + props sets]. Where the game picks 50 for the props is not
-// read [U]; the choice is [L fitted]: scored 4 of 4 arenas (4 on its frame, 8 / 9 / 16 at frame 100 of a0x_match, col0 / col1 / col3 / sky / ground to 0.0000, tools\scene\rl_check.py), arenas
-// without a set 50 fall back to 100. A read-rule lead, not confirmed: the class constructor sub_825E0F60 resolves id 100 when sub_825DDC70(kind) (kinds 51-59 / 61 / 62 / 64 / 68 / 69) else 50
-// (docs\formats\light_set.md). Planted twin: load_plants.h.
+// has no lights (Q4 claims_Q34.jsonl "ring steps"); docs\formats\light_set.md: 50 is one of the ring + props sets]. S111 ARENAFIX [C]: the steps (29 / 32 / 35), the desk (6) and its
+// top (7) are weapon-manager CWeapons; the constructor sub_825E0F60 (+0x130..+0x154) stores the index of set 100 for ids 51..59, 61, 62, 64, 68, 69 (sub_825DDC70) and of set 50 for
+// every other id, so 50 for all three. A set the arena lacks: index -1 and nothing copied (sub_825DE7F0 -> sub_827F6828 returns 0), the weapon's default light. Every bg pac with light
+// sets (55, tools\scene\a7_pac_census.py) and every created-arena light part (car_light.pac p0-p9, parts_studium.pac p0-p7) holds 50 and 100, so the 100 below is never reached on the
+// player's files (ours for a foreign pac). Weapons by id: rf_props.cpp (S111 WEAPONLIGHT). Planted twin: load_plants.h.
 inline int PropsLightSet(const std::map<int, LightSet>& all_sets) {
   return !load_detail::PropsSet100Plant() && all_sets.count(50) ? 50 : 100;
 }
@@ -1674,16 +1816,15 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
   TexSet tex;
   const bool car_id = car::IsCustomId(id);
   TexSet tex_part[3];   // S103 CAR fix 2: a created arena's texture names collide across its parts (truss_00, ar_shdw, beam_glow01 differ per part): one set per part, a mesh takes its own part's
+  // S111 ARENALEVELS (arena_levels.h): the stage builder's level count per texture: the own key-400 directories per name (the 50010 table, the record's byte 24), 401 / 402 at 3
+  const arena_levels::Rule stage_levels = arena_levels::MakeRule(ArenaRecordLeaf(files), h, buf, id, car_id);
+  if (stage_levels.record < 0)
+    m.warnings.push_back("arena levels: pac\\misc01_Start.pac p0/2 did not read as the arena record table: byte 24 reads 0 (the whole-chain and design names keep their table count)");
   if (car_id) {
     // CASD {400}, CAEN {403 = its 400, 401}, CARG {404 = its 400, 402} (car_arena.h); `tex` holds all of them in that order for the lookups that are not per mesh (the stage light map)
-    for (const std::pair<uint32_t, int> kp : {std::pair<uint32_t, int>{400u, 0}, {403u, 1}, {401u, 1}, {404u, 2}, {402u, 2}})
-      if (const pac::Ent* e = pac::Find(h, kp.first)) {
-        const Bytes dir = pac::Decode(buf.data() + e->off, e->size);
-        tex.AddDir(Bytes(dir)), tex_part[kp.second].AddDir(Bytes(dir));
-      }
+    arena_levels::AddStageDirs(tex, tex_part, h, buf, true, stage_levels);
   } else {
-    for (uint32_t k : {400u, 401u, 402u})
-      if (const pac::Ent* e = pac::Find(h, k)) tex.AddDir(pac::Decode(buf.data() + e->off, e->size));
+    arena_levels::AddStageDirs(tex, nullptr, h, buf, false, stage_levels);
     // S103 WMB: a shared name this arena lacks comes from the donor arena's directory 400, holes only (AddDir keeps the first directory's texture)
     if (BorrowTextures() && !BorrowEmptyTablePlant())
       for (const BorrowName& bn : kBorrowTextures) {
@@ -1692,7 +1833,10 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
         std::string derr;
         pac::Pac dpac;
         const pac::Ent* de = pac::Open(files, ArenaRel(bn.donor_arena), dpac, derr) && !dpac.pachs.empty() ? pac::Find(dpac.pachs[0], 400) : nullptr;
-        if (de) tex.AddDir(pac::Decode(dpac.bytes.data() + de->off, de->size), std::vector<std::string>{bn.name});   // the log line comes from TexSet::Get when a material uses it
+        if (de) {   // the log line comes from TexSet::Get when a material uses it; S111 ARENALEVELS: the name takes this arena's key-400 rule, a stand-in [L] (the game binds nothing of its own: the stale texture it draws has no count we can read)
+          const TexSet::LevelsOf of = stage_levels.Fn();
+          tex.AddDir(pac::Decode(dpac.bytes.data() + de->off, de->size), std::vector<std::string>{bn.name}, &of);
+        }
         else NoteDropped(m, ArenaRel(bn.donor_arena) + " entry 400 (the donor of '" + bn.name + "')", derr.empty() ? std::string("no top-level entry 400") : derr, "texture_pac");   // S108 AL1: the donor did not open: a fault, not the game's choice
       }
   }
@@ -1987,16 +2131,21 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
     // stored with their corner at the origin (bounds within +-200) and drawn translated to the four corners of the barricade square.
     // [C for arena 5, swap 6728 draws 849-852, 868-870, 880-882, 1078-1081 matched by vertex / index counts; world matrices are pure
     // translations]: 390 and 394 (561, 0, -560); 391 and 395 (-561, 0, -560); 392 and 396 (532.9, 0, 560); 393 and 397
-    // (-532.9, 0, 560). [U] that other arenas use the same offsets (the pieces are the same in bg00-04, 06-09; bg02 differs).
+    // (-532.9, 0, 560). S111 ARENAFIX [C]: these are the game's corner table 0x820164B0 (sub_826680A8 binds corner q to entry q), one table for every arena; a created
+    // arena's corner rigs / signs are slots 81-84 / 85-88 and its second rig set slots 91-94 (sub_824E8140: [stage + 6164 + 4 slot], the second loop binds 91 + q to entry q, no sign).
     // S110 BARRICADE: OFFLINE VIEWER FALLBACK ONLY. The game's corner position and pose are the slot model's own palette ([model + 200], BARRICADE.md); the live build reads it (kFxSlotPalette rows, stage_posed.h)
     // and drops this placement for every slot that has them (rf_c_core.cpp, the slot's own skinned model). These hand-measured constants stay only for the Arena Viewer, which has no palette.
-    if (key >= 390 && key <= 397 && first_mesh < m.meshes.size() && m.meshes[first_mesh].placement < 0) {
+    const int corner_key = (key >= 390 && key <= 397) ? int(key) - 390
+                         : (car_id && key >= 81 && key <= 88) ? int(key) - 81
+                         : (car_id && key >= 91 && key <= 94) ? int(key) - 91
+                                                              : -1;   // S111 ARENAFIX: q = corner_key & 3
+    if (corner_key >= 0 && first_mesh < m.meshes.size() && m.meshes[first_mesh].placement < 0) {
       float lim = 0;
       for (size_t k = first_mesh; k < m.meshes.size(); ++k)
         for (const Vertex& vx : m.meshes[k].vertices) lim = std::max(lim, std::max(std::fabs(vx.pos[0]), std::fabs(vx.pos[2])));
       if (lim <= 200.f) {
         static const float kx[4] = {561.f, -561.f, 532.9f, -532.9f}, kz[4] = {-560.f, -560.f, 560.f, 560.f};
-        const int c = int((key - 390) & 3);
+        const int c = corner_key & 3;
         Placement pl;
         pl.label = "slot " + std::to_string(key) + " corner";
         pl.transforms.push_back(MirrorY(TransFile(kx[c], 0, kz[c])));
@@ -2029,11 +2178,12 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
   // light-mapped draw of probe run 6819 (frames 6881 / 10747) [C] -> one engine-wide span for every arena (two arenas measured, none
   // differs). Arena 1 used 1/3500 before: the stage light map (and the entrance pools drawn on it) landed 1.6x too far out.
   // S103 B3 (T3b_lightmap_writer.md): c184 is the game's own per-arena value, NOT a constant: sub_827F22C8 computes (1 / X, 1 / Z, G * 0.01, 1) from the arena's record in the player's
-  // `pac\misc02_ingame.pac` leaf p0/102/5 (arena_lm.h). Read here at arena load, so the game, the viewer and the rig agree. No table (a missing file) = arena 4's record, counted.
+  // `pac\misc02_ingame.pac` leaf p0/102/5 (arena_lm.h). Read here at arena load, so the game, the viewer and the rig agree. No table (our read failed) or an id out of range: no upload, the c184
+  // the GPU holds stays (arena_lm::Held: the last value produced, zero before any upload; S111 LMPREV), counted.
   {
     const arena_lm::Param lp = arena_lm::Compute(ArenaLmTable(files), id, car::Current().bg);   // S103 CAR: a created arena borrows the real bg id the game keeps at [stage + 21192]
     m.lm_scale[0] = lp.v[0], m.lm_scale[1] = lp.v[1], m.lm_gain = lp.v[2];
-    if (lp.clamped || lp.no_table) m.warnings.push_back("arena " + std::to_string(id) + ": LightMapParam " + (lp.no_table ? "table unreadable (misc02_ingame.pac p0/102/5)" : "id out of range") + ": arena 4's record");
+    if (lp.clamped || lp.no_table) m.warnings.push_back("arena " + std::to_string(id) + ": LightMapParam " + (lp.no_table ? "table unreadable (misc02_ingame.pac p0/102/5)" : "id out of range") + ": no upload, " + (lp.none ? "nothing held yet: zero (gain 0)" : "the last c184 held"));
     if (lp.zero) m.warnings.push_back("arena " + std::to_string(id) + ": LightMapParam record unused (0, 0, 0): gain 0, as the game");
   }
   {  // Session 98 (arena fix 2, stage_pools.h): the stage light map as a live RGBA8 page (the entrance adds the rig's light pools to it
@@ -2115,11 +2265,17 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
   // S103 CEF: the steps / desk come from bgEtc.pac, which the game opens only on the match path, and only ring arenas (ring_meshes) are match
   // arenas; the CAW editor (BG66, no ring set) must not get them (the strip at the bottom that the 360 does not draw) [C: docs/research/s103/CEB.md].
   const bool add_props = !ring_meshes.empty() || load_detail::AlwaysPropsPlant();
-  if (add_props) {  // Session 97 (props builder): the ring steps at two diagonal corners (see AddProp)
+  // S111 ARENAFIX (arena_props_table.h): which of these props the game places in this arena, and the steps' colour, from the player's own tables. The planted twin
+  // (AlwaysPropsPlant, tools\assets\props_check.py) keeps the old fixed choice: steps 32 and the desk on every arena.
+  // Read only for an arena that gets props: ArenaPropsPlan opens bgEtc.pac (OpenProps keeps it for the program), which a non-ring load (the CAW editor's bg66) never opened before.
+  const arena_props::Plan props_plan = !add_props || load_detail::AlwaysPropsPlant() ? arena_props::Plan() : load_detail::ArenaPropsPlan(files, id);
+  if (add_props && !props_plan.read && !load_detail::AlwaysPropsPlant())
+    m.warnings.push_back("arena props: pac\\misc01_Start.pac p0/2 or pac\\bg\\bgEtc.pac p10/45010 unreadable: the fixed choice (steps 32 and the desk)");
+  if (add_props && props_plan.steps) {  // Session 97 (props builder): the ring steps at two diagonal corners (see AddProp); S111 ARENAFIX: = the placement records' (328, 0, -+328) turned -45 / 225
     static const float kA[12] = {0.70710678f, 0, -0.70710678f, 328.f, 0, 1, 0, 0, 0.70710678f, 0, 0.70710678f, -328.f};
     static const float kB[12] = {-0.70710678f, 0, -0.70710678f, 328.f, 0, 1, 0, 0, 0.70710678f, 0, -0.70710678f, 328.f};
     const size_t first = m.meshes.size();
-    if (AddProp(files, std::getenv("WWE_STEPS") ? uint32_t(std::atoi(std::getenv("WWE_STEPS"))) : 32u /* S97: entry 32 = the pale grey steps of the game frame (29 blue, 35 dark); [U] which variant each arena uses; WWE_STEPS overrides */, {FromGameRows(kA), FromGameRows(kB)}, "ring steps", m, false)) {
+    if (AddProp(files, std::getenv("WWE_STEPS") ? uint32_t(std::atoi(std::getenv("WWE_STEPS"))) : props_plan.steps_key /* S111 ARENAFIX: 29 blue / 32 pale grey / 35 dark by the arena record's byte 28 (sub_825DDAB0); WWE_STEPS overrides */, {FromGameRows(kA), FromGameRows(kB)}, "ring steps", m, false)) {
       // (lighting: the probe's step draws use the yProp vertex shader like the ring posts (VS 962408F8), not the stage-lightmap
       // family: no lightmap). S103 RL: the props' light set is key set 50 (PropsLightSet below), not 100.
       const int ls = resolve_set(PropsLightSet(all_sets));
@@ -2129,15 +2285,19 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
       }
     }
   }
-  if (add_props) {  // Session 97 (props2): the announce desk: bgEtc PACH 9 entry 6 (ji_bl 274 / ji_meta 405 / ji_desk 37 vertices) and entry 7 (ji_mon 98 /
+  if (add_props && (props_plan.desk || props_plan.top)) {  // Session 97 (props2): the announce desk: bgEtc PACH 9 entry 6 (ji_bl 274 / ji_meta 405 / ji_desk 37 vertices) and entry 7 (ji_mon 98 /
     // ji_top 10 / ji_bl 50), drawn by swap 20911 draws 1558-1563 with pure translations: entry 6 meshes 1-2 at (0, 0, -775.4), mesh 3 at
     // (0, 0, -760), entry 7 at (0, -48.25, -760) [C: world matrix rows c76..c78, vertex counts = vfetch bytes / 32 and index counts
-    // matched]. [U] the same place in every arena.
+    // matched]. S111 ARENAFIX [C]: the same place in every arena that places a desk (the placement records' (0, 0, -760), bgEtc.pac p10/45010). The model is per arena: the game
+    // turns 6 / 7 into [0x82020080 + 4 * byte 64] / [0x8202008C + 4 * byte 65] of the arena record (sub_8258CE20): desk 106 for arenas 28-42, 105 for 43-45, top 107 for 28-51.
+    // S111 DESKMODEL (docs\research\s111\DESKMODEL.md): the plan's desk_key / top_key are those entries. S111 DESKSKIN: each VERTEX sits at the row of its own palette slot's
+    // node (those c76 rows are per NODE; 105 / 106 have the desk's nodes, 107 the top's: arena_props_table.h DeskVertexShift, PlaceDeskMeshes). Planted twins:
+    // load_detail::OldDeskPlant (6 / 7 everywhere), load_detail::DeskSlot0Plant (each mesh whole on its slot 0 row).
     const size_t first = m.meshes.size();
-    const std::vector<std::vector<Matrix>> desk = {{TransFile(0, 0, -775.4f)}, {TransFile(0, 0, -775.4f)}, {TransFile(0, 0, -760.f)}};
-    const std::vector<std::vector<Matrix>> top = {{TransFile(0, -48.25f, -760.f)}};
-    AddProp(files, 6, {}, "announce desk", m, false, &desk);
-    AddProp(files, 7, {}, "announce desk top", m, false, &top);
+    const std::vector<std::vector<Matrix>> one_each = {{TransFile(0, 0, -760.f)}};   // a placement per mesh, at the place; PlaceDeskMeshes moves each vertex by its node's row
+    const bool old_desk = load_detail::OldDeskPlant();
+    if (props_plan.desk) PlaceDeskMeshes(m, AddProp(files, old_desk ? 6u : props_plan.desk_key, {}, "announce desk", m, false, &one_each), false);
+    if (props_plan.top) PlaceDeskMeshes(m, AddProp(files, old_desk ? 7u : props_plan.top_key, {}, "announce desk top", m, false, &one_each), true);
     const int ls = resolve_set(PropsLightSet(all_sets));   // S103 RL: key set 50, as the steps
     for (size_t k = first; k < m.meshes.size(); ++k) {
       m.meshes[k].light_set = ls;
@@ -2211,7 +2371,8 @@ inline bool LoadArena(launcher::GameFiles& files, int id, Model& m, std::string&
   }
   if (stage_media::Cfg().wrestler >= 0 && stage_media::Cfg().ent_light) {
     // Session 97 (entrance_light.h): the entrance look takes the wrestler's own entrance key for each arena set's rig slot:
-    // colours / sky / ground replaced, the arena set's DIRECTIONS kept (the key's directions are unproven, [U]).
+    // colours / sky / ground replaced, the arena set's DIRECTIONS kept. S111 ARENAFIX [C]: the game resolves a remapped set to the rig slot's whole light object (sub_827F6828), its
+    // directions included (camera-attached, docs\formats\entrance_rig.md): this viewer look DIFFERS there; not built (no per-frame rig direction here).
     std::string le;
     const entrance_light::Rig rig = entrance_light::Load(files, stage_media::Cfg().wrestler, le);
     if (!rig.ok) {

@@ -7,6 +7,7 @@
 #include "../renderer_scene/rows_stage_look.h"
 #include "wide_frame.h"   // S105 A2
 #include "row_fate.h"   // S105 A4B: Fate / FateOf (moved out of this file)
+#include "../renderer_scene/flat_particles.h"   // S111 TITLESMOKE: the flat frame's particle groups among the rows
 #include "../renderer_game/caw_portrait_core.h"   // S103 CPB
 #include "pipeline_catalog.h"   // S105 B3
 #include "store_progress.h"     // S105 B3
@@ -60,7 +61,7 @@ bool SceneHost::Start(const HostOptions& options, std::string& error) {
   renderer_ = rdr::Renderer::Create(opts_.renderer, error);
   if (!renderer_) return false;
   {   // S105 B3: the shader catalog (the stream build's Binder did this; the stream-free host never did: every stored pipeline stayed "unresolved" and the first match frames built them cold)
-    const size_t n = RegisterShaderCatalogFrom(*renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + our own blobs
+    const size_t n = RegisterShaderCatalogFrom(*renderer_, std::begin(rdr::fx::kVariants), std::end(rdr::fx::kVariants), rdr::fx::Words, std::begin(rdr::fx::kOwnShaders), std::end(rdr::fx::kOwnShaders));   // S110 RDRPREP: kVariants + our own blobs
     store_progress::g_progress.store_expected.store(renderer_->pipeline_store_active(), std::memory_order_relaxed);
     Log("[host][pipestore] catalog registered: " + std::to_string(n) + " shaders (" + std::to_string(std::size(rdr::fx::kOwnShaders)) + " of them our own)" + (opts_.precompile_mode ? "; precompile mode: the store builds everything at once" : ""));
   }
@@ -180,7 +181,7 @@ void SceneHost::LogFinal() {
   LogDirect();   // S103 CHS C6
   if (const std::string sl = StrikeLine(); !sl.empty()) Log(sl);   // S103 LVF
   if (draw_) Log(draw_->Census());   // S103 MSF: the drawer's census ([scene][draw] ... plane_bound, then [scene][maps] / [scene][maps][e2]: plane made, skip reasons, blank frames); the stream build prints it from live.cpp, OFF never did (the LVF class)
-  if (draw_) Log(draw_->ReadyCensusLine(true));   // S103 HN: the holes / shadow inputs the drawer SKIPPED, by class with the first reason (the stream build prints the same line from live.cpp)
+  if (draw_) Log(draw_->ReadyCensusLine(true));   // S103 HN: the holes the drawer SKIPPED, by class with the first reason (the stream build prints the same line from live.cpp)
   Log(scene_kind::CensusLine().c_str());   // S103 CW1: the per-kind census (last window)
   LogPostLevers(core_.counters().frames);   // S103 SLV
   Log(scene_frame::OursMissingLine());
@@ -654,6 +655,7 @@ rdr::TextureSlot SceneHost::PlaneOf(const rdr_scene::Quad2D& row, int slot, uint
 // S103 CHS C6: true when DrawRows below would record a pass on F. The same Fate rule, no side effect. An empty record, an untaken tap and photo mode record nothing.
 bool SceneHost::RowsMayDraw(const Rec& rec, uint32_t w, uint32_t h, bool hidden, bool scene_on_f) const {
   if (rec.quad2d_holes == rdr_scene::kQuad2DNotTaken || hidden || rec.quads2d.empty() || StageDrops(rec)) return false;   // S103 SVO: a stamped stage-push record draws no row
+  if (rdr_scene::flat_particles::HasScreen(rec.particles)) return true;   // S111 TITLESMOKE: DrawRows draws the flat frame's particle groups onto F between its rows
   for (const rdr_scene::Quad2D& row : rec.quads2d)
     if (FateOf(row, opts_.draw_unknown_pass, w, h, draw_->Scene2DOn(), false, scene_on_f) == Fate::Draw) return true;
   return false;
@@ -688,8 +690,18 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
   fallback_census::NoteRows(n);
   c.rows_seen += n;
   ++c.frames_2d;
-  // Menu particle groups (batches the node drew with the 2D screen camera): no flat particle drawer exists yet, so they are counted as not drawn, never silently skipped.
-  if (!rec.particles.screen.empty()) c.particles_not_drawn += rec.particles.batches.size();
+  // S111 TITLESMOKE (flat_particles.h): the title / menu particle groups (batches the node drew with its 2D screen camera: the record's ParticleScreen row) are drawn onto F BETWEEN the rows, each
+  // group after the rows the game had drawn before its node call. A frame that leaves before the row loop (no tap, no rows, photo mode), a group with no drawer yet and a group F must not take
+  // (forbid_f) stay counted particles_not_drawn, as every group was before (the scope guard adds what is left at every return).
+  const bool flat_parts = rdr_scene::flat_particles::HasScreen(rec.particles);
+  const rdr_scene::flat_particles::Stops flat_stops = flat_parts ? rdr_scene::flat_particles::StopsOf(rec.particles, rec.quads2d.data(), n) : rdr_scene::flat_particles::Stops{};   // S111 FLATSEQ: by the rows' seq
+  size_t flat_next = 0;
+  uint64_t parts_left = flat_parts ? uint64_t(rdr_scene::flat_particles::FlatBatches(rec.particles)) : 0;   // (review: the screen calls' batches only; a scene-camera call's are not this drawer's)
+  struct PartsLeft {
+    uint64_t& counter;
+    const uint64_t& left;
+    ~PartsLeft() { counter += left; }
+  } parts_left_scope{c.particles_not_drawn, parts_left};
   if (rec.quad2d_holes == rdr_scene::kQuad2DNotTaken) {   // the 2D tap did not run on this frame: nothing was recorded, nothing can be drawn
     fallback_census::NoteRefused(j, "not_taken");
     ++c.frames_2d_dropped;
@@ -750,15 +762,40 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
       if (forbid_f) { ++direct_conflicts_; return; }
       fb.SetTargets(t), f_set = true;
     }
+    if (seam_.flat_trace) seam_.flat_trace('R', run, end);   // S111 FLATSEQ rig: the run handed to the 2D drawer
     const q::Report r = q::Append(fb, q2d_programs_, ctx, rec.quads2d.data() + run, end - run);
     total.drawn += r.drawn;
     for (unsigned i = 0; i < unsigned(q::Refuse::Count); ++i) total.refused[i] += r.refused[i];
     if (r.first_refused >= 0 && run + size_t(r.first_refused) < first_idx) first_idx = run + size_t(r.first_refused), first_kind = FirstKind::Refused, first_refuse = r.first_why;
   };
+  // S111 TITLESMOKE: the flat frame's particle group at row position `pos`, in the rows' own game box of F (wide_frame.h RowViewOf of a plain row: no full-view, no scissor of its own).
+  const auto draw_parts = [&](size_t pos) {
+    if (!f_set) {
+      if (forbid_f) { ++direct_conflicts_; return; }
+      fb.SetTargets(t), f_set = true;
+    }
+    if (seam_.flat_trace) seam_.flat_trace('P', pos, rdr_scene::flat_particles::CountAt(rec.particles, pos, rec.quads2d.data(), n));   // S111 FLATSEQ rig: the group drawn here
+    const uint32_t tgt_w = ctx.target_w ? ctx.target_w : ctx.width, tgt_h = ctx.target_h ? ctx.target_h : ctx.height;
+    const wide_frame::RowView view = wide_frame::RowViewOf(ctx.width, ctx.height, tgt_w, tgt_h, ctx.origin_x, ctx.origin_y, false, false, wide_frame::IRect{});
+    rdr_scene::LiveParticles::FlatView v;
+    v.view_proj = rec.particles.screen[0].view_proj;
+    v.viewport = rdr::Rect{view.viewport.x, view.viewport.y, view.viewport.w, view.viewport.h};
+    v.scissor = rdr::Rect{view.scissor.x, view.scissor.y, view.scissor.w, view.scissor.h};
+    if (!draw_->DrawFlatParticles(rec, v, pos, fb)) return;
+    const uint64_t k = rdr_scene::flat_particles::CountAt(rec.particles, pos, rec.quads2d.data(), n);
+    parts_left -= k < parts_left ? k : parts_left;
+  };
   bool page_ctx = false;   // S103 SMX review A3: the record has the stage page's own rows (the page clock, or an entrance)
   for (const rdr_scene::StageLookRow& sl : rec.stage_look)
     if (sl.kind == rdr_scene::kSlPageClock || sl.kind == rdr_scene::kSlEntrance) page_ctx = true;
   for (size_t i = 0; i < n; ++i) {   // S103 SMX (IP): the first offscreen row of each 600-record window is named once (site / kind / target size), so the 512x512 page class is read, not assumed
+    if (flat_next < flat_stops.n && flat_stops.at[flat_next] == i) {   // S111 TITLESMOKE: the group the game drew after rows [0, i): those rows first, then the group, then row i on
+      if (seam_.flat_parts_first) draw_parts(i);   // planted fault (S111 FLATSEQ rig): the group before the rows it follows
+      flush(i);
+      run = i;
+      if (!seam_.flat_parts_first) draw_parts(i);
+      ++flat_next;
+    }
     const rdr_scene::Quad2D& row = rec.quads2d[i];
     if (row.pass == rdr_scene::kQpOffscreen) {
       static uint64_t s_logged_window = ~0ull;
@@ -794,6 +831,7 @@ void SceneHost::DrawRows(rdr::FrameBuilder& fb, const Rec& rec, uint64_t j, uint
     }
   }
   flush(n);
+  while (flat_next < flat_stops.n) draw_parts(flat_stops.at[flat_next++]);   // S111 TITLESMOKE: a group after the last row (or with no row noted): PosOf clamps every position to n
   std::stable_partition(scene_idx.begin(), scene_idx.end(), [&](size_t i) { return rdr_scene::LiveScene2D::IsEarly(rec.quads2d[i]); });   // S105 A4B (review F3): the hook's own order, early rows first, so first_refused indexes the same list
   if (in_scene) {   // S103 SCS: the in-scene rows, by the scene hook's report for THIS record (its guest frame). No report for it (the frame was not drawn by DrawLive) = dropped `pass` as before.
     if (scene2d_frame_ == uint64_t(rec.header.guest_frame) && scene2d_rows_ == in_scene) {
@@ -867,9 +905,10 @@ void SceneHost::ServePortrait(const std::shared_ptr<const Rec>& cur, uint64_t j)
   res.id = req.id, res.width = req.width, res.height = req.height, res.landed_frame = j;
   bool loading = false;
   std::string why;
+  std::string pieces_text;   // S111 PORTRAITCENSUS: "pieces P (ids ...)" from the draw (LiveSceneDraw::DrawPortrait), empty when it failed before counting
   const auto t0 = std::chrono::steady_clock::now();
   const Rec* use = holds(*cur) ? cur.get() : (editor_rec_ && holds(*editor_rec_) ? editor_rec_.get() : nullptr);
-  if (use) res.ok = draw_->DrawPortrait(*use, req.camera, req.model, req.width, req.height, res.rgba, why, &loading);
+  if (use) res.ok = draw_->DrawPortrait(*use, req.camera, req.model, req.width, req.height, res.rgba, why, &loading, &pieces_text);
   else {
     why = "the model is in neither this frame's record nor the last editor record; this frame: " + caw_portrait::CandidatesText(cur->engine_objects.data(), cur->engine_objects.size()) + "; last editor record: " +
           (editor_rec_ ? caw_portrait::CandidatesText(editor_rec_->engine_objects.data(), editor_rec_->engine_objects.size()) + " (frame " + std::to_string((unsigned long long)editor_rec_frame_) + ")" : std::string("none kept"));
@@ -882,7 +921,7 @@ void SceneHost::ServePortrait(const std::shared_ptr<const Rec>& cur, uint64_t j)
   if (res.ok) ++portrait_served_;
   else ++portrait_failed_;
   Log("[rdr][caw_portrait] request " + std::to_string((unsigned long long)req.id) + " frame " + std::to_string((unsigned long long)req.guest_frame) + " character " + std::to_string(req.character) + " model " + std::to_string(req.model) + " record " + (use == cur.get() ? "this frame" : use ? "last editor" : "none") + " drawn " + std::to_string(res.ok ? 1 : 0) +
-      " " + std::to_string(req.width) + "x" + std::to_string(req.height) + " ms " + std::to_string(ms) + (res.ok ? "" : ": " + why) + " (served " + std::to_string((unsigned long long)portrait_served_) + ", failed " + std::to_string((unsigned long long)portrait_failed_) + ")");
+      (pieces_text.empty() ? std::string() : " " + pieces_text) + " " + std::to_string(req.width) + "x" + std::to_string(req.height) + " ms " + std::to_string(ms) + (res.ok ? "" : ": " + why) + " (served " + std::to_string((unsigned long long)portrait_served_) + ", failed " + std::to_string((unsigned long long)portrait_failed_) + ")");
   g_portrait.Publish(std::move(res));
 }
 
@@ -926,7 +965,7 @@ void SceneHost::Handle(Msg& m) {
     game_w_ = shape.game_w, game_h_ = shape.game_h, box_x_ = shape.box_x, box_y_ = shape.box_y, shape_w_ = shape.w, shape_h_ = shape.h;
   }
   rdr::FrameBuilder& fb = builder_;
-  // The per-frame output switches the stream path sets here (live.cpp 1054-1057: SetOutput / SetPresentFetch / SetColourCuts) are not read yet: the builder keeps what its Begin took from the
+  // The per-frame output switches the stream path sets here (live.cpp (rdr_adapter::LiveSink::Impl::Run): SetOutput / SetPresentFetch / SetColourCuts) are not read yet: the builder keeps what its Begin took from the
   // process-wide atomics (the defaults). Logged once at start (host_start.cpp), listed in BuildOptions.
   fb.Begin(j);
   first_pic_set_ = false;   // S105 A4 F8: the first row the picture resolver refuses in this handled frame (in-scene rows included)
@@ -964,7 +1003,7 @@ void SceneHost::Handle(Msg& m) {
     bool built_this = false;      // a Warm / DrawLive build ran for this record (its stage verdict is this frame's)
     const uint32_t scene_req = scene_kind::RequiredFor(scene_kind::Kind(kind), rdr_own::S(rdr_own::Pass::Scene3D).required_inputs.load(std::memory_order_relaxed));
     bool fresh = true;
-    if ((!seam_.force_ours && !scene_frame::ForceInputs()) || seam_.inject_stale) {   // the stale-inputs check of SceneOurs (live.cpp 1858-1873); inject_stale = the rig's missing input
+    if ((!seam_.force_ours && !scene_frame::ForceInputs()) || seam_.inject_stale) {   // the stale-inputs check of SceneOurs (live.cpp); inject_stale = the rig's missing input
       const uint64_t hook = hook_now;
       uint32_t ok = 0;
       for (const rdr_scene::InputStampRow& r : rec.input_stamps)
@@ -1169,7 +1208,7 @@ void SceneHost::Handle(Msg& m) {
       shot_before();
       renderer_->RenderFrame(built);
     } else {
-      // The decoupled 120 (live.cpp 1088-1105, the same order): the halfway picture between the last drawn tick and this one first (a full frame: it does this tick's lasting work), then this tick's own
+      // The decoupled 120 (live.cpp (rdr_adapter::LiveSink::Impl::Run), the same order): the halfway picture between the last drawn tick and this one first (a full frame: it does this tick's lasting work), then this tick's own
       // (DisplayOnly: the in-between redraw, no state work); FIFO shows them a vblank apart at the display's 120 Hz. The 2D rows are not mixed: both pictures carry this tick's (TickBlender mixes vertex
       // constants of keyed 3D draws only). The previous tick is kept whenever this one drew; anything else (a held / black / 2D frame) forgets it, and so does a size or scene change or a camera cut.
       const bool drawn3d = m.record && plan.source == Source::Draw3D && built.presents.count;

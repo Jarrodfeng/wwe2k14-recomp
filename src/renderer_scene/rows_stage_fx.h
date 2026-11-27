@@ -13,6 +13,7 @@ inline constexpr uint32_t kScModelLights = 38;
 inline constexpr uint32_t kScStageFx = 39;
 inline constexpr uint8_t kModelLightsLayout = 1, kStageFxLayout = 1;
 enum ModelLightKind : uint8_t { kMlSet = 0, kMlMesh = 1 };
+inline constexpr uint8_t kMlLast = kMlMesh;   // S111 FXSKIP: the last known kind; record_io.cpp keeps kMlSet..kMlLast and skips (and counts) a newer kind's rows. A new kind: move it.
 struct ModelLightRow {
   uint8_t kind = 0;      // ModelLightKind
   uint8_t layout = kModelLightsLayout;
@@ -23,7 +24,10 @@ struct ModelLightRow {
   float dir[12] = {}, col[12] = {}, sky[3] = {}, ground[3] = {}, fall[4] = {}, wt[4] = {}, hl_dir[3] = {}, hl_col[3] = {}, pcol[12] = {};
 };
 static_assert(sizeof(ModelLightRow) == 240, "ModelLightRow is a flat POD table");
-enum StageFxKind : uint8_t { kFxScreen = 1, kFxFlash = 2, kFxSlotWorld = 3, kFxShow = 4, kFxVisMark = 5, kFxVisSkip = 6, kFxCar = 7, kFxSlotPalette = 8 };   // S110 BARRICADE: kFxSlotPalette = one NODE of a posed stage slot's palette ([model + 200], stage_posed.h): slot, movie = node index, flags = the slot's node count, pad = the model, world = the node's rows. S103 CAR: kFxCar = a created arena (200-249) stage's part indices (car_arena_rows.h). S103 WSL: kFxVisMark = one per frame while a stage exists (seq = stage generation, pad = stage, flags & 1 = the mask is valid, slot = count); kFxVisSkip = a slot the game's look gate skips (stage_slot_vis.h). S103 SCF: kFxShow = the game's show bit of a screen key 800-809 or an art slot 301-304 (stage_show.h; slot = the key / slot, flags & 0x200 = shown)
+enum StageFxKind : uint8_t { kFxScreen = 1, kFxFlash = 2, kFxSlotWorld = 3, kFxShow = 4, kFxVisMark = 5, kFxVisSkip = 6, kFxCar = 7, kFxSlotPalette = 8, kFxCarRope = 9 };   // S111 CAARING: kFxCarRope = one of a created arena's twelve rope colours (car_rope_colours.h: slot = the record index 3 side + height, color = rgb, flags & 1 = read). S110 BARRICADE: kFxSlotPalette = one NODE of a posed stage slot's palette ([model + 200], stage_posed.h): slot, movie = node index, flags = the slot's node count, pad = the model, world = the node's rows. S103 CAR: kFxCar = a created arena (200-249) stage's part indices (car_arena_rows.h). S103 WSL: kFxVisMark = one per frame while a stage exists (seq = stage generation, pad = stage, flags & 1 = the mask is valid, slot = count); kFxVisSkip = a slot the game's look gate skips (stage_slot_vis.h). S103 SCF: kFxShow = the game's show bit of a screen key 800-809 or an art slot 301-304 (stage_show.h; slot = the key / slot, flags & 0x200 = shown)
+// S111 FXSKIP: the last known kind. record_io.cpp keeps kFxScreen..kFxLast and skips (and counts in c_errors) a newer writer's kinds, so the rest of the
+// section reads. A new kind: add it to StageFxKind and move kFxLast here; the reader needs no change.
+inline constexpr uint8_t kFxLast = kFxCarRope;
 struct StageFxRow {
   uint8_t kind = 0;      // StageFxKind
   uint8_t layout = kStageFxLayout;
@@ -49,6 +53,7 @@ enum StageFxFlashFlags : uint32_t {
   kFxfLightSet = 4,     // the game takes the flash colour from light set 500 (the row colour is the manager's block, a stand-in)
   kFxfColorUnread = 8,  // the colour block was not readable: white
   kFxfHeld = 16,        // S110 FLASHOCC: shown from the flash hold (flash_hold_core.h), not the row the game gave this frame (census only)
+  kFxfKeepCensus = 32,  // S111 FLASHCAM review (census only, src\scene_live\flash_keep.h Stamp): pad = the game's keep rule for the item (int32 1 kept / 0 refused / -1 not known), w / h = the slot camera's +176 x / y scales
 };
 
 }  // namespace rdr_scene

@@ -76,8 +76,8 @@ def new_repo(name, override=None, files=None):
     return r, commit(r, 'c1')
 
 
-def run(r, base, only=None):
-    res, summ = hb.run_checks(r, base, only, out=lambda *_a: None)
+def run(r, base, only=None, all_rows=False):
+    res, summ = hb.run_checks(r, base, only, out=lambda *_a: None, all_rows=all_rows)
     return {x.name: x for x in res}, summ
 
 
@@ -182,9 +182,14 @@ def t_runs_all():
     r, base = new_repo('runs_all', override={row.name: FAIL_LINT for row in hb.LINT_ROWS})
     put(r, 'docs/a.md', '# a\nmore\n')
     v, s = run(r, base)
-    not_run = [row.name for row in hb.LINT_ROWS if v[row.name].verdict != 'FAIL']
-    ok(not not_run, 'runs all: a docs-only diff still runs every lint row (%d rows; not run: %s)' % (len(hb.LINT_ROWS), not_run or 'none'))
-    ok(not any(x.verdict == 'SKIP' for x in v.values()) and s['counts']['SKIP'] == 0, 'runs all: no row is SKIP in a plain run')
+    gated = set(hb.check_gates.GATES)
+    not_run = [row.name for row in hb.LINT_ROWS if row.name not in gated and v[row.name].verdict != 'FAIL']
+    ok(not not_run, 'runs all: a docs-only diff still runs every ungated lint row (%d rows; not run: %s)' % (len(hb.LINT_ROWS) - len(gated), not_run or 'none'))
+    ok({n for n, x in v.items() if x.verdict == 'SKIP'} == gated and s['counts']['SKIP'] == len(gated),
+       'runs all: on a docs-only diff exactly the gated rows are SKIP (%s)' % sorted(n for n, x in v.items() if x.verdict == 'SKIP'))
+    v, s = run(r, base, all_rows=True)
+    ok(not [n for n in gated if n in SCRIPTS and v[n].verdict != 'FAIL'] and not [n for n in gated if n.startswith('cd_') and v[n].verdict == 'SKIP'],
+       'runs all: all_rows runs the gated rows too')
     v, _ = run(r, base, 'aniso')
     ok(v['aniso'].verdict == 'FAIL' and v['mask'].verdict == 'SKIP', 'runs all: --only runs just the named row (the others are SKIP, by --only)')
     r, base = new_repo('runs_all_cli', override={row.name: FAIL_LINT for row in hb.LINT_ROWS})
@@ -192,12 +197,125 @@ def t_runs_all():
     rc, out = cli(r, base)
     j = handback_json(out)
     rows = j.get('rows', {})
-    not_run = [row.name for row in hb.LINT_ROWS if rows.get(row.name) != 'FAIL']
-    ok(rc == 1 and not not_run and j.get('counts', {}).get('SKIP') == 0 and j.get('partial') is False,
-       'runs all (CLI): a `git mv` docs diff runs every lint row, exit 1, not partial (exit %d; not run: %s; partial %r)' % (rc, not_run or 'none', j.get('partial')))
+    not_run = [row.name for row in hb.LINT_ROWS if row.name not in hb.check_gates.GATES and rows.get(row.name) != 'FAIL']
+    ok(rc == 1 and not not_run and j.get('counts', {}).get('SKIP') == len(hb.check_gates.GATES) and j.get('partial') is False,
+       'runs all (CLI): a `git mv` docs diff runs every ungated lint row, skips the gated ones, exit 1, not partial (exit %d; not run: %s; partial %r)' % (rc, not_run or 'none', j.get('partial')))
+    rc, out = cli(r, base, '--all-rows')
+    ok(handback_json(out).get('counts', {}).get('SKIP') == 0, 'runs all (CLI): --all-rows runs the gated rows too')
     rc, out = cli(r, base, '--only', 'aniso')
     j = handback_json(out)
     ok(j.get('partial') is True and j.get('rows', {}).get('mask') == 'SKIP', 'runs all (CLI): an --only run says partial in its HANDBACK line (partial %r)' % j.get('partial'))
+
+
+def t_gates():
+    """S111 CHECKFAST: each gated row's SKIP decision with a planted twin: a diff that touches the row's input MUST run it (the stub lint FAILs, so a FAIL = it ran), a diff
+    that holds none of its inputs is SKIP with the reason. The twins are first seen to fail on the old check.py (every row ran: the SKIP cases red) and on a gate that never fires."""
+    all_gated = sorted(hb.check_gates.GATES)
+    gated = [n for n in all_gated if n in SCRIPTS]   # the lint rows (the cd_ rows are t_cdfields')
+    fail_all = {n: FAIL_LINT for n in gated}
+    enum_h = 'enum FxKind : unsigned char { kFxA = 1, kFxB = 2 };\ninline constexpr unsigned char kFxLast = kFxB;\n'
+    base_files = {'src/renderer_game/frame_tick.h': '// ft\n#include "../renderer_scene/live_scene.h"\n#include "../renderer_adapter/tail_release.h"\n'
+                                                    '#if !defined(WWE2K14_FRAME_TICK_CORE_ONLY)\n#include "../frame_stats.h"\n#endif\n',
+                  'tools/renderer/frame_tick_unit.cpp': '#define WWE2K14_FRAME_TICK_CORE_ONLY 1\n#include "../../src/renderer_game/frame_tick.h"\n',
+                  'src/renderer_scene/live_scene.h': '#include "record_io.h"\nstruct Latched { int a; };\n', 'src/renderer_scene/record_io.h': 'struct SceneTables {};\n',
+                  'src/renderer_adapter/tail_release.h': 'inline int FlushIfPending() { return 0; }\n', 'src/frame_stats.h': '// game part only\n',
+                  'src/half2_hooks.h': '// h\n#include "half2_hooks/present.inc"  // split: present\n', 'src/half2_hooks/present.inc': '// part\n',
+                  'src/e.h': enum_h, 'src/plain.cpp': 'void P() {}\n',
+                  'src/renderer_adapter/reader/p.inc': '// p\n',
+                  'tools/renderer/pseed_catalog.cpp': '#include "../../src/renderer/pipeline_store.h"\n', 'src/renderer/pipeline_store.h': '// store\n'}
+
+    def verdicts(name, mutate):
+        r, base = new_repo(name, override=fail_all, files=base_files)
+        mutate(r)
+        v, _ = run(r, base)
+        return v
+
+    def ran(v, rows):
+        return [n for n in rows if v[n].verdict == 'FAIL']
+
+    def skipped(v, rows):
+        return [n for n in rows if v[n].verdict == 'SKIP']
+    coarse = ['cvar_link', 'one_definition', 'cvar_shard', 'build_list']
+    v = verdicts('g_docs', lambda r: put(r, 'docs/a.md', '# a\nmore\n'))
+    ok(skipped(v, all_gated) == all_gated and all('no input' in v[n].reason for n in all_gated), 'gates: a docs-only diff SKIPs every gated row, with the reason (%s)' % [n for n in all_gated if v[n].verdict != 'SKIP'])
+    v = verdicts('g_plain', lambda r: put(r, 'src/plain.cpp', 'void P() { int x = 1; }\n'))
+    ok(ran(v, coarse) == coarse and skipped(v, ['frame_tick', 'kind_last']) == ['frame_tick', 'kind_last'],
+       'gates: an edit of a src .cpp with no enum / kXxLast / boundary call runs the four whole-tree rows and SKIPs frame_tick and kind_last')
+    for rel in ('src/renderer_game/frame_tick.h', 'src/half2_hooks.h', 'src/renderer_adapter/reader/p.inc'):
+        v = verdicts('g_ft', lambda r, rel=rel: put(r, rel, '// changed\n'))
+        ok(ran(v, ['frame_tick']) == ['frame_tick'], 'gates: a change of %s RUNS frame_tick' % rel)
+    v = verdicts('g_ft_call', lambda r: put(r, 'src/plain.cpp', 'void P() { rdr_scene::live::EndFrame(1, 2); }\n'))
+    ok(ran(v, ['frame_tick']) == ['frame_tick'], 'gates: a src file that ADDS a scene-writer boundary call RUNS frame_tick')
+    # S111 CHECKFAST review: the unit COMPILES frame_tick.h with every header it includes (the scene writer's live_scene.h -> record_io.h, tail_release.h): an edit of
+    # one of them with no boundary-call name in it (a struct field, the tail's flush) changes what the unit builds and runs
+    for rel in ('src/renderer_scene/live_scene.h', 'src/renderer_scene/record_io.h', 'src/renderer_adapter/tail_release.h', 'src/half2_hooks/present.inc'):
+        v = verdicts('g_ft_inc', lambda r, rel=rel: put(r, rel, '// changed: no boundary name\n'))
+        ok(ran(v, ['frame_tick']) == ['frame_tick'], 'gates: a change of %s (in the unit\'s include closure / a split part of a linted file) RUNS frame_tick' % rel)
+    v = verdicts('g_kl_enum', lambda r: put(r, 'src/e.h', enum_h.replace('kFxB = 2', 'kFxB = 2, kFxC = 3')))
+    ok(ran(v, ['kind_last']) == ['kind_last'], 'gates: an added enum kind in a src header RUNS kind_last')
+    v = verdicts('g_kl_del', lambda r: os.remove(os.path.join(r, 'src', 'e.h')))
+    ok(ran(v, ['kind_last']) == ['kind_last'], 'gates: a deleted src header RUNS kind_last')
+    v = verdicts('g_kl_lint', lambda r: put(r, 'tools/lint/kind_last_lint.py', FAIL_LINT + '# x\n'))
+    ok(ran(v, ['kind_last']) == ['kind_last'], 'gates: a change of the lint itself RUNS kind_last')
+    for rel in ('db/shaders/shader_list.txt', 'src/renderer/shaders/spv/rdr_flash_vert.h', 'tools/renderer/pseed_catalog.cpp', 'src/renderer/pipeline_store.h'):
+        v = verdicts('g_ps', lambda r, rel=rel: put(r, rel, '// changed\n'))
+        ok(ran(v, ['pipeline_seed']) == ['pipeline_seed'], 'gates: a change of %s (the seed list, the compiled SPIR-V, the catalog printer or a header it compiles) RUNS pipeline_seed' % rel)
+    v = verdicts('g_ps_no', lambda r: put(r, 'src/plain.cpp', 'void P() { int y = 2; }\n'))
+    ok(skipped(v, ['pipeline_seed']) == ['pipeline_seed'], 'gates: a src .cpp outside the catalog\'s inputs SKIPs pipeline_seed')
+    v = verdicts('g_self', lambda r: put(r, 'tools/handback/check.py', '# a copy of the runner changed\n'))
+    ok(ran(v, gated) == gated, 'gates: a change of check.py runs every gated row')
+    r, base = new_repo('g_only', override=fail_all, files=base_files)
+    put(r, 'docs/a.md', '# a\nmore\n')
+    v, _ = run(r, base, 'kind_last')
+    ok(v['kind_last'].verdict == 'FAIL', 'gates: --only naming a gated row runs it whatever the diff')
+
+
+def t_cdfields():
+    """S111 CDCHECKALL: the cd_levels / cd_targetfmt / cd_draworder rows with planted extractor rows (check_cdfields.COLLECT swapped): a NEW failing row (not at the base)
+    FAILS, the same row at the base passes, an UNSETTLED one passes, a diff with none of the extractor's inputs is SKIP, and the gate runs it on each input."""
+    import check_cdfields as cdf
+    saved = dict(cdf.COLLECT)
+    cases = (('levels', 'cd_levels', 'src/plain.cpp', 'GAME-ONLY'), ('targetfmt', 'cd_targetfmt', 'src/renderer_scene/live_crowd.cpp', 'DIFF'),
+             ('draworder', 'cd_draworder', 'src/renderer_scene/front_end.cpp', 'DIFF'))
+    try:
+        for name, row, touch, verdict in cases:
+            def plant(now_v, base_v):
+                def collect(ref):
+                    v = base_v if ref else now_v
+                    return [{'key': ('k', 1), 'verdict': v, 'text': '%s planted' % v}, {'key': ('other', 2), 'verdict': 'OK', 'text': 'ok'}]
+                return collect
+
+            def verdict_of(now_v, base_v, rel):
+                cdf.COLLECT[name] = plant(now_v, base_v)
+                r, base = new_repo('cdf_' + name, files={rel: 'int a;\n'})
+                put(r, rel, 'int b;\n')
+                v, _ = run(r, base)
+                return v[row]
+            x = verdict_of(verdict, 'OK', touch)
+            ok(x.verdict == 'FAIL' and 'planted' in x.reason, '%s: a NEW %s (not at the base) FAILS (%s: %s)' % (row, verdict, x.verdict, x.reason[:80]))
+            x = verdict_of(verdict, verdict, touch)
+            ok(x.verdict == 'PASS' and 'already at the base' in x.reason, '%s: the same %s at the base passes (%s: %s)' % (row, verdict, x.verdict, x.reason[:80]))
+            x = verdict_of('UNSETTLED', 'OK', touch)
+            ok(x.verdict == 'PASS', '%s: an UNSETTLED row passes (%s)' % (row, x.verdict))
+            cdf.COLLECT[name] = plant(verdict, 'OK')
+            r, base = new_repo('cdf_docs_' + name)
+            put(r, 'docs/a.md', '# a\nmore\n')
+            v, _ = run(r, base)
+            ok(v[row].verdict == 'SKIP' and 'no input' in v[row].reason, '%s: a docs-only diff skips it with the reason (%s)' % (row, v[row].verdict))
+    finally:
+        cdf.COLLECT.update(saved)
+    r, base = new_repo('cdf_gate', files={'src/plain.cpp': 'int a;\n'})
+    put(r, 'src/plain.cpp', 'int b;\n')
+    ch = hb.Change(r, base)
+    ok(all(hb.check_gates.decide(ch, n)[0] for n in ('cd_levels',)) and not hb.check_gates.decide(ch, 'cd_targetfmt')[0] and not hb.check_gates.decide(ch, 'cd_draworder')[0],
+       'cdf gates: a src .cpp that is none of the targetfmt / draworder files runs levels only')
+    for rel, rows_run in (('src/renderer_scene/see_through_order.h', ('cd_levels', 'cd_draworder')), ('src/renderer/shaders/fx/yLiquidMap.frag', ('cd_targetfmt',)),
+                          ('docs/systems/render_categories.md', ('cd_draworder',)), ('tools/q/qlevels.py', ('cd_levels',)), ('src/renderer_host/scene_host.cpp', ('cd_levels', 'cd_targetfmt'))):
+        r, base = new_repo('cdf_gate2', files={rel: 'x\n'})
+        put(r, rel, 'y\n')
+        ch = hb.Change(r, base)
+        got = tuple(n for n in ('cd_levels', 'cd_targetfmt', 'cd_draworder') if hb.check_gates.decide(ch, n)[0])
+        ok(got == rows_run, 'cdf gates: %s runs %s (ran %s)' % (rel, rows_run, got))
 
 
 def t_list_complete():
@@ -207,8 +325,8 @@ def t_list_complete():
     r, base = new_repo('list_all')
     put(r, 'docs/a.md', '# a\nmore\n')
     v, _ = run(r, base)
-    bad = [n for n in listed if n not in v or v[n].verdict not in ('PASS', 'FAIL', 'BLOCKED')]
-    ok(len(listed) == len(hb.ROWS) and not bad, 'list: all %d rows of --list ran in a plain run as PASS / FAIL / BLOCKED (bad: %s)' % (len(listed), bad or 'none'))
+    bad = [n for n in listed if n not in v or v[n].verdict not in (('PASS', 'FAIL', 'BLOCKED', 'SKIP') if n in hb.check_gates.GATES else ('PASS', 'FAIL', 'BLOCKED'))]
+    ok(len(listed) == len(hb.ROWS) and not bad, 'list: all %d rows of --list have a verdict in a plain run (a gated row may be SKIP; bad: %s)' % (len(listed), bad or 'none'))
 
 
 def t_verdicts():
@@ -265,9 +383,12 @@ def main():
     global TMP
     only = sys.argv[1] if len(sys.argv) > 1 else None
     TMP = tempfile.mkdtemp(prefix='hbk_selftest_')
+    import check_cdfields   # the scratch repos are not the tree the extractors read: in-process, the cd_ rows see no rows unless t_cdfields plants some
+    for _n in list(check_cdfields.COLLECT):
+        check_cdfields.COLLECT[_n] = lambda ref: []
     try:
         for name, fn in (('control', t_control), ('game_text', t_game_text), ('new_src', t_new_src), ('log_readers', t_log_readers), ('lint_runner', t_lint_runner),
-                         ('runs_all', t_runs_all), ('list', t_list_complete), ('verdicts', t_verdicts), ('clean', t_clean), ('rename', t_rename_delete)):
+                         ('runs_all', t_runs_all), ('gates', t_gates), ('cdfields', t_cdfields), ('list', t_list_complete), ('verdicts', t_verdicts), ('clean', t_clean), ('rename', t_rename_delete)):
             if only and only != name:
                 continue
             try:

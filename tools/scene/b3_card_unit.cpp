@@ -2,7 +2,8 @@
 // the front end's gain rule (card_gain.h Effective / Gain, the functions FrontEnd::SetCardFactor / ApplyLmRow call), and the arena table's parser and Compute (src/assets/arena_lm.h) on a synthetic leaf.
 //   b3_card_unit.exe [--plant factor_all_models|row_ignored|gain_double]      exit 0 = all pass; each plant must exit 1.
 // Checks: (1) a row of 0.85 -> the card model's lm_gain bits == float(2.5f * 0.85f), non-card models stay 2.5; (2) no row / flags 0 / a row of 0 -> unscaled; (3) the gain G * 0.01f over G = 0..2000 equals the
-// single-precision reference bit for bit (and the sweep tells f32 from double); (4) parser offsets (count at +20, array at 8 + Be(+32)), a zero record (finite span, gain 0), an id out of range (arena 4's record, counted).
+// single-precision reference bit for bit (and the sweep tells f32 from double); (4) parser offsets (count at +20, array at 8 + Be(+32)), a zero record (finite span, gain 0), an id out of range or no table
+// (no upload: the last c184 held, the boot zero before any upload; never arena 4's record; counted; S111 LMPREV).
 // Compile only, no game.
 #include <cstdio>
 #include <cstring>
@@ -43,6 +44,9 @@ static void Put32(std::vector<uint8_t>& b, size_t at, uint32_t v) { b[at] = uint
 
 int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) if (!std::strcmp(argv[i], "--plant") && i + 1 < argc) g_plant = argv[++i];
+  // (0) before any upload (the first Compute of the process): no table = no upload with nothing held: the register's boot zero, not arena 4's record
+  const al::Param p0 = al::Compute(nullptr, 4);
+  Check(p0.no_table && p0.held && p0.none && p0.v[0] == 0.f && p0.v[1] == 0.f && p0.v[2] == 0.f && p0.v[3] == 0.f, "no table before any upload: nothing uploaded, the boot zero held");
   float c, o;
   // (1) the card model's gain = the table's gain x the row
   Frame({Row(0.85f, 1)}, 2.5f, c, o);
@@ -94,9 +98,12 @@ int main(int argc, char** argv) {
   const al::Param pz = al::Compute(&t, 1);
   Check(pz.zero && pz.v[2] == 0.f && pz.v[0] > 0.f && pz.v[0] < 1e30f && pz.v[1] > 0.f && pz.v[1] < 1e30f && !pz.clamped, "zero record: finite span, gain 0 (not arena 4's record)");
   Check(al::g_zero.load() == z0 + 1, "zero record is counted (g_zero)");
-  const al::Param po = al::Compute(&t, 150), pn = al::Compute(&t, 7), pr = al::Compute(&t, 220);
-  Check(po.clamped && Bits(po.v[2]) == Bits(250.f * 0.01f) && Bits(po.v[0]) == Bits(1.0f / 5600.f), "id >= 100: arena 4's record [L stand-in], counted");
-  Check(pn.clamped && pr.clamped && al::g_clamped.load() == c0 + 3, "id >= count and the 200..249 remap (99): counted");
+  const al::Param pa = al::Compute(&t, 2);   // an upload: (1 / 4000, 1 / 4100, 1, 1) becomes the held c184
+  const al::Param po = al::Compute(&t, 150), pn = al::Compute(&t, 7), pr = al::Compute(&t, 220), pt = al::Compute(nullptr, 2);
+  auto same = [&](const al::Param& q) { return q.held && !q.none && Bits(q.v[0]) == Bits(pa.v[0]) && Bits(q.v[1]) == Bits(pa.v[1]) && Bits(q.v[2]) == Bits(pa.v[2]) && Bits(q.v[3]) == Bits(pa.v[3]); };
+  Check(po.clamped && same(po) && Bits(po.v[0]) != Bits(1.0f / 5600.f), "id >= 100: no upload, the last c184 held (not arena 4's record), counted");
+  Check(pn.clamped && pr.clamped && same(pn) && same(pr) && al::g_clamped.load() == c0 + 3, "id >= count and the 200..249 remap (99): no upload, held, counted");
+  Check(pt.no_table && same(pt), "no table after an upload: the last c184 held");
   const al::Param pk = al::Compute(&t, 2);
   Check(!pk.clamped && !pk.zero && Bits(pk.v[0]) == Bits(1.0f / 4000.f) && Bits(pk.v[1]) == Bits(1.0f / 4100.f) && Bits(pk.v[2]) == Bits(100.f * 0.01f) && pk.v[3] == 1.f, "a normal record: (1 / X, 1 / Z, G * 0.01f, 1)");
   // the counters have a reader: the census line of the unit prints them

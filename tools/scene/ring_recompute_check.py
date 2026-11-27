@@ -19,11 +19,15 @@ PLANTS = {
     'skirt_quad_wrong': 'ring.skirt_visible', 'lod_both': 'ring.lod_single',
     # S103 C6: the two address misreads of run 26 (lis 1 | ori; lis -31889 = 0x836F)
     'cv_desc_low': 'ring.cv_values', 'skirt_glob_wrong': 'ring.skirt_visible',
+    # S111 RINGLOD: the skirt state words are the ring-SIDE object's (Y), not the ring object's
+    'skirt_side_obj': 'ring.skirt_visible',
     # S103 RLB: the rope LOD rule (RLD.md): the 500 distance, the 20 degree angle
-    # S105 C4: the post / cover far test reads [0x82012B14] (3000): a guest value of 1e9 means nothing is far, so the far-test check must fail
+    # S105 C4 / S111 RINGLOD: the post / cover far test reads the ring object's X + 0x1F314 / X + 0x1F320 (3000): a guest value of 1e9 means nothing is far, so the far-test check must fail
     'lod_dist': 'ring.lod_far_test',
     # S110 RINGBREAK: the ring in motion posing (rows = the per-slot copies taken right after each pose call) and the canvas row
     'rids_latch_read': 'ring.rids_values', 'rids_table': 'ring.rids_values', 'canvas_rest': 'ring.canvas_row',
+    # S111 TBPAD review: the RIDS rows read the corner pad fades too (sub_825CE668 tests them after the RIDS pose)
+    'rids_fade_off': 'ring.rids_fade',
     'lod_dist50': 'ring.lod_distance', 'lod_no_angle': 'ring.lod_angle', 'lod_nan_low': 'ring.lod_nan', 'lod_pair_call': 'ring.lod_pairs',
 }
 
@@ -67,6 +71,9 @@ def main():
         ('src/scene_live/stage_fx_glue.h', 'scene_inputs::Capture(scene_inputs::kInRingRows, scene_inputs::HookFrameOfRecord(record_frame))', 'the glue stamps input bit 6 (ring_rows) in the hook clock'),
         ('src/scene_live/inputs_core.h', '{kInRingRows, "ring_rows", 2, rdr_scene::live::ringrecompute::kStampRingRows,', 'bit 6 moved follows kStampRingRows (ring_stamp_flag.h; released S103 main)'),
         ('src/scene_live/ring_stamp_flag.h', 'inline constexpr bool kStampRingRows = true;', 'bit 6 released (run 27 + lane C7 compare); the stamp still goes through kStampRingRows'),
+        ('src/scene_live/ring_side_hook.h', 'ringrecompute::NoteRingSide(ctx.r3.u32)', 'S111 RINGLOD: the skirts draw hook hands over the ring-side object Y'),
+        ('src/draw_origin.h', '#include "scene_live/ring_side_hook.h"', 'S111 RINGLOD: the ring-side hook is compiled (one TU)'),
+        ('src/scene_live/ring_recompute_contrib.h', 'ReadSkirtVisibility(read_, RingSide(), svis, census_)', 'S111 RINGLOD: the skirt states are read from Y'),
         ('src/scene_live/ring_recompute_contrib.h', 'if (kStampRingRows && clean && stamp_) stamp_(frame);', 'the stamp call sits behind kStampRingRows'),
         ('src/renderer_scene/rf_ring.cpp', 'if (ctx.warm()) return true;', 'the warm build poses nothing'),
         ('src/renderer_scene/rf_ring.cpp', 'PoseNeeded(rs.hash, skey, rows_hash, live_id >= 0)', 'an unchanged instance is not posed or uploaded again'),

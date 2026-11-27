@@ -61,7 +61,7 @@ def try_once(once, sh, todo, build, run, jobs, one):
     want = max(1, min(jobs, len(todo) + 1))
     tmp = tempfile.mkdtemp(prefix='plant_runner_once_')
     try:
-        with _admit.hold('cc.tool', want, timeout_s=300) as nj:
+        with _admit.hold('cc.tool', want) as nj:
             spec = dataclasses.replace(once.spec, plants=plants, tmp=os.path.join(tmp, 'once'), jobs=max(1, min(int(nj), want)), log=None, stats={})
 
             def recompile(p):

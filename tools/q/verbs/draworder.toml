@@ -1,0 +1,16 @@
+name = "draworder"
+module = "qdraworder"
+errors = ["qdraworder.DrawOrderError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 72
+text = '''  draworder [--flag DIFF ...] [--fam NAME] [--ref REF] [--scene entrance] [--families] [--arena N [--cams N]] [--json]   per pair of draw families, the game's colour-walk order
+                               (render_categories.md: category ascending, list order where stated) against the order our FrontEnd::Record
+                               emits them (stages, opaque turns, blended ranks, hooks): DIFF only where one of the two blends or writes
+                               no depth / UNSETTLED / OK (tools/q/qdraworder.py)'''
+
+[[route]]
+order = 151
+text = '''- where our colour pass draws two families in the opposite order to the game's walk (and it can change a pixel): draworder [--flag DIFF] [--fam NAME] [--ref REF]'''

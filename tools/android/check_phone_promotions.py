@@ -18,7 +18,7 @@ Reads source text only (0 game runs, no device, no build). For every `wwe2k14_rd
   drop-devflags  pretends android_dev_flags.h does not accept the rdr family
 Exit 0 = pass (or, with --plant, the planted fault was caught); 1 = problems (printed).
 """
-import argparse, re, sys
+import argparse, os, re, sys
 from pathlib import Path
 
 # cvar -> (sources it needs in WWE2K14_SOURCES, header-only files it needs, reads the player's game files)
@@ -64,11 +64,15 @@ COMMON_SOURCES_STREAM_FREE = ['src/renderer_scene/live_scene.cpp', 'src/renderer
 COMMON_SOURCES = ['src/renderer_adapter/live.cpp', 'src/renderer_scene/live_scene.cpp', 'src/renderer_scene/record_io.cpp', 'src/renderer_scene/live_sinks.cpp']
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
     p = root / rel
     if not p.is_file():
         raise SystemExit(f'FAIL cannot read {rel} (under {root})')
-    return p.read_text(encoding='utf-8', errors='replace')
+    return read_path(p)
 
 
 def cmake_sources(text):
@@ -116,7 +120,7 @@ def run(root, plant=''):
     defined = set()
     for p in (root / 'src').rglob('*'):
         if p.suffix in ('.h', '.cpp'):
-            defined.update(re.findall(r'REXCVAR_DEFINE_BOOL\(\s*(wwe2k14_rdr_\w+_ours)\b', p.read_text(encoding='utf-8', errors='replace')))
+            defined.update(re.findall(r'REXCVAR_DEFINE_BOOL\(\s*(wwe2k14_rdr_\w+_ours)\b', read_path(p)))
     if not defined:
         problems.append('no `wwe2k14_rdr_*_ours` cvar found under src\\ (the check cannot read its input)')
     for c in sorted(defined - set(TABLE) - set(DEV_ONLY)):

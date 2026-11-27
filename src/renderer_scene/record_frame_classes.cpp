@@ -11,6 +11,8 @@ const std::vector<ClassEntry>& Classes() {
   static const std::vector<ClassEntry> table = {
       // [L fitted] (S103 FOB): the order BETWEEN families (D1 canvas + skirts first, D2 screens before the ring posts, D4 props before the wrestlers) is read from one arena's stream (bg04); only the order inside the ring run is code-backed [C]. Scored on other arenas: tools\arena\family_order.py --held-out.
       // S103 FOB: the game's order (XFO.md G1-G7): canvas + skirts, arena, screens, ring posts / turnbuckles / covers / ropes, props, wrestlers, (crowd: its objects are not opaque-list draws, the AfterOpaque hook draws it), event props.
+      // S111 FADEORDER (body_order.h): XFO's G5 / D4 took two other shadow casters for the wrestler; the game draws the bodies (categories 13 + slot) BEFORE the canvas (22), the ring (24) and the props (26).
+      // This table stays the record order; FrontEnd::Record puts the opaque list's wrestler meshes ahead of the ring / arena / screens / props (OrderOpaque).
       c::kCRows[0],                                          // S103 FOB G1: ring early run (canvas, apron skirts)
       c::kCRows[1],                                          // S103 C: arena (replaces lane R's rf_arena.cpp row)
       c::kCRows[2],                                          // S103 C: screens (G3: after the arena, before the ring posts)

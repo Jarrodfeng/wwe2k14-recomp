@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     return Real(game, plant);
   }
   RuleChecks(false, true);
-  // The decode itself (fx_skin.glsl:144-153): 255 -> ID 7, wrinkle 31 -> fallback 1.
+  // The decode itself (fx_skin.glsl): 255 -> ID 7, wrinkle 31 -> fallback 1.
   Check(assets::SkinIdSlot(255) == 7 && assets::SkinWrinkleSlot(255) == 1, "decode: 255 gives ID slot 7, wrinkle fallback 1");
   Check(assets::SkinPackedSlots(40) == 40 && assets::SkinPackedSlots(0) == 0, "decode: packed byte round-trips through / 255 * 255.5");
   // The planted twin (old A = 255) must be caught.

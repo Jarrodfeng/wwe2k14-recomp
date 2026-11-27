@@ -307,6 +307,22 @@
    "hashes": [
     "279985C7794437A6"
    ]
+  },
+  {
+   "name": "copy_prev_q4",
+   "defines": [
+    "FX_COPY_PREV",
+    "FX_Q4"
+   ],
+   "hashes": [],
+   "alpha_test": false,
+   "constants": [],
+   "samplers": [
+    {
+     "slot": 0,
+     "kind": "2d"
+    }
+   ]
   }
  ],
  "solve": {

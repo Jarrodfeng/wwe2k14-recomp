@@ -1,0 +1,4 @@
+name = "cover"
+module = "qcover"
+errors = ["qnames.NamesError"]
+qerror = false

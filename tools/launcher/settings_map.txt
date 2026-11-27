@@ -36,6 +36,7 @@ MODS (PC) | pc | wwe2k14_mods,wwe2k14_mods_dir,wwe2k14_entrance_music,wwe2k14_mo
 CINECAM (PC) | pc | wwe2k14_cinecam | live | | cinecam.h
 PHOTO MODE (PC) | pc | wwe2k14_photo_mode | live | | photo_mode.h
 RAMP CAMERA (PC) | pc | wwe2k14_ramp_camera | live | | the camera (lane RAMPCAM) reads it live; src/ramp_menu.h (the pause menu row) writes it
+PERMANENT BLOOD (PC) | pc | wwe2k14_mods_permanent_blood | live | | start_settings.cpp -> renderer_scene/floor_blood_switch.h (the mod's splat store floor_blood_keep.h, the pool hook floor_blood_gen.cpp)
 RUN-INS (PC) | pc | wwe2k14_runin | live | | runin.h
 DISCORD (PC) | pc | wwe2k14_discord,wwe2k14_discord_app_id | live | | discord_status.h
 PERFORMANCE REPORT (PC) | pc | wwe2k14_perf_report | live | | perf_report.h

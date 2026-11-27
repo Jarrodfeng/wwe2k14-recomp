@@ -15,7 +15,7 @@
 namespace rdr_adapter {
 
 // The recorder calls (DrawOrigin::call_site) that submit the crowd's draws: the stands members' blocks (sub_82518340 via 0x82518574) and the
-// far flat cards (sub_82512F70 via 0x825130C4). Source: docs\renderer\CROWD_PROMOTION_MAP.md section 1 (scene_crowd.h:5-6, 17-18).
+// far flat cards (sub_82512F70 via 0x825130C4). Source: docs\renderer\CROWD_PROMOTION_MAP.md section 1 (scene_crowd.h, 17-18).
 inline constexpr uint32_t kCrowdBlocksSite = 0x82518574u;
 inline constexpr uint32_t kCrowdCardsSite = 0x825130C4u;
 // S101 lane 82 (docs/renderer/CROWD_FAMILY_8276ED60.md): the seated floor people, sub_8276EAA0's indexed draw (op 15 at 0x8276ED60): the type's LOD 0 body from the stands' LOD 0

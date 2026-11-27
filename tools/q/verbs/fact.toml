@@ -1,0 +1,11 @@
+name = "fact"
+module = "qfact"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 35
+text = '''  fact WORDS [--kind K]        search the knowledge library: docs/formats, docs/systems, docs/modules, db summaries /
+                               evidence, SESSION summaries (lowest rank); hits = file + heading + line, the matching
+                               lines, the section's addresses expanded to db names (tools/q/qfact.py; no code index)'''

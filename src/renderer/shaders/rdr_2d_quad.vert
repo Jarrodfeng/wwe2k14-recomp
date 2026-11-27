@@ -1,4 +1,5 @@
 #version 450
+// FLIP-EXEMPT: positions are display pixels, top-left origin, mapped straight to Vulkan clip space (y down); the target is read back the same way, so the renderer's flip must not touch it.
 // Session 101 lane 9 (our 2D pass, src\renderer_scene\pass2d.*): one vertex of a sprite or glyph quad. Positions are in display pixels, top-left
 // origin; the pass pushes 2 / width and 2 / height. Our own shader (not a game shader).
 layout(set = 0, binding = 0, std140) uniform VertexConstants {

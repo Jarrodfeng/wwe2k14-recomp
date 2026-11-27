@@ -13,6 +13,7 @@ PLANTS = {
     'swapped_yz': 'flash.position', 'array_early': 'flash.array', 'all_pending': 'flash.live_rule', 'scale_off': 'flash.scale', 'color_off': 'flash.color', 'not_drawn': 'flash.live_rule', 'test_drawn': 'flash.lifecycle',
     'mode_ignored': 'mode.off_reads_nothing', 'lose_flags': 'record.roundtrip', 'hold_never_releases': 'hold.k2_sequence',
     'factor_word60': 'hold.factor_table', 'hold_fn_unwired': 'hold.contrib_take',
+    'rows_own_latch': 'period.rows_take_record_camera',   # S111 FLASHCAM review: one record, one clock
 }
 
 
@@ -55,6 +56,10 @@ def main():
         # review FLASHHOLD F1: EVERY restore call (not 3 named sites) puts the game back at 60, so the shared Restore<> clears the flag (unless the lock flag makes the call a no-op)
         ('src/pacing_hooks.h', '  OnRateCall<kSite>(Kind::kRestore, caller);\n  if (ReadGuestU32(kLockFlag) == 0) g_lever_scene.store(false);', 'every restore call clears the lever-scene flag'),
         ('src/renderer_scene/live_flashes.cpp', 'kFxfGameScale', 'the applier honours the game-scale flag'),
+        # S111 FLASHCAM review: the record's flash rows take the same period pick as the record's camera, and the after-post draw places every flash with the record's camera
+        ('src/scene_live/flash_fx_contrib.h', 'rows_period_.Pick(frame, std::move(game))', 'the flash rows take the record\'s period'),
+        ('src/scene_live/inputs_contrib.h', 'const LatchCamera rec = cam_period_.Pick(frame, now);', 'the record camera takes the same pick (the unit models it with the same template)'),
+        ('src/renderer_scene/front_end_flashes.h', '  const float* vp = sctx.view_proj;', 'the after-post draw places every flash with the record camera'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

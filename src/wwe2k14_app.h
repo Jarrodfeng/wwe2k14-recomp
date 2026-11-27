@@ -38,6 +38,7 @@
 #include "thread_placement.h"
 #include "power_throttle.h"  // --wwe2k14_eco_qos / --wwe2k14_pack_cores (Session 95, default off)
 #include "image_dump.h"
+#include "equiv/equiv_host.h"  // --wwe2k14_equiv (S111 EQUIV-A): the headless equivalence tester, default off
 #include "determinism.h"  // --wwe2k14_fixed_seed (Session 8 task 8a)
 #include "slow_frame.h"   // --wwe2k14_slowframe_ms (Session 8 task 12, default off)
 #include "inspector.h"    // --wwe2k14_inspector (Session 8 task 15, default off)
@@ -86,7 +87,7 @@
 #include "scene_live/sphere_contrib.h"  // lane 242: RegisterSpheres (H3, the wrestlers' sphere occluders; the caster record's switches), wired in OnPostSetup
 #include "scene_live/caster_contrib.h"  // lane 202: RegisterCasters (the caster passes' per-entry record, Caster D3 E0-E2; verify / census arm only), wired in OnPostSetup
 #include "scene_live/ring_rows_contrib.h"  // lane 194: RegisterRingRows (the ring's per-call node rows, Ring D3 R2; verify / census arm only), wired in OnPostSetup
-#include "renderer_scene/weapon_plan.h"       // S103 CGF: rdr_scene::weapons::g_stage_family (the stage structures' drawn family)
+#include "renderer_scene/weapon_plan.h"       // S103 LDR: rdr_scene::weapons::g_force_arena_fixed_props
 #include "scene_live/weapon_rows_contrib.h"  // S103 PW-2: RegisterWeaponRows (the weapons' per-call rows), wired in OnPostSetup
 #include "scene_live/light_state_contrib.h"  // S101 lane 109: RegisterLightStates (the per-draw light state, LS1), wired in OnPostSetup
 #include "renderer_game/scene_frame.h"  // S103 A8: scene_frame::Ours for the wrestler light synthesis
@@ -194,7 +195,6 @@ REXCVAR_DECLARE(bool, wwe2k14_rdr_guestmodel);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_weapons);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_stage_structs);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_gm_sets);
-REXCVAR_DECLARE(std::string, wwe2k14_rdr_stage_struct_family);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_arena_fixed_props);
 REXCVAR_DECLARE(bool, wwe2k14_scene_arena_clock_dev);
 REXCVAR_DECLARE(bool, wwe2k14_scene_circles);
@@ -835,6 +835,8 @@ class Wwe2k14App : public rex::ReXApp {
   }
 
   void OnPostInitLogging() override {
+    // S111 EQUIV-A: --wwe2k14_equiv runs the headless tester here (before any window, runtime or game thread) and exits.
+    if (wwe2k14::equiv::MaybeRun(PPCImageConfig, game_data_root(), user_data_root())) return;
     // Session 73: the black box first, and its crash recorder before the SDK's fault handler (runtime set-up).
     wwe2k14::blackbox::Open();
     wwe2k14::blackbox::InstallCrashRecorder();
@@ -1029,10 +1031,9 @@ class Wwe2k14App : public rex::ReXApp {
       if (REXCVAR_GET(wwe2k14_scene_light_states)) { rdr_scene::live::arenaworld::Worlds().emit_clock = wwe2k14::IsDevBuild() && REXCVAR_GET(wwe2k14_scene_arena_clock_dev);   /* S103: DEV ONLY (dev_cvar_lint) */ rdr_scene::live::arenaworld::RegisterArenaWorlds(); }  // lane 130: the arena's object worlds + the stage clock -> kScArenaWorlds (rides the light-state switch: Check J1)
       // PW-2 copies guest memory at the call: page-checked off Windows (wrestler_hook.h GuestRangeReadable), so it runs on the phone too
       // OFF: true (as the slots above); ON: --wwe2k14_rdr_weapons (default false)
-      // S103 SMF (BUG2 8): the tracker switches and the stage family are set BEFORE RegisterWeaponRows() makes the hooks live (plain values read on game threads)
+      // S103 SMF (BUG2 8): the tracker switches are set BEFORE RegisterWeaponRows() makes the hooks live (plain values read on game threads)
       rdr_scene::live::weaponrows::Rows().tracker.stage_enabled = REXCVAR_GET(wwe2k14_rdr_stage_structs);   // S103 CGF review 1
       rdr_scene::live::weaponrows::Rows().tracker.gm_enabled = rdr_scene::live::weaponrows::Rows().tracker.blood_enabled = REXCVAR_GET(wwe2k14_rdr_gm_sets);   // S103 GBR
-      rdr_scene::weapons::g_stage_family =REXCVAR_GET(wwe2k14_rdr_stage_struct_family) == "slot32" ? rdr_scene::weapons::kStageFamilySlot32 : rdr_scene::weapons::kStageFamilyOwn;   // S103 CGF: the stage structures' drawn submit family (own | slot32)
       if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_weapons)) { rdr_scene::live::weaponrows::RegisterWeaponRows(); rdr_scene::weapons::g_force_arena_fixed_props = REXCVAR_GET(wwe2k14_rdr_arena_fixed_props); } }  // S103 LDR: per record the rows draw the steps / desk; the switch forces the old fixed copies  // S103 PW-2: the weapons' per-call rows -> kScWeaponCalls / kScWeaponNodes (read only)
       wwe2k14::scene_stagefx_glue::Register();               // S103 C2: the stage's live writers (moving slot worlds, screen rows), read at the latch; AFTER the arena contributor (its Targets / Movies) and the arena worlds (the cross-check reads them)
       if (page_checked_readers) { if (!WWE2K14_STREAM() || REXCVAR_GET(wwe2k14_rdr_liquid_map)) rdr_scene::live::liquid::RegisterLiquid(); }   // S103 SWF: the wrestlers' liquid maps (--wwe2k14_rdr_liquid_map, default on): the sweat node's items recorded at its entry (liquid_glue.h); the record's rows feed the host's map pass (live_map_sweat.cpp)

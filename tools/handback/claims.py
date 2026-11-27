@@ -94,8 +94,13 @@ def _row(ln, lineno):
         raise ClaimsError("line %d: the fourth field must be `evidence: <what you read>` (not empty)" % lineno)
     row = {"line": lineno, "addr": int(m.group(1), 16), "mark": mark, "claim": f[2],
            "evidence": re.sub(r"(?i)^evidence\s*:\s*", "", f[3]), "seam": None, "ours": None, "verdict": None,
-           "system": None, "kind": None, "key": None, "name": None, "site": None, "typed": None, "raw": ln}
+           "system": None, "kind": None, "key": None, "name": None, "site": None, "typed": None, "scope": None, "raw": ln}
     for extra in f[4:]:
+        if extra.startswith("scope="):   # ABSLINT: free text naming what was searched (opts the claim out of the absolute-word lint)
+            if not extra[6:].strip():
+                raise ClaimsError("line %d: scope= is empty (say what was searched, e.g. scope=4 of 34 refs read)" % lineno)
+            row["scope"] = extra[6:].strip()
+            continue
         fk = load_factkey()
         if fk.is_type_field(extra):
             if row["kind"]:
@@ -120,6 +125,13 @@ def _row(ln, lineno):
                 raise ClaimsError("line %d: ours=%r needs PATH:LINE" % (lineno, v))
             row[k] = v
     return row
+
+
+def load_abslint():
+    spec = importlib.util.spec_from_file_location("abslint", os.path.join(HERE, "abslint.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 
 
 def load_validate():
@@ -209,11 +221,18 @@ class TableResolver:
 
 
 def check_rows(rows, resolver):
-    """-> list of error strings (empty = OK). Every address resolves; no game code; text short."""
+    """-> list of error strings (empty = OK). Every address resolves; no game code; text short; absolute words (tools\\handback\\abslint.py: an [L] / [U]
+    row with one FAILS, a [C] without complete-search evidence only prints a WARN)."""
     val = load_validate()
+    ab = load_abslint()
     errs = []
     for r in rows:
         where = "line %d (0x%08X)" % (r["line"], r["addr"])
+        lv, msg = ab.judge(r["mark"], r["claim"], r["evidence"], r.get("scope"))
+        if lv == "FAIL":
+            errs.append("%s: %s" % (where, msg))
+        elif lv:
+            print("claims: WARN %s: %s" % (where, msg))
         if resolver is None:
             errs.append("%s: no code index to resolve the address (build it: py tools\\q\\build_index.py)" % where)
         elif resolver.resolve(r["addr"]) is None:
@@ -221,7 +240,7 @@ def check_rows(rows, resolver):
         if r.get("typed") and resolver is not None:
             for e in load_factkey().check_typed(r["typed"], r["addr"], r["mark"], resolver):
                 errs.append("%s: TYPE column: %s" % (where, e))
-        for what, text, cap in (("claim", r["claim"], MAX_CLAIM), ("evidence", r["evidence"], MAX_EVIDENCE)):
+        for what, text, cap in (("claim", r["claim"], MAX_CLAIM), ("evidence", r["evidence"], MAX_EVIDENCE), ("scope", r.get("scope") or "", MAX_EVIDENCE)):
             why = code_text(text, val)
             if why:
                 errs.append("%s: the %s carries game code (%s): say it in our own words, name where you read it" % (where, what, why))

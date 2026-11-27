@@ -15,12 +15,13 @@ wires already lodged claims files for the backfill). Per claims row with `seam`:
 Nothing is deleted: a row a later edit of the note dropped stays in the entry (the seam store also holds hand-made rows). Rows of another
 note are never edited. Several claims of one note on one ours line make one ours row: the first claim's verdict / why, on every lodge.
 The cited line is checked against the tree the note cited it in (SEAMWIRE review): the commit that first held the claims row's whole text
-in the note (git log -S; the row is the note's line holding its `ours=PATH:LINE` and its claim), its TYPE column left out (S111 lane B
-review: inserting `| site sub_X+OFF` is not a re-citation); for a row whose text is in no commit of the note, the first commit whose
-claims file held that address with that ours= (a correction carried into the note from the file, pull_claims.py); when PATH has changed since that commit,
+in the note (git log -m -S: a merge commit that wrote the row while resolving counts, SEAMCITE review; the row is the note's line holding its `ours=PATH:LINE` and its claim), its TYPE column left out (S111 lane B
+review: inserting `| site sub_X+OFF` is not a re-citation), or, when that is LATER, the first commit whose claims file held that address with
+that ours= (S111 SEAMCITE: a reword of the claim moves the row's text into a new commit, never its citation; also the row whose text is in no
+commit of the note, a correction carried into the note from the file, pull_claims.py); when PATH has changed since that commit,
 the line's text in that commit must be the text of line LINE now, or of exactly one other line now (followed: "PATH:LINE -> M", the row
-takes M); otherwise the row is REFUSED "anchor unverified" (the game row still lands): re-read the line and re-cite it (any edit of the row
-is a new citation). A row in no commit (the note is being written now), a root that is not a git checkout, or a file unchanged since:
+takes M); otherwise the row is REFUSED "anchor unverified" (the game row still lands): re-read the line and re-cite it (a new PATH:LINE
+is a new citation; an edit of the claim that keeps its ours= value keeps the first claims commit's date, SEAMCITE). A row in no commit (the note is being written now), a root that is not a git checkout, or a file unchanged since:
 read as it is now. One ours row per note, claim and path: a claim of the note that already has a row on that path (re-anchored or
 re-cited by a later commit) gets no second row, so relodging an unchanged note adds no seam row.
 wire() returns {topic: {"game_added": n, "game_updated": n, "game_present": n, "ours_added": n, "ours_updated": n, "ours_present": n,
@@ -84,7 +85,7 @@ def _claims_commit(root, o):
     ln = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ln)
     crel = ln.claims_rel(o["note"])
-    log = _git(root, "log", "--format=%H", "-S", json.dumps(o["ours"], ensure_ascii=False), "--", crel)
+    log = _git(root, "log", "-m", "--format=%H", "-S", json.dumps(o["ours"], ensure_ascii=False), "--", crel)   # -m: a merge's own resolution counts
     for c in reversed((log or "").split()):
         try:
             rows = json.loads(_git(root, "show", "%s:%s" % (c, crel)) or "[]")
@@ -98,14 +99,16 @@ def _claims_commit(root, o):
 def _cited_commit(root, o):
     """the commit the citation was made in (see the docstring), or None (read in today's tree)"""
     raw = _row_line(root, o)
+    c = _claims_commit(root, o)   # the earliest claims commit of this address + ours= value: a reword of the claim never moves it (SEAMCITE)
     if raw is not None:
-        log = _git(root, "log", "--format=%H", "-S", _untyped(raw), "--", o["note"])
+        log = _git(root, "log", "-m", "--format=%H", "-S", _untyped(raw), "--", o["note"])   # -m: a row written in a merge (ENVCUBE 9ababa37c)
         if log and log.split():
-            return log.split()[-1]   # the oldest: the commit that first held the citation
-    c = _claims_commit(root, o)
+            n = log.split()[-1]   # the oldest commit that held the row's text
+            # the earlier of the two holds the citation: a reworded row's text is only in the reword's commit, its claims row is older
+            return c if c and c != n and _git(root, "merge-base", "--is-ancestor", c, n) is not None else n
     if c or raw is None:
         return c
-    log = _git(root, "log", "--format=%H", "-S", raw, "--", o["note"])   # a note written with its TYPE column from the start
+    log = _git(root, "log", "-m", "--format=%H", "-S", raw, "--", o["note"])   # a note written with its TYPE column from the start
     return log.split()[-1] if log and log.split() else None
 
 
@@ -187,15 +190,13 @@ def _apply(qs, entry, topic, rows, root, st):
         if orow is None:
             continue
         cands = [x for x in entry["ours"] if x.get("path") == orow["path"] and str(x.get("anchor", "")).strip() == orow["anchor"]]
-        ex = next((x for x in cands if x.get("line") == orow["line"]), None)
-        if ex is None:   # the same text on another line is another row when its context says so
-            ex = next((x for x in cands if not orow.get("ctx") or not x.get("ctx") or x.get("ctx") == orow.get("ctx")), None)
-        if ex is None:   # one row per note, claim and path: this claim's row re-anchored / re-cited by a later commit is that row, never a second
+        ex = next((x for x in cands if x.get("occurrence") == orow.get("occurrence")), None)   # the same text on another line of the file is another row: its occurrence says which
+        if ex is None:   # one row per note, claim and path: this claim's row re-anchored by a later commit is that row, never a second
             same = next((x for x in entry["ours"] if x.get("path") == orow["path"] and x.get("lodged") == o["note"] and x.get("why") == orow["why"]), None)
             if same is not None:
                 st["ours_present"] += 1
-                st["notes"].append("ours %s:%s: this claim's row is at line %s (%s): kept, not added again" % (
-                    orow["path"], orow["line"], same.get("line"), same.get("reanchored") or "re-cited"))
+                st["notes"].append("ours %s [%s]: this claim's row is already in the entry (%s): kept, not added again" % (
+                    orow["path"], orow["anchor"][:60], same.get("reanchored") or "re-anchored"))
                 continue
         if ex is None:
             entry["ours"].append(orow)
@@ -205,21 +206,13 @@ def _apply(qs, entry, topic, rows, root, st):
         elif any(ex is f for f in fresh):
             st["ours_present"] += 1
         else:
-            old_line = ex.get("line")
-            recited = old_line != orow["line"] and qs.set_line(ex, orow["line"], root)   # the row is at the line cited now
-            if recited:
-                st["notes"].append("ours %s:%s -> %d: row re-cited" % (ex["path"], old_line, ex["line"]))
             if ex.get("lodged") == o["note"]:
                 fresh.append(ex)
                 if ex.get("verdict") != orow["verdict"] or ex.get("why") != orow["why"]:
                     ex["verdict"], ex["why"] = orow["verdict"], orow["why"]
                     st["ours_updated"] += 1
-                elif recited:
-                    st["ours_updated"] += 1
                 else:
                     st["ours_present"] += 1
-            elif recited:
-                st["ours_updated"] += 1
             else:
                 st["ours_present"] += 1
     return new_ours

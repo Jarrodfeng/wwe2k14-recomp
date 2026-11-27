@@ -7,12 +7,19 @@
 //   DIR\evtmov\<GROUP>_<Mnnn>.png        pac\evt\evtmov*.pac movies: first picture; Bink 1 alpha ones also <...>_end.png
 // Nothing here is shipped: the PNGs are made from the player's own files and read at run time (CLAUDE.md rule 1).
 //
-// Mapping (out\runtime\s97\stage_video.md section 4; [C] = by UV arithmetic, [U] = unconfirmed, settled by A/B only):
-//   titantron_movie  (800, big screen, UV 0..1)   = tron rows 0-223 of the sheet                         [U: rows 0-223 vs all 320]
-//   main&banner      (803 / 804 / 807, UV bands on the 320x320 sheet) = the whole tron sheet              [C by UV]
-//   ppv_header&wall / ss_header&wall (801 806 808 / 802 809) = atlas 1280x814 [U]: MOVL/M<arena> (1280x280) on rows 0-279,
-//                    MOVN/M<arena> (1280x400) from row 282 (band edges 0.344 = 280 / 814, wall band from 0.347)
-//   mini_tron        (805)                         = [U] MOVL/M<arena> first (aspect 3.9:1), else MVAB/M<arena>
+// Which picture each screen shows (S111 STAGEMEDIA, docs\research\s111\STAGEMEDIA.md; the game's rule: docs\systems\video_tron.md sections E / F) [C]:
+//   the game picks a screen's movie by its KEY, never by these sampler names (sub_824EC3C0 = CStage::SetupTitan; the two tables are
+//   src\stage_channels_core.h StageChannelOfKey), and a screen samples the WHOLE movie frame at its mesh's stored UVs, no crop (sub_8276A928).
+//   titantron_movie  (key 800; 17 arenas, the other 18 name 800 `main&banner`) = the live frame grab in BOTH tables (channel -1 -> mode 1 ->
+//                    sub_8276A808), never the tron sheet [C]. The game build always takes Apply's no-folder branch (nothing there sets
+//                    dir / default_dir / wrestler: only the viewer does), which paints it black, and FrontEnd::Record binds the grab over slot 800.
+//                    The rows 0-223 arm below is the VIEWER's entrance stand-in (it has no game frame to grab): it differs from the game.
+//   main&banner      (803 / 804 / 807) = the whole 320x320 tron sheet (channel 0); 804's mesh UV v 0-0.699 is what shows rows 0-223 [C by UV]
+//   ppv_header&wall / ss_header&wall (801 806 808 / 802 809) = the 256x256 panel movie (channel 1): MVSW of the wrestler else MOV of the
+//                    arena, the whole frame by UV (the code below; an older note here of a 1280x814 MOVL / MOVN atlas was wrong)
+//   mini_tron        (805) = the 256x128 wall movie (channel 2): MVSB of the wrestler else MVAB of the arena, the whole frame by UV
+//   A created arena (200..249) takes the game's second table (808 / 803 tron, 806 / 807 wall, 801 / 804 panels); this name map does not
+//                    follow it, the live binding does (src\scene_live\screen_planes_core.h ScreenBinding::LoadDefaults).
 #pragma once
 
 #include <algorithm>
@@ -272,7 +279,7 @@ inline std::string Apply(Model& m, int arena) {
     }
     if (!entrance) return -2;
     if (name == "main&banner") return sheet.ok() ? AddTexture(m, name, sheet) : -2;
-    if (name == "titantron_movie") {  // [U] the video texture of the PPV set's screen: the picture rows (0-223) of the sheet (S18 screen test)
+    if (name == "titantron_movie") {  // VIEWER only (entrance look + a tron folder): rows 0-223 of the sheet stand in for key 800, which the game draws with the live frame grab [C sub_824EC3C0: 800 = channel -1 in both tables]
       if (!sheet.ok()) return -2;
       Image pic = sheet;
       if (pic.w == 320 && pic.h == 320) pic.h = 224, pic.rgba.resize(size_t(320) * 224 * 4);

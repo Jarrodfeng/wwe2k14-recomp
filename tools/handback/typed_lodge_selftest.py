@@ -110,7 +110,7 @@ def pull_cases(tmp, table):
     with open(zh, "w", encoding="utf-8", newline="\n") as f:
         f.write("// zebra\nint zebra_new = 0;\nint zebra_wait = 1;\nint zebra_post = 2;\n")
     e = json.load(open(sp, encoding="utf-8"))
-    e["ours"][0].update(line=3, reanchored="re-anchored by landing s999/OTHER.md")
+    e["ours"][0].update(reanchored="re-anchored by landing s999/OTHER.md")
     with open(sp, "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(e, indent=1) + "\n")
     git(root, "add", "-A")
@@ -121,7 +121,7 @@ def pull_cases(tmp, table):
     rc, out = run([LODGE, np, "--root", root, "--resolver-table", table])
     e = json.load(open(sp, encoding="utf-8"))
     check(rc == 0 and len(e["ours"]) == 1 and not any(o["anchor"] == "int zebra_new = 0;" for o in e["ours"]) and "ours +0" in out,
-          "relodging a typed, re-anchored note adds no seam row and no junk anchor (rc %d): %s\n%s" % (rc, [(o["line"], o["anchor"]) for o in e["ours"]], out))
+          "relodging a typed, re-anchored note adds no seam row and no junk anchor (rc %d): %s\n%s" % (rc, [o["anchor"] for o in e["ours"]], out))
     check(open(sp, "rb").read() == b_seam, "relodging the unchanged (only typed) note leaves the seam file byte-equal")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "typed")
@@ -147,9 +147,9 @@ def pull_cases(tmp, table):
     rc, out = run([LODGE, np, "--root", root, "--resolver-table", table])
     e = json.load(open(sp, encoding="utf-8"))
     check(rc == 0 and open(cp, "rb").read() == b_claims, "after the pull the lodge is identity: the claims file is byte-equal (rc %d)\n%s" % (rc, out))
-    check([(o["line"], o["anchor"], o["why"]) for o in e["ours"]] == [(3, "int zebra_wait = 1;", "the zebra loader waits for the card")]
+    check([(o["anchor"], o["why"]) for o in e["ours"]] == [("int zebra_wait = 1;", "the zebra loader waits for the card")]
           and e["game"][0]["what"] == "the zebra loader waits for the card",
-          "the reworded claim updates its seam rows in place: no second row, no junk anchor: %s\n%s" % ([(o["line"], o["anchor"]) for o in e["ours"]], out))
+          "the reworded claim updates its seam rows in place: no second row, no junk anchor: %s\n%s" % ([o["anchor"] for o in e["ours"]], out))
     b_seam = open(sp, "rb").read()
     rc, out = run([LODGE, np, "--root", root, "--resolver-table", table])
     check(rc == 0 and open(sp, "rb").read() == b_seam and open(cp, "rb").read() == b_claims, "a second lodge is identity (rc %d)\n%s" % (rc, out))

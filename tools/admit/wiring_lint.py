@@ -51,6 +51,12 @@ PLANT_PY = ('tools/zz_plant/planted_pool.py',
             "def one(src):\n    return subprocess.run([CLANG, '-c', src, '-o', src + '.o']).returncode\n\n"
             "def main(srcs):\n    with ThreadPoolExecutor(max_workers=16) as ex:\n        return list(ex.map(one, srcs))\n")
 PLANT_ADMIT = "$AdmitMaxHoldS = 900\nfunction Request-BuildParallel { param($Want) $Want }\n"
+# S111 ADMITCALLERS: no production caller passes a queue limit (admit.exe refuses --timeout outside its selftest). The selftests that DO are listed.
+TIMEOUT_PY = re.compile(r'\b_?admit(?:_py)?\.hold\([^\n]*\btimeout_s\s*=')
+TIMEOUT_PS = re.compile(r'Request-BuildParallel\b[^\n]*\s-TimeoutS\b|\badmit(?:\.exe)?[\'"]?\s+(?:run|hold)\b[^\n]*--timeout\b', re.I)
+TIMEOUT_OK = {'tools/harness/alone_selftest.ps1'}   # a selftest running admit in its test mode
+PLANT_TIMEOUT_PY = ('tools/zz_plant/planted_timeout.py', "import admit_py as _admit\nwith _admit.hold('cc.tool', 4, timeout_s=120) as n:\n    pass\n")
+PLANT_TIMEOUT_PS = ('tools/zz_plant/planted_timeout.ps1', "$n = Request-BuildParallel -Want 8 -TimeoutS 180\n")
 
 
 def balanced(text, i, open_ch, close_ch):
@@ -250,12 +256,16 @@ def lint(root, extra=None):
     seen_known = set()
     for rel, text in sorted(files.items()):
         lo = rel.lower()
+        if not rel.startswith('tools/admit/') and rel not in TIMEOUT_OK:
+            for m in (TIMEOUT_PY if rel.endswith('.py') else TIMEOUT_PS).finditer(code_only(text)):
+                probs.append(f'{rel}: passes a queue limit to admit (timeout_s= / -TimeoutS / --timeout): the queue waits until admitted and admit.exe refuses --timeout outside its selftest (S111 ADMITCALLERS): remove it')
+                break
         if rel.endswith('.py'):
             if rel.startswith('tools/admit/'):
                 continue
             for line, held in py_pools(rel, text):
                 if not held and lo not in exempt:
-                    probs.append(f'{rel}:{line}: a Python compile pool not opened under an admit_py hold (with admit_py.hold(kind, n, timeout_s=...) as n, Pool(n))')
+                    probs.append(f'{rel}:{line}: a Python compile pool not opened under an admit_py hold (with admit_py.hold(kind, n) as n, Pool(n))')
             continue
         if rel == 'tools/admit/Admit.ps1' or rel.endswith('/Admit.ps1'):
             for b in admit_top_level(text):
@@ -312,6 +322,8 @@ def plants():
     d = dict(PLANTS_PS)
     d[PLANT_PY[0]] = PLANT_PY[1]
     d['tools/zz_plant/Admit.ps1'] = PLANT_ADMIT
+    d[PLANT_TIMEOUT_PY[0]] = PLANT_TIMEOUT_PY[1]
+    d[PLANT_TIMEOUT_PS[0]] = PLANT_TIMEOUT_PS[1]
     return d
 
 
@@ -339,7 +351,7 @@ def main():
     if missed:
         print(f'FAIL wiring_lint is blind: planted fault(s) not caught: {", ".join(missed)}')
         return 1
-    print(f'PLANT caught: all {len(pl)} planted faults (16-wide loop, continuation-line ThrottleLimit, variable ThrottleLimit, Start-ThreadJob, Python pool, Admit.ps1 top level)')
+    print(f'PLANT caught: all {len(pl)} planted faults (16-wide loop, continuation-line ThrottleLimit, variable ThrottleLimit, Start-ThreadJob, Python pool, Admit.ps1 top level, a caller passing timeout_s / -TimeoutS)')
     n = len(table)
     wired = sum(1 for v in table.values() if v['wired'])
     ones = sum(1 for v in table.values() if v['count'] == 1)

@@ -1,0 +1,2 @@
+# S111 CDLINTS baseline of tools/lint/alpha_source_lint.py: file|statement|note. A sink (ProgramFor( call / `x->alpha_test =`) that reads the material flag alone and stood when the lint was added.
+# Fix it (a pass_state row, InstancedDraw::alpha_test, a cited game constant) or mark it `// ALPHA-SOURCE: <why>`, then DELETE its row (a row with no finding is itself a finding). A new sink never gets a row here.

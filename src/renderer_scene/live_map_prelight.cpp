@@ -32,8 +32,8 @@ bool LiveMapsHook::RecordPreLight(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     }
     rdr::ProgramDesc d;
     d.name = "yPreLight_sss";
-    d.vertex_spirv = rdr::fx::kVariants[s.pl_vs].spirv, d.vertex_bytes = rdr::fx::kVariants[s.pl_vs].bytes;
-    d.fragment_spirv = rdr::fx::kVariants[s.pl_fs].spirv, d.fragment_bytes = rdr::fx::kVariants[s.pl_fs].bytes;
+    d.vertex_spirv = rdr::fx::Words(size_t(s.pl_vs), false), d.vertex_bytes = rdr::fx::kVariants[s.pl_vs].bytes;
+    d.fragment_spirv = rdr::fx::Words(size_t(s.pl_fs), false), d.fragment_bytes = rdr::fx::kVariants[s.pl_fs].bytes;
     s.pl_prog = renderer_.AddProgram(d);
     constexpr uint16_t kRGB32F = 106;
     rdr::VertexLayoutDesc l{};

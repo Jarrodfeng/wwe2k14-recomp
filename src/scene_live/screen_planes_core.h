@@ -16,7 +16,9 @@
 //   (Bink order Y, cR, cB, A), so DATA plane 1 (cR) is stored in Frame::cr and DATA plane 2 (cB) in Frame::cb [C B1 claims, S103]. (Before: the other way, trons showed blue where the game is red.)
 // THE CHANNEL -> SET CHAIN (what sub_827F9D88 + sub_827DFEB8 do) [C listings]: T = [0x8392477C] (the titan manager); channel ch (0..5): slot = [T + 84 ch + 32]; controller = [T + 16];
 //   the slot's record is controller + 2144 + 32 slot (state at +4 == 1 means ready, sub_827DFEB8 0x827DFEC4); the movie = [record + 28]; the display set = [movie + 36].
-// WHICH CHANNEL A STAGE SCREEN SHOWS: the key -> channel table is ScreenBinding::LoadDefaults below (803 / 804 / 807 -> channel 0, 805 -> channel 2 and the panels 801 / 802 / 806 / 808 / 809 -> channel 1, each with the picture size it expects; 800 / 803 unbound and counted).
+// WHICH CHANNEL A STAGE SCREEN SHOWS: the game's two key -> channel tables (the shipped arenas, the created arenas 200..249) are src\stage_channels_core.h StageChannelOfKey (S111 TRONKEY);
+// ScreenBinding::LoadDefaults below fills the binding from the stage's arena id and ScreenBinding::ForArena refills it when the stage moves to the other table. Each bound key carries the picture size
+// its channel gives; 800 (the frame grab in both tables) is unbound and counted.
 // An unopened channel ALIASES controller slot 0 (slot word 0), so a frame is used only when its size is one a bound key expects.
 #pragma once
 #include <algorithm>
@@ -32,6 +34,7 @@
 
 #include "stage_fx_core.h"   // ReadFn, ReadWord, Swap32
 #include "../tron_sheet_core.h"   // S110 TRONSHEET: kSheetSize (std only)
+#include "../stage_channels_core.h"   // S111 TRONKEY: the game's two key -> channel tables (std only)
 
 namespace rdr_scene::live::screens {
 
@@ -104,7 +107,7 @@ class ScreenBinding {
   //    343.bik2 opened, channel 0 -> display set 320x320) [C log]; Jarrod: the centre screen shows the titantron, the banners are the strips at the bottom of the same file [Jarrod]. Expected size 320x320.
   //  805 = sampler `mini_tron` = the wall movie MVSB / MVAB (sub_8232B608 `which` 1 -> the entrance object's second memory movie = channel 2, sub_82344420) [C listings]; run 12: channel 2 -> display set 256x128
   //    = the size stage_media.h gives for it [L]. Expected size 256x128.
-  //  800 (titantron_movie) is left UNBOUND: stage_media.h:11 and :271-274 give it rows 0-223 only (marked unknown), front_end.cpp overrides it in the match look; binding the whole sheet is not backed [U].
+  //  800 (titantron_movie or main&banner) is left UNBOUND: the game gives key 800 channel -1 in BOTH tables (sub_824EC3C0), the live frame grab, never the tron sheet [C]; FrontEnd::Record binds the grab over slot 800 (S111 STAGEMEDIA).
   //  801 / 802 / 806 / 808 / 809 = sampler `ppv_header&wall` / `ss_header&wall` = the panel movie MVSW else MOV (sub_8232B608 `which` 0 = the entrance object's FIRST memory movie = channel 1 [C listings]).
   //    BOUND to channel 1 @ 256x256 (S103 M2, mode-1 run 18, wwe2k14_7271.log, `screen_bind_join.py`): channel 1 opens at guest frame 4217 (c1->s1, rec+44 = 5 = open) on display set 0xAF3A5F10 (movie 0xAF3A5D00,
   //    the pooled block that held the 512x256 boot logo), whose size changes ONCE, 512x256 (frame 518) -> 256x256 (frame 4203), and stays 256x256 to the end of the log (frame 5721) [C log]; stage_media.h
@@ -113,13 +116,32 @@ class ScreenBinding {
   //    `wrong_panels` is the planted fault: the panels bound to channel 2 (the 256x128 mini-tron movie).
   //  The 1280x280 set on channel 5 is the entrance's 2D remnant movie (most likely the location banner), not a stage screen.
   // `wrong` is the planted fault (the unit): the banner band 807 bound to channel 5 (a 1280x280 movie against the 320x320 the key expects) instead of the titantron.
-  void LoadDefaults(bool wrong, bool wrong_panels = false) {
+  // S111 TRONKEY: the table itself is the game's (stage_channels_core.h StageChannelOfKey, sub_824EC3C0): `arena_id` 200..249 takes the created-arena table (808 / 803 on the tron, 806 / 807 on the wall,
+  // 801 / 804 on the panels), any other id or -1 the shipped one. 803 (the whole-sheet quad) is on channel 0 in BOTH tables: the game shows it instead of 804 / 808 when the tron's set-0 byte is 0
+  // (TRONLIST 0x824EA8B8). The binding holds keys 800..809; the created table's 811-814 are lane L6 TRONWIDE.
+  void LoadDefaults(bool wrong, bool wrong_panels = false, int arena_id = -1) {
+    namespace sc = wwe2k14::stage_channels;
     Clear();
-    // (803 is the same quad as 804 over the whole sheet; the game draws it in NEITHER look and the live model has no family for it, so it is not bound: a row for it would be a render-side hole)
-    constexpr uint32_t kSheet = wwe2k14::tron_sheet::kSheetSize;   // S110 TRONSHEET: the sheet size is ONE constant; the tron shim hands the game a texture of exactly it
-    Set(804, 0, kSheet, kSheet), Set(807, wrong ? 5 : 0, kSheet, kSheet), Set(805, 2, 256, 128);
-    for (uint32_t k : {801u, 802u, 806u, 808u, 809u}) Set(k, wrong_panels ? 2 : 1, 256, 256);   // S103 M2: the panel sheet (channel 1, 256x256)
+    for (uint32_t k = 800; k <= 809; ++k) {
+      int ch = sc::StageChannelOfKey(arena_id, k);
+      uint32_t w = 0, h = 0;
+      if (ch < 0 || !sc::StageChannelFrame(ch, w, h)) continue;
+      if (wrong && k == 807) ch = 5;          // plant: the banner band on the UI movie
+      if (wrong_panels && ch == 1) ch = 2;    // plant: the panels on the wall movie (keeping the panel sheet's size)
+      Set(k, ch, w, h);
+    }
+    table_.store(sc::TableOf(arena_id), std::memory_order_relaxed);
   }
+  // S111 TRONKEY: the stage's arena id (StageFxContributor::StageArena; -1 = no stage / unknown). The game picks its key -> channel table by the arena id when it sets the screens up
+  // (CStage::SetupTitan, sub_824EC3C0, run by the shipped and the created-arena stage setup alike), so a stage of the OTHER table refills the default table here. -1 keeps the table; a dev spec
+  // (ApplySpec with a non-empty text) pins it. True = the table was refilled.
+  bool ForArena(int arena_id) {
+    if (arena_id < 0 || pinned_.load(std::memory_order_relaxed)) return false;
+    if (wwe2k14::stage_channels::TableOf(arena_id) == table_.load(std::memory_order_relaxed)) return false;
+    LoadDefaults(false, false, arena_id);
+    return true;
+  }
+  int Table() const { return table_.load(std::memory_order_relaxed); }   // stage_channels kShippedTable / kCreatedTable: the table LoadDefaults last filled
   void Clear() {
     for (auto& c : ch_) c.store(-1, std::memory_order_relaxed);
     for (auto& s : size_) s.store(0, std::memory_order_relaxed);
@@ -196,16 +218,27 @@ class ScreenBinding {
   // The one place the dev cvar text is applied (the glue and the unit call THIS): "" = the default table stays; "none" = every screen unbound; else the table is REPLACED by the text; a malformed text
   // changes nothing (the DEFAULT table stays). `msg` says what happened.
   int ApplySpec(const std::string& spec, std::string& msg) {
-    if (spec.empty()) return msg = "default table", 0;
-    if (spec == "none") return Clear(), msg = "every screen unbound (none)", 0;
+    if (spec.empty()) {
+      pinned_.store(false, std::memory_order_relaxed);   // S111 TRONKEY: the default table follows the stage's arena (ForArena)
+      msg = "default table";
+      return 0;
+    }
+    if (spec == "none") {
+      Clear(), pinned_.store(true, std::memory_order_relaxed);
+      msg = "every screen unbound (none)";
+      return 0;
+    }
     const int n = Parse(spec);
     if (n < 0) return msg = "malformed (key:channel[@WxH],... with key 800-809, channel 0-5, or 'none'): the DEFAULT table stays", -1;
+    pinned_.store(true, std::memory_order_relaxed);   // S111 TRONKEY: a dev table is not replaced by the arena's
     msg = std::to_string(n) + " binding(s), replacing the default table";
     return n;
   }
  private:
   std::array<std::atomic<int8_t>, 10> ch_;
   std::array<std::atomic<uint32_t>, 10> size_;   // (w << 16) | h, 0 = any
+  std::atomic<int> table_{wwe2k14::stage_channels::kShippedTable};   // S111 TRONKEY: the table LoadDefaults last filled (ForArena refills on a change)
+  std::atomic<bool> pinned_{false};                                  // a dev spec replaced the table (ApplySpec): ForArena leaves it
 };
 
 // The decoded frames, by display set. OnFlush runs inside the movie present (thread [U]); Latest / Find / Census on others: one mutex over the pointers (the copy itself is outside it).

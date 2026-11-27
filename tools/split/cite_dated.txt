@@ -1,0 +1,134 @@
+# One-time input of `cite_by_name.py --mark-dated` (S111 CITENAME): `path | DATED / LIVE | reason`.  Covers the docs\renderer, docs\systems and
+# docs\formats files that held a line citation.  DATED = a session's plan / lane / measurement record, not kept current (a session or lane in
+# its title or opening, a plan, a promotion map, an audit): it gets the opening line `> Dated record (...)` and the tool and the lint skip it.
+# LIVE = a reference that is meant to describe how the code is now.  When unsure: LIVE.  After the run the marker line is the truth.
+docs/formats/arena_slot_flags.md | LIVE | format page
+docs/formats/effect_techniques.md | LIVE | format page (lodged table)
+docs/formats/evtobj_pac.md | LIVE | format page
+docs/formats/flow_table.md | LIVE | format page
+docs/formats/gm_gmev.md | LIVE | format page
+docs/formats/props_coverage.md | DATED | a census taken at S103 COV3 (2026-11-19), a measurement
+docs/formats/save_data.md | LIVE | format page
+docs/formats/scene_record_props_light_bone_tags.md | LIVE | format page of our own record
+docs/formats/select_layout.md | LIVE | format page
+docs/renderer/360_HABITS.md | LIVE | standing rule page (CLAUDE.md rule 6), kept current
+docs/renderer/ADAPTER_CALLS.md | DATED | S100 read-only mapping, written 2026-11-09
+docs/renderer/ARC_PT2_INPUTS.md | DATED | evidence for planning arc part 2 (S101)
+docs/renderer/ARENA_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/BANK_UPLOAD_MARKS.md | DATED | S102 lane SW3 record
+docs/renderer/BUNDLE3.md | DATED | S102 lane BUNDLE3 record
+docs/renderer/CAW_OURS.md | DATED | S101 lane 153 record
+docs/renderer/COLOUR_CUTS_FLIP.md | DATED | S102 lane R24-D record
+docs/renderer/COMPILE_OUT_LIST.md | DATED | lane S1G1 list, 2026-11-17
+docs/renderer/CROWD_CARDS.md | DATED | S101 lane CD as-built record
+docs/renderer/CROWD_CARDS_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/CROWD_FAMILY_8276ED60.md | DATED | S101 lane 78 reader record
+docs/renderer/CROWD_PROMOTION.md | DATED | S101 lane 35 as-built record
+docs/renderer/CROWD_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/CROWD_PROPS_GATES.md | DATED | S103 lane D5 record
+docs/renderer/DEVICE_LOST.md | DATED | S102 lane D1 record
+docs/renderer/FEATURES.md | DATED | S100 feature inventory for parity, a survey
+docs/renderer/FLASH_OURS.md | DATED | S101 lane 68 record
+docs/renderer/FORMAT_CAPS.md | LIVE | one standing rule for every format, kept as the rule (unsure: LIVE)
+docs/renderer/FRAME_CONTRACT.md | DATED | S103 lane S contract written for a plan step
+docs/renderer/FRAME_FACTS.md | DATED | S102 lane R21-A record
+docs/renderer/FVIEW.md | LIVE | the frame viewer tool page (unsure: LIVE)
+docs/renderer/GPU_OUTSIDE.md | DATED | S102 lane G5 record
+docs/renderer/H2_WAITS.md | DATED | S102 lane H2 record
+docs/renderer/HEAT.md | DATED | S102 lane S0-2 record
+docs/renderer/INPUTS_A2.md | DATED | S103 lane A2 plan
+docs/renderer/INPUTS_A3.md | DATED | S103 lane A3 record
+docs/renderer/INPUTS_A5.md | DATED | S103 lane A5 record
+docs/renderer/INPUTS_A7.md | DATED | S103 lane A7 record
+docs/renderer/INPUTS_BOARD.md | DATED | S103 lane A board for a landing plan
+docs/renderer/IN_RUN_AB.md | LIVE | a method page for the in-run A/B tool (unsure: LIVE)
+docs/renderer/LAZY_BANKS.md | DATED | S102 lane T1 record
+docs/renderer/LEAVE_THE_COMMAND_STREAM.md | DATED | S101 design reader's plan, 2026-11-13
+docs/renderer/LIGHT_MATCH.md | DATED | S101 lane 33 measurement
+docs/renderer/LIVE_MAPS.md | DATED | S103 lane E first version
+docs/renderer/NAMES.md | DATED | S101 arc A1 record
+docs/renderer/OFFLINE_RIG.md | DATED | S103 lane R record
+docs/renderer/OURS_INPUT_AUDIT.md | DATED | S103 class audit, 2026-11-16
+docs/renderer/OWN_PARTICLES_NODE.md | DATED | S102 lane P7, findings lodged, code not merged
+docs/renderer/OWN_SMALL_PASSES.md | DATED | S102 lane P2, findings lodged, code not merged
+docs/renderer/OWN_THE_PASS.md | DATED | S102 node-switch contract written for a lane
+docs/renderer/P7_DESIGN.md | DATED | S103 design probe P7D, 2026-11-17
+docs/renderer/PARTICLES_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/PER_DRAW_LIGHTS.md | DATED | S101 lane 101 reader record
+docs/renderer/PHONE_PROMOTIONS.md | DATED | S101 lane 127 record
+docs/renderer/POST_FROM_RECORD.md | DATED | S103 lane P record
+docs/renderer/POST_OURS.md | DATED | S101 lane PO record
+docs/renderer/POST_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/PRESENT_COPY.md | DATED | S102 lane R24-A record
+docs/renderer/PROPS_OURS.md | DATED | S101 lane 84 as-built record
+docs/renderer/REMNANT_MAP.md | DATED | S103 lane I0 research
+docs/renderer/REMNANT_SEAM.md | DATED | S103 lane Sr research
+docs/renderer/REPLAY_OTHER_RECORDS.md | DATED | S101 lane 87 survey
+docs/renderer/RING_OURS.md | DATED | S101 lane 70 as-built record
+docs/renderer/RING_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/S103_AUDIT_REVIEW.md | DATED | audit review (S103)
+docs/renderer/S103_FABLE_REVIEW_2.md | DATED | review (S103)
+docs/renderer/SCENE_RECORD.md | DATED | S101 arc step A-1 record
+docs/renderer/SCENE_SKIPS.md | DATED | S103 lane H record
+docs/renderer/SETTINGS_PARITY.md | DATED | survey, 2026-11-11
+docs/renderer/SHADOW_PLANE.md | DATED | S101 lane 139 record
+docs/renderer/SHADOW_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/renderer/SKIP_COST.md | DATED | S102 lane K1 measurement
+docs/renderer/SKIP_GAME_WORK_MAP.md | DATED | S101 lane 74 map
+docs/renderer/STAGE_LIVE_WRITERS.md | DATED | S103 lane C2 first version
+docs/renderer/STAGE_SPLIT.md | DATED | S102 lane R21-B audit and design
+docs/renderer/STREAMFREE_COVERAGE.md | DATED | S103 coverage probes, 2026-11-19
+docs/renderer/SURFACE_BENCH_PROFILES.md | LIVE | the bench profiles of a standing tool (unsure: LIVE)
+docs/renderer/SURFACE_LAB.md | LIVE | the lab of a standing tool (unsure: LIVE)
+docs/renderer/SWAP_TAIL.md | DATED | S102 lane U1 record
+docs/renderer/TEXTURE_COHERENCE.md | DATED | S101 lane 174 census
+docs/renderer/THIN_DRAWS.md | DATED | S101 lane 122 as-built record
+docs/renderer/UNCLAIMED_MODEL_PARTS.md | DATED | S101 lane 79 reader record
+docs/renderer/UPD_LEAN.md | DATED | S102 lane U2 record
+docs/renderer/WHATS_LEFT.md | DATED | S101 lane 125 census
+docs/renderer/WIDE_OURS.md | DATED | S101 lane 171 record
+docs/renderer/WRESTLER_PROMOTION_MAP.md | DATED | promotion map (S101)
+docs/systems/android_live.md | LIVE | lodged system page (unsure: LIVE)
+docs/systems/arena_look.md | LIVE | system page kept current (13 edits since 11-20, S110 CUTGREY 11-24)
+docs/systems/attire_build.md | LIVE | system page kept current (S111 CREATEDOC 11-27)
+docs/systems/audio.md | DATED | S100-era map written for plan step D9
+docs/systems/camera.md | LIVE | system page, rewritten S111
+docs/systems/caw_portrait.md | LIVE | system page kept current (S105 settle probes lodged into it 11-20)
+docs/systems/create_championship.md | LIVE | system map, 2026-11-26
+docs/systems/creation_suite.md | LIVE | system page folded from S111 notes
+docs/systems/cutscene_motion.md | LIVE | system overview (unsure: LIVE)
+docs/systems/dlc.md | LIVE | system page
+docs/systems/draw_submit.md | LIVE | system page
+docs/systems/elimination_chamber.md | LIVE | system page
+docs/systems/entrance_import.md | LIVE | lodged system page
+docs/systems/face_wrinkles.md | DATED | S103 lane WRK record, 2026-11-19
+docs/systems/goto.md | LIVE | system page kept current (S110 FIRELINE 11-24)
+docs/systems/gpu_readback.md | DATED | S100 reading
+docs/systems/liquid_map.md | LIVE | system page kept current (12 edits since 11-20)
+docs/systems/match_setup.md | LIVE | system overview (unsure: LIVE)
+docs/systems/menu_ui.md | LIVE | system overview
+docs/systems/menus.md | LIVE | the one menu page
+docs/systems/moves.md | LIVE | system page kept current (S110 BUSMOVE 11-25)
+docs/systems/omg_gate.md | LIVE | lodged system page
+docs/systems/owner_mode_duties.md | DATED | S100 read-only record for plan items B3-B6
+docs/systems/particles.md | DATED | S101 lane 65 record
+docs/systems/post_effects.md | LIVE | system page kept current (S110 CUTGREY 11-24)
+docs/systems/readbacks.md | LIVE | S111 inventory page, kept as the inventory
+docs/systems/render_categories.md | LIVE | S111 table page, kept as the table
+docs/systems/render_targets.md | LIVE | lodged system page (unsure: LIVE)
+docs/systems/ring.md | LIVE | system page kept current (S111 TBPAD 11-27)
+docs/systems/roster_limits.md | LIVE | lodged system page
+docs/systems/rumble.md | LIVE | one page, rewritten S111
+docs/systems/save_character_refs.md | LIVE | lodged system page
+docs/systems/save_load_paths.md | LIVE | lodged system page
+docs/systems/save_logos.md | LIVE | system page (unsure: LIVE)
+docs/systems/screens.md | LIVE | system page kept current (S110 MINITRON 11-24)
+docs/systems/shaders.md | LIVE | system page (unsure: LIVE)
+docs/systems/shadows.md | LIVE | system page kept current (S111 LIGHTS 11-26)
+docs/systems/stage_objects.md | LIVE | lodged system page
+docs/systems/titantron_ids.md | LIVE | lodged system page
+docs/systems/title_update_overlay.md | LIVE | lodged system page
+docs/systems/video_tron.md | LIVE | system overview (unsure: LIVE)
+docs/systems/wm30.md | LIVE | system page
+docs/systems/worktree_game_build.md | LIVE | facts for a standing tool
+docs/systems/wrestler_pose.md | LIVE | system page kept current (19 edits since 11-20, S111 11-26)

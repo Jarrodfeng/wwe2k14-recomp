@@ -143,7 +143,7 @@ inline void Register() {
   c.SetArenaEmitted([](std::vector<uint16_t>& out) { return rdr_scene::live::arena::EmittedSlots(out); });   // S103 A5: bit 4 asks only about the slot models the record emits
   c.SetSlotLightSet([](uint16_t slot, bool* expl) { return rdr_scene::live::arena::SlotLightSet(slot, rdr_scene::live::stagefx::StageFx().StageArena(), expl); });   // S103 A7: bit 4's arena-slot models by their l(N) (only with lightstamp::g_from_ids)
   c.SetArenaSlots([](std::vector<uint32_t>& out, std::vector<uint16_t>& slots) { return rdr_scene::live::stagefx::StageFx().StageModelsWithSlots(out, slots); });   // S103 A5: holes named by stage slot
-  // audit item 1: bit 5 (arena_worlds) is stamped by stage_fx's own take, the same frame that judged the stage clean. NO clock claim: the J1 comparison (d3_record.h:7, d3_arena.h:108) proved c186 is never
+  // audit item 1: bit 5 (arena_worlds) is stamped by stage_fx's own take, the same frame that judged the stage clean. NO clock claim: the J1 comparison (d3_record.h, d3_arena.h) proved c186 is never
   // frame - origin, so the kAwClock row stays out of OURS frames and c186 is an open input (INPUTS_A3.md).
   rdr_scene::live::stagefx::StageFx().SetStamp([](uint64_t record_frame) { scene_inputs::Capture(scene_inputs::kInArenaWorlds, scene_inputs::HookFrameOfRecord(record_frame)); });
   c.SetRing([](uint64_t hook) -> uint32_t {   // S103 A6: the ring object X lane C3 notes every frame (its colour callback's r3 - 24); stale (the ring task not running) = 0

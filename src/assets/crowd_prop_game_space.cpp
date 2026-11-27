@@ -64,7 +64,8 @@ bool ConvertJboy(const uint8_t* data, size_t size, PropMesh& out, std::string& e
     for (int c = 0; c < 6; ++c) w[c] = BeF(v + 4 * c);
     const uint8_t* t = b + s2 + size_t(i) * 8;
     const uint16_t h[2] = {prop_host::FloatToHalfTruncate(BeF(t)), prop_host::FloatToHalfTruncate(BeF(t + 4))};
-    const float p[3] = {w[0] * 10.0f, w[1] * 10.0f, w[2] * 10.0f};   // float32 multiply: bit-equal to the stream's position
+    constexpr float s = create_scale::kCrowdCreateScale;   // S111 MATLIVE review: the crowd's model-create scale (model_create_scale.h), 10
+    const float p[3] = {w[0] * s, w[1] * s, w[2] * s};   // float32 multiply: bit-equal to the stream's position
     uint8_t* d = out.vertices.data() + size_t(i) * kVertexBytes;
     std::memcpy(d, p, 12);
     std::memcpy(d + 12, w + 3, 12);

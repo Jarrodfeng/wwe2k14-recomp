@@ -699,9 +699,8 @@ void Contributor::Emit(const FrameInfo& finfo, SceneTables& t, Counters& c) {
     if (card) std::snprintf(e, sizeof e, "card:%02u", type);
     else std::snprintf(e, sizeof e, "%u", 20000u + 40u * lod + type);
     a.entry = t.AddString(e);
-    a.variant = 0;  // the texture variant (the game's table index, aud_NNa): unknown, 'a' assumed [U]
+    a.variant = 0;  // the texture variant: always 'a' (aud_NNa) [C S111 CROWDVAR: sub_8250C1D0 tries aud_NN + 'a'+group only over an aud_NNa default, and no arena's crowd texture list holds a 'b' / 'c' name]
     if (!pac_field) ++c.unknown;
-    ++c.unknown;  // (the variant)
     t.assets.push_back(a);
     return asset_of[key] = uint32_t(t.assets.size() - 1);
   };
@@ -828,8 +827,8 @@ PooledField* Contributor::PoolSlot(uint32_t variant, uint32_t block, uint32_t n)
 }
 
 // S102 T11 F7: the cached twin of Emit above; change both (see there). The entry-string cache (entry_cache_) is keyed (card, lod, type), which is all the text
-// depends on; AssetRef::variant is the constant 0 here ([U], see Emit), so it is not part of the key: if variant ever becomes a value read from the game, the key
-// must gain it (the byte-equality arms and planted twin 4, a cache keyed without the lod, show such a key mistake is caught).
+// depends on; AssetRef::variant is the constant 0 here (the game's only letter, 'a': S111 CROWDVAR, see Emit), so it is not part of the key: if variant ever
+// becomes a value read from the game, the key must gain it (the byte-equality arms and planted twin 4, a cache keyed without the lod, show such a key mistake is caught).
 void Contributor::EmitCached(const FrameInfo& f, SceneTables& t, Counters& c) {
   int arena = -1;
   uint32_t other = 0;
@@ -925,9 +924,8 @@ void Contributor::EmitCached(const FrameInfo& f, SceneTables& t, Counters& c) {
       e = b;
     }
     a.entry = t.AddString(e);
-    a.variant = 0;
+    a.variant = 0;   // always 'a' (S111 CROWDVAR, see Emit)
     if (!pac_field) ++c.unknown;
-    ++c.unknown;
     t.assets.push_back(a);
     return slot = uint32_t(t.assets.size() - 1);
   };
@@ -1100,9 +1098,8 @@ void Contributor::EmitRuns(const FrameInfo& f, SceneTables& t, Counters& c) {
       e = b;
     }
     a.entry = t.AddString(e);
-    a.variant = 0;
+    a.variant = 0;   // always 'a' (S111 CROWDVAR, see Emit)
     if (!pac_field) ++c.unknown;
-    ++c.unknown;
     t.assets.push_back(a);
     return slot = uint32_t(t.assets.size() - 1);
   };

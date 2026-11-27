@@ -8,6 +8,11 @@
 //   gm.address_reuse        an object whose model word changed after the pull (the address reused by another model) records nothing                              <- gm_no_recheck
 //   gm.pass_zero            a call of a non-zero pass index (the shadow / other pass) records nothing; a non-submit call is counted, not recorded              <- gm_ignore_pass
 //   blood.live_records      the n-th splat call of a frame takes the n-th LIVE record (dead alpha-0 records skipped), a call past the live count is unmatched   <- blood_include_dead
+//   blood.mod_identity      the permanent blood mod ON (S111 BLOODMOD2 review): each blood row carries its record's particle slot k (slot_flags bits 0-7) and its splat's identity (instance, under the scene count);
+//                           a frame with the replay word set, or a record whose alpha bits differ from its particle's, gives no identity; the texture bits stay (every check above runs with the mod off)
+//   blood.held_replay       the mod ON (S111 BLOODMOD3): a splat fading while the replay word is set gets a keep-only row (kCallBloodHeld) made from its live particle: its identity, colour, texture, and rows
+//                           made from the last drawn splat (blood_held.h SynthRows); a fading splat whose record is its own gets none. The played-back records hold other fields / texture than the
+//                           particles (the held row must read the particle), one bit-equal alpha (only the replay word says "not own"); the frame after the replay: the played-back record held, the own one not
 //   event.scene_clear       a change of the stage holder's words clears the event list (a leaked / unfreed model is not a belt in the next arena)             <- event_no_clear
 //   event.stale_prune       an event model whose vtable word is no longer a CSkinModel's is pruned at the next frame's pull                                  <- event_no_prune
 //   event.lockfree_find     the published lookup answers every live entry, none after a free / clear, and counts what did not fit
@@ -16,6 +21,8 @@
 //   release.retry           a busy release stays pending until the hook answers done                                                                       <- release_drop_on_busy
 //   release.try_lock        ReleaseEvtobj answers busy at once (no wait) while another thread holds the loader's lock
 //   gm.bank_offset          the gm.pac directory: GMGA digit banks, GMGB "NNFR" banks (read as names, not sections), arenas 78 / 80 = FR, unknown = none
+//   gm.holder_tex           S111 GMBORROW: a gm row carries settings byte G+41 (only that byte of its word); the plan, the entry "/h", the loader's parse and the want pair carry it; only a
+//                           non-FR bank with it borrows the chamber's set                                                                                     <- gm_holder_always
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>   // (asset_load.h's pac / stage_media code needs it; the build passes -I<sdk stb>)
 
@@ -136,7 +143,7 @@ int main(int argc, char** argv) {
   std::string plant;
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant = argv[++i];
-  static const char* const kPlants[] = {"gm_all_models", "gm_no_recheck", "gm_ignore_pass", "blood_include_dead", "event_no_clear", "event_no_prune", "no_hold", "gm_dead_alpha", "release_drop_on_busy", "want_low_bit", "gm_rescan_empty", "scene_sig_loaded", "gm_no_fallthrough", "hold_ignore_sig", "first_write_clears", "splat_depth_write"};
+  static const char* const kPlants[] = {"gm_all_models", "gm_no_recheck", "gm_ignore_pass", "blood_include_dead", "event_no_clear", "event_no_prune", "no_hold", "gm_dead_alpha", "release_drop_on_busy", "want_low_bit", "gm_rescan_empty", "scene_sig_loaded", "gm_no_fallthrough", "hold_ignore_sig", "first_write_clears", "splat_depth_write", "gm_holder_always"};
   bool known = plant.empty();
   for (const char* k : kPlants) known = known || plant == k;
   if (!known) {
@@ -145,7 +152,8 @@ int main(int argc, char** argv) {
   }
   const auto tracker_plant = [&]() {
     return plant == "gm_all_models" ? Plant::GmAllModels : plant == "gm_no_recheck" ? Plant::GmNoRecheck : plant == "gm_ignore_pass" ? Plant::GmIgnorePass : plant == "blood_include_dead" ? Plant::BloodIncludeDead
-         : plant == "event_no_clear" ? Plant::EventNoClear : plant == "event_no_prune" ? Plant::EventNoPrune : plant == "gm_rescan_empty" ? Plant::GmRescanEmpty : plant == "scene_sig_loaded" ? Plant::SceneSigLoaded : plant == "gm_no_fallthrough" ? Plant::GmNoFallthrough : plant == "first_write_clears" ? Plant::FirstWriteClears : Plant::None;
+         : plant == "event_no_clear" ? Plant::EventNoClear : plant == "event_no_prune" ? Plant::EventNoPrune : plant == "gm_rescan_empty" ? Plant::GmRescanEmpty : plant == "scene_sig_loaded" ? Plant::SceneSigLoaded : plant == "gm_no_fallthrough" ? Plant::GmNoFallthrough : plant == "first_write_clears" ? Plant::FirstWriteClears
+         : plant == "gm_holder_always" ? Plant::GmHolderAlways : Plant::None;
   };
   const uint32_t kL = 0x90200000, kCtl = 0x90210000, kObjBase = 0x90300000, kMA = 0xA2000000, kMB = 0xA2001000, kOther = 0xA2009000, kBuf = 0xB2000000, kBuf2 = 0xB2001000;
 
@@ -236,6 +244,117 @@ int main(int argc, char** argv) {
     Check(nan_ok && order && c1.blood && c2.blood && !c3.recorded && r.t.GetStats().blood_unmatched == 1 && r.t.GetStats().blood_dead_skipped >= 1 && r.t.GetStats().blood_live == 2, "blood.live_records",
           "calls " + std::to_string(got ? fb.calls.size() : 0) + " (need 2), first tex " + std::to_string(got && !fb.calls.empty() ? W::StageEntry(fb.calls[0].slot_flags) : 99u) + " colour " + std::to_string(got && !fb.calls.empty() ? W::ColourOfBloodId(fb.calls[0].id) : -1.f) +
               " (need tex 1 colour 0.5: the dead record is skipped), unmatched " + std::to_string(r.t.GetStats().blood_unmatched) + ", live " + std::to_string(r.t.GetStats().blood_live));
+  }
+
+  // ---- blood.mod_identity (S111 BLOODMOD2 review: the tracker's own wiring with the mod on: PullBloodRecs -> slot bits / identity -> the row; floor_blood_test runs blood_slot_id.h alone)
+  {
+    floor_blood::g_on.store(true);
+    floor_blood::NoteMatchRestart();   // the scene count moves (only while the mod is on): the rows must carry the new one
+    const uint32_t pools = floor_blood::PoolCount();
+    Rig r;
+    r.t.plant = Plant::None;   // (no gbr plant targets this check)
+    const uint32_t kP = 0x90400000, kQ = 0x90410000, kSplat = 0xA3000000;
+    r.g.MakeBlood(kP, kSplat, kQ, {{0.f, 0.9f, 2}, {0.5f, 0.45f, 1}, {0.25f, 0.45f, 2}});   // record 0 dead; records 1 and 2 fading
+    const auto part = [&](uint32_t k, uint32_t state, float alpha) {
+      r.g.words[kQ + W::kBloodPartOff + W::kBloodPartStride * k + W::kBloodPartOffState] = state;
+      r.g.PutFloat(kQ + W::kBloodPartOff + W::kBloodPartStride * k + W::kBloodPartOffAlpha, alpha);
+    };
+    for (uint32_t k = 0; k < W::kBloodRecCount; ++k) part(k, W::kBloodStateFree, 0.f);
+    part(1, 3, 0.5f), part(2, 3, 0.25f);
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 0;
+    r.g.MakeModel(kSplat, 1);
+    r.g.WriteNodes(kBuf, 1, 7), r.g.WriteNodes(kBuf2, 1, 8);
+    g_pass0 = true;
+    r.Call(kSplat, kBuf, 700, true, 0.5f), r.Call(kSplat, kBuf2, 700, true, 0.25f);   // frame 700: both records are their particles' own
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 1;                                         // frame 701: the replay track writes the records
+    r.Call(kSplat, kBuf, 701, true, 0.5f), r.Call(kSplat, kBuf2, 701, true, 0.25f);
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 0;                                         // frame 702: the word cleared, record 1 still the played-back one (alpha 0.4, its particle 0.5)
+    r.g.PutFloat(kQ + W::kBloodRecOff + W::kBloodRecStride * 1 + W::kBloodRecOffAlpha, 0.4f);
+    r.Call(kSplat, kBuf, 702, true, 0.4f), r.Call(kSplat, kBuf2, 702, true, 0.25f);
+    r.Call(kSplat, kBuf, 703, true, 0.4f);                                              // closes frame 702
+    FrameBuffer f0, f1, f2;
+    const bool got = TakeFrame(r, 700, f0) && TakeFrame(r, 701, f1) && TakeFrame(r, 702, f2) && f0.calls.size() == 2 && f1.calls.size() == 2 && f2.calls.size() == 2;
+    const auto pools_of = [&](const W::WeaponCall& c) { return W::BloodIdentityPools(c.instance) == (pools & 0xFFFFu); };
+    const bool own = got && W::CallSlot(f0.calls[0].slot_flags) == 1 && W::CallSlot(f0.calls[1].slot_flags) == 2 && W::StageEntry(f0.calls[0].slot_flags) == 1 && W::StageEntry(f0.calls[1].slot_flags) == 2 &&
+                     W::IsBloodCall(f0.calls[0].slot_flags) && f0.calls[0].instance != 0 && f0.calls[1].instance != 0 && f0.calls[0].instance != f0.calls[1].instance && pools_of(f0.calls[0]) && pools_of(f0.calls[1]);
+    const bool replayed = got && f1.calls[0].instance == 0 && f1.calls[1].instance == 0 && W::CallSlot(f1.calls[1].slot_flags) == 2;
+    const bool after = got && f2.calls[0].instance == 0 && f2.calls[1].instance == f0.calls[1].instance;
+    Check(own && replayed && after, "blood.mod_identity",
+          std::string("frames ") + (got ? "taken" : "MISSING") + "; own rows (slot 1 / 2, identities, the count) " + (own ? "ok" : "WRONG") + "; replay frame no identity " + (replayed ? "ok" : "WRONG") +
+              "; after the replay (record 1 played back, record 2 its own) " + (after ? "ok" : "WRONG"));
+    floor_blood::g_on.store(false);   // every other check runs with the mod off
+  }
+
+  // ---- blood.held_replay (S111 BLOODMOD3: the tracker's held rows with the mod on)
+  {
+    namespace BH = rdr_scene::live::bloodheld;
+    floor_blood::g_on.store(true);
+    Rig r;
+    r.t.plant = Plant::None;   // (no gbr plant targets this check)
+    const uint32_t kP = 0x90400000, kQ = 0x90410000, kSplat = 0xA3000000;
+    r.g.MakeBlood(kP, kSplat, kQ, {{1.f, 0.6f, 1}, {0.5f, 0.45f, 2}});   // record 0: a growing splat (alpha 1); record 1: a fading one
+    const auto rec_at = [&](uint32_t k) { return kQ + W::kBloodRecOff + W::kBloodRecStride * k; };
+    const auto part_at = [&](uint32_t k) { return kQ + W::kBloodPartOff + W::kBloodPartStride * k; };
+    const auto put_rec = [&](uint32_t k, const BH::Fields& f) {
+      r.g.PutFloat(rec_at(k) + BH::kRecOffX, f.x), r.g.PutFloat(rec_at(k) + BH::kRecOffY, f.y), r.g.PutFloat(rec_at(k) + BH::kRecOffZ, f.z), r.g.PutFloat(rec_at(k) + BH::kRecOffScale, f.scale),
+          r.g.PutFloat(rec_at(k) + BH::kRecOffAngle, f.angle);
+    };
+    const auto put_part = [&](uint32_t k, uint32_t state, float alpha, float colour, uint32_t tex, const BH::Fields& f) {
+      const uint32_t p = part_at(k);
+      r.g.words[p + W::kBloodPartOffState] = state, r.g.PutFloat(p + W::kBloodPartOffAlpha, alpha), r.g.PutFloat(p + BH::kPartOffColour, colour), r.g.words[p + BH::kPartOffTex] = tex;
+      r.g.PutFloat(p + BH::kPartOffX, f.x), r.g.PutFloat(p + BH::kPartOffY, f.y), r.g.PutFloat(p + BH::kPartOffZ, f.z), r.g.PutFloat(p + BH::kPartOffScale, f.scale), r.g.PutFloat(p + BH::kPartOffAngle, f.angle);
+    };
+    BH::Fields f0, f1;
+    f0.x = 30.f, f0.y = -119.92f, f0.z = -12.f, f0.scale = 0.8f, f0.angle = 1.9f;
+    f1.x = -4.f, f1.y = -119.95f, f1.z = 22.f, f1.scale = 1.2f, f1.angle = 0.4f;
+    for (uint32_t k = 2; k < W::kBloodRecCount; ++k) r.g.words[part_at(k) + W::kBloodPartOffState] = W::kBloodStateFree, r.g.PutFloat(part_at(k) + W::kBloodPartOffAlpha, 0.f);
+    put_part(0, 1, 1.f, 0.6f, 1, f0), put_rec(0, f0);   // frame 900: splat 0 grows, splat 1 fades; both records their particles' own
+    put_part(1, 3, 0.5f, 0.45f, 2, f1), put_rec(1, f1);
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 0;
+    r.g.MakeModel(kSplat, 1);
+    r.g.WriteNodes(kBuf, 1, 7), r.g.WriteNodes(kBuf2, 1, 8);
+    g_pass0 = true;
+    r.Call(kSplat, kBuf, 900, true, 1.f), r.Call(kSplat, kBuf2, 900, true, 0.5f);
+    // frame 901: the replay track writes both records (played back: another place / turn / scale, record 0 another texture, record 1's alpha bit-equal to its particle's so only the replay word says
+    // "not its own"); splat 0 starts its fade, splat 1 fades on, neither drawn with its own record. The held rows must come from the PARTICLES (BLOODMOD3 review: the records here differ from them)
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 1;
+    BH::Fields g0 = f0, g1 = f1;
+    g0.x = 55.f, g0.angle = 0.2f, g1.z = -40.f, g1.scale = 0.5f;
+    put_rec(0, g0), put_rec(1, g1);
+    r.g.words[rec_at(0) + W::kBloodRecOffTex] = 3;
+    r.g.PutFloat(rec_at(0) + W::kBloodRecOffAlpha, 0.3f), r.g.PutFloat(rec_at(1) + W::kBloodRecOffAlpha, 0.45f);
+    put_part(0, 3, 0.9f, 0.45f, 1, f0), put_part(1, 3, 0.45f, 0.45f, 2, f1);
+    r.Call(kSplat, kBuf, 901, true, 0.3f), r.Call(kSplat, kBuf2, 901, true, 0.45f);
+    // frame 902: the word cleared, record 0 still the played-back one (alpha bits differ from its particle's: held), record 1 its particle's own copy again (alpha bits equal: no held row)
+    r.g.words[kQ + W::kBloodPoolOffReplay] = 0;
+    put_part(0, 3, 0.88f, 0.45f, 1, f0);
+    r.Call(kSplat, kBuf, 902, true, 0.3f), r.Call(kSplat, kBuf2, 902, true, 0.45f);
+    r.Call(kSplat, kBuf, 903, true, 0.3f);   // closes frame 902
+    FrameBuffer h0, h1, h2;
+    const bool got = TakeFrame(r, 900, h0) && TakeFrame(r, 901, h1) && TakeFrame(r, 902, h2) && h0.calls.size() == 2;
+    size_t held0 = 0, held1 = 0, held2 = 0;
+    const W::WeaponCall* c0 = nullptr;
+    const W::WeaponCall* c1 = nullptr;
+    const W::WeaponCall* c2 = nullptr;
+    for (const W::WeaponCall& c : h0.calls) held0 += W::IsBloodHeld(c.slot_flags) ? 1u : 0u;
+    for (const W::WeaponCall& c : h1.calls)
+      if (W::IsBloodHeld(c.slot_flags)) ++held1, (W::CallSlot(c.slot_flags) == 0 ? c0 : c1) = &c;
+    for (const W::WeaponCall& c : h2.calls)
+      if (W::IsBloodHeld(c.slot_flags)) ++held2, c2 = &c;
+    float m[16], ref_rows[12], want0[12], want1[12], want2[12];
+    for (uint32_t j = 0; j < 16; ++j) m[j] = float(8 * 1000 + j);   // the last drawn splat before each frame: record 1 (WriteNodes seed 8), drawn from f1 in frame 900 and from g1 in frame 901
+    rdr_scene::live::arenaworld::RowsFromMatrix(m, ref_rows);
+    const bool made = BH::SynthRows(ref_rows, f1, f0, want0) && BH::SynthRows(ref_rows, f1, f1, want1) && BH::SynthRows(ref_rows, g1, f0, want2);
+    const auto rows_of = [&](const FrameBuffer& h, const W::WeaponCall* c, const float* want) { return c && c->node_count == 1 && size_t(c->node_first) < h.nodes.size() && std::memcmp(h.nodes[c->node_first].rows, want, 12 * sizeof(float)) == 0; };
+    const bool own_none = got && held0 == 0;
+    const bool held_ok = got && made && held1 == 2 && h1.calls.size() == 4 && c0 && c1 && c0->instance != 0 && c0->instance == h0.calls[0].instance && c1->instance == h0.calls[1].instance && c0->alpha == 0.9f &&
+                         c1->alpha == 0.45f && c0->id == W::BloodIdOf(0.45f) && W::StageEntry(c0->slot_flags) == 1 && W::StageEntry(c1->slot_flags) == 2 && rows_of(h1, c0, want0) && rows_of(h1, c1, want1);
+    const bool after_ok = got && held2 == 1 && c2 && W::CallSlot(c2->slot_flags) == 0 && c2->instance == h0.calls[0].instance && c2->alpha == 0.88f && rows_of(h2, c2, want2);
+    Check(own_none && held_ok && after_ok, "blood.held_replay",
+          std::string("frames ") + (got ? "taken" : "MISSING") + "; own records give no held row " + (own_none ? "ok" : "WRONG") + "; the replay frame's held rows (slots 0 / 1, identities, alpha, colour, texture, made rows) " +
+              (held_ok ? "ok" : "WRONG") + " (held " + std::to_string(held1) + ", calls " + std::to_string(h1.calls.size()) + "); after the replay (slot 0 played back, slot 1 own) " + (after_ok ? "ok" : "WRONG") +
+              " (held " + std::to_string(held2) + ")");
+    floor_blood::g_on.store(false);
   }
 
   // ---- event.scene_clear / event.stale_prune / event.lockfree_find
@@ -335,10 +454,9 @@ int main(int argc, char** argv) {
   // ---- plan.stage_hold
   {
     W::Plants pl;
-    W::StageFamilyLatch latch;
+    W::StageLatch latch;
     pl.latch = &latch;
     pl.no_hold = plant == "no_hold";
-    pl.stage_family = W::kStageFamilyOwn;
     float nodes[2 * 12];
     for (int i = 0; i < 24; ++i) nodes[i] = float(i + 1);
     const W::WeaponCall rows[2] = {StageRow(1, 0, true, 40, 0), StageRow(1, 3, true, 40, 1)};   // frame 40: two own rows of PACH 1
@@ -348,7 +466,7 @@ int main(int argc, char** argv) {
     std::vector<float> hn;
     W::Census c1;
     const W::View p1 = W::HoldStageRows(v1, pl, hc, hn, c1);
-    const auto i1 = W::Plan(p1, pl, c1);   // frame 1: latches own; (the snapshot is taken by the NEXT HoldStageRows, now that the family is latched)
+    const auto i1 = W::Plan(p1, pl, c1);   // frame 1: latches the structure; (the snapshot is taken by the NEXT HoldStageRows, now that it is latched)
     W::Census c1b;
     const W::View p1b = W::HoldStageRows(v1, pl, hc, hn, c1b);   // frame 1 again (a second record): snapshot
     (void)p1b;
@@ -430,6 +548,55 @@ int main(int argc, char** argv) {
     Check(ok && drops_1500, "gm.want_flags", "every gm key round-trips (first bad key " + std::to_string(bad_key) + "); key 1500 drops as gm:21/1500 and a blood want is not a gm want");
   }
 
+  // ---- gm.holder_tex (S111 GMBORROW): settings byte G+41 picks the set a gm bank is loaded with: the stage holder's (the chamber's bgEtc PACH 6 set, entry "/h") only when it is set
+  {
+    bool rows_ok = true;
+    std::string rows_why;
+    for (const uint32_t g41 : {0u, 1u}) {
+      Rig r;
+      r.t.plant = tracker_plant();
+      r.g.MakeGm(kL, kCtl, {{kMA, 1500}}, kObjBase);
+      r.g.MakeModel(kMA, 3);
+      r.g.WriteNodes(kBuf, 3, 5);
+      r.g.words[W::kGmHolderTexWord] = 0x05000007u | (g41 << W::kGmHolderTexShift);   // the neighbours G+40 and G+43 are set: only byte G+41 counts
+      g_pass0 = true;
+      r.Call(kMA, kBuf, 700, true);
+      r.Call(kMA, kBuf, 701, true);
+      FrameBuffer fb;
+      const W::WeaponCall* row = nullptr;
+      if (TakeFrame(r, 700, fb))
+        for (const W::WeaponCall& c : fb.calls)
+          if (c.object == kMA) row = &c;
+      const bool bit = row && W::GmHolderTex(row->slot_flags);
+      if (!row || bit != (g41 != 0)) rows_ok = false;
+      rows_why += " G+41=" + std::to_string(g41) + (row ? (bit ? " holder" : " own") : " no row");
+    }
+    W::WeaponCall g, g2;
+    g.object = 0xA2000000, g.frame = 9, g.id = W::GmId(1500), g.node_first = 0, g.node_count = 1, g.alpha = 1.0f, g.slot_flags = W::PackGmFlags(true);
+    g2 = g, g2.object = 0xA2000100, g2.id = W::GmId(1503), g2.node_first = 1, g2.slot_flags = W::PackGmFlags(false);
+    const W::WeaponCall calls[2] = {g, g2};
+    float nodes[2 * 12] = {};
+    W::View v;
+    v.calls = calls, v.n_calls = 2, v.nodes = nodes, v.n_nodes = 2;
+    W::Plants pl;
+    W::Census c;
+    bool h1500 = false, a1503 = false;
+    for (const W::Item& it : W::Plan(v, pl, c)) {
+      if (it.gm && it.entry == 1500 && it.gm_holder_tex) h1500 = true;
+      if (it.gm && it.entry == 1503 && !it.gm_holder_tex) a1503 = true;
+    }
+    int a1 = -1, a2 = -1, a3 = 0;
+    uint32_t k1 = 0, k2 = 0, k3 = 0;
+    bool t1 = false, t2 = true, t3 = false;
+    const bool parse_ok = W::GmEntryOf(21, 1500, true) == "gm:21/1500/h" && W::ParseGmEntry(W::GmEntryOf(21, 1500, true), a1, k1, t1) && a1 == 21 && k1 == 1500 && t1 &&
+                          W::ParseGmEntry(W::GmEntryOf(21, 1503), a2, k2, t2) && a2 == 21 && k2 == 1503 && !t2 && !W::ParseGmEntry("gm:21/1500/x", a3, k3, t3);
+    const uint32_t want = W::WantGmHolder(1500, true);
+    const bool want_ok = W::IsWantGm(want) && W::IsWantGmHolderTex(want) && W::WantKeyOf(want) == 1500 && !W::IsWantGmHolderTex(W::WantGm(1500)) && !W::IsWantGmHolderTex(W::WantBlood(2));
+    const bool borrow_ok = assets::load_detail::GmBorrowsHolderSet(false, true) && !assets::load_detail::GmBorrowsHolderSet(false, false) && !assets::load_detail::GmBorrowsHolderSet(true, true);
+    Check(rows_ok && h1500 && a1503 && parse_ok && want_ok && borrow_ok, "gm.holder_tex",
+          "rows:" + rows_why + "; plan " + (h1500 && a1503 ? "carries" : "LOSES") + " the bit; entry / parse " + (parse_ok ? "ok" : "WRONG") + "; want " + (want_ok ? "ok" : "WRONG") + "; borrow rule " + (borrow_ok ? "ok" : "WRONG"));
+  }
+
   // ---- gm.empty_pulls (review 2): a controller holding an empty table is not rescanned every frame
   {
     Rig r;
@@ -459,7 +626,7 @@ int main(int argc, char** argv) {
   // ---- plan.hold_holder_change (review 10): a held structure is dropped when its member set (the holder) changed
   {
     W::Plants pl;
-    W::StageFamilyLatch latch;
+    W::StageLatch latch;
     pl.latch = &latch;
     pl.hold_ignore_sig = plant == "hold_ignore_sig";
     float nodes[12];
@@ -472,7 +639,7 @@ int main(int argc, char** argv) {
     std::vector<W::WeaponCall> hc;
     std::vector<float> hn;
     W::Census c0, c1;
-    W::Plan(W::HoldStageRows(v1, pl, hc, hn, c0), pl, c0);    // latches the family
+    W::Plan(W::HoldStageRows(v1, pl, hc, hn, c0), pl, c0);    // latches the structure
     W::Plan(W::HoldStageRows(v1, pl, hc, hn, c1), pl, c1);    // snapshot
     W::View same;                                              // the calls vanish, the member set is the same: held
     same.slots = &slot, same.n_slots = 1;

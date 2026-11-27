@@ -71,8 +71,9 @@ def run(system=None, limit=40, low=False, path=None, out=print):
 def main(rest):
     pos = [x for i, x in enumerate(rest) if not x.startswith('--') and (i == 0 or rest[i - 1] != '--limit')]
     system = pos[0] if pos else None
-    if system and system not in qread.SYSTEMS:
-        raise qread.ReadError('q read curiosities [SYSTEM] [--limit N] [--low]; SYSTEM is one of: %s' % ' | '.join(qread.SYSTEMS))
+    if system and not re.fullmatch(r'[a-z0-9_]+', system):       # S111 PICKPATH review: store-system stores any [a-z0-9_]+ name
+        raise qread.ReadError('q read curiosities [SYSTEM] [--limit N] [--low]; SYSTEM is a [a-z0-9_]+ name: %s, or a page name `q read systems` lists'
+                              % ' | '.join(qread.SYSTEMS))
     limit = int(rest[rest.index('--limit') + 1]) if '--limit' in rest and rest.index('--limit') + 1 < len(rest) else 40
     run(system, limit, '--low' in rest)
     return 0

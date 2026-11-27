@@ -136,9 +136,11 @@ inline bool RopeIsLow(const RopeView& v, uint32_t h, uint32_t r, const LodParams
 
 // S105 C4 (docs\research\s105\C4.md point 2 [C listing]): the game's POST and COVER LOD is a pure distance test. Posts sub_82740350, covers sub_827403E8: the point (post -313, -120, -313 from 0x82003784 / 0x82003778;
 // cover -288, -196, -288 from 0x82003774 / 0x8201E43C) turned by the call's corner (sub_824D6D10, r4 = the corner / angle index) is tested by sub_8273FF58: LOW (far) when T[0] < |eye - point|, strict, with eye = the
-// view's +592 (the same RopeView the rope rule reads). No view = near (HIGH). T[0] = 3000.0 = [0x82012B14], stored at X+0x1F314 / X+0x1F320 by sub_825CD8D0 (sub_8273FF20): ours READS [0x82012B14] at the latch
-// (kLodDistAddr; never hard-coded). The game takes the low model only when its slot ([G+40] cover, [G+52] post) is non-zero, else the high one.
-inline constexpr uint32_t kLodDistAddr = 0x82012B14u;
+// view's +592 (the same RopeView the rope rule reads). No view = near (HIGH). T[0] = 3000.0 = [0x82012B14], stored at X+0x1F314 / X+0x1F320 by sub_825CD8D0 (sub_8273FF20, +0x1F4 / +0x200).
+// S111 RINGLOD [C sub_8273FF58 +0x80: the float at r3]: the test reads the word its CALLER passes, the ring object's X + 0x1F314 (posts: sub_825CCFE0 +0x98 / +0x310) and X + 0x1F320 (covers: sub_825CE668
+// +0x108..+0x170), not the image word: ours reads those two words at the latch (kPostLodOff / kCoverLodOff). The game takes the low model only when its slot ([G+40] cover, [G+52] post; a created arena's
+// G+80.. / G+104..) is non-zero, else the high one.
+inline constexpr uint32_t kPostLodOff = 0x1F314u, kCoverLodOff = 0x1F320u;   // 127764 / 127776
 inline constexpr float kPostLodPoint[3] = {-313.0f, -120.0f, -313.0f}, kCoverLodPoint[3] = {-288.0f, -196.0f, -288.0f};
 inline bool CornerIsLow(const RopeView& v, int32_t corner, const float point[3], float dist) {
   if (!v.has) return false;   // sub_82BA7748 returned 0: near
@@ -301,7 +303,8 @@ inline void AppendRope(const Inputs& in, uint32_t h, uint32_t r, uint32_t frame,
 //   The palette the packer reads is [T + 200] after the vtable +84 update: node k = inverse bind [T + 224 + 64 k] x world k (the rule of stage_fx_core.h SkinOf); nodes the loop does not write keep the
 //   palette as it stands (identity in run 16: nodes 0 and 3).
 //   [C run 16, 12 of 12 instances, to 1e-4]: node 1's skin translation = A's translation + inv.t * R with ONE constant inv.t = (331.9335, 0, 320.0000): the formula, the angle and vec tables, the height step.
-//   [U] the node indices idxA / idxB are read from X + 127792 / 127796 (assumed 1 and 2 by the dump); the inverse binds, the palette rows and idx are read live (a mode-1 run's compare settles them).
+//   [C S111 RINGLOD, sub_825CE250 fields] the node indices are the game's own words X + 127792 (A) / X + 127796 (B), read at every call: the loop writes world A into the local row [model + 180] + 64 [X + 127792]
+//   and world B into the row of [X + 127796]. Ours reads the same two words live (ReadTurnbuckleInputs), never a constant (1 and 2 are only what run 16 held). The inverse binds and the palette rows are read live too.
 // Table mode ([X + 100] != 0: the matrices come from RIDS, sub_82595C50) is NOT replicated: counted `tb_table_mode`, no rows.
 // ======================================================================================================================================================================================================
 inline constexpr uint32_t kTbModelOff = 44, kPaletteOff = 200, kInvBindOff = 224, kTbIdxA = 127792, kTbIdxB = 127796;
@@ -385,7 +388,8 @@ inline void AppendTurnbuckle(const TbInputs& in, uint32_t c, uint32_t h, uint32_
 // COVERS = sub_825CE668 (called by sub_825D0340 at 0x825D0410, r4 = the task arg = 0 in the colour pass, 0x825D0534). 4 corners r25 x 3 heights r28 = 12 instances of ONE model (the cover LOD, below),
 // call = 3 r25 + r28 (the game's RingRows order). [C listing 0x825CE668-0x825CECE0; fit against run 16 in tools\scene\ring_cover_fit_check.py]
 //   model pick (0x825CE738-0x825CE7E0): alt-ring flag sub_822A7EB0 = (arena id in 200..249, the word at 0x8376AB34 = [0x8376AAF4 + 64], sub_827D7578 / sub_822AA2F8 0x822AA2F8-0x822AA30C); normal ring:
-//     sub_827403E8(X + 0x1F320, r25) = [G + 36] when [G + 40] == 0, else G[9 + far] (a view-distance test, the cover LOD: far needs the view position; [U]). The alt ring (82740550) is NOT replicated.
+//     sub_827403E8(X + 0x1F320, r25) = [G + 36] when [G + 40] == 0, else G[9 + far]; far = sub_8273FF58: [X + 0x1F320] < |eye - point|, eye = the thread slot camera +592 (sub_82BA7748) [C S111 RINGLOD].
+//     A created arena: corners 0..2 sub_82740550(X + 0x1F320, r25, r25) = G[17 + r25] when G[20 + r25] == 0, else G[17 + r25 + 3 far] (the same point and test), corner 3 sub_827403E8 [C]: CoverModel.
 //   per instance (grid mode [X + 100] == 0, 0x825CE928-0x825CE99C): the descriptors d = 3 r25 + k, k < count = int32 [X + 127728 + 4 r25] (0x825CE7E8-0x825CE7F4: r14 = (r25 + 31932) << 2): word n at
 //     X + 127584 + 12 d, side s at +127588, c at +127592 (S103 C6: r16 = (lis 1) | 62056 = 0x1F268 = 127592, r29 = X + 36 r25 + 127592 and -8 / -4 / 0 of it, 0x825CE714-0x825CE724 + 0x825CE824; C4 had read 62056 alone and so read 65536 bytes too low; the init that fills them is sub_825CD8D0 0x825CDF50-0x825CDFB8: side := r4, c := c mod 24).
 //     angle f31 = fmadds((float)((r25 + 1) % 4), f29, f26), once wrapped (> f28: - f25; < f23: + f25): 0x825CE8A0-0x825CE8D4; f29 = pi/2 [0x82000ADC], f26 = 3 pi/2 [0x8201D4D0], f28 = pi [0x82118560], f23 = -pi
@@ -396,7 +400,7 @@ inline void AppendTurnbuckle(const TbInputs& in, uint32_t c, uint32_t h, uint32_
 //     else [model + 252] = min(f0, 1). Grid mode: vtable +84 (the pose: skin = inverse bind x world, ring.md 2.1) then +52 (the submit, which is what the game's RingRows copy at the call).
 //   Run 16 (tools\scene\ring_cover_fit_check.py): cover node 2's skin translation = grid record + inv.t * R(angle) with ONE constant inv.t (284.997, -0.0001, 285.0) to 1e-4 for all 12 instances, record side
 //     (r25 + 1) % 4, c = 0, angle 0 / pi/2 / pi / -pi/2 for r25 = 0..3; nodes 0 / 1 identity.
-// NOT replicated, counted: table mode ([X + 100] != 0: RIDS copy), the alt ring, the cover LOD's far test (both models' entries are given when [G + 40] != 0: cv_lod_both). RIDS playback (byte 0x837632FA bit 0) IS
+// NOT replicated, counted: table mode ([X + 100] != 0: RIDS copy). The cover LOD (S105 C4) and a created arena's per-corner models (S111 RINGLOD) are replicated. RIDS playback (byte 0x837632FA bit 0) IS
 // replicated since S110 RINGBREAK: the hook runs the game's own sub_82595CB0 per slot and the rows come from ring_rids_pose.h (the grid rule above is not used in that mode).
 // ======================================================================================================================================================================================================
 inline constexpr uint32_t kCvCountOff = 127728, kCvDescOff = 127584, kCvDescStride = 12, kCvAlphaOff = 9368, kCvOvrFlagOff = 9456, kCvOvrVecOff = 9392, kCvModelHi = 36, kCvModelLo = 40;
@@ -414,6 +418,7 @@ struct ModelPal {   // one model's palette and inverse binds as the latch read t
 struct CvInputs {
   bool ok = false;
   ModelPal models[kCvModels];   // [0] = [G + 36] (high), [1] = [G + 40] (low; model == 0 when absent)
+  ModelPal alt_models[3][kCvModels];   // S111 RINGLOD: a created arena's corners 0..2 (sub_82740550): [c][0] = G[17 + c] (G + 68 + 4 c), [c][1] = G[20 + c] (G + 80 + 4 c); corner 3 keeps `models`
   int32_t count[kCvCorners] = {};
   std::vector<CvDesc> desc[kCvCorners];
   float alpha_mul[kCvCorners] = {1.f, 1.f, 1.f, 1.f};
@@ -421,14 +426,17 @@ struct CvInputs {
   bool alt = false;   // S103 CRR fix: a created arena (id 200..249): sub_825CE668 0x825CE848-0x825CE89C replaces the angle and the record side per call corner r25 (kAltCoverAngle / kAltCoverSide)
   float ovr_vec[kCvCorners][3] = {};
   float ang_base = 0.f, ang_step = 0.f, pi = 0.f, neg_pi = 0.f, two_pi = 0.f;
-  float lod_dist = 0.f;   // S105 C4: T[0] read from [kLodDistAddr] (the far test of CornerIsLow)
+  float lod_dist = 0.f;   // S111 RINGLOD: T[0] = [X + kCoverLodOff], the word sub_825CE668 hands the far test (CornerIsLow)
   bool lod_ok = false;
 };
-// S105 C4: which model corner `r25` poses: 1 (the low cover) when the game's far test says so AND the low model is there ([G + 40] != 0, read into models[1]).
-// [C review F3, sub_825CE668 0x825CE7B8-0x825CE7C0] a created arena LODs too: its corner 3 calls the same sub_827403E8 (r4 = 3; [G+36] / [G+40] = 1070 / 1074), so it takes the same test. Its corners 0-2 go through
-// sub_82740550 (r4 = r5 = corner), which is not read: they keep the high model (a [C] divergence, invisible at 3000 units).
+inline constexpr uint32_t kCvAltHi = 68, kCvAltLo = 80;   // G[17 + c] / G[20 + c] (sub_82740550 +0x24 / +0x38 / +0x98)
+// S111 RINGLOD [C sub_825CE668 +0xD4..+0x17C]: the model the game poses for corner r25 at LOD mi: a created arena's corners 0..2 take their own slots (sub_82740550, r5 = r25); corner 3 and every normal corner
+// [G + 36] / [G + 40] (sub_827403E8). A zero slot poses nothing at that corner (the game's r27 == 0 skip, +0x17C).
+inline const ModelPal& CoverModel(const CvInputs& cv, uint32_t r25, uint32_t mi) { return (cv.alt && r25 < 3) ? cv.alt_models[r25][mi & 1u] : cv.models[mi & 1u]; }
+// S105 C4: which model corner `r25` poses: 1 (the low cover) when the game's far test says so AND that corner's low slot is non-zero.
+// [C S111 RINGLOD] sub_82740550 turns the same point by r4 = r25 and runs the same sub_8273FF58 as sub_827403E8, so every corner of either ring takes the one test.
 inline uint32_t CoverModelIndex(const CvInputs& cv, const RopeView& view, uint32_t r25) {
-  return ((!cv.alt || r25 == 3) && cv.lod_ok && cv.models[1].model && CornerIsLow(view, int32_t(r25), kCoverLodPoint, cv.lod_dist)) ? 1u : 0u;
+  return (cv.lod_ok && CoverModel(cv, r25, 1).model && CornerIsLow(view, int32_t(r25), kCoverLodPoint, cv.lod_dist)) ? 1u : 0u;
 }
 
 // sub_82C32DE0's own angle wrap (0x82C32DFC-0x82C32E48), single precision.
@@ -461,7 +469,7 @@ inline float CoverAngle(const CvInputs& in, uint32_t r25) {
 // The nodes (n * 16 floats) of cover instance (r25, r28) of model `mi`; false = no instance (hidden / unreadable / bad), counted. `alpha` = [model + 252].
 inline bool CoverNodes(const CvInputs& in, const Inputs& grid, uint32_t mi, uint32_t r25, uint32_t r28, std::vector<float>& nodes, float& alpha, RingCensus& cn) {
   if (!in.ok || mi >= kCvModels || r25 >= kCvCorners || r28 >= kCvLayers) return false;
-  const ModelPal& m = in.models[mi];
+  const ModelPal& m = CoverModel(in, r25, mi);   // S111 RINGLOD: the corner's own model (a created arena's corners 0..2)
   if (!m.model) return false;   // S103 C5: the model is simply absent (no low cover, or ReadCoverInputs did not read it): no rows, NOT a read failure
   if (m.n == 0 || m.inv.size() < size_t(m.n) * 16 || m.pal.size() < size_t(m.n) * 16) { ++cn.cv_unreadable; return false; }
   float f0 = 1.f;
@@ -492,7 +500,7 @@ inline void AppendCover(const CvInputs& in, const Inputs& grid, uint32_t mi, uin
   std::vector<float> nodes;
   float alpha = 1.f;
   if (!CoverNodes(in, grid, mi, r25, r28, nodes, alpha, cn)) return;
-  const ModelPal& m = in.models[mi];
+  const ModelPal& m = CoverModel(in, r25, mi);
   RingRows e;
   e.klass = mi == 0 ? kRcCoverHi : kRcCoverLo;
   e.object = m.model;
@@ -523,17 +531,21 @@ struct PostInputs {
   bool ok = false;
   bool alt = false;               // S103 CRR: a created arena (id 200..249): 8 calls, angle indices ringkeys::kAltPostAngle (CRK section 2), every post model has the same 3-node skeleton [C files, CRK K2]
   ModelPal models[kPostModels];   // palette / inverse bind are not needed (the rotation is the whole row); n only
+  ModelPal alt_models[3][kPostModels];   // S111 RINGLOD: a created arena's loop-2 posts (sub_82740480, r5 = h): [h][0] = G[23 + h] (G + 92 + 4 h: 1051 / 1080 / 1081), [h][1] = G[26 + h] (G + 104 + 4 h: 1053 / 1082 / 1083)
   float step = 0.f, pi = 0.f, neg_pi = 0.f, two_pi = 0.f;
-  float lod_dist = 0.f;   // S105 C4: T[0] read from [kLodDistAddr]
+  float lod_dist = 0.f;   // S111 RINGLOD: T[0] = [X + kPostLodOff], the word sub_825CCFE0 hands the far test
   bool lod_ok = false;
 };
-// S105 C4: the post at angle index `i` (the corner the game passes in r4) poses the low model when far and [G + 52] != 0.
-// [C review F3, sub_825CCFE0 0x825CD064-0x825CD078] a created arena LODs too: its loop-1 posts (our calls 0 and 1, r4 = angle 1 / 2 from the stack table) call the same sub_82740350 ([G+48] / [G+52] = 1050 / 1052) and take the same test with that r4.
-// Its loop-2 posts (calls 2..7) go through sub_82740480, which is not read: they keep the high model (a [C] divergence, invisible at 3000 units).
+inline constexpr uint32_t kPostAltHi = 92, kPostAltLo = 104;   // G[23 + h] / G[26 + h] (sub_82740480 +0x24 / +0x38 / +0xC4)
+// S111 RINGLOD [C sub_825CCFE0 +0x310]: the model the game poses for OUR post call i: a created arena's calls 2..7 are loop 2's heights h = (i - 2) / 2 (sub_82740480(X + 0x1F314, angle, h)), every other call
+// [G + 48] / [G + 52] (sub_82740350).
+inline const ModelPal& PostModel(const PostInputs& po, uint32_t i, uint32_t mi) { return (po.alt && i >= 2 && i < 8) ? po.alt_models[(i - 2) / 2][mi & 1u] : po.models[mi & 1u]; }
+// S105 C4: the post at angle index `i` (the corner the game passes in r4) poses the low model when far and its low slot is non-zero.
+// [C review F3 + S111 RINGLOD] a created arena LODs every post: loop 1 (calls 0, 1) through sub_82740350, loop 2 (calls 2..7) through sub_82740480 with r4 = the angle index, the same point and test. (sub_82740480
+// keeps the near model under RIDS playback; the recompute does not run then: ReadPieceGates.)
 inline uint32_t PostModelIndex(const PostInputs& po, const RopeView& view, uint32_t i) {
-  if (po.alt && i >= 2) return 0u;
   const int32_t corner = po.alt ? ::rdr_scene::rf::c::ringkeys::kAltPostAngle[i & 7u] : int32_t(i);
-  return (po.lod_ok && po.models[1].model && CornerIsLow(view, corner, kPostLodPoint, po.lod_dist)) ? 1u : 0u;
+  return (po.lod_ok && PostModel(po, i, 1).model && CornerIsLow(view, corner, kPostLodPoint, po.lod_dist)) ? 1u : 0u;
 }
 // The posts one frame carries: 4 (i = angle index 0..3) or, in a created arena, 8 (call i -> angle index kAltPostAngle[i]: loop 1 corners {1, 2}; loop 2 h 0 {0, -1}, h 1 {1, 2}, h 2 {0, -1}; [L] the exact float chain after 0x825CD3A0).
 inline uint32_t PostCalls(const PostInputs& in) { return in.alt ? ::rdr_scene::rf::c::ringkeys::kAltPostCalls : kPostCorners; }
@@ -547,8 +559,9 @@ inline void PostNodes(const PostInputs& in, uint32_t i, uint32_t n, std::vector<
   for (uint32_t k = 0; k < n; ++k) std::memcpy(&nodes[size_t(k) * 16], w, sizeof w);
 }
 inline void AppendPost(const PostInputs& in, uint32_t mi, uint32_t i, uint32_t frame, std::vector<RingRows>& rows, std::vector<RingNodeRows>& pool, RingCensus& cn) {
-  if (!in.ok || mi >= kPostModels || i >= PostCalls(in) || !in.models[mi].model || in.models[mi].n == 0) return;
-  const ModelPal& m = in.models[mi];
+  if (!in.ok || mi >= kPostModels || i >= PostCalls(in)) return;
+  const ModelPal& m = PostModel(in, i, mi);   // S111 RINGLOD: a created arena's loop-2 posts are their own models
+  if (!m.model || m.n == 0) return;
   std::vector<float> nodes;
   PostNodes(in, i, m.n, nodes);
   RingRows e;
@@ -580,8 +593,10 @@ inline constexpr uint32_t kSkirtFirst = 332, kSkirtCount = 4, kSkirtMaxNodes = 9
 // S103 C5: WHICH skirts the game poses and draws (sub_82609060 0x82609150-0x826091C0, read from the listing; ring.md section 5). The loop runs i = 0..3: the state word w = [X + 1248 + 4 i], the side s = the word at
 // 0x82020A94 + 4 i (a constant table), and the model is G[332 + 4 s]. A skirt is skipped when w == 1; otherwise, with RIDS playback off, it is posed when (the word at 0x836F3928 & 3, S103 C6: was typed 0x8376...) == s, else only when s is not the
 // side facing away from the camera: quad = sub_82534768(cam + 144) (cam = [P + 24] + 272 * [P + 32], P = [0x836F3AA8] (S103 C6: lis -31889 = 0x836F, C5 had typed 0x8376), the floats at +0 and +8), hidden side = {2, 3, 0, 1}[quad] (0x826091A4-0x826091B8). The game
-// leaves the function at once (nothing posed) when P, [P + 16] or any of the four models is 0. [X is the pointer the caller passes in r3 of sub_82609060: taken to be the ring object [U]; the quadrant read at the latch,
-// not at the call [U].]
+// leaves the function at once (nothing posed) when P, [P + 16] or any of the four models is 0. [S111 RINGLOD, C: the object of sub_82609060 is NOT the ring object X but the ring-SIDE object Y (r3 of
+// sub_82609670 = the task sub_82609738's r3 - 1152; Y is the 1280-byte block sub_824EDB50 builds with sub_826094A0, whose +0xB4 makes the state array Y + 1248; X is its own 0x1F340-byte block).
+// The renderer follows the DRAW, sub_82609290 (SkirtDrawnMask below); the latch reads the draw's inputs, Y as the draw's own call passes it (ring_side_hook.h). The camera at the latch is the draw's [L: the
+// update half writes it, as the grid, whose latch-time reads match the game's rows (run 26)].]
 inline constexpr uint32_t kSkirtStateOff = 1248, kSkirtSideTable = 0x82020A94u, kSkirtViewGlobal = 0x836F3AA8u, kSkirtDrawWord = 0x836F3928u, kQuadThreshold = 0x8218B8CCu;
 inline constexpr uint32_t kSkirtHiddenSide[4] = {2, 3, 0, 1};
 // sub_82534768 (0x82534768-0x825347D0): the dominant axis of (a = [r3 + 0], b = [r3 + 8]) as 0..3; thr = the float at 0x8218B8CC.
@@ -592,11 +607,12 @@ inline uint32_t QuadrantOf(float a, float b, float thr) {
 }
 struct SkirtVisIn {
   bool ok = false;           // false = an input was unreadable (counted): no verdict
-  bool early_exit = false;   // the game's function returns before the loop: nothing is posed
+  bool early_exit = false;   // the game's function returns before the loop: nothing is posed / drawn
   bool rids = false;
-  uint32_t state[4] = {};    // [X + 1248 + 4 i]
+  bool cam_ok = true;        // S111 RINGLOD: P = [0x836F3AA8] and [P + 16] both non-zero (the draw tests them per skirt while RIDS is off, sub_82609290 +0x140 / +0x14C)
+  uint32_t state[4] = {};    // [Y + 1248 + 4 i], Y = the ring-SIDE object (S111 RINGLOD)
   uint32_t side[4] = {};     // 0x82020A94 + 4 i
-  uint32_t draw_word = 0;    // the word at 0x836F3928
+  uint32_t draw_word = 0;    // the word at 0x836F3928 (the POSE rule's; the draw does not read it)
   uint32_t quad = 99;        // QuadrantOf(...); > 3 = no hidden side
 };
 // The bit s of the result is set when the model of side s is posed this frame.
@@ -608,6 +624,21 @@ inline uint32_t SkirtVisibleMask(const SkirtVisIn& v) {
     const uint32_t s = v.side[i];
     if (s >= 4) continue;
     if (!v.rids && (v.draw_word & 3u) != s && v.quad <= 3 && kSkirtHiddenSide[v.quad] == s) continue;
+    mask |= 1u << s;
+  }
+  return mask;
+}
+// S111 RINGLOD [C sub_82609290 +0x14..+0x1D0]: the skirts the game DRAWS (the colour pass's category-22 node sub_826096E0 -> sub_82609290), the set the renderer shows. Skirt i is drawn when its state word is
+// not 1 and, while RIDS playback is off, P and [P + 16] are non-zero and its side is not the one the quadrant hides. Unlike the pose (SkirtVisibleMask) there is no draw-word exception: a side the pose keeps
+// for the draw word is posed but not drawn. The early exits (the model gate [0x83767B74] + 368 == 1, +0x28; any of the four models 0, +0x58..+0x70) draw nothing.
+inline uint32_t SkirtDrawnMask(const SkirtVisIn& v) {
+  if (!v.ok || v.early_exit) return 0;
+  uint32_t mask = 0;
+  for (uint32_t i = 0; i < 4; ++i) {
+    if (v.state[i] == 1) continue;
+    const uint32_t s = v.side[i];
+    if (s >= 4) continue;
+    if (!v.rids && (!v.cam_ok || (v.quad <= 3 && kSkirtHiddenSide[v.quad] == s))) continue;
     mask |= 1u << s;
   }
   return mask;

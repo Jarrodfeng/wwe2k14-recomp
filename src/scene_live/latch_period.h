@@ -2,7 +2,7 @@
 // Header-only and PURE (no game, SDK or renderer includes): inputs_contrib.h (the scene camera, the model-class rows), the node hooks scene_skip_nodes.h / arena_hooks.h (NodeClock) and tools\scene\inputs_unit.cpp include it.
 //
 // WHY: latch r runs after every update task of period r, so a value the update writes is period r's at latch r. Record r carries period r - 1: its palettes are the latch reads tagged hook + kPaletteLead
-// taken with PickLimit (wrestler_contrib.h:554-558; S103 W1 measured latch r - 1's palette = the one stream r's draws read, bit for bit), its visibility, colours and piece links likewise (S111 VISLATCH /
+// taken with PickLimit (wrestler_contrib.h (rdr_scene::live::WrestlerContributor::Kept); S103 W1 measured latch r - 1's palette = the one stream r's draws read, bit for bit), its visibility, colours and piece links likewise (S111 VISLATCH /
 // PERIODALL). The scene camera is such a value: the hand-off sub_823C79A8 (the only writer of the block [[0x83929A68] + 256] and of the thread-slot camera the body draw reads, sub_82BA86B8 +50 / +74) runs
 // inside the composer sub_823C8548, update task sub_823C8B20 in group 5, BEFORE the pose tasks (groups 11..23) whose palettes the walk of the same period draws. So the walk that drew record r's palettes
 // drew with the block handed in period r - 1, and the camera read at latch r is one period ahead. At a camera cut record r showed the NEW shot over the OLD shot's bodies, culled pieces, crowd classes
@@ -51,7 +51,7 @@ class OfPalette {
   std::atomic<uint64_t> latches_{0}, previous_{0}, own_first_{0}, own_gap_{0};
 };
 
-// S111 CUTREACH review (docs\research\s111\CUTREACH.md, Review): which clock a draw node runs on (FRAME_CONTRACT 3, the draw-half clock), measured the way particle_source.h:262-265 measures the particle node. The node's
+// S111 CUTREACH review (docs\research\s111\CUTREACH.md, Review): which clock a draw node runs on (FRAME_CONTRACT 3, the draw-half clock), measured the way particle_source.h measures the particle node. The node's
 // hook notes the hook clock at its call; every latch buckets the last note against its own hook (HookFrameOfRecord of the record frame): 0 = the clock of the model draws (model-class: record r takes latch r - 1),
 // +1 = the particle node's draw-half clock (walk-time: record r takes its own latch), before = no call since the last latch (a skipped node / walk), other, never = no call yet. Log only: the census reads it.
 class NodeClock {

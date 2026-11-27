@@ -2,13 +2,19 @@
 // viewer's game seam only (dds.h / pac.h stay out of viewer_main).
 #pragma once
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "dds.h"
+#include "dlc_files.h"
 #include "pac.h"
 #include "particles.h"
 
@@ -87,7 +93,8 @@ inline size_t EpacRecord(const Bytes& d, const std::string& section, const char*
 }
 
 // (review) The opened pacs, kept by the caller (the viewer's seam) beside its files: reopened when the game folder changes, retried
-// after a failure.
+// after a failure. S111 DLCPARTICLES: + the packs' prtcls_dlcPP / gm_dlcPP, keyed by the file name and the pack folder it is in (another
+// pack folder under the same name is another file).
 struct PacCache {
   std::filesystem::path root;
   pac::Pac p;
@@ -95,6 +102,7 @@ struct PacCache {
 };
 struct Pacs {
   PacCache prtcls, gm;
+  std::map<std::pair<std::string, std::filesystem::path>, PacCache> packs;
 };
 template <class Files>
 inline bool OpenCached(Files& files, const char* rel, PacCache& c, std::string& err) {
@@ -106,19 +114,64 @@ inline bool OpenCached(Files& files, const char* rel, PacCache& c, std::string& 
   return true;
 }
 
-// Session 99 (particles 2): the bank's scene objects that play particle effects (particles.h Placement; pac\gm.pac section GMEV).
+// S111 DLCPARTICLES (docs\research\s111\DLCPARTICLES.md): the PACH of bank `bank` ("%04d") in section `section` of the particle pac `stem`
+// ("prtcls" + "PCE6": the entrance's effects; "gm" + "GMEV": its scene objects), found the way the game finds it. The game asks a PATH: a
+// stock entrance's particle bank is a type-0 record of the entrance bank (sub_82333EC8); its node (sub_82254B00) formats "/PCE6/%04d"
+// (sub_822540E0: record types 0 and 1) and resolves it with pac_path_resolve (sub_82C35E30 -> the pac-list walk sub_82C51D20). "/GMEV/%04d" is
+// resolved the same way (sub_827C7038). The walk answers with the first node from the list head: every pack's pac before the disc's, the
+// highest pack id first (asset_load.h PropPachInPacks; docs\formats\catalog_dlc.md rule 3). So a pack's bank shadows the disc's bank of the
+// same number, and a bank only a pack carries (a DLC wrestler's) is found. Before this the viewer read only the disc's prtcls.pac / gm.pac.
+// `rel` = the file the bank came from. p / h are null when no file in the list has the bank (`err` = the disc pac's open error, if any).
+struct BankAt {
+  const pac::Pac* p = nullptr;
+  const pac::Pach* h = nullptr;
+  std::string rel;
+};
+inline bool& PacksSkippedPlant() {   // test only (tools\assets\dlcparticles_unit --plant disc_only): the old disc-only read
+  static bool v = false;
+  return v;
+}
 template <class Files>
-inline std::vector<Placement> LoadPlacements(Files& files, int bank, PacCache& cache) {
-  std::vector<Placement> out;
-  std::string e;
-  if (!OpenCached(files, "pac\\gm.pac", cache, e)) return out;
-  const pac::Pac& p = cache.p;
+inline BankAt FindBank(Files& files, const char* stem, const char* section, int bank, Pacs& cache, std::string& err) {
   char want[8];
   std::snprintf(want, sizeof want, "%04d", bank);
-  const size_t at = EpacRecord(p.bytes, "GMEV", want);
-  const pac::Pach* h = nullptr;
-  for (const pac::Pach& ph : p.pachs) if (at && ph.base == at) h = &ph;
-  if (!h) return out;
+  std::vector<int> ids;
+  if (!PacksSkippedPlant()) ids = dlc_files::PackIds(files);
+  std::sort(ids.rbegin(), ids.rend());   // highest pack id first, whatever order the overlays were given in (the viewer's are ascending)
+  const std::string disc = std::string("pac\\") + stem + ".pac";
+  std::vector<std::string> rels;
+  for (const int id : ids) {
+    char rel[64];
+    std::snprintf(rel, sizeof rel, "pac\\%s_dlc%02d.pac", stem, id);
+    rels.push_back(rel);
+  }
+  rels.push_back(disc);
+  for (const std::string& rel : rels) {
+    const bool on_disc = rel == disc;
+    if (!on_disc && !files.Exists(rel)) continue;   // this pack has no such pac
+    PacCache& c = on_disc ? (std::strcmp(stem, "gm") == 0 ? cache.gm : cache.prtcls) : cache.packs[{rel, files.OverlayPath(rel)}];
+    std::string e;
+    if (!OpenCached(files, rel.c_str(), c, e)) {
+      if (on_disc) err = e;
+      continue;
+    }
+    const size_t at = EpacRecord(c.p.bytes, section, want);
+    if (!at) continue;
+    for (const pac::Pach& ph : c.p.pachs)
+      if (ph.base == at) return BankAt{&c.p, &ph, rel};
+  }
+  return BankAt();
+}
+
+// Session 99 (particles 2): the bank's scene objects that play particle effects (particles.h Placement; pac\gm.pac section GMEV).
+template <class Files>
+inline std::vector<Placement> LoadPlacements(Files& files, int bank, Pacs& cache) {
+  std::vector<Placement> out;
+  std::string e;
+  const BankAt b = FindBank(files, "gm", "GMEV", bank, cache, e);   // S111 DLCPARTICLES: the packs' gm_dlcPP before the disc's gm.pac (the game's /GMEV/%04d)
+  if (!b.h) return out;
+  const pac::Pac& p = *b.p;
+  const pac::Pach* h = b.h;
   const Bytes rows = pac::Get(p.bytes, *h, 0), vals = pac::Get(p.bytes, *h, 2);
   Bytes nb;
   pac::Pach np;
@@ -170,17 +223,13 @@ inline std::vector<Placement> LoadPlacements(Files& files, int bank, PacCache& c
 // Session 99 (scene objects): the bank's placed GMEV objects of types 6 (screen flash) and 11 (soft-particle switch) (particles.h
 // SceneLights). Empty when the bank has no GMEV record or none of these.
 template <class Files>
-inline SceneLights LoadSceneLights(Files& files, int bank, PacCache& cache) {
+inline SceneLights LoadSceneLights(Files& files, int bank, Pacs& cache) {
   SceneLights out;
   std::string e;
-  if (!OpenCached(files, "pac\\gm.pac", cache, e)) return out;
-  const pac::Pac& p = cache.p;
-  char want[8];
-  std::snprintf(want, sizeof want, "%04d", bank);
-  const size_t at = EpacRecord(p.bytes, "GMEV", want);
-  const pac::Pach* h = nullptr;
-  for (const pac::Pach& ph : p.pachs) if (at && ph.base == at) h = &ph;
-  if (!h) return out;
+  const BankAt b = FindBank(files, "gm", "GMEV", bank, cache, e);   // S111 DLCPARTICLES: the packs' gm_dlcPP before the disc's gm.pac (the game's /GMEV/%04d)
+  if (!b.h) return out;
+  const pac::Pac& p = *b.p;
+  const pac::Pach* h = b.h;
   const Bytes rows = pac::Get(p.bytes, *h, 0), vals = pac::Get(p.bytes, *h, 2);
   Bytes nb;
   pac::Pach np;
@@ -226,28 +275,10 @@ template <class Files>
 inline Bank LoadBank(Files& files, int bank, std::string& err, Pacs& cache) {
   Bank out;
   out.bank = bank;
-  if (!OpenCached(files, "pac\\prtcls.pac", cache.prtcls, err)) return out;
-  const pac::Pac& p = cache.prtcls.p;
-  const Bytes& d = p.bytes;
-  if (d.size() < 0x4000 || std::memcmp(d.data(), "EPAC", 4) != 0) return err = "prtcls.pac has no directory", out;
-  char want[8];
-  std::snprintf(want, sizeof want, "%04d", bank);
-  std::string sec(reinterpret_cast<const char*>(d.data() + 0x800), 4);
-  size_t at = 0;
-  for (size_t o = 0x80C; o + 12 <= 0x4000 && !at; o += 12) {
-    const uint8_t* r = d.data() + o;
-    const uint32_t st = Le32(d, o + 4);
-    const bool digits = std::isdigit(r[0]) && std::isdigit(r[1]) && std::isdigit(r[2]) && std::isdigit(r[3]);
-    if (!digits) {
-      if (r[0] == 0 && st == 0) break;
-      sec.assign(reinterpret_cast<const char*>(r), 4);
-      continue;
-    }
-    if (sec == "PCE6" && std::memcmp(r, want, 4) == 0) at = 0x4000 + size_t(st) * 0x800;
-  }
-  const pac::Pach* h = nullptr;
-  for (const pac::Pach& ph : p.pachs) if (ph.base == at) h = &ph;
-  if (!at || !h) return err = "no PCE6 particle effects for bank " + std::to_string(bank), out;
+  const BankAt b = FindBank(files, "prtcls", "PCE6", bank, cache, err);   // S111 DLCPARTICLES: the packs' prtcls_dlcPP before the disc's prtcls.pac (the game's /PCE6/%04d)
+  if (!b.h) return err = "no PCE6 particle effects for bank " + std::to_string(bank) + (err.empty() ? std::string() : " (" + err + ")"), out;
+  const pac::Pac& p = *b.p;
+  const pac::Pach* h = b.h;
   std::map<int, int> alias;
   for (const pac::Ent& en : h->ents) {
     if (en.id == 16000) {
@@ -280,7 +311,7 @@ inline Bank LoadBank(Files& files, int bank, std::string& err, Pacs& cache) {
         if (SpriteTexture(out, fx, c22->text, t)) out.sprites[{fid, ei}] = std::move(t);
       }
   out.alias = alias;
-  if (out.ok) out.placed = LoadPlacements(files, bank, cache.gm);
+  if (out.ok) out.placed = LoadPlacements(files, bank, cache);
   if (!out.ok) err = "bank " + std::to_string(bank) + ": no readable effect";
   return out;
 }

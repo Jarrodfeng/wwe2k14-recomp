@@ -159,16 +159,54 @@ def _classify(head, parent):
     return 'func', name
 
 
+_INCLUDER = {}
+
+
+def _includer(root, rel):
+    """(includer rel, 1-based line) of a split part, or None (tools/split/read_unit.includer_of)."""
+    key = (root, rel)
+    if key not in _INCLUDER:
+        _INCLUDER[key] = None
+        try:
+            split_dir = os.path.join(HERE, '..', 'split')
+            if split_dir not in sys.path:
+                sys.path.insert(0, split_dir)
+            import read_unit
+            inc = read_unit.includer_of(os.path.join(root, rel))
+            if inc:
+                _INCLUDER[key] = (os.path.relpath(str(inc[0]), os.path.realpath(root)).replace('\\', '/'), inc[1])
+        except (ImportError, OSError, ValueError):
+            pass
+    return _INCLUDER[key]
+
+
+def _part_lines(src):
+    """[(line, part rel)] of a split parent's own `// split:` include lines (cmd_outline lists them: the members live there)."""
+    out = []
+    rx = re.compile(r'^[ \t]*#[ \t]*include[ \t]+"([^"]+)"[ \t]*//[ \t]*split:')
+    for i, ln in enumerate(src.lines, 1):
+        m = rx.match(ln)
+        if m:
+            out.append((i, os.path.normpath(os.path.join(os.path.dirname(src.rel), m.group(1))).replace('\\', '/')))
+    return out
+
+
 class Src:
     """one C++ file: raw lines, masked lines (comments / literals blanked), spans of its namespaces / types / functions, #if chains. Everything lazy."""
 
-    def __init__(self, root, rel):
+    def __init__(self, root, rel, text=None):
+        """text None: read root/rel from disk; else the file over that text (S111 CODEDIFF: a file at a git ref, q ostate's TextSrc)"""
         self.rel = rel
-        try:
-            with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-                self.text = f.read()
-        except OSError:
-            self.text = ''
+        self.root = root
+        self._seed = None
+        if text is not None:
+            self.text = text
+        else:
+            try:
+                with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
+                    self.text = f.read()
+            except OSError:
+                self.text = ''
         self.lines = self.text.split('\n')
         self._m = self._spans = self._guards = self._fn_at = self._sc_at = None
 
@@ -196,6 +234,33 @@ class Src:
         g = self.guards
         return ' && '.join(x for x in (g[ln - 1] if ln - 1 < len(g) else []) if x)
 
+    @property
+    def seed(self):
+        """[(kind, name)] outermost first: the namespaces / types a split PART's text sits in, i.e. its includer's chain at the
+        `#include "x/part.inc"  // split: NAME` line (tools/split/read_unit.includer_of; nested parts chain up). [] for any other file
+        (an unmarked .inc such as binder_ring_d3.inc is not a part). S111 SPLIT-WIRE review: without it Binder's members in
+        binder/*.inc read as free functions and `q ours fn Binder::X` found nothing."""
+        if self._seed is None:
+            self._seed = []
+            inc = _includer(self.root, self.rel) if self.rel.endswith('.inc') else None
+            if inc:
+                prel, line = inc
+                p = Src(self.root, prel)
+                p._scan()
+                if line < len(p._fn_at) and p._fn_at[line] is None:      # (a part inside a function body: no scope to carry)
+                    chain = []
+                    i = p._sc_at[line]
+                    while i is not None:
+                        sp = p._spans[i]
+                        if sp['kind'] in ('ns', 'type'):
+                            chain.append((sp['kind'], sp['name']))
+                        i = sp['pidx']
+                    self._seed = p.seed + chain[::-1]
+        return self._seed
+
+    def seed_words(self):
+        return {w for _k, n in self.seed for w in [n] + n.split('::') if w}
+
     def _scan(self):
         if self._spans is not None:
             return
@@ -207,7 +272,7 @@ class Src:
         nl = [m.start() for m in re.finditer('\n', code)]
         self._nl = nl
         spans = []        # dicts: kind name qual start end parent
-        stack = []        # open spans (dicts) incl. 'other' / 'init'
+        stack = [{'kind': k, 'name': n, 'seed': True, 'head': 0} for k, n in self.seed]   # open spans (dicts) incl. 'other' / 'init'; a part starts inside its parent's scopes
         head = 0
 
         def line_of(pos):
@@ -231,7 +296,7 @@ class Src:
                 stack.append(sp)
                 head = pos + 1
             else:
-                if not stack:
+                if not stack or stack[-1].get('seed'):
                     head = pos + 1
                     continue
                 sp = stack.pop()
@@ -286,6 +351,9 @@ class Src:
             if sp['name']:
                 out += [sp['name']] + sp['name'].split('::')
             i = sp['pidx']
+        for _k, n in reversed(self.seed):
+            if n:
+                out += [n] + n.split('::')
         return out
 
     def scope_kind(self, ln):
@@ -307,6 +375,8 @@ class Src:
             if sp['kind'] in ('type', 'enum') and sp['qual']:
                 return f'(in {sp["qual"]})'
             i = sp['pidx']
+        if self.seed and self.seed[-1][0] == 'type':
+            return '(in %s)' % '::'.join(n for _k, n in self.seed if n)
         return '(file scope)'
 
 
@@ -391,6 +461,16 @@ class Found:
         self.total = 0
 
 
+def _seed_words(f, root, rel):
+    """the scope words a split part inherits from its parent (empty for any other file; no read unless rel is a .inc)"""
+    if not rel.endswith('.inc'):
+        return set()
+    src = f.srcs.get(rel)
+    if src is None:
+        src = f.srcs[rel] = Src(root, rel)
+    return src.seed_words()
+
+
 def collect(root, name, light=False):
     """every whole-word hit of the name's tail in the C++ files, classified, narrowed by `Scope::`"""
     nm = name.strip().lstrip('$')
@@ -412,11 +492,11 @@ def collect(root, name, light=False):
     if light:      # body / callees: only the files where the name is followed by ( are scanned for function bodies; no per-hit classification
         head = re.compile(r'(?<![\w])' + re.escape(tail) + r'\s*\(')
         for rel, ln, text in raw:
-            if rel not in f.srcs and head.search(text) and (not scope or rel in scope_files):
+            if rel not in f.srcs and head.search(text) and (not scope or rel in scope_files or scope in _seed_words(f, root, rel)):
                 f.srcs[rel] = Src(root, rel)
         return f
     for rel, ln, text in raw:
-        if scope and rel not in scope_files and not srx.search(text):      # the scope word is nowhere in this file: cannot be in scope (no read, no scan)
+        if scope and rel not in scope_files and not srx.search(text) and scope not in _seed_words(f, root, rel):      # the scope word is nowhere in this file (nor in a part's parent scopes): cannot be in scope
             f.not_in_scope += 1
             continue
         src = f.srcs.get(rel)
@@ -680,7 +760,7 @@ def cmd_outline(root, spec):
                 e['fields'] = fl
             rows.append(e)
     rows.sort(key=lambda r: (r['start'], -r['end']))
-    return {'file': rel, 'n_lines': len(src.lines), 'rows': rows}, 'outline'
+    return {'file': rel, 'n_lines': len(src.lines), 'rows': rows, 'parts': _part_lines(src)}, 'outline'
 
 
 def cmd_enclosing(root, spec):
@@ -903,6 +983,8 @@ def print_outline(r, args):
         print(f'  {e["start"]}-{e["end"]}'.ljust(14) + f'{pad}{e["kind"] if e["kind"] != "func" else "fn"} {e["name"]}{fs}')
     if len(r['rows']) > args.limit:
         print(f'  ... {len(r["rows"]) - args.limit} more (--limit {len(r["rows"])})')
+    for ln, part in r.get('parts') or []:
+        print(f'  {ln}'.ljust(14) + f'part {part}   (its members: q ours outline {part})')
 
 
 def print_enclosing(r, args):

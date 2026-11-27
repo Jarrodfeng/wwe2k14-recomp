@@ -41,7 +41,7 @@ function Update-TipExe([string]$Target) {
     $name = "$($names.Prefix)-$c9"
     Say "building $name ($why)"
     . (Join-Path $PSScriptRoot '..\admit\Admit.ps1')
-    try { $n = Request-BuildParallel -Want $Jobs -Kind cc.game_src -TimeoutS 180 }
+    try { $n = Request-BuildParallel -Want $Jobs -Kind cc.game_src }
     catch { return @{ Ok = $false; Code = 75; Why = "not admitted: $($_.Exception.Message)" } }
     try {
         $a = @('-NoProfile', '-File', $LaneExe, '-Name', $name, '-Commit', $Target, '-Preset', $Preset, '-Jobs', "$n", '-Main', $Main)

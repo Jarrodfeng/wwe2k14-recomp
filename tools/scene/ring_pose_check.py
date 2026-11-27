@@ -19,7 +19,7 @@ def main():
     out = os.path.join(root, 'out', 's103', 'c4', 'pose')
     os.makedirs(out, exist_ok=True)
     exe = os.path.join(out, 'ring_pose_unit.exe')
-    b = subprocess.run([CLANG, '-std=c++20', '-Wall', '-Wextra', '-O1', '-D_CRT_SECURE_NO_WARNINGS', '-fuse-ld=lld', os.path.join(root, 'tools', 'scene', 'ring_pose_unit.cpp'), os.path.join(root, 'src', 'renderer_scene', 'char_effects.cpp'), os.path.join(root, 'src', 'renderer', 'shaders', 'spv', 'fx_spv_data.cpp'), '-o', exe], capture_output=True, text=True)
+    b = subprocess.run([CLANG, '-std=c++20', '-Wall', '-Wextra', '-O1', '-D_CRT_SECURE_NO_WARNINGS', '-fuse-ld=lld', os.path.join(root, 'tools', 'scene', 'ring_pose_unit.cpp'), os.path.join(root, 'src', 'renderer_scene', 'char_effects.cpp'), '-o', exe], capture_output=True, text=True)
     if b.returncode:
         print('FAIL: did not compile\n' + b.stdout + b.stderr)
         return 1

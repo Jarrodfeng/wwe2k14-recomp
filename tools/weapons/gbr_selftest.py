@@ -23,6 +23,7 @@ PLANTS = {
     "gm_no_fallthrough": "gm.fallthrough",    # a failed gm member returns instead of reaching the event lookup
     "hold_ignore_sig": "plan.hold_holder_change",  # a structure is held across a holder change
     "splat_depth_write": "splat.depth_write",  # S108 BLD2: a floor splat keeps its material's depth write (force-blend alone, the old flags)
+    "gm_holder_always": "gm.holder_tex",       # S111 GMBORROW: every gm row borrows the chamber's set whatever settings byte G+41 holds (the old rule)
 }
 
 

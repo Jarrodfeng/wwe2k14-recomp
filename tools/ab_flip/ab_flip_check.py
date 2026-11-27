@@ -482,7 +482,7 @@ def part5(root):
     hdr = open(os.path.join(root, 'src', 'ab_flip_math.h'), encoding='utf-8').read()
     for line in p.stdout.splitlines():
         m = re.match(r'(wwe2k14_\w+) \| outside the table: ([^|]*)\|', line)
-        if m and re.search(r'(reader|device)\.(h|cpp):\d+', m.group(2)) and m.group(1) not in hdr:
+        if m and re.search(r'(reader|device)\.(h|cpp):\d+|reader/\w+\.inc:\d+', m.group(2)) and m.group(1) not in hdr:   # reader.h is split: a hit in it names its part (reader/NAME.inc:N)
             raise Fail('the audit found %s read at start in reader.h / device.cpp (%s) but it is not in kArmed' % (m.group(1), m.group(2).strip()))
     print('part 5: the PerFrame audit finds no reader.h / device.cpp start-time read outside kArmed')
 

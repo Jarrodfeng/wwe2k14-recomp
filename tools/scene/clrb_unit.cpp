@@ -6,7 +6,7 @@
 // The oracle is hand-written from the listing (sub_82C224A0 0x82C224F0-0x82C225FC: R = +240, G = +244, B = +248, A = +252, each & 0xFF; sub_825C7F48 black, sub_8233E678 arena 77 = white), never from the code's tables.
 // BuildFrame itself is not linked (it pulls the model cache); the unit asserts record_frame.cpp's call text instead (clrb.build_frame_calls_pick). Exit 1 on a failure.
 // A plant is a fault in the thing under test; each must make a NAMED check fail:
-//   slate_live    a live record keeps the viewer's slate (the old behaviour, record_frame.cpp:376)  -> "clrb.no_row_is_black"
+//   slate_live    a live record keeps the viewer's slate (the old behaviour, record_frame.cpp)  -> "clrb.no_row_is_black"
 //   row_ignored   the pick drops the row (always black)                                              -> "clrb.white_is_white"
 //   word_shift    the latch reads +244 .. +256 (one word late)                                       -> "clrb.white_is_white"
 #include <cmath>
@@ -79,7 +79,7 @@ struct Run {
   bool parse_ok = false;
   size_t clear_rows = 0;
 };
-// the latch -> Emit -> record -> parse of the current guest, as the game's frame goes; `source` = who wrote the record (live_scene.cpp:290 sets Live)
+// the latch -> Emit -> record -> parse of the current guest, as the game's frame goes; `source` = who wrote the record (live_scene.cpp sets Live)
 static Run Go(uint64_t frame, Source source) {
   Run r;
   ResetStamps();

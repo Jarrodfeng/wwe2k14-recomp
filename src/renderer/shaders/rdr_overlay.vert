@@ -1,4 +1,5 @@
 #version 450
+// FLIP-EXEMPT: the overlay's window pixels, top-left origin, straight to Vulkan clip space (y down) then the display rotation; the renderer's flip must not touch it.
 // Settings parity S11: the app's overlay (Dear ImGui dialogs) over the picture. Positions are in the overlay's coordinate space (the window,
 // top-left origin); the present's constant block gives 2 / width and 2 / height (sgsr.yz) and the turn for the display's native orientation.
 layout(set = 0, binding = 0, std140) uniform VertexConstants {

@@ -10,7 +10,7 @@ import argparse, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
-# PlantsRef() (rf::c, stage_look) and g_plants (rf_c_core.cpp's copy). rf::Plants() (WrestlerPlants) is left out on purpose: start_settings.cpp:209 sets its guest_flat from the
+# PlantsRef() (rf::c, stage_look) and g_plants (rf_c_core.cpp's copy). rf::Plants() (WrestlerPlants) is left out on purpose: start_settings.cpp (wwe2k14::start::ApplyStartSettings) sets its guest_flat from the
 # +dev-only cvar wwe2k14_rdr_guest_flat (`dev && ...`), a dev switch, not a planted fault.
 WRITE = re.compile(r'(?:PlantsRef\(\)|\bg_plants)\s*\.\s*\w+\s*=(?!=)')
 SKIP_DIRS = {'tools', 'thirdparty', 'generated', 'out', 'game_data', 'logs', '.git', '.claude', 'node_modules'}

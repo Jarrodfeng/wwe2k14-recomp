@@ -13,7 +13,7 @@ A request is lines (a file, or one argument whose lines are joined by ` // `; a 
     run    [exe=PATH] [intent=TERMS] [flags=--a=1 ...]
   WHO      names or #ids in seat order joined by `vs` or `,`; `/N` after one = its attire (0-9). Names go through db\ids (db\ids\dlc_characters.json with dlc=on).
            WHO may be empty for the launcher (the captured scenario's own wrestlers). Every seat is a CPU unless `player=SEAT` names it (pad 0, 1, ... in the order given).
-           mods=on adds --wwe2k14_mods_superstars=true (src\mods.h:48): an imported superstar is then a seat id, `#397`.
+           mods=on adds --wwe2k14_mods_superstars=true (src\mods.h): an imported superstar is then a seat id, `#397`.
   MOMENT   bell | roster | entrance:S[:STEP] (slot S 0-5, STEP default 1) | finish | victory | clock:N | seq:N | load:FILE
            bus moments (S110 SCENEMOMENTS, a `wait_event` each: tools\run\scene_moments.py): pin | count[=N] | kickout[=N] | finish=NAME
            | move[:KEY=V ...] | eliminated[:KEY=V ...] | replay | replay_end | ring_break | table_break; a request with no director verb gets
@@ -32,7 +32,7 @@ Start door (SCENE_plan.md section 7 choice 2a): `blood=` -> the match builder (`
 (spec `entrances=0`) and an attire (`p=ID:PAD:N`) (docs\research\s109\ENT_plan.md); everything else -> the launcher (`--wwe2k14_launch=lesnar_bryan`, or
 `@quick` with type=), unchanged. A combination neither door serves is never silently reduced: every field is placed or the request is refused with the
 reason. A route the lint refuses fast-forwarded is refused here with the lint's own text.
-Every route ends `log bench: done` after its last wait under `on_fail quit`: run_read exits 0 only with that line (tools\bench\run_read.py:222, :415-416), so
+Every route ends `log bench: done` after its last wait under `on_fail quit`: run_read exits 0 only with that line (tools\bench\run_read.py), so
 the verdict is the arrival wait itself; the `# expect:` header lines are game lines for `run_read --expect`.
 """
 import hashlib
@@ -68,34 +68,34 @@ STATE_RX = re.compile(r'^(0x[0-9A-Fa-f]{1,8}|[A-Za-z_][A-Za-z0-9_]*)$')
 # ---- S110 SCENEMODES (docs\research\s110\SCENEMODES.md): the modes beside `match`
 MODE_WORDS = ('match', 'wm30', 'cas', 'menu', 'mode', 'stage')
 MODE_KEYS = ('dlc', 'mods', 'save')            # the shared fields every other mode takes (a match takes SCENE_KEYS)
-WM30_LAST = 45                                 # src\wm30_jump.h:39 "match N (0-45, py tools\wm30\list.py)"
-# the 30 Years READY card, as the S105 route that ran it waits for it (tools\input_scripts\scenes\s105_chk_caption.txt:9-15, docs\research\s105\T2b.md):
+WM30_LAST = 45                                 # src\wm30_jump.h "match N (0-45, py tools\wm30\list.py)"
+# the 30 Years READY card, as the S105 route that ran it waits for it (tools\input_scripts\scenes\s105_chk_caption.txt, docs\research\s105\T2b.md):
 # READY is armed by the end of the match load; one A once the listener is live
 WM30_CARD = ['wait_file EVTDSC 1200', 'wait_state 0x83924744>80>0 0x820353E0 6000 2', 'wait_state 0x83924744>4 3 9000 2',
              'wait_state 0x83924744>80>352 2 120 2', 'wait_state 0x836F3AA4 <=0 600 1']
 WM30_READY = 'press_until_state A 0x83924744>80>16 !=2 4 30 6 unreadable'
-WM30_EXPECT = '[wwe2k14][wm30][direct] exit action 3 requested'     # src\wm30_boot.h:175 (exit action 3: :1-4)
-CAS_EXPECT_ARRIVED = '[wwe2k14][cas_goto] record %d: arrived at record %d'      # src\cas_goto.h:146 with :355 / :387 (both arrival forms)
+WM30_EXPECT = '[wwe2k14][wm30][direct] exit action 3 requested'     # src\wm30_boot.h (exit action 3: :1-4)
+CAS_EXPECT_ARRIVED = '[wwe2k14][cas_goto] record %d: arrived at record %d'      # src\cas_goto.h (wwe2k14::cas_goto::Step, both arrival forms)
 # lane CASARRIVE's route states (src\cas_goto_core.h kStateNames: cas_goto 0 off / 1 running / 2 arrived / 3 stopped / 4 refused, cas_record = the
 # record arrived at, 0 until then). Waited on only when the exe being run holds the name (route_lint.exe_knows, the way ENT_MARK_* work); otherwise
 # the go-to's own bound is waited out and the `# expect:` lines are the test.
 CAS_RECORD_STATE = 'cas_record'
 CAS_EXPECT_STATE = '[wwe2k14][cas_goto] state cas_goto=2 cas_record=%d '        # src\cas_goto.h Publish (lane CASARRIVE): the arrival's state line
 CAS_STATE_FRAMES = 3600
-CAS_FALLBACK_FRAMES = 1800                     # tools\input_scripts\scenes\s110_cas_goto_probe.txt:15-17 (1200 + 600; run 231 arrived in ~1000)
-# S110 SCENEMOMENTS: several pages in one request, the go-to re-armed by `cvar` (the route shape of src\cas_goto_core.h:245-253, lane CASARRIVE)
+CAS_FALLBACK_FRAMES = 1800                     # tools\input_scripts\scenes\s110_cas_goto_probe.txt (1200 + 600; run 231 arrived in ~1000)
+# S110 SCENEMOMENTS: several pages in one request, the go-to re-armed by `cvar` (the route shape of src\cas_goto_core.h, lane CASARRIVE)
 CAS_TARGET_STATE = 'cas_target'
 # code 1003 / 1008 template choosers (FACES, SUPERSTAR, DIVA, the gated SUPERSTAR: out\harness\atlas\flow_cas_flow_slot1.json); the go-to refuses a
 # path into one (src\cas_goto_core.h RefusePath, cas_reason 3)
 CAS_TEMPLATE_RECORDS = (3, 23, 24, 25)
-# item pages the go-to reaches but never LEAVES (their panel's B is not driven: src\cas_goto_core.h:159-161 PlanUp kNoPanel, cas_reason 16;
+# item pages the go-to reaches but never LEAVES (their panel's B is not driven: src\cas_goto_core.h PlanUp kNoPanel, cas_reason 16;
 # docs\research\s110\CASARRIVE.md "Fix 1"): only the last page of a request
 CAS_LAST_ONLY = dict([(r, 'LETTERING') for r in (43, 126, 127, 174, 175, 176, 177, 178, 179)] +
                      [(r, 'CUSTOM LOGO DATA') for r in (44, 130, 131, 180, 181, 182, 183, 184, 185)])
 # No settle before a Create a Superstar picture: since S110 CASREADY the go-to's arrival waits for the parts panel, the model-ready word and the
 # game's loading screen (src\cas_goto.h ArrivalReady; run 278: the at-arrival shot is complete; sweep 3: 189 arrived, 0 stopped).
-MENU_PAGE_MARK = 'page needs a record id: page N [back]'   # src\menu_goto_core.h:186: an exe without it refuses the route's `page` line at load
-MENU_EXPECT = '[wwe2k14][menu_goto] record %d page change done'   # src\menu_goto.h:99
+MENU_PAGE_MARK = 'page needs a record id: page N [back]'   # src\menu_goto_core.h: an exe without it refuses the route's `page` line at load
+MENU_EXPECT = '[wwe2k14][menu_goto] record %d page change done'   # src\menu_goto.h
 # mode NAME: a row of src\mode_table.h kModes (the table the exe obeys), read by tools\scene\mode_table.py: the launch `--wwe2k14_launch=@mode:NAME`
 # (src\mode_launch.h), the sequence it reaches, the log lines it prints. MODE_MARK must be in the exe.
 MODE_MARK = '@mode:'
@@ -335,7 +335,7 @@ def parse_item(text, n):
         return ('bleed', ' '.join(w))
     if v == 'lightsout':
         need(len(w) == 2 and slot(w[1]), 'lightsout SLOT')
-        return ('dev', ' '.join(w))   # a dev-build verb like bleed, but not a blood one (src\situation_director_core.h:119-123)
+        return ('dev', ' '.join(w))   # a dev-build verb like bleed, but not a blood one (src\situation_director_core.h)
     if v == 'fire':   # S110 FIRETABLE: the seat sets a standing table on fire when the game's own table step allows it (src\situation_fire_verb.h)
         need(len(w) == 2 and slot(w[1]), 'fire SLOT (SLOT 0-8)')
         return ('action', ' '.join(w))
@@ -789,7 +789,7 @@ def tail_flags(plan, f, run):
     flags = list(BASE_FLAGS) + plan.flags
     if dlc:
         flags.append('--wwe2k14_dlc=true')
-    if mods:   # src\mods.h:48: the Superstar Importer's pack joins the roster (its seats are ids: `#397`)
+    if mods:   # src\mods.h: the Superstar Importer's pack joins the roster (its seats are ids: `#397`)
         flags.append('--wwe2k14_mods_superstars=true')
         plan.cvars_needed.append(('wwe2k14_mods_superstars', 'mods=on'))
     plan.intent = ['owner on'] + (['dlc on'] if dlc else []) + (['mods_superstars on'] if mods else []) + plan.intent
@@ -936,7 +936,7 @@ def lower_cas(req, plan, exe):
     body, expect, slug = ['wait_state seq %d 3600 2' % row['seq']], [mode_table().expect_lines(row)[2]], 'cas_editor'
     arrive = body[0]
     if len(recs) > 1:
-        # S110 SCENEMOMENTS: each page by `cvar` (the boot flag is not set), the route shape of src\cas_goto_core.h:245-253; `assert_state cas_goto 2`
+        # S110 SCENEMOMENTS: each page by `cvar` (the boot flag is not set), the route shape of src\cas_goto_core.h; `assert_state cas_goto 2`
         # first because cas_record is 0 both before an arrival and on record 0 (the HEAD tab)
         plan.cvars_needed += [('wwe2k14_cas_goto', 'a Create a Superstar page (src\\cas_goto.h)'),
                               (CAS_TARGET_STATE, 'several Create a Superstar pages in one request: the go-to\'s route states (lane CASARRIVE)')]
@@ -957,7 +957,7 @@ def lower_cas(req, plan, exe):
             body += ['wait_state %s %d %d' % (CAS_RECORD_STATE, r, CAS_STATE_FRAMES), 'log_state cas_goto']
             arrive = body[-2]
             expect.append(CAS_EXPECT_STATE % r)
-        else:   # no route state for the go-to on this exe: its own bound is waited out (a step not settled in 900 frames stops it, src\cas_goto.h:86)
+        else:   # no route state for the go-to on this exe: its own bound is waited out (a step not settled in 900 frames stops it, src\cas_goto.h)
             body.append('wait_frames %d' % CAS_FALLBACK_FRAMES)
             arrive = body[-1]
         slug = 'cas_%d' % r

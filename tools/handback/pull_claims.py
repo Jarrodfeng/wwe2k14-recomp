@@ -6,9 +6,9 @@ block where a review edited the file by hand, so the next lodge is the identity.
   py -I tools\handback\pull_claims.py [--root DIR] [--dry] NOTE ...
 
 Per note: the block's rows and the claims file's objects (db\claims\<sNNN>_<NOTE>.json, lodge_note.py claims_rel) are matched by address, in
-order (difflib). A matched row whose mark, claim, evidence or seam fields (seam / ours / verdict / system) differ is rewritten from the file:
+order (difflib). A matched row whose mark, claim, evidence, seam fields (seam / ours / verdict / system) or scope differ is rewritten from the file:
 the note's address token and its TYPE column (`| site sub_X+OFF`, tools\q\qfactkey.py) are kept, the rest is
-`ADDRESS | MARK | CLAIM | evidence: EVIDENCE [| TYPE] [| seam=.. ours=.. verdict=..] [| system=..]`. A row only in the file is inserted at its
+`ADDRESS | MARK | CLAIM | evidence: EVIDENCE [| TYPE] [| seam=.. ours=.. verdict=..] [| system=..] [| scope=..]`. A row only in the file is inserted at its
 place (untyped; tools\handback\type_sites.py can type it). A row only in the note is kept and listed (it is newer than the file, or the file
 dropped it: the line says which row, a person decides). A file row the lodge would refuse (claims.py MAX_CLAIM / MAX_EVIDENCE, game code text,
 a ' | ' inside a field) is listed and its note row left as it is. Line endings are kept. Then: `py -I tools\handback\lodge_note.py NOTE`.
@@ -23,7 +23,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-CONTENT = ("mark", "claim", "evidence", "seam", "ours", "verdict", "system")
+CONTENT = ("mark", "claim", "evidence", "seam", "ours", "verdict", "system", "scope")
 
 
 def load(name, path=None):
@@ -47,6 +47,8 @@ def render(addr_tok, o, type_text):
         line += " | " + seam
     if o.get("system"):
         line += " | system=" + o["system"]
+    if o.get("scope"):   # ABSLINT: free text, its own last field
+        line += " | scope=" + o["scope"]
     return line
 
 

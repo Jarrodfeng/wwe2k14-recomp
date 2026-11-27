@@ -169,14 +169,14 @@ inline void Publish(std::shared_ptr<const Table> t) {
 inline std::shared_ptr<const Table> Now() { std::lock_guard<std::mutex> l(Mutex()); return Slot(); }
 
 // ---- Resolving one draw's sampler -----------------------------------------------------------------------------------------------------------------------------
-// Texture filtering (the player's setting). anisotropic_override levels (the stream build's rule, reader.h:3726): -1 = the game's own (no anisotropy), 0..5 -> 1 / 1 / 2 / 4 / 8 / 16.
+// Texture filtering (the player's setting). anisotropic_override levels (the stream build's rule, reader.h): -1 = the game's own (no anisotropy), 0..5 -> 1 / 1 / 2 / 4 / 8 / 16.
 // Applies only where min and mag are linear and the mip filter is not point; the shadow stage (mip point) therefore stays 1x.
 // PLAYER DEFAULT, decided by Jarrod (S103): STANDARD = the game's own filtering = no anisotropy (1x); higher levels follow the setting (reader.h rule).
 // kAnisoFollowsSetting = false would restore the old fixed 8x on every eligible sampler (one line to flip).
 inline constexpr bool kAnisoFollowsSetting = true;
 inline constexpr int kAnisoFixed = 8;
 inline std::atomic<int> g_aniso_override{-1};   // anisotropic_override; set by start_settings.cpp / gfx_menu.h
-// Levels 2..5 -> 2 / 4 / 8 / 16; anything else (-1, 0, 1, and values past 5) -> 1x, as reader.h:3726 (a level outside 2..5 never reaches the shift).
+// Levels 2..5 -> 2 / 4 / 8 / 16; anything else (-1, 0, 1, and values past 5) -> 1x, as reader.h (a level outside 2..5 never reaches the shift).
 inline uint8_t AnisoFor(int level) { return (level >= 2 && level <= 5) ? uint8_t(1u << (level - 1)) : uint8_t(1); }
 // RIG-ONLY plant (set by the rig from WWE_RDR_PLANT_OLD_SAMPLERS; game builds never set it, no getenv in game code): brings back the old rules, no table and a fixed 8x everywhere.
 inline bool g_plant_old_samplers = false;

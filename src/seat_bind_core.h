@@ -285,7 +285,7 @@ inline bool RetargetCard(const sc::SeatRows& in, int t, int bank_t, int s, int b
 // Every other directory (EVZ GMEV PCE6 MOVN, the source's own others, a hex-name one) is dropped: the game's entries are reached by alias rows
 // (src\seat_alias_core.h), the rest is not ours to register (claim 9 of docs\research\s110\LIBSIZE.md). The terminator word and every sector / size word are kept.
 // A seat with a name-plate movie of its own: M<500 + seat>, except 498 / 499, whose M998 / M999 are the disc's own fallback plates (the importer
-// writes no MOVN for them: src\importer\asset_ids.h:201 own_plate, entrance_movies.h:40; the alias rows skip them too).
+// writes no MOVN for them: src\importer\asset_ids.h (importer::asset_ids::Of) own_plate, entrance_movies.h (importer::entrance_movies::CopyNameplateMovies); the alias rows skip them too).
 inline bool OwnPlate(int seat) { return seat != 498 && seat != 499; }
 inline int MapBankNumber(int n, int t, int s, int bank_t, int bank_s) {
   if (n == bank_t) return bank_s;
@@ -398,7 +398,7 @@ inline bool RetargetDirRows(const std::vector<uint8_t>& rows, int t, int s, int 
   return true;
 }
 
-// ---- the EV blob (EVP entry of the card's pac: the importer stores each with io::BpeIdentity, src\importer\pack_io.h:292-303) ----
+// ---- the EV blob (EVP entry of the card's pac: the importer stores each with io::BpeIdentity, src\importer\pack_io.h) ----
 // Layout: "BPE " + u32 version + u32 packed (the chunk bytes) + u32 expanded (= raw size), then chunks FF 80 FE + u16 n + n raw bytes; the importer
 // cuts at 0xFFFF raw bytes, and a real entrance bank decodes to up to ~100 KB (S110 SEAT3 review, the importer's card of Lashley on real files: 98764
 // bytes, two chunks), so the raw bytes are gathered from every chunk and written back to the same places. A blob read through a pac row (or EvBlobAt)

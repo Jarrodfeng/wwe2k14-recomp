@@ -66,6 +66,7 @@ inline bool HoldNow(const char* point) {
 }  // namespace wwe2k14::scene_start_wait
 
 REX_EXTERN(__imp__sub_8232E1E8);
+// SKIP-ORIGINAL: while our scene is not ready the entrance part stays unstarted (r3 = 0, the object manager calls it again next frame); otherwise the original runs
 REX_HOOK_RAW(sub_8232E1E8) {
   namespace sw = rdr_scene::startwait;
   using wwe2k14::load_probe::SafeRead32;
@@ -80,6 +81,7 @@ REX_HOOK_RAW(sub_8232E1E8) {
 }
 
 REX_EXTERN(__imp__sub_82331BC0);
+// SKIP-ORIGINAL: while our scene is not ready the loading card stays up (the game's own wait answer 1, the item runs this stage again next frame); otherwise the original runs
 REX_HOOK_RAW(sub_82331BC0) {
   if (rdr_scene::startwait::g_armed.load(std::memory_order_acquire) && wwe2k14::scene_start_wait::WaitOnNow() && wwe2k14::scene_start_wait::HoldNow("card")) {
     ctx.r3.u64 = 1;   // the game's own wait answer (sub_827E63D8's 1): +24 stays sub_82331BC0, the card stays up, the item runs this stage again next frame
@@ -96,6 +98,7 @@ REX_HOOK_RAW(sub_82331DD8) {
 }
 
 REX_EXTERN(__imp__sub_8273D0C0);
+// SKIP-ORIGINAL: while our scene is not ready the match start answers "not yet" (r3 = 0, the loading card stays; sub_825C0718 polls again next frame); otherwise the original runs
 REX_HOOK_RAW(sub_8273D0C0) {
   namespace sw = rdr_scene::startwait;
   using wwe2k14::load_probe::SafeRead32;

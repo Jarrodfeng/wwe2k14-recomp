@@ -2452,6 +2452,62 @@ static void CheckUnify5() {
   }
 }
 
+// ---- S111 KEYFRESH (b): every Watch of the texture resolver has its Unwatch ---------------------------------------------------------------------------------------------------------------------------------
+// The resolver watches the header of each picture it reads (guest_tex_dirty.h, owner kOwnerModelTex). A header changed behind the same handle unwatches the old one; a failed first read KEEPS its record
+// and its watch (the game's flush of that header makes the resolver due at once, TexCallStep); Trim unwatches every record it drops. Planted twins: 78 (tex plant 39) a failed first read erases its
+// record and leaves its watch behind; 79 (tex plant 40) the old header stays watched when the entry's header changes (both the old rule).
+static void CheckTexWatch() {
+  namespace gd = live::guest_tex_dirty;
+  TexWorld w;
+  w.m.alloc(8u << 20);   // headers of their own: every check's TexWorld allocates from the same start, and the other checks' resolvers are never unwatched
+  const uint32_t hA = w.AddTexture(0, 0x1C100000u, 41), hU = w.AddTexture(1, 0x1C110000u, 42);
+  const uint32_t oldH = w.header_of[hA & 63], hdU = w.header_of[hU & 63], newH = w.m.alloc(64);
+  w.m.put32(hdU + 32, 0x1C300000u | 18u);   // hU's pixel page is not there yet (Phys holds 0x1C100000 .. +0x40000): its first read fails (Memory)
+  const uint32_t mt = gd::kOwnerModelTex;
+  const bool clean = gd::Owners(oldH) == 0 && gd::Owners(hdU) == 0 && gd::Owners(newH) == 0;
+  PartSpec q;
+  q.vcount = 4, q.host_dwords = Dwords(4, 8, 1), q.idx = {0, 1, 2, 3}, q.n0 = 4, q.palette = {1, 2};
+  q.effect = "yCh_skin_flex";
+  q.samplers = {{"sampDiffusePrm", 0, 15}, {"sampNormalPrm", 1, 15}};
+  ModelSpec s;
+  s.parts = {q};
+  s.tex_keys = {hA, hU};
+  const uint32_t model = BuildModel(w.m, s);
+  const auto phys = [&](uint32_t a, uint32_t n, uint8_t* d) { return w.phys.read(a, n, d); };
+  gm::ModelRead r = gm::ReadModel(w.m, model);
+  if (r.parts_ok != 1 || r.p[0].samplers.size() != 2) { Check(false, "KEYFRESH: the forged part did not read"); return; }
+  gm::TexResolver res;
+  res.Resolve(w.m, phys, r, 100);
+  Check(clean && r.tex_state[0][0] == kGtBound && r.tex_state[0][1] == kGtMissing && res.cached() == 2 && (gd::Owners(oldH) & mt) && (gd::Owners(hdU) & mt),
+        "KEYFRESH: a failed first read keeps its record and its watch, beside the bound picture's");
+  // the game puts a new header (the same six fetch words) behind hA's wrapper
+  for (uint32_t i = 0; i < 6; ++i) {
+    uint32_t v = 0;
+    w.m.u32(oldH + 28 + 4 * i, v);
+    w.m.put32(newH + 28 + 4 * i, v);
+  }
+  w.m.put32(w.wrapper_of[hA & 63] + 80, newH);
+  gm::ModelRead r2 = gm::ReadModel(w.m, model);
+  res.Resolve(w.m, phys, r2, 101);
+  Check(r2.tex_state[0][0] == kGtBound && r2.tex_hash[0][0] == r.tex_hash[0][0] && !(gd::Owners(oldH) & mt) && (gd::Owners(newH) & mt),
+        "KEYFRESH: a header changed behind the same handle: the new header is watched, the old one unwatched (the same picture)");
+  res.Trim(101 + 601);
+  Check(res.cached() == 0 && !(gd::Owners(newH) & mt) && !(gd::Owners(hdU) & mt), "KEYFRESH: Trim unwatches every record it drops (the failed one's header too)");
+  // the trade-off: the failed record's watch lets the game's flush of its header retry it at once
+  gm::TexResolver res2;
+  gm::ModelRead r3 = gm::ReadModel(w.m, model);
+  res2.Resolve(w.m, phys, r3, 900);
+  w.phys.b.resize(0x201000, 0);
+  std::memcpy(w.phys.b.data() + 0x200000, w.phys.b.data() + 0x10000, 0x1000);   // hU's pixels arrive (slot 1's rows)
+  uint64_t seen = gd::Seq(), checked = 900;
+  gd::NoteFlush(hdU);
+  const bool due = gm::TexCallStep(r3, false, false, checked, 901, &seen);
+  res2.Resolve(w.m, phys, r3, 901);
+  const std::vector<uint8_t>* pu = PicOf(r3, r3.tex_hash[0][1]);
+  Check(due && r3.tex_state[0][1] == kGtBound && pu && *pu == w.pattern[1], "KEYFRESH: the flush of a failed picture's header makes the resolver due at once and the picture is read");
+  res2.Trim(901 + 601);
+}
+
 int main(int argc, char** argv) {
   int plant = 0;
   for (int i = 1; i + 1 < argc; ++i)
@@ -2485,12 +2541,15 @@ int main(int argc, char** argv) {
   if (plant == 58) g_logo_bool_plant = 1;                                    // S105 A5c: bit 150 never set
   if (plant == 59) g_logo_bool_plant = 2;                                    // S105 A5c: bit 150 always set
   if (plant >= 31 && plant <= 35) gm::g_gm_tex_plant = plant;               // 34 (CTX2): allow_8888 off; 35: the 8888 in-place refresh off (frozen pictures)
+  if (plant == 78) gm::g_gm_tex_plant = 39;                                  // S111 KEYFRESH: a failed first read erases its record and leaves its watch behind (the old rule)
+  if (plant == 79) gm::g_gm_tex_plant = 40;                                  // S111 KEYFRESH: an entry's old header stays watched when its header changes (the old rule)
   CheckForged();
   CheckVariants();
   CheckOracle();
   CheckPlanner();
   CheckLineCopy();   // S108 RDS
   CheckTextures();
+  CheckTexWatch();   // S111 KEYFRESH
   CheckCtf();
   CheckWhiteFace();   // S110 WHITEFACE
   CheckHairMaps();   // S111 HAIRMAPS

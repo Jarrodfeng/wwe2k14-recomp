@@ -321,7 +321,7 @@ class Build:
             self.add('mode', r['name'], r['name'], words, 'scene mode %s  (sequence %d)' % (r['name'], r['seq']))
 
     # the front-end flow table: names from the committed atlas (docs\systems\game_atlas.json, by menu + item), record ids from a run's
-    # `--wwe2k14_menu_goto_list` listing (src\menu_goto.h:72-88), kept as numbers in out\scene\front_end_records.json
+    # `--wwe2k14_menu_goto_list` listing (src\menu_goto.h (wwe2k14::menu_goto::List)), kept as numbers in out\scene\front_end_records.json
     def front_end(self):
         ap = os.path.join(self.data, 'docs', 'systems', 'game_atlas.json')
         self.src('docs/systems/game_atlas.json', ap)

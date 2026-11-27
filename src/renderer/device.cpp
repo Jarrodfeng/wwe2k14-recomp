@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 
+#include "dyn_state.h"  // S111 DYNSTATE
 #include "format_caps.h"
 #include "log_formats.h"  // S101 lane 19 review: shared with the case zip
 #include "problem.h"
@@ -276,20 +277,55 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
       for (const auto& e : exts) has_exclusive |= std::strcmp(e.extensionName, "VK_EXT_full_screen_exclusive") == 0;
 #endif
   }
-  const char* device_extensions[3] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, nullptr, nullptr};
+  // S111 DYNSTATE (dyn_state.h): which draw states this device can set per draw. Asked once, here: the answer (Caps::dyn_mask) says for the whole session what a
+  // pipeline bakes and what the record sets. Not behind options.windowed: the offline tools' headless device builds the same pipelines.
+  dyn::Report dyn_report;
+  VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds1_has{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
+  VkPhysicalDeviceExtendedDynamicState3FeaturesEXT eds3_has{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT};
+  {
+    uint32_t all_count = 0;
+    vk::vkEnumerateDeviceExtensionProperties(physical_, nullptr, &all_count, nullptr);
+    std::vector<VkExtensionProperties> all(all_count);
+    vk::vkEnumerateDeviceExtensionProperties(physical_, nullptr, &all_count, all.data());
+    for (uint32_t i = 0; i < all_count && i < all.size(); ++i) {
+      dyn_report.ext1 |= std::strcmp(all[i].extensionName, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME) == 0;
+      dyn_report.ext3 |= std::strcmp(all[i].extensionName, VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME) == 0;
+    }
+    if ((dyn_report.ext1 || dyn_report.ext3) && vk::vkGetPhysicalDeviceFeatures2) {   // a feature struct is chained only for an extension the device lists
+      VkPhysicalDeviceFeatures2 dyn_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+      if (dyn_report.ext1) eds1_has.pNext = dyn_query.pNext, dyn_query.pNext = &eds1_has;
+      if (dyn_report.ext3) eds3_has.pNext = dyn_query.pNext, dyn_query.pNext = &eds3_has;
+      vk::vkGetPhysicalDeviceFeatures2(physical_, &dyn_query);
+      dyn_report.feature1 = eds1_has.extendedDynamicState != 0;
+      dyn_report.blend_enable = eds3_has.extendedDynamicState3ColorBlendEnable != 0;
+      dyn_report.blend_equation = eds3_has.extendedDynamicState3ColorBlendEquation != 0;
+      dyn_report.write_mask = eds3_has.extendedDynamicState3ColorWriteMask != 0;
+    }
+  }
+  uint32_t dyn_mask = dyn::MaskOf(dyn_report, options.dynamic_state);
+  VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds1_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
+  eds1_on.extendedDynamicState = VK_TRUE;
+  VkPhysicalDeviceExtendedDynamicState3FeaturesEXT eds3_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT};
+  eds3_on.extendedDynamicState3ColorBlendEnable = VK_TRUE, eds3_on.extendedDynamicState3ColorBlendEquation = VK_TRUE, eds3_on.extendedDynamicState3ColorWriteMask = VK_TRUE;
+  const char* device_extensions[5] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, nullptr, nullptr, nullptr, nullptr};
   uint32_t device_extension_count = 0;
   if (options.windowed) {
     device_extension_count = 1;
     if (has_timing) device_extensions[device_extension_count++] = VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
     if (has_exclusive) device_extensions[device_extension_count++] = "VK_EXT_full_screen_exclusive";  // S102 G2b
   }
+  if (dyn_mask & dyn::kRaster) device_extensions[device_extension_count++] = VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME;     // S111 DYNSTATE
+  if (dyn_mask & dyn::kBlend) device_extensions[device_extension_count++] = VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME;
+  void* feature_chain = multiview_enabled.multiview ? &multiview_enabled : nullptr;   // S102 C1
+  if (dyn_mask & dyn::kRaster) eds1_on.pNext = feature_chain, feature_chain = &eds1_on;   // S111 DYNSTATE: only the groups in use are enabled
+  if (dyn_mask & dyn::kBlend) eds3_on.pNext = feature_chain, feature_chain = &eds3_on;
   VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.queueCreateInfoCount = 1;
   device_info.pQueueCreateInfos = &queue_info;
   device_info.enabledExtensionCount = device_extension_count;
   device_info.ppEnabledExtensionNames = device_extensions;
   device_info.pEnabledFeatures = &enabled;
-  device_info.pNext = multiview_enabled.multiview ? &multiview_enabled : nullptr;   // S102 C1
+  device_info.pNext = feature_chain;
   if (vk::vkCreateDevice(physical_, &device_info, nullptr, &device_) != VK_SUCCESS) {
     error = "The graphics driver refused to create a device.";
     return false;
@@ -299,6 +335,14 @@ bool Device::Create(const DeviceOptions& options, std::string& error) {
   caps_.full_screen_exclusive = has_exclusive;  // S102 G2b
   vk::LoadDevice(device_);
   vk::vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
+  // S111 DYNSTATE: a group whose commands did not load is not used
+  if ((dyn_mask & dyn::kRaster) && !(vk::vkCmdSetCullModeEXT && vk::vkCmdSetFrontFaceEXT && vk::vkCmdSetDepthTestEnableEXT && vk::vkCmdSetDepthWriteEnableEXT && vk::vkCmdSetDepthCompareOpEXT))
+    dyn_mask &= ~uint32_t(dyn::kRaster);
+  if ((dyn_mask & dyn::kBlend) && !(vk::vkCmdSetColorBlendEnableEXT && vk::vkCmdSetColorBlendEquationEXT && vk::vkCmdSetColorWriteMaskEXT)) dyn_mask &= ~uint32_t(dyn::kBlend);
+  caps_.dyn_mask = dyn_mask;
+  Log("[rdr] dynamic state: VK_EXT_extended_dynamic_state listed %d feature %d; VK_EXT_extended_dynamic_state3 listed %d blend enable %d equation %d write mask %d; allowed %X; in use: cull/depth %d, blend %d (a state not in use stays in the pipeline key)",
+      int(dyn_report.ext1), int(dyn_report.feature1), int(dyn_report.ext3), int(dyn_report.blend_enable), int(dyn_report.blend_equation), int(dyn_report.write_mask), unsigned(options.dynamic_state),
+      int((dyn_mask & dyn::kRaster) != 0), int((dyn_mask & dyn::kBlend) != 0));
 
   // ---- what the device offers ----
   caps_.depth_format = PickDepthFormat(physical_);

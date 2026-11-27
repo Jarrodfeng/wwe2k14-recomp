@@ -7,7 +7,7 @@ namespace rdr_scene {
 
 // S103 lane D4 (46 / 47; lane D's range 46-48, docs\renderer\CROWD_PROPS_LATCH.md "Lane D4"): what no other table carries of the crowd. 46 kScCrowdProps = the signs and foam hands (the two per-member
 // loops sub_82518950 / sub_82518EB8: pass 1 the 32 bone-held props, pass 2 the 96 free ones), one row per prop the game would draw; 47 kScCrowdSingles = the single standing people
-// (sub_8276E7B0: skinned bodies placed one at a time). Both optional (a record without them is byte-identical to today's); an unknown layout / kind drops THAT section only (c_errors). Written by a
+// (sub_8276E7B0: skinned bodies placed one at a time). Both optional (a record without them is byte-identical to today's); an unknown layout drops THAT section only, an unknown kind that row only (c_errors; S111 FXSKIP). Written by a
 // latch reader through src\renderer_scene\crowd_prop_rows.h (the append API checks every row), drawn by LiveCrowd (live_crowd.cpp) from the record alone.
 inline constexpr uint32_t kScCrowdProps = 46;
 inline constexpr uint32_t kScCrowdSingles = 47;
@@ -16,6 +16,7 @@ inline constexpr uint8_t kCrowdPropLayout = 2, kCrowdSingleLayout = 1;   // S103
 // Not a technique: BOTH loops pick T_Audience_LightMap iff the phase word [0x836F3940] == 4, else T_Audience (0x82518A20 / 0x82518EF0), the same choice as the stands in the same frame.
 enum CrowdPropKind : uint8_t { kCpSign = 1,   // a sign (one mesh, key 40000)
                                kCpHand = 2 };  // a foam hand (mesh 40999 + h per hand type b: model_key)
+inline constexpr uint8_t kCpLast = kCpHand;   // S111 FXSKIP: the last known kind; record_io.cpp keeps kCpSign..kCpLast and skips (and counts) a newer kind's rows. A new kind: move it.
 enum CrowdPropFlags : uint32_t {
   kCpfFree = 1,      // pass 2: a free prop (the world is plain memory, no bone multiply)
   kCpfBone = 2,      // pass 1: a prop held by a person (world = bone matrix x the element's matrix, composed by the reader)
@@ -33,8 +34,10 @@ struct CrowdPropRow {
   uint32_t file_key = 0;   // S103 CSF (layout 2): a SIGN's file key u32([[0x83767C5C] + 16] + 4 b) = its picture's entry id in pac\audience.pac PACH 0 (sub_825E59F0 SetSignBoardTexGroup); 0 = none / a hand / not read; >= 65000 = the game's runtime texture (never a file picture)
 };
 static_assert(sizeof(CrowdPropRow) == 68, "CrowdPropRow is a flat POD table"); 
+enum CrowdSingleKind : uint8_t { kCsBody = 1 };   // a body (the only kind so far)
+inline constexpr uint8_t kCsLast = kCsBody;   // S111 FXSKIP review: the last known kind; record_io.cpp keeps kCsBody..kCsLast and skips (and counts) a newer kind's rows. A new kind: move it (tools\lint\kind_last_lint.py fails if not).
 struct CrowdSingleRow {
-  uint8_t kind = 1;        // 1 = a body (the only kind)
+  uint8_t kind = kCsBody;  // CrowdSingleKind
   uint8_t layout = kCrowdSingleLayout;
   uint8_t type = 0;        // the person type 0..19 (census; the asset names the body)
   uint8_t pad = 0;

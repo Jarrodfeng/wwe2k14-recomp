@@ -1,0 +1,9 @@
+name = "fnfacts"
+module = "qfnfacts"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 89
+text = '''  fnfacts FUNC | --stats | --build  per-function STRUCTURAL facts of the listing: loops + inductions, switches + case values, compare chains, entry-arg bit tests, clone hashes (tools/q/qfnfacts.py)'''

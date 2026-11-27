@@ -604,6 +604,7 @@ inline bool GprSplit(PPCContext& ctx, uint8_t* base) {
 
 #include "owner_null_copy.h"  // Session 100 (strip-360 B3): owner mode's clears / resolves = their device bookkeeping only
 
+// SKIP-ORIGINAL: owner mode answers a clear with its device bookkeeping only (owner_null_copy::Clear), and d3d_copy::Clear takes the ones it handles; the original runs for the rest
 REX_HOOK_RAW(sub_82CB52B8) {
 #if WWE2K14_STREAM()  // S103 P9 (A15)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnClear(ctx, base);
@@ -611,6 +612,7 @@ REX_HOOK_RAW(sub_82CB52B8) {
   if (wwe2k14::owner_null_copy::Clear(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Clear(ctx, base)) __imp__sub_82CB52B8(ctx, base);
 }
+// SKIP-ORIGINAL: owner mode answers a resolve with its device bookkeeping only (owner_null_copy::Resolve), and d3d_copy::Resolve takes the ones it handles; the original runs for the rest
 REX_HOOK_RAW(sub_82CAFB88) {
 #if WWE2K14_STREAM()  // S103 P9 (A15)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnResolve(ctx, base);
@@ -618,6 +620,7 @@ REX_HOOK_RAW(sub_82CAFB88) {
   if (wwe2k14::owner_null_copy::Resolve(ctx, base)) return;
   if (!wwe2k14::d3d_copy::Resolve(ctx, base)) __imp__sub_82CAFB88(ctx, base);
 }
+// SKIP-ORIGINAL: d3d_copy::GprSplit replaces the GPR split when it handles the call (its dirty-bit tail runs on the real ring); the original runs when it declines
 REX_HOOK_RAW(sub_82CB0F58) {
   if (!wwe2k14::d3d_copy::GprSplit(ctx, base)) __imp__sub_82CB0F58(ctx, base);
 }

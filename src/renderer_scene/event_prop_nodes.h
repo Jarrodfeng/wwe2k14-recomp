@@ -7,7 +7,8 @@
 //   WATR (category 33, sub_8272C198)        [cw+1248] = entry 5: draws only when the flag is 0 (+0x60): in no shadow map;
 //   CWDA (category 26, sub_8272D0F0)        [cw+1252] = entry 6: no flag test, no id test;
 //   CWDS (category 33, sub_8272CCF0)        [cw+1264] = entry 9: no flag test, no id test.
-// No CWeapon reader of [cw+1228+4k] for k = 1, 2, 3, 7, 8 is in the field index [L]: such an entry keeps the own node's rule (no row of one is expected).
+// No CWeapon reader of [cw+1228+4k] for k = 1, 2, 3, 7, 8 is in the field index [L]: such an entry keeps the own node's rule (no row of one is expected: S111 GEARSLOTS,
+// no disc or DLC evtobj PACH holds an entry 1, 2, 3, 7 or 8 [C asset index census]).
 // The passes [C]: the props map (sub_827E7F00) draws categories 24 / 26 / 41 only; map B (sub_827E7338, mode 0) draws 26 / 41, then 33 + 43 unless the scene word [0x836F3940] is 1.
 #pragma once
 #include <cstddef>

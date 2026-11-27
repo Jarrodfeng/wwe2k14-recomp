@@ -1,0 +1,10 @@
+name = "seqids"
+module = "qseqids"
+needs = "con"
+errors = ["qseqids.SeqIdsError", "qseqids.qcallargs.CallArgsError", "qseqids.qslice.SliceError", "qseqids.qcallargs.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 63
+text = '''  seqids [--json]               every sequence constructor -> the sequence id it passes to the base ctor sub_82C3A298 in r4, with the vtable it stores (callargs on the base ctor; tools/q/qseqids.py)'''

@@ -41,9 +41,11 @@ def main():
             return 1
         print('twin %s: caught (%d FAIL lines)' % (plant, p.stdout.count('FAIL ')))
 
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        with open(os.path.join(root, rel), encoding='utf-8') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     sw, rd, lv, lp = text('src/renderer_adapter/rdr_switches.h'), text('src/renderer_adapter/reader.h'), text('src/renderer_adapter/live.cpp'), text('src/renderer_adapter/lasting_prune.h')
     need = [
         (sw, 'X(GuardDecay, "wwe2k14_rdr_guard_decay", PerFrame, 0)', 'switch table: guard_decay per-frame, default off'),

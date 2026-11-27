@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.4.6
+
+**v0.4.6: blood on the mat at its real size, entrances drawn in the game's order, and a smoother first camera flash.**
+
+A fix update. This round I compared my renderer against the game's own code line by line with new tools, so most entries below were found
+that way rather than reported. Each entry says how I checked it. If something still looks wrong, please send it with Report a problem.
+
+### Fixed
+
+- **Blood on the mat is the size it should be.**
+  What you saw: when a wrestler bled, the drops on the mat were tiny specks, so the mat looked nearly clean. Cause: the game stores the blood
+  splat model at a tenth of its size and enlarges it ten times when it loads it; my loader skipped that step. Fix: the splat is enlarged once
+  at load, the way the game does (the same rule now also sets the crowd's size from one place). The drops still grow, darken and fade on the
+  game's own timings. Checked in game: a bleeding match now shows the same blood pools on the mat as the original game at the same
+  moment.
+- **Entrances: wrestlers drawn over the arena's see-through pieces.**
+  What you saw: during some entrances, see-through parts of the arena, the Elimination Chamber's glass or the spotlight could draw over the
+  wrestler walking out. Cause: during an entrance the game moves the wrestlers and their effects to the end of its see-through drawing; my
+  renderer kept them near the front. Fix: the same order as the game. Fixed from the game's code; checked in game on Daniel
+  Bryan's entrance (nothing out of place), the Elimination Chamber's own entrances not seen yet.
+- **No hitch on the first crowd camera flash.** The flash's shader was listed under an old name, so it was built the first time a flash
+  went off. It is now built at start with the others. Fixed from the game's code and checked offline.
+- **Menus: clicking a row in a scrolled list picks that row** in every menu, not only the first one opened. Fixed from the game's code.
+
+### Looks closer to the game
+
+- **Elimination Chamber:** the pod glass and the spotlight are drawn in the game's order.
+- **Crowd cutouts** hide their backs the way the game does.
+- **Shadows under the wrestlers** use the game's exact edge (a one-step difference in the faintest pixels).
+- **See-through drawing order** now asks "is this a wrestler?" the way the game does, instead of going by the material's name.
+- **Arena props:** a prop list with an empty or negative count is read the way the game reads it (no arena on the disc has one; it matters
+  for modded arenas).
+
 ## v0.4.5
 
 **v0.4.5: a new RAMP CAMERA, smooth camera cuts in cutscenes and entrances, and Create a Championship and the Elimination Chamber working properly.**

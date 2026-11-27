@@ -1,0 +1,12 @@
+name = "texdiff"
+module = "qtexdiff"
+needs = "con"
+errors = ["qtexdiff.TexDiffError", "qtexdiff.CD.DiffError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 44
+text = '''  texdiff [--effect E] [--flag DIFF|UNSETTLED|MAPREC|HABIT|UNUSED|OK] [--ref REF]  per texture slot a game shader samples: what the GAME
+                               binds (name-table sampler row, the records naming it whose technique samples the slot, code naming it) beside
+                               what OURS binds (role / chain arm + line); DIFF = game-fed, ours a stand-in / nothing / another name; UNUSED =
+                               the game never samples it (tools/q/qtexdiff.py; docs/research/s111/TEXDIFF.md)'''

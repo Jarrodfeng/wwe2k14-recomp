@@ -59,6 +59,7 @@ REX_HOOK_RAW(sub_827F9D88) {
   wwe2k14::trace_census_hook::Note(trace_census::Site::PlaneBind, ctx, ctx.r4.u32, ctx.r5.u32);   // r4 = controller, r5 = channel (STAGE_LIVE_WRITERS.md section 2)
   __imp__sub_827F9D88(ctx, base);
 }
+// SKIP-ORIGINAL: on an OURS frame the game's flash sprite pass is not drawn (ours draws kFxFlash rows: the comment inside); otherwise the original runs
 REX_HOOK_RAW(sub_82C0F528) {
   // S103 C3: under Ours the game's flash sprite is not drawn (ours is: kFxFlash rows, flash_fx_core.h). Only the pass call is skipped: its caller sub_823B27F0 still runs the visibility test, the
   // done mark and the +52 flag around it (the writer reads that state), and ignores the result. Evidence the pass draws only flashes: run 10 (wwe2k14_078.log) 60 of 60 logged calls came from sub_823B27F0

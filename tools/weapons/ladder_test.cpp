@@ -206,11 +206,11 @@ int main(int argc, char** argv) {
         break;
       }
       W::Census c2;
-      W::StageFamilyLatch latch;
+      W::StageLatch latch;
       W::Plants p2 = plants;
       p2.latch = &latch;
       const std::vector<W::Item> it2 = W::Plan(ViewOf(f2), p2, c2);
-      range_ok = range_ok && it2.size() == 1 && it2[0].stage && it2[0].id == want_pach && c2.unknown_id == 0 && latch.fam[want_pach] >= 0;
+      range_ok = range_ok && it2.size() == 1 && it2[0].stage && it2[0].id == want_pach && c2.unknown_id == 0 && latch.latched[want_pach];
       fr += 10;
     }
     Check(range_ok, "ldr.plan_range", "LADM 4, LADW 5, STGL 56 and 61 each plan one stage item (the plan's per-PACH arrays hold PACH up to " + std::to_string(W::kStagePachCap - 1) + ")");

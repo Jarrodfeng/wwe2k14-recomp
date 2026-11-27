@@ -1,0 +1,20 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on
+# S111 TITLESMOKE check: the main menu's Rock with the game's PCMN smoke around him (a tester reported it missing on v0.4.5; the fix draws
+# the screen-camera particle groups of a flat frame between its 2D rows). Boot to the main menu and shoot it a few times as the smoke moves.
+on_fail quit
+log bench: start scene s111_title_smoke
+include boot_to_menu
+wait_state menu 1 1200 30
+log scene=title_smoke
+wait_frames 120
+screenshot smoke_1
+wait_frames 90
+screenshot smoke_2
+wait_frames 90
+screenshot smoke_3
+wait_frames 90
+screenshot smoke_4
+log bench: done
+wait_frames 10
+quit

@@ -1,0 +1,13 @@
+{
+ "about": "q fieldsdiff (tools/q/qfieldsdiff.py) named records: a record whose layout is [C] (a claim / format doc), the base each game function reads it through and the variable each of OUR functions reads it through. A row binds the two sides for the join by (record, offset) and is itself a pair source. Bases: the game's as q decomp prints them (in_r4 = the argument in r4 at entry), ours a C++ variable name. `fields` names offsets (optional, shown beside a row).",
+ "records": [
+  {
+   "name": "placement_table_file",
+   "layout": "bgEtc.pac p10/45010: block 1 = u8 1, u8 0xCC, a SIGNED u16 count (little-endian), then count 12-byte 'SubH' chunks; then an 'ASH ' block and the arena block",
+   "evidence": "db/claims/s111_PLACECOUNT0.json (0x8258F698 +0xCC..+0x130: the gate on block 1's signed count and byte 0); db/claims/s111_ARENAFIX.json (the three blocks); EQUIV0 (sub_8258F698 takes the table in r3, the file bytes in r4)",
+   "game": [{"fn": "sub_8258F698", "base": "in_r4"}],
+   "ours": [{"fn": "assets::arena_props::PlacementIds", "base": "b"}],
+   "fields": {"0": "block 1 byte 0 (1: the gate)", "1": "block 1 byte 1 (0xCC: copied to table +7, never tested)", "2": "block 1 count (signed: the gate, > 0)"}
+  }
+ ]
+}

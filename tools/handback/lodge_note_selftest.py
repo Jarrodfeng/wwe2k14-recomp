@@ -117,8 +117,9 @@ def seam_cases(tmp, table):
     e = entry() if os.path.exists(sp) else {"game": [], "ours": []}
     check([g["addr"] for g in e["game"]] == ["0x82331BE0"] and e["game"][0]["what"] == "the zebra loader waits for the card"
           and e["game"][0]["source"] == "docs/research/s999/ONE.md" and e["game"][0]["mark"] == "C", "the game row holds addr / what / source / mark: %s" % e["game"])
-    check([(o["path"], o["line"], o["anchor"], o["verdict"], o["why"]) for o in e["ours"]]
-          == [("src/z.h", 2, "int zebra_wait = 1;", "match", "the zebra loader waits for the card")], "the ours row holds the anchor read from the file: %s" % e["ours"])
+    check([(o["path"], o["anchor"], o["verdict"], o["why"]) for o in e["ours"]]
+          == [("src/z.h", "int zebra_wait = 1;", "match", "the zebra loader waits for the card")], "the ours row holds the anchor read from the file: %s" % e["ours"])
+    check(all("line" not in o and "ctx" not in o for o in e["ours"]), "S111 SEAMNOLINE: the ours row stores no line number: %s" % e["ours"])
     # lodging twice adds nothing
     b0 = open(sp, "rb").read()
     rc, out = lodge(n1, [r1])
@@ -130,7 +131,7 @@ def seam_cases(tmp, table):
     e = entry()
     check(rc == 0 and len(e["ours"]) == 2 and e["ours"][1]["verdict"] == "replace" and e["ours"][1]["anchor"] == "int zebra_post = 2;",
           "a second seam row is added to the entry (rc %d)\n%s" % (rc, out))
-    check("REFUSED" in out and "src/z.h:99" in out and not any(o["line"] == 99 for o in e["ours"]),
+    check("REFUSED" in out and "src/z.h:99" in out and len(e["ours"]) == 2,
           "a stale ours anchor (line past the end of the file) is refused and reported, not written\n" + out)
     check([g["addr"] for g in e["game"]] == ["0x82331BE0", "0x82340000", "0x82331BC0"], "the game row of a refused ours line still lands: %s" % e["game"])
     # a blank line is no anchor either
@@ -190,8 +191,8 @@ def seam_anchor_cases(tmp, table):
     git("commit", "-q", "-m", "a later lane moves the lines")
     rc, out = lodge(n1)
     e = json.load(open(sp, encoding="utf-8")) if os.path.exists(sp) else {"ours": []}
-    got = sorted((o["line"], o["anchor"]) for o in e["ours"])
-    check(rc == 0 and got == [(3, "int zebra_wait = 1;"), (5, "int zebra_end = 3;")],
+    got = sorted(o["anchor"] for o in e["ours"])
+    check(rc == 0 and got == ["int zebra_end = 3;", "int zebra_wait = 1;"],
           "a cited line that moved since the note is followed to its text, a changed one is not anchored (rc %d): %s\n%s" % (rc, got, out))
     check("src/z.h:2 -> 3" in out and "src/z.h:4 -> 5" in out, "a followed line is reported with its old and new number\n" + out)
     check("anchor unverified" in out and "src/z.h:3" in out and "int zebra_post = 2;" in out,
@@ -200,9 +201,10 @@ def seam_anchor_cases(tmp, table):
     write(n1, note(rows[:2] + [rows[1].replace("z.h:3 verdict=replace", "z.h:4 verdict=repeat")] + rows[2:]))
     rc, out = lodge(n1)
     e = json.load(open(sp, encoding="utf-8")) if os.path.exists(sp) else {"ours": []}
-    check(any(o["line"] == 4 and o["anchor"] == "int zebra_post = 9;" and o["verdict"] == "repeat" for o in e["ours"]),
+    check(any(o["anchor"] == "int zebra_post = 9;" and o["verdict"] == "repeat" for o in e["ours"]),
           "a re-cited row is anchored in today's tree (rc %d)\n%s" % (rc, out))
-    # a row edited since (the same citation, its claim re-read) is a new citation too: no refusal for it
+    # a row edited since whose ours= no claims commit holds (this fixture never commits db\claims): read in today's tree, no refusal for it
+    # (with its claims committed, the same edit keeps the first claims commit's date: seam_reword_cases)
     write(n1, note([rows[0].replace("waits for the card", "waits for the card (re-read)"), rows[2]]))
     rc, out = lodge(n1)
     check(rc == 0 and "anchor unverified" not in out and "src/z.h:2 ->" not in out, "an edited row is read in today's tree (rc %d)\n%s" % (rc, out))
@@ -217,6 +219,104 @@ def seam_anchor_cases(tmp, table):
     g = json.load(open(gp, encoding="utf-8")) if os.path.exists(gp) else {"ours": []}
     check(rc == 0 and open(gp, "rb").read() == b0 and "ours +0 ~0 =2" in out and [o["why"] for o in g["ours"]] == ["the gnu first claim"],
           "two claims on one ours line keep the first claim's row on every lodge (rc %d): %s\n%s" % (rc, [o["why"] for o in g["ours"]], out))
+
+
+def seam_reword_cases(tmp, table):
+    """S111 SEAMCITE: a reworded claims row keeps its citation date. The row's ours= file moved after the note cited it; the claim is then
+    reworded (ours= unchanged, a new claims commit). The citation is dated from the EARLIEST claims commit holding that address with that
+    ours= value, so the moved line is followed to its text; dated from the reword it would wire whatever line now sits at the cited number."""
+    root = os.path.join(tmp, "repo4")
+    os.makedirs(os.path.join(root, "docs", "research", "s999"))
+    os.makedirs(os.path.join(root, "src"))
+    zh = os.path.join(root, "src", "z.h")
+    sp = os.path.join(root, "db", "seams", "zebra.json")
+    n1 = os.path.join(root, "docs", "research", "s999", "ONE.md")
+
+    def write(path, text):
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+
+    def git(*a):
+        r = subprocess.run(["git", "-C", root, "-c", "user.name=selftest", "-c", "user.email=selftest@example.invalid", "-c", "core.autocrlf=false"]
+                           + list(a), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        check(r.returncode == 0, "fixture git %s: %s" % (" ".join(a), r.stdout + r.stderr))
+
+    def lodge(path):
+        return run([LODGE, path, "--root", root, "--resolver-table", table])
+
+    row = "0x82331BE0 | C | the zebra loader waits for the card | evidence: x | seam=zebra ours=src/z.h:2 verdict=match"
+    write(zh, "// zebra\nint zebra_wait = 1;\nint zebra_post = 2;\n")
+    write(n1, note([row]))
+    git("init", "-q")
+    lodge(n1)
+    os.remove(sp)   # the first lodge's seam file is not what is under test
+    git("add", "src/z.h", "docs/research/s999/ONE.md", "db/claims")
+    git("commit", "-q", "-m", "the note cites z.h:2 and its claims are lodged")
+    write(zh, "// zebra\nint zebra_new = 0;\nint zebra_wait = 1;\nint zebra_post = 2;\n")   # a later lane moves the cited line to 3
+    git("add", "src/z.h")
+    git("commit", "-q", "-m", "z.h moves the cited line")
+    write(n1, note([row.replace("waits for the card", "blocks until the card is there")]))   # the reword: same ours=
+    lodge(n1)
+    os.remove(sp)
+    git("add", "docs/research/s999/ONE.md", "db/claims")
+    git("commit", "-q", "-m", "a review rewords the claim")
+    rc, out = lodge(n1)
+    e = json.load(open(sp, encoding="utf-8")) if os.path.exists(sp) else {"ours": []}
+    got = [o["anchor"] for o in e["ours"]]
+    check(rc == 0 and got == ["int zebra_wait = 1;"],
+          "a reworded row keeps the citation date of its first claims commit: the moved line is followed, not read at the cited number (rc %d): %s\n%s" % (rc, got, out))
+    check("src/z.h:2 -> 3" in out, "the followed line is reported\n" + out)
+
+
+def seam_merge_cases(tmp, table):
+    """SEAMCITE review: a citation made in a MERGE commit (the row written while resolving a merge, ENVCUBE 9ababa37c) is dated from that
+    merge. `git log -S` without -m reads no merge's diff, so the row's text was "in no commit" and the line was read in today's tree: after
+    a later lane moved the cited line, the row was wired on whatever line now sits at the cited number (ENVCUBE jboy.h, the `tname` line)."""
+    root = os.path.join(tmp, "repo5")
+    os.makedirs(os.path.join(root, "docs", "research", "s999"))
+    os.makedirs(os.path.join(root, "src"))
+    zh = os.path.join(root, "src", "z.h")
+    sp = os.path.join(root, "db", "seams", "zebra.json")
+    n1 = os.path.join(root, "docs", "research", "s999", "ONE.md")
+
+    def write(path, text):
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+
+    def git(*a):
+        r = subprocess.run(["git", "-C", root, "-c", "user.name=selftest", "-c", "user.email=selftest@example.invalid", "-c", "core.autocrlf=false"]
+                           + list(a), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        check(r.returncode == 0, "fixture git %s: %s" % (" ".join(a), r.stdout + r.stderr))
+
+    def lodge(path):
+        return run([LODGE, path, "--root", root, "--resolver-table", table])
+
+    write(zh, "// zebra\nint zebra_wait = 1;\nint zebra_post = 2;\n")
+    git("init", "-q", "-b", "main")
+    git("add", "src/z.h")
+    git("commit", "-q", "-m", "base")
+    git("checkout", "-q", "-b", "side")
+    write(os.path.join(root, "src", "y.h"), "// side\n")
+    git("add", "src/y.h")
+    git("commit", "-q", "-m", "a lane's commit")
+    git("checkout", "-q", "main")
+    write(os.path.join(root, "src", "x.h"), "// main\n")
+    git("add", "src/x.h")
+    git("commit", "-q", "-m", "the session's commit")
+    git("merge", "-q", "--no-ff", "--no-commit", "side")
+    write(n1, note(["0x82331BE0 | C | the zebra loader waits for the card | evidence: x | seam=zebra ours=src/z.h:2 verdict=match"]))
+    lodge(n1)
+    os.remove(sp)   # the first lodge's seam file is not what is under test
+    git("add", "docs/research/s999/ONE.md", "db/claims")
+    git("commit", "-q", "-m", "merge side: the note's row is written in the merge")
+    write(zh, "// zebra\nint zebra_new = 0;\nint zebra_wait = 1;\nint zebra_post = 2;\n")   # a later lane moves the cited line to 3
+    git("add", "src/z.h")
+    git("commit", "-q", "-m", "z.h moves the cited line")
+    rc, out = lodge(n1)
+    e = json.load(open(sp, encoding="utf-8")) if os.path.exists(sp) else {"ours": []}
+    got = [o["anchor"] for o in e["ours"]]
+    check(rc == 0 and got == ["int zebra_wait = 1;"],
+          "a row cited in a merge commit is dated from that merge: the moved line is followed, not read at the cited number (rc %d): %s\n%s" % (rc, got, out))
 
 
 def main():
@@ -359,6 +459,29 @@ def main():
                 check(any("game code" in x for x in errs), "claims.check_rows refuses %r: %s" % (c, errs))
         check(cl.check_rows(cl.parse_claims(note(["0x82331BC0 | C | " + ENGLISH + " | evidence: decomp sub_82331BC0 +0x40"])), tres) == [],
               "claims.check_rows passes plain English")
+        # ABSLINT planted twins: an [L] row with an absolute word FAILS, the same row with scope= is honest, a [C] only warns
+        for mk, tail, want in (("L", "", True), ("U", "", True), ("L", " | scope=4 of 34 refs read", False), ("C", "", False)):
+            ab = cl.check_rows(cl.parse_claims(note(["0x82331BC0 | %s | the fixture is the only writer of the flag | evidence: decomp sub_82331BC0 +0x40%s" % (mk, tail)])), tres)
+            check(bool(ab) == want and (not want or any("absolute" in x for x in ab)), "abslint [%s]%s: errors=%s" % (mk, tail, ab))
+        # ABSLINT review: a lodged [C] row with an absolute word, re-marked [L] with its text unchanged (the PODGLASS correction), FAILS (the
+        # no baseline exists to hide it); pull_claims keeps scope=; lodge_lint sees a scope= the claims file does not hold
+        abm = load(os.path.join(HERE, "abslint.py"), "abslint_selftest_copy")
+        warn_c = next(((n, r) for lv, n, r, _ in abm.findings(REPO) if lv == "WARN"), None)
+        check(warn_c is not None, "abslint: the checkout's db\\claims holds a [C] row with an absolute word (the re-mark twin needs one)")
+        if warn_c:
+            ab = cl.check_rows(cl.parse_claims(note(["0x82331BC0 | L | %s | evidence: %s" % (warn_c[1]["claim"], warn_c[1]["evidence"])])), tres)
+            check(any("absolute" in x for x in ab), "abslint: a lodged [C] claim of %s re-marked [L] FAILS: %s" % (warn_c[0], ab))
+        pc = load(os.path.join(HERE, "pull_claims.py"), "pull_claims_selftest_copy")
+        o = {"address": "0x82331BC0", "mark": "L", "claim": "the fixture is the only writer of the flag", "evidence": "decomp sub_82331BC0 +0x40",
+             "scope": "4 of 34 refs read"}
+        line = pc.render("0x82331BC0", o, None)
+        back = cl.parse_claims(note([line]))
+        check(back and back[0]["scope"] == "4 of 34 refs read" and pc.content(back[0]) == pc.content(o), "pull_claims keeps scope=: %s" % line)
+        llm = load(os.path.join(HERE, "lodge_lint.py"), "lodge_lint_selftest_copy")
+        check(llm.differences(back, [dict(o, scope=None)]) != [], "lodge_lint sees a scope= the claims file does not hold")
+        for c in CODE:   # scope= is lodged into db\claims too: the same code-text refusal as the claim and the evidence
+            ab = cl.check_rows(cl.parse_claims(note(["0x82331BC0 | L | the fixture is the only writer | evidence: decomp | scope=the listing: %s" % c])), tres)
+            check(any("game code" in x for x in ab), "claims.check_rows refuses %r in scope=: %s" % (c, ab))
         with open(bp, "w", encoding="utf-8") as f:
             f.write(note(["0x82331BC0 | C | " + ENGLISH + " | evidence: decomp sub_82331BC0 +0x40, field 1176 --writes, run 328 log"]))
         rc, out = run([LODGE, bp, "--root", root, "--resolver-table", table, "--dry"])
@@ -386,6 +509,8 @@ def main():
 
         seam_cases(tmp, table)
         seam_anchor_cases(tmp, table)
+        seam_reword_cases(tmp, table)
+        seam_merge_cases(tmp, table)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("lodge_note_selftest: %s" % ("FAIL (%d)" % len(fails) if fails else "PASS"))

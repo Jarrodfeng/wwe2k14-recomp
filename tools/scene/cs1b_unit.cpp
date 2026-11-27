@@ -38,6 +38,7 @@ static assets::Model GuestBody() {
   m.label = "guest body";
   assets::Material mat;
   mat.shader = "yCh_skin";
+  mat.char_part = true;   // S111 SOCKSHADOW: as guest_model_draw.h BuildModel builds every guest part (wrestler_caster.h Casts keys on it since S111 UNIFY5)
   m.materials.push_back(mat);
   assets::Texture tex;   // F1: decoded pictures the caster copy must not keep (64x64 RGBA8 = 16 KB)
   tex.name = "color", tex.format = assets::TexFormat::kR8G8B8A8, tex.width = tex.height = 64;

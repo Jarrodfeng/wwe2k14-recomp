@@ -1,4 +1,5 @@
 #version 450
+// FLIP-EXEMPT: test shader (rplay / stencil selftest only): a triangle in the target's own clip space, never a renderer pass.
 // Foundation test: a coloured triangle from frame geometry, moved by a constant block.
 layout(set = 0, binding = 0) uniform VertexConstants { vec4 offset; } vc;
 layout(location = 0) in vec2 in_position;

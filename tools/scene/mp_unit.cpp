@@ -12,6 +12,9 @@
 //   groups.row_position        each group's batches carry the 2D row count at its call; the record round-trips them (planted twin 7: the row ignored)
 //   groups.held                screen groups are Held (kPiScreenCam), never stamped, and the screen camera reaches the record (section 57)
 //   match.unchanged            a frame with one non-screen call takes the old path: scene camera, no screen row, no row stamp, the verdict the old one
+//   groups.scene_call_unstamped  S111 TITLESMOKE review: in a screen frame, a SCENE-camera call's batches carry no row (0): the flat drawer draws only the screen calls' groups (planted twin 17: stamped)
+//   camera.game_ortho          S111 TITLESMOKE2: the game's own menu-particle camera (ortho with a z translation, eye at z -1000) is a screen call and is read as a screen group; the same ortho under a
+//                              rotated view is not (planted twin 18: the old strict diagonal rule)
 //   parts.verdict              PartsOf: empty = Whole, screen = Held, anything else NotRecorded (fail closed)
 #include <cmath>
 #include <cstdio>
@@ -102,12 +105,15 @@ static void BuildNode(FakeMem& m, uint32_t node, uint32_t entry, float x, uint32
   BuildItem(m, item, x);
   m.w[node + 16] = entry, m.w[node + 3088] = b, m.w[node + 3084] = a, m.w[node + 20] = 2u << 24;
 }
-// The camera table for the calling thread: r13 -> [r13] = tb, [tb + 1048] = blk, [blk + 32] = slot, [0x83929A40 + 4 * slot] = camera object, view +176, proj +240.
+// The camera table for the calling thread: r13 -> [r13] = tb, [tb + 1048] = blk, [blk + 32] = slot, [0x83929A40 + 4 * slot] = camera object, VIEW +240, PROJECTION +176. The offsets are the game's
+// (the flash test sub_823B2470 +D4 takes the view z from +240; the node's sub_82296630(out, cam+176, cam+240) = +240 . +176, claims_MP MP6), written here as numbers, not through the header's names
+// (S111 FLASHCAM review: the header named them the other way round, so a fixture built from its names could not catch it).
 static constexpr uint32_t kR13 = 0x9000, kTb = 0x9100, kBlk = 0x9200, kCam = 0xA000;
+static constexpr uint32_t kGameCamView = 240, kGameCamProj = 176;
 static void BuildCameraTable(FakeMem& m, const float view[16], const float proj[16], uint32_t slot = 5, bool null_cam = false) {
   m.w[kR13] = kTb, m.w[kTb + 1048] = kBlk, m.w[kBlk + 32] = slot;
   m.w[kCameraTable + 4 * slot] = null_cam ? 0 : kCam;
-  for (int i = 0; i < 16; ++i) m.F(kCam + kCamObjView + 4 * uint32_t(i), view[i]), m.F(kCam + kCamObjProj + 4 * uint32_t(i), proj[i]);
+  for (int i = 0; i < 16; ++i) m.F(kCam + kGameCamView + 4 * uint32_t(i), view[i]), m.F(kCam + kGameCamProj + 4 * uint32_t(i), proj[i]);
 }
 static const float kScreenView[16] = {2.f / 1280.f, 0, 0, 0, 0, -2.f / 720.f, 0, 0, 0, 0, 0.0033f, 0, 0, 0, 0, 1};
 static const float kIdent[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
@@ -117,7 +123,7 @@ static const float kPersp[16] = {0.8f, 0.1f, 0.5916f, 0, 0.f, 0.9864f, -0.1644f,
 static NodeCall CallOf(uint32_t node, uint32_t rows) {
   NodeCall c;
   ReadNodeCamera(&SrcRead, kR13, c);
-  c.node = node, c.rows = rows;
+  c.node = node, c.rows = rows, c.seq2d = rows;   // S111 FLATSEQ: the unit's 2D tickets run as its row counts (no row lost)
   ReadNodeWords(&SrcRead, node, c);   // the words are read AT THE CALL (S103 MPBF 2), as the entry hook does
   return c;
 }
@@ -241,6 +247,32 @@ int main(int argc, char** argv) {
     Check(screen && persp_ok && node_cam, "camera.node_own", std::string(screen ? "" : "screen call not seen ") + (persp_ok ? "" : "perspective seen as screen ") + (node_cam ? "" : "scene camera used / no screen row"));
   }
 
+  // ---- S111 TITLESMOKE2: the game's own menu-particle camera, built as the listings build it: the particle task's render view (sub_82939D20, eye at z -1000, no rotation) made orthographic by
+  // the UI layer sub_82938FE8 (+480 = 1; slot 11 sub_82939B08 -> sub_82BB3748 -> sub_82BB2DD0). +176 = the ortho (2 / 1280, row 1 negated, 1 / (far - near), near / (near - far); near 10 / far 3e5
+  // from the render view ctor sub_82BB3538), +240 = its world -> view (translation +1000). view . proj carries a z translation: still a screen call, read by TakeScreen with its row and no scene
+  // camera (none is in memory yet: kCamMgrPtr is set only by the match case below). The same ortho under a rotated view (a 3D orthographic camera) is no screen call.
+  {
+    const float nr = 10.f, fr = 3e5f;
+    const float ortho[16] = {2.f / 1280.f, 0, 0, 0, 0, -2.f / 720.f, 0, 0, 0, 0, 1.f / (fr - nr), 0, 0, 0, nr / (nr - fr), 1};
+    const float eye_view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1000.f, 1};
+    BuildCameraTable(m, eye_view, ortho, 6);
+    const NodeCall gc = CallOf(0x4000, 2);
+    const bool z_moved = gc.have_camera && std::fabs(gc.view_proj[14]) > 1e-3f && std::fabs(gc.view_proj[0] - 2.f / 1280.f) < 1e-9f;
+    const bool game_screen = IsScreenCall(gc);
+    ParticleSource* gs = NewSource();
+    gs->NoteCall(gc, kFrame);
+    const SceneTables t = EmitFrame(*gs, kFrame);
+    delete gs;
+    const bool read_flat = t.particles.screen.size() == 1 && (t.particles.Incomplete() & kPiNoCamera) == 0 && !t.particles.batches.empty() && t.particles.batches[0].seq_after_p1 == 3;   // S111 FLATSEQ renamed the field (the call's 2D ticket + 1; CallOf's ticket = its row count, 2)
+    BuildCameraTable(m, kMatchView, ortho, 6);
+    const NodeCall turned = CallOf(0x4000, 2);
+    const bool turned_scene = turned.have_camera && !IsScreenCall(turned);
+    BuildCameraTable(m, kScreenView, kIdent);
+    Check(z_moved && game_screen && read_flat && turned_scene, "camera.game_ortho",
+          std::string(z_moved ? "" : "no z translation in the fixture ") + (game_screen ? "" : "the game's ortho camera refused ") + (read_flat ? "" : "not read as a screen group ") +
+              (turned_scene ? "" : "a rotated ortho seen as screen"));
+  }
+
   // ---- groups
   {
     ParticleSource* g = NewSource();
@@ -252,8 +284,8 @@ int main(int argc, char** argv) {
     const SceneTables t = RoundTrip(raw);
     const ParticleTables& p = t.particles;
     Check(p.batches.size() == 2 && p.particles.size() == 2 && p.Valid(), "groups.every_call", std::to_string(p.batches.size()) + " batches, " + std::to_string(p.particles.size()) + " particles");
-    Check(p.batches.size() == 2 && p.batches[0].row_after_p1 == 4 && p.batches[1].row_after_p1 == 8, "groups.row_position",
-          p.batches.size() == 2 ? std::to_string(p.batches[0].row_after_p1) + "," + std::to_string(p.batches[1].row_after_p1) : "batches merged");
+    Check(p.batches.size() == 2 && p.batches[0].seq_after_p1 == 4 && p.batches[1].seq_after_p1 == 8 && p.screen.size() == 1 && p.screen[0].stamp == kParticleStampSeq, "groups.row_position",
+          p.batches.size() == 2 ? std::to_string(p.batches[0].seq_after_p1) + "," + std::to_string(p.batches[1].seq_after_p1) : "batches merged");
     Check(p.screen.size() == 1 && p.screen[0].calls == 2 && p.screen[0].row_count == 7 && std::fabs(p.screen[0].view_proj[0] - 2.f / 1280.f) < 1e-9f && (p.Incomplete() & kPiScreenCam) && PartsOfTables(p) == scene_kind::Parts::Held,
           "groups.held");
     delete g;
@@ -271,10 +303,29 @@ int main(int argc, char** argv) {
     const SceneTables t = RoundTrip(EmitFrame(*mt, kFrame));
     const ParticleTables& p = t.particles;
     bool no_rows = true;
-    for (const ParticleBatch& b : p.batches) no_rows = no_rows && b.row_after_p1 == 0;
+    for (const ParticleBatch& b : p.batches) no_rows = no_rows && b.seq_after_p1 == 0;
     Check(p.screen.empty() && !p.batches.empty() && no_rows && !p.EmptyPass() && (p.Incomplete() & (kPiScreenCam | kPiNoCamera)) == 0, "match.unchanged");
     delete mt;
     BuildCameraTable(m, kScreenView, kIdent);
+  }
+
+  // ---- S111 TITLESMOKE review: a screen frame with a scene-camera call too (the scene manager's camera is still set by the match case above): only the screen call's batches carry the row
+  {
+    BuildCameraTable(m, kScreenView, kIdent);
+    const NodeCall screen_call = CallOf(0x4000, 3);
+    BuildCameraTable(m, kMatchView, kIdent, 5);
+    const NodeCall scene_call = CallOf(0x4100, 7);
+    BuildCameraTable(m, kScreenView, kIdent);
+    ParticleSource* mx = NewSource();
+    mx->NoteCall(screen_call, kFrame);
+    mx->NoteCall(scene_call, kFrame);
+    const SceneTables t = RoundTrip(EmitFrame(*mx, kFrame));
+    const ParticleTables& p = t.particles;
+    std::string rows;
+    for (const ParticleBatch& b : p.batches) rows += (rows.empty() ? "" : ",") + std::to_string(b.seq_after_p1);
+    Check(IsScreenCall(screen_call) && !IsScreenCall(scene_call) && p.screen.size() == 1 && p.batches.size() == 2 && p.batches[0].seq_after_p1 == 4 && p.batches[1].seq_after_p1 == 0, "groups.scene_call_unstamped",
+          "rows " + rows);
+    delete mx;
   }
 
   // ---- S103 MPBF: the review's twins
@@ -384,6 +435,15 @@ int main(int argc, char** argv) {
       ParticleSource* mt = NewSource();
       mt->NoteCall(CallOf(0x4000, 1), kFrame);
       const SceneTables tt = EmitFrame(*mt, kFrame);
+      // S111 FLASHCAM review: the node's VIEW (+240) is compared with the scene view, never its projection (+176). The scene's own view under a real perspective projection agrees.
+      const float persp[16] = {1.4f, 0, 0, 0, 0, -2.4f, 0, 0, 0, 0, 1.0001f, 1, 0, 0, -10.f, 0};
+      BuildCameraTable(m, kMatchView, persp, 5);
+      ParticleSource* mv = NewSource();
+      mv->NoteCall(CallOf(0x4000, 1), kFrame);
+      const SceneTables tv = EmitFrame(*mv, kFrame);
+      Check(tv.particles.particles.size() == 1 && mv->Census().find("node_cam_mismatch 0") != std::string::npos && mv->Census().find("node_cam_transposed 0") != std::string::npos, "nodes.cam_true_view",
+            mv->Census());
+      delete mv;
       BuildCameraTable(m, kMatchView, kIdent, 5);
       Check(tc2.particles.particles.size() == 1 && mc->Census().find("node_cam_mismatch 1") != std::string::npos && mc->Census().find("first mismatch") != std::string::npos, "nodes.cam_count_only", mc->Census());
       Check(tm.particles.particles.empty() && mm->Census().find("node_cam_mismatch 1") != std::string::npos, "nodes.cam_mismatch", std::to_string(tm.particles.particles.size()) + " particles");
@@ -436,7 +496,7 @@ int main(int argc, char** argv) {
     for (int r = 0; r < 4; ++r)
       for (int cc = 0; cc < 4; ++cc) {
         float a = 0;
-        for (int k = 0; k < 4; ++k) a += p[r * 4 + k] * v[k * 4 + cc];   // row i of p times column j of v
+        for (int k = 0; k < 4; ++k) a += v[r * 4 + k] * p[k * 4 + cc];   // row i of v (+240) times column j of p (+176)
         expect[r * 4 + cc] = a;
       }
     BuildCameraTable(m, v, p, 11);
@@ -444,7 +504,7 @@ int main(int argc, char** argv) {
     bool order = mc.have_camera;
     for (int i = 0; i < 16; ++i) order = order && std::fabs(mc.view_proj[i] - expect[i]) < 1e-4f;
     BuildCameraTable(m, kScreenView, kIdent);
-    Check(order, "camera.mul_order", "view_proj is not proj . view");
+    Check(order, "camera.mul_order", "view_proj is not +240 . +176 (view . proj)");
     // 8: the stream-draws column also covers TakeEmpty frames (it never calls Note)
     ParticleSource* tq = NewSource();
     ParticleSnapshot sq;

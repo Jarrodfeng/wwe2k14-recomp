@@ -4,7 +4,7 @@
 // (enters through weaponrows::RawHookEntry, the pure body of the raw hook weapon_rows_glue.h RawEntry; RawEntry itself needs the game build, so the unit cannot name it as `entry:`)
 //   belt_plate_unit                       exit 0 when every check passes
 //   belt_plate_unit --plant NAME          NAME = index_ignored | wrong_t | silent_white | shared_pool | make_no_drop | free_no_drop | share_unset | diffuse_only | no_pending | pend_any | no_retire |
-//                                         none_is_miss: exit 0 only when the checks SEE
+//                                         none_is_miss | over_file_ignored | desk_not_read | chain_ignored | equal_replaces: exit 0 only when the checks SEE
 //                                         the plant (same convention as texreg_unit)
 // Production order driven: the loader's sampler step (matsamp::ApplySamplerFacts: the key indices) -> Want (the drawer's ask) -> RawHookEntry (the weapon rows' raw hook on an event prop, OURS mode, which
 // calls OnEventCall) -> Want again / PoolSuffix (the drawer's pool key) -> BindKeys (the drawer's bind), plus a flush (guest_tex_dirty::NoteFlush), a key rebind and a Drop.
@@ -156,7 +156,8 @@ int main(int argc, char** argv) {
   std::string plant;
   if (argc > 2 && std::string(argv[1]) == "--plant") plant = argv[2];
   beltplate::g_plate_plant = plant == "index_ignored" ? 1 : plant == "wrong_t" ? 2 : plant == "silent_white" ? 3 : plant == "shared_pool" ? 4 : plant == "make_no_drop" ? 5 : plant == "free_no_drop" ? 6
-                           : plant == "share_unset" ? 7 : plant == "diffuse_only" ? 8 : plant == "no_pending" ? 9 : plant == "pend_any" ? 10 : plant == "no_retire" ? 11 : plant == "none_is_miss" ? 12 : 0;
+                           : plant == "share_unset" ? 7 : plant == "diffuse_only" ? 8 : plant == "no_pending" ? 9 : plant == "pend_any" ? 10 : plant == "no_retire" ? 11 : plant == "none_is_miss" ? 12
+                           : plant == "over_file_ignored" ? 13 : plant == "desk_not_read" ? 14 : plant == "chain_ignored" ? 15 : plant == "equal_replaces" ? 16 : 0;
   if (!plant.empty() && beltplate::g_plate_plant == 0) return std::printf("unknown plant %s\n", plant.c_str()), 2;
 
   // 0. the loader keeps each sampler's name-table index (the key index), whether or not a texture directory holds the name: BOBJ 2926 entry 0 mesh 0 (yProp_BumpMap).
@@ -504,6 +505,103 @@ int main(int argc, char** argv) {
     s2.Want(u.model, 2, 2), u.Call(s2);
     beltplate::BindKeys(m2, s2.Want(u.model, 2, 2).set, s2);
     Check(s2.Counts().missing == 1 && s2.Counts().game_none == 0, "a diffuse whose key the game binds and ours refuses (8888) is a miss", "missing " + std::to_string(s2.Counts().missing));
+  }
+  // S111 CAATABLE (desk_keys.h): the announce table. A weapon row of a desk id draws the live key OVER the file's texture (the created arena's paint, the stage's 402 rebind); a key not read keeps
+  // the file's; the raw hook's gate takes the desk weapon rows (not other weapons, not stage pieces).
+  {
+    Belt b(10);   // key 1 (the "nameplate" picture) stands in for the repainted ji_top
+    beltplate::Store st;
+    assets::Model m;
+    m.textures.resize(1);   // texture 0 = the file's stock picture
+    m.materials = {Mat(1, -1, -1, 0, "ji_top")};
+    const uint64_t mask = beltplate::WantMask(m, true);
+    st.Want(b.model, mask, beltplate::HoldMask(m)), b.Call(st);
+    const uint32_t n = beltplate::BindKeys(m, st.Get(b.model), st, nullptr, nullptr, nullptr, /*over_file=*/true);
+    const int d = m.materials[0].diffuse;
+    Check(mask == 2 && beltplate::WantMask(m) == 0 && beltplate::HoldMask(m) == 0 && n == 1 && d == 1 && m.textures.size() == 2 && m.textures[1].data == b.src && st.Counts().missing == 0,
+          "a desk's file-filled diffuse is bound to the live key at its name-table index, over the file's texture", "mask " + std::to_string(mask) + " bound " + std::to_string(n) + " diffuse " + std::to_string(d));
+    assets::Model k;
+    k.textures.resize(1);
+    k.materials = {Mat(1, -1, -1, 0, "ji_top")};
+    beltplate::Store s2;
+    const beltplate::Ask a = s2.Want(b.model, beltplate::WantMask(k, true), beltplate::HoldMask(k));
+    const uint32_t n2 = beltplate::BindKeys(k, a.set, s2, nullptr, nullptr, nullptr, /*over_file=*/true);
+    Check(!a.pending && n2 == 0 && k.materials[0].diffuse == 0 && s2.Counts().missing == 0, "a desk key not read yet keeps the file's texture (never held back, never white, not a miss)");
+    weaponrows::CallResult ev, top, desk, chair, piece;
+    ev.weapon = ev.event = true, ev.id = 2038;
+    top.weapon = true, top.id = 7;
+    desk.weapon = true, desk.id = 105;
+    chair.weapon = true, chair.id = 4;
+    piece.weapon = piece.stage = true, piece.id = 7;
+    Check(weaponrows::ReadsKeys(ev) && weaponrows::ReadsKeys(top) && weaponrows::ReadsKeys(desk) && !weaponrows::ReadsKeys(chair) && !weaponrows::ReadsKeys(piece),
+          "the raw hook reads the keys of event props and of the announce table's weapon rows (6 / 7 / 104-107), not of other weapons or stage pieces");
+  }
+  // S111 CAATABLE review: (1) a desk key that still holds the file's own picture keeps the file's texture (its mip chain: nothing rewrote it); (2) a desk (`chain`) key is read with every level its
+  // header names and bound with them, an event prop's key with mip 0 alone; (3) the production entry: a desk weapon row (slot-table id 7) is read at the raw hook's call, a chair (id 4) is not.
+  {
+    Belt b(10);   // key 1: 256 x 128 BC3, no mip page (one level)
+    beltplate::Store st;
+    assets::Model m;
+    assets::Texture file;
+    file.format = assets::TexFormat::kBC3, file.width = 256, file.height = 128, file.mips = 2, file.data = b.src;
+    file.data.resize(b.src.size() + 32 * 16 * 16, 0x33);   // + the file's own mip 1
+    m.textures = {file};
+    m.materials = {Mat(1, -1, -1, 0, "ji_top")};
+    st.Want(b.model, beltplate::WantMask(m, true), beltplate::HoldMask(m), /*chain=*/true), b.Call(st);
+    const uint32_t n = beltplate::BindKeys(m, st.Get(b.model), st, nullptr, nullptr, nullptr, /*over_file=*/true);
+    Check(n == 0 && m.materials[0].diffuse == 0 && m.textures.size() == 1 && m.textures[0].mips == 2 && st.Counts().missing == 0,
+          "a desk key that holds the file's own picture keeps the file's texture and its mips (nothing rewrote the key)", "bound " + std::to_string(n) + " diffuse " + std::to_string(m.materials[0].diffuse));
+  }
+  {
+    World wd;
+    Registry(wd);
+    const std::vector<uint8_t> top0 = Source(41), top1 = Source(42, 32 * 16 * 16);   // mip 0 (64 x 32 blocks) and mip 1 (32 x 16 blocks: untiled rows of 512 bytes, no padding)
+    wd.px[0x18C00000u] = Stored(top0), wd.px[0x18C40000u] = Stored(top1);
+    PutTexture(wd, 0x1201, 0x5E00, "ji_top", 0x5F00, 0x18C00000u, 20, 256, 128);
+    wd.w[0x5F00 + particles::kHeaderFetch + 16] = 1u << 6;                    // fetch dword 4: max level 1 (two levels)
+    wd.w[0x5F00 + particles::kHeaderFetch + 20] = 0x18C40000u | (1u << 9);   // fetch dword 5: the mip page (levels 1+), 2D, no packed tail
+    const uint32_t model = 0x4800;
+    PutModel(wd, model, {0x1201});
+    const auto rw = [&](uint32_t a, uint32_t& v) { return wd.Rw(a, v); };
+    const auto ph = [&](uint32_t a, uint32_t n, uint8_t* d) { return wd.Phys(a, n, d); };
+    beltplate::Store desk, ev;
+    desk.Want(model, 1, 0, /*chain=*/true), desk.OnEventCall(model, rw, ph);
+    ev.Want(model, 1, 0), ev.OnEventCall(model, rw, ph);
+    const auto sd = desk.Get(model), se = ev.Get(model);
+    const beltplate::Plate* pd = sd ? sd->Find(0) : nullptr;
+    const beltplate::Plate* pe = se ? se->Find(0) : nullptr;
+    std::vector<uint8_t> chain = top0;
+    chain.insert(chain.end(), top1.begin(), top1.end());
+    assets::Model m;
+    m.textures.resize(1);
+    m.materials = {Mat(0, -1, -1, 0, "ji_top")};
+    beltplate::BindKeys(m, sd, desk, nullptr, nullptr, nullptr, /*over_file=*/true);
+    Check(pd && pd->mips == 2 && pd->blocks && *pd->blocks == chain && pe && pe->mips == 1 && pe->blocks && *pe->blocks == top0 && m.textures.size() == 2 && m.textures[1].mips == 2 && m.textures[1].data == chain,
+          "a desk key is read with its whole mip chain (the level its header names, from the mip page) and bound with it; an event prop's key stays mip 0",
+          pd ? "desk mips " + std::to_string(pd->mips) + ", bytes " + std::to_string(pd->blocks ? pd->blocks->size() : 0) : std::string("desk key not read"));
+  }
+  {
+    namespace W = rdr_scene::weapons;
+    constexpr uint32_t kMgr = 0x70000000;
+    bool desk_read = false, chair_read = true;
+    weaponrows::CallResult desk_out, chair_out;
+    for (const int32_t id : {7, 4}) {
+      Belt b(10);
+      ModelWords(b.wd, b.model);
+      b.wd.w[W::kMgrGlobal] = kMgr, b.wd.w[kMgr + W::kOffSlotCount] = 1, b.wd.w[kMgr + W::kOffSlotId] = uint32_t(id), b.wd.w[kMgr + W::kOffSlotMain] = b.model;   // the slot table: one weapon, this model
+      for (uint32_t k = 0; k < W::kMaxSecondary; ++k) b.wd.w[kMgr + W::kOffSlotSecondary + 4 * k] = 0;
+      beltplate::TheStore().Clear();
+      weaponrows::Tracker tr;
+      beltplate::TheStore().Want(b.model, 2, 0, /*chain=*/true);   // the drawer's ask for the row (rf_props.cpp ApplyWeaponRows)
+      const weaponrows::CallResult out = Hook(b.wd, tr, b.model, 500);
+      const auto s = beltplate::TheStore().Get(b.model);
+      if (id == 7) desk_out = out, desk_read = s && s->Find(1) && s->Find(1)->blocks && *s->Find(1)->blocks == b.src;
+      else chair_out = out, chair_read = s != nullptr;
+    }
+    beltplate::TheStore().Clear();
+    Check(desk_out.weapon && !desk_out.event && desk_out.id == 7 && desk_read && chair_out.weapon && chair_out.id == 4 && !chair_read,
+          "the production entry (RawHookEntry): a desk weapon row (slot-table id 7) reads its keys at the raw hook's call; a chair (id 4) reads none",
+          "desk id " + std::to_string(desk_out.id) + (desk_read ? " read" : " NOT read") + ", chair id " + std::to_string(chair_out.id) + (chair_read ? " read" : " not read"));
   }
   std::printf("belt_plate_unit: %d failed%s%s\n", g_fail, plant.empty() ? "" : " (plant ", plant.empty() ? "" : (plant + ")").c_str());
   if (!plant.empty()) return g_fail ? 0 : 1;   // a planted twin: exit 0 only when the checks SEE the plant

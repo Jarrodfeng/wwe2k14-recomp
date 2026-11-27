@@ -406,6 +406,7 @@ inline UiAnimThrottle g_ui_anim_throttle;
 }  // namespace wwe2k14
 
 REX_EXTERN(__imp__sub_82BBEC18);
+// SKIP-ORIGINAL: a frozen scene holds the pose, and in a turbo window an animation step inside its 60 Hz slot is held (the last pose stays); every other step runs the original
 REX_HOOK_RAW(sub_82BBEC18) {
   using namespace wwe2k14;
   if (g_ui_anim_hold().load(std::memory_order_relaxed)) return;  // Session 36: frozen scene, hold the pose

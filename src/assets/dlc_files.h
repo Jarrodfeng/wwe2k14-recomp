@@ -104,12 +104,16 @@ inline std::vector<int> PackIds(const launcher::GameFiles& files) {
   return ids;
 }
 
-// The entrance bank files the game looks banks up in: the disc's Entrance00-08, then each pack's Entrance_dlcPP (see above).
+// The entrance bank files the game looks banks up in, in the order a reader takes the first that has the bank: each pack's Entrance_dlcPP, highest pack id first, then the disc's Entrance00-08.
+// S111 MODBELT: the game finds a bank by the path /EVP/<id> (sub_8231BEC8 -> pac_path_resolve -> the pac-list walk sub_82C51D20, first node from the head), and the packs' nodes sit at the head, the highest
+// pack id first (asset_load.h PropPachInPacks), so a pack's bank shadows the disc's bank of the same id.
 inline std::vector<std::string> EntranceFiles(const launcher::GameFiles& files) {
   std::vector<std::string> v;
   char rel[64];
+  std::vector<int> ids = PackIds(files);
+  std::sort(ids.rbegin(), ids.rend());
+  for (int id : ids) std::snprintf(rel, sizeof rel, "pac/evt/Entrance_dlc%02d.pac", id), v.push_back(rel);
   for (int n = 0; n < 9; ++n) std::snprintf(rel, sizeof rel, "pac/evt/Entrance%02d.pac", n), v.push_back(rel);
-  for (int id : PackIds(files)) std::snprintf(rel, sizeof rel, "pac/evt/Entrance_dlc%02d.pac", id), v.push_back(rel);
   return v;
 }
 

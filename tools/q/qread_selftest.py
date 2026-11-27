@@ -83,9 +83,9 @@ facts:
 - A low one | from: unit 101 | low
 open:
 - the callers of unit 101
-## system: bogus
+## system: bogus-name!
 explain:
-Text for a system that does not exist.
+Text for a system whose name is not [a-z0-9_]+.
 ## system: crowd
 facts:
 - no explanation in this block | from: unit 4623 | high
@@ -179,6 +179,44 @@ def main():
     c = qread.open_ro(db)
     check(qreadsys.system_state(c)['engine']['stale'], 'a reading newer than the explanation makes it stale')
     c.close()
+    # S111 PAGEREAD: `q read system NAME` (no --from) reads a stored page back by any stored name
+    import contextlib
+    import io
+    import shutil
+    pdb = os.path.join(tmp, 'pageread.db')
+    shutil.copy(db, pdb)
+    w = sqlite3.connect(pdb)
+    w.execute("insert into system_read(system,explain,model,when_) values ('create_story','The story page.\n\nNext to read or observe:\n- the save path','writerS','2026-11-27 01:00:00')")
+    w.execute("insert into fact_read(text,unit_id,confidence,system,source,when_) values ('A story curiosity','7','high','create_story','writer','2026-11-27 01:00:00')")
+    w.commit()
+    w.close()
+    real_open_ro = qread.open_ro
+    qread.open_ro = lambda path=None: real_open_ro(pdb)
+
+    def run_system(name):
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = qreadsys.main('system', [name])
+        except qread.ReadError as e:
+            return 2, str(e)
+        return rc, buf.getvalue()
+    try:
+        rc, txt = run_system('create_story')
+        check(rc == 0 and 'STORED PAGE: create_story' in txt and 'The story page.' in txt and 'the save path' in txt and 'A story curiosity | from: unit 7 | high' in txt,
+              'read system: a stored non-fixed name prints its stored page (explain, open lines, facts) (%s)' % txt[:80])
+        rc, txt = run_system('create_nothing')
+        check(rc == 2 and 'create_story' in txt and 'stored pages' in txt, 'read system: a name neither stored nor fixed is refused with the stored names (%s)' % txt[:120])
+        rc, with_page = run_system('engine')
+        w = sqlite3.connect(pdb)
+        w.execute("delete from system_read where system='engine'")
+        w.commit()
+        w.close()
+        rc2, old = run_system('engine')
+        check(rc == 0 and rc2 == 0 and with_page == qreadsys.stored_page(real_open_ro(path=db), 'engine') + '\n' + old and old.startswith('SYSTEM: engine'),
+              'read system: a fixed name keeps its old bundle byte for byte, the stored page printed before it (%d, %d bytes)' % (len(with_page), len(old)))
+    finally:
+        qread.open_ro = real_open_ro
     # migration from a read.s1.db
     mt = tempfile.mkdtemp(prefix='qread_m')
     o1 = sqlite3.connect(os.path.join(mt, 'read.s1.db'))

@@ -1,0 +1,9 @@
+name = "unit"
+module = "qunits"
+errors = ["qnames.NamesError"]
+qerror = false
+usage_slot = "u35"
+
+[[usage]]
+order = 91
+text = '''  unit ADDR | cover [--json]  the unit (call cluster, K=32) of a function / the mechanical + meaning coverage numbers (tools/q/qunits.py, qcover.py)'''

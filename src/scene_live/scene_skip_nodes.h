@@ -163,6 +163,7 @@ inline void PlaneZeroProxies(uint8_t* base, uint32_t node) {
 
 // sub_82C13A80: slot 19 of the skinned-model vtable: loops over [model+552] passes and records the model's own command buffer ([model+520]) around sub_82C04DF0 (begin / end recording:
 // sub_82C27548 / sub_82C274C0). A skipped sub_82C04DF0 inside it would seal an EMPTY buffer, so the whole builder is skipped (db: model_submit_vtable_slot19_pass_loop; draw_origin.h's hook is on sub_82C04DF0).
+// SKIP-ORIGINAL: on an OURS frame the whole model command-buffer builder is skipped (the comment above: a skipped inner draw would seal an empty buffer)
 REX_HOOK_RAW(sub_82C13A80) {
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::ModelRecord)) return;   // it writes [model+624/628] and puts them back at its end: nothing to keep
   __imp__sub_82C13A80(ctx, base);
@@ -170,6 +171,7 @@ REX_HOOK_RAW(sub_82C13A80) {
 
 // The ring task's two colour draw callbacks (sub_825D0438: posts, turnbuckles, covers, ropes, the ropes' plane proxy; sub_825D01F0: ropes for the other pass). Each saves per-thread render
 // context words, sets pass state and puts both back: nothing to keep from the state. What they WRITE (turnbuckle / cover placement from the rope grid) is lane A's input to move (SCENE_SKIPS.md).
+// SKIP-ORIGINAL: on an OURS frame the ring task's colour callback is skipped (the comment above), the ring pieces' own pose kept (PoseRidsRing)
 REX_HOOK_RAW(sub_825D0438) {
   rdr_scene::live::ringrecompute::RopeView view;   // S103 RLB: the draw thread's camera as the game's classifier (sub_827405F8) asks for it, read before the skip test (RLV.md rows 2, 14)
   if (rdr_scene::live::ringrecompute::RingViewWanted()) wwe2k14::scene_skip_nodes::ReadRingView(ctx, base, view);
@@ -180,11 +182,13 @@ REX_HOOK_RAW(sub_825D0438) {
   }
   __imp__sub_825D0438(ctx, base);
 }
+// SKIP-ORIGINAL: on an OURS frame the ring task's second colour callback (the ropes for the other pass) is skipped (the comment above)
 REX_HOOK_RAW(sub_825D01F0) {
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::RingColour2)) return;
   __imp__sub_825D01F0(ctx, base);
 }
 
+// SKIP-ORIGINAL: on an OURS frame the plane node is skipped after its proxy list is noted and zeroed
 REX_HOOK_RAW(sub_827EF070) {
   wwe2k14::scene_skip_nodes::NotePlaneProxies(base, ctx.r3.u32);   // S103 A3 (S8): the list as it stands at the node's entry, before any path zeroes it
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::Plane)) {
@@ -196,6 +200,7 @@ REX_HOOK_RAW(sub_827EF070) {
 
 // The pre-light light-cube manager's per-frame entry: slot choice + sub_827EBA00 (re-bake only when the five light rows changed: the rows it stores are what it compares with next time, so a skipped
 // call just makes the next walked frame re-bake). Nothing else is known to read what it writes [U: SCENE_SKIPS.md row 9].
+// SKIP-ORIGINAL: on an OURS frame the light-cube manager entry is skipped (the comment above: the next walked frame re-bakes)
 REX_HOOK_RAW(sub_827EBE78) {
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::PreLight)) return;
   __imp__sub_827EBE78(ctx, base);
@@ -209,6 +214,7 @@ REX_HOOK_RAW(sub_827EBE78) {
 // S108 BLD2 (docs\research\s108\BLD_plan.md section 10): the rebuild request +200 IS set (sub_82727F30, with +136, at the post-match scene and other instant level changes). Its only clearers are inside the node's ALT draw
 // (sub_8279A328: item bit 27, entry +12; sub_8279AC78: +200), which our skip never runs: left alone every later row would be a rebuild. So, like +136, the hook's recorded row carries it and the glue performs exactly
 // those three writes (liquid_hook.h ApplyAltConsume), only for a recorded rebuild row.
+// SKIP-ORIGINAL: on an OURS frame the sweat node is skipped and its request flags stay pending for the next walked frame (the comment above); otherwise the original runs
 REX_HOOK_RAW(sub_8279ACD8) {
   rdr_scene::live::liquid::AltConsume alt;
   const uint32_t recorded = wwe2k14::liquid_glue::OnNode(ctx.r3.u32, wwe2k14::scene_skip::HookFrame(), &alt);
@@ -225,8 +231,9 @@ REX_HOOK_RAW(sub_8279ACD8) {
   __imp__sub_8279ACD8(ctx, base);
 }
 
+// SKIP-ORIGINAL: on an OURS frame the particle node retires its particles only and returns (ParticlesRetireOnly); otherwise the original runs
 REX_HOOK_RAW(sub_82254E30) {
-  const bool asks_scene = wwe2k14::scene_particle_glue::NoteNode(ctx.r3.u32, ctx.r13.u32, wwe2k14::q2d_tap::RowsThisFrame());   // S103 F2: the pass object, for the particle source (mode 0: one relaxed load); S103 MP: + the thread block (the node's camera) and the 2D row count
+  const bool asks_scene = wwe2k14::scene_particle_glue::NoteNode(ctx.r3.u32, ctx.r13.u32, wwe2k14::q2d_tap::RowsThisFrame(), wwe2k14::q2d_tap::SeqNow());   // S103 F2: the pass object, for the particle source (mode 0: one relaxed load); S103 MP: + the thread block (the node's camera) and the 2D row count; S111 FLATSEQ: + the 2D store's last ticket (the flat drawer's position)
   // S103 FLAT (scene_stamp_rule.h): stream-free, a menu backdrop call (screen camera) or a call that draws nothing must not take the Scene3D decision: it would stamp the frame as 3D and no menu / load / results
   // frame could ever be flat. Such a call just walks (the original), as a not-READY menu frame always did. The stream build asks as before.
 #if !WWE2K14_STREAM()
@@ -256,11 +263,13 @@ REX_HOOK_RAW(sub_82BF8118) {
 // post_effects.md: sub_827FC798 "restores colour and depth"]. Under OURS the frame image is our picture: the restore would paint the empty scene colour over it (run 7262: black). Its three callers
 // (sub_827F10C8, sub_827F0F20, sub_827FC798) are scene draw nodes; the function keeps no state (an op-68 quad with the device states saved and restored around it), so a skipped call leaves nothing
 // behind. Menus and every walked frame: Ours() is false and the original runs.
+// SKIP-ORIGINAL: on an OURS frame the scene colour / depth restore is skipped (the comment above: it would paint the empty scene colour over our picture)
 REX_HOOK_RAW(sub_82C1F728) {
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::FillColorDepth)) return;
   __imp__sub_82C1F728(ctx, base);
 }
 
+// SKIP-ORIGINAL: on an OURS frame the post module's draw node is skipped (the comment above: its device-state bracket is balanced)
 REX_HOOK_RAW(sub_82C1E840) {
   scene_inputs::period::g_post_node_clock.Note(wwe2k14::scene_skip::HookFrame());   // S111 CUTREACH review: the clock this node runs on (log only), noted before the skip test
   wwe2k14::scene_skip::MaybeLog(::scene_skip::Hook::Post);

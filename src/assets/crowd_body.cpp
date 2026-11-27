@@ -162,7 +162,7 @@ bool LoadBodyLodGameSpace(int arena, int lod, int type, Model& out, std::string&
   pac::Pach sp;
   if (!pac::GetNested(p->bytes, h, 20000, sb, sp)) return err = "crowd_body: the arena has no crowd set (entry 20000)", false;
   TexSet tex;
-  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDir(pac::Decode(sb.data() + e->off, e->size));
+  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDirLevels(pac::Decode(sb.data() + e->off, e->size), arena_levels::kCrowdLevels);   // S111 ARENALEVELS: sub_8250C1D0 builds key 21000 at 3
   const uint32_t entry = 20000u + 40u * uint32_t(lod) + uint32_t(type);
   const Bytes blob = pac::Get(sb, sp, entry);
   if (!IsJboy(blob)) return err = "crowd_body: no body at entry " + std::to_string(entry), false;
@@ -202,7 +202,7 @@ bool Palettes(int arena, int act, int frame, std::vector<std::vector<Matrix>>& o
   pac::Pach sp;
   if (!pac::GetNested(buf, h, 20000, sb, sp)) return err = "crowd_body: the arena has no crowd set (entry 20000)", false;
   TexSet tex;
-  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDir(pac::Decode(sb.data() + e->off, e->size));
+  if (const pac::Ent* e = pac::Find(sp, 21000)) tex.AddDirLevels(pac::Decode(sb.data() + e->off, e->size), arena_levels::kCrowdLevels);   // S111 ARENALEVELS: sub_8250C1D0 builds key 21000 at 3
   if (!crowdmot::TheM2().Load(g_files, err)) return false;
   out.assign(20, {});
   int got = 0;

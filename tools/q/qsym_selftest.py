@@ -75,6 +75,10 @@ int Tricky() {
 int After() { return 2; }
 }  // namespace zq
 ''',
+    # S111 SPLIT-WIRE review: a split part (tools/split/read_unit.py) holds members of a class its parent opens; the part never names the class
+    'src/zq/big.h': '#pragma once\nnamespace zq {\nclass Big {\n public:\n#include "big/members.inc"  // split: members\n};\n}  // namespace zq\n',
+    'src/zq/big/members.inc': '  int Member(int a) { return a + 1; }\n  int Other() { return Member(2); }\n',
+    'src/zq/big_use.cpp': '#include "big.h"\nint UseBig() { zq::Big b; return b.Member(1); }\n',
 }
 
 
@@ -201,6 +205,18 @@ def main(argv=None):
             check(func == {'zq::UseIt'}, 'the enclosing function of a site is its qualified name', str(func))
             rc, js, raw, dt = ours('refs', 'zq::Hold')
             check(rc == 0 and 'src/zq/use.cpp' in files_lines(js), 'a qualified name: Scope::name keeps the use that names the scope', raw)
+            # T9 a split part: its members read in the scope its parent opens at the `// split:` include line, and keep their real file:line
+            rc, so, se, dt = q('ours', 'fn', 'Big::Member', '--root', root)
+            check(rc == 0 and 'zq::Big::Member' in so and 'src/zq/big/members.inc:1' in so, 'T9 fn Big::Member: found in the part, qualified by the parent\'s class', so + se)
+            rc, so, se, dt = q('ours', 'outline', 'src/zq/big/members.inc', '--root', root)
+            check(rc == 0 and 'zq::Big::Member' in so and 'zq::Big::Other' in so, 'T9b outline of the part: zq::Big::Member, zq::Big::Other', so + se)
+            rc, so, se, dt = q('ours', 'enclosing', 'src/zq/big/members.inc:2', '--root', root)
+            check(rc == 0 and 'zq::Big::Other' in so, 'T9c enclosing members.inc:2 = zq::Big::Other', so + se)
+            rc, so, se, dt = q('ours', 'outline', 'src/zq/big.h', '--root', root)
+            check(rc == 0 and 'src/zq/big/members.inc' in so, 'T9d outline of the parent names its part', so + se)
+            rc, js, raw, dt = ours('callers', 'Big::Member')
+            fl = files_lines(js)
+            check(fl.get('src/zq/big/members.inc') == {2} and 'src/zq/big_use.cpp' in fl, 'T9e callers Big::Member: the call inside the part (which never names Big) and the one in big_use.cpp', raw)
             # the verbs that went
             for verb in ('rows', 'diff'):
                 rc, so, se, dt = q('ours', verb, '--root', root)

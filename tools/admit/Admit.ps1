@@ -6,18 +6,19 @@
 # Every use of admit.exe's command line from PowerShell lives in this file. This file has NO top-level statements, only functions (dot-sourcing it
 # runs nothing and adds no variable to the caller's scope).
 #
-# Request-BuildParallel -Want N [-Kind cc.tool] [-TimeoutS 300] -> the number of compiles the caller may run at once:
+# Request-BuildParallel -Want N [-Kind cc.tool] -> the number of compiles the caller may run at once (-TimeoutS is the selftest's: admit.exe refuses it elsewhere):
 #   1. $env:WWE_BUILD_PARALLEL set: min(N, that), no hold. A MANUAL override (by hand or a test): nothing sets it automatically.
 #   2. $env:WWE_NO_ADMIT = 1: N, silently. No admit.exe: N, and ONE line per process: `[admit] not installed (<path>): this build is not queued`.
-#   3. else `admit hold --kind K --want N --min ceil(N/4) --timeout T --pid $PID --detach --max-s 900`, whose answer is `granted M <word>`:
+#   3. else `admit hold --kind K --want N --min ceil(N/4) --pid $PID --detach --max-s 900`, whose answer is `granted M <word>`:
 #        held      M compiles, reserved for this script until Release-BuildParallel (or this process's exit, or 900 s);
 #        observed  the queue's observe mode: M = N, nothing limited (it logs what it would have done);
 #        nested    under an outer hold of this process tree: M is the outer's count (accepted even below the minimum), no reservation of its own;
 #        open      admit's error path: nothing is held; the build runs N.
 #        narrowed  (S109 GATE) at the wait bound, below the minimum but above the floor: M compiles, held like `held` (an older admit says `forced`).
 #      (a bare `granted M` from an older admit counts as held.) A held grant below the minimum, an error exit, or admit not answering within
-#      ceil(1.1 x T) + 30 s (then that admit is killed): N, with one loud line.
-#      REFUSED (S109 GATE): not admitted within min(T, admit.json timeout_s = 180 s) = admit exits 75; Request-BuildParallel THROWS
+#      ceil(1.1 x admit.json timeout_s) + 30 s (then that admit is killed): N, with one loud line.
+#      A request WAITS in the queue until admitted (S111 ADMITWAIT); no caller passes a limit (S111 ADMITCALLERS); only admit.json timeout_s
+#      (30 min, a stuck machine) ends a wait. REFUSED: not admitted within that cap = admit exits 75; Request-BuildParallel THROWS
 #      "[admit] REFUSED ..." (the reason, the holders, since when): the script stops, its try / finally releases, its caller prints it. Nothing ran.
 #      The wait is in 500 ms slices and a stopped request (Ctrl+C) kills its admit, so it can never win a grant afterwards.
 # Get-AdmitExe (S109 GATE): when the exe's source stamp (admit.exe.sha256) differs from the main checkout's admit.cpp it runs build_admit.ps1 -IfStale
@@ -176,16 +177,16 @@ function Get-AdmitCfgTimeoutS {
     $v = (Get-Content -Raw -LiteralPath $f | ConvertFrom-Json).timeout_s
     if ($null -ne $v -and [double]$v -gt 0) { return [int][Math]::Ceiling([double]$v) }
   } catch { }
-  return 900
+  return 1800
 }
 
 function Request-BuildParallel {
   # -Interactive: a person is waiting (keeps the caller's short limit); otherwise the limit is at least the queue's own (admit.json timeout_s)
-  # S109 GATE: -Interactive is kept for the callers' signature; every limit is passed as given and admit cuts it to admit.json timeout_s
-  param([Parameter(Mandatory = $true)][int]$Want, [string]$Kind = 'cc.tool', [int]$TimeoutS = 300, [switch]$Interactive)
+  # S109 GATE: -Interactive is kept for the callers' signature. S111 ADMITWAIT: -TimeoutS too: admit waits until admitted (admit.json timeout_s is the cap)
+  param([Parameter(Mandatory = $true)][int]$Want, [string]$Kind = 'cc.tool', [int]$TimeoutS = 0, [switch]$Interactive)
   $maxHoldS = 900   # a detached hold never outlives 15 minutes (a script run by hand in a long-lived shell)
   $graceS = 30; $gv = 0; if ([int]::TryParse([string]$env:WWE_ADMIT_GRACE_S, [ref]$gv) -and $gv -ge 0) { $graceS = $gv }   # (S106 C5: a test shortens it)
-  $boundS = [int][Math]::Ceiling(1.1 * [Math]::Min($TimeoutS, (Get-AdmitCfgTimeoutS))) + $graceS   # admit answers within min(T, the queue's limit) + its last ask
+  $boundS = [int][Math]::Ceiling(1.1 * (Get-AdmitCfgTimeoutS)) + $graceS   # admit answers within the queue's cap + its last ask (S111: never the caller's T: admit waits past it)
   $refusal = $null
   if ($Want -lt 1) { $Want = 1 }
   $g = $env:WWE_BUILD_PARALLEL
@@ -205,7 +206,9 @@ function Request-BuildParallel {
   $saved = Get-Variable -Name LASTEXITCODE -Scope Global -ValueOnly -ErrorAction SilentlyContinue
   try {
     $k = Resolve-AdmitKind $Kind
-    $hargs = @('hold', '--kind', $k, '--want', $Want, '--min', $min, '--timeout', $TimeoutS, '--pid', $PID, '--detach', '--max-s', $maxHoldS)
+    $hargs = @('hold', '--kind', $k, '--want', $Want, '--min', $min)
+    if ($TimeoutS -gt 0) { $hargs += @('--timeout', $TimeoutS) }   # S111 ADMITCALLERS: the selftest's only; admit.exe refuses --timeout outside its test mode
+    $hargs += @('--pid', $PID, '--detach', '--max-s', $maxHoldS)
     $r = Invoke-AdmitBounded $exe $hargs $boundS $true   # S106 C5: pause-aware
     if (-not $r.done) {
       Write-Host "[admit] $Want compiles at once (not held: admit gave no answer in $boundS s and was killed)"
@@ -252,7 +255,7 @@ function Request-BuildParallel {
     }
     if ($r.code -eq 75) {   # S109 GATE: refused (an older admit prints no `refused` line); thrown below, outside this catch
       $rl = [regex]::Match([string]$r.out, '(?m)^refused (.*?)\r?$')
-      $refusal = if ($rl.Success) { $rl.Groups[1].Value } else { "not admitted within $TimeoutS s (exit 75)" }
+      $refusal = if ($rl.Success) { $rl.Groups[1].Value } else { "not admitted within the queue's wait cap (exit 75)" }
     } else {
       Write-Host "[admit] $Want compiles at once (not held: exit $($r.code), '$(([string]$r.out).Trim() -replace '\s+', ' ')')"
       return $Want

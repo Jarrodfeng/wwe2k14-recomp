@@ -1,0 +1,11 @@
+name = "rstdiff"
+module = "qrstdiff"
+needs = "con"
+errors = ["qrstdiff.RstDiffError", "qrstdiff.CD.DiffError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 55
+text = '''  rstdiff [--kind K] [--flag DIFF|UNSETTLED|PASS-NEVER|OK] [--ref REF]  per draw kind, the render state the GAME's recorder calls
+                               set (depth test / write / compare, blend, cull, colour mask, stencil) beside the DrawState OURS builds
+                               (file:line); the game's reversed compares mirrored first (tools/q/qrstdiff.py; docs/research/s111/RSTDIFF.md)'''

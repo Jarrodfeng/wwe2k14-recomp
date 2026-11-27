@@ -109,8 +109,8 @@ SPEED_TERM_RX = re.compile(r'^(performance\b.*|watch)$')   # S109 FF: the ONE do
 VSYNC_TERM_RX = re.compile(r'^flag\s+--?vsync=(true|1|on)$')
 REPLAY_FLAGS = ('wwe2k14_replay_mode', 'wwe2k14_replay_play', 'wwe2k14_replay_record')   # det_frames: every guest clock follows frames
 SYNC_STEPS = {'wait_state', 'wait_text', 'press_until_state', 'press_until_text', 'wait_file', 'press_until_file', 'wait_event', 'press_until_preview'}
-MATCH_FILES = ('m3.pac',)   # a wait_file on this = the match loaded (it opens inside the match loading screen, entrances over, ~50 frames before the fade: src\load_turbo.h:15-22, :147): frame-stepped from there.
-# INGAMELUA.PAC is NOT a match start: it opens at the in-game sequence start, before the loading screen and both entrances (src\load_turbo.h:14-18)
+MATCH_FILES = ('m3.pac',)   # a wait_file on this = the match loaded (it opens inside the match loading screen, entrances over, ~50 frames before the fade: src\load_turbo.h): frame-stepped from there.
+# INGAMELUA.PAC is NOT a match start: it opens at the in-game sequence start, before the loading screen and both entrances (src\load_turbo.h)
 ENTRANCE_FILES = ('.bik', 'ingamelua', 'titantron')   # a wait_file on these = an entrance / movie follows (guest-clock timed)
 CONFIRM_PRESSES = ('a', 'start')   # a plain press that opens a page (the S109 FF2 'opened' shape)
 CLOCK_SHOT_STEPS = {'screenshot', 'screenshot_every', 'shot', 'record', 'clip_start'}
@@ -200,7 +200,7 @@ def ff_step_findings(path, root, flags):
                 ctx = 'ent'
             elif c == 'wait_file' and 'savedata.dat' in a and not title_seen:
                 # S109 FF2: the title block (`wait_file SaveData.Dat`, a frame count, START as `press START` or `set 0x0010`) is SAFE fast-forwarded, for both verbs: the boot turbo window
-                # ends AT SaveData.Dat (src\load_turbo.h:24-25), so the title presses already run at normal speed or in a settled window; 214 routes carrying `# harness: fast-forward ok` run it
+                # ends AT SaveData.Dat (src\load_turbo.h), so the title presses already run at normal speed or in a settled window; 214 routes carrying `# harness: fast-forward ok` run it
                 # fast-forwarded, and S108's fast-forwarded runs 35 / 36 passed it. (Confirmed by the main session in the check round.) Only the FIRST SaveData.Dat sync is the title.
                 ctx = 'title'
                 title_seen = True

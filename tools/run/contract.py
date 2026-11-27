@@ -109,7 +109,10 @@ def load_launcher_flags(repo=REPO):
     p = Path(repo) / 'src' / 'launcher' / 'launcher_main.cpp'
     if not p.is_file():
         p = Path(MAIN) / 'src' / 'launcher' / 'launcher_main.cpp'
-    txt = p.read_text(encoding='utf-8', errors='replace')
+    import sys
+    sys.path.insert(0, str(REPO / 'tools' / 'split'))
+    from read_unit import read_text  # launcher_main.cpp is split: read it with its parts expanded (text mode: '\n' line ends)
+    txt = read_text(p)
     found = set(re.findall(r'a == "(--[\w-]+)"', txt))
     if len(found) < 20:
         raise RuntimeError(f'launcher flag list too small ({len(found)}) from {p}')

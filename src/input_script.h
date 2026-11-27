@@ -114,7 +114,7 @@
 //                                 from the script; ".txt" may be left out), so `include boot_to_menu` takes the
 //                                 navigation snippet nav/boot_to_menu.txt. Up to 8 levels deep, no loops; a repeat
 //                                 can't start in one file and end in another. Its steps run under the include line's
-//                                 number; messages add their own file and line: "line 5 (boot_to_menu.txt:12)".
+//                                 number; messages add their own file and line: "line 5 (boot_to_menu.txt)".
 //   watch_zero 0xADDRESS          hardware-watch a guest word; log every write that zeroes it
 //                                 (src/guest_watch.h; up to 4 words)
 //   watch ADDR [LEN] [any|change|VALUE] / unwatch [ADDR]
@@ -1002,7 +1002,7 @@ class InputScript {
     event_wait::Filter until;   // S110 SCENESRC: wait_event ... until KIND ... (kind "" = none)
   };
 
-  // Session 30: a step's line for messages ("5", or "5 (boot_to_menu.txt:12)" for an included step) and for file
+  // Session 30: a step's line for messages ("5", or "5 (boot_to_menu.txt)" for an included step) and for file
   // labels ("5", or "5_12").
   static std::string L(const Step& s) {
     return s.origin.empty() ? std::to_string(s.line) : fmt::format("{} ({})", s.line, s.origin);

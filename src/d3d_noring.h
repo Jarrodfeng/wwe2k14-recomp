@@ -655,6 +655,7 @@ inline bool EmitInterrupt(uint8_t* base, uint32_t dev, uint32_t r5, uint32_t cal
 
 // Ring submit 0x82CB5EF0 (r3 device, r4 an array of {size | flags << 24, address} pairs, r5 the count): with the queue on, the pieces
 // go to the queue; nothing is written to the ring, no WPTR (so the library's ring-space wait, reason 1, is never reached).
+// SKIP-ORIGINAL: with the queue on (Level >= 1) the pieces go to the queue and nothing is written to the ring (the comment above); owner_timing::Submit answers first in owner mode
 REX_HOOK_RAW(sub_82CB5EF0) {
   if (wwe2k14::owner_timing::Submit(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32;
@@ -684,6 +685,7 @@ REX_HOOK_RAW(sub_82CB5EF0) {
 
 // The segment-end fence pair 0x82CB63D0 (r3 device, r4 the write pointer; returns the pointer after what it wrote): a Fence item,
 // written by the consumer after every item before it. The library's own bookkeeping is kept as the original keeps it.
+// SKIP-ORIGINAL: the segment-end fence becomes a Fence item (the comment above); owner_timing::Fence answers first in owner mode; the original runs below Level 2, in a fallback or while recording
 REX_HOOK_RAW(sub_82CB63D0) {
   if (wwe2k14::owner_timing::Fence(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, ptr = ctx.r4.u32;
@@ -711,6 +713,7 @@ REX_HOOK_RAW(sub_82CB63D0) {
 
 // The interrupt emitter 0x82CB6510 (r3 device, r4 the write pointer, r5 flags, r6 callback, r7 argument; returns the pointer after what
 // it wrote). Users: the flip handshake (replaced as a whole below), the scene-timing pair (0x82CB71D0), the tiling hand-off, profiling.
+// SKIP-ORIGINAL: the interrupt emitter becomes an item (EmitInterrupt); owner_timing::Interrupt answers first in owner mode; the original runs below Level 2, in a fallback or while recording
 REX_HOOK_RAW(sub_82CB6510) {
   if (wwe2k14::owner_timing::Interrupt(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, ptr = ctx.r4.u32;
@@ -737,6 +740,7 @@ REX_HOOK_RAW(sub_82CB6510) {
 // wait for it), the interrupt emitter with the flip scheduler and the packed interval word, and the wait for the flip word to be
 // 0 - the one frame limiter - become ONE FlipHandshake item. The two helper calls (profiling packets only) and the per-frame bit
 // stay. This is also where the ring <-> queue hand-over happens (a frame boundary).
+// SKIP-ORIGINAL: the flip handshake becomes ONE FlipHandshake item (the comment above); owner_timing::Flip answers first in owner mode; the original runs below Level 2, in a fallback or while recording
 REX_HOOK_RAW(sub_82CB3300) {
   if (wwe2k14::owner_timing::Flip(ctx, base)) return;
   const uint32_t dev = ctx.r3.u32, flag = ctx.r4.u32;
@@ -801,6 +805,7 @@ REX_HOOK_RAW(sub_82CB3300) {
 // := 3 when the word is 0x28280136 else 0. Nothing in the SDK reads them (they only reach the register file): one Registers item.
 // With device+24392 bit 4 or device+24584 > 0 it calls the flip handshake instead (our hook). Front buffer 0 (the gamma path, boot) is
 // left to the original.
+// SKIP-ORIGINAL: the front-buffer address packet becomes a Registers item, or the flip handshake hook is called instead (the comment above); the original runs for front buffer 0, below Level 2 or while recording
 REX_HOOK_RAW(sub_82CB34E0) {
   const uint32_t dev = ctx.r3.u32, front = ctx.r4.u32, word = ctx.r5.u32;
   if (Level() < 2 || t_original_depth || Recording(base, dev)) {
@@ -835,6 +840,7 @@ REX_HOOK_RAW(sub_82CB34E0) {
 // The state-dependent flush 0x82CB21F8 (r3 device; listing read in Session 87): register 0x5C8 := 0x20000, and when device byte 11072 has
 // bit 0x40 also 0xE00 := 1 and 0xE40 := 1; then byte 11072 &= 0x3F, byte 11071 &= 0xFC, the misc dirty mask loses its top two bits.
 // Called by the present and by the draw writers when they run as fallbacks (F1 carries the same writes inside its own record).
+// SKIP-ORIGINAL: the state-dependent flush becomes a Registers item with the same device byte updates (the comment above); the original runs below Level 2, in a fallback or while recording
 REX_HOOK_RAW(sub_82CB21F8) {
   const uint32_t dev = ctx.r3.u32;
   if (Level() < 2 || t_original_depth || Recording(base, dev)) {
@@ -859,6 +865,7 @@ REX_HOOK_RAW(sub_82CB21F8) {
 // plain case (device byte 11068 neither the tile-size variant 0x10 nor, with 0x20, a surface change) it is ONE type-0 packet:
 // PA_SC_WINDOW_OFFSET (0x2080) := 0, PA_SC_WINDOW_SCISSOR_TL (0x2081) := (top << 16 & 0x3FFF0000) | (left & 0x3FFF), _BR (0x2082) :=
 // (bottom << 16 & 0x3FFF0000) | (right & 0x3FFF). That case is a Registers item; the tile variants run the original (noted).
+// SKIP-ORIGINAL: the plain window scissor case becomes a Registers item (the comment above); the tile variants and the fallbacks run the original
 REX_HOOK_RAW(sub_82CA8CD0) {
   const uint32_t dev = ctx.r3.u32;
   if (Level() < 2 || t_original_depth || Recording(base, dev) || !REXCVAR_GET(wwe2k14_d3d_noring_scissor)) {
@@ -968,6 +975,7 @@ REX_HOOK_RAW(sub_82CB7770) {
 // := 0x01000000 + a WAIT_REG_MEM on 0xA31 for bit 0x80000000, which therefore always passes at once (confirmed as the per-frame segment
 // piece by M5a's run 14; no guest code reads 0xA31). Dropped: *r5 := 0, nothing allocated or written (the same as the original's
 // bit-clear path). Counted in the block (coher_dropped). Every other path runs the original. Review: S92 M5b (the empty-range value).
+// SKIP-ORIGINAL: the kick coherency handshake is dropped on the ordinary path (*r5 := 0, nothing emitted: the comment above); every other path runs the original
 REX_HOOK_RAW(sub_82CB61C0) {
   const uint32_t dev = ctx.r3.u32, out_count = ctx.r5.u32;
   if (Level() < 3 || t_original_depth || !REXCVAR_GET(wwe2k14_d3d_drop_coher) || Recording(base, dev) ||
@@ -983,6 +991,7 @@ REX_HOOK_RAW(sub_82CB61C0) {
 // mask 0x3000), then register 0x5C8 := 0x20000 and register 0xF01 := the new device+11044. The SDK reads neither register (0x5C8 is the
 // coherency-flush marker the other segment-end writes use; 0xF01 is named nowhere in it): plain register images, so the register file is
 // exactly what the packets would have left.
+// SKIP-ORIGINAL: the two register writes become a Registers item with the same device+11044 update (the comment above); the original runs below Level 2, in a fallback or while recording
 REX_HOOK_RAW(sub_82CBAEE0) {
   const uint32_t dev = ctx.r3.u32;
   if (Level() < 2 || t_original_depth || Recording(base, dev)) {

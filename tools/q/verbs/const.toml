@@ -1,0 +1,10 @@
+name = "const"
+module = "qconst"
+needs = "con_resolve"
+errors = ["qconst.ConstError", "qconst.qdecomp.DecompError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 39
+text = '''  const N|--name NAME|--setters  which game code writes shader constant register N, and from what (tools/q/qconst.py;
+                               cache out/harness/index/qconst/; docs/agents/q_const.md)'''

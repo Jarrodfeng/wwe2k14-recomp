@@ -29,6 +29,10 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path, part_files  # a split file is read with its parts expanded (tools/split/read_unit.py)
 
 BLOCK = re.compile(r'//\s*START-ONLY-(BEGIN|END)(?:\(([A-Za-z, ]+)\))?\s*:?\s*(.*)')
 MARK = re.compile(r'//\s*(START-ONLY\(([A-Za-z, ]+)\)|NOT-READ-YET\((OFF)\)|RIG-ONLY)\s*:?\s*(.*)')
@@ -343,7 +347,7 @@ def main():
 
     def read_tree(rel):
         p = os.path.join(root, rel)
-        return open(p, encoding='utf-8', errors='replace', newline='').read().replace('\r\n', '\n') if os.path.isfile(p) else None
+        return read_path(p) if os.path.isfile(p) else None
 
     def read_rev(rel):
         r = subprocess.run(['git', '-C', root, 'show', '%s:%s' % (a.refind, rel)], capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -352,11 +356,14 @@ def main():
 
     # the tree-wide facts (kept closure, definitions) always come from the working tree: kept-ness of a symbol does not change between the revs compared
     src = {}
+    parts = part_files(os.path.join(root, 'src'))   # a split parent is read with its parts expanded; its part files are not read again
     for d, _, fs in os.walk(os.path.join(root, 'src')):
         for f in fs:
             if f.endswith(('.h', '.cpp', '.inc')):
                 p = os.path.join(d, f)
-                src[os.path.relpath(p, root).replace('\\', '/')] = open(p, encoding='utf-8', errors='replace', newline='').read().replace('\r\n', '\n')
+                if Path(p).resolve() in parts:
+                    continue
+                src[os.path.relpath(p, root).replace('\\', '/')] = read_path(p)
     cm = open(os.path.join(root, 'CMakeLists.txt'), encoding='utf-8').read()
     blk = re.search(r'set\(WWE2K14_SOURCES(.*?)\n\s*\)', cm, re.S)
     units = set(re.findall(r'^\s*(src/\S+?\.cpp)\s*(?:#.*)?$', blk.group(1) if blk else '', re.M))

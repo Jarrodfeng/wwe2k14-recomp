@@ -19,6 +19,7 @@ struct DeviceOptions {
   bool exclusive_fullscreen = false;  // S102 G2b: enable VK_EXT_full_screen_exclusive when the device lists it (Windows only; exclusive_policy.h)
   bool robust_buffers = false;        // S102 D1: enable robustBufferAccess (out-of-range buffer reads return 0 / in-range data, never fault): the lost-device diagnosis A/B (DEVICE_LOST.md job C); off = the device as it was
   bool multiview = false;             // S102 C1 review F2: enable VkPhysicalDeviceMultiviewFeatures.multiview (layered_targets.h): only when wwe2k14_rdr_prelight_layered is on at start (or fview / rplay --prelight-layered); off = the device is as it was
+  uint32_t dynamic_state = ~0u;       // S111 DYNSTATE: which groups of draw state may be set per draw when the device can (dyn_state.h Group bits); 0 = none: every state stays in the pipeline key (a harvest of the pipeline seed)
 };
 
 // What the device offers within the floor. Capability answers only, never vendor names.
@@ -38,6 +39,7 @@ struct Caps {
   float max_anisotropy = 1.0f;
   VkDeviceSize uniform_align = 256;
   VkDeviceSize atom_size = 64;
+  uint32_t dyn_mask = 0;           // S111 DYNSTATE: the groups of draw state set per draw on this device (dyn_state.h Group bits; decided once in Device::Create); a pipeline bakes and is keyed by the rest
 };
 
 class Device {

@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -105,11 +106,18 @@ class TexSet {
  public:
   // Adds the directory in `b`; false when it is not one.
   bool AddDir(Bytes&& b) { return AddDirImpl(std::move(b), nullptr); }
+  // S111 MIPLEVELS: a directory whose textures the game's loader builds at `levels` levels (Texture::game_levels; 0 = the file's own chain, as AddDir).
+  bool AddDirLevels(Bytes&& b, uint32_t levels) { return AddDirImpl(std::move(b), nullptr, levels); }
+  // S111 ARENALEVELS (arena_levels.h): a directory whose loader gives each texture its own count: levels_of(raw), raw = the record's bytes up to their first NUL (what the
+  // game's per-name lookups compare: a 16-character name runs on into its "dds" tag).
+  using LevelsOf = std::function<uint32_t(const std::string&)>;
+  bool AddDirNamed(Bytes&& b, const LevelsOf& levels_of) { return AddDirImpl(std::move(b), nullptr, 0, &levels_of); }
   // S103 WMB: a donor directory: indexes ONLY the listed names (case-insensitive). The first directory still wins (a name the set already has is not replaced), so a borrowed texture never shadows the arena's own.
-  bool AddDir(Bytes&& b, const std::vector<std::string>& only) { return AddDirImpl(std::move(b), &only); }
+  // S111 ARENALEVELS: `levels_of` (optional) gives each record its count, as AddDirNamed.
+  bool AddDir(Bytes&& b, const std::vector<std::string>& only, const LevelsOf* levels_of = nullptr) { return AddDirImpl(std::move(b), &only, 0, levels_of); }
 
  private:
-  bool AddDirImpl(Bytes&& b, const std::vector<std::string>* only) {
+  bool AddDirImpl(Bytes&& b, const std::vector<std::string>* only, uint32_t levels = 0, const LevelsOf* levels_of = nullptr) {
     if (b.size() < 0x30) return false;
     const uint32_t count = Le32(b, 0);
     if (count == 0 || count > 4096 || 0x10 + size_t(count) * 32 > b.size()) return false;
@@ -122,7 +130,9 @@ class TexSet {
       std::memcpy(nm, b.data() + r, 16);
       const uint32_t size = Le32(b, r + 20), off = Le32(b, r + 24);
       if (off > b.size() || size > b.size() - off) return false;
-      d.ents.push_back({nm, off, size});
+      size_t raw_n = 0;   // S111 ARENALEVELS: the record's bytes up to the NUL (levels_of's name)
+      while (raw_n < 32 && b[r + raw_n] != 0) ++raw_n;
+      d.ents.push_back({nm, off, size, levels_of ? (*levels_of)(std::string(reinterpret_cast<const char*>(b.data() + r), raw_n)) : levels});
     }
     d.buf = std::move(b);
     dirs_.push_back(std::move(d));
@@ -171,6 +181,7 @@ class TexSet {
     if (borrowed_.count(key))   // S103 WMB: one line per model that uses a borrowed texture
       std::fprintf(stderr, "[asset] %s: '%s' borrowed from another arena's directory 400 (not in its own dirs; the game binds nothing)\n", m.label.c_str(), name.c_str());
     t.name = e.name;
+    t.game_levels = e.levels;   // S111 MIPLEVELS: the count of the directory the name was found in (S111 ARENALEVELS: of its record)
     m.textures.push_back(std::move(t));
     return map[key] = int(m.textures.size()) - 1;
   }
@@ -183,6 +194,7 @@ class TexSet {
     const Ent& e = d.ents[size_t(f->second.second)];
     if (!ParseDds(d.buf.data() + e.off, e.size, t, why)) return false;
     t.name = e.name;
+    t.game_levels = e.levels;   // S111 MIPLEVELS (review): the record's count, as Get (a reader that Peeks a levelled directory keeps it: the blood list)
     return true;
   }
   // Forget per-model dedupe state (call when a Model is reused).
@@ -192,6 +204,7 @@ class TexSet {
   struct Ent {
     std::string name;
     size_t off, size;
+    uint32_t levels = 0;   // S111 MIPLEVELS / ARENALEVELS: Texture::game_levels of this record (AddDirLevels' count, or AddDirNamed's per name; 0 = none)
   };
   struct Dir {
     Bytes buf;

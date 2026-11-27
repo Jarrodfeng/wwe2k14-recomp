@@ -271,7 +271,22 @@ def parse_addr(expr, consts):
     return '+'.join(base), off, idx
 
 
+def unit_rel(rel):
+    """A split part keys as the unit it was cut from (reader/registry.inc -> src/renderer_adapter/reader.h; tools/split/read_unit.unit_of);
+    any other file is itself."""
+    if not rel.endswith('.inc'):
+        return rel
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    import read_unit
+    u = str(read_unit.unit_of(os.path.join(ROOT, rel)))
+    try:
+        return os.path.relpath(u, os.path.realpath(ROOT)).replace('\\', '/')
+    except ValueError:
+        return rel
+
+
 def family(path, func):
+    path = unit_rel(path)
     if os.path.basename(path) == 'reader.h':
         return 'd3d_state'
     key = (os.path.basename(path) + ' ' + (func or '')).lower()

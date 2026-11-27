@@ -152,7 +152,9 @@ def main():
     planted_rest = [l for l in planted.splitlines(keepends=True) if not re.match(r'\s*screenshot\b', l)]
     ok &= planted_rest != planted.splitlines(keepends=True)
     report('bench_dir', ok, '; '.join(notes) + f'; files {sorted(made)}')
-    lm = (root / 'src' / 'launcher' / 'launcher_main.cpp').read_text(errors='replace')
+    sys.path.insert(0, str(root / 'tools' / 'split'))
+    from read_unit import read_text  # launcher_main.cpp is split: read it with its parts expanded (text mode: '\n' line ends)
+    lm = read_text(root / 'src' / 'launcher' / 'launcher_main.cpp')
     need_marks = ['#include "bench_button.h"', 'bench_step_', 'BenchTick();', 'StopBench', '"@quick"', 'wwe2k14_settings_file', 'root / "save"', 'ReportsDir()', 'quick_arena = bn::kArenaOverTheLimit']
     missing = [n for n in need_marks if n not in lm]
     report('wired', not missing and len(re.findall(r'S102 U4', lm)) >= 6 and '--wwe2k14_launch=lesnar_bryan' not in hdr.split('inline std::string SceneFlagsError')[0].split('Scenes()')[1],

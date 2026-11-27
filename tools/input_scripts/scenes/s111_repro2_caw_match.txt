@@ -1,0 +1,48 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=1,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, owner on
+# S111 REPRO2: the BARE-torso test superstar (CAW id 1, 01CustomSuperStar.cas of the mirror out\bench\userdata_caw_bare, made by s111_repro2_caw_make.txt) in an entrance and a match against
+# Brock (343). Run it with -Data userdata_caw_bare. Tester report: a fixed T-shaped dark overlay on a created superstar's torso (moveset preview, entrance, match). The CAW is seat 0,
+# so its entrance comes first (entrances ON, as caa_match_entrance.txt); shots at the entrance steps, then the match clock: +60, +400, +800, +1200, +1600 (the torso is read from the
+# 2560x1440 frames by crop). The tank-top CAW (id 0) is the control: s111_repro2_caw0_match.txt (-Data userdata_caw_bare holds both).
+# Question: is there a dark T on a bare created torso in the entrance and in the match, and where?
+on_fail quit
+log bench: start scene repro2_caw_match
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+mark 1 launched
+wait_state entrance_step_0 >=3 3600 2
+log scene=caw_step3
+mark 2 step3
+screenshot caw_e_s3
+wait_frames 150
+screenshot caw_e_s3b
+wait_state entrance_step_0 >=10 3600 2
+log scene=caw_step10
+screenshot caw_e_s10
+wait_frames 150
+screenshot caw_e_s10b
+wait_state entrance_step_0 >=15 3600 2
+log scene=caw_step15
+mark 3 step15
+screenshot caw_e_s15
+wait_frames 120
+screenshot caw_e_s15b
+wait_state match_clock >0 30000
+log scene=caw_match
+mark 4 match_clock
+wait_frames 60
+screenshot caw_m_60
+wait_frames 340
+screenshot caw_m_400
+wait_frames 400
+screenshot caw_m_800
+wait_frames 400
+screenshot caw_m_1200
+wait_frames 400
+screenshot caw_m_1600
+log scene=end
+mark 5 end
+log bench: done
+wait_frames 10
+quit

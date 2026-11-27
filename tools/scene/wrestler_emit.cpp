@@ -26,7 +26,9 @@
 #include <set>
 #include "../../src/renderer_scene/named_load_fail.h"   // S103 DLW
 #include "../../src/scene_live/model_file_note.h"        // S110 SEATREL (was PACANS' pac_answer table)
+#include "../../src/scene_live/build_levels_note.h"      // S111 LEVELSBYTE review: the build's level count in the real KeyLink
 #include "../../src/renderer_scene/detached_piece.h"    // S103 DTP
+#include "../../src/renderer_scene/piece_hidden.h"      // S111 SOCKPIECE
 #include "../../src/renderer_scene/piece_row_rule.h"    // S111 PIECEROUTE: PiecesOnlyMeshDrawn
 
 using namespace rdr_scene;
@@ -617,6 +619,19 @@ static int SelfTest() {
           Check(lo.pac == "pac\\ch\\ch397.pac" && lo.entry == "model_key:39702", "SEATREL: after the rebuild from CH397's pac the answer is back to the id rule");
           model_file_note::Clear();
           rdr_scene::namedfail::Clear();
+        }
+        {  // S111 LEVELSBYTE review: the REAL KeyLink carries the descriptor's build count (build_levels_note.h EntryTag): "/l<byte>" after the digits, before the composite tag; none for 4
+          const uint32_t kDscL = 0x71100000;
+          const std::string tagl = "/c:" + std::string(96, '2');
+          build_levels_note::Clear();
+          build_levels_note::NoteBuild(kDscL, 24902, 24912, 1);   // the Threads preview's byte, loaded key 24902, chosen key 24912
+          Check(WrestlerContributor::KeyLink(24902, tagl, kDscL).entry == "model_key:24902/l1" + tagl && WrestlerContributor::KeyLink(24912, std::string(), kDscL).entry == "model_key:24912/l1",
+                "LEVELSBYTE: KeyLink names the descriptor's build count (/l1) for its loaded or its chosen key, before the composite tag");
+          Check(WrestlerContributor::KeyLink(24902, tagl).entry == "model_key:24902" + tagl && WrestlerContributor::KeyLink(39712, std::string(), kDscL).entry == "model_key:39712",
+                "LEVELSBYTE: no descriptor, or another key on it: no level tag (the stock 4)");
+          build_levels_note::NoteBuild(kDscL, 24902, 24912, 4);
+          Check(WrestlerContributor::KeyLink(24902, std::string(), kDscL).entry == "model_key:24902", "LEVELSBYTE: a rebuild at the fresh request's 4 drops the tag");
+          build_levels_note::Clear();
         }
         {
           WrestlerContributor wt;   // the node-count drop (another object built at the address)
@@ -1564,7 +1579,6 @@ static int SelfTest() {
         piece_rows[6].m[13] = src_row.m[13], piece_rows[6].m[14] = src_row.m[14];
         if (m.break_rows) piece_rows[6].m[0] += 0.25f;                      // a bind / unposed / other-frame palette: not the owner's rotation
         if (latch_piece_out) *latch_piece_out = piece_rows;
-        w.SetNoWalk(!m.stream);
         w.SetFaultsForTest(faults);
         SubmitSkinDrawn(w, kOwner, 0, kN, own_rows.data(), kHook);                // the owner's update exit: equals the latch read (no mismatch for the owner)
         w.StampDrawForTest(kOwner, kHook);                                  // S107 CAM: the stream-free build shows a body only while the game asked to draw it
@@ -1929,6 +1943,75 @@ static int SelfTest() {
     const RouteOut twin = route(1, false, true, WrestlerContributor::kFaultPiecesNoGates);
     Check(twin.owner_slot_id && (twin.owner & kObjPiecesOnly), "S111 PIECEROUTE planted twin (kFaultPiecesNoGates = slot 22's gate ignored) routes the owner whose slot 22 returns at once: the gate check above fails it");
     Check(PiecesOnlyMeshDrawn(true, 10000) && !PiecesOnlyMeshDrawn(true, 0) && !PiecesOnlyMeshDrawn(false, 10000) && !PiecesOnlyMeshDrawn(true, -1), "S111 PIECEROUTE: a pieces-only object draws its piece meshes (kind 2, id > 0), never its body (id 0) or a non-wrestler mesh");
+  }
+  {  // S111 SOCKPIECE (docs\research\s111\SOCKPIECE.md, piece_hidden.h): a piece the game hides (SUBM instance +20 == 0: Mankind's / Santino's sock, entry 28, outside the move) of a NAMED owner
+     // gives the owner an alpha-0 row (its merged mesh skips the sock); the shown piece beside it stays drawn by its owner. Synthetic: body 0x1000 in slot 0, sock 0x70001000 (id 28), hair 0x70002000 (id 10000).
+    auto drive_sock = [&](uint32_t faults, bool named_owner, bool sock_palette, SceneTables& t, WrestlerContributor& w) {
+      w.SetFaultsForTest(faults);
+      SubmitSkinDrawn(w, 0x1000, 0, kN, pa.data(), 7);
+      if (named_owner) w.SubmitSlotKey(0x1000, 34302);
+      if (sock_palette) w.SubmitConsumer(0x70001000, 7, Pose(7, 0.3f).data(), 7);
+      w.SubmitConsumer(0x70002000, 11, Pose(11, 0.4f).data(), 7);
+      WrestlerContributor::SlotTable st;
+      st.skels.push_back({0x1000, 0});
+      st.state[0] = WrestlerContributor::kSlotOccupied;
+      st.pieces.push_back({0x70001000, 28, 0, scene_inputs::PieceWhy::Ok});
+      st.pieces.push_back({0x70002000, 10000, 0, scene_inputs::PieceWhy::Ok});
+      for (auto& pc : st.pieces) pc.copy = 1, pc.owner = 0x1000, pc.probe.special = 0, pc.probe.copy = 1;
+      st.pieces[0].probe.drawn = 0;   // the game hides the sock (sub_8251E510 / sub_8251EDD8 set entry 28's word to 0)
+      st.pieces[1].probe.drawn = 1;   // the hair is shown
+      std::vector<WrestlerContributor::PaletteTarget> tg;
+      uint32_t missing = 0;
+      w.LatchTargets(6, &st, tg, missing);
+      w.LatchTargets(7, &st, tg, missing);
+      Counters c;
+      t = EmitAt(w, c, 7);
+    };
+    auto obj = [](const SceneTables& t, const char* id) -> const Object* {
+      for (const Object& o : t.objects) if (t.Str(o.id) == id) return &o;
+      return nullptr;
+    };
+    auto any_hidden = [](const SceneTables& t) { for (const Object& o : t.objects) if (o.flags & kObjPieceHidden) return true; return false; };
+    rf::DetachedOwnerRowOut row;
+    {
+      SceneTables t;
+      WrestlerContributor w;
+      drive_sock(0, true, false, t, w);
+      const Object* so = obj(t, "skel:70001000");
+      const Object* ho = obj(t, "skel:70002000");
+      Check(so && (so->flags & kObjPieceHidden) && !(so->flags & (kObjVisible | kObjDrawnByOwner | kObjDetachedPiece | kObjSkinned)) && so->pad == 28 && so->layer == 1 && so->bones_count == 0 && w.PieceGameHidden() == 1,
+            "S111 SOCKPIECE: a hidden piece (instance +20 == 0, no palette of its own) of a named owner is written invisible, kObjPieceHidden, piece id 28, owner slot 0 + 1, no bones");
+      Check(so && rf::HiddenOwnerRow(so->flags, so->pad, so->layer, true, row) && row.slot == 0 && row.piece == 28 && row.alpha == 0.f, "S111 SOCKPIECE: it gives the owner an alpha-0 row for (slot 0, piece 28): the owner's merged mesh skips the sock");
+      Check(ho && (ho->flags & kObjDrawnByOwner) && !(ho->flags & kObjPieceHidden) && !rf::HiddenOwnerRow(ho->flags, ho->pad, ho->layer, true, row), "S111 SOCKPIECE: the shown piece beside it (instance +20 == 1) stays drawn by its owner, no hide row");
+      Check(so && !rf::HiddenOwnerRow(so->flags, so->pad, so->layer, false, row), "S111 SOCKPIECE draw-side twin (rf::Plants().ignore_game_hide): no row, so the owner draws the sock (the row check above fails it)");
+    }
+    {
+      SceneTables t;
+      WrestlerContributor w;
+      drive_sock(0, true, true, t, w);
+      const Object* so = obj(t, "skel:70001000");
+      Check(so && (so->flags & kObjPieceHidden) && !(so->flags & (kObjDrawnByOwner | kObjSkinned)) && so->bones_count == 0 && so->pad == 28 && so->layer == 1, "S111 SOCKPIECE: a hidden piece WITH a palette of its own is the same: kObjPieceHidden, never drawn-by-owner, no bones");
+    }
+    {
+      SceneTables t;
+      WrestlerContributor w;
+      drive_sock(WrestlerContributor::kFaultHideIgnored, true, true, t, w);
+      SceneTables t2;
+      WrestlerContributor w2;
+      drive_sock(WrestlerContributor::kFaultHideIgnored, true, false, t2, w2);
+      Check(!any_hidden(t) && !any_hidden(t2) && w.PieceGameHidden() == 0 && w2.PieceGameHidden() == 0, "S111 SOCKPIECE planted twin (kFaultHideIgnored = the old emit): no hide object, so no row: the owner's merged mesh draws the sock (the checks above fail it)");
+    }
+    {
+      SceneTables t;
+      WrestlerContributor w;
+      drive_sock(0, false, false, t, w);
+      Check(!any_hidden(t) && w.PieceGameHidden() == 0, "S111 SOCKPIECE: a hidden piece of a guest-row (unnamed) owner gets no hide object (its body meshes hold no stock piece; the own-rows route leaves it out)");
+    }
+    Check(rdr_scene::OwnerMeshHidesPiece(0, 28, true, true) && !rdr_scene::OwnerMeshHidesPiece(1, 28, true, true) && !rdr_scene::OwnerMeshHidesPiece(0xFFFFFFFFu, 28, true, true) && !rdr_scene::OwnerMeshHidesPiece(0, 0, true, true) &&
+              !rdr_scene::OwnerMeshHidesPiece(0, 28, false, true) && !rdr_scene::OwnerMeshHidesPiece(0, 28, true, false),
+          "S111 SOCKPIECE: the rule is instance +20 == 0 (unread is never a hide), a piece id, the link's own owner skeleton, a named owner");
+    Check(!rf::HiddenOwnerRow(kObjPieceHidden | kObjVisible, 28, 1, true, row) && !rf::HiddenOwnerRow(kObjPieceHidden, 0, 1, true, row) && !rf::HiddenOwnerRow(kObjPieceHidden, 28, 0, true, row) && !rf::HiddenOwnerRow(kObjDrawnByOwner, 28, 1, true, row),
+          "S111 SOCKPIECE: no row for a visible object, a missing piece id / owner slot, or an unflagged piece");
   }
   if (g_fail) std::printf("FAIL  %d check(s) failed\n", g_fail);
   else std::printf("PASS  wrestler_emit selftest\n");

@@ -1,0 +1,10 @@
+name = "guestdiff"
+module = "qguestdiff"
+qerror = false
+usage_slot = "u35"
+
+[[usage]]
+order = 52
+text = '''  guestdiff [--field F] [--verdict V ...] [--all] [--ref REF]  per Material field: what the STOCK loader (jboy.h) fills by parameter name
+                               against what the GUEST (created superstar) build fills, who reads it for a guest effect, and whether the
+                               CAW edit-pac records carry it; LOOK = stock-only, read, carried non-default (tools/q/qguestdiff.py; GUESTDIFF.md)'''

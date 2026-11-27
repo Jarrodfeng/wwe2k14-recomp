@@ -1,4 +1,5 @@
 #version 450
+// FLIP-EXEMPT: the final swapchain draw: a full-screen triangle in the swapchain's own clip space with the display rotation; the renderer's flip must not touch it.
 // The final draw: the finished picture onto the swapchain, rotated for the display's native orientation.
 layout(set = 0, binding = 0, std140) uniform VertexConstants {
   vec4 rotation;  // the 2x2 turning clip-space positions

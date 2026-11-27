@@ -98,8 +98,7 @@ bool Build(const SceneTables& rec, const Camera& cam, uint32_t w, uint32_t h, Po
   // S103 P2: the tap tables are in uv units of the GAME's picture (720 high: the game's blur offsets are fixed fractions of the screen whatever the render scale, as its post_step
   // targets follow kUsageScaled). Built from the drawn size (2560x1440) every tap was half as wide in uv: the far crowd looked sharp at scale 2 (run 27 sheets). The tables come from
   // the logical size (height 720, width by the aspect, so an ultrawide picture keeps square taps); the images stay the drawn size.
-  static const bool plant_drawn_taps = std::getenv("WWE_RDR_PLANT_POST_DRAWN_TAPS") != nullptr;   // dev plant (tools\scene\post_p2_check.py): the old behaviour, taps from the drawn size
-  const uint32_t lh = plant_drawn_taps ? h : 720, lw = plant_drawn_taps ? w : uint32_t(std::lround(double(w) * 720.0 / double(h ? h : 720)));
+  const uint32_t lh = 720, lw = uint32_t(std::lround(double(w) * 720.0 / double(h ? h : 720)));
   PostParams p = DefaultPostParams(lw ? lw : 1280, lh, hdr);
   p.width = w, p.height = h;
   const post_settings::Combine c = post_settings::CombineFrom(r);
@@ -124,7 +123,7 @@ bool Build(const SceneTables& rec, const Camera& cam, uint32_t w, uint32_t h, Po
   p.StarScale[0] = hdr ? c.c32 : 0.f;
   p.dead_bloom = hdr && c.c31 == 0.f;
   p.dead_glare = hdr && c.c32 == 0.f;
-  if (film) {   // [C] the order: c0 = S+212 (Cb), c1 = S+216 (Cr), c2 = S+220 (Alpha): sub_82C2A6E0 +104 / +118 / +12C (FXP.md adversary C, post_plan.cpp:578's register order)
+  if (film) {   // [C] the order: c0 = S+212 (Cb), c1 = S+216 (Cr), c2 = S+220 (Alpha): sub_82C2A6E0 +104 / +118 / +12C (FXP.md adversary C, post_plan.cpp's register order)
     float cb = post_settings::Float(r, post_settings::kMonotone + 4), cr = post_settings::Float(r, post_settings::kMonotone + 8), al = post_settings::Float(r, post_settings::kMonotone + 12);
     if (moment_tint && !quality.film_grain && r.fx[kFxArena] == 1) {
       // S103 FXF review 2: VINTAGE LOOK off, a moment tint in an arena that has its own sepia. The node writes lerp(arena row, preset, t) x 0.01: the arena's share (1 - t) is removed so the tint fades in from "no tint"

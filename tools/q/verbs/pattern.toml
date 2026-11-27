@@ -1,0 +1,5 @@
+name = "pattern"
+module = "qpattern"
+errors = ["qpattern.qnames.NamesError"]
+qerror = false
+broken_pipe = false

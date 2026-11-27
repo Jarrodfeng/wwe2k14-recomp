@@ -24,6 +24,7 @@
 //   cv_desc_low     the cover descriptors sit 65536 bytes low (C4 read 62056 for lis 1 | ori 62056)    -> "ring.cv_values"   (S103 C6)
 //   skirt_glob_wrong the camera record pointer sits at 0x83763AA8 (C5 typed 0x8376 for lis -31889)  -> "ring.skirt_visible" (S103 C6)
 //   whole_no_coversthe cover model is gone from the guest of the clean ring (no stamp may be made)  -> "ring.whole_stamp"
+//   rids_fade_off   the corner fades sit 4 bytes off, read by the RIDS (ring break) rows          -> "ring.rids_fade"   (S111 TBPAD review)
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -73,7 +74,7 @@ static Guest g_guest;
 static uint64_t g_reads_scoped = 0, g_reads_unscoped = 0;   // S108 RDS review: reads made inside / outside a pass scope (safe_guest_pages.h PassLines; the game's ReadGuest serves the scoped ones from the pass's line copy)
 static bool ReadThunk(uint32_t a, void* dst, size_t n) { ++(wwe2k14::safe_pages::PassLines::Current() ? g_reads_scoped : g_reads_unscoped); return g_guest.Read(a, dst, n); }
 
-static constexpr uint32_t kX = 0x40100000, kG = 0x40010000, kG2 = 0x40020000, kGate = 0x40030000;
+static constexpr uint32_t kX = 0x40100000, kG = 0x40010000, kG2 = 0x40020000, kGate = 0x40030000, kY = 0x40180000;   // S111 RINGLOD: kY = the ring-side object (its own block)
 static uint32_t LayerObj(uint32_t r) { return 0x40040000 + r * 0x1000; }
 static uint32_t LayerBuf(uint32_t r) { return 0x40100000 + 0x100000 + r * 0x4000; }   // 96 * 80 = 7680 bytes each
 
@@ -88,7 +89,10 @@ static void BuildPieces() {
   const uint32_t X = kX;
   g_guest.Put(0x8376AB34u, 0);   // the arena id word (sub_827D7578 + 64): not the alt ring
   g_guest.Put(0x8201D4D0u, Plant("cv_ang_base") ? 0x3FC90FDBu : 0x4096CBE4u);   // 3 pi/2
-  g_guest.PutF(0x82012B14u, Plant("lod_dist") ? 1.0e9f : 3000.f);   // S105 C4: the post / cover far test's T[0] (sub_825CD8D0 stores it from here); the plant moves it: the far-test check must then fail
+  // S105 C4 / S111 RINGLOD: the post / cover far test's T[0] = the ring object's words X + 0x1F314 / X + 0x1F320 (sub_825CD8D0 +0x1F4 / +0x200; the callers pass them in r3: LISTING literals); the plant
+  // moves them: the far-test check must then fail. The image word they are filled from is a decoy here (1e9): a reader of it finds nothing far.
+  g_guest.PutF(X + 0x1F314u, Plant("lod_dist") ? 1.0e9f : 3000.f), g_guest.PutF(X + 0x1F320u, Plant("lod_dist") ? 1.0e9f : 3000.f);
+  g_guest.PutF(0x82012B14u, 1.0e9f);
   g_guest.Put(0x82000ADCu, 0x3FC90FDBu);   // pi/2
   g_guest.Put(0x82118560u, 0x40490FDBu);   // pi
   g_guest.Put(0x82000A94u, 0xC0490FDBu);   // -pi
@@ -96,6 +100,9 @@ static void BuildPieces() {
   // the cover model: 3 nodes, inverse binds: node 2 translation (284.997, -0.0001, 285) = run 16's constant; palette identity
   g_guest.Put(kG + 36, kCm);
   g_guest.Put(kG + 40, 0);
+  // S111 RINGLOD: a created arena's own cover slots (sub_82740550: [G + 4 (r5 + 17)] near, [G + 4 (r5 + 20)] far, corners 0..2; LISTING literals). The game's G holds them in every arena (a normal ring never
+  // reads them): the near ones name the same cover model here, the far ones are empty.
+  for (uint32_t c = 0; c < 3; ++c) g_guest.Put(kG + 68 + 4 * c, kCm), g_guest.Put(kG + 80 + 4 * c, 0);
   g_guest.Put(kCm, kCmVt);
   g_guest.Put(kCmVt + 8, 0x82BD3AB8u);
   g_guest.Put(kCm + 296, 1);
@@ -118,16 +125,17 @@ static void BuildPieces() {
     g_guest.Put(d, 2);                                                  // n: the cover's third node
     g_guest.Put(d + 4, c + (Plant("cv_side_plus") ? 1u : 0u));          // side: the init stores r4 = the corner
     g_guest.Put(d + 8, 0);                                              // c
-    g_guest.PutF(X + 4u * (2342 + c) + (Plant("cv_alpha_off") ? 4u : 0u), 1.f);   // fade
+    g_guest.PutF(X + 4u * (2342 + c) + ((Plant("cv_alpha_off") || Plant("rids_fade_off")) ? 4u : 0u), 1.f);   // fade
     g_guest.Put(X + 4u * (2364 + c), c == 2 ? 1u : 0u);                  // override only on corner 2
     const uint32_t v = X + 16u * (587 + c) + (Plant("cv_ovr_off") ? 8u : 0u);
     g_guest.PutF(v, 7.f), g_guest.PutF(v + 4, 8.f), g_guest.PutF(v + 8, 9.f), g_guest.PutF(v + 12, 1.f);
   }
-  g_guest.PutF(X + 4u * (2342 + 1) + (Plant("cv_alpha_off") ? 4u : 0u), 0.5f);   // corner 1 third layer: half faded
-  g_guest.PutF(X + 4u * (2342 + 3) + (Plant("cv_alpha_off") ? 4u : 0u), 0.f);    // corner 3 third layer: hidden (not posed, not submitted)
+  g_guest.PutF(X + 4u * (2342 + 1) + ((Plant("cv_alpha_off") || Plant("rids_fade_off")) ? 4u : 0u), 0.5f);   // corner 1 third layer: half faded
+  g_guest.PutF(X + 4u * (2342 + 3) + ((Plant("cv_alpha_off") || Plant("rids_fade_off")) ? 4u : 0u), 0.f);    // corner 3 third layer: hidden (not posed, not submitted)
   // posts: [G + 48] 3 nodes, [G + 52] = 0 (no low post)
   g_guest.Put(kG + 48, kPm);
   g_guest.Put(kG + 52, 0);
+  for (uint32_t h = 0; h < 3; ++h) g_guest.Put(kG + 92 + 4 * h, kPm), g_guest.Put(kG + 104 + 4 * h, 0);   // S111 RINGLOD: loop 2's own post slots (sub_82740480: [G + 4 (r5 + 23)] / [G + 4 (r5 + 26)])
   g_guest.Put(kPm, kPmVt);
   g_guest.Put(kPmVt + 8, 0x82BD3AB8u);
   g_guest.Put(kPm + 296, 1);
@@ -156,8 +164,11 @@ static void BuildPieces() {
   g_guest.PutF(arr + 152, Plant("skirt_quad_wrong") ? 0.f : -5.f);            // b: |b| > |a|, b < 0 -> quadrant 0 -> side 2 faces away
   if (Plant("skirt_quad_wrong")) g_guest.PutF(arr + 144, -5.f);                // a: quadrant 1 -> side 3 faces away (the wrong skirt hidden)
   g_guest.PutF(rr::kQuadThreshold, 0.f);
-  g_guest.Put(0x836F3928u, 1);   // S103 C6: the LISTING literal (lis r23,-31889, lwz 14632)
-  for (uint32_t i = 0; i < 4; ++i) g_guest.Put(rr::kSkirtSideTable + 4 * i, i), g_guest.Put(X + rr::kSkirtStateOff + 4 * i, 0);
+  g_guest.Put(0x836F3928u, 2);   // S103 C6: the LISTING literal (lis r23,-31889, lwz 14632). S111 RINGLOD: it names side 2, the hidden one: the POSE keeps side 2 for it, the DRAW does not (ring.skirt_visible wants 0xB)
+  // S111 RINGLOD: the state words are the ring-SIDE object's (Y + 1248 + 4 i: sub_82609290 +0x118); X's words at the same offset hold 1 (a decoy: a reader of X hides every skirt). Plant skirt_side_obj: the
+  // noted object is X (the old reading) -> ring.skirt_visible.
+  for (uint32_t i = 0; i < 4; ++i) g_guest.Put(rr::kSkirtSideTable + 4 * i, i), g_guest.Put(kY + rr::kSkirtStateOff + 4 * i, 0), g_guest.Put(X + rr::kSkirtStateOff + 4 * i, 1);
+  rr::RingSideSlot().store(Plant("skirt_side_obj") ? X : kY);
 }
 
 static void BuildGuest(bool alt, bool gate_open = true, bool g20 = true, bool mg = false) {
@@ -446,6 +457,27 @@ int main(int argc, char** argv) {
       BuildGuest(false);
       g_guest.Put(0x8376AB34u, 220);
       const bool alt = covers(a);
+    {   // S111 RINGLOD: a created arena's corner 1 poses ITS slot [G + 72] (sub_825CE668 +0x124 -> sub_82740550 r5 = 1): empty = no cover rows at corner 1 (the r27 == 0 skip, +0x17C); corners 0 / 2 pose their
+        // own slots and corner 3 [G + 36] (sub_827403E8). The reading before RINGLOD posed [G + 36] at every corner: 3 rows at corner 1.
+      g_guest.Put(kG + 72, 0);
+      rr::RingCensus k;
+      rr::Inputs ki;
+      rr::ReadInputs(ReadThunk, kX, ki, k);
+      rr::CvInputs kv;
+      rr::ReadCoverInputs(ReadThunk, kX, ki, kv, k);
+      std::vector<RingRows> kr;
+      std::vector<RingNodeRows> kp;
+      size_t per[4] = {};
+      for (uint32_t c = 0; c < 4; ++c) {
+        const size_t before = kr.size();
+        for (uint32_t l = 0; l < 3; ++l) rr::AppendCover(kv, ki, 0, c, l, 77, kr, kp, k);
+        per[c] = kr.size() - before;
+      }
+      const RingRows* k0 = EntryOf(kr, 0);
+      Check(kv.ok && kv.alt && per[0] == 3 && per[1] == 0 && per[2] == 3 && per[3] == 2 && k0 && k0->object == kCm, "ring.cv_alt_slots",
+            "rows per corner " + std::to_string(per[0]) + " " + std::to_string(per[1]) + " " + std::to_string(per[2]) + " " + std::to_string(per[3]));
+      g_guest.Put(kG + 72, kCm);
+    }
       rr::RingCensus ap;
       rr::Inputs ai;
       rr::ReadInputs(ReadThunk, kX, ai, ap);
@@ -567,6 +599,17 @@ int main(int argc, char** argv) {
     v.draw_word = 1, v.rids = true, ok = ok && rr::SkirtVisibleMask(v) == 0xFu;   // RIDS playback: all
     v.rids = false, v.early_exit = true, ok = ok && rr::SkirtVisibleMask(v) == 0u;
     Check(ok, "ring.skirt_rule", "pure rule");
+    {   // S111 RINGLOD: the DRAW's rule (sub_82609290): no draw-word exception; P / [P + 16] zero = nothing drawn unless RIDS; the state word and the quadrant as the pose
+      rr::SkirtVisIn d;
+      d.ok = true, d.quad = 0, d.draw_word = 2;
+      for (uint32_t i = 0; i < 4; ++i) d.side[i] = i;
+      bool dk = rr::SkirtDrawnMask(d) == 0xBu && rr::SkirtVisibleMask(d) == 0xFu;   // the draw word names the hidden side 2: posed, not drawn
+      d.state[3] = 1, dk = dk && rr::SkirtDrawnMask(d) == 0x3u;
+      d.state[3] = 0, d.cam_ok = false, dk = dk && rr::SkirtDrawnMask(d) == 0u;
+      d.rids = true, dk = dk && rr::SkirtDrawnMask(d) == 0xFu;
+      d.rids = false, d.cam_ok = true, d.early_exit = true, dk = dk && rr::SkirtDrawnMask(d) == 0u;
+      Check(dk, "ring.skirt_draw_rule", "the draw's rule");
+    }
     // (b) through the contributor: the guest above (quadrant 0, side 2 faces away): exactly the skirts of sides 0, 1, 3 are emitted, and the verdict wants exactly 3
     BuildGuest(false);
     rr::RingRecomputeContributor con;
@@ -646,8 +689,8 @@ int main(int argc, char** argv) {
       // 11 cover rows as above (12 less the hidden one); low = corners 0 / 3, high = corners 1 / 2; never both models of one corner (the sum is unchanged)
       Check(corner_ok && cov_lo + cov_hi == 11 && cov_lo >= 3 && cov_hi >= 3 && post_lo == 2 && post_hi == 2 && s3.cv_low == cov_lo && s3.post_low == 2 && s3.lod_dist_unreadable == 0, "ring.lod_far_test",
             "cover lo/hi " + std::to_string(cov_lo) + "/" + std::to_string(cov_hi) + " post lo/hi " + std::to_string(post_lo) + "/" + std::to_string(post_hi) + " corner_ok " + std::to_string(corner_ok));
-      // the threshold is the game's word, not a literal: a different value at 0x82012B14 moves the split (1e9 = nothing is far)
-      g_guest.PutF(0x82012B14u, 1.0e9f);
+      // the threshold is the game's word, not a literal: a different value in the ring object's two words moves the split (1e9 = nothing is far)
+      g_guest.PutF(kX + 0x1F314u, 1.0e9f), g_guest.PutF(kX + 0x1F320u, 1.0e9f);
       rr::RingRecomputeContributor con4;
       con4.SetReader(ReadThunk);
       con4.NoteRing(kX, 704, &vw);
@@ -661,7 +704,7 @@ int main(int argc, char** argv) {
       for (const RingRows& r : t4.ring_rows)
         if (r.klass == kRcCoverLo || r.klass == kRcPostLo) ++lo4;
       Check(lo4 == 0, "ring.lod_threshold_read", "low rows with T = 1e9: " + std::to_string(lo4));
-      g_guest.PutF(0x82012B14u, 3000.f);
+      g_guest.PutF(kX + 0x1F314u, 3000.f), g_guest.PutF(kX + 0x1F320u, 3000.f);
     }
     // (d) an absent model is not a failure: no low cover and a hidden skirt count nothing; a skirt that IS visible and unreadable counts once
     Check(s2.skirt_unreadable == 0 && st.cv_unreadable == 0, "ring.absent_not_counted", "skirt_unreadable " + std::to_string(s2.skirt_unreadable) + " cv_unreadable " + std::to_string(st.cv_unreadable));
@@ -817,6 +860,7 @@ int main(int argc, char** argv) {
         std::string why;
         for (uint32_t c = 0; c < 4; ++c)
           for (uint32_t call = 0; call < (c == 0 ? 4u : 12u); ++call) {
+            if (c == 2 && call == 11) continue;   // S111 TBPAD review: corner 3's pad (the guest's fade 0) has no row: ring.rids_fade
             const RingRows* e = find(tr, cklass[c], call);
             if (!e) { ok = false, why += " missing " + std::to_string(c) + "/" + std::to_string(call); continue; }
             ++n[c];
@@ -824,7 +868,16 @@ int main(int argc, char** argv) {
             ok = ok && (e->flags & kRrRecomputed) && e->n_nodes == cnodes[c] && e->object == cmodel[c] && e->r5 == 0x41000000u + 0x1000u * k && e->frame == 300;
             ok = ok && T3(tr.ring_nodes, e, 0, 100.f * float(k), 0.5f, -float(k), &why) && T3(tr.ring_nodes, e, cnodes[c] - 1, 100.f * float(k) + float(cnodes[c] - 1), 0.5f + float(cnodes[c] - 1) / 100.f, -float(k), &why);
           }
-        Check(ok && n[0] == 4 && n[1] == 12 && n[2] == 12 && n[3] == 12 && rc.Stats().rids_rows == 40 && rc.Stats().rids_refused == 0, "ring.rids_values", why + " rows " + std::to_string(n[0]) + "/" + std::to_string(n[1]) + "/" + std::to_string(n[2]) + "/" + std::to_string(n[3]));
+        Check(ok && n[0] == 4 && n[1] == 12 && n[2] == 11 && n[3] == 12 && rc.Stats().rids_rows == 39 && rc.Stats().rids_refused == 0, "ring.rids_values", why + " rows " + std::to_string(n[0]) + "/" + std::to_string(n[1]) + "/" + std::to_string(n[2]) + "/" + std::to_string(n[3]));
+      }
+      {   // S111 TBPAD review: sub_825CE668 tests a corner's pad fade after the RIDS pose too (the pose call at 0x825CE90C, then the test 0x825CEB38-0x825CEB64: no submit when <= 0). The guest's corner 3 fade is 0:
+          // no row for call 11 (counted hidden, the other calls keep their index); corner 1's is 0.5: call 5's alpha; the lower layers (calls 4, 10) keep alpha 1
+        const RingRows* e11 = find(tr, kRcCoverHi, 11);
+        const RingRows* e5 = find(tr, kRcCoverHi, 5);
+        const RingRows* e4 = find(tr, kRcCoverHi, 4);
+        const RingRows* e10 = find(tr, kRcCoverHi, 10);
+        Check(!e11 && e5 && Near(e5->alpha, 0.5f) && e4 && Near(e4->alpha, 1.f) && e10 && Near(e10->alpha, 1.f) && rc.Stats().cv_hidden == 1, "ring.rids_fade",
+              std::string("call 11 ") + (e11 ? "drawn" : "hidden") + ", call 5 alpha " + (e5 ? std::to_string(e5->alpha) : std::string("none")) + ", hidden " + std::to_string(rc.Stats().cv_hidden));
       }
       Check(rc.Stats().whole_clean == 1 && g_stamp_calls == stamps0 + 1 && rc.Stats().whole_unclean == 0, "ring.rids_clean", "clean " + std::to_string(rc.Stats().whole_clean) + " unclean " + std::to_string(rc.Stats().whole_unclean) + " stamps " + std::to_string(g_stamp_calls - stamps0));
       {   // refusals: a model below 0x10000, a node count above the class's, and a slot past 44 give no row and are counted; the rest stay
@@ -840,7 +893,25 @@ int main(int argc, char** argv) {
         latch(rf, tf);
         size_t posts = 0;
         for (const RingRows& r : tf.ring_rows) posts += r.klass == kRcPostHi;
-        Check(posts == 2 && rf.Stats().rids_refused == 3 && rf.Stats().rids_rows == 38 && rf.Stats().whole_clean == 0 && rf.Stats().unclean_post == 1, "ring.rids_refused", "posts " + std::to_string(posts) + " refused " + std::to_string(rf.Stats().rids_refused));
+        Check(posts == 2 && rf.Stats().rids_refused == 3 && rf.Stats().rids_rows == 37 && rf.Stats().whole_clean == 0 && rf.Stats().unclean_post == 1, "ring.rids_refused", "posts " + std::to_string(posts) + " refused " + std::to_string(rf.Stats().rids_refused));   // 37: 40 slots - 2 refused posts - corner 3's hidden pad
+      }
+      {   // S111 CAARING review: a RIDS rope row's call is the game's record index, slot - 33 = 3 side + height (sub_825CF2F8 +0x80C poses slot r19 + r25, r19 = 33 + 3 side), not its order among the
+          // rope slots that read: with the first rope slot refused, the other eleven keep calls 1..11 (each rope's colour record, car_rope_colours.h RopeColourOf)
+        ri::Set set;
+        set.frame = 300;
+        for (uint32_t k = 5; k <= 44; ++k) set.slots.push_back(mkslot(k, k));
+        set.slots[33 - 5].model = 0x8000;   // slot 33 (side 0, height 0): not a model
+        ri::The().Publish(std::move(set));
+        rr::RingRecomputeContributor rx;
+        SceneTables tx;
+        latch(rx, tx);
+        bool ok = find(tx, kRcRopeHi, 0) == nullptr;
+        std::string why = ok ? "" : " call 0 present";
+        for (uint32_t call = 1; call < 12; ++call) {
+          const RingRows* e = find(tx, kRcRopeHi, call);
+          if (!e || e->r5 != 0x41000000u + 0x1000u * (33u + call)) ok = false, why += " call " + std::to_string(call) + (e ? " at another slot" : " missing");
+        }
+        Check(ok, "ring.rids_rope_record_index", why.empty() ? "calls 1..11 at slots 34..44" : why);
       }
       {   // no copies published for this frame: no rows, counted, never clean
         ri::Set none;

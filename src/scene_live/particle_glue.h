@@ -133,11 +133,12 @@ inline LiveNamer& Namer() {
 // S103 MP: `r13` = the calling thread's block (the node's camera comes from the camera table slot it names), `rows` = the q2d tap's running 2D row count of the frame (kNoRows = tap off). Both are read here, at the entry,
 // because the node rewrites the singleton's camera words in its own prologue: the camera table object is the node's real input.
 // S103 FLAT: returns whether this call may ask the scene decision (scene_stamp_rule.h: only a call that draws with a non-screen camera; a menu backdrop call must not stamp its frame as 3D). true in mode 0 (no ask is made then).
-inline bool NoteNode(uint32_t node, uint32_t r13 = 0, uint32_t rows = rdr_scene::live::particles::kNoRows) {
+// S111 FLATSEQ: `seq2d` = the q2d store's last call-order ticket at the entry (quads2d_tap.h SeqNow; kNoRows = tap off): the flat drawer places the call's group by it (flat_particles.h PosOf).
+inline bool NoteNode(uint32_t node, uint32_t r13 = 0, uint32_t rows = rdr_scene::live::particles::kNoRows, uint32_t seq2d = rdr_scene::live::particles::kNoRows) {
   if (scene_frame::CurrentMode() == scene_frame::Mode::Off) return true;
   Namer().StartOnce();   // S103 F5: first use with the mode on
   rdr_scene::live::particles::NodeCall c;
-  c.node = node, c.rows = rows;
+  c.node = node, c.rows = rows, c.seq2d = seq2d;
   if (r13) rdr_scene::live::particles::ReadNodeCamera(&wwe2k14::scene_inputs_glue::ReadChecked, r13, c);
   rdr_scene::live::particles::ReadNodeWords(&wwe2k14::scene_inputs_glue::ReadChecked, node, c);   // S103 MPBF 2: +3084 / +3088 are read AT THE CALL (the latch sees them after the node's own writes)
   Source().NoteCall(c, wwe2k14::scene_skip::HookFrame());   // the clock is read only past the mode test: mode 0 is one relaxed load

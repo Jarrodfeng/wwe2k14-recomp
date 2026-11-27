@@ -259,6 +259,7 @@ REX_HOOK_RAW(sub_8276E2C0) {
   if (lr == 0x8276E9A4u && wwe2k14::crowd_live::Active()) rdr_scene::live::crowd::The().NoteScreenVerdict(object, ctx.r3.u32 != 0);
 }
 
+// SKIP-ORIGINAL: on an OURS frame the crowd draw is skipped after the walk's snapshots (S103 H, SCENE_SKIPS.md row 3), keeping the manager's callback registration; otherwise the original runs
 REX_HOOK_RAW(sub_82519508) {
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::Crowd)) {
     // S103 H: the frame is OURS: no crowd draw, no member / palette snapshot of the walk (lane D's inputs move to the manager); the manager's callback registration stays. SCENE_SKIPS.md row 3

@@ -2,10 +2,11 @@
 // loader's placements (the posts, ropes, covers and skirts are stored once and drawn per corner / side); it is drawn with the arena's light sets by id each frame.
 //
 // TWO PATHS.
-//  * AT REST (no ring rows in the record, or a piece class whose rows are incomplete): the whole ring set at the loader's placements, as before (one family model).
+//  * AT REST (no ring rows in the record, or a piece class that is not posed: ringkeys::ClassPosed): the whole ring set at the loader's placements, as before (one family model).
 //  * POSED (S103 lane C4): the record carries the ring's per-call node rows (kScRingRows / kScRingNodes: ours from src\scene_live\ring_recompute_*.h with kRrRecomputed, or the game's own; PER CLASS, ours when the
 //    record has any of that class, so a mode-1 record that holds both is drawn from ours). Every call is one instance of one key's model, its mesh skinned on the CPU with the call's rows (ring_pose.h) and written into a per-instance front-end model in place
-//    (ModelCache::PosedModel: slots after the first share the images). A class whose rows are all there (ropes 12, covers 12, turnbuckles 12, posts 4, skirts 3-4) is drawn from them and its keys are NOT drawn at
+//    (ModelCache::PosedModel: slots after the first share the images). A class ringkeys::ClassPosed passes (every row the record gives for it, ours or the game's own copies, is drawable, whatever their
+//    count: S111 TBPAD, NEEDREMOVE) is drawn from them and its keys are NOT drawn at
 //    rest; the canvas and the rope plane-shadow proxy have no rows (the canvas never changes, run 16) and are always drawn at rest.   [S110 RINGBREAK: the canvas HAS rows now (group 5, key 953 / 1017: the mat bounce, the break); the rope proxy still has none.]
 //    S103 RGP: by default (cvar wwe2k14_rdr_ring_gpu_skin, rdr_scene::g_ring_gpu_skin) a key whose effects are all yProp_* and not alpha-blended is drawn GPU-skinned instead: ONE static model per key (rf_c_core.cpp
 //    RingPiece::gpu, every mesh `skinned`), each call an object with kObjSkinned and the call's node rows as its bones (RingPalette); the game's own skinned yProp variant poses it, nothing is posed or uploaded on the CPU.
@@ -26,6 +27,7 @@
 #include "rf_c.h"
 #include "ring_gpu_skin.h"
 #include "ring_keys.h"
+#include "car_rope_colours.h"   // S111 CAARING: a created arena's rope colours (the kFxCarRope rows -> each rope instance's MatAmbCol)
 #include "ring_pose.h"
 #include "pose_rows_report.h"   // S108 AL1: ReportRingRows
 
@@ -115,6 +117,9 @@ bool RingRun(BuildCtx& ctx, int run) {
   }
   const SceneTables& t = ctx.t;
   const bool alt = ringkeys::IsAltArena(as->arena);   // S103 CRR: a created arena draws the ALT ring keys (ring_keys.h)
+  car_rope::Colours rope_colours;   // S111 CAARING: the twelve colours the paint manager wrote into G + 128 .. (none on a normal arena / before they are read: the file's ambient)
+  if (alt) car_rope::FromRows(t.stage_fx, rope_colours);
+  uint32_t rope_coloured = 0;
   // The rows to pose with, PER CLASS: ours (kRrRecomputed) when the record has any entry of that class, else the game's own (a mode-1 record holds both for the classes ours covers; a record from before a class was
   // recomputed holds the game's only).
   bool ours_g[6] = {};
@@ -123,7 +128,7 @@ bool RingRun(BuildCtx& ctx, int run) {
     if (g >= 0 && (e.flags & kRrRecomputed)) ours_g[g] = true;
   }
   std::vector<const RingRows*> use;
-  uint32_t have[6] = {};
+  uint32_t have[6] = {}, offered[6] = {};   // S111 TBPAD review: offered = the class's rows this loop considers, have = the drawable ones (ringkeys::ClassPosed)
   // S105 C4: ours emit ONE model per cover / post by the game's own distance test (ring_recompute_core.h CornerIsLow), so a recomputed low row is drawn. Only a record that still holds BOTH LODs of the same call
   // (made before this) draws the high one: its low row is skipped when a recomputed high row of the same class and call is there.
   std::vector<uint64_t> hi_calls;
@@ -134,6 +139,7 @@ bool RingRun(BuildCtx& ctx, int run) {
     if (g < 0 || bool(e.flags & kRrRecomputed) != ours_g[g]) continue;
     if (ours_g[g] && (e.klass == kRcCoverLo || e.klass == kRcPostLo) &&
         std::find(hi_calls.begin(), hi_calls.end(), (uint64_t(e.klass == kRcCoverLo ? kRcCoverHi : kRcPostHi) << 32) | e.call) != hi_calls.end()) continue;
+    ++offered[g];
     if (e.n_nodes == 0 || size_t(e.first_node) + e.n_nodes > t.ring_nodes.size()) continue;
     const int key = Resolve(*as, KeyOf(e, ours_g[g], alt));
     const auto it = as->ring_piece.find(key);
@@ -144,7 +150,7 @@ bool RingRun(BuildCtx& ctx, int run) {
   const bool posed_ok = !PlantsRef().ring_at_rest && !use.empty() && !as->ring_piece.empty();
   bool covered[6] = {};
   if (posed_ok)
-    for (int g = 0; g < 6; ++g) covered[g] = have[g] >= ringkeys::Need(g, alt);
+    for (int g = 0; g < 6; ++g) covered[g] = ringkeys::ClassPosed(have[g], offered[g]);   // S111 TBPAD / NEEDREMOVE: the rows are the calls the game submits (a torn-off pad is not among them), ours or its own
   bool any_covered = false;
   for (bool c : covered) any_covered = any_covered || c;
   // S103 FOB (review 2): at rest the per-key ring_rest models go through the same run / rank list as the posed path (canvas, skirts, arena, screens, posts, turnbuckles, covers, ropes) when they add up to the whole ring set;
@@ -259,6 +265,7 @@ bool RingRun(BuildCtx& ctx, int run) {
         }
         rdr::Log("[ring_gpu] key %d inst %u meshes %zu verts %zu nodes %u max_err %.6f%s", key, idx, piece.stored.meshes.size(), verts, unsigned(e->n_nodes), worst, cut_failed ? " CUT_FAILED" : "");
       }
+      if (car_rope::RopeColourOf(*e, alt, rope_colours, o.tint)) o.flags |= kObjAmbientColour, ++rope_coloured;   // S111 CAARING: tint rgb = this rope's MatAmbCol (tint[3] stays the alpha)
       if (e->alpha > 0.f && e->alpha < 1.f) o.tint[3] = e->alpha;
       if (pc.rr.tok) LogOrder(pc.rr.tok);
       ctx.frame.objects.push_back(o);
@@ -327,6 +334,7 @@ bool RingRun(BuildCtx& ctx, int run) {
     Object o;
     o.asset = uint32_t(id);
     o.world = IdentityMat4();
+    if (car_rope::RopeColourOf(*e, alt, rope_colours, o.tint)) o.flags |= kObjAmbientColour, ++rope_coloured;   // S111 CAARING (as the GPU arm above)
     if (e->alpha > 0.f && e->alpha < 1.f) o.tint[3] = e->alpha;
     if (pc.rr.tok) LogOrder(pc.rr.tok);
     ctx.frame.objects.push_back(o);
@@ -356,6 +364,7 @@ bool RingRun(BuildCtx& ctx, int run) {
   if (!reason.empty()) note += "; " + reason;
   if (!census_bounds.empty()) census_note += " low_bounds:" + census_bounds + ";";
   note += census_note;
+  if (alt && run == 1) note += " rope_colours=" + (rope_colours.valid ? std::to_string(rope_coloured) : std::string("unread"));   // S111 CAARING: the rope instances drawn with their own colour (12 = all)
   RingReport(ctx, run, fm.meshes, drawn, skipped, note);
   return true;
 }

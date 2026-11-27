@@ -1,7 +1,8 @@
 // Lane E3 (Session 103): unit proof of the fitted wrestler shadow camera (src\renderer_scene\shadow_fit.h). Pure maths, 0 game runs.
 //   e3_unit                 the true cases: every line PASS, exit 0
 //   e3_unit --plant NAME    a planted fault; exit 0 only when the check that sees it FAILS with its token: view_not_light (FIT USES VIEW), key_not_negated (FIT KEY SIGN), no_bounds (FIT BOUNDS)
-// Reference numbers [C], read from the stream (fview --save-case, wrestler colour draw): brock_losswin frames 20 / 110 / 200: KeyLightVec and ViewLightDepth (= the light's fwd, 59909.9883) as the game holds them.
+// Reference numbers [C] (S111 SHADOWKEY): three records of the capture out\d3caster\z7147 (game frames 3866 / 4053 / 4240): the main camera = the RIM pass entry's camera product (CasterExtra, view x
+// projection as the game stores it) and the truth = the game's own wrestler map camera's travel direction (column 2 of the caster state's R+976). The direction is the game's rule (shadow_light_rule.h).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -27,12 +28,12 @@ static void Check(bool ok, const char* token, const char* fmt, ...) {
   if (!ok) ++g_fail, g_token = token;
 }
 
-struct Ref { int frame; float key[3]; float fwd[3]; };
-// key = VS KeyLightVec, fwd = the first three of TexProjLightW / ViewLightDepth, from the same colour draw
+struct Ref { int frame; float vp[16]; float fwd[3]; };
+// vp = the rim entry's camera product, fwd = column 2 of the wrestler map entry's R+976, from the same record
 static const Ref kRefs[] = {
-    {20, {-0.4035f, 0.5777f, -0.7095f}, {0.4248f, 0.5150f, 0.7445f}},
-    {110, {-0.2483f, 0.5777f, -0.7776f}, {0.2615f, 0.5150f, 0.8163f}},
-    {200, {-0.4326f, 0.5673f, -0.7007f}, {0.4518f, 0.5150f, 0.7285f}},
+    {3866, {1.31140542f, 0.171402901f, 0.287565589f, 0.287555993f, 1.35548189e-05f, -2.37110567f, 0.237217829f, 0.237209916f, -0.406397343f, 0.553021669f, 0.927954555f, 0.92792356f, 327.722443f, -722.67572f, -61.7835541f, -51.7814903f}, {0.260502f, 0.515038f, 0.816624f}},
+    {4053, {1.48499262f, 0.380113184f, 0.480628252f, 0.480612218f, -9.49237915e-07f, -2.94363046f, 0.251672179f, 0.251663774f, -0.849603176f, 0.664390385f, 0.840073586f, 0.840045571f, 380.695648f, -738.068359f, 116.228966f, 126.22509f}, {0.436199f, 0.515038f, 0.737880f}},
+    {4240, {-1.28945088f, -0.0613575988f, 0.664226174f, 0.664204001f, 5.8891834e-07f, -3.06619811f, -0.0301009566f, -0.0300999526f, -1.1466161f, 0.0689996406f, -0.746969461f, -0.746944547f, 16.9496346f, -1023.45703f, 1206.13757f, 1216.09729f}, {0.569736f, 0.515038f, -0.640419f}},
 };
 
 int main(int argc, char** argv) {
@@ -44,25 +45,29 @@ int main(int argc, char** argv) {
   else if (plant == "key_not_negated") faults.key_not_negated = true;
   else if (plant == "no_bounds") faults.no_bounds = true;
   else if (!plant.empty()) { std::fprintf(stderr, "unknown plant %s\n", plant.c_str()); return 2; }
-  const float main_forward[3] = {0.3031f, 0.0822f, 0.9494f};   // brock f110's main camera forward (stream c59 row): the view_not_light plant uses it as the light
+  float main_forward[3] = {kRefs[1].vp[3], kRefs[1].vp[7], kRefs[1].vp[11]};   // the main camera's forward (column 3 of its view x projection = the view's z axis): the view_not_light plant uses it as the light
+  {
+    const float ml = std::sqrt(main_forward[0] * main_forward[0] + main_forward[1] * main_forward[1] + main_forward[2] * main_forward[2]);
+    for (float& v : main_forward) v /= ml;
+  }
 
-  // 1. the light's direction against the stream, three frames (0.01 = 0.6 degrees)
+  // 1. the light's direction against the game's own wrestler map camera, three records (bar 0.002 = 0.1 degrees)
   for (const Ref& r : kRefs) {
     ShadowFitInput in;
-    std::memcpy(in.key_vec, r.key, sizeof in.key_vec);
+    std::memcpy(in.view_proj, r.vp, sizeof in.view_proj), in.have_view = true;
     in.center[0] = 23.f, in.center[1] = -100.f, in.center[2] = 2696.f, in.radius = 150.f;
     ShadowFit f;
     const char* why = "";
     if (!FitShadowLight(in, f, why, faults, main_forward)) { Check(false, "FIT FAILED", "frame %d: %s", r.frame, why); continue; }
     const float err = std::max({std::fabs(f.fwd[0] - r.fwd[0]), std::fabs(f.fwd[1] - r.fwd[1]), std::fabs(f.fwd[2] - r.fwd[2])});
     const char* token = plant == "key_not_negated" ? "FIT KEY SIGN" : plant == "view_not_light" ? "FIT USES VIEW" : "FIT DIRECTION";
-    Check(err < 0.01f, token, "frame %d: fitted fwd (%.4f %.4f %.4f) vs the stream's (%.4f %.4f %.4f): max |diff| %.4f (bar 0.01)", r.frame, f.fwd[0], f.fwd[1], f.fwd[2], r.fwd[0], r.fwd[1], r.fwd[2], err);
+    Check(err < 0.002f, token, "frame %d: fitted fwd (%.4f %.4f %.4f) vs the game's map camera (%.4f %.4f %.4f): max |diff| %.4f (bar 0.002)", r.frame, f.fwd[0], f.fwd[1], f.fwd[2], r.fwd[0], r.fwd[1], r.fwd[2], err);
   }
 
   // 2. the structure: the readers' registers built from the fitted state
   {
     ShadowFitInput in;
-    std::memcpy(in.key_vec, kRefs[1].key, sizeof in.key_vec);
+    std::memcpy(in.view_proj, kRefs[1].vp, sizeof in.view_proj), in.have_view = true;
     in.center[0] = 23.f, in.center[1] = -100.f, in.center[2] = 2696.f, in.radius = 150.f;
     ShadowFit f;
     const char* why = "";
@@ -105,25 +110,28 @@ int main(int argc, char** argv) {
     Check(std::fabs(uu - 0.5f) < 0.01f && std::fabs(vv - 0.5f) < 0.01f, "FIT READERS", "the readers' lookup of the centre is the middle of the map: u %.4f v %.4f (the half texel is in the bias)", uu, vv);
   }
 
-  // 3. refusals: a vertical key light has no azimuth; a NaN is refused; a bound radius of zero still gives a usable zoom
+  // 3. refusals: no main camera, a NaN camera; a bound radius of zero still gives a usable zoom; the rule without a view = the table's own direction (0.8572, 0.5150, 0)
   {
     ShadowFitInput in;
-    in.key_vec[0] = 0.f, in.key_vec[1] = 1.f, in.key_vec[2] = 0.f;
     ShadowFit f;
     const char* why = "";
     bool r1 = FitShadowLight(in, f, why, ShadowFitFaults());
-    Check(!r1, "FIT REFUSAL", "a vertical key light is refused (%s)", why);
-    in.key_vec[0] = NAN;
+    Check(!r1, "FIT REFUSAL", "no main camera is refused (%s)", why);
+    std::memcpy(in.view_proj, kRefs[1].vp, sizeof in.view_proj), in.have_view = true;
+    in.view_proj[8] = NAN;
     r1 = FitShadowLight(in, f, why, ShadowFitFaults());
-    Check(!r1, "FIT REFUSAL", "a NaN key light is refused (%s)", why);
-    in.key_vec[0] = -0.25f, in.key_vec[2] = -0.78f, in.radius = 0.f;
+    Check(!r1, "FIT REFUSAL", "a NaN camera is refused (%s)", why);
+    std::memcpy(in.view_proj, kRefs[1].vp, sizeof in.view_proj), in.radius = 0.f;
+    float d[3];
+    ShadowLightTravelDir(0.f, 0.f, false, d);
+    Check(std::fabs(d[0] - 0.8572f) < 1e-3f && std::fabs(d[1] - 0.5150f) < 1e-3f && std::fabs(d[2]) < 1e-3f, "FIT DIRECTION", "the rule with no view: (%.4f %.4f %.4f) = row 2 of R(-149, -90, 0)", d[0], d[1], d[2]);
     r1 = FitShadowLight(in, f, why, ShadowFitFaults());
     Check(r1 && f.scale > 0.f && f.scale <= kShadowFitMaxScale, "FIT BOUNDS", "a zero radius still gives a usable zoom (%.1f)", f.scale);
   }
   // 4. the radius is used: a big scene must zoom out relative to a small one (a no_bounds plant gives both the same zoom)
   {
     ShadowFitInput a, b;
-    for (ShadowFitInput* s : {&a, &b}) std::memcpy(s->key_vec, kRefs[1].key, sizeof s->key_vec);
+    for (ShadowFitInput* s : {&a, &b}) std::memcpy(s->view_proj, kRefs[1].vp, sizeof s->view_proj), s->have_view = true;
     a.radius = 100.f, b.radius = 400.f;
     ShadowFit fa, fb;
     const char* why = "";

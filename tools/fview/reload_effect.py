@@ -30,7 +30,7 @@ def load_compiler(fx_dir):
 
 # ---- S101 lane 24: a compile error names the SOURCE file and line -------------------------------------------------------------
 # compile_text() gets the wrapped text (includes pasted in, a prologue added) and glslang reports a line of THAT text. The offending line (with the one before it)
-# is looked up in the sources the wrapper was made from, so the message says "yAudience.frag:23" instead of "shader.frag:211".
+# is looked up in the sources the wrapper was made from, so the message says "yAudience.frag" instead of "shader.frag:211".
 SOURCE_EXT = ('.frag', '.vert', '.glsl')
 
 

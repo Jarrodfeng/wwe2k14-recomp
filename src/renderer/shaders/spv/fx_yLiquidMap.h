@@ -39,3 +39,5 @@ extern const uint32_t kFx_yLiquidMap_copy_prev_dim_frag_alpha[543];
 extern const uint32_t kFx_yLiquidMap_tint_dim_frag[297];
 
 extern const uint32_t kFx_yLiquidMap_tint_dim_frag_alpha[647];
+
+extern const uint32_t kFx_yLiquidMap_copy_prev_q4_frag[215];

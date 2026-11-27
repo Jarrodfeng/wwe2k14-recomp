@@ -18,7 +18,9 @@ evidence = "states.toml smart_menu (db/menu_ui.json g_smart_menu, high; live run
 cursor = "+352 u32 | cursor index in the open list | states.toml cursor (db/menu_ui.json SM+352, high); Session 29 scanner ground truth (run 2201)"
 menu = "+364 u32 | the open list: 1 main, 2 PLAY, 3 CREATIONS, 4 OPTIONS, 7 next PLAY level, 2000 setup screens | states.toml menu (run 239); 2 / 4 seen live in run 2236 (Session 30)"
 target = "+368 u32 | the highlighted item's target: a menu id below 1000, else a code; main menu: PLAY 2, 30 YEARS 1500, UNIVERSE 1497, CREATIONS 3, Xbox Live -1, MY WWE 6, OPTIONS 4 | states.toml target (run 239); main-menu values from the recording of run 2243 (Session 30)"
-scroll = "+1388 u32 | the item shown in the list panel's first row (0 at the top; the main menu: 1 with QUIT TO DESKTOP highlighted) | Session 67 probe run 042 (cursor 0 / 7 / 8), used by src/mouse_menu.h (runs 4342-4349)"
+context = "+268 u32 | the live list context: 0 / 1, -1 (4294967295) = none (after the reset, or a back out of context 0); the open list's scroll is scroll (context 0) or scroll_1 (context 1). Up by one, wrapping at 2, each time the menu enters its lists (start, the list update at menu 0, the re-entry after a sequence, the goto path); down by one on a back to menu 0 and on the back branch for context 1 | sub_8283A5E8 adds 1 and wraps at 2; sub_8283A6A0 (from smart_menu_back sub_82842270) subtracts 1; sub_8283E150 writes -1; sub_8283D488 restores a saved word; sub_8283EAD8 reads SM + 1388 + 5292 * [SM+268] (S111 MOUSESCROLL)"
+scroll = "+1388 u32 | context 0's scroll: the item shown in the list panel's first row (0 at the top; the main menu: 1 with QUIT TO DESKTOP highlighted); the live one is this or scroll_1 by context | sub_8283EAD8 (S111 MOUSESCROLL); Session 67 probe run 042 (cursor 0 / 7 / 8)"
+scroll_1 = "+6680 u32 | context 1's scroll (1388 + 5292) | sub_8283EAD8 (S111 MOUSESCROLL); src/menu_scroll.h ListScroll reads the live one"
 
 [MessageManager]
 base = "0x839294BC"

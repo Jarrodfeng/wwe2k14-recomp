@@ -73,6 +73,7 @@ const LiveMapsHook::CasterModel* LiveMapsHook::CasterOf(uint32_t asset, bool pro
         cmesh.src = src_index;
         cmesh.translucent = translucent;
         cmesh.piece = !prop && PiecesOnlyMeshDrawn(MeshAnswersPieceRow(me.src_kind), me.src_key);   // S111 PIECEROUTE review
+        cmesh.row_key = prop ? -1 : PieceRowKey(MeshAnswersPieceRow(me.src_kind), me.src_key);   // S111 SOCKSHADOW: the key its owner's piece rows name it by
         cmesh.sample_first = uint32_t(cm->samples.size());   // S103 E3: every 8th vertex, for the bounds
         for (size_t vi = 0; vi < verts.size(); vi += 8) {
           SamplePt sp;
@@ -117,6 +118,10 @@ const LiveMapsHook::CasterModel* LiveMapsHook::CasterOf(uint32_t asset, bool pro
   return cache.emplace(asset, std::move(cm)).first->second.get();
 }
 
+bool LiveMapsHook::CasterMeshCasts(const SceneFrame& frame, uint32_t obj_no, const CasterMesh& m) const {   // S111 SOCKSHADOW (live_maps.h)
+  return faults_.caster_piece_rows_ignored || PieceRowCasts(frame.piece_alphas, obj_no, m.row_key);
+}
+
 // S103 E3: the casters' bounding sphere, in the game's space, from the same objects / pieces / palettes the draw loop uses. Every piece's sampled vertices are skinned with their dominant bone
 // (the shader's blend moves a vertex by less than a limb's thickness; the fit pads for it) and put through the same y mirror as the shader rows. The sphere is the box's half diagonal.
 bool LiveMapsHook::MeasureCasters(const SceneFrame& frame, float center[3], float& radius, uint32_t& samples_out) {
@@ -136,6 +141,7 @@ bool LiveMapsHook::MeasureCasters(const SceneFrame& frame, float center[3], floa
       if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
       if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
       if (m.translucent) continue;   // S111 LAYERS review: the fit keeps the opaque node's parts (the set it had); the translucent node's lie on the body
+      if (!CasterMeshCasts(frame, uint32_t(&obj - frame.objects.data()), m)) continue;   // S111 SOCKSHADOW: a piece its owner's mesh does not draw (hidden / detached) is no caster, so not in the fit
       std::vector<assets::Matrix>& slots = slots_scratch_;
       slots.clear();
       if (m.chunk) {
@@ -188,8 +194,8 @@ bool LiveMapsHook::EnsureShadowPrograms() {
     const auto make_program = [&](int vs, uint16_t& program) {
       rdr::ProgramDesc d;
       d.name = rdr::fx::kVariants[vs].name;
-      d.vertex_spirv = rdr::fx::kVariants[vs].spirv, d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
-      d.fragment_spirv = rdr::fx::kVariants[fs_shadow_].spirv, d.fragment_bytes = rdr::fx::kVariants[fs_shadow_].bytes;
+      d.vertex_spirv = rdr::fx::Words(size_t(vs), false), d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
+      d.fragment_spirv = rdr::fx::Words(size_t(fs_shadow_), false), d.fragment_bytes = rdr::fx::kVariants[fs_shadow_].bytes;
       program = renderer_.AddProgram(d);
     };
     make_program(vs_skinned_, prog_skinned_);
@@ -237,18 +243,14 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     shadow_drawn_w_ = shadow_drawn_h_ = 0;
     return false;
   }
-  // S103 E3: where the light camera comes from. The game's caster pass entry (kScCasterStates) when the record has one and the fit is not forced; otherwise OUR fit (shadow_fit.h) from the key
-  // light and the casters' bounds. No source = a counted hole with its reason, never an empty map.
+  // S103 E3: where the light camera comes from. The game's caster pass entry (kScCasterStates) when the record has one and the fit is not forced; otherwise OUR fit (shadow_fit.h) from the frame's
+  // main camera (the light's direction, the game's rule: shadow_light_rule.h) and the casters' bounds. No source = a counted hole with its reason, never an empty map. (S111 SHADOWKEY review: the
+  // fit reads no key light, so a frame without one is fitted like any other: the old key gate is gone.)
   CasterRows fit_rows = {};
   WrestlerCameraRows fit_cam = {};
   const CasterRows* rows_p = &in.rows;
   const WrestlerCameraRows* cam_p = &in.cam;
   if (in.force_fit || (!in.have_light && !in.has_caster_records)) {   // review 7: never override the game's deliberate refusals (a record with caster entries but no usable light)
-    if (!in.fit_key_valid) {
-      counts_.shadow_skip = in.have_light ? in.fit_key_why : (in.light_why[0] && in.has_caster_records ? in.light_why : in.fit_key_why);
-      ++counts_.holes;
-      return false;
-    }
     float center[3];
     float radius = 0.f;
     if (!MeasuredOnce(frame, center, radius, counts_.fit_samples)) {
@@ -257,7 +259,20 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       return false;
     }
     ShadowFitInput fi;
-    std::memcpy(fi.key_vec, in.fit_key, sizeof fi.key_vec);
+    {   // S111 SHADOWKEY: the light's direction follows the main camera (the game's rule, shadow_light_rule.h): its view x projection in the game's space, built as FitRimInput builds it
+      const Camera& cam = frame.camera;
+      float view[16];
+      std::memcpy(view, cam.view.m, sizeof view);
+      if (frame.viewer_space)
+        for (int k = 4; k < 8; ++k) view[k] = -view[k];   // BuildFrame mirrored the game's view into the viewer's space: back to the game's
+      for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j) {
+          float v = 0.f;
+          for (int k = 0; k < 4; ++k) v += view[i * 4 + k] * cam.proj.m[k * 4 + j];
+          fi.view_proj[i * 4 + j] = v;
+        }
+      fi.have_view = true;
+    }
     std::memcpy(fi.center, center, sizeof center);
     fi.radius = radius;
     fi.map_w = in.map_w, fi.map_h = in.map_h;
@@ -492,6 +507,7 @@ bool LiveMapsHook::RecordShadow(const StageCtx& ctx, rdr::FrameBuilder& fb) {
         if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
         if (m.translucent && !walks33) continue;   // S111 LAYERS review (wrestler_caster.h): a translucent-node part casts into map B only when the map walks category 33
         if (!wrestler_caster::MeshCastsFor(visible, pieces_only, m.piece)) continue;   // S111 PIECEROUTE review: a pieces-only owner casts its piece meshes, never its body
+        if (!CasterMeshCasts(frame, uint32_t(&obj - frame.objects.data()), m)) continue;   // S111 SOCKSHADOW: the game casts nothing of a piece it hides (sub_8259E488 skips +20 == 0 in every node) or detached
         // the piece's bone rows: palette slot -> (skin, then the object's place), Y row mirrored for a viewer-space record (char_effects.cpp ResolveChar WorldMatrixArray)
         if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
         std::vector<assets::Matrix>& slots = slots_scratch_;

@@ -31,7 +31,9 @@
 #include "crowd_page.h"                          // S103 B4F: the stage page of the crowd models
 #include "crowd_picture_cache.h"                 // S103 D6
 #include "card_atlas_rule.h"                     // S103 CB1: the one-pass card atlas
+#include "crowd_card_quad.h"                     // S111 CARDCULL: the far card's quad and its cull (one source with tools\scene\cardcull_unit.cpp)
 #include "sampler_table.h"                       // S103 CB1: AnisoWanted (the atlas is used at 1x only)
+#include "../assets/model_create_scale.h"        // S111 MATLIVE review: kCrowdCreateScale (the crowd's model-create scale)
 
 namespace rdr_scene::live {
 static LightsFn g_lights_fn = nullptr;   // S103 L4
@@ -42,7 +44,7 @@ namespace {
 constexpr uint32_t kTypes = 20;
 constexpr uint32_t kLods = 3;
 constexpr uint32_t kClasses = kLods * kTypes;
-constexpr float kBodyScale = 10.0f;  // the loader's vertices are 1/10 of the game's skinned blob (S101 lane 36, bit-exact); normals are not scaled
+constexpr float kBodyScale = assets::create_scale::kCrowdCreateScale;  // the loader's vertices are 1/10 of the game's skinned blob (S101 lane 36, bit-exact): the crowd's model-create scale (model_create_scale.h); normals are not scaled
 constexpr uint32_t kCardPictureSize = 64;
 constexpr uint32_t kNoPalette = 0xFFFFFFFFu;
 
@@ -564,7 +566,7 @@ struct LiveCrowd::Impl {
       tmpl_material = clean.meshes[0].material, tmpl_light_set = clean.meshes[0].light_set;
       have_tmpl = true;
     }
-    if (card_model < 0 && lod == 0 && !clean.materials.empty()) {  // the card quad takes this body's material (cut-out, two-sided) and light map
+    if (card_model < 0 && lod == 0 && !clean.materials.empty()) {  // the card quad takes this body's material (cut-out, back faces culled) and light map
       assets::Model q;
       q.label = "live crowd card quad";
       q.materials = clean.materials, q.textures = clean.textures, q.light_sets = clean.light_sets;
@@ -575,20 +577,20 @@ struct LiveCrowd::Impl {
       const int mat = clean.meshes[0].material;
       if (mat >= 0 && size_t(mat) < q.materials.size()) {
         q.materials[size_t(mat)].alpha_test = true;
-        q.materials[size_t(mat)].cull_back = false, q.materials[size_t(mat)].cull_from_record = false;   // S105 C3: the crowd keeps its own rule
+        // S111 CARDCULL / CROWDCULLSRC: back faces CULLED, as the game: the crowd node's cull-on holds through the card pass, and a card turns with its member's yaw, so it can show its back.
+        // The quad and its strip order are the game's, so DrawInstanced's own cull 2 / front_face 1 (not this material's flag) drops the faces the game drops (tools\scene\cardcull_unit.cpp).
         assets::Mesh qm;
         qm.material = mat, qm.part = "card", qm.light_set = clean.meshes[0].light_set;
-        const float px[4] = {+82.f, -82.f, +82.f, -82.f}, py[4] = {0.f, 0.f, -250.f, -250.f}, pu[4] = {1.f, 0.f, 1.f, 0.f}, pv[4] = {1.f, 1.f, 0.f, 0.f};
         qm.vertices.resize(4);
         card_quad.assign(1, std::vector<InstVertex>(4));
         for (int i = 0; i < 4; ++i) {
           assets::Vertex& v = qm.vertices[size_t(i)];
           std::memset(&v, 0, sizeof v);
-          v.pos[0] = px[i], v.pos[1] = py[i], v.pos[2] = 0.f, v.normal[2] = 1.f, v.uv0[0] = pu[i], v.uv0[1] = pv[i], v.color = 0xFFFFFFFFu, v.weights[0] = 1.f;
+          v.pos[0] = far_card::kX[i], v.pos[1] = far_card::kY[i], v.pos[2] = 0.f, v.normal[2] = 1.f, v.uv0[0] = far_card::kU[i], v.uv0[1] = far_card::kV[i], v.color = 0xFFFFFFFFu, v.weights[0] = 1.f;
           InstVertex& iv = card_quad[0][size_t(i)];
           std::memcpy(iv.pos, v.pos, sizeof iv.pos), std::memcpy(iv.normal, v.normal, sizeof iv.normal), std::memcpy(iv.uv, v.uv0, sizeof iv.uv);
         }
-        qm.indices = {0, 1, 2, 2, 1, 3};
+        qm.indices.assign(far_card::kIndices, far_card::kIndices + far_card::kIndexCount);
         q.meshes.push_back(std::move(qm));
         std::vector<std::string> qw;
         card_model = fe.AddModel(q, qw, &shared_images);
@@ -762,8 +764,8 @@ struct LiveCrowd::Impl {
     m.lm_scale[0] = tmpl.lm_scale[0], m.lm_scale[1] = tmpl.lm_scale[1], m.lm_gain = tmpl.lm_gain;
     // S103 SG: back faces CULLED, as the game: the crowd entry sets cull on once for the sign loop, the hand loop, the node loop and the stands (sub_82519508 0x82519680 -> sub_82C24128: state id 56 = 2 / 6
     // by the current mode [state+116]); the stream records cull BACK, front face CLOCKWISE on every prop and stands block draw [C: brock_losswin, tools\crowd\crowd_prop_cull_check.py], which is DrawInstanced's
-    // state for a cull_back material (front_end.cpp: cull 2, front_face 1), with the strip's alternate winding kept (PropMeshes above). The fault props_two_sided keeps the pre-SG rule (test only).
-    if (tmpl_material >= 0 && size_t(tmpl_material) < m.materials.size()) m.materials[size_t(tmpl_material)].cull_back = !options.fault_props_two_sided, m.materials[size_t(tmpl_material)].cull_from_record = false;   // S105 C3: the crowd keeps its own rule
+    // own state (FrontEnd::DrawInstanced: cull 2, front_face 1; S111 CROWDCULLSRC: not the material's flag), with the strip's alternate winding kept (PropMeshes above). The fault props_two_sided keeps
+    // the pre-SG rule (test only: InstancedDraw::plant_two_sided at the props' draw in LiveCrowd::Record).
     assets::Mesh me = *src;
     me.material = tmpl_material, me.light_set = tmpl_light_set;
     if (options.fault_props_cull_front)   // S103 SGF planted: the winding reversed (test only)
@@ -1320,6 +1322,7 @@ void LiveCrowd::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& fb) 
     d.model = s.classes[g.lod * kTypes + g.type].model, d.posed = &s.pose_pool[size_t(g.pose)].meshes, d.worlds = g.worlds.data(), d.count = n, d.view_proj = ctx.view_proj, d.eye = ctx.eye, d.game_space = true, d.lights = s.LightsOf(d.model, counts_);   // S103 L4
     InstancedStats st;
     d.group = g.floor ? rdr::kGrpCrowdFloor : rdr::kGrpCrowd;   // S103 GSTP
+    d.alpha_test = 0;   // S111 CROWDATEST: the stands members and the seated floor people draw with the crowd node's alpha test OFF (sub_82519508 audience_draw_entry), whatever the texture's alpha
     const uint32_t made = s.fe.DrawInstanced(d, ctx, fb, st);
     counts_.refused += st.meshes_refused, counts_.light_fallbacks += st.light_mismatch;
     if (counts_.refusal.empty()) counts_.refusal = st.first_refusal;
@@ -1335,7 +1338,9 @@ void LiveCrowd::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& fb) 
     if (s.card_model < 0 || !cg.baked) { counts_.cards_skipped += n; if (counts_.skip_why.empty()) counts_.skip_why = "card picture not baked"; continue; }
     InstancedDraw d;
     d.model = s.card_model, d.posed = s.frame_atlas ? s.AtlasQuad(type) : &s.card_quad, d.worlds = cg.worlds.data(), d.count = n, d.slot0 = s.frame_atlas ? s.atlas_image : s.card_image[type], d.tag_salt = s.frame_atlas ? type + 1u : 0u, d.aniso_override = s.frame_atlas ? 1 : 0;   // S103 CB1: the atlas tile's quad
-    d.view_proj = ctx.view_proj, d.eye = ctx.eye, d.game_space = true, d.cull_none = true, d.clamp_slot0 = true;   // (S103 L4: the quad is the UNLIT variant: no light is read)
+    d.view_proj = ctx.view_proj, d.eye = ctx.eye, d.game_space = true, d.clamp_slot0 = true;   // (S103 L4: the quad is the UNLIT variant: no light is read; S111 CARDCULL: back faces culled, DrawInstanced's own rule)
+    d.plant_two_sided = s.options.fault_cards_two_sided;   // S111 CROWDCULLSRC planted twin (rig fault cards_two_sided): the pre-CARDCULL two-sided card, test only
+    d.alpha_test = 1;   // S111 CROWDATEST: the far cards are the one crowd family the game tests (sub_825185B0 audience_draw_blocks turns the test and the blend on for its card loop)
     InstancedStats st;
     d.group = rdr::kGrpCrowdCards;   // S103 GSTP
     const uint32_t made = s.fe.DrawInstanced(d, ctx, fb, st);
@@ -1366,7 +1371,9 @@ void LiveCrowd::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& fb) 
           break;
         }
     }
-    d.view_proj = ctx.view_proj, d.eye = ctx.eye, d.game_space = true, d.lights = s.LightsOf(d.model, counts_);   // S103 L4 (S103 SG: no cull_none: the prop material culls back faces, as the game)
+    d.view_proj = ctx.view_proj, d.eye = ctx.eye, d.game_space = true, d.lights = s.LightsOf(d.model, counts_);   // S103 L4 (S103 SG: back faces culled, as the game: DrawInstanced's own rule)
+    d.plant_two_sided = s.options.fault_props_two_sided;   // S103 SG planted twin (rig fault props_two_sided): the pre-SG two-sided props, test only
+    d.alpha_test = 0;   // S111 CROWDATEST: the signs / foam hands draw with the crowd node's alpha test OFF (sub_82518950 / sub_82518EB8 set no state of their own)
     InstancedStats st;
     d.group = rdr::kGrpCrowd;   // S103 GSTP (the signs / foam hands are the crowd's)
     const uint32_t made = s.fe.DrawInstanced(d, ctx, fb, st);

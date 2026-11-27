@@ -242,6 +242,17 @@ def test_map_entry():
     check('yBG_Default.frag' in o and 'yMovieDefault.frag' in o and 'rf_c_core.cpp' in o, 'map screens 800 shader: names the scene shader, the game-draw shader and the loop', o[:900])
     c = qq('map', '--check')
     check('which shader files draw the arena screens' not in c, 'map --check: no stale anchor on the screens entry', c)
+    # S111 SPLIT-WIRE review: a log line printed from a split part (src/renderer_adapter/reader/*.inc) is found, at the part's file:line
+    import glob
+    import re
+    for p in sorted(glob.glob(os.path.join(HERE, '..', '..', 'src', 'renderer_adapter', 'reader', '*.inc'))):
+        m = re.search(r'REXLOG_INFO\("(\[rdr\]\[[a-z_]+\] [A-Za-z][^"{}\\%]{20,})"\)', open(p, encoding='utf-8', errors='replace').read())
+        if m:
+            o = qq('map', '--line', m.group(1))
+            check('reader/' + os.path.basename(p) in o, 'map --line: a log line of the split reader (%s) names its part file' % os.path.basename(p), o[:600])
+            break
+    else:
+        print('SKIP  map --line of a split part: no reader part holds a plain REXLOG_INFO line')
 
 
 def real_tree():

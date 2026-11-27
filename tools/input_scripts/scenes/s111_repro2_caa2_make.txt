@@ -1,0 +1,331 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on
+# S111 REPRO2: makes the SECOND test created arena (mirror out\bench\userdata_caa2; run it with -Data userdata_frozen -AllowStaleExe, then copy the run's userdata_work_sN folder,
+# without cache, to out\bench\userdata_caa2). Tester report: "Created Arenas ring posts in strange random colors, ring mats a strange texture". The first test arena (caa_make_arena.txt)
+# painted RING POST > ALL GROUPS one colour and left the post logos alone; this one paints what that left: RING POST > 1ST GROUP and 2ND GROUP each with their OWN colour, a LOGO
+# (DESIGNS 1/77, placed at the default spot, own colour) and a PATTERN; MAT > colour, a LOGO (own colour) and a PATTERN; then TURNBUCKLE PAD > its first page is shot only.
+# Stage tab untouched (default screens). Saved as "CUSTOM ARENA" in custom slot 1 (arena id 200) like caa_make_arena.txt.
+# Editor map (probes s111_repro2_post_probe, runs 001-003 of the tip exe): RING tab list = APRON, MAT, ROPE, RING POST, TURNBUCKLE PAD, EDIT LAYERS. MAT page / a post GROUP page =
+# COLOR ETC, LOGOS, PATTERN, ACCEPT. Colour page: the cursor starts on the hidden PREVIOUS COLOR row; DOWN = SAMPLE COLORS, A enters the swatch row, RIGHT moves, A picks and returns to
+# SAMPLE COLORS; DOWN x5 = ACCEPT (PICKER, HISTORY, SHADE, DEFAULT, ACCEPT); back on the page with the cursor on COLOR ETC. LOGOS = category list (DESIGNS first), A, carousel, A picks,
+# A places (the placement view: SELECT / CANCEL / DEFAULT, MOVE / ROTATION / ADJUST SIZE), then the logo's colour page (same rules); accepted it returns to the category list; B = the page.
+# RING POST list = 1ST GROUP, 2ND GROUP, ALL GROUPS (ALL GROUPS asks an ATTENTION box first, the single groups do not). Pattern: DOWN x2 + A picks the 3rd (as the mat), then DOWN, A = ACCEPT.
+# Question: does the editor take the post groups' own colours, logos and patterns and the mat logo, and write 00CustomArena.car? Shots s_* are the contact sheet.
+on_fail quit
+log bench: start repro2 caa2 make
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+wait_frames 300
+# ---- RING tab, MAT: colour red, logo, pattern
+press RB
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press A
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press RIGHT
+wait_frames 250
+press RIGHT
+wait_frames 250
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 400
+log scene=s_mat_col
+screenshot s_mat_col
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press A
+wait_frames 400
+press A
+wait_frames 500
+press A
+wait_frames 500
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+repeat 8
+press RIGHT
+wait_frames 250
+end_repeat
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 600
+press B
+wait_frames 400
+log scene=s_mat_logo
+screenshot s_mat_logo
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_mat_pat_page
+screenshot s_mat_pat_page
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_mat_pat_picked
+screenshot s_mat_pat_picked
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_mat_done
+log_text 8
+screenshot s_mat_done
+# ---- RING POST: 1ST GROUP
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+log scene=s_post_list
+screenshot s_post_list
+press A
+wait_frames 250
+press A
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press RIGHT
+wait_frames 250
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 400
+log scene=s_g1_col
+screenshot s_g1_col
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press A
+wait_frames 400
+press A
+wait_frames 500
+press A
+wait_frames 500
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+repeat 6
+press RIGHT
+wait_frames 250
+end_repeat
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 600
+press B
+wait_frames 400
+log scene=s_g1_logo
+screenshot s_g1_logo
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_g1_pat_page
+screenshot s_g1_pat_page
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_g1_pat_picked
+screenshot s_g1_pat_picked
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_g1_done
+log_text 8
+screenshot s_g1_done
+# ---- RING POST: 2ND GROUP
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press A
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+repeat 5
+press RIGHT
+wait_frames 250
+end_repeat
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 400
+log scene=s_g2_col
+screenshot s_g2_col
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press A
+wait_frames 400
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 500
+press A
+wait_frames 500
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+repeat 3
+press RIGHT
+wait_frames 250
+end_repeat
+press A
+wait_frames 250
+repeat 5
+press DOWN
+wait_frames 250
+end_repeat
+press A
+wait_frames 600
+press B
+wait_frames 400
+log scene=s_g2_logo
+screenshot s_g2_logo
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_g2_pat_picked
+screenshot s_g2_pat_picked
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_g2_done
+log_text 8
+screenshot s_g2_done
+# ---- back to the RING tab list, then OTHER > screenshot > accept > name > save
+press B
+wait_frames 400
+log scene=s_ring_tab
+log_text 8
+screenshot s_ring_tab
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=s_turnbuckle_page
+log_text 8
+screenshot s_turnbuckle_page
+press B
+wait_frames 400
+press RB
+wait_frames 250
+press RB
+wait_frames 250
+wait_frames 60
+log scene=s_other
+log_text 8
+screenshot s_other
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+press A
+wait_frames 250
+wait_frames 60
+log scene=s_cam_taken
+log_text 8
+screenshot s_cam_taken
+press DOWN
+wait_frames 250
+press A
+wait_frames 250
+wait_frames 60
+log scene=s_keyboard
+log_text 8
+screenshot s_keyboard
+press START
+wait_frames 250
+wait_state seq 75 1800
+wait_frames 400
+wait_frames 60
+log scene=s_main_menu
+log_text 8
+screenshot s_main_menu
+log bench: done
+quit

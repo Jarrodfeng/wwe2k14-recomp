@@ -1,0 +1,9 @@
+name = "assume"
+module = "qassume"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 95
+text = '''  assume [--kind A..G] [--in PATH] [--ref REF] [--out F]  the SWEEP list: where our code may hard-code a choice the game makes at run time (A id tables, B count rules, C address gates, D keep-one, E assumption comments, F switches, G known diffs), by file + enclosing name (tools/q/qassume.py)'''

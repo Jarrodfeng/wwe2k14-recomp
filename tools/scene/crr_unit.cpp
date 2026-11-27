@@ -1,7 +1,7 @@
 // crr_unit: the offline proof of S103 lane CRR: a created arena (ids 200-249) draws its ring from the game's fixed ALT keys (docs\research\s103\CRK.md; src\renderer_scene\ring_keys.h, asset_load.h PlaceRing / load lists,
 // ring_low_keys.h, ring_rows_core.h kClassTable, ring_recompute_core.h alt posts).
 //   crr_unit [--game DIR] [--plant NAME]
-// Part A (no game files): the pure rules: KeyOf / GroupKeys / Need / RankOfKey for the alt ring against the CRK table, the low -> high twins, the game's G+68..+112 class entries, our alt post rows (8 calls, angle indices).
+// Part A (no game files): the pure rules: KeyOf / GroupKeys / ClassPosed / RankOfKey for the alt ring against the CRK table, the low -> high twins, the game's G+68..+112 class entries, our alt post rows (8 calls, angle indices).
 // Part B (--game DIR, the player's own pac\car + pac\bg\bg04.pac): (1) re-find the bug: the keys the OLD loader would take from the merged pac are {952, 980}; (2) every alt piece loads and has its twin's node set (bg04);
 // (3) the alt PlaceRing output equals the corner table; the four cover models share one geometry.
 // A plant is a FAULT in the thing under test; each must make a NAMED check fail (exit 1 when any check failed):
@@ -10,6 +10,7 @@
 //   logo_as_cover       a post logo (1080) stands in for a cover in the shape check               -> "shape.covers_share_geometry"
 //   post_loop1_corner0  the alt post loop 1 starts at corner 0 (angle indices 0, 1)               -> "rows.alt_posts_angles"
 //   skirt_swap          the alt skirt keys are swapped (1065 for 973's)                           -> "keys.alt_table"
+//   class_by_count      the posed / at-rest rule is the old fixed row count per group (12 / 12 / 12 / 4 (8 alt) / 3 / 1) for every row source (S111 TBPAD review, NEEDREMOVE)  -> "keys.class_posed"
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -112,13 +113,23 @@ int main(int argc, char** argv) {
     Check(ok, "keys.alt_table", ok ? "every class / call of the alt ring maps to its CRK key (ours: covers by call / 3, 8 posts; the game's rows: base slots + pad2)" : why);
     // the normal ring is untouched
     bool normal = rk::KeyOf(Row(rdr_scene::kRcCoverHi, 7), true, false) == 964 && rk::KeyOf(Row(rdr_scene::kRcPostHi, 3, 1075), false, false) == 951 && rk::KeyOf(Row(rdr_scene::kRcRopeLo, 0), true, false) == 980 &&
-                  rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 1), true, false) == 973 && rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 0), true, false) == 974 && rk::Need(3, false) == 4 && rk::Need(3, true) == 8;
-    Check(normal, "keys.normal_unchanged", "a normal arena keeps 951-982 and 4 posts; pad2 never names a key there");
+                  rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 1), true, false) == 973 && rk::KeyOf(Row(rdr_scene::kRcSkirt, 0, 0), true, false) == 974 && rk::kAltPostCalls == 8;
+    Check(normal, "keys.normal_unchanged", "a normal arena keeps 951-982; pad2 never names a key there; the alt ring has 8 post calls");
     {   // S110 RINGBREAK: the canvas is group 5 (one call; key 953 / alt 1017; its own rest key list), ours AND the game's rows
       const RingRows cv = Row(rdr_scene::kRcCanvas, 0);
-      const bool ck = rk::GroupOf(cv) == 5 && rk::Need(5, false) == 1 && rk::Need(5, true) == 1 && rk::KeyOf(cv, true, false) == 953 && rk::KeyOf(cv, false, false) == 953 && rk::KeyOf(cv, true, true) == 1017 &&
+      const bool ck = rk::GroupOf(cv) == 5 && rk::KeyOf(cv, true, false) == 953 && rk::KeyOf(cv, false, false) == 953 && rk::KeyOf(cv, true, true) == 1017 &&
                       rk::GroupKeys(5, false) == std::vector<int>{953} && rk::GroupKeys(5, true) == std::vector<int>{1017} && rk::RankOfKey(953).tok != nullptr && rk::RankOfKey(1017).tok != nullptr && rk::GroupOf(Row(rdr_scene::kRcSkirt, 0)) == 4;
-      Check(ck, "keys.canvas", "canvas: group 5, Need 1, key 953 (alt 1017), GroupKeys {953} / {1017}; the skirt stays group 4");
+      Check(ck, "keys.canvas", "canvas: group 5, key 953 (alt 1017), GroupKeys {953} / {1017}; the skirt stays group 4");
+    }
+    {   // S111 TBPAD (review) + NEEDREMOVE: ClassPosed. The rows are the game's submit list, OURS or the game's own copies alike: 11 cover rows (a torn-off pad), 2 skirts, 12 covers, 8 or 7 alt posts are
+        // posed; one row we cannot draw (an unreadable copy: offered, not drawable), or no rows, = at rest. The planted twin is the old fixed count per group for every row source.
+      const auto posed = [&](int g, bool alt, uint32_t have, uint32_t offered) {
+        static constexpr uint32_t kOldCount[6] = {12, 12, 12, 4, 3, 1};   // the removed rule, kept only as the twin
+        return Plant("class_by_count") ? have >= (g == 3 && alt ? rk::kAltPostCalls : kOldCount[g]) : rk::ClassPosed(have, offered);
+      };
+      const bool ck = posed(1, false, 11, 11) && posed(1, true, 11, 11) && posed(4, false, 2, 2) && posed(1, false, 12, 12) && posed(3, true, 8, 8) && posed(3, true, 7, 7) &&
+                      !posed(1, false, 10, 11) && !posed(1, false, 0, 0) && !posed(1, false, 0, 1);
+      Check(ck, "keys.class_posed", "one rule for ours and the game's copies: posed whenever every given row is drawable (11 covers = a torn pad stays torn, 2 skirts, 7 alt posts), at rest with an undrawable row or none");
     }
     // every key the alt rule can produce belongs to its group's key list and has a rank / the low twins pair up
     std::set<int> produced;
@@ -166,6 +177,7 @@ int main(int argc, char** argv) {
     rr::PostInputs alt;
     alt.ok = true, alt.alt = true;
     alt.models[0].model = 1, alt.models[0].n = 3, alt.models[0].palette = 0x1000;
+    for (int h = 0; h < 3; ++h) alt.alt_models[h][0] = alt.models[0];   // S111 RINGLOD: loop 2's own slots (G + 92 + 4 h)
     alt.step = kPi * 0.5f, alt.pi = kPi, alt.neg_pi = -kPi, alt.two_pi = 2.f * kPi;
     rr::PostInputs norm = alt;
     norm.alt = false;
@@ -202,6 +214,7 @@ int main(int argc, char** argv) {
       cv.models[0].model = 1, cv.models[0].n = 3;
       cv.models[0].inv.assign(48, 0.f), cv.models[0].pal.assign(48, 0.f);
       for (int n = 0; n < 3; ++n) cv.models[0].inv[size_t(n) * 16] = cv.models[0].inv[size_t(n) * 16 + 5] = cv.models[0].inv[size_t(n) * 16 + 10] = cv.models[0].inv[size_t(n) * 16 + 15] = 1.f;
+      for (int c = 0; c < 3; ++c) cv.alt_models[c][0] = cv.models[0];   // S111 RINGLOD: the alt corners 0..2 pose their own slots (G + 68 + 4 c)
       cv.ang_step = kPi * 0.5f, cv.ang_base = 0.f, cv.pi = kPi, cv.neg_pi = -kPi, cv.two_pi = 2.f * kPi;
       rr::Inputs grid;
       grid.layer[0].resize(size_t(rr::kRecCount) * 3);
@@ -226,6 +239,21 @@ int main(int argc, char** argv) {
         if (!same) ok = false, why += "corner " + std::to_string(r25) + " is not angle " + std::to_string(ang[r25]) + " at record side " + std::to_string(side[r25]) + "; ";
       }
       Check(ok, "rows.alt_cover_pose", ok ? "alt covers: r25 0..3 pose at angle pi/2, pi, -pi/2, 0 on grid record side 2, 3, 0, 1 (the descriptor's own side is replaced)" : why);
+      {   // S111 RINGLOD: the alt LOD (sub_82740550 / sub_82740480 -> sub_8273FF58): every alt corner and every loop-2 post takes the far test with its OWN low slot
+        rr::CvInputs lc = cv;
+        lc.alt = true, lc.lod_ok = true, lc.lod_dist = 3000.f;
+        for (int c = 0; c < 3; ++c) lc.alt_models[c][1] = cv.models[0], lc.alt_models[c][1].model = 2;
+        rr::RopeView far;
+        far.has = true, far.eye[0] = 0.f, far.eye[1] = -196.f, far.eye[2] = 5000.f;   // more than 3000 from every corner point
+        bool lk = true;
+        for (uint32_t r25 = 0; r25 < 3; ++r25) lk = lk && rr::CoverModelIndex(lc, far, r25) == 1u;
+        lk = lk && rr::CoverModelIndex(lc, far, 3) == 0u;   // corner 3 is [G + 40]'s: empty here
+        rr::PostInputs lp = alt;
+        lp.lod_ok = true, lp.lod_dist = 3000.f;
+        lp.alt_models[1][1] = alt.models[0], lp.alt_models[1][1].model = 3;   // only h 1 (our calls 4, 5) has a far slot
+        for (uint32_t i = 0; i < 8; ++i) lk = lk && rr::PostModelIndex(lp, far, i) == ((i == 4 || i == 5) ? 1u : 0u);
+        Check(lk, "rows.alt_lod", "alt covers 0..2 and loop-2 posts take the far test with their own low slot");
+      }
     }
   }
 
@@ -359,13 +387,13 @@ int main(int argc, char** argv) {
       Check(posts, "place.posts", "1050 at RotY(1, 2 * pi/2) (loop 1); 1051 + 1081 at corners 0, 3 (0, -pi/2); 1080 at corners 1, 2");
       int cover_want[4] = {1070, 1071, 1072, 1073};   // by placement angle p * pi/2 (CRR fix: the alt pose puts call corner r25 at {pi/2, pi, -pi/2, 0})
       if (Plant("old_cover_corners")) cover_want[0] = 1071, cover_want[1] = 1072, cover_want[2] = 1073, cover_want[3] = 1070;
-      const float cover_y[3] = {-153.844f, -195.879f, -237.844f};
+      const float cover_y[3] = {-154.f + -0.0001f, -196.f + -0.0001f, -238.f + -0.0001f};   // S111 RINGLOD: the rest grid height (sub_824FC040) + the cover's node-2 inverse-bind y (run 16)
       bool covers_ok = true;
       std::string cwhy;
       for (int corner = 0; corner < 4; ++corner) {
         const assets::Placement* pl = placement(cover_want[corner]);
         bool this_ok = pl && pl->transforms.size() == 3;
-        for (int h = 0; this_ok && h < 3; ++h) this_ok = Near(pl->transforms[size_t(h)], assets::MirrorY(assets::Mul(TransFile(-2.931f, cover_y[h], -2.928f), rot(corner))));
+        for (int h = 0; this_ok && h < 3; ++h) this_ok = Near(pl->transforms[size_t(h)], assets::MirrorY(assets::Mul(TransFile(284.997f - 288.f, cover_y[h], 285.f - 288.f), rot(corner))));
         if (!this_ok) covers_ok = false, cwhy += "corner " + std::to_string(corner) + " is not model " + std::to_string(cover_want[corner]) + "'s placement; ";
       }
       Check(covers_ok, "place.covers_by_corner", covers_ok ? "3 heights per corner; the corner at angle p * pi/2 holds 1070 + p (the 964 shift, RotY(corner * pi/2))" : cwhy);

@@ -501,7 +501,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
   }
   // S103 SCR: the game's movie-surface rule, in the LOADER (it ran only in stage_media::Apply, which the live path never reaches: no media folder): back faces culled, self-lit (our flat set: ambient 1, no lights,
   // no lightmap; the record's slot rows must not replace it: LightsFor skips id -1 / edit_id -1), and blended SrcAlpha / InvSrcAlpha by the STORED VERTEX ALPHA (key 805's floor copy = alpha 0..17 of 255: a faint reflection).
-  // [C] S98 evidence quoted in stage_media.h:306-318 (capture rp_stage, run 6818). Planted twin: Plants::no_screen_rule.
+  // [C] S98 evidence quoted in stage_media.h (assets::stage_media::Apply) (capture rp_stage, run 6818). Planted twin: Plants::no_screen_rule.
   int flat_set = -1;
   if (!g_plants.no_screen_rule) {
     assets::LightSet flat;
@@ -531,9 +531,9 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
     if (it == screen_tex.end() && !(movie_key && (flat_set >= 0 || idle_black_tex >= 0) && me.material >= 0)) continue;
     assets::Material mt = me.material >= 0 ? full.materials[size_t(me.material)] : assets::Material();
     if (it != screen_tex.end()) mt.diffuse = it->second;
-    else if (idle_black_tex >= 0 && mt.diffuse < 0) mt.diffuse = idle_black_tex;   // S103 SCN (B): idle = the game's black default plane, not white_ (review: never over a file / mod picture, as stage_media.h:289)
+    else if (idle_black_tex >= 0 && mt.diffuse < 0) mt.diffuse = idle_black_tex;   // S103 SCN (B): idle = the game's black default plane, not white_ (review: never over a file / mod picture, as stage_media.h (assets::stage_media::Apply))
     // S103 TRN4 (docs/agents/s103/TRN4.md, rig A/B on arena 44): the game draws keys 800-809 with yMovieDefault, never yBG_Default with a
-    // highlight; 22 screen-key meshes (arenas 30/33/35/44/50/53/54) carry g_fSpecularLev 0.5 and the loader's L5 rule (jboy.h:838) skips them
+    // highlight; 22 screen-key meshes (arenas 30/33/35/44/50/53/54) carry g_fSpecularLev 0.5 and the loader's L5 rule (jboy.h) skips them
     // (no file texture), so the specular variant drew the big screen black. Every movie key: no highlight, outside the flat-set branch.
     if (movie_key && !g_plants.screen_highlight_kept) mt.no_highlight = true;   // WGS: the planted twin (Plants::screen_highlight_kept) keeps the file's highlight
     if (movie_key && flat_set >= 0) {
@@ -592,7 +592,7 @@ ArenaSet* EnsureArenaImpl(BuildCtx& ctx, std::string& why, bool& miss) {
     assets::Model sub = SubModel(full, pick, std::string("arena ") + std::to_string(view.arena_id) + " " + kName[pi]);
     if (pi == size_t(Part::Flash)) {  // (the front-end leaves the "crowd flash" name to the viewer's own pass: ours is drawn as sprites, blended SrcAlpha + One: crowd_flash.md)
       for (assets::Mesh& me : sub.meshes) me.part = "flash 31000";
-      for (assets::Material& mt : sub.materials) mt.alpha_blend = true, mt.additive = true, mt.cull_back = false, mt.cull_from_record = false;   // S105 C3: our sprite stays two-sided (its winding is our matrix's, live_particles.cpp:193)
+      for (assets::Material& mt : sub.materials) mt.alpha_blend = true, mt.additive = true, mt.cull_back = false, mt.cull_from_record = false;   // S105 C3: our sprite stays two-sided (its winding is our matrix's, live_particles.cpp)
       for (const assets::Mesh& me : sub.meshes)
         for (const assets::Vertex& v : me.vertices) radius = std::max(radius, std::max(std::fabs(v.pos[0]), std::max(std::fabs(v.pos[1]), std::fabs(v.pos[2]))));
     }

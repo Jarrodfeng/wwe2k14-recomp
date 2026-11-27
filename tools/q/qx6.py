@@ -305,7 +305,8 @@ def asm_main(argv, con, resolve, root=None):
     ap.add_argument('func')
     ap.add_argument('range', nargs='*', help='FROM TO (hex addresses)')
     ap.add_argument('--into', nargs=2, metavar=('FROM', 'TO'), help='branches that enter [FROM,TO) from outside it')
-    ap.add_argument('--limit', type=int, default=400)
+    ap.add_argument('--limit', type=int, default=None, help='rows shown (default 400; no cut when --range or --where is given)')
+    ap.add_argument('--range', dest='range_spec', default=None, metavar='A..B', help='S111 QWHERE: the instructions from function offset A to B (+0x45C..+0x4C0, or game addresses), whole, no row cut (qdecomp_range.py)')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--at', default=None, metavar='OFF[..OFF2]', help='S111 QGAPS: a window by hex byte offset from the function start: OFF = that instruction +-CTX, OFF..OFF2 = that range (`FUNC+OFF` = --at OFF)')
     ap.add_argument('--ctx', type=int, default=12, help='--at OFF: instructions either side (default 12)')
@@ -342,6 +343,20 @@ def asm_main(argv, con, resolve, root=None):
         if a.range or a.into:
             raise XError('--at / FUNC+OFF does not combine with FROM TO or --into')
         a.range = at_window(a.at, f['addr'], f['size'], a.ctx)
+    if a.range_spec is not None:      # S111 QWHERE: --range A..B by function offset (or address) = the same window as --at A..B, never row-cut
+        if a.range or a.into or a.at is not None:
+            raise XError('--range does not combine with FROM TO, --at or --into')
+        import qdecomp_range
+        try:
+            lo, hi = qdecomp_range.parse(a.range_spec, f['addr'])
+        except qdecomp_range.RangeError as e:
+            raise XError(str(e))
+        lo = lo & ~3
+        top = max(f['size'] - 4, 0) if f['size'] else hi
+        a.range = [f'{f["addr"] + lo:X}', f'{f["addr"] + min(hi & ~3, top):X}']
+    if a.limit is None:
+        import qwhere
+        a.limit = (1 << 30) if (a.range_spec is not None or qwhere.active()) else 400
     if a.writes or a.reads:
         import qregs
         return qregs.main(a, f, insns, con)

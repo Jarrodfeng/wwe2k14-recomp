@@ -1,0 +1,40 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, replay_mode on
+# S111 REPRO2: the MOVESET editor's preview of the BARE-torso test superstar (CAW id 1 of the mirror out\bench\userdata_caw_bare; run it with -Data userdata_caw_bare). Tester report: a fixed
+# dark T on the torso of a created superstar in the "moveset preview". Path (nav\creations_to_moveset_specials.txt, runs 007-010): CREATIONS > CUSTOM MOVE-SET > the first page
+# (SUPERSTAR / DOWNLOADABLE CONTENT / CUSTOM SUPERSTAR: DOWN x2 + A = CUSTOM SUPERSTAR) > the created superstars (id 0 tank top, id 1 bare: DOWN + A) > the editor with the
+# preview. Steps after CUSTOM SUPERSTAR are a guess (marked by the shots); nothing is saved. Shots: the list, the editor, a few seconds on.
+# Question: does the moveset preview of a created superstar show a dark T on the bare torso?
+on_fail quit
+log bench: start repro2 caw moveset
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN cursor 3 24 30 5 if_needed
+press A
+wait_text CUSTOM MOVE-SET 600
+wait_frames 90
+log scene=ms_first_page
+screenshot ms_first_page
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 600
+log scene=ms_caw_list
+log_text 8
+screenshot ms_caw_list
+press DOWN
+wait_frames 60
+press A
+wait_frames 900
+log scene=ms_editor
+log_text 8
+screenshot ms_editor
+wait_frames 300
+screenshot ms_editor2
+wait_frames 300
+screenshot ms_editor3
+log bench: done
+quit

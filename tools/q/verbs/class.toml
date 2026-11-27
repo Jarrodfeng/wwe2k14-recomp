@@ -1,0 +1,15 @@
+name = "class"
+module = "qstruct"
+main = "main_class"
+needs = "con"
+errors = ["qstruct.StructError", "qstruct.qslice.SliceError", "qstruct.qdecomp.DecompError"]
+
+[[usage]]
+order = 91
+text = '''  class CLASS [--json]          the class picture of a vtable: its slots (cut by vtcut) with db names, the ctors / dtors storing the
+                               vptr, parents (a ctor calling another class's ctor on this first; a vtable prefix), subobjects, the
+                               classes built on it and the globals holding an instance. CLASS = 0xVTABLE | vt:ADDR | sub_X (tools/q/qstruct.py)'''
+
+[[route]]
+order = 201
+text = '''- a game class's picture (slots, ctors, base class, subobjects, globals holding one): class 0xVTABLE | sub_X'''

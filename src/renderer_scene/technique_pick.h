@@ -107,7 +107,7 @@ inline int CharPassOf(const CharClass& c, bool model_skinned, bool shadow_ok, in
 }
 inline int CharPass(const std::string& lower, bool model_skinned, bool shadow_ok, int mode616, bool spec_pow_ok, int model620 = -1) { return CharPassOf(CharClassOf(lower), model_skinned, shadow_ok, mode616, spec_pow_ok, model620); }
 
-// Does the variant's output alpha carry the DIFFUSE texture's alpha? [C: fx_prop.glsl 603-606 / 674 / 780-783, and the game's translated shaders PAS section 2]: every yProp fragment multiplies the diffuse alpha
+// Does the variant's output alpha carry the DIFFUSE texture's alpha? [C: fx_prop.glsl, and the game's translated shaders PAS section 2]: every yProp fragment multiplies the diffuse alpha
 // in (cut-out + soft edge) except the gloss techniques (FX_ALPHA_GLOSS, FX_NORMAL_GLOSS), whose diffuse alpha is the gloss mask and whose output alpha is the colour alpha alone.
 // `defines` = the variant's define list (fx_tables.h VariantTable::defines).
 inline bool ShowsDiffuseAlpha(const char* defines) {

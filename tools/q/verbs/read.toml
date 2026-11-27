@@ -1,0 +1,5 @@
+name = "read"
+module = "qread"
+errors = ["qread.ReadError", "qread.qnames.NamesError"]
+qerror = false
+broken_pipe = false

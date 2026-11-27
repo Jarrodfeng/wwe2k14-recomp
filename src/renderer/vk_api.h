@@ -110,6 +110,14 @@
   X(vkCmdSetStencilCompareMask)      \
   X(vkCmdSetStencilWriteMask)        \
   X(vkCmdSetStencilReference)        \
+  X(vkCmdSetCullModeEXT)             /* S111 DYNSTATE: VK_EXT_extended_dynamic_state (null without it; dyn_state_vk.h) */ \
+  X(vkCmdSetFrontFaceEXT)            \
+  X(vkCmdSetDepthTestEnableEXT)      \
+  X(vkCmdSetDepthWriteEnableEXT)     \
+  X(vkCmdSetDepthCompareOpEXT)       \
+  X(vkCmdSetColorBlendEnableEXT)     /* S111 DYNSTATE: VK_EXT_extended_dynamic_state3 */ \
+  X(vkCmdSetColorBlendEquationEXT)   \
+  X(vkCmdSetColorWriteMaskEXT)       \
   X(vkCmdDraw)                       \
   X(vkCmdDrawIndexed)                \
   X(vkCmdClearAttachments)           \

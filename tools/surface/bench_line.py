@@ -53,7 +53,7 @@ import heat_rules
 import burst_rules   # S102 B1
 import wer_report   # S102 TS1
 
-RES_NAMES = {0: '720p', 1: '1440p', 2: '4K'}   # src\launcher\launcher_core.h:153 (0 720p, 1 1440p, 2 4K)
+RES_NAMES = {0: '720p', 1: '1440p', 2: '4K'}   # src\launcher\launcher_core.h (0 720p, 1 1440p, 2 4K)
 STEPS = (('bryan', 'frames_bryan'), ('brock', 'frames_brock'), ('match', 'frames_match'), ('bryan_heavy', 'frames_bryan_heavy'))   # S102 M6: frames_bryan_heavy = tools\input_scripts\scenes\bryan_heavy.txt, window scene=heavy .. scene=end
 STAMP = re.compile(r'^\[\d{4}-\d\d-\d\d (\d\d):(\d\d):(\d\d\.\d+)\]')
 MARK = re.compile(r'\[wwe2k14\]\[input\] line \d+: scene=([A-Za-z0-9_]+)\b[^\n]*?\(frame (\d+)\)\s*$')

@@ -14,6 +14,9 @@ from it by lodging and never edited by hand. A claims file that differs from its
 not lodged): the line says so, prints both sides' last commit and which is newer, and the fix is to put the change in the note's block
 (tools\handback\pull_claims.py NOTE copies the claims file's rows in, when the file holds the correction) and lodge.
 
+The `rev` field of each row must equal what tools\handback\rev_mark.py computes from git + the note (a reviewed [C] row: see there); a stale one
+is fixed by `py -I tools\handback\rev_mark.py --apply` or by lodging the note again.
+
 Per note it prints the problem and the exact command that fixes it:
   FAIL docs\research\s111\X.md: not lodged (no db\claims\s111_X.json)
        py -I tools\handback\lodge_note.py docs\research\s111\X.md
@@ -31,7 +34,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIELDS = ("mark", "claim", "evidence", "seam", "ours", "verdict", "system", "kind", "key", "name")
+FIELDS = ("mark", "claim", "evidence", "seam", "ours", "verdict", "system", "kind", "key", "name", "scope")
 
 
 def load(name):
@@ -41,29 +44,30 @@ def load(name):
     return m
 
 
-def expected(r):
-    """a parsed row -> the comparable dict of what the lodged object must hold."""
+def expected(r, rev=None):
+    """a parsed row -> the comparable dict of what the lodged object must hold (rev: what tools\\handback\\rev_mark.py computes for it)."""
     d = {"address": "0x%08X" % r["addr"]}
     for k in FIELDS:
         d[k] = r.get(k) or None
     d["site"] = ("0x%08X" % r["site"]) if r.get("kind") == "site" else None
+    d["rev"] = rev or None
     return d
 
 
 def lodged(o):
     d = {"address": o.get("address")}
-    for k in FIELDS + ("site",):
+    for k in FIELDS + ("site", "rev"):
         d[k] = o.get(k) or None
     return d
 
 
-def differences(rows, objs):
+def differences(rows, objs, revs=None):
     """-> [str]: why the file does not hold the block's rows (empty = equal)."""
     if len(rows) != len(objs):
         return ["the block has %d rows, the claims file %d" % (len(rows), len(objs))]
     out = []
     for i, (r, o) in enumerate(zip(rows, objs), 1):
-        e, g = expected(r), lodged(o)
+        e, g = expected(r, revs[i - 1] if revs else None), lodged(o)
         bad = [k for k in e if e[k] != g[k]]
         if bad:
             out.append("row %d (%s): %s differ%s" % (i, e["address"], ", ".join(bad), "s" if len(bad) == 1 else ""))
@@ -99,7 +103,7 @@ def newer_side(root, note, claims):
 
 def lint(root, out=print):
     """-> (notes with a block, [(note rel, reason, [lines to print under it: the commits, then the commands])])."""
-    cl, ln = load("claims"), load("lodge_note")
+    cl, ln, rv = load("claims"), load("lodge_note"), load("rev_mark")
     nblock, bad = 0, []
     for rel in tracked_notes(root):
         full = os.path.join(root, *rel.split("/"))
@@ -130,7 +134,7 @@ def lint(root, out=print):
         except (OSError, ValueError) as e:
             bad.append((rel, "%s does not parse: %s" % (ln.claims_rel(rel), e), [cmd]))
             continue
-        why = differences(rows, objs if isinstance(objs, list) else [])
+        why = differences(rows, objs if isinstance(objs, list) else [], rv.compute(root, rel, text, rows, cl))
         if why:
             crel = ln.claims_rel(rel)
             n_, c_ = last_commit(root, rel), last_commit(root, crel)
@@ -157,8 +161,12 @@ def main(argv=None):
         print("FAIL %s: %s" % (rel.replace("/", "\\"), why))
         for x in lines:
             print("     " + x)
+    ab_fails, ab_warn = load("abslint").lint(root)   # ABSLINT: absolute words in lodged claims ([L] / [U] = FAIL)
+    for x in ab_fails:
+        print(x)
+    print("lodge_lint: abslint %d FAIL, %d [C] WARN (py -I tools\\handback\\abslint.py --sweep lists them)" % (len(ab_fails), ab_warn))
     print("lodge_lint: %d notes with a claims block, %d not lodged or different" % (nblock, len(bad)))
-    return 1 if bad else 0
+    return 1 if bad or ab_fails else 0
 
 
 if __name__ == "__main__":

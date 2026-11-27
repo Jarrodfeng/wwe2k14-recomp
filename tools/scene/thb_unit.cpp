@@ -5,7 +5,8 @@
 //                material of its prop (every entry) has a bindable cc_mask row in the EDIT/STS table through the real ChooseEffect. A prop with none = exit 1 with the ids (the note's fallback condition: stop, do not
 //                build the host compose). Without --game the real step is reported SKIPPED (exit 0 on the synthetic stages only).
 //   --plant NAME : a planted twin of the old / wrong rule; the unit exits 0 only when its checks SEE the plant (some check FAILS). NAME = ignore_state | any_callback | no_checks | make_no_drop | free_no_drop | no_carry |
-//                zero_constants | no_hook | no_sts (needs --game)
+//                zero_constants | no_hook | no_sts (needs --game) | cab_foreign | cab_stock_foreign (S111 CACSTRAP: the CAB callback on a stock id read as foreign, the CACBUILD tip) | cab_no_forget (the
+//                editor's belt latch outlives the CAB callback)
 // Production order driven: the game's draw of an event prop model (RawHookEntry: the editor read at the draw ask, both builds) / the recolour block (OnRecolourBlock = the hook body) -> the contributor's Emit
 // (weapon_rows_contrib.h: the section-67 row of kCcProp) -> SerializeRecord / ParseRecord -> CarryChangeColour (the frame) -> the draw's entry (EntryOf) -> FeedPropColour -> Resolve ("ChangeColor" / "MatDifCol"),
 // and the real ChooseEffect for the row (technique -> the STS table's cc_mask variant, slot 12 = the mask).
@@ -36,6 +37,7 @@ using namespace rdr_scene;
 namespace pc = rdr_scene::live::propcolour;
 namespace wr = rdr_scene::live::weaponrows;
 namespace W = rdr_scene::weapons;
+namespace bc = rdr_scene::live::beltcolour;   // S111 CACSTRAP: the CAB editor's stock belt row
 
 static int g_fail = 0, g_checks = 0;
 static std::string g_plant;
@@ -305,7 +307,9 @@ bool Equals(const Fed& f, const uint8_t want[12]) {
 }
 
 void Synthetic() {
-  pc::PlantForTest() = g_plant == "ignore_state" ? pc::Fault::kIgnoreState : g_plant == "any_callback" ? pc::Fault::kAnyCallback : g_plant == "cab_foreign" ? pc::Fault::kCabAsForeign : pc::Fault::kNone;
+  pc::PlantForTest() = g_plant == "ignore_state" ? pc::Fault::kIgnoreState : g_plant == "any_callback" ? pc::Fault::kAnyCallback : g_plant == "cab_foreign" ? pc::Fault::kCabAsForeign
+                     : g_plant == "cab_stock_foreign" ? pc::Fault::kCabStockForeign : pc::Fault::kNone;
+  bc::PlantForTest() = g_plant == "cab_no_forget" ? bc::Fault::kNoEditorForget : bc::Fault::kNone;
   pc::BlockPlantForTest() = g_plant == "no_checks" ? pc::BlockFault::kNoChecks : pc::BlockFault::kNone;
   pc::DropPlantForTest() = g_plant == "make_no_drop" ? pc::Plant::kMakeNoDrop : g_plant == "free_no_drop" ? pc::Plant::kFreeNoDrop : pc::Plant::kNone;
   static_assert(pc::kSkinnedModelVtable == W::kSkinnedModelVtable, "the store's model vtable is the weapon rows' (0x8206AF90)");
@@ -359,21 +363,48 @@ void Synthetic() {
     pc::TheStore().TakeShortfalls(sf);
     Check(r.Chain(101) == nullptr && sf.empty(), "editor.switch_off_is_quiet", "model+604 == 0: no row, no shortfall");
   }
-  // 3b. S111 CACBUILD: the Create a Championship belt callback (0x833445D0). A CREATED belt id at [C+228]: its sampler-12 mask is C's zero 1x1 texture, so the game recolours nothing: no row,
-  //     counted cab_plain, NO shortfall (twin: cab_foreign, the old rule). A STOCK id there binds its /CBPM mask, which ours does not load: still the foreign shortfall.
+  // 3b. S111 CACBUILD + CACSTRAP: the Create a Championship belt callback (0x833445D0). A CREATED belt id at [C+228]: its sampler-12 mask is C's zero 1x1 texture, so the game recolours nothing: no row,
+  //     counted cab_plain, NO shortfall (twin: cab_foreign, the old rule). A STOCK id there (a created title made from a base title) binds its /CBPM/<id> mask and sends C+112+16i as ChangeColor at
+  //     every draw: ours draws the entrance belt's mode-0 row (belt_colour.h OnEditorDraw: kCcBeltMask, mask beltmask:0/<id>, no kCcEditor) with the colours C holds at THIS draw; an edit moves the next
+  //     frame; the callback gone = the row gone; a C whose id is not the model's prop id is refused (twins: cab_stock_foreign = the CACBUILD tip's shortfall; cab_no_forget).
   {
     Rig r;
+    bc::ResetForTest();
     LayEditor(r.g, 1, pc::kCallbackCabBelt, 0, 0, kEdit);
     r.g.words[kGear + pc::kOffCabPropId] = 2926;
     r.Draw(kCap, 100);
     std::vector<live::change_colour::Shortfall> sf;
     pc::TheStore().TakeShortfalls(sf);
     Check(r.Chain(100) == nullptr && sf.empty() && pc::TheStore().Counts().cab_plain == 1 && pc::TheStore().Counts().foreign == 0, "editor.cab_created_belt_is_plain", sf.empty() ? "no shortfall" : sf[0].object);
-    r.g.words[kGear + pc::kOffCabPropId] = 2004;
+    const auto lay_cab = [&r](const uint8_t c[12]) {   // sub_83343EC0: colour i = words C + 112 + 16 i (R, G, B, then the fourth word)
+      for (uint32_t i = 0; i < 4; ++i) {
+        for (uint32_t k = 0; k < 3; ++k) r.g.words[kGear + bc::kCabOffColours + bc::kCabColourStride * i + 4 * k] = c[3 * i + k];
+        r.g.words[kGear + bc::kCabOffColours + bc::kCabColourStride * i + 12] = 255;
+      }
+    };
+    r.g.words[kGear + pc::kOffCabPropId] = uint32_t(kCapId);   // a stock id: the model's own prop id (the one MakeWeapon registered)
+    lay_cab(kSaved);
     r.Draw(kCap, 101);
     sf.clear();
     pc::TheStore().TakeShortfalls(sf);
-    Check(r.Chain(101) == nullptr && sf.size() == 1 && pc::TheStore().Counts().foreign == 1, "editor.cab_stock_belt_shortfall", sf.empty() ? "no shortfall" : sf[0].object);
+    bc::TheStore().TakeShortfalls(sf);
+    const SceneFrame::ChangeColour* e = r.Chain(101);
+    const ChangeColourRow* br = bc::BeltRowOf(r.back.change_colours, kCap);
+    Check(e && br && br->reserved == bc::MaskName(0, uint32_t(kCapId)) && (e->flags & kCcEditor) == 0 && Equals(Feed(e), kSaved) && sf.empty() && pc::TheStore().Counts().foreign == 0, "editor.cab_stock_belt_row",
+          br ? bc::MaskEntryOf(br->reserved) + ", " + std::to_string(sf.size()) + " shortfall(s)" : "no belt row (" + std::to_string(sf.size()) + " shortfall(s))");
+    lay_cab(kEdit);   // the picker's accept writes the new colours into C (sub_83336BD0 -> sub_83343EC0)
+    r.Draw(kCap, 102);
+    const SceneFrame::ChangeColour* e2 = r.Chain(102);
+    Check(e2 && Equals(Feed(e2), kEdit) && !Equals(Feed(e2), kSaved), "editor.cab_stock_edit_moves_it", "the next frame's ChangeColor = C's new colours");
+    r.g.words[kCap + pc::kOffCallback] = 0;   // the callback cleared (sub_83344760's leave path): the game binds no mask and sends no colours
+    r.Draw(kCap, 103);
+    r.Chain(103);
+    Check(bc::BeltRowOf(r.back.change_colours, kCap) == nullptr, "editor.cab_stock_callback_gone_row_gone", "no belt row once the model draws without the CAB callback");
+    r.g.words[kCap + pc::kOffCallback] = pc::kCallbackCabBelt, r.g.words[kGear + pc::kOffCabPropId] = 2004;   // a C whose id is not this model's prop id
+    r.Draw(kCap, 104);
+    r.Chain(104);
+    Check(bc::BeltRowOf(r.back.change_colours, kCap) == nullptr && bc::TheStore().Counts().editor_refused == 1, "editor.cab_stock_id_mismatch_refused", bc::CensusLine().substr(0, 60));
+    bc::ResetForTest();
   }
   // 4. THE MATCH: the block of sub_833A1758 latched; the prop's draws carry the saved set's colours with the FILE's MatDifCol.
   {
@@ -489,7 +520,7 @@ int main(int argc, char** argv) {
     else if (a == "--plant" && i + 1 < argc) g_plant = argv[++i];
     else return std::fprintf(stderr, "usage: thb_unit [--game DIR] [--plant NAME]\n"), 2;
   }
-  static const std::set<std::string> known = {"", "ignore_state", "any_callback", "no_checks", "make_no_drop", "free_no_drop", "no_carry", "zero_constants", "no_hook", "no_sts", "cab_foreign"};
+  static const std::set<std::string> known = {"", "ignore_state", "any_callback", "no_checks", "make_no_drop", "free_no_drop", "no_carry", "zero_constants", "no_hook", "no_sts", "cab_foreign", "cab_stock_foreign", "cab_no_forget"};
   if (!known.count(g_plant)) return std::fprintf(stderr, "unknown plant %s\n", g_plant.c_str()), 2;
   Synthetic();
   int real_rc = 0;

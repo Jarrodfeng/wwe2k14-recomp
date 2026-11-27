@@ -152,7 +152,7 @@ void FlashOurs::StartLoad(int arena) {
 }
 
 // The model's texture as a sampled image with `levels` mip levels at most. The game's image has only the levels its fetch constant allows (the reader makes mips = max_level + 1,
-// reader.h:761; the flash's constant says max_level 2, so 3 of the file's 7 levels): the file's smaller levels would be sampled where the game's clamps, so the count comes from the
+// reader.h; the flash's constant says max_level 2, so 3 of the file's 7 levels): the file's smaller levels would be sampled where the game's clamps, so the count comes from the
 // stream slot (ts->max_level + 1), one image per count, made on first use.
 rdr::ImageId FlashOurs::ImageFor(uint32_t levels) {
   if (!mesh_ || !mesh_->has_diffuse) return rdr::kNoImage;

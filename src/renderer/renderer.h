@@ -57,6 +57,10 @@ struct RendererOptions {
   uint32_t bc_decode = 1;
   // 2026-11-18 (release entrance check): test-only. Every vkCreateGraphicsPipelines in BuildPipeline sleeps this many ms first (a slow driver compile simulated); 0 = off.
   uint32_t pipeline_delay_ms = 0;
+  // S111 DYNSTATE (dyn_state.h, docs\renderer\DYNAMIC_STATE.md): which groups of draw state are set per draw instead of baked into each pipeline, where the device can
+  // (bit 0 = cull / front face / depth test, write, compare; bit 1 = blend enable, equation, colour write mask). 0 = none: the pipeline key is the whole DrawState,
+  // as before (what a harvest of the pipeline seed and the census run with: the seed holds full states).
+  uint32_t dynamic_state = ~0u;
   // S102 U1 (dev builds only, tests): staging_cap_mb shrinks the 256 MB staged-bytes cap; staging_wait_plant brings back the pre-fix wait on the render thread (the planted fault).
   uint32_t staging_cap_mb = 0;
   bool staging_wait_plant = false;

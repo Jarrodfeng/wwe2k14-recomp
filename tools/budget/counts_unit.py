@@ -46,7 +46,9 @@ def main():
     print(r.stdout.strip())
     if r.returncode != 0:
         return 1
-    text = (HERE / 'src' / 'renderer' / 'renderer.cpp').read_text(encoding='utf-8', errors='replace')
+    sys.path.insert(0, str(HERE / 'tools' / 'split'))
+    from read_unit import read_path  # renderer.cpp is split: read it with its parts expanded (tools/split/read_unit.py)
+    text = read_path(HERE / 'src' / 'renderer' / 'renderer.cpp')
     bad = lint(text)
     for b in bad:
         print('FAIL lint: ' + b)

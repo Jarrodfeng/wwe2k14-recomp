@@ -188,4 +188,5 @@ inline const bool g_states_registered = AddHostStateSource(&LookupState, &ReadSt
 
 }  // namespace wwe2k14::omg_wish
 
+// ORIGINAL-IN: OnTest
 REX_HOOK_RAW(sub_825FCEB8) { wwe2k14::omg_wish::OnTest(ctx, base); }

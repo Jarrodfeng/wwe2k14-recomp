@@ -31,7 +31,8 @@ PLANTS = [
     ('timeout_not_enforced', [(r"c\.rc = p\.wait\(timeout=c\.timeout\)", "c.rc = p.wait()")]),
     ('kill_not_the_tree', [(r"\['taskkill', '/T', '/F'", "['taskkill', '/F'")]),
     ('timeout_prefix_ignored', [(r"timeout, rest = int\(m\.group\(1\)\), rest\[m\.end\(\):\]", "timeout, rest = DEFAULT_TIMEOUT, rest[m.end():]")]),
-    ('compile_shorthand_wrong', [(r"--changed%s --build both'", "--changed%s'")]),
+    ('compile_shorthand_wrong', [(r"--changed%s --build off'", "--changed%s'")]),
+    ('compile_shorthand_back_to_both', [(r"--changed%s --build off'", "--changed%s --build both'")]),
     ('base_not_passed_to_lints', [(r"' --base ' \+ base if base else ''", "''")]),
     ('rerun_runs_everything', [(r"keep = \[c for c in cmds if last\.get\(c\.raw, \('', ''\)\)\[0\] != 'PASS'\]", "keep = list(cmds)")]),
     ('rerun_without_state_silent', [(r"note = 'prove: --rerun-failed: no earlier run[^\r\n]*", "note = ''")]),
@@ -226,10 +227,10 @@ def cases(t):
     r = t.root()
     rc, out = t.run(r, "compile\nlints\nserial: timeout 60: py -I x.py\n", '--print')
     t.check('--print: compile and lints are their command lines, prefixes shown, nothing runs',
-            rc == 0 and out.splitlines() == ['py -I tools\\compile\\game_syntax.py --changed --build both', 'py -I tools\\handback\\check.py', 'serial: timeout 60: py -I x.py'] and not os.path.exists(os.path.join(r, 'out')), out)
+            rc == 0 and out.splitlines() == ['py -I tools\\compile\\game_syntax.py --changed --build off', 'py -I tools\\handback\\check.py', 'serial: timeout 60: py -I x.py'] and not os.path.exists(os.path.join(r, 'out')), out)
     rc, out = t.run(r, "base abc1234\nlints\ncompile\n", '--print')
     t.check('--print: a `base REF` line goes to compile --changed and to lints --base',
-            out.splitlines() == ['py -I tools\\handback\\check.py --base abc1234', 'py -I tools\\compile\\game_syntax.py --changed abc1234 --build both'], out)
+            out.splitlines() == ['py -I tools\\handback\\check.py --base abc1234', 'py -I tools\\compile\\game_syntax.py --changed abc1234 --build off'], out)
 
     # --- S111 PIECELINK review: expect-fail: a planted fault must be REPORTED (a failing check), whatever the exit code; a clean run or a crash is a FAIL
     r = t.root()

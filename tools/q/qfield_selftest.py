@@ -107,6 +107,57 @@ def check(cond, msg, fails):
         print('ok  ', msg)
 
 
+def cut_checks(fails):
+    """S111 QFIX5: a planted 501-writer field: the default cut at 500 prints the total and the call for the rest; --limit N is the rest; --where is never cut."""
+    d = tempfile.mkdtemp(prefix='qf_cut_')
+    try:
+        gen = os.path.join(d, 'generated', 'default')
+        os.makedirs(gen)
+        text = '#include "x.h"\n' + ''.join(fn(0x82100000 + 0x10 * i, ['stw r4,2000(r3)', 'blr ']) for i in range(501))
+        with open(os.path.join(gen, 'wwe2k14_recomp.0.cpp'), 'w', encoding='utf-8') as f:
+            f.write(text)
+        img = os.path.join(d, 'image.bin')
+        with open(img, 'wb') as f:
+            f.write(bytearray(0x1000))
+        base = ['--gen', gen, '--image', img, '--db', os.path.join(d, 'f.db')]
+        res = run(['2000', '--writes'] + base)
+        check(res['count'] == 500 and res['total'] == 501 and res['truncated'] and res['rest'].endswith('--limit 501') and res['rest'].startswith('q field 2000 --writes'),
+              f"501 writers, default cut: count 500, total 501, the rest call (got {res['count']}, {res.get('total')}, {res.get('rest')})", fails)
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            qfield.main(['2000', '--writes', '--no-rebuild'] + base)
+        check('showing 500 of 501 accesses' in err.getvalue() and 'the rest: q field 2000 --writes --no-rebuild' in err.getvalue() and '--limit 501' in err.getvalue(),
+              'the text answer says showing 500 of 501 and names the call for the rest', fails)
+        res = run(['2000', '--writes', '--limit', '501', '--no-rebuild'] + base)
+        check(res['count'] == 501 and not res['truncated'], 'the rest call returns all 501, no cut', fails)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def any_checks(fails):
+    """S111 QFIX5: q field OFF --any = the listing scan on any base register (the fixture's +108 writers, a hex-written twin, a load, the cut + rest call)."""
+    d = tempfile.mkdtemp(prefix='qf_any_')
+    try:
+        gen, img = make_fixture(d)
+        extra = fn(0x82000800, ['lwz r5,0x6c(r9)', 'stw r6,-108(r9)', 'lfs f1,108(r31)', 'blr '])
+        with open(os.path.join(gen, 'wwe2k14_recomp.0.cpp'), 'a', encoding='utf-8') as f:
+            f.write(extra)
+        base = ['--gen', gen, '--image', img, '--db', os.path.join(d, 'f.db')]
+        res = run(['108', '--any'] + base)
+        got = {r['func']: (r['reads'], r['writes']) for r in res['rows']}
+        check(got == {'sub_82000100': (0, 1), 'sub_82000200': (0, 1), 'sub_82000800': (2, 0)} and res['functions'] == 3 and res['count'] == 4,
+              f'--any 108: every base register, 0x6c = 108 read as a load, -108 is another offset (got {got})', fails)
+        res = run(['108', '--any', '--writes'] + base)
+        check(sorted(r['func'] for r in res['rows']) == ['sub_82000100', 'sub_82000200'], '--any --writes: stores only', fails)
+        res = run(['108', '--any', '--limit', '1'] + base)
+        check(res['truncated'] and res['total'] == 3 and len(res['rows']) == 1 and res['rest'].endswith('--limit 3') and '--limit 1' not in res['rest'],
+              f"--any cut at --limit 1: total 3 and the rest call without the old limit (got {res.get('rest')})", fails)
+        res = run(['108', '--any', '--func', 'sub_82000800'] + base)
+        check([r['func'] for r in res['rows']] == ['sub_82000800'], '--any --func narrows', fails)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def fixture_checks(fails):
     d = tempfile.mkdtemp(prefix='qf_fixture_')
     try:
@@ -369,6 +420,8 @@ def main():
         root = args[args.index('--root') + 1]
     fails = []
     fixture_checks(fails)
+    cut_checks(fails)           # S111 QFIX5
+    any_checks(fails)           # S111 QFIX5
     schema_name_checks(fails)   # S105 D
     lock_checks(fails)          # S105 D
     if '--no-real' not in args:

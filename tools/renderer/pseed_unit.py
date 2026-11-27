@@ -26,9 +26,12 @@ PLANTS = {1: 'parse.bad_lines_never_loaded', 2: 'merge.known_keys_and_seed_dupli
           9: 'depth.a_device_depth_format_of_0_refuses_the_seed'}
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-        return f.read()
+    return read_path(os.path.join(root, rel))
 
 
 def strip_comments(s):
@@ -155,7 +158,7 @@ def main():
     need(ps.returncode == 0, 'pipeline_seed.py selftest: the merger / checker catch every planted fault')
 
     cat_exe = os.path.join(outdir, 'pseed_catalog.exe')
-    cb = run([CLANG] + flags + ['-o', cat_exe, os.path.join(root, 'tools', 'renderer', 'pseed_catalog.cpp'), os.path.join(root, 'src', 'renderer', 'shaders', 'spv', 'fx_spv_data.cpp')])
+    cb = run([CLANG] + flags + ['-o', cat_exe, os.path.join(root, 'tools', 'renderer', 'pseed_catalog.cpp'), os.path.join(root, 'src', 'renderer', 'shaders', 'spv', 'fx_spv_data.cpp'), os.path.join(root, 'src', 'renderer', 'shaders', 'spv', 'fx_own_shaders.cpp')])   # S111 TOOLLINK-D: kOwnShaders is its own unit
     if cb.returncode != 0:
         print(cb.stdout + cb.stderr)
         need(False, 'build pseed_catalog')
@@ -198,13 +201,16 @@ def main():
     need(not lint_import(sl.replace('ListPath(setting)', 'Other(setting)')), 'wiring twin: an Import with its own path rule IS caught')
     # S106 PSEED fix round: the tools' own selftests, and the wiring of F6 / F7
     for tool, what in (('pseed_proof.py', 'the proof: known misses by full key, the 780 cold names, P2 per key'), ('pipeline_census.py', 'the census: every job starts on an empty store'),
-                      ('pseed_stale_check.py', 'the release stale-seed test: a planted stale key is found, exit 1')):
+                      ('pseed_stale_check.py', 'the release stale-seed test: a planted stale key is found, exit 1'),
+                      ('pseed_rekey.py', 'the rekey: a stale hash moves only to the same blob with the same interface, the list then passes check')):
         pr = run([sys.executable, '-I', os.path.join(root, 'tools', 'renderer', tool), '--selftest'])
         print(pr.stdout.rstrip())
         need(pr.returncode == 0, tool + ' selftest: ' + what)
     rl = read(root, 'tools/bench/run_list.ps1')
     need(lint_harvest(rl), 'run_list.ps1: -HarvestPipelines is carried into the parallel worker (job.json harvest, read back like step30)')
     need(not lint_harvest(rl.replace('harvest = [bool]$HarvestPipelines;', '')), 'wiring twin: a job.json without harvest IS caught')
+    need("($hx + '_' + ($log -split ',')[0] + '.bin')" in rl, 'run_list.ps1: the harvested copy is named exe folder + log number (a log number is per exe folder)')
+    need("($hx + '_' + ($log -split ',')[0] + '.bin')" not in rl.replace("($hx + '_' + ($log -split ',')[0] + '.bin')", "(($log -split ',')[0] + '.bin')"), 'wiring twin: a bare log number name IS caught')
     ms = read(root, 'tools/shaders/merge_storage.py')
     need(lint_merge(ms), 'merge_storage.py --list carries the R / H rdr seed lines over (a regenerated list keeps its seed)')
     need(not lint_merge(ms.replace("for ln in seed_lines:", "for ln in []:")), 'wiring twin: a merge_storage that reads the seed lines but never writes them IS caught')

@@ -37,6 +37,7 @@ namespace rdr_scene::live::carpaint {
 // Test only (tools\scene\car_paint_unit.cpp): 1 file_kept (Apply leaves the file picture: the old rule); 2 no_reread (a flush is ignored); 3 silent_fail (a texture not taken is not reported);
 // 4 budget_ignored (the whole list in one take); 5 last_dup_wins (the last of two same-named entries is taken); 6 gen_ignored (a new stage object at the SAME address keeps the old one's state: the
 // address alone was the key); 7 not2d_reported (a cube / volume entry of the list is reported as a picture not taken); 9 never_ready_unread (a list never read is never ready: CAP3's hazard); 8 late_paint_ignored (once the set is built, a flush of a painted texture is no longer read again).
+// S111 KEYFRESH: 10 header_unseen (a read entry is not due again when its handle now names another header: the old rule).
 inline int g_paint_plant = 0;
 
 inline constexpr uint32_t kStageTexList = 14452, kListData = 4, kListCount = 8, kWrapperName = 16, kMaxEntries = 2048;
@@ -189,7 +190,7 @@ class Store {
       const auto budget_left = [&]() { return g_paint_plant == 4 || used < kTakeBudget; };
       for (int pass = 0; pass < 2 && !stop; ++pass)
         for (Pic& p : pics_) {
-          const bool due = pass == 0 ? !p.tried : (p.tried && ((!p.ok && p.retry) || (g_paint_plant != 2 && !(g_paint_plant == 8 && ready_) && p.header && p.watched && guest_tex_dirty::Gen(p.header) != p.gen)));
+          const bool due = pass == 0 ? !p.tried : (p.tried && ((!p.ok && p.retry) || (g_paint_plant != 2 && !(g_paint_plant == 8 && ready_) && p.header && p.watched && guest_tex_dirty::Gen(p.header) != p.gen) || HeaderMoved(p, mem)));
           if (!due) continue;
           if (used && !budget_left()) { stop = true, ++c_.deferred; break; }
           used += Read(p, mem, rw, phys);
@@ -233,6 +234,14 @@ class Store {
   }
 
  private:
+  // S111 KEYFRESH: the game resolves a texture's handle -> wrapper -> header at every draw (sub_82C04DF0 0x82C05700), so a read picture is due again when its handle now names another header (the walk
+  // runs for every read entry at every take: about a dozen word reads each). A handle that no longer resolves keeps its picture, as a failed re-read does.
+  template <class M>
+  bool HeaderMoved(const Pic& p, const M& mem) const {
+    if (!p.ok || !p.header || g_paint_plant == 10) return false;
+    guest_tex::Resolved r;
+    return guest_tex::ResolveHandle(mem, p.handle, r) == guest_tex::Why::Ok && r.header != p.header;
+  }
   template <class M, class RW, class PH>
   uint64_t Read(Pic& p, const M& mem, RW&& rw, PH&& phys) {
     const bool first = !p.tried;
@@ -250,13 +259,10 @@ class Store {
       if (!rw(r.wrapper + kWrapperName, n, 16)) return Fail(p, guest_tex::Why::WrapperUnreadable), 0;
       p.name = Lower(std::string(n, size_t(std::find(n, n + 16, '\0') - n)));
     }
-    if (p.header != r.header) {
-      if (p.header && p.watched) guest_tex_dirty::Unwatch(p.header);
-      p.watched = false;
-    }
+    if (p.header != r.header) Release(p), p.gen = 0;   // S111 DIRTYOWN: this entry's old header (Release keeps the watch while another entry of the store still holds it); S111 KEYFRESH: its generation goes with it (a watched header's is never 0: a failed read of the new one is retried)
     p.wrapper = r.wrapper, p.header = r.header;
     if (!p.watched) {
-      p.watched = guest_tex_dirty::Watch(r.header);
+      p.watched = guest_tex_dirty::Watch(r.header, guest_tex_dirty::kOwnerPaint);
       if (!p.watched) ++c_.unwatched;
     }
     const uint32_t gen = guest_tex_dirty::Gen(r.header);   // taken BEFORE the read: a flush during it is seen at the next take
@@ -281,9 +287,16 @@ class Store {
     p.retry = w == guest_tex::Why::Memory || w == guest_tex::Why::NoRegistry || w == guest_tex::Why::NoHandle || w == guest_tex::Why::WrapperUnreadable || w == guest_tex::Why::NoHeader;
     if (!p.fail_counted) p.fail_counted = true, ++c_.failed;   // once per entry (a retried texture is not counted every take)
   }
-  void Drop(Pic& p) {
-    if (p.header && p.watched) guest_tex_dirty::Unwatch(p.header);
+  void Drop(Pic& p) { Release(p); }
+  // S111 DIRTYOWN: the store's interest in p's header ends when no OTHER entry of this store still watches it (two handles of one header: one entry's drop must not silence the other's flushes); the
+  // table's owner bit keeps any other reader's watch of the header (guest_tex_dirty.h Unwatch).
+  void Release(Pic& p) {
+    const bool was = p.watched;
     p.watched = false;
+    if (!was || !p.header) return;
+    for (const Pic& o : pics_)
+      if (&o != &p && o.watched && o.header == p.header) return;
+    guest_tex_dirty::Unwatch(p.header, guest_tex_dirty::kOwnerPaint);
   }
   void Reset(uint32_t stage, uint32_t gen = 0) {
     for (Pic& p : pics_) Drop(p);
@@ -415,6 +428,7 @@ inline void Apply(assets::Model& m, const Snapshot& s, ApplyResult& out) {
     }
     if (g_paint_plant == 1) continue;   // the old rule: the file's picture stays
     t.format = f, t.width = p.width, t.height = p.height, t.mips = p.mips, t.faces = 1, t.data = *p.data;
+    t.game_levels = 0;   // S111 ARENALEVELS: the game's own picture, with the levels its header names (p.mips): the stage loader's count is already in it
     ++out.bound;
   }
 }

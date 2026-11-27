@@ -4,6 +4,7 @@ r"""q read (S110 lane READSTORE): what a model reader settled about a cluster of
     py tools/q/q.py read pick --from ENTRY[,ENTRY..] [--depth 3] [--k 25] [--out DIR] [--count] [--with-read] [--recall DB.json] [--classes on|off] [--match W1,W2]
                                                                every unit a SYSTEM reaches from its entry functions (callees only, + slots of tables a reached function builds (--classes), direct + observed + static
                                                                indirect, library cut by fan-in K): sheets + batch.txt in reach order (tools/q/qreadfrom.py)
+    py tools/q/q.py read pick --callers-of GATE[,GATE..] [--depth D=1] [--out DIR] [--count]   the gate + every function that CALLS it as seeds, then the callee walk (union with --from); sheets say `reached: caller of sub_GATE`
     py tools/q/q.py read pick --all [--n N] [--out DIR] [--group NAME] [--count]   every unread unit of >= 3 functions, by group (tools/q/qreadpick.py)
     py tools/q/q.py read store ANSWER_FILE [--batch NAME] [--model NAME]     parse a sheet-reader answer into read.s1.db
     py tools/q/q.py read show [UNIT|ADDR]                      the stored answers of a unit (newest first); no argument: every unit read
@@ -12,6 +13,7 @@ r"""q read (S110 lane READSTORE): what a model reader settled about a cluster of
     py tools/q/q.py read stats                               totals (and units per system)
     py tools/q/q.py read pick --reread [--n N] --out DIR       sheets of units answered but with no `system` yet (to be re-asked)
     py tools/q/q.py read system NAME [--out FILE]              the bundle a system-writer reads: every stored reading of that system
+    py tools/q/q.py read system NAME --from ENTRY[,..] [--depth D] [--k K] [--classes on|off] [--max N] [--skip N]   the readings of the REACH SET (any [a-z0-9_]+ NAME)
     py tools/q/q.py read systems                               systems, unit counts, written explanation stored?, stale?
     py tools/q/q.py read store-system ANSWER_FILE [--model NAME]   parse a system-writer's answer (tools/q/qreadsys.py)
     py tools/q/q.py read curiosities [SYSTEM] [--limit N] [--low]   the one-line curiosities (fun facts) stored per system (tools/q/qcurios.py)
@@ -185,6 +187,7 @@ SCHEMA = ('create table if not exists unit_read(id integer primary key autoincre
           'create table if not exists pattern_read(id integer primary key autoincrement, text text, batch text, model text);'
           'create table if not exists wrong_read(id integer primary key autoincrement, func integer, name text, why text, unit_id integer,'
           ' batch text, model text);'
+          'create table if not exists system_unit(system text, unit_id integer, via text, when_ text, primary key(system, unit_id));'
           'create index if not exists unit_read_u on unit_read(unit_id);'
           'create index if not exists name_read_f on name_read(func);')
 
@@ -458,7 +461,7 @@ def main(argv):
     if cmd in ('system', 'systems', 'store-system') or (cmd == 'pick' and '--reread' in rest):
         import qreadsys
         return qreadsys.main(cmd, rest)
-    if cmd == 'pick' and '--from' in rest:
+    if cmd == 'pick' and ('--from' in rest or '--callers-of' in rest):
         import qreadfrom
         try:
             return qreadfrom.main(rest)

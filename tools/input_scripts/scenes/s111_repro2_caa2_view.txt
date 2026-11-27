@@ -1,0 +1,79 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on
+# S111 REPRO2: the second test arena (mirror out\bench\userdata_caa2, made by s111_repro2_caa2_make.txt) in the EDITOR: reopens custom slot 1, RB = RING tab, shots of the tab list, the MAT page,
+# RING POST > 1ST GROUP / 2ND GROUP / ALL GROUPS pages (the editor frames the post / mat for each page) and TURNBUCKLE PAD. Nothing is saved (the run edits its own copy). Run it with
+# -Data userdata_caa2. Same editor map and frame-counted presses as caa_make_arena.txt / s111_repro2_caa2_make.txt (replay mode).
+# Question: what do the posts and the mat look like in the editor, to compare with the match (what the editor shows is what the game's own renderer shows).
+on_fail quit
+log bench: start repro2 caa2 view
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+wait_frames 300
+press RB
+wait_frames 400
+log scene=v_ring_tab
+screenshot v_ring_tab
+press DOWN
+wait_frames 250
+press A
+wait_frames 600
+log scene=v_mat_page
+screenshot v_mat_page
+press B
+wait_frames 400
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+log scene=v_post_list
+screenshot v_post_list
+press A
+wait_frames 600
+log scene=v_g1
+screenshot v_g1
+press B
+wait_frames 400
+press DOWN
+wait_frames 250
+press A
+wait_frames 600
+log scene=v_g2
+screenshot v_g2
+press B
+wait_frames 400
+press DOWN
+wait_frames 250
+press A
+wait_frames 400
+press A
+wait_frames 600
+log scene=v_gall
+screenshot v_gall
+log bench: done
+quit

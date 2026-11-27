@@ -37,19 +37,21 @@ Exit 2 on a PROBLEM (a window with no recorder call, an anchor not found, a kind
 """
 import argparse
 import fnmatch
-import functools
 import glob
-import itertools
 import json
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qconstdiff as CD   # noqa: E402
 import qrstdiff_inherit as RCB   # noqa: E402  (S111 RSTCOVER-B: a state no window sets, read from every setter of it)
+import qostate as O   # noqa: E402  (S111 OSTATE: the ours-side C++ evaluator lives in qostate.py, one for rstdiff and ostate)
+from qostate import (FIELDS, OURS_FIELD, WHOLE_BLEND, FX_ROWS, PLANT_RE, START_RE, GAME, PS, FE, MissingAtRef, born_after,  # noqa: E402,F401
+                     default_reader, line_of, _depth_split, split_ternary, strip_parens, Ctx, eval_cond, eval_val, CASE_RE, CHAIN_RE,
+                     ASSIGN_RE, WHOLE_RE, assign_targets, statements, _one_stmt, parse_table, builder_mask, ours_state, effect_rows)
+RstDiffError = O.OstateError   # the evaluator's error (MissingAtRef is one): rstdiff's callers catch it by this name
 
 REPO = CD.REPO
 FLAGS = ('DIFF', 'UNSETTLED', 'PASS-NEVER', 'OK')
@@ -69,20 +71,6 @@ BLEND_CODES = {0: ('ADD', 'SRC_ALPHA', 'INV_SRC_ALPHA'), 1: ('ADD', 'SRC_ALPHA',
 VK_FACTOR = {0: 'ZERO', 1: 'ONE', 2: 'SRC_COLOR', 3: 'INV_SRC_COLOR', 4: 'DST_COLOR', 5: 'INV_DST_COLOR', 6: 'SRC_ALPHA',
              7: 'INV_SRC_ALPHA', 8: 'DST_ALPHA', 9: 'INV_DST_ALPHA'}
 VK_OP = {0: 'ADD', 1: 'SUB', 2: 'REVSUB', 3: 'MIN', 4: 'MAX'}
-FIELDS = ('ztest', 'zwrite', 'zfunc', 'blend', 'blend_op', 'blend_src', 'blend_dst', 'cull', 'cmask', 'stencil')
-OURS_FIELD = {'depth_test': 'ztest', 'depth_write': 'zwrite', 'depth_compare': 'zfunc', 'cull': 'cull', 'stencil_test': 'stencil',
-              'blend[0].enable': 'blend', 'blend[0].color_op': 'blend_op', 'blend[0].src_color': 'blend_src',
-              'blend[0].dst_color': 'blend_dst', 'blend[0].write_mask': 'cmask'}
-WHOLE_BLEND = ('blend', 'blend_op', 'blend_src', 'blend_dst', 'cmask')   # `X.blend[0] = Y` sets these from Y (the mask: a rule of ours)
-# Effect-file render-state rows (device offset = 4 x render state row) that this tool compares (fill mode, offset 52, is not one).
-FX_ROWS = {40: 'ztest', 44: 'zfunc', 48: 'zwrite', 56: 'cull', 60: 'blend', 72: 'blend_src', 76: 'blend_dst', 80: 'blend_op',
-           96: 'atest', 100: 'aref', 104: 'afunc', 108: 'stencil', 212: 'cmask'}
-PLANT_RE = re.compile(r'plant|PLANT|faults_\s*\.')
-START_RE = r'rdr::DrawState\s+(?P<var>\w+)\s*\{\s*\}\s*;'
-GAME = 'GAME'
-
-PS = 'src/renderer_scene/pass_state.h'
-FE = 'src/renderer_scene/front_end.cpp'
 SCENE_FIELDS = ('ztest', 'zfunc')
 
 # One kind = one draw system of the game and the block(s) of ours that draw the same thing. Offsets are the listing's (q decomp).
@@ -242,7 +230,10 @@ KINDS_COVER_A = [
      'what': "the post chain's full-target quads (node sub_82C1E840, slot 2 of its 10 effects)",
      'game': [{'fn': 0x82C1E840, 'lo': 0x44, 'hi': 0xC0, 'mode': 'set', 'why': 'the post node: z test 0, stencil 0, cull 0 before the effects walk at +C0'},
               {'fn': 0x82C2BF00, 'lo': 0x84, 'hi': 0xD8, 'mode': 'set', 'why': 'yAntialiasing run: blend 0, code 0'},
-              {'fn': 0x82C1E4C0, 'lo': 0x64, 'hi': 0xC4, 'mode': 'set', 'why': 'the combine driver: blend 0, z test 0, z write 0, cull 0'},
+              # S111 POSTATEST: the driver is an OUTER function of the combine quad: T_Final (0x82C1E1D0 +F0..+120) sets alpha test,
+              # blend, z test, z write and cull again before the quad (sub_82C1D9C0 +78); only the driver's blend code (+BC) reaches it.
+              {'fn': 0x82C1E4C0, 'lo': 0x64, 'hi': 0xC4, 'mode': 'set', 'slots': ('blend_code',),
+               'why': 'the combine driver: blend code 0 (its alpha test 1 at +80, blend, z and cull are set again by T_Final before the quad)'},
               {'fn': 0x82C1E1D0, 'lo': 0xD4, 'hi': 0x13C, 'mode': 'set', 'why': 'T_Final: blend 0, z test 0, z write 0, cull 0'},
               {'fn': 0x82C1E398, 'lo': 0x54, 'hi': 0x70, 'mode': 'set', 'why': 'the HDR / tone-map chain: blend 0'},
               {'fn': 0x82C2A868, 'lo': 0x5C, 'hi': 0x84, 'mode': 'set', 'why': 'yMonotone run: blend 0'},
@@ -268,29 +259,6 @@ OURS_ONLY = [
      "our viewer depth -> the game's depth for the post shaders; the game reads its own depth resolve (a copy: GAME_RULES_TEXTURES_FRAME.md C6), no draw"),
 ]
 # ------------------------------------------------------------------ end S111 RSTCOVER-A
-
-
-class RstDiffError(Exception):
-    pass
-
-
-class MissingAtRef(RstDiffError):
-    """default_reader: the path is not in the ref read (`git show REF:PATH` on a commit that lacks it)."""
-    def __init__(self, msg, ref, rel):
-        super().__init__(msg)
-        self.ref, self.rel = ref, rel
-
-
-@functools.lru_cache(maxsize=None)
-def born_after(ref, rel):
-    """True when REL's first commit is not in REF's history: REF is older than the file (S111 CASTCULL review: the selftest's
-    frozen refs predate caster_cull.h). A file never committed, or one REF's history holds (deleted or renamed since), is False."""
-    r = subprocess.run(['git', 'log', '--diff-filter=A', '--format=%H', '--', rel], cwd=REPO, capture_output=True, text=True)
-    adds = r.stdout.split() if r.returncode == 0 else []
-    if not adds:
-        return False
-    a = subprocess.run(['git', 'merge-base', '--is-ancestor', adds[-1], ref], cwd=REPO, capture_output=True)
-    return a.returncode == 1
 
 
 def hx(a):
@@ -565,390 +533,6 @@ def game_state(kind, insns_of):
     return st, problems
 
 
-# ------------------------------------------------------------------ ours: the DrawState block, parsed
-def default_reader(ref=None):
-    def read(rel):
-        if ref:
-            r = subprocess.run(['git', 'show', f'{ref}:{rel}'], cwd=REPO, capture_output=True, text=True, encoding='utf-8', errors='replace')
-            if r.returncode != 0:
-                msg = f'git show {ref}:{rel}: {r.stderr.strip()}'
-                if subprocess.run(['git', 'cat-file', '-e', f'{ref}^{{commit}}'], cwd=REPO, capture_output=True).returncode == 0:
-                    raise MissingAtRef(msg, ref, rel)   # the ref is a commit: the path is not in it
-                raise RstDiffError(msg)
-            return r.stdout
-        with open(os.path.join(REPO, rel.replace('/', os.sep)), encoding='utf-8', errors='replace') as fh:
-            return fh.read()
-    return read
-
-
-def line_of(text, pos):
-    return text.count('\n', 0, pos) + 1
-
-
-def _depth_split(s, sep):
-    """s split at top-level occurrences of sep (outside () [] {})."""
-    out, d, cur, i = [], 0, [], 0
-    while i < len(s):
-        ch = s[i]
-        if ch in '"\'':   # a string or char literal: kept whole (a kTable row's address text holds commas)
-            j = i + 1
-            while j < len(s) and s[j] != ch:
-                j += 2 if s[j] == '\\' else 1
-            cur.append(s[i:j + 1])
-            i = j + 1
-            continue
-        if ch in '([{':
-            d += 1
-        elif ch in ')]}':
-            d -= 1
-        if d == 0 and s.startswith(sep, i):
-            out.append(''.join(cur))
-            cur, i = [], i + len(sep)
-            continue
-        cur.append(ch)
-        i += 1
-    out.append(''.join(cur))
-    return out
-
-
-def split_ternary(s):
-    """'c ? a : b' at top level -> (c, a, b) (right associative), else None."""
-    d, q, qpos = 0, 0, -1
-    for i, ch in enumerate(s):
-        if ch in '([{':
-            d += 1
-        elif ch in ')]}':
-            d -= 1
-        elif d == 0 and ch == '?':
-            if qpos < 0:
-                qpos = i
-            else:
-                q += 1
-        elif d == 0 and ch == ':' and qpos >= 0 and not (s[i - 1:i] == ':' or s[i + 1:i + 2] == ':'):
-            if q == 0:
-                return s[:qpos].strip(), s[qpos + 1:i].strip(), s[i + 1:].strip()
-            q -= 1
-    return None
-
-
-def strip_parens(s):
-    s = s.strip()
-    while s.startswith('(') and CD._match(s, 0, '(', ')') == len(s):
-        s = s[1:-1].strip()
-    m = re.fullmatch(r'(?:u?int\d+_t|float|bool|int)\s*\((.*)\)', s, re.S)
-    return strip_parens(m.group(1)) if m and CD._match(s, s.index('('), '(', ')') == len(s) else s
-
-
-class Ctx:
-    """What an expression of one ours block can be resolved against."""
-    def __init__(self, texts, block, known=None, game_words=(), table=None, classes=()):
-        self.texts, self.block, self.known = texts, block, known or {}
-        self.game_words = [re.compile(w) for w in game_words]
-        self.table, self.classes = table or {}, classes
-
-    def is_game(self, s):
-        return any(w.search(s) for w in self.game_words)
-
-    def local(self, name):
-        m = None
-        for m in re.finditer(r'\b(?:const\s+)?(?:bool|auto|int|uint\d+_t|float)\s+' + re.escape(name) + r'\s*=\s*([^;]+);', self.block):
-            pass
-        return m.group(1) if m else None
-
-    def const(self, name):
-        for t in self.texts:
-            for m in re.finditer(r'constexpr[^;\n]*?\b' + re.escape(name) + r'\s*=\s*(0[xX][0-9a-fA-F]+|\d+)[uU]?\b', t):
-                return int(m.group(1), 0)
-        return None
-
-    def helper(self, name):
-        for t in self.texts:
-            m = re.search(r'\b' + re.escape(name) + r'\s*\(([^()]*)\)\s*(?:const\s*)?\{\s*return\s+([^;]+);\s*\}', t)
-            if m:
-                params = [p.strip().split()[-1].lstrip('&*') for p in m.group(1).split(',') if p.strip()]
-                return params, m.group(2)
-        return None
-
-
-def eval_cond(c, ctx, env, depth=0):
-    """-> True / False / None (unknown)."""
-    c = strip_parens(c)
-    ors = _depth_split(c, '||')
-    if len(ors) > 1:
-        vs = [eval_cond(x, ctx, env, depth) for x in ors]
-        return True if True in vs else False if all(v is False for v in vs) else None
-    ands = _depth_split(c, '&&')
-    if len(ands) > 1:
-        vs = [eval_cond(x, ctx, env, depth) for x in ands]
-        return False if False in vs else True if all(v is True for v in vs) else None
-    if c.startswith('!') and not c.startswith('!='):
-        v = eval_cond(c[1:], ctx, env, depth)
-        return None if v is None else not v
-    if PLANT_RE.search(c):
-        return False
-    for k, v in ctx.known.items():
-        if re.fullmatch(k, c):
-            return v
-    m = re.fullmatch(r'(.+?)\s*(==|!=)\s*(.+)', c, re.S)
-    if m:
-        a, b = eval_val(m.group(1), ctx, env, depth + 1), eval_val(m.group(3), ctx, env, depth + 1)
-        if len(a) == 1 and len(b) == 1 and all(isinstance(x, int) for x in a | b):
-            return (a == b) == (m.group(2) == '==')
-        return None
-    if c in env and len(env[c]) == 1:
-        return bool(next(iter(env[c])))
-    loc = ctx.local(c) if depth < 8 else None
-    if loc is not None:
-        return eval_cond(loc, ctx, env, depth + 1)
-    return None
-
-
-def eval_val(expr, ctx, env=None, depth=0):
-    """-> a set of ints, GAME, or 'RULE: <expr>'."""
-    env = env or {}
-    s = strip_parens(re.sub(r'\s+', ' ', expr))
-    if depth > 12:
-        return {f'RULE: {s}'}
-    t = split_ternary(s)
-    if t:
-        c, a, b = t
-        cv = eval_cond(c, ctx, env, depth)
-        if cv is True:
-            return eval_val(a, ctx, env, depth + 1)
-        if cv is False:
-            return eval_val(b, ctx, env, depth + 1)
-        loc = ctx.local(c.strip()) if re.fullmatch(r'\w+', c.strip()) else None
-        if ctx.is_game(c) or (loc and ctx.is_game(loc)):
-            return {GAME}
-        return eval_val(a, ctx, env, depth + 1) | eval_val(b, ctx, env, depth + 1)
-    m = re.fullmatch(r'(0[xX][0-9a-fA-F]+|\d+)[uU]?', s)
-    if m:
-        return {int(m.group(1), 0)}
-    if s in ('true', 'false'):
-        return {1 if s == 'true' else 0}
-    if s in env:
-        return set(env[s])
-    if ctx.is_game(s):
-        return {GAME}
-    m = re.fullmatch(r'(?:\w+::)*Of\s*\(\s*\w+\s*\)\s*\.\s*(\w+)', s)
-    if m and ctx.table:
-        vals = {ctx.table[c][m.group(1)] for c in ctx.classes if c in ctx.table and m.group(1) in ctx.table[c]}
-        return vals or {f'RULE: {s}'}
-    m = re.fullmatch(r'(?:\w+::)*(\w+)\s*\((.*)\)', s, re.S)
-    if m and CD._match(s, s.index('('), '(', ')') == len(s):
-        h = ctx.helper(m.group(1))
-        if h:
-            params, body = h
-            args = [a for a in _depth_split(m.group(2), ',') if a.strip()]
-            if len(args) == len(params):
-                sets = [eval_val(a, ctx, env, depth + 1) for a in args]
-                if all(all(isinstance(v, int) for v in x) for x in sets):
-                    out = set()
-                    for combo in itertools.islice(itertools.product(*[sorted(x) for x in sets]), 64):
-                        out |= eval_val(body, ctx, dict(zip(params, ({v} for v in combo))), depth + 1)
-                    return out
-                if all(x == {GAME} for x in sets):
-                    return {GAME}
-            return eval_val(body, ctx, {}, depth + 1)   # an argument not known: the body with its parameters unbound (both arms of a test on them)
-    if re.fullmatch(r'\w+', s):
-        v = ctx.const(s)
-        if v is not None:
-            return {v}
-        loc = ctx.local(s)
-        if loc is not None:
-            return eval_val(loc, ctx, env, depth + 1)
-    return {f'RULE: {s}'}
-
-
-CASE_RE = re.compile(r'^\s*(?:(?:case\s+(?:[^:;]|::)+?|default)\s*:(?!:)\s*)+')   # `case 1:` / `case Mode::Add:` / `default:` before an arm's statement
-CHAIN_RE = re.compile(r'^\s*[\w.\[\]\s]+?=(?!=)(.*)$', re.S)              # `a = b = 1`: the value is the last right-hand side
-ASSIGN_RE = re.compile(r'^\s*(?P<var>\w+)\s*\.\s*(?P<path>\w+(?:\s*\[\s*0\s*\])?(?:\s*\.\s*\w+)?)\s*=(?!=)\s*(?P<expr>.+?)\s*$', re.S)
-WHOLE_RE = re.compile(r'^\s*(?P<var>\w+)\s*=(?!=)\s*(?P<expr>.+?)\s*$', re.S)   # `b = Y` (a whole BlendState through its reference)
-
-
-def assign_targets(part, var, aliases):
-    """-> ([the DrawState paths one statement part assigns], the value expression). Every target of a chain `a = b = 1` is one
-    (the value is the last right-hand side; a target that is not our state, another object or a local, is passed over); a
-    reference `b` of `X.blend[0]` stands for it (`b.enable = 1`, a whole `b = Y`). S111 RSTCOVER-A review: the first reader kept
-    only the first target of a chain and dropped `auto&` references and whole assignments through one."""
-    paths, expr = [], part
-    while True:
-        m = ASSIGN_RE.match(expr)
-        w = None if m else WHOLE_RE.match(expr)
-        if m and (m.group('var') == var or m.group('var') in aliases):
-            p = re.sub(r'\s+', '', m.group('path'))
-            paths.append(p if m.group('var') == var else 'blend[0].' + p)
-            expr = m.group('expr')
-        elif w and w.group('var') in aliases:
-            paths.append('blend[0]')
-            expr = w.group('expr')
-        elif CHAIN_RE.match(expr):
-            expr = CHAIN_RE.match(expr).group(1)
-        else:
-            return paths, expr
-
-
-def statements(s, i, e, conds, out):
-    """Walk s[i:e]: out += (start, text, conds) per simple statement; conds = [(cond text, taken)]."""
-    while i < e:
-        while i < e and s[i].isspace():
-            i += 1
-        if i >= e:
-            break
-        if s[i] == '{':
-            j = CD._match(s, i, '{', '}')
-            statements(s, i + 1, j - 1, conds, out)
-            i = j
-            continue
-        if s[i] in '};':
-            i += 1
-            continue
-        m = re.compile(r'(if|for|while|switch)\s*\(').match(s, i)
-        if m:
-            k = CD._match(s, m.end() - 1, '(', ')')
-            cond = s[m.end():k - 1].strip() if m.group(1) == 'if' else f'{m.group(1)} ({s[m.end():k - 1].strip()})'
-            j = _one_stmt(s, k)
-            statements(s, k, j, conds + [(cond, True)], out)
-            i = j
-            me = re.compile(r'\s*else\b').match(s, i)
-            if me and m.group(1) == 'if':
-                j2 = _one_stmt(s, me.end())
-                statements(s, me.end(), j2, conds + [(cond, False)], out)
-                i = j2
-            continue
-        j = _one_stmt(s, i)
-        out.append((i, s[i:j], conds))
-        i = j
-    return out
-
-
-def _one_stmt(s, i):
-    """end of the one statement at s[i] (a block, an if with its else, or up to ';' at depth 0)."""
-    while i < len(s) and s[i].isspace():
-        i += 1
-    if i < len(s) and s[i] == '{':
-        return CD._match(s, i, '{', '}')
-    m = re.compile(r'(if|for|while|switch)\s*\(').match(s, i)
-    if m:
-        k = CD._match(s, m.end() - 1, '(', ')')
-        j = _one_stmt(s, k)
-        me = re.compile(r'\s*else\b').match(s, j)
-        return _one_stmt(s, me.end()) if me and m.group(1) == 'if' else j
-    d, j = 0, i
-    while j < len(s):
-        ch = s[j]
-        if ch in '({[':
-            d += 1
-        elif ch in ')}]':
-            d -= 1
-        elif ch == ';' and d == 0:
-            return j + 1
-        j += 1
-    return j
-
-
-def parse_table(ps_text):
-    """pass_state.h kTable -> {class name: {field: value}} (the PassState fields in declaration order)."""
-    t = CD._mask(ps_text)
-    m = re.search(r'struct\s+PassState\s*\{(.*?)\};', t, re.S)
-    k = re.search(r'kTable\s*\[[^\]]*\]\s*=\s*\{', t)
-    if not m or not k:
-        raise RstDiffError(f'{PS}: no struct PassState / kTable')
-    names = [re.split(r'[\s*]+', d.strip())[-1] for d in m.group(1).split(';') if d.strip()]
-    body = t[k.end():CD._match(t, k.end() - 1, '{', '}') - 1]
-    out = {}
-    for rm in re.finditer(r'\{([^{}]*)\}', body):
-        vals = [v.strip() for v in _depth_split(rm.group(1), ',')]
-        if len(vals) != len(names):
-            continue
-        row = {}
-        for n, v in zip(names, vals):
-            mm = re.fullmatch(r'-?(0[xX][0-9a-fA-F]+|\d+)', v)
-            row[n] = int(v, 0) if mm else v.strip('"') if v.startswith('"') else v
-        out[row['name']] = row
-    return out
-
-
-def builder_mask(o, read):
-    """S111 RSTCOVER-B: -> the write-mask values the kind's blend builder assigns (o['blend_builder']: its file, a regex for the
-    function, its output variable): every `VAR.write_mask = EXPR` in the function's body, evaluated; None when the kind names
-    no builder, the builder is not found, or a value is a rule of ours."""
-    b = o.get('blend_builder')
-    if not b:
-        return None
-    try:
-        t = CD._mask(read(b['file']))
-    except (OSError, RstDiffError):
-        return None
-    m = re.search(b['fn'], t)
-    k = t.find('{', m.end()) if m else -1
-    if k < 0:
-        return None
-    body = t[k + 1:CD._match(t, k, '{', '}') - 1]
-    ctx = Ctx([t], body)
-    vals = set()
-    for a in re.finditer(r'\b' + re.escape(b['var']) + r'\s*\.\s*write_mask\s*=(?!=)\s*([^,;]+)', body):
-        vals |= eval_val(a.group(1), ctx)
-    return vals if vals and all(isinstance(v, int) for v in vals) else None
-
-
-def ours_state(kind, o, read):
-    """-> ({field: {'vals': {value: [file:line]}, 'cond': [file:line]}}, problems) for one ours block of a kind."""
-    text = read(o['file'])
-    t = CD._mask(text)
-    a = re.search(o['after'], t) if o.get('after') else None
-    if o.get('after') and not a:
-        raise RstDiffError(f"{o['file']}: anchor /{o['after']}/ not found")
-    sm = re.compile(START_RE).search(t, a.end() if a else 0)
-    if not sm:
-        raise RstDiffError(f"{o['file']}: no `rdr::DrawState X{{}};` after /{o.get('after')}/")
-    em = re.compile(o['end']).search(t, sm.end())
-    if not em:
-        raise RstDiffError(f"{o['file']}: end /{o['end']}/ not found after line {line_of(t, sm.start())}")
-    var = sm.group('var')
-    texts = [t]
-    for h in o.get('helpers', []):
-        try:
-            texts.append(CD._mask(read(h)))
-        except MissingAtRef as e:   # S111 CASTCULL: a helper added after an older ref read (the selftest's frozen commits) names nothing there
-            if not born_after(e.ref, e.rel):   # (review) the ref's history holds it, or it was never committed: a real missing file
-                raise RstDiffError(f'{o["file"]}: helper {h} is missing at {e.ref}, which is not older than its first commit ({e})') from e
-    table = None
-    if kind.get('classes'):
-        table = parse_table(read(PS))
-    ctx = Ctx(texts, t[sm.end():em.start()], o.get('known'), o.get('game_words', ()), table, kind.get('classes', ()))
-    st = {f: {'vals': {0: [f"{o['file']}:{line_of(t, sm.start())} ({var}{{}})"]}, 'cond': []} for f in FIELDS}
-    aliases = set(re.findall(r'(?:rdr::BlendState|auto)\s*&\s*(\w+)\s*=\s*' + re.escape(var) + r'\s*\.\s*blend\s*\[\s*0\s*\]\s*;', t[sm.end():em.start()]))
-    for pos, stmt, conds in statements(t, sm.end(), em.start(), [], []):
-        live = []
-        skip = False
-        for c, taken in conds:
-            v = eval_cond(c, ctx, {})
-            if v is None:
-                live.append(c if taken else f'!({c})')
-            elif v != taken:
-                skip = True
-        if skip:
-            continue
-        for part in _depth_split(stmt.rstrip().rstrip(';'), ','):
-            paths, expr = assign_targets(CASE_RE.sub('', part, count=1), var, aliases)
-            where = f"{o['file']}:{line_of(t, pos + stmt.find(part.strip()[:20]) if part.strip()[:20] in stmt else pos)}"
-            for path in paths:
-                fields = WHOLE_BLEND if path == 'blend[0]' else (OURS_FIELD[path],) if path in OURS_FIELD else ()
-                vals = eval_val(expr, ctx) if fields else set()
-                for f in fields:
-                    if f == 'cmask' and path == 'blend[0]':   # the whole blend copied: its write mask is the copy's builder's, not a game word
-                        vals = builder_mask(o, read) or {f"RULE: {expr.strip()} (the whole blend state)"}   # S111 RSTCOVER-B: the builder, when the kind names it
-                    if not live:
-                        st[f]['vals'] = {}
-                        st[f]['cond'] = []
-                    else:
-                        st[f]['cond'].append(f'{where} when {" && ".join(live)}')
-                    for v in vals:
-                        st[f]['vals'].setdefault(v, []).append(where)
-    return st, line_of(t, sm.start())
-
-
 COVER_DIRS = ('src/renderer_scene', 'src/renderer_host')
 
 
@@ -987,66 +571,6 @@ def uncovered(covered, read):
                 if (rel, ln) not in covered:
                     out.append(f'{rel}:{ln}')
     return out
-
-
-# ------------------------------------------------------------------ the effect files: per-pass render-state rows
-def effect_rows(cache_path=None):
-    """-> ({'passes': n, 'fill_only': n, 'empty': n, 'rows': [(effect, tech, pass, field, value)]}, None) from every pass's
-    render-state block (pass+12: counts at +16 / +20 / +24, 8-byte (offset, value) entries from +28); (None, why) when unread."""
-    try:
-        sys.path.insert(0, os.path.join(REPO, 'tools', 'shaders'))
-        import effect_table as E
-        import shaderlib
-        key = CD._passes_key(E, shaderlib) + os.path.abspath(__file__)
-        if cache_path is None:
-            import hashlib
-            import qdecomp
-            cache_path = os.path.join(os.path.dirname(qdecomp.IMAGE),
-                                      f"effect_rstates.{hashlib.sha1(os.path.abspath(REPO).lower().encode()).hexdigest()[:10]}.json")
-        try:
-            with open(cache_path, encoding='utf-8') as fh:
-                c = json.load(fh)
-            if c.get('key') == key:
-                return c['res'], None
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        import pac
-        res = {'passes': 0, 'fill_only': 0, 'empty': 0, 'rows': [], 'other': 0}
-        for rel in E.SHADER_FILES:
-            data = pac.load(os.path.join(shaderlib.GAME, rel.replace('/', os.sep)))
-            for _leaf, dec in pac.entries(data):
-                table = shaderlib.effect_table(dec) if b'\x10\x2a\x11' in dec else None
-                for name, off, size in table or ():
-                    blob = dec[off:off + size]
-                    body = blob[12:12 + E.u32(blob, 4)]
-                    tab, cnt = E.u32(body, E.T_OFF), E.u32(body, E.T_COUNT)
-                    for ti in range(cnt if 0 < cnt < 4096 else 0):
-                        tt = E.u32(body, tab + 4 * ti)
-                        for p in range(E.u32(body, tt + 4) if tt + 8 <= len(body) else 0):
-                            rs = E.u32(body, E.u32(body, tt + 16 + 4 * p) + 12)
-                            res['passes'] += 1
-                            n = sum(E.u32(body, rs + k) for k in (16, 20, 24)) if rs + 28 <= len(body) else 0
-                            ents = [(E.u32(body, rs + 28 + 8 * i), E.u32(body, rs + 32 + 8 * i)) for i in range(min(n, 200))]
-                            if not ents:
-                                res['empty'] += 1
-                            elif all(o == 52 for o, _v in ents):
-                                res['fill_only'] += 1
-                            for o, v in ents:
-                                if o in FX_ROWS:
-                                    res['rows'].append([name, ti, p, FX_ROWS[o], v])
-                                elif o != 52:
-                                    res['other'] += 1
-        if os.path.isdir(os.path.dirname(cache_path) or '.'):
-            tmp = f'{cache_path}.{os.getpid()}.tmp'
-            try:
-                with open(tmp, 'w', encoding='utf-8') as fh:
-                    json.dump({'key': key, 'res': res}, fh)
-                os.replace(tmp, cache_path)
-            except OSError:
-                pass
-        return res, None
-    except Exception as e:  # noqa: BLE001 - the player's files are an extra source; their absence is said in the sources line
-        return None, f'{type(e).__name__}: {e}'
 
 
 def effect_flags(res, flags):

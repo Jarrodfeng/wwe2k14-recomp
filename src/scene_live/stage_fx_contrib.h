@@ -25,6 +25,7 @@
 #include "../renderer_scene/stage_look.h"   // S103 M: Entrance(t), the front end's own look signal
 #include "../renderer_scene/stage_slot_vis.h"   // S103 WSL: the game's per-slot look gate (G5)
 #include "../renderer_scene/car_arena_rows.h"   // S103 CAR: a created arena's part indices row (ReadCarSel / CarToRows)
+#include "../renderer_scene/car_rope_colours.h"   // S111 CAARING: a created arena's twelve rope colours (ReadRopeColours / ToRows)
 #include "car_paint.h"   // S108 CAP: a created arena's painted textures, read at the latch
 #include "../renderer_scene/stage_posed.h"   // S110 BARRICADE: the slots the game draws posed (palette rows)
 #include "../renderer_scene/stage_show.h"   // S103 SCF: the game's per-screen / per-art-slot show bits
@@ -35,13 +36,16 @@
 #include "stage_clock_flag.h"   // S103 E5
 #include "tail_latch.h"   // LatchMark
 #include "latch_period.h"   // S111 CUTREACH2: OfPalette (record r takes latch r - 1's model-class set: slot rows, vis, show, CAR, part clocks)
+#include "../stage_channels_core.h"   // S111 TRONLIVE: kTronChannel (std only)
 
 namespace rdr_scene::live::stagefx {
 
-// A screen the movie owner shows: key 800-809, the picture's serial (a new number = new pixels) and size.
+// A screen the movie owner shows: key 800-809, the picture's serial (a new number = new pixels) and size, and the titan channel the screen binding gives the key (S111 TRONLIVE: the binding's
+// own answer at the take, ScreenBinding::ChannelOf in ScreensFnImpl; -1 = a provider that does not say). Emit asks it for the tron's channel, never a fixed key list.
 struct ScreenSource {
   uint16_t key = 800;
   uint32_t serial = 0, w = 0, h = 0;
+  int channel = -1;
 };
 
 class StageFxContributor final : public Contributor {
@@ -73,6 +77,7 @@ class StageFxContributor final : public Contributor {
   void PlantNoIdle(bool on) { plant_no_idle_ = on; }   // unit only: the idle rule off (the pre-E7 gate)
   void PlantStampAlways(bool on) { plant_stamp_always_ = on; }   // unit only: stamp whatever the screens look like
   void PlantRequire800(bool on) { plant_require_800_ = on; }   // unit only: the gate wrongly requires the front end's own screen 800 in the match look
+  void PlantTronByKey(bool on) { plant_tron_by_key_ = on; }   // unit only: "a tron plays" from the shipped table's keys 804 / 807 (the pre-TRONLIVE rule: a created arena's panel / wall movies)
   // CStage::MotionSetup exit (arena_hooks.h): the stage object. Atomic: written on a game thread, read at the latch.
   // The arena the stage was built for is remembered with it (StageArena): the stage's OWN id, [stage + 1216] (arena_id_core.h kStageArenaIdOffset; the constructor sub_824E55B0 stores it), when it reads;
   // else the published arena at that moment. The stage's lifetime is the GAME's: the stage destructor sub_824E9858 (pre-hook, arena_hooks.h -> OnStageFreed) clears it the moment the game frees it. A freed
@@ -164,6 +169,7 @@ class StageFxContributor final : public Contributor {
     t.stage_fx.insert(t.stage_fx.end(), f->slot_rows.begin(), f->slot_rows.end());
     VisToRows(f->vis, t.stage_fx);     // S103 WSL: the marker (stage generation) + the slots the game's look gate skips
     if (f->car_present) CarToRows(f->car, f->car_ok, f->vis.stage, f->vis.arena, t.stage_fx);   // S103 CAR: a created arena's part indices
+    car_rope::ToRows(f->rope, t.stage_fx);   // S111 CAARING: the twelve rope colours of THIS take (none unless it read a created arena's G + 128 ..); not gated on car_present, which is the latch before's (ModelClass)
     ShowToRows(f->show, t.stage_fx);   // S103 SCF: 14 kFxShow rows (none when the bits did not read: the applier keeps the last ones)
     c.objects += uint32_t(f->slot_rows.size());
     t.part_clocks.insert(t.part_clocks.end(), f->clocks.begin(), f->clocks.end());   // S103 E5: the UV-scroll clock (c186) per stage model, read at the latch (part_clock_read.h)
@@ -195,14 +201,17 @@ class StageFxContributor final : public Contributor {
       const bool ent = rdr_scene::stage_look::Entrance(t);
       const int arena_look = look_ ? look_() : 0;
       const bool known_match = !ent && arena_look == 1;
-      bool tron_live = false;   // a titantron is playing on the tron surfaces this frame (a row for 804 / 807)
-      for (const ScreenSource& s : f->screens) tron_live = tron_live || s.key == 804 || s.key == 807;
+      // S111 TRONLIVE: a titantron is playing this frame = a row for a key the screen binding puts on the tron's channel (the game's key -> channel table for this stage's arena,
+      // stage_channels_core.h StageChannelOfKey through ScreenBinding::ForArena): the shipped table's 803 / 804 / 807, a created arena's 803 / 808 (its 804 / 807 are the panel / wall movies).
+      bool tron_live = false;
+      for (const ScreenSource& s : f->screens)
+        tron_live = tron_live || (plant_tron_by_key_ ? (s.key == 804 || s.key == 807) : s.channel == ::wwe2k14::stage_channels::kTronChannel);
       bool complete = shown_ != nullptr;
       for (uint32_t key = 800; key <= 809 && complete; ++key) {
         const bool in_e = key == 802 || key == 804 || key == 805 || key == 807 || key == 809, in_m = key == 800 || key == 801 || key == 805 || key == 806 || key == 808;
         // S103 SCF [C, SCM.md]: the screens the game SHOWS are the ones whose stage record has bit 0x80 of byte +9 (803 too: a shown key draws, movie or grab). Bits unread this frame = the fixed sets by look (fail closed: every screen of both sets in an unknown look).
         if (f->show.known ? !f->show.KeyShown(int(key)) : !(ent ? in_e : known_match ? in_m : (in_e || in_m))) continue;   // the game does not show this screen
-        // 800 is the front end's own in the MATCH look (front_end.cpp:1363: the previous frame's scene = the live camera feed), so it is not waited for there, and only while no titantron is playing (Jarrod, S97: the main
+        // 800 is the front end's own in the MATCH look (front_end.cpp: the previous frame's scene = the live camera feed), so it is not waited for there, and only while no titantron is playing (Jarrod, S97: the main
         // rectangle carries the superstar's tron and, in its absence, the camera feed); in an unknown look it stays required.
         if (key == 800 && known_match && !tron_live && !plant_require_800_) continue;
         if (MovieOfKey(t, uint16_t(key)) == kNoMovie || !shown_(key)) continue;
@@ -284,6 +293,7 @@ class StageFxContributor final : public Contributor {
     StageShow show;                  // S103 SCF: the show bits of keys 800-809 and art slots 301-304, read at the latch; known = false when the stage / the records did not read (the applier keeps the last bits)
     bool car_present = false, car_ok = false;   // S103 CAR: the stage is a created arena's (200-249); every part index was read
     assets::car::Sel car;            // S103 CAR: CAEN / CASD ([stage + 21184 / 21188]), CARL (the sub_8342A8D8 pre-hook), the real bg id ([stage + 21192])
+    car_rope::Colours rope;          // S111 CAARING: the ring table's twelve rope colours (G + 128 .., car_rope_colours.h), read with the CAR words; reset by every Take
     StageVis vis;                    // S103 WSL: the game's slot look gate (stage_slot_vis.h), read at the latch; known = false when a word / the records did not read (the applier keeps the last mask of the same generation)
     void Clear() { disabled = false, slot_rows.clear(), screens.clear(), clocks.clear(), clocks_clean = false, screens_idle = false, unreadable = 0, show = StageShow(), vis.marker = false, vis.known = false, vis.gen = vis.stage = 0, vis.arena = kVisArenaUnread, vis.skipped.clear(), car_present = car_ok = false, car = assets::car::Sel(); }
   };
@@ -353,6 +363,7 @@ class StageFxContributor final : public Contributor {
           vis_unread_.fetch_add(1, std::memory_order_relaxed);
         }
       }
+      f.rope = car_rope::Colours();   // S111 CAARING: no colours unless the created-arena block below reads them
       if (f.vis.marker && f.vis.arena != kVisArenaUnread && VisArena200to249(f.vis.arena)) {   // S103 CAR (BCA G1): a created arena's stage: its part indices, read with the stage (one row beside the WSL marker)
         const ReadFn rd = read_;
         f.car_present = true;
@@ -361,6 +372,7 @@ class StageFxContributor final : public Contributor {
         if (f.car_ok) assets::car::Publish(f.car);   // S103 CAR fix (blocker): published at the latch, so the slot provider and the crowd / ring readers (arena_hooks.h, OpenCached) see the venue before the record names the arena
         if (f.car_ok) car_last_.store(uint64_t(f.car.caen) | uint64_t(f.car.casd) << 16 | uint64_t(f.car.carl) << 32 | uint64_t(uint16_t(f.car.bg)) << 48, std::memory_order_relaxed);
         carpaint::OnLatch(f.vis.stage, read_, f.vis.gen);   // S108 CAP: the stage's own texture list [stage + 14452] as the game painted it (car_paint.h), read here with the game threads parked; the generation tells a new stage at a reused address
+        car_rope::ReadRopeColours([rd](uint32_t a, void* d, size_t n) { return rd(a, d, n); }, f.rope);   // S111 CAARING: G + 128 .. as the paint manager wrote them (sub_822A2088), the rope draw's MatAmbCol
       }
       f.unreadable = uint32_t(census_.unreadable - before_unreadable);
       const bool slots_ready = slots_ready_ ? slots_ready_() : true;
@@ -529,7 +541,7 @@ class StageFxContributor final : public Contributor {
   IdleFn idle_ = nullptr;   // S103 E7
   bool plant_no_idle_ = false;
   LookFn look_ = nullptr;
-  bool plant_stamp_always_ = false, plant_require_800_ = false;
+  bool plant_stamp_always_ = false, plant_require_800_ = false, plant_tron_by_key_ = false;
 };
 
 inline StageFxContributor& StageFx() {

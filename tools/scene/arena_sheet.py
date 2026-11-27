@@ -12,7 +12,7 @@ THE CHECK PASS (the numbers; it does not depend on any look or on the beauty cam
   depth test + write, the game's alpha test GEQUAL 1/255, blended): a pixel an EARLIER, nearer piece of the same key covers is not this piece's (hidden_px counts them), and the planes carry the
   composite colour (per channel) and alpha the camera sees there. Occlusion is modelled within one key only (the screens-only render has no other keys, no arena).
   Per view: frame_rig --families 0x20 (the screens alone) --show K (the key alone) --look-entrance --camera / --eye, env WWE_RDR_RIG_SCREEN_ROWS=1 + WWE_RDR_RIG_SCREEN_FEED=pattern;
-  key 800 IS the frame grab in every look (front_end.cpp:2772, the game's channel -1; PAR1): its jobs add --prime-grab 800 (the grab = 800's test picture, sampled through the grab's own
+  key 800 IS the frame grab in every look (front_end.cpp, the game's channel -1; PAR1): its jobs add --prime-grab 800 (the grab = 800's test picture, sampled through the grab's own
   binding, no seed frame); every served job drops the grab first (a served job = a one-shot). A second job per view with --flat-feed judges brightness (DIM1). judge_piece:
     PASS / FAINT (PASS, a see-through floor copy) / BLACK / DIM / PARTIAL (drawn / expected < coverage) / UNCLEAR / NO PIXELS; the back camera is rendered only when the front
     draws nothing, and a piece drawn only from behind is PASS-BACK (a cull fault).
@@ -80,7 +80,7 @@ VERDICT_COLOUR = {'PASS': (90, 220, 90), 'FAINT': (150, 230, 200), 'BLACK': (255
                   'NO PIXELS': (255, 190, 60), 'PASS-BACK': (120, 160, 255), 'TOO FAINT': (160, 160, 160), 'EDGE-ON': (160, 160, 160), 'HIDDEN': (160, 160, 160), 'no mesh': (150, 150, 150), 'not checked': (150, 150, 150)}
 KNOWN_FILE = os.path.join(HERE, 'arena_sheet_known.txt')
 KNOWN_OWNER = {'DIM': r'docs\research\harness\DIM1.md[L]','PARTIAL': r'docs\research\harness\PAR1.md', 'UNCLEAR': 'unowned'}
-RIG_INPUT_TEXT = "without the rig's values (no stage look)"   # stage_look::MissingFor (rf_arena_live.cpp:140-142): offline the record has no stage-look rig rows; it always fires
+RIG_INPUT_TEXT = "without the rig's values (no stage look)"   # stage_look::MissingFor (rf_arena_live.cpp (rdr_scene::rf::c::ApplyArenaLive)): offline the record has no stage-look rig rows; it always fires
 # The planted arm's expected keys: the file census in TRN4.md lines 48-51 (the 22 highlighted screen-key meshes): BLACK on every piece; a53 801 / 802 vanish instead of going black
 # ([U] why): "not PASS" there (BLACK or NO PIXELS). Every other key of every arena = the unplanted arm's verdict.
 EXPECT_PLANT = {30: {800, 803, 804}, 33: {800, 803, 804}, 35: {800, 803, 804}, 44: {800, 803, 804}, 50: {800, 803, 804, 806}, 53: {800, 801, 802, 803, 804}, 54: {806}}
@@ -680,7 +680,7 @@ class Arm:
         if flat:
             cmd.append('--flat-feed')   # DIM1: one solid colour per key, for the brightness judge
         if 800 in show and families == 0x20 and len(show) == 1:
-            cmd += ['--prime-grab', '800']   # PAR1: key 800 IS the frame grab in every look (front_end.cpp:2772; the game's channel -1): the check primes the grab with 800's test picture
+            cmd += ['--prime-grab', '800']   # PAR1: key 800 IS the frame grab in every look (front_end.cpp; the game's channel -1): the check primes the grab with 800's test picture
         if families is not None:
             cmd += ['--families', hex(families)]
         if camera:

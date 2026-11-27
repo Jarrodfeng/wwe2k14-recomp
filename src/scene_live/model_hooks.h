@@ -74,7 +74,8 @@ inline void ModelEntry(rdr_scene::live::WrestlerContributor& w, uint32_t model, 
 //   The piece count n is stored at desc+16 (and at [array-4]) by sub_823EDE50 (0x823EDF24 `stw r28,16(r26)`) [C, Opus review]; its constructor zeroes
 //   every entry's model, so a null model is a hole (skipped), not the end. n > kMaxPieces is refused (counted; the body is still linked). Piece ids
 //   outside R1's list are kept but counted (bad piece).
-// The manager slot i == character slot i is [U]: the link is by MODEL ADDRESS, never by slot.
+// The link is by MODEL ADDRESS, never by slot, and names the body only while the game's descriptor still says so (inputs_contrib.h VerifyBodyIdentity, piece_link.h DescriptorOfBody). A character
+// finds ITS descriptor by [char+3760], not by its slot position (slot_key.h SlotKeyOf, S111 SLOTKEY).
 constexpr uint32_t kMaxPieces = 96;
 constexpr uint32_t kEmptyKeyWord = 51200;  // 0xC800: "empty" for sub_823BB070 and slot+16 (R1 section 2)
 

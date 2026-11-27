@@ -1,0 +1,3 @@
+# cite_line allowlist (tools\lint\cite_line_lint.py): one exception per line, `path | ref | why`.
+# path = the doc / source file holding the ref (forward slashes); ref = the ref text exactly as the lint prints it.
+# An entry is for a ref that cannot be cited by name (say why); the guard itself holds the rule for everything else.

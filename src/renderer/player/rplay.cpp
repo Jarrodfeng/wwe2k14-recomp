@@ -1183,6 +1183,7 @@ int main(int argc, char** argv) {
     const std::string arg = argv[i];
     if (arg == "--validation" && i + 1 < argc) options.validation = std::atoi(argv[++i]);
     else if (arg == "--gpu" && i + 1 < argc) options.gpu_index = std::atoi(argv[++i]);
+    else if (arg == "--dynamic-state" && i + 1 < argc) options.dynamic_state = uint32_t(std::strtoul(argv[++i], nullptr, 16));  // S111 DYNSTATE: hex mask (0 = every draw state baked into the pipeline, 3 = all the device can)
     else if (arg == "--format-caps-mask" && i + 1 < argc) options.format_caps_mask = uint32_t(std::strtoul(argv[++i], nullptr, 16));  // lane 200
     else if (arg == "--staging-cap-mb" && i + 1 < argc) options.staging_cap_mb = uint32_t(std::atoi(argv[++i]));  // S102 U1 (dev builds)
     else if (arg == "--staging-wait-plant") options.staging_wait_plant = true;

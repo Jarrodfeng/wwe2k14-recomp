@@ -41,8 +41,13 @@ bool ApplyFlashes(BuildCtx& ctx) {
     if (r.kind != kFxFlash) continue;
     float p[3];
     PointToViewer(r.pos, p);
-    // S110 FLASHOCC (FLASHDEPTH.md b8): the sprite faces the FRAME's eye (the viewer's: y negated at record_frame.cpp:400 before any applier), never the record's game-space eye.
+    // S110 FLASHOCC (FLASHDEPTH.md b8): the sprite faces the FRAME's eye (the viewer's: y negated at record_frame.cpp before any applier), never the record's game-space eye.
     FlashSprite s = FlashSpriteFacing(ctx.frame, p, FlashFactor(r, fm.radius), fm.model);
+    if (r.flags & kFxfKeepCensus) {   // S111 FLASHCAM review (census only, src\scene_live\flash_keep.h Stamp): the game's keep rule and the slot camera's +176 scales of the row's own latch
+      int32_t keep = -1;
+      std::memcpy(&keep, &r.pad, 4), std::memcpy(&s.game_xs, &r.w, 4), std::memcpy(&s.game_ys, &r.h, 4);
+      s.game_keeps = int8_t(keep);
+    }
     // S110 CUTGREY: a flash is a sprite of its own, drawn AFTER the post chain (FrontEnd::DrawFlashesAfterPost; the game draws it after its combine, crisp), never a scene object: our far blur,
     // haze and sepia must not run over it. Its colour is the row's (the game's colour block of this flash, kFxfColorUnread = the block was not readable: the file's own colour, white,
     // counted), its alpha the row's (c185.x). No arena light set (the game's light is colour x (1 + abs(n.x)), applied by the draw).

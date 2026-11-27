@@ -107,6 +107,7 @@ bool LiveMapsHook::MeasureRimDepth(const SceneFrame& frame, const float vp[16], 
     for (const CasterMesh& m : cm->meshes) {
       if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
       if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
+      if (!CasterMeshCasts(frame, uint32_t(&obj - frame.objects.data()), m)) continue;   // S111 SOCKSHADOW: a piece the owner's mesh does not draw is not in the rim range either
       std::vector<assets::Matrix>& slots = slots_scratch_;
       slots.clear();
       if (m.chunk)
@@ -189,8 +190,8 @@ void LiveMapsHook::ChainMaps(rdr::FrameBuilder& fb) {
     const auto make = [&](int fs, uint16_t& program) {
       rdr::ProgramDesc d;
       d.name = rdr::fx::kVariants[fs].name;
-      d.vertex_spirv = rdr::fx::kVariants[s.vs_quad].spirv, d.vertex_bytes = rdr::fx::kVariants[s.vs_quad].bytes;
-      d.fragment_spirv = rdr::fx::kVariants[fs].spirv, d.fragment_bytes = rdr::fx::kVariants[fs].bytes;
+      d.vertex_spirv = rdr::fx::Words(size_t(s.vs_quad), false), d.vertex_bytes = rdr::fx::kVariants[s.vs_quad].bytes;
+      d.fragment_spirv = rdr::fx::Words(size_t(fs), false), d.fragment_bytes = rdr::fx::kVariants[fs].bytes;
       return renderer_.AddProgramChecked(d, program);
     };
     if (!make(s.fs_pair, s.prog_pair) || !make(s.fs_rgba, s.prog_rgba) || !make(s.fs_t2, s.prog_t2)) {

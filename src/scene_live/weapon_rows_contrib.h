@@ -15,6 +15,10 @@
 #include "tail_latch.h"  // S102 U1
 #include "weapon_rows_core.h"
 #include "belt_colour.h"   // S111 STOCKBELT / BELTMASKNAME: the R5 belt rows (RowOf) and their census
+#include "prop_read_note.h"   // S111 FOLLOWUPS3: the event models built from the recoloured read
+
+static_assert(rdr_scene::live::prop_read_note::kWeaponModelsOff == rdr_scene::weapons::kOffEventModels && rdr_scene::live::prop_read_note::kModels == rdr_scene::weapons::kMaxEventModels,
+              "S111 FOLLOWUPS3: prop_read_note reads the CWeapon's models where weapon_rows.h says they are");
 
 namespace rdr_scene::live::weaponrows {
 
@@ -33,7 +37,7 @@ class WeaponRowsContributor : public Contributor {
     }
     for (const auto& ev : tracker.events.Snapshot()) {   // S103 BLF review 4: every live event prop model is a section-59 row (flag kSlotFlagEvent) so its load starts before its first draw
       rdr_scene::weapons::WeaponSlot s;
-      s.id = ev.second.id, s.slot = ev.second.k, s.main = ev.first, s.flags = rdr_scene::weapons::kSlotFlagEvent;
+      s.id = ev.second.id, s.slot = ev.second.k, s.main = ev.first, s.flags = rdr_scene::weapons::kSlotFlagEvent | (prop_read_note::IsRecoloured(ev.first) ? rdr_scene::weapons::kSlotFlagRecoloured : 0u);   // S111 FOLLOWUPS3
       s.reserved[0] = rdr_scene::weapons::PackAskedLightSet(ev.second.light_set);   // S111 STAGELESS2: the light set its CWeapon asks for (+ 1; 0 = not read)
       t.weapon_slots.push_back(s);
     }
@@ -90,7 +94,8 @@ class WeaponRowsContributor : public Contributor {
     tracker.events.Resets(evc, evp, evo);
     out += "; gm pulls " + std::to_string(s.gm_pulls) + " models " + std::to_string(s.gm_models) + " calls " + std::to_string(s.gm_calls) + " other_pass " + std::to_string(s.gm_other_pass) + " pass_skip " + std::to_string(s.gm_pass_skip) + " recheck_fail " + std::to_string(s.gm_recheck_fail) +
            "; blood calls " + std::to_string(s.blood_calls) + " frames " + std::to_string(s.blood_frames) + " live " + std::to_string(s.blood_live) + " dead_skipped " + std::to_string(s.blood_dead_skipped) + " unmatched " + std::to_string(s.blood_unmatched) + " other_pass " +
-           std::to_string(s.blood_other_pass) + " pass_skip " + std::to_string(s.blood_pass_skip) + " unreadable " + std::to_string(s.blood_unreadable) + "; event list scene_changes " + std::to_string(s.ev_scene_changes) + " cleared " + std::to_string(evc) + " pruned " +
+           std::to_string(s.blood_other_pass) + " pass_skip " + std::to_string(s.blood_pass_skip) + " unreadable " + std::to_string(s.blood_unreadable) + " held " + std::to_string(s.blood_held) + " held_noref " +
+           std::to_string(s.blood_held_noref) + " synth_checks " + std::to_string(s.blood_synth_checks) + " synth_err " + std::to_string(s.blood_synth_err) + "; event list scene_changes " + std::to_string(s.ev_scene_changes) + " cleared " + std::to_string(evc) + " pruned " +
            std::to_string(evp) + " pub_overflow " + std::to_string(evo);
     // S103 LDR (93db71f17): the stage path latch's counters: requests seen, of those a ladder PACH, a ladder-looking path with no PACH (the step check reads them; the lint counter_reader wants a reader)
     out += "; " + propcolour::TheStore().CensusLine();   // S108 THB: the entrance props' colours (the editor's reads, the saved sets' latches, the rows, the draws)

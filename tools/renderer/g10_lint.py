@@ -36,7 +36,9 @@ def main():
     fails = []
     p = os.path.join(a.root, 'src', 'renderer', 'renderer.cpp')
     try:
-        text = open(p, encoding='utf-8').read()
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import read_path  # renderer.cpp is split: read it with its parts expanded (tools/split/read_unit.py)
+        text = read_path(p)
     except OSError as e:
         print('FAIL cannot read', p, e)
         sys.exit(1)

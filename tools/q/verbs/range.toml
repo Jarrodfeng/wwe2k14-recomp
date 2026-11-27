@@ -1,0 +1,14 @@
+name = "range"
+module = "qrange"
+needs = "con"
+errors = ["qrange.RangeError"]
+
+[[usage]]
+order = 91
+text = '''  range LO HI [--loads OFF] [--stores OFF] [--calls sub_X] [--exclude LO-HI]   the functions whose start lies in [LO, HI), only those
+                               with a load / store of displacement OFF or a direct call of X (all filters must hold); read from each
+                               function's listing (tools/q/qrange.py)'''
+
+[[route]]
+order = 201
+text = '''- the functions in an address range, or those in it that load / store a field offset or call a function (a scan "who reads +1056 outside 0x82B55xxx"): range LO HI --loads OFF'''

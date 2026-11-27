@@ -36,6 +36,9 @@
 #include "prop_spec.h"  // S111 PROPSPEC: the game's run-time specular / reflection set of an entrance prop model (the row's code; a model leaving the event list drops it)
 #include "belt_colour.h"  // S111 BELTMASKNAME: the R5 belt latches (a model leaving the event list drops its own; the scene clear drops the entrance belts only)
 #include "../renderer_scene/prop_light_id.h"  // S111 STAGELESS2: the light set an event prop's CWeapon asks for ([cw + 1468])
+#include "blood_slot_id.h"  // S111 BLOODMOD2: the blood rows' identity (the permanent blood mod's store keeps by it)
+#include "../renderer_scene/floor_blood_switch.h"  // S111 BLOODMOD2: the permanent blood mod's switch and scene count (On / PoolCount)
+#include "blood_held.h"  // S111 BLOODMOD3: the rows of a splat the game fades without drawing its own record (made from the last drawn splat)
 
 namespace rdr_scene::live::weaponrows {
 
@@ -78,6 +81,7 @@ enum class Plant : uint32_t {
   EventNoFree,       // S103 BLF: the free hook (0x8272D678) drops nothing: a freed event model's address, reused by another model, would be drawn as a belt
   StageNoRecheck,    // S103 CGF: the per-call `u32 [H+76+4k] == model` re-check is skipped: a slot freed after the frame's pull, its address reused by another model, would be recorded as a cage piece
   StageNoCap,        // S103 CGF: a cage slot-32 call (LR 0x826F9F08) is not capped at its 2 palette rows: NodeCount's answer reads past the stack palette
+  StageInstancePerFamily,   // S111 CAGESIDE review: a stage model's own and slot-32 calls are numbered apart (0.. each, the S103 count): both drawn, they share the drawer's pose slot (PACH, k, instance)
   StageAlpha252,     // S103 CGF: a slot-32 call's alpha is [model+252] (the slot-13 f1), not the call's own f1 (MdlAlpha)
   StageFirstCallOnly,   // S103 CGF: the event branch's rule (the first call of a model in a frame): a cage wall (3 calls of one model) would be drawn once
   StageIgnoreSwitch,    // S103 CGF review 1: --wwe2k14_rdr_stage_structs = off is ignored (the holder is pulled and stage rows are recorded anyway)
@@ -86,6 +90,7 @@ enum class Plant : uint32_t {
   StageNoRigidBound,  // S103 CGF review 5: a rigid stage model's palette offset (64 * (node - 1)) is not bounded to the 2-row stack palette
   StageAlphaAlways,     // S103 CGF review 4: a slot-32 call of an UNKNOWN caller (LR class other) also takes its alpha from f1 (not [model+252])
   GmRescanEmpty,        // S103 GBR review 2: an empty membership is rescanned every frame (the old early-out test `!gm_.empty()`)
+  GmHolderAlways,       // S111 GMBORROW: every gm row is stamped kCallGmHolderTex whatever settings byte G+41 holds (the old rule: every non-FR bank borrowed the chamber's bgEtc PACH 6 set)
   GmNoFallthrough,      // S103 GBR review 7: a gm member whose pass / re-check test fails returns at once instead of falling through to the stage / event lookups
   SceneSigLoaded,       // S103 GBR review 3: the scene signature also holds the holder's loaded flag (a holder finishing its read clears the event list)
   FirstWriteClears,     // S103 SMF (BUG2 7): a 0 -> X first write of the holder / manager pointer clears the event list (the old rule: an entrance prop vanished when the manager was made mid-entrance)
@@ -281,6 +286,8 @@ struct Stats {
   uint32_t gm_models = 0;                                                                          // the last membership's size
   uint64_t blood_calls = 0, blood_other_pass = 0, blood_pass_skip = 0, blood_dead_skipped = 0, blood_unmatched = 0, blood_unreadable = 0, blood_frames = 0;   // blood splat calls recorded; non-submit calls; non-zero pass; dead records not given a call; calls with no live record left; pool unreadable
   uint32_t blood_live = 0;                                                                         // the last snapshot's live record count
+  uint64_t blood_held = 0, blood_held_noref = 0, blood_synth_checks = 0;   // S111 BLOODMOD3 (the permanent blood mod only): held rows made (a particle fading undrawn: an instant replay); such splats with no reference to make them from; drawn splats checked against the rows made from the one before
+  float blood_synth_err = 0.f;                                             // the largest row difference of those checks (game units: near 0 = the composition rule holds on the game's draws)
   uint64_t shadow_calls = 0, shadow_props_calls = 0;   // S103 STG: calls made under the game's flag A (tagged kCallShadowPass, never a colour row); of them, the props map's (camera = module + 1312)
   uint64_t ev_cleared = 0, ev_pruned = 0, ev_scene_changes = 0;                                    // event list entries dropped by a scene change / a stale vtable; scene changes seen
 };
@@ -432,6 +439,8 @@ class Tracker {
         if (read_word(w::kBloodHolderGlobal, p) && p >= 0x10000 && read_word(p + w::kBloodHolderOffModel, m) && m >= 0x10000) blood_model_ = m;
       }
       blood_recs_frame_valid_ = false, blood_next_ = 0;
+      if (blood_enabled && ::rdr_scene::floor_blood::On()) blood_ids_.Scan(read_word, ::rdr_scene::floor_blood::PoolCount());   // S111 BLOODMOD2 (the mod only): the particles' states, once a frame (a new splat = a new serial)
+      if (blood_enabled && ::rdr_scene::floor_blood::On()) EmitHeldSplats(read_word);   // S111 BLOODMOD3 (the mod only): a splat the game fades without drawing its own record (an instant replay) gets a keep-only row
     }
     const bool stage_on = stage_enabled || plant == Plant::StageIgnoreSwitch;
     if (stage_on && (!stage_frame_valid_ || stage_frame_ != cur_.frame)) {   // S103 CGF: the stage holder's membership, one pull a frame (the first model call), next to the weapon slots' below
@@ -463,6 +472,8 @@ class Tracker {
     if (model == 0) return res;
     Named ev;   // S103 BLF: an event prop model (pushed by the MakeWeapon hooks, not in the slot table): the same row, stamped with the prop id and its entry k
     bool is_event = false, is_stage = false, is_gm = false, is_blood = false;
+    uint32_t blood_id = 0;   // S111 BLOODMOD2: the splat's identity (blood_slot_id.h; 0 while the permanent blood mod is off)
+    BloodRec blood_br;       // S111 BLOODMOD3: this blood call's record (its place / scale / angle: the held rows' next reference)
     if (it == named_.end() || it->object != model) {
       if (gm_enabled && !gm_.empty()) {   // S103 GBR (GMS.md (A)): a gmsk set object's model; only the slot-13 submit in the colour pass (pass index 0)
         const auto git = std::lower_bound(gm_.begin(), gm_.end(), model, [](const GmMember& g, uint32_t m) { return g.model < m; });
@@ -479,7 +490,7 @@ class Tracker {
           else if (plant != Plant::GmNoRecheck && !take_any && !(read_word(gmp->obj + w::kGmObjOffModel, cur_model) && cur_model == model && read_word(gmp->obj + w::kGmObjOffKey, cur_key) && cur_key == gmp->key)) ++stats_.gm_recheck_fail, take = false;
           if (!take && plant == Plant::GmNoFallthrough) return res;
           if (take) {
-            ev.object = model, ev.id = w::GmId(gmp->key), ev.slot_flags = w::PackGmFlags();
+            ev.object = model, ev.id = w::GmId(gmp->key), ev.slot_flags = w::PackGmFlags(gm_holder_tex_);   // S111 GMBORROW: + the game's texture-set choice (PullGm)
             is_gm = true;
             res.gm = true;
           }
@@ -492,7 +503,9 @@ class Tracker {
         if (!blood_recs_ok_) { ++stats_.blood_unreadable; return res; }
         if (blood_next_ >= blood_recs_.size()) { ++stats_.blood_unmatched; return res; }
         const BloodRec br = blood_recs_[blood_next_++];
-        ev.object = model, ev.id = w::BloodIdOf(br.colour), ev.slot_flags = w::PackBloodFlags(br.tex);
+        ev.object = model, ev.id = w::BloodIdOf(br.colour), ev.slot_flags = w::PackBloodFlags(br.tex) | br.slot_bits;   // S111 BLOODMOD2: + the particle slot k (bits 0-7; 0 while the mod is off)
+        blood_id = br.id;
+        blood_br = br;
         is_blood = true;
         res.blood = true;
       }
@@ -555,8 +568,11 @@ class Tracker {
       called_[size_t(it - named_.begin())] = 1;
     }
     if (!shadow_call) ++stats_.weapon_calls;
-    const uint32_t instance = shadow_call ? NextInstanceKey((uint64_t(model) << 32) | (shadow == 1 ? 4u : 5u)) : (is_gm || is_blood) ? NextInstanceKey((uint64_t(model) << 32) | (is_blood ? 2u : 3u)) : is_stage ? NextInstanceKey((uint64_t(model) << 32) | (own_submit ? 1u : 0u)) : is_event ? ev_instance : NextInstance(model);   // S103 CGF: a stage piece's instance counts per family (own / other)
-    if (is_stage && !shadow_call && plant == Plant::StageFirstCallOnly && instance > 0) return res;
+    // S111 CAGESIDE review: a stage piece's instance counts its calls of BOTH families in one number (the plan draws both, and the drawer's pose slot is (PACH, k, instance): rf_props.cpp ApplyWeaponRows, pool
+    // weapon:stg<PACH>/<k>, slot #instance). S103 CGF counted per family, so an own and a slot-32 call of one model took the same slot: the second pose overwrote the first. Plant::StageInstancePerFamily = that count.
+    const uint64_t stage_key = (uint64_t(model) << 32) | ((plant == Plant::StageInstancePerFamily && !own_submit) ? 0u : 1u);
+    const uint32_t instance = shadow_call ? NextInstanceKey((uint64_t(model) << 32) | (shadow == 1 ? 4u : 5u)) : (is_gm || is_blood) ? NextInstanceKey((uint64_t(model) << 32) | (is_blood ? 2u : 3u)) : is_stage ? NextInstanceKey(stage_key) : is_event ? ev_instance : NextInstance(model);
+    if (is_stage && !shadow_call && plant == Plant::StageFirstCallOnly && NextInstanceKey((uint64_t(model) << 32) | (own_submit ? 6u : 7u)) > 0) return res;   // (the twin: a later call of the model in its family)
     res.instance = instance;
     res.event = is_event, res.id = hit.id, res.k = (is_stage || is_blood) ? w::StageEntry(hit.slot_flags) : is_event ? w::EventEntry(hit.slot_flags) : 0u;   // (StageEntry = bits 16-23: a blood splat's texture index too)
     res.vtable_ok = (hit.slot_flags & w::kCallVtableOk) != 0;
@@ -570,7 +586,7 @@ class Tracker {
     if (cur_.calls.size() >= kMaxCalls) { ++stats_.overflow; return res; }
     w::WeaponCall e;
     e.object = model;
-    e.instance = instance;
+    e.instance = (is_blood && ::rdr_scene::floor_blood::On()) ? blood_id : instance;   // S111 BLOODMOD2: a blood row's instance is its splat's identity while the permanent blood mod is on (the drawer poses blood by its own pool counter, rf_props.cpp ApplyWeaponRows)
     e.frame = plant == Plant::NoFrame ? 0u : uint32_t(cur_.frame);   // the frame of the call (a record can hold more than one: the drawer takes the newest)
     e.id = plant == Plant::NoIdAtCall ? -1 : hit.id;                 // the id of this object in THIS frame's table (an event prop: its prop id)
     e.slot_flags = (is_event || is_stage || is_gm || is_blood) ? hit.slot_flags : w::PackSlotFlags(hit.slot_flags & 0xFFu, (hit.slot_flags & w::kCallSecondary) != 0, (hit.slot_flags & w::kCallVtableOk) != 0, w::CallSecondaryIndex(hit.slot_flags));
@@ -655,6 +671,7 @@ class Tracker {
         }
       }
     }
+    if (is_blood && e.node_count == 1 && blood_br.f_ok && ::rdr_scene::floor_blood::On()) NoteBloodRef(blood_br, cur_.nodes[e.node_first].rows);   // S111 BLOODMOD3 (the mod only): the drawn splat is the held rows' reference
     cur_.calls.push_back(e);
     ++stats_.recorded;
     res.recorded = true, res.n_nodes = e.node_count;
@@ -718,6 +735,11 @@ class Tracker {
   // The 12 controller words are read every frame (the signature); the tables are rebuilt when the signature changes and every 30 frames (a controller can refill its table in place), sorted by model.
   template <class ReadWordFn>
   void PullGm(ReadWordFn& read_word, uint64_t frame) {
+    {   // S111 GMBORROW: settings byte G+41, once a frame (sub_827C9190 hands the stage holder's texture set when it is non-zero, read once per controller at the bank load). The game writes
+        // G+41 at match set-up only (the apply sub_822CA008 copies the type's rule row over G+0..63; Create a Finisher's set-up sub_82270AB8 clears it), so the frame read equals the game's load read.
+      uint32_t gw = 0;
+      gm_holder_tex_ = plant == Plant::GmHolderAlways || (read_word(w::kGmHolderTexWord, gw) && ((gw >> w::kGmHolderTexShift) & 0xFFu) != 0);
+    }
     uint32_t l = 0;
     if (!read_word(w::kGmListGlobal, l) || l < 0x10000) { gm_.clear(), gm_sig_ = 0, stats_.gm_models = 0; return; }
     uint32_t ctl[w::kGmCtlCount] = {};
@@ -757,6 +779,8 @@ class Tracker {
     uint32_t q = 0;
     if (!read_word(w::kBloodPoolGlobal, q) || q < 0x10000) return;
     uint32_t dead = 0;
+    const bool ids_on = blood_enabled && ::rdr_scene::floor_blood::On();   // S111 BLOODMOD2 (the permanent blood mod only): each row carries its particle slot and its splat's identity
+    const bool replay = ids_on && blood_ids_.ReplayOn(read_word);         // [Q + 3888]: the replay track writes the records this frame (no record is its particle's own)
     for (uint32_t k = 0; k < w::kBloodRecCount; ++k) {
       const uint32_t at = q + w::kBloodRecOff + w::kBloodRecStride * k;
       uint32_t aw = 0, cw = 0, tw = 0;
@@ -764,6 +788,8 @@ class Tracker {
       BloodRec r;
       std::memcpy(&r.alpha, &aw, 4), std::memcpy(&r.colour, &cw, 4);
       r.tex = tw < 16u ? tw : 0u;
+      if (ids_on) r.slot_bits = k, r.id = blood_ids_.IdOf(read_word, k, aw, replay);   // S111 BLOODMOD2 (0 = a played-back record, or not the particle's own copy)
+      if (ids_on) r.f_ok = bloodheld::ReadRecordFields(read_word, at, r.f);   // S111 BLOODMOD3: the fields the draw builds this record's rows from
       if (r.alpha == 0.0f) {   // dead: the game's loop skips a record whose alpha EQUALS the float at 0x8218B8CC = 0.0 [C: the image word is 0x00000000; fcmpu, so -0.0 is skipped too and a NaN alpha is NOT skipped (the plan still refuses an alpha not > 0)]
         ++dead;
         if (plant != Plant::BloodIncludeDead) continue;
@@ -776,14 +802,65 @@ class Tracker {
   }
 
   struct GmMember { uint32_t model, obj, key; };
-  struct BloodRec { float alpha = 0.f, colour = 1.f; uint32_t tex = 0; };
+  struct BloodRec { float alpha = 0.f, colour = 1.f; uint32_t tex = 0, slot_bits = 0, id = 0; bloodheld::Fields f; bool f_ok = false; };   // S111 BLOODMOD2: + the particle slot k and the splat's identity; BLOODMOD3: + the record's place / scale / angle (mod on only)
+
+  // S111 BLOODMOD3 (docs\research\s111\BLOODMOD3.md; the permanent blood mod only). The pool update sub_826983B8 steps every live particle's life BEFORE it tests the replay word [Q + 3888]; only the copy into
+  // the records waits on it. So during an instant replay a splat can fade and free while its record shows the playback, and the game never draws it fading. Once a frame (after Scan) each particle in its fade
+  // (state 3, 0 < alpha < 1) whose record is not its own copy (the replay word, or the alpha bits differ) gets a keep-only row (kCallBloodHeld): its identity, colour and texture, rows made from the last drawn
+  // splat (blood_held.h SynthRows). A particle whose record is its own is the game's drawn row (PullBloodRecs), never a held one.
+  template <class ReadWordFn>
+  void EmitHeldSplats(ReadWordFn& read_word) {
+    uint32_t q = 0;
+    if (blood_model_ == 0 || !read_word(w::kBloodPoolGlobal, q) || q < 0x10000) return;
+    const bool replay = blood_ids_.ReplayOn(read_word);
+    for (uint32_t k = 0; k < w::kBloodRecCount; ++k) {
+      const uint32_t id = blood_ids_.LiveId(k);
+      if (id == 0) continue;
+      bloodheld::Live p;
+      if (!bloodheld::ReadParticle(read_word, q, k, p) || p.state != bloodheld::kStateFade || !(p.alpha > 0.f && p.alpha < 1.f)) continue;
+      uint32_t rec_alpha = 0;
+      if (!replay && read_word(q + w::kBloodRecOff + w::kBloodRecStride * k + w::kBloodRecOffAlpha, rec_alpha) && rec_alpha == p.alpha_bits) continue;   // its own record: the game draws it
+      RingNodeRows rows{};
+      if (!blood_ref_.ok || blood_ref_.model != blood_model_ || blood_ref_.pools != blood_ids_.Pools() || !bloodheld::SynthRows(blood_ref_.rows, blood_ref_.f, p.f, rows.rows)) {
+        ++stats_.blood_held_noref;
+        continue;
+      }
+      if (cur_.calls.size() >= kMaxCalls || cur_.nodes.size() + 1 > kMaxPoolNodes) { ++stats_.overflow; return; }
+      w::WeaponCall e;
+      e.object = blood_model_, e.instance = id, e.frame = uint32_t(cur_.frame), e.id = w::BloodIdOf(p.colour), e.alpha = p.alpha;
+      e.slot_flags = w::PackBloodFlags(p.tex) | k | w::kCallBloodHeld;
+      e.node_first = uint32_t(cur_.nodes.size()), e.node_count = 1;
+      cur_.nodes.push_back(rows);
+      cur_.calls.push_back(e);
+      ++stats_.blood_held;
+    }
+  }
+  // A drawn splat's rows and the record fields they were drawn from: the held rows' reference (the same blood model and scene count). Before it is taken, the rows made from the previous reference for THIS
+  // record are compared with the game's own (census synth_checks / synth_err: the composition rule checked on the game's draws).
+  void NoteBloodRef(const BloodRec& br, const float rows[12]) {
+    const uint32_t pools = blood_ids_.Pools();
+    float want[12];
+    if (blood_ref_.ok && blood_ref_.model == blood_model_ && blood_ref_.pools == pools && bloodheld::SynthRows(blood_ref_.rows, blood_ref_.f, br.f, want)) {
+      float err = 0.f;
+      for (int i = 0; i < 12; ++i) err = std::max(err, std::fabs(want[i] - rows[i]));
+      ++stats_.blood_synth_checks;
+      if (err > stats_.blood_synth_err) stats_.blood_synth_err = err;
+    }
+    if (!(br.f.scale > 0.f)) return;
+    blood_ref_.ok = true, blood_ref_.model = blood_model_, blood_ref_.pools = pools, blood_ref_.f = br.f;
+    std::memcpy(blood_ref_.rows, rows, sizeof blood_ref_.rows);
+  }
   std::vector<GmMember> gm_;
+  bool gm_holder_tex_ = false;   // S111 GMBORROW: settings byte G+41 at the last pull (PullGm)
   uint64_t gm_sig_ = 0, gm_pull_frame_ = 0, scene_sig_ = 0, scene_frame_ = 0;
   uint32_t scene_h_ = 0, scene_mgr_ = 0;   // S103 SMF (BUG2 7): the last holder / manager pointers, to tell a first write (0 -> X) from a change
   bool scene_sig_valid_ = false, scene_frame_valid_ = false;
   uint32_t blood_model_ = 0, blood_next_ = 0;
   bool blood_recs_frame_valid_ = false, blood_recs_ok_ = false;
   std::vector<BloodRec> blood_recs_;
+  bloodid::Slots blood_ids_;   // S111 BLOODMOD2: the particles' serials (scanned once a frame while the permanent blood mod is on)
+  struct BloodRef { bool ok = false; uint32_t model = 0, pools = 0; bloodheld::Fields f; float rows[12] = {}; };
+  BloodRef blood_ref_;         // S111 BLOODMOD3: the last drawn splat's rows and record fields (the held rows' reference; mod on only)
 
   // The n-th recorded call of this object in this frame: two chairs = 0 and 1.
   uint32_t NextInstance(uint32_t model) { return NextInstanceKey(uint64_t(model) << 32); }
@@ -864,6 +941,14 @@ inline uint8_t ShadowKindAt(ReadWordFn read_word, uint32_t slot) {
   return 2;
 }
 
+// S111 CAATABLE: the model calls whose live texture keys the key store reads (belt_plate.h Store::OnEventCall: only the indices the drawer asked for): an event prop's, and an announce-table
+// weapon row's (desk_keys.h KeysOverFile: the game repaints / rebinds those keys). Plant 14 (desk_not_read) restores the old gate, event props only.
+inline bool ReadsKeys(const CallResult& r) {
+  if (r.event) return true;
+  if (beltplate::g_plate_plant == 14) return false;
+  return r.weapon && !r.stage && !r.gm && !r.blood && beltplate::KeysOverFile(r.id);
+}
+
 // The first lines of the raw hook on sub_82C04DF0 (draw_origin.h), kept pure so the offline unit runs the REAL order: the rows are taken BEFORE the scene_skip::Ours(Model) test (under OURS the original never runs,
 // and neither does the mid-asm hook inside it: the stream-free build recorded nothing: PW review fix 1). Returns true when the original must run (not OURS). `registered` = WeaponRowsRegistered() && Enabled().
 template <class ReadWordFn, class ReadMatsFn>
@@ -872,8 +957,12 @@ inline bool RawHookEntry(Tracker& tr, bool registered, bool ours, uint32_t r3, u
   if (registered) {
     const CallResult r = tr.OnModelCall(r3, r5, frame, IsOwnSubmit(r3), read_word, read_mats, f1, lr, IsOwnSubmit(r3) ? t_slot13_caller : 0u, pass0, pass_ctx, shadow);   // S103 GBR: pass0 = "the thread's pass index (sub_82BA77A8) is 0", asked only for a gm set object / a splat   // S103 CGF (review 3: the own submit's caller): f1 (MdlAlpha) and the guest LR ride along for the stage structures' family tag
     if (out) *out = r;
-    if (r.event && plate_phys) beltplate::TheStore().OnEventCall(r3, read_word, plate_phys);   // S105 PLATE: the belt's nameplate, read once per model on the game thread (both builds: the rows are taken before the OURS test)
-    if (r.event) propcolour::TheStore().NoteEditor(r3, frame, propcolour::ReadEditor(read_word, r3));   // S108 THB: the Threads editor recolours its entrance prop at this very draw (callback 0x8338EC00): its 4 colours, read where the game hands them to the GPU (one word when the switch is off)
+    if (ReadsKeys(r) && plate_phys) beltplate::TheStore().OnEventCall(r3, read_word, plate_phys);   // S105 PLATE: the belt's nameplate, read once per model on the game thread (both builds: the rows are taken before the OURS test)   // S111 CAATABLE: and the announce table's keys
+    if (r.event) {   // S108 THB: the Threads editor recolours its entrance prop at this very draw (callback 0x8338EC00): its 4 colours, read where the game hands them to the GPU (one word when the switch is off)
+      const propcolour::EditorSample es = propcolour::ReadEditor(read_word, r3);
+      propcolour::TheStore().NoteEditor(r3, frame, es);
+      beltcolour::OnEditorDraw(read_word, r3, r.id, es);   // S111 CACSTRAP: the Create a Championship preview of a STOCK belt (callback 0x833445D0): C's colours now, as the entrance belt's mode-0 row
+    }
   }
   return !ours;
 }

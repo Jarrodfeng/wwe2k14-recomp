@@ -1,5 +1,5 @@
 // The ring's key rules as pure functions (S103 lane CRR; moved out of rf_ring.cpp so the offline unit tools\scene\crr_unit.cpp runs THESE, not a copy): which pac key's model a ring entry is an instance of, which group
-// a class belongs to, how many calls make a group whole, the keys a group owns, and the game's draw order. Header-only; includes only the record layout and the ring key table.
+// a class belongs to, whether a group is drawn posed this frame, the keys a group owns, and the game's draw order. Header-only; includes only the record layout and the ring key table.
 //
 // NORMAL ring (arena ids 1..199): keys 951-982 (rope 960 / 980, cover 964 / 982, turnbuckle 952, post 951 / 981, skirt 973 / 974, canvas 953).
 // ALT ring (a created arena, ids 200..249; docs\research\s103\CRK.md sections 1-2, sub_824EB648 / sub_825CCFE0 / sub_825CE668 / sub_825CF2F8): the game loads a FIXED alt key set by the arena id alone [C]:
@@ -77,11 +77,13 @@ inline int GroupOf(const RingRows& e) {
     default: return -1;
   }
 }
-// The calls that make a group whole (rope, cover, turnbuckle, post, skirt, canvas): the alt ring draws its posts 2 + 6 times (CRK section 2), not 4.
-inline uint32_t Need(int g, bool alt) {
-  static constexpr uint32_t k[6] = {12, 12, 12, 4, 3, 1};
-  return g == 3 && alt ? kAltPostCalls : k[g];
-}
+// Whether a group is drawn POSED from its rows this frame (false: its keys are drawn at rest). `have` = the drawable rows of the class, `offered` = the rows the caller considered (ours or the game's, per class).
+// S111 TBPAD (review) + NEEDREMOVE: the rows are the calls the game submits this frame, whichever the source: OUR rows (kRrRecomputed) are made from the game's own state, the game's own rows (the RingRows
+// contributor, the --wwe2k14_rdr_ring_d3 record arm, old records) are copies taken at its calls. So the class is posed whenever it has rows and every one of them is drawable, WHATEVER THEIR COUNT. The game
+// submits fewer than its loop's calls on purpose: a torn-off turnbuckle pad (sub_825CE668 skips a third-layer cover while its corner's fade X[2342 + corner] is <= 0; sub_82775968 fades it out), the skirts
+// the camera faces away from (sub_82609060). The old count rule (a fixed calls-per-group table) put the whole cover class at rest for an 11-row frame: every pad drawn at its turnbuckle. A copy the hook
+// could not read is still a row (n_nodes 0, ring_rows_hook.h Tracker::OnModelCall): it is offered but not drawable, so its class stays at rest.
+inline bool ClassPosed(uint32_t have, uint32_t offered) { return have > 0 && have == offered; }
 // The keys a group owns (each high key and its low twin): the at-rest models of a complete group are not drawn.
 inline std::vector<int> GroupKeys(int g, bool alt) {
   if (!alt) {

@@ -258,7 +258,7 @@ def parse_mesh_rec(body, texs, rec, shift):
             params[pname] = [round(struct.unpack_from('>f', body, po + 20)[0], 6)]
     # S103 QAC: the cull word (record +0x8C; bit 0x2 = the game draws the mesh one-sided, docs\research\harness\CUL_ADV.md section E) and the technique word (+0x90): the game's record is the
     # 16-byte effect name (+0x7C), the cull word at name + 16, the technique word at name + 20, nothing between. In the shifted layout THIS reader finds the name at +0x78 (the effects parse as
-    # yBG_Default ...), so by the same relative rule the words are at +0x88 / +0x8C [C by position]. Our loader (src\assets\jboy.h:446 / 695 / 696) reads only the standard 0xB8 layout (name at
+    # yBG_Default ...), so by the same relative rule the words are at +0x88 / +0x8C [C by position]. Our loader (src\assets\jboy.h) reads only the standard 0xB8 layout (name at
     # +0x7C, words +0x8C / +0x90) and has no shifted layout, so it cannot confirm it; the data agrees: every shifted mesh has bit 0x4 set in the word at +0x88 (values 4 / 6, like the
     # standard cull word: CUL_ADV.md section G, bit 0x4 always set), while +0x8C holds 0 / 1 / 3 / 4 (selftest: the REAL shifted cull words). pal0 = the first bone-palette node index
     # (+0x0C, count at +0x08), -1 when the palette is empty.
@@ -1133,8 +1133,11 @@ def print_slot(r, a):
         print('asset slot: ' + r['error'])
         return
     print('asset slot %s: %d slot record(s)  %s' % (r['pac'], len(r['flags']), HEADER))
-    for f in r['flags'][:a.limit * 4]:
+    cut = len(r['flags']) if a.all else a.limit * 4
+    for f in r['flags'][:cut]:
         print('  slot %-4d %s' % (f['slot'], f['tokens']))
+    if len(r['flags']) > cut:
+        print('  ... %d more slot records (%d of %d shown; all: q asset slot %s --all)' % (len(r['flags']) - cut, cut, len(r['flags']), ' '.join(a.args)))
 
 
 # ------------------------------------------------------------------------------------------------------------------------------- cull (S103 QAC)
@@ -1374,7 +1377,7 @@ def main(argv):
     ap.add_argument('--mesh', type=int, default=None, help='vcolor: only this mesh index')
     ap.add_argument('--by', choices=qasset_census.BY, default=None, help='params: every count and histogram per group (S111 QCENSUS)')
     ap.add_argument('--sets', action='store_true', help='params: a histogram of each mesh\'s full set of names')
-    ap.add_argument('--all', action='store_true', help='params: no cut line (every list whole)')
+    ap.add_argument('--all', action='store_true', help='params / slot: no cut line (every list whole)')
     ap.add_argument('-j', type=int, default=MAX_JOBS)
     a = ap.parse_args(argv)
     if a.cmd == 'update':

@@ -2,7 +2,7 @@
 // 0 game runs, no GPU, no SDK. Built and run by tools\renderer\host_core_unit.py.
 //   host_core_unit            all arms (exit 0 when every check passed)
 //   host_core_unit plant N    the same with planted fault N (it must exit 1 with a FAIL line); the plants are in host_core.h (WWE2K14_HOST_PLANTS):
-//     1 draw_fault_as_miss   a draw: fault is treated as a plain miss: the repeat reuses a half-drawn `out` (the live.cpp 1884 rule, a past bug)
+//     1 draw_fault_as_miss   a draw: fault is treated as a plain miss: the repeat reuses a half-drawn `out` (the live.cpp rule, a past bug)
 //     2 no_record_black      a frame with no record presents black instead of F
 //     3 poster_draws         Post() runs the handler on the posting (game) thread
 //     4 oldest_wins          the mailbox keeps the OLDEST message
@@ -98,7 +98,7 @@ static void MailboxArm() {
   Check(!box2.Take(m), "mailbox: Stop with a message waiting: Take returns false (stop.wins)");
 }
 
-// ---- the decoupled 30 (VblankDebt: one picture per two vblanks; the stream path's vblank_debt, live.cpp 916-931) ----------------------------------------------------
+// ---- the decoupled 30 (VblankDebt: one picture per two vblanks; the stream path's vblank_debt, live.cpp (rdr_adapter::LiveSink::Impl::Run)) ----------------------------------------------------
 static void RateArm() {
   sh::VblankDebt d;
   std::string pattern;   // S = skipped, D = drawn
@@ -346,7 +346,7 @@ static void StartWaitArm() {
   Check(!sw::MatchStartPoint(0, 3, 4), "ENTRWAIT2: step 3 with the entrance word is no start (the FADE hold)");
   Check(sw::LoadFirstStep(0, 0) && !sw::LoadFirstStep(1, 0) && !sw::LoadFirstStep(0, 3), "ENTRWAIT2: the match load's first step (each load, a rematch too) arms");
   // review: the requester G takes a posted request (G+8 = 1) on its next update and clears +8 while the screen is SHOWN (sub_827E67C0 +88..+94: build, +8 = 0, +4 = 1); G+84 holds the
-  // screen until the close finishes (+240..+2A8). So a shown card is +4 != 0 / +84 != 0 with +8 == 0 (the CASREADY rule, cas_goto_core.h:206-213).
+  // screen until the close finishes (+240..+2A8). So a shown card is +4 != 0 / +84 != 0 with +8 == 0 (the CASREADY rule, cas_goto_core.h).
   Check(sw::CardUp(0x40001000u, 0, 1, 0) && sw::CardUp(0x40001000u, 1, 0, 0x40002000u) && sw::CardUp(0x40001000u, 2, 0, 0x40002000u) && !sw::CardUp(0x40001000u, 0, 0, 0) &&
             !sw::CardUp(0, 1, 1, 0x40002000u),
         "ENTRWAIT2: the card is up while it is posted, shown or closing (G+8, G+4 or G+84 non-zero), down when the requester is idle or absent");

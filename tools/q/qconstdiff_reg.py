@@ -14,7 +14,7 @@ Sources of truth (nothing guessed, nothing committed from the game):
     live_maps  - every `md::PutRegisters(block, VAR, REG, DATA, N)` in src/renderer_scene/live_map_*.cpp. VAR is bound to the variants
                  its `kVariants[...]` index names (through `X = md::FindVariant("name")` of the same file, and a local `int` chosen by
                  a ?:); unbound (a lambda's parameter, a function's argument) = every FindVariant name of the file. PutRegisters writes
-                 only a range that STARTS at REG (live_maps_internal.h:20-29), min(N, its count) vec4s. A variant some site writes keeps
+                 only a range that STARTS at REG (live_maps_internal.h), min(N, its count) vec4s. A variant some site writes keeps
                  zero in every other register (each block is made zero-filled before the puts).
     post       - PostPass::Record (src/renderer_scene/post_pass.cpp): each `Regs X;` is a zeroed pixel bank (Regs() memset, the struct
                  at the top of the file); `X.Set(REG, D)` / `X.SetN(REG, D, N)` fill it (a REG that is a for loop's variable takes the

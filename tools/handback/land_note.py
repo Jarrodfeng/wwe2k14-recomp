@@ -19,10 +19,13 @@ For a probe (which runs in the MAIN checkout and must never edit it) or the main
   3b. S111: the note's ```claims rows are lodged as the note's own file db\claims\<sNNN>_<NOTE>.json in the worktree (tools\handback\lodge_note.py,
      rewritten whole; no other db file is touched; a note with no claims block lodges nothing and says so); the file is committed with the rest.
      A refused claim row: nothing lodged, the worktree stays, exit 2 (fix the row in the note, run again with --amend)
-  3c. S111 LANDRECITE (tools\handback\land_seam.py): seam rows the note's own edits moved are re-cited (q seam --recite), rows it rewrote
-     one-for-one are re-anchored (marked `re-anchored by landing <note>`), a row whose anchor line it deleted stops the landing (exit 2)
+  3b2. S111 LANDLODGE: every OTHER note the branch changed that carries a claims block (a site editing another note's rows) is lodged the same way
+     (tools\handback\lodge_diff.py); a note that fails to lodge fails the landing (exit 2) with the note named
+  3c. S111 LANDRECITE (tools\handback\land_seam.py): seam rows hold no line number (the anchor locates them), so a moved line needs nothing; rows the
+     note's own edits rewrote one-for-one are re-anchored (marked `re-anchored by landing <note>`), a row whose anchor line it deleted stops the landing (exit 2)
      with the topic, row, old anchor and site; the seam files written are committed with the landing
-  4. when a path under src\ changed: this checkout's `game_syntax.py --root <worktree> --changed --build on`. Fail: <= 40 error lines, exit 3
+  4. when a path under src\ changed: this checkout's `game_syntax.py --root <worktree> --changed --build off` (the stream-free build the players run;
+       S111 COMPILEOFF: nobody compiles the stream variant unless they ask for it by name). Fail: <= 40 error lines, exit 3
   5. commit on the branch: ONLY the files the note touched + the note (checked: a staged file the note did not name fails, exit 6)
      message `S110 LAND <NAME>: <the note's first heading>` + the Co-Authored-By trailer
   6. the proof: --proof FILE, else the note's ```proof block (prove.py's file format), run with prove.py in the worktree.
@@ -32,10 +35,10 @@ For a probe (which runs in the MAIN checkout and must never edit it) or the main
 --amend: re-land a corrected note onto the existing worktree of --branch (the touched paths go back to the base with a plain
 `git checkout BASE -- path`; nothing is removed outside the worktree), a new commit, the proof again. S111 LANDAMEND: every db/seams/ and
 db/claims/ file that differs from the base goes back too (a stopped first landing leaves re-cited seam files; the re-run rewrites them).
-FULL COMPILE: a `compile` line of the proof (both variants) is NOT run by prove.py: after the commit it is started DETACHED (survives the
-caller's shell), output to <worktree>\out\land\full_compile.<sha8>.log (one per landed commit; identical code reuses the older log, no second compile) with a last line `full compile: PASS|FAIL exit N`; the final block prints
-`full compile: running in background, log <path>`. `--full-compile block` waits for it instead. Read it later with
-  py -I tools\handback\land_note.py --full-compile-status --branch NAME     (exit 0 PASS, 1 FAIL + first error lines, 2 running, 3 never started)
+FULL COMPILE (S111 COMPILEOFF): there is none any more. The old detached full compile ran the same one variant as the quick compile (the off
+variant) over the same tree, so it was the same work twice: a `compile` line of the proof is dropped from the run (prove.py is not given it) and
+the final block says the quick compile is the compile. `--full-compile-status --branch NAME` still reads the log a landing made BEFORE this change
+(exit 0 PASS, 1 FAIL + first error lines, 2 running, 3 no log).
 A step longer than 20 s prints a progress line every 20 s. Stdlib only; 0 game runs.
 Test hooks (selftest only): --compile-cmd SCRIPT / --prove-cmd SCRIPT replace game_syntax.py / prove.py; --repo DIR = the checkout to act in."""
 import argparse
@@ -60,7 +63,8 @@ def say(msg=""):
 
 
 AMEND_PLANT = ""  # selftest only: "old_reset" = the old amend (resets only the note's own paths)
-SEAM_PLANT = ""   # selftest only: "no_recite" / "no_reanchor" switch one step of land_seam.reconcile off
+SEAM_PLANT = ""   # selftest only: "no_reanchor" switches the re-anchor step of land_seam.reconcile off
+LODGE_PLANT = ""  # selftest only: "own_only" = the old landing (lodges only the landing note's claims block)
 LOG_PLANT = ""    # selftest only: "fixed" = the old single log name, deleted before each compile (the WinError 32 twin)
 CODE_PATHS = ("src", "tools", "generated/rexglue.cmake")   # what the full compile covers: identical here = identical compile result
 MAIN_ROOT = None  # set by main(): the main checkout; git() runs nothing but `worktree add` and read-only queries there
@@ -151,8 +155,14 @@ def main_state(main_root):
     return h, s
 
 
+def index_blob(main_root, rel):
+    """-> the blob id of REL in main's INDEX (stage 0) now, or None (not in the index, or a conflict)."""
+    r = git(main_root, "rev-parse", "-q", "--verify", ":" + rel)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def snap_paths(main_root, rels):
-    """-> {rel: (sha256 of the working-tree file or None, modified in the working tree)} for the main checkout."""
+    """-> {rel: (sha256 of the working-tree file or None, modified in the working tree, its index blob or None)} for the main checkout."""
     out = {}
     for rel in sorted(set(rels)):
         full = os.path.join(main_root, rel)
@@ -160,12 +170,12 @@ def snap_paths(main_root, rels):
         if os.path.isfile(full):
             with open(full, "rb") as f:
                 h = hashlib.sha256(f.read()).hexdigest()
-        out[rel] = (h, bool(git(main_root, "status", "--porcelain", "--", rel).stdout.strip()))
+        out[rel] = (h, bool(git(main_root, "status", "--porcelain", "--", rel).stdout.strip()), index_blob(main_root, rel))
     return out
 
 
 def equals_head_blob(main_root, rel, head):
-    """True when the working-tree file equals the blob of REL at HEAD (or both are absent): someone committed it."""
+    """True when the working-tree file equals the blob of REL at `head` (or both are absent). `head` = "" = main's index."""
     exists = os.path.isfile(os.path.join(main_root, rel))
     r = git(main_root, "rev-parse", "-q", "--verify", "%s:%s" % (head, rel))
     blob = r.stdout.strip() if r.returncode == 0 else None
@@ -176,15 +186,19 @@ def equals_head_blob(main_root, rel, head):
     return git(main_root, "hash-object", "--", rel).stdout.strip() == blob
 
 
-def damaged_paths(main_root, before, head_before, head_after):
-    """-> the touched paths whose content in main's working tree differs from before, except those that now equal the blob at a MOVED
-    HEAD (someone else committed them). The planted-twin (a) of the selftest feeds this a real edit and a real commit."""
+def damaged_paths(main_root, before):
+    """-> the touched paths whose content in main's working tree differs from before, except those whose content now equals main's INDEX
+    entry when that entry MOVED since the snapshot: someone else staged or committed them (a commit, a merge, or a merge in progress whose
+    files are staged while HEAD has not moved yet: `git merge --no-commit`, a conflict being resolved). This tool never writes main's index
+    (git() runs only read-only queries and `worktree add` there), so a moved index entry is never its doing; a revert of someone's unstaged
+    work to HEAD leaves the index where it was and is still caught. (S111 FOLLOWUPS3 review: the old rule asked for a MOVED HEAD and called
+    LMPREV's merge in progress in main damage.) The planted-twin (a) of the selftest feeds this real edits, a stage, a commit and a revert."""
     now = snap_paths(main_root, before.keys())
     bad = []
-    for rel, (h, _mod) in before.items():
+    for rel, (h, _mod, ix) in before.items():
         if now[rel][0] == h:
             continue
-        if head_after != head_before and equals_head_blob(main_root, rel, head_after):
+        if now[rel][2] != ix and equals_head_blob(main_root, rel, ""):
             continue
         bad.append(rel)
     return bad
@@ -241,45 +255,6 @@ def equivalent_log(root, wt, sha):
     return None, False
 
 
-def wrapper_main(cmd):
-    """Internal (--_wrap): runs the full compile with this process's stdout/stderr (= the log file) and appends the verdict line."""
-    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    for ln in p.stdout:
-        print(ln.rstrip("\r\n"))
-        sys.stdout.flush()
-    rc = p.wait()
-    print("full compile: %s exit %d" % ("PASS" if rc == 0 else "FAIL", rc))
-    sys.stdout.flush()
-    return rc
-
-
-def start_full_compile(cmd, wt, block, sha):
-    """Starts the both-variants compile DETACHED (survives the caller's shell; stdin DEVNULL, output to the log). Never polls busily:
-    --full-compile block waits on the process. -> (log path, rc or None)."""
-    log = full_log_path(wt, sha)
-    if LOG_PLANT == "fixed" and os.path.exists(log):
-        os.remove(log)
-    os.makedirs(os.path.dirname(log), exist_ok=True)
-    kw = {}
-    if sys.platform == "win32":
-        # A hidden console, not DETACHED_PROCESS: a child with no console gives every console tool it
-        # starts (the compilers) a NEW visible window on Jarrod's screen (S110 QREBUILD review, measured).
-        kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        kw["start_new_session"] = True
-    with open(log, "wb") as lf:
-        p = subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "--_wrap", *cmd], cwd=wt, stdin=subprocess.DEVNULL,
-                             stdout=lf, stderr=subprocess.STDOUT, **kw)
-    if not block:
-        return log, None
-    t0 = time.time()
-    while True:
-        try:
-            return log, p.wait(HEARTBEAT_S)
-        except subprocess.TimeoutExpired:
-            say("land_note: full compile still running (%d s)" % (time.time() - t0))
-
-
 def full_compile_status(a, main_root):
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", a.branch)
     wt = os.path.join(main_root, "out", "wt", "land_" + safe)
@@ -306,18 +281,13 @@ def full_compile_status(a, main_root):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] == "--_wrap":
-        return wrapper_main(argv[1:])
     try:
         sys.stdout.reconfigure(errors="backslashreplace")
     except (AttributeError, OSError):
         pass
     ap = argparse.ArgumentParser(description="land a note's carried edits on its own branch + worktree")
     ap.add_argument("note", nargs="?")
-    ap.add_argument("--full-compile-status", action="store_true", help="print running / PASS / FAIL of the branch's background full compile")
-    ap.add_argument("--full-compile", choices=("background", "block"), default="background",
-                    help="a `compile` line of the proof (both variants) runs detached after the commit (default) or blocking")
-    ap.add_argument("--full-compile-cmd", default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--full-compile-status", action="store_true", help="print running / PASS / FAIL of the log an earlier landing's background full compile left (none is started any more)")
     ap.add_argument("--branch", required=True)
     ap.add_argument("--base", default=None)
     ap.add_argument("--proof", default=None)
@@ -348,7 +318,7 @@ def main(argv=None):
     rc = land(a, src_root, main_root, ctx)
     after = main_state(main_root)
     if "watch" in ctx:
-        bad = damaged_paths(main_root, ctx["watch"], ctx["head"], after[0])
+        bad = damaged_paths(main_root, ctx["watch"])
         if bad:
             say("land_note: FATAL: the landing changed %s in the MAIN CHECKOUT's working tree (the tool must never do that). Next: run "
                 "`git -C %s diff -- %s` to see the damage and restore the path(s) with `git -C %s checkout -- <path>`, then report this as a bug "
@@ -397,8 +367,7 @@ def land(a, src_root, main_root, ctx):
         say("land_note: REFUSED: the note itself lies under %s (it is committed with the branch). Next: move the note out of game_data/, generated/, out/ "
             "and run again." % note_rel)
         return 4
-    # what this tool could damage in the main checkout: the touched paths and the note (hash + modified, before anything is created)
-    ctx["head"] = git(main_root, "rev-parse", "HEAD").stdout.strip()
+    # what this tool could damage in the main checkout: the touched paths and the note (hash + modified + index entry, before anything is created)
     claims_path = load_module("lodge_note").claims_rel(note_rel)   # S111 LODGE: the claims file the lodge writes (in the worktree, never in main)
     ctx["watch"] = snap_paths(main_root, list(touched) + [note_rel, claims_path])
 
@@ -498,9 +467,19 @@ def land(a, src_root, main_root, ctx):
             "run again with --amend --branch %s." % (rc, wt, name))
         return 2
     lodged = [x[len("changed: "):].strip() for x in lines if x.startswith("changed: ")]
+    # S111 LANDLODGE: every OTHER note the branch changed (a site that edits another note's claims block) is lodged too, else its claims json is stale
+    if LODGE_PLANT != "own_only":
+        more, bad_notes = load_module("lodge_diff").lodge_changed(
+            wt, base, say, skip={note_rel},
+            extra=["--resolver-table", os.path.abspath(a.lodge_resolver_table)] if a.lodge_resolver_table else [])
+        if bad_notes:
+            say("land_note: NOT LODGED: %s; the worktree stays: %s. Next: fix the claim rows above in that note, then run again with --amend --branch %s."
+                % (", ".join("%s (lodge_note exit %d)" % x for x in bad_notes), wt, name))
+            return 2
+        lodged += [p for p in more if p not in lodged]
     touched = list(touched) + [p for p in lodged if p not in touched]
 
-    # --- S111 LANDRECITE: the seam rows this note's own edits moved are re-cited, the ones it rewrote re-anchored, the ones it deleted stop us
+    # --- S111 LANDRECITE: the seam rows this note's own edits rewrote are re-anchored, the ones it deleted stop us
     lseam = load_module("land_seam")
     stops, seam_files = lseam.reconcile(wt, lseam.edits_by_path(sites), note_rel, say, SEAM_PLANT)
     if stops:
@@ -516,7 +495,7 @@ def land(a, src_root, main_root, ctx):
             cmd = [sys.executable, "-I", os.path.abspath(a.compile_cmd)]
         else:
             # S111: MAIN's compile tool on the worktree's tree (--root), like every other tool here: a lane cut before a fix to the tool must not run the old one
-            cmd = [sys.executable, "-I", GAME_SYNTAX, "--root", wt, "--changed", "--build", "on"]
+            cmd = [sys.executable, "-I", GAME_SYNTAX, "--root", wt, "--changed", "--build", "off"]
         rc, lines = run(cmd, wt, "quick compile")
         if rc:
             errs = [x for x in lines if re.search(r"error|FAIL|fatal", x, re.I)] or lines
@@ -582,13 +561,8 @@ def land(a, src_root, main_root, ctx):
     elif note_proof:
         proof_text = note_proof
     has_proof = proof_text is not None
-    # a `compile` line (both variants) leaves the proof: it runs detached after the commit (or blocking with --full-compile block)
+    # a `compile` line leaves the proof: the quick compile above (the off variant) already is that compile (S111 COMPILEOFF)
     plines = proof_text.splitlines() if has_proof else []
-    want_full = any(x.strip() == "compile" for x in plines)
-    base_ref = None
-    for x in plines:
-        if x.strip().startswith("base "):
-            base_ref = x.strip()[5:].strip()
     rest = [x for x in plines if x.strip() != "compile"]
     has_cmds = any(x.strip() and not x.strip().startswith("#") and not x.strip().startswith("base ") for x in rest)
     proof_file = None
@@ -596,34 +570,9 @@ def land(a, src_root, main_root, ctx):
         proof_file = os.path.join(scratch, "proof_%s.txt" % safe)
         with open(proof_file, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(rest) + "\n")
-    full_line, full_rc, full_log = "skipped (no src)", None, None
-    if any(p.startswith("src/") for p in touched):
-        full_line = "skipped (the proof has no `compile` line)"
-        if want_full:
-            if a.full_compile_cmd:
-                fcmd = [sys.executable, "-I", os.path.abspath(a.full_compile_cmd)]
-            else:
-                # S111: the base is --changed's own value (game_syntax has no --base: a proof `base X` line made the full compile exit 2)
-                fcmd = [sys.executable, "-I", GAME_SYNTAX, "--root", wt, "--changed"] + ([base_ref] if base_ref else [])
-                fcmd += ["--build", "both"]
-            same, exact = (None, False) if LOG_PLANT == "fixed" else equivalent_log(wt, wt, sha)
-            if same:
-                # identical code already compiled (or compiling): no second compile
-                full_log = same
-                state, _l = log_result(same)
-                full_rc = {"pass": 0, "fail": 1, "running": None}[state]
-                full_line = "%s, log %s (%s)" % ({"pass": "PASS", "fail": "FAIL", "running": "still running"}[state], same,
-                                                 "this commit's own log" if exact else "an older commit with identical code: no new compile")
-            else:
-                full_log, full_rc = start_full_compile(fcmd, wt, a.full_compile == "block", sha)
-                full_line = ("running in background, log %s" % full_log) if full_rc is None else \
-                            ("%s (exit %d), log %s" % ("PASS" if full_rc == 0 else "FAIL", full_rc, full_log))
     proof_summary, failed_logs, proof_rc = None, [], 0
-    if full_rc:
-        proof_rc = 1
-        failed_logs.append("log: " + full_log)
     if has_proof and not has_cmds:
-        proof_summary = "prove: (the proof held only the full compile: see below)"
+        proof_summary = "prove: (the proof held only the compile line: the quick compile above is it)"
     if proof_file:
         pcmd = [sys.executable, "-I", os.path.abspath(a.prove_cmd) if a.prove_cmd else os.path.join(HERE, "prove.py"), proof_file, "--root", wt]
         prc, lines = run(pcmd, wt, "proof")
@@ -639,7 +588,7 @@ def land(a, src_root, main_root, ctx):
     say("applied: %d sites (%d edits, %d new files)" % (len(sites), n_edits, n_files))
     say("lodged: %s" % (", ".join(lodged) if lodged else "no change (no claims block, or the claims file already holds these rows)"))
     say("quick compile: %s" % compiled)
-    say("full compile: %s" % full_line)
+    say("full compile: none (the quick compile, the off variant, is the compile)")
     if not has_proof:
         say("land_note: NO PROOF RUN. Next: add a ```proof block to the note or pass --proof FILE (run again with --amend), or --keep-going to accept no proof.")
         return 0 if a.keep_going else 5

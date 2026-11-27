@@ -18,7 +18,6 @@ src/launcher_mobile/mobile_main.cpp|WWE2K14_PRECOMPILE|1
 src/launcher_mobile/mobile_main.cpp|WWE2K14_UPDATE_FILE|1
 src/launcher_mobile/platform_desktop.cpp|WWE2K14_UPDATE_FILE|1
 src/platform/compat.h|WWE2K14_FILES_DIR|1
-src/renderer_scene/char_effects.cpp|WWE_RDR_B3F_OLD_HAIR_RIM|1
 src/renderer_scene/char_effects.cpp|WWE_RDR_NO_KEY_ATTACH|1
 src/renderer_scene/feature_dump.h|WWE_RDR_FEATURE_DUMP|1
 src/renderer_scene/front_end.cpp|WWE_RDR_D1_OLD|1
@@ -43,7 +42,6 @@ src/renderer_scene/front_end.cpp|WWE_RDR_RAW_RIM_BOUND|1
 src/renderer_scene/front_end.cpp|WWE_RDR_SKIP_EFFECT|1
 src/renderer_scene/front_end.cpp|WWE_RDR_SKIP_TEX|1
 src/renderer_scene/front_end.cpp|WWE_RDR_SPEC_NO_LIGHTCOL|1
-src/renderer_scene/light_install.h|WWE_RDR_E8_OLD_KEY_RULE|1
 src/renderer_scene/live_map_chain.cpp|WWE_RDR_CHAIN_FAIL_MID|1
 src/renderer_scene/live_map_chain.cpp|WWE_RDR_NO_MAP_CHAIN|1
 src/renderer_scene/live_map_plane.cpp|WWE_RDR_PLANE_COPY_DOWNSCALE|1
@@ -52,7 +50,6 @@ src/renderer_scene/live_map_plane.cpp|WWE_RDR_PLANE_NO_HALF_PIXEL|1
 src/renderer_scene/live_map_rope.cpp|WWE_RDR_B2F_LOG|1
 src/renderer_scene/live_maps.h|WWE_RDR_NO_PLANE_READER|1
 src/renderer_scene/live_scene_draw.cpp|WWE_RDR_NO_SCENE_POST|1
-src/renderer_scene/post_from_record.cpp|WWE_RDR_PLANT_POST_DRAWN_TAPS|1
 src/renderer_scene/rf_arena.cpp|WWE_RDR_STAGE_VIS|1
 src/renderer_scene/rf_arena.cpp|WWE_RDR_STAGE_VIS_PLANT_NO_WIDEN|1
 src/renderer_scene/rf_arena_live.cpp|WWE_RDR_L2_DUMP|1

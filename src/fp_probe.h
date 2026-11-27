@@ -57,6 +57,7 @@
 #include "scene_live/guest_model_contrib.h"  // S103 CW-2: the guest model reader's one call at the model entry
 #include "scene_live/model_hooks.h"   // S101 lane43
 #include "scene_live/model_file_note.h"  // S110 SEATREL: the descriptor's note of the file its model was built from (wwe2k14_model_link)
+#include "scene_live/build_levels_note.h"  // S111 LEVELSBYTE: the texture level count each descriptor's model was built with (wwe2k14_model_link)
 #include "scene_live/light_index_hook.h"  // S103 A3 (bit 4): the per-node install table (called from the model-entry hooks below)
 #include "scene_live/light_state_glue.h"  // S101 lane 109: the per-draw light state (LS1), read at the model call
 #include "scene_live/arena_world_glue.h"  // lane 130: the arena's evaluated object worlds, read at the model call
@@ -938,6 +939,7 @@ REX_HOOK_RAW(sub_833A1758) {
   rdr_scene::live::propcolour::OnRecolourBlock(
       [](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); },
       [](uint32_t model, int32_t& id) { wr::EventProps::Entry e; if (!wr::Rows().tracker.events.Find(model, e)) return false; return id = e.id, true; }, ctx.r4.u32);
+  rdr_scene::live::prop_read_note::NoteFromRecolourCall([](uint32_t a, uint32_t& v) { return wwe2k14::wrestlers::ReadWord(a, v); }, ctx.r3.u32);   // S111 FOLLOWUPS3: this task's CWeapon was built from its recoloured (SOBJ) read
   __imp__sub_833A1758(ctx, base);
 }
 
@@ -1016,6 +1018,13 @@ void wwe2k14_model_link(PPCRegister& r31) {
         }
       }
       rdr_scene::live::model_file_note::NoteBuild(desc, key, source);
+      {   // S111 LEVELSBYTE: the request byte +6 the texture reader built this model with ([r31+100] is still the request: the game's clear of it is the next store)
+        uint32_t chosen = 0;
+        uint8_t byte = 0;
+        if (!rw(desc + 92, chosen)) chosen = 0;
+        if (rdr_scene::live::build_levels_note::RequestByte(rw, r31.u32, byte)) rdr_scene::live::build_levels_note::NoteBuild(desc, key, chosen, byte);
+        else rdr_scene::live::build_levels_note::Forget(desc);
+      }
     }
   }
   // Gated on registration only, NOT on a sink being attached: models are built at match load, before a capture starts, and this is rare (a handful of

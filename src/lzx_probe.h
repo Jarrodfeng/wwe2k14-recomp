@@ -500,6 +500,7 @@ inline void NativeCall(PPCContext& __restrict ctx, uint8_t* base, bool verify, b
 
 // Session 100 strip-360 E2 / E3: the decompressor's output (r4 = destination, r5 -> a big-endian u32: bytes written, on return) reported to
 // the new renderer's reader after whichever version ran (src/host_write.h).
+// SKIP-ORIGINAL: native LZX (by switch) answers instead of the guest decompressor; the corpus / probe wrapper GuestCall is a separate call the lint does not read
 inline void LzxCallBody(PPCContext& ctx, uint8_t* base) {
   const bool probe = REXCVAR_GET(wwe2k14_lzx_probe);
   if (REXCVAR_GET(wwe2k14_lzx_corpus)) {
@@ -517,6 +518,7 @@ inline void LzxCallBody(PPCContext& ctx, uint8_t* base) {
   }
   wwe2k14::lzx_probe::GuestCall(ctx, base);
 }
+// ORIGINAL-IN: LzxCallBody
 REX_HOOK_RAW(sub_82CA4088) {
   const uint32_t dst = ctx.r4.u32, len_ptr = ctx.r5.u32;
   LzxCallBody(ctx, base);

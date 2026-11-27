@@ -91,6 +91,10 @@ inline uint32_t RowsThisFrame() {
   if (uint32_t(t >> 32) != Frame()) return 0;   // no 2D op yet this frame
   return uint32_t(g_counters.rows.load(std::memory_order_relaxed)) - uint32_t(t);
 }
+// S111 FLATSEQ: the q2d store's last call-order ticket now (q2d::Store::LastTicket: a row whose op-19 took its ticket before this read carries a seq <= it, a later row a larger one, whichever
+// thread records it), for the particle node's hook: the flat drawer puts the node's group before the first record row with a larger seq (flat_particles.h PosOf), so a row the record lost
+// (refused at q2d::TakeFrame) cannot shift it, as it shifted the count above. 0xFFFFFFFF = the tap is off.
+inline uint32_t SeqNow() { return Active() ? TheStore().LastTicket() : 0xFFFFFFFFu; }
 
 // S103 PFR (docs\research\s103\PFR.md): every replay starts on the default target (sub_82BA7B40 each frame), so a thread's first tap op of a new guest frame resets its modelled target to the default and its scissor to unknown. Replaces the once-per-thread seed. Called under Active().
 inline void EnsureFrame() { q::OnFrameBoundary(t_frame, Frame(), t_target, t_scissor, GuestMem{}, &g_counters); }

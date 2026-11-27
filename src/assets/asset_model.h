@@ -39,11 +39,12 @@ struct Texture {
   uint32_t faces = 1;         // S103 RFL: 6 = a cube map file (DDS caps2 0xFE00): `data` = face 0..5 (+X -X +Y -Y +Z -Z), each face's `mips` chain tightly packed; a 2D texture: 1
   std::vector<uint8_t> data;  // mip 0 first, tightly packed (a cube: face 0's chain comes first, so a reader that ignores `faces` still sees face 0 as a 2D texture)
   bool live = false;          // Session 98 (tron video): the viewer rewrites this texture every video frame (a stage slot)
+  uint32_t game_levels = 0;   // S111 MIPLEVELS: the level count the game's loader builds this texture with (0 = not known: the file's own chain is uploaded). Set per directory (TexSet::AddDirLevels); renderer_scene\game_levels.h applies it
 };
 
 // What a mesh's material needs for a plain look: texture slots are indices into Model::textures, -1 = none.
 // S103 WRK (switch wwe2k14_rdr_wrk, stream-free, default ON): live face wrinkles + id-map tint + the +616 pass mode. The loader reads it: OFF = the wrinkle normal map is not decoded or uploaded.
-inline std::atomic<bool> g_wrk_live{true};   // BOTH-BUILDS: a LOOK, ON in both builds; the cvar exists only in the OFF build (start_settings.cpp:92), the stream build keeps the default true
+inline std::atomic<bool> g_wrk_live{true};   // BOTH-BUILDS: a LOOK, ON in both builds; the cvar exists only in the OFF build (start_settings.cpp), the stream build keeps the default true
 
 struct Material {
   std::string shader;  // the material class name as stored ("yCh_skin", "yBG_Default", "yProp_BumpMap", ...)
@@ -77,7 +78,7 @@ struct Material {
   float ref_col[4] = {0, 0, 0, 1};
   float fairy = 0, fairy_edge = 1;
   // S103 B3F: the hair highlight [C: sub_82BAAEE8 0x82BAD42C-0x82BAD5A0]: c249 = (g_fPrimaryShift, g_fSecondShift, g_SpecExp1, g_SpecExp2), c250 = (g_f4SpeCol1.rgb, g_fHairTileU),
-  // c251 = (g_f4SpeCol2.rgb, g_fHairTileV). hair_tile defaults (10, 1): seen live in the game's draws (feature_diff run29) when the file has no g_fHairTileU/V [U: the default's source, the CTAB].
+  // c251 = (g_f4SpeCol2.rgb, g_fHairTileV). hair_tile defaults (10, 1): seen live in the game's draws (run 29) when the file has no g_fHairTileU/V [U: the default's source, the CTAB].
   float hair_shift[2] = {0, 0}, hair_exp[2] = {0, 0}, hair_col1[3] = {0, 0, 0}, hair_col2[3] = {0, 0, 0}, hair_tile[2] = {10, 1};
   // S103 B3F: c174 = (g_fRimAtnDsMin, g_fRimAtnDsMax, g_fRimAtnRtMin, g_fRimAtnRtMax) [C: sub_82BAAEE8 0x82BAC0C8-0x82BAC170, ids 3..6 = x..w]; the defaults are the values ours hard-coded before
   // (unconfirmed for a file without them). g_fRimAdjSpcMas has no string reference in the exe (q str), so no constant is known to take it [U].
@@ -138,7 +139,7 @@ struct Material {
   bool alpha_test = false;   // cut-outs (hair cards, crowd cards)
   float diffuse_alpha_clear = 0.f;  // S103 B2: share (0..1) of the diffuse texture's top-mip texels with alpha < 255 (jboy.h AlphaClearShare); set for arena / prop-slot materials, 0 = alpha-free
   uint8_t texel_cutout = 0;   // S103 TQF: for the yProp_BumpMap / Default / Reflect class the old texel rule's verdict is KEPT here instead of in alpha_test / alpha_blend: bit 0 = the arena / prop-entry rule (was alpha_test), bit 1 = the prop-slot rule (was alpha_blend + cutout_blend = 1). The front end uses it only when the effect table is missing (GameTestsAlpha) and to keep a prop slot's sorted cut-out when the picked variant shows the diffuse alpha (AddModelImpl); the viewer reads it as the old flags
-  bool vertex_alpha_lt255 = false;   // S103 TQF: an arena / prop-entry mesh with a vertex colour alpha < 255 on any vertex (the file's S0 colour byte 0; Wheel_Chair_b 65-210, 2753_01 176-255): the game's yProp draw blends at the vertex alpha (fx_prop.glsl:363), so such a part is tested + blended (front_end.cpp GameTestsAlpha) [L: PAS.md]
+  bool vertex_alpha_lt255 = false;   // S103 TQF: an arena / prop-entry mesh with a vertex colour alpha < 255 on any vertex (the file's S0 colour byte 0; Wheel_Chair_b 65-210, 2753_01 176-255): the game's yProp draw blends at the vertex alpha (fx_prop.glsl), so such a part is tested + blended (front_end.cpp GameTestsAlpha) [L: PAS.md]
   bool alpha_mask = false;   // S103 P1: an arena material whose diffuse alpha is a HIGHLIGHT MASK, not coverage: the game draws it with the FX_ALPHA_SPEC / FX_ALPHA_GLOSS pixel shader and no discard (the barricade padding ar_fence / ar_fence_b, ar_sak0, ar_dm). Rule [C for arena 4: 265 of 265 meshes the stream shows; L elsewhere]: yBG_Default / yProp_Default, no specular or normal map, BC2 / BC3 diffuse with < 2 % exactly-zero alpha texels and a mean alpha >= 0.10 (jboy.h AlphaStats; docs\formats\arena_slot_flags.md)
   bool no_highlight = false;  // S103 L5: an arena yBG_Default / yProp_Default material the game draws with the plain `*_base` / `*_lightmap` pixel shader whatever its g_fSpecularLev (stairs, tier walls, exit frame: level 0.5, DXT1, no specular map): no highlight lobe. [C arena 4: 243 of 244 meshes the stream shows; the one exception ar_sak2 is [U]; L elsewhere] (jboy.h; docs\formats\arena_slot_flags.md)
   float spe_lod[2] = {0.f, 1e30f};   // S103 D1: g_fSpeLodNear / g_fSpeLodFar (the FX_SPEC_FADE highlight fade range, VS SpeLodParam.xy); absent = no fade [U: the effect's own default]
@@ -346,6 +347,10 @@ struct Model {
   int stage_lightmap = -1;
   // Session 97: g_f4LightMapParam of the stage: xy = top-down scale of the stage lightmap (uv = world.xz * xy * 0.5 + 0.5),
   // gain = c184.z. The CTAB default is (1/3500, 1/3500, 1); the live value of arena 5 is (1/5600, 1/5750, 2.5).
+  // The loader default is what a NON-arena model keeps (m2.pac weapons, evtobj.pac props). [C, S111 LMPROPS, technique_census --lmprops]: no draw of such a model reads c184 today: the 10 meshes of m2 ids 29 / 31 / 32 / 34
+  // that name sampLightMapPrm have no light-map texture of their own, so the front end gives them the plain variant (BindMaterial: w.lightmap needs an image; a prop has no stage page), and the loader sees no other m2 / evtobj
+  // mesh that names it (the rest of the names a raw scan finds are not light-map slots to our loader [L: skin-stream meshes, material_samplers.h]). The game's own pick for these draws is unread [U]: when one is found to draw light-mapped, it must take the arena's value
+  // (arena_lm::Compute / Held, the LMPREV rule), never this default (the census check then fails: technique_census --lmprops --plant-no-page shows the draws it would be).
   float lm_scale[2] = {1.f / 3500.f, 1.f / 3500.f};
   float lm_gain = 2.5f;
   // S103 B3: lm_scale / lm_gain = c184 of the arena, from the game's own table at load (arena_lm.h, T3b): x y = 1 / span, z = the gain. lm_card: a card-technique model (the crowd card quad):

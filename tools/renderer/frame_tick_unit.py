@@ -19,9 +19,12 @@ CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {1: 'old_hook', 2: 'double_tick', 3: 'stale_frame', 4: 'curve_lost'}
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path, part_files  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-        return f.read()
+    return read_path(os.path.join(root, rel))
 
 
 def hook_body(src, fn):
@@ -106,11 +109,14 @@ def lints(texts):
 
 def load_src(root):
     texts = {}
+    parts = {os.path.realpath(str(x)) for x in part_files(os.path.join(root, 'src'))}   # a split parent is read with its parts expanded: a part is not read again
     for dp, _, files in os.walk(os.path.join(root, 'src')):
         for f in files:
             if f.endswith(('.h', '.cpp', '.inc')):
                 p = os.path.join(dp, f)
-                texts[os.path.relpath(p, root).replace('\\', '/')] = open(p, encoding='utf-8', errors='replace').read()
+                if os.path.realpath(p) in parts:
+                    continue
+                texts[os.path.relpath(p, root).replace('\\', '/')] = read_path(p)
     return texts
 
 

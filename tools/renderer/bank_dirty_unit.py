@@ -22,9 +22,11 @@ PLANTS = {
 
 def lint(root, reader_text=None):
     bad = []
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def read(p):
-        with open(os.path.join(root, p), encoding='utf-8', errors='replace') as f:
-            return f.read()
+        return read_path(os.path.join(root, p))
     sw = read('src/renderer_adapter/rdr_switches.h')
     if not re.search(r'X\(BankDirty,\s*"wwe2k14_rdr_bank_dirty",\s*PerFrame,\s*0\)', sw):
         bad.append('rdr_switches.h: BankDirty is not a PerFrame default-0 entry of the table')
@@ -94,8 +96,9 @@ def main():
         fails += not caught
     bad = lint(root)
     # F1 plant: a reader.h copy without the serial bump must fail the lint
-    with open(os.path.join(root, 'src/renderer_adapter/reader.h'), encoding='utf-8', errors='replace') as f:
-        orig = f.read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    orig = read_path(os.path.join(root, 'src/renderer_adapter/reader.h'))
     planted = re.sub(r'[ \t]*c\.bd\.OnLitRebuild\(\);[^\n]*\n', '', orig)
     if planted == orig:
         print('FAIL  lint plant DID NOT APPLY (OnLitRebuild line not found)')

@@ -399,10 +399,39 @@ def real_fixture():
     return caught
 
 
+def range_cases(e):
+    """S111 WRITERLINT: `--range A..B` prints the header line and only the body lines whose offset is inside A..B (offsets or addresses), twin = the unfiltered run."""
+    import types
+    import qdecomp_range
+    base = 0x8207A000
+    e.add(base, ['lwz r11,112(r3)', 'cmpwi cr6,r11,0', 'beq cr6,<L>', 'lwz r10,8(r3)', 'stw r10,16(r3)', ('label', 'L'), 'li r3,1', 'blr'])
+
+    def out(rng):
+        a = types.SimpleNamespace(range=rng, raw_names=True, facts='none', fields=False, callers=0, no_cache=True, json=False)
+        return qdecomp.run(e.con, base, a)
+    lines = lambda t: t.splitlines()
+    part = out('+0xC..+0x10')
+    check('range: header line first', lines(part)[0].startswith('sub_8207A000'), part)
+    check('range: offsets +C and +10 kept', any('+C ' in x for x in lines(part)) and any('+10 ' in x for x in lines(part)), part)
+    check('range: +0 and +18 left out', not any(x.lstrip().startswith(('+0 ', '+18 ')) for x in lines(part)), part)
+    check('range: an address range is the same region', lines(out('0x8207A00C..0x8207A010'))[2:] == lines(part)[2:], out('0x8207A00C..0x8207A010'))
+    check('range: open end runs to the end', any('return' in x for x in lines(out('18..'))), out('18..'))
+    full = out(None)
+    check('range twin: without --range the +0 line is there (the filter is what removes it)', any(x.lstrip().startswith('+0 ') for x in lines(full)), full)
+    try:
+        qdecomp_range.parse('+0x10..+0xC', base)
+        check('range: a backwards range is refused', False, '')
+    except qdecomp_range.RangeError:
+        check('range: a backwards range is refused', True)
+
+
+def main():
+    e = Env()
 def main():
     e = Env()
     try:
         synthetic(e)
+        range_cases(e)
         caught = planted_synthetic(e)
     finally:
         e.close()

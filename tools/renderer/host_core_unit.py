@@ -21,9 +21,12 @@ PLANTS = {1: 'draw_fault_as_miss', 2: 'no_record_black', 3: 'poster_draws', 4: '
           48: 'start_card_pending_only', 49: 'start_bodies_no_restamp', 50: 'start_bodies_card_down', 51: 'start_bodies_kept', 52: 'cause_dropped'}   # 29, 30, 33, 34 retired with the S105 A3 camera gate (S110 ENTRBLACK); 39-48 S110 ENTRWAIT2; 49-51 S110 ENTRBODIES; 52 S111 BLACKFRAME
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path, part_files  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-        return f.read()
+    return read_path(os.path.join(root, rel))
 
 
 def strip_comments(s):
@@ -145,11 +148,14 @@ def lints(texts):
 
 def load_src(root):
     texts = {}
+    parts = {os.path.realpath(str(x)) for x in part_files(os.path.join(root, 'src'))}   # a split parent is read with its parts expanded: a part is not read again
     for dp, _, files in os.walk(os.path.join(root, 'src')):
         for f in files:
             if f.endswith(('.h', '.cpp', '.inc')):
                 p = os.path.join(dp, f)
-                texts[os.path.relpath(p, root).replace('\\', '/')] = open(p, encoding='utf-8', errors='replace').read()
+                if os.path.realpath(p) in parts:
+                    continue
+                texts[os.path.relpath(p, root).replace('\\', '/')] = read_path(p)
     return texts
 
 

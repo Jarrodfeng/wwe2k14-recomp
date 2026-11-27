@@ -1,0 +1,10 @@
+name = "field"
+module = "qfield"
+qerror = false
+broken_pipe = false
+usage_slot = "u103"
+
+[[usage]]
+order = 103
+text = '''  field OFF|fn F|type T ...    the field index of the game: who reads / writes +N of an object (by type / global / root), the fields
+                               a function touches, a type's layout (tools/q/qfield.py; out/harness/index/fields.s<SCHEMA>.db; `q field -h`)'''

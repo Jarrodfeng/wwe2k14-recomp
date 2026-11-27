@@ -77,11 +77,11 @@ def parse_ours(report_text):
         return None, (h.group(1) if h else 'no map_shadow line in the report')
     mat = np.array([float(x) for x in m.group(1).split()], np.float64).reshape(4, 4)
     prm = [float(x) for x in m.group(2).split()]
-    b = re.search(r'map_fit fitted (\d) key_told (\d) center (\S+) (\S+) (\S+) lo (\S+) (\S+) (\S+) hi (\S+) (\S+) (\S+) samples (\d+) holes (\d+)', report_text)
+    b = re.search(r'map_fit fitted (\d) center (\S+) (\S+) (\S+) lo (\S+) (\S+) (\S+) hi (\S+) (\S+) (\S+) samples (\d+) holes (\d+)', report_text)
     info = dict(matrix=mat, w=prm[0], h=prm[1], near=prm[2], far=prm[3])
     if b:
-        v = [float(x) for x in b.groups()[2:11]]
-        info.update(fitted=int(b.group(1)), key_told=int(b.group(2)), center=v[0:3], lo=v[3:6], hi=v[6:9], samples=int(b.group(12)), holes=int(b.group(13)))
+        v = [float(x) for x in b.groups()[1:10]]
+        info.update(fitted=int(b.group(1)), center=v[0:3], lo=v[3:6], hi=v[6:9], samples=int(b.group(11)), holes=int(b.group(12)))
     return info, ''
 
 

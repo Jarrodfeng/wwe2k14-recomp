@@ -49,7 +49,7 @@ struct ParticleBatch {
   float use_normal = 0;            // VS c201.x: below 0.9 flat brightness; otherwise lit
   float light[4] = {0, 0, 0, 0};   // VS c202: the light vector
   uint32_t frame = 0;              // the guest frame (low 32 bits) the contributor captured this batch in: the hook draws a batch only for the record's own frame
-  uint32_t row_after_p1 = 0;       // S103 MP (was reserved, always 0): the 2D row count when the node call that made this batch started, + 1 (0 = not noted: a match batch). A flat drawer draws the batch after that 2D row
+  uint32_t seq_after_p1 = 0;       // S103 MP (was reserved, always 0); S111 FLATSEQ (was row_after_p1, the row count): the 2D store's last call-order ticket (Quad2D::seq) when the SCREEN-camera node call that made this batch started, + 1 (0 = not noted: a match batch, a scene-camera call of a screen frame, the tap off; S111 TITLESMOKE review). A record whose ParticleScreen::stamp is 0 (written before FLATSEQ) holds the 2D row count + 1 here. The flat drawer (flat_particles.h PosOf) draws the batch before the first 2D row with a larger seq
   uint8_t depth_always = 0;        // S111 PARTZ: 1 = the game drew this entry's particles with depth compare ALWAYS (entry word +220 == 0, sub_82A0AED8 +84); 0 = its reversed GEQUAL
   uint8_t reserved_pz[3] = {0, 0, 0};
 };
@@ -65,7 +65,7 @@ enum ParticleIncomplete : uint32_t {
   kPiDropped = 16,      // sprites dropped at the per-frame cap
   kPiMalformed = 32,    // the tables read back malformed and were dropped whole
   kPiTexture = 64,      // S103 F3: a key's texture could not be named (no namer, or it found no file for the handle): drawn with the white stand-in
-  kPiBlend = 128,       // S103 F3: the item's blend code was read but what 0 / 1 / 2 mean is not confirmed by a run
+  kPiBlend = 128,       // S103 F3: the item's blend code is above 2 (0 / 1 / 2 are [C]: particle_reader.h kBlendCodesConfirmed)
   kPiEmptyPass = 256,   // S103 MP: INFO, not a reason: this frame's node did not draw (no call in the frame, or its +3084 / +3088 word is 0: the node returns at 0x82254E3C / 0x82254E4C). A whole, empty pass: Parts::Whole for a flat frame
   kPiScreenCam = 512,   // S103 MP: a reason: the batches were drawn by the node with its 2D screen camera (the basis is assumed screen-aligned [U]) and the flat drawer for them is not built: Held
 };
@@ -78,10 +78,13 @@ struct ParticleStatus {
 static_assert(sizeof(ParticleStatus) == 16, "ParticleStatus is a flat POD");
 
 // S103 MP: the camera the node drew a flat frame's particles with (its own inputs: the camera table's object for the calling thread, sub_82296630(out, cam+176, cam+240) = +240 . +176; read at the entry hook),
-// read at the node's entry hook. `calls` = node calls the frame made; `row_count` = the frame's 2D rows at the last call.
+// read at the node's entry hook. `calls` = node calls the frame made; `row_count` = the frame's 2D rows at the last call (informational: no placement reads it).
+// S111 FLATSEQ: `stamp` (was reserved[0], 0 in every older record; the row keeps its 80 bytes) says what ParticleBatch::seq_after_p1 holds: kParticleStampSeq = the 2D store's ticket at the
+// node call + 1; 0 = an older record: the 2D row count + 1 (flat_particles.h PosOf reads both).
+inline constexpr uint32_t kParticleStampSeq = 1;
 struct ParticleScreen {
   float view_proj[16] = {};
-  uint32_t calls = 0, row_count = 0, reserved[2] = {0, 0};
+  uint32_t calls = 0, row_count = 0, stamp = 0, reserved = 0;
 };
 static_assert(sizeof(ParticleScreen) == 64 + 16, "ParticleScreen is a flat POD");
 

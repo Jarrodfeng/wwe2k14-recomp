@@ -103,5 +103,7 @@ inline const bool g_states_registered = AddHostStateSource(&LookupState, &ReadSt
 
 }  // namespace wwe2k14::table_fire
 
+// ORIGINAL-IN: OnTableStep
 REX_HOOK_RAW(sub_825FB230) { wwe2k14::table_fire::OnTableStep(ctx, base); }
+// ORIGINAL-IN: OnPlay
 REX_HOOK_RAW(sub_82607778) { wwe2k14::table_fire::OnPlay(ctx, base); }

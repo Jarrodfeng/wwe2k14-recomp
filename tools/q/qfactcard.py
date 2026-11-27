@@ -218,7 +218,7 @@ class Row:
         self.mark = str(r.get('mark') or '?')
         self.text = ' '.join(str(r.get('claim') or '').split())
         self.note = _stem(r.get('note'))
-        self.rev = bool(r.get('rev') or r.get('reviewed'))
+        self.rev = bool(r.get('rev'))        # only the computed mark (tools/handback/rev_mark.py)
         self.kind, self.key, self.name = _type_of(r)
         try:
             self.offset = int(str(r.get('offset') or '0x0'), 16)
@@ -468,6 +468,11 @@ def claims_provider(ctx):
 
 
 register('claims', claims_provider, where=('decomp', 'asm', 'callers', 'field'))
+register('when', lambda ctx: __import__('qwhen').facts(ctx), where=('decomp', 'asm'))      # S111 WHEN (Lane C): tools/q/qwhen.py
+register('notes', lambda ctx: __import__('qnoteseam').notes_facts(ctx), where=('decomp', 'asm'))      # S111 NOTESEAM (qnoteseam.py): the lane notes that name the function
+register('seams', lambda ctx: __import__('qnoteseam').seams_facts(ctx), where=('decomp', 'asm'))      # ... and the db/seams topics at it
+import qenum  # noqa: E402,F401  (S111 Lane D ENUMS: registers the 'enum' provider: a literal argument at a call the table names, inline)
+register('vcall', lambda ctx: __import__('qvtarget').provider(ctx), where=('decomp', 'asm'))      # S111 VCALL (qvtarget.py): the known targets at each vtable call site
 
 
 # ------------------------------------------------------------------ collecting and printing
@@ -493,7 +498,7 @@ def header_lines(facts, mode):
     return [_clip(_fmt(f), HEADER_CHARS) for f in hs[:HEADER_LINES]]
 
 
-_LABELS = ('facts', 'sites', 'leads', 'DISPUTED', 'STALE')
+_LABELS = ('facts', 'sites', 'leads', 'DISPUTED', 'STALE', 'notes', 'seams')
 
 
 def _fmt(f):
@@ -526,9 +531,16 @@ def comments(facts, mode, header_bytes=0, base_bytes=0):
 _RANK = {'DISPUTED': 100, 'STALE': 95, 'leads': 60, 'sites': 50, 'facts': 40}
 
 
+def _comment_rank(f):
+    """a block comment's rank in the card: the claims' own [C] comments at 80 (above leads / sites / facts), another provider's comment at 30, BELOW
+    every claim header (S111 VCALL review: vcall [L] comments evicted the facts / sites / leads lines of 6 of the 37 most-read decomps). The heavier first."""
+    return (80 if f.tag in ('C', 'C rev') else 30) + min(f.weight, 99) / 100.0
+
+
 def _allocate(facts, base_bytes, place, indent):
-    """the card within the byte budget max(15% of the plain output, BUDGET_MIN): DISPUTED, STALE, the function-level [C], then the block comments (the heaviest
-    cluster first), then leads, the site list and the count line. place(lo, hi) -> the body line index a comment sits before, or None (it prints
+    """the card within the byte budget max(15% of the plain output, BUDGET_MIN): DISPUTED, STALE, the function-level [C], then the claims' block comments
+    (the heaviest cluster first), then leads, the site list and the count line, then other providers' comments (_comment_rank: a provider comment never
+    takes the place of a claim header). place(lo, hi) -> the body line index a comment sits before, or None (it prints
     nowhere and costs nothing); a comment costs its text, its newline and the indentation of that line. -> (header lines in prio order,
     [(line index, text)] comments). The first fact always fits."""
     budget = max(int(base_bytes * BUDGET_FRAC), BUDGET_MIN)
@@ -540,7 +552,7 @@ def _allocate(facts, base_bytes, place, indent):
         elif f.tag != 'sites':
             i = place(f.off, f.hi if f.hi is not None else f.off)
             if i is not None:
-                cand.append((80 + min(f.weight, 99) / 100.0, f, _clip(_fmt(f), COMMENT_CHARS), i))
+                cand.append((_comment_rank(f), f, _clip(_fmt(f), COMMENT_CHARS), i))
     cand.sort(key=lambda t: -t[0])
     used, hs, cs = 0, [], []
     for _rank, f, text, i in cand:

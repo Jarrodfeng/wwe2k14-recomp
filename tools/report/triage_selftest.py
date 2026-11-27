@@ -179,6 +179,13 @@ def custom(evs, seqs=(S3, S75, S26, S75B), head=True, end=True):
     return "\n".join(lines) + "\n"
 
 
+def _unit_text(fp):
+    """A split file (launcher_main.cpp) is read with its parts expanded (tools/split/read_unit.py)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "split"))
+    from read_unit import read_text
+    return read_text(fp)
+
+
 def lint_writers(rows, extra, roots):
     """Each row's writer FILE must hold its literal on some line (S108 RPT: the file + text form; a line that only moves within its file is fine, a text
     that is gone or moved to another file fails). An old `file:line` writer is read as its file. Returns the problems (= a stale pattern table)."""
@@ -190,7 +197,7 @@ def lint_writers(rows, extra, roots):
         for root in roots:
             fp = Path(root) / path
             if fp.exists():
-                if lit not in fp.read_text(encoding="utf8", errors="replace"):
+                if lit not in _unit_text(fp):
                     bad.append("%s: %s does not hold %r" % (name, writer, lit))
                 break
         else:

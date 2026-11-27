@@ -6,7 +6,8 @@ B. The card on a small fixture: rows citing nearby offsets merge into ONE line (
    rows on one typed key name it differently (never merged), STALE for an explicit offset past the end, a superseded row struck; caps (<= 8 header lines
    of <= 160 chars, one comment <= 100 chars); `--facts none|all`; the comment lands before the decomp line holding the offset; asm window marks,
    one fact per site / per caller; the provider API (a registered provider's facts print, a failing one shows).
-C. Planted twins that must FAIL the same checks: a card that drops a site group, one that merges two disagreeing rows, one that prints [L] as a block comment.
+C. Planted twins that must FAIL the same checks: a card that drops a site group, one that merges two disagreeing rows, one that prints [L] as a block comment,
+   one where another provider's comment outranks the claim headers (B24, S111 VCALL review).
 D. (S111 FACTCARD review) the site parser on the S111 evidence shapes that put a comment on the wrong block: a vtable slot / field offset (`vtable +124`,
    `record +0x90`, `(the +680 handle`) is not a site; `sub_Y +0xC` and `sub_Y ... (decomp +0x0..+0x2C)` belong to sub_Y; Lane B's typed rows
    (`kind` / `key` / `name` / `site` fields) are placed by their `site` / own address, DISPUTED on `key` across functions; the comment sits on the
@@ -112,6 +113,13 @@ def checks():
     ck('B22 byte budget: a 10-line body gains <= 300 bytes (+ the first fact)', added <= qf.BUDGET_MIN + qf.HEADER_CHARS, str(added))
     big_added = sum(len(l) + 1 for l in h2) + sum(len(l) + 1 for l in body) - sum(len(l) + 1 for l in BODY)
     ck('B23 byte budget: the card is <= 15% of the plain output', big_added <= 0.15 * sum(len(l) + 1 for l in BODY), str(big_added))
+    # B24 (S111 VCALL review): a tight budget; another provider's comment must not take the place of the claim headers
+    tb = ['  +4  r3 = 1', '  +14  call#14 sub_82001000(r3=in_r3)'] + ['  pad'] * 8
+    pf = [qf.Fact('facts', 'F' * 100, None, None, 90), qf.Fact('leads', 'L' * 100, None, None, 60), qf.Fact('sites', 'S' * 40, None, None, 70),
+          qf.Fact('vcall', 'slot +8 [L] seen 1: ' + 'V' * 80, 0x14, None, 50, 9)]
+    hb, _bb = qf.apply(list(tb), pf, 'card')
+    ck('B24 a provider comment never evicts the facts / sites / leads headers',
+       all(any(l.startswith(f'; {k}:') for l in hb) for k in ('facts', 'sites', 'leads')), str(hb))
     # providers
     qf.register('when', lambda ctx: [qf.Fact('when', 'group 1, the load wait', None, None, 85), qf.Fact('enum', 'r4=33 is cat 33', 0x14, None, 50, 9)])
     fp = qf.collect(F, None, SIZE, 'decomp', 'card')
@@ -226,6 +234,12 @@ def twin_lead_as_comment():
     return lambda: setattr(qf.Row, '__init__', orig)
 
 
+def twin_provider_outranks_headers():
+    orig = qf._comment_rank
+    qf._comment_rank = lambda f: 80 + min(f.weight, 99) / 100.0      # the rank before the S111 VCALL review: every block comment above every claim header
+    return lambda: setattr(qf, '_comment_rank', orig)
+
+
 def main():
     bad = checks()
     qf.set_rows(None)
@@ -236,7 +250,7 @@ def main():
     if bad:
         return 1
     caught = [run_twin('card drops a site group', twin_drop_group), run_twin('merges two disagreeing rows', twin_merge_disputed),
-              run_twin('[L] printed as a block comment', twin_lead_as_comment)]
+              run_twin('[L] printed as a block comment', twin_lead_as_comment), run_twin('a provider comment evicts the claim headers', twin_provider_outranks_headers)]
     return 0 if all(caught) else 2
 
 

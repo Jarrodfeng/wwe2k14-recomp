@@ -1,15 +1,17 @@
 // stage_struct_test: the offline proof of lane CGF (Session 103; docs\research\s103\CAGE.md "Adversary"). 0 game runs, no SDK, no game memory.
-//   stage_struct_test [--plant stage_both | stage_no_recheck | stage_no_cap | stage_alpha252 | stage_first_only]
-// It runs the SHIPPED code: the tracker's stage holder pull + per-call re-check + stage branch (src\scene_live\weapon_rows_core.h), the row bits (src\renderer_scene\weapon_rows.h) and the plan's one-family rule
+//   stage_struct_test [--plant NAME]   (the plants: kPlants in main; stage_struct_selftest.py runs each)
+// It runs the SHIPPED code: the tracker's stage holder pull + per-call re-check + stage branch (src\scene_live\weapon_rows_core.h), the row bits (src\renderer_scene\weapon_rows.h) and the plan's stage rows
 // (src\renderer_scene\weapon_plan.h) against a fake guest holding H = [0x837631C4]. The loader (assets::LoadStageEntry) is only compiled here (it needs the player's bgEtc.pac to run).
 // Checks (each planted twin must fail exactly its named check; exit code 1 when any check failed):
 //   stage.pach_table        types 0 / 1 / 2 / 3 / 5 / 7 -> bgEtc PACH 0 / 1 / 2 / 3 / 6 / 7; ladders (4), 6, 8, 9 -> none; the inverse
 //   stage.pull              the holder's members (k, model) of a loaded CABU: keys 0 / 3 / 6, the type's PACH; a pending request ([H+172] == 0), type 9, a non-skinned slot and an unreadable word give none
-//   stage.every_call        three calls of the wall model (k 0) in one frame are THREE rows, instances 0 / 1 / 2, each with the rows of ITS call (not the event branch's first call only)    <- stage_first_only
+//   stage.every_call        three calls of the wall model (k 0) in one frame are THREE rows per family, consecutive instances, each with the rows of ITS call (not the event branch's first call only) <- stage_first_only
 //   stage.cage_rows_cap2    a cage slot-32 call (LR 0x826F9F08) of a 36-node model records 2 rows (the stack palette), an own-submit call of the same model records all 36                  <- stage_no_cap
 //   stage.alpha_f1          the slot-32 call's row alpha is its f1 (0.16, flagged alpha-from-f1); the own-submit call's is [model+252] (1.0)                                                  <- stage_alpha252
 //   stage.address_reuse     a slot freed after the frame's pull (the address reused by another model) records nothing at the call                                                           <- stage_no_recheck
-//   stage.family_one        both families of the cage recorded and tagged; the plan draws ONE family per PACH (default own); slot32 on request; a structure with one family draws that one       <- stage_both
+//   stage.both_families     S111 CAGESIDE review: every usable stage row of BOTH families is planned, for the cage (PACH 1), the cell (PACH 3) and an own-only structure; latched, a slot-32-only frame draws its rows <- stage_one_family
+//   stage.pose_slots        S111 CAGESIDE review: no two planned stage items of a frame share the drawer's pose slot (PACH, k, instance): a model's own and slot-32 calls are numbered in ONE count       <- stage_instance_per_family
+//   stage.zwrite_off        S111 CAGESIDE review: a cage slot-32 row (the category-36 node, z write off) is drawn with no depth write; the cell's slot-32 row and every own row keep the material's            <- stage_zwrite_on
 //   stage.entry16           k = 16 (the cell's 17th key) round-trips through a recorded call and the row bits; the LR classes are tagged (cage / cell / other / own)
 //   stage.caster_bit        S111 CHAMBERSHADOW review: through the tracker, only the own row of a CWeapon-node caller carries kCallStageCaster (not the cage node's, no caller's, a slot-32 row's)
 //   stage.prefetch          a section-59 stage row asks for (PACH, k | kWantStage); not an m2 weapon, not an event prop
@@ -114,7 +116,8 @@ int main(int argc, char** argv) {
   std::string plant_name;
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--plant" && i + 1 < argc) plant_name = argv[++i];
-  static const char* const kPlants[] = {"stage_both", "stage_no_recheck", "stage_no_cap", "stage_alpha252", "stage_first_only", "stage_no_latch", "stage_no_rigid_bound", "stage_alpha_always", "stage_ignore_switch"};
+  static const char* const kPlants[] = {"stage_one_family", "stage_no_recheck", "stage_no_cap", "stage_alpha252", "stage_first_only", "stage_no_rigid_bound", "stage_alpha_always", "stage_ignore_switch", "stage_instance_per_family",
+                                        "stage_zwrite_on"};
   bool known = plant_name.empty();
   for (const char* k : kPlants) known = known || plant_name == k;
   if (!known) {
@@ -123,8 +126,6 @@ int main(int argc, char** argv) {
   }
   const uint32_t kH = 0x90100000, kWall = 0xA1000000, kDoorPanel = 0xA1001000, kDoor = 0xA1002000, kBufA = 0xB1000000, kBufB = 0xB1001000, kBufC = 0xB1002000, kBufD = 0xB1003000, kOther = 0xA1009000;
   const uint32_t kLrCageNode = W::kLrCage36, kLrOtherNode = 0x82345678;
-  W::Plants plants;   // the plan's family choice is read per Plan() call below
-  plants.stage_both = plant_name == "stage_both";
 
   // ---- stage.pach_table
   {
@@ -165,13 +166,14 @@ int main(int argc, char** argv) {
                                                          ", foreign vtable " + (ok5 ? "skipped" : "KEPT") + ", unreadable " + (ok6 ? "none" : "HALF") + ", count 40 -> k 16 " + (ok7 ? "ok" : "BAD"));
   }
 
-  // ---- stage.every_call / stage.cage_rows_cap2 / stage.alpha_f1 / stage.family_one / stage.entry16 (one CABU frame with both families)
+  // ---- stage.every_call / stage.cage_rows_cap2 / stage.alpha_f1 / stage.both_families / stage.alpha_skip / stage.not_member (one CABU frame with both families)
   {
     Rig r;
     if (plant_name == "stage_no_recheck") r.t.plant = Plant::StageNoRecheck;
     if (plant_name == "stage_no_cap") r.t.plant = Plant::StageNoCap;
     if (plant_name == "stage_alpha252") r.t.plant = Plant::StageAlpha252;
     if (plant_name == "stage_first_only") r.t.plant = Plant::StageFirstCallOnly;
+    if (plant_name == "stage_instance_per_family") r.t.plant = Plant::StageInstancePerFamily;
     const uint32_t kPart = 0xA1003000;
     r.g.MakeModel(kWall, 36), r.g.MakeModel(kDoorPanel, 36), r.g.MakeModel(kDoor, 36), r.g.MakeModel(kPart, 36);
     r.g.MakeHolder(kH, 1, 7, {{0, kWall}, {3, kDoorPanel}, {6, kDoor}, {1, kPart}});
@@ -198,12 +200,12 @@ int main(int argc, char** argv) {
     for (const W::WeaponCall& c : fb.calls)
       if (c.object == kWall && W::IsStageCall(c.slot_flags)) (W::IsStageOwn(c.slot_flags) ? wall_own : wall32).push_back(&c);
     bool every = got && wall32.size() == 3 && wall_own.size() == 3;
-    for (size_t i = 0; every && i < wall32.size(); ++i) every = wall32[i]->instance == i && wall_own[i]->instance == i;
+    for (size_t i = 0; every && i < wall32.size(); ++i) every = wall32[i]->instance == i && wall_own[i]->instance == wall_own[0]->instance + i;   // (S111 CAGESIDE review: the own calls come after the slot-32 ones in one count: stage.pose_slots)
     float e0[12], e1[12];
     ExpectRows(0, 1, e0), ExpectRows(0, 2, e1);
     const bool rows_at_call = every && std::memcmp(fb.nodes[wall32[0]->node_first].rows, e0, sizeof e0) == 0 && std::memcmp(fb.nodes[wall32[1]->node_first].rows, e1, sizeof e1) == 0;
-    Check(every && rows_at_call && w0.stage && w1.instance == 1 && w2.instance == 2 && o0.instance == 0 && o2.instance == 2, "stage.every_call",
-          "wall calls recorded: slot-32 " + std::to_string(wall32.size()) + " own " + std::to_string(wall_own.size()) + " (need 3 + 3, instances 0 / 1 / 2, each with the rows of its call)");
+    Check(every && rows_at_call && w0.stage && w1.instance == 1 && w2.instance == 2 && o2.instance == o0.instance + 2, "stage.every_call",
+          "wall calls recorded: slot-32 " + std::to_string(wall32.size()) + " own " + std::to_string(wall_own.size()) + " (need 3 + 3, consecutive instances, each with the rows of its call)");
 
     // stage.cage_rows_cap2
     const bool cap_ok = got && wall32.size() >= 1 && wall32[0]->node_count == 2 && wall_own.size() >= 1 && wall_own[0]->node_count == 36 && cellc.n_nodes == 2;
@@ -215,50 +217,61 @@ int main(int argc, char** argv) {
                           (wall_own[0]->slot_flags & W::kCallAlphaFromF1) == 0;
     Check(alpha_ok, "stage.alpha_f1", "slot-32 alpha " + std::to_string(wall32.empty() ? -1.f : wall32[0]->alpha) + " (need f1 0.16, flagged), own alpha " + std::to_string(wall_own.empty() ? -1.f : wall_own[0]->alpha) + " (need [model+252] 1.0)");
 
-    // stage.family_one: both recorded and tagged; the plan draws one
-    W::Census c_own, c_32;
-    W::Plants p_own, p_32;
-    p_own.stage_family = W::kStageFamilyOwn, p_32.stage_family = W::kStageFamilySlot32;
-    p_own.stage_both = p_32.stage_both = plants.stage_both;
-    const std::vector<W::Item> it_own = W::Plan(ViewOf(fb), p_own, c_own);
-    const std::vector<W::Item> it_32 = W::Plan(ViewOf(fb), p_32, c_32);
-    size_t n_own_rows = 0, n_32_rows = 0, own_in_own = 0, s32_in_32 = 0, s32_in_own = 0;
+    // stage.both_families (S111 CAGESIDE review): every usable stage row is planned, BOTH submit families, for every structure: the cage (this CABU frame, PACH 1: its category-26 node draws the sides that pass the
+    // view test, its category-36 node the rest see-through), the cell (the same calls relabelled PACH 3: its category-27 node leaves a fading piece to its category-36 node, sub_8265FEB0 / sub_82660628) and an
+    // own-only structure (the chamber / the Inferno: the own rows alone). With the drawer's latch, a later frame with slot-32 rows only draws them all, and the structure stays latched (HoldStageRows).
+    size_t n_own_rows = 0, n_32_rows = 0;
     for (const W::WeaponCall& c : fb.calls)
       if (W::IsStageCall(c.slot_flags)) ++(W::IsStageOwn(c.slot_flags) ? n_own_rows : n_32_rows);
-    for (const W::Item& it : it_own) (W::IsStageOwn(fb.calls[it.call].slot_flags) ? own_in_own : s32_in_own) += 1;
-    for (const W::Item& it : it_32) s32_in_32 += W::IsStageOwn(fb.calls[it.call].slot_flags) ? 0 : 1;
-    // a structure with ONE family (the Inferno / chamber submit own only): drawn whatever the preference says
-    W::Plants p_32b;
-    p_32b.stage_family = W::kStageFamilySlot32, p_32b.stage_both = plants.stage_both;
-    FrameBuffer only_own;
-    for (const W::WeaponCall& c : fb.calls)
-      if (W::IsStageOwn(c.slot_flags)) only_own.calls.push_back(c);
-    only_own.nodes = fb.nodes;
-    W::Census c_one;
-    const std::vector<W::Item> it_one = W::Plan(ViewOf(only_own), p_32b, c_one);
-    const bool fam_ok = n_own_rows > 0 && n_32_rows > 0 && it_own.size() == n_own_rows && own_in_own == n_own_rows && s32_in_own == 0 && it_32.size() == n_32_rows && s32_in_32 == n_32_rows && c_own.stage_other_family == n_32_rows &&
-                        c_32.stage_other_family == n_own_rows && c_own.stage.own == n_own_rows && c_own.stage.slot32 == n_32_rows && c_own.stage.models == 4 && c_own.stage.pach == 1 && c_own.stage.family == int32_t(W::kStageFamilyOwn) &&
-                        c_32.stage.family == int32_t(W::kStageFamilySlot32) && it_one.size() == n_own_rows && c_one.stage.family == int32_t(W::kStageFamilyOwn);
-    Check(fam_ok, "stage.family_one", "recorded slot-32 " + std::to_string(n_32_rows) + " + own " + std::to_string(n_own_rows) + "; drawn with own preferred " + std::to_string(it_own.size()) + " (" + std::to_string(own_in_own) + " own, " + std::to_string(s32_in_own) +
-                                          " slot-32), with slot32 preferred " + std::to_string(it_32.size()) + "; one-family structure drawn " + std::to_string(it_one.size()) + " (never both families: " + std::to_string(n_own_rows + n_32_rows) + ")");
-    std::printf("      census: %s\n", c_own.StageLine().c_str());
+    W::Plants pb;
+    pb.stage_one_family = plant_name == "stage_one_family";
+    const auto split = [](const FrameBuffer& f, const std::vector<W::Item>& items, size_t& own, size_t& s32) {
+      own = s32 = 0;
+      for (const W::Item& it : items) ++(W::IsStageOwn(f.calls[it.call].slot_flags) ? own : s32);
+    };
+    FrameBuffer cell = fb;
+    for (W::WeaponCall& c : cell.calls)
+      if (W::IsStageCall(c.slot_flags)) c.id = W::StageId(3);
+    FrameBuffer only_own, only32;
+    for (const W::WeaponCall& c : fb.calls) (W::IsStageOwn(c.slot_flags) ? only_own : only32).calls.push_back(c);
+    only_own.nodes = only32.nodes = fb.nodes;
+    W::Census cc, ce, co;
+    const std::vector<W::Item> it_cage = W::Plan(ViewOf(fb), pb, cc), it_cell = W::Plan(ViewOf(cell), pb, ce), it_one = W::Plan(ViewOf(only_own), pb, co);
+    size_t cage_own = 0, cage_32 = 0, cell_own = 0, cell_32 = 0, one_own = 0, one_32 = 0;
+    split(fb, it_cage, cage_own, cage_32), split(cell, it_cell, cell_own, cell_32), split(only_own, it_one, one_own, one_32);
+    W::StageLatch latch;
+    W::Plants pl = pb;
+    pl.latch = &latch;
+    W::Census cl1, cl2;
+    const size_t fr1 = W::Plan(ViewOf(fb), pl, cl1).size(), fr2 = W::Plan(ViewOf(only32), pl, cl2).size();
+    const bool both_ok = n_own_rows > 0 && n_32_rows > 0 && cage_own == n_own_rows && cage_32 == n_32_rows && cell_own == n_own_rows && cell_32 == n_32_rows && one_own == n_own_rows && one_32 == 0 &&
+                         cc.stage_items == n_own_rows + n_32_rows && cc.stage.own == n_own_rows && cc.stage.slot32 == n_32_rows && cc.stage.models == 4 && cc.stage.pach == 1 && ce.stage.pach == 3 &&
+                         fr1 == n_own_rows + n_32_rows && fr2 == n_32_rows && latch.latched[1];
+    Check(both_ok, "stage.both_families", "recorded own " + std::to_string(n_own_rows) + " + slot-32 " + std::to_string(n_32_rows) + "; planned: cage " + std::to_string(cage_own) + " + " + std::to_string(cage_32) + ", cell " +
+                                              std::to_string(cell_own) + " + " + std::to_string(cell_32) + ", own-only " + std::to_string(one_own) + " + " + std::to_string(one_32) + "; latched frames " + std::to_string(fr1) + " then a slot-32-only frame " +
+                                              std::to_string(fr2) + " (need every row of both families)");
+    std::printf("      census: %s\n", cc.StageLine().c_str());
 
-    // stage.family_latch (review 6): the family chosen in frame 1 (both present: own) is kept in frame 2 when the own calls vanish (a [model+560] != 0 frame): nothing flips to the slot-32 family; after the structure is gone (Reset) the next structure chooses again
+    // stage.pose_slots (S111 CAGESIDE review): the drawer poses a stage item into the slot (PACH, k, instance) (rf_props.cpp ApplyWeaponRows: pool weapon:stg<PACH>/<k>, slot #instance). Both families drawn, the own
+    // and the slot-32 calls of one model must take DIFFERENT slots, else the second pose overwrites the first and one panel is drawn twice at the other's place (the recorder numbers both families in one count)
+    bool slots_ok = !it_cage.empty();
+    for (size_t i = 0; i < it_cage.size(); ++i)
+      for (size_t j = i + 1; j < it_cage.size(); ++j)
+        slots_ok = slots_ok && !(it_cage[i].id == it_cage[j].id && it_cage[i].entry == it_cage[j].entry && it_cage[i].instance == it_cage[j].instance);
+    Check(slots_ok, "stage.pose_slots", "the cage frame's " + std::to_string(it_cage.size()) + " planned items " + (slots_ok ? "take distinct" : "SHARE") + " (PACH, k, instance) pose slots");
+
+    // stage.zwrite_off (S111 CAGESIDE review): the cage's category-36 node draws its see-through sides with z write OFF (sub_826FA7C8 +0x5C0, restored at +0x848); the cell's category-36 node keeps it ON (sub_82660628
+    // +0xB4); an own row keeps its material's. The drawer sets kObjNoDepthWrite where StageRowNoDepthWrite says so (rf_props.cpp ApplyWeaponRows).
     {
-      W::StageFamilyLatch latch;
-      W::Plants pl;
-      pl.stage_family = W::kStageFamilyOwn, pl.latch = &latch, pl.ignore_latch = plant_name == "stage_no_latch";
-      W::Census c1, c2, c3;
-      const std::vector<W::Item> f1_items = W::Plan(ViewOf(fb), pl, c1);   // frame 1: both families: own latched
-      FrameBuffer only32;
-      for (const W::WeaponCall& c : fb.calls)
-        if (!W::IsStageOwn(c.slot_flags)) only32.calls.push_back(c);
-      only32.nodes = fb.nodes;
-      const std::vector<W::Item> f2_items = W::Plan(ViewOf(only32), pl, c2);   // frame 2: own vanished: latched own -> nothing drawn
-      latch.Reset(1);                                                          // the structure is gone
-      const std::vector<W::Item> f3_items = W::Plan(ViewOf(only32), pl, c3);   // a new structure: slot-32 chosen (the only family)
-      Check(f1_items.size() == n_own_rows && f2_items.empty() && c2.stage.latched_empty == n_32_rows && f3_items.size() == n_32_rows && latch.fam[1] == int32_t(W::kStageFamilySlot32), "stage.family_latch",
-            "frame 1 drew " + std::to_string(f1_items.size()) + " (own), frame 2 (own vanished) drew " + std::to_string(f2_items.size()) + " (need 0, latched-empty " + std::to_string(c2.stage.latched_empty) + "), after Reset " + std::to_string(f3_items.size()) + " (slot-32)");
+      W::Plants pz;
+      pz.stage_zwrite_on = plant_name == "stage_zwrite_on";
+      bool z_cage = !wall32.empty(), z_own = false, z_cell = false, have_cell = false;
+      for (const W::WeaponCall* c : wall32) z_cage = z_cage && W::StageRowNoDepthWrite(*c, pz);
+      for (const W::WeaponCall& c : fb.calls) {
+        if (W::IsStageOwn(c.slot_flags)) z_own = z_own || W::StageRowNoDepthWrite(c, pz);
+        else if (W::StageLrClass(c.slot_flags) == W::kStageLrCell) have_cell = true, z_cell = z_cell || W::StageRowNoDepthWrite(c, pz);
+      }
+      Check(z_cage && !z_own && !z_cell && have_cell, "stage.zwrite_off", std::string("cage slot-32 rows without depth write: ") + (z_cage ? "yes" : "NO") + "; an own row: " + (z_own ? "YES" : "no") + "; the cell's slot-32 row: " + (z_cell ? "YES" : "no"));
     }
 
     // stage.alpha_skip (review 4): a slot-32 row with alpha not > 0 (or NaN) is not planned (counted); alpha > 1 is clamped to 1; the row is force-blended; an own row is untouched
@@ -268,9 +281,10 @@ int main(int argc, char** argv) {
       for (W::WeaponCall& c : m.calls)
         if (!W::IsStageOwn(c.slot_flags) && k < 3) c.alpha = k == 0 ? 0.f : k == 1 ? std::nanf("") : 1.5f, ++k;
       W::Plants ps;
-      ps.stage_family = W::kStageFamilySlot32;
       W::Census cs;
       const std::vector<W::Item> its = W::Plan(ViewOf(m), ps, cs);
+      size_t its32 = 0;   // the planned slot-32 rows (every own row is planned too)
+      for (const W::Item& it : its) its32 += W::IsStageOwn(m.calls[it.call].slot_flags) ? 0 : 1;
       float clamped = 0.f;
       bool blend = false;
       for (const W::WeaponCall& c : m.calls)
@@ -278,8 +292,8 @@ int main(int argc, char** argv) {
       bool own_untouched = true;
       for (const W::WeaponCall& c : m.calls)
         if (W::IsStageOwn(c.slot_flags)) own_untouched = own_untouched && !W::StageRowSkip(c) && !W::StageRowForceBlend(c) && W::StageRowAlpha(c) == c.alpha;
-      Check(cs.stage.alpha0 == 2 && its.size() == n_32_rows - 2 && clamped == 1.f && blend && own_untouched, "stage.alpha_skip",
-            "alpha 0 / NaN rows skipped " + std::to_string(cs.stage.alpha0) + " (need 2), planned " + std::to_string(its.size()) + " of " + std::to_string(n_32_rows) + ", alpha 1.5 -> " + std::to_string(clamped) + ", force blend " + (blend ? "yes" : "no"));
+      Check(cs.stage.alpha0 == 2 && its32 == n_32_rows - 2 && clamped == 1.f && blend && own_untouched, "stage.alpha_skip",
+            "alpha 0 / NaN rows skipped " + std::to_string(cs.stage.alpha0) + " (need 2), planned " + std::to_string(its32) + " of " + std::to_string(n_32_rows) + ", alpha 1.5 -> " + std::to_string(clamped) + ", force blend " + (blend ? "yes" : "no"));
     }
 
     // stage.not_member: the foreign model made no stage row

@@ -1,7 +1,7 @@
 // wwe2k14 - Session 100, strip-360 B4 / B5 (STRIP360_PLAN.md): in owner mode (the new renderer draws; the SDK's command processor draws and
 // copies nothing, gpu_no_draw) the game's fences, interrupts and flips are answered here, on our own guest thread, instead of by packets the
 // old command processor would execute. Facts from docs\renderer\ADAPTER_CALLS.md section 5 and the Session 87 code that did the same on the
-// SDK's command thread (src\d3d_noring.h 680-810, thirdparty\rexglue-sdk-src\src\graphics\d3d_noring.cpp 720-830); this is our own cut:
+// SDK's command thread (src\d3d_noring.h, thirdparty\rexglue-sdk-src\src\graphics\d3d_noring.cpp 720-830); this is our own cut:
 // no ring, no packets, no SDK command thread in the path.
 //
 //   fence      the segment-end pair 0x82CB63D0: the library's bookkeeping as the original keeps it; the heap marker (block +4) then the fence

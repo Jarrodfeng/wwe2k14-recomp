@@ -500,7 +500,7 @@ static void BindCases(const Env& env) {
   std::string pac;
   const std::string mods = FreshMods(env, "bind", &pac);
   struct Group { int base, ent; std::vector<int> seats; };
-  // (entrance 385 has a name-plate movie, M885 in pack 4's evtmov: the MOVN row; 498 / 499 have no plate of their own, asset_ids.h:201; base 106's
+  // (entrance 385 has a name-plate movie, M885 in pack 4's evtmov: the MOVN row; 498 / 499 have no plate of their own, asset_ids.h; base 106's
   // DAT / DSBD hold the stock keys 40001 40101 40401 40601, in the key ranges of seats 400 401 404 406: the last group seats him on 401 404 406 456)
   const std::vector<Group> groups = {{107, 110, {397, 412, 482}}, {100, 100, {400, 455, 499}}, {107, 385, {403, 430, 498}}, {106, 110, {401, 404, 406, 456}}};
   importer::PackState st;

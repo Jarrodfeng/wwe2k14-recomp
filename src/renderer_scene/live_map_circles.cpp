@@ -1,6 +1,6 @@
 // The circle blob shadows from the scene record (Session 103, lane E; live_maps.h). Our pass: the record's one disc mesh (kScCircleMesh) is drawn once per character entry
 // (kScCircleShadows: ShadowParam c0, the light's ViewProj c4-c7, the 21 body points c8-c28) with the generated yCircleShadow effect, black with Gaussian alpha, into an
-// RGBA8 map cleared to white. The game draws the blobs into the BLUE channel of its props map (the floor shaders read .b), so the write mask here is blue only. S103 PMS: this image IS the props map the floor reads
+// RGBA8 map cleared to white. The game draws the blobs into the BLUE channel of its props map (the floor shaders read .b) with its mask 0xC (blue + alpha; no reader fetches the alpha, S111 CIRCLES). S103 PMS: this image IS the props map the floor reads
 // (role PropsMap, live_map_props.cpp; the floor casters' pass, slice 2, is not built: red / green stay the clear); with wwe2k14_rdr_props_map off it is handed out as Circles, as before. Nothing here reads the stream.
 #include <algorithm>
 #include <cstring>
@@ -40,14 +40,14 @@ bool LiveMapsHook::RecordCircles(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   if (!circle_ready_) {
     vs_circle_ = md::FindVariant("yCircleShadow_base_vertex");
     fs_circle_ = md::FindVariant("yCircleShadow_base_fragment");
-    if (vs_circle_ < 0 || fs_circle_ < 0) {
+    if (vs_circle_ < 0 || fs_circle_ < 0 || !rdr::fx::Words(size_t(fs_circle_), true)) {   // S111 CIRCLES: the alpha-test twin is drawn
       counts_.circles_skip = "the yCircleShadow effect is not in the registry";
       return false;
     }
     rdr::ProgramDesc d;
     d.name = rdr::fx::kVariants[vs_circle_].name;
-    d.vertex_spirv = rdr::fx::kVariants[vs_circle_].spirv, d.vertex_bytes = rdr::fx::kVariants[vs_circle_].bytes;
-    d.fragment_spirv = rdr::fx::kVariants[fs_circle_].spirv, d.fragment_bytes = rdr::fx::kVariants[fs_circle_].bytes;
+    d.vertex_spirv = rdr::fx::Words(size_t(vs_circle_), false), d.vertex_bytes = rdr::fx::kVariants[vs_circle_].bytes;
+    d.fragment_spirv = rdr::fx::Words(size_t(fs_circle_), true), d.fragment_bytes = rdr::fx::kVariants[fs_circle_].bytes_alpha;
     prog_circle_ = renderer_.AddProgram(d);
     // the mesh's host layout (circle_shadow_core.h): float3 position, float blend, u8x4 point ids (integer), float3 disc uv + strength; 32 bytes a vertex
     constexpr uint16_t kRGB32F = 106, kR32F = 100, kRGBA8UI = 41;
@@ -112,6 +112,12 @@ bool LiveMapsHook::RecordCircles(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   dynamic.system[9] = 7.f;
   const uint32_t dyn_id = fb.Dynamic(dynamic);
   if (with_props) DrawPropCasters(*ctx.frame, in, prop_casters, fb, dyn_id);
+  // S111 CIRCLES: the game draws the blobs alpha-tested: the props pass sub_827E7F00 puts the category reset's test back (sub_82C22E88: on, GEQUAL, ref 1) before the
+  // wrapper sub_82813228, so a blob pixel below alpha 1/255 is not written. (A CWDA caster drawn last leaves ref 128 in the game: a state leak, not reproduced.)
+  rdr::DynamicState circle_dynamic = dynamic;
+  circle_dynamic.system[8] = 1.f / 255.f;
+  circle_dynamic.system[9] = 6.f;   // GEQUAL
+  const uint32_t circle_dyn_id = fb.Dynamic(circle_dynamic);
   rdr::TextureSet no_textures{};
   const uint32_t tex_id = fb.Textures(no_textures);
   const rdr::fx::Variant& vvar = rdr::fx::kVariants[vs_circle_];
@@ -123,6 +129,7 @@ bool LiveMapsHook::RecordCircles(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   state.program = prog_circle_;
   state.vertex_layout = layout_circle_;
   state.topology = 3;
+  // DEPARTS: design DECISIONS:2026-11-27 22:13 @sub_827E95D8 @sub_82813228; the game's cull on keeps every blob square or none (flat, one winding: docs\research\s111\MAPCULL.md item 7), so cull 0 draws the same pixels
   state.cull = 0;
   state.front_face = 1;
   state.blend[0].enable = 1;
@@ -130,7 +137,7 @@ bool LiveMapsHook::RecordCircles(const StageCtx& ctx, rdr::FrameBuilder& fb) {
   state.blend[0].dst_color = 7;   // one minus src alpha
   state.blend[0].src_alpha = 1;
   state.blend[0].dst_alpha = 7;
-  state.blend[0].write_mask = 4;  // blue only, as the game's props map holds them
+  state.blend[0].write_mask = 0xC;  // blue + alpha, the game's mask (sub_82813228 turns red and green off); the alpha stays 1 here (ONE / INV_SRC_ALPHA over the clear 1)
   const uint32_t state_id = fb.State(state);
 
   for (const CircleShadow& e : in.circles) {
@@ -142,7 +149,7 @@ bool LiveMapsHook::RecordCircles(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     md::PutRegisters(block, vvar, 8, rows + 32, kCirclePoints);
     rdr::DrawOp op{};
     op.state = state_id;
-    op.dynamic = dyn_id;
+    op.dynamic = circle_dyn_id;
     op.textures = tex_id;
     op.vs_constants = fb.PushConstants(block.data(), uint32_t(block.size()));
     op.fs_constants = fs_const;

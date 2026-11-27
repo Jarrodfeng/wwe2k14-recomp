@@ -66,9 +66,9 @@ def seam_cites_case(tmp):
     write(tmp, 'src/a.h', 'l1\nl2\nint anchor_two = 2;\nint anchor_one = 1;\nl5\nl6\n')
     write(tmp, 'src/xa.h', 'l1\n')
     seam = {'topic': 'tt', 'summary': 'the rule sits at a.h:4', 'game': [{'addr': '0x82000000', 'what': 'w', 'evidence': 'see src/a.h:3-5', 'mark': 'C', 'source': 'docs/n.md'}],
-            'ours': [{'path': 'src/a.h', 'line': 3, 'anchor': 'int anchor_two = 2;', 'verdict': 'match', 'why': 'row at 3'},
-                     {'path': 'src/a.h', 'line': 3, 'anchor': 'int anchor_one = 1;', 'verdict': 'replace', 'why': 'stored 3, moved to 4'},
-                     {'path': 'src/xa.h', 'line': 1, 'anchor': 'l1', 'verdict': 'match', 'why': 'twin file'}], 'open': []}
+            'ours': [{'path': 'src/a.h', 'anchor': 'int anchor_two = 2;', 'verdict': 'match', 'why': 'row at 3'},
+                     {'path': 'src/a.h', 'anchor': 'int anchor_one = 1;', 'verdict': 'replace', 'why': 'stored 3, moved to 4'},
+                     {'path': 'src/xa.h', 'anchor': 'l1', 'verdict': 'match', 'why': 'twin file'}], 'open': []}
     write(tmp, 'db/seams/tt.json', json.dumps(seam))
     write(tmp, 'db/claims/c.json', json.dumps([{'claim': 'c', 'evidence': 'q show a.h:2-3 and other.h:4', 'ours': 'src/a.h:9', 'address': '0x82000004'}]))
     rc, out, err = q('seam', '--cites', 'src/a.h', '--root', tmp)

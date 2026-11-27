@@ -47,7 +47,8 @@ class LiveSceneDraw {
   // S103 CPB (docs\research\s103\CPR.md H1, the Create a Superstar roster portrait): the wrestlers family of `rec` alone, drawn with the game's portrait camera `cam` (game space) into an offscreen w x h image cleared to (0, 0, 0, 0),
   // read back as RGBA8 (the front end's RenderToPixels: it waits for the GPU once, on the host thread, outside any live frame). `model` = the engine object of the edited wrestler: the record must hold it, else false
   // (`why`). *loading = the miss is a resource still loading (the caller asks again next frame). The front end's own images are remade at w x h and again at the next live frame's size: the caller forgets its held picture.
-  bool DrawPortrait(const SceneTables& rec, const Camera& cam, uint32_t model, uint32_t w, uint32_t h, std::vector<uint8_t>& rgba, std::string& why, bool* loading = nullptr);
+  // S111 PORTRAITCENSUS: *pieces_census = "pieces P (ids ...)" (caw_portrait_core.h PiecesText) once the draw has counted (left untouched by a failure before the count).
+  bool DrawPortrait(const SceneTables& rec, const Camera& cam, uint32_t model, uint32_t w, uint32_t h, std::vector<uint8_t>& rgba, std::string& why, bool* loading = nullptr, std::string* pieces_census = nullptr);
   // OURS: record `rec` into `fb` (the live frame, already begun) at w x h; `out` = the image our frame ends in (the post output when
   // `post` is given, else the scene colour). False = a miss (why says which: not resident, build fault, draw fault): nothing was recorded.
   // S103 CHS: did the last failed DrawLive put an op on `img` (a picture an earlier Ok draw returned)? Every fault path returns before the post combine writes post_out_ (front_end.cpp Record 1408 is before any op,
@@ -65,6 +66,15 @@ class LiveSceneDraw {
   void PublishStartWait(uint64_t guest_frame, bool built = true, bool drew = false);   // review: drew = DrawLive (the frame is drawn after the call: StartCrowdIn does not prefetch)
   bool LastBuildHadStage() const { return stage_ || stageless_; }   // S103 HN: the last Warm / DrawLive build had a stage (false = a scene boundary: loading, flat, scene change); S111 STAGELESS2: a scene the game draws with no stage is no boundary
   bool Ready() const { return ready_; }   // the last live build found every asset resident (FRAME_CONTRACT 3 item 2)
+  // S111 TITLESMOKE (flat_particles.h): a flat frame's particle groups at 2D row position `pos` of the record's rows (S111 FLATSEQ: placed by the rows' seq, rec.quads2d), drawn by the live
+  // hooks' particle drawer onto the target the caller has set (the stream-free host's F, between its 2D runs), with this record's texture names and frame stamp. False = no drawer (the front
+  // end is made by the first Warm / DrawLive, or the particles hook is off): the caller counts the group not drawn. Render thread.
+  bool DrawFlatParticles(const SceneTables& rec, const LiveParticles::FlatView& v, size_t pos, rdr::FrameBuilder& fb) {
+    if (!live_hooks_ || !live_hooks_->particles()) return false;
+    live_hooks_->AttachParticles(rec);
+    live_hooks_->particles()->RecordFlat(rec.particles, v, pos, rec.quads2d.data(), rec.quads2d.size(), fb);
+    return true;
+  }
   // S103 L2d (scene_kind.h): the 3D half of the FLAT frame verdict for `rec`, from the build Warm / DrawLive made of that same record (call after it): no stage, no 3D object, no
   // Scene3D stamp = a flat frame (exempt from HasStage and the 3D inputs; its 2D / movie / particle half comes from the 2D drawer's census). A record this drawer did not build last,
   // or could not build, reads as a 3D frame (fail closed).
@@ -79,7 +89,7 @@ class LiveSceneDraw {
 
   std::string Census() const;
   // S103 NR (1): why READY was (not) true, per term, over the calls since the last drain (Warm + DrawLive): "[scene][ready] calls N (warm W, live L), ready R; not built a; misses b (cache misses m);
-  // holes c [arena x (first: ...), wrestlers y (first: ...)]; no stage d; shadow input e; post missing f; draw error g (first: ...)". Terms are counted per call (a call can fail several).
+  // holes c [arena x (first: ...), wrestlers y (first: ...)]; no stage d; post missing f; draw error g (first: ...)". Terms are counted per call (a call can fail several).
   // live.cpp logs it every 600 SceneOurs calls and at exit. `drain` resets the window.
   std::string ReadyCensusLine(bool drain);
   // S103 UP: "[scene][texup] ..." = the live texture uploads since the start by caller (page / screen / other: calls / KB) and the page sends the shared image saved. Logged next to [scene][ready] every 600
@@ -93,17 +103,17 @@ class LiveSceneDraw {
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> asked_at_;   // key -> when it was queued (the wait is logged on adoption)
   uint64_t load_ask_lines_ = 0, load_adopt_lines_ = 0;
   std::vector<std::string> load_log_;   // capped (kLoadLogCap): a run nobody drains cannot grow it
-  // S103 NR (3): THE not-ready rule, one function for Warm and DrawLive (the holes of every family, the loads, the stage). Bits of the result; 0 = nothing blocks. The shadow input's hole is the
-  // maps hook's (BuildMapsInput): Warm asks FrameHooks::ShadowInputHole, DrawLive reads the input AttachFrameHooks built (the same rule), both OR kTermShadow in.
-  enum Term : uint32_t { kTermNotBuilt = 1, kTermMisses = 2, kTermHoles = 4, kTermNoStage = 8, kTermShadow = 16, kTermOther = 32 /* post missing / draw error: counted by their own counters */ };
+  // S103 NR (3): THE not-ready rule, one function for Warm and DrawLive (the holes of every family, the loads, the stage). Bits of the result; 0 = nothing blocks. (S111 SHADOWKEY review: the
+  // shadow input's term is gone: the fitted shadow light needs no key light.)
+  enum Term : uint32_t { kTermNotBuilt = 1, kTermMisses = 2, kTermHoles = 4, kTermNoStage = 8, kTermOther = 32 /* post missing / draw error: counted by their own counters */ };
   uint32_t BuildTerms(bool built, const std::vector<rf::ClassReport>& reports) const;
   void NoteTerms(bool live, uint32_t terms, const std::vector<rf::ClassReport>& reports, const std::string& error, uint32_t skipped = 0);   // S103 HN: `skipped` = terms OFF does not let hold READY (counted, never blocking)
   struct ReadyCensus {
     uint64_t calls = 0, warm = 0, live = 0, ready = 0;
-    uint64_t not_built = 0, misses = 0, miss_assets = 0, holes = 0, no_stage = 0, shadow = 0, post_missing = 0, draw_error = 0;
+    uint64_t not_built = 0, misses = 0, miss_assets = 0, holes = 0, no_stage = 0, post_missing = 0, draw_error = 0;
     uint64_t hole_family[size_t(rf::Family::Count)] = {};
     std::string hole_first[size_t(rf::Family::Count)];
-    std::string not_built_first, shadow_first, post_first, draw_first;
+    std::string not_built_first, post_first, draw_first;
   } rc_;
   void DumpMaps(const LiveMaps* maps, const std::filesystem::path& dir, uint64_t frame);   // S103 T7
   std::filesystem::path map_dump_dir_;   // S103 T7: empty = off

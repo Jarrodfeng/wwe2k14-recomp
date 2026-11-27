@@ -1,4 +1,5 @@
 #version 450
+// FLIP-EXEMPT: test shader (rplay / stencil selftest only): a full-screen blit in the target's own clip space, never a renderer pass.
 // Foundation test: a full-screen triangle with no vertex input.
 layout(location = 0) out vec2 out_uv;
 

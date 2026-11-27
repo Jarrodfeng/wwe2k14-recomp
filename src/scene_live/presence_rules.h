@@ -4,7 +4,7 @@
 // Until S2 two required inputs were held for EVERY frame by a class-wide constant (particle_source.h kStampParticles, crowd_snapshot_core.h kCrowdOursWhole), so no frame could ever be OURS.
 // The per-frame verdicts already existed under those constants. With its switch on, each rule stamps the frames that do NOT contain the unproven thing:
 //   bit 11 particles: stamp when the frame's pass status is whole (WholePass: no reason bit, nothing unreadable, no other-class item). An item with an unnamed texture (kPiTexture), an
-//                     unproven blend code (kPiBlend: codes 0 / 2 [U], particle_items.md), an other-class item, an unreadable read, a dropped sprite or no camera holds that frame only.
+//                     unknown blend code (kPiBlend: a code above 2; 0 / 1 / 2 are [C], particle_reader.h kBlendCodesConfirmed), an other-class item, an unreadable read, a dropped sprite or no camera holds that frame only.
 //                     A frame with no particle item at all is whole. A frame whose pass did not run in the paired hook frame is NOT stamped (Take returns false: the source's stale_node /
 //                     no_node counters, unchanged): the pairing of the node's clock is [U] until a run shows `pair (0 ...)`.
 //   bit 10 crowd:     stamp when the snapshot is otherwise whole AND no visible sign holder, foam hand or sign picture is present (crowd_snapshot_core.h HolderPresent).

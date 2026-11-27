@@ -259,11 +259,13 @@ int RunSl(launcher::GameFiles& files, const std::string& arenas) {
   return ok ? 0 : 1;
 }
 
+#include "lmprops_census.h"   // S111 LMPROPS: --lmprops
+
 }  // namespace
 
 int main(int argc, char** argv) {
   std::string game, arenas, pachs;
-  bool cap = false, census = false, plant = false, live = false, tq2 = false, sl = false;
+  bool cap = false, census = false, plant = false, live = false, tq2 = false, sl = false, lmprops = false, plant_no_page = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--game" && i + 1 < argc) game = argv[++i];
@@ -275,12 +277,14 @@ int main(int argc, char** argv) {
     else if (a == "--plant-sl") g_plant_sl = true;   // S103 TQ2 fix: the SearchLight planted twin = the switch off after the arg parse (SL_Scale unresolved, no planar ask, one layer): the yBG_UVScroll fallbacks come back (222)
     else if (a == "--tq2") tq2 = true;
     else if (a == "--sl") sl = true;
+    else if (a == "--lmprops") lmprops = true;   // S111 LMPROPS (lmprops_census.h)
+    else if (a == "--plant-no-page") plant_no_page = true;
     else if (a == "--list-reflect") g_list_reflect = true;
     else if (a == "--arenas" && i + 1 < argc) arenas = argv[++i];
     else if (a == "--pach" && i + 1 < argc) pachs = argv[++i];
     else return std::fprintf(stderr, "usage: technique_census --game DIR (--cap [--plant] | --census [--live] [--arenas A,B-C] [--pach N-M] | --tq2 [--plant])\n"), 2;
   }
-  if (game.empty() || (!cap && !census && !tq2 && !sl)) return std::fprintf(stderr, "usage: technique_census --game DIR (--cap [--plant] | --census ...)\n"), 2;
+  if (game.empty() || (!cap && !census && !tq2 && !sl && !lmprops)) return std::fprintf(stderr, "usage: technique_census --game DIR (--cap [--plant] | --census ...)\n"), 2;
   {
     std::error_code ec;
     if (!std::filesystem::exists(game, ec) && std::filesystem::exists("../../../" + game, ec)) game = "../../../" + game;
@@ -320,6 +324,7 @@ int main(int argc, char** argv) {
     return bad ? 1 : 0;
   }
 
+  if (lmprops) return RunLmProps(files, pachs, !plant_no_page);
   if (tq2) return RunTq2(files, arenas, pachs);
   if (sl) return RunSl(files, arenas);
   if (!live) rdr_scene::technique_pick::AuditAll() = true;   // census only: the technique pick on every family (what WOULD change)

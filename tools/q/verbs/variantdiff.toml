@@ -1,0 +1,11 @@
+name = "variantdiff"
+module = "qvariantdiff"
+needs = "con"
+errors = ["qvariantdiff.VariantDiffError", "qvariantdiff.CD.DiffError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 79
+text = '''  variantdiff [--effect E] [--pac P] [--flag DIFF|HOLE|UNSETTLED|HABIT|OK]  per wrestler material record group: the shader the GAME
+                               draws in each pass (sub_82BDA038's pass flags + the _startup.pac row) beside the one OURS binds (the table
+                               pick, the cube twin, a hole when the row does not bind; file:line) (tools/q/qvariantdiff.py; docs/research/s111/VARIANTDIFF.md)'''

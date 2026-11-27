@@ -1,0 +1,11 @@
+name = "enum"
+module = "qenum"
+needs = "con"
+qerror = false
+broken_pipe = false
+usage_slot = "u20"
+
+[[usage]]
+order = 20
+text = '''    enum [NAME [VALUE ...]]      the game's named constants (render category, blend / alpha / z func codes, match / scene type; db/facts/enums.json);
+                                 enum state FUNC = the draw state of one slot-1 function; the same names print inline in decomp / asm (`; [enum]`)'''

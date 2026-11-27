@@ -37,7 +37,7 @@ namespace ab_flip {
 // already arms it. tools\ab_flip\audit_perframe.py lists every PerFrame row with a cvar read outside the table; docs\renderer\IN_RUN_AB.md carries the audited result.
 inline const char* const kArmed[] = {
     "wwe2k14_rdr_prelight_layered",   // reader.h takes the start value; device.cpp enables multiview only then
-    "wwe2k14_rdr_prelight_compute",   // reader.h:2671 takes the start value (L1b review F2)
+    "wwe2k14_rdr_prelight_compute",   // reader.h takes the start value (L1b review F2)
     "wwe2k14_rdr_card_cut",           // reader.h arms the thin probe at start
     "wwe2k14_rdr_max_queued",         // reader.h LiveOptions copy at start
     "wwe2k14_rdr_skip_keeps_state",   // reader.h LiveOptions copy at start

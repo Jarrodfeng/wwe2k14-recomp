@@ -1,0 +1,4 @@
+name = "cstr"
+module = "qdatatag"
+qerror = false
+broken_pipe = false

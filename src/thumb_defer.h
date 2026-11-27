@@ -16,6 +16,7 @@ REX_EXTERN(__imp__sub_8274FA70);
 REX_EXTERN(__imp__sub_8274FC60);
 REX_EXTERN(__imp__sub_82750580);
 
+// SKIP-ORIGINAL: with the reader on, OnThumbJobEnter defers the job until its picture is here (the present runs it: the comment on the return); otherwise the original runs
 REX_HOOK_RAW(sub_8274FA70) {
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */ && wwe2k14::rdr_reader::OnThumbJobEnter(ctx, base)) return;  // deferred: the present runs it when its picture is here
   __imp__sub_8274FA70(ctx, base);

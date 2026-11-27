@@ -1,8 +1,11 @@
 // S103 SKY: the model key of a wrestler slot, read from the game's own character descriptor (docs\research\s103\TMR.md section 3). Pure: no SDK, no guest
 // memory of its own; `read(addr, word&)` is the hook's ReadWord (or the unit's fake guest). Header-only, included by wrestler_hook.h and tools\scene\sky_unit.cpp.
-//   desc rule (the game's pairing): ch = [0x836F38D0 + 4 x slot]; s = [ch + 1220] (0..8, written only from D+5 by sub_82521668 and by the swap sub_8251F290);
-//   key = [[0x83924734] + 864 + 80 x s] + 0 (D+0: written at 0x823144A0 in the build and by sub_826D3E80 in a Rumble; the swap moves the descriptor with the character).
-//   row rule (the old guess, census only now): [0x8376AAF0] + 148 + 56 x slot + 16, trusted only for slot < 6 while rows 6..39 are empty.
+//   The key (SlotKeyOf, S110 DESCKEY + S111 SLOTKEY, docs\research\s111\SLOTKEY.md): CharModelKey = desc+92 of the character's own model descriptor [[0x837635A4] + 8] + 192 x [ch + 3760]
+//   (char_model_desc.h). Every character the request path builds stores [ch + 3760] from the request record (sub_82521668 after the factory sub_8251D990, sub_82520C58 for the queued
+//   kind-3 build), so slots 6..8 (referee / role-4) are keyed by the same field. Not the Create-a-Superstar editor's slot-0 character: sub_822E7570 builds it with the base constructor
+//   sub_825A20A0 directly and never writes [ch + 3760], so it keeps sub_823CF100's -1, CharModelDesc refuses it and the slot has no key (S111 SLOTKEY review).
+//   Census only (the hook's slot key line): DescKey (the 80-byte match record [[0x83924734] + 864 + 80 x s] + 0, s = DescIndex) and RowKey (the old participant-row guess,
+//   [0x8376AAF0] + 148 + 56 x slot + 16, usable only for slot < 6 while rows 6..39 are empty: wrong in a Rumble, after a swap, and for slots 6..8).
 #pragma once
 #include <cstdint>
 
@@ -104,14 +107,11 @@ inline uint32_t RowKey(Read&& read, int slot, bool& usable) {
   return key;
 }
 
-// What the hook submits. desc_rule on = the desc key for slots 0..8; off = the row rule (slot < 6, rows 6..39 empty), as before S103 SKY.
+// What the hook submits: the character's own model key (CharModelKey) for slots 0..8. S111 SLOTKEY: the participant-row fallback (RowKey, once behind a switch) is gone; RowKey is census only.
 template <class Read>
-inline uint32_t SlotKeyOf(Read&& read, int slot, uint32_t ch, bool desc_rule) {
+inline uint32_t SlotKeyOf(Read&& read, int slot, uint32_t ch) {
   if (slot < 0 || slot > 8) return 0;
-  if (desc_rule) return CharModelKey(read, ch);
-  bool usable = false;
-  const uint32_t k = RowKey(read, slot, usable);
-  return usable ? k : 0u;
+  return CharModelKey(read, ch);
 }
 
 }  // namespace wwe2k14::slotkey

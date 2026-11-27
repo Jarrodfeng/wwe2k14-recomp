@@ -100,10 +100,11 @@ def lint(fs):
 
 
 def wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
     fs = {}
     for f in FILES:
-        with open(os.path.join(root, f), encoding='utf-8', errors='replace') as fh:
-            fs[f] = fh.read()
+        fs[f] = read_path(os.path.join(root, f))
     bad = lint(fs)
     line(not bad, 'wiring: every link of the switch is in the source%s' % ('' if not bad else ' - MISSING: ' + '; '.join(bad)))
     plants = (('src/renderer_adapter/rdr_switches.h', 'X(StencilDead, "wwe2k14_rdr_stencil_dead", PerFrame, 0)', 'X(StencilDead, "wwe2k14_rdr_stencil_dead", StartOnly, 1)'),

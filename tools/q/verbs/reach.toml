@@ -1,0 +1,16 @@
+name = "reach"
+module = "qreach"
+needs = "con"
+errors = ["qreach.ReachError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 63
+text = '''  reach A B [--depth N] [--indirect] [--all] [--json]   does A reach B through calls within N levels (default 6): the shortest path(s) with call-site offsets,
+                                 functions visited, and the cuts (depth, indirect calls not followed); --indirect adds resolved slot calls and observed
+                                 indirect edges; no path says "no path within N (visited K functions; cut: ...)" (tools/q/qreach.py)'''
+
+[[route]]
+order = 149
+text = '''- does function A reach function B through calls (is X ever called from Y's side, the absence with its coverage): reach A B [--depth N] [--indirect]'''

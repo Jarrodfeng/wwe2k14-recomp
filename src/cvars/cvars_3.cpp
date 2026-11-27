@@ -144,6 +144,11 @@ REXCVAR_DEFINE_STRING(wwe2k14_dlss_mode, "performance", "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_music_probe, false, "wwe2k14",
                     "Session 33 (debug): log every music event name the game builds (Play_MUS_...), with the caller");
 
+//@ src/equiv/equiv_host.h | - | -
+REXCVAR_DEFINE_STRING(wwe2k14_equiv, "", "wwe2k14",
+                      "S111 EQUIV: run the headless equivalence tester on this test (builtin_smoke, or a name the test DLL knows) "
+                      "and exit; no window, GPU, save or game thread (empty = off: the game starts as usual)");
+
 //@ src/event_bus.h | - | -
 REXCVAR_DEFINE_BOOL(wwe2k14_events, false, "wwe2k14",
                     "Session 91: the event bus - log the game's transitions (mode, screen, exit action, message box, "

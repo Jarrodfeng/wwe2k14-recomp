@@ -1,0 +1,15 @@
+name = "fieldsdiff"
+module = "qfieldsdiff"
+errors = ["qfieldsdiff.FieldsdiffError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 76
+text = '''  fieldsdiff [--fn NAME|--game sub_X] [--flag GAME-ONLY ...] [--ref REF] [--json|--facts]   per pair, the record fields the GAME
+                               function reads (decomp's field reads + memcpy'd locals) against the constant-offset reads of OURS,
+                               joined by (record, offset): GAME-ONLY READ / WIDTH / OURS-ONLY READ / OK (= codediff --field reads; tools/q/qfieldsdiff.py)'''
+
+[[route]]
+order = 152
+text = '''- a record field the game function reads that ours never does (the input we left out; per pair, by record + offset): fieldsdiff [--flag GAME-ONLY] [--fn NAME] [--ref REF]'''

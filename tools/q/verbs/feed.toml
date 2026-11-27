@@ -1,0 +1,10 @@
+name = "feed"
+module = "qfeed"
+main = "verb"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 92
+text = '''  feed [FILE[:LINE]] [--unread]  the scene feed's field table (every field our renderer reads) with struct key + the game's writers (tools/q/qfeedkey.py)'''

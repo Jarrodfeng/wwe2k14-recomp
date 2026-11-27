@@ -24,6 +24,7 @@ namespace wwe2k14::vintage {
 inline std::atomic<uint32_t> g_grain_period_unsane{0};   // calls where the period word was 0 or above 64 (not swapped)
 }
 
+// SKIP-ORIGINAL: with film grain off in the quality settings the grain draw is skipped; otherwise the original runs (once, under the grain period swap at k > 1)
 REX_HOOK_RAW(sub_82594808) {
   namespace wv = wwe2k14::vintage;
   if (!wwe2k14::start::Quality().film_grain) return;

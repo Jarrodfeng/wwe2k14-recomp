@@ -4,31 +4,28 @@ each does in our own words, its evidence, a mark [C] / [L] / [U] and the note th
 already did). A probe that opens an entry must not have to go back to the listings for what the entry states.
 
     py tools/q/q.py seam                 every topic, one line each (its summary, row counts, stale rows)
-    py tools/q/q.py seam TOPIC           the two sides of one entry; every ours row with its CURRENT line (ok / moved -> N / STALE)
+    py tools/q/q.py seam TOPIC           the two sides of one entry; every ours row with its CURRENT line (ok / AMBIGUOUS / STALE)
     py tools/q/q.py seam --check         lint every entry: exit 1 on a refused entry or a STALE row, or a game row whose source note is missing
     py tools/q/q.py seam --diffs [--topic T] [--verdict replace|repeat] [--files] [--json]
                                          every replace / repeat ours row of every entry (never a match row): where ours departs from the
                                          game, one line each with the game row(s) it stands against; --files groups by our file (tools/q/qseam_diff.py)
-    py tools/q/q.py seam --recite        rewrite the stored line (and ctx) of every row `--check` reports as moved; STALE rows listed, untouched
     py tools/q/q.py seam --cites FILE[:LINE]   every seam row and db/claims row that cites the file (an ours row's path, or a file:line in a row's text) (qseam_cites.py)
-    py tools/q/q.py seam --upgrade-anchors  one-time: store each row's anchor context (qseam_diff.py); refuses a row whose line no longer holds its anchor
     (--json on any of them; --root DIR answers for another checkout, as the selftest does)
 
 Store: db/seams/<topic>.json, committed, OUR annotations only: addresses and our own words, never game code, never listing text.
   {"topic": "depth", "summary": "one paragraph",
    "game": [{"addr": "0x82C224A0", "what": "...", "evidence": "...", "mark": "C", "source": "docs/research/..."}],
-   "ours": [{"path": "src/...", "line": 205, "anchor": "the text of that line", "verdict": "match", "why": "..."}],
+   "ours": [{"path": "src/...", "anchor": "the text of that line", "verdict": "match", "why": "..."}],
    "open": ["an open question, with the one piece of evidence that would settle it"]}
 Refused (by --check and by the writers): no game row; a game row without an address (0x82XXXXXX / 0x83XXXXXX), a mark other than
-C / L / U, or no what / evidence / source; no ours row; an ours row without a repo path (/ separators), a line >= 1, an anchor, a verdict
-match / replace / repeat, or a why. The writers also refuse an ours row whose anchor is not the text of its line NOW; a path with a `..` segment is refused.
-Anchor context: when the anchor text is not unique in its file, the row also stores `ctx` = the nearest preceding non-blank lines (stripped,
-nearest first) up to the first count that makes the row unique. The context only chooses between the lines that hold the anchor (row_state):
-a line after the row's own context wins, a line after ANOTHER row's context (same path and anchor) is that row's; so two identical rowed lines
-(`dynamic.viewport[5] = 1.0f;`) cannot hide a stale row, and an edit of a context line alone never makes a row STALE. A row without `ctx`
-matches by anchor alone.
-Staleness: the anchor is compared with the line's text, both stripped of surrounding white space. At the stored line: ok; at another line
-of the file: `moved -> N` (the nearest one); in no line of the file (or the file is gone): STALE (loud; --check and the lookup exit 1).
+C / L / U, or no what / evidence / source; no ours row; an ours row without a repo path (/ separators), an anchor, a verdict
+match / replace / repeat, or a why; an ours row that stores a `line` (or the retired `ctx`); a path with a `..` segment.
+No line number (S111 SEAMNOLINE: it rotted with every edit above it and made two lanes that edited one file conflict on every merge): a row is
+located by its `anchor` ALONE, the text of the line, compared stripped of surrounding white space; the writers store the anchor of the line
+they are given and refuse a blank line. When the anchor text is on SEVERAL lines of the file, the row also stores `"occurrence": k` (1-based:
+the k-th of those lines, top to bottom), and a row without it is a lint failure (AMBIGUOUS; row_state).
+Staleness: one line holds the anchor (or the `occurrence` names one): ok, and the lookup shows the line it is at NOW; no line holds it, or
+`occurrence` is past the last, or the file is gone: STALE (loud; --check and the lookup exit 1).
 Writers for other tools (the note-lodging lane): game_row(), ours_row(), add_entry(), add_row(); each raises SeamError and writes nothing
 when refused. `q fact` indexes these files too (tools/q/qfact.py kind `seam`, fact_chunk() here); `q find WORD` names the entries whose
 topic or summary holds WORD (find_block() here).
@@ -47,8 +44,7 @@ ADDR_RE = re.compile(r'^0x8[23][0-9A-F]{6}$')
 MARKS = ('C', 'L', 'U')
 VERDICTS = ('match', 'replace', 'repeat')
 # selftest only: each plant switches ONE rule off, so the selftest can see its planted case fail without the rule
-PLANT = os.environ.get('WWE_QSEAM_PLANT', '')     # no_addr_rule | no_moved | no_stale | no_ctx
-MAX_CTX = 8
+PLANT = os.environ.get('WWE_QSEAM_PLANT', '')     # no_addr_rule | no_stale | no_occurrence | no_line_rule
 
 
 class SeamError(ValueError):
@@ -91,125 +87,66 @@ def _file_lines(path, root=None):
     return lines[:-1] if lines and lines[-1] == '' else lines
 
 
-def ctx_at(lines, i, k):
-    """the k nearest non-blank lines before line index i (0-based), stripped, nearest first (fewer at the top of the file)"""
-    out = []
-    j = i - 1
-    while j >= 0 and len(out) < k:
-        if lines[j].strip():
-            out.append(lines[j].strip())
-        j -= 1
-    return out
+def anchor_lines(lines, anchor):
+    """the 1-based numbers of the lines whose text, stripped, is the anchor (stripped)"""
+    want = str(anchor).strip()
+    return [i + 1 for i, t in enumerate(lines) if t.strip() == want] if want else []
 
 
-def ctx_for(lines, i):
-    """the context to store for line index i: [] when its text is unique in the file, else the fewest preceding non-blank lines that
-    make (text + context) unique (at most MAX_CTX; an identical block repeated stays ambiguous and the nearest match is shown)"""
-    want = lines[i].strip()
-    same = [j for j, t in enumerate(lines) if t.strip() == want]
-    ctx = []
-    while len(same) > 1 and len(ctx) < MAX_CTX:
-        k = len(ctx) + 1
-        c = ctx_at(lines, i, k)
-        ctx = c
-        if len(c) < k:
-            break
-        same = [j for j in same if ctx_at(lines, j, k) == c]
-    return ctx
+def occurrence_of(lines, line):
+    """-> (k, n): `line` (1-based) is the k-th (1-based) of the n lines that hold its own text"""
+    at = anchor_lines(lines, lines[line - 1])
+    return at.index(line) + 1, len(at)
 
 
-def row_state(row, root=None, rows=()):
-    """one ours row against its file as it is NOW -> {'state': 'ok' | 'moved' | 'stale', 'line': N or None, 'why': str}.
-    ok = the anchor is the stored line's text; moved = it is another line's text ('line' = the nearest such line); stale = no line of the
-    file holds it, or the file is gone. rows = the entry's ours rows (this one among them).
-    The context (`ctx`) only CHOOSES between lines that hold the anchor, it is never a second anchor (S111 SEAMDIFF review: an edit of the
-    line above an anchor must not make its row STALE): the lines after the row's own context win; when none is, a line that another row of
-    the entry (same path, same anchor) holds after ITS context is that row's, and the rest are this row's by anchor alone. So deleting the
-    first of two identical rowed lines makes its row STALE (the second line is the other row's), and a context edit alone keeps it ok."""
+def row_state(row, root=None):
+    """one ours row against its file as it is NOW -> {'state': 'ok' | 'stale' | 'ambiguous', 'line': N or None, 'why': str}.
+    A row is located by its anchor ALONE (S111 SEAMNOLINE: a stored line number rots with every edit above it and conflicted every merge
+    of two lanes that edited the file). ok = exactly one line holds the anchor text ('line' = its number now), or several do and the row's
+    `occurrence` k (1-based, which of them) names one; stale = no line holds it, `occurrence` is past the last one, or the file is gone;
+    ambiguous = several lines hold it and the row has no `occurrence` (a lint failure: the row must say which)."""
     lines = _file_lines(row.get('path', ''), root)
     if lines is None:
         return {'state': 'stale', 'line': None, 'why': 'the file is gone'}
-    want = str(row.get('anchor', '')).strip()
-    n = row.get('line') if isinstance(row.get('line'), int) else 0
-    use_ctx = PLANT != 'no_ctx'
-    ctx = row.get('ctx') if isinstance(row.get('ctx'), list) and use_ctx else []
-    at = [i + 1 for i, t in enumerate(lines) if t.strip() == want] if want else []
-    taken = set()
-    if ctx and at:
-        own = [k for k in at if ctx_at(lines, k - 1, len(ctx)) == ctx]
-        if own:
-            at = own
-        else:
-            for o in rows or ():
-                oc = o.get('ctx') if isinstance(o, dict) and o is not row else None
-                if (isinstance(oc, list) and oc and o.get('path') == row.get('path') and str(o.get('anchor', '')).strip() == want):
-                    taken |= {k for k in at if ctx_at(lines, k - 1, len(oc)) == oc}
-            at = [k for k in at if k not in taken]
-    if n in at:
-        return {'state': 'ok', 'line': n, 'why': ''}
+    at = anchor_lines(lines, row.get('anchor', ''))
     if not at:
         if PLANT == 'no_stale':
-            return {'state': 'ok', 'line': n, 'why': ''}
-        if taken:
-            return {'state': 'stale', 'line': None, 'why': 'every line holding the anchor text is another row\'s (after that row\'s context lines)'}
+            return {'state': 'ok', 'line': 1, 'why': ''}
         return {'state': 'stale', 'line': None, 'why': 'no line of the file holds the anchor text'}
-    if PLANT == 'no_moved':
-        return {'state': 'ok', 'line': n, 'why': ''}
-    near = min(at, key=lambda k: (abs(k - n), k))
-    return {'state': 'moved', 'line': near, 'why': f'{len(at)} lines hold the anchor; the nearest is shown' if len(at) > 1 else ''}
+    k = row.get('occurrence')
+    k = k if isinstance(k, int) and not isinstance(k, bool) and k >= 1 else None
+    if len(at) == 1 and k in (None, 1):
+        return {'state': 'ok', 'line': at[0], 'why': ''}
+    if k is None:
+        if PLANT == 'no_occurrence':
+            return {'state': 'ok', 'line': at[0], 'why': ''}
+        return {'state': 'ambiguous', 'line': None,
+                'why': f'{len(at)} lines hold the anchor text (lines {", ".join(str(x) for x in at[:6])}{"..." if len(at) > 6 else ""}): the row needs "occurrence": 1..{len(at)}'}
+    if k > len(at):
+        if PLANT == 'no_stale':
+            return {'state': 'ok', 'line': at[-1], 'why': ''}
+        return {'state': 'stale', 'line': None, 'why': f'occurrence {k} asked, but {len(at)} line(s) hold the anchor text now'}
+    return {'state': 'ok', 'line': at[k - 1], 'why': ''}
 
 
-def set_line(row, line, root=None):
-    """re-cite one ours row at `line` (its anchor text must be that line's text): sets `line` and keeps `ctx` in step (stored, replaced or
-    dropped as ctx_for says, right after `anchor` as ours_row() puts it). -> True when the row changed."""
+def set_anchor_at(row, line, root=None):
+    """point one ours row at `line` of its file: its anchor becomes that line's text and `occurrence` is stored when the text is on several
+    lines (dropped when it is on one), right after `anchor` as ours_row() puts it. -> True when the row changed."""
     lines = _file_lines(row.get('path', ''), root)
-    if lines is None or not 1 <= line <= len(lines):
+    if lines is None or not 1 <= line <= len(lines) or not lines[line - 1].strip():
         return False
     before = json.dumps(row, ensure_ascii=False)
-    ctx = ctx_for(lines, line - 1)
-    items = [(k, v) for k, v in row.items() if k not in ('line', 'ctx')]
+    k, n = occurrence_of(lines, line)
+    items = [(key, v) for key, v in row.items() if key not in ('anchor', 'occurrence', 'line', 'ctx')]
     row.clear()
-    for k, v in items:
-        row[k] = v
-        if k == 'path':
-            row['line'] = line
-        if k == 'anchor' and ctx:
-            row['ctx'] = ctx
-    row.setdefault('line', line)
+    for key, v in items:
+        row[key] = v
+        if key == 'path':
+            row['anchor'] = lines[line - 1].strip()
+            if n > 1:
+                row['occurrence'] = k
+    row.setdefault('anchor', lines[line - 1].strip())
     return json.dumps(row, ensure_ascii=False) != before
-
-
-def recite_entry(entry, root=None):
-    """rewrite the `line` (and `ctx`) of every MOVED ours row of the entry to the line row_state found; STALE rows are not touched.
-    -> ([(row number, old line, new line)], [stale row numbers])"""
-    ours = entry.get('ours') if isinstance(entry, dict) and isinstance(entry.get('ours'), list) else []
-    moved, stale = [], []
-    for i, (o, st) in enumerate(zip(ours, _states(entry, root)), 1):
-        if st['state'] == 'stale':
-            stale.append(i)
-        elif st['state'] == 'moved' and PLANT != 'no_recite':
-            old = o.get('line')
-            if set_line(o, st['line'], root):
-                moved.append((i, old, st['line']))
-    return moved, stale
-
-
-def recite(root=None, dry_run=False):
-    """q seam --recite: every entry's moved ours rows get the line they are at now; the entry file is written (same key order, indent 1)
-    only when a row changed. -> [{topic, file, moved: [(row, old, new)], stale: [row]}]"""
-    out = []
-    for t in topics(root):
-        p = entry_path(t, root)
-        try:
-            e = load(p)
-        except (OSError, ValueError):
-            continue
-        moved, stale = recite_entry(e, root)
-        if moved and not dry_run:
-            with open(p, 'w', encoding='utf-8', newline='\n') as f:
-                f.write(_text(e))
-        out.append({'topic': t, 'file': _rel(p, root), 'moved': moved, 'stale': stale})
-    return out
 
 
 def problems(entry, root=None, anchors=False):
@@ -241,7 +178,7 @@ def problems(entry, root=None, anchors=False):
                 out.append(f'game row {i}: no {k}')
     ours = entry.get('ours')
     if not isinstance(ours, list) or not ours:
-        out.append('no ours row: an entry needs at least one ours row carrying a path:line')
+        out.append('no ours row: an entry needs at least one ours row carrying a path and an anchor')
         ours = []
     for i, o in enumerate(ours, 1):
         if not isinstance(o, dict):
@@ -252,21 +189,24 @@ def problems(entry, root=None, anchors=False):
             out.append(f'ours row {i}: path {p!r} is not a repo-relative path with / separators')
         elif '..' in p.split('/'):
             out.append(f'ours row {i}: path {p!r} leaves the repo (a .. segment)')
-        if 'ctx' in o and (not isinstance(o['ctx'], list) or not all(isinstance(x, str) and x.strip() for x in o['ctx'])):
-            out.append(f'ours row {i}: ctx is a list of non-empty strings')
-        if not isinstance(o.get('line'), int) or isinstance(o.get('line'), bool) or o['line'] < 1:
-            out.append(f'ours row {i}: line {o.get("line")!r} is not a line number >= 1')
+        if 'line' in o and PLANT != 'no_line_rule':
+            out.append(f'ours row {i}: a stored `line` rots with every edit above it: remove it (the anchor locates the row)')
+        if 'ctx' in o:
+            out.append(f'ours row {i}: `ctx` is retired: remove it ("occurrence": k says which of several identical lines)')
+        if 'occurrence' in o and (not isinstance(o['occurrence'], int) or isinstance(o['occurrence'], bool) or o['occurrence'] < 1):
+            out.append(f'ours row {i}: occurrence {o["occurrence"]!r} is not a number >= 1 (which of the lines holding the anchor, 1-based)')
         if not isinstance(o.get('anchor'), str) or not o['anchor'].strip():
             out.append(f'ours row {i}: no anchor (the text of the line)')
         if o.get('verdict') not in VERDICTS:
             out.append(f'ours row {i}: verdict {o.get("verdict")!r} is not match, replace or repeat')
         if not isinstance(o.get('why'), str) or not o['why'].strip():
             out.append(f'ours row {i}: no why')
-        if anchors and (anchors is True or i in anchors) and isinstance(p, str) and isinstance(o.get('anchor'), str):
-            st = row_state(o, root, ours)
-            if st['state'] != 'ok':
-                out.append(f'ours row {i} ({p}:{o.get("line")}): the anchor is not that line\'s text now ({st["state"]}'
-                           + (f' -> {st["line"]}' if st['line'] else '') + ')')
+        if isinstance(p, str) and isinstance(o.get('anchor'), str) and o['anchor'].strip() and '..' not in p.split('/'):
+            st = row_state(o, root)
+            if st['state'] == 'ambiguous':
+                out.append(f'ours row {i} ({p}): AMBIGUOUS anchor: {st["why"]}')
+            elif st['state'] == 'stale' and anchors and (anchors is True or i in anchors):
+                out.append(f'ours row {i} ({p}): the anchor is in no line of the file now (STALE: {st["why"]})')
     op = entry.get('open', [])
     if not isinstance(op, list) or not all(isinstance(x, str) and x.strip() for x in op):
         out.append('open: a list of non-empty strings')
@@ -282,10 +222,11 @@ def game_row(addr, what, evidence, mark, source):
 
 
 def ours_row(path, line, verdict, why, root=None, expect=None):
-    """-> an ours row for path:line (repo-relative, / separators) with its anchor read from the file as it is now; verdict 'match' |
-    'replace' | 'repeat', why = one sentence. expect = a piece of text the line must hold (the tree moves while a probe reads: a line
-    number read earlier may now be another line). Raises SeamError when the file or the line is not there, the line is blank, or it
-    does not hold `expect`."""
+    """-> an ours row for the line `line` of path (repo-relative, / separators; the number is only how the caller names the line NOW, it is
+    never stored): the anchor is that line's text, plus `occurrence` when that text is on several lines; verdict 'match' | 'replace' |
+    'repeat', why = one sentence. expect = a piece of text the line must hold (the tree moves while a probe reads: a line number read
+    earlier may now be another line). Raises SeamError when the file or the line is not there, the line is blank, or it does not hold
+    `expect`."""
     path = str(path).replace('\\', '/')
     if '..' in path.split('/') or os.path.isabs(path) or path.startswith('/'):
         raise SeamError(f'{path}: a seam path is repo-relative and never leaves the repo (no .. segment)')
@@ -299,10 +240,10 @@ def ours_row(path, line, verdict, why, root=None, expect=None):
     if expect is not None and expect not in lines[line - 1]:
         near = [i + 1 for i, t in enumerate(lines) if expect in t]
         raise SeamError(f'{path}:{line}: the line does not hold {expect!r}' + (f' (lines that do: {near[:5]})' if near else ''))
-    row = {'path': path, 'line': line, 'anchor': lines[line - 1].strip()}
-    ctx = ctx_for(lines, line - 1)
-    if ctx:
-        row['ctx'] = ctx
+    row = {'path': path, 'anchor': lines[line - 1].strip()}
+    k, n = occurrence_of(lines, line)
+    if n > 1:
+        row['occurrence'] = k
     row.update({'verdict': verdict, 'why': why})
     return row
 
@@ -402,7 +343,7 @@ def fact_chunk(path):
             body.append(f'game {g.get("addr", "")} [{g.get("mark", "")}] {g.get("what", "")} (evidence: {g.get("evidence", "")}; {g.get("source", "")})')
     for o in e.get('ours', []) or []:
         if isinstance(o, dict):
-            body.append(f'ours {o.get("path", "")}:{o.get("line", "")} {o.get("verdict", "")}: {o.get("why", "")}')
+            body.append(f'ours {o.get("path", "")} {o.get("verdict", "")}: {o.get("why", "")} [{str(o.get("anchor", "")).strip()[:100]}]')
     for q in e.get('open', []) or []:
         body.append(f'open: {q}')
     body.append(f'(q seam {topic})')
@@ -411,7 +352,12 @@ def fact_chunk(path):
 
 def _states(e, root):
     ours = e.get('ours') or [] if isinstance(e, dict) else []
-    return [row_state(o, root, ours) if isinstance(o, dict) else {'state': 'stale', 'line': None, 'why': 'not an object'} for o in ours]
+    return [row_state(o, root) if isinstance(o, dict) else {'state': 'stale', 'line': None, 'why': 'not an object'} for o in ours]
+
+
+def _where(o, st):
+    """path:LINE-NOW of an ours row (the line the anchor holds now; the bare path when it holds none or several without `occurrence`)"""
+    return f'{o.get("path")}:{st["line"]}' if st.get('line') else f'{o.get("path")}'
 
 
 def print_entry(e, rel, root):
@@ -431,11 +377,12 @@ def print_entry(e, rel, root):
     print(f'OURS ({len(ours)} rows: our lines that handle the same thing)')
     stale = 0
     for o, st in zip(ours, _states({'ours': ours}, root)):
-        where = f'{o.get("path")}:{o.get("line")}'
+        where = _where(o, st)
         if st['state'] == 'ok':
             head = where
-        elif st['state'] == 'moved':
-            head = f'{where} moved -> {st["line"]}' + (f' ({st["why"]})' if st['why'] else '')
+        elif st['state'] == 'ambiguous':
+            stale += 1
+            head = f'!! AMBIGUOUS {where}'
         else:
             stale += 1
             head = f'!! STALE {where}'
@@ -445,6 +392,8 @@ def print_entry(e, rel, root):
         print(f'      line: {a if len(a) <= 160 else a[:157] + "..."}')
         if st['state'] == 'stale':
             print(f'      !! STALE: {st["why"]}: the row no longer says where we handle this; re-read the code and re-lodge the row')
+        elif st['state'] == 'ambiguous':
+            print(f'      !! AMBIGUOUS: {st["why"]}')
     op = e.get('open') or []
     if op:
         print(f'OPEN ({len(op)})')
@@ -454,11 +403,11 @@ def print_entry(e, rel, root):
 
 
 def check(root=None):
-    """-> [{topic, file, problems, stale, moved}] for every entry"""
+    """-> [{topic, file, problems, stale}] for every entry (an AMBIGUOUS anchor is a problem, see problems())"""
     out = []
     for t in topics(root):
         p = entry_path(t, root)
-        r = {'topic': t, 'file': _rel(p, root), 'problems': [], 'stale': [], 'moved': []}
+        r = {'topic': t, 'file': _rel(p, root), 'problems': [], 'stale': []}
         try:
             e = load(p)
         except (OSError, ValueError) as ex:
@@ -475,12 +424,8 @@ def check(root=None):
             r['problems'].append(f'the file is {t}.json but its topic is {e.get("topic")!r}')
         ours = e.get('ours') if isinstance(e, dict) and isinstance(e.get('ours'), list) else []
         for i, (o, st) in enumerate(zip(ours, _states(e, root)), 1):
-            if not isinstance(o, dict):
-                continue
-            if st['state'] == 'stale':
-                r['stale'].append(f'ours row {i} {o.get("path")}:{o.get("line")}: {st["why"]}')
-            elif st['state'] == 'moved':
-                r['moved'].append(f'ours row {i} {o.get("path")}:{o.get("line")} moved -> {st["line"]}')
+            if isinstance(o, dict) and st['state'] == 'stale':
+                r['stale'].append(f'ours row {i} {o.get("path")}: {st["why"]}')
         out.append(r)
     return out
 
@@ -494,8 +439,6 @@ def main(argv=None):
     ap.add_argument('--topic', dest='diffs_topic', default=None, help='--diffs: one topic only (as is `--diffs TOPIC`)')
     ap.add_argument('--verdict', choices=('replace', 'repeat'), default=None, help='--diffs: one verdict only')
     ap.add_argument('--files', action='store_true', help='--diffs: group by our file instead of by topic')
-    ap.add_argument('--upgrade-anchors', action='store_true', help='one-time: store each row\'s anchor context (refuses a row whose line moved)')
-    ap.add_argument('--recite', action='store_true', help='rewrite the line (and ctx) of every moved ours row; STALE rows are listed, untouched')
     ap.add_argument('--cites', default=None, metavar='FILE[:LINE]', help='which seam rows and db/claims rows cite this file (or file:line) (qseam_cites.py)')
     ap.add_argument('--all', action='store_true', help='--cites: every row (default 40)')
     ap.add_argument('--root', default=None, help='answer for another checkout (default: the one holding this tool)')
@@ -505,24 +448,10 @@ def main(argv=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qseam_cites
         return qseam_cites.run(a, root)
-    if a.diffs or a.upgrade_anchors:
+    if a.diffs:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import qseam_diff
         return qseam_diff.run(a, root)
-    if a.recite:
-        rs = recite(root)
-        n = sum(len(r['moved']) for r in rs)
-        ns = sum(len(r['stale']) for r in rs)
-        if a.json:
-            print(json.dumps({'entries': rs, 'recited': n, 'stale': ns}, indent=1))
-            return 0
-        for r in rs:
-            for i, old, new in r['moved']:
-                print(f'recited {r["topic"]} ours row {i}: line {old} -> {new}')
-            for i in r['stale']:
-                print(f'!! STALE {r["topic"]} ours row {i} left untouched (q seam {r["topic"]})')
-        print(f'seam recite: {n} rows recited, {ns} STALE rows left')
-        return 0
     if a.check:
         rs = check(root)
         n_bad = sum(1 for r in rs if r['problems'] or r['stale'])
@@ -536,8 +465,6 @@ def main(argv=None):
                 print(f'     refused: {x}')
             for x in r['stale']:
                 print(f'     !! STALE {x}')
-            for x in r['moved']:
-                print(f'     moved (not a failure; the lookup shows the line now): {x}')
         print(f'seam check: {len(rs)} entries, {n_bad} failed' + (' (exit 1)' if n_bad else ''))
         return 1 if n_bad else 0
     if not a.topic:

@@ -17,3 +17,6 @@ Write-Host 'podglass_unit --plant: the planted twin fails, as it must'
 & $exe --plant-order | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'podglass_unit --plant-order PASSED: the planted twin (the node''s alpha draws before the wrestlers'' translucent pieces) was not caught' }
 Write-Host 'podglass_unit --plant-order: the planted twin fails, as it must'
+& $exe --plant-stage-a | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 'podglass_unit --plant-stage-a PASSED: the planted twin (the late node''s alpha draws before the arena''s `a` group, S111 CHAMBERGLASS) was not caught' }
+Write-Host 'podglass_unit --plant-stage-a: the planted twin fails, as it must'

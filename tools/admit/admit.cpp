@@ -14,8 +14,11 @@
 //   admit release --pid P [--kind K] | admit status | admit selftest [--keep] [--target EXE] [--plant no_pending|no_expiry] [--only-gate]
 //   No shim mode (CQ_ADV claims 2e / c): explicit call sites only.
 //
-// S109 GATE (docs\research\s109\GATE_plan.md): an ask waits at most min(--timeout, admit.json timeout_s = 180 s), for ANY reason. At 2 s of waiting it
-// writes a `waiting` history row (a waiter its caller kills is still on record). At the bound it asks once more at a minimum of 1 worker (a grant below
+// S111 ADMITWAIT: an ask WAITS until admitted (FIFO by seniority), for ANY reason, at most admit.json timeout_s (WAIT_CAP_S = 30 min, a stuck-machine
+// stop, not a retry limit); a caller's --timeout is honoured only by the selftest (WWE_ADMIT_TEST under %TEMP%). A waiting ask prints a progress line every
+// WAIT_PROGRESS_S. A waiter whose caller dies leaves the queue (ORPHANED); a holder's slot is the OS lock on its file, so a dead holder frees it at once.
+// S109 GATE (docs\research\s109\GATE_plan.md): At 2 s of waiting it
+// writes a `waiting` history row (a waiter its caller kills is still on record). At the cap it asks once more at a minimum of 1 worker (a grant below
 // the asker's minimum = `granted N narrowed`); if not even that fits above the floor it is REFUSED: exit 75, a `refused` row, stdout `refused <line>`,
 // and one loud stderr line naming the need, the memory, every queue holder with its age, pending, and the largest committers outside the queue.
 // Nothing ever runs unadmitted after a wait (the S106 forced slot, its endless extension and --on-timeout are gone).
@@ -56,6 +59,12 @@ using std::wstring;
 static wstring g_self;                 // full path of this exe
 static volatile LONG g_child_running = 0;
 static const int EXIT_REFUSED = 75;   // not admitted within the bound (S109 GATE), or the caller is gone (orphaned): nothing ran
+// S111 ADMITWAIT: a request WAITS in the queue until admitted; there is no per-caller bound. WAIT_CAP_S only stops a wait that can never end (a holder
+// that never lets go, memory that never frees): 30 min is longer than any build the queue admits (a full game build is ~15 min), so a wait that reaches
+// it is a stuck machine and fails loud (exit 75) instead of hanging a tool for good. It is the default of admit.json timeout_s (the one place it is set).
+// Before S111 a caller's --timeout (120 s) refused a compile that only had to wait behind other lanes' pools, and every caller re-ran it by hand.
+static const double WAIT_CAP_S = 1800;
+static const double WAIT_PROGRESS_S = 60;   // a waiting ask says so every minute (the first line comes at 2 s)
 static const DWORD GLOCK_WAIT_MS = 1000;   // one try at the machine lock; a busy lock is "keep waiting", never an error
 static const long long HISTORY_CAP = 16LL << 20;   // history.tsv rotates to history.old.tsv past 16 MB (~100k rows)
 
@@ -363,7 +372,7 @@ struct Kind {
 };
 struct Config {
     std::map<string, Kind> kinds;
-    double floor_phys = 4, floor_commit = 4, window_s = 60, timeout_s = 900, starve_s = 30;
+    double floor_phys = 4, floor_commit = 4, window_s = 60, timeout_s = WAIT_CAP_S, starve_s = 30;
     string default_kind = "cc.tool";
     string mode = "observe";   // observe (decide once, log it, admit at once) | enforce (wait); env WWE_ADMIT_MODE overrides
     vector<string> warnings;   // ignored keys and dropped kinds: said on stderr, never a reason to fall open
@@ -528,6 +537,7 @@ struct Ctx {
     bool plant_no_pending = false;   // selftest planted faults: the pending window off / young-holder ages never expire
     bool plant_no_expiry = false;
     bool plant_no_tiebreak = false;  // two seniors with the same start tick: no pid tie-break (the round-3 freeze)
+    bool plant_short_wait = false;   // S111 ADMITWAIT: the pre-fix twin, an ask refused after 2 s whatever the config says (case 58 must fail on it)
     bool plant_no_outer_alone = false, plant_no_inner_alone = false;   // S106 C5F note 4: the alone pause looked at before / inside the machine lock (a plant drops one look)
     HANDLE glock = INVALID_HANDLE_VALUE;
     string cfg_err, state_err;
@@ -560,6 +570,7 @@ static bool setup(Ctx& c, const wstring& state_opt, const wstring& cfg_opt, stri
     c.plant_no_pending = c.test && plant == L"no_pending";
     c.plant_no_expiry = c.test && plant == L"no_expiry";
     c.plant_no_tiebreak = c.test && plant == L"no_tiebreak";
+    c.plant_short_wait = c.test && plant == L"short_wait";
     c.plant_no_outer_alone = c.test && (plant == L"no_outer_alone" || plant == L"no_alone_looks");
     c.plant_no_inner_alone = c.test && plant == L"no_alone_looks";
     err = !c.state_err.empty() ? c.state_err : c.cfg_err;
@@ -1338,7 +1349,7 @@ static string refusal_text(const Ctx& c, const Want& w, const Snap& s, double wa
     }
     string why = s.reason == "alone" || s.reason == "lock" ? wait_line(c, w, s).substr(17) : s.reason + (s.why.empty() ? "" : ": " + s.why);
     return fmt("REFUSED after %.0f s: %s needs %d x %.1f GB + floor %.1f (commit %d x %.1f + %.1f); available %.1f GB, commit left %.1f GB; queue holders %d%s%s "
-               "(pending %.1f GB, commit %.1f GB); largest commit on the PC: %s; reason %s. Nothing ran: report it, do not retry in a loop",
+               "(pending %.1f GB, commit %.1f GB); largest commit on the PC: %s; reason %s. Nothing ran: the queue waited its whole cap and nothing freed",
                waited, w.kind.c_str(), w.min, w.phys, c.cfg.floor_phys, w.min, w.commit, c.cfg.floor_commit, s.mem.phys, s.mem.commit, (int)s.hs.size(),
                holders.empty() ? "" : ": ", holders.c_str(), s.pend_p, s.pend_c, top_committers(c, s.hs, 3).c_str(), why.c_str());
 }
@@ -1374,7 +1385,12 @@ static void admit_wait(Ctx& c, Want& w, double timeout_s, Admission& a, const st
     w.runlock = !getenv_w(L"WWE2K14_RUNLOCK_TOKEN").empty();
     unsigned seed = (unsigned)(GetCurrentProcessId() * 2654435761u) ^ (unsigned)GetTickCount();
     auto rnd = [&seed] { seed = seed * 1103515245u + 12345u; return (double)((seed >> 8) & 0xFFFF) / 65535.0; };
-    double limit = std::max(0.0, std::min(timeout_s, c.cfg.timeout_s));   // the config caps every caller: no caller can buy a long silent wait
+    // S111 ADMITWAIT: production waits the config's cap whatever the caller passed (a caller's short --timeout was the refusal that pushed a retry onto every
+    // caller); the selftest (c.test) keeps --timeout, capped by the config, so its cases need not wait minutes. The plant is the old short bound.
+    double limit = c.test ? std::max(0.0, std::min(timeout_s, c.cfg.timeout_s)) : c.cfg.timeout_s;
+    if (c.plant_short_wait) limit = 2.0;
+    double progress_s = WAIT_PROGRESS_S;
+    if (c.test && !getenv_w(L"WWE_ADMIT_TEST_PROGRESS_S").empty()) progress_s = std::max(0.2, wcstod(getenv_w(L"WWE_ADMIT_TEST_PROGRESS_S").c_str(), nullptr));
     bool said = false, said_big = false, owner_tried = false, owner_gone = false;
     HANDLE ticket = INVALID_HANDLE_VALUE, owner = nullptr;
     unsigned long owner_pid = 0;
@@ -1412,11 +1428,11 @@ static void admit_wait(Ctx& c, Want& w, double timeout_s, Admission& a, const st
                         c.cfg.floor_phys, a.s.mem.total_phys));
         }
         if (el >= 2.0 && !said) {
-            say_err(wait_line(c, w, a.s) + fmt("; refused after %.0f s unless admitted", limit));
+            say_err(wait_line(c, w, a.s) + fmt("; fails after %.0f s unless admitted", limit));
             said = true;
             last = el;
             if (on_wait) on_wait(a);   // S109 GATE: the `waiting` row, so a waiter its caller kills is still on record
-        } else if (said && el - last >= 30.0) { say_err(wait_line(c, w, a.s)); last = el; }
+        } else if (said && el - last >= progress_s) { say_err(wait_line(c, w, a.s) + fmt("; waited %.0f s of at most %.0f s", el, limit)); last = el; }
         if (el >= limit) {
             // S109 GATE: one last ask at a minimum of 1 worker (the full rule: floor, seniors, slots); a busy machine lock is tried again for up to 5 s
             Want w1 = w;
@@ -1890,12 +1906,26 @@ static void settle_kind(const Ctx& c, Want& w) {
     say_err("[admit] warning: unknown kind '" + w.kind + "' (config " + u8(c.cfg.path) + "): using " + c.cfg.default_kind);
     w.kind = c.cfg.default_kind;
 }
+// S111 ADMITCALLERS: a caller's --timeout is the selftest's (test mode = WWE_ADMIT_TEST AND a state folder under %TEMP%, as setup decides). Anywhere else
+// the flag is refused, loudly, before anything runs or is held (exit 2, the command is NOT run): ADMITWAIT made production ignore it, and a silent ignore let a
+// caller keep (or add back) a limit it believes in. Checked before WWE_NO_ADMIT too, so the flag cannot hide behind it.
+static bool refuse_timeout_flag(const Opts& o) {
+    if (!o.kv.count(L"--timeout")) return false;
+    wstring st = opt_str(o, L"--state");
+    if (st.empty()) st = getenv_w(L"WWE_ADMIT_DIR");
+    if (st.empty()) st = default_state();
+    if (!st.empty() && env_on(L"WWE_ADMIT_TEST") && under_temp(full(st))) return false;
+    say_err("[admit] REFUSED --timeout: the queue waits until admitted (at most admit.json timeout_s) and no production caller passes a limit; "
+            "the flag exists for the selftest only (WWE_ADMIT_TEST). Remove --timeout from the caller. Nothing ran, nothing was held.");
+    return true;
+}
 static int cmd_run() {
     Opts o = parse_opts(2, {L"--kind", L"--reserve-gb", L"--reserve-commit-gb", L"--timeout", L"--state", L"--config"});
     if (!o.has_tail) {
         say_err("usage: admit run --kind K [--reserve-gb X] [--reserve-commit-gb Y] [--timeout S] -- PROGRAM ARGS...");
         return 2;
     }
+    if (refuse_timeout_flag(o)) return 2;
     string err = o.err;
     Want w;
     w.kind = u8(opt_str(o, L"--kind"));
@@ -2196,6 +2226,7 @@ static int cmd_hold() {
     bool detach = o.kv.count(L"--detach") > 0, helper = o.kv.count(L"--as-helper") > 0;
     double max_s = opt_num(o, L"--max-s", detach ? 3600 : 0, err);   // a detached hold ends after an hour at the latest (CQA review bug 8)
     double timeout_opt = opt_num(o, L"--timeout", -1, err);
+    if (refuse_timeout_flag(o)) return 2;
     if (detach && !helper) return hold_front(o, w.for_pid, w.want, w.kind);
     HistRow hr;
     hr.mode = detach ? "hold_detach" : "hold";
@@ -2343,7 +2374,7 @@ static int cmd_status() {
     setup(c, opt_str(o, L"--state"), opt_str(o, L"--config"), err);
     wstring em = getenv_w(L"WWE_ADMIT_MODE");
     say_out("admit status: mode " + c.cfg.mode + (em == L"observe" || em == L"enforce" ? " (from WWE_ADMIT_MODE)" : c.cfg.path.empty() ? " (default)" : " (from the config)") +
-            (c.cfg.mode == "observe" ? ": nothing waits or is narrowed; history logs what enforce would have done\n" : fmt(": askers wait for memory at most %.0f s, then are refused (exit 75)\n", c.cfg.timeout_s)));
+            (c.cfg.mode == "observe" ? ": nothing waits or is narrowed; history logs what enforce would have done\n" : fmt(": askers wait in the queue until admitted, at most %.0f s (a stuck machine), then fail loud (exit 75)\n", c.cfg.timeout_s)));
     // S109 GATE: staleness is judged by CONTENT (the sidecar's SHA-256 of the admit.cpp it was built from) by tools\admit\status.py, and repaired by the
     // callers (build_admit.ps1 -IfStale); a file time said STALE after a one-line label change and said nothing useful
     string stamp;
@@ -2744,7 +2775,7 @@ static void case2(ST& st) {
     long rc = run_admit(st, L"run --kind compile --timeout 2 -- cmd /c exit 0", L"c2", &e);
     auto rows = hist_rows(sd);
     c.need(rc == EXIT_REFUSED, fmt("rc %ld, want 75 (it must wait, not run)", rc));
-    c.need(e.find("[admit] waiting:") != string::npos && e.find("; refused after 2 s unless admitted") != string::npos, "no waiting line naming its bound: " + e);
+    c.need(e.find("[admit] waiting:") != string::npos && e.find("; fails after 2 s unless admitted") != string::npos, "no waiting line naming its bound: " + e);
     c.need(rows.size() == 2 && rows[0][C_OUTCOME] == "waiting" && rows[1][C_OUTCOME] == "refused", "the rows are not waiting + refused (S109 GATE)");
     set_fake(sd, "30 30");   // the same lone job with room: admitted at once
     rc = run_admit(st, L"run --kind compile --timeout 5 -- cmd /c exit 0", L"c2b", &e);
@@ -4002,6 +4033,63 @@ static void case51(ST& st) {
     c.info = e.substr(0, 160);
     report(st, c);
 }
+// S111 ADMITWAIT: a request WAITS until admitted. The config's cap is 600 s and the ask carries no --timeout: B must still be waiting after 5 s (the planted
+// twin, refused at 2 s, is gone by then), keep printing progress lines, leave the queue when ITS caller dies (C: no ticket left), and run once A, which holds
+// the only slot, is killed (a dead holder frees its slot at once: the OS lock, no reaping to wait for).
+static void case58(ST& st) {
+    Case c{"58 (S111 ADMITWAIT) a request waits in the queue until admitted (no short bound refuses it), prints progress, a dead waiter leaves and a dead holder frees its slot"};
+    wstring sd = set_case(st, L"c58", 1, 60, 600, "100 100");
+    WJ a = wait_job(st, L"c58a", L"run --kind compile");
+    c.need(signalled(a.started, LONG_MS), "A never started");
+    SetEnvironmentVariableW(L"WWE_ADMIT_TEST_PROGRESS_S", L"1");
+    WJ b = wait_job(st, L"c58b", L"run --kind compile");
+    WJ d = wait_job(st, L"c58c", L"run --kind compile");
+    SetEnvironmentVariableW(L"WWE_ADMIT_TEST_PROGRESS_S", nullptr);
+    c.need(wait_text_or(b.err, "[admit] waiting:", b.started, LONG_MS) == 1, "B never said it waits");
+    c.need(wait_text_or(d.err, "[admit] waiting:", d.started, LONG_MS) == 1, "C never said it waits");
+    wstring tk = join(join(sd, L"waiters"), wnum(d.p.pid) + L".ticket");
+    c.need(is_file(tk), "C (waiting) has no ticket in the queue");
+    TerminateProcess(d.p.h, 1);   // C's caller dies: its ticket must go with it
+    wait_exit(d.p, LONG_MS);
+    c.need(!is_file(tk), "C was killed but its ticket is still in the queue");
+    Sleep(5000);   // a 2 s bound (the planted twin) has refused B by now
+    c.need(WaitForSingleObject(b.p.h, 0) == WAIT_TIMEOUT && WaitForSingleObject(b.started, 0) != WAIT_OBJECT_0, "B ended or ran while A still held the only slot: it did not wait");
+    string e = slurp(b.err);
+    c.need(count_of(e, "[admit] waiting:") >= 3, fmt("B printed %d waiting / progress lines in 7 s, want 3 or more: %s", count_of(e, "[admit] waiting:"), e.c_str()));
+    c.need(e.find("REFUSED") == string::npos, "B was refused while it only had to wait: " + e);
+    TerminateProcess(a.p.h, 1);   // the holder dies without releasing
+    c.need(signalled(b.started, LONG_MS), "B was not admitted after the holder died");
+    wait_exit(a.p, LONG_MS);
+    CloseHandle(a.started);
+    CloseHandle(a.go);
+    CloseHandle(d.started);
+    CloseHandle(d.go);
+    finish(b);
+    auto rows = hist_rows(sd);
+    c.need(has_row(rows, C_OUTCOME, "admitted") && !has_row(rows, C_OUTCOME, "refused"), "history: B was not admitted, or a refusal was written");
+    report(st, c);
+}
+static void case59(ST& st) {
+    Case c{"59 (S111 ADMITCALLERS) a --timeout outside test mode is REFUSED loudly (run and hold, exit 2, nothing runs, nothing held); inside test mode it is honoured"};
+    set_case(st, L"c59", 4, 60, 600, "100 100");
+    wstring touched = join(st.root, L"c59_touched");
+    SetEnvironmentVariableW(L"WWE_ADMIT_TEST", nullptr);   // production: no test mode (the state folder is under %TEMP% all the same)
+    string e1, e2, e3;
+    long rc1 = run_admit(st, L"run --kind compile --timeout 5 -- " + q(g_self) + L" __touch " + q(touched), L"c59a", &e1);
+    long rc2 = run_admit(st, L"hold --kind compile --want 1 --min 1 --timeout 5 --pid " + wnum(GetCurrentProcessId()) + L" --detach", L"c59b", &e2);
+    long rc3 = run_admit(st, L"run --kind compile -- cmd /c exit 0", L"c59c", &e3);   // no --timeout: admitted as always
+    SetEnvironmentVariableW(L"WWE_ADMIT_TEST", L"1");
+    c.need(rc1 == 2 && e1.find("[admit] REFUSED --timeout") != string::npos, fmt("run --timeout: rc %ld, want 2 and the REFUSED line: ", rc1) + e1);
+    c.need(!is_file(touched), "a run refused for --timeout started the command");
+    c.need(rc2 == 2 && e2.find("[admit] REFUSED --timeout") != string::npos, fmt("hold --timeout: rc %ld, want 2 and the REFUSED line: ", rc2) + e2);
+    c.need(rc3 == 0, fmt("a run without --timeout: rc %ld, want 0: ", rc3) + e3);
+    string e4;
+    long rc4 = run_admit(st, L"run --kind compile --timeout 5 -- cmd /c exit 0", L"c59d", &e4);   // test mode: the selftest's own use
+    c.need(rc4 == 0 && e4.find("REFUSED --timeout") == string::npos, fmt("--timeout in test mode: rc %ld, want 0: ", rc4) + e4);
+    c.info = first_line(e1);
+    report(st, c);
+}
+// S109 GATE: the config caps every caller's limit: --timeout 900 with timeout_s 2 is refused at about 2 s (no caller can buy a long silent wait)
 // S109 GATE: the config caps every caller's limit: --timeout 900 with timeout_s 2 is refused at about 2 s (no caller can buy a long silent wait)
 static void case55(ST& st) {
     Case c{"55 the config's timeout_s caps the caller: --timeout 900 against timeout_s 2 is refused in about 2 s, not 900"};
@@ -4258,6 +4346,8 @@ static void run_new_cases(ST& st) {
     case55(st);
     case56(st);
     case57(st);
+    case58(st);
+    case59(st);
 }
 // S109 GATE: the cases of the bounded wait and the refusal (`--only-gate`; with `--target <pre-GATE exe>` every one of them fails: the planted twin)
 static void run_gate_cases(ST& st) {
@@ -4273,6 +4363,8 @@ static void run_gate_cases(ST& st) {
     case55(st);
     case56(st);
     case57(st);
+    case58(st);
+    case59(st);
 }
 static void case_overhead(ST& st) {
     Case c{"overhead: admit run -- cmd /c exit 0 vs cmd /c exit 0, median of 50 each (bar 30 ms, judged only when the CPU was under 50 % busy)"};

@@ -13,7 +13,7 @@ using namespace rdr_scene;
 
 namespace {
 // One kept fragment block holding only SpecCubPrm3, drawn with the materials in `order` through the real Diff / Refresh (the material stamp h[5]
-// differs per material, as front_end.cpp:2924 stamps it). `old_white`: the twin resolver. Returns the draws whose c144 is not their material's spec_col.
+// differs per material, as front_end.cpp stamps it). `old_white`: the twin resolver. Returns the draws whose c144 is not their material's spec_col.
 int Run(const assets::Material* const* order, int n, uint32_t mask, bool old_white, const char* label, bool verbose) {
   assets::LightSet ls;
   DrawLists L(1);

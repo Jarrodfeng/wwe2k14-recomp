@@ -7,12 +7,15 @@
 //   - sub_8283B118(r3 = the row table R, r4 = the slot index, r5 = the text id) fills one filled row every frame (R+4 =
 //     the table's capacity, 20; the main menu fills 9 slots: 8 rows in the panel and one below it for the scroll); it
 //     sets the text through the label element's method sub_82B53068(r3 = the element), called from inside it.
-//   - The element's world matrix is at +704..+767: the translation (the row box's centre, in the game's 1280 x 720
+//   - The element's world matrix is at +720..+783 (sub_82B42DC0; +704 is a separate 0/1 word set by sub_82B07808: S111
+//     MENUFIX13 W7): the translation (the row box's centre, in the game's 1280 x 720
 //     screen: the layout root is 1280 x 720) at +768 / +772; the drawn box size at +448 / +452 (295.8 x 24 in the main
 //     menu; +416.. is its scale, 1). Checked against a screenshot: every row's centre y within 1 px, the box's left
 //     edge 3 px left of the text.
-//   - The SmartMenu ([0x8392945C]): the cursor (item index) at +352, the scroll (the item in slot 0) at +1388 (0 at the
-//     top of the main menu, 1 with QUIT TO DESKTOP highlighted; the slots then hold items 1-8).
+//   - The SmartMenu ([0x8392945C]): the cursor (item index) at +352, the scroll (the item in slot 0) in the live list
+//     context's record (src\menu_scroll.h ListScroll: SM + 1388 + 5292 * [SM+268], sub_8283EAD8; S111 MOUSESCROLL: +1388
+//     alone is context 0's, wrong whenever context 1 is live) (0 at the top of the main menu, 1 with QUIT
+//     TO DESKTOP highlighted; the slots then hold items 1-8).
 // So the item under the mouse = scroll + the slot whose box holds it. The mouse moves the game's own cursor there, only
 // when it moves onto another item (a still mouse never fights the pad): a jump of more than one row puts the cursor on
 // the target's neighbour and one UP / DOWN press lets the game's own move land on the target (its sound, highlight,
@@ -49,6 +52,7 @@
 #include "frame_stats.h"   // g_guest_frame (VdSwap count)
 #include "guest_read.h"    // GuestWordReadableFast
 #include "input_script.h"  // g_mouse_pad_filter
+#include "menu_scroll.h"   // S111 MOUSESCROLL: ListScroll (the live context's list scroll)
 #include "music_picker_ui.h"  // lane 292: PickerIsOpen
 
 REXCVAR_DECLARE(bool, wwe2k14_mouse_menus);
@@ -61,7 +65,7 @@ constexpr uint32_t kSmartMenuPtr = 0x8392945C;
 constexpr uint32_t kMessageManagerPtr = 0x839294BC, kMessageStateOffset = 16;
 // The sequence manager: [[0x839400F8]+0]+48 = the current sequence id, 9 = in game (docs\systems\menu_ui.md).
 constexpr uint32_t kSequenceManagerPtr = 0x839400F8, kSequenceIdOffset = 48, kSequenceInGame = 9;
-constexpr uint32_t kCursorOffset = 352, kScrollOffset = 1388, kMenuOffset = 364;
+constexpr uint32_t kCursorOffset = 352, kMenuOffset = 364;  // the scroll: ListScroll below (src\menu_scroll.h)
 constexpr uint32_t kElemX = 768, kElemY = 772, kElemW = 448, kElemH = 452;
 // The panel shows 8 rows: the main menu's 9th item (QUIT TO DESKTOP) sits in a slot below it and the list scrolls
 // after the 8th (run 042); CREATIONS shows 8 of its 9 items the same way (Session 27 screenshots).
@@ -129,6 +133,10 @@ inline float ReadF(uint32_t a) {
   return f;
 }
 inline uint32_t SmartMenu() { return Read32(kSmartMenuPtr); }
+// The open list's scroll (the item in the panel's first row) in the live context; false when the context word is not 0 / 1.
+inline bool ListScroll(uint32_t sm, int& scroll) {
+  return menu_scroll::ListScroll(sm, [](uint32_t a) { return Read32(a); }, scroll);
+}
 inline bool ListUp() { return S().seen_ms.load() && NowMs() - S().seen_ms.load() < 150; }
 
 // In a match (Jarrod, Session 67: "we shouldn't use any mouse controls in matches"). The SmartMenu does not exist
@@ -201,10 +209,12 @@ inline void OnMenuFrame(uint64_t frame) {
       // A jump costs one press instead of one per row.
       int from = cursor;
       if (target - cursor > 1 || cursor - target > 1) {
-        const int scroll = int(Read32(sm + kScrollOffset));
+        int scroll = 0;
         from = target > cursor ? target - 1 : target + 1;
-        if (from < scroll) from = target + 1;
-        if (from >= scroll + kPanelRows) from = target - 1;
+        if (ListScroll(sm, scroll)) {  // (no live context: the plain neighbour)
+          if (from < scroll) from = target + 1;
+          if (from >= scroll + kPanelRows) from = target - 1;
+        }
         rex::memory::store_and_swap<uint32_t>(Guest(sm + kCursorOffset), uint32_t(from));
       }
       press = target > from ? kPadDown : kPadUp;
@@ -293,7 +303,10 @@ inline int ItemAt(int32_t x, int32_t y, uint32_t& menu) {
   std::lock_guard lock(s.mutex);
   for (int i = 0; i < s.rows_visible; ++i) {
     const Box& b = s.rows[size_t(i)];
-    if (b.set && ux >= b.x0 && ux < b.x1 && uy >= b.y0 && uy < b.y1) return int(Read32(sm + kScrollOffset)) + i;
+    if (b.set && ux >= b.x0 && ux < b.x1 && uy >= b.y0 && uy < b.y1) {
+      int scroll = 0;
+      return ListScroll(sm, scroll) ? scroll + i : -1;
+    }
   }
   return -1;
 }

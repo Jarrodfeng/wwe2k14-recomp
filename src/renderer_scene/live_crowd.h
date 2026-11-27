@@ -84,6 +84,7 @@ struct LiveCrowdOptions {
   bool fault_props_wrong_key = false;   // every prop takes the OTHER kind's default mesh
   bool fault_props_cull_front = false;  // S103 SGF: the props' winding reversed (back-face culling then drops the FRONT faces): the planted twin of the cull rule
   bool fault_props_two_sided = false;   // S103 SG: the pre-SG rule (props drawn two-sided; the game culls back faces)
+  bool fault_cards_two_sided = false;   // S111 CARDCULL: the pre-CARDCULL rule (far cards drawn two-sided; the game culls back faces)
   bool skip_in_place_props = false;     // S103 SG2: rows flagged kCpfInPlace (the stream draws them in place this frame) are counted (props_in_place), not drawn: ON only for a live frame, OFF for the mirror / fview / rigs
   bool fault_in_place_drawn_live = false;   // S103 SG2 planted twin: the skip is ignored (a live frame draws every sign twice)
   bool no_props = false, no_singles = false;   // left out

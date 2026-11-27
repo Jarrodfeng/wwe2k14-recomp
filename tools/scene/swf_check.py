@@ -192,6 +192,19 @@ def main():
     print('%s  BLOOD map: R written, G / B untouched (%s)' % ('PASS' if ok else 'FAIL', mb))
     if not ok:
         fails.append('blood map content')
+    # S111 LIQUID4BIT: the game's map texture is k_4_4_4_4 (sub_82799890) and every frame's rects are resolved into it, so every texel of R, G, B is n x 17 / 255 (n / 15). The planted twin is the 8-bit store
+    # (the code before LIQUID4BIT, or the copy_prev_q4 pass left out): faint texels off the lattice.
+    def off_lattice(name):
+        p = glob.glob(os.path.join(a.out, name, '**', 'ours_%d_map_liquid.png' % a.frame), recursive=True)
+        if not p:
+            return None
+        m = np.asarray(Image.open(p[0]).convert('RGBA')).astype(int)
+        return int(((m[..., :3] % 17) != 0).sum())
+    lat = [off_lattice(n) for n in ('sweat', 'blood')]
+    ok = all(x == 0 for x in lat)
+    print('%s  4-BIT STORE: map channel values off the 16-step lattice (n x 17) in the sweat / blood maps: %s' % ('PASS' if ok else 'FAIL', lat))
+    if not ok:
+        fails.append('map not on the 4-bit lattice')
     ok = nsb >= 20
     print('%s  SWEAT vs BLOOD: the two states differ (%d pixels)' % ('PASS' if ok else 'FAIL', nsb))
     if not ok:

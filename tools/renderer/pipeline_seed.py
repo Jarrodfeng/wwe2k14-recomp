@@ -44,6 +44,8 @@ def decode_list(path):
     payload = int.from_bytes(d[16:20], 'little')
     if count * RECORD != payload or len(d) != HEADER + payload:
         raise ValueError('%s: size does not match its record count' % path)
+    if (int.from_bytes(d[28:32], 'little') >> 24) & 0xF:   # S111 DYNSTATE: pipeline_store.h LimitsWord: the dynamic-state set the keys were made under
+        raise ValueError('%s: its keys were made with per-draw (dynamic) state, so blend / depth / cull are not in them; the seed needs full states: record the list with --wwe2k14_rdr_dynamic_state=0 (run_list.ps1 -HarvestPipelines adds it; frame_rig does it for a store)' % path)
     return [d[HEADER + i * RECORD:HEADER + (i + 1) * RECORD] for i in range(count)]
 
 
@@ -220,7 +222,7 @@ def check_text(text, catalog, version, stages=None, minimum=0):
             if h == 0 and what == 'fragment':
                 continue
             if h not in catalog:
-                bad.append('line %d: %s hash %016x is not in the shader catalog (a stale seed)' % (no, what, h))
+                bad.append('line %d: %s hash %016x is not in the shader catalog (a stale seed: tools\\renderer\\pseed_rekey.py moves it when only the shader\'s words changed)' % (no, what, h))
             elif stages is not None and h in stages and stage not in stages[h]:
                 bad.append('line %d: %s hash %016x is a %s blob in the catalog (a swapped or mis-merged record)' % (no, what, h, '/'.join(sorted(stages[h]))))
         recs.append(r)

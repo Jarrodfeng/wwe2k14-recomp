@@ -32,7 +32,7 @@ constexpr uint32_t kGamePtr = 0x8376AAF0;     // [[this]+0] = the active profile
 constexpr uint32_t kGotoLr = 0x82842CD4;     // the return address of sub_82842C08's call of sub_828426D0 (listing .182.cpp:10614)
 
 // Flow table, R = sub_8293EAE8(holder, 0) ([holder+20] else [holder+16]), T = R + 4. T+0 record count, T+4 POINTER to the
-// 76-byte record array (sub_83424808 +0 `lwz r7,4(r3)` then [T+4] + i*76; sub_834247B8 the same; src\gfx_menu.h:666), T+8 the
+// 76-byte record array (sub_83424808 +0 `lwz r7,4(r3)` then [T+4] + i*76; sub_834247B8 the same; src\gfx_menu.h), T+8 the
 // inline default record a failed lookup returns, T+84 index entry count (= [R+88]), T+88 POINTER to the 12-byte index
 // {first record u32, record count u16 at +4 (lhz)} by menu id.
 constexpr uint32_t kTabRecArray = 4, kTabIdxCount = 84, kTabIdxArray = 88, kIdxStride = 12;

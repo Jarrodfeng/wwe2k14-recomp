@@ -368,12 +368,12 @@ def moments_section(S, tmp, generated):
          '# recipe: the request\'s own director lines'),
         ('the request\'s own verbs: no default recipe', base + 'at bell+120f : passive 1 on // at pin : screenshot p',
          L + ['wait_frames 120', 'passive 1 on', 'wait_event pin 72000 until finish', 'screenshot p'], [pin], '# recipe: the request\'s own'),
-        # review: a director verb before the bell answers busy and is retried for only 1800 frames (src\situation_director.h:130, :203), so the
+        # review: a director verb before the bell answers busy and is retried for only 1800 frames (src\situation_director.h), so the
         # recipe waits for the bell first, never placed during the entrances
         ('an entrance first: the bell wait, then the recipe', 'scene Cena vs Lesnar // at entrance:0:1 : screenshot e // at pin : screenshot p',
          ['wait_file INGAMELUA.PAC 1800', 'log bench: match launched', 'wait_state entrance_step_0 >=1 3600 2', 'screenshot e', 'wait_state match_clock >0 30000']
          + R0 + ['wait_event pin 72000 until finish', 'screenshot p'], [pin], '# recipe: momentum 0 100'),
-        # review: a Rumble's eliminated line prints "n" before "slot" (src\event_bus_rumble.h:142): the slot is the wait's filter, not the expect's text
+        # review: a Rumble's eliminated line prints "n" before "slot" (src\event_bus_rumble.h): the slot is the wait's filter, not the expect's text
         ('eliminated by slot: the expect is the head only', 'scene #139 vs #343 vs #324 vs #161; type=34; entrances=off // at eliminated:slot=1 : screenshot e',
          L + ['wait_event eliminated slot=1 72000 until finish', 'screenshot e'], ['"kind": "match", "what": "eliminated"'], '# recipe: none'),
         ('the bell then a pin: the recipe right after the bell wait', base + 'at bell+300f : screenshot b // at pin : screenshot p',
@@ -734,7 +734,7 @@ def main(argv):
             check('game side: ' + name, ok)
 
         # ---- SCENE review twins (each fails on the builder's 767b9e4cd)
-        try:   # lightsout is a dev verb, not a blood verb (src\situation_director_core.h:119-123, input_script.h:1370)
+        try:   # lightsout is a dev verb, not a blood verb (src\situation_director_core.h, input_script.h)
             S.lower('scene Cena vs Lesnar\nat bell: lightsout 0')
             check('lightsout without blood=on is served', True)
         except S.Refused as x:

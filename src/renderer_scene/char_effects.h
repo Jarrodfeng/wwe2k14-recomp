@@ -118,6 +118,7 @@ struct CharCtx {
   const assets::LightSet* lights = nullptr;
   const float* view_proj = nullptr;   // the frame's view-projection, viewer space (16 floats, row vectors)
   const float* eye = nullptr;         // the camera, viewer space
+  const float* view = nullptr;        // S111 VIEWROWS review: the record's own world -> view (16 floats, row vectors, the record's space like view_proj); null = the record holds only the combined matrix (kCamViewIsViewProj)
   const assets::Matrix* bones = nullptr;  // final matrices of palette slots 0..bone_count-1 (viewer space, row vectors, world included)
   uint32_t bone_count = 0;
   float alpha = 1.f;                  // object alpha

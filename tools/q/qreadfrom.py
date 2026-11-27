@@ -16,6 +16,14 @@ cheap sheet-readers (.claude/agents/sheet-reader.md) before narrow probes settle
   --match   W1,W2: the precision proxy, how many reached units' stored readings mention one of the words.
   library   a unit is cut (not listed, not walked through) when its functions are called from more than --k (default 25) distinct units
             OUTSIDE the units reached so far: memcpy, the allocator, the draw submit. The cut is a heuristic and is printed by unit name.
+  middleware (--middleware on|off, default on) a qlib Havok unit (how = strings) is cut like a library unit when its OWN functions
+            carry the evidence: at least half of them reference a Havok string, carry a Havok game name or sit in a Havok RTTI class's
+            vtable, and none has a db name that is not Havok's (middleware_units). qlib's label alone rests on one hit anywhere in the
+            unit (unit 100, the CAE screen's unit: one hkMultipleVertexBuffer slot among 150 functions). The report prints
+            `cut as middleware: N units`.
+  path      every sheet's second line: `reached: depth D from sub_SEED via sub_PARENT (unit U)` (entries: `reached: depth 0 (entry)`); a unit
+            first reached through a class slot ends `(unit U; class slot: sub_PARENT builds the table that holds it)`: that parent does not
+            call it and sits at the same depth (cae entries: 118 of 305 non-entry units).
   output    sheets for units with no stored reading (DIR/<unit>.txt) and batch.txt in reach order (entries first); with --with-read one
             line per already-read unit with its stored purpose. --count writes nothing.
   --recall  a db/*.json file: how many of its functions the reached set holds, and for each miss the reason.
@@ -36,7 +44,7 @@ LIB_K = 25
 SLOT_K = 2
 
 
-def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all', cls=None):
+def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all', cls=None, mw=None, why=None):
     """seeds [func]; out {func: iterable of callee funcs} (all edge sources merged); uof {func: unit}; ucallers {unit: set(caller units)};
     members {unit: [func]}. k None = no library cut (the twin the selftest must see fail).
     cls {func: [slot func]} (S111 SYSPICK2): a function that builds the address of a table (a constructed class) brings every slot function
@@ -45,8 +53,17 @@ def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all'
     expand: 'all' = a unit that joins the reach brings ALL its functions into the walk (a unit is one source file's run of functions: its
     methods, dtor and update are called through vtables the index does not see); 'seed' = only the entry units do; 'none' = only the
     called function walks on (S111 SYSPICK measured on the CAC title editor: recall 41 / 19 / 7 of 51).
-    -> dict(units [(unit, depth)] in reach order, funcs {func: depth}, cut [unit] in cut order)"""
+    -> dict(units [(unit, depth)] in reach order, funcs {func: depth}, cut [unit] in cut order, via {unit: (parent func, seed func)} the BFS
+    parent that first added the unit and the entry its path started at; (None, seed) for an entry unit (S111 PICKPATH), middleware [unit]).
+    mw: a set of units that are third-party middleware (Havok: middleware_units): such a unit is cut like a library unit (not listed, not
+    walked through) unless it is an entry; None = no middleware cut (the twin the selftest must see fail).
+    why (S111 GATEPICK): {seed func: text} for seeds that are not plain entries (callers of a gate); the first seed of a unit that has a text
+    labels the unit in the result's 'why' {unit: text} (reached_line says `reached: TEXT`)."""
+    middleware = []
+    whyu = {}
     funcs = {}
+    seedof = {}                # {func: the entry function its path started at}
+    via = {}
     units = []                 # [(unit, depth)]
     inreach = set()
     cut = []
@@ -56,34 +73,42 @@ def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all'
     frontier = []
     clsq = []
 
-    def add(x, d, slot=False):
+    def add(x, d, slot=False, sd=None):
         """slot: x came in as a class slot: its own tables are NOT followed at this depth (that closure would take in every
         class the slot's unit-siblings build); they are followed when the walk reaches the function that builds them by a call"""
         if x not in funcs:
             funcs[x] = d
+            seedof[x] = x if sd is None else sd
             frontier.append(x)
             if cls and not slot:
                 clsq.append(x)
 
-    def join(u, d, f, slot=False):
-        """unit u enters the reach at depth d through function f"""
+    def join(u, d, f, slot=False, src=None):
+        """unit u enters the reach at depth d through function f (called from src; None for an entry)"""
         inreach.add(u)
         units.append((u, d))
+        sd = seedof.get(src, f) if src is not None else f
+        via[u] = (src, sd)
         if slot and expand == 'all':
             partial.add(u)
         for x in (sorted(members.get(u, ())) if (not slot and (expand == 'all' or (expand == 'seed' and d == 0))) else [f]):
-            add(x, d, slot)
+            add(x, d, slot, sd)
 
-    def visit(c, d, slot=False):
+    def visit(c, d, slot=False, src=None):
         u = uof.get(c)
         if u is None or u in cutset:
             return
+        sd = seedof.get(src) if src is not None else None
         if u in inreach:
             if not slot and u in partial:        # entered by one slot function only: a call brings the whole unit in
                 partial.discard(u)
                 for x in sorted(members.get(u, ())):
-                    add(x, d)
-            add(c, d, slot)
+                    add(x, d, False, sd)
+            add(c, d, slot, sd)
+            return
+        if mw and u in mw:
+            cutset.add(u)
+            middleware.append(u)
             return
         if k is not None and len(ucallers.get(u, set()) - inreach) > k:
             cutset.add(u)
@@ -91,15 +116,17 @@ def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all'
             return
         if slot:
             viaclass.append(u)
-        join(u, d, c, slot)
+        join(u, d, c, slot, src)
 
     def drain(d):
         while clsq:
             f = clsq.pop()
             for s in cls.get(f, ()):
-                visit(s, d, True)
+                visit(s, d, True, f)
     for f in seeds:
         u = uof.get(f)
+        if why and f in why and u is not None and u not in inreach:
+            whyu[u] = why[f]
         if u is not None and u not in inreach:
             join(u, 0, f)
         else:
@@ -110,12 +137,82 @@ def reach(seeds, out, uof, ucallers, members, depth=DEPTH, k=LIB_K, expand='all'
         cur, frontier[:] = list(frontier), []
         for f in cur:
             for c in sorted(out.get(f, ())):
-                visit(c, d)
+                visit(c, d, False, f)
         if cls:
             drain(d)
         if not frontier:
             break
-    return dict(units=units, funcs=funcs, cut=cut, viaclass=viaclass)
+    return dict(units=units, funcs=funcs, cut=cut, viaclass=viaclass, via=via, middleware=middleware, why=whyu)
+
+
+def reached_line(res, uof, u, d):
+    """the second line of a sheet: how the unit was reached (S111 PICKPATH). A unit first reached through a class slot (res['viaclass'])
+    has as parent the function that BUILDS the table holding the slot, at the same depth, not a caller: the line says so."""
+    p, sd = res['via'].get(u, (None, None))
+    if p is None:
+        return ('reached: ' + res['why'][u]) if u in res.get('why', ()) else 'reached: depth %d (entry)' % d
+    return 'reached: depth %d from sub_%08X via sub_%08X (unit %s%s)' % (
+        d, sd, p, uof.get(p, '?'), ('; class slot: sub_%08X builds the table that holds it' % p) if u in res.get('viaclass', ()) else '')
+
+
+def with_reached(text, line):
+    """a sheet with the reach line as its second line (line 1 stays byte-identical)"""
+    head, _nl, tail = text.partition('\n')
+    return head + '\n' + line + '\n' + tail
+
+
+def via_text(res, u, d):
+    """'depth D via sub_PARENT' (a bundle heading) or 'depth 0 (entry)'"""
+    p, _sd = res['via'].get(u, (None, None))
+    if p is None and u in res.get('why', ()):
+        return res['why'][u]
+    return 'depth %d (entry)' % d if p is None else 'depth %d via sub_%08X%s' % (d, p, ' (class slot)' if u in res.get('viaclass', ()) else '')
+
+
+def caller_seeds(g, gates):
+    """S111 GATEPICK: -> ([func] seeds, {func: text}): per gate the gate itself, then every function that CALLS it (index.db call / tail, observed
+    and static indirect: g.inn holds all three sources), sorted. Not a walk: the callers' own bodies are the seeds."""
+    seeds, why = [], {}
+    for gt in gates:
+        for f in [gt] + sorted(g.inn.get(gt, ())):
+            if f not in why:
+                why[f] = ('caller of sub_%08X' % gt) if f != gt else ('the gate sub_%08X' % gt)
+                seeds.append(f)
+    return seeds, why
+
+
+def reach_set(entries, depth=DEPTH, k=LIB_K, classes='on', expand='all', slot_k=SLOT_K, ctx=None, middleware='on', callers_of=()):
+    """the real index's reach of entries [func] -> (ctx, graph, entries (owners; with callers_of: + the gates and their callers), result)"""
+    import qsheet
+    ctx = ctx or qsheet.Ctx()
+    g = load_graph(ctx)
+    g.expand = expand
+    if g.expand not in ('all', 'seed', 'none'):
+        raise ValueError('--expand is one of: all seed none')
+    entries = list(entries)
+    for i, a in enumerate(entries):          # an address inside a function: its owner
+        if a not in g.uof:
+            import qnames
+            o = qnames.owner(ctx.ix, a)
+            if o in g.uof:
+                entries[i] = o
+    g.cls = load_classes(ctx.ix, slot_k)
+    if classes not in ('on', 'off'):
+        raise ValueError('--classes is on or off')
+    g.use_cls = classes != 'off'
+    if middleware not in ('on', 'off'):
+        raise ValueError('--middleware is on or off')
+    g.mw = load_middleware(ctx) if middleware == 'on' else None
+    g.why = None
+    if callers_of:
+        gates = list(callers_of)
+        for i, a in enumerate(gates):
+            if a not in g.uof and a not in g.inn:
+                import qnames
+                gates[i] = qnames.owner(ctx.ix, a) or a
+        seeds, g.why = caller_seeds(g, gates)
+        entries = entries + [f for f in seeds if f not in entries]
+    return ctx, g, entries, run(g, entries, depth, k)
 
 
 class Graph:
@@ -125,6 +222,8 @@ class Graph:
         self.cls = {}          # {func: [slot func]} constructed classes (see reach)
         self.use_cls = True
         self.inn = {}          # {func: set(caller func)}, only for the report of units cut by direction
+        self.mw = None         # {unit} of middleware (Havok) cut from the walk, see reach
+        self.why = None        # {seed func: text} callers of a gate (see reach)
 
 
 def make_graph(edges, uof):
@@ -196,7 +295,57 @@ def load_graph(ctx):
 
 
 def run(g, entries, depth=DEPTH, k=LIB_K):
-    return reach(entries, g.out, g.uof, g.ucallers, g.members, depth, k, g.expand, g.cls if g.use_cls else None)
+    return reach(entries, g.out, g.uof, g.ucallers, g.members, depth, k, g.expand, g.cls if g.use_cls else None, g.mw, g.why)
+
+
+def middleware_units(cand, members, fev, dbn):
+    """cand {unit} qlib Havok `strings` units; members {unit: [func]}; fev {func} the functions with Havok evidence of their OWN (a string
+    they reference, a game-carried name, the RTTI class of a vtable holding them); dbn {func: db name} (db/*.json, medium / high).
+    -> {unit}: the units of cand where at least half the functions are in fev and no function has a db name that does not name Havok
+    (qlib.db_name_ok). qlib's label rests on one hit anywhere in the unit (S111 PICKPATH review on the cae / moveset / rumble entries:
+    unit 100 the CAE screen's unit, 4601, 7261 (a `wepn` fourcc), 4610 (CGameHavokAction / CGameHavokUpdate strings) were each labelled
+    by 1 to 5 functions among 34-150)."""
+    import qlib
+    out = set()
+    for u in cand:
+        fs = members.get(u, ())
+        if not fs or 2 * sum(1 for f in fs if f in fev) < len(fs):
+            continue
+        if any(f in dbn and not qlib.db_name_ok(dbn[f], 'Havok') for f in fs):
+            continue
+        out.add(u)
+    return out
+
+
+def load_middleware(ctx):
+    """{unit} of Havok middleware for the walk: the qlib Havok units (how = strings; the `range` guess is not used) that middleware_units
+    keeps, from the same evidence qlib reads (index.db strrefs + strings, names.s2.db, RTTI vtables) taken per function"""
+    import qlib
+    import qnames
+    c = qlib.open_lib()
+    try:
+        cand = {u for (u,) in c.execute("select unit_id from lib_unit where lib='Havok' and how='strings'")}
+    finally:
+        c.close()
+    members = collections.defaultdict(list)
+    for f, u in ctx.units.execute('select func,unit_id from units'):
+        if u in cand:
+            members[u].append(f)
+    funcs = {f for fs in members.values() for f in fs}
+
+    def havok(t):
+        return 'Havok' in qlib.libs_of(t)
+    fev = {f for f, t in ctx.ix.execute('select r.func,s.text from strrefs r join strings s on s.addr=r.addr') if f in funcs and havok(t)}
+    nm = qlib.ro(qnames.NAMES_DB)
+    try:
+        fev |= {f for f, n, src in nm.execute('select func,name,source from names') if f in funcs and src not in qlib.GAME_SRC and havok(n)}
+    finally:
+        nm.close()
+    if ctx.ix.execute("select 1 from sqlite_master where name='rtti_vtable'").fetchone():
+        for vt, ns, name in ctx.ix.execute('select v.vt,v.nslots,c.name from rtti_vtable v join rtti_class c on c.td=v.td').fetchall():
+            if name and havok(name):
+                fev |= {v for (v,) in ctx.ix.execute("select value from ptrs where at>=? and at<? and kind='func'", (vt, vt + 4 * ns)) if v in funcs}
+    return middleware_units(cand, members, fev, qlib.db_names())
 
 
 def parse_entries(text):
@@ -209,7 +358,7 @@ def parse_entries(text):
             raise ValueError('entry %r is not a function address (0x82866D80)' % w)
         ents.append(int(m.group(1), 16))
     if not ents:
-        raise ValueError('--from needs at least one entry address')
+        raise ValueError('--from / --callers-of needs at least one function address')
     return ents
 
 
@@ -222,8 +371,18 @@ def miss_reason(g, entries, f, depth, k):
         return 'depth: reached at depth %d' % deep['funcs'][f]
     if g.uof[f] in deep['cut']:
         return 'library cut: unit %d is called from > %d units outside the reach' % (g.uof[f], k)
+    if g.uof[f] in deep.get('middleware', ()):
+        return 'middleware cut: unit %d is labelled Havok by its own evidence (q lib %d; --middleware off walks it)' % (g.uof[f], g.uof[f])
     if k is not None and f in run(g, entries, 12, None)['funcs']:
         return 'library cut: only reachable through a unit cut as library'
+    if g.mw:
+        mw, g.mw = g.mw, None
+        try:
+            behind = f in run(g, entries, 12, k)['funcs']
+        finally:
+            g.mw = mw
+        if behind:
+            return 'middleware cut: only reachable through a unit cut as middleware (--middleware off reaches it)'
     if g.expand != 'all':
         return 'not called from a walked function (its unit is not in the reach; try --expand all)'
     return 'no call path in the index (an indirect call neither observed nor resolved)'
@@ -281,26 +440,12 @@ def main(rest):
 
     def opt(flag, default=None):
         return rest[rest.index(flag) + 1] if flag in rest and rest.index(flag) + 1 < len(rest) else default
-    entries = parse_entries(opt('--from', ''))
-    depth = int(opt('--depth', DEPTH))
+    gates = parse_entries(opt('--callers-of')) if '--callers-of' in rest else []
+    entries = parse_entries(opt('--from')) if '--from' in rest else []
+    depth = int(opt('--depth', DEPTH if entries else 1))
     k = int(opt('--k', LIB_K))
     outdir = opt('--out')
-    ctx = qsheet.Ctx()
-    g = load_graph(ctx)
-    g.expand = opt('--expand', 'all')
-    if g.expand not in ('all', 'seed', 'none'):
-        raise ValueError('--expand is one of: all seed none')
-    for i, a in enumerate(entries):          # an address inside a function: its owner
-        if a not in g.uof:
-            import qnames
-            o = qnames.owner(ctx.ix, a)
-            if o in g.uof:
-                entries[i] = o
-    g.cls = load_classes(ctx.ix, int(opt('--slot-k', SLOT_K)))
-    g.use_cls = opt('--classes', 'on') != 'off'
-    if opt('--classes', 'on') not in ('on', 'off'):
-        raise ValueError('--classes is on or off')
-    res = run(g, entries, depth, k)
+    ctx, g, entries, res = reach_set(entries, depth, k, opt('--classes', 'on'), opt('--expand', 'all'), int(opt('--slot-k', SLOT_K)), qsheet.Ctx(), opt('--middleware', 'on'), gates)
     answered, _rs = qreadpick.read_state()
     purposes = read_purposes() if '--with-read' in rest else {}
     ctx.hooks()
@@ -322,6 +467,7 @@ def main(rest):
         sizes[u] = fl['bytes']
         total += fl['bytes']
         if outdir and '--count' not in rest:
+            text = with_reached(text, reached_line(res, g.uof, u, d))
             with open(os.path.join(outdir, '%d.txt' % u), 'w', encoding='utf-8') as fh:
                 fh.write(text)
     batch = []
@@ -335,6 +481,9 @@ def main(rest):
         with open(os.path.join(outdir, 'batch.txt'), 'w', encoding='utf-8') as fh:
             fh.writelines(batch)
     print('from %s  depth %d  library cut k=%d' % (','.join('%08X' % a for a in entries), depth, k))
+    if gates:
+        print('callers of %s: %d seed functions in %d units (the gate + every function that calls it; entries at depth 0)' % (
+            ','.join('%08X' % a for a in gates), len(g.why or ()), len({g.uof[f] for f in (g.why or ()) if f in g.uof})))
     print('units %d (%d to read, %d already read), functions reached %d, sheet bytes %d' %
           (len(res['units']), len(unread), len(isread), len(res['funcs']), total))
     bydepth = collections.Counter(d for _u, d in res['units'])
@@ -343,6 +492,8 @@ def main(rest):
                                        ' ... (+%d more)' % (len(res['cut']) - 40) if len(res['cut']) > 40 else ''))
     print('classes %s: %d units first reached through a constructed class\'s slot; cut by direction (callers only, never walked): %d units; '
           'cut as library: %d units' % ('on' if g.use_cls else 'off', len(res['viaclass']), direction_strays(g, res), len(res['cut'])))
+    print('cut as middleware: %d units%s' % (len(res['middleware']), (' (Havok: half or more of the unit\'s functions carry Havok strings / names / RTTI, no game db name): ' + '; '.join(
+        'unit %d %s' % (u, top(u)[:60] or '(unnamed)') for u in res['middleware'][:40]) + (' ... (+%d more)' % (len(res['middleware']) - 40) if len(res['middleware']) > 40 else '')) if res['middleware'] else ''))
     if '--match' in rest:                    # precision proxy: reached units with a stored reading that mentions the system's words
         words = [w.lower() for w in opt('--match', '').split(',') if w]
         hit = 0

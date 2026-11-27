@@ -31,14 +31,36 @@ struct StageShow {
 inline bool KeyRecordShown(const uint8_t* rec) { return (rec[9] & 0x80) != 0; }
 inline bool SlotRecordShown(const uint8_t* rec) { return (rec[9] & 0x80) && !(rec[8] & 0x80) && !(rec[9] & 0x08); }
 
-// Reads the bits through a reader `rd(guest, dst, n)`; false = unreadable (out untouched).
+// S111 CAAVIS [C, docs\formats\create_an_arena.md "The player's part switches"]: a screen key draws only through TWO gates: (1) its stage record's bit above, tested inside the per-key draw sub_8276AEF8; (2) the render
+// node of its screen object is enabled. CStage::SetupTitan (sub_824EC3C0) keeps the screen object of key 800 + k at [stage + 22916 + 4 k] (0 = no mesh for the key; sub_824E4F68 zeroes the array in both stage
+// setups). The object's render node is at object + 24 (sub_827A97B8 registers it through sub_82C30A10, which sets its enable word node + 8 = object + 32 to 1), and both render walkers (sub_82C2FA10, sub_82C2F960)
+// skip a node whose enable word is 0, so sub_8276AEF8 (that node's slot 1) never runs. The word is rewritten on EVERY arena, and the last writer wins (S111 CAAVIS review): the look reset sub_824EC268 (stage
+// setup, the match look sub_82337190, the entrance screen pick sub_8234B180 and its stop sub_8234B3F0) ends with sub_824EA678(stage, 0) = every node off but 800; the entrance pick's sub_824EA678(stage, 1) and the
+// stage show sub_824EBF48 set each node from sub_824EA540 (1 on a shipped arena; on a created one 0 for a switched-off part: bit 0 of [stage + 21196] -> 800 / 803 / 808, bit 1 -> 806 / 807, bit 4 or
+// [stage + 7124] == 0 -> 801 / 804, bits 2 / 3 -> 811-814); the paint manager's load step sub_822A2760 (bit 1 -> 805 / 807, bit 4 -> 801 / 802) and the editors (sub_83371CA8, sub_83379648) clear it too.
+// Reading the word follows whichever ran. A key whose node is off reads as not shown, exactly like a clear record bit (every consumer goes through KeyShown).
+inline constexpr uint32_t kStageScreenObjsAt = 22916, kScreenNodeEnableAt = 32;
+
+// Reads the bits through a reader `rd(guest, dst, n)`; false = unreadable (out untouched). The screen-object array lies inside every stage object (below stage + 23112, which ReadVisWords reads too): a reader that cannot
+// serve it (a unit's fake stage) leaves the record bits alone; a non-null object whose enable word cannot be read fails the whole read (fail closed: the caller keeps the last bits).
 template <class Rd>
 inline bool ReadStageShow(Rd&& rd, uint32_t stage, StageShow& out) {
-  uint8_t keys[10 * kStageRecordSize], art[kArtSlots * kStageRecordSize];
+  uint8_t keys[10 * kStageRecordSize], art[kArtSlots * kStageRecordSize], objs[10 * 4];
   if (!stage || !rd(stage + kStageKeyRecordsBase, keys, sizeof keys) || !rd(stage + kStageSlotRecordsAt + kStageRecordSize * kFirstArtSlot, art, sizeof art)) return false;
+  const bool have_objs = rd(stage + kStageScreenObjsAt, objs, sizeof objs);
+  const auto be32 = [](const uint8_t* b) { return uint32_t(b[0]) << 24 | uint32_t(b[1]) << 16 | uint32_t(b[2]) << 8 | uint32_t(b[3]); };
   StageShow s;
   s.known = true;
-  for (uint32_t k = 0; k < 10; ++k) s.keys = uint16_t(s.keys | (KeyRecordShown(keys + k * kStageRecordSize) ? 1u << k : 0u));
+  for (uint32_t k = 0; k < 10; ++k) {
+    bool on = KeyRecordShown(keys + k * kStageRecordSize);
+    const uint32_t obj = have_objs ? be32(objs + 4 * k) : 0u;
+    if (on && obj != 0) {   // S111 CAAVIS: gate (2), the screen object's render-node enable word
+      uint8_t en[4];
+      if (!rd(obj + kScreenNodeEnableAt, en, sizeof en)) return false;
+      on = be32(en) != 0;
+    }
+    s.keys = uint16_t(s.keys | (on ? 1u << k : 0u));
+  }
   for (uint32_t k = 0; k < kArtSlots; ++k) s.art = uint8_t(s.art | (SlotRecordShown(art + k * kStageRecordSize) ? 1u << k : 0u));
   out = s;
   return true;

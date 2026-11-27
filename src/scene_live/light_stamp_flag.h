@@ -1,6 +1,6 @@
 // Bit 4 (light_states) stamp switch (Session 103, lane A4; docs\renderer\INPUTS_A4.md section 2). Header only, no game or SDK includes. Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 // S103 L1C: now ON (see the line on each constant). Original release condition, ALL of: (1) a consumer of kLoModelMap exists (lane E3's key light, bit 7) and scene_inputs::g_light_map_consumer is set by its merge; (2) one mode-1 mirror run (entrance + a match) whose final
-// census reads `models_without_entry 0`, `models_stale 0` and `light_hole_first []` over a whole scene; (3) one T1-with-args trace that settles the [U] list in INPUTS_A4.md. To flip: set kStampLightStates to true;
+// census reads `models_without_entry 0`, `models_stale 0` and `light_hole_first []` over a whole scene; (3) one T1-with-args trace that settles the [U] list in INPUTS_A4.md. kStampLightStates is true (S103 L1C);
 // kInputs' `moved` for bit 4 follows it (inputs_core.h), the latch may then stamp kInLightStates (together with the consumer flag). (S103 B4X: the A4 long life of "proven persistent" entries is deleted: every learned entry lives kMaxAge hook frames, with the switch on or off.)
 #pragma once
 namespace rdr_scene::live::lightstamp {

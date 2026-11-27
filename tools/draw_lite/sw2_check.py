@@ -60,7 +60,9 @@ def read(root, rel):
     p = os.path.join(root, rel)
     if not os.path.isfile(p):
         raise SystemExit('FAIL: %s missing' % p)
-    return open(p, encoding='utf-8', errors='replace').read().replace('\r\n', '\n')
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    return read_path(p)
 
 
 def part_wiring(root):

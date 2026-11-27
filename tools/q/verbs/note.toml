@@ -1,0 +1,9 @@
+name = "note"
+module = "qnote"
+qerror = false
+broken_pipe = false
+usage_slot = "u103"
+
+[[usage]]
+order = 110
+text = '''  note [NAME] [--verdict|--sites|--section HEADING]   one section of a docs/research|systems|formats note, not the file (tools/q/qnote.py)'''

@@ -1,11 +1,11 @@
 r"""q seam --cites FILE[:LINE] (S111 QGAPS): which seam rows and which db/claims rows cite a file, or one line of it.
 
     py tools/q/q.py seam --cites guest_model_draw.h            every row that names the file
-    py tools/q/q.py seam --cites src/renderer_scene/guest_model_draw.h:364   rows that name that line (a cited range 364-365 holds it)
+    py tools/q/q.py seam --cites src/renderer_scene/guest_model_draw.h   rows that name that line (a cited range 364-365 holds it)
     py tools/q/q.py seam --cites FILE:LINE --json [--all]
 
 Two ways a row cites a file:
-  - an `ours` row of db/seams/<topic>.json whose `path` is the file (with LINE: the stored line, or the line the anchor holds NOW, is LINE);
+  - an `ours` row of db/seams/<topic>.json whose `path` is the file (with LINE: the line the row's anchor holds NOW is LINE);
   - a `file:line` (or `file:a-b`) written in the text of a seam row (what / evidence / source / why / summary / open) or of a db/claims/*.json row
     (claim / evidence / note / ours / source). A cite with no line number answers only the file-wide question (no LINE).
 FILE matches by whole path components: `guest_model_draw.h` or `renderer_scene/guest_model_draw.h` or the full path; a cite of the bare basename
@@ -79,11 +79,11 @@ def find_cites(root, spec):
         ours = e.get('ours') or []
         for i, o in enumerate(ours):
             if isinstance(o, dict) and same_file(str(o.get('path', '')), want):
-                st = qseam.row_state(o, root, ours)
-                stored, now = o.get('line'), st.get('line')
-                if line is None or line in (stored, now):
-                    hits.append({'kind': 'seam-ours', 'where': f'db/seams/{topic}.json ours[{i}]', 'topic': topic, 'cite': f'{o.get("path")}:{stored}',
-                                 'stored': stored, 'now': now, 'state': st.get('state'), 'verdict': o.get('verdict'), 'why': o.get('why', '')})
+                st = qseam.row_state(o, root)
+                now = st.get('line')
+                if line is None or line == now:
+                    hits.append({'kind': 'seam-ours', 'where': f'db/seams/{topic}.json ours[{i}]', 'topic': topic, 'cite': f'{o.get("path")}:{now}' if now else str(o.get('path')),
+                                 'now': now, 'state': st.get('state'), 'verdict': o.get('verdict'), 'why': o.get('why', '')})
         for side in ('game', 'ours'):
             for i, r in enumerate(e.get(side) or []):
                 if not isinstance(r, dict):
@@ -116,8 +116,7 @@ def print_cites(r, limit=40, all_=False):
     shown, cut = qcap.cap(r['hits'], limit, all_)
     for h in shown:
         if h['kind'] == 'seam-ours':
-            mv = f', now line {h["now"]}' if h['now'] and h['now'] != h['stored'] else ''
-            print(f'  {h["where"]}  ours row {h["cite"]} [{h["verdict"]}, {h["state"]}{mv}]  {h["why"][:110]}')
+            print(f'  {h["where"]}  ours row {h["cite"]} [{h["verdict"]}, {h["state"]}]  {h["why"][:110]}')
         elif h['kind'].startswith('seam-'):
             print(f'  {h["where"]}  cites {h["cite"]}' + (f'  {h["addr"]}' if h.get('addr') else '') + (f'  {h.get("what", "")[:90]}' if h.get('what') else ''))
         else:

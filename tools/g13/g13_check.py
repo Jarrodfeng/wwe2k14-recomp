@@ -35,9 +35,12 @@ def line(ok, text):
     fails += 0 if ok else 1
 
 
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'split'))
+from read_unit import expand_bytes  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), newline='', encoding='utf-8', errors='replace') as f:
-        return f.read().replace('\r\n', '\n')
+    return expand_bytes(os.path.join(root, rel)).decode('utf-8', errors='replace').replace('\r\n', '\n')
 
 
 def unit(root, work, tag, gfx_text):

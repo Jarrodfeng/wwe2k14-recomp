@@ -195,6 +195,8 @@ struct ClassReport {
   uint32_t holes = 0;     // S103 R: skips that leave a HOLE in the picture (asset unknown, load failed): the live caller treats a non-zero total as a miss.
                           // "not resident" is not one (the cache counts it as a miss)
   uint32_t absent_pieces = 0;   // S103 W2B (review I): spring-hair pieces the game draws and the record could not supply (their own meshes are skipped, the body draws): NOT holes, but a rig that judges "the picture is the game's" must read this
+  uint32_t pieces_drawn = 0;    // S111 PORTRAITHAIR: of `drawn`, the SUBM pieces drawn as objects of their own (the wrestlers' guest-routed pieces); the roster portrait's D1 counts drawn - pieces_drawn
+  std::vector<uint32_t> piece_ids;   // S111 PORTRAITCENSUS: the piece id (guest_piece_key.h GuestPieceKey: hair 10000, accessories 10030-10033) of each of those pieces, in draw order (the portrait's host census line)
   std::string why;        // the first SKIP reason (a skip need not be a hole)
   std::string hole_why;   // S103 NRBF (review F5): the first reason that made a HOLE (empty = the family did not name one: the census falls back to `why`)
 };

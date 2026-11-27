@@ -19,7 +19,7 @@ $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-
 $v = Join-Path $repo 'src\assets\view'
 $srcs = @((Join-Path $PSScriptRoot 'props_ours_test.cpp'), (Join-Path $v 'loader_seam_game.cpp'), (Join-Path $repo 'src\renderer_scene\record_io.cpp'),
           (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'), (Join-Path $repo 'src\assets\prop_game_space.cpp'),
-          (Join-Path $repo 'src\renderer_scene\props_ours_core.cpp'), (Join-Path $repo 'src\renderer_scene\ring_ours_core.cpp'), (Join-Path $repo 'src\renderer\shaders\spv\fx_spv_data.cpp'))   # (RingCore::ArenaOfRecord, RingXxh3's users)
+          (Join-Path $repo 'src\renderer_scene\props_ours_core.cpp'), (Join-Path $repo 'src\renderer_scene\ring_ours_core.cpp'))   # (RingCore::ArenaOfRecord, RingXxh3's users)
 # compile-only: the GPU side of the hook (needs the renderer's headers; not linked into the test)
 $check = @((Join-Path $repo 'src\renderer_scene\props_ours.cpp'))
 $all = $srcs + $check

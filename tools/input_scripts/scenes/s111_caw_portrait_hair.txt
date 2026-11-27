@@ -1,0 +1,113 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, replay_mode on
+# S111 PORTRAITRUN (docs\research\s111\PORTRAITHAIR.md): does the exported CAW roster portrait keep the long hair? Jarrod's phone report: a created superstar with an afro
+# draws right in the CAS editor but its roster portrait showed short hair. Run on a TEST copy of the save (-Data userdata_caw_s105), never the real save.
+# Path (S105 s105_make_caw.txt editor map): CREATIONS > SUPERSTAR > NEW (A, press_until seq 76) > template (A) > HEAD tab: HAIR is row 3 (DOWN x3, A) > the SUPERSTAR / DIVA
+# list (A) > carousel "1/86" > DOWN x85 = 86/86 (the afro, the last item) > A > options page (COLOR, ETC / LENGTH / ACCEPT) > DOWN x2 + A = ACCEPT > the HEAD list.
+# Then LB = the last tab OTHER > DOWN x8 = ACCEPT (nav\creations_to_new_caw.txt) > A > YES (LEFT, A) > ROSTER APPLICATION FORM > UP (ACCEPT) > A = the save, which writes the
+# roster portrait (docs\systems\caw_portrait.md) > the main menu. Then CREATIONS > SUPERSTAR > the second item (EDIT) shows the pick page with the superstars' pictures.
+# Presses 40-60 frames apart (at 20 the editor dropped presses, run 075). Shots: the CAS preview with the afro, the pick page after the save.
+# Marks: 1 menu, 2 creations, 3 editor up, 4 afro chosen, 5 saved, 6 pick page, 7 end. on_fail quit.
+on_fail quit
+log bench: start scene s111_caw_portrait_hair
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+mark 1 menu
+include menu_to_creations
+wait_frames 120
+mark 2 creations
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+press A
+wait_frames 500
+log scene=caw_landing
+mark 3 editor
+screenshot sc_s111_ph_landing
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press DOWN
+wait_frames 60
+press A
+wait_frames 250
+log scene=hair_cat
+press A
+wait_frames 300
+log scene=hair_carousel
+screenshot sc_s111_ph_hair_car
+repeat 85
+press DOWN
+wait_frames 25
+end_repeat
+wait_frames 120
+log scene=hair86
+log_text 8
+screenshot sc_s111_ph_hair86
+press A
+wait_frames 300
+log scene=hair_opts
+screenshot sc_s111_ph_hair_opts
+repeat 6
+press DOWN
+wait_frames 60
+log_state menu_row
+end_repeat
+screenshot sc_s111_ph_hair_bottom
+press A
+wait_frames 400
+log scene=hair_accepted
+log_text 8
+screenshot sc_s111_ph_cas_afro
+mark 4 afro
+wait_frames 120
+screenshot sc_s111_ph_cas_afro2
+press LB
+wait_text MENU SCREEN POSE 300
+wait_frames 30
+repeat 8
+press DOWN
+wait_frames 60
+end_repeat
+wait_frames 30
+press A
+wait_frames 250
+press LEFT
+wait_frames 60
+press A
+wait_text ROSTER APPLICATION FORM 900
+wait_frames 60
+press UP
+wait_frames 30
+press A
+wait_text QUIT TO DESKTOP 3600
+wait_frames 90
+log scene=caw_saved
+screenshot sc_s111_ph_saved
+mark 5 saved
+wait_frames 300
+press_until_state DOWN cursor >=3 24 30 5 if_needed
+press_until_state UP cursor 3 24 30 5 if_needed
+press_until_state A menu 3
+wait_frames 120
+log scene=creations_again
+press A
+wait_frames 300
+log scene=superstar_sub
+screenshot sc_s111_ph_sub
+press DOWN
+wait_frames 60
+press A
+wait_frames 600
+log scene=pick_page
+log_text 8
+screenshot sc_s111_ph_pick
+wait_frames 300
+screenshot sc_s111_ph_pick2
+mark 6 pick
+log bench: done
+mark 7 end
+quit

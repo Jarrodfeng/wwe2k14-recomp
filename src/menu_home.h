@@ -24,7 +24,7 @@ struct Env {
   const uint8_t* (*bytes)(uint32_t addr) = nullptr;   // scenario::Guest
 };
 inline Env g_env;
-constexpr uint32_t kSmartMenuWord = 0x8392945C;  // scenario.h:118 kSmartMenuWord
+constexpr uint32_t kSmartMenuWord = 0x8392945C;  // scenario.h kSmartMenuWord
 
 inline uint32_t Rd(uint32_t a) { return (g_env.u32 && a >= 0x10000 && a < 0xC0000000u) ? g_env.u32(a) : 0; }
 

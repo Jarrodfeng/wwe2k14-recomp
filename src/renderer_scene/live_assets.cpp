@@ -134,6 +134,7 @@ static bool ApplyCompositeAttire(launcher::GameFiles& files, const std::string& 
       if (assets::Lower(t.name) == "color" && t.width == img.w && t.height == img.h) { tex = &t; break; }
     if (!tex) { why = "the model has no \"color\" texture of " + std::to_string(img.w) + "x" + std::to_string(img.h); break; }
     tex->format = assets::TexFormat::kBC1, tex->mips = img.mips;
+    tex->game_levels = 0;   // S111 MIPLEVELS: the composed colour keeps the composer's own levels (the game's composite builds its own per-level atlases, attire_build.md), not the file loader's count
     const uint32_t alpha0 = img.alpha0;
     const size_t bytes = img.data.size();
     tex->data = std::move(img.data);
@@ -234,8 +235,10 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
     if (std::sscanf(norm.c_str(), "pac\\bg\\bg%d.pac", &id) == 1 && std::sscanf(entry.c_str(), "blood:%d", &bt) == 1) return assets::LoadBloodEntry(impl_->files, id, uint32_t(bt < 0 ? 0 : bt), out, error);
   }
   {   // S103 GBR: a GMSK set object (weapon_draw_core.h GmEntryOf): pac\gm.pac, entry "gm:<arena>/<key>" = the arena's bank (GMGB 78 / 80, else GMGA), the model of that key
-    int ga = 0, gk = 0;
-    if (norm == "pac\\gm.pac" && std::sscanf(entry.c_str(), "gm:%d/%d", &ga, &gk) == 2) return assets::LoadGmEntry(impl_->files, ga, uint32_t(gk), out, error);
+    int ga = 0;
+    uint32_t gk = 0;
+    bool holder_tex = false;   // S111 GMBORROW: "gm:<arena>/<key>/h" = the game handed the bank the stage holder's set (settings byte G+41)
+    if (norm == "pac\\gm.pac" && rdr_scene::weapons::ParseGmEntry(entry, ga, gk, holder_tex)) return assets::LoadGmEntry(impl_->files, ga, gk, holder_tex, out, error);
   }
   if (std::sscanf(norm.c_str(), "pac\\bg\\bg%d.pac", &id) == 1) {
     // S103 M (N2): all_keys is a sticky global tested before @wrestler: set it for this load only and restore it, as arena_game_space.cpp does for CrowdPose
@@ -265,7 +268,7 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
     // kind 2 (ring) model. `variant` is NOT an attire digit for such a record (the loader reads it as the n-th model PACH).
     int key = 0;
     if (std::sscanf(entry.c_str(), "model_key:%d", &key) == 1) {
-      // S103 ARM (HNN fix 1): a composite attire has no model of its own in the pac (Heenan 24912): the game remaps it to another attire's model (p0/600, attire_remap.h). Only when the pac lacks the key.
+      // S103 ARM (HNN fix 1): a composite attire has no model of its own in the pac (Heenan 24912): the game remaps it to another attire's model (p0/600, attire_remap.h). S111 ATTIREREMAP: the remap goes first, as the game orders it (attire_remap.h PickModelBy).
       static const assets::attire_remap::Table kNoTable;
       const bool remap_on = rdr_sw::BoolOr(rdr_sw::kAttireRemap, true);
       namedfail::HoleRule().store(remap_on, std::memory_order_relaxed);
@@ -291,7 +294,7 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
         attire_build::Count().missing.fetch_add(1, std::memory_order_relaxed);
         rdr::Log("%s", attire_build::CensusLine().c_str());
       }
-      const bool ok = assets::LoadWrestlerAt(impl_->files, wrel, id, ord, out, error);
+      const bool ok = assets::LoadWrestlerAt(impl_->files, wrel, id, ord, out, error, assets::level_tag::TexLevelsOfEntry(entry));   // S111 LEVELSBYTE: the game's count for this load (no "/l" tag = 4)
       if (!ok) return fail(error);
       if (!ApplyCompositeAttire(impl_->files, wrel, ord, entry, key, out, error)) return fail(error);   // S103 CMB: a refusal is a failed load (a hole); a plain entry has no tag: nothing happens
       if (change_mask::HasTag(entry)) ApplyChangeMasks(impl_->files, wrel, ord, key, out);   // S108 THR2: the masks of a recoloured body (never fails the load: no masks = drawn plain)
@@ -325,11 +328,12 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
       if (pid < 0 || k < 0 || k > 9) { error = "event prop " + entry + ": id or entry out of range"; return false; }
       MarkEvtobjReleasable();   // the live game: the drawer may close the evtobj.pac slot when the entrance's last prop model retires (weapon_draw_core.h ReleaseEvtobjSlot)
       int other = -1;
-      const int pach = assets::PropPachEvt(impl_->files, uint32_t(pid), &other);
-      rdr::Log("[wwe2k14][weapon_rows] event prop id %d -> PACH %d (entry %d)", pid, pach, k);
+      const bool recoloured = rdr_scene::weapons::EvtEntryRecoloured(entry);   // S111 FOLLOWUPS3: "/s" = a model the game built from its recoloured (SOBJ-only) read
+      const int pach = assets::PropPachEvt(impl_->files, uint32_t(pid), &other, recoloured);
+      rdr::Log("[wwe2k14][weapon_rows] event prop id %d -> PACH %d (entry %d)%s", pid, pach, k, recoloured ? " (the recoloured read: SOBJ)" : "");
       if (other >= 0) {   // review 6: once per id
         static std::set<int> told;
-        if (told.insert(pid).second) rdr::Log("[wwe2k14][weapon_rows] event prop id %d is in BOTH SOBJ (PACH %d, used: the game looks SOBJ first) and BOBJ (PACH %d)", pid, pach, other);
+        if (told.insert(pid).second) rdr::Log("[wwe2k14][weapon_rows] event prop id %d is in BOTH BOBJ (PACH %d, used: the game reads BOBJ first) and SOBJ (PACH %d)", pid, pach, other);
       }   // the step check reads Cena's belt here (2004 / 3004, not 2009 / 3009)
       if (pach < 0) { error = "event prop " + std::to_string(pid) + ": no PACH in evtobj.pac's directory"; return false; }
       if (!assets::LoadPropEntry(impl_->files, pach, uint32_t(k), out, error)) return false;
@@ -344,7 +348,7 @@ bool GameFilesSource::Load(const std::string& pac, const std::string& entry, uin
     if (norm == "pac\\bg\\bgEtc.pac" && std::sscanf(entry.c_str(), "stg:%d/%d", &pach, &k) == 2) return assets::LoadStageEntry(impl_->files, pach, uint32_t(k), out, error);
   }
   if (norm == "pac\\evt\\evtobj.pac" && std::sscanf(entry.c_str(), "%d", &id) == 1) return assets::LoadProp(impl_->files, id, out, error);
-  // S103 PW-3: a weapon / prop of the match's weapon manager: pac\m2.pac, entry "p0/1000/<id>" (src\renderer_scene\weapon_draw_core.h EntryOf). Id 14 (belts) is refused by the loader (sub-key [L]).
+  // S103 PW-3: a weapon / prop of the match's weapon manager: pac\m2.pac, entry "p0/1000/<id>" (src\renderer_scene\weapon_draw_core.h EntryOf). Id 14 (belts) comes as "belt:<sub-key>", the game's sub-key [C] (scene_live\weapon_mgr_reader.h BeltSubKey).
   if (norm == "pac\\m2.pac") {
     int bsub = 0;   // S103 LDR: "belt:<sub-key>" = the weapon manager's id 14 (the belt) under the title's sub-key (weapon_draw_core.h EntryOf)
     if (std::sscanf(entry.c_str(), "belt:%d", &bsub) == 1) return assets::LoadM2Weapon(impl_->files, 14, out, error, 10, 0u, bsub);

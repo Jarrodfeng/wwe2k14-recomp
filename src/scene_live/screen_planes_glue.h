@@ -213,6 +213,7 @@ inline void Register() {
   if (done) return;
   done = true;
   scr::g_now = +[]() -> uint64_t { return wwe2k14::g_guest_frame.load(std::memory_order_relaxed); };
+  scr::g_arena = +[]() -> int { return int(rdr_scene::live::stagefx::StageFx().StageArena()); };   // S111 TRONKEY: the stage's arena id picks the key -> channel table (ScreenBinding::ForArena, every latch take)
   {
     const std::string spec = wwe2k14::IsDevBuild() ? std::string(REXCVAR_GET(wwe2k14_rdr_screen_bind)) : std::string();   // DEV ONLY: a release build keeps the built-in table
     std::string msg;

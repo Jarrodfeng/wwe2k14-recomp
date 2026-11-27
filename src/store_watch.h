@@ -305,7 +305,7 @@ inline bool Enabled() { return __atomic_load_n(&wwe2k14_feedrec_on, __ATOMIC_REL
 // The host unit switches recording on here (no cvar there).
 inline void ForceOn() { __atomic_store_n(&wwe2k14_feedrec_on, 1u, __ATOMIC_RELAXED); }
 
-// The guest space maps the same memory more than once (src/guest_watch.h:30-33): 0x8 and 0x9 share pages, and the three
+// The guest space maps the same memory more than once (src/guest_watch.h): 0x8 and 0x9 share pages, and the three
 // physical views (512 MB each, so 0xB / 0xD / 0xF are their upper halves) show physical p at 0xA0000000 + p, 0xC0000000 + p
 // and 0xE0000000 + p - 0x1000 (the 0xE view sits at file offset 0x1000: generated wwe2k14_pch.h:123-128,
 // rex/system/xmemory.h:31). A range is kept under the canonical address (0x8..., 0xA0000000 + p); every alias page is marked.

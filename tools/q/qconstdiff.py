@@ -95,6 +95,7 @@ ROOTS = {
     'sp': 'GAME',              # front_end.cpp UVScroll: sp = mt.scroll + ...
     'mm': 'OURS',              # front_end.cpp: mm = c.bones[...]
     'm': 'OURS',               # char_effects.cpp: m = c.bones[...]
+    'ax': 'OURS', 'e': 'OURS',  # char_effects.cpp View (S111 VIEWROWS): ax = CameraAxes(c), e = c.eye (our camera rule)
     'out': None, 'g_wrk_live': None, 'g_table_pick_all': None, 'absent': None, 'std': None,
 }
 KIND_RANK = {'GAME': 3, 'OURS': 2, 'LITERAL': 1}
@@ -422,7 +423,8 @@ def parse_resolver(text, func_re, path):
         lanes = branch_lanes(stmt, kind, writers)
         for nm in names:
             out.setdefault(nm, []).append({'kind': kind, 'line': line, 'plant': plant, 'roots': sorted(set(roots)), 'path': path, 'lanes': lanes,
-                                           'lit_arm': kind in ('GAME', 'OURS') and literal_arm(stmt), 'values': branch_values(stmt)})
+                                           'lit_arm': kind in ('GAME', 'OURS') and literal_arm(stmt), 'values': branch_values(stmt),
+                                           'stmt': stmt, 'cond': cond[1:-1]})   # S111 EXPRDIFF: the branch text, read lane by lane by qexprdiff
     for r in sorted(seen):
         if r not in ROOTS:
             problems.append(f'{path}: the resolver body reads `{r}` (a root ROOTS does not map: read it, add it with its kind)')
@@ -1087,10 +1089,8 @@ def fmt_game(r):
     return '; '.join(parts)
 
 
-def run(con, a, read=None, fx_dir=None):
-    if getattr(a, 'byreg', False):   # S111 BYREG: the effects ours feeds BY REGISTER (tools/q/qconstdiff_reg.py)
-        import qconstdiff_reg
-        return qconstdiff_reg.run(con, a, read, fx_dir)
+def collect(con, source='game', read=None, fx_dir=None):
+    """-> the joined rows and every source they came from (one engine: `q constdiff` prints them, qexprdiff reads them lane by lane)"""
     fields = load_fields(fx_dir)
     resolvers, problems = load_resolvers(read)
     game = load_game(con)
@@ -1099,7 +1099,7 @@ def run(con, a, read=None, fx_dir=None):
         problems.append(f'descriptor list: {len(desc)} names copied into {hx(DESC_ARRAY)} by sub_{DESC_FN:08X}, expected {DESC_COUNT}')
     if not table['rows']:
         problems.append(f'name table: no rows read from sub_{NAME_TABLE_FN:08X}')
-    mats, totals = material_names(source=getattr(a, 'source', 'game'))
+    mats, totals = material_names(source=source)
     writers, werr = const_writers(con)
     consts, cprobs = load_consts(con)
     problems += cprobs
@@ -1107,6 +1107,17 @@ def run(con, a, read=None, fx_dir=None):
     problems += fprobs
     passes, perr = effect_passes()
     rows, skipped = build_rows(fields, resolvers, game, mats, totals, writers, consts, passes=passes, flags=flags)
+    return types.SimpleNamespace(rows=rows, skipped=skipped, problems=problems, resolvers=resolvers, table=table, desc=desc, totals=totals,
+                                 writers=writers, werr=werr, flags=flags, passes=passes, perr=perr)
+
+
+def run(con, a, read=None, fx_dir=None):
+    if getattr(a, 'byreg', False):   # S111 BYREG: the effects ours feeds BY REGISTER (tools/q/qconstdiff_reg.py)
+        import qconstdiff_reg
+        return qconstdiff_reg.run(con, a, read, fx_dir)
+    k = collect(con, getattr(a, 'source', 'game'), read, fx_dir)
+    rows, skipped, problems, table, desc, totals = k.rows, k.skipped, k.problems, k.table, k.desc, k.totals
+    writers, werr, flags, passes, perr = k.writers, k.werr, k.flags, k.passes, k.perr
     sel = rows
     if a.effect:
         sel = [r for r in sel if fnmatch.fnmatchcase(r['effect'], a.effect)]

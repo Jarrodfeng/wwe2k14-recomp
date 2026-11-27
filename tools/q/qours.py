@@ -89,9 +89,11 @@ def again_call(args, extra='--all'):
     if not cmd or arg is None:
         return None
     inn = f' --in {qcap.requote([args.in_path])}' if getattr(args, 'in_path', None) else ''
+    for extra_in in (getattr(args, 'in_more', None) or []):      # S111 QTEXT: text takes several --in
+        inn += f' --in {qcap.requote([extra_in])}'
     if cmd == 'text':       # S111 review: each word stays its own argument (a joined "W1 W2" is ONE phrase since QGAPS) and the flags that change the answer ride along
         words = list(getattr(args, 'words', None) or [arg])
-        flags = [f for f, on in (('--and', getattr(args, 'and_', False)), ('--any', getattr(args, 'any_', False)), ('-E', getattr(args, 'regex', False)),
+        flags = [f for f, on in (('--and', getattr(args, 'and_', False)), ('--any', getattr(args, 'any_', False)), ('-E', getattr(args, 'regex', False)), ('--lit', getattr(args, 'lit', False)),
                                  ('--docs', getattr(args, 'docs', False))) if on] + (['--branch', args.rev] if getattr(args, 'rev', None) else [])
         opts = ' '.join(flags + [extra]) + inn
         if any(w.startswith('-') for w in words):      # a word that looks like a switch goes after --
@@ -133,10 +135,21 @@ def text_cmd_x6(args):
             any_ = getattr(args, 'any_', False) or (len(words) > 1 and not getattr(args, 'and_', False))
             inp = getattr(args, 'in_path', None)
             paths = [inp.replace('\\', '/')] if inp and os.path.exists(os.path.join(args.root, inp)) else None
+            more = list(getattr(args, 'in_more', None) or [])
+            if more:      # S111 QTEXT: several --in: every one an existing file / folder, searched together
+                allin = [inp] + more
+                bad = [x for x in allin if not os.path.exists(os.path.join(args.root, x))]
+                if bad:
+                    raise QOError(f'text: with several --in each must be an existing file or folder (not found: {", ".join(bad)})')
+                paths = [x.replace('\\', '/') for x in allin]
             kw = {k: v for k, v in (('rev', getattr(args, 'rev', None)), ('docs', getattr(args, 'docs', False)), ('regex', getattr(args, 'regex', False)),
                                     ('any_', any_), ('paths', paths)) if v}
             r = _with_kw(qx6.cmd_text, 'ours text', kw, args.root, words, limit_files=args.limit, allhits=args.all)
-            scope_answer(r, getattr(args, 'in_path', None))
+            if more:
+                r['in'] = ', '.join(paths)
+                r['outside_in'] = 0
+            else:
+                scope_answer(r, getattr(args, 'in_path', None))
             if paths:
                 r['in_only'] = True     # S111 review: git grep searched only that path, so there is no "N more outside it" to count
             r['again'] = again_call(args, '--all')
@@ -338,7 +351,7 @@ def main(argv=None, root=ROOT, db=None):
     common.add_argument('--tools', action='store_true', help='look in the tools python / ps1 index first (default: only when the C++ text has no such name)')
     common.add_argument('--all', action='store_true', help='every line / site (default: --limit groups, 3 per file for lit, 6 line numbers per file for cvar)')
     common.add_argument('--root', default=root)
-    common.add_argument('--in', dest='in_path', default=None,
+    common.add_argument('--in', dest='in_path', action='append', default=None,
                         help='narrow the answer to files whose path contains PATH (separators / case ignored): refs callers callees writes reads text lit, '
                              'the tools index too; census: only writers in such files')
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -357,14 +370,23 @@ def main(argv=None, root=ROOT, db=None):
     p.add_argument('--any', dest='any_', action='store_true', help='any of the words on a line (OR; the default for several words)')
     p.add_argument('--and', dest='and_', action='store_true', help='several words: all of them on one line (default: any of them)')
     p.add_argument('-E', '--re', dest='regex', action='store_true', help='the words are regular expressions (PCRE: \\d, (?:a|b), [45])')
+    p.add_argument('--lit', action='store_true', help='the words are literal text, any characters (system[9], st{};): the default; refuses -E')
     p.add_argument('--docs', action='store_true', help='search docs, root *.md, .claude, CMakeLists.txt and cmake instead of the code')
     p = sub.add_parser('rows', parents=[common]); p.add_argument('arg', nargs='?', default='')
     p = sub.add_parser('diff', parents=[common]); p.add_argument('arg', nargs='?', default='')
     sub.add_parser('info', parents=[common])
     args = ap.parse_args(argv)
+    if getattr(args, 'lit', False) and getattr(args, 'regex', False):
+        ap.error('--lit and -E / --re are opposites: give one')
+    ins = getattr(args, 'in_path', None)
+    if isinstance(ins, list):       # S111 QTEXT: --in repeats; only text searches several paths together
+        if len(ins) > 1 and args.cmd != 'text':
+            ap.error('--in once only (several --in work for text)')
+        args.in_path, args.in_more = ins[0], ins[1:]
     if getattr(args, 'in_path', None):      # an absolute / ./ --in matched nothing (qcap.scope_spec)
         import qcap
         args.in_path = qcap.scope_spec(args.in_path, args.root)
+        args.in_more = [qcap.scope_spec(x, args.root) for x in (getattr(args, 'in_more', None) or [])]
     if isinstance(getattr(args, 'arg', None), list):
         args.words = list(args.arg)        # S111 QGAPS: text keeps each argument whole (a quoted phrase is one word)
         args.arg = ' '.join(args.arg)

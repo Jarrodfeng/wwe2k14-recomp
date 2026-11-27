@@ -17,6 +17,10 @@
 //      copy, on the materials whose diffuse is texture key 0 (BindBeltMask). Only the masks this session's created titles name are ever read; no stock belt model carries a mask otherwise.
 // Lifetimes = the models': mode 0 leaves with its event prop (weapon_rows_core.h EventProps: make / free / prune; a scene clear drops mode 0 only), mode 1 at the slot free sub_82590ED8 (it frees every slot model;
 // sub_825910D8 calls it at +44 before it re-makes the slots and re-sends the block at +C8), mode 2 at the member make sub_825771E8 (it re-makes every member, then re-sends the block for member 1).
+// S111 CACSTRAP (docs\research\s111\CACSTRAP.md): the Create a Championship editor's preview of such a belt (a created title made from a base title) runs NO R5. The editor page (sub_833427C0 state 4, a
+// stock id) copies the record's colours into the CAB object C (sub_83343EC0: C + 112 + 16 i), the picker's accept rewrites them there (sub_83336BD0), and the preview model's draw callback sub_833445D0 binds
+// C's /CBPM/<id> mask at sampler 12 and sends C's colours as ChangeColor at every draw. OnEditorDraw reads those words at the model's draw ask and keeps them as a mode-0 latch marked `editor`: the same
+// row, mask and drawer as the match's R5 entrance belt, with the colours the game draws now; a draw of that model without the CAB callback drops it (an R5 latch is never dropped by it).
 #pragma once
 
 #include <atomic>
@@ -63,7 +67,8 @@ inline bool ParseMaskEntry(const std::string& entry, uint32_t& mode, uint32_t& i
 // Planted twins of the old / wrong rules (the unit's --plant). kNoLatch = nothing latched (the tip before STOCKBELT); kEntranceOnly = modes 1 / 2 counted only (the STOCKBELT tip);
 // kNoOwnerCheck = the block's model trusted without its owner's check; kNoDrop = the slot free / member make / scene clear drop nothing; kKindAny = a latch gives a row to ANY call of its model.
 // S111 BELTMASKNAME review: kAskAllModes = mode 1 asks, loads and binds its mask although no STS row can draw it (the landed head, F5); kNoPendingMark = a row waiting for its mask draws in the plain pool's name (F3).
-enum class Fault { kNone, kNoLatch, kEntranceOnly, kNoOwnerCheck, kNoDrop, kKindAny, kAskAllModes, kNoPendingMark };
+// S111 CACSTRAP: kNoEditorForget = an editor latch outlives the CAB callback (the preview stays recoloured after the game stops recolouring it).
+enum class Fault { kNone, kNoLatch, kEntranceOnly, kNoOwnerCheck, kNoDrop, kKindAny, kAskAllModes, kNoPendingMark, kNoEditorForget };
 inline Fault& PlantForTest() {
   static Fault f = Fault::kNone;
   return f;
@@ -102,6 +107,7 @@ inline const char* RefusalName(Refusal r) {
 struct Latched {
   uint32_t mode = 0, id = 0;
   uint8_t colours[propcolour::kColourBytes] = {};
+  bool editor = false;   // S111 CACSTRAP: read at the CAB editor's draw ask (OnEditorDraw), not latched at an R5 block
 };
 struct Block {
   Refusal refusal = Refusal::kNone;
@@ -157,6 +163,7 @@ inline Block ReadBlock(ReadWordFn rw, FindFn find, uint32_t composer, uint32_t b
 struct Census {
   uint64_t blocks[kModes] = {}, other_mode = 0, latched[kModes] = {}, refused[kRefusals] = {};
   uint64_t rows = 0, kind_miss = 0, mask_asks = 0, mask_pending = 0, undrawable = 0, dropped[kModes] = {}, forgotten = 0;
+  uint64_t editor_draws = 0, editor_refused = 0, editor_forgotten = 0;   // S111 CACSTRAP: the CAB editor's reads (OnEditorDraw): latched, refused, dropped (callback gone / read refused)
 };
 
 // Per belt model. Written by the game threads (the hooks), read by the record writer (RowOf). Entries leave with the model (the lifetimes above).
@@ -165,16 +172,29 @@ class Store {
   void Latch(const Block& b) {
     std::lock_guard<std::mutex> l(mu_);
     if (b.refusal != Refusal::kNone) {
-      ++c_.refused[int(b.refusal)];
       char obj[96], det[200];
-      std::snprintf(obj, sizeof obj, "belt block mode %u model 0x%08X id %u: %s", b.v.mode, b.model, b.v.id, RefusalName(b.refusal));
-      std::snprintf(det, sizeof det, "a created title's colours on this stock belt are not drawn (the R5 block failed a check)");
+      if (b.v.editor) {   // S111 CACSTRAP: the editor's read failed a check: its older colours are not the game's now either
+        ++c_.editor_refused;
+        EraseEditorLocked(b.model);
+        std::snprintf(obj, sizeof obj, "CAB editor belt model 0x%08X id %u: %s", b.model, b.v.id, RefusalName(b.refusal));
+        std::snprintf(det, sizeof det, "the Create a Championship preview of this stock belt is drawn plain (the CAB callback's object failed a check)");
+      } else {
+        ++c_.refused[int(b.refusal)];
+        std::snprintf(obj, sizeof obj, "belt block mode %u model 0x%08X id %u: %s", b.v.mode, b.model, b.v.id, RefusalName(b.refusal));
+        std::snprintf(det, sizeof det, "a created title's colours on this stock belt are not drawn (the R5 block failed a check)");
+      }
       Queue(obj, det);
       return;
     }
     map_[b.model] = b.v;
-    if (b.v.mode < kModes) ++c_.latched[b.v.mode];
+    if (b.v.editor) ++c_.editor_draws;
+    else if (b.v.mode < kModes) ++c_.latched[b.v.mode];
     live_.store(map_.size(), std::memory_order_relaxed);
+  }
+  // S111 CACSTRAP: a draw ask of this model without the CAB stock callback: its editor latch goes (an R5 latch stays).
+  void ForgetEditor(uint32_t model) {
+    std::lock_guard<std::mutex> l(mu_);
+    EraseEditorLocked(model);
   }
   bool Empty() const { return live_.load(std::memory_order_relaxed) == 0; }   // the record writer's per-call early out (no lock while no created title is on a stock belt)
   bool Get(uint32_t model, Latched& out) const {
@@ -218,6 +238,12 @@ class Store {
   }
 
  private:
+  void EraseEditorLocked(uint32_t model) {   // mu_ held: drop the model's latch only when the editor's read made it
+    const auto it = map_.find(model);
+    if (it == map_.end() || !it->second.editor) return;
+    map_.erase(it), ++c_.editor_forgotten;
+    live_.store(map_.size(), std::memory_order_relaxed);
+  }
   void Queue(const std::string& object, const std::string& detail) {   // mu_ held; once per (object), bounded
     if (reported_.size() >= 256 || pending_.size() >= 64 || !reported_.insert(object).second) return;
     pending_.push_back(change_colour::Shortfall{"belt_colour", object, detail});
@@ -243,6 +269,38 @@ inline void OnBeltBlock(ReadWordFn rw, FindFn find, uint32_t composer, uint32_t 
   if (f == Fault::kNoLatch) return;
   if (f == Fault::kEntranceOnly && b.v.mode != uint32_t(Mode::kEntranceProp)) return;
   TheStore().Latch(b);
+}
+
+// S111 CACSTRAP: the CAB editor's preview of a stock belt. `cab` = the callback's argument C (propcolour::ReadEditor's `gear` for Read::kCabStock), `event_id` = the prop id MakeWeapon registered for
+// the model (CallResult::id of the event call; -1 = none). The colours are the words the game's own feed reads at this draw (sub_83343EF0: C + 104 + 8 / 12 / 16 + 16 i); the id is C+228, the id the
+// editor's load asked the /CBPM mask for (sub_833449E0 +0xE8: sub_83331E58 mode 0), so the row names the same mask R5's mode 0 names.
+constexpr uint32_t kCabOffColours = 112, kCabColourStride = 16;   // sub_83343EC0: colour i at C + 16 (i + 7)
+template <class ReadWordFn>
+inline Block ReadCabEditor(ReadWordFn rw, uint32_t model, uint32_t cab, int32_t event_id) {
+  Block b;
+  b.model = model, b.v.mode = uint32_t(Mode::kEntranceProp), b.v.editor = true;
+  uint32_t id = 0;
+  if (cab < 0x10000u || !rw(cab + propcolour::kOffCabPropId, id)) return b.refusal = Refusal::kUnreadable, b;
+  b.v.id = id;
+  if (event_id < 0) return b.refusal = Refusal::kNotEventProp, b;
+  if (uint32_t(event_id) != id) return b.refusal = Refusal::kIdMismatch, b;   // the CAB object is not this model's (the callback's argument names another prop)
+  for (int i = 0; i < propcolour::kColours; ++i)
+    for (int c = 0; c < 3; ++c) {
+      uint32_t wd = 0;
+      if (!rw(cab + kCabOffColours + kCabColourStride * uint32_t(i) + 4u * uint32_t(c), wd)) return b.refusal = Refusal::kUnreadable, b;
+      if (wd > 255u) return b.refusal = Refusal::kColourRange, b;
+      b.v.colours[3 * i + c] = uint8_t(wd);
+    }
+  return b;
+}
+// The draw ask of an event prop model (weapon_rows_core.h RawHookEntry, after propcolour::ReadEditor): the CAB stock callback = latch C's colours now; anything else = drop the model's editor latch.
+template <class ReadWordFn>
+inline void OnEditorDraw(ReadWordFn rw, uint32_t model, int32_t event_id, const propcolour::EditorSample& s) {
+  if (s.read != propcolour::Read::kCabStock) {
+    if (!TheStore().Empty() && PlantForTest() != Fault::kNoEditorForget) TheStore().ForgetEditor(model);
+    return;
+  }
+  TheStore().Latch(ReadCabEditor(rw, model, s.gear, event_id));
 }
 
 // The lifetimes (call sites: weapon_rows_core.h EventProps for mode 0; fp_probe.h's raw hooks on sub_82590ED8 / sub_825771E8 for modes 1 / 2).
@@ -298,14 +356,14 @@ inline std::string CensusLine() {
   const Census c = TheStore().Counts();
   uint64_t refused = 0;
   for (int i = 1; i < kRefusals; ++i) refused += c.refused[i];
-  char b[640];
+  char b[768];
   std::snprintf(b, sizeof b,
-                "[belt_colour] blocks: entrance %llu, match weapon %llu, ladder %llu (other %llu); latched %llu %llu %llu; refused %llu (unreadable %llu, not owner's belt %llu, not event prop %llu, id %llu); rows %llu, kind misses %llu; masks asked %llu (not resident %llu), not drawable %llu; held %zu; dropped: entrance %llu, slot free %llu, member make %llu, freed %llu",
+                "[belt_colour] blocks: entrance %llu, match weapon %llu, ladder %llu (other %llu); latched %llu %llu %llu; refused %llu (unreadable %llu, not owner's belt %llu, not event prop %llu, id %llu); rows %llu, kind misses %llu; masks asked %llu (not resident %llu), not drawable %llu; held %zu; dropped: entrance %llu, slot free %llu, member make %llu, freed %llu; editor draws %llu (refused %llu, forgotten %llu)",
                 (unsigned long long)c.blocks[0], (unsigned long long)c.blocks[1], (unsigned long long)c.blocks[2], (unsigned long long)c.other_mode, (unsigned long long)c.latched[0], (unsigned long long)c.latched[1],
                 (unsigned long long)c.latched[2], (unsigned long long)refused, (unsigned long long)c.refused[int(Refusal::kUnreadable)], (unsigned long long)c.refused[int(Refusal::kNotOwnersBelt)],
                 (unsigned long long)c.refused[int(Refusal::kNotEventProp)], (unsigned long long)c.refused[int(Refusal::kIdMismatch)], (unsigned long long)c.rows, (unsigned long long)c.kind_miss,
                 (unsigned long long)c.mask_asks, (unsigned long long)c.mask_pending, (unsigned long long)c.undrawable, TheStore().Size(), (unsigned long long)c.dropped[0], (unsigned long long)c.dropped[1], (unsigned long long)c.dropped[2],
-                (unsigned long long)c.forgotten);
+                (unsigned long long)c.forgotten, (unsigned long long)c.editor_draws, (unsigned long long)c.editor_refused, (unsigned long long)c.editor_forgotten);
   return b;
 }
 inline void ResetForTest() { TheStore().ResetForTest(); }

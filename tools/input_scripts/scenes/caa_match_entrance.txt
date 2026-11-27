@@ -1,0 +1,44 @@
+# harness: flags --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_arena=200 --wwe2k14_launch_participants=324,343 --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, owner on
+# S111 CAAROUTE: the CHECK route for the created-arena fixes (trons, hidden parts, ring posts / mat / ropes, announce tables). Run it with
+#   & .\tools\bench\run_list.ps1 -Scripts @('tools\input_scripts\scenes\caa_match_entrance.txt') -Data userdata_caa
+# on a build that has the fixes (a stale exe runs it too, with -AllowStaleExe, and shows the faults). The mirror out\bench\userdata_caa holds ONE created arena in
+# custom slot 1 = arena id 200 (made by caa_make_arena.txt: ENTRANCE VIDEO on, MINI-TRON and FRAME OBJECT off, red mat with a pattern, rope / post colours,
+# announce table paint). --wwe2k14_launch_arena=200 loads that slot (the direct launch, as s108_caa_entrance).
+# Steps: Bryan (324) comes out first with his entrance ON (Brock 343 second); shots at his tron (324.bik2 + 200 frames and + 600), at his entrance step 15, then
+# the match clock runs: shots at clock + 60 (ring), + 400 (ring from the match camera), + 800. Replay mode makes the frame counts exact when fast-forwarded.
+# Read after the run: [wwe2k14][car_paint] lines, the [rdr] arena lines, draw_shortfall: lines (py -I tools\bench\run_read.py <exe folder> --full).
+# Question: does a created-arena match reach the entrance (the tron plays in the created arena's screens), and what do the tron / ring / tables look like?
+on_fail quit
+log bench: start scene caa_match_entrance
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+mark 1 launched
+wait_file 324.bik2 3600
+log scene=tron_324
+mark 2 tron_324
+wait_frames 200
+screenshot caa_t_200
+wait_frames 400
+screenshot caa_t_600
+wait_state entrance_step_0 >=15 3600 2
+log scene=step15
+mark 3 step15
+screenshot caa_s15
+wait_frames 120
+screenshot caa_s15_120
+wait_state match_clock >0 30000
+log scene=caa_match
+mark 4 match_clock
+wait_frames 60
+screenshot caa_m_60
+wait_frames 340
+screenshot caa_m_400
+wait_frames 400
+screenshot caa_m_800
+log scene=end
+mark 5 end
+log bench: done
+wait_frames 10
+quit

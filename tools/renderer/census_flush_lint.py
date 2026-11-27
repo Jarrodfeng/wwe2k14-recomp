@@ -50,6 +50,10 @@ def classify(name, i, lines):
 
 
 def scan(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path, part_files, line_map  # a split parent is read with its parts expanded (the part files are not scanned alone); a hit names its part file and line
+    from pathlib import Path
+    parts = part_files(os.path.join(root, 'src'))
     out = []
     for d, dirs, files in os.walk(os.path.join(root, 'src')):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
@@ -57,10 +61,16 @@ def scan(root):
             if not f.endswith(('.h', '.cpp', '.inc')) or f.endswith('_test.cpp'):
                 continue
             p = os.path.join(d, f)
-            text = open(p, encoding='utf-8', errors='replace').read()
+            if Path(p).resolve() in parts:
+                continue
+            text = read_path(p)
+            lmap = None
             for i, lines in gates(text):
                 v, why = classify(f, i, lines)
-                out.append((v, os.path.relpath(p, root), i + 1, why))
+                if lmap is None:
+                    lmap = line_map(p)
+                pf, pn = lmap[i]
+                out.append((v, os.path.relpath(str(pf), root), pn, why))
     return out
 
 

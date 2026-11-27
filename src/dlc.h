@@ -156,8 +156,8 @@ constexpr const char* kSuperstarsFolder = "[superstars] ";  // the Superstar Imp
 inline int g_gate_id = 0;  // Session 98: the pack id the gate is opened for (the superstars pack's), 0 = none
 inline bool IsSuperstarsPack(const Pack& p) { return p.folder.rfind(kSuperstarsFolder, 0) == 0; }
 // (S110 UPDOV review D1) Install offered the Superstar Importer's pack to the game (its device mounted: the game's DLC pass will list its
-// pacs). False before Install, and when the pack is left out (not built, stale, misfit, switched off, not mountable). The update: overlay
-// (src\superstars_update.h) belongs to that pack and is mounted only when this holds.
+// pacs). False before Install, and when the pack is left out (not built, stale, misfit, switched off, not mountable). (Its old update:
+// overlay was removed in S110 SEAT-B; no update: device is mounted: docs\research\s111\TUOVERLAY.md.)
 inline bool SuperstarsOffered() {
   std::lock_guard lock(g_mutex);
   for (const Offered& o : g_offered)

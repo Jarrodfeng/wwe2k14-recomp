@@ -2,9 +2,11 @@
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 #include "wrestler_contrib.h"
 #include "../renderer_scene/detached_piece.h"   // S106 G4-2
+#include "../renderer_scene/piece_hidden.h"   // S111 SOCKPIECE: OwnerMeshHidesPiece
 #include "../renderer_scene/bone_tag_rows.h"
 #include "piece_link.h"   // S105 CAWP fix F5: kSubmMaxNodes
 #include "model_file_note.h"   // S110 SEATREL (was PACANS' pac_answer.h table): the file each slot descriptor's model was built from
+#include "build_levels_note.h"   // S111 LEVELSBYTE: the texture level count each slot descriptor's model was built with (the entry's "/l" tag)
 #include "emit_order.h"   // S111 CHARORDER: the record's object order (EmitItems, StoreVisible)
 
 #include "../renderer_adapter/upd_lean.h"   // S102 U3 (the plant macro, the census)
@@ -281,8 +283,6 @@ void WrestlerContributor::LatchTargets(uint64_t hook_frame, const SlotTable* slo
       out.push_back(PaletteTarget{s.skel, kn->second.max_count});
       note(slot_targets_);
     }
-  if (slots) slot_present_.assign(slot_set.begin(), slot_set.end());   // S103 L33F: the slot skeletons of THIS latch (sorted: std::set), for SubmitLatchConsumer's mismatch rule
-  else slot_present_.clear();
   draw_pos_.clear();   // S111 CAT33 (char_draw_list.h): each table skeleton's place in the game's category-33 list, replaced whole every latch (no table = none: slot order)
   if (slots)
     for (const SlotSkel& s : slots->skels)
@@ -436,7 +436,7 @@ std::string WrestlerContributor::SlotCensus() const {
     return std::string(", ") + name + " by slot [" + r + "]";
   };
   return "want_lock " + want_lock_.Text() + ", reuse_reset " + u(reuse_reset_) + ", slot_targets " + u(slot_targets_) + " (hook quiet " + u(slot_hook_quiet_) + "), slot_no_count " + u(slot_no_count_) + ", slot join agree " + u(slot_join_agree_) + " differ " + u(slot_join_differ_) +
-         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + ", stale_held " + u(stale_held_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) +
+         " hook_unmatched " + u(slot_join_unmatched_) + ", slot_gone " + u(slot_gone_) + ", quiet_unseen " + u(quiet_unseen_) + ", draw_asked " + u(draw_asked_) + " (hidden " + u(draw_hidden_) + ", unread " + u(draw_unread_) + ", unknown " + u(draw_unknown_) + ")" + ", stale_dropped " + u(stale_dropped_) + bins("stale_dropped", by_slot_stale_dropped_) + bins("quiet_unseen", by_slot_quiet_unseen_) +
          "; " + change_colour::Bodies().CensusLine() + "; " + rdr_scene::change_colour_draw::Draws().Text();   // S108 THR2: the Threads editor's live colours (the hook's reads, the rows, the draws)
 }
 
@@ -539,7 +539,8 @@ WrestlerContributor::Link WrestlerContributor::KeyLink(uint32_t key, const std::
   std::snprintf(pac, sizeof pac, "pac\\ch\\ch%03u.pac", game ? a.file_id : CharacterOfKey(key));
   // S110 LIBSIZE: a library character's file is `<KEY>\pac\ch\ch497.pac` under the one "lib" overlay (the folder is the game's own answer, not the id)
   l.pac = (game && !a.lib_rel.empty()) ? a.lib_rel : std::string(pac);
-  l.entry = "model_key:" + std::to_string(game ? a.file_key : key) + composite_tag, l.variant = AttireOfKey(key), l.known = true;
+  // S111 LEVELSBYTE: + the level count the game built this descriptor's model with, when it is not the fresh request's 4 (build_levels_note.h; level_tag.h "/l<byte>")
+  l.entry = "model_key:" + std::to_string(game ? a.file_key : key) + build_levels_note::EntryTag(model_desc, key) + composite_tag, l.variant = AttireOfKey(key), l.known = true;
   return l;
 }
 
@@ -551,6 +552,7 @@ std::string WrestlerContributor::PieceWhyText() const {   // S103 NRBF
   std::string out;   // (the names come from the ONE table in slot_piece.h: SCENE_PIECE_WHY_LIST)
   for (size_t i = 0; i < size_t(scene_inputs::PieceWhy::kCount); ++i) out += (i ? " " : "") + std::string(scene_inputs::kPieceWhyNames[i]) + " " + std::to_string((unsigned long long)piece_why_[i].load(std::memory_order_relaxed));
   out += " detached " + std::to_string((unsigned long long)piece_detached_.load(std::memory_order_relaxed));   // S103 DTP: of no_copy, the ones flagged kObjDetachedPiece (the census line's `detached N`)
+  out += " game_hidden " + std::to_string((unsigned long long)piece_game_hidden_.load(std::memory_order_relaxed));   // S111 SOCKPIECE: pieces of a named owner the game hides (instance +20 == 0), flagged kObjPieceHidden
   out += " own_rows [" + OwnRowsText() + "]";   // S105 A5a
   return out;
 }
@@ -837,7 +839,6 @@ std::vector<uint32_t> WrestlerContributor::FreedRevive(uint64_t record_frame, Fr
     if (fc.has_kept) last_[m] = fc.kept;
     if (!fc.pend.upds.empty()) cur_[m] = fc.pend;
     if (fc.has_known) known_[m] = fc.known;
-    if (!fc.extra.empty()) last_extra_[m] = fc.extra;
     revived.push_back(m);
     ++it;
   }
@@ -855,8 +856,6 @@ void WrestlerContributor::FreedStow(const std::vector<uint32_t>& revived) {
     if (auto p = cur_.find(m); p != cur_.end()) fc.pend = std::move(p->second), cur_.erase(p);
     else fc.pend.upds.clear();
     if (auto kn = known_.find(m); kn != known_.end()) fc.known = kn->second, fc.has_known = true, known_.erase(kn);
-    if (auto e = last_extra_.find(m); e != last_extra_.end()) fc.extra = std::move(e->second), last_extra_.erase(e);
-    else fc.extra.clear();
     quiet_last_.erase(m);
   }
 }
@@ -890,19 +889,11 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
     const uint64_t hook = f.guest_frame ? f.guest_frame - 1 : 0;   // the record's hook frame (record j carries hook j - 1: inputs_core.h kHookToRecord)
     const auto& links = *(freed_serve.on ? &freed_serve.links : &LinksOfRecordL(f.guest_frame));   // S111 PERIODALL: the piece links of the latch whose palettes this record takes (S111 PIECECARRY: + a served freed body's own)
     const uint64_t name_seq = VerdictSeqOfRecordL(f.guest_frame);   // S111 PERIODALL review R3: and the descriptor check of that latch (a body link names its body by it)
-    std::set<int32_t> fresh_slots;  // S103 AUSF review 4: the slots a FRESH body of this Collect resolves to: a held stale body never shares one (it would take the slot from the fresh body)
-    if (no_walk_)
-      for (const auto& kv : last_)
-        if (refreshed.count(kv.first)) {
-          int32_t s = kv.second.slot;
-          if (auto kn = known_.find(kv.first); kn != known_.end() && kn->second.slot >= 0) s = kn->second.slot;
-          if (s >= 0) fresh_slots.insert(s);
-        }
     for (auto it = last_.begin(); it != last_.end();) {
       bool stale = false;
       if (!refreshed.count(it->first)) {
         ++it->second.age;
-        if (it->second.age > kPruneAfter) { last_extra_.erase(it->first); it = last_.erase(it); continue; }
+        if (it->second.age > kPruneAfter) { it = last_.erase(it); continue; }
         ++c.stale;  // per skeleton not refreshed since the last record
         stale = true;
       }
@@ -970,21 +961,15 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
       }
       // S103 L31B (the interim guard, review B): in mode Ours a VISIBLE body (resolved slot >= 0) is never written with an old palette (kept, aged, pruned as before). A stale INVISIBLE one (a piece,
       // a skel:) is still emitted: rf_wrestlers counts it a hole, so the frame is never ours while it is missing.
-      // S103 AUSF (AUS2 fix 2): in a build with NO walk (no_walk_) "the frame walks" never happens: the drop was "draw the frame without him". A stale VISIBLE body the character table still holds (slot_present_) is held with its kept
-      // palette for up to kConsumerFresh records (a 1-4 frame pose hold is invisible, a vanished wrestler is not) and dropped only once it left the table or is older. The stream build keeps the drop (its frame walks).
+      // S111 FOLLOWUPS3 (docs\research\s111\FOLLOWUPS3.md part 3): no pose hold, in either build. S103 AUSF held such a body for up to kConsumerFresh records in the build with no walk, for the latch reads
+      // the derived-head guard refused (S103 AUS2); S111 HEADGUARD removed that guard. The game keeps one palette buffer per built body ([skel+200]: the ctor zeroes it, the build sets it, the release frees
+      // and zeroes it), so a stale record here is our own transition, not a state the game draws; the tip census never saw the hold fire (stale_held 0 in every run log of 3 tips).
       if (stale && stale_guard_ && scene_frame::CurrentMode() == scene_frame::Mode::Ours && (slot >= 0 || (faults_ & kFaultDropInvisible))) {
-        // review 3: only a LIVE body is held (the negation of the quiet gate: in the stream-free build only the game's draw ask counts (S107 CAM); the stream build also counts an update / walk); review 4: never over a fresh body's slot
-        const auto kh = known_.find(it->first);
-        const bool live_body = (faults_ & kFaultHoldAny) || (kh != known_.end() && (!(faults_ & kFaultUpdShows) ? AskedFor(kh->second, hook) : (AskedFor(kh->second, hook) || kh->second.upd_frame + kConsumerFresh >= hook || kh->second.walk_frame + kQuietSeenWindow >= hook)));   // S107 CAM / S111 CAWTPOSE: the game's ask only, both builds; S111 VISLATCH: of this record's period
-        if (no_walk_ && !(faults_ & kFaultNoWalkRefuse) && slot >= 0 && it->second.age <= kConsumerFresh && live_body && ((faults_ & kFaultHoldNoSlotCheck) || !fresh_slots.count(slot)) && std::binary_search(slot_present_.begin(), slot_present_.end(), it->first)) {
-          stale_held_.fetch_add(1, std::memory_order_relaxed);
-        } else {
-          stale_dropped_.fetch_add(1, std::memory_order_relaxed);
-          by_slot_stale_dropped_[SlotBin(slot)].fetch_add(1, std::memory_order_relaxed);
-          if (no_walk_ && (it->second.age <= 1 || it->second.age == kConsumerFresh + 1)) EventLog(0, f.guest_frame, it->first, slot, it->second.age, it->second.frame, kConsumerFresh);   // the line that names the moment a visible body leaves the record (the glue caps it)
-          ++it;
-          continue;
-        }
+        stale_dropped_.fetch_add(1, std::memory_order_relaxed);
+        by_slot_stale_dropped_[SlotBin(slot)].fetch_add(1, std::memory_order_relaxed);
+        if (it->second.age <= 1) EventLog(0, f.guest_frame, it->first, slot, it->second.age, it->second.frame, 0);   // the line that names the moment a visible body leaves the record (the glue caps it)
+        ++it;
+        continue;
       }
       items.push_back(Item{it->first, slot, it->second.consumer, link, it->second.skin});
       items.back().stale = stale;   // S103 NRB
@@ -1011,25 +996,23 @@ void WrestlerContributor::Collect(const FrameInfo& f, std::vector<EmitItem>& ite
         } else if (rdr_scene::g_spring_hair_rows.load(std::memory_order_relaxed) && (!piece_rows_.empty() || !piece_rows_prev_.empty())) {
           rdr_scene::g_spring_census.rows_frame_skew.fetch_add(1, std::memory_order_relaxed);
         }
-        if (no_walk_) {   // S103 AUSF review 2: remember the rows a held stale body keeps
-          if (items.back().extra.empty()) last_extra_.erase(it->first);
-          else last_extra_[it->first] = items.back().extra;
-        }
-      } else if (no_walk_ && !(faults_ & kFaultHoldNoExtras)) {
-        if (auto le = last_extra_.find(it->first); le != last_extra_.end()) items.back().extra = le->second, held_with_extras_.fetch_add(1, std::memory_order_relaxed);   // a held stale body keeps its spring-hair rows (else the hair snaps to bind pose for the hold)
       }
       if (auto pl = links.find(it->first); pl != links.end() && slot < 0) items.back().piece_slot = pl->second.slot, items.back().piece_owner = pl->second.owner, items.back().piece_why = pl->second.why, items.back().piece_id = pl->second.id, items.back().probe = pl->second.probe;   // S105 A5a: + the copy probe; S111 PERIODALL: the links of the palette's latch
       ++it;
     }
     // S103 DTP fix (review): the owner-mesh skip follows the latch's link proof (copy word == 0), not the piece object's palette. After the ELBW ends the game sets only +20 = 0 (the SUBM draw loop skips it) and
     // never puts +24 back, so the pad's palette stops, goes stale and is pruned: the merged owner mesh must not draw it on the arm again. A NoCopy link with no item of its own is written link-only (no palette).
-    if (!links.empty() && !(faults_ & kFaultDetachNeedsFresh)) {   // S111 PERIODALL: the same links as the pieces above
+    // S111 SOCKPIECE (piece_hidden.h): a link the game HIDES (instance +20 == 0) has no item either (LatchTargets does not push it), so the owner's merged mesh would draw it: it is written link-only too,
+    // with the link's probe, and EmitItems turns it into a kObjPieceHidden object (the owner's alpha-0 row). kFaultHideIgnored = the old rule (the twin).
+    if (!links.empty()) {   // S111 PERIODALL: the same links as the pieces above
       std::set<uint32_t> have;
       for (const Item& it2 : items) have.insert(it2.skel);
       for (const auto& pl : links) {
-        if (pl.second.why != scene_inputs::PieceWhy::NoCopy || pl.second.slot < 0 || have.count(pl.first) || std::binary_search(ring_models_.begin(), ring_models_.end(), pl.first)) continue;
+        const bool nocopy_link = pl.second.why == scene_inputs::PieceWhy::NoCopy && !(faults_ & kFaultDetachNeedsFresh);
+        const bool hidden_link = pl.second.probe.drawn == 0 && !(faults_ & kFaultHideIgnored);
+        if ((!nocopy_link && !hidden_link) || pl.second.slot < 0 || have.count(pl.first) || std::binary_search(ring_models_.begin(), ring_models_.end(), pl.first)) continue;
         Item li{pl.first, -1, false, Link(), {}};
-        li.piece_slot = pl.second.slot, li.piece_owner = pl.second.owner, li.piece_why = pl.second.why, li.piece_id = pl.second.id, li.link_only = true, li.stale = true;
+        li.piece_slot = pl.second.slot, li.piece_owner = pl.second.owner, li.piece_why = pl.second.why, li.piece_id = pl.second.id, li.link_only = true, li.stale = true, li.probe = pl.second.probe;
         items.push_back(std::move(li));
       }
     }
@@ -1123,23 +1106,26 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
     const Link& link = s.link;
     bool by_owner = false, detached = false, own_rows = false, own_refused = false;   // S105 A5a: own_rows = kObjOwnRowsPiece (below); S111 PIECELINK: own_refused = kObjOwnRowsRefused
     bool piece_undrawn = false;   // S111 OWNERLESS: written with kObjGameUndrawn (below)
+    bool game_hidden = false;     // S111 SOCKPIECE (piece_hidden.h): written kObjPieceHidden (below): the game hides this piece of a named owner, so the owner's merged mesh must skip it
     if (!slot_ok && s.piece_slot >= 0) {   // S103 NRBF
       scene_inputs::PieceWhy why = s.piece_why;
       const auto ow = owner_of.find(s.piece_slot);
+      game_hidden = !(faults_ & kFaultHideIgnored) && rdr_scene::OwnerMeshHidesPiece(s.probe.drawn, s.piece_id, ow != owner_of.end() && ow->second->skel == s.piece_owner, ow != owner_of.end() && ow->second->link.known && !ow->second->link.pac.empty());
+      if (game_hidden) piece_game_hidden_.fetch_add(1, std::memory_order_relaxed);
       if (why == scene_inputs::PieceWhy::Ok) {
         if (ow == owner_of.end()) why = scene_inputs::PieceWhy::OwnerNotDrawn;
         else if (ow->second->skel != s.piece_owner) why = scene_inputs::PieceWhy::OwnerMismatch;
         else if (s.stale) why = scene_inputs::PieceWhy::Stale;
       }
-      by_owner = why == scene_inputs::PieceWhy::Ok;
+      by_owner = why == scene_inputs::PieceWhy::Ok && !game_hidden;
       // S103 DTP (PEP.md section 3): the game set the piece's owner-copy flag to 0 and poses the piece from its own palette (the People's Elbow pad). Owner identity and a fresh palette are the same proof as above;
       // only the copy flag differs. The class is any NoCopy piece, not only ids 26 / 27. Off by --wwe2k14_rdr_detached_pieces=false: the piece stays a hole.
       const bool hidden_nocopy = why == scene_inputs::PieceWhy::NoCopy && s.probe.drawn == 0;   // S105 CAWP F1: the game hides it (inst +20 == 0): not drawn, never a hole
       detached = !hidden_nocopy && why == scene_inputs::PieceWhy::NoCopy && ow != owner_of.end() && ow->second->skel == s.piece_owner && s.piece_id != 0 && !((faults_ & kFaultDetachNeedsFresh) && s.stale) && rdr_scene::g_detached_pieces.load(std::memory_order_relaxed);   // S103 DTP fix: no freshness test (the flag follows the link proof; a stale / gone palette is written without bones, see link_only below); no piece id = never flagged (a flag with no pad is unusable)
       if (detached) piece_detached_.fetch_add(1, std::memory_order_relaxed);
       piece_why_[size_t(why)].fetch_add(1, std::memory_order_relaxed);
-      if (hidden_nocopy) continue;
-      if (!by_owner && !detached && !s.link_only) {   // S105 A5a (A5a_ADV.md site 7): a linked own-skeleton piece of a GUEST-ROW owner (a created superstar's hair / necklace / braces) is drawn from its own latch-read palette (own_rows_rule.h: a fresh read of its owner's latch)
+      if (hidden_nocopy && !game_hidden) continue;
+      if (!by_owner && !detached && !s.link_only && !game_hidden) {   // S105 A5a (A5a_ADV.md site 7): a linked own-skeleton piece of a GUEST-ROW owner (a created superstar's hair / necklace / braces) is drawn from its own latch-read palette (own_rows_rule.h: a fresh read of its owner's latch)
         scene_inputs::OwnRowsCase oc;
         oc.probe = s.probe;
         oc.owner_found = ow != owner_of.end();
@@ -1166,8 +1152,8 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
         for (const Item& own : items)
           if (own.skel == s.piece_owner && own.game_undrawn) { piece_undrawn = true; break; }
     }
-    if (s.link_only && !detached) continue;   // S103 DTP fix: a link-only entry is written only as a detached piece (its owner is drawn); nothing else to say about a model with no palette
-    const bool no_palette = detached && (s.stale || s.link_only);   // S103 DTP fix: the piece's own palette is gone or old: the flag (the owner's skip) stays, no bones are written, rf_wrestlers never guest-routes it
+    if (s.link_only && !detached && !game_hidden) continue;   // S103 DTP fix: a link-only entry is written only as a detached piece (its owner is drawn); nothing else to say about a model with no palette   // S111 SOCKPIECE: or as a hidden one
+    const bool no_palette = (detached && (s.stale || s.link_only)) || game_hidden;   // S103 DTP fix: the piece's own palette is gone or old: the flag (the owner's skip) stays, no bones are written, rf_wrestlers never guest-routes it   // S111 SOCKPIECE: a hidden piece writes no bones (nothing of it is drawn)
     if (link.known) {  // declared link (the char model reader): one AssetRef per distinct (pac, entry, variant) in this record
       const std::string key = link.pac + '\n' + link.entry + '\n' + std::to_string(link.variant);
       auto f2 = linked.find(key);
@@ -1185,8 +1171,8 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
     o.klass = rdr_adapter::DrawClass::ModelPart;
     // A skeleton that matches no character slot (managers, waiting entrance models, extras; size filter only) is not shown: visible only with a slot. (S103 NRBF: a proven linked piece stays
     // invisible, with kObjDrawnByOwner: its owner's body draws it.)
-    o.flags = (no_palette ? 0u : uint32_t(kObjSkinned)) | ((slot_ok && !s.pieces_only) ? uint32_t(kObjVisible) : 0u) | ((slot_ok && s.pieces_only) ? uint32_t(kObjPiecesOnly) : 0u) | (by_owner ? uint32_t(kObjDrawnByOwner) : 0u) | (detached ? uint32_t(kObjDetachedPiece) : 0u) | (own_rows ? uint32_t(kObjOwnRowsPiece) : 0u) | (own_refused ? uint32_t(kObjOwnRowsRefused) : 0u) | ((s.game_undrawn || piece_undrawn) ? uint32_t(kObjGameUndrawn) : 0u);   // S105 A5a; S111 PIECELINK; S111 PIECEHOLES; S111 OWNERLESS; S111 PIECEROUTE (kObjPiecesOnly: the owner's merged model draws only its pieces)
-    if (by_owner || detached || own_rows || own_refused) o.pad = uint16_t(s.piece_id), o.layer = uint8_t(s.piece_slot + 1);   // PZF2 B-1 / EB: the draw side asks the owner's resident model for a mesh of THIS piece id (scene_record.h kObjDrawnByOwner); S111 PIECELINK: a refused own-rows piece carries its owner the same way
+    o.flags = (no_palette ? 0u : uint32_t(kObjSkinned)) | ((slot_ok && !s.pieces_only) ? uint32_t(kObjVisible) : 0u) | ((slot_ok && s.pieces_only) ? uint32_t(kObjPiecesOnly) : 0u) | (by_owner ? uint32_t(kObjDrawnByOwner) : 0u) | (detached ? uint32_t(kObjDetachedPiece) : 0u) | (own_rows ? uint32_t(kObjOwnRowsPiece) : 0u) | (own_refused ? uint32_t(kObjOwnRowsRefused) : 0u) | ((s.game_undrawn || piece_undrawn) ? uint32_t(kObjGameUndrawn) : 0u) | (game_hidden ? uint32_t(kObjPieceHidden) : 0u);   // S105 A5a; S111 PIECELINK; S111 PIECEHOLES; S111 OWNERLESS; S111 PIECEROUTE (kObjPiecesOnly: the owner's merged model draws only its pieces); S111 SOCKPIECE
+    if (by_owner || detached || own_rows || own_refused || game_hidden) o.pad = uint16_t(s.piece_id), o.layer = uint8_t(s.piece_slot + 1);   // PZF2 B-1 / EB: the draw side asks the owner's resident model for a mesh of THIS piece id (scene_record.h kObjDrawnByOwner); S111 PIECELINK: a refused own-rows piece carries its owner the same way; S111 SOCKPIECE: a hidden piece names the mesh its owner skips
     o.id = t.AddString(id);
     o.world = IdentityMat4();  // the palette is already in world space (the root matrix is folded in by sub_82BD30E8); unconfirmed against the front-end
     o.bones_first = uint32_t(t.bones.size());
@@ -1218,7 +1204,7 @@ void WrestlerContributor::EmitItems(const FrameInfo& f, SceneTables& t, Counters
       ++c.unknown;
       derived_fallbacks_.fetch_add(1, std::memory_order_relaxed);
     }
-    if (!slot_ok && !by_owner && !own_rows) ++c.unknown;   // (S105 A5a: an own-rows piece is linked to its owner too)   // the skeleton -> wrestler link (S103 NRBF: a piece drawn by its owner is linked to it)
+    if (!slot_ok && !by_owner && !own_rows && !game_hidden) ++c.unknown;   // (S105 A5a: an own-rows piece is linked to its owner too)   // the skeleton -> wrestler link (S103 NRBF: a piece drawn by its owner is linked to it; S111 SOCKPIECE: a hidden one too)
     if (light == kUnknown) ++c.unknown;  // light set
   }
 }

@@ -8,7 +8,7 @@ vertex-constant bank) projected by the frame's ViewProj (c56-c59) into the GAME'
 sub_8250E110 / sub_8250DC10), so a capture of the game as it is has nothing beyond that. On a display k times wider the picture shows the game's x in [-k, k].
 Printed per capture: frames, members per frame (the cost), the share of members by |x| band (<= 0.5, 0.5-1, 1-k, > k), the widest |x|, and the 'side strips'
 = members whose centre is beyond |x| = 1.15 (the radius overshoot the game's own test allows): what only a widened cull can draw. The ViewProj convention (which register is which column) is taken
-from the shader (yAudience.vert line 63: each register is a row).
+from the shader (yAudience.vert: each register is a row).
 Exit codes: 0 ok; with --expect-wide the capture must HAVE side-strip members (the milestone's pass: a 21:9 / 32:9 live capture after lane 176); without it the capture is
 read as the BEFORE and must have none beyond a small margin (the member radius: |x| <= 1 + 0.15). 1 = that failed; 2 = an input cannot be read.
 Planted twin: --plant widen_off reads the capture as if the hook was off (nothing changes in the data: the pass for --expect-wide on a 16:9 capture must FAIL)."""

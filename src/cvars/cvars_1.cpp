@@ -168,6 +168,11 @@ REXCVAR_DEFINE_BOOL(wwe2k14_log_content_calls, true, "wwe2k14",
                     "Session 32: log the game's content calls (enumerate / open / close: saves and DLC) with the "
                     "answers");
 
+//@ src/equiv/equiv_host.h | - | -
+REXCVAR_DEFINE_STRING(wwe2k14_equiv_dll, "", "wwe2k14",
+                      "S111 EQUIV: the test DLL (empty = wwe2k14_equiv_tests.dll next to the exe)");
+REXCVAR_DEFINE_UINT64(wwe2k14_equiv_seed, 1, "wwe2k14", "S111 EQUIV: the seed of the test DLL's case generator");
+
 //@ src/event_bus.h | - | -
 REXCVAR_DEFINE_INT64(wwe2k14_match_state_dump, 0, "wwe2k14",
                      "Session 91: set to a new value for one 'state' event: the match snapshot (clock, referee mode / "

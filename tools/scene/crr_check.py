@@ -12,7 +12,8 @@ import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 # plant -> the check it must fail (the first two need no game files? no: skirt_swap and post_loop1_corner0 are pure; the other two read the real files)
-PLANTS = {'skirt_swap': ('keys.alt_table', False), 'post_loop1_corner0': ('rows.alt_posts_angles', False), 'old_cover_corners': ('place.covers_by_corner', True), 'normal_cover_pose': ('rows.alt_cover_pose', False), 'logo_as_cover': ('shape.covers_share_geometry', True)}
+PLANTS = {'skirt_swap': ('keys.alt_table', False), 'post_loop1_corner0': ('rows.alt_posts_angles', False), 'old_cover_corners': ('place.covers_by_corner', True), 'normal_cover_pose': ('rows.alt_cover_pose', False), 'logo_as_cover': ('shape.covers_share_geometry', True),
+          'class_by_count': ('keys.class_posed', False)}   # S111 TBPAD review
 
 
 def find_stb(root):
@@ -77,7 +78,8 @@ def main():
         ('src/renderer_scene/rf_c_core.cpp', 'assets::IsAltRingKey(k)', 'the alt pieces are Part::Ring, not stage slots'),
         ('src/renderer_scene/rf_c_core.cpp', '1017, 1021, 1041, 1050', 'the alt keys get per-key ring pieces'),
         ('src/renderer_scene/rf_ring.cpp', 'ringkeys::IsAltArena(as->arena)', 'the ring path picks the alt keys by the arena id'),
-        ('src/renderer_scene/rf_ring.cpp', 'ringkeys::Need(g, alt)', 'a created arena needs 8 posts'),
+        ('src/renderer_scene/rf_ring.cpp', 'ringkeys::ClassPosed(have[g], offered[g])', 'the ring path decides posed / at rest per class through ClassPosed (S111 TBPAD review, NEEDREMOVE)'),
+        ('src/renderer_scene/ring_keys.h', 'return have > 0 && have == offered;', 'one posed rule for ours and the game\'s own rows: every given row drawable, whatever the count (S111 NEEDREMOVE)'),
         ('src/scene_live/ring_recompute_contrib.h', '&po.alt', 'the post read flags the alt ring (no bail)'),
         ('src/scene_live/ring_rows_hook.h', 'AltKeyOf(model)', 'the tracker stores the alt slot key'),
         ('src/assets/view/renderer.cpp', 'key >= 1017 && key <= 1083', 'the alt ring casts the props shadow'),
@@ -86,6 +88,9 @@ def main():
         if needle not in text(rel):
             print('FAIL: lint: %s (%s: %s missing)' % (what, rel, needle))
             bad += 1
+    if 'Need(' in text('src/renderer_scene/ring_keys.h') or '{12, 12, 12, 4, 3, 1}' in text('src/renderer_scene/ring_keys.h'):
+        print('FAIL: lint: a fixed calls-per-group count is back in ring_keys.h (S111 NEEDREMOVE: the posed rule is ClassPosed alone)')
+        bad += 1
     if 'cv_alt_ring); return false' in text('src/scene_live/ring_recompute_contrib.h').replace(' ', '').replace('++(cn.*alt_counter);return false', 'cv_alt_ring);return false'):
         print('FAIL: lint: the alt-ring bail is back in ReadPieceGates')
         bad += 1

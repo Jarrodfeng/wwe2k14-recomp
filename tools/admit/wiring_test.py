@@ -101,8 +101,8 @@ def test_ps(tmp):
                 os.remove(f)
     n, lec, pid, out = ps_request(16, env_with(WWE_ADMIT_EXE=stub, STUB_MODE='grant 5', STUB_LOG=log))
     calls = stub_calls(log)
-    ok(n == 5 and calls == [['hold', '--kind', 'cc.tool', '--want', '16', '--min', '4', '--timeout', '300', '--pid', pid, '--detach', '--max-s', '900']],
-       f'P1 the grant is passed through (5 of 16); one detached hold for this process: --min 4 (a quarter), --timeout 300, --max-s 900: {calls}')
+    ok(n == 5 and calls == [['hold', '--kind', 'cc.tool', '--want', '16', '--min', '4', '--pid', pid, '--detach', '--max-s', '900']],
+       f'P1 the grant is passed through (5 of 16); one detached hold for this process: --min 4 (a quarter), NO --timeout (S111 ADMITCALLERS), --max-s 900: {calls}')
     ok(lec == '42', f'P2 $LASTEXITCODE is left as the caller had it ({lec})')
     fresh()
     n, _l, _p, out = ps_request(16, env_with(WWE_ADMIT_EXE=stub, STUB_MODE='grant 5', STUB_LOG=log, WWE_BUILD_PARALLEL=4))
@@ -119,7 +119,7 @@ def test_ps(tmp):
         n, _l, _p, out = ps_request(16, env_with(WWE_ADMIT_EXE=stub, STUB_MODE=mode, STUB_LOG=log))
         ok(n == 16 and '(not held:' in out, f'P{6 + i} {label} gives N (16 -> {n}), never 1, with one line: {[x for x in out.splitlines() if "[admit]" in x][:1]}')
     # S109 GATE: exit 75 is a REFUSAL: Request-BuildParallel throws (the script stops, nothing compiles), carrying admit's `refused` line when there is one
-    for mode, want_text, label in (('timeout75', 'not admitted within 300 s (exit 75)', 'P8 exit 75 without a line (an older admit)'),
+    for mode, want_text, label in (('timeout75', "not admitted within the queue's wait cap (exit 75)", 'P8 exit 75 without a line (an older admit)'),
                                    ('refused', 'REFUSED after 3 s: cc.tool needs', 'P8b a `refused` line + exit 75')):
         rc, out = ps_rc("try { $n = Request-BuildParallel -Want 16; 'N=' + $n } catch { 'THROWN ' + $_.Exception.Message }",
                         env_with(WWE_ADMIT_EXE=stub, STUB_MODE=mode, STUB_LOG=log))
@@ -131,7 +131,7 @@ def test_ps(tmp):
        f'P9 a HELD grant below the minimum (1 of 16, min 4) is refused and given back: N, never 1: {c}')
     fresh()
     t0 = time.time()
-    n, _l, _p, out = ps_request(16, env_with(WWE_ADMIT_EXE=stub, STUB_MODE='hang', STUB_LOG=log), extra=' -TimeoutS 1 -Interactive')
+    n, _l, _p, out = ps_request(16, env_with(WWE_ADMIT_EXE=stub, STUB_MODE='hang', STUB_LOG=log, WWE_ADMIT_CONFIG=make_cfg(tmp, 1)), extra=' -TimeoutS 1 -Interactive')   # S111: the kill bound is the queue's cap (here 1 s), never the caller's T
     dt = time.time() - t0
     spid = Path(log + '.pid').read_text().strip() if Path(log + '.pid').exists() else ''
     ok(n == 16 and 31 <= dt < 32 + 20 and spid and not pid_alive(spid) and 'no answer in 32 s' in out,
@@ -253,7 +253,7 @@ def test_py(tmp):
                     continue
             except admit_py.Refused as r:
                 got.append((mode, r.code, isinstance(r, SystemExit), r.line[:40], ran))
-        ok(got == [('timeout75', 75, True, 'not admitted within 120 s (exit 75)', False), ('refused', 75, True, 'REFUSED after 3 s: cc.tool needs 1 x 2.0', False)],
+        ok(got == [('timeout75', 75, True, "not admitted within the queue's wait cap", False), ('refused', 75, True, 'REFUSED after 3 s: cc.tool needs 1 x 2.0', False)],
            f'Y12 exit 75 (no line / a `refused` line) raises Refused (SystemExit 75, the line carried), the block never runs: {got}')
         setenv(WWE_ADMIT_EXE=stub, STUB_MODE='grant 1 held', STUB_LOG=log)
         with admit_py.hold('cc.game_src', 12, timeout_s=300) as g:
@@ -285,7 +285,7 @@ def test_py(tmp):
         except KeyError:
             pass
         ok(stub_calls(log)[-1:] == ['released'], 'Y5 an exception in the block still releases the hold')
-        setenv(WWE_ADMIT_EXE=stub, STUB_MODE='hang', STUB_LOG=log)
+        setenv(WWE_ADMIT_EXE=stub, STUB_MODE='hang', STUB_LOG=log, WWE_ADMIT_CONFIG=make_cfg(tmp, 1))   # S111: the kill bound is the queue's cap (here 1 s), never the caller's T
         old = admit_py.GRACE_S
         t0 = time.time()
         with admit_py.hold('q.parse_worker', 8, timeout_s=1, interactive=True) as g:
@@ -297,7 +297,12 @@ def test_py(tmp):
         ok(admit_py.min_of(1) == 1 and admit_py.min_of(8) == 2 and admit_py.min_of(12) == 3 and admit_py.min_of(16) == 4 and admit_py.min_of(5) == 2,
            'Y7 the minimum is a quarter of the want, rounded up, at least 1')
         src = (HERE / 'admit_py.py').read_text(encoding='utf-8')
-        ok("'--on-timeout'" not in src and 'def hold(kind, want, timeout_s, interactive=False)' in src, 'Y8 hold takes a required timeout and never asks admit to run after a timeout')
+        ok("'--on-timeout'" not in src and 'def hold(kind, want, timeout_s=None, interactive=False)' in src, 'Y8 hold takes an optional (selftest-only) timeout and never asks admit to run after a timeout')
+        setenv(WWE_ADMIT_EXE=stub, STUB_MODE='grant 3', STUB_LOG=log)
+        with admit_py.hold('q.parse_worker', 8):
+            pass
+        y13 = stub_calls(log)
+        ok(y13 and all('--timeout' not in c for c in y13), f'Y13 (S111 ADMITCALLERS) a caller that passes no timeout_s sends no --timeout: {y13}')
         # S106 0CF (review B5): a 20 s caller waits the queue's own limit; an interactive one keeps its 20 s
         cfg900 = make_cfg(tmp, 900)
         setenv(WWE_ADMIT_EXE=stub, STUB_MODE='grant 3', STUB_LOG=log, WWE_ADMIT_CONFIG=cfg900)
@@ -322,8 +327,8 @@ def test_rebuild(tmp):
     """S109 GATE: the exe is judged by CONTENT and rebuilt on ask. A temp main tree (<t>\\out\\tools\\admit\\admit.exe + <t>\\tools\\admit\\admit.cpp):
     R1 exe_current: no stamp False, equal True, other False, no source None; R2 admit_exe() runs <t>\\tools\\admit\\build_admit.ps1 -IfStale ONCE per process
     (a fake script that only logs; WWE_ADMIT_EXE unset, the tree found through a patched exe_path); R3 the real build_admit.ps1 -IfStale with a current stamp
-    exits 0 and compiles nothing; R4 the real build_admit.ps1 -IfStale whose own ask is REFUSED (the worktree's admit.exe in test mode, fake memory 1 GB,
-    timeout_s 2) keeps the old exe, says so, exits 3, and compiles nothing (the coordinator's note 2: a rebuild is never a wait on memory)."""
+    exits 0 and compiles nothing; R4 the real build_admit.ps1 -IfStale probes the old exe with `admit status` (no queue ask), builds, and on a failed
+    compile keeps the old exe, says so, exits 3; R4b an old exe that does not run is said and still replaced (S111 ADMITCALLERS)."""
     import hashlib
     t = Path(tmp) / 'rb_main'
     (t / 'out' / 'tools' / 'admit').mkdir(parents=True)
@@ -405,8 +410,14 @@ def test_rebuild(tmp):
     t0 = time.time()
     p = subprocess.run(['pwsh', '-NoProfile', '-File', str(t / 'tools' / 'admit' / 'build_admit.ps1'), '-IfStale'], capture_output=True, text=True, env=env, timeout=120)
     out = p.stdout + p.stderr
-    ok(p.returncode == 3 and 'its rebuild was not admitted' in out and 'REFUSED' in out and exe.read_bytes() == before and not (t / 'out' / 'tools' / 'admit' / 'admit.new.exe').exists()
-       and time.time() - t0 < 60, f'R4 a rebuild whose own ask is refused keeps the old exe, says so, exit 3, nothing compiled: rc {p.returncode} {out.strip()[:220]!r}')
+    ok(p.returncode == 3 and 'rebuilding it' in out and 'FAILED' in out and 'does not answer' not in out and 'REFUSED' not in out and exe.read_bytes() == before
+       and not (t / 'out' / 'tools' / 'admit' / 'admit.new.exe').exists() and time.time() - t0 < 100,
+       f'R4 (S111 ADMITCALLERS) the rebuild asks the queue nothing (the old exe answers `status`); the junk source fails to compile: the old exe stays, exit 3: rc {p.returncode} {out.strip()[:220]!r}')
+    exe.write_bytes(b'not a real exe')
+    p = subprocess.run(['pwsh', '-NoProfile', '-File', str(t / 'tools' / 'admit' / 'build_admit.ps1'), '-IfStale'], capture_output=True, text=True, env=env, timeout=120)
+    out = p.stdout + p.stderr
+    ok(p.returncode == 3 and 'the old admit.exe does not answer' in out and 'rebuilding it' in out and exe.read_bytes() == b'not a real exe',
+       f'R4b an old exe that does not run is probed, said, and still replaced (here the junk source fails, so it stays): rc {p.returncode} {out.strip()[:220]!r}')
 
 
 def isolate_alone(tmp, plant=False):

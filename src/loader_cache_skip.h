@@ -10,6 +10,7 @@
 
 REXCVAR_DECLARE(bool, wwe2k14_loader_cache_copy);
 
+// SKIP-ORIGINAL: the cache insert that would copy is skipped (CacheInsertSkips: answers 0, the game's "not cached"); the move path runs the original
 REX_HOOK_RAW(sub_82C54DE0) {
   using namespace wwe2k14::loader_cache;
   using wwe2k14::load_probe::SafeRead32;
@@ -57,6 +58,7 @@ REXCVAR_DECLARE(bool, wwe2k14_loader_cache_hits);
 // enters and leaves the cache section (flag +28 1 -> 0) and returns 0, so answering 0 leaves nothing half-done. The inserts (moves above)
 // stay: they give a loader-allocated buffer its owner. The count is of dropped LOOKUPS, not of real hits (the original is not run, so a
 // hit cannot be told from a miss).
+// SKIP-ORIGINAL: the loader cache NAME HIT is dropped: answers 0 "not in the cache" (the comment above); every other cache runs the original
 REX_HOOK_RAW(sub_82C54A00) {
   using namespace wwe2k14::loader_cache;
   using wwe2k14::load_probe::SafeRead32;

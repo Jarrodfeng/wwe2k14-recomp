@@ -38,7 +38,7 @@ struct MapsFaults {
   bool circles_all_stamps = false;  // the one-stamp rule is off and every entry is duplicated with stamp - 1 (catch-up entries): every character is drawn twice
   // S103 E3: the fitted light camera's plants (shadow_fit.h ShadowFitFaults); the fit is used for the whole run of a check that names one
   bool fit_view_not_light = false;   // the caster matrix is built from the main camera's forward vector instead of the light's
-  bool fit_key_not_negated = false;  // the key vector is used as the travel direction (the shadow falls toward the light)
+  bool fit_key_not_negated = false;  // the light's travel direction turned half a circle in the horizontal (the shadow falls toward the camera; S111 SHADOWKEY: the direction follows the camera)
   bool fit_no_bounds = false;        // the casters' bounds are not measured (the zoom is the minimum on every scene)
   bool circles_no_mesh = false;      // S103 E4: the record's disc mesh is dropped: the circle map must become a counted HOLE (nothing drawn, never an empty map)
   // S103 PMS (the props map the floor reads): each must fail its bar in tools\scene\pms_check.py
@@ -52,7 +52,9 @@ struct MapsFaults {
   bool props_no_props = false;       // the props map is made without its prop casters (PMS's blobs-only map: the past behaviour re-found)
   bool props_viewdepth_row2 = false; // the casters' ViewDepth is the product's row 2 (the clip z) instead of row 3 (the floor's ViewLight[2]): the stored depth no longer matches the receiver's
   bool props_casts_gm = false;       // the props map's cast tag is ignored for gm sets / blood (they cast into it)
-  bool Any() const { return props_viewdepth_row2 || props_no_props || props_casts_gm || mapb_wrestlers_only || mapb_casts_gm || transpose_light || no_casters || circles_wrong_frame || scale_prm || circles_all_stamps || fit_view_not_light || fit_key_not_negated || fit_no_bounds || circles_no_mesh || props_reader_mapb || props_bias_order || props_no_blobs; }
+  // S111 SOCKSHADOW twin (tools\scene\piece_cast_unit.cpp --plant caster_rows): the casters ignore SceneFrame::piece_alphas (the old casters): a piece the game hides or detached casts from its owner's mesh again
+  bool caster_piece_rows_ignored = false;
+  bool Any() const { return caster_piece_rows_ignored || props_viewdepth_row2 || props_no_props || props_casts_gm || mapb_wrestlers_only || mapb_casts_gm || transpose_light || no_casters || circles_wrong_frame || scale_prm || circles_all_stamps || fit_view_not_light || fit_key_not_negated || fit_no_bounds || circles_no_mesh || props_reader_mapb || props_bias_order || props_no_blobs; }
   static bool Parse(const std::string& list, MapsFaults& f, std::string& error);  // "a,b"
 };
 
@@ -83,19 +85,11 @@ struct MapsInput {
   E2Input e2;                             // S103 E2: the plane, rim, pre-light and sweat inputs (live_maps_e2.h)
   // S103 E3: the wrestlers' shadow light camera RECOMPUTED (shadow_fit.h) when the record has no caster pass entry (the game's walk is skipped), or always when `force_fit`.
   bool force_fit = false;                 // use the fitted camera even when a caster state is in the record (the offline check, the landing's frames)
-  bool fit_key_valid = false;             // the wrestlers' key light vector was found
-  bool fit_key_told = false;              // ... and it was TOLD to the rig (a fixture: the record carries no light rows), not read from the record
-  float fit_key[3] = {};
-  const char* fit_key_why = "";           // where the key came from, or why there is none
   float fit_main_forward[3] = {};         // the view_not_light plant only
-  bool casters_expected = false;          // the record has a wrestler actor: a shadow map is expected
-  bool shadow_hole = false;               // review 2: the shadow map is expected, would be fitted, and its key light is missing: an INPUT is missing (DrawLive counts the frame a miss)
 };
-// What the rig may tell the hook for an input the record does not carry yet (OFFLINE ONLY; the live path reads the record).
+// What the rig may tell the hook (OFFLINE ONLY; the live path reads the record).
 struct MapsFitOptions {
   bool force_fit = false;
-  bool have_told_key = false;
-  float told_key[3] = {};                 // the wrestlers' KeyLightVec (VS c12 of a wrestler colour draw)
 };
 // A record holds the entries of the frame it describes (stamp = header - 1 measured, SF1 run 7147) and may hold older catch-up entries (g-1, g-2: SKIP_GAME_WORK_MAP 1351). ONE stamp is chosen per record:
 // header - 1 when present, else the newest at or below the header; never a future one. kStampWindow = how far below the header an entry may be.
@@ -189,6 +183,7 @@ class LiveMapsHook final : public StageHook {
     uint32_t sample_first = 0, sample_count = 0;   // S103 E3: this piece's bounds samples in CasterModel::samples
     bool translucent = false;       // S111 LAYERS review: a wrestler part of the character's translucent node (wrestler_caster.h): cast only by a pass that walks category 33
     bool piece = false;             // S111 PIECEROUTE review: a SUBM piece mesh of a wrestler entry (piece_row_rule.h PiecesOnlyMeshDrawn): the only meshes a kObjPiecesOnly owner casts (wrestler_caster.h MeshCastsFor)
+    int row_key = -1;               // S111 SOCKSHADOW: the key SceneFrame::piece_alphas names this mesh by (piece_row_rule.h PieceRowKey: a wrestler entry mesh's piece id, 0 the body; -1 = none, a prop); CasterMeshCasts reads it
   };
   struct SamplePt { float p[3]; uint16_t slot; };   // S103 E3: a bind-space vertex and the palette slot of its first bone (the bounds are measured with the dominant bone only)
   struct CasterModel {
@@ -200,6 +195,9 @@ class LiveMapsHook final : public StageHook {
     uint32_t serial = 0, vb_bytes = 0, ib_bytes = 0;   // S103 MBC: a prop's pose serial and its buffers' sizes (a re-pose of the same shape rewrites vb in place)
   };
   const CasterModel* CasterOf(uint32_t asset, bool prop = false);   // S103 MBC: prop = a tagged weapon / event prop / piece (opaque meshes of any effect, rigid), kept in prop_casters_
+  // S111 SOCKSHADOW (piece_row_rule.h PieceRowCasts): does mesh `m` of frame.objects[obj_no] cast? false = its row says the owner's merged mesh does not draw that piece (hidden / detached). Every
+  // wrestler caster loop asks it: RecordShadow, MeasureCasters (live_map_shadow.cpp), RecordRim (live_map_rim.cpp), MeasureRimDepth (live_map_chain.cpp), RecordPlane (live_map_plane.cpp).
+  bool CasterMeshCasts(const SceneFrame& frame, uint32_t obj_no, const CasterMesh& m) const;
   void ReleaseCasters();
   void RetireModel(CasterModel& m);                       // buffers go to the graveyard
   void Retire(rdr::BufferId b);

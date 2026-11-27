@@ -23,6 +23,7 @@
 #include "../../src/renderer_scene/rows_ring.h"
 #include "../../src/renderer_scene/weapon_draw_core.h"   // EvtEntryOf (+ weapon_plan.h)
 #include "../../src/scene_live/weapon_rows_core.h"
+#include "../../src/scene_live/prop_read_note.h"   // S111 FOLLOWUPS3
 
 using namespace rdr_scene;
 using namespace rdr_scene::live::weaponrows;
@@ -239,6 +240,44 @@ int main(int argc, char** argv) {
     const bool ok = items.size() == 2 && items[0].event && items[0].id == 14 && items[0].entry == 0 && items[1].event && items[1].id == 2004 && items[1].entry == 4 && c.belts == 1 && c.skipped_steps == 1 && c.event_items == 2 &&
                     W::EvtEntryOf(2004, 4) == "evtprop:2004/4";
     Check(ok, "plan.event_items", "items " + std::to_string(items.size()) + ", belts skipped " + std::to_string(c.belts) + ", steps skipped " + std::to_string(c.skipped_steps) + ", entry " + W::EvtEntryOf(2004, 4));
+    {   // S111 FOLLOWUPS3 (READANSWER review F2): one prop id built from the recoloured read for one participant and from the plain read for another = two models, two keys, two asks
+      namespace prn = rdr_scene::live::prop_read_note;
+      prn::Clear();
+      std::map<uint32_t, uint32_t> g;   // a synthetic guest: the recolour task T (recolour object at T + 208), its CWeapon W = [T + 192], W's models at W + 1228 + 4k
+      const uint32_t kT = 0x91000000u, kW = 0x92000000u, kM0 = 0x93000000u, kM4 = 0x93000400u, kPlainM = 0x94000000u;
+      g[kT + 192] = kW, g[kW + prn::kWeaponModelsOff] = kM0, g[kW + prn::kWeaponModelsOff + 16] = kM4;
+      const auto rd = [&](uint32_t a, uint32_t& v) { auto f = g.find(a); v = f == g.end() ? 0u : f->second; return true; };
+      const bool noted = prn::NoteFromRecolourCall(rd, kT + 208);
+      const bool marks = prn::IsRecoloured(kM0) && prn::IsRecoloured(kM4) && !prn::IsRecoloured(kPlainM) && !prn::IsRecoloured(0);
+      W::WeaponSlot rows[2];
+      for (int i = 0; i < 2; ++i) {
+        const uint32_t m = i == 0 ? kM0 : kPlainM;
+        rows[i].id = 2718, rows[i].slot = 0, rows[i].main = m, rows[i].flags = W::kSlotFlagEvent | (prn::IsRecoloured(m) ? W::kSlotFlagRecoloured : 0u);   // as WeaponRowsContributor::Emit writes them
+      }
+      W::View v2;
+      v2.slots = rows, v2.n_slots = 2;
+      std::vector<std::string> keys;
+      for (const auto& pr : W::Prefetch(v2, W::Plants())) keys.push_back(W::EvtEntryOf(pr.first, pr.second & ~W::kWantEvent));
+      const bool two = keys.size() == 2 && keys[0] == "evtprop:2718/0/s" && keys[1] == "evtprop:2718/0" && W::EvtEntryRecoloured(keys[0]) && !W::EvtEntryRecoloured(keys[1]);
+      const bool items_key = W::EventRecoloured(v2, kM0) && !W::EventRecoloured(v2, kPlainM);
+      Check(noted && marks && two && items_key, "event.recoloured_own_key", "noted " + std::to_string(noted) + ", marks " + std::to_string(marks) + ", keys " + std::to_string(keys.size()) + (keys.empty() ? "" : " first " + keys[0]) + ", item key " + std::to_string(items_key));
+      // the twin: rows written without the flag (the old writer) make ONE ask for both models
+      W::WeaponSlot old_rows[2] = {rows[0], rows[1]};
+      old_rows[0].flags = old_rows[1].flags = W::kSlotFlagEvent;
+      W::View v3;
+      v3.slots = old_rows, v3.n_slots = 2;
+      Check(W::Prefetch(v3, W::Plants()).size() == 1, "event.twin_one_key_per_id", "the old rows -> one ask for two models (event.recoloured_own_key tells the rules apart)");
+      prn::Forget(kW);
+      Check(!prn::IsRecoloured(kM0) && !prn::IsRecoloured(kM4), "event.recoloured_forget", "the CWeapon's free drops its models' note (a reused address is no recoloured model)");
+      // S111 FOLLOWUPS3 review F1: the two models of one (id, k) draw from two pools (rf_props.cpp ApplyWeaponRows: pool, bound copy, pose slots). Neither stem is a prefix of the other (PoolTrack /
+      // RetireOther match by prefix) and both start "weapon:ev" (the entrance end's RetireOther). The twin: the old stem ("weapon:ev<id>/<k>" whatever the read) names both models alike.
+      const std::string sp = W::EvtPoolStemOf(2718, 0, false), sr = W::EvtPoolStemOf(2718, 0, true);
+      const bool apart = sp != sr && sp.rfind(sr, 0) != 0 && sr.rfind(sp, 0) != 0 && sp.rfind("weapon:ev", 0) == 0 && sr.rfind("weapon:ev", 0) == 0 && sp == "weapon:ev2718/0";
+      Check(apart, "event.recoloured_own_pool", "plain pool " + sp + ", recoloured pool " + sr);
+      const auto old_stem = [](int32_t id, uint32_t k) { return "weapon:ev" + std::to_string(id) + "/" + std::to_string(k); };
+      Check(old_stem(2718, 0) == sp && old_stem(2718, 0) != sr, "event.twin_old_pool_shared", "the old stem " + old_stem(2718, 0) + " is the plain model's and the recoloured one's alike (event.recoloured_own_pool tells the rules apart)");
+      prn::Clear();
+    }
   }
 
   // the PACH mapping: a hand-built EPAC directory (SOBJ LIST, then BOBJ 2004 -> PACH 1, 3004 -> PACH 2), the game's lookup (PropDirIn)

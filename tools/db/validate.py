@@ -111,7 +111,7 @@ CLAIM_CODE_RE = re.compile(
     + r'|(?<![\w.])(?:%s)[+-]?\s+(?:cr\d\s*,\s*)?(?:sub_|loc_|lbl_|0x8[23])' % _BRANCHES
     + r'|(?<![\w.-])(?:blr|bctr|bctrl|beqlr|bnelr|bltlr|bgtlr|blelr|bgelr)(?![\w-])', re.I)
 CLAIM_FIELDS = ('address', 'function', 'offset', 'mark', 'claim', 'evidence', 'note')
-CLAIM_OPTIONAL = ('seam', 'ours', 'verdict', 'system', 'kind', 'key', 'name', 'site')   # kind / key / name / site: the TYPE column (S111 INDEX_PLAN lane B)
+CLAIM_OPTIONAL = ('seam', 'ours', 'verdict', 'system', 'kind', 'key', 'name', 'site', 'scope', 'rev')   # kind / key / name / site: the TYPE column (S111 INDEX_PLAN lane B); scope (ABSLINT); rev (INDEX-REV)
 CLAIM_MAX = 300
 CLAIM_EVIDENCE_MAX = 200
 CLAIM_VERDICTS = ('match', 'replace', 'repeat')
@@ -461,9 +461,17 @@ def check_claim_rows(rep, rel, rows):
             rep.err('claims', where, 'verdict %r is not match|replace|repeat' % (r.get('verdict'),))
         if r.get('system') is not None and r.get('system') not in SYSTEMS:
             rep.err('claims', where, 'system %r is not one of %s' % (r.get('system'), '|'.join(SYSTEMS)))
-        for k in ('seam', 'ours'):
+        for k in ('seam', 'ours', 'scope'):
             if r.get(k) is not None and not (isinstance(r.get(k), str) and r.get(k).strip()):
                 rep.err('claims', where, '%s is not null or a non-empty string' % k)
+        if isinstance(r.get('scope'), str):   # ABSLINT scope= (free text): the evidence's cap and code-text rule
+            if len(r['scope']) > CLAIM_EVIDENCE_MAX:
+                rep.err('claims', where, 'scope is %d characters (at most %d)' % (len(r['scope']), CLAIM_EVIDENCE_MAX))
+            code = claim_code(r['scope'])
+            if code:
+                rep.err('claims', where, 'scope carries game code %r (db/ holds summaries only: say it in our own words)' % (code,))
+        if 'rev' in r and not (r.get('mark') == 'C' and isinstance(r['rev'], str) and r['rev'].strip()):
+            rep.err('claims', where, 'rev is a non-empty string on a [C] row only (tools/handback/rev_mark.py computes it)')
         check_claim_type(rep, where, r)
 
 

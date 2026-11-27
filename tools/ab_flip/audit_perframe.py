@@ -15,7 +15,25 @@ t = open(os.path.join(root, 'src', 'renderer_adapter', 'rdr_switches.h'), encodi
 rows = re.findall(r'X\((\w+),\s*"(\w+)",\s*(PerFrame\w*|StartOnly)', t)
 per = [(i, n) for i, n, k in rows if k.startswith('PerFrame')]
 files = [f for f in glob.glob(os.path.join(root, 'src', '**', '*'), recursive=True) if f.endswith(('.h', '.cpp', '.inc'))]
-txt = {f: open(f, encoding='utf-8', errors='replace').read().split('\n') for f in files}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path, part_files, line_map  # a split file is read with its parts expanded; its part files are not scanned again
+from pathlib import Path
+_parts = part_files(os.path.join(root, 'src'))
+files = [f for f in files if Path(f).resolve() not in _parts]
+txt = {f: read_path(f).split('\n') for f in files}
+_maps = {}
+
+
+def where(f, ln):
+    """file:line of a hit; a line that lives in a part file is named by that part (reader/start_live.inc)."""
+    if f not in _maps:
+        _maps[f] = line_map(f)
+    pf, pn = _maps[f][ln - 1]
+    if pf == Path(f):
+        return '%s:%d' % (os.path.basename(f), ln)
+    return '%s/%s:%d' % (pf.parent.name, pf.name, pn)
+
+
 print('%d table rows, %d PerFrame' % (len(rows), len(per)))
 for ident, name in per:
     outside, table = [], 0
@@ -24,7 +42,7 @@ for ident, name in per:
             continue
         for ln, l in enumerate(ls, 1):
             if ('REXCVAR_GET(' + name + ')' in l or '"' + name + '"' in l) and 'REXCVAR_DEFINE' not in l and not re.search(r'rdr_sw::\w*Seen\(', l):   # S103 RLF: a BoolSeen(k..., REXCVAR_GET(x), frame) line is the per-frame read with the cvar as its fallback, not a start-time read
-                outside.append('%s:%d' % (os.path.basename(f), ln))
+                outside.append(where(f, ln))
             if re.search(r'rdr_sw::\w*\(\s*(rdr_sw::)?k' + ident + r'\b', l):
                 table += 1
     print('%s | outside the table: %s | table reads: %d' % (name, ', '.join(outside[:8]) or '-', table))

@@ -542,6 +542,7 @@ REX_HOOK_RAW(sub_83355A30) {
 // the lookup says "found" (1) without enumerating; sub_82AF6730 then sets xmp+860 = 1 and returns 0, and the game goes on to
 // Play (vtable 8 -> sub_82AF6800 -> sub_82E1A138, the hook below picks the song). sub_82AF6538 has one caller, sub_82AF6730.
 REX_EXTERN(__imp__sub_82AF6538);
+// SKIP-ORIGINAL: while our library serves USER PLAYLIST the playlist lookup answers "found" without enumerating (the comment above); otherwise the original runs
 REX_HOOK_RAW(sub_82AF6538) {
   if (!wwe2k14::user_playlist::Enabled()) return __imp__sub_82AF6538(ctx, base);
   static std::atomic<int> n{0};
@@ -550,6 +551,7 @@ REX_HOOK_RAW(sub_82AF6538) {
 }
 
 // XMPPlay (0x7003B): r3 = the 820-byte playlist block (zero-filled by the game), r4 = overlapped or 0. 0 = ok.
+// SKIP-ORIGINAL: while our library serves USER PLAYLIST, Play starts our song and answers 0 (the comment above); the original runs when nothing is playable or the library cannot be read
 REX_HOOK_RAW(sub_82E1A138) {
   using namespace wwe2k14::user_playlist;
   if (!Enabled()) return __imp__sub_82E1A138(ctx, base);
@@ -580,6 +582,7 @@ REX_HOOK_RAW(sub_82E1A138) {
 }
 
 // XMPGetStatus (0x70009): r3 = client, r4 = out (u32 BE).
+// SKIP-ORIGINAL: while our player is not idle XMPGetStatus answers its state (r3 = 0); otherwise the original runs
 REX_HOOK_RAW(sub_82E1A6F0) {
   using namespace wwe2k14::user_playlist;
   const uint32_t out = ctx.r4.u32;
@@ -599,6 +602,7 @@ REX_HOOK_RAW(sub_82E1A6F0) {
 // sub_82AF6C70 sees that overlapped done. The SDK never played anything (our Play hook answers it), so its stop was never seen to
 // complete [cause read from the listings + the log going silent after 20:44:21; the fix is checked by the next hands-on run].
 // While our library serves USER PLAYLIST the stop is ours, like Play: stop our player, complete the overlapped, answer 0.
+// SKIP-ORIGINAL: while our library serves USER PLAYLIST the stop is ours: stop our player, complete the overlapped, answer 0 (the comment above); the original runs only with the library off
 REX_HOOK_RAW(sub_82E1A220) {
   using namespace wwe2k14::user_playlist;
   if (!Enabled()) {

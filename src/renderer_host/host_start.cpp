@@ -88,6 +88,8 @@ REXCVAR_DECLARE(bool, wwe2k14_rdr_pipeline_store);
 REXCVAR_DECLARE(bool, wwe2k14_rdr_pipeline_seed);
 REXCVAR_DECLARE(int32_t, wwe2k14_rdr_pipeline_prebuild_slice_us);
 #endif
+REXCVAR_DEFINE_INT32(wwe2k14_rdr_dynamic_state, 3, "wwe2k14",
+                     "S111 DYNSTATE: which draw states the new renderer sets per draw instead of baking into each pipeline, where the graphics driver offers it. bit 0 = cull / depth test, write, compare; bit 1 = blend and colour write mask. 3 = both, 0 = none (every state in the pipeline key, as before; a harvest of the pipeline seed uses 0). Read at start");
 REXCVAR_DEFINE_INT32(wwe2k14_rdr_pipeline_delay_ms, 0, "wwe2k14",
                      "Test only (the release entrance check): every pipeline build in the new renderer sleeps this many ms first, a slow driver compile simulated. 0 = off");
 
@@ -177,16 +179,17 @@ HostOptions BuildOptions() {
   ro.validation = REXCVAR_GET(wwe2k14_rdr_live_validation);
   ro.bc_decode = uint32_t(std::clamp(REXCVAR_GET(wwe2k14_rdr_bc_decode), 0, 2));
   ro.pipeline_delay_ms = uint32_t(std::clamp(REXCVAR_GET(wwe2k14_rdr_pipeline_delay_ms), 0, 1000)); // START-ONLY(OFF): test only (the release entrance check's slow-compile simulation); the stream build has no such check
+  ro.dynamic_state = uint32_t(std::clamp(REXCVAR_GET(wwe2k14_rdr_dynamic_state), 0, 3)); // START-ONLY(OFF): the device is made once (Device::Create decides what is set per draw); the stream build has no renderer of ours
   ro.gpu_name = REXCVAR_GET(wwe2k14_gpu);
   ro.window.instance = wwe2k14::rdr_reader::g_owner_instance;
   ro.window.window = wwe2k14::rdr_reader::g_owner_window;
   ro.window.current = wwe2k14::rdr_reader::g_owner_window_source;
   ro.window.current_user = wwe2k14::rdr_reader::g_owner_window_source_user;
-  // V-SYNC: the display rate follows the game's V-SYNC switch (the SDK's `vsync`); off: mailbox / immediate (reader.h 2558-2559).
+  // V-SYNC: the display rate follows the game's V-SYNC switch (the SDK's `vsync`); off: mailbox / immediate (reader.h).
   ro.vsync = true;
   if (rex::cvar::GetFlagInfo("vsync")) ro.vsync = rex::cvar::Query<bool>("vsync");
   if (!REXCVAR_GET(wwe2k14_vsync)) ro.vsync = false;
-  // RESOLUTION = the render scale (settings parity S1 / S1b, reader.h 2560-2571).
+  // RESOLUTION = the render scale (settings parity S1 / S1b, reader.h).
   ro.render_scale = 1.0f;
   if (rex::cvar::GetFlagInfo("resolution_scale")) {
     const int scale = rex::cvar::Query<int>("resolution_scale");
@@ -227,8 +230,8 @@ HostOptions BuildOptions() {
   o.game_root_fn = []() -> std::string { return wwe2k14::rdr_reader::g_crowd_game_root; };
   o.log = &HostLog;
 #if !WWE2K14_STREAM()   // the cvar is defined only in the OFF build (line 68); an ON build compiles this unit for its syntax check only
-  o.scene2d = REXCVAR_GET(wwe2k14_rdr_scene2d);   // S103 SCS   // START-ONLY(OFF): the cvar exists only in the OFF build (host_start.cpp:73); the host is OFF-only and the stream build has no scene2d host option
-  rdr_adapter::stage_view::g_host_enabled.store(REXCVAR_GET(wwe2k14_rdr_stage_view), std::memory_order_relaxed);   // S103 SVO: the guest thread stamps the records (live_scene.cpp) from this; set before the first frame   // START-ONLY(OFF): a tool view, cvar defined only in the OFF build (host_start.cpp:75); the ON build never carries kSceneStagePlaying by design (stage_view.h:25)
+  o.scene2d = REXCVAR_GET(wwe2k14_rdr_scene2d);   // S103 SCS   // START-ONLY(OFF): the cvar exists only in the OFF build (host_start.cpp); the host is OFF-only and the stream build has no scene2d host option
+  rdr_adapter::stage_view::g_host_enabled.store(REXCVAR_GET(wwe2k14_rdr_stage_view), std::memory_order_relaxed);   // S103 SVO: the guest thread stamps the records (live_scene.cpp) from this; set before the first frame   // START-ONLY(OFF): a tool view, cvar defined only in the OFF build (host_start.cpp); the ON build never carries kSceneStagePlaying by design (stage_view.h (g_host_enabled))
 #endif
   o.on_thread_start = [] { wwe2k14::NameThread(L"rdr_host"); };
   o.on_present = &NotePresent;
@@ -259,13 +262,13 @@ HostOptions BuildOptions() {
                   g_index ? g_index->Summary().c_str() : "-");
     return r->Report() + "; " + b + "; " + readbacks;
   };
-  // The decoupled 120 (the tween; Jarrod 2026-11-17: it MUST work in this build; reader.h 2730-2755 is the stream path's setup, kept here without the reader): a launcher frame rate above 60 keeps the GAME at its
+  // The decoupled 120 (the tween; Jarrod 2026-11-17: it MUST work in this build; reader.h is the stream path's setup, kept here without the reader): a launcher frame rate above 60 keeps the GAME at its
   // 60 updates (the step cvars are cleared) and makes the host draw a halfway picture per tick, when the display can show 120 (rdr_adapter::rate::Decide: a panel under 120 Hz pumps at 60, no halfway pictures;
   // an unreadable refresh keeps the request). The 120 present spacing is the swapchain's (FIFO, present_hz 120), the phone asks its screen for 120 Hz through wwe2k14_rdr_display_hz.
   const auto flag_text = [](const char* name) { return rex::cvar::GetFlagInfo(name) ? rex::cvar::GetFlagByName(name) : std::string(); };
   const int requested = std::atoi(flag_text("wwe2k14_step_hz").c_str());
-  // The decoupled 30 (settings parity S9, the launchers' 30 fps mode; reader.h 2746-2751 is the stream path's setup): the game keeps its 60 updates (the step cvars are cleared) and the host draws one picture per two
-  // vblanks (HostOptions::draw_vblanks -> host_core.h VblankDebt, the stream's vblank_debt of live.cpp 916-931).
+  // The decoupled 30 (settings parity S9, the launchers' 30 fps mode; reader.h is the stream path's setup): the game keeps its 60 updates (the step cvars are cleared) and the host draws one picture per two
+  // vblanks (HostOptions::draw_vblanks -> host_core.h VblankDebt, the stream's vblank_debt of live.cpp (rdr_adapter::LiveSink::Impl::Run)).
   if (requested == 30) {
     for (const char* name : {"wwe2k14_step_hz", "wwe2k14_step_hz_entrance"})
       if (rex::cvar::GetFlagInfo(name)) rex::cvar::SetFlagByName(name, "0");
@@ -283,7 +286,7 @@ HostOptions BuildOptions() {
     REXLOG_INFO("[pump] display refresh {:.2f} Hz{}, requested {} fps -> pumping at {} ({})", decision.panel_hz, decision.panel_known ? "" : " (unknown)", requested, decision.pump_hz, decision.why);
     if (decision.tween) {
       o.tween_wanted = true;
-      ro.present_hz = 120;   // the presents spaced 1/120 s, not by a phone's (wrong, 60 Hz) refresh reading (reader.h 2749)
+      ro.present_hz = 120;   // the presents spaced 1/120 s, not by a phone's (wrong, 60 Hz) refresh reading (reader.h)
       if (rex::cvar::GetFlagInfo("wwe2k14_rdr_display_hz")) rex::cvar::SetFlagByName("wwe2k14_rdr_display_hz", "120");
     }
   }
@@ -341,7 +344,7 @@ static void StartPictures(SceneHost& host) {
     g_index_done.store(true, std::memory_order_release);
   });
   REXLOG_INFO("[host][pictures] the sprite / glyph rows' pictures come from the stream-free picture source (guest memory at first sight, joined to the player's own pacs); the movie planes from the plane flush's copies; "
-              "particles on flat frames are not built (counted particles_not_drawn)");
+              "particles on flat frames are drawn between the 2D rows by the live particle drawer (flat_particles.h; a group with no drawer is counted particles_not_drawn)");
 }
 #endif  // !WWE2K14_STREAM()
 
@@ -351,7 +354,7 @@ static void StartPictures(SceneHost& host) {
 // The one failure path of the stream-free start (also taken by the app when there is no game window): the log, the verdict line, the blackbox note and the player's message / exit.
 void StartFailed(const std::string& error, const std::string& card) {
   REXLOG_ERROR("[host] the scene host could not start: {}", error);
-  REXLOG_ERROR("[rdr][verdict] FAILED to start: {} (card asked for: '{}')", error, card);   // the one line a report reads first (reader.h 2845)
+  REXLOG_ERROR("[rdr][verdict] FAILED to start: {} (card asked for: '{}')", error, card);   // the one line a report reads first (reader.h)
   if (g_start_failure_sink) g_start_failure_sink(error, card);   // the app sets it: the blackbox note + the player's message / exit (their headers define cvars, so they are not included here)
 }
 void StartFailedNoWindow() { StartFailed("There is no game window to draw into (the window system gave none).", REXCVAR_GET(wwe2k14_gpu)); }
@@ -364,7 +367,7 @@ bool StartForGame() {
   wwe2k14::start::ApplyStartSettings();
   auto host = std::make_unique<SceneHost>();
   HostOptions options = BuildOptions();
-  // S103 (ANS gap 1): the stream path's StartLive (reader.h 2837-2850) turns a failed start into the player's message and an exit (a box and the process ends on the PC, the exit request on a phone); a
+  // S103 (ANS gap 1): the stream path's StartLive (reader/start_live.inc) turns a failed start into the player's message and an exit (a box and the process ends on the PC, the exit request on a phone); a
   // black window for ever is never the answer. --wwe2k14_rdr_test_fail_start (+dev builds) fails it on purpose with the plain sentence the real failures use.
   using namespace wwe2k14::rdr_reader;   // (the switch lives in start_failure_show.h; the macro cannot name a namespaced switch)
   const bool forced_fail = wwe2k14::IsDevBuild() && REXCVAR_GET(wwe2k14_rdr_test_fail_start);
@@ -380,9 +383,9 @@ bool StartForGame() {
   rdr_scene::live::SetLog(+[](const char* line) { REXLOG_INFO("{}", line); });   // S103 LVF: the writer's census / refusal lines go to the run log (reader.h sets it only in the stream build)
   // START-ONLY(OFF): (see the keeper above)
   g_host = std::move(host);
-  // The app leaves with a hard exit: the SDK's quit flush asks the host thread for the final lines and the pipeline store (the stream path's LiveSink does the same, live.cpp 2412).
+  // The app leaves with a hard exit: the SDK's quit flush asks the host thread for the final lines and the pipeline store (the stream path's LiveSink does the same, live.cpp).
   rex::RegisterQuitFlush(g_host->QuitRequest(), g_host->QuitAck());
-  // Photo mode's HUD hiding (the SDK's gpu_hide_hud, set live by src\photo_mode.h): the stream path registers this in reader.h 2714-2717; in this build the host drops the 2D rows while it is on.
+  // Photo mode's HUD hiding (the SDK's gpu_hide_hud, set live by src\photo_mode.h): the stream path registers this in reader.h; in this build the host drops the 2D rows while it is on.
   if (rex::cvar::GetFlagInfo("gpu_hide_hud")) {
     g_host->SetHideHud(rex::cvar::GetFlagByName("gpu_hide_hud") == "true");
     rex::cvar::RegisterChangeCallback("gpu_hide_hud", [](std::string_view, std::string_view value) {
@@ -407,7 +410,7 @@ bool StartForGame() {
     SceneHost* host = g_host.get();
     return host && host->RequestScene(std::move(cb));
   };
-  g_scene_capture_owner = [](std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t timeout_ms, uint64_t* frame) {   // START-ONLY(OFF): the stream build has no host; its read-backs come from the reader (see the marker on g_scene_request_owner above; shown_frame.h:36 "null in the stream build")
+  g_scene_capture_owner = [](std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t timeout_ms, uint64_t* frame) {   // START-ONLY(OFF): the stream build has no host; its read-backs come from the reader (see the marker on g_scene_request_owner above; shown_frame.h "null in the stream build")
     SceneHost* host = g_host.get();
     return host && host->CaptureScene(rgba, w, h, timeout_ms, frame);
   };

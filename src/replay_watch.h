@@ -103,6 +103,7 @@ inline void CensusTick(uint64_t guest_frame) {
 }  // namespace wwe2k14::replay_watch
 
 // render_cmd_replay_lists: one call per frame; the count starts again and the lists' bounds are kept.
+// SKIP-ORIGINAL: with the native replay loop on (wwe2k14_nf_replay_loop) ReplayLists walks the lists instead of the recompiled walk; off runs the original
 REX_HOOK_RAW(sub_82BB5BE8) {
   rdr_adapter::tail::The().FlushIfPending(rdr_adapter::tail::kAtWalk);  // S102 U1 (safety net; the release hook normally finished it): one relaxed load
   namespace rw = wwe2k14::replay_watch;

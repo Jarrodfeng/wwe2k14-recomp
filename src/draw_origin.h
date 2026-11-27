@@ -47,6 +47,7 @@
 #endif
 #include "scene_live/guest_model_contrib.h"  // S103 CW-2c: OnModelEntry, called from the raw hook on sub_82C04DF0 below
 #include "scene_live/scene_skip_nodes.h"  // S103 H: the scene skips (--wwe2k14_rdr_scene=2): the cvar, the frame clock and the hooks the scene tasks did not have
+#include "scene_live/ring_side_hook.h"  // S111 RINGLOD: the skirts' draw notes the ring-side object (the skirt state words the ring recompute reads)
 #include "scene_live/quads2d_tap.h"  // S103 I1: the 2D layer's record (--wwe2k14_rdr_2d_record, default off; read only): the scope on the T_Rect / movie leaves, the vertices at the op-19 recorder below
 #include "scene_live/own_node_hook.h"  // S102 P4P5: the node switch on the shadow module's (sub_827E9740) and the rim map's (sub_827EA7B8) draw nodes; compiled and reviewed, not run
 #include "scene_live/walk_single.h"  // S110 WALKSINGLE: the game's single-worker walk (the setter sub_82BB4128 stores a null range table for the manager) + the caption detectors
@@ -394,6 +395,7 @@ inline bool GbrPass0(void* p) {
   return zero;
 }
 
+// SKIP-ORIGINAL: a frame that is OURS (weaponrows::RawEntry false) or whose D3 scope skipped the call (ring, wrestler colour, object) returns without drawing; every other call runs the original below
 REX_HOOK_RAW(sub_82C04DF0) {
   rdr_scene::live::guestmodel::OnModelEntry(ctx.r3.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S103 CW-2c: the guest model reader, BEFORE the Ours return (the mid-asm wwe2k14_model_entry below __imp__ never runs when the frame is OURS)
   wwe2k14::drawcam::NoteDraw(ctx.r13.u32, wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S103 WC R5 (draw_camera_glue.h)

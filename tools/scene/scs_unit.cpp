@@ -237,7 +237,7 @@ static void DepthChecks() {
       {   // S110 STARFRONT review: the depth DECISION, game vs ours, per scene depth (not only the mapped number). Game: clip z / w through its viewport depth range min 1, max 0 (window = 1 - ndc: capture
           // c2d_entrance_s15 f60, every draw), GEQUAL (6) against its reversed scene depth (1 - the scene's ndc, cleared to 0). Ours: the row program's z' = z * system[2] + system[6] * w (rdr_uiquad*.vert),
           // / w, through OUR viewport depth range (viewport[4] .. [5]), the row's own test / compare against our forward scene depth (the scene's ndc, cleared to 1). Both scenes' ndc from the D3D projection
-          // record_frame.cpp:392 builds (n 10, f 300000; the game's c56-c59 factor to the same near / far, record_frame.cpp:385). Expected: hidden where anything nearer than the row is in front, drawn elsewhere.
+          // record_frame.cpp builds (n 10, f 300000; the game's c56-c59 factor to the same near / far, record_frame.cpp). Expected: hidden where anything nearer than the row is in front, drawn elsewhere.
         const float n = 10.f, f = 300000.f;
         const auto ndc_at = [&](float view_z) { return f / (f - n) - n * f / ((f - n) * view_z); };
         const auto cmp = [](int op, float a, float b) { return op == 1 ? a < b : op == 3 ? a <= b : op == 4 ? a > b : op == 6 ? a >= b : op == 7; };

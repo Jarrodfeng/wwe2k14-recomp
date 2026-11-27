@@ -548,6 +548,7 @@ inline void LogSetSong(uint8_t* base, uint32_t self, int32_t id, uint32_t name_p
 }  // namespace wwe2k14::music_picker
 
 // The notice routine: a 50303 call opens the picker instead.
+// SKIP-ORIGINAL: a 50303 notice opens our music picker instead (the console's "pick the song in the Guide": the comment above); every other notice runs the original
 REX_HOOK_RAW(sub_82268C10) {
   if (ctx.r4.u32 == wwe2k14::music_picker::kHintTextId && wwe2k14::music_picker::TryOpen(base, uint32_t(ctx.lr))) {
     ctx.r3.u64 = 0;

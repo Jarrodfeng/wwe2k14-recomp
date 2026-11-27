@@ -1,0 +1,15 @@
+name = "order"
+module = "qorder"
+needs = "con"
+errors = ["qorder.OrderError", "qorder.qx7.XError"]
+usage_slot = "u35"
+route_slot = "new"
+
+[[usage]]
+order = 86
+text = '''  order [FUNC]                 one frame of the game in run order (the runner's phases, the 35 task groups computed from the sub_82C307B0 sites) / which task
+                               runs FUNC, its group, what runs before / after it, what it waits on (tools/q/qorder.py; annotations db/order/frame.json)'''
+
+[[route]]
+order = 0
+text = '''- when in a frame game code runs, after what, waiting on what: order FUNC (its task, group, chain, the frame's known points in run order); order = the frame'''

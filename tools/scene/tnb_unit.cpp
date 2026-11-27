@@ -108,7 +108,7 @@ static void BuildGuest(bool size_at_184) {
   // the character table: slot 2 = the leader (act 25000 = 0x61A8, step 5), slot 4 = the partner (act 25004); each [char + 176] points at the skeleton's node-2 translation
   for (uint32_t b = 0; b < 9; ++b) {
     const uint32_t ch = 0x40200000u + 0x1000 * b, ar = 0x40800000u + 0x100 * b, pos = 0x40400000u + 0x100 * b;
-    g.Put(::kCharTable + 4 * b, ch), g.Put(ch + 28, ar), g.Put(ch + 176, pos);   // the file's own constant: rdr_scene::kCharTable (cam_gate.h:30, same address) is in scope through `using namespace rdr_scene` and made the name ambiguous
+    g.Put(::kCharTable + 4 * b, ch), g.Put(ch + 28, ar), g.Put(ch + 176, pos);   // the file's own constant: rdr_scene::kCharTable (cam_gate.h, same address) is in scope through `using namespace rdr_scene` and made the name ambiguous
     g.Put(ar, b == 2 ? 0x61A80500u : b == 4 ? 0x61AC0500u : 0u);
     g.PutF(pos, b == 2 ? 440.f : b == 4 ? -880.f : 10.f * float(b)), g.PutF(pos + 4, 10.f), g.PutF(pos + 8, b == 2 ? 2200.f : b == 4 ? 1760.f : 5.f * float(b)), g.PutF(pos + 12, 1.f);
   }

@@ -41,7 +41,9 @@ def link_findings(root, overlay=None, notes=None):
 
 
 def _read(root, rel):
-    return open(os.path.join(root, rel), encoding='utf-8', errors='replace', newline='').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    return read_path(os.path.join(root, rel), crlf=True)
 
 
 def _split_four(root):

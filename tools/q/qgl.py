@@ -281,13 +281,13 @@ def parse_registry(path):
             m = VAR_RX.match(ln)
             if m:
                 f = [x.strip() for x in m.group(2).split(',')]
-                # fields after the name: spirv, sizeof(..), spirv_alpha, bytes_alpha, constants, constant_count, block_bytes, bools_offset, attrs, attr_count,
-                # samplers, sampler_count, out_alpha, vc_fetch   (the first field is empty: the name is followed by a comma)
+                # fields after the name: sizeof(..), bytes_alpha, constants, constant_count, block_bytes, bools_offset, attrs, attr_count,
+                # samplers, sampler_count, out_alpha, vc_fetch   (the first field is empty: the name is followed by a comma; S111 TOOLLINK: no word pointers)
                 f = [x for x in f]
                 if f and f[0] == '':
                     f = f[1:]
-                consts = f[4] if len(f) > 5 else ''
-                cc = f[5] if len(f) > 5 else '0'
+                consts = f[2] if len(f) > 3 else ''
+                cc = f[3] if len(f) > 3 else '0'
                 vs.append({'name': m.group(1), 'owner': m.group(1).split('_')[0], 'constants': consts, 'const_count': int(cc) if cc.isdigit() else -1})
         elif sect == 'h':
             m = HASH_RX.match(ln)

@@ -1,0 +1,9 @@
+name = "overlap"
+module = "qoverlap"
+errors = ["qoverlap.OverlapError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 71
+text = '''  overlap ARENA FAM_A FAM_B [--cams N] [--cam chamber|match] [--json]   can two draw families overlap on screen (rays from sampled game
+                               cameras through the arena's file geometry; opaque blockers; unknown where a family has no file geometry; qoverlap.py)'''

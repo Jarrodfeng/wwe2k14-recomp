@@ -61,7 +61,7 @@ inline void PrintCensus(const char* what) {
               g_census.refused, (unsigned long long)g_census.landed_frame);
 }
 
-// The game's camera object (view +240, projection +176, near / far +500 / +504: the layout scene_inputs::ReadCamera reads, inputs_core.h:596), for the object at `obj`.
+// The game's camera object (view +240, projection +176, near / far +500 / +504: the layout scene_inputs::ReadCamera reads, inputs_core.h), for the object at `obj`.
 inline bool ReadCameraObject(uint32_t obj, rdr_scene::Camera& out) {
   namespace si = scene_inputs;
   rdr_scene::Camera c;
@@ -160,11 +160,13 @@ REX_HOOK_RAW(sub_82BA86B8) {
   __imp__sub_82BA86B8(ctx, base);
 }
 
+// SKIP-ORIGINAL: HoldTick holds the portrait's tick while our scene host's picture is pending (the original must not run: G2); otherwise it runs
 REX_HOOK_RAW(sub_8341C600) {
   if (wwe2k14::caw_portrait::HoldTick(ctx.r3.u32)) return;
   __imp__sub_8341C600(ctx, base);
 }
 
+// SKIP-ORIGINAL: OnUntile answers the portrait's own untile call (G3: the filter checks its return address); every other call runs the original
 REX_HOOK_RAW(sub_82CFA318) {
   if (uint32_t(ctx.lr) == wwe2k14::caw_portrait::kUntileLr) {
     const wwe2k14::caw_portrait::UntileCall c{uint32_t(ctx.lr), ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32};

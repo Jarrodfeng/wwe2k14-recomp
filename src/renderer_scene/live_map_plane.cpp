@@ -180,6 +180,7 @@ bool LiveMapsHook::RecordPlane(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       if (m.translucent && !wrestler_caster::WalksTranslucent(wrestler_caster::Pass::Plane, false, frame.phase_word)) continue;   // S111 LAYERS review: the plane pass's categories are not read [U]: the opaque node's parts, as before
       if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
       if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
+      if (!CasterMeshCasts(frame, uint32_t(&obj - frame.objects.data()), m)) continue;   // S111 SOCKSHADOW: a piece the game hides or detached casts no plane mask either (whatever node the plane pass walks, a piece goes through sub_8259E488)
       std::vector<assets::Matrix>& slots = slots_scratch_;
       slots.clear();
       for (uint16_t node : m.nodes) {
@@ -309,8 +310,8 @@ bool LiveMapsHook::RecordPlane(const StageCtx& ctx, rdr::FrameBuilder& fb) {
           if (s.ds_vs >= 0 && s.ds_fs >= 0) {
             rdr::ProgramDesc dp;
             dp.name = rdr::fx::kVariants[s.ds_fs].name;
-            dp.vertex_spirv = rdr::fx::kVariants[s.ds_vs].spirv, dp.vertex_bytes = rdr::fx::kVariants[s.ds_vs].bytes;
-            dp.fragment_spirv = rdr::fx::kVariants[s.ds_fs].spirv, dp.fragment_bytes = rdr::fx::kVariants[s.ds_fs].bytes;
+            dp.vertex_spirv = rdr::fx::Words(size_t(s.ds_vs), false), dp.vertex_bytes = rdr::fx::kVariants[s.ds_vs].bytes;
+            dp.fragment_spirv = rdr::fx::Words(size_t(s.ds_fs), false), dp.fragment_bytes = rdr::fx::kVariants[s.ds_fs].bytes;
             rdr::VertexLayoutDesc dl{};
             dl.strides[0] = 24;
             dl.attributes[0] = rdr::VertexAttribute{0, 0, uint16_t(109), 0};   // RGBA32F position
@@ -345,6 +346,7 @@ bool LiveMapsHook::RecordPlane(const StageCtx& ctx, rdr::FrameBuilder& fb) {
             dts.slots[fv.samplers[k].slot].sampler = fb.Sampler(dsd);
             dts.slots[fv.samplers[k].slot].kind = fv.samplers[k].kind;
           }
+          // DEPARTS: design DECISIONS:2026-11-27 22:13 @sub_827EEF80; the downscale is one front-facing screen quad, so the mask pass's cull on drops nothing (docs\research\s111\MAPCULL.md item 8)
           rdr::DrawState ds{};
           ds.program = s.ds_prog;
           ds.vertex_layout = s.ds_layout;

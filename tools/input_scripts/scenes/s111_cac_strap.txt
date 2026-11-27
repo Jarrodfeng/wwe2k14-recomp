@@ -1,0 +1,85 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, fixed_seed 1, audio_mute on
+# S111 lane CACSTRAPROUTE: the tester's report "a base title as the base, then recoloured the strap, and could not see the change".
+# Path as s111_cac_colour.txt, but through the STRAP row: boot -> CREATIONS -> CHAMPIONSHIP (1506) -> slot 0 -> Title Design (seq 29, page 0x821B3E68) -> the base picker
+# (0x821B3FA0: the five stock base titles, belts 2926-2930; belt 0 here) -> the design page (0x821B4E68) -> row 4 STRAP opens its colour page (assumed the same page as FRONT
+# PLATE's: 0x821B4348, row 1 = the SAMPLE COLORS strip, ACCEPT = row 6; the shots show it). A on the strip picks the first sample, RIGHT moves to the last, A picks it, then ACCEPT.
+# Shots: sc_strap_design, sc_strap_before (strap page), sc_strap_change1/2/3 (after the picks), sc_strap_after1/2 (design page ~4 s and ~8 s after accept), sc_strap_left.
+# Then ACCEPT (design row 7) -> FINALIZE (row 6) -> load -> main menu: leaves the editor (writes only the per-run copy of the frozen save).
+# Check run:
+#   & tools\bench\run_list.ps1 -Scripts @('<repo>\tools\input_scripts\scenes\s111_cac_strap.txt') -Exe tip
+on_fail quit
+log bench: start scene s111_cac_strap
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN target 1506 40 30 8
+assert_state 0x8392945C>368 1506
+press_until_state A menu 1506 8 120 5
+wait_state menu_ready 1 1200 10
+wait_state menu_page 0x8203D920 1200 20
+wait_state menu_rows 40 600 10
+press_until_state A seq 29 6 120 5
+wait_state menu_page 0x821B3E68 3000 10
+wait_frames 120
+press_until_state A menu_page !=0x821B3E68 6 120 5
+wait_state menu_ready 1 600 20
+log scene=base_picker
+screenshot sc_strap_picker
+press_until_state A menu_page !=0x821B3FA0 6 120 5
+wait_text "FRONT PLATE" 1800
+wait_text ACCEPT 600
+wait_state menu_ready 1 600 20
+wait_frames 120
+log scene=design_page
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+screenshot sc_strap_design
+press_until_state DOWN menu_row 4 8 30 5
+log_state menu_row
+screenshot sc_strap_row
+press_until_state A menu_page !=0x821B4E68 4 120 5
+wait_frames 120
+log scene=strap_page
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+wait_frames 120
+screenshot sc_strap_before
+wait_state menu_row 1 300 3
+press A 5 30
+wait_frames 90
+screenshot sc_strap_change1
+wait_state menu_row 0 300 3
+press RIGHT 40 10
+wait_frames 60
+screenshot sc_strap_change2
+wait_state menu_row 0 300 3
+press DOWN 40 10
+wait_state menu_row 0 300 3
+press A 5 30
+wait_frames 150
+log_state menu_row
+screenshot sc_strap_change3
+press_until_state DOWN menu_row >=6 8 30 5
+log_state menu_row
+press_until_state A menu_page 0x821B4E68 4 120 5
+wait_state menu_ready 1 600 20
+log scene=design_after
+log_state menu_page
+wait_frames 240
+screenshot sc_strap_after1
+wait_frames 240
+screenshot sc_strap_after2
+press_until_state DOWN menu_row >=7 12 30 5
+press_until_state A menu_page !=0x821B4E68 4 120 5
+wait_state menu_ready 1 600 20
+press_until_state DOWN menu_row >=6 8 30 5
+press_until_state A menu_page !=0x821B4FA0 4 120 5
+wait_state seq 75 7200 10
+wait_state menu 1 3600 30
+log scene=left_editor
+screenshot sc_strap_left
+log bench: done
+quit

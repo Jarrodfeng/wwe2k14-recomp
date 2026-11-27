@@ -6,7 +6,8 @@
 //   game: B the sweat shader over the item's disc (T_Normal p0 / p2), C paste (p1)       ->  ours: the same registry shaders, the same disc (small_passes_core.h BuildDisc), the same blend (SrcAlpha / InvSrcAlpha,
 //         add, mask 0xF: SWB S2-1 [C capture]); the sweat shader reads the PREVIOUS map at slot 0, so the rects are copied to a snapshot image first (a render target cannot be read while written): every item reads the map as it
 //         stood before the frame's items, as the game's texture read does, and writes over the frame's earlier items, as its EDRAM does
-//   game: R0 per-item resolves, a 144-entry ring, 32-px snapped rects                    ->  ours: none (render in place: HABIT)
+//   game: R0 per-item resolves, a 144-entry ring, 32-px snapped rects                    ->  ours: none (render in place: HABIT); but what R0 resolves INTO is a 4-bit texture, and that is a LOOK
+//         (S111 LIQUID4BIT): after the items each rect is copied back into level 0 by copy_prev_q4 (round to 1 / 15 per channel), so level 0 holds the game's 16 steps per channel
 //   game: Mk the mip chain: copy_prev again at 1 / 2^k into level k from level 0           ->  ours: the same shader and rects into mip k, from a snapshot of level 0 after the items (a fetch of mip 0 only: the fetch
 //         constant's bias is 0 in 612 of 612 capture draws and the shader's tfetch is UseComputedLOD = false, [C] tools\scene\swf_check.py / SWB step 1)
 //   game: clear (+136): a packet + a full resolve per level                               ->  ours: a clear of every level (the record's kLmClear is an edge, the glue consumed it)
@@ -95,18 +96,19 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     s.liq_fs_paste = md::FindVariant("yLiquidMap_paste_fragment");
     s.liq_fs_copy = md::FindVariant("yLiquidMap_copy_prev_fragment");
     s.liq_fs_copy_dim = md::FindVariant("yLiquidMap_copy_prev_dim_fragment");
+    s.liq_fs_copy_q4 = md::FindVariant("yLiquidMap_copy_prev_q4_fragment");   // S111 LIQUID4BIT: ours (no game hash), the resolve's rounding
     s.liq_vs_plain = md::FindVariant("yLiquidMap_plain_vertex");          // S108 BLD2: the rebuild's region quads (T_Paste p1 / p4)
     s.liq_fs_tint = md::FindVariant("yLiquidMap_tint_fragment");
     s.liq_fs_tint_dim = md::FindVariant("yLiquidMap_tint_dim_fragment");
-    if (s.liq_vs_local < 0 || s.liq_vs_base < 0 || s.liq_fs_sweat < 0 || s.liq_fs_sweat_dim < 0 || s.liq_fs_paste < 0 || s.liq_fs_copy < 0 || s.liq_fs_copy_dim < 0 || s.liq_vs_plain < 0 || s.liq_fs_tint < 0 || s.liq_fs_tint_dim < 0) {
+    if (s.liq_vs_local < 0 || s.liq_vs_base < 0 || s.liq_fs_sweat < 0 || s.liq_fs_sweat_dim < 0 || s.liq_fs_paste < 0 || s.liq_fs_copy < 0 || s.liq_fs_copy_dim < 0 || s.liq_fs_copy_q4 < 0 || s.liq_vs_plain < 0 || s.liq_fs_tint < 0 || s.liq_fs_tint_dim < 0) {
       s.sweat_skip = "the yLiquidMap effect is not in the registry";
       return false;
     }
     const auto prog = [&](const char* name, int vs, int fs) {
       rdr::ProgramDesc d;
       d.name = name;
-      d.vertex_spirv = rdr::fx::kVariants[vs].spirv, d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
-      d.fragment_spirv = rdr::fx::kVariants[fs].spirv, d.fragment_bytes = rdr::fx::kVariants[fs].bytes;
+      d.vertex_spirv = rdr::fx::Words(size_t(vs), false), d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
+      d.fragment_spirv = rdr::fx::Words(size_t(fs), false), d.fragment_bytes = rdr::fx::kVariants[fs].bytes;
       return renderer_.AddProgram(d);
     };
     s.liq_prog_sweat = prog("yLiquidMap_sweat", s.liq_vs_local, s.liq_fs_sweat);
@@ -114,6 +116,7 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     s.liq_prog_paste = prog("yLiquidMap_paste", s.liq_vs_local, s.liq_fs_paste);
     s.liq_prog_copy = prog("yLiquidMap_copy_prev", s.liq_vs_base, s.liq_fs_copy);
     s.liq_prog_copy_dim = prog("yLiquidMap_copy_prev_dim", s.liq_vs_base, s.liq_fs_copy_dim);
+    s.liq_prog_copy_q4 = prog("yLiquidMap_copy_prev_q4", s.liq_vs_base, s.liq_fs_copy_q4);
     s.liq_prog_tint = prog("yLiquidMap_tint", s.liq_vs_plain, s.liq_fs_tint);
     s.liq_prog_tint_dim = prog("yLiquidMap_tint_dim", s.liq_vs_plain, s.liq_fs_tint_dim);
     rdr::VertexLayoutDesc l{};
@@ -170,7 +173,7 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
 
   // One pass's state: the disc (indexed strips with restart) or the quad (a four-vertex strip), the item blend (SrcAlpha / InvSrcAlpha, add, mask 0xF: SWB S2-1 [C 3,668 of 3,668 captured draws]) or none.
   const auto make_state = [&](uint16_t program, bool disc, bool blend, uint8_t write_mask = 0xF) {   // S108 BLD2: write_mask = the rebuild's channel masks (R 1, G 2, B 4: liquid_plan.h)
-    rdr::DrawState st{};
+    rdr::DrawState st{};   // DEPARTS: habit 360_HABITS:24; the copy passes draw unblended (the game blends every pass of the node: a plain write there)
     st.program = program;
     st.vertex_layout = s.liq_layout;
     st.topology = 4;
@@ -441,14 +444,40 @@ bool LiveMapsHook::RecordSweat(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       ++s.liq_items_frame, ++s.liq_items_total, ++st.items_drawn;
     }
     st.painted = true;
-    // Mk: the mip chain of the rects. Level k reads a snapshot of level 0 AFTER the items (the game's resolve of level 0 comes first), with the same copy shader at the level's own size.
-    if (levels > 1) {
+    // R0's store (S111 LIQUID4BIT, docs\systems\liquid_map.md section 5a): the game blends the items into an 8-bit surface (sub_82799890: colour surface word 0x18280186) and resolves each rect into the map
+    // TEXTURE, which is k_4_4_4_4 (word 0x1828014F; sub_82799B60's per-item resolve into map +248, level 0); the next frame pastes those 4-bit values back. So every frame ends at 4 bits per channel and a
+    // frame's step under half a 4-bit step rounds away again: faint sweat (amount^2 x strength < 1/30) never builds up, and the rest stops a step or more below the 8-bit value (LOOK). Ours: the map stays
+    // RGBA8 (the game's 8-bit surface); a snapshot of level 0 after the items, then copy_prev_q4 over each drawn rect back into level 0: the plain copy with each channel rounded to the nearest n / 15
+    // (x * 15 + 0.5 truncated, the SDK's emulated resolve [L for the 360's own rounding]). n / 15 is exact in 8 bits (17 n / 255), so the snapshot, the mips and the next frame read the game's 4-bit values.
+    const auto snapshot = [&] {   // level 0 under the frame's rects -> liquid_prev (a render target cannot be read while it is written)
       rdr::CopyOp cp;
       cp.source.image = st.image, cp.dest.image = s.liquid_prev;
       cp.source_rect.x = cp.dest_rect.x = box.x0, cp.source_rect.y = cp.dest_rect.y = box.y0;
       cp.source_rect.width = cp.dest_rect.width = uint32_t(box.x1 - box.x0), cp.source_rect.height = cp.dest_rect.height = uint32_t(box.y1 - box.y0);
       cp.filter = rdr::CopyFilter::Nearest;
       fb.Copy(cp);
+    };
+    snapshot();
+    {
+      fb.SetTargets(t0);
+      const rdr::fx::Variant& fq = rdr::fx::kVariants[s.liq_fs_copy_q4];
+      const uint32_t state_q = make_state(s.liq_prog_copy_q4, false, false);
+      for (const Draw& d : draws) {
+        float wp[4];
+        rect_param(d.rect, wp);
+        rdr::DrawOp op{};
+        op.state = state_q, op.dynamic = dyn0, op.textures = textures(fq, rdr::kNoImage);
+        op.vs_constants = vs_block(vbase, wp, nullptr);
+        std::vector<uint8_t> fcb(std::max<uint32_t>(fq.block_bytes, 16), 0);
+        op.fs_constants = fb.PushConstants(fcb.data(), uint32_t(fcb.size()));
+        op.vertex[0] = {s.liquid_quad_vb, 0};
+        op.count = 4, op.instances = 1;
+        fb.Draw(op, rdr::kGrpOther);
+      }
+    }
+    // Mk: the mip chain of the rects. Level k reads a snapshot of level 0 AFTER the items and the rounding (the game's resolve of level 0 comes first), with the same copy shader at the level's own size.
+    if (levels > 1) {
+      snapshot();
       const rdr::fx::Variant& fv = rdr::fx::kVariants[dim ? s.liq_fs_copy_dim : s.liq_fs_copy];
       const uint32_t state = make_state(dim ? s.liq_prog_copy_dim : s.liq_prog_copy, false, false);
       for (uint32_t k = 1; k < levels; ++k) {

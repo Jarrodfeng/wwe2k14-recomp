@@ -18,6 +18,7 @@
 //   never_ready_unread    a list never read is never ready (the old rule)          -> "list.null_ready_file_pictures"   (S108 CAP3b)
 //   late_paint_ignored    once the set is built, a flush is no longer read again   -> "built.rebuilt_with_painted"      (S108 CAP3)
 //   tail_corner     mip 0 of a packed-tail texture read from the tail's corner      -> "tail.mip0_read"                  (S108 CAP2; the shared reader's g_tex_plant 4)
+//   header_unseen   a read entry whose handle now names another header is not read again -> "key.same_handle_new_header" (S111 KEYFRESH)
 // S108 CAP2: part D (the manager's words decide), part T (tail textures laid out by the SDK's own functions, tools\scene\sdk_tex_layout.cpp), part C (--game: CASD 3's tail textures).
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -223,7 +224,7 @@ int main(int argc, char** argv) {
     else if (a == "--plant" && i + 1 < argc) g_plant = argv[++i];
   }
   const std::map<std::string, int> plants = {{"file_kept", 1},      {"no_reread", 2},   {"silent_fail", 3},    {"budget_ignored", 4},       {"last_dup_wins", 5},
-                                             {"gen_ignored", 6},    {"not2d_reported", 7}, {"late_paint_ignored", 8}, {"never_ready_unread", 9}, {"tail_corner", 100}};
+                                             {"gen_ignored", 6},    {"not2d_reported", 7}, {"late_paint_ignored", 8}, {"never_ready_unread", 9}, {"header_unseen", 10}, {"tail_corner", 100}};
   if (!g_plant.empty()) {
     if (!plants.count(g_plant)) return std::printf("unknown plant %s\n", g_plant.c_str()), 2;
     if (g_plant == "tail_corner") gt::g_tex_plant = 4;   // the shared reader's plant: mip 0 of a tail texture read from the tail's corner (its block offset ignored)
@@ -456,6 +457,29 @@ int main(int argc, char** argv) {
     Mgr(0, 0, 0, 0);
   }
 
+  // ---------------------------------------------------------------- S111 KEYFRESH: the same handle, a new header behind its wrapper (the game resolves handle -> wrapper -> header at every draw,
+  // sub_82C04DF0 0x82C05700): the next take reads the new header's picture although the old header never flushed; then, nothing changed, nothing is read again.
+  {
+    using TF = assets::TexFormat;
+    const assets::Texture ka = Tex("caa_m_keyA", TF::kBC1, 256, 128, 9, 90), kb = Tex("caa_m_keyB", TF::kBC1, 256, 128, 9, 91);
+    Forged fa, fb;
+    const bool fo = Forge(ka, 90, "caa_m_keyA", fa) && Forge(kb, 91, "caa_m_keyB", fb);
+    const uint32_t stage6 = 0x37000000u;
+    WriteList({fa.id, fb.id}, stage6, 0x37100000u, 0x37101000u);
+    carpaint::OnLatch(stage6, &Rd, 11);
+    const auto k0 = carpaint::TheStore().For(stage6);
+    const bool two = k0 && k0->pics.size() == 2 && k0->pics[0].ok && k0->pics[1].ok && k0->pics[0].hash != k0->pics[1].hash;
+    g.W32(fa.wrapper + particles::kWrapperTexture, fb.header);   // the game puts entry B's header behind entry A's wrapper (no flush)
+    carpaint::OnLatch(stage6, &Rd, 11);
+    const auto k1 = carpaint::TheStore().For(stage6);
+    const bool moved = k1 && k1->pics.size() == 2 && k1->pics[0].header == fb.header && k1->pics[0].hash == k1->pics[1].hash;
+    Check(fo && two && moved, "key.same_handle_new_header", Fmt("two %d moved %d (reread %llu)", int(two), int(moved), (unsigned long long)carpaint::TheStore().Counts().reread));
+    const uint64_t rr = carpaint::TheStore().Counts().reread;
+    carpaint::OnLatch(stage6, &Rd, 11);
+    Check(carpaint::TheStore().Counts().reread == rr, "key.unchanged_no_reread", Fmt("reread %llu -> %llu", (unsigned long long)rr, (unsigned long long)carpaint::TheStore().Counts().reread));
+    carpaint::TheStore().Clear();
+  }
+
   // ---------------------------------------------------------------- T (S108 CAP2). Mip 0 inside the packed mip tail (smaller side <= 16 texels), laid out by the SDK's OWN functions
   // (tools\scene\sdk_tex_layout.cpp), read back through the production path (OnLatch -> Apply): mip 0 and every level must equal the source.
   {
@@ -537,7 +561,7 @@ int main(int argc, char** argv) {
             Fmt("%zu textures (%zu not 2D BC / tail-only, kept from the file), %.2f MB, complete in %u takes, %.1f ms in all", ids.size(), skipped, bytes / 1048576.0, takes, read_ms));
       if (s) {
         const auto t1 = std::chrono::steady_clock::now();
-        assets::Model copy = real;   // the rebuild's copy of the kept pristine (rf_c_core.cpp:339)
+        assets::Model copy = real;   // the rebuild's copy of the kept pristine (rf_c_core.cpp)
         const auto t2 = std::chrono::steady_clock::now();
         carpaint::ApplyResult ar;
         carpaint::Apply(copy, *s, ar);

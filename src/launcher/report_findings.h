@@ -112,7 +112,7 @@ inline std::vector<Cls>& Classes() {
       add(std::move(c));
     }
     {
-      // S106 0F: the [host] frames line's `holes N` (host_core.h:527), as triage.py's holes_2d row
+      // S106 0F: the [host] frames line's `holes N` (host_core.h), as triage.py's holes_2d row
       Cls c{"holes_2d", 2, {"[host] frames"}, R"(\[host\] frames \d+,.*? 2d_rows \d+ drawn \d+ not_drawn \d+ .*?holes (\d+))", {"n"}, {{"n", "delta"}}, "n",
             "{n} 2D holes (sprite rows the game draws and the host has no draw for)"};
       c.periodic = true;
@@ -142,8 +142,8 @@ inline std::vector<Cls>& Classes() {
          {{"frames", "delta"}, {"ours", "delta"}, {"only2d", "delta"}, {"rep", "delta"}}, "", "frames +{frames}: ours {ours}, 2d only {only2d}, repeat 3d {rep}"});
     add({"load_adopted", 9, {"[scene][load] adopted"}, R"(\[scene\]\[load\] adopted #\d+: (.*), waited (\d+) ms)", {"what", "ms"}, {{"ms", "max"}, {"what", "first"}}, "",
          "slowest scene load {ms} ms"});
-    // S106 0FF B1 / F7: the crash handler's lines and the [host] frames counters that had no class (host_core.h:526-527), as triage.py's last rows (same order)
-    // S106 0FFN N2: the hang guard's lines (hang_guard.h:326 / :344 / :314 / :382), as triage.py's row before crash (same order)
+    // S106 0FF B1 / F7: the crash handler's lines and the [host] frames counters that had no class (host_core.h), as triage.py's last rows (same order)
+    // S106 0FFN N2: the hang guard's lines (hang_guard.h), as triage.py's row before crash (same order)
     add({"hang", 0, {"[hang] HANG?", "[hang] HANG:", "[hang] BLACK:"}, R"(\[hang\] ((?:HANG\?|HANG:|BLACK:) .*)$)", {"why"}, {{"n", "one"}, {"why", "first"}}, "n",
          "{n} [hang] line(s) (the hang guard fired: HANG / BLACK)"});
     add({"crash", 0, {"[wwe2k14][crash]"}, R"(\[wwe2k14\]\[crash\] (.*)$)", {"why"}, {{"n", "one"}, {"why", "first"}}, "n", "{n} [crash] line(s) (the game crashed)"});
@@ -594,7 +594,7 @@ inline Result ReadLog(const std::string& name, const std::vector<PartIn>& parts)
           continue;
         }
       }
-      {  // the file open line (src\kernel_overrides.h:225); the parse is shared with the facts block (report_facts.h ParseFileOpen)
+      {  // the file open line (src\kernel_overrides.h); the parse is shared with the facts block (report_facts.h ParseFileOpen)
         std::string path, status;
         if (facts::Facts::ParseFileOpen(line, path, status)) {
           ++file_lines;

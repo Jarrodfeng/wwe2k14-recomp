@@ -426,14 +426,17 @@ def cmd_text(tid, lang=0, allf=False):
 def text_main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog='q text', description='text id -> string from the game string tables')
-    ap.add_argument('id')
+    ap.add_argument('id', nargs='+', help='one or more text ids (S111 QFIX4: every id is looked up)')
     ap.add_argument('--lang', type=int, default=0)
     ap.add_argument('--all', action='store_true', help='every language / pack, not just the first hit in --lang')
     ap.add_argument('--json', action='store_true')
     a = ap.parse_args(argv)
-    tid = _int(a.id)
-    if tid is None:
+    tids = [_int(x) for x in a.id]
+    if None in tids:
         raise GxError('text id must be a number')
+    if len(tids) > 1:
+        return text_many(tids, a)
+    tid = tids[0]
     h = cmd_text(tid, a.lang, a.all)
     if a.json:
         print(json.dumps(h, indent=1))
@@ -449,6 +452,25 @@ def text_main(argv):
     elif not a.all and len(h) > 1:
         print('(+%d more tables of lang %d hold this id: --all)' % (len(h) - 1, a.lang))
     return 0
+
+
+def text_many(tids, a):
+    """S111 QFIX4: `q text ID ID ...`: each id looked up in the string tables (the same lookup as one id); exit 1 when any id is missing"""
+    res = {t: cmd_text(t, a.lang, a.all) for t in tids}
+    if a.json:
+        print(json.dumps({str(t): h for t, h in res.items()}, indent=1))
+        return 0
+    for t, h in res.items():
+        if not h:
+            print('%d: not in the string tables (lang %d%s)' % (t, a.lang, ', all' if a.all else ''))
+            continue
+        for x in (h if a.all else h[:1]):
+            print('%d = %r   (%s entry %s leaf %s, lang %s)' % (t, x['text'], x['pac'], x['entry'], x['leaf'], x['lang']))
+        if not a.all and len(h) > 1:
+            print('   (+%d more tables of lang %d hold id %d: --all)' % (len(h) - 1, a.lang, t))
+    miss = [t for t, h in res.items() if not h]
+    print('-- %d ids, %d found%s' % (len(tids), len(tids) - len(miss), (', missing ' + ', '.join(map(str, miss))) if miss else ''))
+    return 1 if miss else 0
 
 
 # ----------------------------------------------------------------------------------------------------------- csdt

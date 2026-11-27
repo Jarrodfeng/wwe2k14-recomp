@@ -86,7 +86,7 @@ struct Shape {
 };
 
 // S108 CAP2: the SDK's GetPackedMipOffset (thirdparty\rexglue-sdk-src\src\graphics\pipeline\texture\util.cpp:110), the 2D case, ported here as the ONE copy (guest_texture_mips.h TailOffset calls
-// it; the adapter's own port is reader.h:2923). The block offset of level `mip` inside the packed tail of a width x height (texels) texture; false (0, 0) when that level is not packed. There is no
+// it; the adapter's own port is reader.h). The block offset of level `mip` inside the packed tail of a width x height (texels) texture; false (0, 0) when that level is not packed. There is no
 // level-0 special case: when log2ceil(min(w, h)) <= 4 the packed level is 0 and mip 0 itself sits in the tail, stored under the BASE address with the base pitch (util.h:76-95; the D3D12 loader
 // texture_cache.cpp:1898-1915 reads level 0 from the base layout with this offset). Mip 0's offset: wider than tall -> (0, 16 texels), else (16 texels, 0), in blocks.
 inline bool PackedMipOffset(uint32_t width, uint32_t height, uint32_t bw, uint32_t bh, uint32_t mip, uint32_t& x, uint32_t& y) {

@@ -176,7 +176,9 @@ def main():
             mexe.unlink(missing_ok=True)
     # 3
     for name, rel, needle, marker in PINS:
-        text = (REPO / rel).read_bytes().decode('utf-8')
+        sys.path.insert(0, str(REPO / 'tools' / 'split'))
+        from read_unit import read_path  # reader.h / binder.h are split: read them with their parts expanded (tools/split/read_unit.py)
+        text = read_path(REPO / rel, crlf=True)
         region = text
         if marker:
             at = text.find(marker)

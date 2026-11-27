@@ -1,0 +1,16 @@
+name = "createscale"
+module = "qcreatescale"
+needs = "con"
+errors = ["qcreatescale.CreateScaleError", "qcreatescale.qslice.SliceError", "qcreatescale.qslice.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 62
+text = '''  createscale [--func sub_X] [--chain] [--json]   the model-create scale of every create of the record init sub_82BD2068's callers: the record +0
+                                 in force at the create (default 10.0 when nothing stores it), its key, the scale OUR loader applies, a verdict
+                                 OK / MISMATCH / NO-OURS per create (tools/q/qcreatescale.py)'''
+
+[[route]]
+order = 156
+text = '''- which scale (x10 or x1 ...) the game's model create applies per family, and whether ours matches: createscale'''

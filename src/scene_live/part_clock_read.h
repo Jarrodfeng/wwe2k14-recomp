@@ -11,7 +11,7 @@
 //     model vtables). It is called from the model UPDATE sub_82BD2010 (vtable slot 24, listing 0x82BD203C: `lwz r8,104(r9); mtctr; bctrl` right after slot 25 and before sub_82BD40C8; q: sub_82BD2010 ran in
 //     match_load, entrances, in_ring, pause_menu, replay ... and has the vtable data words 0x82021740 / 0x8206AFF0 / 0x8206B508). For every part p < [model+372]: t = [part + 12] + [model+248];
 //     if t > [part + 16] then t -= [part + 16]; [part + 12] = t. (The routine unrolls 4 parts a turn, stride 96, and finishes the rest at stride 24; it returns at once when [model+484] == 0 or the
-//     scene camera table [0x83929A68] has no camera, 0x82BD5AAC-0x82BD5AC8.) So the clock is STATE that advances once per update call: it is not `frame - setup frame` (J1: d3_record.h:7, d3_arena.h:108),
+//     scene camera table [0x83929A68] has no camera, 0x82BD5AAC-0x82BD5AC8.) So the clock is STATE that advances once per update call: it is not `frame - setup frame` (J1: d3_record.h, d3_arena.h),
 //     it differs per model by [model+248] (the model constructor sets it to 1.0, 0x82BD3A20; the beam cones' 2x is a different step or period), and it wraps at the part's period.
 //   * Update-side, not draw-side: the update task is not under any of the 15 skip hooks (scene_skip_nodes.h) [L: the hooks wrap draw submissions, the ring task and the plane / pre-light modules;
 //     sub_82BD2010 is none of them]. UNCONFIRMED on a live OURS frame: the trace string for that is in the lane's hand-back (`0x82BD5A98*r3*f1` on a coverage build, mode 2).

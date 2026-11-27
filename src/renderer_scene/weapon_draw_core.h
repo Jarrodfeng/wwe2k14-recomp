@@ -42,7 +42,14 @@ inline void RetryRelease(bool& pending, bool entrance_live = false, bool drop_on
   pending = drop_on_busy ? false : !done;
 }
 inline const char* EvtPacOf() { return "pac\\evt\\evtobj.pac"; }
-inline std::string EvtEntryOf(int32_t id, uint32_t k) { return "evtprop:" + std::to_string(id) + "/" + std::to_string(k); }
+// S111 FOLLOWUPS3 (docs\research\s111\FOLLOWUPS3.md; READANSWER review F2): `k` may carry kWantRecoloured (weapon_rows.h): the model the game built from its RECOLOURED read (sub_83391F18, /SOBJ/<id>
+// only) is entry "evtprop:<id>/<k>/s"; a plain read's model (sub_825AE720) keeps "evtprop:<id>/<k>". One id read both ways in one scene is two models, as in the game (live_assets.cpp: EvtEntryRecoloured).
+inline std::string EvtEntryOf(int32_t id, uint32_t k) { return "evtprop:" + std::to_string(id) + "/" + std::to_string(k & ~kWantRecoloured) + ((k & kWantRecoloured) ? "/s" : ""); }
+inline bool EvtEntryRecoloured(const std::string& entry) { return entry.size() > 2 && entry.compare(entry.size() - 2, 2, "/s") == 0; }
+// S111 FOLLOWUPS3 review F1: the drawer's pool stem of event model (id, k) (rf_props.cpp ApplyWeaponRows: the pool, its bound copy "weapon:bound:" + the stem's tail, its pose slots). The two reads' models
+// of one (id, k) are two meshes, so each has its own pool: a shared stem would draw the second model with the bound copy of whichever was bound first. Neither stem is a prefix of the other (PoolTrack and
+// ModelCache::RetireOther match by prefix); both start "weapon:ev", so the entrance end's RetireOther("weapon:ev") still takes both.
+inline std::string EvtPoolStemOf(int32_t id, uint32_t k, bool recoloured) { return std::string(recoloured ? "weapon:evs" : "weapon:ev") + std::to_string(id) + "/" + std::to_string(k); }
 
 // S103 CGF: a STAGE STRUCTURE piece (steel cage / Hell in a Cell / Elimination Chamber / Inferno): pac\bg\bgEtc.pac, entry "stg:<PACH>/<k>" = nested key 1 entry k of top-level PACH `pach` (docs\formats\bgetc_stg_structures.md);
 // textures from the PACH's top-level entry 0 (+ 10). The arena loader's own static copy of bgEtc (assets::OpenProps) serves it: no second unpack, no single-slot cache thrash.
@@ -51,7 +58,16 @@ inline std::string StgEntryOf(int32_t pach, uint32_t k) { return "stg:" + std::t
 
 // S103 GBR: a GMSK set object = pac\gm.pac entry "gm:<arena>/<key>" (the arena's GMGA / GMGB bank, entry 4 key `key`); a blood splat model = the arena's own bg pac, entry "blood:<texture index>" (key 32000 with the n-th entry of key 32010).
 inline const char* GmPacOf() { return "pac\\gm.pac"; }
-inline std::string GmEntryOf(int arena, uint32_t key) { return "gm:" + std::to_string(arena) + "/" + std::to_string(key); }
+inline std::string GmEntryOf(int arena, uint32_t key, bool holder_tex = false) { return "gm:" + std::to_string(arena) + "/" + std::to_string(key) + (holder_tex ? "/h" : ""); }
+// S111 GMBORROW: the loader's reading of GmEntryOf: "gm:<arena>/<key>" (the game handed the stage's own list: settings byte G+41 clear) or "gm:<arena>/<key>/h" (the stage holder's set); false for any other text.
+inline bool ParseGmEntry(const std::string& e, int& arena, uint32_t& key, bool& holder_tex) {
+  int a = 0, k = 0, n = 0;
+  if (std::sscanf(e.c_str(), "gm:%d/%d%n", &a, &k, &n) != 2 || k < 0) return false;
+  const std::string rest = e.substr(size_t(n));
+  if (!rest.empty() && rest != "/h") return false;
+  arena = a, key = uint32_t(k), holder_tex = !rest.empty();
+  return true;
+}
 inline std::string BloodPacOf(int arena) {
   char b[48];
   std::snprintf(b, sizeof b, "pac\\bg\\bg%02d.pac", arena);

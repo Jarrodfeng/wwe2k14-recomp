@@ -53,13 +53,15 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
     flash_layout_ = renderer_.AddVertexLayout(d);
     flash_made_ = true;
   }
-  const float* vp = sctx.view_proj;
+  const float* vp = sctx.view_proj;   // the record's camera: the flash rows are the record's own period (S111 FLASHCAM review, flash_fx_contrib.h Take), so it is the camera the walk drew them with
+  constexpr uint32_t kFlashPointLines = 20;   // S111 FLASHCAM review: per-flash point lines, the first 20 drawn flashes of match frames and the first 20 of entrance frames
+  ++fc_frames_;
   const bool plant_file_colour = g_plant_flash_file_colour.load(std::memory_order_relaxed);   // TEST ONLY: the row's colour ignored (the old behaviour)
   const bool plant_v_flip = g_plant_flash_v_flip.load(std::memory_order_relaxed);             // TEST ONLY: the centre's depth row read upside down
   const bool plant_row0 = g_plant_flash_fetch_row0.load(std::memory_order_relaxed);           // TEST ONLY (S110 FLASHOCC): the centre's depth read from row 0
 
   // S111 FLASHGAME (docs\research\s111\FLASHGAME.md): the game's depth rule and no other. The flash item turns the depth test OFF for this draw (sub_823B27F0 +354) and hides a sprite only by the vertex stage's
-  // read of the scene depth at its centre (yFlashDefault.vert:85-90, :111; ours: rdr_flash.frag): a body over the centre hides the whole sprite, a body over its rays only has the rays drawn OVER it. S110
+  // read of the scene depth at its centre (yFlashDefault.vert; ours: rdr_flash.frag): a body over the centre hides the whole sprite, a body over its rays only has the rays drawn OVER it. S110
   // FLASHFRONT's per-pixel test (its margin) is gone: no depth attachment, the scene depth itself is sampled. TEST ONLY: flash_pixel_ztest puts that test back (cutgrey_unit [RAYS] must catch it).
   const bool plant_pixel_z = g_plant_flash_pixel_ztest.load(std::memory_order_relaxed);
   rdr::TargetsOp t;
@@ -85,7 +87,9 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
   rdr::DynamicState dynamic{};
   dynamic.viewport[2] = float(sctx.width), dynamic.viewport[3] = float(sctx.height), dynamic.viewport[5] = 1.0f;
   dynamic.scissor.width = sctx.width, dynamic.scissor.height = sctx.height;
-  dynamic.system[0] = 1.f, dynamic.system[1] = -1.f, dynamic.system[2] = 1.f;
+  // S111 FLASHCHAIN: rdr_flash.vert applies this block as every scene draw does (y negated: the game's clip y up onto Vulkan's rows), so the sprite lands on the row its centre's depth is read from.
+  // TEST ONLY: flash_no_system_flip keeps y as it is (the shader before FLASHCHAIN: every sprite mirrored about the picture's centre).
+  dynamic.system[0] = 1.f, dynamic.system[1] = g_plant_flash_no_system_flip.load(std::memory_order_relaxed) ? 1.f : -1.f, dynamic.system[2] = 1.f;
   dynamic.system[9] = 7.f;
   rdr::SamplerDesc map_sd{};
   map_sd.mag_filter = map_sd.min_filter = 1;
@@ -118,6 +122,27 @@ uint32_t FrontEnd::DrawFlashesAfterPost(const SceneFrame& frame, rdr::FrameBuild
     for (int k = 0; k < 4; ++k) c[k] = s.centre[0] * vp[0 * 4 + k] + s.centre[1] * vp[1 * 4 + k] + s.centre[2] * vp[2 * 4 + k] + vp[3 * 4 + k];
     if (!(c[3] > 1e-6f)) continue;   // behind the camera: nothing of it is on screen
     const float ndc_x = c[0] / c[3], ndc_y = c[1] / c[3], ndc_z = c[2] / c[3];
+    // S111 FLASHCAM review census (Jarrod, 2026-11-27: released v0.4.4 / v0.4.5 show flashes INSIDE the floor and the ring). Totals: FlashLine.
+    ++fc_sprites_;
+    const bool on_picture = std::fabs(c[0]) <= c[3] && std::fabs(c[1]) <= c[3];
+    fc_off_picture_ += on_picture ? 0u : 1u;
+    ++(s.game_keeps > 0 ? fc_game_kept_ : s.game_keeps == 0 ? fc_game_refused_ : fc_game_unknown_);
+    fc_kept_off_ += s.game_keeps > 0 && !on_picture ? 1u : 0u;
+    // Per drawn flash (capped per scene kind): the point the game TESTED (the item's +16..+24, game space, y down), the centre ours draws (game y, the viewer-space height above the floor, the radius from the
+    // ring centre), the translation row of the sprite world ours built (it must be the centre), the centre's view z, its ndc and the depth ours compares with the scene depth sampled at (u, v) (rdr_flash.vert;
+    // the sampled value is on the GPU and is not read here), the game's keep rule, and the slot camera's +176 scales beside the scene projection ours draws with.
+    if (uint32_t& pl = flash_point_lines_[frame.entrance ? 1 : 0]; pl < kFlashPointLines) {
+      ++pl;
+      const float gx = s.centre[0], gy = -s.centre[1], gz = s.centre[2];   // the row's game point (PointToViewer negates y)
+      const float* pr = frame.camera.proj.m;
+      rdr::Log("[scene][flashes] point: frame %llu scene %s slot %u seq %u held %d; tested item (game) %.1f %.1f %.1f, drawn centre game y %.1f (height above the floor %.1f) radius %.1f; "
+               "sprite world translation %.1f %.1f %.1f; view z %.1f ndc %.3f %.3f depth %.6f sampled at uv %.4f %.4f; game keep rule %d; block projection xs %.4f ys %.4f, scene projection xs %.4f ys %.4f "
+               "(target %u x %u)",
+               (unsigned long long)s.guest_frame, frame.entrance ? "entrance" : "match", unsigned(s.slot), s.seq, int(s.held), double(gx), double(gy + 40.f /* the draw's lift: flash_fx_core.h kYDrop */), double(gz),
+               double(gy), double(s.centre[1]), double(std::sqrt(gx * gx + gz * gz)), double(s.world[12]), double(s.world[13]), double(s.world[14]), double(c[3]), double(ndc_x), double(ndc_y),
+               double(ndc_z), double(std::min(std::max(0.5f * ndc_x + 0.5f, 0.f), 1.f)), double(std::min(std::max(0.5f - 0.5f * ndc_y, 0.f), 1.f)), int(s.game_keeps), double(s.game_xs),
+               double(s.game_ys), double(pr[0]), double(-pr[5]), unsigned(sctx.width), unsigned(sctx.height));
+    }
     // S110 FLASHOCC (FLASHOCC.md): the census that tells a flash really in front of a body (b-live) from a wrong compare (x). c[3] = the centre's view z.
     if (flash_nearest_ == 0.f || c[3] < flash_nearest_) flash_nearest_ = c[3];
     if (c[3] < kFlashNearViewZ) {

@@ -19,7 +19,7 @@ $defs = @('-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS', '-
 $v = Join-Path $repo 'src\assets\view'
 $srcs = @((Join-Path $PSScriptRoot 'arena_ours_test.cpp'), (Join-Path $v 'loader_seam_game.cpp'), (Join-Path $repo 'src\renderer_scene\record_io.cpp'),
           (Join-Path $repo 'src\importer\importer_core.cpp'), (Join-Path $v 'mods_win32.cpp'), (Join-Path $repo 'src\assets\arena_game_space.cpp'),
-          (Join-Path $repo 'src\renderer_scene\arena_ours_core.cpp'), (Join-Path $repo 'src\assets\crowd_body.cpp'), (Join-Path $repo 'src\renderer\shaders\spv\fx_spv_data.cpp'))  # S105 SPV: the effects' words are one data unit
+          (Join-Path $repo 'src\renderer_scene\arena_ours_core.cpp'), (Join-Path $repo 'src\assets\crowd_body.cpp'))
 # compile-only: the GPU side of the hook (needs the renderer's headers; not linked into the test)
 $check = @((Join-Path $repo 'src\renderer_scene\arena_ours.cpp'))
 $all = $srcs + $check

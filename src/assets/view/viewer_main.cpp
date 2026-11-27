@@ -3031,9 +3031,9 @@ struct Viewer : InputSink {
     if (title == "none" || title == "auto") ent.belt = cmd.has("belt") ? ent.belt : 0;
     ent.belt_motion = BoolArg(cmd, "belt_motion", true);
     // Session 98 (props general): every title prop of every bank is item 9 (2009 left / 3009 right / 5009 waist; no bank names a belt,
-    // census); held ("hold"), the title acts of the bank are played by the chosen title's model of that hand's run (BeltTwin), each
+    // census); held ("hold"), the title acts of the bank are played by the chosen title's model for that hand (BeltTwin: table 103), each
     // posed by its own act like any prop (UpdateProps). The one static belt of UpdateBelt is always loaded: it is the belt of the cues
-    // with no title act at all (602's cue 6), of a bank whose title models could not be loaded (no BeltTwin: 364, 379, 388, 389, 397),
+    // with no title act at all (602's cue 6), of a bank whose title models could not be loaded (no BeltTwin: an id table 103 does not name, 2907 / 3907 / 5040),
     // and of "belt_motion":false / the waist (review fix: it was dropped whenever the bank had a title act).
     const bool title_acts = title == "hold" && ent.belt > 0 && ent.belt_motion;
     if (ent.belt > 0) {
@@ -3123,7 +3123,7 @@ struct Viewer : InputSink {
       }
       const uint32_t play_id = game_id;
       // A title act: the model of the rewritten id when table 103 changed it (evtobj's directory: the game's "/SOBJ" then "/BOBJ"
-      // lookup), else the chosen belt's twin in that hand's run (BeltTwin).
+      // lookup), else the chosen belt's twin for that hand (BeltTwin: table 103).
       int pach = -1;
       if (is_title && play_id != pa.prop_id) pach = ViewerPropPachDir(play_id);
       if (is_title && pach < 0) pach = ViewerBeltTwin(ent.belt, kind);

@@ -63,9 +63,12 @@ class Fail(Exception):
     pass
 
 
+sys.path.insert(0, os.path.join(ROOT, "tools", "split"))
+from read_unit import read_text  # a split file is read with its parts expanded (tools/split/read_unit.py; text mode: '\n' line ends)
+
+
 def read(path):
-    with open(os.path.join(ROOT, path), encoding="utf-8", errors="replace") as f:
-        return f.read().split("\n")
+    return read_text(os.path.join(ROOT, path)).split("\n")
 
 
 # ---- inputs -------------------------------------------------------------------------------------------------------------------

@@ -40,27 +40,35 @@ inline bool WholePass(const ParticleStatus& s) { return (s.reasons & ~uint32_t(r
 
 // ---- S103 MP: the node's own camera on a flat frame (docs\research\s103\MP_menu_particles.md sections 2-3; claims_MP MP6 / MP7)
 // The node (sub_82254E30) takes its view-projection from the calling thread's current camera object (camera table 0x83929A40, slot = word +32 of [[r13]+1048], sub_82BA7748): sub_82BA8780 -> sub_82296630(out, cam+176, cam+240) = (+240) . (+176) [claims_MP MP6],
-// NOT the scene manager's camera. On a menu that camera is the 2D screen camera: a pure orthographic scale (diag(~2/1280, ~-2/720, ~0.0033, 1), no translation) [C: fview on c2d_title / menu / options / play / select].
+// NOT the scene manager's camera. On the title / menus that camera is the particle task's own render view made orthographic (S111 TITLESMOKE2, IsScreenViewProj below): diag(2/1280, -2/720, ~3.3e-6, 1)
+// with a z translation m[14] of about 0.0033 [C listings; S103 MP's fview on c2d_title / menu / options / play / select read that translation as the z scale].
 inline void MulRowMajor(const float a[16], const float b[16], float out[16]) {   // out = a * b, row-vector convention (p * a * b)
   float t[16];
   for (int r = 0; r < 4; ++r)
     for (int c = 0; c < 4; ++c) t[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
   std::memcpy(out, t, sizeof t);
 }
-// The screen camera test: a diagonal matrix (every off-diagonal 0), non-zero x / y / z scales, no translation, w = 1. [L fitted on the five flat captures' one ViewProj each; a 3D camera is never diagonal]
+// The screen camera test (S111 TITLESMOKE2, docs\research\s111\TITLESMOKE2.md). The game's menu particles are drawn with the particle task's own render view (sub_82939D20: eye at z -1000, no
+// rotation), which the task's UI layer sub_82938FE8 makes orthographic (+480 = 1) and rebuilds (slot 11 sub_82939B08 -> sub_82BB3748 -> sub_82BB2DD0: 2 / w and 2 / h centred, row 1 negated,
+// 1 / (far - near) and near / (near - far)) before it calls each bank's node. Its view . proj is diagonal in x / y with a Z TRANSLATION, (1000 - near) / (far - near) (about 0.0033 with the
+// render view ctor's near 10 / far 3e5). So: no perspective column (m[3] = m[7] = m[11] = 0, m[15] = 1), no rotation and no x / y translation (every other off-diagonal 0), non-zero x / y / z
+// scales; m[14] (depth only) may be any finite value. A 3D camera has a perspective column or a rotation and is refused. Plant 18 = the old strict rule (m[14] must be 0 too), which refused every
+// real menu call (S111 run 001: screen_calls 0, a no_camera hole on every menu frame).
 inline bool IsScreenViewProj(const float m[16]) {
   for (int i = 0; i < 16; ++i)
     if (!std::isfinite(m[i])) return false;
   for (int r = 0; r < 4; ++r)
     for (int c = 0; c < 4; ++c)
-      if (r != c && std::fabs(m[r * 4 + c]) > 1e-9f) return false;
+      if (r != c && !(r == 3 && c == 2 && g_source_plant != 18) && std::fabs(m[r * 4 + c]) > 1e-9f) return false;   // (r 3, c 2) = m[14], the depth translation
   return m[0] != 0.f && m[5] != 0.f && m[10] != 0.f && std::fabs(m[15] - 1.f) < 1e-6f;
 }
-// What the hook read at the node's entry (the glue fills it; tests build it). `rows` = the q2d tap's running row count of the frame (kNoRows = the tap is off).
+// What the hook read at the node's entry (the glue fills it; tests build it). `rows` = the q2d tap's running row count of the frame (kNoRows = the tap is off; informational: ParticleScreen::row_count).
+// S111 FLATSEQ: `seq2d` = the q2d store's last call-order ticket at the call (quads2d_tap.h SeqNow; kNoRows = the tap is off): a screen call's batches are stamped with it (flat_particles.h PosOf).
 inline constexpr uint32_t kNoRows = 0xFFFFFFFFu;
 struct NodeCall {
   uint32_t node = 0;
   uint32_t rows = kNoRows;
+  uint32_t seq2d = kNoRows;
   bool have_camera = false;    // the camera table object was readable and non-null (a null camera: the node returns before drawing, 0x82254E68)
   bool camera_null = false;
   bool words_zero = false;     // +3084 or +3088 read 0 AT THE CALL (the entry hook): the node returns before drawing (0x82254E3C / 0x82254E4C). Read at the call, not at the latch: the words change in between. An unreadable word is not empty
@@ -80,8 +88,9 @@ inline bool SoftClamped(const NodeCall& c) { return c.soft_on && std::isfinite(c
 // S103 PRT fix 4: a non-screen call whose own camera does not agree with the scene camera must not be placed with the scene camera. Compared: the rotation part of the two views (what the billboard basis uses),
 // tolerance 0.05 per element (~3 degrees: the scene copy can be a frame older). A call with no camera read agrees (nothing to compare). Plant 13 = the check is skipped.
 // S103 PRT fix2 (run 013: node_cam_mismatch 20799, nodes_read 0): on the real game the check rejected EVERY node, so it is COUNT-ONLY now (g_node_cam_skip false: a wrong skip hides real particles, worse than a wrong camera).
-// The relation is split so the next log settles why: 0 = agrees, 1 = agrees with the TRANSPOSED scene rotation (a row / column layout difference: the node's +176 block and the manager's +1488 view may be a camera
-// matrix and its rigid inverse, camera_view_set_matrix 0x82280108 stores both), 2 = neither (counted as a mismatch; the first one is printed in the census). Only a relation 2 can skip, and only when g_node_cam_skip is set.
+// The relation is split so the next log settles why: 0 = agrees, 1 = agrees with the TRANSPOSED scene rotation (a row / column layout difference), 2 = neither (counted as a mismatch; the first one is printed in the
+// census). Only a relation 2 can skip, and only when g_node_cam_skip is set. S111 FLASHCAM review: until then the node's "view" was its PROJECTION (+176, the names in ReadNodeCamera were swapped), which is why
+// every node counted as a mismatch (run 013); it now compares the node's view (+240).
 inline bool g_node_cam_plant_off = false;
 inline bool g_node_cam_skip = false;
 inline int NodeCameraRelation(const NodeCall& c, const float scene_view[16]) {
@@ -102,9 +111,10 @@ inline uint8_t SoftCodeOf(const NodeCall& c) {
 
 // The call is a screen-camera call (a flat frame's group).
 inline bool IsScreenCall(const NodeCall& c) { return c.have_camera && IsScreenViewProj(c.view_proj); }
-// The hook's read of the node's own camera (S103 MP, claims_MP MP6): r13 -> [r13] -> +1048 -> block, slot = block +32, camera object = [0x83929A40 + 4 * slot] (sub_82BA7748), view +176, proj +240. Read only; a failed
+// The hook's read of the node's own camera (S103 MP, claims_MP MP6): r13 -> [r13] -> +1048 -> block, slot = block +32, camera object = [0x83929A40 + 4 * slot] (sub_82BA7748), VIEW +240, PROJECTION +176 (S111 FLASHCAM
+// review: the names were the other way round; the flash test sub_823B2470 takes its view z from +240, and inputs_core.h kCamView / kCamProj agree). Read only; a failed
 // read leaves have_camera false (the call is then not a screen call and the old scene-camera path applies); a null object sets camera_null (the node returns at 0x82254E68).
-inline constexpr uint32_t kCameraTable = 0x83929A40u, kCamObjView = 176u, kCamObjProj = 240u, kMaxCameraSlot = 256u;
+inline constexpr uint32_t kCameraTable = 0x83929A40u, kCamObjView = 240u, kCamObjProj = 176u, kMaxCameraSlot = 256u;
 inline void ReadNodeCamera(scene_inputs::ReadFn read, uint32_t r13, NodeCall& c) {
   c.have_camera = false, c.camera_null = false, c.have_view = false;
   uint32_t tb = 0, blk = 0, slot = 0, cam = 0;
@@ -115,7 +125,7 @@ inline void ReadNodeCamera(scene_inputs::ReadFn read, uint32_t r13, NodeCall& c)
   rdr_scene::Mat4 v, p;
   if (!scene_inputs::ReadMat(read, cam + kCamObjView, v) || !scene_inputs::ReadMat(read, cam + kCamObjProj, p)) return;
   std::memcpy(c.view, v.m, sizeof c.view), c.have_view = true;
-  MulRowMajor(p.m, v.m, c.view_proj);   // the game's own order: sub_82296630(out, cam+176, cam+240) computes +240 . +176 (claims_MP MP6)
+  MulRowMajor(v.m, p.m, c.view_proj);   // the game's own order: sub_82296630(out, cam+176, cam+240) computes +240 . +176 = view . projection (claims_MP MP6)
   c.have_camera = true;
 }
 // The node does not draw when its word +3084 or +3088 is 0 (0x82254E3C / 0x82254E4C) or the camera object is null (0x82254E68). The words are read AT THE CALL (ReadNodeWords, the entry hook) into the call; True only when
@@ -352,7 +362,8 @@ class ParticleSource {
   }
 
   // S103 MP (B): the screen path. Every non-empty call is read with the node's OWN camera when it is a screen call (screen-aligned basis [U]: the billboard basis block the node builds at 0x82254EB0
-  // from the camera's +608 / +624 is not ported), with the scene camera otherwise; each call's batches carry the 2D row count at the call (BatchKey::row_after_p1) so a flat drawer draws them after that row.
+  // from the camera's +608 / +624 is not ported), with the scene camera otherwise; each SCREEN call's batches carry the 2D store's last ticket at the call + 1 (BatchKey::seq_after_p1; S111 FLATSEQ:
+  // was the row count) so the flat drawer draws them before the first 2D row with a larger seq.
   // A screen call always holds the pass (kPiScreenCam: the flat drawer for them is not built), and its camera goes into the record (ParticleSnapshot::screen). `over` = calls past the cap were dropped (kPiDropped).
   bool TakeScreen(const std::vector<NodeCall>& calls, bool over, uint64_t hook, uint64_t writer_frame, ParticleSnapshot& out) {
     wwe2k14::safe_pages::LineCopy<> lines;   // S108 RDS: this pass's line copy (dropped on return)
@@ -369,7 +380,8 @@ class ParticleSource {
       if (NodeDrawsNothing(c)) continue;
       ++drawn_calls;
       CameraBasis basis;   // identity = screen-aligned
-      if (IsScreenCall(c)) {
+      const bool screen_call = IsScreenCall(c);
+      if (screen_call) {
         ps.reasons |= rdr_scene::kPiScreenCam;
         if (!out.has_screen) out.has_screen = true, std::memcpy(out.screen.view_proj, c.view_proj, sizeof c.view_proj);
         else if (std::memcmp(out.screen.view_proj, c.view_proj, sizeof c.view_proj) != 0) ++screen_diff;
@@ -392,7 +404,9 @@ class ParticleSource {
         if (k >= memo_.size()) memo_.resize(k + 1, -1);
         if (memo_[k] < 0) {
           BatchKey kk = out.keys[k];
-          kk.row_after_p1 = c.rows == kNoRows || g_source_plant == 7 ? 0u : c.rows + 1u;   // (plant 7: the row is not stamped)
+          // (plant 7: the row is not stamped). S111 TITLESMOKE review: only a SCREEN call's batches carry the row: they are the flat drawer's (flat_particles.h IsFlat); a scene-camera call of the same
+          // frame keeps 0 and is never drawn flat with the screen camera (plant 17: the old rule, every call stamped)
+          kk.seq_after_p1 = c.seq2d == kNoRows || g_source_plant == 7 || (!screen_call && g_source_plant != 17) ? 0u : c.seq2d + 1u;   // S111 FLATSEQ: the 2D ticket, not the row count
           memo_[k] = int64_t(out.Intern(kk));
         }
         out.entries[i].key = uint32_t(memo_[k]);
@@ -401,7 +415,7 @@ class ParticleSource {
     Add(rs);
     screen_calls_.fetch_add(drawn_calls, std::memory_order_relaxed);
     if (screen_diff) screen_cam_differs_.fetch_add(screen_diff, std::memory_order_relaxed);
-    if (out.has_screen) out.screen.calls = drawn_calls, out.screen.row_count = last_rows;
+    if (out.has_screen) out.screen.calls = drawn_calls, out.screen.row_count = last_rows, out.screen.stamp = rdr_scene::kParticleStampSeq;   // S111 FLATSEQ: the batches carry 2D tickets (flat_particles.h SeqStamped)
     if (!drawn_calls) ps.reasons |= rdr_scene::kPiEmptyPass;   // every call returned before drawing
     ps.unreadable = uint32_t(rs.unreadable), ps.other_class = uint32_t(rs.items_other_class), ps.pivot_not_centred = uint32_t(rs.pivot_not_centred);
     if (rs.unreadable) ps.reasons |= rdr_scene::kPiUnreadable;

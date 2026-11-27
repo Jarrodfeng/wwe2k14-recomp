@@ -25,9 +25,12 @@ def line(ok, text):
     fails += 0 if ok else 1
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), newline='') as f:
-        return f.read()
+    return read_path(os.path.join(root, rel), crlf=True)
 
 
 def build_test(root, work, tag, headers):

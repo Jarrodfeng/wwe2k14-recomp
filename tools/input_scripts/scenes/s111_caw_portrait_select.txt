@@ -1,0 +1,66 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, replay_mode on
+# S111 PORTRAITRUN leg 2: the character select screen of a match with the TEST save that holds the afro superstar made by s111_caw_portrait_hair.txt
+# (copy of that run's work folder: -Data userdata_s111_ph, the superstar is slot 1). Path from short\s110_letter_jump_tab.txt (S110 LETTER run 006): PLAY > ONE ON ONE >
+# NORMAL (menu 2000), A on the slot puts the cursor in the grid on JOHN CENA, DOWN x2 lands on the MANAGERS tab, LEFT = DIVAS, DOWNLOADED, CUSTOM SUPERSTARS (3 LEFT),
+# A opens the CUSTOM SUPERSTARS list. Shots after each step. Exploratory, nothing is started or saved. Marks: 1 menu, 2 select screen, 3 tab row, 4 custom list, 5 end. on_fail quit.
+on_fail quit
+log bench: start scene s111_caw_portrait_select
+include boot_to_menu
+wait_state menu 1 1200 30
+mark 1 menu
+include menu_to_play
+press_until_state A menu 7 40 30 5
+press_until_state A menu 2000 40 30 5
+wait_frames 400
+log scene=select_screen
+mark 2 select_screen
+press A
+wait_frames 60
+press DOWN
+wait_frames 40
+press DOWN
+wait_frames 40
+log scene=managers_tab
+log_text 8
+screenshot sc_s111_sel_managers
+mark 3 tab_row
+press LEFT
+wait_frames 60
+screenshot sc_s111_sel_left1
+press LEFT
+wait_frames 60
+screenshot sc_s111_sel_left2
+press LEFT
+wait_frames 60
+log scene=custom_tab
+log_text 8
+screenshot sc_s111_sel_left3
+press A
+wait_frames 200
+log scene=custom_list
+log_text 12
+screenshot sc_s111_sel_custom
+mark 4 custom_list
+wait_frames 200
+screenshot sc_s111_sel_custom2
+# run 007: the list showed slot 0 "THE SUPERSTAR" (short hair); DOWN did not move to slot 1. Try the sideways / letter / bumper moves, a shot after each.
+press RIGHT
+wait_frames 120
+screenshot sc_s111_sel_c_right
+press RIGHT
+wait_frames 120
+screenshot sc_s111_sel_c_right2
+press RT
+wait_frames 120
+screenshot sc_s111_sel_c_rt
+press LEFT
+wait_frames 120
+screenshot sc_s111_sel_c_left
+press RB
+wait_frames 120
+screenshot sc_s111_sel_c_rb
+mark 5 end
+log bench: done
+wait_frames 10
+quit

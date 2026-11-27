@@ -3,12 +3,12 @@ r"""S103 lane J1: the CHOICE HARVESTER. The game's own per-draw choice (which va
 NAMES-AND-NUMBERS-ONLY table (Fable review section 2.2; DECISIONS 2026-11-16: a names-only table may be committed, like shader_list.txt). 0 game runs: offline, from a kept capture.
 
   py -I tools\harvest\choice_harvest.py CAPTURE[:ARENA] --scene NAME --look LOOK [--frames 300,340 | --every 40] [--out tools\harvest\choice_table\NAME.json] [--merge]
-  py -I tools\harvest\choice_harvest.py --selftest
+  (its selftest is tools\harvest\harvest_selftest.py: py -I tools\harvest\harvest_selftest.py [--case CASE.zip])
 
 CAPTURE = a case zip (capture\ is unpacked once under out\harvest\unpack, scratch) or an unpacked capture folder (frames\, images.bin, geometry.bin, textures.bin).
 ARENA   = the bg id the stage draws join against (omit for a scene with no stage: the class table is still written).
 Reading (per frame, straight from the frame file; no fview, so every draw of the stream is named, also those a replay setting would leave out): the shader hashes give each draw's
-vertex / pixel variant NAME (fx.json hashes, as feature_diff.py); its fixed state the blend key of target 0 and the alpha test and ref; its bound texture slots each slot's ROLE; its
+vertex / pixel variant NAME (fx.json hashes, as fx_names.py); its fixed state the blend key of target 0 and the alpha test and ref; its bound texture slots each slot's ROLE; its
 vertex layout the vertex-buffer streams; tools\arena\join_census.py's join (positions + counts + texture bytes,
 as tools\arena\variant_table.py) names the (arena slot, mesh) of every stage-site model-part draw. Draws the join does not name are counted by class only.
 
@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools', 'fview'))
 FX_DIR = os.path.join(ROOT, 'src', 'renderer', 'shaders', 'fx')
 TABLE_DIR = os.path.join(HERE, 'choice_table')
 FORMAT = 1
-# the SurfaceRole names (names.h; tools\scene\feature_diff.py ROLES)
+# the SurfaceRole names (names.h)
 ROLES = {0: 'unnamed', 1: 'SceneColor', 2: 'SceneDepth', 3: 'ShadowMap', 4: 'PostStep', 5: 'FeedbackMap', 6: 'AtlasTarget', 7: 'MenuPicture', 8: 'TronPicture', 9: 'Ui', 10: 'Present', 11: 'Other', 12: 'RimMap'}
 BLEND_FACTOR = ['ZERO', 'ONE', 'SRC_COLOR', 'ONE_MINUS_SRC_COLOR', 'DST_COLOR', 'ONE_MINUS_DST_COLOR', 'SRC_ALPHA', 'ONE_MINUS_SRC_ALPHA', 'DST_ALPHA', 'ONE_MINUS_DST_ALPHA',
                 'CONST_COLOR', 'ONE_MINUS_CONST_COLOR', 'CONST_ALPHA', 'ONE_MINUS_CONST_ALPHA', 'SRC_ALPHA_SATURATE']
@@ -76,11 +76,11 @@ def alpha_key(fx):
 
 
 class Fx:
-    """shader hash -> variant name '<effect>_<variant>_<stage>' (the fx.json hashes, tools\\solver\\solve.py Effects, as tools\\scene\\feature_diff.py) and the name's FX_* defines."""
+    """shader hash -> variant name '<effect>_<variant>_<stage>' (the fx.json hashes, tools\\solver\\solve.py Effects, as tools\\scene\\fx_names.py) and the name's FX_* defines."""
     def __init__(self):
         sys.path.insert(0, os.path.join(ROOT, 'tools', 'scene'))
-        import feature_diff as fd
-        self.fd = fd.Fx()
+        import fx_names
+        self.fd = fx_names.Fx()
         self.defines = self.fd.defines
 
     def names(self, vs_hash, ps_hash):
@@ -337,11 +337,7 @@ def main():
     ap.add_argument('--out', default='')
     ap.add_argument('--game', default=os.path.join(r'C:\Users\Jarrod\wwe2k14-recomp', 'game_data', 'extracted'))
     ap.add_argument('--replace', action='store_true', help='overwrite an existing table that holds another capture')
-    ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
-    if a.selftest:
-        import harvest_selftest
-        return harvest_selftest.main()
     if not a.capture or not a.scene:
         ap.error('CAPTURE and --scene are required')
     path, arena_id = (a.capture.rsplit(':', 1)[0], int(a.capture.rsplit(':', 1)[1])) if re.search(r':\d+$', a.capture) and not re.search(r'^[A-Za-z]:\d+$', a.capture) else (a.capture, None)

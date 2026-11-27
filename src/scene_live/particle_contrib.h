@@ -34,9 +34,9 @@ struct BatchKey {
   uint8_t depth_always = 0;  // S111 PARTZ: 1 = the entry's +220 word is 0: the game draws with depth ALWAYS (sub_82A0AED8 +84)
   float zoffset = 0, use_normal = 0;
   float light[4] = {0, 0, 0, 0};
-  uint32_t row_after_p1 = 0;  // S103 MP: the 2D row count at the node call that made the batch, + 1 (0 = not noted). A batch never spans two node calls: it is part of the key
+  uint32_t seq_after_p1 = 0;  // S103 MP / S111 FLATSEQ: the 2D store's last ticket at the node call that made the batch, + 1 (0 = not noted). A batch never spans two node calls with a 2D row between them: it is part of the key
   bool SameBatch(const BatchKey& o) const {
-    return row_after_p1 == o.row_after_p1 && pac == o.pac && entry == o.entry && blend == o.blend && soft == o.soft && site == o.site && addr == o.addr && depth_always == o.depth_always && zoffset == o.zoffset && use_normal == o.use_normal &&
+    return seq_after_p1 == o.seq_after_p1 && pac == o.pac && entry == o.entry && blend == o.blend && soft == o.soft && site == o.site && addr == o.addr && depth_always == o.depth_always && zoffset == o.zoffset && use_normal == o.use_normal &&
            light[0] == o.light[0] && light[1] == o.light[1] && light[2] == o.light[2] && light[3] == o.light[3];
   }
 };

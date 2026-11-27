@@ -38,7 +38,8 @@
 // ENTRANCE (hooks 2 and 3), PHASE 1, static per-cue override - UNCONFIRMED parts are marked [U]:
 //   Hook 2: post-hook on sub_827F70D0(r3 = manager, r4 = light object, r5 = source object) - copies one light set's blended
 //   source into its light object. Listing (wwe2k14_recomp.184.cpp:7641): light object +400 / +416 = two 16-byte blocks from
-//   source +4848 / +4928 [U which is sky and which is ground: sky = +400, ground = +416 assumed]; direction vec4 k at
+//   source +4848 / +4928 [C sky = +400, ground = +416: the setter sub_82BE06B8 uploads record +352 (= object +400) to the handle named
+//   g_f3SkyCol and record +368 to g_f3GroundCol, docs\research\s111\SKYGROUND.md]; direction vec4 k at
 //   object +64+16k and +960+16k (from source +3488+16k); colour k (3 floats) at object +144+16k (from source +5008+80k).
 //   Callers: sub_827F8730 (loop over the manager arrays: r4 = (mgr+112)[i], r5 = (mgr+104)[i], count at mgr+124; after the
 //   loop it scales sky / ground by the float at mgr+452 unless that is 1.0 - the "brightness" knob) and sub_827F8F48
@@ -758,7 +759,7 @@ inline void OnLightObject(uint8_t* base, uint32_t mgr, uint32_t obj) {
     }
   }
   if (!es) return;
-  if (es->has_sky) StF3(base, obj + 400, es->sky);        // [U] +400 sky / +416 ground (header)
+  if (es->has_sky) StF3(base, obj + 400, es->sky);        // [C] +400 sky / +416 ground (header)
   if (es->has_ground) StF3(base, obj + 416, es->ground);
   for (uint32_t k = 0; k < 5; ++k) {
     if (es->has_dir[k]) {

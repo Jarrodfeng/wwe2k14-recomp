@@ -80,7 +80,7 @@ def run_test(root, build_only=False):
     caught = []
     for n in PLANTS:
         path, needle = PLANT_TEXT[n]
-        if needle not in open(os.path.join(root, path), encoding='utf-8').read():   # a plant that no longer applies is its own failure
+        if needle not in read_path(os.path.join(root, path)):   # a plant that no longer applies is its own failure
             return fail('planted fault %d DID NOT APPLY: %s has no %s' % (n, path, needle))
         p = subprocess.run([exe, 'plant', str(n)], capture_output=True, text=True, timeout=600)
         nfail = len(re.findall(r'^FAIL ', p.stdout, re.M))
@@ -92,9 +92,13 @@ def run_test(root, build_only=False):
     return 0
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def lint_reader(root):
     """The reader.h glue the offline test cannot reach: both getters read the epoch once and pass it to Find AND Remember; the switches are set every frame; the census names exist."""
-    text = open(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'), encoding='utf-8').read()
+    text = read_path(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'))
     checks = [('vertex Find takes the epoch', 'g_vs_memo.Find(memo_key, source, serial_epoch)'), ('pixel Find takes the epoch', 'g_ps_memo.Find(memo_key, source, serial_epoch)'),
               ('vertex Remember takes the epoch', 'g_vs_memo.Remember(memo_key, source, info, serial_epoch)'), ('pixel Remember takes the epoch', 'g_ps_memo.Remember(memo_key, source, found, serial_epoch)'),
               ('origin index switch read every frame', 'g_index_on.store(rdr_sw::BoolSeen(rdr_sw::kOriginIndex'), ('shader serial switch read every frame', 'g_shader_serial_on.store(rdr_sw::BoolSeen(rdr_sw::kShaderSerial'),

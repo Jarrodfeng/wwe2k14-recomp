@@ -1,5 +1,5 @@
 // S105 A7: offline proof that every alias row of a model PACH resolves (OrdinalOfModelKeyIn, src\assets\asset_load.h) and that a texture directory in
-// entry 39 is read (IsTexDirEntry / AddTexDirs). 0 game runs; the fixture is a synthetic pac of our own bytes (nothing from the game).
+// entry 39 is read (AddTexDirs over tex_dir_order.h; the order itself: tools\scene\texdirorder_unit.cpp). 0 game runs; the fixture is a synthetic pac of our own bytes (nothing from the game).
 // entry: assets::load_detail::OrdinalOfModelKeyIn (the body of assets::OrdinalOfModelKey, which only opens the pac and calls it)
 //   a7_unit selftest [--plant old_first_row|no_entry_39]   the fixture checks; a plant must make a check FAIL (exit 1)
 //   a7_unit game GAMEDIR PACKDIR PACKID ID KEY...           read-only: assets::OrdinalOfModelKey through launcher::GameFiles, the mod pack published as an overlay
@@ -67,7 +67,7 @@ static int SelfTest(const std::string& plant) {
   Bytes f(0x4000 + 0x800 * 4, 0);
   std::memcpy(f.data(), "EPAC", 4);
   std::memcpy(f.data() + 0x800, "EMD ", 4);
-  PutRow(f, 0, "00039702", 0);   // an imported superstar: three alias rows, ONE PACH (importer_core.cpp:1333-1346)
+  PutRow(f, 0, "00039702", 0);   // an imported superstar: three alias rows, ONE PACH (importer_core.cpp)
   PutRow(f, 1, "00039712", 0);
   PutRow(f, 2, "00039722", 0);
   PutRow(f, 3, "00039742", 2);   // the second PACH
@@ -112,8 +112,11 @@ static int SelfTest(const std::string& plant) {
   Check(has(p.pachs[0], "colorA"), "a texture in entry 12 is found");
   Check(has(p.pachs[1], "colorB"), "a texture in entry 39 is found");
   Check(!has(p.pachs[1], "colorA"), "a texture of the other PACH is not found");
-  Check(!load_detail::IsTexDirEntry(20) && !load_detail::IsTexDirEntry(9) && !load_detail::IsTexDirEntry(38) && !load_detail::IsTexDirEntry(40),
-        "entries 9, 20, 38, 40 are not texture directories");
+  {
+    const std::vector<uint32_t>& keys = tex_dir_order::Keys(tex_dir_order::Owner::kCharacter);
+    Check(std::find(keys.begin(), keys.end(), 39u) != keys.end() && std::find(keys.begin(), keys.end(), 20u) == keys.end() && std::find(keys.begin(), keys.end(), 9u) == keys.end(),
+          "a character's directories include 39, not 9 or 20");
+  }
   std::printf("%s (plant: %s)\n", g_fail ? "FAIL" : "ALL PASS", plant.empty() ? "none" : plant.c_str());
   return g_fail ? 1 : 0;
 }

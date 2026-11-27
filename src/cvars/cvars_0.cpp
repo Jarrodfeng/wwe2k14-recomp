@@ -126,6 +126,11 @@ REXCVAR_DEFINE_STRING(wwe2k14_music_game_volume_addr, "", "wwe2k14",
                       "the options screen's slider). Custom songs play at level/10 of --wwe2k14_entrance_music_volume. Empty = "
                       "not applied (the address is not confirmed yet: docs/systems/music.md, Volume option)");
 
+//@ src/equiv/equiv_host.h | - | -
+REXCVAR_DEFINE_STRING(wwe2k14_equiv_out, "", "wwe2k14",
+                      "S111 EQUIV: the report file (empty = <exe>\\..\\..\\harness\\equiv\\<test>.txt); the branch counts go beside it "
+                      "as <name>.profraw");
+
 //@ src/flight_recorder.h | - | -
 REXCVAR_DEFINE_INT32(wwe2k14_flight_hang_samples, 3, "wwe2k14",
                      "Flight recorder: stack samples per thread in a hang dump (300 ms apart)");
@@ -536,10 +541,6 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_stage_structs, true, "wwe2k14",   // S103 CGF re
 REXCVAR_DEFINE_BOOL(wwe2k14_rdr_gm_sets, true, "wwe2k14",   // S103 GBR
                     "S103 GBR (docs\\research\\s103\\GMS.md): the Create-a-Story backstage set / Elimination Chamber extras (GMSK set objects of gm.pac) and the blood splats on the mat are recorded at the model-draw hook and drawn by the stream-free build. "
                     "On by default (without them the story set is a bare room and blood never shows). Off = no set-object membership read and no splat read (a diagnostic switch).");
-REXCVAR_DEFINE_STRING(wwe2k14_rdr_stage_struct_family, "own", "wwe2k14",   // S103 CGF
-                      "S103 CGF (docs\\research\\s103\\CAGE.md): which of the stage structures' two submit families the drawer draws, never both: own = the category-26 own submit (slot 13, alpha [model+252]; the default), "
-                      "slot32 = the category-36 explicit-palette submit (alpha = the call's f1). The steel cage's two draw nodes submit the same models; which one reaches the colour picture is read in the step check (the census line "
-                      "'stage type ...'). A structure with only one family (the chamber, the Inferno) draws that one whatever this says.");
 REXCVAR_DEFINE_BOOL(wwe2k14_preset_4k60, false, "wwe2k14",
                     "4K 60 fps: as wwe2k14_preset_1440p60, but resolution_scale=3");
 REXCVAR_DEFINE_BOOL(wwe2k14_decouple_120, false, "wwe2k14",

@@ -1,0 +1,58 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=false --audio_mute=true --wwe2k14_rdr_capture=true --wwe2k14_rdr_provenance=true --wwe2k14_rdr_capture_label=matdraw2_v033
+# intent: owner off
+# S111 MATDRAW2 copy of s111_matdraw_v033.txt (v0.3.3 exe, the game's own command-stream draw): the stream capture of the after_900
+# frames (3 whole frames from victory +898) to count the floor-splat draws (the splat model [[0x83767DE4]+8], read by the peek beside
+# the record table) and read their world matrices, blend and alpha state. Peek only in the capture window (+898..+905). Ends after it.
+# Read with: py -I tools/bench/run_read.py <exe folder> --full. The capture and shots stay local under out\ (never committed).
+on_fail quit
+log bench: start scene s111_matdraw2_v033
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=139:-1,343:-1;arena=5;o=81:1
+cvar wwe2k14_match_go 108
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_state match_clock >0 40000
+log scene=bld6_match
+mark 2 match_clock
+wait_frames 120
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+bleed 0 1
+wait_frames 120
+screenshot bld6_level1
+bleed 0 2
+wait_frames 120
+screenshot bld6_level2
+bleed 0 3
+wait_frames 120
+screenshot bld6_level3
+mark 3 bleed_levels_done
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 60
+screenshot bld6_after_60
+wait_frames 240
+screenshot bld6_after_300
+wait_frames 598
+cvar wwe2k14_peek mdl=83767DE4>8,tl=83767DE4>4,Q=837689D4,cnt=837689D4>3896,rep=837689D4>3888,r0x=837689D4>2448,r0z=837689D4>2456,r0s=837689D4>2464,r0a=837689D4>2468,r1x=837689D4>2496,r1z=837689D4>2504,r1s=837689D4>2512,r1a=837689D4>2516,r2x=837689D4>2544,r2z=837689D4>2552,r2s=837689D4>2560,r2a=837689D4>2564,r3x=837689D4>2592,r3z=837689D4>2600,r3s=837689D4>2608,r3a=837689D4>2612,r4x=837689D4>2640,r4z=837689D4>2648,r4s=837689D4>2656,r4a=837689D4>2660,r5x=837689D4>2688,r5z=837689D4>2696,r5s=837689D4>2704,r5a=837689D4>2708,r6x=837689D4>2736,r6z=837689D4>2744,r6s=837689D4>2752,r6a=837689D4>2756,r7x=837689D4>2784,r7z=837689D4>2792,r7s=837689D4>2800,r7a=837689D4>2804
+cvar wwe2k14_rdr_capture_frames 3
+log matdraw2: capture armed at victory +898
+wait_frames 2
+screenshot bld6_after_900
+wait_frames 5
+cvar wwe2k14_peek ""
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

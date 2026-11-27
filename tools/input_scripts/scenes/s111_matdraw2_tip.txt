@@ -1,0 +1,55 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, blood on
+# S111 MATDRAW2 copy of s111_matdraw_tip.txt (the tip, our own renderer) without the peek: at the after_900 instant-replay frame it saves the
+# scene record our host drew (record verb, captures\NNN_pPID\bld6_after_900.rsc, for the offline rig) beside the screenshot; run it with
+# WWE_RDR_FEATURE_DUMP set (our draws' lines). The route ends 20 frames after the shot. Shots and records stay local under out\.
+# Read with: py -I tools/bench/run_read.py <exe folder> --full.
+on_fail quit
+log bench: start scene s111_matdraw2_tip
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 120
+log bench: main menu idle, firing the builder
+cvar wwe2k14_match_dry false
+cvar wwe2k14_match_compare ""
+cvar wwe2k14_match type=0;p=139:-1,343:-1;arena=5;o=81:1
+cvar wwe2k14_match_go 108
+mark 1 builder_fired
+wait_state seq 9 3600 2
+log scene=entrances
+wait_state match_clock >0 40000
+log scene=bld6_match
+mark 2 match_clock
+wait_frames 120
+passive 1 on
+wait_frames 300
+momentum 0 100
+stock 0 1
+bleed 0 1
+wait_frames 120
+screenshot bld6_level1
+bleed 0 2
+wait_frames 120
+screenshot bld6_level2
+bleed 0 3
+wait_frames 120
+screenshot bld6_level3
+mark 3 bleed_levels_done
+wait_state 0x8376ACCC !=0 72000 2
+log_state 0x8376ACCC
+mark 4 finish
+log scene=victory_begins
+wait_frames 60
+screenshot bld6_after_60
+wait_frames 240
+screenshot bld6_after_300
+wait_frames 600
+screenshot bld6_after_900
+record bld6_after_900
+log matdraw2: shot and record at victory +900
+wait_frames 10
+log scene=end
+mark 9 end
+log bench: done
+wait_frames 10
+quit

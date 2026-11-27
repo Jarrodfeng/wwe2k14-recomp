@@ -23,3 +23,9 @@ Write-Host 'proporder_unit --plant-own: the planted twin fails, as it must'
 & $exe --plant-body | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'proporder_unit --plant-body PASSED: the planted twin (bodies unplaced) was not caught' }
 Write-Host 'proporder_unit --plant-body: the planted twin fails, as it must'
+& $exe --plant-unplaced | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 'proporder_unit --plant-unplaced PASSED: the planted twin (an unplaced entry keeps its material) was not caught' }
+Write-Host 'proporder_unit --plant-unplaced: the planted twin fails, as it must'
+& $exe --plant-rekey | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 'proporder_unit --plant-rekey PASSED: the planted twin (re-keyed items in the character rank, S111 REKEYORDER2) was not caught' }
+Write-Host 'proporder_unit --plant-rekey: the planted twin fails, as it must'

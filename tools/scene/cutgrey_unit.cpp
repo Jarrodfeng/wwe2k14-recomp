@@ -14,13 +14,18 @@
 // (world y +1) is hidden whole (the picture equals the one without it); the same flash in the bottom half (y -1) is drawn. So the centre's depth is read at the centre's own texel, not anywhere else.
 // Planted twins (each must FAIL its named check): flash_pre_post (the old order: the flash drawn into the scene colour before the post chain) -> [ORDER]; flash_file_colour (the row's colour ignored) -> [COLOUR];
 // flash_v_flip (the centre's depth row read upside down) -> [MAP]; flash_fetch_row0 (the centre's depth read from row 0) -> [OCC].
-// [OCC] (S110 FLASHOCC, docs\research\s110\FLASHOCC.md): what a live cutscene frame has and [MAP] does not: a camera made as the live record frame makes it (record_frame.cpp:381-400: a game-space view, the FOV
+// [OCC] (S110 FLASHOCC, docs\research\s110\FLASHOCC.md): what a live cutscene frame has and [MAP] does not: a camera made as the live record frame makes it (record_frame.cpp: a game-space view, the FOV
 // projection with near 10 / far 300000, then the view's y row and the eye's y negated into the viewer's space), the depth WRITTEN BY REAL DRAWS (an opaque yBG_Default quad, and a skinned yCh_skin quad through the
 // character path) and SCALED targets (render scale 1, 1.5, 2; the post chain on). A body 520 units in front of the camera covers the centre of a flash 3600 units out: the picture with the flash equals the one
 // without it; with the body moved aside the same flash is drawn. [FACE]: FlashSpriteFacing (flash_sprite.h) turns the sprite toward the frame's viewer eye. [NEAR]: the census counts a flash nearer than
 // kFlashNearViewZ (600 units: near 1) and not the far ones (3600 units), and the flashes line says so.
+// S111 CUTGREYOCC (docs\research\s111\CUTGREYOCC.md): the character path draws a yCh_* material ONLY with its effect-table row (S111 OLDCHAIN); with no table the skinned body is a counted
+// HOLE and draws nothing. The game always has the table (pac\_startup.pac), so the unit publishes a fixture one from our own registry (PublishSkinTable), as eya_unit.cpp / thr_unit.cpp do.
 // [RAYS] (S111 FLASHGAME, docs\research\s111\FLASHGAME.md): a body covering PART of a sprite whose centre is visible: the WHOLE sprite is drawn, around the body and over it (the game's z test is off for the
 // flash draw, sub_823B27F0 +354; its only hide is the centre read, [OCC] / [HIDE] / [MAP]). Planted twin flash_pixel_ztest (S110 FLASHFRONT's per-pixel test, the removed margin) -> [RAYS].
+// [PLACE] (S111 FLASHCHAIN, docs\research\s111\FLASHCHAIN.md): the sprite is drawn WHERE its centre is, by the scene's y rule (the renderer's system block, system[1] = -1): [MAP]'s bottom-half flash lights
+// pixels whose mean row is below the picture's middle and none in the top quarter. Planted twin flash_no_system_flip (the flash shader before FLASHCHAIN, which never applied the block: every sprite
+// mirrored top to bottom about the middle while its centre depth is read at the true place) -> [PLACE].
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -42,6 +47,10 @@
 #include "../../src/renderer_scene/front_end.h"
 #include "../../src/renderer_scene/post_pass.h"
 #include "../../src/renderer_scene/record_io.h"
+#include "../../src/renderer_scene/char_effects.h"            // S111 CUTGREYOCC: ChooseCharEffectTable (the fixture pair must bind)
+#include "../../src/renderer_scene/read_rule.h"               // S111 CUTGREYOCC: PublishEffectTable
+#include "../../src/renderer/shaders/spv/fx_registry.h"       // S111 CUTGREYOCC: kVariants / kHashes (the fixture is made from our own registry)
+#include <memory>
 
 using namespace rdr_scene;
 
@@ -57,6 +66,47 @@ void Check(bool ok, const char* tag, const std::string& what) {
     ++g_bad;
     if (g_failed.find(tag) == std::string::npos) g_failed += std::string(g_failed.empty() ? "" : ", ") + "[" + tag + "]";
   }
+}
+
+// S111 CUTGREYOCC: the effect table the game always has (pac\_startup.pac; ours: effect_table_build.h BuildEffectTable), as a fixture from our own registry (no game file): ONE yCh_skin
+// technique of kFixturePasses passes, each the same (skinned yCh_skin vertex, plain yCh_skin fragment) pair; the pair is the first whose table pick binds in EVERY pass, so whatever pass
+// technique_pick::CharPassOf asks for the occluder body binds its row. false = the registry has no such pair (the caller fails [OCC]).
+constexpr int kFixturePasses = 24;
+bool PublishSkinTable() {
+  using rdr::fx::kVariants;
+  constexpr int nv = int(sizeof(kVariants) / sizeof(kVariants[0]));
+  const auto hash_of = [](int v) { for (const auto& h : rdr::fx::kHashes) if (int(h.variant) == v) return uint64_t(h.hash); return uint64_t(0); };
+  const auto is_own = [&](int v, const char* suffix) {   // a yCh_skin_ (not yCh_skin_flex_) variant ending `suffix`
+    const char* n = kVariants[v].name;
+    const size_t len = n ? std::strlen(n) : 0, sl = std::strlen(suffix);
+    return n && std::strncmp(n, "yCh_skin_", 9) == 0 && std::strncmp(n, "yCh_skin_flex_", 14) != 0 && len > sl && !std::strcmp(n + len - sl, suffix);
+  };
+  const auto make = [](uint64_t vs, uint64_t ps) {
+    auto t = std::make_shared<read_rule::EffectTable>();
+    read_rule::EffectTech et;
+    et.name = "yCh_skin";
+    et.techs.assign(1, std::vector<read_rule::PassShaders>(size_t(kFixturePasses), read_rule::PassShaders{vs, ps, true, true}));
+    t->emplace("ych_skin", std::move(et));
+    return std::shared_ptr<const read_rule::EffectTable>(t);
+  };
+  for (int v = 0; v < nv; ++v) {
+    if (!is_own(v, "_vertex") || !hash_of(v)) continue;
+    for (int f = 0; f < nv; ++f) {
+      if (!is_own(f, "_fragment") || !hash_of(f)) continue;
+      read_rule::PublishEffectTable(make(hash_of(v), hash_of(f)));
+      bool all = true;
+      for (int p = 0; p < kFixturePasses && all; ++p) {
+        const CharChoice cc = ChooseCharEffectTable("yCh_skin", true, false, 0, p);
+        all = cc.Ok() && cc.vs == v && cc.ps == f;
+      }
+      if (all) {
+        std::printf("info: [OCC] fixture effect table: yCh_skin %s + %s in passes 0..%d\n", kVariants[v].name, kVariants[f].name, kFixturePasses - 1);
+        return true;
+      }
+    }
+  }
+  read_rule::PublishEffectTable(nullptr);
+  return false;
 }
 
 // The flash model: one quad, +-1 across in x / y, unit normal (0.2, 0, 0.9798) (so the world's turned normal has |n.x| = 0.2), a white 4x4 texture, plain white vertex colour.
@@ -164,7 +214,7 @@ void Norm3(float v[3]) {
 void Cross3(const float a[3], const float b[3], float o[3]) { o[0] = a[1] * b[2] - a[2] * b[1], o[1] = a[2] * b[0] - a[0] * b[2], o[2] = a[0] * b[1] - a[1] * b[0]; }
 void ToViewer(const float g[3], float v[3]) { v[0] = g[0], v[1] = -g[1], v[2] = g[2]; }   // rf_c_core.cpp PointToViewer's rule
 
-// A cutscene camera as the live record frame has it (record_frame.cpp:381-400): the game's view (+x right, +y DOWN, +z forward), the projection built from the FOV for the target (near 10, far 300000, the y scale
+// A cutscene camera as the live record frame has it (record_frame.cpp): the game's view (+x right, +y DOWN, +z forward), the projection built from the FOV for the target (near 10, far 300000, the y scale
 // negative), then the live conversion: the view's y input row (m[4..7]) and the eye's y negated (the viewer's space).
 struct OccCam { Mat4 view, proj; float eye[3]; float q, nq; };
 OccCam MakeOccCam(const float eye_g[3], const float look_g[3]) {
@@ -404,10 +454,12 @@ int main(int argc, char** argv) {
       else if (p == "flash_v_flip") g_plant_flash_v_flip.store(true);
       else if (p == "flash_fetch_row0") g_plant_flash_fetch_row0.store(true);
       else if (p == "flash_pixel_ztest") g_plant_flash_pixel_ztest.store(true);
+      else if (p == "flash_no_system_flip") g_plant_flash_no_system_flip.store(true);   // S111 FLASHCHAIN
       else return std::fprintf(stderr, "unknown plant %s\n", p.c_str()), 2;
     } else if (a == "--expect-fail") expect_fail = true;
-    else return std::fprintf(stderr, "usage: cutgrey_unit [--plant flash_pre_post | flash_file_colour | flash_v_flip | flash_fetch_row0 | flash_pixel_ztest] [--expect-fail]\n"), 2;
+    else return std::fprintf(stderr, "usage: cutgrey_unit [--plant flash_pre_post | flash_file_colour | flash_v_flip | flash_fetch_row0 | flash_pixel_ztest | flash_no_system_flip] [--expect-fail]\n"), 2;
   }
+  Check(PublishSkinTable(), "OCC", "the fixture effect table (the game's startup table stand-in) binds a skinned yCh_skin row in every pass");   // S111 CUTGREYOCC: before any FrontEnd bind
   std::string err;
   rdr::RendererOptions ro;
   ro.validation = 1;
@@ -467,6 +519,21 @@ int main(int argc, char** argv) {
     std::printf("info: [MAP] top-half flash changed %d channel values, bottom-half flash lit %d pixels\n", top_diff, bottom_px);
     Check(top_diff == 0, "MAP", "a flash whose centre is in the nearer top half is hidden whole: " + std::to_string(top_diff) + " channel values differ from the picture without it");
     Check(bottom_px > 400, "MAP", "the same flash with its centre in the far bottom half is drawn: " + std::to_string(bottom_px) + " pixels");
+    // [PLACE] (S111 FLASHCHAIN): WHERE the bottom-half flash is drawn. Its quad spans world y -3..+1 at z 5 under MakeCam's y scale 2 (ndc y -1.2..+0.4), so by the scene's y rule its pixels are rows
+    // 0.3 H..H with the centre's own depth row at 0.7 H (front_end_flashes.h: v = 0.5 - 0.5 ndc y); mirrored, they would be rows 0..0.7 H.
+    int lit = 0, top_quarter = 0;
+    double row_sum = 0.0;
+    for (uint32_t yy = 0; yy < H; ++yy)
+      for (uint32_t x = 0; x < W; ++x) {
+        bool b = false;
+        for (int c = 0; c < 3; ++c) b = b || std::abs(At(ob, x, yy, c) - At(o0, x, yy, c)) > 4;
+        if (!b) continue;
+        ++lit, row_sum += double(yy), top_quarter += yy < H / 4 ? 1 : 0;
+      }
+    const double mean_row = lit ? row_sum / double(lit) : 0.0, centre_row = (0.5 - 0.5 * (2.0 * -1.0 / 5.0)) * double(H);
+    std::printf("info: [PLACE] bottom-half flash: %d pixels lit, mean row %.1f (its centre's depth row %.1f, the picture's middle %u), lit in the top quarter %d\n", lit, mean_row, centre_row, H / 2, top_quarter);
+    Check(lit > 400 && mean_row > double(H) / 2.0 && top_quarter == 0, "PLACE",
+          "the sprite is drawn on its centre's side of the picture (the scene's y rule): mean row " + std::to_string(mean_row) + " below the middle " + std::to_string(H / 2) + ", " + std::to_string(top_quarter) + " pixels in the top quarter");
   }
   CheckFace();
   for (const float scale : {1.f, 1.5f, 2.f}) val += RunOcc(scale);

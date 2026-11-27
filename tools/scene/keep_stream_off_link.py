@@ -256,7 +256,7 @@ def main():
     cache_file = game_syntax.load_cache(main_dir) if a.syntax else None
     bad = 0
     ours = []
-    with _admit.hold('cc.game_src', a.j, timeout_s=300) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: game src units (a.j = the want and the fall-open value)
+    with _admit.hold('cc.game_src', a.j) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: game src units (a.j = the want and the fall-open value)
         for rel, rc, text, of in ex.map(one, jobs):
             if rc:
                 bad += 1

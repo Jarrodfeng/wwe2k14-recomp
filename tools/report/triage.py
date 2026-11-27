@@ -40,7 +40,7 @@ FACTS_TABLE = report_facts.load_table()   # src\launcher\report_facts.inc, the o
 #   fields : group -> aggregation: "sum" (add up the window lines), "delta" (a cumulative counter: the mode's rise),
 #            "one" (the number of lines), "count_yes", "first" (first text), "max", "set"
 #   finding: the group that must be nonzero for a FINDING (None = shown but never a finding: INFO), prio: lower = worse
-#   periodic: the line is a census window printed every N frames that does NOT flush on a mode change (scene_host.cpp:965-998): a rise between
+#   periodic: the line is a census window printed every N frames that does NOT flush on a mode change (scene_host.cpp): a rise between
 #            two lines that straddle a sequence change is reported as "mode not known", never added to either mode
 #   writer / lit : the FILE that prints it and the literal it must hold (any line: a line that only moves is fine; the selftest fails a literal that is gone or moved to another file)
 # --------------------------------------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ CLASSES = [
          regex=r"\[wwe2k14\]\[load\] WATCH: (?P<why>.*)$",
          # S105 H: the WATCH dump is several lines (the main line, then request / read-end words and one stack per guest thread): the main line is the
          # finding, these continuation lines are detail (counted as "det", never UNPARSED). A mangled main line ("WATCH no ...") is still UNPARSED.
-         detail=r"\[wwe2k14\]\[load\] WATCH (?:request|read-end job|read-end object) 0x[0-9A-Fa-f]+ words \d+\.\.\d+:|\[wwe2k14\]\[load\] WATCH stacks?[ :]|\[wwe2k14\]\[load\] WATCH (?:h\d+ fields|loader heap|where):",   # S106 0F: the A6W2 dump lines (run 164 L2153-2155, and `WATCH where:` L2188-2189, src\load_probe.h:416-431)
+         detail=r"\[wwe2k14\]\[load\] WATCH (?:request|read-end job|read-end object) 0x[0-9A-Fa-f]+ words \d+\.\.\d+:|\[wwe2k14\]\[load\] WATCH stacks?[ :]|\[wwe2k14\]\[load\] WATCH (?:h\d+ fields|loader heap|where):",   # S106 0F: the A6W2 dump lines (run 164 L2153-2155, and `WATCH where:` L2188-2189, src\load_probe.h (wwe2k14::load_probe::LogLoaderThreadWhere))
          fields={"n": "one", "why": "first", "det": "detail"}, finding="n", text="{n} loader WATCH line(s) (+{det} detail line(s): request words, guest stacks)"),
     dict(name="holes", prio=2, marker="[scene][ready] calls", writer="src/renderer_scene/live_scene_draw.cpp", lit="[scene][ready] calls ", periodic=True,
          regex=r"\[scene\]\[ready\] calls \d+ .*?; holes (?P<n>\d+) skipped \[(?P<rest>.*)\]; no stage",
@@ -84,7 +84,7 @@ CLASSES = [
     dict(name="rows_not_drawn", prio=4, marker="[host] frames", writer="src/renderer_host/host_core.h", lit="[host] frames %llu", periodic=True,
          regex=r"\[host\] frames \d+,.*? 2d_rows \d+ drawn \d+ not_drawn (?P<n>\d+) \((?P<why>[^)]*)\)",
          fields={"n": "delta", "why": "pairs"}, finding="n", text="{n} 2D rows not drawn"),
-    # S106 0F: the [host] frames line's `holes N` (host_core.h:527 Counters::Holes): 2D rows the game draws and the host has no draw for. Never read before.
+    # S106 0F: the [host] frames line's `holes N` (host_core.h (wwe2k14::scene_host::CensusLine) Counters::Holes): 2D rows the game draws and the host has no draw for. Never read before.
     dict(name="holes_2d", prio=2, marker="[host] frames", writer="src/renderer_host/host_core.h", lit="[host] frames %llu", periodic=True,
          why_const="[host] frames census holes",
          regex=r"\[host\] frames \d+,.*? 2d_rows \d+ drawn \d+ not_drawn \d+ .*?holes (?P<n>\d+)",
@@ -116,14 +116,14 @@ CLASSES = [
          regex=r"\[scene\]\[load\] adopted #\d+: (?P<what>.*), waited (?P<ms>\d+) ms",
          fields={"ms": "max", "what": "first"}, finding=None, text="slowest scene load {ms} ms"),
 ]
-# S106 0FF B1: the crash handler's lines (src\crash_handler.h:112 abort, :122 unhandled exception, :128 guest context): a run that crashed is never normal.
+# S106 0FF B1: the crash handler's lines (src\crash_handler.h abort, unhandled exception, guest context): a run that crashed is never normal.
 # S106 0FFN N2: the hang guard's lines (src\hang_guard.h Say :122): HANG? :326, HANG: :344, BLACK: no present :314, BLACK: dark picture :382. The `over`, `picture` and
 # `guard on` lines carry none of the three markers, so they are not read. Never accepted.
 CLASSES.append(dict(name="hang", prio=0, marker=("[hang] HANG?", "[hang] HANG:", "[hang] BLACK:"), writer="src/hang_guard.h", lit="HANG? no %s for %u s",
                     regex=r"\[hang\] (?P<why>(?:HANG\?|HANG:|BLACK:) .*)$", fields={"n": "one", "why": "first"}, finding="n", text="{n} [hang] line(s) (the hang guard fired: HANG / BLACK)"))
 CLASSES.append(dict(name="crash", prio=0, marker="[wwe2k14][crash]", writer="src/crash_handler.h", lit="[wwe2k14][crash] unhandled exception 0x{:08X}",
                     regex=r"\[wwe2k14\]\[crash\] (?P<why>.*)$", fields={"n": "one", "why": "first"}, finding="n", text="{n} [crash] line(s) (the game crashed)"))
-# S106 0FF F7: the [host] frames counters that had no class (host_core.h:526-527). All 0 in a clean run; a rise is a finding.
+# S106 0FF F7: the [host] frames counters that had no class (host_core.h). All 0 in a clean run; a rise is a finding.
 for _ctr, _ln in (("no_record", 526), ("no_picture", 526), ("no_size", 526), ("resize_black", 526), ("repeat_full", 526), ("particles_not_drawn", 527)):
     CLASSES.append(dict(name=_ctr, prio=4, marker="[host] frames", writer="src/renderer_host/host_core.h", lit="%s %%llu" % _ctr, periodic=True,
                         regex=r"\[host\] frames \d+,.*? %s (?P<n>\d+)" % _ctr, fields={"n": "delta"}, finding="n",
@@ -145,9 +145,9 @@ for _c in CLASSES:
 RX_TS = re.compile(TS)
 SEQ_MARK = "[wwe2k14][scene] sequence "
 RX_SEQ = re.compile(r"\[wwe2k14\]\[scene\] sequence (?P<a>\d+) -> (?P<b>\d+) \((?P<name>.*?)\) at frame (?P<frame>\d+)")
-# src\session_log.h:145 + :133 "[wwe2k14][scene] sequence A -> B (Name) at frame F, ..."
+# src\session_log.h + "[wwe2k14][scene] sequence A -> B (Name) at frame F, ..."
 RX_FILE = re.compile(r"\[wwe2k14\]\[file\] Nt(?:Create|Open)File '(?P<path>[^']*)'(?: \(relative to handle 0x[0-9A-Fa-f]+\))? \S+ access=\S+ -> 0x(?P<st>[0-9A-Fa-f]+)")
-# src\kernel_overrides.h:215-223 (NtCreateFile / NtOpenFile, optional "(relative to handle 0x..)")
+# src\kernel_overrides.h (NtCreateFile / NtOpenFile, optional "(relative to handle 0x..)")
 RX_HOSTFRAMES = re.compile(r"\[host\] frames (?P<f>\d+),")
 RX_BLACK = re.compile(r"\[host\] black frames (?P<a>\d+-\d+) \(n (?P<n>\d+), held \d+\): (?P<what>.*?) \| inputs: ")   # S111 BLACKFRAME: one run of black frames (src\renderer_host\black_spans.h)
 RX_LOGSTART = re.compile(r"\[wwe2k14\] (?:version (?P<ver>.*)|run log number: (?P<num>\d+).*|quality tier: (?P<tier>.*))$")
@@ -161,7 +161,7 @@ PROBLEM_NOTE = "problems are first-of-name per run: the game logs only the FIRST
 
 
 def slug(name):
-    """The census's scene slug (src\\session_log.h:132 -> fallback_census SceneChange): the sequence name's parenthesis, lowercased, symbols to '_'."""
+    """The census's scene slug (src\\session_log.h (wwe2k14::session_log::Change) -> fallback_census SceneChange): the sequence name's parenthesis, lowercased, symbols to '_'."""
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
@@ -251,7 +251,7 @@ def tokens_of(c, g, diff, dl, amount):
             for tok in v.split(","):
                 name, sep, cnt = tok.strip().rpartition(":")
                 if not sep:
-                    name = "all"      # S106 0FF B3: `pass_unknown N` (fallback_census.h:240-243) names no reason: the whole count under one token no entry accepts
+                    name = "all"      # S106 0FF B3: `pass_unknown N` (fallback_census.h) names no reason: the whole count under one token no entry accepts
                 if cnt.isdigit() and int(cnt):
                     out.append(("%s %s" % (k, name), int(cnt)))
         if amount > sum(n for _t, n in out):

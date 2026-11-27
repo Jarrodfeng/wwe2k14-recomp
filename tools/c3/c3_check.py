@@ -219,10 +219,11 @@ def lint(fs):
 
 
 def wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
     files = {}
     for k in FILES:
-        with open(os.path.join(root, k), encoding='utf-8', errors='replace') as f:
-            files[k] = f.read()
+        files[k] = read_path(os.path.join(root, k))
     bad = lint(files)
     line(not bad, 'wiring: both switches are in the table (PerFrame, default 0), defined (default false), read per frame, carried to the planner, with census lines and flags ' + ('' if not bad else 'MISSING: ' + '; '.join(bad)))
     twins = [('src/renderer_adapter/rdr_switches.h', 'X(ShadowDirect, "wwe2k14_rdr_shadow_direct", PerFrame, 0)', 'X(ShadowDirect, "wwe2k14_rdr_shadow_direct", StartOnly, 0)'),

@@ -243,8 +243,7 @@ inline bool ReadMatrices(uint32_t guest, uint32_t count, std::vector<rdr_scene::
 constexpr uint32_t kSlotTable = 0x836F38D0;  // 9 character pointers (match_state.md, high)
 constexpr uint32_t kMaxNodes = 1024;
 
-// S103 SKY: name every slot body from the game's character descriptor (slot_key.h), not the participant row. Off = the old row rule (slot < 6, rows 6..39 empty).
-REXCVAR_DECLARE(bool, wwe2k14_rdr_slot_key_desc);
+// S103 SKY / S111 SLOTKEY: every slot body is named from the character's own model descriptor (slot_key.h SlotKeyOf); the participant row is census only.
 namespace sky_census {   // desc key vs the old row key, slots 0..5 (the first live sighting of a swap / remap / Rumble is differ / row_unusable)
 inline std::atomic<uint64_t> agree{0}, differ{0}, row_unusable{0};
 inline std::atomic<uint32_t> occupant_char[9] = {}, occupant_key[9] = {};
@@ -299,7 +298,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
                   w.LinkEmptyKey(), w.LinkNoBody(), w.LinkUnreadable(), w.LinkCountRefused(), w.LinkedSeenAsSkeleton(), w.KnownCount(), w.SkippedSmall(), w.CapRefused(), w.ListedFull(), w.Wanted(), w.WantedFull(),
                   w.EntryPiecesByDescriptor(), w.EntryUnknownModel(), w.EntryPieces(), w.EntryPtrMismatch(), w.EntryUnreadable(), w.OwnSkelConsumer(), w.OwnSkelPtrMismatch(), w.PieceLinksMade(), w.PieceWhyText(), w.RingLeftOut(), w.BodyLinkCount(), w.BodyLinkText(), w.Released(),
                   w.FreedServed(), w.FreedUnposed());   // S103 NRB / PZ F5; S108 RDS: ModelsDestroyed = the sub_82BD3B40 hook's ForgetModel calls; S111 MATCHFREE review: records that showed a freed body from its copy, and freed bodies a record revived with no palette of its period
-      REXLOG_INFO("[scene][live] frame {}: slot key (desc rule {}): agree {} differ {} row_unusable {} occupant changes {} remap_active {} scale index moved {} ctor44 agree {} differ {} model_vs_desc agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, REXCVAR_GET(wwe2k14_rdr_slot_key_desc) ? "on" : "off", sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::scale_moved.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::model_vs_desc_agree.load(), sky_census::model_vs_desc_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
+      REXLOG_INFO("[scene][live] frame {}: slot key (descriptor rule): agree {} differ {} row_unusable {} occupant changes {} remap_active {} scale index moved {} ctor44 agree {} differ {} model_vs_desc agree {} differ {} slots6-8: link_agree {} link_differ {} link_verified {} named_by_key {} nokey {}", guest_frame, sky_census::agree.load(), sky_census::differ.load(), sky_census::row_unusable.load(), sky_census::occupant_lines.load(), sky_census::remap_active.load(), sky_census::scale_moved.load(), sky_census::ctor_agree.load(), sky_census::ctor_differ.load(), sky_census::model_vs_desc_agree.load(), sky_census::model_vs_desc_differ.load(), sky_census::hi_link_agree.load(), sky_census::hi_link_differ.load(), sky_census::hi_link_verified.load(), sky_census::hi_named_by_key.load(), sky_census::hi_nokey.load());   // S103 SKY
       REXLOG_INFO("[scene][live] frame {}: guest page checks calls {} page lookups {} of which cache hits {} (per-frame cache) refused {}; unreadable: track act reads {} node-count delegate reads {}", guest_frame, g_page_check_calls.load(std::memory_order_relaxed), g_page_check_pages.load(std::memory_order_relaxed), g_page_check_hits.load(std::memory_order_relaxed), g_page_check_refused.load(std::memory_order_relaxed), scene_inputs::g_track_act_unreadable.load(std::memory_order_relaxed), scene_inputs::g_delegate_unreadable.load(std::memory_order_relaxed));   // S103 PC1 / S108 GAVF: the phone's cost of the page-checked readers
       REXLOG_INFO("[scene][live] frame {}: {}", guest_frame, rdr_scene::BodyScaleTable::CensusText(rdr_scene::BodyScaleTable::Get().Census()));   // S103 W2: latch vs the stream-learned scale (census only)
       REXLOG_INFO("{}", rdr_scene::SpringHairCensusText());   // S103 W2B: [scene][wrestlers] hair rows N, bodies with extras drawn N / refused N (tags / count / unreadable)
@@ -336,14 +335,13 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
   } else if (slot < 0) {
     rdr_scene::BodyScaleTable::Get().ClearLatch(self);   // S103 W3: not a slot wrestler now (the address may have been reused): no stale latch value
   }
-  {  // S103 SKY (was S103 B): the slot's model key from the game's own character descriptor (slot_key.h, TMR.md section 3): [[0x83924734] + 864 + 80 x [char+1220]] + 0, slots 0..8.
-     // The participant row (entrant_slots A = [0x8376AAF0] + 148 + 56 x row, +16) is a census only: it is wrong in a Royal Rumble (rows rotate) and after a slot swap (sub_8251F290).
+  {  // S103 SKY / S110 DESCKEY / S111 SLOTKEY: the slot's model key from the character's own model descriptor (slot_key.h SlotKeyOf): desc+92 of [[0x837635A4] + 8] + 192 x [char+3760], slots 0..8.
+     // The participant row (entrant_slots A = [0x8376AAF0] + 148 + 56 x row, +16) is a census only: it is wrong in a Royal Rumble (rows rotate), after a slot swap (sub_8251F290) and for slots 6..8.
      // Only while the scene switch is on (lane A review 1): off = no reads, key cleared.
     const bool scene_on = scene_frame::CurrentMode() != scene_frame::Mode::Off;
     uint32_t key = 0;
     if (scene_on && slot >= 0) {
-      const bool desc_rule = REXCVAR_GET(wwe2k14_rdr_slot_key_desc);
-      key = slotkey::SlotKeyOf(rd, slot, slot_ch, desc_rule);
+      key = slotkey::SlotKeyOf(rd, slot, slot_ch);
       {   // census: remap active, and the character constructor's own key [ch+44]
         bool remap = false;
         slotkey::DescIndex(rd, slot_ch, &remap);
@@ -363,7 +361,7 @@ inline void OnSkelExit(uint32_t self, uint64_t guest_frame) {  // guest_frame: w
       if (slot < 6) {   // census: the desc key against the old row rule
         bool usable = false;
         const uint32_t row = slotkey::RowKey(rd, slot, usable);
-        const uint32_t desc = desc_rule ? key : slotkey::DescKey(rd, slot_ch);
+        const uint32_t desc = key;   // the submitted key (the character's model descriptor)
         if (!usable) sky_census::row_unusable.fetch_add(1, std::memory_order_relaxed);
         else if (row == desc) sky_census::agree.fetch_add(1, std::memory_order_relaxed);
         else sky_census::differ.fetch_add(1, std::memory_order_relaxed);
@@ -451,7 +449,7 @@ inline const bool g_known_erase_log_installed = (rdr_scene::live::Wrestlers().Se
 inline const bool g_wrestler_event_log_installed = (rdr_scene::live::Wrestlers().SetWrestlerEventLog([](int kind, uint64_t frame, uint32_t skel, int32_t slot, uint64_t a, uint64_t b, uint64_t c) {
   static std::atomic<int> n[3];
   if (kind < 0 || kind > 2 || n[kind].fetch_add(1, std::memory_order_relaxed) >= 64) return;
-  if (kind == 0) REXLOG_INFO("[scene][wrestlers] stale drop frame {} skel 0x{:08X} slot {} age {} last tag {} (hold allowed up to {} records; the body left the table or is older)", frame, skel, slot, a, b, c);
+  if (kind == 0) REXLOG_INFO("[scene][wrestlers] stale drop frame {} skel 0x{:08X} slot {} age {} last tag {} (no palette of the record's period: left out of the record)", frame, skel, slot, a, b);
   else if (kind == 2) REXLOG_INFO("[scene][wrestlers] quiet hide frame {} skel 0x{:08X} slot {} upd {} draw {}", frame, skel, slot, a, b);
 }), true);
 }  // namespace wwe2k14::wrestlers

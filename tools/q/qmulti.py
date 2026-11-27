@@ -1,6 +1,6 @@
 """q multi (S108 lane FD): several q questions in ONE call (one process, one tool call; agents issued ~1 call per reply).
 
-    py tools/q/q.py multi "ours callers F" "show tools/q/q.py:10-40" "decomp sub_82CB1F50 --fields" [--json]
+    py tools/q/q.py multi "ours callers F" "show tools/q/q.py" "decomp sub_82CB1F50 --fields" [--json]
 
 Each argument is one q command line, exactly as it would follow `q` (a leading `q` or `py tools\\q\\q.py` is dropped; quotes group words,
 backslashes are kept: Windows paths survive). The questions run in order; each answer is printed whole (never trimmed harder than alone)

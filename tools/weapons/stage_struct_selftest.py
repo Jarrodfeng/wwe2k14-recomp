@@ -7,12 +7,13 @@ import subprocess
 import sys
 
 PLANTS = {
-    "stage_both": "stage.family_one",           # both submit families of a structure drawn
+    "stage_one_family": "stage.both_families",  # S111 CAGESIDE review: the S103 one-family rule (own only when a structure has own rows)
+    "stage_instance_per_family": "stage.pose_slots",  # S111 CAGESIDE review: a model's own and slot-32 calls numbered apart (they share a pose slot)
+    "stage_zwrite_on": "stage.zwrite_off",       # S111 CAGESIDE review: a cage slot-32 row keeps its material's depth write
     "stage_no_recheck": "stage.address_reuse",  # the per-call [H+76+4k] == model re-check dropped
     "stage_no_cap": "stage.cage_rows_cap2",     # a cage slot-32 call not capped at its 2 palette rows
     "stage_alpha252": "stage.alpha_f1",         # a slot-32 call's alpha read from [model+252], not the call's f1
     "stage_first_only": "stage.every_call",     # the event branch's first-call-per-frame rule: 3 wall calls -> 1 row
-    "stage_no_latch": "stage.family_latch",     # the family is re-chosen every frame (flips when own calls vanish)
     "stage_no_rigid_bound": "stage.rigid_bound",  # a rigid piece's palette offset is not bounded to the 2-row stack palette
     "stage_alpha_always": "stage.alpha_other_lr",  # an unknown caller's f1 is taken as MdlAlpha
     "stage_ignore_switch": "stage.switch_off",  # --wwe2k14_rdr_stage_structs = off ignored

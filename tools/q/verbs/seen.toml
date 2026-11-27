@@ -1,0 +1,10 @@
+name = "seen"
+module = "qseen"
+errors = ["qseen.SeenError"]
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 85
+text = '''  seen [ADDR]                  indirect call pairs OBSERVED in coverage runs: totals / observed callers + targets of a function (tools/q/qseen.py)'''

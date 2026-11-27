@@ -22,8 +22,8 @@ struct LightRows {
   float key_light_color[4];   // [P] VS c4 (wrestlers) = light 4's colour
   float dif_lgh_max[4];       // [P] PS c197 = the float32 sum of rows 0-3 of dif_lgh_col, added in order 0+1, +2, +3
   float dif_lgh_max_a[4];     // [P] PS c199 = (m, 1/m, 0, 0), m = the largest of the four sum components (m == 0: (0, 0, 0, 0), [U] the game's value)
-  float block_a[4];           // [L] VS / PS c181 or c182 (SkyCol / GroundCol): R+352; which register is which is [U] (PER_DRAW_LIGHTS.md 5.2)
-  float block_b[4];           // [L] the other: R+368
+  float block_a[4];           // [C] VS / PS c181 SkyCol: R+352 (sub_82BE06B8 uploads it through the handle named g_f3SkyCol; SKYGROUND.md)
+  float block_b[4];           // [C] VS / PS c182 GroundCol: R+368 (the handle named g_f3GroundCol)
   bool tex_proj_valid;        // false when the state's shadow-map size is unknown (kLsMapKnown unset): tex_proj_light stays zero
   float tex_proj_light[4][4]; // [L] VS c68-c71 = the columns of bias(W, H) x M(R+1040) x M(R+912) (register r = column r), float32
   float shadow_prm[3][4];     // [L] PS c168-c170: R floats (+1108, +1112, +1104, +1120), (+1128, +1136, +1140, +1144), (+1148, +1152, +1156, +1160); which row is which: [U]

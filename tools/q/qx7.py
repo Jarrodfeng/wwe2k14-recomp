@@ -9,6 +9,8 @@ r"""qx7: two whole-game indexes over the generated listing (S103 lane QX4): virt
         SLOT_OFFSET is a byte offset (0x34 = slot 13: offset / 4). Default = sites whose receiver pointer was loaded `lwz rY,0(rZ)` (a real vtable call);
         --all also lists the other `lwz OFF(rY)` + mtctr calls (a callback field of a struct). --class VT = only sites whose class is known to be VT (an address
         of a vtable, any slot address of it, or a class-name substring); it says how many sites of that offset have an UNRESOLVED receiver (they may belong to the class).
+        --vt 0xVT (S111 QVCALLVT, tools/q/qvcallvt.py) = the same for a RAW vtable address with no RTTI (menu pages, frames): the class and its derived classes
+        come from the constructors (q class), a site is kept when its receiver traces to one (the `how` column), the others are counted (other class / unresolved).
     py tools/q/q.py nodes [CATEGORY] [--json] [--limit N]
         the draw-node registry: every `bl 0x82C30A10` (sub_82C30A10(node, category, on)) call site: enclosing function, category (a `li r4,N`, else the unresolved
         source), the node's vtable (the constant stored at +0 of the node in the enclosing function), the class name, and slot 1 (vtable + 4: the node's draw
@@ -911,6 +913,7 @@ def vcall_main(argv, con=None):
     ap = argparse.ArgumentParser(prog='q vcall')
     ap.add_argument('offset', help='slot byte offset (0x34 = slot 13)')
     ap.add_argument('--class', dest='cls', default=None, help='vtable address (any slot address of it) or a class-name substring')
+    ap.add_argument('--vt', default=None, metavar='0xVT', help='S111 QVCALLVT: a RAW vtable address (no RTTI needed): the sites whose receiver traces to an object of that class (qvcallvt.py)')
     ap.add_argument('--all', action='store_true', help='also the non-vtable `lwz OFF(rY)` calls')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--limit', type=int, default=60)
@@ -930,8 +933,23 @@ def vcall_main(argv, con=None):
     nonvt = sum(1 for r in rows if not r['via_vt'])
     if not a.all:
         rows = [r for r in rows if r['via_vt']]
+    vt_how, vt_other, vt_unres, vt0 = {}, 0, 0, None
+    if a.vt:
+        if a.cls:
+            raise XError('--vt and --class are two ways to name the class: give one')
+        import qvcallvt
+        import qslice
+        try:
+            kept, vt_other, vt_unres, tg = qvcallvt.pick(qslice.QSource(icon), parse_num(a.vt), rows)
+        except (qvcallvt.VcvError, qvcallvt.qstruct.StructError, qslice.SliceError) as e:
+            raise XError(str(e))
+        vt0 = tg.vt
+        vt_how = {r['site']: h for r, h in kept}
+        rows = [r for r, _h in kept]
 
     def classes_of(r):
+        if vt0 is not None:
+            return [vt0]
         if r['cls']:
             return [r['cls']]
         if r['this_recv']:
@@ -963,6 +981,8 @@ def vcall_main(argv, con=None):
                 continue
         res.append({'site': hx(r['site']), 'func': f"sub_{r['func']:08X}", 'name': names.get(r['func'], ''), 'kind': r['kind'], 'via_vtable': bool(r['via_vt']),
                     'receiver': r['recv'], 'r3_is_receiver': bool(r['r3ok']), 'classes': [{'vt': hx(c), 'name': cnames.get(c, '?')} for c in cl]})
+        if vt0 is not None:
+            res[-1]['how'] = vt_how[r['site']]
     if a.reg or a.value:
         import qargs
         try:
@@ -971,13 +991,15 @@ def vcall_main(argv, con=None):
             raise XError(str(e))
     if a.json:
         print(json.dumps({'offset': off, 'slot': off // 4, 'sites_at_offset': total, 'non_vtable_hidden': 0 if a.all else nonvt,
-                          'unresolved_omitted': unresolved if sel_vt is not None else None, 'sites': res}, indent=1))
+                          'unresolved_omitted': unresolved if sel_vt is not None else (vt_unres if vt0 is not None else None),
+                          'other_class_omitted': vt_other if vt0 is not None else None, 'sites': res}, indent=1))
         return 0
     print(f'q vcall 0x{off:X} (slot {off // 4}): {len(res)} site(s) listed of {total} `lwz {off}(rY)` + mtctr call site(s) in the generated code')
     for x in res[:a.limit]:
         cl = ', '.join(f"{c['name']}@{c['vt']}" for c in x['classes'][:3]) + (' ...' if len(x['classes']) > 3 else '')
         print(f"  {x['site']}  {x['func']:13s} {x['name'][:34]:34s} {x['kind']:4s} recv: {x['receiver']}" + (f'  class: {cl}' if cl else '')
-              + ('' if x['via_vtable'] else '  [not a vtable load]') + ('' if x['r3_is_receiver'] else '  [FLAG: r3 at the call is not the receiver]'))
+              + ('' if x['via_vtable'] else '  [not a vtable load]') + ('' if x['r3_is_receiver'] else '  [FLAG: r3 at the call is not the receiver]')
+              + (f"  <- {x['how']}" if 'how' in x else ''))
     if len(res) > a.limit:
         print(f'  ... {len(res) - a.limit} more (--limit N)')
     flagged = sum(1 for x in res if not x['r3_is_receiver'])
@@ -987,6 +1009,8 @@ def vcall_main(argv, con=None):
         print(f'  ({nonvt} more site(s) read the pointer from a field that is not `lwz rY,0(rZ)`: --all)')
     if sel_vt is not None:
         print(f'  ({unresolved} site(s) of this offset have a receiver whose class the straight-line code does not show: they may belong to the class)')
+    if vt0 is not None:
+        print(f'  (--vt {hx(vt0)}: {vt_other} site(s) traced to another class are left out; {vt_unres} site(s) whose receiver the slicer cannot type are left out: they may belong to the class)')
     print("  (receiver tracked through the function's branches (paths met at labels); `this` = the function's own r3; classes for `this` = RTTI vtables the function is a slot of)")
     return 0
 
@@ -1075,6 +1099,7 @@ def nodes_main(argv, con=None):
     ap.add_argument('--limit', type=int, default=300)
     ap.add_argument('--slot', type=int, default=1, help='which vtable slot to resolve (default 1 = the draw method)')
     ap.add_argument('--db', default=None)
+    ap.add_argument('--state', action='store_true', help='S111 ENUMS: per node, the recorder-wrapper calls of its draw method (blend, alpha test, z write ...), values named (tools/q/qenum.py)')
     a = ap.parse_args(argv)
     v = open_vdb(a.db)
     icon = con if con is not None else _index_con()
@@ -1106,6 +1131,10 @@ def nodes_main(argv, con=None):
                     'func_name': names.get(r['func'], ''), 'node': r['node'], 'vtable': hx(vt) if vt else None, 'class': cnames.get(vt) if vt else None,
                     'slot1': f'sub_{s1:08X}' if s1 else None, 'slot1_name': names.get(s1, '') if s1 else '',
                     'category_from_callers': clits, 'category_callers_nonliteral': cother, 'category_text': ctext})
+    if a.state:
+        import qenum
+        for x in res[:a.limit]:
+            x['state'] = qenum.node_state(icon, int(x['slot1'][4:], 16)) if x['slot1'] else None
     if a.json:
         print(json.dumps({'count': len(res), 'nodes': res}, indent=1))
         return 0
@@ -1114,6 +1143,8 @@ def nodes_main(argv, con=None):
         cat = x['category'] if x['category'] is not None else (x['category_text'] or f"? ({x['category_source']})")
         print(f"  cat {str(cat):>10}  {x['site']}  {x['func']:13s} {x['func_name'][:26]:26s} node {x['node'][:22]:22s} vt {x['vtable'] or '?':10s} slot{a.slot} {x['slot1'] or '?':13s} {x['slot1_name'][:28]}"
               + (f"  [{x['class']}]" if x['class'] else ''))
+        for seg in (x.get('state') or []):
+            print('\n'.join(qenum.segment_lines(seg)))
     if len(res) > a.limit:
         print(f'  ... {len(res) - a.limit} more (--limit N)')
     print("  (category = the `li r4,N` before the call; when it is an ARGUMENT of the builder, the literals its callers pass (one level: `22|30 (from callers)`), else `?` and who calls; vtable = the constant stored at +0 of the node in the SAME function, `?` = a base constructor in another function sets it; slotN = the image word at vtable+4*N, N = --slot, default 1)")

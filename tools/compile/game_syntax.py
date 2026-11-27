@@ -3,11 +3,13 @@
 includes: fview and rplay compiled, the game exe did not, and nobody saw it until the build).
 
   py -I tools\\compile\\game_syntax.py [--root DIR] [--files src/a.cpp,src/b.cpp] [--no-twin]
-  py -I tools\\compile\\game_syntax.py --changed [BASE] [--build on|off|both] [--root DIR]     (S103 GSB: the main session runs it after every merge)
+  py -I tools\\compile\\game_syntax.py --changed [BASE] [--build off|on|both] [--root DIR]     (S103 GSB: the main session runs it after every merge)
 
---changed: every src\\*.cpp unit the change touched (the file itself, or a unit that includes a changed header, found by a quoted-#include scan of THIS tree's src) is syntax-checked in BOTH
-game builds, each with that build's own flags (the stream build out\\build\\win-amd64-release and the stream-free build out\\build\\win-amd64-release-off, read from the main checkout); a unit a build
-does not compile is skipped for that build only. BASE default: HEAD^1 when HEAD is a merge commit, else the merge-base with the main checkout's current branch (the rule of only_base below); the changed set also holds uncommitted edits. Without --changed the old fixed list (stream build only) runs as before.
+S111 COMPILEOFF: the default build is `off`, the stream-free build the players run (WWE2K14_KEEP_STREAM=OFF + KEEP_STREAM_RUN=ON, preset win-amd64-release-off). The stream build (`on`) is only
+compiled when asked for by name (`--build on` / `--build both`): the code stays for history, nobody compiles it by default (Jarrod, 2026-11-27: "we should not be compiling into it").
+--changed: every src\\*.cpp unit the change touched (the file itself, or a unit that includes a changed header, found by a quoted-#include scan of THIS tree's src) is syntax-checked in the requested
+build (default off), with that build's own flags (read from the tree's own configure; the fallback reads main's out\\build\\win-amd64-release-off for off); a unit a build
+does not compile is skipped for that build only. BASE default: HEAD^1 when HEAD is a merge commit, else the merge-base with the main checkout's current branch (the rule of only_base below); the changed set also holds uncommitted edits. Without --changed the old fixed list runs (the off build since S111 COMPILEOFF; it was the stream build).
 S105 PCH: --changed parses every plain game unit with a precompiled header (src\\pch_units.h: the STL headers the real build force-includes into every plain unit (S106 G4-4), no Windows headers; tools\\compile\\syntax_pch.py has the rules) built once per build + tree root into
 <store>\\pch; units with other flags, main.cpp and units that #define before their first #include skip it (printed). --no-cache / GAME_SYNTAX_NO_CACHE=1 = no store and no PCH.
 Not covered: Android guards, the AVX2 (off-v3) build, tool builds (a note only); --files / --no-twin are ignored with --changed. On the main checkout the default base is the last sha this tool PASSED
@@ -207,7 +209,7 @@ def run_jobs(jobs, root, main, workers=None, pch_refs=None):
         else:
             todo.append(i)
     if todo:
-        with _admit.hold('syntax.worker', workers or _syntax_workers(), timeout_s=120) as nw, ThreadPoolExecutor(max_workers=nw) as ex:
+        with _admit.hold('syntax.worker', workers or _syntax_workers()) as nw, ThreadPoolExecutor(max_workers=nw) as ex:
             for i, r in zip(todo, ex.map(lambda i: syntax_run(args[i], jobs[i][2], roots, looked[i][0], pch[i]), todo)):
                 res[i] = (jobs[i][0],) + r
     return res
@@ -763,8 +765,21 @@ def run_changed(a, root, main_dir):
     # a unit NO requested build compiles: if the tree's CMakeLists.txt names it, borrow src/start_settings.cpp's flags (all units but main.cpp / build_stamp.cpp share them) and
     # compile it in every requested build; one the CMake file does not name is tool-only (fview, viewers): left to its own lane, listed below
     notdone = []
+    # S111 COMPILEOFF follow-up: a STREAM-ONLY unit (tools/scene/keep_stream_sources.txt, the list CMakeLists.txt drops from the off build)
+    # is not compiled unless the stream build is asked for by name (Jarrod 2026-11-27: "we should not be compiling into it"); borrowing the
+    # off build's flags for it compiled it in the wrong build and failed on stream-only names.
+    stream_only = set()
+    if 'on' not in builds:
+        for ln in (_read(os.path.join(root, 'tools', 'scene', 'keep_stream_sources.txt')) or b'').decode('utf-8', 'replace').splitlines():
+            ln = ln.strip().replace('\\', '/')
+            if ln.startswith('src/'):
+                stream_only.add(ln)
+    stream_skipped = []
     for u in units:
         if per_unit[u]:
+            continue
+        if u in stream_only:
+            stream_skipped.append(u)
             continue
         if u in cmake_txt:
             for b in builds:
@@ -777,6 +792,8 @@ def run_changed(a, root, main_dir):
         print('skipped (that build does not compile the unit): ' + ', '.join('%s [%s]' % s for s in shown))
     if notdone:
         print('not compiled by any game build (tool-only; run its own lane): ' + ', '.join(notdone))
+    if stream_skipped:
+        print('stream-only (not compiled: ask for --build on by name): ' + ', '.join(stream_skipped))
     bad = 0
     refs = []
     set_force(root, [u for u in units if u != 'src/main.cpp'])   # S106 G4-4 / 4F: every GAME unit (not the launcher target, not main.cpp) parses with the build's force-include (PCH or plain text)
@@ -842,7 +859,7 @@ def run_changed(a, root, main_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--changed', nargs='?', const='auto', default=None, metavar='BASE')
-    ap.add_argument('--build', choices=('on', 'off', 'both'), default='both')
+    ap.add_argument('--build', choices=('on', 'off', 'both'), default='off', help="default off = the stream-free build the players run; on = the stream build, both = on + off (only by name)")
     ap.add_argument('--root', default='.')
     ap.add_argument('--files', default='')
     ap.add_argument('--no-twin', action='store_true')
@@ -867,7 +884,7 @@ def main():
     files = DEFAULT_FILES + [f.strip().replace('\\', '/') for f in a.files.split(',') if f.strip()]
     why = []   # S106 GSMAINF N6: filled on the fallback to main's out\\build, like the --changed mode
     try:
-        lines = build_lines_for(root, main_dir, 'on', why)   # S106 GSMAIN: the tree's own configure (was: build_commands(main_dir))
+        lines = build_lines_for(root, main_dir, 'off', why)   # S106 GSMAIN: the tree's own configure (was: build_commands(main_dir)); S111 COMPILEOFF: the stream-free build, not the stream one
     except RuntimeError as e:
         print('FAIL: ' + str(e))
         return 1
@@ -896,7 +913,7 @@ def main():
         twin = os.path.join(d, 'plant_small.cpp')
         open(twin, 'w').write('#include "%s/src/main.cpp"\nstruct PlantSmall { int small; };   // planted: `small` is a macro of the Windows RPC headers main.cpp pulls in\n' % root.replace('\\', '/'))
         jobs.append(('planted twin (a member named small after main.cpp)', flags['src/main.cpp'], twin, True))
-    with _admit.hold('syntax.worker', 4, timeout_s=120) as nw, ThreadPoolExecutor(max_workers=nw) as ex:   # CQW: the fixed-list path's pool (4 = the want and the fall-open value)
+    with _admit.hold('syntax.worker', 4) as nw, ThreadPoolExecutor(max_workers=nw) as ex:   # CQW: the fixed-list path's pool (4 = the want and the fall-open value)
         res = list(ex.map(lambda j: (compile_unit(root, main_dir, j[1], j[2], j[0], cache_fail=j[3]), j[3]), jobs))
     bad = bad_units
     hits = sum(1 for (r, _t) in res if r[4])

@@ -106,7 +106,7 @@ struct SceneTables {
   std::vector<LiquidItemRow> liquid_items;   // kScLiquidItems (52): their live items
   std::vector<LiquidPictureRow> liquid_pictures;   // kScLiquidPictures (53): the items' source textures (block data)
   uint32_t liquid_errors = 0;            // S103 SWF: the three liquid sections ParseRecord dropped together (unknown layout / non-finite / a range outside the item table / a bad picture)
-  uint32_t arena_world_errors = 0;       // lane 130: kScArenaWorlds sections ParseRecord dropped (unknown layout / kind / element size); the rest of the record is read
+  uint32_t arena_world_errors = 0;       // lane 130: kScArenaWorlds sections ParseRecord dropped (unknown layout / element size) + rows of an unknown kind it skipped (S111 FXSKIP); the rest of the record is read
   std::vector<ArenaWorld> arena_worlds;  // kScArenaWorlds (S101 lane 130): evaluated object worlds + the stage clock, stamped with the hook's guest frame
   uint32_t ring_errors = 0;              // lane 194: ring sections ParseRecord dropped (wrong element size / an unknown layout / a node range outside the pool); the rest of the record is read
   std::vector<RingRows> ring_rows;       // kScRingRows (lane 194): per ring model call, the node rows at the call; empty = none recorded
@@ -134,7 +134,8 @@ struct SceneTables {
   // contributor made with wwe2k14_rdr_crowd_run_markers carries them; a reader that wants the plain list calls ExpandCrowdRuns / ExpandedForReading (ParseRecord does).
   std::vector<CrowdRun> crowd_runs;
   std::vector<CrowdMember> crowd_members;
-  // S103 lane C: per-model light sets / the stage's live parts (scene_record.h ids 38 / 39); empty = none recorded. c_errors counts sections dropped for an unknown layout.
+  // S103 lane C: per-model light sets / the stage's live parts (scene_record.h ids 38 / 39); empty = none recorded. c_errors counts sections dropped for an unknown layout
+  // and (S111 FXSKIP) rows of an unknown kind skipped (sections 38, 39, 45, 46, 47: the rest of the section is read).
   uint32_t c_errors = 0;
   std::vector<ModelLightRow> model_lights;  // S103 C: kScModelLights
   std::vector<StageFxRow> stage_fx;         // S103 C: kScStageFx

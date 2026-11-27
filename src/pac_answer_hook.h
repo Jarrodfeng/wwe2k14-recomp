@@ -4,7 +4,10 @@
 // S110 PACANS (docs/research/s110/SEATDRAW.md): a post-hook on sub_82C51D20 (the pac-list lookup: r3 = the pac manager, r4 = the asked path
 // `/EMD/<name>` (64 bytes at most), r5 = the out descriptor; on r3 == 1 [r5 + 32] = the list node that matched, its path at node + 0, 48 bytes).
 // It tells src/scene_live/pac_answer.h which file the game took for a model name, so our renderer names the same file. Runs for every player; the
-// game calls this lookup for every file, so a path that is not `/EMD/` is dropped by its first bytes (no allocation, no log).
+// game calls this lookup for every file, so a path that is not `/EMD/` (or, S111 PACANSWER, `/BOBJ/` `/SOBJ/` `/SPMT/`) is dropped by its first bytes (no allocation, no log).
+// S111 PACANSWER (docs/research/s111/PACANSWER.md): an entrance prop / recolour mask path's hit goes to assets/pac_path_answer.h Note (any hit, a probe's or a read's: the answer
+// is keyed by the path itself), which assets::PropPachEvt / PropMaskPachEvt read before our derived pac-list order. S111 READANSWER: through src/pac_lookup_route.h NotePropHit,
+// which also tells Note whether the hit came inside a pac request (a read: model_file_note::CurrentReader), so PropPachEvt takes the section the game READ over its probes'.
 #pragma once
 
 #include <rex/hook.h>
@@ -20,6 +23,8 @@
 
 #include "guest_read.h"
 #include "scene_live/model_file_note.h"
+#include "assets/pac_path_answer.h"   // S111 PACANSWER: the prop / mask paths' answers
+#include "pac_lookup_route.h"         // S111 READANSWER: a prop / mask hit -> Note, read or probe
 
 REX_EXTERN(__imp__sub_82C51D20);
 
@@ -31,16 +36,17 @@ inline bool Readable(const uint8_t* base, uint32_t a) { return a >= 0x10000 && w
 
 // Called with the registers the original took (r4 / r5 saved before it ran) once it returned 1.
 // Review S110 PACANS: the first-bytes reject reads the path with NO page check. A page check (GuestWordReadable -> BaseHeap::QueryProtect)
-// takes the heap mutex (src/load_probe.h:508), twice per lookup of every file the game opens, before. Unchecked is safe here: on a hit the
+// takes the heap mutex (src/load_probe.h), twice per lookup of every file the game opens, before. Unchecked is safe here: on a hit the
 // original has just read every byte of the path up to its NUL or 64 bytes (sub_82C51D20 +84..+1C8), and the compares stop at the first
 // byte that differs (a NUL differs), so no byte past the ones the game read is touched.
 inline void OnLookup(const uint8_t* base, uint32_t path, uint32_t out) {
   if (path < 0x10000) return;
   const uint8_t* p = base + path;
   if (*p == '/') ++p;
-  if (p[0] != 'E' || p[1] != 'M' || p[2] != 'D' || p[3] != '/') return;   // the rest of the game's files: out here, nothing else done
-  const uint32_t reader = rdr_scene::live::model_file_note::CurrentReader();
-  if (!reader) return;   // S110 SEATREL: a lookup outside a real read (a menu's existence probe) feeds nothing
+  const bool emd = p[0] == 'E' && p[1] == 'M' && p[2] == 'D' && p[3] == '/';
+  if (!emd && !::assets::pac_path_answer::IsPropDir(p)) return;   // the rest of the game's files: out here, nothing else done
+  const uint32_t reader = emd ? rdr_scene::live::model_file_note::CurrentReader() : 0;
+  if (emd && !reader) return;   // S110 SEATREL: a model lookup outside a real read (a menu's existence probe) feeds nothing
   if (!Readable(base, out + kOutNode)) return;
   uint32_t nbe;
   std::memcpy(&nbe, base + out + kOutNode, 4);
@@ -54,8 +60,18 @@ inline void OnLookup(const uint8_t* base, uint32_t path, uint32_t out) {
     asked[n] = c;
   }
   asked[n] = 0;
-  rdr_scene::live::model_file_note::NoteRead(reader, std::string_view(asked, n),
-                                              std::string_view(reinterpret_cast<const char*>(base + node), kNodePathBytes));
+  const std::string_view asked_v(asked, n), node_v(reinterpret_cast<const char*>(base + node), kNodePathBytes);
+  if (emd) rdr_scene::live::model_file_note::NoteRead(reader, asked_v, node_v);
+  else {   // S111 PACANSWER / READANSWER: a prop / mask path; inside a pac request it is a read. S111 FOLLOWUPS3: + the reader's class (its vtable word: pac_lookup_route.h kRecolourPropTaskVtable)
+    const uint32_t r = rdr_scene::live::model_file_note::CurrentReader();
+    bool recoloured = false;
+    if (r && Readable(base, r)) {
+      uint32_t vbe;
+      std::memcpy(&vbe, base + r, 4);
+      recoloured = (((vbe & 0xFFu) << 24) | ((vbe & 0xFF00u) << 8) | ((vbe >> 8) & 0xFF00u) | (vbe >> 24)) == ::wwe2k14::pac_lookup_route::kRecolourPropTaskVtable;
+    }
+    ::wwe2k14::pac_lookup_route::NotePropHit(asked_v, node_v, recoloured);
+  }
 }
 
 inline void LogLine(const std::string& s) { REXLOG_INFO("{}", s); }

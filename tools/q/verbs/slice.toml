@@ -1,0 +1,19 @@
+name = "slice"
+module = "qslice"
+needs = "con"
+errors = ["qslice.SliceError", "qslice.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 61
+text = '''  slice sub_X+OFF REG|[mem]|--arg rN[+K] [--depth N] [--expr] [--json]   where a value in the GAME's code comes from: def-use walked backwards over
+                               qdecomp (phi per path with its condition, into callers / callee returns, a load's field writers on the
+                               same class / global root), to constants, image words, tables, ?loop, ?vcall (tools/q/qslice.py)
+  slice --struct sub_X+OFF rN [--fields OFF,OFF..] [--follow-callers K] [--init sub_Y] [--size N] [--json]   the stack struct whose address is in rN at that call:
+                               each field's reaching store per path (constant / value set / ? with its def / init Y / filled by Z),
+                               arguments and a struct-pointer argument followed into callers K levels (tools/q/qevstruct.py)'''
+
+[[route]]
+order = 147
+text = '''- where a value in game code comes from (a register at an instruction, a store's value, a call argument), as a chain: slice sub_X+OFF REG|[mem] [--expr]'''

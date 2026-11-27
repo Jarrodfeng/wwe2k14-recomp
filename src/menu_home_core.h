@@ -26,7 +26,7 @@ constexpr uint32_t kBoxOpening = 1, kBoxWaiting = 2, kBoxAnswered = 3, kBoxClosi
 // Text ids of YES / NO boxes that ASK whether to leave / discard; the answer for these is YES. One id per line, one comment per id.
 // A YES / NO box whose id is not here FAILS the line (never guessed).
 constexpr uint32_t kLeaveYes[] = {
-    51121,  // "... want to keep these settings?" on B from a changed option / MATCH RULES page (run 5906 screenshot, tools/atlas/nav.py:264-270):
+    51121,  // "... want to keep these settings?" on B from a changed option / MATCH RULES page (run 5906 screenshot, tools/atlas/nav.py):
             // NO stays on the page, YES leaves it. Whether YES keeps or drops the change is not settled (nav.py says drops): a route must not rely on it.
 };
 

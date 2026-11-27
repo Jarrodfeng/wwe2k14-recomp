@@ -13,7 +13,8 @@ import sys
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {'file_kept': 'bind.guest_pictures', 'no_reread': 'flush.reread', 'silent_fail': 'report.unreadable_named', 'budget_ignored': 'budget.first_take_bounded',
           'last_dup_wins': 'bind.dup_first_wins', 'gen_ignored': 'stage.same_address_new_stage', 'not2d_reported': 'report.not2d_quiet',
-          'late_paint_ignored': 'built.rebuilt_with_painted', 'never_ready_unread': 'list.null_ready_file_pictures', 'tail_corner': 'tail.mip0_read'}   # S108 CAP2
+          'late_paint_ignored': 'built.rebuilt_with_painted', 'never_ready_unread': 'list.null_ready_file_pictures', 'tail_corner': 'tail.mip0_read',   # S108 CAP2
+          'header_unseen': 'key.same_handle_new_header'}   # S111 KEYFRESH
 # S108 CAP2: the SDK's own texture utilities, compiled into the unit as the INDEPENDENT side of the tail-read proof (tools\scene\sdk_tex_layout.cpp; never our reader's arithmetic)
 SDK_SOURCES = [('src', 'graphics', 'pipeline', 'texture', 'util.cpp'), ('src', 'graphics', 'pipeline', 'texture', 'info_formats.cpp'), ('src', 'core', 'math_msvc.cpp')]
 

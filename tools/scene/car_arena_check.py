@@ -69,9 +69,11 @@ def main():
         print('twin %-14s %s (%s)' % (plant, 'caught' if ok else 'NOT CAUGHT', name))
         bad += 0 if ok else 1
 
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        with open(os.path.join(root, rel), encoding='utf-8') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     need = [
         ('src/assets/asset_load.h', 'LoadCustomArena(', 'the created-arena loader exists (a new function; LoadArena is not restructured)'),
         ('src/assets/asset_load.h', 'car::CustomIdOfRel(rel, car_id)', 'OpenCached serves the merged part pac for ids 200-249 (every arena reader sees the venue)'),

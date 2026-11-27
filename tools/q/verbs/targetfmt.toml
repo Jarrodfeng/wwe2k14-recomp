@@ -1,0 +1,12 @@
+name = "targetfmt"
+module = "qtargetfmt"
+needs = "con"
+errors = ["qtargetfmt.TargetFmtError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 48
+text = '''  targetfmt [--role R] [--field target_format|blend_space|precision] [--flag DIFF ...] [--facts] [--ref REF]  per render-target role:
+                               the EDRAM colour format the GAME's surface create names, where its blend runs (gamma or as written) and
+                               the resolve destination it keeps, beside OURS (the role's rdr::Format, a quantise step its shader
+                               applies); code-diff verdicts (tools/q/qtargetfmt.py)'''

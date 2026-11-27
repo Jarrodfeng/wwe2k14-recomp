@@ -85,7 +85,13 @@ static uint32_t Name(const Guest& g, int slot) {
     if (slot < 0 || slot > 8 || !ch || !rd(ch + 3760, i) || i >= kDescCount || !rd(kSlotMgrWord, mgr) || !rd(mgr + 8, arr) || !rd(arr + 192 * i + 92, key) || !ValidKey(key)) return 0;
     return key;
   }
-  return SlotKeyOf(rd, slot, ch, !g_plant_row);
+  if (g_plant_row) {   // planted twin: the old participant-row rule (S111 SLOTKEY removed it from the shipped SlotKeyOf; RowKey stays, census only)
+    if (slot < 0 || slot > 8) return 0;
+    bool usable = false;
+    const uint32_t k = RowKey(rd, slot, usable);
+    return usable ? k : 0u;
+  }
+  return SlotKeyOf(rd, slot, ch);
 }
 
 // The hook's scale-latch step (wrestler_hook.h OnSkelExit): DescScale, then SetLatch with the model identity (descriptor x key). The plant is the old step: the record read with no key check, no identity.
@@ -166,7 +172,7 @@ int main(int argc, char** argv) {
     RowKey(rd, 3, u);
     Check(!u, "rumble.row_rule_unusable: the census sees row_unusable");
   }
-  {   // the same skeleton address reused with an old declared link: SubmitSlotKey drops it (wrestler_contrib.h:257-262)
+  {   // the same skeleton address reused with an old declared link: SubmitSlotKey drops it (wrestler_contrib.h)
     const uint32_t kSkel = 0x60000000;
     WrestlerContributor wt;
     wt.SubmitModelLink(kSkel, 10302, 0, 0, 0x3, {}, 109);   // the old seat-3 occupant (character 103)

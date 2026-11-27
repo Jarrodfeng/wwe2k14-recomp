@@ -6,6 +6,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "record_frame.h"
 
@@ -33,6 +34,7 @@ struct WrestlerStats {
   uint32_t pieces_alpha_missing = 0;      // S103 EYF: ... with no readable row: carried as alpha 0 (not drawn; fail closed)
   uint32_t pieces_unobserved = 0;        // S103 NRBF (F1): of pieces_by_owner, the ones on a frame with no walked evidence (OURS): hiding cannot be seen there; counted apart
   uint32_t pieces_hidden_owner_drawn = 0; // S103 NRBF (review F5): linked pieces the game did NOT draw this frame (no light ref at the stamp) while the owner body is drawn: the owner body would show them: HOLES (fail closed)
+  uint32_t pieces_game_hidden = 0;        // S111 SOCKPIECE (piece_hidden.h): pieces the game hides (SUBM instance +20 == 0, kObjPieceHidden): an alpha-0 row on the owner (its merged mesh skips them), not drawn, not holes
   uint32_t own_rows_refused = 0;          // S111 PIECELINK: created superstars' SUBM pieces with no fresh latch palette of this frame (kObjOwnRowsRefused, owner link carried): not drawn, counted, never holes (also in skel_not_hole)
   uint32_t game_undrawn = 0;              // S111 PIECEHOLES: invisible slot bodies the game did not ask to draw this period (kObjGameUndrawn) on a frame with no walk: not drawn by the game, not holes (also in skel_not_hole)
   uint32_t pieces_only_owners = 0;        // S111 PIECEROUTE: slot bodies the game did not draw whose slot 22 drew their SUBM pieces (kObjPiecesOnly): drawn as their piece meshes only (also in drawn)
@@ -55,6 +57,16 @@ struct WrestlerStats {
   std::string at_file_value;
 };
 const WrestlerStats& LastWrestlerStats();
+
+// S111 SOCKSHADOW: the owner-mesh rows of ApplyWrestlers's pre-pass (an owner's Object is built later, before or after its pieces, so each row waits for it): per piece object of the record,
+// its owner slot, piece id, alpha and `undrawn` (SceneFrame::PieceAlpha: true for a piece the game hides, piece_hidden.h, or detached, detached_piece.h; false for an EYF model-alpha row,
+// piece_alpha.h). Honours Plants() (ignore_game_hide, ignore_detached_flag, piece_alpha_one) and counts into `st` (pieces_game_hidden, pieces_detached, pieces_alpha_carried / _missing).
+// tools\scene\piece_cast_unit.cpp drives it with a synthetic record and plants the two ignore twins.
+struct OwnerPieceRow { unsigned slot = 0, piece = 0; float alpha = 0.f; bool undrawn = false; };
+void OwnerPieceRows(const SceneTables& t, std::vector<OwnerPieceRow>& out, WrestlerStats& st);
+// SOCKSHADOW review: the attach (ApplyWrestlers, at the owner's main-loop step): the rows of owner slot `owner_slot` onto frame object `object` of `f` (SceneFrame::piece_alphas), `undrawn` with them,
+// so the casters (LiveMapsHook::CasterMeshCasts) see it. tools\scene\piece_cast_unit.cpp drives it, so a row that loses `undrawn` on the way to the frame fails its caster check.
+void AttachOwnerPieceRows(const std::vector<OwnerPieceRow>& rows, unsigned owner_slot, uint32_t object, SceneFrame& f);
 std::string WrestlerStatsText();  // one line: "[rf][wrestlers] objects N drawn D skipped ...; at the file's value: ..."
 
 // Planted faults (offline checks only: the game never sets these; the gate's twins do).
@@ -72,6 +84,7 @@ struct WrestlerPlants {
   bool old_hole_rule = false; // S103 NR twin (review F2): every unlinked own-skeleton piece is a hole (the rule before NR); set by nr_unit, never by the game
   bool warm_stops_at_miss = false;   // S110 ENTRBLACK round 6 twin: a warm build stops at the first class that misses (the rule before round 5: nothing after the arena is asked); set by nr_unit, never by the game
   bool game_undrawn_is_hole = false;   // S111 PIECEHOLES twin: kObjGameUndrawn is ignored (a body the game did not draw is counted a hole again, the rule before); set by nr_unit, never by the game
+  bool ignore_game_hide = false;   // S111 SOCKPIECE twin: kObjPieceHidden is ignored (the owner's merged mesh draws a piece the game hides: the sock at the entrance); never set by the game
 };
 WrestlerPlants& Plants();
 

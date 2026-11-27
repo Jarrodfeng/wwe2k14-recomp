@@ -529,6 +529,7 @@ static_assert(kShC29 < std::size(Shadow{}.stamp), "the matrix stamp slot must ex
 class Store {
  public:
   uint32_t Ticket() { return Q2D_PLANT(3) ? 1u : seq_.fetch_add(1, std::memory_order_relaxed) + 1; }
+  uint32_t LastTicket() const { return seq_.load(std::memory_order_relaxed); }   // S111 FLATSEQ: the last ticket handed out (0 = none since Reset): quads2d_tap.h SeqNow, the particle node's stamp
   // S103 I3 review: 2D draws SEEN but not recorded (a site this piece does not make rows of, a draw of the wrong shape, an unreadable vertex block), per frame and site. Landing 2 keeps the stream's 2D for any frame that has one.
   struct Hole { uint32_t frame = 0, site = 0, count = 0; };
   void NoteHole(uint32_t frame, uint32_t site) {

@@ -6,7 +6,8 @@
 // Ours: the owner's merged model holds those piece meshes (src_kind 2, src_key = the piece id) and draws them with the owner's palette (kObjDrawnByOwner). The owner object is written
 // kObjPiecesOnly: the colour pass draws its piece meshes only (piece_row_rule.h PiecesOnlyMeshDrawn), map B and the rim map cast them (renderer_scene\wrestler_caster.h ObjectMayCast: both walk the
 // DRTR node), every other map loop skips it (they test kObjVisible). Slot 22 also installs the character's light-set object (sub_827F6910 +44); ours lights the pieces with the owner's latched block.
-// The base class's slot 22 (sub_8259FAE8) has three more gates we do not read: not routed (a counted hole), so the class is part of Gates.
+// The base class's slot 22 (sub_8259FAE8) and kind 3's (sub_83368C90, vtable 0x821B76F8: highlight-reel characters) are not routed and need not be: no scene leaves either hidden while its DRTR
+// node is on (not a case: docs\research\s111\BASEROUTE.md, KIND3ROUTE.md).
 // Pure: the latch (inputs_contrib.h) and the contributor (wrestler_contrib.cpp Collect) call it; tools\scene\wrestler_emit.cpp proves it, with the planted twin kFaultPiecesNoGates.
 #pragma once
 #include <cstdint>

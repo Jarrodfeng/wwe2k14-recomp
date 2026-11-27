@@ -1,7 +1,7 @@
 // A guest texture's WHOLE mip chain as linear BC blocks (Session 108, lane PRT; docs\research\s108\PRT_plan.md). Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 // Pure: no game or SDK includes. The game build supplies `phys` (the glue's physical reader, inputs_glue.h CrowdGuestMem::phys: the A8 range check, the page check and a fault-safe copy).
 //
-// guest_texture.h reads mip 0 (ReadMip0); this adds the stored levels the header names, with the adapter's own arithmetic (src\renderer_adapter\reader.h:1373-1378 the level count,
+// guest_texture.h reads mip 0 (ReadMip0); this adds the stored levels the header names, with the adapter's own arithmetic (src\renderer_adapter\reader.h the level count,
 // :2907-2921 GuestLevelLayout for a non-base level, :2923-2939 PackedMipOffset, :2991-3010 the mip offsets, :3040-3089 the level read), for the one case the particle sprites are: 2D, one
 // layer, BC1 / BC2 / BC3 (game formats 18 / 19 / 20). Proof: mip 0 [C] (tools\particles\tex_owner.py joined the adapter's captured particle images to the prtcls.pac DDS files, mip 0 only);
 // levels >= 1 [L] (the adapter's / Xenia's layout, never compared with these files: that capture held ONE level per particle image, prtcls_pac.md "Sprite textures in the draw stream").

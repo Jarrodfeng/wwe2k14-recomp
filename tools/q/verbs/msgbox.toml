@@ -1,0 +1,15 @@
+name = "msgbox"
+module = "qmsgbox"
+needs = "con"
+errors = ["qmsgbox.MsgBoxError", "qmsgbox.qevstruct.StructError", "qmsgbox.qslice.SliceError", "qmsgbox.qslice.qdecomp.DecompError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 63
+text = '''  msgbox [--json] [--follow-callers K]   the whole message-box catalogue: every post site of the box (slot +108), its event struct's text id / kind / B read by
+                               slice --struct, joined to the game's text: id | text | kind | B | post sites (tools/q/qmsgbox.py)'''
+
+[[route]]
+order = 149
+text = '''- every message box the game can post (text id, kind, B flag, post sites) in one call: msgbox; the stack struct behind one call: slice --struct sub_X+OFF r4'''

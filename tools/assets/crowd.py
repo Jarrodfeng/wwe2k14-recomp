@@ -139,6 +139,9 @@ def gen_quad(q):
     Corner world position = (x*10, -h*10, z*10) (the arena file is -Y up). Rule: sub_82513D78 0x82515774..0x825162F4."""
     import numpy as np
     P = [np.array([q[3 * i] * 10, -q[3 * i + 2] * 10, q[3 * i + 1] * 10]) for i in range(4)]
+    yaw = math.atan2(-(P[1][2] - P[0][2]), P[1][0] - P[0][0])   # sub_82C328F8(corner0, corner1), one yaw per quad, taken before the swap
+    if all(p[0] > 0 for p in P):   # S111 CROWDVAR (sub_82513D78, both zone loops): a quad wholly at x > 0 is laid out from corner 1
+        P = [P[1], P[0], P[3], P[2]]
     la, lb, lc = (float(np.linalg.norm(P[1] - P[0])), float(np.linalg.norm(P[2] - P[0])), float(np.linalg.norm(P[3] - P[2])))
     na, nb, nc = int(la / SPACING_A + 1), int(lb / SPACING_B + 1), int(lc / SPACING_A + 1)
     sa = (P[1] - P[0]) / max(la, 1e-9) * SPACING_A
@@ -148,7 +151,6 @@ def gen_quad(q):
         cnt = int((nb - r) * na / nb + r * nc / nb + 0.5)       # row length: edge A's count blends to edge C's
         base = P[0] + r * sb + (0.5 * sa if r & 1 else 0)         # odd rows shifted half a step
         pts += [base + k * sa for k in range(cnt)]
-    yaw = math.atan2(-(P[1][2] - P[0][2]), P[1][0] - P[0][0])   # sub_82C328F8(corner0, corner1), one yaw per quad
     return pts, yaw, (na, nb, nc)
 
 
@@ -169,7 +171,9 @@ def stands_report(leaves, set_id, show):
             if qi < show:
                 print('  %s quad %2d corners(dm) %s -> counts A/B/C %s, %3d members, yaw %.1f deg, first %s' % (
                     tag, qi, [round(v, 1) for v in q[:6]] + ['...'], cnt, len(pts), math.degrees(yaw), np.round(pts[0]).tolist() if pts else None))
-        print('%s (%d): %d quads, %d members (x2 with the mirrored half = %d)' % (tag, key, len(qs), n, 2 * n))
+        # S111 CROWDVAR (sub_82513D78): the game mirrors by FILE: every 21202 (R) member is placed twice (the second at -x), 21201 (NR) once
+        placed = 2 * n if key == 21202 else n
+        print('%s (%d): %d quads, %d members (%s = %d placed)' % (tag, key, len(qs), n, 'x2 with the mirrored half' if key == 21202 else 'placed once, no mirror', placed))
     # check against the stand meshes (Sta_Seat*): is each member's height inside the local stand height range?
     sv = []
     for name, blob in leaves.items():

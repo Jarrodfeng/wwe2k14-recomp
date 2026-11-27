@@ -12,8 +12,8 @@ inline constexpr uint32_t kLsLightFloats = 224;     // R+0..895 (the install's b
 // Float offsets inside LightState::light (R byte offset / 4): the named parts of the install block (PER_DRAW_LIGHTS.md 1.1).
 inline constexpr uint32_t kLsDir = 4;       // R+16: 5 light directions, 4 floats each (world space; w as stored)
 inline constexpr uint32_t kLsCol = 24;      // R+96: 5 light colours rgbw (w = the lobe weight), 4 floats each; light 4 = the KeyLight
-inline constexpr uint32_t kLsBlockA = 88;   // R+352: a 4-float block (sky or ground: which is which is [U])
-inline constexpr uint32_t kLsBlockB = 92;   // R+368: the other 4-float block
+inline constexpr uint32_t kLsBlockA = 88;   // R+352 = light object +400: the sky colour, SkyCol [C sub_82BE06B8 / sub_82BDB460, SKYGROUND.md]
+inline constexpr uint32_t kLsBlockB = 92;   // R+368 = light object +416: the ground colour, GroundCol [C]
 struct LightState {
   float light[kLsLightFloats];   // R+0..895 as floats (word-swapped from the guest)
   float shadow_m[3][16];         // R+912, R+976, R+1040: three 4x4 matrices of the shadow fields

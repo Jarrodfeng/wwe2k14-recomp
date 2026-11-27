@@ -126,6 +126,7 @@ struct Settings {
   int aspect = 0;              // Session 33: 0 = 16:9 (the game's own), 1 = auto (the monitor's: ultrawide Hor+)
   bool photo_mode = false;     // Session 33: photo mode (F10 / L3 + R3 in a match)
   bool ramp_camera = false;    // S111 RAMPMENU: the match camera from the stage side (lane RAMPCAM); the pause menu's VISUAL PRESENTATION > RAMP CAMERA writes it too
+  bool permanent_blood = false;  // S111 BLOODMOD: PERMANENT BLOOD, a mod -> --wwe2k14_mods_permanent_blood=true (the blood splats on the mat stay all scene)
   // Session 70 (Jarrod: "every pipeline built before the game starts"): before a Play, the game's precompile run
   // (src\precompile.h) when this build, the graphics card, its driver or a pipeline setting changed.
   bool precompile = true;
@@ -199,7 +200,7 @@ inline void to_json(json& j, const Settings& s) {
            {"dlss_dir", s.dlss_dir},
            {"fsr_note", s.fsr_note}, {"renderer", s.renderer}, {"settings_version", s.settings_version},
            {"discord", s.discord}, {"discord_app_id", s.discord_app_id}, {"aspect", s.aspect},
-           {"photo_mode", s.photo_mode}, {"ramp_camera", s.ramp_camera}, {"precompile", s.precompile},
+           {"photo_mode", s.photo_mode}, {"ramp_camera", s.ramp_camera}, {"precompile", s.precompile}, {"permanent_blood", s.permanent_blood},
            {"arena_override", s.arena_override}, {"arena", s.arena}, {"participants", s.participants},
            {"replay_name", s.replay_name}, {"replay_record", s.replay_record}, {"replay_play", s.replay_play},
            {"reshoot_shots", s.reshoot_shots}, {"reshoot_anchor", s.reshoot_anchor}, {"seed", s.seed},
@@ -251,6 +252,7 @@ inline void from_json(const json& j, Settings& s) {
   s.settings_version = wwe2k14::gfxs::kSettingsVersion;
   Get(j, "discord", s.discord), Get(j, "discord_app_id", s.discord_app_id), Get(j, "aspect", s.aspect);
   Get(j, "photo_mode", s.photo_mode), Get(j, "ramp_camera", s.ramp_camera), Get(j, "precompile", s.precompile);
+  Get(j, "permanent_blood", s.permanent_blood);  // S111 BLOODMOD
   Get(j, "arena", s.arena), Get(j, "participants", s.participants), Get(j, "replay_name", s.replay_name);
   Get(j, "replay_record", s.replay_record), Get(j, "replay_play", s.replay_play);
   Get(j, "reshoot_shots", s.reshoot_shots), Get(j, "reshoot_anchor", s.reshoot_anchor), Get(j, "seed", s.seed);
@@ -1201,6 +1203,7 @@ inline std::string GameFlags(const Settings& s, const Paths& p) {
   for (auto& x : DlcFlags(s, p, s.mods || s.lighting)) f.push_back(std::move(x));
   if (s.cinecam) f.push_back("--wwe2k14_cinecam=true");
   if (s.photo_mode) f.push_back("--wwe2k14_photo_mode=true");  // Session 33
+  if (s.permanent_blood) f.push_back("--wwe2k14_mods_permanent_blood=true");  // S111 BLOODMOD: a mod (off: the flag is not sent, the game's default is off)
   // S111 RAMPMENU (the game's pause menu writes the same key). Always the explicit value, OFF included: the game's start falls back to
   // the settings file when no value is given, and the launcher's choice (which has already taken the file's key over) is the whole
   // picture (a performance test's cleared copy passes false). Not in replay playback: the stick turns with the camera's side, so the

@@ -4,8 +4,8 @@
 //       --tier 2 = the same install after the player picked STANDARD (the bench's standard_player profile).
 //       --frame-rate overrides the file's frame rate. A fresh install on integrated graphics writes 3 (30 fps everywhere); the bench's 1 is
 //       NOT just a number: frame_rate 3 also asks for wwe2k14_entrance_60fps=false, wwe2k14_step_hz=30 (+ step_hz_entrance=60: in owner mode the
-//       game keeps 60 updates and draws one picture per two vblanks, reader.h:2324-2328: 30 pictures over 60 logic updates),
-//       gpu_vblank_precise_timer_spin_us=250 and vulkan_texture_load_direct_unscaled (gfx_settings.h:761-774). frame_rate 1 leaves all four out.
+//       game keeps 60 updates and draws one picture per two vblanks, reader/start_live.inc (wwe2k14::rdr_reader::StartLive): 30 pictures over 60 logic updates),
+//       gpu_vblank_precise_timer_spin_us=250 and vulkan_texture_load_direct_unscaled (gfx_settings.h (wwe2k14::gfxs::GraphicsFlags)). frame_rate 1 leaves all four out.
 //   gfx_applied --truth-table [--planted]
 //       ResolveLow against a frozen copy of the pre-S0-1 inline block in gfx_menu.h, over tier 0-2 x phone x integrated x original_look x
 //       renderer 0-2 x renderer flag -1..2; prints `truth table: N cases, M mismatches` (exit 1 when M > 0). --planted breaks the frozen copy

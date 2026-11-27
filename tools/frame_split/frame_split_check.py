@@ -255,7 +255,9 @@ def synth_extra_checks(root, bench_line, order, tmp, rows):
 
 def lint_sources(root):
     """F2 / F3 / F6 as text lints on the shipped sources, each with a plant."""
-    reader = open(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'), encoding='utf-8', newline='').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path, locate  # a split file is read with its parts expanded; a hit names its part file and line
+    reader = read_path(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'), crlf=True)
     stats = open(os.path.join(root, 'src', 'frame_stats.h'), encoding='utf-8', newline='').read()
 
     def reset_problems(text):
@@ -266,7 +268,7 @@ def lint_sources(root):
                 n += 1
                 prev = next((lines[j] for j in range(i - 1, -1, -1) if lines[j].strip()), '')
                 if 'g_split_ticks.Bank(g_times.draw, g_times.present)' not in prev:
-                    probs.append('reader.h line %d: `g_times = {};` is not preceded by g_split_ticks.Bank(...)' % (i + 1))
+                    probs.append('%s: `g_times = {};` is not preceded by g_split_ticks.Bank(...)' % locate(root, 'src/renderer_adapter/reader.h', i + 1))
         if n == 0:
             probs.append('reader.h: no `g_times = {};` found (the lint cannot read its input)')
         return probs

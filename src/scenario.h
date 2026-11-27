@@ -1689,6 +1689,7 @@ inline void SnapshotTick() {
 // thread around that one call), so every other call - a player's menus -> finalize, the launcher's own call, the game's other callers - takes the
 // one branch and runs the original with the same registers. Skipped, the table stays as apply left it (empty: sub_822CA740 -> sub_827F60D0) and the
 // in-game sequence plays no entrances, the same state --wwe2k14_launch_skip_entrances leaves (docs\research\s109\ENT_plan.md sections 1-3).
+// SKIP-ORIGINAL: harness only: the team-table build is skipped for a spec with entrances=0 (the comment above); every other call runs the original
 REX_HOOK_RAW(sub_822CBD28) {
   if (wwe2k14::scenario::g_build_no_entrances) {
     REXLOG_INFO("[wwe2k14][build] team table not built (entrances=0): no entrances frame={}", wwe2k14::scenario::Frame());

@@ -1,0 +1,4 @@
+name = "when"
+module = "qwhen"
+needs = "con"
+errors = ["qx7.XError", "qorder.OrderError"]

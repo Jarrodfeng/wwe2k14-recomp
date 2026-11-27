@@ -12,8 +12,10 @@
 #include "guest_model_absent.h"   // S110 STOREABSENT: a build made with a named picture's bytes absent is provisional (rebuilt when they arrive)
 #include "guest_piece_fade.h"
 #include "guest_piece_key.h"   // S111 GUESTKEY: a piece object's id = its guest model's src_key
+#include "piece_owner.h"   // S111 PORTRAITHAIR: the one owner rule (a piece's owner slot, a body's slot), shared with the roster portrait
 #include "piece_alpha.h"   // S103 EYF: the piece's [model+252] row
 #include "detached_piece.h"   // S103 DTP: the owner-mesh row of a piece the game detached
+#include "piece_hidden.h"   // S111 SOCKPIECE: the owner-mesh row of a piece the game hides
 #include "change_colour_draw.h"   // S108 THR2: the Threads editor's live colours (section 67 -> the frame)
 #include "rows_change_colour.h"
 #include "sphere_join.h"   // S111 SPHEREOCC: the body's sphere occluders (section 27 -> the frame)
@@ -106,7 +108,7 @@ std::map<uint32_t, assets::LightSet> LightSetsById(const SceneTables& t) {
 }
 
 // S103 E8: the light state the game's colour draws of ONE wrestler read. The record's kScLightRefs name, per model call (engine object), the kScLightStates row R it read; the game's draws take DifLghVec / DifLghCol [0..4],
-// KeyLightVec / KeyLightColor, SkyCol (R+352) and GroundCol (R+368) from that row verbatim [C: run 28 f500, tools\scene\e8_game_key.py: the stream's constants equal state 17's dir / col / block A / block B, the lobe weights
+// KeyLightVec / KeyLightColor, SkyCol (R+352) and GroundCol (R+368) from that row verbatim [C: run 28 f500: the stream's constants equal state 17's dir / col / block A / block B, the lobe weights
 // are the colours' w (1.0 on the draws), the key (-0.615, 0.6721, 0.4124) is WORLD space, no camera rotation]. Same stamp rule as shadow_fit_record.h: header - 1 when the object has it, else the newest within the window.
 // Null = no state for this object (an OURS frame: the model-entry hook is skipped; the record's light sets stay).
 enum class LightStateUse { None, Missing, Rejected, Ok };
@@ -205,6 +207,7 @@ std::string WrestlerStatsText() {
   out += "; own-rows pieces refused (no fresh latch palette: counted, not drawn, never a hole) " + std::to_string(s.own_rows_refused);   // S111 PIECELINK
   out += "; slot bodies and their pieces the game did not draw, no walk (written invisible: not drawn, not a hole) " + std::to_string(s.game_undrawn);   // S111 PIECEHOLES (a walked frame: the walk decides, SkelPieceIsHole); S111 OWNERLESS: pieces too
   out += "; slot bodies drawn as their pieces only (the game's translucent node drew the pieces, no body) " + std::to_string(s.pieces_only_owners);   // S111 PIECEROUTE
+  out += "; pieces the game hides (SUBM +20 = 0: owner mesh skipped, not drawn, not a hole) " + std::to_string(s.pieces_game_hidden);   // S111 SOCKPIECE
   out += "; key light sets " + std::to_string(s.key_sets) + " (|hl_dir.x| > 1e-3: " + std::to_string(s.key_sets_x) + ")";   // S103 L7
   out += "; lit by the wrestler's own light state " + std::to_string(s.light_by_state) + " (state missing = hole " + std::to_string(s.light_state_missing) + ", rejected " + std::to_string(s.light_state_rejected) + ")";   // S103 E8
   if (!s.at_file_value.empty()) out += "; at the file's value (not in the record yet): " + s.at_file_value;
@@ -287,6 +290,32 @@ static void ReportChangeColourShortfalls() {
   for (const live::change_colour::Shortfall& s : got) rdr::DrawShortfall(s.kind, s.object.c_str(), 1, 0, "%s", s.detail.c_str());
 }
 
+void OwnerPieceRows(const SceneTables& t, std::vector<OwnerPieceRow>& out, WrestlerStats& st) {   // S111 SOCKSHADOW (rf_wrestlers.h): the pre-pass (moved out of ApplyWrestlers unchanged, plus `undrawn`)
+  out.clear();
+  for (const Object& o : t.objects) {
+    if (DetachedOwnerRowOut hr; IsWrestlerObject(t, o) && HiddenOwnerRow(o.flags, o.pad, o.layer, !g_plants.ignore_game_hide, hr)) {   // S111 SOCKPIECE (piece_hidden.h): the game hides this piece (SUBM instance +20 == 0): an alpha-0 row, so its owner's merged mesh does not draw it (front_end skips it, skipped_alpha0)
+      out.push_back({hr.slot, hr.piece, hr.alpha, true});   // S111 SOCKSHADOW: undrawn: no caster pass casts it either
+      ++st.pieces_game_hidden;
+      continue;
+    }
+    if ((o.flags & kObjVisible) || !(o.flags & (kObjDrawnByOwner | kObjDetachedPiece)) || !IsWrestlerObject(t, o) || o.pad == 0 || o.layer == 0) continue;
+    if (DetachedOwnerRowOut dr; DetachedOwnerRow(o.flags, o.pad, o.layer, !g_plants.ignore_detached_flag, dr)) {   // S103 DTP (PEP.md section 3): the game stopped copying the owner's rows into this piece and poses it itself: the owner's merged mesh must not draw it (alpha 0 row: front_end skips it, counted as skipped_alpha0). Counted apart from an eyelid fade.
+      out.push_back({dr.slot, dr.piece, dr.alpha, true});   // S111 SOCKSHADOW: undrawn: the owner's copy casts nothing either (the piece is drawn from its own rows)
+      ++st.pieces_detached;
+      continue;
+    }
+    if (!(o.flags & kObjSkinned) || !o.bones_count) continue;   // S103 DTP fix: a detached piece needs no palette for its owner row (above); a drawn-by-owner piece still does
+    const PieceAlphaValue pv = PieceModelAlpha(t, size_t(&o - t.objects.data()), g_plants.piece_alpha_one);   // FAIL CLOSED: no readable row = alpha 0
+    out.push_back({unsigned(o.layer) - 1u, unsigned(o.pad), pv.alpha, false});   // an EYF fade: the casters still cast it (they read no model alpha)
+    ++(pv.found ? st.pieces_alpha_carried : st.pieces_alpha_missing);
+  }
+}
+
+void AttachOwnerPieceRows(const std::vector<OwnerPieceRow>& rows, unsigned owner_slot, uint32_t object, SceneFrame& f) {   // SOCKSHADOW review (rf_wrestlers.h)
+  for (const OwnerPieceRow& pa : rows)
+    if (pa.slot == owner_slot) f.piece_alphas.push_back({object, pa.piece, pa.alpha, pa.undrawn});   // S111 SOCKSHADOW: undrawn rides along (the casters read it)
+}
+
 bool ApplyWrestlers(BuildCtx& ctx) {
   const SceneTables& t = ctx.t;
   SceneFrame& f = ctx.frame;
@@ -347,24 +376,11 @@ bool ApplyWrestlers(BuildCtx& ctx) {
   // S103 PZF2 (EB): the visible owner body of each character slot ("actor:slot:N"), for the draw-time check that its resident model really holds the meshes of a piece it is said to draw.
   std::map<uint32_t, size_t> owner_obj;
   for (size_t k = 0; k < t.objects.size(); ++k) {
-    const std::string_view sid = t.Str(t.objects[k].id);
-    unsigned n = 0;
-    if (StartsWith(sid, "actor:slot:") && (t.objects[k].flags & (kObjVisible | kObjPiecesOnly)) && fast::ScanUInt(sid, 11, n)) owner_obj.emplace(n, k);   // S103 CPU1: ScanUInt = what sscanf("%u") read, no copy (RHP.md)   // S111 PIECEROUTE: a pieces-only owner draws its pieces too
+    uint32_t n = 0;
+    if (OwnerBodySlot(t.Str(t.objects[k].id), t.objects[k].flags, n)) owner_obj.emplace(n, k);   // S111 PORTRAITHAIR: piece_owner.h (S103 CPU1 ScanUInt, no copy; S111 PIECEROUTE: a pieces-only owner draws its pieces too)
   }
-  struct PendingPieceAlpha { unsigned slot, piece; float alpha; };   // S103 EYF: a piece's [model+252] row, waiting for its owner's Object (the piece may come before or after it in the record)
-  std::vector<PendingPieceAlpha> pending_piece_alpha;
-  for (const Object& o : t.objects) {   // (a pre-pass: the owner's Object is built in the main loop, before or after its pieces)
-    if ((o.flags & kObjVisible) || !(o.flags & (kObjDrawnByOwner | kObjDetachedPiece)) || !IsWrestlerObject(t, o) || o.pad == 0 || o.layer == 0) continue;
-    if (DetachedOwnerRowOut dr; DetachedOwnerRow(o.flags, o.pad, o.layer, !g_plants.ignore_detached_flag, dr)) {   // S103 DTP (PEP.md section 3): the game stopped copying the owner's rows into this piece and poses it itself: the owner's merged mesh must not draw it (alpha 0 row: front_end skips it, counted as skipped_alpha0). Counted apart from an eyelid fade.
-      pending_piece_alpha.push_back({dr.slot, dr.piece, dr.alpha});
-      ++st.pieces_detached;
-      continue;
-    }
-    if (!(o.flags & kObjSkinned) || !o.bones_count) continue;   // S103 DTP fix: a detached piece needs no palette for its owner row (above); a drawn-by-owner piece still does
-    const PieceAlphaValue pv = PieceModelAlpha(t, size_t(&o - t.objects.data()), g_plants.piece_alpha_one);   // FAIL CLOSED: no readable row = alpha 0
-    pending_piece_alpha.push_back({unsigned(o.layer) - 1u, unsigned(o.pad), pv.alpha});
-    ++(pv.found ? st.pieces_alpha_carried : st.pieces_alpha_missing);
-  }
+  std::vector<OwnerPieceRow> pending_piece_alpha;   // S103 EYF / DTP, S111 SOCKPIECE: the owner-mesh rows, waiting for their owner's Object (the piece may come before or after it in the record)
+  OwnerPieceRows(t, pending_piece_alpha, st);   // S111 SOCKSHADOW: the pre-pass (rf_wrestlers.h), one function a unit can drive
   for (const Object& o : t.objects) {
     const size_t obj_index = size_t(&o - t.objects.data());   // S103 W2
     if (!IsWrestlerObject(t, o)) continue;
@@ -376,6 +392,7 @@ bool ApplyWrestlers(BuildCtx& ctx) {
     // S103 DLW: an own-skeleton piece drawn from its own guest rows (it then takes the model path below, unnamed)
     // S111 PIECEROUTE (scene_live\slot22_pieces.h): a named slot body the game drew as its pieces only takes the model path below and stays invisible (its piece meshes only, front_end.cpp)
     const bool pieces_only = !(o.flags & kObjVisible) && (o.flags & kObjPiecesOnly) && o.asset < t.assets.size() && t.assets[o.asset].pac != 0;
+    if ((o.flags & kObjPieceHidden) && !(o.flags & kObjVisible)) { ++st.skipped_invisible, ++rep.skipped; continue; }   // S111 SOCKPIECE: the game hides this piece; its owner's mesh skips it (the pre-pass row): nothing of its own to draw, not a hole
     if (!(o.flags & kObjVisible) && !pieces_only) {  // a skeleton that matches no character slot (managers, waiting entrance models, own-skeleton pieces): the game draws nothing for it
       if ((o.flags & kObjDetachedPiece) && !((o.flags & kObjSkinned) && o.bones_count)) {   // S103 DTP fix: a detached piece with no palette of its own (link-only: the piece object is gone, or stale). The owner row was pushed in the pre-pass; it is never guest-routed
         if (PieceSeenThisFrame(t, obj_index, walked, stamp) == PieceSeen::Drawn) {   // the game still draws it and we have no fresh palette: a HOLE (the frame falls back), never a missing pad
@@ -627,8 +644,8 @@ bool ApplyWrestlers(BuildCtx& ctx) {
       // (own-rows, detached or drawn-by-owner with a guest owner: each needs layer != 0); the unlinked route and its layer-0 case are gone.
       const uint32_t own_light_object = obj_index < t.engine_objects.size() ? t.engine_objects[obj_index] : 0u;
       uint32_t owner_light_object = 0;
-      if (piece_from_guest && o.layer != 0) {
-        const auto lo = owner_obj.find(unsigned(o.layer) - 1u);
+      if (uint32_t oslot = 0; piece_from_guest && PieceOwnerSlot(o.flags, o.layer, oslot)) {   // S111 PORTRAITHAIR: piece_owner.h
+        const auto lo = owner_obj.find(oslot);
         if (lo != owner_obj.end() && lo->second < t.engine_objects.size()) owner_light_object = t.engine_objects[lo->second];
       }
       const LightState* ls_state = WrestlerLightState(t, PieceLightObject(piece_from_guest, own_light_object, owner_light_object), have_stamp, stamp, use);   // guest_piece_fade.h
@@ -671,11 +688,9 @@ bool ApplyWrestlers(BuildCtx& ctx) {
     else if (o.mesh_mask_lo != 0xFFFFFFFFu || o.mesh_mask_hi != 0xFFFFFFFFu) ++st.mesh_masked;
 
     if (!pending_piece_alpha.empty()) {   // S103 EYF: this owner's pieces' alphas (owner = "actor:slot:N", the slot the pieces name as layer - 1)
-      unsigned owner_slot = 0;
-      const std::string_view oid = t.Str(o.id);
-      if (StartsWith(oid, "actor:slot:") && fast::ScanUInt(oid, 11, owner_slot))
-        for (const PendingPieceAlpha& pa : pending_piece_alpha)
-          if (pa.slot == owner_slot) f.piece_alphas.push_back({uint32_t(f.objects.size()), pa.piece, pa.alpha});
+      uint32_t owner_slot = 0;
+      if (OwnerBodySlot(t.Str(o.id), o.flags, owner_slot))   // S111 PORTRAITHAIR: piece_owner.h (an actor:slot object drawn here is visible or pieces-only)
+        AttachOwnerPieceRows(pending_piece_alpha, owner_slot, uint32_t(f.objects.size()), f);   // S111 SOCKSHADOW: undrawn rides along (the casters read it)
     }
     rep.absent_pieces += uint32_t(plan.absent.size());   // S103 W2B (review I)
     st.hair_pieces_absent += uint32_t(plan.absent.size());
@@ -686,13 +701,15 @@ bool ApplyWrestlers(BuildCtx& ctx) {
       cc_carried += change_colour_draw::CarryChangeColour(t.change_colours, f, uint32_t(f.objects.size()), t.engine_objects[obj_index]) ? 1u : 0u;
     {   // S111 PROPORDER (draw_place_rows.h): the character's place in the game's category-33 list (its skeleton's kSlDrawPlace row); a guest-routed piece is drawn inside its owner's node: the owner's place
       uint32_t place_owner = 0;
-      if (piece_from_guest && o.layer != 0)
-        if (const auto lo = owner_obj.find(unsigned(o.layer) - 1u); lo != owner_obj.end() && lo->second < t.engine_objects.size()) place_owner = t.engine_objects[lo->second];
+      if (uint32_t oslot = 0; piece_from_guest && PieceOwnerSlot(o.flags, o.layer, oslot))   // S111 PORTRAITHAIR: piece_owner.h
+        if (const auto lo = owner_obj.find(oslot); lo != owner_obj.end() && lo->second < t.engine_objects.size()) place_owner = t.engine_objects[lo->second];
       draw_place::Carry(t.stage_look, f, uint32_t(f.objects.size()), obj_index < t.engine_objects.size() ? t.engine_objects[obj_index] : 0u, place_owner);
     }
     f.objects.push_back(c);
     ++st.drawn;
     ++rep.drawn;
+    if (piece_from_guest) ++rep.pieces_drawn;   // S111 PORTRAITHAIR: the roster portrait's D1 counts bodies (live_scene_draw.cpp DrawPortrait)
+    if (piece_from_guest) rep.piece_ids.push_back(uint32_t(GuestPieceKey(o.flags, o.pad)));   // S111 PORTRAITCENSUS: which piece (its guest model's key), for the portrait's census line
     if (unnamed && have_palette && c.bones_count) {   // S103 CAWB (CAWV Q1, census): the body probe, once per 600 guest frames; FrontEnd adds the additive count and prints it
       static uint64_t last_window = ~0ull;
       const uint64_t win = t.header.guest_frame / 600;

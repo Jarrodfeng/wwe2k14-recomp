@@ -9,7 +9,8 @@ folder -> db\claims\lodged_<NOTE>.json), a JSON list with one object per row, in
 
     {"address": "0x82331BE0", "function": "0x82331BC0", "offset": "0x20", "mark": "C", "claim": "...", "evidence": "...",
      "note": "docs/research/s999/FIX.md" [, "seam": ..., "ours": ..., "verdict": ..., "system": ...]
-     [, "kind": "site", "key": "sub_82331BC0+0x20", "name": ..., "site": "0x82331BE0"]}   (the TYPE column: tools\q\qfactkey.py)
+     [, "kind": "site", "key": "sub_82331BC0+0x20", "name": ..., "site": "0x82331BE0"] [, "rev": "<note> #Review"]}
+                                                                           (the TYPE column: tools\q\qfactkey.py; rev: tools\handback\rev_mark.py)
 
   - "function" / "offset": the function holding the address (the code index, `q addr`) and the address's offset in it; both null for a
     data address
@@ -71,7 +72,7 @@ def build_rows(rows, resolver, note_rel):
              "function": "0x%08X" % start if kind == "func" else None,
              "offset": "0x%X" % (r["addr"] - start) if kind == "func" else None,
              "mark": r["mark"], "claim": r["claim"], "evidence": r["evidence"], "note": note_rel.replace("\\", "/")}
-        for k in ("seam", "ours", "verdict", "system"):
+        for k in ("seam", "ours", "verdict", "system", "scope"):
             if r.get(k):
                 o[k] = r[k]
         if r.get("kind"):   # the TYPE column (INDEX_PLAN T2): kind / key / name, and for a site row the instruction address
@@ -124,6 +125,13 @@ def main(argv=None):
         return 1
     errs = cl.check_rows(rows, resolver)
     objs = build_rows(rows, resolver, note_rel) if not errs else []
+    if objs:   # S111 REV: the reviewed-fact mark, computed from git + the note (tools\handback\rev_mark.py), never written by hand
+        spec = importlib.util.spec_from_file_location("rev_mark", os.path.join(HERE, "rev_mark.py"))
+        rm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rm)
+        for o, v in zip(objs, rm.compute(root, note_rel, text, rows, cl)):
+            if v:
+                o["rev"] = v
     if not errs:   # the schema validate.py holds every db\claims file to (one definition)
         val = cl.load_validate()
         rep = val.Report()

@@ -162,6 +162,8 @@ def main(argv, con, resolve):
     ap.add_argument('--of', metavar='FUNC', help='reverse: every vtable slot that points at FUNC')
     ap.add_argument('--slots', type=int, default=64, metavar='N', help='show the first N slots (default 64)')
     ap.add_argument('--slot', type=int, default=None, metavar='K', help='show only slot K')
+    ap.add_argument('--dump', action='store_true', help='per slot: the function and what it does first (qtables.func_effect: first store / call / return); ADDR then N = slots')
+    ap.add_argument('n', nargs='?', type=int, help='with --dump: the number of slots (default 64)')
     ap.add_argument('--no-summary', action='store_true', help='skip the q decomp --fields line (faster on big tables)')
     ap.add_argument('--json', action='store_true')
     a = ap.parse_args(argv)
@@ -184,6 +186,16 @@ def main(argv, con, resolve):
         return 0
     if not a.addr:
         raise VtError('usage: q vtable ADDR [--slots N] [--slot K] | q vtable --of FUNC')
+    if a.dump:       # S111 JTABLE: slot -> function -> what it does first
+        import qtables
+        r = qtables.dump_vtable(con, img, parse_addr(a.addr), a.n or a.slots, db_names())
+        if a.json:
+            print(json.dumps(r, indent=1))
+            return 0
+        print(f'vtable {r["vtable"]}: {r["table_slots"]} slots; showing {len(r["slots"])}')
+        for s in r['slots']:
+            print(f'  slot {s["slot"]:>3} (+{s["offset"]:<4}) {s["target"]}' + (f' [{s["db_name"]}]' if s['db_name'] else '') + f'  {s["first"]}')
+        return 0
     r = slots_of(con, img, parse_addr(a.addr), a.slots, a.slot, not a.no_summary)
     if a.json:
         print(json.dumps(r, indent=1))

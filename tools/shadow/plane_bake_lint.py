@@ -50,7 +50,9 @@ def main():
     root = ap.parse_args().root
     fails = 0
     for name, path, rx in REQS:
-        text = open(os.path.join(root, path), encoding='utf-8').read()
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+        text = read_path(os.path.join(root, path))
         ok = re.search(rx, text) is not None
         planted = re.sub(rx, '', text, count=1)
         caught = re.search(rx, planted) is None and planted != text

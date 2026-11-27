@@ -74,7 +74,7 @@ struct HostOptions {
   // S105 A2: the screen-shape factors (ultrawide::Configure -> Applied::wide / tall; 1 = the game's shape). During play (Msg::fill_now) the scene and F are round(1280 x wide) x 720 or 1280 x round(720 x tall)
   // (wide_frame.h); the 2D rows stay a centred 1280x720. A rig sets them to test.
   float wide = 1.f, tall = 1.f;
-  // The decoupled 30 (settings parity S9, the launcher's 30 fps mode; reader.h 2746-2751 / live.cpp 916-931 for the stream path): the game keeps its 60 updates and the host draws one picture per this many vblanks
+  // The decoupled 30 (settings parity S9, the launcher's 30 fps mode; reader.h / live.cpp for the stream path): the game keeps its 60 updates and the host draws one picture per this many vblanks
   // of presents (2); the ticks between are not drawn (host_core.h VblankDebt). 0 / 1 = off. A screenshot request makes a tick draw.
   uint32_t draw_vblanks = 0;
   // S103 SCS: draw the in-scene 2D rows (screen flashes, lens flares) inside the scene pass (the game's look). false (--wwe2k14_rdr_scene2d=false) = the old drop: those rows are refused `pass_scene_colour`.
@@ -123,6 +123,10 @@ struct TestSeam {
   bool picture_requested = false;   // the tween gate's "a picture was asked for" (the rig: a halfway picture is wanted even with a newer tick waiting)
   bool shot_no_curve = false;   // planted fault (SHOT rig): the capture is handed over without the display curve
   bool shot_late = false;       // planted fault (SHOT rig): a capture gets the PREVIOUS answer's picture (one frame late)
+  // S111 FLATSEQ rig (tools\scene\host_rig_flatseq.h): DrawRows reports each step it takes on F, in order: 'R' = the rows [a, b) handed to the 2D drawer, 'P' = the flat particle group at row
+  // position a (b = its batches). Planted fault flat_parts_first: the group is drawn BEFORE the run of rows that ends at its position is flushed (the order twin).
+  std::function<void(char step, size_t a, size_t b)> flat_trace;
+  bool flat_parts_first = false;
 };
 
 // The plane images' sink (movie_planes.h PlaneImages): one 8-bit channel images in the renderer.

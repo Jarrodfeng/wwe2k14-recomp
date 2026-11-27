@@ -1,0 +1,18 @@
+name = "gstate"
+module = "qgstate"
+needs = "con"
+errors = ["qgstate.GstateError", "qgstate.qdecomp.DecompError", "qconstdiff.DiffError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 58
+text = '''  gstate sub_X [...] | --setter KEY [--value V] | --list | --facts   per game function, the render-state SETTER calls it makes (blend, alpha
+                               test / ref / func, z, cull, stencil, colour mask, samplers, texture slot) in listing order with their constant
+                               arguments and save -> restore pairs; --setter = every function that sets one (tools/q/qgstate.py; CDSTATE.md);
+                               --inherit sub_X = the state in force at its draws, up its callers and the category reset (tools/q/qgstate_inherit.py);
+                               --leaks sub_X = state a callee sets and leaves that a later draw of the pass sees (tools/q/qgstate_leaks.py)'''
+
+[[route]]
+order = 148
+text = '''- the render state a game function sets (blend, alpha test, z, cull, samplers) with its constants and restores: gstate sub_X; who sets one: gstate --setter KEY'''

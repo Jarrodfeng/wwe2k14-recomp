@@ -709,7 +709,7 @@ def e3_check_maps(rep_text, gs, gs_why, n, args, work, out, prefix, game_img):
     else:
         ag = e3_floor.floor_agreement(gs, prefix + '_map_shadow.png', ours)
         ok = ag['iou'] >= args.maps_iou and ag['ours_px'] > 0 and ag['game_px'] > 0
-        src = 'FITTED, key %s' % ('TOLD from the stream\'s KeyLightVec' if ours.get('key_told') else 'from the record') if ours.get('fitted') else 'from the game\'s caster state'
+        src = 'FITTED from the main camera (shadow_light_rule.h)' if ours.get('fitted') else 'from the game\'s caster state'
         lines.append('%s  frame %d: MAP SHADOW %s (%s; casters sampled %d): floor read like the colour pass, %d points: shadowed ours %d / game %d / both %d, IoU %.3f (bar %.2f), ours-in-game %.2f, game-in-ours %.2f'
                      % ('PASS' if ok else 'FAIL', n, 'MADE' if ok else 'DISTANCE', src, ours.get('samples', 0), ag['points'], ag['ours_px'], ag['game_px'], ag['inter'], ag['iou'], args.maps_iou, ag['ours_in_game'], ag['game_in_ours']))
         ci, cu, cv = e3_floor.casters_inside(ours)
@@ -730,7 +730,7 @@ def e3_check_maps(rep_text, gs, gs_why, n, args, work, out, prefix, game_img):
                      label(np.asarray(Image.fromarray(fl).resize((S, S), Image.NEAREST)), 'floor shadow: game red / ours green / both yellow, IoU %.2f' % ag['iou'], 18)]
             sd = out if os.path.basename(out.rstrip(os.sep + '/')) == 'E3' else os.path.join(out, 'E3')
             os.makedirs(sd, exist_ok=True)
-            Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sd, 'sheet_shadow_f%03d%s.png' % (n, ('_' + args.maps_fault.replace(',', '+')) if args.maps_fault else ('_nokey' if args.no_told_key else ''))))
+            Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sd, 'sheet_shadow_f%03d%s.png' % (n, ('_' + args.maps_fault.replace(',', '+')) if args.maps_fault else '')))
         except Exception as e:   # the sheet is evidence, not a verdict
             lines.append('NOTE  frame %d: shadow sheet not written: %s' % (n, e))
     # the other maps: made, or a named, counted hole
@@ -821,7 +821,6 @@ def main(argv=None):
     ap.add_argument('--mapb-participants', type=int, default=None, help='S103 MBC: the participant count the fixture run is given (default: unknown)')
     ap.add_argument('--mapb-expect-mode1', action='store_true', help='S103 MBC (wm30): map B must be the game\'s mode 1 (wrestlers only): mode 1 in the census, no prop cast')
     ap.add_argument('--maps-fault', default=None, metavar='LIST', help='S103 E3 plant: live_maps.h MapsFaults (fit_view_not_light, fit_key_not_negated, fit_no_bounds, ...); the MAP SHADOW check must fail')
-    ap.add_argument('--no-told-key', action='store_true', help='S103 E3 plant: the wrestlers\' key light is NOT told to the rig (a capture whose record has no light rows): the shadow map is a counted hole, MAP SHADOW HOLE must fail')
     ap.add_argument('--maps-iou', type=float, default=0.55, help='S103 E3: the bar of the MAP SHADOW floor agreement (IoU of the shadowed floor points, ours vs the game\'s map read the same way)')
     ap.add_argument('--camera-roundtrip-plant', action='store_true', help='plant: the file gets the TRANSPOSED camera (the layout fault): the pictures must differ')
     ap.add_argument('--no-sheet', action='store_true', help='S103 PS1: no first_sheet PNG and no per-family "what is missing" panel work (the pass / fail lines and the report file are the same); the proof checks that read numbers ask for this')
@@ -1002,12 +1001,10 @@ def run_main(args):
             cmd += ['--metrics-cov-store', args.metrics_cov_store + ':' + mkey]
         if args.metrics_cov_from:
             cmd += ['--metrics-cov-from', args.metrics_cov_from + ':' + mkey]
-        # S103 E3: the game's wrestler shadow map and its readers' constants from the stream (the comparison side), and the key light TOLD to the rig (the record carries no light rows yet: lane A)
+        # S103 E3: the game's wrestler shadow map and its readers' constants from the stream (the comparison side). (S111 SHADOWKEY review: no key light is told to the rig any more: the fit reads none.)
         gs, gs_why = (None, 'hooks off') if (args.no_hooks or not args.maps_check) else e3_floor.game_shadow(fview, ROOT, game, capture, n, work)
         if gs is None and args.maps_check and not args.no_hooks:
             print('  E3: no game shadow data for frame %d: %s' % (n, gs_why))
-        if gs is not None and not args.no_told_key:
-            cmd += ['--key-light', ','.join('%.9g' % x for x in gs['key'])]
         if args.maps_fault:
             cmd += ['--maps-fault', args.maps_fault]
         if args.rig_args:

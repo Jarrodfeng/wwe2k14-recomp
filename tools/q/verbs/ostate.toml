@@ -1,0 +1,15 @@
+name = "ostate"
+module = "qostate"
+errors = ["qostate.OstateError", "qconstdiff.DiffError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 64
+text = '''  ostate [--fn NAME] [--field F] [--json] [--facts] [--ref REF]   per function of OURS, the render state it sets as code-diff facts: every
+                               DrawState block's fields, the draw's alpha test / func / ref (the material flag, a caller-stated
+                               InstancedDraw::alpha_test or a rule of ours), the pass_state.h kTable rows, the InstancedDraw caller stores (tools/q/qostate.py)'''
+
+[[route]]
+order = 149
+text = '''- the render state OUR code sets (per function: DrawState fields, alpha test source, kTable rows, InstancedDraw stores): ostate [--fn NAME] [--field atest] [--ref REF]'''

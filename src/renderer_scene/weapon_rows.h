@@ -76,7 +76,8 @@ inline constexpr uint32_t EventEntry(uint32_t slot_flags) { return (slot_flags >
 // H = [0x837631C4] (slots [H+76+4k], filled from pac\bg\bgEtc.pac). Same row, same 32 bytes (no layout change: only bits that were reserved 0): `id` = the bgEtc PACH (0 CAGE / 1 CABU / 2 CABA / 3 CELL / 6 CHAI / 7 INFE),
 // bit 13 = kCallStageStruct, bits 16-23 = k (the key of nested key 1), bit 14 = kCallAlphaFromF1 (row alpha = the call's f1 = MdlAlpha, the slot-32 submit), bit 15 = kCallStageOwn (the call was the slot-13 own submit; clear = a
 // slot-32 / other pass), bits 24-25 = the guest LR class of a non-own call (kStageLr*), bit 31 = kCallStageCaster (stage_struct_nodes.h: the own submit's node is one the game's shadow passes draw; bits 30-31 are the
-// specular code only on event / slot rows). The game has TWO nodes that submit the same cage models, so both families are recorded and the drawer takes ONE per structure per frame.
+// specular code only on event / slot rows). The cage and the cell each have TWO nodes that submit the same models (an own and a slot-32 family); the nodes draw different sides / pieces each frame, so both families are
+// recorded and drawn (S111 CAGESIDE review: weapon_plan.h, the comment at its top).
 inline constexpr uint32_t kCallStageStruct = 0x2000, kCallAlphaFromF1 = 0x4000, kCallStageOwn = 0x8000;
 inline constexpr uint32_t kStageLrShift = 24, kStageLrMask = 0x3;
 inline constexpr uint32_t kStageLrNone = 0, kStageLrCage = 1, kStageLrCell = 2, kStageLrOther = 3;   // kStageLrNone = an own-submit call
@@ -118,13 +119,16 @@ inline constexpr int32_t StagePachOfType(uint32_t type) { return type == 0 ? 0 :
 inline constexpr bool IsLadderPach(int32_t pach) { return pach == 4 || pach == 5 || (pach >= 11 && pach <= 61); }
 // S103 LDR2 (docs\research\s103\LDC.md section 4 [C]): the ladder rig's holder models 2 / 3 (k 2 = light pool, k 3 = light shaft over the briefcase; sub_825DC218 -> [C+68] / [C+72]) are drawn by sub_825DB7B8 with blend code 1 (SRC_ALPHA, ONE: additive) under light key set 500.
 inline constexpr bool IsLadderLightPiece(int32_t pach, uint32_t k) { return IsLadderPach(pach) && (k == 2 || k == 3); }
-// The light key set of a ladder piece: the rope (k 0) and both lights (k 2 / 3) install set 500 (sub_825DB710, sub_825DB7B8 [C]); the belt / briefcase (k 1) is a CWeapon's own light [U] -> -1.
+// The light key set of a ladder piece: the rope (k 0) and both lights (k 2 / 3) install set 500 (sub_825DB710, sub_825DB7B8 [C]); the belt / briefcase (k 1) is a CWeapon (sub_825DB328 -> sub_824D6C68, id 23) drawn by
+// the CWeapon node under its own set 50 [C, S111 WEAPONLIGHT: weapon_light_key.h; rf_props.cpp CWeaponLights takes that row first] -> -1 here.
 inline constexpr int32_t LadderLightKey(int32_t pach, uint32_t k) { return (IsLadderPach(pach) && (k == 0 || IsLadderLightPiece(pach, k))) ? 500 : -1; }
 // S111 CHAMBERMAP (docs\research\s111\CHAMBERMAP.md, docs\systems\elimination_chamber.md [C]): the light key set of a stage structure piece, as the game's draw nodes install it. Cage / cell 100, Inferno 31, ladder LadderLightKey;
 // the Elimination Chamber (holder type 5 = PACH 6 CHAI) installs set 35 before k 0 / k 1 and set 36 before k 2..8 (sub_826F8958 +0x44 / +0xAC, sub_826F8F88 +0x168 / +0x1CC). A set the manager lacks is not installed
 // (sub_827F6A40 -> -1, the install skipped), so a chamber k >= 2 piece keeps the 35 installed before it: the fallback below. `has(id)` = the record carries set id; -1 = none (the caller's arena-props fallback).
 // S111 CHAMBERMAP review [C listing + files]: the manager's set ids are the acts of the stage key it was given (sub_827F7BA0 +0x33C / +0x5E4; the stage load sub_824E8E38 passes bgNN.pac entry 30000), and no retail
-// arena's key (all 57 bg pacs, no DLC arena) has act 35 or 36: in the shipped game both lookups miss, the chamber keeps whatever set was installed before its nodes [U which], and this pick returns -1 (the arena props set stands in).
+// arena's key (all 57 bg pacs, no DLC arena) has act 35 or 36: in the shipped game both lookups miss and the chamber draws under the light its draw worker installed last (S111 CHAMBERLIGHT, docs\systems\elimination_chamber.md
+// "The light the pieces really draw under": category 3 = the last character the rim pass drew [C chain], 35 / 36 = the arena's category-35 group `a` last run [L]); this pick returns -1 and the arena props set stands in:
+// a known LOOK difference, not built (it needs the wrestler latch's block and the group-`a` run on the stage rows).
 inline constexpr int32_t kChamberPach = 6;
 template <class HasSet>
 constexpr int32_t StageLightKeyOf(int32_t pach, uint32_t k, HasSet has) {
@@ -181,7 +185,11 @@ inline constexpr bool IsShadowPropsCall(uint32_t slot_flags) { return (slot_flag
 static_assert((kCallStageCaster & (PackStageFlags(kCallEntryMask, true, true, kStageLrMask) | kCallShadowPass | kCallShadowProps | kCallGmSet | kCallBloodSplat | kCallEventProp)) == 0, "kCallStageCaster overlaps a stage row bit");
 inline constexpr int32_t GmId(uint32_t key) { return kGmIdBase + int32_t(key & (kGmIdSpan - 1)); }
 inline constexpr int32_t GmKeyOfId(int32_t id) { return id >= kGmIdBase && id < kGmIdBase + kGmIdSpan ? id - kGmIdBase : -1; }
-inline constexpr uint32_t PackGmFlags() { return kCallGmSet | kCallVtableOk; }
+// S111 GMBORROW (docs\research\s111\GMBORROW.md): bit 16 of a gm row (the entry field, unused on gm rows) = the game handed this object's controller the stage holder's texture set [[0x837631C4]] (settings byte
+// G+41 set: sub_827C9190), not the stage's own list [[0x83763544]+14452]. The drawer loads the bank with the chamber's bgEtc PACH 6 set only then (asset_load.h LoadGmEntry `holder_tex`).
+inline constexpr uint32_t kCallGmHolderTex = 1u << kCallEntryShift;
+inline constexpr uint32_t PackGmFlags(bool holder_tex = false) { return kCallGmSet | kCallVtableOk | (holder_tex ? kCallGmHolderTex : 0u); }
+inline constexpr bool GmHolderTex(uint32_t slot_flags) { return (slot_flags & kCallGmHolderTex) != 0; }
 inline constexpr uint32_t PackBloodFlags(uint32_t tex) { return kCallBloodSplat | kCallVtableOk | ((tex & kCallEntryMask) << kCallEntryShift); }
 inline float ColourOfBloodId(int32_t id) {   // the bfloat16 colour back as a float
   const uint32_t b = (uint32_t(id - kBloodIdBase) & 0xFFFFu) << 16;
@@ -202,14 +210,31 @@ inline constexpr int32_t BeltId(uint32_t sub) { return kBeltIdBase + int32_t(sub
 inline constexpr int32_t BeltSubOfId(int32_t id) { return id >= kBeltIdBase && id < kBeltIdBase + kBeltIdSpan ? id - kBeltIdBase : -1; }
 inline constexpr uint32_t kTitleMgrGlobal = 0x836F2D88, kTitleMgrOffKey = 189208, kSettingsGlobal = 0x8376AAF0, kSettingsOffTitleObj = 72428, kTitleObjOffKey = 8;   // [C] COV10 B2 (asm 0x82590094..0x825900D8)
 inline constexpr uint32_t kGmListGlobal = 0x8376A9A0, kGmCtlCount = 12, kGmTableOff = 2120, kGmTableLen = 512, kGmObjOffModel = 48, kGmObjOffKey = 44;   // [C] GMS.md (A) Draw / Lists
+// S111 GMBORROW [C sub_827C9190]: settings byte G+41 (G = 0x8376AAF4, sub_827D7578; 1 for match types 39 / 40, the Elimination Chamber) = byte 1 of this big-endian word; non-zero = the holder's set is handed
+inline constexpr uint32_t kGmHolderTexWord = 0x8376AB1C, kGmHolderTexShift = 16;
 inline constexpr uint32_t kBloodHolderGlobal = 0x83767DE4, kBloodPoolGlobal = 0x837689D4, kBloodHolderOffModel = 8, kBloodRecOff = 2448, kBloodRecStride = 48, kBloodRecCount = 30;   // [C] GMS.md (B) Pool / Set-up
 inline constexpr uint32_t kBloodRecOffAlpha = 20, kBloodRecOffColour = 24, kBloodRecOffTex = 32;
+// S111 BLOODMOD2 (docs\research\s111\BLOODMOD2.md): the pool's particles behind the records: particle k at Q + 48 + 80 k, +24 its state (0..3 alive, 4 free, 5 placed off the floor), +64 its alpha, which the pool
+// update sub_826983B8 copies into record k while [Q + 3888] == 0; the replay track (vtable 0x82028CE0, slots 7 / 8) sets that word to 1 while its slot 3 writes the records itself.
+inline constexpr uint32_t kBloodPartOff = 48, kBloodPartStride = 80, kBloodPartOffState = 24, kBloodPartOffAlpha = 64, kBloodStateFree = 4, kBloodPoolOffReplay = 3888;
+// S111 BLOODMOD2 (the permanent blood mod only: floor_blood_switch.h On): a blood row's identity. slot_flags bits 0-7 = the record's particle slot k (CallSlot); `instance` = BloodIdentity(the pool count the row was
+// recorded under, the splat's serial: scene_live\blood_slot_id.h), 0 = no identity (a record the replay track wrote, or one that is not its particle's own copy). Mod off: slot bits 0, instance = the n-th splat.
+inline constexpr uint32_t BloodIdentity(uint32_t pools, uint32_t serial) { return (serial & 0xFFFFu) == 0 ? 0u : ((pools & 0xFFFFu) << 16) | (serial & 0xFFFFu); }
+inline constexpr uint32_t BloodIdentityPools(uint32_t identity) { return identity >> 16; }
+// S111 BLOODMOD3 (docs\research\s111\BLOODMOD3.md; the permanent blood mod only): kCallBloodHeld (bit 30) marks a blood row the tracker MADE from a live particle the game is fading without drawing its own record
+// (an instant replay: scene_live\blood_held.h). It is keep-only: the store keeps it (floor_blood_keep.h Apply; the kept copy drops the bit) and the plan never draws it as itself (weapon_plan.h Plan).
+inline constexpr uint32_t kCallBloodHeld = 0x40000000;
+inline constexpr bool IsBloodHeld(uint32_t slot_flags) { return (slot_flags & kCallBloodHeld) != 0; }
+static_assert((kCallBloodHeld & (PackBloodFlags(kCallEntryMask) | 0xFFu | kCallShadowPass | kCallShadowProps | kCallGmSet | kCallStageCaster)) == 0, "kCallBloodHeld overlaps a blood row bit");
 // (review fix 1: above the key range 1000..1755 / 0x6DB: 0x400 collided with keys >= 1024)
 inline constexpr uint32_t kWantGm = 0x10000, kWantBlood = 0x20000;   // the drawer's (arena, key | kWantGm) / (arena, texture | kWantBlood) asked-for pairs (gm / blood models are asked for at their first draw)
 inline constexpr uint32_t WantGm(uint32_t key) { return key | kWantGm; }
 inline constexpr uint32_t WantBlood(uint32_t tex) { return tex | kWantBlood; }
 inline constexpr bool IsWantGm(uint32_t v) { return (v & kWantGm) != 0; }
-inline constexpr uint32_t WantKeyOf(uint32_t v) { return v & ~(kWantGm | kWantBlood); }
+inline constexpr uint32_t kWantGmHolderTex = 0x80000;   // S111 GMBORROW: + the gm row's kCallGmHolderTex (DropGbr drops the model it asked for: GmEntryOf's "/h" form). Review: 0x40000 is kWantRecoloured (below)
+inline constexpr uint32_t WantGmHolder(uint32_t key, bool holder_tex) { return key | kWantGm | (holder_tex ? kWantGmHolderTex : 0u); }
+inline constexpr bool IsWantGmHolderTex(uint32_t v) { return (v & kWantGmHolderTex) != 0; }
+inline constexpr uint32_t WantKeyOf(uint32_t v) { return v & ~(kWantGm | kWantBlood | kWantGmHolderTex); }
 
 inline constexpr uint32_t kEventWeaponVtable = 0x82029628;   // [C] the CWeapon made by MakeWeapon (sub_8272BCD0 / the dtor sub_8272D670 set it; BELT.md Adversary 4)
 inline constexpr uint32_t kOffEventModels = 1228;            // [C] W + 1228 + 4i, i = 0..9: the models of one event CWeapon (BELT.md Adversary 1)
@@ -218,6 +243,10 @@ inline constexpr uint32_t kMaxEventModels = 10;
 // (Section 59 is census / prefetch only: the draw never joins on it.)
 inline constexpr uint32_t kSlotFlagEvent = 2;
 inline constexpr uint32_t kWantEvent = 0x100;   // the drawer's (id, entry) want pairs: entry | kWantEvent = an evtobj.pac event prop entry, not an m2.pac weapon model
+inline constexpr uint32_t kSlotFlagRecoloured = 16;    // S111 FOLLOWUPS3: an event row whose model the game built from its recoloured read (scene_live\prop_read_note.h): the drawer asks for the "/s" entry
+inline constexpr uint32_t kWantRecoloured = 0x40000;   // S111 FOLLOWUPS3: entry | kWantEvent | kWantRecoloured = that model's own evtobj.pac entry (weapon_draw_core.h EvtEntryOf "/s")
+// S111 GMBORROW review: every want flag is its own bit (the gm / blood pairs and the event / stage pairs live in different lists today; one value for two meanings would merge them the day a list holds both).
+static_assert((kWantGmHolderTex & (kWantGm | kWantBlood | kWantEvent | kWantStage | kWantRecoloured)) == 0, "kWantGmHolderTex shares a bit with another want flag");
 // S111 CUTREACH2 review (docs\research\s111\CUTREACH2.md "Review"): section 59 serves two uses on two clocks. The weapon manager's table of the latch BEFORE the record's (the walk whose calls the record carries,
 // latch_period.h) is the draw side: a plain row (ArenaFixedPropsDrawn counts it). A row of the NEWEST latch's table that the draw side does not hold is a load HINT only (flags bit 3): the drawer's prefetch asks
 // for it so a model's load starts before its first draw; nothing that changes what is drawn counts it.

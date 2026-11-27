@@ -55,7 +55,7 @@ OVERRIDE_ENV = 'SYNTAX_CFG_OVERRIDE_JSON'   # selftest planted twins: {"CMakeLis
 # the in-repo files configure READS (build.ninja's RERUN_CMAKE deps + the two file(STRINGS) / presets readers, GSMAIN E5): real copies, everything else is an empty placeholder
 REAL_INPUTS = ('CMakeLists.txt', 'CMakePresets.json', 'VERSION', 'generated/rexglue.cmake', 'third_party/audio/opus/opus_sources.cmake',
                'third_party/audio/opus/sources.txt', 'third_party/libwebp/libwebp.cmake', 'tools/scene/keep_stream_sources.txt', 'tools/scene/keep_stream_off_sources.txt')
-LIST_DIRS = ('src', 'assets', 'third_party', 'probes', 'game_logo.ico')   # probes/: the wwe2k14_probes target's sources (CMakeLists.txt add_library)
+LIST_DIRS = ('src', 'assets', 'third_party', 'probes', 'equiv', 'game_logo.ico')   # probes/, equiv/: the wwe2k14_probes / wwe2k14_equiv_tests targets' sources (CMakeLists.txt add_library)
 SOURCES_CMAKE = 'generated/default/sources.cmake'
 SL_H = 'thirdparty/streamline/sdk/include/sl.h'
 IMGUI_DIR = 'thirdparty/rexglue-sdk-src/thirdparty/imgui'
@@ -664,7 +664,7 @@ def reference_lines(main_dir, build, workdir):
     if os.path.isdir(bdir):
         _rmtree(bdir, workdir)
     os.makedirs(workdir, exist_ok=True)
-    with _admit.hold('syntax.worker', 1, timeout_s=120):
+    with _admit.hold('syntax.worker', 1):
         r = _proc.run(_cmake_cmd(pl, main_dir, bdir), timeout=T_CFG)
         if r.returncode:
             raise ConfigureFailed('the reference configure of main\'s own tree failed (rc %d):\n%s' % (r.returncode, '\n'.join(((r.stdout or '') + (r.stderr or '')).strip().splitlines()[-15:])))
@@ -762,7 +762,7 @@ def ensure(tree, main_dir, build):
     if lines is not None:
         return bdir, src, key, None, lines
     t0 = time.time()
-    with _admit.hold('syntax.worker', 1, timeout_s=120):   # S106 GSMAINF N2: the queue slot first, THEN the key lock (a lock held while waiting for a slot made others steal it)
+    with _admit.hold('syntax.worker', 1):   # S106 GSMAINF N2: the queue slot first, THEN the key lock (a lock held while waiting for a slot made others steal it)
         with _lock(os.path.join(store, key + '.lock')):
             if not os.path.isfile(src_done):
                 if os.path.isdir(src):

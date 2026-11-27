@@ -167,7 +167,9 @@ def wiring(root):
     for what, rel, needle in WIRING:
         path = os.path.join(root, rel)
         try:
-            text = open(path, encoding='utf-8', errors='replace').read().replace('\r\n', '\n')
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+            from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+            text = read_path(path)
         except OSError:
             line(False, 'wiring: cannot read %s' % rel)
             continue

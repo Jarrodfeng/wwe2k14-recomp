@@ -1,0 +1,54 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on, replay_mode on
+# S111 REPRO2: makes the BARE-torso test superstar (mirror out\bench\userdata_caw_bare = userdata_caw_s105 + this superstar; run it with -Data userdata_caw_s105, then copy the run's
+# userdata_work_sN folder, without cache, to out\bench\userdata_caw_bare). Tester report: "a fixed T-shaped dark overlay sticks to the torso of a created superstar (moveset preview,
+# entrance, match)". Our test CAW (userdata_caw_s105, id 0) wears the TOPS item "tank top" and shows nothing; probe s111_repro2_caw_probe.txt showed that a NEW superstar in the
+# editor is BARE (skin torso, navy trunks; CLOTHING > UPPER BODY rows OUTFITS / TOPS / JACKETS / BODY ACCESSORIES / ARMWEAR / EDIT LAYERS all untouched), so this route changes
+# NOTHING: it enters the editor on a new superstar (as s111_caw_portrait_hair.txt: CREATIONS > SUPERSTAR > NEW, A, template) and saves it (LB = the OTHER tab, DOWN x8 = ACCEPT,
+# A, YES (LEFT, A), ROSTER APPLICATION FORM > UP = ACCEPT > A). The CAS preview shots (front-on) are the first look at the bare torso.
+# Question: does the editor's new default superstar (no shirt) save and does its torso show a dark T in the CAS preview?
+on_fail quit
+log bench: start repro2 caw make
+include boot_to_menu
+wait_state menu 1 1200 30
+wait_frames 60
+include menu_to_creations
+wait_frames 120
+press A
+wait_frames 120
+press_until_state A seq 76 5 120
+wait_frames 900
+press A
+wait_frames 500
+log scene=m_caw_landing
+log_text 8
+screenshot m_caw_landing
+wait_frames 300
+screenshot m_caw_landing2
+wait_frames 300
+screenshot m_caw_landing3
+press LB
+wait_text MENU SCREEN POSE 300
+wait_frames 30
+repeat 8
+press DOWN
+wait_frames 60
+end_repeat
+wait_frames 30
+press A
+wait_frames 250
+press LEFT
+wait_frames 60
+press A
+wait_text ROSTER APPLICATION FORM 900
+wait_frames 60
+press UP
+wait_frames 30
+press A
+wait_text QUIT TO DESKTOP 3600
+wait_frames 90
+log scene=m_caw_saved
+screenshot m_caw_saved
+wait_frames 300
+log bench: done
+quit

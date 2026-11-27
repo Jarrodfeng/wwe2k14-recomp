@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """S103 lane MP offline census (0 game runs): what the STREAM draws on the flat 2D corpus, read with fview --ops --json, against what the recorder is built to read.
 For each capture and a spread of frames: particle-class draws, the particle GROUPS (maximal runs of particle draws, separated by any other draw), the 2D rows (class sprite, technique T_Rect / T_Sprite /
-T_SpriteYUVAlpha) before each group (= the row_after_p1 - 1 the recorder stamps at the node call), and the verdict the flat frame would read: no particle draw = Whole (an empty pass), else Held
+T_SpriteYUVAlpha) before each group (= the row position the flat drawer gives the group, flat_particles.h PosOf, when the frame lost no row), and the verdict the flat frame would read: no particle draw = Whole (an empty pass), else Held
 (screen_cam). The recorded side (the node calls themselves) only exists in a live run: this census is the stream side of the PF-style comparison and the prediction the first live census must meet.
   py -I tools/scene/mp_census.py [--root DIR] [--fview EXE] [--captures DIR] [--frames N] [--json OUT]"""
 import argparse

@@ -28,7 +28,9 @@ def scan(root):
             if not f.endswith(EXT):
                 continue
             path = os.path.join(dp, f)
-            text = open(path, encoding='utf-8', errors='replace').read()
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+            from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+            text = read_path(path)
             for m in PAT.finditer(text):
                 key = (rel_dir + '/' + f, m.group(1))
                 counts[key] = counts.get(key, 0) + 1

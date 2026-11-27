@@ -8,7 +8,7 @@
 //
 // SLOTS [C RINGBREAK.md section 1]: sub_82596040(rids, k) returns the slot's model (0 above 44; the switch over the ring table G = [0x836F4C74]); posts 5 + i, turnbuckles 9.., covers 21 + 3 corner + layer, ropes
 // 33 + 3 side + height. The model is the one the slot switch returns: posts G+48, turnbuckle G+44, cover G+36, rope G+20 (the HIGH model of each class; the low LOD models are not in the switch, so the break mode has no
-// low rows). The call index of a row = the index within its class in slot order.
+// low rows). The call index of a row = the index within its class in slot order; a rope's = its slot - 33 = 3 side + height (S111 CAARING review: the game's rope record index, sub_825CF2F8 +0x80C).
 // NO TIME STEP [C, read for this lane]: sub_82413120 -> sub_823DB1C0(obj, 1, 0) reads the motion's state ([obj+108] rotation / scale / translation words, [obj+156] count, [obj+116] flags) and writes only the model's node
 // matrices ([[obj+32]+180] + 64 i, through sub_82C407E0 = quaternion to matrix and sub_82296630); it never writes the motion object. The time step is the RIDS update's own vcall +48 (sub_82598680), which keeps running.
 //
@@ -36,6 +36,8 @@ using ringrecompute::RingCensus;
 
 inline constexpr uint32_t kRidsByteAddr = 0x837632FA;   // bit 0 = motion posing (0x825CE338-0x825CE358, 0x825CFAD8)
 inline constexpr uint32_t kFirstSlot = 5, kLastSlot = 44;   // the skipped callback's slots (posts 5..8, turnbuckles 9..20, covers 21..32, ropes 33..44); sub_82596040 returns 0 above 44
+inline constexpr uint32_t kFirstCoverSlot = 21;             // cover slot = 21 + 3 corner + layer: sub_825CE668 +0x2B8 passes r4 = 3 (r25 + 7) + r28 to sub_82595CB0
+inline constexpr uint32_t kFirstRopeSlot = 33;              // S111 CAARING review: rope slot = 33 + 3 side + height: sub_825CF2F8 +0x80C passes r4 = r19 + r25 (r19 = 33 + 3 side) to sub_82595CB0
 inline constexpr uint32_t kRidsRoot = 0x10000;              // a pointer below this is not a model
 inline constexpr uint32_t kCanvasSlot = 56;                 // [G + 56] = the canvas model (sub_82608CB0; ring_rows_core.h kClassTable {56, kRcCanvas})
 // The classes a RIDS slot can hold (bit in Inputs::rids and in the mask AppendRidsRows takes).
@@ -78,6 +80,7 @@ inline Store& The() {
 
 struct Counts {
   uint32_t rope = 0, tb = 0, cover = 0, post = 0;
+  uint32_t cover_hidden = 0;   // S111 TBPAD review: cover slots the game does not submit (the corner's pad fade <= 0)
 };
 inline uint32_t BitOfClass(uint8_t cls) {
   switch (cls) {
@@ -92,9 +95,13 @@ inline uint32_t MaxNodesOfBit(uint32_t bit) {
   return bit == kBitRope ? kMaxNodesRope : bit == kBitTb ? kMaxNodesTb : bit == kBitCover ? kMaxNodesCover : kMaxNodesPost;
 }
 
-// The rows of one hook frame's slot copies, for the classes whose own gates passed (`mask`). Class = the game's table (RingTable::ClassOf of the slot's model); call = the index within the class in slot order.
+// The rows of one hook frame's slot copies, for the classes whose own gates passed (`mask`). Class = the game's table (RingTable::ClassOf of the slot's model); call = the index within the class in slot order,
+// except a rope's: slot - kFirstRopeSlot = 3 side + height, the record index of its created-arena colour (car_rope_colours.h), the same as the grid's AppendRope (S111 CAARING review).
 // A slot with a model below 0x10000, no class, a node count of 0 or above the class's, or a short copy gives no row and is counted `rids_refused`.
-inline Counts AppendRidsRows(const Set& s, uint32_t stamp, uint32_t mask, const ringrows::RingTable& table, std::vector<RingRows>& rows, std::vector<RingNodeRows>& pool, RingCensus& cn) {
+// S111 TBPAD review: `cover_fade` = the four corner fades X[2342 + corner] (X + 9368 + 4 corner). sub_825CE668 tests them after the RIDS pose as in the grid mode (0x825CE90C, then 0x825CEB38-0x825CEB64): a
+// corner's third-layer cover (the turnbuckle pad) with a fade <= 0 is not submitted (no row, counted cv_hidden and Counts::cover_hidden), else its alpha is min(fade, 1).
+inline Counts AppendRidsRows(const Set& s, uint32_t stamp, uint32_t mask, const float (&cover_fade)[ringrecompute::kCvCorners], const ringrows::RingTable& table, std::vector<RingRows>& rows,
+                             std::vector<RingNodeRows>& pool, RingCensus& cn) {
   Counts out;
   cn.rids_refused += s.refused;
   uint32_t next[4] = {};   // the running call index per class (rope, turnbuckle, cover, post), in slot order
@@ -103,8 +110,15 @@ inline Counts AppendRidsRows(const Set& s, uint32_t stamp, uint32_t mask, const 
     const uint32_t bit = BitOfClass(table.ClassOf(sl.model));
     if (!bit) { ++cn.rids_refused; continue; }
     const uint32_t ci = bit == kBitRope ? 0u : bit == kBitTb ? 1u : bit == kBitCover ? 2u : 3u;
-    const uint32_t call = next[ci]++;
+    if (bit == kBitRope && sl.k < kFirstRopeSlot) { ++cn.rids_refused; continue; }   // S111 CAARING review: a rope model outside the rope slots has no record index
+    const uint32_t call = bit == kBitRope ? sl.k - kFirstRopeSlot : next[ci]++;       // S111 CAARING review: a rope's call = 3 side + height whatever slots before it refused
     if (!(mask & bit)) continue;   // that class's own gates were closed this frame (counted there)
+    float alpha = 1.f;
+    if (bit == kBitCover && sl.k >= kFirstCoverSlot && sl.k < kFirstCoverSlot + ringrecompute::kCvCorners * ringrecompute::kCvLayers && (sl.k - kFirstCoverSlot) % ringrecompute::kCvLayers == 2) {
+      const float f0 = cover_fade[(sl.k - kFirstCoverSlot) / ringrecompute::kCvLayers];
+      if (!(f0 > 0.f)) { ++cn.cv_hidden, ++out.cover_hidden; continue; }   // not submitted: no row (the call index is already taken above, as the grid path keeps call = 3 corner + layer)
+      alpha = f0 > 1.f ? 1.f : f0;                                          // [model + 252] = min(f0, 1)
+    }
     if (sl.n == 0 || sl.n > MaxNodesOfBit(bit) || sl.pal.size() < size_t(sl.n) * 16) { ++cn.rids_refused; continue; }
     RingRows e;
     e.klass = bit == kBitRope ? kRcRopeHi : bit == kBitTb ? kRcTurnbuckle : bit == kBitCover ? kRcCoverHi : kRcPostHi;
@@ -115,7 +129,7 @@ inline Counts AppendRidsRows(const Set& s, uint32_t stamp, uint32_t mask, const 
     e.first_node = uint32_t(pool.size());
     e.n_nodes = uint16_t(std::min<uint32_t>(sl.n, kRingMaxNodes));
     e.flags = kRrRecomputed | (sl.n > kRingMaxNodes ? kRrCapped : 0u);
-    e.alpha = 1.f;
+    e.alpha = alpha;
     for (uint32_t k = 0; k < e.n_nodes; ++k) {
       RingNodeRows nr;
       arenaworld::RowsFromMatrix(&sl.pal[size_t(k) * 16], nr.rows);

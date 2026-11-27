@@ -571,7 +571,7 @@ def judge_tree(tree, overlay=None, stats=None):
         jobs_in = [(tree, u, mode, args, key, overlay, roots) for u, mode, args, key in misses]
         # each job in its own worker PROCESS (`py -I cvar_pp.py --worker`, the job as JSON on stdin): the scan of a 60-90 MB text is Python work, and threads made a 1 s preprocess
         # take 6 s under the GIL; a multiprocessing pool re-imports the caller's main script on Windows. The threads here only wait on their child.
-        with _admit.hold(KIND, want, timeout_s=120) as n, ThreadPoolExecutor(max_workers=max(1, min(int(n), len(jobs_in)))) as ex:
+        with _admit.hold(KIND, want) as n, ThreadPoolExecutor(max_workers=max(1, min(int(n), len(jobs_in)))) as ex:
             results = list(ex.map(_run_worker, jobs_in))
         for u, mode, key, res, err, dt in results:
             times.append(dt)

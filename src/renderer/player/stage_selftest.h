@@ -130,7 +130,7 @@ inline int StageSelfTest(Renderer& renderer, bool split, int frames) {
       renderer.RenderFrame(b.Finish());
       check(f);
     }
-    renderer.DestroyImage(fresh);  // released after the hand-over (live.cpp:919's order): must outlive frame f's recording
+    renderer.DestroyImage(fresh);  // released after the hand-over (live.cpp's order): must outlive frame f's recording
   }
   if (stage) {
     stage->EndOfInput();

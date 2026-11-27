@@ -1,0 +1,14 @@
+name = "marks"
+module = "qmarks"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 98
+text = '''  marks [--mark U|L|C] [--seam T] [--note N] [--addr A]  the [U] / [L] rows of db/claims + db/seams and the seams' open items, with what settles each; totals first (qmarks.py)'''
+
+[[route]]
+order = 154
+text = '''- what is still [U] / [L] (claims, seam rows, open items) and what settles it: marks --mark U|L [--seam T] [--note N]'''

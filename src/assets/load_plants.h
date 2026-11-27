@@ -91,5 +91,35 @@ inline bool& VdecOldPlant() {
   static bool v = false;
   return v;
 }
+// S111 MODBELT planted twin (tools\assets\modbelt_unit only; the game exe never sets it): the old entrance-prop lookup order, the disc's evtobj.pac
+// first and the packs only for an id the disc lacks (asset_load.h PropPachInPacks answers -1), where the game's pac list puts every pack before the disc.
+inline bool& PropDiscFirstPlant() {
+  static bool v = false;
+  return v;
+}
+// S111 DESKMODEL planted twin (tools\assets\arena_props_test only; the game exe never sets it): the announce desk / top loaded as bgEtc entries 6 / 7 in every arena (asset_load.h
+// LoadArena), the loader before the per-arena model (106 / 105 / 107 by the arena record's bytes 64 / 65).
+inline bool& OldDeskPlant() {
+  static bool v = false;
+  return v;
+}
+// S111 DESKSKIN planted twin (tools\assets\arena_props_test only; the game exe never sets it): every announce desk / top vertex on its mesh's palette slot 0 row (asset_load.h
+// PlaceDeskMeshes), the loader before the per-vertex rows (DESKMODEL: each mesh placed whole).
+inline bool& DeskSlot0Plant() {
+  static bool v = false;
+  return v;
+}
+// S111 PLACECOUNT0 planted twin (tools\assets\arena_props_test only; the game exe never sets it): the placement table read without the loader's block-1 gate
+// (arena_props_table.h PlacementIds), the parse before it: a block 1 of count 0 still let the arena block be read and placed.
+inline bool& PlacementGateOffPlant() {
+  static bool v = false;
+  return v;
+}
+// S111 PLACESIGNED planted twin (tools\assets\arena_props_test only; the game exe never sets it): the placement table's counts read unsigned (arena_props_table.h
+// Count16), the parse before it: a count of -1 (0xFFFF) asked for 65535 chunks / records and the bytes were refused.
+inline bool& UnsignedCountsPlant() {
+  static bool v = false;
+  return v;
+}
 }  // namespace load_detail
 }  // namespace assets

@@ -137,6 +137,7 @@ inline void wwe2k14::scene_crowd::Flush(PPCContext& ctx, uint8_t* base, uint32_t
 }
 
 // The op-21 recorder: the crowd's member constants.
+// SKIP-ORIGINAL: the card / member cuts skip op-21 records they drop with their op 15 (KnockOut, SkipCardOp21, SkipMemberOp21), and an open scene_crowd run in mode 1 records the member without calling the recorder; every other call runs the original
 REX_HOOK_RAW(sub_82BB27D8) {
   using namespace wwe2k14::scene_crowd;
   wwe2k14::q2d_tap::OnOp21(ctx, base);   // S103 I1: read only (the 2D layer's constants c0 / c1 / c28 while a T_Rect / movie scope is open: a thread_local flag test otherwise); before every skip below. (S103 I3 review: the thread's register shadow is NOT updated here: OnOp21Regs runs only before each call of the original recorder below)
@@ -206,6 +207,7 @@ REX_HOOK_RAW(sub_82BB27D8) {
 }
 
 // The op-15 recorder: the crowd's member draws.
+// SKIP-ORIGINAL: the crowd draw records the cuts drop (KnockOut, DropDraw, DropCard, DropMember) are not made, and a run member in mode 1 is folded into the run without the original record; every other call runs the original
 REX_HOOK_RAW(sub_82BB10C0) {
   if (wwe2k14::card_thin::KnockOut(uint32_t(ctx.lr), false)) return;   // S102 UQ1 TEST ONLY (bit 0x80): the draw record is not made
   wwe2k14::draw_origin::RecordTag origin_tag(ctx, base, 15);  // S101 names: the record carries its submitter (draw_origin.h)
@@ -300,6 +302,7 @@ REX_HOOK_RAW(sub_82512F70) {
 
 // S102 UQ2 (bit 4): the floor object's draw (sub_8276EAA0; frame 480, scratch r1+272 = addi r3,r1,272 at 0x8276ECF8, matrix r1+112 = addi r5,r1,112 at 0x8276ECD8). A hook only for the loop-exit op 21 of a skipped tail.
 REX_EXTERN(__imp__sub_8276EAA0);
+// SKIP-ORIGINAL: on an OURS frame the floor-seat group's draw is skipped (the comment inside: S103 H); otherwise the original runs
 REX_HOOK_RAW(sub_8276EAA0) {
   // S103 H: the frame is OURS: the floor-seat group's draw (the seated ringside people, a task beside the crowd entry: scene_skip_cut.py REACH, review F5) is skipped; the floor members' op-21 reader inside it is lane A / D's to move
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::FloorSeats)) return;

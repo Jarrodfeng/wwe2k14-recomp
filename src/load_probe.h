@@ -576,6 +576,7 @@ inline std::atomic<uint64_t> g_wait_cut_pac{0}, g_wait_cut_jobs{0};  // ... beca
 }  // namespace wwe2k14::load_probe
 
 REX_EXTERN(__imp__sub_82C37B98);
+// TWICE-ORIGINAL: the fast loader re-runs the original in its extra-step loop (up to max_steps within the budget), so the state machine steps several times per pass
 REX_HOOK_RAW(sub_82C37B98) {
   using namespace wwe2k14::load_probe;
 #ifdef _WIN32
@@ -662,6 +663,7 @@ inline void StoreBe32(uint8_t* base, uint32_t addr, uint32_t v) {
   p[3] = uint8_t(v);
 }
 }  // namespace wwe2k14::load_probe
+// SKIP-ORIGINAL: a frame wait from the loader loop's two sites while the loader has work runs the same sequence with a short wait instead (the comment above); every other caller runs the original
 REX_HOOK_RAW(sub_82C2F878) {
   using namespace wwe2k14::load_probe;
   const uint32_t lr = uint32_t(ctx.lr);

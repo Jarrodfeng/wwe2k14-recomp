@@ -112,7 +112,7 @@ class WrestlerContributor final : public Contributor {
   // S103 L31B (the interim guard): how many kept skeletons this record's Collect would emit with an OLD palette (no update tagged <= PickLimit(record_frame)) that are visible (a slot) AND still PRESENT.
   // Review A: presence is decided by SLOT, never by pointer: a stale visible body is present while its slot (the update hook's match) is occupied or unreadable in the table (a wrong [char+48] [L] or a
   // one-frame read failure can then never drop a wrestler while the frame goes ours); only an EMPTY slot means he left. null = unknown: every stale visible body counts. In mode Ours the caller withholds
-  // kInWrestlerPalette when this is > 0, so the frame walks (the STREAM build; a build with no walk has no such frame: Collect holds the body for up to kConsumerFresh records instead, S103 AUSF, see SetNoWalk).
+  // kInWrestlerPalette when this is > 0, so the frame walks (the STREAM build; a build with no walk has no such frame: Collect drops the body from the record, S111 FOLLOWUPS3).
   uint32_t StaleVisibleAt(uint64_t record_frame, const SlotTable* slots);
   // S107 CAM: a refreshed slot body is visible ONLY while the game asked to draw it (draw_frame, NoteDrawAsked): the update hook says "posed", not "drawn" (Create a Moveset poses two extra slot bodies it
   // never draws). S111 CAWTPOSE (HEADGUARD F1): the same in the STREAM build (the ask is taken in both builds); the paragraph below is the older rule, now only the planted twin kFaultUpdShows. Also
@@ -171,8 +171,8 @@ class WrestlerContributor final : public Contributor {
   uint64_t DrawAsked() const { return draw_asked_.load(std::memory_order_relaxed); }
   uint64_t QuietUnseen() const { return quiet_unseen_.load(std::memory_order_relaxed); }
   uint64_t SlotGone() const { return slot_gone_.load(std::memory_order_relaxed); }
-  // S103 AUSF: that is the STREAM build's rule (its frame walks); with no walk a stale visible body still in the character table is HELD (stale_held, <= kConsumerFresh records), dropped only after it left the table or is older.
-  // In mode Ours Collect never emits a VISIBLE kept skeleton (resolved slot >= 0) that was not refreshed for this record (it ages and is pruned as before); a stale INVISIBLE one (a piece, a skel:) is still
+  // In mode Ours Collect never emits a VISIBLE kept skeleton (resolved slot >= 0) that was not refreshed for this record (it ages and is pruned as before), in either build (S111 FOLLOWUPS3: the S103 AUSF
+  // pose hold of the build with no walk is gone with the latch refusals it stood in for); a stale INVISIBLE one (a piece, a skel:) is still
   // emitted, so rf_wrestlers counts it a hole (review B). Counted here.
   uint64_t StaleDropped() const { return stale_dropped_.load(std::memory_order_relaxed); }
   // The slot path's census (since start): slot targets read, slot skeletons with no count, slot targets the hook-liveness rule would have dropped (the run-30 case), and the join of the table's slot with the
@@ -208,18 +208,10 @@ class WrestlerContributor final : public Contributor {
   using KnownEraseLogFn = void (*)(uint32_t, uint32_t, uint32_t, uint64_t);
   void SetKnownEraseLog(KnownEraseLogFn f) { known_erase_log_.store(f, std::memory_order_relaxed); }
   // S103 AUSF (AUS2 log lines 1-3): the stream-free build names a body it leaves out. kind: 0 = stale drop, 2 = quiet hide (1, the latch read refused, went with the derived-head guard: S111 HEADGUARD). (kind, record/hook frame, skeleton, slot, a, b, c)
-  // 0: a = age in records, b = last palette tag, c = hold frames still allowed (kConsumerFresh); 2: a = update-hook frame, b = draw-ask frame, c = replay pose frame. Each kind prints at most 64 lines a run (the glue's logger).
+  // 0: a = age in records, b = last palette tag, c = 0; 2: a = update-hook frame, b = draw-ask frame, c = replay pose frame. Each kind prints at most 64 lines a run (the glue's logger).
   using WrestlerEventLogFn = void (*)(int, uint64_t, uint32_t, int32_t, uint64_t, uint64_t, uint64_t);
   void SetWrestlerEventLog(WrestlerEventLogFn f) { wrestler_event_log_.store(f, std::memory_order_relaxed); }
-  // S103 AUSF (AUS2): a build with NO command-stream walk (!WWE2K14_STREAM()) has no frame that "falls back to the game": a stale visible body still in the character table is held (drawn with its kept
-  // palette) for up to kConsumerFresh records, dropped only when it left the table. The default follows the build; the unit rig flips it to prove both builds in one binary. The stream build drops at once.
-  // (S111 HEADGUARD: the latch read itself is submitted as it stands in both builds: the derived-head guard is gone.)
-  void SetNoWalk(bool v) { no_walk_ = v; }
-  uint64_t HeldWithExtras() const { return held_with_extras_.load(std::memory_order_relaxed); }   // S103 AUSF review 2: held stale bodies that kept their hair rows
   void SetPieceRowsForTest(uint32_t owner, uint32_t piece_id) { std::lock_guard<std::mutex> lock(mutex_); ExtraRow r; r.piece_id = piece_id; r.node = 1; r.piece_nodes = 2; test_rows_[owner].assign(1, r); }   // tests: rows Latch re-adds to piece_rows_ every latch
-  uint64_t StaleHeld() const { return stale_held_.load(std::memory_order_relaxed); }
-  static constexpr uint32_t kFaultHoldAny = 32768, kFaultHoldNoSlotCheck = 65536, kFaultHoldNoExtras = 262144;   // S103 AUSF review twins: hold a hidden body / hold over a fresh slot claimant / hold without the hair rows
-  static constexpr uint32_t kFaultNoWalkRefuse = 16384;   // S103 AUSF planted twin: the stream build's rule in a no-walk build (a stale visible body is dropped at once): the vanishing wrestler
   static constexpr uint32_t kFaultPiecesNoGates = 524288;   // (moved off 131072 at the s111 merge: MATCHFREE's kFaultFreedNoKeep; caught by check.py flag_bit) S111 PIECEROUTE twin (slot22_pieces.h PiecesOnly): slot 22's gate ignored, a hidden owner with its DRTR node on is routed pieces-only although the game's slot 22 returns at once
   uint64_t BodyLinkRevived() const { return body_link_revived_.load(std::memory_order_relaxed); }           // a body link used again after its Known record was gone (the address-reuse risk, counted)
   uint64_t BodyLinkDroppedCount() const { return body_link_dropped_count_.load(std::memory_order_relaxed); }  // dropped: the update hook reported another node count at the address
@@ -255,13 +247,12 @@ class WrestlerContributor final : public Contributor {
       if (k != last_.end()) fc.kept = std::move(k->second), fc.has_kept = true;
       if (p != cur_.end()) fc.pend = std::move(p->second);
       if (auto kn = known_.find(model); kn != known_.end()) fc.known = kn->second, fc.has_known = true;
-      if (auto e = last_extra_.find(model); e != last_extra_.end()) fc.extra = std::move(e->second);
       if (fl != freed_last_pending_.end()) fc.last = std::move(fl->second), fc.has_last = true;
     } else {
       freed_copies_.erase(model);   // an older copy at this address never outlives a later free of it
     }
     if (fl != freed_last_pending_.end()) freed_last_pending_.erase(fl);
-    last_.erase(model), cur_.erase(model), known_.erase(model), last_extra_.erase(model);
+    last_.erase(model), cur_.erase(model), known_.erase(model);
     released_.fetch_add(1, std::memory_order_relaxed);
   }
   uint64_t Released() const { return released_.load(std::memory_order_relaxed); }
@@ -278,7 +269,7 @@ class WrestlerContributor final : public Contributor {
   size_t FreedHeld() { std::lock_guard<std::mutex> lock(mutex_); return freed_copies_.size(); }   // S111 MATCHFREE: copies still kept (tests)
   bool NamesModel(uint32_t model) {   // test / census: does any per-address container still hold it
     std::lock_guard<std::mutex> lock(mutex_);
-    return last_.count(model) || cur_.count(model) || known_.count(model) || last_extra_.count(model);
+    return last_.count(model) || cur_.count(model) || known_.count(model);
   }
   void KeptSkeletons(std::vector<uint32_t>& out) {
     out.clear();
@@ -312,11 +303,11 @@ class WrestlerContributor final : public Contributor {
   // S110 ENTRBODIES: the AssetRef of a body named by its participant slot key (Collect's slot-key route): KeyLink(key, the build-step colours of THIS slot's descriptor, model_desc). The one rule
   // for the record and for the scene start's early ask (src\scene_start_bodies.h), so the early ask loads exactly the model the record will name.
   static Link SlotKeyLink(uint32_t key, uint32_t slot_desc, uint32_t model_desc);
-  // S103 B: the participant slot's key (entrant_slots A: P + 148 + 56 * slot, +16; match_setup.md, R1_wrestler_assets.md section 2): character * 100 + attire * 10 + kind, the model the
-  // game builds for that character slot. The declared route (SubmitModelLink) never linked a wrestler in any capture; this names the model of a slot-matched skeleton from the setup table.
-  // [U live: participant row == character slot is the R1 open point. Known to FAIL for slots 6-8 (referee / role-4 people are rows 40-42, db\ids\characters.json ch255, match_state.md) and in a
-  // Rumble the rows rotate, so the hook uses the key only for character slot < 6 and only while every row 6..39 is empty. The one trace that settles it: a 1v1 and a tag run, the keys of rows 0..5
-  // beside each slot's model address (the wrestler_hook census line); lodged in docs\renderer\WRESTLERS_RECORD.md.]
+  // S103 B / S110 DESCKEY / S111 SLOTKEY (docs\research\s111\SLOTKEY.md): the slot's model key, character * 100 + attire * 10 + kind, from the character's OWN model descriptor (slot_key.h
+  // SlotKeyOf: desc+92 of [[0x837635A4] + 8] + 192 x [char+3760], refused while desc+52 says not loaded). Every character the request path builds stores [char+3760] from its request record
+  // (sub_82521668 after the factory sub_8251D990, sub_82520C58 for the queued kind-3 build), so slots 0..8 (referee / role-4 included) are keyed by the field the game finds the model by.
+  // The Create-a-Superstar editor's slot-0 character (sub_822E7570, built by sub_825A20A0 directly) never gets [char+3760] (it stays sub_823CF100's -1): no key, CLEARED below.
+  // The participant row (the S103 B guess) is census only. A slot-matched skeleton has no declared link (a character load never writes desc+4); this names its model.
   // An empty / invalid key (0, 0xC800 = 51200, key / 100 >= 500) CLEARS it: a stale key must never outlive the slot (review B2 / B3).
   // S103 ARM2 F2: `slot_desc` = the slot manager's descriptor of this body (the character's descriptor by the game's index rule, D+7 else the slot index: slotkey::SlotDescriptor; desc+4 is never written for a character slot) when the hook found it and its occupant builds (attire_build.h SlotOwner), else 0: the build-step colours match only that descriptor.
   // S110 SEATREL: `model_desc` = the same slot descriptor by the game's index rule, found for EVERY keyed slot (slot_desc above only under the attire latch): the file the game's
@@ -324,7 +315,7 @@ class WrestlerContributor final : public Contributor {
   void SubmitSlotKey(uint32_t skel, uint32_t key, uint32_t slot_desc = 0, uint32_t model_desc = 0) {
     if (key == 0 || key / 100 >= 500) key = 0;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (key) {   // S103 PZ F5: a slot key (slot < 6) naming another character than the declared link at this address: the address now holds another body: the link is dead
+    if (key) {   // S103 PZ F5: a slot key (slots 0..8) naming another character than the declared link at this address: the address now holds another body: the link is dead
       auto b = body_links_.find(skel);
       if (b != body_links_.end() && CharacterOfKey(b->second.info.key) != CharacterOfKey(key) && !(faults_ & kFaultLinkInKnown)) {
         DropBodyLinkLocked(skel);
@@ -461,6 +452,8 @@ class WrestlerContributor final : public Contributor {
   using PieceDetachLogFn = void (*)(uint32_t, int32_t, uint32_t, uint32_t, uint32_t, uint64_t);
   void SetPieceDetachLog(PieceDetachLogFn f) { piece_detach_log_.store(f, std::memory_order_relaxed); }
   uint64_t PieceDetached() const { return piece_detached_.load(std::memory_order_relaxed); }   // S103 DTP: per emit, pieces flagged kObjDetachedPiece
+  uint64_t PieceGameHidden() const { return piece_game_hidden_.load(std::memory_order_relaxed); }   // S111 SOCKPIECE: per emit, pieces of a named owner the game hides (instance +20 == 0), written kObjPieceHidden (piece_hidden.h)
+  static constexpr uint32_t kFaultHideIgnored = 32;   // S111 SOCKPIECE twin: the old emit, a hidden piece of a named owner gets no kObjPieceHidden object (no link-only item, an item is drawn by its owner): the sock shows at the entrance
   // S103 NRBF: per emitted record, how each linked piece came out: Ok = drawn by its owner's body (not a hole); every other PieceWhy = refused (a hole while the game draws it). Indexed by PieceWhy.
   uint64_t RingLeftOut() const { return ring_left_out_.load(std::memory_order_relaxed); }   // S103 NRBF: emits skipped because the skeleton is a ring model
   uint64_t PieceByOwner() const { return piece_why_[0].load(std::memory_order_relaxed); }
@@ -596,9 +589,10 @@ class WrestlerContributor final : public Contributor {
   std::unordered_map<uint32_t, uint32_t> piece_owner_;  // piece model -> body model (built by SubmitModelLink; O(1) for the entry hook)
   // S103 PZ F5 (docs\research\s103\PZ_piece_holes.md section 5/6): the declared model link lives with the BODY (keyed by its guest address), not with the aged Known record: run 36's referee body
   // left the record for 2078 frames at the entrance -> match load, its Known aged out (kKnownAge) and took the link and its pieces with it, and nothing re-submits it (the build hook fires once).
-  // Replaced by the next SubmitModelLink at that address; dropped when the update hook reports that address with another node count (another object), when a slot key (slot < 6) names another
-  // character, or (bounded table) when it is the least recently used. RISK [U]: a deferred body built later at a freed linked address with the same node count inherits the name; slots 6-8 have
-  // no slot key to cross-check, so address reuse is only counted (body_link_revived_: a link used again after its Known was gone).
+  // Replaced by the next SubmitModelLink at that address; dropped when the update hook reports that address with another node count (another object), when a slot key (slots 0..8) names another
+  // character, or (bounded table) when it is the least recently used. The NAME is not given by address or node count: PZF2 A1 names the body only in a latch whose descriptor check passed
+  // (VerifyBodyLink: exactly one of the game's 12 descriptors has +4 == the body and +28 == the key, piece_link.h DescriptorOfBody), and the game frees a descriptor's body and zeroes its +4
+  // in one call (sub_823EE1C8), so a freed address the game reuses fails that check (S111 SLOTKEY; body_link_revived_ still counts a link used again after its Known was gone).
   struct BodyLink {
     ModelKeyInfo info;
     uint64_t touch = 0;       // LRU stamp (bound kMaxBodyLinks)
@@ -665,18 +659,18 @@ class WrestlerContributor final : public Contributor {
   std::atomic<PieceLinkLogFn> piece_link_log_{nullptr};
   std::atomic<PieceDetachLogFn> piece_detach_log_{nullptr};   // S103 DTP
   std::atomic<uint64_t> piece_detached_{0};                   // S103 DTP
+  std::atomic<uint64_t> piece_game_hidden_{0};                // S111 SOCKPIECE
   std::atomic<uint64_t> own_rows_[size_t(scene_inputs::OwnRowsWhy::kCount)] = {};   // S105 A5a: per emit, how each candidate own-skeleton piece of a guest-row owner came out (index 0 = Ok = written as kObjOwnRowsPiece)
   std::atomic<KnownEraseLogFn> known_erase_log_{nullptr};
   std::atomic<WrestlerEventLogFn> wrestler_event_log_{nullptr};
   std::unordered_map<uint32_t, std::vector<ExtraRow>> test_rows_;   // tests only (SetPieceRowsForTest)
-  std::unordered_map<uint32_t, std::vector<ExtraRow>> last_extra_;   // S103 AUSF review 2: the spring-hair rows last attached to a FRESH item of this skeleton (a held stale body keeps them); under mutex_
   // S111 PIECECARRY (docs\research\s111\PIECECARRY.md): a freed body's LAST RECORD, the reads latch X would have made of it, made by its character's hook before the free (NoteFreedLast): its SUBM
   // pieces' links and its spring-hair rows (canonical order), labelled with latch X's hook frame. The palettes of the same read went in as latch consumer updates tagged hook + kPaletteLead
   // (char_release.h), so this and the copy's palettes are one read: every piece pairs with its owner within it (the S105 A5a tag rule). Values only: no guest reader lists them.
   struct FreedLast { uint64_t hook = ~0ull; std::unordered_map<uint32_t, PieceLink> links; std::vector<ExtraRow> rows; };
-  // S111 MATCHFREE: what ForgetModel moved out of last_ / cur_ / known_ / last_extra_ for a model the game freed. Values only: no reader of guest memory lists these keys (KeptSkeletons, NamesModel,
-  // LatchTargets and the hooks read the four maps above). Under mutex_. FreedRevive puts a copy back for one Collect block, FreedStow takes it out again before that block's lock goes.
-  struct FreedCopy { Kept kept; bool has_kept = false; Pending pend; Known known; bool has_known = false; std::vector<ExtraRow> extra; FreedLast last; bool has_last = false; };   // S111 PIECECARRY: + the body's last record
+  // S111 MATCHFREE: what ForgetModel moved out of last_ / cur_ / known_ for a model the game freed. Values only: no reader of guest memory lists these keys (KeptSkeletons, NamesModel,
+  // LatchTargets and the hooks read the three maps above). Under mutex_. FreedRevive puts a copy back for one Collect block, FreedStow takes it out again before that block's lock goes.
+  struct FreedCopy { Kept kept; bool has_kept = false; Pending pend; Known known; bool has_known = false; FreedLast last; bool has_last = false; };   // S111 PIECECARRY: + the body's last record
   std::map<uint32_t, FreedCopy> freed_copies_;
   std::map<uint32_t, FreedLast> freed_last_pending_;   // S111 PIECECARRY: by body, NoteFreedLast's record until the body's ForgetModel moves it into the copy (the same destructor's, or the descriptor pass of the same tick: sub_82512B80 +44); the next Collect drops what is left; under mutex_
   std::atomic<uint64_t> freed_served_{0}, freed_unposed_{0};
@@ -694,8 +688,6 @@ class WrestlerContributor final : public Contributor {
   static bool PieceHasRows(const scene_inputs::CharPiece& p);
   static void AppendPieceRows(const scene_inputs::CharPiece& p, std::vector<ExtraRow>& er);
   static void SortExtraRows(std::vector<ExtraRow>& v);   // canonical order: piece id ascending, then node ascending (the front end's model order); stable
-  bool no_walk_ = !WWE2K14_STREAM();   // S103 AUSF: see SetNoWalk
-  std::atomic<uint64_t> stale_held_{0}, held_with_extras_{0};
   static constexpr int kSlotBins = 10;   // slots 0-8 and bin 9 = no slot
   std::atomic<uint64_t> by_slot_stale_dropped_[kSlotBins] = {}, by_slot_quiet_unseen_[kSlotBins] = {};   // S103 AUSF: the census says WHOSE body
   std::map<uint32_t, uint64_t> quiet_last_;   // S103 AUSF: skeleton -> record frame of its last quiet hide (a run logs once); under mutex_
@@ -712,7 +704,6 @@ class WrestlerContributor final : public Contributor {
 
   std::atomic<PreLatchFn> pre_latch_{nullptr};   // S103 A2
   std::atomic<uint64_t> latch_same_{0}, latch_differs_{0};
-  std::vector<uint32_t> slot_present_;   // S103 L33F: the slot skeletons of the last LatchTargets(slots) (sorted; under mutex_); empty on the old 3-argument path
   std::mutex mutex_;
   std::atomic<uint64_t> released_{0};   // S108 RDS: ForgetModel calls (the release hook)
   std::map<uint32_t, Pending> cur_;   // by skeleton address: updates not yet merged

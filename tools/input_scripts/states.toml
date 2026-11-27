@@ -187,6 +187,13 @@ meaning = "match clock in frames: 0 until the match starts running, then +1 per 
 evidence = "db/match_state.json g_match_clock (high, labeller B only): incremented by sub_827C1B28; live run 236: 0 until frame 7773 (about 340 frames after the match scene), then +1 per frame"
 confidence = "high (live in one run)"
 
+[flash_countdown]
+chain = "0x835E198C"
+signed = true
+meaning = "crowd-flash countdown: -1 = no flashes; above 0 = the flash tick spawns rounds every tick (set by sub_823B12E8: camera event commands, S4AT scene events, the timed crowd event, the match camera director)"
+evidence = "docs/research/s111/FLASHSPAWN.md (1) and claims 0x823B12E8 / 0x823B2CC0: reset sets -1, setter sets the count; q addr 0x835E198C 7 code refs"
+confidence = "high (static); first live read is the run that uses it (S111 FLASHRUN)"
+
 [judge]
 chain = "0x83767B6C"
 meaning = "referee judge object pointer: non-zero once the match objects exist"

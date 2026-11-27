@@ -33,7 +33,7 @@
 // PerFrame: a lane reads it every frame (the Surface may flip it in one run). StartOnly: it builds pipelines / hooks / allocations at start
 // (LiveOptions is consumed once by the live sink's constructor); a mid-run change is refused with one log line.
 // The StartOnly entries are the ones reader.h StartLive copies into LiveOptions and live.cpp's constructor consumes (S102 S0-4 read of
-// reader.h 2110-2330 and live.cpp 255-335). New lane switches: add a line below.
+// reader/start_live.inc and live.cpp). New lane switches: add a line below.
 #define WWE2K14_RDR_SWITCHES(X)                                                                                                       \
   /* per-frame (live.cpp reads them at the point of use, every frame) */                                                              \
   X(MaxQueued, "wwe2k14_rdr_max_queued", PerFrame, 2)                                                                                 \

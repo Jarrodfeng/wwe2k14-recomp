@@ -50,7 +50,7 @@ def main():
         ('src/renderer_scene/rf_arena_live.cpp', 'PosedAdoptRows(', 'the arena draw adopts the posed slots of ITS arena\'s stage from the record'),
         ('src/scene_live/stage_fx_contrib.h', 'posed_dropped_', 'the stage writer counts the posed slots the row cap dropped (census)'),
         ('src/renderer_scene/rf_arena_live.cpp', 'kObjSkinned', 'a posed slot is drawn skinned'),
-        ('src/renderer_scene/record_io.cpp', 'kFxSlotPalette', 'the record reader accepts the new row kind'),
+        ('src/renderer_scene/record_io.cpp', 'KeepKnownKinds(tmp, kFxScreen, kFxLast, out.c_errors)', 'the record reader keeps every stage-fx kind up to kFxLast (rows_stage_fx.h) and skips a newer one (S111 FXSKIP)'),
         ('src/assets/asset_load.h', 'OFFLINE VIEWER FALLBACK ONLY', 'the baked corner constants are labelled'),
     ]
     for rel, needle, what in need:

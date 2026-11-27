@@ -1,0 +1,9 @@
+name = "pairs"
+module = "qpairs"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 96
+text = '''  pairs OURS_NAME | --game ADDR | --stats   THE JOIN of the code diff: which game function(s) (+offset) each of OUR functions mentions, from the game addresses our comments cite + db/claims `ours` + db/seams rows, each with its relation MIRRORS / WATCHES / CITES (tools/q/qpairs_rel.py: only MIRRORS rows pair in codediff / fieldsdiff / --coverage; --rel CLASS; cache out/harness/index/pairs.s3.db)'''

@@ -253,7 +253,9 @@ def lint(fs):
 
 
 def check_wiring(env):
-    fs = {n: open(os.path.join(env.root, n), encoding='utf-8', errors='replace').read() for n in FILES}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+    fs = {n: read_path(os.path.join(env.root, n)) for n in FILES}
     bad = lint(fs)
     line(not bad, 'wiring: every link of the switch is in the source (%s)' % (', '.join(bad) or 'all'))
     plants = [

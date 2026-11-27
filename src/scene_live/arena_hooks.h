@@ -13,7 +13,8 @@
 //   - the arena in use: the word at G+64 = 0x8376AB34, stored by sub_827D7750 (r3 -> 64(0x8376AAF4)) from the match description's arena id.
 //     [C store in the listing; that it equals the pac\bg\bgNN.pac number: documented medium, docs\systems\match_setup.md; a value outside
 //     0..399 is left unknown and counted by the contributor]
-//   - NOT verified [U]: which of +400 / +416 is the sky; the fifth light's role; the entrance remap of sets to slots; the camera key at +300.
+//   - +400 is the sky and +416 the ground [C: sub_82BE06B8 uploads them as g_f3SkyCol / g_f3GroundCol, docs\research\s111\SKYGROUND.md].
+//   - NOT verified [U]: the fifth light's role; the entrance remap of sets to slots; the camera key at +300.
 //
 // The static part (the slot table: pac entry 50001) and the screens are NOT read from guest memory: they come from the player's files. This hook only
 // asks for them (arena::NeedsSlots) and leaves the loading to the provider the main session installs with SetSlotProvider (one call at startup;
@@ -261,6 +262,7 @@ REX_HOOK_RAW(sub_8342A8D8) {
 // r3 = this; a vtable task slot, callers ignore it [U: the dispatcher was not read]; the hook leaves the same r3 either way.
 REX_EXTERN(__imp__sub_825BB0E0);
 REX_EXTERN(sub_82BCC510);
+// SKIP-ORIGINAL: the stream-free page skip (pageskip::ShouldSkip) answers like the original's tail without walking the page pass (the comment inside the branch); otherwise the original runs
 REX_HOOK_RAW(sub_825BB0E0) {
   scene_inputs::period::g_page_node_clock.Note(wwe2k14::g_guest_frame.load(std::memory_order_relaxed));   // S111 CUTREACH review: the clock the page pass runs on (log only; both builds), noted before the skip test
 #if !WWE2K14_STREAM()

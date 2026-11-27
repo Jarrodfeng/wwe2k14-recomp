@@ -166,6 +166,7 @@ inline uint32_t Ld32(uint8_t* base, uint32_t at) {
 }  // namespace wwe2k14::native_mem_probe
 
 // sub_8225EB58 (r3 protect, r4 the result block).
+// SKIP-ORIGINAL: with wwe2k14_native_mem_probe on the native probe answers (Run) instead of the original; off runs the original
 REX_HOOK_RAW(sub_8225EB58) {
   const wwe2k14::native_mem_probe::InProbe in_probe;  // S110 CASCRASH: the original's ~440 failures too (switch off)
   if (!REXCVAR_GET(wwe2k14_native_mem_probe)) {
@@ -180,6 +181,7 @@ REX_HOOK_RAW(sub_8225EB58) {
 }
 
 // sub_8225ED80 (r3 min, r4 max, r5 protect, r6 the result block).
+// SKIP-ORIGINAL: with wwe2k14_native_mem_probe on the native probe answers (Run) instead of the original; off runs the original
 REX_HOOK_RAW(sub_8225ED80) {
   const wwe2k14::native_mem_probe::InProbe in_probe;  // S110 CASCRASH: the original's ~470 failures per load too (switch off)
   if (!REXCVAR_GET(wwe2k14_native_mem_probe)) {

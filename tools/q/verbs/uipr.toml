@@ -1,0 +1,13 @@
+name = "uipr"
+module = "quipr"
+errors = ["quipr.QuiprError"]
+
+[[usage]]
+order = 62
+text = '''  uipr PAC [LEAF] [--pages] [--root] [--items] [--elements] [--commands OP] [--json]   a menu layout (a pac of menu/ such as MnUIHD, leaf p2/0): every page with its
+                                 record words rec+144 / +148 / +152 / +160, the root pages, their items, and per root page the branch sub_82B44548 takes
+                                 (rec+152 non-zero = the saved return, else the fixed link) (tools/q/quipr.py over tools/menus/uipr.py)'''
+
+[[route]]
+order = 148
+text = '''- a menu layout's pages, root page, items and where a root page leads (saved return or fixed link): uipr MnUIHD p2/0 --root'''

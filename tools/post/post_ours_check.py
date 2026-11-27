@@ -104,7 +104,7 @@ def parse_census(text):
 
 
 def curve(rgb):
-    """The game's display-gamma curve, Bt709Encode(SrgbDecode(c)) (tools\\post\\post_proof.py curve(), viewer_hlsl.h:788, run 6814), on uint8 RGB."""
+    """The game's display-gamma curve, Bt709Encode(SrgbDecode(c)) (tools\\post\\post_proof.py curve(), viewer_hlsl.h (kPost), run 6814), on uint8 RGB."""
     import numpy as np
     x = rgb.astype(np.float64) / 255.0
     lin = np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)

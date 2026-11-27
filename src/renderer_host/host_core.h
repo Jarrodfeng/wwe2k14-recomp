@@ -28,7 +28,7 @@
 namespace wwe2k14::scene_host {
 
 #ifdef WWE2K14_HOST_PLANTS
-// Test only (tools\renderer\host_core_unit.cpp): 1 = a draw: fault is treated as a plain miss (the repeat reuses `out`: the live.cpp 1884 rule, a past bug); 2 = a frame with no record presents
+// Test only (tools\renderer\host_core_unit.cpp): 1 = a draw: fault is treated as a plain miss (the repeat reuses `out`: the live.cpp rule, a past bug); 2 = a frame with no record presents
 // black instead of F; 3 = Post() runs the handler on the posting thread; 4 = the mailbox keeps the OLDEST message; 5 = the display curve of a dropped message is lost;
 // 6 = a hold with no valid last 3D picture copies `out` anyway (a never-drawn / half-drawn image); 7 = Take hands out a waiting message after Stop (the host would start a frame on a closing renderer);
 // 8 = the idle poll never runs (the quit flush's flag is never seen); 9 = the R9 repeat ignores PlaneImages::Holds (host_planes.h: a pruned set's destroyed images are shown); 10 = the movie row cache is never used (host_planes.h);
@@ -82,8 +82,8 @@ struct Counters {
   uint64_t never_fed_bit[32] = {};
   // S103 P7 H2: the 2D layer. rows_seen = the rows of every record a 2D step ran on; rows_drawn + RowsNotDrawn() = rows_seen (a row is drawn or dropped for ONE reason, never guessed);
   // rows_dropped[kDropHole] counts the tap's holes (rows that were never recorded), apart from the rows. A frame that repeats F as it was (HoldF) runs no 2D step: its rows are neither seen nor dropped.
-  // frames_2d_dropped = frames with at least one row dropped or one hole (counted once a frame). particles_not_drawn = the menu particle groups (batches drawn by the node with the 2D screen camera): no flat
-  // particle drawer exists yet, so they are counted, never drawn.
+  // frames_2d_dropped = frames with at least one row dropped or one hole (counted once a frame). particles_not_drawn = the menu particle groups (batches drawn by the node with the 2D screen camera)
+  // that DrawRows did NOT draw (S111 TITLESMOKE: no tap / no rows / photo mode, no drawer yet, or F forbidden); the others are drawn between the rows.
   uint64_t rows_seen = 0, rows_drawn = 0, frames_2d = 0, frames_2d_dropped = 0, movie_repeat = 0, particles_not_drawn = 0;
   // The decoupled 120 (the tween; S103 P7 tween lane, Jarrod 2026-11-17: the stream-free build may ship without DLSS but the tween MUST work): tweens = ticks that presented a halfway picture before their own;
   // tween_draws = draws whose constants were mixed (TickBlender's matched count, summed); tween_waiting = a halfway picture dropped because a newer tick was already waiting; tween_cut = dropped for a camera cut /
@@ -101,13 +101,13 @@ struct Counters {
   uint64_t Holes() const { return rows_dropped[kDropHole]; }
 };
 
-// ---- the decoupled 30 (settings parity S9; live.cpp 916-931 is the stream path's version, kept in one rule) ---------------------------------------------------------
+// ---- the decoupled 30 (settings parity S9; live.cpp (rdr_adapter::LiveSink::Impl::Run) is the stream path's version, kept in one rule) ---------------------------------------------------------
 // The launcher's 30 fps mode keeps the game at its 60 updates and draws one picture per `draw_vblanks` (2) vblanks of presents: a tick adds its present interval (at least 1) to the debt and is
 // skipped (not drawn, not presented) while the debt is under draw_vblanks; the tick that reaches it draws and clears the debt. A tick the mailbox dropped adds its interval through carried_vblanks (the
 // stream's `forced_skip`: it decides nothing, the newer tick then always draws). A tick that must draw (a picture / screenshot request) neither adds nor clears (the stream's `message.picture.empty()`).
 struct VblankDebt {
   uint32_t debt = 0;
-  // true = skip this tick. draw_vblanks <= 1 = the mode is off (never skips). `vblanks` = carried_vblanks + max(1, present_interval), clamped to kMaxTickVblanks (live.cpp 921-922: a stall
+  // true = skip this tick. draw_vblanks <= 1 = the mode is off (never skips). `vblanks` = carried_vblanks + max(1, present_interval), clamped to kMaxTickVblanks (live.cpp (rdr_adapter::LiveSink::Impl::Run): a stall
   // must not bank a debt that draws a long run of ticks). `has_content` = the tick carries a record with a picture: a tick without one adds its vblanks but never pays the debt (the next tick that
   // has content draws and does), so a content-less tick cannot eat the debt and make the next real tick skip.
   static constexpr uint32_t kMaxTickVblanks = 8;
@@ -244,7 +244,7 @@ class HostCore {
 enum class DrawResult : uint8_t { NotTried = 0, Ok, Miss, Fault };
 inline DrawResult ClassifyWhy(const std::string& why) {
   if (HOST_PLANT(1)) return DrawResult::Miss;                                // plant: a fault read as a miss
-  return why.rfind("draw:", 0) == 0 ? DrawResult::Fault : DrawResult::Miss;   // live.cpp 1884: "After a failed Record the target may be partly drawn: not reused."
+  return why.rfind("draw:", 0) == 0 ? DrawResult::Fault : DrawResult::Miss;   // live.cpp: "After a failed Record the target may be partly drawn: not reused."
 }
 
 // What F is made of this frame.

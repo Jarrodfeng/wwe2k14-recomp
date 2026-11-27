@@ -180,7 +180,7 @@ def measure(cap, frames, plant=None):
                 groups.add((s, int(x['fixed']), img))
                 # the run key: everything the variant would share, as bytes
                 masked = vb.copy()
-                masked[801:804] = 0  # c200.yzw: ZOffset.x (c200.x) is read by yParticle.vert:25 (depth pulled to the camera) and stays in the key; y / z / w are never read
+                masked[801:804] = 0  # c200.yzw: ZOffset.x (c200.x) is read by yParticle.vert (depth pulled to the camera) and stays in the key; y / z / w are never read
                 masked[reg_slice(228, 4)] = 0
                 kb = (int(x['vs_hash']), int(x['ps_hash']), int(x['vs_patched']), f.raw[SEC_FIXED][int(x['fixed'])], f.raw[SEC_DYN][int(x['dynamic'])], f.layout_bytes(int(x['layout'])),
                       f.slot_bytes(x), f.raw[SEC_BOOL][int(x['bool_loop'])] if f.raw[SEC_BOOL] else b'', int(x['source_prim']), int(x['vertex_count']), int(x['index_count']),

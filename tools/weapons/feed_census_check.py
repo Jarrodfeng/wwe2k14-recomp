@@ -18,8 +18,8 @@ Verdicts: ok | n/a | waived | FAULT = NO MODULE, DEAD FEED, DIED PART-WAY, TEXTU
 What is judged, and by which rule (each from the game's code, not from a capture):
   * The scene window = [caw enter frame (or the last `scene=NAME (frame N)` line), caw leave frame or the census's last frame].
   * A bit is REQUIRED unless (a) it is in the drop mask the log prints at `caw enter ... drop mask 0xM` (kCawDrop,
-    inputs_core.h:118-133), (b) it is sphere_occ: RegisterAll skips it (inputs_core.h:141) and only the sphere hook's
-    registration requires it (wwe2k14_app.h:1042-1046); the census cannot say whether that hook registered, so it is n/a here,
+    inputs_core.h), (b) it is sphere_occ: RegisterAll skips it (inputs_core.h) and only the sphere hook's
+    registration requires it (wwe2k14_app.h (Wwe2k14App::OnPostSetup)); the census cannot say whether that hook registered, so it is n/a here,
     (c) it is an arena-only bit (arena_worlds, ring_rows, stage_clock) and arena_models never stamped.
   * A required bit must stamp inside the window: last-stamp frame /fN within SLACK of the window end, and stamps covering COVER of it.
   * A census the game's state lines say must exist and does not is CENSUS MISSING, never n/a (caw enter -> CAW textures + guest
@@ -36,7 +36,7 @@ AUDIT = os.path.join(ROOT, "docs", "renderer", "OURS_INPUT_AUDIT.md")
 FIX = os.path.join(ROOT, "tools", "weapons", "fixtures")
 INPUTS_CORE = os.path.join(ROOT, "src", "scene_live", "inputs_core.h")
 
-# kInputs order = bit index (inputs_core.h:73-90; a lint keeps this equal to the source).
+# kInputs order = bit index (inputs_core.h; a lint keeps this equal to the source).
 BITS = ["post_settings", "model_runtime", "sphere_occ", "wrestler_palette", "light_states", "arena_worlds", "ring_rows",
         "caster_entries", "circle_points", "plane_constants", "crowd_snapshot", "particles", "camera", "material_params",
         "screens", "stage_pools", "arena_models", "stage_clock"]

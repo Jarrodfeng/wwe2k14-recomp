@@ -89,7 +89,7 @@ def exe_folder_of(exe):
 
 def exe_defines(exe, flag):
     """GTB (B4): True when the exe file holds the cvar's name (chunked read; the exe is big). The stream build defines
-    wwe2k14_stage_view (renderer_adapter/reader.h:271, ON build only: q ours def); the stream-free (OFF) build does not, so live.start
+    wwe2k14_stage_view (renderer_adapter/reader.h, ON build only: q ours def); the stream-free (OFF) build does not, so live.start
     leaves the flag out there. An exe that cannot be read counts as "defines it" (the old behaviour)."""
     path = os.path.join(exe_folder_of(exe), 'wwe2k14.exe')
     needle = flag.encode()

@@ -27,7 +27,7 @@ inline constexpr uint32_t kSlots = 16;          // light_state_hook.h kMaxSlot
 inline constexpr uint32_t kMaxAge = 1200;       // hook frames (20 s at 60): an entry not re-confirmed by a walked model call for this long is dropped
 inline constexpr uint32_t kMaxModels = 2048;    // bound on the table
 // S103 B4X (Q1 class "a stamp waiting on evidence only an earlier OURS frame, or a walk of a model the game may cull, can produce"): there is NO long life and NO OURS-only evidence in bit 4 any more.
-// The old A4 "proven persistent" rule (an OURS-frame flag per entry) and the L33F keep rule (a keepable-entry test, a phase epoch, a 2-minute bound) are deleted: under OURS slot 19 (sub_82C13A80) is skipped whole (scene_skip_nodes.h:147), so a
+// The old A4 "proven persistent" rule (an OURS-frame flag per entry) and the L33F keep rule (a keepable-entry test, a phase epoch, a 2-minute bound) are deleted: under OURS slot 19 (sub_82C13A80) is skipped whole (scene_skip_nodes.h), so a
 // confirmation on an OURS frame can never happen; and the ring / arena-slot models are COMPUTED at every latch now (inputs_contrib.h ApplyLightIds: frame = hook), so nothing needs to be carried on them. A
 // learned entry lives kMaxAge hook frames after its last walked confirmation; the planned refresh hold (inputs_contrib.h) walks a frame before the oldest ASKED, LEARNED (not computed) one runs out.
 inline constexpr uint32_t kNoIndex = 0xFFFFFFFEu;   // the install came straight through sub_8261FE90 (sub_82620488's embedded-object path: no index, no mode)

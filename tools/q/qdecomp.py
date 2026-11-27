@@ -1423,6 +1423,14 @@ def run(con, addr, args):
     body = None if getattr(args, 'fields', False) else [db_overlay({a: e for a, e in dbi.items()}, l) for l in r['lines']]
     hdr, body = qfactcard.apply(body, qfactcard.collect(addr, con, r['size'], 'decomp', fm), fm) if fm != 'none' else ([], body)
     out = head_lines(r, dbi) + hdr + [_names_overlay(dbi, l) for l in summary_lines(r['summary'])]
+    if getattr(args, 'range', None) and body is not None:     # S111 WRITERLINT: only the region A..B of the body, under the header line (qdecomp_range.py)
+        import qdecomp_range
+        try:
+            lo, hi = qdecomp_range.parse(args.range, addr)
+        except qdecomp_range.RangeError as ex:
+            raise DecompError(str(ex))
+        part = qdecomp_range.filter_body(body, lo, hi, addr)
+        return '\n'.join(out[:1] + ['range +0x%X..%s: %d of %d body lines' % (lo, '+0x%X' % hi if hi < (1 << 40) else 'end', len(part), len(body)), ''] + part)
     if not getattr(args, 'fields', False):
         out.append('')
         out += body
@@ -1458,6 +1466,7 @@ def main(argv, con, resolve):
     ap.add_argument('func')
     ap.add_argument('--callers', type=int, default=0, metavar='N', help='after the body: one line per caller (N of them) with its call-site args; --fields --callers N = no body')
     ap.add_argument('--fields', action='store_true', help='only the header, fields read / written, calls, constants')
+    ap.add_argument('--range', metavar='A..B', help='only the body lines from offset A to B (+0x45C..+0x4C0, or addresses; A.. / ..B open), under the header line')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--no-cache', action='store_true', help='rebuild this function ignoring the cache')
     ap.add_argument('--raw-names', action='store_true', help='no db overlay (names / labels)')

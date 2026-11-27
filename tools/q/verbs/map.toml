@@ -1,0 +1,9 @@
+name = "map"
+module = "qmap"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 38
+text = '''  map ...                      the harness knowledge map (tools/q/qmap.py)'''

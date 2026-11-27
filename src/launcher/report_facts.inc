@@ -23,6 +23,7 @@ renderer | [rdr][live] owner mode: the old path draws nothing | owner mode: the 
 mod | wwe2k14_mods | mods folder | src/mods.h
 mod | wwe2k14_mods_lighting | lighting mods | src/mods.h
 mod | wwe2k14_mods_superstars | superstar mods | src/mods.h
+mod | wwe2k14_mods_permanent_blood | permanent blood | src/start_settings.cpp
 mod | wwe2k14_entrance_music | entrance music | src/entrance_music.h
 mod | wwe2k14_dlc | DLC | src/dlc.h
 modline | [wwe2k14][mods] titantron | titantron overrides | src/mods.h

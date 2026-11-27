@@ -120,7 +120,7 @@ ZIPS = {  # name -> (run folder glob, what it is): Check A's case zips whose pic
 
 
 def curve(rgb):
-    """The game's display-gamma curve, Bt709Encode(SrgbDecode(c)) (viewer_hlsl.h:788, run 6814), on uint8 RGB."""
+    """The game's display-gamma curve, Bt709Encode(SrgbDecode(c)) (viewer_hlsl.h (kPost), run 6814), on uint8 RGB."""
     x = rgb.astype(np.float64) / 255.0
     lin = np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
     out = np.where(lin < 0.018, 4.5 * lin, 1.099 * np.power(np.maximum(lin, 1e-12), 0.45) - 0.099)

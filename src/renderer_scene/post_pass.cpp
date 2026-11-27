@@ -113,9 +113,9 @@ uint16_t PostPass::Program(int vs, int ps) {
   names_.push_back(std::string("post: ") + kVariants[vs].name + " + " + kVariants[ps].name);
   rdr::ProgramDesc desc;
   desc.name = names_.back().c_str();
-  desc.vertex_spirv = kVariants[vs].spirv;
+  desc.vertex_spirv = rdr::fx::Words(size_t(vs), false);
   desc.vertex_bytes = kVariants[vs].bytes;
-  desc.fragment_spirv = kVariants[ps].spirv;
+  desc.fragment_spirv = rdr::fx::Words(size_t(ps), false);
   desc.fragment_bytes = kVariants[ps].bytes;
   const uint16_t id = renderer_.AddProgram(desc);
   programs_.emplace(key, id);

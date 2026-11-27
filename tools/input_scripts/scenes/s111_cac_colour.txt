@@ -1,0 +1,82 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_rdr_owner=true --audio_mute=true
+# intent: owner on, fixed_seed 1, audio_mute on
+# S111 lane CACROUTE: the check route for "a plate colour change does not show in the Create a Championship editor" (docs\research\s111\CACEDIT.md section 5).
+# Path: boot -> CREATIONS -> CHAMPIONSHIP (1506) -> slot 0 -> Title Design (seq 29) -> belt picker -> belt 0 -> the design page (0x821B4E68; rows TITLE DESIGN,
+# FRONT PLATE, LEFT PLATE, RIGHT PLATE, STRAP, LOGOS, EDIT LAYERS, ACCEPT) -> row 1 FRONT PLATE opens the colour page (0x821B4348, 7 rows, row 1 = the SAMPLE COLORS strip,
+# ACCEPT = row 6). A on the strip picks the first sample (white / silver belt), RIGHT held moves to the last sample (brown), then ACCEPT (row 6) back to the design page.
+# The preview is held ~4 s before the change (sc_col_before), after it on the colour page (sc_col_change1/2) and back on the design page (sc_col_after1/2, ~8 s).
+# Then ACCEPT (design row 7) -> FINALIZE (row 6, ACCEPT) -> load -> main menu: leaves the editor (writes only the per-run copy of the frozen save).
+# Check run (the CACEDIT trace; the trace needs an exe that carries it):
+#   & tools\bench\run_list.ps1 -Scripts @('<repo>\tools\input_scripts\scenes\s111_cac_colour.txt') -Exe tip -Extra '--wwe2k14_trace=0x8332D9B0/40*r4,0x82CA6BE0/400*r3@callers'
+# and read the `[belt_plate] ... reread N` census lines in the run log.
+on_fail quit
+log bench: start scene s111_cac_colour
+include boot_to_menu
+wait_state menu 1 1200 30
+include menu_to_creations
+press_until_state DOWN target 1506 40 30 8
+assert_state 0x8392945C>368 1506
+press_until_state A menu 1506 8 120 5
+wait_state menu_ready 1 1200 10
+wait_state menu_page 0x8203D920 1200 20
+wait_state menu_rows 40 600 10
+press_until_state A seq 29 6 120 5
+wait_state menu_page 0x821B3E68 3000 10
+wait_frames 120
+press_until_state A menu_page !=0x821B3E68 6 120 5
+wait_state menu_ready 1 600 20
+press_until_state A menu_page !=0x821B3FA0 6 120 5
+wait_text "FRONT PLATE" 1800
+wait_text ACCEPT 600
+wait_state menu_ready 1 600 20
+wait_frames 120
+log scene=design_page
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+screenshot sc_col_design
+press_until_state DOWN menu_row 1 4 30 5
+press_until_state A menu_page !=0x821B4E68 4 120 5
+wait_frames 120
+log scene=colour_page
+log_state menu_page
+log_state menu_row
+log_state menu_rows
+wait_frames 120
+screenshot sc_col_before
+wait_state menu_row 1 300 3
+press A 5 30
+wait_frames 90
+screenshot sc_col_change1
+wait_state menu_row 0 300 3
+press RIGHT 40 10
+wait_frames 60
+screenshot sc_col_change2
+wait_state menu_row 0 300 3
+press DOWN 40 10
+wait_state menu_row 0 300 3
+press A 5 30
+wait_frames 150
+log_state menu_row
+screenshot sc_col_change3
+press_until_state DOWN menu_row >=6 8 30 5
+log_state menu_row
+press_until_state A menu_page 0x821B4E68 4 120 5
+wait_state menu_ready 1 600 20
+log scene=design_after
+log_state menu_page
+wait_frames 240
+screenshot sc_col_after1
+wait_frames 240
+screenshot sc_col_after2
+press_until_state DOWN menu_row >=7 12 30 5
+press_until_state A menu_page !=0x821B4E68 4 120 5
+wait_state menu_ready 1 600 20
+press_until_state DOWN menu_row >=6 8 30 5
+press_until_state A menu_page !=0x821B4FA0 4 120 5
+wait_state seq 75 7200 10
+wait_state menu 1 3600 30
+log scene=left_editor
+screenshot sc_col_left
+log bench: done
+quit

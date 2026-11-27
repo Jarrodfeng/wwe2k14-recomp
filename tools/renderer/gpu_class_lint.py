@@ -12,9 +12,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), encoding='utf-8') as f:
-        return f.read()
+    return read_path(os.path.join(root, rel))
 
 
 def snake(camel):

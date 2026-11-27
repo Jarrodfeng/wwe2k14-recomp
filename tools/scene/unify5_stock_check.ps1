@@ -26,7 +26,8 @@ if ($LASTEXITCODE -ne 0) { throw 'git archive of the commit before the lane fail
 & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $tar -C $baseDir   # Windows' own bsdtar: the Git usr\bin tar first on PATH reads 'C:' as a remote host
 if ($LASTEXITCODE -ne 0) { throw 'tar -x of the commit before the lane failed' }
 function Build-Dump([string]$tree, [string]$exe, [string[]]$defs) {
-  & clang++ -O1 -std=c++20 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -Wno-unused-command-line-argument @defs "-I$stb" (Join-Path $PSScriptRoot 'material_record_dump.cpp') (Join-Path $tree 'src\renderer_scene\char_effects.cpp') (Join-Path $tree 'src\renderer_scene\draw_lists.cpp') (Join-Path $tree 'src\renderer_scene\record_io.cpp') (Join-Path $tree 'src\renderer\shaders\spv\fx_spv_data.cpp') (Join-Path $tree 'src\renderer\problem.cpp') -I (Join-Path $tree 'src') -o $exe
+  $spv = @(if ($tree -ne $repo) { Join-Path $tree 'src\renderer\shaders\spv\fx_spv_data.cpp' })   # S111 TOOLLINK-D: only the OLD tree's registry holds kFx_ addresses (its own data unit); this tree's units read no words here
+  & clang++ -O1 -std=c++20 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -Wno-unused-command-line-argument @defs "-I$stb" (Join-Path $PSScriptRoot 'material_record_dump.cpp') (Join-Path $tree 'src\renderer_scene\char_effects.cpp') (Join-Path $tree 'src\renderer_scene\draw_lists.cpp') (Join-Path $tree 'src\renderer_scene\record_io.cpp') @spv (Join-Path $tree 'src\renderer\problem.cpp') -I (Join-Path $tree 'src') -o $exe
   if ($LASTEXITCODE -ne 0) { throw "material_record_dump compile failed ($tree)" }
 }
 $before = Join-Path $outDir 'material_record_dump_before.exe'

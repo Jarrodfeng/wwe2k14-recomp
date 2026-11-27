@@ -317,6 +317,7 @@ inline void LayeredWriterNoted(PPCContext& ctx, uint8_t* base) {
   __imp__sub_82CB19E0(ctx, base);
   wwe2k14::d3d_noring::NoteWriter("fallback: indexed draw 0x82CB19E0", before, wwe2k14::d3d_layer::Ld32(base, dev + 48));
 }
+// SKIP-ORIGINAL: the indexed draw: the stream reader takes a D3 marker, owner mode keeps device bookkeeping only, the layered writer replaces the library packets (its fallback runs the original, noted); otherwise AroundWriter runs the original
 REX_HOOK_RAW(sub_82CB19E0) {
   // Session 87: the D3D layer's writer (its own state flush into a token, then the original writer for the draw packets;
   // the original untouched when the switch is off or on a counted fallback), inside the half2 wrapper as before.
@@ -332,6 +333,7 @@ REX_HOOK_RAW(sub_82CB19E0) {
   wwe2k14::half2::AroundWriter<__imp__sub_82CB19E0>(1, ctx, base);
 }
 REX_EXTERN(__imp__sub_82CB1510);
+// SKIP-ORIGINAL: BeginVertices: owner mode keeps device bookkeeping only, the layer's Begin takes the draw end to end (no library packets); otherwise AroundWriter runs the original
 REX_HOOK_RAW(sub_82CB1520) {
   // Session 87 (F3): the layer's BeginVertices (the draw is then ours end to end: no library packets, no half2 entry).
 #if WWE2K14_STREAM()  // S103 P9 (A6, A7)
@@ -342,6 +344,7 @@ REX_HOOK_RAW(sub_82CB1520) {
   if (wwe2k14::d3d_inline::Begin(ctx, base)) return;
   wwe2k14::half2::AroundWriter<__imp__sub_82CB1520>(2, ctx, base);
 }
+// SKIP-ORIGINAL: EndVertices: owner mode keeps device bookkeeping only, the layer's End takes the draw end to end (no library packets); otherwise the original runs
 REX_HOOK_RAW(sub_82CB1510) {
 #if WWE2K14_STREAM()  // S103 P9 (A6, A7)
   if (wwe2k14::rdr_reader::ReaderOn() /* S102 KO */) wwe2k14::rdr_reader::OnEndVertices(ctx, base);

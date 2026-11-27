@@ -9,7 +9,7 @@
 namespace rdr_scene::family_cull {
 
 // The DrawState cull value of a mesh's material: 2 = back faces culled, 0 = two-sided. A mesh whose cull came from its record bit follows the stage switch (a stage slot) or the family switch (every other family);
-// the screens / crowd / flash set their own cull and clear cull_from_record, so neither switch moves them.
+// the screens / flash set their own cull and clear cull_from_record, so neither switch moves them (the crowd's models are hook-owned: FrontEnd::Record never draws them, the hook's DrawInstanced reads cull_back alone).
 inline int Cull(const assets::Material* mp, bool stage_cull_on, bool family_cull_on) {
   if (!mp || !mp->cull_back) return 0;
   if (!mp->cull_from_record) return 2;

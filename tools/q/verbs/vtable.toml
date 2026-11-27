@@ -1,0 +1,10 @@
+name = "vtable"
+module = "qvtable"
+needs = "con_resolve"
+errors = ["qvtable.VtError"]
+usage_slot = "u35"
+
+[[usage]]
+order = 82
+text = '''  vtable ADDR [--slot K]|--of FUNC  the slots of a vtable (index, word, target, db name, decomp summary); --of = which
+                               vtable slots point at FUNC (tools/q/qvtable.py)'''

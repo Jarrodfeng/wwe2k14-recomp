@@ -18,6 +18,7 @@
 #include "../scene_live/post_settings.h"   // S103 FXF
 #include "../assets/arena_lm.h"   // S103 B3c: the lm_param counters of the census
 #include "../renderer_game/caw_portrait_core.h"   // S103 CPB: KeepsObject / DrawnCountOk
+#include "piece_owner.h"   // S111 PORTRAITHAIR: KeptWithPieces (the portrait keeps the edited body's SUBM pieces by the live draw's owner rule)
 #include "../renderer_game/scene_frame.h"   // S103 S: the dev-only input override (g_force_inputs)
 #include "../renderer/player/png.h"
 #include "rf_crowd.h"   // S103 D2: the crowd hook of the class table
@@ -375,15 +376,11 @@ void LiveSceneDraw::Warm(const SceneTables& rec, uint32_t w, uint32_t h) {
   PublishStartWait(rec.header.guest_frame);   // S110 ENTRWAIT2
   NoteStage(rec, built, reports);   // S103 L2d
   // READY (FRAME_CONTRACT 3 item 2): built, every asset resident, no hole (an object we cannot draw: R review 6), and a stage in the record
-  // S103 NR (3): the SAME rule DrawLive applies (BuildTerms + the maps input's hole), so a frame READY here is not then refused there (the entrance light-set / follow-spot holes, the crowd's light holes
-  // and the shadow input's hole used to be DrawLive-only).
+  // S103 NR (3): the SAME rule DrawLive applies (BuildTerms), so a frame READY here is not then refused there (the entrance light-set / follow-spot holes and the crowd's light holes used to be
+  // DrawLive-only). (S111 SHADOWKEY review: the shadow input's hole is gone: the fitted shadow light needs no key light, only the frame's own camera.)
   uint32_t terms = BuildTerms(built, reports);
-  std::string shadow_why;
-  // (S103 HN review: ON keeps its old form `terms == 0 && !SkipHoles()` so its census does not move; only the stream-free build asks on hole frames too, to name the skipped shadow input)
-  const bool ask_shadow = WWE2K14_STREAM() ? (terms == 0 && !SkipHoles()) : ((terms & ~uint32_t(kTermHoles)) == 0);
-  if (ask_shadow && live_hooks_->ShadowInputHole(rec, shadow_why)) terms |= kTermShadow, rc_.shadow_first = rc_.shadow_first.empty() ? shadow_why : rc_.shadow_first;
-  uint32_t skipped = 0;   // S103 HN: in OFF a hole / a missing shadow input does not hold READY, but is still NAMED (the same census, counted as skipped)
-  if (SkipHoles()) skipped = terms & uint32_t(kTermHoles | kTermShadow), terms &= ~skipped;
+  uint32_t skipped = 0;   // S103 HN: in OFF a hole does not hold READY, but is still NAMED (the same census, counted as skipped)
+  if (SkipHoles()) skipped = terms & uint32_t(kTermHoles), terms &= ~skipped;
   ready_ = terms == 0;
   NoteTerms(/*live=*/false, terms, reports, error, skipped);
   if (ready_) {   // S103 P: a record whose post inputs are missing (no row, stale, no camera) is not ready: the game walks until they are there
@@ -426,7 +423,6 @@ void LiveSceneDraw::NoteTerms(bool live, uint32_t terms, const std::vector<rf::C
       }
   }
   if (terms & kTermNoStage) ++rc_.no_stage;
-  if (terms & kTermShadow) ++rc_.shadow;
 }
 
 std::string LiveSceneDraw::ReadyCensusLine(bool drain) {
@@ -437,7 +433,7 @@ std::string LiveSceneDraw::ReadyCensusLine(bool drain) {
   bool any = false;
   for (size_t f = 0; f < size_t(rf::Family::Count); ++f)
     if (c.hole_family[f]) s += std::string(any ? ", " : "") + rf::FamilyName(rf::Family(f)) + " " + u(c.hole_family[f]) + " (first: " + c.hole_first[f] + ")", any = true;
-  s += std::string(any ? "" : "-") + "]; no stage " + u(c.no_stage) + "; shadow input " + u(c.shadow) + (SkipHoles() ? " skipped" : "") + (c.shadow_first.empty() ? "" : " (" + c.shadow_first + ")") + "; post missing " + u(c.post_missing) +
+  s += std::string(any ? "" : "-") + "]; no stage " + u(c.no_stage) + "; post missing " + u(c.post_missing) +
        (c.post_first.empty() ? "" : " (" + c.post_first + ")") + "; draw error " + u(c.draw_error) + (c.draw_first.empty() ? "" : " (first: " + c.draw_first + ")");
   if (drain) rc_ = ReadyCensus();
   return s;
@@ -554,19 +550,6 @@ bool LiveSceneDraw::DrawLive(const SceneTables& rec, rdr::FrameBuilder& fb, uint
     }
   }
   AttachFrameHooks(frame, rec, *live_hooks_);   // S103 R2: SeeOrder::Game, the maps hook, the particle hook (one function, the rig calls it too)
-  if (live_hooks_->input().shadow_hole && !SkipHoles()) {   // S103 E3 (review 2): a missing map input is a missing input: the game walks this frame (the casters' circles / plane / pre-light / sweat holes are named in the census, not folded: their inputs are not in any record yet)
-    why = std::string("maps: ") + live_hooks_->input().fit_key_why;   // (the same rule Warm asks: FrameHooks::ShadowInputHole)
-    ++live_misses_;
-    ready_ = false;
-    terms |= kTermShadow;
-    if (rc_.shadow_first.empty()) rc_.shadow_first = live_hooks_->input().fit_key_why;   // S103 NRBF F5: the FIRST reason is kept
-    NoteTerms(true, terms, reports, error, skipped);
-    return false;
-  }
-  if (live_hooks_->input().shadow_hole && SkipHoles()) {   // S103 HN: OFF: the maps hook cannot make the wrestlers' shadow (RecordShadow: no key light = a counted hole, no map published), the readers take their plain variants (front_end.cpp: no ShadowMap = no shadow, never garbage): the frame is drawn without that shadow, and counted
-    skipped |= kTermShadow;
-    if (rc_.shadow_first.empty()) rc_.shadow_first = live_hooks_->input().fit_key_why;
-  }
   frame.post = post;
   const LiveTargets t = fe_->OwnTargets(w, h, post != nullptr || !frame.flashes.empty(), LiveParticles::HasSoft(frame.particles));   // S103 PRT: a soft particle batch copies the scene depth: the depth must be stored (not transient); the post output is not made for it   // S110 CUTGREY: a frame with flash sprites needs the scene depth sampled (the whole-sprite centre test)
   lists_->Tick(rec.header.guest_frame);   // S103 G2: the grace counts guest frames
@@ -665,7 +648,7 @@ bool LiveSceneDraw::DrawToPng(const SceneTables& rec, uint32_t w, uint32_t h, co
 }
 
 // S103 CPB (CPR.md H1): see live_scene_draw.h. Host thread, before the frame's builder begins (RenderToPixels records and waits on its own builder).
-bool LiveSceneDraw::DrawPortrait(const SceneTables& rec, const Camera& cam, uint32_t model, uint32_t w, uint32_t h, std::vector<uint8_t>& rgba, std::string& why, bool* loading) {
+bool LiveSceneDraw::DrawPortrait(const SceneTables& rec, const Camera& cam, uint32_t model, uint32_t w, uint32_t h, std::vector<uint8_t>& rgba, std::string& why, bool* loading, std::string* pieces_census) {
   if (loading) *loading = false;
   if (!source_->ready()) { why = "no game folder yet"; return false; }
   if (!model || rec.engine_objects.size() < rec.objects.size()) { why = "the record has no engine-object column"; return false; }
@@ -675,9 +658,16 @@ bool LiveSceneDraw::DrawPortrait(const SceneTables& rec, const Camera& cam, uint
   EnsureFrontEnd();
   SceneTables t = rec;   // a copy of the record: the game's portrait camera in place of the frame's, and only the edited wrestler left visible to the Wrestlers family
   t.camera = cam, t.has_camera = true;
-  const uint32_t hidden = t.AddString("hidden:cpb");   // any object not named by the engine address gets an id of another family: the mask below leaves it out
+  // S111 PORTRAITHAIR: the edited body (its engine object is the model, D1) AND its linked SUBM pieces stay visible. A piece with its own skeleton (a created superstar's long hair) has its
+  // own engine object and names its owner only by Object::layer; the game's portrait draw is the character's slot 22 (sub_8259FAE8), which draws the character's own SUBM pieces.
+  // The pieces are found by the live draw's owner rule (piece_owner.h KeptWithPieces). Built before AddString: the id views point into t's strings.
+  std::vector<KeepRow> keep_rows(t.objects.size());
+  for (size_t i = 0; i < t.objects.size(); ++i) keep_rows[i] = KeepRow{wwe2k14::caw_portrait::KeepsObject(t.engine_objects[i], model), t.Str(t.objects[i].id), t.objects[i].flags, t.objects[i].layer};
+  const std::vector<uint8_t> keep = KeptWithPieces(keep_rows);
+  keep_rows.clear();
+  const uint32_t hidden = t.AddString("hidden:cpb");   // any object not kept gets an id of another family: the mask below leaves it out
   for (size_t i = 0; i < t.objects.size(); ++i)
-    if (!wwe2k14::caw_portrait::KeepsObject(t.engine_objects[i], model)) t.objects[i].id = hidden;
+    if (!keep[i]) t.objects[i].id = hidden;
   live_cache_->NewFrame();
   rf::crowd::SetSkipInPlace(*fe_, false);
   SceneFrame frame;
@@ -691,10 +681,12 @@ bool LiveSceneDraw::DrawPortrait(const SceneTables& rec, const Camera& cam, uint
     if (loading) *loading = true;
     return false;
   }
-  uint32_t drawn = 0;
+  uint32_t drawn = 0, pieces = 0;   // S111 PORTRAITHAIR: a kept piece drawn from its own guest rows is a drawn object of its own (ClassReport::pieces_drawn); D1 counts the BODIES
+  std::vector<uint32_t> piece_ids;   // S111 PORTRAITCENSUS: the ids of the pieces the draw drew (ClassReport::piece_ids), for the host census line
   for (const rf::ClassReport& r : reports)
-    if (r.family == rf::Family::Wrestlers) drawn += r.drawn;
-  if (!wwe2k14::caw_portrait::DrawnCountOk(drawn)) { why = "drawn " + std::to_string(drawn) + " wrestler object(s), not exactly the edited one (" + std::to_string(rf::TotalHoles(reports)) + " hole(s))"; return false; }
+    if (r.family == rf::Family::Wrestlers) drawn += r.drawn, pieces += r.pieces_drawn, piece_ids.insert(piece_ids.end(), r.piece_ids.begin(), r.piece_ids.end());
+  if (pieces_census) *pieces_census = wwe2k14::caw_portrait::PiecesText(pieces, piece_ids.data(), piece_ids.size());
+  if (!wwe2k14::caw_portrait::DrawnCountOk(drawn - pieces)) { why = "drawn " + std::to_string(drawn - pieces) + " wrestler body(ies) and " + std::to_string(pieces) + " piece(s), not exactly the edited body (" + std::to_string(rf::TotalHoles(reports)) + " hole(s))"; return false; }
   frame.post = nullptr;
   frame.particles = nullptr;   // no particles in the portrait: HasSoft must not make the live frame's depth stored for good (want_depth_stored_ is sticky)
   frame.clear[0] = frame.clear[1] = frame.clear[2] = frame.clear[3] = 0.f;   // transparent black: the portrait is a cut-out (CPR section 4)

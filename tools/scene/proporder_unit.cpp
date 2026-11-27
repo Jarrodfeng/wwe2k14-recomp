@@ -6,6 +6,7 @@
 // --plant-43 = the reader reads list 33 only (char_draw_list.h g_plant_list33_only: a re-keyed entrance loses its category-43 places, the reader before S111 PROPREKEY): it must FAIL.
 // --plant-own = a CWeapon's own node gives no place (cat33_places.h g_plant_own_unplaced: its model back in its material's rank, the reader before S111 REKEYORDER): it must FAIL.
 // --plant-body = no character's opaque node gives a place (cat33_places.h g_plant_body_unplaced: a re-keyed body back in the opaque list, drawn first, the order before S111 CATORDER): it must FAIL.
+// --plant-rekey = a re-keyed item back in the character rank (see_through_order.h g_plant_rekeyed_rank_off: before the `a` group and the chamber's late nodes, the order before S111 REKEYORDER2): it must FAIL.
 #include "../../src/scene_live/cat33_places.h"
 #include "../../src/renderer_scene/draw_place_rows.h"
 #include "../../src/renderer_scene/see_through_order.h"
@@ -110,6 +111,7 @@ struct Item {
   bool place_block = false;
   bool depth_write = true;  // what the front end's DepthWriteOf answers for it (sorted, a loader cut-out: the case that kept depth write before the node state)
   bool late_body = false;   // S111 CATORDER: an opaque body mesh TakeLateBodies moved into the see-through list
+  bool late_node = false;   // S111 REKEYORDER2: a chamber CDTB / CDTA row (FrontEnd::Record's Item::late_node, kObjNodeLate)
 };
 Item It(const char* n, uint32_t frame, bool character, uint8_t blend = 1) {
   Item i;
@@ -143,12 +145,12 @@ std::string Run(const std::vector<Obj>& objs, std::vector<Item> items, std::vect
   dp::TakeLateBodies(f.draw_places, objs.size(), opaque, items, [](const Item& i) { return i.frame; });   // as FrontEnd::Record (S111 CATORDER), before the stamp
   dp::StampItems(f.draw_places, objs.size(), items, [](const Item& i) { return i.frame; }, [](const Item& i) {
     rdr_scene::SeeKey k;
-    k.blend = i.blend, k.character = i.character, k.place_block = i.place_block;
+    k.blend = i.blend, k.character = i.character, k.place_block = i.place_block, k.place = i.place, k.late_node = i.late_node;   // as FrontEnd::Record's rank lambda (S111 REKEYORDER2: the place)
     return rdr_scene::SeeRank(k);
   });
   rdr_scene::SortSeeThrough(rdr_scene::SeeOrder::Game, items, [](const Item& i) {
     rdr_scene::SeeKey k;
-    k.blend = i.blend, k.character = i.character, k.place = i.place, k.place_block = i.place_block;
+    k.blend = i.blend, k.character = i.character, k.place = i.place, k.place_block = i.place_block, k.late_node = i.late_node;
     return k;
   });
   g_sorted = items;
@@ -166,10 +168,14 @@ int main(int argc, char** argv) {
   const bool plant43 = argc > 1 && std::strcmp(argv[1], "--plant-43") == 0;
   const bool plant_own = argc > 1 && std::strcmp(argv[1], "--plant-own") == 0;
   const bool plant_body = argc > 1 && std::strcmp(argv[1], "--plant-body") == 0;
+  const bool plant_unplaced = argc > 1 && std::strcmp(argv[1], "--plant-unplaced") == 0;   // S111 JBOYBLEND
+  const bool plant_rekey = argc > 1 && std::strcmp(argv[1], "--plant-rekey") == 0;   // S111 REKEYORDER2
   rdr_scene::g_plant_draw_place_off.store(plant);
+  rdr_scene::g_plant_rekeyed_rank_off.store(plant_rekey);
   scene_inputs::char_draw_list::g_plant_list33_only = plant43;
   cp::g_plant_own_unplaced = plant_own;
   cp::g_plant_body_unplaced = plant_body;
+  rdr_scene::splat_state::g_plant_unplaced_material = plant_unplaced;
 
   // 1. The reader: list order, -1 skipped, a disabled node skipped; a CWeapon node gives the model its slot 1 draws (entry 4 / 5 / 9), never [cw+48]; a character's second node counted once.
   {
@@ -216,7 +222,8 @@ int main(int argc, char** argv) {
   }
 
   // 6. The node's state, whatever the material (S111 PROPORDER review, splat_state.h NodeObjectFlags): the window's material additive -> drawn alpha (CWDT code 0), the light's material alpha -> drawn additive
-  //    (WATR code 1), and no pass writes depth even as a loader cut-out; a character keeps its material's blend and depth write. Unread: no node state (the material's, as before).
+  //    (WATR code 1), and no pass writes depth even as a loader cut-out; a character keeps its material's blend and depth write. Unread: no node state in THIS chain (its objects carry no entry k);
+  //    rf_props.cpp gives an unplaced entry its node's state by k (S111 JBOYBLEND, check 9: splat_state.h EventPropObjectFlags).
   {
     Guest({Node(0), Node(1), PropNode(0), PropNode(1), PropNode(2)});
     Run(objs, {It("glass", 0, false, 2), It("shadow", 1, false), It("Ahair", 2, true), It("Bhair", 3, true), It("light", 4, false, 1)});
@@ -326,7 +333,54 @@ int main(int argc, char** argv) {
     Check(g_opaque == "Abody ring Bbody", "a disabled opaque node gives no place");
   }
 
-  if (g_fail) std::printf("FAIL  %d check(s) failed%s\n", g_fail, plant ? " (planted twin: places ignored)" : plant43 ? " (planted twin: list 33 only)" : plant_own ? " (planted twin: own node unplaced)" : plant_body ? " (planted twin: bodies unplaced)" : "");
-  else std::printf("PASS  proporder_unit%s\n", plant || plant43 || plant_own || plant_body ? " (planted twin was NOT caught)" : "");
+  // 9. S111 JBOYBLEND (splat_state.h EventPropObjectFlags): an entrance prop model with no category-33 place (the list unread, its node not found) still draws under the node that draws its entry:
+  //    WATR (entry 5, sub_8272C198 +0x204..+0x228) additive with no depth write, CWDT / CWDS (4 / 9) alpha with no depth write; an own-node / CWDA entry takes none of it; a placed one is as before.
+  {
+    namespace ss = rdr_scene::splat_state;
+    using DP = Frame::DrawPlace;
+    const uint32_t watr = ss::EventPropObjectFlags<DP>(nullptr, true, true), cwdt = ss::EventPropObjectFlags<DP>(nullptr, true, false), own = ss::EventPropObjectFlags<DP>(nullptr, false, false);
+    Check(ss::NodeBlendOf(watr) == 2 && !ss::DepthWriteOf(watr, true, true), "unplaced: the WATR entry draws additive with no depth write, whatever its material");
+    Check(ss::NodeBlendOf(cwdt) == 1 && !ss::DepthWriteOf(cwdt, true, true), "unplaced: a CWDT / CWDS entry draws alpha with no depth write");
+    Check(own == 0u, "unplaced: an own-node / CWDA entry takes no category-33 state");
+    DP wp, op;
+    wp.block = true, wp.additive = true;
+    op.block = true, op.material_state = true;
+    Check(ss::EventPropObjectFlags(&wp, true, true) == ss::PlacedObjectFlags(wp) && ss::EventPropObjectFlags(&op, false, false) == 0u, "placed: the place's state as before (an own node's place orders only)");
+  }
+
+  // 10. S111 REKEYORDER2: the Elimination Chamber in a re-keyed entrance. The walk draws the stage `s` piece (30), the shadow card (33), the arena's `a` beam (35), the pod glass then the spotlight
+  //     (CDTA sub_826F8398, 36), the own model (41), the bodies (42), then the hair and the window / light (43). Ours: rank 0, 1, the additive rank 2, the late node's ranks 3 / 4, then every placed
+  //     item of a list after 36 (place >= kPlaceAfterLateNodes) in the last rank by its place. A character's additive piece (none is additive in ours today: the CHAMBERGLASS review's pair) takes
+  //     its character's place in that rank, after the hair recorded before it.
+  {
+    std::vector<Obj> o10 = objs;
+    o10.push_back({Model(0), 0});      // 5 = the own model (the own node in 41)
+    o10.push_back({0x4A000000u, 0});   // 6 = the stage (no place)
+    o10.push_back({0x4B000000u, 0});   // 7 = an arena `a` slot (no place)
+    o10.push_back({0x4C000000u, 0});   // 8 = the chamber's CDTA rows (no place: a late node)
+    const auto late = [](const char* n, uint32_t frame, uint8_t blend) {
+      Item i = It(n, frame, false, blend);
+      i.late_node = true;
+      return i;
+    };
+    const auto see10 = [&late] {
+      return std::vector<Item>{late("pod", 8, 1), late("spot", 8, 2), It("beam", 7, false, 2), It("frame", 5, false, 2), It("sglass", 6, false), It("glass", 0, false), It("shadow", 1, false),
+                               It("Ahair", 2, true), It("Aglow", 2, true, 2), It("Bhair", 3, true), It("light", 4, false, 2)};
+    };
+    const auto opaque10 = [] { return std::vector<Item>{It("Abody", 2, true, 0), It("ring", 6, false, 0), It("Bbody", 3, true, 0)}; };
+    Guest43({kRemoved, kRemoved, kRemoved, kRemoved, PropNode(2)}, {Node(0), Node(1), PropNode(0), PropNode(1)}, {kOwnNode});
+    for (int c = 0; c < 2; ++c) {
+      g_mem[cp::kCharSlotTable + 4 * uint32_t(c)] = Char(c);
+      g_mem[Char(c) + cp::kCharBodyNode + cp::kNodeCat] = 42;
+      g_mem[Char(c) + cp::kCharBodyNode + 8] = 1;
+    }
+    const std::string s = Run(o10, see10(), opaque10());
+    std::printf("chamber re-key: opaque [%s] then [%s]\n", g_opaque.c_str(), s.c_str());
+    Check(g_opaque == "ring" && s == "sglass shadow beam pod spot frame Abody Bbody Ahair Aglow Bhair glass light",
+          "chamber re-key: the `a` beam (35), the pod glass and the spotlight (36) before the own model (41), the bodies (42) and the hair / props (43); a character's additive piece at its place");
+  }
+
+  if (g_fail) std::printf("FAIL  %d check(s) failed%s\n", g_fail, plant ? " (planted twin: places ignored)" : plant43 ? " (planted twin: list 33 only)" : plant_own ? " (planted twin: own node unplaced)" : plant_body ? " (planted twin: bodies unplaced)" : plant_unplaced ? " (planted twin: unplaced entry keeps its material)" : plant_rekey ? " (planted twin: re-keyed items in the character rank)" : "");
+  else std::printf("PASS  proporder_unit%s\n", plant || plant43 || plant_own || plant_body || plant_unplaced || plant_rekey ? " (planted twin was NOT caught)" : "");
   return g_fail ? 1 : 0;
 }

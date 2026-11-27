@@ -11,6 +11,7 @@ The four refusals, each with the thing to do instead:
   2. shell edits:    sed -i, perl -pi, or a redirect / Set-Content / Out-File into a source file under src, tools, docs, .claude
   3. inline scripts: python fed by a heredoc or a here-string, a file written by `cat > F <<EOF`, a `py -c` over 200 characters or lines
   4. shell reads:    sed -n / cat / head / tail / type / Get-Content of a source file under src, tools, docs
+  5. save-then-grep: one command that redirects a q.py call into a file under the scratchpad AND greps that file (S111 QWHERE: use `--where REGEX`)
 
   py -I tools\harness\habit_hook.py --selftest
 ENABLED below switches the whole thing; why_refused() never raises (the caller fails open)."""
@@ -23,8 +24,13 @@ SRC = r'''(?:^|[\s"'=(\\/])(?:src|tools|docs|\.claude)[\\/][^\s"'|;&<>()]*\.(?:p
 PY = r'\b(?:py|python3?|python\.exe)\b'
 
 MSG = {
-    'cut': ("q output is never cut: every q list prints its total and the exact call for the rest, and a cut causes a re-ask. "
-            "Run the q call without head / tail / Select-Object -First, or narrow the question (--in PATH, a more exact verb)."),
+    'cut': ("q output is never cut with head / tail / Select-Object: every q list prints its total and the exact call for the rest, and a cut causes a re-ask. "
+            "To keep only some lines of ANY q verb use `--where REGEX [--context N]` (header and totals are kept, the last line says shown K of M and the call for the rest; "
+            "inside multi too: `q multi \"decomp sub_X --where stw.*1056\" \"field 268 --writes --where sub_8283\"`; `q asm FUNC --range A..B` for a part of a listing). "
+            "Or narrow the question (--in PATH, a more exact verb)."),
+    'savegrep': ("Do not save q output to a scratch file and grep it (the same cut as head / tail, plus a re-read): filter inside the call with "
+                 "`--where REGEX [--context N]` on the q verb (any verb, also inside `q multi`; the last line says shown K of M and the call for the rest). "
+                 "A long function's listing: `q asm FUNC --range A..B` or `q asm FUNC --where REGEX` (no cut)."),
     'edit': ("Source files are edited with the Edit / Write tools, never through sed -i, perl -pi or a shell redirect: the tools "
              "check the match and the harness tracks the file."),
     'inline': ("A script is a FILE: create it with Write (in your scratch folder), then run it by path. No heredoc, no here-string "
@@ -32,6 +38,21 @@ MSG = {
     'read': ("Read source files with `py tools\\q\\q.py multi \"show FILE:N-M\" \"show FILE2:N-M\" ...` (several ranges in one call) "
              "or the Read tool, not sed -n / cat / head / tail / Get-Content."),
 }
+
+
+def _save_then_grep(cmd):
+    """GUARD (CLAUDE.md rule 6), S111 QWHERE: stands in for `--where` being known and used. The audit of the six MENUS100 wave-2 probes found ~35-60 greps each over q
+    output they had first saved to a scratch file (q prints a whole decomp / a 4943-access list; head / tail is refused, so they saved and grepped = the same cut,
+    two extra calls and a re-read). Returns the file name when ONE command redirects (`>`, `| tee`, `Out-File`) a q.py call's output into a file under the
+    scratchpad and also runs grep / rg / Select-String / findstr naming that file. A save in one call and the grep in the next is not seen (no state is kept)."""
+    if not re.search(r'q[\\/]q\.py', cmd):
+        return None
+    saved = re.findall(r'q[\\/]q\.py[^\n;]*?(?:(?<![0-9&>])>>?|\|\s*tee\s+(?:-a\s+)?|\|\s*Out-File\s+(?:-FilePath\s+)?)\s*["\']?([^\s"\'|;&<>()]*scratchpad[^\s"\'|;&<>()]*)', cmd, re.I)
+    for p in saved:
+        base = re.split(r'[\\/]', p)[-1]
+        if base and re.search(r'\b(?:grep|egrep|rg|Select-String|sls|findstr)\b[^\n]*' + re.escape(base), cmd, re.I):
+            return base
+    return None
 
 
 def why_refused(cmd):
@@ -42,6 +63,10 @@ def why_refused(cmd):
     m = re.search(r'q[\\/]q\.py(?:[^;&\n]|>&)*\|\s*(head|tail|Select-Object\s+-(?:First|Last)|select\s+-(?:First|Last))\b', cmd, re.I)
     if m:
         return 'cut', m.group(1)
+    # 1b. q output saved under the scratchpad, then grepped in the same command (S111 QWHERE)
+    m = _save_then_grep(cmd)
+    if m:
+        return 'savegrep', m
     # 2. shell edits of source files
     m = re.search(r'\bsed\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*i\b|\bperl\s+-[a-zA-Z]*p[a-zA-Z]*i\b|\bperl\s+-[a-zA-Z]*i[a-zA-Z]*p\b', cmd)
     if m:
@@ -106,6 +131,9 @@ def selftest():
         ('read', r'Get-Content docs\DECISIONS.md -Tail 6'),
         ('read', 'cat C:/Users/J/wwe2k14-recomp/src/coverage.h | wc -l'),
         ('read', 'head -50 tools/q/q.py'),
+        ('savegrep', r'py tools\q\q.py decomp sub_82000000 > C:\Users\J\AppData\Local\Temp\claude\x\scratchpad\d.txt; grep -n stw C:\Users\J\AppData\Local\Temp\claude\x\scratchpad\d.txt'),
+        ('savegrep', 'py tools/q/q.py field 268 --writes 2>&1 | tee /tmp/claude/scratchpad/agents/a/f.txt && rg "sub_8283" /tmp/claude/scratchpad/agents/a/f.txt'),
+        ('savegrep', r'py tools\q\q.py multi "callers X" > $env:SCRATCH\scratchpad\c.txt; Select-String -Path C:\t\scratchpad\c.txt -Pattern foo'),
     ]
     allow = [
         r'py tools\q\q.py callers 0x82BDB460',
@@ -125,6 +153,11 @@ def selftest():
         'ls tools/q/ | grep -i selftest',
         r'py tools\q\q.py multi "ours text lr --in tools/q/qseen.py" "ours text tail --in tools/q/qicall_check.py"',
         'py tools/q/q.py ours text cat head --in src/coverage.h',
+        r'py tools\q\q.py decomp sub_82000000 --where stw',
+        r'py tools\q\q.py decomp sub_82000000 > C:\x\scratchpad\d.txt',
+        r'grep -n stw C:\x\scratchpad\d.txt',
+        r'py tools\q\q.py decomp sub_82000000 > C:\x\scratchpad\d.txt; grep -n stw C:\x\scratchpad\other.txt',
+        r'py tools\q\q.py decomp sub_82000000 > out\s111\d.txt; grep -n stw out\s111\d.txt',
     ]
     bad = []
     for kind, c in refuse:

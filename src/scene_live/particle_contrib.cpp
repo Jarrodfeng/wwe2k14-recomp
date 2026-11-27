@@ -76,7 +76,7 @@ uint32_t ParticleContributor::WriteTables(const ParticleSnapshot& s, uint32_t fr
       b.zoffset = k.zoffset, b.use_normal = k.use_normal;
       for (int i = 0; i < 4; ++i) b.light[i] = k.light[i];
       b.frame = frame_stamp;
-      b.row_after_p1 = k.row_after_p1;  // S103 MP
+      b.seq_after_p1 = k.seq_after_p1;  // S103 MP / S111 FLATSEQ
       t.particles.batches.push_back(b);
       open_key = e.key;
     }

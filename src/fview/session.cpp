@@ -2028,7 +2028,7 @@ const char* Session::VariantName(int variant) const {
 }
 int Session::FindVariantByName(const std::string& name) const { return rdr_adapter::VariantByName(name.c_str()); }
 bool Session::VariantHasAlphaTwin(int variant) const {
-  if (variant < 0 || variant >= VariantCount() || !rdr::fx::kVariants[variant].spirv_alpha) return false;
+  if (variant < 0 || variant >= VariantCount() || !rdr::fx::kVariants[variant].bytes_alpha) return false;
   const auto found = impl_->overrides.find(variant);
   return found == impl_->overrides.end() || !found->second.drop_twin;  // a reload that dropped the twin: the table the binder uses has none
 }
@@ -2043,7 +2043,7 @@ uint64_t Session::VariantSpirvHash(int variant, bool alpha) const {
     words = v.data(), count = v.size();
   } else {
     const rdr::fx::Variant& v = rdr::fx::kVariants[variant];
-    words = alpha ? v.spirv_alpha : v.spirv;
+    words = rdr::fx::Words(size_t(variant), alpha);
     count = (alpha ? v.bytes_alpha : v.bytes) / 4;
   }
   uint64_t h = 0xcbf29ce484222325ull;

@@ -15,7 +15,7 @@ inline bool LoadCubes(launcher::GameFiles& files, Cubes& out, std::string& why) 
   assets::load_detail::LoadCommonTexDirs(files);
   if (assets::load_detail::CommonTexDirs().empty()) return why = "chCommon.pac gave no texture directory (" + assets::load_detail::CommonTexError() + ")", false;
   assets::TexSet set;
-  for (const assets::Bytes& d : assets::load_detail::CommonTexDirs()) set.AddDir(assets::Bytes(d));
+  assets::load_detail::AddCommonTexDirs(set);   // S111 CHCOMMONCUBE: entry 21's cubes carry the common load's 4 (chcommon_levels.h); the upload levels each face (game_levels.h Relevel)
   std::string w;
   if (!set.Peek(kEyesName, out.eyes, w)) return why = std::string(kEyesName) + ": " + w, false;
   if (!set.Peek(kPlainName, out.plain, w)) return why = std::string(kPlainName) + ": " + w, false;

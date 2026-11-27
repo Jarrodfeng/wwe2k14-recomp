@@ -9,6 +9,7 @@
 #include "../renderer/problem.h"   // S103 LVF: rdr::Log (the run log)
 #include "../renderer/shaders/spv/fx_registry.h"
 #include "sampler_table.h"   // S103 B1
+#include "flat_particles.h"   // S111 TITLESMOKE: a flat frame's group position (RecordFlat)
 
 namespace rdr_scene {
 namespace {
@@ -46,8 +47,8 @@ bool LiveParticles::EnsurePrograms() {
   }
   rdr::ProgramDesc desc;
   desc.name = "yParticle_base (live particles)";
-  desc.vertex_spirv = kVariants[vs].spirv, desc.vertex_bytes = kVariants[vs].bytes;
-  desc.fragment_spirv = kVariants[ps].spirv, desc.fragment_bytes = kVariants[ps].bytes;
+  desc.vertex_spirv = rdr::fx::Words(size_t(vs), false), desc.vertex_bytes = kVariants[vs].bytes;
+  desc.fragment_spirv = rdr::fx::Words(size_t(ps), false), desc.fragment_bytes = kVariants[ps].bytes;
   program_ = renderer_.AddProgram(desc);
   constexpr uint16_t kRGB32F = 106, kRG32F = 103, kRGBA8Unorm = 37;  // VkFormat numbers (as front_end.cpp LayoutFor)
   rdr::VertexLayoutDesc ld{};
@@ -78,8 +79,8 @@ bool LiveParticles::EnsureSoftPrograms() {
   }
   rdr::ProgramDesc desc;
   desc.name = "ySoftParticle_base (live particles)";
-  desc.vertex_spirv = kVariants[vs].spirv, desc.vertex_bytes = kVariants[vs].bytes;
-  desc.fragment_spirv = kVariants[ps].spirv, desc.fragment_bytes = kVariants[ps].bytes;
+  desc.vertex_spirv = rdr::fx::Words(size_t(vs), false), desc.vertex_bytes = kVariants[vs].bytes;
+  desc.fragment_spirv = rdr::fx::Words(size_t(ps), false), desc.fragment_bytes = kVariants[ps].bytes;
   soft_program_ = renderer_.AddProgram(desc);
   constexpr uint16_t kRGB32F = 106, kRG32F = 103, kRGBA8Unorm = 37;   // the soft vertex stage reads position, colour and ONE uv (no uv2): a 3-attribute layout (an unread attribute is a validation warning)
   rdr::VertexLayoutDesc ld{};
@@ -115,17 +116,8 @@ bool LiveParticles::EnsureSoftDepth(uint32_t w, uint32_t h, bool scaled) {
 
 void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& fb) {
   if (stage != Stage::AfterBlended || !ctx.frame || !ctx.frame->particles || ctx.frame->particles->empty()) return;
-  const ParticleTables& pt = *ctx.frame->particles;
   const bool mirror = ctx.frame->viewer_space && !faults_.no_mirror;  // the frame is in the viewer's space (S = diag(1, -1, 1) on worlds, view' = S * view): the game-space tables are mirrored once here
   if (mirror) ++stats_.viewer_space_mirrored;
-  if (!EnsurePrograms()) return;
-
-  // Frame-constant parts of the vertex block: ViewProj as the effect wants it (row k = column k of the row-vector matrix, as front_end.cpp Resolve "ViewProj").
-  float block[kBlockBytes / 4];
-  std::memset(block, 0, sizeof block);
-  for (int k = 0; k < 4; ++k)
-    for (int i = 0; i < 4; ++i) block[kOffViewProj / 4 + 4 * k + i] = ctx.view_proj[i * 4 + k];
-
   rdr::DynamicState dynamic{};
   dynamic.viewport[2] = float(ctx.width);
   dynamic.viewport[3] = float(ctx.height);
@@ -134,6 +126,34 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
   dynamic.scissor.height = ctx.height;
   dynamic.system[0] = 1.f, dynamic.system[1] = -1.f, dynamic.system[2] = 1.f;  // as the front-end's: clip y up, Vulkan viewport
   dynamic.system[9] = 7.f;                                                       // alpha test: always
+  Draw(*ctx.frame->particles, ctx, dynamic, mirror, false, 0, nullptr, 0, fb);
+}
+
+// S111 TITLESMOKE: see live_particles.h RecordFlat. No frame and no depth in the context: a soft batch draws hard (counted soft_as_hard), the depth test is off.
+void LiveParticles::RecordFlat(const ParticleTables& pt, const FlatView& v, size_t pos, const Quad2D* rows, size_t nrows, rdr::FrameBuilder& fb) {
+  if (pt.empty() || !v.view_proj) return;
+  StageCtx ctx;
+  ctx.view_proj = v.view_proj;
+  ctx.width = v.viewport.width, ctx.height = v.viewport.height;
+  rdr::DynamicState dynamic{};
+  dynamic.viewport[0] = float(v.viewport.x), dynamic.viewport[1] = float(v.viewport.y);
+  dynamic.viewport[2] = float(v.viewport.width), dynamic.viewport[3] = float(v.viewport.height);
+  dynamic.viewport[5] = 1.0f;
+  dynamic.scissor = v.scissor;
+  dynamic.system[0] = 1.f, dynamic.system[1] = -1.f, dynamic.system[2] = 1.f;  // as Record and the 2D rows (quads2d_draw.cpp Append): the game's clip y up, Vulkan viewport
+  dynamic.system[9] = 7.f;                                                       // alpha test: always
+  Draw(pt, ctx, dynamic, false, true, pos, rows, nrows, fb);
+}
+
+void LiveParticles::Draw(const ParticleTables& pt, const StageCtx& ctx, const rdr::DynamicState& dynamic, bool mirror, bool flat, size_t pos, const Quad2D* rows, size_t nrows, rdr::FrameBuilder& fb) {
+  if (!EnsurePrograms()) return;
+
+  // Frame-constant parts of the vertex block: ViewProj as the effect wants it (row k = column k of the row-vector matrix, as front_end.cpp Resolve "ViewProj").
+  float block[kBlockBytes / 4];
+  std::memset(block, 0, sizeof block);
+  for (int k = 0; k < 4; ++k)
+    for (int i = 0; i < 4; ++i) block[kOffViewProj / 4 + 4 * k + i] = ctx.view_proj[i * 4 + k];
+
   const uint32_t dyn = fb.Dynamic(dynamic);
   const uint8_t zero16[16] = {};
   const uint32_t fs_constants = fb.PushConstants(zero16, 16);
@@ -171,6 +191,7 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
   bool any = false;
   std::vector<ParticleDrawVertex>& verts = verts_;
   for (const ParticleBatch& b : pt.batches) {
+    if (flat && (!flat_particles::IsFlat(b) || flat_particles::PosOf(pt, b, rows, nrows) != pos)) continue;   // S111 TITLESMOKE: a flat frame's group (a screen call's batches) is drawn at its own 2D row position (the host calls once per position); S111 FLATSEQ: by the rows' seq
     if (b.frame != frame_ && !faults_.ignore_stamp) { ++stats_.stale_batches; continue; }
     if (b.first + uint64_t(b.count) > pt.particles.size()) continue;
     rdr::ImageId tex = b.texture == kNoParticleTexture || !texture_of_ ? rdr::kNoImage : texture_of_(b.texture);
@@ -202,7 +223,7 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
     state.topology = 3;  // triangle list
     state.cull = 0;      // both faces: a camera-facing sprite's winding is whatever its LocalWorld makes it
     state.front_face = 1;
-    state.depth_test = 1;
+    state.depth_test = flat ? 0 : 1;   // S111 TITLESMOKE: F (the 2D layer's target) has no depth; the game draws the menu groups with its 2D camera among the 2D rows
     state.depth_write = 0;
     state.depth_compare = ParticleDepthCompare(b);  // S111 PARTZ: the game's per-entry ALWAYS (sub_82A0AED8 +84) stays ALWAYS; its reversed GEQUAL is our forward LEQUAL (live_particles.h)
     state.blend[0].write_mask = 0xF;
@@ -321,14 +342,14 @@ void LiveParticles::Record(Stage stage, const StageCtx& ctx, rdr::FrameBuilder& 
     stats_.particles += b.count;
     any = true;
   }
-  if (any) ++stats_.frames;
+  if (any) ++(flat ? stats_.flat_groups : stats_.frames);
 }
 
 std::string LiveParticles::CensusLine() const {
-  char line[400];
-  std::snprintf(line, sizeof line, "[scene][particles] frames %llu, batches %llu, particles %llu, draws %llu, stale %llu, soft_as_hard %llu, no_texture %llu, lit %llu, viewer_space_mirrored %llu, particles_unnamed_skipped %llu, soft_drawn %llu, soft_depth_copies %llu",
+  char line[512];
+  std::snprintf(line, sizeof line, "[scene][particles] frames %llu, batches %llu, particles %llu, draws %llu, stale %llu, soft_as_hard %llu, no_texture %llu, lit %llu, viewer_space_mirrored %llu, particles_unnamed_skipped %llu, soft_drawn %llu, soft_depth_copies %llu, flat_groups %llu",
                 (unsigned long long)stats_.frames, (unsigned long long)stats_.batches, (unsigned long long)stats_.particles, (unsigned long long)stats_.draws,
-                (unsigned long long)stats_.stale_batches, (unsigned long long)stats_.soft_as_hard, (unsigned long long)stats_.no_texture, (unsigned long long)stats_.lit_particles, (unsigned long long)stats_.viewer_space_mirrored, (unsigned long long)stats_.unnamed_skipped, (unsigned long long)stats_.soft_drawn, (unsigned long long)stats_.soft_depth_copies);
+                (unsigned long long)stats_.stale_batches, (unsigned long long)stats_.soft_as_hard, (unsigned long long)stats_.no_texture, (unsigned long long)stats_.lit_particles, (unsigned long long)stats_.viewer_space_mirrored, (unsigned long long)stats_.unnamed_skipped, (unsigned long long)stats_.soft_drawn, (unsigned long long)stats_.soft_depth_copies, (unsigned long long)stats_.flat_groups);
   return line;
 }
 

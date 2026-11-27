@@ -103,6 +103,11 @@ REXCVAR_DEFINE_INT32(wwe2k14_dlc_gate_extra, 0, "wwe2k14",
 REXCVAR_DEFINE_BOOL(wwe2k14_draw_origin, true, "wwe2k14",
                     "S101: tag every draw record with the code that submitted it (renderer names, docs\\renderer\\NAMES.md); false = all draws unnamed");
 
+//@ src/equiv/equiv_host.h | - | -
+REXCVAR_DEFINE_STRING(wwe2k14_equiv_allow, "", "wwe2k14",
+                      "S111 EQUIV: the allowlist file (one guest function address per line, 0x82... or sub_82...; # comments): only "
+                      "these are callable / registered (empty = the built-in test's own list)");
+
 //@ src/file_trace.h | - | -
 REXCVAR_DEFINE_BOOL(wwe2k14_file_trace, false, "wwe2k14",
                     "Log host backtraces of matching file opens and their first reads ([wwe2k14][ftrace])");
@@ -487,7 +492,8 @@ REXCVAR_DEFINE_BOOL(wwe2k14_rdr_picture_source, false, "wwe2k14",
 //@ src/scene_live/screen_planes_glue.h | - | -
 REXCVAR_DEFINE_STRING(wwe2k14_rdr_screen_bind, "", "wwe2k14",
                       "S103 lane M (DEV ONLY, not a player setting): which titan movie channel (0-5) each stage screen key (800-809) shows and the picture size it expects, e.g. 804:0@320x320,805:2@256x128. Empty (the default) = the built-in "
-                      "table (803/804/807 -> channel 0 @320x320, 805 -> channel 2 @256x128; the other keys unbound). 'none' = every screen unbound. Any other text REPLACES the built-in table; a malformed text changes nothing (the "
+                      "table = the game's own for the stage's arena (stage_channels_core.h StageChannelOfKey: shipped arenas 803/804/807 -> channel 0 @320x320, 801/802/806/808/809 -> 1 @256x256, 805 -> 2 @256x128; created arenas "
+                      "200-249 803/808 -> 0, 801/804 -> 1, 806/807 -> 2; 800 and the other keys unbound). 'none' = every screen unbound. Any other text REPLACES the built-in table; a malformed text changes nothing (the "
                       "built-in table stays). Read once at start; only used with --wwe2k14_rdr_scene (docs\\renderer\\STAGE_LIVE_WRITERS.md 2b)");
 
 //@ src/session_log.h | - | -

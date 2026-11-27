@@ -1,4 +1,4 @@
-# CQM (2026-11-20): ONE compile of one source with build_rig's exact compile line (tools\scene\build_rig.ps1:33-39 include / define lists, :57 the line),
+# CQM (2026-11-20): ONE compile of one source with build_rig's exact compile line (tools\scene\build_rig.ps1 include / define lists, the line),
 # so measure_peak.py can measure a single tool-build unit. The object goes to -Out (under this tree's out\). Same cache switch as the rig: WWE_NO_CCACHE=1 = plain clang++.
 # Keep in step with build_rig.ps1 by hand if its flags change (this file is a measurement helper, not a build).
 #   pwsh -NoProfile -File tools\memory\rig_unit_line.ps1 -Src src\renderer_scene\front_end.cpp -Out out\cqm\rig\front_end.o [-Show]

@@ -18,9 +18,12 @@ CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
 PLANTS = {6: 'catalog.own_blobs_in_the_same_call', 1: 'catalog.registered_once_with_alpha_twins', 2: 'rule.not_done_with_records_waiting', 3: 'gate.no_slice_in_a_3d_scene', 4: 'write.failure_names_the_step_and_the_os_error', 5: 'flush.saved_before_the_ack'}
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+from read_unit import read_text  # a split file is read with its parts expanded (tools/split/read_unit.py; text mode: '\n' line ends)
+
+
 def read(root, rel):
-    with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-        return f.read()
+    return read_text(os.path.join(root, rel))
 
 
 def strip_comments(s):

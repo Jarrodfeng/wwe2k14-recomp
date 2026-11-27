@@ -1,0 +1,75 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --audio_mute=true --wwe2k14_replay_mode=true
+# intent: fixed_seed 1, audio_mute on
+# S111 CAAROUTE: the finished test arena in the EDITOR: reopens custom slot 1 (CUSTOM ARENA) of the mirror out\bench\userdata_caa and shoots each tab
+# (v_stage: mini-tron / frame object greyed = OFF; v_ring: the mat; v_ringside: the announce table; v_other). Run it with -Data userdata_caa. Nothing is
+# saved (the run edits its own copy). Same editor map and frame-counted presses as caa_make_arena.txt (replay mode).
+# Question: does the saved arena reopen with the parts off and the paint on?
+on_fail quit
+log bench: start caa explore
+include boot_to_menu
+include menu_to_creations
+press_until_state DOWN cursor 6 12 30 5 if_needed
+press_until_state UP cursor 6 12 30 5 if_needed
+wait_frames 30
+press A
+wait_text NEW 300
+wait_frames 60
+press DOWN
+wait_frames 30
+press A
+wait_text EMPTY 600
+wait_frames 120
+press A
+wait_frames 120
+press A
+wait_text SCREEN FILTER 900
+wait_frames 120
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press DOWN
+wait_frames 30
+press A
+wait_text CHANGE TAB 1200
+wait_frames 300
+wait_frames 60
+log scene=v_stage
+log_text 8
+screenshot v_stage
+press RB
+wait_frames 250
+wait_frames 60
+log scene=v_ring
+log_text 8
+screenshot v_ring
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+wait_frames 60
+log scene=v_rope_row
+log_text 8
+screenshot v_rope_row
+press RB
+wait_frames 250
+wait_frames 60
+log scene=v_ringside
+log_text 8
+screenshot v_ringside
+press DOWN
+wait_frames 250
+press DOWN
+wait_frames 250
+wait_frames 60
+log scene=v_table_row
+log_text 8
+screenshot v_table_row
+press RB
+wait_frames 250
+wait_frames 60
+log scene=v_other
+log_text 8
+screenshot v_other
+log bench: done
+quit

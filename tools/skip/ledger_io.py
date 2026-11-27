@@ -223,8 +223,10 @@ class Record:
         out = []
         for i in range(cnt):
             v = struct.unpack_from('<BBHIIIf12f', self.b, so + es * i)
-            if v[1] != 1 or v[0] not in (1, 2):
-                raise ValueError('ArenaWorld %d: layout %d kind %d, this reader knows layout 1, kinds 1 and 2' % (i, v[1], v[0]))
+            if v[1] != 1:
+                raise ValueError('ArenaWorld %d: layout %d, this reader knows layout 1' % (i, v[1]))
+            if v[0] not in (1, 2):   # S111 FXSKIP: a newer writer's kind is skipped by the row stride (the C++ reader's KeepKnownKinds rule); the rest of the section is read
+                continue
             out.append(dict(kind=v[0], layout=v[1], slot=v[2], object=v[3], frame=v[4], origin=v[5], clock=v[6], world=list(v[7:19])))
         return out
 

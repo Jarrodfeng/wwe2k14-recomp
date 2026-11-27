@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
       const assets::Material& mt = cm.materials[size_t(me.material)];
       const bool b = (mt.cull_word & 0x2u) != 0;
       // a stage-slot mesh the movie-surface rule (stage_media.h Apply: its flat light set id 9000, cull_back forced) also took: the own rule wins (cull_from_record cleared there)
-      // (offline there is no media folder, so Apply builds nothing: the candidates are counted by the sampler names its build() maps, stage_media.h 244-280, whether or not a picture exists)
+      // (offline there is no media folder, so Apply builds nothing: the candidates are counted by the sampler names its build() maps, stage_media.h, whether or not a picture exists)
       static const char* const kMovieNames[] = {"ppv_header&wall", "ss_header&wall", "mini_tron", "titantron_movie", "main&banner"};
       bool own_rule = me.light_set >= 0 && size_t(me.light_set) < cm.light_sets.size() && cm.light_sets[size_t(me.light_set)].id == 9000;
       for (const char* nm : kMovieNames) own_rule = own_rule || mt.diffuse_name == nm;

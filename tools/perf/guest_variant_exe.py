@@ -1,15 +1,20 @@
 """Build a game exe whose chosen generated guest-code files are compiled with other flags (Session 95, guest codegen A/B).
 Answers: "what does compile target X / PGO do to the recompiled game code's speed, build time, exe size and link time?",
-without codegen and without touching out\\build\\win-amd64-release. Reads the main build's build.ninja (the exact defines, includes
+without codegen and without touching out\\build\\win-amd64-release. Reads a build folder's build.ninja (the exact defines, includes
 and flags of the recompiled files), changes only the flags below, compiles the chosen generated\\default\\wwe2k14_recomp.N.cpp
-files (+ a variant precompiled header) into <out>\\obj and links <out>\\exe\\wwe2k14.exe with the main build's other objects,
-exactly like tools\\owned\\fast_game_exe.ps1 does for main.cpp. Generated code is read in place and never copied or committed (rule 1).
+files (+ a variant precompiled header) into <out>\\obj and links <out>\\exe\\wwe2k14.exe with that build's other objects,
+exactly like tools\\owned\\fast_game_exe.ps1 does for main.cpp. The generated files are the ones THAT build compiles (its build.ninja names
+them: the main checkout's generated\\default for out\\build\\*, a lane slot's own copy for out\\wt\\exe-slotN\\out\\build\\*; S111 EQUIVTIER:
+the slot's precompiled header includes the slot's copy, so another copy would redefine every global). They are read in place and never
+copied or committed (rule 1). <out>\\exe\\variant.json names the build folder, the generated folder and the files (tools\\equiv\\equiv.py
+reads the branch counts' source from it).
 Run it under the BUILD slot of the run lock:
     pwsh -NoProfile -File tools\\runlock.ps1 run -Build -Name NAME -TimeoutMinutes 60 -- py tools\\perf\\guest_variant_exe.py --name v3 --variant v3 --tus-file out\\s95\\gcpu\\tus.txt --jobs 8
 
   --variant   base (the main flags again: the control), v3 (AVX2 BMI BMI2 FMA MOVBE LZCNT POPCNT + -ffp-contract=off), v3nc (v3 without
               the contract flag: shows the flag is needed), pgogen / pgouse (clang IR-free front-end PGO, needs --profdata for use;
-              add +v3 to combine: pgogen+v3, pgouse+v3)
+              add +v3 to combine: pgogen+v3, pgouse+v3), covmap (S111 EQUIV: pgogen's counters + -fcoverage-mapping, so llvm-cov reads
+              each branch of the chosen files' functions; the equivalence tester's runner writes the profile itself, tools\\equiv\\equiv.py)
   --tus / --tus-file   comma list of generated file numbers; 'all' = every generated recomp file
   --out       default out\\s95\\cg\\<name> (outside any worktree; the stack variant writes rewritten generated C++ to <out>\\src: gitignored under out\\, never commit it)
   --wt        a worktree: src\\main.cpp and our headers come from it, compiled with their own PCH (flags from the main build)
@@ -26,6 +31,7 @@ Prints per-step wall times, object sizes, exe size. Last line: VARIANT_EXE <path
 import argparse
 import concurrent.futures as cf
 import glob
+import json
 import os
 import re
 import shutil
@@ -43,6 +49,8 @@ FLAGSETS = {
     'v3nc': V3,
     # clang front-end instrumentation; the profile is keyed by function name + CFG hash, so it survives other edits
     'pgogen': ['-fprofile-instr-generate'],
+    # S111 EQUIV: the branch counts of the tested function's generated file (llvm-cov export: one region per `if (...) goto`)
+    'covmap': ['-fprofile-instr-generate', '-fcoverage-mapping'],
     # r1-relative accesses (the guest stack, 0x70000000-0x7F000000 by xboxkrnl_memory.cpp:653) skip the 0xE0000000 check and volatile;
     # needs the source rewrite below and the macros in the PCH. Plain accesses through char-typed memory of other types: no TBAA.
     'stack': ['-fno-strict-aliasing'],
@@ -72,6 +80,14 @@ def statement(lines, prefix):
             v[lines[j][:k].strip()] = lines[j][k + 3:]
         j += 1
     return v
+
+
+def build_sources(cc):
+    """(generated folder, source root) of the build: the folder of the recomp file its build.ninja compiles (`build <obj>: <rule> <src> | ...`,
+    ninja writes a drive's colon as `$:`), and the checkout two levels above it."""
+    src = cc['_line'].split(': ', 1)[1].split(' | ')[0].split()[1].replace('$:', ':')
+    gen = os.path.dirname(os.path.normpath(src))
+    return gen, os.path.dirname(os.path.dirname(gen))
 
 
 def flags_for(variant, profdata):
@@ -128,8 +144,6 @@ def main():
     tus = a.tus
     if a.tus_file:
         tus = open(a.tus_file).read().strip()
-    allnums = sorted(int(re.search(r'recomp\.(\d+)\.cpp$', p).group(1)) for p in glob.glob(os.path.join(R, 'generated', 'default', 'wwe2k14_recomp.*.cpp')))
-    nums = allnums if tus == 'all' else [int(x) for x in tus.split(',') if x.strip()]
     prof = fwd(os.path.abspath(a.profdata)) if a.profdata else ''
     extra = flags_for(a.variant, prof)
 
@@ -137,6 +151,10 @@ def main():
     pch = statement(ninja, 'build CMakeFiles/wwe2k14_recomp.dir/cmake_pch.hxx.pch:')
     cc = statement(ninja, 'build CMakeFiles/wwe2k14_recomp.dir/generated/default/wwe2k14_recomp.26.cpp.obj:')
     ln = statement(ninja, 'build wwe2k14.exe:')
+    gen, root = build_sources(cc)
+    allnums = sorted(int(re.search(r'recomp\.(\d+)\.cpp$', p).group(1)) for p in glob.glob(os.path.join(gen, 'wwe2k14_recomp.*.cpp')))
+    nums = allnums if tus == 'all' else [int(x) for x in tus.split(',') if x.strip()]
+    print(f'build {B}: generated files from {gen}')
     mainhxx = fwd(os.path.join(B, 'CMakeFiles', 'wwe2k14_recomp.dir', 'cmake_pch.hxx'))
 
     def swap(flags):
@@ -171,7 +189,7 @@ def main():
         o = os.path.join(obj, f'recomp.{n}.obj')
         if a.keep_guest:
             return n, 0, 0.0, '', os.path.getsize(o)
-        src = os.path.join(R, 'generated', 'default', f'wwe2k14_recomp.{n}.cpp')
+        src = os.path.join(gen, f'wwe2k14_recomp.{n}.cpp')
         if stack:
             os.makedirs(os.path.join(out, 'src'), exist_ok=True)
             text = open(src, encoding='utf-8', errors='replace').read()
@@ -216,7 +234,7 @@ def main():
         mdir = os.path.join(B, 'CMakeFiles', 'wwe2k14.dir')
         mhxx_old = fwd(os.path.join(mdir, 'cmake_pch.hxx'))
         mhxx = os.path.join(out, 'main_pch.hxx')
-        text = open(os.path.join(mdir, 'cmake_pch.hxx')).read().replace(fwd(R) + '/src/pch_main.h', wt + '/src/pch_main.h')
+        text = open(os.path.join(mdir, 'cmake_pch.hxx')).read().replace(fwd(root) + '/src/pch_main.h', wt + '/src/pch_main.h')
         with open(mhxx, 'w') as f:
             f.write(text + '\n' + (PLAIN_H if plain else ''))
         shutil.copyfile(os.path.join(mdir, 'cmake_pch.hxx.cxx'), os.path.join(out, 'main_pch.hxx.cxx'))
@@ -270,7 +288,8 @@ def main():
             if rc:
                 print(err)
                 return 3
-    if 'pgogen' in a.variant:
+    profiled = any(p in ('pgogen', 'covmap') for p in a.variant.split('+'))   # the profile runtime is linked in (covmap: no 10 s writer)
+    if 'pgogen' in a.variant.split('+'):
         hook = os.path.join(out, 'pgo_exit_hook.obj')
         rc, dt, err = run(' '.join(['-O1', '-c', f'"{fwd(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pgo_exit_hook.cpp"))}"',
                                     '-o', f'"{fwd(hook)}"']), os.path.join(out, 'hook.rsp'))
@@ -302,13 +321,13 @@ def main():
     lflags = ln['FLAGS'].split()
     mapold = f'/MAP:{fwd(B)}/wwe2k14.map'
     linkflags = ln['LINK_FLAGS'].replace(mapold, f'/MAP:{fwd(exe)}/{os.path.splitext(a.exe_name)[0]}.map').split()
-    if 'pgogen' in a.variant:
+    if profiled:
         lflags += ['-fprofile-instr-generate']
     t2 = time.time()
     r = subprocess.run([CLANG, '-nostartfiles', '-nostdlib'] + lflags + linkflags + ['@' + lrsp, '-o', os.path.join(exe, a.exe_name),
                        '-Xlinker', '/MANIFEST:EMBED', '-Xlinker', f'/implib:{os.path.join(out, "wwe2k14.lib")}',
                        '-Xlinker', f'/pdb:{os.path.join(out, "wwe2k14.pdb")}', '-Xlinker', '/version:0.0'],
-                       capture_output=True, text=True, errors='replace')
+                       capture_output=True, text=True, errors='replace', cwd=B)   # in the build folder, as ninja links: LINK_LIBRARIES names some of its own libs relative to it (wwe2k14_webp.lib)
     if r.returncode:
         print((r.stderr or '')[-1500:])
         return 4
@@ -321,6 +340,8 @@ def main():
         if os.path.exists(p):
             shutil.copy2(p, exe)
     e = os.path.join(exe, a.exe_name)
+    with open(os.path.join(exe, 'variant.json'), 'w') as f:
+        json.dump({'variant': a.variant, 'build_dir': B, 'generated': gen, 'tus': nums, 'wt': a.wt}, f, indent=1)
     print(f'exe size {os.path.getsize(e) / 1e6:.1f} MB (main build exe {os.path.getsize(os.path.join(B, "wwe2k14.exe")) / 1e6:.1f} MB)')
     print(f'total wall {time.time() - t0:.0f} s')
     print(f'VARIANT_EXE {e}')

@@ -120,6 +120,13 @@ def main():
     r = res('use(obj + 16)', 'x.y')
     check('a member expression stays unresolved', r['route'] == 'unresolved', str(r))
 
+    # S111 SPLIT-WIRE review: a split part keys as its parent unit (reader/registry.inc is reader.h's text: family d3d_state, as before the split)
+    for rel, func, want in (('src/renderer_adapter/reader/registry.inc', 'ScreenShapedRule', 'd3d_state'),
+                            ('src/renderer_adapter/binder/tail.inc', 'CopyBeforeHud', 'd3d_state'),
+                            ('src/renderer_adapter/reader.h', 'StartLive', 'd3d_state')):
+        if os.path.isfile(os.path.join(qfeed.ROOT, rel)):
+            check('family of %s is its unit\'s (%s)' % (rel, want), qfeed.family(rel, func) == want, qfeed.family(rel, func))
+
     # real part: needs the field index
     W = qfeed.Writers()
     if not W.ok:

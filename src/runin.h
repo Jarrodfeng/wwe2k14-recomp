@@ -296,6 +296,7 @@ inline void Install() {
 // The game's run-in enable check (see the header). With --wwe2k14_runin only its settings byte G+32 is set, for one
 // re-check: the game's own simple-match rules still decide (Session 83, GitHub #92: forcing the whole answer to 1 put a
 // run-in manager into a 20-man Rumble, and every finisher / signature there froze both wrestlers for good).
+// TWICE-ORIGINAL: the run-in check is re-run once with the setting forced on (the comment above says so); the first result stands when the setting is already on or the answer is nonzero
 REX_HOOK_RAW(sub_825999F8) {
   const PPCContext entry = ctx;
   __imp__sub_825999F8(ctx, base);

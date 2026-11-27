@@ -1,0 +1,13 @@
+name = "tables"
+module = "qtables"
+needs = "con"
+errors = ["qtables.TablesError", "qtables.qdecomp.DecompError"]
+
+[[usage]]
+order = 64
+text = '''  tables FUNC [--json]          every dispatch structure of FUNC (jump table, cmp/beq chain, bdzf chain, indexed constant table): index -> target -> what the target does first
+                                 (first store / call / return); `vtable ADDR --dump [N]` gives the same per vtable slot (tools/q/qtables.py)'''
+
+[[route]]
+order = 149
+text = '''- what a switch / table dispatches to (each index -> target -> its first store / call / return), a vtable's slots the same way: tables FUNC; vtable ADDR --dump'''

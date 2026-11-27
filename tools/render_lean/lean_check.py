@@ -246,9 +246,11 @@ def part_bench(root, reps):
 
 
 def part_wiring(root):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def read(rel):
-        with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     live, sw, ss, rp, fv = (read('src/renderer_adapter/live.cpp'), read('src/renderer_adapter/rdr_switches.h'), read('src/renderer_adapter/stage_split.h'), read('src/renderer/player/rplay.cpp'), read('src/fview/main.cpp'))
     cv, rl, rn = read('src/renderer_adapter/render_lean_cvar.h'), read('src/renderer/render_lean.h'), read('src/renderer/renderer.cpp')
     links = [

@@ -103,6 +103,7 @@ RULES = [
     R('Ring Steps', 'Ring Steps', kind='prop', keys=(29, 35)),
     R('Ring Steps', 'Ring Steps', tex='ar_stair'),
     R('Announce Desk', 'Announce Desk', kind='prop', keys=(6, 7)),
+    R('Announce Desk', 'Announce Desk', kind='prop', keys=(104, 107)),   # S111 DESKMODEL: the per-arena desk 105 / 106 and top 107 (104 named by the game's table)
     R('Announce Desk', 'Announce Chair', node='ji_chair', tex='ji_chair'),
     R('Announce Desk', 'Announce Desk', tex='ji_desk|ji_mon|ji_top|ji_bl|ji_meta'),
 

@@ -1,5 +1,6 @@
 r"""q field: who reads and who writes offset +N of an object, across the whole recompiled game (S103 lane QF).
 
+    py tools/q/q.py field OFF --writes --values [--co N]    per store the value stored (traced immediate / register) + the fields the same function stores through the same root (qfieldvals.py)
     py tools/q/q.py field OFF [--type T | --vtable V | --global G | --root R] [--writes | --reads] [--lea]
                               [--func F] [--width N] [--float | --int] [--limit N] [--json]
     py tools/q/q.py field fn FUNC          the fields a function touches (root, offset, R / W counts, widths, types)
@@ -209,16 +210,35 @@ def cmd_off(con, a, out):
     sql = ('select r.func, r.addr, r.rw, r.width, r.fl, r.off, ro.text, r.root from rows r join roots ro on ro.id=r.root '
            'where ' + ' and '.join(where) + ' order by r.func, r.addr limit ?')
     rows = con.execute(sql, args + [a.limit]).fetchall()
-    _gen, image, _db = bf.default_paths(a.root, a.gen)
+    total = len(rows)
+    if len(rows) >= a.limit:      # S111 QFIX5: a cut is never silent: the total of the same query + the call for the rest
+        total = con.execute('select count(*) from rows r join roots ro on ro.id=r.root where ' + ' and '.join(where), args).fetchone()[0]
+    gen, image, _db = bf.default_paths(a.root, a.gen)
     names = rtti_names(os.path.dirname(a.image or image))
     res = []
     for f, addr, rw, w, fl, o, root, rid in rows:
         res.append({'func': f'sub_{f:08X}', 'addr': h(addr), 'rw': rw, 'width': w, 'float': bool(fl), 'off': o, 'root': root,
-                    'types': types_of(con, f, rid, names)})
+                    'types': types_of(con, f, rid, names), 'rid': rid})
+    if a.values:      # S111 QWRITERS: the value stored + the co-stored fields (tools/q/qfieldvals.py)
+        import qfieldvals
+        qfieldvals.attach(con, res, gen, a.co, any_root=a.co_any)
+        out['values'] = True
+    for r in res:
+        del r['rid']
     out['rows'] = res
+    if not getattr(a, 'no_strides', False):      # S111 QFIX4: base + K + stride*index accesses, from q struct (qfield_strides.py)
+        import qfield_strides
+        if getattr(a, 'strides', None):
+            import q as qmod
+            qfield_strides.scan(a.strides, qmod.connect(qmod.DB))
+        out['off'] = off
+        out['stride_rows'] = qfield_strides.lookup(off)
     out['count'] = len(res)
     out['functions'] = len({r['func'] for r in res})
-    out['truncated'] = len(res) >= a.limit
+    out['truncated'] = total > len(res)
+    out['total'] = total
+    if out['truncated']:
+        out['rest'] = f"q field {getattr(a, 'call', '')} --limit {total}".replace('  ', ' ')
     out['note'] = 'indexed accesses (lwzx...) are not indexed; confirm each hit in the listing'
     return out
 
@@ -226,6 +246,11 @@ def cmd_off(con, a, out):
 def print_off(out, js, fm='card'):
     if js:
         print(json.dumps(out, indent=1))
+        return
+    if out.get('values'):
+        import qfieldvals
+        qfieldvals.print_rows(out, fname)
+        _print_strides(out)
         return
     import qfactcard
     cur = None
@@ -245,8 +270,22 @@ def print_off(out, js, fm='card'):
             if line:
                 print('      ' + line)
                 nf += 1
-    print(f"-- {out['count']} accesses in {out['functions']} functions" + (' (truncated: --limit)' if out['truncated'] else ''),
-          file=sys.stderr)
+    _print_strides(out)
+    print(f"-- {out['count']} accesses in {out['functions']} functions", file=sys.stderr)
+    if out['truncated']:
+        print(f"-- showing {out['count']} of {out['total']} accesses (cut at --limit): the rest: {out['rest']}; or narrow with --func F / --global ADDR / --type T / --width N, "
+              f"or `--where REGEX` (it filters the WHOLE list, no cut)", file=sys.stderr)
+
+
+def _print_strides(out):
+    sr = out.get('stride_rows')
+    if sr is None:
+        return
+    import qfield_strides
+    if sr['rows']:
+        qfield_strides.print_rows(sr)
+    else:
+        print(qfield_strides.note(sr, out['off']))
 
 
 def cmd_fn(con, a, out):
@@ -342,18 +381,37 @@ def main(argv=None):
     ap.add_argument('--type'); ap.add_argument('--vtable'); ap.add_argument('--global', dest='glob')
     ap.add_argument('--root-name', dest='rootname', help='a root as printed (a0, g:83930050, p(a0,8), K)')
     ap.add_argument('--writes', action='store_true'); ap.add_argument('--reads', action='store_true')
+    ap.add_argument('--values', action='store_true', help='with --writes: per store the value stored and the other fields the same function stores through the same root (qfieldvals.py)')
+    ap.add_argument('--co-any', dest='co_any', action='store_true', help='--values: co-stores through any root (tagged with it), not only the same root')
+    ap.add_argument('--co', type=int, default=6, help='--values: how many co-stored fields to show per store (nearest first; the rest counted)')
+    ap.add_argument('--strides', action='append', metavar='TARGET', help='run q struct on TARGET (a vtable, sub_X, g:ADDR) and keep its stride rows, then answer with them (qfield_strides.py)')
+    ap.add_argument('--no-strides', dest='no_strides', action='store_true', help='skip the stride rows (base + K + stride*index accesses from q struct)')
     ap.add_argument('--lea', action='store_true')
+    ap.add_argument('--any', action='store_true', help='OFF on ANY base register: every function with a load / store at that displacement, from the listing (qfieldany.py), not the field index')
     ap.add_argument('--strict', action='store_true', help='drop what is only inferred from callers (how=callarg, via callers)')
     ap.add_argument('--func', '--in', dest='func', help='only the accesses inside this function (S111 QGAPS: --in = --func; it used to abbreviate --int and print every function)')
     ap.add_argument('--width', type=int)
     ap.add_argument('--float', action='store_true'); ap.add_argument('--int', action='store_true')
-    ap.add_argument('--limit', type=int, default=500); ap.add_argument('--json', action='store_true')
+    ap.add_argument('--limit', type=int, default=None, help='cap the rows (default 500; none under --where, the filter is the cut); a cut prints the total and the call for the rest')
+    ap.add_argument('--json', action='store_true')
     import qfactcard
     qfactcard.add_arg(ap)
     ap.add_argument('--rebuild', action='store_true')
     ap.add_argument('--root'); ap.add_argument('--gen'); ap.add_argument('--image'); ap.add_argument('--db')
     ap.add_argument('--no-rebuild', dest='no_rebuild', action='store_true')
     a = ap.parse_args(argv)
+    keep, skip = [], False
+    for x in argv:      # the call for the rest: this call without --json and without its own --limit (the rest line adds the new one)
+        if skip:
+            skip = False
+        elif x == '--limit':
+            skip = True
+        elif x != '--json' and not x.startswith('--limit='):
+            keep.append(x)
+    a.call = ' '.join(f'"{x}"' if (' ' in x or not x) else x for x in keep)
+    if a.limit is None:      # S111 QFIX5: under --where the filter is the cut (qwhere.active), else the old default of 500
+        import qwhere
+        a.limit = 10 ** 9 if qwhere.active() else 500
     con = None
     try:
         if a.arg is None:
@@ -365,6 +423,18 @@ def main(argv=None):
             except bf.Busy as e:
                 print(f'q field: another process (pid {e.holder}) is rebuilding {a.db or db}: not building in parallel', file=sys.stderr)
                 return 3
+            return 0
+        if a.any:      # S111 QFIX5: the listing scan over the whole image (no field index needed)
+            import qfieldany
+            if a.arg in ('fn', 'type', 'info'):
+                raise FieldError('--any answers `q field OFF --any`')
+            if a.type or a.vtable or a.glob or a.rootname or a.width or a.strict:
+                raise FieldError('--any scans every base register: --type / --vtable / --global / --root-name / --width / --strict do not apply (use --func F to narrow)')
+            res = qfieldany.answer(a, parse_num(a.arg), {}, parse_func)
+            if a.json:
+                print(json.dumps(res, indent=1))
+            else:
+                qfieldany.print_any(res, fname)
             return 0
         con = open_db(a)
         out = {}

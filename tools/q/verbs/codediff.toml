@@ -1,0 +1,17 @@
+name = "codediff"
+module = "qcodediff"
+errors = ["qcodediff.CodediffError", "qcodediff.O.OstateError", "qconstdiff.DiffError"]
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 67
+text = '''  codediff [--fn NAME|--game sub_X] [--field F] [--flag DIFF ...] [--ref REF] [--json]   per pair (our function, the game function it
+                               mirrors: q pairs, kTable addr, rstdiff kinds) the game's gstate facts against our ostate facts field by
+                               field: DIFF / GAME-ONLY / OURS-ONLY / UNSETTLED / DEPARTED (a `// DEPARTS:` marker) / OK (tools/q/qcodediff.py);
+                               --field levels = per texture list the game builds, the loader's level count (0x83629CA8) against the
+                               count our loader gives that family's texture directory (tools/q/qlevels.py)'''
+
+[[route]]
+order = 150
+text = '''- where our render state differs from the game function it mirrors (both sides' facts joined per pair, units converted): codediff [--flag DIFF] [--fn NAME] [--ref REF]'''

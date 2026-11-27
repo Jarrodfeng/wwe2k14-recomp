@@ -49,7 +49,9 @@ def main():
     if not os.path.isfile(binder):
         line(False, 'cannot read ' + binder + ' (a lint that reads nothing must fail)')
         return 1
-    text = open(binder, encoding='utf-8', errors='replace').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # binder.h is split: read it with its parts expanded (tools/split/read_unit.py)
+    text = read_path(binder)
     n_calls = sum(1 for l in text.splitlines() if CALL.search(l))
     probs = helper_problems(text)
     line(not probs and n_calls >= 10, 'helpers: %d builder.SetTargets / builder.Copy call lines in binder.h, every one marked helper: / allow:%s' % (n_calls, ('; ' + '; '.join(probs[:3])) if probs else ''))

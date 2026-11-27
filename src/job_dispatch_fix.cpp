@@ -44,6 +44,7 @@ inline void StoreBe32(uint8_t* base, uint32_t a, uint32_t v) {
 }
 }  // namespace wwe2k14::job_dispatch_fix
 
+// SKIP-ORIGINAL: wwe2k14_job_reset_first replaces the original whole: the hook runs its own reset, then wakes the worker (the original runs only with the cvar off)
 REX_HOOK_RAW(sub_8251D1F0) {
   using namespace wwe2k14::job_dispatch_fix;
   if (!REXCVAR_GET(wwe2k14_job_reset_first)) {

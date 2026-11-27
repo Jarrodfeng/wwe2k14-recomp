@@ -47,6 +47,7 @@ set(WWE2K14_SOURCES
     src/build_stamp.cpp  # S101 lane 19 review: the only file that includes the generated stamp header (a new commit recompiles just this one)
     src/dev_build.cpp  # S103 L33F: IsDevBuild() / VersionString() for every TU (it gets the WWE2K14_VERSION define below; no other TU does)
     src/blood_keep.cpp  # S108 EXEB-B1: GBF-1 (the blood-keeping game fix), a unit of its own so a change to it does not recompile main.cpp; both builds, Android too
+    src/floor_blood_gen.cpp  # S111 BLOODMOD: the permanent blood mod's hook on the floor-splat pool's constructor (sub_82697888), a unit of its own; both builds, Android too
     src/job_dispatch_fix.cpp  # S108 EXEB-B1: --wwe2k14_job_reset_first (Session 71), a unit of its own; both builds, Android too
     src/start_settings.cpp  # S103 SPB: ApplyStartSettings, the settings both start paths apply (KEPT with and without the stream; tools/scene/start_parity_lint.py)
     # S101 lane 292 (the music picker's VIEW, docs/systems/music.md): the ImGui dialog, the owner-mode texture uploader and the Android touch hook; the cover + menu-font decoders (own STATIC stb_image like crowd_body.cpp). Same list for the phone.
@@ -176,6 +177,7 @@ set(WWE2K14_SOURCES
     src/renderer/memory.cpp
     src/renderer/problem.cpp
     src/renderer/renderer.cpp
+    src/renderer/shaders/spv/fx_own_shaders.cpp  # S111 TOOLLINK-D: the kOwnShaders table (our own shaders' words), its own small unit
     src/renderer/shaders/spv/fx_spv_data.cpp  # S105 SPV: the effects' SPIR-V words, the one unit that parses them (the headers only declare); in BOTH builds (stream ON and OFF)
     src/renderer/swapchain.cpp
     src/renderer/vk_api.cpp
@@ -503,6 +505,20 @@ if(WIN32)
                                                   $<$<CXX_COMPILER_FRONTEND_VARIANT:GNU>:-fasync-exceptions>)
     set_target_properties(wwe2k14_probes PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:wwe2k14>"
                                                    MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    # S111 EQUIV piece B (docs/research/s111/EQUIV0.md): the equivalence tester's test DLL, loaded by the headless runner
+    # (--wwe2k14_equiv; src/equiv/equiv_host.h). Our header-only rule cores from src/, no game code; rebuild it alone:
+    # pwsh -File tools\equiv\build_equiv.ps1.
+    add_library(wwe2k14_equiv_tests SHARED equiv/equiv_tests.cpp equiv/equiv_stb.cpp)
+    target_precompile_headers(wwe2k14_equiv_tests PRIVATE equiv/equiv_pch.h)
+    target_include_directories(wwe2k14_equiv_tests PRIVATE src equiv "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rexglue-sdk-src/thirdparty/stb")
+    target_compile_definitions(wwe2k14_equiv_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS
+                                                           _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING)
+    # /Od / -O0: a test change rebuilds in ~1 s (the asset headers in the precompiled header); no fused a x b + c the models did not write
+    # (std::fma), as the PowerPC rounds each fmuls / fadds.
+    target_compile_options(wwe2k14_equiv_tests PRIVATE $<$<CXX_COMPILER_FRONTEND_VARIANT:MSVC>:/EHa /Od /clang:-ffp-contract=off>
+                                                       $<$<CXX_COMPILER_FRONTEND_VARIANT:GNU>:-fasync-exceptions -O0 -ffp-contract=off>)
+    set_target_properties(wwe2k14_equiv_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:wwe2k14>"
+                                                         MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 # Session 8 task 6: scenario coverage build (preset win-amd64-coverage-off only; OFF everywhere else, where nothing

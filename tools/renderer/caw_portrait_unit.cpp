@@ -1,6 +1,7 @@
 // S103 CPB: the offline proof of src\renderer_game\caw_portrait_core.h (the Create a Superstar portrait's G3 untile filter + writer, G2 tick gate). 0 game runs, no GPU, no SDK.
 // Built and run by tools\renderer\caw_portrait_unit.py; planted twins are compile-time (-DWWE2K14_CAW_PLANT=N), each must exit 1:
 //   1 the writer's byte order is R,G,B,A instead of A,R,G,B   2 the G3 filter ignores the return address   3 G2 never counts a late portrait (N = 0 runs the original silently)
+//   4 D1 keeps every object   5 the retry count carries over   6 (S111 PORTRAITCENSUS) the census line's piece count is the id list's length, not the draw's count
 #include "../../src/renderer_game/caw_portrait_core.h"
 #include "../../src/renderer_host/portrait_mailbox.h"
 
@@ -134,6 +135,14 @@ int main() {
     CHECK(kept == 2, "D1 keeps only the objects of the edited model (%u kept of 5; the model's body + one more object of the same engine address)", kept);
     CHECK(!KeepsObject(0, 0), "D1 keeps nothing when the model is 0 (an unnamed object never matches)");
     CHECK(DrawnCountOk(1) && !DrawnCountOk(0) && !DrawnCountOk(2), "D1 requires exactly one drawn object");
+  }
+  {  // S111 PORTRAITCENSUS: the host line's piece field is the draw's own count, then the ids it drew
+    const uint32_t ids[2] = {10000, 10031};
+    const std::string one = PiecesText(1, ids, 1), two = PiecesText(2, ids, 2), none = PiecesText(0, nullptr, 0), short_list = PiecesText(2, ids, 1);
+    CHECK(one == "pieces 1 (ids 10000)", "one hair piece prints its count and id (%s)", one.c_str());
+    CHECK(two == "pieces 2 (ids 10000 10031)", "two pieces print both ids in draw order (%s)", two.c_str());
+    CHECK(none == "pieces 0", "no piece prints a zero count and no id list (%s)", none.c_str());
+    CHECK(short_list == "pieces 2 (ids 10000)", "the count is the draw's, not the id list's length (%s)", short_list.c_str());
   }
   {  // CPB2: run 021's numbers. r31 (the character) = 2863738400 = 0xAAB12E20; the CAW census / record key is the skeleton 0xAAB142F0 = [char+48]
     const uint32_t character = 2863738400u;

@@ -189,6 +189,7 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
 
 }  // namespace wwe2k14::thumb_off
 
+// SKIP-ORIGINAL: OnJobEnter defers the thumbnail job until its picture is here (the present runs it later); every other call runs the original
 REX_HOOK_RAW(sub_8274FA70) {
   if (wwe2k14::thumb_off::OnJobEnter(ctx, base)) return;
   __imp__sub_8274FA70(ctx, base);

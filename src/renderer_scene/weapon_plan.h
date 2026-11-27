@@ -26,33 +26,32 @@
 
 namespace rdr_scene::weapons {
 
-// S103 CGF: which of the cage's two submit families the drawer takes when a structure has both (docs\research\s103\CAGE.md section 3 item 3, Adversary 3 B): 0 = the own-submit family (category-26 node, slot 13), 1 = the slot-32 family
-// (category-36 node, f1 = MdlAlpha). Which one reaches the colour picture is [U]; the game side sets this from --wwe2k14_rdr_stage_struct_family=own|slot32 (wwe2k14_app.h). Never both.
-inline uint32_t g_stage_family = 0;
+// S103 CGF: a stage structure's calls come in two submit families, tagged per row (weapon_rows.h kCallStageOwn): the own submit (slot 13: the cage's category-26 node, the cell's category-27 node, the chamber, the
+// Inferno, the ladder rope) and the slot-32 submit (the cage's / the cell's category-36 node, f1 = MdlAlpha). S111 CAGESIDE review (docs\research\s111\CAGESIDE.md): the plan draws EVERY usable row of both families.
+// Each row is one game submit (one hook, sub_82C04DF0: the slot-13 dispatcher sub_82C13C88 reaches it once, slot 32 sub_82C13EC8 tail-jumps to it), and the two nodes of the cage and of the cell draw DIFFERENT sides /
+// pieces each frame (both run the view test sub_82C3EB40: the cage's own node draws the sides that pass, its category-36 node the rest see-through; the cell's category-27 node leaves a fading piece to its category-36
+// node), so one family alone drops what only the other draws (the cage's camera-side panel). The S103 one-family rule and its switch (wwe2k14_rdr_stage_struct_family) are removed: they had no game basis.
 // S103 LDR (review fix 2): decided PER RECORD, not per process. The weapon manager's rows draw the ring steps (the arena's own variant 29 / 32 / 35) and the commentary desk (6 / 7), so the arena loader's fixed copies of them are hidden
 // whenever the record carries a weapon table (section 59 has rows); a record with none (an offline rig without the weapon rows) keeps them. `g_force_arena_fixed_props` (--wwe2k14_rdr_arena_fixed_props, a diagnostic) draws both always.
 // The arena model keeps the meshes either way: their light set is what the weapons are lit with.
 inline bool g_force_arena_fixed_props = false;
 inline bool ArenaFixedPropsDrawn(size_t record_weapon_slots) { return g_force_arena_fixed_props || record_weapon_slots == 0; }
-inline constexpr uint32_t kStageFamilyOwn = 0, kStageFamilySlot32 = 1;
-// Review fix 6: the family chosen for a PACH is LATCHED (kept by the drawer's per-cache state) until that structure is gone (its PACH leaves the holder's section-59 rows) or the PACH changes: a frame whose own calls vanish
-// ([model+560] != 0: the cached command-buffer branch never reaches sub_82C04DF0) must not flip a cage between opaque and MdlAlpha. A latched family with no rows in a frame draws nothing that frame (counted).
-// S103 GBR (CGF follow-up): a latched family with no rows in a frame is HELD: the last frame's rows of that structure are drawn again (up to kStageHoldMax frames) instead of nothing (no blink, no family flip);
-// HoldStageRows below makes the plan's input. Held frames are counted (Census::Stage::held).
+// Review fix 6 (S111 CAGESIDE review: the family choice it kept is gone): a structure drawn in a frame is LATCHED in the drawer's per-cache state until it is gone (its PACH leaves the holder's section-59 rows:
+// rf_props.cpp ApplyWeaponRows) or every structure row goes. S103 GBR (CGF follow-up): a latched structure with no usable rows in a frame is HELD: the last frame's rows of that structure are drawn again (up to
+// kStageHoldMax frames) instead of nothing (no blink); HoldStageRows below makes the plan's input. Held frames are counted (Census::Stage::held).
 inline constexpr uint32_t kStageHoldMax = 30;
 struct HeldStage {
-  std::vector<WeaponCall> calls;   // the last frame's usable rows of the latched family (node_first rebased to `nodes`)
+  std::vector<WeaponCall> calls;   // the last frame's usable rows of the latched structure, both families (node_first rebased to `nodes`)
   std::vector<float> nodes;        // 12 floats per node
   uint32_t age = 0;                // frames the rows have been held in a row
   uint64_t sig = 0;                // review 10: the structure's member set (section-59 stage rows of this PACH: slot k + model address) when the snapshot was taken; a hold needs the SAME set now
   std::vector<ChangeColourRow> rows;   // S111 BELTMASKNAME review (F2): the snapshot calls' belt rows (kCcBeltMask: the ladder belt R5 recolours), held with them so a held frame draws the masked pool of the frame it holds
 };
-struct StageFamilyLatch {
-  int32_t fam[kStagePachCap];
+struct StageLatch {
+  bool latched[kStagePachCap] = {};   // a usable row of this PACH was drawn since the structure was last gone
   HeldStage held[kStagePachCap];
-  StageFamilyLatch() { for (int32_t& f : fam) f = -1; }
   void Reset(int32_t pach) {
-    if (pach >= 0 && pach < kStagePachCap) fam[pach] = -1, held[pach] = HeldStage();
+    if (pach >= 0 && pach < kStagePachCap) latched[pach] = false, held[pach] = HeldStage();
   }
 };
 // Review fix 4: a slot-32 row (alpha from f1) with alpha not > 0 (or NaN) is not drawn; its alpha is clamped to 1. The drawer blends such a row (kObjForceBlend) so MdlAlpha 0.16 shows as 0.16.
@@ -101,16 +100,22 @@ struct Plants {
   bool transpose_rows = false;    // twin: the node rows are read transposed (the 3x3 part)
   bool ignore_frame = false;      // twin: every frame of the record is drawn (an older frame's calls are drawn again)
   bool secondary_as_main = false; // twin: a secondary model is drawn with the main mesh of its id (the PW integration's bug, review fix 3)
-  uint32_t stage_family = g_stage_family;   // S103 CGF: the preferred submit family of a stage structure (kStageFamily*)
-  StageFamilyLatch* latch = nullptr;   // review fix 6: the drawer's per-cache latch (null = no latching: the unit's one-shot plans)
-  bool ignore_latch = false;      // twin (review fix 6): the family is re-chosen every frame
-  bool stage_both = false;       // twin (S103 CGF): both submit families of a structure are drawn (the cage drawn twice, once opaque and once at MdlAlpha)
+  StageLatch* latch = nullptr;    // review fix 6: the drawer's per-cache latch (null = no latching and no hold: the unit's one-shot plans)
+  bool stage_one_family = false;  // twin (S111 CAGESIDE review): the S103 one-family rule: a structure with own rows draws only them (its slot-32 rows dropped: the cage's camera-side panel, the cell's fading pieces)
+  bool stage_zwrite_on = false;   // twin (S111 CAGESIDE review): a cage slot-32 row keeps its material's depth write (the game's node turns it off)
   bool hold_ignore_sig = false;  // twin (S103 GBR review 10): a structure is held across a frame where its member set (holder) changed
-  bool no_hold = false;          // twin (S103 GBR): a latched family with no rows draws nothing (the old behaviour: the structure blinks out for the frame)
+  bool no_hold = false;          // twin (S103 GBR): a latched structure with no rows draws nothing (the old behaviour: the structure blinks out for the frame)
   bool hold_no_rows = false;     // twin (S111 BELTMASKNAME review F2): a held frame carries the calls but not their belt rows (the landed head: the ladder belt drawn plain on a held frame)
   bool stage_id_plain_ok = false;   // twin (S103 SMX): a stage id without the stage flag goes to the m2 weapon path (one failed m2.pac load per structure run)
   bool gm_dead_alpha = false;    // twin (S103 GBR): a gm set object / blood splat row with alpha not > 0 is drawn (opaque) instead of skipped
+  bool draw_held = false;        // twin (S111 BLOODMOD3): a held blood row (weapon_rows.h kCallBloodHeld: made from a live particle, keep-only) is drawn as itself
 };
+
+// S111 CAGESIDE review: the cage's category-36 node draws its see-through sides with z write OFF (sub_826FA7C8 +0x5C0, put back at +0x848); the cell's category-36 node keeps it ON (sub_82660628 +0xB4). A slot-32
+// row of the cage's LR class (kLrCage36: sub_826F9C40's submit, whose only caller is sub_826FA7C8) is drawn with no depth write (the drawer's kObjNoDepthWrite), whatever its material says.
+inline bool StageRowNoDepthWrite(const WeaponCall& w, const Plants& p) {
+  return !p.stage_zwrite_on && IsStageCall(w.slot_flags) && !IsStageOwn(w.slot_flags) && StageLrClass(w.slot_flags) == kStageLrCage;
+}
 
 struct Census {
   uint32_t calls = 0;          // WeaponCall rows seen
@@ -127,7 +132,6 @@ struct Census {
   uint32_t shadow_rows = 0;    // S103 STG: calls tagged kCallShadowPass (made under the game's flag A): the game's caster submits, never drawn by the colour drawer
   uint32_t event_items = 0;    // S103 BLF: event prop calls planned (belts / mics / caps / stage props of an entrance)
   uint32_t stage_items = 0;    // S103 CGF: stage structure calls planned
-  uint32_t stage_other_family = 0;   // S103 CGF: stage calls of the family NOT drawn (counted, never drawn: the cage's two nodes submit the same models)
   uint32_t gm_items = 0, blood_items = 0;   // S103 GBR: gm set object / blood splat calls planned
   uint32_t gm_drawn = 0, blood_drawn = 0;   // S103 GBR: set by the applier after the model is posed
   uint32_t gm_dead = 0, blood_dead = 0;    // S103 GBR: rows skipped for alpha not > 0 (a splat the game would not draw / an invisible set object)
@@ -139,17 +143,15 @@ struct Census {
   }
   struct Stage {               // S103 CGF: the census of the stage structure rows of the newest frame (StageLine)
     int32_t pach = -1;
-    uint32_t models = 0, calls = 0, slot32 = 0, own = 0, other_lr = 0, drawn = 0, own_cage = 0, own_other = 0, alpha0 = 0, latched_empty = 0, held = 0;   // own_cage / own_other: own calls by the slot-13 caller (review 3); alpha0: slot-32 rows skipped (alpha not > 0); latched_empty: calls dropped because the latched family had no rows
+    uint32_t models = 0, calls = 0, slot32 = 0, own = 0, other_lr = 0, drawn = 0, own_cage = 0, own_other = 0, alpha0 = 0, held = 0;   // own_cage / own_other: own calls by the slot-13 caller (review 3); alpha0: slot-32 rows skipped (alpha not > 0)
     float f1_min = 0.f, f1_max = 0.f;
-    int32_t family = -1;       // the family drawn (kStageFamily*), -1 = none
-    bool operator==(const Stage& o) const { return pach == o.pach && models == o.models && calls == o.calls && slot32 == o.slot32 && own == o.own && other_lr == o.other_lr && drawn == o.drawn && family == o.family; }
+    bool operator==(const Stage& o) const { return pach == o.pach && models == o.models && calls == o.calls && slot32 == o.slot32 && own == o.own && other_lr == o.other_lr && drawn == o.drawn; }
   } stage;
-  // `stage type T pach P models N calls C families: slot32 A own B (f1 min / max), drawn family F` (the step check reads it: which family reaches the picture is [U]; other-LR = a call of a stage model from neither the cage nor the cell node)
+  // `stage type T pach P models N calls C families: slot32 A own B (f1 min / max), both families drawn (D drawn, held H)` (other-LR = a call of a stage model from neither the cage nor the cell node)
   std::string StageLine() const {
     char b[520];
-    std::snprintf(b, sizeof b, "[rdr][weapons] stage type %d pach %d models %u calls %u families: slot32 %u own %u (own: cage-node %u other-caller %u; f1 min %.3f / max %.3f; other-LR calls %u; alpha0 skipped %u), drawn family %s (%u drawn, latched-empty %u, held %u)", StageTypeOfPach(stage.pach), stage.pach,
-                  stage.models, stage.calls, stage.slot32, stage.own, stage.own_cage, stage.own_other, double(stage.f1_min), double(stage.f1_max), stage.other_lr, stage.alpha0,
-                  stage.family == int32_t(kStageFamilyOwn) ? "own" : stage.family == int32_t(kStageFamilySlot32) ? "slot32" : "none", stage.drawn, stage.latched_empty, stage.held);
+    std::snprintf(b, sizeof b, "[rdr][weapons] stage type %d pach %d models %u calls %u families: slot32 %u own %u (own: cage-node %u other-caller %u; f1 min %.3f / max %.3f; other-LR calls %u; alpha0 skipped %u), both families drawn (%u drawn, held %u)", StageTypeOfPach(stage.pach), stage.pach,
+                  stage.models, stage.calls, stage.slot32, stage.own, stage.own_cage, stage.own_other, double(stage.f1_min), double(stage.f1_max), stage.other_lr, stage.alpha0, stage.drawn, stage.held);
     return b;
   }
   std::vector<int32_t> ids;    // the distinct ids drawn, ascending
@@ -179,6 +181,7 @@ struct Item {
   bool event = false;      // S103 BLF: an EVENT PROP (entrance belt / mic / cap / stage prop): `id` = the prop id, `entry` = the PACH entry k of pac\evt\evtobj.pac (EvtEntryOf), not an m2.pac weapon
   bool stage = false;      // S103 CGF: a STAGE STRUCTURE piece (cage / cell / chamber / Inferno): `id` = the bgEtc PACH, `entry` = k, the key of nested key 1 (StgEntryOf in weapon_draw_core.h)
   bool gm = false;         // S103 GBR: a GMSK set object: `id` = `entry` = its key in the arena's gm.pac bank (GmEntryOf)
+  bool gm_holder_tex = false;   // S111 GMBORROW: a gm row with kCallGmHolderTex (the game handed its controller the stage holder's texture set): GmEntryOf's "/h" model
   bool blood = false;      // S103 GBR: one blood splat: `id` = kBloodIdBase + bfloat16 colour, `entry` = the texture index (key 32010's list)
   uint32_t event_main = 0; // S111 WATRSHADOW: an event prop's first made entry (the CWeapon's own model [cw+48]; evt_nodes::MainEntry, set by Plan): `entry` == this = the own node, else entry 4 / 5 / 6 / 9 = CWDT / WATR / CWDA / CWDS
 };
@@ -226,6 +229,13 @@ inline bool PropCpuWanted(bool casts_b, bool casts_p, bool props_map_on, bool sh
   return (casts_b && mode0) || (casts_p && props_map_on);
 }
 
+// S111 FOLLOWUPS3: true when event model `model` (a WeaponCall's object) was built from the game's recoloured read: its section-59 row carries kSlotFlagRecoloured (weapon_rows_contrib.h).
+inline bool EventRecoloured(const View& v, uint32_t model) {
+  for (size_t i = 0; v.slots && i < v.n_slots; ++i)
+    if ((v.slots[i].flags & kSlotFlagEvent) && v.slots[i].main == model) return (v.slots[i].flags & kSlotFlagRecoloured) != 0;
+  return false;
+}
+
 // What section 59 asks the loader for, before anything draws (review fix 2): one (id, entry) per slot id (main) and per secondary model. Skips what the drawer never draws (steps, belts) and a duplicate.
 inline std::vector<std::pair<int32_t, uint32_t>> Prefetch(const View& v, const Plants& p) {
   std::vector<std::pair<int32_t, uint32_t>> out;
@@ -242,7 +252,7 @@ inline std::vector<std::pair<int32_t, uint32_t>> Prefetch(const View& v, const P
       continue;
     }
     if (v.slots[i].flags & kSlotFlagEvent) {   // S103 BLF review 4: an event prop model MakeWeapon has made: (prop id, entry k | kWantEvent), asked for before its first draw; never the steps / belts skips (another id space)
-      const std::pair<int32_t, uint32_t> k{v.slots[i].id, (v.slots[i].slot & kCallEntryMask) | kWantEvent};
+      const std::pair<int32_t, uint32_t> k{v.slots[i].id, (v.slots[i].slot & kCallEntryMask) | kWantEvent | ((v.slots[i].flags & kSlotFlagRecoloured) ? kWantRecoloured : 0u)};   // S111 FOLLOWUPS3: the recoloured read's model is its own ask
       if (v.slots[i].id >= 0 && std::find(out.begin(), out.end(), k) == out.end()) out.push_back(k);
       continue;
     }
@@ -261,30 +271,29 @@ inline uint32_t NewestFrame(const View& v) {
   return newest;
 }
 
-// S103 GBR (CGF follow-up, StageFamilyLatch): the plan's input with the HELD rows added. Per latched structure (latch.fam[pach] >= 0): when the newest frame has usable rows of the latched family, they are copied into the latch
+// S103 GBR (CGF follow-up, StageLatch): the plan's input with the HELD rows added. Per latched structure (latch.latched[pach]): when the newest frame has usable rows of the structure (both families), they are copied into the latch
 // (the snapshot, age 0); when it has none and a snapshot exists AND the structure's member set (section-59 stage rows) is unchanged (review 10),
 // CAUSE of such a frame [L, not [C]]: NOT the [model+560] cached-buffer branch (no writer sets [model+560] non-zero in the index: q field 560 shows only zero-inits and the reads, and slot 19 sub_82C13A80, the one recorder of that buffer, is skipped whole under OURS,
 // scene_skip_nodes.h) but a record that carries the stage section-59 rows without a newly closed guest frame (weapon_rows_contrib.h Emit: `if (!any) return` after the slot rows are written) or a guest frame with no call of the structure;
-// the census `held N` says how often it happens; `held 0` over a match = the hold is dead code and goes. If a latched family has no rows (and a snapshot exists), the snapshot's rows are appended to a COPY of the view (stamped
+// the census `held N` says how often it happens; `held 0` over a match = the hold is dead code and goes. If a latched structure has no usable rows (and a snapshot exists), the snapshot's rows are appended to a COPY of the view (stamped
 // with the newest frame) for up to kStageHoldMax frames in a row, counted in Census::Stage::held; past that the snapshot is dropped (the structure really has no rows). Returns `in` itself when nothing was held (no copy),
-// else a View over calls_buf / nodes_buf (the caller keeps both alive for the frame). A null latch or a twin (ignore_latch / no_hold / stage_both) = no hold and no snapshot.
+// else a View over calls_buf / nodes_buf (the caller keeps both alive for the frame). A null latch or the twin no_hold = no hold and no snapshot.
 // S111 BELTMASKNAME review (F2): `rows_in` = the record's section-67 rows; the snapshot keeps the belt rows (kCcBeltMask) of its calls, and a held frame APPENDS them to `rows_out` (the drawer merges them with the record's).
 inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCall>& calls_buf, std::vector<float>& nodes_buf, Census& c, const std::vector<ChangeColourRow>* rows_in = nullptr,
                           std::vector<ChangeColourRow>* rows_out = nullptr) {
-  if (!p.latch || p.ignore_latch || p.no_hold || p.stage_both) return in;
-  StageFamilyLatch& L = *p.latch;
+  if (!p.latch || p.no_hold) return in;
+  StageLatch& L = *p.latch;
   bool any_latched = false;
-  for (int32_t f : L.fam) any_latched = any_latched || f >= 0;
+  for (bool f : L.latched) any_latched = any_latched || f;
   if (!any_latched) return in;
   const bool have = !in.empty();
   const uint32_t newest = have ? NewestFrame(in) : 0u;
-  std::vector<uint32_t> usable[kStagePachCap];   // call indexes of the newest frame's usable rows of the latched family, per PACH
+  std::vector<uint32_t> usable[kStagePachCap];   // call indexes of the newest frame's usable rows of the latched structure, per PACH
   for (size_t i = 0; have && i < in.n_calls; ++i) {
     const WeaponCall& w = in.calls[i];
     const int32_t pach = StagePachOfId(w.id);
-    if (IsShadowCall(w.slot_flags) || !IsStageCall(w.slot_flags) || w.frame != newest || pach < 0 || pach >= kStagePachCap || L.fam[pach] < 0) continue;
+    if (IsShadowCall(w.slot_flags) || !IsStageCall(w.slot_flags) || w.frame != newest || pach < 0 || pach >= kStagePachCap || !L.latched[pach]) continue;
     if (size_t(w.node_first) + size_t(w.node_count) > in.n_nodes || w.node_count == 0 || StageRowSkip(w)) continue;
-    if ((IsStageOwn(w.slot_flags) ? kStageFamilyOwn : kStageFamilySlot32) != uint32_t(L.fam[pach])) continue;
     usable[pach].push_back(uint32_t(i));
   }
   // review 10: the member set of each structure NOW = its section-59 stage rows (slot k + the model's address): a holder that changed (the structure freed / made again, another type) gives another set, and the held rows are dropped
@@ -298,7 +307,7 @@ inline View HoldStageRows(const View& in, const Plants& p, std::vector<WeaponCal
   std::vector<WeaponCall> add_calls;
   std::vector<float> add_nodes;
   for (int32_t pach = 0; pach < kStagePachCap; ++pach) {
-    if (L.fam[pach] < 0) continue;
+    if (!L.latched[pach]) continue;
     HeldStage& h = L.held[pach];
     if (!p.hold_ignore_sig && !h.calls.empty() && h.sig != member_sig[pach]) h = HeldStage();   // the structure changed (or is no longer listed): nothing is held across that frame
     if (!usable[pach].empty()) {   // snapshot
@@ -346,24 +355,15 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
   if (v.empty()) return out;
   const uint32_t newest = NewestFrame(v);
   std::vector<int32_t> seen;   // merge twin only
-  // S103 CGF: ONE submit family per structure per frame. The cage's two draw nodes (category 36 slot 32 / category 26 slot 13) submit the same models; both are recorded and tagged, the drawer takes the preferred family of each PACH
-  // when it has a usable row, else the other (the chamber and the Inferno submit own only). Never both (the planted twin stage_both draws both).
-  uint32_t stage_own[kStagePachCap] = {}, stage_slot32[kStagePachCap] = {};
-  for (size_t i = 0; i < v.n_calls; ++i) {
+  // S111 CAGESIDE review: every usable stage row is drawn, both submit families (the top of this file says why). The own-row count below is the planted twin stage_one_family's only (the S103 rule it re-creates).
+  uint32_t stage_own[kStagePachCap] = {};
+  for (size_t i = 0; p.stage_one_family && i < v.n_calls; ++i) {
     const WeaponCall& w = v.calls[i];
     const int32_t pre_pach = StagePachOfId(w.id);
-    if (IsShadowCall(w.slot_flags) || !IsStageCall(w.slot_flags) || (w.frame != newest && !p.ignore_frame) || pre_pach < 0 || pre_pach >= kStagePachCap) continue;   // S103 STG: a flag-A call is no colour row
-    if (size_t(w.node_first) + size_t(w.node_count) > v.n_nodes || w.node_count == 0 || StageRowSkip(w)) continue;
-    ++(IsStageOwn(w.slot_flags) ? stage_own : stage_slot32)[pre_pach];
+    if (IsShadowCall(w.slot_flags) || !IsStageCall(w.slot_flags) || !IsStageOwn(w.slot_flags) || (w.frame != newest && !p.ignore_frame) || pre_pach < 0 || pre_pach >= kStagePachCap) continue;
+    if (size_t(w.node_first) + size_t(w.node_count) > v.n_nodes || w.node_count == 0) continue;
+    ++stage_own[pre_pach];
   }
-  const auto stage_pick = [&](int32_t pach) -> uint32_t {   // the family drawn for this PACH
-    const bool use_latch = p.latch && !p.ignore_latch;
-    if (use_latch && p.latch->fam[pach] >= 0) return uint32_t(p.latch->fam[pach]);   // review 6: latched
-    const bool has_own = stage_own[pach] > 0, has_32 = stage_slot32[pach] > 0;
-    const uint32_t pick = p.stage_family == kStageFamilySlot32 ? (has_32 || !has_own ? kStageFamilySlot32 : kStageFamilyOwn) : (has_own || !has_32 ? kStageFamilyOwn : kStageFamilySlot32);
-    if (use_latch && (has_own || has_32)) p.latch->fam[pach] = int32_t(pick);
-    return pick;
-  };
   uint32_t stage_k_seen[kStagePachCap] = {};   // bitmask of the keys (k < 32) seen per PACH
   for (size_t i = 0; i < v.n_calls; ++i) {
     const WeaponCall& w = v.calls[i];
@@ -371,6 +371,7 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
     if (w.frame != newest && !p.ignore_frame) { ++c.late; continue; }
     if (IsGmCall(w.slot_flags) || IsBloodCall(w.slot_flags)) {   // S103 GBR: a gm set object / a blood splat: one item per call; alpha not > 0 (an invisible object / a dead record) is skipped and counted
       const bool blood = IsBloodCall(w.slot_flags);
+      if (blood && IsBloodHeld(w.slot_flags) && !p.draw_held) continue;   // S111 BLOODMOD3: a row the tracker made from a live particle: the permanent blood mod's store keeps it, it is never drawn as itself
       const int32_t key = blood ? w.id : GmKeyOfId(w.id);
       if (key < 0 || (blood && (w.id < kBloodIdBase || w.id >= kBloodIdBase + 0x10000))) { ++c.unknown_id; continue; }
       if (size_t(w.node_first) + size_t(w.node_count) > v.n_nodes || w.node_count == 0) { ++c.bad_rows; continue; }
@@ -378,6 +379,7 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
       ++(blood ? c.blood_items : c.gm_items);
       Item it;
       it.id = key, it.call = uint32_t(i), it.instance = w.instance, it.entry = blood ? StageEntry(w.slot_flags) : uint32_t(key), it.gm = !blood, it.blood = blood;
+      it.gm_holder_tex = !blood && GmHolderTex(w.slot_flags);   // S111 GMBORROW
       out.push_back(it);
       continue;
     }
@@ -388,7 +390,6 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
       Census::Stage& st = c.stage;
       if (st.pach != pach) { const uint32_t held = st.held; st = Census::Stage(), st.pach = pach, st.held = held; }   // (S103 GBR: the held count was counted before the plan named the structure)   // one structure type at a time (the holder holds one type)
       const bool own = IsStageOwn(w.slot_flags);
-      const uint32_t fam = own ? kStageFamilyOwn : kStageFamilySlot32;
       ++st.calls, ++(own ? st.own : st.slot32);
       if (own) {
         const uint32_t oc = StageLrClass(w.slot_flags);   // review 3: the slot-13 caller's class
@@ -401,15 +402,8 @@ inline std::vector<Item> Plan(const View& v, const Plants& p, Census& c) {
       const uint32_t ek = StageEntry(w.slot_flags);
       if (ek < 32 && !(stage_k_seen[pach] & (1u << ek))) stage_k_seen[pach] |= 1u << ek, ++st.models;
       if (StageRowSkip(w)) { ++st.alpha0; continue; }   // review 4: alpha not > 0 (or NaN): nothing of it shows
-      if (!p.stage_both) {
-        const uint32_t pick = stage_pick(pach);
-        if (fam != pick) {
-          ++c.stage_other_family;
-          if ((pick == kStageFamilyOwn ? stage_own : stage_slot32)[pach] == 0) ++st.latched_empty;   // the latched family has no rows this frame: nothing is drawn (never a flip)
-          continue;
-        }
-      }
-      st.family = int32_t(fam);
+      if (p.latch) p.latch->latched[pach] = true;   // a usable row: the structure is drawn (HoldStageRows holds it on a frame with none)
+      if (p.stage_one_family && !own && stage_own[pach] > 0) continue;   // the planted twin: the S103 one-family rule (own preferred)
       ++c.stage_items;
       out.push_back({pach, uint32_t(i), w.instance, ek, false, true});
       continue;

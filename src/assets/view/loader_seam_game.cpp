@@ -172,7 +172,7 @@ int ViewerPropPachDir(unsigned prop_id) {
 }
 bool ViewerPropWorn(int pach) { return g_ready && assets::PropWorn(g_files, pach); }
 static assets::particles::Pacs& ParticlePacs() {
-  static assets::particles::Pacs pacs;  // (review) prtcls.pac / gm.pac kept beside g_files: reopened when the game folder changes
+  static assets::particles::Pacs pacs;  // (review) prtcls.pac / gm.pac (S111 DLCPARTICLES: + the packs' prtcls_dlcPP / gm_dlcPP) kept beside g_files: reopened when the game folder changes
   return pacs;
 }
 bool ViewerParticles(int bank, assets::particles::Bank& out, std::string& err) {
@@ -183,10 +183,14 @@ bool ViewerParticles(int bank, assets::particles::Bank& out, std::string& err) {
 bool ViewerSceneLights(int bank, assets::particles::SceneLights& out) {
   out = assets::particles::SceneLights();
   if (!g_ready) return false;
-  out = assets::particles::LoadSceneLights(g_files, bank, ParticlePacs().gm);
+  out = assets::particles::LoadSceneLights(g_files, bank, ParticlePacs());
   return !out.Empty();
 }
-int ViewerBeltTwin(int pach, int side) { return g_ready ? assets::BeltTwin(g_files, pach, side) : -1; }
+int ViewerBeltTwin(int pach, int side) {   // S111 TEXDIRORDER: by evtdata.pac table 103 (asset_load.h BeltTwin); no table = no twin
+  std::vector<std::vector<int>> t103;
+  std::string err;
+  return g_ready && ViewerEvtTable(103, t103, err) ? assets::BeltTwin(g_files, t103, pach, side) : -1;
+}
 int ViewerModelKey(int id, int viewer_attire) {
   return g_ready && !assets::char_mods::IsCustom(id) ? assets::ModelKey(g_files, id, viewer_attire) : -1;
 }

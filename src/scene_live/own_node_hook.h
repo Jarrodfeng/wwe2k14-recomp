@@ -111,6 +111,7 @@ inline void MaybeLog(const char* what, const rdr_own::OwnedPassStamp& st) {
 
 }  // namespace wwe2k14::own_node
 
+// SKIP-ORIGINAL: on an OURS frame, or when the shadow module is ours this frame, the node does not walk and only the install pair runs (KeepShadowInstall: OWN_THE_PASS.md 12 item 2); otherwise the original runs
 REX_HOOK_RAW(sub_827E9740) {
   using namespace wwe2k14::own_node;
   wwe2k14::trace_census_hook::Note(trace_census::Site::ShadowNode, ctx, 0, 0);   // S103 T: census line (trace_census_hook.h), only while --wwe2k14_rdr_scene is not 0
@@ -144,6 +145,7 @@ REX_HOOK_RAW(sub_827E9740) {
   KeepShadowInstall(ctx, base, node - 4);
 }
 
+// SKIP-ORIGINAL: on an OURS frame, or when the rim map is ours this frame, the rim walker does not run (OWN_SHADOW_RIM.md); otherwise the original runs
 REX_HOOK_RAW(sub_827EA7B8) {
   using namespace wwe2k14::own_node;
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::RimMap)) return;   // S103 H: the frame is OURS: the rim walker writes no R word and restores the device state it touches (OWN_SHADOW_RIM.md)

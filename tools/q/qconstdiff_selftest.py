@@ -9,7 +9,7 @@ B. Synthetic listing (invented instructions): a common table, a 3-character pref
 C. Real data (needs generated/ and the q index; else SKIP): the name table (209 rows, 7 groups; g_f4SpecCol = register 144 at
    row 0x8392A6A0, g_f4RimLightParam = 161 at 0x8392B600), the descriptor list (47 names, g_f4RimLightParam among them), and
    the two cases found by hand in S111 RE-FOUND as DIFF rows from the resolver text frozen at commit FROZEN:
-   PS c144 at src/renderer_scene/char_effects.cpp:648 and PS c161 at :610.
+   PS c144 at src/renderer_scene/char_effects.cpp and PS c161 at src/renderer_scene/char_effects.cpp (rdr_scene::ResolveChar).
 D. Planted twins on the same frozen text: the c144 line fed from the material (the DIFF must go: the "c144 is DIFF at 648"
    check must FAIL), and the MatDifCol line replaced by a literal (a NEW DIFF must appear: the "MatDifCol is not DIFF" check
    must FAIL); an unmapped root in the resolver must make the run a PROBLEM.
@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qconstdiff as Q   # noqa: E402
 
-FROZEN = 'cabe12ee1'      # the S111 session tip the two cases were found against (char_effects.cpp:648 / :610)
+FROZEN = 'cabe12ee1'      # the S111 session tip the two cases were found against (char_effects.cpp)
 CHAR = 'src/renderer_scene/char_effects.cpp'
 FAILS, CAUGHT = [], []
 

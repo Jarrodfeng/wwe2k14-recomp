@@ -43,9 +43,11 @@ def main():
         print('twin %-14s %s (%s)' % (plant, 'caught' if ok else 'NOT CAUGHT', name))
         bad += 0 if ok else 1
 
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        with open(os.path.join(root, rel), encoding='utf-8') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     need = [
         ('src/scene_live/stage_fx_contrib.h', 'BuildVisSkips(', 'the stage writer builds the skip list at the latch'),
         ('src/scene_live/stage_fx_contrib.h', 'CycleSkips(cyc, cw, recs', 'S103 CAR: the writer merges the cycle groups non-picked slots into the skip list'),
@@ -56,7 +58,7 @@ def main():
         ('src/renderer_scene/live_assets.cpp', 'KeepLookSlots() = true', 'the live arena load keeps the e and g slots (masked per frame)'),
         ('src/assets/asset_load.h', 'KeepLookSlots()', 'the loader skips its e / g delete when asked'),
         ('src/renderer_adapter/reader.h', 'wwe2k14_rdr_slot_look', 'the switch exists'),
-        ('src/renderer_scene/record_io.cpp', 'kFxSlotPalette', 'the record reader accepts the new row kinds (up to kFxSlotPalette, S110 BARRICADE; kFxCar, S103 CAR, before it)'),
+        ('src/renderer_scene/record_io.cpp', 'KeepKnownKinds(tmp, kFxScreen, kFxLast, out.c_errors)', 'the record reader keeps every stage-fx kind up to kFxLast (rows_stage_fx.h) and skips a newer one (S111 FXSKIP)'),
     ]
     for rel, needle, what in need:
         if needle not in text(rel):

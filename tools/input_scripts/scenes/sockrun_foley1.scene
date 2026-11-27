@@ -1,0 +1,9 @@
+scene Mick Foley/1 vs John Cena; blood=off; entrances=on
+at entrance:0:2: screenshot e02
+at entrance:0:6: screenshot e06
+at entrance:0:8: screenshot e08
+at entrance:0:10: screenshot e10
+at entrance:0:12: screenshot e12
+at bell+60f: screenshot b060
+at bell+300f: screenshot b300
+at bell+600f: screenshot b600

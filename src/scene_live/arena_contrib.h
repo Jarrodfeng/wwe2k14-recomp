@@ -10,8 +10,8 @@
 //    (bit 1 = e, events only; bit 2 = g, game only) when set.
 //  - the evaluated light sets (Light table): per set id, slots 0..3 (and 4 where the source gave a fifth) = Directional (dir = the stored
 //    direction as the game keeps it, colour = the evaluated colour; Light::range = the cube falloff where known, else -1 = unknown), slot 5 = Ambient
-//    with the colour of the light object's block at +400 and slot 6 = Ambient with the block at +416 (sky / ground order [U], see
-//    docs\formats\light_set.md).
+//    with the colour of the light object's block at +400 (the sky) and slot 6 = Ambient with the block at +416 (the ground) [C sky / ground
+//    order: docs\research\s111\SKYGROUND.md].
 //  - a slot listed under an unknown look (e / g rows) is NOT visible and carries ParamValue "arena.visibility_unknown" (counted).
 //  - the screen surfaces (stage slots 800-809): one Target (role TronPicture, index = key - 800) and one Movie (OnTarget) each; the plane
 //    image ids are 0xFFFFFFFF = unknown, counted (the plane -> surface binding is not traced: docs\systems\video_tron.md).
@@ -39,8 +39,8 @@ struct SetSnap {
   uint8_t n_lights = 4;        // directional lights present (4, or 5 when the source read the fifth)
   float dir[5][3] = {};
   float col[5][3] = {};
-  float block_a[3] = {};       // light object +400 (sky [U])
-  float block_b[3] = {};       // light object +416 (ground [U])
+  float block_a[3] = {};       // light object +400 (sky [C])
+  float block_b[3] = {};       // light object +416 (ground [C])
   bool has_fall = false;
   float fall[4] = {};          // the 896-byte kind's +0x140 cube falloff (from the files; not on the live object)
   // S103 RL F2: the per-light camera-attached flags (the u32 words at light object +1056 + 4 i, == 1 = the light's direction is VIEW space: V^T d; the game's own per-frame data, copied there from the

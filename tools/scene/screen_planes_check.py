@@ -17,6 +17,8 @@ PLANTS = {
     'sheet_512': 'default.accepts_shim_sheet',   # S110 TRONSHEET: the shim's pre-fix sheet texture (width >= 512) is refused by the store
     'stale_screen_pic': 'screens.pic_refresh',   # S103 SCN: the 805 picture never refreshes (run 38)
     'show_unread': 'show.gate_follows_bits', 'art_erased': 'show.loader_keeps_art', 'idle_black': 'show.idle_draw',   # S103 SCF (SCM.md): the game's show bits; the planted twins = the pre-SCF rules
+    'arena_ignored': 'bind.arena_table',   # S111 TRONKEY: the latch never hands the binding the arena (a created arena keeps the shipped key -> channel table)
+    'tron_by_key': 'screens.tron_by_channel',   # S111 TRONLIVE: "a tron plays" from the shipped keys 804 / 807 instead of the tron's channel
 }
 
 
@@ -57,6 +59,7 @@ def main():
         ('src/d3d_textures.h', 'scene_screens::OnDisplayFlush(base, set)', 'the existing sub_827FB540 hook hands the display set over'),
         ('src/scene_live/screen_planes_glue.h', 'SetScreenFeed(&Feed())', 'the render side gets the YUV feed'),
         ('src/scene_live/screen_planes_glue.h', 'SetScreens(&scr::ScreensFnImpl)', 'the stage-fx contributor gets the rows provider'),
+        ('src/scene_live/screen_planes_glue.h', 'scr::g_arena = +[]() -> int { return int(rdr_scene::live::stagefx::StageFx().StageArena()); };', 'S111 TRONKEY: the glue hands the rows provider the stage arena id (without it ForArena never runs and a created arena keeps the shipped key -> channel table; the unit sets its own g_arena)'),
         ('src/scene_live/screen_planes_hook.h', 'Mode::Off) return', 'the flush entry returns at mode 0'),
         ('src/renderer_scene/live_assets.cpp', 'stage_media::Cfg().all_keys = true', 'the live arena load takes every screen key 800-809 (the game exe never sets wrestler: it used to load only the match set)'),
         ('src/renderer_scene/rf_screens.cpp', 'stage_look::Entrance(ctx.t)', 'the applier picks the screen set on the front end own look signal'),

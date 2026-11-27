@@ -38,8 +38,12 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import vtcut  # noqa: E402
 REPO = os.path.normpath(os.path.join(HERE, '..', '..'))
 SCHEMA = 2
+BUILD_REV = 1   # a change of what the builder writes under the same table layout (1: slot tables cut at the next vtable start, S111 FIELDSVT): the signature differs, the index rebuilds, the file name stays
 IMAGE_BASE = 0x82000000
 M32 = 0xFFFFFFFF
 
@@ -221,7 +225,7 @@ def release_lock(lk):
 
 
 def signature(gen, image):
-    parts = [f'v{SCHEMA}']
+    parts = [f'v{SCHEMA}.{BUILD_REV}']
     for p in sorted(glob.glob(os.path.join(gen, 'wwe2k14_recomp.*.cpp'))):
         st = os.stat(p)
         parts.append(f'{os.path.basename(p)}:{st.st_size}:{int(st.st_mtime)}')
@@ -661,9 +665,22 @@ def build_types(con, funcs, image, rootid):
         w = word(vt)
         if w is not None and w in funcs:
             vts[vt] = cnt
+    # a table ends where the next vtable starts (S111 FIELDSVT; the rule is vtcut.py's, shared with qslice's vt_start_of)
+    starts = {v for (v,) in con.execute('select distinct vt from vstores')}
+    ixdb = os.path.join(os.path.dirname(os.path.abspath(image)), 'index.db')
+    if os.path.exists(ixdb):
+        ix = sqlite3.connect(ixdb)
+        try:
+            starts |= vtcut.index_starts(ix, lambda a: word(a) in funcs)
+        finally:
+            ix.close()
+    starts = sorted(starts)
     for vt, cnt in vts.items():
         k = 0
+        end = vtcut.next_start(vt, starts)
         while k < 512:
+            if end is not None and vt + 4 * k >= end:
+                break
             w = word(vt + 4 * k)
             if w is None or w not in funcs:
                 break

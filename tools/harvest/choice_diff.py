@@ -350,7 +350,7 @@ def headline(head):
 # ---- the game's side from the player's files ------------------------------------------------------------------------------------------
 def extra_records(arena_id):
     """-> (raw, arena): raw = (slot, mesh) -> {name, w90} for the screen and ring keys (the predictor's record words); arena = arena_files' load with positions and the
-    extra keys (its mesh colours give the vertex alpha our loader uploads: the S0 colour word's byte 0, src\\assets\\jboy.h:581)."""
+    extra keys (its mesh colours give the vertex alpha our loader uploads: the S0 colour word's byte 0, src\\assets\\jboy.h)."""
     import arena_files as af
     raw = {}
     orig = af.parse_jboy

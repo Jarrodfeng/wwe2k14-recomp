@@ -6,8 +6,8 @@
 // That redraw is a 360 HABIT (an EDRAM restore after an off-screen render): our frame is never touched by a thumbnail render, so dropping the draw is correct and it is not a 2D hole.
 // While the scope is open (the render method is running on this thread for a thumbnail object, [r3+24] == 2), a scope-less hole-site op-19 draw is counted `habit_thumb_restore` and nothing else:
 // no 2D hole, no unknown_site note in the fallback census. The off-screen T_Sprite row of the downscale draw (site 0x82BC5688, into the 128x128 target) is a Row inside an open 2D scope: its
-// pass is kQpOffscreen (quads2d_core.h:458: the target is not the 1280x720 frame) and the host drops it `pass` (scene_host.cpp FateOf :324-330), so it never reaches F.
-// quads2d_core.h:63 keeps the site as Leaf2D (it is a hole anywhere else).
+// pass is kQpOffscreen (quads2d_core.h: the target is not the 1280x720 frame) and the host drops it `pass` (scene_host.cpp FateOf), so it never reaches F.
+// quads2d_core.h keeps the site as Leaf2D (it is a hole anywhere else).
 #pragma once
 
 #include <atomic>

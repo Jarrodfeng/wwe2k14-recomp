@@ -169,7 +169,7 @@ PsBind CheckPs(int f, bool alpha_test, int pass, std::string& why) {
   if (cube) return why = "reads the cube-specular slot 11", PsBind::Cube;
   if (Has(fdef, "FX_WRINKLES") && !assets::g_wrk_live.load(std::memory_order_relaxed)) return why = "reads the wrinkle map (slot 5, source unsettled)", PsBind::Wrinkles;
   if (other) return why = "a sampler slot the front end cannot feed", PsBind::Other;
-  if (alpha_test && !fv.spirv_alpha) return why = "no alpha-test variant", PsBind::Other;
+  if (alpha_test && !fv.bytes_alpha) return why = "no alpha-test variant", PsBind::Other;
   return PsBind::Ok;
 }
 
@@ -439,11 +439,14 @@ bool BuildSkinChunks(const assets::Mesh& mesh, std::vector<SkinChunk>& out) {
 static std::atomic<uint64_t> g_key_resolves{0}, g_key_with_x{0};
 void KeyLightCensus(uint64_t& resolves, uint64_t& with_x) { resolves = g_key_resolves.load(std::memory_order_relaxed), with_x = g_key_with_x.load(std::memory_order_relaxed); }
 
-static bool KeyLightWorld(const CharCtx& c, const float* d, float* o) {
-  static const bool off = std::getenv("WWE_RDR_NO_KEY_ATTACH") != nullptr;
-  if (off || !c.view_proj || !c.lights || !c.lights->hl_view) return false;
-  g_key_resolves.fetch_add(1, std::memory_order_relaxed);   // the census: the right-axis sign is only testable by a key with |d.x| > 1e-3
-  if (std::fabs(d[0]) > 1e-3f) g_key_with_x.fetch_add(1, std::memory_order_relaxed);
+// S111 VIEWROWS: the camera's axes in the game's space, from the draw's own view-projection (register k xyz = column k of the row-vector view-projection, Y mirrored as the
+// ViewProj register below): f = the clip-w column, u = the clip-y column orthonormalised against f, r = the clip-x column orthonormalised against both. For the game's
+// projection (sub_82BB2EC0: m[0] > 0, m[11] = 1, m[1] = m[3] = m[4] = m[7] = 0; sub_82BB3748 +144 negates m[4..7], so m[5] < 0) and a rigid view V (camera +240) these are
+// exactly V's columns 0 and 2 and minus its column 1, whatever the off-centre terms m[8] / m[9]. NOT for the CAW portrait camera (sub_8341BF58): its projection is
+// sub_82CCB2D8's with m[5] > 0 and its view carries the y flip instead (column 1 negated), so the view-projection is a scene camera's but +240 is not: the axes from the
+// view-projection cannot tell the two apart. Used by KeyLightWorld, and by the View register (ResolveChar) only for a record with no view of its own (kCamViewIsViewProj).
+static bool CameraAxes(const CharCtx& c, double r[3], double u[3], double f[3]) {
+  if (!c.view_proj) return false;
   double col[4][3];
   for (int k = 0; k < 4; ++k)
     for (int j = 0; j < 3; ++j) col[k][j] = double(j == 1 ? c.mirror : 1.f) * double(c.view_proj[j * 4 + k]);   // register k xyz = column k of the row-vector view-projection, in the game's space (as the ViewProj register below)
@@ -454,14 +457,23 @@ static bool KeyLightWorld(const CharCtx& c, const float* d, float* o) {
       for (int j = 0; j < 3; ++j) a[j] /= n;
     return n > 1e-12;
   };
-  double f[3] = {col[3][0], col[3][1], col[3][2]}, u[3], r[3];
+  for (int j = 0; j < 3; ++j) f[j] = col[3][j];
   if (!unit(f)) return false;
   const double uf = dot(col[1], f);
   for (int j = 0; j < 3; ++j) u[j] = col[1][j] - uf * f[j];
   if (!unit(u)) return false;
   const double rf = dot(col[0], f), ru = dot(col[0], u);
   for (int j = 0; j < 3; ++j) r[j] = col[0][j] - rf * f[j] - ru * u[j];
-  if (!unit(r)) return false;
+  return unit(r);
+}
+
+static bool KeyLightWorld(const CharCtx& c, const float* d, float* o) {
+  static const bool off = std::getenv("WWE_RDR_NO_KEY_ATTACH") != nullptr;
+  if (off || !c.view_proj || !c.lights || !c.lights->hl_view) return false;
+  g_key_resolves.fetch_add(1, std::memory_order_relaxed);   // the census: the right-axis sign is only testable by a key with |d.x| > 1e-3
+  if (std::fabs(d[0]) > 1e-3f) g_key_with_x.fetch_add(1, std::memory_order_relaxed);
+  double f[3], u[3], r[3];
+  if (!CameraAxes(c, r, u, f)) return false;
   for (int j = 0; j < 3; ++j) o[j] = float(r[j] * double(d[0]) - u[j] * double(d[1]) + f[j] * double(d[2]));
   return true;
 }
@@ -531,10 +543,6 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
     else set4(0, 0.f, 1.f, 1.f, 0.f);
     return true;
   }
-  // S103 B3F plant: WWE_RDR_B3F_OLD_HAIR_RIM restores the old zeros / hard-coded rim values (the gate lane s103_B3F proves feature_diff finds the gap again).
-  static const bool b3f_old = std::getenv("WWE_RDR_B3F_OLD_HAIR_RIM") != nullptr;
-  if (b3f_old && (name == "HairSpeParam" || name == "SpeCol1" || name == "SpeCol2")) return true;
-  if (b3f_old && name == "RimLightParam3") { set4(0, 500.f, 2500.f, 1.f, 0.4f); return true; }
   if (name == "RimLightParam3") { set4(0, mt.rim_atn[0], mt.rim_atn[1], mt.rim_atn[2], mt.rim_atn[3]); return true; }  // S103 B3F: c174 = (g_fRimAtnDsMin, DsMax, RtMin, RtMax) per material [C: sub_82BAAEE8 0x82BAC0C8-0x82BAC170]
   if (name == "RimLightParam") { set4(0, 1.f, 0.83f, 1.f, 0.f); return true; }       // c161 = the rim object's constants [C RIMGAME: sub_827EA7F0 +1B4..+1CC sets +64 = 1, +68 = 1, +76 = 0.83 (0x82033C18) once; sub_827E9D90 copies (+64, +76, +68, 0) to G+320 each frame]
   float key_world[3] = {ls.hl_dir[0], ls.hl_dir[1], ls.hl_dir[2]};
@@ -583,7 +591,25 @@ bool ResolveChar(const std::string& name, uint32_t vec4s, const CharCtx& c, floa
   if (name == "SpeCol2") { set4(0, mt.hair_col2[0], mt.hair_col2[1], mt.hair_col2[2], mt.hair_tile[1]); return true; }
   if (name == "NoiseTile") { set4(0, 50.f, mt.noise_near[0], mt.noise_near[1], mt.noise_near[2]); return true; }   // c206 = (50, bump, diffuse, light)
   if (name == "NoiseTileF") { set4(0, 50.f, mt.noise_far[0], mt.noise_far[1], mt.noise_far[2]); return true; }
-  if (name == "View") { set4(0, 1.f, 0.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f), set4(2, 0.f, 0.f, 1.f, 0.f); return true; }  // (the reflection cube is black: the view matrix is not read)
+  // S111 VIEWROWS: c52-c54 = g_fm44View = the transpose of the draw camera's world -> view (sub_82BE6350 uploads transpose([camera +240]), camera = sub_82BA7748(); the model block
+  // copy sub_82BD7B50 holds the same): register k = column k of that view (xyz the view axis k, w its translation k), taken from the record's own view (CharCtx::view, as ViewProj
+  // takes view_proj: the Y row mirrored back), which is the camera's +240 for every live record, the CAW portrait's too (its y flip sits in the view, not the projection).
+  // A record with only the combined matrix: (right, the view's y = minus u, forward) from CameraAxes, w = -(eye . axis).
+  // The yCh_Reflect / yCh_trans / yCh_TransTiling vertex stage turns the unit normal by the xyz (outViewNormal; the game's VS C3B9D628507CFEB5 does the same three dots) to read
+  // the slot-10 environment cube in VIEW space. No view-projection, or one with a zero clip-w column (orthographic): the identity.
+  if (name == "View") {
+    if (c.view) {
+      for (uint32_t k = 0; k < 3 && k < vec4s; ++k)
+        for (int i = 0; i < 4; ++i) out[4 * k + uint32_t(i)] = (i == 1 ? c.mirror : 1.f) * c.view[i * 4 + int(k)];
+      return true;
+    }
+    double ax[3][3];
+    if (!CameraAxes(c, ax[0], ax[1], ax[2])) { set4(0, 1.f, 0.f, 0.f, 0.f), set4(1, 0.f, 1.f, 0.f, 0.f), set4(2, 0.f, 0.f, 1.f, 0.f); return true; }
+    for (int j = 0; j < 3; ++j) ax[1][j] = -ax[1][j];
+    const double e[3] = {c.eye ? double(c.eye[0]) : 0.0, c.eye ? double(c.mirror * c.eye[1]) : 0.0, c.eye ? double(c.eye[2]) : 0.0};
+    for (uint32_t k = 0; k < 3; ++k) set4(k, float(ax[k][0]), float(ax[k][1]), float(ax[k][2]), float(-(e[0] * ax[k][0] + e[1] * ax[k][1] + e[2] * ax[k][2])));
+    return true;
+  }
   // S111 MATFEED: c249 = g_f4MuscleParam (whole vec4, row 0x8392B000) = the body's live row first (CharCtx::muscle: the muscle controller's record, sub_826E1010 relinks it per g_iMuscleId),
   // else the file value; c250 = (g_f4MuscleUV_x, _y, _z, _w) (rows 0x8392B020..0x8392B080, lanes x..w). None named = (1, 0, 0, 0) / (0, 0, 1, 1): the muscle map off.
   if (name == "MuscleParam") { if (c.muscle) set4(0, c.muscle[0], c.muscle[1], c.muscle[2], c.muscle[3]); else set4(0, mt.muscle_prm[0], mt.muscle_prm[1], mt.muscle_prm[2], mt.muscle_prm[3]); return true; }

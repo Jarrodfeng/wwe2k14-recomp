@@ -496,7 +496,7 @@ class Facts {
     Census(line, stamped, hm);
   }
 
-  // "[wwe2k14][file] NtCreateFile 'PATH'[ (relative to handle 0xH)] KIND access=X -> 0xSTATUS" (src\kernel_overrides.h:225): the path and status.
+  // "[wwe2k14][file] NtCreateFile 'PATH'[ (relative to handle 0xH)] KIND access=X -> 0xSTATUS" (src\kernel_overrides.h): the path and status.
   static bool ParseFileOpen(const std::string& line, std::string& path, std::string& status) {
     if (line.find("NtCreateFile") == std::string::npos && line.find("NtOpenFile") == std::string::npos) return false;
     if (line.find("[file]") == std::string::npos) return false;

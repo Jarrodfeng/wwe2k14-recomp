@@ -76,13 +76,6 @@ def run_land(ln, repo, args):
     return rc, buf.getvalue()
 
 
-def run_land_status(ln, repo, branch):
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        rc = ln.main(["--full-compile-status", "--branch", branch, "--repo", repo])
-    return rc, buf.getvalue()
-
-
 def main():
     ln = load("land_note")
     tmp = tempfile.mkdtemp(prefix="land_note_selftest_")
@@ -179,41 +172,19 @@ def main():
         rc, out = run_land(ln, repo, [os.path.join(notes, "n7.md"), "--branch", "s-np3", "--proof", pf] + base_args)
         check(rc == 0 and "prove: 1 passed" in out, "--proof FILE is run (rc %d)" % rc)
 
-        # --- 7. the full compile (a `compile` line of the proof) runs detached after the commit
-        import time
-        slow = os.path.join(tmp, "full_slow.py")
-        w(slow, "import time\nprint('stub full compile start')\ntime.sleep(3)\nprint('stub full compile end')\n")
-        bad = os.path.join(tmp, "full_bad.py")
-        w(bad, "import sys, time\ntime.sleep(1)\nprint('src/a.h(3): error C9999: boom')\nsys.exit(1)\n")
-        n8 = os.path.join(notes, "n8.md")
-        w(n8, note("Full compile", proof="compile\n" + PASS_CMD))
-        t0 = time.time()
-        rc, out = run_land(ln, repo, [n8, "--branch", "s-fc", "--full-compile-cmd", slow] + base_args)
-        took = time.time() - t0
-        st_rc, st_out = run_land_status(ln, repo, "s-fc")
-        check(rc == 0 and "full compile: running in background, log" in out, "full compile: the landing returns with 'running in background' (rc %d)" % rc)
-        check(st_rc == 2 and "running" in st_out, "full compile: status reads running right after the landing (rc %d, %s)" % (st_rc, st_out.strip()[:60]))
-        for _ in range(40):
-            time.sleep(0.5)
-            st_rc, st_out = run_land_status(ln, repo, "s-fc")
-            if st_rc != 2:
-                break
-        check(st_rc == 0 and "PASS" in st_out, "full compile: status reads PASS once it ended (rc %d)" % st_rc)
-        check("prove: 1 passed" in out, "full compile: the other proof commands ran blocking (the compile line left the proof)")
+        # --- 7. S111 COMPILEOFF: a `compile` line of the proof starts no detached full compile (the quick compile is the compile)
+        n8 =os.path.join(notes, "n8.md")
+        w(n8, note("Compile line", proof="compile\n" + PASS_CMD))
+        rc, out = run_land(ln, repo, [n8, "--branch", "s-fc"] + base_args)
+        check(rc == 0 and "full compile: none" in out and "running in background" not in out, "compile line: no detached full compile is started (rc %d)" % rc)
+        check("prove: 1 passed" in out, "compile line: the other proof commands still ran (the compile line left the proof)")
+        check(not os.path.isdir(os.path.join(repo, "out", "wt", "land_s-fc", "out", "land")), "compile line: no full_compile log folder was made")
         n9 = os.path.join(notes, "n9.md")
-        w(n9, note("Full compile fails", proof="compile"))
-        rc, out = run_land(ln, repo, [n9, "--branch", "s-fcb", "--full-compile-cmd", bad] + base_args)
-        check(rc == 0 and "running in background" in out, "failing full compile: the landing itself is not held up (rc %d)" % rc)
-        for _ in range(40):
-            time.sleep(0.5)
-            st_rc, st_out = run_land_status(ln, repo, "s-fcb")
-            if st_rc != 2:
-                break
-        check(st_rc == 1 and "FAIL" in st_out and "error C9999: boom" in st_out, "failing full compile: status reads FAIL with its error line (rc %d: %r)" % (st_rc, st_out))
-        n10 = os.path.join(notes, "n10.md")
-        w(n10, note("Full compile blocking", proof="compile"))
-        rc, out = run_land(ln, repo, [n10, "--branch", "s-fcblock", "--full-compile", "block", "--full-compile-cmd", bad] + base_args)
-        check(rc == 1 and "full compile: FAIL (exit 1)" in out and "failed command log:" in out, "--full-compile block: waits and fails the landing (rc %d)" % rc)
+        w(n9, note("Compile line only", proof="compile"))
+        rc, out = run_land(ln, repo, [n9, "--branch", "s-fcb"] + base_args)
+        check(rc == 0 and "the compile line: the quick compile above is it" in out, "compile-only proof: the landing says the quick compile is it (rc %d)" % rc)
+        check(ln.full_compile_status.__name__ == "full_compile_status" and not hasattr(ln, "start_full_compile"), "the detached launcher is gone (status reader kept for old logs)")
+
 
         # --- 8. a planted tool fault: the landing edits a touched path in main's WORKING TREE: FATAL, exit 6
         fault = os.path.join(tmp, "prove_fault.py")
@@ -310,12 +281,53 @@ def main():
         check(rc == 6 and "FATAL" in out and "uncommitted" in out and "okapi.json" in out,
               "twin (c): with the stage step skipped the landing fails loudly naming the seam file (rc %d)" % rc)
 
-        # --- 13. S111 LANDRECITE: seam rows the note's own edits moved (re-cited), rewrote one-for-one (re-anchored) or deleted (stop)
+        # --- 12b. S111 LANDLODGE: a landing whose sites edit ANOTHER note's claims row lodges that note too (its claims json matches its block
+        #     afterwards); twin: lodging only the landing's own note leaves the other note's json stale (the lodge check sees "rows replaced")
+        lodge_py = os.path.join(HERE, "lodge_note.py")
+        old_row = claim
+        new_row = claim.replace("waits for the loader", "never waits for the loader")
+        other = os.path.join(repo, "docs", "other.md")
+        w(other, "# Other note\n\n```claims\n%s\n```\n" % old_row)
+        subprocess.run([sys.executable, "-I", lodge_py, other, "--root", repo, "--resolver-table", table], cwd=repo, capture_output=True)
+        git(repo, "add", "docs/other.md", "db/claims/lodged_other.json")
+        git(repo, "commit", "-q", "-m", "other note, lodged")
+
+        def other_json_matches(branch_wt):
+            r = subprocess.run([sys.executable, "-I", lodge_py, os.path.join(branch_wt, "docs", "other.md"), "--root", branch_wt, "--note-as", "docs/other.md",
+                                "--resolver-table", table, "--dry"], cwd=branch_wt, capture_output=True, text=True)
+            return "(unchanged)" in r.stdout
+        n20 = os.path.join(notes, "n20.md")
+        w(n20, note("Edits another note", edit_path="docs/other.md", cur=old_row, new=new_row))
+        rc, out = run_land(ln, repo, [n20, "--branch", "s-lodge-other"] + largs)
+        if rc:
+            print(out)
+        wt20 = os.path.join(repo, "out", "wt", "land_s-lodge-other")
+        names = set(git(repo, "show", "--name-only", "--format=", "s-lodge-other").split())
+        check(rc == 0 and "db/claims/lodged_other.json" in names and "never waits" in git(repo, "show", "s-lodge-other:db/claims/lodged_other.json"),
+              "other note: landing exit 0 and the commit holds the other note's refreshed claims json (rc %d, %s)" % (rc, sorted(names)))
+        check(other_json_matches(wt20), "other note: its claims json matches its block after the landing")
+        n21 = os.path.join(notes, "n21.md")
+        w(n21, note("Edits another note, twin", edit_path="docs/other.md", cur=old_row, new=new_row))
+        ln.LODGE_PLANT = "own_only"
+        try:
+            rc, out = run_land(ln, repo, [n21, "--branch", "s-other-twin"] + largs)
+        finally:
+            ln.LODGE_PLANT = ""
+        wt21 = os.path.join(repo, "out", "wt", "land_s-other-twin")
+        check(not other_json_matches(wt21), "twin: lodging only the own note leaves the other note's claims json stale (the lodge check fails)")
+        # a note that fails to lodge fails the landing with the note named
+        n22 = os.path.join(notes, "n22.md")
+        w(n22, note("Edits another note, bad row", edit_path="docs/other.md", cur=old_row, new=new_row.replace("0x82331BE0", "0x82999999")))
+        rc, out = run_land(ln, repo, [n22, "--branch", "s-other-bad"] + largs)
+        check(rc == 2 and "NOT LODGED" in out and "docs/other.md" in out, "other note with a refused row: exit 2 naming docs/other.md (rc %d)" % rc)
+
+        # --- 13. S111 LANDRECITE: seam rows
+        # --- 13. S111 LANDRECITE: seam rows the note's own edits moved (no change: no row stores a line), rewrote one-for-one (re-anchored) or deleted (stop)
         import json
         w(os.path.join(repo, "src", "b.h"), "// x\nint keepme = 1;\nint other = 2;\n")
         entry = {"topic": "mango", "summary": "fixture.",
                  "game": [{"addr": "0x82331BE0", "what": "w", "evidence": "e", "mark": "C", "source": "docs/n1.md"}],
-                 "ours": [{"path": "src/b.h", "line": 2, "anchor": "int keepme = 1;", "verdict": "match", "why": "same"}], "open": []}
+                 "ours": [{"path": "src/b.h", "anchor": "int keepme = 1;", "verdict": "match", "why": "same"}], "open": []}
         w(os.path.join(repo, "db", "seams", "mango.json"), json.dumps(entry, indent=1) + "\n")
         git(repo, "add", "src/b.h", "db/seams/mango.json")
         git(repo, "commit", "-q", "-m", "seam fixture")
@@ -329,21 +341,15 @@ def main():
         if rc:
             print(out)
         names = set(git(repo, "show", "--name-only", "--format=", "s-rc-ins").split())
-        check(rc == 0 and seam_row("s-rc-ins")["line"] == 4 and "db/seams/mango.json" in names and "re-cited" in out,
-              "recite: lines inserted above the row: ONE landing, the row re-cited 2 -> 4 and committed (rc %d)" % rc)
-        ln.SEAM_PLANT = "no_recite"
-        try:
-            rc, out = run_land(ln, repo, [n18, "--branch", "s-rc-ins-twin"] + base_args)
-        finally:
-            ln.SEAM_PLANT = ""
-        check(rc == 0 and seam_row("s-rc-ins-twin")["line"] == 2, "twin (d): with the recite skipped the row stays at the old line 2 (the check above fails first)")
+        check(rc == 0 and "db/seams/mango.json" not in names and "line" not in seam_row("s-rc-ins") and "re-cited" not in out,
+              "lines inserted above the row: ONE landing, the seam file is not touched (the anchor locates the row, no line to re-cite) (rc %d)" % rc)
         n19 = os.path.join(notes, "n19.md")
         w(n19, note("Seam rewrite", edit_path="src/b.h", cur="int keepme = 1;", new="int keepme = 2;"))
         rc, out = run_land(ln, repo, [n19, "--branch", "s-rc-rw"] + base_args)
         if rc:
             print(out)
         row = seam_row("s-rc-rw") if rc == 0 else {}
-        check(rc == 0 and row.get("anchor") == "int keepme = 2;" and row.get("line") == 2 and row.get("reanchored") == "re-anchored by landing n19.md"
+        check(rc == 0 and row.get("anchor") == "int keepme = 2;" and "line" not in row and row.get("reanchored") == "re-anchored by landing n19.md"
               and "re-anchored to" in out, "re-anchor: a one-for-one rewrite lands, the row follows the new line and is marked (rc %d)" % rc)
         ln.SEAM_PLANT = "no_reanchor"
         try:
@@ -363,7 +369,7 @@ def main():
         failstub = os.path.join(tmp, "compile_fail.py")
         w(failstub, "import sys\nsys.exit(1)\n")
         n23 = os.path.join(notes, "n23.md")
-        w(n23, ins)
+        w(n23, note("Seam rewrite", edit_path="src/b.h", cur="int keepme = 1;", new="int keepme = 2;"))
 
         def amend_case(branch, plant):
             rc1, _ = run_land(ln, repo, [n23, "--branch", branch, "--compile-cmd", failstub])
@@ -378,103 +384,33 @@ def main():
         rc1, dirty, rc2, out2, wt23 = amend_case("s-am", "")
         check(rc1 == 3 and "db/seams/mango.json" in dirty, "amend: the first landing stops after the recite with the seam file modified (rc %d, %s)" % (rc1, dirty))
         names = set(git(repo, "show", "--name-only", "--format=", "s-am").split())
-        check(rc2 == 0 and "db/seams/mango.json" in names and seam_row("s-am")["line"] == 4, "amend: the re-land commits the re-cited seam file (rc %d, %s)" % (rc2, sorted(names)))
+        check(rc2 == 0 and "db/seams/mango.json" in names and seam_row("s-am")["anchor"] == "int keepme = 2;", "amend: the re-land commits the re-anchored seam file (rc %d, %s)" % (rc2, sorted(names)))
         check(git(wt23, "status", "--porcelain").strip() == "", "amend: git status --porcelain is empty after the re-land")
         check(names == {"src/b.h", "tools/new.txt", "docs/n23.md", "db/seams/mango.json"}, "amend: the commit holds exactly its own files (%s)" % sorted(names))
         rc1, dirty, rc2, out2, _ = amend_case("s-am-twin", "old_reset")
         check(rc2 == 6 and "uncommitted" in out2 and "mango.json" in out2, "twin (g): the old amend reset leaves the seam file uncommitted: FATAL exit 6 (rc %d)" % rc2)
 
-        # --- 14. S111 LANDLOG: one full-compile log per landed commit; a re-land never touches an older log
-        import ctypes
-        import glob
-
-        def hold_open(path):
-            """Open `path` with NO sharing (Windows): delete / overwrite / rename of it then fails with WinError 32. -> release()."""
-            if sys.platform != "win32":
-                return lambda: None
-            k = ctypes.windll.kernel32
-            k.CreateFileW.restype = ctypes.c_void_p
-            k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
-            k.CloseHandle.argtypes = [ctypes.c_void_p]
-            h = k.CreateFileW(path, 0x80000000, 0, None, 3, 0x80, None)
-            if not h or h == ctypes.c_void_p(-1).value:
-                raise OSError("could not hold %s open" % path)
-            return lambda: k.CloseHandle(h)
-
-        def logs(branch):
-            return sorted(glob.glob(os.path.join(repo, "out", "wt", "land_" + branch, "out", "land", "full_compile*.log")))
-
-        def wait_done(branch):
-            for _ in range(60):
-                s_rc, s_out = run_land_status(ln, repo, branch)
-                if s_rc != 2:
-                    return s_rc, s_out
-                time.sleep(0.5)
-            return 2, ""
-        fcargs = base_args + ["--full-compile-cmd", stub]
-        pr = "compile"
-        n21 = os.path.join(notes, "n21.md")
-        w(n21, note("Log one", cur="int a = 7;", new="int a = 8;", proof=pr))
-        rc, out = run_land(ln, repo, [n21, "--branch", "s-lg"] + fcargs)
-        s_rc, s_out = wait_done("s-lg")
-        first = logs("s-lg")
-        check(rc == 0 and s_rc == 0 and len(first) == 1 and "full_compile." in first[0], "landlog: first landing writes its own log named by its commit (rc %d, %s)" % (rc, first))
-        release = hold_open(first[0])
-        try:
-            w(n21, note("Log two, changed code", cur="int a = 7;", new="int a = 9;", proof=pr))
-            rc, out = run_land(ln, repo, [n21, "--branch", "s-lg", "--amend"] + fcargs)
-            if rc:
-                print(out)
-            s_rc, s_out = wait_done("s-lg")
-            second = logs("s-lg")
-            check(rc == 0, "landlog (a): a re-land with the older log held open exclusively still lands (rc %d)" % rc)
-            check(len(second) == 2 and first[0] in second and s_rc == 0 and "older commit" not in s_out,
-                  "landlog (c): changed code starts a NEW log beside the old one, status reads that new one (rc %d, %s)" % (s_rc, s_out.strip()[:80]))
-        finally:
-            release()
-        w(n21, note("Log three, same code, docs differ", cur="int a = 7;", new="int a = 9;", proof=pr))
-        rc, out = run_land(ln, repo, [n21, "--branch", "s-lg", "--amend"] + fcargs)
-        s_rc, s_out = run_land_status(ln, repo, "s-lg")
-        check(rc == 0 and len(logs("s-lg")) == 2 and "no new compile" in out, "landlog: a re-land with identical code starts no second compile (rc %d, %d logs)" % (rc, len(logs("s-lg"))))
-        check(s_rc == 0 and "older commit with identical code" in s_out and "PASS" in s_out,
-              "landlog (b): status of the re-landed branch reports the older log's result (rc %d: %s)" % (s_rc, s_out.strip()[:120]))
-        # planted twin: the old fixed log name must fail (a): the re-land crashes on the held log
-        ln.LOG_PLANT = "fixed"
-        try:
-            n22 = os.path.join(notes, "n22.md")
-            w(n22, note("Twin one", cur="int a = 7;", new="int a = 8;", proof=pr))
-            run_land(ln, repo, [n22, "--branch", "s-lg-twin"] + fcargs)
-            wait_done("s-lg-twin")
-            tl = logs("s-lg-twin")
-            release = hold_open(tl[0])
-            try:
-                w(n22, note("Twin two", cur="int a = 7;", new="int a = 9;", proof=pr))
-                try:
-                    rc, out = run_land(ln, repo, [n22, "--branch", "s-lg-twin", "--amend"] + fcargs)
-                    crashed = False
-                except OSError:
-                    crashed = True
-            finally:
-                release()
-        finally:
-            ln.LOG_PLANT = ""
-        check(crashed or sys.platform != "win32", "twin (f): with the fixed log name the re-land crashes on the held log, which check (a) above would see")
-
         # --- planted twin (a): what the tool could damage in main's working tree (real edit, then a real commit)
         # --- planted twin (a): what the tool could damage in main's working tree (real edit, then a real commit)
         ln.MAIN_ROOT = repo
-        h0 = git(repo, "rev-parse", "HEAD").strip()
+        keep = os.path.join(repo, "tools", "keep.txt")
         before = ln.snap_paths(repo, ["tools/keep.txt", "tools/absent.txt"])
-        check(ln.damaged_paths(repo, before, h0, h0) == [], "twin (a): untouched paths read as untouched")
-        w(os.path.join(repo, "tools", "keep.txt"), "edited by a bad landing\n")
-        check(ln.damaged_paths(repo, before, h0, h0) == ["tools/keep.txt"], "twin (a): a working-tree edit of a touched path is caught")
+        check(ln.damaged_paths(repo, before) == [], "twin (a): untouched paths read as untouched")
+        w(keep, "edited by a bad landing\n")
+        check(ln.damaged_paths(repo, before) == ["tools/keep.txt"], "twin (a): a working-tree edit of a touched path is caught")
+        # S111 FOLLOWUPS3 review: someone's merge in progress (`git merge --no-commit`, then `git commit`): main's index holds the merged file while HEAD has not moved yet.
+        # The old rule (HEAD moved and the file equals its blob) called this damage: the FATAL of the FOLLOWUPS3 landing (LMPREV's merge into main, reflog "commit (merge)").
         git(repo, "add", "tools/keep.txt")
+        check(ln.damaged_paths(repo, before) == [], "twin (a): the same edit STAGED by someone (a merge in progress: the index moved, HEAD not yet) is fine")
         git(repo, "commit", "-q", "-m", "twin: someone commits it")
-        h1 = git(repo, "rev-parse", "HEAD").strip()
-        check(ln.damaged_paths(repo, before, h0, h1) == [], "twin (a): the same edit committed by someone (HEAD moved, content = new blob) is fine")
-        w(os.path.join(repo, "tools", "keep.txt"), "edited again after the commit\n")
-        check(ln.damaged_paths(repo, before, h0, h1) == ["tools/keep.txt"], "twin (a): an edit that differs from the new HEAD's blob is still caught")
+        check(ln.damaged_paths(repo, before) == [], "twin (a): the same edit committed by someone (content = the new index / HEAD blob) is fine")
+        w(keep, "edited again after the commit\n")
+        check(ln.damaged_paths(repo, before) == ["tools/keep.txt"], "twin (a): an edit that differs from main's index is still caught")
         git(repo, "checkout", "--", "tools/keep.txt")
+        w(keep, "someone's unstaged work\n")
+        before2 = ln.snap_paths(repo, ["tools/keep.txt"])
+        git(repo, "checkout", "--", "tools/keep.txt")   # a bad landing throws that work away: the file is back at HEAD, the index never moved
+        check(ln.damaged_paths(repo, before2) == ["tools/keep.txt"], "twin (a): a revert of someone's unstaged work to HEAD is caught (the index did not move)")
         try:
             ln.git(repo, "commit", "-q", "--allow-empty", "-m", "x")
             check(False, "twin (a): the tool's git() refuses a commit with main as its working directory")

@@ -9,9 +9,9 @@ A. Synthetic (invented text and instructions, no game code): the expression read
    the inherited value) and the judge (a reversed GEQUAL = our LEQUAL only for a mirrored kind).
 B. Real data (needs generated/ and the q index; else SKIP), our code read at two frozen refs:
      1. FROZEN b2a29d266 (S111 PARTZ note, before the fix landed): particles zfunc DIFF, the game has ALWAYS (0x82A0AED8 +84) and
-        ours never (live_particles.cpp:207, LEQUAL): the Kane flare;
+        ours never (live_particles.cpp, LEQUAL): the Kane flare;
      2. TIP 2401ccb49: particles zfunc OK (ParticleDepthCompare: ALWAYS and LEQUAL), crowd_flash ztest DIFF with ours at
-        front_end_flashes.h:101 and the game's 0 at 0x823B27F0 +354 (S110 FLASHFRONT: the `replace` row of q seam flash), the
+        front_end_flashes.h and the game's 0 at 0x823B27F0 +354 (S110 FLASHFRONT: the `replace` row of q seam flash), the
         scene classes' zfunc OK (GEQUAL from the default reset 0x82C26ED0 = our LEQUAL through ForwardZ);
      3. TIP, the paths (S111 RSTDIFF review): the flash mesh's cull 0 / 1 (0x82C0F528 +E30) a DIFF, not the text-order OK; the
         rim map's per-mesh cull (0x82BF9878 +1D00) both values; the lens element's z test 0 / 1 (0x827D5E98 +598).
@@ -44,7 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qrstdiff as R   # noqa: E402
 
-FROZEN = 'b2a29d266'   # S111 PARTZ note: the particle fix carried, not landed (live_particles.cpp:207 `state.depth_compare = 3;`)
+FROZEN = 'b2a29d266'   # S111 PARTZ note: the particle fix carried, not landed (live_particles.cpp `state.depth_compare = 3;`)
 TIP = '2401ccb49'      # the S111 tip this tool was stated against (the PARTZ fix in, FLASHFRONT's per-pixel test in)
 FAILS, CAUGHT = [], []
 
@@ -357,7 +357,7 @@ def part_cover(con):
     r = row(tp, 'lens_element', 'cmask')
     check('B4 tip: the lens element cmask, the game 0xF, ours rgb only: DIFF', r and r['flag'] == 'DIFF' and r['game_vals'] == ['15']
           and r['ours_vals'] == ['7'], str(r))
-    # S111 RSTCOVER-B review: TIP's rgb-only line removed (as the review's quads2d_draw.cpp:182 does): BlendOf's 0xF is read, the row is OK
+    # S111 RSTCOVER-B review: TIP's rgb-only line removed (as the review's quads2d_draw.cpp (rdr_scene::q2d::Append) does): BlendOf's 0xF is read, the row is OK
     t14, _ = rows_of(con, TIP, {'src/renderer_scene/quads2d_draw.cpp': [('state.blend[0].write_mask = 0x7;', '')]}, kinds=[k for k in R.KINDS if k['kind'] == 'lens_element'])
     r = row(t14, 'lens_element', 'cmask')
     check('B4 tip: the lens element without our rgb-only line: BlendOf 0xF, OK', r and r['flag'] == 'OK' and r['ours_vals'] == ['15'], str(r))
@@ -561,6 +561,21 @@ def part_cover_a(con):
     r = row(tp, 'plane_mask', 'stencil')
     check('D plane_mask stencil: a setter that restores only after the draw still inherits: OK', r and r['flag'] == 'OK'
           and 'inherited: all' in r['game'], str(r))
+    # S111 POSTATEST: the combine driver 0x82C1E4C0 gives the post quad only its blend code; T_Final 0x82C1E1D0 sets the rest again
+    # before the quad, so the driver is no source of the blend row (its alpha test 1 at +80 never reaches a draw).
+    r = row(tp, 'post_quad', 'blend')
+    check('D post_quad blend: from T_Final, not the combine driver', r and r['flag'] == 'OK' and '0x82C1E1D0 +FC' in str(r['game'])
+          and '0x82C1E4C0' not in str(r['game']), str(r))
+    r = row(tp, 'post_quad', 'blend_op')
+    check('D post_quad blend_op: the driver still gives its blend code (+BC)', r and '0x82C1E4C0 +BC' in str(r['game']), str(r))
+    kq = [copy.deepcopy(k) for k in R.KINDS if k['kind'] == 'post_quad']
+    for w in (kq[0]['game'] if kq else []):
+        if w['fn'] == 0x82C1E4C0:
+            w.pop('slots', None)
+    t, _ = rows_of(con, TIP, kinds=kq or None)
+    tr = row(t, 'post_quad', 'blend') or {}
+    twin('D post_quad driver window without its slots: the driver turns up as a blend source',
+         '0x82C1E4C0 +8C' in str(tr.get('game', '')), str(tr))
     oo = getattr(R, 'ours_only', None)
     got = oo(R.default_reader(TIP))[0] if oo else []
     check('D the dconv block is ours-only (no game draw)', [(f, ln) for f, ln, _w in got] == [('src/renderer_scene/post_pass.cpp', 405)], str(got))

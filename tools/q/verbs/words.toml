@@ -1,0 +1,14 @@
+name = "words"
+module = "qwords"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 99
+text = '''  words ADDR [N] [--as u32|u16|u8|f32|str]  data words of the game image at an address (pointer -> the string it names, floats); ADDR..ADDR2 = a range (qwords.py)'''
+
+[[route]]
+order = 155
+text = '''- a data table / float / name list of the game image: words ADDR [N] [--as f32|str]; the constant lanes / samplers a game shader reads: shader HASH|VARIANT --reads'''

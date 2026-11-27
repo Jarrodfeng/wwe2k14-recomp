@@ -2,13 +2,13 @@
 // Copyright (c) the wwe2k14-recomp authors. BSD-3-Clause.
 //
 // A "composite" attire has no model of its own: Heenan's 30 Years attire (key 24912) is attire 0's mesh / base / masks (24902) recoloured with colour slot 1. The game's rule is
-// sub_823BB018 -> sub_822D1598 (does the key have a remap?) -> sub_822D1930 (which key?), over the colour table pac\misc01_Start.pac entry p0/600:
+// sub_823BB018 -> sub_822D1598 (does the key have a remap?) -> sub_822D1930 (which key?), over the colour table p0/600 of the LAST misc pac the game read (S111 COLTABLE, attire_table_src.h: the highest pack's /DLC<n>/MSC1, else pac\misc01_Start.pac):
 //   u16 record count, then 664-byte records; record: u16 character id at +0 (key / 100); per attire slot s (0-9, s = the key's tens digit):
 //     flag A at +4+s, flag B at +14+s, kind-2 word at +24+s, kind-2 attire at +34+s, kind-4 word at +44+s, kind-4 attire at +54+s, 16 RGB colours at +64+48 s.
 //   remap(key): record of key / 100 not found, or slot s >= 10, or flag A != 1  -> key;
 //     kind 2 (key % 10): word == 2 -> key; word 0 -> c*100 + attire*10 + 2; word 1 -> c*100 + attire*10 + 4; other -> key;
 //     kind 4: the same with the kind-4 word / attire; any other kind -> key.   [C: sub_822D1598 / sub_822D1930 listings, S103 ARM read]
-// The loader (live_assets.cpp) applies it only when the character's pac has no model PACH named by the key (the stream-free build has no GPU build; the colours come
+// The loader (live_assets.cpp GameFilesSource::Load -> PickModel) applies it FIRST, as the game does (S111 ATTIREREMAP, PickModelBy): the remapped key whatever the pac holds (the stream-free build has no GPU build; the colours come
 // from the model link's tag, attire_compose.h). Header-only; no SDK headers; nothing of the table is kept beyond this process.
 #pragma once
 
@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "asset_load.h"
+#include "attire_table_src.h"   // S111 COLTABLE: which pac's p0/600 the game holds (ReadTable)
 
 namespace assets::attire_remap {
 
@@ -27,7 +28,7 @@ constexpr uint32_t kTableEntry = 600;   // p0 entry 600 of pac\misc01_Start.pac
 constexpr size_t kRecord = 664;
 constexpr int kSlots = 10;
 
-enum class Fault { kNone, kNoRemap, kIgnoreFlagA, kWordIgnored, kSlotZero };   // planted faults for the offline proof; never set in the game
+enum class Fault { kNone, kNoRemap, kIgnoreFlagA, kWordIgnored, kSlotZero, kOwnFirst };   // planted faults for the offline proof; never set in the game (kOwnFirst: PickModelBy's pre-ATTIREREMAP order)
 
 struct Table {
   Bytes data;
@@ -110,14 +111,27 @@ struct State {
 inline State& S() { static State s; return s; }
 }  // namespace detail
 
-// Reads pac\misc01_Start.pac p0/600 (the whole pac is unpacked, the one entry kept). Fault-free; false + err when the pac / entry is missing.
-inline bool ReadTable(launcher::GameFiles& files, Table& t, std::string& err) {
+// S111 COLTABLE: reads the table the game HOLDS when it chooses a model (attire_table_src.h: every misc read replaces the held table, sub_822D1B10). First the packs'
+// /DLC<n>/MSC1 PACHs in the order the game ends on them (attire_table_src::DlcSources: the highest n first), the first whose p0/600 parses; else the disc's
+// pac\misc01_Start.pac (/BATL/MSC1) p0/600 (the whole pac is unpacked, the one entry kept). `from` (optional) names the source. Fault-free; false + err when no pack
+// holds a table and the disc pac / entry is missing.
+inline bool ReadTable(launcher::GameFiles& files, Table& t, std::string& err, std::string* from = nullptr) {
+  for (attire_table_src::Src& s : attire_table_src::DlcSources(files))
+    for (const pac::Pach& ph : s.pac.pachs) {
+      if (ph.base != s.base) continue;
+      const pac::Ent* e = pac::Find(ph, kTableEntry);
+      if (e && Parse(pac::Decode(s.pac.bytes.data() + e->off, e->size), t)) {
+        if (from) *from = s.rel + " /DLC" + std::to_string(s.n) + "/MSC1";
+        return true;
+      }
+    }
   pac::Pac p;
-  if (!pac::Open(files, "pac\\misc01_Start.pac", p, err)) return false;
+  if (!pac::Open(files, attire_table_src::kDiscPac, p, err)) return false;
   if (p.pachs.empty()) return err = "misc01_Start.pac: no PACH", false;
   const pac::Ent* e = pac::Find(p.pachs[0], kTableEntry);
   if (!e) return err = "misc01_Start.pac: no p0/600", false;
   if (!Parse(pac::Decode(p.bytes.data() + e->off, e->size), t)) return err = "misc01_Start.pac p0/600: not a colour table", false;
+  if (from) *from = std::string(attire_table_src::kDiscPac) + " /BATL/MSC1";
   return true;
 }
 
@@ -151,31 +165,38 @@ struct Pick {
   bool hole_class = false; // the game REMAPS the attire (a composite): a failure is a counted hole, never the guest rows
 };
 
-// `named` = the key the record names. The pac's own PACH named `named` wins (the old rule: its ring-model fallback included); only when the pac has none does the game's remap apply.
-// S110 LIBSIZE: `rel` = the character's file (a library character's `<KEY>\pac\ch\ch497.pac`); the id form below opens WrestlerRel(id).
-inline Pick PickModel(launcher::GameFiles& files, const Table& t, const std::string& rel, int named, Fault fault = Fault::kNone) {
+// `named` = the key the record names. S111 ATTIREREMAP: the game's order. The model read (sub_82720810) names the PACH by sub_823BB070 = P+60, else P+64, else P+0, and
+// P+64 is the remap of the chosen key P+0, stored by sub_823BB018 whenever sub_822D1598 passes. So a key the table remaps loads the remap target WHATEVER the pac holds
+// (a stub PACH named `named` is never read); the pac's own `named` loads only when the table does not remap it. Then our fallback (not the game's): that key's kind 2 (ring)
+// model (an entrance key with no model of its own keeps the pre-ARM load). A remapped key whose target is missing is no model: a counted hole (hole_class), as the game
+// loads the target only. Before ATTIREREMAP the pac's own `named` won (Fault::kOwnFirst, the planted twin).
+// A link entry names the key the game already LOADED (desc+28 = sub_823BB070 of the request; the game read it, so its pac has a PACH of that name). Resolve on it is a no-op while no
+// key the table remaps has a PACH of its own (arm_unit real: own_conflict == 0, which also covers chained == 0). Otherwise remap-first maps a loaded key a second time: a chained target,
+// or a key the game loaded unremapped (sub_823BB070's P+60; the entrance pre-reader sub_827E5528's override word, which skips sub_822D1930). Open: the slot route naming desc+28 too.
+// `ord(key)` = the model PACH ordinal of `key` in the character's file, -1 = none (PickModel: OrdinalOfModelKeyAt; arm_unit: a fixture).
+template <class Ord>
+inline Pick PickModelBy(const Table& t, int named, Ord&& ord, Fault fault = Fault::kNone) {
   Pick p;
   const Remap r = Resolve(t, named, fault);
   p.slot = r.slot, p.hole_class = r.remapped();   // review F3: identity flag-A keys keep the old fallback (guest rows)
-  auto try_key = [&](int key) {
-    const int o = OrdinalOfModelKeyAt(files, rel, key);
-    return o;
-  };
-  int o = try_key(named);
-  if (o >= 0) { p.ord = o, p.loaded = named; return p; }
-  if (r.remapped()) {
-    o = try_key(r.to);
-    if (o >= 0) { p.ord = o, p.loaded = r.to, p.remapped = true; return p; }
+  if (fault == Fault::kOwnFirst && r.remapped()) {   // PLANT: the pre-ATTIREREMAP order (the pac's own key first)
+    const int o = ord(named);
+    if (o >= 0) { p.ord = o, p.loaded = named; return p; }
   }
-  const int ring = named - named % 10 + 2;   // the old fallback: the same attire's kind 2 (ring) model
-  o = try_key(ring);
-  if (o >= 0) { p.ord = o, p.loaded = ring; return p; }
-  if (r.remapped()) {
-    const int rring = r.to - r.to % 10 + 2;
-    o = try_key(rring);
-    if (o >= 0) { p.ord = o, p.loaded = rring, p.remapped = true; }
+  const int key = r.remapped() ? r.to : named;   // the key the game loads
+  const int ring = key - key % 10 + 2;           // our fallback: the same attire's kind 2 (ring) model
+  int o = ord(key);
+  if (o >= 0) { p.ord = o, p.loaded = key, p.remapped = r.remapped(); return p; }
+  if (ring != key) {
+    o = ord(ring);
+    if (o >= 0) { p.ord = o, p.loaded = ring, p.remapped = r.remapped(); }
   }
   return p;
+}
+
+// S110 LIBSIZE: `rel` = the character's file (a library character's `<KEY>\pac\ch\ch497.pac`); the id form below opens WrestlerRel(id).
+inline Pick PickModel(launcher::GameFiles& files, const Table& t, const std::string& rel, int named, Fault fault = Fault::kNone) {
+  return PickModelBy(t, named, [&](int key) { return OrdinalOfModelKeyAt(files, rel, key); }, fault);
 }
 
 inline Pick PickModel(launcher::GameFiles& files, const Table& t, int id, int named, Fault fault = Fault::kNone) { return PickModel(files, t, load_detail::WrestlerRel(id), named, fault); }

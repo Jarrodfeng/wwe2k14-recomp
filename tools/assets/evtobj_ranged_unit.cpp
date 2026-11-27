@@ -1,6 +1,6 @@
 // S105 SKB3 unit: the ranged XCTD reader (src\assets\xctd_ranged.h) and the disc evtobj.pac's ranged state (src\assets\asset_load.h EvtRanged / OpenEvtSlice / PropPachEvt).
 // entry: wwe2k14::xctd_ranged::BuildIndex / DecodeRange, assets::load_detail::OpenEvtRanged / OpenEvtSlice, assets::PropPachEvt, assets::load_detail::ReleaseEvtobj
-// Why the unit enters here: the production caller is GameFilesSource::Load (src\renderer_scene\live_assets.cpp:326 PropPachEvt, :333 LoadPropEntry, the loader thread's "evtprop:<id>/<k>" job) and MarkEvtobjReleasable -> ReleaseEvtobj (:210, BellRelease's retry);
+// Why the unit enters here: the production caller is GameFilesSource::Load (src\renderer_scene\live_assets.cpp PropPachEvt, LoadPropEntry, the loader thread's "evtprop:<id>/<k>" job) and MarkEvtobjReleasable -> ReleaseEvtobj (BellRelease's retry);
 // they are plain functions of assets:: (no hook, no guest state), called here in the production order: PropPachEvt (ordinal from the directory) -> OpenEvtSlice (inside LoadPropEntry) -> ReleaseEvtobj -> re-ask.
 // Default mode: no game files. A synthetic XCTD pac is BUILT here (stored blocks, a 64 KB gap, PACHs spanning blocks, a directory whose row order differs from the file order, an id in both SOBJ and BOBJ),
 // written under out\SKB3\fixture_root\pac\evt\evtobj.pac and read through the production path (GameFiles::SetRoot -> OpenEvtRanged -> PropPachEvt -> OpenEvtSlice). Nothing from the game is read or committed.
@@ -259,13 +259,14 @@ int RunUnit() {
     for (const auto& [id, want] : fx.sobj) {
       int other = -1;
       if (g_plant == "drop_row" && id == 2005) continue;
-      if (PropPachEvt(files, uint32_t(id), &other) != want) ++wrong;
-      if (id == 2005 && other == 11) other_ok = 1;
+      const int w = id == 2005 ? fx.bobj.at(2005) : want;   // S111 MODBELT: an id in both sections is read from BOBJ (the game's read sub_825AE720: /BOBJ/<id> when it resolves, else /SOBJ/<id>)
+      if (PropPachEvt(files, uint32_t(id), &other) != w) ++wrong;
+      if (id == 2005 && other == fx.sobj.at(2005)) other_ok = 1;
     }
     for (const auto& [id, want] : fx.bobj)
       if (id != 2005 && PropPachEvt(files, uint32_t(id), nullptr) != want) ++wrong;
     Check("pach_rank_equals_the_files_pach_order", wrong == 0);
-    Check("pach_in_both_sections_reports_the_bobj_one", other_ok == 1 || g_plant == "drop_row");
+    Check("pach_in_both_sections_takes_bobj_reports_the_sobj_one", other_ok == 1 || g_plant == "drop_row");
     // slices
     bool sl_eq = true;
     for (int p = 0; p < 12; ++p) {
@@ -275,9 +276,13 @@ int RunUnit() {
     }
     Check("slice_entries_equal_the_whole_opens_pach", sl_eq);
     Check("whole_pac_is_never_held", load_detail::DlcProps().cache.find("pac\\evt\\evtobj.pac") == load_detail::DlcProps().cache.end());
-    // PropPachEvt's directory ordinal agrees with the whole pac's own directory walk (PropDirIn) for every id
+    // PropPachEvt's directory ordinal agrees with the whole pac's own directory walk (PropDirIn, BOBJ then SOBJ: the game's read) for every id
     int dis = 0;
-    for (const auto& [id, want] : fx.sobj) { (void)want; if (PropPachEvt(files, uint32_t(id)) != PropDirIn(&whole_pac, uint32_t(id), false, false, true)) ++dis; }
+    for (const auto& [id, want] : fx.sobj) {
+      (void)want;
+      const int b = PropDirIn(&whole_pac, uint32_t(id), true, false), s = PropDirIn(&whole_pac, uint32_t(id), false, false, true);
+      if (PropPachEvt(files, uint32_t(id)) != (b >= 0 ? b : s)) ++dis;
+    }
     Check("ranged_ordinal_equals_PropDirIn_of_the_whole_pac", dis == 0);
     // a failing ranged read: the slice is refused (the caller takes the whole-file path), nothing is half-cached
     load_detail::DlcProps().evt.slices.clear();
@@ -389,7 +394,7 @@ int RunReal(const std::string& game, bool verify, bool all) {
       int other = -1;
       const int rg = PropPachEvt(files, id, &other);
       const int sj = PropDirIn(&whole, id, false, false, true), bj = PropDirIn(&whole, id, true, false);
-      const int want = sj >= 0 ? sj : bj, want_other = (sj >= 0 && bj >= 0 && sj != bj) ? bj : -1;
+      const int want = bj >= 0 ? bj : sj, want_other = (sj >= 0 && bj >= 0 && sj != bj) ? sj : -1;   // S111 MODBELT: BOBJ first (the game's read sub_825AE720), the other = the SOBJ one
       if (want >= 0 && rg != want) ++dis;
       if (want >= 0 && other != want_other) ++other_dis;
     }

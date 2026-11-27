@@ -387,7 +387,7 @@ def game_text(line):
     return (m.group(1) if m else line).strip()
 
 
-# S110 SCENEMOM2: a moment wait its `until finish` clause ended (src\input_script.h:2467: `script FAILED at line N: wait_event SPEC: ended by UNTIL
+# S110 SCENEMOM2: a moment wait its `until finish` clause ended (src\input_script.h (wwe2k14::InputScript::Advance): `script FAILED at line N: wait_event SPEC: ended by UNTIL
 # after F frames (seq S, bus frame B, frame G): FIELDS`; SPEC = the wait's text + ` until ` + the until's, :1198): the match ended first
 ENDED_RX = re.compile(r'script FAILED at line (\d+): wait_event (.*?): ended by (.*?) after \d+ frames \(seq \d+, bus frame \d+, frame (\d+)\): (.*)$')
 
@@ -410,10 +410,10 @@ def ended_by(line):
     return {'finish': f['finish_name'], 'why': why}
 
 
-# S110 TOOLFIT (docs\research\s110\TOOLFIT.md 2): the finisher wish's assert failed (tools\run\scene_moments.py WISH_LINES; src\input_script.h:2615:
+# S110 TOOLFIT (docs\research\s110\TOOLFIT.md 2): the finisher wish's assert failed (tools\run\scene_moments.py WISH_LINES; src\input_script.h:
 # `script FAILED at line N: assert_state NAME VALUE (is 0x.. (V) [focus], frame F)`): finisher_fit_S 2 = seat S's fitting holds are all in a posture
 # family of the game's chooser sub_82602DE0, 0 = no hold in slots 17 / 18 (src\finisher_pick_core.h FitOf). The verb's answer is the director's
-# line `director: finisher S hold (TEXT; char ..)` (src\situation_director_core.h:515). The family is picked at sub_82602DE0 +1AD0..+1CC8 by
+# line `director: finisher S hold (TEXT; char ..)` (src\situation_director_core.h). The family is picked at sub_82602DE0 +1AD0..+1CC8 by
 # sub_82534288 (an angle test between the two wrestlers, 0..3); a family hold it does not pick returns 2 (+800: the next test of sub_82605418).
 FIT_RX = re.compile(r'script FAILED at line (\d+): assert_state finisher_fit_(\d) 1 \(is \S+ \((-?\d+)\)[^,]*, frame (\d+)\)')
 

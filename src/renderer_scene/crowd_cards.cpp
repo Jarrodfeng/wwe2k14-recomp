@@ -81,7 +81,7 @@ uint32_t CardsDrawer::Draw(rdr_adapter::CrowdInject& in, const cards::Plan& plan
 
   rdr::DrawState state = in.state;
   const bool alpha = in.alpha_test && !options_.no_alpha_test;
-  const bool twin_built = alpha && rdr::fx::kVariants[in.ps].spirv_alpha != nullptr;  // review F4: the twin AS BUILT, not as asked
+  const bool twin_built = alpha && rdr::fx::kVariants[in.ps].bytes_alpha != 0;  // review F4: the twin AS BUILT, not as asked
   state.program = in.program(vs, in.ps, alpha);
   state.vertex_layout = layout_;
   state.topology = 4;          // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP: our quad is a strip, whatever the borrowed state says (review F2)

@@ -74,6 +74,7 @@ inline constexpr Pin kPins[] = {
     {"wwe2k14_mods", "false"},
     {"wwe2k14_mods_lighting", "false"},
     {"wwe2k14_mods_superstars", "false"},
+    {"wwe2k14_mods_permanent_blood", "false"},  // S111 BLOODMOD: the mod keeps splats the game lets go
     {"user_country", "103"},
     {"license_mask", "0"},
     {"wwe2k14_mouse_menus", "false"},

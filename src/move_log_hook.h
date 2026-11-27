@@ -81,6 +81,9 @@ inline void OnMotion(PPCContext& ctx, uint8_t* base) {
 }  // namespace wwe2k14::move_log
 
 // THE emitter of the bus's `move` line (the motion start's latch), the move log's writer mark, and the offer loop's mark.
+// ORIGINAL-IN: OnMotion
 REX_HOOK_RAW(sub_823CA4B0) { wwe2k14::move_log::OnMotion(ctx, base); }
+// ORIGINAL-IN: OnLog
 REX_HOOK_RAW(sub_825A14A8) { wwe2k14::move_log::OnLog(ctx, base); }
+// ORIGINAL-IN: OnOffer
 REX_HOOK_RAW(sub_826BB6F0) { wwe2k14::move_log::OnOffer(ctx, base); }

@@ -34,9 +34,11 @@ def main():
             return 1
         print('twin %d: caught' % plant)
     # wiring lints (read the sources; a missing piece fails loudly)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+
     def text(rel):
-        with open(os.path.join(root, rel), encoding='utf-8') as f:
-            return f.read()
+        return read_path(os.path.join(root, rel))
     sw, rd, lv = text('src/renderer_adapter/rdr_switches.h'), text('src/renderer_adapter/reader.h'), text('src/renderer_adapter/live.cpp')
     need = [
         (sw, 'X(LastingDraw, "wwe2k14_rdr_lasting_draw", PerFrame, 0)', 'switch table: lasting_draw per-frame default off'),

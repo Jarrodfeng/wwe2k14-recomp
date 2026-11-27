@@ -3,8 +3,8 @@
 //   nr_unit.exe --record <frame_000622.rsc of out\s103\run29_case.zip> [--plant old_rule]
 // FIX A (rf_wrestlers.cpp SkelPieceIsHole): an invisible skinned `skel:` object is a hole only when the game drew it this frame (a light ref at the wrestler stamp) AND no ring row has its address.
 //   Planted twins on the record: ring rows ignored -> the drawn skirts are holes again; a light ref planted for the undrawn 4th skirt -> one more; light refs dropped -> every piece (fail closed).
-// SYMMETRY (live_scene_draw.cpp Warm == DrawLive): the shadow input's hole is asked by Warm through FrameHooks::ShadowInputHole (the rule BuildMapsInput owns): a record with wrestlers whose key light is
-//   not in it is a hole there. (The arena / crowd hole rules run on the same code in both builds: tools\scene\nr_symmetry_lint.py.)
+// SYMMETRY (live_scene_draw.cpp Warm == DrawLive): the arena / crowd hole rules run on the same code in both builds (tools\scene\nr_symmetry_lint.py). (S111 SHADOWKEY review: the shadow input's
+//   hole, once asked here through FrameHooks::ShadowInputHole, is removed: the fitted shadow light needs no key light.)
 // Exit 0 = all checks passed. With --plant old_rule (the rule before NR) the run must FAIL (exit 1: the check expects that).
 #include <cstdio>
 #include <cstdlib>
@@ -141,19 +141,6 @@ int main(int argc, char** argv) {
     check(skel_holes(v) == expect_base, "PIECEHOLES review: a walked frame with no ref for the flagged body -> not a hole (7)");
   }
 
-  // ---- symmetry: the shadow input hole, asked the way Warm asks it ----
-  {
-    cache.KeepWrestlerCpu(true);
-    FrameHooks hooks(*renderer, cache);
-    std::string why;
-    SceneTables t = base;
-    const bool base_hole = hooks.ShadowInputHole(t, why);
-    check(!base_hole, "the record's shadow input is whole: not a hole");
-    SceneTables u = base;   // a wrestler record whose key light is gone: no light states / refs / objects / caster rows
-    u.light_states.clear(), u.light_refs.clear(), u.light_objects.clear(), u.caster_calls.clear(), u.caster_states.clear();
-    why.clear();
-    check(hooks.ShadowInputHole(u, why) && !why.empty(), "twin: no key light in the record -> the shadow input is a hole in Warm too (why named)");
-  }
   {   // S110 ENTRBLACK round 6 (record_frame.cpp BuildFrame): a WARM build asks every class's assets in the same build, past the arena miss (the classes after ring_early used to be asked only after the arena arrived)
     rf::ModelCache nl(fe, src, false);   // live-style: misses go to a loader (none here), nothing loads
     rf::c::TakeArenaMisses();

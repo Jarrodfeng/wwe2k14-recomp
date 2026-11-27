@@ -22,6 +22,8 @@ inline PlaneStore& Store() {
 // The guest frame now (staleness): set by the glue to the hook clock; the unit sets its own.
 inline uint64_t (*g_now)() = nullptr;
 inline uint64_t Now() { return g_now ? g_now() : 0; }
+// S111 TRONKEY: the arena id the current stage was set under (StageFxContributor::StageArena; -1 = unknown), set by the glue; null (the unit's default) = the binding keeps its table.
+inline int (*g_arena)() = nullptr;
 
 // The render side. One instance per feed; the frame it returned stays held until the next call (the contract of PlaneSource: the planes stay valid until the next call).
 class StorePlaneSource final : public rf::c::PlaneSource {
@@ -46,12 +48,14 @@ class StorePlaneSource final : public rf::c::PlaneSource {
   std::shared_ptr<const Frame> held_;
 };
 
-// The latch side: StageFxContributor::ScreensFn.
+// The latch side: StageFxContributor::ScreensFn. S111 TRONKEY: first the binding follows the stage's arena (ScreenBinding::ForArena: the game picks its key -> channel table by the arena id),
+// so the rows below are this stage's.
 inline size_t ScreensFnImpl(stagefx::ScreenSource* out, size_t cap) {
+  if (g_arena) Store().binding.ForArena(g_arena());
   uint16_t keys[10];
   uint32_t serials[10], ws[10], hs[10];
   const size_t n = Store().Rows(nullptr, Now(), keys, serials, ws, hs, cap < 10 ? cap : 10);
-  for (size_t i = 0; i < n; ++i) out[i] = {keys[i], serials[i], ws[i], hs[i]};
+  for (size_t i = 0; i < n; ++i) out[i] = {keys[i], serials[i], ws[i], hs[i], Store().binding.ChannelOf(keys[i])};   // S111 TRONLIVE: each row carries its key's channel (Emit asks for the tron's)
   return n;
 }
 

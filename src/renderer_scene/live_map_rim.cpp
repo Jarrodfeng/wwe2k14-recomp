@@ -96,8 +96,8 @@ bool LiveMapsHook::RecordRim(const StageCtx& ctx, rdr::FrameBuilder& fb) {
     const auto make_program = [&](int vs, uint16_t& program) {
       rdr::ProgramDesc d;
       d.name = rdr::fx::kVariants[vs].name;
-      d.vertex_spirv = rdr::fx::kVariants[vs].spirv, d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
-      d.fragment_spirv = rdr::fx::kVariants[s.rim_fs].spirv, d.fragment_bytes = rdr::fx::kVariants[s.rim_fs].bytes;
+      d.vertex_spirv = rdr::fx::Words(size_t(vs), false), d.vertex_bytes = rdr::fx::kVariants[vs].bytes;
+      d.fragment_spirv = rdr::fx::Words(size_t(s.rim_fs), false), d.fragment_bytes = rdr::fx::kVariants[s.rim_fs].bytes;
       return renderer_.AddProgramChecked(d, program);
     };
     if (!make_program(s.rim_vs_skinned, s.rim_prog_skinned) || !make_program(s.rim_vs_single, s.rim_prog_single)) {
@@ -192,6 +192,7 @@ bool LiveMapsHook::RecordRim(const StageCtx& ctx, rdr::FrameBuilder& fb) {
       bool any = false;
       for (const CasterMesh& m : cm->meshes) {
         if (!wrestler_caster::MeshCastsFor(visible, pieces_only, m.piece)) continue;   // S111 PIECEROUTE review: a pieces-only owner casts its piece meshes, never its body
+        if (!CasterMeshCasts(frame, uint32_t(&obj - frame.objects.data()), m)) continue;   // S111 SOCKSHADOW: a piece the game hides or detached is not in the rim map (the rim pass walks the same nodes)
         if (m.src < 32 ? !((obj.mesh_mask_lo >> m.src) & 1u) : (m.src < 64 && !((obj.mesh_mask_hi >> (m.src - 32)) & 1u))) continue;
         if (m.chunk && rdr_scene::SkinChunkAbsent(m.nodes, skin, skin_count)) continue;   // S103 W2B (review C): a chunk that skins to an absent spring-hair piece (zero rows) is not part of the fit / mask
         std::vector<assets::Matrix>& slots = slots_scratch_;

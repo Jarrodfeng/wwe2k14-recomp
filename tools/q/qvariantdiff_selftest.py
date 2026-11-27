@@ -6,7 +6,7 @@ B. Real data (needs the q index with the generated listing, the player's pac\_st
    frozen at FROZEN (the S111 tip the cases were stated against), the cases RE-FOUND:
      1. the cube-twin substitution (S111 CONSTPASS review): yCh_TransTiling T0 / yCh_cloth_trans T0 draw p1 `cube_specular_fragment`
         in the game in every context (no entry +12 / +4 name: sub_82BDA038), ours binds the twin `base_fragment` through the table
-        pick (char_effects.cpp:295 CubeSibling): HABIT, never DIFF / HOLE;
+        pick (char_effects.cpp CubeSibling): HABIT, never DIFF / HOLE;
      3. the table pick (our only pick since S111 OLDCHAIN) has no DIFF and no HOLE at FROZEN;
      5. the hair class's shadow bit: yCh_trans T0 nospec in `m0 shadow` is UNSETTLED (ours p9 by !cl.hair, the game's row p11);
      6. (review) the editor tables edit.pac p7/0 / p9/0 bind on the table pick for every group and context.
@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qvariantdiff as V   # noqa: E402
 
-FROZEN = 'ff0ee241c'      # the S111 tip the cases were stated against (char_effects.cpp:286 / :295, front_end.cpp:2662); its table pick is the one S111 OLDCHAIN keeps
+FROZEN = 'ff0ee241c'      # the S111 tip the cases were stated against (char_effects.cpp, front_end.cpp); its table pick is the one S111 OLDCHAIN keeps
 FAILS, CAUGHT = [], []
 
 
@@ -171,7 +171,7 @@ def part_bc(root):
         except V.VariantDiffError as e:
             twin(name, str(e)[:120])
     # B6 / C8 (review): the editor tables (edit.pac p7/0 logo rows, p9/0 change-colour rows: a CAW logo material / a recoloured body
-    # draws from them, char_effects.cpp:275-282) bind for every group and context at FROZEN; a CheckPs that no longer feeds slots 7..10
+    # draws from them, char_effects.cpp) bind for every group and context at FROZEN; a CheckPs that no longer feeds slots 7..10
     # (the logo layer reads slot 7 / 4) must leave rows unbound
     editor, eerr = V.load_editor_tables()
     if editor is None:

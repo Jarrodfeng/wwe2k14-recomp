@@ -1,0 +1,9 @@
+name = "name"
+module = "qnames"
+errors = ["qnames.NamesError"]
+qerror = false
+usage_slot = "u35"
+
+[[usage]]
+order = 84
+text = '''  name ADDR|WORD               the names the GAME carries for a function (Lua bindings, name tables) / functions whose name has WORD (tools/q/qnames.py)'''

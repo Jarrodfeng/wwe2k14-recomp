@@ -1,5 +1,6 @@
 // S103 ARM: offline proof of the attire remap (src\assets\attire_remap.h, docs\agents\s103\HNN.md) and of the hole rule for a failed composite / remapped attire load
 // (src\renderer_scene\named_load_fail.h HoleOnFailure). 0 game runs; selftest uses a fixture table built here (nothing from the game).
+// S111 ATTIREREMAP: selftest also drives the loader's pick (attire_remap.h PickModelBy, the game's order: the remap first) on fixture pacs, with the stub-vs-remap twin.
 //   arm_unit.exe selftest            the rule on a fixture table + the planted faults + the hole rule in the production order (loader failure -> Note -> contributor test)
 //   arm_unit.exe real --game DIR     read-only, the player's own files: p0/600 of misc01_Start.pac, the census over every ch pac (which attire keys the game remaps, whether the base
 //                                    model exists), the pick the loader makes for Heenan / Jericho / Punk / Elizabeth / Savage / Hogan and the four forced keys
@@ -90,6 +91,45 @@ static int SelfTest() {
   Check(to(16012, ar::Fault::kWordIgnored) != 16012, "PLANT (word ignored): word 2 would remap (caught by the word-2 line)");
   Check(ar::Resolve(t, 24912, ar::Fault::kSlotZero).slot != 1, "PLANT (slot 0): the colour slot is lost (caught by the slot-1 line)");
 
+  // S111 ATTIREREMAP: the loader's pick in the game's order (sub_823BB070: the remap of the chosen key first), on fixture pacs (key -> model PACH ordinal)
+  using FilePac = std::map<int, int>;
+  auto pick_in = [&](const FilePac& fp, int key, ar::Fault f = ar::Fault::kNone) {
+    return ar::PickModelBy(t, key, [&](int k) { const auto it = fp.find(k); return it == fp.end() ? -1 : it->second; }, f);
+  };
+  const FilePac stub = {{24902, 0}, {24912, 1}};   // a composite attire whose pac ALSO ships a stub model named by the chosen key
+  {
+    const ar::Pick p = pick_in(stub, 24912);
+    Check(p.ord == 0 && p.loaded == 24902 && p.remapped && p.slot == 1 && p.hole_class, "stub twin: 24912 loads the remap target 24902 (colour slot 1), never the pac's own 24912");
+    const ar::Pick q = pick_in(stub, 24912, ar::Fault::kOwnFirst);
+    Check(q.ord == 1 && q.loaded == 24912 && !q.remapped, "PLANT (own key first, the pre-ATTIREREMAP order): the stub 24912 WOULD load with slot 1's colours (caught by the stub-twin line)");
+  }
+  {
+    const ar::Pick p = pick_in({{24902, 0}}, 24912);
+    Check(p.ord == 0 && p.loaded == 24902 && p.remapped, "stock Heenan (no own 24912): 24902, as before");
+  }
+  {
+    const ar::Pick p = pick_in({{24912, 1}}, 24912);
+    Check(p.ord < 0 && p.hole_class, "remap target missing, own key present: no model (the game loads 24902 only): a counted hole");
+  }
+  {
+    const ar::Pick p = pick_in({{10912, 3}}, 10912);
+    Check(p.ord == 3 && p.loaded == 10912 && !p.remapped && !p.hole_class, "identity flag-A key (Hogan 10912): the pac's own model");
+  }
+  {
+    const ar::Pick p = pick_in({{15012, 2}}, 15014);
+    Check(p.ord == 2 && p.loaded == 15012 && !p.remapped, "flag A clear, kind 4 absent: our ring fallback 15012");
+  }
+  {
+    const FilePac savage = {{19702, 0}, {19714, 5}};
+    const ar::Pick p = pick_in(savage, 19714);
+    Check(p.ord == 0 && p.loaded == 19702 && p.remapped, "kind 4 remapped to 19704 (absent): its ring 19702, never the pac's own 19714");
+    Check(pick_in(savage, 19714, ar::Fault::kOwnFirst).ord == 5, "PLANT (own key first): 19714's own model WOULD load (caught by the line above)");
+  }
+  {
+    const ar::Pick p = pick_in(stub, 24902);
+    Check(p.ord == 0 && p.loaded == 24902 && !p.remapped, "a link entry naming the loaded key 24902 loads 24902 (the target is not remapped again)");
+  }
+
   // the hole rule in the production order: the loader fails a composite -> HoleOnFailure; ModelCache notes it -> Note; the contributor asks FailedToGuest
   using namespace rdr_scene;
   namedfail::Clear();
@@ -125,7 +165,7 @@ static int Real(const char* game_dir) {
   Check(ar::ReadTable(files, t, err), "pac\\misc01_Start.pac p0/600 reads");
   if (!t.ok) { std::printf("      %s\n", err.c_str()); return 1; }
   std::printf("      %u records\n", t.count);
-  int remapped = 0, composite = 0, base_missing = 0, own_conflict = 0, ident = 0;
+  int remapped = 0, composite = 0, base_missing = 0, own_conflict = 0, ident = 0, chained = 0;
   std::map<int, int> per_char;
   std::printf("      census (key -> loaded, colour slot; own = the pac has a PACH named by the key; base = the PACH the game loads exists):\n");
   for (uint32_t k = 0; k < t.count; ++k) {
@@ -141,6 +181,7 @@ static int Real(const char* game_dir) {
         ++remapped, ++per_char[cid];
         if (base < 0) ++base_missing;
         if (own >= 0) ++own_conflict;
+        if (ar::Resolve(t, r.to).remapped()) { ++chained; std::printf("      target %d of %d is itself remapped (to %d)\n", r.to, key, ar::Resolve(t, r.to).to); }
         std::printf("      %d -> %d slot %d flagB %d own %s base %s\n", key, r.to, r.slot, r.flag_b ? 1 : 0, own >= 0 ? "YES" : "no", base >= 0 ? "yes" : "MISSING");
       }
   }
@@ -149,8 +190,9 @@ static int Real(const char* game_dir) {
   std::printf("\n");
   Check(remapped > 0, "the game remaps at least one attire in the player's table");
   Check(base_missing == 0, "every remapped key's base model exists in its character pac");
-  Check(own_conflict == 0, "no remapped key also has a PACH of its own (so 'only when the pac lacks the key' loses nothing)");
-  // the loader's pick (production function), in the production order: the pac's own key first, else the game's remap
+  Check(own_conflict == 0, "no remapped key also has a PACH of its own (the remap-first order changes no attire of this install)");
+  Check(chained == 0, "no remap target is itself remapped (a link entry, which names the game's loaded key, loads that key again)");
+  // the loader's pick (production function), in the game's order (S111 ATTIREREMAP): the remap first, the pac's own key only when nothing remaps it
   auto pick = [&](int key) { return ar::PickModel(files, t, key / 100, key); };
   const ar::Pick h = pick(24912), h0 = pick(24902);
   Check(h.ord >= 0 && h.loaded == 24902 && h.remapped && h.slot == 1 && h.ord == h0.ord && h.hole_class, "Heenan 24912: loads PACH of 24902, colour slot 1, a composite (hole class)");

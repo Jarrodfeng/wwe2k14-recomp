@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {1: 'writer_wrong_byte_order', 2: 'filter_ignores_lr', 3: 'g2_late_not_counted', 4: 'd1_keeps_all_objects', 5: 'retry_count_carries_over'}
+PLANTS = {1: 'writer_wrong_byte_order', 2: 'filter_ignores_lr', 3: 'g2_late_not_counted', 4: 'd1_keeps_all_objects', 5: 'retry_count_carries_over', 6: 'census_pieces_from_id_list'}
 
 
 def build_run(root, out, plant):

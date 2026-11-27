@@ -60,6 +60,8 @@ int main(int argc, char** argv) {
   Expect("steps", p, "Ring Steps", "Ring Steps");
   p.key = 6, p.node = "vector", p.texture = "ji_desk";
   Expect("desk", p, "Announce Desk", "Announce Desk");
+  p.key = 107, p.node = "vector", p.texture = "ji_mark";   // S111 DESKMODEL review: the per-arena top 107's ji_mark mesh (no ji_desk / ji_mon / ji_top / ji_bl / ji_meta texture)
+  Expect("desk top 107", p, "Announce Desk", "Announce Desk");
 
   PartKey w;
   w.kind = PartKind::kWrestler, w.pac = "ch107.pac", w.key = 10000, w.node = "null", w.texture = "color", w.shader = "yCh_Aniso_trans";

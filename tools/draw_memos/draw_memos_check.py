@@ -86,14 +86,16 @@ def run_test(root):
 def lint_reader(root):
     """F4: the reader.h glue the offline test cannot reach: every census-window clear is preceded by the memo's Invalidate(); both shader keys are made by MakeKey
     (object, decl, code_addr, bytes, seven_c, strides in one call); the create paths remember only bytes that still hash to the key."""
-    text = open(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path, locate  # a split file is read with its parts expanded; a hit names its part file and line
+    text = read_path(os.path.join(root, 'src', 'renderer_adapter', 'reader.h'))
     lines = text.splitlines()
     clears = [i for i, l in enumerate(lines) if re.search(r'\bwindow\.(clear|erase)\(', l)]
     if not clears:
         return fail('lint DID NOT APPLY: no census window clear / erase found in reader.h')
     for i in clears:
         if not any('g_note_memo.Invalidate()' in lines[j] for j in range(max(0, i - 3), i)):
-            return fail('reader.h line %d clears / erases a census window without g_note_memo.Invalidate() just before it' % (i + 1))
+            return fail('%s clears / erases a census window without g_note_memo.Invalidate() just before it' % locate(root, 'src/renderer_adapter/reader.h', i + 1))
     for what, pat in (('vertex', r'ShaderTable<VertexShaderInfo>::MakeKey\(vs, key\.decl, code_addr, bytes, key\.seven_c != 0, strides\)'),
                       ('pixel', r'ShaderTable<PixelShaderInfo>::MakeKey\(ps, 0, code_addr, bytes, false, nullptr\)')):
         if not re.search(pat, text):

@@ -5,7 +5,7 @@
 //
 //   1. NoteMemo   (wwe2k14_rdr_note_memo)    Note() / NoteCounted(): the census add of a name the reader has counted before is two pointer
 //                                            increments, not a std::string made from the name and two std::map finds. R13 / profile: DecodeDynamic's
-//                                            "viewport_z_inverted" note alone (kit reader.h:3850, now 3922) was 0.42 ms a frame of the swap thread in Bryan's heavy stretch.
+//                                            "viewport_z_inverted" note alone (reader/state_decode.inc DecodeDynamic) was 0.42 ms a frame of the swap thread in Bryan's heavy stretch.
 //   2. ShaderMemo (wwe2k14_rdr_shader_memo)  GetVertexShader / GetPixelShader: a table of the shaders already resolved (object, declaration, strides,
 //                                            microcode address + size) validated by comparing the WHOLE microcode with the copy kept, in place of
 //                                            hashing it and finding it in the unordered_map when the one-entry "last shader" memo misses.

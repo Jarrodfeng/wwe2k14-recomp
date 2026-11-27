@@ -136,6 +136,9 @@ struct FlashSprite {
   uint16_t slot = 0xFFFF;
   bool held = false;   // shown from the flash hold (kFxfHeld)
   float scale = 0.f;   // the row's scale (item +40)
+  // S111 FLASHCAM review (census only, kFxfKeepCensus): the game's keep rule for this flash under the slot camera of the walk that drew it (1 kept, 0 refused, -1 not known), and that camera's +176 x / y scales (0 = not read).
+  int8_t game_keeps = -1;
+  float game_xs = 0.f, game_ys = 0.f;
 };
 // S110 FLASHOCC: a flash whose centre is nearer than this (view z, game units) cannot be a crowd flash seen from inside the ring: the spawners place them 1900+ (inner ring) / |x| + |z| >= 1650 from
 // the ring centre (FLASHDEPTH.md a5), so from a camera inside the ring (radius < ~400) the nearest crowd flash is ~1200-1500 units away. Counted and logged (FrontEnd::FlashLine), never acted on.
@@ -148,6 +151,9 @@ inline std::atomic<bool> g_plant_flash_fetch_row0{false};
 // TEST ONLY (S111 FLASHGAME, cutgrey_unit [RAYS]): the after-post flash pass attaches the scene depth and tests it per pixel (S110 FLASHFRONT's margin, removed): the rays of a sprite whose centre is visible
 // are cut at a nearer body. The game draws them over it (its z test is off, sub_823B27F0 +354). The game never sets this.
 inline std::atomic<bool> g_plant_flash_pixel_ztest{false};
+// TEST ONLY (S111 FLASHCHAIN, cutgrey_unit [PLACE]): the flash draw's system block keeps clip y as it is (system[1] = +1), which is what rdr_flash.vert did before FLASHCHAIN (it never applied the block): every
+// sprite is drawn mirrored top to bottom about the picture's centre while its centre depth is read at the true place. The game never sets this.
+inline std::atomic<bool> g_plant_flash_no_system_flip{false};
 
 // A frame request: what to draw, from where.
 struct SceneFrame {
@@ -155,7 +161,9 @@ struct SceneFrame {
   std::vector<Object> objects;
   // S103 EYF: the model alpha (MdlAlpha = [model+252]) of the own-skeleton pieces (hair, caps, glasses, the eyelid / lash layer 20002) that an OWNER body object draws: per owner index in `objects`, per piece id
   // (mesh src_kind 2, src_key == piece). The front end draws such a mesh with this alpha (not at all when 0). A lid-layer mesh (20000-39999, `trans`, a `mabuta` palette) with no row here is not drawn.
-  struct PieceAlpha { uint32_t object = 0, piece = 0; float alpha = 0.f; };
+  // S111 SOCKSHADOW: undrawn = the owner's merged mesh does not draw this piece at all, in any pass (the game hides it: SUBM shown word 0, piece_hidden.h; or detached it, detached_piece.h). Such a row
+  // is alpha 0 too. A row with undrawn false is a model-alpha fade (EYF): the colour pass fades it, the caster passes still cast it (they read no model alpha: piece_row_rule.h PieceRowCasts).
+  struct PieceAlpha { uint32_t object = 0, piece = 0; float alpha = 0.f; bool undrawn = false; };
   std::vector<PieceAlpha> piece_alphas;
   // S103 W2B (W2_ADV.md R2): (object index in `objects`, piece id) pairs whose spring-hair extra nodes the record could not supply: the object's meshes that skin to those nodes are skipped (counted), the rest draw.
   std::vector<std::pair<uint32_t, uint32_t>> absent_extras;
@@ -240,7 +248,6 @@ struct InstancedDraw {
   const float* view_proj = nullptr;                      // 16 floats, row vectors; null = the stage's
   const float* eye = nullptr;                            // 3 floats; null = the stage's
   bool game_space = true;                                // the model, worlds and camera are in the game's file space (the lights are then fed as the file stores them)
-  bool cull_none = false;                                // two-sided (a card)
   bool clamp_slot0 = false;                              // clamp-to-edge sampler for slot 0 (a card's picture: the feet are on its bottom edge)
   bool no_blend = false;                                 // S103 P7 tween (review F2): never tag this draw for the tick blend (a card BAKE shares its model + mesh keys with the LOD-0 members, so it must not pair with them)
   const ModelLights* lights = nullptr;                   // S103 L4: this frame's light sets of the model (the record's evaluated values by id); null = the sets the model was added with (the file's baseline)
@@ -253,6 +260,12 @@ struct InstancedDraw {
   // nothing is pushed or recorded (the card bake asks "would this draw give the same picture as last frame?" before it opens a pass). The textures' CONTENT is not in it: the caller adds its own page counters.
   uint64_t* input_hash = nullptr;
   bool dry = false;
+  // S111 CROWDATEST (docs\systems\crowd.md "Alpha test per crowd draw"): the draw's alpha test as the game's crowd node sets it per draw family: -1 = the material's own flag
+  // (Material::alpha_test, the loader's texel rule; the card bake), 0 = off (sub_82519508 audience_draw_entry: stands members, seated floor people, signs, foam hands), 1 = on (the far cards, sub_825185B0's card loop).
+  int8_t alpha_test = -1;
+  // S111 CROWDCULLSRC: RIG / UNIT ONLY (the planted twins cards_two_sided / props_two_sided): both faces drawn. The game never does: DrawInstanced culls back faces
+  // on every crowd draw (docs\systems\crowd.md "Far-card cull").
+  bool plant_two_sided = false;
 };
 struct InstancedStats { uint32_t draws = 0, instances = 0, meshes_refused = 0, light_mismatch = 0; std::string first_refusal; };
 
@@ -293,7 +306,7 @@ inline std::atomic<bool> g_reflections{true};   // BOTH-BUILDS: a LOOK, ON in bo
 // S103 TQ2 (docs\research\s103\TQ2.md; LOOK: the picture follows the game): the pixel variant of yBG_Default / yBG_BumpMap (+LM) and yDefault materials is the effect table's row for the record's technique word
 // (technique_pick.h AllFamily), like TQF's yProp class and RFL's yBG_Reflect. ON by default (the start-time switch wwe2k14_rdr_table_pick_all; the rigs' WWE_RDR_TABLE_PICK_ALL=0 is the "before" arm). false = those families
 // keep the sampler scoring + the L5 / P1 fits, and the SearchLight (yBG_UVScroll T8..T11) planar pair is refused too (UVS.md; front_end.cpp UvLayers / SearchLightPlanar / Resolve SL_Scale), exactly as before the lane.
-inline std::atomic<bool> g_table_pick_all{true};   // BOTH-BUILDS: a LOOK (header comment above), ON in both builds; the cvar exists only in the OFF build, the stream build keeps the default true (start_settings.cpp:270)
+inline std::atomic<bool> g_table_pick_all{true};   // BOTH-BUILDS: a LOOK (header comment above), ON in both builds; the cvar exists only in the OFF build, the stream build keeps the default true (start_settings.cpp)
 inline bool g_wrk_plant_grey = false;   // S103 WRK: the rig's twin (the no-map fallback is the flat grey: alpha 255 tilts the normal by the full level)
 // S103 UPL U2: screen pictures are uploaded once per distinct picture and the screens that show the same pixels share ONE image (FrontEnd::UpdateScreens). ON by default (invisible: the same picture). false = the old
 // one image per screen, one upload per changed screen (the start-time switch wwe2k14_rdr_screen_share in the stream-free build; the rig's WWE_RDR_SCREEN_SHARE=0 is the "before" arm).
@@ -564,6 +577,10 @@ class FrontEnd {
   bool flash_made_ = false, flash_nodepth_logged_ = false;
   uint64_t flash_given_ = 0, flash_drawn_ = 0, flash_nodepth_ = 0;   // S110 RDRPREP F3: sprites given to the after-post draw / drawn by it / skipped because the depth was not sampled
   uint64_t flash_near_ = 0; float flash_nearest_ = 0.f; uint32_t flash_near_lines_ = 0;   // S110 FLASHOCC: drawn sprites with centre view z < kFlashNearViewZ, the smallest centre view z seen (0 = none), near lines logged (cap 32)
+  // S111 FLASHCAM review census (front_end_flashes.h; printed by FlashLine, so every scene census line and the run's last one hold the totals): frames that reached the sprite loop, sprites, sprites off our
+  // picture (the record camera), the game's keep rule kept / refused / unknown, kept by the game yet off our picture; point lines logged per scene kind (0 match, 1 entrance; cap kFlashPointLines).
+  uint64_t fc_frames_ = 0, fc_sprites_ = 0, fc_off_picture_ = 0, fc_game_kept_ = 0, fc_game_refused_ = 0, fc_game_unknown_ = 0, fc_kept_off_ = 0;
+  uint32_t flash_point_lines_[2] = {0, 0};
   uint16_t flash_program_ = 0, flash_layout_ = 0;
 
   rdr::Renderer& renderer_;

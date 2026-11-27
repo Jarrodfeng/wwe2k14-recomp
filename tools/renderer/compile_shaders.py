@@ -606,6 +606,13 @@ def compile_effect(json_path):
 # the vertex colour (`layout(location = 2) in vec4 inColor`), 255 = none.
 ALPHA_EFFECTS = ('yBG_DefaultLM', 'yBG_Default', 'yBG_UVScrollLM', 'yBG_UVScroll', 'yBG_BumpMapLM', 'yBG_BumpMap')
 ALPHA_BREAKS = {'vertex': {'FX_EDGE_FADE', 'FX_SPEC_FADE'}, 'fragment': {'FX_ALPHA_OUT', 'FX_OVERLAY', 'FX_SCROLL', 'FX_CAA'}}
+# S111 CHALPHA (docs\research\s111\CHALPHA.md; read by src\renderer_scene\char_alpha.h): the character effects whose colour output's alpha is the interpolated tint ALONE, so their fragment variants
+# get out_alpha 1 (the tint: MdlAlpha.x * MatAmbCol.w * MatDifCol.w, the only inputs of the vertex stage's tint w; no vertex colour). [C] in the game's microcode, every hash of every fx.json row: oC0.w is
+# the interpolant, under FX_DEBUG lerped towards 1 by DebugPS1.z (CHALPHA.md); ours: fx_skin.glsl, fx_gear.glsl without FX_TRANS, fx_trans_ps.glsl under FX_REFLECT or FX_HAIR without FX_HAIR_TRANS (FX_LOGO
+# there only beside FX_REFLECT / FX_LOGO_BLEND, which keep the opacity), outColor.w = inTint.w. The other yCh_ effects (yCh_trans, yCh_TransTiling, yCh_cloth_trans, yCh_Aniso_trans, yCh_Ls) carry a texture's
+# alpha and keep 0 (not provable: always tested). Their vertex variants keep 0: the stream binder (AlphaOpaque) and choice_diff read a vertex out_alpha 1 as "x the vertex colour's alpha", not this family's rule.
+CH_TINT_ALPHA = ('yCh_skin', 'yCh_skin_flex', 'yCh_gear', 'yCh_gear_flex', 'yCh_cloth', 'yCh_cloth_flex', 'yCh_Reflect', 'yCh_Anisotropic')
+CH_TINT_BREAKS = {'FX_TRANS', 'FX_HAIR_TRANS'}   # the opacity of a see-through cloth / hair variant: its surface map's alpha (fx_gear.glsl, fx_trans_ps.glsl)
 
 
 def source_defines(effect, v, stage):
@@ -629,6 +636,11 @@ def source_defines(effect, v, stage):
 
 
 def alpha_meta(effect, stage, v):
+    if effect in CH_TINT_ALPHA:   # S111 CHALPHA (CH_TINT_ALPHA above)
+        if stage != 'fragment':
+            return 0, 255
+        assert not ((set(v.get('defines', [])) | source_defines(effect, v, stage)) & CH_TINT_BREAKS), 'CHALPHA: a tint-alpha effect variant takes a texture opacity: ' + effect + ' ' + v.get('name', '?')
+        return 1, 255
     if effect not in ALPHA_EFFECTS or (set(v.get('defines', [])) | source_defines(effect, v, stage)) & ALPHA_BREAKS[stage]:
         return 0, 255
     if stage == 'fragment':
@@ -661,12 +673,15 @@ def write_registry(all_rows, own=()):
         out.append(f'#include "fx_{rows["effect"]}.h"')
     out += ['', 'namespace rdr::fx {', 'struct ConstantRange { uint16_t reg, count, offset; uint8_t blend; };', 'struct Attribute { uint8_t fetch, location, integer; };',
             'struct Sampler { uint8_t slot, kind; };',
-            'struct Variant { const char* name; const uint32_t* spirv; size_t bytes; const uint32_t* spirv_alpha; size_t bytes_alpha; const ConstantRange* constants; uint16_t constant_count; uint16_t block_bytes; uint16_t bools_offset; const Attribute* attributes; uint16_t attribute_count; const Sampler* samplers; uint16_t sampler_count; uint8_t out_alpha; uint8_t vc_fetch; };',
+            '// S111 TOOLLINK: a Variant holds no address of its words (only their sizes: sizeof of a declared array makes no link reference), so a unit that reads kVariants links without',
+            '// fx_spv_data.cpp. The words: Words(variant index, alpha twin), defined there. bytes_alpha != 0 = the variant has an alpha-test twin.',
+            'struct Variant { const char* name; size_t bytes; size_t bytes_alpha; const ConstantRange* constants; uint16_t constant_count; uint16_t block_bytes; uint16_t bools_offset; const Attribute* attributes; uint16_t attribute_count; const Sampler* samplers; uint16_t sampler_count; uint8_t out_alpha; uint8_t vc_fetch; };',
+            'const uint32_t* Words(size_t variant, bool alpha);   // kVariants[variant]\'s SPIR-V (alpha: its alpha-test twin, nullptr when it has none); defined in fx_spv_data.cpp',
             'struct HashEntry { uint64_t hash; uint32_t variant; };',
             '// S110 RDRPREP: our own shaders (kSpv_<name> of src\\renderer\\shaders\\*.vert|*.frag, test_* left out): the pipeline store\'s shader catalog holds them beside kVariants (pipeline_catalog.h).',
             'struct OwnShader { const char* name; const uint32_t* words; size_t bytes; };',
-            f'extern const OwnShader kOwnShaders[{max(len(own), 1)}];', '']
-    variants, hashes = [], []
+            f'extern const OwnShader kOwnShaders[{max(len(own), 1)}];   // defined in fx_own_shaders.cpp', '']
+    variants, hashes, word_rows = [], [], []
     for rows in all_rows:
         for stage in ('vertex', 'fragment'):
             for v in rows[stage]:
@@ -689,8 +704,9 @@ def write_registry(all_rows, own=()):
                     out.append(f'inline constexpr Attribute kA_{ident}[] = {{{", ".join(attrs)}}};')
                 alpha = v.get('symbol_alpha')
                 out_alpha, vc_fetch = alpha_meta(rows['effect'], stage, v)
-                variants.append('{"%s", %s, sizeof(%s), %s, %s, %s, %d, %d, %d, %s, %d, %s, %d, %d, %d}' % (
-                    ident, v['symbol'], v['symbol'], alpha or 'nullptr', f'sizeof({alpha})' if alpha else '0',
+                word_rows.append((v['symbol'], alpha))   # S111 TOOLLINK: the kWords row of this variant (fx_spv_data.cpp), in kVariants order
+                variants.append('{"%s", sizeof(%s), %s, %s, %d, %d, %d, %s, %d, %s, %d, %d, %d}' % (
+                    ident, v['symbol'], f'sizeof({alpha})' if alpha else '0',
                     f'kC_{ident}' if ranges else 'nullptr', len(ranges), v['block_bytes'], bools, f'kA_{ident}' if attrs else 'nullptr', len(attrs),
                     f'kS_{ident}' if samplers else 'nullptr', len(samplers), out_alpha, vc_fetch))
                 for h in v['hashes']:
@@ -702,25 +718,35 @@ def write_registry(all_rows, own=()):
     out.append(f'inline constexpr uint32_t kMaxFragmentBlockBytes = {biggest};   // the largest packed pixel block of any variant (lane 151: the replace seam\'s lazily made buffer)')
     out.append('}  // namespace rdr::fx\n')
     write_if_changed(os.path.join(OUT, 'fx_registry.h'), '\n'.join(out))
-    # S105 SPV: the ONE unit that holds every effect's words (add src\\renderer\\shaders\\spv\\fx_spv_data.cpp to every build that compiles a fx_registry.h user)
+    # S111 TOOLLINK-D: our own shaders' table in its OWN small unit (fx_own_shaders.cpp: the rdr_* headers' words only, no effect words), so a build that reads kOwnShaders needs no effect words
+    # for that table. S110 RDRPREP: one sha line per own header (the object holds their arrays: it must change with them).
+    ownu = ['// Generated by tools\\renderer\\compile_shaders.py. Our own shaders. The kOwnShaders table (the shader catalog\'s own blobs); the effects\' words are in fx_spv_data.cpp.', '#include <cstdint>', '#include "fx_registry.h"']
+    for n in own:
+        with open(os.path.join(OUT, n + '.h'), encoding='utf-8', newline='') as hf:
+            ownu.append(f'// {n} words sha256: {hashlib.sha256(hf.read().replace(chr(13) + chr(10), chr(10)).encode()).hexdigest()}')
+        ownu.append(f'#include "{n}.h"')
+    ownu.append('namespace rdr::fx {')
+    ownu.append(f'extern const OwnShader kOwnShaders[{max(len(own), 1)}] = {{')
+    ownu.append(',\n'.join(f'  {{"{n}", ::kSpv_{n}, sizeof(::kSpv_{n})}}' for n in own) if own else '  {"", nullptr, 0}')
+    ownu.append('};')
+    ownu.append('}  // namespace rdr::fx')
+    write_if_changed(os.path.join(OUT, 'fx_own_shaders.cpp'), '\n'.join(ownu) + '\n')
+    # S105 SPV: the ONE unit that holds every effect's words. S111 TOOLLINK: only a build whose units call rdr::fx::Words (the pipeline builders, the catalog registrars) needs it.
     data = ['// Generated by tools\\renderer\\compile_shaders.py. Our own shaders. The only unit that parses the effects\' SPIR-V text.', '#include <cstdint>', '#include "fx_registry.h"']
     for rows in all_rows:
         data.append(f'#include "fx_{rows["effect"]}.h"')
-    # S110 RDRPREP: our own shaders' headers + the kOwnShaders table (the store's catalog source). One sha line each (the object holds their arrays: it must change with them).
-    for n in own:
-        with open(os.path.join(OUT, n + '.h'), encoding='utf-8', newline='') as hf:
-            data.append(f'// {n} words sha256: {hashlib.sha256(hf.read().replace(chr(13) + chr(10), chr(10)).encode()).hexdigest()}')
-        data.append(f'#include "{n}.h"')
-    data.append('namespace rdr::fx {')
-    data.append(f'extern const OwnShader kOwnShaders[{max(len(own), 1)}] = {{')
-    data.append(',\n'.join(f'  {{"{n}", ::kSpv_{n}, sizeof(::kSpv_{n})}}' for n in own) if own else '  {"", nullptr, 0}')
-    data.append('};')
-    data.append('}  // namespace rdr::fx')
     # the tool build scripts compare an object with the newest .h / .cpp only: each effect's sha line changes whenever its words do, so the data object is never stale.
     # One line per effect (F6): two branches that change different effects touch different lines and merge cleanly. spv_split_lint recomputes each from the .inc.
     for rows in all_rows:
         data.append(f'// fx_{rows["effect"]} words sha256: {rows["data_sha"]}')
         data.append(f'#include "fx_{rows["effect"]}_data.inc"')
+    # S111 TOOLLINK: the words of every kVariants row (same order), reached only through Words: the one place an effect's address is taken.
+    data.append('namespace rdr::fx {')
+    data.append('static const uint32_t* const kWords[][2] = {')
+    data.append(',\n'.join(f'  {{{s}, {a or "nullptr"}}}' for s, a in word_rows) if word_rows else '  {nullptr, nullptr}')
+    data.append('};')
+    data.append('const uint32_t* Words(size_t variant, bool alpha) { return kWords[variant][alpha ? 1 : 0]; }')
+    data.append('}  // namespace rdr::fx')
     write_if_changed(os.path.join(OUT, 'fx_spv_data.cpp'), '\n'.join(data) + '\n')
 
 

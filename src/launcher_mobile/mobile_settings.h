@@ -363,7 +363,7 @@ inline std::vector<std::string> GameArgs(const Settings& saved, const LaunchCont
   f.push_back("--wwe2k14_phys_alloc_fast_fail=true");
   // Session 73, b77: GPU busy work through loads, so each entrance does not start at the lowest GPU clock.
   f.push_back("--wwe2k14_gpu_keep_warm=true");
-  // Session 95 (Lane E): the character read-back window follows the load, with the 300 frames as a floor (it can only get longer; src/create_readback.h:163-179). Also widens load_pipeline_wait.h InCharacterWindow. Savage on a phone.
+  // Session 95 (Lane E): the character read-back window follows the load, with the 300 frames as a floor (it can only get longer; src/create_readback.h). Also widens load_pipeline_wait.h InCharacterWindow. Savage on a phone.
   f.push_back("--wwe2k14_readback_char_window_by_load=true");
   if (s.frame_rate == 0 || s.frame_rate == 3) f.push_back("--wwe2k14_entrance_60fps=false");
   if (s.frame_rate == 3) {  // gfx_settings.h GraphicsFlags frame_rate 3: the game's own 30 fps mode, entrances keep their stock 30

@@ -30,7 +30,7 @@ struct FrameHooksOptions {
   bool particles = true;
   bool particles_skip_unnamed = true;   // CAWH: a batch whose texture the namer could not name draws NOTHING (counted particles_unnamed_skipped); the game always has its texture, a white quad is never right. The offline rig sets false (its fixture flare is white by design).
   SeeOrder order = SeeOrder::Game;
-  MapsFitOptions maps_fit;     // S103 E3: force the fitted shadow camera / the key light TOLD by the rig (offline only; the live drawer leaves it default)
+  MapsFitOptions maps_fit;     // S103 E3: force the fitted shadow camera (offline only; the live drawer leaves it default)
   MapsFaults maps_faults;      // S103 E3: the maps' planted faults (rig only)
   std::function<void(MapsInput&)> maps_input_patch;   // S103 L9: the offline rig tells the plane inputs the record does not carry (a fixture, never a live path); applied after BuildMapsInput
   bool maps_input_repeatable = false;   // S103 E3: the offline rig only (FrontEnd::RenderToPixels draws a seed frame first: two Records per attach); the live drawer leaves it false
@@ -84,15 +84,15 @@ class FrameHooks {
   const FrameHooksOptions& options() const { return options_; }
   LiveMapsHook* maps() { return maps_.get(); }
   LiveParticles* particles() { return particles_.get(); }
+  // S111 TITLESMOKE: the particle drawer's frame stamp and texture lookup for `rec` (what AttachFrameHooks does for a 3D frame), for a FLAT frame whose particle groups the stream-free host draws
+  // between its 2D rows (LiveSceneDraw::DrawFlatParticles). The lookup keeps copies of the record's names, as AttachFrameHooks's. No-op when the particles hook is off.
+  void AttachParticles(const SceneTables& rec);
   // S103 SCS: turns the in-scene 2D hook on (the stream-free host only; the stream build never calls it: the stream draws these rows itself). Null = off.
   void SetScene2D(LiveScene2D::DrawFn draw) { scene2d_ = draw ? std::make_unique<LiveScene2D>(std::move(draw)) : nullptr; }
   bool Scene2DOn() const { return scene2d_ != nullptr; }
   ~FrameHooks();
   const MapsInput& input() const { return input_; }
   uint64_t frames() const { return frames_; }
-  // S103 NR (3): the maps' input hole (MapsInput::shadow_hole: a shadow map is expected, would be fitted and its key light is missing) for `rec`, WITHOUT attaching anything: the same
-  // BuildMapsInput (+ patch) AttachFrameHooks runs, into a scratch input. Warm asks it so a frame READY there is not refused by DrawLive for it. False when the maps hook is off. `why` = the key-light reason.
-  bool ShadowInputHole(const SceneTables& rec, std::string& why);
   // "[scene][hooks] order game, frames N; <maps census>; <particles census>" (counters only; strings built here).
   std::string CensusLine() const;
 
@@ -100,7 +100,6 @@ class FrameHooks {
   friend void AttachFrameHooks(SceneFrame&, const SceneTables&, FrameHooks&);
   FrameHooksOptions options_;
   MapsInput input_;
-  MapsInput scratch_;   // S103 NR: ShadowInputHole's
   std::unique_ptr<LiveMapsHook> maps_;
   std::unique_ptr<LiveParticles> particles_;
   std::unique_ptr<LiveScene2D> scene2d_;   // S103 SCS

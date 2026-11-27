@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "rows_stage_look.h"
+#include "see_through_order.h"   // S111 REKEYORDER2: kRankRekeyed (RunningPlaces keeps its places)
 
 namespace rdr_scene::draw_place {
 
@@ -48,11 +49,12 @@ inline bool Carry(const std::vector<StageLookRow>& rows, Frame& f, uint32_t fram
 }
 
 // The running place of the character rank (rank 1) in record order: a rank-1 item with a place keeps it, one without takes the last place seen before it (it stays right behind what preceded it,
-// as today), -1 before any. Other ranks: -1. `rank` and `place` are parallel (one per see-through item, record order).
+// as today), -1 before any. S111 REKEYORDER2: a re-keyed item (kRankRekeyed, always placed) keeps its place and feeds the run as before. Other ranks: -1. `rank` and `place` are parallel (one per
+// see-through item, record order).
 inline void RunningPlaces(const std::vector<int>& rank, std::vector<int32_t>& place) {
   int32_t run = -1;
   for (size_t i = 0; i < rank.size() && i < place.size(); ++i) {
-    if (rank[i] != 1) { place[i] = -1; continue; }
+    if (rank[i] != 1 && rank[i] != kRankRekeyed) { place[i] = -1; continue; }
     if (place[i] >= 0) run = place[i];
     place[i] = run;
   }
@@ -74,8 +76,9 @@ inline void StampItems(const std::vector<Place>& draw_places, size_t frame_objec
     const Place* p = fo < by_frame.size() ? &by_frame[fo] : nullptr;
     const bool late = items[i].late_body && p && p->body_place >= 0;   // S111 CATORDER: an opaque body mesh TakeLateBodies moved here: its body node's place, in the character rank
     items[i].place_block = p && (p->block || late);
-    ranks[i] = rank_of(items[i]);
     places[i] = late ? p->body_place : p ? p->place : -1;
+    items[i].place = places[i];   // S111 REKEYORDER2: the rank reads the place (SeeRank Rekeyed: a place in a list after the late nodes); the final place is written below
+    ranks[i] = rank_of(items[i]);
   }
   RunningPlaces(ranks, places);
   for (size_t i = 0; i < items.size(); ++i) items[i].place = places[i];

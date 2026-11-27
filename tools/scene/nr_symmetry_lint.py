@@ -24,13 +24,11 @@ def lint(arena: str, crowd: str, draw: str):
         bad.append("rf_crowd.cpp: LightHoles must be asked before the warm return")
     if re.search(r"if\s*\(\s*ctx\.warm\(\)\s*\|\|\s*pre\.misses", crowd):
         bad.append("rf_crowd.cpp: the old early return `ctx.warm() || pre.misses` is back")
-    # Warm and DrawLive: one terms function, and the shadow hole asked in Warm
+    # Warm and DrawLive: one terms function (S111 SHADOWKEY review: the shadow input hole is removed: the fitted shadow light needs no key light)
     w = draw[draw.find("void LiveSceneDraw::Warm"):draw.find("uint32_t LiveSceneDraw::BuildTerms")]
     d = draw[draw.find("bool LiveSceneDraw::DrawLive"):draw.find("bool LiveSceneDraw::DrawToPng")]
     if "BuildTerms(" not in w or "BuildTerms(" not in d:
         bad.append("live_scene_draw.cpp: Warm and DrawLive must both use BuildTerms")
-    if "ShadowInputHole" not in w:
-        bad.append("live_scene_draw.cpp: Warm must ask the shadow input hole (FrameHooks::ShadowInputHole)")
     if "TotalHoles" in w:
         bad.append("live_scene_draw.cpp: Warm has its own hole test again (use BuildTerms)")
     # S103 HN: a hole / shadow input the OFF build SKIPS must still be counted (class + first reason): NoteTerms takes the skipped terms, Warm and DrawLive hand them over

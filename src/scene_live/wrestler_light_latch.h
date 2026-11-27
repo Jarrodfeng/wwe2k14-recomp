@@ -35,22 +35,13 @@ inline bool EntryUsable(const rdr_scene::wlight::Entry& e, bool key_off_counts =
   std::memcpy(f, e.block, sizeof f);
   return rdr_scene::LightStateUsable(f, key_off_counts, key_off_by_direction);   // S103 CE: one shared predicate with the draw (light_install.h)
 }
-inline bool EntryKeyed(const rdr_scene::wlight::Entry& e) {
-  float f[rdr_scene::kLsLightFloats];
-  std::memcpy(f, e.block, sizeof f);
-  return rdr_scene::HasKey(f);
-}
 
 // S103 CE: bit 7's decision, pure (the unit calls it with planted rules): every occupied slot (`occupied` = the entries plus the unread / unresolved ones) has a USABLE entry (a key-off state counts, light_install.h
-// LightStateUsable) and at least one usable entry has a lit key direction (`keyed`: the shadow fit needs one). `key_off_counts` = false is the planted twin of the old rule; `count_key_off_as_keyed` the twin of the second.
-inline bool LatchStamps(const std::vector<rdr_scene::wlight::Entry>& ents, uint32_t occupied, bool synth_on = g_on, bool key_off_counts = true, bool count_key_off_as_keyed = false) {
-  uint32_t usable = 0, keyed = 0;
-  for (const rdr_scene::wlight::Entry& e : ents) {
-    const bool u = EntryUsable(e, key_off_counts);
-    usable += u ? 1u : 0u;
-    keyed += (u && (EntryKeyed(e) || count_key_off_as_keyed)) ? 1u : 0u;
-  }
-  return rdr_scene::live::caster_stamp::StampFromLatch(synth_on, occupied, usable, keyed);
+// LightStateUsable). `key_off_counts` = false is the planted twin of the old rule. (S111 SHADOWKEY review: no lit key is required: the fitted shadow light reads none, caster_stamp_flag.h StampFromLatch.)
+inline bool LatchStamps(const std::vector<rdr_scene::wlight::Entry>& ents, uint32_t occupied, bool synth_on = g_on, bool key_off_counts = true) {
+  uint32_t usable = 0;
+  for (const rdr_scene::wlight::Entry& e : ents) usable += EntryUsable(e, key_off_counts) ? 1u : 0u;
+  return rdr_scene::live::caster_stamp::StampFromLatch(synth_on, occupied, usable);
 }
 
 class Wl {
@@ -101,7 +92,7 @@ class Wl {
       else ents.push_back(e);
     }
     // S103 L1C review B1 / F2 / F3: bit 7 (caster_entries) is stamped HERE, at the latch (the record's stamp snapshot is taken at the end of the latch, before any Emit), for THIS latch's hook: every occupied character
-    // slot read and resolved, every one of them has a USABLE entry (EntryUsable), and there is at least one. The key light of the caster maps is this block's dir 4. Held by --wwe2k14_rdr_scene_hold=7 (Capture) or =4 (g_on off).
+    // slot read and resolved, every one of them has a USABLE entry (EntryUsable), and there is at least one (no key light is needed: S111 SHADOWKEY). Held by --wwe2k14_rdr_scene_hold=7 (Capture) or =4 (g_on off).
     // NOT covered (unchecked gap, F3): casters that are not character slots (props, chairs, the referee if he is no slot) cast shadows the game may draw; their light is not read here.
     const uint32_t occupied = uint32_t(ents.size()) + uint32_t(unreadable + unresolved);
     const bool stamp = scene_frame::CurrentMode() != scene_frame::Mode::Off && unreadable == 0 && unresolved == 0 && LatchStamps(ents, occupied);

@@ -92,4 +92,5 @@ inline const bool g_states_registered = AddHostStateSource(&LookupState, &ReadSt
 
 }  // namespace wwe2k14::finisher_pick
 
+// ORIGINAL-IN: OnPair
 REX_HOOK_RAW(sub_825FDE00) { wwe2k14::finisher_pick::OnPair(ctx, base); }

@@ -72,7 +72,7 @@ def main():
         return 2
     plants = [] if a.no_plants else [int(x) for x in a.plants.split(',') if x]
     jobs = [(0, '')] + [(k, '_p%d' % k) for k in plants]
-    with _admit.hold('cc.game_src', 4, timeout_s=300) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: builds with the game's flags (4 = the want and the fall-open value)
+    with _admit.hold('cc.game_src', 4) as nj, ThreadPoolExecutor(max_workers=nj) as ex:   # CQW: builds with the game's flags (4 = the want and the fall-open value)
         built = list(ex.map(lambda j: (j, *build(*j)), jobs))
     for (j, exe, p) in built:
         if p.returncode:

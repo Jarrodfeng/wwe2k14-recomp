@@ -40,6 +40,7 @@
 #include "host_rig_2d.h"
 #include "host_rig_real.h"   // S103 PN4: the REAL picture resolver + movie planes over forged guest memory
 #include "resolver_unit.h"   // S103 PN4F: the resolver's lifecycle twins (--mode resolver)
+#include "host_rig_flatseq.h"   // S111 FLATSEQ: --mode flatseq (a flat frame's particle groups through SceneHost::DrawRows)
 #include "../../src/renderer/overlay.h"   // S103 GT: rdr::g_gpu_stamps / g_gpu_pass_stamps
 #include "../../src/renderer/group_stamps.h"   // S103 GSTP: rdr::g_gpu_group_stamps / g_gpu_group_plant
 #include "../../src/renderer/renderer.h"
@@ -356,6 +357,7 @@ int main(int argc, char** argv) {
   }
   if (mode == "sizes") return SizesMode(capture);
 
+  if (mode == "flatseq") return host_rig_flatseq::Run(plant);   // S111 FLATSEQ: no capture, no game files (tools\scene\flatseq_check.py)
   if (mode == "overlay") {   // S103 AIM: the ImGui overlay path of the stream-free host (no capture, no game files)
     uint32_t ow = 640, oh = 360;
     if (!size_arg.empty()) std::sscanf(size_arg.c_str(), "%ux%u", &ow, &oh);

@@ -137,6 +137,9 @@ REXCVAR_DEFINE_DOUBLE(wwe2k14_entrance_music_volume, 1.0, "wwe2k14",
                       "Session 33: the volume of custom entrance music, 0..1, times the game's own EntranceMusicVolume "
                       "option when --wwe2k14_music_game_volume_addr is set (lane 283; unset = 1)");
 
+//@ src/equiv/equiv_host.h | - | -
+REXCVAR_DEFINE_INT32(wwe2k14_equiv_cases, 256, "wwe2k14", "S111 EQUIV: the number of cases the test DLL runs");
+
 //@ src/file_trace.h | - | -
 REXCVAR_DEFINE_STRING(wwe2k14_file_trace_scan, "", "wwe2k14",
                       "Path substring: on the first game read of a matching traced file, scan guest memory "
@@ -493,12 +496,6 @@ REXCVAR_DEFINE_INT32(wwe2k14_rdr_record_skip, 0, "wwe2k14",
                      "Needs --wwe2k14_rdr_card_cut doing its work (inert otherwise, counted as declined). Not for a determinism run. Claim: 0.4-0.55 ms of the update thread in Bryan's entrance (R22 profile share). "
                      "Bits 2 (stands members) and 4 (floor members) = the same for the stands / floor members whose op-15 the MEMBER CUT drops (member_thin_hook.h; need --wwe2k14_rdr_member_cut, inert otherwise). Bit 256 (0x100) = TEST ONLY, THE PICTURE IS WRONG (our renderer draws no crowd): our own observers on the update thread (crowd_live::OnOp21, OnPalettes) return at once and the game still records everything; one Surface flip measures what the observers cost. Bit 128 (0x80) = TEST ONLY, THE PICTURE IS WRONG: no crowd card, stands member or floor member record (op 21 + op 15 at 0x825130AC/C4, 0x82518554/74, 0x8276ED38/60) is made, whatever our renderer needs; it exists so one Surface flip measures the ceiling of removing all crowd recording from the update thread. "
                      "Docs: docs/renderer/RECORD_SKIP.md");
-
-//@ src/scene_live/wrestler_hook.h | wwe2k14::wrestlers | -
-namespace wwe2k14::wrestlers {
-REXCVAR_DEFINE_BOOL(wwe2k14_rdr_slot_key_desc, true, "wwe2k14",
-                    "Stream-free wrestlers: the slot model key comes from the character's own model descriptor [[0x837635A4]+8]+192*[char+3760], +92 (S110 DESCKEY; right in a Royal Rumble, after a slot swap and across a scene build); false = the participant-row guess (slot < 6, rows 6..39 empty)");
-}  // namespace
 
 //@ src/scene_swap.h | - | -
 REXCVAR_DEFINE_BOOL(gpu_native_wrestler_pow, false, "GPU/Native",

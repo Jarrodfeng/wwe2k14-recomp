@@ -6,7 +6,9 @@ import re
 import sys
 from pathlib import Path
 
-text = (Path(__file__).resolve().parents[2] / "src" / "renderer_adapter" / "binder.h").read_text(encoding="utf-8", errors="replace")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "split"))
+from read_unit import read_path  # binder.h is split: read it with its parts expanded (tools/split/read_unit.py)
+text = read_path(Path(__file__).resolve().parents[2] / "src" / "renderer_adapter" / "binder.h")
 bad = []
 calls = [l.split("//")[0] for l in text.splitlines() if "NoteRemnantOnce(" in l]   # code part only: the comment may name after_post_
 if len(calls) != 1:

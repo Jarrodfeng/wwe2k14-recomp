@@ -146,6 +146,7 @@ inline void OnPresent(PPCContext& ctx, uint8_t* base) {
 
 }  // namespace wwe2k14::title_thumb
 
+// SKIP-ORIGINAL: OnJobEnter defers the title thumbnail callback until its picture is here (the present runs it later); every other call runs the original
 REX_HOOK_RAW(sub_833438B0) {
   if (wwe2k14::title_thumb::OnJobEnter(ctx, base)) return;
   __imp__sub_833438B0(ctx, base);

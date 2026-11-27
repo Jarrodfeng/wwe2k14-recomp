@@ -1,0 +1,78 @@
+# harness: flags --wwe2k14_fixed_seed=1 --vulkan_stored_pipelines_at_boot=false --wwe2k14_events=true --wwe2k14_rdr_owner=true --audio_mute=true --wwe2k14_launch=lesnar_bryan --wwe2k14_launch_participants=161,139 --wwe2k14_launch_arena=5
+# intent: owner on
+# S111 lane CHECK111, check 6: RAMP CAMERA from the in-match pause menu (docs\research\s111\RAMPMENU.md "The check run to ask for").
+# Needs --wwe2k14_settings_file=<a test file under out\> (the row writes the key ramp_camera there). No --wwe2k14_ramp_camera on the
+# command line: the switch starts OFF (the test file holds no key), so the box must open on OFF.
+# The in-match pause menu is NOT a shared-input-mixin menu: menu_ready stays 0 there (CHECK111 run 001, line 22), so menu_page / menu_row
+# are unreadable. Each page change is synced on the next screen's own text instead (screen_text: the pause pages fetch their labels when
+# they open): RETURN TO GAME = the pause list (run 008's screen text, a +dev run without photo mode: RETURN TO GAME, RESTART MATCH, REPLAY,
+# VISUAL PRESENTATION, CONTROLS, MATCH INFORMATION, QUIT MATCH: VISUAL PRESENTATION is row 3), CAMERA CUTS = VISUAL PRESENTATION, OFF = the ON / OFF box. Cursor moves are counted presses
+# from each page's opening row (the list and page 3 open on row 0; the box on OFF, row 1) after a settle that is a state sync
+# (`wait_state match_clock >0 ... 20`: the clock stays above 0 while paused, the 20-frame hold is the settle). The A presses that open a
+# page are single tries (TRIES 1) so a press never lands twice. The shots show where the cursor is; the ramp lines in the log show which row
+# A picked (`RAMP CAMERA picked`, `answer N`, `saved to`).
+# Path: Orton vs Cena (CPU), bell + 120 f, START until RETURN TO GAME, DOWN x3 (VISUAL PRESENTATION), A until CAMERA CUTS, DOWN x7 (RAMP
+# CAMERA), A until OFF (the box), UP (ON), A until CAMERA CUTS (page 3 back), B until RETURN TO GAME, START (resume), shots of the match.
+# Shots: rm_match_before, rm_pause_list, rm_pause_on_vp, rm_vp_page, rm_vp_on_ramp, rm_box, rm_box_on, rm_vp_after, rm_pause_back,
+# rm_match_ramp1 / 2 / 3.
+on_fail quit
+log bench: start scene s111_ramp_menu
+include boot_to_menu
+wait_file INGAMELUA.PAC 1800
+log bench: match launched
+wait_state match_clock >0 30000
+wait_frames 120
+screenshot rm_match_before
+log rampmenu: pause
+press_until_text START 4 60 4 RETURN TO GAME
+log_text 12
+wait_state match_clock >0 600 20
+screenshot rm_pause_list
+log rampmenu: DOWN x3 to VISUAL PRESENTATION
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+screenshot rm_pause_on_vp
+log rampmenu: A on VISUAL PRESENTATION
+press_until_text A 1 120 5 CAMERA CUTS
+log_text 12
+wait_state match_clock >0 600 20
+screenshot rm_vp_page
+log rampmenu: DOWN x7 to RAMP CAMERA
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+press DOWN 6 20
+screenshot rm_vp_on_ramp
+log rampmenu: A on RAMP CAMERA
+press_until_text A 1 120 5 OFF
+log_text 8
+wait_state match_clock >0 600 20
+screenshot rm_box
+log rampmenu: UP to ON
+press UP 6 20
+screenshot rm_box_on
+log rampmenu: A on ON
+press_until_text A 1 120 5 CAMERA CUTS
+log_text 12
+wait_state match_clock >0 600 20
+screenshot rm_vp_after
+log rampmenu: B back to the pause list
+press_until_text B 1 120 5 RETURN TO GAME
+wait_state match_clock >0 600 20
+screenshot rm_pause_back
+log rampmenu: START to resume
+press START 6 20
+log rampmenu: resumed?
+wait_state match_clock >0 600 120
+screenshot rm_match_ramp1
+wait_frames 300
+screenshot rm_match_ramp2
+wait_frames 600
+screenshot rm_match_ramp3
+log bench: done
+wait_frames 60
+quit

@@ -167,6 +167,12 @@ try {
             if (-not $DryRun) { $null = New-Item -ItemType Directory -Force -Path "$Worktree\thirdparty\rexglue-sdk-src\thirdparty" }
             New-Junction "$Worktree\thirdparty\rexglue-sdk-src\thirdparty\stb" "$SdkSrc\thirdparty\stb"
         }
+        # V033EXE (S111): the SDK's xxHash too (src\renderer_adapter\capture.cpp and src\case\case_writer.cpp include it
+        # from the SDK source tree; CMakeLists WWE2K14_SDK_THIRDPARTY); read-only junction, removed in the finally block.
+        if (Test-Path -LiteralPath "$SdkSrc\thirdparty\xxHash") {
+            if (-not $DryRun) { $null = New-Item -ItemType Directory -Force -Path "$Worktree\thirdparty\rexglue-sdk-src\thirdparty" }
+            New-Junction "$Worktree\thirdparty\rexglue-sdk-src\thirdparty\xxHash" "$SdkSrc\thirdparty\xxHash"
+        }
         if ($DryRun) { $exeLine = "BISECT_EXE (dry run) $Worktree\out\build\win-amd64-release\wwe2k14.exe" }
         else {
             . "$R\tools\env.ps1" *> $null

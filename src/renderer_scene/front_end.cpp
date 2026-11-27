@@ -6,6 +6,7 @@
 #include "card_gain.h"  // S103 B3c
 #include "liquid_join.h"   // S103 SWF
 #include "liquid_switch.h"   // S103 SWF: Plants (the rig's dev plants)
+#include "liquid_gate.h"     // S111 GEARLIQUID: which character draws take the body's liquid map at slot 14
 #include "props_map_switch.h"   // S103 PMS: the props map switch
 #include "live_particles.h"   // S103 PRT: HasSoft
 #include "model_group.h"  // S103 GSTP: GroupOfLabel (the fallback group of a model nobody named)
@@ -43,9 +44,13 @@
 #include "piece_draw_rule.h"  // S108 HAIR: a wrestler piece's translucent mesh = GEQUAL 128 + depth write (sub_8259E488)
 #include "shader_reload.h"  // S101 lane24
 #include "upload_check.h"   // S108 AL1: the pure upload refusals + their draw_shortfall report
+#include "game_levels.h"   // S111 MIPLEVELS: the game's level count of a file texture (Relevel)
 #include "change_colour_draw.h"   // S108 THR2: the Threads editor's live colours (the bind's masks, ChangeColor)
 #include "muscle_map.h"   // S111 MUSCLEMAP: slot 2 of an FX_MUSCLE fragment = the material's muscle map
 #include "env_cube.h"   // S111 ENVCUBE: slot 10 of a character draw = the material's g_mEnvLPrm cube
+#include "body_order.h"   // S111 FADEORDER: the opaque list's turns around the wrestler bodies (OrderOpaque)
+#include "piece_owner.h"   // S111 FADEORDER review: OwnerBodySlot / kObjPieceLinkFlags (a wrestler object's character slot: the Body turn's order)
+#include "char_alpha.h"   // S111 CHALPHA: a wrestler colour draw is tested + blended only where its alpha can fall below 1
 #include "../renderer/shaders/spv/rdr_flash_vert.h"   // S110 CUTGREY (front_end_flashes.h)
 #include "../renderer/shaders/spv/rdr_flash_frag.h"
 #include "../scene_live/prop_colour.h"   // S108 THB: the entrance props' colours (ChangeColor of a prop draw, the census)
@@ -55,7 +60,7 @@ namespace {
 
 using rdr::fx::kVariants;
 
-// S103 B2: the dynamic state of an alpha-tested draw of pass class `c` (pass_state.h). `plant_old` = the planted twin of the old behaviour: one 0.5 reference for every class (the rig sets it, B2's gate).
+// S103 B2: the dynamic state of an alpha-tested draw of pass class `c` (pass_state.h). `plant_old` = the planted twin of the old behaviour: one 0.5 reference for every class (the rig sets it).
 rdr::DynamicState AlphaDynamic(const rdr::DynamicState& base, pass_state::PassClass c, bool plant_old) {
   rdr::DynamicState d = base;
   d.system[8] = plant_old ? 0.5f : pass_state::Of(c).alpha_ref;
@@ -67,7 +72,7 @@ rdr::DynamicState AlphaDynamic(const rdr::DynamicState& base, pass_state::PassCl
 // cut-out, even when the loader's alpha_test rule (jboy.h AlphaCutsOut: >= 8 % of texels <= 32) did not mark it. An alpha-free texture, or a variant whose output alpha is not the texture's
 // (FX_ALPHA_SPEC / FX_ALPHA_GLOSS: out_alpha 0), is a no-op in the game and stays untested here (a 360 habit, CLAUDE.md rule 6). `plant` = the planted twin of the old rule.
 bool YbgTestsAlpha(const assets::Material& mat, const rdr::fx::Variant& ps, bool plant) {
-  if (plant || !ps.spirv_alpha || ps.out_alpha != 2 || !(mat.diffuse_alpha_clear > 0.f)) return false;
+  if (plant || !ps.bytes_alpha || ps.out_alpha != 2 || !(mat.diffuse_alpha_clear > 0.f)) return false;
   return mat.shader.rfind("yBG_", 0) == 0 || mat.shader.rfind("yProp_", 0) == 0;
 }
 constexpr int kVariantCount = int(sizeof(rdr::fx::kVariants) / sizeof(rdr::fx::kVariants[0]));
@@ -96,19 +101,19 @@ const Tables& T() {
 
 // S103 TQF (supersedes the loader's texel rule for the yProp_BumpMap / Default / Reflect class: jboy.h TqfClass): the game tests (GEQUAL 1/255) + blends EVERY yProp model draw (PAS [C stream]); whether that SHOWS depends on the
 // variant's output alpha. So a part is tested + blended exactly where its table-picked variant outputs the diffuse alpha (not a gloss technique) and the diffuse texture has alpha, or where its vertex colour alpha is < 255
-// (Material::vertex_alpha_lt255: the game blends at vertex alpha x MatAmbCol.w x MatDifCol.w x MdlAlpha, fx_prop.glsl:363) [L for the vertex term: our port of the game's vertex constants]. Any other class: the B2 rule above.
+// (Material::vertex_alpha_lt255: the game blends at vertex alpha x MatAmbCol.w x MatDifCol.w x MdlAlpha, fx_prop.glsl) [L for the vertex term: our port of the game's vertex constants]. Any other class: the B2 rule above.
 bool GameTestsAlpha(const assets::Material& mat, int ps_index, int tech_ps, bool plant) {   // tech_ps: the table's variant (FxChoice::tech_ps; = ps_index on the read-rule route), -1 = no effect table: the kept texel verdict decides
   const rdr::fx::Variant& ps = kVariants[size_t(ps_index)];
   if (technique_pick::AppliesTo(read_rule::Lower(mat.shader)) && !technique_pick::PlantOld()) {
-    if (plant || !ps.spirv_alpha) return false;
+    if (plant || !ps.bytes_alpha) return false;
     const fxt::VariantTable* ft = tech_ps >= 0 ? T().by_index[size_t(tech_ps)] : nullptr;
-    // the game's colour alpha is the vertex alpha x MatAmbCol.w x MatDifCol.w x MdlAlpha (fx_prop.glsl:363): any of them < 1 shows in every variant
+    // the game's colour alpha is the vertex alpha x MatAmbCol.w x MatDifCol.w x MdlAlpha (fx_prop.glsl): any of them < 1 shows in every variant
     const bool colour_alpha = mat.vertex_alpha_lt255 || mat.ambient[3] * mat.diffuse_color[3] < 1.f;
     if (!ft) return (mat.texel_cutout & 1) != 0 || colour_alpha;   // no effect table (a tool without live_assets, a parse failure): the old texel verdict, kept by the loader
     return (technique_pick::ShowsDiffuseAlpha(ft->defines) && mat.diffuse_alpha_clear > 0.f) || colour_alpha;
   }
   if (g_table_pick_all.load(std::memory_order_relaxed) && !technique_pick::PlantOld() && tech_ps >= 0 && technique_pick::IsYDefault(read_rule::Lower(mat.shader))) {   // S103 TQ2: yDefault, the table's variant decides (its defines; the registry's out_alpha is not computed for this effect)
-    if (plant || !ps.spirv_alpha || !(mat.diffuse_alpha_clear > 0.f)) return false;
+    if (plant || !ps.bytes_alpha || !(mat.diffuse_alpha_clear > 0.f)) return false;
     const fxt::VariantTable* ft = T().by_index[size_t(tech_ps)];
     return ft && technique_pick::YDefaultShowsAlpha(ft->defines);
   }
@@ -364,7 +369,7 @@ FxChoice ChooseEffect(const std::string& effect, const MaterialWants& w) {
         if (fv.samplers[s].kind != 0 && !(slot == 8 && allow_reflect && fv.samplers[s].kind == 1)) slots_ok = false;
       }
       if (!slots_ok) continue;
-      if (w.alpha_test && !fv.spirv_alpha) continue;
+      if (w.alpha_test && !fv.bytes_alpha) continue;
       for (int v : vertex) {
         const fxt::VariantTable& vt = *T().by_index[size_t(v)];
         // S103 L10: an arena LM mesh the game draws with the vertex-LM program (Material::vertex_lm, record word +0x90 bit 0) takes the `*_vertex_lm_vertex` variant (the page at vertex slot 16);
@@ -1078,7 +1083,8 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
       }
     }
     if (id == rdr::kNoImage) {
-      id = MakeTexture(t, w);
+      assets::Texture leveled;   // S111 MIPLEVELS: the levels the game's loader gives this texture (game_levels.h Relevel: cut to its count, or the missing ones box-filtered); `t` stays the file's
+      id = MakeTexture(game_levels::Relevel(t, leveled) ? leveled : t, w);
       if (shared && id != rdr::kNoImage) (*shared)[skey] = id;
     }
     if (id == rdr::kNoImage && !w.empty()) warnings.push_back("texture '" + t.name + "': " + w), upload::ReportUploadRefusal("texture_upload", model.label, "texture '" + t.name + "'", w);   // (S103 RFL: a cube skipped with the switch off says nothing); S108 AL1: the shared draw_shortfall
@@ -1217,7 +1223,7 @@ int FrontEnd::AddModelImpl(const assets::Model& model, std::vector<std::string>&
 
 // S105 SZW: does the pixel variant have an alpha twin that ProgramFor would use (the same test as its `twin`)? The discard of the game's stage alpha test needs one.
 static bool VariantHasTwin(int ps) {
-  if (ps < 0 || !kVariants[ps].spirv_alpha) return false;
+  if (ps < 0 || !kVariants[ps].bytes_alpha) return false;
   const ShaderReload* reload = ShaderReload::Get();
   return !(reload && reload->DropsTwin(ps));
 }
@@ -1230,12 +1236,12 @@ uint16_t FrontEnd::ProgramFor(int vs, int ps, bool alpha) {
   rdr::ProgramDesc desc;
   names_.push_back(std::string(vertex.name) + " + " + kVariants[ps].name);
   desc.name = names_.back().c_str();
-  desc.vertex_spirv = vertex.spirv;
+  desc.vertex_spirv = rdr::fx::Words(size_t(vs), false);
   desc.vertex_bytes = vertex.bytes;
   const rdr::fx::Variant& fragment = kVariants[ps];
   const ShaderReload* reload = ShaderReload::Get();  // S101 lane24
-  const bool twin = alpha && fragment.spirv_alpha && !(reload && reload->DropsTwin(ps));  // (a reload that dropped the twin: "alpha_test": false)
-  desc.fragment_spirv = twin ? fragment.spirv_alpha : fragment.spirv;
+  const bool twin = alpha && fragment.bytes_alpha != 0 && !(reload && reload->DropsTwin(ps));  // (a reload that dropped the twin: "alpha_test": false)
+  desc.fragment_spirv = rdr::fx::Words(size_t(ps), twin);
   desc.fragment_bytes = twin ? fragment.bytes_alpha : fragment.bytes;
   uint16_t id = 0;
   bool overridden = false;
@@ -1246,8 +1252,8 @@ uint16_t FrontEnd::ProgramFor(int vs, int ps, bool alpha) {
   // A reloaded module is checked (the driver may refuse it; the id table is 16 bit and never shrinks): the compiled program stands in, said once per program.
   if (!overridden || !renderer_.AddProgramChecked(desc, id)) {
     if (overridden) std::fprintf(stderr, "[reload] %s: the reloaded shader was refused (driver or program table): the compiled one is used\n", desc.name);
-    desc.vertex_spirv = vertex.spirv, desc.vertex_bytes = vertex.bytes;
-    desc.fragment_spirv = twin ? fragment.spirv_alpha : fragment.spirv, desc.fragment_bytes = twin ? fragment.bytes_alpha : fragment.bytes;
+    desc.vertex_spirv = rdr::fx::Words(size_t(vs), false), desc.vertex_bytes = vertex.bytes;
+    desc.fragment_spirv = rdr::fx::Words(size_t(ps), twin), desc.fragment_bytes = twin ? fragment.bytes_alpha : fragment.bytes;
     id = renderer_.AddProgram(desc);
   }
   programs_.emplace(key, id);
@@ -1367,7 +1373,6 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
     b->chr = true;
     b->hair = IsHairEffect(mat.shader);
     const auto cube_of = [&](int i) { return env_cube::CubeAt(m.images, m.img_info, i, rdr::kNoImage); };   // S111 ENVCUBE: a six-face image of the model (slot 10's cube), else none
-    b->alpha_test = mat.alpha_test;
     // S103 YCB (YCH.md) / S111 OLDCHAIN: the pair is the game's table row for (technique, pass) (ChooseCharEffectTable), the ONLY pick of a wrestler material; shadow / wet are read from the picked pair.
     // A row that cannot be bound as is (no effect table, no row, a blocked row) is a HOLE: no pair (the unbound branch below: debug, Record draws nothing), counted here per distinct bind by its reason
     // (CharHoleOf: the census line's char_hole_no_table / char_hole_no_row / char_wrinkle_blocked) and per draw by Record (char_hole_draws); each one a bug lane. A wrestler material bound without a pass gets no pair either.
@@ -1404,7 +1409,15 @@ const FrontEnd::Bound& FrontEnd::BindMaterial(ModelData& m, int material, bool s
     if (cc.Ok()) {
       const std::string pair = std::string(kVariants[cc.vs].name) + " + " + kVariants[cc.ps].name;
       if (cov.bound_to.empty() || (shadow && cov.bound_to.find("_shadow") == std::string::npos)) cov.bound_to = pair;   // S103 L6: the shadow pair is reported once any frame binds it
-      b->program = ProgramFor(cc.vs, cc.ps, mat.alpha_test);
+      // ALPHA-SOURCE (S111 ALPHAWREST): the game alpha-tests every COLOUR-pass draw of a character node, never by a material flag (its shadow-map / rim passes, model slots 47 sub_82C01FE0 / 49 sub_82BF9878
+      // through sub_82C13C88, turn the test and the blend off; this bind serves the colour pass only). The opaque node sub_825A3908 and the model draw sub_82C04DF0 set no alpha test, so the
+      // body draws with the category reset's (sub_82C22E88: test on, GEQUAL, ref 1, blend on); the translucent node sub_8259FAE8 turns it on at GEQUAL ref 1.
+      // S111 CHALPHA (char_alpha.h; 360_HABITS.md row 32: a HABIT where the alpha is exactly 1): the test + blend are kept only where the pixel's alpha can fall below 1, by the bound pixel variant's
+      // registry class (Variant::out_alpha: compile_shaders.py CH_TINT_ALPHA, from the game's microcode). A pair whose alpha may carry a texture (yCh_trans / TransTiling / cloth_trans / Aniso_trans / Ls)
+      // is tested here on every draw; a tint-only pair (alpha = MdlAlpha x MatAmbCol.w x MatDifCol.w, out_alpha 1) is tested by Record on a draw whose constants are not all 1 (tint_discard).
+      // The reference is the pass class's (pass_state.h kTable; a piece cut's 128 through Record); a tested opaque draw blends (tested_blends).
+      b->alpha_test = char_alpha::BindTests(kVariants[cc.ps].out_alpha, VariantHasTwin(cc.ps));
+      b->program = ProgramFor(cc.vs, cc.ps, b->alpha_test);
       b->layout = LayoutFor(cc.vs);
       if (const fxt::VariantTable* vt = T().by_index[size_t(cc.vs)])   // S103 WRK (review F4): the vertex variant declares the level fields (WklLvLst / IdMapLvLst): only then are levels joined and folded into the stamp
         for (uint32_t k = 0; k < vt->field_count; ++k) {
@@ -1609,6 +1622,7 @@ struct Ctx {
   float mirror = 1.f;                 // S103 RFL: -1 when the draw's space is the viewer's (y negated), else 1
   const float* change_color = nullptr;   // S108 THB: an entrance prop's recoloured draw: ChangeColor (PS c16..c19) = these 4 vec4s ((R, G, B, 1) / 255, prop_colour.h ToConstants); null = zero (every other draw)
   bool dif_one = false;                  // S108 THB: the Threads editor's draw callback feeds MatDifCol (1, 1, 1, 1) over the file's own (sub_8338EC00: PS c190)
+  const float* amb_rgb = nullptr;        // S111 CAARING: the object's own ambient colour (kObjAmbientColour: a created arena's rope, car_rope_colours.h): replaces the rgb of MatAmbCol; null = the material's
   float reflect_alpha = 0.f;          // S103 RFL: PS c208.x = the material's g_fReflectAlpha, set only for a draw whose slot 8 holds the model's own file cube (Bound::cube_real); 0 = the black stand-in's do-nothing value
 };
 
@@ -1676,7 +1690,11 @@ bool Resolve(const std::string& name, uint32_t vec4s, const Ctx& c, float* out, 
     for (uint32_t m = 1; m * 3 + 2 < vec4s; ++m) std::memcpy(out + 12 * m, out, 12 * sizeof(float));  // a bone palette of a rigid draw: every slot the world
     return true;
   }
-  if (name == "MatAmbCol") { std::memcpy(out, mt.ambient, 16); return true; }
+  if (name == "MatAmbCol") {
+    std::memcpy(out, mt.ambient, 16);
+    if (c.amb_rgb) for (int i = 0; i < 3; ++i) out[i] = c.amb_rgb[i];   // S111 CAARING: the game's sub_822A7F48 writes the rgb only (w stays the file's)
+    return true;
+  }
   if (name == "MatDifCol") {
     if (c.dif_one) { for (int i = 0; i < 4; ++i) out[i] = 1.f; }   // S108 THB: the editor's callback forces (1, 1, 1, 1)
     else std::memcpy(out, mt.diffuse_color, 16);
@@ -1824,7 +1842,7 @@ const FrontEnd::Bound* FrontEnd::BindRule(ModelData& m, int material, bool skinn
   if (!ok || (reads_shadow && !shadow)) { m.rule_bound.emplace(key, nullptr); return nullptr; }
   auto b = std::make_unique<Bound>();
   b->choice.vs = vs, b->choice.ps = ps, b->choice.effect = mat.shader;
-  b->alpha_test = (mat.alpha_test || GameTestsAlpha(mat, ps, ps, options_.plant_untested_alpha)) && fv.spirv_alpha;   // S103 B2 (TQF: by the variant index)
+  b->alpha_test = (mat.alpha_test || GameTestsAlpha(mat, ps, ps, options_.plant_untested_alpha)) && fv.bytes_alpha != 0;   // S103 B2 (TQF: by the variant index)
   b->shadow = reads_shadow;
   b->plane = reads_plane;
   b->program = ProgramFor(vs, ps, b->alpha_test);
@@ -1888,7 +1906,9 @@ std::string FrontEnd::ReflectLine() const {
 std::string FrontEnd::FlashLine() const {   // S110 RDRPREP F3
   char near_txt[96];   // S110 FLASHOCC: near = a centre nearer than any crowd flash seen from inside the ring (kFlashNearViewZ); nearest = the smallest centre view z drawn
   std::snprintf(near_txt, sizeof near_txt, " near(view z < %.0f) %llu nearest %.0f", double(kFlashNearViewZ), (unsigned long long)flash_near_, double(flash_nearest_));
-  return "flashes (S110): given " + std::to_string((unsigned long long)flash_given_) + " drawn " + std::to_string((unsigned long long)flash_drawn_) + " nodepth " + std::to_string((unsigned long long)flash_nodepth_) + near_txt;
+  const auto n = [](uint64_t v) { return std::to_string((unsigned long long)v); };
+  return "flashes (S110): given " + n(flash_given_) + " drawn " + n(flash_drawn_) + " nodepth " + n(flash_nodepth_) + near_txt + " keep (S111 FLASHCAM): frames " + n(fc_frames_) + " sprites " + n(fc_sprites_) +
+         " off_picture " + n(fc_off_picture_) + " game_kept " + n(fc_game_kept_) + " game_refused " + n(fc_game_refused_) + " game_unknown " + n(fc_game_unknown_) + " kept_off_picture " + n(fc_kept_off_);
 }
 
 // S101 lane 257 (dev diagnostics, off unless the variable is set): WWE_RDR_SKIP_EFFECT=a,b leaves those effect classes out of the frame; WWE_RDR_ONLY_EFFECT=a,b draws only them.
@@ -2182,7 +2202,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     explicit ListsFrame(DrawLists* x) : l(x) { if (l) l->BeginFrame(); }
     ~ListsFrame() { if (l) l->EndFrame(); }
   } lists_frame(draw_lists_);
-  const uint64_t cam_stamp = HashBytes(eye, sizeof(float) * 3, HashBytes(vp, sizeof vp, frame.viewer_space ? 1u : 2u));
+  const uint64_t cam_stamp = HashBytes(frame.camera.view.m, sizeof frame.camera.view.m, HashBytes(eye, sizeof(float) * 3, HashBytes(vp, sizeof vp, frame.viewer_space ? 1u : 2u)));   // S111 VIEWROWS review: View reads the view itself (CharCtx::view)
   const uint64_t time_stamp = HashBytes(&frame.time_s, sizeof(double));
   std::unordered_map<const assets::LightSet*, uint64_t> light_stamps;  // hashed once per set per frame
   static_assert(sizeof(assets::LightSet) == 244, "assets::LightSet changed: add the new field to light_stamp below before updating this size");   // S103 RL F4
@@ -2223,6 +2243,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     bool place_block = false;      // S111 PROPORDER: the object is an entrance prop pass a CWeapon category-33 node draws (its draws, alpha or additive, take the character rank)
     bool late_body = false;        // S111 CATORDER (draw_place_rows.h TakeLateBodies): an opaque mesh of a body the game draws after see-through categories (42), moved into the blended list at its body place
     bool late_node = false;        // S111 PODGLASS review (splat_state.h LateNodeOf): the object's node is of a category after 33 (the chamber's 35 / 36): its alpha draws come after the character rank
+    int32_t char_slot = -1;        // S111 SEECHAR (piece_owner.h CharSlotOf): the character slot the item's object holds (a body "actor:slot:N", a piece linked to it); -1 = none. The opaque Body turn and the see-through character rank read it
   };
   struct ObjInfo {                 // per drawn object: its palette (skeleton node -> viewer-space matrix, world included) and light set
     assets::Matrix world;
@@ -2232,6 +2253,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     uint32_t id = 0, asset = 0;    // S103 G: the record's object id and the model (the kept draw lists' key)
     uint32_t frame_object = 0;     // S103 SWF: the index in frame.objects (NOT in objs: invisible objects are skipped) that SceneFrame::object_engine / piece_alphas name
     uint64_t name_hash = 0;        // S103 P7 (review F1): hash of the object id TEXT (SceneTables::Str), only when the own blend tags are on; Object::id is a blob offset and is never a blend key
+    const float* amb_rgb = nullptr;   // S111 CAARING: Object::tint of a kObjAmbientColour object (its rgb replaces MatAmbCol's), else null
   };
   std::vector<ObjInfo> objs;
   const SceneTables* const blend_names = fb.BlendTagsOn() ? frame.names : nullptr;   // S103 P7 (review F1): the own blend key hashes an object's name text; no record tables = no own tags
@@ -2283,8 +2305,10 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     if ((obj.flags & kObjSkinned) && obj.bones_first + size_t(obj.bones_count) <= frame.bones.size() && obj.bones_count)
       oi.skin = &frame.bones[obj.bones_first], oi.skin_count = obj.bones_count;
     if (obj.light_set < frame.light_sets.size()) oi.light = &frame.light_sets[obj.light_set];
+    if (obj.flags & kObjAmbientColour) oi.amb_rgb = obj.tint;   // S111 CAARING
     objs.push_back(oi);
     const uint32_t object_index = uint32_t(objs.size() - 1);
+    const int obj_char_slot = CharSlotOf(frame.names ? frame.names->Str(obj.id) : std::string_view(), obj.flags, obj.layer);   // S111 FADECAW review / SEECHAR (piece_owner.h): once per object, read by both orders below
     for (const ModelData::Mesh& me : m.meshes) {
       // S101 lane 13: which of the model's first 64 meshes are shown (attire pieces, the eyelid layer)
       if (me.src < 32 ? !((obj.mesh_mask_lo >> me.src) & 1u) : (me.src < 64 && !((obj.mesh_mask_hi >> (me.src - 32)) & 1u))) continue;
@@ -2293,11 +2317,11 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       // A lid-layer mesh with no row (its piece has no object of its own: a palette borrowed from the body) is not drawn: the viewer's rule (view\renderer.cpp lid_layer), a stand-in [L].
       float piece_alpha = 1.f;
       if (me.answers_piece_row) {   // S105 A5b (MeshAnswersPieceRow, decided at AddModelImpl); S111 GUESTKEY: a guest body mesh's src_key is 0, a guest piece model's its piece id (the stock keys)
-        bool have_row = false;
-        for (const SceneFrame::PieceAlpha& pa : frame.piece_alphas)
-          if (pa.object == obj_no && int(pa.piece) == me.src_key) { piece_alpha = pa.alpha, have_row = true; break; }
+        const SceneFrame::PieceAlpha* row = FindPieceRow(frame.piece_alphas, obj_no, me.src_key);   // S111 SOCKSHADOW (piece_row_rule.h): the one lookup the colour and caster passes share (the first row)
+        const bool have_row = row != nullptr;
+        if (have_row) piece_alpha = row->alpha;
         if (!have_row && me.lid_layer) { ++piece_stats_.lid_no_row_skipped; continue; }
-        if (have_row && !(piece_alpha > 0.f)) { ++piece_stats_.skipped_alpha0; continue; }   // alpha 0: nothing of it shows
+        if (have_row && (row->undrawn || !(piece_alpha > 0.f))) { ++piece_stats_.skipped_alpha0; continue; }   // alpha 0, or a piece the owner's mesh does not draw at all (hidden / detached, alpha 0 too): nothing of it shows
         if (have_row) ++piece_stats_.drawn;
       }
       if (!me.extra_pieces.empty() && !frame.absent_extras.empty()) {   // S103 W2B: a chunk that skins to the extra nodes of a piece the record could not supply: its rows are zeros, so it is not drawn (the rest of the body is)
@@ -2376,6 +2400,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         it.light_override = -1;
         it.ml = model_sets[obj.asset];
         it.object = object_index;
+        it.char_slot = obj_char_slot;
         it.pass = 0;
         it.inst = uint16_t(k + ((obj.flags & kObjDrawnByOwner) ? 0u : uint32_t(obj.pad)));  // S103 G; S103 RGP: Object::pad is the ring's instance + 1 (the GPU-skinned ring: the instances of one key share the model and id 0, each needs its own kept draw); 0 for every other object, so k alone (a drawn-by-owner object carries a piece id there)
         const float cx = me.center[0] * it.world[0] + me.center[1] * it.world[4] + me.center[2] * it.world[8] + it.world[12] - eye[0];
@@ -2383,7 +2408,9 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
         const float cz = me.center[0] * it.world[2] + me.center[1] * it.world[6] + me.center[2] * it.world[10] + it.world[14] - eye[2];
         it.dist2 = cx * cx + cy * cy + cz * cz;
         // S105 C3 (C3.md, sub_82C04DF0 0x82C0A8BC-0x82C0A8DC): the game's t = 1 rule is "a translucent character mesh whose record bit 0x2 is CLEAR is drawn twice (front, back)"; a bit-set one is one cull-back draw. Under
-        // wwe2k14_rdr_family_cull off: the hair effect names, whatever the bit (the draw before). U1 (which meshes the translucent node draws) is open, so the effect test stays IsHairEffect.
+        // wwe2k14_rdr_family_cull off: the hair effect names, whatever the bit (the draw before). U1 (which meshes the translucent node draws) is read since S111 SEECHAR (a created body's layers 5..7 and
+        // every character's SUBM pieces: the class, see_through_order.h SeeCharacter), but this test stays on the effect: the viewer's own frame (renderer_rdr.cpp ShotPixels) names no object, so
+        // Item::char_slot is -1 for its wrestlers and a class key would drop their hair's back pass (docs\research\s111\SEECHAR.md, Review). A shader-side use: tools\lint\char_class_key_lint.py allows it.
         const bool two_pass = mt && IsCharEffect(mt->shader) && family_cull::CharTwoPass(sorted, IsHairEffect(mt->shader), mt->cull_word, family_cull_on);
         if (two_pass) {  // the game draws such a mesh twice (renderer.cpp BuildSceneList)
           it.pass = 1;
@@ -2401,6 +2428,20 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     static int hlines = 0;
     if (hidden_meshes != last_hidden && hlines < 6) ++hlines, last_hidden = hidden_meshes, rdr::Log("[scene][hide] hide_stage_slot=%d hid %u mesh copies this frame%s", hide_slot, hidden_meshes, hidden_meshes ? "" : " (NO mesh has that slot_no)");
   }
+  // S111 FADEORDER (body_order.h): the opaque list in the game's category turns around the bodies (13 + slot): the category-3 content (a cycled arena slot, a chamber category-3 row), then every
+  // character's own object by character slot (the record's wrestler order is the category-33 list's, not the slot's), then the rest (22 on: ring, arena, screens, props, event props), each in record
+  // order. A wrestler colour draw blends (ALPHAWREST), so a faded body shows what was drawn before it. S111 FADECAW: the Body turn is the object's class (a slot body, or a piece linked to it: what the
+  // character's opaque node sub_825A3908 draws), never the mesh's effect, so a created superstar's yDefault part draws in its body's turn.
+  body_order::OrderOpaque(opaque, [&](const Item& i) {
+    const uint32_t fo = i.object < objs.size() ? objs[i.object].frame_object : ~0u;
+    const Object* fob = fo < frame.objects.size() ? &frame.objects[fo] : nullptr;
+    const bool marked = fob && (fob->flags & kObjBeforeBodies) != 0;
+    const bool cycled = i.model->arena_id >= 0 && body_order::CycledSlot(i.model->slot_records, i.mesh->slot_no);
+    const int slot = i.char_slot;   // piece_owner.h CharSlotOf of the item's object (set once per object above): a body "actor:slot:N", else a linked piece's owner (Object::layer = slot + 1); -1 = none
+    const bool char_effect = body_order::g_plant_effect_body && i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);   // (read only by the unit's plant)
+    const body_order::Turn turn = body_order::TurnOf(body_order::BodyObject(slot, char_effect), marked || cycled);
+    return body_order::PlaceOf(turn, turn == body_order::Turn::Body ? slot : -1);
+  });
   {  // S103 F: the see-through order (see_through_order.h): the frame's rule, or WWE_RDR_ORDER for the offline tools; Distance = the line this replaced
     const bool game_order = see_order == SeeOrder::Game;
     if (zw_on && game_order) {   // S105 SZW (ZW1 [C code + capture]): the game's `s` group (and `a` group) list = every slot ascending, drawn in runs by light set, the set seen first first (sub_825B9F10 + sub_825B9970); inside a slot the record order stays
@@ -2426,15 +2467,15 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       draw_place::TakeLateBodies(frame.draw_places, frame.objects.size(), opaque, blended, [&objs](const Item& i) { return i.object < objs.size() ? objs[i.object].frame_object : ~0u; });
       draw_place::StampItems(frame.draw_places, frame.objects.size(), blended, [&objs](const Item& i) { return i.object < objs.size() ? objs[i.object].frame_object : ~0u; }, [](const Item& i) {
         SeeKey k;
-        k.blend = i.blend, k.place_block = i.place_block, k.late_node = i.late_node;
-        k.character = i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);
+        k.blend = i.blend, k.place_block = i.place_block, k.late_node = i.late_node, k.place = i.place;   // S111 REKEYORDER2: StampItems sets the place first (SeeRank's re-keyed rank reads it)
+        k.character = SeeCharacter(i.char_slot, g_plant_see_effect.load(std::memory_order_relaxed) && i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader));   // S111 SEECHAR: the object's class (the effect only for the unit's plant)
         return SeeRank(k);
       });
     }
     SortSeeThrough(see_order, blended, [game_order](const Item& i) {
       SeeKey k;
       k.blend = i.blend, k.dist2 = i.dist2, k.cutout = i.cutout, k.order = i.order, k.place = i.place, k.place_block = i.place_block, k.late_node = i.late_node;
-      if (game_order) k.character = i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader);  // (only Game mode reads it: Distance = today)
+      if (game_order) k.character = SeeCharacter(i.char_slot, g_plant_see_effect.load(std::memory_order_relaxed) && i.mesh->material >= 0 && IsCharEffect(i.model->materials[size_t(i.mesh->material)].shader));  // (only Game mode reads it: Distance = today) S111 SEECHAR: the object's class
       return k;
     });
   }
@@ -2731,9 +2772,10 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       const bool is_light_mat = !plane_map && props_on && props_img && me.material >= 0 && IsPlaneReaderEffect(m.materials[size_t(me.material)].shader) && frame.plane_game_off == 1 && !options_.plant_mat_plain_when_no_module;   // (the plant = today's binding: no shadow at all)
       light_bound = is_light_mat ? &BindMaterial(m, me.material, me.skinned && me.chunk, lm_mode, true, false, -1, true) : nullptr;
     }
-    // S103 YCB (review P2-1): a table-picked skin pair binds the body's liquid map (MapRole::SweatMap, keyed by the body's engine object) where ITS pixel variant reads slot 14; wet / dry is the pass's. Gear keeps the black stand-in: the game's
-    // gear slot 14 is the body map on only 4 draws a frame and separate images (source unsettled, YCH.md) on the rest. S111 OLDCHAIN: there is no other wet bind (the table pick is the only pick).
-    const MapImage* liquid = (is_char && me.material >= 0 && m.materials[size_t(me.material)].shader.rfind("yCh_skin", 0) == 0 && char_b && char_b->liquid_slot != 0xFF) ? liquid_of(objs[it.object].frame_object) : nullptr;   // the FRAME index, not the dense one (review SWF-1)
+    // S103 YCB (review P2-1) / S111 GEARLIQUID: a table-picked character pair binds the body's liquid map (MapRole::SweatMap, keyed by the body's engine object) where ITS pixel variant reads slot 14; wet / dry is the pass's.
+    // Skin and gear alike: the game binds the character's own map at 14 once per body-model draw (liquid_gate.h); a body with no map this frame keeps the black stand-in (dry). S111 OLDCHAIN: the table pick is the only pick.
+    // GEARLIQUID review: only a BODY mesh (src_key 0): a stock wrestler's pieces are merged into the body's object here, but the game's SUBM pieces get no callback (they sample a stale slot 14).
+    const MapImage* liquid = (char_b && liquid_gate::TakesBodyMap(is_char, me.material, char_b->liquid_slot, me.src_key)) ? liquid_of(objs[it.object].frame_object) : nullptr;   // the FRAME index, not the dense one (review SWF-1)
     // S108 THB: an entrance PROP the game draws recoloured this frame (the record's section 67 row of kCcProp -> SceneFrame::change_colours, carried by rf_props.cpp): its plain bind is the STS cc_mask row with the prop's mask at slot 12.
     // A material with no mask loaded (the id has no SPMT row / the file lacks it) draws plain and is counted; a row the STS table cannot bind draws plain too (`no row`).
     const SceneFrame::ChangeColour* prop_cc_entry = (!is_char && me.material >= 0 && !frame.change_colours.empty()) ? change_colour_draw::EntryOf(frame.change_colours, objs[it.object].frame_object) : nullptr;
@@ -2762,8 +2804,14 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     const bool pc_twin = pc_item && !b.debug && VariantHasTwin(b.choice.ps) && !plant_pc_no_twin;
     if (pc_twin && !b.zw_program) b.zw_program = ProgramFor(b.choice.vs, b.choice.ps, true);
     const bool pc_discard = pc_twin && !plant_pc_no_test;
-    const bool at_on = !plant_strip && (b.alpha_test || zw_discard || pc_discard);                                    // the draw's alpha test as the state / dynamic / dump see it
-    const rdr::ImageId liquid_image = liquid ? liquid->image : rdr::kNoImage;   // (liquid is set only for a table-picked skin pair that reads slot 14)
+    // S111 CHALPHA (char_alpha.h; 360_HABITS.md row 32): a tint-only wrestler pair (the bind left it untested) is tested + blended on a draw whose MdlAlpha / MatAmbCol.w / MatDifCol.w (the values
+    // ResolveChar pushes) are not all exactly 1, as the game's category reset sub_82C22E88 tests every one; at all three 1 its alpha is 1 and the test and blend change no pixel. The twin rides the
+    // zw_program slot, made on first use as the piece cut's (a character bind is never a zw_item).
+    const assets::Material* tint_mat = (char_b && !b.debug && !b.alpha_test && me.material >= 0) ? &m.materials[size_t(me.material)] : nullptr;
+    const bool tint_discard = tint_mat && char_alpha::DrawTests(kVariants[b.choice.ps].out_alpha, VariantHasTwin(b.choice.ps), it.alpha, tint_mat->ambient[3], tint_mat->diffuse_color[3]);
+    if (tint_discard && !b.zw_program) b.zw_program = ProgramFor(b.choice.vs, b.choice.ps, true);
+    const bool at_on = !plant_strip && (b.alpha_test || zw_discard || pc_discard || tint_discard);                    // the draw's alpha test as the state / dynamic / dump see it
+    const rdr::ImageId liquid_image = liquid ? liquid->image : rdr::kNoImage;   // (liquid is set only for a table-picked character pair that reads slot 14)
     // S103 WGD (dev, WWE_RDR_FEATURE_DUMP; docs\agents\choice_diff.md): ONE "d2" line per mesh and look = what this chunk REALLY drew with, read where the draw is final (the pick
     // order of the line above, the blend / alpha test / depth write / cull of the draw state below): tools\harvest\choice_ours.py joins it with the game's rule. Read-only: changes no draw.
     // One line per mesh per Record (d2_seen); none from the seed frame's Record (in_seed_: RenderToPixels' extra no-post frame, before the frame the tool reads).
@@ -2840,15 +2888,15 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     ctx.mirror = (frame.viewer_space && !options_.plant_no_mirror) ? -1.f : 1.f;   // S103 RFL: the viewer's space is the game's with y negated: the shader flips the cube lookup back (ReflectAlpha.y)
     if (b.cube_real) ctx.reflect_alpha = mat.reflect_alpha, ++reflect_draws_;   // S103 RFL: slot 8 = the model's file cube: ReflectAlpha = g_fReflectAlpha
     if (prop_cc_draw) FeedPropColour(ctx, prop_cc_entry->constants, prop_cc_entry->flags);   // S108 THB: g_fChangeColor of an entrance prop (the 4 colours), MatDifCol 1 under the editor's callback
+    ctx.amb_rgb = objs[it.object].amb_rgb;   // S111 CAARING: a created arena's rope: its own MatAmbCol rgb
     if (((rule_bound && b.shadow) || b.props_reader) && floor_map) ctx.shadow_m = shadow_bg_m, ctx.shadow_prm = &floor_map->prm[0][0], props_bound_ += props_on, pms_site_[4] += props_on;   // site 4: matrix and prm from the props map
       // S103 D1; S103 PMS: the floor's map
+    bool mats_line_due = false;   // S111 TOOLFIX3: set by the dump block below for a material not yet dumped; the [mats] line is printed at the end of the draw's state
     if (static const bool dump = std::getenv("WWE_RDR_DUMP_MATS") != nullptr; dump && !b.debug && me.material >= 0) {  // S101 lane 257 (dev): one line per distinct material: what the draw is fed
       static std::set<const void*> seen;
       if (seen.insert(&me).second) {
-        const float* w = it.world.data();  // the sign of the 3x3 determinant: negative = a mirrored placement (the winding flips)
-        const float det = w[0] * (w[5] * w[10] - w[6] * w[9]) - w[1] * (w[4] * w[10] - w[6] * w[8]) + w[2] * (w[4] * w[9] - w[5] * w[8]);
-        std::fprintf(stderr, "[mats] %-14s part=%-10s tex=%-14s vs=%s ps=%s spec_lev=%.2f pow=%.0f spec_col=%.1f light0=%.2f lm=%d atest=%d cull=%d blend=%d sorted=%d inl=%d ambw=%.2f difw=%.2f det=%s\n", mat.shader.c_str(), me.part.c_str(), mat.diffuse_name.c_str(),
-                     kVariants[b.choice.vs].name, kVariants[b.choice.ps].name, mat.spec_lev, mat.spec_pow, mat.spec_col[0], ls.col[0][0], int(mat.lightmap >= 0), int(mat.alpha_test), int(mat.cull_back), int(it.blend), int(it.sorted), int(mat.blend_inline), mat.ambient[3], mat.diffuse_color[3], det < 0 ? "NEG" : "pos");
+        mats_line_due = true;
+          // S111 TOOLFIX3: the [mats] line itself is printed below, where the draw state is final (after the blend / alpha-test state is built), so it shows the draw's real state
         // S103 L (dev, WWE_RDR_DUMP_MATS): the whole light set this mesh is fed (set id, 4 colours, sky, ground) + the light-map gain, to compare with the game's draw constants
         std::fprintf(stderr, "[mats-lit] %s part=%s set_idx=%d id=%d col=[%.4f %.4f %.4f|%.4f %.4f %.4f|%.4f %.4f %.4f|%.4f %.4f %.4f] sky=%.4f %.4f %.4f gnd=%.4f %.4f %.4f lmgain=%.2f stage_lm=%d\n", mat.shader.c_str(), me.part.c_str(), set_index, set_index >= 0 && size_t(set_index) < sets.size() ? sets[size_t(set_index)].id : -9,
                      ls.col[0][0], ls.col[0][1], ls.col[0][2], ls.col[1][0], ls.col[1][1], ls.col[1][2], ls.col[2][0], ls.col[2][1], ls.col[2][2], ls.col[3][0], ls.col[3][1], ls.col[3][2], ls.sky[0], ls.sky[1], ls.sky[2], ls.ground[0], ls.ground[1], ls.ground[2], m.lm_gain, m.stage_lm);
@@ -2905,6 +2953,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     cc.cube_scale = cube ? cube->scale : nullptr;
     cc.cloth_offset = b.chr && !me.chunk && IsClothEffect(mat.shader);  // a rigid cloth piece: the bone matrix is an offset
     cc.mirror = frame.viewer_space ? -1.f : 1.f;
+    cc.view = (frame.camera.flags & kCamViewIsViewProj) ? nullptr : frame.camera.view.m;   // S111 VIEWROWS review: the game's own world -> view for View (c52-c54); a combined record has none
     if (b.chr && rim_map) cc.rim_params = rim_map->params;   // S103 L7
     cc.spec_sweat = b.char_table;   // S103 YCB
     cc.cube_analytic = b.cube_analytic;
@@ -2965,6 +3014,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       if (cc.muscle) st.h[5] = HashBytes(cc.muscle, sizeof(float) * 4, st.h[5]);
       if (cc.change_color) st.h[5] = HashBytes(cc.change_color, sizeof(float) * change_colour_draw::kFloats, st.h[5]);   // S108 THR2: a picked colour moves ChangeColor (kStMaterial, draw_lists.cpp)
       if (ctx.change_color) st.h[5] = HashBytes(ctx.change_color, sizeof(float) * 4 * live::propcolour::kColours, st.h[5] ^ (ctx.dif_one ? 0x9E3779B97F4A7C15ull : 0ull));   // S108 THB: a picked / latched prop colour (and the editor's MatDifCol 1) moves ChangeColor / MatDifCol
+      if (ctx.amb_rgb) st.h[5] = HashBytes(ctx.amb_rgb, sizeof(float) * 3, st.h[5] ^ 0x5851F42D4C957F2Dull);   // S111 CAARING: a rope's colour moves MatAmbCol (kStMaterial, draw_lists.cpp)
       kept_changed = DrawLists::Diff(*kept, st, kept_fresh);
     }
     uint32_t pushed_bytes = 0;   // S103 P7 (review F8): the size of the block pack() pushed last (the own blend tag reads it)
@@ -3035,7 +3085,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
     };
 
     rdr::DrawState state{};
-    state.program = plant_strip ? b.zw_plain : (zw_discard || pc_discard) ? b.zw_program : b.program;   // S105 SZW: the alpha twin (the game's test) for a stage draw under the switch; S108 HAIR: and for a piece cut
+    state.program = plant_strip ? b.zw_plain : (zw_discard || pc_discard || tint_discard) ? b.zw_program : b.program;   // S105 SZW: the alpha twin (the game's test) for a stage draw under the switch; S108 HAIR: and for a piece cut; S111 CHALPHA: and for a tint-only wrestler draw below alpha 1
     state.vertex_layout = b.layout;
     state.topology = 3;  // triangle list
     const assets::Material* mp = me.material >= 0 ? &mat : nullptr;
@@ -3194,7 +3244,7 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       what = (what * 0x100000001b3ull) ^ (uint64_t(it.inst) << 8 | it.pass);
       TagOwnBlend(fb, op, vv, vs, vs_pushed, what);
     }
-    if (FILE* fdf = fdump::File(); fdf && !b.debug) {   // S103 T2 (dev): what this draw is (tools\scene\feature_diff.py)
+    if (FILE* fdf = fdump::File(); fdf && !b.debug) {   // S103 T2 (dev): what this draw is (feature_dump.h)
       int fsl[16]; uint32_t fim[16]; uint32_t fn = 0;
       for (uint32_t s = 0; s < fv.sampler_count && fn < 16; ++s) fsl[fn] = fv.samplers[s].slot, fim[fn++] = uint32_t(set.slots[fv.samplers[s].slot].image);
       for (uint32_t s = 0; s < vv.sampler_count && fn < 16; ++s) fsl[fn] = vv.samplers[s].slot, fim[fn++] = uint32_t(set.slots[vv.samplers[s].slot].image);  // S103 L10: the vertex stage's slots (16 + i)
@@ -3202,6 +3252,18 @@ bool FrontEnd::Record(const SceneFrame& frame, rdr::FrameBuilder& fb, const Live
       fdump::Draw(fdf, "emit", mat.shader, me.part, b.chr, it.blend, vv.name, fv.name, T().by_index[size_t(vs)], T().by_index[size_t(ps)], fn, fsl, fim, fd_kind,
                   [&](const std::string& n, uint32_t v4, float* o) { return b.chr ? ResolveChar(n, v4, cc, o) : Resolve(n, v4, ctx, o); });
       fdump::StateLine(fdf, state, at_on != 0, at_on ? alpha_dyn(pcls) : dynamic, int(pcls), mat.diffuse_alpha_clear, int(fv.out_alpha));   // S103 B2 (dev); S105 SZW: at_on
+    }
+    if (mats_line_due) {   // S111 TOOLFIX3 (dev): the [mats] line, one per distinct material (the WWE_RDR_DUMP_MATS block above decides), from the FINAL draw state
+      {
+        const float* w = it.world.data();  // the sign of the 3x3 determinant: negative = a mirrored placement (the winding flips)
+        const float det = w[0] * (w[5] * w[10] - w[6] * w[9]) - w[1] * (w[4] * w[10] - w[6] * w[8]) + w[2] * (w[4] * w[9] - w[5] * w[8]);
+        const rdr::DynamicState md = at_on ? alpha_dyn(pcls) : dynamic;
+        // at / aref255 / afunc = the draw's real alpha test (at_on; the reference x 255 and the VkCompareOp of its pass class); ben / bsrc / bdst = the blend the draw item gets (DrawState); mat_flag_atest = the LOADER's
+        // material flag (Material::alpha_test: NOT the draw's test); list_blend / list_sorted = the draw-list flags of the item (it.blend 0 / 1 / 2, it.sorted): NOT the draw's blend state
+        std::fprintf(stderr, "[mats] %-14s part=%-10s tex=%-14s vs=%s ps=%s spec_lev=%.2f pow=%.0f spec_col=%.1f light0=%.2f lm=%d at=%d aref255=%d afunc=%d ben=%d bsrc=%d bdst=%d cull=%d mat_flag_atest=%d list_blend=%d list_sorted=%d inl=%d ambw=%.2f difw=%.2f det=%s\n", mat.shader.c_str(), me.part.c_str(), mat.diffuse_name.c_str(),
+                     kVariants[b.choice.vs].name, kVariants[b.choice.ps].name, mat.spec_lev, mat.spec_pow, mat.spec_col[0], ls.col[0][0], int(mat.lightmap >= 0), at_on ? 1 : 0, at_on ? int(md.system[8] * 255.f + 0.5f) : 0, at_on ? int(md.system[9]) : 7,
+                     int(state.blend[0].enable), int(state.blend[0].src_color), int(state.blend[0].dst_color), int(state.cull), int(mat.alpha_test), int(it.blend), int(it.sorted), int(mat.blend_inline), mat.ambient[3], mat.diffuse_color[3], det < 0 ? "NEG" : "pos");
+      }
     }
     if (fdump::File()) { const rdr::DynamicState d2_dyn = at_on ? alpha_dyn(pcls) : dynamic; d2(&state, &d2_dyn, &vv, &fv, &d2_sd); }   // S103 WGD (dev): the final draw state
     // S103 GSTP: this draw's group (a character mesh is a wrestler whatever its model says). The plant is read only while the stamps are on (TEST ONLY, host_rig --plant group_nolabel: the model draws are labelled `other`).
@@ -3339,18 +3401,21 @@ uint32_t FrontEnd::DrawInstanced(const InstancedDraw& d, const StageCtx& sctx, r
       return fb.PushConstants(block.data(), bytes);
     };
     const rdr::fx::Variant& fv = kVariants[ps];
+    // S111 CROWDATEST: the caller's test when it names one (InstancedDraw::alpha_test: the game's crowd node decides per draw family), else the material's (program by its flag, state by the bind's)
+    const bool prog_tested = d.alpha_test < 0 ? mat.alpha_test : d.alpha_test != 0;
+    const bool tested = d.alpha_test < 0 ? bool(b.alpha_test) : d.alpha_test != 0;
     rdr::DrawState state{};
-    state.program = ProgramFor(vs_twin, ps, mat.alpha_test);
+    state.program = ProgramFor(vs_twin, ps, prog_tested);
     state.vertex_layout = layout;
     state.topology = 3;
-    state.cull = (d.cull_none || !mat.cull_back) ? 0 : 2;
+    state.cull = d.plant_two_sided ? 0 : 2;   // S111 CROWDCULLSRC: back faces culled on every instanced draw, as the game: each is a crowd draw under the crowd node's cull-on (sub_82519508 audience_draw_entry +178), the card bake too (docs\systems\crowd.md "Far-card cull"); the material's record flag is the generic model draw's rule, not this one's
     state.front_face = 1;
     state.depth_test = 1;
     state.depth_write = 1;
     const pass_state::PassClass pcls = pass_state::ClassOf(mat.shader.c_str(), false);   // S103 B2: by effect name, as the generic path (the crowd cards are yAudience*)
     state.depth_compare = pass_state::ForwardZ(pass_state::Of(pcls).game_z_func);
     state.blend[0].write_mask = 0xF;
-    if (b.alpha_test && pass_state::Of(pcls).tested_blends && !options_.plant_cutout_noblend) {   // S103 B2 (review 1): a TESTED part (the crowd card, GEQUAL 192) is blended like the game's [C census]; the z write stays
+    if (tested && pass_state::Of(pcls).tested_blends && !options_.plant_cutout_noblend) {   // S103 B2 (review 1): a TESTED part (the crowd card, GEQUAL 192) is blended like the game's [C census]; the z write stays
       state.blend[0].enable = 1;
       state.blend[0].src_color = 6, state.blend[0].dst_color = 7, state.blend[0].src_alpha = 1, state.blend[0].dst_alpha = 7;
     }
@@ -3387,7 +3452,7 @@ uint32_t FrontEnd::DrawInstanced(const InstancedDraw& d, const StageCtx& sctx, r
     }
     if (dry) {   // S103 CB1: the inputs of this mesh's draw, hashed; nothing pushed or recorded
       const std::vector<InstVertex>& hv = (*d.posed)[size_t(me.src)];
-      const rdr::DynamicState hd = b.alpha_test ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic;
+      const rdr::DynamicState hd = tested ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic;
       mix(&state, sizeof state), mix(&hd, sizeof hd);
       for (const rdr::TextureSlot& ts : set.slots) mix(&ts.image, sizeof ts.image), mix(&ts.kind, sizeof ts.kind), mix(&ts.vertex, sizeof ts.vertex);
       const int hm = d.model;
@@ -3401,7 +3466,7 @@ uint32_t FrontEnd::DrawInstanced(const InstancedDraw& d, const StageCtx& sctx, r
     const std::vector<InstVertex>& verts = (*d.posed)[size_t(me.src)];
     rdr::DrawOp op{};
     op.state = fb.State(state);
-    op.dynamic = fb.Dynamic(b.alpha_test ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic);
+    op.dynamic = fb.Dynamic(tested ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic);
     op.textures = fb.Textures(set);
     op.vs_constants = pack(b.choice.vs, kVariants[b.choice.vs]);
     const uint32_t vs_pushed = pushed_bytes;
@@ -3425,7 +3490,7 @@ uint32_t FrontEnd::DrawInstanced(const InstancedDraw& d, const StageCtx& sctx, r
       const auto fd_kind = [&](uint32_t im) -> const char* { return im == 0 ? "none" : im == uint32_t(white_) ? "white" : im == uint32_t(black_) ? "black" : im == uint32_t(grey_) ? "grey" : im == uint32_t(neutral_normal_) ? "neutral_normal" : im == uint32_t(black_cube_) ? "black_cube" : "map"; };
       fdump::Draw(fdf, "instanced", mat.shader, me.part, false, 0, kVariants[vs_twin].name, fv.name, T().by_index[size_t(b.choice.vs)], T().by_index[size_t(ps)], fn, fsl, fim, fd_kind,
                   [&](const std::string& n, uint32_t v4, float* o) { return Resolve(n, v4, ctx, o); });
-      fdump::StateLine(fdf, state, b.alpha_test != 0, b.alpha_test ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic, int(pcls), mat.diffuse_alpha_clear, int(fv.out_alpha));   // S103 B2 (dev)
+      fdump::StateLine(fdf, state, tested, tested ? AlphaDynamic(dynamic, pcls, options_.plant_old_alpha_ref) : dynamic, int(pcls), mat.diffuse_alpha_clear, int(fv.out_alpha));   // S103 B2 (dev)
     }
     fb.Draw(op, d.group);   // S103 GSTP: the caller's group (InstancedDraw::group)
     EffectCoverage& cov = coverage_[mat.shader];

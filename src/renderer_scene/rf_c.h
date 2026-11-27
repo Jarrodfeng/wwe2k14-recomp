@@ -69,7 +69,7 @@ struct Plants {
 Plants& PlantsRef();
 
 // One arena as loaded, split by family, with what a frame needs to know about each part.
-// S103 M: the stage screens exist in TWO sets (stage_media.h:71-72): Screens = the MATCH look's 800 / 801 / 805 / 806 / 808, ScreensEntrance = the entrance look's 802 / 804 / 805 / 807 / 809 (805 is in both; 803 is drawn in neither).
+// S103 M: the stage screens exist in TWO sets (stage_media.h): Screens = the MATCH look's 800 / 801 / 805 / 806 / 808, ScreensEntrance = the entrance look's 802 / 804 / 805 / 807 / 809 (805 is in both; 803 is drawn in neither).
 // The applier draws the one the frame's look names (stage_look::Entrance, the front end's own signal).
 enum class Part : uint8_t { Arena = 0, Ring = 1, Props = 2, Screens = 3, Flash = 4, ScreensEntrance = 5, Count };
 struct FamilyModel {

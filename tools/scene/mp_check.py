@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 CLANG = r'C:\Program Files\LLVM\bin\clang++.exe'
-PLANTS = {3: 'empty.node_call_not_empty', 4: 'empty.zero_words', 5: 'groups.every_call', 6: 'camera.node_own', 7: 'groups.row_position', 8: 'empty.every_call', 9: 'calls.overflow', 10: 'cae.particles_draw_camera', 11: 'nodes.every_node', 12: 'nodes.high_ids', 13: 'nodes.cam_mismatch', 14: 'nodes.stable_order', 15: 'soft.flat_hard', 16: 'nodes.entry_list'}
+PLANTS = {3: 'empty.node_call_not_empty', 4: 'empty.zero_words', 5: 'groups.every_call', 6: 'camera.node_own', 7: 'groups.row_position', 8: 'empty.every_call', 9: 'calls.overflow', 10: 'cae.particles_draw_camera', 11: 'nodes.every_node', 12: 'nodes.high_ids', 13: 'nodes.cam_mismatch', 14: 'nodes.stable_order', 15: 'soft.flat_hard', 16: 'nodes.entry_list', 17: 'groups.scene_call_unstamped', 18: 'camera.game_ortho'}
 
 
 def main():
@@ -46,7 +46,8 @@ def main():
         with open(os.path.join(root, *rel.split('/')), encoding='utf-8') as f:
             return f.read()
     need = [
-        ('src/scene_live/scene_skip_nodes.h', 'NoteNode(ctx.r3.u32, ctx.r13.u32, wwe2k14::q2d_tap::RowsThisFrame())', 'the node hook passes the thread block (the node\'s camera) and the 2D row count'),
+        ('src/scene_live/scene_skip_nodes.h', 'NoteNode(ctx.r3.u32, ctx.r13.u32, wwe2k14::q2d_tap::RowsThisFrame(), wwe2k14::q2d_tap::SeqNow())', 'the node hook passes the thread block (the node\'s camera), the 2D row count and the 2D store\'s last ticket (S111 FLATSEQ)'),
+        ('src/scene_live/quads2d_tap.h', 'inline uint32_t SeqNow()', 'the q2d tap exposes the store\'s last ticket (S111 FLATSEQ)'),
         ('src/scene_live/particle_glue.h', 'SetEmptySource(', 'the glue wires the empty-pass source (no node call = whole empty)'),
         ('src/scene_live/particle_glue.h', 'ReadNodeCamera(', 'the glue reads the node\'s own camera at the entry'),
         ('src/scene_live/quads2d_tap.h', 'inline uint32_t RowsThisFrame()', 'the q2d tap exposes the frame\'s running row count'),

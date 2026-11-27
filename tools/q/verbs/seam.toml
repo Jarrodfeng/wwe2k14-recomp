@@ -1,0 +1,19 @@
+name = "seam"
+module = "qseam"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+route_slot = "r147"
+
+[[usage]]
+order = 93
+text = '''  seam [TOPIC] | --check       the seam index: a topic's GAME rule (addresses, marks, the note) beside OUR lines (match / replace / repeat), stale rows flagged (tools/q/qseam.py; db/seams/)
+  seam --diffs [--files]       where ours departs from the game: every replace / repeat row of every topic, with the game row it stands against (--topic T, --verdict V, --json)'''
+
+[[usage]]
+order = 97
+text = '''  seam --cites FILE[:LINE]   which seam rows and db/claims rows cite a file (or file:line), by our path or by a file:line in their text (qseam_cites.py)'''
+
+[[route]]
+order = 153
+text = '''- the game's rule beside our lines for a topic (depth, ...): seam TOPIC; every topic: seam; lint: seam --check; rows citing a file: seam --cites FILE[:LINE]'''

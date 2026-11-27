@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MAP_DIR = ROOT / 'tools' / 'q' / 'map'
 CACHE = ROOT / 'out' / 'q' / 'map_gen.json'
 CODE_ROOTS = [ROOT / 'src', ROOT / 'thirdparty' / 'rexglue-sdk-src' / 'src']
-CODE_EXT = {'.h', '.hpp', '.cpp', '.cc', '.inl'}
+CODE_EXT = {'.h', '.hpp', '.cpp', '.cc', '.inl', '.inc'}   # .inc: a split part (tools/split/read_unit.py) holds its parent's code, e.g. reader.h's log lines
 TOOL_ROOT = ROOT / 'tools'
 CACHE_VERSION = f'3-{Path(__file__).stat().st_mtime_ns}'   # an edit of this scanner rebuilds the cache
 

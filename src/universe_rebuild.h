@@ -92,6 +92,7 @@ REX_HOOK_RAW(sub_82B9BBF0) {
 // The row-active test, called from very many places on every thread. DEPARTS FROM THE GAME ON PURPOSE (DECISIONS 2026-11-24 10:58: a leaver's Universe
 // bookings are stripped, as close to the game's own logic as possible): inside a builder job's frame a held seat is answered inactive (r3 = 0), which is
 // how the game sees a deleted Created Superstar, so its own card rebuild books somebody else. Outside a frame the only cost is the thread-local test.
+// SKIP-ORIGINAL: inside a builder job a held seat answers row-inactive (r3 = 0), DEPARTS FROM THE GAME ON PURPOSE (the comment above); every other call runs the original
 REX_HOOK_RAW(sub_822C1CF0) {
   if (wwe2k14::universe_rebuild::RowInactiveInJob(ctx.r3.u32)) {
     ctx.r3.u64 = 0;

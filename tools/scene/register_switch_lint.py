@@ -264,7 +264,9 @@ def tree_inputs(root):
         for fn in fns:
             if fn.endswith(('.h', '.cpp')):
                 try:
-                    t = open(os.path.join(dp, fn), encoding='utf-8', errors='replace').read()
+                    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+                    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+                    t = read_path(os.path.join(dp, fn))
                 except OSError:
                     continue
                 for nm, dv in DEFINE.findall(t):
@@ -347,7 +349,9 @@ def main():
         for fn in fns:
             if fn.endswith(('.h', '.cpp')):
                 p = os.path.join(dp, fn)
-                srcs[os.path.relpath(p, root).replace('\\', '/')] = open(p, encoding='utf-8', errors='replace').read()
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+                from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
+                srcs[os.path.relpath(p, root).replace('\\', '/')] = read_path(p)
     errors += lint_direct(srcs)
     for callee in sorted(set(allow) - used):
         errors.append('%s: %s is allowlisted but is no longer an unguarded registration in OnPostSetup: remove the line' % (ALLOW, callee))

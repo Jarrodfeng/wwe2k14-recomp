@@ -1,0 +1,5 @@
+name = "sheet"
+module = "qsheet"
+errors = ["qsheet.SheetError", "qsheet.qnames.NamesError", "qsheet.qseen.SeenError"]
+qerror = false
+broken_pipe = false

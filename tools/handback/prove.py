@@ -15,7 +15,7 @@ PROOFFILE (a small text file written with the Write tool: no shell quoting) hold
     start after it ends (a build step, then below it the test that runs what it built); `timeout N:` = N seconds instead of the default
     1200; `expect-fail:` = the command runs a PLANTED FAULT and must report it (below); the prefixes combine in any order
     (`serial: timeout 60: py -I x.py`, `expect-fail: .\out\tools\cs1b_unit.exe --plant no_guest_cpu`)
-  - the word `compile` = `py -I tools\compile\game_syntax.py --changed --build both`; the word `lints` = `py -I tools\handback\check.py`
+  - the word `compile` = `py -I tools\compile\game_syntax.py --changed --build off` (S111 COMPILEOFF: the stream-free build only); the word `lints` = `py -I tools\handback\check.py`
   - a line `base REF` = pass `--base REF` to `lints` and the REF to `compile --changed` (the only two shorthands that take a base)
 This tool holds NO list of which checks belong to which files: the agent names the commands, the tool only runs them together and reports.
 
@@ -53,7 +53,7 @@ import time
 
 DEFAULT_TIMEOUT = 1200
 CUT = 70
-SHORTHAND_COMPILE = r'py -I tools\compile\game_syntax.py --changed%s --build both'
+SHORTHAND_COMPILE = r'py -I tools\compile\game_syntax.py --changed%s --build off'
 SHORTHAND_LINTS = r'py -I tools\handback\check.py%s'
 NOTHING_CHECKED = re.compile(r'^\s*NOTHING CHECKED\b')       # the tool's own verdict line STARTS with it (a check that merely names it is not one)
 SUMMARY_RULES = (

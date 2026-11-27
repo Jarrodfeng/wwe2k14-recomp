@@ -9,7 +9,7 @@
 // The path [C: PCW_adversary.md section 1, listings 0x82BDED40-0x82BDEF38 / sub_82BD7790 / sub_82BD5538 / sub_82CACD88 / sub_82CACE60; CW2_review.md]:
 //   part count  = [m+372]   [C by listing: sub_82BDB460 stores [descobj+16] at [m+372] (0x82BDB4D8..)]
 //   desc        = [m+824] + p*184   (the part descriptor IS the jboy mesh record: palette count [desc+8], palette [desc+12+4k] (1-based node numbers), vertices [desc+0], effect name [desc+124] (16),
-//                 parameter count [desc+148], parameter pointer array [desc+152] [C: src\assets\jboy.h 398-406, 625-665 read the same record from the file]; when [m+824] == 0 the model is unreadable here and counted)
+//                 parameter count [desc+148], parameter pointer array [desc+152] [C: src\assets\jboy.h, src\assets\jboy.h (assets::LoadJboy) read the same record from the file]; when [m+824] == 0 the model is unreadable here and counted)
 //   F, stride   = [[m+360]+8p] and [[m+360]+8p+4]   (stores 0x82BDC2AC-0x82BDC2C0; F is the packer sub_82BD4BE0's switch: the vertex is decoded from F, never from the stride)
 //   vertices    = [desc+0];   stream 0 hdr = [[[m+336]+4p]+0]
 //   data        = [hdr+24] & ~3 (low bits = fetch type)     bytes = [hdr+28] & 0x03FFFFFC       endian 8-in-32: every dword is byte-swapped (the guest holds big-endian dwords)

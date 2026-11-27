@@ -1,0 +1,9 @@
+name = "shader"
+module = "qshader"
+qerror = false
+broken_pipe = false
+usage_slot = "u35"
+
+[[usage]]
+order = 100
+text = '''  shader HASH|VARIANT [--effect E] --reads  the constant lanes (c#.xyzw), samplers and fetches a game shader reads, from the SDK's disassembly (qshader.py)'''

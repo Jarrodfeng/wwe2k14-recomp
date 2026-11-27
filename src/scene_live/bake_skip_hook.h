@@ -94,6 +94,7 @@ inline void MaybeLog(Mode mode) {
 
 }  // namespace wwe2k14::bake_skip
 
+// SKIP-ORIGINAL: on an OURS frame no thumbnail is baked (S103 H: ours bakes from the record); the bake skip modes may also cut it; otherwise the original runs
 REX_HOOK_RAW(sub_827FD698) {
   using namespace wwe2k14::bake_skip;
   if (wwe2k14::scene_skip::Ours(::scene_skip::Hook::CardBake)) return;   // S103 H: the frame is OURS: no thumbnail is baked (the pictures persist; ours bakes from the record). The ledger is untouched. SCENE_SKIPS.md row 4

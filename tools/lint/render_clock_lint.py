@@ -287,8 +287,11 @@ def scan_files(root):
                 if f.endswith(SHADER_EXT) and f.startswith(pre):
                     files.append((os.path.relpath(os.path.join(dp, f), root).replace('\\', '/'), True))
     out = []
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import part_files   # S111 SPLIT-WIRE review: a split parent is read with its parts expanded (lint_tree); a part is not read again
+    parts = {os.path.realpath(str(x)) for d in SRC_DIRS if os.path.isdir(os.path.join(root, d)) for x in part_files(os.path.join(root, d))}
     for p, sh in sorted(set(files)):
-        if any(p.startswith(x) for x, _ in EXCLUDED) or p in BASELINE_FILES:
+        if any(p.startswith(x) for x, _ in EXCLUDED) or p in BASELINE_FILES or os.path.realpath(os.path.join(root, p)) in parts:
             continue
         out.append((p, sh))
     return out
@@ -296,22 +299,50 @@ def scan_files(root):
 
 def lint_tree(root):
     res = {}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+    from read_unit import read_path  # a split file is read with its parts expanded (tools/split/read_unit.py)
     for p, sh in scan_files(root):
-        with open(os.path.join(root, p), encoding='utf-8', errors='replace') as f:
-            res[p] = lint_text(p, f.read(), sh)
+        res[p] = lint_text(p, read_path(os.path.join(root, p)), sh)
     return res
+
+
+def where(root, p):
+    """line of p's (expanded) text -> (file, line): a split parent's line in a part is named by the part and its own line"""
+    full = os.path.join(root, p)
+    try:
+        if b'split:' not in open(full, 'rb').read():
+            return lambda ln: (p, ln)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'split'))
+        from read_unit import line_map
+        m = line_map(full)
+    except OSError:
+        return lambda ln: (p, ln)
+
+    def at(ln):
+        if not 1 <= ln <= len(m):
+            return p, ln
+        f, n = m[ln - 1]
+        return os.path.relpath(str(f), root).replace('\\', '/'), n
+    return at
 
 
 def check(root, res):
     bad = []
     allowed = 0
     for p, r in sorted(res.items()):
+        at = where(root, p) if r['marker_bad'] or r['unmarked'] > allowed else None
         for mb in r['marker_bad']:
-            bad.append(f'{p}:{mb["line"]}: {mb["msg"]}')
+            f, n = at(mb['line'])
+            bad.append(f'{f}:{n}: {mb["msg"]}')
         if r['unmarked'] > allowed:
-            sites = [s for s in r['sites'] if s['state'] == 'unmarked']
-            bad.append(f'{p}: {r["unmarked"]} unmarked render-clock site(s): ' + '; '.join(f'{s["line"]} {s["kind"]} {s["msg"]}' for s in sites[:6]) +
-                       '  -> carry the game\'s value, or declare it: // render-clock: <class> - <reason>')
+            by_file = {}
+            for s in r['sites']:
+                if s['state'] == 'unmarked':
+                    f, n = at(s['line'])
+                    by_file.setdefault(f, []).append((n, s))
+            for f, sites in sorted(by_file.items()):
+                bad.append(f'{f}: {len(sites)} unmarked render-clock site(s): ' + '; '.join(f'{n} {s["kind"]} {s["msg"]}' for n, s in sites[:6]) +
+                           '  -> carry the game\'s value, or declare it: // render-clock: <class> - <reason>')
     return bad
 
 
@@ -431,6 +462,25 @@ def selftest(root):
     expect(f'PAST-BUG RE-FIND ({how}): the fade latch and subtraction of rf_arena_live.cpp are flagged', len(hit) >= 2, f'(lines {[s["line"] for s in hit]})')
     # the planted unmarked site must FAIL check() (zero tolerance)
     expect('check(): a tree holding the old fade code fails', bool(check(root, {'x.cpp': lint_text('x.cpp', BAD_LATCH)})))
+    # S111 SPLIT-WIRE review: a split parent is read with its parts expanded and a part is not read again: a site in a part is ONE site, named at the part's line
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix='render_clock_split_')
+    try:
+        os.makedirs(os.path.join(tmp, 'src', 'renderer', 'p'))
+        with open(os.path.join(tmp, 'src', 'renderer', 'p.h'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write('#pragma once\nnamespace q {\n#include "p/part.inc"  // split: part\n}  // namespace q\n')
+        body = 'inline void F(Ctx& ctx, As& as) {\n' + BAD_LATCH + '}\n'
+        with open(os.path.join(tmp, 'src', 'renderer', 'p', 'part.inc'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write(body)
+        one = lint_text('x.h', body)['unmarked']
+        rr = lint_tree(tmp)
+        n = sum(r['unmarked'] for r in rr.values())
+        msgs = check(tmp, rr)
+        expect('split part: its sites are counted once (parent read with the part, the part not read again) and named at the part', one >= 2 and n == one
+               and msgs and all('src/renderer/p/part.inc:' in m for m in msgs), f'(one {one}, tree {n}: {msgs[:2]})')
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     # the tree as it stands has no unmarked site and no bad or stale marker
     res = lint_tree(root)
     bad = check(root, res)

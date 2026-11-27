@@ -1,4 +1,4 @@
-// S103 lane T2 (tools\scene\feature_diff.py): a dev-only dump of WHAT OUR frame graph drew, one JSON line per draw, written only when WWE_RDR_FEATURE_DUMP=<file> is set
+// S103 lane T2 (the deleted tools\scene\feature_diff.py read it; WHOLEDIFF's drawdiff is the replacement): a dev-only dump of WHAT OUR frame graph drew, one JSON line per draw, written only when WWE_RDR_FEATURE_DUMP=<file> is set
 // (appended; the offline rig sets it, the game never does). Per draw: the vertex / pixel variant names the front-end chose (the same "<effect>_<variant>_<stage>" names the game's
 // shader hashes resolve to through the fx.json files), what each sampler slot of the pixel variant is bound to (a real map / white / black / grey / neutral normal / black cube),
 // and every constant field of both variants resolved by name (the values the draw is fed). Read-only on the frame: nothing here changes a draw.
@@ -50,7 +50,7 @@ void Draw(FILE* f, const std::string& site, const std::string& shader, const std
   std::fwrite(js.data(), 1, js.size(), f);
 }
 
-// S103 B2: the render state of the draw line just written (tools\scene\b2_check.py pairs it with the game's DrawFixed): alpha test on / func / reference (0-255, rounded), depth test / write / compare, cull, blend.
+// S103 B2: the render state of the draw line just written (the game's DrawFixed rows are its counterpart): alpha test on / func / reference (0-255, rounded), depth test / write / compare, cull, blend.
 template <class State, class Dyn>
 void StateLine(FILE* f, const State& s, bool alpha_test, const Dyn& dyn, int pass_class, float diffuse_alpha_clear, int out_alpha) {
   char buf[320];

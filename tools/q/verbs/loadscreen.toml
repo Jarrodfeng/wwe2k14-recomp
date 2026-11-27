@@ -1,0 +1,12 @@
+name = "loadscreen"
+module = "qloadscreen"
+needs = "con"
+errors = ["qloadscreen.LoadError", "qgx.GxError"]
+
+[[usage]]
+order = 62
+text = '''  loadscreen ID [ID ...] | --all   loading-screen request id -> class -> slot-14 load function -> /LOAD/ PACH name -> LoadHD PACHes -> layout scene + textures (names only; tools/q/qloadscreen.py)'''
+
+[[route]]
+order = 148
+text = '''- which loading picture a request id shows: loadscreen ID | --all'''

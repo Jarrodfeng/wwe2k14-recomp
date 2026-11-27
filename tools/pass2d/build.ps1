@@ -57,7 +57,7 @@ $allObjects = @($sources | ForEach-Object { Join-Path $objects (($_.Substring($r
 foreach ($pair in @(@('pass2d_test.exe', 'gaps_test'), @('pass2d_gaps_test.exe', 'pass2d_test'))) {
   $exe = Join-Path $repo ('out\tools\' + $pair[0])
   $objectFiles = @($allObjects | Where-Object { (Split-Path $_ -Leaf) -notlike ('*' + $pair[1] + '.cpp.o') })  # the other program's main stays out
-  & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -o $exe   # S106 TIPFIX: swapchain.cpp:196 / :664 GetDeviceCaps (gdi32)
+  & $clang -fuse-ld=lld -g @objectFiles -luser32 -lgdi32 -o $exe   # S106 TIPFIX: swapchain.cpp / swapchain.cpp (rdr::Swapchain::Build) GetDeviceCaps (gdi32)
   if ($LASTEXITCODE -ne 0) { throw "link failed: $exe" }
   Write-Host "built $exe"
 }

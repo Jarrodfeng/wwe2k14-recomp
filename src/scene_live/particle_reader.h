@@ -52,9 +52,8 @@ inline constexpr float kZOffsetPerInt = 0.001f;              // [C: 0x82A0D380 /
 // (+152 / +160) itself; under OURS the draw does not run, so the reader does the lookup (never trusts the cache).
 inline constexpr uint32_t kHandleTableGlobal156 = 0x83929A98u, kHandleTableGlobal148 = 0x8392E994u;
 
-// What the item's blend code (*(*(item+48)) + 196, passed to sub_82BB7630 only for 0 / 1 / 2) means is NOT confirmed: the two blends seen on the stream are alpha (menu smoke,
-// 117,967 draws: src alpha / one minus src alpha) and additive (Bryan's entrance pyro, 3,108 draws: src alpha / one), but no run pairs an item's code with a draw. Until one does,
-// the mapping below is a guess [L] and every read code is reported (kPiBlend): the pass is not whole.
+// The item's blend code (*(*(item+48)) + 196, passed to sub_82BB7630 only for 0 / 1 / 2): 0 = alpha, 1 = additive, 2 = reverse-subtract, all [C] from the setter (S103 PF / F5, the
+// line below). Only a code above 2 is reported (kPiBlend) and holds the pass.
 inline constexpr bool kBlendCodesConfirmed = true;  // S103 PF: codes 0 / 1 / 2 are all proven (2 = reverse-subtract [C]: R8 -> op-3 handler -> setter sub_82CA90E0 rlwimi into RB_BLENDCONTROL bits 5-7, value 4 = kRevSubtract); the pass still reports kPiBlend for any code above 2
 inline uint8_t BlendOfCode(uint32_t code) { return code == 1 ? kParticleAdditive : code == 2 ? kParticleReverseSubtract : kParticleAlpha; }   // S103 F5: from the setter itself (sub_82C23168), see BlendCodeProven
 // S103 F4 (run 22, wwe2k14_080.log, Bryan's entrance): 16 of 16 sampled sprite items (4 frames x 4 items, the same descriptor shape) read *(*(item+48))+196 == 1, one texture handle
