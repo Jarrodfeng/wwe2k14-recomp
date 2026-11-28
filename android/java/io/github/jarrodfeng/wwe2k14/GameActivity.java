@@ -93,7 +93,11 @@ public class GameActivity extends SDLActivity {
     private boolean caseButton;
     private static final String BOOT_TRIAL_ARG = "--wwe2k14_boot_trial=";  // Session 95 (LADDER)
     private String bootTrial;
-    private TextView precompileText;
+    private TextView precompileText;  // S111 SHADERBAR: the clock / estimate / keep-open lines under the bar
+    private TextView precompileTitle, precompileCounts;
+    private android.widget.ProgressBar precompileBar;
+    private String precompileState = "starting";  // the last good read of the progress file (a failed read keeps it)
+    private int precompileMade, precompileTotal, precompileM6Done, precompileM6Total;
     private Handler precompileHandler;
     private long precompileStart;
     private static final long PRECOMPILE_DEADLINE_MS = 15 * 60 * 1000;
@@ -497,47 +501,94 @@ public class GameActivity extends SDLActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
-    // Session 93: the precompile's progress line and its end (see the fields above).
+    // Session 93: the precompile's progress and its end (see the fields above).
+    // S111 SHADERBAR (Jarrod, 2026-11-28: "a center screen progress bar and a clear shader compilation indicator"): a box in the
+    // middle of the screen (the game's picture is black in this boot) with the title, a bar, the counts and a clock. Before, one
+    // line at the bottom was rebuilt from the bare "Preparing shaders..." at every poll, so its numbers came and went; now the last
+    // good read is kept and PrecompileBar.of draws it with the activity's clock at every poll until the compile ends.
     private void startPrecompileWatch() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setBackgroundColor(Color.argb(230, 0, 0, 0));
+        box.setPadding(56, 36, 56, 36);
+        precompileTitle = new TextView(this);
+        precompileTitle.setTextColor(Color.WHITE);
+        precompileTitle.setTextSize(24);
+        precompileTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        precompileTitle.setGravity(Gravity.CENTER);
+        precompileTitle.setText(PrecompileBar.TITLE);
+        box.addView(precompileTitle);
+        precompileBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        precompileBar.setMax(1000);
+        precompileBar.setIndeterminate(true);
+        // (The launcher's red: src/launcher_mobile's accents, the PC launcher's update bar 0.78 / 0.20 / 0.23.)
+        android.content.res.ColorStateList red = android.content.res.ColorStateList.valueOf(Color.rgb(199, 51, 59));
+        precompileBar.setProgressTintList(red);
+        precompileBar.setIndeterminateTintList(red);
+        android.widget.LinearLayout.LayoutParams bl = new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = 24;
+        bl.bottomMargin = 16;
+        box.addView(precompileBar, bl);
+        precompileCounts = new TextView(this);
+        precompileCounts.setTextColor(Color.WHITE);
+        precompileCounts.setTextSize(18);
+        precompileCounts.setGravity(Gravity.CENTER);
+        precompileCounts.setText("Starting...");
+        box.addView(precompileCounts);
         precompileText = new TextView(this);
-        precompileText.setTextColor(Color.WHITE);
-        precompileText.setBackgroundColor(Color.argb(200, 0, 0, 0));
-        precompileText.setTextSize(18);
+        precompileText.setTextColor(Color.rgb(200, 200, 200));
+        precompileText.setTextSize(14);
         precompileText.setGravity(Gravity.CENTER);
-        precompileText.setPadding(40, 24, 40, 24);
-        precompileText.setText("Preparing shaders...");
-        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
-        lp.bottomMargin = 80;
-        mLayout.addView(precompileText, lp);
+        precompileText.setPadding(0, 16, 0, 0);
+        precompileText.setText("Elapsed 0:00\n" + PrecompileBar.KEEP_OPEN);
+        box.addView(precompileText);
+        // (Review: the long edge, not widthPixels: this activity is landscape only (sensorLandscape) and survives a rotation without
+        // being rebuilt (configChanges), so metrics read here while the portrait launcher's rotation is still under way would size the
+        // box from the short edge for the whole compile.)
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int width = (int) (Math.max(dm.widthPixels, dm.heightPixels) * 0.6f);
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        mLayout.addView(box, lp);
         precompileStart = System.currentTimeMillis();
         precompileHandler = new Handler(Looper.getMainLooper());
         precompileHandler.postDelayed(this::pollPrecompile, 300);
     }
 
     private void pollPrecompile() {
-        String state = "starting";
-        String line = "Preparing shaders...";
         try (BufferedReader r = new BufferedReader(
                 new InputStreamReader(new FileInputStream(new File(precompileFile)), StandardCharsets.UTF_8))) {
             StringBuilder sb = new StringBuilder();
             String l;
             while ((l = r.readLine()) != null) sb.append(l);
             JSONObject j = new JSONObject(sb.toString());
-            state = j.optString("state", state);
+            String s = j.optString("state", precompileState);
             int m6Done = j.optInt("m6_done", 0), m6Total = j.optInt("m6_total", 0);
             int made = j.optInt("made", 0), total = j.optInt("total", 0);
-            if (m6Total > 0 && m6Done < m6Total) line = "Preparing shaders " + m6Done + " / " + m6Total;
-            else if (total > 0 && made < total) line = "Preparing pipelines " + made + " / " + total;
-            else if (state.equals("done")) line = "Shaders ready";
+            // (All read before any is kept: a parse that fails half way keeps the whole last read.)
+            precompileState = s;
+            precompileM6Done = m6Done;
+            precompileM6Total = m6Total;
+            precompileMade = made;
+            precompileTotal = total;
         } catch (Exception e) {
-            // (Not written yet, or caught mid-write: the game renames a whole file into place; the next poll reads it.)
+            // (Not written yet, or caught mid-write: the game renames a whole file into place; the last good read stays on screen.)
         }
+        String state = precompileState;
+        long elapsed = System.currentTimeMillis() - precompileStart;
+        PrecompileBar.Text t = PrecompileBar.of(state, precompileMade, precompileTotal, precompileM6Done, precompileM6Total, elapsed);
+        precompileTitle.setText(t.title);
+        if (t.permille < 0) {
+            precompileBar.setIndeterminate(true);
+        } else {
+            precompileBar.setIndeterminate(false);
+            precompileBar.setProgress(t.permille);
+        }
+        precompileCounts.setText(t.counts);
         // Session 95 (LADDER): leaving the app during a precompile ends it half done and the next PLAY starts it again.
-        precompileText.setText(state.equals("done") ? line : line + "\nKeep this app open until it finishes");
-        boolean over = System.currentTimeMillis() - precompileStart > PRECOMPILE_DEADLINE_MS;
+        precompileText.setText(state.equals("done") ? t.detail : t.detail + "\n" + PrecompileBar.KEEP_OPEN);
+        boolean over = elapsed > PRECOMPILE_DEADLINE_MS;
         if (state.equals("done") || state.equals("timeout") || over) {
             Log.i(TAG, "precompile ended: " + (over ? "deadline" : state));
             endPrecompile(over ? "timeout" : state);

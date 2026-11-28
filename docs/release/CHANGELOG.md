@@ -1,37 +1,91 @@
 # Changelog
 
+## v0.4.7
+
+**v0.4.7: a clear progress screen while the phone prepares its shaders.**
+
+A quick hotfix for the Android version. Everything from v0.4.6 is included; the PC version is the same as v0.4.6.
+
+### Fixed
+
+- **Android: you can now see the first-launch shader preparation working.**
+  What you saw: after installing or updating, the first PLAY showed a black screen for a few minutes. That wait is normal (the phone
+  prepares every shader once, so matches don't stutter later), but the small progress line at the bottom kept losing its numbers, so it
+  looked stuck, and closing the app at that point made it start over at the next PLAY. Fix: a box in the middle of the screen now shows
+  COMPILING SHADERS, a progress bar, how many are done out of how many, the time so far and roughly how long is left, until it finishes.
+  Please keep the app open while it runs. Checked offline (the screen's text and bar from the counts, and the app's build); not seen on a
+  phone yet.
+
 ## v0.4.6
 
-**v0.4.6: blood on the mat at its real size, entrances drawn in the game's order, and a smoother first camera flash.**
+**v0.4.6: blood on the mat at its real size, camera flashes back in the crowd, drier skin, The Rock's menu smoke, a new PERMANENT BLOOD mod, and a long list of created-content and arena fixes.**
 
-A fix update. This round I compared my renderer against the game's own code line by line with new tools, so most entries below were found
-that way rather than reported. Each entry says how I checked it. If something still looks wrong, please send it with Report a problem.
+A fix update. This round I also compared my renderer against the game's own code line by line with new tools, so many entries below were
+found that way rather than reported. Each entry says how I checked it. If something still looks wrong, please send it with Report a problem.
+
+### New
+
+- **PERMANENT BLOOD (a mod, PC, off by default).** The blood that drips on the mat and floor stays for the whole match instead of fading
+  after about 10 seconds, with no cap on how many splats. Blood that fades during an instant replay is kept, and RESTART MATCH clears it.
+  It needs the game's own BLOOD option on. Turn it on in the launcher under IN THE GAME: PERMANENT BLOOD. With it off the game's blood is
+  untouched (checked by a test).
 
 ### Fixed
 
 - **Blood on the mat is the size it should be.**
   What you saw: when a wrestler bled, the drops on the mat were tiny specks, so the mat looked nearly clean. Cause: the game stores the blood
   splat model at a tenth of its size and enlarges it ten times when it loads it; my loader skipped that step. Fix: the splat is enlarged once
-  at load, the way the game does (the same rule now also sets the crowd's size from one place). The drops still grow, darken and fade on the
-  game's own timings. Checked in game: a bleeding match now shows the same blood pools on the mat as the original game at the same
-  moment.
-- **Entrances: wrestlers drawn over the arena's see-through pieces.**
-  What you saw: during some entrances, see-through parts of the arena, the Elimination Chamber's glass or the spotlight could draw over the
-  wrestler walking out. Cause: during an entrance the game moves the wrestlers and their effects to the end of its see-through drawing; my
-  renderer kept them near the front. Fix: the same order as the game. Fixed from the game's code; checked in game on Daniel
-  Bryan's entrance (nothing out of place), the Elimination Chamber's own entrances not seen yet.
-- **No hitch on the first crowd camera flash.** The flash's shader was listed under an old name, so it was built the first time a flash
-  went off. It is now built at start with the others. Fixed from the game's code and checked offline.
+  at load, the way the game does. Far splats also keep their strength now (the game's 3 texture detail levels, not my 7). Checked in game: a
+  bleeding match shows the same blood pools on the mat as the original game at the same moment.
+- **Camera flashes are back in the crowd, not on the floor or in the ring.**
+  Cause: since v0.4.2 my own flash shader drew every flash upside down, so crowd flashes landed on the floor. Fixed, and flashes now use the
+  camera of the moment they appear, so they no longer jump at camera cuts. Checked in game: flashes at crowd height like v0.3.3.
+- **Skin no longer looks wet and shiny all over.** The game keeps its sweat map at a coarser precision than mine did, so the faintest sweat
+  showed as an all-over sheen. Now the game's steps. Checked in game: skin reads dry unless the wrestler is sweating.
+- **The Rock's smoke on the title screen and in the menus is back.** My renderer skipped the game's smoke particles drawn between the menu
+  layers. Checked in game.
+- **Shorter black wait at the start of some entrances** on graphics cards with extended dynamic state (most desktop cards): fewer pipelines
+  to build, and the shipped pipeline list was re-collected. Checked offline: a fresh entrance built nothing between the launch and the bell.
+  Not checked on integrated graphics or phones.
+- **Mankind and Santino no longer wear the sock in their entrance.** The game hides some model pieces with its own flag; my renderer drew
+  them anyway. Hidden pieces no longer cast shadows either. Checked in game: no sock; Del Rio's towel shows in his entrance, not the match.
+- **Entrances: wrestlers drawn over the arena's see-through pieces** (the Chamber's glass, the spotlight), in the game's order. Checked in
+  game on Daniel Bryan's entrance; the Chamber's own entrances not seen yet.
+- **Steel Cage and Hell in a Cell: the near side panel is see-through** as in the game. Checked in game.
+- **Create a Championship: the strap colour works** on a title made from a stock belt (it stayed black in v0.4.5), and belt textures refresh
+  when you change them. Checked in game.
+- **Create an Arena:**
+  - Rope colours apply (checked in game: green ropes).
+  - The titantron screens show a picture (checked in game).
+  - The announce desk and desk tops use your arena's textures (this also fixes the desk tops on 29 stock arenas).
+  - Walls and titantrons you switched off stay off.
+  - The alternate ring's covers, posts and skirts follow the game.
+  The last three are fixed from the game's code.
+- **Created superstar portraits keep long hair** in the roster / select portrait. The request is served; the portrait itself not seen yet.
+- **Ring steps and announce desks per arena:** the right step colour (24 arenas were wrong), no steps where the game has none, the right
+  desk model, and no doubled edge on the desk. Fixed from the game's code.
+- **A torn-off turnbuckle pad stays off.** Fixed from the game's code.
+- **A wrestler fading out no longer shows the ring or arena through his body,** and a created superstar's parts fade with him. Fixed from the
+  game's code.
+- **Blood shows on a wrestler's gear**, as in the game. Fixed from the game's code.
+- **Weapons and props take the arena's light and fade properly.** Fixed from the game's code.
+- **Fandango's entrance beam glows** as in the game. Fixed from the game's code.
+- **Eye and see-through reflections** use the camera's real view. Fixed from the game's code.
+- **No hitch on the first crowd camera flash.** Its shader is built at start with the others. Checked offline.
 - **Menus: clicking a row in a scrolled list picks that row** in every menu, not only the first one opened. Fixed from the game's code.
+- **Mods and DLC:** entrance props, belts, attires and character textures are picked from packs in the game's order (it came from a
+  player's modded title). No change on an unmodded game.
 
 ### Looks closer to the game
 
-- **Elimination Chamber:** the pod glass and the spotlight are drawn in the game's order.
-- **Crowd cutouts** hide their backs the way the game does.
-- **Shadows under the wrestlers** use the game's exact edge (a one-step difference in the faintest pixels).
-- **See-through drawing order** now asks "is this a wrestler?" the way the game does, instead of going by the material's name.
-- **Arena props:** a prop list with an empty or negative count is read the way the game reads it (no arena on the disc has one; it matters
-  for modded arenas).
+- **Shadows under the wrestlers:** the game's own direction and exact edge, and no scenes where they went missing.
+- **Texture detail** matches the game's loader for wrestlers, arenas, cages and cells, props, weapons and reflections (mine was sharper and
+  shimmered more on many of them).
+- **Elimination Chamber:** its lighting, its glass texture, and the pod glass and spotlight order follow the game.
+- **Crowd:** cutouts hide their backs and turn with the member, and crowd members, signs and foam hands draw the way the game's crowd does.
+- **Wrestler drawing and see-through order** follow the game's own rules.
+- **Arena lighting** keeps its last value the way the game does.
+- **Arena props:** a prop list with an empty or negative count is read the way the game reads it (matters for modded arenas).
 
 ## v0.4.5
 
